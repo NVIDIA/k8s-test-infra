@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 420" width="860" height="420" role="img" aria-label="Preflight timeline: the procurement-to-silicon window with and without preflight">
+  <title>Preflight timeline: the procurement-to-silicon window with and without preflight</title>
+  <style>
+    .box{fill:none;stroke:#57606a;stroke-width:2}
+    .dash{fill:none;stroke:#57606a;stroke-width:2;stroke-dasharray:7 4}
+    .thick{fill:none;stroke:#57606a;stroke-width:4}
+    .t{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;fill:#57606a}
+    .hd{font-size:14px;font-weight:700}
+    .bd{font-size:12px}
+    .sm{font-size:10.5px;font-style:italic}
+    .arw{stroke:#57606a;stroke-width:2;fill:none}
+  </style>
+  <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#57606a"/></marker></defs>
+  <text class="t hd" x="16" y="24">The ~3 month procurement-to-silicon window</text>
+
+  <rect class="box" x="16" y="40" width="400" height="170" rx="6"/>
+  <text class="t hd" x="30" y="62">WITHOUT preflight</text>
+  <text class="t bd" x="30" y="86">Months 1-3: hardware in procurement.</text>
+  <text class="t bd" x="30" y="104">Engineers idle on integration.</text>
+  <text class="t bd" x="30" y="130">Silicon lands.</text>
+  <text class="t bd" x="30" y="154">Integration failures found HERE: operator install,</text>
+  <text class="t bd" x="30" y="170">resource advertisement, DRA, telemetry, versions.</text>
+  <text class="t bd" x="30" y="194">Then the hardware-dependent validation begins.</text>
+
+  <rect class="dash" x="444" y="40" width="400" height="170" rx="6"/>
+  <text class="t hd" x="458" y="62">WITH preflight  [dashed border]</text>
+  <text class="t bd" x="458" y="86">Months 1-3: AICR runs UNMODIFIED on a Mokka fleet.</text>
+  <text class="t bd" x="458" y="104">16 of 21 checks are analytically capable of real signal.</text>
+  <text class="t bd" x="458" y="128">Integration failures found and fixed HERE.</text>
+  <text class="t bd" x="458" y="144">Measured in this sweep: 3 real passes, and 1 genuine</text>
+  <text class="t bd" x="458" y="160">catch of a version-constraint violation.</text>
+  <text class="t bd" x="458" y="184">Silicon lands. Hardware time goes to the 4 checks that</text>
+  <text class="t bd" x="458" y="200">REQUIRE it: 3x NCCL plus inference-perf.</text>
+
+  <path class="arw" d="M 420 125 L 440 125" marker-end="url(#a)"/>
+
+  <rect class="box" x="16" y="232" width="828" height="76" rx="6"/>
+  <text class="t hd" x="30" y="254">What this diagram deliberately does NOT show</text>
+  <text class="t bd" x="30" y="276">No "day-one first token". Simulation does not prove it: the path that determines first token</text>
+  <text class="t bd" x="30" y="292">(CUDA execution, NCCL data plane, TTFT) is exactly the path preflight cannot exercise.</text>
+
+  <text class="t sm" x="16" y="332">Measured 2026-08-03. AICR dispatched 9 of 21 checks on this cluster; 3 passed. The distance to the 16-check</text>
+  <text class="t sm" x="16" y="348">ceiling is host memory (7.75 GiB held 2 of 14 recipe components), not a Mokka limitation.</text>
+  <text class="t sm" x="16" y="372">No bring-up-time saving is drawn or claimed: that needs a real bring-up failure history to back-test against,</text>
+  <text class="t sm" x="16" y="388">and that data was not available. AICR-on-silicon remains the final readiness gate.</text>
+</svg>

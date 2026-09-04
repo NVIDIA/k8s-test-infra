@@ -1,0 +1,15 @@
+%% KWOK and Mokka are orthogonal axes, not competitors. They compose.
+flowchart LR
+    subgraph H["KWOK: horizontal (node-count breadth)"]
+        H1["Hollow nodes, no kubelet"]
+        H2["Very cheap per node"]
+        H3["Good for: scheduler, API server, etcd at scale"]
+        H4["Blind spot: no GPU stack exists,<br/>so AICR has nothing to validate"]
+    end
+    subgraph V["Mokka: vertical (GPU-stack depth per node)"]
+        V1["Real kubelet + containerd on real CPU nodes"]
+        V2["GPU faked at the NVML/driver line"]
+        V3["Good for: operator + DRA install, resource<br/>advertisement, scheduling, telemetry"]
+        V4["Blind spot: not the cheapest way to push node count"]
+    end
+    H -. "compose: KWOK nodes for breadth,<br/>Mokka nodes for depth" .- V
