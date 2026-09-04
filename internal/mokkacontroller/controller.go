@@ -39,10 +39,13 @@ import (
 )
 
 const (
-	defaultStatusDebounce         = 100 * time.Millisecond
-	defaultStatusProgressInterval = time.Second
-	defaultLiveNodeGetTimeout     = 2 * time.Second
+	defaultStatusDebounce             = 100 * time.Millisecond
+	defaultStatusProgressInterval     = time.Second
+	defaultLiveNodeGetTimeout         = 2 * time.Second
+	projectionCleanupRevisionAttempts = 5
 )
+
+var errProjectionCleanupRevisionChanged = errors.New("allocation revision changed during projection cleanup")
 
 // Options controls worker concurrency and aggregate-status coalescing.
 type Options struct {
@@ -362,10 +365,20 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 		case projectionCleanup:
 			var outcome controllerprojection.Outcome
 			err = withInventoryLock(key.cleanup.Binding.Coordinate.Group.InventoryName, func() error {
-				for cleanupTracksAllocation(key.cleanup.Reason) && cleanupBindingCurrent(snapshot, key.cleanup) {
+				if !cleanupTracksAllocation(key.cleanup.Reason) {
+					var cleanupErr error
+					outcome, cleanupErr = projection.Cleanup(ctx, key.cleanup)
+					return cleanupErr
+				}
+				retryErr := retryProjectionCleanupRevision(ctx, func() (bool, error) {
+					if !cleanupBindingCurrent(snapshot, key.cleanup) {
+						var cleanupErr error
+						outcome, cleanupErr = projection.Cleanup(ctx, key.cleanup)
+						return true, cleanupErr
+					}
 					desired, revision, desiredErr := allocation.BindingDesiredRevision(key.cleanup.Binding)
 					if desiredErr != nil {
-						return desiredErr
+						return true, desiredErr
 					}
 					if desired {
 						var projectErr error
@@ -374,24 +387,26 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 							key.cleanup.RackName,
 							key.cleanup.Binding.Coordinate.NodeIndex,
 						)
-						return projectErr
+						return true, projectErr
 					}
 					if !allocation.RevisionCurrent(revision) {
-						continue
+						return false, nil
 					}
 					var cleanupErr error
 					outcome, cleanupErr = projection.Cleanup(ctx, key.cleanup)
 					if allocation.RevisionCurrent(revision) {
-						return cleanupErr
+						return true, cleanupErr
 					}
 					projection.RevokeCleanup(key.cleanup)
-					if ctx.Err() != nil {
-						return context.Cause(ctx)
-					}
+					return false, nil
+				})
+				if errors.Is(retryErr, errProjectionCleanupRevisionChanged) &&
+					!cleanupBindingCurrent(snapshot, key.cleanup) {
+					var cleanupErr error
+					outcome, cleanupErr = projection.Cleanup(ctx, key.cleanup)
+					return cleanupErr
 				}
-				var cleanupErr error
-				outcome, cleanupErr = projection.Cleanup(ctx, key.cleanup)
-				return cleanupErr
+				return retryErr
 			})
 			if err == nil && outcome.State == controllerprojection.StateCleaned {
 				switch key.cleanup.Reason {
@@ -511,6 +526,22 @@ func projectionRetryError(mode projectionMode, err error) error {
 		return nil
 	}
 	return err
+}
+
+func retryProjectionCleanupRevision(ctx context.Context, attempt func() (bool, error)) error {
+	for range projectionCleanupRevisionAttempts {
+		if err := context.Cause(ctx); err != nil {
+			return err
+		}
+		settled, err := attempt()
+		if err != nil || settled {
+			return err
+		}
+		if err := context.Cause(ctx); err != nil {
+			return err
+		}
+	}
+	return errProjectionCleanupRevisionChanged
 }
 
 func updateRackConflictWaiters(
