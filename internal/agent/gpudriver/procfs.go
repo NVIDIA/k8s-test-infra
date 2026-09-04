@@ -21,10 +21,6 @@ import (
 // workload can still read after isolation.
 const procFSRel = "driver/proc/driver/nvidia"
 
-// defaultImexChannelCount is the nvidia module's own ImexChannelCount default,
-// reported when no IMEX surface is configured.
-const defaultImexChannelCount = 2048
-
 // gpuIRQ is the interrupt every GPU reports in its information file, as the
 // captured node reports it — one shared MSI-X vector rather than a line per
 // device.
@@ -53,7 +49,11 @@ func writeProcFS(ctx context.Context, h *host.Host, state *agent.State) error {
 	if err := fsutil.Write(filepath.Join(procDir, "version"), []byte(version), 0o644); err != nil {
 		return err
 	}
-	if err := fsutil.Write(filepath.Join(procDir, "params"), []byte(renderParams(state)), 0o644); err != nil {
+	params, err := renderParams(state)
+	if err != nil {
+		return err
+	}
+	if err := fsutil.Write(filepath.Join(procDir, "params"), []byte(params), 0o644); err != nil {
 		return err
 	}
 
@@ -176,102 +176,6 @@ func renderInformation(d agent.DeviceSpec, driverVersion string) string {
 	// EnableGpuFirmware: 18 in params says it is.
 	fmt.Fprintf(&b, "GPU Firmware: \t %s\n", driverVersion)
 	b.WriteString("GPU Excluded:\t No\n")
-
-	return b.String()
-}
-
-// renderParams builds /proc/driver/nvidia/params. Two properties of
-// nvidia-modprobe's parse loop over this file constrain it, and getting either
-// wrong leaves the file silently inert
-// (modprobe-utils/nvidia-modprobe-utils.c):
-//
-//	while (fscanf(fp, "%31[^:]: %u\n", name, &value) == 2)
-//
-// Keys are matched unprefixed. NVreg_ is the modprobe parameter name (options
-// nvidia NVreg_DeviceFileMode=0666); procfs reports the resolved value under
-// the bare name.
-//
-// The scan then ends at the first line it cannot consume whole, and every key
-// below that line is unreachable. Two things end it: a value that is not a bare
-// unsigned integer, and a name past the 31-char field width — which
-// InitializeSystemMemoryAllocations, at 33 characters, exceeds. The real
-// driver's ordering accounts for both, keeping the four keys nvidia-modprobe
-// consumes in the first six lines and grouping the quoted string params at the
-// very end. The order is load-bearing, not cosmetic.
-func renderParams(state *agent.State) string {
-	imexChannels := state.IMEX.ChannelCount
-	if imexChannels <= 0 {
-		imexChannels = defaultImexChannelCount
-	}
-
-	modify := 0
-	if state.DriverParams.ModifyDeviceFiles {
-		modify = 1
-	}
-
-	var b strings.Builder
-	for _, p := range []struct {
-		key   string
-		value int
-	}{
-		{"ResmanDebugLevel", -1},
-		{"RmLogonRC", 1},
-		{"ModifyDeviceFiles", modify},
-		{"DeviceFileUID", state.DriverParams.DeviceFileUID},
-		{"DeviceFileGID", state.DriverParams.DeviceFileGID},
-		// Decimal, as the driver reports it: 438 is 0666.
-		{"DeviceFileMode", state.DriverParams.DeviceFileMode},
-		{"InitializeSystemMemoryAllocations", 1},
-		{"UsePageAttributeTable", -1},
-		{"EnableMSI", 1},
-		{"EnablePCIeGen3", 0},
-		{"MemoryPoolSize", 0},
-		{"KMallocHeapMaxSize", 0},
-		{"VMallocHeapMaxSize", 0},
-		{"IgnoreMMIOCheck", 0},
-		{"EnableStreamMemOPs", 0},
-		{"EnableUserNUMAManagement", 0},
-		{"NvLinkDisable", 0},
-		{"RmProfilingAdminOnly", 1},
-		{"PreserveVideoMemoryAllocations", 1},
-		{"EnableS0ixPowerManagement", 1},
-		{"S0ixPowerManagementVideoMemoryThreshold", 256},
-		{"DynamicPowerManagement", 3},
-		{"DynamicPowerManagementVideoMemoryThreshold", 200},
-		{"RegisterPCIDriver", 1},
-		{"EnablePCIERelaxedOrderingMode", 0},
-		{"EnableResizableBar", 0},
-		{"EnableGpuFirmware", 18},
-		{"EnableGpuFirmwareLogs", 2},
-		{"RmNvlinkBandwidthLinkCount", 0},
-		{"EnableDbgBreakpoint", 0},
-		{"OpenRmEnableUnsupportedGpus", 1},
-		{"DmaRemapPeerMmio", 1},
-		{"ImexChannelCount", imexChannels},
-		{"CreateImexChannel0", 0},
-		{"GrdmaPciTopoCheckOverride", 1},
-	} {
-		// The driver prints these as unsigned, so the module's -1 sentinels
-		// surface as 4294967295 rather than a negative value %u cannot read.
-		fmt.Fprintf(&b, "%s: %d\n", p.key, uint32(p.value)) //nolint:gosec // sentinels are deliberately wrapped
-	}
-
-	// The quoted params come last, as they do in the driver, and every one of
-	// them would end nvidia-modprobe's scan where it stood.
-	for _, p := range []struct {
-		key   string
-		value string
-	}{
-		{"CoherentGPUMemoryMode", "driver"},
-		{"RegistryDwords", ""},
-		{"RegistryDwordsPerDevice", ""},
-		{"RmMsg", ""},
-		{"GpuBlacklist", ""},
-		{"TemporaryFilePath", "/var/tmp"},
-		{"ExcludedGpus", ""},
-	} {
-		fmt.Fprintf(&b, "%s: %q\n", p.key, p.value)
-	}
 
 	return b.String()
 }
