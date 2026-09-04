@@ -96,6 +96,16 @@ func Clear(root string) error {
 	)
 }
 
+// safeName reports whether name can be joined under Output as a single
+// directory. Every root-complex ID and BDF becomes a path component, so one
+// carrying a separator or a parent reference writes outside the tree. Callers
+// are expected to have validated their input; this is the backstop that keeps a
+// hand-authored bus_id from reaching the host filesystem.
+func safeName(name string) bool {
+	return name != "" && name != "." && name != ".." &&
+		!strings.ContainsAny(name, `/\`)
+}
+
 // prune removes entries the topology no longer declares. Rendering alone is
 // additive, so a device set that shrinks or is re-addressed would otherwise
 // leave orphans that lspci keeps enumerating and NVML no longer reports.
@@ -175,12 +185,20 @@ func pruneDir(dir string, keep func(string) bool) error {
 }
 
 func renderRootComplex(root string, rc RootComplex, ids map[string]PCI) error {
+	if !safeName(rc.ID) {
+		return fmt.Errorf("root complex id %q is not a path component", rc.ID)
+	}
+
 	rcDir := filepath.Join(SysDevicesRelPath, rc.ID)
 	if err := mkdirAll(root, rcDir); err != nil {
 		return err
 	}
 
 	for _, bdf := range rc.Devices {
+		if !safeName(bdf) {
+			return fmt.Errorf("device %q is not a path component", bdf)
+		}
+
 		// Normalize once: sysfs paths are case-insensitive on most
 		// filesystems but tooling (libpciaccess, lspci) compares
 		// strings literally, so render lowercase to match the kernel.

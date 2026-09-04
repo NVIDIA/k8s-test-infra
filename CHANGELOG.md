@@ -370,7 +370,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tree is one no consumer can resolve, but under a root its own address implies
   and reporting `numa_node` `-1` — the kernel's own "no proximity information" —
   rather than borrowing the locality of a root the profile never put it in. A
-  profile declaring no `bus_id` now empties the tree instead of leaving the
+  `bus_id` that is not an address in the kernel's `DDDD:BB:DD.F` form is dropped
+  rather than placed: it named the default root, which every shipped profile
+  declares, so the device inherited that root's NUMA node — and since a `bus_id`
+  becomes a directory name, one carrying `/` or `..` rendered outside the tree.
+  A profile declaring no `bus_id` now empties the tree instead of leaving the
   previous profile's GPUs served. (#673)
 - node-agent: `nvidia.com/gpu.machine` no longer reads `unknown`. GFD's default
   source for it, `/sys/class/dmi/id/product_name`, is a path no mock can own

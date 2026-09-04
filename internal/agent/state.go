@@ -121,32 +121,65 @@ func adopt(roots []RootComplex, orphans []string) []RootComplex {
 }
 
 // rootIDForBDF names the root complex a device's address implies, in the
-// kernel's pciDDDD:BB form. A BDF too malformed to split is left to the default
-// root, since the renderer needs somewhere to put it either way.
+// kernel's pciDDDD:BB form. Requires a BDF validBDF accepted, which is why it
+// needs no fallback: guessing the default root here would hand the device that
+// root's NUMA node, which every shipped profile declares.
 func rootIDForBDF(bdf string) string {
-	domain, rest, ok := strings.Cut(bdf, ":")
-	if !ok {
-		return DefaultRootComplexID
-	}
-	bus, _, ok := strings.Cut(rest, ":")
-	if !ok {
-		return DefaultRootComplexID
-	}
+	domain, rest, _ := strings.Cut(bdf, ":")
+	bus, _, _ := strings.Cut(rest, ":")
 
 	return "pci" + domain + ":" + bus
 }
 
+// validBDF reports whether s is a PCI address in the form the kernel names
+// sysfs entries with, DDDD:BB:DD.F, lowercase hex.
+//
+// The check is a boundary, not a nicety: gpu.customConfig authors bus_id by
+// hand, and the value becomes both a path component under the rendered tree and
+// the basis for a root-complex ID. Anything else is dropped rather than placed
+// somewhere it does not belong — a string that is not an address is one no
+// consumer can look up either. The 8-digit domain NVML reports through
+// nvmlPciInfo_t.busId is not this form; the profile field carries the 4-digit
+// one, as busIdLegacy does.
+func validBDF(s string) bool {
+	const form = "dddd:bb:dd.f"
+	if len(s) != len(form) {
+		return false
+	}
+
+	for i, want := range form {
+		got := s[i]
+		switch want {
+		case ':', '.':
+			if got != byte(want) {
+				return false
+			}
+		default:
+			if !isLowerHex(got) {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+func isLowerHex(c byte) bool {
+	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')
+}
+
 // activeBDFs returns the BDFs of the devices that exist at runtime, lowercased
 // to match the paths the renderer writes, in device order and deduplicated.
+// A device whose bus_id is absent or not an address is left out entirely.
 func (s *State) activeBDFs() []string {
 	seen := make(map[string]bool, len(s.Devices))
 	out := make([]string, 0, len(s.Devices))
 
 	for _, d := range s.Devices {
-		if d.PCIBusID == "" {
+		bdf := strings.ToLower(d.PCIBusID)
+		if !validBDF(bdf) {
 			continue
 		}
-		bdf := strings.ToLower(d.PCIBusID)
 		if seen[bdf] {
 			continue
 		}

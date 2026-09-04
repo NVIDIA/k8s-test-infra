@@ -699,6 +699,11 @@ Nothing validates the block, so a typo is not reported anywhere — not through
 the agent's `/healthz`. What the agent renders is the block reconciled against
 the devices NVML reports, which silently absorbs most mistakes:
 
+- A `bus_id` that is not an address in the kernel's `DDDD:BB:DD.F` form is
+  dropped, and the device is left out of the tree. This includes the 8-digit
+  domain NVML reports through `nvmlPciInfo_t.busId`; `bus_id` carries the
+  4-digit form, as `busIdLegacy` does. A value that is not an address is one no
+  consumer can look up, and it would otherwise become a directory name.
 - A BDF listed under a root complex that no entry in `devices[]` claims is
   dropped, along with any root complex it leaves empty. This is also how
   `gpu.count` works: capping the device list leaves the layout untouched, and

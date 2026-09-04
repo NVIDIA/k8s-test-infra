@@ -120,6 +120,40 @@ func TestPCITopology_SynthesizesARootWhenNoneDeclared(t *testing.T) {
 		"lowercased, and the device without a BDF is skipped")
 }
 
+// gpu.customConfig can put anything in bus_id. A value that is not an address
+// cannot be placed, and every shipped profile declares pci0000:00, so treating
+// it as the default root would hand it that root's real NUMA node.
+func TestPCITopology_DropsAMalformedBDF(t *testing.T) {
+	state := twoRootState()
+	state.Devices = append(state.Devices, DeviceSpec{Index: 4, PCIBusID: "not-a-bdf"})
+
+	rcs := state.PCITopology()
+
+	require.Equal(t, map[string][]string{
+		"pci0000:00": {"0000:0a:00.0", "0000:0b:00.0"},
+		"pci0000:40": {"0000:4a:00.0", "0000:4b:00.0"},
+	}, bdfsOf(rcs), "the declared roots keep exactly what the profile put in them")
+}
+
+// A bus_id is joined into a filesystem path, so one carrying separators or
+// parent references would render outside the tree it belongs to.
+func TestPCITopology_DropsABDFThatWouldEscapeTheTree(t *testing.T) {
+	for _, busID := range []string{
+		"../../../../escaped",
+		"0000:0a:00.0/../../etc",
+		"..",
+		".",
+		"0000:0a:00.g",
+		"00000000:07:00.0", // the 8-digit NVML form, not the kernel's
+	} {
+		t.Run(busID, func(t *testing.T) {
+			state := &State{Devices: []DeviceSpec{{Index: 0, PCIBusID: busID}}}
+
+			require.Nil(t, state.PCITopology(), "%q is not a BDF", busID)
+		})
+	}
+}
+
 func TestPCITopology_NilWithoutADeviceBDF(t *testing.T) {
 	require.Nil(t, (&State{}).PCITopology())
 	require.Nil(t, (&State{Devices: []DeviceSpec{{Index: 0}}}).PCITopology())

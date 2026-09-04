@@ -368,3 +368,28 @@ func TestClear_RemovesTheStagedDMI(t *testing.T) {
 func TestClear_ToleratesAnUnrenderedRoot(t *testing.T) {
 	require.NoError(t, Clear(t.TempDir()))
 }
+
+// Every BDF and root-complex ID becomes a path component under Output, so one
+// carrying separators or parent references writes outside the tree. The agent
+// filters these already; failing here keeps that from being the only thing
+// standing between a profile's bus_id and the host filesystem.
+func TestRender_RejectsANameThatEscapesOutput(t *testing.T) {
+	for name, topo := range map[string]*PCIeTopology{
+		"device": {RootComplexes: []RootComplex{
+			{ID: "pci0000:00", Devices: []string{"../../../../escaped"}},
+		}},
+		"root complex": {RootComplexes: []RootComplex{
+			{ID: "../../../../escaped", Devices: []string{"0000:07:00.0"}},
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			base := t.TempDir()
+			out := filepath.Join(base, "overlay")
+			require.NoError(t, os.MkdirAll(out, 0o755))
+
+			require.Error(t, Render(Options{Topology: topo, Output: out}))
+			require.NoDirExists(t, filepath.Join(base, "escaped"),
+				"the render escaped Output")
+		})
+	}
+}
