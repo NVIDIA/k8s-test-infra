@@ -14,14 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `chroot /run/nvidia/driver nvidia-smi`, which a real driver container satisfies
   by r-bind-mounting its whole container root there; the mock staged driver
   surfaces alone, so the exec died on the missing dynamic loader. The node agent
-  now stages the loader and its library closure, read out of the binaries' own
-  `PT_INTERP`/`DT_NEEDED`, under `driver/lib*` — kept clear of the CDI-injected
-  `driver/usr/lib64` so no consumer container gets a second C runtime ahead of
-  its own. Two silent failures behind it are fixed too: the engine can resolve
-  its config with no `/proc` to read `/proc/self/maps` from, instead of falling
-  back to compiled-in defaults and answering for GPUs the node does not have;
-  and a reset that cannot resolve its overrides path now fails instead of
-  reporting a GPU repaired that was never touched.
+  now stages the loader and the transitive `DT_NEEDED` closure, read out of the
+  binaries' own `PT_INTERP`/`DT_NEEDED`, under `driver/lib*` — remapping host
+  `/usr/lib*` into `driver/lib*` so a RHEL-style layout never lands glibc in the
+  CDI-injected `driver/usr/lib64`. Two silent failures behind it are fixed too:
+  the engine can resolve its config with no `/proc` to read `/proc/self/maps`
+  from, instead of falling back to compiled-in defaults and answering for GPUs
+  the node does not have; and a reset that cannot resolve its overrides path now
+  fails instead of reporting a GPU repaired that was never touched.
 - mocknvml: `nvidia-smi --gpu-reset` (`-r`) now resets a GPU instead of
   segfaulting. The mock's export-table dispatcher ended every per-device call by
   writing a zero count through `arg1`, which the reset slots do not carry, so the

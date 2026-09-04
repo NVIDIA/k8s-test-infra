@@ -63,6 +63,62 @@ func TestResolveSoname_ReportsAMissingLibrary(t *testing.T) {
 	require.Contains(t, err.Error(), "libnothing.so.9")
 }
 
+func TestChrootDest_MapsMultiarchLib(t *testing.T) {
+	t.Parallel()
+
+	driverRoot := filepath.Join(t.TempDir(), "driver")
+	got, err := chrootDest(driverRoot, "/lib/aarch64-linux-gnu/libc.so.6", true)
+
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(driverRoot, "lib/aarch64-linux-gnu/libc.so.6"), got)
+}
+
+func TestChrootDest_StripsUsrLib64(t *testing.T) {
+	t.Parallel()
+
+	driverRoot := filepath.Join(t.TempDir(), "driver")
+	got, err := chrootDest(driverRoot, "/usr/lib64/libc.so.6", true)
+
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(driverRoot, "lib64/libc.so.6"), got)
+	require.NotContains(t, got, filepath.Join("driver", "usr"),
+		"a /usr/lib64 library must not land under the CDI-injected driver/usr tree")
+	require.NotContains(t, got, "/usr/",
+		"destination %s still contains /usr/", got)
+}
+
+func TestChrootDest_StripsUsrLibMultiarch(t *testing.T) {
+	t.Parallel()
+
+	driverRoot := filepath.Join(t.TempDir(), "driver")
+	got, err := chrootDest(driverRoot, "/usr/lib/x86_64-linux-gnu/libm.so.6", true)
+
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(driverRoot, "lib/x86_64-linux-gnu/libm.so.6"), got)
+}
+
+func TestChrootDest_RejectsPathOutsideStageRoots(t *testing.T) {
+	t.Parallel()
+
+	driverRoot := filepath.Join(t.TempDir(), "driver")
+	_, err := chrootDest(driverRoot, "/opt/vendor/libfoo.so", true)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "/opt/vendor/libfoo.so")
+	require.Contains(t, err.Error(), "outside")
+}
+
+func TestChrootDest_InterpreterKeepsLiteralPath(t *testing.T) {
+	t.Parallel()
+
+	driverRoot := filepath.Join(t.TempDir(), "driver")
+	// remapUSR=false: even a hypothetical /usr-prefixed interpreter stays put.
+	got, err := chrootDest(driverRoot, "/lib64/ld-linux-x86-64.so.2", false)
+
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(driverRoot, "lib64/ld-linux-x86-64.so.2"), got)
+}
+
 // The interpreter has to land as a real file. cp -a style symlink preservation
 // leaves the target outside the root and reproduces the exact ENOENT this
 // staging exists to fix. See issue #759.
@@ -75,12 +131,14 @@ func TestStageChrootRuntime_StagesTheInterpreterAsARealFile(t *testing.T) {
 
 	require.NoError(t, stageChrootRuntime(context.Background(), h, state))
 
-	closure, err := chrootRuntimeClosure([]string{nvidiaSMISource}, libSearchRoots)
+	closure, interps, err := chrootRuntimeClosure([]string{nvidiaSMISource}, libSearchRoots)
 	require.NoError(t, err)
 	require.NotEmpty(t, closure)
 
+	driverRoot := filepath.Join(h.Root, "driver")
 	for _, src := range closure {
-		staged := filepath.Join(h.Root, "driver", strings.TrimPrefix(src, "/"))
+		staged, err := chrootDest(driverRoot, src, !interps[src])
+		require.NoError(t, err, "%s must map into the driver root", src)
 		info, err := os.Lstat(staged)
 		require.NoError(t, err, "%s must be staged into the driver root", src)
 		require.Zero(t, info.Mode()&os.ModeSymlink,
