@@ -113,7 +113,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.Usage = func() {} // usage printed explicitly below so it isn't duplicated
 	fs.StringVar(&configOverridePath, "file", envOr("MOCK_NVML_OVERRIDES", defaultConfigOverride), "config override path")
 	fs.StringVar(&configPath, "config", envOr("MOCK_NVML_CONFIG", defaultConfig), "config path")
-	fs.StringVar(&kmsgPath, "kmsg", envOr("MOCK_NVML_KMSG", mockctl.DefaultKernelLog),
+	fs.StringVar(&kmsgPath, "kmsg", kernelLogDefault(),
 		"kernel log to announce injected Xids on ('' disables)")
 	fs.StringVar(&gpu, "gpu", "", "target: index, 'all', or UUID")
 	fs.StringVar(&mode, "mode", "", "failure mode (fail command)")
@@ -528,6 +528,19 @@ func envOr(k, def string) string {
 		return v
 	}
 	return def
+}
+
+// kernelLogDefault resolves the kernel log to announce Xids on. Unlike envOr it
+// distinguishes empty from unset, because a deployment that cannot reach
+// /dev/kmsg — the DaemonSet's unprivileged containers, unless the chart's
+// kernel-log support is enabled — sets MOCK_NVML_KMSG empty to say so, and
+// falling back to the default there would warn on every injection.
+func kernelLogDefault() string {
+	if v, ok := os.LookupEnv("MOCK_NVML_KMSG"); ok {
+		return v
+	}
+
+	return mockctl.DefaultKernelLog
 }
 
 // loadConfig loads the pristine profile so `--gpu` can resolve UUIDs and the

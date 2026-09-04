@@ -172,17 +172,19 @@ kernel line and the NVML event name the same device. Recovery announces nothing:
 
 Announcing is best-effort and never fails the injection. A node whose kernel log
 is missing or unwritable (an unprivileged container, a non-Linux host) keeps the
-NVML side and reports the skip on stderr. Pass `--kmsg ''` to opt out.
+NVML side and reports the skip on stderr. Pass `--kmsg ''`, or set
+`MOCK_NVML_KMSG=''`, to opt out.
 
 Two node-level requirements, neither of which `nvml-mock-ctl` can arrange:
 
-- the container it runs in must be able to write `/dev/kmsg`. Mounting the
-  device is not sufficient: the container device cgroup rejects the write
+- the container it runs in must be able to write `/dev/kmsg`, which the
+  DaemonSet does not allow by default. Set `nodeAgent.kernelLog.enabled=true`
+  to mount the device and run `node-agent` **privileged** — mounting alone is
+  not enough, because the container device cgroup rejects the write
   (`operation not permitted`) even for root with the node's world-writable
-  `/dev/kmsg` bind-mounted, so it takes a **privileged** container. The
-  DaemonSet's `node-agent` is unprivileged by design, so from there the
-  announcement is skipped — to reach the node's kernel log, run the command
-  from a privileged pod, or on Kind `docker exec` into the node;
+  `/dev/kmsg` bind-mounted, and no lesser capability lifts that. While it is
+  off, the DaemonSet sets `MOCK_NVML_KMSG=""`, so `--xid` skips the
+  announcement silently instead of warning about a device it was not given;
 - for journal-based consumers, journald must ingest the kernel ring buffer
   (`ReadKMsg=yes`) and keep the journal where the consumer looks. Kind's node
   image sets `ReadKMsg=no` and keeps a volatile journal, so a Kind cluster needs
@@ -465,8 +467,8 @@ All examples assume `$POD` is set as shown in [Where it runs](#where-it-runs).
 kubectl -n mokka exec "$POD" -- nvml-mock-ctl fail --gpu 0 --mode ecc_uncorrectable --after-calls 1 --xid 79
 # verify from any consumer pod:
 kubectl exec <consumer> -- nvidia-smi --query-gpu=ecc.errors.uncorrected.aggregate.total --format=csv,noheader
-# the same Xid on the node's kernel log (Kind; read it on the node itself,
-# since the DaemonSet's containers cannot reach /dev/kmsg):
+# the same Xid on the node's kernel log, with nodeAgent.kernelLog.enabled=true
+# (on Kind, read it on the node itself):
 docker exec <node> sh -c 'dmesg | grep "NVRM: Xid"'
 ```
 
@@ -561,10 +563,12 @@ kubectl -n mokka delete pod "$POD"
   (no `uuid:` in the profile). Target it by index instead.
 - **Nothing changed on other nodes.** Scope is per-node. Repeat the command
   against each node's DaemonSet pod.
-- **The Xid isn't in the kernel log.** `fail --xid` reports on stderr when it
-  could not announce. No PCI address means `--config` did not load (the profile
-  is what maps an index to a BDF); no write means the container has no writable
-  `/dev/kmsg`. If `dmesg` shows the line but a journal consumer does not see it,
+- **The Xid isn't in the kernel log.** Silence means the announcement is off
+  (`nodeAgent.kernelLog.enabled=false`, which sets `MOCK_NVML_KMSG=""`).
+  Otherwise `fail --xid` reports on stderr why: no PCI address means `--config`
+  did not load (the profile is what maps an index to a BDF), and a failed write
+  means the container cannot reach `/dev/kmsg`. If `dmesg` shows the line but a
+  journal consumer does not see it,
   the node's journald is dropping kernel messages — see
   [Xid on the kernel log](#xid-on-the-kernel-log).
 - **An identity field didn't change.** Device `name`, `architecture`, `brand`,

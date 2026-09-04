@@ -20,6 +20,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mockctl"
 )
 
 func runCLI(t *testing.T, configOverride string, args ...string) (string, string, int) {
@@ -118,6 +120,28 @@ func TestCLI_FailWithoutXidLeavesTheKernelLogAlone(t *testing.T) {
 	require.Equalf(t, 0, c, "fail healthy exited %d: %s", c, e)
 
 	require.Empty(t, readConfigOverride(t, kmsg))
+}
+
+// An empty MOCK_NVML_KMSG is how a deployment states that this container
+// cannot reach the kernel log, so it must resolve to "off" rather than to the
+// default path — otherwise every injection warns about a device the pod was
+// never given.
+func TestKernelLogDefault(t *testing.T) {
+	t.Run("unset falls back to the kernel log", func(t *testing.T) {
+		t.Setenv("MOCK_NVML_KMSG", "")
+		require.NoError(t, os.Unsetenv("MOCK_NVML_KMSG"))
+		require.Equal(t, mockctl.DefaultKernelLog, kernelLogDefault())
+	})
+
+	t.Run("empty disables the announcement", func(t *testing.T) {
+		t.Setenv("MOCK_NVML_KMSG", "")
+		require.Empty(t, kernelLogDefault())
+	})
+
+	t.Run("a path is honoured", func(t *testing.T) {
+		t.Setenv("MOCK_NVML_KMSG", "/run/kmsg")
+		require.Equal(t, "/run/kmsg", kernelLogDefault())
+	})
 }
 
 func TestCLI_FailWithXidSucceedsWithoutAKernelLog(t *testing.T) {

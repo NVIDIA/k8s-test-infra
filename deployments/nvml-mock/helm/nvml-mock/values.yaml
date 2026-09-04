@@ -83,6 +83,17 @@ nodeAgent:
   logging:
     level: info    # debug | info | warn | error
     format: json   # json | plain
+  # Let `nvml-mock-ctl fail --xid` announce the Xid on the node's kernel log,
+  # the way a real driver's printk does, so agents that read kernel logs (and
+  # journald consumers such as NVSentinel's syslog monitor) see it instead of
+  # only NVML clients.
+  #
+  # Off by default because it costs a PRIVILEGED container: /dev/kmsg sits
+  # behind the device cgroup, which rejects the write from an unprivileged pod
+  # even with the device mounted, so there is no lesser grant that works. With
+  # it off the announcement is skipped and the NVML injection is unaffected.
+  kernelLog:
+    enabled: false
   # Go duration string: 5s, 1m30s, etc. Teardown is a handful of parallel file
   # removals, and it has to finish inside terminationGracePeriodSeconds.
   shutdownTimeout: 5s
