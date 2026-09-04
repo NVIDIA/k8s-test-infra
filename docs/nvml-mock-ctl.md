@@ -177,14 +177,15 @@ NVML side and reports the skip on stderr. Pass `--kmsg ''`, or set
 
 Two node-level requirements, neither of which `nvml-mock-ctl` can arrange:
 
-- the container it runs in must be able to write `/dev/kmsg`, which the
-  DaemonSet does not allow by default. Set `nodeAgent.kernelLog.enabled=true`
-  to mount the device and run `node-agent` **privileged** — mounting alone is
-  not enough, because the container device cgroup rejects the write
-  (`operation not permitted`) even for root with the node's world-writable
-  `/dev/kmsg` bind-mounted, and no lesser capability lifts that. While it is
-  off, the DaemonSet sets `MOCK_NVML_KMSG=""`, so `--xid` skips the
-  announcement silently instead of warning about a device it was not given;
+- the container it runs in must be able to write `/dev/kmsg`. The DaemonSet
+  mounts the device and runs `node-agent` **privileged** for it
+  (`nodeAgent.kernelLog.enabled`, on by default) — mounting alone is not
+  enough, because the container device cgroup rejects the write (`operation not
+  permitted`) even for root with the node's world-writable `/dev/kmsg`
+  bind-mounted, and no lesser capability lifts that. Set it to `false` on a
+  cluster that will not take a privileged pod, or on a node with no
+  `/dev/kmsg`; the DaemonSet then sets `MOCK_NVML_KMSG=""` and `--xid` skips
+  the announcement silently instead of warning about a device it was not given;
 - for journal-based consumers, journald must ingest the kernel ring buffer
   (`ReadKMsg=yes`) and keep the journal where the consumer looks. Kind's node
   image sets `ReadKMsg=no` and keeps a volatile journal, so a Kind cluster needs
@@ -467,8 +468,7 @@ All examples assume `$POD` is set as shown in [Where it runs](#where-it-runs).
 kubectl -n mokka exec "$POD" -- nvml-mock-ctl fail --gpu 0 --mode ecc_uncorrectable --after-calls 1 --xid 79
 # verify from any consumer pod:
 kubectl exec <consumer> -- nvidia-smi --query-gpu=ecc.errors.uncorrected.aggregate.total --format=csv,noheader
-# the same Xid on the node's kernel log, with nodeAgent.kernelLog.enabled=true
-# (on Kind, read it on the node itself):
+# the same Xid on the node's kernel log (on Kind, read it on the node itself):
 docker exec <node> sh -c 'dmesg | grep "NVRM: Xid"'
 ```
 
@@ -563,9 +563,10 @@ kubectl -n mokka delete pod "$POD"
   (no `uuid:` in the profile). Target it by index instead.
 - **Nothing changed on other nodes.** Scope is per-node. Repeat the command
   against each node's DaemonSet pod.
-- **The Xid isn't in the kernel log.** Silence means the announcement is off
-  (`nodeAgent.kernelLog.enabled=false`, which sets `MOCK_NVML_KMSG=""`).
-  Otherwise `fail --xid` reports on stderr why: no PCI address means `--config`
+- **The Xid isn't in the kernel log.** Silence means the announcement was
+  turned off (`nodeAgent.kernelLog.enabled=false`, which sets
+  `MOCK_NVML_KMSG=""`). Otherwise `fail --xid` reports on stderr why: no PCI
+  address means `--config`
   did not load (the profile is what maps an index to a BDF), and a failed write
   means the container cannot reach `/dev/kmsg`. If `dmesg` shows the line but a
   journal consumer does not see it,

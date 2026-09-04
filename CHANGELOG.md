@@ -11,10 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nvml-mock-ctl: `fail --xid` also announces the Xid on the node's kernel log,
   the way a driver's printk does, so agents that watch kernel messages see the
   fault instead of only NVML clients. The PCI address comes from the profile, so
-  the kernel line and the NVML event name the same device. Off unless
-  `nodeAgent.kernelLog.enabled=true`, which mounts `/dev/kmsg` and runs the node
-  agent privileged — the device cgroup rejects the write from an unprivileged
-  pod even with the device mounted. `--kmsg` / `MOCK_NVML_KMSG` pick a different
+  the kernel line and the NVML event name the same device. This makes the node
+  agent PRIVILEGED and mounts `/dev/kmsg`, because the device cgroup rejects the
+  write from an unprivileged pod even with the device mounted; set
+  `nodeAgent.kernelLog.enabled=false` on a cluster that will not take that, or
+  on a node with no `/dev/kmsg`. `--kmsg` / `MOCK_NVML_KMSG` pick a different
   log or disable the announcement, which is always best-effort: a node with no
   writable kernel log keeps the NVML injection.
 - nv-sentinel demo: the Kind nodes now mount a `journald` drop-in

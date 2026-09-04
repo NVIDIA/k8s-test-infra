@@ -64,7 +64,7 @@ should match snapshot with all overrides:
                 - name: MOCK_NVML_OVERRIDES
                   value: /var/lib/nvml-mock/driver/config/overrides.yaml
                 - name: MOCK_NVML_KMSG
-                  value: ""
+                  value: /dev/kmsg
                 - name: MOCK_IB_PING_SOCKET
                   value: /var/lib/nvml-mock/run/mock-ib.sock
                 - name: LD_PRELOAD
@@ -96,12 +96,12 @@ should match snapshot with all overrides:
                   cpu: 10m
                   memory: 32Mi
               securityContext:
-                allowPrivilegeEscalation: false
                 capabilities:
                   add:
                     - MKNOD
                   drop:
                     - ALL
+                privileged: true
               volumeMounts:
                 - mountPath: /host/var/lib/nvml-mock
                   name: mokka-root
@@ -121,6 +121,8 @@ should match snapshot with all overrides:
                 - mountPath: /host/sys
                   name: node-sysfs
                   readOnly: true
+                - mountPath: /dev/kmsg
+                  name: kernel-log
           nodeSelector:
             mokka.nvidia.com/type: sgpu
           serviceAccountName: nvml-mock-custom
@@ -153,6 +155,10 @@ should match snapshot with all overrides:
                 path: /sys
                 type: Directory
               name: node-sysfs
+            - hostPath:
+                path: /dev/kmsg
+                type: CharDevice
+              name: kernel-log
             - hostPath:
                 path: /var/lib/nvml-mock/fabric-state
                 type: DirectoryOrCreate
@@ -225,7 +231,7 @@ should match snapshot with b200 profile:
                 - name: MOCK_NVML_OVERRIDES
                   value: /var/lib/nvml-mock/driver/config/overrides.yaml
                 - name: MOCK_NVML_KMSG
-                  value: ""
+                  value: /dev/kmsg
                 - name: MOCK_IB_PING_SOCKET
                   value: /var/lib/nvml-mock/run/mock-ib.sock
                 - name: LD_PRELOAD
@@ -257,12 +263,12 @@ should match snapshot with b200 profile:
                   cpu: 10m
                   memory: 32Mi
               securityContext:
-                allowPrivilegeEscalation: false
                 capabilities:
                   add:
                     - MKNOD
                   drop:
                     - ALL
+                privileged: true
               volumeMounts:
                 - mountPath: /host/var/lib/nvml-mock
                   name: mokka-root
@@ -280,6 +286,8 @@ should match snapshot with b200 profile:
                 - mountPath: /host/sys
                   name: node-sysfs
                   readOnly: true
+                - mountPath: /dev/kmsg
+                  name: kernel-log
           serviceAccountName: RELEASE-NAME-nvml-mock
           terminationGracePeriodSeconds: 10
           tolerations:
@@ -308,6 +316,10 @@ should match snapshot with b200 profile:
                 path: /sys
                 type: Directory
               name: node-sysfs
+            - hostPath:
+                path: /dev/kmsg
+                type: CharDevice
+              name: kernel-log
       updateStrategy:
         rollingUpdate:
           maxUnavailable: 25%
@@ -378,7 +390,7 @@ should match snapshot with default values:
                 - name: MOCK_NVML_OVERRIDES
                   value: /var/lib/nvml-mock/driver/config/overrides.yaml
                 - name: MOCK_NVML_KMSG
-                  value: ""
+                  value: /dev/kmsg
                 - name: MOCK_IB_PING_SOCKET
                   value: /var/lib/nvml-mock/run/mock-ib.sock
                 - name: LD_PRELOAD
@@ -410,12 +422,12 @@ should match snapshot with default values:
                   cpu: 10m
                   memory: 32Mi
               securityContext:
-                allowPrivilegeEscalation: false
                 capabilities:
                   add:
                     - MKNOD
                   drop:
                     - ALL
+                privileged: true
               volumeMounts:
                 - mountPath: /host/var/lib/nvml-mock
                   name: mokka-root
@@ -435,6 +447,8 @@ should match snapshot with default values:
                 - mountPath: /host/sys
                   name: node-sysfs
                   readOnly: true
+                - mountPath: /dev/kmsg
+                  name: kernel-log
           serviceAccountName: RELEASE-NAME-nvml-mock
           terminationGracePeriodSeconds: 10
           tolerations:
@@ -463,6 +477,10 @@ should match snapshot with default values:
                 path: /sys
                 type: Directory
               name: node-sysfs
+            - hostPath:
+                path: /dev/kmsg
+                type: CharDevice
+              name: kernel-log
             - hostPath:
                 path: /var/lib/nvml-mock/fabric-state
                 type: DirectoryOrCreate

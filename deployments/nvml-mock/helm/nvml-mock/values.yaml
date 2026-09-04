@@ -88,12 +88,15 @@ nodeAgent:
   # journald consumers such as NVSentinel's syslog monitor) see it instead of
   # only NVML clients.
   #
-  # Off by default because it costs a PRIVILEGED container: /dev/kmsg sits
-  # behind the device cgroup, which rejects the write from an unprivileged pod
-  # even with the device mounted, so there is no lesser grant that works. With
-  # it off the announcement is skipped and the NVML injection is unaffected.
+  # This costs a PRIVILEGED node-agent container: /dev/kmsg sits behind the
+  # device cgroup, which rejects the write from an unprivileged pod even with
+  # the device mounted, so there is no lesser grant that works. Disable it on a
+  # cluster that will not take that (a restricted PodSecurity namespace rejects
+  # the pod outright) or on a node with no /dev/kmsg, since the CharDevice
+  # hostPath fails the pod rather than inventing one. Disabled, the
+  # announcement is skipped and the NVML injection is unaffected.
   kernelLog:
-    enabled: false
+    enabled: true
   # Go duration string: 5s, 1m30s, etc. Teardown is a handful of parallel file
   # removals, and it has to finish inside terminationGracePeriodSeconds.
   shutdownTimeout: 5s

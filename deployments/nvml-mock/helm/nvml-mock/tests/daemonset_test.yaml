@@ -1023,35 +1023,7 @@ tests:
               type: Directory
 
   # ── Kernel log (Xid announcement) ───────────────────────────────────
-  - it: should keep the node agent off the kernel log by default
-    asserts:
-      # Empty, not absent: it tells nvml-mock-ctl the pod cannot reach
-      # /dev/kmsg, so `fail --xid` skips the announcement instead of warning.
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: MOCK_NVML_KMSG
-            value: ""
-      - isNull:
-          path: spec.template.spec.containers[0].securityContext.privileged
-      - notContains:
-          path: spec.template.spec.containers[0].volumeMounts
-          content:
-            name: kernel-log
-            mountPath: /dev/kmsg
-      - notContains:
-          path: spec.template.spec.volumes
-          content:
-            name: kernel-log
-            hostPath:
-              path: /dev/kmsg
-              type: CharDevice
-
-  - it: should let the node agent write the kernel log when enabled
-    set:
-      nodeAgent:
-        kernelLog:
-          enabled: true
+  - it: should let the node agent write the kernel log by default
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -1069,6 +1041,37 @@ tests:
             name: kernel-log
             mountPath: /dev/kmsg
       - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: kernel-log
+            hostPath:
+              path: /dev/kmsg
+              type: CharDevice
+
+  - it: should leave the node agent unprivileged when the kernel log is disabled
+    set:
+      nodeAgent:
+        kernelLog:
+          enabled: false
+    asserts:
+      # Empty, not absent: it tells nvml-mock-ctl the pod cannot reach
+      # /dev/kmsg, so `fail --xid` skips the announcement instead of warning.
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_NVML_KMSG
+            value: ""
+      - isNull:
+          path: spec.template.spec.containers[0].securityContext.privileged
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: kernel-log
+            mountPath: /dev/kmsg
+      - notContains:
           path: spec.template.spec.volumes
           content:
             name: kernel-log
