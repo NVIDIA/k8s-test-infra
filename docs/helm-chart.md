@@ -248,12 +248,21 @@ Expected: `4` (default gpu.count, derived from the `gb300` profile's four device
 kind delete cluster --name nvml-mock-dra
 ```
 
-## Quick Start: GPU Operator on KIND
+## Quick Start: GPU Operator on Kind
+
+These steps bootstrap a Kind node with nvidia-container-toolkit. On a cluster
+that already has a container runtime configured for CDI, skip to
+[the GPU Operator demo](demo/with-gpu-operator/README.md).
 
 This path validates the NVIDIA GPU Operator stack (device plugin, GFD, validator)
-using CDI mode with mock GPUs. The CI `e2e-gpu-operator` job uses a more complete
-setup — see `tests/e2e/kind-gpu-operator-config.yaml` and
-`tests/e2e/gpu-operator-values.yaml` for the exact CI configuration.
+using CDI mode with mock GPUs. `tests/e2e/kind-gpu-operator-config.yaml` and
+`tests/e2e/gpu-operator-values.yaml` are a working manual setup, but they are
+not what CI runs: the `e2e-gpu-operator` job creates its cluster with
+`make cluster-create` and installs the Operator through
+`tilt ci -- --gpu-operator`, which passes
+`local/gpu-operator/gpu-operator.values.yaml`. Neither `tests/e2e` path appears
+in `.github/`, the `Makefile`, the `Tiltfile` or `local/`. The overlays happen
+to be value-identical today, and nothing enforces that.
 
 ### 1. Create a KIND cluster
 
@@ -337,27 +346,29 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 
 ### 7. Install the GPU Operator
 
-```bash
-helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
-helm repo update
-
-helm install gpu-operator nvidia/gpu-operator \
-  --namespace gpu-operator \
-  --create-namespace \
-  -f tests/e2e/gpu-operator-values.yaml \
-  --wait --timeout 300s
-```
-
-### 8. Verify
+The values overlay, the install command and the verification live with the
+demo, so there is one copy to keep correct:
 
 ```bash
-kubectl -n gpu-operator wait --for=condition=ready pod --all --timeout=180s
-kubectl get nodes -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}'
+cd docs/demo/with-gpu-operator && ./run.sh
 ```
 
-Expected: `4` (default gpu.count, derived from the `gb300` profile's four devices).
+`run.sh` installs nvml-mock itself, under its own release name
+(`nvml-mock-operator` in `mokka-operator`) so its cluster-scoped RBAC objects
+cannot collide with another demo's. That is a second release, not an upgrade of
+the `nvml-mock` one step 6 created, and the chart's hostPath mounts are
+release-independent, so remove step 6's release first:
 
-### 9. Clean up
+```bash
+helm uninstall nvml-mock
+```
+
+See [the GPU Operator demo](demo/with-gpu-operator/README.md) for what each
+disabled operand does, why the device plugin, GFD and dcgm-exporter each need
+`NVIDIA_DRIVER_ROOT=/var/lib/nvml-mock/driver`, and how the overlay relates to
+the one CI installs.
+
+### 8. Clean up
 
 ```bash
 kind delete cluster --name nvml-mock-operator

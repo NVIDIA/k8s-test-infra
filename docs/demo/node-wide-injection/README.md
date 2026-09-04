@@ -13,12 +13,21 @@ delivered ambiently through NRI instead of the nvml-mock DaemonSet pod.
 
 ## Prerequisites
 
-Install these tools locally before running the demo:
+> **This demo creates its own Kind cluster.** It needs containerd NRI enabled
+> on every node, which cannot be assumed on an existing cluster, so it ignores
+> your current `KUBECONFIG` context and will not touch it.
 
-- `docker`
-- `kind`
-- `kubectl`
-- `helm`
+- **Docker**, with the daemon running.
+- **Kind**, to provision the demo's dedicated cluster.
+- **Helm 3.6 or newer.** The demo installs the chart from this checkout, not
+  from a registry, so 3.6 is the floor: the chart's `_helpers.tpl` uses a
+  multi-line `dict` that only the Go 1.16 template parser in Helm 3.6 accepts.
+  On 3.5 and older, rendering fails with `unclosed action`. Install it from the
+  official docs: <https://helm.sh/docs/intro/install/>
+- `kubectl`.
+
+New to Mokka? The [quick start](../../quickstart.md) is the fastest way to see
+simulated GPUs before running this demo.
 
 ## How ComputeDomain identity reaches injected pods
 
@@ -174,6 +183,10 @@ the demo resources:
 
 ```bash
 kubectl --context kind-nvml-mock-node-wide-demo -n default delete daemonset gpu-agent --ignore-not-found
-helm uninstall nvml-mock --kube-context kind-nvml-mock-node-wide-demo --namespace mokka --ignore-not-found
+helm uninstall nvml-mock --kube-context kind-nvml-mock-node-wide-demo --namespace mokka
 kubectl --context kind-nvml-mock-node-wide-demo delete namespace mokka --ignore-not-found
 ```
+
+`helm uninstall` gained `--ignore-not-found` only in 3.13, so on the 3.6 floor
+above it exits non-zero when the release is already gone. That message is safe
+to ignore; the two `kubectl` lines around it are quiet either way.

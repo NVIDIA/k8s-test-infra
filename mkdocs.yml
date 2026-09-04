@@ -122,6 +122,7 @@ nav:
       - Node-Wide Injection: demo/node-wide-injection/README.md
       - Compute Domain: demo/compute-domain/README.md
       - NVSentinel: demo/nv-sentinel/README.md
+      - With GPU Operator: demo/with-gpu-operator/README.md
   - Integrations:
       - fake-gpu-operator: integrations/fake-gpu-operator.md
   - Contributing:
