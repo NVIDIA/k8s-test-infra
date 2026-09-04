@@ -606,6 +606,18 @@ func ChrootInventoryProblems(exitCode int, chrootOut, inContainerOut string, wan
 	return problems
 }
 
+// OverridesPresentProblems checks that `nvml-mock-ctl status --gpu <n>` reports
+// an active override before a reset is attempted. Without this gate,
+// OverridesClearedProblems would pass vacuously if the injection were a no-op:
+// "no active overrides" is the expected end state, so a sequence that never
+// established an override would prove nothing about whether the reset cleared one.
+func OverridesPresentProblems(output string) []string {
+	if strings.Contains(output, "no active overrides") {
+		return []string{"injection left no override to reset, so the clearance check would pass vacuously: " + output}
+	}
+	return nil
+}
+
 // OverridesClearedProblems checks that `nvml-mock-ctl status --gpu <n>` reports
 // nothing left after a reset. Matched as a prefix because the per-device form
 // prints "no active overrides for gpu <n>" and the whole-node form prints

@@ -304,12 +304,25 @@ func GpuResetThroughChroot(ctx context.Context, k *kube.Client, pod kube.PodRef,
 
 	ginkgo.By(fmt.Sprintf("chrooted nvidia-smi describes the same %d GPUs", p.ExpectedGPUs()))
 	res, _ := k.ExecQuiet(ctx, pod, append(append([]string{}, chroot...), query...)...)
-	problems := ChrootInventoryProblems(res.ExitCode, res.Stdout, reference.Stdout, p.ExpectedGPUs())
+	// Stdout carries the CSV rows for comparison; stderr carries the chroot
+	// failure message when the loader or a library is missing from the driver
+	// root, and that is what an engineer needs in the diagnostic.
+	chrootOut := res.Stdout
+	if res.ExitCode != 0 {
+		chrootOut = res.Combined()
+	}
+	problems := ChrootInventoryProblems(res.ExitCode, chrootOut, reference.Stdout, p.ExpectedGPUs())
 	gomega.Expect(problems).To(gomega.BeEmpty(), strings.Join(problems, "\n"))
 
 	ginkgo.By("injecting a temperature on GPU 0 for the reset to clear")
 	res, err = k.Exec(ctx, pod, "nvml-mock-ctl", "temp", "--gpu", "0", "99")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "nvml-mock-ctl temp failed: %s", res.Combined())
+
+	ginkgo.By("the injection took hold before the reset runs")
+	res, err = k.Exec(ctx, pod, "nvml-mock-ctl", "status", "--gpu", "0")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "nvml-mock-ctl status failed: %s", res.Combined())
+	problems = OverridesPresentProblems(res.Combined())
+	gomega.Expect(problems).To(gomega.BeEmpty(), strings.Join(problems, "\n"))
 
 	ginkgo.By("chrooted nvidia-smi -r -i 0 resets one GPU")
 	res, _ = k.Exec(ctx, pod, append(append([]string{}, chroot...), "nvidia-smi", "-r", "-i", "0")...)
