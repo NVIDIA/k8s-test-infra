@@ -838,10 +838,12 @@ func TestChrootInventoryProblems_AcceptsAReadingThatMatchesTheContainer(t *testi
 func TestChrootInventoryProblems_RejectsAFailedExec(t *testing.T) {
 	t.Parallel()
 
-	problems := ChrootInventoryProblems(127, "chroot: failed to run command 'nvidia-smi'", "", 2)
+	msg := "chroot: failed to run command 'nvidia-smi': No such file or directory"
+	problems := ChrootInventoryProblems(127, msg, "", 2)
 
 	assert.Len(t, problems, 1)
 	assert.Contains(t, problems[0], "127")
+	assert.Contains(t, problems[0], msg)
 }
 
 // The compiled-in defaults answer for a different device set at a different PCI
@@ -868,6 +870,21 @@ func TestChrootInventoryProblems_RejectsTheWrongDeviceCount(t *testing.T) {
 	problems := ChrootInventoryProblems(0, four, four, 2)
 
 	assert.NotEmpty(t, problems)
+}
+
+func TestOverridesPresentProblems_AcceptsAnActiveOverride(t *testing.T) {
+	t.Parallel()
+
+	out := "devices:\n  \"0\":\n    thermal:\n      temperature_gpu_c: 99\n"
+	assert.Empty(t, OverridesPresentProblems(out))
+}
+
+func TestOverridesPresentProblems_RejectsNoActiveOverrides(t *testing.T) {
+	t.Parallel()
+
+	problems := OverridesPresentProblems("no active overrides\n")
+	assert.NotEmpty(t, problems)
+	assert.Contains(t, problems[0], "vacuously")
 }
 
 func TestOverridesClearedProblems_AcceptsNoActiveOverrides(t *testing.T) {
