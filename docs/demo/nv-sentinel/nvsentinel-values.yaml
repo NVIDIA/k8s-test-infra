@@ -75,12 +75,17 @@ global:
     enabled: true
   nodeDrainer:
     enabled: true
+  # Reset remediation stays armed on every install, including GPU_RESET=false
+  # runs, so that reusing a cluster does not churn the release. The trade-off:
+  # an ECC fault left in a node's overrides.yaml by an interrupted run is still
+  # a real fault, and NVSentinel will remediate it on the next install. Use
+  # FORCE_RECREATE=true for a run that starts from nothing.
   faultRemediation:
-    enabled: false
+    enabled: true
   janitor:
-    enabled: false
+    enabled: true
   janitorProvider:
-    enabled: false
+    enabled: true
   healthEventsAnalyzer:
     enabled: false
 
@@ -153,6 +158,10 @@ node-drainer:
   userNamespaces:
     - name: "*"
       mode: "Immediate"
+  # Required to be true exactly when COMPONENT_RESET maps to a GPU-scoped
+  # resource: the drain then evicts only the pods using the faulty GPU, which is
+  # what makes an in-place reset worth doing instead of a reboot.
+  partialDrainEnabled: true
 
 # fault-quarantine: disable the circuit breaker for this tiny demo cluster. The
 # breaker trips when >= 50% of GPU nodes are cordoned within a 5m window; with
@@ -199,3 +208,56 @@ mongodb-store:
                 storage: 2Gi
         # No Prometheus Operator in this demo, so the metrics sidecar is dead weight.
         sidecars: []
+
+# --- GPU reset remediation (demo Phase 3) ------------------------------------
+# Enabling these turns a resettable GPU fault into an in-place GPU reset instead
+# of leaving the node cordoned. fault-remediation writes a GPUReset CR, the
+# janitor tears down the GPU Operator operands on that node, runs NVIDIA's own
+# gpu-reset image as a privileged Job, and restores them.
+#
+# The Job's pod spec is built in the janitor's Go code, not a chart template, so
+# its hostPath mounts and DRIVER_ROOT=/run/nvidia/driver are not overridable —
+# which is exactly why the mock driver root has to be chroot-able. See issue #759.
+fault-remediation:
+  maintenance:
+    actions:
+      # The chart ships COMPONENT_RESET mapped to RebootNode. Left alone, this
+      # demo would reboot the worker instead of resetting a GPU, and the reset
+      # path would never be exercised at all.
+      COMPONENT_RESET:
+        apiGroup: "janitor.dgxc.nvidia.com"
+        version: "v1alpha1"
+        kind: "GPUReset"
+        scope: "Cluster"
+        completeConditionType: "Complete"
+        templateFileName: "gpureset-template.yaml"
+        equivalenceGroup: "reset"
+        impactedEntityScope: "GPU_UUID"
+        supersedingEquivalenceGroups: ["restart"]
+    templates:
+      "gpureset-template.yaml": |
+        apiVersion: {{ .ApiGroup }}/{{ .Version }}
+        kind: GPUReset
+        metadata:
+          name: maintenance-{{ .HealthEvent.NodeName }}-{{ .HealthEventID }}
+        spec:
+          nodeName: {{ .HealthEvent.NodeName }}
+          selector:
+            uuids:
+              - {{ .ImpactedEntityScopeValue }}
+
+janitor:
+  config:
+    controllers:
+      gpuReset:
+        enabled: true
+        resetJob:
+          # The chart default names the "nvidia" RuntimeClass, which no Kind
+          # cluster has, so the Job pod would stay unschedulable forever.
+          runtimeClassName: ""
+          # The reset image stays NVIDIA's own. The janitor hardcodes
+          # imagePullPolicy: Always, so a `kind load`-only image cannot be used
+          # anyway — and swapping in one that merely exits 0 would prove
+          # nothing, since the janitor judges success purely by Job exit status.
+          image:
+            repository: ghcr.io/nvidia/nvsentinel/gpu-reset

@@ -144,6 +144,11 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				// an operator reaching for the most common GPU remediation got a
 				// bare exit 139 with no output at all.
 				nvidiasmi.GpuReset(ctx, h.Kube, pod, p)
+				// The same reset as a remediation controller performs it, through
+				// a chroot of the driver root with none of the mock's environment
+				// carried in. That path failed on the missing dynamic loader, and
+				// then failed silently on an unresolvable config. See issue #759.
+				nvidiasmi.GpuResetThroughChroot(ctx, h.Kube, pod, p)
 			})
 
 			It("reports the profile's platform identity via nvidia-smi", Label("nvidia-smi"), func(ctx SpecContext) {

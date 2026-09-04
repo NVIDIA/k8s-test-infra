@@ -20,6 +20,14 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
 
+// The mock's own copies of the two dynamically-linked objects the driver root
+// serves. Both are baked into the nvml-mock image, which is also where their
+// libc and loader come from, so a closure taken here matches by construction.
+const (
+	nvidiaSMISource = "/usr/local/bin/nvidia-smi"
+	nvmlShimGlob    = "/usr/local/lib/libnvidia-ml.so.*.*.*"
+)
+
 // stageCharDevs creates the GPU character devices that ioctl-based callers
 // (CUDA, nvidia-smi) open to reach the driver. Without them open() fails.
 // Major 195 = nvidia (per-GPU + nvidiactl); major 510 = nvidia-uvm.
@@ -89,7 +97,7 @@ func pruneGPUNodes(devRoot string, wanted map[string]bool) error {
 // stageNVMLShim installs the mock libnvidia-ml so that nvidia-smi, the device
 // plugin, and NVML-using workloads can dlopen it without a real kernel driver.
 func stageNVMLShim(ctx context.Context, h *host.Host, state *agent.State) error {
-	matches, _ := filepath.Glob("/usr/local/lib/libnvidia-ml.so.*.*.*")
+	matches, _ := filepath.Glob(nvmlShimGlob)
 	if len(matches) == 0 {
 		return errors.New("libnvidia-ml.so.*.*.* not found in /usr/local/lib")
 	}
@@ -168,8 +176,8 @@ func stageNvidiaSMI(ctx context.Context, h *host.Host, state *agent.State) error
 		return err
 	}
 	elfPath := filepath.Join(binDir, "nvidia-smi")
-	if _, err := os.Stat("/usr/local/bin/nvidia-smi"); err == nil {
-		return fsutil.Copy("/usr/local/bin/nvidia-smi", elfPath, 0o755)
+	if _, err := os.Stat(nvidiaSMISource); err == nil {
+		return fsutil.Copy(nvidiaSMISource, elfPath, 0o755)
 	}
 	return fsutil.Symlink("nvidia-smi.sh", elfPath)
 }

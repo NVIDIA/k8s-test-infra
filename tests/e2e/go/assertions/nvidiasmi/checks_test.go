@@ -824,3 +824,79 @@ func combinedSramReadings(t *testing.T) string {
 		`(?s)\s*<aggregate_uncorrectable_sram_sources>.*?</aggregate_uncorrectable_sram_sources>`).
 		ReplaceAllString(out, "")
 }
+
+func TestChrootInventoryProblems_AcceptsAReadingThatMatchesTheContainer(t *testing.T) {
+	t.Parallel()
+
+	same := "0, 41, 00000002:81:00.0\n1, 39, 00000002:82:00.0\n"
+
+	assert.Empty(t, ChrootInventoryProblems(0, same, same, 2))
+}
+
+// 127 is what a failed exec inside the chroot surfaces as: the loader or a
+// library is missing from the driver root. See issue #759.
+func TestChrootInventoryProblems_RejectsAFailedExec(t *testing.T) {
+	t.Parallel()
+
+	msg := "chroot: failed to run command 'nvidia-smi': No such file or directory"
+	problems := ChrootInventoryProblems(127, msg, "", 2)
+
+	assert.Len(t, problems, 1)
+	assert.Contains(t, problems[0], "127")
+	assert.Contains(t, problems[0], msg)
+}
+
+// The compiled-in defaults answer for a different device set at a different PCI
+// domain with no temperatures, so a disagreement with the in-container reading
+// catches every way the fallback shows up at once.
+func TestChrootInventoryProblems_RejectsCompiledInDefaults(t *testing.T) {
+	t.Parallel()
+
+	problems := ChrootInventoryProblems(0,
+		"0, [N/A], 00000000:01:00.0\n1, [N/A], 00000000:02:00.0\n",
+		"0, 41, 00000002:81:00.0\n1, 39, 00000002:82:00.0\n", 2)
+
+	assert.NotEmpty(t, problems)
+	assert.Contains(t, strings.Join(problems, "\n"), "00000000:01:00.0")
+}
+
+// The count is checked independently of the comparison, so two readings that
+// agree because both fell back cannot pass.
+func TestChrootInventoryProblems_RejectsTheWrongDeviceCount(t *testing.T) {
+	t.Parallel()
+
+	four := "0, 41, 00000000:01:00.0\n1, 39, 00000000:02:00.0\n2, 40, 00000000:03:00.0\n3, 38, 00000000:04:00.0\n"
+
+	problems := ChrootInventoryProblems(0, four, four, 2)
+
+	assert.NotEmpty(t, problems)
+}
+
+func TestOverridesPresentProblems_AcceptsAnActiveOverride(t *testing.T) {
+	t.Parallel()
+
+	out := "devices:\n  \"0\":\n    thermal:\n      temperature_gpu_c: 99\n"
+	assert.Empty(t, OverridesPresentProblems(out))
+}
+
+func TestOverridesPresentProblems_RejectsNoActiveOverrides(t *testing.T) {
+	t.Parallel()
+
+	problems := OverridesPresentProblems("no active overrides\n")
+	assert.NotEmpty(t, problems)
+	assert.Contains(t, problems[0], "vacuously")
+}
+
+func TestOverridesClearedProblems_AcceptsNoActiveOverrides(t *testing.T) {
+	t.Parallel()
+
+	assert.Empty(t, OverridesClearedProblems("no active overrides\n"))
+}
+
+func TestOverridesClearedProblems_RejectsSurvivingOverrides(t *testing.T) {
+	t.Parallel()
+
+	problems := OverridesClearedProblems("devices:\n  \"0\":\n    thermal:\n      temperature_gpu_c: 99\n")
+
+	assert.NotEmpty(t, problems)
+}

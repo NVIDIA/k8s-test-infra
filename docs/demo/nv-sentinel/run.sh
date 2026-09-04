@@ -63,6 +63,14 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 # per profile (h100 slows down at 87C, gb300 at 90C), so this is set well clear
 # of every profile rather than tuned to one board.
 : "${HOT_TEMP_C:=142}"
+# Phase 3 (GPU reset remediation) waits on a GPU Operator operand
+# teardown/restore cycle, which roughly doubles the run. Set GPU_RESET=false to
+# stop after the thermal phases.
+: "${GPU_RESET:=true}"
+# GPU to fault for the reset. Deliberately not TARGET_GPU: phase 1 and 2 leave
+# that one's history in the datastore, and a fresh GPU keeps the equivalence
+# group for this fault unambiguous.
+: "${RESET_GPU:=1}"
 # Node label that pins the mock + GPU operands to the GPU workers.
 GPU_NODE_LABEL="nvml-mock-gpu=true"
 
@@ -297,6 +305,112 @@ else
   warn "node still cordoned; inspect fault-quarantine logs (checks may not have cleared)"
 fi
 observe kubectl_ctx get nodes
+
+# ==============================================================================
+# PHASE 3 — REMEDIATE IN PLACE: NVSentinel resets the GPU
+# ==============================================================================
+# An uncorrectable ECC error is a resettable fault: DCGM reports
+# DCGM_FR_VOLATILE_DBE_DETECTED, which NVSentinel maps to COMPONENT_RESET, and
+# with the values above that becomes a GPUReset CR rather than a node reboot.
+# The janitor then runs NVIDIA's real gpu-reset image, whose script reaches
+# nvidia-smi only as `chroot /run/nvidia/driver nvidia-smi` — the path that
+# needed the mock driver root to become chroot-able. See issue #759.
+if [[ "${GPU_RESET}" == "true" ]]; then
+  # The janitor sets imagePullPolicy: Always on the reset Job, so every attempt
+  # re-pulls this image. Seeding it into the Kind nodes first keeps a slow
+  # registry from eating the janitor's Job deadline and failing the first
+  # attempt for reasons that have nothing to do with the reset itself.
+  # Strictly best-effort: the janitor retries a failed reset, so a seed that
+  # does not work here costs a slower first attempt, not the demo.
+  reset_image="ghcr.io/nvidia/nvsentinel/gpu-reset:${NVSENTINEL_VERSION}"
+  info "Pre-loading ${reset_image} into Kind"
+  if ! { docker pull "${reset_image}" && \
+    kind load docker-image "${reset_image}" --name "${CLUSTER_NAME}"; }; then
+    warn "could not seed ${reset_image} into the nodes; the reset Job will pull it itself, and its first attempt may lose the janitor's deadline to the registry"
+  fi
+
+  # A re-run against a reused cluster still has the previous run's GPUResets,
+  # and they would satisfy the wait below instantly. Recording them first lets
+  # the wait insist on a CR this run caused.
+  gpureset_names() {
+    kubectl_ctx get gpuresets.janitor.dgxc.nvidia.com \
+      --sort-by=.metadata.creationTimestamp \
+      -o "jsonpath={.items[?(@.spec.nodeName=='${TARGET_NODE}')].metadata.name}" 2>/dev/null || true
+  }
+  crs_before=" $(gpureset_names) "
+
+  info "PHASE 3: injecting an uncorrectable ECC error on GPU ${RESET_GPU} (${TARGET_NODE})"
+  kubectl_ctx -n "${NAMESPACE}" exec "${MOCK_POD}" -- \
+    nvml-mock-ctl fail --gpu "${RESET_GPU}" --mode ecc_uncorrectable
+
+  info "Waiting for NVSentinel to create a GPUReset for ${TARGET_NODE}"
+  # Every remediation attempt creates its own GPUReset, so this keeps the newest
+  # new one rather than concatenating the names of all of them.
+  reset_cr=""
+  for _ in $(seq 1 60); do
+    for name in $(gpureset_names); do
+      [[ "${crs_before}" == *" ${name} "* ]] && continue
+      reset_cr="${name}"
+    done
+    [[ -n "${reset_cr}" ]] && break
+    sleep 5
+  done
+  if [[ -z "${reset_cr}" ]]; then
+    warn "no GPUReset created; check fault-remediation logs and that COMPONENT_RESET maps to GPUReset"
+  else
+    info "GPUReset created: ${reset_cr}"
+
+    # The janitor decides success purely from the reset Job's exit status, and
+    # the Job's first act is the chroot preflight (nvidia-smi --version) under
+    # set -e. A Succeeded phase therefore means the chroot worked.
+    info "Waiting for ${reset_cr} to complete (teardown -> reset Job -> restore)"
+    kubectl_ctx wait --for=condition=Complete \
+      "gpuresets.janitor.dgxc.nvidia.com/${reset_cr}" --timeout=900s || \
+      warn "GPUReset did not complete; inspect its conditions below"
+
+    echo "--- GPUReset conditions ---"
+    observe bash -c "kubectl --context ${KUBE_CONTEXT} get gpuresets.janitor.dgxc.nvidia.com/${reset_cr} -o json | jq -r '.status.conditions[] | \"\(.type)=\(.status): \(.reason)\"'"
+
+    # Complete=True only means the janitor stopped working on this CR; it is
+    # also how a failed reset ends. The phase distinguishes the two.
+    reset_phase=$(kubectl_ctx get "gpuresets.janitor.dgxc.nvidia.com/${reset_cr}" \
+      -o jsonpath='{.status.phase}' 2>/dev/null || true)
+    if [[ "${reset_phase}" == "Succeeded" ]]; then
+      info "GPUReset ${reset_cr} succeeded (the chroot preflight and reset both ran)"
+    else
+      warn "GPUReset ${reset_cr} ended in phase '${reset_phase:-unknown}'; see the Job output below"
+    fi
+
+    # The CR names its own Job, which matters because concurrent remediations
+    # put several reset Jobs in this namespace at once — picking the newest one
+    # would happily show another node's logs.
+    echo "--- reset Job output (the chroot preflight is its first line) ---"
+    reset_job=$(kubectl_ctx get "gpuresets.janitor.dgxc.nvidia.com/${reset_cr}" \
+      -o jsonpath='{.status.jobRef.name}' 2>/dev/null || true)
+    if [[ -n "${reset_job}" ]]; then
+      observe kubectl_ctx -n "${NVSENTINEL_NAMESPACE}" logs "job/${reset_job}" --tail=40
+    else
+      warn "GPUReset ${reset_cr} has no jobRef yet; no reset Job to show"
+    fi
+  fi
+
+  # The reset clears the device's injected overrides, which is the mock's
+  # equivalent of clearing a GPU's transient error state. An empty status here
+  # is the proof the reset did something, not merely that it reported success:
+  # a reset that cannot reach the mock's config would report success having
+  # cleared nothing, and the surviving fault is what gives that away.
+  echo "--- GPU ${RESET_GPU} overrides after the reset ---"
+  overrides_after=$(kubectl_ctx -n "${NAMESPACE}" exec "${MOCK_POD}" -- \
+    nvml-mock-ctl status --gpu "${RESET_GPU}" 2>&1 || true)
+  echo "${overrides_after}"
+  if [[ "${overrides_after}" == *"no active overrides"* ]]; then
+    info "VERIFIED: the reset cleared GPU ${RESET_GPU}'s injected ECC fault"
+  else
+    warn "GPU ${RESET_GPU} still carries its injected fault: the reset reported success but cleared nothing"
+  fi
+else
+  info "PHASE 3 (GPU reset remediation) skipped by GPU_RESET=false"
+fi
 
 # --- Summary ------------------------------------------------------------------
 cat <<EOF
