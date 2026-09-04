@@ -1021,3 +1021,60 @@ tests:
             hostPath:
               path: /var/lib/k0s/kubelet/pod-resources
               type: Directory
+
+  # ── Kernel log (Xid announcement) ───────────────────────────────────
+  - it: should let the node agent write the kernel log by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_NVML_KMSG
+            value: /dev/kmsg
+      # The device cgroup rejects the write from an unprivileged container even
+      # with /dev/kmsg mounted, so the mount alone would render a no-op.
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.privileged
+          value: true
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: kernel-log
+            mountPath: /dev/kmsg
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: kernel-log
+            hostPath:
+              path: /dev/kmsg
+              type: CharDevice
+
+  - it: should leave the node agent unprivileged when the kernel log is disabled
+    set:
+      nodeAgent:
+        kernelLog:
+          enabled: false
+    asserts:
+      # Empty, not absent: it tells nvml-mock-ctl the pod cannot reach
+      # /dev/kmsg, so `fail --xid` skips the announcement instead of warning.
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_NVML_KMSG
+            value: ""
+      - isNull:
+          path: spec.template.spec.containers[0].securityContext.privileged
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: kernel-log
+            mountPath: /dev/kmsg
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: kernel-log
+            hostPath:
+              path: /dev/kmsg
+              type: CharDevice

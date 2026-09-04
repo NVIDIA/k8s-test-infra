@@ -112,6 +112,13 @@ spec:
             # the CLI can never write to.
             - name: MOCK_NVML_OVERRIDES
               value: /var/lib/nvml-mock/driver/config/overrides.yaml
+            # Where `nvml-mock-ctl fail --xid` announces the Xid, as a driver's
+            # printk would. Empty says this pod cannot reach the kernel log, so
+            # the CLI skips the announcement rather than warning on every
+            # injection -- it is only mounted, and only writable, when
+            # nodeAgent.kernelLog is enabled.
+            - name: MOCK_NVML_KMSG
+              value: {{ ternary "/dev/kmsg" "" .Values.nodeAgent.kernelLog.enabled | quote }}
             {{- if .Values.topology.enabled }}
             - name: MOCK_TOPOLOGY_CONFIG
               value: /etc/nvml-mock/topology/topology.yaml
@@ -149,7 +156,14 @@ spec:
               protocol: TCP
             {{- end }}
           securityContext:
+            {{- if .Values.nodeAgent.kernelLog.enabled }}
+            # Writing /dev/kmsg needs no capability, but it does need past the
+            # device cgroup, which only privileged lifts -- mounting the device
+            # into an unprivileged container still fails with EPERM.
+            privileged: true
+            {{- else }}
             allowPrivilegeEscalation: false
+            {{- end }}
             capabilities:
               drop: [ALL]
               add: [MKNOD]
@@ -195,6 +209,12 @@ spec:
             - name: node-sysfs
               mountPath: /host/sys
               readOnly: true
+            {{- if .Values.nodeAgent.kernelLog.enabled }}
+            # The node's kernel ring buffer, for the Xid announcement. Write
+            # only in practice: nothing here reads it back.
+            - name: kernel-log
+              mountPath: /dev/kmsg
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz
@@ -276,6 +296,14 @@ spec:
           hostPath:
             path: /sys
             type: Directory
+        {{- if .Values.nodeAgent.kernelLog.enabled }}
+        # CharDevice, so a node that exposes no kernel ring buffer fails the
+        # pod instead of silently swallowing announcements into a new file.
+        - name: kernel-log
+          hostPath:
+            path: /dev/kmsg
+            type: CharDevice
+        {{- end }}
         {{- if .Values.topology.enabled }}
         - name: cluster-topology
           configMap:

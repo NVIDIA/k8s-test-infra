@@ -98,6 +98,28 @@ mapfile -t WORKERS < <(kind get nodes --name "${CLUSTER_NAME}" | grep -v control
 [[ "${#WORKERS[@]}" -ge 1 ]] || fail "no worker nodes found"
 info "GPU workers: ${WORKERS[*]}"
 
+# --- Node "syslog" for the syslog health monitor ------------------------------
+# The monitor opens the journal DIRECTORY under a /var/log hostPath and admits
+# only kernel-transport entries, neither of which a stock Kind node offers: it
+# keeps a volatile journal in /run/log/journal and ships ReadKMsg=no, so the
+# Xid `nvml-mock-ctl fail --xid` writes to /dev/kmsg is dropped. Both restarts
+# are needed — journald cannot reload, and it does not create /var/log/journal
+# itself; journal-flush is what creates it and moves the journal there.
+for node in $(kind get nodes --name "${CLUSTER_NAME}"); do
+  info "Enabling persistent kernel-log journaling on ${node}"
+  docker exec "${node}" bash -c '
+set -e
+mkdir -p /etc/systemd/journald.conf.d
+cat > /etc/systemd/journald.conf.d/99-node-syslog.conf <<EOF
+[Journal]
+Storage=persistent
+ReadKMsg=yes
+EOF
+systemctl restart systemd-journald
+systemctl restart systemd-journal-flush
+'
+done
+
 # --- Label GPU workers + install nvidia-container-toolkit / CDI ---------------
 for node in "${WORKERS[@]}"; do
   info "Labeling ${node} with ${GPU_NODE_LABEL}"
