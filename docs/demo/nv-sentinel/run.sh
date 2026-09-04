@@ -88,17 +88,37 @@ if kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}"; then
 fi
 if ! kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}"; then
   info "Creating Kind cluster '${CLUSTER_NAME}' (1 control-plane + 2 workers, CDI enabled)"
-  # From the repo root: kind.yaml mounts the journald drop-in by a repo-relative
-  # hostPath, and Kind resolves extraMounts against the working directory.
-  ( cd "${REPO_ROOT}" && kind create cluster --name "${CLUSTER_NAME}" \
-      --image "${KIND_NODE_IMAGE}" \
-      --config="${DEMO_DIR}/kind.yaml" )
+  kind create cluster --name "${CLUSTER_NAME}" \
+    --image "${KIND_NODE_IMAGE}" \
+    --config="${REPO_ROOT}/${DEMO_DIR}/kind.yaml"
 fi
 
 # Worker node names == docker container names (default kind naming).
 mapfile -t WORKERS < <(kind get nodes --name "${CLUSTER_NAME}" | grep -v control-plane | sort)
 [[ "${#WORKERS[@]}" -ge 1 ]] || fail "no worker nodes found"
 info "GPU workers: ${WORKERS[*]}"
+
+# --- Node "syslog" for the syslog health monitor ------------------------------
+# The monitor opens the journal DIRECTORY under a /var/log hostPath and admits
+# only kernel-transport entries, neither of which a stock Kind node offers: it
+# keeps a volatile journal in /run/log/journal and ships ReadKMsg=no, so the
+# Xid `nvml-mock-ctl fail --xid` writes to /dev/kmsg is dropped. Both restarts
+# are needed — journald cannot reload, and it does not create /var/log/journal
+# itself; journal-flush is what creates it and moves the journal there.
+for node in $(kind get nodes --name "${CLUSTER_NAME}"); do
+  info "Enabling persistent kernel-log journaling on ${node}"
+  docker exec "${node}" bash -c '
+set -e
+mkdir -p /etc/systemd/journald.conf.d
+cat > /etc/systemd/journald.conf.d/99-node-syslog.conf <<EOF
+[Journal]
+Storage=persistent
+ReadKMsg=yes
+EOF
+systemctl restart systemd-journald
+systemctl restart systemd-journal-flush
+'
+done
 
 # --- Label GPU workers + install nvidia-container-toolkit / CDI ---------------
 for node in "${WORKERS[@]}"; do

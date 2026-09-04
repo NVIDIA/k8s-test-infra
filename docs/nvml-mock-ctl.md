@@ -189,7 +189,11 @@ Two node-level requirements, neither of which `nvml-mock-ctl` can arrange:
 - for journal-based consumers, journald must ingest the kernel ring buffer
   (`ReadKMsg=yes`) and keep the journal where the consumer looks. Kind's node
   image sets `ReadKMsg=no` and keeps a volatile journal, so a Kind cluster needs
-  a `journald` drop-in with `Storage=persistent` and `ReadKMsg=yes`.
+  a `journald` drop-in with `Storage=persistent` and `ReadKMsg=yes`. Applied
+  after boot it takes two restarts — `systemd-journald` cannot reload, and it
+  does not create `/var/log/journal` itself; `systemd-journal-flush` is what
+  creates the directory and moves the journal there. The NVSentinel demo's
+  `run.sh` does this on every node.
 
 `fail --mode healthy` is how you *recover* a single device (it deletes the
 `failure` block from that bucket). See the failure-injection section of the

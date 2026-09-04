@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on a node with no `/dev/kmsg`. `--kmsg` / `MOCK_NVML_KMSG` pick a different
   log or disable the announcement, which is always best-effort: a node with no
   writable kernel log keeps the NVML injection.
-- nv-sentinel demo: the Kind nodes now mount a `journald` drop-in
+- nv-sentinel demo: `run.sh` now configures `journald` on each Kind node
   (`Storage=persistent`, `ReadKMsg=yes`), giving the node a kernel-log "syslog"
   NVSentinel's syslog monitor can read. Stock Kind nodes drop kernel messages
   and keep a volatile journal, so the monitor sees nothing.
