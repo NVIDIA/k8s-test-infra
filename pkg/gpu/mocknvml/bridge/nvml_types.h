@@ -2,13 +2,13 @@
  * NVML Type Definitions for Mock Library
  *
  * This header provides ABI-compatible type definitions extracted from nvml.h
- * (vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h, version 13.0.39).
+ * (go-nvml's pkg/nvml/nvml.h, version 13.0.39).
  *
  * We include types only, not function prototypes, to avoid conflicts with
  * CGo-generated function declarations.
  *
  * IMPORTANT: These types must match the real NVML exactly for ABI compatibility.
- * When updating, compare against the vendored nvml.h.
+ * When updating, compare against go-nvml's nvml.h.
  */
 
 #ifndef MOCK_NVML_TYPES_H
@@ -300,7 +300,7 @@ typedef struct nvmlEccErrorCounts_st {
  * nvmlDeviceGetSramEccErrorStatus can populate the caller's buffer (issue
  * #641). version is an input the caller stamps with the NVML_STRUCT_VERSION
  * macro; the rest are outputs. Layout matches
- * vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h (v1), pinned by
+ * go-nvml's pkg/nvml/nvml.h (v1), pinned by
  * ecc_layout_test.go. */
 typedef struct nvmlEccSramErrorStatus_st
 {
@@ -415,7 +415,7 @@ typedef struct nvmlGpuDynamicPstatesInfo_st                 nvmlGpuDynamicPstate
 /* GPU Fabric information — full definitions needed by the bridge so
  * nvmlDeviceGetGpuFabricInfo / nvmlDeviceGetGpuFabricInfoV can populate
  * the caller's struct. Layout matches the upstream NVML public header
- * (versions v1 / v2 / v3); see vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h. */
+ * (versions v1 / v2 / v3); see go-nvml's pkg/nvml/nvml.h. */
 #define NVML_GPU_FABRIC_UUID_LEN 16
 
 #define NVML_GPU_FABRIC_STATE_NOT_SUPPORTED 0
@@ -503,7 +503,7 @@ typedef struct nvmlPdi_st                                   nvmlPdi_t;
  * Platform identity — where the board physically sits in a rack. Full
  * definition needed so nvmlDeviceGetPlatformInfo can populate the caller's
  * struct. Layout matches the upstream NVML public header; see
- * vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h.
+ * go-nvml's pkg/nvml/nvml.h.
  *
  * v1 is deprecated upstream in favour of v2, which renames the same bytes:
  * rackGuid became chassisSerialNumber (on Blackwell the rack is identified by
@@ -644,7 +644,7 @@ typedef struct nvmlWorkloadPowerProfileUpdateProfiles_v1_st nvmlWorkloadPowerPro
  * (nvmlDeviceGetPciInfoExt, nvmlDeviceGetMarginTemperature). The opaque
  * forward declarations above only name the typedefs; these complete the struct
  * tags so the bridge can read/write their fields. Layouts mirror
- * vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h (v1). version is an input
+ * go-nvml's pkg/nvml/nvml.h (v1). version is an input
  * the caller stamps with the NVML_STRUCT_VERSION macro.
  */
 struct nvmlPciInfoExt_st
@@ -668,7 +668,7 @@ struct nvmlMarginTemperature_st
 
 /*
  * NVML additions (go-nvml v0.13.2-0, #410). Remapped rows v2 is written by the
- * bridge, so keep this layout in sync with go-nvml's vendored nvml.h.
+ * bridge, so keep this layout in sync with go-nvml's nvml.h.
  */
 typedef struct nvmlRemappedRowsInfo_v2_t
 {
@@ -693,11 +693,11 @@ typedef struct nvmlVgpuSchedulerState_v2_st                 nvmlVgpuSchedulerSta
  * #400/#410 additions above, these need full ABI-accurate definitions, not
  * opaque forward declarations: go-nvml's own cgo wrapper functions
  * (nvmlDeviceGetAccountingStats_v2, nvmlDeviceGetBBXTimeData_v1,
- * nvmlSystemGetCPER_v1 in vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.go)
+ * nvmlSystemGetCPER_v1 in go-nvml's pkg/nvml/nvml.go)
  * fail to compile against an opaque C.nvmlXxx_t with "could not determine
  * what C.nvmlXxx_t refers to" unless the full struct body is visible.
  * Definitions extracted verbatim from
- * vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h.
+ * go-nvml's pkg/nvml/nvml.h.
  */
 typedef struct {
     unsigned int       pid;               //!< Process Id of the target process to query stats for

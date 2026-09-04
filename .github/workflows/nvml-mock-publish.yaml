@@ -46,6 +46,27 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # The published image's dependencies must come from Artifactory. The
+      # builder stage cannot reach this credential on its own, so it is minted
+      # here and handed to BuildKit as a secret below.
+      - name: Load Go version
+        id: golang
+        run: echo "version=$(./hack/golang-version.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ steps.golang.outputs.version }}
+          cache: false
+
+      - name: Configure the DGXC Go proxy
+        uses: ./.github/actions/setup-dgxc-goproxy
+        with:
+          mode: enforced
+
+      - name: Assert the proxy is actually in front
+        run: ./hack/check-goproxy.sh enforced
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
@@ -68,6 +89,13 @@ jobs:
           file: deployments/nvml-mock/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
+          # Both are required. With only the secret the builder still points at
+          # the public proxy; with only the build arg it points at Artifactory
+          # with no credential and fails closed.
+          build-args: |
+            GOPROXY=https://edge.urm.nvidia.com/artifactory/api/go/dgxc-go-virtual
+          secret-files: |
+            goauth=${{ runner.temp }}/dgxc-goauth
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
@@ -97,3 +125,7 @@ jobs:
           cosign attest --yes --predicate sbom.spdx.json \
             --type spdxjson \
             "$(echo "${{ steps.meta.outputs.tags }}" | head -1)"
+
+      - name: Remove the proxy credential
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/dgxc-goauth"

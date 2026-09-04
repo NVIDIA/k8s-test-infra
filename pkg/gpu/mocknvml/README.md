@@ -621,16 +621,13 @@ coverage for linking.
 The stub generator creates stubs for NVML functions without hand-written implementations:
 
 ```bash
-# From bridge directory
-cd pkg/gpu/mocknvml/bridge
-go generate
+# From repo root; resolves go-nvml's nvml.go / nvml.h for the generator
+make gen
 
-# Or from repo root
-go run ./cmd/generate-bridge \
-  -input vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.go \
-  -header vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h \
-  -bridge pkg/gpu/mocknvml/bridge \
-  -output pkg/gpu/mocknvml/bridge/stubs_generated.go
+# Or by hand, resolving the module cache path yourself
+go mod download github.com/NVIDIA/go-nvml
+export GO_NVML_DIR=$(go list -m -f '{{.Dir}}' github.com/NVIDIA/go-nvml)
+cd pkg/gpu/mocknvml/bridge && go generate
 ```
 
 When adding new NVML function implementations, add them to the appropriate
@@ -678,7 +675,7 @@ make -C pkg/gpu/mocknvml clean
 make -C pkg/gpu/mocknvml
 
 # Regenerate bridge if needed
-go run ./cmd/generate-bridge
+make gen
 ```
 
 ## Contributing

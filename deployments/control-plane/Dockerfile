@@ -20,13 +20,23 @@
 
 ARG GOLANG_VERSION=1.26.6
 FROM golang:${GOLANG_VERSION}-bookworm AS builder
+# Dependency resolution mirrors deployments/nvml-mock/Dockerfile: public by
+# default, Artifactory when the build supplies GOPROXY and mounts the
+# credential. See that file's header for why it arrives as a secret.
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY} \
+    GOSUMDB=sum.golang.org \
+    GONOPROXY=none \
+    GOTOOLCHAIN=local
 WORKDIR /src
 COPY go.mod go.sum ./
-COPY vendor/ vendor/
+RUN --mount=type=secret,id=goauth,mode=0500 \
+    if [ -f /run/secrets/goauth ]; then export GOAUTH=/run/secrets/goauth; fi; \
+    go mod download
 COPY pkg/ pkg/
 COPY internal/ internal/
 COPY cmd/ cmd/
-RUN CGO_ENABLED=0 go build -mod=vendor \
+RUN CGO_ENABLED=0 go build \
     -ldflags="-s -w" \
     -o /dist/control-plane ./cmd/control-plane
 

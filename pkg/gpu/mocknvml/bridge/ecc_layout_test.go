@@ -57,7 +57,7 @@ func TestECCStructLayouts(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Equal(t, tc.expected, tc.goSize,
-				"%s: go-nvml = %d bytes, C layout expects %d bytes — ABI drift; update either go-nvml vendor or nvml_types.h",
+				"%s: go-nvml = %d bytes, C layout expects %d bytes — ABI drift; update either the go-nvml version or nvml_types.h",
 				tc.name, tc.goSize, tc.expected)
 		})
 	}
@@ -81,6 +81,6 @@ func TestEccSramErrorStatusVersion_MatchesGoNvml(t *testing.T) {
 	ours := sramEccErrorStatusVersion()
 	require.Equal(t, theirs, ours,
 		"bridge demands 0x%x, a go-nvml caller stamps 0x%x — every SRAM query would answer "+
-			"ARGUMENT_VERSION_MISMATCH; reconcile nvml_types.h with the vendored go-nvml struct",
+			"ARGUMENT_VERSION_MISMATCH; reconcile nvml_types.h with the go-nvml struct",
 		ours, theirs)
 }

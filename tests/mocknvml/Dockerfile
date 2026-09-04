@@ -14,13 +14,23 @@
 ARG GOLANG_VERSION=1.26.6
 # Named by both the build and the runtime stage.
 ARG LIB_VERSION=550.54.15
+ARG GOPROXY=https://proxy.golang.org,direct
 FROM golang:${GOLANG_VERSION} AS lib-builder
+
+ARG GOPROXY
+ENV GOPROXY=${GOPROXY} \
+    GOSUMDB=sum.golang.org \
+    GONOPROXY=none \
+    GOTOOLCHAIN=local
 
 WORKDIR /build
 
-# Copy the entire repo to build the mock library
+# The mock library is a cgo build against the root module, so it needs the root
+# module's dependency graph, not this sub-module's.
 COPY go.mod go.sum ./
-COPY vendor/ ./vendor/
+RUN --mount=type=secret,id=goauth,mode=0500 \
+    if [ -f /run/secrets/goauth ]; then export GOAUTH=/run/secrets/goauth; fi; \
+    go mod download
 COPY pkg/ ./pkg/
 COPY cmd/ ./cmd/
 
@@ -36,11 +46,19 @@ RUN make clean && make LIB_VERSION=${LIB_VERSION} BUILD_TAGS=nopadding
 # Build the test binary
 FROM golang:${GOLANG_VERSION} AS test-builder
 
+ARG GOPROXY
+ENV GOPROXY=${GOPROXY} \
+    GOSUMDB=sum.golang.org \
+    GONOPROXY=none \
+    GOTOOLCHAIN=local
+
 WORKDIR /build
 
 # Copy the test code
 COPY tests/mocknvml/go.mod tests/mocknvml/go.sum* ./
-RUN go mod download
+RUN --mount=type=secret,id=goauth,mode=0500 \
+    if [ -f /run/secrets/goauth ]; then export GOAUTH=/run/secrets/goauth; fi; \
+    go mod download
 
 COPY tests/mocknvml/*.go ./
 RUN CGO_ENABLED=1 go build -o mocknvml-test .

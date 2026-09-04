@@ -38,6 +38,8 @@ concurrency:
 
 permissions:
   contents: read
+  # Mints the short-lived Artifactory token for the Go proxy.
+  id-token: write
 
 on:
   workflow_call:
@@ -97,6 +99,14 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
 
+      # A BuildKit stage cannot read the runner's GOAUTH helper, so the minted
+      # credential is handed to it as a secret below. No setup-go here: the
+      # action shells out to curl and jq, and the builder brings its own Go.
+      - name: Configure the DGXC Go proxy
+        uses: ./.github/actions/setup-dgxc-goproxy
+        with:
+          mode: routed
+
       - name: Build nvml-mock image to a tarball
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
         with:
@@ -107,8 +117,13 @@ jobs:
           # type=docker bakes the tag into the tarball, so a plain `docker load`
           # in each leg yields E2E_IMAGE with no re-tagging.
           outputs: type=docker,dest=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }}
+          # `routed` rather than the release path's `enforced`: a coordinate
+          # Artifactory cannot serve falls through instead of failing every PR.
           build-args: |
             GOLANG_VERSION=${{ env.GO_VERSION }}
+            GOPROXY=https://edge.urm.nvidia.com/artifactory/api/go/dgxc-go-virtual,direct
+          secret-files: |
+            goauth=${{ runner.temp }}/dgxc-goauth
           cache-from: type=gha,scope=nvml-mock
           cache-to: type=gha,mode=max,scope=nvml-mock
 
@@ -126,6 +141,10 @@ jobs:
           if-no-files-found: error
           # Buildx's docker exporter already writes gzipped layers.
           compression-level: 0
+
+      - name: Remove the proxy credential
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
 
   # Build the custom kind-node image (kindest/node + nvidia-container-toolkit)
   # once per commit for the standalone `e2e` pilot, and share it the same way
@@ -250,6 +269,19 @@ jobs:
         # become ready, then exits 0/1.
         run: tilt ci -- --gpu-profile="${{ matrix.gpu-profile }}" --nvmlmock-image="$E2E_IMAGE"
 
+      # Deliberately here rather than beside `Install Go`: the minted token lasts
+      # ~15 minutes and the Tilt rollout above routinely outlives that, so an
+      # earlier mint would meet an expired credential on a cache miss. The Ginkgo
+      # suites are the only Go resolution on the runner; images come from BuildKit,
+      # which this credential cannot reach.
+      - name: Configure the DGXC Go proxy
+        uses: ./.github/actions/setup-dgxc-goproxy
+        with:
+          mode: routed
+
+      - name: Assert the proxy is actually in front
+        run: ./hack/check-goproxy.sh
+
       - name: Run E2E (${{ matrix.gpu-profile }})
         # Attach mode: Ginkgo does NOT create a cluster, does NOT install helm,
         # does NOT kind-load; it just wires kube/helm clients to the existing
@@ -271,6 +303,10 @@ jobs:
           else
             echo "no diagnostics written"
           fi
+
+      - name: Remove the proxy credential
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
 
   e2e-dra:
     needs: [build-nvmlmock-image, build-kind-node-image]
@@ -337,6 +373,14 @@ jobs:
       - name: Roll out nvml-mock + DRA driver via Tilt (${{ matrix.gpu-profile }})
         run: tilt ci -- --gpu-profile="${{ matrix.gpu-profile }}" --dra --nvmlmock-image="$E2E_IMAGE"
 
+      - name: Configure the DGXC Go proxy
+        uses: ./.github/actions/setup-dgxc-goproxy
+        with:
+          mode: routed
+
+      - name: Assert the proxy is actually in front
+        run: ./hack/check-goproxy.sh
+
       - name: Run DRA E2E (${{ matrix.gpu-profile }})
         env:
           E2E_PROFILES: ${{ matrix.gpu-profile }}
@@ -355,6 +399,10 @@ jobs:
           else
             echo "no diagnostics written"
           fi
+
+      - name: Remove the proxy credential
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
 
   e2e-gpu-operator:
     needs: [build-nvmlmock-image, build-kind-node-image]
@@ -421,6 +469,14 @@ jobs:
       - name: Roll out nvml-mock + GPU Operator via Tilt (${{ matrix.gpu-profile }})
         run: tilt ci -- --gpu-profile="${{ matrix.gpu-profile }}" --gpu-operator --nvmlmock-image="$E2E_IMAGE"
 
+      - name: Configure the DGXC Go proxy
+        uses: ./.github/actions/setup-dgxc-goproxy
+        with:
+          mode: routed
+
+      - name: Assert the proxy is actually in front
+        run: ./hack/check-goproxy.sh
+
       - name: Run GPU Operator E2E (${{ matrix.gpu-profile }})
         env:
           E2E_PROFILES: ${{ matrix.gpu-profile }}
@@ -439,6 +495,10 @@ jobs:
           else
             echo "no diagnostics written"
           fi
+
+      - name: Remove the proxy credential
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
 
   e2e-multi-node:
     needs: [build-nvmlmock-image, build-kind-node-image]
@@ -501,6 +561,14 @@ jobs:
       - name: Roll out heterogeneous nvml-mock fleet via Tilt
         run: tilt ci -- --multi-gpu-profile --nvmlmock-image="$E2E_IMAGE"
 
+      - name: Configure the DGXC Go proxy
+        uses: ./.github/actions/setup-dgxc-goproxy
+        with:
+          mode: routed
+
+      - name: Assert the proxy is actually in front
+        run: ./hack/check-goproxy.sh
+
       - name: Run multi-node E2E
         env:
           E2E_KUBE_CONTEXT: kind-mokka
@@ -518,6 +586,10 @@ jobs:
           else
             echo "no diagnostics written"
           fi
+
+      - name: Remove the proxy credential
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
 
   e2e-nri:
     needs: [build-nvmlmock-image, build-kind-node-image]
@@ -588,6 +660,14 @@ jobs:
         # level (see local/kind/default.kind.yaml).
         run: tilt ci -- --gpu-profile="${{ matrix.gpu-profile }}" --nvmlmock-image="$E2E_IMAGE"
 
+      - name: Configure the DGXC Go proxy
+        uses: ./.github/actions/setup-dgxc-goproxy
+        with:
+          mode: routed
+
+      - name: Assert the proxy is actually in front
+        run: ./hack/check-goproxy.sh
+
       - name: Run node-wide NRI injection E2E (${{ matrix.gpu-profile }})
         env:
           E2E_PROFILES: ${{ matrix.gpu-profile }}
@@ -606,6 +686,10 @@ jobs:
           else
             echo "no diagnostics written"
           fi
+
+      - name: Remove the proxy credential
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
 
   e2e-nfd:
     needs: [build-nvmlmock-image, build-kind-node-image]
@@ -681,6 +765,14 @@ jobs:
         # the provenance check.
         run: tilt ci -- --gpu-profile="${{ matrix.gpu-profile }}" --nvmlmock-image="$E2E_IMAGE"
 
+      - name: Configure the DGXC Go proxy
+        uses: ./.github/actions/setup-dgxc-goproxy
+        with:
+          mode: routed
+
+      - name: Assert the proxy is actually in front
+        run: ./hack/check-goproxy.sh
+
       - name: Run NFD label-provenance E2E (${{ matrix.gpu-profile }})
         env:
           E2E_PROFILES: ${{ matrix.gpu-profile }}
@@ -699,3 +791,7 @@ jobs:
           else
             echo "no diagnostics written"
           fi
+
+      - name: Remove the proxy credential
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/dgxc-goauth"

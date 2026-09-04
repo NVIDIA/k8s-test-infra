@@ -13,7 +13,7 @@
 
 // Layout tests for the fabric structs the bridge writes into.
 //
-// These pin the sizes of the vendored go-nvml fabric structs against
+// These pin the sizes of the go-nvml fabric structs against
 // constants that document the hand-written C layouts in nvml_types.h.
 // If go-nvml ever bumps a struct in a way that diverges from the C
 // layout, the bridge would silently write the wrong bytes into a
@@ -69,7 +69,7 @@ func TestFabricStructLayouts(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Equal(t, tc.expected, tc.goSize,
-				"%s: go-nvml = %d bytes, C layout expects %d bytes — ABI drift; update either go-nvml vendor or nvml_types.h",
+				"%s: go-nvml = %d bytes, C layout expects %d bytes — ABI drift; update either the go-nvml version or nvml_types.h",
 				tc.name, tc.goSize, tc.expected)
 		})
 	}

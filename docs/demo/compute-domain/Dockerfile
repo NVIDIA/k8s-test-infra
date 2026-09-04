@@ -30,9 +30,9 @@ RUN export DEBIAN_FRONTEND=noninteractive \
 FROM golang:${GOLANG_VERSION} AS shim
 WORKDIR /src
 COPY go.mod go.sum ./
-COPY vendor/ vendor/
+RUN go mod download
 COPY shims/nvidia-imex-shim/ shims/nvidia-imex-shim/
-RUN CGO_ENABLED=0 go build -mod=vendor -o /out/nvidia-imex-shim ./shims/nvidia-imex-shim
+RUN CGO_ENABLED=0 go build -o /out/nvidia-imex-shim ./shims/nvidia-imex-shim
 
 # Retain the package configuration and runtime dependencies while replacing
 # the daemon entry point with the NO GPU mode shim.
