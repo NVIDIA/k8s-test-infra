@@ -37,7 +37,9 @@ import (
 // A device with nothing injected is reset without touching the file at all — no
 // write and no lock. That is not just an optimisation: resetting a healthy device
 // is the common case, and skipping the write keeps it working where the overrides
-// are not writable. Only a reset that genuinely has state to clear can fail.
+// are not writable. An unresolvable path is not that case: without a known
+// overrides file the injected state is unknown and the reset must fail rather
+// than succeed silently.
 func ResetDevice(path string, index int) error {
 	if path == "" {
 		// An unresolvable config is not "nothing was injected", it is "the
