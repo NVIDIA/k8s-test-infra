@@ -120,6 +120,9 @@ commands:
 global flags:
   --file    config override path (default $MOCK_NVML_OVERRIDES or /var/lib/nvml-mock/driver/config/overrides.yaml)
   --config  config path for UUID resolution/validation (default $MOCK_NVML_CONFIG or /var/lib/nvml-mock/driver/config/config.yaml)
+  --kmsg    kernel log an injected Xid is announced on, as the driver would
+            (default $MOCK_NVML_KMSG or /dev/kmsg; '' disables). Requires a
+            container that can write it; skipped when the log is absent.
 ```
 
 ### Targeting: `--gpu <idx|all|uuid>`
@@ -148,7 +151,42 @@ Sets the `failure` block for the target. Modes:
   (omit for "trip on first guarded call").
 - `--xid CODE` — surface this Xid code through the NVML event set once the
   device trips (delivered for any tripped failure mode with a Xid configured,
-  e.g. `--mode ecc_uncorrectable --xid 79`).
+  e.g. `--mode ecc_uncorrectable --xid 79`), **and** announce it on the node's
+  kernel log — see below.
+
+#### Xid on the kernel log
+
+A real driver raises an Xid with a kernel printk, and the agents that watch for
+Xids read that line rather than NVML: some scan `/dev/kmsg` directly, while
+NVSentinel's syslog monitor reads the journal, admitting only kernel-transport
+entries. So `--xid` also writes the driver's line to `--kmsg` (default
+`/dev/kmsg`), once per targeted GPU:
+
+```text
+kernel: NVRM: Xid (PCI:0000:1A:00): 79
+```
+
+The PCI address comes from the profile — the same one NVML reports — so the
+kernel line and the NVML event name the same device. Recovery announces nothing:
+`--mode healthy` clears the injection, but kernel logs never retract an Xid.
+
+Announcing is best-effort and never fails the injection. A node whose kernel log
+is missing or unwritable (an unprivileged container, a non-Linux host) keeps the
+NVML side and reports the skip on stderr. Pass `--kmsg ''` to opt out.
+
+Two node-level requirements, neither of which `nvml-mock-ctl` can arrange:
+
+- the container it runs in must be able to write `/dev/kmsg`. Mounting the
+  device is not sufficient: the container device cgroup rejects the write
+  (`operation not permitted`) even for root with the node's world-writable
+  `/dev/kmsg` bind-mounted, so it takes a **privileged** container. The
+  DaemonSet's `node-agent` is unprivileged by design, so from there the
+  announcement is skipped — to reach the node's kernel log, run the command
+  from a privileged pod, or on Kind `docker exec` into the node;
+- for journal-based consumers, journald must ingest the kernel ring buffer
+  (`ReadKMsg=yes`) and keep the journal where the consumer looks. Kind's node
+  image sets `ReadKMsg=no` and keeps a volatile journal, so a Kind cluster needs
+  a `journald` drop-in with `Storage=persistent` and `ReadKMsg=yes`.
 
 `fail --mode healthy` is how you *recover* a single device (it deletes the
 `failure` block from that bucket). See the failure-injection section of the
@@ -427,6 +465,9 @@ All examples assume `$POD` is set as shown in [Where it runs](#where-it-runs).
 kubectl -n mokka exec "$POD" -- nvml-mock-ctl fail --gpu 0 --mode ecc_uncorrectable --after-calls 1 --xid 79
 # verify from any consumer pod:
 kubectl exec <consumer> -- nvidia-smi --query-gpu=ecc.errors.uncorrected.aggregate.total --format=csv,noheader
+# the same Xid on the node's kernel log (Kind; read it on the node itself,
+# since the DaemonSet's containers cannot reach /dev/kmsg):
+docker exec <node> sh -c 'dmesg | grep "NVRM: Xid"'
 ```
 
 ```bash
@@ -520,6 +561,12 @@ kubectl -n mokka delete pod "$POD"
   (no `uuid:` in the profile). Target it by index instead.
 - **Nothing changed on other nodes.** Scope is per-node. Repeat the command
   against each node's DaemonSet pod.
+- **The Xid isn't in the kernel log.** `fail --xid` reports on stderr when it
+  could not announce. No PCI address means `--config` did not load (the profile
+  is what maps an index to a BDF); no write means the container has no writable
+  `/dev/kmsg`. If `dmesg` shows the line but a journal consumer does not see it,
+  the node's journald is dropping kernel messages — see
+  [Xid on the kernel log](#xid-on-the-kernel-log).
 - **An identity field didn't change.** Device `name`, `architecture`, `brand`,
   `compute_capability`, `uuid`, and PCI `bus_id` are baked at construction and
   are not hot-reloadable in v1. Change the profile/Helm values and restart the

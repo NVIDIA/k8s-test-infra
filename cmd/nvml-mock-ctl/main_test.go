@@ -45,6 +45,94 @@ func TestCLI_FailWritesConfigOverride(t *testing.T) {
 	require.Contains(t, readConfigOverride(t, configOverride), "ecc_uncorrectable")
 }
 
+// writeConfig lays down a two-GPU profile so --gpu can be resolved to a PCI
+// address, which the kernel-log side of an Xid injection needs.
+func writeConfig(t *testing.T, dir string) string {
+	t.Helper()
+	path := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`version: "1.0"
+system:
+  driver_version: "550.163.01"
+devices:
+  - index: 0
+    uuid: "GPU-12345678-1234-1234-1234-123456780000"
+    pci:
+      bus_id: "0000:1A:00.0"
+  - index: 1
+    uuid: "GPU-12345678-1234-1234-1234-123456780001"
+    pci:
+      bus_id: "0000:1B:00.0"
+`), 0o644))
+	return path
+}
+
+// fakeKernelLog stands in for a node's /dev/kmsg.
+func fakeKernelLog(t *testing.T, dir string) string {
+	t.Helper()
+	path := filepath.Join(dir, "kmsg")
+	require.NoError(t, os.WriteFile(path, nil, 0o644))
+	return path
+}
+
+func TestCLI_FailWithXidAnnouncesItOnTheKernelLog(t *testing.T) {
+	dir := t.TempDir()
+	configOverride := filepath.Join(dir, "overrides.yaml")
+	kmsg := fakeKernelLog(t, dir)
+
+	_, e, c := runCLI(t, configOverride, "fail", "--gpu", "0", "--mode", "ecc_uncorrectable",
+		"--xid", "79", "--config", writeConfig(t, dir), "--kmsg", kmsg)
+	require.Equalf(t, 0, c, "fail exited %d: %s", c, e)
+
+	require.Equal(t, "kernel: NVRM: Xid (PCI:0000:1A:00): 79\n", readConfigOverride(t, kmsg),
+		"the injected Xid must reach the kernel log with the target GPU's PCI address")
+}
+
+func TestCLI_FailAllAnnouncesEveryGPU(t *testing.T) {
+	dir := t.TempDir()
+	configOverride := filepath.Join(dir, "overrides.yaml")
+	kmsg := fakeKernelLog(t, dir)
+
+	_, e, c := runCLI(t, configOverride, "fail", "--gpu", "all", "--mode", "fallen_off_bus",
+		"--xid", "79", "--config", writeConfig(t, dir), "--kmsg", kmsg)
+	require.Equalf(t, 0, c, "fail exited %d: %s", c, e)
+
+	require.Equal(t,
+		"kernel: NVRM: Xid (PCI:0000:1A:00): 79\nkernel: NVRM: Xid (PCI:0000:1B:00): 79\n",
+		readConfigOverride(t, kmsg))
+}
+
+func TestCLI_FailWithoutXidLeavesTheKernelLogAlone(t *testing.T) {
+	dir := t.TempDir()
+	configOverride := filepath.Join(dir, "overrides.yaml")
+	kmsg := fakeKernelLog(t, dir)
+	config := writeConfig(t, dir)
+
+	// No --xid: nothing to announce.
+	_, e, c := runCLI(t, configOverride, "fail", "--gpu", "0", "--mode", "lost",
+		"--config", config, "--kmsg", kmsg)
+	require.Equalf(t, 0, c, "fail exited %d: %s", c, e)
+
+	// healthy clears an injection, and kernel logs never retract an Xid.
+	_, e, c = runCLI(t, configOverride, "fail", "--gpu", "0", "--mode", "healthy",
+		"--xid", "79", "--config", config, "--kmsg", kmsg)
+	require.Equalf(t, 0, c, "fail healthy exited %d: %s", c, e)
+
+	require.Empty(t, readConfigOverride(t, kmsg))
+}
+
+func TestCLI_FailWithXidSucceedsWithoutAKernelLog(t *testing.T) {
+	dir := t.TempDir()
+	configOverride := filepath.Join(dir, "overrides.yaml")
+	absent := filepath.Join(dir, "no-kmsg")
+
+	_, e, c := runCLI(t, configOverride, "fail", "--gpu", "0", "--mode", "ecc_uncorrectable",
+		"--xid", "79", "--config", writeConfig(t, dir), "--kmsg", absent)
+	require.Equalf(t, 0, c, "fail exited %d: %s", c, e)
+	require.Contains(t, readConfigOverride(t, configOverride), "code: 79",
+		"the NVML side of the injection must land even with no kernel log")
+	require.NoFileExists(t, absent)
+}
+
 func TestCLI_SetRejectsUnknownField(t *testing.T) {
 	dir := t.TempDir()
 	configOverride := filepath.Join(dir, "overrides.yaml")

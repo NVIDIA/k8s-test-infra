@@ -93,12 +93,15 @@ commands:
 global flags:
   --file    config override path (default $MOCK_NVML_OVERRIDES or `+defaultConfigOverride+`)
   --config  config path for UUID resolution/validation (default $MOCK_NVML_CONFIG or `+defaultConfig+`)
+  --kmsg    kernel log an injected Xid is announced on, as the driver would
+            (default $MOCK_NVML_KMSG or `+mockctl.DefaultKernelLog+`; '' disables). Requires a
+            container that can write it; skipped when the log is absent.
 `)
 }
 
 //nolint:cyclop // existing complexity; refactor deferred
 func run(args []string, stdout, stderr io.Writer) int {
-	var configOverridePath, configPath, gpu, mode, links, socket string
+	var configOverridePath, configPath, kmsgPath, gpu, mode, links, socket string
 	var sramErrorType, sramSource string
 	var sramThresholdExceeded bool
 	var afterCalls int
@@ -110,6 +113,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.Usage = func() {} // usage printed explicitly below so it isn't duplicated
 	fs.StringVar(&configOverridePath, "file", envOr("MOCK_NVML_OVERRIDES", defaultConfigOverride), "config override path")
 	fs.StringVar(&configPath, "config", envOr("MOCK_NVML_CONFIG", defaultConfig), "config path")
+	fs.StringVar(&kmsgPath, "kmsg", envOr("MOCK_NVML_KMSG", mockctl.DefaultKernelLog),
+		"kernel log to announce injected Xids on ('' disables)")
 	fs.StringVar(&gpu, "gpu", "", "target: index, 'all', or UUID")
 	fs.StringVar(&mode, "mode", "", "failure mode (fail command)")
 	fs.IntVar(&afterCalls, "after-calls", 0, "trip after N guarded calls (fail)")
@@ -170,7 +175,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "fail", "temp", "temperature", "power", "fan", "util", "utilization",
 		"clocks", "throttle", "pstate", "nvlink-error", "sram-ecc", "fabric-health", "set", "reset":
 		sram := sramECCOptions{errorType: sramErrorType, source: sramSource, thresholdExceeded: sramThresholdExceeded}
-		return mutate(cmd, configOverridePath, gpu, mode, links, afterCalls, xid, positional, sram, cfg, base, stdout, stderr)
+		return mutate(cmd, configOverridePath, kmsgPath, gpu, mode, links, afterCalls, xid,
+			positional, sram, cfg, base, stdout, stderr)
 	case "watch-allocations":
 		return doWatchAllocations(configOverridePath, socket, interval, usedFraction, cfg, stdout, stderr)
 	default:
@@ -190,7 +196,7 @@ type sramECCOptions struct {
 }
 
 //nolint:cyclop // existing complexity; refactor deferred
-func mutate(cmd, configOverridePath, gpu, mode, links string, afterCalls int, xid uint64,
+func mutate(cmd, configOverridePath, kmsgPath, gpu, mode, links string, afterCalls int, xid uint64,
 	positional []string, sram sramECCOptions, cfg *engine.Config, base *engine.DeviceConfig, stdout, stderr io.Writer,
 ) int {
 	if gpu == "" && cmd != "reset" {
@@ -375,7 +381,62 @@ func mutate(cmd, configOverridePath, gpu, mode, links string, afterCalls int, xi
 		return 1
 	}
 	fprintf(stdout, "ok: %s applied to %s\n", cmd, gpuLabel(gpu))
+
+	// Announced only once the override is on disk, so a failed injection never
+	// leaves a phantom Xid in the kernel log. Healthy clears an injection and
+	// kernel logs never retract an Xid, so that mode announces nothing.
+	if cmd == "fail" && xid > 0 && mode != engine.FailureModeHealthy {
+		announceXid(kmsgPath, xid, target, cfg, stdout, stderr)
+	}
+
 	return 0
+}
+
+// announceXid puts the injected Xid in the node's kernel log, where agents that
+// watch kernel messages rather than NVML will see it. Every outcome is
+// best-effort: the NVML side of the injection has already succeeded, so nothing
+// here changes the exit code.
+func announceXid(kmsgPath string, xid uint64, target mockctl.Target, cfg *engine.Config, stdout, stderr io.Writer) {
+	busIDs := targetBusIDs(target, cfg)
+	if len(busIDs) == 0 {
+		fprintf(stderr, "warning: no PCI address for the targeted GPU(s); the Xid was not announced on %s\n", kmsgPath)
+		return
+	}
+
+	wrote, err := mockctl.EmitXid(kmsgPath, busIDs, xid)
+	switch {
+	case err != nil:
+		fprintf(stderr, "warning: could not announce Xid %d on %s: %v\n", xid, kmsgPath, err)
+	case wrote:
+		fprintf(stdout, "ok: Xid %d announced on %s for PCI %s\n", xid, kmsgPath, strings.Join(busIDs, ", "))
+	}
+}
+
+// targetBusIDs lists the PCI addresses an injection applies to. The addresses
+// come from the pristine profile, the same source the running mock reports
+// through NVML, so a kernel line and an NVML event name the same device.
+func targetBusIDs(target mockctl.Target, cfg *engine.Config) []string {
+	if cfg == nil {
+		return nil
+	}
+
+	indexes := []int{target.Index}
+	if target.All {
+		indexes = make([]int, 0, cfg.NumDevices)
+		for i := range cfg.NumDevices {
+			indexes = append(indexes, i)
+		}
+	}
+
+	busIDs := make([]string, 0, len(indexes))
+
+	for _, index := range indexes {
+		if busID := cfg.GetDevicePCIBusID(index); busID != "" {
+			busIDs = append(busIDs, busID)
+		}
+	}
+
+	return busIDs
 }
 
 // applyPatch validates a convenience-command patch against the device schema
