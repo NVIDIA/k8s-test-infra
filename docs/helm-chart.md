@@ -223,6 +223,10 @@ kubectl rollout status daemonset/nvml-mock --timeout=60s
 helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
 helm repo update
 
+# The kubelet plugin's node affinity requires a GPU-presence label. NFD derives
+# one from the feature file nvml-mock writes; without NFD, set it by hand.
+kubectl label node --all nvidia.com/gpu.present=true
+
 helm install nvidia-dra-driver nvidia/nvidia-dra-driver-gpu \
   --namespace nvidia \
   --create-namespace \
