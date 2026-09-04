@@ -160,24 +160,32 @@ devices:
 	require.Equal(t, 3, config.NumDevices, "Expected NumDevices=3 from device list")
 }
 
-func TestDiscoverConfigPath_NonLinux(t *testing.T) {
+func TestDiscoverConfigPathFromMaps_NonLinux(t *testing.T) {
 	if runtime.GOOS == "linux" {
 		t.Skip("Test only applies to non-Linux platforms")
 	}
-	result := discoverConfigPath()
+	result := discoverConfigPathFromMaps()
 	require.Empty(t, result, "Expected empty string on non-Linux")
 }
 
-func TestDiscoverConfigPath_Linux(t *testing.T) {
+func TestDiscoverConfigPathFromMaps_Linux(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("Test only applies to Linux")
 	}
 	// On Linux without a mock .so loaded, should return empty
-	result := discoverConfigPath()
+	result := discoverConfigPathFromMaps()
 	require.Empty(t, result, "Expected empty string when no libnvidia-ml.so is mapped")
 }
 
 func TestLoadConfig_AutoDiscoverFallback(t *testing.T) {
+	// A real config at a chroot fallback path legitimately displaces the
+	// compiled-in defaults this test is about (e.g. inside the nvml-mock image).
+	for _, p := range chrootConfigPaths {
+		if _, err := os.Stat(p); err == nil {
+			t.Skipf("chroot fallback config exists at %s", p)
+		}
+	}
+
 	// When MOCK_NVML_CONFIG is not set and auto-discovery fails,
 	// should fall back to env vars / defaults
 	ClearConfigCache()
