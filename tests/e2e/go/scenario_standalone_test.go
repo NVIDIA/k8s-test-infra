@@ -72,6 +72,15 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				assertions.DevicePluginMockFiles(ctx, h.Kube, pod, p.ExpectedGPUs())
 			})
 
+			It("stages module params nvidia-modprobe can read", Label("procfs"), func(ctx SpecContext) {
+				// The file shipped inert: prefixed key names matched nothing in
+				// nvidia-modprobe, below a line that ended its scan anyway. It
+				// went unnoticed because the parser's own defaults equal the
+				// values it meant to report, so only a check that parses the
+				// file the way the consumer does can tell the two apart.
+				assertions.ProcFSDeviceFileParams(ctx, h.Kube, pod, p)
+			})
+
 			It("reports the profile GPUs via nvidia-smi", Label("nvidia-smi"), func(ctx SpecContext) {
 				nvidiasmi.Inventory(ctx, h.Kube, pod, p)
 			})
