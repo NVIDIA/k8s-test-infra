@@ -63,9 +63,10 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 # per profile (h100 slows down at 87C, gb300 at 90C), so this is set well clear
 # of every profile rather than tuned to one board.
 : "${HOT_TEMP_C:=142}"
-# Phase 3 (GPU reset remediation) is opt-in: it enables the janitor and waits on
-# a GPU Operator operand teardown/restore cycle, which roughly doubles the run.
-: "${GPU_RESET:=false}"
+# Phase 3 (GPU reset remediation) waits on a GPU Operator operand
+# teardown/restore cycle, which roughly doubles the run. Set GPU_RESET=false to
+# stop after the thermal phases.
+: "${GPU_RESET:=true}"
 # GPU to fault for the reset. Deliberately not TARGET_GPU: phase 1 and 2 leave
 # that one's history in the datastore, and a fresh GPU keeps the equivalence
 # group for this fault unambiguous.
@@ -306,7 +307,7 @@ fi
 observe kubectl_ctx get nodes
 
 # ==============================================================================
-# PHASE 3 — REMEDIATE IN PLACE: NVSentinel resets the GPU (opt-in)
+# PHASE 3 — REMEDIATE IN PLACE: NVSentinel resets the GPU
 # ==============================================================================
 # An uncorrectable ECC error is a resettable fault: DCGM reports
 # DCGM_FR_VOLATILE_DBE_DETECTED, which NVSentinel maps to COMPONENT_RESET, and
@@ -408,7 +409,7 @@ if [[ "${GPU_RESET}" == "true" ]]; then
     warn "GPU ${RESET_GPU} still carries its injected fault: the reset reported success but cleared nothing"
   fi
 else
-  info "PHASE 3 (GPU reset remediation) skipped; set GPU_RESET=true to run it"
+  info "PHASE 3 (GPU reset remediation) skipped by GPU_RESET=false"
 fi
 
 # --- Summary ------------------------------------------------------------------

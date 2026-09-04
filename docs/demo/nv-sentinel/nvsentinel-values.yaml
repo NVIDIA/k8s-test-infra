@@ -75,7 +75,7 @@ global:
     enabled: true
   nodeDrainer:
     enabled: true
-  # Reset remediation stays armed on every install, not just GPU_RESET=true
+  # Reset remediation stays armed on every install, including GPU_RESET=false
   # runs, so that reusing a cluster does not churn the release. The trade-off:
   # an ECC fault left in a node's overrides.yaml by an interrupted run is still
   # a real fault, and NVSentinel will remediate it on the next install. Use
@@ -209,7 +209,7 @@ mongodb-store:
         # No Prometheus Operator in this demo, so the metrics sidecar is dead weight.
         sidecars: []
 
-# --- GPU reset remediation (demo Phase 3, GPU_RESET=true) --------------------
+# --- GPU reset remediation (demo Phase 3) ------------------------------------
 # Enabling these turns a resettable GPU fault into an in-place GPU reset instead
 # of leaving the node cordoned. fault-remediation writes a GPUReset CR, the
 # janitor tears down the GPU Operator operands on that node, runs NVIDIA's own

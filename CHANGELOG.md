@@ -67,8 +67,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a follow-up. (#712)
 
 ### Added
-- demo: the NVSentinel demo can now drive GPU reset remediation end to end
-  (`GPU_RESET=true`). An uncorrectable ECC error on a mock GPU becomes a
+- demo: the NVSentinel demo now drives GPU reset remediation end to end, and
+  `GPU_RESET=false` skips it. An uncorrectable ECC error on a mock GPU becomes a
   `COMPONENT_RESET` health event, a `GPUReset` custom resource, and a privileged
   reset Job running NVIDIA's own `gpu-reset` image against the mock driver root.
 - The node agent gains `pcibus`, `cdi` and `imex` simulators, each an

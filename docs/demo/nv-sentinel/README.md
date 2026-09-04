@@ -99,7 +99,8 @@ rebuild from scratch. Useful overrides: `GPU_PROFILE`, `HOT_TEMP_C`, `TARGET_GPU
    workload reschedules to the other worker.
 8. **Phase 2 — auto-recover** — clears the temperature override and waits for
    NVSentinel to uncordon the node. No DCGM restart is involved.
-9. **Phase 3 — remediate in place** (opt-in, `GPU_RESET=true`) — injects an
+9. **Phase 3 — remediate in place** (set `GPU_RESET=false` to skip; it roughly
+   doubles the run) — injects an
    uncorrectable ECC error on a second GPU. DCGM reports
    `DCGM_FR_VOLATILE_DBE_DETECTED`, which NVSentinel maps to `COMPONENT_RESET`;
    `fault-remediation` writes a `GPUReset`, and the janitor tears down the GPU
