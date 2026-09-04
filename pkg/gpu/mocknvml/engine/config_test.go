@@ -217,3 +217,47 @@ devices:
 	require.Len(t, d2.Processes, 1, "device 2 (inherit) len")
 	require.Equal(t, uint32(1), d2.Processes[0].PID, "device 2 (inherit) PID")
 }
+
+// A device listed for its PCI identity alone must still report the minor the
+// driver would give it. Reporting 0 for every such device puts
+// nvmlDeviceGetMinorNumber at odds with /dev/nvidiaN and with
+// /proc/driver/nvidia/gpus/<BDF>/information, so PCI-to-device resolution
+// disagrees depending on which path the consumer took.
+func TestGetDeviceMinorNumber_DefaultsToIndex(t *testing.T) {
+	const y = `
+devices:
+  - index: 0
+    pci: {bus_id: "0000:07:00.0"}
+  - index: 1
+    pci: {bus_id: "0000:0F:00.0"}
+  - index: 2
+    pci: {bus_id: "0000:47:00.0"}
+`
+	var yc YAMLConfig
+	require.NoError(t, yaml.Unmarshal([]byte(y), &yc), "yaml decode")
+	c := &Config{YAMLConfig: &yc}
+
+	require.Equal(t, 0, c.GetDeviceMinorNumber(0))
+	require.Equal(t, 1, c.GetDeviceMinorNumber(1))
+	require.Equal(t, 2, c.GetDeviceMinorNumber(2))
+	// No entry at all already fell back to the index.
+	require.Equal(t, 5, c.GetDeviceMinorNumber(5))
+}
+
+// An explicit minor_number still wins, so a profile can reproduce the minor
+// gaps a node with excluded GPUs shows.
+func TestGetDeviceMinorNumber_ExplicitOverride(t *testing.T) {
+	const y = `
+devices:
+  - index: 0
+    minor_number: 3
+  - index: 1
+    minor_number: 9
+`
+	var yc YAMLConfig
+	require.NoError(t, yaml.Unmarshal([]byte(y), &yc), "yaml decode")
+	c := &Config{YAMLConfig: &yc}
+
+	require.Equal(t, 3, c.GetDeviceMinorNumber(0))
+	require.Equal(t, 9, c.GetDeviceMinorNumber(1))
+}

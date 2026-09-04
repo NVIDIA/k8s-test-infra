@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- node-agent: `/proc/driver/nvidia/params` now carries the key names
+  `nvidia-modprobe` matches, in an order that keeps them reachable. The file was
+  inert: its eight keys carried an `NVreg_` prefix that only the modprobe
+  parameter names have — procfs reports the resolved value under the bare name —
+  and the empty-valued `NVreg_RegistryDwords` on line 2 ended the `fscanf` loop
+  that reads it, stranding every key below. Nothing broke because
+  `nvidia-modprobe` initialises to the same values the file meant to state, so
+  the defaults happened to be right. Ordering is load-bearing rather than
+  cosmetic, and for two reasons, not one: a value that is not a bare unsigned
+  integer ends the scan, and so does a name past the 31-character field width,
+  which `InitializeSystemMemoryAllocations` exceeds at 33. The real driver's
+  order accounts for both, keeping the four consumed keys in the first six lines,
+  and is reproduced here with a test that runs the same parse the consumer does.
+- node-agent: a GPU's device minor no longer depends on which surface reports
+  it. `minor_number` is optional, and a profile that listed devices without it
+  left every GPU claiming minor 0 through both `nvmlDeviceGetMinorNumber` and the
+  compiled agent state, while `/dev/nvidiaN` was named and numbered after the
+  device's position in the list instead of its minor. All three now derive it the
+  same way, cross-checked against each other over every shipped profile. No
+  shipped profile was affected — they all spell `minor_number` out.
+
 - mocknvml: `nvidia-smi --gpu-reset` (`-r`) now resets a GPU instead of
   segfaulting. The mock's export-table dispatcher ended every per-device call by
   writing a zero count through `arg1`, which the reset slots do not carry, so the
@@ -53,6 +74,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a follow-up. (#712)
 
 ### Added
+- node-agent: `/proc/driver/nvidia/gpus/<domain:bus:dev.fn>/information`, one
+  directory per GPU, carrying the model, UUID, VBIOS, bus location, device minor,
+  architecture and memory size in the real driver's layout. NVIDIA's MIG user
+  guide names this file as the alternative to `nvmlDeviceGetMinorNumber` for
+  resolving which `/dev/nvidiaN` belongs to a PCI address, and the NVIDIA
+  container runtime bind-mounts it, making it the one GPU enumeration path that
+  works from inside a container — so a consumer taking it saw no GPUs at all,
+  however complete the NVML shim was. The addresses come from the same
+  reconciliation the PCI sysfs tree is rendered from, so the two surfaces cannot
+  disagree about which GPUs exist, and a `bus_id` that is not an address is
+  dropped rather than joined onto a path.
+- profiles gain an optional `driver:` block carrying the nvidia module's
+  device-node parameters — `device_file_uid`, `device_file_gid`,
+  `device_file_mode` and `modify_device_files` — reported through
+  `/proc/driver/nvidia/params`. `0660` with gid `27` is the configuration behind
+  a common class of "Failed to initialize NVML: Insufficient Permissions"
+  reports, which was previously unsimulatable because the values were constants
+  the parser could not reach anyway. Documented in `docs/configuration.md`.
 - The node agent gains `pcibus`, `cdi` and `imex` simulators, each an
   `agent.Simulator` with the same stage/apply/discard lifecycle as the existing
   `gpudriver`. Together they subsume the device-surface construction that

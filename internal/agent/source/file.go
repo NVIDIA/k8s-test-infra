@@ -175,24 +175,16 @@ func compileState(data []byte) (*agent.State, error) {
 		},
 	}
 
+	driverParams, err := compileDriverParams(data)
+	if err != nil {
+		return nil, err
+	}
+	state.DriverParams = driverParams
+
 	numDevices := resolveDeviceCount(cfg)
 	state.NodeShape.NumGPUs = numDevices
 
-	// PCIe topology
-	if cfg.PCIeTopology != nil {
-		state.NodeShape.Topology.CoresPerNUMA = cfg.PCIeTopology.CoresPerNUMA
-		for _, rc := range cfg.PCIeTopology.RootComplexes {
-			state.NodeShape.Topology.RootComplexes = append(
-				state.NodeShape.Topology.RootComplexes,
-				agent.RootComplex{
-					ID:          rc.ID,
-					NUMANode:    rc.NUMANode,
-					DeviceBDFs:  rc.Devices,
-					CPUAffinity: rc.CPUAffinity,
-				},
-			)
-		}
-	}
+	state.NodeShape.Topology = compileTopology(cfg)
 
 	// Per-device specs: merge DeviceDefaults with per-device overrides.
 	defaults := cfg.DeviceDefaults
@@ -234,6 +226,85 @@ func compileState(data []byte) (*agent.State, error) {
 	return state, nil
 }
 
+// compileTopology resolves the root-complex layout. PCIe-only profiles omit the
+// block entirely, leaving a zero topology.
+func compileTopology(cfg engine.YAMLConfig) agent.PCIeTopology {
+	if cfg.PCIeTopology == nil {
+		return agent.PCIeTopology{}
+	}
+
+	topology := agent.PCIeTopology{
+		CoresPerNUMA:  cfg.PCIeTopology.CoresPerNUMA,
+		RootComplexes: make([]agent.RootComplex, 0, len(cfg.PCIeTopology.RootComplexes)),
+	}
+
+	for _, rc := range cfg.PCIeTopology.RootComplexes {
+		topology.RootComplexes = append(topology.RootComplexes, agent.RootComplex{
+			ID:          rc.ID,
+			NUMANode:    rc.NUMANode,
+			DeviceBDFs:  rc.Devices,
+			CPUAffinity: rc.CPUAffinity,
+		})
+	}
+
+	return topology
+}
+
+// driverProfile is the slice of the profile YAML carrying nvidia kernel-module
+// parameters. It is parsed separately from engine.YAMLConfig because the NVML
+// engine never reads these: they exist for the consumers that go straight to
+// /proc/driver/nvidia/params, nvidia-modprobe above all.
+type driverProfile struct {
+	Driver *driverBlock `json:"driver"`
+}
+
+// driverBlock uses pointers throughout so that a silent profile is
+// distinguishable from one asking for uid 0 or for device-file management off.
+type driverBlock struct {
+	DeviceFileUID *int `json:"device_file_uid"`
+	DeviceFileGID *int `json:"device_file_gid"`
+	// DeviceFileMode takes an octal literal (0660), which YAML resolves the
+	// way a leading zero implies, or the decimal form the driver itself
+	// reports (432). Plain 660 is neither and means mode 01224.
+	DeviceFileMode    *int  `json:"device_file_mode"`
+	ModifyDeviceFiles *bool `json:"modify_device_files"`
+}
+
+// compileDriverParams resolves the device-node parameters, falling back to what
+// the real nvidia module reports when the profile says nothing. Defaults land
+// here rather than at write time so State reaches every simulator fully
+// resolved and gpudriver never re-derives them.
+func compileDriverParams(data []byte) (agent.DriverParams, error) {
+	params := agent.DriverParams{DeviceFileMode: 0o666, ModifyDeviceFiles: true}
+
+	var prof driverProfile
+	if err := yaml.Unmarshal(data, &prof); err != nil {
+		return params, fmt.Errorf("parse driver params: %w", err)
+	}
+
+	if prof.Driver == nil {
+		return params, nil
+	}
+
+	if prof.Driver.DeviceFileUID != nil {
+		params.DeviceFileUID = *prof.Driver.DeviceFileUID
+	}
+
+	if prof.Driver.DeviceFileGID != nil {
+		params.DeviceFileGID = *prof.Driver.DeviceFileGID
+	}
+
+	if prof.Driver.DeviceFileMode != nil {
+		params.DeviceFileMode = *prof.Driver.DeviceFileMode
+	}
+
+	if prof.Driver.ModifyDeviceFiles != nil {
+		params.ModifyDeviceFiles = *prof.Driver.ModifyDeviceFiles
+	}
+
+	return params, nil
+}
+
 // resolveDeviceCount returns the active GPU count from the profile, applying
 // system.num_devices and then the GPU_COUNT env var as successive overrides.
 // TODO(https://github.com/NVIDIA/k8s-test-infra/issues/717): GPU_COUNT is a
@@ -255,10 +326,15 @@ func resolveDeviceCount(cfg engine.YAMLConfig) int {
 
 func buildDeviceSpec(i int, defaults engine.DeviceConfig, devices []engine.DeviceOverride) agent.DeviceSpec {
 	spec := agent.DeviceSpec{
-		Index:        i,
+		Index: i,
+		// The driver hands out one minor per device in order. Resolving it here
+		// keeps /dev/nvidiaN, NVML and the procfs GPU directories in agreement
+		// on profiles that list devices without spelling out minor_number.
+		MinorNumber:  i,
 		Name:         defaults.Name,
 		Architecture: defaults.Architecture,
 		Serial:       defaults.Serial,
+		VBIOSVersion: defaults.VBIOSVersion,
 	}
 	if defaults.ComputeCapability != nil {
 		spec.ComputeCapMajor = defaults.ComputeCapability.Major
@@ -287,6 +363,9 @@ func applyDeviceOverride(spec *agent.DeviceSpec, ov engine.DeviceOverride) {
 	}
 	if ov.Serial != "" {
 		spec.Serial = ov.Serial
+	}
+	if ov.VBIOSVersion != "" {
+		spec.VBIOSVersion = ov.VBIOSVersion
 	}
 	if ov.MinorNumber != 0 {
 		spec.MinorNumber = ov.MinorNumber

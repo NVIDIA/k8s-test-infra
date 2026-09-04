@@ -12,13 +12,14 @@ import (
 // State is the compiled desired simulation state the agent reconciles toward.
 // It maps 1:1 to what MEP-0001's Control Plane will emit.
 type State struct {
-	Generation int64
-	Node       NodeMeta
-	Software   SoftwareVersions
-	NodeShape  NodeShape
-	Devices    []DeviceSpec
-	Fabric     FabricState
-	IMEX       IMEXState
+	Generation   int64
+	Node         NodeMeta
+	Software     SoftwareVersions
+	DriverParams DriverParams
+	NodeShape    NodeShape
+	Devices      []DeviceSpec
+	Fabric       FabricState
+	IMEX         IMEXState
 	// ConfigRaw holds the raw YAML profile bytes so gpudriver can write the
 	// engine config without re-deriving it from the narrower State fields.
 	// TODO(https://github.com/NVIDIA/k8s-test-infra/issues/717): replace with Profile/Runtime *config.YAMLConfig split — Profile carries
@@ -243,6 +244,19 @@ type SoftwareVersions struct {
 	CUDAVersion   string
 }
 
+// DriverParams carries the nvidia kernel-module parameters that decide device
+// node ownership and permissions. nvidia-modprobe reads them from
+// /proc/driver/nvidia/params in plain C, without going through NVML, so these
+// are the values that make a permission-failure scenario reproducible.
+type DriverParams struct {
+	DeviceFileUID  int
+	DeviceFileGID  int
+	DeviceFileMode int
+	// ModifyDeviceFiles is the driver's own switch for managing /dev/nvidia*;
+	// off means nvidia-modprobe leaves the nodes alone.
+	ModifyDeviceFiles bool
+}
+
 // NodeShape describes the simulated node's topology.
 type NodeShape struct {
 	NumGPUs  int
@@ -289,6 +303,7 @@ type DeviceSpec struct {
 	UUID             string
 	MinorNumber      int
 	Serial           string
+	VBIOSVersion     string
 	PCIBusID         string
 	Name             string
 	Architecture     string

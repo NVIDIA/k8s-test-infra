@@ -20,6 +20,26 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
 
+// charDev is one entry under driver/dev.
+type charDev struct {
+	name         string
+	major, minor uint32
+}
+
+// gpuCharDevs lists the per-GPU nodes for state. Both the name and the minor
+// come from DeviceSpec.MinorNumber, the way the real driver numbers them, so
+// they agree with what nvmlDeviceGetMinorNumber and the procfs GPU
+// directories report for the same device.
+func gpuCharDevs(state *agent.State) []charDev {
+	devs := make([]charDev, 0, len(state.Devices))
+	for _, d := range state.Devices {
+		minor := uint32(d.MinorNumber) //nolint:gosec // bounded by the profile's device count
+		devs = append(devs, charDev{fmt.Sprintf("nvidia%d", minor), 195, minor})
+	}
+
+	return devs
+}
+
 // stageCharDevs creates the GPU character devices that ioctl-based callers
 // (CUDA, nvidia-smi) open to reach the driver. Without them open() fails.
 // Major 195 = nvidia (per-GPU + nvidiactl); major 510 = nvidia-uvm.
@@ -29,15 +49,7 @@ func stageCharDevs(ctx context.Context, h *host.Host, state *agent.State) error 
 		return err
 	}
 
-	type charDev struct {
-		name         string
-		major, minor uint32
-	}
-	devs := make([]charDev, 0, len(state.Devices)+3)
-	for _, d := range state.Devices {
-		devs = append(devs, charDev{fmt.Sprintf("nvidia%d", d.Index), 195, uint32(d.Index)})
-	}
-	devs = append(devs,
+	devs := append(gpuCharDevs(state),
 		charDev{"nvidiactl", 195, 255},
 		charDev{"nvidia-uvm", 510, 0},
 		charDev{"nvidia-uvm-tools", 510, 1},
@@ -172,35 +184,6 @@ func stageNvidiaSMI(ctx context.Context, h *host.Host, state *agent.State) error
 		return fsutil.Copy("/usr/local/bin/nvidia-smi", elfPath, 0o755)
 	}
 	return fsutil.Symlink("nvidia-smi.sh", elfPath)
-}
-
-// writeProcFS provides the procfs entries that libnvidia-ml and
-// nvidia-container-toolkit read to discover driver version without dlopen.
-func writeProcFS(ctx context.Context, h *host.Host, state *agent.State) error {
-	procDir := filepath.Join(h.Root, "driver/proc/driver/nvidia")
-	if err := os.MkdirAll(procDir, 0o755); err != nil {
-		return err
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	version := fmt.Sprintf(
-		"NVRM version: NVIDIA UNIX x86_64 Kernel Module  %s  Thu Feb 20 23:41:34 UTC 2026\n"+
-			"GCC version:  gcc version 12.2.0 (Debian 12.2.0-14)\n",
-		state.Software.DriverVersion,
-	)
-	if err := fsutil.Write(filepath.Join(procDir, "version"), []byte(version), 0o644); err != nil {
-		return err
-	}
-	const params = "EnableMSI: 1\n" +
-		"NVreg_RegistryDwords:\n" +
-		"NVreg_DeviceFileGID: 0\n" +
-		"NVreg_DeviceFileMode: 438\n" +
-		"NVreg_DeviceFileUID: 0\n" +
-		"NVreg_ModifyDeviceFiles: 1\n" +
-		"NVreg_PreserveVideoMemoryAllocations: 0\n" +
-		"NVreg_EnableResizableBar: 0\n"
-	return fsutil.Write(filepath.Join(procDir, "params"), []byte(params), 0o644)
 }
 
 // machineTypeRel is the machine type served to containers at

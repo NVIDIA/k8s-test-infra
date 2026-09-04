@@ -296,14 +296,17 @@ func (c *Config) GetDeviceUUID(index int) string {
 	return ""
 }
 
-// GetDeviceMinorNumber returns the minor number for a specific device index
+// GetDeviceMinorNumber returns the minor number for a specific device index.
+// A device listed without minor_number falls back to its index, the way the
+// driver numbers minors, so nvmlDeviceGetMinorNumber keeps agreeing with
+// /dev/nvidiaN and /proc/driver/nvidia/gpus/<BDF>/information.
 func (c *Config) GetDeviceMinorNumber(index int) int {
 	if c.YAMLConfig == nil {
 		return index
 	}
 
 	for _, dev := range c.YAMLConfig.Devices {
-		if dev.Index == index {
+		if dev.Index == index && dev.MinorNumber != 0 {
 			return dev.MinorNumber
 		}
 	}
