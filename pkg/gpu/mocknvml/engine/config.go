@@ -66,7 +66,8 @@ func DefaultConfig() *Config {
 // Config resolution order:
 //  1. MOCK_NVML_CONFIG env var (explicit path)
 //  2. Auto-discover from /proc/self/maps (Linux only)
-//  3. Fall back to env vars / defaults
+//  3. Fixed chroot fallback paths (/config/config.yaml, /etc/nvml-mock/config.yaml)
+//  4. Fall back to env vars / defaults
 func LoadConfig() *Config {
 	configPath := os.Getenv("MOCK_NVML_CONFIG")
 	if configPath == "" {
