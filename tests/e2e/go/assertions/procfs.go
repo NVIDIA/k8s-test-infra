@@ -21,7 +21,8 @@ import (
 // inside the nvml-mock pod. The tree is staged at the overlay root and not at
 // the kernel path: runc refuses any bind mount whose target is inside /proc, so
 // unlike the PCI sysfs tree this surface cannot be served where a consumer
-// would look for it (#792).
+// would look for it, and the mount that fixed that one (#673) is unavailable
+// here. Serving it needs a hook that mounts inside the namespace (#793).
 const ParamsPath = "/var/lib/nvml-mock/driver/proc/driver/nvidia/params"
 
 // paramsNameFieldWidth is the %31[^:] field width in nvidia-modprobe's scan.
