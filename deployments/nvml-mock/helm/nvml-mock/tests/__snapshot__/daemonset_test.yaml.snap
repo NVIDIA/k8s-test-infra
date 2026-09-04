@@ -117,7 +117,7 @@ should match snapshot with all overrides:
                 - mountPath: /host/var/lib/nvml-mock/fabric-state
                   name: fabric-state
                 - mountPath: /host/sys
-                  name: host-sys
+                  name: node-sysfs
                   readOnly: true
           nodeSelector:
             mokka.nvidia.com/type: sgpu
@@ -150,7 +150,7 @@ should match snapshot with all overrides:
             - hostPath:
                 path: /sys
                 type: Directory
-              name: host-sys
+              name: node-sysfs
             - hostPath:
                 path: /var/lib/nvml-mock/fabric-state
                 type: DirectoryOrCreate
@@ -274,7 +274,7 @@ should match snapshot with b200 profile:
                 - mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
                   name: nfd-features
                 - mountPath: /host/sys
-                  name: host-sys
+                  name: node-sysfs
                   readOnly: true
           serviceAccountName: RELEASE-NAME-nvml-mock
           terminationGracePeriodSeconds: 10
@@ -303,7 +303,7 @@ should match snapshot with b200 profile:
             - hostPath:
                 path: /sys
                 type: Directory
-              name: host-sys
+              name: node-sysfs
       updateStrategy:
         rollingUpdate:
           maxUnavailable: 25%
@@ -427,7 +427,7 @@ should match snapshot with default values:
                 - mountPath: /host/var/lib/nvml-mock/fabric-state
                   name: fabric-state
                 - mountPath: /host/sys
-                  name: host-sys
+                  name: node-sysfs
                   readOnly: true
           serviceAccountName: RELEASE-NAME-nvml-mock
           terminationGracePeriodSeconds: 10
@@ -456,7 +456,7 @@ should match snapshot with default values:
             - hostPath:
                 path: /sys
                 type: Directory
-              name: host-sys
+              name: node-sysfs
             - hostPath:
                 path: /var/lib/nvml-mock/fabric-state
                 type: DirectoryOrCreate

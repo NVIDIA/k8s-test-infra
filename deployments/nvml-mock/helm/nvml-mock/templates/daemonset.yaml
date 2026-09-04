@@ -88,9 +88,8 @@ spec:
             - name: IMEX_CAPS_MAJOR
               value: "{{ .Values.imex.mockChannels.capsMajor }}"
             {{- end }}
-            # Same tier the nvml-mock container advertises to the LD_PRELOAD
-            # shims, so the tree the agent renders and the tree those shims
-            # redirect into can never disagree.
+            # Drives both the IB tree the agent renders and the tier the
+            # LD_PRELOAD shims operate at, so the two can never disagree.
             - name: MOCK_IB
               value: {{ include "nvml-mock.mockIBTier" . | quote }}
             - name: MOCK_IB_PING_FABRIC
@@ -144,9 +143,7 @@ spec:
               protocol: TCP
             {{- if $ibEnabled }}
             # The infiniband simulator binds the cross-pod fabric relay here.
-            # Port names are unique per pod, so this cannot also be declared on
-            # the nvml-mock container -- and the -ibping Service and its
-            # NetworkPolicy target it by name.
+            # Named: the -ibping Service and NetworkPolicy select it by name.
             - name: ibping
               containerPort: {{ .Values.infiniband.ping.port }}
               protocol: TCP
@@ -195,7 +192,7 @@ spec:
             {{- end }}
             # Read only: the agent copies the node's DMI attributes into the
             # rendered tree, which shadows them once served at /sys/devices.
-            - name: host-sys
+            - name: node-sysfs
               mountPath: /host/sys
               readOnly: true
           livenessProbe:
@@ -275,7 +272,7 @@ spec:
             type: DirectoryOrCreate
         # Directory, not DirectoryOrCreate: a node without /sys should fail
         # loudly rather than get an empty stand-in.
-        - name: host-sys
+        - name: node-sysfs
           hostPath:
             path: /sys
             type: Directory

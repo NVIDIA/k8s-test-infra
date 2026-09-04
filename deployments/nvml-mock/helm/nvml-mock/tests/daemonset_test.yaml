@@ -886,25 +886,28 @@ tests:
   # directory /sys/class/dmi/id resolves into and the runtime's bind-mount
   # targets have to survive it. Read-only: the agent never writes to /sys.
   - it: should mount the node's sysfs read-only in the agent alone
+    set:
+      allocationWatcher:
+        enabled: true
     asserts:
       - contains:
-          path: spec.template.spec.containers[1].volumeMounts
-          content:
-            name: host-sys
-            mountPath: /host/sys
-            readOnly: true
-      # Nothing in the mock container reads the node's sysfs, and the volume is
-      # the whole of /sys.
-      - notContains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: host-sys
+            name: node-sysfs
+            mountPath: /host/sys
+            readOnly: true
+      # The watcher reads the kubelet's pod-resources socket, not the node's
+      # sysfs, and the volume is the whole of /sys.
+      - notContains:
+          path: spec.template.spec.containers[1].volumeMounts
+          content:
+            name: node-sysfs
             mountPath: /host/sys
             readOnly: true
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: host-sys
+            name: node-sysfs
             hostPath:
               path: /sys
               type: Directory
