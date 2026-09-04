@@ -28,6 +28,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/source"
 	"github.com/NVIDIA/k8s-test-infra/internal/health"
 	"github.com/NVIDIA/k8s-test-infra/internal/logging"
+	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mockctl"
 )
 
 func main() {
@@ -144,6 +145,13 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 
 	healthSrv := health.NewServer(cmd.String("health-addr"), shutdownTimeout)
 
+	h := host.New(cmd.String("host-root"))
+
+	// TODO: we should consider keeping runtime state in /var/ dir so it naturally gets reset on container restart
+	if err := resetRuntimeOverrides(h); err != nil {
+		return err
+	}
+
 	a := agent.New(agent.Config{
 		Simulators: []agent.Simulator{
 			gpudriver.New(),
@@ -161,7 +169,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 			}),
 		},
 		Source:          source.NewFileSource(configPath, cmd.String("topology"), log),
-		Host:            host.New(cmd.String("host-root")),
+		Host:            h,
 		Log:             log,
 		ShutdownTimeout: shutdownTimeout,
 	})
@@ -173,4 +181,22 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	g.Go(func() error { return healthSrv.Run(gctx) })
 	g.Go(func() error { return a.Run(gctx) })
 	return g.Wait()
+}
+
+// resetRuntimeOverrides clears the runtime override documents nvml-mock-ctl and
+// the allocation watcher publish. They are node-local and ephemeral, so a pod
+// restart is the documented way to return simulated GPU state to the pristine
+// profile. Both locations the mock NVML engine resolves are cleared; the paths
+// are derived here rather than via engine.ConfigOverridePathFor because that
+// helper short-circuits on MOCK_NVML_OVERRIDES and would mask the other one.
+func resetRuntimeOverrides(h *host.Host) error {
+	for _, p := range []string{
+		h.RootPath("config/overrides.yaml"),
+		h.RootPath("driver/config/overrides.yaml"),
+	} {
+		if err := mockctl.ResetOverrides(p); err != nil {
+			return err
+		}
+	}
+	return nil
 }

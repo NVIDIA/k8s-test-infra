@@ -45,7 +45,7 @@ CHART_PATH="deployments/nvml-mock/helm/nvml-mock"
 CONFIGMAP_NAME="${RELEASE_NAME}-config"
 # Number of GPUs that nvidia-smi reports inside the daemonset pod. We
 # DON'T pass --set gpu.count=... because that only affects the
-# host-side CDI spec produced by setup.sh — the in-pod config mounted
+# host-side CDI spec produced by the cdi simulator — the in-pod config mounted
 # at /etc/nvml-mock/config.yaml is the chart's full ConfigMap, which
 # always contains every device defined by the chosen profile (eg 8
 # for h100). The baseline scenario below detects the actual count by

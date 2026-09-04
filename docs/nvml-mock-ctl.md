@@ -414,9 +414,9 @@ healthy ones reported success through the no-write path above.
 | `nvidia-smi --gpu-reset [-i <idx>]` | clears the same per-device bucket(s) — see [via nvidia-smi](#reset-via-nvidia-smi) | device(s) revert to pristine profile within one TTL |
 | `nvml-mock-ctl fail --gpu <t> --mode healthy` | removes just the `failure` block for the target | that device recovers within one TTL; other overrides stay |
 | `nvml-mock-ctl fabric-health --gpu <t> healthy` | clears just the fabric health conditions for the target | that device's fabric reports healthy within one TTL; other overrides stay |
-| DaemonSet pod restart | `setup.sh` deletes `overrides.yaml` on startup | **all** overrides wiped; back to pristine profile |
+| DaemonSet pod restart | the node agent deletes `overrides.yaml` at startup | **all** overrides wiped; back to pristine profile |
 | Consumer pod restart | none — the config override lives on the node, not in the consumer | consumer re-reads and picks up the *current* config override (does **not** reset it) |
-| `helm upgrade` (profile/values change) | rolls the DaemonSet pod (config checksum + `RollingUpdate`), so `setup.sh` wipes `overrides.yaml` on the new pod | **all** overrides reset to the new pristine config; only an upgrade that does not recreate the nvml-mock pod leaves an config override in place |
+| `helm upgrade` (profile/values change) | rolls the DaemonSet pod (config checksum + `RollingUpdate`), so the node agent wipes `overrides.yaml` on the new pod | **all** overrides reset to the new pristine config; only an upgrade that does not recreate the nvml-mock pod leaves an config override in place |
 
 ## Worked examples
 
@@ -499,7 +499,7 @@ kubectl -n mokka exec "$POD" -- nvml-mock-ctl reset --gpu all
 ```
 
 ```bash
-# 8) Full reset via pod restart (setup.sh wipes overrides.yaml on startup)
+# 8) Full reset via pod restart (the node agent wipes overrides.yaml at startup)
 kubectl -n mokka delete pod "$POD"
 ```
 

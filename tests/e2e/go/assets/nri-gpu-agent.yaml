@@ -24,7 +24,7 @@ spec:
     spec:
       automountServiceAccountToken: false
       nodeSelector:
-        nvidia.com/gpu.present: "true"
+        mokka.nvidia.com/type: sgpu
       containers:
         - name: agent
           image: debian:bookworm-slim

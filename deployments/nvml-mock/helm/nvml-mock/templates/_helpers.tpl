@@ -271,8 +271,8 @@ Single source of truth is the GPU profile: the length of its `devices:` list
 (config.go defaults NumDevices to len(devices)). gpu.count is an override:
 leave it empty/unset to use the profile's device count (the normal path, so
 CI/users never restate a per-profile fact); set it to a positive integer to
-force a smaller (or larger) slice regardless of profile. setup.sh still caps
-the effective count to the profile device count at runtime.
+force a smaller slice regardless of profile. The node agent caps the effective
+count to the profile device count at runtime and warns when it has to.
 */}}
 {{- define "nvml-mock.gpuCount" -}}
 {{- $count := .Values.gpu.count -}}
@@ -319,7 +319,7 @@ Driver version helper.
 Returns the user-provided driverVersion, otherwise reads system.driver_version
 from the resolved GPU config (customConfig or the selected profile file) so the
 profile stays the single source of truth — the DRIVER_VERSION env (which names
-the on-disk libnvidia-ml.so.<ver> in setup.sh) never drifts from the
+the on-disk libnvidia-ml.so.<ver> the gpudriver simulator stages) never drifts from the
 driver_version the engine reports via NVML. Fails if neither is set.
 */}}
 {{- define "nvml-mock.driverVersion" -}}

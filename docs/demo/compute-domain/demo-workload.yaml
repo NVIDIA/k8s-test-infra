@@ -25,7 +25,7 @@ spec:
     spec:
       automountServiceAccountToken: false
       nodeSelector:
-        nvidia.com/gpu.present: "true"
+        mokka.nvidia.com/type: sgpu
       containers:
         - name: demo-workload
           image: nvml-mock:compute-domain-workload

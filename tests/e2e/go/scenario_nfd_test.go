@@ -37,23 +37,18 @@ const (
 
 	// NFD records every label it owns in this annotation, as a comma-separated
 	// list of label names WITHOUT the feature.node.kubernetes.io/ prefix (its
-	// default namespace). A label written by anything else — setup.sh's
-	// `kubectl label`, say — never appears here, which makes this the direct
-	// ownership discriminator rather than an inference from ordering. Measured
-	// in the Task 1 experiment.
+	// default namespace). A label written by anything else never appears here,
+	// which makes this the direct ownership discriminator rather than an
+	// inference from ordering. Measured in the Task 1 experiment.
 	nfdOwnedLabelsAnnotation = "nfd.node.kubernetes.io/feature-labels"
 	pciVendorFeature         = "pci-10de.present"
-
-	// Written unconditionally by setup.sh in step 7 and used here only as a
-	// synchronisation barrier. See spec 1.
-	gpuPresentLabel = "nvidia.com/gpu.present"
 
 	// Container path of the feature file the node agent writes
 	// (internal/agent/pcibus); the hostPath behind it is nodeLabels.featuresDir.
 	nfdFeatureFile = "/host/etc/kubernetes/node-feature-discovery/features.d/nvml-mock.features"
 
-	// Only the node-agent container mounts featuresDir, and kubectl exec
-	// defaults to nvml-mock, so reading the file has to name the container.
+	// Named explicitly so the read stays pinned to the container that mounts
+	// featuresDir even if the pod grows another one.
 	nodeAgentContainer = "node-agent"
 
 	nfdLabelTimeout = 3 * time.Minute
@@ -96,16 +91,11 @@ var _ = Describe("nvml-mock NFD label provenance", Label("nfd"), Ordered, Contin
 	})
 
 	It("does not create the PCI vendor label without NFD", Label("nfd-provenance"), func(ctx SpecContext) {
-		// SYNCHRONISATION BARRIER — not a feature assertion. Do not "tidy" it
-		// away: the nvml-mock container declares no readinessProbe, demoRelease
-		// sets maxUnavailable=100% so `helm --wait` returns on merely-scheduled
-		// pods, and pod selection waits only for phase Running — so nothing
-		// else orders this negative check after its setup.sh and it can pass
-		// vacuously. The node-agent container, which writes the feature file,
-		// is instead ordered by BeforeAll's WaitDaemonSetReady.
-		assertions.WaitNodeLabelsPresent(ctx, h.Kube, node,
-			[]string{gpuPresentLabel}, nfdLabelTimeout, nfdLabelPoll)
-
+		// Ordered by BeforeAll's WaitDaemonSetReady: node-agent is the only
+		// container and it has a readinessProbe, so the DaemonSet is not Ready
+		// until the feature file this negative check depends on exists.
+		// Without that, demoRelease's maxUnavailable=100% lets `helm --wait`
+		// return on merely-scheduled pods and the check passes vacuously.
 		assertions.NodeLabelAbsent(ctx, h.Kube, node, pciVendorLabel)
 	})
 
@@ -135,8 +125,8 @@ var _ = Describe("nvml-mock NFD label provenance", Label("nfd"), Ordered, Contin
 			[]string{pciVendorLabel}, nfdLabelTimeout, nfdLabelPoll)
 		assertions.NodeLabelEquals(ctx, h.Kube, node, pciVendorLabel, "true")
 
-		// Presence alone cannot tell "NFD derived it" from "setup.sh wrote it",
-		// so assert ownership directly: NFD patches the label and this
+		// Presence alone cannot tell "NFD derived it" from "something else wrote
+		// it", so assert ownership directly: NFD patches the label and this
 		// annotation in the same node update, so once the label is observed the
 		// annotation is too — no second wait needed.
 		assertions.NodeAnnotationListContains(ctx, h.Kube, node,

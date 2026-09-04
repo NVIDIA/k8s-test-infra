@@ -138,7 +138,7 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 				assertGpuResetFromInjectedContainer(ctx, h)
 			})
 
-			// #438. The IB CLI tools are dynamically linked and setup.sh
+			// #438. The IB CLI tools are dynamically linked and the ib simulator
 			// relocates them into the overlay, which until this change carried
 			// none of their libraries. Nothing in CI ran them from an injected
 			// pod, so the breakage was invisible.
@@ -918,17 +918,17 @@ func nriWorkload(name string) pod.Spec {
 	}
 }
 
-// nriAnyGPUNode places a pod on whichever node carries the mock's GPU label,
-// unless the caller pinned one. Pinning matters whenever the pod observes
-// node-local state: the runtime override file lives on a per-node hostPath, so
-// an unpinned observer can be scheduled onto a different node from the workload
-// it is meant to watch and will then read a node that never saw the allocation.
+// nriAnyGPUNode places a pod on whichever node runs the mock, unless the caller
+// pinned one. Pinning matters whenever the pod observes node-local state: the
+// runtime override file lives on a per-node hostPath, so an unpinned observer
+// can be scheduled onto a different node from the workload it is meant to watch
+// and will then read a node that never saw the allocation.
 func nriAnyGPUNode(spec pod.Spec, node string) pod.Spec {
 	if node != "" {
 		spec.Node = node
 		return spec
 	}
-	spec.NodeSelector = map[string]string{gpuPresentLabel: "true"}
+	spec.NodeSelector = map[string]string{sgpuNodeLabel: sgpuNodeLabelValue}
 	return spec
 }
 

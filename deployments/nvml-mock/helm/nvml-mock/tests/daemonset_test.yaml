@@ -32,7 +32,7 @@ tests:
         count: 2
       driverVersion: "555.55.55"
       nodeSelector:
-        nvidia.com/gpu.present: "true"
+        mokka.nvidia.com/type: sgpu
       tolerations:
         - key: nvidia.com/gpu
           operator: Exists
@@ -107,25 +107,6 @@ tests:
           path: spec.template.spec.containers[0].imagePullPolicy
           value: IfNotPresent
 
-  - it: should set the container as privileged
-    asserts:
-      - equal:
-          path: spec.template.spec.containers[0].securityContext.privileged
-          value: true
-
-  - it: should set the entrypoint command
-    asserts:
-      - equal:
-          path: spec.template.spec.containers[0].command
-          value: ["/scripts/entrypoint.sh"]
-
-  - it: should set preStop lifecycle hook
-    asserts:
-      - equal:
-          path: spec.template.spec.containers[0].lifecycle.preStop.exec.command
-          value: ["/scripts/cleanup.sh"]
-
-  # The default profile is gb300, whose device list is one NVL72 compute tray.
   - it: should set default GPU_COUNT env var to 4
     asserts:
       - contains:
@@ -171,26 +152,21 @@ tests:
             value: "580.65.06"
 
   # ── NFD features.d mount (nodeLabels.featuresDir) ────────────────────
-  # The node agent (containers[1]) writes the pci-10de feature file here.
+  # The node agent (containers[0]) writes the pci-10de feature file here.
   # Without its mount the write lands inside the container and NFD never sees
   # it, so that mount IS the contract. nvml-mock does not mount it: the pcibus
   # simulator is the only writer.
   - it: should mount the NFD features.d host directory
     asserts:
       - contains:
-          path: spec.template.spec.containers[1].volumeMounts
-          content:
-            name: host-nfd-features
-            mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
-      - notContains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: host-nfd-features
+            name: nfd-features
             mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: host-nfd-features
+            name: nfd-features
             hostPath:
               path: /etc/kubernetes/node-feature-discovery/features.d
               type: DirectoryOrCreate
@@ -203,7 +179,7 @@ tests:
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: host-nfd-features
+            name: nfd-features
             hostPath:
               path: /custom/features.d
               type: DirectoryOrCreate
@@ -359,56 +335,63 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: host-nvml-mock
+            name: mokka-root
             mountPath: /host/var/lib/nvml-mock
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: gpu-config
+            name: mokka-profile
             mountPath: /etc/nvml-mock
-      # Written by the cdi and gpudriver simulators, so only the agent mounts them.
+            readOnly: true
+      # Host-absolute MOCK_PCI_ROOT / MOCK_IB_ROOT only resolve for exec'd tools
+      # through a second mount of the same volume at the canonical path.
       - contains:
-          path: spec.template.spec.containers[1].volumeMounts
+          path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: host-cdi
+            name: mokka-root
+            mountPath: /var/lib/nvml-mock
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: driver-root-link
+            mountPath: /host/run/nvidia
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: cdi-specs
             mountPath: /host/run/cdi
       - notContains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: host-cdi
+            name: cdi-specs
             mountPath: /host/var/run/cdi
-      - notContains:
-          path: spec.template.spec.containers[0].volumeMounts
-          content:
-            name: host-run-nvidia
-            mountPath: /host/run/nvidia
 
   - it: should define all required volumes
     asserts:
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: host-nvml-mock
+            name: mokka-root
             hostPath:
               path: /var/lib/nvml-mock
               type: DirectoryOrCreate
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: gpu-config
+            name: mokka-profile
             configMap:
               name: RELEASE-NAME-nvml-mock-config
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: host-cdi
+            name: cdi-specs
             hostPath:
               path: /var/run/cdi
               type: DirectoryOrCreate
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: host-run-nvidia
+            name: driver-root-link
             hostPath:
               path: /run/nvidia
               type: DirectoryOrCreate
@@ -428,11 +411,11 @@ tests:
   - it: should apply custom nodeSelector
     set:
       nodeSelector:
-        nvidia.com/gpu.present: "true"
+        mokka.nvidia.com/type: sgpu
     asserts:
       - equal:
-          path: spec.template.spec.nodeSelector["nvidia.com/gpu.present"]
-          value: "true"
+          path: spec.template.spec.nodeSelector["mokka.nvidia.com/type"]
+          value: sgpu
 
   - it: should apply custom tolerations
     set:
@@ -447,34 +430,6 @@ tests:
             key: nvidia.com/gpu
             operator: Exists
             effect: NoSchedule
-
-  - it: should not set resources by default
-    asserts:
-      - notExists:
-          path: spec.template.spec.containers[0].resources
-
-  - it: should apply resource limits and requests
-    set:
-      resources:
-        limits:
-          cpu: 500m
-          memory: 256Mi
-        requests:
-          cpu: 100m
-          memory: 128Mi
-    asserts:
-      - equal:
-          path: spec.template.spec.containers[0].resources.limits.cpu
-          value: 500m
-      - equal:
-          path: spec.template.spec.containers[0].resources.limits.memory
-          value: 256Mi
-      - equal:
-          path: spec.template.spec.containers[0].resources.requests.cpu
-          value: 100m
-      - equal:
-          path: spec.template.spec.containers[0].resources.requests.memory
-          value: 128Mi
 
   - it: should override image settings
     set:
@@ -602,12 +557,12 @@ tests:
             name: MOCK_IB
             value: "full"
       - contains:
-          path: spec.template.spec.containers[1].env
+          path: spec.template.spec.containers[0].env
           content:
             name: MOCK_IB_PING_FABRIC
             value: "1"
       - contains:
-          path: spec.template.spec.containers[1].env
+          path: spec.template.spec.containers[0].env
           content:
             name: MOCK_IB_PING_PORT
             value: "18515"
@@ -618,14 +573,14 @@ tests:
             value: /var/lib/nvml-mock/run/mock-ib.sock
       # Peer discovery inputs: read by the daemon the agent supervises.
       - contains:
-          path: spec.template.spec.containers[1].env
+          path: spec.template.spec.containers[0].env
           content:
             name: POD_IP
             valueFrom:
               fieldRef:
                 fieldPath: status.podIP
       - contains:
-          path: spec.template.spec.containers[1].env
+          path: spec.template.spec.containers[0].env
           content:
             name: MOCK_IB_PING_SERVICE_HOST
             value: RELEASE-NAME-nvml-mock-ibping.NAMESPACE.svc.cluster.local
@@ -642,17 +597,14 @@ tests:
       # The agent binds the fabric relay, so ibping is declared on node-agent.
       # Port names are unique per pod, so it cannot also sit on nvml-mock.
       - equal:
-          path: spec.template.spec.containers[1].ports[1].name
+          path: spec.template.spec.containers[0].ports[1].name
           value: ibping
       - equal:
-          path: spec.template.spec.containers[1].ports[1].containerPort
+          path: spec.template.spec.containers[0].ports[1].containerPort
           value: 18515
       - equal:
-          path: spec.template.spec.containers[1].ports[1].protocol
+          path: spec.template.spec.containers[0].ports[1].protocol
           value: TCP
-      # nvml-mock binds nothing, so it declares no ports at all.
-      - notExists:
-          path: spec.template.spec.containers[0].ports
 
   - it: should disable ping mock (but keep sysfs masking) for profiles without InfiniBand
     set:
@@ -666,18 +618,16 @@ tests:
             name: MOCK_IB
             value: "sysfs"
       - contains:
-          path: spec.template.spec.containers[1].env
+          path: spec.template.spec.containers[0].env
           content:
             name: MOCK_IB_PING_FABRIC
             value: "0"
-      - notExists:
-          path: spec.template.spec.containers[0].ports
       # The agent keeps its health port but declares no fabric relay.
       - equal:
-          path: spec.template.spec.containers[1].ports[0].name
+          path: spec.template.spec.containers[0].ports[0].name
           value: health
       - notExists:
-          path: spec.template.spec.containers[1].ports[1]
+          path: spec.template.spec.containers[0].ports[1]
 
   - it: should honor a custom ping port
     set:
@@ -686,12 +636,12 @@ tests:
           port: 19000
     asserts:
       - contains:
-          path: spec.template.spec.containers[1].env
+          path: spec.template.spec.containers[0].env
           content:
             name: MOCK_IB_PING_PORT
             value: "19000"
       - equal:
-          path: spec.template.spec.containers[1].ports[1].containerPort
+          path: spec.template.spec.containers[0].ports[1].containerPort
           value: 19000
 
   - it: should let infiniband.mockTier override the derived MOCK_IB tier
@@ -758,29 +708,23 @@ tests:
         profile: b200
     asserts:
       - notContains:
-          path: spec.template.spec.containers[1].env
+          path: spec.template.spec.containers[0].env
           content:
             name: MOCK_FABRICMANAGER_STATE_DIR
             value: /var/lib/nvml-mock/fabric-state
 
   # ── ComputeDomain topology ──────────────────────────────────────────
-  - it: should mount the topology ConfigMap into both readers when enabled
+  - it: should mount the topology ConfigMap when enabled
     set:
       topology:
         enabled: true
     asserts:
-      # nvml-mock: the engine reads it for `kubectl exec nvidia-smi -q`.
+      # The nvlink simulator stages it into the overlay, where the NRI plugin
+      # points workloads at it, and `kubectl exec nvidia-smi -q` reads it here.
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: gpu-topology
-            mountPath: /etc/nvml-mock/topology
-      # node-agent: the nvlink simulator stages it into the overlay, where the
-      # NRI plugin points workloads at it.
-      - contains:
-          path: spec.template.spec.containers[1].volumeMounts
-          content:
-            name: gpu-topology
+            name: cluster-topology
             mountPath: /etc/nvml-mock/topology
             readOnly: true
 
@@ -792,12 +736,12 @@ tests:
         enabled: true
     asserts:
       - contains:
-          path: spec.template.spec.containers[1].command
+          path: spec.template.spec.containers[0].command
           content: --topology=/etc/nvml-mock/topology/topology.yaml
       - contains:
-          path: spec.template.spec.containers[1].volumeMounts
+          path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: gpu-topology
+            name: cluster-topology
             mountPath: /etc/nvml-mock/topology
             readOnly: true
 
@@ -805,20 +749,20 @@ tests:
     asserts:
       # An unset --topology is what tells the agent this cluster declares none.
       - notContains:
-          path: spec.template.spec.containers[1].command
+          path: spec.template.spec.containers[0].command
           content: --topology=/etc/nvml-mock/topology/topology.yaml
       - notContains:
-          path: spec.template.spec.containers[1].volumeMounts
+          path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: gpu-topology
+            name: cluster-topology
             mountPath: /etc/nvml-mock/topology
             readOnly: true
       - notContains:
           path: spec.template.spec.volumes
           content:
-            name: gpu-topology
+            name: cluster-topology
 
-  - it: should wire fabricmanager state dir into both containers when enabled
+  - it: should wire fabricmanager state dir into the node-agent when enabled
     set:
       fabricmanager:
         enabled: true
@@ -830,19 +774,12 @@ tests:
           content:
             name: MOCK_FABRICMANAGER_STATE_DIR
             value: /var/lib/nvml-mock/fabric-state
-      # node-agent: non-empty is what enables the simulator, and it is the path
-      # the cdi simulator mounts into workloads.
-      - contains:
-          path: spec.template.spec.containers[1].env
-          content:
-            name: MOCK_FABRICMANAGER_STATE_DIR
-            value: /var/lib/nvml-mock/fabric-state
-      # No dedicated volume: the directory sits under the host-nvml-mock
+      # No dedicated volume: the directory sits under the mokka-root
       # hostPath both containers already mount, and the agent creates it.
       - notContains:
           path: spec.template.spec.volumes
           content:
-            name: host-fabric-state
+            name: fabric-state
 
   - it: should withhold readiness for fabricmanager.initDelay
     set:
@@ -851,7 +788,7 @@ tests:
         initDelay: 15s
     asserts:
       - contains:
-          path: spec.template.spec.containers[1].env
+          path: spec.template.spec.containers[0].env
           content:
             name: MOCK_FABRICMANAGER_INIT_DELAY
             value: "15s"
@@ -862,11 +799,11 @@ tests:
         enabled: true
     asserts:
       - notContains:
-          path: spec.template.spec.containers[1].env
+          path: spec.template.spec.containers[0].env
           content:
             name: MOCK_FABRICMANAGER_INIT_DELAY
 
-  - it: should honor a custom fabricmanager.stateDir
+  - it: should honor a custom fabricmanager.stateDir in the node-agent
     set:
       fabricmanager:
         enabled: true
@@ -877,50 +814,71 @@ tests:
           content:
             name: MOCK_FABRICMANAGER_STATE_DIR
             value: /run/nvidia-fabricmanager
-      - contains:
-          path: spec.template.spec.containers[1].env
-          content:
-            name: MOCK_FABRICMANAGER_STATE_DIR
-            value: /run/nvidia-fabricmanager
       # The node agent is the only container that touches the marker, and it
       # reaches host paths through /host.
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: host-fabric-state
+            name: fabric-state
             hostPath:
               path: /run/nvidia-fabricmanager
               type: DirectoryOrCreate
       - contains:
-          path: spec.template.spec.containers[1].volumeMounts
+          path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: host-fabric-state
+            name: fabric-state
             mountPath: /host/run/nvidia-fabricmanager
 
   # ── Node Agent ──────────────────────────────────────────────────────
   - it: should always run the node-agent sidecar
     asserts:
       - equal:
-          path: spec.template.spec.containers[1].name
+          path: spec.template.spec.containers[0].name
           value: node-agent
       - contains:
-          path: spec.template.spec.containers[1].command
+          path: spec.template.spec.containers[0].command
           content: --log-level=info
       - contains:
-          path: spec.template.spec.containers[1].command
+          path: spec.template.spec.containers[0].command
           content: --log-format=json
       - contains:
-          path: spec.template.spec.containers[1].command
-          content: --shutdown-timeout=30s
+          path: spec.template.spec.containers[0].command
+          content: --shutdown-timeout=5s
+
+  # nodeAgent.resources is the only resources knob left: the container it used
+  # to sit beside is gone.
+  - it: should apply node-agent resource limits and requests
+    set:
+      nodeAgent:
+        resources:
+          limits:
+            cpu: 500m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 64Mi
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.cpu
+          value: 500m
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: 256Mi
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.cpu
+          value: 100m
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.memory
+          value: 64Mi
 
   # CDI specs are written to h.Run/cdi/ = /host/run/cdi/. Without this mount the
   # writes land in the container overlayfs and containerd never sees the specs.
   - it: node-agent should mount the CDI spec directory
     asserts:
       - contains:
-          path: spec.template.spec.containers[1].volumeMounts
+          path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: host-cdi
+            name: cdi-specs
             mountPath: /host/run/cdi
 
   # The agent reads the node's DMI attributes and reproduces them inside the
@@ -928,25 +886,28 @@ tests:
   # directory /sys/class/dmi/id resolves into and the runtime's bind-mount
   # targets have to survive it. Read-only: the agent never writes to /sys.
   - it: should mount the node's sysfs read-only in the agent alone
+    set:
+      allocationWatcher:
+        enabled: true
     asserts:
       - contains:
-          path: spec.template.spec.containers[1].volumeMounts
-          content:
-            name: host-sys
-            mountPath: /host/sys
-            readOnly: true
-      # Nothing in the mock container reads the node's sysfs, and the volume is
-      # the whole of /sys.
-      - notContains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: host-sys
+            name: node-sysfs
+            mountPath: /host/sys
+            readOnly: true
+      # The watcher reads the kubelet's pod-resources socket, not the node's
+      # sysfs, and the volume is the whole of /sys.
+      - notContains:
+          path: spec.template.spec.containers[1].volumeMounts
+          content:
+            name: node-sysfs
             mountPath: /host/sys
             readOnly: true
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: host-sys
+            name: node-sysfs
             hostPath:
               path: /sys
               type: Directory
@@ -960,13 +921,13 @@ tests:
         shutdownTimeout: 60s
     asserts:
       - contains:
-          path: spec.template.spec.containers[1].command
+          path: spec.template.spec.containers[0].command
           content: --log-level=debug
       - contains:
-          path: spec.template.spec.containers[1].command
+          path: spec.template.spec.containers[0].command
           content: --log-format=plain
       - contains:
-          path: spec.template.spec.containers[1].command
+          path: spec.template.spec.containers[0].command
           content: --shutdown-timeout=60s
 
   # ── Allocation watcher (#506) ───────────────────────────────────────
@@ -974,11 +935,11 @@ tests:
     asserts:
       - lengthEqual:
           path: spec.template.spec.containers
-          count: 2
+          count: 1
       - notContains:
           path: spec.template.spec.volumes
           content:
-            name: host-pod-resources
+            name: pod-resources
             hostPath:
               path: /var/lib/kubelet/pod-resources
               type: Directory
@@ -990,38 +951,38 @@ tests:
     asserts:
       - lengthEqual:
           path: spec.template.spec.containers
-          count: 3
+          count: 2
       - equal:
-          path: spec.template.spec.containers[2].name
+          path: spec.template.spec.containers[1].name
           value: allocation-watcher
       # The image installs the binary at /usr/local/bin. A wrong path here is
       # a CrashLoop that no unit test outside the chart would catch.
       - equal:
-          path: spec.template.spec.containers[2].command[0]
+          path: spec.template.spec.containers[1].command[0]
           value: /usr/local/bin/nvml-mock-ctl
       - equal:
-          path: spec.template.spec.containers[2].command[1]
+          path: spec.template.spec.containers[1].command[1]
           value: watch-allocations
       - contains:
-          path: spec.template.spec.containers[2].volumeMounts
+          path: spec.template.spec.containers[1].volumeMounts
           content:
-            name: host-pod-resources
+            name: pod-resources
             mountPath: /var/lib/kubelet/pod-resources
             readOnly: true
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: host-pod-resources
+            name: pod-resources
             hostPath:
               path: /var/lib/kubelet/pod-resources
               type: Directory
       # It writes only into the driver root; the socket is read-only and the
       # container drops every capability.
       - equal:
-          path: spec.template.spec.containers[2].securityContext.readOnlyRootFilesystem
+          path: spec.template.spec.containers[1].securityContext.readOnlyRootFilesystem
           value: true
       - equal:
-          path: spec.template.spec.containers[2].securityContext.allowPrivilegeEscalation
+          path: spec.template.spec.containers[1].securityContext.allowPrivilegeEscalation
           value: false
 
   - it: should thread the poll interval and per-claim fraction into the watcher argv
@@ -1032,10 +993,10 @@ tests:
         usedFractionPerClaim: 0.25
     asserts:
       - contains:
-          path: spec.template.spec.containers[2].command
+          path: spec.template.spec.containers[1].command
           content: --interval=500ms
       - contains:
-          path: spec.template.spec.containers[2].command
+          path: spec.template.spec.containers[1].command
           content: --used-fraction=0.25
 
   - it: should follow a custom pod-resources socket path into both mount and volume
@@ -1045,18 +1006,18 @@ tests:
         podResourcesSocket: /var/lib/k0s/kubelet/pod-resources/kubelet.sock
     asserts:
       - contains:
-          path: spec.template.spec.containers[2].command
+          path: spec.template.spec.containers[1].command
           content: --socket=/var/lib/k0s/kubelet/pod-resources/kubelet.sock
       - contains:
-          path: spec.template.spec.containers[2].volumeMounts
+          path: spec.template.spec.containers[1].volumeMounts
           content:
-            name: host-pod-resources
+            name: pod-resources
             mountPath: /var/lib/k0s/kubelet/pod-resources
             readOnly: true
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: host-pod-resources
+            name: pod-resources
             hostPath:
               path: /var/lib/k0s/kubelet/pod-resources
               type: Directory

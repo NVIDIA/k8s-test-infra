@@ -7,6 +7,7 @@ package cdi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sync/atomic"
@@ -43,14 +44,15 @@ func New() *Simulator { return &Simulator{} }
 // Name returns the stable simulator identifier.
 func (s *Simulator) Name() string { return name }
 
-// Ready reports whether Stage succeeded (always true; Stage is a no-op).
+// Ready reports whether both CDI specs are published.
 func (s *Simulator) Ready() bool { return s.ready.Load() }
 
 // Stage is a no-op. Writing a CDI spec before the Stage barrier means the spec's
 // hostPaths (chardevs, shims) may not exist yet; containerd fails every container
 // creation that references an unresolvable spec. The write is deferred to Apply.
 func (s *Simulator) Stage(_ context.Context, _ *host.Host, _ *agent.State) error {
-	s.ready.Store(true)
+	s.ready.Store(false)
+
 	return nil
 }
 
@@ -60,31 +62,36 @@ func (s *Simulator) Discard(_ context.Context, _ *host.Host) error { return nil 
 
 // Apply writes /run/cdi/nvidia.yaml and /run/cdi/nvml-mock-nri.yaml.
 func (s *Simulator) Apply(_ context.Context, h *host.Host, state *agent.State) error {
+	s.ready.Store(false)
+
 	if err := writeSpec(filepath.Join(h.Run, nvidiaSpecFile), buildNvidiaSpec(state)); err != nil {
 		return fmt.Errorf("nvidia.yaml: %w", err)
 	}
+
 	if err := writeSpec(filepath.Join(h.Run, nriSpecFile), buildNRISpec(state)); err != nil {
 		return fmt.Errorf("nvml-mock-nri.yaml: %w", err)
 	}
+
+	s.ready.Store(true)
 	return nil
 }
 
 // Revoke removes both CDI specs.
 func (s *Simulator) Revoke(_ context.Context, h *host.Host) error {
-	err1 := fsutil.Remove(filepath.Join(h.Run, nvidiaSpecFile))
-	err2 := fsutil.Remove(filepath.Join(h.Run, nriSpecFile))
+	s.ready.Store(false)
 
-	if err1 != nil {
-		return err1
-	}
-
-	return err2
+	return errors.Join(
+		fsutil.Remove(filepath.Join(h.Run, nvidiaSpecFile)),
+		fsutil.Remove(filepath.Join(h.Run, nriSpecFile)),
+	)
 }
 
 func writeSpec(path string, spec cdiSpec) error {
 	data, err := yaml.Marshal(spec)
+
 	if err != nil {
 		return fmt.Errorf("marshal: %w", err)
 	}
+
 	return fsutil.Write(path, data, 0o644)
 }

@@ -34,6 +34,11 @@ should match snapshot with b200 profile:
         Cluster prerequisites (KIND):
           kind create cluster --config tests/e2e/kind-dra-config.yaml
 
+        The kubelet plugin's node affinity requires a GPU-presence label. NFD derives
+        one from the feature file this chart writes; without NFD, set it by hand:
+
+          kubectl label node --all nvidia.com/gpu.present=true
+
         Install:
           helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
           helm repo update
@@ -64,10 +69,6 @@ should match snapshot with b200 profile:
         please contribute the test back.
 
       ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-      Quick check — node labels:
-
-        kubectl get nodes -o 'custom-columns=NAME:.metadata.name,GPU_PRESENT:.metadata.labels.nvidia\.com/gpu\.present'
 should match snapshot with default values:
   1: |
     |
@@ -104,6 +105,11 @@ should match snapshot with default values:
         Cluster prerequisites (KIND):
           kind create cluster --config tests/e2e/kind-dra-config.yaml
 
+        The kubelet plugin's node affinity requires a GPU-presence label. NFD derives
+        one from the feature file this chart writes; without NFD, set it by hand:
+
+          kubectl label node --all nvidia.com/gpu.present=true
+
         Install:
           helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
           helm repo update
@@ -134,7 +140,3 @@ should match snapshot with default values:
         please contribute the test back.
 
       ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-      Quick check — node labels:
-
-        kubectl get nodes -o 'custom-columns=NAME:.metadata.name,GPU_PRESENT:.metadata.labels.nvidia\.com/gpu\.present'
