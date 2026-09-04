@@ -35,18 +35,63 @@ IMAGE_NAME := k8s-test-infra
 IMAGE_REPO := $(IMAGE_REGISTRY)/$(IMAGE_NAME)
 IMAGE_TAG := $(IMAGE_REPO):$(IMAGE_TAG_NAME)
 
+# Mokka control-plane publication inputs. The image repository and newline-
+# delimited tags are intentionally required at runtime: publishing must never
+# fall back to a developer-oriented image name. Labels are newline-delimited
+# too, matching docker/metadata-action output without shell word splitting.
+MOKKA_CONTROL_PLANE_IMAGE ?=
+MOKKA_CONTROL_PLANE_TAGS ?=
+MOKKA_CONTROL_PLANE_LABELS ?=
+MOKKA_CONTROL_PLANE_CONTEXT ?= .
+MOKKA_CONTROL_PLANE_DOCKERFILE ?= deployments/control-plane/Dockerfile
+MOKKA_CONTROL_PLANE_PLATFORMS ?= linux/amd64,linux/arm64
+MOKKA_CONTROL_PLANE_CACHE_FROM ?=
+MOKKA_CONTROL_PLANE_CACHE_TO ?=
+MOKKA_CONTROL_PLANE_GOLANG_VERSION ?= $(shell ./hack/golang-version.sh)
+MOKKA_CONTROL_PLANE_GOPROXY ?=
+MOKKA_CONTROL_PLANE_GOAUTH_FILE ?=
+MOKKA_CONTROL_PLANE_DIGEST_FILE ?= dist/mokka-control-plane.digest
+MOKKA_CONTROL_PLANE_SBOM_FILE ?= dist/mokka-control-plane.spdx.json
+MOKKA_CONTROL_PLANE_DOCKER ?= docker
+MOKKA_CONTROL_PLANE_SYFT ?= syft
+MOKKA_CONTROL_PLANE_COSIGN ?= cosign
+
+export MOKKA_CONTROL_PLANE_IMAGE MOKKA_CONTROL_PLANE_TAGS MOKKA_CONTROL_PLANE_LABELS
+export MOKKA_CONTROL_PLANE_CONTEXT MOKKA_CONTROL_PLANE_DOCKERFILE MOKKA_CONTROL_PLANE_PLATFORMS
+export MOKKA_CONTROL_PLANE_CACHE_FROM MOKKA_CONTROL_PLANE_CACHE_TO
+export MOKKA_CONTROL_PLANE_GOLANG_VERSION MOKKA_CONTROL_PLANE_GOPROXY MOKKA_CONTROL_PLANE_GOAUTH_FILE
+export MOKKA_CONTROL_PLANE_DIGEST_FILE MOKKA_CONTROL_PLANE_SBOM_FILE
+export MOKKA_CONTROL_PLANE_DOCKER MOKKA_CONTROL_PLANE_SYFT MOKKA_CONTROL_PLANE_COSIGN
+
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 
 BIN_DIR := $(PROJECT_DIR)/tmp/bin
 GOBIN := $(BIN_DIR)
 
 export GOBIN
-export PATH := $(GOBIN):$(PATH)
 
 .PHONY: help
 help:
 	@echo "🛠️ Dev Commands\n"
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
+
+.PHONY: test-kwok-contract kwok-scale kwok-scale-matrix
+test-kwok-contract:
+	$(GO_CMD) test -race ./tests/kwok/...
+
+# Explicit opt-in: this owns a Docker-backed KWOK cluster and can consume
+# substantial host resources at the larger tiers. It is not part of unit CI.
+KWOK_NODE_COUNT ?= 200
+KWOK_MATRIX ?= 1000 10000 25000 50000 100000
+kwok-scale:
+	@test "$(KWOK_SCALE)" = 1 || { echo "set KWOK_SCALE=1 to run the opt-in KWOK POC"; exit 2; }
+	KWOK_NODE_COUNT=$(KWOK_NODE_COUNT) ./tests/kwok/run.sh
+
+kwok-scale-matrix:
+	@test "$(KWOK_SCALE)" = 1 || { echo "set KWOK_SCALE=1 to run the opt-in KWOK POC"; exit 2; }
+	@for count in $(KWOK_MATRIX); do \
+		KWOK_NODE_COUNT=$$count KWOK_CLUSTER_NAME=mokka-controller-kwok-$$count ./tests/kwok/run.sh || exit; \
+	done
 
 CONTROLLER_GEN_VERSION ?= v0.20.1
 
@@ -108,6 +153,7 @@ API_PKG_PATH := ./internal/controlplane/api/...
 # The bridge generator reads go-nvml's nvml.go and nvml.h. Their module cache path
 # is version-stamped, so resolve it here instead of hardcoding the pinned version.
 GO_NVML_MOD  := github.com/NVIDIA/go-nvml
+MOKKA_CODEGEN := ./hack/update-mokka-codegen.sh
 
 .PHONY: gen
 gen: tools ## Generate machine-controlled code
@@ -121,12 +167,15 @@ gen: tools ## Generate machine-controlled code
 	@$(BIN_DIR)/controller-gen crd:allowDangerousTypes=true \
 		paths="$(API_PKG_PATH)" \
 		output:crd:artifacts:config=$(CRDS_OUT)
+	@echo "Generating Mokka clients, listers, and informers.."
+	@$(MOKKA_CODEGEN)
 
 .PHONY: gen-check
 gen-check: gen ## Check whether all generated code is up to date
 	@git diff --quiet HEAD -- \
 		./pkg/gpu/mocknvml/bridge/ \
 		./internal/controlplane/api/ \
+		./pkg/generated/ \
 		$(CRDS_OUT) || { \
 		echo "ERROR: generated code is out of date. Run 'make gen' and commit the result."; \
 		git diff -- ./internal/controlplane/api/ $(CRDS_OUT); \
@@ -152,6 +201,224 @@ build: ## Build all CLIs
 	    echo "🔨 $$name"; \
 	    $(GO_CMD) build -o $(DIST_DIR)/$$name $$pkg || exit 1; \
 	done
+
+.PHONY: mokka-control-plane-publish mokka-control-plane-image-push
+.PHONY: mokka-control-plane-image-sign mokka-control-plane-image-sbom
+.PHONY: mokka-control-plane-image-attest
+
+# Keep the four operations independently runnable so a local release can be
+# resumed from an already-pushed digest. The aggregate target deliberately
+# sequences recursive makes even under `make -j`: attestation must never race
+# the digest, signature, or SBOM it binds together.
+mokka-control-plane-publish: ## Build, push, sign, generate an SPDX SBOM, and attest the Mokka control-plane image
+	+@$(MAKE) mokka-control-plane-image-push
+	+@$(MAKE) mokka-control-plane-image-sign
+	+@$(MAKE) mokka-control-plane-image-sbom
+	+@$(MAKE) mokka-control-plane-image-attest
+
+mokka-control-plane-image-push: ## Build and push the multi-platform Mokka control-plane image, recording its digest
+	@set -eu; \
+	image="$${MOKKA_CONTROL_PLANE_IMAGE:-}"; \
+	tags="$${MOKKA_CONTROL_PLANE_TAGS:-}"; \
+	labels="$${MOKKA_CONTROL_PLANE_LABELS:-}"; \
+	context="$${MOKKA_CONTROL_PLANE_CONTEXT:-}"; \
+	dockerfile="$${MOKKA_CONTROL_PLANE_DOCKERFILE:-}"; \
+	platforms="$${MOKKA_CONTROL_PLANE_PLATFORMS:-}"; \
+	digest_file="$${MOKKA_CONTROL_PLANE_DIGEST_FILE:-}"; \
+	docker_cmd="$${MOKKA_CONTROL_PLANE_DOCKER:-}"; \
+	golang_version="$${MOKKA_CONTROL_PLANE_GOLANG_VERSION:-}"; \
+	goproxy="$${MOKKA_CONTROL_PLANE_GOPROXY:-}"; \
+	goauth_file="$${MOKKA_CONTROL_PLANE_GOAUTH_FILE:-}"; \
+	if [[ -z "$$image" || -z "$$tags" || -z "$$context" || -z "$$dockerfile" || -z "$$platforms" || -z "$$digest_file" || -z "$$docker_cmd" || -z "$$golang_version" ]]; then \
+		echo "ERROR: MOKKA_CONTROL_PLANE_IMAGE, MOKKA_CONTROL_PLANE_TAGS, MOKKA_CONTROL_PLANE_CONTEXT, MOKKA_CONTROL_PLANE_DOCKERFILE, MOKKA_CONTROL_PLANE_PLATFORMS, MOKKA_CONTROL_PLANE_DIGEST_FILE, MOKKA_CONTROL_PLANE_DOCKER, and MOKKA_CONTROL_PLANE_GOLANG_VERSION are required." >&2; \
+		exit 2; \
+	fi; \
+	image_name="$${image##*/}"; \
+	if [[ "$$image" == *"@"* || "$$image_name" == *":"* || "$$image" =~ [[:space:]] ]]; then \
+		echo "ERROR: MOKKA_CONTROL_PLANE_IMAGE must be an untagged repository without whitespace: $$image" >&2; \
+		exit 2; \
+	fi; \
+	command -v "$$docker_cmd" >/dev/null 2>&1 || { echo "ERROR: required buildx frontend not found: $$docker_cmd" >&2; exit 2; }; \
+	build_args=(buildx build --file "$$dockerfile" --platform "$$platforms" --push \
+		--build-arg "GOLANG_VERSION=$$golang_version"); \
+	if [[ -n "$$goproxy" ]]; then \
+		build_args+=(--build-arg "GOPROXY=$$goproxy"); \
+	fi; \
+	if [[ -n "$$goauth_file" ]]; then \
+		[[ -f "$$goauth_file" ]] || { echo "ERROR: Go proxy credential file not found: $$goauth_file" >&2; exit 2; }; \
+		build_args+=(--secret "id=goauth,src=$$goauth_file"); \
+	fi; \
+	tag_count=0; \
+	while IFS= read -r tag; do \
+		[[ -z "$$tag" ]] && continue; \
+		if [[ "$$tag" != "$$image":* || "$$tag" =~ [[:space:]] ]]; then \
+			echo "ERROR: every MOKKA_CONTROL_PLANE_TAGS entry must tag $$image without whitespace: $$tag" >&2; \
+			exit 2; \
+		fi; \
+		build_args+=(--tag "$$tag"); \
+		tag_count=$$((tag_count + 1)); \
+	done <<< "$$tags"; \
+	if [[ $$tag_count -eq 0 ]]; then \
+		echo "ERROR: MOKKA_CONTROL_PLANE_TAGS must contain at least one non-empty tag." >&2; \
+		exit 2; \
+	fi; \
+	while IFS= read -r label; do \
+		[[ -z "$$label" ]] && continue; \
+		build_args+=(--label "$$label"); \
+	done <<< "$$labels"; \
+	if [[ -n "$${MOKKA_CONTROL_PLANE_CACHE_FROM:-}" ]]; then \
+		build_args+=(--cache-from "$$MOKKA_CONTROL_PLANE_CACHE_FROM"); \
+	fi; \
+	if [[ -n "$${MOKKA_CONTROL_PLANE_CACHE_TO:-}" ]]; then \
+		build_args+=(--cache-to "$$MOKKA_CONTROL_PLANE_CACHE_TO"); \
+	fi; \
+	mkdir -p "$$(dirname "$$digest_file")"; \
+	digest_tmp_dir="$$(mktemp -d "$$digest_file.tmp.XXXXXX")"; \
+	digest_tmp="$$digest_tmp_dir/digest"; \
+	trap 'rm -f -- "$$digest_tmp"; rmdir "$$digest_tmp_dir" 2>/dev/null || true' EXIT; \
+	build_args+=(--iidfile "$$digest_tmp"); \
+	"$$docker_cmd" "$${build_args[@]}" "$$context"; \
+	digest="$$(cat "$$digest_tmp")"; \
+	digest_raw="$$(cat "$$digest_tmp"; printf x)"; \
+	if [[ ! "$$digest" =~ ^sha256:[0-9a-f]{64}$$ ]] || { [[ "$$digest_raw" != "$${digest}x" ]] && [[ "$$digest_raw" != "$$digest"$$'\n'x ]]; }; then \
+		echo "ERROR: buildx did not produce one immutable sha256 digest in $$digest_tmp" >&2; \
+		exit 1; \
+	fi; \
+	mv "$$digest_tmp" "$$digest_file"; \
+	rmdir "$$digest_tmp_dir"; \
+	trap - EXIT; \
+	echo "Published $$image@$$digest"
+
+mokka-control-plane-image-sign: ## Sign the Mokka control-plane image named by the recorded digest
+	@set -eu; \
+	image="$${MOKKA_CONTROL_PLANE_IMAGE:-}"; \
+	digest_file="$${MOKKA_CONTROL_PLANE_DIGEST_FILE:-}"; \
+	cosign_cmd="$${MOKKA_CONTROL_PLANE_COSIGN:-}"; \
+	if [[ -z "$$image" || -z "$$digest_file" || -z "$$cosign_cmd" ]]; then \
+		echo "ERROR: MOKKA_CONTROL_PLANE_IMAGE, MOKKA_CONTROL_PLANE_DIGEST_FILE, and MOKKA_CONTROL_PLANE_COSIGN are required." >&2; \
+		exit 2; \
+	fi; \
+	image_name="$${image##*/}"; \
+	if [[ "$$image" == *"@"* || "$$image_name" == *":"* || "$$image" =~ [[:space:]] ]]; then \
+		echo "ERROR: MOKKA_CONTROL_PLANE_IMAGE must be an untagged repository without whitespace: $$image" >&2; \
+		exit 2; \
+	fi; \
+	command -v "$$cosign_cmd" >/dev/null 2>&1 || { echo "ERROR: required signing tool not found: $$cosign_cmd" >&2; exit 2; }; \
+	[[ -f "$$digest_file" ]] || { echo "ERROR: digest file not found: $$digest_file" >&2; exit 2; }; \
+	digest="$$(cat "$$digest_file")"; \
+	digest_raw="$$(cat "$$digest_file"; printf x)"; \
+	if [[ ! "$$digest" =~ ^sha256:[0-9a-f]{64}$$ ]] || { [[ "$$digest_raw" != "$${digest}x" ]] && [[ "$$digest_raw" != "$$digest"$$'\n'x ]]; }; then \
+		echo "ERROR: $$digest_file must contain exactly one immutable sha256 digest." >&2; \
+		exit 2; \
+	fi; \
+	"$$cosign_cmd" sign --yes "$$image@$$digest"
+
+mokka-control-plane-image-sbom: ## Generate an SPDX JSON SBOM for each platform in the recorded Mokka control-plane image
+	@set -eu; \
+	image="$${MOKKA_CONTROL_PLANE_IMAGE:-}"; \
+	platforms="$${MOKKA_CONTROL_PLANE_PLATFORMS:-}"; \
+	digest_file="$${MOKKA_CONTROL_PLANE_DIGEST_FILE:-}"; \
+	sbom_file="$${MOKKA_CONTROL_PLANE_SBOM_FILE:-}"; \
+	docker_cmd="$${MOKKA_CONTROL_PLANE_DOCKER:-}"; \
+	syft_cmd="$${MOKKA_CONTROL_PLANE_SYFT:-}"; \
+	if [[ -z "$$image" || -z "$$platforms" || -z "$$digest_file" || -z "$$sbom_file" || -z "$$docker_cmd" || -z "$$syft_cmd" ]]; then \
+		echo "ERROR: MOKKA_CONTROL_PLANE_IMAGE, MOKKA_CONTROL_PLANE_PLATFORMS, MOKKA_CONTROL_PLANE_DIGEST_FILE, MOKKA_CONTROL_PLANE_SBOM_FILE, MOKKA_CONTROL_PLANE_DOCKER, and MOKKA_CONTROL_PLANE_SYFT are required." >&2; \
+		exit 2; \
+	fi; \
+	image_name="$${image##*/}"; \
+	if [[ "$$image" == *"@"* || "$$image_name" == *":"* || "$$image" =~ [[:space:]] ]]; then \
+		echo "ERROR: MOKKA_CONTROL_PLANE_IMAGE must be an untagged repository without whitespace: $$image" >&2; \
+		exit 2; \
+	fi; \
+	command -v "$$docker_cmd" >/dev/null 2>&1 || { echo "ERROR: required buildx frontend not found: $$docker_cmd" >&2; exit 2; }; \
+	command -v "$$syft_cmd" >/dev/null 2>&1 || { echo "ERROR: required SBOM tool not found: $$syft_cmd" >&2; exit 2; }; \
+	[[ -f "$$digest_file" ]] || { echo "ERROR: digest file not found: $$digest_file" >&2; exit 2; }; \
+	digest="$$(cat "$$digest_file")"; \
+	digest_raw="$$(cat "$$digest_file"; printf x)"; \
+	if [[ ! "$$digest" =~ ^sha256:[0-9a-f]{64}$$ ]] || { [[ "$$digest_raw" != "$${digest}x" ]] && [[ "$$digest_raw" != "$$digest"$$'\n'x ]]; }; then \
+		echo "ERROR: $$digest_file must contain exactly one immutable sha256 digest." >&2; \
+		exit 2; \
+	fi; \
+	mkdir -p "$$(dirname "$$sbom_file")"; \
+	sbom_tmp_dir="$$(mktemp -d "$$sbom_file.tmp.XXXXXX")"; \
+	manifest_file="$$sbom_tmp_dir/manifests"; \
+	trap 'rm -rf -- "$$sbom_tmp_dir"' EXIT; \
+	"$$docker_cmd" buildx imagetools inspect "$$image@$$digest" --format '{{range .Manifest.Manifests}}{{printf "%s/%s" .Platform.OS .Platform.Architecture}}{{with .Platform.Variant}}{{printf "/%s" .}}{{end}}{{printf " %s\n" .Digest}}{{end}}' > "$$manifest_file"; \
+	IFS=',' read -r -a configured_platforms <<< "$$platforms"; \
+	sbom_outputs=(); \
+	sbom_destinations=(); \
+	for platform in "$${configured_platforms[@]}"; do \
+		child_digest="$$(awk -v platform="$$platform" '$$1 == platform || index($$1, platform "/") == 1 { print $$2 }' "$$manifest_file")"; \
+		child_digest_raw="$$(awk -v platform="$$platform" '$$1 == platform || index($$1, platform "/") == 1 { print $$2 }' "$$manifest_file"; printf x)"; \
+		if [[ ! "$$child_digest" =~ ^sha256:[0-9a-f]{64}$$ ]] || [[ "$$child_digest_raw" != "$$child_digest"$$'\n'x ]]; then \
+			echo "ERROR: expected exactly one child manifest digest for $$platform in $$image@$$digest." >&2; \
+			exit 1; \
+		fi; \
+		platform_key="$${platform//\//-}"; \
+		sbom_tmp="$$sbom_tmp_dir/$$platform_key.spdx.json"; \
+		platform_sbom="$$sbom_file.$$platform_key"; \
+		"$$syft_cmd" "$$image@$$child_digest" --output "spdx-json=$$sbom_tmp"; \
+		[[ -s "$$sbom_tmp" ]] || { echo "ERROR: syft did not produce a non-empty SPDX JSON SBOM for $$platform." >&2; exit 1; }; \
+		sbom_outputs+=("$$sbom_tmp"); \
+		sbom_destinations+=("$$platform_sbom"); \
+	done; \
+	for ((i = 0; i < $${#sbom_outputs[@]}; i++)); do \
+		mv "$${sbom_outputs[i]}" "$${sbom_destinations[i]}"; \
+	done; \
+	rm "$$manifest_file"; \
+	rmdir "$$sbom_tmp_dir"; \
+	trap - EXIT
+
+mokka-control-plane-image-attest: ## Attest each Mokka control-plane child manifest with its platform SPDX JSON SBOM
+	@set -eu; \
+	image="$${MOKKA_CONTROL_PLANE_IMAGE:-}"; \
+	platforms="$${MOKKA_CONTROL_PLANE_PLATFORMS:-}"; \
+	digest_file="$${MOKKA_CONTROL_PLANE_DIGEST_FILE:-}"; \
+	sbom_file="$${MOKKA_CONTROL_PLANE_SBOM_FILE:-}"; \
+	docker_cmd="$${MOKKA_CONTROL_PLANE_DOCKER:-}"; \
+	cosign_cmd="$${MOKKA_CONTROL_PLANE_COSIGN:-}"; \
+	if [[ -z "$$image" || -z "$$platforms" || -z "$$digest_file" || -z "$$sbom_file" || -z "$$docker_cmd" || -z "$$cosign_cmd" ]]; then \
+		echo "ERROR: MOKKA_CONTROL_PLANE_IMAGE, MOKKA_CONTROL_PLANE_PLATFORMS, MOKKA_CONTROL_PLANE_DIGEST_FILE, MOKKA_CONTROL_PLANE_SBOM_FILE, MOKKA_CONTROL_PLANE_DOCKER, and MOKKA_CONTROL_PLANE_COSIGN are required." >&2; \
+		exit 2; \
+	fi; \
+	image_name="$${image##*/}"; \
+	if [[ "$$image" == *"@"* || "$$image_name" == *":"* || "$$image" =~ [[:space:]] ]]; then \
+		echo "ERROR: MOKKA_CONTROL_PLANE_IMAGE must be an untagged repository without whitespace: $$image" >&2; \
+		exit 2; \
+	fi; \
+	command -v "$$docker_cmd" >/dev/null 2>&1 || { echo "ERROR: required buildx frontend not found: $$docker_cmd" >&2; exit 2; }; \
+	command -v "$$cosign_cmd" >/dev/null 2>&1 || { echo "ERROR: required signing tool not found: $$cosign_cmd" >&2; exit 2; }; \
+	[[ -f "$$digest_file" ]] || { echo "ERROR: digest file not found: $$digest_file" >&2; exit 2; }; \
+	digest="$$(cat "$$digest_file")"; \
+	digest_raw="$$(cat "$$digest_file"; printf x)"; \
+	if [[ ! "$$digest" =~ ^sha256:[0-9a-f]{64}$$ ]] || { [[ "$$digest_raw" != "$${digest}x" ]] && [[ "$$digest_raw" != "$$digest"$$'\n'x ]]; }; then \
+		echo "ERROR: $$digest_file must contain exactly one immutable sha256 digest." >&2; \
+		exit 2; \
+	fi; \
+	manifest_file="$$(mktemp)"; \
+	trap 'rm -f -- "$$manifest_file"' EXIT; \
+	"$$docker_cmd" buildx imagetools inspect "$$image@$$digest" --format '{{range .Manifest.Manifests}}{{printf "%s/%s" .Platform.OS .Platform.Architecture}}{{with .Platform.Variant}}{{printf "/%s" .}}{{end}}{{printf " %s\n" .Digest}}{{end}}' > "$$manifest_file"; \
+	IFS=',' read -r -a configured_platforms <<< "$$platforms"; \
+	child_digests=(); \
+	sbom_predicates=(); \
+	for platform in "$${configured_platforms[@]}"; do \
+		child_digest="$$(awk -v platform="$$platform" '$$1 == platform || index($$1, platform "/") == 1 { print $$2 }' "$$manifest_file")"; \
+		child_digest_raw="$$(awk -v platform="$$platform" '$$1 == platform || index($$1, platform "/") == 1 { print $$2 }' "$$manifest_file"; printf x)"; \
+		if [[ ! "$$child_digest" =~ ^sha256:[0-9a-f]{64}$$ ]] || [[ "$$child_digest_raw" != "$$child_digest"$$'\n'x ]]; then \
+			echo "ERROR: expected exactly one child manifest digest for $$platform in $$image@$$digest." >&2; \
+			exit 1; \
+		fi; \
+		platform_key="$${platform//\//-}"; \
+		platform_sbom="$$sbom_file.$$platform_key"; \
+		[[ -s "$$platform_sbom" ]] || { echo "ERROR: SPDX JSON SBOM not found or empty for $$platform: $$platform_sbom" >&2; exit 2; }; \
+		child_digests+=("$$child_digest"); \
+		sbom_predicates+=("$$platform_sbom"); \
+	done; \
+	for ((i = 0; i < $${#child_digests[@]}; i++)); do \
+		"$$cosign_cmd" attest --yes --predicate "$${sbom_predicates[i]}" --type spdxjson "$$image@$${child_digests[i]}"; \
+	done; \
+	rm "$$manifest_file"; \
+	trap - EXIT
 
 build-mockpcisysfs: ## Build mockpcisysfs
 	@make -C shims/libpcisysfs

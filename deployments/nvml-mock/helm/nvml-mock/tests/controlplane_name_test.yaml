@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
+suite: Mokka Control Plane names
+templates:
+  - templates/rbac.yaml
+  - templates/controlplane/serviceaccount.yaml
+tests:
+  - it: should preserve the ordinary ServiceAccount fullname at the length boundary
+    release:
+      name: release-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    template: templates/rbac.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: metadata.name
+          value: release-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-nvml-mock
+
+  - it: should reserve the full control-plane suffix at the length boundary
+    release:
+      name: release-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    set:
+      controlPlane.enabled: true
+    template: templates/controlplane/serviceaccount.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: release-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-control-plane
+      - matchRegex:
+          path: metadata.name
+          pattern: ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$
+
+  - it: should reserve the full control-plane suffix for fullnameOverride
+    set:
+      controlPlane.enabled: true
+      fullnameOverride: override-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    template: templates/controlplane/serviceaccount.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: override-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-control-plane
+      - matchRegex:
+          path: metadata.name
+          pattern: ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$

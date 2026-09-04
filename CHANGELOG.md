@@ -53,6 +53,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a follow-up. (#712)
 
 ### Added
+- Mokka: add an opt-in informer-driven control plane that materializes
+  `SGPURackProfile` and `SGPUInventory` declarations into stable `SGPURack`
+  Node bindings and projects the required assignment metadata onto Kubernetes
+  Nodes. The controller rebuilds its derived state from Kubernetes after restart.
 - The node agent gains `pcibus`, `cdi` and `imex` simulators, each an
   `agent.Simulator` with the same stage/apply/discard lifecycle as the existing
   `gpudriver`. Together they subsume the device-surface construction that

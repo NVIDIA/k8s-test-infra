@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 )
 
 func TestSGPURackCarriesInventoryControllerOwnership(t *testing.T) {
@@ -24,11 +25,11 @@ func TestSGPURackCarriesInventoryControllerOwnership(t *testing.T) {
 			UID:  types.UID("inventory-uid"),
 		},
 	}
+	ownerReference := metav1.NewControllerRef(inventory, GroupVersion.WithKind("SGPUInventory"))
+	ownerReference.BlockOwnerDeletion = ptr.To(false)
 	rack := &SGPURack{
 		ObjectMeta: metav1.ObjectMeta{
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(inventory, GroupVersion.WithKind("SGPUInventory")),
-			},
+			OwnerReferences: []metav1.OwnerReference{*ownerReference},
 		},
 		Spec: SGPURackSpec{
 			InventoryRef: SGPURackInventoryReference{
@@ -44,7 +45,7 @@ func TestSGPURackCarriesInventoryControllerOwnership(t *testing.T) {
 	require.Equal(t, "SGPUInventory", owner.Kind)
 	require.Equal(t, rack.Spec.InventoryRef.Name, owner.Name)
 	require.Equal(t, rack.Spec.InventoryRef.UID, owner.UID)
-	require.True(t, *owner.BlockOwnerDeletion)
+	require.False(t, *owner.BlockOwnerDeletion)
 }
 
 func TestSGPURackDeepCopyDoesNotAliasBindings(t *testing.T) {
