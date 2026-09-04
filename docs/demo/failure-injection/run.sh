@@ -31,6 +31,10 @@ set -euo pipefail
 # Configuration
 ###############################################################################
 CLUSTER_NAME="nvml-mock-failure-demo"
+# Kind creates a kubeconfig context named "kind-<cluster>". Pin every kubectl
+# and helm call to it so the demo never operates on whatever context happens to
+# be current (which could be a real cluster).
+KUBE_CONTEXT="kind-${CLUSTER_NAME}"
 IMAGE_NAME="nvml-mock:failure-demo"
 RELEASE_NAME="nvml-mock"
 CHART_PATH="deployments/nvml-mock/helm/nvml-mock"
@@ -64,6 +68,10 @@ sub()     { printf '    %s\n' "$*" >&2; }
 ok()      { printf '    \xE2\x9C\x93 %s\n' "$*" >&2; }   # ✓
 fail()    { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
+# Wrap kubectl so every call is pinned to the demo's kind context without
+# repeating --context at each call site. helm keeps --kube-context inline.
+kubectl_ctx() { command kubectl --context "${KUBE_CONTEXT}" "$@"; }
+
 # wait_for_pod: wait for the DaemonSet rollout to settle and echo the
 # name of a Running pod we can exec into for verification.
 #
@@ -72,8 +80,8 @@ fail()    { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 # Filtering on status.phase=Running keeps us from accidentally execing
 # into a pod that's on its way out.
 wait_for_pod() {
-  kubectl rollout status "daemonset/${RELEASE_NAME}" --timeout=90s >/dev/null
-  kubectl get pods -l "app.kubernetes.io/name=${RELEASE_NAME}" \
+  kubectl_ctx rollout status "daemonset/${RELEASE_NAME}" --timeout=90s >/dev/null
+  kubectl_ctx get pods -l "app.kubernetes.io/name=${RELEASE_NAME}" \
     --field-selector=status.phase=Running \
     -o jsonpath='{.items[0].metadata.name}'
 }
@@ -100,6 +108,7 @@ upgrade_and_recycle() {
   shift
   sub "helm upgrade -> ${label}"
   helm upgrade "${RELEASE_NAME}" "${REPO_ROOT}/${CHART_PATH}" \
+  --kube-context "${KUBE_CONTEXT}" \
     --reuse-values "$@" \
     --wait --timeout 120s >/dev/null
   # Synchronous delete: the chart pins terminationGracePeriodSeconds
@@ -107,7 +116,7 @@ upgrade_and_recycle() {
   # blocks just long enough for pods to disappear before rollout
   # status checks the new generation. --ignore-not-found keeps the
   # call idempotent if the previous scenario already evicted them.
-  kubectl delete pods -l "app.kubernetes.io/name=${RELEASE_NAME}" \
+  kubectl_ctx delete pods -l "app.kubernetes.io/name=${RELEASE_NAME}" \
     --ignore-not-found >/dev/null
   wait_for_pod
 }
@@ -118,7 +127,7 @@ upgrade_and_recycle() {
 # overlay.
 assert_configmap_contains() {
   local pattern=$1
-  if ! kubectl get "configmap/${CONFIGMAP_NAME}" \
+  if ! kubectl_ctx get "configmap/${CONFIGMAP_NAME}" \
         -o jsonpath='{.data.config\.yaml}' | grep -qF "${pattern}"; then
     fail "ConfigMap ${CONFIGMAP_NAME} is missing expected pattern: ${pattern}"
   fi
@@ -152,6 +161,7 @@ kind load docker-image "${IMAGE_NAME}" --name "${CLUSTER_NAME}"
 # on every scenario diffs against this baseline.
 info "Scenario 1: healthy baseline (failureInjection.enabled=false)"
 helm upgrade --install "${RELEASE_NAME}" "${REPO_ROOT}/${CHART_PATH}" \
+  --kube-context "${KUBE_CONTEXT}" \
   --set image.repository=nvml-mock \
   --set image.tag=failure-demo \
   --set gpu.profile=h100 \
@@ -165,7 +175,7 @@ sub "DaemonSet pod ready: ${POD}"
 
 # A healthy install must NOT inject the `failure:` block into the
 # rendered ConfigMap.
-if kubectl get "configmap/${CONFIGMAP_NAME}" \
+if kubectl_ctx get "configmap/${CONFIGMAP_NAME}" \
       -o jsonpath='{.data.config\.yaml}' | grep -qE '^[[:space:]]+failure:'; then
   fail "ConfigMap should not contain a failure: block when failureInjection.enabled=false"
 fi
@@ -175,7 +185,7 @@ ok "ConfigMap has no failure: block (as expected)"
 # every subsequent scenario will assert against — we don't hard-code a
 # number because the in-pod count is dictated by the profile YAML
 # rendered into the ConfigMap, not by `--set gpu.count`.
-LIST_OUT=$(kubectl exec "${POD}" -- nvidia-smi -L)
+LIST_OUT=$(kubectl_ctx exec "${POD}" -- nvidia-smi -L)
 EXPECTED_GPUS=$(printf '%s\n' "${LIST_OUT}" | grep -c '^GPU ' || true)
 if [[ "${EXPECTED_GPUS}" -lt 1 ]]; then
   fail "nvidia-smi -L reported no GPUs in the healthy baseline:
@@ -184,7 +194,7 @@ fi
 ok "nvidia-smi -L lists ${EXPECTED_GPUS} GPU(s) (healthy baseline)"
 
 # Aggregate uncorrectable ECC must be zero on a healthy device.
-ECC_BASELINE=$(kubectl exec "${POD}" -- nvidia-smi \
+ECC_BASELINE=$(kubectl_ctx exec "${POD}" -- nvidia-smi \
   --query-gpu=ecc.errors.uncorrected.aggregate.total \
   --format=csv,noheader,nounits 2>/dev/null | head -1 || echo "")
 if [[ "${ECC_BASELINE}" != "0" ]]; then
@@ -214,7 +224,7 @@ assert_configmap_contains "mode: ecc_uncorrectable"
 
 # Device must remain addressable (mode contract: ecc_uncorrectable
 # does NOT take the GPU off the API surface).
-LIST_COUNT=$(kubectl exec "${POD}" -- nvidia-smi -L | grep -c '^GPU ' || true)
+LIST_COUNT=$(kubectl_ctx exec "${POD}" -- nvidia-smi -L | grep -c '^GPU ' || true)
 if [[ "${LIST_COUNT}" -ne "${EXPECTED_GPUS}" ]]; then
   fail "ecc_uncorrectable must keep all ${EXPECTED_GPUS} GPUs addressable, got ${LIST_COUNT}"
 fi
@@ -223,7 +233,7 @@ ok "nvidia-smi -L still lists ${LIST_COUNT} GPUs (device addressable)"
 # Read the uncorrectable counter via --format=csv so each GPU prints
 # exactly one integer per line. No awk required: just confirm at
 # least one line is a positive integer.
-ECC_OUT=$(kubectl exec "${POD}" -- nvidia-smi \
+ECC_OUT=$(kubectl_ctx exec "${POD}" -- nvidia-smi \
   --query-gpu=ecc.errors.uncorrected.aggregate.total \
   --format=csv,noheader,nounits 2>&1 || true)
 sub "ECC uncorrectable per-GPU readings:"
@@ -262,7 +272,7 @@ assert_configmap_contains "mode: lost"
 # healthy device prints integers; a lost device prints an error
 # marker. We accept any of the known error markers nvidia-smi uses
 # (different driver versions vary).
-TEMP_OUT=$(kubectl exec "${POD}" -- nvidia-smi \
+TEMP_OUT=$(kubectl_ctx exec "${POD}" -- nvidia-smi \
   --query-gpu=temperature.gpu --format=csv,noheader,nounits 2>&1 || true)
 sub "nvidia-smi temperature query output:"
 printf '%s\n' "${TEMP_OUT}" | sed 's/^/      /'
@@ -293,7 +303,7 @@ sub "Pod after rollout: ${POD}"
 assert_configmap_contains "mode: fallen_off_bus"
 assert_configmap_contains "code: 79"
 
-TEMP_OUT=$(kubectl exec "${POD}" -- nvidia-smi \
+TEMP_OUT=$(kubectl_ctx exec "${POD}" -- nvidia-smi \
   --query-gpu=temperature.gpu --format=csv,noheader,nounits 2>&1 || true)
 sub "nvidia-smi temperature query output:"
 printf '%s\n' "${TEMP_OUT}" | sed 's/^/      /'
