@@ -25,8 +25,10 @@ const procFSRel = "driver/proc/driver/nvidia"
 // reported when no IMEX surface is configured.
 const defaultImexChannelCount = 2048
 
-// firstGPUIRQ is where the per-GPU IRQ numbers in the information files start.
-const firstGPUIRQ = 24
+// gpuIRQ is the interrupt every GPU reports in its information file, as the
+// captured node reports it — one shared MSI-X vector rather than a line per
+// device.
+const gpuIRQ = 254
 
 // writeProcFS provides the procfs entries that consumers read without going
 // through NVML: the driver version banner, the module parameters
@@ -40,8 +42,11 @@ func writeProcFS(ctx context.Context, h *host.Host, state *agent.State) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	// The open kernel module's banner, since the params key set below is the
+	// open module's too (OpenRmEnableUnsupportedGpus has no proprietary
+	// counterpart) and a node cannot be running both.
 	version := fmt.Sprintf(
-		"NVRM version: NVIDIA UNIX x86_64 Kernel Module  %s  Thu Feb 20 23:41:34 UTC 2026\n"+
+		"NVRM version: NVIDIA UNIX Open Kernel Module for x86_64  %s  Release Build  (mokka@nvml-mock)  Thu Feb 20 23:41:34 UTC 2026\n"+
 			"GCC version:  gcc version 12.2.0 (Debian 12.2.0-14)\n",
 		state.Software.DriverVersion,
 	)
@@ -93,7 +98,7 @@ func writeGPUDirs(ctx context.Context, procDir string, state *agent.State) error
 		wanted[bdf] = true
 
 		p := filepath.Join(gpusDir, bdf, "information")
-		if err := fsutil.Write(p, []byte(renderInformation(d)), 0o644); err != nil {
+		if err := fsutil.Write(p, []byte(renderInformation(d, state.Software.DriverVersion)), 0o644); err != nil {
 			return fmt.Errorf("gpu %s: %w", bdf, err)
 		}
 	}
@@ -141,16 +146,18 @@ func pruneGPUDirs(gpusDir string, wanted map[string]bool) error {
 	return errors.Join(errs...)
 }
 
-// renderInformation builds one gpus/<BDF>/information file. Field names and the
-// tab-after-colon layout come from the real driver, which consumers grep by
-// name — "Device Minor" above all.
-func renderInformation(d agent.DeviceSpec) string {
+// renderInformation builds one gpus/<BDF>/information file. The field set, the
+// order and the tab-after-colon layout are those of the real driver, captured
+// from an 8-GPU H100 node running the 580.105.08 open kernel module, because
+// consumers grep this file by field name — "Device Minor" above all.
+func renderInformation(d agent.DeviceSpec, driverVersion string) string {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "Model: \t\t %s\n", d.Name)
-	// The IRQ is not reachable from the profile and no consumer reads it; it is
-	// present so the file has the shape callers expect when they dump it.
-	fmt.Fprintf(&b, "IRQ:   \t\t %d\n", firstGPUIRQ+d.Index)
+	// Every GPU on the captured node reports the same IRQ, so this is a
+	// constant rather than a per-device number. No consumer reads it; it is
+	// here so the file has the shape callers expect when they dump it.
+	fmt.Fprintf(&b, "IRQ:   \t\t %d\n", gpuIRQ)
 
 	// Only reported when the profile named one. Synthesising a UUID here would
 	// contradict NVML, which falls back to its own base value.
@@ -160,13 +167,14 @@ func renderInformation(d agent.DeviceSpec) string {
 
 	fmt.Fprintf(&b, "Video BIOS: \t %s\n", d.VBIOSVersion)
 	b.WriteString("Bus Type: \t PCIe\n")
-	b.WriteString("DMA Size: \t 47 bits\n")
-	b.WriteString("DMA Mask: \t 0x7fffffffffff\n")
+	b.WriteString("DMA Size: \t 52 bits\n")
+	b.WriteString("DMA Mask: \t 0xfffffffffffff\n")
 	fmt.Fprintf(&b, "Bus Location: \t %s\n", strings.ToLower(d.PCIBusID))
 	fmt.Fprintf(&b, "Device Minor: \t %d\n", d.MinorNumber)
-	b.WriteString("Blacklisted:\t No\n")
-	fmt.Fprintf(&b, "Architecture: \t %d.%d\n", d.ComputeCapMajor, d.ComputeCapMinor)
-	fmt.Fprintf(&b, "Memory: \t %d MiB\n", d.MemoryTotalBytes/(1<<20))
+	// The GSP firmware version tracks the driver version on real hardware, and
+	// the driver prints this row whenever firmware is in use — which
+	// EnableGpuFirmware: 18 in params says it is.
+	fmt.Fprintf(&b, "GPU Firmware: \t %s\n", driverVersion)
 	b.WriteString("GPU Excluded:\t No\n")
 
 	return b.String()
@@ -216,19 +224,54 @@ func renderParams(state *agent.State) string {
 		{"InitializeSystemMemoryAllocations", 1},
 		{"UsePageAttributeTable", -1},
 		{"EnableMSI", 1},
+		{"EnablePCIeGen3", 0},
+		{"MemoryPoolSize", 0},
+		{"KMallocHeapMaxSize", 0},
+		{"VMallocHeapMaxSize", 0},
+		{"IgnoreMMIOCheck", 0},
+		{"EnableStreamMemOPs", 0},
+		{"EnableUserNUMAManagement", 0},
 		{"NvLinkDisable", 0},
-		{"PreserveVideoMemoryAllocations", 0},
+		{"RmProfilingAdminOnly", 1},
+		{"PreserveVideoMemoryAllocations", 1},
+		{"EnableS0ixPowerManagement", 1},
+		{"S0ixPowerManagementVideoMemoryThreshold", 256},
+		{"DynamicPowerManagement", 3},
+		{"DynamicPowerManagementVideoMemoryThreshold", 200},
+		{"RegisterPCIDriver", 1},
+		{"EnablePCIERelaxedOrderingMode", 0},
 		{"EnableResizableBar", 0},
 		{"EnableGpuFirmware", 18},
+		{"EnableGpuFirmwareLogs", 2},
+		{"RmNvlinkBandwidthLinkCount", 0},
+		{"EnableDbgBreakpoint", 0},
+		{"OpenRmEnableUnsupportedGpus", 1},
+		{"DmaRemapPeerMmio", 1},
 		{"ImexChannelCount", imexChannels},
+		{"CreateImexChannel0", 0},
+		{"GrdmaPciTopoCheckOverride", 1},
 	} {
 		// The driver prints these as unsigned, so the module's -1 sentinels
 		// surface as 4294967295 rather than a negative value %u cannot read.
 		fmt.Fprintf(&b, "%s: %d\n", p.key, uint32(p.value)) //nolint:gosec // sentinels are deliberately wrapped
 	}
 
-	// Must stay last: the empty value ends nvidia-modprobe's scan.
-	b.WriteString("RegistryDwords: \"\"\n")
+	// The quoted params come last, as they do in the driver, and every one of
+	// them would end nvidia-modprobe's scan where it stood.
+	for _, p := range []struct {
+		key   string
+		value string
+	}{
+		{"CoherentGPUMemoryMode", "driver"},
+		{"RegistryDwords", ""},
+		{"RegistryDwordsPerDevice", ""},
+		{"RmMsg", ""},
+		{"GpuBlacklist", ""},
+		{"TemporaryFilePath", "/var/tmp"},
+		{"ExcludedGpus", ""},
+	} {
+		fmt.Fprintf(&b, "%s: %q\n", p.key, p.value)
+	}
 
 	return b.String()
 }

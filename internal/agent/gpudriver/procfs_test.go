@@ -129,6 +129,79 @@ func TestWriteProcFS_ConsumedParamsPrecedeTheScanStopper(t *testing.T) {
 	require.Empty(t, consumed, "params must carry every key nvidia-modprobe consumes")
 }
 
+// TestWriteProcFS_ParamsCarryTheDriverKeySet pins the file to the key set and
+// order of the real module, captured from an 8-GPU H100 node running the
+// 580.105.08 open kernel module.
+//
+// The ordering invariant above is the property that matters, and this is where
+// the provenance lives: the order is only defensible because it is the driver's
+// own, and a reader who wonders why InitializeSystemMemoryAllocations sits
+// seventh — stranding the 35 keys below it for nvidia-modprobe, on real
+// hardware too — can see that we did not choose it.
+func TestWriteProcFS_ParamsCarryTheDriverKeySet(t *testing.T) {
+	t.Parallel()
+
+	h := testHost(t)
+	state := testState(t)
+
+	require.NoError(t, writeProcFS(context.Background(), h, state))
+
+	content, err := os.ReadFile(procFSPath(h.Root, "params"))
+	require.NoError(t, err)
+
+	var keys []string
+	for line := range strings.SplitSeq(strings.TrimSuffix(string(content), "\n"), "\n") {
+		key, _, found := strings.Cut(line, ":")
+		require.True(t, found, "every params line is Key: value, got %q", line)
+		keys = append(keys, key)
+	}
+
+	require.Equal(t, []string{
+		"ResmanDebugLevel",
+		"RmLogonRC",
+		"ModifyDeviceFiles",
+		"DeviceFileUID",
+		"DeviceFileGID",
+		"DeviceFileMode",
+		"InitializeSystemMemoryAllocations",
+		"UsePageAttributeTable",
+		"EnableMSI",
+		"EnablePCIeGen3",
+		"MemoryPoolSize",
+		"KMallocHeapMaxSize",
+		"VMallocHeapMaxSize",
+		"IgnoreMMIOCheck",
+		"EnableStreamMemOPs",
+		"EnableUserNUMAManagement",
+		"NvLinkDisable",
+		"RmProfilingAdminOnly",
+		"PreserveVideoMemoryAllocations",
+		"EnableS0ixPowerManagement",
+		"S0ixPowerManagementVideoMemoryThreshold",
+		"DynamicPowerManagement",
+		"DynamicPowerManagementVideoMemoryThreshold",
+		"RegisterPCIDriver",
+		"EnablePCIERelaxedOrderingMode",
+		"EnableResizableBar",
+		"EnableGpuFirmware",
+		"EnableGpuFirmwareLogs",
+		"RmNvlinkBandwidthLinkCount",
+		"EnableDbgBreakpoint",
+		"OpenRmEnableUnsupportedGpus",
+		"DmaRemapPeerMmio",
+		"ImexChannelCount",
+		"CreateImexChannel0",
+		"GrdmaPciTopoCheckOverride",
+		"CoherentGPUMemoryMode",
+		"RegistryDwords",
+		"RegistryDwordsPerDevice",
+		"RmMsg",
+		"GpuBlacklist",
+		"TemporaryFilePath",
+		"ExcludedGpus",
+	}, keys)
+}
+
 // TestWriteProcFS_DeviceFilePermissionsComeFromState covers the reason to fix
 // params at all: a profile asking for non-default device-node permissions must
 // reach the file, so permission-failure scenarios become expressible.
@@ -175,6 +248,24 @@ func informationFields(t *testing.T, path string) map[string]string {
 	}
 
 	return fields
+}
+
+// informationKeys returns the field names of one information file in the order
+// the file lists them.
+func informationKeys(t *testing.T, path string) []string {
+	t.Helper()
+
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	var keys []string
+	for line := range strings.SplitSeq(strings.TrimSuffix(string(content), "\n"), "\n") {
+		key, _, found := strings.Cut(line, ":")
+		require.True(t, found, "every information line is Key: value, got %q", line)
+		keys = append(keys, strings.TrimSpace(key))
+	}
+
+	return keys
 }
 
 // twoGPUState returns a state whose two devices carry full PCI identity, with
@@ -229,11 +320,45 @@ func TestWriteProcFS_WritesPerGPUInformation(t *testing.T) {
 	require.Equal(t, "0000:0f:00.0", fields["Bus Location"])
 	require.Equal(t, "1", fields["Device Minor"])
 	require.Equal(t, "92.00.45.00.03", fields["Video BIOS"])
-	require.Equal(t, "8.0", fields["Architecture"])
-	require.Equal(t, "40960 MiB", fields["Memory"])
+	require.Equal(t, "550.163.01", fields["GPU Firmware"])
 	require.Equal(t, "No", fields["GPU Excluded"])
 
 	require.DirExists(t, procFSPath(h.Root, "gpus", "0000:07:00.0"))
+}
+
+// TestWriteProcFS_InformationCarriesTheDriverFieldSet pins the file to the
+// fields the real driver prints, in its order, captured from an 8-GPU H100 node
+// running the 580.105.08 open kernel module.
+//
+// Exact rather than "contains", because the first version of this file invented
+// three fields — Architecture, Memory and a Blacklisted line the driver dropped
+// when it renamed the concept to GPU Excluded — and grew them from a written
+// description rather than a capture. A consumer parsing by field name is not
+// harmed by an extra line, but a mock that reports fields no driver has is
+// telling the reader something false about the interface.
+func TestWriteProcFS_InformationCarriesTheDriverFieldSet(t *testing.T) {
+	t.Parallel()
+
+	h := testHost(t)
+	state := twoGPUState(t)
+
+	require.NoError(t, writeProcFS(context.Background(), h, state))
+
+	keys := informationKeys(t, procFSPath(h.Root, "gpus", "0000:07:00.0", "information"))
+
+	require.Equal(t, []string{
+		"Model",
+		"IRQ",
+		"GPU UUID",
+		"Video BIOS",
+		"Bus Type",
+		"DMA Size",
+		"DMA Mask",
+		"Bus Location",
+		"Device Minor",
+		"GPU Firmware",
+		"GPU Excluded",
+	}, keys)
 }
 
 // TestWriteProcFS_GPUInformationOmitsUnknownUUID keeps the file from inventing

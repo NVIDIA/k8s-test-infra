@@ -21,6 +21,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which `InitializeSystemMemoryAllocations` exceeds at 33. The real driver's
   order accounts for both, keeping the four consumed keys in the first six lines,
   and is reproduced here with a test that runs the same parse the consumer does.
+- node-agent: `/proc/driver/nvidia/params` and `gpus/<BDF>/information` now
+  match a real driver field for field, checked against a capture from an 8-GPU
+  H100 node running the 580.105.08 open kernel module. Both files had been
+  written from a prose description of the interface rather than from a capture,
+  and both said things no driver says: `information` carried an `Architecture`
+  and a `Memory` row that do not exist in the file, plus a `Blacklisted` row the
+  driver dropped when it renamed the concept to `GPU Excluded`, while omitting
+  `GPU Firmware`; `params` reported 15 of the module's 42 keys and had
+  `PreserveVideoMemoryAllocations` inverted. The `version` banner is the open
+  kernel module's, matching the parameter set — `OpenRmEnableUnsupportedGpus`
+  has no proprietary-module counterpart, and a node cannot be running both.
+  The field sets are now pinned by tests as ordered lists, so a field the
+  driver does not have cannot be added back without saying so.
 - node-agent: a GPU's device minor no longer depends on which surface reports
   it. `minor_number` is optional, and a profile that listed devices without it
   left every GPU claiming minor 0 through both `nvmlDeviceGetMinorNumber` and the

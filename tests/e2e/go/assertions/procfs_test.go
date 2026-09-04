@@ -16,9 +16,16 @@ import (
 // driver: block, and so what every shipped profile currently expects.
 var driverDefaults = profile.DeviceFileParams{Mode: 0o666, ModifyDeviceFiles: true}
 
-// stagedParams is the file the agent renders today, reproduced verbatim rather
-// than built from the renderer: this fixture is the contract, and a change to
-// the renderer that breaks the parse has to fail here.
+// stagedParams is a real params file, captured from an 8-GPU H100 node running
+// the 580.105.08 open kernel module, which is also what the agent now renders.
+// Held verbatim rather than built from the renderer: this fixture is the
+// contract, so a change on either side that breaks the parse fails here.
+//
+// Note how little of it nvidia-modprobe can read. The scan ends at
+// InitializeSystemMemoryAllocations on line 7, whose name is 33 characters and
+// so wider than the field it is read into, stranding the 35 keys below — on
+// real hardware exactly as here. That is why the four keys it consumes sit in
+// lines 3 to 6, and why their position is the property worth testing.
 const stagedParams = `ResmanDebugLevel: 4294967295
 RmLogonRC: 1
 ModifyDeviceFiles: 1
@@ -28,12 +35,39 @@ DeviceFileMode: 438
 InitializeSystemMemoryAllocations: 1
 UsePageAttributeTable: 4294967295
 EnableMSI: 1
+EnablePCIeGen3: 0
+MemoryPoolSize: 0
+KMallocHeapMaxSize: 0
+VMallocHeapMaxSize: 0
+IgnoreMMIOCheck: 0
+EnableStreamMemOPs: 0
+EnableUserNUMAManagement: 0
 NvLinkDisable: 0
-PreserveVideoMemoryAllocations: 0
+RmProfilingAdminOnly: 1
+PreserveVideoMemoryAllocations: 1
+EnableS0ixPowerManagement: 1
+S0ixPowerManagementVideoMemoryThreshold: 256
+DynamicPowerManagement: 3
+DynamicPowerManagementVideoMemoryThreshold: 200
+RegisterPCIDriver: 1
+EnablePCIERelaxedOrderingMode: 0
 EnableResizableBar: 0
 EnableGpuFirmware: 18
+EnableGpuFirmwareLogs: 2
+RmNvlinkBandwidthLinkCount: 0
+EnableDbgBreakpoint: 0
+OpenRmEnableUnsupportedGpus: 1
+DmaRemapPeerMmio: 1
 ImexChannelCount: 2048
+CreateImexChannel0: 0
+GrdmaPciTopoCheckOverride: 1
+CoherentGPUMemoryMode: "driver"
 RegistryDwords: ""
+RegistryDwordsPerDevice: ""
+RmMsg: ""
+GpuBlacklist: ""
+TemporaryFilePath: "/var/tmp"
+ExcludedGpus: ""
 `
 
 // brokenParams is the file the agent staged before this surface was fixed. It
