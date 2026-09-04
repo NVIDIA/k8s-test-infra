@@ -32,14 +32,16 @@ on:
   
 jobs:
   basic:
-    # Fans out to CodeQL, which uploads SARIF. A called workflow can never
-    # hold more than its caller grants, so the write is threaded through
-    # every level of the call chain.
+    # Fans out to CodeQL, which uploads SARIF, and to golang.yaml, which mints
+    # an Artifactory token. A called workflow can never hold more than its
+    # caller grants, and a call tree that asks for more fails the whole run
+    # before any job starts, so both writes are threaded through every level.
     permissions:
       contents: read
       actions: read
       packages: read
       security-events: write
+      id-token: write
     uses: ./.github/workflows/basic-checks.yaml
 
   nvml-mock-e2e:
