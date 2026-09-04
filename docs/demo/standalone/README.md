@@ -17,7 +17,7 @@ the node labels that downstream consumers expect.
    validation helpers resolve pods in it.
 5. Verifies the deployment:
    - DaemonSet pods are running on all workers.
-   - Six GPU profile ConfigMaps are created (one per profile field group).
+   - Seven GPU profile ConfigMaps are created, one per GPU model.
    - `nvidia-smi` runs successfully inside a pod.
    - `ibstat` lists 8 simulated ConnectX-7 NDR HCAs (see
      [`internal/ib/README.md`](https://github.com/NVIDIA/k8s-test-infra/blob/main/internal/ib/README.md)).

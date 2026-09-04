@@ -46,9 +46,10 @@ See [with-fgo/README.md](with-fgo/README.md) for the step-by-step guide.
 
 Dedicated cluster (`nvml-mock-failure-demo`) that deploys nvml-mock with
 GPU failure injection enabled and verifies the engine actually trips
-the configured fault. Demonstrates `ecc_uncorrectable` end-to-end and
-prints copy-pasteable commands to switch the running release into
-`lost` / `fallen_off_bus` mode.
+the configured fault. Exercises all four modes end to end as four
+scenarios (`healthy`, `ecc_uncorrectable`, `lost`, `fallen_off_bus`),
+upgrading the running release into each one and asserting the result
+against `nvidia-smi` output.
 
 **Requirements:** Docker, Kind, Helm
 
