@@ -47,7 +47,7 @@ Installs one nvml-mock release that covers every worker in the cluster with the 
 The control-plane node is excluded: `local/nvml-mock.values.yaml` pins the DaemonSet to nodes labelled `mokka.nvidia.com/type=sgpu`, which every worker in the Kind configs carries. Without it the mock lands on the control plane too — it tolerates every taint — while GPU Operator, FGO and NFD operands stop at the `NoSchedule` taint, leaving a node that advertises a driver nobody consumes.
 
 ```bash
-tilt up                                  # default: a100
+tilt up                                  # default: gb300
 tilt up -- --gpu-profile h100
 tilt up -- --gpu-profile gb200
 ```
@@ -152,6 +152,29 @@ The Tilt UI exposes two manual triggers under the `observability-tests` label. E
 - **inject-xid** — trips an uncorrectable ECC fault and asserts the Xid reaches `DCGM_FI_DEV_XID_ERRORS`
 
 See [observability/README.md](observability/README.md) for the dashboard panels, the scenario tunables, the two couplings that fail silently, and the behaviours that look like bugs and are not — chiefly that the Xid panel is empty until a fault fires, and that the injected Xid code alternates between runs by design.
+
+### With NVIDIA NVSentinel
+
+Deploys [NVSentinel](https://github.com/NVIDIA/nvsentinel), NVIDIA's GPU health monitoring and fault-remediation service, over the mock GPUs — with cert-manager and an external MongoDB replica set — and proves the full remediation loop on a cluster with no GPUs: a GPU crossing its hardware slowdown limit is **detected** through DCGM, the node is **remediated** by cordon + drain so the GPU workload moves to the healthy worker, and cooling the GPU **auto-recovers** the node with no DCGM restart.
+
+`--nv-sentinel` implies `--gpu-operator`: the standalone DCGM (`nv-hostengine`) that NVSentinel polls is one of the Operator's operands, and the default operator values disable it because nothing else polls one. Mutually exclusive with `--fgo` (which replaces the Operator), `--compute-domain`, and `--multi-gpu-profile`. Composes with `--observability`, which adds the Grafana view of the temperature step.
+
+`--gpu-profile` defaults to `gb300` here and is restricted to `h100`, `l40s`, `b200`, `gb200`, `gb300`. NVSentinel's thermal-margin watch arms only from the GPU's slowdown T.Limit offset, which real hardware — and the mock, gating it the same way — reports on Ada and later only. On `a100` or `t4` the stack goes green while the watch never arms, so nothing detects the heated GPU.
+
+```bash
+make cluster-create
+tilt up -- --nv-sentinel
+tilt up -- --nv-sentinel --observability   # with the Grafana dashboard
+```
+
+First bring-up takes 8–15 minutes: the `gpu-health-monitor` image bundles DCGM and took ~14 minutes to pull on two cold workers. Warm re-runs are about a minute.
+
+The Tilt UI exposes two manual triggers under the `nv-sentinel-tests` label. Each injects through `nvml-mock-ctl` and **fails if NVSentinel does not react**, so the remediation path is asserted rather than eyeballed:
+
+- **quarantine-node** — heats one GPU past the loaded profile's slowdown threshold and asserts the node is cordoned and the GPU workload is evicted onto the other worker
+- **recover-node** — cools it and asserts the node is uncordoned, with no DCGM restart
+
+See [nv-sentinel/README.md](nv-sentinel/README.md) for the walkthrough, the six NVSentinel options that make this work, and the behaviours that look like bugs and are not — chiefly the pods that crash-loop until the release's post-install hook creates the MongoDB collections.
 
 ## Helm value overrides for nvml-mock
 

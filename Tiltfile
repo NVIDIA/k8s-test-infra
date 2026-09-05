@@ -43,6 +43,9 @@ load('./local/topograph/topograph.tiltfile', topograph_install='install')
 load('./local/observability/observability.tiltfile',
      observability_install='install',
      observability_gpu_operator_values='GPU_OPERATOR_VALUES')
+load('./local/nv-sentinel/nv_sentinel.tiltfile',
+     nv_sentinel_install='install',
+     nv_sentinel_gpu_operator_values='GPU_OPERATOR_VALUES')
 
 # --- Flags ---------------------------------------------------------------
 config.define_string('gpu-profile', args=False,
@@ -66,6 +69,8 @@ config.define_bool('topograph', args=False,
     usage='Also deploy NVIDIA topograph. Implies --compute-domain (topograph reads the static nvidia.com/gpu.clique labels). Still requires the compute-domain Kind cluster: make cluster-create PROFILE=compute-domain.')
 config.define_bool('observability', args=False,
     usage='Also deploy kube-prometheus-stack + a Grafana dashboard over the mock GPUs, and expose two manual fault-injection triggers (inject-thermal, inject-xid) that assert the fault lands in Prometheus. Implies --gpu-operator (dcgm-exporter is the Operator\'s operand). Grafana on http://localhost:3000/d/mokka-gpu (admin/mokka).')
+config.define_bool('nv-sentinel', args=False,
+    usage='Also deploy NVIDIA NVSentinel (GPU health monitoring + fault remediation) over the mock GPUs, with cert-manager, an external MongoDB, and two manual triggers (quarantine-node, recover-node) that heat a GPU until NVSentinel cordons and drains the node, then cool it and assert the uncordon. Implies --gpu-operator (the standalone DCGM NVSentinel polls is an Operator operand).')
 config.define_bool('control-plane', args=False,
     usage='Also deploy the Mokka Control Plane (MEP-0001) alongside nvml-mock. Off by default. Composes with --multi-gpu-profile (one CP per release), --compute-domain, and --nvmlmock-image.')
 # CI hook: hand Tilt a pre-built image (in CI, loaded from the workflow's image
@@ -86,6 +91,7 @@ with_dra            = cfg.get('dra', False)
 with_fgo            = cfg.get('fgo', False)
 with_topograph      = cfg.get('topograph', False)
 with_observability  = cfg.get('observability', False)
+with_nv_sentinel    = cfg.get('nv-sentinel', False)
 with_control_plane  = cfg.get('control-plane', False)
 
 # --- Implicit flags ------------------------------------------------------
@@ -104,6 +110,13 @@ if with_topograph:
 if with_observability:
     with_gpu_operator = True
 
+# --nv-sentinel implies --gpu-operator: the thing NVSentinel's health monitor
+# polls is the standalone DCGM DaemonSet, a GPU Operator operand. Without it
+# the stack installs cleanly and reports no GPU health at all, so implying the
+# flag is friendlier than failing on it.
+if with_nv_sentinel:
+    with_gpu_operator = True
+
 # --- Guardrails ----------------------------------------------------------
 # compute-domain forces its own cluster shape (4 workers with clique
 # labels, hardcoded worker names in topology.yaml) and its own profile
@@ -114,6 +127,27 @@ if with_observability:
 if with_compute_domain and multi_gpu_profile:
     fail('--compute-domain is mutually exclusive with --multi-gpu-profile ' +
          '(compute-domain uses its own 4-worker cluster shape)')
+
+# FGO replaces the GPU Operator, so it takes away the standalone DCGM this
+# consumer polls. compute-domain brings its own 4-worker cluster shape and
+# layered images; NVSentinel on top of it is untested.
+#
+# Checked before the --fgo pair below on purpose: --nv-sentinel implies
+# --gpu-operator, so that pair would otherwise catch this combination first and
+# report a conflict with a flag the user never passed.
+if with_nv_sentinel and with_fgo:
+    fail('--nv-sentinel is mutually exclusive with --fgo (NVSentinel polls the GPU Operator\'s standalone DCGM, which FGO replaces)')
+# --topograph before --compute-domain for the same reason: --topograph implies
+# --compute-domain above, so the pair below would name a flag the user never
+# passed and send them looking for it in their own command line.
+if with_nv_sentinel and with_topograph:
+    fail('--nv-sentinel is mutually exclusive with --topograph (which implies --compute-domain, whose 4-worker cluster shape NVSentinel is untested on)')
+if with_nv_sentinel and with_compute_domain:
+    fail('--nv-sentinel is mutually exclusive with --compute-domain')
+# The fleet is built from FLEET_PROFILES (a100 + t4), and both predate the
+# T.Limit thermal margin NVSentinel keys on — see the --gpu-profile guard below.
+if with_nv_sentinel and multi_gpu_profile:
+    fail('--nv-sentinel is mutually exclusive with --multi-gpu-profile (its a100 + t4 fleet predates the T.Limit thermal margin NVSentinel detects on)')
 
 if with_fgo and with_gpu_operator:
     fail('--fgo is mutually exclusive with --gpu-operator (FGO replaces the GPU Operator)')
@@ -131,7 +165,28 @@ gpu_profile_raw = cfg.get('gpu-profile', None)
 if with_compute_domain and gpu_profile_raw != None:
     fail('--compute-domain forces gpu.profile=gb200; do not pass --gpu-profile explicitly')
 
-gpu_profile = gpu_profile_raw or 'a100'
+# NVSentinel's GpuThermalMarginWatch only arms once it has the GPU's slowdown
+# T.Limit offset (NVML field 194), which real hardware reports on Ada and later
+# only — and the mock gates it on architecture the same way. On an older profile
+# every Tilt resource still goes green while the watch stays inert, logging
+# "missing slowdown TLIMIT threshold metadata", so default to the profile the
+# demo pins rather than simulate a fault nothing can detect.
+#
+# An allow-list, not a deny-list of the pre-Ada profiles: a profile added later
+# is pre-Ada until someone checks, and failing closed costs the user one flag
+# while failing open costs a green stack that detects nothing.
+NV_SENTINEL_PROFILES = ['h100', 'l40s', 'b200', 'gb200', 'gb300']
+
+if with_nv_sentinel:
+    if gpu_profile_raw == None:
+        gpu_profile_raw = 'gb300'
+    elif gpu_profile_raw not in NV_SENTINEL_PROFILES:
+        fail('--nv-sentinel needs an Ada-or-later --gpu-profile (' +
+             ', '.join(NV_SENTINEL_PROFILES) + '); ' + gpu_profile_raw +
+             ' is not one of them, and a pre-Ada GPU reports no T.Limit thermal ' +
+             'margin, so NVSentinel would detect nothing')
+
+gpu_profile = gpu_profile_raw or 'gb300'
 
 k8s_context_default = 'kind-mokka-compute-domain' if with_compute_domain else 'kind-mokka'
 k8s_context         = cfg.get('k8s-context', k8s_context_default)
@@ -161,6 +216,12 @@ if with_topograph:
 # dashboard panel is a flat line of profile constants.
 if with_observability:
     active_consumers.append('observability')
+
+# Appended so local/nv-sentinel/nvml-mock.values.yaml is picked up by the
+# install helpers — it turns on gpu.dynamicMetrics so a heated GPU reads
+# differently from its idle siblings.
+if with_nv_sentinel:
+    active_consumers.append('nv-sentinel')
 
 # --- Safety guard --------------------------------------------------------
 allow_k8s_contexts(k8s_context)
@@ -206,6 +267,9 @@ if with_observability:
     helm_repo('prometheus-community', 'https://prometheus-community.github.io/helm-charts',
               labels=['observability'])
 
+if with_nv_sentinel:
+    helm_repo('jetstack', 'https://charts.jetstack.io', labels=['nv-sentinel'])
+
 # --- Consumers -----------------------------------------------------------
 # Monitoring goes in BEFORE the GPU Operator: kube-prometheus-stack ships the
 # ServiceMonitor CRD, and the Operator's chart creates a ServiceMonitor for
@@ -223,11 +287,27 @@ if with_gpu_operator:
         gpu_operator_extra_values.append(observability_gpu_operator_values)
         gpu_operator_extra_deps += observability_releases
 
+    # Appended after observability's so the layering order is deterministic
+    # when both flags are on. The keys are disjoint but the operands are not:
+    # dcgm.enabled=true makes the Operator hand dcgm-exporter a
+    # DCGM_REMOTE_HOSTENGINE_INFO of nvidia-dcgm:5555, so this overlay reroutes
+    # the exporter --observability scrapes off its embedded hostengine and onto
+    # the standalone DaemonSet's. It converges, but on a cold cluster the
+    # exporter crash-loops for minutes while that DaemonSet's ~2 GB image pulls.
+    if with_nv_sentinel:
+        gpu_operator_extra_values.append(nv_sentinel_gpu_operator_values)
+
     gpu_operator_install(
         nvml_mock_releases,
         extra_values=gpu_operator_extra_values,
         extra_resource_deps=gpu_operator_extra_deps,
     )
+
+# After the Operator: NVSentinel's health monitor polls the standalone DCGM
+# Service, which only exists once the Operator has reconciled it. Carried by
+# resource_deps inside install() as well, so call order is not the guarantee.
+if with_nv_sentinel:
+    nv_sentinel_install(nvml_mock_releases)
 
 if with_dra:
     # DRA overlay chain (order matters — later --values files win):

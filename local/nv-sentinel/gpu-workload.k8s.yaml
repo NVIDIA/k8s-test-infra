@@ -1,0 +1,38 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# A trivial "GPU workload" so the NVSentinel Node Drainer has something
+# observable to evict once it cordons the node with the overheating GPU.
+#
+# Ported from docs/demo/nv-sentinel/sample-workload.yaml without its
+# nvml-mock-gpu=true nodeSelector: requesting nvidia.com/gpu already restricts
+# this to the workers, since the GPU Operator's device plugin does not tolerate
+# the control-plane taint and so never advertises the resource there. The shared
+# cluster labels its workers mokka.nvidia.com/type=sgpu, but selecting on it here
+# would only duplicate what the resource request already guarantees.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gpu-sample-workload
+  # Explicit, because the scenarios hardcode `default` as WORKLOAD_NAMESPACE: an
+  # implicit namespace would follow whatever the kubeconfig's context selects and
+  # the assertions would then look for the workload somewhere it is not.
+  namespace: default
+  labels:
+    app: gpu-sample-workload
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gpu-sample-workload
+  template:
+    metadata:
+      labels:
+        app: gpu-sample-workload
+    spec:
+      containers:
+        - name: sleeper
+          image: registry.k8s.io/pause:3.10
+          resources:
+            limits:
+              nvidia.com/gpu: 1
