@@ -11,18 +11,23 @@ and also covers the failure-injection flow from
 
 ## What The Harness Does
 
-`make e2e` runs one Ginkgo suite that owns the full test lifecycle:
+The suite does not own the cluster or the image. Tilt provisions both, with
+`make cluster-create` and `tilt up -- <flags>` locally, or `tilt ci` in CI.
+`make e2e` then does these steps:
 
-1. Build the `nvml-mock:e2e` image, unless `E2E_SKIP_BUILD=true`.
-2. Create one multi-node Kind cluster from [`docs/demo/kind.yaml`](../../docs/demo/kind.yaml).
-3. Load the image into Kind.
-4. Install `nvml-mock` into the dedicated `mokka` namespace.
-5. Run the standalone demo checks for each selected GPU profile.
-6. Collect diagnostics on failure.
-7. Keep the Kind cluster by default for debugging.
+1. Attach to that cluster with `E2E_KUBE_CONTEXT` and `E2E_CLUSTER_NAME`.
+2. Run the checks for each selected GPU profile.
+3. Reshape the mock with `helm upgrade --install`, for the scenarios that need a
+   different shape. These runs set `image.repository` and `image.tag` to `E2E_IMAGE`.
+4. Collect diagnostics into `E2E_ARTIFACTS` if a spec fails.
 
-The suite uses the default kubeconfig but always passes the explicit Kind context
-`kind-nvml-mock-e2e` to Helm and kubectl.
+Step 3 is the reason why `E2E_IMAGE` must match the image that Tilt deployed. The
+suite does not build or load it. If the ref is different, `helm upgrade` sets the
+DaemonSet to an image that no node has, and the rollout stops with
+`ImagePullBackOff` instead of the real cause.
+
+The suite uses the default kubeconfig and passes the `E2E_KUBE_CONTEXT` context
+explicitly to Helm and kubectl.
 
 ## Running Locally
 
@@ -49,12 +54,13 @@ make e2e E2E_PROFILES="a100 h100"
 # Run only selected use cases with Ginkgo labels.
 make e2e E2E_GINKGO_FLAGS='--label-filter="nvidia-smi || nvlink"'
 
-# Reuse a pre-built image and skip the in-suite Docker build.
-docker build -t nvml-mock:e2e -f deployments/nvml-mock/Dockerfile .
-make e2e E2E_SKIP_BUILD=true E2E_IMAGE=nvml-mock:e2e E2E_PROFILES=a100
+# Use the image that Tilt deployed. Do this if the ref is not the default,
+# because the reshaping scenarios set the DaemonSet to this ref.
+make e2e E2E_IMAGE=ghcr.io/nvidia/nvml-mock:tilt-<digest> E2E_PROFILES=a100
 
-# Delete the Kind cluster during teardown instead of keeping it.
-make e2e E2E_KEEP_CLUSTER=false
+# Build and load the default ref. Do this before a scenario that reshapes the mock.
+docker build -t nvml-mock:e2e -f deployments/nvml-mock/Dockerfile .
+kind load docker-image nvml-mock:e2e --name mokka
 ```
 
 `make e2e` intentionally targets only `./tests/e2e/go`, not `./tests/e2e/go/...`.
@@ -293,14 +299,13 @@ make e2e E2E_RUN_NGC=true E2E_GINKGO_FLAGS='--label-filter="validator"'
 | Variable | Default | Purpose |
 |---|---:|---|
 | `E2E_PROFILES` | `gb200` | Space- or comma-separated profile names. |
-| `E2E_IMAGE` | `nvml-mock:e2e` | Image ref to build and Kind-load. |
-| `E2E_SKIP_BUILD` | `false` | Skip the in-suite Docker build and reuse `E2E_IMAGE`. |
-| `E2E_KEEP_CLUSTER` | `true` | Keep the Kind cluster after the suite. Set `false` to delete it. |
+| `E2E_PROFILES_DIR` | `deployments/nvml-mock/helm/nvml-mock/profiles` | The chart profiles directory. This is the deployed source of truth. |
+| `E2E_IMAGE` | `nvml-mock:e2e` | The ref of the image that is already on every node. The reshaping scenarios set the DaemonSet to this ref. The suite does not build or load it. |
+| `E2E_CLUSTER_NAME` | `mokka` | The Kind cluster name. It appears in attach errors and diagnostics. |
+| `E2E_KUBE_CONTEXT` | `kind-mokka` | The kubeconfig context of the cluster that the suite attaches to. |
 | `E2E_ARTIFACTS` | `artifacts/e2e/go` | Directory for failure diagnostics. |
-| `E2E_BUILDX_GHA_CACHE` | `false` | Enable buildx GitHub Actions cache flags. |
-| `E2E_GOLANG_VERSION` | empty | Optional Docker build arg override. |
 | `E2E_RUN_NGC` | `false` | Run scenarios that need `nvcr.io` images, such as `validator`. |
-| `E2E_CLUSTER_TIMEOUT` | `5m` | Kind cluster setup timeout. |
+| `E2E_CLUSTER_TIMEOUT` | `5m` | The limit for the cluster attach wait. |
 | `E2E_HELM_TIMEOUT` | `5m` | Helm install/upgrade timeout. |
 | `E2E_READY_TIMEOUT` | `2m` | Kubernetes readiness wait timeout, sized for a single rollout. |
 | `E2E_OPERAND_SETTLE_TIMEOUT` | `5m` | Timeout for waits that must outlast a GPU Operator reconcile replacing its operands, not just one rollout. |
@@ -322,8 +327,9 @@ The workflow:
    third-party registry.
 3. Makes every leg `needs: build-nvmlmock-image`, downloads the artifact and
    loads it into the leg's Docker daemon with `make image-load`, which asserts
-   the expected ref is present afterwards. `E2E_SKIP_BUILD=true` then has the
-   harness Kind-load that image instead of rebuilding per leg.
+   the expected ref is present afterwards. The leg then creates the Kind cluster,
+   loads that image onto the nodes with `kind load`, and rolls it out with
+   `tilt ci -- --nvmlmock-image="$E2E_IMAGE"`.
 4. Runs one GPU profile per matrix job.
 5. Prints collected diagnostics if the job fails.
 
@@ -336,12 +342,11 @@ On spec failure, the harness writes diagnostics under `E2E_ARTIFACTS`. The
 collector captures common Kubernetes state, `nvml-mock` logs, and relevant node
 files where possible.
 
-Because `E2E_KEEP_CLUSTER=true` by default, local failures leave the Kind cluster
-available for inspection:
+The suite does not delete the cluster. After a local failure, you can inspect it:
 
 ```bash
-kubectl --context kind-nvml-mock-e2e get pods -A
-helm --kube-context kind-nvml-mock-e2e -n mokka status nvml-mock
+kubectl --context kind-mokka get pods -A
+helm --kube-context kind-mokka -n mokka status nvml-mock
 ```
 
 Delete it manually when done:
