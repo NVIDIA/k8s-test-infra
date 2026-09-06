@@ -10,6 +10,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/fabricmanager"
+	"github.com/NVIDIA/k8s-test-infra/internal/kmod"
 	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs"
 )
 
@@ -56,7 +57,34 @@ func TestNvidiaSpecMounts(t *testing.T) {
 		"/usr/lib64/libnvidia-ml.so.1",
 		"/usr/bin/nvidia-smi",
 		"/etc/nvml-mock",
+		"/" + kmod.SysModuleRelPath,
+		kmod.LsmodContainerPath,
 	}, containerPaths)
+}
+
+func TestNvidiaSpecServesTheModuleSurfaceReadOnly(t *testing.T) {
+	spec := buildNvidiaSpec(twoGPUState())
+
+	tree, ok := mountByContainerPath(spec, "/"+kmod.SysModuleRelPath)
+	require.True(t, ok, "the module tree must be served at its kernel path")
+	require.Equal(t, overlayHostRoot+"/"+kmod.SysModuleRelPath, tree.HostPath)
+	require.Equal(t, []string{"ro", "nosuid", "nodev", "bind"}, tree.Options)
+
+	script, ok := mountByContainerPath(spec, kmod.LsmodContainerPath)
+	require.True(t, ok, "lsmod must be served where PATH finds it before /usr/sbin")
+	require.Equal(t, overlayHostRoot+"/"+kmod.LsmodRelPath, script.HostPath)
+	require.NotEqual(t, "/usr/bin/lsmod", script.ContainerPath,
+		"/usr/bin/lsmod is a symlink to kmod in a kmod image, so mounting there replaces modprobe too")
+}
+
+func TestNvidiaSpecServesModulesWithoutPCITopology(t *testing.T) {
+	spec := buildNvidiaSpec(twoGPUState())
+
+	_, ok := mountByContainerPath(spec, "/"+pcisysfs.SysDevicesRelPath)
+	require.False(t, ok, "twoGPUState declares no topology, so the PCI tree is absent")
+
+	_, ok = mountByContainerPath(spec, "/"+kmod.SysModuleRelPath)
+	require.True(t, ok, "the module surface does not depend on topology")
 }
 
 // The container does not only read the config directory: `nvidia-smi --gpu-reset`
@@ -249,9 +277,16 @@ func TestNRISpecEnv(t *testing.T) {
 	spec := buildNRISpec(twoGPUState())
 	require.NotNil(t, spec.ContainerEdits)
 	require.Contains(t, spec.ContainerEdits.Env, "NVML_MOCK_DEVICE_SOURCE=cdi")
-	// No library mounts or hooks — the NRI overlay bind-mount delivers those.
-	require.Empty(t, spec.ContainerEdits.Mounts)
 	require.Empty(t, spec.ContainerEdits.Hooks)
+}
+
+func TestNRISpecServesTheModuleTree(t *testing.T) {
+	spec := buildNRISpec(twoGPUState())
+
+	tree, ok := mountByContainerPath(spec, "/"+kmod.SysModuleRelPath)
+	require.True(t, ok, "the NRI CDI path must serve the module tree")
+	require.Equal(t, overlayHostRoot+"/"+kmod.SysModuleRelPath, tree.HostPath)
+	require.Equal(t, []string{"ro", "nosuid", "nodev", "bind"}, tree.Options)
 }
 
 func TestNRISpecPerGPUDevices(t *testing.T) {

@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
+	"github.com/NVIDIA/k8s-test-infra/internal/kmod"
 	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs"
 	"github.com/stretchr/testify/require"
 )
@@ -79,6 +81,45 @@ func TestReadlinkPCIRedirect(t *testing.T) {
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, "readlink failed: %s", out)
 	require.Contains(t, string(out), "pci0000:00/0000:07:00.0")
+}
+
+func TestKernelModuleRedirect(t *testing.T) {
+	requireLinux(t)
+	shim := requireShim(t)
+
+	root := t.TempDir()
+	mods := kmod.Modules("550.163.01")
+	_, err := kmod.Render(kmod.Options{Modules: mods, Output: root})
+	require.NoError(t, err)
+	procModules := kmod.ProcModules("", mods)
+	require.NoError(t, fsutil.Write(filepath.Join(root, kmod.ProcModulesRelPath), []byte(procModules), 0o644))
+
+	env := append(os.Environ(), "LD_PRELOAD="+shim, "MOCK_PCI_ROOT="+root)
+
+	refcnt := exec.Command("cat", "/sys/module/nvidia/refcnt")
+	refcnt.Env = env
+	out, err := refcnt.CombinedOutput()
+	require.NoError(t, err, "cat refcnt failed: %s", out)
+	require.Equal(t, "1\n", string(out))
+
+	modules := exec.Command("cat", "/proc/modules")
+	modules.Env = env
+	out, err = modules.CombinedOutput()
+	require.NoError(t, err, "cat /proc/modules failed: %s", out)
+	require.Contains(t, string(out), "nvidia 62312448 1 nvidia_uvm,")
+}
+
+func TestModulePrefixRequiresAPathBoundary(t *testing.T) {
+	requireLinux(t)
+	shim := requireShim(t)
+
+	root := t.TempDir()
+	require.NoError(t, fsutil.Write(filepath.Join(root, "sys/modulefoo/x"), []byte("redirected\n"), 0o644))
+
+	cmd := exec.Command("cat", "/sys/modulefoo/x")
+	cmd.Env = append(os.Environ(), "LD_PRELOAD="+shim, "MOCK_PCI_ROOT="+root)
+	out, err := cmd.CombinedOutput()
+	require.Error(t, err, "expected the real host path, got: %s", out)
 }
 
 func TestOpenSysDevicesPCIRedirect(t *testing.T) {
