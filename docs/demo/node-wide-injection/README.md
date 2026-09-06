@@ -13,12 +13,18 @@ delivered ambiently through NRI instead of the nvml-mock DaemonSet pod.
 
 ## Prerequisites
 
-Install these tools locally before running the demo:
+> **This demo creates its own Kind cluster.** It needs containerd NRI enabled
+> on every node, which cannot be assumed on an existing cluster, so it ignores
+> your current `KUBECONFIG` context and will not touch it.
 
-- `docker`
-- `kind`
-- `kubectl`
-- `helm`
+- **Docker**, with the daemon running.
+- **Kind**, to provision the demo's dedicated cluster.
+- **Helm 3.8 or newer.** Install it from the official docs:
+  <https://helm.sh/docs/intro/install/>
+- `kubectl`.
+
+New to Mokka? The [quick start](../../quickstart.md) is the fastest way to see
+simulated GPUs before running this demo.
 
 ## How ComputeDomain identity reaches injected pods
 

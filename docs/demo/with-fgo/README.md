@@ -7,12 +7,29 @@ shim.
 
 ## Prerequisites
 
-- Docker
-- Kind
-- Helm
-- kubectl
-- fake-gpu-operator Helm chart (see
-  [Run:ai fake-gpu-operator docs](https://github.com/run-ai/fake-gpu-operator))
+- **A Kubernetes cluster and a valid `KUBECONFIG`.** This demo installs into
+  whatever cluster your current context points at. Check yours with
+  `kubectl config current-context`.
+- **Helm 3.8 or newer.** The chart is served from an OCI registry, which
+  needs 3.8+. Install it from the official docs:
+  <https://helm.sh/docs/intro/install/>
+- `kubectl`, matching your cluster version.
+- The fake-gpu-operator Helm chart (see
+  [Run:ai fake-gpu-operator docs](https://github.com/run-ai/fake-gpu-operator)).
+- **Nodes labelled for both pools.** This demo splits work across two node
+  pools, so you need at least one node labelled
+  `run.ai/simulated-gpu-node-pool=integration` (Step 3 pins nvml-mock there)
+  and at least one labelled `run.ai/simulated-gpu-node-pool=scale` (Step 4
+  gives that pool to FGO). A cluster missing either label silently produces no
+  pods for that pool, and Helm reports no error.
+  [`../kind.yaml`](../kind.yaml) labels one worker `integration` and two
+  `scale`.
+
+> **No cluster yet?** The [quick start](../../quickstart.md) creates a
+> throwaway one with Kind in about a minute, then come back here.
+
+Docker and Kind are needed only if you want to build the image from source
+(`BUILD_LOCAL=true`); the default path pulls the published image.
 
 ## Step 1 -- Create a Kind cluster
 
