@@ -19,8 +19,8 @@
 #
 # Image distribution: a single `build-nvmlmock-image` job builds the nvml-mock
 # image once, exports it to a tarball and uploads it as a run-scoped artifact.
-# Every leg downloads that artifact, stages it with `make image-load`, and the
-# harness kind-loads it (E2E_SKIP_BUILD=true) rather than rebuilding per leg.
+# Every leg downloads that artifact and stages it with `make image-load`. The leg
+# then loads it into Kind and passes the ref to Tilt as E2E_IMAGE.
 # Artifacts need no credentials, so fork PRs work, and no third-party registry
 # can fail the matrix (see issue #566).
 #
@@ -82,7 +82,6 @@ env:
   # drift apart on the filename.
   NVMLMOCK_TARBALL: nvml-mock.tar
   KIND_NODE_TARBALL: kind-node-nv.tar
-  E2E_SKIP_BUILD: "true"
   E2E_ARTIFACTS: ${{ github.workspace }}/artifacts/e2e/go
 
 jobs:
