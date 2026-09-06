@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
 )
 
 // The two directories that together make the tree readable. Exported because a
@@ -92,7 +94,7 @@ func Clear(root string) error {
 	return errors.Join(
 		prune(root, &PCIeTopology{}),
 		// prune spares what the renderer does not own; a teardown owns all of it.
-		pruneDir(filepath.Join(root, SysDevicesRelPath), func(string) bool { return false }),
+		fsutil.PruneDir(filepath.Join(root, SysDevicesRelPath), func(string) bool { return false }),
 	)
 }
 
@@ -125,7 +127,7 @@ func prune(root string, topo *PCIeTopology) error {
 
 	errs := []error{
 		// The flat lookup directory holds only BDF symlinks.
-		pruneDir(filepath.Join(root, PCIDevicesRelPath),
+		fsutil.PruneDir(filepath.Join(root, PCIDevicesRelPath),
 			func(name string) bool { return allBDFs[name] }),
 	}
 
@@ -152,33 +154,7 @@ func prune(root string, topo *PCIeTopology) error {
 		}
 
 		// A rendered root complex contains device directories and nothing else.
-		errs = append(errs, pruneDir(rcDir, func(name string) bool { return devs[name] }))
-	}
-
-	return errors.Join(errs...)
-}
-
-// pruneDir removes every entry of dir that keep rejects. A missing dir is not an
-// error: nothing has been rendered there yet.
-func pruneDir(dir string, keep func(string) bool) error {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("read %s: %w", dir, err)
-	}
-
-	var errs []error
-	for _, e := range entries {
-		if keep(e.Name()) {
-			continue
-		}
-
-		p := filepath.Join(dir, e.Name())
-		if err := os.RemoveAll(p); err != nil {
-			errs = append(errs, fmt.Errorf("remove %s: %w", p, err))
-		}
+		errs = append(errs, fsutil.PruneDir(rcDir, func(name string) bool { return devs[name] }))
 	}
 
 	return errors.Join(errs...)

@@ -98,10 +98,12 @@ func TestNRISpec(t *testing.T) {
 	require.Equal(t, "nvml-mock.nvidia.com/gpu", spec.Kind)
 	require.NotNil(t, spec.ContainerEdits)
 	require.Contains(t, spec.ContainerEdits.Env, "NVML_MOCK_DEVICE_SOURCE=cdi")
-
-	// No library mounts or hooks — the NRI overlay bind-mount delivers those.
-	require.Empty(t, spec.ContainerEdits.Mounts)
 	require.Empty(t, spec.ContainerEdits.Hooks)
+
+	moduleTree, ok := mountByContainerPath(spec, "/sys/module")
+	require.True(t, ok)
+	require.Equal(t, "/var/lib/nvml-mock/sys/module", moduleTree.HostPath)
+	require.Equal(t, []string{"ro", "nosuid", "nodev", "bind"}, moduleTree.Options)
 
 	// 2 GPUs (index only, no UUID) + "all" = 3 devices
 	require.Len(t, spec.Devices, 3)

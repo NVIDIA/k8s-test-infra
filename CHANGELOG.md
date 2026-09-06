@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- node-agent: a surface that simulates the presence of the NVIDIA kernel modules,
+  which closes the last gap in the GPU driver table of MEP-0003. `gpudriver`
+  writes `/proc/modules` and the module directories under `/sys/module`, and it
+  mirrors the module tree of the node alongside them. `lsmod` now lists `nvidia`
+  and `nvidia_uvm`, and the GPU Operator validator finds a refcount where it
+  found nothing before. See `docs/helm-chart.md` for the delivery channels, the
+  limits of the mirror, and the validator flag that is still necessary.
+
 ### Removed
 - nvml-mock: the DaemonSet no longer runs the `nvml-mock` container; the node
   agent is the only simulation container.

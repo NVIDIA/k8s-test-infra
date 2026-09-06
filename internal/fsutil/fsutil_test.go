@@ -191,6 +191,21 @@ func TestRemove(t *testing.T) {
 	})
 }
 
+func TestPruneDir_RemovesOnlyWhatKeepRejects(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, fsutil.Write(filepath.Join(dir, "keep"), []byte("x"), 0o644))
+	require.NoError(t, fsutil.Write(filepath.Join(dir, "drop"), []byte("x"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "dropdir/nested"), 0o755))
+
+	require.NoError(t, fsutil.PruneDir(dir, func(name string) bool { return name == "keep" }))
+
+	require.Equal(t, []string{"keep"}, siblings(t, filepath.Join(dir, "keep")))
+}
+
+func TestPruneDir_AbsentDirIsNotAnError(t *testing.T) {
+	require.NoError(t, fsutil.PruneDir(filepath.Join(t.TempDir(), "never-rendered"), func(string) bool { return false }))
+}
+
 func TestSymlink_CreatesAndReplaces(t *testing.T) {
 	dir := t.TempDir()
 	link := filepath.Join(dir, "nested/link")

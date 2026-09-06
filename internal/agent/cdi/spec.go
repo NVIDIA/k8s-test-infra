@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
+	"github.com/NVIDIA/k8s-test-infra/internal/kmod"
 	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs"
 )
 
@@ -118,6 +119,7 @@ func buildNvidiaSpec(state *agent.State) cdiSpec {
 	}
 
 	edits.Mounts = append(edits.Mounts, pciSysfsMounts(state)...)
+	edits.Mounts = append(edits.Mounts, kernelModuleMounts()...)
 
 	// The .so resolving fabric.state:auto runs in the consumer container, so the
 	// marker dir mounts there — but only where it exists, else creation fails.
@@ -196,10 +198,35 @@ func pciSysfsMounts(state *agent.State) []cdiMount {
 	return mounts
 }
 
+// kernelModuleMounts serves the module tree and the generated lsmod at their
+// kernel paths, for the same reason pciSysfsMounts exists: a Go consumer issues
+// openat and never enters the preload shim.
+//
+// Ungated, unlike pciSysfsMounts: writeKernelModules renders unconditionally, so
+// the sources always exist by the time Apply writes a spec that names them.
+//
+// The script goes to /usr/local/bin, which a normal PATH resolves first. At
+// /usr/bin it would replace the kmod symlink and take modprobe with it.
+func kernelModuleMounts() []cdiMount {
+	return []cdiMount{
+		{
+			HostPath:      overlayHostRoot + "/" + kmod.SysModuleRelPath,
+			ContainerPath: "/" + kmod.SysModuleRelPath,
+			Options:       []string{"ro", "nosuid", "nodev", "bind"},
+		},
+		{
+			HostPath:      overlayHostRoot + "/" + kmod.LsmodRelPath,
+			ContainerPath: kmod.LsmodContainerPath,
+			Options:       []string{"ro", "nosuid", "nodev", "bind"},
+		},
+	}
+}
+
 // buildNRISpec returns the nvml-mock.nvidia.com/gpu CDI spec consumed by the NRI plugin's
 // cdi injection mode. No hooks or library mounts: the NRI plugin already delivers those via
-// the overlay bind-mount. The distinct vendor (nvml-mock.nvidia.com vs nvidia.com) keeps
-// MEP-0002's "exactly one source of CDI references per container" invariant observable.
+// the overlay bind-mount. The module tree is the exception. No overlay mount reaches
+// /sys/module. The distinct vendor (nvml-mock.nvidia.com vs nvidia.com) keeps MEP-0002's
+// "exactly one source of CDI references per container" invariant observable.
 func buildNRISpec(state *agent.State) cdiSpec {
 	devRoot := overlayHostRoot + "/driver/dev"
 
@@ -236,7 +263,10 @@ func buildNRISpec(state *agent.State) cdiSpec {
 		Kind:       "nvml-mock.nvidia.com/gpu",
 		// NVML_MOCK_DEVICE_SOURCE makes the injection path (CDI vs raw NRI) observable
 		// from inside the container — the two modes are otherwise indistinguishable.
-		ContainerEdits: &cdiEdits{Env: []string{"NVML_MOCK_DEVICE_SOURCE=cdi"}},
-		Devices:        devices,
+		ContainerEdits: &cdiEdits{
+			Mounts: kernelModuleMounts(),
+			Env:    []string{"NVML_MOCK_DEVICE_SOURCE=cdi"},
+		},
+		Devices: devices,
 	}
 }

@@ -219,6 +219,10 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				assertions.PCISysfs(ctx, h.Kube, pod, p.ExpectedGPUs(), p.ExpectedPCIRoots())
 			})
 
+			It("renders the kernel-module surface", Label("kmod"), func(ctx SpecContext) {
+				assertions.KernelModules(ctx, h.Kube, pod)
+			})
+
 			It("performs cross-node ibping + iblinkinfo", Label("ibping"), func(ctx SpecContext) {
 				if !p.IBEnabled() {
 					Skip("InfiniBand disabled for profile " + name)
