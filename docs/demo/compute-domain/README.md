@@ -29,6 +29,10 @@ own 4-worker Kind topology
 
 ## Prerequisites
 
+> **This demo creates its own Kind cluster.** It needs containerd NRI enabled
+> on every node, which cannot be assumed on an existing cluster, so it ignores
+> your current `KUBECONFIG` context and will not touch it.
+
 The demo expects the following tools on `$PATH`:
 
 | Tool      | Tested version | Notes |
@@ -39,6 +43,12 @@ The demo expects the following tools on `$PATH`:
 | `helm`    | v3.13+ (v4 works) | Chart install + `helm upgrade --reuse-values`. |
 | `bash`    | 3.2+           | `run.sh` uses `set -euo pipefail` — no bash 4+ features. |
 | `jq`      | any recent     | Scenario 2 parses `nvidia-imex-ctl -N -j` JSON. |
+
+Install Helm at the version the table above pins, from the official docs:
+<https://helm.sh/docs/intro/install/>
+
+New to Mokka? The [quick start](../../quickstart.md) is the fastest way to see
+simulated GPUs before running this demo.
 
 ## What the script does
 

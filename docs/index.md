@@ -27,7 +27,7 @@ though real hardware were present. No physical NVIDIA GPU is required.
 
 -   **Demos**
 
-    Six runnable walkthroughs, from a standalone install to NVSentinel health
+    Runnable walkthroughs, from a standalone install to NVSentinel health
     monitoring.
 
     [Browse demos](demo/README.md)
