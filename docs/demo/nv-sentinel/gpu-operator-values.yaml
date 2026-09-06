@@ -3,7 +3,7 @@
 #
 # GPU Operator values for the NVSentinel thermal-margin demo (mock GPUs on Kind).
 #
-# This mirrors tests/e2e/go/assets/gpu-operator-values.yaml with ONE key
+# This mirrors tests/e2e/gpu-operator-values.yaml with ONE key
 # difference: the standalone DCGM (nv-hostengine) DaemonSet is ENABLED so it
 # publishes the "nvidia-dcgm" Service on :5555 that NVSentinel's GPU Health
 # Monitor polls (global.dcgm.mode=operator-service). The repo's e2e disables it
