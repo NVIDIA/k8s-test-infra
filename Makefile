@@ -76,6 +76,8 @@ lint: tools gen-check ## Lint the source code
 	fi
 	@echo "🛡️ Verifying the vendored Go proxy action.."
 	@./hack/check-depproxy-kit.sh
+	@echo "Checking docs/tools against cmd/.."
+	@./hack/check-docs-tools-sync.sh
 	@echo "🧹 Vetting.."
 	@go vet ./...
 	@echo "🧹 GoCI Lint.."
