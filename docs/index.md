@@ -84,16 +84,29 @@ GPU 3: NVIDIA GB300 NVL (UUID: GPU-b300b300-0000-0000-0000-000000000003)
 - The mock driver root staged on the node under `/var/lib/nvml-mock/driver`:
   `libnvidia-ml.so`, `libcuda.so`, a patched `nvidia-smi`, `/dev/nvidia*`
   device nodes, the PCI sysfs tree and the InfiniBand mock.
-- The node label `nvidia.com/gpu.present=true`.
+- An NFD feature file under
+  `/etc/kubernetes/node-feature-discovery/features.d`. Node Feature Discovery
+  turns that into `nvidia.com/gpu.present=true`; a bare KIND cluster is not
+  running NFD, so on Path 1 the file is written and the label is not.
 - Anything you can observe from inside the nvml-mock pod: `nvidia-smi`,
   `nvidia-smi -q`, `nvidia-smi topo -m`, `ibv_devinfo`, and
   [runtime fault injection](nvml-mock-ctl.md).
 - The NVIDIA device plugin, if you also apply
   [`tests/e2e/device-plugin-mock.yaml`](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/e2e/device-plugin-mock.yaml),
-  the one file you need from the repository. It reads the mock library through
-  a hostPath and passes device specs to kubelet itself, so it needs nothing
-  from the container runtime. `nvidia.com/gpu` then becomes allocatable and
-  pods that request it schedule. Walkthrough:
+  the one file you need from the repository. It selects
+  `mokka.nvidia.com/type=sgpu`, which the multi-node KIND configs set but a bare
+  `kind create cluster` does not, so label the node first or the DaemonSet stays
+  at zero replicas:
+
+    ```bash
+    kubectl label node --all mokka.nvidia.com/type=sgpu
+    kubectl apply -f tests/e2e/device-plugin-mock.yaml
+    ```
+
+  It reads the mock library through a hostPath and passes device specs to
+  kubelet itself, so it needs nothing from the container runtime.
+  `nvidia.com/gpu` then becomes allocatable and pods that request it schedule.
+  Walkthrough:
   [Device Plugin on KIND](helm-chart.md#quick-start-device-plugin-on-kind).
 
 **What Path 1 does not give you**
