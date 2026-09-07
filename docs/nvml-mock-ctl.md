@@ -92,34 +92,62 @@ POD=$(kubectl -n mokka get pod -l app.kubernetes.io/name=nvml-mock \
 
 ## Command reference
 
+`nvml-mock-ctl --help` lists the commands, and `nvml-mock-ctl <command> --help`
+documents that command's own flags, defaults and positional arguments.
+
 ```text
-usage: nvml-mock-ctl <command> [flags]
+NAME:
+   nvml-mock-ctl - mutate the simulated GPU state of a running nvml-mock node
 
-commands:
-  fail   --gpu <idx|all|uuid> --mode <healthy|lost|fallen_off_bus|ecc_uncorrectable> [--after-calls N] [--xid CODE]
-  temp   --gpu <idx|all|uuid> <celsius>    pin reported GPU temperature
-  power  --gpu <idx|all|uuid> <watts>      pin reported power draw
-  fan    --gpu <idx|all|uuid> <percent>    pin reported fan speed (forces fan count >= 1)
-  util   --gpu <idx|all|uuid> <percent>    pin reported GPU + memory utilization
-  clocks --gpu <idx|all|uuid> <mhz>        pin reported SM + graphics clocks
-  throttle --gpu <idx|all|uuid> <reason>[ reason ...]  set active throttle reasons ('none' clears)
-  pstate --gpu <idx|all|uuid> <0-15>       pin reported performance state (P-state)
-  nvlink-error --gpu <idx|all|uuid> <errors_per_sec> [--links a,b,c]  inject NVLink DL errors (0 heals)
-  sram-ecc --gpu <idx|all|uuid> <count> [--type correctable|parity|secded]
-           [--source l2|sm|microcontroller|pcie|other] [--threshold-exceeded]
-                                           inject SRAM ECC errors (0 heals)
-  fabric-health --gpu <idx|all|uuid> <condition>[ condition ...]  degrade NVLink fabric health ('healthy' clears)
-         conditions: degraded_bandwidth, route_recovery, route_unhealthy,
-         access_timeout_recovery, or a misconfiguration (no_partition,
-         insufficient_nvlinks, incompatible_gpu_fw, invalid_location,
-         incorrect_sysguid, incorrect_chassis_sn, gpu_state_invalid)
-  set    --gpu <idx|all|uuid> key.path=value [key.path=value ...]
-  status [--gpu <idx>]
-  reset  [--gpu <idx|all|uuid>]
+USAGE:
+   nvml-mock-ctl [global options] [command [command options]]
 
-global flags:
-  --file    config override path (default $MOCK_NVML_OVERRIDES or /var/lib/nvml-mock/driver/config/overrides.yaml)
-  --config  config path for UUID resolution/validation (default $MOCK_NVML_CONFIG or /var/lib/nvml-mock/driver/config/config.yaml)
+COMMANDS:
+   fail               inject a device failure, or clear one with --mode healthy
+   temp, temperature  pin reported GPU temperature
+   power              pin reported power draw
+   fan                pin reported fan speed (forces fan count >= 1)
+   util, utilization  pin reported GPU + memory utilization
+   clocks             pin reported SM + graphics clocks
+   throttle           set the active throttle reasons ('none' clears them)
+   pstate             pin the reported performance state (P-state)
+   nvlink-error       inject NVLink DL errors at a rate in errors/second (0 heals)
+   sram-ecc           inject SRAM ECC errors (0 heals)
+   fabric-health      degrade NVLink fabric health ('healthy' clears it)
+   set                write arbitrary schema fields, as key.path=value
+   status             print the overrides currently in effect
+   reset              clear the targeted overrides, returning the device(s) to the pristine profile
+   watch-allocations  mirror each pod's nvidia.com/gpu claim into memory.used_bytes/free_bytes
+   help, h            Shows a list of commands or help for one command
+
+GLOBAL OPTIONS:
+   --file string    config override path (default: "/var/lib/nvml-mock/driver/config/overrides.yaml") [$MOCK_NVML_OVERRIDES]
+   --config string  config path for UUID resolution and validation (default: "/var/lib/nvml-mock/driver/config/config.yaml") [$MOCK_NVML_CONFIG]
+   --help, -h       show help
+```
+
+Every mutating command takes `--gpu <idx|all|uuid>`; `reset` applies to every
+device without it, and `status` reports every override. The global flags are
+accepted on either side of the command, but `--gpu` and the command's own flags
+must follow it.
+
+```text
+nvml-mock-ctl fail --gpu <t> --mode <healthy|lost|fallen_off_bus|ecc_uncorrectable> [--after-calls N] [--xid CODE]
+nvml-mock-ctl temp --gpu <t> celsius
+nvml-mock-ctl power --gpu <t> watts
+nvml-mock-ctl fan --gpu <t> percent
+nvml-mock-ctl util --gpu <t> percent
+nvml-mock-ctl clocks --gpu <t> mhz
+nvml-mock-ctl throttle --gpu <t> reason [reason ...]
+nvml-mock-ctl pstate --gpu <t> pstate
+nvml-mock-ctl nvlink-error --gpu <t> [--links a,b,c] errors_per_sec
+nvml-mock-ctl sram-ecc --gpu <t> [--type correctable|parity|secded]
+              [--source l2|sm|microcontroller|pcie|other] [--threshold-exceeded] count
+nvml-mock-ctl fabric-health --gpu <t> condition [condition ...]
+nvml-mock-ctl set --gpu <t> key.path=value [key.path=value ...]
+nvml-mock-ctl status [--gpu <idx>]
+nvml-mock-ctl reset [--gpu <t>]
+nvml-mock-ctl watch-allocations [--socket PATH] [--interval D] [--used-fraction F]
 ```
 
 ### Targeting: `--gpu <idx|all|uuid>`
