@@ -25,6 +25,7 @@ func Adjust(cfg Config, container Container) (Adjustment, bool) {
 
 	var adjustment Adjustment
 	mountOverlay(cfg, &adjustment)
+	mountIBKernelPaths(cfg, &adjustment)
 	setEnvironment(cfg, container, &adjustment)
 	attachGPUs(cfg, container, &adjustment)
 	attachIMEXChannels(cfg, container, &adjustment)
