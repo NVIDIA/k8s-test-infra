@@ -216,6 +216,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   public NVML APIs.
 
 ### Changed
+- `nvml-mock-ctl` parses its command line with `urfave/cli` v3, the library the
+  node agent and NRI plugin already use, instead of one hand-rolled
+  `flag.FlagSet` shared by every subcommand. Each command now declares only its
+  own flags and positional arguments, so `nvml-mock-ctl <command> --help`
+  documents that command rather than offering `--mode`, `--links` and `--type`
+  on all of them, and `--help` is generated from the commands themselves rather
+  than a usage string maintained by hand beside them. Command names, aliases,
+  positional arguments, the `--file`/`--config` global flags and their
+  environment fallbacks, the exit codes (2 for a bad invocation or an invalid
+  value, 1 for an override file that could not be locked, read or written) and
+  every stderr message are unchanged. One invocation that used to work no longer
+  does: `--gpu` was global, so it could precede the command
+  (`nvml-mock-ctl --gpu 0 temp 85`), and it now has to follow it
+  (`nvml-mock-ctl temp --gpu 0 85`) — the form every doc, script and e2e caller
+  already uses.
 - Dependencies no longer ship in `vendor/`. Go resolves them through a module
   proxy — NVIDIA's DGXC Artifactory in CI and for the published `nvml-mock`
   image, the public proxy locally — so builds and `make gen` need network access
