@@ -79,10 +79,12 @@ rather than a silent fallback, so a typo in a Helm value fails the pod instead
 of running it in the wrong mode. Any error out of `start` is printed as
 `node-agent: <error>` on stderr and exits `1`.
 
-The simulators read further environment variables directly, without a flag in
-front of them, among them `GPU_COUNT`, `DRIVER_VERSION`, `NODE_NAME`,
-`IMEX_MOCK_CHANNELS` and the fabricmanager state directory. The chart sets
-these; see [Configuration](../configuration.md).
+Some inputs have no flag in front of them at all: `GPU_COUNT`,
+`DRIVER_VERSION`, `NODE_NAME`, `HOSTNAME`, `MOCK_FABRICMANAGER_STATE_DIR` and
+`IMEX_MOCK_CHANNELS` (with the `IMEX_CHANNEL_MAJOR`, `IMEX_CAPS_MAJOR` and
+`IMEX_CHANNEL_COUNT` values it gates). They are read where the profile is
+compiled into state, not by any simulator, which is why no `--flag` shadows
+them. The chart sets them; see [Configuration](../configuration.md).
 
 ## Usage
 

@@ -25,9 +25,13 @@ adds `/dev/nvidia*`, and `--imex-channel-annotation` set to `true` adds
 `--excluded-namespaces` are skipped before any of that runs.
 
 The plugin fails open. A device that cannot be stat'ed is logged and skipped
-rather than failing creation of the whole container, and a container the NVIDIA
-device plugin already served is left untouched so its allocation is not
-widened.
+rather than failing creation of the whole container.
+
+A container the NVIDIA device plugin already served keeps exactly the GPUs it
+was allocated: the GPU attach is the only step that is skipped for it. The
+overlay mount, `LD_PRELOAD`, `MOCK_TOPOLOGY_CONFIG` and any IMEX channels are
+still injected, so such a container does get the mock driver tree, just not a
+widened device set.
 
 ## Who runs it
 
@@ -83,8 +87,9 @@ the runtime closes the connection.
 flight longer than the runtime's own reported request timeout multiplied by
 two. The multiplier buys one whole extra timeout before the kubelet is asked to
 restart the plugin, so a single slow but completing request cannot cause a
-restart. containerd's default request timeout is 2s, which puts the default
-wedge threshold at 4s.
+restart. The runtime reports that timeout during registration; where it
+reports nothing, the NRI client library's own 2s fallback applies, which puts
+the fallback wedge threshold at 4s.
 
 Both write the failure reason as the response body, so it is legible in
 `kubectl describe pod`.
