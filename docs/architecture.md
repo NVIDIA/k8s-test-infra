@@ -147,9 +147,8 @@ being real.
 | To understand | Read |
 |---|---|
 | How a node gets its simulated surfaces | [Node Daemon](components/node-daemon.md) |
-| How the mock library answers a call | [Mock NVML Library](components/mock-nvml.md) |
+| How consumers are made to see fake hardware | [Libraries and Shims](components/libraries-and-shims.md) |
 | How a pod gets GPUs without asking | [NRI Plugin](components/nri-plugin.md) |
-| How unmodified C tools read the mock tree | [Shims](components/shims.md) |
 | Every knob in the profile | [Configuration](configuration.md) |
 | Deploying and shaping a cluster | [Installation](helm-chart.md) |
 | Changing state on a running node | [Runtime Control](nvml-mock-ctl.md) |

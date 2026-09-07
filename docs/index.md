@@ -33,6 +33,18 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 Every node now reports mock GPUs. The [Quick Start](quickstart.md) takes it from
 here.
 
+## Tested consumers
+
+| Consumer | What works |
+|---|---|
+| Node Feature Discovery | PCI vendor labels derived from the feature file Mokka writes |
+| GPU Feature Discovery | Node labels derived from NVML |
+| NVIDIA Device Plugin | Allocatable `nvidia.com/gpu` matches the profile, and workloads schedule against it |
+| NVIDIA DRA Driver | ResourceSlices report the right GPUs, and a `ResourceClaimTemplate` pod reaches `Running` |
+| NVIDIA GPU Operator | The full operand stack installs and its validator starts |
+| DCGM / dcgm-exporter | Telemetry, time-varying power, and injected Xid errors |
+| Run:ai fake-gpu-operator | Profile ConfigMaps published in the shape its discovery expects |
+
 ## Where to go next
 
 <div class="grid cards" markdown>

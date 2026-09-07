@@ -130,7 +130,7 @@ genuinely not supported — the same answer an older real driver gives. Add the
 value to the profile and `helm upgrade`.
 
 A handful of NVML functions are generated stubs that always return
-`NOT_SUPPORTED`. [Mock NVML Library](components/mock-nvml.md) explains which and
+`NOT_SUPPORTED`. [Libraries and Shims](components/libraries-and-shims.md) explains which and
 why; [Contributing](contributing/index.md) covers implementing one.
 
 ### `nvidia-smi` segfaults or a symbol is missing

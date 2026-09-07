@@ -67,6 +67,39 @@ so all consumers and applications up the stack work without modifications.
 * Avoid marketing language, filler, repetition, and generic introductions.
 * Define acronyms and project-specific terms on first use.
 
+### Structure
+
+The site has three top-level spaces. Place a page by who is reading it, not by
+what it is about.
+
+* **General** — someone learning or operating Mokka. Overview, Getting Started,
+  Architecture, Reference, Troubleshooting, FAQ.
+* **Guides** — someone with a specific goal. How-to scenarios and Tasks.
+* **Contributing** — someone changing Mokka. Local development, testing,
+  enhancement proposals, pull requests.
+
+Within General, order pages so each builds progressively on the last: Overview → Getting
+started → Concepts → Architecture → Reference → Troubleshooting.
+
+Placement rules:
+
+* Assume the reader is running Mokka in Kubernetes. The local `LD_LIBRARY_PATH`
+  build is the contributor workflow and belongs under Contributing.
+* Every fact has exactly one home. Link to it; never restate it. A fact written
+  twice is a fact that will disagree with itself.
+* The landing page says what Mokka is, shows one install, and routes. No
+  reference tables — it is the most-read and least-maintained page.
+* Architecture pages describe the moving parts, how they connect, and how the
+  system behaves. Each component gets its own page under Architecture, covering
+  what it does and how it behaves.
+* A guide is customer-facing and self-contained: it runs without a repository
+  clone, installs published artifacts, and keeps its assets beside it. A guide
+  that needs the repo is a test script, not a guide.
+* Create only pages the project justifies. Do not add a section to complete an
+  outline.
+
+Create only pages justified by the project. Do not add empty or generic sections merely to follow this outline.
+
 ### MkDocs Material features
 
 Use Material features when they materially improve comprehension:

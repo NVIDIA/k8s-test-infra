@@ -124,9 +124,8 @@ nav:
       - Architecture:
           - Overview: architecture.md
           - Node Daemon: components/node-daemon.md
-          - Mock NVML Library: components/mock-nvml.md
+          - Libraries and Shims: components/libraries-and-shims.md
           - NRI Plugin: components/nri-plugin.md
-          - Shims: components/shims.md
       - Reference:
           - Configuration: configuration.md
       - Troubleshooting: troubleshooting.md

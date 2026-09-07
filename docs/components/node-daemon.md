@@ -121,6 +121,6 @@ the chance to leave the node as it found it.
 | To read about | See |
 |---|---|
 | How the whole system fits together | [Architecture](../architecture.md) |
-| The library the daemon stages | [Mock NVML Library](mock-nvml.md) |
+| The libraries and shims the daemon stages | [Libraries and Shims](libraries-and-shims.md) |
 | Every profile knob the daemon compiles | [Configuration](../configuration.md) |
 | Changing simulated state without a redeploy | [Runtime Control](../nvml-mock-ctl.md) |

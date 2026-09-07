@@ -57,7 +57,7 @@ at runtime; each component has its own page.
 
 The generator is driven by NVML's own header, so a hand-written implementation
 always replaces its stub — you never delete one by hand. See
-[Mock NVML Library](../components/mock-nvml.md) for how the layers fit.
+[Libraries and Shims](../components/libraries-and-shims.md) for how the layers fit.
 
 ### Adding a GPU profile
 
