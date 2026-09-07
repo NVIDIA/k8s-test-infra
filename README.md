@@ -1,5 +1,5 @@
 <div align="center">
-    <img src="./docs/img/logo.png" width="350px" alt="Mokka" />
+    <img src="./docs/img/logo.png" width="180px" alt="Mokka" />
     <h1>Mokka</h1>
     <p>Simulate your GPU infrastructure on CPU nodes.</p>
     <a href="https://github.com/NVIDIA/k8s-test-infra/actions/workflows/ci.yaml">
