@@ -828,7 +828,7 @@ func combinedSramReadings(t *testing.T) string {
 func TestChrootInventoryProblems_AcceptsAReadingThatMatchesTheContainer(t *testing.T) {
 	t.Parallel()
 
-	same := "0, 41, 00000002:81:00.0\n1, 39, 00000002:82:00.0\n"
+	same := "0, 00000002:81:00.0\n1, 00000002:82:00.0\n"
 
 	assert.Empty(t, ChrootInventoryProblems(0, same, same, 2))
 }
@@ -847,14 +847,14 @@ func TestChrootInventoryProblems_RejectsAFailedExec(t *testing.T) {
 }
 
 // The compiled-in defaults answer for a different device set at a different PCI
-// domain with no temperatures, so a disagreement with the in-container reading
-// catches every way the fallback shows up at once.
+// domain, so a disagreement with the in-container reading catches every way the
+// fallback shows up at once.
 func TestChrootInventoryProblems_RejectsCompiledInDefaults(t *testing.T) {
 	t.Parallel()
 
 	problems := ChrootInventoryProblems(0,
-		"0, [N/A], 00000000:01:00.0\n1, [N/A], 00000000:02:00.0\n",
-		"0, 41, 00000002:81:00.0\n1, 39, 00000002:82:00.0\n", 2)
+		"0, 00000000:01:00.0\n1, 00000000:02:00.0\n",
+		"0, 00000002:81:00.0\n1, 00000002:82:00.0\n", 2)
 
 	assert.NotEmpty(t, problems)
 	assert.Contains(t, strings.Join(problems, "\n"), "00000000:01:00.0")
@@ -865,7 +865,7 @@ func TestChrootInventoryProblems_RejectsCompiledInDefaults(t *testing.T) {
 func TestChrootInventoryProblems_RejectsTheWrongDeviceCount(t *testing.T) {
 	t.Parallel()
 
-	four := "0, 41, 00000000:01:00.0\n1, 39, 00000000:02:00.0\n2, 40, 00000000:03:00.0\n3, 38, 00000000:04:00.0\n"
+	four := "0, 00000000:01:00.0\n1, 00000000:02:00.0\n2, 00000000:03:00.0\n3, 00000000:04:00.0\n"
 
 	problems := ChrootInventoryProblems(0, four, four, 2)
 

@@ -5,6 +5,7 @@ package gpudriver
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -159,6 +160,12 @@ func TestStageChrootRuntime_KeepsGlibcOutOfTheInjectedLibDir(t *testing.T) {
 
 	require.NoError(t, stageChrootRuntime(context.Background(), h, state))
 
+	// Asserted positively first, because driver/usr/lib64 is equally absent on
+	// a driver root where staging did nothing at all: on its own, the check
+	// below cannot tell "the C runtime was kept out" from "nothing was staged".
+	require.NotEmpty(t, stagedNames(t, h.Root, chrootStageRoots, "libc.so"),
+		"expected a staged C runtime under %v", chrootStageRoots)
+
 	injected := filepath.Join(h.Root, "driver/usr/lib64")
 	entries, err := os.ReadDir(injected)
 	if os.IsNotExist(err) {
@@ -171,4 +178,33 @@ func TestStageChrootRuntime_KeepsGlibcOutOfTheInjectedLibDir(t *testing.T) {
 		require.False(t, strings.HasPrefix(e.Name(), "ld-linux"),
 			"staging put the loader %s where CDI injects it into consumer containers", e.Name())
 	}
+}
+
+// stagedNames returns the paths of files under roots whose base name starts
+// with prefix. Libraries land in a multiarch subdirectory, so the search has to
+// descend rather than list each root.
+func stagedNames(t *testing.T, hostRoot string, roots []string, prefix string) []string {
+	t.Helper()
+
+	var found []string
+	for _, root := range roots {
+		err := filepath.WalkDir(filepath.Join(hostRoot, root),
+			func(path string, d fs.DirEntry, err error) error {
+				if err != nil {
+					// A root the closure had no reason to populate is not a
+					// failure: which of driver/lib and driver/lib64 gets used
+					// depends on where the loader lives on this architecture.
+					if os.IsNotExist(err) {
+						return nil
+					}
+					return err
+				}
+				if !d.IsDir() && strings.HasPrefix(d.Name(), prefix) {
+					found = append(found, path)
+				}
+				return nil
+			})
+		require.NoError(t, err)
+	}
+	return found
 }

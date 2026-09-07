@@ -285,9 +285,13 @@ func GpuResetThroughChroot(ctx context.Context, k *kube.Client, pod kube.PodRef,
 
 	// The same query is the reference reading and the chrooted one, so the
 	// comparison holds on every profile without a table of expected values.
-	// Both are taken before anything is injected: an override in flight during
-	// the pair would show up as a disagreement that is only a refresh boundary.
-	query := []string{"nvidia-smi", "--query-gpu=index,temperature.gpu,pci.bus_id", "--format=csv,noheader"}
+	// Restricted to fields the node's config fixes: the chart's dynamic metrics
+	// ramp temperature over a 120s period and draw a per-call variance, so a
+	// reading taken from a second process seconds later disagrees for reasons
+	// that say nothing about which config was resolved. The GPU count and the
+	// PCI addresses already separate this node's profile from the compiled-in
+	// defaults, which is all this assertion needs to tell apart.
+	query := []string{"nvidia-smi", "--query-gpu=index,pci.bus_id", "--format=csv,noheader"}
 
 	ginkgo.By("nvidia-smi in the pod, as the reference reading")
 	reference, err := k.ExecQuiet(ctx, pod, query...)
