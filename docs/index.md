@@ -1,3 +1,9 @@
+---
+# The page opens with the hero <div>, so MkDocs cannot infer a title from the
+# H1 below it and falls back to the filename. Set it explicitly.
+title: Overview
+---
+
 <div class="mokka-hero" markdown>
 ![Mokka](img/logo.png)
 

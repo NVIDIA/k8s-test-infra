@@ -102,17 +102,23 @@ markdown_extensions:
 plugins:
   - search
 
+# Three spaces, not one tab per topic. `navigation.tabs` promotes every
+# top-level entry to a tab, and seven of them made the reader guess whether a
+# task lived under Guides, Demos or Integrations — all three answered the same
+# question. General is for learning and operating, Guides for doing something
+# specific, Contributing for changing Mokka.
 nav:
-  - Home: index.md
-  - Getting Started:
-      - Quick Start: quickstart.md
-      - Helm Chart: helm-chart.md
-      - Configuration: configuration.md
-  - Architecture:
-      - Overview: architecture.md
-  - Guides:
-      - Examples: examples.md
-      - Runtime Control: nvml-mock-ctl.md
+  # index.md is listed bare so navigation.indexes makes it the General landing
+  # page: the tab itself is the link, and the site root still resolves to it.
+  - General:
+      - index.md
+      - Getting Started:
+          - Quick Start: quickstart.md
+          - Installation: helm-chart.md
+      - Architecture:
+          - Overview: architecture.md
+      - Reference:
+          - Configuration: configuration.md
       - Troubleshooting: troubleshooting.md
   # The files stay under docs/tools/ on purpose: docs/components/ is being
   # taken by another change, and moving them here as well would collide.
@@ -124,16 +130,20 @@ nav:
       - check-fabric: tools/check-fabric.md
       - Build tools:
           - generate-bridge: tools/generate-bridge.md
-  - Demos:
+  - Guides:
       - Overview: demo/README.md
-      - Standalone: demo/standalone/README.md
-      - With fake-gpu-operator: demo/with-fgo/README.md
-      - Failure Injection: demo/failure-injection/README.md
-      - Node-Wide Injection: demo/node-wide-injection/README.md
-      - Compute Domain: demo/compute-domain/README.md
-      - NVSentinel: demo/nv-sentinel/README.md
-      - With GPU Operator: demo/with-gpu-operator/README.md
-  - Integrations:
-      - fake-gpu-operator: integrations/fake-gpu-operator.md
+      - Scenarios:
+          - Standalone: demo/standalone/README.md
+          - With fake-gpu-operator: demo/with-fgo/README.md
+          - With GPU Operator: demo/with-gpu-operator/README.md
+          - Failure Injection: demo/failure-injection/README.md
+          - Node-Wide Injection: demo/node-wide-injection/README.md
+          - Compute Domain: demo/compute-domain/README.md
+          - NVSentinel: demo/nv-sentinel/README.md
+      - Integrations:
+          - fake-gpu-operator: integrations/fake-gpu-operator.md
+      - Tasks:
+          - Runtime Control: nvml-mock-ctl.md
+          - Examples: examples.md
   - Contributing:
       - Development Guide: development.md

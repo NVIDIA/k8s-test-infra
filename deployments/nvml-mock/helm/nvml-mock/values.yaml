@@ -280,8 +280,8 @@ infiniband:
   mockTier: ""
   ping:
     port: 18515
-    # The mock-ib TCP fabric listener binds 0.0.0.0:<port> with no auth and
-    # the DaemonSet runs privileged. This NetworkPolicy restricts inbound
+    # The mock-ib TCP fabric listener binds 0.0.0.0:<port> with no
+    # authentication. This NetworkPolicy restricts inbound
     # access to that port to peer nvml-mock pods (the only legitimate
     # clients), limiting the blast radius on clusters whose CNI enforces
     # NetworkPolicy. NOTE: Kind's default CNI (kindnet) ENFORCES
