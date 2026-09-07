@@ -39,6 +39,7 @@ const (
 	// The DaemonSet the operator reconciles out of the NicClusterPolicy's
 	// rdmaSharedDevicePlugin section, into its own namespace.
 	rdmaPluginDaemonSet = "rdma-shared-dp-ds"
+	rdmaPluginSelector  = "app=rdma-shared-dp"
 
 	// rdmaHcaMax from the NicClusterPolicy asset, and so the capacity the
 	// plugin registers. Not one unit per HCA: an RDMA device is shared, and the
@@ -81,6 +82,15 @@ var _ = Describe("nvml-mock RDMA resource advertisement", Label("rdma"), Ordered
 
 	BeforeAll(func(ctx SpecContext) {
 		h = setupCluster(ctx, "rdma")
+
+		// NRI is the only channel that reaches this consumer, and the chart
+		// leaves it off, so the rollout is upgraded here rather than by Tilt.
+		// It has to happen before the plugin exists: NRI injects at container
+		// creation, so a pod created earlier never gets the trees.
+		names := config.SelectedProfileNames()
+		Expect(names).NotTo(BeEmpty())
+		installNRIChart(ctx, h, loadProfile(names[0]), "", false)
+
 		assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", config.ReadyTimeout(), config.PollInterval())
 
 		// The worker a mock pod actually runs on, never FirstNodeName: on the
@@ -122,6 +132,17 @@ var _ = Describe("nvml-mock RDMA resource advertisement", Label("rdma"), Ordered
 		// missing capacity with a ready plugin says "discovery found nothing".
 		assertions.WaitDaemonSetReady(ctx, h.Kube, networkOperatorNamespace, rdmaPluginDaemonSet,
 			rdmaCapacityTimeout, rdmaCapacityPoll)
+
+		// A DaemonSet that matched no node is "ready" with zero pods, so the
+		// readiness above alone would let a missing vendor label read as
+		// discovery having found nothing. Name the node the capacity is then
+		// asserted on.
+		By("the plugin runs on " + node)
+		Eventually(func() (string, error) {
+			return h.Kube.RunningPodOnNode(ctx, networkOperatorNamespace, rdmaPluginSelector, node)
+		}).WithContext(ctx).WithTimeout(rdmaCapacityTimeout).WithPolling(rdmaCapacityPoll).
+			ShouldNot(BeEmpty(), "no running %s pod on %s", rdmaPluginDaemonSet, node)
+
 		assertions.WaitCapacityResource(ctx, h.Kube, node, kube.RDMAResourceName, rdmaHcaMax,
 			rdmaCapacityTimeout, rdmaCapacityPoll)
 	})

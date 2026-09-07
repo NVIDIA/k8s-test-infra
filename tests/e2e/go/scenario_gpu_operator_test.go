@@ -79,7 +79,7 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func(
 				// container is what pins delivery, independently of the label
 				// below, which the operator could publish for other reasons.
 				assertions.PCISysfsAtKernelPaths(ctx, h.Kube,
-					gfdPodRef(ctx, h, node), p.ExpectedGPUs())
+					gfdPodRef(ctx, h, node), p.ExpectedGPUs(), p.ExpectedHCAs())
 			})
 
 			It("labels gpu.mode from the served PCI class", Label("device-plugin"), func(ctx SpecContext) {

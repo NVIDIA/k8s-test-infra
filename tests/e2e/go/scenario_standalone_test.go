@@ -216,7 +216,7 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 			})
 
 			It("renders the PCI sysfs topology", Label("pcisysfs"), func(ctx SpecContext) {
-				assertions.PCISysfs(ctx, h.Kube, pod, p.ExpectedGPUs(), p.ExpectedPCIRoots())
+				assertions.PCISysfs(ctx, h.Kube, pod, p.ExpectedGPUs(), p.ExpectedHCAs(), p.ExpectedPCIRoots())
 			})
 
 			It("performs cross-node ibping + iblinkinfo", Label("ibping"), func(ctx SpecContext) {

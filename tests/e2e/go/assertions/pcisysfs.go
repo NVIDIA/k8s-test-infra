@@ -23,26 +23,26 @@ import (
 const PCIDevicesDir = "/var/lib/nvml-mock/sys/bus/pci/devices"
 
 // PCISysfs ports demo.sh step 9. From inside a pod it asserts:
-//   - exactly gpuCount device symlinks under /sys/bus/pci/devices,
-//   - the first symlink resolves to a RELATIVE ../../../devices/pci.../<bdf>
+//   - exactly one device symlink per GPU and per HCA under /sys/bus/pci/devices,
+//   - a GPU's symlink resolves to a RELATIVE ../../../devices/pci.../<bdf>
 //     target (the contract deviceattribute readlink()s for the PCIe root),
 //   - that device's numa_node is an integer,
 //   - that device carries a non-zero PCI subsystem identity,
-//   - the devices span exactly expectedRoots distinct PCIe root complexes.
-func PCISysfs(ctx context.Context, k *kube.Client, pod kube.PodRef, gpuCount, expectedRoots int) {
+//   - the devices span one root complex per GPU root plus one per HCA.
+func PCISysfs(ctx context.Context, k *kube.Client, pod kube.PodRef, gpuCount, hcaCount, gpuRoots int) {
 	ginkgo.GinkgoHelper()
 
-	ginkgo.By(fmt.Sprintf("%d PCI device symlinks present", gpuCount))
+	// The HCAs are on the bus too: each simulated one gets a Mellanox NIC,
+	// which is the only way an RDMA consumer reaches it.
+	wantDevices := gpuCount + hcaCount
+	ginkgo.By(fmt.Sprintf("%d PCI device symlinks present", wantDevices))
 	res, err := k.ExecSh(ctx, pod, "ls "+PCIDevicesDir+" 2>/dev/null | wc -l")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "listing %s: %s", PCIDevicesDir, res.Combined())
-	gomega.Expect(atoiTrim(res.Stdout)).To(gomega.Equal(gpuCount),
+	gomega.Expect(atoiTrim(res.Stdout)).To(gomega.Equal(wantDevices),
 		"rendered PCI device count\n%s", res.Combined())
 
-	ginkgo.By("first device symlink resolves to a relative root-complex path")
-	first, err := k.ExecSh(ctx, pod, "ls "+PCIDevicesDir+" | sort | head -1")
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	dev := strings.TrimSpace(first.Stdout)
-	gomega.Expect(dev).NotTo(gomega.BeEmpty(), "no PCI devices under %s", PCIDevicesDir)
+	ginkgo.By("a GPU's device symlink resolves to a relative root-complex path")
+	dev := firstGPUDevice(ctx, k, pod, PCIDevicesDir)
 
 	target, err := k.ExecSh(ctx, pod, "readlink "+PCIDevicesDir+"/"+dev)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "readlink %s", dev)
@@ -69,14 +69,30 @@ func PCISysfs(ctx context.Context, k *kube.Client, pod kube.PodRef, gpuCount, ex
 	gomega.Expect(subDev).NotTo(gomega.Equal("0x0000"),
 		"subsystem_device for %s is 0x0000; the profile's subsystem_id never reached the renderer", dev)
 
-	ginkgo.By(fmt.Sprintf("devices span %d distinct PCI root complexes", expectedRoots))
+	// One root complex per NIC, mirroring how a real host puts every NIC behind
+	// its own bridge rather than sharing the GPUs' roots.
+	wantRoots := gpuRoots + hcaCount
+	ginkgo.By(fmt.Sprintf("devices span %d distinct PCI root complexes", wantRoots))
 	// readlink target shape: "../../../devices/pciDDDD:BB/<bdf>" -> field 5 is
 	// the root complex when split on "/".
 	roots, err := k.ExecSh(ctx, pod,
 		"for d in "+PCIDevicesDir+"/*; do readlink \"$d\"; done | awk -F/ '{print $5}' | sort -u | wc -l")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(atoiTrim(roots.Stdout)).To(gomega.Equal(expectedRoots),
+	gomega.Expect(atoiTrim(roots.Stdout)).To(gomega.Equal(wantRoots),
 		"distinct PCI root complexes\n%s", roots.Combined())
+}
+
+// firstGPUDevice returns the lowest-BDF NVIDIA device under dir, from inside
+// the pod. Selected by vendor rather than by position: the tree also carries
+// the HCAs' Mellanox NICs, and the checks that follow are about a GPU's shape.
+func firstGPUDevice(ctx context.Context, k *kube.Client, pod kube.PodRef, dir string) string {
+	ginkgo.GinkgoHelper()
+	res, err := k.ExecSh(ctx, pod,
+		"for d in "+dir+"/*; do [ \"$(cat \"$d\"/vendor 2>/dev/null)\" = 0x10de ] && basename \"$d\"; done | sort | head -1")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "listing %s: %s", dir, res.Combined())
+	dev := strings.TrimSpace(res.Stdout)
+	gomega.Expect(dev).NotTo(gomega.BeEmpty(), "no NVIDIA PCI devices under %s\n%s", dir, res.Combined())
+	return dev
 }
 
 // KernelPCIDevicesDir is where the kernel keeps the flat PCI lookup directory,
@@ -94,22 +110,20 @@ const KernelPCIDevicesDir = "/sys/bus/pci/devices"
 // the shim never sees the open and the process reads the node's real /sys —
 // which is how GPU Feature Discovery came to label a mock node
 // nvidia.com/gpu.mode=unknown (#673).
-func PCISysfsAtKernelPaths(ctx context.Context, k *kube.Client, pod kube.PodRef, gpuCount int) {
+func PCISysfsAtKernelPaths(ctx context.Context, k *kube.Client, pod kube.PodRef, gpuCount, hcaCount int) {
 	ginkgo.GinkgoHelper()
 
-	ginkgo.By(fmt.Sprintf("%d mock GPUs visible at %s", gpuCount, KernelPCIDevicesDir))
+	wantDevices := gpuCount + hcaCount
+	ginkgo.By(fmt.Sprintf("%d mock devices visible at %s", wantDevices, KernelPCIDevicesDir))
 	// Exact, not "at least": the mount replaces the directory outright, so a
 	// higher count means the host's real devices are showing through or a
 	// previous profile's render was never pruned.
 	res, err := k.ExecSh(ctx, pod, "ls "+KernelPCIDevicesDir+" 2>/dev/null | wc -l")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "listing %s: %s", KernelPCIDevicesDir, res.Combined())
-	gomega.Expect(atoiTrim(res.Stdout)).To(gomega.Equal(gpuCount),
-		"mock GPUs served at the kernel path\n%s", res.Combined())
+	gomega.Expect(atoiTrim(res.Stdout)).To(gomega.Equal(wantDevices),
+		"mock devices served at the kernel path\n%s", res.Combined())
 
-	first, err := k.ExecSh(ctx, pod, "ls "+KernelPCIDevicesDir+" | sort | head -1")
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	dev := strings.TrimSpace(first.Stdout)
-	gomega.Expect(dev).NotTo(gomega.BeEmpty(), "no PCI devices under %s", KernelPCIDevicesDir)
+	dev := firstGPUDevice(ctx, k, pod, KernelPCIDevicesDir)
 
 	ginkgo.By("vendor resolves through the symlink into the served /sys/devices")
 	// This is what separates delivery from coincidence, and why the two mounts
