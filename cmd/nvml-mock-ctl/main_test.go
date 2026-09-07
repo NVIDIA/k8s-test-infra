@@ -291,6 +291,17 @@ func TestCLI_GlobalFlagsWorkOnEitherSideOfTheCommand(t *testing.T) {
 	}
 }
 
+// An explicitly empty target must not be read as "every device". Only reset
+// applies to everything, and only when --gpu is absent altogether, so a
+// mistyped `--gpu ""` has to fail rather than quietly hit the whole node.
+func TestCLI_EmptyTargetIsRejectedNotBroadcast(t *testing.T) {
+	t.Parallel()
+	configOverride := filepath.Join(t.TempDir(), "overrides.yaml")
+	_, _, code := runCLI(t, configOverride, "temp", "--gpu", "", "85")
+	require.Equal(t, 2, code)
+	require.NoFileExists(t, configOverride, "an empty target must not be applied to any device")
+}
+
 func TestCLI_MissingTargetIsUsageError(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

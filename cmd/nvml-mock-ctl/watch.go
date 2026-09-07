@@ -74,7 +74,11 @@ func runWatchAllocations(ctx context.Context, cmd *cli.Command) error {
 	signalCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	socket := cmd.String("socket")
+	// Same "set but empty means unset" rule as --file/--config, since the
+	// DaemonSet templates this var. The lister defaults an empty path too, so
+	// resolving it here is what keeps the startup line naming the real socket.
+	socket := pathOr(cmd.String("socket"), allocwatch.DefaultSocketPath)
+
 	lister, err := allocwatch.NewPodResourcesLister(signalCtx, socket)
 	if err != nil {
 		return failf("watch-allocations: %v", err)

@@ -14,7 +14,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/urfave/cli/v3"
 
@@ -23,11 +25,21 @@ import (
 )
 
 // gpuFlag declares the device selector every mutating command needs.
+//
+// Required only rejects an absent flag, not an empty one, and mutate reads an
+// empty target as the shared "all" bucket — so without the validator a
+// mistyped `--gpu ""` would quietly mutate every device on the node.
 func gpuFlag() cli.Flag {
 	return &cli.StringFlag{
 		Name:     "gpu",
 		Usage:    "target device: an index, 'all', or a GPU UUID",
 		Required: true,
+		Validator: func(spec string) error {
+			if strings.TrimSpace(spec) == "" {
+				return errors.New("--gpu needs a target: an index, 'all', or a GPU UUID")
+			}
+			return nil
+		},
 	}
 }
 

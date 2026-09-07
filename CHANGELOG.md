@@ -226,11 +226,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   positional arguments, the `--file`/`--config` global flags and their
   environment fallbacks, the exit codes (2 for a bad invocation or an invalid
   value, 1 for an override file that could not be locked, read or written) and
-  every stderr message are unchanged. One invocation that used to work no longer
-  does: `--gpu` was global, so it could precede the command
+  every stderr message are unchanged. Two invocations that used to work no
+  longer do: `--gpu` was global, so it could precede the command
   (`nvml-mock-ctl --gpu 0 temp 85`), and it now has to follow it
   (`nvml-mock-ctl temp --gpu 0 85`) — the form every doc, script and e2e caller
-  already uses.
+  already uses; and `status --gpu ""` is now a usage error rather than a report
+  of every override, so a script whose index variable came out empty is told
+  instead of being handed the whole node's state as if it had asked for it.
 - Dependencies no longer ship in `vendor/`. Go resolves them through a module
   proxy — NVIDIA's DGXC Artifactory in CI and for the published `nvml-mock`
   image, the public proxy locally — so builds and `make gen` need network access
