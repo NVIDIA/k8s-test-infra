@@ -197,6 +197,38 @@ func TestRender_IdempotentRerender(t *testing.T) {
 	require.Equal(t, "3\n", string(got), "numa_node not updated")
 }
 
+// A served pod receives this tree at /sys/devices, which hides the node's own
+// hierarchy — and every /sys/class/net entry is a symlink into it. The runtime
+// cannot create a destination inside a read-only mount, so without a mountpoint
+// rendered here it cannot serve the node's netdevs back, and reading any
+// interface attribute through /sys/class/net fails: including for the mock HCAs'
+// own links, which is precisely how a consumer decides an HCA is usable.
+//
+// It has to survive re-rendering for the same reason the served directories do:
+// a consumer binds these inodes when it starts and keeps them across an agent
+// restart.
+func TestRender_LeavesAMountpointForTheNodesNetdevs(t *testing.T) {
+	dir := t.TempDir()
+	topo := &PCIeTopology{
+		RootComplexes: []RootComplex{{
+			ID: "pci0000:00", NUMANode: 0,
+			Devices: []string{"0000:07:00.0"},
+		}},
+	}
+	require.NoError(t, Render(Options{Topology: topo, Output: dir}), "Render pass 1")
+	require.DirExists(t, filepath.Join(dir, VirtualNetRelPath))
+
+	// A pass declaring an entirely different root complex prunes what the
+	// previous one left, and must not take the mountpoint with it.
+	require.NoError(t, Render(Options{Topology: &PCIeTopology{
+		RootComplexes: []RootComplex{{
+			ID: "pci0000:c0", NUMANode: 3,
+			Devices: []string{"0000:c0:00.0"},
+		}},
+	}, Output: dir}), "Render pass 2")
+	require.DirExists(t, filepath.Join(dir, VirtualNetRelPath))
+}
+
 func TestRender_NormalizesUppercaseBDF(t *testing.T) {
 	dir := t.TempDir()
 	topo := &PCIeTopology{

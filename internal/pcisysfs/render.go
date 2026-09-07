@@ -20,6 +20,13 @@ const (
 	PCIDevicesRelPath = "sys/bus/pci/devices"
 	// SysDevicesRelPath is the hierarchy those symlinks point into.
 	SysDevicesRelPath = "sys/devices"
+	// VirtualNetRelPath is the mountpoint the runtime serves the node's own
+	// netdevs back at. Rendering the hierarchy hides the node's, and every
+	// /sys/class/net entry is a symlink into it — including the ones for the
+	// simulated HCAs' links, which a consumer reads to decide an HCA is usable.
+	// A destination cannot be created inside a read-only mount, so it has to
+	// exist here before the runtime can mount anything over it.
+	VirtualNetRelPath = "sys/devices/virtual/net"
 )
 
 // Options controls a single rendering pass.
@@ -66,6 +73,9 @@ func Render(o Options) error {
 		return err
 	}
 	if err := mkdirAll(root, SysDevicesRelPath); err != nil {
+		return err
+	}
+	if err := mkdirAll(root, VirtualNetRelPath); err != nil {
 		return err
 	}
 

@@ -20,17 +20,7 @@ const (
 	ibDevicesRelPath = "ib/dev/infiniband"
 )
 
-// ibKernelPaths pairs each staged directory with the kernel path a consumer
-// reads it at. The destinations are fixed: they are what the consumers compile
-// in, which is the whole reason for serving them here.
-var ibKernelPaths = []struct {
-	relPath     string
-	destination string
-	// options differ in one respect only, and it matters: nodev makes the
-	// kernel refuse to open device nodes on the mount, so the directory whose
-	// entire content is device nodes cannot carry it.
-	options []string
-}{
+var ibKernelPaths = []kernelPath{
 	{
 		relPath:     ibSysClassRelPath,
 		destination: "/sys/class",
@@ -61,22 +51,12 @@ var ibKernelPaths = []struct {
 // nothing here needs recursion: the node's classes are served back as mounts of
 // their own rather than as submounts of this tree.
 //
-// Each is emitted only once staged: nothing orders this plugin's DaemonSet
-// after the agent's, and a mount with a missing source fails creation for the
-// whole pod rather than for the surface it belongs to.
 func mountIBKernelPaths(cfg Config, adjustment *Adjustment) {
 	for _, p := range ibKernelPaths {
-		source := filepath.Join(cfg.HostOverlayPath, p.relPath)
-		if _, err := os.Stat(source); err != nil {
+		source, ok := mountKernelPath(cfg, p, adjustment)
+		if !ok {
 			continue
 		}
-
-		adjustment.Mounts = append(adjustment.Mounts, Mount{
-			Source:      source,
-			Destination: p.destination,
-			Type:        "bind",
-			Options:     p.options,
-		})
 
 		if p.relPath == ibSysClassRelPath {
 			mountReproducedClasses(source, adjustment)
