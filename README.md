@@ -8,6 +8,9 @@
     <a href="https://scorecard.dev/viewer/?uri=github.com/NVIDIA/k8s-test-infra">
         <img src="https://api.scorecard.dev/projects/github.com/NVIDIA/k8s-test-infra/badge" alt="OpenSSF Scorecard" />
     </a>
+    <a href="https://www.bestpractices.dev/projects/14445">
+        <img src="https://www.bestpractices.dev/projects/14445/badge" alt="OpenSSF Best Practices" />
+    </a>
     <a href="LICENSE">
         <img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License" />
     </a>
