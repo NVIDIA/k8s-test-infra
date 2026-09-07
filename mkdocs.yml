@@ -153,8 +153,8 @@ nav:
       - Integrations:
           - fake-gpu-operator: integrations/fake-gpu-operator.md
       - Tasks:
+          - Use in CI/CD: guides/ci-cd.md
           - Runtime Control: nvml-mock-ctl.md
-          - Examples: examples.md
   - Contributing:
       - contributing/index.md
       - Local Development: contributing/local-development.md
