@@ -78,6 +78,11 @@ lint: tools gen-check ## Lint the source code
 	@./hack/check-depproxy-kit.sh
 	@echo "Checking docs/tools against cmd/.."
 	@./hack/check-docs-tools-sync.sh
+# Documentation links are checked here rather than in `make docs` because the
+# Pages workflow only triggers on docs/**, so every README outside it — where
+# these links actually rot — would get no coverage. `make lint` runs on every PR.
+	@echo "🔗 Checking documentation links.."
+	@./hack/check-doc-links.sh
 	@echo "🧹 Vetting.."
 	@go vet ./...
 	@echo "🧹 GoCI Lint.."

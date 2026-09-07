@@ -104,7 +104,7 @@ chart. Pin `NVML_MOCK_IMAGE` to a released tag if you need a fixed pairing.
    - Seven GPU profile ConfigMaps are created, one per GPU model.
    - `nvidia-smi` runs successfully inside a pod.
    - `ibstat` lists 8 simulated ConnectX-7 NDR HCAs (see
-     [`internal/ib/README.md`](https://github.com/NVIDIA/k8s-test-infra/blob/main/internal/ib/README.md)).
+     [InfiniBand mocking](../../helm-chart.md#infiniband-mocking)).
    - `ibv_devinfo -l` enumerates every mock HCA (via libmlx5) and
      `ibstatus` confirms ACTIVE / LinkUp ports, both driven by
      [`tests/e2e/validate-ibv-devinfo.sh`](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/e2e/validate-ibv-devinfo.sh).
