@@ -1,8 +1,8 @@
 # nvml-mock Failure-Injection Demo
 
 End-to-end walkthrough of the GPU failure-injection feature on the cluster
-your current context points at. Unlike [`../standalone/`](../standalone/README.md), this
-demo exercises every supported failure mode (`healthy` →
+your current context points at. It exercises every supported failure mode
+(`healthy` →
 `ecc_uncorrectable` → `lost` → `fallen_off_bus`) by re-deploying the
 chart between scenarios with `helm upgrade --reuse-values`, and
 asserts each mode's expected behaviour against `nvidia-smi` output

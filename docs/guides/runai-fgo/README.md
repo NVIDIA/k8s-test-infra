@@ -203,4 +203,4 @@ kind delete cluster --name nvml-mock-fgo-demo
 |---|---|
 | Every chart value | [Installation](../../helm-chart.md) |
 | What a profile defines | [Configuration](../../configuration.md) |
-| Mokka on its own | [Standalone](../standalone/README.md) |
+| Mokka on its own | [Quick Start](../../quickstart.md) |
