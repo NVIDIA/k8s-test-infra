@@ -131,10 +131,6 @@ func renderHCA(t *tree, ib config.Infiniband, guidPrefix string, idx, hcaCount i
 	if err := t.mkdir(caDir); err != nil {
 		return err
 	}
-	// Relative so it resolves inside whatever root the tree is served at.
-	if err := t.symlink(filepath.Join("sys/class/infiniband", caName), filepath.Join("..", "infiniband_devices", caName)); err != nil {
-		return err
-	}
 
 	nid := nodeID(nodeName)
 	guid := perHCAGUID(guidPrefix, nid, idx)
@@ -305,7 +301,12 @@ func renderHCA(t *tree, ib config.Infiniband, guidPrefix string, idx, hcaCount i
 			return err
 		}
 	}
-	return nil
+
+	// Last, because this link is what makes the HCA visible to anything
+	// enumerating the class: until it exists there is no device to find, and
+	// once it exists everything behind it is already there to read. The target
+	// is relative so it resolves inside whatever root the tree is served at.
+	return t.symlink(filepath.Join("sys/class/infiniband", caName), filepath.Join("..", "infiniband_devices", caName))
 }
 
 // nameValue is a (filename, contents) pair used to keep file creation

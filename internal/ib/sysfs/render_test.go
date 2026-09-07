@@ -272,6 +272,15 @@ func TestRenderClassEntriesAreNotDirectories(t *testing.T) {
 	}
 	require.ElementsMatch(t, []string{"mlx5_0", "mlx5_1"}, found)
 
+	// Each entry points at a sibling under the same served root, not into
+	// sys/devices as real sysfs does: that keeps this renderer independent of
+	// the PCI one, which owns sys/devices and may not have run at all.
+	for _, ca := range []string{"mlx5_0", "mlx5_1"} {
+		target, err := os.Readlink(filepath.Join(root, "sys/class/infiniband", ca))
+		require.NoError(t, err)
+		require.Equal(t, filepath.Join("..", "infiniband_devices", ca), target)
+	}
+
 	// The attributes must remain readable through the link.
 	nodeType, err := os.ReadFile(filepath.Join(root, "sys/class/infiniband/mlx5_0/node_type"))
 	require.NoError(t, err)

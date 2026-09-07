@@ -119,6 +119,15 @@ func TestStage_IsIdempotent(t *testing.T) {
 	require.Equal(t, first, snapshotTree(t, h.RootPath("ib")))
 }
 
+func TestSnapshotTreeRecordsSymlinks(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.Symlink("target", filepath.Join(root, "link")))
+
+	require.Equal(t, map[string]string{"link": "target"}, snapshotTree(t, root))
+}
+
 func TestStage_DisabledTierStagesShimsOnly(t *testing.T) {
 	cases := []struct {
 		name string
@@ -192,22 +201,34 @@ func seedImageSources(t *testing.T) {
 	write(checkFabric)
 }
 
-// snapshotTree maps every file under root to its contents, so an idempotency
-// check compares bytes rather than mtimes.
+// snapshotTree maps every path under root to what it holds: file contents, or
+// a symlink's target. This lets idempotency compare substance rather than
+// mtimes, and a class entry that silently retargets between passes shows up as
+// a difference.
 func snapshotTree(t *testing.T, root string) map[string]string {
 	t.Helper()
 	out := map[string]string{}
 	require.NoError(t, filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		if err != nil || info.IsDir() {
 			return err
-		}
-		b, readErr := os.ReadFile(p)
-		if readErr != nil {
-			return readErr
 		}
 		rel, relErr := filepath.Rel(root, p)
 		if relErr != nil {
 			return relErr
+		}
+		// Walk lstats, so a class entry arrives as the link itself; reading it
+		// would open the directory it names instead.
+		if info.Mode()&os.ModeSymlink != 0 {
+			target, linkErr := os.Readlink(p)
+			if linkErr != nil {
+				return linkErr
+			}
+			out[rel] = target
+			return nil
+		}
+		b, readErr := os.ReadFile(p)
+		if readErr != nil {
+			return readErr
 		}
 		out[rel] = string(b)
 		return nil
