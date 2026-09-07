@@ -5,6 +5,9 @@
     <a href="https://github.com/NVIDIA/k8s-test-infra/actions/workflows/ci.yaml">
         <img src="https://github.com/NVIDIA/k8s-test-infra/actions/workflows/ci.yaml/badge.svg" alt="CI pipelines" />
     </a>
+    <a href="https://nvidia.github.io/k8s-test-infra/">
+        <img src="https://github.com/NVIDIA/k8s-test-infra/actions/workflows/deploy-pages.yaml/badge.svg" alt="Documentation" />
+    </a>
     <a href="https://scorecard.dev/viewer/?uri=github.com/NVIDIA/k8s-test-infra">
         <img src="https://api.scorecard.dev/projects/github.com/NVIDIA/k8s-test-infra/badge" alt="OpenSSF Scorecard" />
     </a>
