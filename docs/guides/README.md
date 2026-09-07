@@ -17,6 +17,8 @@ Roughly in order of how much they ask of you. Start at the top if you are new.
 | Guide | What it shows | Time |
 |---|---|---|
 | [Standalone](standalone/README.md) | Mokka on its own: mock GPUs, `nvidia-smi`, InfiniBand, and FGO-style labels, with no external operator | ~5 min |
+| [NVIDIA GPU Operator](gpu-operator.md) | The real operator stack — device plugin, GFD, DCGM and the validator — against mock GPUs | ~15 min |
+| [NVIDIA DRA Driver](dra.md) | Mock GPUs published as ResourceSlices, and a pod scheduled through a ResourceClaim | ~10 min |
 | [With fake-gpu-operator](runai-fgo/README.md) | Two node pools — Mokka serving one with a real NVML shim, Run:ai's FGO serving the other | ~10 min |
 | [Failure injection](failure-injection/README.md) | Every failure mode — healthy, uncorrectable ECC, lost GPU, fallen off the bus — asserted against `nvidia-smi` | ~15 min |
 | [Node-wide injection](node-wide-injection/README.md) | A plain pod running `nvidia-smi` with no GPU request, no annotation and no pod-spec change, via NRI | ~10 min |
