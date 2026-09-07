@@ -75,7 +75,7 @@ Use standalone for local development and CI pipelines.
 | [Quick Start](docs/quickstart.md) | Build and run in 5 minutes |
 | [Configuration](docs/configuration.md) | YAML configuration reference |
 | [Architecture](docs/architecture.md) | System design and components |
-| [Development](docs/development.md) | Contributing and extending the library |
+| [Contributing](docs/contributing/index.md) | Developing, testing and submitting changes |
 | [Examples](docs/examples.md) | Usage patterns and scenarios |
 | [Troubleshooting](docs/troubleshooting.md) | Common issues and solutions |
 

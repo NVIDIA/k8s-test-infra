@@ -153,4 +153,4 @@ being real.
 | Every knob in the profile | [Configuration](configuration.md) |
 | Deploying and shaping a cluster | [Installation](helm-chart.md) |
 | Changing state on a running node | [Runtime Control](nvml-mock-ctl.md) |
-| Adding functions or profiles | [Development Guide](development.md) |
+| Adding functions or profiles | [Contributing](contributing/index.md) |

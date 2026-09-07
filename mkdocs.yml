@@ -157,4 +157,8 @@ nav:
           - Runtime Control: nvml-mock-ctl.md
           - Examples: examples.md
   - Contributing:
-      - Development Guide: development.md
+      - contributing/index.md
+      - Local Development: contributing/local-development.md
+      - Testing: contributing/testing.md
+      - Enhancement Proposals: contributing/enhancements.md
+      - Pull Requests: contributing/pull-requests.md

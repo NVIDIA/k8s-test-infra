@@ -74,7 +74,7 @@ go run ./cmd/generate-bridge -input $GO_NVML_DIR/pkg/nvml/nvml.go --stats
 
 The stub layer is generated from NVML's own header, so adding a hand-written
 implementation removes its stub automatically. See the
-[development guide](../development.md) for that workflow.
+[contributing guide](../contributing/index.md) for that workflow.
 
 ## Limits
 
@@ -94,4 +94,4 @@ does not simulate, see
 | What stages this library onto a node | [Node Daemon](node-daemon.md) |
 | Every profile knob | [Configuration](../configuration.md) |
 | Changing state at runtime | [Runtime Control](../nvml-mock-ctl.md) |
-| Adding functions or profiles | [Development Guide](../development.md) |
+| Adding functions or profiles | [Contributing](../contributing/index.md) |
