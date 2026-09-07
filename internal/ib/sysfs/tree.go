@@ -76,6 +76,34 @@ func (t *tree) write(rel, contents string) error {
 	return nil
 }
 
+// symlink brings rel to a link pointing at target, replacing whatever is there
+// when it differs. The kernel exposes class entries as symlinks, and consumers
+// enumerate the class by skipping directories, so a directory here reads as no
+// device at all.
+func (t *tree) symlink(rel, target string) error {
+	full := filepath.Join(t.root, rel)
+
+	t.keep(rel)
+
+	if current, err := os.Readlink(full); err == nil && current == target {
+		return nil
+	}
+
+	// A pre-existing directory cannot be replaced by Symlink, and an earlier
+	// shape rendered exactly that.
+	if err := os.RemoveAll(full); err != nil {
+		return fmt.Errorf("clear %s: %w", rel, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", filepath.Dir(rel), err)
+	}
+	if err := os.Symlink(target, full); err != nil {
+		return fmt.Errorf("symlink %s: %w", rel, err)
+	}
+
+	return nil
+}
+
 // prune removes everything under the root that this pass did not write, which
 // is how a shape that drops HCAs takes their directories with it. A pass that
 // wrote nothing retracts the whole tree, leaving the root itself in place.

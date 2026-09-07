@@ -82,8 +82,8 @@ func TestStage_RendersSysfsTree(t *testing.T) {
 	}
 
 	// HCACount drives how many CAs appear, independent of GPU count.
-	require.DirExists(t, h.RootPath("ib/sys/class/infiniband/mlx5_1"))
-	require.NoDirExists(t, h.RootPath("ib/sys/class/infiniband/mlx5_2"))
+	require.FileExists(t, h.RootPath("ib/sys/class/infiniband/mlx5_1/node_guid"))
+	require.NoFileExists(t, h.RootPath("ib/sys/class/infiniband/mlx5_2/node_guid"))
 }
 
 func TestStage_ProfileValuesReachSysfs(t *testing.T) {
@@ -198,7 +198,7 @@ func snapshotTree(t *testing.T, root string) map[string]string {
 	t.Helper()
 	out := map[string]string{}
 	require.NoError(t, filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
+		if err != nil || info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 			return err
 		}
 		b, readErr := os.ReadFile(p)
@@ -226,7 +226,7 @@ func TestStage_RetractsWhenProfileDisablesIB(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, s.Stage(ctx, h, testState(testNetwork())))
-	require.DirExists(t, h.RootPath("ib/sys/class/infiniband/mlx5_0"))
+	require.FileExists(t, h.RootPath("ib/sys/class/infiniband/mlx5_0/node_guid"))
 	require.FileExists(t, h.RootPath("driver/usr/bin/ibstat"))
 
 	require.NoError(t, s.Stage(ctx, h, testState(agent.NetworkShape{})))

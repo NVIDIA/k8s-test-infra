@@ -20,6 +20,11 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/config"
 )
 
+// ibDevicesRel holds each HCA's attribute directory. The class entry is a
+// symlink into it, mirroring the kernel's class-to-device indirection while
+// staying inside one served mount.
+const ibDevicesRel = "sys/class/infiniband_devices"
+
 // Options controls a single rendering pass.
 type Options struct {
 	IB       config.Infiniband
@@ -90,6 +95,9 @@ func render(o Options) (*tree, error) {
 	if err := t.mkdir("sys/class/infiniband"); err != nil {
 		return nil, err
 	}
+	if err := t.mkdir(ibDevicesRel); err != nil {
+		return nil, err
+	}
 	if err := t.mkdir("sys/class/infiniband_mad"); err != nil {
 		return nil, err
 	}
@@ -119,8 +127,12 @@ func render(o Options) (*tree, error) {
 //nolint:cyclop // existing complexity; refactor deferred
 func renderHCA(t *tree, ib config.Infiniband, guidPrefix string, idx, hcaCount int, nodeName string) error {
 	caName := fmt.Sprintf("mlx5_%d", idx)
-	caDir := filepath.Join("sys/class/infiniband", caName)
+	caDir := filepath.Join(ibDevicesRel, caName)
 	if err := t.mkdir(caDir); err != nil {
+		return err
+	}
+	// Relative so it resolves inside whatever root the tree is served at.
+	if err := t.symlink(filepath.Join("sys/class/infiniband", caName), filepath.Join("..", "infiniband_devices", caName)); err != nil {
 		return err
 	}
 

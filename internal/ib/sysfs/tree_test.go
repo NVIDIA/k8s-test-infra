@@ -52,7 +52,7 @@ func TestRender_PrunesDepartedHCAs(t *testing.T) {
 func TestRender_DisabledRetractsExistingTree(t *testing.T) {
 	dir := t.TempDir()
 	renderCount(t, dir, 2)
-	require.DirExists(t, filepath.Join(dir, "sys/class/infiniband/mlx5_0"))
+	require.FileExists(t, filepath.Join(dir, "sys/class/infiniband/mlx5_0/node_guid"))
 
 	require.NoError(t, Render(Options{IB: config.Infiniband{Enabled: false}, RootDir: dir}))
 

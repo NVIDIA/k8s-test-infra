@@ -248,6 +248,36 @@ func TestRender_NodePortGUIDsNoOverlap(t *testing.T) {
 	}
 }
 
+func TestRenderClassEntriesAreNotDirectories(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, Render(Options{
+		IB:       config.Infiniband{Enabled: true, HCACountOverride: 2, GUIDPrefix: "0002c903"},
+		NodeName: "worker-0",
+		RootDir:  root,
+	}))
+
+	// Mirrors rdmamap.GetRdmaDeviceList, which skips IsDir() entries. Real
+	// sysfs passes because the class holds symlinks.
+	entries, err := os.ReadDir(filepath.Join(root, "sys/class/infiniband"))
+	require.NoError(t, err)
+
+	var found []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		found = append(found, e.Name())
+	}
+	require.ElementsMatch(t, []string{"mlx5_0", "mlx5_1"}, found)
+
+	// The attributes must remain readable through the link.
+	nodeType, err := os.ReadFile(filepath.Join(root, "sys/class/infiniband/mlx5_0/node_type"))
+	require.NoError(t, err)
+	require.Equal(t, "1: CA\n", string(nodeType))
+}
+
 func TestRender_BadGUIDPrefix(t *testing.T) {
 	dir := t.TempDir()
 	err := Render(Options{
