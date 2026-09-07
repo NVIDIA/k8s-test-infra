@@ -18,85 +18,47 @@
 
 ---
 
-Kubernetes test infrastructure for NVIDIA GPU software — mock GPU environments,
-CI tooling, and testing utilities.
+Mokka turns any Kubernetes cluster into a multi-GPU environment for testing. It
+implements the NVIDIA driver interfaces that GPU software talks to, so the
+device plugin, the DRA driver, the GPU Operator and `nvidia-smi` all behave as
+though real hardware were present.
 
-## nvml-mock
+Use it to test scheduling, node labelling, telemetry and failure handling where
+real GPUs are not available. It is a test double for CI and test clusters, not
+something to run in production.
 
-Turn any Kubernetes cluster into a multi-GPU environment for testing.
-No physical NVIDIA hardware required.
+## Quick start
 
 ```bash
 kind create cluster --name mokka
 
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
-    --namespace mokka --create-namespace \
-    --set gpu.profile=gb300
+    --namespace mokka --create-namespace
 ```
 
-Every node now reports 4 mock GB300 GPUs, one NVL72 compute tray. `gb300` is the
-chart default; swap in
-`a100`, `h100`, `b200`, `gb200`, `l40s`, or `t4` for other hardware.
+Every node now reports four mock GB300 GPUs. Swap in `a100`, `b200`, `gb200`,
+`h100`, `l40s` or `t4` with `--set gpu.profile=<name>`.
 
-After install, deploy a consumer to test:
+## Documentation
 
-| Consumer                 | Guide                                                                                           |
-|--------------------------|-------------------------------------------------------------------------------------------------|
-| **NVIDIA Device Plugin** | [Quick Start](https://nvidia.github.io/k8s-test-infra/helm-chart/#quick-start-device-plugin-on-kind) |
-| **NVIDIA DRA Driver**    | [Quick Start](https://nvidia.github.io/k8s-test-infra/helm-chart/#quick-start-dra-driver-on-kind)    |
-| **NVIDIA GPU Operator**  | [Quick Start](https://nvidia.github.io/k8s-test-infra/helm-chart/#quick-start-gpu-operator-on-kind)  |
+**[nvidia.github.io/k8s-test-infra](https://nvidia.github.io/k8s-test-infra/)**
 
-**Full documentation:** [Mokka documentation site](https://nvidia.github.io/k8s-test-infra/)
+| | |
+|---|---|
+| [Quick Start](https://nvidia.github.io/k8s-test-infra/quickstart/) | Install and see simulated GPUs |
+| [Architecture](https://nvidia.github.io/k8s-test-infra/architecture/) | The moving parts and how the system behaves |
+| [Guides](https://nvidia.github.io/k8s-test-infra/demo/) | Device plugin, DRA, GPU Operator, failure injection, node-wide injection |
+| [Configuration](https://nvidia.github.io/k8s-test-infra/configuration/) | Every profile knob |
+| [FAQ](https://nvidia.github.io/k8s-test-infra/faq/) | What Mokka simulates, and what it does not |
 
-## E2E Testing
+## Contributing
 
-The nvml-mock Go E2E workflow gates standalone, DRA, GPU Operator, multi-node,
-node-wide NRI, and NFD label-provenance coverage. Run manually via
-`workflow_dispatch` or automatically on PRs.
+See the [contributing guide](https://nvidia.github.io/k8s-test-infra/contributing/)
+for local development with Tilt, the test suites, and how to submit a change.
+Substantial changes start with a [Mokka Enhancement Proposal](enhancements/).
 
-| Test Suite | What It Validates | Profiles |
-|------------|-------------------|----------|
-| **Standalone Demo** | nvml-mock chart install, `nvidia-smi`, NVLink/fabricmanager, InfiniBand, PCI sysfs, and cross-node checks | Workflow-selected profiles |
-| **Failure Injection** | Healthy, ECC, lost, and fallen-off-bus modes | Workflow-selected profiles |
-| **DRA Driver** | Mock driver files, `nvidia-smi`, ResourceSlices, and DRA ResourceClaim scheduling | Workflow-selected profiles |
-| **GPU Operator** | GPU Operator install, validator pod startup, GFD labels, and allocatable GPUs | Workflow-selected profiles |
-| **Multi-Node Fleet** | Heterogeneous A100/T4 workers, mock files, InfiniBand behavior, device plugin resources, and GPU workload scheduling | Fixed multi-node topology |
-| **Node-Wide NRI Injection** | Ambient mock GPU injection into ordinary pods without GPU requests or hostPath mounts | Workflow-selected profiles |
-| **NFD Label Provenance** | That NFD creates `feature.node.kubernetes.io/pci-10de.present` from the feature file nvml-mock writes, and that nvml-mock does not write the label itself | Pinned to `a100` — the label is vendor-only and byte-identical across profiles |
-
-## Mock NVML Library
-
-The underlying CGo-based mock `libnvidia-ml.so` that powers nvml-mock.
-Use standalone for local development and CI pipelines.
-
-| Document | Description |
-|----------|-------------|
-| [Overview](docs/index.md) | Project overview, components, GPU profiles |
-| [Quick Start](docs/quickstart.md) | Build and run in 5 minutes |
-| [Configuration](docs/configuration.md) | YAML configuration reference |
-| [Architecture](docs/architecture.md) | System design and components |
-| [Contributing](docs/contributing/index.md) | Developing, testing and submitting changes |
-| [Examples](docs/examples.md) | Usage patterns and scenarios |
-| [Troubleshooting](docs/troubleshooting.md) | Common issues and solutions |
-
-## Integrations
-
-| Integration | Description | Guide |
-|-------------|-------------|-------|
-| **fake-gpu-operator** | Run:ai's K8s-level GPU simulation | [Integration Guide](docs/integrations/fake-gpu-operator.md) |
-
-## Demos
-
-| Demo | Description |
-|------|-------------|
-| [Standalone](docs/demo/standalone/) | nvml-mock with FGO-style labels |
-| [With fake-gpu-operator](docs/demo/with-fgo/) | Full FGO + nvml-mock integration |
-| [Failure injection](docs/demo/failure-injection/) | ECC, lost and fallen-off-bus fault modes |
-| [Node-wide injection (NRI)](docs/demo/node-wide-injection/) | Ambient nvidia-smi with no GPU request |
-| [ComputeDomain](docs/demo/compute-domain/) | NVLink fabric identity with real nvidia-imex |
-| [NVSentinel](docs/demo/nv-sentinel/) | Thermal-margin detection, drain and auto-recovery |
-
-See [docs/demo/](docs/demo/) for the full list.
+Report vulnerabilities privately — see [SECURITY.md](SECURITY.md), not the issue
+tracker.
 
 ## Credits
 

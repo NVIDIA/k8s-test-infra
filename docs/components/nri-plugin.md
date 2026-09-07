@@ -10,6 +10,19 @@ removes that step: it registers with containerd's Node Resource Interface and
 edits containers as they are created, so an unmodified workload comes up
 believing it has GPUs.
 
+!!! note "What NRI is"
+    The **Node Resource Interface** is a framework for plugging extensions into
+    OCI-compatible container runtimes. A plugin registers with the runtime, is
+    notified as containers are created, and may make limited adjustments to a
+    container's OCI spec — mounts, devices, environment — before it starts.
+
+    It sits *below* the Container Runtime Interface, so it is a runtime feature
+    rather than a Kubernetes API: there is no NRI object in the Kubernetes API
+    and nothing on kubernetes.io describing it. containerd 1.7 or later is
+    required. See the
+    [NRI project](https://github.com/containerd/nri) and
+    [containerd's NRI documentation](https://github.com/containerd/containerd/blob/main/docs/NRI.md).
+
 For where it sits in the wider system, see the
 [architecture overview](../architecture.md).
 
