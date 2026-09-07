@@ -70,6 +70,7 @@ type Options struct {
 var (
 	_ agent.Simulator = (*Simulator)(nil)
 	_ agent.Daemon    = (*Simulator)(nil)
+	_ agent.Applier   = (*Simulator)(nil)
 )
 
 // Simulator fakes the InfiniBand HCAs (Host Channel Adapters) absent on
@@ -183,6 +184,31 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 
 	s.ready.Store(true)
 	return nil
+}
+
+// Apply attaches the node's own sysfs classes to the mountpoints Stage
+// rendered. Anything reading through this tree gets its sys/class in place of
+// the node's, so without these the node's real classes — /sys/class/net above
+// all, which the RDMA consumers resolve every HCA through — would simply
+// disappear for them.
+//
+// It runs after the Stage barrier because the mountpoints have to exist first.
+func (s *Simulator) Apply(_ context.Context, h *host.Host, state *agent.State) error {
+	treeClass := filepath.Join(ibRoot(h), classRel)
+
+	// A tier or profile that simulates nothing rendered no mountpoints, so the
+	// inverse is what applies: detach whatever an earlier shape attached.
+	if s.opts.Mode == ModeOff || !state.NodeShape.Network.IBEnabled {
+		return unmountRealClasses(treeClass)
+	}
+
+	return mountRealClasses(h.SysPath("class"), treeClass, reproducedClasses(h))
+}
+
+// Revoke detaches the class binds on shutdown, before Discard removes the tree
+// they are attached to.
+func (s *Simulator) Revoke(_ context.Context, h *host.Host) error {
+	return unmountRealClasses(filepath.Join(ibRoot(h), classRel))
 }
 
 // recordShape stores the staged shape and flags a change for Reload.

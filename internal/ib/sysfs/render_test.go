@@ -343,3 +343,46 @@ func TestRender_RequestsTheCharDevicesConsumersRequire(t *testing.T) {
 		{"dev/infiniband/issm1", 231, 129},
 	}, got)
 }
+
+// The caller attaches the node's own classes to these directories, and the
+// renderer deletes whatever a pass did not write. An unregistered mountpoint
+// would therefore be removed from under a live consumer on the next reconcile.
+func TestRender_KeepsTheReproducedClassMountpointsAcrossPasses(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	opts := Options{
+		IB:               config.Infiniband{Enabled: true, HCACountOverride: 1},
+		NodeName:         "worker-0",
+		RootDir:          dir,
+		ReproduceClasses: []string{"net", "block"},
+	}
+
+	require.NoError(t, Render(opts))
+	require.NoError(t, Render(opts))
+
+	for _, c := range []string{"net", "block"} {
+		require.DirExists(t, filepath.Join(dir, "sys/class", c))
+	}
+}
+
+// A class the node stops having must not keep a mountpoint the caller will
+// never attach anything to.
+func TestRender_DropsAMountpointTheCallerNoLongerAsksFor(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	ib := config.Infiniband{Enabled: true, HCACountOverride: 1}
+
+	require.NoError(t, Render(Options{
+		IB: ib, NodeName: "worker-0", RootDir: dir,
+		ReproduceClasses: []string{"net", "block"},
+	}))
+	require.NoError(t, Render(Options{
+		IB: ib, NodeName: "worker-0", RootDir: dir,
+		ReproduceClasses: []string{"net"},
+	}))
+
+	require.DirExists(t, filepath.Join(dir, "sys/class/net"))
+	require.NoDirExists(t, filepath.Join(dir, "sys/class/block"))
+}

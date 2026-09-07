@@ -40,6 +40,11 @@ type Options struct {
 	GPUCount int    // used when IB.HCACountOverride == 0
 	NodeName string // expanded into NodeDescTemplate
 	RootDir  string // fake-root directory; subtree rooted at <RootDir>/sys/class/...
+	// ReproduceClasses names sys/class entries the caller attaches the node's
+	// own classes to. They are created empty and, being written by the pass,
+	// survive its pruning — otherwise a reconcile would delete a mountpoint
+	// from under a live consumer.
+	ReproduceClasses []string
 }
 
 // Render brings the tree at o.RootDir onto the given spec, writing what the spec
@@ -57,7 +62,7 @@ type Options struct {
 //	        gids/0 pkeys/0 counters/* gid_attrs/{types,ndevs}/0
 //	sys/class/infiniband_mad/    abi_version {umad,issm}N/{ibdev,port}
 //	sys/class/infiniband_verbs/  abi_version uverbsN/{ibdev,abi_version,dev}
-//	dev/infiniband/              {umad,issm,uverbs}N, empty: real char devices need CAP_MKNOD
+//	dev/infiniband/              rdma_cm and {umad,issm,uverbs}N char devices
 func Render(o Options) error {
 	t, err := render(o)
 
@@ -99,6 +104,12 @@ func render(o Options) (*tree, error) {
 
 	if hcaCount > maxGUIDHCAs {
 		return nil, fmt.Errorf("infiniband: hca_count=%d exceeds mock GUID capacity %d", hcaCount, maxGUIDHCAs)
+	}
+
+	for _, c := range o.ReproduceClasses {
+		if err := t.mkdir(filepath.Join("sys/class", c)); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := t.mkdir("sys/class/infiniband"); err != nil {
