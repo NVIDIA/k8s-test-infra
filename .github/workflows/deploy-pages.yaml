@@ -26,6 +26,7 @@ on:
       - "hack/sync-enhancement-docs.sh"
       - "mkdocs.yml"
       - "requirements-docs.txt"
+      - "Makefile"
       - ".github/workflows/deploy-pages.yaml"
   pull_request:
     paths:
@@ -34,6 +35,7 @@ on:
       - "hack/sync-enhancement-docs.sh"
       - "mkdocs.yml"
       - "requirements-docs.txt"
+      - "Makefile"
       - ".github/workflows/deploy-pages.yaml"
   workflow_dispatch:
 
