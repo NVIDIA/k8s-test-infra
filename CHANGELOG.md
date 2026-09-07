@@ -70,6 +70,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a follow-up. (#712)
 
 ### Added
+- The simulated InfiniBand surface is now readable by consumers that go to the
+  kernel rather than to `ibstat`: the class entries are symlinks into the device
+  tree, the `/dev/infiniband` entries are real character devices, each HCA has a
+  Mellanox PCI device with `infiniband/` and `net/` directories, and a dummy
+  netdev exists in the node's network namespace. The trees are served at
+  `/sys/class`, `/sys/devices` and `/sys/bus/pci/devices` to every pod on the
+  node, not only to pods that request a GPU, since an RDMA consumer requests
+  none. With that in place the NVIDIA Network Operator's
+  `k8s-rdma-shared-dev-plugin` discovers the mock HCAs and advertises `rdma/ib`
+  node capacity, asserted end to end by the `e2e-rdma` CI leg. The node kernel
+  still has to have the RDMA subsystem loaded (`modprobe ib_core`): the plugin
+  queries it before looking at any device, and no sysfs mock can answer for it.
+  (#TBD)
 - The node agent gains `pcibus`, `cdi` and `imex` simulators, each an
   `agent.Simulator` with the same stage/apply/discard lifecycle as the existing
   `gpudriver`. Together they subsume the device-surface construction that
