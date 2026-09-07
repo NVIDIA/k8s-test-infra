@@ -88,6 +88,6 @@ go run ./cmd/generate-bridge -validate   # exit 1 on signature drift
 
 ## See also
 
-- [Tools index](README.md)
+- [Components index](README.md)
 - [Development Guide](../development.md)
 - [Architecture](../architecture.md)

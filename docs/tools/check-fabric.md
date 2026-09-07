@@ -79,5 +79,5 @@ sh -c 'test -c /dev/nvidia-caps-imex-channels/channel0 && check-fabric | head -6
 
 ## See also
 
-- [Tools index](README.md)
+- [Components index](README.md)
 - [Compute Domain demo](../demo/compute-domain/README.md)

@@ -63,5 +63,5 @@ grace boundary regardless.
 
 ## See also
 
-- [Tools index](README.md)
+- [Components index](README.md)
 - [Helm Chart](../helm-chart.md)
