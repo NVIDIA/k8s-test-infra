@@ -25,6 +25,21 @@ import (
 // staying inside one served mount.
 const ibDevicesRel = "sys/class/infiniband_devices"
 
+// MockOwnedClasses are the sys/class entries this renderer writes. Serving the
+// tree replaces a consumer's whole sys/class, so the node's other classes have
+// to be reproduced alongside these — and these must never be reproduced from
+// the node, whose own InfiniBand class is empty on a CPU-only machine and
+// would retract every simulated HCA.
+//
+// Exported because the reproducing happens elsewhere: the agent decides which
+// classes to carry across, and the NRI plugin attaches them.
+var MockOwnedClasses = []string{
+	"infiniband",
+	"infiniband_devices",
+	"infiniband_mad",
+	"infiniband_verbs",
+}
+
 // Device numbers the kernel assigns the InfiniBand char devices. Consumers
 // match them to decide which HCA a device file belongs to, so the mock has to
 // use the real ones rather than any consistent scheme of its own.

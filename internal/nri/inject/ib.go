@@ -6,6 +6,8 @@ package inject
 import (
 	"os"
 	"path/filepath"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/ib/sysfs"
 )
 
 const (
@@ -68,6 +70,52 @@ func mountIBKernelPaths(cfg Config, adjustment *Adjustment) {
 			Destination: p.destination,
 			Type:        "bind",
 			Options:     p.options,
+		})
+
+		if p.relPath == ibSysClassRelPath {
+			mountReproducedClasses(source, adjustment)
+		}
+	}
+}
+
+// mountReproducedClasses attaches the node's own classes over the empty
+// mountpoints the renderer left for them, restoring what the class mount above
+// would otherwise hide — the node's sys/class/net most of all, since an RDMA
+// consumer resolves every HCA through an interface listed there.
+//
+// The runtime performs these, which is the point: a mount the agent made in its
+// own namespace would need CAP_SYS_ADMIN and bidirectional propagation before
+// anything here could see it, whereas assembling the container's filesystem is
+// already this mount's job.
+//
+// Ordering matters. These come after the class mount they land inside, so they
+// are appended while it is being emitted rather than in a separate pass.
+func mountReproducedClasses(treeClass string, adjustment *Adjustment) {
+	entries, err := os.ReadDir(treeClass)
+	if err != nil {
+		// The class mount is already emitted and stands on its own; the node's
+		// other classes are what a container loses, not the simulated HCAs.
+		return
+	}
+
+	owned := make(map[string]struct{}, len(sysfs.MockOwnedClasses))
+	for _, c := range sysfs.MockOwnedClasses {
+		owned[c] = struct{}{}
+	}
+
+	for _, e := range entries {
+		if _, isOwned := owned[e.Name()]; isOwned {
+			continue
+		}
+
+		// Source and destination are the same path: the node's class, served
+		// back at the location the class mount just covered.
+		class := filepath.Join("/sys/class", e.Name())
+		adjustment.Mounts = append(adjustment.Mounts, Mount{
+			Source:      class,
+			Destination: class,
+			Type:        "bind",
+			Options:     []string{"rbind", "ro", "nosuid", "nodev"},
 		})
 	}
 }

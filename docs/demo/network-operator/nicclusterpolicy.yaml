@@ -1,0 +1,29 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Only the RDMA shared device plugin is enabled. ofedDriver is deliberately
+# omitted: it would try to build and insert real Mellanox kernel modules, which
+# is the one thing a simulated node cannot offer.
+apiVersion: mellanox.com/v1alpha1
+kind: NicClusterPolicy
+metadata:
+  name: nic-cluster-policy
+spec:
+  rdmaSharedDevicePlugin:
+    image: k8s-rdma-shared-dev-plugin
+    repository: ghcr.io/mellanox
+    version: v1.5.3
+    # Selecting on the vendor alone is what the mock satisfies: it renders
+    # Mellanox PCI devices with an infiniband and a net directory each.
+    # linkTypes is left unset on purpose — the mock interfaces are dummy links
+    # reporting ether, so selecting infiniband would match nothing.
+    config: |
+      {
+        "configList": [{
+          "resourceName": "ib",
+          "rdmaHcaMax": 63,
+          "selectors": {
+            "vendors": ["15b3"]
+          }
+        }]
+      }

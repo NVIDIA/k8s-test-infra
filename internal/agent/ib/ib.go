@@ -186,45 +186,29 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 	return nil
 }
 
-// Apply attaches the node's own sysfs classes to the mountpoints Stage
-// rendered. Anything reading through this tree gets its sys/class in place of
-// the node's, so without these the node's real classes — /sys/class/net above
-// all, which the RDMA consumers resolve every HCA through — would simply
-// disappear for them.
-//
-// It runs after the Stage barrier because the mountpoints have to exist first.
-func (s *Simulator) Apply(_ context.Context, h *host.Host, state *agent.State) error {
-	treeClass := filepath.Join(ibRoot(h), classRel)
+// Apply brings up the interfaces the HCAs are associated with. It runs after
+// the Stage barrier because the rendered tree names them.
+func (s *Simulator) Apply(_ context.Context, _ *host.Host, state *agent.State) error {
 	net := state.NodeShape.Network
 
-	// A tier or profile that simulates nothing rendered no mountpoints, so the
-	// inverse is what applies: detach whatever an earlier shape attached and
-	// take its interfaces with it.
+	// A tier or profile that simulates nothing has to take its interfaces with
+	// it: they are node-wide kernel state that outlives the profile edit.
 	if s.opts.Mode == ModeOff || !net.IBEnabled {
-		return errors.Join(
-			unmountRealClasses(treeClass),
-			removeNetdevs(net.NetdevPrefix, net.HCACount),
-		)
+		return removeNetdevs(net.NetdevPrefix, net.HCACount)
 	}
 
-	return errors.Join(
-		mountRealClasses(h.SysPath("class"), treeClass, reproducedClasses(h)),
-		ensureNetdevs(net.NetdevPrefix, net.HCACount),
-	)
+	return ensureNetdevs(net.NetdevPrefix, net.HCACount)
 }
 
-// Revoke detaches the class binds and removes the interfaces on shutdown,
-// before Discard removes the tree they are associated with.
-func (s *Simulator) Revoke(_ context.Context, h *host.Host) error {
-	errs := []error{unmountRealClasses(filepath.Join(ibRoot(h), classRel))}
-
-	// The links are node-wide kernel state rather than files under the agent's
-	// root, so they outlive the pod unless taken down explicitly.
-	if staged := s.lastStaged.Load(); staged != nil {
-		errs = append(errs, removeNetdevs(staged.NetdevPrefix, staged.HCACount))
+// Revoke removes the interfaces on shutdown. They are kernel objects rather
+// than files under the agent's root, so nothing else reclaims them.
+func (s *Simulator) Revoke(_ context.Context, _ *host.Host) error {
+	staged := s.lastStaged.Load()
+	if staged == nil {
+		return nil
 	}
 
-	return errors.Join(errs...)
+	return removeNetdevs(staged.NetdevPrefix, staged.HCACount)
 }
 
 // recordShape stores the staged shape and flags a change for Reload.

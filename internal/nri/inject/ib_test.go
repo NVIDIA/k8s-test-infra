@@ -97,3 +97,46 @@ func TestAdjust_ServesWhicheverKernelPathIsStaged(t *testing.T) {
 		require.NotEqual(t, "/dev/infiniband", m.Destination)
 	}
 }
+
+// The class mount replaces a container's whole sys/class, so the node's other
+// classes have to be served back over the mountpoints the renderer left for
+// them. sys/class/net is the one that matters most: an RDMA consumer resolves
+// every HCA through an interface listed there.
+func TestAdjust_ServesTheNodesOwnClassesBackOverTheMockOne(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	for _, rel := range []string{
+		filepath.Join(ibSysClassRelPath, "infiniband"),
+		filepath.Join(ibSysClassRelPath, "net"),
+		filepath.Join(ibSysClassRelPath, "block"),
+	} {
+		require.NoError(t, os.MkdirAll(filepath.Join(root, rel), 0o755))
+	}
+
+	adjustment, ok := Adjust(Config{HostOverlayPath: root}, Container{Namespace: "default"})
+	require.True(t, ok)
+
+	net := mountFor(t, adjustment.Mounts, "/sys/class/net")
+	require.Equal(t, "/sys/class/net", net.Source, "the node's own class is the source")
+	require.Equal(t, "/sys/class/block", mountFor(t, adjustment.Mounts, "/sys/class/block").Source)
+
+	// The mock's own classes must not be served back from the node: a CPU-only
+	// node's infiniband class is empty, and it would cover every rendered HCA.
+	for _, m := range adjustment.Mounts {
+		require.NotEqual(t, "/sys/class/infiniband", m.Destination)
+	}
+
+	// Each reproduced class has to land inside the class mount, so it must be
+	// emitted after it.
+	classIdx, netIdx := -1, -1
+	for i, m := range adjustment.Mounts {
+		switch m.Destination {
+		case "/sys/class":
+			classIdx = i
+		case "/sys/class/net":
+			netIdx = i
+		}
+	}
+	require.Less(t, classIdx, netIdx, "the covering mount must come first")
+}

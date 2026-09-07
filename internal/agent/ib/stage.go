@@ -61,7 +61,7 @@ func stageSysfs(h *host.Host, state *agent.State, simulating bool) error {
 // still serve, and surfacing the cause as a warning beats failing a reconcile
 // over classes no consumer may even read.
 func reproducedClasses(h *host.Host) []string {
-	classes, err := classesToReproduce(h.SysPath("class"), mockOwnedClasses)
+	classes, err := classesToReproduce(h.SysPath("class"))
 	if err != nil {
 		slog.Warn("no host sysfs classes to serve; pods reading the IB tree see only simulated ones",
 			"simulator", name, "err", err)

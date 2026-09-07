@@ -22,7 +22,7 @@ func TestClassesToReproduce_ExcludesMockOwned(t *testing.T) {
 		require.NoError(t, os.MkdirAll(filepath.Join(hostClass, c), 0o755))
 	}
 
-	got, err := classesToReproduce(hostClass, mockOwnedClasses)
+	got, err := classesToReproduce(hostClass)
 	require.NoError(t, err)
 
 	// On a CPU-only node the host's infiniband class is empty or absent, so
@@ -38,6 +38,6 @@ func TestClassesToReproduce_ExcludesMockOwned(t *testing.T) {
 func TestClassesToReproduce_ReportsAMissingClassDir(t *testing.T) {
 	t.Parallel()
 
-	_, err := classesToReproduce(filepath.Join(t.TempDir(), "absent"), mockOwnedClasses)
+	_, err := classesToReproduce(filepath.Join(t.TempDir(), "absent"))
 	require.Error(t, err)
 }
