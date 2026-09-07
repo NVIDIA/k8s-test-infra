@@ -150,7 +150,7 @@ func TestApply_WritesNFDFeatureFile(t *testing.T) {
 
 	data, err := os.ReadFile(filepath.Join(h.Etc, nfdFeatureFile))
 	require.NoError(t, err)
-	require.Equal(t, nfdContent, string(data))
+	require.Equal(t, nfdGPUVendor, string(data))
 }
 
 func TestRevoke_RemovesNFDFile(t *testing.T) {
@@ -208,4 +208,38 @@ func TestReady_SurvivesDiscard(t *testing.T) {
 	// Discard removes staged artifacts but does not withdraw published ones;
 	// Revoke runs first during teardown and clears readiness.
 	require.True(t, sim.Ready(), "Discard does not reset ready flag")
+}
+
+// The Network Operator selects nodes on the Mellanox vendor label, which NFD
+// derives from this file, so a node simulating InfiniBand has to claim the
+// vendor as well as the GPU one.
+func TestApply_AdvertisesTheMellanoxVendorWhenSimulatingIB(t *testing.T) {
+	t.Parallel()
+
+	h := testHost(t)
+	state := &agent.State{
+		NodeShape: agent.NodeShape{Network: agent.NetworkShape{IBEnabled: true, HCACount: 1}},
+	}
+
+	require.NoError(t, New().Apply(context.Background(), h, state))
+
+	features, err := os.ReadFile(filepath.Join(h.Etc, nfdFeatureFile))
+	require.NoError(t, err)
+	require.Contains(t, string(features), "pci-10de.present=true")
+	require.Contains(t, string(features), "pci-15b3.present=true")
+}
+
+// A node simulating no InfiniBand must not claim a NIC it does not render, or
+// the Network Operator schedules its plugin onto a node with nothing to find.
+func TestApply_OmitsTheMellanoxVendorWithoutIB(t *testing.T) {
+	t.Parallel()
+
+	h := testHost(t)
+
+	require.NoError(t, New().Apply(context.Background(), h, &agent.State{}))
+
+	features, err := os.ReadFile(filepath.Join(h.Etc, nfdFeatureFile))
+	require.NoError(t, err)
+	require.Contains(t, string(features), "pci-10de.present=true")
+	require.NotContains(t, string(features), "pci-15b3")
 }

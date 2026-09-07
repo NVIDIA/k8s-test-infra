@@ -235,6 +235,14 @@ func renderRootComplex(root string, rc RootComplex, ids map[string]PCI) error {
 // on a missing `vendor` file.
 const nvidiaVendorID = 0x10de
 
+// MellanoxVendorID is the PCI vendor ID for the Mellanox NICs (0x15b3). RDMA
+// consumers and the Network Operator's node selectors both filter on it.
+const MellanoxVendorID = 0x15b3
+
+// ClassInfiniband is the sysfs `class` value for an InfiniBand controller:
+// base class 0x02 (network), subclass 0x07 (InfiniBand).
+const ClassInfiniband = 0x020700
+
 // pciClass3DController is the sysfs `class` value for NVIDIA data-center GPUs:
 // base class 0x03 (display controller), subclass 0x02 (3D controller),
 // prog-if 0x00. This is how real H100/A100 boards enumerate under lspci.
@@ -269,11 +277,16 @@ func renderDeviceAttrs(root, devDir string, pci PCI) error {
 		subVendor = vendor
 	}
 
+	class := pci.Class
+	if class == 0 {
+		class = pciClass3DController
+	}
+
 	// libpci reads these with die-on-error; they must exist.
 	writes := []struct{ name, val string }{
 		{"vendor", fmt.Sprintf("0x%04x\n", vendor)},
 		{"device", fmt.Sprintf("0x%04x\n", device)},
-		{"class", fmt.Sprintf("0x%06x\n", pciClass3DController)},
+		{"class", fmt.Sprintf("0x%06x\n", class)},
 		{"revision", "0x00\n"},
 		{"irq", "0\n"},
 		// Optional but cheap; lets lspci print the subsystem line.
@@ -289,24 +302,67 @@ func renderDeviceAttrs(root, devDir string, pci PCI) error {
 		}
 	}
 
+	if err := renderDeviceKernelSurfaces(root, devDir, pci); err != nil {
+		return err
+	}
+
 	// Providing a synthetic config space silences the
 	// "pcilib: Cannot open .../config" warning and makes `lspci -x` render
 	// a coherent header.
 	return writeConfigSpace(root, filepath.Join(devDir, "config"),
-		uint16(vendor), uint16(device), uint16(subVendor), uint16(subDevice))
+		uint16(vendor), uint16(device), uint16(subVendor), uint16(subDevice), class)
+}
+
+// renderDeviceKernelSurfaces attaches what a bound driver puts under a device:
+// the driver link, and the netdev and RDMA device directories an RDMA consumer
+// walks from the device to the HCA behind it. All three are skipped when the
+// identity does not name them, which is how a plain GPU renders unchanged.
+func renderDeviceKernelSurfaces(root, devDir string, pci PCI) error {
+	if pci.Driver != "" {
+		if !safeName(pci.Driver) {
+			return fmt.Errorf("driver %q is not a path component", pci.Driver)
+		}
+
+		// Relative and pointing at the bus's driver directory, as the kernel
+		// emits it, so a consumer resolving the link lands on the same
+		// canonical path it would on real Linux.
+		target := filepath.Join("..", "..", "..", "..", "bus", "pci", "drivers", pci.Driver)
+		if err := replaceSymlink(filepath.Join(root, devDir, "driver"), target); err != nil {
+			return fmt.Errorf("symlink driver for %s: %w", devDir, err)
+		}
+	}
+
+	for _, sub := range []struct{ dir, name string }{
+		{"net", pci.Netdev},
+		{"infiniband", pci.IBDevice},
+	} {
+		if sub.name == "" {
+			continue
+		}
+
+		if !safeName(sub.name) {
+			return fmt.Errorf("%s entry %q is not a path component", sub.dir, sub.name)
+		}
+
+		if err := mkdirAll(root, filepath.Join(devDir, sub.dir, sub.name)); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // writeConfigSpace emits a minimal 256-byte PCI configuration space with the
 // identity, class, and header-type fields populated. All other bytes are
 // zero — enough for libpci to parse a Type 0 header without erroring.
-func writeConfigSpace(root, rel string, vendor, device, subVendor, subDevice uint16) error {
+func writeConfigSpace(root, rel string, vendor, device, subVendor, subDevice uint16, class uint32) error {
 	cfg := make([]byte, 256)
 	binary.LittleEndian.PutUint16(cfg[0x00:], vendor)
 	binary.LittleEndian.PutUint16(cfg[0x02:], device)
 	// Class code at 0x09-0x0b: prog-if, subclass, base class.
-	cfg[0x09] = byte(pciClass3DController & 0xff)
-	cfg[0x0a] = byte((pciClass3DController >> 8) & 0xff)
-	cfg[0x0b] = byte((pciClass3DController >> 16) & 0xff)
+	cfg[0x09] = byte(class & 0xff)
+	cfg[0x0a] = byte((class >> 8) & 0xff)
+	cfg[0x0b] = byte((class >> 16) & 0xff)
 	// Header type 0x00 (normal device, single function).
 	cfg[0x0e] = 0x00
 	binary.LittleEndian.PutUint16(cfg[0x2c:], subVendor)

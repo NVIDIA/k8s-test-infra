@@ -393,3 +393,74 @@ func TestRender_RejectsANameThatEscapesOutput(t *testing.T) {
 		})
 	}
 }
+
+// The RDMA device plugin discovers an HCA by walking the PCI device it hangs
+// off: it filters on vendor, reads the driver link, and reads the infiniband
+// and net directories to associate the HCA with an interface. Each of those is
+// a separate shape requirement, so they are pinned together.
+func TestRender_MellanoxNICSatisfiesPluginDiscovery(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	const bdf = "0000:c0:00.0"
+
+	require.NoError(t, Render(Options{
+		Output:   dir,
+		Topology: &PCIeTopology{RootComplexes: []RootComplex{{ID: "pci0000:c0", Devices: []string{bdf}}}},
+		Identities: map[string]PCI{
+			bdf: {
+				BusID:    bdf,
+				DeviceID: 0x1021<<16 | MellanoxVendorID,
+				Class:    ClassInfiniband,
+				Driver:   "mlx5_core",
+				Netdev:   "mockib0",
+				IBDevice: "mlx5_0",
+			},
+		},
+	}))
+
+	devDir := filepath.Join(dir, PCIDevicesRelPath, bdf)
+
+	// Selectors filter on the vendor before looking at anything else.
+	vendor, err := os.ReadFile(filepath.Join(devDir, "vendor"))
+	require.NoError(t, err)
+	require.Equal(t, "0x15b3\n", string(vendor))
+
+	// GetPCIDevDriver resolves this with readlink; a directory yields no driver
+	// and the device is skipped.
+	link, err := os.Readlink(filepath.Join(devDir, "driver"))
+	require.NoError(t, err)
+	require.Equal(t, "mlx5_core", filepath.Base(link))
+
+	// Here the entries must be directories — the opposite of the rule on
+	// /sys/class/infiniband, where a directory means "not a device".
+	for _, sub := range []struct{ dir, want string }{
+		{"infiniband", "mlx5_0"},
+		{"net", "mockib0"},
+	} {
+		entries, err := os.ReadDir(filepath.Join(devDir, sub.dir))
+		require.NoError(t, err)
+		require.Len(t, entries, 1)
+		require.True(t, entries[0].IsDir(), "%s entries must be directories", sub.dir)
+		require.Equal(t, sub.want, entries[0].Name())
+	}
+}
+
+// A device with no identity keeps rendering as a GPU, which is what every
+// existing profile declares.
+func TestRender_DefaultsToTheGPUClass(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	const bdf = "0000:0a:00.0"
+
+	require.NoError(t, Render(Options{
+		Output:   dir,
+		Topology: &PCIeTopology{RootComplexes: []RootComplex{{ID: "pci0000:0a", Devices: []string{bdf}}}},
+	}))
+
+	class, err := os.ReadFile(filepath.Join(dir, PCIDevicesRelPath, bdf, "class"))
+	require.NoError(t, err)
+	require.Equal(t, "0x030200\n", string(class))
+	require.NoFileExists(t, filepath.Join(dir, PCIDevicesRelPath, bdf, "driver"))
+}

@@ -26,7 +26,13 @@ import (
 const (
 	name           = "pcibus"
 	nfdFeatureFile = "kubernetes/node-feature-discovery/features.d/nvml-mock.features"
-	nfdContent     = "pci-10de.present=true\n"
+	// nfdGPUVendor is claimed on every node the agent runs on: the mock GPUs
+	// are rendered regardless of what else the profile declares.
+	nfdGPUVendor = "pci-10de.present=true\n"
+	// nfdMellanoxVendor is claimed only where the NICs are rendered. The
+	// Network Operator selects nodes on it, so claiming it without them puts
+	// its plugins on a node with nothing to find.
+	nfdMellanoxVendor = "pci-15b3.present=true\n"
 )
 
 var (
@@ -88,11 +94,17 @@ func (s *Simulator) Discard(_ context.Context, h *host.Host) error {
 }
 
 // Apply writes the NFD local-source feature file so NFD can derive
-// feature.node.kubernetes.io/pci-10de.present=true from it.
-func (s *Simulator) Apply(_ context.Context, h *host.Host, _ *agent.State) error {
+// feature.node.kubernetes.io/pci-<vendor>.present=true from it, which is how
+// the GPU and Network Operators find the node at all.
+func (s *Simulator) Apply(_ context.Context, h *host.Host, state *agent.State) error {
 	s.ready.Store(false)
 
-	if err := fsutil.Write(filepath.Join(h.Etc, nfdFeatureFile), []byte(nfdContent), 0o644); err != nil {
+	content := nfdGPUVendor
+	if len(nicsFor(state)) > 0 {
+		content += nfdMellanoxVendor
+	}
+
+	if err := fsutil.Write(filepath.Join(h.Etc, nfdFeatureFile), []byte(content), 0o644); err != nil {
 		return err
 	}
 
