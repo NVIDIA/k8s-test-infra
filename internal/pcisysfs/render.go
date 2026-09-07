@@ -305,6 +305,11 @@ func renderDeviceAttrs(root, devDir string, pci PCI) error {
 		// The kernel emits one "start end flags" line per resource;
 		// all-zero means "no BAR", which is truthful for a mock.
 		{"resource", pciResource},
+		// ghw builds its whole device list from modalias and silently drops
+		// any device whose modalias is missing or shorter than the kernel's
+		// encoding, so this is what makes the tree visible to Go consumers
+		// such as the RDMA shared device plugin.
+		{"modalias", modalias(vendor, device, subVendor, subDevice, class)},
 	}
 	for _, w := range writes {
 		if err := writeFile(root, filepath.Join(devDir, w.name), w.val); err != nil {
@@ -365,6 +370,14 @@ func renderDeviceKernelSurfaces(root, devDir string, pci PCI) error {
 // writeConfigSpace emits a minimal 256-byte PCI configuration space with the
 // identity, class, and header-type fields populated. All other bytes are
 // zero — enough for libpci to parse a Type 0 header without erroring.
+// modalias reproduces the kernel's PCI modalias encoding, whose field widths
+// are fixed: parsers slice it at byte offsets instead of tokenising it.
+func modalias(vendor, device, subVendor, subDevice, class uint32) string {
+	return fmt.Sprintf("pci:v%08Xd%08Xsv%08Xsd%08Xbc%02Xsc%02Xi%02X\n",
+		vendor, device, subVendor, subDevice,
+		(class>>16)&0xff, (class>>8)&0xff, class&0xff)
+}
+
 func writeConfigSpace(root, rel string, vendor, device, subVendor, subDevice uint16, class uint32) error {
 	cfg := make([]byte, 256)
 	binary.LittleEndian.PutUint16(cfg[0x00:], vendor)

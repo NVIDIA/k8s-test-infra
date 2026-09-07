@@ -121,6 +121,9 @@ func TestRender_PCIAttributeFiles(t *testing.T) {
 	mustRead("class", "0x030200\n")
 	mustRead("revision", "0x00\n")
 	mustRead("irq", "0\n")
+	// ghw parses this at fixed offsets and drops any device it cannot decode,
+	// so the encoding has to be exact rather than merely consistent.
+	mustRead("modalias", "pci:v000010DEd00002330sv000010DEsd00001658bc03sc02i00\n")
 
 	// `resource` must match the kernel's 7-row "start end flags" layout so
 	// `lspci -v` parses it without erroring.
@@ -457,6 +460,12 @@ func TestRender_MellanoxNICSatisfiesPluginDiscovery(t *testing.T) {
 	vendor, err := os.ReadFile(filepath.Join(devDir, "vendor"))
 	require.NoError(t, err)
 	require.Equal(t, "0x15b3\n", string(vendor))
+
+	// The plugin enumerates through ghw, which builds its device list from
+	// modalias alone: a device without one never reaches the vendor selector.
+	modalias, err := os.ReadFile(filepath.Join(devDir, "modalias"))
+	require.NoError(t, err)
+	require.Equal(t, "pci:v000015B3d00001021sv000015B3sd00000000bc02sc07i00\n", string(modalias))
 
 	// GetPCIDevDriver resolves this with readlink; a directory yields no driver
 	// and the device is skipped.
