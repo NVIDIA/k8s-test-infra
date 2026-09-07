@@ -1021,3 +1021,15 @@ tests:
             hostPath:
               path: /var/lib/k0s/kubelet/pod-resources
               type: Directory
+
+  # The agent creates kernel objects no rendered file can stand in for: the
+  # /dev/infiniband device nodes, and the interfaces consumers resolve every
+  # HCA through over rtnetlink.
+  - it: should grant the node-agent only the capabilities it creates kernel state with
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          value: [ALL]
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.add
+          value: [MKNOD, NET_ADMIN]

@@ -195,20 +195,36 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 // It runs after the Stage barrier because the mountpoints have to exist first.
 func (s *Simulator) Apply(_ context.Context, h *host.Host, state *agent.State) error {
 	treeClass := filepath.Join(ibRoot(h), classRel)
+	net := state.NodeShape.Network
 
 	// A tier or profile that simulates nothing rendered no mountpoints, so the
-	// inverse is what applies: detach whatever an earlier shape attached.
-	if s.opts.Mode == ModeOff || !state.NodeShape.Network.IBEnabled {
-		return unmountRealClasses(treeClass)
+	// inverse is what applies: detach whatever an earlier shape attached and
+	// take its interfaces with it.
+	if s.opts.Mode == ModeOff || !net.IBEnabled {
+		return errors.Join(
+			unmountRealClasses(treeClass),
+			removeNetdevs(net.NetdevPrefix, net.HCACount),
+		)
 	}
 
-	return mountRealClasses(h.SysPath("class"), treeClass, reproducedClasses(h))
+	return errors.Join(
+		mountRealClasses(h.SysPath("class"), treeClass, reproducedClasses(h)),
+		ensureNetdevs(net.NetdevPrefix, net.HCACount),
+	)
 }
 
-// Revoke detaches the class binds on shutdown, before Discard removes the tree
-// they are attached to.
+// Revoke detaches the class binds and removes the interfaces on shutdown,
+// before Discard removes the tree they are associated with.
 func (s *Simulator) Revoke(_ context.Context, h *host.Host) error {
-	return unmountRealClasses(filepath.Join(ibRoot(h), classRel))
+	errs := []error{unmountRealClasses(filepath.Join(ibRoot(h), classRel))}
+
+	// The links are node-wide kernel state rather than files under the agent's
+	// root, so they outlive the pod unless taken down explicitly.
+	if staged := s.lastStaged.Load(); staged != nil {
+		errs = append(errs, removeNetdevs(staged.NetdevPrefix, staged.HCACount))
+	}
+
+	return errors.Join(errs...)
 }
 
 // recordShape stores the staged shape and flags a change for Reload.
