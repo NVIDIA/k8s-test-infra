@@ -7,8 +7,9 @@ Tested component versions for the mock GPU E2E test suite.
 "Status" means exactly what CI does, not what the suite is capable of. Three of
 these components are installed as GPU Operator operands from a Helm chart that
 carries no `--version`, so their versions **float**: the value recorded here is
-what a run resolved on the stated date, not a constraint. Only Node Feature
-Discovery is pinned (`scenario_nfd_test.go:126`).
+what a run resolved on the stated date, not a constraint. The consumers a
+scenario installs itself — Node Feature Discovery (`scenario_nfd_test.go`) and
+the Network Operator (`scenario_rdma_test.go`) — are pinned.
 
 | Component | Version | Chart / Image | Status |
 |---|---|---|---|
@@ -17,6 +18,8 @@ Discovery is pinned (`scenario_nfd_test.go:126`).
 | DRA Driver (GPU) | floats — chart carries no `--version` | `nvidia/nvidia-dra-driver-gpu` (Helm) | Not pinned; runs in CI |
 | GPU Feature Discovery (standalone) | v0.8.2 | `nvcr.io/nvidia/gpu-feature-discovery:v0.8.2` | Pinned, **not run in CI** — see below |
 | Node Feature Discovery | v0.19.0 | `nfd/node-feature-discovery` (Helm) | **Pinned** + runs in CI |
+| Network Operator | 26.7.0 | `nvidia/network-operator` (Helm) | **Pinned** + runs in CI (`e2e-rdma`) |
+| RDMA Shared Device Plugin | v1.5.3 | `ghcr.io/mellanox/k8s-rdma-shared-dev-plugin:v1.5.3` | **Pinned** (NicClusterPolicy operand) + runs in CI (`e2e-rdma`) |
 | CUDA vectorAdd sample | cuda12.5.0 | `nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0` | Pinned, **not run in CI** — see below |
 | GPU Operator | floats — v26.3.3 observed 2026-07-29 | `nvidia/gpu-operator` (Helm) | Not pinned; runs in CI |
 | DCGM | 3.3.9 | `nvcr.io/nvidia/cloud-native/dcgm:3.3.9-1-ubuntu22.04` | Spike script only (`spike-dcgm.sh`) |
@@ -35,6 +38,7 @@ named — does not resolve.
 - **DRA Driver** (Helm chart): discovers mock GPUs via NVML, publishes ResourceSlices, and schedules a pod with a ResourceClaim (`e2e-dra`, 6 profiles)
 - **Node Feature Discovery** (Helm chart): derives the PCI vendor label from the feature file nvml-mock writes, not nvml-mock itself (`e2e-nfd`)
 - **GPU Operator** (Helm chart + values overlay): its own device plugin, GFD, dcgm-exporter and validator operands, at unpinned versions (`e2e-gpu-operator`, 6 profiles) — see the overlay section below
+- **Network Operator + RDMA Shared Device Plugin** (Helm chart + NicClusterPolicy): the plugin discovers the mock HCAs through the InfiniBand and Mellanox PCI sysfs trees and registers `rdma/ib` node capacity (`e2e-rdma`). `ofedDriver` stays off — it builds real kernel modules. The leg loads `ib_core` on the runner first: the plugin queries the kernel's RDMA netlink family at startup and exits if nothing answers, which is the one part of an HCA a sysfs mock cannot supply.
 
 ### Written but NOT run in CI
 

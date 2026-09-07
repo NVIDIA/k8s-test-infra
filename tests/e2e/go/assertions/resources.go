@@ -132,6 +132,43 @@ func NodeLabelSoft(ctx context.Context, k *kube.Client, node, key string) {
 	}
 }
 
+// WaitCapacityResource polls until a node advertises an extended resource with
+// the wanted capacity, and asserts the scheduler may hand out the same amount.
+//
+// Both halves matter for a device plugin: capacity is what it registered, and
+// allocatable is what a workload can actually request. A resource advertised
+// but not allocatable satisfies nothing.
+func WaitCapacityResource(ctx context.Context, k *kube.Client, node, name string, want int, timeout, poll time.Duration) {
+	ginkgo.GinkgoHelper()
+	ginkgo.By(fmt.Sprintf("waiting for capacity %s=%d on %s", name, want, node))
+	gomega.Eventually(func() (int, error) {
+		q, ok, err := k.CapacityResource(ctx, node, name)
+		if err != nil || !ok {
+			return 0, err
+		}
+		return q, nil
+	}).WithContext(ctx).WithTimeout(timeout).WithPolling(poll).
+		Should(gomega.Equal(want), "node %s capacity %s", node, name)
+
+	q, ok, err := k.AllocatableResource(ctx, node, name)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(ok).To(gomega.BeTrue(), "node %s advertises %s but the scheduler cannot hand it out", node, name)
+	gomega.Expect(q).To(gomega.Equal(want), "node %s allocatable %s", node, name)
+}
+
+// ResourceAbsent asserts a node carries no such extended resource. This is the
+// provenance guard for a device plugin: before the plugin exists nothing else
+// may advertise its resource, so a green run of the wait above cannot be
+// explained by something other than the plugin having registered it.
+func ResourceAbsent(ctx context.Context, k *kube.Client, node, name string) {
+	ginkgo.GinkgoHelper()
+	ginkgo.By(fmt.Sprintf("node %s advertises no %s", node, name))
+	q, ok, err := k.CapacityResource(ctx, node, name)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(ok).To(gomega.BeFalse(),
+		"node %s already advertises %s=%d — only the device plugin may register it", node, name, q)
+}
+
 // NodeLabelAbsent asserts a node label is not set at all. This is the guard
 // that proves provenance: with NFD absent, nothing in nvml-mock may create
 // feature.node.kubernetes.io/pci-10de.present. Reinstating a direct

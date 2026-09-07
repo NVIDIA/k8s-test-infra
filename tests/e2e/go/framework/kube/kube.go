@@ -33,6 +33,10 @@ import (
 // GPUResourceName is the extended resource the device plugin / operator expose.
 const GPUResourceName = "nvidia.com/gpu"
 
+// RDMAResourceName is the extended resource the RDMA shared device plugin
+// exposes, named by the resourceName in its NicClusterPolicy config.
+const RDMAResourceName = "rdma/ib"
+
 // Client runs kubectl against a specific context in the default kubeconfig.
 type Client struct {
 	Context string
@@ -93,6 +97,7 @@ type nodeObj struct {
 	Metadata objectMeta `json:"metadata"`
 	Status   struct {
 		Allocatable map[string]string `json:"allocatable"`
+		Capacity    map[string]string `json:"capacity"`
 		Conditions  []nodeCondition   `json:"conditions"`
 	} `json:"status"`
 }
@@ -240,6 +245,44 @@ func (c *Client) AllocatableGPU(ctx context.Context, node string) (int, error) {
 		return 0, fmt.Errorf("allocatable %s=%q not an integer: %w", GPUResourceName, v, err)
 	}
 	return q, nil
+}
+
+// CapacityResource returns the integer capacity of an extended resource on a
+// node, reporting separately whether the node carries it at all.
+//
+// Absence is returned rather than folded into zero, unlike AllocatableGPU. An
+// extended resource exists only once a plugin registers it, so "nothing
+// registered this" and "registered none of them" are different facts — and the
+// first is what a provenance check has to be able to see.
+func (c *Client) CapacityResource(ctx context.Context, node, name string) (int, bool, error) {
+	return c.nodeResource(ctx, node, name, func(n nodeObj) map[string]string {
+		return n.Status.Capacity
+	})
+}
+
+// AllocatableResource is CapacityResource for what the scheduler may hand out.
+// A resource can be advertised and yet unschedulable, so the two are asserted
+// separately.
+func (c *Client) AllocatableResource(ctx context.Context, node, name string) (int, bool, error) {
+	return c.nodeResource(ctx, node, name, func(n nodeObj) map[string]string {
+		return n.Status.Allocatable
+	})
+}
+
+func (c *Client) nodeResource(ctx context.Context, node, name string, from func(nodeObj) map[string]string) (int, bool, error) {
+	var n nodeObj
+	if err := c.getJSON(ctx, &n, "node", node); err != nil {
+		return 0, false, err
+	}
+	v, ok := from(n)[name]
+	if !ok {
+		return 0, false, nil
+	}
+	q, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, true, fmt.Errorf("node %s resource %s=%q not an integer: %w", node, name, v, err)
+	}
+	return q, true, nil
 }
 
 // PodPhase returns a pod's phase string.
