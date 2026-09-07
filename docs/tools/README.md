@@ -26,6 +26,8 @@ The nvml-mock image installs four of these under `/usr/local/bin`:
 `deployments/control-plane/Dockerfile`. `generate-bridge` is a build-time tool
 and is in neither image.
 
-`hack/check-docs-tools-sync.sh`, which `make lint` runs, fails when this
-directory and `cmd/` disagree: a page here with no binary behind it, or a
-binary documented nowhere.
+`hack/check-docs-tools-sync.sh`, which `make lint` runs, fails when these
+pages and `cmd/` disagree: a page with no binary behind it, or a binary
+documented nowhere. `nvml-mock-ctl` is documented one level up, so the script
+carries it in an explicit `top_level_pages` list and checks that pairing in
+both directions too.
