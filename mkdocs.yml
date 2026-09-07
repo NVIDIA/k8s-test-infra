@@ -144,14 +144,12 @@ nav:
       - Overview: guides/README.md
       - Scenarios:
           - Standalone: guides/standalone/README.md
-          - With fake-gpu-operator: guides/with-fgo/README.md
           - With GPU Operator: guides/with-gpu-operator/README.md
-          - Failure Injection: guides/failure-injection/README.md
-          - Node-Wide Injection: guides/node-wide-injection/README.md
           - Compute Domain: guides/compute-domain/README.md
           - NVSentinel: guides/nv-sentinel/README.md
-      - Integrations:
-          - fake-gpu-operator: integrations/fake-gpu-operator.md
+          - Failure Injection: guides/failure-injection/README.md
+          - Run.ai Fake GPU Operator: guides/runai-fgo/README.md
+          - Node-Wide Injection: guides/node-wide-injection/README.md
       - Tasks:
           - Use in CI/CD: guides/ci-cd.md
           - Runtime Control: nvml-mock-ctl.md

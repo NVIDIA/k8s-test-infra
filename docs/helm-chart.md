@@ -535,7 +535,7 @@ gpu-profile-l40s                  1      10s
 gpu-profile-t4                    1      10s
 ```
 
-FGO loads these by name from its own namespace, so set `integrations.fakeGpuOperator.targetNamespace` to FGO's release namespace for them to be found. That requires FGO's `builtinProfiles.enabled=false`, because their builtin set uses the same seven names. See the [integration guide](integrations/fake-gpu-operator.md).
+FGO loads these by name from its own namespace, so set `integrations.fakeGpuOperator.targetNamespace` to FGO's release namespace for them to be found. That requires FGO's `builtinProfiles.enabled=false`, because their builtin set uses the same seven names. See the [fake-gpu-operator guide](guides/runai-fgo/README.md).
 
 ### Custom Labels
 
