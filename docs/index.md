@@ -47,7 +47,7 @@ on disk.
 
 | | Path 1 | Path 2 |
 |---|---|---|
-| You need | `kind`, `helm`, `docker` | a repo clone, plus `tilt` |
+| You need | `kind`, `helm`, `docker`, `kubectl` | a repo clone, plus `make`, `docker`, `kind`, `helm`, `kubectl` and `tilt` |
 | Cluster | `kind create cluster` | `make cluster-create` |
 | Covers | the mock driver, `nvidia-smi`, the device plugin | everything, including the GPU Operator, DRA, NRI and multi-node |
 | Gated by CI | no | yes |
@@ -68,14 +68,15 @@ The chart tolerates every taint, so it schedules on the single control-plane
 node that a bare `kind create cluster` gives you. Check the result:
 
 ```bash
-kubectl rollout status daemonset/nvml-mock --timeout=60s
-kubectl exec daemonset/nvml-mock -- nvidia-smi -L
+kubectl rollout status -n mokka daemonset/nvml-mock --timeout=300s
+kubectl exec -n mokka daemonset/nvml-mock -- nvidia-smi -L
 ```
 
 ```
-GPU 0: NVIDIA A100-SXM4-40GB (UUID: GPU-12345678-1234-1234-1234-123456780000)
-GPU 1: NVIDIA A100-SXM4-40GB (UUID: GPU-12345678-1234-1234-1234-123456780001)
-...
+GPU 0: NVIDIA GB300 NVL (UUID: GPU-b300b300-0000-0000-0000-000000000000)
+GPU 1: NVIDIA GB300 NVL (UUID: GPU-b300b300-0000-0000-0000-000000000001)
+GPU 2: NVIDIA GB300 NVL (UUID: GPU-b300b300-0000-0000-0000-000000000002)
+GPU 3: NVIDIA GB300 NVL (UUID: GPU-b300b300-0000-0000-0000-000000000003)
 ```
 
 **What Path 1 gives you**
