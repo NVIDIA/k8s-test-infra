@@ -670,7 +670,7 @@ Two options, depending on intent:
 ## PCIe topology mocking
 
 Each profile carries a `pcie_topology:` block describing the host's PCI
-root-complex layout. The node agent's `pcibus` simulator reads it and writes a
+root-complex layout. The node daemon's `pcibus` simulator reads it and writes a
 fake sysfs tree at `/var/lib/nvml-mock/sys/...` matching what real Linux kernels
 expose. Topology-aware consumers (NVIDIA DRA driver, device plugins computing
 NUMA hints) resolve "which PCIe root complex a GPU lives on" via a standard
@@ -714,7 +714,7 @@ pcie_topology:
 ```
 
 Nothing validates the block, so a typo is not reported anywhere — not through
-the agent's `/healthz`. What the agent renders is the block reconciled against
+the daemon's `/healthz`. What the daemon renders is the block reconciled against
 the devices NVML reports, which silently absorbs most mistakes:
 
 - A `bus_id` that is not an address in the kernel's `DDDD:BB:DD.F` form is
@@ -746,7 +746,7 @@ Reaching the tree through `MOCK_PCI_ROOT` requires the `libpcisysfs.so`
 node's real `/sys`, where the mock GPUs do not exist. GPU Feature Discovery and
 the NVIDIA DRA driver are both Go.
 
-So the `nvidia.com/gpu` CDI spec the node agent writes bind-mounts the tree
+So the `nvidia.com/gpu` CDI spec the node daemon writes bind-mounts the tree
 read-only at the kernel paths:
 
 | Host | Container |
@@ -780,7 +780,7 @@ image writes `kind` there and re-binds it into every container after the
 container's own mounts are set up, and on hosts without DMI (Docker Desktop) it
 does not exist at all.
 
-The agent therefore writes the machine type to `driver/config/machine-type`. The
+The daemon therefore writes the machine type to `driver/config/machine-type`. The
 NRI plugin points `GFD_MACHINE_TYPE_FILE` at it, so with `nri.enabled` the label
 needs nothing from the operator's own configuration. A value authored on the
 container wins, for a cluster pinning a file of its own.
@@ -1063,12 +1063,12 @@ namespace, on the pod IP where the kubelet reaches it.
 ### Node Labels
 
 nvml-mock writes no node labels itself. It writes a feature file NFD turns into
-one label, and NFD retires that label on its next cycle once the agent deletes
+one label, and NFD retires that label on its next cycle once the daemon deletes
 the file at shutdown:
 
 | Label | Written by | Removed by |
 |-------|-----------|------------|
-| `feature.node.kubernetes.io/pci-10de.present=true` | **NFD**, from a feature file the node agent writes | NFD, once the node agent deletes the file |
+| `feature.node.kubernetes.io/pci-10de.present=true` | **NFD**, from a feature file the node daemon writes | NFD, once the node daemon deletes the file |
 
 Labels under `nvidia.com/` — `gpu.present`, `gpu.count`, `gpu.product` — belong
 to NFD and GFD exactly as on real hardware, and are absent unless those are

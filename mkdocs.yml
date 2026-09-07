@@ -95,7 +95,13 @@ markdown_extensions:
   - pymdownx.inlinehilite
   - pymdownx.keys
   - pymdownx.snippets
-  - pymdownx.superfences
+  # The custom_fences entry is what makes ```mermaid render; without it the
+  # block reaches the page as literal text.
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.tabbed:
       alternate_style: true
 
@@ -117,9 +123,14 @@ nav:
           - Installation: helm-chart.md
       - Architecture:
           - Overview: architecture.md
+          - Node Daemon: components/node-daemon.md
+          - Mock NVML Library: components/mock-nvml.md
+          - NRI Plugin: components/nri-plugin.md
+          - Shims: components/shims.md
       - Reference:
           - Configuration: configuration.md
       - Troubleshooting: troubleshooting.md
+      - FAQ: faq.md
   # The files stay under docs/tools/ on purpose: docs/components/ is being
   # taken by another change, and moving them here as well would collide.
   - Components:
