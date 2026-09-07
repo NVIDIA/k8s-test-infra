@@ -11,7 +11,7 @@ CLUSTER_NAME="nvml-mock-node-wide-demo"
 KUBE_CONTEXT="kind-${CLUSTER_NAME}"
 IMAGE_NAME="nvml-mock:node-wide-demo"
 CHART_PATH="deployments/nvml-mock/helm/nvml-mock"
-DEMO_DIR="docs/demo/node-wide-injection"
+DEMO_DIR="docs/guides/node-wide-injection"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 # gb200 by default so the ComputeDomain overlay has a fabric-attached profile
 # to rewrite per node. A non-fabric profile (t4/l40s) still demonstrates plain

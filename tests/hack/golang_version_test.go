@@ -15,7 +15,7 @@
 //
 // hack/golang-version.sh is the single source of truth for the Go toolchain
 // version: .github/workflows/variables.yaml writes its output straight into
-// $GITHUB_OUTPUT, and docs/demo/compute-domain/run.sh passes it as a Docker
+// $GITHUB_OUTPUT, and docs/guides/compute-domain/run.sh passes it as a Docker
 // --build-arg. Both consumers require exactly one whitespace-free token.
 //
 // The original implementation extracted the version with `grep -oE "[0-9\.]+"`,

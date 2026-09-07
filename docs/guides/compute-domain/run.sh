@@ -52,7 +52,7 @@ CHART_PATH="deployments/nvml-mock/helm/nvml-mock"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 : "${FORCE_RECREATE:=false}"
 KIND_CONFIG="${REPO_ROOT}/tests/e2e/kind-compute-domain-config.yaml"
-TOPOLOGY_FILE="${REPO_ROOT}/docs/demo/compute-domain/topology.yaml"
+TOPOLOGY_FILE="${REPO_ROOT}/docs/guides/compute-domain/topology.yaml"
 EXPECTED_DOMAIN_UUID="00000000-0000-0000-0000-0000000000ab"
 # Kind names worker nodes "<cluster>-worker[N]". Keep these in sync
 # with the node lists in topology.yaml and tests/e2e/kind-compute-domain-config.yaml.
@@ -318,7 +318,7 @@ docker build -t "${IMAGE_NAME}" \
 info "Building demo workload image with real nvidia-imex: ${WORKLOAD_IMAGE_NAME}"
 docker build -t "${WORKLOAD_IMAGE_NAME}" \
   --build-arg "GOLANG_VERSION=$("${REPO_ROOT}/hack/golang-version.sh")" \
-  -f "${REPO_ROOT}/docs/demo/compute-domain/Dockerfile" "${REPO_ROOT}"
+  -f "${REPO_ROOT}/docs/guides/compute-domain/Dockerfile" "${REPO_ROOT}"
 
 info "Loading images into Kind"
 kind load docker-image "${IMAGE_NAME}" "${WORKLOAD_IMAGE_NAME}" --name "${CLUSTER_NAME}"
@@ -375,7 +375,7 @@ kubectl_ctx create namespace "${WORKLOAD_NAMESPACE}" --dry-run=client -o yaml | 
 # This manifest contains both the DaemonSet and its own NetworkPolicy. The
 # chart's ibping policy selects nvml-mock daemon pods in ${MOCK_NAMESPACE}; it
 # does not govern this separate demo workload.
-kubectl_ctx -n "${WORKLOAD_NAMESPACE}" apply -f "${REPO_ROOT}/docs/demo/compute-domain/demo-workload.yaml" >/dev/null
+kubectl_ctx -n "${WORKLOAD_NAMESPACE}" apply -f "${REPO_ROOT}/docs/guides/compute-domain/demo-workload.yaml" >/dev/null
 kubectl_ctx -n "${WORKLOAD_NAMESPACE}" rollout restart "daemonset/${WORKLOAD_NAME}" >/dev/null
 kubectl_ctx -n "${WORKLOAD_NAMESPACE}" rollout status "daemonset/${WORKLOAD_NAME}" --timeout=180s >/dev/null
 

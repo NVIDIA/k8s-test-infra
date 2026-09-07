@@ -77,7 +77,7 @@ nodeLabels:
 # node-local plugin appends the nvml-mock overlay mount and environment to each
 # container at runtime without mutating pod specs. Opt-in (default false): it
 # injects into workloads cluster-wide, so enable it only for the
-# node-wide-injection demo/use case. See docs/demo/node-wide-injection.
+# node-wide-injection demo/use case. See docs/guides/node-wide-injection.
 
 nodeAgent:
   logging:

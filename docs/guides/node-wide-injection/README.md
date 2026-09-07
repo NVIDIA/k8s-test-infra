@@ -17,14 +17,12 @@ delivered ambiently through NRI instead of the nvml-mock DaemonSet pod.
 > on every node, which cannot be assumed on an existing cluster, so it ignores
 > your current `KUBECONFIG` context and will not touch it.
 
-- **Docker**, with the daemon running.
-- **Kind**, to provision the demo's dedicated cluster.
-- **Helm 3.6 or newer.** The demo installs the chart from this checkout, not
-  from a registry, so 3.6 is the floor: the chart's `_helpers.tpl` uses a
-  multi-line `dict` that only the Go 1.16 template parser in Helm 3.6 accepts.
-  On 3.5 and older, rendering fails with `unclosed action`. Install it from the
-  official docs: <https://helm.sh/docs/intro/install/>
-- `kubectl`.
+- [Docker](https://docs.docker.com/get-started/get-docker/), with the daemon running.
+- [Kind](https://kind.sigs.k8s.io/), to provision the demo's dedicated cluster.
+- A clone of this repository: the chart is installed from the checkout.
+- [Helm 3.8 or newer](https://helm.sh/docs/intro/install/) — the floor the
+  demo's preflight enforces.
+- [kubectl](https://kubernetes.io/docs/reference/kubectl/).
 
 New to Mokka? The [quick start](../../quickstart.md) is the fastest way to see
 simulated GPUs before running this demo.
@@ -42,6 +40,8 @@ simulated GPUs before running this demo.
 4. Inside the workload, the mock NVML engine's `applyTopologyOverlay()` looks
    up `NODE_NAME` and rewrites every GPU's `clusterUuid` / `cliqueId`, so
    `nvidia-smi -q` and `check-fabric` report the node's ComputeDomain identity.
+
+Takes about 10 minutes on a warm image cache.
 
 ## What It Does
 

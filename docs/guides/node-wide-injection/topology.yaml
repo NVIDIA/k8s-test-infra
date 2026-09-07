@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Helm values fragment for the node-wide-injection ComputeDomain overlay
-# (docs/demo/node-wide-injection/run.sh). Passed to `helm upgrade --install`
+# (docs/guides/node-wide-injection/run.sh). Passed to `helm upgrade --install`
 # via `-f <this file>` so the chart merges it on top of its defaults.
 #
 # `--set-file` is NOT used here: that flag stuffs the raw file bytes into the

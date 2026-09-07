@@ -153,4 +153,4 @@ cannot trigger a restart, but a genuinely stuck plugin gets replaced.
 | How the whole system fits together | [Architecture](../architecture.md) |
 | What stages the tree this plugin mounts | [Node Daemon](node-daemon.md) |
 | Enabling NRI and its chart values | [Installation](../helm-chart.md) |
-| A runnable walkthrough | [Node-Wide Injection](../demo/node-wide-injection/README.md) |
+| A runnable walkthrough | [Node-Wide Injection](../guides/node-wide-injection/README.md) |

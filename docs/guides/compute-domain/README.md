@@ -44,8 +44,8 @@ The demo expects the following tools on `$PATH`:
 | `bash`    | 3.2+           | `run.sh` uses `set -euo pipefail` — no bash 4+ features. |
 | `jq`      | any recent     | Scenario 2 parses `nvidia-imex-ctl -N -j` JSON. |
 
-Install Helm at the version the table above lists, from the official docs:
-<https://helm.sh/docs/intro/install/>
+Install [Helm](https://helm.sh/docs/intro/install/) at the version the table
+above pins.
 
 New to Mokka? The [quick start](../../quickstart.md) is the fastest way to see
 simulated GPUs before running this demo.
@@ -119,14 +119,14 @@ simulated GPUs before running this demo.
 ## Quick start
 
 ```bash
-./docs/demo/compute-domain/run.sh
+./docs/guides/compute-domain/run.sh
 ```
 
 To explicitly replace an existing cluster, including a legacy cluster that
 predates the demo's NRI configuration:
 
 ```bash
-FORCE_RECREATE=true ./docs/demo/compute-domain/run.sh
+FORCE_RECREATE=true ./docs/guides/compute-domain/run.sh
 ```
 
 `FORCE_RECREATE=true` deletes the entire `nvml-mock-compute-domain` Kind
@@ -170,7 +170,7 @@ kind create cluster --name nvml-mock-compute-domain \
 docker build -t nvml-mock:compute-domain -f deployments/nvml-mock/Dockerfile .
 docker build -t nvml-mock:compute-domain-workload \
     --build-arg GOLANG_VERSION=$(hack/golang-version.sh) \
-    -f docs/demo/compute-domain/Dockerfile .
+    -f docs/guides/compute-domain/Dockerfile .
 
 # 3. Load both images into the Kind cluster.
 kind load docker-image nvml-mock:compute-domain nvml-mock:compute-domain-workload \
@@ -220,7 +220,7 @@ printf 'Using IMEX device majors: channels=%s, caps=%s\n' \
 helm upgrade --install nvml-mock deployments/nvml-mock/helm/nvml-mock \
     --kube-context kind-nvml-mock-compute-domain \
     --namespace mokka --create-namespace \
-    -f docs/demo/compute-domain/topology.yaml \
+    -f docs/guides/compute-domain/topology.yaml \
     --set image.repository=nvml-mock \
     --set image.tag=compute-domain \
     --set gpu.profile=gb200 \
@@ -250,7 +250,7 @@ kubectl --context kind-nvml-mock-compute-domain \
     create namespace compute-domain-workload --dry-run=client -o yaml | \
   kubectl --context kind-nvml-mock-compute-domain apply -f -
 kubectl --context kind-nvml-mock-compute-domain -n compute-domain-workload \
-    apply -f docs/demo/compute-domain/demo-workload.yaml
+    apply -f docs/guides/compute-domain/demo-workload.yaml
 kubectl --context kind-nvml-mock-compute-domain -n compute-domain-workload \
     rollout restart daemonset/compute-domain-demo-workload
 kubectl --context kind-nvml-mock-compute-domain -n compute-domain-workload \

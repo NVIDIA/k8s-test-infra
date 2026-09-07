@@ -127,13 +127,13 @@ if [[ "${BUILD_LOCAL}" == "true" ]]; then
       info "Kind cluster '${CLUSTER_NAME}' exists; FORCE_RECREATE=true -> deleting it"
       kind delete cluster --name "${CLUSTER_NAME}"
       info "Creating Kind cluster: ${CLUSTER_NAME}"
-      kind create cluster --name "${CLUSTER_NAME}" --config="$REPO_ROOT/docs/demo/kind.yaml"
+      kind create cluster --name "${CLUSTER_NAME}" --config="$REPO_ROOT/docs/guides/kind.yaml"
     else
       info "Reusing existing Kind cluster '${CLUSTER_NAME}' (set FORCE_RECREATE=true to recreate)"
     fi
   else
     info "Creating Kind cluster: ${CLUSTER_NAME}"
-    kind create cluster --name "${CLUSTER_NAME}" --config="$REPO_ROOT/docs/demo/kind.yaml"
+    kind create cluster --name "${CLUSTER_NAME}" --config="$REPO_ROOT/docs/guides/kind.yaml"
   fi
   command kubectl config use-context "kind-${CLUSTER_NAME}"
 fi

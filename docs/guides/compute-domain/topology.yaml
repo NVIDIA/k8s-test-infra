@@ -1,5 +1,5 @@
 # Helm values fragment for the ComputeDomain demo
-# (docs/demo/compute-domain/run.sh). Passed to `helm upgrade --install`
+# (docs/guides/compute-domain/run.sh). Passed to `helm upgrade --install`
 # via `-f <this file>` so the chart merges it on top of its defaults.
 #
 # `--set-file` is NOT used here: that flag stuffs the raw file bytes

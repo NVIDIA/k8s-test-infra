@@ -38,7 +38,7 @@ CLUSTER_NAME="${CLUSTER_NAME:-nvml-mock-nvsentinel}"
 KUBE_CONTEXT="kind-${CLUSTER_NAME}"
 IMAGE_NAME="${IMAGE_NAME:-nvml-mock:nvsentinel-demo}"
 CHART_PATH="deployments/nvml-mock/helm/nvml-mock"
-DEMO_DIR="docs/demo/nv-sentinel"
+DEMO_DIR="docs/guides/nv-sentinel"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 
 : "${GPU_PROFILE:=h100}"

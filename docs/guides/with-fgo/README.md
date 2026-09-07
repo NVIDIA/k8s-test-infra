@@ -7,13 +7,11 @@ shim.
 
 ## Prerequisites
 
-- **A Kubernetes cluster and a valid `KUBECONFIG`.** This demo installs into
-  whatever cluster your current context points at. Check yours with
-  `kubectl config current-context`.
-- **Helm 3.8 or newer.** The chart is served from an OCI registry, which
-  needs 3.8+. Install it from the official docs:
-  <https://helm.sh/docs/intro/install/>
-- `kubectl`, matching your cluster version.
+- [Docker](https://docs.docker.com/get-started/get-docker/) and [Kind](https://kind.sigs.k8s.io/) — this demo creates its
+  own cluster (`nvml-mock-fgo-demo`) and never touches your current context.
+- [Helm 3.8 or newer](https://helm.sh/docs/intro/install/) — the chart is served from an OCI registry.
+- [kubectl](https://kubernetes.io/docs/reference/kubectl/)
+- A clone of this repository: the demo builds the image from source.
 - The fake-gpu-operator Helm chart (see
   [Run:ai fake-gpu-operator docs](https://github.com/run-ai/fake-gpu-operator)).
 - **Nodes labelled for both pools.** This demo splits work across two node
@@ -55,7 +53,7 @@ Skip this if your `KUBECONFIG` already points at a cluster whose nodes carry
 the two pool labels listed above.
 
 ```bash
-kind create cluster --name nvml-mock-fgo-demo --config=docs/demo/kind.yaml
+kind create cluster --name nvml-mock-fgo-demo --config=docs/guides/kind.yaml
 ```
 
 ## Step 2 (Optional) -- Build and load the nvml-mock image

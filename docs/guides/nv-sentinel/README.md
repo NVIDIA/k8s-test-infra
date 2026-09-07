@@ -58,14 +58,12 @@ workload reschedules onto the second, healthy worker.
 > specific node labels, so it provisions its own cluster rather than using your
 > current `KUBECONFIG` context, and it will not touch it.
 
-- **Docker**, with the daemon running.
-- **Kind**, to provision the demo's dedicated cluster.
-- **Helm 3.8 or newer.** This demo installs NVSentinel from
-  `oci://ghcr.io/nvidia/nvsentinel`, and OCI registry support is what needs
-  3.8; the nvml-mock chart itself comes from this checkout and would render on
-  3.6. Install it from the official docs:
-  <https://helm.sh/docs/intro/install/>
-- `kubectl`.
+- [Docker](https://docs.docker.com/get-started/get-docker/), with the daemon running.
+- [Kind](https://kind.sigs.k8s.io/), to provision the demo's dedicated cluster.
+- [Helm 3.8 or newer](https://helm.sh/docs/intro/install/) — this demo installs
+  NVSentinel from `oci://ghcr.io/nvidia/nvsentinel`, and OCI registry support is
+  what needs 3.8.
+- [kubectl](https://kubernetes.io/docs/reference/kubectl/).
 - `jq` (optional, only used to pretty-print node conditions).
 - Network access to `ghcr.io` (NVSentinel chart), `helm.ngc.nvidia.com`
   (GPU Operator), `docker.io` (Percona images), and `nvidia.github.io`
@@ -77,10 +75,13 @@ workload reschedules onto the second, healthy worker.
 New to Mokka? The [quick start](../../quickstart.md) is the fastest way to see
 simulated GPUs before running this demo.
 
+Takes about 30 minutes, and appreciably longer on a cold image cache —
+the GPU Operator, cert-manager and NVSentinel are all pulled.
+
 ## Run it
 
 ```bash
-cd docs/demo/nv-sentinel
+cd docs/guides/nv-sentinel
 ./run.sh
 ```
 

@@ -11,12 +11,12 @@ the node labels that downstream consumers expect.
 - **A Kubernetes cluster and a valid `KUBECONFIG`.** This demo installs into
   whatever cluster your current context points at. Check yours with
   `kubectl config current-context`.
-- **Helm 3.6 or newer.** The demo installs the chart from this checkout, not
-  from a registry, so 3.6 is the floor: the chart's `_helpers.tpl` uses a
-  multi-line `dict` that only the Go 1.16 template parser in Helm 3.6 accepts.
-  On 3.5 and older, rendering fails with `unclosed action`. Install it from the
-  official docs: <https://helm.sh/docs/intro/install/>
-- `kubectl`, matching your cluster version.
+- **A clone of this repository.** The chart is installed from the checkout, not
+  from a registry.
+- [Helm 3.8 or newer](https://helm.sh/docs/intro/install/) — the floor the
+  demo's preflight enforces.
+- [kubectl](https://kubernetes.io/docs/reference/kubectl/), matching your
+  cluster version.
 
 > **No cluster yet?** The [quick start](../../quickstart.md) creates a
 > throwaway one with Kind in about a minute, then come back here.
@@ -36,7 +36,8 @@ the node labels that downstream consumers expect.
 > failure-injected one. Each demo's own pods mount their own ConfigMap and so
 > look fine throughout.
 
-Docker and Kind are needed only for `BUILD_LOCAL=true`, which builds the image
+[Docker](https://docs.docker.com/get-started/get-docker/) and
+[Kind](https://kind.sigs.k8s.io/) are needed only for `BUILD_LOCAL=true`, which builds the image
 from source and side-loads it into a Kind cluster named `nvml-mock-demo`,
 creating that cluster if it is missing. The default path pulls the published
 image and never creates or deletes a cluster.

@@ -7,8 +7,8 @@ cluster.
 
 The suite is written in Go with [Ginkgo](https://onsi.github.io/ginkgo/) and
 lives under [`go/`](go/). It began as the Go port of the
-[standalone demo](../../docs/demo/standalone/demo.sh) and the
-[failure-injection demo](../../docs/demo/failure-injection/run.sh), and has since
+[standalone demo](../../docs/guides/standalone/demo.sh) and the
+[failure-injection demo](../../docs/guides/failure-injection/run.sh), and has since
 grown to cover DRA, the GPU Operator, multi-node fleets, node-wide NRI
 injection, and NFD label provenance.
 
@@ -143,7 +143,7 @@ tests that must not be scoped by `E2E_PROFILES`.
 
 ### Node-wide NRI injection
 
-The Go port of the [node-wide injection demo](../../docs/demo/node-wide-injection).
+The Go port of the [node-wide injection demo](../../docs/guides/node-wide-injection).
 It installs the profile with `nri.enabled=true` and, for fabric-attached
 profiles, a generated two-clique ComputeDomain overlay derived from the
 discovered worker names. It then applies a plain

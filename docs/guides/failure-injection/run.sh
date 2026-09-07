@@ -95,7 +95,7 @@ EXPECTED_GPUS=0
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 # Reuse the shared Kind config used by the standalone demo so all
 # nvml-mock demos share the same cluster topology.
-KIND_CONFIG="${REPO_ROOT}/docs/demo/kind.yaml"
+KIND_CONFIG="${REPO_ROOT}/docs/guides/kind.yaml"
 
 ###############################################################################
 # Helpers

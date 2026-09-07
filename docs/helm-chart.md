@@ -38,7 +38,7 @@ Unannotated pods without GPU requests will still report GPUs if `nvidia-smi` is 
 Test suites that rely on non-GPU pods seeing zero GPUs should either keep NRI disabled (`nri.enabled=false`)
 or run within an excluded namespace (`nri.excludedNamespaces`). Because it injects cluster-wide, it is off by
 default. Kind clusters must have containerd NRI enabled; see
-[`docs/demo/node-wide-injection`](demo/node-wide-injection/README.md).
+[`docs/guides/node-wide-injection`](guides/node-wide-injection/README.md).
 
 **Install it into its own namespace, and pass `-n`:**
 

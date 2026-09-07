@@ -66,7 +66,7 @@ here.
     Task-oriented walkthroughs: the device plugin, DRA, the GPU Operator,
     failure injection, node-wide injection.
 
-    [Guides](demo/README.md)
+    [Guides](guides/README.md)
 
 -   **Change Mokka**
 

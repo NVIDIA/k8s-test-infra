@@ -60,4 +60,4 @@ surface reports it consistently: `nvidia-smi`, DCGM and the device plugin agree,
 as they would on real hardware. ECC errors, a lost GPU and a fallen-off-the-bus
 GPU are all injectable.
 
-See the [failure injection guide](demo/failure-injection/README.md).
+See the [failure injection guide](guides/failure-injection/README.md).

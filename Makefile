@@ -284,7 +284,7 @@ image-load:
 	@echo "Loaded $(IMAGE) from $(TARBALL)"
 
 # ---------------------------------------------------------------------------
-# Go end-to-end suite (tests/e2e) — the Go port of docs/demo/standalone/demo.sh.
+# Go end-to-end suite (tests/e2e) — the Go port of docs/guides/standalone/demo.sh.
 # One entrypoint for local + CI. Tilt owns the cluster and the image. The suite
 # attaches to them and asserts. Only the scenarios that need a different shape
 # reshape the mock, and they use `helm upgrade --install`. A SINGLE shared

@@ -141,15 +141,15 @@ nav:
       - Build tools:
           - generate-bridge: tools/generate-bridge.md
   - Guides:
-      - Overview: demo/README.md
+      - Overview: guides/README.md
       - Scenarios:
-          - Standalone: demo/standalone/README.md
-          - With fake-gpu-operator: demo/with-fgo/README.md
-          - With GPU Operator: demo/with-gpu-operator/README.md
-          - Failure Injection: demo/failure-injection/README.md
-          - Node-Wide Injection: demo/node-wide-injection/README.md
-          - Compute Domain: demo/compute-domain/README.md
-          - NVSentinel: demo/nv-sentinel/README.md
+          - Standalone: guides/standalone/README.md
+          - With fake-gpu-operator: guides/with-fgo/README.md
+          - With GPU Operator: guides/with-gpu-operator/README.md
+          - Failure Injection: guides/failure-injection/README.md
+          - Node-Wide Injection: guides/node-wide-injection/README.md
+          - Compute Domain: guides/compute-domain/README.md
+          - NVSentinel: guides/nv-sentinel/README.md
       - Integrations:
           - fake-gpu-operator: integrations/fake-gpu-operator.md
       - Tasks:

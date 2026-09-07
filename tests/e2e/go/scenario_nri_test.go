@@ -77,7 +77,7 @@ const (
 	nriDeviceAnnotation = "nvml-mock.nvidia.com/devices"
 )
 
-// Go port of docs/demo/node-wide-injection/run.sh. A dedicated Kind cluster
+// Go port of docs/guides/node-wide-injection/run.sh. A dedicated Kind cluster
 // with containerd NRI enabled is created once; the nvml-mock chart is installed
 // per selected GPU profile with `nri.enabled=true` (plus a per-node
 // ComputeDomain overlay for fabric-attached profiles). The scenario then proves
