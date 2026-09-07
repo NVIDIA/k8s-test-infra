@@ -51,12 +51,23 @@ library silently stops exporting the new symbols until the generator is re-run.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-input` | `vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.go` | NVML Go wrapper file |
-| `-header` | `vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h` | NVML C header file for prototype extraction |
+| `-input` | none, required by generate and `-stats` | NVML Go wrapper file |
+| `-header` | none, required by generate and `-validate` | NVML C header file for prototype extraction |
 | `-bridge` | `pkg/gpu/mocknvml/bridge` | bridge directory to scan for existing implementations |
 | `-output` | `pkg/gpu/mocknvml/bridge/stubs_generated.go` | output file for generated stubs, written with mode 0644 |
 | `-stats` | `false` | print coverage statistics and exit |
 | `-validate` | `false` | validate hand-written export parameter counts against `nvml.h` prototypes |
+
+`-input` and `-header` have no defaults and no fallback. A required path that
+is unset, or set to something unreadable, is a `log.Fatalf` before any work
+happens, and the message points at `make gen`. Which of the two is required
+depends on the mode:
+
+| Mode | Requires |
+|------|----------|
+| generate (neither read-only flag) | both `-input` and `-header` |
+| `-stats` | `-input` only |
+| `-validate` | `-header` only |
 
 There is no check or diff mode: `-output` is written unconditionally, and drift
 detection is done externally by `make gen-check`.
@@ -69,22 +80,31 @@ detection is done externally by `make gen-check`.
 make gen
 ```
 
-The equivalent explicit invocation from the repo root:
+The equivalent explicit invocation from the repo root. go-nvml is resolved
+through the module cache, the same way `make gen` does it, because this repo
+builds through the Go proxy and `make lint` fails if a `vendor/` directory
+reappears:
 
 ```bash
+GO_NVML_DIR=$(go list -m -f '{{.Dir}}' github.com/NVIDIA/go-nvml)
+
 go run ./cmd/generate-bridge \
-    -input vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.go \
-    -header vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h \
+    -input "$GO_NVML_DIR/pkg/nvml/nvml.go" \
+    -header "$GO_NVML_DIR/pkg/nvml/nvml.h" \
     -bridge pkg/gpu/mocknvml/bridge \
     -output pkg/gpu/mocknvml/bridge/stubs_generated.go
 ```
 
-The read-only modes:
+The read-only modes, each with the one path it needs:
 
 ```bash
-go run ./cmd/generate-bridge -stats      # coverage table
-go run ./cmd/generate-bridge -validate   # exit 1 on signature drift
+go run ./cmd/generate-bridge -stats -input "$GO_NVML_DIR/pkg/nvml/nvml.go"
+go run ./cmd/generate-bridge -validate -header "$GO_NVML_DIR/pkg/nvml/nvml.h"
 ```
+
+`-stats` prints the coverage table and exits 0. `-validate` exits 1 on
+signature drift and 0 otherwise. Run either without its path and it exits 1
+before doing anything, printing `-input is required` or `-header is required`.
 
 ## See also
 

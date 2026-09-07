@@ -2,9 +2,12 @@
 
 Entry point for the Mokka Control Plane described in MEP-0001. The current
 slice serves two HTTP endpoints, `GET /healthz` and `GET /readyz`. Both return
-`200` with `Content-Type: text/plain; charset=utf-8` and the body `ok`
-followed by a newline. sGPU inventory, node-agent heartbeats and runtime-policy
-fan-out land on the same binary in follow-up work.
+`200` with `Content-Type: application/json` and the probe encoded as JSON,
+which on this slice is the literal `{"ok":true}` plus a trailing newline. The
+encoding is shared with every Mokka binary: `reason` and `components` are
+`omitempty`, so they appear only on a probe with something to report. sGPU
+inventory, node-agent heartbeats and runtime-policy fan-out land on the same
+binary in follow-up work.
 
 ## Who runs it
 
@@ -44,20 +47,23 @@ Run it against the source tree and hit both probes:
 ```bash
 go run ./cmd/control-plane --listen-addr :9090 --log-level debug
 
-curl -s localhost:9090/healthz   # ok
-curl -s localhost:9090/readyz    # ok
+curl -s localhost:9090/healthz   # {"ok":true}
+curl -s localhost:9090/readyz    # {"ok":true}
 ```
 
 The chart renders this command line, taking the port from
-`controlPlane.service.port`, the level from `controlPlane.logging.level` and
-the format from `controlPlane.logging.format`:
+`controlPlane.service.port`, the level from `controlPlane.logging.level`, the
+format from `controlPlane.logging.format` and the drain from
+`controlPlane.shutdownTimeout`:
 
 ```text
-/usr/local/bin/control-plane --listen-addr=:8080 --log-level=info --log-format=json
+/usr/local/bin/control-plane --listen-addr=:8080 --log-level=info --log-format=json --shutdown-timeout=5s
 ```
 
-`--shutdown-timeout` is not templated, so deployed pods drain with the 5s
-default. `controlPlane.terminationGracePeriodSeconds` (30s by default) has to
+Every flag is templated, so nothing here falls back to a compiled-in default.
+`controlPlane.shutdownTimeout` is 5s out of the box, which is the same value
+the binary would have used anyway; changing it in values changes what the pod
+runs with. `controlPlane.terminationGracePeriodSeconds` (30s by default) has to
 cover the 10s preStop sleep plus that drain; the kubelet sends SIGKILL at the
 grace boundary regardless.
 

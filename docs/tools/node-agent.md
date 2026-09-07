@@ -108,8 +108,12 @@ The chart renders this command line into the nvml-mock DaemonSet, dropping
   --health-addr=:9091 \
   --log-level=info \
   --log-format=json \
-  --shutdown-timeout=30s
+  --shutdown-timeout=5s
 ```
+
+The rendered `--shutdown-timeout` is `nodeAgent.shutdownTimeout`, 5s by
+default, not the 30s the binary compiles in: a default chart install gives
+teardown 5s. The 30s in the table above is what a bare `node-agent start` uses.
 
 The InfiniBand and fabricmanager flags are not templated. The chart drives
 those simulators through their environment variables instead (`MOCK_IB`,
