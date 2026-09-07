@@ -193,9 +193,9 @@ else
 fi
 
 ###############################################################################
-# Step 9 -- Verify: PCI sysfs mock (render-pci-sysfs)
+# Step 9 -- Verify: PCI sysfs mock (pcibus simulator)
 #
-# The init container materialized a fake /sys/bus/pci tree at
+# The node agent's pcibus simulator rendered a fake /sys/bus/pci tree at
 # /var/lib/nvml-mock/sys/... from the profile's `pcie_topology:` block.
 # Topology-aware consumers (NVIDIA DRA driver `dra.k8s.io/pcieRoot`,
 # device-plugin NUMA hints) resolve PCIe root complex via readlink() on
