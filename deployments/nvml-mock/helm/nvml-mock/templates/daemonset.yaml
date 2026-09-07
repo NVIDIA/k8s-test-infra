@@ -153,10 +153,16 @@ spec:
             capabilities:
               drop: [ALL]
               # MKNOD creates the /dev/infiniband device nodes. NET_ADMIN
-              # creates the interfaces the HCAs are associated with: consumers
-              # resolve an HCA's netdev over rtnetlink, which no rendered file
-              # can answer.
-              add: [MKNOD, NET_ADMIN]
+              # creates the interfaces the HCAs are associated with, since
+              # consumers resolve an HCA's netdev over rtnetlink and no
+              # rendered file can answer that.
+              #
+              # The interfaces have to land in the node's network namespace,
+              # not this pod's, or the host-networked consumers cannot see
+              # them. That takes two capabilities: SYS_PTRACE to open the
+              # namespace link of a process outside this pod's PID namespace,
+              # and SYS_ADMIN to enter the namespace it names.
+              add: [MKNOD, NET_ADMIN, SYS_ADMIN, SYS_PTRACE]
           volumeMounts:
             # Where the simulators write. Every path they stage is rooted here.
             - name: mokka-root
@@ -198,6 +204,13 @@ spec:
             # rendered tree, which shadows them once served at /sys/devices.
             - name: node-sysfs
               mountPath: /host/sys
+              readOnly: true
+            # The node's procfs, for /host/proc/1/ns/net alone: the interfaces
+            # the HCAs are associated with must be created in the node's
+            # network namespace, since the consumers that resolve them run with
+            # host networking and cannot see the agent pod's.
+            - name: node-procfs
+              mountPath: /host/proc
               readOnly: true
           livenessProbe:
             httpGet:
@@ -279,6 +292,10 @@ spec:
         - name: node-sysfs
           hostPath:
             path: /sys
+            type: Directory
+        - name: node-procfs
+          hostPath:
+            path: /proc
             type: Directory
         {{- if .Values.topology.enabled }}
         - name: cluster-topology

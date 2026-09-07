@@ -25,6 +25,6 @@ func TestNetdevNames_EmptyWithoutHCAs(t *testing.T) {
 	t.Parallel()
 
 	require.Empty(t, netdevNames("mockib", 0))
-	require.NoError(t, ensureNetdevs("mockib", 0))
-	require.NoError(t, removeNetdevs("mockib", 0))
+	require.NoError(t, ensureNetdevs("/proc/1/ns/net", "mockib", 0))
+	require.NoError(t, removeNetdevs("/proc/1/ns/net", "mockib", 0))
 }

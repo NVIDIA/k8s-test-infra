@@ -3,10 +3,7 @@
 
 package ib
 
-import (
-	"errors"
-	"fmt"
-)
+import "fmt"
 
 // netdevNames lists the interfaces the HCAs are associated with. The PCI
 // renderer writes its net/<ifname> entries from the same prefix and count, so
@@ -21,33 +18,35 @@ func netdevNames(prefix string, count int) []string {
 	return names
 }
 
-// ensureNetdevs brings the interfaces into existence. An HCA is only a
-// candidate to a consumer that can resolve its interface, and that lookup goes
-// over rtnetlink — no rendered sysfs file can answer it. The links are plain
-// dummy netdevs: nothing here needs RDMA kernel support, only a name the
-// kernel knows.
-func ensureNetdevs(prefix string, count int) error {
-	errs := make([]error, 0, count)
+// hostNetnsRelPath locates the node's network namespace through the host
+// procfs the agent mounts. PID 1 is the node's init, so its namespace is the
+// one every host-networked consumer resolves interfaces in.
+const hostNetnsRelPath = "1/ns/net"
 
-	for _, name := range netdevNames(prefix, count) {
-		if err := addDummyLink(name); err != nil {
-			errs = append(errs, err)
-		}
+// ensureNetdevs brings the interfaces into existence in the node's network
+// namespace. An HCA is only a candidate to a consumer that can resolve its
+// interface, and that lookup goes over rtnetlink — no rendered sysfs file can
+// answer it. The links are plain dummy netdevs: nothing here needs RDMA kernel
+// support, only a name the kernel knows.
+func ensureNetdevs(nsPath, prefix string, count int) error {
+	names := netdevNames(prefix, count)
+	if len(names) == 0 {
+		// A profile with no HCAs asks for no interfaces, so there is no reason
+		// to enter the node's namespace — nor to fail where entering it cannot
+		// work at all, as on a developer's workstation.
+		return nil
 	}
 
-	return errors.Join(errs...)
+	return addDummyLinks(nsPath, names)
 }
 
 // removeNetdevs takes the interfaces down again, tolerating any that are
 // already gone so a repeated teardown stays quiet.
-func removeNetdevs(prefix string, count int) error {
-	errs := make([]error, 0, count)
-
-	for _, name := range netdevNames(prefix, count) {
-		if err := deleteLink(name); err != nil {
-			errs = append(errs, err)
-		}
+func removeNetdevs(nsPath, prefix string, count int) error {
+	names := netdevNames(prefix, count)
+	if len(names) == 0 {
+		return nil
 	}
 
-	return errors.Join(errs...)
+	return deleteLinks(nsPath, names)
 }

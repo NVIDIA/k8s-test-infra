@@ -188,27 +188,28 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 
 // Apply brings up the interfaces the HCAs are associated with. It runs after
 // the Stage barrier because the rendered tree names them.
-func (s *Simulator) Apply(_ context.Context, _ *host.Host, state *agent.State) error {
+func (s *Simulator) Apply(_ context.Context, h *host.Host, state *agent.State) error {
 	net := state.NodeShape.Network
+	nsPath := h.ProcPath(hostNetnsRelPath)
 
 	// A tier or profile that simulates nothing has to take its interfaces with
 	// it: they are node-wide kernel state that outlives the profile edit.
 	if s.opts.Mode == ModeOff || !net.IBEnabled {
-		return removeNetdevs(net.NetdevPrefix, net.HCACount)
+		return removeNetdevs(nsPath, net.NetdevPrefix, net.HCACount)
 	}
 
-	return ensureNetdevs(net.NetdevPrefix, net.HCACount)
+	return ensureNetdevs(nsPath, net.NetdevPrefix, net.HCACount)
 }
 
-// Revoke removes the interfaces on shutdown. They are kernel objects rather
-// than files under the agent's root, so nothing else reclaims them.
-func (s *Simulator) Revoke(_ context.Context, _ *host.Host) error {
+// Revoke removes the interfaces on shutdown. They live in the node's network
+// namespace rather than under the agent's root, so nothing else reclaims them.
+func (s *Simulator) Revoke(_ context.Context, h *host.Host) error {
 	staged := s.lastStaged.Load()
 	if staged == nil {
 		return nil
 	}
 
-	return removeNetdevs(staged.NetdevPrefix, staged.HCACount)
+	return removeNetdevs(h.ProcPath(hostNetnsRelPath), staged.NetdevPrefix, staged.HCACount)
 }
 
 // recordShape stores the staged shape and flags a change for Reload.

@@ -1032,4 +1032,4 @@ tests:
           value: [ALL]
       - equal:
           path: spec.template.spec.containers[0].securityContext.capabilities.add
-          value: [MKNOD, NET_ADMIN]
+          value: [MKNOD, NET_ADMIN, SYS_ADMIN, SYS_PTRACE]

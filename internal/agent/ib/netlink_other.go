@@ -5,16 +5,19 @@
 
 package ib
 
-import "fmt"
+import "errors"
 
-// The links are kernel netdevs, which only Linux has. Stubbing them keeps the
-// rest of the package building and testing on a developer's workstation
-// instead of hiding the whole simulator behind a build tag.
+// The links are kernel netdevs in another network namespace, which only Linux
+// has. Stubbing them keeps the rest of the package building and testing on a
+// developer's workstation instead of hiding the whole simulator behind a build
+// tag.
 
-func addDummyLink(name string) error {
-	return fmt.Errorf("create netdev %s: netdevs require Linux", name)
+var errNetdevsRequireLinux = errors.New("netdevs require Linux")
+
+func addDummyLinks(_ string, _ []string) error {
+	return errNetdevsRequireLinux
 }
 
-func deleteLink(name string) error {
-	return fmt.Errorf("remove netdev %s: netdevs require Linux", name)
+func deleteLinks(_ string, _ []string) error {
+	return errNetdevsRequireLinux
 }
