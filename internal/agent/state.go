@@ -267,6 +267,9 @@ type NetworkShape struct {
 	PortState        string
 	PhysState        string
 	GUIDPrefix       string
+	// NetdevPrefix names the interfaces the HCAs are associated with, which
+	// both the sysfs renderer and the link creation have to agree on.
+	NetdevPrefix string
 }
 
 // PCIeTopology describes the PCIe root-complex / NUMA layout.

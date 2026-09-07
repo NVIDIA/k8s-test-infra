@@ -350,5 +350,6 @@ func compileNetwork(data []byte, numGPUs int) (agent.NetworkShape, error) {
 		PortState:        ib.PortState,
 		PhysState:        ib.PhysState,
 		GUIDPrefix:       ib.GUIDPrefix,
+		NetdevPrefix:     ib.NetdevPrefix,
 	}, nil
 }

@@ -46,6 +46,13 @@ type Infiniband struct {
 	// "a088c2:0300:ab" -> fixed prefix "a088:c203" -> per-HCA node GUID
 	// "a088:c203:<node+idx>" with the matching port GUID one greater.
 	GUIDPrefix string `json:"guid_prefix" yaml:"guid_prefix"`
+
+	// NetdevPrefix names the interfaces the HCAs are associated with, as
+	// <prefix><idx>. RDMA consumers resolve an HCA's netdev before they will
+	// consider it at all, and the name has to match both the link the agent
+	// creates and any interface selector an operator is configured with, so
+	// all three take it from here.
+	NetdevPrefix string `json:"netdev_prefix,omitempty" yaml:"netdev_prefix,omitempty"`
 }
 
 // Defaults returns a copy of the InfiniBand block with reasonable fallback
@@ -87,6 +94,9 @@ func (ib Infiniband) Defaults() Infiniband {
 	}
 	if out.GUIDPrefix == "" {
 		out.GUIDPrefix = "a088c20300ab"
+	}
+	if out.NetdevPrefix == "" {
+		out.NetdevPrefix = "mockib"
 	}
 	return out
 }

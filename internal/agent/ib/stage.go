@@ -69,6 +69,7 @@ func buildIB(n agent.NetworkShape) ibconfig.Infiniband {
 		PhysState:        n.PhysState,
 		HCACountOverride: n.HCACount,
 		GUIDPrefix:       n.GUIDPrefix,
+		NetdevPrefix:     n.NetdevPrefix,
 	}
 }
 
