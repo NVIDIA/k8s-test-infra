@@ -51,17 +51,38 @@ func TestAdjust_ServesTheIBTreeAtTheKernelPaths(t *testing.T) {
 	require.True(t, ok)
 
 	sysClass := mountFor(t, adjustment.Mounts, "/sys/class")
-	// rbind, not bind: the agent bind-mounts the node's own classes inside this
-	// directory, and a plain bind would leave every one of them empty in the
-	// container.
-	require.Contains(t, sysClass.Options, "rbind")
 	require.Contains(t, sysClass.Options, "ro")
 
 	devices := mountFor(t, adjustment.Mounts, "/dev/infiniband")
-	require.Contains(t, devices.Options, "rbind")
 	// nodev would make the kernel refuse to open the device nodes behind this
 	// mount, which is the only reason they are rendered at all.
 	require.NotContains(t, devices.Options, "nodev")
+}
+
+// Binding a shared mount makes the copy a peer of it, so every mount the
+// runtime then makes underneath propagates back onto the node's own path. The
+// node's /sys is shared, and pods using bidirectional propagation carry the
+// escape all the way out: each class the plugin served reappeared on the node,
+// and the next container to bind that path copied the accumulated stack, so it
+// doubled per container generation. Seven generations put 127 mounts on every
+// class entry and ~21k in the node's mount table, past which containerd could
+// no longer tear pods down and every pod hung terminating.
+//
+// Private detaches the copy from the node's group so nothing propagates back.
+// Non-recursive keeps a stack that did accumulate from being copied on, and
+// costs nothing: the classes the mock tree hides are served back as mounts of
+// their own, not as submounts of the tree.
+func TestAdjust_KeepsInjectedMountsOutOfTheNodesPropagationGroup(t *testing.T) {
+	t.Parallel()
+
+	adjustment, ok := Adjust(overlayWithIBTree(t), Container{Namespace: "default"})
+	require.True(t, ok)
+	require.NotEmpty(t, adjustment.Mounts)
+
+	for _, m := range adjustment.Mounts {
+		require.Containsf(t, m.Options, "rprivate", "mount at %s can propagate to the node", m.Destination)
+		require.NotContainsf(t, m.Options, "rbind", "recursive bind at %s copies whatever leaked", m.Destination)
+	}
 }
 
 // Nothing orders the plugin's DaemonSet after the agent's, and a mount whose

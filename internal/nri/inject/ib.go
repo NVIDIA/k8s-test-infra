@@ -34,12 +34,12 @@ var ibKernelPaths = []struct {
 	{
 		relPath:     ibSysClassRelPath,
 		destination: "/sys/class",
-		options:     []string{"rbind", "ro", "nosuid", "nodev"},
+		options:     []string{"bind", "rprivate", "ro", "nosuid", "nodev"},
 	},
 	{
 		relPath:     ibDevicesRelPath,
 		destination: "/dev/infiniband",
-		options:     []string{"rbind", "ro", "nosuid"},
+		options:     []string{"bind", "rprivate", "ro", "nosuid"},
 	},
 }
 
@@ -50,10 +50,16 @@ var ibKernelPaths = []struct {
 // tree. It cannot reuse that channel: the RDMA device plugin requests no GPU,
 // so nothing ever resolves a CDI spec for its pod.
 //
-// Recursive by necessity. The agent bind-mounts the node's own sysfs classes
-// inside the class directory, and a plain bind would present every one of them
-// empty — including sys/class/net, which is what an RDMA consumer resolves each
-// HCA through.
+// Private and non-recursive, which is not incidental. Binding a shared mount
+// makes the copy a peer of it, so mounts the runtime makes underneath propagate
+// back onto the node's own path; the node's /sys is shared, and a pod using
+// bidirectional propagation carries the escape out of the container entirely.
+// Every class served below then reappeared on the node, and the next container
+// to bind that path copied the accumulated stack, doubling it per container
+// generation until the node's mount table was large enough that containerd
+// could no longer tear pods down. Private keeps the copy out of that group, and
+// nothing here needs recursion: the node's classes are served back as mounts of
+// their own rather than as submounts of this tree.
 //
 // Each is emitted only once staged: nothing orders this plugin's DaemonSet
 // after the agent's, and a mount with a missing source fails creation for the
@@ -115,7 +121,7 @@ func mountReproducedClasses(treeClass string, adjustment *Adjustment) {
 			Source:      class,
 			Destination: class,
 			Type:        "bind",
-			Options:     []string{"rbind", "ro", "nosuid", "nodev"},
+			Options:     []string{"bind", "rprivate", "ro", "nosuid", "nodev"},
 		})
 	}
 }

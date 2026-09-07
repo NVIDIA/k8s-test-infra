@@ -71,19 +71,23 @@ func skip(cfg Config, container Container) bool {
 // writable bind over the read-only tree keeps the mock library and nvidia-smi
 // below it immutable; the order matters, since the overlay would cover this
 // mount if it came second.
+//
+// Both are private, for the reason spelled out in mountIBKernelPaths: the node's
+// root is a shared mount, so a propagating bind of this tree publishes the
+// config mount back onto the node, where the next container's bind copies it.
 func mountOverlay(cfg Config, adjustment *Adjustment) {
 	adjustment.Mounts = append(adjustment.Mounts,
 		Mount{
 			Source:      cfg.HostOverlayPath,
 			Destination: cfg.ContainerOverlayPath,
 			Type:        "bind",
-			Options:     []string{"rbind", "ro", "nosuid", "nodev"},
+			Options:     []string{"bind", "rprivate", "ro", "nosuid", "nodev"},
 		},
 		Mount{
 			Source:      filepath.Join(cfg.HostOverlayPath, configRelPath),
 			Destination: filepath.Join(cfg.ContainerOverlayPath, configRelPath),
 			Type:        "bind",
-			Options:     []string{"rbind", "rw", "nosuid", "nodev"},
+			Options:     []string{"bind", "rprivate", "rw", "nosuid", "nodev"},
 		},
 	)
 }
