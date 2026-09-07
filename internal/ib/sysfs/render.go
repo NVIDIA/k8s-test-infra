@@ -25,6 +25,15 @@ import (
 // staying inside one served mount.
 const ibDevicesRel = "sys/class/infiniband_devices"
 
+// Device numbers the kernel assigns the InfiniBand char devices. Consumers
+// match them to decide which HCA a device file belongs to, so the mock has to
+// use the real ones rather than any consistent scheme of its own.
+const (
+	ibCharDevMajor = 231
+	rdmaCMMajor    = 10
+	rdmaCMMinor    = 58
+)
+
 // Options controls a single rendering pass.
 type Options struct {
 	IB       config.Infiniband
@@ -105,6 +114,12 @@ func render(o Options) (*tree, error) {
 		return nil, err
 	}
 	if err := t.mkdir("dev/infiniband"); err != nil {
+		return nil, err
+	}
+
+	// One per node rather than per HCA, and consumers reject an HCA when it is
+	// missing, so its absence withdraws the whole node rather than one device.
+	if err := t.chardev("dev/infiniband/rdma_cm", rdmaCMMajor, rdmaCMMinor); err != nil {
 		return nil, err
 	}
 
@@ -288,16 +303,17 @@ func renderHCA(t *tree, ib config.Infiniband, guidPrefix string, idx, hcaCount i
 		return err
 	}
 
-	// /dev/infiniband device files. Real char-dev creation requires
-	// CAP_MKNOD; regular files are sufficient for sysfs-only consumers
-	// (ibstat, ibstatus, iblinkinfo). umad_open_port / ibv_open_device
-	// will fail at ioctl time, which is out of scope.
-	for _, f := range []string{
-		fmt.Sprintf("dev/infiniband/umad%d", idx),
-		fmt.Sprintf("dev/infiniband/issm%d", idx),
-		fmt.Sprintf("dev/infiniband/uverbs%d", idx),
+	// The kernel gives the infiniband char devices a shared major and a fixed
+	// stride per class, and consumers derive an HCA's index from the minor.
+	for _, d := range []struct {
+		rel   string
+		minor uint32
+	}{
+		{fmt.Sprintf("dev/infiniband/uverbs%d", idx), uint32(idx)},
+		{fmt.Sprintf("dev/infiniband/umad%d", idx), uint32(idx) + 64},
+		{fmt.Sprintf("dev/infiniband/issm%d", idx), uint32(idx) + 128},
 	} {
-		if err := t.write(f, ""); err != nil {
+		if err := t.chardev(d.rel, ibCharDevMajor, d.minor); err != nil {
 			return err
 		}
 	}

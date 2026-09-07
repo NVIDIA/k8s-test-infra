@@ -214,3 +214,33 @@ func TestRender_ReapsAbandonedStagingDir(t *testing.T) {
 	renderCount(t, dir, 2)
 	require.NoDirExists(t, abandoned)
 }
+
+// A node that rendered before CAP_MKNOD was granted holds placeholder files
+// where device nodes belong. A later pass has to heal them, so chardev cannot
+// treat any existing entry as good enough.
+func TestChardev_ReplacesAPlaceholderFromAnUnprivilegedPass(t *testing.T) {
+	// Not parallel: it replaces the package's device-creation hook.
+	var requested []string
+
+	original := makeCharDevice
+	t.Cleanup(func() { makeCharDevice = original })
+
+	makeCharDevice = func(path string, _, _ uint32) error {
+		requested = append(requested, path)
+
+		return os.WriteFile(path, nil, 0o644)
+	}
+
+	dir := t.TempDir()
+	rel := "dev/infiniband/uverbs0"
+
+	tr := newTree(dir)
+	require.NoError(t, tr.chardev(rel, 231, 0))
+	require.Equal(t, []string{filepath.Join(dir, rel)}, requested,
+		"a fresh path takes no staging, so the node is created where it belongs")
+
+	requested = nil
+	require.NoError(t, newTree(dir).chardev(rel, 231, 0))
+	require.Len(t, requested, 1, "the placeholder left behind must be replaced, not accepted")
+	require.FileExists(t, filepath.Join(dir, rel), "the path must never be left missing")
+}

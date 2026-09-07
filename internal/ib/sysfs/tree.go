@@ -166,6 +166,61 @@ func restoreAfterPublishError(rel, full, oldDir string, publishErr error) error 
 	return fmt.Errorf("publish symlink %s: %w", rel, publishErr)
 }
 
+// chardev brings rel to a character device with the given numbers. Consumers
+// hand these paths to kubelet as device specs, which a regular file cannot
+// satisfy on a real node.
+//
+// Each path's numbers are fixed by its name, so an entry that is already a
+// character device is already the right one and is left alone. Anything else —
+// most often a placeholder from a pass that ran without CAP_MKNOD — is
+// replaced by rename, so a reader never finds the path missing.
+func (t *tree) chardev(rel string, major, minor uint32) error {
+	full := filepath.Join(t.root, rel)
+
+	if err := t.mkdir(filepath.Dir(rel)); err != nil {
+		return err
+	}
+
+	t.keep(rel)
+
+	info, err := os.Lstat(full)
+
+	switch {
+	case os.IsNotExist(err):
+		// Nothing to displace, so the node can be created where it belongs.
+		if err := makeCharDevice(full, major, minor); err != nil {
+			return fmt.Errorf("create device %s: %w", rel, err)
+		}
+
+		return nil
+	case err != nil:
+		return fmt.Errorf("stat %s: %w", rel, err)
+	case info.Mode()&os.ModeCharDevice != 0:
+		return nil
+	}
+
+	return t.replaceWithCharDevice(rel, full, major, minor)
+}
+
+func (t *tree) replaceWithCharDevice(rel, full string, major, minor uint32) error {
+	tmpDev, err := tempSiblingPath(filepath.Dir(full), filepath.Base(full)+".dev")
+	if err != nil {
+		return fmt.Errorf("stage device %s: %w", rel, err)
+	}
+
+	defer func() { _ = os.Remove(tmpDev) }() // no-op after the rename lands
+
+	if err := makeCharDevice(tmpDev, major, minor); err != nil {
+		return fmt.Errorf("create device %s: %w", rel, err)
+	}
+
+	if err := os.Rename(tmpDev, full); err != nil {
+		return fmt.Errorf("publish device %s: %w", rel, err)
+	}
+
+	return nil
+}
+
 func tempSiblingPath(dir, stem string) (string, error) {
 	f, err := os.CreateTemp(dir, "."+stem+".tmp*")
 	if err != nil {

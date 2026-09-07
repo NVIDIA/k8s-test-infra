@@ -296,3 +296,50 @@ func TestRender_BadGUIDPrefix(t *testing.T) {
 	})
 	require.Error(t, err, "expected error for bad guid_prefix")
 }
+
+// The RDMA device plugin rejects an HCA unless it finds char devices matching
+// all of rdma_cm, umad and uverbs, and then hands those paths to kubelet as
+// device specs. This pins the numbers a render asks for, which the privilege
+// needed to create device nodes would otherwise keep out of a unit test.
+func TestRender_RequestsTheCharDevicesConsumersRequire(t *testing.T) {
+	// Not parallel: it replaces the package's device-creation hook.
+	type devNode struct {
+		rel          string
+		major, minor uint32
+	}
+
+	var got []devNode
+
+	root := t.TempDir()
+
+	original := makeCharDevice
+	t.Cleanup(func() { makeCharDevice = original })
+
+	makeCharDevice = func(path string, major, minor uint32) error {
+		rel, err := filepath.Rel(root, path)
+		require.NoError(t, err)
+		got = append(got, devNode{rel, major, minor})
+
+		// Stand in for the node, so the render continues as it would with the
+		// capability present.
+		return os.WriteFile(path, nil, 0o644)
+	}
+
+	require.NoError(t, Render(Options{
+		IB:       config.Infiniband{Enabled: true, HCACountOverride: 2, GUIDPrefix: "0002c903"},
+		NodeName: "worker-0",
+		RootDir:  root,
+	}))
+
+	// rdma_cm is per node rather than per HCA, so its absence withdraws every
+	// HCA on the node rather than one.
+	require.ElementsMatch(t, []devNode{
+		{"dev/infiniband/rdma_cm", 10, 58},
+		{"dev/infiniband/uverbs0", 231, 0},
+		{"dev/infiniband/umad0", 231, 64},
+		{"dev/infiniband/issm0", 231, 128},
+		{"dev/infiniband/uverbs1", 231, 1},
+		{"dev/infiniband/umad1", 231, 65},
+		{"dev/infiniband/issm1", 231, 129},
+	}, got)
+}
