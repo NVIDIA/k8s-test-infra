@@ -47,7 +47,13 @@ on:
       gpu_profiles:
         required: false
         type: string
-        default: '["a100", "h100", "b200", "gb200", "gb300", "t4"]'
+        # TEMPORARY, revert before merge: trimmed from
+        # '["a100", "h100", "b200", "gb200", "gb300", "t4"]' to the one profile
+        # the rdma and nfd scenarios pin, so this branch's RDMA leg reports in
+        # minutes instead of behind a 27-job matrix. The sibling legs still run
+        # — they are what shows the NRI mount and chart changes did not regress
+        # the existing consumers — just on a single profile.
+        default: '["a100"]'
       golang_version:
         required: true
         type: string
