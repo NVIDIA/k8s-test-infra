@@ -38,6 +38,17 @@ type Node struct {
 	Role      Role
 }
 
+// Exec runs argv inside the node's container.
+//
+// This is the suite's way to reach a node with the privileges of the host
+// rather than of a pod on it: a Kind node *is* a container, so no pod
+// securityContext narrows what runs here. Assertions about node-level
+// facilities that pods are deliberately not allowed to use — chroot(2), for
+// one — have nowhere else to run.
+func (n Node) Exec(ctx context.Context, argv ...string) (runner.Result, error) {
+	return runner.Run(ctx, "docker", append([]string{"exec", n.Container}, argv...)...)
+}
+
 // Cluster is an existing Kind cluster the suite attaches to.
 type Cluster struct {
 	Name    string
@@ -158,4 +169,19 @@ func (c *Cluster) Workers(ctx context.Context) ([]Node, error) {
 		}
 	}
 	return ws, nil
+}
+
+// NodeByName returns the node registered under a Kubernetes node name, for
+// callers holding a name from the API that need the container behind it.
+func (c *Cluster) NodeByName(ctx context.Context, name string) (Node, error) {
+	ns, err := c.Nodes(ctx)
+	if err != nil {
+		return Node{}, err
+	}
+	for _, n := range ns {
+		if n.Name == name {
+			return n, nil
+		}
+	}
+	return Node{}, fmt.Errorf("cluster %q has no node named %q", c.Name, name)
 }

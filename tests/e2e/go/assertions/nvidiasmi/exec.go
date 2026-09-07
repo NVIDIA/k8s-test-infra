@@ -13,6 +13,7 @@ import (
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/cluster"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/profile"
 )
@@ -280,7 +281,9 @@ func SnapshotFromPod(ctx context.Context, k *kube.Client, pod kube.PodRef) (Snap
 // chrooted library resolved no config, served compiled-in defaults, and printed
 // "was successfully reset" over an untouched override — so the injected state
 // is checked before and after instead.
-func GpuResetThroughChroot(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
+func GpuResetThroughChroot(
+	ctx context.Context, k *kube.Client, pod kube.PodRef, node cluster.Node, p profile.Profile,
+) {
 	ginkgo.GinkgoHelper()
 
 	// The same query is the reference reading and the chrooted one, so the
@@ -298,16 +301,14 @@ func GpuResetThroughChroot(ctx context.Context, k *kube.Client, pod kube.PodRef,
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 		"reference nvidia-smi query failed: %s", reference.Combined())
 
-	// env -u strips what the nvml-mock container sets, because the reset Job
-	// carries none of it. Left in place, this would pass on a driver root that
+	// Run from the node, which carries none of the environment the nvml-mock
+	// container exports. The reset Job has no MOCK_NVML_CONFIG or LD_PRELOAD
+	// either, so a driver root that only works with those set is a driver root
 	// no real caller could use.
-	chroot := []string{
-		"env", "-u", "MOCK_NVML_CONFIG", "-u", "MOCK_NVML_OVERRIDES", "-u", "LD_PRELOAD",
-		"chroot", ChrootDriverRoot,
-	}
+	chroot := []string{"chroot", NodeDriverRoot}
 
 	ginkgo.By(fmt.Sprintf("chrooted nvidia-smi describes the same %d GPUs", p.ExpectedGPUs()))
-	res, _ := k.ExecQuiet(ctx, pod, append(append([]string{}, chroot...), query...)...)
+	res, _ := node.Exec(ctx, append(append([]string{}, chroot...), query...)...)
 	// Stdout carries the CSV rows for comparison; stderr carries the chroot
 	// failure message when the loader or a library is missing from the driver
 	// root, and that is what an engineer needs in the diagnostic.
@@ -329,7 +330,7 @@ func GpuResetThroughChroot(ctx context.Context, k *kube.Client, pod kube.PodRef,
 	gomega.Expect(problems).To(gomega.BeEmpty(), strings.Join(problems, "\n"))
 
 	ginkgo.By("chrooted nvidia-smi -r -i 0 resets one GPU")
-	res, _ = k.Exec(ctx, pod, append(append([]string{}, chroot...), "nvidia-smi", "-r", "-i", "0")...)
+	res, _ = node.Exec(ctx, append(append([]string{}, chroot...), "nvidia-smi", "-r", "-i", "0")...)
 	problems = GpuResetProblems(res.ExitCode, res.Combined(), 1)
 	gomega.Expect(problems).To(gomega.BeEmpty(), strings.Join(problems, "\n"))
 

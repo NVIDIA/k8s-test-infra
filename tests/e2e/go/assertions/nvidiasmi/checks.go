@@ -552,11 +552,16 @@ func statsBlockProblems(name string, got statsBlock, want EncoderFBCStats) []str
 		intReadingProblems(name+" average_latency", got.AverageLatency, want.AverageLatencyUS, " us")...)
 }
 
-// ChrootDriverRoot is the mock driver root as the nvml-mock pod sees it. The
-// pod mounts the node's /var/lib/nvml-mock at /host/var/lib/nvml-mock, and
-// /run/nvidia/driver on the node is a symlink to that same directory — so this
-// is the path NVSentinel's reset Job chroots into, reached from a pod.
-const ChrootDriverRoot = "/host/var/lib/nvml-mock/driver"
+// NodeDriverRoot is the mock driver root as the node sees it, which is also
+// where /run/nvidia/driver on the node points — so this is the directory
+// NVSentinel's reset Job chroots into.
+//
+// Reached from the node rather than from the nvml-mock pod because chroot(2)
+// needs CAP_SYS_CHROOT, and the chart drops every capability but MKNOD. That
+// is not an obstacle to work around: the real caller is a privileged Job with
+// the host's driver root mounted, so the node is the faithful vantage point
+// and the mock's own container never was one.
+const NodeDriverRoot = "/var/lib/nvml-mock/driver"
 
 // ChrootInventoryProblems checks that a chrooted nvidia-smi answers for the
 // node's real GPUs rather than the mock library's compiled-in defaults, given
