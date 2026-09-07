@@ -42,17 +42,29 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 Every node now reports four mock GB300 GPUs. Swap in `a100`, `b200`, `gb200`,
 `h100`, `l40s` or `t4` with `--set gpu.profile=<name>`.
 
+## Tested consumers
+
+| Consumer | What works |
+|---|---|
+| Node Feature Discovery | PCI vendor labels derived from the feature file Mokka writes |
+| GPU Feature Discovery | Node labels derived from NVML |
+| NVIDIA Device Plugin | Allocatable `nvidia.com/gpu` matches the profile, and workloads schedule against it |
+| NVIDIA DRA Driver | ResourceSlices report the right GPUs, and a `ResourceClaimTemplate` pod reaches `Running` |
+| NVIDIA GPU Operator | The full operand stack installs and its validator starts |
+| DCGM / dcgm-exporter | Telemetry, time-varying power, and injected Xid errors |
+| Run:ai fake-gpu-operator | Profile ConfigMaps published in the shape its discovery expects |
+
 ## Documentation
 
 **[nvidia.github.io/k8s-test-infra](https://nvidia.github.io/k8s-test-infra/)**
 
-| | |
-|---|---|
-| [Quick Start](https://nvidia.github.io/k8s-test-infra/quickstart/) | Install and see simulated GPUs |
-| [Architecture](https://nvidia.github.io/k8s-test-infra/architecture/) | The moving parts and how the system behaves |
-| [Guides](https://nvidia.github.io/k8s-test-infra/demo/) | Device plugin, DRA, GPU Operator, failure injection, node-wide injection |
-| [Configuration](https://nvidia.github.io/k8s-test-infra/configuration/) | Every profile knob |
-| [FAQ](https://nvidia.github.io/k8s-test-infra/faq/) | What Mokka simulates, and what it does not |
+|                                                                         |                                                                          |
+|-------------------------------------------------------------------------|--------------------------------------------------------------------------|
+| [Quick Start](https://nvidia.github.io/k8s-test-infra/quickstart/)      | Install and see simulated GPUs                                           |
+| [Architecture](https://nvidia.github.io/k8s-test-infra/architecture/)   | The moving parts and how the system behaves                              |
+| [Guides](https://nvidia.github.io/k8s-test-infra/guides/)                 | Device plugin, DRA, GPU Operator, failure injection, node-wide injection |
+| [Configuration](https://nvidia.github.io/k8s-test-infra/configuration/) | Every profile knob                                                       |
+| [FAQ](https://nvidia.github.io/k8s-test-infra/faq/)                     | What Mokka simulates, and what it does not                               |
 
 ## Contributing
 
