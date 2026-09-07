@@ -28,18 +28,31 @@ type Server struct {
 
 // NewServer does not bind a listener; call Run or RunListener for that.
 func NewServer(cfg Config, logger *slog.Logger) *Server {
+	return NewServerWithReadiness(cfg, logger, func() bool { return true })
+}
+
+// NewServerWithReadiness gates /readyz on controller service readiness.
+func NewServerWithReadiness(cfg Config, logger *slog.Logger, ready func() bool) *Server {
+	if ready == nil {
+		ready = func() bool { return false }
+	}
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
 	router.Use(middleware.Recoverer)
 
 	router.Get("/healthz", health.Handler(health.OK))
-	router.Get("/readyz", health.Handler(health.OK))
+	router.Get("/readyz", health.Handler(func() health.Probe {
+		if ready() {
+			return health.OK()
+		}
+		return health.Unhealthy("controller is not ready")
+	}))
 
 	return &Server{
 		cfg:    cfg,
 		logger: logger,
 		http: &http.Server{
-			Addr:              cfg.ListenAddr,
+			Addr:              cfg.Server.ListenAddr,
 			Handler:           router,
 			ReadHeaderTimeout: 5 * time.Second,
 		},
@@ -52,11 +65,11 @@ func (s *Server) Router() http.Handler {
 	return s.http.Handler
 }
 
-// Run binds cfg.ListenAddr and delegates to RunListener.
+// Run binds cfg.Server.ListenAddr and delegates to RunListener.
 func (s *Server) Run(ctx context.Context) error {
-	listener, err := net.Listen("tcp", s.cfg.ListenAddr)
+	listener, err := net.Listen("tcp", s.cfg.Server.ListenAddr)
 	if err != nil {
-		return fmt.Errorf("listen on %s: %w", s.cfg.ListenAddr, err)
+		return fmt.Errorf("listen on %s: %w", s.cfg.Server.ListenAddr, err)
 	}
 	return s.RunListener(ctx, listener)
 }
@@ -82,11 +95,11 @@ func (s *Server) RunListener(ctx context.Context, listener net.Listener) error {
 		}
 		return nil
 	case <-ctx.Done():
-		s.logger.Info("shutdown signal received; draining http server", "timeout", s.cfg.ShutdownTimeout)
+		s.logger.Info("shutdown signal received; draining http server", "timeout", s.cfg.Server.ShutdownTimeout)
 		// context.WithoutCancel preserves ctx values (e.g. tracing IDs) while
 		// dropping the cancellation that just fired — otherwise Shutdown
 		// would return before the drain gets a chance to start.
-		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.cfg.ShutdownTimeout)
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.cfg.Server.ShutdownTimeout)
 		defer cancel()
 		if err := s.http.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("http shutdown: %w", err)

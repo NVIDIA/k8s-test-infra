@@ -18,7 +18,7 @@
 # Kubernetes-idiomatic default for stateless services. Revisit if the CP later
 # needs CGO (for example for Redis TLS with a custom CA closure).
 
-ARG GOLANG_VERSION=1.26.6
+ARG GOLANG_VERSION=1.26.7
 FROM golang:${GOLANG_VERSION}-bookworm AS builder
 # Dependency resolution mirrors deployments/nvml-mock/Dockerfile: public by
 # default, Artifactory when the build supplies GOPROXY and mounts the

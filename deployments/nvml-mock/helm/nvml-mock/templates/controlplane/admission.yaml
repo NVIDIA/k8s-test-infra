@@ -1,0 +1,37 @@
+{{- if .Values.controlPlane.enabled }}
+{{- if semverCompare "<1.30.0-0" .Capabilities.KubeVersion.Version }}
+{{- fail "controlPlane.enabled requires Kubernetes 1.30+ for stable ValidatingAdmissionPolicy" }}
+{{- end }}
+{{- $policyName := printf "%s-sgpurack-writes" (include "nvml-mock.controlPlaneName" .) }}
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $policyName }}
+  labels:
+    {{- include "nvml-mock.controlPlaneLabels" . | nindent 4 }}
+    app.kubernetes.io/component: control-plane
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["mokka.nvidia.com"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["sgpuracks"]
+  validations:
+    - expression: {{ printf "request.userInfo.username == 'system:serviceaccount:%s:%s'" .Release.Namespace (include "nvml-mock.controlPlaneName" .) | quote }}
+      message: SGPURack writes are restricted to the Mokka controller
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $policyName }}
+  labels:
+    {{- include "nvml-mock.controlPlaneLabels" . | nindent 4 }}
+    app.kubernetes.io/component: control-plane
+spec:
+  policyName: {{ $policyName }}
+  validationActions: ["Deny"]
+{{- end }}

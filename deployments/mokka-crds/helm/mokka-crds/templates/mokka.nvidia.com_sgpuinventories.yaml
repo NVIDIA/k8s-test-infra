@@ -4,6 +4,7 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
+    helm.sh/resource-policy: keep
   name: sgpuinventories.mokka.nvidia.com
 spec:
   group: mokka.nvidia.com
@@ -58,12 +59,16 @@ spec:
             description: SGPUInventorySpec is the desired rack composition.
             properties:
               rackGroups:
+                description: |-
+                  RackGroups declares homogeneous sets of racks. One group can expand to
+                  many racks; the controller admits at most 64 groups across all Inventories.
                 items:
                   description: RackGroup is a homogeneous group of racks sharing a
                     profile.
                   properties:
                     count:
                       format: int32
+                      maximum: 100000
                       minimum: 1
                       type: integer
                     id:

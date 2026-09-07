@@ -10,6 +10,9 @@ import (
 
 // SGPURackProfile is the static shape of a simulated GPU rack.
 //
+// +genclient
+// +genclient:nonNamespaced
+// +kubebuilder:metadata:annotations=helm.sh/resource-policy=keep
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster,categories=mokka,shortName=srprof
 // +kubebuilder:printcolumn:name="Nodes/Rack",type=integer,JSONPath=`.spec.rack.nodesPerRack`
@@ -48,23 +51,26 @@ type SGPURackProfileSpec struct {
 // nested profile data rather than a materialized SGPURack resource.
 type SGPURackShape struct {
 	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=1024
 	NodesPerRack int32 `json:"nodesPerRack"`
 }
 
 // SGPUNode is a homogeneous logical node in the rack.
+// +kubebuilder:validation:XValidation:rule="size(self.topology.gpuSlots) == self.gpus.count && self.topology.gpuSlots.all(slot, slot.index < self.gpus.count)",message="topology.gpuSlots must contain one slot per GPU with indexes in range"
 type SGPUNode struct {
 	GPUs SGPUGPUs `json:"gpus"`
 
 	// +optional
 	Host *SGPUHost `json:"host,omitempty"`
 
-	// +optional
-	Topology *SGPUTopology `json:"topology,omitempty"`
+	// +required
+	Topology *SGPUTopology `json:"topology"`
 }
 
 // SGPUGPUs is the shared template for every GPU on the node.
 type SGPUGPUs struct {
 	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=64
 	Count int32 `json:"count"`
 
 	Model GPUModel `json:"model"`
@@ -336,6 +342,8 @@ type HostMemory struct {
 
 // SGPUTopology is PCIe slots, GPU fabric, and network visible to the node.
 type SGPUTopology struct {
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=64
 	// +listType=map
 	// +listMapKey=index
 	GPUSlots []GPUSlot `json:"gpuSlots"`
@@ -349,13 +357,17 @@ type SGPUTopology struct {
 
 // GPUSlot pins one GPU to a PCI address + NUMA/root-complex/host CPU.
 type GPUSlot struct {
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=63
 	Index int32 `json:"index"`
 
-	// +optional
-	PCIAddress string `json:"pciAddress,omitempty"`
+	// +required
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$`
+	PCIAddress string `json:"pciAddress"`
 
-	// +optional
-	RootComplex string `json:"rootComplex,omitempty"`
+	// +required
+	// +kubebuilder:validation:Pattern=`^pci[0-9a-f]{4}:[0-9a-f]{2}$`
+	RootComplex string `json:"rootComplex"`
 
 	// +optional
 	NumaNode int32 `json:"numaNode,omitempty"`

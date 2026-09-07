@@ -8,6 +8,9 @@ import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 // SGPURuntimePolicy applies a sparse RuntimeState override to a subset of
 // an SGPUInventory.
 //
+// +genclient
+// +genclient:nonNamespaced
+// +kubebuilder:metadata:annotations=helm.sh/resource-policy=keep
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster,categories=mokka,shortName=srpol
 // +kubebuilder:subresource:status

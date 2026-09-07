@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 suite: Mokka Control Plane
 templates:
-  - templates/controlplane-deployment.yaml
-  - templates/controlplane-service.yaml
+  - templates/controlplane/deployment.yaml
+  - templates/controlplane/service.yaml
 tests:
   - it: should not render by default (opt-in feature)
     asserts:
@@ -14,7 +14,9 @@ tests:
     set:
       controlPlane:
         enabled: true
-    template: templates/controlplane-deployment.yaml
+        image:
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    template: templates/controlplane/deployment.yaml
     asserts:
       - isKind:
           of: Deployment
@@ -31,6 +33,11 @@ tests:
           path: spec.replicas
           value: 1
       - equal:
+          path: spec.strategy.type
+          value: Recreate
+      - isNull:
+          path: spec.strategy.rollingUpdate
+      - equal:
           path: spec.selector.matchLabels["app.kubernetes.io/name"]
           value: nvml-mock-control-plane
       - equal:
@@ -38,13 +45,16 @@ tests:
           value: control-plane
       - equal:
           path: spec.template.spec.automountServiceAccountToken
-          value: false
+          value: true
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: RELEASE-NAME-nvml-mock-control-plane
       - equal:
           path: spec.template.spec.containers[0].name
           value: control-plane
       - equal:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/nvidia/mokka-control-plane:latest
+          value: ghcr.io/nvidia/mokka-control-plane@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
       - equal:
           path: spec.template.spec.containers[0].imagePullPolicy
           value: IfNotPresent
@@ -57,6 +67,87 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: --shutdown-timeout=5s
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --log-format=json
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --leader-election-name=mokka-control-plane.mokka.nvidia.com
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --workers=2
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --kube-api-qps=50
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --kube-api-burst=100
+      - equal:
+          path: spec.template.spec.containers[0].env[0].valueFrom.fieldRef.fieldPath
+          value: metadata.namespace
+
+  - it: should reject an enabled control plane without an immutable image digest
+    set:
+      controlPlane:
+        enabled: true
+    template: templates/controlplane/deployment.yaml
+    asserts:
+      - failedTemplate:
+          errorMessage: controlPlane.image.digest is required when controlPlane.enabled is true
+
+  - it: should render Tilt's local mutable image tag
+    set:
+      controlPlane:
+        enabled: true
+        image:
+          repository: registry.example.com/mokka-control-plane
+          tag: tilt-build-123
+          allowMutableTag: true
+    template: templates/controlplane/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: registry.example.com/mokka-control-plane:tilt-build-123
+
+  - it: should reject local mutable image mode without a tag
+    set:
+      controlPlane:
+        enabled: true
+        image:
+          allowMutableTag: true
+    template: templates/controlplane/deployment.yaml
+    asserts:
+      - failedTemplate:
+          errorMessage: controlPlane.image.tag is required when controlPlane.image.allowMutableTag is true
+
+  - it: should reject a malformed controller image digest via the values schema
+    set:
+      controlPlane:
+        enabled: true
+        image:
+          digest: sha256:not-a-digest
+    asserts:
+      - failedTemplate: {}
+
+  - it: should reject a malformed leader-election name via the values schema
+    set:
+      controlPlane:
+        leaderElection:
+          name: Invalid_Name
+    asserts:
+      - failedTemplate: {}
+
+  - it: should reserve enough memory for the supported 100k-node scale
+    set:
+      controlPlane:
+        enabled: true
+        image:
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    template: templates/controlplane/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: 1Gi
 
   # The container port, the args --listen-addr, and the probes must all name
   # the same port; a probe pointed at the wrong port makes the pod never go
@@ -66,7 +157,9 @@ tests:
     set:
       controlPlane:
         enabled: true
-    template: templates/controlplane-deployment.yaml
+        image:
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    template: templates/controlplane/deployment.yaml
     asserts:
       - contains:
           path: spec.template.spec.containers[0].ports
@@ -94,7 +187,9 @@ tests:
     set:
       controlPlane:
         enabled: true
-    template: templates/controlplane-deployment.yaml
+        image:
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    template: templates/controlplane/deployment.yaml
     asserts:
       - notEqual:
           path: spec.template.spec.containers[0].readinessProbe.httpGet.path
@@ -107,7 +202,9 @@ tests:
     set:
       controlPlane:
         enabled: true
-    template: templates/controlplane-deployment.yaml
+        image:
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    template: templates/controlplane/deployment.yaml
     asserts:
       - equal:
           path: spec.template.spec.containers[0].lifecycle.preStop.sleep.seconds
@@ -123,7 +220,9 @@ tests:
     set:
       controlPlane:
         enabled: true
-    template: templates/controlplane-deployment.yaml
+        image:
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    template: templates/controlplane/deployment.yaml
     asserts:
       - equal:
           path: spec.template.spec.terminationGracePeriodSeconds
@@ -133,8 +232,10 @@ tests:
     set:
       controlPlane:
         enabled: true
+        image:
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         terminationGracePeriodSeconds: 60
-    template: templates/controlplane-deployment.yaml
+    template: templates/controlplane/deployment.yaml
     asserts:
       - equal:
           path: spec.template.spec.terminationGracePeriodSeconds
@@ -144,8 +245,10 @@ tests:
     set:
       controlPlane:
         enabled: true
+        image:
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         shutdownTimeout: 30s
-    template: templates/controlplane-deployment.yaml
+    template: templates/controlplane/deployment.yaml
     asserts:
       - contains:
           path: spec.template.spec.containers[0].args
@@ -155,7 +258,9 @@ tests:
     set:
       controlPlane:
         enabled: true
-    template: templates/controlplane-deployment.yaml
+        image:
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    template: templates/controlplane/deployment.yaml
     asserts:
       - equal:
           path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
@@ -174,7 +279,9 @@ tests:
     set:
       controlPlane:
         enabled: true
-    template: templates/controlplane-service.yaml
+        image:
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    template: templates/controlplane/service.yaml
     asserts:
       - isKind:
           of: Service
@@ -198,26 +305,34 @@ tests:
             targetPort: http
             protocol: TCP
 
-  - it: should honour a custom image, replicas, and logging knobs
+  # Every active/passive replica must converge Ready; the elected replica
+  # additionally waits for controller cache synchronization.
+  - it: should honour ready active-passive replicas, a custom image, and logging knobs
     set:
       controlPlane:
         enabled: true
         replicas: 3
         image:
           repository: registry.example.com/mokka-cp
-          tag: v0.1.0
+          digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
           pullPolicy: Always
         logging:
           level: debug
           format: plain
-    template: templates/controlplane-deployment.yaml
+    template: templates/controlplane/deployment.yaml
     asserts:
       - equal:
           path: spec.replicas
           value: 3
       - equal:
+          path: spec.strategy.type
+          value: Recreate
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /readyz
+      - equal:
           path: spec.template.spec.containers[0].image
-          value: registry.example.com/mokka-cp:v0.1.0
+          value: registry.example.com/mokka-cp@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
       - equal:
           path: spec.template.spec.containers[0].imagePullPolicy
           value: Always
@@ -228,6 +343,23 @@ tests:
           path: spec.template.spec.containers[0].args
           content: --log-format=plain
 
+  - it: should honour custom Kubernetes API client limits
+    set:
+      controlPlane:
+        enabled: true
+        image:
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        kubeAPIQPS: 250
+        kubeAPIBurst: 500
+    template: templates/controlplane/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --kube-api-qps=250
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --kube-api-burst=500
+
   # Moving the port must move the bind flag, the container port, and the
   # Service port together — a mismatch is exactly the silent-Ready failure
   # class the probes-on-the-bind-port test above already guards for the
@@ -237,9 +369,11 @@ tests:
     set:
       controlPlane:
         enabled: true
+        image:
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         service:
           port: 9090
-    template: templates/controlplane-deployment.yaml
+    template: templates/controlplane/deployment.yaml
     asserts:
       - contains:
           path: spec.template.spec.containers[0].args
@@ -255,9 +389,11 @@ tests:
     set:
       controlPlane:
         enabled: true
+        image:
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         service:
           port: 9090
-    template: templates/controlplane-service.yaml
+    template: templates/controlplane/service.yaml
     asserts:
       - contains:
           path: spec.ports
