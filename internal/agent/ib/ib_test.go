@@ -5,8 +5,6 @@ package ib
 
 import (
 	"context"
-	"io"
-	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -14,14 +12,15 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 )
 
 // TestMain silences the package's daemon output. The simulator picks up
-// slog.Default(), which the agent binary configures via internal/logging.
+// zap.L(), which the agent binary configures via internal/logging.
 func TestMain(m *testing.M) {
-	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	zap.ReplaceGlobals(zap.NewNop())
 	os.Exit(m.Run())
 }
 

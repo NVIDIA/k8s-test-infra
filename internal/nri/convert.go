@@ -5,12 +5,12 @@ package nri
 
 import (
 	"fmt"
-	"log/slog"
 	"os"
 	"strings"
 	"syscall"
 
 	"github.com/containerd/nri/pkg/api"
+	"go.uber.org/zap"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/nri/inject"
 )
@@ -81,7 +81,7 @@ func adjustmentToNRI(adjustment inject.Adjustment) *api.ContainerAdjustment {
 	for _, device := range adjustment.Devices {
 		nriDevice, err := linuxDevice(device)
 		if err != nil {
-			slog.Warn("skipping device", "path", device.Path, "err", err)
+			zap.L().Warn("skipping device", zap.String("path", device.Path), zap.Error(err))
 			continue
 		}
 		result.AddDevice(nriDevice)

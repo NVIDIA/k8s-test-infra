@@ -4,11 +4,14 @@
 package logging_test
 
 import (
-	"log/slog"
+	"encoding/json"
+	"io"
+	"os"
 	"testing"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/logging"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap/zapcore"
 )
 
 func TestParseLevel(t *testing.T) {
@@ -65,7 +68,7 @@ func TestParseFormat(t *testing.T) {
 	}
 }
 
-func TestNewLoggerHandlerType(t *testing.T) {
+func TestNewLoggerOutputFormat(t *testing.T) {
 	for _, tc := range []struct {
 		format   logging.Format
 		wantJSON bool
@@ -74,13 +77,26 @@ func TestNewLoggerHandlerType(t *testing.T) {
 		{logging.FormatPlain, false},
 	} {
 		t.Run(string(tc.format), func(t *testing.T) {
+			r, w, err := os.Pipe()
+			require.NoError(t, err)
+
+			origStdout := os.Stdout
+			os.Stdout = w
 			logger := logging.NewLogger(logging.Config{Level: logging.LevelInfo, Format: tc.format})
-			require.NotNil(t, logger)
-			if tc.wantJSON {
-				require.IsType(t, (*slog.JSONHandler)(nil), logger.Handler())
-			} else {
-				require.IsType(t, (*slog.TextHandler)(nil), logger.Handler())
-			}
+			logger.Info("hello")
+			os.Stdout = origStdout
+			require.NoError(t, w.Close())
+
+			out, err := io.ReadAll(r)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantJSON, json.Valid(out))
 		})
 	}
+}
+
+func TestNewLoggerLevel(t *testing.T) {
+	logger := logging.NewLogger(logging.Config{Level: logging.LevelWarn, Format: logging.FormatJSON})
+	require.False(t, logger.Core().Enabled(zapcore.InfoLevel))
+	require.True(t, logger.Core().Enabled(zapcore.WarnLevel))
+	require.True(t, logger.Core().Enabled(zapcore.ErrorLevel))
 }
