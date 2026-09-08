@@ -746,6 +746,8 @@ func TestVisibility_IndexRoundTrip(t *testing.T) {
 
 func TestVisibility_TopologyHandles(t *testing.T) {
 	e := newFabricEngine(t)
+	// Ignore device files on the host before capturing the physical GPU handle.
+	e.SetVisibleDevicesForTesting(nil)
 	hidden, ret := e.DeviceGetHandleByIndex(0)
 	require.Equal(t, nvml.SUCCESS, ret)
 	e.SetVisibleDevicesForTesting([]int{1})
@@ -758,5 +760,5 @@ func TestVisibility_TopologyHandles(t *testing.T) {
 	require.Equal(t, nvml.SUCCESS, ret)
 	require.Equal(t, []unsafe.Pointer{h}, devices)
 	_, ret = e.LookupDevice(hidden).GetIndex()
-	require.Equal(t, nvml.ERROR_NO_PERMISSION, ret)
+	require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret)
 }

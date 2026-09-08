@@ -428,14 +428,15 @@ func (d *ConfigurableDevice) GetConfig() *DeviceConfig {
 	return d.cfg()
 }
 
-// GetIndex returns the device index
+// GetIndex returns the zero-based ordinal among visible devices.
+// A handle for a hidden device returns ERROR_INVALID_ARGUMENT.
 func (d *ConfigurableDevice) GetIndex() (int, nvml.Return) {
 	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
 		return 0, ret
 	}
 	index := int(d.nvmlIndex.Load())
 	if index < 0 {
-		return 0, nvml.ERROR_NO_PERMISSION
+		return 0, nvml.ERROR_INVALID_ARGUMENT
 	}
 	debugLog("[NVML] nvmlDeviceGetIndex -> %d\n", index)
 	return index, nvml.SUCCESS

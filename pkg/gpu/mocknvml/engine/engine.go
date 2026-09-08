@@ -542,7 +542,7 @@ func (e *Engine) GetConfig() *Config {
 }
 
 // PendingXidEvent claims the next undelivered Xid critical-error event
-// from any device that has tripped failure injection with a `xid:` block
+// from any visible device that has tripped failure injection with a `xid:` block
 // configured. It returns the device handle (auto-registering one if the
 // caller hasn't resolved a handle for that device yet), the Xid code,
 // and true on success. When no event is pending it returns (nil, 0,
@@ -560,8 +560,8 @@ func (e *Engine) PendingXidEvent() (unsafe.Pointer, uint64, bool) {
 		return nil, 0, false
 	}
 
-	for _, dev := range e.server.configurableDevices {
-		if dev == nil {
+	for index, dev := range e.server.configurableDevices {
+		if dev == nil || !e.server.isDeviceVisible(index) {
 			continue
 		}
 		fi := dev.failureInjector()
@@ -585,7 +585,7 @@ func (e *Engine) PendingXidEvent() (unsafe.Pointer, uint64, bool) {
 	return nil, 0, false
 }
 
-// AnyDeviceLost reports whether any configured device is lost / fallen_off_bus.
+// AnyDeviceLost reports whether any visible device is lost / fallen_off_bus.
 // nvmlEventSetWait consults it so a wait on a set that (in real NVML) contains
 // a lost GPU fails with ERROR_GPU_IS_LOST like every other call against that
 // device. Does not advance any failure injector (no Tick).
@@ -599,7 +599,7 @@ func (e *Engine) PendingXidEvent() (unsafe.Pointer, uint64, bool) {
 // those semantics are unchanged.
 //
 // The mock does not record event-set membership (nvmlDeviceRegisterEvents
-// is a success stub), so any lost device fails every wait.
+// is a success stub), so any visible lost device fails every wait.
 func (e *Engine) AnyDeviceLost() bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -608,8 +608,8 @@ func (e *Engine) AnyDeviceLost() bool {
 		return false
 	}
 
-	for _, dev := range e.server.configurableDevices {
-		if dev == nil {
+	for index, dev := range e.server.configurableDevices {
+		if dev == nil || !e.server.isDeviceVisible(index) {
 			continue
 		}
 		if dev.failureLostByConfig() {
