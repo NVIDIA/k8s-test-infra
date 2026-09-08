@@ -248,6 +248,45 @@ func TestRender_NodePortGUIDsNoOverlap(t *testing.T) {
 	}
 }
 
+func TestRenderClassEntriesAreNotDirectories(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, Render(Options{
+		IB:       config.Infiniband{Enabled: true, HCACountOverride: 2, GUIDPrefix: "0002c903"},
+		NodeName: "worker-0",
+		RootDir:  root,
+	}))
+
+	// Mirrors rdmamap.GetRdmaDeviceList, which skips IsDir() entries. Real
+	// sysfs passes because the class holds symlinks.
+	entries, err := os.ReadDir(filepath.Join(root, "sys/class/infiniband"))
+	require.NoError(t, err)
+
+	var found []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		found = append(found, e.Name())
+	}
+	require.ElementsMatch(t, []string{"mlx5_0", "mlx5_1"}, found)
+
+	// Each entry points at a sibling under the same served root, not into
+	// sys/devices as real sysfs does: that keeps this renderer independent of
+	// the PCI one, which owns sys/devices and may not have run at all.
+	for _, ca := range []string{"mlx5_0", "mlx5_1"} {
+		target, err := os.Readlink(filepath.Join(root, "sys/class/infiniband", ca))
+		require.NoError(t, err)
+		require.Equal(t, filepath.Join("..", "infiniband_devices", ca), target)
+	}
+
+	// The attributes must remain readable through the link.
+	nodeType, err := os.ReadFile(filepath.Join(root, "sys/class/infiniband/mlx5_0/node_type"))
+	require.NoError(t, err)
+	require.Equal(t, "1: CA\n", string(nodeType))
+}
+
 func TestRender_BadGUIDPrefix(t *testing.T) {
 	dir := t.TempDir()
 	err := Render(Options{
@@ -256,4 +295,94 @@ func TestRender_BadGUIDPrefix(t *testing.T) {
 		RootDir:  dir,
 	})
 	require.Error(t, err, "expected error for bad guid_prefix")
+}
+
+// The RDMA device plugin rejects an HCA unless it finds char devices matching
+// all of rdma_cm, umad and uverbs, and then hands those paths to kubelet as
+// device specs. This pins the numbers a render asks for, which the privilege
+// needed to create device nodes would otherwise keep out of a unit test.
+func TestRender_RequestsTheCharDevicesConsumersRequire(t *testing.T) {
+	// Not parallel: it replaces the package's device-creation hook.
+	type devNode struct {
+		rel          string
+		major, minor uint32
+	}
+
+	var got []devNode
+
+	root := t.TempDir()
+
+	original := makeCharDevice
+	t.Cleanup(func() { makeCharDevice = original })
+
+	makeCharDevice = func(path string, major, minor uint32) error {
+		rel, err := filepath.Rel(root, path)
+		require.NoError(t, err)
+		got = append(got, devNode{rel, major, minor})
+
+		// Stand in for the node, so the render continues as it would with the
+		// capability present.
+		return os.WriteFile(path, nil, 0o644)
+	}
+
+	require.NoError(t, Render(Options{
+		IB:       config.Infiniband{Enabled: true, HCACountOverride: 2, GUIDPrefix: "0002c903"},
+		NodeName: "worker-0",
+		RootDir:  root,
+	}))
+
+	// rdma_cm is per node rather than per HCA, so its absence withdraws every
+	// HCA on the node rather than one.
+	require.ElementsMatch(t, []devNode{
+		{"dev/infiniband/rdma_cm", 10, 58},
+		{"dev/infiniband/uverbs0", 231, 0},
+		{"dev/infiniband/umad0", 231, 64},
+		{"dev/infiniband/issm0", 231, 128},
+		{"dev/infiniband/uverbs1", 231, 1},
+		{"dev/infiniband/umad1", 231, 65},
+		{"dev/infiniband/issm1", 231, 129},
+	}, got)
+}
+
+// The caller attaches the node's own classes to these directories, and the
+// renderer deletes whatever a pass did not write. An unregistered mountpoint
+// would therefore be removed from under a live consumer on the next reconcile.
+func TestRender_KeepsTheReproducedClassMountpointsAcrossPasses(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	opts := Options{
+		IB:               config.Infiniband{Enabled: true, HCACountOverride: 1},
+		NodeName:         "worker-0",
+		RootDir:          dir,
+		ReproduceClasses: []string{"net", "block"},
+	}
+
+	require.NoError(t, Render(opts))
+	require.NoError(t, Render(opts))
+
+	for _, c := range []string{"net", "block"} {
+		require.DirExists(t, filepath.Join(dir, "sys/class", c))
+	}
+}
+
+// A class the node stops having must not keep a mountpoint the caller will
+// never attach anything to.
+func TestRender_DropsAMountpointTheCallerNoLongerAsksFor(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	ib := config.Infiniband{Enabled: true, HCACountOverride: 1}
+
+	require.NoError(t, Render(Options{
+		IB: ib, NodeName: "worker-0", RootDir: dir,
+		ReproduceClasses: []string{"net", "block"},
+	}))
+	require.NoError(t, Render(Options{
+		IB: ib, NodeName: "worker-0", RootDir: dir,
+		ReproduceClasses: []string{"net"},
+	}))
+
+	require.DirExists(t, filepath.Join(dir, "sys/class/net"))
+	require.NoDirExists(t, filepath.Join(dir, "sys/class/block"))
 }

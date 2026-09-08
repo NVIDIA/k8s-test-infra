@@ -5,6 +5,7 @@ package ib
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -46,10 +47,29 @@ func stageSysfs(h *host.Host, state *agent.State, simulating bool) error {
 	ib.Enabled = ib.Enabled && simulating
 
 	return sysfs.Render(sysfs.Options{
-		IB:       ib,
-		NodeName: state.Node.NodeName,
-		RootDir:  ibRoot(h),
+		IB:               ib,
+		NodeName:         state.Node.NodeName,
+		RootDir:          ibRoot(h),
+		ReproduceClasses: reproducedClasses(h),
 	})
+}
+
+// reproducedClasses names the node's own sysfs classes to carry into the served
+// tree, which replaces sys/class wholesale for anything reading through it.
+//
+// A node whose /sys never reached the agent yields none: the simulated HCAs
+// still serve, and surfacing the cause as a warning beats failing a reconcile
+// over classes no consumer may even read.
+func reproducedClasses(h *host.Host) []string {
+	classes, err := classesToReproduce(h.SysPath("class"))
+	if err != nil {
+		slog.Warn("no host sysfs classes to serve; pods reading the IB tree see only simulated ones",
+			"simulator", name, "err", err)
+
+		return nil
+	}
+
+	return classes
 }
 
 // buildIB maps the compiled NetworkShape back onto the renderer's schema.
@@ -69,6 +89,7 @@ func buildIB(n agent.NetworkShape) ibconfig.Infiniband {
 		PhysState:        n.PhysState,
 		HCACountOverride: n.HCACount,
 		GUIDPrefix:       n.GUIDPrefix,
+		NetdevPrefix:     n.NetdevPrefix,
 	}
 }
 

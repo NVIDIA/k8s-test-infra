@@ -105,8 +105,19 @@ var _ = Describe("nvml-mock NFD label provenance", Label("nfd"), Ordered, Contin
 
 		res, err := h.Kube.ExecSh(ctx, agent, "cat "+nfdFeatureFile)
 		Expect(err).NotTo(HaveOccurred(), "reading %s: %s", nfdFeatureFile, res.Combined())
-		Expect(strings.TrimSpace(res.Stdout)).To(Equal("pci-10de.present=true"),
-			"feature file contents drive the label NFD creates")
+
+		// One line per PCI vendor the node simulates. The Mellanox one is what
+		// the Network Operator selects RDMA nodes on, and it is present only
+		// when the profile has HCAs. Order is not asserted: NFD reads the file
+		// as a set of lines.
+		want := []string{pciVendorFeature + "=true"}
+		names := config.SelectedProfileNames()
+		Expect(names).NotTo(BeEmpty())
+		if loadProfile(names[0]).ExpectedHCAs() > 0 {
+			want = append(want, "pci-15b3.present=true")
+		}
+		Expect(strings.Fields(res.Stdout)).To(ConsistOf(want),
+			"feature file contents drive the labels NFD creates")
 	})
 
 	It("gets the label from NFD once NFD is installed", Label("nfd-provenance"), func(ctx SpecContext) {

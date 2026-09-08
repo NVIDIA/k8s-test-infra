@@ -29,6 +29,12 @@ var NRIGpuAgentManifest []byte
 //go:embed gfd-mock.yaml
 var GFDManifest []byte
 
+// NicClusterPolicyManifest is the embedded Network Operator CR the RDMA
+// scenario applies to ask for the RDMA shared device plugin.
+//
+//go:embed nic-cluster-policy.yaml
+var NicClusterPolicyManifest []byte
+
 // ValidatorManifest is the embedded GPU Operator validator manifest used by the standalone scenario.
 //
 //go:embed validator-mock.yaml

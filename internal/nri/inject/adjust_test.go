@@ -16,7 +16,7 @@ func overlayMount() Mount {
 		Source:      "/var/lib/nvml-mock",
 		Destination: "/opt/nvml-mock",
 		Type:        "bind",
-		Options:     []string{"rbind", "ro", "nosuid", "nodev"},
+		Options:     []string{"bind", "rprivate", "ro", "nosuid", "nodev"},
 	}
 }
 
@@ -26,7 +26,7 @@ func configMount() Mount {
 		Source:      "/var/lib/nvml-mock/driver/config",
 		Destination: "/opt/nvml-mock/driver/config",
 		Type:        "bind",
-		Options:     []string{"rbind", "rw", "nosuid", "nodev"},
+		Options:     []string{"bind", "rprivate", "rw", "nosuid", "nodev"},
 	}
 }
 
@@ -42,7 +42,7 @@ func TestAdjustMountsTheOverlayForAPlainContainer(t *testing.T) {
 // sits beside the config.yaml MOCK_NVML_CONFIG points at. With the whole overlay
 // read-only that write failed with EROFS on exactly the GPUs that had state to
 // clear, so the config directory gets its own writable bind. It has to stay
-// layered over the overlay: ordered first, the read-only rbind would cover it.
+// layered over the overlay: ordered first, the read-only bind would cover it.
 func TestAdjustMountsConfigDirWritableOverReadOnlyOverlay(t *testing.T) {
 	t.Parallel()
 

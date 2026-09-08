@@ -70,6 +70,7 @@ type Options struct {
 var (
 	_ agent.Simulator = (*Simulator)(nil)
 	_ agent.Daemon    = (*Simulator)(nil)
+	_ agent.Applier   = (*Simulator)(nil)
 )
 
 // Simulator fakes the InfiniBand HCAs (Host Channel Adapters) absent on
@@ -183,6 +184,32 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 
 	s.ready.Store(true)
 	return nil
+}
+
+// Apply brings up the interfaces the HCAs are associated with. It runs after
+// the Stage barrier because the rendered tree names them.
+func (s *Simulator) Apply(_ context.Context, h *host.Host, state *agent.State) error {
+	net := state.NodeShape.Network
+	nsPath := h.ProcPath(hostNetnsRelPath)
+
+	// A tier or profile that simulates nothing has to take its interfaces with
+	// it: they are node-wide kernel state that outlives the profile edit.
+	if s.opts.Mode == ModeOff || !net.IBEnabled {
+		return removeNetdevs(nsPath, net.NetdevPrefix, net.HCACount)
+	}
+
+	return ensureNetdevs(nsPath, net.NetdevPrefix, net.HCACount)
+}
+
+// Revoke removes the interfaces on shutdown. They live in the node's network
+// namespace rather than under the agent's root, so nothing else reclaims them.
+func (s *Simulator) Revoke(_ context.Context, h *host.Host) error {
+	staged := s.lastStaged.Load()
+	if staged == nil {
+		return nil
+	}
+
+	return removeNetdevs(h.ProcPath(hostNetnsRelPath), staged.NetdevPrefix, staged.HCACount)
 }
 
 // recordShape stores the staged shape and flags a change for Reload.

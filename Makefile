@@ -292,6 +292,7 @@ image-load:
 #   make e2e-multi-node            # heterogeneous A100/T4 multi-node scenario
 #   make e2e-nri                   # node-wide NRI ambient-injection scenario
 #   make e2e-nfd                   # NFD label-provenance scenario
+#   make e2e-rdma                  # rdma/ib capacity via the Network Operator
 # CI builds the image once per run. Every leg loads it into Kind and sets
 # E2E_IMAGE to that ref. The reshaping scenarios set the DaemonSet to this ref.
 #
@@ -304,10 +305,10 @@ image-load:
 # ---------------------------------------------------------------------------
 GINKGO ?= $(GO_CMD) run github.com/onsi/ginkgo/v2/ginkgo
 E2E_TIMEOUT ?= 90m
-E2E_DEFAULT_LABEL_FILTER ?= !validator && !dra && !gpu-operator && !multi-node && !nri && !nfd
+E2E_DEFAULT_LABEL_FILTER ?= !validator && !dra && !gpu-operator && !multi-node && !nri && !nfd && !rdma
 E2E_GINKGO_FLAGS ?= --label-filter='$(E2E_DEFAULT_LABEL_FILTER)'
 
-.PHONY: e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd
+.PHONY: e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd e2e-rdma
 
 # `set -o pipefail` is inline on purpose; do not drop it as redundant with
 # .SHELLFLAGS. GNU Make ignores .SHELLFLAGS before 3.82 and macOS ships 3.81,
@@ -335,6 +336,18 @@ e2e-nri: ## e2e — NRI ambient-injection scenario
 # log then reads exactly like one that did exercise gb200.
 e2e-nfd: ## e2e — NFD label-provenance scenario (pinned to a100)
 	$(MAKE) e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter=nfd'
+
+# Pinned for the same reason as e2e-nfd: the rdma spec picks its node from the
+# running mock pods and asserts a vendor-only PCI selector plus the plugin's
+# rdmaHcaMax, none of which vary by GPU model. A second profile would spend a
+# kind cluster to re-run the identical assertion.
+#
+# Requires the node kernel to have the RDMA subsystem loaded (`modprobe
+# ib_core`): the shared device plugin queries it at startup and exits if it is
+# absent. Docker Desktop's LinuxKit kernel is built without CONFIG_INFINIBAND,
+# so this target only runs where the module exists (Linux hosts, CI).
+e2e-rdma: ## e2e — RDMA rdma/ib capacity via the Network Operator (pinned to a100; needs ib_core on the node kernel)
+	$(MAKE) e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter=rdma'
 
 ##@ Documentation
 

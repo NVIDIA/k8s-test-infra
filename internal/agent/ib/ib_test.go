@@ -203,7 +203,7 @@ func TestReload_RerendersTreeForNewShape(t *testing.T) {
 	grown := testNetwork()
 	grown.HCACount = 4
 	require.NoError(t, s.Stage(ctx, h, testState(grown)))
-	require.DirExists(t, h.RootPath("ib/sys/class/infiniband/mlx5_3"))
+	require.FileExists(t, h.RootPath("ib/sys/class/infiniband/mlx5_3/node_guid"))
 }
 
 func requireEventually(t *testing.T, cond func() bool, msg string) {

@@ -76,6 +76,167 @@ func (t *tree) write(rel, contents string) error {
 	return nil
 }
 
+// symlink brings rel to a link pointing at target, replacing whatever is there
+// when it differs. The kernel exposes class entries as symlinks, and consumers
+// enumerate the class by skipping directories, so a directory here reads as no
+// device at all.
+//
+// The link is what publishes the device, so callers create it only once target
+// is fully populated. A retarget lands in one rename, leaving no moment where
+// the path resolves nowhere.
+func (t *tree) symlink(rel, target string) error {
+	full := filepath.Join(t.root, rel)
+
+	if err := t.mkdir(filepath.Dir(rel)); err != nil {
+		return err
+	}
+	t.keep(rel)
+
+	if current, err := os.Readlink(full); err == nil && current == target {
+		return nil
+	}
+
+	tmpLink, err := stageSymlink(full, target)
+	if err != nil {
+		return fmt.Errorf("stage symlink %s: %w", rel, err)
+	}
+	defer func() { _ = os.Remove(tmpLink) }() // no-op after the rename lands
+
+	oldDir, err := moveDirectoryAside(full, rel)
+	if err != nil {
+		return err
+	}
+
+	return replaceWithSymlink(rel, full, tmpLink, oldDir)
+}
+
+func stageSymlink(full, target string) (string, error) {
+	tmpLink, err := tempSiblingPath(filepath.Dir(full), filepath.Base(full)+".link")
+	if err != nil {
+		return "", err
+	}
+	if err := os.Symlink(target, tmpLink); err != nil {
+		return "", fmt.Errorf("symlink %s: %w", tmpLink, err)
+	}
+	return tmpLink, nil
+}
+
+func moveDirectoryAside(full, rel string) (string, error) {
+	info, err := os.Lstat(full)
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("stat %s: %w", rel, err)
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return "", nil
+	}
+
+	oldDir, err := tempSiblingPath(filepath.Dir(full), filepath.Base(full)+".old")
+	if err != nil {
+		return "", fmt.Errorf("prepare directory temp for %s: %w", rel, err)
+	}
+	if err := os.Rename(full, oldDir); err != nil {
+		return "", fmt.Errorf("move old directory %s: %w", rel, err)
+	}
+	return oldDir, nil
+}
+
+func replaceWithSymlink(rel, full, tmpLink, oldDir string) error {
+	if err := os.Rename(tmpLink, full); err != nil {
+		return restoreAfterPublishError(rel, full, oldDir, err)
+	}
+	if oldDir == "" {
+		return nil
+	}
+	if err := os.RemoveAll(oldDir); err != nil {
+		return fmt.Errorf("remove old directory %s: %w", rel, err)
+	}
+	return nil
+}
+
+func restoreAfterPublishError(rel, full, oldDir string, publishErr error) error {
+	if oldDir == "" {
+		return fmt.Errorf("publish symlink %s: %w", rel, publishErr)
+	}
+	if restoreErr := os.Rename(oldDir, full); restoreErr != nil {
+		return fmt.Errorf("publish symlink %s: %w (restore old directory: %v)", rel, publishErr, restoreErr)
+	}
+	return fmt.Errorf("publish symlink %s: %w", rel, publishErr)
+}
+
+// chardev brings rel to a character device with the given numbers. Consumers
+// hand these paths to kubelet as device specs, which a regular file cannot
+// satisfy on a real node.
+//
+// Each path's numbers are fixed by its name, so an entry that is already a
+// character device is already the right one and is left alone. Anything else —
+// most often a placeholder from a pass that ran without CAP_MKNOD — is
+// replaced by rename, so a reader never finds the path missing.
+func (t *tree) chardev(rel string, major, minor uint32) error {
+	full := filepath.Join(t.root, rel)
+
+	if err := t.mkdir(filepath.Dir(rel)); err != nil {
+		return err
+	}
+
+	t.keep(rel)
+
+	info, err := os.Lstat(full)
+
+	switch {
+	case os.IsNotExist(err):
+		// Nothing to displace, so the node can be created where it belongs.
+		if err := makeCharDevice(full, major, minor); err != nil {
+			return fmt.Errorf("create device %s: %w", rel, err)
+		}
+
+		return nil
+	case err != nil:
+		return fmt.Errorf("stat %s: %w", rel, err)
+	case info.Mode()&os.ModeCharDevice != 0:
+		return nil
+	}
+
+	return t.replaceWithCharDevice(rel, full, major, minor)
+}
+
+func (t *tree) replaceWithCharDevice(rel, full string, major, minor uint32) error {
+	tmpDev, err := tempSiblingPath(filepath.Dir(full), filepath.Base(full)+".dev")
+	if err != nil {
+		return fmt.Errorf("stage device %s: %w", rel, err)
+	}
+
+	defer func() { _ = os.Remove(tmpDev) }() // no-op after the rename lands
+
+	if err := makeCharDevice(tmpDev, major, minor); err != nil {
+		return fmt.Errorf("create device %s: %w", rel, err)
+	}
+
+	if err := os.Rename(tmpDev, full); err != nil {
+		return fmt.Errorf("publish device %s: %w", rel, err)
+	}
+
+	return nil
+}
+
+func tempSiblingPath(dir, stem string) (string, error) {
+	f, err := os.CreateTemp(dir, "."+stem+".tmp*")
+	if err != nil {
+		return "", fmt.Errorf("create temp path in %s: %w", dir, err)
+	}
+	name := f.Name()
+	if err := f.Close(); err != nil {
+		_ = os.Remove(name) // cleanup for a path that was never published
+		return "", fmt.Errorf("close %s: %w", name, err)
+	}
+	if err := os.Remove(name); err != nil {
+		return "", fmt.Errorf("clear %s: %w", name, err)
+	}
+	return name, nil
+}
+
 // prune removes everything under the root that this pass did not write, which
 // is how a shape that drops HCAs takes their directories with it. A pass that
 // wrote nothing retracts the whole tree, leaving the root itself in place.

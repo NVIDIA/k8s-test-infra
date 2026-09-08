@@ -121,6 +121,9 @@ func TestRender_PCIAttributeFiles(t *testing.T) {
 	mustRead("class", "0x030200\n")
 	mustRead("revision", "0x00\n")
 	mustRead("irq", "0\n")
+	// ghw parses this at fixed offsets and drops any device it cannot decode,
+	// so the encoding has to be exact rather than merely consistent.
+	mustRead("modalias", "pci:v000010DEd00002330sv000010DEsd00001658bc03sc02i00\n")
 
 	// `resource` must match the kernel's 7-row "start end flags" layout so
 	// `lspci -v` parses it without erroring.
@@ -195,6 +198,38 @@ func TestRender_IdempotentRerender(t *testing.T) {
 	got, err := os.ReadFile(filepath.Join(dir, "sys/devices/pci0000:c0/0000:07:00.0/numa_node"))
 	require.NoError(t, err, "read numa_node")
 	require.Equal(t, "3\n", string(got), "numa_node not updated")
+}
+
+// A served pod receives this tree at /sys/devices, which hides the node's own
+// hierarchy — and every /sys/class/net entry is a symlink into it. The runtime
+// cannot create a destination inside a read-only mount, so without a mountpoint
+// rendered here it cannot serve the node's netdevs back, and reading any
+// interface attribute through /sys/class/net fails: including for the mock HCAs'
+// own links, which is precisely how a consumer decides an HCA is usable.
+//
+// It has to survive re-rendering for the same reason the served directories do:
+// a consumer binds these inodes when it starts and keeps them across an agent
+// restart.
+func TestRender_LeavesAMountpointForTheNodesNetdevs(t *testing.T) {
+	dir := t.TempDir()
+	topo := &PCIeTopology{
+		RootComplexes: []RootComplex{{
+			ID: "pci0000:00", NUMANode: 0,
+			Devices: []string{"0000:07:00.0"},
+		}},
+	}
+	require.NoError(t, Render(Options{Topology: topo, Output: dir}), "Render pass 1")
+	require.DirExists(t, filepath.Join(dir, VirtualNetRelPath))
+
+	// A pass declaring an entirely different root complex prunes what the
+	// previous one left, and must not take the mountpoint with it.
+	require.NoError(t, Render(Options{Topology: &PCIeTopology{
+		RootComplexes: []RootComplex{{
+			ID: "pci0000:c0", NUMANode: 3,
+			Devices: []string{"0000:c0:00.0"},
+		}},
+	}, Output: dir}), "Render pass 2")
+	require.DirExists(t, filepath.Join(dir, VirtualNetRelPath))
 }
 
 func TestRender_NormalizesUppercaseBDF(t *testing.T) {
@@ -392,4 +427,81 @@ func TestRender_RejectsANameThatEscapesOutput(t *testing.T) {
 				"the render escaped Output")
 		})
 	}
+}
+
+// The RDMA device plugin discovers an HCA by walking the PCI device it hangs
+// off: it filters on vendor, reads the driver link, and reads the infiniband
+// and net directories to associate the HCA with an interface. Each of those is
+// a separate shape requirement, so they are pinned together.
+func TestRender_MellanoxNICSatisfiesPluginDiscovery(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	const bdf = "0000:c0:00.0"
+
+	require.NoError(t, Render(Options{
+		Output:   dir,
+		Topology: &PCIeTopology{RootComplexes: []RootComplex{{ID: "pci0000:c0", Devices: []string{bdf}}}},
+		Identities: map[string]PCI{
+			bdf: {
+				BusID:    bdf,
+				DeviceID: 0x1021<<16 | MellanoxVendorID,
+				Class:    ClassInfiniband,
+				Driver:   "mlx5_core",
+				Netdev:   "mockib0",
+				IBDevice: "mlx5_0",
+			},
+		},
+	}))
+
+	devDir := filepath.Join(dir, PCIDevicesRelPath, bdf)
+
+	// Selectors filter on the vendor before looking at anything else.
+	vendor, err := os.ReadFile(filepath.Join(devDir, "vendor"))
+	require.NoError(t, err)
+	require.Equal(t, "0x15b3\n", string(vendor))
+
+	// The plugin enumerates through ghw, which builds its device list from
+	// modalias alone: a device without one never reaches the vendor selector.
+	modalias, err := os.ReadFile(filepath.Join(devDir, "modalias"))
+	require.NoError(t, err)
+	require.Equal(t, "pci:v000015B3d00001021sv000015B3sd00000000bc02sc07i00\n", string(modalias))
+
+	// GetPCIDevDriver resolves this with readlink; a directory yields no driver
+	// and the device is skipped.
+	link, err := os.Readlink(filepath.Join(devDir, "driver"))
+	require.NoError(t, err)
+	require.Equal(t, "mlx5_core", filepath.Base(link))
+
+	// Here the entries must be directories — the opposite of the rule on
+	// /sys/class/infiniband, where a directory means "not a device".
+	for _, sub := range []struct{ dir, want string }{
+		{"infiniband", "mlx5_0"},
+		{"net", "mockib0"},
+	} {
+		entries, err := os.ReadDir(filepath.Join(devDir, sub.dir))
+		require.NoError(t, err)
+		require.Len(t, entries, 1)
+		require.True(t, entries[0].IsDir(), "%s entries must be directories", sub.dir)
+		require.Equal(t, sub.want, entries[0].Name())
+	}
+}
+
+// A device with no identity keeps rendering as a GPU, which is what every
+// existing profile declares.
+func TestRender_DefaultsToTheGPUClass(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	const bdf = "0000:0a:00.0"
+
+	require.NoError(t, Render(Options{
+		Output:   dir,
+		Topology: &PCIeTopology{RootComplexes: []RootComplex{{ID: "pci0000:0a", Devices: []string{bdf}}}},
+	}))
+
+	class, err := os.ReadFile(filepath.Join(dir, PCIDevicesRelPath, bdf, "class"))
+	require.NoError(t, err)
+	require.Equal(t, "0x030200\n", string(class))
+	require.NoFileExists(t, filepath.Join(dir, PCIDevicesRelPath, bdf, "driver"))
 }

@@ -5,6 +5,7 @@ package pcibus
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -121,15 +122,18 @@ func stagePCIShim(h *host.Host) error {
 	return nil
 }
 
-// buildTopology maps the state's reconciled layout onto the renderer's type.
-// Returns nil when there is nothing to render, which Render treats as a no-op.
+// buildTopology maps the state's reconciled layout onto the renderer's type,
+// adding the Mellanox NICs the simulated HCAs hang off. Returns nil when there
+// is nothing to render, which Render treats as a no-op.
 func buildTopology(state *agent.State) *pcisysfs.PCIeTopology {
 	rcs := state.PCITopology()
-	if len(rcs) == 0 {
+	nics := nicsFor(state)
+
+	if len(rcs) == 0 && len(nics) == 0 {
 		return nil
 	}
 
-	topo := &pcisysfs.PCIeTopology{RootComplexes: make([]pcisysfs.RootComplex, 0, len(rcs))}
+	topo := &pcisysfs.PCIeTopology{RootComplexes: make([]pcisysfs.RootComplex, 0, len(rcs)+len(nics))}
 	for _, rc := range rcs {
 		topo.RootComplexes = append(topo.RootComplexes, pcisysfs.RootComplex{
 			ID:       rc.ID,
@@ -138,13 +142,118 @@ func buildTopology(state *agent.State) *pcisysfs.PCIeTopology {
 		})
 	}
 
+	// One root complex each, mirroring how a real host puts every NIC behind
+	// its own bridge, and keeping them out of the pruning that the declared
+	// root complexes' device lists drive.
+	for _, nic := range nics {
+		topo.RootComplexes = append(topo.RootComplexes, pcisysfs.RootComplex{
+			ID:      nicRootComplexID(nic.BusID),
+			Devices: []string{nic.BusID},
+		})
+	}
+
 	return topo
+}
+
+// nicRootComplexID names the bridge a NIC hangs off, after the kernel's
+// pciDDDD:BB naming. The prefix matters: the renderer prunes only entries
+// starting with "pci", leaving anything else alone as another writer's.
+func nicRootComplexID(bdf string) string {
+	domain, bus, _ := strings.Cut(bdf, ":")
+	bus, _, _ = strings.Cut(bus, ":")
+
+	return "pci" + domain + ":" + bus
+}
+
+// nicsFor derives the NICs, logging rather than failing when they collide with
+// a declared address: a reconcile that drops the whole PCI tree would take the
+// GPUs with it, which is worse than an HCA nothing discovers.
+func nicsFor(state *agent.State) []pcisysfs.PCI {
+	if state == nil {
+		return nil
+	}
+
+	declared := make(map[string]struct{}, len(state.Devices))
+	for _, d := range state.Devices {
+		if d.PCIBusID != "" {
+			declared[strings.ToLower(d.PCIBusID)] = struct{}{}
+		}
+	}
+
+	nics, err := mellanoxNICs(state.NodeShape.Network, declared)
+	if err != nil {
+		slog.Error("rendering no Mellanox NICs; the simulated HCAs will not be discoverable",
+			"simulator", name, "err", err)
+
+		return nil
+	}
+
+	return nics
+}
+
+// Where the derived NICs live. A high bus keeps them clear of the low ones
+// profiles give their GPUs, and one function per bus mirrors a real single-port
+// adapter.
+const (
+	nicFirstBus = 0xc0
+	nicLastBus  = 0xff
+)
+
+// mlx5Driver is the module a real ConnectX binds to. Consumers read the driver
+// link to decide a device is claimed, so the name has to be the real one.
+const mlx5Driver = "mlx5_core"
+
+// connectX7DeviceID is the PCI device ID of a ConnectX-7, matching the HCA type
+// the profiles declare by default.
+const connectX7DeviceID = 0x1021
+
+// mellanoxNICs derives one NIC per simulated HCA. RDMA consumers discover an
+// HCA only by walking the PCI device it hangs off, so the NIC is what makes a
+// simulated HCA visible at all; its addresses are derived rather than
+// configured so the two can never disagree about how many there are.
+func mellanoxNICs(net agent.NetworkShape, declared map[string]struct{}) ([]pcisysfs.PCI, error) {
+	if !net.IBEnabled || net.HCACount <= 0 {
+		return nil, nil
+	}
+
+	if net.HCACount > nicLastBus-nicFirstBus+1 {
+		return nil, fmt.Errorf("hca_count=%d exceeds the %d PCI addresses reserved for mock NICs",
+			net.HCACount, nicLastBus-nicFirstBus+1)
+	}
+
+	nics := make([]pcisysfs.PCI, 0, net.HCACount)
+
+	for i := range net.HCACount {
+		bdf := fmt.Sprintf("0000:%02x:00.0", nicFirstBus+i)
+		if _, taken := declared[bdf]; taken {
+			return nil, fmt.Errorf("mock NIC address %s is already declared by another device", bdf)
+		}
+
+		nics = append(nics, pcisysfs.PCI{
+			BusID: bdf,
+			// Packed as the renderer unpacks it: device in the high half,
+			// vendor in the low.
+			DeviceID: connectX7DeviceID<<16 | pcisysfs.MellanoxVendorID,
+			Class:    pcisysfs.ClassInfiniband,
+			Driver:   mlx5Driver,
+			Netdev:   fmt.Sprintf("%s%d", net.NetdevPrefix, i),
+			IBDevice: fmt.Sprintf("mlx5_%d", i),
+		})
+	}
+
+	return nics, nil
 }
 
 // buildIdentities maps each device's lowercased BDF to its PCI identity for
 // the renderer's attribute files (vendor, device, class, config space).
 func buildIdentities(state *agent.State) map[string]pcisysfs.PCI {
 	ids := make(map[string]pcisysfs.PCI, len(state.Devices))
+
+	// The NICs carry their own identity: vendor, driver and the netdev and RDMA
+	// directories a consumer walks from the device to the HCA behind it.
+	for _, nic := range nicsFor(state) {
+		ids[nic.BusID] = nic
+	}
 
 	for _, d := range state.Devices {
 		if d.PCIBusID == "" {

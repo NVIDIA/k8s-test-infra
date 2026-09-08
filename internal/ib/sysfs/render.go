@@ -20,12 +20,46 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/config"
 )
 
+// ibDevicesRel holds each HCA's attribute directory. The class entry is a
+// symlink into it, mirroring the kernel's class-to-device indirection while
+// staying inside one served mount.
+const ibDevicesRel = "sys/class/infiniband_devices"
+
+// MockOwnedClasses are the sys/class entries this renderer writes. Serving the
+// tree replaces a consumer's whole sys/class, so the node's other classes have
+// to be reproduced alongside these — and these must never be reproduced from
+// the node, whose own InfiniBand class is empty on a CPU-only machine and
+// would retract every simulated HCA.
+//
+// Exported because the reproducing happens elsewhere: the agent decides which
+// classes to carry across, and the NRI plugin attaches them.
+var MockOwnedClasses = []string{
+	"infiniband",
+	"infiniband_devices",
+	"infiniband_mad",
+	"infiniband_verbs",
+}
+
+// Device numbers the kernel assigns the InfiniBand char devices. Consumers
+// match them to decide which HCA a device file belongs to, so the mock has to
+// use the real ones rather than any consistent scheme of its own.
+const (
+	ibCharDevMajor = 231
+	rdmaCMMajor    = 10
+	rdmaCMMinor    = 58
+)
+
 // Options controls a single rendering pass.
 type Options struct {
 	IB       config.Infiniband
 	GPUCount int    // used when IB.HCACountOverride == 0
 	NodeName string // expanded into NodeDescTemplate
 	RootDir  string // fake-root directory; subtree rooted at <RootDir>/sys/class/...
+	// ReproduceClasses names sys/class entries the caller attaches the node's
+	// own classes to. They are created empty and, being written by the pass,
+	// survive its pruning — otherwise a reconcile would delete a mountpoint
+	// from under a live consumer.
+	ReproduceClasses []string
 }
 
 // Render brings the tree at o.RootDir onto the given spec, writing what the spec
@@ -43,7 +77,7 @@ type Options struct {
 //	        gids/0 pkeys/0 counters/* gid_attrs/{types,ndevs}/0
 //	sys/class/infiniband_mad/    abi_version {umad,issm}N/{ibdev,port}
 //	sys/class/infiniband_verbs/  abi_version uverbsN/{ibdev,abi_version,dev}
-//	dev/infiniband/              {umad,issm,uverbs}N, empty: real char devices need CAP_MKNOD
+//	dev/infiniband/              rdma_cm and {umad,issm,uverbs}N char devices
 func Render(o Options) error {
 	t, err := render(o)
 
@@ -87,7 +121,16 @@ func render(o Options) (*tree, error) {
 		return nil, fmt.Errorf("infiniband: hca_count=%d exceeds mock GUID capacity %d", hcaCount, maxGUIDHCAs)
 	}
 
+	for _, c := range o.ReproduceClasses {
+		if err := t.mkdir(filepath.Join("sys/class", c)); err != nil {
+			return nil, err
+		}
+	}
+
 	if err := t.mkdir("sys/class/infiniband"); err != nil {
+		return nil, err
+	}
+	if err := t.mkdir(ibDevicesRel); err != nil {
 		return nil, err
 	}
 	if err := t.mkdir("sys/class/infiniband_mad"); err != nil {
@@ -97,6 +140,12 @@ func render(o Options) (*tree, error) {
 		return nil, err
 	}
 	if err := t.mkdir("dev/infiniband"); err != nil {
+		return nil, err
+	}
+
+	// One per node rather than per HCA, and consumers reject an HCA when it is
+	// missing, so its absence withdraws the whole node rather than one device.
+	if err := t.chardev("dev/infiniband/rdma_cm", rdmaCMMajor, rdmaCMMinor); err != nil {
 		return nil, err
 	}
 
@@ -119,7 +168,7 @@ func render(o Options) (*tree, error) {
 //nolint:cyclop // existing complexity; refactor deferred
 func renderHCA(t *tree, ib config.Infiniband, guidPrefix string, idx, hcaCount int, nodeName string) error {
 	caName := fmt.Sprintf("mlx5_%d", idx)
-	caDir := filepath.Join("sys/class/infiniband", caName)
+	caDir := filepath.Join(ibDevicesRel, caName)
 	if err := t.mkdir(caDir); err != nil {
 		return err
 	}
@@ -280,20 +329,26 @@ func renderHCA(t *tree, ib config.Infiniband, guidPrefix string, idx, hcaCount i
 		return err
 	}
 
-	// /dev/infiniband device files. Real char-dev creation requires
-	// CAP_MKNOD; regular files are sufficient for sysfs-only consumers
-	// (ibstat, ibstatus, iblinkinfo). umad_open_port / ibv_open_device
-	// will fail at ioctl time, which is out of scope.
-	for _, f := range []string{
-		fmt.Sprintf("dev/infiniband/umad%d", idx),
-		fmt.Sprintf("dev/infiniband/issm%d", idx),
-		fmt.Sprintf("dev/infiniband/uverbs%d", idx),
+	// The kernel gives the infiniband char devices a shared major and a fixed
+	// stride per class, and consumers derive an HCA's index from the minor.
+	for _, d := range []struct {
+		rel   string
+		minor uint32
+	}{
+		{fmt.Sprintf("dev/infiniband/uverbs%d", idx), uint32(idx)},
+		{fmt.Sprintf("dev/infiniband/umad%d", idx), uint32(idx) + 64},
+		{fmt.Sprintf("dev/infiniband/issm%d", idx), uint32(idx) + 128},
 	} {
-		if err := t.write(f, ""); err != nil {
+		if err := t.chardev(d.rel, ibCharDevMajor, d.minor); err != nil {
 			return err
 		}
 	}
-	return nil
+
+	// Last, because this link is what makes the HCA visible to anything
+	// enumerating the class: until it exists there is no device to find, and
+	// once it exists everything behind it is already there to read. The target
+	// is relative so it resolves inside whatever root the tree is served at.
+	return t.symlink(filepath.Join("sys/class/infiniband", caName), filepath.Join("..", "infiniband_devices", caName))
 }
 
 // nameValue is a (filename, contents) pair used to keep file creation

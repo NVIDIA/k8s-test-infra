@@ -380,3 +380,75 @@ func TestStagePCIShim_StagesEverySoname(t *testing.T) {
 		require.Equal(t, name, string(data))
 	}
 }
+
+// One NIC per HCA, because RDMA consumers reach an HCA only through the PCI
+// device it hangs off: an HCA with no NIC behind it is one nothing discovers.
+func TestMellanoxNICs_OnePerHCA(t *testing.T) {
+	t.Parallel()
+
+	nics, err := mellanoxNICs(agent.NetworkShape{
+		IBEnabled: true, HCACount: 2, NetdevPrefix: "mockib",
+	}, nil)
+	require.NoError(t, err)
+	require.Len(t, nics, 2)
+
+	require.Equal(t, "0000:c0:00.0", nics[0].BusID)
+	require.Equal(t, "mlx5_0", nics[0].IBDevice)
+	require.Equal(t, "mockib0", nics[0].Netdev)
+	require.Equal(t, "mlx5_core", nics[0].Driver)
+	require.Equal(t, "0000:c1:00.0", nics[1].BusID)
+	require.Equal(t, "mlx5_1", nics[1].IBDevice)
+	require.Equal(t, "mockib1", nics[1].Netdev)
+}
+
+// A profile without InfiniBand must not claim a Mellanox NIC.
+func TestMellanoxNICs_NoneWithoutIB(t *testing.T) {
+	t.Parallel()
+
+	nics, err := mellanoxNICs(agent.NetworkShape{IBEnabled: false, HCACount: 4}, nil)
+	require.NoError(t, err)
+	require.Empty(t, nics)
+}
+
+// The derived addresses share the tree with whatever the profile declares, and
+// two devices at one address would render as one. Surfacing it beats serving a
+// tree quietly missing a GPU or an HCA.
+func TestMellanoxNICs_RejectsACollisionWithADeclaredDevice(t *testing.T) {
+	t.Parallel()
+
+	_, err := mellanoxNICs(
+		agent.NetworkShape{IBEnabled: true, HCACount: 1, NetdevPrefix: "mockib"},
+		map[string]struct{}{"0000:c0:00.0": {}},
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "0000:c0:00.0")
+}
+
+// The NICs have to reach the rendered tree alongside the GPUs, on their own
+// root complex: consumers read numa_node off the device they discover.
+func TestBuildTopology_PlacesTheMellanoxNICs(t *testing.T) {
+	t.Parallel()
+
+	state := &agent.State{
+		Devices: []agent.DeviceSpec{{Index: 0, PCIBusID: "0000:0a:00.0"}},
+		NodeShape: agent.NodeShape{
+			Network: agent.NetworkShape{IBEnabled: true, HCACount: 1, NetdevPrefix: "mockib"},
+		},
+	}
+
+	topo := buildTopology(state)
+	require.NotNil(t, topo)
+
+	var got []string
+	for _, rc := range topo.RootComplexes {
+		got = append(got, rc.Devices...)
+	}
+	require.Contains(t, got, "0000:0a:00.0")
+	require.Contains(t, got, "0000:c0:00.0")
+
+	ids := buildIdentities(state)
+	nic, ok := ids["0000:c0:00.0"]
+	require.True(t, ok)
+	require.Equal(t, uint32(0x15b3), nic.DeviceID&0xffff)
+	require.Equal(t, "mlx5_0", nic.IBDevice)
+}

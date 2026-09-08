@@ -98,6 +98,9 @@ should match snapshot with all overrides:
                 capabilities:
                   add:
                     - MKNOD
+                    - NET_ADMIN
+                    - SYS_ADMIN
+                    - SYS_PTRACE
                   drop:
                     - ALL
               volumeMounts:
@@ -118,6 +121,9 @@ should match snapshot with all overrides:
                   name: fabric-state
                 - mountPath: /host/sys
                   name: node-sysfs
+                  readOnly: true
+                - mountPath: /host/proc
+                  name: node-procfs
                   readOnly: true
           nodeSelector:
             mokka.nvidia.com/type: sgpu
@@ -151,6 +157,10 @@ should match snapshot with all overrides:
                 path: /sys
                 type: Directory
               name: node-sysfs
+            - hostPath:
+                path: /proc
+                type: Directory
+              name: node-procfs
             - hostPath:
                 path: /var/lib/nvml-mock/fabric-state
                 type: DirectoryOrCreate
@@ -257,6 +267,9 @@ should match snapshot with b200 profile:
                 capabilities:
                   add:
                     - MKNOD
+                    - NET_ADMIN
+                    - SYS_ADMIN
+                    - SYS_PTRACE
                   drop:
                     - ALL
               volumeMounts:
@@ -275,6 +288,9 @@ should match snapshot with b200 profile:
                   name: nfd-features
                 - mountPath: /host/sys
                   name: node-sysfs
+                  readOnly: true
+                - mountPath: /host/proc
+                  name: node-procfs
                   readOnly: true
           serviceAccountName: RELEASE-NAME-nvml-mock
           terminationGracePeriodSeconds: 10
@@ -304,6 +320,10 @@ should match snapshot with b200 profile:
                 path: /sys
                 type: Directory
               name: node-sysfs
+            - hostPath:
+                path: /proc
+                type: Directory
+              name: node-procfs
       updateStrategy:
         rollingUpdate:
           maxUnavailable: 25%
@@ -408,6 +428,9 @@ should match snapshot with default values:
                 capabilities:
                   add:
                     - MKNOD
+                    - NET_ADMIN
+                    - SYS_ADMIN
+                    - SYS_PTRACE
                   drop:
                     - ALL
               volumeMounts:
@@ -428,6 +451,9 @@ should match snapshot with default values:
                   name: fabric-state
                 - mountPath: /host/sys
                   name: node-sysfs
+                  readOnly: true
+                - mountPath: /host/proc
+                  name: node-procfs
                   readOnly: true
           serviceAccountName: RELEASE-NAME-nvml-mock
           terminationGracePeriodSeconds: 10
@@ -457,6 +483,10 @@ should match snapshot with default values:
                 path: /sys
                 type: Directory
               name: node-sysfs
+            - hostPath:
+                path: /proc
+                type: Directory
+              name: node-procfs
             - hostPath:
                 path: /var/lib/nvml-mock/fabric-state
                 type: DirectoryOrCreate
