@@ -5,9 +5,10 @@
 #
 # End-to-end demo of nvml-mock GPU failure injection.
 #
-# Spins up a dedicated Kind cluster (so it never collides with the
-# standalone demo), then walks the deployment through four scenarios
-# via `helm upgrade --reuse-values`:
+# Installs into the cluster your current kubectl context points at
+# (BUILD_LOCAL=true instead builds the image and side-loads it into a
+# dedicated Kind cluster of its own), then walks the deployment through
+# four scenarios via `helm upgrade --reuse-values`:
 #
 #   1. healthy            - baseline, all NVML calls succeed.
 #   2. ecc_uncorrectable  - device stays addressable; ECC counters
@@ -27,22 +28,61 @@
 
 set -euo pipefail
 
+# shellcheck source=../lib/preflight.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/preflight.sh"
+
 ###############################################################################
 # Configuration
 ###############################################################################
 CLUSTER_NAME="nvml-mock-failure-demo"
-# Kind creates a kubeconfig context named "kind-<cluster>". Pin every kubectl
-# and helm call to it so the demo never operates on whatever context happens to
-# be current (which could be a real cluster).
-KUBE_CONTEXT="kind-${CLUSTER_NAME}"
-IMAGE_NAME="nvml-mock:failure-demo"
-RELEASE_NAME="nvml-mock"
+# BUILD_LOCAL=true builds the image from source and side-loads it into a Kind
+# cluster, creating that cluster if it is missing. It is the ONLY path that
+# needs Docker and Kind. The default installs the published image into the
+# cluster your current context already points at, and never creates one.
+: "${BUILD_LOCAL:=false}"
+: "${LOCAL_IMAGE:=nvml-mock:failure-demo}"
+# Populated only on the BUILD_LOCAL path, when the demo switches contexts.
+PRIOR_CONTEXT=""
+# Resolved by demo::preflight below. This demo previously ran 11 bare kubectl
+# call sites and two helm calls with no --kube-context, so on its
+# cluster-reuse branch it installed into whatever context happened to be
+# current, silently. Every one is now pinned to the context the preflight
+# announced and, off Kind, made you confirm.
+KUBE_CONTEXT=""
+# MUST differ from the standalone demo's release name. The chart creates a
+# ClusterRole and ClusterRoleBinding named after the release
+# (templates/rbac.yaml), and those are CLUSTER-scoped, so a namespace cannot
+# separate them. With both demos on "nvml-mock" the second install dies with:
+#   Error: unable to continue with install: ClusterRole "nvml-mock" in
+#   namespace "" exists and cannot be imported into the current release:
+#   invalid ownership metadata; annotation validation error: key
+#   "meta.helm.sh/release-namespace" must equal "mokka-failure": current
+#   value is "mokka"
+# The release name contains the chart name, so nvml-mock.fullname collapses to
+# exactly this string and every derived object is "nvml-mock-failure*".
+RELEASE_NAME="nvml-mock-failure"
+# Deploy into a namespace of its own, distinct from the standalone demo's
+# "mokka". The distinct RELEASE_NAME above is what keeps the two demos'
+# cluster-scoped objects apart; this keeps their namespaced objects apart too,
+# so `kubectl -n mokka get all` shows one demo rather than both interleaved.
+#
+# Overriding this to "mokka" no longer produces a helm ownership error, since
+# the releases now have different names, so the two demos would simply
+# co-locate. They still share per-node host state either way, so do not run
+# both against one cluster at the same time.
+: "${NAMESPACE:=mokka-failure}"
 CHART_PATH="deployments/nvml-mock/helm/nvml-mock"
 # The chart names its rendered ConfigMap "<fullname>-config" (see
-# templates/configmap.yaml). For RELEASE_NAME=nvml-mock the helm
-# fullname helper short-circuits to the release name, so the
-# ConfigMap is just "nvml-mock-config".
+# templates/configmap.yaml). The fullname helper short-circuits to the
+# release name whenever the release name contains the chart name, which
+# ours does, so the ConfigMap is "nvml-mock-failure-config".
 CONFIGMAP_NAME="${RELEASE_NAME}-config"
+# Pods carry app.kubernetes.io/name=<CHART name> and
+# app.kubernetes.io/instance=<RELEASE name> (templates/_helpers.tpl,
+# nvml-mock.selectorLabels). Selecting on name alone would match the
+# standalone demo's pods too on a shared cluster, and would match NOTHING
+# once the release stopped being called "nvml-mock". Pin the instance.
+POD_SELECTOR="app.kubernetes.io/name=nvml-mock,app.kubernetes.io/instance=${RELEASE_NAME}"
 # Number of GPUs that nvidia-smi reports inside the daemonset pod. We
 # DON'T pass --set gpu.count=... because that only affects the
 # host-side CDI spec produced by the cdi simulator — the in-pod config mounted
@@ -64,13 +104,12 @@ KIND_CONFIG="${REPO_ROOT}/docs/demo/kind.yaml"
 # value on stdout (e.g. upgrade_and_recycle -> pod name) stay safe to
 # use inside command substitution.
 info()    { printf '\n==> %s\n' "$*" >&2; }
+# Pin every kubectl call to the context the preflight resolved and announced,
+# so nothing can redirect the demo to a cluster the reader never saw.
+kubectl_ctx() { command kubectl --context "${KUBE_CONTEXT}" -n "${NAMESPACE}" "$@"; }
 sub()     { printf '    %s\n' "$*" >&2; }
 ok()      { printf '    \xE2\x9C\x93 %s\n' "$*" >&2; }   # ✓
 fail()    { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
-
-# Wrap kubectl so every call is pinned to the demo's kind context without
-# repeating --context at each call site. helm keeps --kube-context inline.
-kubectl_ctx() { command kubectl --context "${KUBE_CONTEXT}" "$@"; }
 
 # wait_for_pod: wait for the DaemonSet rollout to settle and echo the
 # name of a Running pod we can exec into for verification.
@@ -80,8 +119,9 @@ kubectl_ctx() { command kubectl --context "${KUBE_CONTEXT}" "$@"; }
 # Filtering on status.phase=Running keeps us from accidentally execing
 # into a pod that's on its way out.
 wait_for_pod() {
-  kubectl_ctx rollout status "daemonset/${RELEASE_NAME}" --timeout=90s >/dev/null
-  kubectl_ctx get pods -l "app.kubernetes.io/name=${RELEASE_NAME}" \
+  kubectl_ctx rollout status "daemonset/${RELEASE_NAME}" \
+    --timeout="$(demo::install_timeout)" >/dev/null
+  kubectl_ctx get pods -l "${POD_SELECTOR}" \
     --field-selector=status.phase=Running \
     -o jsonpath='{.items[0].metadata.name}'
 }
@@ -108,15 +148,16 @@ upgrade_and_recycle() {
   shift
   sub "helm upgrade -> ${label}"
   helm upgrade "${RELEASE_NAME}" "${REPO_ROOT}/${CHART_PATH}" \
-  --kube-context "${KUBE_CONTEXT}" \
+    --kube-context "${KUBE_CONTEXT}" \
+    --namespace "${NAMESPACE}" \
     --reuse-values "$@" \
-    --wait --timeout 120s >/dev/null
+    --wait --timeout "$(demo::install_timeout)" >/dev/null
   # Synchronous delete: the chart pins terminationGracePeriodSeconds
   # to a low value (see values.yaml), so the default --wait=true
   # blocks just long enough for pods to disappear before rollout
   # status checks the new generation. --ignore-not-found keeps the
   # call idempotent if the previous scenario already evicted them.
-  kubectl_ctx delete pods -l "app.kubernetes.io/name=${RELEASE_NAME}" \
+  kubectl_ctx delete pods -l "${POD_SELECTOR}" \
     --ignore-not-found >/dev/null
   wait_for_pod
 }
@@ -135,24 +176,68 @@ assert_configmap_contains() {
 }
 
 ###############################################################################
-# Step 1 -- Create / reuse the Kind cluster
+# Step 1 -- Resolve the target cluster
+#
+# BUILD_LOCAL=true owns a Kind cluster: it creates one if missing and switches
+# to it, because a locally built image can only be side-loaded into a cluster
+# this script controls. Otherwise nothing is created and the demo installs
+# into whatever context is already current, which demo::preflight announces
+# and, unless it is a loopback Kind cluster, makes you confirm.
 ###############################################################################
-info "Creating Kind cluster: ${CLUSTER_NAME}"
-if kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}"; then
-  sub "Cluster already exists, reusing it"
-else
-  kind create cluster --name "${CLUSTER_NAME}" --config="${KIND_CONFIG}"
+if [[ "${BUILD_LOCAL}" == "true" ]]; then
+  # Before creating anything: a missing docker or kind here would otherwise
+  # surface as a raw "command not found" after a cluster already existed.
+  demo::require_build_tools
+  # Remember where the reader was BEFORE anything can move them. `kind create
+  # cluster` switches the current context as a side effect, so capturing after
+  # the block below would record the cluster this run just made and the summary
+  # would have nothing to put back.
+  PRIOR_CONTEXT="$(command kubectl config current-context 2>/dev/null || true)"
+  info "Creating Kind cluster: ${CLUSTER_NAME}"
+  if kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}"; then
+    sub "Cluster already exists, reusing it"
+  else
+    kind create cluster --name "${CLUSTER_NAME}" --config="${KIND_CONFIG}"
+  fi
+  command kubectl config use-context "kind-${CLUSTER_NAME}"
 fi
 
-###############################################################################
-# Step 2 -- Build + load the image
-###############################################################################
-info "Building image: ${IMAGE_NAME}"
-docker build -t "${IMAGE_NAME}" \
-  -f "${REPO_ROOT}/deployments/nvml-mock/Dockerfile" "${REPO_ROOT}"
+# Tell the preflight where the workload lands so its announcement, which is
+# the one thing the reader confirms, names the namespace too.
+# shellcheck disable=SC2034  # read by demo::preflight in ../lib/preflight.sh
+DEMO_NAMESPACE="${NAMESPACE}"
+demo::preflight
+# The standalone demo's release. Co-locating the two corrupts shared per-node
+# host state that no namespace or release name scopes.
+demo::require_no_sibling_release "nvml-mock" "${RELEASE_NAME}"
+# And the GPU Operator demo's release, added later. Every demo has to know
+# about every other one: a guard that covers one direction only is the same
+# asymmetry that shipped the original defect.
+demo::require_no_sibling_release "nvml-mock-operator" "${RELEASE_NAME}"
+KUBE_CONTEXT="${DEMO_KUBE_CONTEXT}"
+IMAGE_NAME="$(demo::image_ref)"
 
-info "Loading image into Kind"
-kind load docker-image "${IMAGE_NAME}" --name "${CLUSTER_NAME}"
+# Split "repo:tag" for the chart's two separate values. Shared with the
+# standalone demo, and it rejects digest refs the chart cannot express.
+# `exit` inside $() only leaves the subshell, so propagate the code explicitly
+# rather than relying on set -e to notice the failed assignment.
+IMAGE_PARTS="$(demo::image_parts "${IMAGE_NAME}")" || exit $?
+IMAGE_REPO="${IMAGE_PARTS%|*}"
+IMAGE_TAG="${IMAGE_PARTS#*|}"
+
+###############################################################################
+# Step 2 -- Build + load the image (BUILD_LOCAL only)
+###############################################################################
+if [[ "${BUILD_LOCAL}" == "true" ]]; then
+  info "Building image: ${IMAGE_NAME}"
+  docker build -t "${IMAGE_NAME}" \
+    -f "${REPO_ROOT}/deployments/nvml-mock/Dockerfile" "${REPO_ROOT}"
+
+  info "Loading image into Kind"
+  kind load docker-image "${IMAGE_NAME}" --name "${CLUSTER_NAME}"
+else
+  info "Using published image: ${IMAGE_NAME} (set BUILD_LOCAL=true to build from source)"
+fi
 
 ###############################################################################
 # Scenario 1 -- Healthy baseline
@@ -160,15 +245,17 @@ kind load docker-image "${IMAGE_NAME}" --name "${CLUSTER_NAME}"
 # The first install is the only one without --reuse-values; from here
 # on every scenario diffs against this baseline.
 info "Scenario 1: healthy baseline (failureInjection.enabled=false)"
+demo::announce_pull "${IMAGE_NAME}"
 helm upgrade --install "${RELEASE_NAME}" "${REPO_ROOT}/${CHART_PATH}" \
   --kube-context "${KUBE_CONTEXT}" \
-  --set image.repository=nvml-mock \
-  --set image.tag=failure-demo \
+  --namespace "${NAMESPACE}" --create-namespace \
+  --set-string "image.repository=${IMAGE_REPO}" \
+  --set-string "image.tag=${IMAGE_TAG}" \
   --set gpu.profile=h100 \
   --set gpu.failureInjection.enabled=false \
   --set-string updateStrategy.rollingUpdate.maxUnavailable=100% \
   --set terminationGracePeriodSeconds=1 \
-  --wait --timeout 120s >/dev/null
+  --wait --timeout "$(demo::install_timeout)" >/dev/null
 
 POD=$(wait_for_pod)
 sub "DaemonSet pod ready: ${POD}"
@@ -317,6 +404,24 @@ fi
 ###############################################################################
 # Summary
 ###############################################################################
+# Only the BUILD_LOCAL path creates a cluster, so only it offers to delete
+# one. On the default path the cluster was already yours.
+# The uninstall MUST carry -n and --kube-context. Without them helm resolves
+# the release from the reader's current context and namespace, which on a
+# shared cluster is how this teardown would delete the standalone demo's
+# release instead of this one.
+UNINSTALL="helm uninstall ${RELEASE_NAME} -n ${NAMESPACE} --kube-context ${KUBE_CONTEXT}"
+if [[ "${BUILD_LOCAL}" == "true" ]]; then
+  TEARDOWN="kind delete cluster --name ${CLUSTER_NAME}"
+  if [[ -n "${PRIOR_CONTEXT}" && "${PRIOR_CONTEXT}" != "${KUBE_CONTEXT}" ]]; then
+    TEARDOWN="${TEARDOWN}
+    kubectl config use-context ${PRIOR_CONTEXT}   # this run switched your context"
+  fi
+else
+  TEARDOWN="${UNINSTALL}
+    (this run did not create a cluster, so nothing here deletes one)"
+fi
+
 cat <<EOF
 
 ==> All four failure-injection scenarios verified.
@@ -333,6 +438,11 @@ cat <<EOF
     surface 'Xid 79' / mark the GPU Unhealthy on their own when run
     against this cluster.
 
+==> Target cluster
+    context  : ${KUBE_CONTEXT}
+    namespace: ${NAMESPACE}
+    image    : ${IMAGE_NAME}
+
 ==> Tear down
-    kind delete cluster --name ${CLUSTER_NAME}
+    ${TEARDOWN}
 EOF

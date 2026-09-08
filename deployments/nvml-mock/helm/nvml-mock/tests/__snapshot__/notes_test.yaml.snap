@@ -69,6 +69,7 @@ should match snapshot with b200 profile:
         and the nvidia runtime handler registered.
         Walkthrough, including that containerd setup:
           https://nvidia.github.io/k8s-test-infra/helm-chart/#quick-start-gpu-operator-on-kind
+        In a checkout of this repository: docs/demo/with-gpu-operator/
 
         Install:
           helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
@@ -159,6 +160,7 @@ should match snapshot with default values:
         and the nvidia runtime handler registered.
         Walkthrough, including that containerd setup:
           https://nvidia.github.io/k8s-test-infra/helm-chart/#quick-start-gpu-operator-on-kind
+        In a checkout of this repository: docs/demo/with-gpu-operator/
 
         Install:
           helm repo add nvidia https://helm.ngc.nvidia.com/nvidia

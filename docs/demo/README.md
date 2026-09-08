@@ -9,6 +9,13 @@ and say so in their own README. All of them need Helm 3.8+
 (<https://helm.sh/docs/intro/install/>). No cluster? Start with the
 [quick start](../quickstart.md).
 
+Run one nvml-mock demo per cluster at a time. The chart's hostPath mounts are
+scoped by neither release nor namespace and the DaemonSet tolerates every
+node, so two of these releases collide on per-node host state even from
+different namespaces. The standalone and failure-injection demos refuse to
+install over each other (exit `4`), because the shared mock config left behind
+is what any real GPU workload on those nodes goes on to read.
+
 ## Available Demos
 
 ### Node-wide injection (NRI)
@@ -28,9 +35,9 @@ walkthrough.
 
 ### Standalone
 
-Deploy nvml-mock with FGO-style GPU labels on a Kind cluster. No external
-GPU operator is required -- nvml-mock generates the labels and ConfigMaps
-itself.
+Deploy nvml-mock with FGO-style GPU labels on the cluster your current
+context points at. No external GPU operator is required -- nvml-mock
+generates the labels and ConfigMaps itself.
 
 **Requirements:** KUBECONFIG, Helm 3.8+, kubectl
 
@@ -50,8 +57,9 @@ See [with-fgo/README.md](with-fgo/README.md) for the step-by-step guide.
 
 ### Failure injection
 
-Dedicated cluster (`nvml-mock-failure-demo`) that deploys nvml-mock with
-GPU failure injection enabled and verifies the engine actually trips
+Deploys nvml-mock into your current context with GPU failure injection
+enabled (`BUILD_LOCAL=true` uses a dedicated `nvml-mock-failure-demo`
+cluster instead) and verifies the engine actually trips
 the configured fault. Exercises all four modes end to end as four
 scenarios (`healthy`, `ecc_uncorrectable`, `lost`, `fallen_off_bus`),
 upgrading the running release into each one and asserting the result
@@ -105,6 +113,28 @@ cd nv-sentinel && ./run.sh
 ```
 
 See [nv-sentinel/README.md](nv-sentinel/README.md) for the walkthrough.
+
+### With the NVIDIA GPU Operator
+
+Deploys the real upstream `nvidia/gpu-operator` chart against mock GPUs on the
+cluster your current context points at. The device plugin, GFD, dcgm-exporter
+and validator operands are unmodified; only the driver and container-toolkit
+operands, which need real hardware, are disabled. Asserts that a node ends up
+with `nvidia.com/gpu` in its allocatable and a GFD-published
+`nvidia.com/gpu.product` label.
+
+Needs a node with containerd in CDI mode and the `nvidia` runtime handler
+registered, which `make cluster-create` provides and a plain
+`kind create cluster` does not.
+
+**Requirements:** KUBECONFIG, Helm 3.8+, kubectl
+
+```bash
+cd with-gpu-operator && ./run.sh
+```
+
+See [with-gpu-operator/README.md](with-gpu-operator/README.md) for the
+walkthrough.
 
 ## Observability (Prometheus + Grafana)
 
