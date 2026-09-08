@@ -16,6 +16,7 @@ package engine
 import (
 	"fmt"
 	"os"
+	"slices"
 	"sync"
 	"unsafe"
 
@@ -98,7 +99,7 @@ func (e *Engine) Init() nvml.Return {
 	// only the allocated GPUs (e.g. /dev/nvidia0 but not /dev/nvidia1-7),
 	// filter the visible device set to match. This mimics real NVML behavior
 	// where cgroup device permissions limit GPU visibility per container.
-	server.visibleDevices = detectVisibleDevices(e.config)
+	server.setVisibleDevices(detectVisibleDevices(e.config))
 
 	e.server = server
 	e.initCount = 1
@@ -433,7 +434,7 @@ func (e *Engine) TopologyNearestGpus(handle unsafe.Pointer, level nvml.GpuTopolo
 
 	var out []unsafe.Pointer
 	for j := 0; j < cd.fabric.NumDevices(); j++ {
-		if j == cd.index {
+		if j == cd.index || !e.server.isDeviceVisible(j) {
 			continue
 		}
 		if cd.fabric.TopoLevel(cd.index, j) > level {
@@ -469,17 +470,10 @@ func (e *Engine) TopologyGpuSet(cpuNumber int) ([]unsafe.Pointer, nvml.Return) {
 	var out []unsafe.Pointer
 	for j := 0; j < len(e.server.configurableDevices); j++ {
 		dev := e.server.configurableDevices[j]
-		if dev == nil || dev.fabric == nil {
+		if dev == nil || dev.fabric == nil || !e.server.isDeviceVisible(j) {
 			continue
 		}
-		matched := false
-		for _, c := range dev.fabric.CPUs(dev.index) {
-			if c == cpuNumber {
-				matched = true
-				break
-			}
-		}
-		if !matched {
+		if !slices.Contains(dev.fabric.CPUs(dev.index), cpuNumber) {
 			continue
 		}
 		h := e.handles.HandleFor(dev)
@@ -629,7 +623,7 @@ func (e *Engine) AnyDeviceLost() bool {
 // engine's server. Pass nil to disable filtering. Only use in tests.
 func (e *Engine) SetVisibleDevicesForTesting(visible []int) {
 	if e.server != nil {
-		e.server.visibleDevices = visible
+		e.server.setVisibleDevices(visible)
 	}
 }
 

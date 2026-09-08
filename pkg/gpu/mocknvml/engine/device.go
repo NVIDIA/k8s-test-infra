@@ -46,6 +46,7 @@ type ConfigurableDevice struct {
 	*dgxa100.Device
 	fabric      *NodeFabric
 	index       int
+	nvmlIndex   atomic.Int64
 	minorNumber int
 
 	// baseConfig is the pristine, merged (defaults+per-device) YAML config.
@@ -99,6 +100,8 @@ func NewConfigurableDevice(index int, baseDevice *mockserver.Device, config *Dev
 		minorNumber: minorNumber,
 		baseConfig:  config,
 	}
+
+	dev.nvmlIndex.Store(int64(index))
 
 	// Override base device properties from config
 	applyDeviceBaseOverrides(dev, config)
@@ -430,8 +433,18 @@ func (d *ConfigurableDevice) GetIndex() (int, nvml.Return) {
 	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
 		return 0, ret
 	}
-	debugLog("[NVML] nvmlDeviceGetIndex -> %d\n", d.index)
-	return d.index, nvml.SUCCESS
+	index := int(d.nvmlIndex.Load())
+	if index < 0 {
+		return 0, nvml.ERROR_NO_PERMISSION
+	}
+	debugLog("[NVML] nvmlDeviceGetIndex -> %d\n", index)
+	return index, nvml.SUCCESS
+}
+
+// PhysicalIndex identifies the device in the shared override configuration.
+// It must not change when a consumer sees only a subset of the devices.
+func (d *ConfigurableDevice) PhysicalIndex() int {
+	return d.index
 }
 
 // GetUUID returns the device UUID. Overrides the embedded dgxa100.Device
@@ -2500,4 +2513,20 @@ func (s *MockServer) isDeviceVisible(deviceIndex int) bool {
 		return true
 	}
 	return slices.Contains(s.visibleDevices, deviceIndex)
+}
+
+// setVisibleDevices keeps enumeration indices consistent without changing physical
+// device identity (minor number, PCI address, or topology index).
+func (s *MockServer) setVisibleDevices(visible []int) {
+	s.visibleDevices = visible
+	for physical, d := range s.configurableDevices {
+		if d == nil {
+			continue
+		}
+		index := physical
+		if visible != nil {
+			index = slices.Index(visible, physical)
+		}
+		d.nvmlIndex.Store(int64(index))
+	}
 }

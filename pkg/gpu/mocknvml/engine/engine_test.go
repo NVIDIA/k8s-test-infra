@@ -18,6 +18,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"unsafe"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/stretchr/testify/require"
@@ -676,4 +677,86 @@ func pciInfoBusIdString(pci nvml.PciInfo) string {
 	}
 	s += sSb553.String()
 	return s
+}
+
+// TestVisibility_IndexRoundTrip checks enumeration independently of physical identity.
+func TestVisibility_IndexRoundTrip(t *testing.T) {
+	e := NewEngine(&Config{NumDevices: 4, DriverVersion: "550.54.15"})
+	require.Equal(t, nvml.SUCCESS, e.Init())
+	t.Cleanup(func() { require.Equal(t, nvml.SUCCESS, e.Shutdown()) })
+	e.SetVisibleDevicesForTesting(nil)
+
+	var uuids [4]string
+	var pci [4]nvml.PciInfo
+	for i := range uuids {
+		h, ret := e.DeviceGetHandleByIndex(i)
+		require.Equal(t, nvml.SUCCESS, ret)
+		d := e.LookupDevice(h)
+		uuids[i], ret = d.GetUUID()
+		require.Equal(t, nvml.SUCCESS, ret)
+		pci[i], ret = d.GetPciInfo()
+		require.Equal(t, nvml.SUCCESS, ret)
+	}
+
+	// Reuse the engine so changing and clearing the filter must update indices too.
+	for _, visible := range [][]int{nil, {0}, {1}, {1, 3}, {2, 3}, {3, 1}, {}, nil} {
+		t.Run(fmt.Sprintf("visible=%v", visible), func(t *testing.T) {
+			e.SetVisibleDevicesForTesting(visible)
+			count, ret := e.DeviceGetCount()
+			require.Equal(t, nvml.SUCCESS, ret)
+			expected := len(visible)
+			if visible == nil {
+				expected = len(uuids)
+			}
+			require.Equal(t, expected, count)
+			for i := 0; i < count; i++ {
+				h, ret := e.DeviceGetHandleByIndex(i)
+				require.Equal(t, nvml.SUCCESS, ret)
+				d := e.LookupDevice(h)
+				index, ret := d.GetIndex()
+				require.Equal(t, nvml.SUCCESS, ret)
+				require.Equal(t, i, index)
+				roundTrip, ret := e.DeviceGetHandleByIndex(index)
+				require.Equal(t, nvml.SUCCESS, ret)
+				require.Equal(t, h, roundTrip)
+
+				physical := i
+				if visible != nil {
+					physical = visible[i]
+				}
+				minor, ret := d.GetMinorNumber()
+				require.Equal(t, nvml.SUCCESS, ret)
+				require.Equal(t, physical, minor)
+				uuid, ret := d.GetUUID()
+				require.Equal(t, nvml.SUCCESS, ret)
+				require.Equal(t, uuids[physical], uuid)
+				info, ret := d.GetPciInfo()
+				require.Equal(t, nvml.SUCCESS, ret)
+				require.Equal(t, pci[physical], info)
+				byUUID, ret := e.DeviceGetHandleByUUID(uuid)
+				require.Equal(t, nvml.SUCCESS, ret)
+				require.Equal(t, h, byUUID)
+				byPCI, ret := e.DeviceGetHandleByPciBusId(pciInfoBusIdString(info))
+				require.Equal(t, nvml.SUCCESS, ret)
+				require.Equal(t, h, byPCI)
+			}
+		})
+	}
+}
+
+func TestVisibility_TopologyHandles(t *testing.T) {
+	e := newFabricEngine(t)
+	hidden, ret := e.DeviceGetHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+	e.SetVisibleDevicesForTesting([]int{1})
+	h, ret := e.DeviceGetHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+	peers, ret := e.TopologyNearestGpus(h, nvml.TOPOLOGY_SYSTEM)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Empty(t, peers)
+	devices, ret := e.TopologyGpuSet(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, []unsafe.Pointer{h}, devices)
+	_, ret = e.LookupDevice(hidden).GetIndex()
+	require.Equal(t, nvml.ERROR_NO_PERMISSION, ret)
 }
