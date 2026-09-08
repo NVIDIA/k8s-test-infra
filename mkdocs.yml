@@ -114,6 +114,16 @@ nav:
       - Examples: examples.md
       - Runtime Control: nvml-mock-ctl.md
       - Troubleshooting: troubleshooting.md
+  # The files stay under docs/tools/ on purpose: docs/components/ is being
+  # taken by another change, and moving them here as well would collide.
+  - Components:
+      - Overview: tools/README.md
+      - control-plane: tools/control-plane.md
+      - node-agent: tools/node-agent.md
+      - nri-plugin: tools/nri-plugin.md
+      - check-fabric: tools/check-fabric.md
+      - Build tools:
+          - generate-bridge: tools/generate-bridge.md
   - Demos:
       - Overview: demo/README.md
       - Standalone: demo/standalone/README.md

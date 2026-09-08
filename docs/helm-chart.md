@@ -931,7 +931,7 @@ alive in every mode that matters:
 | Handler wedged | up | **up** | 503 | **503 → restart** |
 
 A wedged handler is the case that defeats every simpler check: `pgrep
-nvml-mock-nri` finds the process, and a plain TCP check finds the socket bound,
+nri-plugin` finds the process, and a plain TCP check finds the socket bound,
 in exactly the state where nothing is being injected.
 
 Losing the connection is deliberately *not* a liveness failure. The NRI stub's
