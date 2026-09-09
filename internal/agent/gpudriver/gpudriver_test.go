@@ -205,6 +205,23 @@ func TestStageCharDevs_CreatesDeviceNodes(t *testing.T) {
 	}
 }
 
+// The node name and the minor it is created with both come from the driver's
+// numbering, not from the NVML index, so a device whose two differ gets one
+// node under its minor rather than a stray node under its index.
+func TestStageCharDevs_UsesConfiguredMinorNumber(t *testing.T) {
+	skipUnlessRootLinux(t)
+
+	h := testHost(t)
+	state := testState(t)
+	state.Devices = []agent.DeviceSpec{{Index: 1, MinorNumber: 3}}
+
+	require.NoError(t, stageCharDevs(context.Background(), h, state))
+
+	devRoot := filepath.Join(h.Root, "driver/dev")
+	require.FileExists(t, filepath.Join(devRoot, "nvidia3"))
+	require.NoFileExists(t, filepath.Join(devRoot, "nvidia1"))
+}
+
 // ─── Apply / Revoke ──────────────────────────────────────────────────────────
 
 func TestApply_CreatesSymlink(t *testing.T) {
@@ -346,7 +363,10 @@ func TestStageCharDevs_PrunesShrunkDeviceSet(t *testing.T) {
 		require.NoError(t, fsutil.Mknod(filepath.Join(devRoot, n), 195, uint32(i)))
 	}
 
-	state := &agent.State{Devices: []agent.DeviceSpec{{Index: 0}, {Index: 1}}}
+	state := &agent.State{Devices: []agent.DeviceSpec{
+		{Index: 0, MinorNumber: 0},
+		{Index: 1, MinorNumber: 1},
+	}}
 	require.NoError(t, stageCharDevs(context.Background(), h, state))
 
 	require.FileExists(t, filepath.Join(devRoot, "nvidia0"))

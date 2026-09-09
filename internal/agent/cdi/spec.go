@@ -134,11 +134,12 @@ func buildNvidiaSpec(state *agent.State) cdiSpec {
 	devices := make([]cdiDevice, 0, len(state.Devices)*2+1)
 	for _, d := range state.Devices {
 		node := cdiDeviceNode{
-			Path:     fmt.Sprintf("/dev/nvidia%d", d.Index),
-			HostPath: fmt.Sprintf("%s/nvidia%d", devRoot, d.Index),
+			Path:     fmt.Sprintf("/dev/nvidia%d", d.MinorNumber),
+			HostPath: fmt.Sprintf("%s/nvidia%d", devRoot, d.MinorNumber),
 		}
 		allNodes = append(allNodes, node)
 		// Index shorthand ("0".."N-1"): addressed by nvidia-container-runtime CLI.
+		// The name stays the NVML index even though the node carries the minor.
 		devices = append(devices, cdiDevice{
 			Name:           strconv.Itoa(d.Index),
 			ContainerEdits: cdiEdits{DeviceNodes: []cdiDeviceNode{node}},
@@ -208,8 +209,8 @@ func buildNRISpec(state *agent.State) cdiSpec {
 
 	for _, d := range state.Devices {
 		node := cdiDeviceNode{
-			Path:     fmt.Sprintf("/dev/nvidia%d", d.Index),
-			HostPath: fmt.Sprintf("%s/nvidia%d", devRoot, d.Index),
+			Path:     fmt.Sprintf("/dev/nvidia%d", d.MinorNumber),
+			HostPath: fmt.Sprintf("%s/nvidia%d", devRoot, d.MinorNumber),
 		}
 		devices = append(devices, cdiDevice{
 			Name:           strconv.Itoa(d.Index),

@@ -258,6 +258,18 @@ func validateYAMLConfig(config *YAMLConfig) error {
 		seen[dev.Index] = true
 	}
 
+	// Two devices sharing a minor number would share one /dev/nvidia<N>.
+	seenMinor := make(map[int]bool)
+	for _, dev := range config.Devices {
+		if dev.MinorNumber == nil {
+			continue
+		}
+		if seenMinor[*dev.MinorNumber] {
+			return fmt.Errorf("duplicate device minor number: %d", *dev.MinorNumber)
+		}
+		seenMinor[*dev.MinorNumber] = true
+	}
+
 	return nil
 }
 
@@ -296,15 +308,17 @@ func (c *Config) GetDeviceUUID(index int) string {
 	return ""
 }
 
-// GetDeviceMinorNumber returns the minor number for a specific device index
+// GetDeviceMinorNumber returns the minor number for a specific device index,
+// defaulting to the index for devices that do not declare one — the numbering
+// a driver produces when it probes in PCI enumeration order.
 func (c *Config) GetDeviceMinorNumber(index int) int {
 	if c.YAMLConfig == nil {
 		return index
 	}
 
 	for _, dev := range c.YAMLConfig.Devices {
-		if dev.Index == index {
-			return dev.MinorNumber
+		if dev.Index == index && dev.MinorNumber != nil {
+			return *dev.MinorNumber
 		}
 	}
 	return index

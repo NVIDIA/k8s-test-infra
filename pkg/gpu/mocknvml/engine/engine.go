@@ -98,7 +98,7 @@ func (e *Engine) Init() nvml.Return {
 	// only the allocated GPUs (e.g. /dev/nvidia0 but not /dev/nvidia1-7),
 	// filter the visible device set to match. This mimics real NVML behavior
 	// where cgroup device permissions limit GPU visibility per container.
-	server.visibleDevices = detectVisibleDevices(e.config.NumDevices)
+	server.visibleDevices = detectVisibleDevices(e.config)
 
 	e.server = server
 	e.initCount = 1
@@ -658,20 +658,26 @@ func ResetForTesting() {
 // Returns nil if ALL device nodes exist (no filtering needed) or if none
 // exist (host context where /dev/nvidia* may not be present but NVML should
 // still work).
-func detectVisibleDevices(numDevices int) []int {
-	return detectVisibleDevicesAt("/dev/nvidia%d", numDevices)
+func detectVisibleDevices(config *Config) []int {
+	minorNumbers := make([]int, 0, config.NumDevices)
+	for i := 0; i < config.NumDevices && i < MaxDevices; i++ {
+		minorNumbers = append(minorNumbers, config.GetDeviceMinorNumber(i))
+	}
+	return detectVisibleDevicesAt("/dev/nvidia%d", minorNumbers)
 }
 
 // detectVisibleDevicesAt is the testable core of detectVisibleDevices.
-// pathFmt is a printf format that takes the device index (e.g. "/dev/nvidia%d").
-func detectVisibleDevicesAt(pathFmt string, numDevices int) []int {
+// pathFmt is a printf format that takes the minor number of a device
+// (e.g. "/dev/nvidia%d"); minorNumbers is indexed by device index, so the
+// returned positions are NVML indices rather than minor numbers.
+func detectVisibleDevicesAt(pathFmt string, minorNumbers []int) []int {
 	var present []int
 	var absent int
 
-	for i := 0; i < numDevices && i < MaxDevices; i++ {
-		path := fmt.Sprintf(pathFmt, i)
+	for index, minor := range minorNumbers {
+		path := fmt.Sprintf(pathFmt, minor)
 		if _, err := os.Stat(path); err == nil {
-			present = append(present, i)
+			present = append(present, index)
 		} else {
 			absent++
 		}
@@ -685,6 +691,6 @@ func detectVisibleDevicesAt(pathFmt string, numDevices int) []int {
 	}
 
 	debugLog("[ENGINE] Device visibility filtering: %d of %d GPUs visible (by /dev/nvidia* presence)\n",
-		len(present), numDevices)
+		len(present), len(minorNumbers))
 	return present
 }

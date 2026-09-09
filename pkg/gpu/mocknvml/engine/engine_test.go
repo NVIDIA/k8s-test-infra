@@ -513,7 +513,7 @@ func TestEngine_DeviceGetHandleByPciBusIdInvalid(t *testing.T) {
 func TestDetectVisibleDevices_NonePresent(t *testing.T) {
 	dir := t.TempDir()
 	// No files created – simulates no /dev/nvidia* nodes
-	result := detectVisibleDevicesAt(dir+"/nvidia%d", 4)
+	result := detectVisibleDevicesAt(dir+"/nvidia%d", []int{0, 1, 2, 3})
 	require.Nil(t, result, "Expected nil (no filtering) when no nodes exist")
 }
 
@@ -527,7 +527,7 @@ func TestDetectVisibleDevices_AllPresent(t *testing.T) {
 		require.NoError(t, f.Close())
 	}
 
-	result := detectVisibleDevicesAt(dir+"/nvidia%d", 4)
+	result := detectVisibleDevicesAt(dir+"/nvidia%d", []int{0, 1, 2, 3})
 	require.Nil(t, result, "Expected nil (no filtering) when all nodes exist")
 }
 
@@ -542,9 +542,24 @@ func TestDetectVisibleDevices_Subset(t *testing.T) {
 		require.NoError(t, f.Close())
 	}
 
-	result := detectVisibleDevicesAt(dir+"/nvidia%d", 4)
+	result := detectVisibleDevicesAt(dir+"/nvidia%d", []int{0, 1, 2, 3})
 	require.Len(t, result, 2, "Expected 2 visible devices")
 	require.Equal(t, []int{0, 2}, result, "Expected visible devices [0 2]")
+}
+
+// The scan looks for the node the driver would have created, which carries the
+// minor number, but NVML reports positions in its own index space. A node
+// staged for a device whose minor differs from its index must therefore be
+// reported under the index, not under the minor.
+func TestDetectVisibleDevices_ReportsIndicesNotMinorNumbers(t *testing.T) {
+	dir := t.TempDir()
+	f, err := os.Create(fmt.Sprintf("%s/nvidia%d", dir, 3))
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	// Device index 2 owns minor 3, so the lone node makes index 2 visible.
+	result := detectVisibleDevicesAt(dir+"/nvidia%d", []int{1, 0, 3, 2})
+	require.Equal(t, []int{2}, result)
 }
 
 // TestVisibility_DeviceGetCount verifies that DeviceGetCount returns the

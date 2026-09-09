@@ -217,3 +217,73 @@ devices:
 	require.Len(t, d2.Processes, 1, "device 2 (inherit) len")
 	require.Equal(t, uint32(1), d2.Processes[0].PID, "device 2 (inherit) PID")
 }
+
+// A device that does not declare minor_number takes the index, which is what
+// the driver assigns when probe order follows PCI enumeration order. Treating
+// an omitted key as minor 0 would point every such device at /dev/nvidia0.
+func TestGetDeviceMinorNumber_DefaultsToIndex(t *testing.T) {
+	t.Parallel()
+
+	y := `
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+devices:
+  - index: 0
+    uuid: "GPU-aaa"
+  - index: 1
+    uuid: "GPU-bbb"
+`
+	var yc YAMLConfig
+	require.NoError(t, yaml.Unmarshal([]byte(y), &yc), "yaml decode")
+	c := &Config{YAMLConfig: &yc}
+
+	require.Equal(t, 0, c.GetDeviceMinorNumber(0))
+	require.Equal(t, 1, c.GetDeviceMinorNumber(1))
+	require.Equal(t, 2, c.GetDeviceMinorNumber(2), "device without an override entry")
+}
+
+// Nodes whose driver probe order does not follow PCI enumeration order report
+// minor numbers that do not match the NVML index, so the profile must be able
+// to say so — including minor 0 on a device that is not index 0.
+func TestGetDeviceMinorNumber_HonorsExplicitValue(t *testing.T) {
+	t.Parallel()
+
+	y := `
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+devices:
+  - index: 0
+    minor_number: 2
+  - index: 1
+    minor_number: 0
+`
+	var yc YAMLConfig
+	require.NoError(t, yaml.Unmarshal([]byte(y), &yc), "yaml decode")
+	c := &Config{YAMLConfig: &yc}
+
+	require.Equal(t, 2, c.GetDeviceMinorNumber(0))
+	require.Equal(t, 0, c.GetDeviceMinorNumber(1))
+}
+
+// Two devices claiming one minor number would collapse onto a single
+// /dev/nvidia<N>, silently handing both GPUs the same character device.
+func TestValidateYAMLConfig_RejectsDuplicateMinorNumbers(t *testing.T) {
+	t.Parallel()
+
+	y := `
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+devices:
+  - index: 0
+    minor_number: 3
+  - index: 1
+    minor_number: 3
+`
+	var yc YAMLConfig
+	require.NoError(t, yaml.Unmarshal([]byte(y), &yc), "yaml decode")
+
+	require.ErrorContains(t, validateYAMLConfig(&yc), "duplicate device minor number: 3")
+}

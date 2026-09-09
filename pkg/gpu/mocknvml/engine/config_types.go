@@ -227,9 +227,12 @@ type NVLinkErrorInjectionConfig struct {
 
 // DeviceOverride contains per-device settings that override defaults
 type DeviceOverride struct {
-	Index        int              `json:"index"`
-	UUID         string           `json:"uuid,omitempty"`
-	MinorNumber  int              `json:"minor_number,omitempty"`
+	Index int    `json:"index"`
+	UUID  string `json:"uuid,omitempty"`
+	// MinorNumber is the /dev/nvidia<N> the driver would have created. A
+	// pointer because minor 0 is a legal value on a device that is not index
+	// 0, so an omitted key has to stay distinguishable from an explicit zero.
+	MinorNumber  *int             `json:"minor_number,omitempty"`
 	GraceCPUPair int              `json:"grace_cpu_pair,omitempty"`
 	DeviceConfig `json:",inline"` // Embed all device config fields
 }

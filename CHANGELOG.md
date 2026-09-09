@@ -25,6 +25,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   SIGKILL instead of being cut short.
 
 ### Fixed
+- agent: GPU character devices, both CDI specs and the NVML visibility filter
+  now address a device by its `minor_number` rather than by its NVML index. The
+  two match on a node whose driver probed in PCI enumeration order, which every
+  shipped profile describes, but where a profile sets them apart a container was
+  handed the `/dev/nvidia<N>` belonging to a different GPU. NVML indices are
+  unchanged, so `nvidia-smi` and CDI device names still enumerate from 0. A
+  device that omits `minor_number` keeps taking its index, and a config that
+  gives two devices the same minor number is now rejected rather than pointing
+  both at one node.
 - mocknvml: `nvidia-smi --gpu-reset` (`-r`) now resets a GPU instead of
   segfaulting. The mock's export-table dispatcher ended every per-device call by
   writing a zero count through `arg1`, which the reset slots do not carry, so the

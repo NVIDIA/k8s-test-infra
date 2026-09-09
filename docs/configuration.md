@@ -524,6 +524,12 @@ devices:
       temperature_gpu_c: 37
 ```
 
+`index` is the NVML enumeration position and the key the override matches on.
+`minor_number` is the `N` in `/dev/nvidia<N>`, which the agent stages and both
+CDI specs point at. It defaults to the index — the numbering a driver produces
+when it probes in PCI enumeration order — so set it only to describe a node
+where the two differ, and give each device a distinct value.
+
 ## NVLink Configuration
 
 ```yaml

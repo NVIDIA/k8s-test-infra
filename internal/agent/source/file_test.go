@@ -434,3 +434,44 @@ func TestFileSource_ReportsAnUnreadableTopology(t *testing.T) {
 	require.Error(t, u.Err)
 	require.Nil(t, u.State)
 }
+
+// A profile that leaves minor_number out is saying the driver numbered the
+// devices in index order. Compiling that to minor 0 would stage a single
+// /dev/nvidia0 for the whole node.
+func TestCompileState_MinorNumberDefaultsToIndex(t *testing.T) {
+	cfg := `
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+  num_devices: 4
+devices:
+  - index: 0
+    uuid: "GPU-aaa"
+  - index: 1
+    uuid: "GPU-bbb"
+`
+	state, err := compileState([]byte(cfg))
+	require.NoError(t, err)
+	require.Len(t, state.Devices, 4)
+	for i, d := range state.Devices {
+		require.Equal(t, i, d.MinorNumber, "device %d", i)
+	}
+}
+
+func TestCompileState_HonorsExplicitMinorNumbers(t *testing.T) {
+	cfg := `
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+  num_devices: 2
+devices:
+  - index: 0
+    minor_number: 1
+  - index: 1
+    minor_number: 0
+`
+	state, err := compileState([]byte(cfg))
+	require.NoError(t, err)
+	require.Equal(t, 1, state.Devices[0].MinorNumber)
+	require.Equal(t, 0, state.Devices[1].MinorNumber, "minor 0 on a device that is not index 0")
+}
