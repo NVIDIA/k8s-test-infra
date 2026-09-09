@@ -2398,6 +2398,7 @@ type MockServer struct {
 	// /dev/nvidia* nodes (via CDI injection), this slice contains only the
 	// devices whose device nodes exist, mimicking real NVML's cgroup-based
 	// device filtering. If nil, all devices are visible (no filtering).
+	// Assign only through setVisibleDevices to keep cached NVML indices in sync.
 	visibleDevices []int
 }
 
@@ -2519,14 +2520,14 @@ func (s *MockServer) isDeviceVisible(deviceIndex int) bool {
 // setVisibleDevices keeps enumeration indices consistent without changing physical
 // device identity (minor number, PCI address, or topology index).
 func (s *MockServer) setVisibleDevices(visible []int) {
-	s.visibleDevices = visible
+	s.visibleDevices = slices.Clone(visible)
 	for physical, d := range s.configurableDevices {
 		if d == nil {
 			continue
 		}
 		index := physical
-		if visible != nil {
-			index = slices.Index(visible, physical)
+		if s.visibleDevices != nil {
+			index = slices.Index(s.visibleDevices, physical)
 		}
 		d.nvmlIndex.Store(int64(index))
 	}

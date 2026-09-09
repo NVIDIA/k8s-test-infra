@@ -759,6 +759,29 @@ func TestVisibility_TopologyHandles(t *testing.T) {
 	devices, ret := e.TopologyGpuSet(0)
 	require.Equal(t, nvml.SUCCESS, ret)
 	require.Equal(t, []unsafe.Pointer{h}, devices)
+	peers, ret = e.TopologyNearestGpus(hidden, nvml.TOPOLOGY_SYSTEM)
+	require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret)
+	require.Empty(t, peers)
 	_, ret = e.LookupDevice(hidden).GetIndex()
 	require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret)
+}
+
+func TestVisibility_CopiesMapping(t *testing.T) {
+	e := newFabricEngine(t)
+	visible := []int{1}
+	e.SetVisibleDevicesForTesting(visible)
+	h, ret := e.DeviceGetHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	// Reusing the caller's slice must not change enumeration or cached indices.
+	visible[0] = 0
+	got, ret := e.DeviceGetHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, h, got)
+	index, ret := e.LookupDevice(got).GetIndex()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Zero(t, index)
+	devices, ret := e.TopologyGpuSet(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, []unsafe.Pointer{h}, devices)
 }

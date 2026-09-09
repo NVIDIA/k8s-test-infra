@@ -389,7 +389,8 @@ func (e *Engine) LookupConfigurableDevice(handle unsafe.Pointer) *ConfigurableDe
 // ProcessByPID returns the first configured process with that pid, searching
 // every device's process list, and whether one was found. This backs
 // nvmlSystemGetProcessName, whose signature carries a bare pid with no device,
-// so the search cannot be narrowed. Callers that already know the device should
+// so GPU visibility intentionally does not restrict this system-wide lookup.
+// Callers that already know the device should
 // use ConfigurableDevice.ProcessByPID instead.
 func (e *Engine) ProcessByPID(pid uint32) (ProcessConfig, bool) {
 	e.mu.RLock()
@@ -425,7 +426,7 @@ func (e *Engine) TopologyNearestGpus(handle unsafe.Pointer, level nvml.GpuTopolo
 	}
 	dev := e.handles.Lookup(handle)
 	cd, ok := dev.(*ConfigurableDevice)
-	if !ok || cd == nil {
+	if !ok || cd == nil || !e.server.isDeviceVisible(cd.index) {
 		return nil, nvml.ERROR_INVALID_ARGUMENT
 	}
 	if cd.fabric == nil {

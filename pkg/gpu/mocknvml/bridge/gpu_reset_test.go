@@ -36,6 +36,9 @@ func TestResetGPU_UsesPhysicalIndexAfterFiltering(t *testing.T) {
 	e := engine.GetEngine()
 	require.Equal(t, nvml.SUCCESS, e.Init())
 	t.Cleanup(func() { require.Equal(t, nvml.SUCCESS, e.Shutdown()) })
+	e.SetVisibleDevicesForTesting(nil)
+	hidden, ret := e.DeviceGetHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
 	e.SetVisibleDevicesForTesting([]int{1})
 	require.NoError(t, os.WriteFile(path, []byte(`version: 1
 devices:
@@ -44,6 +47,13 @@ devices:
   "1":
     name: GPU-one
 `), 0600))
+	before, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Zero(t, int(mockInternalResetGPU(hidden)))
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, before, after, "resetting a hidden GPU must preserve overrides")
+
 	h, ret := e.DeviceGetHandleByIndex(0)
 	require.Equal(t, nvml.SUCCESS, ret)
 	require.Equal(t, 1, int(mockInternalResetGPU(h)))
