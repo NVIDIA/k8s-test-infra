@@ -94,7 +94,7 @@ that does not exist. Every object the script names is derived from the one
 | `migManager.enabled` | `false` | Same reason. |
 | `nodeStatusExporter.enabled` | `false` | Untested against the mock. |
 | `cdi.enabled` / `cdi.default` | `true` | The container runtime reads `/var/run/cdi/nvidia.yaml`, which nvml-mock generates. This is what replaces the toolkit operand. |
-| `validator.cuda.env.WITH_WORKLOAD` | `false` | The mock driver root ships no CUDA library for the vectorAdd workload to link against. |
+| `validator.cuda.env.WITH_WORKLOAD` | `false` | The mock's kernel launch is a no-op, so the vectorAdd workload would not prove anything. |
 
 ### The driver root, which is the whole reason this demo exists
 
