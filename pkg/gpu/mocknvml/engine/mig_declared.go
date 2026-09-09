@@ -28,8 +28,20 @@ type MIGGpuInstanceLayout struct {
 	ID uint32
 	// Profile is the canonical name, e.g. "1g.5gb" — the same spelling the
 	// device plugin derives its nvidia.com/mig-<profile> resource from.
-	Profile            string
-	ComputeInstanceIDs []uint32
+	Profile          string
+	ComputeInstances []MIGComputeInstanceLayout
+}
+
+// MIGComputeInstanceLayout is one compute instance, which is to say one MIG
+// device: a consumer addresses a partition by the UUID NVML reports for the
+// compute instance, not by the GPU instance containing it.
+type MIGComputeInstanceLayout struct {
+	ID uint32
+	// UUID is what NVML hands out for this partition. It travels: the device
+	// plugin reports it as the allocated device's ID, and the container runtime
+	// then resolves that name against the CDI spec the agent writes. Carrying
+	// it here is what keeps those two from having to derive it independently.
+	UUID string
 }
 
 // DeclaredMIGLayout reports the partitioning a profile boots with, for callers
@@ -87,20 +99,38 @@ func (d *ConfigurableDevice) declaredGpuInstanceLayout() []MIGGpuInstanceLayout 
 		return nil
 	}
 
+	// Materialize the MIG devices before reading their UUIDs, so the layout
+	// reports the identity NVML will hand out rather than a second derivation
+	// of the same rule.
+	st.migDevicesLocked(d)
+
 	var instances []MIGGpuInstanceLayout
 	for _, gi := range st.liveGpuInstances(d) {
 		computeInstances := liveComputeInstances(gi)
-		ids := make([]uint32, 0, len(computeInstances))
+		cis := make([]MIGComputeInstanceLayout, 0, len(computeInstances))
 		for _, ci := range computeInstances {
-			ids = append(ids, ci.Info.Id)
+			cis = append(cis, MIGComputeInstanceLayout{
+				ID:   ci.Info.Id,
+				UUID: st.migDeviceUUIDLocked(gi.Info.Id, ci.Info.Id),
+			})
 		}
 		instances = append(instances, MIGGpuInstanceLayout{
-			ID:                 gi.Info.Id,
-			Profile:            st.gpuInstanceProfileNameLocked(d, int(gi.Info.ProfileId)),
-			ComputeInstanceIDs: ids,
+			ID:               gi.Info.Id,
+			Profile:          st.gpuInstanceProfileNameLocked(d, int(gi.Info.ProfileId)),
+			ComputeInstances: cis,
 		})
 	}
 	return instances
+}
+
+// migDeviceUUIDLocked reports the UUID of the MIG device backing a compute
+// instance. Requires st.mu.
+func (st *migState) migDeviceUUIDLocked(giID, ciID uint32) string {
+	dev, ok := st.devices[migInstanceKey{gi: giID, ci: ciID}]
+	if !ok || dev.mig == nil {
+		return ""
+	}
+	return dev.mig.uuid
 }
 
 // gpuInstanceProfileNameLocked spells a GPU instance profile the way the

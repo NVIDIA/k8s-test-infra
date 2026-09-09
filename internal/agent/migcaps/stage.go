@@ -26,18 +26,7 @@ const (
 
 // capsFor translates the agent's compiled MIG state into the capability table.
 func capsFor(state agent.MIGState) []migcaps.Cap {
-	gpus := make([]migcaps.GPU, 0, len(state.GPUs))
-	for _, gpu := range state.GPUs {
-		instances := make([]migcaps.GPUInstance, 0, len(gpu.GPUInstances))
-		for _, gi := range gpu.GPUInstances {
-			instances = append(instances, migcaps.GPUInstance{
-				ID:                 gi.ID,
-				ComputeInstanceIDs: gi.ComputeInstanceIDs,
-			})
-		}
-		gpus = append(gpus, migcaps.GPU{Minor: gpu.Minor, GPUInstances: instances})
-	}
-	return migcaps.Caps(gpus)
+	return state.Caps()
 }
 
 // stageCapDevs creates the chardevs that guard each MIG partition. The nodes
