@@ -110,16 +110,16 @@ func TestDiscard_EmptiesSysTree(t *testing.T) {
 // empty tree no restage can reach.
 func TestDiscard_KeepsTheDirectoriesTheCDISpecMounts(t *testing.T) {
 	h := testHost(t)
-	sim := New()
+	sim := New(h)
 
-	require.NoError(t, sim.Stage(t.Context(), h, stateWithTopology()))
+	require.NoError(t, sim.Stage(t.Context(), stateWithTopology()))
 
 	for _, rel := range []string{pcisysfs.SysDevicesRelPath, pcisysfs.PCIDevicesRelPath} {
 		path := filepath.Join(h.Root, rel)
 		before, err := os.Stat(path)
 		require.NoError(t, err)
 
-		require.NoError(t, sim.Discard(t.Context(), h))
+		require.NoError(t, sim.Discard(t.Context()))
 
 		after, err := os.Stat(path)
 		require.NoError(t, err, "%s must outlive the teardown", rel)
