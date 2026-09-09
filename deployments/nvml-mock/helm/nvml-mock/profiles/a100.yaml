@@ -289,11 +289,17 @@ device_defaults:
   # ---------------------------------------------------------------------------
   # MIG configuration
   # ---------------------------------------------------------------------------
+  # The layout below is what nvidia-mig-parted's all-1g.5gb config produces,
+  # declared but inert: it only takes effect while mode_current is "enabled".
+  # MIG ships off because a partitioned board stops publishing nvidia.com/gpu
+  # under migStrategy=single. Turn it on with --set gpu.mig.enabled=true.
   mig:
     mode_current: "disabled"
     mode_pending: "disabled"
     max_gpu_instances: 7            # A100 supports up to 7 MIG instances
-    # GPU instances would be defined here if MIG enabled
+    gpu_instances:
+      - profile: "1g.5gb"
+        count: 7
 
   # ---------------------------------------------------------------------------
   # GPU operation mode (GOM)

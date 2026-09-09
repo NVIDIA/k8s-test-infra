@@ -582,3 +582,47 @@ func TestCompileState_MIGDisabledInEveryShippedProfile(t *testing.T) {
 		})
 	}
 }
+
+// TestCompileState_DeclaredMIGPartitionsAllResolve guards the profiles against
+// a typo in a partition name. An unresolvable name is only warned about and
+// skipped, so without this the profile would quietly produce fewer partitions
+// than it declares — visible only as a smaller allocatable count in a cluster.
+func TestCompileState_DeclaredMIGPartitionsAllResolve(t *testing.T) {
+	profiles, err := filepath.Glob(helmProfileGlob)
+	require.NoError(t, err)
+	require.NotEmpty(t, profiles)
+
+	sawPartitionedProfile := false
+	for _, path := range profiles {
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+
+		var cfg engine.YAMLConfig
+		require.NoError(t, yaml.Unmarshal(data, &cfg))
+		if cfg.DeviceDefaults.MIG == nil || len(cfg.DeviceDefaults.MIG.GPUInstances) == 0 {
+			continue
+		}
+		sawPartitionedProfile = true
+
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			declared := 0
+			for _, gi := range cfg.DeviceDefaults.MIG.GPUInstances {
+				declared += max(gi.Count, 1)
+			}
+
+			// Enable MIG the way gpu.mig.enabled does, since the layout is
+			// inert while the profile leaves the mode off.
+			cfg.DeviceDefaults.MIG.ModeCurrent = "enabled"
+			layout := engine.DeclaredMIGLayout(&engine.Config{NumDevices: 1, YAMLConfig: &cfg})
+
+			require.Len(t, layout, 1)
+			require.Len(t, layout[0].GPUInstances, declared,
+				"every declared partition must resolve and fit")
+			for _, gi := range layout[0].GPUInstances {
+				require.NotEmpty(t, gi.Profile)
+				require.NotEmpty(t, gi.ComputeInstanceIDs)
+			}
+		})
+	}
+	require.True(t, sawPartitionedProfile, "no profile declares MIG partitions; has the block moved?")
+}

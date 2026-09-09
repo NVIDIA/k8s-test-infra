@@ -535,3 +535,78 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: "values don't meet the specifications of the schema(s) in the following chart(s):\nnvml-mock:\n- at '/gpu/failureInjection/after_calls': minimum: got -1, want 0\n"
+
+  # ── MIG ─────────────────────────────────────────────────────────────
+  - it: should leave the profile's declared partitions inert when MIG is disabled (default)
+    set:
+      gpu:
+        profile: a100
+    asserts:
+      # The layout is declared so a profile documents how the board is
+      # normally partitioned, but the mode gates it.
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'mode_current: "disabled"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'profile: "1g.5gb"'
+
+  - it: should enable the profile's declared partitions when MIG is enabled
+    set:
+      gpu:
+        profile: a100
+        mig:
+          enabled: true
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "mode_current: enabled"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "mode_pending: enabled"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "profile: 1g.5gb"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "count: 7"
+
+  - it: should replace the declared partitions when gpuInstances is set
+    set:
+      gpu:
+        profile: h100
+        mig:
+          enabled: true
+          gpuInstances:
+            - profile: "3g.40gb"
+              count: 2
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "profile: 3g.40gb"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "1g.10gb"
+
+  - it: should not emit the mig 'enabled' flag into the rendered config
+    set:
+      gpu:
+        profile: a100
+        mig:
+          enabled: true
+    asserts:
+      # The flag is Helm's, not the engine's schema; leaking it would make the
+      # mock warn about an unknown key.
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "^[[:space:]]*enabled: true"
+
+  - it: should reject MIG on a profile that declares no partitions
+    set:
+      gpu:
+        profile: t4
+        mig:
+          enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: 'gpu.mig.enabled is set but profile "t4" declares no mig.gpu_instances, so the node would come up MIG-enabled with nothing partitioned'
