@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package gpudriver implements the GPU driver footprint simulator:
-// chardevs, the NVML/CUDA shims, nvidia-smi, procfs entries, engine config,
+// chardevs, NVML/CUDA shims, nvidia-smi, procfs entries, engine config,
 // and the /run/nvidia/driver GPU-Operator compatibility symlink.
 package gpudriver
 

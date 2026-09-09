@@ -116,7 +116,9 @@ func stageNVMLShim(ctx context.Context, h *host.Host, state *agent.State) error 
 // run without a real driver. Absence is non-fatal — not all profiles need it.
 func stageCUDAShim(ctx context.Context, h *host.Host, state *agent.State) error {
 	matches, _ := filepath.Glob("/usr/local/lib/libcuda.so.*.*.*")
+
 	if len(matches) == 0 {
+		zap.L().Debug("no libcuda.so in image; skipping CUDA shim staging")
 		return nil
 	}
 
@@ -124,6 +126,7 @@ func stageCUDAShim(ctx context.Context, h *host.Host, state *agent.State) error 
 	if err := os.MkdirAll(lib64, 0o755); err != nil {
 		return err
 	}
+
 	if err := ctx.Err(); err != nil {
 		return err
 	}
