@@ -63,7 +63,6 @@ func (s *Simulator) Stage(ctx context.Context, state *agent.State) error {
 		return err
 	}
 
-	s.ready.Store(true)
 	zap.L().Info("simulator staged", zap.String("simulator", name))
 	return nil
 }
