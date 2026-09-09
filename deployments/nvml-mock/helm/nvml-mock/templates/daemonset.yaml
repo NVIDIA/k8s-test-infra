@@ -53,7 +53,12 @@ spec:
             - --log-level={{ .Values.nodeAgent.logging.level }}
             - --log-format={{ .Values.nodeAgent.logging.format }}
             - --shutdown-timeout={{ .Values.nodeAgent.shutdownTimeout }}
-            - --resync-interval={{ .Values.nodeAgent.resyncInterval }}
+            {{- with .Values.nodeAgent.resyncInterval }}
+            # Omitted when the value is absent, which is what an upgrade with
+            # --reuse-values renders: the flag would arrive empty and the agent
+            # would refuse to start. Unset falls through to the binary default.
+            - --resync-interval={{ . }}
+            {{- end }}
           env:
             - name: NODE_NAME
               valueFrom:
