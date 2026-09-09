@@ -110,6 +110,38 @@
               }
             }
           }
+        },
+        "mig": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "MIG partitioning. Activates the layout the profile declares under device_defaults.mig.gpu_instances; a profile that declares none is rejected, because MIG on with nothing partitioned publishes no GPU resource at all under migStrategy=single.",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "gpuInstances": {
+              "type": "array",
+              "description": "Overrides the partitions the profile declares. Empty keeps them.",
+              "items": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "profile": {
+                    "type": "string",
+                    "description": "Canonical MIG profile name, e.g. \"1g.5gb\". Mutually exclusive with profile_id."
+                  },
+                  "profile_id": {
+                    "type": "integer",
+                    "description": "Raw NVML GPU instance profile ID, for a partition with no canonical name.",
+                    "minimum": 0
+                  },
+                  "count": {
+                    "type": "integer",
+                    "description": "How many identical instances to create. Defaults to 1.",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },

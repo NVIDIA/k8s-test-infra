@@ -55,6 +55,25 @@ gpu:
     xid:
       code: 0                            # 0 = no Xid surfaced; e.g. 79 = "GPU has fallen off the bus"
 
+  # MIG partitioning. Off by default: a partitioned board stops publishing
+  # nvidia.com/gpu under the device plugin's migStrategy=single, so enabling
+  # this changes what the node advertises.
+  #
+  # Enabling activates the layout the profile already declares under
+  # device_defaults.mig.gpu_instances; a profile that declares none is an
+  # error rather than a node with MIG on and nothing partitioned. Set
+  # gpuInstances to partition differently from the profile's default, using
+  # the same schema:
+  #
+  #   gpuInstances:
+  #     - profile: "3g.20gb"
+  #       count: 2
+  #
+  # The instances stay mutable at runtime through NVML, as on real hardware.
+  mig:
+    enabled: false
+    gpuInstances: []
+
 image:
   repository: ghcr.io/nvidia/nvml-mock
   tag: latest
