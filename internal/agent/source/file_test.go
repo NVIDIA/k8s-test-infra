@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"sigs.k8s.io/yaml"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
@@ -474,4 +475,49 @@ devices:
 	require.NoError(t, err)
 	require.Equal(t, 1, state.Devices[0].MinorNumber)
 	require.Equal(t, 0, state.Devices[1].MinorNumber, "minor 0 on a device that is not index 0")
+}
+
+// The agent stages the character devices and writes both CDI specs, so a
+// profile whose minor numbers collide has to be rejected here too — the engine
+// refusing it later does not stop the nodes from being created.
+func TestCompileState_RejectsCollidingMinorNumbers(t *testing.T) {
+	cfg := `
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+  num_devices: 2
+devices:
+  - index: 0
+    minor_number: 1
+  - index: 1
+`
+	_, err := compileState([]byte(cfg))
+	require.ErrorContains(t, err, "duplicate device minor number: 1")
+}
+
+// The agent's device nodes and the engine's visibility filter have to agree on
+// which minor belongs to which index, or a container is filtered against nodes
+// that were never staged.
+func TestCompileState_MinorNumbersAgreeWithTheEngine(t *testing.T) {
+	cfg := `
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+  num_devices: 4
+devices:
+  - index: 1
+    minor_number: 3
+  - index: 3
+    minor_number: 1
+`
+	state, err := compileState([]byte(cfg))
+	require.NoError(t, err)
+
+	var yc engine.YAMLConfig
+	require.NoError(t, yaml.Unmarshal([]byte(cfg), &yc))
+	ec := &engine.Config{YAMLConfig: &yc}
+
+	for _, d := range state.Devices {
+		require.Equal(t, ec.GetDeviceMinorNumber(d.Index), d.MinorNumber, "device %d", d.Index)
+	}
 }

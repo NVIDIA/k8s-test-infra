@@ -14,6 +14,7 @@
 package engine
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -286,4 +287,71 @@ devices:
 	require.NoError(t, yaml.Unmarshal([]byte(y), &yc), "yaml decode")
 
 	require.ErrorContains(t, validateYAMLConfig(&yc), "duplicate device minor number: 3")
+}
+
+// A device that omits minor_number still occupies its index as a minor, so an
+// explicit value elsewhere can collide with it. Checking only the values that
+// were spelled out would let both devices reach the same /dev/nvidia<N>.
+func TestValidateYAMLConfig_RejectsCollisionWithADefaultedMinorNumber(t *testing.T) {
+	t.Parallel()
+
+	y := `
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+devices:
+  - index: 0
+    minor_number: 1
+  - index: 1
+`
+	var yc YAMLConfig
+	require.NoError(t, yaml.Unmarshal([]byte(y), &yc), "yaml decode")
+
+	require.ErrorContains(t, validateYAMLConfig(&yc), "duplicate device minor number: 1")
+}
+
+// An implicit device — one the count covers but no entry describes — takes its
+// index as a minor and can be collided with just the same.
+func TestValidateYAMLConfig_RejectsCollisionWithAnUndeclaredDevice(t *testing.T) {
+	t.Parallel()
+
+	y := `
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+  num_devices: 4
+devices:
+  - index: 0
+    minor_number: 3
+`
+	var yc YAMLConfig
+	require.NoError(t, yaml.Unmarshal([]byte(y), &yc), "yaml decode")
+
+	require.ErrorContains(t, validateYAMLConfig(&yc), "duplicate device minor number: 3")
+}
+
+// stageCharDevs formats the node name from the minor and casts it to uint32.
+// A negative value names a node the GPU-node pattern cannot match, so it
+// survives pruning, and 255 is nvidiactl's.
+func TestValidateYAMLConfig_RejectsMinorNumbersOutsideTheDeviceRange(t *testing.T) {
+	t.Parallel()
+
+	for name, minor := range map[string]int{"negative": -1, "nvidiactl": 255} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			y := fmt.Sprintf(`
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+devices:
+  - index: 0
+    minor_number: %d
+`, minor)
+			var yc YAMLConfig
+			require.NoError(t, yaml.Unmarshal([]byte(y), &yc), "yaml decode")
+
+			require.ErrorContains(t, validateYAMLConfig(&yc), "device minor number out of range")
+		})
+	}
 }

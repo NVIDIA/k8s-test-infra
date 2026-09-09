@@ -528,7 +528,12 @@ devices:
 `minor_number` is the `N` in `/dev/nvidia<N>`, which the agent stages and both
 CDI specs point at. It defaults to the index — the numbering a driver produces
 when it probes in PCI enumeration order — so set it only to describe a node
-where the two differ, and give each device a distinct value.
+where the two differ.
+
+Minor numbers are a permutation of the device indices: remapping one device
+means remapping whichever device held the minor it took. A profile that leaves
+two devices on the same minor is rejected, defaults included, as is a minor
+outside 0-254 (255 is `nvidiactl`).
 
 ## NVLink Configuration
 

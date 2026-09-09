@@ -31,9 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shipped profile describes, but where a profile sets them apart a container was
   handed the `/dev/nvidia<N>` belonging to a different GPU. NVML indices are
   unchanged, so `nvidia-smi` and CDI device names still enumerate from 0. A
-  device that omits `minor_number` keeps taking its index, and a config that
-  gives two devices the same minor number is now rejected rather than pointing
-  both at one node.
+  device that omits `minor_number` keeps taking its index. A profile is now
+  rejected, by the agent as well as the engine, when two devices would end up on
+  the same minor number — including where one of them defaulted to it — or when
+  a minor falls outside the range a GPU node can carry.
 - mocknvml: `nvidia-smi --gpu-reset` (`-r`) now resets a GPU instead of
   segfaulting. The mock's export-table dispatcher ended every per-device call by
   writing a zero count through `arg1`, which the reset slots do not carry, so the
