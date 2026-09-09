@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
+	mockserver "github.com/NVIDIA/go-nvml/pkg/nvml/mock/server"
 	"github.com/stretchr/testify/require"
 )
 
@@ -531,6 +532,92 @@ func TestDeclaredPartitions_MixedProfiles(t *testing.T) {
 
 	_, ret := dev.GetMigDeviceHandleByIndex(3)
 	require.Equal(t, nvml.ERROR_NOT_FOUND, ret)
+}
+
+// TestComputeInstancePlacements_A100 covers go-nvml's A100 tables listing
+// every valid compute profile with an empty offset list. An empty list reads
+// as "fits nowhere", so the offsets are filled in from the profile shape.
+func TestComputeInstancePlacements_A100(t *testing.T) {
+	t.Parallel()
+
+	dev := newTestDeviceWithConfig(t, a100MIGConfig())
+	enableMIG(t, dev)
+
+	giInfo, ret := dev.GetGpuInstanceProfileInfo(nvml.GPU_INSTANCE_PROFILE_3_SLICE)
+	require.Equal(t, nvml.SUCCESS, ret)
+	gi, ret := dev.CreateGpuInstance(&giInfo)
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	ciInfo, ret := gi.GetComputeInstanceProfileInfo(
+		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE, nvml.COMPUTE_INSTANCE_ENGINE_PROFILE_SHARED)
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	placements, ret := computeInstancePlacements(gi.(*mockserver.GpuInstance), &ciInfo)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, []nvml.ComputeInstancePlacement{
+		{Start: 0, Size: 1}, {Start: 1, Size: 1}, {Start: 2, Size: 1},
+	}, placements, "three single-slice compute instances fit a 3-slice GPU instance")
+}
+
+// TestCreateComputeInstance_AssignsDistinctPlacements matters because the
+// placement is what tells two compute instances of the same profile apart, and
+// what a caller checks to see the GPU instance filling up.
+func TestCreateComputeInstance_AssignsDistinctPlacements(t *testing.T) {
+	t.Parallel()
+
+	dev := newTestDeviceWithConfig(t, a100MIGConfig())
+	enableMIG(t, dev)
+
+	giInfo, ret := dev.GetGpuInstanceProfileInfo(nvml.GPU_INSTANCE_PROFILE_3_SLICE)
+	require.Equal(t, nvml.SUCCESS, ret)
+	gi, ret := dev.CreateGpuInstance(&giInfo)
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	ciInfo, ret := gi.GetComputeInstanceProfileInfo(
+		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE, nvml.COMPUTE_INSTANCE_ENGINE_PROFILE_SHARED)
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	starts := make([]uint32, 0, 3)
+	for range 3 {
+		ci, ret := gi.CreateComputeInstance(&ciInfo)
+		require.Equal(t, nvml.SUCCESS, ret)
+		info, ret := ci.GetInfo()
+		require.Equal(t, nvml.SUCCESS, ret)
+		starts = append(starts, info.Placement.Start)
+	}
+	require.Equal(t, []uint32{0, 1, 2}, starts)
+
+	_, ret = gi.CreateComputeInstance(&ciInfo)
+	require.Equal(t, nvml.ERROR_INSUFFICIENT_RESOURCES, ret,
+		"a 3-slice GPU instance holds no fourth single-slice compute instance")
+}
+
+func TestCreateComputeInstanceWithPlacement(t *testing.T) {
+	t.Parallel()
+
+	dev := newTestDeviceWithConfig(t, a100MIGConfig())
+	enableMIG(t, dev)
+
+	giInfo, ret := dev.GetGpuInstanceProfileInfo(nvml.GPU_INSTANCE_PROFILE_3_SLICE)
+	require.Equal(t, nvml.SUCCESS, ret)
+	gi, ret := dev.CreateGpuInstance(&giInfo)
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	ciInfo, ret := gi.GetComputeInstanceProfileInfo(
+		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE, nvml.COMPUTE_INSTANCE_ENGINE_PROFILE_SHARED)
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	ci, ret := gi.CreateComputeInstanceWithPlacement(&ciInfo, &nvml.ComputeInstancePlacement{Start: 2, Size: 1})
+	require.Equal(t, nvml.SUCCESS, ret)
+	info, ret := ci.GetInfo()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, uint32(2), info.Placement.Start, "the caller's offset is honoured, not reassigned")
+
+	_, ret = gi.CreateComputeInstanceWithPlacement(&ciInfo, &nvml.ComputeInstancePlacement{Start: 2, Size: 1})
+	require.Equal(t, nvml.ERROR_INSUFFICIENT_RESOURCES, ret, "the offset is taken")
+
+	_, ret = gi.CreateComputeInstanceWithPlacement(&ciInfo, &nvml.ComputeInstancePlacement{Start: 5, Size: 1})
+	require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret, "offset 5 is outside a 3-slice GPU instance")
 }
 
 func TestValidateMIGConfig(t *testing.T) {

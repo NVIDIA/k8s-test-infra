@@ -29,11 +29,15 @@ import (
 // It does NOT implement nvml.Interface - it delegates to MockServer
 // which wraps dgxa100.Server (the actual nvml.Interface implementation).
 type Engine struct {
-	server    *MockServer
-	config    *Config
-	handles   *HandleTable
-	initCount int
-	mu        sync.RWMutex
+	server *MockServer
+	config *Config
+	// handles maps device handles; gpuInstances and computeInstances map the
+	// MIG instance handles NVML hands callers separately from device handles.
+	handles          *HandleTable
+	gpuInstances     *GpuInstanceTable
+	computeInstances *ComputeInstanceTable
+	initCount        int
+	mu               sync.RWMutex
 }
 
 var (
@@ -58,8 +62,10 @@ func NewEngine(config *Config) *Engine {
 	}
 
 	e := &Engine{
-		config:  config,
-		handles: NewHandleTable(),
+		config:           config,
+		handles:          NewHandleTable(),
+		gpuInstances:     NewGpuInstanceTable(),
+		computeInstances: NewComputeInstanceTable(),
 	}
 
 	return e
@@ -276,8 +282,13 @@ func (e *Engine) Shutdown() nvml.Return {
 	}
 
 	// Handles become invalid (and their addresses are never reused, see
-	// HandleTable.Clear), but the device state is kept for a later Init.
+	// handleStore.Clear), but the device state is kept for a later Init. The
+	// MIG partitioning is part of that state: a caller that partitions a GPU,
+	// shuts NVML down and initialises again finds its instances still there,
+	// as it would on hardware.
 	e.handles.Clear()
+	e.gpuInstances.Clear()
+	e.computeInstances.Clear()
 
 	debugLog("[ENGINE] Shutdown complete\n")
 	return nvml.SUCCESS

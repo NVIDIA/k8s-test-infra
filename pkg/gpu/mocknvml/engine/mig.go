@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -303,6 +304,14 @@ func (d *ConfigurableDevice) resolveMigProfileByName(name string) (int, int, err
 	return 0, 0, errors.New("no such MIG profile on this device")
 }
 
+// migProfileDisplayName is how NVML spells a profile in the name field of the
+// versioned profile-info structs and in nvidia-smi output: the bare profile
+// with a "MIG " prefix. The bare form is kept separate because that is what a
+// YAML profile declares and what the device plugin publishes.
+func migProfileDisplayName(profile string) string {
+	return "MIG " + profile
+}
+
 // spanningComputeInstanceProfile returns the compute instance profile that
 // covers a whole GPU instance of the given profile.
 func spanningComputeInstanceProfile(giProfileID int) (int, error) {
@@ -517,6 +526,28 @@ func liveComputeInstances(gi *mockserver.GpuInstance) []*mockserver.ComputeInsta
 
 	sort.Slice(cis, func(i, j int) bool { return cis[i].Info.Id < cis[j].Info.Id })
 	return cis
+}
+
+// devicesDerivedFrom returns the MIG devices this state has already minted for
+// a GPU instance, narrowed to a single compute instance when ciID is non-nil.
+//
+// It reports what was cached, not what exists: only a device a caller has
+// actually enumerated can have a handle to invalidate.
+func (st *migState) devicesDerivedFrom(giID uint32, ciID *uint32) []*ConfigurableDevice {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	var devices []*ConfigurableDevice
+	for key, dev := range st.devices {
+		if key.gi != giID {
+			continue
+		}
+		if ciID != nil && key.ci != *ciID {
+			continue
+		}
+		devices = append(devices, dev)
+	}
+	return devices
 }
 
 // newMigDeviceLocked builds the MIG device backing one (GPU instance, compute
@@ -791,6 +822,13 @@ func (st *migState) createGpuInstanceLocked(
 // unset, and wraps Destroy so tearing an instance down also retires the MIG
 // devices derived from it.
 func (st *migState) extendGpuInstance(parent *ConfigurableDevice, gi *mockserver.GpuInstance) {
+	// go-nvml's mock stamps the instance with the bare inner device it was
+	// created on. Repoint it at the ConfigurableDevice: this is the object a
+	// caller gets back from nvmlGpuInstanceGetInfo and can turn into a device
+	// handle, and the bare mock panics on any method whose Func field is
+	// unset — a panic inside libnvidia-ml.so is a segfault in the consumer.
+	gi.Info.Device = parent
+
 	gi.GetComputeInstanceByIdFunc = func(id int) (nvml.ComputeInstance, nvml.Return) {
 		for _, ci := range liveComputeInstances(gi) {
 			if int(ci.Info.Id) == id {
@@ -801,14 +839,15 @@ func (st *migState) extendGpuInstance(parent *ConfigurableDevice, gi *mockserver
 	}
 
 	gi.CreateComputeInstanceFunc = func(info *nvml.ComputeInstanceProfileInfo) (nvml.ComputeInstance, nvml.Return) {
-		return st.createComputeInstance(parent, gi, info)
+		return st.createComputeInstance(parent, gi, info, nil)
 	}
 	gi.CreateComputeInstanceWithPlacementFunc = func(
-		info *nvml.ComputeInstanceProfileInfo, _ *nvml.ComputeInstancePlacement,
+		info *nvml.ComputeInstanceProfileInfo, placement *nvml.ComputeInstancePlacement,
 	) (nvml.ComputeInstance, nvml.Return) {
-		// Compute instance placements are advisory in the mock: the tables
-		// carry no offsets, so the shape alone decides whether it fits.
-		return st.createComputeInstance(parent, gi, info)
+		if placement == nil {
+			return nil, nvml.ERROR_INVALID_ARGUMENT
+		}
+		return st.createComputeInstance(parent, gi, info, placement)
 	}
 
 	gi.GetComputeInstanceRemainingCapacityFunc = func(info *nvml.ComputeInstanceProfileInfo) (int, nvml.Return) {
@@ -827,13 +866,17 @@ func (st *migState) extendGpuInstance(parent *ConfigurableDevice, gi *mockserver
 	}
 }
 
-// createComputeInstance partitions a GPU instance further.
+// createComputeInstance partitions a GPU instance further. A nil placement
+// lets the mock pick the first free offset, as nvmlGpuInstanceCreateComputeInstance
+// does; a non-nil one must be a placement the profile actually offers and must
+// not overlap a live compute instance.
 //
 // Capacity is per compute-instance profile: the profile's InstanceCount is how
 // many of that shape fit in the GPU instance, so a full instance rejects
 // another "1c" while still admitting a differently shaped one.
 func (st *migState) createComputeInstance(
-	parent *ConfigurableDevice, gi *mockserver.GpuInstance, info *nvml.ComputeInstanceProfileInfo,
+	parent *ConfigurableDevice, gi *mockserver.GpuInstance,
+	info *nvml.ComputeInstanceProfileInfo, placement *nvml.ComputeInstancePlacement,
 ) (nvml.ComputeInstance, nvml.Return) {
 	if info == nil {
 		return nil, nvml.ERROR_INVALID_ARGUMENT
@@ -847,12 +890,22 @@ func (st *migState) createComputeInstance(
 		return nil, nvml.ERROR_INSUFFICIENT_RESOURCES
 	}
 
+	offered, ret := computeInstancePlacements(gi, info)
+	if ret != nvml.SUCCESS {
+		return nil, ret
+	}
+	chosen, ret := chooseComputeInstancePlacement(gi, offered, placement)
+	if ret != nvml.SUCCESS {
+		return nil, ret
+	}
+
 	gi.Lock()
 	ciInfo := nvml.ComputeInstanceInfo{
 		Device:      parent,
 		GpuInstance: gi,
 		Id:          gi.ComputeInstanceCounter,
 		ProfileId:   info.Id,
+		Placement:   chosen,
 	}
 	gi.ComputeInstanceCounter++
 	ci := mockserver.NewComputeInstanceFromInfo(ciInfo)
@@ -860,9 +913,86 @@ func (st *migState) createComputeInstance(
 	gi.Unlock()
 
 	st.extendComputeInstance(gi, ci)
-	debugLog("[MIG] device %d: created compute instance gi=%d ci=%d profile=%d\n",
-		parent.index, gi.Info.Id, ci.Info.Id, info.Id)
+	debugLog("[MIG] device %d: created compute instance gi=%d ci=%d profile=%d placement=%d+%d\n",
+		parent.index, gi.Info.Id, ci.Info.Id, info.Id, chosen.Start, chosen.Size)
 	return ci, nvml.SUCCESS
+}
+
+// computeInstancePlacements returns the compute-slice offsets a profile may
+// occupy within a GPU instance.
+//
+// go-nvml's profile tables are inconsistent here: the H100, B200 and A30
+// tables carry real offsets, while the A100's list every valid compute
+// profile with an empty offset list. An empty list cannot be right — a
+// consumer reads it as "this profile fits nowhere" — so it is filled in from
+// the profile's own shape: InstanceCount instances of SliceCount slices laid
+// end to end, which is the layout the populated tables all follow.
+func computeInstancePlacements(
+	gi *mockserver.GpuInstance, info *nvml.ComputeInstanceProfileInfo,
+) ([]nvml.ComputeInstancePlacement, nvml.Return) {
+	offered, ret := gi.GetComputeInstancePossiblePlacements(info)
+	if ret != nvml.SUCCESS {
+		return nil, ret
+	}
+	if len(offered) > 0 {
+		return offered, nvml.SUCCESS
+	}
+	if info.SliceCount == 0 {
+		return nil, nvml.ERROR_NOT_SUPPORTED
+	}
+
+	synthesized := make([]nvml.ComputeInstancePlacement, 0, info.InstanceCount)
+	for i := range info.InstanceCount {
+		synthesized = append(synthesized, nvml.ComputeInstancePlacement{
+			Start: i * info.SliceCount,
+			Size:  info.SliceCount,
+		})
+	}
+	return synthesized, nvml.SUCCESS
+}
+
+// chooseComputeInstancePlacement validates a requested compute-slice placement
+// or, when none was requested, picks the first offered one that is still free.
+func chooseComputeInstancePlacement(
+	gi *mockserver.GpuInstance, offered []nvml.ComputeInstancePlacement,
+	requested *nvml.ComputeInstancePlacement,
+) (nvml.ComputeInstancePlacement, nvml.Return) {
+	occupied := occupiedComputeSlices(gi)
+
+	if requested != nil {
+		if !slices.Contains(offered, *requested) {
+			return nvml.ComputeInstancePlacement{}, nvml.ERROR_INVALID_ARGUMENT
+		}
+		if occupied&computeSliceMask(*requested) != 0 {
+			return nvml.ComputeInstancePlacement{}, nvml.ERROR_INSUFFICIENT_RESOURCES
+		}
+		return *requested, nvml.SUCCESS
+	}
+
+	for _, candidate := range offered {
+		if occupied&computeSliceMask(candidate) == 0 {
+			return candidate, nvml.SUCCESS
+		}
+	}
+	return nvml.ComputeInstancePlacement{}, nvml.ERROR_INSUFFICIENT_RESOURCES
+}
+
+// occupiedComputeSlices returns a bitmask of the compute slices the live
+// compute instances of a GPU instance hold.
+func occupiedComputeSlices(gi *mockserver.GpuInstance) uint64 {
+	var occupied uint64
+	for _, ci := range liveComputeInstances(gi) {
+		occupied |= computeSliceMask(ci.Info.Placement)
+	}
+	return occupied
+}
+
+func computeSliceMask(placement nvml.ComputeInstancePlacement) uint64 {
+	if placement.Size == 0 || placement.Start >= migSliceGridWidth {
+		return 0
+	}
+	size := min(placement.Size, migSliceGridWidth-placement.Start)
+	return ((uint64(1) << size) - 1) << placement.Start
 }
 
 func countComputeInstancesWithProfile(gi *mockserver.GpuInstance, profileID uint32) int {

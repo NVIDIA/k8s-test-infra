@@ -369,6 +369,18 @@ devices:
     pci:
       bus_id: "0000:47:00.0"
     minor_number: 2
+    # Boots already partitioned into the uniform layout migStrategy=single
+    # requires, so testMIG covers the declared path over the real C ABI while
+    # device 0 stays unpartitioned for the runtime create/destroy path. This
+    # also pins the per-device override merge: `mig` was silently dropped
+    # before, which would leave this device looking like the defaults.
+    mig:
+      mode_current: "enabled"
+      mode_pending: "enabled"
+      max_gpu_instances: 7
+      gpu_instances:
+        - profile: "1g.5gb"
+          count: 7
 
   - index: 3
     uuid: "GPU-12345678-1234-1234-1234-123456780003"

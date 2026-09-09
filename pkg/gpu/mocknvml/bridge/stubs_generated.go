@@ -21,22 +21,12 @@ package main
 */
 import "C"
 
-// 260 stub functions for unimplemented NVML functions.
+// 235 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
-
-//export nvmlComputeInstanceDestroy
-func nvmlComputeInstanceDestroy(computeInstance C.nvmlComputeInstance_t) C.nvmlReturn_t {
-	return stubReturn("nvmlComputeInstanceDestroy")
-}
 
 //export nvmlComputeInstanceGetInfo_v1
 func nvmlComputeInstanceGetInfo_v1(computeInstance C.nvmlComputeInstance_t, info *C.nvmlComputeInstanceInfo_t) C.nvmlReturn_t {
 	return stubReturn("nvmlComputeInstanceGetInfo_v1")
-}
-
-//export nvmlComputeInstanceGetInfo_v2
-func nvmlComputeInstanceGetInfo_v2(computeInstance C.nvmlComputeInstance_t, info *C.nvmlComputeInstanceInfo_t) C.nvmlReturn_t {
-	return stubReturn("nvmlComputeInstanceGetInfo_v2")
 }
 
 //export nvmlDeviceClearAccountingPids
@@ -57,16 +47,6 @@ func nvmlDeviceClearEccErrorCounts(device C.nvmlDevice_t, counterType C.nvmlEccC
 //export nvmlDeviceClearFieldValues
 func nvmlDeviceClearFieldValues(device C.nvmlDevice_t, valuesCount C.int, values *C.nvmlFieldValue_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceClearFieldValues")
-}
-
-//export nvmlDeviceCreateGpuInstance
-func nvmlDeviceCreateGpuInstance(device C.nvmlDevice_t, profileId C.uint, gpuInstance *C.nvmlGpuInstance_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceCreateGpuInstance")
-}
-
-//export nvmlDeviceCreateGpuInstanceWithPlacement
-func nvmlDeviceCreateGpuInstanceWithPlacement(device C.nvmlDevice_t, profileId C.uint, placement *C.nvmlGpuInstancePlacement_t, gpuInstance *C.nvmlGpuInstance_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceCreateGpuInstanceWithPlacement")
 }
 
 //export nvmlDeviceDiscoverGpus
@@ -114,11 +94,6 @@ func nvmlDeviceGetAttributes_v1(device C.nvmlDevice_t, attributes *C.nvmlDeviceA
 	return stubReturn("nvmlDeviceGetAttributes_v1")
 }
 
-//export nvmlDeviceGetAttributes_v2
-func nvmlDeviceGetAttributes_v2(device C.nvmlDevice_t, attributes *C.nvmlDeviceAttributes_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetAttributes_v2")
-}
-
 //export nvmlDeviceGetBBXTimeData_v1
 func nvmlDeviceGetBBXTimeData_v1(device C.nvmlDevice_t, timeData *C.nvmlBBXTimeData_v1_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetBBXTimeData_v1")
@@ -147,11 +122,6 @@ func nvmlDeviceGetClkMonStatus(device C.nvmlDevice_t, status *C.nvmlClkMonStatus
 //export nvmlDeviceGetClockOffsets
 func nvmlDeviceGetClockOffsets(device C.nvmlDevice_t, info *C.nvmlClockOffset_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetClockOffsets")
-}
-
-//export nvmlDeviceGetComputeInstanceId
-func nvmlDeviceGetComputeInstanceId(device C.nvmlDevice_t, id *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetComputeInstanceId")
 }
 
 //export nvmlDeviceGetComputeRunningProcesses_v1
@@ -229,49 +199,9 @@ func nvmlDeviceGetGpcClkVfOffset(device C.nvmlDevice_t, offset *C.int) C.nvmlRet
 	return stubReturn("nvmlDeviceGetGpcClkVfOffset")
 }
 
-//export nvmlDeviceGetGpuInstanceById
-func nvmlDeviceGetGpuInstanceById(device C.nvmlDevice_t, id C.uint, gpuInstance *C.nvmlGpuInstance_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetGpuInstanceById")
-}
-
-//export nvmlDeviceGetGpuInstanceId
-func nvmlDeviceGetGpuInstanceId(device C.nvmlDevice_t, id *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetGpuInstanceId")
-}
-
 //export nvmlDeviceGetGpuInstancePossiblePlacements_v1
 func nvmlDeviceGetGpuInstancePossiblePlacements_v1(device C.nvmlDevice_t, profileId C.uint, placements *C.nvmlGpuInstancePlacement_t, count *C.uint) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetGpuInstancePossiblePlacements_v1")
-}
-
-//export nvmlDeviceGetGpuInstancePossiblePlacements_v2
-func nvmlDeviceGetGpuInstancePossiblePlacements_v2(device C.nvmlDevice_t, profileId C.uint, placements *C.nvmlGpuInstancePlacement_t, count *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetGpuInstancePossiblePlacements_v2")
-}
-
-//export nvmlDeviceGetGpuInstanceProfileInfo
-func nvmlDeviceGetGpuInstanceProfileInfo(device C.nvmlDevice_t, profile C.uint, info *C.nvmlGpuInstanceProfileInfo_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetGpuInstanceProfileInfo")
-}
-
-//export nvmlDeviceGetGpuInstanceProfileInfoByIdV
-func nvmlDeviceGetGpuInstanceProfileInfoByIdV(device C.nvmlDevice_t, profileId C.uint, info *C.nvmlGpuInstanceProfileInfo_v2_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetGpuInstanceProfileInfoByIdV")
-}
-
-//export nvmlDeviceGetGpuInstanceProfileInfoV
-func nvmlDeviceGetGpuInstanceProfileInfoV(device C.nvmlDevice_t, profile C.uint, info *C.nvmlGpuInstanceProfileInfo_v2_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetGpuInstanceProfileInfoV")
-}
-
-//export nvmlDeviceGetGpuInstanceRemainingCapacity
-func nvmlDeviceGetGpuInstanceRemainingCapacity(device C.nvmlDevice_t, profileId C.uint, count *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetGpuInstanceRemainingCapacity")
-}
-
-//export nvmlDeviceGetGpuInstances
-func nvmlDeviceGetGpuInstances(device C.nvmlDevice_t, profileId C.uint, gpuInstances *C.nvmlGpuInstance_t, count *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetGpuInstances")
 }
 
 //export nvmlDeviceGetGraphicsRunningProcesses_v1
@@ -734,11 +664,6 @@ func nvmlDeviceSetMemoryLockedClocks(device C.nvmlDevice_t, minMemClockMHz C.uin
 	return stubReturn("nvmlDeviceSetMemoryLockedClocks")
 }
 
-//export nvmlDeviceSetMigMode
-func nvmlDeviceSetMigMode(device C.nvmlDevice_t, mode C.uint, activationStatus *C.nvmlReturn_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceSetMigMode")
-}
-
 //export nvmlDeviceSetNvLinkDeviceLowPowerThreshold
 func nvmlDeviceSetNvLinkDeviceLowPowerThreshold(device C.nvmlDevice_t, info *C.nvmlNvLinkPowerThres_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceSetNvLinkDeviceLowPowerThreshold")
@@ -879,64 +804,14 @@ func nvmlGpmSetStreamingEnabled(device C.nvmlDevice_t, state C.uint) C.nvmlRetur
 	return stubReturn("nvmlGpmSetStreamingEnabled")
 }
 
-//export nvmlGpuInstanceCreateComputeInstance
-func nvmlGpuInstanceCreateComputeInstance(gpuInstance C.nvmlGpuInstance_t, profileId C.uint, computeInstance *C.nvmlComputeInstance_t) C.nvmlReturn_t {
-	return stubReturn("nvmlGpuInstanceCreateComputeInstance")
-}
-
-//export nvmlGpuInstanceCreateComputeInstanceWithPlacement
-func nvmlGpuInstanceCreateComputeInstanceWithPlacement(gpuInstance C.nvmlGpuInstance_t, profileId C.uint, placement *C.nvmlComputeInstancePlacement_t, computeInstance *C.nvmlComputeInstance_t) C.nvmlReturn_t {
-	return stubReturn("nvmlGpuInstanceCreateComputeInstanceWithPlacement")
-}
-
-//export nvmlGpuInstanceDestroy
-func nvmlGpuInstanceDestroy(gpuInstance C.nvmlGpuInstance_t) C.nvmlReturn_t {
-	return stubReturn("nvmlGpuInstanceDestroy")
-}
-
 //export nvmlGpuInstanceGetActiveVgpus
 func nvmlGpuInstanceGetActiveVgpus(gpuInstance C.nvmlGpuInstance_t, pVgpuInstanceInfo *C.nvmlActiveVgpuInstanceInfo_t) C.nvmlReturn_t {
 	return stubReturn("nvmlGpuInstanceGetActiveVgpus")
 }
 
-//export nvmlGpuInstanceGetComputeInstanceById
-func nvmlGpuInstanceGetComputeInstanceById(gpuInstance C.nvmlGpuInstance_t, id C.uint, computeInstance *C.nvmlComputeInstance_t) C.nvmlReturn_t {
-	return stubReturn("nvmlGpuInstanceGetComputeInstanceById")
-}
-
-//export nvmlGpuInstanceGetComputeInstancePossiblePlacements
-func nvmlGpuInstanceGetComputeInstancePossiblePlacements(gpuInstance C.nvmlGpuInstance_t, profileId C.uint, placements *C.nvmlComputeInstancePlacement_t, count *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlGpuInstanceGetComputeInstancePossiblePlacements")
-}
-
-//export nvmlGpuInstanceGetComputeInstanceProfileInfo
-func nvmlGpuInstanceGetComputeInstanceProfileInfo(gpuInstance C.nvmlGpuInstance_t, profile C.uint, engProfile C.uint, info *C.nvmlComputeInstanceProfileInfo_t) C.nvmlReturn_t {
-	return stubReturn("nvmlGpuInstanceGetComputeInstanceProfileInfo")
-}
-
-//export nvmlGpuInstanceGetComputeInstanceProfileInfoV
-func nvmlGpuInstanceGetComputeInstanceProfileInfoV(gpuInstance C.nvmlGpuInstance_t, profile C.uint, engProfile C.uint, info *C.nvmlComputeInstanceProfileInfo_v2_t) C.nvmlReturn_t {
-	return stubReturn("nvmlGpuInstanceGetComputeInstanceProfileInfoV")
-}
-
-//export nvmlGpuInstanceGetComputeInstanceRemainingCapacity
-func nvmlGpuInstanceGetComputeInstanceRemainingCapacity(gpuInstance C.nvmlGpuInstance_t, profileId C.uint, count *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlGpuInstanceGetComputeInstanceRemainingCapacity")
-}
-
-//export nvmlGpuInstanceGetComputeInstances
-func nvmlGpuInstanceGetComputeInstances(gpuInstance C.nvmlGpuInstance_t, profileId C.uint, computeInstances *C.nvmlComputeInstance_t, count *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlGpuInstanceGetComputeInstances")
-}
-
 //export nvmlGpuInstanceGetCreatableVgpus
 func nvmlGpuInstanceGetCreatableVgpus(gpuInstance C.nvmlGpuInstance_t, pVgpus *C.nvmlVgpuTypeIdInfo_t) C.nvmlReturn_t {
 	return stubReturn("nvmlGpuInstanceGetCreatableVgpus")
-}
-
-//export nvmlGpuInstanceGetInfo
-func nvmlGpuInstanceGetInfo(gpuInstance C.nvmlGpuInstance_t, info *C.nvmlGpuInstanceInfo_t) C.nvmlReturn_t {
-	return stubReturn("nvmlGpuInstanceGetInfo")
 }
 
 //export nvmlGpuInstanceGetVgpuHeterogeneousMode
