@@ -66,6 +66,16 @@ type ConfigurableDevice struct {
 	// Mutable in-memory state (not persisted across restarts)
 	persistenceModeOverride *nvml.EnableState
 
+	// migState is the device's MIG partitioning. Non-nil on every physical
+	// GPU (it also records that a board is not MIG-capable); nil on MIG
+	// devices, which cannot themselves be partitioned.
+	migState *migState
+
+	// mig is set only when this device IS a MIG device rather than a physical
+	// GPU, and carries the identity and attributes that differ from its
+	// parent. See migIdentity for why MIG devices reuse this type.
+	mig *migIdentity
+
 	// dynamicMetrics holds the current simulator (nil == static mode). It is
 	// swapped atomically on refresh so a runtime config override that edits
 	// dynamic_metrics (e.g. pinning temperature) takes effect on the next
@@ -145,6 +155,10 @@ func NewConfigurableDevice(index int, baseDevice *mockserver.Device, config *Dev
 	if config != nil && config.Failure != nil {
 		dev.failure.Store(newFailureInjector(config.Failure))
 	}
+
+	// Last, because resolving the board's MIG tables and materializing any
+	// declared partitions both read the effective config set above.
+	dev.initMIG(config)
 
 	debugLog("[DEVICE %d] Created: name=%s uuid=%s pci=%s\n", index, dev.Config.Name, dev.UUID, dev.PciBusID)
 
@@ -457,6 +471,11 @@ func (d *ConfigurableDevice) GetUUID() (string, nvml.Return) {
 	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
 		return "", ret
 	}
+	// MIG devices carry their own UUID: consumers use it to tell partitions
+	// apart, and it must not collide with the parent's.
+	if d.mig != nil {
+		return d.mig.uuid, nvml.SUCCESS
+	}
 	debugLog("[NVML] nvmlDeviceGetUUID -> %s\n", d.UUID)
 	return d.UUID, nvml.SUCCESS
 }
@@ -467,6 +486,9 @@ func (d *ConfigurableDevice) GetUUID() (string, nvml.Return) {
 func (d *ConfigurableDevice) GetName() (string, nvml.Return) {
 	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
 		return "", ret
+	}
+	if d.mig != nil {
+		return d.mig.name, nvml.SUCCESS
 	}
 	debugLog("[NVML] nvmlDeviceGetName -> %s\n", d.Config.Name)
 	return d.Config.Name, nvml.SUCCESS
@@ -496,6 +518,11 @@ func (d *ConfigurableDevice) GetBAR1MemoryInfo() (nvml.BAR1Memory, nvml.Return) 
 // construction-time struct when the device was built without a memory block
 // (legacy/default mode), where d.MemoryInfo carries the base mock's values.
 func (d *ConfigurableDevice) memoryInfo() nvml.Memory {
+	// A MIG device reports its slice, not the board it was carved from.
+	if d.mig != nil {
+		total := d.mig.attrs.MemorySizeMB * oneMiB
+		return nvml.Memory{Total: total, Free: total}
+	}
 	if c := d.cfg(); c.Memory != nil {
 		return nvml.Memory{
 			Total: c.Memory.TotalBytes,
@@ -1845,39 +1872,8 @@ func (d *ConfigurableDevice) GetPowerState() (nvml.Pstates, nvml.Return) {
 	return d.GetPerformanceState()
 }
 
-// GetMigMode returns MIG mode (current, pending)
-func (d *ConfigurableDevice) GetMigMode() (int, int, nvml.Return) {
-	current, pending := 0, 0
-	if c := d.cfg(); c.MIG != nil {
-		if c.MIG.ModeCurrent == "enabled" {
-			current = 1
-		}
-		if c.MIG.ModePending == "enabled" {
-			pending = 1
-		}
-	}
-	debugLog("[NVML] nvmlDeviceGetMigMode -> current=%d pending=%d\n", current, pending)
-	return current, pending, nvml.SUCCESS
-}
-
-// GetMaxMigDeviceCount returns the maximum number of MIG devices
-func (d *ConfigurableDevice) GetMaxMigDeviceCount() (int, nvml.Return) {
-	count := 0
-	if c := d.cfg(); c.MIG != nil {
-		count = c.MIG.MaxGPUInstances
-	}
-	debugLog("[NVML] nvmlDeviceGetMaxMigDeviceCount -> %d\n", count)
-	return count, nvml.SUCCESS
-}
-
-// GetMigDeviceHandleByIndex returns a MIG device handle by index.
-// Returns NOT_FOUND when no MIG devices exist (MIG disabled or no instances).
-// NOT_FOUND (vs NOT_SUPPORTED) signals "no device at this index" which callers
-// like nvidia-device-plugin treat as end-of-iteration, not as a fatal error.
-func (d *ConfigurableDevice) GetMigDeviceHandleByIndex(index int) (nvml.Device, nvml.Return) {
-	debugLog("[NVML] nvmlDeviceGetMigDeviceHandleByIndex(%d) -> NOT_FOUND (no MIG devices)\n", index)
-	return nil, nvml.ERROR_NOT_FOUND
-}
+// MIG mode, MIG device enumeration and the GPU/compute instance lifecycle live
+// in mig.go.
 
 // GetGpmSupport returns whether GPM (GPU Performance Monitoring) is supported.
 // Like real NVML, GPM is supported on Hopper and newer; DCGM's profiling

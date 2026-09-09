@@ -507,11 +507,44 @@ type DisplayConfig struct {
 	Active string `json:"active,omitempty"`
 }
 
-// MIGConfig defines MIG configuration
+// MIGConfig defines MIG configuration.
+//
+// GPUInstances declares the partitioning the device boots with. It is only
+// honoured while mode_current is "enabled", so a profile can carry the layout
+// its board would normally be partitioned into and leave MIG off. The declared
+// layout seeds in-memory state that NVML callers can then add to and destroy,
+// the same way nvidia-mig-parted would on real hardware.
 type MIGConfig struct {
-	ModeCurrent     string `json:"mode_current,omitempty"`
-	ModePending     string `json:"mode_pending,omitempty"`
-	MaxGPUInstances int    `json:"max_gpu_instances,omitempty"`
+	ModeCurrent     string                 `json:"mode_current,omitempty"`
+	ModePending     string                 `json:"mode_pending,omitempty"`
+	MaxGPUInstances int                    `json:"max_gpu_instances,omitempty"`
+	GPUInstances    []MIGGPUInstanceConfig `json:"gpu_instances,omitempty"`
+}
+
+// MIGGPUInstanceConfig declares one or more identical GPU instances.
+//
+// The profile is named the way the cluster names it — "1g.10gb", "2g.20gb",
+// "1g.5gb+me" — so that what a profile declares reads the same as the
+// nvidia.com/mig-<profile> resource the device plugin ends up publishing.
+// ProfileID is the escape hatch for a raw NVML profile ID; exactly one of the
+// two must be set.
+type MIGGPUInstanceConfig struct {
+	Profile   string `json:"profile,omitempty"`
+	ProfileID *int   `json:"profile_id,omitempty"`
+	Count     int    `json:"count,omitempty"`
+	// ComputeInstances defaults to a single instance spanning the whole GPU
+	// instance, which is the only partitioning most consumers ask for and
+	// what nvidia-mig-parted creates when a profile names no compute slices.
+	ComputeInstances []MIGComputeInstanceConfig `json:"compute_instances,omitempty"`
+}
+
+// MIGComputeInstanceConfig declares one or more identical compute instances
+// inside a GPU instance. The profile is the compute-slice spelling NVML uses,
+// e.g. "1c" for a single slice; ProfileID takes a raw NVML profile ID.
+type MIGComputeInstanceConfig struct {
+	Profile   string `json:"profile,omitempty"`
+	ProfileID *int   `json:"profile_id,omitempty"`
+	Count     int    `json:"count,omitempty"`
 }
 
 // GPUOperationModeConfig defines GOM settings

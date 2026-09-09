@@ -263,6 +263,71 @@ func validateYAMLConfig(config *YAMLConfig) error {
 		return err
 	}
 
+	if err := validateMIGConfig(config.DeviceDefaults.MIG); err != nil {
+		return fmt.Errorf("device_defaults.mig: %w", err)
+	}
+	for _, dev := range config.Devices {
+		if err := validateMIGConfig(dev.MIG); err != nil {
+			return fmt.Errorf("devices[index=%d].mig: %w", dev.Index, err)
+		}
+	}
+
+	return nil
+}
+
+// validateMIGConfig rejects a MIG block that cannot mean anything, so a typo
+// in a profile is a load error the operator sees rather than a device that
+// quietly comes up unpartitioned.
+//
+// Whether the board actually offers a named profile is not checked here: that
+// needs the device's resolved name and memory, which only exist once the
+// device is built.
+func validateMIGConfig(mig *MIGConfig) error {
+	if mig == nil {
+		return nil
+	}
+	if err := validateMIGMode("mode_current", mig.ModeCurrent); err != nil {
+		return err
+	}
+	if err := validateMIGMode("mode_pending", mig.ModePending); err != nil {
+		return err
+	}
+	if mig.MaxGPUInstances < 0 {
+		return errors.New("max_gpu_instances cannot be negative")
+	}
+
+	for i, gi := range mig.GPUInstances {
+		if err := validateMIGProfileRef(gi.Profile, gi.ProfileID, gi.Count); err != nil {
+			return fmt.Errorf("gpu_instances[%d]: %w", i, err)
+		}
+		for j, ci := range gi.ComputeInstances {
+			if err := validateMIGProfileRef(ci.Profile, ci.ProfileID, ci.Count); err != nil {
+				return fmt.Errorf("gpu_instances[%d].compute_instances[%d]: %w", i, j, err)
+			}
+		}
+	}
+	return nil
+}
+
+func validateMIGMode(field, value string) error {
+	switch value {
+	case "", "enabled", "disabled":
+		return nil
+	}
+	return fmt.Errorf("%s must be \"enabled\" or \"disabled\", got %q", field, value)
+}
+
+func validateMIGProfileRef(profile string, profileID *int, count int) error {
+	switch {
+	case profile != "" && profileID != nil:
+		return fmt.Errorf("sets both profile %q and profile_id %d; use one", profile, *profileID)
+	case profile == "" && profileID == nil:
+		return errors.New("must set either profile or profile_id")
+	case profileID != nil && *profileID < 0:
+		return fmt.Errorf("profile_id cannot be negative, got %d", *profileID)
+	case count < 0:
+		return fmt.Errorf("count cannot be negative, got %d", count)
+	}
 	return nil
 }
 
@@ -477,6 +542,9 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	}
 	if override.Processes != nil {
 		base.Processes = override.Processes // nil = not overridden; [] = explicit clear
+	}
+	if override.MIG != nil {
+		base.MIG = override.MIG
 	}
 	if override.Platform != nil {
 		mergePlatformOverride(base, override.Platform)
