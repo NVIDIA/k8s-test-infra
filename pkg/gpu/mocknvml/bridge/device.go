@@ -634,6 +634,13 @@ func nvmlDeviceGetMaxMigDeviceCount(device C.nvmlDevice_t, count *C.uint) C.nvml
 	return C.NVML_SUCCESS
 }
 
+// nvmlDeviceGetMigDeviceHandleByIndex returns the MIG device at an index on a
+// partitioned GPU.
+//
+// ERROR_NOT_FOUND is what consumers treat as end-of-iteration: go-nvlib walks
+// indices up to nvmlDeviceGetMaxMigDeviceCount and skips the ones that report
+// NOT_FOUND, so a partly-populated board enumerates cleanly.
+//
 //export nvmlDeviceGetMigDeviceHandleByIndex
 func nvmlDeviceGetMigDeviceHandleByIndex(device C.nvmlDevice_t, index C.uint, migDevice *C.nvmlDevice_t) C.nvmlReturn_t {
 	if ret, ok := bridgeVersionCheck("nvmlDeviceGetMigDeviceHandleByIndex"); !ok {
@@ -642,13 +649,13 @@ func nvmlDeviceGetMigDeviceHandleByIndex(device C.nvmlDevice_t, index C.uint, mi
 	if migDevice == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := unsafe.Pointer(device.handle)
-	dev := engine.GetEngine().LookupConfigurableDevice(handle)
-	if dev == nil {
-		return C.NVML_ERROR_INVALID_ARGUMENT
+	handle, ret := engine.GetEngine().DeviceGetMigDeviceHandleByIndex(
+		unsafe.Pointer(device.handle), int(index))
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
 	}
-	_, ret := dev.GetMigDeviceHandleByIndex(int(index))
-	return toReturn(ret)
+	migDevice.handle = (*C.struct_nvmlDevice_st)(handle)
+	return C.NVML_SUCCESS
 }
 
 // =============================================================================
@@ -2539,8 +2546,8 @@ func nvmlDeviceGetDetailedEccErrors(device C.nvmlDevice_t, errorType C.nvmlMemor
 // MIG Device Handle Detection
 // =============================================================================
 
-// nvmlDeviceIsMigDeviceHandle returns whether a device handle refers to a MIG
-// device. Mock devices are always full GPUs, never MIG instances.
+// nvmlDeviceIsMigDeviceHandle reports whether a device handle refers to a MIG
+// device rather than a full GPU.
 //
 //export nvmlDeviceIsMigDeviceHandle
 //nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
@@ -2548,16 +2555,36 @@ func nvmlDeviceIsMigDeviceHandle(device C.nvmlDevice_t, isMigDevice *C.uint) C.n
 	if isMigDevice == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	*isMigDevice = 0 // false: mock devices are not MIG devices
+	dev := engine.GetEngine().LookupConfigurableDevice(unsafe.Pointer(device.handle))
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	isMig, ret := dev.IsMigDeviceHandle()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	if isMig {
+		*isMigDevice = 1
+	} else {
+		*isMigDevice = 0
+	}
 	return C.NVML_SUCCESS
 }
 
 // nvmlDeviceGetDeviceHandleFromMigDeviceHandle returns the parent GPU handle
-// for a MIG device. Since mock devices are never MIG devices, this always
-// returns ERROR_NOT_SUPPORTED.
+// for a MIG device. ERROR_INVALID_ARGUMENT on a full GPU matches real NVML:
+// the handle is simply the wrong kind for this query.
 //
 //export nvmlDeviceGetDeviceHandleFromMigDeviceHandle
 //nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlDeviceGetDeviceHandleFromMigDeviceHandle(migDevice C.nvmlDevice_t, device *C.nvmlDevice_t) C.nvmlReturn_t {
-	return C.NVML_ERROR_NOT_SUPPORTED
+	if device == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle, ret := engine.GetEngine().DeviceGetDeviceHandleFromMigDeviceHandle(unsafe.Pointer(migDevice.handle))
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	device.handle = (*C.struct_nvmlDevice_st)(handle)
+	return C.NVML_SUCCESS
 }
