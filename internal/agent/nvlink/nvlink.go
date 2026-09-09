@@ -49,7 +49,7 @@ func (s *Simulator) Ready() bool { return s.ready.Load() }
 // and a fabric without a declared topology keeps the profile's clique defaults.
 func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) error {
 	s.ready.Store(false)
-	zap.L().Debug("staging simulator", zap.String("simulator", name))
+	zap.L().Info("staging simulator", zap.String("simulator", name))
 
 	if len(state.TopologyRaw) == 0 {
 		// The overlay is on a host mount that outlives the pod, and the NRI
@@ -60,7 +60,7 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 		}
 
 		s.ready.Store(true)
-		zap.L().Debug("simulator staged; no topology document", zap.String("simulator", name))
+		zap.L().Info("simulator staged; no topology document", zap.String("simulator", name))
 		return nil
 	}
 
@@ -69,12 +69,12 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 	}
 
 	s.ready.Store(true)
-	zap.L().Debug("simulator staged", zap.String("simulator", name))
+	zap.L().Info("simulator staged", zap.String("simulator", name))
 	return nil
 }
 
 // Discard removes the staged document.
 func (s *Simulator) Discard(_ context.Context, h *host.Host) error {
-	zap.L().Debug("discarding simulator", zap.String("simulator", name))
+	zap.L().Info("discarding simulator", zap.String("simulator", name))
 	return fsutil.Remove(h.RootPath(overlayRel))
 }

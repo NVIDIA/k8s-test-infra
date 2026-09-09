@@ -131,7 +131,7 @@ func (s *Simulator) daemonExpected() bool {
 // and the tools that read them only where the tier simulates InfiniBand.
 func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) error {
 	s.ready.Store(false)
-	zap.L().Debug("staging simulator", zap.String("simulator", name))
+	zap.L().Info("staging simulator", zap.String("simulator", name))
 
 	// The NRI plugin LD_PRELOADs the shims into every container it injects, so
 	// a shim the loader cannot find is an ld.so error on every process the node
@@ -175,7 +175,7 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 		}
 
 		s.ready.Store(true)
-		zap.L().Debug("simulator staged; not simulating", zap.String("simulator", name))
+		zap.L().Info("simulator staged; not simulating", zap.String("simulator", name))
 
 		return nil
 	}
@@ -189,7 +189,7 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 	}
 
 	s.ready.Store(true)
-	zap.L().Debug("simulator staged", zap.String("simulator", name))
+	zap.L().Info("simulator staged", zap.String("simulator", name))
 	return nil
 }
 
@@ -207,7 +207,7 @@ func (s *Simulator) Discard(_ context.Context, h *host.Host) error {
 	if !s.ready.Load() {
 		return nil
 	}
-	zap.L().Debug("discarding simulator", zap.String("simulator", name))
+	zap.L().Info("discarding simulator", zap.String("simulator", name))
 	return errors.Join(
 		// The whole ib/ subtree: infiniband is its only writer.
 		removeTree(ibRoot(h)),

@@ -56,7 +56,7 @@ func (s *Simulator) Ready() bool { return s.staged.Load() && s.daemon.Ready() }
 // directory means fabricmanager is disabled on this node.
 func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) error {
 	s.staged.Store(false)
-	zap.L().Debug("staging simulator", zap.String("simulator", name))
+	zap.L().Info("staging simulator", zap.String("simulator", name))
 
 	dir := ""
 	if state.Fabric.ManagerStateDir != "" {
@@ -76,7 +76,7 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 
 	s.daemon.Reload(dir)
 	s.staged.Store(true)
-	zap.L().Debug("simulator staged", zap.String("simulator", name))
+	zap.L().Info("simulator staged", zap.String("simulator", name))
 	return nil
 }
 
@@ -89,6 +89,6 @@ func (s *Simulator) Reload(_ context.Context, _ *agent.State) error { return nil
 // Discard withdraws readiness so GPUs do not report COMPLETED after shutdown.
 func (s *Simulator) Discard(_ context.Context, _ *host.Host) error {
 	s.staged.Store(false)
-	zap.L().Debug("discarding simulator", zap.String("simulator", name))
+	zap.L().Info("discarding simulator", zap.String("simulator", name))
 	return s.daemon.Stop()
 }
