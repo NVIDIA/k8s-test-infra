@@ -5,8 +5,11 @@ End-to-end demos for nvml-mock.
 Most run on any Kubernetes cluster: point your `KUBECONFIG` at one and go.
 Two of them (node-wide injection and ComputeDomain) need containerd NRI
 enabled on every node, so they provision a dedicated Kind cluster instead,
-and say so in their own README. All of them need Helm 3.8+
-(<https://helm.sh/docs/intro/install/>). No cluster? Start with the
+and say so in their own README. Every demo needs Helm
+(<https://helm.sh/docs/intro/install/>), but the floor is not the same for all
+of them: it ranges from 3.6 to 3.13 depending on whether the demo pulls a chart
+from an OCI registry and which flags it uses. Each entry below states its own,
+and each demo's README explains why. No cluster? Start with the
 [quick start](../quickstart.md).
 
 Run one nvml-mock demo per cluster at a time. The chart's hostPath mounts are
@@ -24,7 +27,7 @@ Dedicated cluster (`nvml-mock-node-wide-demo`) with containerd NRI enabled.
 Installs the `nvml-mock-nri` DaemonSet and proves a plain pod can run
 `nvidia-smi` without GPU requests, annotations, or pod-spec mutation.
 
-**Requirements:** Docker, Kind, Helm 3.8+, kubectl (creates its own cluster)
+**Requirements:** Docker, Kind, Helm 3.6+, kubectl (creates its own cluster)
 
 ```bash
 cd node-wide-injection && ./run.sh
@@ -39,7 +42,7 @@ Deploy nvml-mock with FGO-style GPU labels on the cluster your current
 context points at. No external GPU operator is required -- nvml-mock
 generates the labels and ConfigMaps itself.
 
-**Requirements:** KUBECONFIG, Helm 3.8+, kubectl
+**Requirements:** KUBECONFIG, Helm 3.6+, kubectl
 
 ```bash
 cd standalone && ./demo.sh
@@ -51,7 +54,7 @@ Full integration with Run:ai's fake-gpu-operator. nvml-mock handles the
 "integration" node pool (real NVML shim) while FGO handles the "scale" pool
 (lightweight fake shim).
 
-**Requirements:** KUBECONFIG, Helm 3.8+, kubectl, fake-gpu-operator Helm chart
+**Requirements:** KUBECONFIG, Helm 3.8+ (OCI chart), kubectl, fake-gpu-operator Helm chart
 
 See [with-fgo/README.md](with-fgo/README.md) for the step-by-step guide.
 
@@ -65,7 +68,7 @@ scenarios (`healthy`, `ecc_uncorrectable`, `lost`, `fallen_off_bus`),
 upgrading the running release into each one and asserting the result
 against `nvidia-smi` output.
 
-**Requirements:** KUBECONFIG, Helm 3.8+, kubectl
+**Requirements:** KUBECONFIG, Helm 3.6+, kubectl
 
 ```bash
 cd failure-injection && ./run.sh
@@ -86,7 +89,7 @@ the real protocol, not a simulation. Concludes with a `helm upgrade`
 that rebinds every node into a new clique without rebuilding the
 image.
 
-**Requirements:** Docker, Kind, Helm 3.8+, kubectl, jq (creates its own cluster)
+**Requirements:** Docker, Kind, Helm 3.13+, kubectl, jq (creates its own cluster)
 
 ```bash
 cd compute-domain && ./run.sh
@@ -106,7 +109,7 @@ margin crossing via DCGM + the metadata-collector's slowdown offset,
 reschedules to the healthy worker), and then **auto-recovers** — cooling the GPU
 uncordons the node automatically, with no DCGM restart.
 
-**Requirements:** Docker, Kind, Helm 3.8+, kubectl (jq optional; creates its own cluster)
+**Requirements:** Docker, Kind, Helm 3.8+ (OCI chart), kubectl (jq optional; creates its own cluster)
 
 ```bash
 cd nv-sentinel && ./run.sh

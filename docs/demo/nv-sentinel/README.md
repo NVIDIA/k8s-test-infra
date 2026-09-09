@@ -60,7 +60,10 @@ workload reschedules onto the second, healthy worker.
 
 - **Docker**, with the daemon running.
 - **Kind**, to provision the demo's dedicated cluster.
-- **Helm 3.8 or newer.** Install it from the official docs:
+- **Helm 3.8 or newer.** This demo installs NVSentinel from
+  `oci://ghcr.io/nvidia/nvsentinel`, and OCI registry support is what needs
+  3.8; the nvml-mock chart itself comes from this checkout and would render on
+  3.6. Install it from the official docs:
   <https://helm.sh/docs/intro/install/>
 - `kubectl`.
 - `jq` (optional, only used to pretty-print node conditions).

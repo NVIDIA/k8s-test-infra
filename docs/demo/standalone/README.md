@@ -11,8 +11,11 @@ the node labels that downstream consumers expect.
 - **A Kubernetes cluster and a valid `KUBECONFIG`.** This demo installs into
   whatever cluster your current context points at. Check yours with
   `kubectl config current-context`.
-- **Helm 3.8 or newer.** Install it from the official docs:
-  <https://helm.sh/docs/intro/install/>
+- **Helm 3.6 or newer.** The demo installs the chart from this checkout, not
+  from a registry, so 3.6 is the floor: the chart's `_helpers.tpl` uses a
+  multi-line `dict` that only the Go 1.16 template parser in Helm 3.6 accepts.
+  On 3.5 and older, rendering fails with `unclosed action`. Install it from the
+  official docs: <https://helm.sh/docs/intro/install/>
 - `kubectl`, matching your cluster version.
 
 > **No cluster yet?** The [quick start](../../quickstart.md) creates a
