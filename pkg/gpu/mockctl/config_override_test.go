@@ -439,27 +439,36 @@ func TestDoc_FailureXidFollowsTheEnginesMerge(t *testing.T) {
 	require.NoError(t, doc.Fail(Target{All: true}, engine.FailureModeLost, 0, 79))
 	require.NoError(t, doc.Fail(Target{Index: 0}, engine.FailureModeLost, 0, 0))
 
-	require.Equal(t, uint64(79), doc.FailureXid(0))
-	require.Equal(t, engineXid(t, doc, 0), doc.FailureXid(0),
-		"the document must answer with what the running mock raises")
-	require.Equal(t, engineXid(t, doc, 1), doc.FailureXid(1))
+	require.Equal(t, uint64(79), doc.FailureXid(0),
+		"the device singled out keeps the shared bucket's Xid, as it does in the mock")
+	require.Equal(t, uint64(79), doc.FailureXid(1))
 }
 
-// engineXid resolves the Xid a device raises the way the mock does, so a test
-// can hold FailureXid against the merge it stands in for rather than against a
-// second copy of the same assumptions.
-func engineXid(t *testing.T, doc *Doc, index int) uint64 {
-	t.Helper()
+// A document nobody wrote through Fail is not bound by what Fail accepts, and a
+// code the engine cannot decode into its uint64 takes the whole override down
+// with it: the device keeps the state it had, raising nothing. Announcing such
+// a code would put an Xid on the node's kernel log that no NVML client ever
+// saw — the one thing this document is read to avoid.
+func TestDoc_FailureXidRefusesWhatTheEngineRefuses(t *testing.T) {
+	t.Parallel()
 
-	overrides := &engine.ConfigOverrideDoc{All: doc.All, Devices: doc.Devices}
-	merged, err := engine.MergeDeviceConfig(&engine.DeviceConfig{}, overrides.DeviceConfigOverride(index))
-	require.NoError(t, err)
+	for name, code := range map[string]any{
+		"negative":     -5,
+		"fractional":   79.5,
+		"not a number": "79",
+		"past uint64":  1e20,
+	} {
+		doc := &Doc{Devices: map[string]map[string]any{"0": {"failure": map[string]any{
+			"mode": engine.FailureModeLost,
+			"xid":  map[string]any{"code": code},
+		}}}}
 
-	if merged.Failure == nil || merged.Failure.Xid == nil {
-		return 0
+		overrides := &engine.ConfigOverrideDoc{All: doc.All, Devices: doc.Devices}
+		_, err := engine.MergeDeviceConfig(&engine.DeviceConfig{}, overrides.DeviceConfigOverride(0))
+		require.Errorf(t, err, "%s: the engine must refuse it, or this test asserts nothing", name)
+
+		require.Zerof(t, doc.FailureXid(0), "%s", name)
 	}
-
-	return merged.Failure.Xid.Code
 }
 
 // A document that has been through YAML carries numbers as float64, so reading
