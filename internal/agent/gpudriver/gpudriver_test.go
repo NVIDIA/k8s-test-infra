@@ -239,6 +239,38 @@ func TestRevoke_IdempotentWhenLinkAbsent(t *testing.T) {
 	require.NoError(t, sim.Revoke(context.Background(), h), "Revoke on absent symlink must not error")
 }
 
+// TestRevoke_LeavesForeignPaths covers what Revoke must not delete: /run/nvidia
+// is shared with the GPU Operator, so only our own symlink is ours to remove.
+func TestRevoke_LeavesForeignPaths(t *testing.T) {
+	cases := []struct {
+		name  string
+		plant func(t *testing.T, link string)
+	}{
+		{"empty directory", func(t *testing.T, link string) {
+			require.NoError(t, os.MkdirAll(link, 0o755))
+		}},
+		{"regular file", func(t *testing.T, link string) {
+			require.NoError(t, fsutil.Write(link, []byte("driver"), 0o644))
+		}},
+		{"symlink to another driver root", func(t *testing.T, link string) {
+			require.NoError(t, fsutil.Symlink("/opt/real-driver", link))
+		}},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			h := testHost(t)
+			link := filepath.Join(h.Run, driverLinkRel)
+			c.plant(t, link)
+
+			require.NoError(t, New().Revoke(context.Background(), h))
+
+			_, err := os.Lstat(link)
+			require.NoError(t, err, "Revoke must leave a path it did not create")
+		})
+	}
+}
+
 // ─── Discard ─────────────────────────────────────────────────────────────────
 
 func TestDiscard_NopWhenNotReady(t *testing.T) {

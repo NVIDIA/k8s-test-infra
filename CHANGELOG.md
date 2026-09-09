@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   SIGKILL instead of being cut short.
 
 ### Fixed
+- node-agent: the `/run/nvidia/driver` symlink is removed on shutdown only when
+  it is still the one the agent published. On a node where another component
+  owns that path, teardown used to delete it whatever it was; a foreign driver
+  root is now left alone, and displacing one at startup is logged.
 - mocknvml: `nvidia-smi --gpu-reset` (`-r`) now resets a GPU instead of
   segfaulting. The mock's export-table dispatcher ended every per-device call by
   writing a zero count through `arg1`, which the reset slots do not carry, so the

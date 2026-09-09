@@ -26,6 +26,14 @@ import (
 
 const name = "gpudriver"
 
+// The GPU-Operator compatibility symlink and the driver root it points at.
+// This resolves to the node's real /run/nvidia/driver, a path the GPU Operator's
+// driver container also owns.
+const (
+	driverLinkRel    = "nvidia/driver"
+	driverLinkTarget = "/var/lib/nvml-mock/driver"
+)
+
 var (
 	_ agent.Simulator = (*Simulator)(nil)
 	_ agent.Applier   = (*Simulator)(nil)
@@ -100,12 +108,21 @@ func (s *Simulator) Discard(_ context.Context, h *host.Host) error {
 	return errors.Join(errs...)
 }
 
-// Apply creates the GPU-Operator compatibility symlink at /run/nvidia/driver.
+// Apply creates the GPU-Operator compatibility symlink at /run/nvidia/driver,
+// replacing whatever is already there.
 func (s *Simulator) Apply(_ context.Context, h *host.Host, _ *agent.State) error {
 	zap.L().Info("applying simulator", zap.String("simulator", name))
 	s.ready.Store(false)
 
-	if err := fsutil.Symlink("/var/lib/nvml-mock/driver", filepath.Join(h.Run, "nvidia/driver")); err != nil {
+	driverLink := h.RunPath(driverLinkRel)
+
+	// Called for the warning it emits: displacing another owner's driver root is
+	// worth a log line even though we go on to do it.
+	if _, err := ownsDriverLink(driverLink); err != nil {
+		return err
+	}
+
+	if err := fsutil.Symlink(driverLinkTarget, driverLink); err != nil {
 		return err
 	}
 
@@ -113,9 +130,53 @@ func (s *Simulator) Apply(_ context.Context, h *host.Host, _ *agent.State) error
 	return nil
 }
 
-// Revoke removes the /run/nvidia/driver symlink.
+// Revoke removes the /run/nvidia/driver symlink. Anything else at that path
+// belongs to another owner of the node's /run/nvidia and is left alone.
 func (s *Simulator) Revoke(_ context.Context, h *host.Host) error {
 	zap.L().Info("revoking simulator", zap.String("simulator", name))
 	s.ready.Store(false)
-	return fsutil.Remove(filepath.Join(h.Run, "nvidia/driver"))
+
+	link := h.RunPath(driverLinkRel)
+
+	ours, err := ownsDriverLink(link)
+
+	if err != nil || !ours {
+		return err
+	}
+
+	return fsutil.Remove(link)
+}
+
+// ownsDriverLink reports whether link is the symlink Apply created. Absent, not
+// a symlink, or pointing elsewhere all mean it is not ours.
+func ownsDriverLink(link string) (bool, error) {
+	fi, err := os.Lstat(link)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+
+	if err != nil {
+		return false, fmt.Errorf("lstat %s: %w", link, err)
+	}
+
+	if fi.Mode()&os.ModeSymlink == 0 {
+		zap.L().Warn("driver root is not our symlink",
+			zap.String("path", link), zap.String("type", fi.Mode().Type().String()))
+
+		return false, nil
+	}
+
+	target, err := os.Readlink(link)
+	if err != nil {
+		return false, fmt.Errorf("readlink %s: %w", link, err)
+	}
+
+	if target != driverLinkTarget {
+		zap.L().Warn("driver symlink points elsewhere",
+			zap.String("path", link), zap.String("target", target))
+
+		return false, nil
+	}
+
+	return true, nil
 }
