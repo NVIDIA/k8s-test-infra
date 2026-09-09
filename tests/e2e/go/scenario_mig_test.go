@@ -180,27 +180,37 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 			})
 
 			// Advertising the right count is not the same as handing out the
-			// right thing. A pod that schedules onto a MIG resource must receive
-			// its partition's cap nodes and see exactly one MIG device — which is
-			// what fails if the agent's instance IDs disagree with the engine's.
+			// right thing. A pod that schedules onto a MIG resource must be
+			// given one real partition's identity and the cap nodes guarding
+			// it — which is what fails if the agent's instance IDs disagree
+			// with the engine's.
+			//
+			// The claim is about what the pod was handed, not what its own NVML
+			// reports: on this path the in-container library runs on its
+			// compiled-in defaults, because the container toolkit drops the env
+			// that would point it at this node's profile (#747), so it describes
+			// a stock mock GPU no matter how the node is partitioned. The
+			// allocation is therefore asserted where the runtime honours it.
 			It("gives a scheduled pod exactly one MIG partition", Label("mig-allocation"), func(ctx SpecContext) {
 				deployMIGDevicePlugin(ctx, h, node, p.ExpectedGPUs()*partitions)
 
+				onNode := migDevicesOnNode(ctx, h, node)
 				workload := applyMIGWorkload(ctx, h, "mig-single", node)
 
-				devices := migDevicesInPod(ctx, h, workload)
-				Expect(devices).To(HaveLen(1),
-					"a pod requesting 1 %s under migStrategy=single must see one partition",
-					kube.GPUResourceName)
-				Expect(devices[0].Profile).To(Equal(p.MIGDeviceProfile()))
-
-				// The allocation is the MIG device's own UUID, not its parent's.
-				// A plugin handed whole-GPU identities would still satisfy the
-				// count assertion above.
 				res, err := h.Kube.ExecSh(ctx, workload, `printf %s "${NVIDIA_VISIBLE_DEVICES:-}"`)
 				Expect(err).NotTo(HaveOccurred(), "read NVIDIA_VISIBLE_DEVICES: %s", res.Combined())
-				Expect(strings.TrimSpace(res.Combined())).To(Equal(devices[0].UUID),
-					"the allocated identity should be the partition the pod sees")
+				allocated := strings.TrimSpace(res.Combined())
+
+				// A partition's own identity, not its parent's: a plugin handing
+				// out whole-GPU UUIDs would have filled this in just as well.
+				Expect(allocated).To(HavePrefix("MIG-"),
+					"a migStrategy=single allocation must name a partition, got %q", allocated)
+				// And a partition this node actually has. Pinning it to the
+				// nvidia-smi listing is what ties the allocation back to the
+				// engine's own enumeration rather than to a well-formed string.
+				Expect(migProfileOf(onNode, allocated)).To(Equal(p.MIGDeviceProfile()),
+					"allocated %q should be one of the %d partitions nvidia-smi reports on %s",
+					allocated, len(onNode), node)
 
 				// Two cap nodes: one for the GPU instance, one for the compute
 				// instance. Their presence is what a MIG-aware runtime requires
@@ -307,6 +317,18 @@ func migDevicesInPod(ctx context.Context, h *harness.Harness, target kube.PodRef
 	res, err := h.Kube.Exec(ctx, target, "nvidia-smi", "-L")
 	Expect(err).NotTo(HaveOccurred(), "nvidia-smi -L in %s: %s", target.Pod, res.Combined())
 	return nvidiasmi.ListMigDevices(res.Combined())
+}
+
+// migProfileOf reports the profile of the partition carrying uuid, or "" when
+// no partition on the node has it. Returning "" rather than failing lets a
+// caller assert the expected profile and the UUID's membership in one step.
+func migProfileOf(devices []nvidiasmi.MigDevice, uuid string) string {
+	for _, d := range devices {
+		if d.UUID == uuid {
+			return d.Profile
+		}
+	}
+	return ""
 }
 
 // migMinorsIn returns the cap minors named by a mig-minors table. Every line is
