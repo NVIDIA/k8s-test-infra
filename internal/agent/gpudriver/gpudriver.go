@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"sync/atomic"
 
+	"go.uber.org/zap"
+
 	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
 
 	"golang.org/x/sync/errgroup"
@@ -47,6 +49,7 @@ func (s *Simulator) Ready() bool { return s.ready.Load() }
 // All surfaces run in parallel; a failure in any one cancels the rest via gctx.
 func (s *Simulator) Stage(ctx context.Context, h *host.Host, state *agent.State) error {
 	s.ready.Store(false)
+	zap.L().Info("staging simulator", zap.String("simulator", name))
 
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return stageCharDevs(gctx, h, state) })
@@ -60,6 +63,8 @@ func (s *Simulator) Stage(ctx context.Context, h *host.Host, state *agent.State)
 	if err := g.Wait(); err != nil {
 		return err
 	}
+
+	zap.L().Info("simulator staged", zap.String("simulator", name))
 	return nil
 }
 
@@ -81,6 +86,8 @@ var stagedPaths = []string{
 // Discard removes only the paths Stage writes. Every path is exclusively owned
 // by gpudriver, so removing absent or partially staged paths is safe.
 func (s *Simulator) Discard(_ context.Context, h *host.Host) error {
+	zap.L().Info("discarding simulator", zap.String("simulator", name))
+
 	var errs []error
 
 	for _, rel := range stagedPaths {
@@ -95,6 +102,7 @@ func (s *Simulator) Discard(_ context.Context, h *host.Host) error {
 
 // Apply creates the GPU-Operator compatibility symlink at /run/nvidia/driver.
 func (s *Simulator) Apply(_ context.Context, h *host.Host, _ *agent.State) error {
+	zap.L().Info("applying simulator", zap.String("simulator", name))
 	s.ready.Store(false)
 
 	if err := fsutil.Symlink("/var/lib/nvml-mock/driver", filepath.Join(h.Run, "nvidia/driver")); err != nil {
@@ -107,6 +115,7 @@ func (s *Simulator) Apply(_ context.Context, h *host.Host, _ *agent.State) error
 
 // Revoke removes the /run/nvidia/driver symlink.
 func (s *Simulator) Revoke(_ context.Context, h *host.Host) error {
+	zap.L().Info("revoking simulator", zap.String("simulator", name))
 	s.ready.Store(false)
 	return fsutil.Remove(filepath.Join(h.Run, "nvidia/driver"))
 }
