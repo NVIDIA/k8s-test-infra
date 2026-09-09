@@ -14,6 +14,7 @@ import (
 	"syscall"
 
 	"github.com/urfave/cli/v3"
+	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/health"
@@ -271,6 +272,14 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+
+	logger.Info("starting nri plugin",
+		zap.String("overlay_host_path", cfg.Inject.HostOverlayPath),
+		zap.String("overlay_mount_path", cfg.Inject.ContainerOverlayPath),
+		zap.String("device_injection_mode", string(cfg.Inject.DeviceInjectionMode)),
+		zap.String("cdi_spec_host_path", cfg.Inject.CDISpecHostPath),
+		zap.Strings("excluded_namespaces", cfg.Inject.ExcludedNamespaces),
+	)
 
 	signalCtx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()

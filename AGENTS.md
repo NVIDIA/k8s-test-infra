@@ -40,6 +40,12 @@ so all consumers and applications up the stack work without modifications.
 - Github Actions must be used for CI/CD
 - Use Makefile commands in Github Action pipelines to keep pipeline logic lean and be able to reproduce the same commands locally
 
+## Logging
+
+- use a globally registered instance of zap.L() logger
+- Ensure sufficient and meaningful logging in the new or modified codebase.
+- Use log level appropriately. Debug level is or diagnosing or understanding internal execution; normally disabled in production and enabled during development. Info level is for meaningful, expected lifecycle or business events. Warning is for something unexpected, but the operation or service can continue. Error level is for The current operation failed and could not recover at this layer.
+
 ## Docs
 
 - When leaving a comment in code, it should explain intent where it's not obvious — why we are doing something, not what we are doing, in most cases. Don't write comments based on the current conversation context; they should generally be valuable long-term for readers.
