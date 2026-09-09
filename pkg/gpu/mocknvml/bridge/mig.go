@@ -63,7 +63,6 @@ var (
 // reports success there too.
 //
 //export nvmlDeviceSetMigMode
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlDeviceSetMigMode(device C.nvmlDevice_t, mode C.uint, activationStatus *C.nvmlReturn_t) C.nvmlReturn_t {
 	if ret, ok := bridgeVersionCheck("nvmlDeviceSetMigMode"); !ok {
 		return ret
@@ -85,7 +84,6 @@ func nvmlDeviceSetMigMode(device C.nvmlDevice_t, mode C.uint, activationStatus *
 // =============================================================================
 
 //export nvmlDeviceGetGpuInstanceProfileInfo
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlDeviceGetGpuInstanceProfileInfo(
 	device C.nvmlDevice_t, profile C.uint, info *C.nvmlGpuInstanceProfileInfo_t,
 ) C.nvmlReturn_t {
@@ -119,7 +117,6 @@ func nvmlDeviceGetGpuInstanceProfileInfo(
 // isP2pSupported and appends capabilities, so it is not a superset of v2.
 //
 //export nvmlDeviceGetGpuInstanceProfileInfoV
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlDeviceGetGpuInstanceProfileInfoV(
 	device C.nvmlDevice_t, profile C.uint, info *C.nvmlGpuInstanceProfileInfo_v2_t,
 ) C.nvmlReturn_t {
@@ -145,7 +142,6 @@ func nvmlDeviceGetGpuInstanceProfileInfoV(
 // as by profile.
 //
 //export nvmlDeviceGetGpuInstanceProfileInfoByIdV
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlDeviceGetGpuInstanceProfileInfoByIdV(
 	device C.nvmlDevice_t, profileId C.uint, info *C.nvmlGpuInstanceProfileInfo_v2_t,
 ) C.nvmlReturn_t {
@@ -191,7 +187,6 @@ func writeGpuInstanceProfileInfoV(
 }
 
 //export nvmlDeviceGetGpuInstancePossiblePlacements
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlDeviceGetGpuInstancePossiblePlacements(
 	device C.nvmlDevice_t, profileId C.uint, placements *C.nvmlGpuInstancePlacement_t, count *C.uint,
 ) C.nvmlReturn_t {
@@ -226,7 +221,6 @@ func nvmlDeviceGetGpuInstancePossiblePlacements(
 }
 
 //export nvmlDeviceGetGpuInstancePossiblePlacements_v2
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlDeviceGetGpuInstancePossiblePlacements_v2(
 	device C.nvmlDevice_t, profileId C.uint, placements *C.nvmlGpuInstancePlacement_t, count *C.uint,
 ) C.nvmlReturn_t {
@@ -234,7 +228,6 @@ func nvmlDeviceGetGpuInstancePossiblePlacements_v2(
 }
 
 //export nvmlDeviceGetGpuInstanceRemainingCapacity
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlDeviceGetGpuInstanceRemainingCapacity(
 	device C.nvmlDevice_t, profileId C.uint, count *C.uint,
 ) C.nvmlReturn_t {
@@ -258,7 +251,6 @@ func nvmlDeviceGetGpuInstanceRemainingCapacity(
 // =============================================================================
 
 //export nvmlDeviceCreateGpuInstance
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlDeviceCreateGpuInstance(
 	device C.nvmlDevice_t, profileId C.uint, gpuInstance *C.nvmlGpuInstance_t,
 ) C.nvmlReturn_t {
@@ -278,7 +270,6 @@ func nvmlDeviceCreateGpuInstance(
 }
 
 //export nvmlDeviceCreateGpuInstanceWithPlacement
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlDeviceCreateGpuInstanceWithPlacement(
 	device C.nvmlDevice_t, profileId C.uint,
 	placement *C.nvmlGpuInstancePlacement_t, gpuInstance *C.nvmlGpuInstance_t,
@@ -303,7 +294,6 @@ func nvmlDeviceCreateGpuInstanceWithPlacement(
 }
 
 //export nvmlGpuInstanceDestroy
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlGpuInstanceDestroy(gpuInstance C.nvmlGpuInstance_t) C.nvmlReturn_t {
 	if ret, ok := bridgeVersionCheck("nvmlGpuInstanceDestroy"); !ok {
 		return ret
@@ -312,7 +302,6 @@ func nvmlGpuInstanceDestroy(gpuInstance C.nvmlGpuInstance_t) C.nvmlReturn_t {
 }
 
 //export nvmlDeviceGetGpuInstances
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlDeviceGetGpuInstances(
 	device C.nvmlDevice_t, profileId C.uint, gpuInstances *C.nvmlGpuInstance_t, count *C.uint,
 ) C.nvmlReturn_t {
@@ -345,7 +334,6 @@ func nvmlDeviceGetGpuInstances(
 }
 
 //export nvmlDeviceGetGpuInstanceById
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlDeviceGetGpuInstanceById(
 	device C.nvmlDevice_t, id C.uint, gpuInstance *C.nvmlGpuInstance_t,
 ) C.nvmlReturn_t {
@@ -364,7 +352,6 @@ func nvmlDeviceGetGpuInstanceById(
 }
 
 //export nvmlGpuInstanceGetInfo
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlGpuInstanceGetInfo(gpuInstance C.nvmlGpuInstance_t, info *C.nvmlGpuInstanceInfo_t) C.nvmlReturn_t {
 	if ret, ok := bridgeVersionCheck("nvmlGpuInstanceGetInfo"); !ok {
 		return ret
@@ -390,7 +377,6 @@ func nvmlGpuInstanceGetInfo(gpuInstance C.nvmlGpuInstance_t, info *C.nvmlGpuInst
 // =============================================================================
 
 //export nvmlGpuInstanceGetComputeInstanceProfileInfo
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlGpuInstanceGetComputeInstanceProfileInfo(
 	gpuInstance C.nvmlGpuInstance_t, profile C.uint, engProfile C.uint,
 	info *C.nvmlComputeInstanceProfileInfo_t,
@@ -420,7 +406,6 @@ func nvmlGpuInstanceGetComputeInstanceProfileInfo(
 }
 
 //export nvmlGpuInstanceGetComputeInstanceProfileInfoV
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlGpuInstanceGetComputeInstanceProfileInfoV(
 	gpuInstance C.nvmlGpuInstance_t, profile C.uint, engProfile C.uint,
 	info *C.nvmlComputeInstanceProfileInfo_v2_t,
@@ -469,7 +454,6 @@ func nvmlGpuInstanceGetComputeInstanceProfileInfoV(
 }
 
 //export nvmlGpuInstanceGetComputeInstanceRemainingCapacity
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlGpuInstanceGetComputeInstanceRemainingCapacity(
 	gpuInstance C.nvmlGpuInstance_t, profileId C.uint, count *C.uint,
 ) C.nvmlReturn_t {
@@ -489,7 +473,6 @@ func nvmlGpuInstanceGetComputeInstanceRemainingCapacity(
 }
 
 //export nvmlGpuInstanceGetComputeInstancePossiblePlacements
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlGpuInstanceGetComputeInstancePossiblePlacements(
 	gpuInstance C.nvmlGpuInstance_t, profileId C.uint,
 	placements *C.nvmlComputeInstancePlacement_t, count *C.uint,
@@ -529,7 +512,6 @@ func nvmlGpuInstanceGetComputeInstancePossiblePlacements(
 // =============================================================================
 
 //export nvmlGpuInstanceCreateComputeInstance
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlGpuInstanceCreateComputeInstance(
 	gpuInstance C.nvmlGpuInstance_t, profileId C.uint, computeInstance *C.nvmlComputeInstance_t,
 ) C.nvmlReturn_t {
@@ -549,7 +531,6 @@ func nvmlGpuInstanceCreateComputeInstance(
 }
 
 //export nvmlGpuInstanceCreateComputeInstanceWithPlacement
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlGpuInstanceCreateComputeInstanceWithPlacement(
 	gpuInstance C.nvmlGpuInstance_t, profileId C.uint,
 	placement *C.nvmlComputeInstancePlacement_t, computeInstance *C.nvmlComputeInstance_t,
@@ -574,7 +555,6 @@ func nvmlGpuInstanceCreateComputeInstanceWithPlacement(
 }
 
 //export nvmlComputeInstanceDestroy
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlComputeInstanceDestroy(computeInstance C.nvmlComputeInstance_t) C.nvmlReturn_t {
 	if ret, ok := bridgeVersionCheck("nvmlComputeInstanceDestroy"); !ok {
 		return ret
@@ -583,7 +563,6 @@ func nvmlComputeInstanceDestroy(computeInstance C.nvmlComputeInstance_t) C.nvmlR
 }
 
 //export nvmlGpuInstanceGetComputeInstances
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlGpuInstanceGetComputeInstances(
 	gpuInstance C.nvmlGpuInstance_t, profileId C.uint,
 	computeInstances *C.nvmlComputeInstance_t, count *C.uint,
@@ -618,7 +597,6 @@ func nvmlGpuInstanceGetComputeInstances(
 }
 
 //export nvmlGpuInstanceGetComputeInstanceById
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlGpuInstanceGetComputeInstanceById(
 	gpuInstance C.nvmlGpuInstance_t, id C.uint, computeInstance *C.nvmlComputeInstance_t,
 ) C.nvmlReturn_t {
@@ -637,7 +615,6 @@ func nvmlGpuInstanceGetComputeInstanceById(
 }
 
 //export nvmlComputeInstanceGetInfo_v2
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlComputeInstanceGetInfo_v2(
 	computeInstance C.nvmlComputeInstance_t, info *C.nvmlComputeInstanceInfo_t,
 ) C.nvmlReturn_t {
@@ -662,7 +639,6 @@ func nvmlComputeInstanceGetInfo_v2(
 }
 
 //export nvmlComputeInstanceGetInfo
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlComputeInstanceGetInfo(
 	computeInstance C.nvmlComputeInstance_t, info *C.nvmlComputeInstanceInfo_t,
 ) C.nvmlReturn_t {
@@ -678,7 +654,6 @@ func nvmlComputeInstanceGetInfo(
 // at a partition.
 //
 //export nvmlDeviceGetGpuInstanceId
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlDeviceGetGpuInstanceId(device C.nvmlDevice_t, id *C.uint) C.nvmlReturn_t {
 	if ret, ok := bridgeVersionCheck("nvmlDeviceGetGpuInstanceId"); !ok {
 		return ret
@@ -699,7 +674,6 @@ func nvmlDeviceGetGpuInstanceId(device C.nvmlDevice_t, id *C.uint) C.nvmlReturn_
 }
 
 //export nvmlDeviceGetComputeInstanceId
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlDeviceGetComputeInstanceId(device C.nvmlDevice_t, id *C.uint) C.nvmlReturn_t {
 	if ret, ok := bridgeVersionCheck("nvmlDeviceGetComputeInstanceId"); !ok {
 		return ret
@@ -720,7 +694,6 @@ func nvmlDeviceGetComputeInstanceId(device C.nvmlDevice_t, id *C.uint) C.nvmlRet
 }
 
 //export nvmlDeviceGetAttributes_v2
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlDeviceGetAttributes_v2(device C.nvmlDevice_t, attributes *C.nvmlDeviceAttributes_t) C.nvmlReturn_t {
 	if ret, ok := bridgeVersionCheck("nvmlDeviceGetAttributes_v2"); !ok {
 		return ret
@@ -750,7 +723,6 @@ func nvmlDeviceGetAttributes_v2(device C.nvmlDevice_t, attributes *C.nvmlDeviceA
 }
 
 //export nvmlDeviceGetAttributes
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlDeviceGetAttributes(device C.nvmlDevice_t, attributes *C.nvmlDeviceAttributes_t) C.nvmlReturn_t {
 	return nvmlDeviceGetAttributes_v2(device, attributes)
 }

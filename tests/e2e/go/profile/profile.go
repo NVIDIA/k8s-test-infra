@@ -72,6 +72,9 @@ type rawProfile struct {
 				Max int `json:"max"`
 			} `json:"availability_histogram"`
 		} `json:"remapped_rows"`
+		MIG *struct {
+			GPUInstances []rawMIGGpuInstance `json:"gpu_instances"`
+		} `json:"mig"`
 	} `json:"device_defaults"`
 	Devices []struct {
 		Index    int          `json:"index"`
@@ -150,6 +153,9 @@ type Profile struct {
 
 	platform    PlatformIdentity
 	hasPlatform bool
+
+	migPartitions    int
+	migDeviceProfile string
 }
 
 // bytesPerMiB is the divisor GPU Feature Discovery uses when it publishes
@@ -240,6 +246,9 @@ func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
 		p.hasFabric = true
 		p.fabricAuto = strings.EqualFold(strings.TrimSpace(f.State), "auto")
 	}
+	if mig := raw.DeviceDefaults.MIG; mig != nil {
+		p.migPartitions, p.migDeviceProfile = migLayout(mig.GPUInstances)
+	}
 	if pl := raw.DeviceDefaults.Platform; pl != nil {
 		p.hasPlatform = true
 		p.platform = PlatformIdentity{
@@ -251,6 +260,36 @@ func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
 			ModuleIDs:           deviceModuleIDs(raw, pl.ModuleID),
 		}
 	}
+}
+
+// rawMIGGpuInstance is one entry of a profile's declared MIG partitioning.
+type rawMIGGpuInstance struct {
+	Profile string `json:"profile"`
+	Count   int    `json:"count"`
+}
+
+// migLayout totals a declared partitioning and reports the profile every
+// partition shares, or "" when they differ. The uniform case is the one the
+// device plugin's migStrategy=single accepts, so collapsing a mixed layout to
+// "" keeps a caller from asserting on a resource name that would never be
+// published.
+func migLayout(instances []rawMIGGpuInstance) (partitions int, uniform string) {
+	for i, gi := range instances {
+		// An omitted count means one instance, matching how the engine reads
+		// the same field.
+		count := gi.Count
+		if count == 0 {
+			count = 1
+		}
+		partitions += count
+		switch {
+		case i == 0:
+			uniform = gi.Profile
+		case uniform != gi.Profile:
+			uniform = ""
+		}
+	}
+	return partitions, uniform
 }
 
 // deviceModuleIDs collects each device's module id, keyed by the declared
@@ -292,6 +331,19 @@ func (p Profile) ExpectedGPUs() int { return p.gpuCount }
 
 // IBEnabled reports whether the profile ships InfiniBand enabled.
 func (p Profile) IBEnabled() bool { return p.ibEnabled }
+
+// MIGPartitionsPerGPU is how many GPU instances each of the profile's boards
+// declares. Profiles ship this layout inert (mode_current: disabled) and the
+// chart's gpu.mig.enabled turns it on, so the count describes what the board
+// partitions into once MIG is switched on, not what it exposes by default.
+func (p Profile) MIGPartitionsPerGPU() int { return p.migPartitions }
+
+// MIGDeviceProfile is the profile name every declared partition shares, e.g.
+// "1g.5gb", or "" when the profile declares none or declares a mix.
+func (p Profile) MIGDeviceProfile() string { return p.migDeviceProfile }
+
+// MIGCapable reports whether the profile declares a MIG partitioning at all.
+func (p Profile) MIGCapable() bool { return p.migPartitions > 0 }
 
 // ExpectedHCAs is the number of InfiniBand HCAs the profile should expose:
 // one per GPU when IB is enabled, otherwise 0 (l40s/t4 negative control).

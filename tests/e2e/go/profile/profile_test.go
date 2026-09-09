@@ -300,3 +300,84 @@ devices:
 	require.Equal(t, 1, p.ExpectedPCIRoots(), "topology-less profile spans one synthesized root")
 	require.Equal(t, 2, p.ExpectedGPUs())
 }
+
+// The MIG-capable boards declare a uniform partitioning, which is what makes
+// them usable with the device plugin's migStrategy=single — the strategy
+// refuses a node whose MIG devices are not all the same profile.
+func TestMIGPartitionsComeFromTheProfile(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name          string
+		partitions    int
+		uniformDevice string
+	}{
+		{"a100", 7, "1g.5gb"},
+		{"h100", 7, "1g.10gb"},
+		// Not MIG-capable boards, and the negative control for the accessors:
+		// a profile with no mig block must report no partitions rather than a
+		// zero-valued one that reads as "declared but empty".
+		{"l40s", 0, ""},
+		{"t4", 0, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p, err := Load(profilesDir, tc.name)
+			require.NoError(t, err)
+			require.Equal(t, tc.partitions, p.MIGPartitionsPerGPU())
+			require.Equal(t, tc.uniformDevice, p.MIGDeviceProfile())
+			require.Equal(t, tc.partitions > 0, p.MIGCapable())
+		})
+	}
+}
+
+// MIGDeviceProfile is what the migStrategy=single assertion keys on, so a
+// non-uniform layout has to report empty rather than silently picking one of
+// the profiles and asserting against a resource name the plugin never
+// publishes.
+func TestMIGDeviceProfileIsEmptyForMixedLayouts(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	const raw = `
+device_defaults:
+  name: "NVIDIA Mock GPU"
+  mig:
+    mode_current: "enabled"
+    gpu_instances:
+      - profile: "1g.5gb"
+        count: 2
+      - profile: "3g.20gb"
+        count: 1
+devices:
+  - index: 0
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "mixed.yaml"), []byte(raw), 0o600))
+
+	p, err := Load(dir, "mixed")
+	require.NoError(t, err)
+	require.Equal(t, 3, p.MIGPartitionsPerGPU(), "a mixed layout still declares three partitions")
+	require.Empty(t, p.MIGDeviceProfile(), "a mixed layout has no single device profile")
+	require.True(t, p.MIGCapable())
+}
+
+// A count left unset means one instance, matching how the engine reads the
+// same field; a profile that omits it must not contribute zero partitions.
+func TestMIGPartitionCountDefaultsToOne(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	const raw = `
+device_defaults:
+  name: "NVIDIA Mock GPU"
+  mig:
+    gpu_instances:
+      - profile: "7g.40gb"
+devices:
+  - index: 0
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "single.yaml"), []byte(raw), 0o600))
+
+	p, err := Load(dir, "single")
+	require.NoError(t, err)
+	require.Equal(t, 1, p.MIGPartitionsPerGPU())
+	require.Equal(t, "7g.40gb", p.MIGDeviceProfile())
+}

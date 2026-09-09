@@ -294,6 +294,7 @@ image-load:
 #   make e2e-multi-node            # heterogeneous A100/T4 multi-node scenario
 #   make e2e-nri                   # node-wide NRI ambient-injection scenario
 #   make e2e-nfd                   # NFD label-provenance scenario
+#   make e2e-mig                   # MIG scenario, device plugin in migStrategy=single
 # CI builds the image once per run. Every leg loads it into Kind and sets
 # E2E_IMAGE to that ref. The reshaping scenarios set the DaemonSet to this ref.
 #
@@ -306,10 +307,10 @@ image-load:
 # ---------------------------------------------------------------------------
 GINKGO ?= $(GO_CMD) run github.com/onsi/ginkgo/v2/ginkgo
 E2E_TIMEOUT ?= 90m
-E2E_DEFAULT_LABEL_FILTER ?= !validator && !dra && !gpu-operator && !multi-node && !nri && !nfd
+E2E_DEFAULT_LABEL_FILTER ?= !validator && !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig
 E2E_GINKGO_FLAGS ?= --label-filter='$(E2E_DEFAULT_LABEL_FILTER)'
 
-.PHONY: e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd
+.PHONY: e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd e2e-mig
 
 # `set -o pipefail` is inline on purpose; do not drop it as redundant with
 # .SHELLFLAGS. GNU Make ignores .SHELLFLAGS before 3.82 and macOS ships 3.81,
@@ -337,6 +338,12 @@ e2e-nri: ## e2e — NRI ambient-injection scenario
 # log then reads exactly like one that did exercise gb200.
 e2e-nfd: ## e2e — NFD label-provenance scenario (pinned to a100)
 	$(MAKE) e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter=nfd'
+
+# E2E_PROFILES is pinned to the MIG-capable boards. The scenario skips any
+# profile that declares no partitioning, so inheriting the default (gb200) would
+# skip every spec and still report success.
+e2e-mig: ## e2e — MIG scenario with the device plugin in migStrategy=single (a100/h100)
+	$(MAKE) e2e E2E_PROFILES=a100,h100 E2E_GINKGO_FLAGS='--label-filter=mig'
 
 ##@ Documentation
 

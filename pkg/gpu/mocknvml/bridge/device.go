@@ -2550,7 +2550,6 @@ func nvmlDeviceGetDetailedEccErrors(device C.nvmlDevice_t, errorType C.nvmlMemor
 // device rather than a full GPU.
 //
 //export nvmlDeviceIsMigDeviceHandle
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlDeviceIsMigDeviceHandle(device C.nvmlDevice_t, isMigDevice *C.uint) C.nvmlReturn_t {
 	if isMigDevice == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -2576,7 +2575,6 @@ func nvmlDeviceIsMigDeviceHandle(device C.nvmlDevice_t, isMigDevice *C.uint) C.n
 // the handle is simply the wrong kind for this query.
 //
 //export nvmlDeviceGetDeviceHandleFromMigDeviceHandle
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlDeviceGetDeviceHandleFromMigDeviceHandle(migDevice C.nvmlDevice_t, device *C.nvmlDevice_t) C.nvmlReturn_t {
 	if device == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
