@@ -146,7 +146,8 @@ preserves comments and key order from the profile file.
 {{- $base := include "nvml-mock.gpuConfigBase" . -}}
 {{- $dynEnabled := and .Values.gpu.dynamicMetrics .Values.gpu.dynamicMetrics.enabled -}}
 {{- $failEnabled := and .Values.gpu.failureInjection .Values.gpu.failureInjection.enabled -}}
-{{- if or $dynEnabled $failEnabled -}}
+{{- $migEnabled := and .Values.gpu.mig .Values.gpu.mig.enabled -}}
+{{- if or $dynEnabled $failEnabled $migEnabled -}}
 {{- $cfg := fromYaml $base -}}
 {{- if hasKey $cfg "Error" -}}
 {{- fail (printf "nvml-mock.gpuConfig: failed to parse base YAML for overlay injection: %s" (get $cfg "Error")) -}}
@@ -167,6 +168,24 @@ preserves comments and key order from the profile file.
 {{- end -}}
 {{- if $failEnabled -}}
 {{- $_ := set $defaults "failure" (omit .Values.gpu.failureInjection "enabled") -}}
+{{- end -}}
+{{- if $migEnabled -}}
+{{- /*
+Turn on the partitioning the profile already declares, rather than describing
+a layout here. A profile that declares none would boot MIG-enabled and
+unpartitioned, which publishes no GPU resource at all under
+migStrategy=single, so that is refused rather than rendered.
+*/ -}}
+{{- $mig := get $defaults "mig" | default (dict) -}}
+{{- if not (get $mig "gpu_instances") -}}
+{{- fail (printf "gpu.mig.enabled is set but profile %q declares no mig.gpu_instances, so the node would come up MIG-enabled with nothing partitioned" .Values.gpu.profile) -}}
+{{- end -}}
+{{- $_ := set $mig "mode_current" "enabled" -}}
+{{- $_ := set $mig "mode_pending" "enabled" -}}
+{{- if .Values.gpu.mig.gpuInstances -}}
+{{- $_ := set $mig "gpu_instances" .Values.gpu.mig.gpuInstances -}}
+{{- end -}}
+{{- $_ := set $defaults "mig" $mig -}}
 {{- end -}}
 {{- $_ := set $cfg "device_defaults" $defaults -}}
 {{- /* Drop the Helm-only key now it's folded into dynamic_metrics. */ -}}
