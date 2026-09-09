@@ -1,0 +1,6 @@
+kind: Changed
+body: |-
+  node-agent: the profile and topology documents reload from filesystem events instead of a 5s poll, so an edit applies in milliseconds and an idle node costs nothing. `nodeAgent.resyncInterval` (default `1m`) still re-reads both on a timer, covering a node whose kernel reports no events.
+time: 2026-10-05T14:23:19Z
+custom:
+  Issue: "813"
