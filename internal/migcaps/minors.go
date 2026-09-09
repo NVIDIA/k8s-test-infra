@@ -68,15 +68,29 @@ func Caps(gpus []GPU) []Cap {
 
 	for _, gpu := range gpus {
 		for _, gi := range gpu.GPUInstances {
-			caps = append(caps, Cap{Name: gpuInstanceCap(gpu.Minor, gi.ID), Minor: next})
+			caps = append(caps, Cap{Name: GPUInstanceCap(gpu.Minor, gi.ID), Minor: next})
 			next++
 			for _, ci := range gi.ComputeInstanceIDs {
-				caps = append(caps, Cap{Name: computeInstanceCap(gpu.Minor, gi.ID, ci), Minor: next})
+				caps = append(caps, Cap{Name: ComputeInstanceCap(gpu.Minor, gi.ID, ci), Minor: next})
 				next++
 			}
 		}
 	}
 	return caps
+}
+
+// MinorByName indexes a table for lookup by capability name.
+//
+// It exists because the minor is allocated here but needed elsewhere: the CDI
+// spec has to name the very chardev this table assigns to a partition, and a
+// spec that names a different minor hands the container the node guarding
+// someone else's partition.
+func MinorByName(caps []Cap) map[string]int {
+	index := make(map[string]int, len(caps))
+	for _, c := range caps {
+		index[c.Name] = c.Minor
+	}
+	return index
 }
 
 // Minors renders the mig-minors file body.
@@ -88,13 +102,16 @@ func Minors(caps []Cap) string {
 	return b.String()
 }
 
-// gpuInstanceCap and computeInstanceCap spell capability names the way
+// GPUInstanceCap and ComputeInstanceCap spell capability names the way
 // nvidia-container-toolkit's NewGPUInstanceCap and NewComputeInstanceCap do.
-func gpuInstanceCap(gpuMinor int, gi uint32) string {
+// Exported so that whoever needs a partition's minor asks for it by the same
+// name this package filed it under.
+func GPUInstanceCap(gpuMinor int, gi uint32) string {
 	return fmt.Sprintf("gpu%d/gi%d/access", gpuMinor, gi)
 }
 
-func computeInstanceCap(gpuMinor int, gi, ci uint32) string {
+// ComputeInstanceCap names the capability guarding one compute instance.
+func ComputeInstanceCap(gpuMinor int, gi, ci uint32) string {
 	return fmt.Sprintf("gpu%d/gi%d/ci%d/access", gpuMinor, gi, ci)
 }
 

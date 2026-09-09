@@ -7,6 +7,8 @@ import (
 	"context"
 	"strings"
 	"time"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/migcaps"
 )
 
 // State is the compiled desired simulation state the agent reconciles toward.
@@ -342,8 +344,17 @@ type MIGGPU struct {
 
 // MIGGPUInstance is one GPU instance and the compute instances inside it.
 type MIGGPUInstance struct {
-	ID                 uint32
-	ComputeInstanceIDs []uint32
+	ID               uint32
+	ComputeInstances []MIGComputeInstance
+}
+
+// MIGComputeInstance is one compute instance, which is one MIG device as a
+// consumer sees it. UUID is what NVML reports for the partition, and the
+// container runtime resolves an allocated partition by that name, so it is
+// carried alongside the ID the capability names are keyed by.
+type MIGComputeInstance struct {
+	ID   uint32
+	UUID string
 }
 
 // Partitioned reports whether any GPU boots with MIG partitions, which is what
@@ -355,6 +366,30 @@ func (m MIGState) Partitioned() bool {
 		}
 	}
 	return false
+}
+
+// Caps allocates the node's MIG capability table.
+//
+// It lives on the state because two simulators consume it and they must agree
+// exactly: one stages the chardevs and the mig-minors table, the other names
+// those same chardevs in the CDI spec that delivers a partition into a
+// container. Allocating twice from the same input would work until the two
+// walked it in different orders, at which point a container would receive the
+// node guarding a different partition than the one it was allocated.
+func (m MIGState) Caps() []migcaps.Cap {
+	gpus := make([]migcaps.GPU, 0, len(m.GPUs))
+	for _, gpu := range m.GPUs {
+		instances := make([]migcaps.GPUInstance, 0, len(gpu.GPUInstances))
+		for _, gi := range gpu.GPUInstances {
+			ids := make([]uint32, 0, len(gi.ComputeInstances))
+			for _, ci := range gi.ComputeInstances {
+				ids = append(ids, ci.ID)
+			}
+			instances = append(instances, migcaps.GPUInstance{ID: gi.ID, ComputeInstanceIDs: ids})
+		}
+		gpus = append(gpus, migcaps.GPU{Minor: gpu.Minor, GPUInstances: instances})
+	}
+	return migcaps.Caps(gpus)
 }
 
 // StateSource emits State observations.

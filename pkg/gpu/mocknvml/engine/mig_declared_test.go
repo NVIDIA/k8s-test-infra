@@ -48,8 +48,12 @@ func TestDeclaredMIGLayout_UniformPartitions(t *testing.T) {
 		require.Len(t, gpu.GPUInstances, 7)
 		for _, gi := range gpu.GPUInstances {
 			require.Equal(t, "1g.5gb", gi.Profile)
-			require.Equal(t, []uint32{0}, gi.ComputeInstanceIDs,
+			require.Len(t, gi.ComputeInstances, 1,
 				"a partition with no declared compute slices gets one spanning instance")
+			require.Equal(t, uint32(0), gi.ComputeInstances[0].ID)
+			// The UUID is what a consumer addresses the partition by, so a
+			// layout that omits it describes a partition nothing can reach.
+			require.NotEmpty(t, gi.ComputeInstances[0].UUID)
 		}
 	}
 	require.Equal(t, 0, layout[0].GPUIndex)
@@ -81,8 +85,8 @@ func TestDeclaredMIGLayout_MatchesNVMLEnumeration(t *testing.T) {
 	}
 	var fromLayout []partition
 	for _, gi := range DeclaredMIGLayout(config)[0].GPUInstances {
-		for _, ci := range gi.ComputeInstanceIDs {
-			fromLayout = append(fromLayout, partition{gi.ID, ci})
+		for _, ci := range gi.ComputeInstances {
+			fromLayout = append(fromLayout, partition{gi.ID, ci.ID})
 		}
 	}
 

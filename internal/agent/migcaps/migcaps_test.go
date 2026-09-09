@@ -30,14 +30,25 @@ func partitionedState() *agent.State {
 		CapsMajor: 236,
 		GPUs: []agent.MIGGPU{
 			{Minor: 0, GPUInstances: []agent.MIGGPUInstance{
-				{ID: 0, ComputeInstanceIDs: []uint32{0}},
-				{ID: 1, ComputeInstanceIDs: []uint32{0, 1}},
+				{ID: 0, ComputeInstances: computeInstances(0)},
+				{ID: 1, ComputeInstances: computeInstances(0, 1)},
 			}},
 			{Minor: 1, GPUInstances: []agent.MIGGPUInstance{
-				{ID: 0, ComputeInstanceIDs: []uint32{0}},
+				{ID: 0, ComputeInstances: computeInstances(0)},
 			}},
 		},
 	}}
+}
+
+// computeInstances builds the compute instances of one GPU instance. The UUIDs
+// are irrelevant to the capability surface — it is keyed by ID — so they are
+// only distinct enough to keep the fixture honest.
+func computeInstances(ids ...uint32) []agent.MIGComputeInstance {
+	out := make([]agent.MIGComputeInstance, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, agent.MIGComputeInstance{ID: id, UUID: fmt.Sprintf("MIG-ci%d", id)})
+	}
+	return out
 }
 
 func skipUnlessRootLinux(t *testing.T) {

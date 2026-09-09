@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
+	"github.com/NVIDIA/k8s-test-infra/internal/migcaps"
 	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs"
 )
 
@@ -156,6 +157,7 @@ func buildNvidiaSpec(state *agent.State) cdiSpec {
 		Name:           "all",
 		ContainerEdits: cdiEdits{DeviceNodes: allNodes},
 	})
+	devices = append(devices, migDevices(state, devRoot)...)
 
 	return cdiSpec{
 		CDIVersion:     "0.6.0",
@@ -163,6 +165,63 @@ func buildNvidiaSpec(state *agent.State) cdiSpec {
 		ContainerEdits: edits,
 		Devices:        devices,
 	}
+}
+
+// migDevices returns one entry per MIG partition, named by the partition's own
+// UUID.
+//
+// A MIG device is allocated through the same channel a whole GPU is: the device
+// plugin reports the UUID NVML gave it, and the container runtime resolves that
+// name here. With no entry the resolution fails outright — "unresolvable CDI
+// devices nvidia.com/gpu=MIG-..." — so a pod scheduled onto a partition never
+// starts even though the plugin advertised it.
+//
+// Each entry carries the parent's chardev, since that is where the partition's
+// compute actually lives, plus the two cap nodes guarding its GPU and compute
+// instance. Those are the same nodes nvidia-container-toolkit would inject
+// after reading mig-minors on a real driver.
+func migDevices(state *agent.State, devRoot string) []cdiDevice {
+	if !state.MIG.Partitioned() {
+		return nil
+	}
+
+	minorByName := migcaps.MinorByName(state.MIG.Caps())
+	capNode := func(name string) (cdiDeviceNode, bool) {
+		minor, ok := minorByName[name]
+		if !ok {
+			return cdiDeviceNode{}, false
+		}
+		node := fmt.Sprintf("nvidia-caps/nvidia-cap%d", minor)
+		return cdiDeviceNode{Path: "/dev/" + node, HostPath: devRoot + "/" + node}, true
+	}
+
+	var devices []cdiDevice
+	for _, gpu := range state.MIG.GPUs {
+		parent := cdiDeviceNode{
+			Path:     fmt.Sprintf("/dev/nvidia%d", gpu.Minor),
+			HostPath: fmt.Sprintf("%s/nvidia%d", devRoot, gpu.Minor),
+		}
+
+		for _, gi := range gpu.GPUInstances {
+			giNode, giOK := capNode(migcaps.GPUInstanceCap(gpu.Minor, gi.ID))
+
+			for _, ci := range gi.ComputeInstances {
+				ciNode, ciOK := capNode(migcaps.ComputeInstanceCap(gpu.Minor, gi.ID, ci.ID))
+				// A partition with no UUID cannot be addressed, and a missing
+				// cap node means the chardev was never staged: naming an
+				// absent hostPath fails container creation for the whole pod,
+				// so such a partition is left out rather than half-described.
+				if ci.UUID == "" || !giOK || !ciOK {
+					continue
+				}
+				devices = append(devices, cdiDevice{
+					Name:           ci.UUID,
+					ContainerEdits: cdiEdits{DeviceNodes: []cdiDeviceNode{parent, giNode, ciNode}},
+				})
+			}
+		}
+	}
+	return devices
 }
 
 // pciSysfsMounts serves the rendered PCI tree at the kernel paths, which is the

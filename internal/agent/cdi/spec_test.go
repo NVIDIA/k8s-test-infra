@@ -237,6 +237,126 @@ func TestNvidiaSpecOmitsPCISysfsWithoutTopology(t *testing.T) {
 	require.False(t, ok, "nothing may be served when no tree is rendered")
 }
 
+// migState is one GPU partitioned into two 1-compute-instance partitions,
+// which is the shape migStrategy=single asks for.
+func migState() *agent.State {
+	state := twoGPUState()
+	state.MIG = agent.MIGState{
+		CapsMajor: 238,
+		GPUs: []agent.MIGGPU{{
+			Minor: 0,
+			GPUInstances: []agent.MIGGPUInstance{
+				{ID: 0, ComputeInstances: []agent.MIGComputeInstance{{ID: 0, UUID: "MIG-aaa-0"}}},
+				{ID: 1, ComputeInstances: []agent.MIGComputeInstance{{ID: 0, UUID: "MIG-aaa-1"}}},
+			},
+		}},
+	}
+	return state
+}
+
+// A MIG partition is allocated through the same channel a whole GPU is: the
+// device plugin reports the UUID NVML gave it, and the container runtime
+// resolves that name against this spec. Without an entry the resolution fails
+// outright — "unresolvable CDI devices nvidia.com/gpu=MIG-..." — so a pod that
+// was scheduled onto a partition never starts, which is how this surfaced.
+func TestNvidiaSpecMigDeviceEntries(t *testing.T) {
+	t.Parallel()
+
+	spec := buildNvidiaSpec(migState())
+
+	for _, uuid := range []string{"MIG-aaa-0", "MIG-aaa-1"} {
+		dev, ok := deviceByName(spec, uuid)
+		require.True(t, ok, "no CDI entry names partition %s", uuid)
+		// The partition's compute capacity is still reached through its
+		// parent's node; the cap nodes only guard access to it.
+		require.Contains(t, nodePaths(dev), "/dev/nvidia0")
+	}
+}
+
+// The cap minors here are the ones migcaps allocates for this layout, and the
+// two have to agree: the runtime injects whatever node this spec names, so a
+// minor that does not match the staged table hands the container the chardev
+// guarding a different partition.
+func TestNvidiaSpecMigCapNodes(t *testing.T) {
+	t.Parallel()
+
+	spec := buildNvidiaSpec(migState())
+
+	// config=1 and monitor=2 are reserved, so gi0 takes 3, its ci0 takes 4,
+	// then gi1 takes 5 and its ci0 takes 6.
+	first, ok := deviceByName(spec, "MIG-aaa-0")
+	require.True(t, ok)
+	require.ElementsMatch(t, []string{
+		"/dev/nvidia0",
+		"/dev/nvidia-caps/nvidia-cap3",
+		"/dev/nvidia-caps/nvidia-cap4",
+	}, nodePaths(first))
+
+	second, ok := deviceByName(spec, "MIG-aaa-1")
+	require.True(t, ok)
+	require.ElementsMatch(t, []string{
+		"/dev/nvidia0",
+		"/dev/nvidia-caps/nvidia-cap5",
+		"/dev/nvidia-caps/nvidia-cap6",
+	}, nodePaths(second))
+
+	// Cap nodes are staged under the overlay, not the node's real /dev.
+	for _, dn := range first.ContainerEdits.DeviceNodes {
+		require.Contains(t, dn.HostPath, overlayHostRoot)
+	}
+}
+
+// The whole-GPU entries stay exactly as they were: a partitioned node still
+// has to serve consumers that ask for a full GPU by index or UUID, and the
+// non-MIG scenarios assert on those names.
+func TestNvidiaSpecMigDoesNotDisturbWholeGPUEntries(t *testing.T) {
+	t.Parallel()
+
+	plain := buildNvidiaSpec(twoGPUState())
+	partitioned := buildNvidiaSpec(migState())
+
+	for _, name := range []string{"0", "GPU-aaa", "1", "GPU-bbb", "all"} {
+		want, ok := deviceByName(plain, name)
+		require.True(t, ok)
+		got, ok := deviceByName(partitioned, name)
+		require.True(t, ok, "partitioning dropped the %q entry", name)
+		require.Equal(t, want, got, "partitioning changed the %q entry", name)
+	}
+}
+
+// A node with MIG off must not gain a nvidia-caps node anywhere: the chardevs
+// are not staged in that case, and a CDI entry naming a missing hostPath fails
+// container creation for the whole pod.
+func TestNvidiaSpecNoMigEntriesWhenUnpartitioned(t *testing.T) {
+	t.Parallel()
+
+	spec := buildNvidiaSpec(twoGPUState())
+
+	for _, dev := range spec.Devices {
+		for _, path := range nodePaths(dev) {
+			require.NotContains(t, path, "nvidia-caps",
+				"entry %q names a cap node on an unpartitioned node", dev.Name)
+		}
+	}
+}
+
+func deviceByName(spec cdiSpec, name string) (cdiDevice, bool) {
+	for _, d := range spec.Devices {
+		if d.Name == name {
+			return d, true
+		}
+	}
+	return cdiDevice{}, false
+}
+
+func nodePaths(dev cdiDevice) []string {
+	paths := make([]string, 0, len(dev.ContainerEdits.DeviceNodes))
+	for _, dn := range dev.ContainerEdits.DeviceNodes {
+		paths = append(paths, dn.Path)
+	}
+	return paths
+}
+
 // --- buildNRISpec ---
 
 func TestNRISpecHeader(t *testing.T) {
