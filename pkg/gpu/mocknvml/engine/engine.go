@@ -180,6 +180,41 @@ func (e *Engine) createDevicesFromYAML(server *MockServer, base *mockserver.Serv
 	}
 }
 
+// baseDevicePCIBusIDs lists the PCI addresses of the mock every device is built
+// from, resolved once because building the base allocates a whole mock server.
+// createDevicesFromYAML passes an empty pci.bus_id straight through, so a device
+// whose profile is silent serves the base address — see BaseDevicePCIBusID.
+var baseDevicePCIBusIDs = sync.OnceValue(func() []string {
+	base := dgxa100.New()
+
+	busIDs := make([]string, 0, len(base.Devices))
+	for i := range base.Devices {
+		device, ok := base.Devices[i].(*mockserver.Device)
+		if !ok {
+			break
+		}
+		busIDs = append(busIDs, device.PciBusID)
+	}
+
+	return busIDs
+})
+
+// BaseDevicePCIBusID returns the address a device index serves when its profile
+// declares no pci.bus_id: the one it inherits from the base mock. It is ""
+// for an index the base does not cover — the engine creates no device there.
+//
+// Exported for callers outside the engine that must name a device the way the
+// running mock names it, such as the node agent announcing an Xid on the kernel
+// log for a profile that leaves addresses to the mock.
+func BaseDevicePCIBusID(index int) string {
+	busIDs := baseDevicePCIBusIDs()
+	if index < 0 || index >= len(busIDs) {
+		return ""
+	}
+
+	return busIDs[index]
+}
+
 // createDefaultDevices creates devices with default/env configuration (legacy mode).
 // Uses deterministic UUIDs and PCI bus IDs so that multiple processes loading the
 // library for the same device index see identical identifiers -- critical for shared

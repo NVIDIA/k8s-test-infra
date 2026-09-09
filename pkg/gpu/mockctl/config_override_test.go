@@ -14,6 +14,8 @@
 package mockctl
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -397,4 +399,83 @@ func TestResolveTarget_IndexBounds(t *testing.T) {
 	tg, err = ResolveTarget("99", nil)
 	require.NoError(t, err)
 	require.Equal(t, 99, tg.Index)
+}
+
+// What the node agent reads back to decide whether a device has a new Xid to
+// announce on the kernel log.
+func TestDoc_FailureXid(t *testing.T) {
+	t.Parallel()
+
+	doc := &Doc{}
+	require.Zero(t, doc.FailureXid(0), "an empty document injects nothing")
+
+	require.NoError(t, doc.Fail(Target{Index: 0}, engine.FailureModeLost, 0, 79))
+	require.Equal(t, uint64(79), doc.FailureXid(0))
+	require.Zero(t, doc.FailureXid(1), "one device's failure is not another's")
+
+	// The shared bucket stands in for every device that has no failure of its
+	// own, the way the engine merges the two.
+	require.NoError(t, doc.Fail(Target{All: true}, engine.FailureModeECCUncorrectable, 0, 48))
+	require.Equal(t, uint64(79), doc.FailureXid(0), "the device's own failure wins")
+	require.Equal(t, uint64(48), doc.FailureXid(1))
+
+	require.NoError(t, doc.Fail(Target{Index: 0}, engine.FailureModeHealthy, 0, 0))
+	require.Equal(t, uint64(48), doc.FailureXid(0), "recovered, so the shared bucket applies again")
+
+	// A failure without an Xid raises none: the device fails, silently.
+	require.NoError(t, doc.Fail(Target{All: true}, engine.FailureModeLost, 0, 0))
+	require.Zero(t, doc.FailureXid(1))
+}
+
+// The engine deep-merges the shared bucket into the per-device one, so a
+// per-device failure does not replace the shared one field by field: a device
+// singled out by a `fail` that carries no Xid keeps the shared bucket's. Read
+// as shadowing instead, this reported no Xid for exactly the device an operator
+// had just targeted, while the mock went on raising one through NVML.
+func TestDoc_FailureXidFollowsTheEnginesMerge(t *testing.T) {
+	t.Parallel()
+
+	doc := &Doc{}
+	require.NoError(t, doc.Fail(Target{All: true}, engine.FailureModeLost, 0, 79))
+	require.NoError(t, doc.Fail(Target{Index: 0}, engine.FailureModeLost, 0, 0))
+
+	require.Equal(t, uint64(79), doc.FailureXid(0))
+	require.Equal(t, engineXid(t, doc, 0), doc.FailureXid(0),
+		"the document must answer with what the running mock raises")
+	require.Equal(t, engineXid(t, doc, 1), doc.FailureXid(1))
+}
+
+// engineXid resolves the Xid a device raises the way the mock does, so a test
+// can hold FailureXid against the merge it stands in for rather than against a
+// second copy of the same assumptions.
+func engineXid(t *testing.T, doc *Doc, index int) uint64 {
+	t.Helper()
+
+	overrides := &engine.ConfigOverrideDoc{All: doc.All, Devices: doc.Devices}
+	merged, err := engine.MergeDeviceConfig(&engine.DeviceConfig{}, overrides.DeviceConfigOverride(index))
+	require.NoError(t, err)
+
+	if merged.Failure == nil || merged.Failure.Xid == nil {
+		return 0
+	}
+
+	return merged.Failure.Xid.Code
+}
+
+// A document that has been through YAML carries numbers as float64, so reading
+// the code back has to survive the round trip rather than only work in memory.
+func TestDoc_FailureXidSurvivesTheFile(t *testing.T) {
+	t.Parallel()
+
+	doc := &Doc{}
+	require.NoError(t, doc.Fail(Target{Index: 3}, engine.FailureModeLost, 0, 79))
+	data, err := doc.Bytes()
+	require.NoError(t, err)
+
+	path := filepath.Join(t.TempDir(), "overrides.yaml")
+	require.NoError(t, os.WriteFile(path, data, 0o644))
+
+	reloaded, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, uint64(79), reloaded.FailureXid(3))
 }

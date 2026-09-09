@@ -104,6 +104,32 @@ done < <(kind get nodes --name "${CLUSTER_NAME}" | grep -v control-plane | sort)
 [[ "${#WORKERS[@]}" -ge 1 ]] || fail "no worker nodes found"
 info "GPU workers: ${WORKERS[*]}"
 
+# --- Node "syslog" for the syslog health monitor ------------------------------
+# The monitor opens the journal DIRECTORY under a /var/log hostPath and admits
+# only kernel-transport entries, neither of which a stock Kind node offers: it
+# keeps a volatile journal in /run/log/journal and ships ReadKMsg=no, so the
+# Xid the node agent puts on /dev/kmsg is dropped. Both restarts
+# are needed — journald cannot reload, and it does not create /var/log/journal
+# itself; journal-flush is what creates it and moves the journal there.
+#
+# Exactly one node, because the kernel ring buffer is not namespaced: every Kind
+# node on this host shares the machine's, so an Xid injected on any node reaches
+# all of them. Enabling ingestion everywhere would have each node's monitor
+# report the same fault and NVSentinel quarantine the whole cluster.
+SYSLOG_NODE="${WORKERS[0]}"
+info "Enabling persistent kernel-log journaling on ${SYSLOG_NODE}"
+docker exec "${SYSLOG_NODE}" bash -c '
+set -e
+mkdir -p /etc/systemd/journald.conf.d
+cat > /etc/systemd/journald.conf.d/99-node-syslog.conf <<EOF
+[Journal]
+Storage=persistent
+ReadKMsg=yes
+EOF
+systemctl restart systemd-journald
+systemctl restart systemd-journal-flush
+'
+
 # --- Label GPU workers + install nvidia-container-toolkit / CDI ---------------
 for node in "${WORKERS[@]}"; do
   info "Labeling ${node} with ${GPU_NODE_LABEL}"
@@ -149,6 +175,10 @@ info "Loading image into Kind"
 kind load docker-image "${IMAGE_NAME}" --name "${CLUSTER_NAME}"
 
 # --- Install nvml-mock (pinned to the GPU workers) ----------------------------
+# nodeAgent.kernelLog is what this demo turns on: the chart ships it off, since
+# it makes the node-agent container privileged, and without it an injected Xid
+# reaches NVML alone -- invisible to NVSentinel's syslog monitor, which is the
+# half of NVSentinel this demo exists to show.
 info "Installing nvml-mock (profile=${GPU_PROFILE}) on the GPU workers"
 helm upgrade --install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
   --kube-context "${KUBE_CONTEXT}" \
@@ -158,6 +188,7 @@ helm upgrade --install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
   --set "gpu.profile=${GPU_PROFILE}" \
   --set gpu.dynamicMetrics.enabled=true \
   --set-string "nodeSelector.nvml-mock-gpu=true" \
+  --set nodeAgent.kernelLog.enabled=true \
   --wait --timeout 180s
 
 # --- Install the NVIDIA GPU Operator with standalone DCGM ---------------------

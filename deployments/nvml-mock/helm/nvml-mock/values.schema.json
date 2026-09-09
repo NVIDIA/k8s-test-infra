@@ -165,6 +165,14 @@
           "pattern": "^[0-9]+(ns|us|ms|s|m|h)$",
           "description": "Go duration string passed to --shutdown-timeout."
         },
+        "kernelLog": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Announce injected Xids on the node's kernel log. Closed to unknown keys because a typo here would leave the privileged container it grants in place while reading as if it had been turned off.",
+          "properties": {
+            "enabled": { "type": "boolean" }
+          }
+        },
         "resources": { "type": "object" }
       }
     },

@@ -38,6 +38,17 @@ make cluster-create PROFILE=compute-domain  # 1 CP + 4 workers (NVLink cliques)
 make cluster-delete                         # tear down (PROFILE= must match creation)
 ```
 
+The `default` profile also mounts `local/kind/journald-node-syslog.conf` on every
+node, which makes the Xid the node agent puts on `/dev/kmsg` for an
+`nvml-mock-ctl fail --xid` injection readable from the node journal —
+`docker exec worker-0 dmesg | grep 'NVRM: Xid'`. The announcement itself is off
+in the chart, since it makes the node agent privileged;
+`local/nvml-mock.values.yaml` turns it on for these clusters.
+Kind nodes share the host's kernel ring buffer, so an Xid injected on one node
+shows up on all of them.
+Since Kind resolves a config's paths against the working directory, create the
+cluster from the repo root (`make cluster-create` does).
+
 ## Step 2 — Start Tilt
 
 ### Homogeneous fleet (single Helm release)

@@ -46,6 +46,38 @@ func TestCLI_FailWritesConfigOverride(t *testing.T) {
 	require.Contains(t, readConfigOverride(t, configOverride), "ecc_uncorrectable")
 }
 
+// writeConfig lays down a two-GPU profile, so the command resolves its target
+// against a device list as it does on a node.
+func writeConfig(t *testing.T, dir string) string {
+	t.Helper()
+	path := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`version: "1.0"
+system:
+  driver_version: "550.163.01"
+devices:
+  - index: 0
+    uuid: "GPU-12345678-1234-1234-1234-123456780000"
+    pci:
+      bus_id: "0000:1A:00.0"
+  - index: 1
+    uuid: "GPU-12345678-1234-1234-1234-123456780001"
+    pci:
+      bus_id: "0000:1B:00.0"
+`), 0o644))
+	return path
+}
+
+// The code the node agent reads back to announce the Xid on the kernel log.
+func TestCLI_FailRecordsTheXidCode(t *testing.T) {
+	dir := t.TempDir()
+	configOverride := filepath.Join(dir, "overrides.yaml")
+
+	_, e, c := runCLI(t, configOverride, "fail", "--gpu", "0", "--mode", "ecc_uncorrectable",
+		"--xid", "79", "--config", writeConfig(t, dir))
+	require.Equalf(t, 0, c, "fail exited %d: %s", c, e)
+	require.Contains(t, readConfigOverride(t, configOverride), "code: 79")
+}
+
 func TestCLI_SetRejectsUnknownField(t *testing.T) {
 	dir := t.TempDir()
 	configOverride := filepath.Join(dir, "overrides.yaml")

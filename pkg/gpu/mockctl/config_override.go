@@ -124,6 +124,41 @@ func (d *Doc) Fail(t Target, mode string, afterCalls int, xidCode uint64) error 
 	return nil
 }
 
+// FailureXid reports the Xid code device index would raise under the current
+// overrides, or zero for a device that raises none.
+//
+// The shared and per-device buckets are resolved by the engine's own merge
+// rather than by a rule restated here, because the answer has to be what the
+// running mock raises. That merge is a deep one: a per-device failure block
+// does not replace the shared block, so a device singled out by a `fail` that
+// carries no Xid keeps the one the shared bucket holds.
+func (d *Doc) FailureXid(index int) uint64 {
+	overrides := &engine.ConfigOverrideDoc{All: d.All, Devices: d.Devices}
+
+	failure, ok := overrides.DeviceConfigOverride(index)["failure"].(map[string]any)
+	if !ok {
+		return 0
+	}
+
+	xid, ok := failure["xid"].(map[string]any)
+	if !ok {
+		return 0
+	}
+
+	// A document that has been through YAML carries the code as float64, one
+	// built in memory as an int or uint64.
+	switch code := xid["code"].(type) {
+	case float64:
+		return uint64(code)
+	case int:
+		return uint64(code) //nolint:gosec // a negative code cannot reach here: Fail takes a uint64
+	case uint64:
+		return code
+	default:
+		return 0
+	}
+}
+
 // TemperaturePatch builds an config override patch that pins the reported GPU
 // temperature to celsius. It writes both the static thermal block and a
 // zero-variation dynamic block: profiles that enable dynamic metrics (the
