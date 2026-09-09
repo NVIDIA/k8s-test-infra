@@ -51,12 +51,14 @@ jobs:
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      # uv both installs the pinned toolchain and provisions the interpreter,
+      # so no separate Python setup step is needed. `make docs-deps` pins the
+      # version via DOCS_PYTHON_VERSION.
+      - name: Set up uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: requirements-docs.txt
+          enable-cache: true
+          cache-dependency-glob: requirements-docs.txt
 
       - name: Install documentation dependencies
         run: make docs-deps
