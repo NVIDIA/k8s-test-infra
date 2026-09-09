@@ -550,6 +550,45 @@ func (st *migState) devicesDerivedFrom(giID uint32, ciID *uint32) []*Configurabl
 	return devices
 }
 
+// migDeviceByUUID finds the MIG device carrying a UUID, across every GPU on
+// the node, or nil if no partition has it.
+//
+// The walk enumerates rather than consulting a cache, so a partition that has
+// never been handed out by index is still findable: a consumer that learned a
+// UUID from a pod's environment has no reason to have walked the indices first.
+func (e *Engine) migDeviceByUUID(uuid string) *ConfigurableDevice {
+	for _, parent := range e.server.configurableDevices {
+		if parent == nil {
+			continue
+		}
+		if dev := parent.migDeviceByUUID(uuid); dev != nil {
+			return dev
+		}
+	}
+	return nil
+}
+
+// migDeviceByUUID finds one of this GPU's partitions by UUID.
+func (d *ConfigurableDevice) migDeviceByUUID(uuid string) *ConfigurableDevice {
+	st := d.migState
+	if st == nil || !st.supported {
+		return nil
+	}
+
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	if st.mode != nvml.DEVICE_MIG_ENABLE {
+		return nil
+	}
+	for _, dev := range st.migDevicesLocked(d) {
+		if dev.mig != nil && dev.mig.uuid == uuid {
+			return dev
+		}
+	}
+	return nil
+}
+
 // newMigDeviceLocked builds the MIG device backing one (GPU instance, compute
 // instance) pair. Requires st.mu.
 func (st *migState) newMigDeviceLocked(

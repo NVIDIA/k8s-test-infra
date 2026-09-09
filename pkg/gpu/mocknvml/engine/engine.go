@@ -338,6 +338,15 @@ func (e *Engine) DeviceGetHandleByUUID(uuid string) (unsafe.Pointer, nvml.Return
 
 	device, ret := e.server.DeviceGetHandleByUUID(uuid)
 	if ret != nvml.SUCCESS {
+		// MIG devices are not in the server's device list — they exist only in
+		// the engine's MIG state — so a miss there is not yet a miss. Resolving
+		// them here is what a modern driver does, and the device plugin's health
+		// monitor depends on it: it places a partition by looking its UUID up
+		// and only falls back to parsing the legacy MIG-GPU-<parent>/<gi>/<ci>
+		// spelling if the lookup fails.
+		if mig := e.migDeviceByUUID(uuid); mig != nil {
+			return registerHandle(e.handles, nvml.Device(mig))
+		}
 		return nil, ret
 	}
 

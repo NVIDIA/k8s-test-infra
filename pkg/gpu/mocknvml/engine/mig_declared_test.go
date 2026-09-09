@@ -159,3 +159,52 @@ func TestDeclaredMIGLayout_PerDeviceOverride(t *testing.T) {
 	require.Len(t, layout[0].GPUInstances, 3)
 	require.Equal(t, "2g.10gb", layout[0].GPUInstances[0].Profile)
 }
+
+// A modern driver resolves a MIG device's own UUID to its handle, and consumers
+// rely on it: the device plugin's health monitor looks a partition up by UUID
+// and only falls back to parsing the legacy MIG-GPU-<parent>/<gi>/<ci> spelling
+// if that fails. Without this the plugin enumerated every partition, failed to
+// place any of them, and marked all of them unhealthy — advertising zero
+// allocatable GPUs while looking healthy itself.
+func TestDeviceGetHandleByUUID_ResolvesMigDevices(t *testing.T) {
+	t.Parallel()
+
+	e := NewEngine(&Config{
+		NumDevices: 2,
+		YAMLConfig: migYAMLConfig(&MIGConfig{
+			ModeCurrent:  "enabled",
+			ModePending:  "enabled",
+			GPUInstances: []MIGGPUInstanceConfig{{Profile: "1g.5gb", Count: 7}},
+		}),
+	})
+	require.Equal(t, nvml.SUCCESS, e.Init())
+	defer func() { _ = e.Shutdown() }()
+
+	seen := map[string]bool{}
+	for index := range 2 {
+		parent, ret := e.DeviceGetHandleByIndex(index)
+		require.Equal(t, nvml.SUCCESS, ret)
+
+		for position := range 7 {
+			migHandle, ret := e.DeviceGetMigDeviceHandleByIndex(parent, position)
+			require.Equal(t, nvml.SUCCESS, ret, "gpu %d mig %d", index, position)
+
+			uuid, ret := e.LookupConfigurableDevice(migHandle).GetUUID()
+			require.Equal(t, nvml.SUCCESS, ret)
+			require.False(t, seen[uuid], "MIG UUID %s reported twice", uuid)
+			seen[uuid] = true
+
+			byUUID, ret := e.DeviceGetHandleByUUID(uuid)
+			require.Equal(t, nvml.SUCCESS, ret, "lookup of MIG UUID %s", uuid)
+			require.Equal(t, migHandle, byUUID,
+				"a MIG UUID must resolve to the same handle the index walk returned")
+
+			// The placement the health monitor reads off that handle has to be
+			// the partition's own, not its parent's.
+			isMig, ret := e.LookupConfigurableDevice(byUUID).IsMigDeviceHandle()
+			require.Equal(t, nvml.SUCCESS, ret)
+			require.True(t, isMig, "%s resolved to a handle that denies being a MIG device", uuid)
+		}
+	}
+	require.Len(t, seen, 14)
+}
