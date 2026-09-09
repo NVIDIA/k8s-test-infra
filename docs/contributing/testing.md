@@ -19,6 +19,7 @@ because several of its steps fail on files you did not edit:
 | Vendor check | A `vendor/` directory reappeared; dependencies resolve through the Go proxy |
 | Go proxy digest | The vendored `setup-dgxc-goproxy` action was edited in place |
 | Documentation links | A markdown link does not resolve anywhere in the repo |
+| Component page sync | A binary under `cmd/` has no reference page, or a page has no binary — add or remove the page under `docs/tools/` |
 | `go vet`, `golangci-lint`, `govulncheck` | The usual |
 
 `make lint-fix` runs the same checks and auto-fixes what it can.

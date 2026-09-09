@@ -53,6 +53,19 @@ Because kernel module presence is not simulated. Consumers that gate on
 This is one of a handful of known gaps — see
 [what is not simulated yet](#what-is-not-simulated-yet).
 
+## My pod requests a GPU but has no `nvidia-smi`. Why?
+
+Requesting `nvidia.com/gpu` gets your pod the `/dev/nvidiaN` device node and
+nothing else — no `nvidia-smi`, and no `libnvidia-ml.so` on its filesystem.
+Putting the libraries inside a container is the [NRI plugin](components/nri-plugin.md)'s
+job, and that needs the containerd NRI socket, which a stock KIND cluster does
+not expose.
+
+Either enable NRI, or mount the driver root yourself the way
+[`local/gpu-validator.k8s.yaml`](https://github.com/NVIDIA/k8s-test-infra/blob/main/local/gpu-validator.k8s.yaml)
+does: a hostPath at `/run/nvidia/driver` plus a matching `LD_LIBRARY_PATH`.
+This is a boundary of the plain install, not a bug.
+
 ## Can I simulate a broken GPU?
 
 Yes. Failure is a configuration state rather than a special code path, so every

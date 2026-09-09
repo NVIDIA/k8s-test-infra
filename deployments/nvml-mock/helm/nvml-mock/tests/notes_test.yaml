@@ -103,4 +103,4 @@ tests:
       - matchRegexRaw:
           pattern: "helm-chart/#quick-start-gpu-operator-on-kind"
       - matchRegexRaw:
-          pattern: "docs/demo/with-gpu-operator/"
+          pattern: "docs/guides/with-gpu-operator/"

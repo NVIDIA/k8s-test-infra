@@ -1,113 +1,73 @@
 # generate-bridge
 
-Emits ABI-compatible cgo stubs for every NVML function the hand-written mock
-NVML bridge does not implement yet. It takes three inputs:
+Keeps the mock NVML library ABI-complete. Every NVML function the hand-written
+bridge does not implement gets a generated cgo stub, so the library still
+exports the full symbol set and a consumer that calls an unimplemented function
+gets a defined answer instead of a link error.
 
-1. the vendored go-nvml wrapper (`nvml.go`), AST-parsed for the authoritative
-   list of `nvml*` function names;
-2. `nvml.h`, scanned for the real C prototypes, including multi-line
-   declarations;
-3. the bridge directory, walked for existing `//export` directives.
+It reads the function list from go-nvml's `nvml.go`, the C prototypes from
+`nvml.h`, and the existing `//export` directives from the bridge directory. What
+is left over — every function named in `nvml.go` with no hand-written
+implementation — is written to `stubs_generated.go`.
 
-`stubs_generated.go` is skipped during that walk, so the generator does not
-count its own previous output. Each remaining function gets a stub with a
-C-compatible Go signature derived from the prototype, returning
-`stubReturn("<name>")`. When no prototype matches, even after stripping a `_vN`
-suffix, it falls back to a zero-argument stub and logs a warning. Output is run
-through `go/format`; if formatting fails, the unformatted source is written with
-a warning rather than aborting.
+A hand-written implementation therefore always displaces its stub. You never
+delete one by hand; you add the real function and re-run the generator.
 
-Two read-only modes short-circuit before generation. `-stats` is checked first,
-so passing both flags runs stats only.
-
-- `-stats` prints an NVML coverage table (total functions, hand-written
-  implementations, generated stubs) plus a per-file `//export` count. It counts
-  only exports that also appear in `nvml.go`, so bridge-internal exports do not
-  inflate the number.
-- `-validate` compares the Go parameter count of each hand-written `//export`
-  function against the parameter count of its `nvml.h` prototype. It prints one
-  `WARNING: <file>:<line>: ...` line per mismatch and exits 1, or prints
-  `All hand-written exports match nvml.h parameter counts.` and exits 0.
-
-## Who runs it
-
-A code-generation step and developers, never a cluster workload. It is not
-installed into the nvml-mock image.
-
-`make gen` runs `go generate ./pkg/gpu/mocknvml/bridge/...`, and the
-`//go:generate` directive in `pkg/gpu/mocknvml/bridge/helpers.go` invokes this
-binary with all four path flags. `make gen-check` re-runs generation and fails
-if `git diff` over the bridge directory is dirty, so CI catches a stale
-`stubs_generated.go`.
-
-That check matters because `stubs_generated.go` is checked-in generator output.
-A go-nvml bump that adds new NVML entry points does not refresh it, so the mock
-library silently stops exporting the new symbols until the generator is re-run.
-
-`make build` also produces `dist/generate-bridge`, because it globs every
-`cmd/*/main.go`.
-
-## Flags
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `-input` | none, required by generate and `-stats` | NVML Go wrapper file |
-| `-header` | none, required by generate and `-validate` | NVML C header file for prototype extraction |
-| `-bridge` | `pkg/gpu/mocknvml/bridge` | bridge directory to scan for existing implementations |
-| `-output` | `pkg/gpu/mocknvml/bridge/stubs_generated.go` | output file for generated stubs, written with mode 0644 |
-| `-stats` | `false` | print coverage statistics and exit |
-| `-validate` | `false` | validate hand-written export parameter counts against `nvml.h` prototypes |
-
-`-input` and `-header` have no defaults and no fallback. A required path that
-is unset, or set to something unreadable, is a `log.Fatalf` before any work
-happens, and the message points at `make gen`. Which of the two is required
-depends on the mode:
-
-| Mode | Requires |
-|------|----------|
-| generate (neither read-only flag) | both `-input` and `-header` |
-| `-stats` | `-input` only |
-| `-validate` | `-header` only |
-
-There is no check or diff mode: `-output` is written unconditionally, and drift
-detection is done externally by `make gen-check`.
-
-`generate-bridge` reads no environment variables.
-
-## Usage
+## Running it
 
 ```bash
 make gen
 ```
 
-The equivalent explicit invocation from the repo root. go-nvml is resolved
-through the module cache, the same way `make gen` does it, because this repo
-builds through the Go proxy and `make lint` fails if a `vendor/` directory
-reappears:
+That is the supported path: it resolves go-nvml through the module cache and
+runs the `//go:generate` directive in `pkg/gpu/mocknvml/bridge/helpers.go`.
+
+The read-only modes are not reachable through `make gen`, so invoke the binary
+directly for those:
 
 ```bash
 GO_NVML_DIR=$(go list -m -f '{{.Dir}}' github.com/NVIDIA/go-nvml)
 
-go run ./cmd/generate-bridge \
-    -input "$GO_NVML_DIR/pkg/nvml/nvml.go" \
-    -header "$GO_NVML_DIR/pkg/nvml/nvml.h" \
-    -bridge pkg/gpu/mocknvml/bridge \
-    -output pkg/gpu/mocknvml/bridge/stubs_generated.go
-```
-
-The read-only modes, each with the one path it needs:
-
-```bash
-go run ./cmd/generate-bridge -stats -input "$GO_NVML_DIR/pkg/nvml/nvml.go"
+go run ./cmd/generate-bridge -stats    -input  "$GO_NVML_DIR/pkg/nvml/nvml.go"
 go run ./cmd/generate-bridge -validate -header "$GO_NVML_DIR/pkg/nvml/nvml.h"
 ```
 
-`-stats` prints the coverage table and exits 0. `-validate` exits 1 on
-signature drift and 0 otherwise. Run either without its path and it exits 1
-before doing anything, printing `-input is required` or `-header is required`.
+## Modes
+
+| Mode | Requires | Behaviour |
+|---|---|---|
+| generate (default) | `-input` and `-header` | Writes `-output`, unconditionally |
+| `-stats` | `-input` | Prints an NVML coverage table — total functions, hand-written implementations, generated stubs, and a per-file `//export` count — then exits `0` |
+| `-validate` | `-header` | Compares each hand-written export's Go parameter count against its `nvml.h` prototype. Exits `1` after printing one `WARNING: <file>:<line>` per mismatch, or `0` |
+
+`-stats` wins when both read-only flags are set. A required path that is missing
+or unreadable exits `1` before any work happens, with a message pointing at
+`make gen`.
+
+## Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-input` | none | NVML Go wrapper file (`nvml.go`) |
+| `-header` | none | NVML C header, for prototype extraction |
+| `-bridge` | `pkg/gpu/mocknvml/bridge` | Directory scanned for existing implementations |
+| `-output` | `pkg/gpu/mocknvml/bridge/stubs_generated.go` | Where generated stubs are written |
+| `-stats` | `false` | Print the coverage table and exit |
+| `-validate` | `false` | Check export parameter counts against `nvml.h` |
+
+## Why the output is committed
+
+`stubs_generated.go` is checked in, and `make gen-check` re-runs generation and
+fails when the bridge directory comes back dirty.
+
+The guard earns its place because the trigger is invisible: bumping go-nvml adds
+new NVML entry points but does not regenerate anything, so without it the mock
+library quietly stops exporting the new symbols and only a consumer calling one
+would notice.
 
 ## See also
 
-- [Components index](README.md)
-- [Development Guide](../development.md)
-- [Architecture](../architecture.md)
+- [Command-line tools](README.md)
+- [Libraries and Shims](../components/libraries-and-shims.md) — how the bridge
+  fits under the mock NVML library
+- [Local Development](../contributing/local-development.md)

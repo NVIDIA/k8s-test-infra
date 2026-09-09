@@ -450,7 +450,6 @@ check_stderr "missing helm names the tool" "helm not found on PATH"
 # is the cheapest place to catch either regression.
 ###############################################################################
 
-STANDALONE="${SCRIPT_DIR}/../standalone/demo.sh"
 FAILURE_INJECTION="${SCRIPT_DIR}/../failure-injection/run.sh"
 WITH_GPU_OPERATOR="${SCRIPT_DIR}/../with-gpu-operator/run.sh"
 
@@ -464,11 +463,11 @@ code_lines() {
 }
 
 # EVERY demo script, every time. Checking one and not its siblings is the same
-# asymmetry that shipped the original defect, mirrored into the guards. This
-# list started at two and a third demo (with-gpu-operator) was added without
-# widening it, so every check below now derives its subjects from this
-# variable rather than naming demos: adding a fourth cannot repeat that.
-DEMO_SCRIPTS="${STANDALONE} ${FAILURE_INJECTION} ${WITH_GPU_OPERATOR}"
+# asymmetry that shipped the original defect, mirrored into the guards. A demo
+# was once added without widening this list, so every check below derives its
+# subjects from this variable rather than naming demos: adding or removing one
+# cannot repeat that.
+DEMO_SCRIPTS="${FAILURE_INJECTION} ${WITH_GPU_OPERATOR}"
 
 for f in ${DEMO_SCRIPTS}; do
     if [ ! -f "${f}" ]; then
@@ -768,14 +767,14 @@ check_stderr "override still warns about shared host state" "share"
 
 # Case 31: the GPU Operator demo's own guard calls. It has TWO siblings, so
 # both directions are exercised, and one case here can only be written for this
-# demo: its release name "nvml-mock-operator" CONTAINS the standalone demo's
-# "nvml-mock", so a substring match would make a plain re-run of this demo
-# refuse to proceed against itself.
+# demo: its release name "nvml-mock-operator" CONTAINS "nvml-mock", the
+# release the quick start installs, so a substring match would make a plain
+# re-run of this demo refuse to proceed against itself.
 make_shims; write_kubectl "kind-demo" 0 "https://127.0.0.1:6443"
 write_helm "v3.8.0+g1234" "nvml-mock mokka"
-check "gpu-operator demo refuses when standalone is co-located" 4 \
+check "gpu-operator demo refuses when nvml-mock is co-located" 4 \
     "$(run_sibling nvml-mock nvml-mock-operator DEMO_NAMESPACE=mokka-operator)"
-check_stderr "refusal names the standalone release" "the 'nvml-mock' demo is already installed"
+check_stderr "refusal names the nvml-mock release" "the 'nvml-mock' demo is already installed"
 
 make_shims; write_kubectl "kind-demo" 0 "https://127.0.0.1:6443"
 write_helm "v3.8.0+g1234" "nvml-mock-failure mokka-failure"
@@ -783,11 +782,11 @@ check "gpu-operator demo refuses when failure-injection is co-located" 4 \
     "$(run_sibling nvml-mock-failure nvml-mock-operator DEMO_NAMESPACE=mokka-operator)"
 check_stderr "refusal names the failure-injection release" "the 'nvml-mock-failure' demo is already installed"
 
-# Its OWN release present must not read as the standalone demo's. Without an
+# Its OWN release present must not read as the nvml-mock release. Without an
 # exact match this returns 4 and the demo can never be re-run.
 make_shims; write_kubectl "kind-demo" 0 "https://127.0.0.1:6443"
 write_helm "v3.8.0+g1234" "nvml-mock-operator mokka-operator"
-check "gpu-operator demo re-run is not mistaken for the standalone release" 0 \
+check "gpu-operator demo re-run is not mistaken for the nvml-mock release" 0 \
     "$(run_sibling nvml-mock nvml-mock-operator DEMO_NAMESPACE=mokka-operator)"
 
 # A helm that cannot list cannot rule out a co-located demo. Both demos mount

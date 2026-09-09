@@ -34,7 +34,7 @@ DEMO_KUBE_CONTEXT=""
 
 # Set by demo::preflight to the namespace that was current for that context
 # BEFORE the demo touched anything, or "default" when the context pins none.
-# standalone/demo.sh prints it as a truthful undo hint instead of assuming the
+# each demo prints it as a truthful undo hint instead of assuming the
 # reader was on "default".
 DEMO_PRIOR_NAMESPACE=""
 

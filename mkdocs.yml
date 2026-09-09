@@ -125,25 +125,22 @@ nav:
           - NRI Plugin: components/nri-plugin.md
       - Reference:
           - Configuration: configuration.md
+          # The pages stay under docs/tools/ because hack/check-docs-tools-sync.sh
+          # scans that directory to hold them in step with cmd/. The nav label is
+          # what places them, not the path.
+          - Command-Line Tools:
+              - Overview: tools/README.md
+              - control-plane: tools/control-plane.md
+              - node-agent: tools/node-agent.md
+              - nri-plugin: tools/nri-plugin.md
       - Troubleshooting: troubleshooting.md
       - FAQ: faq.md
-  # The files stay under docs/tools/ on purpose: docs/components/ is being
-  # taken by another change, and moving them here as well would collide.
-  - Components:
-      - Overview: tools/README.md
-      - control-plane: tools/control-plane.md
-      - node-agent: tools/node-agent.md
-      - nri-plugin: tools/nri-plugin.md
-      - check-fabric: tools/check-fabric.md
-      - Build tools:
-          - generate-bridge: tools/generate-bridge.md
   - Guides:
       - Overview: guides/README.md
       - Scenarios:
           - NVIDIA Device Plugin: guides/device-plugin.md
           - NVIDIA DRA Driver: guides/dra.md
           - NVIDIA GPU Operator: guides/gpu-operator.md
-          - With GPU Operator: guides/with-gpu-operator/README.md
           - Compute Domain: guides/compute-domain/README.md
           - NVSentinel: guides/nv-sentinel/README.md
           - Run.ai Fake GPU Operator: guides/runai-fgo/README.md
@@ -156,5 +153,8 @@ nav:
       - Overview: contributing/index.md
       - Local Development: contributing/local-development.md
       - Testing: contributing/testing.md
+      - Tools:
+          - check-fabric: tools/check-fabric.md
+          - generate-bridge: tools/generate-bridge.md
       - Enhancement Proposals: contributing/enhancements.md
       - Pull Requests: contributing/pull-requests.md

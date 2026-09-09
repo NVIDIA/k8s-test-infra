@@ -7,10 +7,10 @@ cluster.
 
 The suite is written in Go with [Ginkgo](https://onsi.github.io/ginkgo/) and
 lives under [`go/`](go/). It began as the Go port of the
-[standalone demo](../../docs/guides/standalone/demo.sh) and the
-[failure-injection demo](../../docs/guides/failure-injection/run.sh), and has since
-grown to cover DRA, the GPU Operator, multi-node fleets, node-wide NRI
-injection, and NFD label provenance.
+[failure-injection demo](../../docs/guides/failure-injection/run.sh) and the
+standalone install it grew from, and has since grown to cover DRA, the GPU
+Operator, multi-node fleets, node-wide NRI injection, and NFD label
+provenance.
 
 For which upstream consumer versions are actually exercised, and which are only
 written but not run, see the [version matrix](VERSION-MATRIX.md).

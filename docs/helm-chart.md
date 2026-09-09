@@ -258,7 +258,7 @@ kind delete cluster --name nvml-mock-dra
 
 These steps bootstrap a Kind node with nvidia-container-toolkit. On a cluster
 that already has a container runtime configured for CDI, skip to
-[the GPU Operator demo](demo/with-gpu-operator/README.md).
+[the GPU Operator guide](guides/gpu-operator.md).
 
 This path validates the NVIDIA GPU Operator stack (device plugin, GFD, validator)
 using CDI mode with mock GPUs. `tests/e2e/kind-gpu-operator-config.yaml` and
@@ -356,7 +356,7 @@ The values overlay, the install command and the verification live with the
 demo, so there is one copy to keep correct:
 
 ```bash
-cd docs/demo/with-gpu-operator && ./run.sh
+cd docs/guides/with-gpu-operator && ./run.sh
 ```
 
 `run.sh` installs nvml-mock itself, under its own release name
@@ -369,7 +369,7 @@ release-independent, so remove step 6's release first:
 helm uninstall nvml-mock
 ```
 
-See [the GPU Operator demo](demo/with-gpu-operator/README.md) for what each
+See [the GPU Operator guide](guides/gpu-operator.md) for what each
 disabled operand does, why the device plugin, GFD and dcgm-exporter each need
 `NVIDIA_DRIVER_ROOT=/var/lib/nvml-mock/driver`, and how the overlay relates to
 the one CI installs.
