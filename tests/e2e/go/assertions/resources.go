@@ -140,7 +140,7 @@ func NodeLabelAbsent(ctx context.Context, k *kube.Client, node, key string) {
 // list with item as one of its ELEMENTS. This is the ownership half of the
 // provenance guard: NFD records every label it owns in
 // nfd.node.kubernetes.io/feature-labels, and a label written by anything else
-// (a `kubectl label` in setup.sh, say) never appears there — so presence of the
+// (a hand-applied `kubectl label`, say) never appears there — so presence of the
 // label plus membership here is the direct discriminator, independent of any
 // ordering argument.
 //

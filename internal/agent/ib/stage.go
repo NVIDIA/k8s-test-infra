@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"go.uber.org/zap"
+
 	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
@@ -94,6 +96,8 @@ func stageIBTools(h *host.Host) error {
 		}
 		src, err := exec.LookPath(tool)
 		if err != nil {
+			zap.L().Warn("ib fallback tool not found on PATH; workloads calling it will fail",
+				zap.String("tool", tool))
 			continue
 		}
 		if err := fsutil.Copy(src, filepath.Join(binDir, tool), 0o755); err != nil {
@@ -121,9 +125,8 @@ func stageVerbsConfig(h *host.Host) error {
 // stageCheckFabric stages the fabric consumer so NRI-injected pods can verify
 // their per-node ComputeDomain identity via nvmlDeviceGetGpuFabricInfo.
 //
-// TODO: check-fabric is an NVML fabric consumer rather than an IB tool; it lives
-// here only because setup.sh staged it in the same block. Move it to gpudriver
-// or nvlink once nvlink lands.
+// TODO: check-fabric is an NVML fabric consumer rather than an IB tool, so it
+// belongs in gpudriver or nvlink rather than here.
 func stageCheckFabric(h *host.Host) error {
 	if _, err := os.Stat(checkFabric); err != nil {
 		return nil

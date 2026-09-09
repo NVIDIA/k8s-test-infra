@@ -101,6 +101,51 @@ func TestWriteEngineConfig_EmptyConfigRawErrors(t *testing.T) {
 	require.Error(t, err)
 }
 
+// GFD reads its machine type from a file, so the mock has to serve one: under
+// kind the DMI path it defaults to is either absent or owned by the node image.
+func TestWriteMachineType_ServesTheProductName(t *testing.T) {
+	h := testHost(t)
+	state := testState(t)
+	state.Devices[0].Name = "NVIDIA GB300 NVL"
+
+	require.NoError(t, writeMachineType(t.Context(), h, state))
+
+	data, err := os.ReadFile(filepath.Join(h.Root, machineTypeRel))
+	require.NoError(t, err)
+	require.Equal(t, "NVIDIA GB300 NVL\n", string(data),
+		"trailing newline mirrors how the kernel renders product_name")
+}
+
+// A missing file leaves GFD on its own default, which is the better failure:
+// an empty one would label the node with the empty string.
+func TestWriteMachineType_NoFileWithoutAProductName(t *testing.T) {
+	h := testHost(t)
+	state := testState(t)
+	state.Devices[0].Name = ""
+
+	require.NoError(t, writeMachineType(t.Context(), h, state))
+
+	_, err := os.Stat(filepath.Join(h.Root, machineTypeRel))
+	require.True(t, os.IsNotExist(err), "no product name means no file")
+}
+
+func TestWriteMachineType_NoFileWithoutDevices(t *testing.T) {
+	h := testHost(t)
+	state := testState(t)
+	state.Devices = nil
+
+	require.NoError(t, writeMachineType(t.Context(), h, state))
+
+	_, err := os.Stat(filepath.Join(h.Root, machineTypeRel))
+	require.True(t, os.IsNotExist(err))
+}
+
+// The file is served through the same mount as config.yaml, so it has to sit
+// beside it — a path outside driver/config would never reach a container.
+func TestWriteMachineType_LandsInTheServedConfigDir(t *testing.T) {
+	require.Equal(t, "driver/config", filepath.Dir(machineTypeRel))
+}
+
 func TestStageNvidiaSMI_WritesSMIScript(t *testing.T) {
 	h := testHost(t)
 	state := testState(t)
@@ -115,18 +160,6 @@ func TestStageNvidiaSMI_WritesSMIScript(t *testing.T) {
 	// Whether nvidia-smi is the ELF or a symlink, it must exist.
 	_, err = os.Lstat(filepath.Join(h.Root, "driver/usr/bin/nvidia-smi"))
 	require.NoError(t, err, "nvidia-smi must exist (ELF or symlink)")
-}
-
-func TestStageCUDAShim_NopWhenNoLib(t *testing.T) {
-	matches, _ := filepath.Glob("/usr/local/lib/libcuda.so.*.*.*")
-	if len(matches) > 0 {
-		t.Skip("libcuda.so is present; this test covers the no-lib path")
-	}
-	h := testHost(t)
-	state := testState(t)
-
-	require.NoError(t, stageCUDAShim(context.Background(), h, state),
-		"stageCUDAShim must not error when libcuda.so is absent")
 }
 
 func TestStageNVMLShim_CopiesLibAndCreatesLinks(t *testing.T) {
@@ -167,6 +200,7 @@ func TestApply_CreatesSymlink(t *testing.T) {
 	sim := New()
 
 	require.NoError(t, sim.Apply(context.Background(), h, testState(t)))
+	require.True(t, sim.Ready())
 
 	link := filepath.Join(h.Run, "nvidia/driver")
 	target, err := os.Readlink(link)
@@ -214,6 +248,8 @@ func TestStage_WritesAllSurfaces(t *testing.T) {
 	state := testState(t)
 
 	require.NoError(t, sim.Stage(context.Background(), h, state))
+	require.False(t, sim.Ready(), "Stage does not publish the driver symlink")
+	require.NoError(t, sim.Apply(context.Background(), h, state))
 	require.True(t, sim.Ready())
 
 	// chardevs
@@ -261,7 +297,7 @@ func TestPruneGPUNodes_RemovesShrunkDeviceSet(t *testing.T) {
 	} {
 		require.NoError(t, os.WriteFile(filepath.Join(devRoot, n), nil, 0o600))
 	}
-	// setup.sh stages the IMEX channel tree in this same directory.
+	// The imex simulator stages the IMEX channel tree in this same directory.
 	imex := filepath.Join(devRoot, "nvidia-caps-imex-channels")
 	require.NoError(t, os.MkdirAll(imex, 0o755))
 
@@ -280,7 +316,7 @@ func TestPruneGPUNodes_RemovesShrunkDeviceSet(t *testing.T) {
 			"stale GPU node %s must be pruned", gone)
 	}
 	// The nvidia prefix alone must not be grounds for deletion — this tree
-	// belongs to setup.sh, not to the gpudriver simulator.
+	// belongs to the imex simulator, not to gpudriver.
 	require.DirExists(t, imex, "IMEX channel tree must survive pruning")
 }
 

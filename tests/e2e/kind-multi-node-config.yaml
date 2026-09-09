@@ -25,6 +25,8 @@ nodes:
   - role: worker
     labels:
       nvml-mock/profile: a100
+      mokka.nvidia.com/type: sgpu
   - role: worker
     labels:
       nvml-mock/profile: t4
+      mokka.nvidia.com/type: sgpu

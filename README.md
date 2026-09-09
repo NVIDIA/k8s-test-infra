@@ -8,6 +8,9 @@
     <a href="https://scorecard.dev/viewer/?uri=github.com/NVIDIA/k8s-test-infra">
         <img src="https://api.scorecard.dev/projects/github.com/NVIDIA/k8s-test-infra/badge" alt="OpenSSF Scorecard" />
     </a>
+    <a href="https://www.bestpractices.dev/projects/14445">
+        <img src="https://www.bestpractices.dev/projects/14445/badge" alt="OpenSSF Best Practices" />
+    </a>
     <a href="LICENSE">
         <img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License" />
     </a>
@@ -86,8 +89,12 @@ Use standalone for local development and CI pipelines.
 
 | Demo | Description |
 |------|-------------|
-| [Standalone](docs/demo/standalone/) | nvml-mock with FGO-style labels on Kind |
+| [Standalone](docs/demo/standalone/) | nvml-mock with FGO-style labels |
 | [With fake-gpu-operator](docs/demo/with-fgo/) | Full FGO + nvml-mock integration |
+| [Failure injection](docs/demo/failure-injection/) | ECC, lost and fallen-off-bus fault modes |
+| [Node-wide injection (NRI)](docs/demo/node-wide-injection/) | Ambient nvidia-smi with no GPU request |
+| [ComputeDomain](docs/demo/compute-domain/) | NVLink fabric identity with real nvidia-imex |
+| [NVSentinel](docs/demo/nv-sentinel/) | Thermal-margin detection, drain and auto-recovery |
 
 See [docs/demo/](docs/demo/) for the full list.
 

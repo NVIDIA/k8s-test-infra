@@ -10,13 +10,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
@@ -28,7 +28,7 @@ type Agent struct {
 	simulators      []Simulator
 	source          StateSource
 	host            *host.Host
-	log             *slog.Logger
+	log             *zap.Logger
 	shutdownTimeout time.Duration
 	live            atomic.Pointer[health.Probe] // last Stage wave outcome, served on /healthz
 
@@ -45,7 +45,7 @@ type Config struct {
 	Simulators      []Simulator
 	Source          StateSource
 	Host            *host.Host
-	Log             *slog.Logger
+	Log             *zap.Logger
 	ShutdownTimeout time.Duration
 }
 
@@ -97,9 +97,13 @@ func (a *Agent) Run(ctx context.Context) error {
 	// advance while a Go call is still possible.
 	a.supervisor, a.supervisorCtx = g, gctx
 
+	a.log.Info("agent started; watching state source", zap.Int("simulators", len(a.simulators)))
+
 	g.Go(func() error { return a.reconcileLoop(gctx) })
 
 	err := g.Wait()
+
+	a.log.Info("agent stopping; tearing down simulators")
 
 	// Teardown: Revoke then Discard, best-effort with a fresh context because
 	// gctx is already cancelled at this point.
@@ -122,11 +126,13 @@ func (a *Agent) reconcileLoop(ctx context.Context) error {
 				return nil // source closed
 			}
 			if u.Err != nil {
-				a.log.Warn("state source error; keeping cached state", "err", u.Err)
+				a.log.Warn("state source error; keeping cached state", zap.Error(u.Err))
 				continue
 			}
 			if err := a.reconcile(ctx, u.State); err != nil {
-				a.log.Error("reconcile failed", "generation", u.State.Generation, "err", err)
+				a.log.Error("reconcile failed", zap.Int64("generation", u.State.Generation), zap.Error(err))
+			} else {
+				a.log.Debug("reconcile succeeded", zap.Int64("generation", u.State.Generation))
 			}
 		}
 	}
@@ -151,7 +157,7 @@ func (a *Agent) reconcile(ctx context.Context, state *State) error {
 		go func() {
 			defer wg.Done()
 			if err := sim.Stage(ctx, a.host, state); err != nil {
-				a.log.Error("stage failed", "simulator", sim.Name(), "err", err)
+				a.log.Error("stage failed", zap.String("simulator", sim.Name()), zap.Error(err))
 				stageMu.Lock()
 				stageErrs = append(stageErrs, fmt.Errorf("stage %s: %w", sim.Name(), err))
 				stageFailed = append(stageFailed, sim.Name())
@@ -207,16 +213,16 @@ func (a *Agent) supervise(ctx context.Context, state *State) {
 			// Non-fatal: the daemon keeps serving the previous state, which
 			// beats tearing it down.
 			if err := d.Reload(ctx, state); err != nil {
-				a.log.Error("daemon reload failed", "simulator", sim.Name(), "err", err)
+				a.log.Error("daemon reload failed", zap.String("simulator", sim.Name()), zap.Error(err))
 			}
 			continue
 		}
 
 		a.started[sim.Name()] = true
-		a.log.Info("starting simulator daemon", "simulator", sim.Name())
+		a.log.Info("starting simulator daemon", zap.String("simulator", sim.Name()))
 		a.supervisor.Go(func() error {
 			if err := d.Run(a.supervisorCtx); err != nil {
-				a.log.Error("simulator daemon exited", "simulator", sim.Name(), "err", err)
+				a.log.Error("simulator daemon exited", zap.String("simulator", sim.Name()), zap.Error(err))
 			}
 			return nil // daemon errors are non-fatal to the agent
 		})
@@ -234,7 +240,7 @@ func (a *Agent) revoke(ctx context.Context) {
 
 		g.Go(func() error {
 			if err := app.Revoke(ctx, a.host); err != nil {
-				a.log.Error("revoke failed", "applier", applierName(app), "err", err)
+				a.log.Error("revoke failed", zap.String("applier", applierName(app)), zap.Error(err))
 			}
 			return nil
 		})
@@ -249,7 +255,7 @@ func (a *Agent) discard(ctx context.Context) {
 		sim := sim
 		g.Go(func() error {
 			if err := sim.Discard(ctx, a.host); err != nil {
-				a.log.Error("discard failed", "simulator", sim.Name(), "err", err)
+				a.log.Error("discard failed", zap.String("simulator", sim.Name()), zap.Error(err))
 			}
 			return nil
 		})

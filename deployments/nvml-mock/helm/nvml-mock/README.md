@@ -46,7 +46,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 |-----|---------|
 | `gpu` | Profile, device count, per-device overrides |
 | `image` | Repository, tag, pull policy |
-| `nodeSelector`, `tolerations`, `resources` | Standard scheduling and limits |
+| `nodeSelector`, `tolerations` | Standard scheduling; `nodeAgent.resources` sets limits |
 | `nodeLabels` | Labels applied to nodes running the mock |
 | `allocationWatcher` | Tracks device-plugin allocations for utilization simulation |
 | `nri` | Node-wide NRI injection (see MEP-0002) |

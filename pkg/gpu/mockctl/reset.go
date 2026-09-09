@@ -13,13 +13,21 @@
 
 package mockctl
 
-// Resetting one device's overrides as a single operation, for callers that have
-// no command dispatcher to hang it off. nvml-mock-ctl reaches Doc.Reset through
-// its generic load-mutate-validate-write flow; the mock NVML library serves
+// Resetting overrides as a single operation, for callers that have no command
+// dispatcher to hang it off. nvml-mock-ctl reaches Doc.Reset through its generic
+// load-mutate-validate-write flow; the mock NVML library serves
 // `nvidia-smi --gpu-reset` from a CGo callback with no such flow around it, and
-// needs the whole read-modify-write in one call.
+// the node agent clears the file before any of that exists.
+//
+// The two differ in what "reset" means. ResetDevice clears one device's bucket
+// and rewrites the document, so a concurrent injection on another device
+// survives. ResetOverrides removes the document outright, which is only correct
+// at process start, where nothing has been injected yet and a document left
+// corrupt by a killed writer must not be parsed.
 
 import (
+	"fmt"
+	"os"
 	"strconv"
 )
 
@@ -71,4 +79,21 @@ func deviceHasOverrides(path string, index int) (bool, error) {
 	}
 	_, ok := doc.Devices[strconv.Itoa(index)]
 	return ok, nil
+}
+
+// ResetOverrides removes the override document so simulated state falls back to
+// the pristine profile. It takes the same lock as WriteAtomic's callers because
+// the allocation watcher publishes on its own interval and would otherwise
+// re-create the file mid-removal. A missing file is already the desired state.
+func ResetOverrides(path string) error {
+	unlock, err := LockOverride(path)
+	if err != nil {
+		return fmt.Errorf("lock %s: %w", path, err)
+	}
+	defer unlock()
+
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove %s: %w", path, err)
+	}
+	return nil
 }

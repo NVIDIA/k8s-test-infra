@@ -6,29 +6,3 @@ metadata:
   name: {{ include "nvml-mock.fullname" . }}
   labels:
     {{- include "nvml-mock.labels" . | nindent 4 }}
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: {{ include "nvml-mock.fullname" . }}
-  labels:
-    {{- include "nvml-mock.labels" . | nindent 4 }}
-rules:
-  - apiGroups: [""]
-    resources: ["nodes"]
-    verbs: ["get", "patch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: {{ include "nvml-mock.fullname" . }}
-  labels:
-    {{- include "nvml-mock.labels" . | nindent 4 }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: {{ include "nvml-mock.fullname" . }}
-subjects:
-  - kind: ServiceAccount
-    name: {{ include "nvml-mock.fullname" . }}
-    namespace: {{ .Release.Namespace }}

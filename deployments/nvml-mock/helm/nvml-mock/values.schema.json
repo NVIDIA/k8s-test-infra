@@ -128,11 +128,10 @@
     "driverVersion": { "type": "string" },
     "nodeSelector": { "type": "object" },
     "tolerations": { "type": "array" },
-    "resources": { "type": "object" },
     "nodeLabels": {
       "type": "object",
       "additionalProperties": true,
-      "description": "Node labels nvml-mock causes to exist. setup.sh writes nvidia.com/gpu.present directly; NFD derives pci-10de.present from the node agent's feature file.",
+      "description": "NFD derives pci-10de.present from the feature file the node agent writes here. GPU labels under nvidia.com/ belong to NFD and GFD.",
       "properties": {
         "featuresDir": {
           "type": "string",

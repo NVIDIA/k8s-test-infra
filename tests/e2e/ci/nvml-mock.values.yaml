@@ -34,11 +34,10 @@ integrations:
   fakeGpuOperator:
     enabled: true
 
-# Rolls all pods on any DaemonSet change (default 25%) and cuts termination
-# grace from 2s to 1s. The demo's preStop cleanup is only a few rm -rf calls
-# plus label kubectl requests, so a shorter grace period keeps the "helm
-# upgrade for the next profile" cycle fast.
-terminationGracePeriodSeconds: 1
+# Rolls all pods on any DaemonSet change (default 25%) to keep the "helm upgrade
+# for the next profile" cycle fast. The grace period is left at the chart
+# default: it bounds the node agent's Revoke/Discard teardown, and cutting it
+# strands CDI specs the next profile's pods would then trip over.
 updateStrategy:
   rollingUpdate:
     maxUnavailable: "100%"

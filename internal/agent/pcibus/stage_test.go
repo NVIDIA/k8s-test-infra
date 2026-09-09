@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
+	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs"
 )
 
@@ -40,7 +41,7 @@ func TestBuildTopology_FlatDefaultWhenNoRootComplexes(t *testing.T) {
 	require.Len(t, topo.RootComplexes, 1)
 
 	rc := topo.RootComplexes[0]
-	require.Equal(t, defaultRootComplexID, rc.ID)
+	require.Equal(t, agent.DefaultRootComplexID, rc.ID)
 	require.Equal(t, 0, rc.NUMANode)
 	// BDFs are lowercased to match the keys buildIdentities emits; the device
 	// without one is skipped rather than rendered as an empty entry.
@@ -55,6 +56,10 @@ func TestBuildTopology_SingleRC(t *testing.T) {
 					{ID: "pci0000:00", NUMANode: 2, DeviceBDFs: []string{"0000:07:00.0", "0000:07:00.1"}},
 				},
 			},
+		},
+		Devices: []agent.DeviceSpec{
+			{Index: 0, PCIBusID: "0000:07:00.0"},
+			{Index: 1, PCIBusID: "0000:07:00.1"},
 		},
 	}
 
@@ -78,6 +83,11 @@ func TestBuildTopology_MultipleRCs(t *testing.T) {
 				},
 			},
 		},
+		Devices: []agent.DeviceSpec{
+			{Index: 0, PCIBusID: "0000:03:00.0"},
+			{Index: 1, PCIBusID: "0001:05:00.0"},
+			{Index: 2, PCIBusID: "0001:05:00.1"},
+		},
 	}
 
 	topo := buildTopology(state)
@@ -85,6 +95,17 @@ func TestBuildTopology_MultipleRCs(t *testing.T) {
 	require.Len(t, topo.RootComplexes, 2)
 	require.Equal(t, "pci0000:00", topo.RootComplexes[0].ID)
 	require.Equal(t, "pci0001:00", topo.RootComplexes[1].ID)
+}
+
+// A layout no device backs renders nothing, so nothing is served either. The
+// reconciliation itself is covered in internal/agent.
+func TestBuildTopology_NilWhenNoDeviceBacksTheLayout(t *testing.T) {
+	state := &agent.State{NodeShape: agent.NodeShape{Topology: agent.PCIeTopology{
+		RootComplexes: []agent.RootComplex{{ID: "pci0000:00", DeviceBDFs: []string{"0000:07:00.0"}}},
+	}}}
+
+	require.Nil(t, buildTopology(state))
+	require.False(t, state.HasPCITopology())
 }
 
 // ─── buildIdentities ─────────────────────────────────────────────────────────
@@ -184,6 +205,22 @@ func TestStageSysfs_RendersSubsystemAttrs(t *testing.T) {
 	}
 }
 
+// A device its profile's pcie_topology forgot still reaches the tree, and
+// reports -1 — what Linux writes for a device it has no proximity information
+// for — rather than the NUMA node of a root it was never put in.
+func TestStageSysfs_UnplacedDeviceRendersUnknownNUMA(t *testing.T) {
+	h := testHost(t)
+	state := stateWithTopology()
+	state.Devices = append(state.Devices,
+		agent.DeviceSpec{Index: 1, PCIBusID: "0000:8A:00.0", PCIDeviceID: 0x233010DE})
+
+	require.NoError(t, stageSysfs(h, state))
+
+	numa, err := os.ReadFile(filepath.Join(h.Root, "sys/bus/pci/devices/0000:8a:00.0/numa_node"))
+	require.NoError(t, err, "the forgotten device must still be rendered")
+	require.Equal(t, "-1\n", string(numa))
+}
+
 func TestStageSysfs_RendersFlatDefault(t *testing.T) {
 	h := testHost(t)
 	state := &agent.State{
@@ -196,7 +233,111 @@ func TestStageSysfs_RendersFlatDefault(t *testing.T) {
 
 	target, err := os.Readlink(filepath.Join(h.Root, "sys/bus/pci/devices/0000:1a:00.0"))
 	require.NoError(t, err, "device must be rendered under the synthesized root")
-	require.Contains(t, target, defaultRootComplexID)
+	require.Contains(t, target, agent.DefaultRootComplexID)
+}
+
+// ─── stageDMI ────────────────────────────────────────────────────────────────
+
+// writeKernelDMI fakes a kernel that exposes DMI, at the path
+// /sys/class/dmi/id resolves into.
+func writeKernelDMI(t *testing.T, h *host.Host, attrs map[string]string) string {
+	t.Helper()
+	dir := filepath.Join(h.Sys, kernelDMIRelPath)
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	for name, val := range attrs {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(val), 0o444))
+	}
+	return dir
+}
+
+func TestStageDMI_MirrorsProductName(t *testing.T) {
+	h := testHost(t)
+	writeKernelDMI(t, h, map[string]string{"product_name": "NVIDIA DGX A100\n"})
+
+	require.NoError(t, stageDMI(h))
+
+	data, err := os.ReadFile(filepath.Join(h.Root, mockDMIRelPath, "product_name"))
+	require.NoError(t, err, "product_name must be mirrored into the served tree")
+	require.Equal(t, "NVIDIA DGX A100\n", string(data))
+}
+
+// product_uuid identifies the node and kind mounts its own copy over ours, so
+// mirroring the value would republish it into every served container for no gain.
+func TestStageDMI_ProductUUIDIsEmptyStandIn(t *testing.T) {
+	h := testHost(t)
+	writeKernelDMI(t, h, map[string]string{
+		"product_name": "NVIDIA DGX A100\n",
+		"product_uuid": "4c4c4544-0037-5710-8058-b7c04f503432\n",
+	})
+
+	require.NoError(t, stageDMI(h))
+
+	path := filepath.Join(h.Root, mockDMIRelPath, "product_uuid")
+	data, err := os.ReadFile(path)
+	require.NoError(t, err, "product_uuid must exist as a mount target")
+	require.Empty(t, data, "the node's UUID must not travel into served containers")
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o400), info.Mode().Perm(), "mirror the kernel's own permissions")
+}
+
+// A kernel with no DMI (Docker Desktop's linuxkit VM) is also one where kind's
+// hook does not fire, so there is no mount target to keep alive.
+func TestStageDMI_NothingWithoutKernelDMI(t *testing.T) {
+	h := testHost(t)
+
+	require.NoError(t, stageDMI(h))
+
+	_, err := os.Stat(filepath.Join(h.Root, mockDMIRelPath))
+	require.True(t, os.IsNotExist(err), "no DMI directory without a kernel one")
+}
+
+// An attribute the renderer cannot read still has to exist, because it is
+// kind's bind-mount target and mount(8) cannot create one on a read-only sysfs.
+func TestStageDMI_StandsInForUnreadableProductName(t *testing.T) {
+	h := testHost(t)
+	dir := writeKernelDMI(t, h, map[string]string{"product_name": "NVIDIA DGX A100\n"})
+	require.NoError(t, os.Chmod(filepath.Join(dir, "product_name"), 0o000))
+
+	require.NoError(t, stageDMI(h), "an unreadable attribute is not a staging failure")
+
+	data, err := os.ReadFile(filepath.Join(h.Root, mockDMIRelPath, "product_name"))
+	require.NoError(t, err, "product_name must exist even when its value is unreadable")
+	require.Empty(t, data)
+}
+
+// The DMI mirror exists only to keep bind-mount targets alive in containers the
+// tree is served to, and nothing is served when no tree is rendered.
+func TestStageSysfs_NoDMIWithoutTopology(t *testing.T) {
+	h := testHost(t)
+	writeKernelDMI(t, h, map[string]string{"product_name": "NVIDIA DGX A100\n"})
+
+	require.NoError(t, stageSysfs(h, &agent.State{}))
+
+	_, err := os.Stat(filepath.Join(h.Root, "sys"))
+	require.True(t, os.IsNotExist(err), "sys/ must not be created when state has no root complexes")
+}
+
+func TestStageSysfs_StagesDMIAlongsideTheTree(t *testing.T) {
+	h := testHost(t)
+	writeKernelDMI(t, h, map[string]string{"product_name": "NVIDIA DGX A100\n"})
+
+	require.NoError(t, stageSysfs(h, stateWithTopology()))
+
+	require.FileExists(t, filepath.Join(h.Root, mockDMIRelPath, "product_name"))
+}
+
+// A re-render must not take the DMI directory with it: the runtime applies the
+// spec's mounts unconditionally, and a container cannot wait for the next pass.
+func TestStageSysfs_DMISurvivesARerender(t *testing.T) {
+	h := testHost(t)
+	writeKernelDMI(t, h, map[string]string{"product_name": "NVIDIA DGX A100\n"})
+
+	require.NoError(t, stageSysfs(h, stateWithTopology()))
+	require.NoError(t, stageSysfs(h, stateWithTopology()))
+
+	require.FileExists(t, filepath.Join(h.Root, mockDMIRelPath, "product_name"))
 }
 
 // ─── stagePCIShim ────────────────────────────────────────────────────────────

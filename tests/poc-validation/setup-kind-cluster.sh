@@ -105,14 +105,16 @@ docker exec "$NODE_CONTAINER" test -f /var/lib/nvml-mock/driver/config/config.ya
 docker exec "$NODE_CONTAINER" test -e /var/lib/nvml-mock/driver/dev/nvidia0
 echo "Mock files verified on node"
 
-# Step 7: Verify node labels
+# Step 7: Verify the NFD feature file. nvml-mock writes no node labels of its
+# own -- NFD turns this file into feature.node.kubernetes.io/pci-10de.present,
+# and GPU labels under nvidia.com/ come from NFD and GFD as on real hardware.
 echo ""
-echo "=== Step 7: Verifying node labels ==="
-NODE=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
-LABEL=$(kubectl get node "$NODE" -o jsonpath='{.metadata.labels.nvidia\.com/gpu\.present}')
-echo "nvidia.com/gpu.present=$LABEL"
-if [ "$LABEL" != "true" ]; then
-  echo "WARNING: Node label nvidia.com/gpu.present not set"
+echo "=== Step 7: Verifying the NFD feature file ==="
+FEATURES=/etc/kubernetes/node-feature-discovery/features.d/nvml-mock.features
+if docker exec "$NODE_CONTAINER" test -e "$FEATURES"; then
+  docker exec "$NODE_CONTAINER" cat "$FEATURES"
+else
+  echo "WARNING: NFD feature file not written at $FEATURES"
 fi
 
 echo ""

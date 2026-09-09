@@ -5,13 +5,12 @@ package source
 
 import (
 	"context"
-	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
@@ -76,7 +75,7 @@ func TestFileSource_EmitsInitialState(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	fs := NewFileSource(configs[0], filepath.Join(t.TempDir(), "topology.yaml"), slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	fs := NewFileSource(configs[0], filepath.Join(t.TempDir(), "topology.yaml"), zap.NewNop())
 	ch := fs.Watch(ctx)
 
 	u := <-ch
@@ -124,6 +123,29 @@ func TestCompileState_EverySKUCarriesPCIIdentity(t *testing.T) {
 			}
 		})
 	}
+}
+
+// GPU_COUNT truncates the device list while pcie_topology is compiled from the
+// profile whole, so the two disagree on any capped node. The rendered tree is
+// served at the kernel paths now, so a BDF left over from the profile would
+// show a consumer an NVIDIA 3D controller that NVML denies exists.
+func TestCompileState_TopologyTracksACappedDeviceCount(t *testing.T) {
+	t.Setenv("GPU_COUNT", "2")
+	data, err := os.ReadFile(filepath.Join("..", "..", "..", "pkg", "gpu", "mocknvml",
+		"configs", "mock-nvml-config-gb300.yaml"))
+	require.NoError(t, err)
+
+	state, err := compileState(data)
+	require.NoError(t, err)
+	require.Len(t, state.Devices, 2, "GPU_COUNT caps the devices NVML reports")
+	require.Len(t, state.NodeShape.Topology.RootComplexes, 2,
+		"the profile's own layout is compiled whole, both roots and all four BDFs")
+
+	rendered := state.PCITopology()
+
+	require.Len(t, rendered, 1, "the root whose GPUs were capped away is dropped")
+	require.Equal(t, "pci0000:00", rendered[0].ID)
+	require.Equal(t, []string{"0000:0a:00.0", "0000:0b:00.0"}, rendered[0].DeviceBDFs)
 }
 
 func TestCompileState_PerDevicePCIOverride(t *testing.T) {
@@ -312,7 +334,7 @@ func sourceWith(t *testing.T, topology string) (*FileSource, string) {
 		require.NoError(t, os.WriteFile(topologyPath, []byte(topology), 0o600))
 	}
 
-	return NewFileSource(configPath, topologyPath, slog.New(slog.NewTextHandler(io.Discard, nil))), topologyPath
+	return NewFileSource(configPath, topologyPath, zap.NewNop()), topologyPath
 }
 
 // poll is what the ticker calls, so driving it directly exercises the same

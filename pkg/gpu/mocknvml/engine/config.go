@@ -127,8 +127,8 @@ func applyYAMLConfig(config *Config, yamlConfig *YAMLConfig, configPath string) 
 	}
 
 	// system.num_devices overrides the device list count.
-	// setup.sh injects this so the .so knows the desired GPU count
-	// without consumers needing to set env vars.
+	// The node agent stamps it from the runtime GPU count so the .so knows the
+	// desired count without consumers needing to set env vars.
 	if yamlConfig.System.NumDevices > 0 {
 		config.NumDevices = yamlConfig.System.NumDevices
 	}

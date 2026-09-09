@@ -10,6 +10,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/fabricmanager"
+	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs"
 )
 
 func twoGPUState() *agent.State {
@@ -158,6 +159,82 @@ func TestNvidiaSpecFabricManagerDisabled(t *testing.T) {
 	for _, e := range spec.ContainerEdits.Env {
 		require.NotContains(t, e, "MOCK_FABRICMANAGER_STATE_DIR")
 	}
+}
+
+// --- PCI sysfs mounts ---
+
+// pciState carries what a profile with a pcie_topology block compiles to.
+func pciState() *agent.State {
+	state := twoGPUState()
+	state.Devices[0].PCIBusID = "0000:07:00.0"
+	state.Devices[1].PCIBusID = "0000:0f:00.0"
+	return state
+}
+
+func mountByContainerPath(spec cdiSpec, path string) (cdiMount, bool) {
+	for _, m := range spec.ContainerEdits.Mounts {
+		if m.ContainerPath == path {
+			return m, true
+		}
+	}
+	return cdiMount{}, false
+}
+
+// GFD and the DRA driver are Go, so libpcisysfs.so never sees their openat
+// calls: only a real mount at the kernel path reaches them.
+func TestNvidiaSpecServesPCISysfsAtKernelPaths(t *testing.T) {
+	t.Parallel()
+
+	spec := buildNvidiaSpec(pciState())
+
+	devices, ok := mountByContainerPath(spec, "/sys/bus/pci/devices")
+	require.True(t, ok, "/sys/bus/pci/devices must be served")
+	require.Equal(t, overlayHostRoot+"/"+pcisysfs.PCIDevicesRelPath, devices.HostPath)
+	require.Contains(t, devices.Options, "ro")
+
+	sysDevices, ok := mountByContainerPath(spec, "/sys/devices")
+	require.True(t, ok, "/sys/devices must be served")
+	require.Equal(t, overlayHostRoot+"/"+pcisysfs.SysDevicesRelPath, sysDevices.HostPath)
+	require.Contains(t, sysDevices.Options, "ro")
+}
+
+// The two mounts are one feature: the entries are relative symlinks into
+// ../../../devices/pciDDDD:BB, so half the pair reads like no mount at all.
+func TestNvidiaSpecPCISysfsMountsAreEmittedAsAPair(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		state  *agent.State
+		served bool
+	}{
+		"a rendered tree serves both":     {state: pciState(), served: true},
+		"no rendered tree serves neither": {state: twoGPUState(), served: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			spec := buildNvidiaSpec(tc.state)
+
+			_, servesLookup := mountByContainerPath(spec, "/sys/bus/pci/devices")
+			require.Equal(t, tc.served, servesLookup, "the lookup directory of BDF symlinks")
+
+			_, servesHierarchy := mountByContainerPath(spec, "/sys/devices")
+			require.Equal(t, tc.served, servesHierarchy, "the hierarchy those symlinks point into")
+		})
+	}
+}
+
+// A profile whose devices declare no bus_id renders no tree, and a CDI mount
+// whose source does not exist fails container creation for the whole pod.
+func TestNvidiaSpecOmitsPCISysfsWithoutTopology(t *testing.T) {
+	t.Parallel()
+
+	spec := buildNvidiaSpec(twoGPUState())
+
+	_, ok := mountByContainerPath(spec, "/sys/bus/pci/devices")
+	require.False(t, ok, "nothing may be served when no tree is rendered")
+	_, ok = mountByContainerPath(spec, "/sys/devices")
+	require.False(t, ok, "nothing may be served when no tree is rendered")
 }
 
 // --- buildNRISpec ---

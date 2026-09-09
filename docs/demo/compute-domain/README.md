@@ -29,6 +29,10 @@ own 4-worker Kind topology
 
 ## Prerequisites
 
+> **This demo creates its own Kind cluster.** It needs containerd NRI enabled
+> on every node, which cannot be assumed on an existing cluster, so it ignores
+> your current `KUBECONFIG` context and will not touch it.
+
 The demo expects the following tools on `$PATH`:
 
 | Tool      | Tested version | Notes |
@@ -39,6 +43,12 @@ The demo expects the following tools on `$PATH`:
 | `helm`    | v3.13+ (v4 works) | Chart install + `helm upgrade --reuse-values`. |
 | `bash`    | 3.2+           | `run.sh` uses `set -euo pipefail` — no bash 4+ features. |
 | `jq`      | any recent     | Scenario 2 parses `nvidia-imex-ctl -N -j` JSON. |
+
+Install Helm at the version the table above pins, from the official docs:
+<https://helm.sh/docs/intro/install/>
+
+New to Mokka? The [quick start](../../quickstart.md) is the fastest way to see
+simulated GPUs before running this demo.
 
 ## What the script does
 
@@ -65,7 +75,7 @@ The demo expects the following tools on `$PATH`:
 
    The script intentionally does **not** pass `--set gpu.count=...`.
    That flag only sizes the host-side CDI spec produced by
-   `scripts/setup.sh`; the in-pod ConfigMap at
+   the `cdi` simulator; the in-pod ConfigMap at
    `/etc/nvml-mock/config.yaml` — which is what `check-fabric` loads
    — always reflects the chosen profile's full device list (4 GPUs
    for `gb200`, one NVL72 compute tray). For ComputeDomain verification
@@ -277,8 +287,8 @@ parallelise demos), two things need to change in lockstep:
 1. The `nodes:` lists in [`topology.yaml`](./topology.yaml) — each
    Kind worker is named `<cluster-name>-worker[N]`, so renaming the
    cluster renames every entry in the topology.
-2. Cluster name in every `kind` / `kubectl --context` / `kind load`
-   call below.
+2. Cluster name in every `kind` / `kubectl --context` / `kind load` /
+   `helm --kube-context` call below.
 
 The script doesn't expose this as a flag because the demo is
 documentation-by-example; the canonical name keeps the example

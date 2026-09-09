@@ -17,6 +17,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -267,6 +268,63 @@ func TestCLI_StatusFilterByGPU(t *testing.T) {
 	// Non-integer index is a usage error.
 	_, _, code = runCLI(t, configOverride, "status", "--gpu", "all")
 	require.Equalf(t, 2, code, "status --gpu all exit = %d, want 2", code)
+}
+
+// The global flags are declared on the root command and inherited, so they
+// still work on either side of the subcommand the way callers write them.
+func TestCLI_GlobalFlagsWorkOnEitherSideOfTheCommand(t *testing.T) {
+	t.Parallel()
+	for _, args := range [][]string{
+		{"--file", "%s", "temp", "--gpu", "0", "85"},
+		{"temp", "--gpu", "0", "--file", "%s", "85"},
+		{"temp", "--gpu", "0", "85", "--file", "%s"},
+	} {
+		configOverride := filepath.Join(t.TempDir(), "overrides.yaml")
+		full := make([]string, len(args))
+		for i, a := range args {
+			full[i] = strings.Replace(a, "%s", configOverride, 1)
+		}
+		var out, errb bytes.Buffer
+		code := run(full, &out, &errb)
+		require.Equalf(t, 0, code, "args %v exited %d: %s", args, code, errb.String())
+		require.Contains(t, readConfigOverride(t, configOverride), "temperature_gpu_c: 85")
+	}
+}
+
+// An explicitly empty target must not be read as "every device". Only reset
+// applies to everything, and only when --gpu is absent altogether, so a
+// mistyped `--gpu ""` has to fail rather than quietly hit the whole node.
+func TestCLI_EmptyTargetIsRejectedNotBroadcast(t *testing.T) {
+	t.Parallel()
+	configOverride := filepath.Join(t.TempDir(), "overrides.yaml")
+	_, _, code := runCLI(t, configOverride, "temp", "--gpu", "", "85")
+	require.Equal(t, 2, code)
+	require.NoFileExists(t, configOverride, "an empty target must not be applied to any device")
+}
+
+func TestCLI_MissingTargetIsUsageError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	_, _, code := runCLI(t, filepath.Join(dir, "overrides.yaml"), "temp", "85")
+	require.Equal(t, 2, code, "a mutation without --gpu must not be applied")
+}
+
+func TestCLI_UnknownCommandIsUsageError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	_, errStr, code := runCLI(t, filepath.Join(dir, "overrides.yaml"), "bogus")
+	require.Equal(t, 2, code)
+	require.Contains(t, errStr, `unknown command "bogus"`)
+}
+
+func TestCLI_HelpListsEveryCommand(t *testing.T) {
+	t.Parallel()
+	var out, errb bytes.Buffer
+	code := run([]string{"--help"}, &out, &errb)
+	require.Equalf(t, 0, code, "--help exited %d: %s", code, errb.String())
+	for _, want := range []string{"fail", "temp", "sram-ecc", "fabric-health", "status", "reset", "watch-allocations"} {
+		require.Containsf(t, out.String(), want, "help output missing %q", want)
+	}
 }
 
 func TestCLI_ResetGPU(t *testing.T) {

@@ -33,6 +33,12 @@ jobs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       name: Checkout code
 
+    # A .greptile scope glob that matches nothing fails open: the rule stops
+    # applying and nothing reports it. Placed ahead of the Go setup and the
+    # proxy credential because it needs only python3 and git, so it fails fast.
+    - name: Validate the Greptile review config
+      run: make verify-greptile
+
     - name: Install Go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:

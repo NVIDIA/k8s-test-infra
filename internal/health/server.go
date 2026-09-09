@@ -7,13 +7,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"go.uber.org/zap"
 )
 
 // DefaultShutdownTimeout bounds the probe listener's drain.
@@ -65,7 +65,7 @@ func (s *Server) Handler() http.Handler {
 // Run binds addr and serves until ctx is cancelled.
 func (s *Server) Run(ctx context.Context) error {
 	if s.addr == "" {
-		slog.Warn("health probes disabled; no probe address configured")
+		zap.L().Warn("health probes disabled; no probe address configured")
 		return nil
 	}
 
@@ -90,7 +90,7 @@ func (s *Server) Run(ctx context.Context) error {
 		_ = srv.Shutdown(shutdownCtx)
 	}()
 
-	slog.Info("serving health probes", "addr", listener.Addr().String())
+	zap.L().Info("serving health probes", zap.String("addr", listener.Addr().String()))
 	if err := srv.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("health server: %w", err)
 	}

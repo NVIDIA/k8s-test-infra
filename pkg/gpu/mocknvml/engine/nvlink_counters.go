@@ -32,8 +32,8 @@ var processStart = time.Now()
 // resolveCounterEpoch picks the process-independent anchor for the
 // deterministic NVLink counter accrual:
 //
-//  1. MOCK_NVML_EPOCH (unix seconds), written by setup.sh at container
-//     start — gives pod-deterministic, monotonically growing counters.
+//  1. MOCK_NVML_EPOCH (unix seconds), set on the container when
+//     pod-deterministic, monotonically growing counters are wanted.
 //  2. /proc/stat btime (system boot time) — stable across all nvidia-smi
 //     runs on the node.
 //  3. process start time — last resort so unit tests still work off-Linux.

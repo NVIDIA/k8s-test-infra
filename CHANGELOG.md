@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- nvml-mock: the DaemonSet no longer runs the `nvml-mock` container; the node
+  agent is the only simulation container.
+- nvml-mock: the chart no longer labels nodes `nvidia.com/gpu.present=true`, and
+  no longer requests any cluster RBAC. GPU labels under `nvidia.com/` come from
+  NFD, GFD, GPU Operator when deployed, as on real hardware. Workloads that selected on the
+  label must select on their cluster's GPU node-pool label instead.
+- nvml-mock: the top-level `resources` value is gone; use `nodeAgent.resources`.
+- nvml-mock: `kubectl` is no longer installed in the image. Its only callers
+  were the deleted setup/cleanup scripts, and the pod now has neither a
+  ServiceAccount token nor cluster RBAC to use it with.
+
+### Changed
+- nvml-mock: `terminationGracePeriodSeconds` defaults to `10` and
+  `nodeAgent.shutdownTimeout` to `5s`, so the agent's teardown finishes before
+  SIGKILL instead of being cut short.
+
 ### Fixed
 - mocknvml: `nvidia-smi --gpu-reset` (`-r`) now resets a GPU instead of
   segfaulting. The mock's export-table dispatcher ended every per-device call by
@@ -199,6 +216,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   public NVML APIs.
 
 ### Changed
+- `nvml-mock-ctl` parses its command line with `urfave/cli` v3, the library the
+  node agent and NRI plugin already use, instead of one hand-rolled
+  `flag.FlagSet` shared by every subcommand. Each command now declares only its
+  own flags and positional arguments, so `nvml-mock-ctl <command> --help`
+  documents that command rather than offering `--mode`, `--links` and `--type`
+  on all of them, and `--help` is generated from the commands themselves rather
+  than a usage string maintained by hand beside them. Command names, aliases,
+  positional arguments, the `--file`/`--config` global flags and their
+  environment fallbacks, the exit codes (2 for a bad invocation or an invalid
+  value, 1 for an override file that could not be locked, read or written) and
+  every stderr message are unchanged. Two invocations that used to work no
+  longer do: `--gpu` was global, so it could precede the command
+  (`nvml-mock-ctl --gpu 0 temp 85`), and it now has to follow it
+  (`nvml-mock-ctl temp --gpu 0 85`) — the form every doc, script and e2e caller
+  already uses; and `status --gpu ""` is now a usage error rather than a report
+  of every override, so a script whose index variable came out empty is told
+  instead of being handed the whole node's state as if it had asked for it.
 - Dependencies no longer ship in `vendor/`. Go resolves them through a module
   proxy — NVIDIA's DGXC Artifactory in CI and for the published `nvml-mock`
   image, the public proxy locally — so builds and `make gen` need network access
@@ -349,6 +383,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   roll sequence continue across a re-init within one process rather than
   starting over. Handles issued before the shutdown remain invalid, and their
   addresses are never reused for new handles.
+- node-agent: the rendered PCI sysfs tree now reaches Go consumers. Only the
+  `libpcisysfs.so` `LD_PRELOAD` shim redirected the kernel paths to it, and Go
+  bypasses the shim — `os.Open` issues `openat` directly — so GPU Feature
+  Discovery read the node's real `/sys`, found none of the mock GPUs, and
+  labelled the node `nvidia.com/gpu.mode=unknown`; the NVIDIA DRA driver omitted
+  `dra.k8s.io/pcieRoot` for the same reason. The agent's `nvidia.com/gpu` CDI
+  spec now bind-mounts `sys/devices` and `sys/bus/pci/devices` read-only over
+  the kernel paths, as a pair, since the PCI entries are relative symlinks into
+  `../../../devices/pciDDDD:BB`. Tearing the tree down empties those two
+  directories in place rather than removing them, so a container already holding
+  the mount is not left on a replaced inode reading an empty tree.
+  `/sys/devices` is served whole, so a served
+  container no longer sees the host's other device classes, CPU topology among
+  them; #689 tracks narrowing it. The node's DMI attributes are reproduced
+  inside the tree, without which kind's product-file bind-mounts lose their
+  target and every served pod fails to start. (#673)
+- node-agent: the rendered tree now follows the devices NVML reports rather than
+  `pcie_topology` as the profile writes it. `gpu.count` caps the device list
+  without touching the layout, so a capped node rendered PCI entries that read
+  as GPUs — NVIDIA vendor ID, GPU device class — with no NVML device behind
+  them. Declared BDFs no device claims are dropped along with any root left
+  empty. A device no root claims is still rendered, since one missing from the
+  tree is one no consumer can resolve, but under a root its own address implies
+  and reporting `numa_node` `-1` — the kernel's own "no proximity information" —
+  rather than borrowing the locality of a root the profile never put it in. A
+  `bus_id` that is not an address in the kernel's `DDDD:BB:DD.F` form is dropped
+  rather than placed: it named the default root, which every shipped profile
+  declares, so the device inherited that root's NUMA node — and since a `bus_id`
+  becomes a directory name, one carrying `/` or `..` rendered outside the tree.
+  A profile declaring no `bus_id` now empties the tree instead of leaving the
+  previous profile's GPUs served. (#673)
+- node-agent: `nvidia.com/gpu.machine` no longer reads `unknown`. GFD's default
+  source for it, `/sys/class/dmi/id/product_name`, is a path no mock can own
+  under kind — the node image writes `kind` there and re-binds it into every
+  container — and hosts without DMI have no such path at all. The agent now
+  writes the machine type to `driver/config/machine-type`, and the NRI plugin
+  points `GFD_MACHINE_TYPE_FILE` at it, so an install needs no GPU Operator
+  override. Deployments using the CDI path still need one, because the toolkit
+  resolving `nvidia.com/gpu` applies the spec's mounts and drops its env (#747).
+  The value is the GPU product name for want of a platform name in the
+  profiles, so the label reads
+  `NVIDIA-GB300-NVL`, matching `gpu.product`, rather than the
+  `NVIDIA-GB300-NVL72` a real compute tray reports. (#681)
 - mocknvml: `nvmlPciInfo_t.busId` now reports the 8-digit PCI domain real NVML
   uses (`00000000:07:00.0`, `NVML_DEVICE_PCI_BUS_ID_FMT`) while `busIdLegacy`
   keeps the 4-digit one (`0000:07:00.0`). Both were filled with the profile's

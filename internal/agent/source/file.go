@@ -8,12 +8,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"log/slog"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"go.uber.org/zap"
 	"sigs.k8s.io/yaml"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
@@ -40,11 +40,11 @@ type FileSource struct {
 	configPath   string
 	topologyPath string
 	pollInterval time.Duration
-	log          *slog.Logger
+	log          *zap.Logger
 }
 
 // NewFileSource returns a FileSource that watches configPath and topologyPath.
-func NewFileSource(configPath, topologyPath string, log *slog.Logger) *FileSource {
+func NewFileSource(configPath, topologyPath string, log *zap.Logger) *FileSource {
 	return &FileSource{
 		configPath:   configPath,
 		topologyPath: topologyPath,
@@ -89,7 +89,7 @@ func (f *FileSource) poll(ctx context.Context, ch chan<- agent.Update, lastHash 
 		return
 	}
 
-	topology, err := readTopology(f.topologyPath)
+	topology, err := readTopology(f.topologyPath, f.log)
 	if err != nil {
 		f.send(ctx, ch, agent.Update{Err: err, At: time.Now()})
 		return
@@ -97,6 +97,7 @@ func (f *FileSource) poll(ctx context.Context, ch chan<- agent.Update, lastHash 
 
 	h := inputsHash(data, topology)
 	if h == *lastHash {
+		f.log.Debug("config and topology unchanged; skipping reconcile")
 		return // content unchanged
 	}
 	*lastHash = h
@@ -108,7 +109,7 @@ func (f *FileSource) poll(ctx context.Context, ch chan<- agent.Update, lastHash 
 	}
 	state.ConfigRaw = data
 	state.TopologyRaw = topology
-	f.log.Info("state updated from config", "config", f.configPath)
+	f.log.Info("state updated from config", zap.String("config", f.configPath))
 	f.send(ctx, ch, agent.Update{State: state, At: time.Now()})
 }
 
@@ -122,13 +123,15 @@ func (f *FileSource) send(ctx context.Context, ch chan<- agent.Update, u agent.U
 // readTopology returns the cluster topology document, or nil where the node has
 // none — an unset path or an unmounted ConfigMap. Other read failures surface as
 // errors, because a nil document retracts the one already staged on this node.
-func readTopology(path string) ([]byte, error) {
+func readTopology(path string, log *zap.Logger) ([]byte, error) {
 	if path == "" {
+		log.Debug("no topology path configured; ComputeDomain topology disabled")
 		return nil, nil
 	}
 
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
+		log.Debug("topology file not yet mounted", zap.String("path", path))
 		return nil, nil
 	}
 	if err != nil {
@@ -247,8 +250,15 @@ func resolveDeviceCount(cfg engine.YAMLConfig) int {
 	if cfg.System.NumDevices > 0 {
 		n = cfg.System.NumDevices
 	}
-	if v, err := strconv.Atoi(os.Getenv("GPU_COUNT")); err == nil && v > 0 && v < n {
-		n = v
+	if v, err := strconv.Atoi(os.Getenv("GPU_COUNT")); err == nil && v > 0 {
+		if v > n {
+			// Silently capping would leave an operator who asked for more GPUs
+			// than the profile declares wondering why nvidia-smi disagrees.
+			zap.L().Warn("GPU_COUNT exceeds the profile device count; capping",
+				zap.Int("requested", v), zap.Int("profile_devices", n))
+		} else {
+			n = v
+		}
 	}
 	return n
 }

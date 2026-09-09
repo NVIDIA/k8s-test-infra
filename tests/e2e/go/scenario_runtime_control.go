@@ -164,14 +164,6 @@ func smiGPUPowerDrawW(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx 
 	return int(w)
 }
 
-// absInt returns the absolute value of an int.
-func absInt(n int) int {
-	if n < 0 {
-		return -n
-	}
-	return n
-}
-
 // gpuFailed reports whether one GPU renders an NVML error body in place of its
 // readings. N/A is not a failure, so a passively-cooled GPU reporting fan_speed
 // N/A stays healthy.
@@ -468,9 +460,9 @@ func assertGpuResetViaNvidiaSmi(ctx SpecContext, h *harness.Harness, consumer ku
 // assertRuntimePowerCommand covers the `power` convenience command: pin a GPU's
 // power draw (in watts, the unit nvidia-smi displays) and read it back through
 // power.draw. The command writes both the static and zero-variation dynamic
-// power blocks, so the reading is deterministic. The target watts is chosen
-// inside the profile's [min_limit, max_limit] envelope (queried at runtime so
-// the test is profile-agnostic) and far from the dynamic baseline.
+// power blocks, so the reading is deterministic. Both watt marks sit inside the
+// profile's [min_limit, max_limit] envelope (queried at runtime so the test is
+// profile-agnostic), where the engine will not clamp them.
 func assertRuntimePowerCommand(ctx SpecContext, h *harness.Harness, consumer kube.PodRef) {
 	GinkgoHelper()
 	resetRuntimeOverrides(ctx, h)
@@ -484,19 +476,17 @@ func assertRuntimePowerCommand(ctx SpecContext, h *harness.Harness, consumer kub
 	Expect(minOK && maxOK).To(BeTrue(), "profile must report a numeric power envelope")
 	minW, maxW := int(minF), int(maxF)
 	Expect(maxW).To(BeNumerically(">", minW), "profile must advertise a usable power envelope")
-	baseline := smiGPUPowerDrawW(ctx, h, consumer, target)
+	// Pin every GPU to restW before the target, so the scoping check below
+	// compares two fixed values. An unpinned GPU's power sweeps the whole
+	// envelope and passes through overrideW on its own, which made that check a
+	// race against the simulator rather than a test of the override.
+	restW := minW + (maxW-minW)/4
+	overrideW := minW + (maxW-minW)*3/4
+	Expect(overrideW).NotTo(Equal(restW),
+		"profile power envelope [%dW, %dW] is too narrow to separate the pinned GPU from the rest", minW, maxW)
 
-	// Pick whichever of the 25%/75% marks sits farther from the (varying)
-	// baseline, so the override is unambiguously observable and stays inside
-	// [min_limit, max_limit] where the engine won't clamp it.
-	lo := minW + (maxW-minW)/4
-	hi := minW + (maxW-minW)*3/4
-	overrideW := lo
-	if absInt(hi-baseline) > absInt(lo-baseline) {
-		overrideW = hi
-	}
-
-	By(fmt.Sprintf("pin power draw to %dW on GPU %d via nvml-mock-ctl power", overrideW, target))
+	By(fmt.Sprintf("pin every GPU to %dW, then GPU %d to %dW via nvml-mock-ctl power", restW, target, overrideW))
+	nvmlMockCtl(ctx, h, "power", "--gpu", "all", strconv.Itoa(restW))
 	nvmlMockCtl(ctx, h, "power", "--gpu", strconv.Itoa(target), strconv.Itoa(overrideW))
 
 	Eventually(func() int {
@@ -505,9 +495,9 @@ func assertRuntimePowerCommand(ctx SpecContext, h *harness.Harness, consumer kub
 		Should(Equal(overrideW), "GPU %d power draw should reflect the power command", target)
 
 	if count > 1 {
-		By("verify the override is scoped to the target GPU (GPU 0 unchanged)")
+		By("verify the override is scoped to the target GPU (GPU 0 keeps the all-pin)")
 		Expect(smiGPUPowerDrawW(ctx, h, consumer, 0)).
-			NotTo(Equal(overrideW), "GPU 0 must keep its baseline (simulator-driven) power draw")
+			To(Equal(restW), "GPU 0 must keep the `--gpu all` value the per-index pin overrode")
 	}
 
 	By("reset runtime overrides")

@@ -109,8 +109,8 @@ func TestProcDevicesPreservesExistingEntries(t *testing.T) {
 	}
 }
 
-// setup.sh may re-run on DaemonSet restart, so rendering twice must not produce
-// a duplicate entry, which would make the parser's ".*?" match ambiguous.
+// Stage re-runs on every state update, so rendering twice must not produce a
+// duplicate entry, which would make the parser's ".*?" match ambiguous.
 func TestProcDevicesIsIdempotent(t *testing.T) {
 	t.Parallel()
 

@@ -19,6 +19,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/config"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/helm"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/runner"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/profile"
 )
@@ -69,6 +70,33 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func(
 					assertions.ExpectedGFDLabels(p.GFDProductName(), p.MemoryMiB(), p.ExpectedGPUs()),
 					config.ReadyTimeout(), config.PollInterval())
 				assertions.WaitAllocatableGPU(ctx, h.Kube, node, p.ExpectedGPUs(), config.ReadyTimeout(), config.PollInterval())
+			})
+
+			It("serves the mock PCI tree to a Go consumer at the kernel paths", Label("pcisysfs"), func(ctx SpecContext) {
+				// GFD is the consumer the bug was found in, and it is Go: it
+				// resolves each GPU's BDF from NVML and then reads that device's
+				// class from sysfs. Reading the tree from inside its own
+				// container is what pins delivery, independently of the label
+				// below, which the operator could publish for other reasons.
+				assertions.PCISysfsAtKernelPaths(ctx, h.Kube,
+					gfdPodRef(ctx, h, node), p.ExpectedGPUs())
+			})
+
+			It("labels gpu.mode from the served PCI class", Label("device-plugin"), func(ctx SpecContext) {
+				// Separate from the GFD labels above: those come from NVML and
+				// fail together, this one reads "unknown" precisely when the
+				// tree does not reach GFD (#673).
+				assertions.WaitGFDLabels(ctx, h.Kube, node,
+					map[string]string{assertions.GFDLabelMode: assertions.GFDModeCompute},
+					config.ReadyTimeout(), config.PollInterval())
+			})
+
+			It("labels gpu.machine from the served machine-type file", Label("device-plugin"), func(ctx SpecContext) {
+				// The same string as gpu.product, for want of a platform field
+				// in the profiles: both are the GPU's product name.
+				assertions.WaitGFDLabels(ctx, h.Kube, node,
+					map[string]string{assertions.GFDLabelMachine: p.GFDProductName()},
+					config.ReadyTimeout(), config.PollInterval())
 			})
 
 			It("exports DCGM device metrics that vary over time", Label("dcgm"), func(ctx SpecContext) {
@@ -131,10 +159,14 @@ func assertRuntimeTempViaDCGM(ctx SpecContext, h *harness.Harness, wantC int) {
 // assertRuntimePowerViaDCGM pins a single GPU's power draw at runtime via
 // nvml-mock-ctl — no Helm upgrade, no pod restart — and asserts the already-
 // running dcgm-exporter reports the pinned DCGM_FI_DEV_POWER_USAGE (watts) for
-// that GPU only. The target watts is chosen inside the profile's advertised
-// [min_limit, max_limit] envelope (read from nvidia-smi -q -x so the test is
-// profile-agnostic) and far from the dynamic baseline, so the engine never
-// clamps it and the change is unambiguous.
+// that GPU only. Both watt marks sit inside the profile's [min_limit, max_limit]
+// envelope (read from nvidia-smi -q -x so the test is profile-agnostic), where
+// the engine will not clamp them.
+//
+// Every GPU is pinned to restW before the target is pinned to wantW. An
+// unpinned GPU's power sweeps the whole envelope, so it passes through any
+// value the scoping check could pick and the assertion would be a race against
+// the simulator rather than a test of the override.
 func assertRuntimePowerViaDCGM(ctx SpecContext, h *harness.Harness) {
 	GinkgoHelper()
 	const targetGPU = 0
@@ -147,16 +179,16 @@ func assertRuntimePowerViaDCGM(ctx SpecContext, h *harness.Harness) {
 	Expect(minOK && maxOK).To(BeTrue(), "profile must report a numeric power envelope")
 	minW, maxW := int(minF), int(maxF)
 	Expect(maxW).To(BeNumerically(">", minW), "profile must advertise a usable power envelope")
-	baseline := smiGPUPowerDrawW(ctx, h, pod, targetGPU)
 
-	lo := minW + (maxW-minW)/4
-	hi := minW + (maxW-minW)*3/4
-	wantW := lo
-	if absInt(hi-baseline) > absInt(lo-baseline) {
-		wantW = hi
-	}
+	restW := minW + (maxW-minW)/4
+	wantW := minW + (maxW-minW)*3/4
+	// The scoping check allows 1W for float formatting, so the two marks have to
+	// land further apart than that to mean anything.
+	Expect(wantW-restW).To(BeNumerically(">", 1),
+		"profile power envelope [%dW, %dW] is too narrow to separate the pinned GPU from the rest", minW, maxW)
 
-	By(fmt.Sprintf("pin power draw to %dW on GPU %d at runtime via nvml-mock-ctl on %s (no restart)", wantW, targetGPU, node))
+	By(fmt.Sprintf("pin every GPU to %dW, then GPU %d to %dW at runtime via nvml-mock-ctl on %s (no restart)", restW, targetGPU, wantW, node))
+	nvmlMockCtlOnNode(ctx, h, node, "power", "--gpu", "all", strconv.Itoa(restW))
 	nvmlMockCtlOnNode(ctx, h, node, "power", "--gpu", strconv.Itoa(targetGPU), strconv.Itoa(wantW))
 	DeferCleanup(func(ctx SpecContext) { nvmlMockCtlOnNode(ctx, h, node, "reset", "--gpu", "all") })
 
@@ -244,6 +276,27 @@ func verifyGPUOperatorNodeSetup(ctx context.Context, container string) {
 	GinkgoHelper()
 	Expect(dockerExec(ctx, container, "test", "-f", "/var/run/cdi/nvidia.yaml")).To(Succeed(), "CDI spec exists")
 	Expect(dockerExec(ctx, container, "bash", "-c", "LD_LIBRARY_PATH=/run/nvidia/driver/usr/lib64 /run/nvidia/driver/usr/bin/nvidia-smi")).To(Succeed(), "nvidia-smi works via /run/nvidia/driver")
+}
+
+// gfdPodRef resolves the GPU Feature Discovery pod on node, polling for the
+// same reason waitOperatorValidatorRunning does: the operator replaces its
+// operands a reconcile after nvml-mock rolls, so resolving the pod once can land
+// in the gap where none is ready.
+func gfdPodRef(ctx SpecContext, h *harness.Harness, node string) kube.PodRef {
+	GinkgoHelper()
+	var pod string
+	Eventually(func() (string, error) {
+		p, err := h.Kube.RunningPodOnNode(ctx, gpuOperatorNamespace, "app=gpu-feature-discovery", node)
+		pod = p
+		return p, err
+	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
+		ShouldNot(BeEmpty(), "no running gpu-feature-discovery pod on node %s", node)
+
+	return kube.PodRef{
+		Namespace: gpuOperatorNamespace,
+		Pod:       pod,
+		Container: "gpu-feature-discovery",
+	}
 }
 
 func waitOperatorValidatorRunning(ctx SpecContext, h *harness.Harness) {

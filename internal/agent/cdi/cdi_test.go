@@ -33,8 +33,9 @@ func TestApplyWritesSpecs(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, s.Stage(ctx, h, state))
-	require.True(t, s.Ready())
+	require.False(t, s.Ready(), "Stage does not publish CDI specs")
 	require.NoError(t, s.Apply(ctx, h, state))
+	require.True(t, s.Ready())
 
 	require.FileExists(t, filepath.Join(h.Run, nvidiaSpecFile))
 	require.FileExists(t, filepath.Join(h.Run, nriSpecFile))

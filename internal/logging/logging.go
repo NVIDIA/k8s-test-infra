@@ -6,9 +6,11 @@ package logging
 
 import (
 	"fmt"
-	"log/slog"
 	"os"
 	"strings"
+
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 // Level is the log verbosity.
@@ -65,33 +67,37 @@ type Config struct {
 	Format Format
 }
 
-// NewLogger returns a slog.Logger writing to stdout.
-func NewLogger(cfg Config) *slog.Logger {
-	var lvl slog.Level
+// NewLogger returns a zap.Logger writing to stdout and installs it as the
+// process-wide global logger (zap.L() / zap.S()).
+func NewLogger(cfg Config) *zap.Logger {
+	var lvl zapcore.Level
 
 	switch cfg.Level {
 	case LevelDebug:
-		lvl = slog.LevelDebug
+		lvl = zapcore.DebugLevel
 	case LevelWarn:
-		lvl = slog.LevelWarn
+		lvl = zapcore.WarnLevel
 	case LevelError:
-		lvl = slog.LevelError
+		lvl = zapcore.ErrorLevel
 	default:
-		lvl = slog.LevelInfo
+		lvl = zapcore.InfoLevel
 	}
 
-	opts := &slog.HandlerOptions{Level: lvl}
-	var h slog.Handler
+	encCfg := zap.NewProductionEncoderConfig()
+	encCfg.TimeKey = "time"
+	encCfg.EncodeTime = zapcore.ISO8601TimeEncoder
 
+	var enc zapcore.Encoder
 	if cfg.Format == FormatPlain {
-		h = slog.NewTextHandler(os.Stdout, opts)
+		enc = zapcore.NewConsoleEncoder(encCfg)
 	} else {
-		h = slog.NewJSONHandler(os.Stdout, opts)
+		enc = zapcore.NewJSONEncoder(encCfg)
 	}
 
-	l := slog.New(h)
+	core := zapcore.NewCore(enc, zapcore.Lock(os.Stdout), lvl)
+	l := zap.New(core)
 
-	slog.SetDefault(l)
+	zap.ReplaceGlobals(l)
 
 	return l
 }

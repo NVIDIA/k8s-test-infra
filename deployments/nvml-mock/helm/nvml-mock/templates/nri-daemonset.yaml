@@ -105,7 +105,7 @@ spec:
             # spec; an unresolvable CDI device fails container creation, so the
             # check is what keeps cdi mode degrading to raw instead of blocking
             # the pod.
-            - name: cdi-spec-dir
+            - name: cdi-specs
               mountPath: {{ .Values.nri.cdiSpecDir }}
               readOnly: true
       volumes:
@@ -117,7 +117,7 @@ spec:
           hostPath:
             path: {{ .Values.nri.overlay.hostPath }}
             type: DirectoryOrCreate
-        - name: cdi-spec-dir
+        - name: cdi-specs
           hostPath:
             path: {{ .Values.nri.cdiSpecDir }}
             type: DirectoryOrCreate

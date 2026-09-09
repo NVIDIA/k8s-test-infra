@@ -22,6 +22,13 @@ func setEnvironment(cfg Config, container Container, adjustment *Adjustment) {
 	env.setDefault("MOCK_IB_ROOT", filepath.Join(cfg.ContainerOverlayPath, "ib"))
 	env.setDefault("MOCK_IB_PING_SOCKET", filepath.Join(cfg.ContainerOverlayPath, "run/mock-ib.sock"))
 	env.setDefault("MOCK_PCI_ROOT", cfg.ContainerOverlayPath)
+	// GFD derives nvidia.com/gpu.machine from this file. Its own default,
+	// /sys/class/dmi/id/product_name, is a path no mock can own: kind's node
+	// image writes "kind" there and re-binds it into every container, and hosts
+	// without DMI have no such path. Injecting it here means a mokka install
+	// labels the node correctly with no GPU Operator values override (#681).
+	env.setDefault("GFD_MACHINE_TYPE_FILE",
+		filepath.Join(cfg.ContainerOverlayPath, configRelPath, "machine-type"))
 
 	// ComputeDomain topology overlay: point the mock NVML engine at the staged
 	// topology document and tell it which node this container runs on, so every

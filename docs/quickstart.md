@@ -4,7 +4,17 @@ Get Mock NVML running in 5 minutes.
 
 ## Kubernetes (Recommended)
 
-Requires Docker, `kind`, `kubectl`, and Helm 3.8+ (for OCI registry support).
+This path creates a throwaway cluster with Kind. If you already have a
+cluster, skip the `kind create cluster` line and the rest works against your
+current `KUBECONFIG` context.
+
+Requires:
+
+- **Helm 3.8 or newer** (the chart is served from an OCI registry):
+  <https://helm.sh/docs/intro/install/>
+- `kubectl`
+- Docker and [Kind](https://kind.sigs.k8s.io/), only for the throwaway
+  cluster below
 
 ```bash
 kind create cluster --name mokka

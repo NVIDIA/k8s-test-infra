@@ -13,9 +13,10 @@
 # limitations under the License.
 name: "basic checks"
 
+# Read-only default for all jobs. Only the code-scanning job elevates, so a
+# newly added job cannot silently inherit a write token.
 permissions:
   contents: read
-  security-events: write
   actions: read
   packages: read
   # Passed down to golang.yaml, which mints a short-lived Artifactory token.
@@ -53,6 +54,17 @@ jobs:
   code-scanning:
     needs:
     - variables
+    # CodeQL uploads SARIF results. A job-level block replaces the workflow
+    # defaults rather than merging with them, so every grant the call tree
+    # needs is repeated here — including the id-token the analyze job mints
+    # its Artifactory token with. A call tree asking for more than its caller
+    # holds fails the whole run before any job starts.
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+      security-events: write
+      id-token: write
     uses: ./.github/workflows/code_scanning.yaml
     with:
       golang_version: ${{ needs.variables.outputs.golang_version }}

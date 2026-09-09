@@ -12,11 +12,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Release builds resolve dependencies through NVIDIA's Artifactory rather than
+# the public proxy. The credential is a short-lived bearer token, so it arrives
+# as a BuildKit secret: a --build-arg would be recorded in image history, and
+# the GOAUTH helper the runner writes does not cross into a build stage on its
+# own. GOPROXY carries no credential, so it is an ordinary build arg.
+#
+# Both default to the public path, so `docker build` with no arguments still
+# works. The publish workflow overrides GOPROXY and mounts the secret.
 ARG GOLANG_VERSION=1.26.6
 FROM golang:${GOLANG_VERSION}-bookworm AS builder
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY} \
+    GOSUMDB=sum.golang.org \
+    GONOPROXY=none \
+    GOTOOLCHAIN=local
 WORKDIR /src
 COPY go.mod go.sum ./
-COPY vendor/ vendor/
+# The mount lasts only for this RUN; the later build steps read the module cache
+# it populates and need no credential.
+RUN --mount=type=secret,id=goauth,mode=0500 \
+    if [ -f /run/secrets/goauth ]; then export GOAUTH=/run/secrets/goauth; fi; \
+    go mod download
 COPY pkg/ pkg/
 COPY cmd/ cmd/
 COPY internal/ internal/
@@ -30,7 +47,6 @@ RUN cd shims/libpcisysfs && make clean && make
 RUN make build
 
 FROM debian:bookworm-slim
-ARG KUBECTL_VERSION=v1.36.1
 ARG TARGETARCH
 COPY --from=builder /src/pkg/gpu/mocknvml/libnvidia-ml.so.* /usr/local/lib/
 COPY --from=builder /src/shims/libcuda/libcuda.so.* /usr/local/lib/
@@ -42,9 +58,7 @@ COPY --from=builder /src/dist/nri-plugin /usr/local/bin/nri-plugin
 COPY --from=builder /src/dist/nvml-mock-ctl /usr/local/bin/nvml-mock-ctl
 COPY --from=builder /src/dist/check-fabric     /usr/local/bin/check-fabric
 COPY --from=builder /src/dist/node-agent /usr/local/bin/node-agent
-# Build-time only, so it lives outside scripts/ — that directory is copied
-# wholesale into the runtime image below, and this script cannot run there once
-# patchelf is purged.
+# Build-time only: it needs ldd and patchelf, both purged from the final image.
 COPY deployments/nvml-mock/build/bundle-ib-tools.sh /usr/local/bin/bundle-ib-tools.sh
 RUN set -eux; \
     apt-get update; \
@@ -57,13 +71,6 @@ RUN set -eux; \
     # but keep an explicit mkdir as a belt-and-braces guarantee so the
     # warning never appears even if the providers package is purged. \
     mkdir -p /etc/libibverbs.d; \
-    curl -fsSLo /usr/local/bin/kubectl \
-      "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl"; \
-    curl -fsSLo /tmp/kubectl.sha256 \
-      "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl.sha256"; \
-    echo "$(cat /tmp/kubectl.sha256)  /usr/local/bin/kubectl" | sha256sum --check; \
-    chmod +x /usr/local/bin/kubectl; \
-    rm /tmp/kubectl.sha256; \
     # Extract just the nvidia-smi binary from nvidia-utils (Ubuntu 22.04 repo:
     # glibc 2.35, runs on bookworm). The 580 branch renders the full GB200/GB300
     # NVLink5 surface (`nvlink -e/-info/-gLowPwrInfo/-gLWidth`); older binaries
@@ -99,4 +106,3 @@ RUN set -eux; \
     rm -rf /tmp/nvidia-utils /tmp/nvidia-utils-580*.deb \
            /usr/share/keyrings/nvidia.gpg /etc/apt/sources.list.d/nvidia.list; \
     apt-get purge -y --auto-remove curl ca-certificates gnupg2 patchelf
-COPY --chmod=755 deployments/nvml-mock/scripts/ /scripts/

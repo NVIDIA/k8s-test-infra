@@ -256,8 +256,8 @@ GPU. Today this test cannot be written; both pods see both GPUs.
   path and the visible set is unfiltered, which is the same result.
 - **Capacity is advertised on the control-plane in single-cluster kind.** The
   chart has no default `nodeSelector`, so `nvml-mock` runs on the control-plane,
-  labels it `nvidia.com/gpu.present=true`, and the device plugin follows. The
-  `node-role.kubernetes.io/control-plane:NoSchedule` taint still keeps
+  and the device plugin follows it there when that node is in the simulated-GPU
+  pool. The `node-role.kubernetes.io/control-plane:NoSchedule` taint still keeps
   workloads off, and the measured `FailedScheduling` message reports
   `1 node(s) had untolerated taint(s), 2 Insufficient nvidia.com/gpu`. This is
   pre-existing and out of scope, but the e2e assertions must count capacity on

@@ -102,7 +102,7 @@ linters:
           - revive
         text: 'should not use dot imports'
 
-      # mocknvml deliberately mirrors NVML C API names (GetBoardId,
+      # The mocknvml package deliberately mirrors NVML C API names (GetBoardId,
       # DeviceGetHandleByPciBusId, GetMemoryInfo_v2, TemperatureGPU_C, ...) so
       # ConfigurableDevice satisfies go-nvml's Device interface and the YAML
       # profiles read like their real NVML counterparts. Renaming these to Go

@@ -79,6 +79,59 @@ func PCISysfs(ctx context.Context, k *kube.Client, pod kube.PodRef, gpuCount, ex
 		"distinct PCI root complexes\n%s", roots.Combined())
 }
 
+// KernelPCIDevicesDir is where the kernel keeps the flat PCI lookup directory,
+// and so where a consumer that reads sysfs directly looks. Unlike PCIDevicesDir
+// this path owes nothing to the mock's layout: it is what has to be true inside
+// a container for a Go consumer to see the mock GPUs at all.
+const KernelPCIDevicesDir = "/sys/bus/pci/devices"
+
+// PCISysfsAtKernelPaths asserts, from inside a container the mock serves, that
+// the rendered tree is readable at the kernel paths.
+//
+// The overlay path the standalone scenario checks proves the renderer ran; it
+// says nothing about whether anything reaches a consumer. libpcisysfs.so covers
+// libc consumers such as lspci, but Go's os package issues openat directly, so
+// the shim never sees the open and the process reads the node's real /sys —
+// which is how GPU Feature Discovery came to label a mock node
+// nvidia.com/gpu.mode=unknown (#673).
+func PCISysfsAtKernelPaths(ctx context.Context, k *kube.Client, pod kube.PodRef, gpuCount int) {
+	ginkgo.GinkgoHelper()
+
+	ginkgo.By(fmt.Sprintf("%d mock GPUs visible at %s", gpuCount, KernelPCIDevicesDir))
+	// Exact, not "at least": the mount replaces the directory outright, so a
+	// higher count means the host's real devices are showing through or a
+	// previous profile's render was never pruned.
+	res, err := k.ExecSh(ctx, pod, "ls "+KernelPCIDevicesDir+" 2>/dev/null | wc -l")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "listing %s: %s", KernelPCIDevicesDir, res.Combined())
+	gomega.Expect(atoiTrim(res.Stdout)).To(gomega.Equal(gpuCount),
+		"mock GPUs served at the kernel path\n%s", res.Combined())
+
+	first, err := k.ExecSh(ctx, pod, "ls "+KernelPCIDevicesDir+" | sort | head -1")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	dev := strings.TrimSpace(first.Stdout)
+	gomega.Expect(dev).NotTo(gomega.BeEmpty(), "no PCI devices under %s", KernelPCIDevicesDir)
+
+	ginkgo.By("vendor resolves through the symlink into the served /sys/devices")
+	// This is what separates delivery from coincidence, and why the two mounts
+	// are one feature. The entries are relative symlinks into
+	// ../../../devices/pciDDDD:BB, so this read succeeds only when that half is
+	// served too — with the lookup directory alone the listing above still
+	// passes and every attribute read returns ENOENT.
+	vendor, err := k.ExecSh(ctx, pod, "cat "+KernelPCIDevicesDir+"/"+dev+"/vendor")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "reading vendor for %s: %s", dev, vendor.Combined())
+	gomega.Expect(strings.TrimSpace(vendor.Stdout)).To(gomega.Equal("0x10de"),
+		"vendor for %s did not resolve to the mock tree", dev)
+
+	ginkgo.By("class is the 3D-controller value gpu.mode is derived from")
+	// Naming the value here is what makes the gpu.mode assertion elsewhere
+	// attributable: the label reads "compute" because GFD read this class out
+	// of the served tree, not because it defaulted to it.
+	class, err := k.ExecSh(ctx, pod, "cat "+KernelPCIDevicesDir+"/"+dev+"/class")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "reading class for %s", dev)
+	gomega.Expect(strings.TrimSpace(class.Stdout)).To(gomega.Equal("0x030200"),
+		"class for %s", dev)
+}
+
 func atoiTrim(s string) int {
 	n, _ := strconv.Atoi(strings.TrimSpace(s))
 	return n

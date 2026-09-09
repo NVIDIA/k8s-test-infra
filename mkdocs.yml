@@ -110,6 +110,16 @@ nav:
       - Examples: examples.md
       - Runtime Control: nvml-mock-ctl.md
       - Troubleshooting: troubleshooting.md
+  # The files stay under docs/tools/ on purpose: docs/components/ is being
+  # taken by another change, and moving them here as well would collide.
+  - Components:
+      - Overview: tools/README.md
+      - control-plane: tools/control-plane.md
+      - node-agent: tools/node-agent.md
+      - nri-plugin: tools/nri-plugin.md
+      - check-fabric: tools/check-fabric.md
+      - Build tools:
+          - generate-bridge: tools/generate-bridge.md
   - Demos:
       - Overview: demo/README.md
       - Standalone: demo/standalone/README.md
@@ -118,6 +128,7 @@ nav:
       - Node-Wide Injection: demo/node-wide-injection/README.md
       - Compute Domain: demo/compute-domain/README.md
       - NVSentinel: demo/nv-sentinel/README.md
+      - With GPU Operator: demo/with-gpu-operator/README.md
   - Integrations:
       - fake-gpu-operator: integrations/fake-gpu-operator.md
   - Contributing:

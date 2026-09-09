@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"regexp"
 
+	"go.uber.org/zap"
+
 	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
 
 	"sigs.k8s.io/yaml"
@@ -58,8 +60,8 @@ func stageCharDevs(ctx context.Context, h *host.Host, state *agent.State) error 
 }
 
 // gpuNodeName matches only the per-GPU character devices. Scoped this tightly
-// because setup.sh owns other nvidia-prefixed entries in the same directory,
-// notably the nvidia-caps-imex-channels/ tree.
+// because the imex simulator owns other nvidia-prefixed entries in the same
+// directory, notably the nvidia-caps-imex-channels/ tree.
 var gpuNodeName = regexp.MustCompile(`^nvidia[0-9]+$`)
 
 // pruneGPUNodes removes per-GPU nodes left by a larger previous device set.
@@ -110,47 +112,6 @@ func stageNVMLShim(ctx context.Context, h *host.Host, state *agent.State) error 
 	return fsutil.Symlink("libnvidia-ml.so.1", filepath.Join(lib64, "libnvidia-ml.so"))
 }
 
-// stageCUDAShim installs the mock libcuda so that CUDA workloads can link and
-// run without a real driver. Absence is non-fatal — not all profiles need it.
-func stageCUDAShim(ctx context.Context, h *host.Host, state *agent.State) error {
-	matches, _ := filepath.Glob("/usr/local/lib/libcuda.so.*.*.*")
-
-	if len(matches) == 0 {
-		return nil
-	}
-
-	lib64 := filepath.Join(h.Root, "driver/usr/lib64")
-	if err := os.MkdirAll(lib64, 0o755); err != nil {
-		return err
-	}
-
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	soVersioned := "libcuda.so." + state.Software.DriverVersion
-	if err := fsutil.Copy(matches[0], filepath.Join(lib64, soVersioned), 0o755); err != nil {
-		return err
-	}
-
-	// The mock exports CUDA Runtime API symbols under libcuda.so; vectorAdd and
-	// similar samples link against libcudart.so, so create compatibility links.
-	type symlink struct{ name, target string }
-
-	for _, lnk := range []symlink{
-		{"libcuda.so.1", soVersioned},
-		{"libcuda.so", "libcuda.so.1"},
-		{"libcudart.so.12", "libcuda.so.1"},
-		{"libcudart.so", "libcudart.so.12"},
-	} {
-		if err := fsutil.Symlink(lnk.target, filepath.Join(lib64, lnk.name)); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 // stageNvidiaSMI satisfies tooling (GPU Operator validator, health checks) that
 // exec nvidia-smi to confirm driver presence. The ELF uses the NVML shim via
 // RPATH; the shell fallback covers environments where the ELF is unavailable.
@@ -169,8 +130,10 @@ func stageNvidiaSMI(ctx context.Context, h *host.Host, state *agent.State) error
 	}
 	elfPath := filepath.Join(binDir, "nvidia-smi")
 	if _, err := os.Stat("/usr/local/bin/nvidia-smi"); err == nil {
+		zap.L().Debug("staging nvidia-smi from the real ELF binary")
 		return fsutil.Copy("/usr/local/bin/nvidia-smi", elfPath, 0o755)
 	}
+	zap.L().Debug("no nvidia-smi ELF binary in image; staging the shell fallback")
 	return fsutil.Symlink("nvidia-smi.sh", elfPath)
 }
 
@@ -201,6 +164,33 @@ func writeProcFS(ctx context.Context, h *host.Host, state *agent.State) error {
 		"NVreg_PreserveVideoMemoryAllocations: 0\n" +
 		"NVreg_EnableResizableBar: 0\n"
 	return fsutil.Write(filepath.Join(procDir, "params"), []byte(params), 0o644)
+}
+
+// machineTypeRel is the machine type served to containers at
+// /etc/nvml-mock/machine-type, alongside config.yaml under the same CDI mount.
+const machineTypeRel = "driver/config/machine-type"
+
+// writeMachineType serves the string GFD turns into nvidia.com/gpu.machine,
+// pointed at by GFD_MACHINE_TYPE_FILE in the chart's GPU Operator values.
+//
+// GFD defaults to /sys/class/dmi/id/product_name, which cannot carry a mocked
+// value under kind: the node image writes "kind" there and re-binds it into
+// every container after the container's own mounts are set up, and on hosts
+// without DMI (Docker Desktop) the path does not exist at all (#681). A file of
+// our own sidesteps both.
+//
+// The value is the GPU's product name for want of a platform field in the
+// profiles, so gpu.machine reads NVIDIA-GB300-NVL rather than the
+// NVIDIA-GB300-NVL72 a real tray reports.
+func writeMachineType(ctx context.Context, h *host.Host, state *agent.State) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if len(state.Devices) == 0 || state.Devices[0].Name == "" {
+		return nil
+	}
+	return fsutil.Write(filepath.Join(h.Root, machineTypeRel),
+		[]byte(state.Devices[0].Name+"\n"), 0o644)
 }
 
 // writeEngineConfig writes the GPU profile so the mock NVML shim knows how many

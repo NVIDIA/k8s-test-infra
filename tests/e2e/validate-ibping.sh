@@ -10,7 +10,7 @@
 #   validate-ibping.sh <server-pod> <client-pod>
 #
 # Flow:
-#   mock-ib is started by setup.sh (Helm sets
+#   mock-ib is started by the node agent's ib simulator (Helm sets
 #   POD_IP, MOCK_IB_PING_SERVICE_HOST; registerWithPeersLoop discovers peers).
 #   For two separate Helm releases (ibping-multinode CI), we one-shot REGISTER only.
 #   1. Read server mlx5_0/ports/1/lid and/or port_guid from sysfs

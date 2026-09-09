@@ -10,17 +10,6 @@ tests:
     asserts:
       - matchSnapshot: {}
 
-  - it: should match ClusterRole snapshot
-    documentIndex: 1
-    asserts:
-      - matchSnapshot: {}
-
-  - it: should match ClusterRoleBinding snapshot
-    documentIndex: 2
-    asserts:
-      - matchSnapshot: {}
-
-  # ── ServiceAccount ──────────────────────────────────────────────────
   - it: should create a ServiceAccount
     documentIndex: 0
     asserts:
@@ -46,80 +35,13 @@ tests:
           path: metadata.labels["app.kubernetes.io/managed-by"]
           value: Helm
 
-  # ── ClusterRole ─────────────────────────────────────────────────────
-  - it: should create a ClusterRole
-    documentIndex: 1
+  # The chart grants no cluster permissions: nothing in the pod calls the K8s
+  # API, and GPU node labels belong to NFD and GFD.
+  - it: should render only the ServiceAccount
     asserts:
-      - isKind:
-          of: ClusterRole
-      - equal:
-          path: metadata.name
-          value: RELEASE-NAME-nvml-mock
+      - hasDocuments:
+          count: 1
 
-  - it: should grant get and patch on nodes
-    documentIndex: 1
-    asserts:
-      - contains:
-          path: rules
-          content:
-            apiGroups: [""]
-            resources: ["nodes"]
-            verbs: ["get", "patch"]
-
-  - it: should include standard labels on ClusterRole
-    documentIndex: 1
-    asserts:
-      - equal:
-          path: metadata.labels["helm.sh/chart"]
-          value: nvml-mock-0.3.0
-      - equal:
-          path: metadata.labels["app.kubernetes.io/name"]
-          value: nvml-mock
-
-  # ── ClusterRoleBinding ──────────────────────────────────────────────
-  - it: should create a ClusterRoleBinding
-    documentIndex: 2
-    asserts:
-      - isKind:
-          of: ClusterRoleBinding
-      - equal:
-          path: metadata.name
-          value: RELEASE-NAME-nvml-mock
-
-  - it: should bind to the correct ClusterRole
-    documentIndex: 2
-    asserts:
-      - equal:
-          path: roleRef.apiGroup
-          value: rbac.authorization.k8s.io
-      - equal:
-          path: roleRef.kind
-          value: ClusterRole
-      - equal:
-          path: roleRef.name
-          value: RELEASE-NAME-nvml-mock
-
-  - it: should reference the correct ServiceAccount subject
-    documentIndex: 2
-    asserts:
-      - contains:
-          path: subjects
-          content:
-            kind: ServiceAccount
-            name: RELEASE-NAME-nvml-mock
-            namespace: NAMESPACE
-
-  - it: should include standard labels on ClusterRoleBinding
-    documentIndex: 2
-    asserts:
-      - equal:
-          path: metadata.labels["helm.sh/chart"]
-          value: nvml-mock-0.3.0
-      - equal:
-          path: metadata.labels["app.kubernetes.io/name"]
-          value: nvml-mock
-
-  # ── Name overrides ─────────────────────────────────────────────────
   - it: should respect fullnameOverride across all RBAC resources
     set:
       fullnameOverride: custom-rbac
@@ -128,42 +50,3 @@ tests:
       - equal:
           path: metadata.name
           value: custom-rbac
-
-  - it: should respect fullnameOverride on ClusterRole
-    set:
-      fullnameOverride: custom-rbac
-    documentIndex: 1
-    asserts:
-      - equal:
-          path: metadata.name
-          value: custom-rbac
-
-  - it: should respect fullnameOverride on ClusterRoleBinding
-    set:
-      fullnameOverride: custom-rbac
-    documentIndex: 2
-    asserts:
-      - equal:
-          path: metadata.name
-          value: custom-rbac
-      - equal:
-          path: roleRef.name
-          value: custom-rbac
-      - contains:
-          path: subjects
-          content:
-            kind: ServiceAccount
-            name: custom-rbac
-            namespace: NAMESPACE
-
-  - it: should use release namespace for the ServiceAccount subject
-    release:
-      namespace: gpu-system
-    documentIndex: 2
-    asserts:
-      - contains:
-          path: subjects
-          content:
-            kind: ServiceAccount
-            name: RELEASE-NAME-nvml-mock
-            namespace: gpu-system

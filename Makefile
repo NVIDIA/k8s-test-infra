@@ -76,6 +76,8 @@ lint: tools gen-check ## Lint the source code
 	fi
 	@echo "🛡️ Verifying the vendored Go proxy action.."
 	@./hack/check-depproxy-kit.sh
+	@echo "Checking docs/tools against cmd/.."
+	@./hack/check-docs-tools-sync.sh
 	@echo "🧹 Vetting.."
 	@go vet ./...
 	@echo "🧹 GoCI Lint.."
@@ -278,12 +280,12 @@ image-load:
 
 # ---------------------------------------------------------------------------
 # Go end-to-end suite (tests/e2e) — the Go port of docs/demo/standalone/demo.sh.
-# One entrypoint for local + CI: the harness owns the full lifecycle (Kind
-# create/teardown, image build/load, Helm upgrade --install, validation,
-# diagnostics). A SINGLE shared multi-node cluster is created once and every
-# selected profile runs against it (profile switch = `helm upgrade`, not a
-# cluster rebuild). Defaults to gb200; scope with E2E_PROFILES /
-# E2E_GINKGO_FLAGS. Examples:
+# One entrypoint for local + CI. Tilt owns the cluster and the image. The suite
+# attaches to them and asserts. Only the scenarios that need a different shape
+# reshape the mock, and they use `helm upgrade --install`. A SINGLE shared
+# multi-node cluster is created once and every selected profile runs against it
+# (profile switch = `helm upgrade`, not a cluster rebuild). Defaults to gb200;
+# scope with E2E_PROFILES / E2E_GINKGO_FLAGS. Examples:
 #   make e2e                       # gb200
 #   make e2e E2E_PROFILES=a100     # fast inner loop, single profile
 #   make e2e E2E_GINKGO_FLAGS='--label-filter="nvidia-smi || nvlink"'
@@ -292,7 +294,8 @@ image-load:
 #   make e2e-multi-node            # heterogeneous A100/T4 multi-node scenario
 #   make e2e-nri                   # node-wide NRI ambient-injection scenario
 #   make e2e-nfd                   # NFD label-provenance scenario
-# CI builds the image once per run, every leg loads it, and sets E2E_SKIP_BUILD=true + E2E_IMAGE.
+# CI builds the image once per run. Every leg loads it into Kind and sets
+# E2E_IMAGE to that ref. The reshaping scenarios set the DaemonSet to this ref.
 #
 # NOTE: this targets ./tests/e2e/go (the Ginkgo suite package) only, NOT
 # ./tests/e2e/go/... — the subpackages (profile, ibutil) hold plain `go test`
