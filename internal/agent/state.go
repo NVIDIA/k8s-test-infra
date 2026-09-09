@@ -19,6 +19,7 @@ type State struct {
 	Devices    []DeviceSpec
 	Fabric     FabricState
 	IMEX       IMEXState
+	MIG        MIGState
 	// ConfigRaw holds the raw YAML profile bytes so gpudriver can write the
 	// engine config without re-deriving it from the narrower State fields.
 	// TODO(https://github.com/NVIDIA/k8s-test-infra/issues/717): replace with Profile/Runtime *config.YAMLConfig split — Profile carries
@@ -317,6 +318,43 @@ type IMEXState struct {
 	IMEXMajor    int
 	CapsMajor    int
 	ChannelCount int
+}
+
+// MIGState describes the MIG capability surface: which GPUs boot partitioned
+// and how, so the agent can stage the cap device nodes and the mig-minors
+// table a consumer needs to reach a MIG device it found through NVML.
+//
+// The instance IDs are compiled from the same profile the mock NVML library
+// loads, via engine.DeclaredMIGLayout, so the two cannot name a partition
+// differently.
+type MIGState struct {
+	// CapsMajor is the char-device major for /dev/nvidia-caps.
+	CapsMajor int
+	GPUs      []MIGGPU
+}
+
+// MIGGPU is one partitioned GPU. Minor is its device-node minor, which is how
+// the capability names identify it.
+type MIGGPU struct {
+	Minor        int
+	GPUInstances []MIGGPUInstance
+}
+
+// MIGGPUInstance is one GPU instance and the compute instances inside it.
+type MIGGPUInstance struct {
+	ID                 uint32
+	ComputeInstanceIDs []uint32
+}
+
+// Partitioned reports whether any GPU boots with MIG partitions, which is what
+// decides whether the MIG capability surface exists on this node at all.
+func (m MIGState) Partitioned() bool {
+	for _, gpu := range m.GPUs {
+		if len(gpu.GPUInstances) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // StateSource emits State observations.

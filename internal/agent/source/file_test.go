@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -519,5 +520,65 @@ devices:
 
 	for _, d := range state.Devices {
 		require.Equal(t, ec.GetDeviceMinorNumber(d.Index), d.MinorNumber, "device %d", d.Index)
+	}
+}
+
+func TestCompileState_MIGFromProfile(t *testing.T) {
+	data := []byte(`
+version: "1.0"
+system:
+  num_devices: 2
+device_defaults:
+  name: "NVIDIA A100-SXM4-40GB"
+  memory:
+    total_bytes: 42949672960
+  mig:
+    mode_current: "enabled"
+    mode_pending: "enabled"
+    max_gpu_instances: 7
+    gpu_instances:
+      - profile: "1g.5gb"
+        count: 3
+`)
+
+	state, err := compileState(data)
+	require.NoError(t, err)
+
+	require.True(t, state.MIG.Partitioned())
+	require.Equal(t, 236, state.MIG.CapsMajor)
+	require.Len(t, state.MIG.GPUs, 2)
+	for i, gpu := range state.MIG.GPUs {
+		// The capability names key on the GPU's device-node minor, which
+		// gpudriver sets to the index.
+		require.Equal(t, i, gpu.Minor)
+		require.Len(t, gpu.GPUInstances, 3)
+		for _, gi := range gpu.GPUInstances {
+			require.Equal(t, []uint32{0}, gi.ComputeInstanceIDs)
+		}
+	}
+}
+
+// TestCompileState_MIGDisabledInEveryShippedProfile pins the deliberate default:
+// a MIG-capable profile declares what it could be partitioned into but boots
+// with MIG off, because migStrategy=single stops publishing nvidia.com/gpu the
+// moment a board is partitioned, which would change every existing e2e leg.
+func TestCompileState_MIGDisabledInEveryShippedProfile(t *testing.T) {
+	profiles, err := filepath.Glob(helmProfileGlob)
+	require.NoError(t, err)
+	require.NotEmpty(t, profiles)
+
+	for _, path := range profiles {
+		if strings.Contains(filepath.Base(path), "-mig") {
+			continue // the MIG profiles exist precisely to boot partitioned
+		}
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+
+			state, err := compileState(data)
+			require.NoError(t, err)
+			require.False(t, state.MIG.Partitioned(),
+				"%s must boot unpartitioned", filepath.Base(path))
+		})
 	}
 }
