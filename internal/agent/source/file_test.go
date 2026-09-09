@@ -553,7 +553,9 @@ device_defaults:
 		require.Equal(t, i, gpu.Minor)
 		require.Len(t, gpu.GPUInstances, 3)
 		for _, gi := range gpu.GPUInstances {
-			require.Equal(t, []uint32{0}, gi.ComputeInstanceIDs)
+			require.Len(t, gi.ComputeInstances, 1)
+			require.Equal(t, uint32(0), gi.ComputeInstances[0].ID)
+			require.NotEmpty(t, gi.ComputeInstances[0].UUID)
 		}
 	}
 }
@@ -620,7 +622,7 @@ func TestCompileState_DeclaredMIGPartitionsAllResolve(t *testing.T) {
 				"every declared partition must resolve and fit")
 			for _, gi := range layout[0].GPUInstances {
 				require.NotEmpty(t, gi.Profile)
-				require.NotEmpty(t, gi.ComputeInstanceIDs)
+				require.NotEmpty(t, gi.ComputeInstances)
 			}
 		})
 	}

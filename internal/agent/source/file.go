@@ -270,9 +270,13 @@ func compileMIG(cfg *engine.YAMLConfig, numDevices int) agent.MIGState {
 		// that are not the ones on disk.
 		gpu := agent.MIGGPU{Minor: layout.GPUIndex}
 		for _, gi := range layout.GPUInstances {
+			cis := make([]agent.MIGComputeInstance, 0, len(gi.ComputeInstances))
+			for _, ci := range gi.ComputeInstances {
+				cis = append(cis, agent.MIGComputeInstance{ID: ci.ID, UUID: ci.UUID})
+			}
 			gpu.GPUInstances = append(gpu.GPUInstances, agent.MIGGPUInstance{
-				ID:                 gi.ID,
-				ComputeInstanceIDs: gi.ComputeInstanceIDs,
+				ID:               gi.ID,
+				ComputeInstances: cis,
 			})
 		}
 		state.GPUs = append(state.GPUs, gpu)
