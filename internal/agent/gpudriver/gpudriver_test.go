@@ -257,9 +257,9 @@ func TestStage_WritesAllSurfaces(t *testing.T) {
 	sim := New(h)
 	state := testState(t)
 
-	require.NoError(t, sim.Stage(context.Background(), state))
+	require.NoError(t, sim.Stage(t.Context(), state))
 	require.False(t, sim.Ready(), "Stage does not publish the driver symlink")
-	require.NoError(t, sim.Apply(context.Background(), h, state))
+	require.NoError(t, sim.Apply(t.Context(), state))
 	require.True(t, sim.Ready())
 
 	// chardevs
