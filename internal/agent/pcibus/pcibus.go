@@ -64,7 +64,6 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 		return err
 	}
 
-	s.ready.Store(true)
 	zap.L().Debug("simulator staged", zap.String("simulator", name))
 	return nil
 }
@@ -72,9 +71,6 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 // Discard empties the rendered PCI sysfs tree and removes the staged shim.
 // pcibus owns both, so clearing absent or partially staged paths is safe.
 func (s *Simulator) Discard(_ context.Context, h *host.Host) error {
-	if !s.ready.Load() {
-		return nil
-	}
 	zap.L().Debug("discarding simulator", zap.String("simulator", name))
 
 	var errs []error
