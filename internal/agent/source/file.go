@@ -9,10 +9,12 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"go.uber.org/zap"
 	"sigs.k8s.io/yaml"
 
@@ -30,26 +32,36 @@ func envIntOrDefault(key string, def int) int {
 	return def
 }
 
-const defaultPollInterval = 5 * time.Second
+// settleDelay coalesces the burst a single update produces. Kubernetes renames
+// a ConfigMap through a scratch directory and two symlinks, and an editor saves
+// by renaming a temporary file, so one change arrives as several events.
+const settleDelay = 100 * time.Millisecond
+
+// atomicWritePrefix names the scratch entries Kubernetes renames a ConfigMap
+// through: ..data, ..data_tmp and the timestamped directories.
+const atomicWritePrefix = ".."
 
 // FileSource watches the profile and the cluster topology document and emits a
-// State update when either changes. It polls the containing directories so
-// ConfigMap atomic ..data symlink swaps are detected correctly — watching a file
-// itself would pin the replaced inode.
+// State update when either changes. It watches the directories holding them:
+// both a ConfigMap swap and an editor's save replace the file's inode, so a
+// watch on the file would hold the one that was just replaced.
 type FileSource struct {
-	configPath   string
-	topologyPath string
-	pollInterval time.Duration
-	log          *zap.Logger
+	configPath     string
+	topologyPath   string
+	resyncInterval time.Duration
+	log            *zap.Logger
 }
 
 // NewFileSource returns a FileSource that watches configPath and topologyPath.
-func NewFileSource(configPath, topologyPath string, log *zap.Logger) *FileSource {
+// resyncInterval re-reads both documents regardless of events, covering a host
+// where inotify reports nothing — a profile on NFS, or a watch limit reached.
+// Zero leaves reloads entirely to events.
+func NewFileSource(configPath, topologyPath string, resyncInterval time.Duration, log *zap.Logger) *FileSource {
 	return &FileSource{
-		configPath:   configPath,
-		topologyPath: topologyPath,
-		pollInterval: defaultPollInterval,
-		log:          log,
+		configPath:     configPath,
+		topologyPath:   topologyPath,
+		resyncInterval: resyncInterval,
+		log:            log,
 	}
 }
 
@@ -61,28 +73,119 @@ func (f *FileSource) Watch(ctx context.Context) <-chan agent.Update {
 	return ch
 }
 
-// Close is a no-op for FileSource; it owns no external resources.
+// Close is a no-op for FileSource; run owns the watcher, and ctx bounds run.
 func (f *FileSource) Close() error { return nil }
 
 func (f *FileSource) run(ctx context.Context, ch chan<- agent.Update) {
 	defer close(ch)
 
-	var lastHash [32]byte
-	f.poll(ctx, ch, &lastHash) // emit immediately on subscribe
+	var (
+		events chan fsnotify.Event
+		errs   chan error
+	)
+	w, err := fsnotify.NewWatcher()
+	if err != nil {
+		// A host can be out of inotify instances, and the agent is still
+		// useful there: the resync becomes the only trigger.
+		f.log.Error("cannot watch config directories; relying on the resync", zap.Error(err))
+	} else {
+		defer func() { _ = w.Close() }()
+		events, errs = w.Events, w.Errors // a nil channel parks in select
+	}
 
-	t := time.NewTicker(f.pollInterval)
-	defer t.Stop()
+	// Watch before the first read, so an edit landing during startup is queued
+	// by the watcher rather than lost between the two.
+	names := f.rewatch(w)
+
+	var lastHash [32]byte
+	f.reload(ctx, ch, &lastHash) // emit immediately on subscribe
+
+	settle := time.NewTimer(settleDelay)
+	settle.Stop()
+	defer settle.Stop()
+
+	var resync <-chan time.Time
+	if f.resyncInterval > 0 {
+		t := time.NewTicker(f.resyncInterval)
+		defer t.Stop()
+		resync = t.C
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-t.C:
-			f.poll(ctx, ch, &lastHash)
+		case e := <-events:
+			if names.carries(e) {
+				settle.Reset(settleDelay)
+			}
+		case err := <-errs:
+			// Usually a queue overflow, which means events were dropped: the
+			// change behind them would otherwise go unseen until the resync.
+			f.log.Warn("config watch error", zap.Error(err))
+			settle.Reset(settleDelay)
+		case <-settle.C:
+			f.reload(ctx, ch, &lastHash)
+			names = f.rewatch(w) // the change may have retargeted a symlink
+		case <-resync:
+			f.reload(ctx, ch, &lastHash)
+			names = f.rewatch(w)
 		}
 	}
 }
 
-func (f *FileSource) poll(ctx context.Context, ch chan<- agent.Update, lastHash *[32]byte) {
+// watched is the set of file names whose events are worth a re-read.
+type watched map[string]bool
+
+// carries reports whether an event names one of the documents, or one of the
+// scratch entries Kubernetes renames a ConfigMap through. A config directory
+// shared with other processes, as on a host, churns with everything else.
+func (w watched) carries(e fsnotify.Event) bool {
+	name := filepath.Base(e.Name)
+
+	return w[name] || strings.HasPrefix(name, atomicWritePrefix)
+}
+
+// rewatch attaches the watcher to the directory holding each document and
+// returns the names to react to. It runs again after every reload: a save can
+// retarget a symlink, and a directory that was missing — an unmounted topology
+// ConfigMap — may have appeared since.
+func (f *FileSource) rewatch(w *fsnotify.Watcher) watched {
+	names := watched{}
+	for _, path := range []string{f.configPath, f.topologyPath} {
+		if path == "" {
+			continue // --topology is unset where the cluster declares none
+		}
+		f.watchDir(w, path, names)
+
+		// A profile is usually reached through a symlink, and edits land in the
+		// directory it resolves into rather than the one the path names: ..data
+		// inside a ConfigMap mount, /opt/profiles behind /etc on a host.
+		if resolved, err := filepath.EvalSymlinks(path); err == nil && resolved != path {
+			f.watchDir(w, resolved, names)
+		}
+	}
+
+	return names
+}
+
+func (f *FileSource) watchDir(w *fsnotify.Watcher, path string, names watched) {
+	names[filepath.Base(path)] = true
+	if w == nil {
+		return
+	}
+
+	dir := filepath.Dir(path)
+	if err := w.Add(dir); err != nil {
+		f.log.Warn("cannot watch directory; the resync still reloads it",
+			zap.String("dir", dir), zap.Error(err))
+	}
+}
+
+// reload reads both documents and emits a State when their contents differ from
+// the last emission. It is the only place a change is detected, whether an event
+// or the resync brought us here.
+func (f *FileSource) reload(ctx context.Context, ch chan<- agent.Update, lastHash *[32]byte) {
 	data, err := os.ReadFile(f.configPath)
 	if err != nil {
 		f.send(ctx, ch, agent.Update{Err: fmt.Errorf("read config: %w", err), At: time.Now()})

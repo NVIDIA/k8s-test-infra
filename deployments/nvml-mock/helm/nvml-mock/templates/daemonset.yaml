@@ -53,6 +53,7 @@ spec:
             - --log-level={{ .Values.nodeAgent.logging.level }}
             - --log-format={{ .Values.nodeAgent.logging.format }}
             - --shutdown-timeout={{ .Values.nodeAgent.shutdownTimeout }}
+            - --resync-interval={{ .Values.nodeAgent.resyncInterval }}
           env:
             - name: NODE_NAME
               valueFrom:
