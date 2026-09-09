@@ -104,6 +104,11 @@ nodeAgent:
   # Go duration string: 5s, 1m30s, etc. Teardown is a handful of parallel file
   # removals, and it has to finish inside terminationGracePeriodSeconds.
   shutdownTimeout: 5s
+  # How often the agent re-reads its profile and topology regardless of
+  # filesystem events. An event carries a ConfigMap update within
+  # milliseconds; this covers a node whose kernel reports none, such as one
+  # that has reached its watch limit. Set to 0 to rely on events alone.
+  resyncInterval: 1m
   resources:
     requests:
       cpu: 10m
