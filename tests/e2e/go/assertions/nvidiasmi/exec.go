@@ -13,6 +13,7 @@ import (
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/cluster"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/profile"
 )
@@ -267,4 +268,75 @@ func SnapshotFromPod(ctx context.Context, k *kube.Client, pod kube.PodRef) (Snap
 		return Snapshot{}, fmt.Errorf("nvidia-smi -q -x: %w: %s", err, res.Combined())
 	}
 	return ParseSnapshot(res.Stdout)
+}
+
+// GpuResetThroughChroot asserts that a GPU reset works the way NVIDIA's
+// remediation tooling performs it: `chroot <driver-root> nvidia-smi`, with none
+// of the mock's environment carried in. NVSentinel's janitor hardcodes
+// DRIVER_ROOT=/run/nvidia/driver and its reset script routes every nvidia-smi
+// call through that chroot, so this is the shape that decides whether an
+// unmodified remediation controller can repair a mock GPU.
+//
+// The reset's own output cannot carry this assertion. Before issue #759 the
+// chrooted library resolved no config, served compiled-in defaults, and printed
+// "was successfully reset" over an untouched override — so the injected state
+// is checked before and after instead.
+func GpuResetThroughChroot(
+	ctx context.Context, k *kube.Client, pod kube.PodRef, node cluster.Node, p profile.Profile,
+) {
+	ginkgo.GinkgoHelper()
+
+	// The same query is the reference reading and the chrooted one, so the
+	// comparison holds on every profile without a table of expected values.
+	// Restricted to fields the node's config fixes: the chart's dynamic metrics
+	// ramp temperature over a 120s period and draw a per-call variance, so a
+	// reading taken from a second process seconds later disagrees for reasons
+	// that say nothing about which config was resolved. The GPU count and the
+	// PCI addresses already separate this node's profile from the compiled-in
+	// defaults, which is all this assertion needs to tell apart.
+	query := []string{"nvidia-smi", "--query-gpu=index,pci.bus_id", "--format=csv,noheader"}
+
+	ginkgo.By("nvidia-smi in the pod, as the reference reading")
+	reference, err := k.ExecQuiet(ctx, pod, query...)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+		"reference nvidia-smi query failed: %s", reference.Combined())
+
+	// Run from the node, which carries none of the environment the nvml-mock
+	// container exports. The reset Job has no MOCK_NVML_CONFIG or LD_PRELOAD
+	// either, so a driver root that only works with those set is a driver root
+	// no real caller could use.
+	chroot := []string{"chroot", NodeDriverRoot}
+
+	ginkgo.By(fmt.Sprintf("chrooted nvidia-smi describes the same %d GPUs", p.ExpectedGPUs()))
+	res, _ := node.Exec(ctx, append(append([]string{}, chroot...), query...)...)
+	// Stdout carries the CSV rows for comparison; stderr carries the chroot
+	// failure message when the loader or a library is missing from the driver
+	// root, and that is what an engineer needs in the diagnostic.
+	chrootOut := res.Stdout
+	if res.ExitCode != 0 {
+		chrootOut = res.Combined()
+	}
+	problems := ChrootInventoryProblems(res.ExitCode, chrootOut, reference.Stdout, p.ExpectedGPUs())
+	gomega.Expect(problems).To(gomega.BeEmpty(), strings.Join(problems, "\n"))
+
+	ginkgo.By("injecting a temperature on GPU 0 for the reset to clear")
+	res, err = k.Exec(ctx, pod, "nvml-mock-ctl", "temp", "--gpu", "0", "99")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "nvml-mock-ctl temp failed: %s", res.Combined())
+
+	ginkgo.By("the injection took hold before the reset runs")
+	res, err = k.Exec(ctx, pod, "nvml-mock-ctl", "status", "--gpu", "0")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "nvml-mock-ctl status failed: %s", res.Combined())
+	problems = OverridesPresentProblems(res.Combined())
+	gomega.Expect(problems).To(gomega.BeEmpty(), strings.Join(problems, "\n"))
+
+	ginkgo.By("chrooted nvidia-smi -r -i 0 resets one GPU")
+	res, _ = node.Exec(ctx, append(append([]string{}, chroot...), "nvidia-smi", "-r", "-i", "0")...)
+	problems = GpuResetProblems(res.ExitCode, res.Combined(), 1)
+	gomega.Expect(problems).To(gomega.BeEmpty(), strings.Join(problems, "\n"))
+
+	ginkgo.By("the injected override is gone, not merely reported gone")
+	res, err = k.Exec(ctx, pod, "nvml-mock-ctl", "status", "--gpu", "0")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "nvml-mock-ctl status failed: %s", res.Combined())
+	problems = OverridesClearedProblems(res.Combined())
+	gomega.Expect(problems).To(gomega.BeEmpty(), strings.Join(problems, "\n"))
 }

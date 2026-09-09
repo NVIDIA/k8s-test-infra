@@ -13,6 +13,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions/nvidiasmi"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/cluster"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/config"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
@@ -51,12 +52,20 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 		name := name
 		Context("profile "+name, Label(name), Ordered, func() {
 			var (
-				p   profile.Profile
-				pod kube.PodRef
+				p    profile.Profile
+				pod  kube.PodRef
+				node cluster.Node
 			)
 
 			BeforeAll(func(ctx SpecContext) {
-				p, pod, _ = setupStandaloneProfile(ctx, h, name)
+				var nodeName string
+				p, pod, nodeName = setupStandaloneProfile(ctx, h, name)
+
+				// The chroot assertion runs on the node rather than in the pod,
+				// which is the only place the capability for it exists.
+				var err error
+				node, err = h.Cluster.NodeByName(ctx, nodeName)
+				Expect(err).NotTo(HaveOccurred())
 			})
 
 			It("publishes profile ConfigMaps in the fake-GPU-operator's discovery shape", Label("fgo"), func(ctx SpecContext) {
@@ -139,6 +148,11 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				// an operator reaching for the most common GPU remediation got a
 				// bare exit 139 with no output at all.
 				nvidiasmi.GpuReset(ctx, h.Kube, pod, p)
+				// The same reset as a remediation controller performs it, through
+				// a chroot of the driver root with none of the mock's environment
+				// carried in. That path failed on the missing dynamic loader, and
+				// then failed silently on an unresolvable config. See issue #759.
+				nvidiasmi.GpuResetThroughChroot(ctx, h.Kube, pod, node, p)
 			})
 
 			It("reports the profile's platform identity via nvidia-smi", Label("nvidia-smi"), func(ctx SpecContext) {
