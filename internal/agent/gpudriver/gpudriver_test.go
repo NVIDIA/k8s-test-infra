@@ -25,9 +25,12 @@ func testState(t *testing.T) *agent.State {
 	data, err := os.ReadFile(cfgPath)
 	require.NoError(t, err)
 	return &agent.State{
-		Software:  agent.SoftwareVersions{DriverVersion: "550.163.01"},
-		Devices:   []agent.DeviceSpec{{Index: 0, MinorNumber: 0}},
-		ConfigRaw: data,
+		Software: agent.SoftwareVersions{DriverVersion: "550.163.01"},
+		// State always reaches a simulator fully resolved, so carry the driver
+		// defaults the compiler applies rather than a zero value.
+		DriverParams: agent.DriverParams{DeviceFileMode: 0o666, ModifyDeviceFiles: true},
+		Devices:      []agent.DeviceSpec{{Index: 0, MinorNumber: 0}},
+		ConfigRaw:    data,
 	}
 }
 
@@ -188,6 +191,26 @@ func TestStageNVMLShim_CopiesLibAndCreatesLinks(t *testing.T) {
 		_, err := os.Lstat(filepath.Join(lib64, name))
 		require.NoError(t, err, "%s must exist", name)
 	}
+}
+
+// The driver names a GPU node after its minor, not its position in the device
+// list, so a profile assigning non-sequential minors — the way a node with
+// excluded GPUs looks — must still produce matching /dev entries.
+func TestGPUCharDevs_NamedByMinorNotIndex(t *testing.T) {
+	t.Parallel()
+
+	state := &agent.State{Devices: []agent.DeviceSpec{
+		{Index: 0, MinorNumber: 3},
+		{Index: 1, MinorNumber: 9},
+	}}
+
+	devs := gpuCharDevs(state)
+
+	require.Len(t, devs, 2)
+	require.Equal(t, "nvidia3", devs[0].name)
+	require.Equal(t, uint32(3), devs[0].minor)
+	require.Equal(t, "nvidia9", devs[1].name)
+	require.Equal(t, uint32(9), devs[1].minor)
 }
 
 func TestStageCharDevs_CreatesDeviceNodes(t *testing.T) {

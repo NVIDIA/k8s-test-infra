@@ -60,6 +60,33 @@ devices:                          # Per-device overrides
 nvlink:                           # Optional NVLink configuration
   version: 4
   links_per_gpu: 18
+
+driver:                           # Optional nvidia kernel-module parameters
+  device_file_mode: 0666
+```
+
+### `driver`
+
+Kernel-module parameters reported through `/proc/driver/nvidia/params`. The NVML
+shim never reads them; `nvidia-modprobe` does, in plain C, to decide the
+ownership and permissions of `/dev/nvidia*`. Set them to reproduce the
+permission failures that surface as "Failed to initialize NVML: Insufficient
+Permissions".
+
+| Field                 | Default | Description                                       |
+|-----------------------|---------|---------------------------------------------------|
+| `device_file_uid`     | `0`     | Owning UID of the device nodes                    |
+| `device_file_gid`     | `0`     | Owning GID of the device nodes                    |
+| `device_file_mode`    | `0666`  | Permission bits of the device nodes               |
+| `modify_device_files` | `true`  | Whether the driver manages the nodes at all       |
+
+`device_file_mode` takes an octal literal (`0660`) or the decimal form the
+driver itself reports (`432`). Plain `660` is neither and means mode `01224`.
+
+```yaml
+driver:
+  device_file_gid: 27             # video
+  device_file_mode: 0660
 ```
 
 ## Device Properties
