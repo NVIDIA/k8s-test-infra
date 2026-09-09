@@ -1,0 +1,100 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Device plugin DaemonSet for the MIG E2E scenario. Expects the nvml-mock chart
+# to be installed with gpu.mig.enabled=true, which is what makes the boards boot
+# partitioned and gives the node-agent a layout to stage capabilities for.
+#
+# Deliberately the same DaemonSet name as device-plugin-mock.yaml: two device
+# plugins advertising nvidia.com/gpu on one node would race, so this is applied
+# as a replacement rather than alongside.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nvidia-device-plugin-mock
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      name: nvidia-device-plugin-mock
+  template:
+    metadata:
+      labels:
+        name: nvidia-device-plugin-mock
+    spec:
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: nvidia-device-plugin
+          image: nvcr.io/nvidia/k8s-device-plugin:v0.18.2
+          # The plugin resolves MIG capabilities through
+          # /proc/driver/nvidia-caps/mig-minors, hardcoded and absolute, and it
+          # does so while building its device map — so a plugin that cannot read
+          # it advertises nothing at all rather than degrading.
+          #
+          # That path cannot be delivered the usual two ways. runc refuses any
+          # mount whose target is inside /proc ("cannot be mounted because it is
+          # inside /proc"), so the pod spec cannot place it; and an LD_PRELOAD
+          # rewriter like libpcisysfs cannot reach it either, because the plugin
+          # is a Go binary and Go's os package issues its own syscalls instead of
+          # calling libc. What is left is for the container to mount it over
+          # itself, which the kernel does allow from a privileged container.
+          #
+          # $0 is the "--" below, so "$@" is exactly the args list.
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              staged=/var/lib/nvml-mock/driver/proc/driver
+              # The node-agent stages the capability surface asynchronously, and
+              # this DaemonSet is often admitted first. Waiting here rather than
+              # in an initContainer is not a style choice: the mount has to
+              # happen in this container's mount namespace.
+              waited=0
+              while [ ! -f "$staged/nvidia-caps/mig-minors" ]; do
+                if [ "$waited" -ge 180 ]; then
+                  echo "no MIG capability table staged at $staged after ${waited}s;" \
+                       "is the chart installed with gpu.mig.enabled=true?" >&2
+                  exit 1
+                fi
+                waited=$((waited + 1))
+                sleep 1
+              done
+              # busybox mount, so -o bind rather than --bind.
+              mount -o bind "$staged" /proc/driver
+              exec nvidia-device-plugin "$@"
+            - --
+          args:
+            - "--nvidia-driver-root=/var/lib/nvml-mock/driver"
+            - "--driver-root-ctr-path=/var/lib/nvml-mock/driver"
+            - "--device-discovery-strategy=nvml"
+            # The scenario's subject. Every MIG device is published as
+            # nvidia.com/gpu, which is why the profiles declare a uniform
+            # partitioning — `single` rejects a node whose partitions differ.
+            - "--mig-strategy=single"
+            # MEP-0002: deliver the allocated partition's device nodes into the
+            # container. For a MIG device that is the parent /dev/nvidiaN plus
+            # the two cap nodes guarding its GPU and compute instance, all
+            # rooted at --nvidia-driver-root, which is where the node-agent
+            # staged them.
+            - "--pass-device-specs=true"
+          securityContext:
+            # Required for the self-mount above, and already how the non-MIG
+            # manifest runs.
+            privileged: true
+          volumeMounts:
+            - name: mock-root
+              mountPath: /var/lib/nvml-mock
+              readOnly: true
+            - name: device-plugins
+              mountPath: /var/lib/kubelet/device-plugins
+      volumes:
+        - name: mock-root
+          hostPath:
+            path: /var/lib/nvml-mock
+        - name: device-plugins
+          hostPath:
+            path: /var/lib/kubelet/device-plugins
