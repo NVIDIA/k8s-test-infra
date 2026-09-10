@@ -2,13 +2,13 @@
 
 Runnable walkthroughs, each one a specific thing you can do with Mokka.
 
-Every guide creates its own Kind cluster and leaves your current context alone,
-and every one builds the image from a clone of this repository. So you need
-[Docker](https://docs.docker.com/get-started/get-docker/),
+Every guide needs [Docker](https://docs.docker.com/get-started/get-docker/),
 [Kind](https://kind.sigs.k8s.io/),
-[Helm 3.8 or newer](https://helm.sh/docs/intro/install/),
-[kubectl](https://kubernetes.io/docs/reference/kubectl/), and the repo checked
-out.
+[Helm 3.8 or newer](https://helm.sh/docs/intro/install/) and
+[kubectl](https://kubernetes.io/docs/reference/kubectl/). Some also need this
+repository checked out, and not all of them create a throwaway cluster of their
+own — each guide states what it targets, and what it needs, before it installs
+anything.
 
 ## Scenarios
 

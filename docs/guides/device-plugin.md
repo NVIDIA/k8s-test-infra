@@ -126,6 +126,58 @@ kubectl get node "$NODE" -o jsonpath='{.status.allocatable.nvidia\.com/gpu}'
 The pod scheduling is the result: the kubelet accepted a GPU request on a node
 that has none, because the plugin allocated one of Mokka's.
 
+## Different GPU models on different nodes
+
+One release covers one node pool, so a heterogeneous fleet is just several
+releases that do not overlap. Start from a cluster with more than one worker:
+
+```bash
+cat > kind-fleet.yaml <<'EOF'
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+  - role: worker
+    labels:
+      nvml-mock/profile: a100
+  - role: worker
+    labels:
+      nvml-mock/profile: t4
+EOF
+
+kind create cluster --name mokka-fleet --config kind-fleet.yaml
+kubectl label node --all mokka.nvidia.com/type=sgpu
+```
+
+Install one release per pool, each selecting its own nodes:
+
+```bash
+helm install nvml-mock-a100 oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  --namespace mokka --create-namespace \
+  --set gpu.profile=a100 --set gpu.count=4 \
+  --set "nodeSelector.nvml-mock/profile=a100" --wait --timeout 120s
+
+helm install nvml-mock-t4 oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  --namespace mokka \
+  --set gpu.profile=t4 --set gpu.count=2 \
+  --set "nodeSelector.nvml-mock/profile=t4" --wait --timeout 120s
+```
+
+Deploy the device plugin as in Step 3, and each worker reports its own count:
+
+```bash
+kubectl get nodes -l nvml-mock/profile \
+  -o custom-columns='NODE:.metadata.name,GPUS:.status.allocatable.nvidia\.com/gpu'
+```
+
+!!! warning "The `nodeSelector` is what keeps the pools apart"
+
+    The chart's hostPath mounts — `/var/lib/nvml-mock`, `/var/run/cdi`,
+    `/run/nvidia` and the NFD features directory — are the same for every
+    release, and the DaemonSet tolerates every taint. Drop the `nodeSelector`
+    and both releases land on both workers and overwrite each other's per-node
+    state. A node belongs to exactly one pool.
+
 ## Node labels
 
 The device plugin advertises the resource, but it does not label the node.

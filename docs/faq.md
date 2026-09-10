@@ -39,12 +39,27 @@ See [Configuration](configuration.md) for what each profile defines.
 ## Can one cluster have different GPU models on different nodes?
 
 Yes. Each release targets a node set, so a cluster can present A100 and T4
-workers at the same time. This is exercised in CI as a heterogeneous fleet.
+workers at the same time. This is exercised in CI as a heterogeneous fleet. See
+[different GPU models on different nodes](guides/device-plugin.md#different-gpu-models-on-different-nodes).
 
 ## Does `nvidia-smi` actually work?
 
 Yes — the real binary, unmodified. It loads Mokka's `libnvidia-ml.so` instead of
 the vendor one and reports whatever the profile describes.
+
+## Why does `nvidia-smi` always report 0 MiB used?
+
+Because the profile says so, and nothing moves it. Mokka runs no kernels, so no
+workload consumes device memory, and the profile's `memory.used_bytes` — `0` in
+every shipped profile — is what every consumer reads no matter what is
+scheduled.
+
+Set `allocationWatcher.enabled=true` to make used and free memory track
+Kubernetes GPU allocation instead: a sidecar polls the kubelet pod-resources API
+and moves the numbers as claims come and go. The values are still synthetic —
+they report that a claim *exists*, not what a workload touched — which is enough
+to exercise a consumer that reads memory pressure. See
+[allocation-aware memory](configuration.md#allocation-aware--opt-in).
 
 ## Why does `lsmod` show no `nvidia` module?
 

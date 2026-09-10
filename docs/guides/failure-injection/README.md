@@ -10,18 +10,17 @@ inside the pod.
 
 With `BUILD_LOCAL=true` the demo gets its own cluster
 (`nvml-mock-failure-demo`), which is the only configuration that fully
-isolates it from the standalone demo.
+isolates it from any other Mokka release.
 
 On the default path it shares whatever cluster you point it at, so it installs
 a release called `nvml-mock-failure` into a namespace of its own,
 `mokka-failure` (override with `NAMESPACE=...`), both distinct from the
-standalone demo's `nvml-mock` in `mokka`. The release name is what does the
-real work here, for the reason below; the namespace just keeps the two demos'
-namespaced objects from interleaving.
+quick start's `nvml-mock` in `mokka`, so the two installs never adopt each
+other's objects.
 
-> **Do not point `NAMESPACE=` at the standalone demo's namespace.** The demo
-> refuses to install if the other demo's release is already there, and exits
-> `4`. That refusal exists because **the two demos share per-node host state
+> **Do not point `NAMESPACE=` at another Mokka release's namespace.** The demo
+> refuses to install if another Mokka release is already there, and exits
+> `4`. That refusal exists because **the two releases share per-node host state
 > whatever namespace they use.** Both DaemonSets mount the same hostPaths,
 > `/var/lib/nvml-mock`, `/var/run/cdi`, `/run/nvidia` and the NFD features
 > directory, and none of those is scoped by release or by namespace.
@@ -40,29 +39,12 @@ namespaced objects from interleaving.
 > `DEMO_ASSUME_YES=true` overrides it. If you use that, treat the affected
 > nodes as dirty until one of the demos is reinstalled on its own.
 
-**A namespace alone cannot separate the two demos, so the release name does
-the work.** The chart creates a ClusterRole and a ClusterRoleBinding named
-after the release (`templates/rbac.yaml`), and those are cluster-scoped: with
-both demos installing a release called `nvml-mock`, the second one fails
-outright, before creating anything, with
-
-```
-Error: unable to continue with install: ClusterRole "nvml-mock" in namespace ""
-exists and cannot be imported into the current release: invalid ownership
-metadata; annotation validation error: key "meta.helm.sh/release-namespace"
-must equal "mokka-failure": current value is "mokka"
-```
-
-That is why this demo's release is **`nvml-mock-failure`**, not `nvml-mock`.
-The namespace split is still needed, but it is the release name that keeps the
-cluster-scoped objects apart.
-
-**Even with both, this is not isolation.** The chart's hostPath mounts are
+**Distinct names are bookkeeping, not isolation.** The chart's hostPath mounts are
 fixed and release-independent (`/var/lib/nvml-mock`, `/var/run/cdi`,
 `/run/nvidia`, and the NFD features directory), and it ships `nodeSelector: {}`
 with `tolerations: [{operator: Exists}]`, so both DaemonSets land on every node
 and write the same per-node host state whatever they are called. Do not run
-this demo and the standalone demo against the same cluster at the same time.
+this demo alongside another Mokka release on the same cluster.
 
 The Kind topology itself is the shared
 [`../kind.yaml`](../kind.yaml) (1 control-plane + 3 workers with
@@ -257,7 +239,7 @@ For the full per-mode behaviour contract see
 # Default path: the cluster was already yours, so only remove the release.
 # The -n and --kube-context are load-bearing. Without them helm resolves the
 # release from whatever context and namespace happen to be current, which on
-# a shared cluster is how this can delete the standalone demo's release.
+# a shared cluster is how this can delete another Mokka release.
 helm uninstall nvml-mock-failure -n mokka-failure --kube-context <your-context>
 
 # BUILD_LOCAL=true also created a cluster, so tear that down too:
