@@ -29,13 +29,16 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  CHART_NAME: nvml-mock
-  CHART_DIR: deployments/nvml-mock/helm
-
 jobs:
   lint:
     runs-on: ubuntu-latest
+
+    # `ct lint` covers the nvml-mock chart tree only. mokka-crds is linted and
+    # template-rendered by the `crds` job via `make helm-crds-tests`, because
+    # chart-testing wants a values/CI layout that a CRDs-only chart does not
+    # have.
+    env:
+      CHART_DIR: deployments/nvml-mock/helm
 
     steps:
       - name: Checkout repository
@@ -93,6 +96,11 @@ jobs:
     needs:
       - lint
       - unittest
+      # A matrix cannot express a per-leg `needs`, so the crds gate applies to
+      # both legs: a broken mokka-crds chart now also holds back the nvml-mock
+      # publish. That is the price of one job definition instead of two
+      # copy-pasted ones, and both charts are cut from the same commit anyway.
+      - crds
 
     # This job is privileged.
     # We protect it from malicious forks by only triggering when it's a push event on main.
@@ -101,6 +109,19 @@ jobs:
       github.ref == 'refs/heads/main'
 
     runs-on: ubuntu-latest
+
+    strategy:
+      # Never cancel a sibling leg. Each leg pushes and then cosign-signs in
+      # two non-atomic steps, and fail-fast cancellation of a leg sitting
+      # between those two steps would leave an unsigned chart in GHCR, which is
+      # the same hazard the workflow-level `cancel-in-progress` guards against.
+      fail-fast: false
+      matrix:
+        include:
+          - chart: nvml-mock
+            dir: deployments/nvml-mock/helm
+          - chart: mokka-crds
+            dir: deployments/mokka-crds/helm
 
     permissions:
       contents: read
@@ -117,7 +138,7 @@ jobs:
       - name: Read chart version
         id: chart
         run: |
-          version=$(helm show chart ${{ env.CHART_DIR }}/${{ env.CHART_NAME }} | grep '^version:' | awk '{print $2}')
+          version=$(helm show chart ${{ matrix.dir }}/${{ matrix.chart }} | grep '^version:' | awk '{print $2}')
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
@@ -130,7 +151,7 @@ jobs:
       - name: Package chart
         run: |
           helm package \
-            ${{ env.CHART_DIR }}/${{ env.CHART_NAME }} \
+            ${{ matrix.dir }}/${{ matrix.chart }} \
             --destination .cr-release-packages
 
       # GHCR intermittently 404s the tag operation right after a fresh
@@ -144,7 +165,7 @@ jobs:
 
           for attempt in 1 2 3; do
             if helm push \
-              .cr-release-packages/${{ env.CHART_NAME }}-${{ steps.chart.outputs.version }}.tgz \
+              .cr-release-packages/${{ matrix.chart }}-${{ steps.chart.outputs.version }}.tgz \
               oci://ghcr.io/nvidia/k8s-test-infra/chart \
               2>&1 | tee push.log; then
               break
@@ -184,4 +205,4 @@ jobs:
       - name: Sign OCI artifact
         run: |
           cosign sign --yes \
-            ghcr.io/nvidia/k8s-test-infra/chart/${{ env.CHART_NAME }}@${{ steps.push.outputs.digest }}
+            ghcr.io/nvidia/k8s-test-infra/chart/${{ matrix.chart }}@${{ steps.push.outputs.digest }}

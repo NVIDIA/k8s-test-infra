@@ -83,6 +83,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a follow-up. (#712)
 
 ### Added
+- The `mokka-crds` chart is published to
+  `oci://ghcr.io/nvidia/k8s-test-infra/chart` and cosign-signed, alongside the
+  `nvml-mock` chart. It was previously linted and template-rendered in CI but
+  never pushed, so the CRDs could only be applied from a source checkout. The
+  chart moves from 0.1.0 to 0.4.0 to line up with the release.
 - The node agent gains `pcibus`, `cdi` and `imex` simulators, each an
   `agent.Simulator` with the same stage/apply/discard lifecycle as the existing
   `gpudriver`. Together they subsume the device-surface construction that
