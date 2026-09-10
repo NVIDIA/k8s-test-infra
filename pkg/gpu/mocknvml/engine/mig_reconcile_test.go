@@ -60,6 +60,15 @@ const migEnable2x3g = `devices:
           count: 2
 `
 
+// migEnablePendingOnly is how hardware stages a MIG enable: the mode a reset
+// would come up in flips before the current one does.
+const migEnablePendingOnly = `devices:
+  "0":
+    mig:
+      mode_current: disabled
+      mode_pending: enabled
+`
+
 const migDisable = `devices:
   "0":
     mig:
@@ -82,9 +91,9 @@ const a100PlacementCapacity = 7
 
 // migPartitionCount counts the MIG devices NVML enumerates on a board. It walks
 // the whole index range instead of stopping at the first miss so a sparse
-// enumeration cannot read as an empty one, and it walks past a lowered ceiling
-// so a document that raises both the ceiling and the layout still counts every
-// partition.
+// enumeration cannot read as an empty one, and it walks the placement grid
+// rather than the reported ceiling so a document that lowers the ceiling below
+// the live partition count still counts every partition.
 func migPartitionCount(t *testing.T, dev *ConfigurableDevice) int {
 	t.Helper()
 	maxCount, ret := dev.GetMaxMigDeviceCount()
@@ -286,12 +295,59 @@ func TestReconcileMIG_IgnoresBoardsWithoutMIG(t *testing.T) {
 	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret)
 }
 
+// TestReconcileMIG_WarnsOnPendingOnlyOverrideWithoutMIG: a document that only
+// stages MIG for the next reset is still an override its author expects to take
+// effect, so a board that cannot honour it has to say so. Dropping the request
+// in silence is what leaves an operator reading an unpartitioned board with no
+// account of why.
+func TestReconcileMIG_WarnsOnPendingOnlyOverrideWithoutMIG(t *testing.T) {
+	dev, path, clock := newTestDevice(t, &DeviceConfig{Name: "Tesla T4"})
+
+	var ret nvml.Return
+	stderr := captureStderr(t, func() {
+		writeConfigOverride(t, path, migEnablePendingOnly, clock)
+		// GetMigMode drives the refresh that reaches the reconciler.
+		_, _, ret = dev.GetMigMode()
+	})
+
+	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret)
+	require.Contains(t, stderr, "not MIG-capable",
+		"a pending-only enable on a board without MIG should be diagnosed")
+}
+
+// captureStderr returns what fn wrote to the process's stderr, which is where
+// warnLog puts diagnostics and therefore the only place they can be asserted
+// from. The redirection is process-wide, so callers must not run in parallel.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "stderr")
+	file, err := os.Create(path)
+	require.NoError(t, err)
+
+	saved := os.Stderr
+	os.Stderr = file
+	// Deferred so a failed assertion inside fn, which unwinds the goroutine,
+	// cannot leave the rest of the run without its stderr.
+	defer func() {
+		os.Stderr = saved
+		require.NoError(t, file.Close())
+	}()
+
+	fn()
+
+	// warnLog writes unbuffered, so everything fn emitted is already on disk.
+	out, err := os.ReadFile(path)
+	require.NoError(t, err)
+	return string(out)
+}
+
 // TestReconcileMIG_ConcurrentCeilingReads: the MIG ceiling stopped being
 // immutable when a reconciler started writing it, so a consumer polling it
-// from another goroutine now races the rebuild. The assertion is deliberately
-// weak — only that every ceiling observed is one the documents in play can
-// produce — because what this test exists to surface is the -race report, not
-// a wrong value.
+// from another goroutine now races the rebuild. The assertion on the concurrent
+// reads is deliberately weak — only that every ceiling observed is one the
+// documents in play can produce — because what those reads exist to surface is
+// the -race report, not a wrong value. Convergence is asserted serially once
+// the reader is gone, where a value can actually be wrong.
 func TestReconcileMIG_ConcurrentCeilingReads(t *testing.T) {
 	dev, path, _ := newTestDevice(t, a100MIGConfig())
 
@@ -352,6 +408,77 @@ func TestReconcileMIG_ConcurrentCeilingReads(t *testing.T) {
 
 	require.Positive(t, polls, "the reader must have observed the ceiling at least once")
 	require.Empty(t, illegal, "every ceiling read must be one the overrides declare")
+
+	// Surviving the race is not the same as landing on the right value: a
+	// refresh that lost the TryLock to the reader has to be picked up by a
+	// later one, so the last document written is what the board must settle on.
+	settled, ret := dev.GetMaxMigDeviceCount()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, 3, settled, "the ceiling should converge on the last document's")
+}
+
+// a100NodeConfig is a one-GPU A100 node whose board UUID is pinned. A
+// partition's UUID is derived from its board's, and the mock generates a random
+// board UUID per server, so pinning it is what lets a layout compiled from one
+// config be compared against a board built from another. Passing nil leaves the
+// board with MIG off, the state a100MIGConfig declares.
+func a100NodeConfig(mig *MIGConfig) *Config {
+	dev := a100MIGConfig()
+	if mig != nil {
+		dev.MIG = mig
+	}
+	return &Config{
+		NumDevices: 1,
+		YAMLConfig: &YAMLConfig{
+			Version:        "1.0",
+			DeviceDefaults: *dev,
+			Devices:        []DeviceOverride{{Index: 0, UUID: "GPU-11111111-2222-3333-4444-555555555555"}},
+		},
+	}
+}
+
+// TestReconcileMIG_UUIDLookupFollowsARepartition: DeviceGetHandleByUUID is the
+// one MIG read no handle guard precedes, and the device plugin's health monitor
+// places a partition through it, so a UUID belonging to the layout a document
+// just asked for has to resolve without any other read having refreshed first.
+func TestReconcileMIG_UUIDLookupFollowsARepartition(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "overrides.yaml")
+	now := time.Unix(0, 0)
+	configOverrides = newConfigOverrideStoreAt(
+		func() string { return path },
+		func() time.Time { return now },
+	)
+	t.Cleanup(resetConfigOverrideStoreForTesting)
+
+	// The UUID nvml-mock-ctl predicts for the layout it is about to request,
+	// compiled from a config rather than read off the live board: resolving it
+	// through the engine first would refresh the board, which is the very thing
+	// under test.
+	predicted := DeclaredMIGLayout(a100NodeConfig(&MIGConfig{
+		ModeCurrent:  "enabled",
+		ModePending:  "enabled",
+		GPUInstances: []MIGGPUInstanceConfig{{Profile: "3g.20gb", Count: 2}},
+	}))
+	require.Len(t, predicted, 1)
+	require.Len(t, predicted[0].GPUInstances, 2)
+	require.NotEmpty(t, predicted[0].GPUInstances[1].ComputeInstances)
+	uuid := predicted[0].GPUInstances[1].ComputeInstances[0].UUID
+	require.NotEmpty(t, uuid)
+
+	e := NewEngine(a100NodeConfig(nil))
+	require.Equal(t, nvml.SUCCESS, e.Init())
+	t.Cleanup(func() { _ = e.Shutdown() })
+
+	require.NoError(t, os.WriteFile(path, []byte(migEnable2x3g), 0o644))
+	now = now.Add(2 * time.Second)
+
+	handle, ret := e.DeviceGetHandleByUUID(uuid)
+	require.Equal(t, nvml.SUCCESS, ret,
+		"a partition of the layout the document asked for must resolve by UUID")
+	isMig, ret := e.LookupConfigurableDevice(handle).IsMigDeviceHandle()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.True(t, isMig, "%s resolved to a handle that denies being a MIG device", uuid)
 }
 
 // TestDeclaredMIGLayout_IgnoresOverridesOnDisk: the declared layout is what
