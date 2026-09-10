@@ -8,6 +8,11 @@
 # Deliberately the same DaemonSet name as device-plugin-mock.yaml: two device
 # plugins advertising nvidia.com/gpu on one node would race, so this is applied
 # as a replacement rather than alongside.
+#
+# Which means the two must select the same nodes. A node this manifest admits
+# but device-plugin-mock.yaml does not keeps the partition count kubelet
+# registered here with no plugin left to serve it — allocatable drops to zero
+# and never recovers, because nothing re-registers the whole-GPU set.
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -23,7 +28,7 @@ spec:
         name: nvidia-device-plugin-mock
     spec:
       nodeSelector:
-        nvidia.com/gpu.present: "true"
+        mokka.nvidia.com/type: sgpu
       tolerations:
         - operator: Exists
       containers:
