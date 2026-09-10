@@ -275,8 +275,16 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 				// is questioned on, which both fails the spec and leaves a live
 				// override behind on a node no later reset visits.
 				DeferCleanup(func(ctx SpecContext) {
-					nvmlMockCtlOnNode(ctx, h, node, "reset", "--gpu", "all")
+					resetRuntimeOverridesOnNode(ctx, h, node)
 				})
+
+				// Repartitioning down to one partition only asserts anything
+				// on a profile that declares more than one: at one, GPU 0
+				// already reports the count the override asks for and the
+				// restore below is satisfied by the state never changing.
+				Expect(partitions).To(BeNumerically(">", 1),
+					"profile %s declares %d partition(s) per GPU, which cannot distinguish a repartition from an inert override",
+					p.Name, partitions)
 
 				By("re-lay-out GPU 0 as a single " + p.MIGDeviceProfile() + " partition")
 				nvmlMockCtlOnNode(ctx, h, node, "mig", "--gpu", "0", "enable",
@@ -291,7 +299,7 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 					"a repartition of GPU 0 must not disturb its neighbours")
 
 				By("clear the override and let the profile's declared layout come back")
-				nvmlMockCtlOnNode(ctx, h, node, "reset", "--gpu", "all")
+				resetRuntimeOverridesOnNode(ctx, h, node)
 
 				Eventually(func() int {
 					return len(migPartitionsOfGPU(migDevicesOnNode(ctx, h, node), 0))
