@@ -10,6 +10,16 @@ import (
 	"strings"
 )
 
+// The `nvidia-smi -L` MIG listing, which is the one text surface this package
+// parses on purpose.
+//
+// `nvidia-smi -q -x` describes MIG in <mig_mode> and <mig_devices>, and the
+// readings on Snapshot and GPU are where partition counts, per-GPU attribution
+// and the mode itself come from. But that block carries no MIG UUID and no
+// profile name: nvidia-smi emits neither anywhere in the document. A consumer
+// addresses a partition by its UUID and picks one by profile name, so both are
+// worth asserting, and `-L` is the only place either is printed.
+
 // MigDevice is one MIG partition as `nvidia-smi -L` lists it.
 //
 // Index is the partition's position under its parent, which is what
@@ -35,6 +45,10 @@ var (
 // nvidia-smi binary through it is what makes it worth asserting on: it exercises
 // the mock's MIG surface the way the tool does, rather than re-reading the
 // layout the mock was configured with.
+//
+// Profile and UUID are what only this listing answers. A caller after a
+// partition count reads <mig_devices> from `nvidia-smi -q -x` instead, where
+// the count comes with the MIG mode that explains it.
 func ListMigDevices(out string) []MigDevice {
 	var (
 		devices []MigDevice

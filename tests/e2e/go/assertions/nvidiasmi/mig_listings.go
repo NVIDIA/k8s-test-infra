@@ -12,8 +12,11 @@ import (
 
 // Parsers for the `nvidia-smi mig` listings, which is the surface operators
 // and nvidia-mig-parted drive. It reaches NVML through different entry points
-// than `nvidia-smi -L` does, so it can disagree with the `-L` enumeration the
-// rest of this package reads; comparing the two is the point of parsing it.
+// than `nvidia-smi -q -x` does, so it can disagree with the <mig_devices>
+// enumeration the rest of this package reads; comparing the two is the point of
+// parsing it. There is no machine-readable alternative to fall back on:
+// `nvidia-smi mig` rejects -x, so these tables are the only form these
+// subcommands have.
 //
 // Every listing is a box-drawn table whose columns are space-padded to align,
 // so rows are matched rather than split on whitespace. The `MIG ` literal in
