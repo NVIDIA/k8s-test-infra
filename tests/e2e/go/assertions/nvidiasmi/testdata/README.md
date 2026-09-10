@@ -14,6 +14,7 @@ per-GPU indexing and override scoping.
 | `qx-gb200-ecc-injected.xml` | GPU 0 has a non-zero `ecc_errors/aggregate/dram_uncorrectable`. |
 | `qx-gb200-fabric-degraded.xml` | GPU 0 fabric healthy, GPU 1 `route_unhealthy` (#677). Taken against the fixed library, so it is also the healthy-fabric reference. |
 | `qx-gb200-throttle-counters.xml` | GPU 0 has accrued 39595 us of `sw_power_cap`, GPU 1 none (#678). `qx-gb200-healthy.xml` predates the fix and holds the `N/A` these counters used to read. |
+| `qx-h100-mig-enabled.xml` | Hopper with MIG on: both GPUs carved into seven `1g.10gb` partitions, so `mig_mode` reads `Enabled` and `mig_devices` carries children. Every other fixture reports the mode off, which is what the negative controls read. |
 
 `hardware/` holds untrimmed captures from real nodes, for checking these
 mock-produced fixtures against what the boards actually report.
@@ -34,6 +35,9 @@ For the lost and ECC variants, inject first and wait out the 30 s override TTL:
     kubectl exec -n mokka <pod> -- nvml-mock-ctl fail --gpu 0 --mode ecc_uncorrectable --after-calls 1
     kubectl exec -n mokka <pod> -- nvml-mock-ctl fabric-health --gpu 1 route_unhealthy
     kubectl exec -n mokka <pod> -- nvml-mock-ctl set --gpu 0 clocks_throttle_reasons.counters.sw_power_cap_us=39595
+
+For the MIG variant, install the chart with `gpu.mig.enabled=true` on a
+MIG-capable profile; the partitions come from the profile's declared layout.
 
 Then trim to two GPUs, keeping the header and the first two `<gpu>` blocks and
 rewriting `attached_gpus` to 2.
