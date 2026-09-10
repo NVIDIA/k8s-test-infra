@@ -513,7 +513,7 @@ func TestEngine_DeviceGetHandleByPciBusIdInvalid(t *testing.T) {
 func TestDetectVisibleDevices_NonePresent(t *testing.T) {
 	dir := t.TempDir()
 	// No files created – simulates no /dev/nvidia* nodes
-	result := detectVisibleDevicesAt(dir+"/nvidia%d", []int{0, 1, 2, 3})
+	result := detectVisibleDevicesAt(dir+"/nvidia%d", &Config{NumDevices: 4})
 	require.Nil(t, result, "Expected nil (no filtering) when no nodes exist")
 }
 
@@ -527,7 +527,7 @@ func TestDetectVisibleDevices_AllPresent(t *testing.T) {
 		require.NoError(t, f.Close())
 	}
 
-	result := detectVisibleDevicesAt(dir+"/nvidia%d", []int{0, 1, 2, 3})
+	result := detectVisibleDevicesAt(dir+"/nvidia%d", &Config{NumDevices: 4})
 	require.Nil(t, result, "Expected nil (no filtering) when all nodes exist")
 }
 
@@ -542,7 +542,7 @@ func TestDetectVisibleDevices_Subset(t *testing.T) {
 		require.NoError(t, f.Close())
 	}
 
-	result := detectVisibleDevicesAt(dir+"/nvidia%d", []int{0, 1, 2, 3})
+	result := detectVisibleDevicesAt(dir+"/nvidia%d", &Config{NumDevices: 4})
 	require.Len(t, result, 2, "Expected 2 visible devices")
 	require.Equal(t, []int{0, 2}, result, "Expected visible devices [0 2]")
 }
@@ -552,14 +552,24 @@ func TestDetectVisibleDevices_Subset(t *testing.T) {
 // staged for a device whose minor differs from its index must therefore be
 // reported under the index, not under the minor.
 func TestDetectVisibleDevices_ReportsIndicesNotMinorNumbers(t *testing.T) {
-	dir := t.TempDir()
-	f, err := os.Create(fmt.Sprintf("%s/nvidia%d", dir, 3))
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
+	t.Parallel()
 
-	// Device index 2 owns minor 3, so the lone node makes index 2 visible.
-	result := detectVisibleDevicesAt(dir+"/nvidia%d", []int{1, 0, 3, 2})
-	require.Equal(t, []int{2}, result)
+	dir := t.TempDir()
+	for _, minor := range []int{0, 3} {
+		require.NoError(t, os.WriteFile(fmt.Sprintf("%s/nvidia%d", dir, minor), nil, 0o600))
+	}
+	zero, one, two, three := 0, 1, 2, 3
+	config := &Config{
+		NumDevices: 4,
+		YAMLConfig: &YAMLConfig{Devices: []DeviceOverride{
+			{Index: 0, MinorNumber: &one},
+			{Index: 1, MinorNumber: &zero},
+			{Index: 2, MinorNumber: &three},
+			{Index: 3, MinorNumber: &two},
+		}},
+	}
+
+	require.Equal(t, []int{1, 2}, detectVisibleDevicesAt(dir+"/nvidia%d", config))
 }
 
 // TestVisibility_DeviceGetCount verifies that DeviceGetCount returns the

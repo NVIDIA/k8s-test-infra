@@ -659,18 +659,18 @@ func ResetForTesting() {
 // exist (host context where /dev/nvidia* may not be present but NVML should
 // still work).
 func detectVisibleDevices(config *Config) []int {
+	return detectVisibleDevicesAt("/dev/nvidia%d", config)
+}
+
+// detectVisibleDevicesAt uses the configured driver minor numbers to find
+// device nodes, but returns NVML indices. A separate path format lets tests
+// exercise the same configuration-to-visibility mapping without writing /dev.
+func detectVisibleDevicesAt(pathFmt string, config *Config) []int {
 	minorNumbers := make([]int, 0, config.NumDevices)
 	for i := 0; i < config.NumDevices && i < MaxDevices; i++ {
 		minorNumbers = append(minorNumbers, config.GetDeviceMinorNumber(i))
 	}
-	return detectVisibleDevicesAt("/dev/nvidia%d", minorNumbers)
-}
 
-// detectVisibleDevicesAt is the testable core of detectVisibleDevices.
-// pathFmt is a printf format that takes the minor number of a device
-// (e.g. "/dev/nvidia%d"); minorNumbers is indexed by device index, so the
-// returned positions are NVML indices rather than minor numbers.
-func detectVisibleDevicesAt(pathFmt string, minorNumbers []int) []int {
 	var present []int
 	var absent int
 
