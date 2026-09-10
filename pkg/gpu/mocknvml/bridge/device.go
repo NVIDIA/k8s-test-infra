@@ -783,10 +783,18 @@ func nvmlDeviceGetComputeRunningProcesses_v3(nvmlDevice C.nvmlDevice_t, infoCoun
 	if ret != nvml.SUCCESS {
 		return toReturn(ret)
 	}
+	// Count probe. NVML's form for it is *infoCount = 0 with infos allowed to be
+	// NULL, and the return code — not the count — is what tells the caller
+	// whether to allocate and call again: INSUFFICIENT_SIZE means "there are
+	// processes", SUCCESS means "there are none". Answering SUCCESS either way
+	// reads as an idle GPU to a caller written to the header, which then never
+	// makes the filling call.
 	if infos == nil {
-		// Caller is querying the count
 		*infoCount = C.uint(len(procs))
-		return C.NVML_SUCCESS
+		if len(procs) == 0 {
+			return C.NVML_SUCCESS
+		}
+		return C.NVML_ERROR_INSUFFICIENT_SIZE
 	}
 	bufSize := int(*infoCount)
 	if len(procs) > bufSize {
@@ -826,14 +834,20 @@ func nvmlDeviceGetProcessUtilization(nvmlDevice C.nvmlDevice_t, utilization *C.n
 		return toReturn(ret)
 	}
 
-	// Probe call (utilization==nil): report the count. INSUFFICIENT_SIZE when there
-	// are samples (go-nvml then allocates and re-calls); SUCCESS when there are none
-	// (yields a clean empty result rather than an error).
+	// An empty result is NOT_FOUND, not a zero count, on either call: that is
+	// what the header specifies, and it is how a caller renders "nothing
+	// running" instead of falling through its success path having been told
+	// samples were written.
+	if len(samples) == 0 {
+		*processSamplesCount = 0
+		return C.NVML_ERROR_NOT_FOUND
+	}
+
+	// Probe call (utilization==nil): report the count. INSUFFICIENT_SIZE is not
+	// in this function's documented return list, but it is what a real driver
+	// answers and what go-nvml re-calls on, so the mock keeps it.
 	if utilization == nil {
 		*processSamplesCount = C.uint(len(samples))
-		if len(samples) == 0 {
-			return C.NVML_SUCCESS
-		}
 		return C.NVML_ERROR_INSUFFICIENT_SIZE
 	}
 
@@ -843,16 +857,14 @@ func nvmlDeviceGetProcessUtilization(nvmlDevice C.nvmlDevice_t, utilization *C.n
 		return C.NVML_ERROR_INSUFFICIENT_SIZE
 	}
 	*processSamplesCount = C.uint(len(samples))
-	if len(samples) > 0 {
-		out := unsafe.Slice(utilization, len(samples))
-		for i, s := range samples {
-			out[i].pid = C.uint(s.Pid)
-			out[i].timeStamp = C.ulonglong(s.TimeStamp)
-			out[i].smUtil = C.uint(s.SmUtil)
-			out[i].memUtil = C.uint(s.MemUtil)
-			out[i].encUtil = C.uint(s.EncUtil)
-			out[i].decUtil = C.uint(s.DecUtil)
-		}
+	out := unsafe.Slice(utilization, len(samples))
+	for i, s := range samples {
+		out[i].pid = C.uint(s.Pid)
+		out[i].timeStamp = C.ulonglong(s.TimeStamp)
+		out[i].smUtil = C.uint(s.SmUtil)
+		out[i].memUtil = C.uint(s.MemUtil)
+		out[i].encUtil = C.uint(s.EncUtil)
+		out[i].decUtil = C.uint(s.DecUtil)
 	}
 	return C.NVML_SUCCESS
 }
@@ -2302,10 +2314,14 @@ func nvmlDeviceGetGraphicsRunningProcesses_v3(device C.nvmlDevice_t, infoCount *
 	if ret != nvml.SUCCESS {
 		return toReturn(ret)
 	}
+	// Same count-probe contract as the compute query above: the return code, not
+	// the count, is how the caller learns whether to allocate and call again.
 	if infos == nil {
-		// Caller is querying the count
 		*infoCount = C.uint(len(procs))
-		return C.NVML_SUCCESS
+		if len(procs) == 0 {
+			return C.NVML_SUCCESS
+		}
+		return C.NVML_ERROR_INSUFFICIENT_SIZE
 	}
 	bufSize := int(*infoCount)
 	if len(procs) > bufSize {

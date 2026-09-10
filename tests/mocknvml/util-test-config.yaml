@@ -388,6 +388,14 @@ devices:
     pci:
       bus_id: "0000:4E:00.0"
     minor_number: 3
+    # The only graphics process in the fixture, so the graphics running-process
+    # query has a non-empty answer to probe: the defaults run a compute process
+    # and device 1 runs none, which between them cover neither.
+    processes:
+      - pid: 5150
+        type: "G"
+        name: "Xorg"
+        used_memory_mib: 128
 
   - index: 4
     uuid: "GPU-12345678-1234-1234-1234-123456780004"
