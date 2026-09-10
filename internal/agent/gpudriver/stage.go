@@ -37,7 +37,7 @@ func stageCharDevs(ctx context.Context, h *host.Host, state *agent.State) error 
 	}
 	devs := make([]charDev, 0, len(state.Devices)+3)
 	for _, d := range state.Devices {
-		devs = append(devs, charDev{fmt.Sprintf("nvidia%d", d.Index), 195, uint32(d.Index)})
+		devs = append(devs, charDev{fmt.Sprintf("nvidia%d", d.MinorNumber), 195, uint32(d.MinorNumber)})
 	}
 	devs = append(devs,
 		charDev{"nvidiactl", 195, 255},

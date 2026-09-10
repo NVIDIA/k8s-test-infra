@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -258,6 +259,10 @@ func validateYAMLConfig(config *YAMLConfig) error {
 		seen[dev.Index] = true
 	}
 
+	if err := ValidateMinorNumbers(config); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -296,18 +301,92 @@ func (c *Config) GetDeviceUUID(index int) string {
 	return ""
 }
 
-// GetDeviceMinorNumber returns the minor number for a specific device index
+// GetDeviceMinorNumber returns the minor number for a specific device index.
 func (c *Config) GetDeviceMinorNumber(index int) int {
-	if c.YAMLConfig == nil {
+	return DeviceMinorNumber(c.YAMLConfig, index)
+}
+
+// maxDeviceMinor is the highest minor major 195 leaves for a GPU: the driver
+// keeps 255 for nvidiactl.
+const maxDeviceMinor = 254
+
+// DeviceMinorNumber returns the /dev/nvidia<N> a device is staged under,
+// defaulting to the index for devices that do not declare one — the numbering
+// a driver produces when it probes in PCI enumeration order.
+//
+// The agent and the engine both resolve minors through here so the nodes that
+// get staged and the nodes the visibility filter looks for cannot drift apart.
+func DeviceMinorNumber(config *YAMLConfig, index int) int {
+	if config == nil {
 		return index
 	}
 
-	for _, dev := range c.YAMLConfig.Devices {
-		if dev.Index == index {
-			return dev.MinorNumber
+	for _, dev := range config.Devices {
+		if dev.Index == index && dev.MinorNumber != nil {
+			return *dev.MinorNumber
 		}
 	}
 	return index
+}
+
+// ValidateMinorNumbers rejects minors that no device node can carry and minors
+// two devices would end up sharing. Defaulted devices take part: one that never
+// declares a minor still occupies its index, so an explicit value elsewhere can
+// collide with it.
+func ValidateMinorNumbers(config *YAMLConfig) error {
+	if config == nil {
+		return nil
+	}
+
+	for _, dev := range config.Devices {
+		if dev.MinorNumber == nil {
+			continue
+		}
+		if *dev.MinorNumber < 0 || *dev.MinorNumber > maxDeviceMinor {
+			return fmt.Errorf("device %d: device minor number out of range (0-%d): %d",
+				dev.Index, maxDeviceMinor, *dev.MinorNumber)
+		}
+	}
+
+	seen := make(map[int]int, deviceSpace(config))
+	for _, index := range deviceIndices(config) {
+		minor := DeviceMinorNumber(config, index)
+		if other, dup := seen[minor]; dup {
+			return fmt.Errorf("duplicate device minor number: %d (devices %d and %d)", minor, other, index)
+		}
+		seen[minor] = index
+	}
+
+	return nil
+}
+
+// deviceIndices lists every device the config brings into being: those the
+// count covers, plus any the overrides declare beyond it.
+func deviceIndices(config *YAMLConfig) []int {
+	n := deviceSpace(config)
+	indices := make([]int, 0, n)
+	seen := make(map[int]bool, n)
+	for i := 0; i < n; i++ {
+		indices = append(indices, i)
+		seen[i] = true
+	}
+	for _, dev := range config.Devices {
+		if !seen[dev.Index] {
+			indices = append(indices, dev.Index)
+			seen[dev.Index] = true
+		}
+	}
+	sort.Ints(indices)
+	return indices
+}
+
+// deviceSpace is how many devices the config describes before any runtime cap.
+func deviceSpace(config *YAMLConfig) int {
+	n := len(config.Devices)
+	if config.System.NumDevices > n {
+		n = config.System.NumDevices
+	}
+	return n
 }
 
 // GetDevicePCIBusID returns the PCI bus ID for a specific device index

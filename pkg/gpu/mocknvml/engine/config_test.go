@@ -14,6 +14,7 @@
 package engine
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -216,4 +217,141 @@ devices:
 	d2 := c.GetDeviceConfig(2) // no override -> inherit
 	require.Len(t, d2.Processes, 1, "device 2 (inherit) len")
 	require.Equal(t, uint32(1), d2.Processes[0].PID, "device 2 (inherit) PID")
+}
+
+// A device that does not declare minor_number takes the index, which is what
+// the driver assigns when probe order follows PCI enumeration order. Treating
+// an omitted key as minor 0 would point every such device at /dev/nvidia0.
+func TestGetDeviceMinorNumber_DefaultsToIndex(t *testing.T) {
+	t.Parallel()
+
+	y := `
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+devices:
+  - index: 0
+    uuid: "GPU-aaa"
+  - index: 1
+    uuid: "GPU-bbb"
+`
+	var yc YAMLConfig
+	require.NoError(t, yaml.Unmarshal([]byte(y), &yc), "yaml decode")
+	c := &Config{YAMLConfig: &yc}
+
+	require.Equal(t, 0, c.GetDeviceMinorNumber(0))
+	require.Equal(t, 1, c.GetDeviceMinorNumber(1))
+	require.Equal(t, 2, c.GetDeviceMinorNumber(2), "device without an override entry")
+}
+
+// Nodes whose driver probe order does not follow PCI enumeration order report
+// minor numbers that do not match the NVML index, so the profile must be able
+// to say so — including minor 0 on a device that is not index 0.
+func TestGetDeviceMinorNumber_HonorsExplicitValue(t *testing.T) {
+	t.Parallel()
+
+	y := `
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+devices:
+  - index: 0
+    minor_number: 2
+  - index: 1
+    minor_number: 0
+`
+	var yc YAMLConfig
+	require.NoError(t, yaml.Unmarshal([]byte(y), &yc), "yaml decode")
+	c := &Config{YAMLConfig: &yc}
+
+	require.Equal(t, 2, c.GetDeviceMinorNumber(0))
+	require.Equal(t, 0, c.GetDeviceMinorNumber(1))
+}
+
+// Two devices claiming one minor number would collapse onto a single
+// /dev/nvidia<N>, silently handing both GPUs the same character device.
+func TestValidateYAMLConfig_RejectsDuplicateMinorNumbers(t *testing.T) {
+	t.Parallel()
+
+	y := `
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+devices:
+  - index: 0
+    minor_number: 3
+  - index: 1
+    minor_number: 3
+`
+	var yc YAMLConfig
+	require.NoError(t, yaml.Unmarshal([]byte(y), &yc), "yaml decode")
+
+	require.ErrorContains(t, validateYAMLConfig(&yc), "duplicate device minor number: 3")
+}
+
+// A device that omits minor_number still occupies its index as a minor, so an
+// explicit value elsewhere can collide with it. Checking only the values that
+// were spelled out would let both devices reach the same /dev/nvidia<N>.
+func TestValidateYAMLConfig_RejectsCollisionWithADefaultedMinorNumber(t *testing.T) {
+	t.Parallel()
+
+	y := `
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+devices:
+  - index: 0
+    minor_number: 1
+  - index: 1
+`
+	var yc YAMLConfig
+	require.NoError(t, yaml.Unmarshal([]byte(y), &yc), "yaml decode")
+
+	require.ErrorContains(t, validateYAMLConfig(&yc), "duplicate device minor number: 1")
+}
+
+// An implicit device — one the count covers but no entry describes — takes its
+// index as a minor and can be collided with just the same.
+func TestValidateYAMLConfig_RejectsCollisionWithAnUndeclaredDevice(t *testing.T) {
+	t.Parallel()
+
+	y := `
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+  num_devices: 4
+devices:
+  - index: 0
+    minor_number: 3
+`
+	var yc YAMLConfig
+	require.NoError(t, yaml.Unmarshal([]byte(y), &yc), "yaml decode")
+
+	require.ErrorContains(t, validateYAMLConfig(&yc), "duplicate device minor number: 3")
+}
+
+// stageCharDevs formats the node name from the minor and casts it to uint32.
+// A negative value names a node the GPU-node pattern cannot match, so it
+// survives pruning, and 255 is nvidiactl's.
+func TestValidateYAMLConfig_RejectsMinorNumbersOutsideTheDeviceRange(t *testing.T) {
+	t.Parallel()
+
+	for name, minor := range map[string]int{"negative": -1, "nvidiactl": 255} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			y := fmt.Sprintf(`
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+devices:
+  - index: 0
+    minor_number: %d
+`, minor)
+			var yc YAMLConfig
+			require.NoError(t, yaml.Unmarshal([]byte(y), &yc), "yaml decode")
+
+			require.ErrorContains(t, validateYAMLConfig(&yc), "device minor number out of range")
+		})
+	}
 }

@@ -149,13 +149,26 @@ func inputsHash(config, topology []byte) [32]byte {
 	return sha256.Sum256(append(c[:], t[:]...))
 }
 
+// parseProfile decodes a profile and checks what the agent acts on before the
+// engine ever sees the file. The agent stages the character devices and writes
+// both CDI specs, so it cannot wait for the engine to reject minors that
+// collide. Only that check runs here: the rest of the engine's validation
+// demands fields the agent deliberately tolerates, driver_version among them.
+func parseProfile(data []byte) (engine.YAMLConfig, error) {
+	var cfg engine.YAMLConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return cfg, fmt.Errorf("parse yaml: %w", err)
+	}
+	return cfg, engine.ValidateMinorNumbers(&cfg)
+}
+
 // compileState parses raw YAML config bytes and builds the agent State.
 // Runtime telemetry fields (utilization, power, temperature, clocks) are
 // discarded — they belong to the runtime override file owned by nvml-mock-ctl.
 func compileState(data []byte) (*agent.State, error) {
-	var cfg engine.YAMLConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("parse yaml: %w", err)
+	cfg, err := parseProfile(data)
+	if err != nil {
+		return nil, err
 	}
 
 	dv := cfg.System.DriverVersion
@@ -265,7 +278,10 @@ func resolveDeviceCount(cfg engine.YAMLConfig) int {
 
 func buildDeviceSpec(i int, defaults engine.DeviceConfig, devices []engine.DeviceOverride) agent.DeviceSpec {
 	spec := agent.DeviceSpec{
-		Index:        i,
+		Index: i,
+		// Absent an explicit minor_number, the driver is taken to have probed
+		// in index order.
+		MinorNumber:  i,
 		Name:         defaults.Name,
 		Architecture: defaults.Architecture,
 		Serial:       defaults.Serial,
@@ -298,8 +314,8 @@ func applyDeviceOverride(spec *agent.DeviceSpec, ov engine.DeviceOverride) {
 	if ov.Serial != "" {
 		spec.Serial = ov.Serial
 	}
-	if ov.MinorNumber != 0 {
-		spec.MinorNumber = ov.MinorNumber
+	if ov.MinorNumber != nil {
+		spec.MinorNumber = *ov.MinorNumber
 	}
 	// Each PCI field overrides independently, matching how the mock NVML engine
 	// merges the same block (engine/config.go): a device that sets only bus_id

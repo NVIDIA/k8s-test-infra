@@ -16,8 +16,8 @@ import (
 func twoGPUState() *agent.State {
 	return &agent.State{
 		Devices: []agent.DeviceSpec{
-			{Index: 0, UUID: "GPU-aaa"},
-			{Index: 1, UUID: "GPU-bbb"},
+			{Index: 0, UUID: "GPU-aaa", MinorNumber: 0},
+			{Index: 1, UUID: "GPU-bbb", MinorNumber: 1},
 		},
 	}
 }
@@ -290,4 +290,24 @@ func TestNRISpecHostPathsUseOverlayRoot(t *testing.T) {
 				"hostPath %q must be rooted at overlayHostRoot", dn.HostPath)
 		}
 	}
+}
+
+// The device node a container gets has to be the one the driver would have
+// created for that GPU, which is named after the minor number. Naming it after
+// the NVML index hands the container a different GPU's node wherever the two
+// differ.
+func TestNvidiaSpecPerGPUDevicesFollowMinorNumbers(t *testing.T) {
+	state := &agent.State{Devices: []agent.DeviceSpec{{Index: 1, UUID: "GPU-bbb", MinorNumber: 3}}}
+	spec := buildNvidiaSpec(state)
+
+	require.Equal(t, "/dev/nvidia3", spec.Devices[0].ContainerEdits.DeviceNodes[0].Path)
+	// The index and UUID entries address the same GPU, so they share the node.
+	require.Equal(t, spec.Devices[0].ContainerEdits.DeviceNodes, spec.Devices[1].ContainerEdits.DeviceNodes)
+}
+
+func TestNRISpecPerGPUDevicesFollowMinorNumbers(t *testing.T) {
+	state := &agent.State{Devices: []agent.DeviceSpec{{Index: 1, MinorNumber: 3}}}
+	spec := buildNRISpec(state)
+
+	require.Equal(t, "/dev/nvidia3", spec.Devices[0].ContainerEdits.DeviceNodes[0].Path)
 }
