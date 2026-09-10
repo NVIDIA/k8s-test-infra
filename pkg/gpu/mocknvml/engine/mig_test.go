@@ -210,6 +210,56 @@ func TestCreateGpuInstance_RespectsOccupiedSlices(t *testing.T) {
 	require.Equal(t, nvml.ERROR_INSUFFICIENT_RESOURCES, ret)
 }
 
+// A layout restored from an explicit document has to come back with the IDs
+// the document states, or a second process disagrees with the first about
+// which instance is which.
+func TestCreateGpuInstancePinned_UsesTheRequestedID(t *testing.T) {
+	t.Parallel()
+
+	dev := newTestDeviceWithConfig(t, a100MIGConfig())
+	enableMIG(t, dev)
+
+	info, ret := dev.GetGpuInstanceProfileInfo(nvml.GPU_INSTANCE_PROFILE_1_SLICE)
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	want := uint32(5)
+	st := dev.migState
+	st.mu.Lock()
+	gi, ret := st.createGpuInstancePinnedLocked(dev, &info, &nvml.GpuInstancePlacement{Start: 0, Size: 1}, &want)
+	st.mu.Unlock()
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	giInfo, ret := gi.GetInfo()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, want, giInfo.Id)
+}
+
+// Pinning must push the counter past the pinned value, or the next
+// auto-assigned instance collides with one that already exists.
+func TestCreateGpuInstancePinned_AdvancesTheCounter(t *testing.T) {
+	t.Parallel()
+
+	dev := newTestDeviceWithConfig(t, a100MIGConfig())
+	enableMIG(t, dev)
+
+	info, ret := dev.GetGpuInstanceProfileInfo(nvml.GPU_INSTANCE_PROFILE_1_SLICE)
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	pinned := uint32(3)
+	st := dev.migState
+	st.mu.Lock()
+	_, ret = st.createGpuInstancePinnedLocked(dev, &info, &nvml.GpuInstancePlacement{Start: 0, Size: 1}, &pinned)
+	require.Equal(t, nvml.SUCCESS, ret)
+	next, ret2 := st.createGpuInstancePinnedLocked(dev, &info, &nvml.GpuInstancePlacement{Start: 1, Size: 1}, nil)
+	st.mu.Unlock()
+	require.Equal(t, nvml.SUCCESS, ret2)
+
+	nextInfo, ret := next.GetInfo()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.NotEqual(t, pinned, nextInfo.Id, "an auto-assigned id must not collide with a pinned one")
+	require.Greater(t, nextInfo.Id, pinned)
+}
+
 // TestMigDeviceHandleByIndex_StableIdentity matters because the bridge's
 // handle table keys on the device pointer: a fresh object per call would leak
 // a new C handle on every enumeration and break handle equality for consumers

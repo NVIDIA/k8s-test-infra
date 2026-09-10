@@ -855,11 +855,27 @@ func (d *ConfigurableDevice) CreateGpuInstanceWithPlacement(
 	return st.createGpuInstanceLocked(d, info, placement)
 }
 
-// createGpuInstanceLocked delegates creation to the embedded go-nvml mock,
-// which already implements the instance tree, and then fills in the instance
-// methods that mock leaves unset. Requires st.mu.
+// createGpuInstanceLocked creates an instance with a counter-assigned ID.
+// Requires st.mu.
 func (st *migState) createGpuInstanceLocked(
 	parent *ConfigurableDevice, info *nvml.GpuInstanceProfileInfo, placement *nvml.GpuInstancePlacement,
+) (nvml.GpuInstance, nvml.Return) {
+	return st.createGpuInstancePinnedLocked(parent, info, placement, nil)
+}
+
+// createGpuInstancePinnedLocked delegates creation to the embedded go-nvml
+// mock, which already implements the instance tree, and then fills in the
+// instance methods that mock leaves unset. A non-nil id overrides the ID the
+// mock assigned, which is how an explicit layout comes back with the
+// identities it was written down under.
+//
+// Stamping after the fact is safe because the mock keys its instance set on
+// the pointer, never on the ID it handed out. The counter is then pushed past
+// the pinned value so a later auto-assigned instance cannot collide with it.
+// Requires st.mu.
+func (st *migState) createGpuInstancePinnedLocked(
+	parent *ConfigurableDevice, info *nvml.GpuInstanceProfileInfo,
+	placement *nvml.GpuInstancePlacement, id *uint32,
 ) (nvml.GpuInstance, nvml.Return) {
 	if st.maxGPUInstances > 0 && len(st.liveGpuInstances(parent)) >= st.maxGPUInstances {
 		return nil, nvml.ERROR_INSUFFICIENT_RESOURCES
@@ -872,6 +888,14 @@ func (st *migState) createGpuInstanceLocked(
 	gi, ok := created.(*mockserver.GpuInstance)
 	if !ok {
 		return nil, nvml.ERROR_UNKNOWN
+	}
+	if id != nil {
+		parent.Device.Lock()
+		gi.Info.Id = *id
+		if parent.Device.GpuInstanceCounter <= *id {
+			parent.Device.GpuInstanceCounter = *id + 1
+		}
+		parent.Device.Unlock()
 	}
 	st.extendGpuInstance(parent, gi)
 
