@@ -322,7 +322,7 @@ func TestCLI_HelpListsEveryCommand(t *testing.T) {
 	var out, errb bytes.Buffer
 	code := run([]string{"--help"}, &out, &errb)
 	require.Equalf(t, 0, code, "--help exited %d: %s", code, errb.String())
-	for _, want := range []string{"fail", "temp", "sram-ecc", "fabric-health", "status", "reset", "watch-allocations"} {
+	for _, want := range []string{"fail", "temp", "sram-ecc", "fabric-health", "mig", "status", "reset", "watch-allocations"} {
 		require.Containsf(t, out.String(), want, "help output missing %q", want)
 	}
 }
@@ -335,4 +335,199 @@ func TestCLI_ResetGPU(t *testing.T) {
 	_, e, c = runCLI(t, configOverride, "reset", "--gpu", "1")
 	require.Equalf(t, 0, c, "reset: %s", e)
 	require.NotContains(t, readConfigOverride(t, configOverride), "lost", "reset did not remove device 1")
+}
+
+// migTestConfig writes a profile for a two-GPU MIG-capable node, since the
+// layout check and the in-use guard both need a base config to resolve
+// against. GPU 1 declares a compute process, which is what the guard refuses.
+func migTestConfig(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := `version: "1.0"
+system:
+  driver_version: "550.163"
+  nvml_version: "12.550.163"
+  num_devices: 2
+device_defaults:
+  name: NVIDIA A100-SXM4-40GB
+  memory:
+    total_bytes: 42949672960
+    free_bytes: 42949672960
+  mig:
+    mode_current: disabled
+    mode_pending: disabled
+    max_gpu_instances: 7
+    gpu_instances:
+      - profile: 1g.5gb
+        count: 7
+devices:
+  - index: 1
+    processes:
+      - pid: 4242
+        used_gpu_memory: 1073741824
+`
+	require.NoError(t, os.WriteFile(path, []byte(body), 0o644))
+	return path
+}
+
+// runMigCLI runs the CLI with both the override file and a real profile, which
+// the mig command needs to resolve a layout.
+func runMigCLI(t *testing.T, configOverride, config string, args ...string) (string, string, int) {
+	t.Helper()
+	full := append([]string{"--file", configOverride, "--config", config}, args...)
+	var out, errb bytes.Buffer
+	code := run(full, &out, &errb)
+	return out.String(), errb.String(), code
+}
+
+func TestCLI_MigEnableWritesLayout(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	configOverride := filepath.Join(dir, "overrides.yaml")
+
+	out, errStr, code := runMigCLI(t, configOverride, migTestConfig(t),
+		"mig", "--gpu", "0", "enable", "--profile", "1g.5gb", "--count", "7")
+	require.Equalf(t, 0, code, "exit %d: %s", code, errStr)
+	require.Contains(t, out, "ok:")
+
+	s := readConfigOverride(t, configOverride)
+	for _, want := range []string{"mode_current: enabled", "mode_pending: enabled", "profile: 1g.5gb", "count: 7"} {
+		require.Containsf(t, s, want, "override missing %q", want)
+	}
+}
+
+func TestCLI_MigEnableBareOmitsLayout(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	configOverride := filepath.Join(dir, "overrides.yaml")
+
+	_, errStr, code := runMigCLI(t, configOverride, migTestConfig(t), "mig", "--gpu", "0", "enable")
+	require.Equalf(t, 0, code, "exit %d: %s", code, errStr)
+
+	s := readConfigOverride(t, configOverride)
+	require.Contains(t, s, "mode_current: enabled")
+	require.NotContains(t, s, "gpu_instances",
+		"a bare enable must leave the profile's declared layout in charge")
+}
+
+// A disable destroys every partition, so it is guarded like an enable — which
+// is why this one has to say --force to reach the node's busy device.
+func TestCLI_MigDisableWritesBothModes(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	configOverride := filepath.Join(dir, "overrides.yaml")
+
+	_, errStr, code := runMigCLI(t, configOverride, migTestConfig(t), "mig", "--gpu", "all", "disable", "--force")
+	require.Equalf(t, 0, code, "exit %d: %s", code, errStr)
+
+	s := readConfigOverride(t, configOverride)
+	require.Contains(t, s, "mode_current: disabled")
+	require.Contains(t, s, "mode_pending: disabled")
+}
+
+// TestCLI_MigDisableRefusesABusyDevice: a disable destroys every partition, so
+// it strands running work at least as thoroughly as a repartition and is
+// refused on the same terms.
+func TestCLI_MigDisableRefusesABusyDevice(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	configOverride := filepath.Join(dir, "overrides.yaml")
+
+	_, errStr, code := runMigCLI(t, configOverride, migTestConfig(t), "mig", "--gpu", "all", "disable")
+	require.Equal(t, exitFailure, code)
+	require.Contains(t, errStr, "in use")
+	require.NoFileExists(t, configOverride)
+}
+
+// TestCLI_MigSwapLeavesNoStaleLayout is the end-to-end form of the
+// authoritative write: two enables in a row leave one layout in the file.
+func TestCLI_MigSwapLeavesNoStaleLayout(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	configOverride := filepath.Join(dir, "overrides.yaml")
+	config := migTestConfig(t)
+
+	_, _, code := runMigCLI(t, configOverride, config,
+		"mig", "--gpu", "0", "enable", "--profile", "1g.5gb", "--count", "7")
+	require.Equal(t, 0, code)
+	_, errStr, code := runMigCLI(t, configOverride, config,
+		"mig", "--gpu", "0", "enable", "--profile", "3g.20gb", "--count", "2")
+	require.Equalf(t, 0, code, "exit %d: %s", code, errStr)
+
+	s := readConfigOverride(t, configOverride)
+	require.Contains(t, s, "profile: 3g.20gb")
+	require.NotContains(t, s, "profile: 1g.5gb", "the previous layout must not survive")
+}
+
+func TestCLI_MigCountWithoutProfileIsAUsageError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	configOverride := filepath.Join(dir, "overrides.yaml")
+
+	_, _, code := runMigCLI(t, configOverride, migTestConfig(t),
+		"mig", "--gpu", "0", "enable", "--count", "4")
+	require.Equal(t, exitUsage, code)
+}
+
+// The layout check returns a plain error, which run() reports as a usage error
+// — the operator asked for a layout this board cannot hold, not a node the CLI
+// failed to write to.
+func TestCLI_MigRejectsAProfileTheBoardDoesNotOffer(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	configOverride := filepath.Join(dir, "overrides.yaml")
+
+	_, errStr, code := runMigCLI(t, configOverride, migTestConfig(t),
+		"mig", "--gpu", "0", "enable", "--profile", "1g.6gb", "--count", "7")
+	require.Equal(t, exitUsage, code, "an unknown profile must fail loudly")
+	require.Contains(t, errStr, "cannot hold the requested layout")
+	require.NoFileExists(t, configOverride, "a rejected command must not write")
+}
+
+// TestCLI_MigRefusesABusyDevice: repartitioning under a running workload is
+// what the driver itself refuses.
+func TestCLI_MigRefusesABusyDevice(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	configOverride := filepath.Join(dir, "overrides.yaml")
+
+	_, errStr, code := runMigCLI(t, configOverride, migTestConfig(t),
+		"mig", "--gpu", "1", "enable", "--profile", "1g.5gb", "--count", "7")
+	require.Equal(t, exitFailure, code)
+	require.Contains(t, errStr, "in use")
+	require.NoFileExists(t, configOverride)
+}
+
+func TestCLI_MigForceOverridesTheInUseGuard(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	configOverride := filepath.Join(dir, "overrides.yaml")
+
+	_, errStr, code := runMigCLI(t, configOverride, migTestConfig(t),
+		"mig", "--gpu", "1", "enable", "--profile", "1g.5gb", "--count", "7", "--force")
+	require.Equalf(t, 0, code, "exit %d: %s", code, errStr)
+	require.Contains(t, readConfigOverride(t, configOverride), "profile: 1g.5gb")
+}
+
+func TestCLI_MigWithoutASubcommandIsAUsageError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	configOverride := filepath.Join(dir, "overrides.yaml")
+
+	_, errStr, code := runMigCLI(t, configOverride, migTestConfig(t), "mig", "--gpu", "0")
+	require.Equal(t, exitUsage, code, "naming no verb must not exit clean")
+	require.Contains(t, errStr, "enable")
+	require.NoFileExists(t, configOverride)
+}
+
+// TestCLI_MigAllRefusesWhenAnyDeviceIsBusy: the shared bucket reaches every
+// device, so one busy device is enough to refuse.
+func TestCLI_MigAllRefusesWhenAnyDeviceIsBusy(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	configOverride := filepath.Join(dir, "overrides.yaml")
+
+	_, _, code := runMigCLI(t, configOverride, migTestConfig(t),
+		"mig", "--gpu", "all", "enable", "--profile", "1g.5gb", "--count", "7")
+	require.Equal(t, exitFailure, code)
 }

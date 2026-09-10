@@ -41,6 +41,13 @@ mode/counters, temperature, power, utilization, clocks, fan, performance state,
 device memory (`memory.total_bytes` / `free_bytes` / `used_bytes` /
 `reserved_bytes` / `memory_bus_width`), and the like. These change within one TTL.
 
+MIG partitioning is hot-reloadable for the **NVML view**: `nvml-mock-ctl mig`
+changes what `nvidia-smi`, DCGM and GFD report, and what the device plugin
+*discovers*. The driver capability surface is not — `/dev/nvidia-caps` and
+`/proc/driver/nvidia-caps/mig-minors` are staged once from the profile, so
+allocating partitions that a runtime repartition invented still needs a Helm
+change (`gpu.mig.enabled` with `gpu.mig.gpuInstances`).
+
 Memory values are reported **verbatim** from the effective config — setting
 `memory.used_bytes` alone does not recompute `memory.free_bytes`. Set both in one
 command to keep the reported triple coherent:
@@ -114,6 +121,7 @@ COMMANDS:
    nvlink-error       inject NVLink DL errors at a rate in errors/second (0 heals)
    sram-ecc           inject SRAM ECC errors (0 heals)
    fabric-health      degrade NVLink fabric health ('healthy' clears it)
+   mig                enable, disable or re-lay-out MIG partitioning
    set                write arbitrary schema fields, as key.path=value
    status             print the overrides currently in effect
    reset              clear the targeted overrides, returning the device(s) to the pristine profile
@@ -144,6 +152,8 @@ nvml-mock-ctl nvlink-error --gpu <t> [--links a,b,c] errors_per_sec
 nvml-mock-ctl sram-ecc --gpu <t> [--type correctable|parity|secded]
               [--source l2|sm|microcontroller|pcie|other] [--threshold-exceeded] count
 nvml-mock-ctl fabric-health --gpu <t> condition [condition ...]
+nvml-mock-ctl mig --gpu <t> enable [--profile P] [--count N] [--force]
+nvml-mock-ctl mig --gpu <t> disable [--force]
 nvml-mock-ctl set --gpu <t> key.path=value [key.path=value ...]
 nvml-mock-ctl status [--gpu <idx>]
 nvml-mock-ctl reset [--gpu <t>]
@@ -346,6 +356,45 @@ because a summary that stays `Healthy` while a condition reports a fault is not 
 state hardware can be in. See
 [fabric health configuration](configuration.md#fabric-health) for the static
 equivalent.
+
+### `mig` — repartition a GPU at runtime
+
+Enables, disables or re-lays-out MIG partitioning without a Helm upgrade or a
+pod restart. Consumers see the new partitioning through NVML within one TTL.
+
+```bash
+# fill GPU 0 with seven 1g.5gb partitions
+nvml-mock-ctl mig --gpu 0 enable --profile 1g.5gb --count 7
+
+# turn MIG on with the layout the profile already declares
+nvml-mock-ctl mig --gpu 0 enable
+
+# two large partitions instead
+nvml-mock-ctl mig --gpu 0 enable --profile 3g.20gb --count 2
+
+# turn MIG off everywhere, destroying every partition
+# (--force is needed on a node whose GPUs declare compute processes)
+nvml-mock-ctl mig --gpu all disable --force
+
+# verify from any consumer pod:
+nvidia-smi -L
+```
+
+The `mig` block is written wholesale into the bucket you target, so each
+`enable` replaces that bucket's previous layout rather than adding to it.
+`--count` requires `--profile`; a bare `enable` writes only the mode fields,
+which also drops a layout an earlier invocation set on the same target — though
+a per-device `enable` still inherits a layout held by the `all` bucket, which is
+merged underneath it.
+
+Both `enable` and `disable` refuse a target that declares compute `processes`,
+the way the driver refuses to repartition a GPU with running work — a `disable`
+destroys every partition, so it strands that work just as a repartition does.
+Pass `--force` to either verb to do it anyway.
+
+**This changes the NVML view only.** `/dev/nvidia-caps` and the `mig-minors`
+table stay as the node agent staged them from the profile, so the device plugin
+cannot *allocate* partitions created this way — see the v1 scope note above.
 
 ### `set` — set arbitrary fields
 
