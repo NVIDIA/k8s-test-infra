@@ -64,6 +64,13 @@ func TestHardwareCapturesDecode(t *testing.T) {
 				require.NotEmpty(t, gpu.UUID(), "%s: uuid", label)
 				require.NotEmpty(t, gpu.PerformanceState(), "%s: performance_state", label)
 
+				// Every board emits <mig_devices>, MIG-capable or not, so a
+				// rename of the block or of its children shows up here as an
+				// error rather than as a board reporting no partitions.
+				partitions, err := gpu.MIGPartitions()
+				require.NoError(t, err, "%s: mig_devices", label)
+				require.Empty(t, partitions, "%s: the captures are of unpartitioned boards", label)
+
 				for _, r := range comparedReadings(element) {
 					require.True(t, r.raw.present(),
 						"%s: %s is absent; the driver may have renamed it", label, r.element)
@@ -90,6 +97,9 @@ func comparedReadings(g gpuElement) []namedReading {
 		{"fan_speed", g.FanSpeed},
 		{"performance_state", g.PerformanceState},
 		{"accounting_mode_buffer_size", g.AccountingModeBufferSize},
+
+		{"mig_mode/current_mig", g.MIGMode.Current},
+		{"mig_mode/pending_mig", g.MIGMode.Pending},
 
 		{"platformInfo/slot_number", g.PlatformInfo.SlotNumber},
 		{"platformInfo/tray_index", g.PlatformInfo.TrayIndex},

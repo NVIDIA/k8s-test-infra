@@ -95,11 +95,43 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 			// so a failure here localises the problem to the mock instead of the
 			// plugin wiring.
 			It("enumerates the declared partitions through nvidia-smi", Label("mig-nvml"), func(ctx SpecContext) {
-				devices := migDevicesOnNode(ctx, h, node)
+				total := p.ExpectedGPUs() * partitions
 
-				Expect(devices).To(HaveLen(p.ExpectedGPUs()*partitions),
-					"a %d-GPU node declaring %d partitions per GPU should list %d MIG devices",
-					p.ExpectedGPUs(), partitions, p.ExpectedGPUs()*partitions)
+				By("nvidia-smi -q -x reports MIG on with the declared partition count")
+				snap := migSnapshotOnNode(ctx, h, node)
+				count, err := snap.MIGPartitionCount()
+				Expect(err).NotTo(HaveOccurred(), "read the MIG partitions nvidia-smi -q -x reports")
+				Expect(count).To(Equal(total),
+					"a %d-GPU node declaring %d partitions per GPU should report %d MIG devices",
+					p.ExpectedGPUs(), partitions, total)
+
+				for gpu := range p.ExpectedGPUs() {
+					g := migGPU(snap, gpu)
+					// The mode is a fact the text listings cannot state: an
+					// unpartitioned board and one whose partitions failed to
+					// enumerate both list nothing.
+					Expect(g.MIGEnabled()).To(BeTrue(),
+						"GPU %d reports MIG mode %q (pending %q), not Enabled",
+						gpu, g.MIGMode(), g.MIGModePending())
+					Expect(migPartitionsOfGPU(snap, gpu)).To(HaveLen(partitions),
+						"GPU %d declares %d partitions but nvidia-smi -q -x reports a different number", gpu, partitions)
+				}
+
+				// A board that offers the profile and one that has been carved
+				// into it are told apart by the size of what came out, which
+				// only the document reports per partition.
+				By("each partition is sized as a slice of its own board")
+				for gpu := range p.ExpectedGPUs() {
+					assertMIGPartitionSizing(migGPU(snap, gpu), gpu, migPartitionsOfGPU(snap, gpu))
+				}
+
+				// Profile name and MIG UUID appear nowhere in `nvidia-smi -q -x`,
+				// so both readings can only come from the text listing.
+				By("nvidia-smi -L names every partition with the declared profile and a unique MIG UUID")
+				devices := migDevicesOnNode(ctx, h, node)
+				Expect(devices).To(HaveLen(total),
+					"nvidia-smi -L should list the %d partitions nvidia-smi -q -x counts; the two NVML paths disagree",
+					total)
 				Expect(nvidiasmi.MigProfiles(devices)).To(Equal([]string{p.MIGDeviceProfile()}),
 					"migStrategy=single requires every partition to carry one profile")
 
@@ -153,11 +185,11 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 
 			// Two NVML paths describing one board must not disagree. `-lgi` is
 			// what a partitioning tool reads back to confirm its work, so a
-			// board that enumerates correctly under -L and wrongly here is a
-			// board those tools cannot drive.
-			It("lists the same partitions through nvidia-smi mig -lgi as through nvidia-smi -L", Label("mig-nvml"), func(ctx SpecContext) {
+			// board that enumerates correctly under `-q -x` and wrongly here is
+			// a board those tools cannot drive.
+			It("lists the same partitions through nvidia-smi mig -lgi as nvidia-smi -q -x reports", Label("mig-nvml"), func(ctx SpecContext) {
 				instances := migGPUInstancesOnNode(ctx, h, node)
-				devices := migDevicesOnNode(ctx, h, node)
+				snap := migSnapshotOnNode(ctx, h, node)
 
 				Expect(instances).To(HaveLen(p.ExpectedGPUs()*partitions),
 					"a %d-GPU node declaring %d partitions per GPU should list %d GPU instances",
@@ -165,12 +197,13 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 
 				for gpu := range p.ExpectedGPUs() {
 					onGPU := nvidiasmi.MigInstancesOfGPU(instances, gpu)
+					reported := migPartitionsOfGPU(snap, gpu)
 					Expect(onGPU).To(HaveLen(partitions),
 						"GPU %d declares %d partitions but nvidia-smi mig -lgi lists %d",
 						gpu, partitions, len(onGPU))
-					Expect(onGPU).To(HaveLen(len(migPartitionsOfGPU(devices, gpu))),
-						"nvidia-smi mig -lgi and nvidia-smi -L disagree about GPU %d: %d instances against %d devices",
-						gpu, len(onGPU), len(migPartitionsOfGPU(devices, gpu)))
+					Expect(onGPU).To(HaveLen(len(reported)),
+						"nvidia-smi mig -lgi and nvidia-smi -q -x disagree about GPU %d: %d instances against %d mig_device elements",
+						gpu, len(onGPU), len(reported))
 
 					ids := map[int]bool{}
 					placements := map[string]bool{}
@@ -189,6 +222,16 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 						Expect(placements).NotTo(HaveKey(i.Placement),
 							"GPU %d reports placement %s twice", gpu, i.Placement)
 						placements[i.Placement] = true
+					}
+
+					// Equal counts are not the same partitions. The instance IDs
+					// are what the two paths must agree on, because they are what
+					// a partitioning tool and the capability table below both
+					// address a partition by.
+					for _, part := range reported {
+						Expect(ids).To(HaveKey(part.GPUInstanceID),
+							"nvidia-smi -q -x reports instance %d on GPU %d, which nvidia-smi mig -lgi does not list",
+							part.GPUInstanceID, gpu)
 					}
 				}
 			})
@@ -228,14 +271,31 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 				Expect(err).NotTo(HaveOccurred(), "read %s: %s", migMinorsPath, res.Combined())
 				table := res.Combined()
 
-				for _, d := range migDevicesOnNode(ctx, h, node) {
-					// One line per GPU instance and one per compute instance.
-					// The device plugin looks up both and refuses the partition
-					// if either is missing.
-					Expect(table).To(MatchRegexp(`(?m)^gpu%d/gi\d+/access \d+$`, d.GPU),
-						"no GPU-instance capability staged for GPU %d:\n%s", d.GPU, table)
-					Expect(table).To(MatchRegexp(`(?m)^gpu%d/gi\d+/ci\d+/access \d+$`, d.GPU),
-						"no compute-instance capability staged for GPU %d:\n%s", d.GPU, table)
+				// Named against the instance IDs nvidia-smi reports, not merely
+				// against the GPUs that have partitions. The document is the
+				// only nvidia-smi surface that carries those IDs alongside the
+				// partition count, and pinning them is what catches the drift
+				// this scenario exists for: an agent keying the table by IDs the
+				// engine did not assign stages a table of the right size whose
+				// every entry guards the wrong partition.
+				snap := migSnapshotOnNode(ctx, h, node)
+				for gpu := range p.ExpectedGPUs() {
+					reported := migPartitionsOfGPU(snap, gpu)
+					Expect(reported).NotTo(BeEmpty(),
+						"GPU %d reports no partitions, so this spec would assert nothing about it", gpu)
+
+					for _, part := range reported {
+						// One line per GPU instance and one per compute instance.
+						// The device plugin looks up both and refuses the
+						// partition if either is missing.
+						Expect(table).To(MatchRegexp(`(?m)^gpu%d/gi%d/access \d+$`, gpu, part.GPUInstanceID),
+							"no GPU-instance capability staged for GPU %d instance %d, which nvidia-smi reports as a partition:\n%s",
+							gpu, part.GPUInstanceID, table)
+						Expect(table).To(MatchRegexp(`(?m)^gpu%d/gi%d/ci%d/access \d+$`,
+							gpu, part.GPUInstanceID, part.ComputeInstanceID),
+							"no compute-instance capability staged for GPU %d instance %d/%d:\n%s",
+							gpu, part.GPUInstanceID, part.ComputeInstanceID, table)
+					}
 				}
 
 				// Every minor in the table must have a node on disk, or a pod
@@ -269,8 +329,23 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 						"nvml-mock", config.ReadyTimeout(), config.PollInterval())
 				})
 
-				Expect(migDevicesOnNode(ctx, h, node)).To(BeEmpty(),
-					"MIG is off, so nvidia-smi must list no partitions")
+				// The document states the mode outright, where a text listing
+				// could only show the absence of partition lines — which a
+				// board whose partitions failed to enumerate produces too.
+				snap := migSnapshotOnNode(ctx, h, node)
+				for gpu := range p.ExpectedGPUs() {
+					g := migGPU(snap, gpu)
+					Expect(g.MIGMode()).To(Equal("Disabled"),
+						"GPU %d should report MIG off, got current_mig %q", gpu, g.MIGMode())
+					// A GPU reporting one mode with the other pending is
+					// mid-switch, which is neither state the device plugin can
+					// be held to.
+					Expect(g.MIGModePending()).To(Equal("Disabled"),
+						"GPU %d has a MIG mode switch outstanding: current %q, pending %q",
+						gpu, g.MIGMode(), g.MIGModePending())
+					Expect(migPartitionsOfGPU(snap, gpu)).To(BeEmpty(),
+						"MIG is off on GPU %d, so nvidia-smi -q -x must report no mig_device elements", gpu)
+				}
 
 				// The plain manifest, because the MIG one waits for a capability
 				// table that an unpartitioned node correctly does not stage.
@@ -298,6 +373,10 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 			It("gives a scheduled pod exactly one MIG partition", Label("mig-allocation"), func(ctx SpecContext) {
 				deployMIGDevicePlugin(ctx, h, node, p.ExpectedGPUs()*partitions)
 
+				// The `nvidia-smi -L` listing, not the -q -x document the other
+				// specs read: what the plugin hands out is a MIG UUID, and the
+				// document carries neither that nor the profile name to check
+				// it against.
 				onNode := migDevicesOnNode(ctx, h, node)
 				workload := applyMIGWorkload(ctx, h, "mig-single", node)
 
@@ -396,17 +475,17 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 					"--profile", p.MIGDeviceProfile(), "--count", "1")
 
 				Eventually(func() int {
-					return len(migPartitionsOfGPU(migDevicesOnNode(ctx, h, node), 0))
+					return len(migPartitionsOfGPU(migSnapshotOnNode(ctx, h, node), 0))
 				}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 					Should(Equal(1), "GPU 0 should report the single partition the CLI asked for")
 
-				// A repartition that reaches `nvidia-smi -L` but not
+				// A repartition that reaches `nvidia-smi -q -x` but not
 				// `mig -lgi` is the inconsistency two NVML paths over one
 				// layout can produce, and -lgi is the one a partitioning tool
-				// reads back. No Eventually: -L above has already waited out
-				// the config TTL, so the layout this reads is settled.
+				// reads back. No Eventually: the document above has already
+				// waited out the config TTL, so the layout this reads is settled.
 				Expect(nvidiasmi.MigInstancesOfGPU(migGPUInstancesOnNode(ctx, h, node), 0)).To(HaveLen(1),
-					"nvidia-smi mig -lgi should report the single partition `nvidia-smi -L` already shows on GPU 0")
+					"nvidia-smi mig -lgi should report the single partition nvidia-smi -q -x already shows on GPU 0")
 
 				// The occupancy numbers have to come from the instances that
 				// exist, not from the layout the chart declared: a board this
@@ -423,14 +502,14 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 					"GPU 0 now holds one %s partition, so -lgip should show one taken, got %d free of %d",
 					p.MIGDeviceProfile(), capacity.Free, capacity.Total)
 
-				Expect(migPartitionsOfGPU(migDevicesOnNode(ctx, h, node), 1)).To(HaveLen(partitions),
+				Expect(migPartitionsOfGPU(migSnapshotOnNode(ctx, h, node), 1)).To(HaveLen(partitions),
 					"a repartition of GPU 0 must not disturb its neighbours")
 
 				By("clear the override and let the profile's declared layout come back")
 				resetRuntimeOverridesOnNode(ctx, h, node)
 
 				Eventually(func() int {
-					return len(migPartitionsOfGPU(migDevicesOnNode(ctx, h, node), 0))
+					return len(migPartitionsOfGPU(migSnapshotOnNode(ctx, h, node), 0))
 				}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 					Should(Equal(partitions), "removing the override should restore the declared layout")
 			})
@@ -516,8 +595,27 @@ func deployMIGDevicePlugin(ctx context.Context, h *harness.Harness, node string,
 	assertions.WaitAllocatableGPU(ctx, h.Kube, node, want, config.ReadyTimeout(), config.PollInterval())
 }
 
-// migDevicesOnNode lists the partitions nvidia-smi reports from inside the
+// migSnapshotOnNode reads an `nvidia-smi -q -x` document from inside the
+// nvml-mock pod on node, which sees the whole board. This is where the MIG mode
+// and the partition counts come from; the `nvidia-smi -L` listing below answers
+// the two readings the document does not carry.
+//
+// The exec and the decode are asserted here, which is safe inside an
+// Eventually: both only fail when nvidia-smi itself is broken, and that is not
+// something a spec waits for.
+func migSnapshotOnNode(ctx context.Context, h *harness.Harness, node string) nvidiasmi.Snapshot {
+	GinkgoHelper()
+	snap, err := nvidiasmi.SnapshotFromPod(ctx, h.Kube, nvmlPodOnNode(ctx, h, node))
+	Expect(err).NotTo(HaveOccurred(), "read nvidia-smi -q -x on node %s", node)
+	return snap
+}
+
+// migDevicesOnNode lists the partitions `nvidia-smi -L` reports from inside the
 // nvml-mock pod on node, which sees the whole board.
+//
+// Only the specs needing a partition's profile name or its MIG UUID read this
+// listing: `nvidia-smi -q -x` prints neither anywhere in its <mig_devices>
+// block, so this is the only surface either appears on.
 func migDevicesOnNode(ctx context.Context, h *harness.Harness, node string) []nvidiasmi.MigDevice {
 	GinkgoHelper()
 	return migDevicesInPod(ctx, h, nvmlPodOnNode(ctx, h, node))
@@ -568,17 +666,63 @@ func migProfileOf(devices []nvidiasmi.MigDevice, uuid string) string {
 	return ""
 }
 
-// migPartitionsOfGPU narrows an `nvidia-smi -L` listing to one GPU, so a
+// assertMIGPartitionSizing asserts each partition is reported as a slice of the
+// board it was carved from, rather than as a handle that answers with its
+// parent's figures.
+//
+// This is the claim no text listing can make: `nvidia-smi -L` and
+// `nvidia-smi mig -lgi` name a partition's profile, and a mock whose MIG device
+// handles fell through to the parent device would satisfy both while reporting
+// every "1g" partition as the whole board — which is what a consumer sizing a
+// workload to its partition reads and gets wrong.
+//
+// The claim is deliberately a proper-fraction one rather than the profile
+// name's own figure: a slice's framebuffer is not the round number the name
+// carries. A 1g.5gb A100 partition holds 4864 MiB, because the name rounds the
+// raw allocation up to an eighth of the board.
+func assertMIGPartitionSizing(gpu nvidiasmi.GPU, index int, partitions []nvidiasmi.MIGPartition) {
+	GinkgoHelper()
+
+	boardMiB, ok := gpu.MemoryTotalMiB()
+	Expect(ok).To(BeTrue(), "GPU %d reports no framebuffer total to size its partitions against", index)
+
+	slicedMiB := 0
+	for _, part := range partitions {
+		Expect(part.MemoryTotalMiB).To(SatisfyAll(
+			BeNumerically(">", 0), BeNumerically("<", boardMiB)),
+			"GPU %d instance %d reports %d MiB, which is not a slice of the board's %d MiB",
+			index, part.GPUInstanceID, part.MemoryTotalMiB, boardMiB)
+		// A partition with no SMs can run nothing, and the count comes from the
+		// MIG attributes block rather than from the memory getters above, so it
+		// is the one reading that says that block was answered at all.
+		Expect(part.MultiprocessorCount).To(BeNumerically(">", 0),
+			"GPU %d instance %d reports no multiprocessors", index, part.GPUInstanceID)
+		slicedMiB += part.MemoryTotalMiB
+	}
+
+	Expect(slicedMiB).To(BeNumerically("<=", boardMiB),
+		"GPU %d hands out %d MiB across %d partitions, more than the %d MiB board holds",
+		index, slicedMiB, len(partitions), boardMiB)
+}
+
+// migGPU narrows a document to one GPU's readings, in nvidia-smi's own GPU
+// order — the same index `-i N` takes.
+func migGPU(snap nvidiasmi.Snapshot, gpu int) nvidiasmi.GPU {
+	GinkgoHelper()
+	g, err := snap.GPU(gpu)
+	Expect(err).NotTo(HaveOccurred(), "nvidia-smi -q -x should describe GPU %d", gpu)
+	return g
+}
+
+// migPartitionsOfGPU narrows a document's <mig_devices> blocks to one GPU, so a
 // per-device repartition can be asserted without the other GPUs' partitions
 // counting towards it.
-func migPartitionsOfGPU(devices []nvidiasmi.MigDevice, gpu int) []nvidiasmi.MigDevice {
-	var out []nvidiasmi.MigDevice
-	for _, d := range devices {
-		if d.GPU == gpu {
-			out = append(out, d)
-		}
-	}
-	return out
+func migPartitionsOfGPU(snap nvidiasmi.Snapshot, gpu int) []nvidiasmi.MIGPartition {
+	GinkgoHelper()
+	partitions, err := migGPU(snap, gpu).MIGPartitions()
+	Expect(err).NotTo(HaveOccurred(),
+		"read the MIG partitions nvidia-smi -q -x reports for GPU %d", gpu)
+	return partitions
 }
 
 // migMinorsIn returns the cap minors named by a mig-minors table. Every line is

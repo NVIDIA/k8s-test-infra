@@ -322,6 +322,110 @@ func (g GPU) PlatformInfo() PlatformInfo {
 // physical position cannot mistake an unsupported board for module 0.
 func (g GPU) ModuleID() (int, bool) { return g.element.PlatformInfo.ModuleID.intValue() }
 
+// migDevicesNone is the body nvidia-smi writes into <mig_devices> for a GPU
+// with no partitions, whether because MIG is off or because the board cannot
+// partition at all. It is what tells that state from a block this schema can no
+// longer read.
+const migDevicesNone = "None"
+
+// MIGPartition is one decoded <mig_device>.
+//
+// GPUInstanceID and ComputeInstanceID are the partition's identity in this
+// document — the XML carries no MIG UUID and no profile name — and they are the
+// keys the capability table under /dev/nvidia-caps is named by.
+type MIGPartition struct {
+	GPUInstanceID       int
+	ComputeInstanceID   int
+	MemoryTotalMiB      int
+	MultiprocessorCount int
+}
+
+// MIGMode is the <current_mig> body as rendered: "Enabled" or "Disabled" on a
+// MIG-capable board, "N/A" on one that cannot partition. Kept as a body rather
+// than a bool so a caller can tell a board that answered "not partitioned" from
+// one that could not answer at all.
+func (g GPU) MIGMode() string { return strings.TrimSpace(string(g.element.MIGMode.Current)) }
+
+// MIGModePending is <pending_mig>: the mode the GPU will report after its next
+// reset. It differs from MIGMode only while a mode switch is outstanding, which
+// is a state a caller asserting on the mode has to be able to exclude.
+func (g GPU) MIGModePending() string { return strings.TrimSpace(string(g.element.MIGMode.Pending)) }
+
+// MIGEnabled reports whether the GPU is partitioned and not mid-switch: both
+// <current_mig> and <pending_mig> read Enabled.
+func (g GPU) MIGEnabled() bool {
+	return strings.EqualFold(g.MIGMode(), "Enabled") && strings.EqualFold(g.MIGModePending(), "Enabled")
+}
+
+// MIGPartitions decodes this GPU's <mig_devices> block.
+//
+// A GPU with no partitions yields an empty slice and no error; that is a real
+// state, and the negative control the MIG scenario runs asserts on exactly it.
+// A block this schema cannot read is an error instead, because a caller
+// counting partitions would otherwise read a rename as a board with none.
+func (g GPU) MIGPartitions() ([]MIGPartition, error) {
+	block := g.element.MIGDevices
+	body := strings.TrimSpace(block.Body)
+
+	if len(block.Devices) == 0 {
+		switch {
+		case body == "":
+			return nil, fmt.Errorf(
+				"%s: the document carries no <mig_devices> block; nvidia-smi emits one on every GPU, MIG-capable or not",
+				g.Label())
+		case body != migDevicesNone:
+			return nil, fmt.Errorf(
+				"%s: <mig_devices> holds content this schema does not recognise, want %q or <mig_device> children: %s",
+				g.Label(), migDevicesNone, firstLine(body))
+		}
+		return nil, nil
+	}
+
+	partitions := make([]MIGPartition, 0, len(block.Devices))
+	for i, d := range block.Devices {
+		var c migReadings
+		partition := MIGPartition{
+			GPUInstanceID:       c.value("gpu_instance_id", d.GPUInstanceID),
+			ComputeInstanceID:   c.value("compute_instance_id", d.ComputeInstanceID),
+			MemoryTotalMiB:      c.value("fb_memory_usage/total", d.FBMemoryUsage.Total),
+			MultiprocessorCount: c.value("device_attributes/shared/multiprocessor_count", d.DeviceAttributes.Shared.MultiprocessorCount),
+		}
+		if c.missing != "" {
+			return nil, fmt.Errorf("%s: MIG partition %d: %s, want a number", g.Label(), i, c.missing)
+		}
+		partitions = append(partitions, partition)
+	}
+	return partitions, nil
+}
+
+// MIGPartitionCount is the number of partitions across every GPU in the
+// document — what a node-wide expectation compares against.
+func (s Snapshot) MIGPartitionCount() (int, error) {
+	total := 0
+	for i := range s.doc.GPUs {
+		partitions, err := s.gpu(i).MIGPartitions()
+		if err != nil {
+			return 0, err
+		}
+		total += len(partitions)
+	}
+	return total, nil
+}
+
+// migReadings collects the numeric bodies of one <mig_device>, holding the
+// first element that did not answer a number rather than folding it into a
+// zero. A partition reported with no memory or no SMs is a partition nothing
+// can run on, so it must surface as an error and not as a plausible reading.
+type migReadings struct{ missing string }
+
+func (m *migReadings) value(element string, r reading) int {
+	v, ok := r.intValue()
+	if !ok && m.missing == "" {
+		m.missing = fmt.Sprintf("%s = %q", element, strings.TrimSpace(string(r)))
+	}
+	return v
+}
+
 // Process is one decoded <process_info> entry.
 type Process struct {
 	PID       int
