@@ -92,6 +92,17 @@ type ConfigurableDevice struct {
 	// override can take back.
 	throttle atomic.Pointer[throttleAccrual]
 
+	// appliedMIG is the MIG config reconcileMIG last acted on. Comparing
+	// against it is what keeps an unrelated override — a pinned temperature —
+	// from tearing a partitioned board down and rebuilding it.
+	appliedMIG *MIGConfig
+
+	// onRepartition reports the MIG devices a repartition destroyed. The handle
+	// tables live on Engine and a device has no back-reference to it, so the
+	// engine supplies this at construction; it is nil for a device a test
+	// drives directly.
+	onRepartition func(devices []*ConfigurableDevice)
+
 	// refresh bookkeeping
 	refreshMu  sync.Mutex
 	appliedGen uint64
@@ -221,7 +232,15 @@ func (d *ConfigurableDevice) refresh() {
 	if atomic.LoadUint64(&d.appliedGen) == gen {
 		return
 	}
-	d.refreshMu.Lock()
+	// TryLock rather than Lock: the reconcilers below reach failure-guarded
+	// NVML methods that call back into refresh on this same goroutine, and
+	// refreshMu is not reentrant. A caller that cannot take the lock proceeds
+	// with whatever the holder has published so far — the previous config, and
+	// state a reconciler may still be rebuilding — and converges on a later
+	// call, since appliedGen is not advanced until the reconcilers finish.
+	if !d.refreshMu.TryLock() {
+		return
+	}
 	defer d.refreshMu.Unlock()
 	if d.appliedGen == gen {
 		return
@@ -241,6 +260,7 @@ func (d *ConfigurableDevice) refresh() {
 	d.effective.Store(merged)
 	d.reconcileFailure(merged.Failure)
 	d.reconcileDynamicMetrics(merged.DynamicMetrics)
+	d.reconcileMIG(merged.MIG)
 	atomic.StoreUint64(&d.appliedGen, gen)
 }
 

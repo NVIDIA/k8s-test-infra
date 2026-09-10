@@ -140,6 +140,14 @@ func (e *Engine) createServer() (*MockServer, error) {
 	// Apply system-level configuration
 	e.applySystemConfig(server)
 
+	// Both device-construction paths above land here, so the hook is wired
+	// once: a repartition destroys MIG devices whose handles this engine owns.
+	for _, dev := range server.configurableDevices {
+		if dev != nil {
+			dev.onRepartition = e.retireMigDeviceHandles
+		}
+	}
+
 	return server, nil
 }
 
