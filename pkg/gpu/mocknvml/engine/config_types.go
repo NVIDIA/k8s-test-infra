@@ -519,6 +519,16 @@ type MIGConfig struct {
 	ModePending     string                 `json:"mode_pending,omitempty"`
 	MaxGPUInstances int                    `json:"max_gpu_instances,omitempty"`
 	GPUInstances    []MIGGPUInstanceConfig `json:"gpu_instances,omitempty"`
+	// Instances is the explicit layout: exactly which GPU instances exist,
+	// with the IDs and placements they were created under. It is what a
+	// runtime mutation through NVML records, because a count cannot express
+	// a layout with a hole in it — delete instance 1 of three and the
+	// survivors are 0 and 2, which "count: 2" would reload as 0 and 1.
+	//
+	// A pointer because absent and present-but-empty differ: an empty list is
+	// a MIG-enabled board with every instance deleted, and must not fall back
+	// to GPUInstances.
+	Instances *[]MIGGPUInstanceRecord `json:"instances,omitempty"`
 }
 
 // MIGGPUInstanceConfig declares one or more identical GPU instances.
@@ -545,6 +555,28 @@ type MIGComputeInstanceConfig struct {
 	Profile   string `json:"profile,omitempty"`
 	ProfileID *int   `json:"profile_id,omitempty"`
 	Count     int    `json:"count,omitempty"`
+}
+
+// MIGGPUInstanceRecord is one GPU instance that exists, as opposed to
+// MIGGPUInstanceConfig which declares how many of a shape to create.
+//
+// PlacementStart pins the instance to a slice offset. It is optional: an
+// omitted placement lets the engine choose the first free slot, which is what
+// a layout hand-written for a test usually wants.
+type MIGGPUInstanceRecord struct {
+	ID               uint32                     `json:"id"`
+	Profile          string                     `json:"profile,omitempty"`
+	ProfileID        *int                       `json:"profile_id,omitempty"`
+	PlacementStart   *int                       `json:"placement_start,omitempty"`
+	ComputeInstances []MIGComputeInstanceRecord `json:"compute_instances,omitempty"`
+}
+
+// MIGComputeInstanceRecord is one compute instance that exists inside a GPU
+// instance.
+type MIGComputeInstanceRecord struct {
+	ID        uint32 `json:"id"`
+	Profile   string `json:"profile,omitempty"`
+	ProfileID *int   `json:"profile_id,omitempty"`
 }
 
 // GPUOperationModeConfig defines GOM settings

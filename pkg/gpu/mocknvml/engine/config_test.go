@@ -355,3 +355,86 @@ devices:
 		})
 	}
 }
+
+func TestValidateMIGConfig_ExplicitInstances(t *testing.T) {
+	t.Parallel()
+
+	start := 0
+	tests := []struct {
+		name    string
+		mig     *MIGConfig
+		wantErr string
+	}{
+		{
+			name: "valid explicit layout",
+			mig: &MIGConfig{
+				ModeCurrent: "enabled",
+				Instances: &[]MIGGPUInstanceRecord{
+					{ID: 0, Profile: "1g.5gb", PlacementStart: &start},
+					{ID: 2, Profile: "1g.5gb"},
+				},
+			},
+		},
+		{
+			name: "empty list is valid and means no partitions",
+			mig:  &MIGConfig{ModeCurrent: "enabled", Instances: &[]MIGGPUInstanceRecord{}},
+		},
+		{
+			name: "duplicate instance ids",
+			mig: &MIGConfig{
+				ModeCurrent: "enabled",
+				Instances: &[]MIGGPUInstanceRecord{
+					{ID: 1, Profile: "1g.5gb"},
+					{ID: 1, Profile: "1g.5gb"},
+				},
+			},
+			wantErr: "duplicate GPU instance id 1",
+		},
+		{
+			name: "neither profile nor profile_id",
+			mig: &MIGConfig{
+				ModeCurrent: "enabled",
+				Instances:   &[]MIGGPUInstanceRecord{{ID: 0}},
+			},
+			wantErr: "must set either profile or profile_id",
+		},
+		{
+			name: "duplicate compute instance ids",
+			mig: &MIGConfig{
+				ModeCurrent: "enabled",
+				Instances: &[]MIGGPUInstanceRecord{{
+					ID: 0, Profile: "1g.5gb",
+					ComputeInstances: []MIGComputeInstanceRecord{{ID: 0, Profile: "1c"}, {ID: 0, Profile: "1c"}},
+				}},
+			},
+			wantErr: "duplicate compute instance id 0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := validateMIGConfig(tt.mig)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
+// The distinction the pointer exists for: absent means "no explicit layout",
+// present-and-empty means "an explicit layout with nothing in it".
+func TestMIGConfig_EmptyInstancesRoundTripsDistinctFromAbsent(t *testing.T) {
+	t.Parallel()
+
+	var absent MIGConfig
+	require.NoError(t, yaml.Unmarshal([]byte("mode_current: enabled\n"), &absent))
+	require.Nil(t, absent.Instances)
+
+	var empty MIGConfig
+	require.NoError(t, yaml.Unmarshal([]byte("mode_current: enabled\ninstances: []\n"), &empty))
+	require.NotNil(t, empty.Instances)
+	require.Empty(t, *empty.Instances)
+}
