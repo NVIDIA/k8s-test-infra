@@ -34,6 +34,9 @@ import (
 // {Start: 0, Size: 8} even on a seven-slice A100.
 const migSliceGridWidth = 8
 
+// migModeEnabled is the profile spelling of MIG being on.
+const migModeEnabled = "enabled"
+
 // migInstanceKey identifies a MIG device by the pair of instances backing it.
 type migInstanceKey struct {
 	gi uint32
@@ -87,6 +90,22 @@ type migIdentity struct {
 	attrs  nvml.DeviceAttributes
 }
 
+// resolveMaxGPUInstances returns the board's MIG device ceiling from config,
+// defaulting to the narrowest GPU-instance placement count when the config
+// names no ceiling. Real NVML reports this as a static capability independent
+// of whether MIG is currently enabled, so a disabled board still exposes a
+// non-zero ceiling.
+func resolveMaxGPUInstances(migCfg *MIGConfig, supported bool, profiles gpus.MIGProfileConfig) int {
+	ceiling := 0
+	if migCfg != nil {
+		ceiling = migCfg.MaxGPUInstances
+	}
+	if ceiling == 0 && supported {
+		ceiling = len(profiles.GpuInstancePlacements[nvml.GPU_INSTANCE_PROFILE_1_SLICE])
+	}
+	return ceiling
+}
+
 // initMIG resolves the board's MIG tables and seeds MIG state from the YAML
 // profile, materializing any declared partitions. Called once per device at
 // construction.
@@ -110,24 +129,20 @@ func (d *ConfigurableDevice) initMIG(config *DeviceConfig) {
 		migCfg = config.MIG
 	}
 	if migCfg != nil {
-		if migCfg.ModeCurrent == "enabled" {
+		if migCfg.ModeCurrent == migModeEnabled {
 			st.mode = nvml.DEVICE_MIG_ENABLE
 		}
-		if migCfg.ModePending == "enabled" {
+		if migCfg.ModePending == migModeEnabled {
 			st.pending = nvml.DEVICE_MIG_ENABLE
 		}
-		st.maxGPUInstances = migCfg.MaxGPUInstances
 	}
-	if st.maxGPUInstances == 0 && supported {
-		// Real NVML reports a board's MIG device ceiling as a static
-		// capability, independent of whether MIG is currently on. Deriving it
-		// from the narrowest placement list keeps a profile that enables MIG
-		// without naming a ceiling enumerable.
-		st.maxGPUInstances = len(profiles.GpuInstancePlacements[nvml.GPU_INSTANCE_PROFILE_1_SLICE])
-	}
+	st.maxGPUInstances = resolveMaxGPUInstances(migCfg, supported, profiles)
 
 	d.mig = nil
 	d.migState = st
+	// The declared layout below is what reconcileMIG must consider already
+	// applied, or the first refresh would tear it down and rebuild it.
+	d.appliedMIG = migCfg
 
 	if migCfg != nil && st.mode == nvml.DEVICE_MIG_ENABLE {
 		d.applyDeclaredPartitions(migCfg.GPUInstances)
@@ -411,7 +426,8 @@ func (d *ConfigurableDevice) SetMigMode(mode int) (nvml.Return, nvml.Return) {
 
 // GetMaxMigDeviceCount returns the board's MIG device ceiling. Real NVML
 // reports this as a static capability regardless of whether MIG is on, and
-// consumers use it as the upper bound when walking MIG device indices.
+// consumers use it as the upper bound when walking MIG device indices. Here it
+// is not static: an override can move it, so the read is guarded.
 func (d *ConfigurableDevice) GetMaxMigDeviceCount() (int, nvml.Return) {
 	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
 		return 0, ret
@@ -421,7 +437,9 @@ func (d *ConfigurableDevice) GetMaxMigDeviceCount() (int, nvml.Return) {
 	}
 	count := 0
 	if st := d.migState; st != nil {
+		st.mu.Lock()
 		count = st.maxGPUInstances
+		st.mu.Unlock()
 	}
 	debugLog("[NVML] nvmlDeviceGetMaxMigDeviceCount -> %d\n", count)
 	return count, nvml.SUCCESS
