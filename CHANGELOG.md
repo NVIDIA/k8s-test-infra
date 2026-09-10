@@ -38,6 +38,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - mocknvml: keep device indices consistent after visibility filtering, preserve
   physical GPU targets for reset, and exclude hidden devices from topology results
   and event waits (#807).
+- mocknvml: a per-device `pci` override no longer leaks into every device
+  merged after it. `GetDeviceConfig` copied `device_defaults` by value, but the
+  copy still aliased the shared `pci` block and the per-device merge wrote
+  through that pointer. A profile setting `devices[0].pci.device_id` left every
+  later device reporting device 0's ID, so `nvidia-smi -q` showed the wrong
+  Device Id and anything keying product identity off the PCI ID mislabelled
+  them. Heterogeneous profiles were the affected case.
 - mocknvml: `nvidia-smi --gpu-reset` (`-r`) now resets a GPU instead of
   segfaulting. The mock's export-table dispatcher ended every per-device call by
   writing a zero count through `arg1`, which the reset slots do not carry, so the
