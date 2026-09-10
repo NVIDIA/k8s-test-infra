@@ -118,8 +118,20 @@ func mutateWithConfig(cmd *cli.Command, cfg *engine.Config, apply mutation) erro
 		return failf("write: %v", err)
 	}
 
-	fprintf(cmd.Root().Writer, "ok: %s applied to %s\n", cmd.Name, gpuLabel(spec))
+	fprintf(cmd.Root().Writer, "ok: %s applied to %s\n", commandLabel(cmd), gpuLabel(spec))
 	return nil
+}
+
+// commandLabel names the change the way the operator asked for it. A
+// subcommand's own Name is the bare verb, so `mig enable` would confirm itself
+// as "enable" — a word that says nothing about what was enabled. The root's
+// name is dropped, leaving a command without subcommands printing just its own.
+func commandLabel(cmd *cli.Command) string {
+	path := cmd.Path()
+	if len(path) > 1 {
+		path = path[1:]
+	}
+	return strings.Join(path, " ")
 }
 
 // applyPatch is mutate for a command whose patch depends on the pristine
