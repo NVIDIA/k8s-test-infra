@@ -15,12 +15,15 @@ package engine
 
 import (
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
+	"github.com/NVIDIA/go-nvml/pkg/nvml/mock/dgxa100"
+	mockserver "github.com/NVIDIA/go-nvml/pkg/nvml/mock/server"
 	"github.com/stretchr/testify/require"
 )
 
@@ -131,6 +134,41 @@ func TestReconcileMIG_OverrideEnablesPartitioning(t *testing.T) {
 	require.Equal(t, nvml.DEVICE_MIG_ENABLE, current)
 	require.Equal(t, nvml.DEVICE_MIG_ENABLE, pending)
 	require.Equal(t, 7, migPartitionCount(t, dev))
+}
+
+// TestReconcileMIG_OverrideAlreadyOnDiskAtConstruction is the ordering
+// production has and every other test in this file does not: the CLI writes
+// the document and the consumer process starts afterwards, so the device is
+// built with the override already on disk. Its partitioning must be the
+// document's, not the profile's.
+func TestReconcileMIG_OverrideAlreadyOnDiskAtConstruction(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "overrides.yaml")
+	// Written before the device exists, which is the whole point of the test;
+	// newTestDevice cannot be used because it constructs the device first.
+	require.NoError(t, os.WriteFile(path, []byte(migEnable2x3g), 0o644))
+
+	now := time.Unix(0, 0)
+	configOverrides = newConfigOverrideStoreAt(
+		func() string { return path },
+		func() time.Time { return now },
+	)
+	t.Cleanup(resetConfigOverrideStoreForTesting)
+
+	srv := dgxa100.New()
+	baseDevice, ok := srv.Devices[0].(*mockserver.Device)
+	require.True(t, ok)
+	// A profile that boots partitioned seven ways, so the document's two
+	// partitions cannot be confused with the profile's own layout.
+	dev := NewConfigurableDevice(0, baseDevice, a100PartitionedConfig(), "GPU-test", "0000:01:00.0", 0, nil)
+
+	require.Equal(t, 2, migPartitionCount(t, dev),
+		"a device built while an override is on disk should boot with the override's layout")
+	migDev, ret := dev.GetMigDeviceHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+	name, ret := migDev.GetName()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Contains(t, name, "3g.20gb", "the override's profile should be the one reported")
 }
 
 // TestReconcileMIG_OverrideSwapsLayout is the case a merged write would get
@@ -314,6 +352,34 @@ func TestReconcileMIG_ConcurrentCeilingReads(t *testing.T) {
 
 	require.Positive(t, polls, "the reader must have observed the ceiling at least once")
 	require.Empty(t, illegal, "every ceiling read must be one the overrides declare")
+}
+
+// TestDeclaredMIGLayout_IgnoresOverridesOnDisk: the declared layout is what
+// the config it is given partitions into, not what the node happens to be
+// partitioned into. nvml-mock-ctl validates a requested layout against it
+// before writing the document that would produce it, so a layout that folded
+// in the live document would answer for the previous request instead of the
+// new one.
+func TestDeclaredMIGLayout_IgnoresOverridesOnDisk(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "overrides.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(migEnable2x3g), 0o644))
+
+	now := time.Unix(0, 0)
+	configOverrides = newConfigOverrideStoreAt(
+		func() string { return path },
+		func() time.Time { return now },
+	)
+	t.Cleanup(resetConfigOverrideStoreForTesting)
+
+	layout := DeclaredMIGLayout(&Config{
+		NumDevices: 1,
+		YAMLConfig: &YAMLConfig{Version: "1.0", DeviceDefaults: *a100PartitionedConfig()},
+	})
+
+	require.Len(t, layout, 1)
+	require.Len(t, layout[0].GPUInstances, a100PlacementCapacity,
+		"the config's own layout, not the document's two partitions")
 }
 
 // TestCreateServer_WiresRepartitionHook: the reconciler's handle retirement is
