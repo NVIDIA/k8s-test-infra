@@ -340,8 +340,11 @@ func validateMIGInstances(instances []MIGGPUInstanceRecord) error {
 		if gi.PlacementStart != nil && *gi.PlacementStart < 0 {
 			return fmt.Errorf("instances[%d]: placement_start cannot be negative, got %d", i, *gi.PlacementStart)
 		}
-		ciSeen := make(map[uint32]bool, len(gi.ComputeInstances))
-		for j, ci := range gi.ComputeInstances {
+		if gi.ComputeInstances == nil {
+			continue
+		}
+		ciSeen := make(map[uint32]bool, len(*gi.ComputeInstances))
+		for j, ci := range *gi.ComputeInstances {
 			if ciSeen[ci.ID] {
 				return fmt.Errorf("instances[%d].compute_instances[%d]: duplicate compute instance id %d", i, j, ci.ID)
 			}

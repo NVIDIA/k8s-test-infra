@@ -150,7 +150,7 @@ func TestApplyMIGLayout_SkipsADuplicateComputeInstanceID(t *testing.T) {
 		ModeCurrent: migModeEnabled,
 		Instances: &[]MIGGPUInstanceRecord{{
 			ID: 0, Profile: "3g.20gb",
-			ComputeInstances: []MIGComputeInstanceRecord{
+			ComputeInstances: &[]MIGComputeInstanceRecord{
 				{ID: 1, Profile: "1c"},
 				{ID: 1, Profile: "1c"},
 			},
@@ -180,7 +180,7 @@ func TestApplyMIGLayout_PinsComputeInstanceIDs(t *testing.T) {
 		ModeCurrent: migModeEnabled,
 		Instances: &[]MIGGPUInstanceRecord{{
 			ID: 2, Profile: "1g.5gb",
-			ComputeInstances: []MIGComputeInstanceRecord{{ID: 4, Profile: "1c"}},
+			ComputeInstances: &[]MIGComputeInstanceRecord{{ID: 4, Profile: "1c"}},
 		}},
 	})
 
@@ -193,4 +193,53 @@ func TestApplyMIGLayout_PinsComputeInstanceIDs(t *testing.T) {
 	cis := liveComputeInstances(gis[0])
 	require.Len(t, cis, 1)
 	require.Equal(t, uint32(4), cis[0].Info.Id)
+}
+
+// A record that says nothing about compute instances gets the partitioning a
+// consumer sees after creating a GPU instance without asking for slices: one
+// compute instance spanning it.
+func TestApplyMIGLayout_UnspecifiedComputeInstancesGetTheSpanningDefault(t *testing.T) {
+	t.Parallel()
+
+	dev := newTestDeviceWithConfig(t, a100MIGConfig())
+	enableMIG(t, dev)
+
+	dev.applyMIGLayout(&MIGConfig{
+		ModeCurrent: migModeEnabled,
+		Instances:   &[]MIGGPUInstanceRecord{{ID: 0, Profile: "3g.20gb"}},
+	})
+
+	st := dev.migState
+	st.mu.Lock()
+	gis := st.liveGpuInstances(dev)
+	st.mu.Unlock()
+	require.Len(t, gis, 1)
+
+	require.Len(t, liveComputeInstances(gis[0]), 1)
+}
+
+// `nvidia-smi mig -cgi` without -C, and deleting the last compute instance,
+// both leave a GPU instance carrying none. An empty list records that state,
+// so it must materialize empty instead of being handed the spanning default.
+func TestApplyMIGLayout_EmptyComputeInstanceListCreatesNone(t *testing.T) {
+	t.Parallel()
+
+	dev := newTestDeviceWithConfig(t, a100MIGConfig())
+	enableMIG(t, dev)
+
+	dev.applyMIGLayout(&MIGConfig{
+		ModeCurrent: migModeEnabled,
+		Instances: &[]MIGGPUInstanceRecord{{
+			ID: 0, Profile: "3g.20gb",
+			ComputeInstances: &[]MIGComputeInstanceRecord{},
+		}},
+	})
+
+	st := dev.migState
+	st.mu.Lock()
+	gis := st.liveGpuInstances(dev)
+	st.mu.Unlock()
+	require.Len(t, gis, 1)
+
+	require.Empty(t, liveComputeInstances(gis[0]))
 }
