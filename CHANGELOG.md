@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rejected, by the agent as well as the engine, when two devices would end up on
   the same minor number — including where one of them defaulted to it — or when
   a minor falls outside the range a GPU node can carry.
+- mocknvml: keep device indices consistent after visibility filtering, preserve
+  physical GPU targets for reset, and exclude hidden devices from topology results
+  and event waits (#807).
 - mocknvml: `nvidia-smi --gpu-reset` (`-r`) now resets a GPU instead of
   segfaulting. The mock's export-table dispatcher ended every per-device call by
   writing a zero count through `arg1`, which the reset slots do not carry, so the

@@ -54,17 +54,20 @@ func mockInternalResetGPU(handle unsafe.Pointer) C.int {
 		debugLog("[RESET] unknown device handle %p\n", handle)
 		return 0
 	}
-	index, ret := dev.GetIndex()
+	// Reject hidden or unhealthy handles before mutating shared overrides.
+	visibleIndex, ret := dev.GetIndex()
 	if ret != nvml.SUCCESS {
 		debugLog("[RESET] device %p reports no index (ret=%d)\n", handle, ret)
 		return 0
 	}
+	// Overrides are keyed by physical index, not the container-visible ordinal.
+	physicalIndex := dev.PhysicalIndex()
 	// engine.ConfigOverridePath resolves the same file the engine reads, so the
 	// reader and this writer can never disagree on which one is authoritative.
-	if err := mockctl.ResetDevice(engine.ConfigOverridePath(), index); err != nil {
-		debugLog("[RESET] GPU %d: %v\n", index, err)
+	if err := mockctl.ResetDevice(engine.ConfigOverridePath(), physicalIndex); err != nil {
+		debugLog("[RESET] GPU %d (physical %d): %v\n", visibleIndex, physicalIndex, err)
 		return 0
 	}
-	debugLog("[RESET] GPU %d returned to its healthy baseline\n", index)
+	debugLog("[RESET] GPU %d (physical %d) returned to its healthy baseline\n", visibleIndex, physicalIndex)
 	return 1
 }
