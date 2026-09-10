@@ -61,6 +61,7 @@ func bridgeTests(deviceCount int) []testResult {
 	results = append(results, testPowerLimitSetters(deviceCount)...)
 	results = append(results, testWorkloadPowerProfiles(deviceCount)...)
 	results = append(results, testMIG(deviceCount)...)
+	results = append(results, testArrayContractProbesFromC(deviceCount)...)
 	return results
 }
 
