@@ -106,10 +106,10 @@ func applyMIG(cmd *cli.Command, mig map[string]any) error {
 		}
 		// An unreadable profile leaves nothing to inspect for processes, so the
 		// guard cannot fire and the write goes ahead. That matches how the rest
-		// of the CLI degrades without a profile — UUID resolution, the --gpu
-		// bounds check and the layout check above are all best-effort in that
-		// state — and refusing every mutation instead would leave an operator
-		// no way to change a node whose profile went missing.
+		// of the CLI degrades without a profile — the --gpu bounds check and the
+		// layout check above are both best-effort in that state — and refusing
+		// every mutation instead would leave an operator no way to change a
+		// node whose profile went missing.
 		if !cmd.Bool("force") {
 			if busy := devicesWithProcesses(cfg, target); len(busy) > 0 {
 				return failf(
@@ -134,7 +134,9 @@ func inUseSummary(busy []string) string {
 // devicesWithProcesses names the targeted devices that declare compute
 // processes, which is the closest node-wide stand-in for a busy GPU: instances
 // a consumer created through NVML live only in that consumer's process, so the
-// CLI cannot see them, while declared processes are state both sides read.
+// CLI cannot see them, while declared processes are state both sides read. Only
+// the pristine profile is read, not the effective document, so processes
+// injected through this CLI's own `set` command do not arm the guard.
 func devicesWithProcesses(cfg *engine.Config, target mockctl.Target) []string {
 	if cfg == nil {
 		return nil

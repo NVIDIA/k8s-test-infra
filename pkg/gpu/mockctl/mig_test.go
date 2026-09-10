@@ -108,6 +108,21 @@ func TestSetMIG_ReplacesTheWholeBlock(t *testing.T) {
 	require.Equal(t, []any{map[string]any{"profile": "3g.20gb", "count": 2}}, mig["gpu_instances"])
 }
 
+// TestSetMIG_TargetsTheAllBucket covers the target `--gpu all` resolves to,
+// whose bucket is a separate branch from the per-device one.
+func TestSetMIG_TargetsTheAllBucket(t *testing.T) {
+	t.Parallel()
+
+	doc := &Doc{}
+	patch, err := MIGEnablePatch("1g.5gb", 7)
+	require.NoError(t, err)
+
+	doc.SetMIG(Target{All: true}, patch)
+
+	require.Equal(t, patch, doc.All["mig"])
+	require.Empty(t, doc.Devices, "an 'all' target must not write a per-device bucket")
+}
+
 // TestSetMIG_LeavesOtherOverridesAlone: assigning the mig block wholesale must
 // not disturb the device's other overrides.
 func TestSetMIG_LeavesOtherOverridesAlone(t *testing.T) {
@@ -142,6 +157,22 @@ func TestValidateMIGLayout_RejectsUnknownProfile(t *testing.T) {
 	err = ValidateMIGLayout(a100Base(), patch)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "1g.6gb")
+	require.Contains(t, err.Error(), "asked for 7 GPU instances, 0 can be placed")
+}
+
+// TestValidateMIGLayout_NamesAnUnnamedInstance: a profile declaring an instance
+// with neither a profile name nor an id still has to produce a refusal that
+// names something.
+func TestValidateMIGLayout_NamesAnUnnamedInstance(t *testing.T) {
+	t.Parallel()
+
+	err := ValidateMIGLayout(a100Base(), map[string]any{
+		"mode_current":  "enabled",
+		"mode_pending":  "enabled",
+		"gpu_instances": []any{map[string]any{"count": 2}},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "<unnamed profile> x2")
 }
 
 // TestValidateMIGLayout_RejectsUnplaceableCount: an A100 fits three 3g.20gb
