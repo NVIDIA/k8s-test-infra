@@ -249,12 +249,22 @@ func (d *ConfigurableDevice) refresh() {
 	if atomic.LoadUint64(&d.appliedGen) == gen {
 		return
 	}
-	// TryLock rather than Lock: the reconcilers below reach failure-guarded
-	// NVML methods that call back into refresh on this same goroutine, and
-	// refreshMu is not reentrant. A caller that cannot take the lock proceeds
-	// with whatever the holder has published so far — the previous config, and
-	// state a reconciler may still be rebuilding — and converges on a later
-	// call, since appliedGen is not advanced until the reconcilers finish.
+	// TryLock rather than Lock: reconcileMIG rebuilds the partitioning through
+	// failure-guarded NVML methods that call back into refresh on this same
+	// goroutine, and refreshMu is not reentrant. It is the only reconciler that
+	// re-enters — a blocking Lock was correct until it existed. A caller that
+	// cannot take the lock proceeds with whatever the holder has published so
+	// far — the previous config, and state a reconciler may still be rebuilding
+	// — and converges on a later call, since appliedGen is not advanced until
+	// the reconcilers finish.
+	//
+	// The reverse direction is a deadlock rather than a no-op: reconcileMIG
+	// takes migState.mu, so a goroutine already holding that lock must never
+	// reach a getter that refreshes. Such callers read the config already
+	// published instead — effectiveMemoryInfo rather than memoryInfo, and the
+	// Locked-suffixed migState accessors. Nothing detects the violation: it
+	// only self-deadlocks when the document generation advances between the
+	// outer refresh and the inner call.
 	if !d.refreshMu.TryLock() {
 		return
 	}
@@ -554,6 +564,9 @@ func (d *ConfigurableDevice) GetBAR1MemoryInfo() (nvml.BAR1Memory, nvml.Return) 
 // silently deriving it would make that field dead. Falls back to the
 // construction-time struct when the device was built without a memory block
 // (legacy/default mode), where d.MemoryInfo carries the base mock's values.
+//
+// It refreshes first, which makes it the entry point for callers that do not
+// hold migState.mu; callers that do hold it must use effectiveMemoryInfo.
 func (d *ConfigurableDevice) memoryInfo() nvml.Memory {
 	d.refresh()
 	return d.effectiveMemoryInfo()
@@ -563,8 +576,11 @@ func (d *ConfigurableDevice) memoryInfo() nvml.Memory {
 // without refreshing first. It exists for callers holding migState.mu: a
 // refresh reconciles MIG, which takes that lock, and neither it nor the refresh
 // lock is reentrant, so refreshing from under it would deadlock the goroutine
-// against itself. Those callers reach this through a getter that has already
-// refreshed, so the config they read is the current one.
+// against itself. What those callers read is the config already published: on a
+// getter path that is the one the enclosing refresh installed, and on the
+// declared-layout path it is deliberately the construction-time one, because a
+// declared layout answers for the config it was handed rather than for the
+// document on disk.
 func (d *ConfigurableDevice) effectiveMemoryInfo() nvml.Memory {
 	// A MIG device reports its slice, not the board it was carved from.
 	if d.mig != nil {

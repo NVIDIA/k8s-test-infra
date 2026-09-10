@@ -37,7 +37,7 @@ func (d *ConfigurableDevice) reconcileMIG(cfg *MIGConfig) {
 	if reflect.DeepEqual(d.appliedMIG, cfg) {
 		return
 	}
-	if d.reconcileMIGExempt(cfg) {
+	if d.recordMIGIfExempt(cfg) {
 		return
 	}
 
@@ -66,9 +66,11 @@ func (d *ConfigurableDevice) reconcileMIG(cfg *MIGConfig) {
 		d.index, enabled, len(retired))
 }
 
-// reconcileMIGExempt records cfg for devices that cannot be repartitioned and
-// returns true so reconcileMIG skips the rebuild path.
-func (d *ConfigurableDevice) reconcileMIGExempt(cfg *MIGConfig) bool {
+// recordMIGIfExempt records cfg as applied on a device that cannot be
+// repartitioned and reports whether it did, so reconcileMIG skips the rebuild
+// path for it. Recording is what keeps such a device from re-entering the
+// reconciler on every later refresh.
+func (d *ConfigurableDevice) recordMIGIfExempt(cfg *MIGConfig) bool {
 	// A MIG device is a leaf partition; it has no migState and cannot be
 	// subdivided further, so there is nothing to reconcile here.
 	if d.mig != nil {
@@ -92,6 +94,11 @@ func (d *ConfigurableDevice) reconcileMIGExempt(cfg *MIGConfig) bool {
 // absent block reads as MIG off, so removing the block from overrides.yaml
 // returns the board to its profile's state rather than freezing the last
 // override.
+//
+// A nil config must keep mapping to the disabled mode. Callers read an enabled
+// mode as proof that cfg is non-nil and go on to dereference it for the layout,
+// so reporting a nil config as enabled would turn that read into a nil
+// dereference.
 func migModesOf(cfg *MIGConfig) (current, pending int) {
 	if cfg == nil {
 		return nvml.DEVICE_MIG_DISABLE, nvml.DEVICE_MIG_DISABLE

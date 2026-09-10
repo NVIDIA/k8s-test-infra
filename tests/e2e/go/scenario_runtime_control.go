@@ -90,6 +90,14 @@ func resetRuntimeOverrides(ctx SpecContext, h *harness.Harness) {
 	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
 }
 
+// resetRuntimeOverridesOnNode is resetRuntimeOverrides for a scenario that
+// pins the node it asserts on. Overrides are staged per node, so an unpinned
+// reset can clear a different node's file and leave the asserted one live.
+func resetRuntimeOverridesOnNode(ctx SpecContext, h *harness.Harness, node string) {
+	GinkgoHelper()
+	nvmlMockCtlOnNode(ctx, h, node, "reset", "--gpu", "all")
+}
+
 // smiGPU returns one GPU's readings from a fresh `nvidia-smi -q -x` document.
 // A single exec carries every field these scenarios read, and the readings are
 // tri-state, so a lost GPU reads as lost rather than as a plausible zero.
