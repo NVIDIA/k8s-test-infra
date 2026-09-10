@@ -206,24 +206,27 @@ func main() {
 
 // checkProcessUtilization exercises nvmlDeviceGetProcessUtilization end-to-end
 // through go-nvml's two-call wrapper. Without MOCK_NVML_CONFIG (env/default
-// config has no processes) it validates the clean empty path — which is exactly
-// where the old stub broke go-nvml by returning SUCCESS on the count probe.
-// With MOCK_NVML_CONFIG defining a compute process + sm_util, it validates the
-// populated probe->fill path.
+// config has no processes) it validates the empty path, which NVML reports as
+// ERROR_NOT_FOUND rather than an empty list; go-nvml passes that return
+// straight through. With MOCK_NVML_CONFIG defining a compute process + sm_util,
+// it validates the populated probe->fill path.
 func checkProcessUtilization() {
 	dev, ret := nvml.DeviceGetHandleByIndex(0)
 	if ret != nvml.SUCCESS {
 		log.Fatalf("checkProcessUtilization: DeviceGetHandleByIndex: %v", nvml.ErrorString(ret))
 	}
+	if os.Getenv("MOCK_NVML_CONFIG") == "" {
+		s, ret := dev.GetProcessUtilization(0)
+		if ret != nvml.ERROR_NOT_FOUND || len(s) != 0 {
+			log.Fatalf("checkProcessUtilization: no-process config -> ret=%v, %d samples; want NOT_FOUND, 0",
+				nvml.ErrorString(ret), len(s))
+		}
+		log.Printf("✓ checkProcessUtilization: empty path reports NOT_FOUND (no MOCK_NVML_CONFIG)")
+		return
+	}
 	samples, ret := dev.GetProcessUtilization(0)
 	if ret != nvml.SUCCESS {
 		log.Fatalf("checkProcessUtilization: GetProcessUtilization: %v", nvml.ErrorString(ret))
-	}
-	if os.Getenv("MOCK_NVML_CONFIG") == "" {
-		// Default/env config: no processes. The call must succeed cleanly and
-		// return zero samples (probe returns SUCCESS with count 0).
-		log.Printf("✓ checkProcessUtilization: empty path OK (%d samples, no MOCK_NVML_CONFIG)", len(samples))
-		return
 	}
 	// Assert exact values, not just len>0, so a dropped/transposed bridge field is caught.
 	if len(samples) != 1 || samples[0].Pid != 4242 || samples[0].SmUtil != 75 || samples[0].MemUtil != 40 {
@@ -234,10 +237,11 @@ func checkProcessUtilization() {
 	if ret != nvml.SUCCESS {
 		log.Fatalf("checkProcessUtilization: DeviceGetHandleByIndex(1): %v", nvml.ErrorString(ret))
 	}
-	if s1, ret := d1.GetProcessUtilization(0); ret != nvml.SUCCESS || len(s1) != 0 {
-		log.Fatalf("checkProcessUtilization: device 1 (processes: []) -> ret=%v, %d samples; want SUCCESS, 0", nvml.ErrorString(ret), len(s1))
+	if s1, ret := d1.GetProcessUtilization(0); ret != nvml.ERROR_NOT_FOUND || len(s1) != 0 {
+		log.Fatalf("checkProcessUtilization: device 1 (processes: []) -> ret=%v, %d samples; want NOT_FOUND, 0",
+			nvml.ErrorString(ret), len(s1))
 	}
-	log.Printf("✓ checkProcessUtilization: device 0 pid=%d smUtil=%d memUtil=%d; device 1 empty",
+	log.Printf("✓ checkProcessUtilization: device 0 pid=%d smUtil=%d memUtil=%d; device 1 NOT_FOUND",
 		samples[0].Pid, samples[0].SmUtil, samples[0].MemUtil)
 }
 
