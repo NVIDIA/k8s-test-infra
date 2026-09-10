@@ -124,18 +124,22 @@ func (st *migState) explicitPlacementLocked(
 }
 
 // applyExplicitComputeInstances recreates the compute instances a record
-// carries, defaulting to one spanning the whole GPU instance when it carries
-// none — the partitioning a consumer gets when it creates an instance without
-// asking for slices.
+// carries, defaulting to one spanning the whole GPU instance when the record
+// says nothing about them — the partitioning a consumer gets when it creates
+// an instance without asking for slices.
+//
+// Presence, not emptiness, selects the default: an empty list is a GPU
+// instance whose compute instances were never created or were all deleted,
+// and giving it the default back would invent a partition nobody asked for.
 func (d *ConfigurableDevice) applyExplicitComputeInstances(
-	gi nvml.GpuInstance, giProfileID, defaultCIProfileID int, records []MIGComputeInstanceRecord,
+	gi nvml.GpuInstance, giProfileID, defaultCIProfileID int, records *[]MIGComputeInstanceRecord,
 ) {
-	if len(records) == 0 {
+	if records == nil {
 		d.applyDeclaredComputeInstances(gi, giProfileID, defaultCIProfileID, nil)
 		return
 	}
-	live := make(map[uint32]struct{}, len(records))
-	for _, rec := range records {
+	live := make(map[uint32]struct{}, len(*records))
+	for _, rec := range *records {
 		if _, taken := live[rec.ID]; taken {
 			warnLog("[MIG] device %d: compute instance %d already exists, skipping duplicate record\n",
 				d.index, rec.ID)

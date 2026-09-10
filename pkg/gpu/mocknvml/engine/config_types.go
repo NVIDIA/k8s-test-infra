@@ -564,11 +564,16 @@ type MIGComputeInstanceConfig struct {
 // omitted placement lets the engine choose the first free slot, which is what
 // a layout hand-written for a test usually wants.
 type MIGGPUInstanceRecord struct {
-	ID               uint32                     `json:"id"`
-	Profile          string                     `json:"profile,omitempty"`
-	ProfileID        *int                       `json:"profile_id,omitempty"`
-	PlacementStart   *int                       `json:"placement_start,omitempty"`
-	ComputeInstances []MIGComputeInstanceRecord `json:"compute_instances,omitempty"`
+	ID             uint32 `json:"id"`
+	Profile        string `json:"profile,omitempty"`
+	ProfileID      *int   `json:"profile_id,omitempty"`
+	PlacementStart *int   `json:"placement_start,omitempty"`
+	// ComputeInstances is a pointer for the same reason MIGConfig.Instances
+	// is: a GPU instance with no compute instances is a state hardware has —
+	// `nvidia-smi mig -cgi` without -C creates one, and deleting the last
+	// compute instance leaves one — so an empty list must not read as
+	// unspecified and be handed the spanning default back.
+	ComputeInstances *[]MIGComputeInstanceRecord `json:"compute_instances,omitempty"`
 }
 
 // MIGComputeInstanceRecord is one compute instance that exists inside a GPU

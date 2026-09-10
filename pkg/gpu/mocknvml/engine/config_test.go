@@ -404,10 +404,20 @@ func TestValidateMIGConfig_ExplicitInstances(t *testing.T) {
 				ModeCurrent: "enabled",
 				Instances: &[]MIGGPUInstanceRecord{{
 					ID: 0, Profile: "1g.5gb",
-					ComputeInstances: []MIGComputeInstanceRecord{{ID: 0, Profile: "1c"}, {ID: 0, Profile: "1c"}},
+					ComputeInstances: &[]MIGComputeInstanceRecord{{ID: 0, Profile: "1c"}, {ID: 0, Profile: "1c"}},
 				}},
 			},
 			wantErr: "duplicate compute instance id 0",
+		},
+		{
+			name: "empty compute instance list is valid and means none exist",
+			mig: &MIGConfig{
+				ModeCurrent: "enabled",
+				Instances: &[]MIGGPUInstanceRecord{{
+					ID: 0, Profile: "1g.5gb",
+					ComputeInstances: &[]MIGComputeInstanceRecord{},
+				}},
+			},
 		},
 	}
 
