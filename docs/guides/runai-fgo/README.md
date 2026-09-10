@@ -139,9 +139,7 @@ kubectl --context $CTX get pods -l app.kubernetes.io/name=nvml-mock -o wide
 kubectl --context $CTX get cm -l fake-gpu-operator/gpu-profile=true
 
 # A real nvidia-smi, on a node with no GPU.
-POD=$(kubectl --context $CTX get pods -l app.kubernetes.io/name=nvml-mock \
-  -o jsonpath='{.items[0].metadata.name}')
-kubectl --context $CTX exec "$POD" -- nvidia-smi
+kubectl --context $CTX exec ds/nvml-mock -- nvidia-smi
 
 # FGO runs on the scale workers.
 kubectl --context $CTX get pods -l app=fake-gpu-operator -o wide
@@ -149,10 +147,10 @@ kubectl --context $CTX get pods -l app=fake-gpu-operator -o wide
 
 You should end up with:
 
-| Node | Pool | Backend | GPUs come from | Mokka DaemonSet |
-|---|---|---|---|---|
-| worker | `integration` | `mock` | Mokka | yes |
-| worker | `scale` | `fake` | FGO | no |
+| Node   | Pool          | Backend | GPUs come from | Mokka DaemonSet |
+|--------|---------------|---------|----------------|-----------------|
+| worker | `integration` | `mock`  | Mokka          | yes             |
+| worker | `scale`       | `fake`  | FGO            | no              |
 
 ## When FGO does not pick up the profiles
 

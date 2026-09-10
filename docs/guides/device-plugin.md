@@ -95,10 +95,13 @@ kubectl -n kube-system wait --for=condition=ready \
 ## Step 4 — Verify allocatable GPUs
 
 ```bash
-NODE=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
-kubectl get node "$NODE" -o jsonpath='{.status.allocatable.nvidia\.com/gpu}'
-# 4 — the gb300 default profile has four devices
+kubectl get nodes -o custom-columns='NODE:.metadata.name,GPUS:.status.allocatable.nvidia\.com/gpu'
+# NODE                                GPUS
+# mokka-device-plugin-control-plane   4
 ```
+
+The count comes from the profile — `gb300` is the default and carries four
+devices.
 
 ## Step 5 — Schedule a workload
 
@@ -120,7 +123,7 @@ spec:
 EOF
 
 kubectl wait --for=condition=ready pod/gpu-pod --timeout=120s
-kubectl get node "$NODE" -o jsonpath='{.status.allocatable.nvidia\.com/gpu}'
+kubectl get nodes -o custom-columns='NODE:.metadata.name,GPUS:.status.allocatable.nvidia\.com/gpu'
 ```
 
 The pod scheduling is the result: the kubelet accepted a GPU request on a node

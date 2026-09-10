@@ -149,10 +149,11 @@ schema, and an unpinned install can pick up a release that renames a value.
 ```bash
 kubectl -n gpu-operator wait --for=condition=ready pod --all --timeout=300s
 
-kubectl get nodes -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}'
+kubectl get node "$NODE" -o jsonpath='{.status.allocatable.nvidia\.com/gpu}'
 # 4 — the gb300 default profile has four devices
 
-kubectl get nodes -o json | jq '.items[0].metadata.labels | with_entries(select(.key | startswith("nvidia.com")))'
+kubectl get node "$NODE" -o json \
+  | jq '.metadata.labels | with_entries(select(.key | startswith("nvidia.com")))'
 ```
 
 The validator pod reaching `Completed` is the meaningful signal: it probes the
