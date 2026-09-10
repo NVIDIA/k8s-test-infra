@@ -548,8 +548,8 @@ device_defaults:
 	require.Equal(t, 236, state.MIG.CapsMajor)
 	require.Len(t, state.MIG.GPUs, 2)
 	for i, gpu := range state.MIG.GPUs {
-		// The capability names key on the GPU's device-node minor, which
-		// gpudriver sets to the index.
+		// The capability names key on the GPU's device-node minor, which this
+		// profile leaves implicit, so it follows the index.
 		require.Equal(t, i, gpu.Minor)
 		require.Len(t, gpu.GPUInstances, 3)
 		for _, gi := range gpu.GPUInstances {
@@ -627,4 +627,40 @@ func TestCompileState_DeclaredMIGPartitionsAllResolve(t *testing.T) {
 		})
 	}
 	require.True(t, sawPartitionedProfile, "no profile declares MIG partitions; has the block moved?")
+}
+
+// A profile is free to number the device nodes independently of the NVML
+// index, and the MIG capability names have to follow the nodes gpudriver
+// actually creates. Keying them on the index instead would point a consumer
+// at another GPU's cap devices on exactly the profiles that renumber.
+func TestCompileState_MIGCapsFollowTheDeviceMinor(t *testing.T) {
+	data := []byte(`
+version: "1.0"
+system:
+  num_devices: 2
+device_defaults:
+  name: "NVIDIA A100-SXM4-40GB"
+  memory:
+    total_bytes: 42949672960
+  mig:
+    mode_current: "enabled"
+    mode_pending: "enabled"
+    gpu_instances:
+      - profile: "1g.5gb"
+        count: 1
+devices:
+  - index: 0
+    minor_number: 5
+  - index: 1
+    minor_number: 4
+`)
+
+	state, err := compileState(data)
+	require.NoError(t, err)
+	require.True(t, state.MIG.Partitioned())
+	require.Len(t, state.MIG.GPUs, 2)
+
+	minors := []int{state.MIG.GPUs[0].Minor, state.MIG.GPUs[1].Minor}
+	require.Equal(t, []int{5, 4}, minors,
+		"cap names must use the profile's minor numbers, not the NVML indices")
 }

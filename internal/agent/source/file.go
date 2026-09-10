@@ -257,18 +257,19 @@ func compileState(data []byte) (*agent.State, error) {
 // stages are keyed by instance ID, so a second derivation that disagreed with
 // the library's would point a consumer at another partition's cap device.
 func compileMIG(cfg *engine.YAMLConfig, numDevices int) agent.MIGState {
-	layouts := engine.DeclaredMIGLayout(&engine.Config{NumDevices: numDevices, YAMLConfig: cfg})
+	ec := &engine.Config{NumDevices: numDevices, YAMLConfig: cfg}
+	layouts := engine.DeclaredMIGLayout(ec)
 	if len(layouts) == 0 {
 		return agent.MIGState{}
 	}
 
 	state := agent.MIGState{CapsMajor: envIntOrDefault("MIG_CAPS_MAJOR", defaultCapsMajor)}
 	for _, layout := range layouts {
-		// A capability name identifies its GPU by device-node minor. gpudriver
-		// mknods /dev/nvidiaN with the index as the minor, so the index is
-		// that minor; reading DeviceSpec.MinorNumber instead would name nodes
-		// that are not the ones on disk.
-		gpu := agent.MIGGPU{Minor: layout.GPUIndex}
+		// A capability name identifies its GPU by device-node minor, which a
+		// profile can set independently of the NVML index. Deriving it from
+		// the index instead would name cap devices for a GPU other than the
+		// one gpudriver mknod'd, whenever the two differ.
+		gpu := agent.MIGGPU{Minor: ec.GetDeviceMinorNumber(layout.GPUIndex)}
 		for _, gi := range layout.GPUInstances {
 			cis := make([]agent.MIGComputeInstance, 0, len(gi.ComputeInstances))
 			for _, ci := range gi.ComputeInstances {
