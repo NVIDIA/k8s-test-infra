@@ -17,9 +17,15 @@
 //
 // Two conventions recur:
 //
-//   - Array queries are two-phase. A nil array means "tell me the size", and
-//     an array too small returns ERROR_INSUFFICIENT_SIZE with count set to
-//     what is needed. Callers written against real NVML rely on this.
+//   - The array queries take count as an output only. NVML documents it as
+//     "the count of returned ..." and requires the caller to size its buffer
+//     from the profile — instanceCount for the instance lists, the profile's
+//     placement count for the placement lists — so count on entry carries no
+//     capacity to check against, and ERROR_INSUFFICIENT_SIZE is not among the
+//     documented returns. A caller that leaves count zero, as nvidia-smi
+//     does, must still get its entries. The two PossiblePlacements queries
+//     additionally document a NULL array as a way to discover the count;
+//     that probe is the only two-phase form here.
 //   - Instance handles are their own opaque pointers, distinct from device
 //     handles, and are invalidated when the instance is destroyed. A caller
 //     that keeps using a destroyed instance's handle gets
@@ -206,10 +212,6 @@ func nvmlDeviceGetGpuInstancePossiblePlacements(
 		*count = C.uint(len(got))
 		return C.NVML_SUCCESS
 	}
-	if int(*count) < len(got) {
-		*count = C.uint(len(got))
-		return C.NVML_ERROR_INSUFFICIENT_SIZE
-	}
 
 	out := unsafe.Slice(placements, len(got))
 	for i, p := range got {
@@ -319,10 +321,6 @@ func nvmlDeviceGetGpuInstances(
 	if gpuInstances == nil {
 		*count = C.uint(len(handles))
 		return C.NVML_SUCCESS
-	}
-	if int(*count) < len(handles) {
-		*count = C.uint(len(handles))
-		return C.NVML_ERROR_INSUFFICIENT_SIZE
 	}
 
 	out := unsafe.Slice(gpuInstances, len(handles))
@@ -493,10 +491,6 @@ func nvmlGpuInstanceGetComputeInstancePossiblePlacements(
 		*count = C.uint(len(got))
 		return C.NVML_SUCCESS
 	}
-	if int(*count) < len(got) {
-		*count = C.uint(len(got))
-		return C.NVML_ERROR_INSUFFICIENT_SIZE
-	}
 
 	out := unsafe.Slice(placements, len(got))
 	for i, p := range got {
@@ -582,10 +576,6 @@ func nvmlGpuInstanceGetComputeInstances(
 	if computeInstances == nil {
 		*count = C.uint(len(handles))
 		return C.NVML_SUCCESS
-	}
-	if int(*count) < len(handles) {
-		*count = C.uint(len(handles))
-		return C.NVML_ERROR_INSUFFICIENT_SIZE
 	}
 
 	out := unsafe.Slice(computeInstances, len(handles))
