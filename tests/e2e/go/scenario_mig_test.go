@@ -86,7 +86,7 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 				installMIGChart(ctx, h, p)
 				assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace,
 					"nvml-mock", config.ReadyTimeout(), config.PollInterval())
-				node = podNode(ctx, h, firstNvmlPod(ctx, h))
+				node = migTargetNode(ctx, h)
 			})
 
 			// The mock's own surface, before any consumer. Asserting through the
@@ -467,6 +467,38 @@ func installMIGChart(ctx context.Context, h *harness.Harness, p profile.Profile,
 	By(fmt.Sprintf("helm upgrade --install nvml-mock with gpu.mig.enabled=%t (profile=%s)", on, p.Name))
 	Expect(h.Helm.UpgradeInstall(ctx, rel)).To(Succeed(),
 		"helm upgrade --install nvml-mock with gpu.mig.enabled=%t (profile=%s)", on, p.Name)
+}
+
+// migTargetNode picks the node every spec in this scenario asserts about. It
+// has to be a node the device plugin runs on, which is the sgpu-labelled fleet:
+// both device-plugin manifests select on that label, and the specs below read
+// the partition count it advertises.
+//
+// Deriving it from the mock instead is what made this scenario flaky. The chart
+// installs nvml-mock with an empty nodeSelector and a blanket toleration, so a
+// mock pod lands on the control plane too, and the first-pod-by-name tiebreak
+// picked that pod roughly one profile in three. Every spec that only questions
+// the mock passes on such a node, because the mock is there; the specs that read
+// nvidia.com/gpu cannot, because the device plugin is not.
+func migTargetNode(ctx context.Context, h *harness.Harness) string {
+	GinkgoHelper()
+	nodes, err := h.Cluster.Nodes(ctx)
+	Expect(err).NotTo(HaveOccurred(), "list cluster nodes")
+
+	var targets []string
+	for _, n := range nodes {
+		v, ok, err := h.Kube.NodeLabel(ctx, n.Name, sgpuNodeLabel)
+		Expect(err).NotTo(HaveOccurred(), "read label %s on node %s", sgpuNodeLabel, n.Name)
+		if ok && v == sgpuNodeLabelValue {
+			targets = append(targets, n.Name)
+		}
+	}
+	// Nodes come back sorted by name, so this is the same node on every run and
+	// across both profiles sharing one cluster.
+	Expect(targets).NotTo(BeEmpty(),
+		"no node carries %s=%s, the label the device-plugin manifests select on",
+		sgpuNodeLabel, sgpuNodeLabelValue)
+	return targets[0]
 }
 
 // deployMIGDevicePlugin applies the migStrategy=single manifest and waits for
