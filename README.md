@@ -21,14 +21,28 @@
 
 ---
 
-Mokka turns any Kubernetes cluster into a multi-GPU environment for testing. It
-implements the NVIDIA driver interfaces that GPU software talks to, so the
-device plugin, the DRA driver, the GPU Operator and `nvidia-smi` all behave as
-though real hardware were present.
+Mokka simulates the software contracts around NVIDIA devices rather than the
+devices themselves. The rule of thumb: reach for Mokka when your system **reads**
+hardware state and reacts to it, and for real hardware when it **executes** work,
+moves data, or measures performance.
 
-Use it to test scheduling, node labelling, telemetry and failure handling where
-real GPUs are not available. It is a test double for CI and test clusters, not
-something to run in production.
+That makes it a good fit for:
+
+- Kubernetes discovery and allocation through the device plugin or DRA —
+  scheduling, ResourceClaims, CDI visibility, topology attributes.
+- Software that consumes NVML, `nvidia-smi`, DCGM or DCGM Exporter.
+- Monitoring dashboards, parsers, alerting, and remediation logic that cordons,
+  drains, reschedules and recovers.
+- Repeatable fault injection — device loss, Xid errors, ECC errors, temperature,
+  power, utilisation, clocks, and GPU-side NVLink errors.
+- Code that interprets declared PCI, NUMA, NVLink, fabric UUID or clique
+  topology.
+- IMEX peer readiness and liveness over the pod network.
+
+Use real hardware for CUDA execution, NCCL, GPUDirect and RDMA data paths, any
+throughput or thermal measurement, driver and firmware lifecycle, switch
+management planes, physically faithful fault timing, MIG partition lifecycle,
+and Confidential Computing.
 
 ## Quick start
 
@@ -41,6 +55,11 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 
 Every node now reports four mock GB300 GPUs. Swap in `a100`, `b200`, `gb200`,
 `h100`, `l40s` or `t4` with `--set gpu.profile=<name>`.
+
+[Simulation depth by area](https://nvidia.github.io/k8s-test-infra/#simulation-depth-by-area)
+breaks this down per surface — GPU and NVML, Kubernetes allocation, metrics, PCI
+and NUMA, NVLink, NVSwitch and Fabric Manager, and InfiniBand — with what each
+one does and does not prove.
 
 ## Tested consumers
 
@@ -56,7 +75,7 @@ Every node now reports four mock GB300 GPUs. Swap in `a100`, `b200`, `gb200`,
 
 ## Documentation
 
-**[nvidia.github.io/k8s-test-infra](https://nvidia.github.io/k8s-test-infra/)**
+Visit **[our documentation website](https://nvidia.github.io/k8s-test-infra/)** to find all details about how Mokka works.
 
 |                                                                         |                                                                          |
 |-------------------------------------------------------------------------|--------------------------------------------------------------------------|
