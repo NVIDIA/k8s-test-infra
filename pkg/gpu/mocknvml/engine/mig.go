@@ -588,6 +588,11 @@ func (e *Engine) migDeviceByUUID(uuid string) *ConfigurableDevice {
 
 // migDeviceByUUID finds one of this GPU's partitions by UUID.
 func (d *ConfigurableDevice) migDeviceByUUID(uuid string) *ConfigurableDevice {
+	// This is the one MIG read that no handle guard precedes, so it has to
+	// refresh for itself: the set of partitions a UUID can name is exactly
+	// what an override changes.
+	d.refresh()
+
 	st := d.migState
 	if st == nil || !st.supported {
 		return nil
@@ -617,7 +622,7 @@ func (st *migState) newMigDeviceLocked(
 
 	name := parent.Config.Name
 	if profileName, err := migProfileName(
-		int(gi.Info.ProfileId), int(ci.Info.ProfileId), giProfile.MemorySizeMB, parent.memoryInfo().Total,
+		int(gi.Info.ProfileId), int(ci.Info.ProfileId), giProfile.MemorySizeMB, parent.effectiveMemoryInfo().Total,
 	); err == nil {
 		// Real NVML spells a MIG device's name as the board followed by its
 		// partition, e.g. "NVIDIA A100-SXM4-40GB MIG 1g.5gb".
