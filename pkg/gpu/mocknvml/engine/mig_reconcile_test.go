@@ -133,6 +133,67 @@ const migExplicitGap = `devices:
           placement_start: 2
 `
 
+// migExplicitMoved moves instance 0 of migExplicitTwo to a free offset and
+// leaves its neighbour where it is. Hardware cannot move an instance in place,
+// so this is a replacement of instance 0 rather than an edit of it.
+const migExplicitMoved = `devices:
+  "0":
+    mig:
+      mode_current: enabled
+      mode_pending: enabled
+      instances:
+        - id: 0
+          profile: 1g.5gb
+          placement_start: 3
+        - id: 1
+          profile: 1g.5gb
+          placement_start: 1
+`
+
+// The three documents below are the same subdivided GPU instance recorded with
+// two compute instances, with one, and with nothing said about them at all —
+// the states `nvidia-smi mig -cci` and `mig -dci` write down.
+const migExplicitTwoComputeInstances = `devices:
+  "0":
+    mig:
+      mode_current: enabled
+      mode_pending: enabled
+      instances:
+        - id: 0
+          profile: 3g.20gb
+          placement_start: 0
+          compute_instances:
+            - id: 0
+              profile: 1c
+            - id: 1
+              profile: 1c
+`
+
+const migExplicitOneComputeInstance = `devices:
+  "0":
+    mig:
+      mode_current: enabled
+      mode_pending: enabled
+      instances:
+        - id: 0
+          profile: 3g.20gb
+          placement_start: 0
+          compute_instances:
+            - id: 0
+              profile: 1c
+`
+
+const migExplicitNoComputeInstanceList = `devices:
+  "0":
+    mig:
+      mode_current: enabled
+      mode_pending: enabled
+      instances:
+        - id: 0
+          profile: 3g.20gb
+          placement_start: 0
+`
+
 // a100PlacementCapacity is how many 1-slice partitions an A100's placement
 // grid holds — the real ceiling on what these boards can enumerate, unlike
 // GetMaxMigDeviceCount, which an override can move at runtime.
@@ -410,6 +471,144 @@ func TestReconcileMIG_ExplicitRewriteIsANoOp(t *testing.T) {
 	after, ret := dev.GetMigDeviceHandleByIndex(0)
 	require.Equal(t, nvml.SUCCESS, ret)
 	require.Same(t, before, after, "an unchanged layout must not rebuild")
+}
+
+// liveGpuInstance returns the live GPU instance with the given ID. It reads
+// the board directly rather than through NVML, so callers must have driven a
+// refresh themselves.
+func liveGpuInstance(t *testing.T, dev *ConfigurableDevice, id uint32) *mockserver.GpuInstance {
+	t.Helper()
+	st := dev.migState
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	for _, gi := range st.liveGpuInstances(dev) {
+		if gi.Info.Id == id {
+			return gi
+		}
+	}
+	require.FailNowf(t, "no such GPU instance", "device has no live GPU instance %d", id)
+	return nil
+}
+
+func computeInstanceIDs(cis []*mockserver.ComputeInstance) []uint32 {
+	ids := make([]uint32, 0, len(cis))
+	for _, ci := range cis {
+		ids = append(ids, ci.Info.Id)
+	}
+	return ids
+}
+
+// TestReconcileMIG_ExplicitAddsARecordedComputeInstance: a compute instance
+// created in one process has to cross into another like any other mutation,
+// and without disturbing the GPU instance it subdivides — nobody asked for the
+// siblings, or the handles held to them, to be rebuilt.
+func TestReconcileMIG_ExplicitAddsARecordedComputeInstance(t *testing.T) {
+	dev, path, clock := newTestDevice(t, a100MIGConfig())
+	writeConfigOverride(t, path, migExplicitOneComputeInstance, clock)
+	require.Equal(t, 1, migPartitionCount(t, dev))
+
+	giBefore := liveGpuInstance(t, dev, 0)
+	cisBefore := liveComputeInstances(giBefore)
+	require.Equal(t, []uint32{0}, computeInstanceIDs(cisBefore))
+	migBefore, ret := dev.GetMigDeviceHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	writeConfigOverride(t, path, migExplicitTwoComputeInstances, clock)
+	// GetMigMode drives the refresh that reaches the reconciler.
+	_, _, ret = dev.GetMigMode()
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	giAfter := liveGpuInstance(t, dev, 0)
+	require.Same(t, giBefore, giAfter, "adding a compute instance must not rebuild its GPU instance")
+	cisAfter := liveComputeInstances(giAfter)
+	require.Equal(t, []uint32{0, 1}, computeInstanceIDs(cisAfter),
+		"the recorded compute instance should have been created")
+	require.Same(t, cisBefore[0], cisAfter[0], "an untouched compute instance must not be rebuilt")
+
+	migAfter, ret := dev.GetMigDeviceHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Same(t, migBefore, migAfter, "the MIG device of an untouched compute instance must stay valid")
+	require.Equal(t, 2, migPartitionCount(t, dev))
+}
+
+// TestReconcileMIG_ExplicitRemovesADroppedComputeInstance is the counterpart:
+// a compute instance the layout no longer records goes away, and its siblings
+// and the GPU instance around it do not.
+func TestReconcileMIG_ExplicitRemovesADroppedComputeInstance(t *testing.T) {
+	dev, path, clock := newTestDevice(t, a100MIGConfig())
+	writeConfigOverride(t, path, migExplicitTwoComputeInstances, clock)
+	require.Equal(t, 2, migPartitionCount(t, dev))
+
+	giBefore := liveGpuInstance(t, dev, 0)
+	cisBefore := liveComputeInstances(giBefore)
+	require.Equal(t, []uint32{0, 1}, computeInstanceIDs(cisBefore))
+	migBefore, ret := dev.GetMigDeviceHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	writeConfigOverride(t, path, migExplicitOneComputeInstance, clock)
+	_, _, ret = dev.GetMigMode()
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	giAfter := liveGpuInstance(t, dev, 0)
+	require.Same(t, giBefore, giAfter, "deleting a compute instance must not rebuild its GPU instance")
+	cisAfter := liveComputeInstances(giAfter)
+	require.Equal(t, []uint32{0}, computeInstanceIDs(cisAfter),
+		"the compute instance the layout dropped should be gone")
+	require.Same(t, cisBefore[0], cisAfter[0], "the surviving compute instance must not be rebuilt")
+
+	migAfter, ret := dev.GetMigDeviceHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Same(t, migBefore, migAfter, "the MIG device of the survivor must stay valid")
+	require.Equal(t, 1, migPartitionCount(t, dev))
+}
+
+// TestReconcileMIG_ExplicitPlacementChangeReplacesTheInstance: an instance
+// cannot be moved in place on hardware, so a record whose placement no longer
+// matches describes a new instance under a reused ID and has to be
+// materialized as one.
+func TestReconcileMIG_ExplicitPlacementChangeReplacesTheInstance(t *testing.T) {
+	dev, path, clock := newTestDevice(t, a100MIGConfig())
+	writeConfigOverride(t, path, migExplicitTwo, clock)
+	require.Equal(t, 2, migPartitionCount(t, dev))
+
+	neighbour := liveGpuInstance(t, dev, 1)
+
+	writeConfigOverride(t, path, migExplicitMoved, clock)
+	_, _, ret := dev.GetMigMode()
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	moved := liveGpuInstance(t, dev, 0)
+	require.Equal(t, uint32(3), moved.Info.Placement.Start,
+		"the instance should have been recreated at the recorded offset")
+	require.Same(t, neighbour, liveGpuInstance(t, dev, 1),
+		"replacing one instance must not rebuild the others")
+	require.Equal(t, 2, migPartitionCount(t, dev))
+}
+
+// TestReconcileMIG_ExplicitUnspecifiedComputeInstancesAreLeftAlone pins what a
+// record saying nothing about compute instances means to the diff: unspecified,
+// not empty. The same record materialized the spanning default when it created
+// the instance, so reading nil as "none" would delete that default; and a
+// record hand-written without the key would delete compute instances a
+// consumer created through NVML and still holds.
+func TestReconcileMIG_ExplicitUnspecifiedComputeInstancesAreLeftAlone(t *testing.T) {
+	dev, path, clock := newTestDevice(t, a100MIGConfig())
+	writeConfigOverride(t, path, migExplicitTwoComputeInstances, clock)
+	require.Equal(t, 2, migPartitionCount(t, dev))
+
+	cisBefore := liveComputeInstances(liveGpuInstance(t, dev, 0))
+	require.Equal(t, []uint32{0, 1}, computeInstanceIDs(cisBefore))
+
+	writeConfigOverride(t, path, migExplicitNoComputeInstanceList, clock)
+	_, _, ret := dev.GetMigMode()
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	cisAfter := liveComputeInstances(liveGpuInstance(t, dev, 0))
+	require.Equal(t, []uint32{0, 1}, computeInstanceIDs(cisAfter),
+		"an unspecified compute instance list must not clear the live ones")
+	require.Same(t, cisBefore[0], cisAfter[0])
+	require.Same(t, cisBefore[1], cisAfter[1])
 }
 
 // TestReconcileMIG_IgnoresBoardsWithoutMIG: faking MIG on a T4 would report a
