@@ -23,9 +23,12 @@
 //     placement count for the placement lists — so count on entry carries no
 //     capacity to check against, and ERROR_INSUFFICIENT_SIZE is not among the
 //     documented returns. A caller that leaves count zero, as nvidia-smi
-//     does, must still get its entries. The two PossiblePlacements queries
-//     additionally document a NULL array as a way to discover the count;
-//     that probe is the only two-phase form here.
+//     does, must still get its entries. All four also answer a NULL array
+//     with the count alone: NVML documents that probe for the two
+//     PossiblePlacements queries, and the two instance lists accept it as
+//     leniency beyond the contract, which costs a caller sizing its buffer
+//     from the profile nothing. The ABI tests in tests/mocknvml exercise both
+//     forms of all four, so neither can be dropped unnoticed.
 //   - Instance handles are their own opaque pointers, distinct from device
 //     handles, and are invalidated when the instance is destroyed. A caller
 //     that keeps using a destroyed instance's handle gets
@@ -318,6 +321,9 @@ func nvmlDeviceGetGpuInstances(
 		return toReturn(ret)
 	}
 
+	// Undocumented for this query, unlike the placement lists: a caller that
+	// probes for the count first gets one instead of a guess, and one that
+	// sizes from the profile as NVML tells it to never reaches this.
 	if gpuInstances == nil {
 		*count = C.uint(len(handles))
 		return C.NVML_SUCCESS
@@ -573,6 +579,7 @@ func nvmlGpuInstanceGetComputeInstances(
 		return toReturn(ret)
 	}
 
+	// The same undocumented count probe nvmlDeviceGetGpuInstances accepts.
 	if computeInstances == nil {
 		*count = C.uint(len(handles))
 		return C.NVML_SUCCESS

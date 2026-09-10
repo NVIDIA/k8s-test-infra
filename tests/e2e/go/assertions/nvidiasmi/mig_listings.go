@@ -75,6 +75,25 @@ const (
 	gpuInstanceProfileBanner = "| GPU instance profiles:"
 )
 
+// MigListing names one of the `nvidia-smi mig` tables read by row count alone,
+// so that count can be tied to the listing the caller asked for. The tables
+// have the same shape and often the same number of rows — a board's compute
+// instances and its GPU instances are one for one under migStrategy=single —
+// so a crossed flag is invisible to a bare count.
+type MigListing struct {
+	cmd    string
+	banner string
+}
+
+var (
+	// MigComputeInstances is `nvidia-smi mig -lci`, the compute instances a
+	// board has.
+	MigComputeInstances = MigListing{cmd: "mig -lci", banner: "| Compute instances:"}
+	// MigComputeInstanceProfiles is `nvidia-smi mig -lcip`, the compute
+	// instance profiles its partitions offer.
+	MigComputeInstanceProfiles = MigListing{cmd: "mig -lcip", banner: "| Compute instance profiles:"}
+)
+
 // ListMigGPUInstances parses `nvidia-smi mig -lgi` into the partitions it
 // reports. A board with MIG on and nothing carved out yields an empty listing,
 // which is a real state and not an error; output that is not this listing is.
@@ -138,20 +157,24 @@ func ListMigProfileCapacity(out string) ([]MigProfileCapacity, error) {
 	return profiles, nil
 }
 
-// CountMigTableRows counts the data rows of any `nvidia-smi mig` table.
+// CountMigTableRows counts the data rows of the named `nvidia-smi mig` table.
 //
 // This is the coarse reading of the compute-instance listings, whose columns
-// restate what -lgi already carries. It cannot report a parse failure, so a
-// caller must compare it against an expected non-zero count: output that is not
-// a table counts zero and fails that comparison.
-func CountMigTableRows(out string) int {
+// restate what -lgi already carries. Checking the banner is what makes the
+// count a statement about that listing rather than about whichever table the
+// caller happened to pass, and it is what turns an `nvidia-smi mig` failure —
+// which prints an error and no table — into an error rather than a zero.
+func CountMigTableRows(out string, listing MigListing) (int, error) {
+	if !strings.Contains(out, listing.banner) {
+		return 0, notAListing(listing.cmd, out)
+	}
 	rows := 0
 	for line := range strings.Lines(out) {
 		if migTableRow.MatchString(line) {
 			rows++
 		}
 	}
-	return rows
+	return rows, nil
 }
 
 // MigCapacityFor returns the occupancy of profile on gpu, and whether the

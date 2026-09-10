@@ -61,6 +61,10 @@ RUN --mount=type=secret,id=goauth,mode=0500 \
     go mod download
 
 COPY tests/mocknvml/*.go ./
+# The ABI tests call the library's MIG entry points directly and must pass the
+# structs it writes into. Copying its header beside them keeps both sides on
+# one definition rather than on a copy that can drift into memory corruption.
+COPY pkg/gpu/mocknvml/bridge/nvml_types.h ./
 RUN CGO_ENABLED=1 go build -o mocknvml-test .
 
 # Runtime stage

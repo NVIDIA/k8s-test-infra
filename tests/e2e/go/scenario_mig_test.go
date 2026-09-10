@@ -134,7 +134,9 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 
 				// -lci enumerates the compute instances that exist, and
 				// migStrategy=single gives every partition exactly one.
-				Expect(nvidiasmi.CountMigTableRows(listings["-lci"])).To(Equal(total),
+				lci, err := nvidiasmi.CountMigTableRows(listings["-lci"], nvidiasmi.MigComputeInstances)
+				Expect(err).NotTo(HaveOccurred(), "parse nvidia-smi mig -lci:\n%s", listings["-lci"])
+				Expect(lci).To(Equal(total),
 					"nvidia-smi mig -lci should list one compute instance per partition on a %d-GPU node with %d partitions each:\n%s",
 					p.ExpectedGPUs(), partitions, listings["-lci"])
 
@@ -142,7 +144,9 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 				// instance profiles each partition offers, and how many that is
 				// varies by board. The portable claim is that no partition is
 				// missing from it.
-				Expect(nvidiasmi.CountMigTableRows(listings["-lcip"])).To(BeNumerically(">=", total),
+				lcip, err := nvidiasmi.CountMigTableRows(listings["-lcip"], nvidiasmi.MigComputeInstanceProfiles)
+				Expect(err).NotTo(HaveOccurred(), "parse nvidia-smi mig -lcip:\n%s", listings["-lcip"])
+				Expect(lcip).To(BeNumerically(">=", total),
 					"nvidia-smi mig -lcip should offer at least one compute instance profile for each of the %d partitions:\n%s",
 					total, listings["-lcip"])
 			})
@@ -403,6 +407,21 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 				// the config TTL, so the layout this reads is settled.
 				Expect(nvidiasmi.MigInstancesOfGPU(migGPUInstancesOnNode(ctx, h, node), 0)).To(HaveLen(1),
 					"nvidia-smi mig -lgi should report the single partition `nvidia-smi -L` already shows on GPU 0")
+
+				// The occupancy numbers have to come from the instances that
+				// exist, not from the layout the chart declared: a board this
+				// spec has just carved down to one partition is the only state
+				// that tells the two apart. The spec above reads them on a
+				// board where they agree.
+				capacityListing := migListingOnNode(ctx, h, node, "-lgip")
+				capacities, err := nvidiasmi.ListMigProfileCapacity(capacityListing)
+				Expect(err).NotTo(HaveOccurred(), "parse nvidia-smi mig -lgip:\n%s", capacityListing)
+				capacity, ok := nvidiasmi.MigCapacityFor(capacities, 0, p.MIGDeviceProfile())
+				Expect(ok).To(BeTrue(),
+					"nvidia-smi mig -lgip offers no %s profile on GPU 0:\n%s", p.MIGDeviceProfile(), capacityListing)
+				Expect(capacity.Total-capacity.Free).To(Equal(1),
+					"GPU 0 now holds one %s partition, so -lgip should show one taken, got %d free of %d",
+					p.MIGDeviceProfile(), capacity.Free, capacity.Total)
 
 				Expect(migPartitionsOfGPU(migDevicesOnNode(ctx, h, node), 1)).To(HaveLen(partitions),
 					"a repartition of GPU 0 must not disturb its neighbours")

@@ -32,6 +32,17 @@ type testResult struct {
 	detail string
 }
 
+// skipPrefix marks the detail of a result that neither passed nor failed
+// because its fixture is absent. The counts below are reported against no
+// expected total, so a leg that returns no results at all reads as one that
+// was never written; a skip keeps it visible without failing a run that was
+// never asked to exercise it.
+const skipPrefix = "SKIP: "
+
+func skippedResult(name, reason string) testResult {
+	return testResult{name, true, skipPrefix + reason}
+}
+
 // bridgeTests runs all bridge-level tests and returns results.
 // Caller must have already called nvml.Init().
 func bridgeTests(deviceCount int) []testResult {
@@ -1054,21 +1065,24 @@ func runBridgeTests(deviceCount int) int {
 	log.Println("\n=== Bridge Edge-Case Tests ===")
 
 	results := bridgeTests(deviceCount)
-	failures := 0
+	failures, skips := 0, 0
 
 	for _, r := range results {
-		if r.passed {
-			if r.detail != "" {
-				log.Printf("  PASS  %s (%s)", r.name, r.detail)
-			} else {
-				log.Printf("  PASS  %s", r.name)
-			}
-		} else {
+		switch {
+		case !r.passed:
 			log.Printf("  FAIL  %s: %s", r.name, r.detail)
 			failures++
+		case strings.HasPrefix(r.detail, skipPrefix):
+			log.Printf("  SKIP  %s (%s)", r.name, strings.TrimPrefix(r.detail, skipPrefix))
+			skips++
+		case r.detail != "":
+			log.Printf("  PASS  %s (%s)", r.name, r.detail)
+		default:
+			log.Printf("  PASS  %s", r.name)
 		}
 	}
 
-	log.Printf("\n=== Bridge Tests: %d passed, %d failed ===", len(results)-failures, failures)
+	log.Printf("\n=== Bridge Tests: %d passed, %d skipped, %d failed ===",
+		len(results)-failures-skips, skips, failures)
 	return failures
 }
