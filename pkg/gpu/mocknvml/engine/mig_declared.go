@@ -145,7 +145,7 @@ func (st *migState) gpuInstanceProfileNameLocked(parent *ConfigurableDevice, giP
 	name, err := migProfileName(
 		giProfileID, ciProfileID,
 		st.profiles.GpuInstanceProfiles[giProfileID].MemorySizeMB,
-		parent.memoryInfo().Total,
+		parent.effectiveMemoryInfo().Total,
 	)
 	if err != nil {
 		return ""

@@ -121,34 +121,55 @@ func NewConfigurableDevice(index int, baseDevice *mockserver.Device, config *Dev
 		minorNumber: minorNumber,
 		baseConfig:  config,
 	}
+	dev.seedFromConfig(config, uuid, pciBusID, minorNumber)
 
-	dev.nvmlIndex.Store(int64(index))
+	debugLog("[DEVICE %d] Created: name=%s uuid=%s pci=%s\n", index, dev.Config.Name, dev.UUID, dev.PciBusID)
+
+	return dev
+}
+
+// seedFromConfig brings the device up on what its YAML profile declares, which
+// is the state every later refresh reconciles away from.
+//
+// It holds the refresh lock for the whole of construction because some of the
+// steps below read the effective config through ordinary getters, and those
+// refresh. A refresh that ran here would reconcile against a device that is
+// only half assembled — one whose migState does not exist yet reads as a board
+// that is not MIG-capable — and would then record the override document as
+// applied, so no later refresh would revisit it. refresh takes this lock with
+// TryLock, so those nested calls become no-ops and appliedGen stays 0, leaving
+// the document to the first refresh that runs against complete state.
+func (d *ConfigurableDevice) seedFromConfig(config *DeviceConfig, uuid, pciBusID string, minorNumber int) {
+	d.refreshMu.Lock()
+	defer d.refreshMu.Unlock()
+
+	d.nvmlIndex.Store(int64(d.index))
 
 	// Override base device properties from config
-	applyDeviceBaseOverrides(dev, config)
+	applyDeviceBaseOverrides(d, config)
 
 	// Override UUID if provided
 	if uuid != "" {
-		dev.UUID = uuid
+		d.UUID = uuid
 	}
 
 	// Override PCI bus ID if provided
 	if pciBusID != "" {
-		dev.PciBusID = pciBusID
+		d.PciBusID = pciBusID
 	}
 
 	// Set minor number
-	dev.Minor = minorNumber
+	d.Minor = minorNumber
 
 	// Initialize cached values from the base config. These run once at
 	// construction and intentionally use the base (pre-config override) config.
-	dev.initBAR1Memory(config)
-	dev.initPciInfo(config)
+	d.initBAR1Memory(config)
+	d.initPciInfo(config)
 
 	// Enable dynamic metric simulation if the YAML opts in. Leaving
 	// config.DynamicMetrics nil preserves the historical static behavior.
 	if config != nil && config.DynamicMetrics != nil {
-		dev.dynamicMetrics.Store(newDynamicMetricsSimulator(config.DynamicMetrics))
+		d.dynamicMetrics.Store(newDynamicMetricsSimulator(config.DynamicMetrics))
 	}
 
 	// Seed effective config + injector from the base. appliedGen stays 0 so
@@ -157,23 +178,19 @@ func NewConfigurableDevice(index int, baseDevice *mockserver.Device, config *Dev
 	if initial == nil {
 		initial = &DeviceConfig{}
 	}
-	dev.effective.Store(initial)
+	d.effective.Store(initial)
 
 	// Enable failure injection (lost/fallen_off_bus/ecc_uncorrectable)
 	// when the YAML opts in. newFailureInjector returns nil for the
 	// default healthy mode, so the per-call hot path stays a single
 	// nil check.
 	if config != nil && config.Failure != nil {
-		dev.failure.Store(newFailureInjector(config.Failure))
+		d.failure.Store(newFailureInjector(config.Failure))
 	}
 
 	// Last, because resolving the board's MIG tables and materializing any
 	// declared partitions both read the effective config set above.
-	dev.initMIG(config)
-
-	debugLog("[DEVICE %d] Created: name=%s uuid=%s pci=%s\n", index, dev.Config.Name, dev.UUID, dev.PciBusID)
-
-	return dev
+	d.initMIG(config)
 }
 
 // applyDeviceBaseOverrides copies whichever base fields the YAML profile
@@ -538,12 +555,23 @@ func (d *ConfigurableDevice) GetBAR1MemoryInfo() (nvml.BAR1Memory, nvml.Return) 
 // construction-time struct when the device was built without a memory block
 // (legacy/default mode), where d.MemoryInfo carries the base mock's values.
 func (d *ConfigurableDevice) memoryInfo() nvml.Memory {
+	d.refresh()
+	return d.effectiveMemoryInfo()
+}
+
+// effectiveMemoryInfo is memoryInfo answered from the config already published,
+// without refreshing first. It exists for callers holding migState.mu: a
+// refresh reconciles MIG, which takes that lock, and neither it nor the refresh
+// lock is reentrant, so refreshing from under it would deadlock the goroutine
+// against itself. Those callers reach this through a getter that has already
+// refreshed, so the config they read is the current one.
+func (d *ConfigurableDevice) effectiveMemoryInfo() nvml.Memory {
 	// A MIG device reports its slice, not the board it was carved from.
 	if d.mig != nil {
 		total := d.mig.attrs.MemorySizeMB * oneMiB
 		return nvml.Memory{Total: total, Free: total}
 	}
-	if c := d.cfg(); c.Memory != nil {
+	if c := d.effective.Load(); c.Memory != nil {
 		return nvml.Memory{
 			Total: c.Memory.TotalBytes,
 			Free:  c.Memory.FreeBytes,
