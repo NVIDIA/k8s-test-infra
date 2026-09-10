@@ -78,8 +78,14 @@ type mutation func(doc *mockctl.Doc, target mockctl.Target, base *engine.DeviceC
 // resulting document is validated, not just the patch, so a bad value in any
 // bucket fails the command instead of reaching a consumer process.
 func mutate(cmd *cli.Command, apply mutation) error {
+	return mutateWithConfig(cmd, loadConfig(cmd), apply)
+}
+
+// mutateWithConfig is mutate for a command that already needs the pristine
+// profile for its own checks, so the load — and its warning when the profile is
+// unreadable — happens once per invocation rather than twice.
+func mutateWithConfig(cmd *cli.Command, cfg *engine.Config, apply mutation) error {
 	path := configOverridePath(cmd)
-	cfg := loadConfig(cmd)
 	base := deviceDefaults(cfg)
 
 	spec := cmd.String("gpu")
