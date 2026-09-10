@@ -42,8 +42,18 @@ func (d *ConfigurableDevice) applyMIGLayout(cfg *MIGConfig) {
 // the rest, matching how a declared layout handles an impossible entry: a
 // board that comes up with most of its partitions is easier to diagnose than
 // one that comes up bare.
+//
+// A layout can reach here from a config override, which is merged without
+// semantic validation, so the uniqueness of instance IDs is enforced here:
+// two live instances under one ID would make lookups by ID ambiguous.
 func (d *ConfigurableDevice) applyExplicitPartitions(records []MIGGPUInstanceRecord) {
+	live := make(map[uint32]struct{}, len(records))
 	for _, rec := range records {
+		if _, taken := live[rec.ID]; taken {
+			warnLog("[MIG] device %d: instance %d already exists, skipping duplicate record\n",
+				d.index, rec.ID)
+			continue
+		}
 		giProfileID, defaultCIProfileID, err := d.resolveDeclaredGpuInstanceProfile(
 			MIGGPUInstanceConfig{Profile: rec.Profile, ProfileID: rec.ProfileID})
 		if err != nil {
@@ -62,6 +72,7 @@ func (d *ConfigurableDevice) applyExplicitPartitions(records []MIGGPUInstanceRec
 				d.index, rec.ID, rec.Profile, ret)
 			continue
 		}
+		live[rec.ID] = struct{}{}
 		d.applyExplicitComputeInstances(gi, giProfileID, defaultCIProfileID, rec.ComputeInstances)
 	}
 }
@@ -123,16 +134,24 @@ func (d *ConfigurableDevice) applyExplicitComputeInstances(
 		d.applyDeclaredComputeInstances(gi, giProfileID, defaultCIProfileID, nil)
 		return
 	}
+	live := make(map[uint32]struct{}, len(records))
 	for _, rec := range records {
+		if _, taken := live[rec.ID]; taken {
+			warnLog("[MIG] device %d: compute instance %d already exists, skipping duplicate record\n",
+				d.index, rec.ID)
+			continue
+		}
 		ciProfileID, err := d.resolveDeclaredComputeInstanceProfile(giProfileID,
 			MIGComputeInstanceConfig{Profile: rec.Profile, ProfileID: rec.ProfileID})
 		if err != nil {
 			warnLog("[MIG] device %d: compute instance %d: %v\n", d.index, rec.ID, err)
 			continue
 		}
-		if ret := createPinnedComputeInstance(gi, ciProfileID, rec.ID); ret != nvml.SUCCESS {
+		if ret := createPinnedComputeInstance(d.index, gi, ciProfileID, rec.ID); ret != nvml.SUCCESS {
 			warnLog("[MIG] device %d: cannot recreate compute instance %d: %v\n", d.index, rec.ID, ret)
+			continue
 		}
+		live[rec.ID] = struct{}{}
 	}
 }
 
@@ -144,7 +163,7 @@ func (d *ConfigurableDevice) applyExplicitComputeInstances(
 // set on the pointer, never on the ID it handed out. The counter is then
 // pushed past the pinned value so a later auto-assigned instance cannot
 // collide with it.
-func createPinnedComputeInstance(gi nvml.GpuInstance, ciProfileID int, id uint32) nvml.Return {
+func createPinnedComputeInstance(deviceIndex int, gi nvml.GpuInstance, ciProfileID int, id uint32) nvml.Return {
 	mock, ok := gi.(*mockserver.GpuInstance)
 	if !ok {
 		return nvml.ERROR_UNKNOWN
@@ -169,6 +188,7 @@ func createPinnedComputeInstance(gi nvml.GpuInstance, ciProfileID int, id uint32
 	}
 	mock.Unlock()
 
-	debugLog("[MIG] pinned compute instance gi=%d ci=%d profile=%d\n", mock.Info.Id, id, ciProfileID)
+	debugLog("[MIG] device %d: pinned compute instance gi=%d ci=%d profile=%d\n",
+		deviceIndex, mock.Info.Id, id, ciProfileID)
 	return nvml.SUCCESS
 }

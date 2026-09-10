@@ -51,6 +51,14 @@ func TestApplyMIGLayout_ExplicitLayoutWithAGap(t *testing.T) {
 	})
 
 	require.Equal(t, []uint32{0, 2}, liveGpuInstanceIDs(t, dev))
+
+	st := dev.migState
+	st.mu.Lock()
+	gis := st.liveGpuInstances(dev)
+	st.mu.Unlock()
+	require.Len(t, gis, 2)
+	require.Equal(t, uint32(0), gis[0].Info.Placement.Start)
+	require.Equal(t, uint32(2), gis[1].Info.Placement.Start)
 }
 
 // An empty explicit list is a MIG-enabled board with nothing on it, and must
@@ -106,6 +114,58 @@ func TestApplyMIGLayout_RejectsAnOverlappingRecord(t *testing.T) {
 	})
 
 	require.Equal(t, []uint32{0}, liveGpuInstanceIDs(t, dev))
+}
+
+// A config override is merged without semantic validation, so a layout can
+// arrive naming the same instance twice. Both records place fine on a free
+// board, and pinned creation would stamp the id on each, leaving lookups by
+// id resolving to whichever instance the map yielded first.
+func TestApplyMIGLayout_SkipsADuplicateInstanceID(t *testing.T) {
+	t.Parallel()
+
+	dev := newTestDeviceWithConfig(t, a100MIGConfig())
+	enableMIG(t, dev)
+
+	dev.applyMIGLayout(&MIGConfig{
+		ModeCurrent: migModeEnabled,
+		Instances: &[]MIGGPUInstanceRecord{
+			{ID: 0, Profile: "1g.5gb"},
+			{ID: 0, Profile: "1g.5gb"},
+		},
+	})
+
+	require.Equal(t, []uint32{0}, liveGpuInstanceIDs(t, dev))
+}
+
+// The same unvalidated route can repeat a compute instance id within one
+// record, and the mock keys compute instances on the pointer, so both would
+// go live under the id.
+func TestApplyMIGLayout_SkipsADuplicateComputeInstanceID(t *testing.T) {
+	t.Parallel()
+
+	dev := newTestDeviceWithConfig(t, a100MIGConfig())
+	enableMIG(t, dev)
+
+	dev.applyMIGLayout(&MIGConfig{
+		ModeCurrent: migModeEnabled,
+		Instances: &[]MIGGPUInstanceRecord{{
+			ID: 0, Profile: "3g.20gb",
+			ComputeInstances: []MIGComputeInstanceRecord{
+				{ID: 1, Profile: "1c"},
+				{ID: 1, Profile: "1c"},
+			},
+		}},
+	})
+
+	st := dev.migState
+	st.mu.Lock()
+	gis := st.liveGpuInstances(dev)
+	st.mu.Unlock()
+	require.Len(t, gis, 1)
+
+	cis := liveComputeInstances(gis[0])
+	require.Len(t, cis, 1)
+	require.Equal(t, uint32(1), cis[0].Info.Id)
 }
 
 // Compute instances carry their own ids, so a consumer addressing ci 0 of gi 2
