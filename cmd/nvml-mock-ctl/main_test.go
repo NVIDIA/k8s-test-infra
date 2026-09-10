@@ -21,6 +21,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
 
 func runCLI(t *testing.T, configOverride string, args ...string) (string, string, int) {
@@ -517,6 +519,11 @@ func TestCLI_MigWithoutASubcommandIsAUsageError(t *testing.T) {
 	_, errStr, code := runMigCLI(t, configOverride, migTestConfig(t), "mig", "--gpu", "0")
 	require.Equal(t, exitUsage, code, "naming no verb must not exit clean")
 	require.Contains(t, errStr, "enable")
+	// The root and mig share the usage action, so the help has to be pinned to
+	// mig's own: its description names the mig-minors table, and only the root
+	// lists the node's other commands.
+	require.Contains(t, errStr, "mig-minors", "mig's own help must be the one reported")
+	require.NotContains(t, errStr, "watch-allocations", "the root help must not stand in for mig's")
 	require.NoFileExists(t, configOverride)
 }
 
@@ -527,7 +534,72 @@ func TestCLI_MigAllRefusesWhenAnyDeviceIsBusy(t *testing.T) {
 	dir := t.TempDir()
 	configOverride := filepath.Join(dir, "overrides.yaml")
 
-	_, _, code := runMigCLI(t, configOverride, migTestConfig(t),
+	_, errStr, code := runMigCLI(t, configOverride, migTestConfig(t),
 		"mig", "--gpu", "all", "enable", "--profile", "1g.5gb", "--count", "7")
 	require.Equal(t, exitFailure, code)
+	require.Contains(t, errStr, "in use")
+	require.NoFileExists(t, configOverride)
+}
+
+// TestCLI_MigDisableAppliesToAnIdleDeviceWithoutForce: the guard must fire on a
+// busy target and only on a busy one, so an unforced disable of an idle device
+// goes through.
+func TestCLI_MigDisableAppliesToAnIdleDeviceWithoutForce(t *testing.T) {
+	t.Parallel()
+	configOverride := filepath.Join(t.TempDir(), "overrides.yaml")
+
+	_, errStr, code := runMigCLI(t, configOverride, migTestConfig(t), "mig", "--gpu", "0", "disable")
+	require.Equalf(t, 0, code, "exit %d: %s", code, errStr)
+
+	s := readConfigOverride(t, configOverride)
+	require.Contains(t, s, "mode_current: disabled")
+	require.Contains(t, s, "mode_pending: disabled")
+}
+
+// TestCLI_MigBareEnableInheritsTheAllBucketLayout pins the merge order the
+// docs promise: the all bucket is merged first and the per-device bucket over
+// it, so a bare per-device enable — which writes only the mode fields — leaves
+// a layout held by the all bucket in effect.
+func TestCLI_MigBareEnableInheritsTheAllBucketLayout(t *testing.T) {
+	t.Parallel()
+	configOverride := filepath.Join(t.TempDir(), "overrides.yaml")
+	config := migTestConfig(t)
+
+	// A layout that differs from the profile's own declared one, so what
+	// survives can only have come from the all bucket. --force because the
+	// node's GPU 1 declares a compute process.
+	_, errStr, code := runMigCLI(t, configOverride, config,
+		"mig", "--gpu", "all", "enable", "--profile", "3g.20gb", "--count", "2", "--force")
+	require.Equalf(t, 0, code, "all enable exit %d: %s", code, errStr)
+
+	_, errStr, code = runMigCLI(t, configOverride, config, "mig", "--gpu", "0", "enable")
+	require.Equalf(t, 0, code, "bare enable exit %d: %s", code, errStr)
+
+	doc, err := engine.ParseConfigOverride([]byte(readConfigOverride(t, configOverride)))
+	require.NoError(t, err)
+	yc, err := engine.LoadYAMLConfig(config)
+	require.NoError(t, err)
+	base := yc.DeviceDefaults
+	merged, err := engine.MergeDeviceConfig(&base, doc.DeviceConfigOverride(0))
+	require.NoError(t, err)
+
+	require.NotNil(t, merged.MIG)
+	require.Equal(t, "enabled", merged.MIG.ModeCurrent)
+	require.Equal(t, []engine.MIGGPUInstanceConfig{{Profile: "3g.20gb", Count: 2}}, merged.MIG.GPUInstances,
+		"the all bucket's layout must survive a bare per-device enable")
+}
+
+// TestInUseSummary_ReadsForOneDeviceAndForSeveral pins both readings of the
+// refusal, which is the operator's only account of why the command stopped.
+func TestInUseSummary_ReadsForOneDeviceAndForSeveral(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		busy []string
+		want string
+	}{
+		{busy: []string{"1"}, want: "GPU 1 is in use: it declares compute processes"},
+		{busy: []string{"0", "1"}, want: "GPUs 0, 1 are in use: they declare compute processes"},
+	} {
+		require.Equal(t, tc.want, inUseSummary(tc.busy))
+	}
 }

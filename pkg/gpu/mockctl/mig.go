@@ -83,9 +83,9 @@ func ValidateMIGLayout(base *engine.DeviceConfig, mig map[string]any) error {
 	}
 	// An unnamed base means the profile could not be loaded, leaving no board
 	// to check the request against. Accepting it keeps the CLI usable in that
-	// state, the same way --gpu UUID resolution and the index bounds check
-	// degrade to best-effort rather than refusing every command; the engine
-	// still logs whatever it cannot place when it reloads the override.
+	// state, the same way the --gpu index bounds check degrades to best-effort
+	// rather than refusing every command; the engine still logs whatever it
+	// cannot place when it reloads the override.
 	if base.Name == "" {
 		return nil
 	}
@@ -126,6 +126,12 @@ func migLayoutSummary(instances []engine.MIGGPUInstanceConfig) string {
 		name := gi.Profile
 		if name == "" && gi.ProfileID != nil {
 			name = fmt.Sprintf("profile_id=%d", *gi.ProfileID)
+		}
+		if name == "" {
+			// An instance that names neither a profile nor an id can only come
+			// from a malformed profile, and a refusal that spells it as an
+			// empty string names nothing at all.
+			name = "<unnamed profile>"
 		}
 		parts = append(parts, fmt.Sprintf("%s x%d", name, max(gi.Count, 1)))
 	}
