@@ -291,6 +291,19 @@ func TestListMigProfileCapacity_RejectsOutputItDoesNotUnderstand(t *testing.T) {
 		"nvml error":    "Failed to display GPU instance profiles: Insufficient Size\n",
 		"empty":         "",
 		"wrong listing": migGPUInstanceListing,
+		// Free/Total has traded places with the memory column. The banner
+		// still says -lgip, so only the row pattern can catch it, and a
+		// parser that skipped the rows it could not read would report a
+		// board offering no profiles at all.
+		"column layout changed": `+-------------------------------------------------------------------------------+
+| GPU instance profiles:                                                        |
+| GPU   Name               ID    Memory     Instances    P2P    SM    DEC   ENC  |
+|                                GiB        Free/Total          CE    JPEG  OFA  |
+|===============================================================================|
+|   0  MIG 1g.10gb          0     10.00      0/7        Yes    16     1     0   |
+|                                                               1     0     0   |
++-------------------------------------------------------------------------------+
+`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -306,14 +319,41 @@ func TestCountMigTableRows(t *testing.T) {
 
 	// The compute-instance listings are read only by row count, so the count
 	// has to exclude the continuation lines -lcip pads its rows with.
-	require.Equal(t, 7, CountMigTableRows(migComputeInstanceListing))
-	require.Equal(t, 7, CountMigTableRows(migComputeProfileListing))
+	rows, err := CountMigTableRows(migComputeInstanceListing, MigComputeInstances)
+	require.NoError(t, err)
+	require.Equal(t, 7, rows)
 
-	require.Equal(t, 14, CountMigTableRows(migGPUInstanceListing))
-	require.Equal(t, 14, CountMigTableRows(migProfileListing))
+	rows, err = CountMigTableRows(migComputeProfileListing, MigComputeInstanceProfiles)
+	require.NoError(t, err)
+	require.Equal(t, 7, rows)
+}
 
-	// Not a table: zero, which is what makes a caller's comparison against an
-	// expected partition count fail rather than pass vacuously.
-	require.Equal(t, 0, CountMigTableRows("Failed to display compute instances: Insufficient Size\n"))
-	require.Equal(t, 0, CountMigTableRows(""))
+// The negative control, and the reason the count takes the listing it is
+// counting: on this board -lgi and -lci have the same number of rows, so a
+// crossed flag would satisfy every assertion built on the count.
+func TestCountMigTableRows_RejectsOutputItDoesNotUnderstand(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		out     string
+		listing MigListing
+	}{
+		"nvml error": {
+			"Failed to display compute instances: Insufficient Size\n", MigComputeInstances,
+		},
+		"empty": {"", MigComputeInstances},
+		// -lci's rows are one per partition and so are -lgi's, which is what
+		// makes the two tables interchangeable to a bare row count.
+		"gpu instances for compute instances": {migGPUInstanceListing, MigComputeInstances},
+		// The two compute listings differ only by the word "profiles".
+		"compute profiles for compute instances": {migComputeProfileListing, MigComputeInstances},
+		"compute instances for compute profiles": {migComputeInstanceListing, MigComputeInstanceProfiles},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			rows, err := CountMigTableRows(tc.out, tc.listing)
+			require.Error(t, err, "counted rows in output that is not the listing asked for")
+			require.Zero(t, rows)
+		})
+	}
 }
