@@ -254,6 +254,50 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 					"%s should be unschedulable on %s specifically, got events:\n%s",
 					name, kube.GPUResourceName, strings.TrimSpace(out))
 			})
+
+			// The runtime knob. Asserted through nvidia-smi on the node rather
+			// than through the config, so what is being checked is that a real
+			// consumer's NVML enumeration follows the override file — the whole
+			// point of repartitioning without a restart.
+			//
+			// Allocation is deliberately not asserted: the capability surface
+			// under /dev/nvidia-caps is staged from the profile, so the device
+			// plugin cannot hand out a partition invented at runtime.
+			//
+			// Kept last in this Ordered context: the override is a per-node
+			// file that outlives the spec, so a failure between the write and
+			// the restore below would leave every spec above it asserting
+			// against a layout the chart never installed.
+			It("follows a runtime repartition through nvml-mock-ctl", Label("mig-runtime"), func(ctx SpecContext) {
+				// Every command is pinned to the node the assertions read.
+				// Overrides are staged per node, so an unpinned write can land
+				// on the mock pod of a different node than the one nvidia-smi
+				// is questioned on, which both fails the spec and leaves a live
+				// override behind on a node no later reset visits.
+				DeferCleanup(func(ctx SpecContext) {
+					nvmlMockCtlOnNode(ctx, h, node, "reset", "--gpu", "all")
+				})
+
+				By("re-lay-out GPU 0 as a single " + p.MIGDeviceProfile() + " partition")
+				nvmlMockCtlOnNode(ctx, h, node, "mig", "--gpu", "0", "enable",
+					"--profile", p.MIGDeviceProfile(), "--count", "1")
+
+				Eventually(func() int {
+					return len(migPartitionsOfGPU(migDevicesOnNode(ctx, h, node), 0))
+				}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+					Should(Equal(1), "GPU 0 should report the single partition the CLI asked for")
+
+				Expect(migPartitionsOfGPU(migDevicesOnNode(ctx, h, node), 1)).To(HaveLen(partitions),
+					"a repartition of GPU 0 must not disturb its neighbours")
+
+				By("clear the override and let the profile's declared layout come back")
+				nvmlMockCtlOnNode(ctx, h, node, "reset", "--gpu", "all")
+
+				Eventually(func() int {
+					return len(migPartitionsOfGPU(migDevicesOnNode(ctx, h, node), 0))
+				}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+					Should(Equal(partitions), "removing the override should restore the declared layout")
+			})
 		})
 	}
 })
@@ -329,6 +373,19 @@ func migProfileOf(devices []nvidiasmi.MigDevice, uuid string) string {
 		}
 	}
 	return ""
+}
+
+// migPartitionsOfGPU narrows an `nvidia-smi -L` listing to one GPU, so a
+// per-device repartition can be asserted without the other GPUs' partitions
+// counting towards it.
+func migPartitionsOfGPU(devices []nvidiasmi.MigDevice, gpu int) []nvidiasmi.MigDevice {
+	var out []nvidiasmi.MigDevice
+	for _, d := range devices {
+		if d.GPU == gpu {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // migMinorsIn returns the cap minors named by a mig-minors table. Every line is
