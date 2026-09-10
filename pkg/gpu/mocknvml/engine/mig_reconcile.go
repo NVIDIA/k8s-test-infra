@@ -17,6 +17,7 @@ import (
 	"reflect"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
+	mockserver "github.com/NVIDIA/go-nvml/pkg/nvml/mock/server"
 )
 
 // reconcileMIG brings the board's partitioning to the effective MIG config
@@ -95,8 +96,9 @@ func (d *ConfigurableDevice) rebuildMIG(cfg *MIGConfig, current, pending int) {
 }
 
 // reconcileExplicitInstances brings the board to the recorded layout by
-// difference: create what is missing, destroy what is no longer listed, and
-// leave everything else untouched.
+// difference, at the GPU- and the compute-instance level both: create what is
+// missing, destroy what is no longer listed, and leave everything else
+// untouched.
 //
 // Touching only the difference is what lets two processes mutate the same
 // board: one adding an instance must not invalidate the handles the other
@@ -107,10 +109,7 @@ func (d *ConfigurableDevice) rebuildMIG(cfg *MIGConfig, current, pending int) {
 // Requires d.refreshMu and must not be called with st.mu held: both the
 // destroy and the create path take st.mu themselves.
 func (d *ConfigurableDevice) reconcileExplicitInstances(records []MIGGPUInstanceRecord) {
-	want := make(map[uint32]struct{}, len(records))
-	for _, rec := range records {
-		want[rec.ID] = struct{}{}
-	}
+	want := gpuInstanceRecordsByID(records)
 
 	st := d.migState
 	// liveGpuInstances guards the instance tree for itself and returns an
@@ -118,22 +117,15 @@ func (d *ConfigurableDevice) reconcileExplicitInstances(records []MIGGPUInstance
 	live := make(map[uint32]struct{})
 	var retired []*ConfigurableDevice
 	for _, gi := range st.liveGpuInstances(d) {
-		id := gi.Info.Id
-		if _, keep := want[id]; keep {
-			live[id] = struct{}{}
-			continue
+		stillLive, retiredDevices := d.reconcileLiveInstance(gi, want)
+		if stillLive {
+			live[gi.Info.Id] = struct{}{}
 		}
-		// The MIG devices have to be named before the teardown evicts them
-		// from the cache, exactly as GpuInstanceDestroy does it.
-		derived := st.devicesDerivedFrom(id, nil)
-		if ret := gi.Destroy(); ret != nvml.SUCCESS {
-			warnLog("[MIG] device %d: cannot destroy GPU instance %d: %v\n", d.index, id, ret)
-			continue
-		}
-		retired = append(retired, derived...)
-		debugLog("[MIG] device %d: destroyed GPU instance %d (no longer in the layout)\n", d.index, id)
+		retired = append(retired, retiredDevices...)
 	}
 
+	// Destroy before create, so a record can claim the slices an instance
+	// leaving the layout has just freed.
 	missing := make([]MIGGPUInstanceRecord, 0, len(records))
 	for _, rec := range records {
 		if _, exists := live[rec.ID]; !exists {
@@ -145,6 +137,162 @@ func (d *ConfigurableDevice) reconcileExplicitInstances(records []MIGGPUInstance
 	if len(retired) > 0 && d.onRepartition != nil {
 		d.onRepartition(retired)
 	}
+}
+
+// gpuInstanceRecordsByID indexes a layout by instance ID. The first record
+// wins for a repeated ID, as in applyExplicitPartitions, which is what
+// materializes the records the diff finds missing.
+func gpuInstanceRecordsByID(records []MIGGPUInstanceRecord) map[uint32]MIGGPUInstanceRecord {
+	byID := make(map[uint32]MIGGPUInstanceRecord, len(records))
+	for _, rec := range records {
+		if _, duplicate := byID[rec.ID]; duplicate {
+			continue
+		}
+		byID[rec.ID] = rec
+	}
+	return byID
+}
+
+// reconcileLiveInstance reconciles one live GPU instance against the recorded
+// layout, reporting whether it is still live afterwards and which MIG devices
+// the teardowns retired. An instance the layout no longer records, or one a
+// record replaces, is destroyed; the caller recreates the latter.
+//
+// Requires d.refreshMu and must not be called with st.mu held.
+func (d *ConfigurableDevice) reconcileLiveInstance(
+	gi *mockserver.GpuInstance, want map[uint32]MIGGPUInstanceRecord,
+) (bool, []*ConfigurableDevice) {
+	id := gi.Info.Id
+	rec, wanted := want[id]
+
+	var retired []*ConfigurableDevice
+	if wanted {
+		kept, retiredCIs := d.reconcileSurvivingInstance(gi, rec)
+		if kept {
+			return true, retiredCIs
+		}
+		retired = retiredCIs
+	}
+
+	st := d.migState
+	// The MIG devices have to be named before the teardown evicts them from
+	// the cache, exactly as GpuInstanceDestroy does it.
+	derived := st.devicesDerivedFrom(id, nil)
+	if ret := gi.Destroy(); ret != nvml.SUCCESS {
+		warnLog("[MIG] device %d: cannot destroy GPU instance %d: %v\n", d.index, id, ret)
+		// Reporting it as live is what keeps its record from being
+		// materialized again under an ID that is still taken.
+		return true, retired
+	}
+
+	reason := "no longer in the layout"
+	if wanted {
+		reason = "replaced by its record"
+	}
+	debugLog("[MIG] device %d: destroyed GPU instance %d (%s)\n", d.index, id, reason)
+	return false, append(retired, derived...)
+}
+
+// reconcileSurvivingInstance brings a live GPU instance to the record sharing
+// its ID and reports whether it was kept, together with the MIG devices any
+// compute-instance teardown retired.
+//
+// A record whose profile or placement no longer matches is not an edit of the
+// live instance: hardware can neither resize nor move a GPU instance in place,
+// so such a record describes a new instance that happens to reuse an ID, and
+// the caller has to replace the live one with it.
+//
+// Requires d.refreshMu and must not be called with st.mu held.
+func (d *ConfigurableDevice) reconcileSurvivingInstance(
+	gi *mockserver.GpuInstance, rec MIGGPUInstanceRecord,
+) (bool, []*ConfigurableDevice) {
+	giProfileID, defaultCIProfileID, err := d.resolveDeclaredGpuInstanceProfile(
+		MIGGPUInstanceConfig{Profile: rec.Profile, ProfileID: rec.ProfileID})
+	if err != nil {
+		// A record nothing can be made of is no ground to tear a live instance
+		// down: recreating it from that same record would fail as well, so the
+		// board would lose a partition a consumer may be using.
+		warnLog("[MIG] device %d: instance %d: %v\n", d.index, rec.ID, err)
+		return true, nil
+	}
+
+	if giProfileID != int(gi.Info.ProfileId) {
+		debugLog("[MIG] device %d: GPU instance %d recorded under profile %d, live under %d\n",
+			d.index, rec.ID, giProfileID, gi.Info.ProfileId)
+		return false, nil
+	}
+	// A record naming no placement accepts whichever one the instance holds.
+	if rec.PlacementStart != nil && *rec.PlacementStart != int(gi.Info.Placement.Start) {
+		debugLog("[MIG] device %d: GPU instance %d recorded at offset %d, live at %d\n",
+			d.index, rec.ID, *rec.PlacementStart, gi.Info.Placement.Start)
+		return false, nil
+	}
+
+	return true, d.reconcileComputeInstances(gi, giProfileID, defaultCIProfileID, rec.ComputeInstances)
+}
+
+// reconcileComputeInstances brings a surviving GPU instance's compute
+// instances to the ones its record lists, by the same difference the GPU
+// instances themselves are reconciled by, and returns the MIG devices the
+// teardowns retired. A compute instance is created or destroyed on its own, so
+// one of them changing must not cost a consumer the handles it holds to the
+// others.
+//
+// A nil list is a record that says nothing about compute instances, not one
+// that says there are none: the pass that created this instance from the same
+// record gave it the spanning default, so reading nil as "none" would delete
+// that default on the next pass. An unspecified list therefore leaves whatever
+// is live in place — which on a freshly created instance is nothing, so the
+// default the create path fills in still stands.
+//
+// Requires d.refreshMu and must not be called with st.mu held: the create and
+// destroy paths take st.mu themselves.
+func (d *ConfigurableDevice) reconcileComputeInstances(
+	gi *mockserver.GpuInstance, giProfileID, defaultCIProfileID int,
+	records *[]MIGComputeInstanceRecord,
+) []*ConfigurableDevice {
+	if records == nil {
+		return nil
+	}
+
+	want := make(map[uint32]struct{}, len(*records))
+	for _, rec := range *records {
+		want[rec.ID] = struct{}{}
+	}
+
+	st := d.migState
+	giID := gi.Info.Id
+	live := make(map[uint32]struct{})
+	var retired []*ConfigurableDevice
+	for _, ci := range liveComputeInstances(gi) {
+		ciID := ci.Info.Id
+		if _, keep := want[ciID]; keep {
+			live[ciID] = struct{}{}
+			continue
+		}
+		// Named before the teardown evicts it, as in ComputeInstanceDestroy.
+		derived := st.devicesDerivedFrom(giID, &ciID)
+		if ret := ci.Destroy(); ret != nvml.SUCCESS {
+			warnLog("[MIG] device %d: cannot destroy compute instance %d of GPU instance %d: %v\n",
+				d.index, ciID, giID, ret)
+			continue
+		}
+		retired = append(retired, derived...)
+		debugLog("[MIG] device %d: destroyed compute instance %d of GPU instance %d (no longer in the layout)\n",
+			d.index, ciID, giID)
+	}
+
+	// Destroy before create, so a record can claim compute slices an instance
+	// just leaving the layout has freed.
+	missing := make([]MIGComputeInstanceRecord, 0, len(*records))
+	for _, rec := range *records {
+		if _, exists := live[rec.ID]; !exists {
+			missing = append(missing, rec)
+		}
+	}
+	d.applyExplicitComputeInstances(gi, giProfileID, defaultCIProfileID, &missing)
+
+	return retired
 }
 
 // recordMIGIfExempt records cfg as applied on a device that cannot be
