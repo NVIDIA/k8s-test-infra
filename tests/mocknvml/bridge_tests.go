@@ -400,6 +400,10 @@ func checkPowerLimitApplied(name string, device nvml.Device, setRet nvml.Return,
 //
 // Device 2 boots partitioned from the fixture; device 0 starts with MIG off and
 // is partitioned at runtime, which is what nvidia-mig-parted does.
+//
+// The instance-list leg leaves go-nvml behind: go-nvml presets the count
+// argument that the C ABI documents as output-only, so only a direct C call
+// sees those queries the way nvidia-smi does.
 func testMIG(deviceCount int) []testResult {
 	var results []testResult
 
@@ -408,6 +412,7 @@ func testMIG(deviceCount int) []testResult {
 	}
 	results = append(results, testMIGDeclaredPartitions()...)
 	results = append(results, testMIGRuntimeLifecycle()...)
+	results = append(results, testMIGInstanceListsFromC()...)
 	return results
 }
 
