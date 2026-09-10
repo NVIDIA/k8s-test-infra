@@ -296,13 +296,58 @@ func validateMIGConfig(mig *MIGConfig) error {
 		return errors.New("max_gpu_instances cannot be negative")
 	}
 
-	for i, gi := range mig.GPUInstances {
-		if err := validateMIGProfileRef(gi.Profile, gi.ProfileID, gi.Count); err != nil {
+	if err := validateMIGGPUInstanceDecls(mig.GPUInstances); err != nil {
+		return err
+	}
+	if mig.Instances != nil {
+		if err := validateMIGInstances(*mig.Instances); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateMIGGPUInstanceDecls(gpuInstances []MIGGPUInstanceConfig) error {
+	for i, gi := range gpuInstances {
+		if err := validateMIGProfileRef(gi.Profile, gi.ProfileID); err != nil {
 			return fmt.Errorf("gpu_instances[%d]: %w", i, err)
 		}
+		if gi.Count < 0 {
+			return fmt.Errorf("gpu_instances[%d]: count cannot be negative, got %d", i, gi.Count)
+		}
 		for j, ci := range gi.ComputeInstances {
-			if err := validateMIGProfileRef(ci.Profile, ci.ProfileID, ci.Count); err != nil {
+			if err := validateMIGProfileRef(ci.Profile, ci.ProfileID); err != nil {
 				return fmt.Errorf("gpu_instances[%d].compute_instances[%d]: %w", i, j, err)
+			}
+			if ci.Count < 0 {
+				return fmt.Errorf("gpu_instances[%d].compute_instances[%d]: count cannot be negative, got %d", i, j, ci.Count)
+			}
+		}
+	}
+	return nil
+}
+
+func validateMIGInstances(instances []MIGGPUInstanceRecord) error {
+	seen := make(map[uint32]bool, len(instances))
+	for i, gi := range instances {
+		if seen[gi.ID] {
+			return fmt.Errorf("instances[%d]: duplicate GPU instance id %d", i, gi.ID)
+		}
+		seen[gi.ID] = true
+		if err := validateMIGProfileRef(gi.Profile, gi.ProfileID); err != nil {
+			return fmt.Errorf("instances[%d]: %w", i, err)
+		}
+		if gi.PlacementStart != nil && *gi.PlacementStart < 0 {
+			return fmt.Errorf("instances[%d]: placement_start cannot be negative, got %d", i, *gi.PlacementStart)
+		}
+		ciSeen := make(map[uint32]bool, len(gi.ComputeInstances))
+		for j, ci := range gi.ComputeInstances {
+			if ciSeen[ci.ID] {
+				return fmt.Errorf("instances[%d].compute_instances[%d]: duplicate compute instance id %d", i, j, ci.ID)
+			}
+			ciSeen[ci.ID] = true
+			if err := validateMIGProfileRef(ci.Profile, ci.ProfileID); err != nil {
+				return fmt.Errorf("instances[%d].compute_instances[%d]: %w", i, j, err)
 			}
 		}
 	}
@@ -317,7 +362,8 @@ func validateMIGMode(field, value string) error {
 	return fmt.Errorf("%s must be \"enabled\" or \"disabled\", got %q", field, value)
 }
 
-func validateMIGProfileRef(profile string, profileID *int, count int) error {
+// validateMIGProfileRef enforces that a profile is named exactly one way.
+func validateMIGProfileRef(profile string, profileID *int) error {
 	switch {
 	case profile != "" && profileID != nil:
 		return fmt.Errorf("sets both profile %q and profile_id %d; use one", profile, *profileID)
@@ -325,8 +371,6 @@ func validateMIGProfileRef(profile string, profileID *int, count int) error {
 		return errors.New("must set either profile or profile_id")
 	case profileID != nil && *profileID < 0:
 		return fmt.Errorf("profile_id cannot be negative, got %d", *profileID)
-	case count < 0:
-		return fmt.Errorf("count cannot be negative, got %d", count)
 	}
 	return nil
 }
