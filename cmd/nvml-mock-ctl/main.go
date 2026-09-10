@@ -142,8 +142,15 @@ func reportUsageErrors(cmd *cli.Command) {
 // carrying an empty message, marking the failure as already reported.
 func reportUsage(cmd *cli.Command) error {
 	template := cli.CommandHelpTemplate
-	if cmd == cmd.Root() {
+	switch {
+	case cmd == cmd.Root():
 		template = cli.RootCommandHelpTemplate
+	case len(cmd.VisibleCommands()) > 0:
+		// CommandHelpTemplate renders no COMMANDS section, so a command that
+		// groups verbs would report the verbs nowhere — on the very path an
+		// operator reaches by forgetting one. VisibleCommands is the same test
+		// the library applies when it picks a template for `--help`.
+		template = cli.SubcommandHelpTemplate
 	}
 	// The library's ShowHelp helpers always write to the root's stdout writer;
 	// help printed because an invocation was wrong belongs on stderr.

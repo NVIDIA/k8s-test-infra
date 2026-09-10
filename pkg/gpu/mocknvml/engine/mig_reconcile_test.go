@@ -27,8 +27,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// These tests drive the package-global config override store through
-// newTestDevice, so none of them may run in parallel.
+// A test here that installs its own config override store — newTestDevice does
+// it, and a few do it inline — replaces a package global, so no such test may
+// run in parallel. A test that installs none is free to.
 
 // a100PartitionedConfig is an A100 whose profile already declares seven
 // partitions and has MIG on — the state a MIG-enabled Helm install boots.

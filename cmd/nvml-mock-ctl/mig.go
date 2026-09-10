@@ -36,7 +36,8 @@ func migCommand() *cli.Command {
 		Usage: "enable, disable or re-lay-out MIG partitioning",
 		Description: "Changes the NVML view only. The /dev/nvidia-caps nodes and the\n" +
 			"mig-minors table stay as the node agent staged them from the profile,\n" +
-			"so the device plugin cannot allocate partitions created this way.",
+			"so the device plugin cannot allocate the resulting partitions until\n" +
+			"the nvml-mock pod restarts.",
 		Flags: []cli.Flag{gpuFlag()},
 		Commands: []*cli.Command{
 			migEnableCommand(),
@@ -96,7 +97,7 @@ func migForceFlag() cli.Flag {
 // override document exactly as it was.
 func applyMIG(cmd *cli.Command, mig map[string]any) error {
 	cfg := loadConfig(cmd)
-	return mutateWithConfig(cmd, cfg, func(doc *mockctl.Doc, target mockctl.Target, base *engine.DeviceConfig) error {
+	err := mutateWithConfig(cmd, cfg, func(doc *mockctl.Doc, target mockctl.Target, base *engine.DeviceConfig) error {
 		patch := map[string]any{"mig": mig}
 		if err := mockctl.Validate(base, patch); err != nil {
 			return fmt.Errorf("invalid: %w", err)
@@ -120,6 +121,30 @@ func applyMIG(cmd *cli.Command, mig map[string]any) error {
 		doc.SetMIG(target, mig)
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	warnAllocationNeedsARestart(cmd)
+	return nil
+}
+
+// warnAllocationNeedsARestart states the boundary of what a runtime
+// repartition can do, on the node where the operator is standing.
+//
+// Rebuilding a board's partitioning draws fresh GPU-instance IDs — the mock's
+// counter only ever climbs — while /dev/nvidia-caps, the mig-minors table and
+// the CDI entries keep the IDs the node agent staged at startup. So the layout
+// NVML reports stops matching the one the device plugin can allocate, and it
+// stays that way even after the override is cleared, because clearing it
+// rebuilds the board again rather than rewinding it.
+//
+// This is advice about a change that already succeeded, so it goes to stderr
+// beside the confirmation and leaves the exit code alone.
+func warnAllocationNeedsARestart(cmd *cli.Command) {
+	fprintf(cmd.Root().ErrWriter,
+		"warning: NVML view only — the staged /dev/nvidia-caps entries and CDI devices keep the "+
+			"instance IDs from startup, so the device plugin cannot allocate this layout until the "+
+			"nvml-mock pod restarts; reset does not restore them\n")
 }
 
 // inUseSummary names the busy devices, reading correctly for one device and

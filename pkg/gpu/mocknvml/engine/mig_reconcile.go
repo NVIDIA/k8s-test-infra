@@ -24,9 +24,8 @@ import (
 // is already running.
 //
 // The layout is rebuilt wholesale rather than diffed against the live one: the
-// declared layout is a desired state, and re-deriving it from scratch is both
-// how `nvidia-mig-parted apply` behaves on hardware and the only way the
-// instance IDs stay the ones DeclaredMIGLayout predicts.
+// declared layout is a desired state, and re-deriving it from scratch is how
+// `nvidia-mig-parted apply` behaves.
 //
 // Requires d.refreshMu. Every MIG getter triggers a refresh through its handle
 // guard, so this rebuild runs with refreshes in flight around it: the NVML

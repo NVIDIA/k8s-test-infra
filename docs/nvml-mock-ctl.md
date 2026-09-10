@@ -45,8 +45,12 @@ MIG partitioning is hot-reloadable for the **NVML view**: `nvml-mock-ctl mig`
 changes what `nvidia-smi`, DCGM and GFD report, and what the device plugin
 *discovers*. The driver capability surface is not — `/dev/nvidia-caps` and
 `/proc/driver/nvidia-caps/mig-minors` are staged once from the profile, so
-allocating partitions that a runtime repartition invented still needs a Helm
-change (`gpu.mig.enabled` with `gpu.mig.gpuInstances`).
+allocating what a runtime repartition produces still needs a Helm change
+(`gpu.mig.enabled` with `gpu.mig.gpuInstances`). Nor is it reversible from the
+CLI: clearing the override, `nvml-mock-ctl reset` included, restores the layout
+NVML reports but not the instance IDs it reports them under, so the staged
+capability surface and the CDI entries no longer match and only restarting the
+`nvml-mock` pod returns the node to an allocatable state.
 
 Memory values are reported **verbatim** from the effective config — setting
 `memory.used_bytes` alone does not recompute `memory.free_bytes`. Set both in one
@@ -394,7 +398,11 @@ Pass `--force` to either verb to do it anyway.
 
 **This changes the NVML view only.** `/dev/nvidia-caps` and the `mig-minors`
 table stay as the node agent staged them from the profile, so the device plugin
-cannot *allocate* partitions created this way — see the v1 scope note above.
+cannot *allocate* what a repartition produces — including a layout identical to
+the profile's own, since a rebuild draws fresh GPU-instance IDs. Clearing the
+override, `nvml-mock-ctl reset` included, restores the layout NVML reports but
+not the instance IDs it reports them under, so only restarting the `nvml-mock`
+pod makes the node allocatable again — see the v1 scope note above.
 
 ### `set` — set arbitrary fields
 

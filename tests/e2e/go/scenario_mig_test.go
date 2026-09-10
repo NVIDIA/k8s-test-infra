@@ -261,8 +261,9 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 			// point of repartitioning without a restart.
 			//
 			// Allocation is deliberately not asserted: the capability surface
-			// under /dev/nvidia-caps is staged from the profile, so the device
-			// plugin cannot hand out a partition invented at runtime.
+			// under /dev/nvidia-caps is staged once at startup, while a
+			// repartition draws fresh instance IDs, so the device plugin
+			// cannot hand out anything a runtime repartition produced.
 			//
 			// Kept last in this Ordered context: the override is a per-node
 			// file that outlives the spec, so a failure between the write and

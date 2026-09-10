@@ -58,8 +58,10 @@ func TestCLI_SetRejectsUnknownField(t *testing.T) {
 func TestCLI_TempWritesStaticAndDynamic(t *testing.T) {
 	dir := t.TempDir()
 	configOverride := filepath.Join(dir, "overrides.yaml")
-	_, e, c := runCLI(t, configOverride, "temp", "--gpu", "2", "85")
+	out, e, c := runCLI(t, configOverride, "temp", "--gpu", "2", "85")
 	require.Equalf(t, 0, c, "temp exited %d: %s", c, e)
+	require.Contains(t, out, "ok: temp applied to 2",
+		"a command with no subcommands names itself alone")
 	s := readConfigOverride(t, configOverride)
 	for _, want := range []string{"temperature_gpu_c: 85", "base_c: 85", "ramp_c: 0", "variance_c: 0"} {
 		require.Containsf(t, s, want, "configOverride missing %q", want)
@@ -390,7 +392,8 @@ func TestCLI_MigEnableWritesLayout(t *testing.T) {
 	out, errStr, code := runMigCLI(t, configOverride, migTestConfig(t),
 		"mig", "--gpu", "0", "enable", "--profile", "1g.5gb", "--count", "7")
 	require.Equalf(t, 0, code, "exit %d: %s", code, errStr)
-	require.Contains(t, out, "ok:")
+	require.Contains(t, out, "ok: mig enable applied to 0",
+		"a subcommand's confirmation must name the command, not the bare verb")
 
 	s := readConfigOverride(t, configOverride)
 	for _, want := range []string{"mode_current: enabled", "mode_pending: enabled", "profile: 1g.5gb", "count: 7"} {
@@ -511,6 +514,37 @@ func TestCLI_MigForceOverridesTheInUseGuard(t *testing.T) {
 	require.Contains(t, readConfigOverride(t, configOverride), "profile: 1g.5gb")
 }
 
+// TestCLI_MigWarnsThatAllocationNeedsARestart: the node the operator is holding
+// is the last place the boundary can still reach them. Without this line they
+// learn about it from a pod stuck on unresolvable CDI devices, and `reset` —
+// the obvious next move — does not undo it.
+func TestCLI_MigWarnsThatAllocationNeedsARestart(t *testing.T) {
+	t.Parallel()
+	configOverride := filepath.Join(t.TempDir(), "overrides.yaml")
+
+	out, errStr, code := runMigCLI(t, configOverride, migTestConfig(t),
+		"mig", "--gpu", "0", "enable", "--profile", "1g.5gb", "--count", "7")
+	require.Equalf(t, 0, code, "an advisory must not turn a success into a failure: exit %d: %s", code, errStr)
+	require.Contains(t, errStr, "nvml-mock pod restarts",
+		"a successful repartition must say that allocation needs a restart")
+	require.Contains(t, errStr, "reset does not restore them",
+		"the operator's obvious next move must be ruled out where they are standing")
+	require.Contains(t, out, "ok:", "the advisory belongs on stderr, beside the confirmation")
+}
+
+// TestCLI_MigRefusalOmitsTheRestartAdvisory: nothing was written, so nothing
+// about the node changed — an advisory here would send an operator restarting
+// a pod over a command that did not run.
+func TestCLI_MigRefusalOmitsTheRestartAdvisory(t *testing.T) {
+	t.Parallel()
+	configOverride := filepath.Join(t.TempDir(), "overrides.yaml")
+
+	_, errStr, code := runMigCLI(t, configOverride, migTestConfig(t),
+		"mig", "--gpu", "1", "enable", "--profile", "1g.5gb", "--count", "7")
+	require.Equal(t, exitFailure, code)
+	require.NotContains(t, errStr, "nvml-mock pod restarts")
+}
+
 func TestCLI_MigWithoutASubcommandIsAUsageError(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -518,7 +552,13 @@ func TestCLI_MigWithoutASubcommandIsAUsageError(t *testing.T) {
 
 	_, errStr, code := runMigCLI(t, configOverride, migTestConfig(t), "mig", "--gpu", "0")
 	require.Equal(t, exitUsage, code, "naming no verb must not exit clean")
-	require.Contains(t, errStr, "enable")
+	// The operator who lands here forgot the verb, so the verbs are what the
+	// help owes them: listed with their own summaries, not merely named in the
+	// prose of mig's one-line usage summary, which would read the same whether
+	// the listing were there or not.
+	require.Contains(t, errStr, "COMMANDS:")
+	require.Contains(t, errStr, "turn MIG on")
+	require.Contains(t, errStr, "turn MIG off")
 	// The root and mig share the usage action, so the help has to be pinned to
 	// mig's own: its description names the mig-minors table, and only the root
 	// lists the node's other commands.
