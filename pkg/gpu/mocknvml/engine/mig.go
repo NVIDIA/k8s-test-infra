@@ -145,7 +145,7 @@ func (d *ConfigurableDevice) initMIG(config *DeviceConfig) {
 	d.appliedMIG = migCfg
 
 	if migCfg != nil && st.mode == nvml.DEVICE_MIG_ENABLE {
-		d.applyDeclaredPartitions(migCfg.GPUInstances)
+		d.applyMIGLayout(migCfg)
 	}
 }
 

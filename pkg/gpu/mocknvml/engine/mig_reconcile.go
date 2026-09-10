@@ -54,7 +54,7 @@ func (d *ConfigurableDevice) reconcileMIG(cfg *MIGConfig) {
 
 	// Outside the lock: creating instances takes st.mu itself.
 	if enabled {
-		d.applyDeclaredPartitions(cfg.GPUInstances)
+		d.applyMIGLayout(cfg)
 	}
 	d.appliedMIG = cfg
 
