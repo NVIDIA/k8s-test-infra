@@ -85,6 +85,54 @@ const migEnableMax3 = `devices:
       max_gpu_instances: 3
 `
 
+// The explicit documents below are the form a runtime mutation records: named
+// instances rather than a count. migExplicitGap is migExplicitThree with the
+// middle instance deleted, the layout a count cannot express.
+const migExplicitTwo = `devices:
+  "0":
+    mig:
+      mode_current: enabled
+      mode_pending: enabled
+      instances:
+        - id: 0
+          profile: 1g.5gb
+          placement_start: 0
+        - id: 1
+          profile: 1g.5gb
+          placement_start: 1
+`
+
+const migExplicitThree = `devices:
+  "0":
+    mig:
+      mode_current: enabled
+      mode_pending: enabled
+      instances:
+        - id: 0
+          profile: 1g.5gb
+          placement_start: 0
+        - id: 1
+          profile: 1g.5gb
+          placement_start: 1
+        - id: 2
+          profile: 1g.5gb
+          placement_start: 2
+`
+
+const migExplicitGap = `devices:
+  "0":
+    mig:
+      mode_current: enabled
+      mode_pending: enabled
+      instances:
+        - id: 0
+          profile: 1g.5gb
+          placement_start: 0
+        - id: 2
+          profile: 1g.5gb
+          placement_start: 2
+`
+
 // a100PlacementCapacity is how many 1-slice partitions an A100's placement
 // grid holds — the real ceiling on what these boards can enumerate, unlike
 // GetMaxMigDeviceCount, which an override can move at runtime.
@@ -283,6 +331,85 @@ func TestReconcileMIG_RetiresDestroyedMigDevices(t *testing.T) {
 
 	require.Len(t, retired, 7, "every MIG device of the old layout should be reported")
 	require.Contains(t, retired, doomed)
+}
+
+// TestReconcileMIG_ExplicitAddLeavesNeighborsAlone: another process adding an
+// instance must not disturb the ones this process is already holding handles
+// to.
+func TestReconcileMIG_ExplicitAddLeavesNeighborsAlone(t *testing.T) {
+	dev, path, clock := newTestDevice(t, a100MIGConfig())
+	writeConfigOverride(t, path, migExplicitTwo, clock)
+	require.Equal(t, 2, migPartitionCount(t, dev))
+
+	before, ret := dev.GetMigDeviceHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	writeConfigOverride(t, path, migExplicitThree, clock)
+
+	require.Equal(t, 3, migPartitionCount(t, dev))
+	after, ret := dev.GetMigDeviceHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Same(t, before, after, "adding an instance must not rebuild the survivors")
+}
+
+// TestReconcileMIG_ExplicitDeletePreservesSurvivorIDs: a delete removes exactly
+// the instance named and leaves the IDs of the survivors alone.
+func TestReconcileMIG_ExplicitDeletePreservesSurvivorIDs(t *testing.T) {
+	dev, path, clock := newTestDevice(t, a100MIGConfig())
+	writeConfigOverride(t, path, migExplicitThree, clock)
+	require.Equal(t, 3, migPartitionCount(t, dev))
+
+	survivor, ret := dev.GetMigDeviceHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	writeConfigOverride(t, path, migExplicitGap, clock)
+
+	// GetMigMode drives the refresh that reaches the reconciler.
+	_, _, ret = dev.GetMigMode()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, []uint32{0, 2}, liveGpuInstanceIDs(t, dev))
+
+	// The IDs alone would survive a rebuild, since the layout pins them; only
+	// the handle proves the survivor was never torn down.
+	after, ret := dev.GetMigDeviceHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Same(t, survivor, after, "deleting one instance must not rebuild the others")
+}
+
+// TestReconcileMIG_ExplicitEmptyListClearsTheBoard: an empty explicit list
+// leaves a MIG-enabled board bare instead of falling back to the profile's
+// declared partitions.
+func TestReconcileMIG_ExplicitEmptyListClearsTheBoard(t *testing.T) {
+	dev, path, clock := newTestDevice(t, a100PartitionedConfig())
+	require.Equal(t, 7, migPartitionCount(t, dev))
+
+	writeConfigOverride(t, path, `devices:
+  "0":
+    mig:
+      mode_current: enabled
+      mode_pending: enabled
+      instances: []
+`, clock)
+
+	_, _, ret := dev.GetMigMode()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, 0, migPartitionCount(t, dev))
+}
+
+// TestReconcileMIG_ExplicitRewriteIsANoOp: rewriting the same explicit layout
+// must not rebuild, which is the property that makes a process's own write-back
+// invisible to itself.
+func TestReconcileMIG_ExplicitRewriteIsANoOp(t *testing.T) {
+	dev, path, clock := newTestDevice(t, a100MIGConfig())
+	writeConfigOverride(t, path, migExplicitTwo, clock)
+	before, ret := dev.GetMigDeviceHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	writeConfigOverride(t, path, migExplicitTwo+"    thermal:\n      temperature_gpu_c: 85\n", clock)
+
+	after, ret := dev.GetMigDeviceHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Same(t, before, after, "an unchanged layout must not rebuild")
 }
 
 // TestReconcileMIG_IgnoresBoardsWithoutMIG: faking MIG on a T4 would report a

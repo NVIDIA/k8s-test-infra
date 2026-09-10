@@ -19,18 +19,14 @@ import (
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 )
 
-// reconcileMIG rebuilds the board's partitioning when the effective MIG config
-// changed, which is what makes a runtime repartition visible to a consumer that
-// is already running.
-//
-// The layout is rebuilt wholesale rather than diffed against the live one: the
-// declared layout is a desired state, and re-deriving it from scratch is how
-// `nvidia-mig-parted apply` behaves.
+// reconcileMIG brings the board's partitioning to the effective MIG config
+// when that config changed, which is what makes a runtime repartition visible
+// to a consumer that is already running.
 //
 // Requires d.refreshMu. Every MIG getter triggers a refresh through its handle
-// guard, so this rebuild runs with refreshes in flight around it: the NVML
-// calls it makes re-enter refresh on this goroutine (where TryLock turns them
-// into no-ops), and readers on other goroutines observe the board mid-rebuild.
+// guard, so this runs with refreshes in flight around it: the NVML calls it
+// makes re-enter refresh on this goroutine (where TryLock turns them into
+// no-ops), and readers on other goroutines observe the board mid-change.
 // Nothing here may assume it is the only refresh running.
 func (d *ConfigurableDevice) reconcileMIG(cfg *MIGConfig) {
 	if reflect.DeepEqual(d.appliedMIG, cfg) {
@@ -41,13 +37,46 @@ func (d *ConfigurableDevice) reconcileMIG(cfg *MIGConfig) {
 	}
 
 	st := d.migState
+	current, pending := migModesOf(cfg)
+
+	st.mu.Lock()
+	sameMode := st.mode == current
+	st.mu.Unlock()
+
+	// Only a board that was and remains MIG-enabled under a recorded layout can
+	// be brought to that layout by difference. Switching MIG destroys every
+	// instance on hardware, and a declared (count) layout names no identities
+	// for a diff to match survivors on, so both take the wholesale path.
+	if !sameMode || current != nvml.DEVICE_MIG_ENABLE || cfg == nil || cfg.Instances == nil {
+		d.rebuildMIG(cfg, current, pending)
+		return
+	}
+
+	st.mu.Lock()
+	st.pending = pending
+	st.maxGPUInstances = resolveMaxGPUInstances(cfg, st.supported, st.profiles)
+	st.mu.Unlock()
+
+	d.reconcileExplicitInstances(*cfg.Instances)
+	d.appliedMIG = cfg
+}
+
+// rebuildMIG is the wholesale path: tear the board down and lay it out again.
+// It is what a mode change and a declared (count) layout both need, because
+// neither carries the identities that would let a diff preserve anything. It
+// is also how a declared layout stays a desired state, which is how
+// `nvidia-mig-parted apply` behaves.
+//
+// Requires d.refreshMu, under the same concurrency discipline as reconcileMIG.
+func (d *ConfigurableDevice) rebuildMIG(cfg *MIGConfig, current, pending int) {
+	st := d.migState
 	st.mu.Lock()
 	retired := make([]*ConfigurableDevice, 0, len(st.devices))
 	for _, migDev := range st.devices {
 		retired = append(retired, migDev)
 	}
 	st.destroyAllLocked(d)
-	st.mode, st.pending = migModesOf(cfg)
+	st.mode, st.pending = current, pending
 	st.maxGPUInstances = resolveMaxGPUInstances(cfg, st.supported, st.profiles)
 	enabled := st.mode == nvml.DEVICE_MIG_ENABLE
 	st.mu.Unlock()
@@ -63,6 +92,59 @@ func (d *ConfigurableDevice) reconcileMIG(cfg *MIGConfig) {
 	}
 	debugLog("[MIG] device %d: repartitioned from an override (enabled=%v, retired %d MIG devices)\n",
 		d.index, enabled, len(retired))
+}
+
+// reconcileExplicitInstances brings the board to the recorded layout by
+// difference: create what is missing, destroy what is no longer listed, and
+// leave everything else untouched.
+//
+// Touching only the difference is what lets two processes mutate the same
+// board: one adding an instance must not invalidate the handles the other
+// holds to instances it did not touch, nor renumber them. It also makes a
+// process's own write-back a no-op, since by the time the watch fires the
+// board already matches the file.
+//
+// Requires d.refreshMu and must not be called with st.mu held: both the
+// destroy and the create path take st.mu themselves.
+func (d *ConfigurableDevice) reconcileExplicitInstances(records []MIGGPUInstanceRecord) {
+	want := make(map[uint32]struct{}, len(records))
+	for _, rec := range records {
+		want[rec.ID] = struct{}{}
+	}
+
+	st := d.migState
+	// liveGpuInstances guards the instance tree for itself and returns an
+	// ID-ordered snapshot, so the teardown below is deterministic.
+	live := make(map[uint32]struct{})
+	var retired []*ConfigurableDevice
+	for _, gi := range st.liveGpuInstances(d) {
+		id := gi.Info.Id
+		if _, keep := want[id]; keep {
+			live[id] = struct{}{}
+			continue
+		}
+		// The MIG devices have to be named before the teardown evicts them
+		// from the cache, exactly as GpuInstanceDestroy does it.
+		derived := st.devicesDerivedFrom(id, nil)
+		if ret := gi.Destroy(); ret != nvml.SUCCESS {
+			warnLog("[MIG] device %d: cannot destroy GPU instance %d: %v\n", d.index, id, ret)
+			continue
+		}
+		retired = append(retired, derived...)
+		debugLog("[MIG] device %d: destroyed GPU instance %d (no longer in the layout)\n", d.index, id)
+	}
+
+	missing := make([]MIGGPUInstanceRecord, 0, len(records))
+	for _, rec := range records {
+		if _, exists := live[rec.ID]; !exists {
+			missing = append(missing, rec)
+		}
+	}
+	d.applyExplicitPartitions(missing)
+
+	if len(retired) > 0 && d.onRepartition != nil {
+		d.onRepartition(retired)
+	}
 }
 
 // recordMIGIfExempt records cfg as applied on a device that cannot be
