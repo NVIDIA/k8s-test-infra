@@ -122,6 +122,16 @@ device_defaults:
     rx_throughput_kbps: 0
 ```
 
+`lspci` sees these through the rendered sysfs tree and enumerates every GPU, but
+two of its lines are missing next to real hardware. `Kernel driver in use:
+nvidia` needs a `driver` symlink, which the tree does not render and the
+`libpcisysfs` shim could not surface anyway — it intercepts `open`/`stat`, not
+`readlink`. `Kernel modules:` needs libkmod, which fails to initialise in a
+container with no `/lib/modules`; that is where the `Unable to load libkmod
+resources: error -2` on `lspci -v` comes from, and a container on real hardware
+prints it too. Both are display-only: `lspci` still exits 0, and a consumer
+reading identity out of sysfs gets the full picture.
+
 ### Platform identity (rack location)
 
 Where the node's boards sit in a rack, which `nvidia-smi -q` renders as its
