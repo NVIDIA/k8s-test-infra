@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 470" width="820" height="470" role="img" aria-label="Coverage map: AICR's 21 validator checks split by bucket, with the final-gate boundary">
+  <title>Coverage map: AICR's 21 validator checks split by bucket, with the final-gate boundary</title>
+  <style>
+    .box{fill:none;stroke:#57606a;stroke-width:2}
+    .dash{fill:none;stroke:#57606a;stroke-width:2;stroke-dasharray:7 4}
+    .thick{fill:none;stroke:#57606a;stroke-width:4}
+    .t{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;fill:#57606a}
+    .hd{font-size:14px;font-weight:700}
+    .bd{font-size:12px}
+    .sm{font-size:10.5px;font-style:italic}
+    .arw{stroke:#57606a;stroke-width:2;fill:none}
+  </style>
+  <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#57606a"/></marker></defs>
+  <text class="t hd" x="16" y="24">AICR validator suite: 21 checks, sized by real counts</text>
+
+  <!-- proportional bar: 21 units over 760px => ~36.2px per check -->
+  <rect class="box" x="16" y="40" width="580" height="46"/>
+  <text class="t hd" x="26" y="60">A meaningful</text><text class="t hd" x="26" y="78">16  (76%)</text>
+  <rect class="box" x="596" y="40" width="36" height="46"/>
+  <text class="t sm" x="600" y="62">B</text><text class="t sm" x="600" y="78">1</text>
+  <rect class="thick" x="632" y="40" width="145" height="46"/>
+  <text class="t hd" x="642" y="60">C hardware</text><text class="t hd" x="642" y="78">4  (19%)</text>
+  <rect class="dash" x="777" y="40" width="27" height="46"/>
+  <text class="t sm" x="781" y="62">G</text><text class="t sm" x="781" y="78">0</text>
+
+  <text class="t sm" x="16" y="104">Widths are proportional to the counts. C carries a thick border and G a dashed one, so the split reads without colour.</text>
+
+  <rect class="box" x="16" y="124" width="380" height="150" rx="6"/>
+  <text class="t hd" x="30" y="146">Reachable pre-silicon on Mokka</text>
+  <text class="t bd" x="30" y="170">A meaningful: 16</text>
+  <text class="t bd" x="30" y="188">   10 GPU-dependent (Mokka unlocks these)</text>
+  <text class="t bd" x="30" y="206">   6 run on any cluster (Mokka is not the reason)</text>
+  <text class="t bd" x="30" y="230">B trivial: 1  (pod-autoscaling)</text>
+  <text class="t bd" x="30" y="248">G closable Mokka gap: 0</text>
+  <text class="t sm" x="30" y="266">Measured this run: 9 dispatched, 3 passed.</text>
+
+  <rect class="thick" x="424" y="124" width="380" height="150" rx="6"/>
+  <text class="t hd" x="438" y="146">FINAL GATE: requires real silicon</text>
+  <text class="t bd" x="438" y="170">C hardware-dependent: 4</text>
+  <text class="t bd" x="438" y="192">   nccl-all-reduce-bw</text>
+  <text class="t bd" x="438" y="210">   nccl-all-reduce-bw-net</text>
+  <text class="t bd" x="438" y="228">   nccl-all-reduce-bw-nvls</text>
+  <text class="t bd" x="438" y="246">   inference-perf</text>
+  <text class="t sm" x="438" y="266">No simulation work moves these.</text>
+
+  <path class="arw" d="M 400 199 L 420 199" marker-end="url(#a)"/>
+  <text class="t sm" x="330" y="292">preflight ends here</text>
+
+  <rect class="box" x="16" y="298" width="788" height="70" rx="6"/>
+  <text class="t hd" x="30" y="320">The boundary that must not blur</text>
+  <text class="t bd" x="30" y="342">Mokka DOES simulate fabric MANAGEMENT: NVSwitch topology, fabricmanager, IB subnet manager, IMEX channels.</text>
+  <text class="t bd" x="30" y="358">Those can be bucket A. Collective THROUGHPUT (NCCL, NVLink, NVLS) and TTFT stay bucket C. Never blur the two.</text>
+
+  <text class="t sm" x="16" y="392">Counts from tests/aicr-sweep/catalog.yaml, derived from NVIDIA/aicr recipes/validators/catalog.yaml @0752ea14.</text>
+  <text class="t sm" x="16" y="410">76% is the analytical ceiling if the full 14-component recipe stack deploys. It is NOT a measured result.</text>
+  <text class="t sm" x="16" y="428">Measured on 2026-08-03: 14% (3 of 21 reached a meaningful pass). The gap is host memory, not Mokka.</text>
+  <text class="t sm" x="16" y="452">All evidence is sim provenance. None of it was run on silicon.</text>
+</svg>

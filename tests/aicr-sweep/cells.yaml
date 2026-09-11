@@ -1,0 +1,147 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# The permutation matrix for the Mokka + AICR sweep.
+#
+# A full factorial explodes, so the matrix follows the brief's structure:
+#   BASE   every AICR recipe reachable on the `kind` service, across accelerators
+#          and cluster shapes. This is the backbone result.
+#   AXIS   one axis varied off the base.
+#
+# Cells carrying blockedCause never ran. They stay in the file, and in the
+# denominator, so the coverage percentage cannot be inflated by deleting the
+# work that did not happen.
+#
+# Cause codes:
+#   K       kind or single-host artifact. NOT a Mokka finding.
+#   U       upstream dependency has not released what is needed. NOT a Mokka gap.
+#   X       AICR catalog has no recipe for the combination. NOT a Mokka gap.
+#   BUDGET  host memory budget exhausted; cell not attempted.
+
+versions:
+  mokka: v0.3.0
+  mokkaImage: ghcr.io/nvidia/nvml-mock:0.3.0
+  mokkaDigest: sha256:3b9bcf33d8bf442fe203062b78abeef7633172b4e589b23192e27edb6e81d3cc
+  chart: oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock 0.3.0
+  chartDigest: sha256:99e0de7e7c3292e9f814e15841c6c7a5bec8f64ce07620dd9f5c05ccb68b516e
+  profile: gb200
+  kind: v0.32.0
+  nodeImage: kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5
+  kubernetes: v1.36.1 (containerd 2.3.1)
+  gpuOperator: v25.3.4
+  dcgmExporter: bundled with gpu-operator v25.3.4
+  aicr: 0752ea148aa1ae849cbef86ec59d0c970a582496
+  aicrImage: ghcr.io/nvidia/aicr:latest
+  hostArch: linux/arm64 (Docker Desktop VM on arm64 macOS)
+  hostContainerRuntime: Docker 29.6.1, 14 CPU, 7.75 GiB VM
+
+cells:
+  # ---------------------------------------------------------------- BASE sweep
+  - id: base-gb200-kind-inference-stack
+    recipe: {service: kind, accelerator: gb200, intent: inference}
+    shape: stack
+    workers: 2
+    notes: >-
+      The backbone cell. Mokka v0.3.0 gb200 profile over the NRI path, plus the
+      real GPU Operator, device plugin, GFD and dcgm-exporter. AICR resolves this
+      combination to a 14-component recipe over 5 overlays.
+
+  - id: base-gb200-kind-training-stack
+    recipe: {service: kind, accelerator: gb200, intent: training}
+    shape: stack
+    workers: 2
+    blockedCause: BUDGET
+    blockedWhy: >-
+      Not attempted. The host Docker VM holds 7.75 GiB and the inference cell
+      already consumed the window available for this sweep. The intent axis is a
+      recipe-resolution difference, so this cell is expected to differ from the
+      inference cell only in component set, not in Mokka behaviour. Re-run it
+      first when more memory is available.
+
+  - id: base-h100-kind-inference-stack
+    recipe: {service: kind, accelerator: h100, intent: inference}
+    shape: stack
+    workers: 2
+    axes: {accelerator: "h100 (substitute for gb300)"}
+    blockedCause: BUDGET
+    blockedWhy: >-
+      Not attempted, same memory window. This is the deliberate substitution for
+      the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so
+      h100 is the nearest second accelerator that both AICR and Mokka support on
+      the kind service. It is a substitution and is never counted as gb300 coverage.
+
+  - id: base-gb300-kind-inference-stack
+    recipe: {service: kind, accelerator: gb300, intent: inference}
+    shape: stack
+    workers: 2
+    blockedCause: X
+    blockedWhy: >-
+      AICR's recipe catalog at 0752ea14 has no gb300 accelerator. Verified by
+      running the CLI, not by reading it: `aicr recipe --service kind
+      --accelerator gb300 --intent inference` exits 2 with "[INVALID_REQUEST] no
+      recipe provides accelerator 'gb300'". The catalog knows a100, b200, gb200,
+      h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile; AICR has no
+      accelerator to match it to. This is an AICR catalog gap, not a Mokka gap.
+
+  - id: base-gb300-kind-training-stack
+    recipe: {service: kind, accelerator: gb300, intent: training}
+    shape: stack
+    workers: 2
+    blockedCause: X
+    blockedWhy: >-
+      Same as base-gb300-kind-inference-stack: AICR has no gb300 accelerator.
+
+  - id: targeted-dra-installed
+    recipe: {service: kind, accelerator: gb200, intent: inference}
+    shape: stack
+    workers: 2
+    axes: {"nvidia-dra-driver-gpu": "installed (base cell had none)"}
+    notes: >-
+      Targeted follow-up to the base cell, suggested by its dra-support failure.
+      Conformance phase only, re-run after installing nvidia-dra-driver-gpu
+      25.12.0 against the mock driver root. The DRA kubelet plugin published 16
+      devices across two ResourceSlices derived from the mock NVML, which is the
+      GPU half of dra-support working. The check still fails: see the findings
+      note for why that is cause U and not a Mokka gap.
+
+  # ---------------------------------------------------------------- AXIS sweep
+  - id: axis-nri-cdi
+    recipe: {service: kind, accelerator: gb200, intent: inference}
+    shape: stack
+    workers: 2
+    axes: {"nri.deviceInjectionMode": "cdi (base is raw)"}
+    blockedCause: BUDGET
+    blockedWhy: Not attempted; host memory window exhausted after the base cell.
+
+  - id: axis-allocation-watcher-on
+    recipe: {service: kind, accelerator: gb200, intent: inference}
+    shape: stack
+    workers: 2
+    axes: {"allocationWatcher.enabled": "true (base is false)"}
+    blockedCause: BUDGET
+    blockedWhy: >-
+      Not attempted. Note in advance that any check reading GPU memory
+      utilization as evidence of real work stays bucket B whatever this cell
+      shows, because the allocation bytes are synthetic by construction.
+
+  - id: axis-failure-injection-ecc
+    recipe: {service: kind, accelerator: gb200, intent: inference}
+    shape: stack
+    workers: 2
+    axes: {"gpu.failureInjection.mode": "ecc_uncorrectable (base is off)"}
+    blockedCause: BUDGET
+    blockedWhy: Not attempted; host memory window exhausted after the base cell.
+
+  - id: axis-compute-domain-fabric
+    recipe: {service: kind, accelerator: gb200, intent: training}
+    shape: fabric
+    workers: 4
+    axes: {"imex.mockChannels.enabled": "true", "topology.domains": "two cliques"}
+    blockedCause: U
+    blockedWhy: >-
+      The NVIDIA DRA driver resolves the nvidia-caps-imex-channels device major
+      out of /proc/devices and needs --set altProcDevices to read Mokka's
+      substitute. That flag is on the DRA driver's main branch and is in no
+      release, including v25.12.0, as the chart's own values.yaml records at
+      lines 307-325. Mokka v0.3.0 already renders the IMEX surface, so this is an
+      upstream release gap, not a Mokka gap.

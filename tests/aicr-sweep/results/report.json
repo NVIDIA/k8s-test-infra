@@ -1,0 +1,2658 @@
+{
+  "rollup": {
+    "total": 210,
+    "a": 160,
+    "b": 10,
+    "c": 40,
+    "g": 0,
+    "aGpuDependent": 100,
+    "blocked": 197,
+    "byCause": {
+      "BUDGET": 105,
+      "U": 21,
+      "X": 42
+    },
+    "byOutcome": {
+      "blocked": 168,
+      "fail": 9,
+      "not-run": 29,
+      "pass": 4
+    },
+    "suspect": 0
+  },
+  "cells": [
+    {
+      "cell": {
+        "id": "base-gb200-kind-inference-stack",
+        "recipe": {
+          "service": "kind",
+          "accelerator": "gb200",
+          "intent": "inference"
+        },
+        "shape": "stack",
+        "workers": 2,
+        "notes": "The backbone cell. Mokka v0.3.0 gb200 profile over the NRI path, plus the real GPU Operator, device plugin, GFD and dcgm-exporter. AICR resolves this combination to a 14-component recipe over 5 overlays."
+      },
+      "versions": {
+        "mokka": "v0.3.0",
+        "mokkaImage": "ghcr.io/nvidia/nvml-mock:0.3.0",
+        "mokkaDigest": "sha256:3b9bcf33d8bf442fe203062b78abeef7633172b4e589b23192e27edb6e81d3cc",
+        "chart": "oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock 0.3.0",
+        "chartDigest": "sha256:99e0de7e7c3292e9f814e15841c6c7a5bec8f64ce07620dd9f5c05ccb68b516e",
+        "profile": "gb200",
+        "kind": "v0.32.0",
+        "nodeImage": "kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5",
+        "kubernetes": "v1.36.1 (containerd 2.3.1)",
+        "gpuOperator": "v25.3.4",
+        "dcgmExporter": "bundled with gpu-operator v25.3.4",
+        "aicr": "0752ea148aa1ae849cbef86ec59d0c970a582496",
+        "aicrImage": "ghcr.io/nvidia/aicr:latest",
+        "hostArch": "linux/arm64 (Docker Desktop VM on arm64 macOS)",
+        "hostContainerRuntime": "Docker 29.6.1, 14 CPU, 7.75 GiB VM"
+      },
+      "provenance": "sim",
+      "status": "ran",
+      "logsPointer": "tests/aicr-sweep/results/base-gb200-kind-inference-stack",
+      "checks": [
+        {
+          "check": "operator-health",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "pass",
+          "provenance": "sim"
+        },
+        {
+          "check": "expected-resources",
+          "area": "control-plane",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "message": "pod not found for Job aicr-expected-resources-906acd01: [NOT_FOUND] pod for job not found"
+        },
+        {
+          "check": "gpu-operator-version",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[INTERNAL] GPU Operator version v25.3.4 does not satisfy constraint \"\u003e= v25.10.0\""
+        },
+        {
+          "check": "check-nvidia-smi",
+          "area": "nvml-surface",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "pass",
+          "provenance": "sim"
+        },
+        {
+          "check": "nccl-all-reduce-bw",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "nccl-all-reduce-bw-net",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "nccl-all-reduce-bw-nvls",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "inference-perf",
+          "area": "ttft-throughput",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "dra-support",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[NOT_FOUND] deployment nvidia-dra-driver/nvidia-dra-driver-gpu-controller not found: deployments.apps \"nvidia-dra-driver-gpu-controller\" not found"
+        },
+        {
+          "check": "gang-scheduling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "accelerator-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "pass",
+          "provenance": "sim"
+        },
+        {
+          "check": "ai-service-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[NOT_FOUND] no Prometheus service with port 9090 found in namespace \"monitoring\""
+        },
+        {
+          "check": "inference-gateway",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "pod-autoscaling",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "B",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "cluster-autoscaling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "robust-controller",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "secure-accelerator-access",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "slinky-slurm-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "slinky-slurm-imex-channel",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "gpu-operator-health",
+          "area": "operator-install",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[INTERNAL] ClusterPolicy state=notReady (want ready)"
+        },
+        {
+          "check": "platform-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[NOT_FOUND] platform health check failed (9 issues):\n  namespace agentgateway-system: not found\n  namespace cert-manager: not found\n  namespace monitoring: not found\n  namespace kai-scheduler: not found\n  namespace nvidia-network-operator: not found\n  namespace node-feature-discovery: not found\n  namespace skyhook: not found\n  namespace nvidia-dra-driver: not found\n  namespace nvsentinel: not found"
+        }
+      ]
+    },
+    {
+      "cell": {
+        "id": "base-gb200-kind-training-stack",
+        "recipe": {
+          "service": "kind",
+          "accelerator": "gb200",
+          "intent": "training"
+        },
+        "shape": "stack",
+        "workers": 2
+      },
+      "versions": {
+        "mokka": "v0.3.0",
+        "mokkaImage": "ghcr.io/nvidia/nvml-mock:0.3.0",
+        "mokkaDigest": "sha256:3b9bcf33d8bf442fe203062b78abeef7633172b4e589b23192e27edb6e81d3cc",
+        "chart": "oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock 0.3.0",
+        "chartDigest": "sha256:99e0de7e7c3292e9f814e15841c6c7a5bec8f64ce07620dd9f5c05ccb68b516e",
+        "profile": "gb200",
+        "kind": "v0.32.0",
+        "nodeImage": "kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5",
+        "kubernetes": "v1.36.1 (containerd 2.3.1)",
+        "gpuOperator": "v25.3.4",
+        "dcgmExporter": "bundled with gpu-operator v25.3.4",
+        "aicr": "0752ea148aa1ae849cbef86ec59d0c970a582496",
+        "aicrImage": "ghcr.io/nvidia/aicr:latest",
+        "hostArch": "linux/arm64 (Docker Desktop VM on arm64 macOS)",
+        "hostContainerRuntime": "Docker 29.6.1, 14 CPU, 7.75 GiB VM"
+      },
+      "provenance": "sim",
+      "status": "blocked",
+      "cause": "BUDGET",
+      "blockedWhy": "Not attempted. The host Docker VM holds 7.75 GiB and the inference cell already consumed the window available for this sweep. The intent axis is a recipe-resolution difference, so this cell is expected to differ from the inference cell only in component set, not in Mokka behaviour. Re-run it first when more memory is available.",
+      "checks": [
+        {
+          "check": "operator-health",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. The host Docker VM holds 7.75 GiB and the inference cell already consumed the window available for this sweep. The intent axis is a recipe-resolution difference, so this cell is expected to differ from the inference cell only in component set, not in Mokka behaviour. Re-run it first when more memory is available."
+        },
+        {
+          "check": "expected-resources",
+          "area": "control-plane",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. The host Docker VM holds 7.75 GiB and the inference cell already consumed the window available for this sweep. The intent axis is a recipe-resolution difference, so this cell is expected to differ from the inference cell only in component set, not in Mokka behaviour. Re-run it first when more memory is available."
+        },
+        {
+          "check": "gpu-operator-version",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. The host Docker VM holds 7.75 GiB and the inference cell already consumed the window available for this sweep. The intent axis is a recipe-resolution difference, so this cell is expected to differ from the inference cell only in component set, not in Mokka behaviour. Re-run it first when more memory is available."
+        },
+        {
+          "check": "check-nvidia-smi",
+          "area": "nvml-surface",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. The host Docker VM holds 7.75 GiB and the inference cell already consumed the window available for this sweep. The intent axis is a recipe-resolution difference, so this cell is expected to differ from the inference cell only in component set, not in Mokka behaviour. Re-run it first when more memory is available."
+        },
+        {
+          "check": "nccl-all-reduce-bw",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. The host Docker VM holds 7.75 GiB and the inference cell already consumed the window available for this sweep. The intent axis is a recipe-resolution difference, so this cell is expected to differ from the inference cell only in component set, not in Mokka behaviour. Re-run it first when more memory is available."
+        },
+        {
+          "check": "nccl-all-reduce-bw-net",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. The host Docker VM holds 7.75 GiB and the inference cell already consumed the window available for this sweep. The intent axis is a recipe-resolution difference, so this cell is expected to differ from the inference cell only in component set, not in Mokka behaviour. Re-run it first when more memory is available."
+        },
+        {
+          "check": "nccl-all-reduce-bw-nvls",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. The host Docker VM holds 7.75 GiB and the inference cell already consumed the window available for this sweep. The intent axis is a recipe-resolution difference, so this cell is expected to differ from the inference cell only in component set, not in Mokka behaviour. Re-run it first when more memory is available."
+        },
+        {
+          "check": "inference-perf",
+          "area": "ttft-throughput",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. The host Docker VM holds 7.75 GiB and the inference cell already consumed the window available for this sweep. The intent axis is a recipe-resolution difference, so this cell is expected to differ from the inference cell only in component set, not in Mokka behaviour. Re-run it first when more memory is available."
+        },
+        {
+          "check": "dra-support",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. The host Docker VM holds 7.75 GiB and the inference cell already consumed the window available for this sweep. The intent axis is a recipe-resolution difference, so this cell is expected to differ from the inference cell only in component set, not in Mokka behaviour. Re-run it first when more memory is available."
+        },
+        {
+          "check": "gang-scheduling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. The host Docker VM holds 7.75 GiB and the inference cell already consumed the window available for this sweep. The intent axis is a recipe-resolution difference, so this cell is expected to differ from the inference cell only in component set, not in Mokka behaviour. Re-run it first when more memory is available."
+        },
+        {
+          "check": "accelerator-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. The host Docker VM holds 7.75 GiB and the inference cell already consumed the window available for this sweep. The intent axis is a recipe-resolution difference, so this cell is expected to differ from the inference cell only in component set, not in Mokka behaviour. Re-run it first when more memory is available."
+        },
+        {
+          "check": "ai-service-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. The host Docker VM holds 7.75 GiB and the inference cell already consumed the window available for this sweep. The intent axis is a recipe-resolution difference, so this cell is expected to differ from the inference cell only in component set, not in Mokka behaviour. Re-run it first when more memory is available."
+        },
+        {
+          "check": "inference-gateway",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. The host Docker VM holds 7.75 GiB and the inference cell already consumed the window available for this sweep. The intent axis is a recipe-resolution difference, so this cell is expected to differ from the inference cell only in component set, not in Mokka behaviour. Re-run it first when more memory is available."
+        },
+        {
+          "check": "pod-autoscaling",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "B",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. The host Docker VM holds 7.75 GiB and the inference cell already consumed the window available for this sweep. The intent axis is a recipe-resolution difference, so this cell is expected to differ from the inference cell only in component set, not in Mokka behaviour. Re-run it first when more memory is available."
+        },
+        {
+          "check": "cluster-autoscaling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. The host Docker VM holds 7.75 GiB and the inference cell already consumed the window available for this sweep. The intent axis is a recipe-resolution difference, so this cell is expected to differ from the inference cell only in component set, not in Mokka behaviour. Re-run it first when more memory is available."
+        },
+        {
+          "check": "robust-controller",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. The host Docker VM holds 7.75 GiB and the inference cell already consumed the window available for this sweep. The intent axis is a recipe-resolution difference, so this cell is expected to differ from the inference cell only in component set, not in Mokka behaviour. Re-run it first when more memory is available."
+        },
+        {
+          "check": "secure-accelerator-access",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. The host Docker VM holds 7.75 GiB and the inference cell already consumed the window available for this sweep. The intent axis is a recipe-resolution difference, so this cell is expected to differ from the inference cell only in component set, not in Mokka behaviour. Re-run it first when more memory is available."
+        },
+        {
+          "check": "slinky-slurm-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. The host Docker VM holds 7.75 GiB and the inference cell already consumed the window available for this sweep. The intent axis is a recipe-resolution difference, so this cell is expected to differ from the inference cell only in component set, not in Mokka behaviour. Re-run it first when more memory is available."
+        },
+        {
+          "check": "slinky-slurm-imex-channel",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. The host Docker VM holds 7.75 GiB and the inference cell already consumed the window available for this sweep. The intent axis is a recipe-resolution difference, so this cell is expected to differ from the inference cell only in component set, not in Mokka behaviour. Re-run it first when more memory is available."
+        },
+        {
+          "check": "gpu-operator-health",
+          "area": "operator-install",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. The host Docker VM holds 7.75 GiB and the inference cell already consumed the window available for this sweep. The intent axis is a recipe-resolution difference, so this cell is expected to differ from the inference cell only in component set, not in Mokka behaviour. Re-run it first when more memory is available."
+        },
+        {
+          "check": "platform-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. The host Docker VM holds 7.75 GiB and the inference cell already consumed the window available for this sweep. The intent axis is a recipe-resolution difference, so this cell is expected to differ from the inference cell only in component set, not in Mokka behaviour. Re-run it first when more memory is available."
+        }
+      ]
+    },
+    {
+      "cell": {
+        "id": "base-h100-kind-inference-stack",
+        "recipe": {
+          "service": "kind",
+          "accelerator": "h100",
+          "intent": "inference"
+        },
+        "shape": "stack",
+        "workers": 2,
+        "axes": {
+          "accelerator": "h100 (substitute for gb300)"
+        }
+      },
+      "versions": {
+        "mokka": "v0.3.0",
+        "mokkaImage": "ghcr.io/nvidia/nvml-mock:0.3.0",
+        "mokkaDigest": "sha256:3b9bcf33d8bf442fe203062b78abeef7633172b4e589b23192e27edb6e81d3cc",
+        "chart": "oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock 0.3.0",
+        "chartDigest": "sha256:99e0de7e7c3292e9f814e15841c6c7a5bec8f64ce07620dd9f5c05ccb68b516e",
+        "profile": "gb200",
+        "kind": "v0.32.0",
+        "nodeImage": "kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5",
+        "kubernetes": "v1.36.1 (containerd 2.3.1)",
+        "gpuOperator": "v25.3.4",
+        "dcgmExporter": "bundled with gpu-operator v25.3.4",
+        "aicr": "0752ea148aa1ae849cbef86ec59d0c970a582496",
+        "aicrImage": "ghcr.io/nvidia/aicr:latest",
+        "hostArch": "linux/arm64 (Docker Desktop VM on arm64 macOS)",
+        "hostContainerRuntime": "Docker 29.6.1, 14 CPU, 7.75 GiB VM"
+      },
+      "provenance": "sim",
+      "status": "blocked",
+      "cause": "BUDGET",
+      "blockedWhy": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage.",
+      "checks": [
+        {
+          "check": "operator-health",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+        },
+        {
+          "check": "expected-resources",
+          "area": "control-plane",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+        },
+        {
+          "check": "gpu-operator-version",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+        },
+        {
+          "check": "check-nvidia-smi",
+          "area": "nvml-surface",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+        },
+        {
+          "check": "nccl-all-reduce-bw",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+        },
+        {
+          "check": "nccl-all-reduce-bw-net",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+        },
+        {
+          "check": "nccl-all-reduce-bw-nvls",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+        },
+        {
+          "check": "inference-perf",
+          "area": "ttft-throughput",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+        },
+        {
+          "check": "dra-support",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+        },
+        {
+          "check": "gang-scheduling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+        },
+        {
+          "check": "accelerator-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+        },
+        {
+          "check": "ai-service-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+        },
+        {
+          "check": "inference-gateway",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+        },
+        {
+          "check": "pod-autoscaling",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "B",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+        },
+        {
+          "check": "cluster-autoscaling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+        },
+        {
+          "check": "robust-controller",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+        },
+        {
+          "check": "secure-accelerator-access",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+        },
+        {
+          "check": "slinky-slurm-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+        },
+        {
+          "check": "slinky-slurm-imex-channel",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+        },
+        {
+          "check": "gpu-operator-health",
+          "area": "operator-install",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+        },
+        {
+          "check": "platform-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+        }
+      ]
+    },
+    {
+      "cell": {
+        "id": "base-gb300-kind-inference-stack",
+        "recipe": {
+          "service": "kind",
+          "accelerator": "gb300",
+          "intent": "inference"
+        },
+        "shape": "stack",
+        "workers": 2
+      },
+      "versions": {
+        "mokka": "v0.3.0",
+        "mokkaImage": "ghcr.io/nvidia/nvml-mock:0.3.0",
+        "mokkaDigest": "sha256:3b9bcf33d8bf442fe203062b78abeef7633172b4e589b23192e27edb6e81d3cc",
+        "chart": "oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock 0.3.0",
+        "chartDigest": "sha256:99e0de7e7c3292e9f814e15841c6c7a5bec8f64ce07620dd9f5c05ccb68b516e",
+        "profile": "gb200",
+        "kind": "v0.32.0",
+        "nodeImage": "kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5",
+        "kubernetes": "v1.36.1 (containerd 2.3.1)",
+        "gpuOperator": "v25.3.4",
+        "dcgmExporter": "bundled with gpu-operator v25.3.4",
+        "aicr": "0752ea148aa1ae849cbef86ec59d0c970a582496",
+        "aicrImage": "ghcr.io/nvidia/aicr:latest",
+        "hostArch": "linux/arm64 (Docker Desktop VM on arm64 macOS)",
+        "hostContainerRuntime": "Docker 29.6.1, 14 CPU, 7.75 GiB VM"
+      },
+      "provenance": "sim",
+      "status": "blocked",
+      "cause": "X",
+      "blockedWhy": "AICR's recipe catalog at 0752ea14 has no gb300 accelerator. Verified by running the CLI, not by reading it: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile; AICR has no accelerator to match it to. This is an AICR catalog gap, not a Mokka gap.",
+      "checks": [
+        {
+          "check": "operator-health",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "AICR's recipe catalog at 0752ea14 has no gb300 accelerator. Verified by running the CLI, not by reading it: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile; AICR has no accelerator to match it to. This is an AICR catalog gap, not a Mokka gap."
+        },
+        {
+          "check": "expected-resources",
+          "area": "control-plane",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "AICR's recipe catalog at 0752ea14 has no gb300 accelerator. Verified by running the CLI, not by reading it: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile; AICR has no accelerator to match it to. This is an AICR catalog gap, not a Mokka gap."
+        },
+        {
+          "check": "gpu-operator-version",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "AICR's recipe catalog at 0752ea14 has no gb300 accelerator. Verified by running the CLI, not by reading it: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile; AICR has no accelerator to match it to. This is an AICR catalog gap, not a Mokka gap."
+        },
+        {
+          "check": "check-nvidia-smi",
+          "area": "nvml-surface",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "AICR's recipe catalog at 0752ea14 has no gb300 accelerator. Verified by running the CLI, not by reading it: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile; AICR has no accelerator to match it to. This is an AICR catalog gap, not a Mokka gap."
+        },
+        {
+          "check": "nccl-all-reduce-bw",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "AICR's recipe catalog at 0752ea14 has no gb300 accelerator. Verified by running the CLI, not by reading it: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile; AICR has no accelerator to match it to. This is an AICR catalog gap, not a Mokka gap."
+        },
+        {
+          "check": "nccl-all-reduce-bw-net",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "AICR's recipe catalog at 0752ea14 has no gb300 accelerator. Verified by running the CLI, not by reading it: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile; AICR has no accelerator to match it to. This is an AICR catalog gap, not a Mokka gap."
+        },
+        {
+          "check": "nccl-all-reduce-bw-nvls",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "AICR's recipe catalog at 0752ea14 has no gb300 accelerator. Verified by running the CLI, not by reading it: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile; AICR has no accelerator to match it to. This is an AICR catalog gap, not a Mokka gap."
+        },
+        {
+          "check": "inference-perf",
+          "area": "ttft-throughput",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "AICR's recipe catalog at 0752ea14 has no gb300 accelerator. Verified by running the CLI, not by reading it: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile; AICR has no accelerator to match it to. This is an AICR catalog gap, not a Mokka gap."
+        },
+        {
+          "check": "dra-support",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "AICR's recipe catalog at 0752ea14 has no gb300 accelerator. Verified by running the CLI, not by reading it: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile; AICR has no accelerator to match it to. This is an AICR catalog gap, not a Mokka gap."
+        },
+        {
+          "check": "gang-scheduling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "AICR's recipe catalog at 0752ea14 has no gb300 accelerator. Verified by running the CLI, not by reading it: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile; AICR has no accelerator to match it to. This is an AICR catalog gap, not a Mokka gap."
+        },
+        {
+          "check": "accelerator-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "AICR's recipe catalog at 0752ea14 has no gb300 accelerator. Verified by running the CLI, not by reading it: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile; AICR has no accelerator to match it to. This is an AICR catalog gap, not a Mokka gap."
+        },
+        {
+          "check": "ai-service-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "AICR's recipe catalog at 0752ea14 has no gb300 accelerator. Verified by running the CLI, not by reading it: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile; AICR has no accelerator to match it to. This is an AICR catalog gap, not a Mokka gap."
+        },
+        {
+          "check": "inference-gateway",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "AICR's recipe catalog at 0752ea14 has no gb300 accelerator. Verified by running the CLI, not by reading it: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile; AICR has no accelerator to match it to. This is an AICR catalog gap, not a Mokka gap."
+        },
+        {
+          "check": "pod-autoscaling",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "B",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "AICR's recipe catalog at 0752ea14 has no gb300 accelerator. Verified by running the CLI, not by reading it: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile; AICR has no accelerator to match it to. This is an AICR catalog gap, not a Mokka gap."
+        },
+        {
+          "check": "cluster-autoscaling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "AICR's recipe catalog at 0752ea14 has no gb300 accelerator. Verified by running the CLI, not by reading it: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile; AICR has no accelerator to match it to. This is an AICR catalog gap, not a Mokka gap."
+        },
+        {
+          "check": "robust-controller",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "AICR's recipe catalog at 0752ea14 has no gb300 accelerator. Verified by running the CLI, not by reading it: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile; AICR has no accelerator to match it to. This is an AICR catalog gap, not a Mokka gap."
+        },
+        {
+          "check": "secure-accelerator-access",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "AICR's recipe catalog at 0752ea14 has no gb300 accelerator. Verified by running the CLI, not by reading it: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile; AICR has no accelerator to match it to. This is an AICR catalog gap, not a Mokka gap."
+        },
+        {
+          "check": "slinky-slurm-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "AICR's recipe catalog at 0752ea14 has no gb300 accelerator. Verified by running the CLI, not by reading it: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile; AICR has no accelerator to match it to. This is an AICR catalog gap, not a Mokka gap."
+        },
+        {
+          "check": "slinky-slurm-imex-channel",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "AICR's recipe catalog at 0752ea14 has no gb300 accelerator. Verified by running the CLI, not by reading it: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile; AICR has no accelerator to match it to. This is an AICR catalog gap, not a Mokka gap."
+        },
+        {
+          "check": "gpu-operator-health",
+          "area": "operator-install",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "AICR's recipe catalog at 0752ea14 has no gb300 accelerator. Verified by running the CLI, not by reading it: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile; AICR has no accelerator to match it to. This is an AICR catalog gap, not a Mokka gap."
+        },
+        {
+          "check": "platform-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "AICR's recipe catalog at 0752ea14 has no gb300 accelerator. Verified by running the CLI, not by reading it: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile; AICR has no accelerator to match it to. This is an AICR catalog gap, not a Mokka gap."
+        }
+      ]
+    },
+    {
+      "cell": {
+        "id": "base-gb300-kind-training-stack",
+        "recipe": {
+          "service": "kind",
+          "accelerator": "gb300",
+          "intent": "training"
+        },
+        "shape": "stack",
+        "workers": 2
+      },
+      "versions": {
+        "mokka": "v0.3.0",
+        "mokkaImage": "ghcr.io/nvidia/nvml-mock:0.3.0",
+        "mokkaDigest": "sha256:3b9bcf33d8bf442fe203062b78abeef7633172b4e589b23192e27edb6e81d3cc",
+        "chart": "oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock 0.3.0",
+        "chartDigest": "sha256:99e0de7e7c3292e9f814e15841c6c7a5bec8f64ce07620dd9f5c05ccb68b516e",
+        "profile": "gb200",
+        "kind": "v0.32.0",
+        "nodeImage": "kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5",
+        "kubernetes": "v1.36.1 (containerd 2.3.1)",
+        "gpuOperator": "v25.3.4",
+        "dcgmExporter": "bundled with gpu-operator v25.3.4",
+        "aicr": "0752ea148aa1ae849cbef86ec59d0c970a582496",
+        "aicrImage": "ghcr.io/nvidia/aicr:latest",
+        "hostArch": "linux/arm64 (Docker Desktop VM on arm64 macOS)",
+        "hostContainerRuntime": "Docker 29.6.1, 14 CPU, 7.75 GiB VM"
+      },
+      "provenance": "sim",
+      "status": "blocked",
+      "cause": "X",
+      "blockedWhy": "Same as base-gb300-kind-inference-stack: AICR has no gb300 accelerator.",
+      "checks": [
+        {
+          "check": "operator-health",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack: AICR has no gb300 accelerator."
+        },
+        {
+          "check": "expected-resources",
+          "area": "control-plane",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack: AICR has no gb300 accelerator."
+        },
+        {
+          "check": "gpu-operator-version",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack: AICR has no gb300 accelerator."
+        },
+        {
+          "check": "check-nvidia-smi",
+          "area": "nvml-surface",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack: AICR has no gb300 accelerator."
+        },
+        {
+          "check": "nccl-all-reduce-bw",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack: AICR has no gb300 accelerator."
+        },
+        {
+          "check": "nccl-all-reduce-bw-net",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack: AICR has no gb300 accelerator."
+        },
+        {
+          "check": "nccl-all-reduce-bw-nvls",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack: AICR has no gb300 accelerator."
+        },
+        {
+          "check": "inference-perf",
+          "area": "ttft-throughput",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack: AICR has no gb300 accelerator."
+        },
+        {
+          "check": "dra-support",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack: AICR has no gb300 accelerator."
+        },
+        {
+          "check": "gang-scheduling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack: AICR has no gb300 accelerator."
+        },
+        {
+          "check": "accelerator-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack: AICR has no gb300 accelerator."
+        },
+        {
+          "check": "ai-service-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack: AICR has no gb300 accelerator."
+        },
+        {
+          "check": "inference-gateway",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack: AICR has no gb300 accelerator."
+        },
+        {
+          "check": "pod-autoscaling",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "B",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack: AICR has no gb300 accelerator."
+        },
+        {
+          "check": "cluster-autoscaling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack: AICR has no gb300 accelerator."
+        },
+        {
+          "check": "robust-controller",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack: AICR has no gb300 accelerator."
+        },
+        {
+          "check": "secure-accelerator-access",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack: AICR has no gb300 accelerator."
+        },
+        {
+          "check": "slinky-slurm-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack: AICR has no gb300 accelerator."
+        },
+        {
+          "check": "slinky-slurm-imex-channel",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack: AICR has no gb300 accelerator."
+        },
+        {
+          "check": "gpu-operator-health",
+          "area": "operator-install",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack: AICR has no gb300 accelerator."
+        },
+        {
+          "check": "platform-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack: AICR has no gb300 accelerator."
+        }
+      ]
+    },
+    {
+      "cell": {
+        "id": "targeted-dra-installed",
+        "recipe": {
+          "service": "kind",
+          "accelerator": "gb200",
+          "intent": "inference"
+        },
+        "shape": "stack",
+        "workers": 2,
+        "axes": {
+          "nvidia-dra-driver-gpu": "installed (base cell had none)"
+        },
+        "notes": "Targeted follow-up to the base cell, suggested by its dra-support failure. Conformance phase only, re-run after installing nvidia-dra-driver-gpu 25.12.0 against the mock driver root. The DRA kubelet plugin published 16 devices across two ResourceSlices derived from the mock NVML, which is the GPU half of dra-support working. The check still fails: see the findings note for why that is cause U and not a Mokka gap."
+      },
+      "versions": {
+        "mokka": "v0.3.0",
+        "mokkaImage": "ghcr.io/nvidia/nvml-mock:0.3.0",
+        "mokkaDigest": "sha256:3b9bcf33d8bf442fe203062b78abeef7633172b4e589b23192e27edb6e81d3cc",
+        "chart": "oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock 0.3.0",
+        "chartDigest": "sha256:99e0de7e7c3292e9f814e15841c6c7a5bec8f64ce07620dd9f5c05ccb68b516e",
+        "profile": "gb200",
+        "kind": "v0.32.0",
+        "nodeImage": "kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5",
+        "kubernetes": "v1.36.1 (containerd 2.3.1)",
+        "gpuOperator": "v25.3.4",
+        "dcgmExporter": "bundled with gpu-operator v25.3.4",
+        "aicr": "0752ea148aa1ae849cbef86ec59d0c970a582496",
+        "aicrImage": "ghcr.io/nvidia/aicr:latest",
+        "hostArch": "linux/arm64 (Docker Desktop VM on arm64 macOS)",
+        "hostContainerRuntime": "Docker 29.6.1, 14 CPU, 7.75 GiB VM"
+      },
+      "provenance": "sim",
+      "status": "ran",
+      "logsPointer": "tests/aicr-sweep/results/targeted-dra-installed",
+      "checks": [
+        {
+          "check": "operator-health",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "expected-resources",
+          "area": "control-plane",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "gpu-operator-version",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "check-nvidia-smi",
+          "area": "nvml-surface",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "nccl-all-reduce-bw",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "nccl-all-reduce-bw-net",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "nccl-all-reduce-bw-nvls",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "inference-perf",
+          "area": "ttft-throughput",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "dra-support",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[NOT_FOUND] deployment nvidia-dra-driver/nvidia-dra-driver-gpu-controller not found: deployments.apps \"nvidia-dra-driver-gpu-controller\" not found"
+        },
+        {
+          "check": "gang-scheduling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "accelerator-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "pass",
+          "provenance": "sim"
+        },
+        {
+          "check": "ai-service-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[NOT_FOUND] no Prometheus service with port 9090 found in namespace \"monitoring\""
+        },
+        {
+          "check": "inference-gateway",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "pod-autoscaling",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "B",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "cluster-autoscaling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "robust-controller",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "secure-accelerator-access",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "slinky-slurm-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "slinky-slurm-imex-channel",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "gpu-operator-health",
+          "area": "operator-install",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[INTERNAL] ClusterPolicy state=notReady (want ready)"
+        },
+        {
+          "check": "platform-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[NOT_FOUND] platform health check failed (8 issues):\n  namespace agentgateway-system: not found\n  namespace cert-manager: not found\n  namespace monitoring: not found\n  namespace kai-scheduler: not found\n  namespace nvidia-network-operator: not found\n  namespace node-feature-discovery: not found\n  namespace skyhook: not found\n  namespace nvsentinel: not found"
+        }
+      ]
+    },
+    {
+      "cell": {
+        "id": "axis-nri-cdi",
+        "recipe": {
+          "service": "kind",
+          "accelerator": "gb200",
+          "intent": "inference"
+        },
+        "shape": "stack",
+        "workers": 2,
+        "axes": {
+          "nri.deviceInjectionMode": "cdi (base is raw)"
+        }
+      },
+      "versions": {
+        "mokka": "v0.3.0",
+        "mokkaImage": "ghcr.io/nvidia/nvml-mock:0.3.0",
+        "mokkaDigest": "sha256:3b9bcf33d8bf442fe203062b78abeef7633172b4e589b23192e27edb6e81d3cc",
+        "chart": "oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock 0.3.0",
+        "chartDigest": "sha256:99e0de7e7c3292e9f814e15841c6c7a5bec8f64ce07620dd9f5c05ccb68b516e",
+        "profile": "gb200",
+        "kind": "v0.32.0",
+        "nodeImage": "kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5",
+        "kubernetes": "v1.36.1 (containerd 2.3.1)",
+        "gpuOperator": "v25.3.4",
+        "dcgmExporter": "bundled with gpu-operator v25.3.4",
+        "aicr": "0752ea148aa1ae849cbef86ec59d0c970a582496",
+        "aicrImage": "ghcr.io/nvidia/aicr:latest",
+        "hostArch": "linux/arm64 (Docker Desktop VM on arm64 macOS)",
+        "hostContainerRuntime": "Docker 29.6.1, 14 CPU, 7.75 GiB VM"
+      },
+      "provenance": "sim",
+      "status": "blocked",
+      "cause": "BUDGET",
+      "blockedWhy": "Not attempted; host memory window exhausted after the base cell.",
+      "checks": [
+        {
+          "check": "operator-health",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "expected-resources",
+          "area": "control-plane",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "gpu-operator-version",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "check-nvidia-smi",
+          "area": "nvml-surface",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "nccl-all-reduce-bw",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "nccl-all-reduce-bw-net",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "nccl-all-reduce-bw-nvls",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "inference-perf",
+          "area": "ttft-throughput",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "dra-support",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "gang-scheduling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "accelerator-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "ai-service-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "inference-gateway",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "pod-autoscaling",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "B",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "cluster-autoscaling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "robust-controller",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "secure-accelerator-access",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "slinky-slurm-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "slinky-slurm-imex-channel",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "gpu-operator-health",
+          "area": "operator-install",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "platform-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        }
+      ]
+    },
+    {
+      "cell": {
+        "id": "axis-allocation-watcher-on",
+        "recipe": {
+          "service": "kind",
+          "accelerator": "gb200",
+          "intent": "inference"
+        },
+        "shape": "stack",
+        "workers": 2,
+        "axes": {
+          "allocationWatcher.enabled": "true (base is false)"
+        }
+      },
+      "versions": {
+        "mokka": "v0.3.0",
+        "mokkaImage": "ghcr.io/nvidia/nvml-mock:0.3.0",
+        "mokkaDigest": "sha256:3b9bcf33d8bf442fe203062b78abeef7633172b4e589b23192e27edb6e81d3cc",
+        "chart": "oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock 0.3.0",
+        "chartDigest": "sha256:99e0de7e7c3292e9f814e15841c6c7a5bec8f64ce07620dd9f5c05ccb68b516e",
+        "profile": "gb200",
+        "kind": "v0.32.0",
+        "nodeImage": "kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5",
+        "kubernetes": "v1.36.1 (containerd 2.3.1)",
+        "gpuOperator": "v25.3.4",
+        "dcgmExporter": "bundled with gpu-operator v25.3.4",
+        "aicr": "0752ea148aa1ae849cbef86ec59d0c970a582496",
+        "aicrImage": "ghcr.io/nvidia/aicr:latest",
+        "hostArch": "linux/arm64 (Docker Desktop VM on arm64 macOS)",
+        "hostContainerRuntime": "Docker 29.6.1, 14 CPU, 7.75 GiB VM"
+      },
+      "provenance": "sim",
+      "status": "blocked",
+      "cause": "BUDGET",
+      "blockedWhy": "Not attempted. Note in advance that any check reading GPU memory utilization as evidence of real work stays bucket B whatever this cell shows, because the allocation bytes are synthetic by construction.",
+      "checks": [
+        {
+          "check": "operator-health",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. Note in advance that any check reading GPU memory utilization as evidence of real work stays bucket B whatever this cell shows, because the allocation bytes are synthetic by construction."
+        },
+        {
+          "check": "expected-resources",
+          "area": "control-plane",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. Note in advance that any check reading GPU memory utilization as evidence of real work stays bucket B whatever this cell shows, because the allocation bytes are synthetic by construction."
+        },
+        {
+          "check": "gpu-operator-version",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. Note in advance that any check reading GPU memory utilization as evidence of real work stays bucket B whatever this cell shows, because the allocation bytes are synthetic by construction."
+        },
+        {
+          "check": "check-nvidia-smi",
+          "area": "nvml-surface",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. Note in advance that any check reading GPU memory utilization as evidence of real work stays bucket B whatever this cell shows, because the allocation bytes are synthetic by construction."
+        },
+        {
+          "check": "nccl-all-reduce-bw",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. Note in advance that any check reading GPU memory utilization as evidence of real work stays bucket B whatever this cell shows, because the allocation bytes are synthetic by construction."
+        },
+        {
+          "check": "nccl-all-reduce-bw-net",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. Note in advance that any check reading GPU memory utilization as evidence of real work stays bucket B whatever this cell shows, because the allocation bytes are synthetic by construction."
+        },
+        {
+          "check": "nccl-all-reduce-bw-nvls",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. Note in advance that any check reading GPU memory utilization as evidence of real work stays bucket B whatever this cell shows, because the allocation bytes are synthetic by construction."
+        },
+        {
+          "check": "inference-perf",
+          "area": "ttft-throughput",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. Note in advance that any check reading GPU memory utilization as evidence of real work stays bucket B whatever this cell shows, because the allocation bytes are synthetic by construction."
+        },
+        {
+          "check": "dra-support",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. Note in advance that any check reading GPU memory utilization as evidence of real work stays bucket B whatever this cell shows, because the allocation bytes are synthetic by construction."
+        },
+        {
+          "check": "gang-scheduling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. Note in advance that any check reading GPU memory utilization as evidence of real work stays bucket B whatever this cell shows, because the allocation bytes are synthetic by construction."
+        },
+        {
+          "check": "accelerator-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. Note in advance that any check reading GPU memory utilization as evidence of real work stays bucket B whatever this cell shows, because the allocation bytes are synthetic by construction."
+        },
+        {
+          "check": "ai-service-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. Note in advance that any check reading GPU memory utilization as evidence of real work stays bucket B whatever this cell shows, because the allocation bytes are synthetic by construction."
+        },
+        {
+          "check": "inference-gateway",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. Note in advance that any check reading GPU memory utilization as evidence of real work stays bucket B whatever this cell shows, because the allocation bytes are synthetic by construction."
+        },
+        {
+          "check": "pod-autoscaling",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "B",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. Note in advance that any check reading GPU memory utilization as evidence of real work stays bucket B whatever this cell shows, because the allocation bytes are synthetic by construction."
+        },
+        {
+          "check": "cluster-autoscaling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. Note in advance that any check reading GPU memory utilization as evidence of real work stays bucket B whatever this cell shows, because the allocation bytes are synthetic by construction."
+        },
+        {
+          "check": "robust-controller",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. Note in advance that any check reading GPU memory utilization as evidence of real work stays bucket B whatever this cell shows, because the allocation bytes are synthetic by construction."
+        },
+        {
+          "check": "secure-accelerator-access",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. Note in advance that any check reading GPU memory utilization as evidence of real work stays bucket B whatever this cell shows, because the allocation bytes are synthetic by construction."
+        },
+        {
+          "check": "slinky-slurm-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. Note in advance that any check reading GPU memory utilization as evidence of real work stays bucket B whatever this cell shows, because the allocation bytes are synthetic by construction."
+        },
+        {
+          "check": "slinky-slurm-imex-channel",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. Note in advance that any check reading GPU memory utilization as evidence of real work stays bucket B whatever this cell shows, because the allocation bytes are synthetic by construction."
+        },
+        {
+          "check": "gpu-operator-health",
+          "area": "operator-install",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. Note in advance that any check reading GPU memory utilization as evidence of real work stays bucket B whatever this cell shows, because the allocation bytes are synthetic by construction."
+        },
+        {
+          "check": "platform-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted. Note in advance that any check reading GPU memory utilization as evidence of real work stays bucket B whatever this cell shows, because the allocation bytes are synthetic by construction."
+        }
+      ]
+    },
+    {
+      "cell": {
+        "id": "axis-failure-injection-ecc",
+        "recipe": {
+          "service": "kind",
+          "accelerator": "gb200",
+          "intent": "inference"
+        },
+        "shape": "stack",
+        "workers": 2,
+        "axes": {
+          "gpu.failureInjection.mode": "ecc_uncorrectable (base is off)"
+        }
+      },
+      "versions": {
+        "mokka": "v0.3.0",
+        "mokkaImage": "ghcr.io/nvidia/nvml-mock:0.3.0",
+        "mokkaDigest": "sha256:3b9bcf33d8bf442fe203062b78abeef7633172b4e589b23192e27edb6e81d3cc",
+        "chart": "oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock 0.3.0",
+        "chartDigest": "sha256:99e0de7e7c3292e9f814e15841c6c7a5bec8f64ce07620dd9f5c05ccb68b516e",
+        "profile": "gb200",
+        "kind": "v0.32.0",
+        "nodeImage": "kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5",
+        "kubernetes": "v1.36.1 (containerd 2.3.1)",
+        "gpuOperator": "v25.3.4",
+        "dcgmExporter": "bundled with gpu-operator v25.3.4",
+        "aicr": "0752ea148aa1ae849cbef86ec59d0c970a582496",
+        "aicrImage": "ghcr.io/nvidia/aicr:latest",
+        "hostArch": "linux/arm64 (Docker Desktop VM on arm64 macOS)",
+        "hostContainerRuntime": "Docker 29.6.1, 14 CPU, 7.75 GiB VM"
+      },
+      "provenance": "sim",
+      "status": "blocked",
+      "cause": "BUDGET",
+      "blockedWhy": "Not attempted; host memory window exhausted after the base cell.",
+      "checks": [
+        {
+          "check": "operator-health",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "expected-resources",
+          "area": "control-plane",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "gpu-operator-version",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "check-nvidia-smi",
+          "area": "nvml-surface",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "nccl-all-reduce-bw",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "nccl-all-reduce-bw-net",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "nccl-all-reduce-bw-nvls",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "inference-perf",
+          "area": "ttft-throughput",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "dra-support",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "gang-scheduling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "accelerator-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "ai-service-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "inference-gateway",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "pod-autoscaling",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "B",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "cluster-autoscaling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "robust-controller",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "secure-accelerator-access",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "slinky-slurm-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "slinky-slurm-imex-channel",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "gpu-operator-health",
+          "area": "operator-install",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        },
+        {
+          "check": "platform-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "BUDGET",
+          "provenance": "sim",
+          "message": "Not attempted; host memory window exhausted after the base cell."
+        }
+      ]
+    },
+    {
+      "cell": {
+        "id": "axis-compute-domain-fabric",
+        "recipe": {
+          "service": "kind",
+          "accelerator": "gb200",
+          "intent": "training"
+        },
+        "shape": "fabric",
+        "workers": 4,
+        "axes": {
+          "imex.mockChannels.enabled": "true",
+          "topology.domains": "two cliques"
+        }
+      },
+      "versions": {
+        "mokka": "v0.3.0",
+        "mokkaImage": "ghcr.io/nvidia/nvml-mock:0.3.0",
+        "mokkaDigest": "sha256:3b9bcf33d8bf442fe203062b78abeef7633172b4e589b23192e27edb6e81d3cc",
+        "chart": "oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock 0.3.0",
+        "chartDigest": "sha256:99e0de7e7c3292e9f814e15841c6c7a5bec8f64ce07620dd9f5c05ccb68b516e",
+        "profile": "gb200",
+        "kind": "v0.32.0",
+        "nodeImage": "kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5",
+        "kubernetes": "v1.36.1 (containerd 2.3.1)",
+        "gpuOperator": "v25.3.4",
+        "dcgmExporter": "bundled with gpu-operator v25.3.4",
+        "aicr": "0752ea148aa1ae849cbef86ec59d0c970a582496",
+        "aicrImage": "ghcr.io/nvidia/aicr:latest",
+        "hostArch": "linux/arm64 (Docker Desktop VM on arm64 macOS)",
+        "hostContainerRuntime": "Docker 29.6.1, 14 CPU, 7.75 GiB VM"
+      },
+      "provenance": "sim",
+      "status": "blocked",
+      "cause": "U",
+      "blockedWhy": "The NVIDIA DRA driver resolves the nvidia-caps-imex-channels device major out of /proc/devices and needs --set altProcDevices to read Mokka's substitute. That flag is on the DRA driver's main branch and is in no release, including v25.12.0, as the chart's own values.yaml records at lines 307-325. Mokka v0.3.0 already renders the IMEX surface, so this is an upstream release gap, not a Mokka gap.",
+      "checks": [
+        {
+          "check": "operator-health",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "U",
+          "provenance": "sim",
+          "message": "The NVIDIA DRA driver resolves the nvidia-caps-imex-channels device major out of /proc/devices and needs --set altProcDevices to read Mokka's substitute. That flag is on the DRA driver's main branch and is in no release, including v25.12.0, as the chart's own values.yaml records at lines 307-325. Mokka v0.3.0 already renders the IMEX surface, so this is an upstream release gap, not a Mokka gap."
+        },
+        {
+          "check": "expected-resources",
+          "area": "control-plane",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "U",
+          "provenance": "sim",
+          "message": "The NVIDIA DRA driver resolves the nvidia-caps-imex-channels device major out of /proc/devices and needs --set altProcDevices to read Mokka's substitute. That flag is on the DRA driver's main branch and is in no release, including v25.12.0, as the chart's own values.yaml records at lines 307-325. Mokka v0.3.0 already renders the IMEX surface, so this is an upstream release gap, not a Mokka gap."
+        },
+        {
+          "check": "gpu-operator-version",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "U",
+          "provenance": "sim",
+          "message": "The NVIDIA DRA driver resolves the nvidia-caps-imex-channels device major out of /proc/devices and needs --set altProcDevices to read Mokka's substitute. That flag is on the DRA driver's main branch and is in no release, including v25.12.0, as the chart's own values.yaml records at lines 307-325. Mokka v0.3.0 already renders the IMEX surface, so this is an upstream release gap, not a Mokka gap."
+        },
+        {
+          "check": "check-nvidia-smi",
+          "area": "nvml-surface",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "U",
+          "provenance": "sim",
+          "message": "The NVIDIA DRA driver resolves the nvidia-caps-imex-channels device major out of /proc/devices and needs --set altProcDevices to read Mokka's substitute. That flag is on the DRA driver's main branch and is in no release, including v25.12.0, as the chart's own values.yaml records at lines 307-325. Mokka v0.3.0 already renders the IMEX surface, so this is an upstream release gap, not a Mokka gap."
+        },
+        {
+          "check": "nccl-all-reduce-bw",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "U",
+          "provenance": "sim",
+          "message": "The NVIDIA DRA driver resolves the nvidia-caps-imex-channels device major out of /proc/devices and needs --set altProcDevices to read Mokka's substitute. That flag is on the DRA driver's main branch and is in no release, including v25.12.0, as the chart's own values.yaml records at lines 307-325. Mokka v0.3.0 already renders the IMEX surface, so this is an upstream release gap, not a Mokka gap."
+        },
+        {
+          "check": "nccl-all-reduce-bw-net",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "U",
+          "provenance": "sim",
+          "message": "The NVIDIA DRA driver resolves the nvidia-caps-imex-channels device major out of /proc/devices and needs --set altProcDevices to read Mokka's substitute. That flag is on the DRA driver's main branch and is in no release, including v25.12.0, as the chart's own values.yaml records at lines 307-325. Mokka v0.3.0 already renders the IMEX surface, so this is an upstream release gap, not a Mokka gap."
+        },
+        {
+          "check": "nccl-all-reduce-bw-nvls",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "U",
+          "provenance": "sim",
+          "message": "The NVIDIA DRA driver resolves the nvidia-caps-imex-channels device major out of /proc/devices and needs --set altProcDevices to read Mokka's substitute. That flag is on the DRA driver's main branch and is in no release, including v25.12.0, as the chart's own values.yaml records at lines 307-325. Mokka v0.3.0 already renders the IMEX surface, so this is an upstream release gap, not a Mokka gap."
+        },
+        {
+          "check": "inference-perf",
+          "area": "ttft-throughput",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "U",
+          "provenance": "sim",
+          "message": "The NVIDIA DRA driver resolves the nvidia-caps-imex-channels device major out of /proc/devices and needs --set altProcDevices to read Mokka's substitute. That flag is on the DRA driver's main branch and is in no release, including v25.12.0, as the chart's own values.yaml records at lines 307-325. Mokka v0.3.0 already renders the IMEX surface, so this is an upstream release gap, not a Mokka gap."
+        },
+        {
+          "check": "dra-support",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "U",
+          "provenance": "sim",
+          "message": "The NVIDIA DRA driver resolves the nvidia-caps-imex-channels device major out of /proc/devices and needs --set altProcDevices to read Mokka's substitute. That flag is on the DRA driver's main branch and is in no release, including v25.12.0, as the chart's own values.yaml records at lines 307-325. Mokka v0.3.0 already renders the IMEX surface, so this is an upstream release gap, not a Mokka gap."
+        },
+        {
+          "check": "gang-scheduling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "U",
+          "provenance": "sim",
+          "message": "The NVIDIA DRA driver resolves the nvidia-caps-imex-channels device major out of /proc/devices and needs --set altProcDevices to read Mokka's substitute. That flag is on the DRA driver's main branch and is in no release, including v25.12.0, as the chart's own values.yaml records at lines 307-325. Mokka v0.3.0 already renders the IMEX surface, so this is an upstream release gap, not a Mokka gap."
+        },
+        {
+          "check": "accelerator-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "U",
+          "provenance": "sim",
+          "message": "The NVIDIA DRA driver resolves the nvidia-caps-imex-channels device major out of /proc/devices and needs --set altProcDevices to read Mokka's substitute. That flag is on the DRA driver's main branch and is in no release, including v25.12.0, as the chart's own values.yaml records at lines 307-325. Mokka v0.3.0 already renders the IMEX surface, so this is an upstream release gap, not a Mokka gap."
+        },
+        {
+          "check": "ai-service-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "U",
+          "provenance": "sim",
+          "message": "The NVIDIA DRA driver resolves the nvidia-caps-imex-channels device major out of /proc/devices and needs --set altProcDevices to read Mokka's substitute. That flag is on the DRA driver's main branch and is in no release, including v25.12.0, as the chart's own values.yaml records at lines 307-325. Mokka v0.3.0 already renders the IMEX surface, so this is an upstream release gap, not a Mokka gap."
+        },
+        {
+          "check": "inference-gateway",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "U",
+          "provenance": "sim",
+          "message": "The NVIDIA DRA driver resolves the nvidia-caps-imex-channels device major out of /proc/devices and needs --set altProcDevices to read Mokka's substitute. That flag is on the DRA driver's main branch and is in no release, including v25.12.0, as the chart's own values.yaml records at lines 307-325. Mokka v0.3.0 already renders the IMEX surface, so this is an upstream release gap, not a Mokka gap."
+        },
+        {
+          "check": "pod-autoscaling",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "B",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "U",
+          "provenance": "sim",
+          "message": "The NVIDIA DRA driver resolves the nvidia-caps-imex-channels device major out of /proc/devices and needs --set altProcDevices to read Mokka's substitute. That flag is on the DRA driver's main branch and is in no release, including v25.12.0, as the chart's own values.yaml records at lines 307-325. Mokka v0.3.0 already renders the IMEX surface, so this is an upstream release gap, not a Mokka gap."
+        },
+        {
+          "check": "cluster-autoscaling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "U",
+          "provenance": "sim",
+          "message": "The NVIDIA DRA driver resolves the nvidia-caps-imex-channels device major out of /proc/devices and needs --set altProcDevices to read Mokka's substitute. That flag is on the DRA driver's main branch and is in no release, including v25.12.0, as the chart's own values.yaml records at lines 307-325. Mokka v0.3.0 already renders the IMEX surface, so this is an upstream release gap, not a Mokka gap."
+        },
+        {
+          "check": "robust-controller",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "U",
+          "provenance": "sim",
+          "message": "The NVIDIA DRA driver resolves the nvidia-caps-imex-channels device major out of /proc/devices and needs --set altProcDevices to read Mokka's substitute. That flag is on the DRA driver's main branch and is in no release, including v25.12.0, as the chart's own values.yaml records at lines 307-325. Mokka v0.3.0 already renders the IMEX surface, so this is an upstream release gap, not a Mokka gap."
+        },
+        {
+          "check": "secure-accelerator-access",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "U",
+          "provenance": "sim",
+          "message": "The NVIDIA DRA driver resolves the nvidia-caps-imex-channels device major out of /proc/devices and needs --set altProcDevices to read Mokka's substitute. That flag is on the DRA driver's main branch and is in no release, including v25.12.0, as the chart's own values.yaml records at lines 307-325. Mokka v0.3.0 already renders the IMEX surface, so this is an upstream release gap, not a Mokka gap."
+        },
+        {
+          "check": "slinky-slurm-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "U",
+          "provenance": "sim",
+          "message": "The NVIDIA DRA driver resolves the nvidia-caps-imex-channels device major out of /proc/devices and needs --set altProcDevices to read Mokka's substitute. That flag is on the DRA driver's main branch and is in no release, including v25.12.0, as the chart's own values.yaml records at lines 307-325. Mokka v0.3.0 already renders the IMEX surface, so this is an upstream release gap, not a Mokka gap."
+        },
+        {
+          "check": "slinky-slurm-imex-channel",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "U",
+          "provenance": "sim",
+          "message": "The NVIDIA DRA driver resolves the nvidia-caps-imex-channels device major out of /proc/devices and needs --set altProcDevices to read Mokka's substitute. That flag is on the DRA driver's main branch and is in no release, including v25.12.0, as the chart's own values.yaml records at lines 307-325. Mokka v0.3.0 already renders the IMEX surface, so this is an upstream release gap, not a Mokka gap."
+        },
+        {
+          "check": "gpu-operator-health",
+          "area": "operator-install",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "U",
+          "provenance": "sim",
+          "message": "The NVIDIA DRA driver resolves the nvidia-caps-imex-channels device major out of /proc/devices and needs --set altProcDevices to read Mokka's substitute. That flag is on the DRA driver's main branch and is in no release, including v25.12.0, as the chart's own values.yaml records at lines 307-325. Mokka v0.3.0 already renders the IMEX surface, so this is an upstream release gap, not a Mokka gap."
+        },
+        {
+          "check": "platform-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "U",
+          "provenance": "sim",
+          "message": "The NVIDIA DRA driver resolves the nvidia-caps-imex-channels device major out of /proc/devices and needs --set altProcDevices to read Mokka's substitute. That flag is on the DRA driver's main branch and is in no release, including v25.12.0, as the chart's own values.yaml records at lines 307-325. Mokka v0.3.0 already renders the IMEX surface, so this is an upstream release gap, not a Mokka gap."
+        }
+      ]
+    }
+  ]
+}

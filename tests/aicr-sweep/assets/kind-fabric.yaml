@@ -1,0 +1,24 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# "fabric" cluster shape for the AICR sweep: node heavy, memory light.
+# Carries node-wide NRI injection, mock IMEX channels and the two-clique
+# ComputeDomain topology overlay. No GPU Operator, no dcgm-exporter, which is
+# what makes four workers fit. See tests/aicr-sweep/DECISIONS.md D-010.
+#
+# Four workers so the ComputeDomain overlay has two cliques to assign
+# (workers 1-2 -> clique 0, workers 3-4 -> clique 1), matching
+# tests/e2e/go/assets/kind-nri-config.yaml.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.nri.v1.nri"]
+      disable = false
+      socket_path = "/var/run/nri/nri.sock"
+nodes:
+  - role: control-plane
+  - role: worker
+  - role: worker
+  - role: worker
+  - role: worker

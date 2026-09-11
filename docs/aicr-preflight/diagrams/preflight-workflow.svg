@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 470" width="760" height="470" role="img" aria-label="Operational workflow: stand up cluster, install Mokka, install GPU stack, generate recipe, run AICR, classify, triage failures into three causes, fix integration issues pre-silicon, then AICR on real hardware as the final gate.">
+  <title>Preflight workflow: from cluster bring-up to the final gate</title>
+  <style>
+    .t   { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .hd  { font-size: 15px; font-weight: 600; fill: #1f2328; }
+    .lb  { font-size: 12px; fill: #1f2328; }
+    .sm  { font-size: 10.5px; fill: #1f2328; }
+    .cap { font-size: 10.5px; fill: #57606a; }
+    .box { fill: #ffffff; stroke: #57606a; stroke-width: 1.5; }
+    .tri { fill: #f6f8fa; stroke: #57606a; stroke-width: 2; }
+    .good{ fill: #dafbe1; stroke: #1a7f37; stroke-width: 2.5; }
+    .goodtx { fill: #0f5323; }
+    .gap { fill: #fff8e6; stroke: #9a6700; stroke-width: 2; }
+    .gaptx { fill: #7d4e00; }
+    .gate{ fill: #ddf4ff; stroke: #0969da; stroke-width: 2.5; }
+    .gatetx { fill: #0a3069; }
+    .arw { stroke: #57606a; stroke-width: 1.5; fill: none; }
+    @media (prefers-color-scheme: dark) {
+      .hd, .lb, .sm { fill: #e6edf3; }
+      .cap { fill: #9198a1; }
+      .box { fill: #161b22; stroke: #8b949e; }
+      .tri { fill: #21262d; stroke: #8b949e; }
+      .good{ fill: #12261a; stroke: #3fb950; } .goodtx { fill: #7ee787; }
+      .gap { fill: #2b2411; stroke: #d29922; } .gaptx { fill: #e3b341; }
+      .gate{ fill: #121d2f; stroke: #58a6ff; } .gatetx { fill: #79c0ff; }
+      .arw { stroke: #8b949e; }
+    }
+  </style>
+  <g class="t">
+    <text x="16" y="22" class="hd">Preflight workflow</text>
+
+    <rect x="16" y="38" width="200" height="40" rx="5" class="box"/>
+    <text x="26" y="56" class="sm" font-weight="600">1. Stand up cluster</text>
+    <text x="26" y="71" class="cap">real CPU nodes, containerd CDI</text>
+
+    <rect x="16" y="88" width="200" height="42" rx="5" class="box"/>
+    <text x="26" y="106" class="sm" font-weight="600">2. Install Mokka (gb200)</text>
+    <text x="26" y="121" class="cap">driver overlay, device nodes, CDI</text>
+
+    <rect x="16" y="140" width="200" height="42" rx="5" class="box"/>
+    <text x="26" y="158" class="sm" font-weight="600">3. Install GPU stack</text>
+    <text x="26" y="173" class="cap">GPU Operator + DRA driver</text>
+
+    <rect x="16" y="192" width="200" height="40" rx="5" class="box"/>
+    <text x="26" y="210" class="sm" font-weight="600">4. Generate recipe</text>
+    <text x="26" y="225" class="cap">aicr recipe --accelerator gb200</text>
+
+    <rect x="16" y="242" width="200" height="42" rx="5" class="box"/>
+    <text x="26" y="260" class="sm" font-weight="600">5. Run aicr validate</text>
+    <text x="26" y="275" class="cap">--fail-on-error=false</text>
+
+    <rect x="16" y="294" width="200" height="42" rx="5" class="box"/>
+    <text x="26" y="312" class="sm" font-weight="600">6. Classify</text>
+    <text x="26" y="327" class="cap">provenance-labelled JSON + table</text>
+
+    <rect x="16" y="346" width="200" height="34" rx="5" class="tri"/>
+    <text x="26" y="368" class="sm" font-weight="600">7. Triage each failure</text>
+
+    <path d="M116 78 L116 88"   class="arw" marker-end="url(#w)"/>
+    <path d="M116 130 L116 140" class="arw" marker-end="url(#w)"/>
+    <path d="M116 182 L116 192" class="arw" marker-end="url(#w)"/>
+    <path d="M116 232 L116 242" class="arw" marker-end="url(#w)"/>
+    <path d="M116 284 L116 294" class="arw" marker-end="url(#w)"/>
+    <path d="M116 336 L116 346" class="arw" marker-end="url(#w)"/>
+
+    <path d="M216 363 L252 363" class="arw" marker-end="url(#w)"/>
+
+    <rect x="256" y="228" width="228" height="46" rx="5" class="box"/>
+    <text x="266" y="246" class="sm" font-weight="600">missing prerequisite component</text>
+    <text x="266" y="263" class="cap">harness scoping. Deploy it and re-run.</text>
+
+    <rect x="256" y="286" width="228" height="60" rx="5" class="good"/>
+    <text x="266" y="305" class="sm goodtx" font-weight="600">version or contract skew</text>
+    <text x="266" y="322" class="cap goodtx">REAL FINDING. Fix pre-silicon.</text>
+    <text x="266" y="337" class="cap goodtx">This is the value of preflight.</text>
+
+    <rect x="256" y="358" width="228" height="60" rx="5" class="gap"/>
+    <text x="266" y="377" class="sm gaptx" font-weight="600">Mokka capability missing</text>
+    <text x="266" y="394" class="cap gaptx">bucket G. File a tracked issue.</text>
+    <text x="266" y="409" class="cap gaptx">Close it if small.</text>
+
+    <path d="M252 360 L256 274" class="arw" marker-end="url(#w)"/>
+    <path d="M252 363 L256 316" class="arw" marker-end="url(#w)"/>
+    <path d="M252 366 L256 388" class="arw" marker-end="url(#w)"/>
+
+    <rect x="516" y="286" width="230" height="52" rx="5" class="box"/>
+    <text x="526" y="306" class="sm" font-weight="600">8. Fix integration issues</text>
+    <text x="526" y="323" class="cap">months before hardware lands</text>
+
+    <path d="M484 316 L516 314" class="arw" marker-end="url(#w)"/>
+    <path d="M484 388 L516 330" class="arw" marker-end="url(#w)"/>
+
+    <rect x="516" y="222" width="230" height="34" rx="5" class="box"/>
+    <text x="526" y="244" class="sm" font-weight="600">9. Silicon arrives</text>
+    <path d="M631 286 L631 256" class="arw" marker-end="url(#w)"/>
+
+    <rect x="516" y="110" width="230" height="94" rx="5" class="gate"/>
+    <text x="526" y="132" class="lb gatetx" font-weight="600">10. AICR on real hardware</text>
+    <text x="526" y="151" class="sm gatetx" font-weight="600">FINAL READINESS GATE</text>
+    <text x="526" y="170" class="cap gatetx">CUDA · firmware and driver</text>
+    <text x="526" y="186" class="cap gatetx">NCCL / NVLink / NVLS · TTFT</text>
+    <path d="M631 222 L631 204" class="arw" marker-end="url(#w)"/>
+  </g>
+  <defs>
+    <marker id="w" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#57606a"/>
+    </marker>
+  </defs>
+</svg>
