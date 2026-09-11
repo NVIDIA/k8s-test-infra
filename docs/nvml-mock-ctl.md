@@ -41,11 +41,12 @@ mode/counters, temperature, power, utilization, clocks, fan, performance state,
 device memory (`memory.total_bytes` / `free_bytes` / `used_bytes` /
 `reserved_bytes` / `memory_bus_width`), and the like. These change within one TTL.
 
-MIG partitioning is hot-reloadable for the **NVML view**, but this CLI does not
-do it: `nvidia-smi -mig` and `nvidia-smi mig -cgi/-cci/-dgi/-dci` work against
-the mock as they do against a driver, and the library records each mutation so
-it outlives the process that made it. Use those. What they change is what
-`nvidia-smi`, DCGM and GFD report, and what the device plugin *discovers*.
+MIG partitioning is hot-reloadable for the **NVML view**, through `nvidia-smi`
+rather than through this CLI: `nvidia-smi -mig` and
+`nvidia-smi mig -cgi/-cci/-dgi/-dci` work against the mock as they do against a
+driver, and the library records each mutation so it outlives the process that
+made it. What they change is what `nvidia-smi`, DCGM and GFD report, and what
+the device plugin *discovers*.
 
 The driver capability surface is not hot-reloadable — `/dev/nvidia-caps` and
 `/proc/driver/nvidia-caps/mig-minors` are staged once from the profile, so
@@ -364,7 +365,7 @@ equivalent.
 
 ### MIG partitioning — use `nvidia-smi`
 
-This CLI has no `mig` command. Repartition with `nvidia-smi`, which works
+Repartitioning is not one of this CLI's commands. Use `nvidia-smi`, which works
 against the mock the way it works against a driver:
 
 ```bash
