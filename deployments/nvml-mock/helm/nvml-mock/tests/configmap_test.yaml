@@ -597,11 +597,17 @@ tests:
     asserts:
       # The flag is Helm's, not the engine's schema; leaking it would make the
       # mock warn about an unknown key.
+      #
+      # (?m) is required: helm-unittest compiles these with Go's regexp against
+      # the whole config.yaml as one string, so a bare ^ anchors to the start of
+      # the document and can never match an interior line. The four-space indent
+      # is what keeps this off infiniband's own `enabled: true`, which sits two
+      # levels shallower.
       - notMatchRegex:
           path: data["config.yaml"]
-          pattern: "^[[:space:]]*enabled: true"
+          pattern: "(?m)^ {4}enabled: true"
 
-  - it: should reject MIG on a profile that declares no partitions
+  - it: should reject MIG on a board that cannot partition
     set:
       gpu:
         profile: t4
@@ -609,4 +615,48 @@ tests:
           enabled: true
     asserts:
       - failedTemplate:
-          errorMessage: 'gpu.mig.enabled is set but profile "t4" declares no mig.gpu_instances, so the node would come up MIG-enabled with nothing partitioned'
+          errorMessage: 'gpu.mig.enabled is set but profile "t4" is not a MIG-capable board: mig.max_gpu_instances is 0'
+
+  # An explicit layout does not make a board capable, so the refusal above has
+  # to survive one being given.
+  - it: should reject MIG on a board that cannot partition even with gpuInstances
+    set:
+      gpu:
+        profile: t4
+        mig:
+          enabled: true
+          gpuInstances:
+            - profile: "1g.5gb"
+              count: 7
+    asserts:
+      - failedTemplate:
+          errorMessage: 'gpu.mig.enabled is set but profile "t4" is not a MIG-capable board: mig.max_gpu_instances is 0'
+
+  - it: should reject MIG on a capable board with no layout to apply
+    set:
+      gpu:
+        profile: gb300
+        mig:
+          enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: 'gpu.mig.enabled is set but neither profile "gb300" nor gpu.mig.gpuInstances declares any partitions, so the node would come up MIG-enabled with nothing partitioned'
+
+  # gb300, gb200 and b200 are MIG-capable but ship no default layout, which is
+  # exactly the case gpuInstances exists for.
+  - it: should accept gpuInstances on a capable board that declares no layout
+    set:
+      gpu:
+        profile: gb300
+        mig:
+          enabled: true
+          gpuInstances:
+            - profile: "3g.20gb"
+              count: 2
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "profile: 3g.20gb"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "mode_current: enabled"

@@ -171,20 +171,29 @@ preserves comments and key order from the profile file.
 {{- end -}}
 {{- if $migEnabled -}}
 {{- /*
-Turn on the partitioning the profile already declares, rather than describing
-a layout here. A profile that declares none would boot MIG-enabled and
-unpartitioned, which publishes no GPU resource at all under
-migStrategy=single, so that is refused rather than rendered.
+Turn on the partitioning the profile declares, or the one gpuInstances
+describes in its place. The override is applied before the layout is checked:
+gb300, gb200 and b200 are MIG-capable but ship no default layout, so checking
+first would refuse the very case gpuInstances documents itself for.
+
+Two refusals, because they are different mistakes. A board whose profile sets
+max_gpu_instances to 0 cannot partition at all, and no layout supplied here
+changes that. A capable board with no layout from either source would boot
+MIG-enabled and unpartitioned, which publishes no GPU resource whatsoever
+under migStrategy=single.
 */ -}}
 {{- $mig := get $defaults "mig" | default (dict) -}}
-{{- if not (get $mig "gpu_instances") -}}
-{{- fail (printf "gpu.mig.enabled is set but profile %q declares no mig.gpu_instances, so the node would come up MIG-enabled with nothing partitioned" .Values.gpu.profile) -}}
-{{- end -}}
-{{- $_ := set $mig "mode_current" "enabled" -}}
-{{- $_ := set $mig "mode_pending" "enabled" -}}
 {{- if .Values.gpu.mig.gpuInstances -}}
 {{- $_ := set $mig "gpu_instances" .Values.gpu.mig.gpuInstances -}}
 {{- end -}}
+{{- if not (get $mig "max_gpu_instances") -}}
+{{- fail (printf "gpu.mig.enabled is set but profile %q is not a MIG-capable board: mig.max_gpu_instances is 0" .Values.gpu.profile) -}}
+{{- end -}}
+{{- if not (get $mig "gpu_instances") -}}
+{{- fail (printf "gpu.mig.enabled is set but neither profile %q nor gpu.mig.gpuInstances declares any partitions, so the node would come up MIG-enabled with nothing partitioned" .Values.gpu.profile) -}}
+{{- end -}}
+{{- $_ := set $mig "mode_current" "enabled" -}}
+{{- $_ := set $mig "mode_pending" "enabled" -}}
 {{- $_ := set $defaults "mig" $mig -}}
 {{- end -}}
 {{- $_ := set $cfg "device_defaults" $defaults -}}
