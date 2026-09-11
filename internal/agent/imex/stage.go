@@ -18,7 +18,7 @@ import (
 // stageChannelDevs creates the chardevs that the compute-domain CDI spec injects
 // into workload pods; the nodes must exist for containerd to admit the container.
 func stageChannelDevs(h *host.Host, state *agent.State) error {
-	dir := filepath.Join(h.Root, "driver/dev/nvidia-caps-imex-channels")
+	dir := h.RootPath("driver/dev/nvidia-caps-imex-channels")
 
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -51,7 +51,7 @@ func stageProcDevices(h *host.Host, state *agent.State, procDevicesPath string) 
 		return fmt.Errorf("render proc-devices: %w", err)
 	}
 
-	return fsutil.Write(filepath.Join(h.Root, "imex/proc-devices"), []byte(rendered), 0o644)
+	return fsutil.Write(h.RootPath("imex/proc-devices"), []byte(rendered), 0o644)
 }
 
 // stageFabricImexMgmt writes the capability file the DRA plugin reads alongside
@@ -61,6 +61,6 @@ func stageFabricImexMgmt(h *host.Host) error {
 DeviceFileMode: 438
 DeviceFileModify: 0
 `
-	p := filepath.Join(h.Root, "driver/proc/driver/nvidia/capabilities/fabric-imex-mgmt")
+	p := h.RootPath("driver/proc/driver/nvidia/capabilities/fabric-imex-mgmt")
 	return fsutil.Write(p, []byte(content), 0o644)
 }

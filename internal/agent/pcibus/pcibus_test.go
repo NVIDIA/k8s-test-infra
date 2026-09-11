@@ -48,54 +48,54 @@ func stateWithTopology() *agent.State {
 
 func TestStage_RendersTopology(t *testing.T) {
 	h := testHost(t)
-	sim := New()
+	sim := New(h)
 
-	require.NoError(t, sim.Stage(context.Background(), h, stateWithTopology()))
+	require.NoError(t, sim.Stage(t.Context(), stateWithTopology()))
 	require.False(t, sim.Ready(), "Stage does not publish the NFD feature file")
 
 	// Renderer writes a /sys/bus/pci/devices/<bdf> symlink under h.Root.
-	symlink := filepath.Join(h.Root, "sys/bus/pci/devices/0000:07:00.0")
+	symlink := h.RootPath("sys/bus/pci/devices/0000:07:00.0")
 	_, err := os.Lstat(symlink)
 	require.NoError(t, err, "sysfs BDF symlink must exist")
 }
 
 func TestStage_NopWhenNoTopology(t *testing.T) {
 	h := testHost(t)
-	sim := New()
+	sim := New(h)
 	state := &agent.State{} // no topology, no devices
 
-	require.NoError(t, sim.Stage(context.Background(), h, state))
+	require.NoError(t, sim.Stage(t.Context(), state))
 	require.False(t, sim.Ready(), "Stage does not publish the NFD feature file")
 
-	sysDir := filepath.Join(h.Root, "sys")
+	sysDir := h.RootPath("sys")
 	_, err := os.Stat(sysDir)
 	require.True(t, os.IsNotExist(err), "sys/ must not be created when topology is empty")
 }
 
 func TestStage_Idempotent(t *testing.T) {
 	h := testHost(t)
-	sim := New()
+	sim := New(h)
 	state := stateWithTopology()
 
-	require.NoError(t, sim.Stage(context.Background(), h, state))
-	require.NoError(t, sim.Stage(context.Background(), h, state), "second Stage must not error")
+	require.NoError(t, sim.Stage(t.Context(), state))
+	require.NoError(t, sim.Stage(t.Context(), state), "second Stage must not error")
 }
 
 // ─── Discard ─────────────────────────────────────────────────────────────────
 
 func TestDiscard_NopWhenNotReady(t *testing.T) {
 	h := testHost(t)
-	sim := New()
+	sim := New(h)
 
-	require.NoError(t, sim.Discard(context.Background(), h))
+	require.NoError(t, sim.Discard(context.Background()))
 }
 
 func TestDiscard_EmptiesSysTree(t *testing.T) {
 	h := testHost(t)
-	sim := New()
+	sim := New(h)
 
-	require.NoError(t, sim.Stage(context.Background(), h, stateWithTopology()))
-	require.NoError(t, sim.Discard(context.Background(), h))
+	require.NoError(t, sim.Stage(t.Context(), stateWithTopology()))
+	require.NoError(t, sim.Discard(t.Context()))
 
 	for _, rel := range []string{pcisysfs.SysDevicesRelPath, pcisysfs.PCIDevicesRelPath} {
 		entries, err := os.ReadDir(filepath.Join(h.Root, rel))
@@ -110,16 +110,16 @@ func TestDiscard_EmptiesSysTree(t *testing.T) {
 // empty tree no restage can reach.
 func TestDiscard_KeepsTheDirectoriesTheCDISpecMounts(t *testing.T) {
 	h := testHost(t)
-	sim := New()
+	sim := New(h)
 
-	require.NoError(t, sim.Stage(context.Background(), h, stateWithTopology()))
+	require.NoError(t, sim.Stage(t.Context(), stateWithTopology()))
 
 	for _, rel := range []string{pcisysfs.SysDevicesRelPath, pcisysfs.PCIDevicesRelPath} {
 		path := filepath.Join(h.Root, rel)
 		before, err := os.Stat(path)
 		require.NoError(t, err)
 
-		require.NoError(t, sim.Discard(context.Background(), h))
+		require.NoError(t, sim.Discard(t.Context()))
 
 		after, err := os.Stat(path)
 		require.NoError(t, err, "%s must outlive the teardown", rel)
@@ -129,82 +129,82 @@ func TestDiscard_KeepsTheDirectoriesTheCDISpecMounts(t *testing.T) {
 
 func TestDiscard_SysGoneIsNotError(t *testing.T) {
 	h := testHost(t)
-	sim := New()
+	sim := New(h)
 
-	require.NoError(t, sim.Stage(context.Background(), h, stateWithTopology()))
+	require.NoError(t, sim.Stage(context.Background(), stateWithTopology()))
 
 	// Removing sys/ before Discard: a teardown with nothing left to tear down
 	// must still succeed.
-	require.NoError(t, os.RemoveAll(filepath.Join(h.Root, "sys")))
-	require.NoError(t, sim.Discard(context.Background(), h))
+	require.NoError(t, os.RemoveAll(h.RootPath("sys")))
+	require.NoError(t, sim.Discard(context.Background()))
 }
 
 // ─── Apply / Revoke ──────────────────────────────────────────────────────────
 
 func TestApply_WritesNFDFeatureFile(t *testing.T) {
 	h := testHost(t)
-	sim := New()
+	sim := New(h)
 
-	require.NoError(t, sim.Apply(context.Background(), h, nil))
+	require.NoError(t, sim.Apply(t.Context(), nil))
 	require.True(t, sim.Ready())
 
-	data, err := os.ReadFile(filepath.Join(h.Etc, nfdFeatureFile))
+	data, err := os.ReadFile(h.EtcPath(nfdFeatureFile))
 	require.NoError(t, err)
 	require.Equal(t, nfdContent, string(data))
 }
 
 func TestRevoke_RemovesNFDFile(t *testing.T) {
 	h := testHost(t)
-	sim := New()
+	sim := New(h)
 
-	require.NoError(t, sim.Apply(context.Background(), h, nil))
-	require.NoError(t, sim.Revoke(context.Background(), h))
+	require.NoError(t, sim.Apply(t.Context(), nil))
+	require.NoError(t, sim.Revoke(t.Context()))
 
-	_, err := os.Stat(filepath.Join(h.Etc, nfdFeatureFile))
+	_, err := os.Stat(h.EtcPath(nfdFeatureFile))
 	require.True(t, os.IsNotExist(err), "NFD feature file must be removed")
 }
 
 func TestRevoke_IdempotentWhenFileAbsent(t *testing.T) {
 	h := testHost(t)
-	sim := New()
+	sim := New(h)
 
-	require.NoError(t, sim.Revoke(context.Background(), h), "Revoke on absent file must not error")
+	require.NoError(t, sim.Revoke(t.Context()), "Revoke on absent file must not error")
 }
 
 func TestApply_Idempotent(t *testing.T) {
 	h := testHost(t)
-	sim := New()
+	sim := New(h)
 
-	require.NoError(t, sim.Apply(context.Background(), h, nil))
-	require.NoError(t, sim.Apply(context.Background(), h, nil), "second Apply must not error")
+	require.NoError(t, sim.Apply(t.Context(), nil))
+	require.NoError(t, sim.Apply(t.Context(), nil), "second Apply must not error")
 }
 
 // ─── Ready ───────────────────────────────────────────────────────────────────
 
 func TestReady_FalseBeforeStage(t *testing.T) {
-	sim := New()
+	sim := New(testHost(t))
 	require.False(t, sim.Ready())
 }
 
 func TestReady_TrueAfterApply(t *testing.T) {
 	h := testHost(t)
-	sim := New()
+	sim := New(h)
 
-	require.NoError(t, sim.Stage(context.Background(), h, stateWithTopology()))
+	require.NoError(t, sim.Stage(t.Context(), stateWithTopology()))
 	require.False(t, sim.Ready())
-	require.NoError(t, sim.Apply(context.Background(), h, nil))
+	require.NoError(t, sim.Apply(t.Context(), nil))
 	require.True(t, sim.Ready())
 }
 
 func TestReady_SurvivesDiscard(t *testing.T) {
 	h := testHost(t)
-	sim := New()
+	sim := New(h)
 
-	require.NoError(t, sim.Stage(context.Background(), h, stateWithTopology()))
-	require.NoError(t, sim.Apply(context.Background(), h, nil))
+	require.NoError(t, sim.Stage(t.Context(), stateWithTopology()))
+	require.NoError(t, sim.Apply(t.Context(), nil))
 	require.True(t, sim.Ready())
 
-	require.NoError(t, sim.Discard(context.Background(), h))
+	require.NoError(t, sim.Discard(t.Context()))
 	// Discard removes staged artifacts but does not withdraw published ones;
 	// Revoke runs first during teardown and clears readiness.
 	require.True(t, sim.Ready(), "Discard does not reset ready flag")
