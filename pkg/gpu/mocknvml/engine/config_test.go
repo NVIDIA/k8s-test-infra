@@ -330,6 +330,104 @@ devices:
 	require.ErrorContains(t, validateYAMLConfig(&yc), "duplicate device minor number: 3")
 }
 
+// A MIG device's UUID is its parent's with the instance ids spliced into the
+// fourth group, so two parents that differ only there name the same partition.
+// The UUID is how a consumer asks for a specific partition, and how the device
+// plugin identifies the one it allocated.
+func TestValidateYAMLConfig_RejectsUUIDsThatCollapseOntoOneMIGDevice(t *testing.T) {
+	t.Parallel()
+
+	y := `
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+devices:
+  - index: 0
+    uuid: "GPU-01000100-0000-0000-0001-000000000000"
+  - index: 1
+    uuid: "GPU-01000100-0000-0000-0002-000000000000"
+`
+	var yc YAMLConfig
+	require.NoError(t, yaml.Unmarshal([]byte(y), &yc), "yaml decode")
+
+	require.ErrorContains(t, validateYAMLConfig(&yc),
+		"devices 0 and 1 would derive the same MIG device UUIDs")
+}
+
+// The same check catches the blunter mistake it generalizes: two devices given
+// one UUID collide as full GPUs, before MIG enters into it.
+func TestValidateYAMLConfig_RejectsTwoDevicesSharingAUUID(t *testing.T) {
+	t.Parallel()
+
+	y := `
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+devices:
+  - index: 0
+    uuid: "GPU-01000100-0000-0000-0000-000000000000"
+  - index: 1
+    uuid: "GPU-01000100-0000-0000-0000-000000000000"
+`
+	var yc YAMLConfig
+	require.NoError(t, yaml.Unmarshal([]byte(y), &yc), "yaml decode")
+
+	require.ErrorContains(t, validateYAMLConfig(&yc), "duplicate device uuid")
+}
+
+// Distinguishing parents must stay accepted: the shipped profiles vary the last
+// group, which the derivation preserves.
+func TestValidateYAMLConfig_AcceptsUUIDsThatDifferOutsideTheSplicedGroup(t *testing.T) {
+	t.Parallel()
+
+	y := `
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+devices:
+  - index: 0
+    uuid: "GPU-01000100-0000-0000-0001-000000000000"
+  - index: 1
+    uuid: "GPU-01000100-0000-0000-0002-000000000001"
+`
+	var yc YAMLConfig
+	require.NoError(t, yaml.Unmarshal([]byte(y), &yc), "yaml decode")
+
+	require.NoError(t, validateYAMLConfig(&yc))
+}
+
+// Every profile the project ships has to survive its own validation. The
+// checks here reject a config on properties derived from what it declares —
+// minor numbers, MIG UUID stems — so tightening one can turn a shipped profile
+// into a pod that will not start, with nothing between the change and a
+// cluster to say so.
+func TestValidateYAMLConfig_AcceptsEveryShippedProfile(t *testing.T) {
+	t.Parallel()
+
+	globs := []string{
+		"../../../../deployments/nvml-mock/helm/nvml-mock/profiles/*.yaml",
+		"../configs/*.yaml",
+	}
+	for _, glob := range globs {
+		paths, err := filepath.Glob(glob)
+		require.NoError(t, err)
+		require.NotEmptyf(t, paths, "no profiles matched %q", glob)
+
+		for _, path := range paths {
+			t.Run(filepath.Base(path), func(t *testing.T) {
+				t.Parallel()
+
+				data, err := os.ReadFile(path)
+				require.NoError(t, err)
+
+				var yc YAMLConfig
+				require.NoError(t, yaml.Unmarshal(data, &yc), "yaml decode")
+				require.NoError(t, validateYAMLConfig(&yc))
+			})
+		}
+	}
+}
+
 // stageCharDevs formats the node name from the minor and casts it to uint32.
 // A negative value names a node the GPU-node pattern cannot match, so it
 // survives pruning, and 255 is nvidiactl's.

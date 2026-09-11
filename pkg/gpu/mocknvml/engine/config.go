@@ -263,6 +263,10 @@ func validateYAMLConfig(config *YAMLConfig) error {
 		return err
 	}
 
+	if err := validateDeviceUUIDs(config); err != nil {
+		return err
+	}
+
 	if err := validateMIGConfig(config.DeviceDefaults.MIG); err != nil {
 		return fmt.Errorf("device_defaults.mig: %w", err)
 	}
@@ -468,6 +472,60 @@ func ValidateMinorNumbers(config *YAMLConfig) error {
 			return fmt.Errorf("duplicate device minor number: %d (devices %d and %d)", minor, other, index)
 		}
 		seen[minor] = index
+	}
+
+	return nil
+}
+
+// validateDeviceUUIDs rejects UUIDs that two devices would end up sharing,
+// either as full GPUs or once their partitions are named.
+//
+// A UUID is how a consumer asks for one specific device — nvmlDeviceGetHandleByUUID
+// resolves it, and the device plugin reports the UUID of what it allocated — so
+// two devices answering to one UUID hand out whichever was found first. A MIG
+// partition inherits the problem: its UUID is derived from its parent's, so
+// parents that differ only where the derivation writes give corresponding
+// partitions identical UUIDs even though the GPUs themselves are distinct.
+//
+// The collision is detected by asking the derivation itself for one fixed pair
+// of instance ids, rather than restating which part of a UUID it writes: the
+// id contribution is the same for both parents, so agreeing there is agreeing
+// for every partition either board can carry.
+//
+// Devices that declare no UUID keep the base mock's own, which is already
+// distinct per device, so they do not take part.
+func validateDeviceUUIDs(config *YAMLConfig) error {
+	if config == nil {
+		return nil
+	}
+
+	type declaration struct {
+		index int
+		uuid  string
+	}
+	byUUID := make(map[string]declaration, len(config.Devices))
+	byMIGStem := make(map[string]declaration, len(config.Devices))
+
+	for _, dev := range config.Devices {
+		if dev.UUID == "" {
+			continue
+		}
+		this := declaration{index: dev.Index, uuid: dev.UUID}
+
+		if other, dup := byUUID[dev.UUID]; dup {
+			return fmt.Errorf("duplicate device uuid: %q (devices %d and %d)",
+				dev.UUID, other.index, dev.Index)
+		}
+		byUUID[dev.UUID] = this
+
+		stem := migDeviceUUID(dev.UUID, 0, 0)
+		if other, dup := byMIGStem[stem]; dup {
+			return fmt.Errorf(
+				"device uuids %q and %q differ only where MIG instance ids are spliced in: "+
+					"devices %d and %d would derive the same MIG device UUIDs",
+				other.uuid, dev.UUID, other.index, dev.Index)
+		}
+		byMIGStem[stem] = this
 	}
 
 	return nil
