@@ -65,11 +65,17 @@ func mutateMIG(path string, index int, fn func(*engine.MIGConfig) error) error {
 		return err
 	}
 	changed, err := applyMIG(block, fn)
-	if err != nil || !changed {
-		// A rejected mutation must leave no partial edit behind, and a mutation
-		// that changed nothing must not touch a file the engine watches — nor
-		// invent an empty `mig:` block for a device that had no overrides.
-		return err
+	if err != nil {
+		// A rejected mutation must leave no partial edit behind. The device and
+		// the document are context the caller cannot recover from the mutation's
+		// own message, which names only the instance it could not record.
+		return fmt.Errorf("recording mig mutation for device %d in %s: %w", index, path, err)
+	}
+	if !changed {
+		// A mutation that changed nothing must not touch a file the engine
+		// watches — nor invent an empty `mig:` block for a device that had no
+		// overrides.
+		return nil
 	}
 	bucket["mig"] = block
 	return WriteAtomic(path, doc)
@@ -80,6 +86,11 @@ func mutateMIG(path string, index int, fn func(*engine.MIGConfig) error) error {
 // arrived. Comparing the encoded block is what makes a no-op detectable: the
 // mutation works on the typed view, which says nothing about the keys it does
 // not own.
+//
+// The comparison sees only what writeMIG copies back — mode_current,
+// mode_pending and instances — so a writer that mutates some other MIGConfig
+// field would compare equal and have its work discarded unwritten. Widening
+// the typed view a mutation may touch means widening writeMIG with it.
 func applyMIG(block map[string]any, fn func(*engine.MIGConfig) error) (bool, error) {
 	before, err := yaml.Marshal(block)
 	if err != nil {
@@ -124,12 +135,16 @@ func migBlock(bucket map[string]any) (map[string]any, error) {
 // profile — so a dropped `max_gpu_instances: 0` would read as "inherit" and
 // silently restore the value the operator overrode.
 //
-// The nested `instances` list is exempt from that hazard only because of how
-// its records are typed: every field is either non-omitempty or a pointer, and
-// omitempty does not omit a non-nil pointer, so a zero written into a record
-// survives this round-trip. A plain `omitempty` value field added to
-// MIGGPUInstanceRecord or MIGComputeInstanceRecord would break that, and the
-// list would need the same key-by-key treatment as the block above.
+// The nested `instances` list is exempt from that hazard because of how its
+// records are typed: every field whose absent-versus-zero distinction the
+// engine reads is either non-omitempty (`id`) or a pointer (`profile_id`,
+// `placement_start`, `compute_instances`), and omitempty does not omit a
+// non-nil pointer. `profile` is omitempty and so is already dropped when it is
+// empty, which costs nothing because an absent `profile` and `profile: ""`
+// decode to the same record. A new omitempty scalar on MIGGPUInstanceRecord or
+// MIGComputeInstanceRecord whose zero the engine has to tell from absent would
+// break that, and the list would need the same key-by-key treatment as the
+// block above.
 func writeMIG(block map[string]any, mig *engine.MIGConfig) error {
 	setOrClear(block, "mode_current", mig.ModeCurrent)
 	setOrClear(block, "mode_pending", mig.ModePending)
@@ -199,8 +214,17 @@ func MIGAddGpuInstance(path string, index int, rec engine.MIGGPUInstanceRecord) 
 // MIGRemoveGpuInstance records a destroyed GPU instance. The list stays
 // present when it empties: a MIG-enabled board with nothing on it is a real
 // state, and an absent list would fall back to the profile's partitions.
+//
+// A device with no recorded layout at all is rejected instead. Absent means
+// "the profile's declared counts stand", so there is no delta to take one
+// instance out of; writing the remainder as an empty list would record the
+// destruction of every other instance the profile declares. A caller that
+// records the live layout before mutating it always presents one.
 func MIGRemoveGpuInstance(path string, index int, giID uint32) error {
 	return mutateMIG(path, index, func(mig *engine.MIGConfig) error {
+		if mig.Instances == nil {
+			return fmt.Errorf("gpu instance %d is not recorded", giID)
+		}
 		kept := make([]engine.MIGGPUInstanceRecord, 0, len(instancesOf(mig)))
 		for _, gi := range instancesOf(mig) {
 			if gi.ID != giID {
@@ -233,6 +257,11 @@ func MIGAddComputeInstance(path string, index int, giID uint32, rec engine.MIGCo
 }
 
 // MIGRemoveComputeInstance records a destroyed compute instance.
+//
+// Unlike MIGRemoveGpuInstance, an absent list is emptied rather than rejected:
+// absent here means the engine supplies one compute instance spanning the GPU
+// instance, so recording the empty list destroys exactly the instance the
+// conventional `ciID == 0` names — a faithful delta, not a guess.
 func MIGRemoveComputeInstance(path string, index int, giID, ciID uint32) error {
 	return mutateMIG(path, index, func(mig *engine.MIGConfig) error {
 		gi, err := migRecord(mig, giID)
