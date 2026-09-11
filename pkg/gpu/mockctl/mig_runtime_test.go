@@ -14,6 +14,7 @@
 package mockctl
 
 import (
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -169,17 +170,22 @@ func TestMIGAddGpuInstance_ConcurrentWritersBothLand(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "overrides.yaml")
 	require.NoError(t, MIGSetMode(path, 0, true))
 
+	// Released together rather than as they are spawned, so the writers really
+	// do contend instead of happening to serialize behind the loop.
+	start := make(chan struct{})
 	var wg sync.WaitGroup
 	errs := make([]error, 8)
 	for i := range errs {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			<-start
 			errs[i] = MIGAddGpuInstance(path, 0, engine.MIGGPUInstanceRecord{
 				ID: uint32(i), Profile: "1g.5gb",
 			})
 		}()
 	}
+	close(start)
 	wg.Wait()
 	for _, err := range errs {
 		require.NoError(t, err)
@@ -187,4 +193,136 @@ func TestMIGAddGpuInstance_ConcurrentWritersBothLand(t *testing.T) {
 
 	mig := migDoc(t, path)
 	require.Len(t, *mig.Instances, 8, "every concurrent write must survive")
+}
+
+// NVML allocates the IDs, so a duplicate is a replayed or mis-sequenced
+// mutation rather than a second instance. Appending it would leave two records
+// under one ID, and a later removal would take both.
+func TestMIGAddGpuInstance_RejectsARecordedID(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "overrides.yaml")
+	require.NoError(t, MIGSetMode(path, 0, true))
+	require.NoError(t, MIGAddGpuInstance(path, 0, engine.MIGGPUInstanceRecord{ID: 1, Profile: "1g.5gb"}))
+
+	err := MIGAddGpuInstance(path, 0, engine.MIGGPUInstanceRecord{ID: 1, Profile: "2g.10gb"})
+	require.ErrorContains(t, err, "gpu instance 1 is already recorded")
+
+	mig := migDoc(t, path)
+	require.Len(t, *mig.Instances, 1, "the rejected record must not have landed")
+	require.Equal(t, "1g.5gb", (*mig.Instances)[0].Profile)
+}
+
+func TestMIGAddComputeInstance_RejectsARecordedID(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "overrides.yaml")
+	require.NoError(t, MIGSetMode(path, 0, true))
+	require.NoError(t, MIGAddGpuInstance(path, 0, engine.MIGGPUInstanceRecord{ID: 1, Profile: "1g.5gb"}))
+	require.NoError(t, MIGAddComputeInstance(path, 0, 1, engine.MIGComputeInstanceRecord{ID: 0, Profile: "1c"}))
+
+	err := MIGAddComputeInstance(path, 0, 1, engine.MIGComputeInstanceRecord{ID: 0, Profile: "1c"})
+	require.ErrorContains(t, err, "compute instance 0 is already recorded in gpu instance 1")
+
+	mig := migDoc(t, path)
+	require.Len(t, *(*mig.Instances)[0].ComputeInstances, 1)
+}
+
+// A compute instance the layout has nowhere to put must fail rather than
+// report success: the caller has already created it in its own process, and a
+// silently dropped record would vanish at the next process start.
+func TestMIGAddComputeInstance_RejectsAnUnrecordedGpuInstance(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "overrides.yaml")
+	require.NoError(t, MIGSetMode(path, 0, true))
+	require.NoError(t, MIGAddGpuInstance(path, 0, engine.MIGGPUInstanceRecord{ID: 1, Profile: "1g.5gb"}))
+
+	err := MIGAddComputeInstance(path, 0, 7, engine.MIGComputeInstanceRecord{ID: 0, Profile: "1c"})
+	require.ErrorContains(t, err, "gpu instance 7 is not recorded")
+
+	mig := migDoc(t, path)
+	require.Len(t, *mig.Instances, 1, "a rejected mutation must leave no partial edit")
+	require.Nil(t, (*mig.Instances)[0].ComputeInstances)
+}
+
+func TestMIGRemoveComputeInstance_RejectsAnUnrecordedGpuInstance(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "overrides.yaml")
+	require.NoError(t, MIGSetMode(path, 0, true))
+
+	err := MIGRemoveComputeInstance(path, 0, 7, 0)
+	require.ErrorContains(t, err, "gpu instance 7 is not recorded")
+}
+
+// A rejected mutation must not touch the document at all — not even to create
+// the device's bucket, which would leave an empty `mig:` block behind for a
+// device that had no overrides.
+func TestMIGAddComputeInstance_RejectionWritesNothing(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "overrides.yaml")
+
+	err := MIGAddComputeInstance(path, 0, 0, engine.MIGComputeInstanceRecord{ID: 0, Profile: "1c"})
+	require.ErrorContains(t, err, "gpu instance 0 is not recorded")
+
+	_, statErr := os.Stat(path)
+	require.ErrorIs(t, statErr, os.ErrNotExist, "a rejected mutation must not create the document")
+}
+
+// The engine watches this file, so a mutation that changes nothing must leave
+// it alone. A comment cannot survive a rewrite, which is what makes the
+// difference between "not written" and "rewritten identically" observable.
+func TestMIGSetMode_NoChangeDoesNotRewriteTheFile(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "overrides.yaml")
+	require.NoError(t, MIGSetMode(path, 0, true))
+	written, err := os.ReadFile(path)
+	require.NoError(t, err)
+	marked := append([]byte("# written by hand\n"), written...)
+	require.NoError(t, os.WriteFile(path, marked, 0o644))
+
+	require.NoError(t, MIGSetMode(path, 0, true))
+
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, marked, after, "a mutation that changes nothing must not rewrite the file")
+
+	require.NoError(t, MIGSetMode(path, 0, false))
+	after, err = os.ReadFile(path)
+	require.NoError(t, err)
+	require.NotEqual(t, marked, after, "a real change must still be written")
+}
+
+// The `instances` list round-trips through the typed records on every write,
+// including writes that do not touch the layout, so a zero a record carries
+// has to survive that trip. It does because each field is either
+// non-omitempty or a pointer; a plain omitempty value field would not.
+func TestMIGAddGpuInstance_ZeroesInsideARecordSurvive(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "overrides.yaml")
+	doc, err := Load(path)
+	require.NoError(t, err)
+	doc.SetMIG(Target{Index: 0}, map[string]any{
+		"mode_current": "enabled",
+		"mode_pending": "enabled",
+		"instances": []any{map[string]any{
+			"id": 0, "profile": "1g.5gb", "placement_start": 0,
+		}},
+	})
+	require.NoError(t, WriteAtomic(path, doc))
+
+	require.NoError(t, MIGAddGpuInstance(path, 0, engine.MIGGPUInstanceRecord{ID: 1, Profile: "1g.5gb"}))
+
+	// Asserted against the raw document: merging cannot tell a zero from an
+	// absent key, which is the exact loss at issue.
+	doc, err = Load(path)
+	require.NoError(t, err)
+	block, ok := doc.Devices["0"]["mig"].(map[string]any)
+	require.True(t, ok, "the mig block must stay a generic map")
+	instances, ok := block["instances"].([]any)
+	require.True(t, ok)
+	require.Len(t, instances, 2)
+	seeded, ok := instances[0].(map[string]any)
+	require.True(t, ok)
+	require.Contains(t, seeded, "id", "an instance id of zero must survive a mutation")
+	require.EqualValues(t, 0, seeded["id"])
+	require.Contains(t, seeded, "placement_start", "a placement of zero must survive a mutation")
+	require.EqualValues(t, 0, seeded["placement_start"])
 }
