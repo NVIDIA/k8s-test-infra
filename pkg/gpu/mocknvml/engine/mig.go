@@ -412,15 +412,21 @@ func (d *ConfigurableDevice) SetMigMode(mode int) (nvml.Return, nvml.Return) {
 	}
 
 	st.mu.Lock()
-	defer st.mu.Unlock()
-
+	var retired []*ConfigurableDevice
 	if mode != st.mode {
-		st.destroyAllLocked(d)
+		retired = st.destroyAllLocked(d)
 	}
 	st.mode = mode
 	st.pending = mode
+	st.mu.Unlock()
 
-	debugLog("[NVML] nvmlDeviceSetMigMode(%d) -> SUCCESS\n", mode)
+	// Outside the lock, as in reconcileMIG: the hook is the engine's, and what
+	// it does with the devices is not this lock's business.
+	if len(retired) > 0 && d.onRepartition != nil {
+		d.onRepartition(retired)
+	}
+
+	debugLog("[NVML] nvmlDeviceSetMigMode(%d) -> SUCCESS (retired %d MIG devices)\n", mode, len(retired))
 	return nvml.SUCCESS, nvml.SUCCESS
 }
 
@@ -1128,13 +1134,25 @@ func (st *migState) destroyComputeInstanceLocked(gi *mockserver.GpuInstance, ci 
 }
 
 // destroyAllLocked tears down the whole partitioning, which is what disabling
-// MIG does on hardware. Requires st.mu.
-func (st *migState) destroyAllLocked(parent *ConfigurableDevice) {
+// MIG does on hardware, and returns the MIG devices that went with it so their
+// handles can be retired. Requires st.mu.
+//
+// The devices are returned rather than left for the caller to read because the
+// teardown empties the only table they can be read from: a caller that forgets
+// to collect them first has no second chance, and the handles it should have
+// retired go on answering for partitions that no longer exist.
+func (st *migState) destroyAllLocked(parent *ConfigurableDevice) []*ConfigurableDevice {
+	destroyed := make([]*ConfigurableDevice, 0, len(st.devices))
+	for _, migDev := range st.devices {
+		destroyed = append(destroyed, migDev)
+	}
+
 	parent.Device.Lock()
 	parent.Device.GpuInstances = make(map[*mockserver.GpuInstance]struct{})
 	parent.Device.Unlock()
 
 	st.devices = make(map[migInstanceKey]*ConfigurableDevice)
+	return destroyed
 }
 
 // GetGpuInstances returns the live GPU instances matching a profile.

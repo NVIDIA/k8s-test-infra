@@ -420,6 +420,28 @@ func TestReconcileMIG_RetiresDestroyedMigDevices(t *testing.T) {
 	require.Contains(t, retired, doomed)
 }
 
+// Switching MIG off destroys every partition, so it owes the same handle
+// retirement a repartition does. Without it a consumer that resolved a MIG
+// device keeps a handle NVML would have failed: it still resolves, still says
+// it is a MIG device, and still answers with the destroyed partition's UUID. No
+// later reconcile can repair it either, because the teardown has already
+// emptied the instance table the report would be drawn from.
+func TestSetMigMode_RetiresTheMigDevicesItDestroys(t *testing.T) {
+	dev, path, clock := newTestDevice(t, a100MIGConfig())
+	writeConfigOverride(t, path, migEnable7x1g, clock)
+
+	var retired []*ConfigurableDevice
+	dev.onRepartition = func(devices []*ConfigurableDevice) { retired = devices }
+	doomed, ret := dev.GetMigDeviceHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	ret, _ = dev.SetMigMode(nvml.DEVICE_MIG_DISABLE)
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	require.Len(t, retired, 7, "disabling MIG destroys every partition")
+	require.Contains(t, retired, doomed)
+}
+
 // TestReconcileMIG_ExplicitAddLeavesNeighborsAlone: another process adding an
 // instance must not disturb the ones this process is already holding handles
 // to.

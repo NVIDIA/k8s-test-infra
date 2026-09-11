@@ -92,11 +92,7 @@ func (d *ConfigurableDevice) reconcileMIG(cfg *MIGConfig) {
 func (d *ConfigurableDevice) rebuildMIG(cfg *MIGConfig, current, pending int) {
 	st := d.migState
 	st.mu.Lock()
-	retired := make([]*ConfigurableDevice, 0, len(st.devices))
-	for _, migDev := range st.devices {
-		retired = append(retired, migDev)
-	}
-	st.destroyAllLocked(d)
+	retired := st.destroyAllLocked(d)
 	st.mode, st.pending = current, pending
 	st.maxGPUInstances = resolveMaxGPUInstances(cfg, st.supported, st.profiles)
 	enabled := st.mode == nvml.DEVICE_MIG_ENABLE
