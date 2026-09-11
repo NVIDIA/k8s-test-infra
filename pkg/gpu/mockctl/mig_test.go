@@ -14,6 +14,7 @@
 package mockctl
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -241,4 +242,23 @@ func TestMIGEnablePatch_RejectsNegativeCount(t *testing.T) {
 	_, err := MIGEnablePatch("1g.5gb", -1)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "--count")
+}
+
+// A declarative layout from the CLI must not be overruled by a stale explicit
+// list left behind by an earlier runtime mutation.
+func TestSetMIG_ClearsAnExplicitLayout(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "overrides.yaml")
+	require.NoError(t, MIGSetMode(path, 0, true))
+	require.NoError(t, MIGAddGpuInstance(path, 0, engine.MIGGPUInstanceRecord{ID: 0, Profile: "1g.5gb"}))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	mig, err := MIGEnablePatch("3g.20gb", 2)
+	require.NoError(t, err)
+	doc.SetMIG(Target{Index: 0}, mig)
+	require.NoError(t, WriteAtomic(path, doc))
+
+	got := migDoc(t, path)
+	require.Nil(t, got.Instances, "a declarative layout replaces the recorded one")
 }
