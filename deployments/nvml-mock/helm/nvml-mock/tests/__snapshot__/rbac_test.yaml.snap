@@ -8,5 +8,5 @@ should match ServiceAccount snapshot:
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: nvml-mock
         app.kubernetes.io/version: 550.163.01
-        helm.sh/chart: nvml-mock-0.3.0
+        helm.sh/chart: nvml-mock-0.4.0
       name: RELEASE-NAME-nvml-mock

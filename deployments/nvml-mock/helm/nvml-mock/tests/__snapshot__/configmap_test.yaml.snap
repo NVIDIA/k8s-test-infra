@@ -479,7 +479,7 @@ should match snapshot with a100 profile:
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: nvml-mock
         app.kubernetes.io/version: 550.163.01
-        helm.sh/chart: nvml-mock-0.3.0
+        helm.sh/chart: nvml-mock-0.4.0
       name: RELEASE-NAME-nvml-mock-config
 should match snapshot with b200 profile:
   1: |
@@ -958,7 +958,7 @@ should match snapshot with b200 profile:
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: nvml-mock
         app.kubernetes.io/version: 550.163.01
-        helm.sh/chart: nvml-mock-0.3.0
+        helm.sh/chart: nvml-mock-0.4.0
       name: RELEASE-NAME-nvml-mock-config
 should match snapshot with default gb300 profile:
   1: |
@@ -1487,7 +1487,7 @@ should match snapshot with default gb300 profile:
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: nvml-mock
         app.kubernetes.io/version: 550.163.01
-        helm.sh/chart: nvml-mock-0.3.0
+        helm.sh/chart: nvml-mock-0.4.0
       name: RELEASE-NAME-nvml-mock-config
 should match snapshot with gb200 profile:
   1: |
@@ -2016,7 +2016,7 @@ should match snapshot with gb200 profile:
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: nvml-mock
         app.kubernetes.io/version: 550.163.01
-        helm.sh/chart: nvml-mock-0.3.0
+        helm.sh/chart: nvml-mock-0.4.0
       name: RELEASE-NAME-nvml-mock-config
 should match snapshot with h100 profile:
   1: |
@@ -2511,7 +2511,7 @@ should match snapshot with h100 profile:
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: nvml-mock
         app.kubernetes.io/version: 550.163.01
-        helm.sh/chart: nvml-mock-0.3.0
+        helm.sh/chart: nvml-mock-0.4.0
       name: RELEASE-NAME-nvml-mock-config
 should match snapshot with l40s profile:
   1: |
@@ -2951,7 +2951,7 @@ should match snapshot with l40s profile:
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: nvml-mock
         app.kubernetes.io/version: 550.163.01
-        helm.sh/chart: nvml-mock-0.3.0
+        helm.sh/chart: nvml-mock-0.4.0
       name: RELEASE-NAME-nvml-mock-config
 should match snapshot with t4 profile:
   1: |
@@ -3352,5 +3352,5 @@ should match snapshot with t4 profile:
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: nvml-mock
         app.kubernetes.io/version: 550.163.01
-        helm.sh/chart: nvml-mock-0.3.0
+        helm.sh/chart: nvml-mock-0.4.0
       name: RELEASE-NAME-nvml-mock-config

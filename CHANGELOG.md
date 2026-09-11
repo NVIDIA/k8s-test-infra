@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-11
+
 ### Added
 - nvml-mock: the node agent announces an injected Xid on the node's kernel log,
   the way a driver's printk does, so agents that watch kernel messages see the
@@ -24,90 +26,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`Storage=persistent`, `ReadKMsg=yes`), giving the node a kernel-log "syslog"
   NVSentinel's syslog monitor can read. Stock Kind nodes drop kernel messages
   and keep a volatile journal, so the monitor sees nothing.
-
-### Removed
-- nvml-mock: the DaemonSet no longer runs the `nvml-mock` container; the node
-  agent is the only simulation container.
-- nvml-mock: the chart no longer labels nodes `nvidia.com/gpu.present=true`, and
-  no longer requests any cluster RBAC. GPU labels under `nvidia.com/` come from
-  NFD, GFD, GPU Operator when deployed, as on real hardware. Workloads that selected on the
-  label must select on their cluster's GPU node-pool label instead.
-- nvml-mock: the top-level `resources` value is gone; use `nodeAgent.resources`.
-- nvml-mock: `kubectl` is no longer installed in the image. Its only callers
-  were the deleted setup/cleanup scripts, and the pod now has neither a
-  ServiceAccount token nor cluster RBAC to use it with.
-
-### Changed
-- nvml-mock: `terminationGracePeriodSeconds` defaults to `10` and
-  `nodeAgent.shutdownTimeout` to `5s`, so the agent's teardown finishes before
-  SIGKILL instead of being cut short.
-
-### Fixed
-- agent: GPU character devices, both CDI specs and the NVML visibility filter
-  now address a device by its `minor_number` rather than by its NVML index. The
-  two match on a node whose driver probed in PCI enumeration order, which every
-  shipped profile describes, but where a profile sets them apart a container was
-  handed the `/dev/nvidia<N>` belonging to a different GPU. NVML indices are
-  unchanged, so `nvidia-smi` and CDI device names still enumerate from 0. A
-  device that omits `minor_number` keeps taking its index. A profile is now
-  rejected, by the agent as well as the engine, when two devices would end up on
-  the same minor number — including where one of them defaulted to it — or when
-  a minor falls outside the range a GPU node can carry.
-- mocknvml: keep device indices consistent after visibility filtering, preserve
-  physical GPU targets for reset, and exclude hidden devices from topology results
-  and event waits (#807).
-- mocknvml: a per-device `pci` override no longer leaks into every device
-  merged after it. `GetDeviceConfig` copied `device_defaults` by value, but the
-  copy still aliased the shared `pci` block and the per-device merge wrote
-  through that pointer. A profile setting `devices[0].pci.device_id` left every
-  later device reporting device 0's ID, so `nvidia-smi -q` showed the wrong
-  Device Id and anything keying product identity off the PCI ID mislabelled
-  them. Heterogeneous profiles were the affected case.
-- mocknvml: `nvidia-smi --gpu-reset` (`-r`) now resets a GPU instead of
-  segfaulting. The mock's export-table dispatcher ended every per-device call by
-  writing a zero count through `arg1`, which the reset slots do not carry, so the
-  most common GPU remediation died with a bare exit 139. The reset is also a real
-  operation now: it clears the device's injected overrides under the same flock
-  as `nvml-mock-ctl reset --gpu <n>`, so an existing remediation controller or
-  runbook works unmodified against the mock. It runs from an injected consumer
-  container as well as the nvml-mock pod — CDI and NRI mount the config directory
-  writable for it, while the mock library and `nvidia-smi` stay read-only.
-  `-i <n>` resets one GPU, a bare `--gpu-reset` every device. Two consequences,
-  documented in `docs/nvml-mock-ctl.md`: state injected with `--gpu all` still
-  needs `reset --gpu all`, and resetting a GPU with nothing injected rewrites
-  nothing.
-- mocknvml: `Max Customer Boost Clocks` in `nvidia-smi -q` now reports the
-  profile's `clocks.graphics_max` instead of `N/A`. Both NVML entry points that
-  can answer the row were generated stubs — the dedicated
-  `nvmlDeviceGetMaxCustomerBoostClock` and `nvmlDeviceGetClock`, which
-  `nvidia-smi` calls once per GPU on every `-q` run — so the mock said the driver
-  could not report an OEM boost ceiling where every real board reports one. Both
-  are now hand-written, and `nvmlDeviceGetClock` answers its whole clock-type ×
-  clock-id matrix from the `clocks:` block rather than only the one combination
-  this row needs, so DCGM and other go-nvml callers reaching it for current or
-  application clocks no longer get `NOT_SUPPORTED` either.
-  The ceiling is derived from `clocks.graphics_max` rather than from a new key.
-  #712 proposed a `clocks.customer_boost_max` on the premise that the OEM limit
-  sits below the boost maximum on real parts; the seven real-hardware captures
-  in-tree say otherwise — A100, H100, L40S, T4, B200, GB200 and GB300 all report
-  `max_customer_boost_clocks` equal to `max_clocks`. The reference GB300 tray
-  reporting `2070 MHz` where the profile said `2200` was the `gb300` profile's
-  `graphics_max` being wrong, not a customer-boost-specific limit, so a second
-  key would only have given profiles two values to keep in step by hand. The
-  e2e check pins the equality as well as the value, so a board that ever needs
-  the two to differ has to change the check and say why. (#712)
-- mocknvml: the `b200`, `gb200` and `gb300` profiles reported graphics and SM
-  boost clocks their real counterparts do not — `2100`/`2100`/`2200 MHz` against
-  the `1965`/`2062`/`2070 MHz` in the captures — so `Max Clocks`,
-  `Applications Clocks` and `Default Applications Clocks` were all off on the
-  three Blackwell profiles. The application clocks move with the maximum because
-  a real board reports them equal, and leaving them behind would have claimed an
-  application clock above the GPU's own ceiling. `supported_clocks` is capped at
-  the corrected maximum for the same reason. The `video_max` and memory clock
-  values on these profiles are still off against their captures and are left for
-  a follow-up. (#712)
-
-### Added
 - The `mokka-crds` chart is published to
   `oci://ghcr.io/nvidia/k8s-test-infra/chart` and cosign-signed, alongside the
   `nvml-mock` chart. It was previously linted and template-rendered in CI but
@@ -264,6 +182,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   public NVML APIs.
 
 ### Changed
+- nvml-mock: `terminationGracePeriodSeconds` defaults to `10` and
+  `nodeAgent.shutdownTimeout` to `5s`, so the agent's teardown finishes before
+  SIGKILL instead of being cut short.
 - `nvml-mock-ctl` parses its command line with `urfave/cli` v3, the library the
   node agent and NRI plugin already use, instead of one hand-rolled
   `flag.FlagSet` shared by every subcommand. Each command now declares only its
@@ -392,12 +313,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of a hardcoded 8.
 
 ### Removed
+- nvml-mock: the DaemonSet no longer runs the `nvml-mock` container; the node
+  agent is the only simulation container.
+- nvml-mock: the chart no longer labels nodes `nvidia.com/gpu.present=true`, and
+  no longer requests any cluster RBAC. GPU labels under `nvidia.com/` come from
+  NFD, GFD, GPU Operator when deployed, as on real hardware. Workloads that selected on the
+  label must select on their cluster's GPU node-pool label instead.
+- nvml-mock: the top-level `resources` value is gone; use `nodeAgent.resources`.
+- nvml-mock: `kubectl` is no longer installed in the image. Its only callers
+  were the deleted setup/cleanup scripts, and the pod now has neither a
+  ServiceAccount token nor cluster RBAC to use it with.
 - Chart value `nodeLabels.pciVendorPresent`. The NFD feature file behind
   `feature.node.kubernetes.io/pci-10de.present` is now always written. A
   leftover `--set nodeLabels.pciVendorPresent=false` is silently ignored, not
   rejected. (#719)
-
-### Removed
 - `cmd/fake-imex` (both the daemon and the ctl). The real `nvidia-imex` in NO
   GPU mode, reached through `shims/nvidia-imex-shim`, supersedes the
   marker-file simulation, completing the deprecation announced in 0.3.0. (#304)
@@ -413,6 +342,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mounted rather than failing. (#304)
 
 ### Fixed
+- agent: GPU character devices, both CDI specs and the NVML visibility filter
+  now address a device by its `minor_number` rather than by its NVML index. The
+  two match on a node whose driver probed in PCI enumeration order, which every
+  shipped profile describes, but where a profile sets them apart a container was
+  handed the `/dev/nvidia<N>` belonging to a different GPU. NVML indices are
+  unchanged, so `nvidia-smi` and CDI device names still enumerate from 0. A
+  device that omits `minor_number` keeps taking its index. A profile is now
+  rejected, by the agent as well as the engine, when two devices would end up on
+  the same minor number — including where one of them defaulted to it — or when
+  a minor falls outside the range a GPU node can carry.
+- mocknvml: keep device indices consistent after visibility filtering, preserve
+  physical GPU targets for reset, and exclude hidden devices from topology results
+  and event waits (#807).
+- mocknvml: a per-device `pci` override no longer leaks into every device
+  merged after it. `GetDeviceConfig` copied `device_defaults` by value, but the
+  copy still aliased the shared `pci` block and the per-device merge wrote
+  through that pointer. A profile setting `devices[0].pci.device_id` left every
+  later device reporting device 0's ID, so `nvidia-smi -q` showed the wrong
+  Device Id and anything keying product identity off the PCI ID mislabelled
+  them. Heterogeneous profiles were the affected case.
+- mocknvml: `nvidia-smi --gpu-reset` (`-r`) now resets a GPU instead of
+  segfaulting. The mock's export-table dispatcher ended every per-device call by
+  writing a zero count through `arg1`, which the reset slots do not carry, so the
+  most common GPU remediation died with a bare exit 139. The reset is also a real
+  operation now: it clears the device's injected overrides under the same flock
+  as `nvml-mock-ctl reset --gpu <n>`, so an existing remediation controller or
+  runbook works unmodified against the mock. It runs from an injected consumer
+  container as well as the nvml-mock pod — CDI and NRI mount the config directory
+  writable for it, while the mock library and `nvidia-smi` stay read-only.
+  `-i <n>` resets one GPU, a bare `--gpu-reset` every device. Two consequences,
+  documented in `docs/nvml-mock-ctl.md`: state injected with `--gpu all` still
+  needs `reset --gpu all`, and resetting a GPU with nothing injected rewrites
+  nothing.
+- mocknvml: `Max Customer Boost Clocks` in `nvidia-smi -q` now reports the
+  profile's `clocks.graphics_max` instead of `N/A`. Both NVML entry points that
+  can answer the row were generated stubs — the dedicated
+  `nvmlDeviceGetMaxCustomerBoostClock` and `nvmlDeviceGetClock`, which
+  `nvidia-smi` calls once per GPU on every `-q` run — so the mock said the driver
+  could not report an OEM boost ceiling where every real board reports one. Both
+  are now hand-written, and `nvmlDeviceGetClock` answers its whole clock-type ×
+  clock-id matrix from the `clocks:` block rather than only the one combination
+  this row needs, so DCGM and other go-nvml callers reaching it for current or
+  application clocks no longer get `NOT_SUPPORTED` either.
+  The ceiling is derived from `clocks.graphics_max` rather than from a new key.
+  #712 proposed a `clocks.customer_boost_max` on the premise that the OEM limit
+  sits below the boost maximum on real parts; the seven real-hardware captures
+  in-tree say otherwise — A100, H100, L40S, T4, B200, GB200 and GB300 all report
+  `max_customer_boost_clocks` equal to `max_clocks`. The reference GB300 tray
+  reporting `2070 MHz` where the profile said `2200` was the `gb300` profile's
+  `graphics_max` being wrong, not a customer-boost-specific limit, so a second
+  key would only have given profiles two values to keep in step by hand. The
+  e2e check pins the equality as well as the value, so a board that ever needs
+  the two to differ has to change the check and say why. (#712)
+- mocknvml: the `b200`, `gb200` and `gb300` profiles reported graphics and SM
+  boost clocks their real counterparts do not — `2100`/`2100`/`2200 MHz` against
+  the `1965`/`2062`/`2070 MHz` in the captures — so `Max Clocks`,
+  `Applications Clocks` and `Default Applications Clocks` were all off on the
+  three Blackwell profiles. The application clocks move with the maximum because
+  a real board reports them equal, and leaving them behind would have claimed an
+  application clock above the GPU's own ceiling. `supported_clocks` is capped at
+  the corrected maximum for the same reason. The `video_max` and memory clock
+  values on these profiles are still off against their captures and are left for
+  a follow-up. (#712)
 - mocknvml: Xid critical-error events are now attributed to the whole GPU the
   way real NVML does — `nvmlEventData_t.gpuInstanceId`/`computeInstanceId`
   carry the `0xFFFFFFFF` "not a MIG instance" sentinel instead of `0`/`0`,
@@ -896,7 +888,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Rebranded from gpu-mock to nvml-mock (PRs #273, #274, #275, #281, #282)
 
-[Unreleased]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.1.0...v0.2.0
