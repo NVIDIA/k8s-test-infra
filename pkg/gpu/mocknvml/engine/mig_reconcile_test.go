@@ -133,6 +133,32 @@ const migExplicitGap = `devices:
           placement_start: 2
 `
 
+// The pair below records one instance under two profiles at the same ID and
+// offset. Hardware cannot resize an instance in place, so the second document
+// is a replacement of instance 0 rather than an edit of it. A single instance
+// keeps the wider profile placeable, which it would not be beside a neighbour.
+const migExplicitOneSmallInstance = `devices:
+  "0":
+    mig:
+      mode_current: enabled
+      mode_pending: enabled
+      instances:
+        - id: 0
+          profile: 1g.5gb
+          placement_start: 0
+`
+
+const migExplicitOneLargeInstance = `devices:
+  "0":
+    mig:
+      mode_current: enabled
+      mode_pending: enabled
+      instances:
+        - id: 0
+          profile: 3g.20gb
+          placement_start: 0
+`
+
 // migExplicitMoved moves instance 0 of migExplicitTwo to a free offset and
 // leaves its neighbour where it is. Hardware cannot move an instance in place,
 // so this is a replacement of instance 0 rather than an edit of it.
@@ -414,13 +440,21 @@ func TestReconcileMIG_ExplicitAddLeavesNeighborsAlone(t *testing.T) {
 }
 
 // TestReconcileMIG_ExplicitDeletePreservesSurvivorIDs: a delete removes exactly
-// the instance named and leaves the IDs of the survivors alone.
+// the instance named and leaves the IDs of the survivors alone. The MIG devices
+// of the instance it does remove have to be retired, or a consumer keeps a
+// handle that answers for a partition that is gone.
 func TestReconcileMIG_ExplicitDeletePreservesSurvivorIDs(t *testing.T) {
 	dev, path, clock := newTestDevice(t, a100MIGConfig())
 	writeConfigOverride(t, path, migExplicitThree, clock)
 	require.Equal(t, 3, migPartitionCount(t, dev))
 
+	var retired []*ConfigurableDevice
+	dev.onRepartition = func(devices []*ConfigurableDevice) { retired = devices }
 	survivor, ret := dev.GetMigDeviceHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+	// MIG devices enumerate in GPU instance order, so index 1 is the partition
+	// of instance 1, the one migExplicitGap drops.
+	doomed, ret := dev.GetMigDeviceHandleByIndex(1)
 	require.Equal(t, nvml.SUCCESS, ret)
 
 	writeConfigOverride(t, path, migExplicitGap, clock)
@@ -435,6 +469,10 @@ func TestReconcileMIG_ExplicitDeletePreservesSurvivorIDs(t *testing.T) {
 	after, ret := dev.GetMigDeviceHandleByIndex(0)
 	require.Equal(t, nvml.SUCCESS, ret)
 	require.Same(t, survivor, after, "deleting one instance must not rebuild the others")
+
+	require.Contains(t, retired, doomed,
+		"the MIG device of the deleted instance must be reported for retirement")
+	require.NotContains(t, retired, survivor, "a survivor's MIG device must stay valid")
 }
 
 // TestReconcileMIG_ExplicitEmptyListClearsTheBoard: an empty explicit list
@@ -534,16 +572,24 @@ func TestReconcileMIG_ExplicitAddsARecordedComputeInstance(t *testing.T) {
 
 // TestReconcileMIG_ExplicitRemovesADroppedComputeInstance is the counterpart:
 // a compute instance the layout no longer records goes away, and its siblings
-// and the GPU instance around it do not.
+// and the GPU instance around it do not. Its MIG device has to be retired,
+// since that partition no longer exists to answer for.
 func TestReconcileMIG_ExplicitRemovesADroppedComputeInstance(t *testing.T) {
 	dev, path, clock := newTestDevice(t, a100MIGConfig())
 	writeConfigOverride(t, path, migExplicitTwoComputeInstances, clock)
 	require.Equal(t, 2, migPartitionCount(t, dev))
 
+	var retired []*ConfigurableDevice
+	dev.onRepartition = func(devices []*ConfigurableDevice) { retired = devices }
+
 	giBefore := liveGpuInstance(t, dev, 0)
 	cisBefore := liveComputeInstances(giBefore)
 	require.Equal(t, []uint32{0, 1}, computeInstanceIDs(cisBefore))
 	migBefore, ret := dev.GetMigDeviceHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+	// MIG devices enumerate in compute instance order within a GPU instance,
+	// so index 1 is the partition of the compute instance being dropped.
+	doomed, ret := dev.GetMigDeviceHandleByIndex(1)
 	require.Equal(t, nvml.SUCCESS, ret)
 
 	writeConfigOverride(t, path, migExplicitOneComputeInstance, clock)
@@ -561,6 +607,10 @@ func TestReconcileMIG_ExplicitRemovesADroppedComputeInstance(t *testing.T) {
 	require.Equal(t, nvml.SUCCESS, ret)
 	require.Same(t, migBefore, migAfter, "the MIG device of the survivor must stay valid")
 	require.Equal(t, 1, migPartitionCount(t, dev))
+
+	require.Contains(t, retired, doomed,
+		"the MIG device of the deleted compute instance must be reported for retirement")
+	require.NotContains(t, retired, migBefore, "the survivor's MIG device must not be retired")
 }
 
 // TestReconcileMIG_ExplicitPlacementChangeReplacesTheInstance: an instance
@@ -572,6 +622,7 @@ func TestReconcileMIG_ExplicitPlacementChangeReplacesTheInstance(t *testing.T) {
 	writeConfigOverride(t, path, migExplicitTwo, clock)
 	require.Equal(t, 2, migPartitionCount(t, dev))
 
+	before := liveGpuInstance(t, dev, 0)
 	neighbour := liveGpuInstance(t, dev, 1)
 
 	writeConfigOverride(t, path, migExplicitMoved, clock)
@@ -579,11 +630,43 @@ func TestReconcileMIG_ExplicitPlacementChangeReplacesTheInstance(t *testing.T) {
 	require.Equal(t, nvml.SUCCESS, ret)
 
 	moved := liveGpuInstance(t, dev, 0)
+	require.NotSame(t, before, moved,
+		"a moved instance must be replaced, not edited in place")
 	require.Equal(t, uint32(3), moved.Info.Placement.Start,
 		"the instance should have been recreated at the recorded offset")
 	require.Same(t, neighbour, liveGpuInstance(t, dev, 1),
 		"replacing one instance must not rebuild the others")
 	require.Equal(t, 2, migPartitionCount(t, dev))
+}
+
+// TestReconcileMIG_ExplicitProfileChangeReplacesTheInstance is the placement
+// case's twin on the other thing hardware cannot change in place: a record
+// reusing an ID under a wider profile describes a new instance, so the live one
+// has to be torn down and the record materialized in its stead.
+func TestReconcileMIG_ExplicitProfileChangeReplacesTheInstance(t *testing.T) {
+	dev, path, clock := newTestDevice(t, a100MIGConfig())
+	writeConfigOverride(t, path, migExplicitOneSmallInstance, clock)
+	require.Equal(t, 1, migPartitionCount(t, dev))
+
+	before := liveGpuInstance(t, dev, 0)
+
+	writeConfigOverride(t, path, migExplicitOneLargeInstance, clock)
+	_, _, ret := dev.GetMigMode()
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	replaced := liveGpuInstance(t, dev, 0)
+	require.NotSame(t, before, replaced,
+		"a reprofiled instance must be replaced, not edited in place")
+	require.Equal(t, []uint32{0}, liveGpuInstanceIDs(t, dev))
+
+	// The profile is read off the partition rather than the instance, so the
+	// assertion covers the compute instance the replacement was given too.
+	require.Equal(t, 1, migPartitionCount(t, dev))
+	migDev, ret := dev.GetMigDeviceHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+	name, ret := migDev.GetName()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Contains(t, name, "3g.20gb", "the recorded profile should be the live one")
 }
 
 // TestReconcileMIG_ExplicitUnspecifiedComputeInstancesAreLeftAlone pins what a
