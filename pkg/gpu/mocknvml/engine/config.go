@@ -273,8 +273,17 @@ func (c *Config) GetDeviceConfig(index int) *DeviceConfig {
 		return nil
 	}
 
-	// Start with a copy of defaults
+	// Start with a copy of defaults. The copy is shallow, so every pointer
+	// field still aliases the shared defaults. mergeDeviceOverride writes
+	// THROUGH the PCI pointer instead of replacing it, so clone PCIConfig here
+	// or a per-device PCI override lands on the defaults and leaks into every
+	// device merged afterwards (issue #589). mergePlatformOverride clones
+	// Platform itself; the remaining branches replace the pointer wholesale.
 	merged := c.YAMLConfig.DeviceDefaults
+	if merged.PCI != nil {
+		pci := *merged.PCI
+		merged.PCI = &pci
+	}
 
 	// Find and apply per-device overrides
 	for _, override := range c.YAMLConfig.Devices {
