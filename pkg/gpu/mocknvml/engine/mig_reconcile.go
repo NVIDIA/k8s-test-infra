@@ -255,9 +255,16 @@ func (d *ConfigurableDevice) reconcileComputeInstances(
 		return nil
 	}
 
-	want := make(map[uint32]struct{}, len(*records))
+	// Indexed rather than reduced to a membership set so a survivor can be
+	// compared against its own record. The first record wins for a repeated
+	// ID, as in applyExplicitComputeInstances, which materializes the ones the
+	// diff finds missing.
+	want := make(map[uint32]MIGComputeInstanceRecord, len(*records))
 	for _, rec := range *records {
-		want[rec.ID] = struct{}{}
+		if _, duplicate := want[rec.ID]; duplicate {
+			continue
+		}
+		want[rec.ID] = rec
 	}
 
 	st := d.migState
@@ -266,8 +273,9 @@ func (d *ConfigurableDevice) reconcileComputeInstances(
 	var retired []*ConfigurableDevice
 	for _, ci := range liveComputeInstances(gi) {
 		ciID := ci.Info.Id
-		if _, keep := want[ciID]; keep {
+		if rec, keep := want[ciID]; keep {
 			live[ciID] = struct{}{}
+			d.reportComputeProfileDrift(gi, giProfileID, ci, rec)
 			continue
 		}
 		// Named before the teardown evicts it, as in ComputeInstanceDestroy.
@@ -275,6 +283,10 @@ func (d *ConfigurableDevice) reconcileComputeInstances(
 		if ret := ci.Destroy(); ret != nvml.SUCCESS {
 			warnLog("[MIG] device %d: cannot destroy compute instance %d of GPU instance %d: %v\n",
 				d.index, ciID, giID, ret)
+			// Reporting it as live is what keeps a record under the same ID
+			// from being materialized again on top of an instance that is
+			// still there, as at the GPU instance level.
+			live[ciID] = struct{}{}
 			continue
 		}
 		retired = append(retired, derived...)
@@ -293,6 +305,34 @@ func (d *ConfigurableDevice) reconcileComputeInstances(
 	d.applyExplicitComputeInstances(gi, giProfileID, defaultCIProfileID, &missing)
 
 	return retired
+}
+
+// reportComputeProfileDrift diagnoses a compute instance the layout keeps
+// under a profile it is not live under.
+//
+// A compute instance survives on its ID alone, so a record that reuses an ID
+// while changing the profile is a no-op. That is deliberate — unlike a GPU
+// instance, whose replacement rule this level does not share — but the
+// documents this reconciler reads are hand-editable, and an operator whose
+// edit did nothing needs somewhere to see why.
+//
+// Requires d.refreshMu and must not be called with st.mu held: resolving a
+// profile by name reads the device's memory info.
+func (d *ConfigurableDevice) reportComputeProfileDrift(
+	gi *mockserver.GpuInstance, giProfileID int, ci *mockserver.ComputeInstance, rec MIGComputeInstanceRecord,
+) {
+	ciProfileID, err := d.resolveDeclaredComputeInstanceProfile(giProfileID,
+		MIGComputeInstanceConfig{Profile: rec.Profile, ProfileID: rec.ProfileID})
+	if err != nil {
+		warnLog("[MIG] device %d: compute instance %d of GPU instance %d: %v\n",
+			d.index, rec.ID, gi.Info.Id, err)
+		return
+	}
+	if ciProfileID != int(ci.Info.ProfileId) {
+		debugLog("[MIG] device %d: compute instance %d of GPU instance %d recorded under profile %d,"+
+			" live under %d and left in place\n",
+			d.index, rec.ID, gi.Info.Id, ciProfileID, ci.Info.ProfileId)
+	}
 }
 
 // recordMIGIfExempt records cfg as applied on a device that cannot be

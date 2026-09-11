@@ -125,8 +125,10 @@ func (st *migState) explicitPlacementLocked(
 
 // applyExplicitComputeInstances recreates the compute instances a record
 // carries, defaulting to one spanning the whole GPU instance when the record
-// says nothing about them — the partitioning a consumer gets when it creates
-// an instance without asking for slices.
+// says nothing about them. A record that names no compute instances asks for a
+// partition without saying how it is subdivided, and the whole of it is the
+// only subdivision that answer can mean, so it materializes the same single
+// spanning instance a declared partition gets.
 //
 // Presence, not emptiness, selects the default: an empty list is a GPU
 // instance whose compute instances were never created or were all deleted,
