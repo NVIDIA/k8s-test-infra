@@ -193,6 +193,32 @@ func MIGSetMode(path string, index int, enabled bool) error {
 	})
 }
 
+// MIGSeedLayout records records as the device's explicit layout, but only
+// when it has none: a delta writer edits that layout and cannot invent one,
+// so the first runtime mutation on a device has to write down the board it is
+// about to change before it can describe the change as a difference.
+//
+// Seeding a device that already carries a layout would overwrite what earlier
+// mutations recorded, so it is skipped rather than merged — which is also
+// what makes it safe for every mutation to call unconditionally.
+//
+// A nil records is nothing to seed rather than an empty layout, the same
+// distinction the document itself draws: an empty list records a MIG-enabled
+// board with every instance destroyed, and writing that for a board that is
+// merely switched off would destroy the partitions its profile declares.
+func MIGSeedLayout(path string, index int, records []engine.MIGGPUInstanceRecord) error {
+	if records == nil {
+		return nil
+	}
+	return mutateMIG(path, index, func(mig *engine.MIGConfig) error {
+		if mig.Instances != nil {
+			return nil
+		}
+		mig.Instances = &records
+		return nil
+	})
+}
+
 // MIGAddGpuInstance records a newly created GPU instance. The record's compute
 // instances are kept as the caller passed them, empty list included: that is
 // how `nvidia-smi mig -cgi` without -C differs from an unspecified layout.

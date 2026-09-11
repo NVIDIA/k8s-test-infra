@@ -20,6 +20,23 @@ import (
 	mockserver "github.com/NVIDIA/go-nvml/pkg/nvml/mock/server"
 )
 
+// MarkMIGDirty asks the next refresh to reconcile MIG state even though the
+// override document has not changed.
+//
+// It exists for the one way a board can drift from the document without the
+// document moving: a mutation this process applied to the board but could not
+// record. The file is authoritative, so the board has to be pulled back to it,
+// and neither of the two signals a refresh normally acts on — a new generation
+// or a config that differs from the one last applied — has anything to report.
+//
+// The reconcile is deferred to the next refresh rather than run here because
+// it destroys instances, and the caller is inside the NVML call that failed:
+// a consumer's handles should not be invalidated from under it while it is
+// still being told its own mutation was refused.
+func (d *ConfigurableDevice) MarkMIGDirty() {
+	d.migDirty.Store(true)
+}
+
 // reconcileMIG brings the board's partitioning to the effective MIG config
 // when that config changed, which is what makes a runtime repartition visible
 // to a consumer that is already running.
@@ -30,7 +47,10 @@ import (
 // no-ops), and readers on other goroutines observe the board mid-change.
 // Nothing here may assume it is the only refresh running.
 func (d *ConfigurableDevice) reconcileMIG(cfg *MIGConfig) {
-	if reflect.DeepEqual(d.appliedMIG, cfg) {
+	// Swapped, not read: a device marked dirty owes the document one pass even
+	// against the config it last applied, and clearing the mark here is what
+	// keeps that from repeating on every refresh afterwards.
+	if !d.migDirty.Swap(false) && reflect.DeepEqual(d.appliedMIG, cfg) {
 		return
 	}
 	if d.recordMIGIfExempt(cfg) {
