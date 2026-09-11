@@ -23,15 +23,16 @@ The daemon owns no simulation logic itself. Each surface is a **simulator**, and
 the daemon's job is to run them in the right order and supervise the ones that
 outlive a reconcile.
 
-| Simulator | Stages |
-|---|---|
+| Simulator | Stages                                                                                                                                                   |
+|---|----------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `gpudriver` | Character devices, the mock NVML library, `nvidia-smi`, procfs entries, the engine config, and the `/run/nvidia/driver` symlink the GPU Operator expects |
-| `pcibus` | A fake `/sys/bus/pci/devices` tree, the `libpcisysfs.so` shim, and the NFD feature file that lets Node Feature Discovery label the node |
-| `cdi` | Two CDI specs that containerd uses to inject mock GPUs into workload containers |
-| `imex` | IMEX channel character devices, a `/proc/devices` overlay, and the capability file the DRA compute-domain plugin reads |
-| `nvlink` | The ComputeDomain topology document, which gives the node its NVLink fabric identity |
-| `fabricmanager` | A stand-in for `nv-fabricmanager`, which on a real NVSwitch platform must register GPUs before they are usable |
-| `ib` | A fake `/sys/class/infiniband` tree, the IB shims and CLI tools, and the `mock-ib` daemon serving UMAD and verbs |
+| `pcibus` | A fake `/sys/bus/pci/devices` tree, the `libpcisysfs.so` shim, and the NFD feature file that lets Node Feature Discovery label the node                  |
+| `cdi` | Two CDI specs that containerd uses to inject mock GPUs into workload containers                                                                          |
+| `imex` | IMEX channel character devices, a `/proc/devices` overlay, and the capability file the DRA compute-domain plugin reads                                   |
+| `nvlink` | The ComputeDomain topology document, which gives the node its NVLink fabric identity                                                                     |
+| `fabricmanager` | A stand-in for `nv-fabricmanager`, which on a real NVSwitch platform must register GPUs before they are usable                                           |
+| `ib` | A fake `/sys/class/infiniband` tree, the IB shims and CLI tools, and the `mock-ib` daemon serving UMAD and verbs                                         |
+| `kernellog` | Announces injected Xids on the node's kernel log, the way a driver's printk does                                                                         |
 
 ## The reconcile lifecycle
 
@@ -40,9 +41,9 @@ it implements decides when the daemon calls it.
 
 | Interface | Implemented by | Purpose |
 |---|---|---|
-| `Simulator` | all seven | `Stage` writes artifacts that are not yet externally visible. Idempotent, re-runs on every state change |
+| `Simulator` | all eight | `Stage` writes artifacts that are not yet externally visible. Idempotent, re-runs on every state change |
 | `Applier` | `gpudriver`, `pcibus`, `cdi` | `Apply` publishes artifacts that something *outside* the node acts on — containerd, NFD, the GPU Operator validator |
-| `Daemon` | `fabricmanager`, `ib` | `Run` supervises a long-lived process; `Reload` delivers later state to it without a restart |
+| `Daemon` | `fabricmanager`, `ib`, `kernellog` | `Run` supervises a long-lived process; `Reload` delivers later state to it without a restart |
 
 One reconcile pass runs three waves:
 
