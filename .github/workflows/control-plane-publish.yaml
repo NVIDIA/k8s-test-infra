@@ -1,0 +1,136 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+name: control-plane Publish
+
+permissions: {}
+
+# No paths filter here: GitHub applies paths filters to tag pushes too, and
+# a tag push has no changed-files diff, so a paths filter silently suppresses
+# every tag-triggered run (the v0.2.0 tag published no image until it was
+# retagged by hand). workflow_dispatch allows re-running a publish at any ref
+# without re-pushing tags.
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: nvidia/mokka-control-plane
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write  # needed for keyless cosign signing
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The published image's dependencies must come from Artifactory. The
+      # builder stage cannot reach this credential on its own, so it is minted
+      # here and handed to BuildKit as a secret below.
+      - name: Load Go version
+        id: golang
+        run: echo "version=$(./hack/golang-version.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ steps.golang.outputs.version }}
+          cache: false
+
+      - name: Configure the DGXC Go proxy
+        uses: ./.github/actions/setup-dgxc-goproxy
+        with:
+          mode: enforced
+
+      - name: Assert the proxy is actually in front
+        run: ./hack/check-goproxy.sh enforced
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            # On push to main: tag as "latest"
+            type=raw,value=latest,enable={{is_default_branch}}
+            # On tag push: use the tag (e.g., v0.1.0)
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            # Always: short SHA for traceability
+            type=sha,prefix=sha-,format=short
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: deployments/control-plane/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          # Both are required. With only the secret the builder still points at
+          # the public proxy; with only the build arg it points at Artifactory
+          # with no credential and fails closed.
+          build-args: |
+            GOPROXY=https://edge.urm.nvidia.com/artifactory/api/go/dgxc-go-virtual
+          secret-files: |
+            goauth=${{ runner.temp }}/dgxc-goauth
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Named scope, as in nvml-mock-e2e-go.yaml. The GHA cache is keyed by
+          # scope name across the whole repository, not per workflow, so an
+          # unnamed scope here would share the default "buildkit" bucket with
+          # nvml-mock Publish and each image would keep evicting the other's
+          # layers.
+          cache-from: type=gha,scope=control-plane
+          cache-to: type=gha,mode=max,scope=control-plane
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign container image
+        run: |
+          cosign sign --yes \
+            "$(echo "${{ steps.meta.outputs.tags }}" | head -1)"
+        env:
+          COSIGN_EXPERIMENTAL: "true"
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+          upload-artifact: false
+          dependency-snapshot: false
+
+      - name: Attach SBOM to image
+        run: |
+          cosign attest --yes --predicate sbom.spdx.json \
+            --type spdxjson \
+            "$(echo "${{ steps.meta.outputs.tags }}" | head -1)"
+
+      - name: Remove the proxy credential
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
