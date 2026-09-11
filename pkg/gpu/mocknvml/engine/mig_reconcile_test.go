@@ -970,3 +970,24 @@ func TestMarkMIGDirty_IsClearedByTheResync(t *testing.T) {
 	require.Equal(t, a100PlacementCapacity, migPartitionCount(t, dev))
 	require.False(t, dev.migDirty.Load(), "the reconcile must consume the mark")
 }
+
+// A patch the device cannot merge is not a drift the mark can repair, but the
+// mark still has to be spent there. The generation store that keeps an
+// unusable document off the hot path is defeated by a mark that outlives it,
+// and the merge — and its warning — would then run on every NVML call for the
+// life of the process.
+func TestMarkMIGDirty_IsSpentWhenTheDocumentCannotBeMerged(t *testing.T) {
+	dev, path, clock := newTestDevice(t, a100PartitionedConfig())
+	require.Equal(t, a100PlacementCapacity, migPartitionCount(t, dev))
+
+	gi, ret := dev.GetGpuInstanceById(3)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, nvml.SUCCESS, gi.Destroy())
+
+	writeConfigOverride(t, path, "devices:\n  \"0\":\n    not_a_field: true\n", clock)
+	dev.MarkMIGDirty()
+
+	require.Equal(t, a100PlacementCapacity, migPartitionCount(t, dev),
+		"the last config that merged is still authoritative over the board")
+	require.False(t, dev.migDirty.Load(), "the mark must not outlive the pass it asked for")
+}

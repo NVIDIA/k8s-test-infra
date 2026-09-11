@@ -291,6 +291,15 @@ func (d *ConfigurableDevice) refresh() {
 	merged, err := MergeDeviceConfig(base, patch)
 	if err != nil {
 		warnLog("[CONFIG-OVERRIDE] device %d: %v (keeping previous config)\n", d.index, err)
+		// A dirty device is still owed its reconcile, and the mark has to be
+		// consumed on this path or it would defeat the generation store below
+		// and re-merge the same unusable patch on every call. The config kept
+		// is the last one that merged, so that is what the board is pulled
+		// back to — the drift the mark reports is against the document, and
+		// this is the most of the document still readable.
+		if d.migDirty.Load() {
+			d.reconcileMIG(d.effective.Load().MIG)
+		}
 		atomic.StoreUint64(&d.appliedGen, gen) // avoid hot re-merge on a bad doc
 		return
 	}
