@@ -15,6 +15,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -207,6 +208,51 @@ func TestMIGMutations_RefusedWhenThereIsNowhereToRecord(t *testing.T) {
 	mode, _, ret := dev.GetMigMode()
 	require.Equal(t, nvml.SUCCESS, ret)
 	require.Equal(t, nvml.DEVICE_MIG_DISABLE, mode, "a refused mutation must not have been applied")
+}
+
+// migPartitionCount counts the board's live MIG devices through a getter that
+// refreshes, which is what makes a resync the document never asked for
+// observable from outside the engine.
+func migPartitionCount(t *testing.T, dev *engine.ConfigurableDevice) int {
+	t.Helper()
+	maxCount, ret := dev.GetMaxMigDeviceCount()
+	require.Equal(t, nvml.SUCCESS, ret)
+	count := 0
+	for i := range maxCount {
+		if _, ret := dev.GetMigDeviceHandleByIndex(i); ret == nvml.SUCCESS {
+			count++
+		}
+	}
+	return count
+}
+
+// Answering the caller is only half of what a failed record owes. The other
+// half is the mark: the board has moved and the document has not, so neither
+// the generation nor the last-applied config has anything to report, and
+// without it nothing would ever reopen the reconciler — the board would stay
+// ahead of the authoritative file for the life of the process.
+func TestMIGPersistFailed_AnswersTheCallerAndResyncsTheBoard(t *testing.T) {
+	overrides := filepath.Join(t.TempDir(), "overrides.yaml")
+	device := bootMIGEngine(t, migDeclaredConfig, overrides)
+	e := engine.GetEngine()
+	dev := e.LookupConfigurableDevice(device)
+	require.NotNil(t, dev)
+	require.Equal(t, 3, migPartitionCount(t, dev), "the profile declares three instances")
+
+	// Straight through the engine rather than through migDestroyGpuInstance,
+	// so the board moves without the document hearing about it: that is the
+	// state a record that failed after the engine ran leaves behind.
+	handles, ret := e.DeviceGetGpuInstances(device, nvml.GPU_INSTANCE_PROFILE_1_SLICE)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Len(t, handles, 3)
+	require.Equal(t, nvml.SUCCESS, e.GpuInstanceDestroy(handles[1]))
+	require.Equal(t, 2, migPartitionCount(t, dev), "the board has drifted and nothing has noticed")
+
+	require.Equal(t, nvml.ERROR_UNKNOWN,
+		migPersistFailed(dev, "GPU instance destroy", errors.New("the document rejected it")))
+
+	require.Equal(t, 3, migPartitionCount(t, dev),
+		"the document is authoritative and still declares three partitions")
 }
 
 func intPtr(v int) *int { return &v }
