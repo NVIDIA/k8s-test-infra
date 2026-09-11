@@ -35,6 +35,24 @@ func migDoc(t *testing.T, path string) *engine.MIGConfig {
 	return cfg.MIG
 }
 
+// recordedInstanceCount is migDoc's count without the assertions, for the
+// writer goroutines: a require failing off the test's own goroutine is reported
+// from the wrong place.
+func recordedInstanceCount(path string) (int, error) {
+	doc, err := Load(path)
+	if err != nil {
+		return 0, err
+	}
+	cfg, err := engine.MergeDeviceConfig(&engine.DeviceConfig{}, doc.Devices["0"])
+	if err != nil {
+		return 0, err
+	}
+	if cfg.MIG == nil || cfg.MIG.Instances == nil {
+		return 0, nil
+	}
+	return len(*cfg.MIG.Instances), nil
+}
+
 func TestMIGSetMode_WritesBothModeFields(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "overrides.yaml")
@@ -198,6 +216,81 @@ func TestMIGAddGpuInstance_ConcurrentWritersBothLand(t *testing.T) {
 
 	mig := migDoc(t, path)
 	require.Len(t, *mig.Instances, 8, "every concurrent write must survive")
+}
+
+// The id is not the writer's to invent: an engine draws it from the layout the
+// document describes, so choosing one and recording it are a single decision.
+// Split across two holds of the lock — read the layout, choose, then lock to
+// record — is what two nvidia-smi processes did: both read the same layout,
+// both chose the same id, and the second one's perfectly valid creation came
+// back refused. A transaction spans both, so each writer sees the one before it
+// before it chooses.
+func TestMIGTx_SpansTheChoiceOfAnIDAndItsRecord(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "overrides.yaml")
+	require.NoError(t, MIGSetMode(path, 0, true))
+	require.NoError(t, MIGSeedLayout(path, 0, []engine.MIGGPUInstanceRecord{}))
+
+	start := make(chan struct{})
+	var ready, wg sync.WaitGroup
+	errs := make([]error, 8)
+	for i := range errs {
+		ready.Add(1)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ready.Done()
+			<-start
+			errs[i] = func() error {
+				tx, err := BeginMIG(path, 0)
+				if err != nil {
+					return err
+				}
+				defer tx.Close()
+
+				// Stands in for the engine's instance counter, which is
+				// seeded from this same document.
+				next, err := recordedInstanceCount(path)
+				if err != nil {
+					return err
+				}
+				if err := tx.AddGpuInstance(engine.MIGGPUInstanceRecord{
+					ID: uint32(next), Profile: "1g.5gb",
+				}); err != nil {
+					return err
+				}
+				return tx.Commit()
+			}()
+		}()
+	}
+	ready.Wait()
+	close(start)
+	wg.Wait()
+	for _, err := range errs {
+		require.NoError(t, err, "every writer chose a free id, so every write must land")
+	}
+
+	mig := migDoc(t, path)
+	require.Len(t, *mig.Instances, 8)
+}
+
+// A transaction writes once, at Commit, so a sequence that fails partway leaves
+// the document as it was. The seed is the case that matters: recorded on its own
+// it would claim the board carries an explicit layout, and the delta that was
+// supposed to edit it never arrived.
+func TestMIGTx_WritesNothingWhenTheSequenceFails(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "overrides.yaml")
+	require.NoError(t, MIGSetMode(path, 0, true))
+
+	tx, err := BeginMIG(path, 0)
+	require.NoError(t, err)
+	require.NoError(t, tx.SeedLayout([]engine.MIGGPUInstanceRecord{{ID: 0, Profile: "1g.5gb"}}))
+	require.Error(t, tx.AddGpuInstance(engine.MIGGPUInstanceRecord{ID: 0, Profile: "1g.5gb"}),
+		"id 0 is in the layout just seeded")
+	tx.Close()
+
+	require.Nil(t, migDoc(t, path).Instances, "an abandoned transaction records no layout")
 }
 
 // NVML allocates the IDs, so a duplicate is a replayed or mis-sequenced
