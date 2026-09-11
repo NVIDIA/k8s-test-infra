@@ -22,6 +22,25 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
 
+type charDev struct {
+	name         string
+	major, minor uint32
+}
+
+func charDevsForDevices(devices []agent.DeviceSpec) []charDev {
+	devs := make([]charDev, 0, len(devices)+3)
+	for _, d := range devices {
+		devs = append(devs, charDev{fmt.Sprintf("nvidia%d", d.MinorNumber), 195, uint32(d.MinorNumber)})
+	}
+	devs = append(devs,
+		charDev{"nvidiactl", 195, 255},
+		charDev{"nvidia-uvm", 510, 0},
+		charDev{"nvidia-uvm-tools", 510, 1},
+	)
+
+	return devs
+}
+
 // stageCharDevs creates the GPU character devices that ioctl-based callers
 // (CUDA, nvidia-smi) open to reach the driver. Without them open() fails.
 // Major 195 = nvidia (per-GPU + nvidiactl); major 510 = nvidia-uvm.
@@ -31,19 +50,7 @@ func stageCharDevs(ctx context.Context, h *host.Host, state *agent.State) error 
 		return err
 	}
 
-	type charDev struct {
-		name         string
-		major, minor uint32
-	}
-	devs := make([]charDev, 0, len(state.Devices)+3)
-	for _, d := range state.Devices {
-		devs = append(devs, charDev{fmt.Sprintf("nvidia%d", d.MinorNumber), 195, uint32(d.MinorNumber)})
-	}
-	devs = append(devs,
-		charDev{"nvidiactl", 195, 255},
-		charDev{"nvidia-uvm", 510, 0},
-		charDev{"nvidia-uvm-tools", 510, 1},
-	)
+	devs := charDevsForDevices(state.Devices)
 
 	wanted := make(map[string]bool, len(devs))
 	for _, d := range devs {

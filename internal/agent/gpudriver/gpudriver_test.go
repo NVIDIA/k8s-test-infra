@@ -190,6 +190,22 @@ func TestStageNVMLShim_CopiesLibAndCreatesLinks(t *testing.T) {
 	}
 }
 
+func TestCharDevsForDevices_UsesConfiguredMinorNumbers(t *testing.T) {
+	t.Parallel()
+
+	devices := []agent.DeviceSpec{
+		{Index: 0, MinorNumber: 3},
+		{Index: 1, MinorNumber: 0},
+	}
+	require.Equal(t, []charDev{
+		{"nvidia3", 195, 3},
+		{"nvidia0", 195, 0},
+		{"nvidiactl", 195, 255},
+		{"nvidia-uvm", 510, 0},
+		{"nvidia-uvm-tools", 510, 1},
+	}, charDevsForDevices(devices))
+}
+
 func TestStageCharDevs_CreatesDeviceNodes(t *testing.T) {
 	skipUnlessRootLinux(t)
 
