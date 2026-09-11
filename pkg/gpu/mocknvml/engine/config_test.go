@@ -20,6 +20,8 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/NVIDIA/go-nvml/pkg/nvml/mock/dgxa100"
+	mockserver "github.com/NVIDIA/go-nvml/pkg/nvml/mock/server"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 )
@@ -354,4 +356,23 @@ devices:
 			require.ErrorContains(t, validateYAMLConfig(&yc), "device minor number out of range")
 		})
 	}
+}
+
+// The address the node agent announces in a kernel log has to be the one the
+// running device serves, so the fallback here must track the base mock the
+// engine builds devices from rather than a formula that happens to match today.
+func TestBaseDevicePCIBusID_TracksTheBaseMock(t *testing.T) {
+	t.Parallel()
+
+	base := dgxa100.New()
+
+	for i := range base.Devices {
+		dev, ok := base.Devices[i].(*mockserver.Device)
+		require.Truef(t, ok, "base device %d is not a mockserver.Device", i)
+		require.Equalf(t, dev.PciBusID, BaseDevicePCIBusID(i),
+			"device %d must report the address the base mock carries", i)
+	}
+
+	require.Empty(t, BaseDevicePCIBusID(MaxDevices), "no device exists past the base mock")
+	require.Empty(t, BaseDevicePCIBusID(-1))
 }

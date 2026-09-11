@@ -176,7 +176,79 @@ Sets the `failure` block for the target. Modes:
   (omit for "trip on first guarded call").
 - `--xid CODE` — surface this Xid code through the NVML event set once the
   device trips (delivered for any tripped failure mode with a Xid configured,
-  e.g. `--mode ecc_uncorrectable --xid 79`).
+  e.g. `--mode ecc_uncorrectable --xid 79`), **and** have the node agent
+  announce it on the node's kernel log — see below.
+
+#### Xid on the kernel log
+
+A real driver raises an Xid with a kernel printk, and the agents that watch for
+Xids read that line rather than NVML: some scan `/dev/kmsg` directly, while
+NVSentinel's syslog monitor reads the journal, admitting only kernel-transport
+entries. So an injection that carries an `--xid` also reaches the kernel log,
+once per targeted GPU:
+
+```text
+kernel: NVRM: Xid (PCI:0000:1a:00): 79
+```
+
+The node agent writes it, not this CLI. The agent watches the same override
+document `fail` writes and announces each Xid that appears on it, so the kernel
+log follows the simulated GPU state itself rather than one way of changing it —
+an injection from the allocation watcher, a hand-edited override or a future
+control plane raises the line just the same. It also means the announcement is
+the node's to make: the agent names each device by the address it serves through
+NVML, and only the devices this node actually runs (`gpu.count`), which the CLI
+could only infer from the profile.
+
+That address — the profile's `pci.bus_id`, or the mock's own for a profile that
+sets none — is spelled the way the driver spells it, lower case and without the
+function, so the kernel line, the NVML event and the simulated `/sys/bus/pci`
+tree all name the same device. Recovery announces nothing: `--mode healthy`
+clears the injection, but kernel logs never retract an Xid. Re-injecting after a
+recovery announces again, even with the same code, because it is a new fault.
+
+The line appears within about a second of the injection, alongside the NVML
+event: both sides poll the override document. With `--after-calls N` the kernel
+line leads the NVML failure, because a deferred failure trips inside whichever
+consumer makes the Nth guarded call — a counter that lives in that process and
+never reaches disk, so nothing outside it can wait for the trip. Omit
+`--after-calls` when a consumer must not see the Xid before NVML reports the
+device failed.
+
+Announcing is best-effort and never fails the injection: a node whose kernel log
+is missing or unwritable keeps the NVML side, and the agent logs the skip.
+
+Two node-level requirements, neither of which the mock can arrange for itself:
+
+- the agent must be able to write `/dev/kmsg`, which takes
+  `nodeAgent.kernelLog.enabled=true`. It is off by default because it mounts the
+  device and runs `node-agent` **privileged**: mounting alone is not enough, as
+  the container device cgroup rejects the write (`operation not permitted`) even
+  for root with the node's world-writable `/dev/kmsg` bind-mounted, and no
+  lesser capability lifts that. A cluster that will not take a privileged pod,
+  or a node with no `/dev/kmsg`, has to leave it off; the DaemonSet then sets
+  `MOCK_NVML_KMSG=""` and the agent stays quiet instead of warning about a
+  device it was not given. `local/nvml-mock.values.yaml` and the nv-sentinel
+  demo enable it, so an Xid injected there lands on the kernel log. Where
+  PodSecurity is enforced, the namespace has to admit the pod:
+  `kubectl label namespace mokka pod-security.kubernetes.io/enforce=privileged`
+  — under `baseline` or `restricted` the DaemonSet is rejected outright rather
+  than degraded;
+- for journal-based consumers, journald must ingest the kernel ring buffer
+  (`ReadKMsg=yes`) and keep the journal where the consumer looks. Kind's node
+  image sets `ReadKMsg=no` and keeps a volatile journal, so a Kind cluster needs
+  a `journald` drop-in with `Storage=persistent` and `ReadKMsg=yes`. Applied
+  after boot it takes two restarts — `systemd-journald` cannot reload, and it
+  does not create `/var/log/journal` itself; `systemd-journal-flush` is what
+  creates the directory and moves the journal there.
+
+On a Kind cluster the kernel line is not node-local. The kernel ring buffer is
+not namespaced, so every node container on a host shares the machine's: an Xid
+written on one node is in `dmesg` on all of them, and on the host. Ingest it on
+one node only (the NVSentinel demo's `run.sh` configures a single worker), or
+every node's monitor reports the same fault and a remediator quarantines nodes
+whose GPUs are fine. Real nodes each have their own kernel, so this is an
+artifact of sharing a host, not something a consumer needs to handle.
 
 `fail --mode healthy` is how you *recover* a single device (it deletes the
 `failure` block from that bucket). See the failure-injection section of the
@@ -455,6 +527,8 @@ All examples assume `$POD` is set as shown in [Where it runs](#where-it-runs).
 kubectl -n mokka exec "$POD" -- nvml-mock-ctl fail --gpu 0 --mode ecc_uncorrectable --after-calls 1 --xid 79
 # verify from any consumer pod:
 kubectl exec <consumer> -- nvidia-smi --query-gpu=ecc.errors.uncorrected.aggregate.total --format=csv,noheader
+# the same Xid on the node's kernel log (on Kind, read it on the node itself):
+docker exec <node> sh -c 'dmesg | grep "NVRM: Xid"'
 ```
 
 ```bash
@@ -548,6 +622,14 @@ kubectl -n mokka delete pod "$POD"
   (no `uuid:` in the profile). Target it by index instead.
 - **Nothing changed on other nodes.** Scope is per-node. Repeat the command
   against each node's DaemonSet pod.
+- **The Xid isn't in the kernel log.** Silence usually means the announcement
+  was never turned on: it needs `nodeAgent.kernelLog.enabled=true`, and without
+  it the DaemonSet sets `MOCK_NVML_KMSG=""`. Otherwise the node agent's log says
+  why — it writes the line, so that is where the failure is reported: `kubectl
+  -n mokka logs "$POD" -c node-agent | grep kernellog`. A failed write means the
+  container cannot reach `/dev/kmsg`. If `dmesg` shows the line but a journal
+  consumer does not see it, the node's journald is dropping kernel messages — see
+  [Xid on the kernel log](#xid-on-the-kernel-log).
 - **An identity field didn't change.** Device `name`, `architecture`, `brand`,
   `compute_capability`, `uuid`, and PCI `bus_id` are baked at construction and
   are not hot-reloadable in v1. Change the profile/Helm values and restart the

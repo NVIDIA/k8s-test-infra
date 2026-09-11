@@ -5,10 +5,11 @@ process the nvml-mock DaemonSet runs: a single `start` command that watches the
 profile, fans every change out to the simulators, and serves the two probes the
 kubelet reads.
 
-Seven simulators run under it, each owning one slice of the mock driver tree:
-`gpudriver`, `pcibus`, `cdi`, `imex`, `nvlink`, `fabricmanager` and `ib`. They
-all write below `--host-root`, so the tree a workload later sees is entirely a
-function of that flag plus the profile.
+Eight simulators run under it, each owning one slice of the mock driver tree:
+`gpudriver`, `pcibus`, `cdi`, `imex`, `nvlink`, `fabricmanager`, `ib` and
+`kernellog`. All but the last write below `--host-root`, so the tree a workload
+later sees is entirely a function of that flag plus the profile; `kernellog`
+writes no tree at all, announcing injected Xids on the node's kernel log.
 
 ## Reconcile contract
 
@@ -19,12 +20,12 @@ startup and then only when the bytes of either document change.
 
 Each state change runs one reconcile:
 
-1. `Stage` on all seven simulators concurrently. A failing simulator does not
+1. `Stage` on all eight simulators concurrently. A failing simulator does not
    cancel its siblings; every error is collected and the rest of the reconcile
    is skipped, because the later steps read what `Stage` wrote.
-2. The daemons (`fabricmanager` and `ib`) start on that barrier, once per
-   process lifetime. Later states reach an already running daemon through
-   `Reload`, so a profile edit does not need a pod restart.
+2. The daemons (`fabricmanager`, `ib` and `kernellog`) start on that barrier,
+   once per process lifetime. Later states reach an already running daemon
+   through `Reload`, so a profile edit does not need a pod restart.
 3. `Apply` on the three simulators that publish artifacts off-node
    (`gpudriver`, `pcibus`, `cdi`). This wave fails fast: the CDI spec refers to
    device nodes `gpudriver` must have staged first.
@@ -45,6 +46,20 @@ are cleared, at both locations the mock NVML engine resolves:
 `<host-root>/var/lib/nvml-mock/config/overrides.yaml` and
 `<host-root>/var/lib/nvml-mock/driver/config/overrides.yaml`. A pod restart is
 therefore the documented way back to the pristine profile.
+
+Afterwards the second of those two documents is polled every second, by
+`kernellog` alone: an Xid that appears on it is announced on `--kernel-log`, the
+way a driver's printk announces a fault. Every other simulator takes its input
+from the profile, and none of them reads the overrides — they are the runtime
+surface, hot-reloaded by the engine inside each NVML consumer.
+
+Each fault is announced once, not for as long as it stands. Clearing a fault
+prints nothing, as it does for a real driver, and re-injecting it prints again —
+unless the clear and the re-injection both land between two reads, in which case
+the document that comes back is the one already announced and the repeat is
+silent. The kernel log then holds one line where a driver would have printed
+two; the fault it reports, and the absence of any retraction, are the same
+either way.
 
 ## Probes
 
@@ -73,6 +88,7 @@ variable; the flag wins when both are set.
 | `--ib-fabric` | `MOCK_IB_PING_FABRIC` | `false` | enable the cross-pod fabric relay; required for multi-node `ibping` and `iblinkinfo` |
 | `--ib-fabric-port` | `MOCK_IB_PING_PORT` | `18515` | TCP port for the cross-pod mock-ib fabric relay |
 | `--fabricmanager-init-delay` | `MOCK_FABRICMANAGER_INIT_DELAY` | `0` | withhold fabric readiness for this long, simulating NVSwitch registration latency |
+| `--kernel-log` | `MOCK_NVML_KMSG` | `/dev/kmsg` | kernel log to announce injected Xids on, as a driver's printk does. Empty announces nowhere, which is how the chart states that the container was not given a writable one — it sets this empty unless `nodeAgent.kernelLog.enabled` asks for the device and the privilege writing it takes. Not rooted at `--host-root`: the deployment grants the device at its own path |
 
 An unrecognized `--log-level`, `--log-format` or `--ib-mode` is a startup error
 rather than a silent fallback, so a typo in a Helm value fails the pod instead

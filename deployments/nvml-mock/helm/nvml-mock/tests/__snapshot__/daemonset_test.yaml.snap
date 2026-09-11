@@ -63,6 +63,8 @@ should match snapshot with all overrides:
                   value: /etc/nvml-mock/config.yaml
                 - name: MOCK_NVML_OVERRIDES
                   value: /var/lib/nvml-mock/driver/config/overrides.yaml
+                - name: MOCK_NVML_KMSG
+                  value: ""
                 - name: MOCK_IB_PING_SOCKET
                   value: /var/lib/nvml-mock/run/mock-ib.sock
                 - name: LD_PRELOAD
@@ -222,6 +224,8 @@ should match snapshot with b200 profile:
                   value: /etc/nvml-mock/config.yaml
                 - name: MOCK_NVML_OVERRIDES
                   value: /var/lib/nvml-mock/driver/config/overrides.yaml
+                - name: MOCK_NVML_KMSG
+                  value: ""
                 - name: MOCK_IB_PING_SOCKET
                   value: /var/lib/nvml-mock/run/mock-ib.sock
                 - name: LD_PRELOAD
@@ -373,6 +377,8 @@ should match snapshot with default values:
                   value: /etc/nvml-mock/config.yaml
                 - name: MOCK_NVML_OVERRIDES
                   value: /var/lib/nvml-mock/driver/config/overrides.yaml
+                - name: MOCK_NVML_KMSG
+                  value: ""
                 - name: MOCK_IB_PING_SOCKET
                   value: /var/lib/nvml-mock/run/mock-ib.sock
                 - name: LD_PRELOAD

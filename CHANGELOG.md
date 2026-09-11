@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- nvml-mock: the node agent announces an injected Xid on the node's kernel log,
+  the way a driver's printk does, so agents that watch kernel messages see the
+  fault instead of only NVML clients. It watches the runtime override document,
+  so an Xid raised through `nvml-mock-ctl fail --xid` or any other writer is
+  announced alike, naming each device by the address it serves through NVML.
+  Opt in with `nodeAgent.kernelLog.enabled=true`: it makes the node agent
+  PRIVILEGED and mounts `/dev/kmsg`, because the device cgroup rejects the write
+  from an unprivileged pod even with the device mounted, so it is off unless
+  asked for and no `helm upgrade` widens an install's privileges on its own. The
+  local Tilt values and the nv-sentinel demo turn it on. `MOCK_NVML_KMSG` picks
+  a different log or disables the announcement, which is always best-effort: a
+  node with no writable kernel log keeps the NVML injection.
+- nv-sentinel demo: `run.sh` now configures `journald` on each Kind node
+  (`Storage=persistent`, `ReadKMsg=yes`), giving the node a kernel-log "syslog"
+  NVSentinel's syslog monitor can read. Stock Kind nodes drop kernel messages
+  and keep a volatile journal, so the monitor sees nothing.
+
 ### Removed
 - nvml-mock: the DaemonSet no longer runs the `nvml-mock` container; the node
   agent is the only simulation container.

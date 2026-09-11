@@ -57,6 +57,8 @@ func failCommand() *cli.Command {
 				Name:  "after-calls",
 				Usage: "trip only after N guarded calls have succeeded",
 			},
+			// The node agent watches the override this writes and announces
+			// the Xid on the node's kernel log, as a driver's printk does.
 			&cli.Uint64Flag{
 				Name:  "xid",
 				Usage: "Xid code to surface alongside the failure",

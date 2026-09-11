@@ -26,6 +26,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/gpudriver"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/ib"
+	"github.com/NVIDIA/k8s-test-infra/internal/agent/kernellog"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/source"
 	"github.com/NVIDIA/k8s-test-infra/internal/health"
 	"github.com/NVIDIA/k8s-test-infra/internal/logging"
@@ -101,6 +102,14 @@ func startCommand() *cli.Command {
 				Usage:   "enable the cross-pod fabric relay; required for multi-node ibping and iblinkinfo",
 				Sources: cli.EnvVars("MOCK_IB_PING_FABRIC"),
 			},
+			// Not rooted at --host-root: the deployment grants the kernel log
+			// as a device mount at its own path, rather than through /host.
+			&cli.StringFlag{
+				Name:    "kernel-log",
+				Value:   kernellog.DefaultPath,
+				Usage:   "kernel log to announce injected Xids on, as a driver's printk does ('' announces nowhere)",
+				Sources: cli.EnvVars("MOCK_NVML_KMSG"),
+			},
 			&cli.DurationFlag{
 				Name:    "fabricmanager-init-delay",
 				Usage:   "withhold fabric readiness for this long, simulating NVSwitch registration latency",
@@ -171,6 +180,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 			cdi.New(),
 			imex.New(),
 			nvlink.New(),
+			kernellog.New(kernellog.Options{Path: cmd.String("kernel-log")}),
 			fabricmanager.New(fabricmanager.Options{
 				InitDelay: cmd.Duration("fabricmanager-init-delay"),
 			}),

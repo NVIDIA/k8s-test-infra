@@ -124,6 +124,29 @@ func (d *Doc) Fail(t Target, mode string, afterCalls int, xidCode uint64) error 
 	return nil
 }
 
+// FailureXid reports the Xid code device index would raise under the current
+// overrides, or zero for a device that raises none.
+//
+// The engine resolves it, rather than a rule restated here reading the raw
+// document, because the answer has to be what the running mock raises — and
+// that includes the mock refusing the document. The merge is a deep one, so a
+// per-device failure block does not replace the shared block: a device singled
+// out by a `fail` that carries no Xid keeps the one the shared bucket holds.
+// It is also typed, so a code that is not a uint64 takes the whole override
+// down and leaves the device as it was, raising nothing; read raw, a
+// hand-written `code: -5` announced 2^64-5 and `79.5` announced 79, neither of
+// which any NVML client would have seen.
+func (d *Doc) FailureXid(index int) uint64 {
+	overrides := &engine.ConfigOverrideDoc{All: d.All, Devices: d.Devices}
+
+	merged, err := engine.MergeDeviceConfig(&engine.DeviceConfig{}, overrides.DeviceConfigOverride(index))
+	if err != nil || merged.Failure == nil || merged.Failure.Xid == nil {
+		return 0
+	}
+
+	return merged.Failure.Xid.Code
+}
+
 // TemperaturePatch builds an config override patch that pins the reported GPU
 // temperature to celsius. It writes both the static thermal block and a
 // zero-variation dynamic block: profiles that enable dynamic metrics (the

@@ -83,6 +83,24 @@ nodeAgent:
   logging:
     level: info    # debug | info | warn | error
     format: json   # json | plain
+  # Let the agent announce an injected Xid on the node's kernel log, the way a
+  # real driver's printk does, so agents that read kernel logs (and journald
+  # consumers such as NVSentinel's syslog monitor) see it instead of only NVML
+  # clients. It watches the runtime override document, so an Xid raised through
+  # `nvml-mock-ctl fail --xid` or any other writer is announced alike.
+  #
+  # Off by default because turning it on makes the node-agent container
+  # PRIVILEGED: /dev/kmsg sits behind the device cgroup, which rejects the write
+  # from an unprivileged pod even with the device mounted, so there is no lesser
+  # grant that works. A default of true would widen an existing install's
+  # privileges on `helm upgrade` alone, which no value here should do.
+  #
+  # Turn it on to evaluate an agent that reads kernel logs; a cluster whose
+  # PodSecurity admits no privileged pod, or a node with no /dev/kmsg, cannot
+  # (the CharDevice hostPath fails the pod rather than inventing one). Left off,
+  # the announcement is skipped and the NVML injection is unaffected.
+  kernelLog:
+    enabled: false
   # Go duration string: 5s, 1m30s, etc. Teardown is a handful of parallel file
   # removals, and it has to finish inside terminationGracePeriodSeconds.
   shutdownTimeout: 5s
