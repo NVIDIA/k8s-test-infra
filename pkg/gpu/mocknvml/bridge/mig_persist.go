@@ -49,17 +49,20 @@ func migSetMode(deviceHandle unsafe.Pointer, mode int) (nvml.Return, nvml.Return
 		return nvml.ERROR_INVALID_ARGUMENT, nvml.ERROR_INVALID_ARGUMENT
 	}
 	const what = "MIG mode change"
-	path, index := migPersistTarget(dev)
-	if !migWritable(path) {
-		debugLog("[MIG] device %d: cannot record a %s at %q\n", index, what, path)
-		return nvml.ERROR_NO_PERMISSION, nvml.ERROR_NO_PERMISSION
+	tx, ret := migBeginMode(dev, what)
+	if ret != nvml.SUCCESS {
+		return ret, ret
 	}
+	defer tx.Close()
 
 	ret, activation := dev.SetMigMode(mode)
 	if ret != nvml.SUCCESS {
 		return ret, activation
 	}
-	if err := mockctl.MIGSetMode(path, index, mode == nvml.DEVICE_MIG_ENABLE); err != nil {
+	if err := tx.SetMode(mode == nvml.DEVICE_MIG_ENABLE); err != nil {
+		return migPersistFailed(dev, what, err), activation
+	}
+	if err := tx.Commit(); err != nil {
 		return migPersistFailed(dev, what, err), activation
 	}
 	return nvml.SUCCESS, activation
@@ -75,10 +78,11 @@ func migCreateGpuInstance(
 	if dev == nil {
 		return nil, nvml.ERROR_INVALID_ARGUMENT
 	}
-	path, index, ret := migPersistBaseline(dev, what)
+	tx, ret := migBeginDelta(dev, what)
 	if ret != nvml.SUCCESS {
 		return nil, ret
 	}
+	defer tx.Close()
 
 	handle, ret := engine.GetEngine().DeviceCreateGpuInstance(deviceHandle, profileID, placement)
 	if ret != nvml.SUCCESS {
@@ -103,7 +107,10 @@ func migCreateGpuInstance(
 		// compute instance nobody created.
 		ComputeInstances: &[]engine.MIGComputeInstanceRecord{},
 	}
-	if err := mockctl.MIGAddGpuInstance(path, index, rec); err != nil {
+	if err := tx.AddGpuInstance(rec); err != nil {
+		return handle, migPersistFailed(dev, what, err)
+	}
+	if err := tx.Commit(); err != nil {
 		return handle, migPersistFailed(dev, what, err)
 	}
 	return handle, nvml.SUCCESS
@@ -118,15 +125,19 @@ func migDestroyGpuInstance(handle unsafe.Pointer) nvml.Return {
 	if ret != nvml.SUCCESS {
 		return ret
 	}
-	path, index, ret := migPersistBaseline(dev, what)
+	tx, ret := migBeginDelta(dev, what)
 	if ret != nvml.SUCCESS {
 		return ret
 	}
+	defer tx.Close()
 
 	if ret := engine.GetEngine().GpuInstanceDestroy(handle); ret != nvml.SUCCESS {
 		return ret
 	}
-	if err := mockctl.MIGRemoveGpuInstance(path, index, info.Id); err != nil {
+	if err := tx.RemoveGpuInstance(info.Id); err != nil {
+		return migPersistFailed(dev, what, err)
+	}
+	if err := tx.Commit(); err != nil {
 		return migPersistFailed(dev, what, err)
 	}
 	return nvml.SUCCESS
@@ -143,10 +154,11 @@ func migCreateComputeInstance(
 	if ret != nvml.SUCCESS {
 		return nil, ret
 	}
-	path, index, ret := migPersistBaseline(dev, what)
+	tx, ret := migBeginDelta(dev, what)
 	if ret != nvml.SUCCESS {
 		return nil, ret
 	}
+	defer tx.Close()
 
 	handle, ret := engine.GetEngine().GpuInstanceCreateComputeInstance(giHandle, profileID, placement)
 	if ret != nvml.SUCCESS {
@@ -158,7 +170,10 @@ func migCreateComputeInstance(
 	}
 	profile := int(info.ProfileId)
 	rec := engine.MIGComputeInstanceRecord{ID: info.Id, ProfileID: &profile}
-	if err := mockctl.MIGAddComputeInstance(path, index, giInfo.Id, rec); err != nil {
+	if err := tx.AddComputeInstance(giInfo.Id, rec); err != nil {
+		return handle, migPersistFailed(dev, what, err)
+	}
+	if err := tx.Commit(); err != nil {
 		return handle, migPersistFailed(dev, what, err)
 	}
 	return handle, nvml.SUCCESS
@@ -172,15 +187,19 @@ func migDestroyComputeInstance(handle unsafe.Pointer) nvml.Return {
 	if ret != nvml.SUCCESS {
 		return ret
 	}
-	path, index, ret := migPersistBaseline(dev, what)
+	tx, ret := migBeginDelta(dev, what)
 	if ret != nvml.SUCCESS {
 		return ret
 	}
+	defer tx.Close()
 
 	if ret := engine.GetEngine().ComputeInstanceDestroy(handle); ret != nvml.SUCCESS {
 		return ret
 	}
-	if err := mockctl.MIGRemoveComputeInstance(path, index, giID, ciID); err != nil {
+	if err := tx.RemoveComputeInstance(giID, ciID); err != nil {
+		return migPersistFailed(dev, what, err)
+	}
+	if err := tx.Commit(); err != nil {
 		return migPersistFailed(dev, what, err)
 	}
 	return nvml.SUCCESS
@@ -225,30 +244,55 @@ func migWritable(path string) bool {
 	return true
 }
 
-// migPersistBaseline is the pre-flight every delta mutation runs before it
-// touches the engine: it resolves where the mutation is to be recorded and
-// makes sure the device has an explicit layout for the delta to edit. The
-// result is meaningful only when it is not SUCCESS.
+// migBeginDelta is the pre-flight every delta mutation runs before it touches
+// the engine: it opens the transaction the mutation will be recorded in and
+// records, inside it, the layout the delta is to be taken against.
 //
-// Both halves have to run before the engine mutates. The writability probe
-// because the engine assigns the instance id; the seed for a sharper reason
-// still — it records the layout as it stands, so run afterwards it would
-// record the mutation itself, and the delta would then collide with its own
-// baseline as a duplicate or an already-removed id.
-func migPersistBaseline(dev *engine.ConfigurableDevice, what string) (string, int, nvml.Return) {
-	path, index := migPersistTarget(dev)
-	if !migWritable(path) {
-		debugLog("[MIG] device %d: cannot record a %s at %q\n", index, what, path)
-		return "", 0, nvml.ERROR_NO_PERMISSION
+// All three of the probe, the seed and the engine's own change sit inside the
+// returned transaction's hold of the lock, and each is there for its own
+// reason. The probe because a mutation that cannot be recorded has to be
+// refused before the engine assigns it an id. The seed because it records the
+// layout as it stands, so run after the engine it would record the mutation
+// itself and the delta would collide with its own baseline. The engine's
+// change because the id it assigns is drawn from that same layout: outside the
+// hold, a second process seeds and assigns between the two writes, draws the
+// same id, and has a valid creation refused as a duplicate.
+//
+// The transaction is meaningful only when the return is SUCCESS; the caller
+// owns Close from then on.
+func migBeginDelta(dev *engine.ConfigurableDevice, what string) (*mockctl.MIGTx, nvml.Return) {
+	tx, ret := migBeginMode(dev, what)
+	if ret != nvml.SUCCESS {
+		return nil, ret
 	}
-	if err := mockctl.MIGSeedLayout(path, index, dev.MIGLayoutRecords()); err != nil {
+	if err := tx.SeedLayout(dev.MIGLayoutRecords()); err != nil {
+		tx.Close()
 		// Refused, not failed: the engine has not run yet, so the board still
 		// matches the document and there is no drift to pull back.
 		warnLog("[MIG] device %d: %s refused, the layout it would edit could not be recorded: %v\n",
-			index, what, err)
-		return "", 0, nvml.ERROR_UNKNOWN
+			dev.PhysicalIndex(), what, err)
+		return nil, nvml.ERROR_UNKNOWN
 	}
-	return path, index, nvml.SUCCESS
+	return tx, nvml.SUCCESS
+}
+
+// migBeginMode opens a transaction for a mutation that owns the whole layout
+// rather than editing it. A mode change is the only one: disabling MIG destroys
+// every instance, so there is nothing for it to take a difference against and
+// no baseline to seed.
+func migBeginMode(dev *engine.ConfigurableDevice, what string) (*mockctl.MIGTx, nvml.Return) {
+	path, index := migPersistTarget(dev)
+	if !migWritable(path) {
+		debugLog("[MIG] device %d: cannot record a %s at %q\n", index, what, path)
+		return nil, nvml.ERROR_NO_PERMISSION
+	}
+	tx, err := mockctl.BeginMIG(path, index)
+	if err != nil {
+		warnLog("[MIG] device %d: %s refused, the document it would edit could not be opened: %v\n",
+			index, what, err)
+		return nil, nvml.ERROR_UNKNOWN
+	}
+	return tx, nvml.SUCCESS
 }
 
 // migPersistFailed reports that a mutation the engine already applied could
