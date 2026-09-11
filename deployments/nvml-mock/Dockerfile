@@ -64,6 +64,7 @@ RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends curl ca-certificates gnupg2 \
         pciutils \
+        kmod \
         infiniband-diags rdma-core ibverbs-utils ibverbs-providers; \
     rm -rf /var/lib/apt/lists/*; \
     # libibverbs prints "couldn't open config directory '/etc/libibverbs.d'"

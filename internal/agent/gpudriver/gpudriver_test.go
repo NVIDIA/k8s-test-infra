@@ -16,6 +16,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
+	"github.com/NVIDIA/k8s-test-infra/internal/kmod"
 )
 
 // testState returns a minimal State for gpudriver tests with a real engine YAML.
@@ -389,4 +390,124 @@ func TestStageCharDevs_PrunesShrunkDeviceSet(t *testing.T) {
 	require.FileExists(t, filepath.Join(devRoot, "nvidia1"))
 	require.NoFileExists(t, filepath.Join(devRoot, "nvidia2"))
 	require.NoFileExists(t, filepath.Join(devRoot, "nvidia3"))
+}
+
+const hostProcModulesLine = "xfs 1556480 2 - Live 0x0000000000000000\n"
+
+func writeKernelModule(t *testing.T, h *host.Host, name string, attrs map[string]string) {
+	t.Helper()
+	dir := h.SysPath(kernelSysModuleDir, name)
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	for attr, val := range attrs {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, attr), []byte(val), 0o444))
+	}
+}
+
+func withProcModules(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "modules")
+	require.NoError(t, os.WriteFile(path, []byte(body), 0o644))
+	return path
+}
+
+func TestWriteKernelModules_WritesBothSurfaces(t *testing.T) {
+	h := testHost(t)
+	procModulesPath := withProcModules(t, hostProcModulesLine)
+	writeKernelModule(t, h, "xfs", map[string]string{"refcnt": "2\n", "coresize": "1556480\n"})
+
+	state := testState(t)
+	require.NoError(t, writeKernelModules(context.Background(), h, state, procModulesPath))
+
+	procModules, err := os.ReadFile(filepath.Join(h.Root, kmod.ProcModulesRelPath))
+	require.NoError(t, err)
+	require.Contains(t, string(procModules), "xfs 1556480 2")
+	require.Contains(t, string(procModules), "nvidia 62312448 1 nvidia_uvm,")
+
+	refcnt, err := os.ReadFile(filepath.Join(h.Root, kmod.SysModuleRelPath, kmod.NVIDIA, "refcnt"))
+	require.NoError(t, err)
+	require.Equal(t, "1\n", string(refcnt))
+
+	version, err := os.ReadFile(filepath.Join(h.Root, kmod.SysModuleRelPath, kmod.NVIDIA, "version"))
+	require.NoError(t, err)
+	require.Equal(t, state.Software.DriverVersion+"\n", string(version))
+
+	hostRefcnt, err := os.ReadFile(filepath.Join(h.Root, kmod.SysModuleRelPath, "xfs", "refcnt"))
+	require.NoError(t, err)
+	require.Equal(t, "2\n", string(hostRefcnt),
+		"a host module must keep its own refcnt so lsmod columns stay correct")
+}
+
+func TestWriteKernelModules_KeepsBuiltInModules(t *testing.T) {
+	h := testHost(t)
+	procModulesPath := withProcModules(t, hostProcModulesLine)
+	writeKernelModule(t, h, "block", nil)
+	require.NoError(t, os.MkdirAll(h.SysPath(kernelSysModuleDir, "block", "parameters"), 0o755))
+	require.NoError(t, os.WriteFile(
+		h.SysPath(kernelSysModuleDir, "block", "parameters", "events_dfl_poll_msecs"), []byte("0\n"), 0o444))
+
+	require.NoError(t, writeKernelModules(context.Background(), h, testState(t), procModulesPath))
+
+	param, err := os.ReadFile(filepath.Join(h.Root, kmod.SysModuleRelPath, "block", "parameters", "events_dfl_poll_msecs"))
+	require.NoError(t, err)
+	require.Equal(t, "0\n", string(param))
+
+	procModules, err := os.ReadFile(filepath.Join(h.Root, kmod.ProcModulesRelPath))
+	require.NoError(t, err)
+	require.NotContains(t, string(procModules), "block ",
+		"a built-in module has no /proc/modules line")
+}
+
+func TestWriteKernelModules_ToleratesAnAbsentSource(t *testing.T) {
+	h := testHost(t)
+	absent := filepath.Join(t.TempDir(), "absent")
+
+	require.NoError(t, writeKernelModules(context.Background(), h, testState(t), absent))
+
+	require.FileExists(t, filepath.Join(h.Root, kmod.SysModuleRelPath, kmod.NVIDIA, "refcnt"))
+	require.FileExists(t, filepath.Join(h.Root, kmod.ProcModulesRelPath))
+	require.FileExists(t, filepath.Join(h.Root, kmod.LsmodRelPath))
+}
+
+func TestWriteKernelModules_ConvergesWhenAHostModuleUnloads(t *testing.T) {
+	h := testHost(t)
+	procModulesPath := withProcModules(t, hostProcModulesLine)
+	writeKernelModule(t, h, "xfs", map[string]string{"refcnt": "2\n", "coresize": "1556480\n"})
+
+	require.NoError(t, writeKernelModules(context.Background(), h, testState(t), procModulesPath))
+	require.DirExists(t, filepath.Join(h.Root, kmod.SysModuleRelPath, "xfs"))
+
+	require.NoError(t, os.RemoveAll(h.SysPath(kernelSysModuleDir, "xfs")))
+	require.NoError(t, writeKernelModules(context.Background(), h, testState(t), procModulesPath))
+
+	require.NoDirExists(t, filepath.Join(h.Root, kmod.SysModuleRelPath, "xfs"))
+	require.FileExists(t, filepath.Join(h.Root, kmod.SysModuleRelPath, kmod.NVIDIA, "refcnt"))
+}
+
+func TestDiscard_ClearsEveryModuleSurface(t *testing.T) {
+	h := testHost(t)
+	procModulesPath := withProcModules(t, hostProcModulesLine)
+	writeKernelModule(t, h, "xfs", map[string]string{"coresize": "1556480\n"})
+
+	sim := New()
+	require.NoError(t, writeKernelModules(context.Background(), h, testState(t), procModulesPath))
+	sim.ready.Store(true)
+
+	moduleTree := filepath.Join(h.Root, kmod.SysModuleRelPath)
+	before, err := os.Stat(moduleTree)
+	require.NoError(t, err)
+
+	require.NoError(t, sim.Discard(context.Background(), h))
+
+	after, err := os.Stat(moduleTree)
+	require.NoError(t, err, "the mount source directory must outlive Discard")
+	require.True(t, os.SameFile(before, after), "a served container holds this inode")
+
+	entries, err := os.ReadDir(moduleTree)
+	require.NoError(t, err)
+	require.Empty(t, entries, "everything below it goes")
+
+	require.NoFileExists(t, filepath.Join(h.Root, kmod.ProcModulesRelPath),
+		"proc/modules is served by the redirect, not a mount, so Discard removes it")
+	require.NoFileExists(t, filepath.Join(h.Root, kmod.LsmodRelPath),
+		"the script goes with the other staged files, as nvidia-smi does")
 }

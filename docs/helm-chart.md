@@ -23,6 +23,17 @@ Deploys a DaemonSet that creates on every node:
   reaching it through libc read it via `libpcisysfs.so`; containers served the
   `nvidia.com/gpu` CDI spec get it bind-mounted at the kernel paths, which is
   what Go consumers need — see [PCI sysfs in containers](#pci-sysfs-in-containers)
+- A fake kernel-module surface at `/var/lib/nvml-mock/proc/modules` and
+  `/var/lib/nvml-mock/sys/module/...`, so `lsmod` lists `nvidia` and `nvidia_uvm`
+  and the GPU Operator validator finds `/sys/module/nvidia/refcnt`. The node's own
+  `/sys/module` is mirrored whole alongside them, built-in modules and their
+  `parameters/` included, because serving the tree replaces it for every reader in
+  the container. `libpcisysfs.so` redirects both paths for libc consumers; both
+  CDI specs bind-mount the tree at `/sys/module` for Go consumers, which bypass the
+  shim. `/proc/modules` cannot be bind-mounted at all, since runc allows only an
+  allowlist inside `/proc`, so CDI-served containers get a generated `lsmod` that
+  reads the mounted tree. A state reconcile refreshes the mirror. A module load or
+  unload does not, so the mirror can lag the node
 
 Consumers (DRA driver, device plugin) point at `/var/lib/nvml-mock/driver`
 as the NVIDIA driver root and discover GPUs through standard NVML APIs.
@@ -769,8 +780,8 @@ tracks removing the trade-off.
 A workload that needs the node's real device tree must not request
 `nvidia.com/gpu`, since the mount rides the CDI spec the container toolkit
 resolves for that resource. `nri.excludedNamespaces` is not an escape: it only
-reaches the NRI plugin, whose own `nvml-mock.nvidia.com/gpu` spec carries no
-sysfs mounts.
+reaches the NRI plugin, whose own `nvml-mock.nvidia.com/gpu` spec carries the
+module tree but no PCI sysfs mounts.
 
 ### Machine type (`nvidia.com/gpu.machine`)
 
@@ -870,7 +881,9 @@ to a container that carries `nvml-mock.nvidia.com/devices: "true"`:
 
 Both modes deliver the same device set, so switching is not meant to change what
 a workload sees. `cdi` additionally sets `NVML_MOCK_DEVICE_SOURCE=cdi` inside
-the container, which is the only way to tell from inside which mechanism ran.
+the container, which is the only way to tell which mechanism ran. Its CDI spec
+also mounts the simulated `/sys/module` tree. Direct Go readers then find the
+simulated `nvidia` module.
 
 CDI needs no container toolkit on the node. containerd 2.x enables CDI by
 default (`enable_cdi = true`, spec dirs `/etc/cdi` and `/var/run/cdi`), which
@@ -1500,6 +1513,16 @@ gate before any check had run. If operands block on a marker that never returns
 while the validator is in `CrashLoopBackOff`, check `CLEANUP_ALL`: it makes the
 validator `RemoveAll` its output dir, which fails `EBUSY` on the bind mount and
 exits before recreating anything. Nothing sets it by default.
+
+**Driver validator fails after the kernel module check**: keep
+`DISABLE_DEV_CHAR_SYMLINK_CREATION=true` in the validator environment. The module
+check itself passes, because the mock serves `/sys/module/nvidia/refcnt`. The
+validator then calls `CreateLinks()`, which fails with `failed to create devices
+info: no NVIDIA devices found`. That call reads a hardcoded `/proc/devices` with
+no override. runc refuses to bind-mount that path, the reader is Go so the preload
+shim cannot see it, and the name it looks for appears only when a real kernel
+module registers a character-device major. Removal of the flag needs an upstream
+change, not work in this repository.
 
 **Device plugin shows 0 GPUs**: Verify mock files exist on the node:
 ```bash

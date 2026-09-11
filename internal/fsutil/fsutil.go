@@ -44,6 +44,31 @@ func Copy(src, dst string, perm os.FileMode) error {
 	})
 }
 
+// PruneDir removes every entry of dir that keep rejects.
+func PruneDir(dir string, keep func(string) bool) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read %s: %w", dir, err)
+	}
+
+	var errs []error
+	for _, e := range entries {
+		if keep(e.Name()) {
+			continue
+		}
+
+		p := filepath.Join(dir, e.Name())
+		if err := os.RemoveAll(p); err != nil {
+			errs = append(errs, fmt.Errorf("remove %s: %w", p, err))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
 // replace stages the contents in a sibling temp file and renames it over path.
 // The temp name is unique so concurrent writers of one path cannot collide, and
 // dot-prefixed so a reader listing the directory mid-write does not see it.

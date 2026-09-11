@@ -1,9 +1,6 @@
 /*
  * Copyright 2026 NVIDIA CORPORATION
  * SPDX-License-Identifier: Apache-2.0
- *
- * libpcisysfs.so redirects PCI sysfs lookups to a fake tree under
- * $MOCK_PCI_ROOT. It is a no-op when MOCK_PCI_ROOT is unset.
  */
 
 #define _GNU_SOURCE
@@ -45,6 +42,8 @@ static const char *const k_prefixes[] = {
     "/sys/devices/pci",
     "/sys/bus/pci/devices",
     "/sys/bus/pci",
+    "/sys/module",
+    "/proc/modules",
     NULL,
 };
 
@@ -262,8 +261,8 @@ DIR *opendir(const char *name) {
 
 /*
  * libpci reads a device's `resource` file via fopen(), so a missing hook here
- * leaves `lspci -v` reading the real host path. Only paths under the PCI sysfs
- * prefixes are rewritten; every other fopen (pci.ids, /proc, …) passes through.
+ * leaves `lspci -v` reading the real host path. The shim rewrites only the paths
+ * under the prefixes in k_prefixes. Every other fopen passes through.
  */
 REAL(fopen);
 REAL(fopen64);

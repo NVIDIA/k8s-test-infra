@@ -481,6 +481,21 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 				kube.GPUResourceName, p.ExpectedGPUs())
 		})
 
+		It("serves the module tree at the kernel path", Label("nri-cdi-kmod"), func(ctx SpecContext) {
+			pod := applyNRIWorkload(ctx, h, nriAnnotatedPodManifest("nri-cdi-kmod"), "nri-cdi-kmod")
+
+			Expect(nriDeviceSource(ctx, h, pod)).To(Equal("cdi"))
+
+			res, err := h.Kube.ExecSh(ctx, pod,
+				`awk '$5 == "/sys/module" { found = 1 } END { exit !found }' /proc/self/mountinfo`)
+			Expect(err).NotTo(HaveOccurred(), "the NRI CDI spec must mount /sys/module\n%s", res.Combined())
+
+			res, err = h.Kube.ExecSh(ctx, pod,
+				`env -u LD_PRELOAD -u MOCK_PCI_ROOT cat /sys/module/nvidia/refcnt`)
+			Expect(err).NotTo(HaveOccurred(), "the module tree must work without the preload shim\n%s", res.Combined())
+			Expect(strings.TrimSpace(res.Stdout)).To(Equal("1"))
+		})
+
 		It("still suppresses injection for a pod the device plugin served", Label("nri-cdi-suppression"), func(ctx SpecContext) {
 			// MEP-0002 forbids #436 from bypassing the suppression rule. The rule is
 			// about who already served the container, not which mechanism serves it,

@@ -1,8 +1,10 @@
 # libpcisysfs
 
-`libpcisysfs.so` is an `LD_PRELOAD` shim that redirects PCI sysfs accesses to a fake filesystem tree.
+`libpcisysfs.so` is an `LD_PRELOAD` shim that redirects PCI sysfs and kernel-module accesses to a fake filesystem tree.
 
-It is useful for testing software that discovers or inspects PCI devices without exposing or depending on the host's real PCI topology.
+Use it to test software that finds or examines PCI devices, or that checks if a kernel module is loaded. The software does not then need the real PCI topology or the real module set of the host.
+
+The name is older than the module paths. This shim serves those paths for two reasons. Both surfaces render under the same root, and the redirect is a single prefix table. A second shim would repeat the libc interposition of this one to add two entries.
 
 ## How it works
 
@@ -12,9 +14,13 @@ When `MOCK_PCI_ROOT` is set, accesses under:
 /sys/bus/pci
 /sys/bus/pci/devices
 /sys/devices/pci*
+/sys/module
+/proc/modules
 ```
 
 are rewritten by prepending `MOCK_PCI_ROOT`.
+
+The shim redirects `/proc/modules` instead of a mount. runc refuses any bind mount inside `/proc` that is not on its allowlist. Therefore `lsmod` depends on this shim.
 
 For example:
 
