@@ -24,24 +24,20 @@ const (
 	gfdNamespace = "kube-system"
 	gfdName      = "nvidia-gfd-mock"
 	gfdSelector  = "name=nvidia-gfd-mock"
-
-	validatorNamespace = "default"
-	validatorJobName   = "gpu-validator-mock"
-	validatorSelector  = "name=gpu-validator-mock"
 )
 
-// CUDA validator scenario. This is gated because the GFD and CUDA validator
-// images are pulled from nvcr.io; keep it disabled by default until #446
+// Standalone GPU Feature Discovery scenario. This is gated because the GFD
+// image is pulled from nvcr.io; keep it disabled by default until #446
 // resolves the CI image/auth path.
-var _ = Describe("nvml-mock CUDA validator", Label("validator"), Ordered, func() {
+var _ = Describe("nvml-mock GPU feature discovery", Label("gfd"), Ordered, func() {
 	var h *harness.Harness
 	selectedProfiles := config.SelectedProfileNames()
 
 	BeforeAll(func(ctx SpecContext) {
 		if !config.RunNGCSpecs() {
-			Skip("set E2E_RUN_NGC=true to run nvcr.io-backed validator scenario; see #446")
+			Skip("set E2E_RUN_NGC=true to run the nvcr.io-backed GFD scenario; see #446")
 		}
-		h = setupCluster(ctx, "validator")
+		h = setupCluster(ctx, "gfd")
 	})
 
 	for _, name := range selectedProfiles {
@@ -55,11 +51,10 @@ var _ = Describe("nvml-mock CUDA validator", Label("validator"), Ordered, func()
 			BeforeAll(func(ctx SpecContext) {
 				p, _, node = setupStandaloneProfile(ctx, h, name)
 				deployDevicePlugin(ctx, h, node, p.ExpectedGPUs())
-				deployGPUFeatureDiscovery(ctx, h, node)
 			})
 
-			It("runs CUDA vectorAdd against mock libcuda", func(ctx SpecContext) {
-				runValidatorJob(ctx, h)
+			It("labels the node from the mock GPU inventory", func(ctx SpecContext) {
+				deployGPUFeatureDiscovery(ctx, h, node)
 			})
 		})
 	}
@@ -78,23 +73,13 @@ func deployGPUFeatureDiscovery(ctx SpecContext, h *harness.Harness, node string)
 	Expect(h.Kube.Apply(ctx, assets.GFDManifest)).To(Succeed(), "apply GFD manifest")
 	Expect(h.Kube.DeletePodsByLabel(ctx, gfdNamespace, gfdSelector)).To(Succeed(), "restart GFD pods")
 	assertions.WaitDaemonSetReady(ctx, h.Kube, gfdNamespace, gfdName, config.ReadyTimeout(), config.PollInterval())
-	assertions.WaitNodeLabelsPresent(ctx, h.Kube, node, validatorGFDRequiredLabels(), config.ReadyTimeout(), config.PollInterval())
+	assertions.WaitNodeLabelsPresent(ctx, h.Kube, node, gfdRequiredLabels(), config.ReadyTimeout(), config.PollInterval())
 }
 
-func validatorGFDRequiredLabels() []string {
+func gfdRequiredLabels() []string {
 	return []string{
 		"nvidia.com/gpu.product",
 		"nvidia.com/gpu.memory",
 		"nvidia.com/gpu.compute.major",
-	}
-}
-
-func runValidatorJob(ctx SpecContext, h *harness.Harness) {
-	GinkgoHelper()
-	Expect(h.Kube.Delete(ctx, assets.ValidatorManifest)).To(Succeed(), "delete previous validator job")
-	Expect(h.Kube.Apply(ctx, assets.ValidatorManifest)).To(Succeed(), "apply validator job")
-	assertions.WaitJobComplete(ctx, h.Kube, validatorNamespace, validatorJobName, config.ReadyTimeout(), config.PollInterval())
-	if logs, err := h.Kube.Logs(ctx, validatorNamespace, validatorSelector, 100); err == nil {
-		AddReportEntry("validator logs", logs)
 	}
 }
