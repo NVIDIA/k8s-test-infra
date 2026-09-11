@@ -39,46 +39,110 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
 
-// mutateMIG applies fn to the device's recorded MIG state under the override
-// lock, re-reading the document inside the lock so a concurrent writer's work
-// is never overwritten by a view loaded before it ran. This is the shape
-// ResetDevice uses.
-func mutateMIG(path string, index int, fn func(*engine.MIGConfig) error) error {
+// MIGTx is one hold of the override lock, spanning a mutation from the layout
+// it will edit, through the change the caller makes in its own engine, to the
+// record of that change.
+//
+// The three belong under one hold because the instance id the engine assigns is
+// drawn from the layout this document describes. Split across separate holds,
+// two processes read the same layout, assign the same id, and the second one's
+// record is refused as a duplicate — a creation that already happened locally,
+// reported as a failure and then rolled back. Under one hold the second process
+// cannot look until the first has finished writing.
+//
+// Nothing is written until Commit, so a sequence that fails partway leaves the
+// document as it was rather than a seeded layout with no delta against it.
+type MIGTx struct {
+	path    string
+	index   int
+	unlock  func()
+	doc     *Doc
+	bucket  map[string]any
+	block   map[string]any
+	changed bool
+}
+
+// BeginMIG takes the override lock and reads the document the mutation will
+// edit. The document is read inside the lock, so a concurrent writer's work is
+// never overwritten by a view loaded before it ran — the shape ResetDevice
+// uses. The caller must Close the result.
+func BeginMIG(path string, index int) (*MIGTx, error) {
 	if path == "" {
 		// No override file resolved: nothing to persist to, and the in-memory
-		// mutation the caller already made stands on its own.
-		return nil
+		// mutation the caller already made stands on its own. The transaction
+		// still runs, so a caller's change is never conditional on there being
+		// somewhere to record it.
+		return &MIGTx{}, nil
 	}
+
 	unlock, err := LockOverride(path)
 	if err != nil {
-		return fmt.Errorf("lock %s: %w", path, err)
+		return nil, fmt.Errorf("lock %s: %w", path, err)
 	}
-	defer unlock()
-
 	doc, err := Load(path)
 	if err != nil {
-		return err
+		unlock()
+		return nil, err
 	}
 	bucket := doc.bucket(Target{Index: index})
 	block, err := migBlock(bucket)
 	if err != nil {
-		return err
+		unlock()
+		return nil, err
 	}
-	changed, err := applyMIG(block, fn)
-	if err != nil {
-		// A rejected mutation must leave no partial edit behind. The device and
-		// the document are context the caller cannot recover from the inner
-		// message, which names at most the instance it could not record.
-		return fmt.Errorf("recording mig mutation for device %d in %s: %w", index, path, err)
+	return &MIGTx{path: path, index: index, unlock: unlock, doc: doc, bucket: bucket, block: block}, nil
+}
+
+// Close releases the lock. Uncommitted edits are discarded with it, so Close is
+// safe to defer alongside a Commit on the success path.
+func (tx *MIGTx) Close() {
+	if tx.unlock != nil {
+		tx.unlock()
+		tx.unlock = nil
 	}
-	if !changed {
+}
+
+// Commit writes the accumulated edits, if any changed the document.
+func (tx *MIGTx) Commit() error {
+	if tx.path == "" || !tx.changed {
 		// A mutation that changed nothing must not touch a file the engine
 		// watches — nor invent an empty `mig:` block for a device that had no
 		// overrides.
 		return nil
 	}
-	bucket["mig"] = block
-	return WriteAtomic(path, doc)
+	tx.bucket["mig"] = tx.block
+	return WriteAtomic(tx.path, tx.doc)
+}
+
+// apply runs one edit against the transaction's view of the device's MIG state.
+func (tx *MIGTx) apply(fn func(*engine.MIGConfig) error) error {
+	if tx.path == "" {
+		return nil
+	}
+	changed, err := applyMIG(tx.block, fn)
+	if err != nil {
+		// A rejected mutation must leave no partial edit behind. The device and
+		// the document are context the caller cannot recover from the inner
+		// message, which names at most the instance it could not record.
+		return fmt.Errorf("recording mig mutation for device %d in %s: %w", tx.index, tx.path, err)
+	}
+	tx.changed = tx.changed || changed
+	return nil
+}
+
+// mutateMIG applies fn to the device's recorded MIG state as a transaction of
+// its own, for the mutations that stand alone.
+func mutateMIG(path string, index int, fn func(*engine.MIGConfig) error) error {
+	tx, err := BeginMIG(path, index)
+	if err != nil {
+		return err
+	}
+	defer tx.Close()
+
+	if err := tx.apply(fn); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // applyMIG runs the mutation against a typed view of the block and copies the
@@ -182,7 +246,14 @@ func setOrClear(block map[string]any, key, value string) {
 // MIGSetMode records a MIG mode change. Disabling clears the recorded layout,
 // because disabling MIG on hardware destroys every instance.
 func MIGSetMode(path string, index int, enabled bool) error {
-	return mutateMIG(path, index, func(mig *engine.MIGConfig) error {
+	return mutateMIG(path, index, setMIGMode(enabled))
+}
+
+// SetMode is MIGSetMode within a transaction.
+func (tx *MIGTx) SetMode(enabled bool) error { return tx.apply(setMIGMode(enabled)) }
+
+func setMIGMode(enabled bool) func(*engine.MIGConfig) error {
+	return func(mig *engine.MIGConfig) error {
 		if !enabled {
 			mig.ModeCurrent, mig.ModePending = "disabled", "disabled"
 			mig.Instances = nil
@@ -190,7 +261,7 @@ func MIGSetMode(path string, index int, enabled bool) error {
 		}
 		mig.ModeCurrent, mig.ModePending = "enabled", "enabled"
 		return nil
-	})
+	}
 }
 
 // MIGSeedLayout records records as the device's explicit layout, but only
@@ -208,15 +279,27 @@ func MIGSetMode(path string, index int, enabled bool) error {
 // merely switched off would destroy the partitions its profile declares.
 func MIGSeedLayout(path string, index int, records []engine.MIGGPUInstanceRecord) error {
 	if records == nil {
+		// Nothing to seed is not worth a lock.
 		return nil
 	}
-	return mutateMIG(path, index, func(mig *engine.MIGConfig) error {
-		if mig.Instances != nil {
+	return mutateMIG(path, index, seedMIGLayout(records))
+}
+
+// SeedLayout is MIGSeedLayout within a transaction. Seeding here rather than in
+// a hold of its own is what lets the delta be taken against the layout the
+// caller's engine actually saw.
+func (tx *MIGTx) SeedLayout(records []engine.MIGGPUInstanceRecord) error {
+	return tx.apply(seedMIGLayout(records))
+}
+
+func seedMIGLayout(records []engine.MIGGPUInstanceRecord) func(*engine.MIGConfig) error {
+	return func(mig *engine.MIGConfig) error {
+		if records == nil || mig.Instances != nil {
 			return nil
 		}
 		mig.Instances = &records
 		return nil
-	})
+	}
 }
 
 // MIGAddGpuInstance records a newly created GPU instance. The record's compute
@@ -227,7 +310,16 @@ func MIGSeedLayout(path string, index int, records []engine.MIGGPUInstanceRecord
 // duplicate means a replayed or mis-sequenced mutation, and appending a second
 // entry would make a later MIGRemoveGpuInstance remove both copies at once.
 func MIGAddGpuInstance(path string, index int, rec engine.MIGGPUInstanceRecord) error {
-	return mutateMIG(path, index, func(mig *engine.MIGConfig) error {
+	return mutateMIG(path, index, addMIGGpuInstance(rec))
+}
+
+// AddGpuInstance is MIGAddGpuInstance within a transaction.
+func (tx *MIGTx) AddGpuInstance(rec engine.MIGGPUInstanceRecord) error {
+	return tx.apply(addMIGGpuInstance(rec))
+}
+
+func addMIGGpuInstance(rec engine.MIGGPUInstanceRecord) func(*engine.MIGConfig) error {
+	return func(mig *engine.MIGConfig) error {
 		list := instancesOf(mig)
 		for _, gi := range list {
 			if gi.ID == rec.ID {
@@ -236,7 +328,7 @@ func MIGAddGpuInstance(path string, index int, rec engine.MIGGPUInstanceRecord) 
 		}
 		mig.Instances = ptr(append(list, rec))
 		return nil
-	})
+	}
 }
 
 // MIGRemoveGpuInstance records a destroyed GPU instance. The list stays
@@ -249,7 +341,16 @@ func MIGAddGpuInstance(path string, index int, rec engine.MIGGPUInstanceRecord) 
 // destruction of every other instance the profile declares. A caller that
 // records the live layout before mutating it always presents one.
 func MIGRemoveGpuInstance(path string, index int, giID uint32) error {
-	return mutateMIG(path, index, func(mig *engine.MIGConfig) error {
+	return mutateMIG(path, index, removeMIGGpuInstance(giID))
+}
+
+// RemoveGpuInstance is MIGRemoveGpuInstance within a transaction.
+func (tx *MIGTx) RemoveGpuInstance(giID uint32) error {
+	return tx.apply(removeMIGGpuInstance(giID))
+}
+
+func removeMIGGpuInstance(giID uint32) func(*engine.MIGConfig) error {
+	return func(mig *engine.MIGConfig) error {
 		if mig.Instances == nil {
 			return fmt.Errorf("gpu instance %d is not recorded", giID)
 		}
@@ -261,14 +362,23 @@ func MIGRemoveGpuInstance(path string, index int, giID uint32) error {
 		}
 		mig.Instances = &kept
 		return nil
-	})
+	}
 }
 
 // MIGAddComputeInstance records a compute instance created inside giID. Both
 // an unrecorded GPU instance and an ID that instance already carries are
 // rejected, for the reasons MIGAddGpuInstance and migRecord give.
 func MIGAddComputeInstance(path string, index int, giID uint32, rec engine.MIGComputeInstanceRecord) error {
-	return mutateMIG(path, index, func(mig *engine.MIGConfig) error {
+	return mutateMIG(path, index, addMIGComputeInstance(giID, rec))
+}
+
+// AddComputeInstance is MIGAddComputeInstance within a transaction.
+func (tx *MIGTx) AddComputeInstance(giID uint32, rec engine.MIGComputeInstanceRecord) error {
+	return tx.apply(addMIGComputeInstance(giID, rec))
+}
+
+func addMIGComputeInstance(giID uint32, rec engine.MIGComputeInstanceRecord) func(*engine.MIGConfig) error {
+	return func(mig *engine.MIGConfig) error {
 		gi, err := migRecord(mig, giID)
 		if err != nil {
 			return err
@@ -281,7 +391,7 @@ func MIGAddComputeInstance(path string, index int, giID uint32, rec engine.MIGCo
 		}
 		gi.ComputeInstances = ptr(append(cis, rec))
 		return nil
-	})
+	}
 }
 
 // MIGRemoveComputeInstance records a destroyed compute instance.
@@ -294,7 +404,16 @@ func MIGAddComputeInstance(path string, index int, giID uint32, rec engine.MIGCo
 // the layout does not hold, and emptying the list would destroy the spanning
 // instance instead of the one asked for.
 func MIGRemoveComputeInstance(path string, index int, giID, ciID uint32) error {
-	return mutateMIG(path, index, func(mig *engine.MIGConfig) error {
+	return mutateMIG(path, index, removeMIGComputeInstance(giID, ciID))
+}
+
+// RemoveComputeInstance is MIGRemoveComputeInstance within a transaction.
+func (tx *MIGTx) RemoveComputeInstance(giID, ciID uint32) error {
+	return tx.apply(removeMIGComputeInstance(giID, ciID))
+}
+
+func removeMIGComputeInstance(giID, ciID uint32) func(*engine.MIGConfig) error {
+	return func(mig *engine.MIGConfig) error {
 		gi, err := migRecord(mig, giID)
 		if err != nil {
 			return err
@@ -314,7 +433,7 @@ func MIGRemoveComputeInstance(path string, index int, giID, ciID uint32) error {
 		// an unspecified one.
 		gi.ComputeInstances = &kept
 		return nil
-	})
+	}
 }
 
 // migRecord finds the record for giID, aliasing the layout so edits through it
