@@ -438,9 +438,10 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 					name, kube.GPUResourceName, strings.TrimSpace(out))
 			})
 
-			// The runtime knob. Asserted through nvidia-smi on the node rather
-			// than through the config, so what is being checked is that a real
-			// consumer's NVML enumeration follows the override file — the whole
+			// The runtime knob, driven and read entirely through nvidia-smi.
+			// The commands that carve the board and the enumeration that reads
+			// it back are separate processes, so what is being checked is that
+			// a partitioning outlives the process that performed it — the whole
 			// point of repartitioning without a restart.
 			//
 			// Allocation is deliberately not asserted: the capability surface
@@ -452,7 +453,7 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 			// file that outlives the spec, so a failure between the write and
 			// the restore below would leave every spec above it asserting
 			// against a layout the chart never installed.
-			It("follows a runtime repartition through nvml-mock-ctl", Label("mig-runtime"), func(ctx SpecContext) {
+			It("follows a runtime repartition through nvidia-smi mig", Label("mig-runtime"), func(ctx SpecContext) {
 				// Every command is pinned to the node the assertions read.
 				// Overrides are staged per node, so an unpinned write can land
 				// on the mock pod of a different node than the one nvidia-smi
@@ -471,13 +472,21 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 					p.Name, partitions)
 
 				By("re-lay-out GPU 0 as a single " + p.MIGDeviceProfile() + " partition")
-				nvmlMockCtlOnNode(ctx, h, node, "mig", "--gpu", "0", "enable",
-					"--profile", p.MIGDeviceProfile(), "--count", "1")
+				// Three separate nvidia-smi processes, which is the point:
+				// each one's engine dies with it, so the second command can
+				// only see what the first recorded. Compute instances go
+				// first because NVML refuses to destroy a GPU instance that
+				// still holds one, and -C creates the compute instance
+				// spanning the new GPU instance — without it the board would
+				// carry a partition no MIG device is derived from.
+				migMutateOnNode(ctx, h, node, "-dci", "-i", "0")
+				migMutateOnNode(ctx, h, node, "-dgi", "-i", "0")
+				migMutateOnNode(ctx, h, node, "-cgi", p.MIGDeviceProfile(), "-C", "-i", "0")
 
 				Eventually(func() int {
 					return len(migPartitionsOfGPU(migSnapshotOnNode(ctx, h, node), 0))
 				}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
-					Should(Equal(1), "GPU 0 should report the single partition the CLI asked for")
+					Should(Equal(1), "GPU 0 should report the single partition nvidia-smi carved")
 
 				// A repartition that reaches `nvidia-smi -q -x` but not
 				// `mig -lgi` is the inconsistency two NVML paths over one
@@ -634,6 +643,19 @@ func migListingOnNode(ctx context.Context, h *harness.Harness, node, flag string
 	Expect(err).NotTo(HaveOccurred(), "nvidia-smi mig %s in %s exited non-zero: %s",
 		flag, target.Pod, res.Combined())
 	return res.Combined()
+}
+
+// migMutateOnNode runs one `nvidia-smi mig` mutation in the nvml-mock pod on
+// node. Each call is its own process, and its own NVML engine: a mutation only
+// reaches the next command in the sequence because the library recorded it on
+// the way out.
+func migMutateOnNode(ctx context.Context, h *harness.Harness, node string, args ...string) {
+	GinkgoHelper()
+	target := nvmlPodOnNode(ctx, h, node)
+	By("nvidia-smi mig " + strings.Join(args, " "))
+	res, err := h.Kube.Exec(ctx, target, append([]string{"nvidia-smi", "mig"}, args...)...)
+	Expect(err).NotTo(HaveOccurred(), "nvidia-smi mig %v in %s exited non-zero: %s",
+		args, target.Pod, res.Combined())
 }
 
 // migGPUInstancesOnNode lists the GPU instances `nvidia-smi mig -lgi` reports

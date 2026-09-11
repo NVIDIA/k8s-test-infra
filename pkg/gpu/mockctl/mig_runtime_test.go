@@ -142,12 +142,12 @@ func TestMIGAddGpuInstance_LeavesTheRestOfTheBlockAlone(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "overrides.yaml")
 	doc, err := Load(path)
 	require.NoError(t, err)
-	doc.SetMIG(Target{Index: 0}, map[string]any{
+	doc.SetFields(Target{Index: 0}, map[string]any{"mig": map[string]any{
 		"mode_current":      "enabled",
 		"mode_pending":      "enabled",
 		"max_gpu_instances": 0,
 		"gpu_instances":     []any{map[string]any{"profile": "1g.5gb", "count": 7}},
-	})
+	}})
 	require.NoError(t, WriteAtomic(path, doc))
 
 	require.NoError(t, MIGAddGpuInstance(path, 0, engine.MIGGPUInstanceRecord{ID: 0, Profile: "1g.5gb"}))
@@ -306,7 +306,7 @@ func TestMIGAddGpuInstance_ZeroesInsideARecordSurvive(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "overrides.yaml")
 	doc, err := Load(path)
 	require.NoError(t, err)
-	doc.SetMIG(Target{Index: 0}, map[string]any{
+	doc.SetFields(Target{Index: 0}, map[string]any{"mig": map[string]any{
 		"mode_current": "enabled",
 		"mode_pending": "enabled",
 		"instances": []any{map[string]any{
@@ -315,7 +315,7 @@ func TestMIGAddGpuInstance_ZeroesInsideARecordSurvive(t *testing.T) {
 				"id": 0, "profile": "1c", "profile_id": 0,
 			}},
 		}},
-	})
+	}})
 	require.NoError(t, WriteAtomic(path, doc))
 
 	require.NoError(t, MIGAddGpuInstance(path, 0, engine.MIGGPUInstanceRecord{ID: 1, Profile: "1g.5gb"}))
