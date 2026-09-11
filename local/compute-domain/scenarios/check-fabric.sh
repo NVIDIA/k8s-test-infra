@@ -7,7 +7,7 @@
 # For each worker, kubectl exec the bundled `check-fabric` binary in the
 # node's nvml-mock pod and assert the reported cliqueId + clusterUuid +
 # state match what local/compute-domain/topology.yaml assigned to that
-# node. Ported from docs/demo/compute-domain/run.sh (Scenario 1,
+# node. Ported from docs/guides/compute-domain/run.sh (Scenario 1,
 # lines 193-199 and the assert_clique helper at 98-123).
 
 set -euo pipefail

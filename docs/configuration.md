@@ -687,7 +687,7 @@ When deploying via Helm, additional values control integration with external pro
 | `integrations.fakeGpuOperator.targetNamespace` | `""` (release namespace) | Namespace for the profile ConfigMaps. Set to FGO's release namespace for FGO to find them; requires FGO's `builtinProfiles.enabled=false` |
 | `integrations.fakeGpuOperator.profileLabels` | `run.ai/gpu-profile: "true"` | Extra labels on profile ConfigMaps. The contract labels are always emitted |
 
-See [fake-gpu-operator integration](integrations/fake-gpu-operator.md) for setup details.
+See the [fake-gpu-operator guide](guides/runai-fgo/README.md) for setup details.
 
 ## Metric Fidelity
 

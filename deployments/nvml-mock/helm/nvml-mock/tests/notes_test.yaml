@@ -101,6 +101,6 @@ tests:
       - notMatchRegexRaw:
           pattern: "Verified in CI"
       - matchRegexRaw:
-          pattern: "helm-chart/#quick-start-gpu-operator-on-kind"
+          pattern: "guides/gpu-operator/"
       - matchRegexRaw:
-          pattern: "docs/demo/with-gpu-operator/"
+          pattern: "docs/guides/with-gpu-operator/"

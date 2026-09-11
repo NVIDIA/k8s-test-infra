@@ -77,7 +77,7 @@ nodeLabels:
 # node-local plugin appends the nvml-mock overlay mount and environment to each
 # container at runtime without mutating pod specs. Opt-in (default false): it
 # injects into workloads cluster-wide, so enable it only for the
-# node-wide-injection demo/use case. See docs/demo/node-wide-injection.
+# node-wide-injection demo/use case. See docs/guides/node-wide-injection.
 
 nodeAgent:
   logging:
@@ -280,8 +280,8 @@ infiniband:
   mockTier: ""
   ping:
     port: 18515
-    # The mock-ib TCP fabric listener binds 0.0.0.0:<port> with no auth and
-    # the DaemonSet runs privileged. This NetworkPolicy restricts inbound
+    # The mock-ib TCP fabric listener binds 0.0.0.0:<port> with no
+    # authentication. This NetworkPolicy restricts inbound
     # access to that port to peer nvml-mock pods (the only legitimate
     # clients), limiting the blast radius on clusters whose CNI enforces
     # NetworkPolicy. NOTE: Kind's default CNI (kindnet) ENFORCES
@@ -357,7 +357,7 @@ integrations:
     # the ConfigMaps to be readable. Doing so requires FGO's
     # `builtinProfiles.enabled=false`, because their builtin set uses the same
     # seven names and is owned by their Helm release. See
-    # docs/integrations/fake-gpu-operator.md.
+    # docs/guides/runai-fgo/README.md.
     targetNamespace: ""
     # Extra labels applied to per-profile ConfigMaps. The contract labels
     # `fake-gpu-operator/gpu-profile` and `nvml-mock/profile-name` are always

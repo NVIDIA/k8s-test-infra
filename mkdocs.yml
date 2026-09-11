@@ -62,7 +62,6 @@ theme:
     - navigation.tabs
     - navigation.sections
     - navigation.top
-    - navigation.indexes
     - toc.follow
     - search.suggest
     - search.highlight
@@ -95,45 +94,67 @@ markdown_extensions:
   - pymdownx.inlinehilite
   - pymdownx.keys
   - pymdownx.snippets
-  - pymdownx.superfences
+  # The custom_fences entry is what makes ```mermaid render; without it the
+  # block reaches the page as literal text.
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.tabbed:
       alternate_style: true
 
 plugins:
   - search
 
+# Three spaces, not one tab per topic. `navigation.tabs` promotes every
+# top-level entry to a tab, and seven of them made the reader guess whether a
+# task lived under Guides, Demos or Integrations — all three answered the same
+# question. General is for learning and operating, Guides for doing something
+# specific, Contributing for changing Mokka.
 nav:
-  - Home: index.md
-  - Getting Started:
-      - Quick Start: quickstart.md
-      - Helm Chart: helm-chart.md
-      - Configuration: configuration.md
-  - Architecture:
-      - Overview: architecture.md
-  - Guides:
-      - Examples: examples.md
-      - Runtime Control: nvml-mock-ctl.md
+  - General:
+      - Overview: index.md
+      - Getting Started:
+          - Quick Start: quickstart.md
+          - Installation: helm-chart.md
+      - Architecture:
+          - Overview: architecture.md
+          - Node Daemon: components/node-daemon.md
+          - Libraries and Shims: components/libraries-and-shims.md
+          - NRI Plugin: components/nri-plugin.md
+      - Reference:
+          - Configuration: configuration.md
+          # The pages stay under docs/tools/ because hack/check-docs-tools-sync.sh
+          # scans that directory to hold them in step with cmd/. The nav label is
+          # what places them, not the path.
+          - Command-Line Tools:
+              - Overview: tools/README.md
+              - control-plane: tools/control-plane.md
+              - node-agent: tools/node-agent.md
+              - nri-plugin: tools/nri-plugin.md
       - Troubleshooting: troubleshooting.md
-  # The files stay under docs/tools/ on purpose: docs/components/ is being
-  # taken by another change, and moving them here as well would collide.
-  - Components:
-      - Overview: tools/README.md
-      - control-plane: tools/control-plane.md
-      - node-agent: tools/node-agent.md
-      - nri-plugin: tools/nri-plugin.md
-      - check-fabric: tools/check-fabric.md
-      - Build tools:
-          - generate-bridge: tools/generate-bridge.md
-  - Demos:
-      - Overview: demo/README.md
-      - Standalone: demo/standalone/README.md
-      - With fake-gpu-operator: demo/with-fgo/README.md
-      - Failure Injection: demo/failure-injection/README.md
-      - Node-Wide Injection: demo/node-wide-injection/README.md
-      - Compute Domain: demo/compute-domain/README.md
-      - NVSentinel: demo/nv-sentinel/README.md
-      - With GPU Operator: demo/with-gpu-operator/README.md
-  - Integrations:
-      - fake-gpu-operator: integrations/fake-gpu-operator.md
+      - FAQ: faq.md
+  - Guides:
+      - Overview: guides/README.md
+      - Scenarios:
+          - NVIDIA Device Plugin: guides/device-plugin.md
+          - NVIDIA DRA Driver: guides/dra.md
+          - NVIDIA GPU Operator: guides/gpu-operator.md
+          - Compute Domain: guides/compute-domain/README.md
+          - NVSentinel: guides/nv-sentinel/README.md
+          - Run.ai Fake GPU Operator: guides/runai-fgo/README.md
+          - Node-Wide Injection: guides/node-wide-injection/README.md
+      - Tasks:
+          - Failure Injection: guides/failure-injection/README.md
+          - Use in CI/CD: guides/ci-cd.md
+          - Runtime Control: nvml-mock-ctl.md
   - Contributing:
-      - Development Guide: development.md
+      - Overview: contributing/index.md
+      - Local Development: contributing/local-development.md
+      - Testing: contributing/testing.md
+      - Tools:
+          - check-fabric: tools/check-fabric.md
+          - generate-bridge: tools/generate-bridge.md
+      - Enhancement Proposals: contributing/enhancements.md
+      - Pull Requests: contributing/pull-requests.md

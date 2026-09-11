@@ -65,8 +65,8 @@ OPTION C: GPU Operator
   Cluster prerequisites (KIND): the node needs CDI enabled in containerd
   and the nvidia runtime handler registered.
   Walkthrough, including that containerd setup:
-    https://nvidia.github.io/k8s-test-infra/helm-chart/#quick-start-gpu-operator-on-kind
-  In a checkout of this repository: docs/demo/with-gpu-operator/
+    https://nvidia.github.io/k8s-test-infra/guides/gpu-operator/
+  In a checkout of this repository: docs/guides/with-gpu-operator/
 
   Install:
     helm repo add nvidia https://helm.ngc.nvidia.com/nvidia

@@ -871,7 +871,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (#386)
 
 ### Fixed
-- `docs/demo/standalone/demo.sh` no longer uses the bash 4 `mapfile`
+- `docs/guides/standalone/demo.sh` no longer uses the bash 4 `mapfile`
   builtin and runs on macOS's stock bash 3.2. (#385)
 - Helm chart OCI publishing: the cosign signing step now authenticates to
   GHCR via the Docker config and signs the chart by digest; chart signing

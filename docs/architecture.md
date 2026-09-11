@@ -25,6 +25,9 @@ GPU identity and behavior come from config profiles (different chips, counts, to
 Mocking a single interface (for example NVML alone) can prove a GPU can be *allocated*.
 Many K8s control-plane consumers read a broader evidence surface than allocation alone: NVML / nvidia-smi, PCI and sysfs trees, and kernel or driver footprints under `/proc` and `/sys` (including module state such as `lsmod`).
 
+Not every surface is covered yet. See
+[what is not simulated yet](faq.md#what-is-not-simulated-yet) in the FAQ.
+
 ## Independent failure and attribution
 
 Layers form a dependency stack, but each layer must be able to fail on its own while others stay healthy.
@@ -43,371 +46,110 @@ Pointing a consumer at a substitute path with a flag only works when that flag e
 It does not work for Go binaries: they make syscalls directly and never go through the preloaded library.
 Most of the Kubernetes control plane is Go, so file surfaces need to be mounted into the container instead of intercepted.
 
-## System Overview
+## The moving parts
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              USER SPACE                                      │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│    ┌──────────────────┐         ┌─────────────────────────────────────┐     │
-│    │   nvidia-smi     │         │   Your Application                  │     │
-│    │   (real binary)  │         │   (k8s-device-plugin, dcgm, etc)    │     │
-│    └────────┬─────────┘         └──────────────┬──────────────────────┘     │
-│             │                                   │                            │
-│             │ dlopen("libnvidia-ml.so")         │                            │
-│             ▼                                   ▼                            │
-│    ┌────────────────────────────────────────────────────────────────────┐   │
-│    │                     libnvidia-ml.so (MOCK)                          │   │
-│    │                                                                      │   │
-│    │  ┌────────────────────────────────────────────────────────────────┐ │   │
-│    │  │                   CGo Bridge Layer                              │ │   │
-│    │  │  - 400 C function exports (//export directives)                 │ │   │
-│    │  │  - C struct definitions (nvmlPciInfo_t, nvmlMemory_t, etc)      │ │   │
-│    │  │  - Type conversions (C ↔ Go)                                    │ │   │
-│    │  └────────────────────────────────────────────────────────────────┘ │   │
-│    │                               │                                      │   │
-│    │  ┌────────────────────────────▼───────────────────────────────────┐ │   │
-│    │  │                     Engine Layer                                │ │   │
-│    │  │  - Singleton lifecycle management                               │ │   │
-│    │  │  - Configuration loading (YAML or env vars)                     │ │   │
-│    │  │  - Handle table (C pointer ↔ Go object mapping)                 │ │   │
-│    │  └────────────────────────────────────────────────────────────────┘ │   │
-│    │                               │                                      │   │
-│    │  ┌────────────────────────────▼───────────────────────────────────┐ │   │
-│    │  │                  ConfigurableDevice                             │ │   │
-│    │  │  - 89 NVML method implementations                               │ │   │
-│    │  │  - YAML-driven property values                                  │ │   │
-│    │  │  - Wraps dgxa100.Device (go-nvml mock)                          │ │   │
-│    │  └────────────────────────────────────────────────────────────────┘ │   │
-│    └────────────────────────────────────────────────────────────────────┘   │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+| Component | Runs as | Responsibility |
+|---|---|---|
+| Node daemon | DaemonSet container, one per node | Stages every simulated surface onto the host and supervises the long-lived ones |
+| Simulators | Packages inside the node daemon | One per surface: GPU driver, PCI bus, CDI, IMEX, NVLink, fabricmanager, InfiniBand |
+| Mock NVML library | Shared object loaded by each consumer process | Answers NVML calls from the profile instead of a driver |
+| Shims | `LD_PRELOAD` libraries and an `execve` wrapper | Make C tools read the staged tree at the real paths |
+| NRI plugin | Optional DaemonSet | Injects the mock into containers that never requested a GPU |
+| Allocation watcher | Sidecar next to the node daemon | Reads the kubelet pod-resources socket to see which GPUs are claimed |
+| `nvml-mock-ctl` | CLI, run against a node | Changes simulated state at runtime without a redeploy |
+| Control plane | Deployment, disabled by default | Health probes only today; see MEP-0001 for the intent |
 
-## Component Details
+The **GPU profile** is the single input. It names the model, count, topology and
+health, and every component above derives its behaviour from it. Swapping
+profiles changes what the whole node appears to be.
 
-### 1. CGo Bridge Layer
+## How they connect
 
-**Directory**: `bridge/` (multiple files with IDE support)
+```mermaid
+flowchart LR
+    profile[GPU profile]
+    topo[Topology overlay]
 
-The bridge exposes NVML functions as C symbols that applications can dynamically load.
-The bridge is organized into hand-written implementation files plus auto-generated stubs:
+    subgraph node [On every targeted node]
+        daemon[Node daemon<br/>seven simulators]
+        surfaces[(Staged surfaces<br/>driver files · device nodes<br/>PCI tree · CDI specs · IB devices)]
+        daemon --> surfaces
+    end
 
-| File | Purpose |
-|------|---------|
-| `cgo_types.go` | Shared CGo type definitions (C structs, constants) |
-| `helpers.go` | Helper functions (`toReturn`, `goStringToC`, `stubReturn`) + `main()` |
-| `init.go` | Initialization: `nvmlInit_v2`, `nvmlShutdown`, etc. |
-| `device.go` | Device handles: `nvmlDeviceGetCount`, `GetHandleByIndex`, `GetName`, etc. |
-| `system.go` | System functions: `nvmlSystemGetDriverVersion`, `GetCudaDriverVersion`, etc. |
-| `internal.go` | Internal export table for nvidia-smi compatibility |
-| `stubs_generated.go` | Auto-generated stubs for unimplemented functions |
+    subgraph delivery [Delivery into a container]
+        mounts[hostPath mounts]
+        shims[LD_PRELOAD shims]
+        nri[NRI injection]
+    end
 
-```go
-//export nvmlDeviceGetTemperature
-func nvmlDeviceGetTemperature(device C.nvmlDevice_t, sensorType C.nvmlTemperatureSensors_t,
-                               temp *C.uint) C.nvmlReturn_t {
-    // 1. Look up Go device from C handle
-    dev := engine.GetEngine().LookupConfigurableDevice(uintptr(device))
-    if dev == nil {
-        return C.NVML_ERROR_INVALID_ARGUMENT
-    }
+    consumers[nvidia-smi · device plugin<br/>DRA driver · GPU Operator · DCGM]
 
-    // 2. Call Go implementation
-    temperature, ret := dev.GetTemperature(nvml.TemperatureSensors(sensorType))
-
-    // 3. Convert result to C types
-    *temp = C.uint(temperature)
-    return toReturn(ret)
-}
+    profile --> daemon
+    topo --> daemon
+    surfaces --> mounts --> consumers
+    surfaces --> shims --> consumers
+    surfaces --> nri --> consumers
 ```
 
-**C Type Definitions** (CGo preamble):
+### Three ways a surface reaches a consumer
 
-```c
-typedef struct nvmlPciInfo_st {
-    char busIdLegacy[16];
-    unsigned int domain;
-    unsigned int bus;
-    unsigned int device;
-    unsigned int pciDeviceId;
-    unsigned int pciSubSystemId;
-    char busId[32];
-} nvmlPciInfo_t;
+A staged file is useless if the consumer looks somewhere else, so Mokka has
+three delivery paths and uses whichever the consumer's runtime allows:
 
-typedef struct nvmlMemory_st {
-    unsigned long long total;
-    unsigned long long free;
-    unsigned long long used;
-} nvmlMemory_t;
-```
+| Mechanism | Works for | Used because |
+|---|---|---|
+| hostPath mounts | anything, including Go binaries | the only approach that survives direct syscalls |
+| `LD_PRELOAD` shims | C tools — `lspci`, `ibv_devinfo` | rewrites libc path calls, so tools read the mock tree at real paths |
+| NRI injection | pods with no GPU request | adds devices and mounts at container-create time, with no pod spec change |
 
-### 2. Engine Layer
+## How the system behaves
 
-**File**: `engine/engine.go` (~400 lines)
+### A node comes up
 
-The Engine is the central coordinator, managing:
+The daemon reads the profile, stages all seven simulators in parallel, waits for
+that wave to finish, then starts the long-lived processes. If any simulator
+fails to stage, no daemon starts: a half-built node is worse than an obviously
+broken one. Teardown reverses it on a timeout that outlives context
+cancellation, so a deleted pod still cleans up after itself.
 
-- **Lifecycle**: Init/Shutdown reference counting
-- **Configuration**: Loading from YAML or environment
-- **Handle mapping**: Translating C pointers to Go objects
+### A consumer reads a GPU
 
-```go
-type Engine struct {
-    server    *MockServer      // Device provider
-    config    *Config          // Loaded configuration
-    handles   *HandleTable     // C↔Go handle mapping
-    initCount int              // Reference count
-    mu        sync.RWMutex     // Thread safety
-}
-```
+`nvidia-smi` and the device plugin load the mock library in their own process
+and get values from the profile. `lspci` and `ibv_devinfo` are C tools, so a
+shim rewrites their paths into the staged tree. Go consumers bypass shims
+entirely and read the hostPath mounts. All three paths describe the same node.
 
-**Singleton Pattern**:
+### State changes at runtime
 
-```go
-var (
-    engineInstance *Engine
-    engineOnce     sync.Once
-)
+There is no daemon to send a command to — the library lives inside each
+consumer process. `nvml-mock-ctl` instead writes an override file next to the
+profile, and every loaded copy of the library re-reads it on a short TTL and
+merges it over the base. Running and newly started processes converge on the
+new state within one interval, and the base profile is never mutated. See
+[Runtime Control](nvml-mock-ctl.md).
 
-func GetEngine() *Engine {
-    engineOnce.Do(func() {
-        engineInstance = NewEngine(nil)
-    })
-    return engineInstance
-}
-```
+### A GPU fails
 
-### 3. Handle Table
+Failure is a configuration state, not a special path: a profile or an override
+marks a device as ECC-faulted, lost, or fallen off the bus, and every surface
+reports it consistently. That is what makes the failure legible to a consumer —
+the device plugin, DCGM and `nvidia-smi` agree, exactly as they would on real
+hardware.
 
-**File**: `engine/handles.go` (~170 lines)
+### The fleet is heterogeneous
 
-**Problem**: CGo doesn't allow passing Go pointers with nested Go pointers to C code. When nvidia-smi receives a device handle, it expects to dereference it.
+Each release targets a node set, so different nodes can run different profiles
+at once. A cluster can present A100 and T4 workers side by side without either
+being real.
 
-**Solution**: Allocate real C memory blocks that nvidia-smi can safely access.
+## Where to go next
 
-```c
-// C structure that nvidia-smi can dereference
-typedef struct {
-    unsigned int magic;      // 0x4E564D4C ("NVML")
-    unsigned int index;      // Device index
-    void* reserved[4];       // Space nvidia-smi might read
-} HandleBlock;
-```
-
-```go
-func (ht *HandleTable) Register(dev nvml.Device) uintptr {
-    // Allocate C memory block
-    cHandle := C.allocHandle(C.uint(deviceIndex))
-    handle := uintptr(unsafe.Pointer(cHandle))
-
-    // Store bidirectional mapping
-    ht.devices[handle] = dev
-    ht.reverse[dev] = handle
-
-    return handle
-}
-```
-
-### 4. Configuration System
-
-**Files**: `engine/config.go` (~350 lines), `engine/config_types.go` (418 lines)
-
-#### Configuration Hierarchy
-
-```yaml
-YAMLConfig:
-  ├── SystemConfig          # Driver version, CUDA version
-  ├── DeviceDefaults        # Default properties for all devices
-  └── Devices[]             # Per-device overrides
-        ├── index: 0
-        │   └── (overrides)
-        ├── index: 1
-        │   └── (overrides)
-        └── ...
-```
-
-#### Merge Algorithm
-
-```go
-func (c *Config) GetDeviceConfig(index int) *DeviceConfig {
-    // Start with defaults
-    merged := c.YAMLConfig.DeviceDefaults
-
-    // Apply per-device overrides
-    for _, override := range c.YAMLConfig.Devices {
-        if override.Index == index {
-            mergeDeviceOverride(&merged, &override)
-            break
-        }
-    }
-
-    return &merged
-}
-```
-
-### 5. ConfigurableDevice
-
-**File**: `engine/device.go` (~1290 lines)
-
-Implements 89 NVML methods by reading from YAML configuration.
-
-```go
-type ConfigurableDevice struct {
-    *dgxa100.Device           // Base device (embedded)
-    config      *DeviceConfig // YAML configuration
-    index       int
-    minorNumber int
-    bar1Memory  nvml.BAR1Memory  // Cached
-    pciInfo     nvml.PciInfo     // Cached
-}
-```
-
-**Method Implementation Pattern**:
-
-```go
-func (d *ConfigurableDevice) GetTemperature(sensor nvml.TemperatureSensors) (uint32, nvml.Return) {
-    // Check if config provides value
-    if d.config != nil && d.config.Thermal != nil {
-        return uint32(d.config.Thermal.TemperatureGPU_C), nvml.SUCCESS
-    }
-    // No config = not supported
-    return 0, nvml.ERROR_NOT_SUPPORTED
-}
-```
-
-## Data Flow
-
-### Initialization Sequence
-
-```
-nvidia-smi                Engine                    Config
-    │                        │                         │
-    │  nvmlInit_v2()         │                         │
-    │───────────────────────►│                         │
-    │                        │  LoadConfig()           │
-    │                        │────────────────────────►│
-    │                        │                         │
-    │                        │     ┌───────────────────┤
-    │                        │     │ YAML exists?      │
-    │                        │     └─────────┬─────────┘
-    │                        │               │
-    │                        │     YES: Parse YAML
-    │                        │     NO: Use env vars
-    │                        │               │
-    │                        │◄──────────────┘
-    │                        │
-    │                        │  createServer()
-    │                        │  - Create dgxa100.Server
-    │                        │  - Create ConfigurableDevices
-    │                        │  - Apply system config
-    │                        │
-    │◄───────────────────────│  NVML_SUCCESS
-```
-
-### Query Flow
-
-```
-nvidia-smi                Bridge              Engine           Device
-    │                        │                   │                │
-    │ GetTemperature(dev,0,&t)                   │                │
-    │───────────────────────►│                   │                │
-    │                        │ LookupDevice(dev) │                │
-    │                        │──────────────────►│                │
-    │                        │                   │ Lookup(handle) │
-    │                        │◄──────────────────│                │
-    │                        │                   │                │
-    │                        │ GetTemperature(0) │                │
-    │                        │───────────────────┼───────────────►│
-    │                        │                   │                │
-    │                        │                   │  config.Thermal│
-    │                        │                   │  .TempGPU_C    │
-    │                        │◄──────────────────┼────────────────│
-    │                        │                   │    33, SUCCESS │
-    │◄───────────────────────│                   │                │
-    │        temp=33         │                   │                │
-```
-
-## Design Patterns
-
-| Pattern | Component | Purpose |
-|---------|-----------|---------|
-| **Singleton** | Engine | Single lifecycle manager |
-| **Decorator** | ConfigurableDevice wraps dgxa100.Device | Extend without modifying |
-| **Strategy** | createDevicesFromYAML vs createDefaultDevices | Runtime behavior selection |
-| **Handle Table** | HandleTable | Safe C↔Go pointer translation |
-| **Config Merge** | mergeDeviceOverride | Defaults + overrides |
-
-## File Structure
-
-```
-pkg/gpu/mocknvml/
-├── bridge/
-│   ├── cgo_types.go           # Shared CGo type definitions
-│   ├── helpers.go             # Helper functions + main() + go:generate
-│   ├── init.go                # nvmlInit_v2, nvmlShutdown, etc.
-│   ├── device.go              # Device handle functions
-│   ├── events.go              # Event set/wait functions
-│   ├── system.go              # System functions
-│   ├── internal.go            # Internal export table (nvidia-smi)
-│   ├── nvml_types.h           # C type definitions for CGo preamble
-│   └── stubs_generated.go     # Auto-generated stubs (~289 functions)
-├── engine/
-│   ├── config.go              # Config loading
-│   ├── config_types.go        # YAML structs
-│   ├── device.go              # ConfigurableDevice
-│   ├── engine.go              # Singleton engine
-│   ├── handles.go             # Handle table
-│   ├── invalid_device.go      # Invalid device handle sentinel
-│   ├── utils.go               # Debug logging
-│   ├── version.go             # NVML version responses
-│   └── *_test.go              # Unit tests
-├── configs/
-│   ├── mock-nvml-config-a100.yaml
-│   ├── mock-nvml-config-b200.yaml
-│   ├── mock-nvml-config-gb200.yaml
-│   ├── mock-nvml-config-gb300.yaml
-│   ├── mock-nvml-config-h100.yaml
-│   ├── mock-nvml-config-l40s.yaml
-│   └── mock-nvml-config-t4.yaml
-├── Dockerfile
-├── Makefile
-└── README.md
-
-cmd/generate-bridge/
-├── main.go                    # Stub generator (--stats, --validate flags)
-├── parser.go                  # nvml.h prototype parser
-└── main_test.go               # Generator tests
-```
-
-## Thread Safety
-
-All public Engine methods are protected by `sync.RWMutex`:
-
-- **Read operations** (`DeviceGetCount`, `LookupDevice`): Use `RLock`
-- **Write operations** (`Init`, `Shutdown`, `DeviceGetHandleByIndex`): Use `Lock`
-
-The HandleTable also has its own mutex for independent locking.
-
-## Memory Management
-
-### C Memory (Handles)
-
-- Allocated via `calloc()` in CGo
-- Freed on `Engine.Shutdown()` via `HandleTable.Clear()`
-- Each handle is ~40 bytes
-
-### Error String Cache
-
-- C strings for `nvmlErrorString` are cached permanently
-- Matches real NVML behavior (static strings)
-- Prevents memory leaks from repeated allocations
-
-## Extending the Library
-
-See [Development Guide](development.md) for:
-
-- Adding new NVML function implementations
-- Creating custom GPU profiles
-- Regenerating the bridge code
+| To understand | Read |
+|---|---|
+| How a node gets its simulated surfaces | [Node Daemon](components/node-daemon.md) |
+| How consumers are made to see fake hardware | [Libraries and Shims](components/libraries-and-shims.md) |
+| How a pod gets GPUs without asking | [NRI Plugin](components/nri-plugin.md) |
+| Every knob in the profile | [Configuration](configuration.md) |
+| Deploying and shaping a cluster | [Installation](helm-chart.md) |
+| Changing state on a running node | [Runtime Control](nvml-mock-ctl.md) |
+| Adding functions or profiles | [Contributing](contributing/index.md) |

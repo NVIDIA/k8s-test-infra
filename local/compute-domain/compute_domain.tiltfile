@@ -10,7 +10,7 @@
 # compute_domain.install() as the BASE install path when --compute-domain
 # is set, replacing the install_single()/install_fleet() calls.
 #
-# Ports docs/demo/compute-domain/run.sh Scenario 1 (per-node fabric
+# Ports docs/guides/compute-domain/run.sh Scenario 1 (per-node fabric
 # identity) and Scenario 3 (topology rebind) as auto_init=False
 # local_resource triggers. Scenario 2 (real IMEX daemon coordination)
 # stays in run.sh — stateful multi-pod state machine that doesn't fit

@@ -78,6 +78,11 @@ lint: tools gen-check ## Lint the source code
 	@./hack/check-depproxy-kit.sh
 	@echo "Checking docs/tools against cmd/.."
 	@./hack/check-docs-tools-sync.sh
+# Documentation links are checked here rather than in `make docs` because the
+# Pages workflow only triggers on docs/**, so every README outside it — where
+# these links actually rot — would get no coverage. `make lint` runs on every PR.
+	@echo "🔗 Checking documentation links.."
+	@./hack/check-doc-links.sh
 	@echo "🧹 Vetting.."
 	@go vet ./...
 	@echo "🧹 GoCI Lint.."
@@ -279,7 +284,7 @@ image-load:
 	@echo "Loaded $(IMAGE) from $(TARBALL)"
 
 # ---------------------------------------------------------------------------
-# Go end-to-end suite (tests/e2e) — the Go port of docs/demo/standalone/demo.sh.
+# Go end-to-end suite (tests/e2e) — the Go port of the shell demos under docs/guides/.
 # One entrypoint for local + CI. Tilt owns the cluster and the image. The suite
 # attaches to them and asserts. Only the scenarios that need a different shape
 # reshape the mock, and they use `helm upgrade --install`. A SINGLE shared

@@ -38,7 +38,7 @@ Unannotated pods without GPU requests will still report GPUs if `nvidia-smi` is 
 Test suites that rely on non-GPU pods seeing zero GPUs should either keep NRI disabled (`nri.enabled=false`)
 or run within an excluded namespace (`nri.excludedNamespaces`). Because it injects cluster-wide, it is off by
 default. Kind clusters must have containerd NRI enabled; see
-[`docs/demo/node-wide-injection`](demo/node-wide-injection/README.md).
+[`docs/guides/node-wide-injection`](guides/node-wide-injection/README.md).
 
 **Install it into its own namespace, and pass `-n`:**
 
@@ -76,433 +76,19 @@ use "Option B: Build from source" in the quick start sections below.
 - Privileged pods must be allowed (nvml-mock DaemonSet uses `privileged: true` for `mknod`)
 - For DRA: Kubernetes 1.32+ with `DynamicResourceAllocation` feature gate enabled
 
-## Quick Start: Device Plugin on KIND
+## Walkthroughs
 
-This path uses the NVIDIA device plugin to expose mock GPUs as
-`nvidia.com/gpu` allocatable resources. Use this quick start for local/manual
-validation; the current Go E2E workflow gates the standalone demo path.
+Each of these installs the chart against a real consumer, end to end:
 
-### 1. Create a KIND cluster
+| Guide | What it stands up |
+|---|---|
+| [NVIDIA Device Plugin](guides/device-plugin.md) | Mock GPUs advertised as `nvidia.com/gpu`, and a workload scheduled against them |
+| [NVIDIA DRA Driver](guides/dra.md) | Mock GPUs published as ResourceSlices, and a pod scheduled through a ResourceClaim |
+| [NVIDIA GPU Operator](guides/gpu-operator.md) | The full operand stack — device plugin, GFD, DCGM and the validator |
 
-```bash
-kind create cluster --name nvml-mock-test
-```
+The rest of this page is the reference: what the chart installs, every value it
+takes, and the behaviours worth knowing before you change one.
 
-### 2. Load the nvml-mock image
-
-**Option A: Use the published image (recommended)**
-
-```bash
-docker pull ghcr.io/nvidia/nvml-mock:latest
-kind load docker-image ghcr.io/nvidia/nvml-mock:latest --name nvml-mock-test
-```
-
-**Option B: Build from source**
-
-```bash
-# From the repository root
-docker build -t nvml-mock:local -f deployments/nvml-mock/Dockerfile .
-kind load docker-image nvml-mock:local --name nvml-mock-test
-```
-
-### 3. Install nvml-mock
-
-**With published image:**
-
-```bash
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
-  --wait --timeout 120s
-```
-
-**With locally built image:**
-
-```bash
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
-  --set image.repository=nvml-mock \
-  --set image.tag=local \
-  --wait --timeout 120s
-```
-
-### 4. Verify nvml-mock is running
-
-```bash
-kubectl rollout status daemonset/nvml-mock --timeout=60s
-kubectl get pods -l app.kubernetes.io/name=nvml-mock -o wide
-```
-
-Expected: a Running pod on the node. GPU labels under `nvidia.com/` need NFD or
-GFD — see [Node Labels](#node-labels).
-
-### 5. Deploy the device plugin
-
-```bash
-kubectl label node nvml-mock-test-control-plane mokka.nvidia.com/type=sgpu
-kubectl apply -f tests/e2e/device-plugin-mock.yaml
-kubectl -n kube-system wait --for=condition=ready \
-  pod -l name=nvidia-device-plugin-mock --timeout=120s
-```
-
-The manifest selects the simulated-GPU node pool; this cluster's single node is it.
-
-### 6. Verify allocatable GPUs
-
-```bash
-NODE=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
-kubectl get node "$NODE" -o jsonpath='{.status.allocatable.nvidia\.com/gpu}'
-```
-
-Expected: `4` (default gpu.count, derived from the `gb300` profile's four devices).
-
-### 7. Clean up
-
-```bash
-kind delete cluster --name nvml-mock-test
-```
-
-## Quick Start: DRA Driver on KIND
-
-This path uses the NVIDIA DRA (Dynamic Resource Allocation) driver to expose
-mock GPUs as ResourceSlices. DRA requires a cluster with specific feature
-gates. Tested in CI via `.github/workflows/nvml-mock-e2e-go.yaml` →
-`e2e-dra` job; use this quick start for local/manual validation.
-
-### 1. Create a KIND cluster with DRA enabled
-
-```bash
-kind create cluster --name nvml-mock-dra --config tests/e2e/kind-dra-config.yaml
-```
-
-This config enables:
-- `DynamicResourceAllocation` feature gate
-- CDI (Container Device Interface) in containerd
-- `resource.k8s.io/v1beta1` API
-
-### 2. Load the nvml-mock image
-
-**Option A: Use the published image (recommended)**
-
-```bash
-docker pull ghcr.io/nvidia/nvml-mock:latest
-kind load docker-image ghcr.io/nvidia/nvml-mock:latest --name nvml-mock-dra
-```
-
-**Option B: Build from source**
-
-```bash
-docker build -t nvml-mock:local -f deployments/nvml-mock/Dockerfile .
-kind load docker-image nvml-mock:local --name nvml-mock-dra
-```
-
-### 3. Install nvml-mock
-
-**With published image:**
-
-```bash
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
-  --wait --timeout 120s
-```
-
-**With locally built image:**
-
-```bash
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
-  --set image.repository=nvml-mock \
-  --set image.tag=local \
-  --wait --timeout 120s
-```
-
-### 4. Verify nvml-mock is running
-
-```bash
-kubectl rollout status daemonset/nvml-mock --timeout=60s
-```
-
-### 5. Install the DRA driver
-
-```bash
-helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
-helm repo update
-
-# The kubelet plugin's node affinity requires a GPU-presence label. NFD derives
-# one from the feature file nvml-mock writes; without NFD, set it by hand.
-kubectl label node --all nvidia.com/gpu.present=true
-
-helm install nvidia-dra-driver nvidia/nvidia-dra-driver-gpu \
-  --namespace nvidia \
-  --create-namespace \
-  --set nvidiaDriverRoot=/var/lib/nvml-mock/driver \
-  --set gpuResourcesEnabledOverride=true \
-  --set resources.computeDomains.enabled=false \
-  --wait --timeout 180s
-```
-
-### 6. Verify ResourceSlices
-
-```bash
-# DRA pods may take a few seconds to appear after helm install completes
-sleep 5
-kubectl -n nvidia wait --for=condition=ready pod --all --timeout=120s
-kubectl get resourceslices -o json | \
-  jq '[.items[].spec.devices // [] | length] | add // 0'
-```
-
-Expected: `4` (default gpu.count, derived from the `gb300` profile's four devices).
-
-### 7. Clean up
-
-```bash
-kind delete cluster --name nvml-mock-dra
-```
-
-## Quick Start: GPU Operator on Kind
-
-These steps bootstrap a Kind node with nvidia-container-toolkit. On a cluster
-that already has a container runtime configured for CDI, skip to
-[the GPU Operator demo](demo/with-gpu-operator/README.md).
-
-This path validates the NVIDIA GPU Operator stack (device plugin, GFD, validator)
-using CDI mode with mock GPUs. `tests/e2e/kind-gpu-operator-config.yaml` and
-`tests/e2e/gpu-operator-values.yaml` are a working manual setup, but they are
-not what CI runs: the `e2e-gpu-operator` job creates its cluster with
-`make cluster-create` and installs the Operator through
-`tilt ci -- --gpu-operator`, which passes
-`local/gpu-operator/gpu-operator.values.yaml`. Neither `tests/e2e` path appears
-in `.github/`, the `Makefile`, the `Tiltfile` or `local/`. The overlays happen
-to be value-identical today, and nothing enforces that.
-
-### 1. Create a KIND cluster
-
-```bash
-kind create cluster --name nvml-mock-operator \
-  --config tests/e2e/kind-gpu-operator-config.yaml
-```
-
-### 2. Install nvidia-container-toolkit in the Kind node
-
-```bash
-NODE_CONTAINER=nvml-mock-operator-control-plane
-docker exec "$NODE_CONTAINER" bash -c '
-  apt-get update -qq
-  apt-get install -y -qq curl gpg
-  curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
-    | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-  curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
-    | sed "s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g" \
-    | tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-  apt-get update -qq
-  apt-get install -y -qq nvidia-container-toolkit
-'
-```
-
-### 3. Configure CDI mode
-
-```bash
-docker exec "$NODE_CONTAINER" nvidia-ctk runtime configure \
-  --runtime=containerd --cdi.enabled --set-as-default
-docker exec "$NODE_CONTAINER" bash -c 'cat > /etc/nvidia-container-runtime/config.toml << EOF
-[nvidia-container-runtime]
-mode = "cdi"
-
-[nvidia-container-runtime.modes.cdi]
-default-kind = "nvidia.com/gpu"
-spec-dirs = ["/var/run/cdi", "/etc/cdi"]
-EOF'
-```
-
-### 4. Restart containerd
-
-```bash
-docker exec "$NODE_CONTAINER" systemctl restart containerd
-sleep 5
-```
-
-### 5. Load the nvml-mock image
-
-**Option A: Use the published image (recommended)**
-
-```bash
-docker pull ghcr.io/nvidia/nvml-mock:latest
-kind load docker-image ghcr.io/nvidia/nvml-mock:latest --name nvml-mock-operator
-```
-
-**Option B: Build from source**
-
-```bash
-docker build -t nvml-mock:local -f deployments/nvml-mock/Dockerfile .
-kind load docker-image nvml-mock:local --name nvml-mock-operator
-```
-
-### 6. Install nvml-mock
-
-**With published image:**
-
-```bash
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
-  --wait --timeout 120s
-```
-
-**With locally built image:**
-
-```bash
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
-  --set image.repository=nvml-mock \
-  --set image.tag=local \
-  --wait --timeout 120s
-```
-
-### 7. Install the GPU Operator
-
-The values overlay, the install command and the verification live with the
-demo, so there is one copy to keep correct:
-
-```bash
-cd docs/demo/with-gpu-operator && ./run.sh
-```
-
-`run.sh` installs nvml-mock itself, under its own release name
-(`nvml-mock-operator` in `mokka-operator`) so its cluster-scoped RBAC objects
-cannot collide with another demo's. That is a second release, not an upgrade of
-the `nvml-mock` one step 6 created, and the chart's hostPath mounts are
-release-independent, so remove step 6's release first:
-
-```bash
-helm uninstall nvml-mock
-```
-
-See [the GPU Operator demo](demo/with-gpu-operator/README.md) for what each
-disabled operand does, why the device plugin, GFD and dcgm-exporter each need
-`NVIDIA_DRIVER_ROOT=/var/lib/nvml-mock/driver`, and how the overlay relates to
-the one CI installs.
-
-### 8. Clean up
-
-```bash
-kind delete cluster --name nvml-mock-operator
-```
-
-## Quick Start: Multi-Node Heterogeneous GPU Fleet
-
-Simulate a cluster with different GPU types on different nodes by installing
-multiple Helm releases with `nodeSelector`. Each release creates its own
-DaemonSet, ConfigMap, and RBAC resources. The device plugin (or DRA driver)
-discovers different GPU types on each node, enabling heterogeneous scheduling
-and topology-aware placement testing.
-
-### 1. Create a Kind cluster with labeled workers
-
-```bash
-kind create cluster --name gpu-fleet --config tests/e2e/kind-multi-node-config.yaml
-```
-
-This creates 1 control-plane + 2 workers. The workers are pre-labeled
-`nvml-mock/profile=a100` and `nvml-mock/profile=t4` respectively.
-
-### 2. Build and load the nvml-mock image
-
-**Option A: Use the published image (recommended)**
-
-```bash
-docker pull ghcr.io/nvidia/nvml-mock:latest
-kind load docker-image ghcr.io/nvidia/nvml-mock:latest --name gpu-fleet
-```
-
-**Option B: Build from source**
-
-```bash
-docker build -t nvml-mock:local -f deployments/nvml-mock/Dockerfile .
-kind load docker-image nvml-mock:local --name gpu-fleet
-```
-
-### 3. Install nvidia-container-toolkit on workers
-
-```bash
-for NODE in $(kind get nodes --name gpu-fleet | grep worker); do
-  echo "Installing nvidia-container-toolkit on $NODE..."
-  docker exec "$NODE" bash -c '
-    apt-get update -qq &&
-    apt-get install -y -qq curl gpg > /dev/null &&
-    curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey |
-      gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg &&
-    curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list |
-      sed "s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g" |
-      tee /etc/apt/sources.list.d/nvidia-container-toolkit.list &&
-    apt-get update -qq &&
-    apt-get install -y -qq nvidia-container-toolkit > /dev/null
-  '
-  docker exec "$NODE" systemctl restart containerd
-done
-sleep 5
-```
-
-### 4. Install nvml-mock on each node
-
-**With published image:**
-
-```bash
-helm install nvml-mock-a100 oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
-  --set gpu.profile=a100 \
-  --set gpu.count=4 \
-  --set "nodeSelector.nvml-mock/profile=a100" \
-  --wait --timeout 120s
-
-helm install nvml-mock-t4 oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
-  --set gpu.profile=t4 \
-  --set gpu.count=2 \
-  --set "nodeSelector.nvml-mock/profile=t4" \
-  --wait --timeout 120s
-```
-
-**With locally built image:**
-
-```bash
-helm install nvml-mock-a100 oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
-  --set image.repository=nvml-mock \
-  --set image.tag=local \
-  --set gpu.profile=a100 \
-  --set gpu.count=4 \
-  --set "nodeSelector.nvml-mock/profile=a100" \
-  --wait --timeout 120s
-
-helm install nvml-mock-t4 oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
-  --set image.repository=nvml-mock \
-  --set image.tag=local \
-  --set gpu.profile=t4 \
-  --set gpu.count=2 \
-  --set "nodeSelector.nvml-mock/profile=t4" \
-  --wait --timeout 120s
-```
-
-### 5. Deploy the device plugin
-
-```bash
-kubectl apply -f tests/e2e/device-plugin-mock.yaml
-kubectl -n kube-system wait --for=condition=ready \
-  pod -l name=nvidia-device-plugin-mock --timeout=120s
-```
-
-### 6. Verify GPUs on both nodes
-
-```bash
-for NODE in $(kubectl get nodes -l nvml-mock/profile -o jsonpath='{.items[*].metadata.name}'); do
-  echo -n "$NODE: "
-  for i in $(seq 1 12); do
-    COUNT=$(kubectl get node "$NODE" -o jsonpath='{.status.allocatable.nvidia\.com/gpu}' 2>/dev/null)
-    if [ -n "$COUNT" ] && [ "$COUNT" != "0" ]; then
-      echo "${COUNT} GPUs"
-      break
-    fi
-    sleep 5
-  done
-done
-```
-
-Expected: worker with `a100` profile shows `4` GPUs, worker with `t4` profile shows `2` GPUs.
-
-### 7. Clean up
-
-```bash
-kind delete cluster --name gpu-fleet
-```
 
 ## Integration: fake-gpu-operator
 
@@ -535,7 +121,7 @@ gpu-profile-l40s                  1      10s
 gpu-profile-t4                    1      10s
 ```
 
-FGO loads these by name from its own namespace, so set `integrations.fakeGpuOperator.targetNamespace` to FGO's release namespace for them to be found. That requires FGO's `builtinProfiles.enabled=false`, because their builtin set uses the same seven names. See the [integration guide](integrations/fake-gpu-operator.md).
+FGO loads these by name from its own namespace, so set `integrations.fakeGpuOperator.targetNamespace` to FGO's release namespace for them to be found. That requires FGO's `builtinProfiles.enabled=false`, because their builtin set uses the same seven names. See the [fake-gpu-operator guide](guides/runai-fgo/README.md).
 
 ### Custom Labels
 
@@ -670,7 +256,7 @@ Two options, depending on intent:
 ## PCIe topology mocking
 
 Each profile carries a `pcie_topology:` block describing the host's PCI
-root-complex layout. The node agent's `pcibus` simulator reads it and writes a
+root-complex layout. The node daemon's `pcibus` simulator reads it and writes a
 fake sysfs tree at `/var/lib/nvml-mock/sys/...` matching what real Linux kernels
 expose. Topology-aware consumers (NVIDIA DRA driver, device plugins computing
 NUMA hints) resolve "which PCIe root complex a GPU lives on" via a standard
@@ -714,7 +300,7 @@ pcie_topology:
 ```
 
 Nothing validates the block, so a typo is not reported anywhere — not through
-the agent's `/healthz`. What the agent renders is the block reconciled against
+the daemon's `/healthz`. What the daemon renders is the block reconciled against
 the devices NVML reports, which silently absorbs most mistakes:
 
 - A `bus_id` that is not an address in the kernel's `DDDD:BB:DD.F` form is
@@ -746,7 +332,7 @@ Reaching the tree through `MOCK_PCI_ROOT` requires the `libpcisysfs.so`
 node's real `/sys`, where the mock GPUs do not exist. GPU Feature Discovery and
 the NVIDIA DRA driver are both Go.
 
-So the `nvidia.com/gpu` CDI spec the node agent writes bind-mounts the tree
+So the `nvidia.com/gpu` CDI spec the node daemon writes bind-mounts the tree
 read-only at the kernel paths:
 
 | Host | Container |
@@ -780,7 +366,7 @@ image writes `kind` there and re-binds it into every container after the
 container's own mounts are set up, and on hosts without DMI (Docker Desktop) it
 does not exist at all.
 
-The agent therefore writes the machine type to `driver/config/machine-type`. The
+The daemon therefore writes the machine type to `driver/config/machine-type`. The
 NRI plugin points `GFD_MACHINE_TYPE_FILE` at it, so with `nri.enabled` the label
 needs nothing from the operator's own configuration. A value authored on the
 container wins, for a cluster pinning a file of its own.
@@ -842,8 +428,8 @@ kubectl exec "$CLIENT_POD" -- ibping -c 3 "$LID"
 
 For automated cross-node validation (including peer restart and retries), use
 `tests/e2e/validate-ibping.sh`. LID-based ping is the supported path;
-cross-node `ibping -G <port_guid>` is supported (use `0x` hex without colons;
-see `internal/ib/README.md`). Companion fabric validators:
+cross-node `ibping -G <port_guid>` is supported (use `0x` hex without colons).
+Companion fabric validators:
 
 - [`tests/e2e/validate-iblinkinfo.sh`](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/e2e/validate-iblinkinfo.sh)
   — direct-route walk reports peer GUIDs without duplicate-port errors.
@@ -851,9 +437,9 @@ see `internal/ib/README.md`). Companion fabric validators:
   — `ibv_devinfo -l` claims every rendered HCA via libmlx5; `ibstatus`
   confirms ACTIVE / LinkUp port state.
 
-See [`internal/ib/README.md`](https://github.com/NVIDIA/k8s-test-infra/blob/main/internal/ib/README.md#tiers)
-for env vars (`MOCK_IB`, `MOCK_IB_PING_FABRIC`, `MOCK_IB_PEERS`, …) and
-architecture details.
+The mock reads `MOCK_IB`, `MOCK_IB_PING_FABRIC`, `MOCK_IB_ROOT` and
+`MOCK_IB_PEERS`. The chart derives the first three from the
+[`infiniband` values](#infiniband-mocking).
 
 ## Device injection mode
 
@@ -1063,12 +649,12 @@ namespace, on the pod IP where the kubelet reaches it.
 ### Node Labels
 
 nvml-mock writes no node labels itself. It writes a feature file NFD turns into
-one label, and NFD retires that label on its next cycle once the agent deletes
+one label, and NFD retires that label on its next cycle once the daemon deletes
 the file at shutdown:
 
 | Label | Written by | Removed by |
 |-------|-----------|------------|
-| `feature.node.kubernetes.io/pci-10de.present=true` | **NFD**, from a feature file the node agent writes | NFD, once the node agent deletes the file |
+| `feature.node.kubernetes.io/pci-10de.present=true` | **NFD**, from a feature file the node daemon writes | NFD, once the node daemon deletes the file |
 
 Labels under `nvidia.com/` — `gpu.present`, `gpu.count`, `gpu.product` — belong
 to NFD and GFD exactly as on real hardware, and are absent unless those are

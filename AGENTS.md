@@ -46,7 +46,116 @@ so all consumers and applications up the stack work without modifications.
 - Ensure sufficient and meaningful logging in the new or modified codebase.
 - Use log level appropriately. Debug level is or diagnosing or understanding internal execution; normally disabled in production and enabled during development. Info level is for meaningful, expected lifecycle or business events. Warning is for something unexpected, but the operation or service can continue. Error level is for The current operation failed and could not recover at this layer.
 
-## Docs
+## Comments
 
 - When leaving a comment in code, it should explain intent where it's not obvious — why we are doing something, not what we are doing, in most cases. Don't write comments based on the current conversation context; they should generally be valuable long-term for readers.
-- Any documentation you produce must be concise and straight to the point.
+
+## Docs
+
+- Write high-quality technical documentation for this project using **MkDocs with the Material theme**.
+- First, inspect the project structure, source code, configuration, existing documentation, examples, and tests. Build an accurate mental model before writing. 
+- Do not invent behavior or capabilities that are not supported by the repository.
+
+### Writing style
+
+* Be concise, direct, and technically precise.
+* Explain concepts in plain language before introducing specialized terminology.
+* Focus on what the system does, why it exists, how its parts fit together, and how users interact with it.
+* Describe implementation at the architectural level: summarize the approach, important components, data flow, lifecycle, and design decisions.
+* Do not walk through source code line by line or document trivial implementation details.
+* Use concrete examples where they improve understanding.
+* Avoid marketing language, filler, repetition, and generic introductions.
+* Define acronyms and project-specific terms on first use.
+
+### Structure
+
+The site has three top-level spaces. Place a page by who is reading it, not by
+what it is about.
+
+* **General** — someone learning or operating Mokka. Overview, Getting Started,
+  Architecture, Reference, Troubleshooting, FAQ.
+* **Guides** — someone with a specific goal. How-to scenarios and Tasks.
+* **Contributing** — someone changing Mokka. Local development, testing,
+  enhancement proposals, pull requests.
+
+Within General, order pages so each builds progressively on the last: Overview → Getting
+started → Concepts → Architecture → Reference → Troubleshooting.
+
+Placement rules:
+
+* Assume the reader is running Mokka in Kubernetes. The local `LD_LIBRARY_PATH`
+  build is the contributor workflow and belongs under Contributing.
+* Every fact has exactly one home. Link to it; never restate it. A fact written
+  twice is a fact that will disagree with itself.
+* The landing page says what Mokka is, shows one install, and routes. No
+  reference tables — it is the most-read and least-maintained page.
+* Architecture pages describe the moving parts, how they connect, and how the
+  system behaves. Each component gets its own page under Architecture, covering
+  what it does and how it behaves.
+* A guide is customer-facing and self-contained: it runs without a repository
+  clone, installs published artifacts, and keeps its assets beside it. A guide
+  that needs the repo is a test script, not a guide.
+* Create only pages the project justifies. Do not add a section to complete an
+  outline.
+
+Create only pages justified by the project. Do not add empty or generic sections merely to follow this outline.
+
+### MkDocs Material features
+
+Use Material features when they materially improve comprehension:
+
+* admonitions such as `note`, `tip`, `warning`, and `example`;
+* content tabs for meaningful alternatives;
+* Mermaid diagrams for architecture, workflows, state transitions, or resource relationships;
+* code annotations for non-obvious parts of short examples;
+* tables for exact comparisons, field definitions, states, and mappings;
+* collapsible sections for optional or advanced details;
+* footnotes, abbreviations, tooltips, and glossary entries where useful;
+* clearly labeled code blocks with appropriate language identifiers;
+* page metadata and navigation where supported by the existing configuration.
+
+Do not overuse these features. Prefer ordinary prose when it communicates the idea more clearly.
+
+### Cross-references
+
+Treat the documentation as a connected system rather than isolated pages.
+
+* Cross-reference related concepts, guides, and reference pages.
+* Link a term to its canonical explanation instead of redefining it everywhere.
+* Use stable relative links compatible with MkDocs.
+* Use descriptive link text—not “here” or raw filenames.
+* Avoid duplicate explanations; keep one authoritative explanation and link to it.
+* Verify that every internal link and heading anchor resolves correctly.
+
+### Level of detail
+
+Choose detail according to the reader’s needs:
+
+* Explain public behavior, user-visible resources, configuration, workflows, invariants, and operational consequences.
+* Explain internal components only when they help readers understand behavior, operate the system, troubleshoot it, or contribute effectively.
+* Summarize algorithms and controller logic as inputs → decisions → outputs.
+* Mention important edge cases and failure modes.
+* Omit private helper functions, routine plumbing, and line-by-line implementation commentary.
+* Link to relevant source files only when a contributor genuinely benefits from seeing the implementation.
+
+### Accuracy requirements
+
+* Derive all technical claims from the repository.
+* Keep terminology consistent with the code and APIs.
+* Clearly distinguish current behavior from planned or proposed behavior.
+* Do not assume defaults—verify them.
+* Ensure commands and examples are runnable and internally consistent.
+* Identify uncertainty or missing information instead of guessing.
+* Preserve useful existing documentation, improving or reorganizing it where necessary.
+
+Produce or update the Markdown pages, `mkdocs.yml` navigation, and required Material extensions. Finish by checking:
+
+* navigation and page hierarchy;
+* internal links and anchors;
+* terminology consistency;
+* code examples and commands;
+* duplicated or unnecessarily detailed content;
+* compatibility with the project’s MkDocs configuration.
+
+The final result should let a technically competent newcomer understand the project, get it running, 
+form the correct mental model, and find deeper reference information without being overwhelmed by implementation details.

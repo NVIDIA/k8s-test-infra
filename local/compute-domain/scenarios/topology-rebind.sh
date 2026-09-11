@@ -8,7 +8,7 @@
 # node into clique 99 of a new domain UUID, DaemonSet pods are evicted
 # so the mock NVML engine re-reads MOCK_TOPOLOGY_CONFIG on the next
 # process start, and check-fabric re-asserts the new identity. Ported
-# from docs/demo/compute-domain/run.sh Scenario 3 (lines 313-351).
+# from docs/guides/compute-domain/run.sh Scenario 3 (lines 313-351).
 
 set -euo pipefail
 
