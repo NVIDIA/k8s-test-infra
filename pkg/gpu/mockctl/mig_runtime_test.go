@@ -172,7 +172,7 @@ func TestMIGAddGpuInstance_ConcurrentWritersBothLand(t *testing.T) {
 
 	// Released together rather than as they are spawned, so the writers really
 	// do contend instead of happening to serialize behind the loop. The gate is
-	// only closed once every writer is parked on it: closing it earlier would
+	// only closed once every writer has reached it: closing it earlier would
 	// let a late-starting goroutine sail through without ever blocking.
 	start := make(chan struct{})
 	var ready, wg sync.WaitGroup
@@ -360,9 +360,28 @@ func TestMIGRemoveGpuInstance_RejectsAnUnrecordedLayout(t *testing.T) {
 
 	err = MIGRemoveGpuInstance(path, 0, 1)
 	require.ErrorContains(t, err, "gpu instance 1 is not recorded")
+	require.ErrorContains(t, err, "device 0", "a rejection must name the device it was refused for")
+	require.ErrorContains(t, err, path, "a rejection must name the document it was refused against")
 
 	after, err := os.ReadFile(path)
 	require.NoError(t, err)
 	require.Equal(t, before, after, "a rejected removal must not rewrite the document")
 	require.Nil(t, migDoc(t, path).Instances, "the declared counts must still stand")
+}
+
+// An unrecorded compute instance list holds exactly the engine's default
+// spanning instance, so removing any other id from it has no delta to take:
+// emptying the list would record the destruction of the spanning instance
+// rather than the one named.
+func TestMIGRemoveComputeInstance_RejectsANonDefaultIDOnAnAbsentList(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "overrides.yaml")
+	require.NoError(t, MIGSetMode(path, 0, true))
+	require.NoError(t, MIGAddGpuInstance(path, 0, engine.MIGGPUInstanceRecord{ID: 1, Profile: "3g.20gb"}))
+
+	err := MIGRemoveComputeInstance(path, 0, 1, 2)
+	require.ErrorContains(t, err, "compute instance 2 is not recorded in gpu instance 1")
+
+	require.Nil(t, (*migDoc(t, path).Instances)[0].ComputeInstances,
+		"the default spanning instance must survive a removal that never named it")
 }
