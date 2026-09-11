@@ -14,7 +14,7 @@ not exist. Five minutes, no NVIDIA hardware.
 ```bash
 kind create cluster --name mokka
 
-helm install mokka \
+helm install nvml-mock \
     oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
     --namespace mokka \
     --create-namespace
@@ -26,7 +26,7 @@ current context.
 ## Verify
 
 ```bash
-kubectl exec -n mokka ds/mokka-nvml-mock -- nvidia-smi -L
+kubectl exec -n mokka ds/nvml-mock -- nvidia-smi -L
 ```
 
 ```text
@@ -44,7 +44,7 @@ of a physical one. `nvidia-smi -q` works too, and reports the full profile.
 `gb300` is the default. Every node in the cluster takes the same profile:
 
 ```bash
-helm upgrade mokka \
+helm upgrade nvml-mock \
     oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
     --namespace mokka \
     --set gpu.profile=a100
@@ -57,7 +57,7 @@ and how to change individual values.
 ## Clean up
 
 ```bash
-helm uninstall mokka --namespace mokka
+helm uninstall nvml-mock --namespace mokka
 kind delete cluster --name mokka          # if you created one above
 ```
 

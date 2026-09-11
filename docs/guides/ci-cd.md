@@ -37,7 +37,7 @@ jobs:
 
       - name: Install Mokka
         run: |
-          helm install mokka \
+          helm install nvml-mock \
             oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
             --version 0.3.0 \
             --namespace mokka --create-namespace \
