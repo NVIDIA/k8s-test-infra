@@ -16,6 +16,7 @@ package engine
 import (
 	"testing"
 
+	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/stretchr/testify/require"
 )
 
@@ -242,4 +243,74 @@ func TestApplyMIGLayout_EmptyComputeInstanceListCreatesNone(t *testing.T) {
 	require.Len(t, gis, 1)
 
 	require.Empty(t, liveComputeInstances(gis[0]))
+}
+
+// The records a mutation writes down have to describe the board it is about
+// to change, identities included: the delta that follows edits them by ID.
+func TestMIGLayoutRecords_MirrorsTheLiveBoard(t *testing.T) {
+	t.Parallel()
+
+	dev := newTestDeviceWithConfig(t, a100MIGConfig())
+	enableMIG(t, dev)
+	first := createOneSliceGI(t, dev)
+	createSpanningCI(t, first)
+	createOneSliceGI(t, dev)
+
+	records := dev.MIGLayoutRecords()
+
+	require.Len(t, records, 2)
+	require.Equal(t, uint32(0), records[0].ID)
+	require.Equal(t, uint32(1), records[1].ID)
+	for _, rec := range records {
+		require.NotNil(t, rec.ProfileID)
+		require.Equal(t, nvml.GPU_INSTANCE_PROFILE_1_SLICE, *rec.ProfileID)
+		require.NotNil(t, rec.PlacementStart)
+	}
+	require.Equal(t, 0, *records[0].PlacementStart)
+	require.Equal(t, 1, *records[1].PlacementStart)
+
+	require.NotNil(t, records[0].ComputeInstances)
+	require.Len(t, *records[0].ComputeInstances, 1)
+	require.Equal(t, uint32(0), (*records[0].ComputeInstances)[0].ID)
+}
+
+// The records have to reproduce the board they were read from. A GPU instance
+// with no compute instances is the case that can silently gain one: an absent
+// list is how a record asks for the spanning default, so recording "none" as
+// silence would hand the next process a partition nobody created.
+func TestMIGLayoutRecords_RoundTripABoardWithNoComputeInstances(t *testing.T) {
+	t.Parallel()
+
+	source := newTestDeviceWithConfig(t, a100MIGConfig())
+	enableMIG(t, source)
+	createOneSliceGI(t, source)
+
+	records := source.MIGLayoutRecords()
+
+	replica := newTestDeviceWithConfig(t, a100MIGConfig())
+	enableMIG(t, replica)
+	replica.applyMIGLayout(&MIGConfig{ModeCurrent: migModeEnabled, Instances: &records})
+
+	st := replica.migState
+	st.mu.Lock()
+	gis := st.liveGpuInstances(replica)
+	st.mu.Unlock()
+	require.Len(t, gis, 1)
+	require.Empty(t, liveComputeInstances(gis[0]),
+		"a recorded instance with no compute instances must come back with none")
+}
+
+// A board that is not partitioned has no layout rather than an empty one:
+// recording an empty list would say every instance was destroyed, which for a
+// board whose partitions its profile declares is a very different document.
+func TestMIGLayoutRecords_UnpartitionableBoardHasNoLayout(t *testing.T) {
+	t.Parallel()
+
+	dev := newTestDeviceWithConfig(t, a100MIGConfig())
+
+	require.Nil(t, dev.MIGLayoutRecords(), "MIG is off on this board")
+
+	enableMIG(t, dev)
+	require.NotNil(t, dev.MIGLayoutRecords(), "an enabled board with nothing on it has an empty layout")
+	require.Empty(t, dev.MIGLayoutRecords())
 }

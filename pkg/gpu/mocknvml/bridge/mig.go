@@ -76,12 +76,7 @@ func nvmlDeviceSetMigMode(device C.nvmlDevice_t, mode C.uint, activationStatus *
 	if ret, ok := bridgeVersionCheck("nvmlDeviceSetMigMode"); !ok {
 		return ret
 	}
-	dev := engine.GetEngine().LookupConfigurableDevice(unsafe.Pointer(device.handle))
-	if dev == nil {
-		return C.NVML_ERROR_INVALID_ARGUMENT
-	}
-
-	ret, activation := dev.SetMigMode(int(mode))
+	ret, activation := migSetMode(unsafe.Pointer(device.handle), int(mode))
 	if activationStatus != nil {
 		*activationStatus = toReturn(activation)
 	}
@@ -265,8 +260,7 @@ func nvmlDeviceCreateGpuInstance(
 	if gpuInstance == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle, ret := engine.GetEngine().DeviceCreateGpuInstance(
-		unsafe.Pointer(device.handle), int(profileId), nil)
+	handle, ret := migCreateGpuInstance(unsafe.Pointer(device.handle), int(profileId), nil)
 	if ret != nvml.SUCCESS {
 		return toReturn(ret)
 	}
@@ -289,8 +283,7 @@ func nvmlDeviceCreateGpuInstanceWithPlacement(
 		Start: uint32(placement.start),
 		Size:  uint32(placement.size),
 	}
-	handle, ret := engine.GetEngine().DeviceCreateGpuInstance(
-		unsafe.Pointer(device.handle), int(profileId), &want)
+	handle, ret := migCreateGpuInstance(unsafe.Pointer(device.handle), int(profileId), &want)
 	if ret != nvml.SUCCESS {
 		return toReturn(ret)
 	}
@@ -303,7 +296,7 @@ func nvmlGpuInstanceDestroy(gpuInstance C.nvmlGpuInstance_t) C.nvmlReturn_t {
 	if ret, ok := bridgeVersionCheck("nvmlGpuInstanceDestroy"); !ok {
 		return ret
 	}
-	return toReturn(engine.GetEngine().GpuInstanceDestroy(unsafe.Pointer(gpuInstance)))
+	return toReturn(migDestroyGpuInstance(unsafe.Pointer(gpuInstance)))
 }
 
 //export nvmlDeviceGetGpuInstances
@@ -521,8 +514,7 @@ func nvmlGpuInstanceCreateComputeInstance(
 	if computeInstance == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle, ret := engine.GetEngine().GpuInstanceCreateComputeInstance(
-		unsafe.Pointer(gpuInstance), int(profileId), nil)
+	handle, ret := migCreateComputeInstance(unsafe.Pointer(gpuInstance), int(profileId), nil)
 	if ret != nvml.SUCCESS {
 		return toReturn(ret)
 	}
@@ -545,8 +537,7 @@ func nvmlGpuInstanceCreateComputeInstanceWithPlacement(
 		Start: uint32(placement.start),
 		Size:  uint32(placement.size),
 	}
-	handle, ret := engine.GetEngine().GpuInstanceCreateComputeInstance(
-		unsafe.Pointer(gpuInstance), int(profileId), &want)
+	handle, ret := migCreateComputeInstance(unsafe.Pointer(gpuInstance), int(profileId), &want)
 	if ret != nvml.SUCCESS {
 		return toReturn(ret)
 	}
@@ -559,7 +550,7 @@ func nvmlComputeInstanceDestroy(computeInstance C.nvmlComputeInstance_t) C.nvmlR
 	if ret, ok := bridgeVersionCheck("nvmlComputeInstanceDestroy"); !ok {
 		return ret
 	}
-	return toReturn(engine.GetEngine().ComputeInstanceDestroy(unsafe.Pointer(computeInstance)))
+	return toReturn(migDestroyComputeInstance(unsafe.Pointer(computeInstance)))
 }
 
 //export nvmlGpuInstanceGetComputeInstances

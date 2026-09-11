@@ -35,6 +35,61 @@ func (d *ConfigurableDevice) applyMIGLayout(cfg *MIGConfig) {
 	d.applyDeclaredPartitions(cfg.GPUInstances)
 }
 
+// MIGLayoutRecords reports the board's live partitioning in the form the
+// override document records it, ordered by GPU instance ID so the document a
+// caller writes from it is reproducible.
+//
+// It is the baseline a runtime mutation needs: the recorded layout is edited
+// by difference, and a board partitioned from declared counts has no layout to
+// take a difference against until one is written down.
+//
+// A board that cannot be partitioned — MIG off, or not a MIG board at all —
+// has no layout rather than an empty one, and reports nil. An empty list is
+// the distinct state "MIG on with every instance destroyed", and recording
+// that for a board whose partitions are merely switched off would destroy the
+// ones its profile declares.
+//
+// Every instance comes back with a non-nil compute-instance list, empty
+// included, because an absent list is what asks the create path for the
+// spanning default: a layout written from a board whose instances carry none
+// would otherwise come back with one apiece.
+//
+// Profiles are recorded by ID, which is the identity the instance carries.
+// Naming them instead would go through a spelling more than one profile pair
+// answers to, and the layout would read back as a partition nobody created.
+func (d *ConfigurableDevice) MIGLayoutRecords() []MIGGPUInstanceRecord {
+	st, ret := d.migEnabled()
+	if ret != nvml.SUCCESS {
+		return nil
+	}
+
+	instances := st.liveGpuInstances(d)
+	records := make([]MIGGPUInstanceRecord, 0, len(instances))
+	for _, gi := range instances {
+		profileID := int(gi.Info.ProfileId)
+		placementStart := int(gi.Info.Placement.Start)
+		records = append(records, MIGGPUInstanceRecord{
+			ID:               gi.Info.Id,
+			ProfileID:        &profileID,
+			PlacementStart:   &placementStart,
+			ComputeInstances: computeInstanceRecords(gi),
+		})
+	}
+	return records
+}
+
+// computeInstanceRecords renders a GPU instance's compute instances as records,
+// ID-ordered for the same reason the instances themselves are.
+func computeInstanceRecords(gi *mockserver.GpuInstance) *[]MIGComputeInstanceRecord {
+	live := liveComputeInstances(gi)
+	records := make([]MIGComputeInstanceRecord, 0, len(live))
+	for _, ci := range live {
+		profileID := int(ci.Info.ProfileId)
+		records = append(records, MIGComputeInstanceRecord{ID: ci.Info.Id, ProfileID: &profileID})
+	}
+	return &records
+}
+
 // applyExplicitPartitions recreates exactly the instances the layout records,
 // under the IDs and placements it records them with.
 //
