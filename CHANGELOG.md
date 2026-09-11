@@ -83,6 +83,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a follow-up. (#712)
 
 ### Added
+- mocknvml: the MIG lifecycle is implemented rather than stubbed. Creating and
+  destroying GPU and compute instances, and turning MIG mode on and off, now
+  work over the C ABI as they do against a driver, so `nvidia-smi -mig 1` and
+  `nvidia-smi mig -cgi/-cci/-dgi/-dci` run unmodified against the mock. Each
+  mutation is recorded in the override document, so it outlives the
+  `nvidia-smi` process that made it and reaches every other consumer on the
+  node within one TTL — which is what makes a partition visible to a separate
+  `nvidia-smi`, to DCGM and to GFD at all, since every process gets its own
+  engine. A mutation that cannot be recorded fails with
+  `NVML_ERROR_NO_PERMISSION` instead of succeeding in one process only, matching
+  what the driver reports when the call is made without the permissions it
+  needs. This changes the **NVML view** only: `/dev/nvidia-caps` and the
+  `mig-minors` table are staged once from the profile, so the device plugin
+  cannot allocate what a runtime repartition produces, and returning the node to
+  an allocatable state needs an `nvml-mock` pod restart. Documented in
+  `docs/nvml-mock-ctl.md`. (#241)
+- mocknvml: a profile or override can declare MIG partitions explicitly, giving
+  each GPU instance a fixed id and naming its compute instances, alongside the
+  existing `profile`/`count` form. Fixed ids are what let a partition be deleted
+  by id from a process that did not create it, and what keeps `nvidia-smi -L`
+  reporting the same MIG UUIDs across processes. A changed layout is applied by
+  difference: only the missing instances are created and only the superfluous
+  ones destroyed, so a consumer that is already running follows a repartition
+  instead of losing the instances it still holds handles to. (#241)
+- nvml-mock chart: `gpu.mig.enabled` activates the MIG layout a profile declares
+  under `device_defaults.mig.gpu_instances`, and `gpu.mig.gpuInstances`
+  overrides it with a different partitioning. The `a100` and `h100` profiles
+  declare default layouts. Off by default, because a partitioned board stops
+  publishing `nvidia.com/gpu` under the device plugin's `migStrategy=single`.
+  With it on, the plugin serves MIG resources and the agent publishes CDI
+  entries for each partition, so a MIG workload can be scheduled and admitted on
+  a CPU-only node. (#241)
 - The `mokka-crds` chart is published to
   `oci://ghcr.io/nvidia/k8s-test-infra/chart` and cosign-signed, alongside the
   `nvml-mock` chart. It was previously linted and template-rendered in CI but
