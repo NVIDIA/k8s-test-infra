@@ -171,20 +171,25 @@ func TestMIGAddGpuInstance_ConcurrentWritersBothLand(t *testing.T) {
 	require.NoError(t, MIGSetMode(path, 0, true))
 
 	// Released together rather than as they are spawned, so the writers really
-	// do contend instead of happening to serialize behind the loop.
+	// do contend instead of happening to serialize behind the loop. The gate is
+	// only closed once every writer is parked on it: closing it earlier would
+	// let a late-starting goroutine sail through without ever blocking.
 	start := make(chan struct{})
-	var wg sync.WaitGroup
+	var ready, wg sync.WaitGroup
 	errs := make([]error, 8)
 	for i := range errs {
+		ready.Add(1)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			ready.Done()
 			<-start
 			errs[i] = MIGAddGpuInstance(path, 0, engine.MIGGPUInstanceRecord{
 				ID: uint32(i), Profile: "1g.5gb",
 			})
 		}()
 	}
+	ready.Wait()
 	close(start)
 	wg.Wait()
 	for _, err := range errs {
@@ -292,8 +297,10 @@ func TestMIGSetMode_NoChangeDoesNotRewriteTheFile(t *testing.T) {
 
 // The `instances` list round-trips through the typed records on every write,
 // including writes that do not touch the layout, so a zero a record carries
-// has to survive that trip. It does because each field is either
-// non-omitempty or a pointer; a plain omitempty value field would not.
+// has to survive that trip. It does because every field whose zero the engine
+// has to tell from absent is either non-omitempty or a pointer; an omitempty
+// scalar added to either record type would not survive. Both record types are
+// seeded, since either one could grow such a field.
 func TestMIGAddGpuInstance_ZeroesInsideARecordSurvive(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "overrides.yaml")
@@ -304,6 +311,9 @@ func TestMIGAddGpuInstance_ZeroesInsideARecordSurvive(t *testing.T) {
 		"mode_pending": "enabled",
 		"instances": []any{map[string]any{
 			"id": 0, "profile": "1g.5gb", "placement_start": 0,
+			"compute_instances": []any{map[string]any{
+				"id": 0, "profile": "1c", "profile_id": 0,
+			}},
 		}},
 	})
 	require.NoError(t, WriteAtomic(path, doc))
@@ -325,4 +335,34 @@ func TestMIGAddGpuInstance_ZeroesInsideARecordSurvive(t *testing.T) {
 	require.EqualValues(t, 0, seeded["id"])
 	require.Contains(t, seeded, "placement_start", "a placement of zero must survive a mutation")
 	require.EqualValues(t, 0, seeded["placement_start"])
+
+	cis, ok := seeded["compute_instances"].([]any)
+	require.True(t, ok)
+	require.Len(t, cis, 1)
+	ci, ok := cis[0].(map[string]any)
+	require.True(t, ok)
+	require.Contains(t, ci, "id", "a compute instance id of zero must survive a mutation")
+	require.EqualValues(t, 0, ci["id"])
+	require.Contains(t, ci, "profile_id", "a compute profile id of zero must survive a mutation")
+	require.EqualValues(t, 0, ci["profile_id"])
+}
+
+// Removing an instance from a device whose layout was never recorded cannot be
+// expressed as a delta: absent means the profile's declared counts stand, so
+// the remainder is unknowable and writing it as an empty list would record the
+// destruction of every instance on the board.
+func TestMIGRemoveGpuInstance_RejectsAnUnrecordedLayout(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "overrides.yaml")
+	require.NoError(t, MIGSetMode(path, 0, true))
+	before, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	err = MIGRemoveGpuInstance(path, 0, 1)
+	require.ErrorContains(t, err, "gpu instance 1 is not recorded")
+
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, before, after, "a rejected removal must not rewrite the document")
+	require.Nil(t, migDoc(t, path).Instances, "the declared counts must still stand")
 }
