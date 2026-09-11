@@ -446,9 +446,10 @@ device_defaults:
     max_gpu_instances: 7
 ```
 
-Repartition at runtime with
-[`nvml-mock-ctl mig`](nvml-mock-ctl.md#mig--repartition-a-gpu-at-runtime), which
-changes the NVML view only — allocating the result still needs a pod restart.
+Repartition at runtime with `nvidia-smi -mig` and `nvidia-smi mig -cgi/-dgi`
+(see [MIG partitioning](nvml-mock-ctl.md#mig-partitioning--use-nvidia-smi)),
+which changes the NVML view only — allocating the result still needs a pod
+restart.
 
 ### InfoROM
 

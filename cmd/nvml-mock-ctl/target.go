@@ -122,10 +122,10 @@ func mutateWithConfig(cmd *cli.Command, cfg *engine.Config, apply mutation) erro
 	return nil
 }
 
-// commandLabel names the change the way the operator asked for it. A
-// subcommand's own Name is the bare verb, so `mig enable` would confirm itself
-// as "enable" — a word that says nothing about what was enabled. The root's
-// name is dropped, leaving a command without subcommands printing just its own.
+// commandLabel names the change the way the operator asked for it: the full
+// command path with the root's own name dropped, so a command without
+// subcommands prints just its own. A nested command's Name is the bare verb,
+// which on its own would say nothing about what the verb acted on.
 func commandLabel(cmd *cli.Command) string {
 	path := cmd.Path()
 	if len(path) > 1 {

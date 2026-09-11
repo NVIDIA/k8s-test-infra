@@ -95,7 +95,6 @@ func newCLI(stdout, stderr io.Writer) *cli.Command {
 			nvlinkErrorCommand(),
 			sramECCCommand(),
 			fabricHealthCommand(),
-			migCommand(),
 			setCommand(),
 			statusCommand(),
 			resetCommand(),
