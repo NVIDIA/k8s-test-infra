@@ -97,6 +97,12 @@ type ConfigurableDevice struct {
 	// from tearing a partitioned board down and rebuilding it.
 	appliedMIG *MIGConfig
 
+	// migDirty asks for one reconcile the document cannot ask for itself. See
+	// MarkMIGDirty: a mutation this process applied but could not record
+	// leaves the board ahead of a file that never changed, so neither the
+	// generation nor appliedMIG would report anything to do.
+	migDirty atomic.Bool
+
 	// onRepartition reports the MIG devices a repartition destroyed. The handle
 	// tables live on Engine and a device has no back-reference to it, so the
 	// engine supplies this at construction; it is nil for a device a test
@@ -246,7 +252,11 @@ func (d *ConfigurableDevice) failureInjector() *failureInjector {
 // runs when overrides actually changed.
 func (d *ConfigurableDevice) refresh() {
 	gen, doc := configOverrides.snapshot()
-	if atomic.LoadUint64(&d.appliedGen) == gen {
+	// The dirty flag is consulted alongside the generation because a device
+	// can be out of step with a document that never changed; reconcileMIG
+	// clears it. Costing the hot path one atomic load keeps that case from
+	// needing a second refresh entry point of its own.
+	if atomic.LoadUint64(&d.appliedGen) == gen && !d.migDirty.Load() {
 		return
 	}
 	// TryLock rather than Lock: reconcileMIG rebuilds the partitioning through
@@ -269,7 +279,7 @@ func (d *ConfigurableDevice) refresh() {
 		return
 	}
 	defer d.refreshMu.Unlock()
-	if d.appliedGen == gen {
+	if d.appliedGen == gen && !d.migDirty.Load() {
 		return
 	}
 

@@ -937,3 +937,36 @@ func TestCreateServer_WiresRepartitionHook(t *testing.T) {
 	require.NotNil(t, server.configurableDevices[0].onRepartition,
 		"a repartition must be able to retire the handles the engine owns")
 }
+
+// TestMarkMIGDirty_ResyncsAgainstAnUnchangedDocument: the one drift the
+// document cannot report. A mutation the board took but the recorder refused
+// leaves the process ahead of a file nothing has touched, so neither the
+// generation nor the last-applied config has anything to say — and the
+// partition the mutation destroyed would stay destroyed for the life of the
+// process.
+func TestMarkMIGDirty_ResyncsAgainstAnUnchangedDocument(t *testing.T) {
+	dev, _, _ := newTestDevice(t, a100PartitionedConfig())
+	require.Equal(t, a100PlacementCapacity, migPartitionCount(t, dev))
+
+	gi, ret := dev.GetGpuInstanceById(3)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, nvml.SUCCESS, gi.Destroy())
+	require.Equal(t, a100PlacementCapacity-1, migPartitionCount(t, dev),
+		"an unmarked device must stay as the mutation left it")
+
+	dev.MarkMIGDirty()
+
+	require.Equal(t, a100PlacementCapacity, migPartitionCount(t, dev),
+		"the document is authoritative and still declares every partition")
+}
+
+// The mark is spent by the pass it asks for: leaving it set would rebuild the
+// board on every refresh afterwards, retiring MIG device handles a consumer is
+// holding each time.
+func TestMarkMIGDirty_IsClearedByTheResync(t *testing.T) {
+	dev, _, _ := newTestDevice(t, a100PartitionedConfig())
+
+	dev.MarkMIGDirty()
+	require.Equal(t, a100PlacementCapacity, migPartitionCount(t, dev))
+	require.False(t, dev.migDirty.Load(), "the reconcile must consume the mark")
+}

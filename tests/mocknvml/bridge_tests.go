@@ -71,7 +71,8 @@ func bridgeTests(deviceCount int) []testResult {
 // handle that outlives its instance only shows up at this level.
 //
 // Device 2 boots partitioned from the fixture; device 0 starts with MIG off and
-// is partitioned at runtime, which is what nvidia-mig-parted does.
+// is partitioned at runtime, which is what nvidia-mig-parted does. Device 1 is
+// partitioned at runtime as well, to read back what the library recorded.
 //
 // The instance-list leg leaves go-nvml behind: go-nvml presets the count
 // argument that the C ABI documents as output-only, so only a direct C call
@@ -85,6 +86,9 @@ func testMIG(deviceCount int) []testResult {
 	results = append(results, testMIGDeclaredPartitions()...)
 	results = append(results, testMIGRuntimeLifecycle()...)
 	results = append(results, testMIGInstanceListsFromC()...)
+	if deviceCount > 1 {
+		results = append(results, testMIGPersistence()...)
+	}
 	return results
 }
 

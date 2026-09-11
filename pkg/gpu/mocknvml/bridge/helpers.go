@@ -113,6 +113,13 @@ func debugLog(format string, args ...any) {
 	}
 }
 
+// warnLog always prints to stderr, for the calls that answer a consumer with
+// a failure it cannot diagnose from the return code alone. It carries the
+// engine's prefix so both halves of the library read as one log.
+func warnLog(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "[MOCK_NVML WARNING] "+format, args...)
+}
+
 // toReturn converts Go nvml.Return to C nvmlReturn_t
 func toReturn(ret nvml.Return) C.nvmlReturn_t {
 	return C.nvmlReturn_t(ret)

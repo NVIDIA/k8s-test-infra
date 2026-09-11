@@ -385,3 +385,70 @@ func TestMIGRemoveComputeInstance_RejectsANonDefaultIDOnAnAbsentList(t *testing.
 	require.Nil(t, (*migDoc(t, path).Instances)[0].ComputeInstances,
 		"the default spanning instance must survive a removal that never named it")
 }
+
+// The baseline a delta needs. Without it the removal below has no list to
+// take an instance out of, and the writers refuse it rather than guess.
+func TestMIGSeedLayout_SeedsTheBoardADeltaThenEdits(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "overrides.yaml")
+	require.NoError(t, MIGSetMode(path, 0, true))
+
+	require.NoError(t, MIGSeedLayout(path, 0, []engine.MIGGPUInstanceRecord{
+		{ID: 0, Profile: "1g.5gb"},
+		{ID: 1, Profile: "1g.5gb"},
+		{ID: 2, Profile: "1g.5gb"},
+	}))
+	require.NoError(t, MIGRemoveGpuInstance(path, 0, 1))
+
+	mig := migDoc(t, path)
+	require.NotNil(t, mig.Instances)
+	ids := make([]uint32, 0, len(*mig.Instances))
+	for _, gi := range *mig.Instances {
+		ids = append(ids, gi.ID)
+	}
+	require.Equal(t, []uint32{0, 2}, ids, "the survivors, not an empty list")
+}
+
+// Every mutation seeds, so all but the first find a layout already there. It
+// is the record of what earlier mutations did, and the live board a later
+// seed would overwrite it with is a board those mutations already changed.
+func TestMIGSeedLayout_LeavesARecordedLayoutAlone(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "overrides.yaml")
+	require.NoError(t, MIGSetMode(path, 0, true))
+	require.NoError(t, MIGAddGpuInstance(path, 0, engine.MIGGPUInstanceRecord{ID: 5, Profile: "1g.5gb"}))
+
+	require.NoError(t, MIGSeedLayout(path, 0, []engine.MIGGPUInstanceRecord{{ID: 0, Profile: "1g.5gb"}}))
+
+	mig := migDoc(t, path)
+	require.Len(t, *mig.Instances, 1)
+	require.Equal(t, uint32(5), (*mig.Instances)[0].ID, "the recorded layout must win")
+}
+
+// A board with nothing on it is a layout — the state a fresh `nvidia-smi
+// -mig 1` leaves — and has to be recorded as the empty list, so the create
+// that follows appends to it rather than to the profile's declared counts.
+func TestMIGSeedLayout_AnEmptyBoardIsAnEmptyLayout(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "overrides.yaml")
+	require.NoError(t, MIGSetMode(path, 0, true))
+
+	require.NoError(t, MIGSeedLayout(path, 0, []engine.MIGGPUInstanceRecord{}))
+
+	mig := migDoc(t, path)
+	require.NotNil(t, mig.Instances)
+	require.Empty(t, *mig.Instances)
+}
+
+// A device with no layout to read — MIG off, or not a MIG board — must not be
+// written down as one with nothing on it: that is the document that destroys
+// every partition the profile declares.
+func TestMIGSeedLayout_NoLayoutWritesNothing(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "overrides.yaml")
+
+	require.NoError(t, MIGSeedLayout(path, 0, nil))
+
+	_, err := os.Stat(path)
+	require.ErrorIs(t, err, os.ErrNotExist, "seeding nothing must not create the document")
+}
