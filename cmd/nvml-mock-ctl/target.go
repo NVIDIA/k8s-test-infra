@@ -78,14 +78,8 @@ type mutation func(doc *mockctl.Doc, target mockctl.Target, base *engine.DeviceC
 // resulting document is validated, not just the patch, so a bad value in any
 // bucket fails the command instead of reaching a consumer process.
 func mutate(cmd *cli.Command, apply mutation) error {
-	return mutateWithConfig(cmd, loadConfig(cmd), apply)
-}
-
-// mutateWithConfig is mutate for a command that already needs the pristine
-// profile for its own checks, so the load — and its warning when the profile is
-// unreadable — happens once per invocation rather than twice.
-func mutateWithConfig(cmd *cli.Command, cfg *engine.Config, apply mutation) error {
 	path := configOverridePath(cmd)
+	cfg := loadConfig(cmd)
 	base := deviceDefaults(cfg)
 
 	spec := cmd.String("gpu")
@@ -118,20 +112,8 @@ func mutateWithConfig(cmd *cli.Command, cfg *engine.Config, apply mutation) erro
 		return failf("write: %v", err)
 	}
 
-	fprintf(cmd.Root().Writer, "ok: %s applied to %s\n", commandLabel(cmd), gpuLabel(spec))
+	fprintf(cmd.Root().Writer, "ok: %s applied to %s\n", cmd.Name, gpuLabel(spec))
 	return nil
-}
-
-// commandLabel names the change the way the operator asked for it: the full
-// command path with the root's own name dropped, so a command without
-// subcommands prints just its own. A nested command's Name is the bare verb,
-// which on its own would say nothing about what the verb acted on.
-func commandLabel(cmd *cli.Command) string {
-	path := cmd.Path()
-	if len(path) > 1 {
-		path = path[1:]
-	}
-	return strings.Join(path, " ")
 }
 
 // applyPatch is mutate for a command whose patch depends on the pristine
