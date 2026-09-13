@@ -217,6 +217,72 @@ func TestRender_CompletesAHostNVIDIADirectoryThatCarriesNoAttributes(t *testing.
 		"proc/modules advertises nvidia, so the sysfs entry must answer for it")
 }
 
+func TestRender_ServesHostValuesForAModuleTheMirrorMissed(t *testing.T) {
+	t.Parallel()
+
+	// The host loads nvidia, but SourceRoot holds no directory for it, which is
+	// what an unreadable /sys/module leaves behind.
+	host := ParseProcModules("nvidia 999999 3 nvidia_modeset, Live 0x0\n")
+	out := t.TempDir()
+	mods := Modules("550.163.01")
+	mustRender(t, Options{Modules: mods, OverlayRoot: out, Host: host})
+
+	served := filepath.Join(out, SysModuleRelPath, NVIDIA)
+	requireFileContent(t, filepath.Join(served, "coresize"), "999999\n")
+	requireFileContent(t, filepath.Join(served, "refcnt"), "3\n")
+	require.FileExists(t, filepath.Join(served, "holders", "nvidia_modeset"))
+	require.NoFileExists(t, filepath.Join(served, "version"),
+		"the host line carries no version, so the simulated driver's must not land on a host module")
+
+	require.Contains(t, ProcModules(host, mods), "nvidia 999999 3 nvidia_modeset,",
+		"and the two surfaces must describe that module the same way")
+}
+
+// A module the mirror never copies keeps whatever the previous pass wrote. The
+// pass that changes its kind must overwrite and prune, not fill gaps.
+func TestRender_ConvergesWhenAModuleTheMirrorMissedBecomesHostLoaded(t *testing.T) {
+	t.Parallel()
+
+	out := t.TempDir()
+	mods := Modules("550.163.01")
+	mustRender(t, Options{Modules: mods, OverlayRoot: out})
+
+	host := ParseProcModules("nvidia 999999 3 nvidia_modeset, Live 0x0\n")
+	mustRender(t, Options{Modules: mods, OverlayRoot: out, Host: host})
+
+	served := filepath.Join(out, SysModuleRelPath, NVIDIA)
+	requireFileContent(t, filepath.Join(served, "coresize"), "999999\n")
+	requireFileContent(t, filepath.Join(served, "refcnt"), "3\n")
+	require.FileExists(t, filepath.Join(served, "holders", "nvidia_modeset"))
+	require.NoFileExists(t, filepath.Join(served, "version"),
+		"the previous pass's simulated version must not survive onto a host module")
+
+	require.Contains(t, ProcModules(host, mods), "nvidia 999999 3 nvidia_modeset,",
+		"and the two surfaces must still describe the module the same way")
+}
+
+func TestRender_ConvergesWhenAModuleTheMirrorMissedStopsBeingHostLoaded(t *testing.T) {
+	t.Parallel()
+
+	out := t.TempDir()
+	mods := Modules("550.163.01")
+	mustRender(t, Options{
+		Modules:     mods,
+		OverlayRoot: out,
+		Host:        ParseProcModules("nvidia 999999 3 nvidia_modeset, Live 0x0\n"),
+	})
+
+	mustRender(t, Options{Modules: mods, OverlayRoot: out})
+
+	served := filepath.Join(out, SysModuleRelPath, NVIDIA)
+	requireFileContent(t, filepath.Join(served, "coresize"), "62312448\n")
+	requireFileContent(t, filepath.Join(served, "refcnt"), "1\n")
+	requireFileContent(t, filepath.Join(served, "version"), "550.163.01\n")
+	require.FileExists(t, filepath.Join(served, "holders", NVIDIAUVM))
+	require.NoFileExists(t, filepath.Join(served, "holders", "nvidia_modeset"),
+		"the previous pass's host holder must not survive onto a simulated module")
+}
+
 func TestRender_AgreesWithProcModulesWhenTheHostListsNoLine(t *testing.T) {
 	t.Parallel()
 
@@ -240,7 +306,7 @@ func TestRender_RequiresAnOutput(t *testing.T) {
 	t.Parallel()
 
 	_, err := Render(Options{Modules: Modules("550.163.01")})
-	require.Error(t, err, "an empty Output would render into the working directory")
+	require.Error(t, err, "an empty OverlayRoot would render into the working directory")
 }
 
 func TestRender_RecoversHostHoldersFromTheProcModulesLine(t *testing.T) {

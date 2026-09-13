@@ -15,11 +15,10 @@ import (
 
 // Options configures Render.
 type Options struct {
-	// Modules are the simulated modules to serve alongside the host's own.
 	Modules []Module
 
-	// SourceRoot is the host /sys/module directory to mirror. An empty or
-	// absent SourceRoot serves the simulated modules alone.
+	// SourceRoot is the host /sys/module to mirror. Empty or absent serves the
+	// simulated modules alone.
 	SourceRoot string
 
 	// OverlayRoot is where the tree is staged. Render writes to
@@ -64,12 +63,12 @@ func Render(o Options) ([]string, error) {
 		declared[name] = mirrored
 	}
 
-	rendered, err := renderModules(root, o.Modules, declared, o.Host.byName)
-	if err != nil {
-		return skipped, err
-	}
-	for _, name := range rendered {
-		declared[name] = true
+	for _, m := range o.Modules {
+		if err := serveModule(root, m, declared[m.Name], o.Host.byName); err != nil {
+			return skipped, err
+		}
+		// serveModule always writes under root/<name>, so keep it from the prune.
+		declared[m.Name] = true
 	}
 
 	return skipped, fsutil.PruneDir(root, func(name string) bool { return declared[name] })
@@ -80,48 +79,57 @@ func Clear(root string) error {
 	return fsutil.PruneDir(filepath.Join(root, SysModuleRelPath), func(string) bool { return false })
 }
 
-// renderModules serves every simulated module and returns the names it created
-// outright, which the caller must keep from the prune.
-func renderModules(root string, mods []Module, declared map[string]bool, loaded map[string]hostModule) ([]string, error) {
-	var rendered []string
+// serveModule writes one simulated module's directory.
+//
+// A module the host loads takes its values from the host's /proc/modules line,
+// because ProcModules serves that same line and the two surfaces must agree.
+//
+// A mirrored directory holds what this pass copied from the node, so it needs
+// only its gaps filled. An unmirrored one can still hold an earlier pass's
+// values, of either kind, so it gets every attribute written and the rest pruned.
+func serveModule(root string, m Module, mirrored bool, loaded map[string]hostModule) error {
+	dir := filepath.Join(root, m.Name)
+	host, isHost := loaded[m.Name]
 
-	for _, m := range mods {
-		host, isHost := loaded[m.Name]
-
-		switch {
-		case declared[m.Name] && isHost:
-			if err := fillHostGaps(root, m.Name, host); err != nil {
-				return rendered, fmt.Errorf("kmod render: fill %s: %w", m.Name, err)
+	if mirrored {
+		if isHost {
+			if err := fillHostGaps(dir, host); err != nil {
+				return fmt.Errorf("kmod render: fill %s: %w", m.Name, err)
 			}
-		case declared[m.Name]:
-			if err := completeModule(root, m); err != nil {
-				return rendered, fmt.Errorf("kmod render: complete %s: %w", m.Name, err)
-			}
-		default:
-			if err := renderModule(root, m); err != nil {
-				return rendered, fmt.Errorf("kmod render: render %s: %w", m.Name, err)
-			}
-			rendered = append(rendered, m.Name)
+			return nil
 		}
+		if err := writeAttrs(dir, moduleAttrs(m), m.Holders); err != nil {
+			return fmt.Errorf("kmod render: render %s: %w", m.Name, err)
+		}
+		return nil
 	}
 
-	return rendered, nil
+	// Nothing else creates holders/ for a module the mirror did not copy.
+	if err := os.MkdirAll(filepath.Join(dir, "holders"), 0o755); err != nil {
+		return fmt.Errorf("kmod render: mkdir %s: %w", dir, err)
+	}
+
+	attrs, holders := moduleAttrs(m), m.Holders
+	if isHost {
+		// Nothing mirrored holders/ here, so the line is the only evidence.
+		attrs, holders = hostAttrs(host), host.holders
+	}
+	if err := writeAttrs(dir, attrs, holders); err != nil {
+		return fmt.Errorf("kmod render: render %s: %w", m.Name, err)
+	}
+
+	return fsutil.PruneDir(dir, func(name string) bool {
+		_, isAttribute := attrs[name]
+		return name == "holders" || isAttribute
+	})
 }
 
-// fillHostGaps writes what the mirror failed to copy, from the host's own
-// /proc/modules line. holders/ is reconciled rather than filled, because the
-// mirror can keep the directory and still lose a link inside it, and only when
-// the line carried a dependency field: absent is not the same as none. version
-// is not in that line to recover, so it stays absent rather than carrying the
-// simulated driver's version onto a host module.
-func fillHostGaps(root, name string, host hostModule) error {
-	dir := filepath.Join(root, name)
-
-	for attr, content := range map[string]string{
-		"coresize":  host.sizeBytes + "\n",
-		"refcnt":    host.refcnt + "\n",
-		"initstate": initStateLive + "\n",
-	} {
+// fillHostGaps writes what the mirror failed to copy, from the host's
+// /proc/modules line. It reconciles holders/ instead of filling it: the mirror
+// can keep that directory and still lose a link inside it. It reconciles only
+// when the line carried a dependency field, because absent is not none.
+func fillHostGaps(dir string, host hostModule) error {
+	for attr, content := range hostAttrs(host) {
 		path := filepath.Join(dir, attr)
 		if _, err := os.Stat(path); err == nil {
 			continue
@@ -138,6 +146,16 @@ func fillHostGaps(root, name string, host hostModule) error {
 	return linkHolders(dir, host.holders)
 }
 
+// hostAttrs are what a host /proc/modules line supplies. It carries no version,
+// so a host module gets none rather than the simulated driver's.
+func hostAttrs(host hostModule) map[string]string {
+	return map[string]string{
+		"coresize":  host.sizeBytes + "\n",
+		"refcnt":    host.refcnt + "\n",
+		"initstate": initStateLive + "\n",
+	}
+}
+
 func moduleAttrs(m Module) map[string]string {
 	attrs := map[string]string{
 		"refcnt":    strconv.Itoa(m.Refcnt()) + "\n",
@@ -150,40 +168,14 @@ func moduleAttrs(m Module) map[string]string {
 	return attrs
 }
 
-func completeModule(root string, m Module) error {
-	dir := filepath.Join(root, m.Name)
-
-	for name, content := range moduleAttrs(m) {
-		if err := fsutil.Write(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
-			return err
-		}
-	}
-
-	return linkHolders(dir, m.Holders)
-}
-
-func renderModule(root string, m Module) error {
-	dir := filepath.Join(root, m.Name)
-	if err := os.MkdirAll(filepath.Join(dir, "holders"), 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", dir, err)
-	}
-
-	attrs := moduleAttrs(m)
-
+func writeAttrs(dir string, attrs map[string]string, holders []string) error {
 	for name, content := range attrs {
 		if err := fsutil.Write(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 			return err
 		}
 	}
 
-	if err := linkHolders(dir, m.Holders); err != nil {
-		return err
-	}
-
-	return fsutil.PruneDir(dir, func(name string) bool {
-		_, isAttribute := attrs[name]
-		return name == "holders" || isAttribute
-	})
+	return linkHolders(dir, holders)
 }
 
 func linkHolders(dir string, holders []string) error {
@@ -199,10 +191,9 @@ func linkHolders(dir string, holders []string) error {
 	return fsutil.PruneDir(filepath.Join(dir, "holders"), func(name string) bool { return declared[name] })
 }
 
-// mirrorTree copies src onto dst and reports whether it succeeded, along with
-// the source paths it could not read. A read failure skips the entry, which the
-// prune then removes, so an unreadable host module degrades the mirror rather
-// than failing the whole stage.
+// mirrorTree copies src onto dst, and reports success plus the paths it could
+// not read. A read failure skips the entry, so an unreadable host module
+// degrades the mirror instead of failing the stage.
 func mirrorTree(src, dst string) (bool, []string, error) {
 	entries, err := os.ReadDir(src)
 	if err != nil {
