@@ -36,11 +36,12 @@ type Options struct {
 	// default, so lspci never fatals on a missing `vendor`.
 	Identities map[string]PCI
 
-	// Output is the fake-root directory. The renderer writes under
-	// <Output>/sys/... — Output itself is created if missing. Required when
-	// Topology is non-empty; otherwise Render returns an error. An empty
-	// Topology empties the tree under Output rather than leaving it alone.
-	Output string
+	// OverlayRoot is the fake-root directory. The renderer writes to
+	// <OverlayRoot>/sys/... and creates OverlayRoot itself if it is missing.
+	// Required when Topology is non-empty. Otherwise Render returns an error.
+	// An empty Topology empties the tree under OverlayRoot rather than
+	// leaving it alone.
+	OverlayRoot string
 }
 
 // Render writes the entire tree. It is idempotent and converging: existing
@@ -49,21 +50,21 @@ type Options struct {
 // and entries the new topology no longer declares are pruned.
 func Render(o Options) error {
 	empty := o.Topology == nil || len(o.Topology.RootComplexes) == 0
-	if o.Output == "" {
+	if o.OverlayRoot == "" {
 		if empty {
 			return nil
 		}
-		return errors.New("pcisysfs render: Output is required")
+		return errors.New("pcisysfs render: OverlayRoot is required")
 	}
 
 	// A profile declaring no PCI devices means an empty tree, not the previous
 	// profile's: leftovers would go on being served at the kernel paths as if
 	// the node still simulated those GPUs.
 	if empty {
-		return prune(o.Output, &PCIeTopology{})
+		return prune(o.OverlayRoot, &PCIeTopology{})
 	}
 
-	root := o.Output
+	root := o.OverlayRoot
 	if err := mkdirAll(root, PCIDevicesRelPath); err != nil {
 		return err
 	}
@@ -98,7 +99,7 @@ func Clear(root string) error {
 	)
 }
 
-// safeName reports whether name can be joined under Output as a single
+// safeName reports whether name can be joined under OverlayRoot as a single
 // directory. Every root-complex ID and BDF becomes a path component, so one
 // carrying a separator or a parent reference writes outside the tree. Callers
 // are expected to have validated their input; this is the backstop that keeps a

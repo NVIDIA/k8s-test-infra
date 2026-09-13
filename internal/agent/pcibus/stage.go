@@ -77,9 +77,9 @@ func stageDMI(h *host.Host) error {
 // empties the tree and stages no DMI, since nothing is served.
 func stageSysfs(h *host.Host, state *agent.State) error {
 	if err := pcisysfs.Render(pcisysfs.Options{
-		Topology:   buildTopology(state),
-		Identities: buildIdentities(state),
-		Output:     h.Root,
+		Topology:    buildTopology(state),
+		Identities:  buildIdentities(state),
+		OverlayRoot: h.Root,
 	}); err != nil {
 		return err
 	}

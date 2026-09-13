@@ -66,7 +66,7 @@ func renderBasicTree(t *testing.T, root string) {
 			Devices:  []string{"0000:07:00.0"},
 		}},
 	}
-	require.NoError(t, pcisysfs.Render(pcisysfs.Options{Topology: topo, Output: root}))
+	require.NoError(t, pcisysfs.Render(pcisysfs.Options{Topology: topo, OverlayRoot: root}))
 }
 
 func TestReadlinkPCIRedirect(t *testing.T) {
@@ -89,9 +89,9 @@ func TestKernelModuleRedirect(t *testing.T) {
 
 	root := t.TempDir()
 	mods := kmod.Modules("550.163.01")
-	_, err := kmod.Render(kmod.Options{Modules: mods, Output: root})
+	_, err := kmod.Render(kmod.Options{Modules: mods, OverlayRoot: root})
 	require.NoError(t, err)
-	procModules := kmod.ProcModules("", mods)
+	procModules := kmod.ProcModules(kmod.HostModules{}, mods)
 	require.NoError(t, fsutil.Write(filepath.Join(root, kmod.ProcModulesRelPath), []byte(procModules), 0o644))
 
 	env := append(os.Environ(), "LD_PRELOAD="+shim, "MOCK_PCI_ROOT="+root)
@@ -159,7 +159,7 @@ func TestFortifiedOpenPCIRedirect(t *testing.T) {
 	ids := map[string]pcisysfs.PCI{
 		"0000:07:00.0": {BusID: "0000:07:00.0", DeviceID: 0x233010DE},
 	}
-	require.NoError(t, pcisysfs.Render(pcisysfs.Options{Topology: topo, Identities: ids, Output: root}))
+	require.NoError(t, pcisysfs.Render(pcisysfs.Options{Topology: topo, Identities: ids, OverlayRoot: root}))
 
 	cmd := exec.Command(bin, "0", "/sys/bus/pci/devices/0000:07:00.0/config") // flags 0 == O_RDONLY
 	cmd.Env = append(os.Environ(), "LD_PRELOAD="+shim, "MOCK_PCI_ROOT="+root)
@@ -189,7 +189,7 @@ func TestFopenPCIRedirect(t *testing.T) {
 	ids := map[string]pcisysfs.PCI{
 		"0000:07:00.0": {BusID: "0000:07:00.0", DeviceID: 0x233010DE},
 	}
-	require.NoError(t, pcisysfs.Render(pcisysfs.Options{Topology: topo, Identities: ids, Output: root}))
+	require.NoError(t, pcisysfs.Render(pcisysfs.Options{Topology: topo, Identities: ids, OverlayRoot: root}))
 
 	cmd := exec.Command(bin, "/sys/bus/pci/devices/0000:07:00.0/config")
 	cmd.Env = append(os.Environ(), "LD_PRELOAD="+shim, "MOCK_PCI_ROOT="+root)

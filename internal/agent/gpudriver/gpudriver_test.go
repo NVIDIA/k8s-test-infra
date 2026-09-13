@@ -367,20 +367,29 @@ func writeKernelModule(t *testing.T, h *host.Host, name string, attrs map[string
 	}
 }
 
-func withProcModules(t *testing.T, body string) string {
+// withProcModules points the module reader at a fixture and restores it, the
+// way the ib and pcibus stage tests retarget their own host paths.
+func withProcModules(t *testing.T, body string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "modules")
 	require.NoError(t, os.WriteFile(path, []byte(body), 0o644))
-	return path
+	retargetProcModules(t, path)
+}
+
+func retargetProcModules(t *testing.T, path string) {
+	t.Helper()
+	orig := kernelProcModules
+	kernelProcModules = path
+	t.Cleanup(func() { kernelProcModules = orig })
 }
 
 func TestWriteKernelModules_WritesBothSurfaces(t *testing.T) {
 	h := testHost(t)
-	procModulesPath := withProcModules(t, hostProcModulesLine)
+	withProcModules(t, hostProcModulesLine)
 	writeKernelModule(t, h, "xfs", map[string]string{"refcnt": "2\n", "coresize": "1556480\n"})
 
 	state := testState(t)
-	require.NoError(t, writeKernelModules(context.Background(), h, state, procModulesPath))
+	require.NoError(t, writeKernelModules(context.Background(), h, state))
 
 	procModules, err := os.ReadFile(filepath.Join(h.Root, kmod.ProcModulesRelPath))
 	require.NoError(t, err)
@@ -403,13 +412,13 @@ func TestWriteKernelModules_WritesBothSurfaces(t *testing.T) {
 
 func TestWriteKernelModules_KeepsBuiltInModules(t *testing.T) {
 	h := testHost(t)
-	procModulesPath := withProcModules(t, hostProcModulesLine)
+	withProcModules(t, hostProcModulesLine)
 	writeKernelModule(t, h, "block", nil)
 	require.NoError(t, os.MkdirAll(h.SysPath(kernelSysModuleDir, "block", "parameters"), 0o755))
 	require.NoError(t, os.WriteFile(
 		h.SysPath(kernelSysModuleDir, "block", "parameters", "events_dfl_poll_msecs"), []byte("0\n"), 0o444))
 
-	require.NoError(t, writeKernelModules(context.Background(), h, testState(t), procModulesPath))
+	require.NoError(t, writeKernelModules(context.Background(), h, testState(t)))
 
 	param, err := os.ReadFile(filepath.Join(h.Root, kmod.SysModuleRelPath, "block", "parameters", "events_dfl_poll_msecs"))
 	require.NoError(t, err)
@@ -423,9 +432,9 @@ func TestWriteKernelModules_KeepsBuiltInModules(t *testing.T) {
 
 func TestWriteKernelModules_ToleratesAnAbsentSource(t *testing.T) {
 	h := testHost(t)
-	absent := filepath.Join(t.TempDir(), "absent")
+	retargetProcModules(t, filepath.Join(t.TempDir(), "absent"))
 
-	require.NoError(t, writeKernelModules(context.Background(), h, testState(t), absent))
+	require.NoError(t, writeKernelModules(context.Background(), h, testState(t)))
 
 	require.FileExists(t, filepath.Join(h.Root, kmod.SysModuleRelPath, kmod.NVIDIA, "refcnt"))
 	require.FileExists(t, filepath.Join(h.Root, kmod.ProcModulesRelPath))
@@ -434,14 +443,14 @@ func TestWriteKernelModules_ToleratesAnAbsentSource(t *testing.T) {
 
 func TestWriteKernelModules_ConvergesWhenAHostModuleUnloads(t *testing.T) {
 	h := testHost(t)
-	procModulesPath := withProcModules(t, hostProcModulesLine)
+	withProcModules(t, hostProcModulesLine)
 	writeKernelModule(t, h, "xfs", map[string]string{"refcnt": "2\n", "coresize": "1556480\n"})
 
-	require.NoError(t, writeKernelModules(context.Background(), h, testState(t), procModulesPath))
+	require.NoError(t, writeKernelModules(context.Background(), h, testState(t)))
 	require.DirExists(t, filepath.Join(h.Root, kmod.SysModuleRelPath, "xfs"))
 
 	require.NoError(t, os.RemoveAll(h.SysPath(kernelSysModuleDir, "xfs")))
-	require.NoError(t, writeKernelModules(context.Background(), h, testState(t), procModulesPath))
+	require.NoError(t, writeKernelModules(context.Background(), h, testState(t)))
 
 	require.NoDirExists(t, filepath.Join(h.Root, kmod.SysModuleRelPath, "xfs"))
 	require.FileExists(t, filepath.Join(h.Root, kmod.SysModuleRelPath, kmod.NVIDIA, "refcnt"))
@@ -449,11 +458,11 @@ func TestWriteKernelModules_ConvergesWhenAHostModuleUnloads(t *testing.T) {
 
 func TestDiscard_ClearsEveryModuleSurface(t *testing.T) {
 	h := testHost(t)
-	procModulesPath := withProcModules(t, hostProcModulesLine)
+	withProcModules(t, hostProcModulesLine)
 	writeKernelModule(t, h, "xfs", map[string]string{"coresize": "1556480\n"})
 
 	sim := New()
-	require.NoError(t, writeKernelModules(context.Background(), h, testState(t), procModulesPath))
+	require.NoError(t, writeKernelModules(context.Background(), h, testState(t)))
 	sim.ready.Store(true)
 
 	moduleTree := filepath.Join(h.Root, kmod.SysModuleRelPath)

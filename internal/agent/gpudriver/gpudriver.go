@@ -57,7 +57,7 @@ func (s *Simulator) Stage(ctx context.Context, h *host.Host, state *agent.State)
 	g.Go(func() error { return writeProcFS(gctx, h, state) })
 	g.Go(func() error { return writeEngineConfig(gctx, h, state) })
 	g.Go(func() error { return writeMachineType(gctx, h, state) })
-	g.Go(func() error { return writeKernelModules(gctx, h, state, kernelProcModules) })
+	g.Go(func() error { return writeKernelModules(gctx, h, state) })
 
 	if err := g.Wait(); err != nil {
 		return err

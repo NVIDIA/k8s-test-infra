@@ -15,7 +15,7 @@ const hostLine = "xfs 1556480 1 - Live 0x0000000000000000\n"
 func TestProcModules_AppendsNVIDIAEntriesAfterHostLines(t *testing.T) {
 	t.Parallel()
 
-	out := ProcModules(hostLine, Modules("550.163.01"))
+	out := ProcModules(ParseProcModules(hostLine), Modules("550.163.01"))
 
 	require.Contains(t, out, hostLine)
 	require.Contains(t, out, "nvidia_uvm 3411968 0 - Live 0x0000000000000000\n")
@@ -27,7 +27,7 @@ func TestProcModules_KeepsHostEntryForAnAlreadyLoadedModule(t *testing.T) {
 
 	src := "nvidia 62312448 7 nvidia_uvm, Live 0x0000000000000000\n"
 
-	out := ProcModules(src, Modules("550.163.01"))
+	out := ProcModules(ParseProcModules(src), Modules("550.163.01"))
 
 	require.Equal(t, 1, strings.Count(out, "nvidia 62312448"))
 	require.Contains(t, out, "7 nvidia_uvm,")
@@ -38,8 +38,8 @@ func TestProcModules_IdempotentAgainstItsOwnOutput(t *testing.T) {
 
 	mods := Modules("550.163.01")
 
-	first := ProcModules(hostLine, mods)
-	second := ProcModules(first, mods)
+	first := ProcModules(ParseProcModules(hostLine), mods)
+	second := ProcModules(ParseProcModules(first), mods)
 
 	require.Equal(t, first, second)
 }
@@ -47,7 +47,7 @@ func TestProcModules_IdempotentAgainstItsOwnOutput(t *testing.T) {
 func TestProcModules_TerminatesASourceMissingItsFinalNewline(t *testing.T) {
 	t.Parallel()
 
-	out := ProcModules("xfs 1556480 1 - Live 0x0000000000000000", Modules("550.163.01"))
+	out := ProcModules(ParseProcModules("xfs 1556480 1 - Live 0x0000000000000000"), Modules("550.163.01"))
 
 	require.Contains(t, out, "0x0000000000000000\nnvidia")
 }
@@ -55,10 +55,31 @@ func TestProcModules_TerminatesASourceMissingItsFinalNewline(t *testing.T) {
 func TestProcModules_RendersEntriesForAnEmptySource(t *testing.T) {
 	t.Parallel()
 
-	out := ProcModules("", Modules("550.163.01"))
+	out := ProcModules(HostModules{}, Modules("550.163.01"))
 
 	require.Equal(t, 2, strings.Count(out, "\n"))
 	require.True(t, strings.HasPrefix(out, "nvidia "))
+}
+
+func TestProcModules_KeepsALineTheParserCannotRead(t *testing.T) {
+	t.Parallel()
+
+	src := "truncated 1000\n" + hostLine
+
+	out := ProcModules(ParseProcModules(src), Modules("550.163.01"))
+
+	require.Contains(t, out, "truncated 1000\n",
+		"the host text is served back whole, not rebuilt from parsed fields")
+	require.Contains(t, out, "nvidia 62312448 1 nvidia_uvm,")
+}
+
+func TestParseProcModules_EmptyTextMatchesTheZeroValue(t *testing.T) {
+	t.Parallel()
+
+	require.Empty(t, ParseProcModules("").byName)
+	require.Equal(t, ProcModules(HostModules{}, Modules("550.163.01")),
+		ProcModules(ParseProcModules(""), Modules("550.163.01")),
+		"the zero value must serve what an empty file serves")
 }
 
 func TestLoadedModules_ReadsSizeAndRefcntAndIgnoresBlankLines(t *testing.T) {
@@ -67,8 +88,8 @@ func TestLoadedModules_ReadsSizeAndRefcntAndIgnoresBlankLines(t *testing.T) {
 	mods := loadedModules("xfs 1556480 1 - Live 0x0\n\nnvidia_uvm 3411968 0 - Live 0x0\n")
 
 	require.Len(t, mods, 2)
-	require.Equal(t, hostModule{coreSize: "1556480", refcnt: "1", holdersKnown: true}, mods["xfs"])
-	require.Equal(t, hostModule{coreSize: "3411968", refcnt: "0", holdersKnown: true}, mods["nvidia_uvm"])
+	require.Equal(t, hostModule{sizeBytes: "1556480", refcnt: "1", holdersKnown: true}, mods["xfs"])
+	require.Equal(t, hostModule{sizeBytes: "3411968", refcnt: "0", holdersKnown: true}, mods["nvidia_uvm"])
 	require.NotContains(t, mods, "")
 }
 

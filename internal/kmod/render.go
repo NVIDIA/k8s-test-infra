@@ -22,23 +22,23 @@ type Options struct {
 	// absent SourceRoot serves the simulated modules alone.
 	SourceRoot string
 
-	// Output is the overlay root. The renderer writes under
-	// <Output>/sys/module and Render returns an error when it is empty.
-	Output string
+	// OverlayRoot is where the tree is staged. Render writes to
+	// <OverlayRoot>/sys/module and errors when it is empty.
+	OverlayRoot string
 
-	// HostProcModules is the host /proc/modules text. Render and ProcModules
-	// both take host presence from it, so the two surfaces agree on a module.
-	HostProcModules string
+	// Host is the node's parsed /proc/modules. Render and ProcModules both read
+	// host presence from it, so the two surfaces agree.
+	Host HostModules
 }
 
 // Render stages the module tree and returns the source paths it could not read.
 // It is idempotent and converging: a module the source no longer lists is pruned.
 func Render(o Options) ([]string, error) {
-	if o.Output == "" {
-		return nil, errors.New("kmod render: Output is required")
+	if o.OverlayRoot == "" {
+		return nil, errors.New("kmod render: OverlayRoot is required")
 	}
 
-	root := filepath.Join(o.Output, SysModuleRelPath)
+	root := filepath.Join(o.OverlayRoot, SysModuleRelPath)
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, fmt.Errorf("kmod render: mkdir %s: %w", root, err)
 	}
@@ -64,7 +64,7 @@ func Render(o Options) ([]string, error) {
 		declared[name] = mirrored
 	}
 
-	rendered, err := renderModules(root, o.Modules, declared, loadedModules(o.HostProcModules))
+	rendered, err := renderModules(root, o.Modules, declared, o.Host.byName)
 	if err != nil {
 		return skipped, err
 	}
@@ -118,7 +118,7 @@ func fillHostGaps(root, name string, host hostModule) error {
 	dir := filepath.Join(root, name)
 
 	for attr, content := range map[string]string{
-		"coresize":  host.coreSize + "\n",
+		"coresize":  host.sizeBytes + "\n",
 		"refcnt":    host.refcnt + "\n",
 		"initstate": initStateLive + "\n",
 	} {
@@ -141,7 +141,7 @@ func fillHostGaps(root, name string, host hostModule) error {
 func moduleAttrs(m Module) map[string]string {
 	attrs := map[string]string{
 		"refcnt":    strconv.Itoa(m.Refcnt()) + "\n",
-		"coresize":  strconv.Itoa(m.CoreSize) + "\n",
+		"coresize":  strconv.Itoa(m.SizeBytes) + "\n",
 		"initstate": initStateLive + "\n",
 	}
 	if m.Version != "" {

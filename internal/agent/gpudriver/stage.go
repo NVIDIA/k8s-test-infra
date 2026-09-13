@@ -207,25 +207,32 @@ func writeProcFS(ctx context.Context, h *host.Host, state *agent.State) error {
 
 const kernelSysModuleDir = "module"
 
-const kernelProcModules = "/proc/modules"
+// kernelProcModules is the agent's own /proc/modules, not h.ProcPath("modules"):
+// the kernel does not namespace the module list, so the DaemonSet mounts no
+// /host/proc. A package var, as pcibus and ib hold theirs, so a test can retarget it.
+var kernelProcModules = "/proc/modules"
 
-func writeKernelModules(ctx context.Context, h *host.Host, state *agent.State, procModulesPath string) error {
+func writeKernelModules(ctx context.Context, h *host.Host, state *agent.State) error {
 	mods := kmod.Modules(state.Software.DriverVersion)
 
-	src, err := os.ReadFile(procModulesPath)
+	// Absent and empty both mean a node that loads no module, and a masked /proc
+	// entry reads as empty. A read that fails is fatal: this file is the only
+	// source of host presence for both surfaces.
+	src, err := os.ReadFile(kernelProcModules)
 	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("read %s: %w", procModulesPath, err)
+		return fmt.Errorf("read %s: %w", kernelProcModules, err)
 	}
+	hostMods := kmod.ParseProcModules(string(src))
 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 
 	skipped, err := kmod.Render(kmod.Options{
-		Modules:         mods,
-		SourceRoot:      h.SysPath(kernelSysModuleDir),
-		Output:          h.Root,
-		HostProcModules: string(src),
+		Modules:     mods,
+		SourceRoot:  h.SysPath(kernelSysModuleDir),
+		OverlayRoot: h.Root,
+		Host:        hostMods,
 	})
 	if err != nil {
 		return err
@@ -238,12 +245,12 @@ func writeKernelModules(ctx context.Context, h *host.Host, state *agent.State, p
 		return err
 	}
 
-	procModules := kmod.ProcModules(string(src), mods)
-	if err := fsutil.Write(filepath.Join(h.Root, kmod.ProcModulesRelPath), []byte(procModules), 0o644); err != nil {
+	procModules := kmod.ProcModules(hostMods, mods)
+	if err := fsutil.Write(h.RootPath(kmod.ProcModulesRelPath), []byte(procModules), 0o644); err != nil {
 		return err
 	}
 
-	return fsutil.Write(filepath.Join(h.Root, kmod.LsmodRelPath), []byte(kmod.LsmodScript), 0o755)
+	return fsutil.Write(h.RootPath(kmod.LsmodRelPath), []byte(kmod.LsmodScript), 0o755)
 }
 
 // machineTypeRel is the machine type served to containers at

@@ -45,9 +45,9 @@ func TestLsmodScript_ReportsMirroredHostModules(t *testing.T) {
 
 	out := t.TempDir()
 	mustRender(t, Options{
-		Modules:    Modules("550.163.01"),
-		SourceRoot: src,
-		Output:     out,
+		Modules:     Modules("550.163.01"),
+		SourceRoot:  src,
+		OverlayRoot: out,
 	})
 
 	require.Contains(t, runLsmodScript(t, out), "xfs                  1556480  2")
@@ -60,7 +60,7 @@ func TestLsmodScript_ReportsUnavailableRefcountAsNegativeTwo(t *testing.T) {
 	writeHostModule(t, src, "nounload", map[string]string{"coresize": "4096\n"})
 
 	out := t.TempDir()
-	mustRender(t, Options{SourceRoot: src, Output: out})
+	mustRender(t, Options{SourceRoot: src, OverlayRoot: out})
 
 	require.Regexp(t, `(?m)^nounload\s+4096\s+-2\s*$`, runLsmodScript(t, out))
 }
@@ -73,9 +73,9 @@ func TestLsmodScript_SkipsEntriesWithoutCoresize(t *testing.T) {
 
 	out := t.TempDir()
 	mustRender(t, Options{
-		Modules:    Modules("550.163.01"),
-		SourceRoot: src,
-		Output:     out,
+		Modules:     Modules("550.163.01"),
+		SourceRoot:  src,
+		OverlayRoot: out,
 	})
 	require.DirExists(t, filepath.Join(out, SysModuleRelPath, "built_in"))
 
@@ -86,6 +86,6 @@ func renderedTree(t *testing.T) string {
 	t.Helper()
 
 	out := t.TempDir()
-	mustRender(t, Options{Modules: Modules("550.163.01"), Output: out})
+	mustRender(t, Options{Modules: Modules("550.163.01"), OverlayRoot: out})
 	return out
 }

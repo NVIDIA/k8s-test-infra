@@ -5,6 +5,7 @@ package cdi
 
 import (
 	"fmt"
+	"path/filepath"
 	"strconv"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
@@ -190,7 +191,7 @@ func pciSysfsMounts(state *agent.State) []cdiMount {
 	// The renderer's rel-paths are the kernel paths minus the leading slash.
 	for _, relPath := range []string{pcisysfs.SysDevicesRelPath, pcisysfs.PCIDevicesRelPath} {
 		mounts = append(mounts, cdiMount{
-			HostPath:      overlayHostRoot + "/" + relPath,
+			HostPath:      filepath.Join(overlayHostRoot, relPath),
 			ContainerPath: "/" + relPath,
 			Options:       []string{"ro", "nosuid", "nodev", "bind"},
 		})
@@ -199,23 +200,22 @@ func pciSysfsMounts(state *agent.State) []cdiMount {
 }
 
 // kernelModuleMounts serves the module tree and the generated lsmod at their
-// kernel paths, for the same reason pciSysfsMounts exists: a Go consumer issues
-// openat and never enters the preload shim.
+// kernel paths, because a Go consumer bypasses the preload shim. Ungated,
+// unlike pciSysfsMounts: writeKernelModules always renders.
 //
-// Ungated, unlike pciSysfsMounts: writeKernelModules renders unconditionally, so
-// the sources always exist by the time Apply writes a spec that names them.
-//
-// The script goes to /usr/local/bin, which a normal PATH resolves first. At
-// /usr/bin it would replace the kmod symlink and take modprobe with it.
+// The script goes to /usr/local/bin, which no distribution uses for lsmod.
+// /usr/bin/lsmod is a symlink to the kmod multi-call binary, and a bind mount
+// follows the symlink, so mounting there would replace kmod and break modprobe,
+// rmmod, insmod and depmod.
 func kernelModuleMounts() []cdiMount {
 	return []cdiMount{
 		{
-			HostPath:      overlayHostRoot + "/" + kmod.SysModuleRelPath,
+			HostPath:      filepath.Join(overlayHostRoot, kmod.SysModuleRelPath),
 			ContainerPath: "/" + kmod.SysModuleRelPath,
 			Options:       []string{"ro", "nosuid", "nodev", "bind"},
 		},
 		{
-			HostPath:      overlayHostRoot + "/" + kmod.LsmodRelPath,
+			HostPath:      filepath.Join(overlayHostRoot, kmod.LsmodRelPath),
 			ContainerPath: kmod.LsmodContainerPath,
 			Options:       []string{"ro", "nosuid", "nodev", "bind"},
 		},
