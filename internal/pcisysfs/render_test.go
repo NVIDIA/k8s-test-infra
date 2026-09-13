@@ -301,7 +301,7 @@ func TestRender_EmptyTopologyKeepsForeignEntries(t *testing.T) {
 }
 
 // TestRender_PruneLeavesForeignEntriesAlone guards the ownership boundary:
-// libpcisysfs rewrites only /sys/devices/pci*, so the renderer must not delete
+// libmockfs rewrites only /sys/devices/pci*, so the renderer must not delete
 // anything else a sibling component staged in the same fake root.
 func TestRender_PruneLeavesForeignEntriesAlone(t *testing.T) {
 	dir := t.TempDir()

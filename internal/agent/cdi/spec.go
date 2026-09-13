@@ -167,7 +167,7 @@ func buildNvidiaSpec(state *agent.State) cdiSpec {
 }
 
 // pciSysfsMounts serves the rendered PCI tree at the kernel paths, which is the
-// only way it reaches a Go consumer: libpcisysfs.so redirects those paths for
+// only way it reaches a Go consumer: libmockfs.so redirects those paths for
 // libc callers, but Go's os package issues openat directly, so GFD and the DRA
 // driver read the node's real /sys and find no mock GPUs (#673).
 //

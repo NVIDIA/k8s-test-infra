@@ -138,7 +138,7 @@ func prune(root string, topo *PCIeTopology) error {
 	}
 
 	for _, e := range entries {
-		// libpcisysfs rewrites only /sys/devices/pci*, so anything without that
+		// libmockfs rewrites only /sys/devices/pci*, so anything without that
 		// prefix belongs to something other than this renderer.
 		if !strings.HasPrefix(e.Name(), "pci") {
 			continue

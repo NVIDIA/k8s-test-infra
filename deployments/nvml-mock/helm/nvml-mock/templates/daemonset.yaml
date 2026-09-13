@@ -125,7 +125,7 @@ spec:
             # the mock-ib daemon when MOCK_IB=full. libibmocksys rewrites paths
             # under /sys/class/infiniband, /sys/class/infiniband_mad,
             # /sys/class/infiniband_verbs, /sys/class/infiniband_cm and
-            # /dev/infiniband into $MOCK_IB_ROOT. libpcisysfs rewrites /sys/bus/pci,
+            # /dev/infiniband into $MOCK_IB_ROOT. libmockfs rewrites /sys/bus/pci,
             # /sys/devices/pci, /sys/module and /proc/modules into $MOCK_PCI_ROOT.
             # A path outside those prefixes passes through unchanged. The preload is
             # therefore inert in the agent itself. The agent writes under /host, and
@@ -133,7 +133,7 @@ spec:
             # libibmockumad must precede libibmocksys so UMAD ioctls are
             # intercepted before sysfs path rewriting.
             - name: LD_PRELOAD
-              value: "/usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcisysfs.so.1"
+              value: "/usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libmockfs.so.1"
             - name: MOCK_IB_ROOT
               value: "/var/lib/nvml-mock/ib"
             - name: MOCK_PCI_ROOT

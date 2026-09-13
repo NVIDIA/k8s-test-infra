@@ -347,7 +347,7 @@ func TestStageSysfs_DMISurvivesARerender(t *testing.T) {
 func withShimGlob(t *testing.T, dir string) {
 	t.Helper()
 	orig := shimGlob
-	shimGlob = filepath.Join(dir, "libpcisysfs.so*")
+	shimGlob = filepath.Join(dir, "libmockfs.so*")
 	t.Cleanup(func() { shimGlob = orig })
 }
 
@@ -364,7 +364,7 @@ func TestStagePCIShim_NopWhenNoLib(t *testing.T) {
 
 func TestStagePCIShim_StagesEverySoname(t *testing.T) {
 	src := t.TempDir()
-	for _, name := range []string{"libpcisysfs.so", "libpcisysfs.so.1"} {
+	for _, name := range []string{"libmockfs.so", "libmockfs.so.1"} {
 		require.NoError(t, os.WriteFile(filepath.Join(src, name), []byte(name), 0o755))
 	}
 	withShimGlob(t, src)
@@ -374,7 +374,7 @@ func TestStagePCIShim_StagesEverySoname(t *testing.T) {
 
 	// The NRI plugin LD_PRELOADs the versioned soname, so every match must land
 	// in the driver lib dir, not only the first.
-	for _, name := range []string{"libpcisysfs.so", "libpcisysfs.so.1"} {
+	for _, name := range []string{"libmockfs.so", "libmockfs.so.1"} {
 		data, err := os.ReadFile(filepath.Join(h.Root, "driver/usr/local/lib", name))
 		require.NoError(t, err, "%s must be staged", name)
 		require.Equal(t, name, string(data))

@@ -93,9 +93,9 @@ func stageSysfs(h *host.Host, state *agent.State) error {
 
 // shimGlob locates the shim in the container image. A package var so tests can
 // exercise both branches without depending on what the host has installed.
-var shimGlob = "/usr/local/lib/libpcisysfs.so*"
+var shimGlob = "/usr/local/lib/libmockfs.so*"
 
-// stagePCIShim copies libpcisysfs.so* from /usr/local/lib into the driver
+// stagePCIShim copies libmockfs.so* from /usr/local/lib into the driver
 // lib directory so lspci inside a workload can be LD_PRELOAD-ed by the NRI
 // plugin. Non-fatal when the shim is not built into the container image.
 func stagePCIShim(h *host.Host) error {

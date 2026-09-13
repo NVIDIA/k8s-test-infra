@@ -20,7 +20,7 @@ Deploys a DaemonSet that creates on every node:
 - A fake PCI sysfs tree at `/var/lib/nvml-mock/sys/bus/pci/devices/...` (symlinks
   into `/var/lib/nvml-mock/sys/devices/pciDDDD:BB/...`) so consumers resolve the
   PCIe root complex via a standard `readlink()`. `lspci` and anything else
-  reaching it through libc read it via `libpcisysfs.so`; containers served the
+  reaching it through libc read it via `libmockfs.so`; containers served the
   `nvidia.com/gpu` CDI spec get it bind-mounted at the kernel paths, which is
   what Go consumers need — see [PCI sysfs in containers](#pci-sysfs-in-containers)
 - A fake kernel-module surface at `/var/lib/nvml-mock/proc/modules` and
@@ -28,7 +28,7 @@ Deploys a DaemonSet that creates on every node:
   and the GPU Operator validator finds `/sys/module/nvidia/refcnt`. The node's own
   `/sys/module` is mirrored whole alongside them, built-in modules and their
   `parameters/` included, because serving the tree replaces it for every reader in
-  the container. `libpcisysfs.so` redirects both paths for libc consumers; both
+  the container. `libmockfs.so` redirects both paths for libc consumers; both
   CDI specs bind-mount the tree at `/sys/module` for Go consumers, which bypass the
   shim. `/proc/modules` cannot be bind-mounted at all, since runc allows only an
   allowlist inside `/proc`, so CDI-served containers get a generated `lsmod` that
@@ -740,7 +740,7 @@ empties any tree a previous profile left behind.
 
 ### PCI sysfs in containers
 
-Reaching the tree through `MOCK_PCI_ROOT` requires the `libpcisysfs.so`
+Reaching the tree through `MOCK_PCI_ROOT` requires the `libmockfs.so`
 `LD_PRELOAD` shim, which only works for libc consumers: Go's `os` package issues
 `openat` directly, so the shim never sees the open and the process reads the
 node's real `/sys`, where the mock GPUs do not exist. GPU Feature Discovery and
@@ -1468,7 +1468,7 @@ W0319 11:41:21.314205       1 nvlib.go:491] error getting PCIe root for device 0
 ```
 
 The driver resolves PCIe root complex topology by `readlink()`-ing
-`/sys/bus/pci/devices/{busID}`, and it is a Go binary, so `libpcisysfs.so` cannot
+`/sys/bus/pci/devices/{busID}`, and it is a Go binary, so `libmockfs.so` cannot
 redirect that read to the rendered tree. A container served the `nvidia.com/gpu`
 CDI spec gets the tree at that path and resolves the root; one the mock does not
 serve reads the node's real sysfs and logs the warning above. GPUs are fully

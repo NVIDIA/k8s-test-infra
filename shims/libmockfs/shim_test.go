@@ -3,7 +3,7 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-package libpcisysfs_test
+package libmockfs_test
 
 import (
 	"os"
@@ -30,11 +30,11 @@ func requireLinux(t *testing.T) {
 	}
 }
 
-// requireShim returns the path to the built libpcisysfs.so or skips the test
+// requireShim returns the path to the built libmockfs.so or skips the test
 // if it hasn't been built yet.
 func requireShim(t *testing.T) string {
 	t.Helper()
-	return requireBuilt(t, "libpcisysfs.so")
+	return requireBuilt(t, "libmockfs.so")
 }
 
 // requireTestBin returns the path to a Makefile-built C test binary or skips
@@ -50,7 +50,7 @@ func requireBuilt(t *testing.T, name string) string {
 	require.NoError(t, err)
 	path := filepath.Join(wd, name)
 	if _, statErr := os.Stat(path); statErr != nil {
-		t.Skipf("%s not built: %v (run make -C shims/libpcisysfs)", name, statErr)
+		t.Skipf("%s not built: %v (run make -C shims/libmockfs)", name, statErr)
 	}
 	return path
 }

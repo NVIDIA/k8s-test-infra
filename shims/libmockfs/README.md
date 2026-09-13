@@ -1,6 +1,6 @@
-# libpcisysfs
+# libmockfs
 
-`libpcisysfs.so` is an `LD_PRELOAD` shim that redirects PCI sysfs and kernel-module accesses to a fake filesystem tree.
+`libmockfs.so` is an `LD_PRELOAD` shim that redirects PCI sysfs and kernel-module accesses to a fake filesystem tree.
 
 Use it to test software that finds or examines PCI devices, or that checks if a kernel module is loaded. The software does not then need the real PCI topology or the real module set of the host.
 
@@ -74,7 +74,7 @@ Then run the target process with the shim preloaded:
 
 ```bash
 MOCK_PCI_ROOT=/tmp/mock-pci \
-LD_PRELOAD=/path/to/libpcisysfs.so \
+LD_PRELOAD=/path/to/libmockfs.so \
 lspci
 ```
 

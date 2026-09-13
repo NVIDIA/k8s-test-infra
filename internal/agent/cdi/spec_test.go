@@ -208,7 +208,7 @@ func mountByContainerPath(spec cdiSpec, path string) (cdiMount, bool) {
 	return cdiMount{}, false
 }
 
-// GFD and the DRA driver are Go, so libpcisysfs.so never sees their openat
+// GFD and the DRA driver are Go, so libmockfs.so never sees their openat
 // calls: only a real mount at the kernel path reaches them.
 func TestNvidiaSpecServesPCISysfsAtKernelPaths(t *testing.T) {
 	t.Parallel()
