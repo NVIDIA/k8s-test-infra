@@ -104,7 +104,7 @@ func stagePCIShim(h *host.Host) error {
 	matches, _ := filepath.Glob(shimGlob)
 
 	if len(matches) == 0 {
-		zap.L().Debug("no libpcisysfs shim in image; skipping PCI shim staging")
+		zap.L().Debug("no libmockfs shim in image; skipping PCI shim staging")
 		return nil
 	}
 

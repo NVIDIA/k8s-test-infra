@@ -51,7 +51,7 @@ Every flag also reads an environment variable; the flag wins when both are set.
 | `--opt-out-annotation` | `MOKKA_NRI_OPT_OUT_ANNOTATION` | `nvml-mock.nvidia.com/inject` | Pod annotation key; value `false` disables injection |
 | `--overlay-host-path` | `MOKKA_NRI_OVERLAY_HOST_PATH` | `/var/lib/nvml-mock` | Host path for the overlay |
 | `--overlay-mount-path` | `MOKKA_NRI_OVERLAY_MOUNT_PATH` | `/opt/nvml-mock` | Container path for the overlay |
-| `--ld-preload-shims` | `MOKKA_NRI_LD_PRELOAD_SHIMS` | `libibmockumad`, `libibmockverbs`, `libibmocksys` and `libpcisysfs` under `driver/usr/local/lib` | Comma-separated shim paths, relative to the overlay mount or absolute. Preload order is list order, so a symbol defined by more than one resolves to the first |
+| `--ld-preload-shims` | `MOKKA_NRI_LD_PRELOAD_SHIMS` | `libibmockumad`, `libibmockverbs`, `libibmocksys` and `libmockfs` under `driver/usr/local/lib` | Comma-separated shim paths, relative to the overlay mount or absolute. Preload order is list order, so a symbol defined by more than one resolves to the first |
 | `--node-name` | `NODE_NAME` | empty | Enables ComputeDomain topology injection when a topology document is staged in the overlay |
 | `--topology-host-path` | `MOKKA_NRI_TOPOLOGY_HOST_PATH` | `<overlay-host-path>/topology/topology.yaml` | Host path checked for the staged topology document |
 | `--topology-mount-path` | `MOKKA_NRI_TOPOLOGY_MOUNT_PATH` | `<overlay-mount-path>/topology/topology.yaml` | Container path injected as `MOCK_TOPOLOGY_CONFIG` |
