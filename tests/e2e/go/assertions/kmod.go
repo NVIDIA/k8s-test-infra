@@ -19,6 +19,11 @@ const moduleRefcntPath = "/sys/module/nvidia/refcnt"
 
 const driverProcVersionPath = "/var/lib/nvml-mock/driver/proc/driver/nvidia/version"
 
+// nodeView makes a command read the node's filesystem, not the served tree. A
+// `MOCK_PCI_ROOT= cmd` prefix is not enough: it reaches libmockfs only when the
+// shell execs cmd, so it is silently inert for a builtin such as `test`.
+const nodeView = "env -u LD_PRELOAD -u MOCK_PCI_ROOT "
+
 func lsmodSizes(out string) map[string]string {
 	sizes := make(map[string]string)
 
@@ -39,11 +44,15 @@ func KernelModules(ctx context.Context, k *kube.Client, pod kube.PodRef) {
 
 	ginkgo.By("checking whether the node loads a real nvidia module")
 	res, err := k.ExecSh(ctx, pod,
-		`if MOCK_PCI_ROOT= test -d /sys/module/nvidia; then echo host; else echo none; fi`)
+		"if "+nodeView+"test -d /sys/module/nvidia; then echo host; else echo none; fi")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "listing node modules\n%s", res.Combined())
 	gomega.Expect(strings.TrimSpace(res.Stdout)).To(gomega.BeElementOf("host", "none"),
 		"the host-driver probe must answer\n%s", res.Combined())
 	hostDriver := strings.TrimSpace(res.Stdout) == "host"
+	if hostDriver {
+		ginkgo.AddReportEntry("kmod", "the node loads a real nvidia module, "+
+			"so the checks that pin the simulated values do not run here")
+	}
 
 	ginkgo.By("lsmod reports the simulated NVIDIA modules")
 	res, err = k.ExecSh(ctx, pod, "lsmod")
@@ -55,10 +64,12 @@ func KernelModules(ctx context.Context, k *kube.Client, pod kube.PodRef) {
 			"nvidia_uvm must report no holders\n%s", res.Combined())
 	}
 
+	// lsmod takes Size from /sys/module/<name>/coresize, not from the
+	// /proc/modules line, so this compares the mirror, not the copied host text.
 	ginkgo.By("a host module keeps its own size in the mirror")
 	mirrored := lsmodSizes(res.Stdout)
 	served := res.Stdout
-	res, err = k.ExecSh(ctx, pod, "MOCK_PCI_ROOT= lsmod")
+	res, err = k.ExecSh(ctx, pod, nodeView+"lsmod")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "node lsmod failed\n%s", res.Combined())
 
 	shared := 0
@@ -69,9 +80,9 @@ func KernelModules(ctx context.Context, k *kube.Client, pod kube.PodRef) {
 		}
 		shared++
 		gomega.Expect(got).To(gomega.Equal(size),
-			"the mirror altered the size of host module %s. Only the size is compared: the "+
-				"kernel orders the Used-by holders by dependency in /proc/modules, and a "+
-				"holders/ directory cannot reproduce that order.\nnode:\n%s\nserved:\n%s",
+			"the mirror altered the size of host module %s. Only size is compared: a "+
+				"holders/ directory cannot reproduce the dependency order the kernel "+
+				"prints in Used by.\nnode:\n%s\nserved:\n%s",
 			name, res.Stdout, served)
 	}
 
@@ -81,10 +92,10 @@ func KernelModules(ctx context.Context, k *kube.Client, pod kube.PodRef) {
 
 	ginkgo.By("a mirrored parameter reads as it does on the node")
 	res, err = k.ExecSh(ctx, pod,
-		`p=$(MOCK_PCI_ROOT= sh -c 'ls /sys/module/*/parameters/* 2>/dev/null | head -1'); `+
+		`p=$(`+nodeView+`sh -c 'ls /sys/module/*/parameters/* 2>/dev/null | head -1'); `+
 			`[ -n "$p" ] || { echo none; exit 0; }; `+
 			`[ -r "$p" ] || { echo absent; exit 0; }; `+
-			`[ "$(MOCK_PCI_ROOT= cat "$p")" = "$(cat "$p")" ] && echo same || echo differ`)
+			`[ "$(`+nodeView+`cat "$p")" = "$(cat "$p")" ] && echo same || echo differ`)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "reading a mirrored parameter\n%s", res.Combined())
 	gomega.Expect(strings.TrimSpace(res.Stdout)).NotTo(gomega.Equal("differ"),
 		"the mirror altered a parameter value\n%s", res.Combined())
