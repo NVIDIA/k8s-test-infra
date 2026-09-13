@@ -33,3 +33,6 @@ tmp
 
 # MkDocs build output
 site/
+
+# MkDocs toolchain venv created by `make docs-deps`
+.venv-docs/

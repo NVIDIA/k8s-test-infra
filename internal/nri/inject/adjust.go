@@ -10,7 +10,11 @@
 // the plugin's DaemonSet after the agent's.
 package inject
 
-import "path/filepath"
+import (
+	"path/filepath"
+
+	"go.uber.org/zap"
+)
 
 // Adjust returns what to add to a container, or ok=false when the container
 // should be left exactly as authored.
@@ -19,7 +23,8 @@ import "path/filepath"
 // None of them can fail, which is why there is no error to return.
 func Adjust(cfg Config, container Container) (Adjustment, bool) {
 	cfg = withDefaults(cfg)
-	if skip(cfg, container) {
+	if reason, skipped := skip(cfg, container); skipped {
+		zap.L().Debug("skipping container injection", zap.String("namespace", container.Namespace), zap.String("reason", reason))
 		return Adjustment{}, false
 	}
 
@@ -29,29 +34,34 @@ func Adjust(cfg Config, container Container) (Adjustment, bool) {
 	attachGPUs(cfg, container, &adjustment)
 	attachIMEXChannels(cfg, container, &adjustment)
 
+	zap.L().Debug("injecting container",
+		zap.String("namespace", container.Namespace),
+		zap.Int("mounts", len(adjustment.Mounts)),
+		zap.Int("devices", len(adjustment.Devices)))
+
 	return adjustment, true
 }
 
-// skip reports whether the container must be left exactly as authored.
+// skip reports whether the container must be left exactly as authored, and why.
 //
 // The mount check is what makes re-adjustment safe: a container that already
 // carries the overlay at its destination has been through here before, and
 // injecting a second time would stack duplicate LD_PRELOAD entries.
-func skip(cfg Config, container Container) bool {
+func skip(cfg Config, container Container) (reason string, ok bool) {
 	if container.annotated(cfg.OptOutAnnotation, "false") {
-		return true
+		return "opt-out annotation", true
 	}
 	for _, namespace := range cfg.ExcludedNamespaces {
 		if container.Namespace == namespace {
-			return true
+			return "excluded namespace", true
 		}
 	}
 	for _, mount := range container.Mounts {
 		if mount.Destination == cfg.ContainerOverlayPath {
-			return true
+			return "overlay already mounted", true
 		}
 	}
-	return false
+	return "", false
 }
 
 // mountOverlay binds the staged mock driver tree into the container, read-only

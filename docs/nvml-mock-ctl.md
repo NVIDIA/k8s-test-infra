@@ -92,34 +92,62 @@ POD=$(kubectl -n mokka get pod -l app.kubernetes.io/name=nvml-mock \
 
 ## Command reference
 
+`nvml-mock-ctl --help` lists the commands, and `nvml-mock-ctl <command> --help`
+documents that command's own flags, defaults and positional arguments.
+
 ```text
-usage: nvml-mock-ctl <command> [flags]
+NAME:
+   nvml-mock-ctl - mutate the simulated GPU state of a running nvml-mock node
 
-commands:
-  fail   --gpu <idx|all|uuid> --mode <healthy|lost|fallen_off_bus|ecc_uncorrectable> [--after-calls N] [--xid CODE]
-  temp   --gpu <idx|all|uuid> <celsius>    pin reported GPU temperature
-  power  --gpu <idx|all|uuid> <watts>      pin reported power draw
-  fan    --gpu <idx|all|uuid> <percent>    pin reported fan speed (forces fan count >= 1)
-  util   --gpu <idx|all|uuid> <percent>    pin reported GPU + memory utilization
-  clocks --gpu <idx|all|uuid> <mhz>        pin reported SM + graphics clocks
-  throttle --gpu <idx|all|uuid> <reason>[ reason ...]  set active throttle reasons ('none' clears)
-  pstate --gpu <idx|all|uuid> <0-15>       pin reported performance state (P-state)
-  nvlink-error --gpu <idx|all|uuid> <errors_per_sec> [--links a,b,c]  inject NVLink DL errors (0 heals)
-  sram-ecc --gpu <idx|all|uuid> <count> [--type correctable|parity|secded]
-           [--source l2|sm|microcontroller|pcie|other] [--threshold-exceeded]
-                                           inject SRAM ECC errors (0 heals)
-  fabric-health --gpu <idx|all|uuid> <condition>[ condition ...]  degrade NVLink fabric health ('healthy' clears)
-         conditions: degraded_bandwidth, route_recovery, route_unhealthy,
-         access_timeout_recovery, or a misconfiguration (no_partition,
-         insufficient_nvlinks, incompatible_gpu_fw, invalid_location,
-         incorrect_sysguid, incorrect_chassis_sn, gpu_state_invalid)
-  set    --gpu <idx|all|uuid> key.path=value [key.path=value ...]
-  status [--gpu <idx>]
-  reset  [--gpu <idx|all|uuid>]
+USAGE:
+   nvml-mock-ctl [global options] [command [command options]]
 
-global flags:
-  --file    config override path (default $MOCK_NVML_OVERRIDES or /var/lib/nvml-mock/driver/config/overrides.yaml)
-  --config  config path for UUID resolution/validation (default $MOCK_NVML_CONFIG or /var/lib/nvml-mock/driver/config/config.yaml)
+COMMANDS:
+   fail               inject a device failure, or clear one with --mode healthy
+   temp, temperature  pin reported GPU temperature
+   power              pin reported power draw
+   fan                pin reported fan speed (forces fan count >= 1)
+   util, utilization  pin reported GPU + memory utilization
+   clocks             pin reported SM + graphics clocks
+   throttle           set the active throttle reasons ('none' clears them)
+   pstate             pin the reported performance state (P-state)
+   nvlink-error       inject NVLink DL errors at a rate in errors/second (0 heals)
+   sram-ecc           inject SRAM ECC errors (0 heals)
+   fabric-health      degrade NVLink fabric health ('healthy' clears it)
+   set                write arbitrary schema fields, as key.path=value
+   status             print the overrides currently in effect
+   reset              clear the targeted overrides, returning the device(s) to the pristine profile
+   watch-allocations  mirror each pod's nvidia.com/gpu claim into memory.used_bytes/free_bytes
+   help, h            Shows a list of commands or help for one command
+
+GLOBAL OPTIONS:
+   --file string    config override path (default: "/var/lib/nvml-mock/driver/config/overrides.yaml") [$MOCK_NVML_OVERRIDES]
+   --config string  config path for UUID resolution and validation (default: "/var/lib/nvml-mock/driver/config/config.yaml") [$MOCK_NVML_CONFIG]
+   --help, -h       show help
+```
+
+Every mutating command takes `--gpu <idx|all|uuid>`; `reset` applies to every
+device without it, and `status` reports every override. The global flags are
+accepted on either side of the command, but `--gpu` and the command's own flags
+must follow it.
+
+```text
+nvml-mock-ctl fail --gpu <t> --mode <healthy|lost|fallen_off_bus|ecc_uncorrectable> [--after-calls N] [--xid CODE]
+nvml-mock-ctl temp --gpu <t> celsius
+nvml-mock-ctl power --gpu <t> watts
+nvml-mock-ctl fan --gpu <t> percent
+nvml-mock-ctl util --gpu <t> percent
+nvml-mock-ctl clocks --gpu <t> mhz
+nvml-mock-ctl throttle --gpu <t> reason [reason ...]
+nvml-mock-ctl pstate --gpu <t> pstate
+nvml-mock-ctl nvlink-error --gpu <t> [--links a,b,c] errors_per_sec
+nvml-mock-ctl sram-ecc --gpu <t> [--type correctable|parity|secded]
+              [--source l2|sm|microcontroller|pcie|other] [--threshold-exceeded] count
+nvml-mock-ctl fabric-health --gpu <t> condition [condition ...]
+nvml-mock-ctl set --gpu <t> key.path=value [key.path=value ...]
+nvml-mock-ctl status [--gpu <idx>]
+nvml-mock-ctl reset [--gpu <t>]
+nvml-mock-ctl watch-allocations [--socket PATH] [--interval D] [--used-fraction F]
 ```
 
 ### Targeting: `--gpu <idx|all|uuid>`
@@ -148,7 +176,79 @@ Sets the `failure` block for the target. Modes:
   (omit for "trip on first guarded call").
 - `--xid CODE` — surface this Xid code through the NVML event set once the
   device trips (delivered for any tripped failure mode with a Xid configured,
-  e.g. `--mode ecc_uncorrectable --xid 79`).
+  e.g. `--mode ecc_uncorrectable --xid 79`), **and** have the node agent
+  announce it on the node's kernel log — see below.
+
+#### Xid on the kernel log
+
+A real driver raises an Xid with a kernel printk, and the agents that watch for
+Xids read that line rather than NVML: some scan `/dev/kmsg` directly, while
+NVSentinel's syslog monitor reads the journal, admitting only kernel-transport
+entries. So an injection that carries an `--xid` also reaches the kernel log,
+once per targeted GPU:
+
+```text
+kernel: NVRM: Xid (PCI:0000:1a:00): 79
+```
+
+The node agent writes it, not this CLI. The agent watches the same override
+document `fail` writes and announces each Xid that appears on it, so the kernel
+log follows the simulated GPU state itself rather than one way of changing it —
+an injection from the allocation watcher, a hand-edited override or a future
+control plane raises the line just the same. It also means the announcement is
+the node's to make: the agent names each device by the address it serves through
+NVML, and only the devices this node actually runs (`gpu.count`), which the CLI
+could only infer from the profile.
+
+That address — the profile's `pci.bus_id`, or the mock's own for a profile that
+sets none — is spelled the way the driver spells it, lower case and without the
+function, so the kernel line, the NVML event and the simulated `/sys/bus/pci`
+tree all name the same device. Recovery announces nothing: `--mode healthy`
+clears the injection, but kernel logs never retract an Xid. Re-injecting after a
+recovery announces again, even with the same code, because it is a new fault.
+
+The line appears within about a second of the injection, alongside the NVML
+event: both sides poll the override document. With `--after-calls N` the kernel
+line leads the NVML failure, because a deferred failure trips inside whichever
+consumer makes the Nth guarded call — a counter that lives in that process and
+never reaches disk, so nothing outside it can wait for the trip. Omit
+`--after-calls` when a consumer must not see the Xid before NVML reports the
+device failed.
+
+Announcing is best-effort and never fails the injection: a node whose kernel log
+is missing or unwritable keeps the NVML side, and the agent logs the skip.
+
+Two node-level requirements, neither of which the mock can arrange for itself:
+
+- the agent must be able to write `/dev/kmsg`, which takes
+  `nodeAgent.kernelLog.enabled=true`. It is off by default because it mounts the
+  device and runs `node-agent` **privileged**: mounting alone is not enough, as
+  the container device cgroup rejects the write (`operation not permitted`) even
+  for root with the node's world-writable `/dev/kmsg` bind-mounted, and no
+  lesser capability lifts that. A cluster that will not take a privileged pod,
+  or a node with no `/dev/kmsg`, has to leave it off; the DaemonSet then sets
+  `MOCK_NVML_KMSG=""` and the agent stays quiet instead of warning about a
+  device it was not given. `local/nvml-mock.values.yaml` and the nv-sentinel
+  demo enable it, so an Xid injected there lands on the kernel log. Where
+  PodSecurity is enforced, the namespace has to admit the pod:
+  `kubectl label namespace mokka pod-security.kubernetes.io/enforce=privileged`
+  — under `baseline` or `restricted` the DaemonSet is rejected outright rather
+  than degraded;
+- for journal-based consumers, journald must ingest the kernel ring buffer
+  (`ReadKMsg=yes`) and keep the journal where the consumer looks. Kind's node
+  image sets `ReadKMsg=no` and keeps a volatile journal, so a Kind cluster needs
+  a `journald` drop-in with `Storage=persistent` and `ReadKMsg=yes`. Applied
+  after boot it takes two restarts — `systemd-journald` cannot reload, and it
+  does not create `/var/log/journal` itself; `systemd-journal-flush` is what
+  creates the directory and moves the journal there.
+
+On a Kind cluster the kernel line is not node-local. The kernel ring buffer is
+not namespaced, so every node container on a host shares the machine's: an Xid
+written on one node is in `dmesg` on all of them, and on the host. Ingest it on
+one node only (the NVSentinel demo's `run.sh` configures a single worker), or
+every node's monitor reports the same fault and a remediator quarantines nodes
+whose GPUs are fine. Real nodes each have their own kernel, so this is an
+artifact of sharing a host, not something a consumer needs to handle.
 
 `fail --mode healthy` is how you *recover* a single device (it deletes the
 `failure` block from that bucket). See the failure-injection section of the
@@ -414,9 +514,9 @@ healthy ones reported success through the no-write path above.
 | `nvidia-smi --gpu-reset [-i <idx>]` | clears the same per-device bucket(s) — see [via nvidia-smi](#reset-via-nvidia-smi) | device(s) revert to pristine profile within one TTL |
 | `nvml-mock-ctl fail --gpu <t> --mode healthy` | removes just the `failure` block for the target | that device recovers within one TTL; other overrides stay |
 | `nvml-mock-ctl fabric-health --gpu <t> healthy` | clears just the fabric health conditions for the target | that device's fabric reports healthy within one TTL; other overrides stay |
-| DaemonSet pod restart | the node agent deletes `overrides.yaml` at startup | **all** overrides wiped; back to pristine profile |
+| DaemonSet pod restart | the node daemon deletes `overrides.yaml` at startup | **all** overrides wiped; back to pristine profile |
 | Consumer pod restart | none — the config override lives on the node, not in the consumer | consumer re-reads and picks up the *current* config override (does **not** reset it) |
-| `helm upgrade` (profile/values change) | rolls the DaemonSet pod (config checksum + `RollingUpdate`), so the node agent wipes `overrides.yaml` on the new pod | **all** overrides reset to the new pristine config; only an upgrade that does not recreate the nvml-mock pod leaves an config override in place |
+| `helm upgrade` (profile/values change) | rolls the DaemonSet pod (config checksum + `RollingUpdate`), so the node daemon wipes `overrides.yaml` on the new pod | **all** overrides reset to the new pristine config; only an upgrade that does not recreate the nvml-mock pod leaves an config override in place |
 
 ## Worked examples
 
@@ -427,6 +527,8 @@ All examples assume `$POD` is set as shown in [Where it runs](#where-it-runs).
 kubectl -n mokka exec "$POD" -- nvml-mock-ctl fail --gpu 0 --mode ecc_uncorrectable --after-calls 1 --xid 79
 # verify from any consumer pod:
 kubectl exec <consumer> -- nvidia-smi --query-gpu=ecc.errors.uncorrected.aggregate.total --format=csv,noheader
+# the same Xid on the node's kernel log (on Kind, read it on the node itself):
+docker exec <node> sh -c 'dmesg | grep "NVRM: Xid"'
 ```
 
 ```bash
@@ -499,7 +601,7 @@ kubectl -n mokka exec "$POD" -- nvml-mock-ctl reset --gpu all
 ```
 
 ```bash
-# 8) Full reset via pod restart (the node agent wipes overrides.yaml at startup)
+# 8) Full reset via pod restart (the node daemon wipes overrides.yaml at startup)
 kubectl -n mokka delete pod "$POD"
 ```
 
@@ -520,6 +622,14 @@ kubectl -n mokka delete pod "$POD"
   (no `uuid:` in the profile). Target it by index instead.
 - **Nothing changed on other nodes.** Scope is per-node. Repeat the command
   against each node's DaemonSet pod.
+- **The Xid isn't in the kernel log.** Silence usually means the announcement
+  was never turned on: it needs `nodeAgent.kernelLog.enabled=true`, and without
+  it the DaemonSet sets `MOCK_NVML_KMSG=""`. Otherwise the node agent's log says
+  why — it writes the line, so that is where the failure is reported: `kubectl
+  -n mokka logs "$POD" -c node-agent | grep kernellog`. A failed write means the
+  container cannot reach `/dev/kmsg`. If `dmesg` shows the line but a journal
+  consumer does not see it, the node's journald is dropping kernel messages — see
+  [Xid on the kernel log](#xid-on-the-kernel-log).
 - **An identity field didn't change.** Device `name`, `architecture`, `brand`,
   `compute_capability`, `uuid`, and PCI `bus_id` are baked at construction and
   are not hot-reloadable in v1. Change the profile/Helm values and restart the

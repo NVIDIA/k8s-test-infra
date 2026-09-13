@@ -131,7 +131,7 @@ func rootIDForBDF(bdf string) string {
 	return "pci" + domain + ":" + bus
 }
 
-// validBDF reports whether s is a PCI address in the form the kernel names
+// ValidBDF reports whether s is a PCI address in the form the kernel names
 // sysfs entries with, DDDD:BB:DD.F, lowercase hex.
 //
 // The check is a boundary, not a nicety: gpu.customConfig authors bus_id by
@@ -141,7 +141,13 @@ func rootIDForBDF(bdf string) string {
 // consumer can look up either. The 8-digit domain NVML reports through
 // nvmlPciInfo_t.busId is not this form; the profile field carries the 4-digit
 // one, as busIdLegacy does.
-func validBDF(s string) bool {
+//
+// Exported for the simulators that put a device's address somewhere a
+// hand-authored string must not reach on trust. The kernel log is the sharpest
+// of those: it is node-wide, unnamespaced, and read by health agents, so an
+// address carrying a newline would let whoever can edit the profile write
+// kernel lines of their own.
+func ValidBDF(s string) bool {
 	const form = "dddd:bb:dd.f"
 	if len(s) != len(form) {
 		return false
@@ -177,7 +183,7 @@ func (s *State) activeBDFs() []string {
 
 	for _, d := range s.Devices {
 		bdf := strings.ToLower(d.PCIBusID)
-		if !validBDF(bdf) {
+		if !ValidBDF(bdf) {
 			continue
 		}
 		if seen[bdf] {

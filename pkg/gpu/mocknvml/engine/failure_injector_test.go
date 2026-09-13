@@ -837,3 +837,55 @@ func TestFailureInjector_SameConfig(t *testing.T) {
 	var nilInjector *failureInjector
 	require.False(t, nilInjector.sameConfig(&FailureInjectionConfig{Mode: FailureModeLost}))
 }
+
+func TestVisibility_FailureEvents(t *testing.T) {
+	for _, mode := range []string{FailureModeECCUncorrectable, FailureModeLost, FailureModeFallenOffBus} {
+		t.Run(mode, func(t *testing.T) {
+			cfg := &Config{
+				NumDevices:    2,
+				DriverVersion: "550.163",
+				YAMLConfig: &YAMLConfig{
+					Version: "1.0",
+					System:  SystemConfig{DriverVersion: "550.163", NVMLVersion: "12.550.163", NumDevices: 2},
+					DeviceDefaults: *withFailure(&FailureInjectionConfig{
+						Mode: mode, AfterCalls: 1, Xid: &XidErrorConfig{Code: 79},
+					}),
+				},
+			}
+			e := NewEngine(cfg)
+			require.Equal(t, nvml.SUCCESS, e.Init())
+			t.Cleanup(func() { require.Equal(t, nvml.SUCCESS, e.Shutdown()) })
+			e.SetVisibleDevicesForTesting(nil)
+			hidden, ret := e.DeviceGetHandleByIndex(0)
+			require.Equal(t, nvml.SUCCESS, ret)
+			_, ret = e.LookupDevice(hidden).GetTemperature(nvml.TEMPERATURE_GPU)
+			lost := mode != FailureModeECCUncorrectable
+			if lost {
+				require.Equal(t, nvml.ERROR_GPU_IS_LOST, ret)
+			} else {
+				require.Equal(t, nvml.SUCCESS, ret)
+			}
+
+			for _, visible := range [][]int{{1}, {}} {
+				e.SetVisibleDevicesForTesting(visible)
+				require.False(t, e.AnyDeviceLost(), "hidden GPU must not fail event waits")
+				h, xid, ok := e.PendingXidEvent()
+				require.False(t, ok)
+				require.Nil(t, h)
+				require.Zero(t, xid)
+			}
+
+			// Filtering must leave the hidden event pending for when the GPU is visible.
+			e.SetVisibleDevicesForTesting([]int{0})
+			require.Equal(t, lost, e.AnyDeviceLost())
+			h, xid, ok := e.PendingXidEvent()
+			require.True(t, ok)
+			require.Equal(t, hidden, h)
+			require.Equal(t, uint64(79), xid)
+			_, _, ok = e.PendingXidEvent()
+			require.False(t, ok)
+			e.SetVisibleDevicesForTesting(nil)
+			require.Equal(t, lost, e.AnyDeviceLost())
+		})
+	}
+}

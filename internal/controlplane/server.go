@@ -7,13 +7,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"go.uber.org/zap"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/health"
 )
@@ -22,12 +22,12 @@ import (
 // dribbles headers cannot hold a handler slot indefinitely.
 type Server struct {
 	cfg    Config
-	logger *slog.Logger
+	logger *zap.Logger
 	http   *http.Server
 }
 
 // NewServer does not bind a listener; call Run or RunListener for that.
-func NewServer(cfg Config, logger *slog.Logger) *Server {
+func NewServer(cfg Config, logger *zap.Logger) *Server {
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
 	router.Use(middleware.Recoverer)
@@ -67,7 +67,7 @@ func (s *Server) Run(ctx context.Context) error {
 func (s *Server) RunListener(ctx context.Context, listener net.Listener) error {
 	serveErr := make(chan error, 1)
 	go func() {
-		s.logger.Info("http server listening", "addr", listener.Addr().String())
+		s.logger.Info("http server listening", zap.String("addr", listener.Addr().String()))
 		if err := s.http.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serveErr <- err
 			return
@@ -82,7 +82,7 @@ func (s *Server) RunListener(ctx context.Context, listener net.Listener) error {
 		}
 		return nil
 	case <-ctx.Done():
-		s.logger.Info("shutdown signal received; draining http server", "timeout", s.cfg.ShutdownTimeout)
+		s.logger.Info("shutdown signal received; draining http server", zap.Duration("timeout", s.cfg.ShutdownTimeout))
 		// context.WithoutCancel preserves ctx values (e.g. tracing IDs) while
 		// dropping the cancellation that just fired — otherwise Shutdown
 		// would return before the drain gets a chance to start.

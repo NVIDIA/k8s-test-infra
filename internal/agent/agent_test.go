@@ -6,14 +6,13 @@ package agent
 import (
 	"context"
 	"errors"
-	"io"
-	"log/slog"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 )
@@ -133,7 +132,7 @@ func newAgentWith(t *testing.T, sim Simulator, updates ...Update) *Agent {
 		Simulators: []Simulator{sim},
 		Source:     newChanSource(updates...),
 		Host:       host.New(t.TempDir()),
-		Log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Log:        zap.NewNop(),
 	})
 }
 

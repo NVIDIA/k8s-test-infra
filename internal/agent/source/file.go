@@ -8,12 +8,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"log/slog"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"go.uber.org/zap"
 	"sigs.k8s.io/yaml"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
@@ -40,11 +40,11 @@ type FileSource struct {
 	configPath   string
 	topologyPath string
 	pollInterval time.Duration
-	log          *slog.Logger
+	log          *zap.Logger
 }
 
 // NewFileSource returns a FileSource that watches configPath and topologyPath.
-func NewFileSource(configPath, topologyPath string, log *slog.Logger) *FileSource {
+func NewFileSource(configPath, topologyPath string, log *zap.Logger) *FileSource {
 	return &FileSource{
 		configPath:   configPath,
 		topologyPath: topologyPath,
@@ -89,7 +89,7 @@ func (f *FileSource) poll(ctx context.Context, ch chan<- agent.Update, lastHash 
 		return
 	}
 
-	topology, err := readTopology(f.topologyPath)
+	topology, err := readTopology(f.topologyPath, f.log)
 	if err != nil {
 		f.send(ctx, ch, agent.Update{Err: err, At: time.Now()})
 		return
@@ -97,6 +97,7 @@ func (f *FileSource) poll(ctx context.Context, ch chan<- agent.Update, lastHash 
 
 	h := inputsHash(data, topology)
 	if h == *lastHash {
+		f.log.Debug("config and topology unchanged; skipping reconcile")
 		return // content unchanged
 	}
 	*lastHash = h
@@ -108,7 +109,7 @@ func (f *FileSource) poll(ctx context.Context, ch chan<- agent.Update, lastHash 
 	}
 	state.ConfigRaw = data
 	state.TopologyRaw = topology
-	f.log.Info("state updated from config", "config", f.configPath)
+	f.log.Info("state updated from config", zap.String("config", f.configPath))
 	f.send(ctx, ch, agent.Update{State: state, At: time.Now()})
 }
 
@@ -122,13 +123,15 @@ func (f *FileSource) send(ctx context.Context, ch chan<- agent.Update, u agent.U
 // readTopology returns the cluster topology document, or nil where the node has
 // none — an unset path or an unmounted ConfigMap. Other read failures surface as
 // errors, because a nil document retracts the one already staged on this node.
-func readTopology(path string) ([]byte, error) {
+func readTopology(path string, log *zap.Logger) ([]byte, error) {
 	if path == "" {
+		log.Debug("no topology path configured; ComputeDomain topology disabled")
 		return nil, nil
 	}
 
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
+		log.Debug("topology file not yet mounted", zap.String("path", path))
 		return nil, nil
 	}
 	if err != nil {
@@ -146,13 +149,26 @@ func inputsHash(config, topology []byte) [32]byte {
 	return sha256.Sum256(append(c[:], t[:]...))
 }
 
+// parseProfile decodes a profile and checks what the agent acts on before the
+// engine ever sees the file. The agent stages the character devices and writes
+// both CDI specs, so it cannot wait for the engine to reject minors that
+// collide. Only that check runs here: the rest of the engine's validation
+// demands fields the agent deliberately tolerates, driver_version among them.
+func parseProfile(data []byte) (engine.YAMLConfig, error) {
+	var cfg engine.YAMLConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return cfg, fmt.Errorf("parse yaml: %w", err)
+	}
+	return cfg, engine.ValidateMinorNumbers(&cfg)
+}
+
 // compileState parses raw YAML config bytes and builds the agent State.
 // Runtime telemetry fields (utilization, power, temperature, clocks) are
 // discarded — they belong to the runtime override file owned by nvml-mock-ctl.
 func compileState(data []byte) (*agent.State, error) {
-	var cfg engine.YAMLConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("parse yaml: %w", err)
+	cfg, err := parseProfile(data)
+	if err != nil {
+		return nil, err
 	}
 
 	dv := cfg.System.DriverVersion
@@ -251,8 +267,8 @@ func resolveDeviceCount(cfg engine.YAMLConfig) int {
 		if v > n {
 			// Silently capping would leave an operator who asked for more GPUs
 			// than the profile declares wondering why nvidia-smi disagrees.
-			slog.Warn("GPU_COUNT exceeds the profile device count; capping",
-				"requested", v, "profile_devices", n)
+			zap.L().Warn("GPU_COUNT exceeds the profile device count; capping",
+				zap.Int("requested", v), zap.Int("profile_devices", n))
 		} else {
 			n = v
 		}
@@ -262,7 +278,10 @@ func resolveDeviceCount(cfg engine.YAMLConfig) int {
 
 func buildDeviceSpec(i int, defaults engine.DeviceConfig, devices []engine.DeviceOverride) agent.DeviceSpec {
 	spec := agent.DeviceSpec{
-		Index:        i,
+		Index: i,
+		// Absent an explicit minor_number, the driver is taken to have probed
+		// in index order.
+		MinorNumber:  i,
 		Name:         defaults.Name,
 		Architecture: defaults.Architecture,
 		Serial:       defaults.Serial,
@@ -295,8 +314,8 @@ func applyDeviceOverride(spec *agent.DeviceSpec, ov engine.DeviceOverride) {
 	if ov.Serial != "" {
 		spec.Serial = ov.Serial
 	}
-	if ov.MinorNumber != 0 {
-		spec.MinorNumber = ov.MinorNumber
+	if ov.MinorNumber != nil {
+		spec.MinorNumber = *ov.MinorNumber
 	}
 	// Each PCI field overrides independently, matching how the mock NVML engine
 	// merges the same block (engine/config.go): a device that sets only bus_id

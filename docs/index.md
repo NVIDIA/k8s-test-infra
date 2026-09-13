@@ -1,3 +1,9 @@
+---
+# The page opens with the hero <div>, so MkDocs cannot infer a title from the
+# H1 below it and falls back to the filename. Set it explicitly.
+title: Overview
+---
+
 <div class="mokka-hero" markdown>
 ![Mokka](img/logo.png)
 
@@ -6,39 +12,24 @@
 
 # Mokka
 
-Mokka turns any Kubernetes cluster into a multi-GPU environment for testing.
-It implements the NVIDIA driver interfaces that GPU software talks to, so the
-device plugin, the DRA driver, the GPU Operator and `nvidia-smi` all behave as
-though real hardware were present. No physical NVIDIA GPU is required.
+Mokka simulates the software contracts around NVIDIA devices rather than the
+devices themselves. The rule of thumb: reach for Mokka when your system **reads**
+hardware state and reacts to it, and for real hardware when it **executes** work,
+moves data, or measures performance.
 
-<div class="grid cards" markdown>
+That makes it a good fit for:
 
--   **Quick Start**
-
-    Install into a KIND cluster and see simulated GPUs in five minutes.
-
-    [Get started](quickstart.md)
-
--   **Architecture**
-
-    How the mock NVML library, the CGo bridge and the GPU profiles fit together.
-
-    [Read the design](architecture.md)
-
--   **Demos**
-
-    Runnable walkthroughs, from a standalone install to NVSentinel health
-    monitoring.
-
-    [Browse demos](demo/README.md)
-
--   **Configuration**
-
-    Every YAML knob: profiles, topology, failure injection and dynamic metrics.
-
-    [See the reference](configuration.md)
-
-</div>
+- Kubernetes discovery and allocation through the device plugin or DRA —
+  scheduling, ResourceClaims, CDI visibility, topology attributes.
+- Software that consumes NVML, `nvidia-smi`, DCGM or DCGM Exporter.
+- Monitoring dashboards, parsers, alerting, and remediation logic that cordons,
+  drains, reschedules and recovers.
+- Repeatable fault injection — device loss, Xid errors, ECC errors, temperature,
+  power, utilisation, clocks, and GPU-side NVLink errors.
+- Code that interprets declared PCI, NUMA, NVLink, fabric UUID or clique
+  topology.
+- IMEX peer readiness and liveness. The peer protocol is real and runs over the
+  pod network; no GPU or NVLink traffic is involved.
 
 ## Try it
 
@@ -49,52 +40,84 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
     --namespace mokka --create-namespace
 ```
 
-Use `make cluster-create` instead of `kind create cluster` when you need the
-CDI-enabled Kind node image — that is what the device plugin, DRA driver and
-GPU Operator paths run on. `make cluster-delete` tears it down.
+Every node now reports mock GPUs. The [Quick Start](quickstart.md) takes it from
+here.
 
-The [Helm chart guide](helm-chart.md) has the full walkthrough for each
-consumer, including the device plugin, the DRA driver, the GPU Operator and a
-multi-node heterogeneous fleet.
+## Simulation depth by area
 
-## How it fits together
+Kubernetes control flows and client binaries are real. Hardware identity,
+topology, counters and failures are synthesised.
 
-<div class="mokka-architecture" markdown>
-![Mokka architecture](img/mokka-general-architecture.png)
-</div>
+| Area | What Mokka simulates | Good for | What it does not prove |
+|---|---|---|---|
+| **GPU and NVML** | A configurable NVML-visible GPU. Profiles and per-device overrides define identity, model, memory size, PCI and NUMA identity, clocks, temperature, power, utilisation, ECC state, process records and failure responses. [`nvml-mock-ctl`](nvml-mock-ctl.md) changes most of them at runtime. | Inventory, monitoring, parsers, DCGM integration, alert handling, failure recovery | No kernel driver, firmware, CUDA kernels, contexts, streams or data path. Unimplemented NVML functions return `NVML_ERROR_NOT_SUPPORTED`, so a new consumer should confirm the calls it makes. MIG instances and partition lifecycle are absent. |
+| **Kubernetes allocation** | Real allocation workflows over synthetic devices. The device plugin and DRA driver advertise and allocate GPUs; Kubernetes schedules pods and creates ResourceClaims, ResourceSlices, CDI assignments and topology attributes. | Scheduler, operator, admission, claim lifecycle and controller-recovery tests | A claim proves allocation, not that a workload used GPU memory or did work. Process records do not follow allocations. Driver, firmware and toolkit install or upgrade paths are not exercised. |
+| **Metrics** | Utilisation, temperature, power, profiling activity and NVLink counters, either configured or generated from elapsed time. See [Metric Fidelity](configuration.md#metric-fidelity) for which is which. | Dashboards, thresholds, alerts, autoscaling inputs, deterministic failure scenarios | No metric is workload-correlated, so none can establish throughput, efficiency, thermal behaviour, timing or performance. |
+| **PCI and NUMA** | A synthetic discovery tree: PCI BDFs, root-complex paths, NUMA node values, selected device nodes, and sysfs content for served containers. | Discovery, placement, topology parsing, and behaviour driven by declared locality | No PCIe transactions, DMA, IOMMU or ACS behaviour, bandwidth, latency or hardware errors, and no real CPU or memory locality. A consumer that does not receive the tree through CDI or NRI reads the host's own sysfs instead. |
+| **NVLink** | Link generation, count, state, remote GPU or NVSwitch endpoint, capabilities and line rate. `nvidia-smi topo -m` renders the declared local matrix, counters accrue synthetically, and GPU-side link errors reach DCGM health. | Topology parsing, policy decisions, local link health, fault handling, clique logic | No CUDA peer access, GPU traffic, cross-node NVLink path, collectives, NCCL, congestion, bandwidth or latency. Counters do not reflect workload traffic. |
+| **NVSwitch and Fabric Manager** | GPU-visible fabric state: NVSwitch endpoints in the declared topology, plus fabric UUID, clique, registration and [health](configuration.md#fabric-health). The Fabric Manager stand-in publishes a node-local readiness marker and can delay registration. | Software that waits for fabric registration, reads fabric identity, or reacts to GPU-visible fabric health | No NVSwitch ASIC, forwarding, NSCQ, SXID model, switch control API or CLI, firmware, partitions or routing. |
+| **InfiniBand HCA** | Synthetic HCA sysfs, UMAD and verbs surfaces with configurable model, firmware, GUID, LID, GID, link layer, state and rate. `ibstat`, `ibstatus`, `ibv_devices` and much of `ibv_devinfo` work against them. | Discovery, parsers, inventory, link-state handling, selected management-plane workflows | No kernel provider, queue pairs, completion queues, memory registration, verbs execution, RDMA traffic or performance. |
+| **InfiniBand fabric** | Peer HCAs registered across pods, SA and SMP replies, a deterministic synthetic subnet-manager identity, `iblinkinfo`, `ibnetdiscover`, and cross-node `ibping` over the pod network. | Tool compatibility, parser behaviour, peer discovery, simple control-plane failure handling | No IB switch, subnet-manager election, switch NOS, firmware, routing, adaptive routing, congestion, QoS, PKeys, cable behaviour or IB data path. The fabric view is synthesised from a full-mesh HCA model. |
 
-## Components
+## Use real hardware for
 
-| Component | Description | Status |
-|-----------|-------------|--------|
-| Mock NVML (`libnvidia-ml.so`) | 400 NVML C API exports (111 with configurable behavior, 289 stubs), YAML-configurable GPU profiles | Production |
-| nvidia-smi | Real binary with RPATH patch, backed by mock NVML | Production |
-| Helm Chart | DaemonSet deployment with 7 GPU profiles | Production |
-| CDI Injection | Container Device Interface specs for GPU Operator | Production |
-
-## GPU profiles
-
-| Profile | GPU Name | VRAM | Architecture |
-|---------|----------|------|--------------|
-| `gb300` | GB300 NVL | 288 GiB | Blackwell Ultra |
-| `gb200` | GB200 | 192 GiB | Blackwell |
-| `b200` | B200 | 192 GiB | Blackwell |
-| `h100` | H100 80GB HBM3 | 80 GiB | Hopper |
-| `a100` | A100-SXM4-40GB | 40 GiB | Ampere |
-| `l40s` | L40S | 48 GiB | Ada Lovelace |
-| `t4` | Tesla T4 | 16 GiB | Turing |
+- CUDA application correctness, compatibility, kernels, memory access and CUDA
+  peer-to-peer.
+- NCCL collectives, GPUDirect, RDMA, and NVLink, NVSwitch or InfiniBand data
+  paths.
+- Throughput, latency, oversubscription, congestion, scaling efficiency and
+  thermal behaviour.
+- GPU, HCA, NVSwitch or IB switch driver and firmware installation, upgrade,
+  reset and recovery.
+- Operating a switch through its management plane, CLI, telemetry, routing or
+  firmware interfaces.
+- Reproducing hardware faults, race conditions and timing with physical
+  fidelity.
+- MIG partition creation and lifecycle, and Confidential Computing.
 
 ## Tested consumers
 
-| Consumer | Role | Status |
-|----------|------|--------|
-| NVIDIA Device Plugin | `nvidia.com/gpu` extended resources | Tested |
-| NVIDIA DRA Driver | Dynamic Resource Allocation | Tested |
-| NVIDIA GPU Operator | Full stack device plugin, GFD and validator | Tested |
-| GPU Feature Discovery | Node labeling from NVML | Tested |
+| Consumer                 | What works                                                                                |
+|--------------------------|-------------------------------------------------------------------------------------------|
+| Node Feature Discovery   | PCI vendor labels derived from the feature file Mokka writes                              |
+| GPU Feature Discovery    | Node labels derived from NVML                                                             |
+| NVIDIA Device Plugin     | Allocatable `nvidia.com/gpu` matches the profile, and workloads schedule against it       |
+| NVIDIA DRA Driver        | ResourceSlices report the right GPUs, and a `ResourceClaimTemplate` pod reaches `Running` |
+| NVIDIA GPU Operator      | The full operand stack installs and its validator starts                                  |
+| DCGM / dcgm-exporter     | Telemetry, time-varying power, and injected Xid errors                                    |
+| Run:ai fake-gpu-operator | Profile ConfigMaps published in the shape its discovery expects                           |
 
-## Integrations
+## Where to go next
 
-| Integration | Description |
-|-------------|-------------|
-| [fake-gpu-operator](integrations/fake-gpu-operator.md) | Run:ai's K8s-level GPU simulation plus nvml-mock driver fidelity |
+<div class="grid cards" markdown>
+
+-   **Get it running**
+
+    Install into a KIND cluster and see simulated GPUs in five minutes.
+
+    [Quick Start](quickstart.md)
+
+-   **Understand how it works**
+
+    The moving parts, how they connect, and how the system behaves.
+
+    [Architecture](architecture.md)
+
+-   **Do something specific**
+
+    Task-oriented walkthroughs: the device plugin, DRA, the GPU Operator,
+    failure injection, node-wide injection.
+
+    [Guides](guides/README.md)
+
+-   **Change Mokka**
+
+    Local development with Tilt, the test suites, and how to submit a change.
+
+    [Contributing](contributing/index.md)
+
+</div>
+
+The [FAQ](faq.md) answers what usually comes up next: which GPU models ship,
+which surfaces are not staged at all, and why `nvidia-smi` reports the numbers
+it does.

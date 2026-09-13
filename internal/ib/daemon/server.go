@@ -11,13 +11,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"go.uber.org/zap"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/fabric"
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/protocol"
@@ -58,7 +59,7 @@ const (
 type Server struct {
 	cfg      Config
 	loopback *loopbackIndex
-	log      *slog.Logger
+	log      *zap.Logger
 
 	localPorts []protocol.PortAdvert
 	registry   *registry.Registry
@@ -139,7 +140,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 
 	go func() {
 		<-ctx.Done()
-		s.log.Info("shutting down", "socket", s.cfg.SocketPath)
+		s.log.Info("shutting down", zap.String("socket", s.cfg.SocketPath))
 		_ = ln.Close()
 	}()
 
@@ -161,19 +162,21 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 // absence of these lines on a peer pod localizes a failure to startup rather
 // than to MAD routing.
 func (s *Server) logStartup() {
-	s.log.Info("serving", "socket", s.cfg.SocketPath, "fabric", s.cfg.Fabric, "port", s.cfg.TCPPort,
-		"pod_ip", s.podIP, "node", s.nodeName, "local_ports", len(s.localPorts))
+	s.log.Info("serving", zap.String("socket", s.cfg.SocketPath), zap.Bool("fabric", s.cfg.Fabric),
+		zap.Int("port", s.cfg.TCPPort), zap.String("pod_ip", s.podIP), zap.String("node", s.nodeName),
+		zap.Int("local_ports", len(s.localPorts)))
 
 	if len(s.localPorts) == 0 {
 		// The commonest misconfiguration, and it surfaces downstream as
 		// "0 HCAs found" with nothing pointing back here.
-		slog.Warn("no local ports found; ibstat and ibping will report nothing",
-			"ib_root", s.cfg.IBRoot)
+		s.log.Warn("no local ports found; ibstat and ibping will report nothing",
+			zap.String("ib_root", s.cfg.IBRoot))
 		return
 	}
 
 	for _, p := range s.localPorts {
-		s.log.Info("local port", "ca", p.CAName, "port", p.Port, "lid", lidHex(p.LID), "port_guid", p.PortGUID)
+		s.log.Info("local port", zap.String("ca", p.CAName), zap.Int("port", p.Port),
+			zap.String("lid", lidHex(p.LID)), zap.String("port_guid", p.PortGUID))
 	}
 }
 
@@ -198,7 +201,7 @@ func (s *Server) serveConn(ctx context.Context, c net.Conn) {
 			if errors.Is(err, io.EOF) || errors.Is(err, os.ErrDeadlineExceeded) || ctx.Err() != nil {
 				return
 			}
-			s.log.Warn("dropping client connection: read failed", "err", err)
+			s.log.Warn("dropping client connection: read failed", zap.Error(err))
 			return
 		}
 		// Bound the response write the same way the read above is bounded: a
@@ -206,7 +209,7 @@ func (s *Server) serveConn(ctx context.Context, c net.Conn) {
 		// this goroutine for the pod's life on a full socket buffer.
 		_ = c.SetWriteDeadline(time.Now().Add(unixConnIdleTimeout))
 		if err := s.dispatch(ctx, c, env); err != nil {
-			s.log.Warn("dropping client connection: request failed", "type", env.Type, "err", err)
+			s.log.Warn("dropping client connection: request failed", zap.String("type", env.Type), zap.Error(err))
 			return
 		}
 	}

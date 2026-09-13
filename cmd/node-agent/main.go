@@ -17,6 +17,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/nvlink"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/pcibus"
 	"github.com/urfave/cli/v3"
+	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
@@ -25,6 +26,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/gpudriver"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/ib"
+	"github.com/NVIDIA/k8s-test-infra/internal/agent/kernellog"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/source"
 	"github.com/NVIDIA/k8s-test-infra/internal/health"
 	"github.com/NVIDIA/k8s-test-infra/internal/logging"
@@ -100,6 +102,14 @@ func startCommand() *cli.Command {
 				Usage:   "enable the cross-pod fabric relay; required for multi-node ibping and iblinkinfo",
 				Sources: cli.EnvVars("MOCK_IB_PING_FABRIC"),
 			},
+			// Not rooted at --host-root: the deployment grants the kernel log
+			// as a device mount at its own path, rather than through /host.
+			&cli.StringFlag{
+				Name:    "kernel-log",
+				Value:   kernellog.DefaultPath,
+				Usage:   "kernel log to announce injected Xids on, as a driver's printk does ('' announces nowhere)",
+				Sources: cli.EnvVars("MOCK_NVML_KMSG"),
+			},
 			&cli.DurationFlag{
 				Name:    "fabricmanager-init-delay",
 				Usage:   "withhold fabric readiness for this long, simulating NVSwitch registration latency",
@@ -127,6 +137,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	log := logging.NewLogger(logging.Config{Level: level, Format: format})
+	defer func() { _ = log.Sync() }()
 
 	configPath := cmd.String("config")
 	if configPath == "" {
@@ -148,9 +159,19 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	h := host.New(cmd.String("host-root"))
 
 	// TODO: we should consider keeping runtime state in /var/ dir so it naturally gets reset on container restart
-	if err := resetRuntimeOverrides(h); err != nil {
+	if err := resetRuntimeOverrides(h, log); err != nil {
 		return err
 	}
+
+	log.Info("starting node agent",
+		zap.String("config", configPath),
+		zap.String("topology", cmd.String("topology")),
+		zap.String("host_root", cmd.String("host-root")),
+		zap.String("health_addr", cmd.String("health-addr")),
+		zap.String("ib_mode", string(ibMode)),
+		zap.Bool("ib_fabric", cmd.Bool("ib-fabric")),
+		zap.Duration("shutdown_timeout", shutdownTimeout),
+	)
 
 	a := agent.New(agent.Config{
 		Simulators: []agent.Simulator{
@@ -159,6 +180,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 			cdi.New(),
 			imex.New(),
 			nvlink.New(),
+			kernellog.New(kernellog.Options{Path: cmd.String("kernel-log")}),
 			fabricmanager.New(fabricmanager.Options{
 				InitDelay: cmd.Duration("fabricmanager-init-delay"),
 			}),
@@ -189,14 +211,16 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 // profile. Both locations the mock NVML engine resolves are cleared; the paths
 // are derived here rather than via engine.ConfigOverridePathFor because that
 // helper short-circuits on MOCK_NVML_OVERRIDES and would mask the other one.
-func resetRuntimeOverrides(h *host.Host) error {
-	for _, p := range []string{
+func resetRuntimeOverrides(h *host.Host, log *zap.Logger) error {
+	paths := []string{
 		h.RootPath("config/overrides.yaml"),
 		h.RootPath("driver/config/overrides.yaml"),
-	} {
+	}
+	for _, p := range paths {
 		if err := mockctl.ResetOverrides(p); err != nil {
 			return err
 		}
 	}
+	log.Info("reset runtime overrides from previous pod lifetime", zap.Strings("paths", paths))
 	return nil
 }

@@ -11,7 +11,7 @@
 # Install nvml-mock in the dedicated `mokka` namespace with the `gb200`
 # profile, `topology.enabled=true`, `nri.enabled=true`, and
 # `imex.mockChannels.enabled=true`. Mock channel/caps majors must be unused on
-# every Kind node; use docs/demo/compute-domain/run.sh, which selects them
+# every Kind node; use docs/guides/compute-domain/run.sh, which selects them
 # dynamically and supplies the topology overlay.
 #
 # Cluster-name convention: Kind names each worker

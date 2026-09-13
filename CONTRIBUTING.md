@@ -54,12 +54,17 @@ LD_LIBRARY_PATH=. nvidia-smi
 
 ### Reporting Bugs
 
-Open an issue using the [bug report template](.github/ISSUE_TEMPLATE/bug_report.md).
+Open an issue using the [bug report template](.github/ISSUE_TEMPLATE/bug_report.yml).
 Include steps to reproduce, expected vs actual behavior, and your environment.
 
 ### Suggesting Features
 
-Open an issue using the [feature request template](.github/ISSUE_TEMPLATE/feature_request.md).
+Open an issue using the [feature request template](.github/ISSUE_TEMPLATE/feature_request.yml).
+
+### Reporting Documentation Problems
+
+Missing, outdated, or incorrect documentation has its own
+[documentation template](.github/ISSUE_TEMPLATE/documentation.yml).
 
 ### Submitting Changes
 

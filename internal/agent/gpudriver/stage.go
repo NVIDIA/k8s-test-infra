@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"regexp"
 
+	"go.uber.org/zap"
+
 	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
 
 	"sigs.k8s.io/yaml"
@@ -22,6 +24,25 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
 
+type charDev struct {
+	name         string
+	major, minor uint32
+}
+
+func charDevsForDevices(devices []agent.DeviceSpec) []charDev {
+	devs := make([]charDev, 0, len(devices)+3)
+	for _, d := range devices {
+		devs = append(devs, charDev{fmt.Sprintf("nvidia%d", d.MinorNumber), 195, uint32(d.MinorNumber)})
+	}
+	devs = append(devs,
+		charDev{"nvidiactl", 195, 255},
+		charDev{"nvidia-uvm", 510, 0},
+		charDev{"nvidia-uvm-tools", 510, 1},
+	)
+
+	return devs
+}
+
 // stageCharDevs creates the GPU character devices that ioctl-based callers
 // (CUDA, nvidia-smi) open to reach the driver. Without them open() fails.
 // Major 195 = nvidia (per-GPU + nvidiactl); major 510 = nvidia-uvm.
@@ -31,19 +52,7 @@ func stageCharDevs(ctx context.Context, h *host.Host, state *agent.State) error 
 		return err
 	}
 
-	type charDev struct {
-		name         string
-		major, minor uint32
-	}
-	devs := make([]charDev, 0, len(state.Devices)+3)
-	for _, d := range state.Devices {
-		devs = append(devs, charDev{fmt.Sprintf("nvidia%d", d.Index), 195, uint32(d.Index)})
-	}
-	devs = append(devs,
-		charDev{"nvidiactl", 195, 255},
-		charDev{"nvidia-uvm", 510, 0},
-		charDev{"nvidia-uvm-tools", 510, 1},
-	)
+	devs := charDevsForDevices(state.Devices)
 
 	wanted := make(map[string]bool, len(devs))
 	for _, d := range devs {
@@ -118,6 +127,7 @@ func stageCUDAShim(ctx context.Context, h *host.Host, state *agent.State) error 
 	matches, _ := filepath.Glob("/usr/local/lib/libcuda.so.*.*.*")
 
 	if len(matches) == 0 {
+		zap.L().Debug("no libcuda.so in image; skipping CUDA shim staging")
 		return nil
 	}
 
@@ -171,8 +181,10 @@ func stageNvidiaSMI(ctx context.Context, h *host.Host, state *agent.State) error
 	}
 	elfPath := filepath.Join(binDir, "nvidia-smi")
 	if _, err := os.Stat("/usr/local/bin/nvidia-smi"); err == nil {
+		zap.L().Debug("staging nvidia-smi from the real ELF binary")
 		return fsutil.Copy("/usr/local/bin/nvidia-smi", elfPath, 0o755)
 	}
+	zap.L().Debug("no nvidia-smi ELF binary in image; staging the shell fallback")
 	return fsutil.Symlink("nvidia-smi.sh", elfPath)
 }
 

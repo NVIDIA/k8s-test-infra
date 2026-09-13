@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- nvml-mock: the node agent announces an injected Xid on the node's kernel log,
+  the way a driver's printk does, so agents that watch kernel messages see the
+  fault instead of only NVML clients. It watches the runtime override document,
+  so an Xid raised through `nvml-mock-ctl fail --xid` or any other writer is
+  announced alike, naming each device by the address it serves through NVML.
+  Opt in with `nodeAgent.kernelLog.enabled=true`: it makes the node agent
+  PRIVILEGED and mounts `/dev/kmsg`, because the device cgroup rejects the write
+  from an unprivileged pod even with the device mounted, so it is off unless
+  asked for and no `helm upgrade` widens an install's privileges on its own. The
+  local Tilt values and the nv-sentinel demo turn it on. `MOCK_NVML_KMSG` picks
+  a different log or disables the announcement, which is always best-effort: a
+  node with no writable kernel log keeps the NVML injection.
+- nv-sentinel demo: `run.sh` now configures `journald` on each Kind node
+  (`Storage=persistent`, `ReadKMsg=yes`), giving the node a kernel-log "syslog"
+  NVSentinel's syslog monitor can read. Stock Kind nodes drop kernel messages
+  and keep a volatile journal, so the monitor sees nothing.
 - node-agent: containers now see the NVIDIA kernel modules as loaded. `lsmod`
   lists `nvidia` and `nvidia_uvm`, and `/sys/module/nvidia/refcnt` exists. The
   node's own modules stay visible beside them. See `docs/helm-chart.md` for how
@@ -36,6 +52,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   SIGKILL instead of being cut short.
 
 ### Fixed
+- agent: GPU character devices, both CDI specs and the NVML visibility filter
+  now address a device by its `minor_number` rather than by its NVML index. The
+  two match on a node whose driver probed in PCI enumeration order, which every
+  shipped profile describes, but where a profile sets them apart a container was
+  handed the `/dev/nvidia<N>` belonging to a different GPU. NVML indices are
+  unchanged, so `nvidia-smi` and CDI device names still enumerate from 0. A
+  device that omits `minor_number` keeps taking its index. A profile is now
+  rejected, by the agent as well as the engine, when two devices would end up on
+  the same minor number — including where one of them defaulted to it — or when
+  a minor falls outside the range a GPU node can carry.
+- mocknvml: keep device indices consistent after visibility filtering, preserve
+  physical GPU targets for reset, and exclude hidden devices from topology results
+  and event waits (#807).
+- mocknvml: a per-device `pci` override no longer leaks into every device
+  merged after it. `GetDeviceConfig` copied `device_defaults` by value, but the
+  copy still aliased the shared `pci` block and the per-device merge wrote
+  through that pointer. A profile setting `devices[0].pci.device_id` left every
+  later device reporting device 0's ID, so `nvidia-smi -q` showed the wrong
+  Device Id and anything keying product identity off the PCI ID mislabelled
+  them. Heterogeneous profiles were the affected case.
 - mocknvml: `nvidia-smi --gpu-reset` (`-r`) now resets a GPU instead of
   segfaulting. The mock's export-table dispatcher ended every per-device call by
   writing a zero count through `arg1`, which the reset slots do not carry, so the
@@ -81,6 +117,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a follow-up. (#712)
 
 ### Added
+- The `mokka-crds` chart is published to
+  `oci://ghcr.io/nvidia/k8s-test-infra/chart` and cosign-signed, alongside the
+  `nvml-mock` chart. It was previously linted and template-rendered in CI but
+  never pushed, so the CRDs could only be applied from a source checkout. The
+  chart moves from 0.1.0 to 0.4.0 to line up with the release.
+- The Mokka control plane is published as a container image at
+  `ghcr.io/nvidia/mokka-control-plane`, multi-arch, cosign-signed and carrying
+  an SBOM attestation, on the same triggers as the nvml-mock image. It was
+  previously buildable from `deployments/control-plane/Dockerfile` but never
+  pushed anywhere, so it could only be run from a local build.
 - The node agent gains `pcibus`, `cdi` and `imex` simulators, each an
   `agent.Simulator` with the same stage/apply/discard lifecycle as the existing
   `gpudriver`. Together they subsume the device-surface construction that
@@ -227,6 +273,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   public NVML APIs.
 
 ### Changed
+- `nvml-mock-ctl` parses its command line with `urfave/cli` v3, the library the
+  node agent and NRI plugin already use, instead of one hand-rolled
+  `flag.FlagSet` shared by every subcommand. Each command now declares only its
+  own flags and positional arguments, so `nvml-mock-ctl <command> --help`
+  documents that command rather than offering `--mode`, `--links` and `--type`
+  on all of them, and `--help` is generated from the commands themselves rather
+  than a usage string maintained by hand beside them. Command names, aliases,
+  positional arguments, the `--file`/`--config` global flags and their
+  environment fallbacks, the exit codes (2 for a bad invocation or an invalid
+  value, 1 for an override file that could not be locked, read or written) and
+  every stderr message are unchanged. Two invocations that used to work no
+  longer do: `--gpu` was global, so it could precede the command
+  (`nvml-mock-ctl --gpu 0 temp 85`), and it now has to follow it
+  (`nvml-mock-ctl temp --gpu 0 85`) — the form every doc, script and e2e caller
+  already uses; and `status --gpu ""` is now a usage error rather than a report
+  of every override, so a script whose index variable came out empty is told
+  instead of being handed the whole node's state as if it had asked for it.
 - Dependencies no longer ship in `vendor/`. Go resolves them through a module
   proxy — NVIDIA's DGXC Artifactory in CI and for the published `nvml-mock`
   image, the public proxy locally — so builds and `make gen` need network access
@@ -817,7 +880,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (#386)
 
 ### Fixed
-- `docs/demo/standalone/demo.sh` no longer uses the bash 4 `mapfile`
+- `docs/guides/standalone/demo.sh` no longer uses the bash 4 `mapfile`
   builtin and runs on macOS's stock bash 3.2. (#385)
 - Helm chart OCI publishing: the cosign signing step now authenticates to
   GHCR via the Docker config and signs the chart by digest; chart signing

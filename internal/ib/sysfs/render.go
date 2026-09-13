@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 
+	"go.uber.org/zap"
+
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/config"
 )
 
@@ -63,6 +65,7 @@ func render(o Options) (*tree, error) {
 	t := newTree(o.RootDir)
 
 	if !o.IB.Enabled {
+		zap.L().Debug("infiniband disabled; retracting sysfs tree")
 		return t, nil
 	}
 
@@ -112,6 +115,9 @@ func render(o Options) (*tree, error) {
 			return nil, fmt.Errorf("rendering mlx5_%d: %w", i, err)
 		}
 	}
+
+	zap.L().Debug("rendered infiniband sysfs tree",
+		zap.Int("hca_count", hcaCount), zap.String("guid_prefix", guidPrefix))
 
 	return t, nil
 }

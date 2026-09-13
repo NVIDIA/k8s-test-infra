@@ -524,6 +524,17 @@ devices:
       temperature_gpu_c: 37
 ```
 
+`index` is the NVML enumeration position and the key the override matches on.
+`minor_number` is the `N` in `/dev/nvidia<N>`, which the agent stages and both
+CDI specs point at. It defaults to the index — the numbering a driver produces
+when it probes in PCI enumeration order — so set it only to describe a node
+where the two differ.
+
+Minor numbers are a permutation of the device indices: remapping one device
+means remapping whichever device held the minor it took. A profile that leaves
+two devices on the same minor is rejected, defaults included, as is a minor
+outside 0-254 (255 is `nvidiactl`).
+
 ## NVLink Configuration
 
 ```yaml
@@ -676,7 +687,7 @@ When deploying via Helm, additional values control integration with external pro
 | `integrations.fakeGpuOperator.targetNamespace` | `""` (release namespace) | Namespace for the profile ConfigMaps. Set to FGO's release namespace for FGO to find them; requires FGO's `builtinProfiles.enabled=false` |
 | `integrations.fakeGpuOperator.profileLabels` | `run.ai/gpu-profile: "true"` | Extra labels on profile ConfigMaps. The contract labels are always emitted |
 
-See [fake-gpu-operator integration](integrations/fake-gpu-operator.md) for setup details.
+See the [fake-gpu-operator guide](guides/runai-fgo/README.md) for setup details.
 
 ## Metric Fidelity
 

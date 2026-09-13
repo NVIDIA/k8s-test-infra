@@ -7,7 +7,8 @@ package subnet
 import (
 	"encoding/binary"
 	"fmt"
-	"log/slog"
+
+	"go.uber.org/zap"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/fabric"
 )
@@ -15,7 +16,7 @@ import (
 // logComponent tags SMP synthesis output so it is separable from the rest of
 // the node agent's stream. Directed-route walks are verbose and only wanted when
 // diagnosing a failed iblinkinfo, hence Debug rather than Info.
-var logComponent = slog.String("component", "mock-ib-smp")
+var logComponent = zap.String("component", "mock-ib-smp")
 
 // hexPath renders the first four directed-route hop bytes the way a MAD dump
 // does, so a logged path lines up with ibnetdiscover output.
@@ -102,8 +103,8 @@ func TrySynthesize(sendMad []byte, g *fabric.Graph, localCA string) ([]byte, boo
 		}
 		out := newSMPResp(sendMad, method)
 		fillSMInfo(out[umadMADOffset:], sm)
-		slog.Debug("smp SMInfo resolved to master SM", logComponent,
-			"attr", attrID, "sm_port_guid", sm.PortGUID, "sm_lid", sm.LID)
+		zap.L().Debug("smp SMInfo resolved to master SM", logComponent,
+			zap.Uint16("attr", attrID), zap.String("sm_port_guid", sm.PortGUID), zap.Uint16("sm_lid", sm.LID))
 		return out, true
 	}
 
@@ -115,16 +116,16 @@ func TrySynthesize(sendMad []byte, g *fabric.Graph, localCA string) ([]byte, boo
 	}
 	target, ok := resolveTarget(g, mad, lid, localCA)
 	if !ok {
-		slog.Debug("smp directed route resolved no target", logComponent,
-			"attr", attrID, "attr_mod", attrMod, "lid", lid, "local_ca", localCA,
-			"hop_count", drHopCnt(mad), "hops", hexPath(mad))
+		zap.L().Debug("smp directed route resolved no target", logComponent,
+			zap.Uint16("attr", attrID), zap.Uint32("attr_mod", attrMod), zap.Uint16("lid", lid), zap.String("local_ca", localCA),
+			zap.Int("hop_count", drHopCnt(mad)), zap.String("hops", hexPath(mad)))
 		return nil, false
 	}
-	slog.Debug("smp directed route resolved", logComponent,
-		"attr", attrID, "attr_mod", attrMod, "lid", lid, "local_ca", localCA,
-		"hop_count", drHopCnt(mad), "hops", hexPath(mad),
-		"target_ca", target.CAName, "target_port_guid", target.PortGUID,
-		"target_lid", target.LID, "target_local", target.Local, "target_pod_ip", target.PodIP)
+	zap.L().Debug("smp directed route resolved", logComponent,
+		zap.Uint16("attr", attrID), zap.Uint32("attr_mod", attrMod), zap.Uint16("lid", lid), zap.String("local_ca", localCA),
+		zap.Int("hop_count", drHopCnt(mad)), zap.String("hops", hexPath(mad)),
+		zap.String("target_ca", target.CAName), zap.String("target_port_guid", target.PortGUID),
+		zap.Uint16("target_lid", target.LID), zap.Bool("target_local", target.Local), zap.String("target_pod_ip", target.PodIP))
 	out := newSMPResp(sendMad, method)
 	respMAD := out[umadMADOffset:]
 	switch attrID {

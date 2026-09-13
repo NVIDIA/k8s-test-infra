@@ -1,8 +1,8 @@
 # Build dependencies for the Mokka documentation site.
 #
-#   pip install -r requirements-docs.txt
-#   mkdocs serve          # local preview at http://127.0.0.1:8000
-#   mkdocs build --strict # what CI runs
+#   make docs-deps        # uv installs these into .venv-docs
+#   make docs-serve       # local preview at http://127.0.0.1:8000
+#   make docs             # what CI runs (exclusion check + strict build)
 #
 # Pinned so a docs build is reproducible and so a transitive bump cannot break
 # the site without an explicit commit. Dependabot tracks this file.

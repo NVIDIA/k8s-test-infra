@@ -4,13 +4,10 @@
 package daemon
 
 import (
-	"bytes"
 	"context"
-	"log/slog"
 	"net"
 	"os"
 	"strconv"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -20,13 +17,16 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/registry"
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/sysfs"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 // TestApplyRegister_LogsOnlyOnChange pins REGISTER log volume: peers
 // re-register every 2s, so an unchanged registration must stay silent —
 // otherwise a two-port node emits ~86k lines a day saying nothing changed.
 func TestApplyRegister_LogsOnlyOnChange(t *testing.T) {
-	buf := captureLogs(t)
+	logs := captureLogs(t)
 	srv := &Server{log: newLogger(), registry: registry.New()}
 	body := protocol.RegisterBody{
 		NodeName: "node-b",
@@ -38,31 +38,32 @@ func TestApplyRegister_LogsOnlyOnChange(t *testing.T) {
 	}
 
 	srv.applyRegister(body)
-	require.Equal(t, 2, strings.Count(buf.String(), "peer registered"),
-		"first REGISTER must log every port:\n%s", buf.String())
-	require.Contains(t, buf.String(), "port_guid=a088:c203:00ab:2001")
+	require.Equal(t, 2, logs.FilterMessage("peer registered").Len(),
+		"first REGISTER must log every port:\n%v", logs.All())
+	require.Equal(t, "a088:c203:00ab:2001",
+		logs.FilterMessage("peer registered").All()[0].ContextMap()["port_guid"])
 
 	srv.applyRegister(body)
-	require.Equal(t, 2, strings.Count(buf.String(), "peer registered"),
-		"unchanged re-register must not log:\n%s", buf.String())
+	require.Equal(t, 2, logs.FilterMessage("peer registered").Len(),
+		"unchanged re-register must not log:\n%v", logs.All())
 
 	body.Ports[1].LID = 0x0999
 	srv.applyRegister(body)
-	require.Equal(t, 3, strings.Count(buf.String(), "peer registered"),
-		"changed port must log exactly once:\n%s", buf.String())
-	require.Contains(t, buf.String(), "lid=0x0999")
+	require.Equal(t, 3, logs.FilterMessage("peer registered").Len(),
+		"changed port must log exactly once:\n%v", logs.All())
+	require.Equal(t, "0x0999",
+		logs.FilterMessage("peer registered").All()[2].ContextMap()["lid"])
 }
 
 // captureLogs redirects the global logger for one test. The daemon logs through
-// slog.Default() rather than an injected logger, so assertions on log output
-// have to swap the default and restore it.
-func captureLogs(t *testing.T) *bytes.Buffer {
+// zap.L() rather than an injected logger, so assertions on log output have to
+// swap the global and restore it.
+func captureLogs(t *testing.T) *observer.ObservedLogs {
 	t.Helper()
-	var buf bytes.Buffer
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
-	t.Cleanup(func() { slog.SetDefault(prev) })
-	return &buf
+	core, logs := observer.New(zapcore.DebugLevel)
+	restore := zap.ReplaceGlobals(zap.New(core))
+	t.Cleanup(restore)
+	return logs
 }
 
 // TestRegisterWithPeers_CancelledCtxMakesNoDials pins ctx handling in the

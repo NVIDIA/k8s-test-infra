@@ -24,7 +24,7 @@ const (
 	ibPingRetrySleep = 10 * time.Second
 )
 
-// Go port of docs/demo/standalone/demo.sh. ONE shared multi-node cluster is
+// Go port of docs/guides/standalone/demo.sh. ONE shared multi-node cluster is
 // created once (BeforeAll on the outer Ordered container); each selected GPU
 // profile then re-installs the chart via `helm upgrade --install` (a chart
 // upgrade, not a cluster rebuild) and runs the demo's validation steps against
@@ -39,7 +39,7 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 	})
 
 	// demo.sh step 11: node labels. Cluster topology is static (set by
-	// docs/demo/kind.yaml), so capture it once as an informational report entry
+	// docs/guides/kind.yaml), so capture it once as an informational report entry
 	// rather than per profile.
 	It("records node labels (informational)", Label("labels"), func(ctx SpecContext) {
 		out, err := h.Kube.KubectlCombined(ctx, "get", "nodes", "--show-labels")

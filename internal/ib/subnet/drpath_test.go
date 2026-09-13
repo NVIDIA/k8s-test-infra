@@ -13,7 +13,7 @@ import (
 )
 
 // Captured MAD header from a real `ibping <lid>` send in
-// docs/demo/standalone/demo.sh (libibmad mad_build_pkt output, wire byte
+// docs/guides/standalone/demo.sh (libibmad mad_build_pkt output, wire byte
 // order):
 //
 //	mad_hdr = 01 32 01 01  00000000 0000000005335fc0 00000000 00000000

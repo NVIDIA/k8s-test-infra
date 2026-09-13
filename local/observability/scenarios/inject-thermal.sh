@@ -15,7 +15,7 @@
 # The CLI writes a node-local overlay the running exporter re-reads on the mock
 # engine's TTL, so the series stays continuous and shows a step change.
 #
-# Ported from docs/demo/observability/run.sh phase 1.
+# Ported from docs/guides/observability/run.sh phase 1.
 
 set -euo pipefail
 

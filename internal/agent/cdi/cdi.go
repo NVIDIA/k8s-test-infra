@@ -12,9 +12,10 @@ import (
 	"path/filepath"
 	"sync/atomic"
 
-	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
-
+	"go.uber.org/zap"
 	"sigs.k8s.io/yaml"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
@@ -62,6 +63,7 @@ func (s *Simulator) Discard(_ context.Context, _ *host.Host) error { return nil 
 
 // Apply writes /run/cdi/nvidia.yaml and /run/cdi/nvml-mock-nri.yaml.
 func (s *Simulator) Apply(_ context.Context, h *host.Host, state *agent.State) error {
+	zap.L().Info("applying simulator", zap.String("simulator", name))
 	s.ready.Store(false)
 
 	if err := writeSpec(filepath.Join(h.Run, nvidiaSpecFile), buildNvidiaSpec(state)); err != nil {
@@ -78,6 +80,7 @@ func (s *Simulator) Apply(_ context.Context, h *host.Host, state *agent.State) e
 
 // Revoke removes both CDI specs.
 func (s *Simulator) Revoke(_ context.Context, h *host.Host) error {
+	zap.L().Info("revoking simulator", zap.String("simulator", name))
 	s.ready.Store(false)
 
 	return errors.Join(

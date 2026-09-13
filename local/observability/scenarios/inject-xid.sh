@@ -18,7 +18,7 @@
 # codes and injects whichever one is NOT currently reported, so the value being
 # waited for cannot be present until this run's injection arrives.
 #
-# Ported from docs/demo/observability/run.sh phase 2.
+# Ported from docs/guides/observability/run.sh phase 2.
 
 set -euo pipefail
 

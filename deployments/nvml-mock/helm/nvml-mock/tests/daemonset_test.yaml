@@ -1021,3 +1021,79 @@ tests:
             hostPath:
               path: /var/lib/k0s/kubelet/pod-resources
               type: Directory
+
+  # ── Kernel log (Xid announcement) ───────────────────────────────────
+  - it: should grant the kernel log and the privilege it needs when enabled
+    set:
+      nodeAgent:
+        kernelLog:
+          enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_NVML_KMSG
+            value: /dev/kmsg
+      # The device cgroup rejects the write from an unprivileged container even
+      # with /dev/kmsg mounted, so the mount alone would render a no-op.
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.privileged
+          value: true
+      # A capability set is inert under privileged, so the chart must not claim
+      # one: `drop: [ALL]` here would read as a bound on a container that has
+      # every capability.
+      - isNull:
+          path: spec.template.spec.containers[0].securityContext.capabilities
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: kernel-log
+            mountPath: /dev/kmsg
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: kernel-log
+            hostPath:
+              path: /dev/kmsg
+              type: CharDevice
+
+  # The default, and it must stay the default: `helm upgrade` of an existing
+  # install cannot be what turns the node agent privileged.
+  - it: should leave the node agent unprivileged by default
+    asserts:
+      # Empty, not absent: it tells the agent the pod cannot reach /dev/kmsg,
+      # so it skips the announcement instead of warning on every injection.
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_NVML_KMSG
+            value: ""
+      - isNull:
+          path: spec.template.spec.containers[0].securityContext.privileged
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: kernel-log
+            mountPath: /dev/kmsg
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: kernel-log
+            hostPath:
+              path: /dev/kmsg
+              type: CharDevice
+
+  # A misspelled key here is the dangerous kind of typo: the operator believes
+  # they turned the privilege off, and the chart renders it on. The schema
+  # rejects the install instead of quietly granting more than was asked for.
+  - it: should reject a misspelled kernel log key
+    set:
+      nodeAgent:
+        kernelLog:
+          enable: false
+    asserts:
+      - failedTemplate:
+          errorMessage: "values don't meet the specifications of the schema(s) in the following chart(s):\nnvml-mock:\n- at '/nodeAgent/kernelLog': additional properties 'enable' not allowed\n"

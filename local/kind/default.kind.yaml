@@ -42,6 +42,18 @@
 #      overlay at container-creation time. Inert until a workload registers
 #      as an NRI plugin, so the node-wide-NRI scenario is the only consumer.
 #
+# Every node also mounts journald-node-syslog.conf, which is what makes the Xid
+# the node agent writes to /dev/kmsg for an injection readable from the node
+# journal (see that file), whichever node hosts the GPU under test. Its
+# hostPath is repo-relative, like every path in a Kind config, so create the
+# cluster from the repo root — `make cluster-create` does.
+#
+# Note that the journals will agree rather than partition the fleet: the kernel
+# ring buffer is not namespaced, so the node containers share this host's and an
+# Xid injected on one lands in all of their journals. Fine for reading the line
+# back by hand; a per-node log consumer running here would report one GPU's
+# fault against every node it watches.
+#
 # Worker names are pinned via JoinConfiguration instead of being derived from
 # the cluster name, so they stay stable across recreations and can be selected
 # directly: install_fleet() in local/nvml_mock.tiltfile pins each per-profile
@@ -71,6 +83,10 @@ containerdConfigPatches:
       socket_path = "/var/run/nri/nri.sock"
 nodes:
   - role: control-plane
+    extraMounts: &node-syslog
+      - hostPath: local/kind/journald-node-syslog.conf
+        containerPath: /etc/systemd/journald.conf.d/99-node-syslog.conf
+        readOnly: true
     kubeadmConfigPatches:
       - |
         kind: ClusterConfiguration
@@ -81,6 +97,7 @@ nodes:
     labels:
       run.ai/simulated-gpu-node-pool: integration
       mokka.nvidia.com/type: sgpu
+    extraMounts: *node-syslog
     kubeadmConfigPatches:
       - |
         kind: JoinConfiguration
@@ -90,6 +107,7 @@ nodes:
     labels:
       run.ai/simulated-gpu-node-pool: scale
       mokka.nvidia.com/type: sgpu
+    extraMounts: *node-syslog
     kubeadmConfigPatches:
       - |
         kind: JoinConfiguration

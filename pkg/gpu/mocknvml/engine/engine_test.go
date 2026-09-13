@@ -18,6 +18,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"unsafe"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/stretchr/testify/require"
@@ -513,7 +514,7 @@ func TestEngine_DeviceGetHandleByPciBusIdInvalid(t *testing.T) {
 func TestDetectVisibleDevices_NonePresent(t *testing.T) {
 	dir := t.TempDir()
 	// No files created – simulates no /dev/nvidia* nodes
-	result := detectVisibleDevicesAt(dir+"/nvidia%d", 4)
+	result := detectVisibleDevicesAt(dir+"/nvidia%d", &Config{NumDevices: 4})
 	require.Nil(t, result, "Expected nil (no filtering) when no nodes exist")
 }
 
@@ -527,7 +528,7 @@ func TestDetectVisibleDevices_AllPresent(t *testing.T) {
 		require.NoError(t, f.Close())
 	}
 
-	result := detectVisibleDevicesAt(dir+"/nvidia%d", 4)
+	result := detectVisibleDevicesAt(dir+"/nvidia%d", &Config{NumDevices: 4})
 	require.Nil(t, result, "Expected nil (no filtering) when all nodes exist")
 }
 
@@ -542,9 +543,34 @@ func TestDetectVisibleDevices_Subset(t *testing.T) {
 		require.NoError(t, f.Close())
 	}
 
-	result := detectVisibleDevicesAt(dir+"/nvidia%d", 4)
+	result := detectVisibleDevicesAt(dir+"/nvidia%d", &Config{NumDevices: 4})
 	require.Len(t, result, 2, "Expected 2 visible devices")
 	require.Equal(t, []int{0, 2}, result, "Expected visible devices [0 2]")
+}
+
+// The scan looks for the node the driver would have created, which carries the
+// minor number, but NVML reports positions in its own index space. A node
+// staged for a device whose minor differs from its index must therefore be
+// reported under the index, not under the minor.
+func TestDetectVisibleDevices_ReportsIndicesNotMinorNumbers(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	for _, minor := range []int{0, 3} {
+		require.NoError(t, os.WriteFile(fmt.Sprintf("%s/nvidia%d", dir, minor), nil, 0o600))
+	}
+	zero, one, two, three := 0, 1, 2, 3
+	config := &Config{
+		NumDevices: 4,
+		YAMLConfig: &YAMLConfig{Devices: []DeviceOverride{
+			{Index: 0, MinorNumber: &one},
+			{Index: 1, MinorNumber: &zero},
+			{Index: 2, MinorNumber: &three},
+			{Index: 3, MinorNumber: &two},
+		}},
+	}
+
+	require.Equal(t, []int{1, 2}, detectVisibleDevicesAt(dir+"/nvidia%d", config))
 }
 
 // TestVisibility_DeviceGetCount verifies that DeviceGetCount returns the
@@ -661,4 +687,111 @@ func pciInfoBusIdString(pci nvml.PciInfo) string {
 	}
 	s += sSb553.String()
 	return s
+}
+
+// TestVisibility_IndexRoundTrip checks enumeration independently of physical identity.
+func TestVisibility_IndexRoundTrip(t *testing.T) {
+	e := NewEngine(&Config{NumDevices: 4, DriverVersion: "550.54.15"})
+	require.Equal(t, nvml.SUCCESS, e.Init())
+	t.Cleanup(func() { require.Equal(t, nvml.SUCCESS, e.Shutdown()) })
+	e.SetVisibleDevicesForTesting(nil)
+
+	var uuids [4]string
+	var pci [4]nvml.PciInfo
+	for i := range uuids {
+		h, ret := e.DeviceGetHandleByIndex(i)
+		require.Equal(t, nvml.SUCCESS, ret)
+		d := e.LookupDevice(h)
+		uuids[i], ret = d.GetUUID()
+		require.Equal(t, nvml.SUCCESS, ret)
+		pci[i], ret = d.GetPciInfo()
+		require.Equal(t, nvml.SUCCESS, ret)
+	}
+
+	// Reuse the engine so changing and clearing the filter must update indices too.
+	for _, visible := range [][]int{nil, {0}, {1}, {1, 3}, {2, 3}, {3, 1}, {}, nil} {
+		t.Run(fmt.Sprintf("visible=%v", visible), func(t *testing.T) {
+			e.SetVisibleDevicesForTesting(visible)
+			count, ret := e.DeviceGetCount()
+			require.Equal(t, nvml.SUCCESS, ret)
+			expected := len(visible)
+			if visible == nil {
+				expected = len(uuids)
+			}
+			require.Equal(t, expected, count)
+			for i := 0; i < count; i++ {
+				h, ret := e.DeviceGetHandleByIndex(i)
+				require.Equal(t, nvml.SUCCESS, ret)
+				d := e.LookupDevice(h)
+				index, ret := d.GetIndex()
+				require.Equal(t, nvml.SUCCESS, ret)
+				require.Equal(t, i, index)
+				roundTrip, ret := e.DeviceGetHandleByIndex(index)
+				require.Equal(t, nvml.SUCCESS, ret)
+				require.Equal(t, h, roundTrip)
+
+				physical := i
+				if visible != nil {
+					physical = visible[i]
+				}
+				minor, ret := d.GetMinorNumber()
+				require.Equal(t, nvml.SUCCESS, ret)
+				require.Equal(t, physical, minor)
+				uuid, ret := d.GetUUID()
+				require.Equal(t, nvml.SUCCESS, ret)
+				require.Equal(t, uuids[physical], uuid)
+				info, ret := d.GetPciInfo()
+				require.Equal(t, nvml.SUCCESS, ret)
+				require.Equal(t, pci[physical], info)
+				byUUID, ret := e.DeviceGetHandleByUUID(uuid)
+				require.Equal(t, nvml.SUCCESS, ret)
+				require.Equal(t, h, byUUID)
+				byPCI, ret := e.DeviceGetHandleByPciBusId(pciInfoBusIdString(info))
+				require.Equal(t, nvml.SUCCESS, ret)
+				require.Equal(t, h, byPCI)
+			}
+		})
+	}
+}
+
+func TestVisibility_TopologyHandles(t *testing.T) {
+	e := newFabricEngine(t)
+	// Ignore device files on the host before capturing the physical GPU handle.
+	e.SetVisibleDevicesForTesting(nil)
+	hidden, ret := e.DeviceGetHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+	e.SetVisibleDevicesForTesting([]int{1})
+	h, ret := e.DeviceGetHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+	peers, ret := e.TopologyNearestGpus(h, nvml.TOPOLOGY_SYSTEM)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Empty(t, peers)
+	devices, ret := e.TopologyGpuSet(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, []unsafe.Pointer{h}, devices)
+	peers, ret = e.TopologyNearestGpus(hidden, nvml.TOPOLOGY_SYSTEM)
+	require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret)
+	require.Empty(t, peers)
+	_, ret = e.LookupDevice(hidden).GetIndex()
+	require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret)
+}
+
+func TestVisibility_CopiesMapping(t *testing.T) {
+	e := newFabricEngine(t)
+	visible := []int{1}
+	e.SetVisibleDevicesForTesting(visible)
+	h, ret := e.DeviceGetHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	// Reusing the caller's slice must not change enumeration or cached indices.
+	visible[0] = 0
+	got, ret := e.DeviceGetHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, h, got)
+	index, ret := e.LookupDevice(got).GetIndex()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Zero(t, index)
+	devices, ret := e.TopologyGpuSet(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, []unsafe.Pointer{h}, devices)
 }

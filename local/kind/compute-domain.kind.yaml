@@ -11,7 +11,7 @@
 #      Tilt Makefile passes --name too, but hardcoding it here documents
 #      the load-bearing worker-name coupling — Kind derives worker names
 #      as <cluster>-worker[N], and topology.yaml (both in this dir and
-#      in docs/demo/compute-domain) hardcodes those worker names.
+#      in docs/guides/compute-domain) hardcodes those worker names.
 #
 #   2. DRA feature gates + apiServer runtime-config.
 #      tests/e2e's compute-domain config omits these because CI runs DRA

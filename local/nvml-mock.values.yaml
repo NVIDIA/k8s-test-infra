@@ -15,3 +15,12 @@
 # deep-merges maps), so pinning stays additive.
 nodeSelector:
   mokka.nvidia.com/type: sgpu
+
+# Announce injected Xids on the node's kernel log, which the chart leaves off
+# because it makes the node-agent container privileged. On here because a local
+# cluster is exactly where that trade is worth making: `nvml-mock-ctl fail
+# --xid` is meant to be visible to an agent reading the node's kernel messages,
+# and local/kind/*.kind.yaml already configures journald to ingest them.
+nodeAgent:
+  kernelLog:
+    enabled: true

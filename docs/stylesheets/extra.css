@@ -51,9 +51,13 @@
   padding: 2.5rem 1rem 1rem;
 }
 
+/* The logo is portrait (533x591), so capping its width still leaves a very tall
+   block: 320px wide rendered ~355px tall. Constrain the height instead and let
+   the width follow; max-width keeps it sane on narrow viewports. */
 .mokka-hero img {
-  max-width: 320px;
-  width: 60%;
+  max-height: 200px;
+  max-width: 60%;
+  width: auto;
   height: auto;
 }
 

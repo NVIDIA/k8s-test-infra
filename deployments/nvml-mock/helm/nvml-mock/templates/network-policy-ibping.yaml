@@ -2,8 +2,8 @@
 {{- /* SPDX-License-Identifier: Apache-2.0 */}}
 {{- if and .Values.infiniband.ping.networkPolicy.enabled (eq (include "nvml-mock.infinibandEnabled" .) "true") }}
 # The fabric relay listens on 0.0.0.0:{{ .Values.infiniband.ping.port }} without
-# authentication, in a pod that also runs a privileged container. Admitting only
-# peer nvml-mock pods keeps that surface reachable by its real clients alone.
+# authentication. Admitting only peer nvml-mock pods keeps that surface
+# reachable by its real clients alone.
 # Egress stays open so DNS peer discovery and registration still work.
 #
 # kindnetd enforces NetworkPolicy on current Kind releases, so this is

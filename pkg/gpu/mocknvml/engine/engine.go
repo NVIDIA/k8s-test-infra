@@ -16,6 +16,7 @@ package engine
 import (
 	"fmt"
 	"os"
+	"slices"
 	"sync"
 	"unsafe"
 
@@ -98,7 +99,7 @@ func (e *Engine) Init() nvml.Return {
 	// only the allocated GPUs (e.g. /dev/nvidia0 but not /dev/nvidia1-7),
 	// filter the visible device set to match. This mimics real NVML behavior
 	// where cgroup device permissions limit GPU visibility per container.
-	server.visibleDevices = detectVisibleDevices(e.config.NumDevices)
+	server.setVisibleDevices(detectVisibleDevices(e.config))
 
 	e.server = server
 	e.initCount = 1
@@ -177,6 +178,41 @@ func (e *Engine) createDevicesFromYAML(server *MockServer, base *mockserver.Serv
 
 		debugLog("[ENGINE] Created device %d: uuid=%s pci=%s\n", i, uuid, pciBusID)
 	}
+}
+
+// baseDevicePCIBusIDs lists the PCI addresses of the mock every device is built
+// from, resolved once because building the base allocates a whole mock server.
+// createDevicesFromYAML passes an empty pci.bus_id straight through, so a device
+// whose profile is silent serves the base address — see BaseDevicePCIBusID.
+var baseDevicePCIBusIDs = sync.OnceValue(func() []string {
+	base := dgxa100.New()
+
+	busIDs := make([]string, 0, len(base.Devices))
+	for i := range base.Devices {
+		device, ok := base.Devices[i].(*mockserver.Device)
+		if !ok {
+			break
+		}
+		busIDs = append(busIDs, device.PciBusID)
+	}
+
+	return busIDs
+})
+
+// BaseDevicePCIBusID returns the address a device index serves when its profile
+// declares no pci.bus_id: the one it inherits from the base mock. It is ""
+// for an index the base does not cover — the engine creates no device there.
+//
+// Exported for callers outside the engine that must name a device the way the
+// running mock names it, such as the node agent announcing an Xid on the kernel
+// log for a profile that leaves addresses to the mock.
+func BaseDevicePCIBusID(index int) string {
+	busIDs := baseDevicePCIBusIDs()
+	if index < 0 || index >= len(busIDs) {
+		return ""
+	}
+
+	return busIDs[index]
 }
 
 // createDefaultDevices creates devices with default/env configuration (legacy mode).
@@ -388,7 +424,8 @@ func (e *Engine) LookupConfigurableDevice(handle unsafe.Pointer) *ConfigurableDe
 // ProcessByPID returns the first configured process with that pid, searching
 // every device's process list, and whether one was found. This backs
 // nvmlSystemGetProcessName, whose signature carries a bare pid with no device,
-// so the search cannot be narrowed. Callers that already know the device should
+// so GPU visibility intentionally does not restrict this system-wide lookup.
+// Callers that already know the device should
 // use ConfigurableDevice.ProcessByPID instead.
 func (e *Engine) ProcessByPID(pid uint32) (ProcessConfig, bool) {
 	e.mu.RLock()
@@ -424,7 +461,7 @@ func (e *Engine) TopologyNearestGpus(handle unsafe.Pointer, level nvml.GpuTopolo
 	}
 	dev := e.handles.Lookup(handle)
 	cd, ok := dev.(*ConfigurableDevice)
-	if !ok || cd == nil {
+	if !ok || cd == nil || !e.server.isDeviceVisible(cd.index) {
 		return nil, nvml.ERROR_INVALID_ARGUMENT
 	}
 	if cd.fabric == nil {
@@ -433,7 +470,7 @@ func (e *Engine) TopologyNearestGpus(handle unsafe.Pointer, level nvml.GpuTopolo
 
 	var out []unsafe.Pointer
 	for j := 0; j < cd.fabric.NumDevices(); j++ {
-		if j == cd.index {
+		if j == cd.index || !e.server.isDeviceVisible(j) {
 			continue
 		}
 		if cd.fabric.TopoLevel(cd.index, j) > level {
@@ -469,17 +506,10 @@ func (e *Engine) TopologyGpuSet(cpuNumber int) ([]unsafe.Pointer, nvml.Return) {
 	var out []unsafe.Pointer
 	for j := 0; j < len(e.server.configurableDevices); j++ {
 		dev := e.server.configurableDevices[j]
-		if dev == nil || dev.fabric == nil {
+		if dev == nil || dev.fabric == nil || !e.server.isDeviceVisible(j) {
 			continue
 		}
-		matched := false
-		for _, c := range dev.fabric.CPUs(dev.index) {
-			if c == cpuNumber {
-				matched = true
-				break
-			}
-		}
-		if !matched {
+		if !slices.Contains(dev.fabric.CPUs(dev.index), cpuNumber) {
 			continue
 		}
 		h := e.handles.HandleFor(dev)
@@ -548,7 +578,7 @@ func (e *Engine) GetConfig() *Config {
 }
 
 // PendingXidEvent claims the next undelivered Xid critical-error event
-// from any device that has tripped failure injection with a `xid:` block
+// from any visible device that has tripped failure injection with a `xid:` block
 // configured. It returns the device handle (auto-registering one if the
 // caller hasn't resolved a handle for that device yet), the Xid code,
 // and true on success. When no event is pending it returns (nil, 0,
@@ -566,8 +596,8 @@ func (e *Engine) PendingXidEvent() (unsafe.Pointer, uint64, bool) {
 		return nil, 0, false
 	}
 
-	for _, dev := range e.server.configurableDevices {
-		if dev == nil {
+	for index, dev := range e.server.configurableDevices {
+		if dev == nil || !e.server.isDeviceVisible(index) {
 			continue
 		}
 		fi := dev.failureInjector()
@@ -591,7 +621,7 @@ func (e *Engine) PendingXidEvent() (unsafe.Pointer, uint64, bool) {
 	return nil, 0, false
 }
 
-// AnyDeviceLost reports whether any configured device is lost / fallen_off_bus.
+// AnyDeviceLost reports whether any visible device is lost / fallen_off_bus.
 // nvmlEventSetWait consults it so a wait on a set that (in real NVML) contains
 // a lost GPU fails with ERROR_GPU_IS_LOST like every other call against that
 // device. Does not advance any failure injector (no Tick).
@@ -605,7 +635,7 @@ func (e *Engine) PendingXidEvent() (unsafe.Pointer, uint64, bool) {
 // those semantics are unchanged.
 //
 // The mock does not record event-set membership (nvmlDeviceRegisterEvents
-// is a success stub), so any lost device fails every wait.
+// is a success stub), so any visible lost device fails every wait.
 func (e *Engine) AnyDeviceLost() bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -614,8 +644,8 @@ func (e *Engine) AnyDeviceLost() bool {
 		return false
 	}
 
-	for _, dev := range e.server.configurableDevices {
-		if dev == nil {
+	for index, dev := range e.server.configurableDevices {
+		if dev == nil || !e.server.isDeviceVisible(index) {
 			continue
 		}
 		if dev.failureLostByConfig() {
@@ -629,7 +659,7 @@ func (e *Engine) AnyDeviceLost() bool {
 // engine's server. Pass nil to disable filtering. Only use in tests.
 func (e *Engine) SetVisibleDevicesForTesting(visible []int) {
 	if e.server != nil {
-		e.server.visibleDevices = visible
+		e.server.setVisibleDevices(visible)
 	}
 }
 
@@ -658,20 +688,26 @@ func ResetForTesting() {
 // Returns nil if ALL device nodes exist (no filtering needed) or if none
 // exist (host context where /dev/nvidia* may not be present but NVML should
 // still work).
-func detectVisibleDevices(numDevices int) []int {
-	return detectVisibleDevicesAt("/dev/nvidia%d", numDevices)
+func detectVisibleDevices(config *Config) []int {
+	return detectVisibleDevicesAt("/dev/nvidia%d", config)
 }
 
-// detectVisibleDevicesAt is the testable core of detectVisibleDevices.
-// pathFmt is a printf format that takes the device index (e.g. "/dev/nvidia%d").
-func detectVisibleDevicesAt(pathFmt string, numDevices int) []int {
+// detectVisibleDevicesAt uses the configured driver minor numbers to find
+// device nodes, but returns NVML indices. A separate path format lets tests
+// exercise the same configuration-to-visibility mapping without writing /dev.
+func detectVisibleDevicesAt(pathFmt string, config *Config) []int {
+	minorNumbers := make([]int, 0, config.NumDevices)
+	for i := 0; i < config.NumDevices && i < MaxDevices; i++ {
+		minorNumbers = append(minorNumbers, config.GetDeviceMinorNumber(i))
+	}
+
 	var present []int
 	var absent int
 
-	for i := 0; i < numDevices && i < MaxDevices; i++ {
-		path := fmt.Sprintf(pathFmt, i)
+	for index, minor := range minorNumbers {
+		path := fmt.Sprintf(pathFmt, minor)
 		if _, err := os.Stat(path); err == nil {
-			present = append(present, i)
+			present = append(present, index)
 		} else {
 			absent++
 		}
@@ -685,6 +721,6 @@ func detectVisibleDevicesAt(pathFmt string, numDevices int) []int {
 	}
 
 	debugLog("[ENGINE] Device visibility filtering: %d of %d GPUs visible (by /dev/nvidia* presence)\n",
-		len(present), numDevices)
+		len(present), len(minorNumbers))
 	return present
 }

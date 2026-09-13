@@ -72,6 +72,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 	logger := logging.NewLogger(logging.Config{Level: level, Format: format})
+	defer func() { _ = logger.Sync() }()
 
 	cfg := controlplane.Config{
 		ListenAddr:      cmd.String("listen-addr"),

@@ -11,7 +11,7 @@
 # the DCGM and dcgm-exporter images are multi-arch amd64/arm64), so no QEMU
 # emulation is needed. libdcgm dlopen()s "libnvidia-ml.so.1", which honors
 # LD_LIBRARY_PATH, so the mock is injected by mounting a lib dir and setting
-# the env var — same recipe as docs/examples.md "Testing DCGM".
+# the env var.
 set -euo pipefail
 
 # DCGM 3.3.9 matches the dcgm-exporter bundled with GPU Operator v24.9.x
