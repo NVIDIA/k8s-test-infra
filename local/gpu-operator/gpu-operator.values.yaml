@@ -79,8 +79,10 @@ gfd:
 #
 # driver-validation passes: it finds nvidia-smi via DRIVER_INSTALL_DIR and loads
 # libnvidia-ml.so via LD_LIBRARY_PATH, both pointing at the mock driver root.
-# DISABLE_DEV_CHAR_SYMLINK_CREATION=true is required because the /dev/char symlink
-# step tries modprobe nvidia which fails in a Kind container.
+# DISABLE_DEV_CHAR_SYMLINK_CREATION=true is required. Without it, the /dev/char
+# symlink step finds /sys/module/nvidia/refcnt (served by the agent), skips
+# modprobe, and then fails with "failed to create devices info: no NVIDIA
+# devices found".
 #
 # toolkit-validation passes: nvidia-container-runtime (pre-baked in the custom
 # Kind node image) intercepts NVIDIA_VISIBLE_DEVICES=all, performs CDI injection

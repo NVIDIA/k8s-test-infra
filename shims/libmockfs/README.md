@@ -2,9 +2,11 @@
 
 `libmockfs.so` is an `LD_PRELOAD` shim that redirects PCI sysfs and kernel-module accesses to a fake filesystem tree.
 
-Use it to test software that finds or examines PCI devices, or that checks if a kernel module is loaded. The software does not then need the real PCI topology or the real module set of the host.
+Use it to test software that finds PCI devices or checks whether a kernel module is loaded. That software then needs neither the real PCI topology nor the real module set.
 
-The name is older than the module paths. This shim serves those paths for two reasons. Both surfaces render under the same root, and the redirect is a single prefix table. A second shim would repeat the libc interposition of this one to add two entries.
+One shim serves both surfaces. Both render under the same root, and the redirect is a single prefix table. A second shim would repeat this libc interposition to add two entries.
+
+The root variable keeps the name `MOCK_PCI_ROOT`. The NRI plugin sets it in every workload container it serves, and the chart documentation names it, so it is a container-visible contract. Renaming it is a separate change.
 
 ## How it works
 

@@ -127,9 +127,11 @@ spec:
             # /sys/class/infiniband_verbs, /sys/class/infiniband_cm and
             # /dev/infiniband into $MOCK_IB_ROOT. libmockfs rewrites /sys/bus/pci,
             # /sys/devices/pci, /sys/module and /proc/modules into $MOCK_PCI_ROOT.
-            # A path outside those prefixes passes through unchanged. The preload is
-            # therefore inert in the agent itself. The agent writes under /host, and
-            # its Go reads use openat, which no LD_PRELOAD shim intercepts.
+            # A path outside those prefixes passes through unchanged. The shims
+            # serve tools exec'd here, not the agent: Go issues its file syscalls
+            # directly, so no interposed symbol runs in the agent. That is why the
+            # agent still reads the node's /proc/modules while a libc reader here
+            # sees the rendered copy.
             # libibmockumad must precede libibmocksys so UMAD ioctls are
             # intercepted before sysfs path rewriting.
             - name: LD_PRELOAD
