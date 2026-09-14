@@ -429,6 +429,9 @@ func testMIG(deviceCount int) []testResult {
 	if deviceCount > 1 {
 		results = append(results, testMIGPersistence()...)
 	}
+	if deviceCount > 4 {
+		results = append(results, testMIGProfileIDs(4)...)
+	}
 	return results
 }
 

@@ -144,6 +144,52 @@ func (e *Engine) GpuInstanceGetComputeInstanceProfileName(
 	return migProfileDisplayName(name), nvml.SUCCESS
 }
 
+// GPU instance profiles have two numberings, and NVML uses both: a caller
+// enumerates them by the profile enum but names one to create by the ID the
+// board reports, which encodes the partition's share of that board — a 1-slice
+// A100 profile is enum 0 but ID 19.
+//
+// Everything in this package addresses profiles by the enum, because that is
+// what go-nvml's profile tables are keyed by, and because the mock server
+// backing each device keys its compute-instance tables by the ProfileId it
+// stamped on an instance. The board's IDs therefore exist only outside the ABI,
+// and the two calls below are what the bridge translates with.
+
+// DeviceGpuInstanceProfileEnum resolves an ID the caller supplied to the
+// profile enum. It fails for an ID the board publishes no profile under, which
+// is what refuses `nvidia-smi mig -cgi 3` on an A100 rather than quietly
+// creating the profile whose enum happens to be 3.
+func (e *Engine) DeviceGpuInstanceProfileEnum(handle unsafe.Pointer, reportedID int) (int, nvml.Return) {
+	st, ret := e.migStateOf(handle)
+	if ret != nvml.SUCCESS {
+		return 0, ret
+	}
+	profileEnum, ok := st.profileIDs.enumOf(reportedID)
+	if !ok {
+		return 0, nvml.ERROR_INVALID_ARGUMENT
+	}
+	return profileEnum, nvml.SUCCESS
+}
+
+// DeviceGpuInstanceReportedProfileID is DeviceGpuInstanceProfileEnum in
+// reverse, for the profile IDs the bridge writes back out to C.
+func (e *Engine) DeviceGpuInstanceReportedProfileID(handle unsafe.Pointer, profileEnum int) (int, nvml.Return) {
+	st, ret := e.migStateOf(handle)
+	if ret != nvml.SUCCESS {
+		return 0, ret
+	}
+	return st.profileIDs.reported(profileEnum), nvml.SUCCESS
+}
+
+// migStateOf narrows a device handle to its MIG state.
+func (e *Engine) migStateOf(handle unsafe.Pointer) (*migState, nvml.Return) {
+	dev := e.LookupConfigurableDevice(handle)
+	if dev == nil {
+		return nil, nvml.ERROR_INVALID_ARGUMENT
+	}
+	return dev.migEnabled()
+}
+
 // DeviceGetGpuInstancePossiblePlacements returns the slice offsets a profile
 // may occupy on this board.
 func (e *Engine) DeviceGetGpuInstancePossiblePlacements(

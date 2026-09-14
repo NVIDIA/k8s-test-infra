@@ -108,7 +108,7 @@ func TestResolveMIGProfiles(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			profiles, ok := resolveMIGProfiles(tt.deviceName, tt.memoryBytes)
+			profiles, _, ok := resolveMIGProfiles(tt.deviceName, tt.memoryBytes)
 			require.Equal(t, tt.wantSupported, ok)
 			if !tt.wantSupported {
 				return
@@ -118,4 +118,117 @@ func TestResolveMIGProfiles(t *testing.T) {
 			require.Equal(t, tt.wantOneSliceMemoryMB, gi.MemorySizeMB)
 		})
 	}
+}
+
+// TestResolveMIGProfiles_ReportsHardwareProfileIDs pins the profile IDs against
+// the `nvidia-smi mig -lgip` listings in NVIDIA's MIG user guide.
+//
+// These are what `nvidia-smi mig -cgi <id>` takes, so reporting go-nvml's enum
+// instead — which is what its tables carry — makes the mock create a different
+// partition than the same command creates on hardware. The ends invert: ID 0 is
+// the whole board on hardware and one seventh of it under the enum.
+func TestResolveMIGProfiles_ReportsHardwareProfileIDs(t *testing.T) {
+	t.Parallel()
+
+	sevenSlice := map[int]int{
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      19,
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: 20,
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: 15,
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      14,
+		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      9,
+		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      5,
+		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      0,
+	}
+
+	tests := []struct {
+		name        string
+		deviceName  string
+		memoryBytes uint64
+		want        map[int]int
+	}{
+		{"a100 40gb", "NVIDIA A100-SXM4-40GB", a100_40GiB, sevenSlice},
+		{"a100 80gb", "NVIDIA A100-SXM4-80GB", 2 * a100_40GiB, sevenSlice},
+		{"h100", "NVIDIA H100 80GB HBM3", h100_80GiB, sevenSlice},
+		{"h200", "NVIDIA H200 141GB HBM3e", 151397302272, sevenSlice},
+		// The A30 carves four slices, so each profile takes the ID of the
+		// A100 profile holding the same fraction of the board.
+		{"a30", "NVIDIA A30", 25769803776, map[int]int{
+			nvml.GPU_INSTANCE_PROFILE_1_SLICE: 14,
+			nvml.GPU_INSTANCE_PROFILE_2_SLICE: 5,
+			nvml.GPU_INSTANCE_PROFILE_4_SLICE: 0,
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, ids, ok := resolveMIGProfiles(tt.deviceName, tt.memoryBytes)
+			require.True(t, ok)
+
+			for profileEnum, wantID := range tt.want {
+				require.Equal(t, wantID, ids.reported(profileEnum),
+					"profile enum %d should report ID %d", profileEnum, wantID)
+				// The reverse direction is what nvmlDeviceCreateGpuInstance
+				// needs, and a one-way table would let create silently pick
+				// the profile whose enum happens to equal the ID.
+				gotEnum, ok := ids.enumOf(wantID)
+				require.True(t, ok, "reported ID %d should resolve to a profile", wantID)
+				require.Equal(t, profileEnum, gotEnum,
+					"reported ID %d should resolve back to profile enum %d", wantID, profileEnum)
+			}
+		})
+	}
+}
+
+// TestResolveMIGProfiles_ProfileIDsAreUniquePerBoard guards the fallback. An
+// unmapped profile reports its own enum, so a board that is only partly mapped
+// could report one profile's enum as another's hardware ID and collapse the two
+// onto one partition size.
+func TestResolveMIGProfiles_ProfileIDsAreUniquePerBoard(t *testing.T) {
+	t.Parallel()
+
+	boards := []struct {
+		name        string
+		deviceName  string
+		memoryBytes uint64
+	}{
+		{"a100 40gb", "NVIDIA A100-SXM4-40GB", a100_40GiB},
+		{"a100 80gb", "NVIDIA A100-SXM4-80GB", 2 * a100_40GiB},
+		{"a30", "NVIDIA A30", 25769803776},
+		{"h100", "NVIDIA H100 80GB HBM3", h100_80GiB},
+		{"h200", "NVIDIA H200 141GB HBM3e", 151397302272},
+		{"b200", "NVIDIA B200 180GB HBM3e", 193273528320},
+	}
+
+	for _, board := range boards {
+		t.Run(board.name, func(t *testing.T) {
+			t.Parallel()
+			profiles, ids, ok := resolveMIGProfiles(board.deviceName, board.memoryBytes)
+			require.True(t, ok)
+
+			seen := map[int]int{}
+			for profileEnum := range profiles.GpuInstanceProfiles {
+				id := ids.reported(profileEnum)
+				other, dup := seen[id]
+				require.False(t, dup,
+					"profile enums %d and %d both report ID %d", other, profileEnum, id)
+				seen[id] = profileEnum
+			}
+		})
+	}
+}
+
+// TestResolveMIGProfiles_UnverifiedBoardsReportTheEnum documents the Blackwell
+// decision: its listings were not available to transcribe, so it keeps
+// go-nvml's numbering rather than a guessed one.
+func TestResolveMIGProfiles_UnverifiedBoardsReportTheEnum(t *testing.T) {
+	t.Parallel()
+
+	_, ids, ok := resolveMIGProfiles("NVIDIA B200 180GB HBM3e", 193273528320)
+	require.True(t, ok)
+	require.Equal(t, nvml.GPU_INSTANCE_PROFILE_1_SLICE,
+		ids.reported(nvml.GPU_INSTANCE_PROFILE_1_SLICE))
+	gotEnum, ok := ids.enumOf(nvml.GPU_INSTANCE_PROFILE_7_SLICE)
+	require.True(t, ok, "a board with no ID table resolves every id to itself")
+	require.Equal(t, nvml.GPU_INSTANCE_PROFILE_7_SLICE, gotEnum)
 }
