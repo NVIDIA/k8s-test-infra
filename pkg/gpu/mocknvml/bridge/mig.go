@@ -87,6 +87,44 @@ func nvmlDeviceSetMigMode(device C.nvmlDevice_t, mode C.uint, activationStatus *
 // GPU instance profiles
 // =============================================================================
 
+// A GPU instance profile has two numbers, and NVML uses both: callers walk the
+// profiles by enum, then name one to create by the ID the board reports for it.
+// The ID encodes the partition's share of its board, so a 1-slice A100 profile
+// is enum 0 but ID 19, and the two orderings run opposite — ID 0 is the whole
+// board.
+//
+// The engine addresses profiles only by enum, because that is how go-nvml's
+// tables are keyed and how the mock server backing each device keys the
+// compute-instance tables it looks up by an instance's stamped ProfileId. The
+// board's IDs therefore live no deeper than this file, and these two helpers
+// are the crossing.
+
+// gpuInstanceProfileInfoByEnum reads a profile by enum and substitutes the ID
+// the board reports, so every profile ID leaving for C is in the caller's
+// numbering.
+func gpuInstanceProfileInfoByEnum(
+	handle unsafe.Pointer, profileEnum int,
+) (nvml.GpuInstanceProfileInfo, nvml.Return) {
+	got, ret := engine.GetEngine().DeviceGetGpuInstanceProfileInfo(handle, profileEnum)
+	if ret != nvml.SUCCESS {
+		return nvml.GpuInstanceProfileInfo{}, ret
+	}
+	reported, ret := engine.GetEngine().DeviceGpuInstanceReportedProfileID(handle, profileEnum)
+	if ret != nvml.SUCCESS {
+		return nvml.GpuInstanceProfileInfo{}, ret
+	}
+	got.Id = uint32(reported)
+	return got, nvml.SUCCESS
+}
+
+// gpuInstanceProfileEnum resolves a profile ID a C caller supplied back to the
+// enum. It fails for an ID the board publishes nothing under, which is what
+// makes `nvidia-smi mig -cgi 3` on an A100 an error rather than a 4-slice
+// partition.
+func gpuInstanceProfileEnum(handle unsafe.Pointer, reportedID C.uint) (int, nvml.Return) {
+	return engine.GetEngine().DeviceGpuInstanceProfileEnum(handle, int(reportedID))
+}
+
 //export nvmlDeviceGetGpuInstanceProfileInfo
 func nvmlDeviceGetGpuInstanceProfileInfo(
 	device C.nvmlDevice_t, profile C.uint, info *C.nvmlGpuInstanceProfileInfo_t,
@@ -97,7 +135,7 @@ func nvmlDeviceGetGpuInstanceProfileInfo(
 	if info == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	got, ret := engine.GetEngine().DeviceGetGpuInstanceProfileInfo(unsafe.Pointer(device.handle), int(profile))
+	got, ret := gpuInstanceProfileInfoByEnum(unsafe.Pointer(device.handle), int(profile))
 	if ret != nvml.SUCCESS {
 		return toReturn(ret)
 	}
@@ -130,7 +168,7 @@ func nvmlDeviceGetGpuInstanceProfileInfoV(
 	if info == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	got, ret := engine.GetEngine().DeviceGetGpuInstanceProfileInfo(unsafe.Pointer(device.handle), int(profile))
+	got, ret := gpuInstanceProfileInfoByEnum(unsafe.Pointer(device.handle), int(profile))
 	if ret != nvml.SUCCESS {
 		return toReturn(ret)
 	}
@@ -141,15 +179,27 @@ func nvmlDeviceGetGpuInstanceProfileInfoV(
 	return writeGpuInstanceProfileInfoV(info, got, name)
 }
 
-// nvmlDeviceGetGpuInstanceProfileInfoByIdV looks a profile up by its ID. The
-// mock's profile IDs are the NVML profile constants, so this is the same query
-// as by profile.
+// nvmlDeviceGetGpuInstanceProfileInfoByIdV looks a profile up by the ID the
+// board reports for it, which is a different numbering from the profile enum
+// the call above takes: the ID encodes the partition's share of its board, so
+// a 1-slice A100 profile is enum 0 but ID 19.
+//
+// The ID is resolved and the query delegated, so there is one implementation of
+// it rather than two that must agree.
 //
 //export nvmlDeviceGetGpuInstanceProfileInfoByIdV
 func nvmlDeviceGetGpuInstanceProfileInfoByIdV(
 	device C.nvmlDevice_t, profileId C.uint, info *C.nvmlGpuInstanceProfileInfo_v2_t,
 ) C.nvmlReturn_t {
-	return nvmlDeviceGetGpuInstanceProfileInfoV(device, profileId, info)
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetGpuInstanceProfileInfoByIdV"); !ok {
+		return ret
+	}
+	profileEnum, ret := engine.GetEngine().DeviceGpuInstanceProfileEnum(
+		unsafe.Pointer(device.handle), int(profileId))
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	return nvmlDeviceGetGpuInstanceProfileInfoV(device, C.uint(profileEnum), info)
 }
 
 // writeGpuInstanceProfileInfoV fills either the v2 or the v3 layout, chosen by
@@ -200,8 +250,12 @@ func nvmlDeviceGetGpuInstancePossiblePlacements(
 	if count == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
+	profileEnum, ret := gpuInstanceProfileEnum(unsafe.Pointer(device.handle), profileId)
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
 	got, ret := engine.GetEngine().DeviceGetGpuInstancePossiblePlacements(
-		unsafe.Pointer(device.handle), int(profileId))
+		unsafe.Pointer(device.handle), profileEnum)
 	if ret != nvml.SUCCESS {
 		return toReturn(ret)
 	}
@@ -237,8 +291,12 @@ func nvmlDeviceGetGpuInstanceRemainingCapacity(
 	if count == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
+	profileEnum, ret := gpuInstanceProfileEnum(unsafe.Pointer(device.handle), profileId)
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
 	remaining, ret := engine.GetEngine().DeviceGetGpuInstanceRemainingCapacity(
-		unsafe.Pointer(device.handle), int(profileId))
+		unsafe.Pointer(device.handle), profileEnum)
 	if ret != nvml.SUCCESS {
 		return toReturn(ret)
 	}
@@ -260,7 +318,11 @@ func nvmlDeviceCreateGpuInstance(
 	if gpuInstance == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle, ret := migCreateGpuInstance(unsafe.Pointer(device.handle), int(profileId), nil)
+	profileEnum, ret := gpuInstanceProfileEnum(unsafe.Pointer(device.handle), profileId)
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	handle, ret := migCreateGpuInstance(unsafe.Pointer(device.handle), profileEnum, nil)
 	if ret != nvml.SUCCESS {
 		return toReturn(ret)
 	}
@@ -283,7 +345,11 @@ func nvmlDeviceCreateGpuInstanceWithPlacement(
 		Start: uint32(placement.start),
 		Size:  uint32(placement.size),
 	}
-	handle, ret := migCreateGpuInstance(unsafe.Pointer(device.handle), int(profileId), &want)
+	profileEnum, ret := gpuInstanceProfileEnum(unsafe.Pointer(device.handle), profileId)
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	handle, ret := migCreateGpuInstance(unsafe.Pointer(device.handle), profileEnum, &want)
 	if ret != nvml.SUCCESS {
 		return toReturn(ret)
 	}
@@ -309,7 +375,11 @@ func nvmlDeviceGetGpuInstances(
 	if count == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handles, ret := engine.GetEngine().DeviceGetGpuInstances(unsafe.Pointer(device.handle), int(profileId))
+	profileEnum, ret := gpuInstanceProfileEnum(unsafe.Pointer(device.handle), profileId)
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	handles, ret := engine.GetEngine().DeviceGetGpuInstances(unsafe.Pointer(device.handle), profileEnum)
 	if ret != nvml.SUCCESS {
 		return toReturn(ret)
 	}
@@ -361,9 +431,17 @@ func nvmlGpuInstanceGetInfo(gpuInstance C.nvmlGpuInstance_t, info *C.nvmlGpuInst
 		return toReturn(ret)
 	}
 
+	// The instance is stamped with the profile enum; a caller reading this back
+	// expects the ID it created the instance with.
+	reported, ret := engine.GetEngine().DeviceGpuInstanceReportedProfileID(
+		deviceHandle, int(got.ProfileId))
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+
 	info.device.handle = (*C.struct_nvmlDevice_st)(deviceHandle)
 	info.id = C.uint(got.Id)
-	info.profileId = C.uint(got.ProfileId)
+	info.profileId = C.uint(reported)
 	info.placement.start = C.uint(got.Placement.Start)
 	info.placement.size = C.uint(got.Placement.Size)
 	return C.NVML_SUCCESS

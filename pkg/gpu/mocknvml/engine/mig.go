@@ -54,6 +54,12 @@ type migState struct {
 
 	// profiles are the board's GPU- and compute-instance profile tables.
 	profiles gpus.MIGProfileConfig
+	// profileIDs translates between the profile enum those tables are keyed by
+	// and the profile ID the board reports. Held here rather than applied to
+	// the tables because go-nvml's tables are package-level and shared:
+	// rewriting their Id fields would change them for every other consumer in
+	// the process.
+	profileIDs migProfileIDs
 	// supported distinguishes "MIG off" from "not a MIG board". Consumers
 	// read ERROR_NOT_SUPPORTED from GetMigMode as "no MIG here at all", so
 	// collapsing the two would make a T4 look partitionable.
@@ -110,12 +116,13 @@ func resolveMaxGPUInstances(migCfg *MIGConfig, supported bool, profiles gpus.MIG
 // profile, materializing any declared partitions. Called once per device at
 // construction.
 func (d *ConfigurableDevice) initMIG(config *DeviceConfig) {
-	profiles, supported := resolveMIGProfiles(d.Config.Name, d.memoryInfo().Total)
+	profiles, profileIDs, supported := resolveMIGProfiles(d.Config.Name, d.memoryInfo().Total)
 
 	st := &migState{
-		profiles:  profiles,
-		supported: supported,
-		devices:   make(map[migInstanceKey]*ConfigurableDevice),
+		profiles:   profiles,
+		profileIDs: profileIDs,
+		supported:  supported,
+		devices:    make(map[migInstanceKey]*ConfigurableDevice),
 	}
 
 	// The embedded mock device stamps each GPU instance it creates with these
@@ -221,12 +228,24 @@ func (d *ConfigurableDevice) resolveDeclaredGpuInstanceProfile(cfg MIGGPUInstanc
 		return 0, 0, fmt.Errorf("MIG partition sets both profile %q and profile_id %d; use one",
 			cfg.Profile, *cfg.ProfileID)
 	case cfg.ProfileID != nil:
-		giProfileID := *cfg.ProfileID
-		ciProfileID, err := spanningComputeInstanceProfile(giProfileID)
-		if err != nil {
-			return 0, 0, fmt.Errorf("MIG partition profile_id %d: %w", giProfileID, err)
+		// profile_id is the ID the board reports — the number
+		// `nvidia-smi mig -lgip` prints — so an operator can copy it straight
+		// off the listing. Everything below this addresses profiles by enum.
+		st := d.migState
+		if st == nil || !st.supported {
+			return 0, 0, errors.New("device does not support MIG")
 		}
-		return giProfileID, ciProfileID, nil
+		profileEnum, ok := st.profileIDs.enumOf(*cfg.ProfileID)
+		if !ok {
+			return 0, 0, fmt.Errorf(
+				"MIG partition profile_id %d: this board publishes no GPU instance profile under that id",
+				*cfg.ProfileID)
+		}
+		ciProfileID, err := spanningComputeInstanceProfile(profileEnum)
+		if err != nil {
+			return 0, 0, fmt.Errorf("MIG partition profile_id %d: %w", *cfg.ProfileID, err)
+		}
+		return profileEnum, ciProfileID, nil
 	case cfg.Profile != "":
 		giProfileID, ciProfileID, err := d.resolveMigProfileByName(cfg.Profile)
 		if err != nil {
@@ -793,6 +812,11 @@ func (d *ConfigurableDevice) GetGpuInstanceProfileInfo(profileID int) (nvml.GpuI
 	if !ok {
 		return nvml.GpuInstanceProfileInfo{}, nvml.ERROR_NOT_SUPPORTED
 	}
+	// Id stays as go-nvml's tables carry it: the profile enum. The board's own
+	// profile ID is substituted at the C ABI boundary, because the instance
+	// bookkeeping below this point is go-nvml's mock server, which keys its
+	// compute-instance tables by the ProfileId stamped on an instance and so
+	// only works while that is the enum.
 	return info, nvml.SUCCESS
 }
 
@@ -1250,7 +1274,8 @@ func placementMask(placement nvml.GpuInstancePlacement) uint64 {
 }
 
 // freePlacementLocked returns the first offered placement for a profile that
-// does not overlap a live instance. Requires st.mu.
+// does not overlap a live instance. Takes the profile enum, not the reported
+// ID. Requires st.mu.
 func (st *migState) freePlacementLocked(
 	parent *ConfigurableDevice, giProfileID int,
 ) (nvml.GpuInstancePlacement, bool) {

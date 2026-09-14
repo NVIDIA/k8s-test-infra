@@ -23,8 +23,11 @@ import (
 )
 
 // resolveMIGProfiles returns the GPU-instance and compute-instance profile
-// tables for the board a YAML profile describes, and whether the board is
-// MIG-capable at all.
+// tables for the board a YAML profile describes, the profile IDs it reports,
+// and whether the board is MIG-capable at all.
+//
+// The ID table travels with the profile tables rather than being looked up
+// separately, so the two cannot disagree about which board this is.
 //
 // Every mock device is built from the dgxa100 base regardless of its YAML
 // profile, so without this the MIG tables would always be A100 40GB's — an
@@ -34,7 +37,7 @@ import (
 //
 // go-nvml owns the tables themselves; duplicating them here would mean two
 // sources of truth for slice counts and placements that must agree.
-func resolveMIGProfiles(deviceName string, memoryBytes uint64) (gpus.MIGProfileConfig, bool) {
+func resolveMIGProfiles(deviceName string, memoryBytes uint64) (gpus.MIGProfileConfig, migProfileIDs, bool) {
 	name := strings.ToUpper(deviceName)
 
 	switch {
@@ -42,31 +45,110 @@ func resolveMIGProfiles(deviceName string, memoryBytes uint64) (gpus.MIGProfileC
 		// The 80GB boards double every slice's memory, so the capacity
 		// decides the table. Anything at or above 64 GiB is an 80GB board.
 		if memoryBytes >= 64*oneGiB {
-			return gpus.A100_SXM4_80GB.MIGProfiles, true
+			return gpus.A100_SXM4_80GB.MIGProfiles, sevenSliceProfileIDs, true
 		}
-		return gpus.A100_SXM4_40GB.MIGProfiles, true
+		return gpus.A100_SXM4_40GB.MIGProfiles, sevenSliceProfileIDs, true
 	case strings.Contains(name, "A30"):
-		return gpus.A30_PCIE_24GB.MIGProfiles, true
+		return gpus.A30_PCIE_24GB.MIGProfiles, fourSliceProfileIDs, true
 	case strings.Contains(name, "H200"):
-		return gpus.H200_SXM5_141GB.MIGProfiles, true
+		return gpus.H200_SXM5_141GB.MIGProfiles, sevenSliceProfileIDs, true
 	case strings.Contains(name, "H100"), strings.Contains(name, "GH200"):
-		return gpus.H100_SXM5_80GB.MIGProfiles, true
+		return gpus.H100_SXM5_80GB.MIGProfiles, sevenSliceProfileIDs, true
 	case strings.Contains(name, "B200"), strings.Contains(name, "B300"),
 		strings.Contains(name, "GB200"), strings.Contains(name, "GB300"):
 		// go-nvml carries one Blackwell table; the GB trays use the same
 		// partitioning as the SXM B200 they are built from.
-		return gpus.B200_SXM5_180GB.MIGProfiles, true
+		//
+		// No ID table: Blackwell's 6- and 8-slice geometries do not appear in
+		// any listing this could be transcribed from, and the profiles it does
+		// share with Hopper cannot be remapped on their own without colliding
+		// with the enum values the rest would keep.
+		return gpus.B200_SXM5_180GB.MIGProfiles, nil, true
 	}
 
 	// T4, L40S and anything unrecognised: not MIG-capable. Reporting this as
 	// "no tables" rather than "empty tables" is what lets GetMigMode answer
 	// ERROR_NOT_SUPPORTED, which is how consumers detect a non-MIG board.
-	return gpus.MIGProfileConfig{}, false
+	return gpus.MIGProfileConfig{}, nil, false
 }
 
 const (
 	oneMiB = 1024 * 1024
 	oneGiB = 1024 * oneMiB
+)
+
+// migProfileIDs maps NVML's GPU instance profile enum to the profile ID the
+// board reports for it.
+//
+// The two are different numbers on hardware, and NVML uses both: a caller
+// enumerates profiles by the enum (nvmlDeviceGetGpuInstanceProfileInfo) but
+// creates one by the reported ID (nvmlDeviceCreateGpuInstance). The reported
+// ID encodes the partition's absolute share of the board, which is why a
+// 4-slice A30's 1g — a quarter of its board — shares ID 14 with a 7-slice
+// A100's 2g, also a quarter.
+//
+// go-nvml's tables set the reported ID to the enum, so without this the mock
+// answers `nvidia-smi mig -cgi 0` with one seventh of the board where hardware
+// hands over all of it, and `-cgi 19` with nothing at all.
+type migProfileIDs map[int]int
+
+// reported gives the ID the board publishes for a profile enum. An unmapped
+// profile reports its enum, which is what go-nvml already did.
+func (m migProfileIDs) reported(profileEnum int) int {
+	if id, ok := m[profileEnum]; ok {
+		return id
+	}
+	return profileEnum
+}
+
+// enumOf is reported in reverse, for the NVML calls that take a reported ID.
+//
+// The second result is false when the board publishes no profile under that ID,
+// which is what refuses `nvidia-smi mig -cgi 3` on an A100: no profile there
+// reports 3, and resolving it to the enum of the same value would hand back a
+// 4-slice instance that hardware would never have created.
+//
+// A board with no ID table maps every ID to itself, keeping go-nvml's numbering
+// end to end.
+func (m migProfileIDs) enumOf(reportedID int) (int, bool) {
+	if m == nil {
+		return reportedID, true
+	}
+	for profileEnum, id := range m {
+		if id == reportedID {
+			return profileEnum, true
+		}
+	}
+	return 0, false
+}
+
+// The IDs below are transcribed from the `nvidia-smi mig -lgip` listings in
+// NVIDIA's MIG user guide. Boards whose listings are not verified are left
+// reporting the enum rather than guessed at: a wrong ID reads as correct and
+// then partitions the board wrongly, where the enum at least stays
+// self-consistent with the placements and capacities reported alongside it.
+var (
+	// sevenSliceProfileIDs covers the 7-slice datacenter boards — A100, H100
+	// and H200 — which share one numbering because it follows the partition's
+	// fraction of the board rather than the board's own capacity.
+	sevenSliceProfileIDs = migProfileIDs{
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      19,
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: 20, // the +me variant
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: 15, // 1g at double memory
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      14,
+		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      9,
+		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      5,
+		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      0,
+	}
+
+	// fourSliceProfileIDs covers the A30, whose slices are twice an A100's, so
+	// each of its profiles takes the ID of the A100 profile holding the same
+	// fraction of its board.
+	fourSliceProfileIDs = migProfileIDs{
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE: 14,
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE: 5,
+		nvml.GPU_INSTANCE_PROFILE_4_SLICE: 0,
+	}
 )
 
 // migProfileName renders the canonical MIG profile name for a

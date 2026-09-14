@@ -95,7 +95,16 @@ func migCreateGpuInstance(
 	// The profile is recorded by id rather than by name because that is what
 	// the caller supplied; re-deriving a name here could pick a different
 	// spelling from the one the profile tables use.
-	profile := int(info.ProfileId)
+	//
+	// The board's reported id, not the enum the instance is stamped with, so
+	// the document holds the same number `nvidia-smi mig -lgip` prints and a
+	// hand-written profile_id means the same thing as one recorded here.
+	profile, ret := engine.GetEngine().DeviceGpuInstanceReportedProfileID(
+		deviceHandle, int(info.ProfileId))
+	if ret != nvml.SUCCESS {
+		return handle, migPersistFailed(dev, what,
+			fmt.Errorf("resolving the reported id of profile enum %d: %w", info.ProfileId, ret))
+	}
 	placementStart := int(info.Placement.Start)
 	rec := engine.MIGGPUInstanceRecord{
 		ID:             info.Id,

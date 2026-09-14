@@ -452,6 +452,26 @@ device_defaults:
     max_gpu_instances: 7
 ```
 
+Declare partitions per device with `gpu_instances`, naming each profile either
+by name or by the id the board publishes for it:
+
+```yaml
+devices:
+  - index: 0
+    mig:
+      mode_current: "enabled"
+      gpu_instances:
+        - profile: "3g.20gb"   # by name
+          count: 2
+        - profile_id: 19       # by id: 1g.5gb on an A100
+          count: 1
+```
+
+`profile_id` is the id in the `ID` column of `nvidia-smi mig -lgip`, so it can
+be copied straight off that listing — not NVML's profile enum, which numbers
+the same profiles differently and in the opposite order. Use one of `profile`
+or `profile_id`, not both.
+
 Repartition at runtime with `nvidia-smi -mig` and `nvidia-smi mig -cgi/-dgi`
 (see [MIG partitioning](nvml-mock-ctl.md#mig-partitioning--use-nvidia-smi)),
 which changes the NVML view only — allocating the result still needs a pod
