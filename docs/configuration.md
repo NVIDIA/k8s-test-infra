@@ -743,10 +743,9 @@ power management limit and the enforced limit, but not `default_limit_mw`.
 ### Workload power profiles
 
 `power.workload_power_profiles` opts a device into the Blackwell workload power
-profile feature, which `nvidia-smi power-profiles` reads. Absent — the default —
-the device declines the feature the way every pre-Blackwell board does. Only the
-getters are modelled, so the requested set comes from config rather than from a
-consumer calling the setters:
+profile feature, which `nvidia-smi power-profiles` reads and writes. Absent — the
+default — the device declines the feature the way every pre-Blackwell board does.
+`requested` seeds the set a consumer sees until one of the setters overrides it:
 
 ```yaml
 power:
@@ -763,16 +762,38 @@ power:
 `id` is an `NVML_POWER_PROFILE_*` index (0-254) and doubles as the profile's bit
 position in NVML's 255-bit masks, so ids must be unique. It is also what
 nvidia-smi renders as the name: `-l` lists the supported set, `-ld` adds the
-priority and conflicts, `-gr` and `-ge` report the requested and enforced sets.
+priority and conflicts, `-gr` and `-ge` report the requested and enforced sets,
+and `-sr` / `-cr` add to and remove from the requested set.
 
 Requested and enforced differ because asking for mutually exclusive profiles is
 allowed: enforced is what survives arbitration, dropping any profile that
 conflicts with a higher-priority one that was also requested. A requested id the
-device does not advertise is ignored.
+device does not advertise is ignored in config, but refused with
+`NVML_ERROR_INVALID_ARGUMENT` when a consumer asks for it at runtime.
 
 `requested` is empty in the shipped profiles, because every real GB200, GB300 and
 B200 capture reports no requested or enforced profile — which is what
 `nvidia-smi -q -x` renders as `N/A` in its `<power_profiles>` block.
+
+A write outranks `requested` from the moment it lands, and like persistence mode
+and `nvidia-smi -pl` it lives in memory in the process that loaded the mock's
+`libnvidia-ml.so` — so it is visible to that consumer for as long as it runs, and
+a separate process starts again from `requested`. Observing a write through
+nvidia-smi therefore means one invocation:
+
+```console
+$ nvidia-smi power-profiles -sr 0,2 -cr 0 -ge -i 0
+Successfully set the requested profiles.
+Successfully cleared the requested profiles.
+2. Compute
+```
+
+nvidia-smi evaluates `-sr` and `-cr` before `-ge` but after `-gr`, so `-ge` is
+the one that reflects a write made in the same command. Two further nvidia-smi
+behaviours are worth knowing, neither of them the mock's: it refuses an id the
+board does not advertise before calling NVML at all, and it applies a
+comma-separated list in full only to the first GPU it visits, passing just the
+first profile to the rest.
 
 Two axes decide whether the feature answers at all, and they fail differently. A
 device that declares no `workload_power_profiles` reports the feature as

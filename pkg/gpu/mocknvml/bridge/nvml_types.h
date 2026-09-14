@@ -694,6 +694,15 @@ typedef struct
     unsigned int mask[NVML_255_MASK_NUM_ELEMS];  //!< 255 bits, one per profile index
 } nvmlMask255_t;
 
+typedef enum
+{
+    NVML_POWER_PROFILE_OPERATION_CLEAR             = 0,  //!< Remove the named profiles from the request
+    NVML_POWER_PROFILE_OPERATION_SET               = 1,  //!< Add the named profiles to the request
+    NVML_POWER_PROFILE_OPERATION_SET_AND_OVERWRITE = 2,  //!< Replace the request with the named profiles
+
+    NVML_POWER_PROFILE_OPERATION_MAX               = 3,
+} nvmlPowerProfileOperation_t;
+
 typedef struct
 {
     unsigned int  version;          //!< OUT: NVML_STRUCT_VERSION(WorkloadPowerProfileInfo, 1)
@@ -715,6 +724,23 @@ struct nvmlWorkloadPowerProfileCurrentProfiles_st
     nvmlMask255_t perfProfilesMask;       //!< OUT: bit set per supported profile
     nvmlMask255_t requestedProfilesMask;  //!< OUT: profiles asked for
     nvmlMask255_t enforcedProfilesMask;   //!< OUT: profiles in effect after arbitration
+};
+
+struct nvmlWorkloadPowerProfileRequestedProfiles_st
+{
+    unsigned int  version;                //!< IN: NVML_STRUCT_VERSION(WorkloadPowerProfileRequestedProfiles, 1)
+    nvmlMask255_t requestedProfilesMask;  //!< IN: profiles to add or remove
+};
+
+/*
+ * Unlike its siblings this struct carries no version member, even though
+ * upstream defines a version macro for it — so the bridge has no tag to check
+ * and the operation is the only input that can be validated.
+ */
+struct nvmlWorkloadPowerProfileUpdateProfiles_v1_st
+{
+    nvmlPowerProfileOperation_t operation;          //!< IN: NVML_POWER_PROFILE_OPERATION_*
+    nvmlMask255_t               updateProfilesMask; //!< IN: profiles the operation applies to
 };
 
 /*

@@ -27,9 +27,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `nvidia-smi -q -x` keeps reporting `N/A` for both. Two axes still decline and
   do so differently: a device declaring no profiles reports the feature
   unsupported, while a pre-570 `driver_version` does not export the symbols at
-  all — which is why `b200` stays declined despite being Blackwell. Only the
-  getters are modelled, so the requested set comes from config rather than from
-  `-sr` / `-cr`.
+  all — which is why `b200` stays declined despite being Blackwell.
+  `-sr` and `-cr` write too: all three of NVML's requested-profile setters are
+  implemented, so a consumer can add to, remove from and overwrite the requested
+  set and read the result back. nvidia-smi 580 calls the two deprecated entry
+  points rather than `nvmlDeviceWorkloadPowerProfileUpdateProfiles_v1`, so
+  leaving those out would have left `-sr` and `-cr` failing; asking for a profile
+  the board does not advertise is refused rather than quietly dropped. A write
+  outranks the configured `requested` set and, like persistence mode and
+  `nvidia-smi -pl`, lives in memory in the process that loaded the mock — so
+  observing one through nvidia-smi means a single invocation, e.g.
+  `nvidia-smi power-profiles -sr 0,2 -cr 0 -ge -i 0`, which reports `2. Compute`
+  as all that survives the clear.
 - nvml-mock: the power management limit can now be set, not just read.
   `nvidia-smi -pl` and any consumer calling
   `nvmlDeviceSetPowerManagementLimit` (or its `_v2` form) previously got

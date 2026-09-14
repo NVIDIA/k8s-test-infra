@@ -71,7 +71,7 @@ func (d *ConfigurableDevice) WorkloadPowerProfileGetCurrentProfiles() (nvml.Work
 	}
 
 	supported := supportedWorkloadProfiles(cfg)
-	requested := requestedWorkloadProfiles(cfg, supported)
+	requested := d.effectiveRequestedProfiles(cfg, supported)
 
 	current.Version = nvml.STRUCT_VERSION(nvml.WorkloadPowerProfileCurrentProfiles_v1{}, 1)
 	for _, p := range supported {
@@ -82,6 +82,124 @@ func (d *ConfigurableDevice) WorkloadPowerProfileGetCurrentProfiles() (nvml.Work
 	debugLog("[NVML] nvmlDeviceWorkloadPowerProfileGetCurrentProfiles -> %d supported, %d requested\n",
 		len(supported), len(requested))
 	return current, nvml.SUCCESS
+}
+
+// WorkloadPowerProfileUpdateProfiles applies op to the requested profile set,
+// backing `nvidia-smi power-profiles -sr` and `-cr`. The result is held in
+// memory rather than written back to the profile, the way a real driver keeps a
+// runtime request until it unloads, and it outranks the configured request from
+// the first write onwards.
+//
+// The whole mask is validated before any of it is applied: a caller naming one
+// unsupported profile alongside several valid ones gets a clean refusal rather
+// than a partial update it cannot tell apart from success.
+func (d *ConfigurableDevice) WorkloadPowerProfileUpdateProfiles(
+	op nvml.PowerProfileOperation, mask nvml.Mask255,
+) nvml.Return {
+	if ret := d.tickFailure(); ret != nvml.SUCCESS {
+		debugLog("[NVML] nvmlDeviceWorkloadPowerProfileUpdateProfiles -> %d (injected failure)\n", ret)
+		return ret
+	}
+	if op >= nvml.POWER_PROFILE_OPERATION_MAX {
+		debugLog("[NVML] nvmlDeviceWorkloadPowerProfileUpdateProfiles -> INVALID_ARGUMENT (operation %d)\n", op)
+		return nvml.ERROR_INVALID_ARGUMENT
+	}
+	cfg := d.workloadProfilesConfig()
+	if cfg == nil {
+		debugLog("[NVML] nvmlDeviceWorkloadPowerProfileUpdateProfiles -> NOT_SUPPORTED\n")
+		return nvml.ERROR_NOT_SUPPORTED
+	}
+
+	supported := supportedWorkloadProfiles(cfg)
+	supportedMask := workloadProfileMask(profileIDs(supported))
+	for i := range mask.Mask {
+		if mask.Mask[i]&^supportedMask.Mask[i] != 0 {
+			debugLog("[NVML] nvmlDeviceWorkloadPowerProfileUpdateProfiles -> "+
+				"INVALID_ARGUMENT (word %d names unadvertised profiles)\n", i)
+			return nvml.ERROR_INVALID_ARGUMENT
+		}
+	}
+
+	// Compare-and-swap rather than a plain store: SET and CLEAR both rebuild
+	// the mask from its current value, so two callers updating different
+	// profiles would otherwise lose one of the two writes.
+	for {
+		old := d.requestedProfilesOverride.Load()
+		base := workloadProfileMask(requestedWorkloadProfiles(cfg, supported))
+		if old != nil {
+			base = *old
+		}
+		next := applyProfileOperation(op, base, mask)
+		if d.requestedProfilesOverride.CompareAndSwap(old, &next) {
+			debugLog("[NVML] nvmlDeviceWorkloadPowerProfileUpdateProfiles(op=%d) -> requested %v\n",
+				op, next.Mask)
+			return nvml.SUCCESS
+		}
+	}
+}
+
+// applyProfileOperation folds one update into the current request. CLEAR
+// removes the named profiles, SET adds them, and SET_AND_OVERWRITE discards
+// whatever was there — which is also the only way to end up with nothing
+// requested, since an empty mask names no profile to add or remove.
+func applyProfileOperation(op nvml.PowerProfileOperation, base, mask nvml.Mask255) nvml.Mask255 {
+	var next nvml.Mask255
+	for i := range next.Mask {
+		switch op {
+		case nvml.POWER_PROFILE_OPERATION_CLEAR:
+			next.Mask[i] = base.Mask[i] &^ mask.Mask[i]
+		case nvml.POWER_PROFILE_OPERATION_SET:
+			next.Mask[i] = base.Mask[i] | mask.Mask[i]
+		default: // SET_AND_OVERWRITE
+			next.Mask[i] = mask.Mask[i]
+		}
+	}
+	return next
+}
+
+// effectiveRequestedProfiles is the request a consumer sees: whatever was last
+// written through the setters, or the configured request until one lands. The
+// override is a pointer so an empty mask written by a caller stays
+// distinguishable from never having been written — otherwise clearing the last
+// profile would fall back to the configured request.
+func (d *ConfigurableDevice) effectiveRequestedProfiles(
+	cfg *WorkloadPowerProfilesConfig, supported []WorkloadPowerProfileConfig,
+) []uint32 {
+	override := d.requestedProfilesOverride.Load()
+	if override == nil {
+		return requestedWorkloadProfiles(cfg, supported)
+	}
+	// Narrowed against the advertised set for the same reason the configured
+	// request is: a profile removed from config by a live reload must not stay
+	// requested through an override written before it disappeared.
+	advertised := workloadProfileMask(profileIDs(supported))
+	var out []uint32
+	for _, id := range maskProfileIDs(*override) {
+		if advertised.Mask[id/maskBitsPerElem]&(1<<(id%maskBitsPerElem)) != 0 {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// maskProfileIDs expands a mask into the profile ids it names, ascending.
+func maskProfileIDs(mask nvml.Mask255) []uint32 {
+	var ids []uint32
+	for id := range uint32(workloadPowerProfileMaxProfiles) {
+		if mask.Mask[id/maskBitsPerElem]&(1<<(id%maskBitsPerElem)) != 0 {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// profileIDs projects the advertised profiles onto their ids.
+func profileIDs(profiles []WorkloadPowerProfileConfig) []uint32 {
+	ids := make([]uint32, 0, len(profiles))
+	for _, p := range profiles {
+		ids = append(ids, p.ID)
+	}
+	return ids
 }
 
 // workloadProfilesConfig returns the device's workload profile config, or nil

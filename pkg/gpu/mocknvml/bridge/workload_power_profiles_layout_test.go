@@ -28,11 +28,15 @@ import (
 //	ProfilesInfo:              version(4) + perfProfilesMask(32)
 //	                           + 255 * 44 = 11256
 //	CurrentProfiles:           version(4) + 3 * 32 = 100
+//	RequestedProfiles:          version(4) + 32 = 36
+//	UpdateProfiles_v1:          operation(4, enum) + 32 = 36
 const (
-	expectedMask255Size                 uintptr = 32
-	expectedWorkloadProfileInfoSize     uintptr = 44
-	expectedWorkloadProfilesInfoSize    uintptr = 11256
-	expectedWorkloadCurrentProfilesSize uintptr = 100
+	expectedMask255Size                   uintptr = 32
+	expectedWorkloadProfileInfoSize       uintptr = 44
+	expectedWorkloadProfilesInfoSize      uintptr = 11256
+	expectedWorkloadCurrentProfilesSize   uintptr = 100
+	expectedWorkloadRequestedProfilesSize uintptr = 36
+	expectedWorkloadUpdateProfilesSize    uintptr = 36
 )
 
 func TestWorkloadPowerProfileStructLayouts(t *testing.T) {
@@ -56,6 +60,16 @@ func TestWorkloadPowerProfileStructLayouts(t *testing.T) {
 			"WorkloadPowerProfileCurrentProfiles",
 			unsafe.Sizeof(nvml.WorkloadPowerProfileCurrentProfiles{}),
 			expectedWorkloadCurrentProfilesSize,
+		},
+		{
+			"WorkloadPowerProfileRequestedProfiles",
+			unsafe.Sizeof(nvml.WorkloadPowerProfileRequestedProfiles{}),
+			expectedWorkloadRequestedProfilesSize,
+		},
+		{
+			"WorkloadPowerProfileUpdateProfiles_v1",
+			unsafe.Sizeof(nvml.WorkloadPowerProfileUpdateProfiles_v1{}),
+			expectedWorkloadUpdateProfilesSize,
 		},
 	}
 	for _, tc := range cases {
@@ -91,6 +105,11 @@ func TestWorkloadPowerProfileVersions_MatchGoNvml(t *testing.T) {
 			"CurrentProfiles",
 			nvml.STRUCT_VERSION(nvml.WorkloadPowerProfileCurrentProfiles_v1{}, 1),
 			workloadCurrentProfilesVersion(),
+		},
+		{
+			"RequestedProfiles",
+			nvml.STRUCT_VERSION(nvml.WorkloadPowerProfileRequestedProfiles_v1{}, 1),
+			requestedProfilesVersion(),
 		},
 	}
 	for _, tc := range cases {

@@ -4,6 +4,7 @@
 package engine
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
@@ -233,6 +234,195 @@ func TestWorkloadProfiles_SupportedButEmpty(t *testing.T) {
 	cur, ret := dev.WorkloadPowerProfileGetCurrentProfiles()
 	require.Equal(t, nvml.SUCCESS, ret)
 	require.Empty(t, maskBits(cur.PerfProfilesMask))
+}
+
+// --- Requested profile setters ---
+
+// requestedMask reads back what the device now reports as requested, which is
+// the only way a consumer can observe a write landing.
+func requestedMask(t *testing.T, dev *ConfigurableDevice) []uint32 {
+	t.Helper()
+	cur, ret := dev.WorkloadPowerProfileGetCurrentProfiles()
+	require.Equal(t, nvml.SUCCESS, ret)
+	return maskBits(cur.RequestedProfilesMask)
+}
+
+func enforcedMask(t *testing.T, dev *ConfigurableDevice) []uint32 {
+	t.Helper()
+	cur, ret := dev.WorkloadPowerProfileGetCurrentProfiles()
+	require.Equal(t, nvml.SUCCESS, ret)
+	return maskBits(cur.EnforcedProfilesMask)
+}
+
+// TestWorkloadProfiles_SetAddsToRequested is the read-after-write the whole
+// setter exists for: `nvidia-smi power-profiles -sr` must be observable through
+// -gr, and SET adds rather than replaces.
+func TestWorkloadProfiles_SetAddsToRequested(t *testing.T) {
+	dev := profileDevice(t, blackwellProfiles())
+
+	require.Equal(t, nvml.SUCCESS, dev.WorkloadPowerProfileUpdateProfiles(
+		nvml.POWER_PROFILE_OPERATION_SET, workloadProfileMask([]uint32{6})))
+	require.Equal(t, []uint32{6}, requestedMask(t, dev))
+
+	require.Equal(t, nvml.SUCCESS, dev.WorkloadPowerProfileUpdateProfiles(
+		nvml.POWER_PROFILE_OPERATION_SET, workloadProfileMask([]uint32{13})))
+	require.Equal(t, []uint32{6, 13}, requestedMask(t, dev))
+}
+
+func TestWorkloadProfiles_ClearRemovesFromRequested(t *testing.T) {
+	dev := profileDevice(t, blackwellProfiles())
+
+	require.Equal(t, nvml.SUCCESS, dev.WorkloadPowerProfileUpdateProfiles(
+		nvml.POWER_PROFILE_OPERATION_SET, workloadProfileMask([]uint32{6, 13})))
+	require.Equal(t, nvml.SUCCESS, dev.WorkloadPowerProfileUpdateProfiles(
+		nvml.POWER_PROFILE_OPERATION_CLEAR, workloadProfileMask([]uint32{6})))
+	require.Equal(t, []uint32{13}, requestedMask(t, dev))
+
+	// Clearing something that was never requested is a no-op, not an error:
+	// the mask names profiles to remove, and removing nothing removes nothing.
+	require.Equal(t, nvml.SUCCESS, dev.WorkloadPowerProfileUpdateProfiles(
+		nvml.POWER_PROFILE_OPERATION_CLEAR, workloadProfileMask([]uint32{6})))
+	require.Equal(t, []uint32{13}, requestedMask(t, dev))
+}
+
+func TestWorkloadProfiles_SetAndOverwriteReplaces(t *testing.T) {
+	dev := profileDevice(t, blackwellProfiles())
+
+	require.Equal(t, nvml.SUCCESS, dev.WorkloadPowerProfileUpdateProfiles(
+		nvml.POWER_PROFILE_OPERATION_SET, workloadProfileMask([]uint32{6, 13})))
+	require.Equal(t, nvml.SUCCESS, dev.WorkloadPowerProfileUpdateProfiles(
+		nvml.POWER_PROFILE_OPERATION_SET_AND_OVERWRITE, workloadProfileMask([]uint32{0})))
+	require.Equal(t, []uint32{0}, requestedMask(t, dev))
+}
+
+// TestWorkloadProfiles_SetOverridesConfiguredRequest pins the precedence: a
+// write outranks the profile's configured request, the way a real driver holds
+// a runtime request until it unloads.
+func TestWorkloadProfiles_SetOverridesConfiguredRequest(t *testing.T) {
+	cfg := blackwellProfiles()
+	cfg.Requested = []uint32{6}
+	dev := profileDevice(t, cfg)
+	require.Equal(t, []uint32{6}, requestedMask(t, dev))
+
+	require.Equal(t, nvml.SUCCESS, dev.WorkloadPowerProfileUpdateProfiles(
+		nvml.POWER_PROFILE_OPERATION_CLEAR, workloadProfileMask([]uint32{6})))
+	require.Empty(t, requestedMask(t, dev))
+
+	// An empty override must stay distinguishable from "never written", or
+	// clearing the last profile would fall back to the configured request.
+	require.Equal(t, nvml.SUCCESS, dev.WorkloadPowerProfileUpdateProfiles(
+		nvml.POWER_PROFILE_OPERATION_SET, workloadProfileMask([]uint32{13})))
+	require.Equal(t, []uint32{13}, requestedMask(t, dev))
+}
+
+// TestWorkloadProfiles_SetArbitratesEnforced is what separates the two masks at
+// runtime: requesting conflicting profiles is allowed and both are reported as
+// requested, but only the higher-priority one is enforced.
+func TestWorkloadProfiles_SetArbitratesEnforced(t *testing.T) {
+	dev := profileDevice(t, blackwellProfiles())
+
+	require.Equal(t, nvml.SUCCESS, dev.WorkloadPowerProfileUpdateProfiles(
+		nvml.POWER_PROFILE_OPERATION_SET, workloadProfileMask([]uint32{5, 6})))
+	require.Equal(t, []uint32{5, 6}, requestedMask(t, dev))
+	require.Equal(t, []uint32{5, 6}, enforcedMask(t, dev))
+
+	// max_p outranks balanced, so balanced stays requested but stops being
+	// enforced.
+	require.Equal(t, nvml.SUCCESS, dev.WorkloadPowerProfileUpdateProfiles(
+		nvml.POWER_PROFILE_OPERATION_SET, workloadProfileMask([]uint32{0})))
+	require.Equal(t, []uint32{0, 5, 6}, requestedMask(t, dev))
+	require.Equal(t, []uint32{0, 6}, enforcedMask(t, dev))
+}
+
+// TestWorkloadProfiles_SetRejectsUnsupported keeps a consumer from requesting a
+// profile the board never advertised. Unlike the config path, which drops a bad
+// id quietly, a live caller gets told.
+func TestWorkloadProfiles_SetRejectsUnsupported(t *testing.T) {
+	dev := profileDevice(t, blackwellProfiles())
+
+	for _, op := range []nvml.PowerProfileOperation{
+		nvml.POWER_PROFILE_OPERATION_SET,
+		nvml.POWER_PROFILE_OPERATION_CLEAR,
+		nvml.POWER_PROFILE_OPERATION_SET_AND_OVERWRITE,
+	} {
+		require.Equal(t, nvml.ERROR_INVALID_ARGUMENT,
+			dev.WorkloadPowerProfileUpdateProfiles(op, workloadProfileMask([]uint32{9})),
+			"op %d should refuse an unadvertised profile", op)
+	}
+	require.Empty(t, requestedMask(t, dev), "a refused write must not land")
+}
+
+func TestWorkloadProfiles_UpdateRejectsUnknownOperation(t *testing.T) {
+	dev := profileDevice(t, blackwellProfiles())
+
+	require.Equal(t, nvml.ERROR_INVALID_ARGUMENT,
+		dev.WorkloadPowerProfileUpdateProfiles(
+			nvml.POWER_PROFILE_OPERATION_MAX, workloadProfileMask([]uint32{6})))
+	require.Empty(t, requestedMask(t, dev))
+}
+
+// TestWorkloadProfiles_UpdateOnUnconfiguredDevice keeps the setters consistent
+// with the getters: a device that does not model the feature declines the write
+// rather than accepting one nothing can read back.
+func TestWorkloadProfiles_UpdateOnUnconfiguredDevice(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{Power: &PowerConfig{EnforcedLimitMW: 400000}})
+
+	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, dev.WorkloadPowerProfileUpdateProfiles(
+		nvml.POWER_PROFILE_OPERATION_SET, workloadProfileMask([]uint32{6})))
+}
+
+// TestWorkloadProfiles_EmptyMaskIsANoOp covers the degenerate write. It must not
+// be mistaken for "clear everything", which is what SET_AND_OVERWRITE is for.
+func TestWorkloadProfiles_EmptyMaskIsANoOp(t *testing.T) {
+	dev := profileDevice(t, blackwellProfiles())
+	require.Equal(t, nvml.SUCCESS, dev.WorkloadPowerProfileUpdateProfiles(
+		nvml.POWER_PROFILE_OPERATION_SET, workloadProfileMask([]uint32{6})))
+
+	require.Equal(t, nvml.SUCCESS, dev.WorkloadPowerProfileUpdateProfiles(
+		nvml.POWER_PROFILE_OPERATION_SET, nvml.Mask255{}))
+	require.Equal(t, []uint32{6}, requestedMask(t, dev))
+
+	require.Equal(t, nvml.SUCCESS, dev.WorkloadPowerProfileUpdateProfiles(
+		nvml.POWER_PROFILE_OPERATION_SET_AND_OVERWRITE, nvml.Mask255{}))
+	require.Empty(t, requestedMask(t, dev))
+}
+
+func TestWorkloadProfiles_UpdateLostDevice(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Power:   &PowerConfig{EnforcedLimitMW: 400000, WorkloadProfiles: blackwellProfiles()},
+		Failure: &FailureInjectionConfig{Mode: FailureModeLost},
+	})
+
+	require.Equal(t, nvml.ERROR_GPU_IS_LOST, dev.WorkloadPowerProfileUpdateProfiles(
+		nvml.POWER_PROFILE_OPERATION_SET, workloadProfileMask([]uint32{6})))
+}
+
+// TestWorkloadProfiles_ConcurrentUpdates pins the read-modify-write. SET and
+// CLEAR both rebuild the mask from its current value, so two writers racing on
+// different profiles must not lose one of them.
+func TestWorkloadProfiles_ConcurrentUpdates(t *testing.T) {
+	dev := profileDevice(t, blackwellProfiles())
+
+	ids := []uint32{0, 1, 5, 6, 13}
+	writers := len(ids)
+	rets := make([]nvml.Return, writers)
+
+	var wg sync.WaitGroup
+	for i := range writers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rets[i] = dev.WorkloadPowerProfileUpdateProfiles(
+				nvml.POWER_PROFILE_OPERATION_SET, workloadProfileMask([]uint32{ids[i]}))
+		}()
+	}
+	wg.Wait()
+
+	for i, ret := range rets {
+		require.Equal(t, nvml.SUCCESS, ret, "writer %d", i)
+	}
+	require.Equal(t, ids, requestedMask(t, dev),
+		"every concurrent SET should survive; a lost one means the update is not atomic")
 }
 
 // TestWorkloadProfiles_LostDevice keeps the getters consistent with the other

@@ -8,6 +8,7 @@ package nvidiasmi
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
@@ -283,9 +284,9 @@ func PowerProfiles(ctx context.Context, k *kube.Client, pod kube.PodRef, p profi
 	gomega.Expect(problems).To(gomega.BeEmpty(),
 		"power profile list wrong for profile %s:\n%s", p.Name, strings.Join(problems, "\n"))
 
-	// Only the getters are modelled, so a profile that pre-requests something
-	// has no way to have done so through NVML; the shipped profiles all leave
-	// it empty, matching every hardware capture.
+	// A profile that pre-requests something reports that instead of nothing,
+	// and the round trip below would start from it rather than from empty.
+	// The shipped profiles all leave it empty, matching every capture.
 	if len(p.RequestedWorkloadPowerProfiles()) > 0 {
 		return
 	}
@@ -296,6 +297,89 @@ func PowerProfiles(ctx context.Context, k *kube.Client, pod kube.PodRef, p profi
 		requested.Combined(), requested.ExitCode, enforced.Combined(), enforced.ExitCode)
 	gomega.Expect(problems).To(gomega.BeEmpty(),
 		"requested/enforced power profiles wrong for profile %s:\n%s", p.Name, strings.Join(problems, "\n"))
+
+	powerProfileWrites(ctx, k, pod, p)
+}
+
+// powerProfileWrites drives `-sr` and `-cr`.
+//
+// Two constraints shape every command here.
+//
+// Every flag goes into a single nvidia-smi invocation, because the mock's
+// requested set lives in the process that loaded libnvidia-ml.so: a second exec
+// gets a fresh library and would read back the configured request, not the
+// write. nvidia-smi evaluates `-sr` and `-cr` before `-ge`, which is what makes
+// a read-after-write expressible at all — and why `-gr`, which it evaluates
+// first, cannot be used to observe one.
+//
+// And each is scoped to one GPU with `-i 0`, because nvidia-smi 580.65.06
+// applies a comma-separated profile list in full only to the first GPU it
+// visits and passes just the first profile to the rest. That is the consumer's
+// behaviour, not the mock's, so pinning it here would make these assertions
+// fail on a driver that fixed it. `-l` already covers every GPU.
+func powerProfileWrites(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
+	ginkgo.GinkgoHelper()
+
+	const oneGPU = 1
+
+	if first, second, ok := p.IndependentWorkloadProfilePair(); ok {
+		ginkgo.By(fmt.Sprintf(
+			"nvidia-smi power-profiles -sr %d,%d -cr %d -ge leaves only %d enforced on %s",
+			first, second, first, second, p.Name))
+		res, _ := k.Exec(ctx, pod, "nvidia-smi", "power-profiles",
+			"-sr", fmt.Sprintf("%d,%d", first, second), "-cr", strconv.Itoa(first), "-ge", "-i", "0")
+		problems := PowerProfileRoundTripProblems(
+			res.Combined(), res.ExitCode, oneGPU, []int{second})
+		gomega.Expect(problems).To(gomega.BeEmpty(),
+			"power profile set/clear round trip wrong for profile %s:\n%s",
+			p.Name, strings.Join(problems, "\n"))
+	}
+
+	// Requesting profiles that exclude each other is what separates the
+	// requested set from the enforced one: both are requested, only the
+	// higher-priority one is enforced.
+	if winner, loser, ok := p.ConflictingWorkloadProfilePair(); ok {
+		ginkgo.By(fmt.Sprintf(
+			"nvidia-smi power-profiles -sr %d,%d -ge enforces only the higher-priority %d on %s",
+			winner, loser, winner, p.Name))
+		res, _ := k.Exec(ctx, pod, "nvidia-smi", "power-profiles",
+			"-sr", fmt.Sprintf("%d,%d", winner, loser), "-ge", "-i", "0")
+		problems := PowerProfileArbitrationProblems(
+			res.Combined(), res.ExitCode, oneGPU, winner, loser)
+		gomega.Expect(problems).To(gomega.BeEmpty(),
+			"power profile arbitration wrong for profile %s:\n%s", p.Name, strings.Join(problems, "\n"))
+	}
+
+	// nvidia-smi checks the id against the list the board advertised before
+	// it calls NVML, so refusing this one also confirms the advertised list
+	// reached it intact.
+	if badID, ok := unadvertisedProfileID(p); ok {
+		ginkgo.By(fmt.Sprintf("nvidia-smi power-profiles -sr %d is refused on %s", badID, p.Name))
+		res, _ := k.Exec(ctx, pod, "nvidia-smi", "power-profiles", "-sr", strconv.Itoa(badID), "-i", "0")
+		problems := PowerProfileSetRejectedProblems(res.Combined(), res.ExitCode, badID)
+		gomega.Expect(problems).To(gomega.BeEmpty(),
+			"power profile rejection wrong for profile %s:\n%s", p.Name, strings.Join(problems, "\n"))
+	}
+}
+
+// unadvertisedProfileID picks a profile id the board does not advertise but
+// nvidia-smi still recognises as a name, so the refusal comes from the board's
+// list rather than from the id being unparseable.
+func unadvertisedProfileID(p profile.Profile) (int, bool) {
+	declared, _ := p.WorkloadPowerProfiles()
+	advertised := make(map[int]bool, len(declared))
+	for _, wp := range declared {
+		advertised[wp.ID] = true
+	}
+	// NVML_POWER_PROFILE_* runs to 18 in the headers nvidia-smi 580 was
+	// built against; staying inside that range keeps the refusal about the
+	// board rather than about an out-of-range index.
+	for id := range 19 {
+		if !advertised[id] {
+			return id, true
+		}
+	}
+	return 0, false
 }
 
 // query execs `nvidia-smi -q -x` and asserts it succeeded, returning stdout.

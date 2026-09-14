@@ -73,6 +73,13 @@ type ConfigurableDevice struct {
 	// capping controller writes it.
 	powerLimitOverrideMW atomic.Uint32
 
+	// requestedProfilesOverride holds the workload power profiles requested
+	// through the setters. nil means no write has landed and the profile's
+	// configured request still stands; a non-nil empty mask is a caller that
+	// cleared everything, which is a different state. Atomic because every
+	// `power-profiles` read walks it while a writer updates it.
+	requestedProfilesOverride atomic.Pointer[nvml.Mask255]
+
 	// dynamicMetrics holds the current simulator (nil == static mode). It is
 	// swapped atomically on refresh so a runtime config override that edits
 	// dynamic_metrics (e.g. pinning temperature) takes effect on the next

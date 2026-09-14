@@ -6,6 +6,7 @@ package profile
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -215,6 +216,45 @@ func TestWorkloadPowerProfilesAreBlackwellOnDriver570(t *testing.T) {
 				require.Greater(t, wp.ID, profiles[i-1].ID, "%s: profiles should ascend by id", name)
 			}
 		}
+	}
+}
+
+// TestWorkloadProfilePairsBackTheSetterAssertions checks every profile that
+// supports the feature offers both pairs the `-sr` / `-cr` e2e needs. Without
+// them those assertions skip silently, so a profile that lost its conflicts
+// would quietly stop exercising arbitration.
+func TestWorkloadProfilePairsBackTheSetterAssertions(t *testing.T) {
+	for _, name := range KnownProfiles {
+		p, err := Load(profilesDir, name)
+		require.NoError(t, err, "Load(%q)", name)
+		if !p.SupportsWorkloadPowerProfiles() {
+			continue
+		}
+
+		first, second, ok := p.IndependentWorkloadProfilePair()
+		require.True(t, ok, "%s: no two profiles that can be enforced together", name)
+		require.NotEqual(t, first, second, "%s: independent pair is one profile twice", name)
+
+		winner, loser, ok := p.ConflictingWorkloadProfilePair()
+		require.True(t, ok, "%s: no two conflicting profiles with distinct priorities", name)
+
+		profiles, _ := p.WorkloadPowerProfiles()
+		byID := make(map[int]WorkloadPowerProfile, len(profiles))
+		for _, wp := range profiles {
+			byID[wp.ID] = wp
+		}
+
+		// Lower priority value wins, matching NVML's arbitration.
+		require.Less(t, byID[winner].Priority, byID[loser].Priority,
+			"%s: %d should outrank %d", name, winner, loser)
+		require.True(t,
+			slices.Contains(byID[winner].Conflicts, loser) ||
+				slices.Contains(byID[loser].Conflicts, winner),
+			"%s: %d and %d are not declared as conflicting", name, winner, loser)
+		require.False(t,
+			slices.Contains(byID[first].Conflicts, second) ||
+				slices.Contains(byID[second].Conflicts, first),
+			"%s: %d and %d conflict, so both cannot be enforced", name, first, second)
 	}
 }
 

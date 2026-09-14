@@ -182,3 +182,131 @@ func TestPowerProfileCurrent_RejectsUnexpectedlyEngaged(t *testing.T) {
 	require.Len(t, problems, 1)
 	require.Contains(t, problems[0], "-ge did not report")
 }
+
+// --- Set / clear round trip ---
+
+// realRoundTripOutput is `nvidia-smi power-profiles -sr 6,13 -cr 6 -ge -i 0`
+// against the gb200 profile. nvidia-smi orders the write before the enforced
+// query, so the surviving profile is printed last.
+const realRoundTripOutput = `Successfully set the requested profiles.
+Successfully cleared the requested profiles.
+13. HPC
+`
+
+func TestPowerProfileRoundTripAcceptsRealOutput(t *testing.T) {
+	t.Parallel()
+	require.Empty(t, PowerProfileRoundTripProblems(realRoundTripOutput, 0, 1, []int{13}))
+}
+
+func TestPowerProfileRoundTripAcrossGPUs(t *testing.T) {
+	t.Parallel()
+	out := strings.Repeat(realRoundTripOutput, 4)
+	require.Empty(t, PowerProfileRoundTripProblems(out, 0, 4, []int{13}))
+
+	problems := PowerProfileRoundTripProblems(out, 0, 2, []int{13})
+	require.NotEmpty(t, problems, "four GPUs' worth of output should not pass as two")
+}
+
+// TestPowerProfileRoundTripRejectsClearThatWipedEverything is the case the
+// confirmation lines cannot catch: a clear that removed both profiles still
+// reports success, and only the enforced read shows it.
+func TestPowerProfileRoundTripRejectsClearThatWipedEverything(t *testing.T) {
+	t.Parallel()
+	out := `Successfully set the requested profiles.
+Successfully cleared the requested profiles.
+No profiles are currently engaged.
+`
+	problems := PowerProfileRoundTripProblems(out, 0, 1, []int{13})
+	require.Len(t, problems, 1)
+	require.Contains(t, problems[0], "removed more than the profile it was given")
+}
+
+// TestPowerProfileRoundTripRejectsClearThatDidNothing is the opposite failure:
+// the cleared profile is still enforced.
+func TestPowerProfileRoundTripRejectsClearThatDidNothing(t *testing.T) {
+	t.Parallel()
+	out := `Successfully set the requested profiles.
+Successfully cleared the requested profiles.
+6. LLM Inference
+13. HPC
+`
+	problems := PowerProfileRoundTripProblems(out, 0, 1, []int{13})
+	require.Len(t, problems, 1)
+	require.Contains(t, problems[0], "enforced [6 13]")
+}
+
+func TestPowerProfileRoundTripRejectsMissingConfirmation(t *testing.T) {
+	t.Parallel()
+	// The set landed but the clear was never acknowledged.
+	out := "Successfully set the requested profiles.\n13. HPC\n"
+	problems := PowerProfileRoundTripProblems(out, 0, 1, []int{13})
+	require.Len(t, problems, 1)
+	require.Contains(t, problems[0], "Successfully cleared the requested profiles.")
+}
+
+func TestPowerProfileRoundTripRejectsFailure(t *testing.T) {
+	t.Parallel()
+	problems := PowerProfileRoundTripProblems(
+		"Workload Power Profiles feature is not supported on this device.", 2, 1, []int{13})
+	require.Len(t, problems, 1)
+	require.Contains(t, problems[0], "exited 2")
+}
+
+// --- Conflict arbitration ---
+
+// realArbitrationOutput is `nvidia-smi power-profiles -sr 0,5 -ge -i 0`, where
+// Max-P and Balanced conflict and Max-P has the higher priority.
+const realArbitrationOutput = `Successfully set the requested profiles.
+0. Max-P
+`
+
+func TestPowerProfileArbitrationAcceptsRealOutput(t *testing.T) {
+	t.Parallel()
+	require.Empty(t, PowerProfileArbitrationProblems(realArbitrationOutput, 0, 1, 0, 5))
+}
+
+// TestPowerProfileArbitrationRejectsEchoedRequest is what this assertion exists
+// for: a mock that reported the request as enforced without arbitrating would
+// list both profiles.
+func TestPowerProfileArbitrationRejectsEchoedRequest(t *testing.T) {
+	t.Parallel()
+	out := "Successfully set the requested profiles.\n0. Max-P\n5. Balanced\n"
+	problems := PowerProfileArbitrationProblems(out, 0, 1, 0, 5)
+	require.Len(t, problems, 1)
+	require.Contains(t, problems[0], "want [0]")
+}
+
+func TestPowerProfileArbitrationRejectsWrongWinner(t *testing.T) {
+	t.Parallel()
+	out := "Successfully set the requested profiles.\n5. Balanced\n"
+	problems := PowerProfileArbitrationProblems(out, 0, 1, 0, 5)
+	require.Len(t, problems, 1)
+	require.Contains(t, problems[0], "enforced [5]")
+}
+
+// --- Rejected set ---
+
+func TestPowerProfileSetRejectedAcceptsRealOutput(t *testing.T) {
+	t.Parallel()
+	require.Empty(t, PowerProfileSetRejectedProblems(
+		"Power Profile: 9 is not a supported profile number.", 2, 9))
+}
+
+func TestPowerProfileSetRejectedRejectsAcceptedWrite(t *testing.T) {
+	t.Parallel()
+	problems := PowerProfileSetRejectedProblems(
+		"Successfully set the requested profiles.", 0, 9)
+	require.Len(t, problems, 1)
+	require.Contains(t, problems[0], "want it refused")
+}
+
+// TestPowerProfileSetRejectedRejectsWrongReason keeps a refusal for some other
+// reason, such as the whole feature being unsupported, from passing as a
+// refusal of this one id.
+func TestPowerProfileSetRejectedRejectsWrongReason(t *testing.T) {
+	t.Parallel()
+	problems := PowerProfileSetRejectedProblems(
+		"Workload Power Profiles feature is not supported on this device.", 2, 9)
+	require.Len(t, problems, 1)
+	require.Contains(t, problems[0], "did not report")
+}

@@ -18,6 +18,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 	"time"
 
@@ -98,9 +99,131 @@ func testWorkloadPowerProfiles(deviceCount int) []testResult {
 		results = append(results, checkProfileMasksAgree(name+"/supported_mask", info, current))
 		results = append(results, checkProfileEntries(name+"/entries", info))
 		results = append(results, checkEnforcedWithinRequested(name+"/enforced", current))
+		results = append(results, testRequestedProfileSetters(index, name, device, info)...)
 	}
 
 	return results
+}
+
+// testRequestedProfileSetters drives the three setters and reads each write
+// back through GetCurrentProfiles. The read-after-write is the point: while
+// they were stubs the mock reported a requested set it had no way to change, so
+// `nvidia-smi power-profiles -sr` failed and a consumer could not tell a
+// request that was applied from one that was ignored.
+//
+// All three are covered because they are not interchangeable in practice:
+// nvidia-smi 580 calls the two deprecated ones, while UpdateProfiles_v1 is the
+// entry point upstream directs new callers to.
+func testRequestedProfileSetters(
+	index int, name string, device nvml.Device, info nvml.WorkloadPowerProfileProfilesInfo,
+) []testResult {
+	supported := supportedProfileIDs(info)
+	if len(supported) < 2 {
+		return []testResult{{name + "/setters", true, ""}}
+	}
+	first, second := supported[0], supported[1]
+
+	var results []testResult
+
+	// Start from a known state rather than whatever the config requested, so
+	// the assertions below do not depend on it. CLEAR of everything the board
+	// advertises is the only way to get there through the deprecated pair.
+	results = append(results, checkRequestedProfiles(name+"/clear_all", device,
+		device.WorkloadPowerProfileClearRequestedProfiles(
+			requestedProfilesMask(maskOf(supported))), nil))
+
+	// The deprecated SET adds to the request; nvidia-smi's -sr uses this one.
+	results = append(results, checkRequestedProfiles(name+"/set_requested", device,
+		device.WorkloadPowerProfileSetRequestedProfiles(requestedProfilesMask(profileMask(first))),
+		[]uint32{first}))
+
+	results = append(results, checkRequestedProfiles(name+"/set_requested_adds", device,
+		device.WorkloadPowerProfileSetRequestedProfiles(requestedProfilesMask(profileMask(second))),
+		[]uint32{first, second}))
+
+	// The deprecated CLEAR removes only what it names; -cr uses this one.
+	results = append(results, checkRequestedProfiles(name+"/clear_requested", device,
+		device.WorkloadPowerProfileClearRequestedProfiles(requestedProfilesMask(profileMask(first))),
+		[]uint32{second}))
+
+	// A profile the board never advertised must be refused rather than
+	// silently requested. 254 is the last bit in the mask and is not a
+	// profile any config declares.
+	if ret := device.WorkloadPowerProfileSetRequestedProfiles(
+		requestedProfilesMask(profileMask(254))); ret != nvml.ERROR_INVALID_ARGUMENT {
+		results = append(results, testResult{name + "/reject_unsupported", false,
+			fmt.Sprintf("requesting an unadvertised profile returned %v, want INVALID_ARGUMENT",
+				nvml.ErrorString(ret))})
+	} else {
+		results = append(results, checkRequestedProfiles(name+"/reject_unsupported", device,
+			nvml.SUCCESS, []uint32{second}))
+	}
+
+	// UpdateProfiles_v1 is the entry point upstream directs new callers to,
+	// and the one this module's pinned go-nvml has no binding for, so it is
+	// driven by symbol — see workload_profiles_abi.go.
+	results = append(results, testUpdateProfilesV1ABI(index, device, supported)...)
+
+	return results
+}
+
+// checkRequestedProfiles folds a setter's return and the read-back into one
+// result, since a request is only applied if both agree.
+func checkRequestedProfiles(name string, device nvml.Device, setRet nvml.Return, want []uint32) testResult {
+	if setRet != nvml.SUCCESS {
+		return testResult{name, false, fmt.Sprintf("update failed: %v", nvml.ErrorString(setRet))}
+	}
+	current, ret := device.WorkloadPowerProfileGetCurrentProfiles()
+	if ret != nvml.SUCCESS {
+		return testResult{name, false,
+			fmt.Sprintf("GetCurrentProfiles failed: %v", nvml.ErrorString(ret))}
+	}
+	got := maskProfileIDs(current.RequestedProfilesMask)
+	if !slices.Equal(got, want) {
+		return testResult{name, false, fmt.Sprintf("requested %v after update, want %v", got, want)}
+	}
+	return testResult{name, true, ""}
+}
+
+// requestedProfilesMask builds the struct the two deprecated setters take,
+// stamped the way a caller built against the real header stamps it.
+func requestedProfilesMask(mask nvml.Mask255) *nvml.WorkloadPowerProfileRequestedProfiles {
+	return &nvml.WorkloadPowerProfileRequestedProfiles{
+		Version:               nvml.STRUCT_VERSION(nvml.WorkloadPowerProfileRequestedProfiles_v1{}, 1),
+		RequestedProfilesMask: mask,
+	}
+}
+
+// profileMask is a mask naming a single profile.
+func profileMask(id uint32) nvml.Mask255 {
+	var mask nvml.Mask255
+	mask.Mask[id/32] |= 1 << (id % 32)
+	return mask
+}
+
+// maskOf is a mask naming every given profile.
+func maskOf(ids []uint32) nvml.Mask255 {
+	var mask nvml.Mask255
+	for _, id := range ids {
+		mask.Mask[id/32] |= 1 << (id % 32)
+	}
+	return mask
+}
+
+// supportedProfileIDs expands the advertised mask into ids, ascending.
+func supportedProfileIDs(info nvml.WorkloadPowerProfileProfilesInfo) []uint32 {
+	return maskProfileIDs(info.PerfProfilesMask)
+}
+
+// maskProfileIDs expands a mask into the profile ids it names, ascending.
+func maskProfileIDs(mask nvml.Mask255) []uint32 {
+	var ids []uint32
+	for id := range uint32(len(mask.Mask) * 32) {
+		if mask.Mask[id/32]&(1<<(id%32)) != 0 {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 // checkProfileMasksAgree pins the one invariant that spans both structs: they

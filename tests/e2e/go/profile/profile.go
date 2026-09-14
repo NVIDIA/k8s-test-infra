@@ -464,6 +464,49 @@ func (p Profile) SupportsWorkloadPowerProfiles() bool {
 	return p.workloadProfilesDeclared && p.DriverMajor() >= workloadPowerProfileMinDriver
 }
 
+// IndependentWorkloadProfilePair returns two advertised profiles that do not
+// conflict with each other, so requesting both leaves both enforced. Used to
+// tell a cleared profile from its neighbour: clearing one must leave the other.
+func (p Profile) IndependentWorkloadProfilePair() (first, second int, ok bool) {
+	profiles, _ := p.WorkloadPowerProfiles()
+	for i, a := range profiles {
+		for _, b := range profiles[i+1:] {
+			if !workloadProfilesConflict(a, b) {
+				return a.ID, b.ID, true
+			}
+		}
+	}
+	return 0, 0, false
+}
+
+// ConflictingWorkloadProfilePair returns two advertised profiles that cannot be
+// enforced together, the higher-priority one first. Requesting both is how the
+// difference between the requested and the enforced set becomes observable.
+func (p Profile) ConflictingWorkloadProfilePair() (winner, loser int, ok bool) {
+	profiles, _ := p.WorkloadPowerProfiles()
+	for i, a := range profiles {
+		for _, b := range profiles[i+1:] {
+			// Equal priorities would leave the outcome to the tie-break
+			// rather than to priority, which is not what this pair is for.
+			if !workloadProfilesConflict(a, b) || a.Priority == b.Priority {
+				continue
+			}
+			if a.Priority < b.Priority {
+				return a.ID, b.ID, true
+			}
+			return b.ID, a.ID, true
+		}
+	}
+	return 0, 0, false
+}
+
+// workloadProfilesConflict reports whether two profiles exclude each other.
+// Either direction counts, so a config that names the conflict on one side only
+// is still treated as a conflict.
+func workloadProfilesConflict(a, b WorkloadPowerProfile) bool {
+	return slices.Contains(a.Conflicts, b.ID) || slices.Contains(b.Conflicts, a.ID)
+}
+
 // DriverMajor is the major component of system.driver_version, or 0 when the
 // profile declares none or it does not parse.
 func (p Profile) DriverMajor() int {
