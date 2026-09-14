@@ -452,13 +452,20 @@ device_defaults:
     max_gpu_instances: 7
 ```
 
+This is the reference for the `mig:` block. For installing a partitioned node
+and scheduling onto a slice, see the
+[MIG partitioning guide](guides/mig.md).
+
 No shipped profile declares a partitioning. `max_gpu_instances` is what the
 board can do; how it is carved is a deployment choice, which under the chart is
 `gpu.mig.gpuInstances` — required whenever `gpu.mig.enabled` is set, on every
-board.
+board. Boards with no `mig` block at all — `t4`, `l40s` — are not MIG-capable,
+and NVML answers `NVML_ERROR_NOT_SUPPORTED` for them as real hardware does.
 
-Declare partitions per device with `gpu_instances`, naming each profile either
-by name or by the id the board publishes for it:
+#### Declaring a layout by count
+
+`gpu_instances` asks for a number of identical instances. Name each profile
+either by name or by the id the board publishes for it:
 
 ```yaml
 devices:
@@ -472,36 +479,51 @@ devices:
           count: 1
 ```
 
+| Field | Meaning |
+|---|---|
+| `profile` | Profile name as the cluster spells it, e.g. `1g.10gb`, `1g.5gb+me` |
+| `profile_id` | Raw id instead of a name. Exactly one of the two |
+| `count` | How many identical instances. Defaults to 1 |
+| `compute_instances` | Compute slices inside each GPU instance, same `profile`/`profile_id`/`count` shape. Defaults to one spanning the whole GPU instance, which is what `nvidia-mig-parted` creates |
+
 `profile_id` is the id in the `ID` column of `nvidia-smi mig -lgip`, so it can
 be copied straight off that listing — not NVML's profile enum, which numbers
-the same profiles differently and in the opposite order. Use one of `profile`
-or `profile_id`, not both.
+the same profiles differently and in the opposite order.
 
-Repartition at runtime with `nvidia-smi -mig` and `nvidia-smi mig -cgi/-dgi`
-(see [MIG partitioning](nvml-mock-ctl.md#mig-partitioning--use-nvidia-smi)),
-which changes the NVML view only — allocating the result still needs a pod
-restart.
+#### Declaring a layout explicitly
 
-Boards without a `mig` section — `t4`, `l40s` — are not MIG-capable, and NVML
-answers `NVML_ERROR_NOT_SUPPORTED` for them as real hardware does.
+`instances` states exactly which GPU instances exist, with the ids they were
+created under. A count cannot express a layout with a hole in it — delete
+instance 1 of three and the survivors are 0 and 2, which `count: 2` would
+reload as 0 and 1 — so this is the form a runtime mutation records, and the
+form to use when an instance needs a fixed id:
 
-A slice is named for the share of its own board it holds, so a board's slice
-names follow the memory its profile declares. That reproduces NVIDIA's
-published names where the profile describes the same board they were published
-for — `1g.5gb` on `a100`, `1g.10gb` on `h100` — and diverges where it does not:
-`b200` declares 192GiB and so offers `1g.24gb` where NVIDIA publishes `1g.23gb`
-for a 180GB B200, and `gb300` offers `1g.36gb`. Take the names a board accepts
-from `nvidia-smi mig -lgip` rather than from the MIG user guide.
+```yaml
+device_defaults:
+  mig:
+    mode_current: "enabled"
+    max_gpu_instances: 7
+    instances:
+      - id: 0
+        profile: "1g.10gb"
+        compute_instances:
+          - id: 0
+            profile: "1c"
+      - id: 2                  # 1 is deliberately absent
+        profile: "1g.10gb"
+        placement_start: 2     # optional; omitted takes the first free slot
+```
 
-The slice geometries themselves come from go-nvml, which carries one Blackwell
-table, the B200's. `gb200` and `gb300` are served from it, so their slice
-counts and instance ceiling are a B200's.
+Fixed ids are what let a partition be deleted by id from a process that did not
+create it, and what keeps `nvidia-smi -L` reporting the same MIG UUIDs across
+processes. A changed layout is applied by difference: only the missing instances
+are created and only the superfluous ones destroyed, so a consumer already
+holding handles follows a repartition instead of losing them.
 
-Profile ids are transcribed from NVIDIA's published `-lgip` listings, which
-exist for A100, A30, H100 and H200. NVIDIA publishes none for Blackwell, so
-those boards report NVML's profile enum as the id rather than a guessed
-hardware one. Name partitions on Blackwell by `profile` rather than
-`profile_id`, since the ids there will not match a real board's listing.
+An empty `instances: []` is a MIG-enabled board with every instance deleted,
+which is distinct from omitting the key; the same holds for a GPU instance's
+`compute_instances`, since deleting the last compute instance is a state
+hardware has.
 
 ### InfoROM
 

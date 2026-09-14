@@ -51,7 +51,7 @@ topology, counters and failures are synthesised.
 
 | Area | What Mokka simulates | Good for | What it does not prove |
 |---|---|---|---|
-| **GPU and NVML** | A configurable NVML-visible GPU. Profiles and per-device overrides define identity, model, memory size, PCI and NUMA identity, clocks, temperature, power, utilisation, ECC state, process records and failure responses. [`nvml-mock-ctl`](nvml-mock-ctl.md) changes most of them at runtime. | Inventory, monitoring, parsers, DCGM integration, alert handling, failure recovery | No kernel driver, firmware, CUDA kernels, contexts, streams or data path. Unimplemented NVML functions return `NVML_ERROR_NOT_SUPPORTED`, so a new consumer should confirm the calls it makes. MIG instances and partition lifecycle are absent. |
+| **GPU and NVML** | A configurable NVML-visible GPU. Profiles and per-device overrides define identity, model, memory size, PCI and NUMA identity, clocks, temperature, power, utilisation, ECC state, process records and failure responses. [`nvml-mock-ctl`](nvml-mock-ctl.md) changes most of them at runtime. MIG partitioning works through `nvidia-smi mig` — see [MIG partitioning](guides/mig.md). | Inventory, monitoring, parsers, DCGM integration, alert handling, failure recovery, MIG partitioning | No kernel driver, firmware, CUDA kernels, contexts, streams or data path. Unimplemented NVML functions return `NVML_ERROR_NOT_SUPPORTED`, so a new consumer should confirm the calls it makes. A runtime repartition moves the NVML view only; what a node can allocate is the layout it booted with. |
 | **Kubernetes allocation** | Real allocation workflows over synthetic devices. The device plugin and DRA driver advertise and allocate GPUs; Kubernetes schedules pods and creates ResourceClaims, ResourceSlices, CDI assignments and topology attributes. | Scheduler, operator, admission, claim lifecycle and controller-recovery tests | A claim proves allocation, not that a workload used GPU memory or did work. Process records do not follow allocations. Driver, firmware and toolkit install or upgrade paths are not exercised. |
 | **Metrics** | Utilisation, temperature, power, profiling activity and NVLink counters, either configured or generated from elapsed time. See [Metric Fidelity](configuration.md#metric-fidelity) for which is which. | Dashboards, thresholds, alerts, autoscaling inputs, deterministic failure scenarios | No metric is workload-correlated, so none can establish throughput, efficiency, thermal behaviour, timing or performance. |
 | **PCI and NUMA** | A synthetic discovery tree: PCI BDFs, root-complex paths, NUMA node values, selected device nodes, and sysfs content for served containers. | Discovery, placement, topology parsing, and behaviour driven by declared locality | No PCIe transactions, DMA, IOMMU or ACS behaviour, bandwidth, latency or hardware errors, and no real CPU or memory locality. A consumer that does not receive the tree through CDI or NRI reads the host's own sysfs instead. |
@@ -74,7 +74,10 @@ topology, counters and failures are synthesised.
   firmware interfaces.
 - Reproducing hardware faults, race conditions and timing with physical
   fidelity.
-- MIG partition creation and lifecycle, and Confidential Computing.
+- Running a workload *on* a MIG slice, and Confidential Computing. Creating,
+  destroying and enumerating partitions is simulated — see
+  [MIG partitioning](guides/mig.md) — but there is no CUDA, so a slice admits a
+  pod without running kernels for it.
 
 ## Tested consumers
 

@@ -147,6 +147,7 @@ nav:
           - Run.ai Fake GPU Operator: guides/runai-fgo/README.md
           - Node-Wide Injection: guides/node-wide-injection/README.md
       - Tasks:
+          - MIG Partitioning: guides/mig.md
           - Failure Injection: guides/failure-injection/README.md
           - Use in CI/CD: guides/ci-cd.md
           - Runtime Control: nvml-mock-ctl.md
