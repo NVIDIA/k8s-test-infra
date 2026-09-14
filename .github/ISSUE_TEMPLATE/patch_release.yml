@@ -1,0 +1,74 @@
+name: "Patch release"
+description: "Track a patch release (v0.X.Y) cut from an existing release branch."
+title: "Release v0.X.Y"
+labels: ["release", "kind/chore"]
+assignees: ["ArangoGutierrez"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tracks a patch release cut from an existing `release-X.Y` branch.
+        A patch release carries fixes only. A change that adds a feature or
+        breaks an interface belongs in the next minor, not here.
+
+        Creating a new minor release and its branch uses the **Release**
+        template instead.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: "v0.4.1"
+    validations: { required: true }
+  - type: input
+    id: branch
+    attributes:
+      label: Release branch
+      description: "The existing branch this is cut from. It must already exist."
+      placeholder: "release-0.4"
+    validations: { required: true }
+  - type: textarea
+    id: picks
+    attributes:
+      label: Commits to cherry-pick
+      description: "One per line: the main SHA and what it fixes. Each must already be merged to main."
+      placeholder: |
+        abc1234  fix(engine): ...  (#747)
+      render: text
+    validations: { required: true }
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: "Every commit listed is a fix, a security change, or a doc correction. No features, no breaking changes."
+        - label: "Every commit is already merged to `main`, so the fix is not lost when the next minor is cut."
+  - type: checkboxes
+    id: pick
+    attributes:
+      label: Cherry-pick onto the release branch
+      options:
+        - label: "`git cherry-pick -x -s -S <sha>` for each, in merge order. `-x` records the origin so the provenance is auditable."
+        - label: "Resolve conflicts by hand. Never resolve `go.sum` with `--ours`/`--theirs`: it is a set of independent hash lines, so take the union or regenerate it from a verified `go.mod`."
+        - label: "Gates on the result: `make lint`, `make build`, `make test`, `make helm-tests`."
+        - label: "PR against the release branch, reviewed and merged."
+  - type: checkboxes
+    id: prep
+    attributes:
+      label: Release prep
+      options:
+        - label: "Bump the nvml-mock chart `version` to the patch version."
+        - label: "Add a `## [VERSION] - YYYY-MM-DD` changelog section describing only what this patch changes."
+        - label: "Tag, annotated and signed: `git tag -s -m \"<version>\" <version>`, then `git push upstream <version>`."
+  - type: checkboxes
+    id: artefacts
+    attributes:
+      label: Verify published artefacts
+      options:
+        - label: "Image resolves: `ghcr.io/nvidia/nvml-mock:<version-without-v>` (the tag drops the `v`)."
+        - label: "Chart resolves, noting the known gap that the helm publish job only runs from `main`."
+        - label: "GitHub release notes published, tag linked in this issue, issue closed."
+  - type: textarea
+    id: changelog
+    attributes:
+      label: Changelog
+      render: markdown
