@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 560" width="900" height="560" role="img" aria-label="Break matrix: AICR checks by outcome and attribution on the base sweep cell">
+  <title>Break matrix: where it actually broke, and whose problem each failure is</title>
+  <style>
+    .box{fill:none;stroke:#57606a;stroke-width:2}
+    .thick{fill:none;stroke:#57606a;stroke-width:4}
+    .dash{fill:none;stroke:#57606a;stroke-width:2;stroke-dasharray:7 4}
+    .t{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;fill:#57606a}
+    .hd{font-size:14px;font-weight:700}
+    .bd{font-size:12px}
+    .sm{font-size:10.5px;font-style:italic}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;fill:#57606a}
+  </style>
+  <text class="t hd" x="16" y="24">Break matrix: base-gb200-kind-inference-stack, 2026-08-03</text>
+  <text class="t sm" x="16" y="42">AICR dispatched 9 of 21 checks. Outcome is the row; attribution is the column that matters.</text>
+
+  <text class="t hd" x="20" y="72">Check</text>
+  <text class="t hd" x="270" y="72">Bucket</text>
+  <text class="t hd" x="340" y="72">Outcome</text>
+  <text class="t hd" x="470" y="72">Attribution</text>
+  <line x1="16" y1="80" x2="884" y2="80" stroke="#57606a" stroke-width="2"/>
+
+  <text class="mono" x="20" y="102">operator-health</text><text class="t bd" x="270" y="102">A</text><text class="t hd" x="340" y="102">PASS</text><text class="t bd" x="470" y="102">real integration: operator reconciled on the mock</text>
+  <text class="mono" x="20" y="124">check-nvidia-smi</text><text class="t bd" x="270" y="124">A</text><text class="t hd" x="340" y="124">PASS</text><text class="t bd" x="470" y="124">real integration: alloc + inject + dlopen, end to end</text>
+  <text class="mono" x="20" y="146">accelerator-metrics</text><text class="t bd" x="270" y="146">A</text><text class="t hd" x="340" y="146">PASS</text><text class="t bd" x="470" y="146">real integration: dcgm-exporter on the mock NVML</text>
+  <line x1="16" y1="158" x2="884" y2="158" stroke="#57606a" stroke-width="1"/>
+
+  <text class="mono" x="20" y="182">gpu-operator-version</text><text class="t bd" x="270" y="182">A</text><text class="t hd" x="340" y="182">FAIL</text><text class="t bd" x="470" y="182">operator config. THE CHECK WORKED: caught v25.3.4</text>
+  <text class="t bd" x="470" y="198">against the recipe's own &gt;= v25.10.0 floor.</text>
+  <text class="mono" x="20" y="222">dra-support</text><text class="t bd" x="270" y="222">A</text><text class="t hd" x="340" y="222">FAIL</text><text class="t hd" x="470" y="222">cause U: upstream</text><text class="t bd" x="600" y="222">altProcDevices unreleased</text>
+  <text class="mono" x="20" y="246">ai-service-metrics</text><text class="t bd" x="270" y="246">A</text><text class="t hd" x="340" y="246">FAIL</text><text class="t bd" x="470" y="246">scope: 2 of 14 recipe components deployed</text>
+  <text class="mono" x="20" y="270">platform-health</text><text class="t bd" x="270" y="270">A</text><text class="t hd" x="340" y="270">FAIL</text><text class="t bd" x="470" y="270">scope: 9 recipe namespaces absent</text>
+  <text class="mono" x="20" y="294">gpu-operator-health</text><text class="t bd" x="270" y="294">A</text><text class="t hd" x="340" y="294">FAIL</text><text class="t hd" x="470" y="294">cause K (provisional)</text><text class="t bd" x="612" y="294">GFD, no-toolkit config</text>
+  <line x1="16" y1="306" x2="884" y2="306" stroke="#57606a" stroke-width="1"/>
+
+  <text class="mono" x="20" y="330">expected-resources</text><text class="t bd" x="270" y="330">A</text><text class="t bd" x="340" y="330">INCONCLUSIVE</text><text class="t bd" x="470" y="330">Job pod vanished. Recorded not-run, NEVER a pass.</text>
+  <line x1="16" y1="342" x2="884" y2="342" stroke="#57606a" stroke-width="1"/>
+
+  <text class="mono" x="20" y="366">12 further checks</text><text class="t bd" x="270" y="366">A/B/C</text><text class="t bd" x="340" y="366">NOT DISPATCHED</text><text class="t bd" x="470" y="366">AICR did not select them for this recipe + cluster</text>
+  <text class="t sm" x="20" y="384">includes secure-accelerator-access, the highest-value one outstanding (MEP-0002 device isolation)</text>
+
+  <rect class="thick" x="16" y="404" width="868" height="62" rx="6"/>
+  <text class="t hd" x="30" y="426">The line that matters</text>
+  <text class="t bd" x="30" y="448">NONE of the five failures is a Mokka capability gap. Two are this run's scope, one is the operator version</text>
+  <text class="t bd" x="30" y="464">the check correctly rejected, one is upstream (U), and one is provisionally the kind configuration (K).</text>
+
+  <text class="t sm" x="16" y="492">Buckets: A meaningful, B trivial, C hardware-dependent, G closable Mokka gap. Causes: K kind artifact,</text>
+  <text class="t sm" x="16" y="508">U upstream unreleased, X AICR catalog gap, BUDGET host memory. Bucket and cause are independent axes.</text>
+  <text class="t sm" x="16" y="532">Separate gap found outside the check outcomes: PCI bus ID loses its domain prefix (bucket G, size S).</text>
+  <text class="t sm" x="16" y="548">All evidence is sim provenance. Counts match tests/aicr-sweep/results/report.json exactly.</text>
+</svg>
