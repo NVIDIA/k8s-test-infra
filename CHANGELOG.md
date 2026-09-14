@@ -82,12 +82,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of losing the instances it still holds handles to. (#241)
 - nvml-mock chart: `gpu.mig.enabled` activates the MIG layout a profile declares
   under `device_defaults.mig.gpu_instances`, and `gpu.mig.gpuInstances`
-  overrides it with a different partitioning. The `a100` and `h100` profiles
-  declare default layouts. Off by default, because a partitioned board stops
-  publishing `nvidia.com/gpu` under the device plugin's `migStrategy=single`.
-  With it on, the plugin serves MIG resources and the agent publishes CDI
-  entries for each partition, so a MIG workload can be scheduled and admitted on
-  a CPU-only node. (#241)
+  overrides it with a different partitioning. The `a100`, `h100` and `b200`
+  profiles declare default layouts, and the MIG e2e runs `h100` and `b200`, one
+  board per architecture. `gb200` and `gb300` declare none: go-nvml carries only
+  the B200 MIG table, whose slice sizes are exact for the B200 and a board too
+  small for the dies those two describe. Off by default, because a partitioned
+  board stops publishing `nvidia.com/gpu` under the device plugin's
+  `migStrategy=single`. With it on, the plugin serves MIG resources and the
+  agent publishes CDI entries for each partition, so a MIG workload can be
+  scheduled and admitted on a CPU-only node. (#241)
 
 ### Changed
 
