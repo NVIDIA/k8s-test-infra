@@ -477,6 +477,22 @@ Repartition at runtime with `nvidia-smi -mig` and `nvidia-smi mig -cgi/-dgi`
 which changes the NVML view only — allocating the result still needs a pod
 restart.
 
+Boards without a `mig` section — `t4`, `l40s` — are not MIG-capable, and NVML
+answers `NVML_ERROR_NOT_SUPPORTED` for them as real hardware does.
+
+The profile tables come from go-nvml and are exact for A100, A30, H100, H200
+and B200. go-nvml carries one Blackwell table, the B200's, so the larger
+Blackwell boards report B200 slice sizes: a `gb200` tops out at `7g.180gb`
+where the hardware gives `7g.186gb`, and a `gb300` reports 23gb slices where
+Blackwell Ultra gives 34gb ones. Their slice counts and instance ceiling are
+right; only the per-slice memory is a B200's.
+
+Profile ids are transcribed from NVIDIA's published `-lgip` listings, which
+exist for A100, A30, H100 and H200. NVIDIA publishes none for Blackwell, so
+those boards report NVML's profile enum as the id rather than a guessed
+hardware one. Name partitions on Blackwell by `profile` rather than
+`profile_id`, since the ids there will not match a real board's listing.
+
 ### InfoROM
 
 ```yaml

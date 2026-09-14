@@ -56,13 +56,19 @@ func resolveMIGProfiles(deviceName string, memoryBytes uint64) (gpus.MIGProfileC
 		return gpus.H100_SXM5_80GB.MIGProfiles, sevenSliceProfileIDs, true
 	case strings.Contains(name, "B200"), strings.Contains(name, "B300"),
 		strings.Contains(name, "GB200"), strings.Contains(name, "GB300"):
-		// go-nvml carries one Blackwell table; the GB trays use the same
-		// partitioning as the SXM B200 they are built from.
+		// go-nvml carries one Blackwell table, the SXM B200's, and its slice
+		// memory is fixed rather than scaled from the board's capacity. It is
+		// exact for the B200: NVIDIA publishes 1g.23gb through 7g.180gb, which
+		// is what this table holds. The larger Blackwells therefore report
+		// B200 slice sizes — a GB200 tops out at 7g.180gb where the hardware
+		// gives 7g.186gb, and a GB300 reports 23gb slices where Blackwell
+		// Ultra gives 34gb ones. Correcting that needs a B300 table NVIDIA
+		// has not published in the MIG guide, and guessing the sizes would
+		// put a wrong answer behind an authoritative-looking API.
 		//
-		// No ID table: Blackwell's 6- and 8-slice geometries do not appear in
-		// any listing this could be transcribed from, and the profiles it does
-		// share with Hopper cannot be remapped on their own without colliding
-		// with the enum values the rest would keep.
+		// No ID table: NVIDIA lists no profile IDs for Blackwell, and the
+		// profiles it shares with Hopper cannot be remapped on their own
+		// without colliding with the enum values the rest would keep.
 		return gpus.B200_SXM5_180GB.MIGProfiles, nil, true
 	}
 
