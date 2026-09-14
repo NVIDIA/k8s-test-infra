@@ -456,14 +456,21 @@ func TestMIGPartitionsComeFromTheProfile(t *testing.T) {
 		name          string
 		partitions    int
 		uniformDevice string
+		capable       bool
 	}{
-		{"a100", 7, "1g.5gb"},
-		{"h100", 7, "1g.10gb"},
+		{"a100", 7, "1g.5gb", true},
+		{"h100", 7, "1g.10gb", true},
+		// Capable boards that ship no default layout. They are why capability
+		// cannot be read off the layout: reporting these as non-MIG hardware
+		// is what silently excused them from the MIG suite.
+		{"b200", 0, "", true},
+		{"gb200", 0, "", true},
+		{"gb300", 0, "", true},
 		// Not MIG-capable boards, and the negative control for the accessors:
 		// a profile with no mig block must report no partitions rather than a
 		// zero-valued one that reads as "declared but empty".
-		{"l40s", 0, ""},
-		{"t4", 0, ""},
+		{"l40s", 0, "", false},
+		{"t4", 0, "", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -472,7 +479,8 @@ func TestMIGPartitionsComeFromTheProfile(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tc.partitions, p.MIGPartitionsPerGPU())
 			require.Equal(t, tc.uniformDevice, p.MIGDeviceProfile())
-			require.Equal(t, tc.partitions > 0, p.MIGCapable())
+			require.Equal(t, tc.capable, p.MIGCapable())
+			require.Equal(t, tc.partitions > 0, p.MIGDeclaresLayout())
 		})
 	}
 }
@@ -489,6 +497,7 @@ device_defaults:
   name: "NVIDIA Mock GPU"
   mig:
     mode_current: "enabled"
+    max_gpu_instances: 7
     gpu_instances:
       - profile: "1g.5gb"
         count: 2
@@ -504,6 +513,7 @@ devices:
 	require.Equal(t, 3, p.MIGPartitionsPerGPU(), "a mixed layout still declares three partitions")
 	require.Empty(t, p.MIGDeviceProfile(), "a mixed layout has no single device profile")
 	require.True(t, p.MIGCapable())
+	require.True(t, p.MIGDeclaresLayout())
 }
 
 // A count left unset means one instance, matching how the engine reads the

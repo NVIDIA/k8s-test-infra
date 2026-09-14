@@ -87,7 +87,8 @@ type rawProfile struct {
 			} `json:"availability_histogram"`
 		} `json:"remapped_rows"`
 		MIG *struct {
-			GPUInstances []rawMIGGpuInstance `json:"gpu_instances"`
+			MaxGPUInstances int                 `json:"max_gpu_instances"`
+			GPUInstances    []rawMIGGpuInstance `json:"gpu_instances"`
 		} `json:"mig"`
 	} `json:"device_defaults"`
 	Devices []struct {
@@ -176,6 +177,7 @@ type Profile struct {
 	workloadProfilesRequested []int
 	workloadProfilesDeclared  bool
 
+	migMaxInstances  int
 	migPartitions    int
 	migDeviceProfile string
 }
@@ -294,6 +296,7 @@ func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
 		p.fabricAuto = strings.EqualFold(strings.TrimSpace(f.State), "auto")
 	}
 	if mig := raw.DeviceDefaults.MIG; mig != nil {
+		p.migMaxInstances = mig.MaxGPUInstances
 		p.migPartitions, p.migDeviceProfile = migLayout(mig.GPUInstances)
 	}
 	if pl := raw.DeviceDefaults.Platform; pl != nil {
@@ -389,8 +392,18 @@ func (p Profile) MIGPartitionsPerGPU() int { return p.migPartitions }
 // "1g.5gb", or "" when the profile declares none or declares a mix.
 func (p Profile) MIGDeviceProfile() string { return p.migDeviceProfile }
 
-// MIGCapable reports whether the profile declares a MIG partitioning at all.
-func (p Profile) MIGCapable() bool { return p.migPartitions > 0 }
+// MIGCapable reports whether the board can partition at all, which is a
+// property of the hardware and so reads max_gpu_instances. Whether a profile
+// ships a default layout is a separate question, answered by
+// MIGDeclaresLayout: b200, gb200 and gb300 are capable boards that declare
+// none, and conflating the two would report them as non-MIG hardware.
+func (p Profile) MIGCapable() bool { return p.migMaxInstances > 0 }
+
+// MIGDeclaresLayout reports whether the profile boots already partitioned.
+// The chart refuses gpu.mig.enabled on a capable board without a layout from
+// either the profile or gpu.mig.gpuInstances, so a spec that supplies neither
+// can only drive the profiles this is true for.
+func (p Profile) MIGDeclaresLayout() bool { return p.migPartitions > 0 }
 
 // ExpectedHCAs is the number of InfiniBand HCAs the profile should expose:
 // one per GPU when IB is enabled, otherwise 0 (l40s/t4 negative control).
