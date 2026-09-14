@@ -609,6 +609,18 @@ tests:
           path: data["config.yaml"]
           pattern: "(?m)^ {4}enabled: true"
 
+  # A board that cannot partition carries no mig section at all, rather than one
+  # declaring a disabled mode it can never leave. The mock derives MIG support
+  # from the board name, so the absence is what the engine already assumes.
+  - it: should emit no mig section for a board that cannot partition
+    set:
+      gpu:
+        profile: t4
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "(?m)^ {2}mig:"
+
   - it: should reject MIG on a board that cannot partition
     set:
       gpu:
@@ -617,7 +629,7 @@ tests:
           enabled: true
     asserts:
       - failedTemplate:
-          errorMessage: 'gpu.mig.enabled is set but profile "t4" is not a MIG-capable board: mig.max_gpu_instances is 0'
+          errorMessage: 'gpu.mig.enabled is set but profile "t4" is not a MIG-capable board: it declares no mig.max_gpu_instances'
 
   # An explicit layout does not make a board capable, so the refusal above has
   # to survive one being given.
@@ -632,7 +644,7 @@ tests:
               count: 7
     asserts:
       - failedTemplate:
-          errorMessage: 'gpu.mig.enabled is set but profile "t4" is not a MIG-capable board: mig.max_gpu_instances is 0'
+          errorMessage: 'gpu.mig.enabled is set but profile "t4" is not a MIG-capable board: it declares no mig.max_gpu_instances'
 
   - it: should reject MIG on a capable board with no layout to apply
     set:

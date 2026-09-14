@@ -121,6 +121,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `libpcisysfs.so` is now `libmockfs.so`. The shim redirects kernel-module paths
   as well as PCI sysfs, so its name no longer described what it does. The
   `MOCK_PCI_ROOT` variable that points it at the fake tree is unchanged.
+- nvml-mock: the `t4` and `l40s` profiles no longer carry a `mig` section. The
+  mock decides MIG support from the board name, so those boards already answered
+  `NVML_ERROR_NOT_SUPPORTED` regardless of what the profile declared, and the
+  section only read as though a disabled mode were something they could leave.
+  `gpu.mig.enabled` still refuses them, now reporting that the profile declares
+  no `mig.max_gpu_instances` rather than that it is `0`.
 
 ### Removed
 

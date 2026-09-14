@@ -68,7 +68,7 @@ gpu:
   #     - profile: "3g.20gb"
   #       count: 2
   #
-  # A board whose profile sets mig.max_gpu_instances to 0 is refused, as is a
+  # A board whose profile declares no mig.max_gpu_instances is refused, as is a
   # capable board left with no layout from either source: MIG on with nothing
   # partitioned publishes no GPU resource at all under migStrategy=single.
   #
