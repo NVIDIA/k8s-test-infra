@@ -536,6 +536,135 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 				}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 					Should(Equal(partitions), "removing the override should restore the declared layout")
 			})
+
+			// The targeted, by-id half of the partitioning surface, which the
+			// spec above does not reach: it repartitions with the bulk forms
+			// (-cgi <profile>, -dgi -i <gpu>) that act on a whole board, where
+			// an operator and nvidia-mig-parted name one instance at a time.
+			//
+			// This is one spec rather than several because the interesting
+			// assertions are about what each step leaves behind for the next:
+			// every command is its own process, so an id this reads out of one
+			// listing is only valid in the next command if the mock recorded it.
+			//
+			// Also kept after the declarative specs, for the same reason as the
+			// repartition above: the override it writes is a per-node file that
+			// outlives the spec.
+			It("creates, lists and deletes partitions by id through nvidia-smi", Label("mig-runtime"), func(ctx SpecContext) {
+				DeferCleanup(func(ctx SpecContext) {
+					resetRuntimeOverridesOnNode(ctx, h, node)
+				})
+
+				// Two partitions of the declared profile have to fit, since the
+				// spec creates a pair and then deletes one of them to show the
+				// delete was targeted rather than wholesale.
+				Expect(partitions).To(BeNumerically(">=", 2),
+					"profile %s fits %d partition(s) of %s per GPU; this spec needs two to tell a targeted delete from a bulk one",
+					p.Name, partitions, p.MIGDeviceProfile())
+
+				// The profile's id is read off -lgip rather than written in:
+				// the ids are per-board, so no literal is portable across the
+				// profiles this scenario runs. Reading it also asserts the id
+				// and the name -lgip prints agree, which is what lets the two
+				// spellings below name the same profile.
+				capacityListing := migListingOnNode(ctx, h, node, "-lgip")
+				capacities, err := nvidiasmi.ListMigProfileCapacity(capacityListing)
+				Expect(err).NotTo(HaveOccurred(), "parse nvidia-smi mig -lgip:\n%s", capacityListing)
+				declared, ok := nvidiasmi.MigCapacityFor(capacities, 0, p.MIGDeviceProfile())
+				Expect(ok).To(BeTrue(),
+					"nvidia-smi mig -lgip offers no %s profile on GPU 0:\n%s", p.MIGDeviceProfile(), capacityListing)
+
+				By("nvidia-smi mig -dci -i 0 && -dgi -i 0: clear GPU 0 down to bare metal")
+				migMutateOnNode(ctx, h, node, "-dci", "-i", "0")
+				migMutateOnNode(ctx, h, node, "-dgi", "-i", "0")
+
+				// The compute-instance listing is read by row count, which has
+				// no per-GPU column to filter on, so the other GPUs' declared
+				// partitions are in every number below. Counting from a
+				// baseline taken with GPU 0 empty keeps the assertions about
+				// what this spec did rather than about the profile's size.
+				baseCIs := migComputeInstanceCountOnNode(ctx, h, node)
+				Expect(nvidiasmi.MigInstancesOfGPU(migGPUInstancesOnNode(ctx, h, node), 0)).To(BeEmpty(),
+					"GPU 0 should carry no GPU instances once -dgi has run")
+
+				By("nvidia-smi mig -cgi " + strconv.Itoa(declared.ProfileID) + "," + p.MIGDeviceProfile() +
+					" -C -i 0: create two partitions, naming the profile by id and by name")
+				// One command, both spellings: nvidia-smi resolves each element
+				// of the list separately, so this covers the id form and the
+				// name form against the same profile, and a mock that reported
+				// an id no profile answers to would fail on the first element.
+				migMutateOnNode(ctx, h, node,
+					"-cgi", strconv.Itoa(declared.ProfileID)+","+p.MIGDeviceProfile(), "-C", "-i", "0")
+
+				created := nvidiasmi.MigInstancesOfGPU(migGPUInstancesOnNode(ctx, h, node), 0)
+				Expect(created).To(HaveLen(2),
+					"nvidia-smi mig -lgi should report the two partitions the -cgi list asked for")
+				for _, instance := range created {
+					Expect(instance.Profile).To(Equal(p.MIGDeviceProfile()),
+						"the partition created by id %d should carry the same profile as the one created by name",
+						declared.ProfileID)
+					Expect(instance.ProfileID).To(Equal(declared.ProfileID),
+						"nvidia-smi mig -lgi should report the profile under the id -lgip published")
+				}
+				Expect(migComputeInstanceCountOnNode(ctx, h, node)).To(Equal(baseCIs+2),
+					"-C should have given each new partition a compute instance")
+				Expect(migDeviceCountOfGPU(ctx, h, node, 0)).To(Equal(2),
+					"nvidia-smi -L should show a MIG device for each of GPU 0's two partitions")
+
+				By("nvidia-smi mig -dci -gi <id> -ci 0 && -dgi -gi <id>: delete one partition, by id")
+				// The first instance's id, read from the listing above: NVML
+				// chooses these, so a spec that assumed 0 and 1 would be
+				// asserting against the allocator rather than the delete.
+				doomed, spared := created[0].InstanceID, created[1].InstanceID
+				// The compute instance goes first. Real NVML refuses to destroy
+				// a GPU instance that still holds one, so this is the order a
+				// partitioning tool has to use.
+				migMutateOnNode(ctx, h, node, "-dci", "-gi", strconv.Itoa(doomed), "-ci", "0")
+				migMutateOnNode(ctx, h, node, "-dgi", "-gi", strconv.Itoa(doomed))
+
+				remaining := nvidiasmi.MigInstancesOfGPU(migGPUInstancesOnNode(ctx, h, node), 0)
+				Expect(remaining).To(HaveLen(1), "only the partition named by -dgi should be gone")
+				Expect(remaining[0].InstanceID).To(Equal(spared),
+					"the surviving partition should be the one -dgi did not name")
+				Expect(migComputeInstanceCountOnNode(ctx, h, node)).To(Equal(baseCIs+1),
+					"the deleted partition's compute instance should have gone with it")
+
+				By("nvidia-smi mig -cgi " + p.MIGDeviceProfile() +
+					" -i 0: a GPU instance with no compute instance, created without -C")
+				migMutateOnNode(ctx, h, node, "-cgi", p.MIGDeviceProfile(), "-i", "0")
+
+				Expect(nvidiasmi.MigInstancesOfGPU(migGPUInstancesOnNode(ctx, h, node), 0)).To(HaveLen(2),
+					"nvidia-smi mig -lgi should report the partition created without -C")
+				Expect(migComputeInstanceCountOnNode(ctx, h, node)).To(Equal(baseCIs+1),
+					"a partition created without -C holds no compute instance")
+				// The distinction -C makes, and the reason a repartition that
+				// omits it leaves a board no consumer can use: MIG devices are
+				// derived from compute instances, so a GPU instance without one
+				// is invisible to everything that allocates.
+				Expect(migDeviceCountOfGPU(ctx, h, node, 0)).To(Equal(1),
+					"nvidia-smi -L should omit the partition that has no compute instance")
+
+				By("nvidia-smi mig -cci 0 -gi <id>: give that partition a compute instance")
+				bare := bareGpuInstanceOnGPU(ctx, h, node, 0, spared)
+				migMutateOnNode(ctx, h, node, "-cci", "0", "-gi", strconv.Itoa(bare))
+
+				Expect(migComputeInstanceCountOnNode(ctx, h, node)).To(Equal(baseCIs+2),
+					"-cci should have added the compute instance the partition was missing")
+				Expect(migDeviceCountOfGPU(ctx, h, node, 0)).To(Equal(2),
+					"nvidia-smi -L should now show both of GPU 0's partitions")
+
+				By("nvidia-smi -i 0 -mig 0: disable MIG, dropping every partition with it")
+				migSetModeOnNode(ctx, h, node, 0, false)
+
+				Eventually(func() int {
+					return len(migPartitionsOfGPU(migSnapshotOnNode(ctx, h, node), 0))
+				}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+					Should(BeZero(), "disabling MIG should leave GPU 0 carrying no partitions")
+				Expect(migGPU(migSnapshotOnNode(ctx, h, node), 0).MIGEnabled()).To(BeFalse(),
+					"nvidia-smi -q -x should report GPU 0's MIG mode as disabled")
+				Expect(migPartitionsOfGPU(migSnapshotOnNode(ctx, h, node), 1)).To(HaveLen(partitions),
+					"disabling MIG on GPU 0 must not disturb its neighbours")
+			})
 		})
 	}
 })
@@ -670,6 +799,71 @@ func migMutateOnNode(ctx context.Context, h *harness.Harness, node string, args 
 	res, err := h.Kube.Exec(ctx, target, append([]string{"nvidia-smi", "mig"}, args...)...)
 	Expect(err).NotTo(HaveOccurred(), "nvidia-smi mig %v in %s exited non-zero: %s",
 		args, target.Pod, res.Combined())
+}
+
+// migSetModeOnNode switches one GPU's MIG mode with `nvidia-smi -i <gpu> -mig
+// <0|1>`, which is not a `mig` subcommand and so cannot go through
+// migMutateOnNode.
+//
+// This is the command that turns MIG on and off on real hardware; the specs
+// above reach the same setting through the chart, which cannot show that the
+// NVML path a consumer drives has the same effect.
+func migSetModeOnNode(ctx context.Context, h *harness.Harness, node string, gpu int, on bool) {
+	GinkgoHelper()
+	mode := "0"
+	if on {
+		mode = "1"
+	}
+	target := nvmlPodOnNode(ctx, h, node)
+	args := []string{"nvidia-smi", "-i", strconv.Itoa(gpu), "-mig", mode}
+	By(strings.Join(args, " "))
+	res, err := h.Kube.Exec(ctx, target, args...)
+	Expect(err).NotTo(HaveOccurred(), "%v in %s exited non-zero: %s",
+		args, target.Pod, res.Combined())
+}
+
+// migComputeInstanceCountOnNode counts the rows of `nvidia-smi mig -lci` across
+// the whole board. The listing carries no column an assertion could filter one
+// GPU on, so callers compare against a baseline rather than an absolute.
+func migComputeInstanceCountOnNode(ctx context.Context, h *harness.Harness, node string) int {
+	GinkgoHelper()
+	listing := migListingOnNode(ctx, h, node, "-lci")
+	count, err := nvidiasmi.CountMigTableRows(listing, nvidiasmi.MigComputeInstances)
+	Expect(err).NotTo(HaveOccurred(), "parse nvidia-smi mig -lci:\n%s", listing)
+	return count
+}
+
+// migDeviceCountOfGPU counts the MIG devices `nvidia-smi -L` derives from one
+// GPU's partitions, which is not the same as that GPU's GPU-instance count: a
+// GPU instance holding no compute instance yields no MIG device.
+func migDeviceCountOfGPU(ctx context.Context, h *harness.Harness, node string, gpu int) int {
+	GinkgoHelper()
+	var count int
+	for _, device := range migDevicesOnNode(ctx, h, node) {
+		if device.GPU == gpu {
+			count++
+		}
+	}
+	return count
+}
+
+// bareGpuInstanceOnGPU returns the id of the GPU instance on gpu that is not
+// exclude, failing unless there is exactly one such instance.
+//
+// The caller knows which instance it left alone and wants the other one, whose
+// id NVML chose; asserting the count here is what keeps a caller from picking
+// an arbitrary instance when the board holds more than it expected.
+func bareGpuInstanceOnGPU(ctx context.Context, h *harness.Harness, node string, gpu, exclude int) int {
+	GinkgoHelper()
+	var found []int
+	for _, instance := range nvidiasmi.MigInstancesOfGPU(migGPUInstancesOnNode(ctx, h, node), gpu) {
+		if instance.InstanceID != exclude {
+			found = append(found, instance.InstanceID)
+		}
+	}
+	Expect(found).To(HaveLen(1),
+		"GPU %d should carry exactly one instance other than %d, got %v", gpu, exclude, found)
+	return found[0]
 }
 
 // migGPUInstancesOnNode lists the GPU instances `nvidia-smi mig -lgi` reports
