@@ -176,9 +176,9 @@ describes in its place. The override is applied before the layout is checked:
 gb300, gb200 and b200 are MIG-capable but ship no default layout, so checking
 first would refuse the very case gpuInstances documents itself for.
 
-Two refusals, because they are different mistakes. A board whose profile sets
-max_gpu_instances to 0 cannot partition at all, and no layout supplied here
-changes that. A capable board with no layout from either source would boot
+Two refusals, because they are different mistakes. A board whose profile
+declares no max_gpu_instances cannot partition at all, and no layout supplied
+here changes that. A capable board with no layout from either source would boot
 MIG-enabled and unpartitioned, which publishes no GPU resource whatsoever
 under migStrategy=single.
 */ -}}
@@ -187,7 +187,7 @@ under migStrategy=single.
 {{- $_ := set $mig "gpu_instances" .Values.gpu.mig.gpuInstances -}}
 {{- end -}}
 {{- if not (get $mig "max_gpu_instances") -}}
-{{- fail (printf "gpu.mig.enabled is set but profile %q is not a MIG-capable board: mig.max_gpu_instances is 0" .Values.gpu.profile) -}}
+{{- fail (printf "gpu.mig.enabled is set but profile %q is not a MIG-capable board: it declares no mig.max_gpu_instances" .Values.gpu.profile) -}}
 {{- end -}}
 {{- if not (get $mig "gpu_instances") -}}
 {{- fail (printf "gpu.mig.enabled is set but neither profile %q nor gpu.mig.gpuInstances declares any partitions, so the node would come up MIG-enabled with nothing partitioned" .Values.gpu.profile) -}}

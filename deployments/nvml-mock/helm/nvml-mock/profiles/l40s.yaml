@@ -284,13 +284,9 @@ device_defaults:
   # ---------------------------------------------------------------------------
   compute_mode: "default"
 
-  # ---------------------------------------------------------------------------
-  # MIG configuration (L40S does not support MIG)
-  # ---------------------------------------------------------------------------
-  mig:
-    mode_current: "disabled"
-    mode_pending: "disabled"
-    max_gpu_instances: 0
+  # No mig section: the L40S is not a MIG-capable board, and the mock derives
+  # that from the board name, so NVML answers NVML_ERROR_NOT_SUPPORTED without
+  # the profile having to declare a disabled mode it can never leave.
 
   # ---------------------------------------------------------------------------
   # GPU operation mode (GOM)
