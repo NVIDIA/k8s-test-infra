@@ -30,9 +30,9 @@ func enabledState() *agent.State {
 // means no fabricmanager on this node.
 func TestStage_NoOpWithoutStateDir(t *testing.T) {
 	h := host.New(t.TempDir())
-	s := New(Options{})
+	s := New(h, Options{})
 
-	require.NoError(t, s.Stage(context.Background(), h, &agent.State{}))
+	require.NoError(t, s.Stage(t.Context(), &agent.State{}))
 	require.True(t, s.Ready(), "a node without fabricmanager is ready, not pending")
 	require.NoDirExists(t, h.HostPath(fabricmanager.DefaultStateDir))
 }
@@ -42,9 +42,9 @@ func TestStage_NoOpWithoutStateDir(t *testing.T) {
 // follows.
 func TestStage_CreatesStateDir(t *testing.T) {
 	h := host.New(t.TempDir())
-	s := New(Options{})
+	s := New(h, Options{})
 
-	require.NoError(t, s.Stage(t.Context(), h, enabledState()))
+	require.NoError(t, s.Stage(t.Context(), enabledState()))
 	require.DirExists(t, h.HostPath(fabricmanager.DefaultStateDir))
 	require.False(t, s.Ready(), "readiness waits for the daemon to publish")
 }
@@ -53,12 +53,12 @@ func TestStage_CreatesStateDir(t *testing.T) {
 // has to follow that value rather than a path this package picks.
 func TestStage_FollowsTheConfiguredStateDir(t *testing.T) {
 	h := host.New(t.TempDir())
-	s := New(Options{})
+	s := New(h, Options{})
 
 	const stateDir = "/run/nvidia-fabricmanager"
 	state := &agent.State{Fabric: agent.FabricState{ManagerStateDir: stateDir}}
 
-	require.NoError(t, s.Stage(t.Context(), h, state))
+	require.NoError(t, s.Stage(t.Context(), state))
 	require.DirExists(t, h.HostPath(stateDir))
 	require.NoDirExists(t, h.HostPath(fabricmanager.DefaultStateDir))
 }
@@ -67,10 +67,10 @@ func TestStage_FollowsTheConfiguredStateDir(t *testing.T) {
 // rather than return, in case a reconcile turns it on.
 func TestRun_ParksWhenDisabled(t *testing.T) {
 	h := host.New(t.TempDir())
-	s := New(Options{})
-	require.NoError(t, s.Stage(t.Context(), h, &agent.State{}))
+	s := New(h, Options{})
+	require.NoError(t, s.Stage(t.Context(), &agent.State{}))
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- s.Run(ctx) }()
 
@@ -93,10 +93,10 @@ func TestRun_ParksWhenDisabled(t *testing.T) {
 // re-asserting the marker every 2s and GPUs go on reporting COMPLETED.
 func TestRun_WithdrawsTheMarkerWhenDisabled(t *testing.T) {
 	h := host.New(t.TempDir())
-	s := New(Options{})
-	require.NoError(t, s.Stage(t.Context(), h, enabledState()))
+	s := New(h, Options{})
+	require.NoError(t, s.Stage(t.Context(), enabledState()))
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- s.Run(ctx) }()
 
@@ -104,7 +104,7 @@ func TestRun_WithdrawsTheMarkerWhenDisabled(t *testing.T) {
 	require.Eventually(t, func() bool { return fileExists(marker) },
 		5*time.Second, 10*time.Millisecond, "marker never appeared")
 
-	require.NoError(t, s.Stage(t.Context(), h, &agent.State{}))
+	require.NoError(t, s.Stage(t.Context(), &agent.State{}))
 	require.Eventually(t, func() bool { return !fileExists(marker) },
 		5*time.Second, 10*time.Millisecond, "marker outlived the disabled daemon")
 
@@ -119,10 +119,10 @@ func TestRun_WithdrawsTheMarkerWhenDisabled(t *testing.T) {
 
 func TestRun_MovesReadinessToTheChangedStateDir(t *testing.T) {
 	h := host.New(t.TempDir())
-	s := New(Options{})
-	require.NoError(t, s.Stage(t.Context(), h, enabledState()))
+	s := New(h, Options{})
+	require.NoError(t, s.Stage(t.Context(), enabledState()))
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- s.Run(ctx) }()
@@ -133,7 +133,7 @@ func TestRun_MovesReadinessToTheChangedStateDir(t *testing.T) {
 
 	const newStateDir = "/run/nvidia-fabricmanager"
 	state := &agent.State{Fabric: agent.FabricState{ManagerStateDir: newStateDir}}
-	require.NoError(t, s.Stage(t.Context(), h, state))
+	require.NoError(t, s.Stage(t.Context(), state))
 
 	newMarker := fabricmanager.MarkerPath(h.HostPath(newStateDir))
 	require.Eventually(t, func() bool { return fileExists(newMarker) },
@@ -153,14 +153,14 @@ func TestRun_MovesReadinessToTheChangedStateDir(t *testing.T) {
 // when a reconcile enables it, even though Run was already launched.
 func TestRun_ServesADaemonEnabledAfterStartup(t *testing.T) {
 	h := host.New(t.TempDir())
-	s := New(Options{})
-	require.NoError(t, s.Stage(t.Context(), h, &agent.State{}))
+	s := New(h, Options{})
+	require.NoError(t, s.Stage(t.Context(), &agent.State{}))
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- s.Run(ctx) }()
 
-	require.NoError(t, s.Stage(t.Context(), h, enabledState()))
+	require.NoError(t, s.Stage(t.Context(), enabledState()))
 	require.Eventually(t, s.Ready, 5*time.Second, 10*time.Millisecond,
 		"readiness never surfaced after a reconcile enabled fabricmanager")
 
@@ -180,10 +180,10 @@ func fileExists(path string) bool {
 
 func TestRun_PublishesReadinessThroughTheSimulator(t *testing.T) {
 	h := host.New(t.TempDir())
-	s := New(Options{})
-	require.NoError(t, s.Stage(context.Background(), h, enabledState()))
+	s := New(h, Options{})
+	require.NoError(t, s.Stage(t.Context(), enabledState()))
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- s.Run(ctx) }()
 
@@ -201,19 +201,19 @@ func TestRun_PublishesReadinessThroughTheSimulator(t *testing.T) {
 
 func TestDiscard_WithdrawsReadiness(t *testing.T) {
 	h := host.New(t.TempDir())
-	s := New(Options{})
-	require.NoError(t, s.Stage(context.Background(), h, enabledState()))
+	s := New(h, Options{})
+	require.NoError(t, s.Stage(t.Context(), enabledState()))
 	require.NoError(t, fabricmanager.WriteReady(h.HostPath(fabricmanager.DefaultStateDir)))
 
-	require.NoError(t, s.Discard(context.Background(), h))
+	require.NoError(t, s.Discard(t.Context()))
 	require.NoFileExists(t, fabricmanager.MarkerPath(h.HostPath(fabricmanager.DefaultStateDir)))
 	require.False(t, s.Ready())
 }
 
 func TestDiscard_NoOpBeforeStage(t *testing.T) {
-	require.NoError(t, New(Options{}).Discard(context.Background(), host.New(t.TempDir())))
+	require.NoError(t, New(host.New(t.TempDir()), Options{}).Discard(t.Context()))
 }
 
 func TestReload_IsNoOp(t *testing.T) {
-	require.NoError(t, New(Options{}).Reload(context.Background(), enabledState()))
+	require.NoError(t, New(host.New(t.TempDir()), Options{}).Reload(t.Context(), enabledState()))
 }

@@ -4,7 +4,6 @@
 package gpudriver
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -59,15 +58,15 @@ func TestWriteProcFS_WritesVersionAndParams(t *testing.T) {
 	h := testHost(t)
 	state := testState(t)
 
-	require.NoError(t, writeProcFS(context.Background(), h, state))
+	require.NoError(t, writeProcFS(t.Context(), h, state))
 
-	versionPath := filepath.Join(h.Root, "driver/proc/driver/nvidia/version")
+	versionPath := h.RootPath("driver/proc/driver/nvidia/version")
 	content, err := os.ReadFile(versionPath)
 	require.NoError(t, err)
 	require.Contains(t, string(content), state.Software.DriverVersion,
 		"version file must contain DriverVersion")
 
-	paramsPath := filepath.Join(h.Root, "driver/proc/driver/nvidia/params")
+	paramsPath := h.RootPath("driver/proc/driver/nvidia/params")
 	_, err = os.Stat(paramsPath)
 	require.NoError(t, err, "params file must exist")
 }
@@ -75,7 +74,7 @@ func TestWriteProcFS_WritesVersionAndParams(t *testing.T) {
 func TestWriteProcFS_Idempotent(t *testing.T) {
 	h := testHost(t)
 	state := testState(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	require.NoError(t, writeProcFS(ctx, h, state))
 	require.NoError(t, writeProcFS(ctx, h, state), "second call must not error")
@@ -85,10 +84,10 @@ func TestWriteEngineConfig_WritesBothLocations(t *testing.T) {
 	h := testHost(t)
 	state := testState(t)
 
-	require.NoError(t, writeEngineConfig(context.Background(), h, state))
+	require.NoError(t, writeEngineConfig(t.Context(), h, state))
 
 	for _, rel := range []string{"config/config.yaml", "driver/config/config.yaml"} {
-		_, err := os.Stat(filepath.Join(h.Root, rel))
+		_, err := os.Stat(h.RootPath(rel))
 		require.NoError(t, err, "%s must exist", rel)
 	}
 }
@@ -97,7 +96,7 @@ func TestWriteEngineConfig_EmptyConfigRawErrors(t *testing.T) {
 	h := testHost(t)
 	state := &agent.State{}
 
-	err := writeEngineConfig(context.Background(), h, state)
+	err := writeEngineConfig(t.Context(), h, state)
 	require.Error(t, err)
 }
 
@@ -150,15 +149,15 @@ func TestStageNvidiaSMI_WritesSMIScript(t *testing.T) {
 	h := testHost(t)
 	state := testState(t)
 
-	require.NoError(t, stageNvidiaSMI(context.Background(), h, state))
+	require.NoError(t, stageNvidiaSMI(t.Context(), h, state))
 
-	script := filepath.Join(h.Root, "driver/usr/bin/nvidia-smi.sh")
+	script := h.RootPath("driver/usr/bin/nvidia-smi.sh")
 	content, err := os.ReadFile(script)
 	require.NoError(t, err)
 	require.Contains(t, string(content), state.Software.DriverVersion)
 
 	// Whether nvidia-smi is the ELF or a symlink, it must exist.
-	_, err = os.Lstat(filepath.Join(h.Root, "driver/usr/bin/nvidia-smi"))
+	_, err = os.Lstat(h.RootPath("driver/usr/bin/nvidia-smi"))
 	require.NoError(t, err, "nvidia-smi must exist (ELF or symlink)")
 }
 
@@ -170,7 +169,7 @@ func TestStageCUDAShim_NopWhenNoLib(t *testing.T) {
 	h := testHost(t)
 	state := testState(t)
 
-	require.NoError(t, stageCUDAShim(context.Background(), h, state),
+	require.NoError(t, stageCUDAShim(t.Context(), h, state),
 		"stageCUDAShim must not error when libcuda.so is absent")
 }
 
@@ -180,9 +179,9 @@ func TestStageNVMLShim_CopiesLibAndCreatesLinks(t *testing.T) {
 	h := testHost(t)
 	state := testState(t)
 
-	require.NoError(t, stageNVMLShim(context.Background(), h, state))
+	require.NoError(t, stageNVMLShim(t.Context(), h, state))
 
-	lib64 := filepath.Join(h.Root, "driver/usr/lib64")
+	lib64 := h.RootPath("driver/usr/lib64")
 	versioned := "libnvidia-ml.so." + state.Software.DriverVersion
 	for _, name := range []string{versioned, "libnvidia-ml.so.1", "libnvidia-ml.so"} {
 		_, err := os.Lstat(filepath.Join(lib64, name))
@@ -212,9 +211,9 @@ func TestStageCharDevs_CreatesDeviceNodes(t *testing.T) {
 	h := testHost(t)
 	state := testState(t)
 
-	require.NoError(t, stageCharDevs(context.Background(), h, state))
+	require.NoError(t, stageCharDevs(t.Context(), h, state))
 
-	devRoot := filepath.Join(h.Root, "driver/dev")
+	devRoot := h.RootPath("driver/dev")
 	for _, name := range []string{"nvidia0", "nvidiactl", "nvidia-uvm", "nvidia-uvm-tools"} {
 		_, err := os.Stat(filepath.Join(devRoot, name))
 		require.NoError(t, err, "%s chardev must exist", name)
@@ -231,7 +230,7 @@ func TestStageCharDevs_UsesConfiguredMinorNumber(t *testing.T) {
 	state := testState(t)
 	state.Devices = []agent.DeviceSpec{{Index: 1, MinorNumber: 3}}
 
-	require.NoError(t, stageCharDevs(context.Background(), h, state))
+	require.NoError(t, stageCharDevs(t.Context(), h, state))
 
 	devRoot := filepath.Join(h.Root, "driver/dev")
 	require.FileExists(t, filepath.Join(devRoot, "nvidia3"))
@@ -242,12 +241,12 @@ func TestStageCharDevs_UsesConfiguredMinorNumber(t *testing.T) {
 
 func TestApply_CreatesSymlink(t *testing.T) {
 	h := testHost(t)
-	sim := New()
+	sim := New(h)
 
-	require.NoError(t, sim.Apply(context.Background(), h, testState(t)))
+	require.NoError(t, sim.Apply(t.Context(), testState(t)))
 	require.True(t, sim.Ready())
 
-	link := filepath.Join(h.Run, "nvidia/driver")
+	link := h.RunPath("nvidia/driver")
 	target, err := os.Readlink(link)
 	require.NoError(t, err)
 	require.Equal(t, "/var/lib/nvml-mock/driver", target)
@@ -255,31 +254,29 @@ func TestApply_CreatesSymlink(t *testing.T) {
 
 func TestRevoke_RemovesSymlink(t *testing.T) {
 	h := testHost(t)
-	sim := New()
+	sim := New(h)
 
-	require.NoError(t, sim.Apply(context.Background(), h, testState(t)))
-	require.NoError(t, sim.Revoke(context.Background(), h))
+	require.NoError(t, sim.Apply(t.Context(), testState(t)))
+	require.NoError(t, sim.Revoke(t.Context()))
 
-	link := filepath.Join(h.Run, "nvidia/driver")
+	link := h.RunPath("nvidia/driver")
 	_, err := os.Lstat(link)
 	require.ErrorIs(t, err, os.ErrNotExist)
 }
 
 func TestRevoke_IdempotentWhenLinkAbsent(t *testing.T) {
-	h := testHost(t)
-	sim := New()
+	sim := New(testHost(t))
 
-	require.NoError(t, sim.Revoke(context.Background(), h), "Revoke on absent symlink must not error")
+	require.NoError(t, sim.Revoke(t.Context()), "Revoke on absent symlink must not error")
 }
 
 // ─── Discard ─────────────────────────────────────────────────────────────────
 
 func TestDiscard_NopWhenNotReady(t *testing.T) {
-	h := testHost(t)
-	sim := New()
+	sim := New(testHost(t))
 
 	// ready is false by default — Discard must be a no-op.
-	require.NoError(t, sim.Discard(context.Background(), h))
+	require.NoError(t, sim.Discard(t.Context()))
 }
 
 // ─── full Stage (Linux root + NVML lib required) ─────────────────────────────
@@ -289,33 +286,33 @@ func TestStage_WritesAllSurfaces(t *testing.T) {
 	skipUnlessNVMLLib(t)
 
 	h := testHost(t)
-	sim := New()
+	sim := New(h)
 	state := testState(t)
 
-	require.NoError(t, sim.Stage(context.Background(), h, state))
+	require.NoError(t, sim.Stage(t.Context(), state))
 	require.False(t, sim.Ready(), "Stage does not publish the driver symlink")
-	require.NoError(t, sim.Apply(context.Background(), h, state))
+	require.NoError(t, sim.Apply(t.Context(), state))
 	require.True(t, sim.Ready())
 
 	// chardevs
-	devRoot := filepath.Join(h.Root, "driver/dev")
+	devRoot := h.RootPath("driver/dev")
 	_, err := os.Stat(filepath.Join(devRoot, "nvidiactl"))
 	require.NoError(t, err)
 
 	// NVML shim
-	_, err = os.Lstat(filepath.Join(h.Root, "driver/usr/lib64", "libnvidia-ml.so.1"))
+	_, err = os.Lstat(h.RootPath("driver/usr/lib64", "libnvidia-ml.so.1"))
 	require.NoError(t, err)
 
 	// nvidia-smi
-	_, err = os.Lstat(filepath.Join(h.Root, "driver/usr/bin/nvidia-smi"))
+	_, err = os.Lstat(h.RootPath("driver/usr/bin/nvidia-smi"))
 	require.NoError(t, err)
 
 	// procfs
-	_, err = os.Stat(filepath.Join(h.Root, "driver/proc/driver/nvidia/version"))
+	_, err = os.Stat(h.RootPath("driver/proc/driver/nvidia/version"))
 	require.NoError(t, err)
 
 	// engine config
-	_, err = os.Stat(filepath.Join(h.Root, "config/config.yaml"))
+	_, err = os.Stat(h.RootPath("config/config.yaml"))
 	require.NoError(t, err)
 }
 
@@ -324,11 +321,11 @@ func TestStage_Idempotent(t *testing.T) {
 	skipUnlessNVMLLib(t)
 
 	h := testHost(t)
-	sim := New()
+	sim := New(h)
 	state := testState(t)
 
-	require.NoError(t, sim.Stage(context.Background(), h, state))
-	require.NoError(t, sim.Stage(context.Background(), h, state), "second Stage must not error")
+	require.NoError(t, sim.Stage(t.Context(), state))
+	require.NoError(t, sim.Stage(t.Context(), state), "second Stage must not error")
 }
 
 // TestPruneGPUNodes_RemovesShrunkDeviceSet exercises pruneGPUNodes directly with
@@ -371,7 +368,7 @@ func TestStageCharDevs_PrunesShrunkDeviceSet(t *testing.T) {
 	skipUnlessRootLinux(t)
 
 	h := testHost(t)
-	devRoot := filepath.Join(h.Root, "driver/dev")
+	devRoot := h.RootPath("driver/dev")
 	require.NoError(t, os.MkdirAll(devRoot, 0o755))
 
 	// A previous, larger device set left four GPU nodes behind.
@@ -383,7 +380,7 @@ func TestStageCharDevs_PrunesShrunkDeviceSet(t *testing.T) {
 		{Index: 0, MinorNumber: 0},
 		{Index: 1, MinorNumber: 1},
 	}}
-	require.NoError(t, stageCharDevs(context.Background(), h, state))
+	require.NoError(t, stageCharDevs(t.Context(), h, state))
 
 	require.FileExists(t, filepath.Join(devRoot, "nvidia0"))
 	require.FileExists(t, filepath.Join(devRoot, "nvidia1"))
