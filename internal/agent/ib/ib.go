@@ -346,10 +346,23 @@ func (s *Simulator) serveOnce(ctx context.Context) error {
 		return err
 	}
 
+	// Bind before advertising. Ready() gates the agent's /readyz, and a consumer
+	// told the simulator is ready dials the socket at once, so flipping serving
+	// around ListenAndServe would advertise a socket that does not exist yet.
+	// Binding here makes that impossible: serving can only be true between a
+	// successful Listen and the Close below.
+	ln, err := srv.Listen()
+	if err != nil {
+		return err
+	}
+	// Deferred in this order so they unwind the other way: readiness is
+	// withdrawn first, and only then does the socket go away.
+	defer func() { _ = ln.Close() }()
+
 	s.serving.Store(true)
 	defer s.serving.Store(false)
 
-	if err := srv.ListenAndServe(genCtx); err != nil && genCtx.Err() == nil {
+	if err := srv.Serve(genCtx, ln); err != nil && genCtx.Err() == nil {
 		return err
 	}
 	return nil

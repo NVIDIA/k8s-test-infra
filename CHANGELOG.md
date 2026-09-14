@@ -43,6 +43,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   SIGKILL instead of being cut short.
 
 ### Fixed
+- agent: the InfiniBand simulator no longer reports ready before the mock-ib
+  socket exists. It flipped its serving flag and only then called
+  `ListenAndServe`, which creates the socket directory, clears a stale socket
+  and binds, so `/readyz` could pass while there was still nothing to connect
+  to. A workload whose shims dialled in that window got
+  `connect: no such file or directory`. The daemon now exposes `Listen` and
+  `Serve` separately, the way `net/http` does, and the simulator binds first:
+  readiness can only be true between a successful bind and the listener's
+  close, which also means it is withdrawn before the socket goes away on
+  shutdown or on a profile-driven restart.
 - agent: GPU character devices, both CDI specs and the NVML visibility filter
   now address a device by its `minor_number` rather than by its NVML index. The
   two match on a node whose driver probed in PCI enumeration order, which every
