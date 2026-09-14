@@ -4,7 +4,6 @@
 package imex
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -107,7 +106,7 @@ func TestStageChannelDevs_CreatesNodes(t *testing.T) {
 func TestStage_NoopWhenDisabled(t *testing.T) {
 	h := testHost(t)
 	sim := New(h)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	require.NoError(t, sim.Stage(ctx, testState(false)))
 	require.True(t, sim.Ready(), "disabled IMEX must still mark simulator ready")
@@ -122,7 +121,7 @@ func TestStage_NoopWhenDisabled(t *testing.T) {
 func TestDiscard_NopWhenNotReady(t *testing.T) {
 	sim := New(testHost(t))
 
-	require.NoError(t, sim.Discard(context.Background()))
+	require.NoError(t, sim.Discard(t.Context()))
 }
 
 func TestStage_Idempotent(t *testing.T) {
@@ -131,7 +130,7 @@ func TestStage_Idempotent(t *testing.T) {
 	h := testHost(t)
 	sim := &Simulator{host: h, procDevicesPath: writeProcDevicesFixture(t)}
 	state := testState(true)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	require.NoError(t, sim.Stage(ctx, state))
 	require.NoError(t, sim.Stage(ctx, state), "second Stage must not error")
@@ -143,7 +142,7 @@ func TestStage_WritesAndDiscardCleans(t *testing.T) {
 	h := testHost(t)
 	sim := &Simulator{host: h, procDevicesPath: writeProcDevicesFixture(t)}
 	state := testState(true)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	require.NoError(t, sim.Stage(ctx, state))
 	require.True(t, sim.Ready())

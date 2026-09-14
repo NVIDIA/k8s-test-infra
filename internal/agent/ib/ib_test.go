@@ -68,8 +68,8 @@ func TestDiscard_LeavesGPUDriverFilesIntact(t *testing.T) {
 	seedGPUDriver()
 
 	s := New(h, Options{Mode: ModeSysfs})
-	require.NoError(t, s.Stage(context.Background(), testState(testNetwork())))
-	require.NoError(t, s.Discard(context.Background()))
+	require.NoError(t, s.Stage(t.Context(), testState(testNetwork())))
+	require.NoError(t, s.Discard(t.Context()))
 
 	require.NoDirExists(t, h.RootPath("ib"))
 	require.NoFileExists(t, h.RootPath("driver/usr/bin/ibstat"))
@@ -86,7 +86,7 @@ func TestDiscard_NoOpBeforeStage(t *testing.T) {
 	isolateSources(t)
 	h := newTestHost(t)
 	s := New(h, Options{Mode: ModeSysfs})
-	require.NoError(t, s.Discard(context.Background()))
+	require.NoError(t, s.Discard(t.Context()))
 }
 
 func TestRun_ReturnsImmediatelyWhenNotFull(t *testing.T) {
@@ -94,7 +94,7 @@ func TestRun_ReturnsImmediatelyWhenNotFull(t *testing.T) {
 		t.Run(string(mode), func(t *testing.T) {
 			s := New(newTestHost(t), Options{Mode: mode})
 			done := make(chan error, 1)
-			go func() { done <- s.Run(context.Background()) }()
+			go func() { done <- s.Run(t.Context()) }()
 			select {
 			case err := <-done:
 				require.NoError(t, err)
@@ -111,10 +111,10 @@ func TestRun_ServesAndReports(t *testing.T) {
 	socket := filepath.Join(t.TempDir(), "mock-ib.sock")
 	s := New(h, Options{Mode: ModeFull, SocketPath: socket})
 
-	require.NoError(t, s.Stage(context.Background(), testState(testNetwork())))
+	require.NoError(t, s.Stage(t.Context(), testState(testNetwork())))
 	require.False(t, s.Ready(), "full mode is not ready until the daemon serves")
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- s.Run(ctx) }()
@@ -139,10 +139,10 @@ func TestRun_ReadyWithoutDaemonWhenIBDisabled(t *testing.T) {
 	h := newTestHost(t)
 	s := New(h, Options{Mode: ModeFull, SocketPath: filepath.Join(t.TempDir(), "s.sock")})
 
-	require.NoError(t, s.Stage(context.Background(), testState(agent.NetworkShape{})))
+	require.NoError(t, s.Stage(t.Context(), testState(agent.NetworkShape{})))
 	require.True(t, s.Ready())
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- s.Run(ctx) }()
 
@@ -166,7 +166,7 @@ func TestReload_OnlyRestartsWhenShapeChanges(t *testing.T) {
 	isolateSources(t)
 	h := newTestHost(t)
 	s := New(h, Options{Mode: ModeFull, SocketPath: filepath.Join(t.TempDir(), "s.sock")})
-	ctx := context.Background()
+	ctx := t.Context()
 
 	net := testNetwork()
 	require.NoError(t, s.Stage(ctx, testState(net)))
@@ -194,7 +194,7 @@ func TestReload_RerendersTreeForNewShape(t *testing.T) {
 	isolateSources(t)
 	h := newTestHost(t)
 	s := New(h, Options{Mode: ModeSysfs})
-	ctx := context.Background()
+	ctx := t.Context()
 
 	require.NoError(t, s.Stage(ctx, testState(testNetwork())))
 	require.NoDirExists(t, h.RootPath("ib/sys/class/infiniband/mlx5_3"))
@@ -232,7 +232,7 @@ func TestStage_DerivesSocketPathUnderHostRoot(t *testing.T) {
 	h := newTestHost(t)
 	s := New(h, Options{Mode: ModeFull})
 
-	require.NoError(t, s.Stage(context.Background(), testState(testNetwork())))
+	require.NoError(t, s.Stage(t.Context(), testState(testNetwork())))
 
 	got := s.socketPath.Load()
 	require.NotNil(t, got)
@@ -245,6 +245,6 @@ func TestStage_SocketPathOverrideWins(t *testing.T) {
 	want := filepath.Join(t.TempDir(), "custom.sock")
 	s := New(h, Options{Mode: ModeFull, SocketPath: want})
 
-	require.NoError(t, s.Stage(context.Background(), testState(testNetwork())))
+	require.NoError(t, s.Stage(t.Context(), testState(testNetwork())))
 	require.Equal(t, want, *s.socketPath.Load())
 }

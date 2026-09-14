@@ -15,7 +15,7 @@ import (
 // serve runs d until the test ends, returning a func that waits for its exit.
 func serve(t *testing.T, d *Daemon) (context.CancelFunc, func()) {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() { defer close(done); _ = d.Serve(ctx) }()
 	t.Cleanup(func() { cancel(); <-done })

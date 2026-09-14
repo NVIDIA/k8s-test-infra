@@ -4,7 +4,6 @@
 package pcibus
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -87,7 +86,7 @@ func TestDiscard_NopWhenNotReady(t *testing.T) {
 	h := testHost(t)
 	sim := New(h)
 
-	require.NoError(t, sim.Discard(context.Background()))
+	require.NoError(t, sim.Discard(t.Context()))
 }
 
 func TestDiscard_EmptiesSysTree(t *testing.T) {
@@ -131,12 +130,12 @@ func TestDiscard_SysGoneIsNotError(t *testing.T) {
 	h := testHost(t)
 	sim := New(h)
 
-	require.NoError(t, sim.Stage(context.Background(), stateWithTopology()))
+	require.NoError(t, sim.Stage(t.Context(), stateWithTopology()))
 
 	// Removing sys/ before Discard: a teardown with nothing left to tear down
 	// must still succeed.
 	require.NoError(t, os.RemoveAll(h.RootPath("sys")))
-	require.NoError(t, sim.Discard(context.Background()))
+	require.NoError(t, sim.Discard(t.Context()))
 }
 
 // ─── Apply / Revoke ──────────────────────────────────────────────────────────

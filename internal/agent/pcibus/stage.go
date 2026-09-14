@@ -81,7 +81,7 @@ func stageSysfs(h *host.Host, state *agent.State) error {
 	if err := pcisysfs.Render(pcisysfs.Options{
 		Topology:   buildTopology(state),
 		Identities: buildIdentities(state),
-		Output:     h.RootPath(),
+		Output:     h.Root,
 	}); err != nil {
 		return err
 	}

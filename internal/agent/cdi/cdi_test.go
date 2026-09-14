@@ -4,7 +4,6 @@
 package cdi
 
 import (
-	"context"
 	"os"
 	"testing"
 
@@ -29,7 +28,7 @@ func TestApplyWritesSpecs(t *testing.T) {
 	h := host.New(t.TempDir())
 	state := testState()
 	s := New(h)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	require.NoError(t, s.Stage(ctx, state))
 	require.False(t, s.Ready(), "Stage does not publish CDI specs")
@@ -44,7 +43,7 @@ func TestNvidiaSpec(t *testing.T) {
 	h := host.New(t.TempDir())
 	state := testState()
 	s := New(h)
-	ctx := context.Background()
+	ctx := t.Context()
 	require.NoError(t, s.Stage(ctx, state))
 	require.NoError(t, s.Apply(ctx, state))
 
@@ -83,7 +82,7 @@ func TestNRISpec(t *testing.T) {
 	h := host.New(t.TempDir())
 	state := testState()
 	s := New(h)
-	ctx := context.Background()
+	ctx := t.Context()
 	require.NoError(t, s.Stage(ctx, state))
 	require.NoError(t, s.Apply(ctx, state))
 
@@ -117,7 +116,7 @@ func TestFabricStateMount(t *testing.T) {
 	state := testState()
 	state.Fabric.ManagerStateDir = "/var/lib/nvml-mock/fabric-state"
 	s := New(h)
-	ctx := context.Background()
+	ctx := t.Context()
 	require.NoError(t, s.Stage(ctx, state))
 	require.NoError(t, s.Apply(ctx, state))
 
@@ -150,7 +149,7 @@ func TestFabricMountAbsentWhenDisabled(t *testing.T) {
 	state := testState()
 	state.Fabric.Enabled = true // NVLink, but ManagerStateDir is empty
 	s := New(h)
-	ctx := context.Background()
+	ctx := t.Context()
 	require.NoError(t, s.Stage(ctx, state))
 	require.NoError(t, s.Apply(ctx, state))
 
@@ -171,7 +170,7 @@ func TestRevoke(t *testing.T) {
 	h := host.New(t.TempDir())
 	state := testState()
 	s := New(h)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	require.NoError(t, s.Stage(ctx, state))
 	require.NoError(t, s.Apply(ctx, state))
@@ -189,14 +188,14 @@ func TestRevoke(t *testing.T) {
 
 func TestRevokeBeforeApplyIsNoop(t *testing.T) {
 	s := New(host.New(t.TempDir()))
-	require.NoError(t, s.Revoke(context.Background()))
+	require.NoError(t, s.Revoke(t.Context()))
 }
 
 func TestApplyIsIdempotent(t *testing.T) {
 	h := host.New(t.TempDir())
 	state := testState()
 	s := New(h)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	require.NoError(t, s.Stage(ctx, state))
 	require.NoError(t, s.Apply(ctx, state))

@@ -82,7 +82,7 @@ var stagedPaths = []string{
 	"config/config.yaml",
 }
 
-// Discard removes only the paths Stage wrote.  writes. Every path is exclusively owned
+// Discard removes only the paths Stage wrote. Every path is exclusively owned
 // by gpudriver, so removing absent or partially staged paths is safe.
 func (s *Simulator) Discard(_ context.Context) error {
 	zap.L().Info("discarding simulator", zap.String("simulator", name))

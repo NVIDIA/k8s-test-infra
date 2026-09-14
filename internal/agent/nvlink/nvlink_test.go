@@ -4,7 +4,6 @@
 package nvlink
 
 import (
-	"context"
 	"os"
 	"testing"
 
@@ -37,7 +36,7 @@ func TestStage_WritesDocumentToTheNRIPath(t *testing.T) {
 	h := host.New(t.TempDir())
 	s := New(h)
 
-	require.NoError(t, s.Stage(context.Background(), stateWith(doc)))
+	require.NoError(t, s.Stage(t.Context(), stateWith(doc)))
 	require.True(t, s.Ready())
 
 	got, err := os.ReadFile(h.RootPath("topology/topology.yaml"))
@@ -51,7 +50,7 @@ func TestStage_StagesEveryNodesEntry(t *testing.T) {
 	t.Parallel()
 	h := host.New(t.TempDir())
 
-	require.NoError(t, New(h).Stage(context.Background(), stateWith(doc)))
+	require.NoError(t, New(h).Stage(t.Context(), stateWith(doc)))
 	got, err := os.ReadFile(h.RootPath("topology/topology.yaml"))
 	require.NoError(t, err)
 	require.Contains(t, string(got), "worker-0")
@@ -64,7 +63,7 @@ func TestStage_NoOpWithoutTopology(t *testing.T) {
 	h := host.New(t.TempDir())
 	s := New(h)
 
-	require.NoError(t, s.Stage(context.Background(), stateWith("")))
+	require.NoError(t, s.Stage(t.Context(), stateWith("")))
 	require.True(t, s.Ready(), "a node without topology is ready, not pending")
 	require.NoFileExists(t, h.RootPath("topology/topology.yaml"))
 }
@@ -74,11 +73,11 @@ func TestStage_IsIdempotent(t *testing.T) {
 	h := host.New(t.TempDir())
 	s := New(h)
 
-	require.NoError(t, s.Stage(context.Background(), stateWith(doc)))
+	require.NoError(t, s.Stage(t.Context(), stateWith(doc)))
 	first, err := os.ReadFile(h.RootPath("topology/topology.yaml"))
 	require.NoError(t, err)
 
-	require.NoError(t, s.Stage(context.Background(), stateWith(doc)))
+	require.NoError(t, s.Stage(t.Context(), stateWith(doc)))
 	second, err := os.ReadFile(h.RootPath("topology/topology.yaml"))
 	require.NoError(t, err)
 	require.Equal(t, first, second)
@@ -89,10 +88,10 @@ func TestStage_PicksUpAnEditedDocument(t *testing.T) {
 	t.Parallel()
 	h := host.New(t.TempDir())
 	s := New(h)
-	require.NoError(t, s.Stage(context.Background(), stateWith(doc)))
+	require.NoError(t, s.Stage(t.Context(), stateWith(doc)))
 
 	updated := doc + "      - id: 2\n        nodes: [worker-2]\n"
-	require.NoError(t, s.Stage(context.Background(), stateWith(updated)))
+	require.NoError(t, s.Stage(t.Context(), stateWith(updated)))
 
 	got, err := os.ReadFile(h.RootPath("topology/topology.yaml"))
 	require.NoError(t, err)
@@ -105,9 +104,9 @@ func TestStage_RetractsAWithdrawnDocument(t *testing.T) {
 	t.Parallel()
 	h := host.New(t.TempDir())
 	s := New(h)
-	require.NoError(t, s.Stage(context.Background(), stateWith(doc)))
+	require.NoError(t, s.Stage(t.Context(), stateWith(doc)))
 
-	require.NoError(t, s.Stage(context.Background(), stateWith("")))
+	require.NoError(t, s.Stage(t.Context(), stateWith("")))
 
 	require.True(t, s.Ready(), "a retracted topology is ready, not pending")
 	require.NoFileExists(t, h.RootPath("topology/topology.yaml"))
@@ -117,15 +116,15 @@ func TestDiscard_RemovesTheDocument(t *testing.T) {
 	t.Parallel()
 	h := host.New(t.TempDir())
 	s := New(h)
-	require.NoError(t, s.Stage(context.Background(), stateWith(doc)))
+	require.NoError(t, s.Stage(t.Context(), stateWith(doc)))
 
-	require.NoError(t, s.Discard(context.Background()))
+	require.NoError(t, s.Discard(t.Context()))
 	require.NoFileExists(t, h.RootPath("topology/topology.yaml"))
 }
 
 func TestDiscard_NoOpBeforeStage(t *testing.T) {
 	t.Parallel()
-	require.NoError(t, New(host.New(t.TempDir())).Discard(context.Background()))
+	require.NoError(t, New(host.New(t.TempDir())).Discard(t.Context()))
 }
 
 // Cleanup ownership is independent of the last Stage result: a reconcile that
@@ -135,10 +134,10 @@ func TestDiscard_RemovesTheDocumentWhenNotReady(t *testing.T) {
 	t.Parallel()
 	h := host.New(t.TempDir())
 	s := New(h)
-	require.NoError(t, s.Stage(context.Background(), stateWith(doc)))
+	require.NoError(t, s.Stage(t.Context(), stateWith(doc)))
 
 	s.ready.Store(false) // what a failed reconcile leaves behind
 
-	require.NoError(t, s.Discard(context.Background()))
+	require.NoError(t, s.Discard(t.Context()))
 	require.NoFileExists(t, h.RootPath("topology/topology.yaml"))
 }
