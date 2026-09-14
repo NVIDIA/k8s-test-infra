@@ -115,21 +115,36 @@ func (s *Server) rebuildGraph() {
 	s.graphMu.Unlock()
 }
 
-// ListenAndServe accepts Unix connections until ctx is canceled.
-func (s *Server) ListenAndServe(ctx context.Context) error {
+// Listen binds the Unix socket and hands the listener back, ready to accept.
+// It is separate from Serve so that a supervisor can publish readiness on the
+// far side of the bind: the only thing a consumer does with "mock-ib is up" is
+// dial this socket, and there is nothing to dial until bind and chmod have both
+// landed. On return, either the socket is connectable or the error explains why
+// it will never be. The caller owns the listener and must close it.
+func (s *Server) Listen() (net.Listener, error) {
 	if err := os.MkdirAll(filepath.Dir(s.cfg.SocketPath), 0o755); err != nil {
-		return fmt.Errorf("mkdir socket dir: %w", err)
+		return nil, fmt.Errorf("mkdir socket dir: %w", err)
 	}
+	// A socket left behind by a previous generation would fail the bind with
+	// EADDRINUSE; nothing else owns this path.
 	_ = os.Remove(s.cfg.SocketPath)
 	ln, err := net.Listen("unix", s.cfg.SocketPath)
 	if err != nil {
-		return fmt.Errorf("listen unix %q: %w", s.cfg.SocketPath, err)
+		return nil, fmt.Errorf("listen unix %q: %w", s.cfg.SocketPath, err)
 	}
-	defer func() { _ = ln.Close() }()
 	if err := os.Chmod(s.cfg.SocketPath, 0o666); err != nil {
-		return fmt.Errorf("chmod socket: %w", err)
+		// Workloads run as arbitrary UIDs, so a socket they cannot open is as
+		// good as absent. Drop the half-built listener rather than leak it.
+		_ = ln.Close()
+		return nil, fmt.Errorf("chmod socket: %w", err)
 	}
+	return ln, nil
+}
 
+// Serve accepts connections on ln until ctx is canceled. It does not close ln:
+// the caller binds it and therefore retires it, which is what lets a supervisor
+// withdraw readiness before the socket goes away.
+func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	if s.cfg.Fabric {
 		if _, err := s.startFabric(ctx); err != nil {
 			return err
@@ -155,6 +170,18 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 
 		go s.serveConn(ctx, conn)
 	}
+}
+
+// ListenAndServe binds the Unix socket and accepts connections on it until ctx
+// is canceled. Callers that gate readiness on the bind use Listen and Serve
+// separately instead.
+func (s *Server) ListenAndServe(ctx context.Context) error {
+	ln, err := s.Listen()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = ln.Close() }()
+	return s.Serve(ctx, ln)
 }
 
 // logStartup announces the listener and its port inventory. Emitted
