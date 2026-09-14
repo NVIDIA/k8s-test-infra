@@ -2,14 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
 driver:
-  enabled: false
+  enabled: true
 
 # The toolkit operand's job is done by the Mokka node daemon, which
 # installs the NVIDIA container runtime and registers the nvidia handler the
 # operator's own pods use. The operand could not run here anyway: it needs the
 # NVIDIA kernel module.
 toolkit:
-  enabled: false
+  enabled: true
 
 # Standalone DCGM (nv-hostengine) is not supported by the mock NVML: it needs the
 # full driver stack. dcgm-exporter embeds its own hostengine and runs without it.
