@@ -1,0 +1,29 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: MIT OR GPL-2.0-only
+
+# Module names use underscores, which is what /sys/module and /proc/modules show
+# for the real modules too. Only the .ko filenames differ from upstream's
+# nvidia-uvm.ko; the embedded module name is what every consumer reads.
+obj-m += nvidia.o
+obj-m += nvidia_uvm.o
+obj-m += nvidia_modeset.o
+obj-m += nvidia_peermem.o
+
+# One main_*.c per module, holding that module's module_init and module_exit.
+# Anything else under src/ is a helper linked into one of them. The prefix also
+# keeps each object's name distinct from its module's, which Kbuild requires of
+# a module built from a single object.
+nvidia-y := src/main_nvidia.o src/nvidia_procfs.o
+
+nvidia_uvm-y     := src/main_uvm.o
+nvidia_modeset-y := src/main_modeset.o
+nvidia_peermem-y := src/main_peermem.o
+
+# The driver version is a build-time constant, as it is upstream: NVIDIA selects
+# a version by choosing an image tag, and the version rides inside the build. It
+# reaches MODULE_VERSION (hence /sys/module/nvidia/version) and the
+# /proc/driver/nvidia/version banner from this one place, so the two cannot
+# drift. Simulating an upgrade means loading a differently-built module, which
+# is what a real driver upgrade is.
+NVRM_VERSION ?= 550.163.01
+ccflags-y += -DMOKKA_NVRM_VERSION=\"$(NVRM_VERSION)\"
