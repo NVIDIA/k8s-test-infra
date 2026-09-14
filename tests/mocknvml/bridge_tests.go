@@ -46,7 +46,119 @@ func bridgeTests(deviceCount int) []testResult {
 	results = append(results, testFabricHealth(deviceCount)...)
 	results = append(results, testThrottleCounters(deviceCount)...)
 	results = append(results, testConfComputeMemory(deviceCount)...)
+	results = append(results, testPowerLimitSetters(deviceCount)...)
 	return results
+}
+
+// --- Power limit setter tests ---
+
+// testPowerLimitSetters drives the two cap setters through the built library.
+// The read-after-write is the whole point: the getters were implemented long
+// before the setters, so the mock could report a cap it had no way to change,
+// and a capping controller could not tell the difference between "applied" and
+// "ignored". Running it here rather than in the engine unit tests is what
+// covers the C side — the limit crosses the boundary as a bare C.uint in one
+// entry point and inside a padded struct in the other.
+func testPowerLimitSetters(deviceCount int) []testResult {
+	var results []testResult
+
+	for index := 0; index < 2 && index < deviceCount; index++ {
+		name := fmt.Sprintf("powerlimit/gpu%d", index)
+		device, ret := nvml.DeviceGetHandleByIndex(index)
+		if ret != nvml.SUCCESS {
+			results = append(results, testResult{name, false,
+				fmt.Sprintf("GetHandleByIndex(%d) failed: %v", index, nvml.ErrorString(ret))})
+			continue
+		}
+
+		minLimit, maxLimit, ret := device.GetPowerManagementLimitConstraints()
+		if ret != nvml.SUCCESS {
+			results = append(results, testResult{name + "/constraints", false,
+				fmt.Sprintf("GetPowerManagementLimitConstraints failed: %v", nvml.ErrorString(ret))})
+			continue
+		}
+		original, ret := device.GetPowerManagementLimit()
+		if ret != nvml.SUCCESS {
+			results = append(results, testResult{name + "/initial_limit", false,
+				fmt.Sprintf("GetPowerManagementLimit failed: %v", nvml.ErrorString(ret))})
+			continue
+		}
+		want := minLimit + (maxLimit-minLimit)/2
+
+		results = append(results, checkPowerLimitApplied(name+"/set", device,
+			device.SetPowerManagementLimit(want), want))
+
+		// The enforced limit is the row nvidia-smi renders, so it has to
+		// follow the cap and not just the configured profile value.
+		enforced, ret := device.GetEnforcedPowerLimit()
+		switch {
+		case ret != nvml.SUCCESS:
+			results = append(results, testResult{name + "/enforced", false,
+				fmt.Sprintf("GetEnforcedPowerLimit failed: %v", nvml.ErrorString(ret))})
+		case enforced != want:
+			results = append(results, testResult{name + "/enforced", false,
+				fmt.Sprintf("enforced limit %d mW, want %d mW", enforced, want)})
+		default:
+			results = append(results, testResult{name + "/enforced", true, ""})
+		}
+
+		// Out of range must be refused without disturbing the applied cap.
+		if ret := device.SetPowerManagementLimit(maxLimit + 1); ret != nvml.ERROR_INVALID_ARGUMENT {
+			results = append(results, testResult{name + "/above_max", false,
+				fmt.Sprintf("set %d mW returned %v, want INVALID_ARGUMENT", maxLimit+1, nvml.ErrorString(ret))})
+		} else {
+			results = append(results, checkPowerLimitApplied(name+"/above_max", device, nvml.SUCCESS, want))
+		}
+
+		// v2 carries the value behind a one-byte scope field, so a padding
+		// mismatch between nvml_types.h and the caller's header shows up as
+		// the wrong cap (or none) landing here.
+		v2Want := want + 1000
+		gpuScope := nvml.PowerValue_v2{
+			Version:      nvml.STRUCT_VERSION(nvml.PowerValue_v2{}, 2),
+			PowerScope:   nvml.POWER_SCOPE_GPU,
+			PowerValueMw: v2Want,
+		}
+		results = append(results, checkPowerLimitApplied(name+"/set_v2", device,
+			device.SetPowerManagementLimit_v2(&gpuScope), v2Want))
+
+		moduleScope := nvml.PowerValue_v2{
+			Version:      nvml.STRUCT_VERSION(nvml.PowerValue_v2{}, 2),
+			PowerScope:   nvml.POWER_SCOPE_MODULE,
+			PowerValueMw: minLimit,
+		}
+		if ret := device.SetPowerManagementLimit_v2(&moduleScope); ret != nvml.ERROR_NOT_SUPPORTED {
+			results = append(results, testResult{name + "/module_scope", false,
+				fmt.Sprintf("module scope returned %v, want NOT_SUPPORTED", nvml.ErrorString(ret))})
+		} else {
+			results = append(results, checkPowerLimitApplied(name+"/module_scope", device, nvml.SUCCESS, v2Want))
+		}
+
+		if ret := device.SetPowerManagementLimit(original); ret != nvml.SUCCESS {
+			results = append(results, testResult{name + "/restore", false,
+				fmt.Sprintf("restoring %d mW failed: %v", original, nvml.ErrorString(ret))})
+		} else {
+			results = append(results, testResult{name + "/restore", true, ""})
+		}
+	}
+
+	return results
+}
+
+// checkPowerLimitApplied folds the setter's return and the read-back into one
+// result, since a cap is only applied if both agree.
+func checkPowerLimitApplied(name string, device nvml.Device, setRet nvml.Return, want uint32) testResult {
+	if setRet != nvml.SUCCESS {
+		return testResult{name, false, fmt.Sprintf("set failed: %v", nvml.ErrorString(setRet))}
+	}
+	got, ret := device.GetPowerManagementLimit()
+	if ret != nvml.SUCCESS {
+		return testResult{name, false, fmt.Sprintf("GetPowerManagementLimit failed: %v", nvml.ErrorString(ret))}
+	}
+	if got != want {
+		return testResult{name, false, fmt.Sprintf("limit %d mW after set, want %d mW", got, want)}
+	}
+	return testResult{name, true, ""}
 }
 
 // --- Confidential Compute memory tests ---

@@ -13,6 +13,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lists `nvidia` and `nvidia_uvm`, and `/sys/module/nvidia/refcnt` exists. The
   node's own modules stay visible beside them. See `docs/helm-chart.md` for how
   the surface reaches a container and what the mirror does not cover.
+- nvml-mock: the power management limit can now be set, not just read.
+  `nvidia-smi -pl` and any consumer calling
+  `nvmlDeviceSetPowerManagementLimit` (or its `_v2` form) previously got
+  NOT_SUPPORTED while the getters happily reported a cap, so a capping
+  controller's read-after-write saw its request silently ignored. A cap moves
+  the power management limit and the enforced limit — including DCGM's
+  `NVML_FI_DEV_POWER_CURRENT_LIMIT` — but not `default_limit_mw`, and is
+  refused outside the `min_limit_mw` / `max_limit_mw` constraints the device
+  advertises. Like persistence mode, it lives in memory: it outranks the
+  profile's `enforced_limit_mw` until the mock restarts, the way a real driver
+  holds a cap until it unloads. Only the GPU-wide budget is modelled, so the
+  `_v2` module, memory and base-GPU scopes decline rather than fold into the
+  GPU limit.
 
 ### Changed
 

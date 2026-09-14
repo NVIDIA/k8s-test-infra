@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 260 stub functions for unimplemented NVML functions.
+// 258 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceDestroy
@@ -752,16 +752,6 @@ func nvmlDeviceSetNvLinkUtilizationControl(device C.nvmlDevice_t, link C.uint, c
 //export nvmlDeviceSetNvlinkBwMode
 func nvmlDeviceSetNvlinkBwMode(device C.nvmlDevice_t, setBwMode *C.nvmlNvlinkSetBwMode_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceSetNvlinkBwMode")
-}
-
-//export nvmlDeviceSetPowerManagementLimit
-func nvmlDeviceSetPowerManagementLimit(device C.nvmlDevice_t, limit C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceSetPowerManagementLimit")
-}
-
-//export nvmlDeviceSetPowerManagementLimit_v2
-func nvmlDeviceSetPowerManagementLimit_v2(device C.nvmlDevice_t, powerValue *C.nvmlPowerValue_v2_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceSetPowerManagementLimit_v2")
 }
 
 //export nvmlDeviceSetPowerMizerMode_v1

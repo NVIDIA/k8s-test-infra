@@ -66,6 +66,13 @@ type ConfigurableDevice struct {
 	// Mutable in-memory state (not persisted across restarts)
 	persistenceModeOverride *nvml.EnableState
 
+	// powerLimitOverrideMW holds the cap set through
+	// nvmlDeviceSetPowerManagementLimit, in milliwatts. Zero means unset —
+	// the setter refuses a zero cap, so no valid cap is indistinguishable
+	// from unset. Atomic because every power getter reads it while a
+	// capping controller writes it.
+	powerLimitOverrideMW atomic.Uint32
+
 	// dynamicMetrics holds the current simulator (nil == static mode). It is
 	// swapped atomically on refresh so a runtime config override that edits
 	// dynamic_metrics (e.g. pinning temperature) takes effect on the next
@@ -828,6 +835,9 @@ func (d *ConfigurableDevice) GetPowerManagementLimit() (uint32, nvml.Return) {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
 	limit := c.Power.EnforcedLimitMW
+	if capped := d.powerLimitOverride(); capped > 0 {
+		limit = capped
+	}
 	debugLog("[NVML] nvmlDeviceGetPowerManagementLimit -> %d mW\n", limit)
 	return limit, nvml.SUCCESS
 }
@@ -850,6 +860,9 @@ func (d *ConfigurableDevice) GetEnforcedPowerLimit() (uint32, nvml.Return) {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
 	limit := c.Power.EnforcedLimitMW
+	if capped := d.powerLimitOverride(); capped > 0 {
+		limit = capped
+	}
 	debugLog("[NVML] nvmlDeviceGetEnforcedPowerLimit -> %d mW\n", limit)
 	return limit, nvml.SUCCESS
 }

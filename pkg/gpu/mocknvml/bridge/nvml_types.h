@@ -667,6 +667,19 @@ struct nvmlMarginTemperature_st
 };
 
 /*
+ * powerScope is unsigned char upstream, so the trailing powerValueMw sits at
+ * offset 8 behind three bytes of padding. Spelling the type out (rather than
+ * widening it to unsigned int) is what keeps that offset where a caller built
+ * against the real header expects to write.
+ */
+struct nvmlPowerValue_v2_st
+{
+    unsigned int  version;       //!< IN: NVML_STRUCT_VERSION(PowerValue, 2)
+    unsigned char powerScope;    //!< IN: NVML_POWER_SCOPE_* target
+    unsigned int  powerValueMw;  //!< IN: power limit to set, milliwatts
+};
+
+/*
  * NVML additions (go-nvml v0.13.2-0, #410). Remapped rows v2 is written by the
  * bridge, so keep this layout in sync with go-nvml's nvml.h.
  */

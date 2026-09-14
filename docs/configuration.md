@@ -733,6 +733,13 @@ and failure injection. Each holds its configured value until the profile changes
 or `nvml-mock-ctl` writes a runtime override, which takes effect within one
 override TTL — see [nvml-mock-ctl](nvml-mock-ctl.md).
 
+Two of these also accept writes from the consumer, which a real driver keeps in
+memory until it unloads and which therefore outrank the configured value until
+the mock restarts: persistence mode (`nvidia-smi -pm`) and the power management
+limit (`nvidia-smi -pl`, in milliwatts and inclusive of `min_limit_mw` /
+`max_limit_mw`; a cap outside those bounds is refused). A cap moves both the
+power management limit and the enforced limit, but not `default_limit_mw`.
+
 ### Deliberately fixed
 
 **Profiling metrics (`DCGM_FI_PROF_*`).** DCGM reads these on Hopper+ through the
