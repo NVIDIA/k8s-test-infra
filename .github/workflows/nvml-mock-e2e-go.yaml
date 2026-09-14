@@ -801,11 +801,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Only the MIG-capable boards. The scenario skips a profile that
-        # declares no partitioning, so fanning out over inputs.gpu_profiles
-        # would spend a kind cluster per leg to skip every spec and still
-        # report green.
-        gpu-profile: [a100, h100]
+        # One board per architecture, and only boards that declare a layout:
+        # the scenario supplies no gpuInstances of its own, so the chart
+        # refuses a capable board without one, and boards that cannot
+        # partition skip every spec. a100 is left out because it would re-run
+        # Hopper's assertions against different slice names for the cost of
+        # another kind cluster. gb200 and gb300 are left out because go-nvml
+        # carries only the B200 MIG table, so their slice sizes would be a
+        # B200's rather than their own.
+        gpu-profile: [h100, b200]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6

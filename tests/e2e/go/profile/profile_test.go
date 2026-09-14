@@ -460,10 +460,10 @@ func TestMIGPartitionsComeFromTheProfile(t *testing.T) {
 	}{
 		{"a100", 7, "1g.5gb", true},
 		{"h100", 7, "1g.10gb", true},
+		{"b200", 7, "1g.23gb", true},
 		// Capable boards that ship no default layout. They are why capability
 		// cannot be read off the layout: reporting these as non-MIG hardware
 		// is what silently excused them from the MIG suite.
-		{"b200", 0, "", true},
 		{"gb200", 0, "", true},
 		{"gb300", 0, "", true},
 		// Not MIG-capable boards, and the negative control for the accessors:

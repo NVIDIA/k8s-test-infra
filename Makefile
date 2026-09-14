@@ -361,11 +361,14 @@ e2e-nri: ## e2e — NRI ambient-injection scenario
 e2e-nfd: ## e2e — NFD label-provenance scenario (pinned to a100)
 	$(MAKE) e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter=nfd'
 
-# E2E_PROFILES is pinned to the MIG-capable boards. The scenario skips any
-# profile that declares no partitioning, so inheriting the default (gb200) would
-# skip every spec and still report success.
-e2e-mig: ## e2e — MIG scenario with the device plugin in migStrategy=single (a100/h100)
-	$(MAKE) e2e E2E_PROFILES=a100,h100 E2E_GINKGO_FLAGS='--label-filter=mig'
+# E2E_PROFILES is the caller's, as for the sibling scenario targets. Pinning it
+# here would be a command-line assignment to the sub-make, which outranks the
+# environment: every CI matrix leg would run the pinned set rather than its own
+# profile. Pick profiles that declare a partitioning — the scenario skips the
+# boards that cannot partition, and the chart refuses a capable board with no
+# layout from either the profile or gpu.mig.gpuInstances.
+e2e-mig: ## e2e — MIG scenario with the device plugin in migStrategy=single
+	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=mig'
 
 ##@ Documentation
 
