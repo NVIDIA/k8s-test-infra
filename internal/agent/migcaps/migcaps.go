@@ -90,18 +90,18 @@ func (s *Simulator) Discard(_ context.Context) error {
 }
 
 func removeSurface(h *host.Host) error {
-	gpuDirs, err := filepath.Glob(filepath.Join(h.Root, capabilitiesDir, "gpu*"))
+	gpuDirs, err := filepath.Glob(h.RootPath(capabilitiesDir, "gpu*"))
 	if err != nil {
 		return fmt.Errorf("scan %s: %w", capabilitiesDir, err)
 	}
 
 	paths := make([]string, 0, 3+len(gpuDirs))
 	paths = append(paths,
-		filepath.Join(h.Root, capDevDir),
-		filepath.Join(h.Root, minorsDir),
+		h.RootPath(capDevDir),
+		h.RootPath(minorsDir),
 		// Only this simulator's subtrees: capabilities/ is shared with the
 		// IMEX simulator's fabric-imex-mgmt file.
-		filepath.Join(h.Root, capabilitiesDir, "mig"),
+		h.RootPath(capabilitiesDir, "mig"),
 	)
 	paths = append(paths, gpuDirs...)
 

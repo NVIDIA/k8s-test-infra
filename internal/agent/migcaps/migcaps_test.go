@@ -66,7 +66,7 @@ func TestStageMinors_WritesTableAtTheConsumersPath(t *testing.T) {
 
 	// nvidia-container-toolkit's NewMigCapsFromRoot joins the driver root with
 	// /proc/driver/nvidia-caps/mig-minors, so this path is load-bearing.
-	content, err := os.ReadFile(filepath.Join(h.Root, "driver/proc/driver/nvidia-caps/mig-minors"))
+	content, err := os.ReadFile(h.RootPath("driver/proc/driver/nvidia-caps/mig-minors"))
 	require.NoError(t, err)
 
 	require.Equal(t, `config 1
@@ -91,15 +91,15 @@ func TestStageCapabilityTree_MirrorsTheMinorsTable(t *testing.T) {
 	// Each capability file reports the same minor the table gives it;
 	// a consumer may read either, so a disagreement is a silent mismatch.
 	for _, c := range caps {
-		path := filepath.Join(h.Root, capabilitiesDir, capabilityProcPath(c.Name))
+		path := h.RootPath(capabilitiesDir, capabilityProcPath(c.Name))
 		content, err := os.ReadFile(path) //nolint:gosec // test-controlled path
 		require.NoError(t, err, "capability %q", c.Name)
 		require.Contains(t, string(content), fmt.Sprintf("DeviceFileMinor: %d\n", c.Minor))
 	}
 
 	// Spot-check the two path shapes against MigCap.ProcPath.
-	require.FileExists(t, filepath.Join(h.Root, capabilitiesDir, "mig/config"))
-	require.FileExists(t, filepath.Join(h.Root, capabilitiesDir, "gpu0/mig/gi1/ci1/access"))
+	require.FileExists(t, h.RootPath(capabilitiesDir, "mig/config"))
+	require.FileExists(t, h.RootPath(capabilitiesDir, "gpu0/mig/gi1/ci1/access"))
 }
 
 func TestCapabilityProcPath(t *testing.T) {
@@ -133,7 +133,7 @@ func TestStage_NoopWhenNothingPartitioned(t *testing.T) {
 	require.NoError(t, sim.Stage(context.Background(), &agent.State{}))
 	require.True(t, sim.Ready(), "a node without MIG must still mark the simulator ready")
 
-	_, err := os.Stat(filepath.Join(h.Root, "driver/proc/driver/nvidia-caps/mig-minors"))
+	_, err := os.Stat(h.RootPath("driver/proc/driver/nvidia-caps/mig-minors"))
 	require.ErrorIs(t, err, os.ErrNotExist,
 		"the table's absence is how a consumer detects a non-MIG machine")
 }
@@ -153,9 +153,9 @@ func TestStage_ClearsSurfaceWhenPartitionsGoAway(t *testing.T) {
 
 	require.NoError(t, sim.Stage(ctx, &agent.State{}))
 
-	_, err := os.Stat(filepath.Join(h.Root, "driver/proc/driver/nvidia-caps/mig-minors"))
+	_, err := os.Stat(h.RootPath("driver/proc/driver/nvidia-caps/mig-minors"))
 	require.ErrorIs(t, err, os.ErrNotExist)
-	_, err = os.Stat(filepath.Join(h.Root, capabilitiesDir, "gpu0"))
+	_, err = os.Stat(h.RootPath(capabilitiesDir, "gpu0"))
 	require.ErrorIs(t, err, os.ErrNotExist)
 }
 
@@ -166,7 +166,7 @@ func TestRemoveSurface_KeepsIMEXCapability(t *testing.T) {
 	t.Parallel()
 
 	h := testHost(t)
-	imexCap := filepath.Join(h.Root, capabilitiesDir, "fabric-imex-mgmt")
+	imexCap := h.RootPath(capabilitiesDir, "fabric-imex-mgmt")
 	require.NoError(t, os.MkdirAll(filepath.Dir(imexCap), 0o755))
 	require.NoError(t, os.WriteFile(imexCap, []byte("DeviceFileMinor: 512\n"), 0o644))
 	require.NoError(t, stageCapabilityTree(h, capsFor(partitionedState().MIG)))
@@ -174,8 +174,8 @@ func TestRemoveSurface_KeepsIMEXCapability(t *testing.T) {
 	require.NoError(t, removeSurface(h))
 
 	require.FileExists(t, imexCap, "the IMEX capability is not this simulator's to remove")
-	require.NoDirExists(t, filepath.Join(h.Root, capabilitiesDir, "gpu0"))
-	require.NoDirExists(t, filepath.Join(h.Root, capabilitiesDir, "mig"))
+	require.NoDirExists(t, h.RootPath(capabilitiesDir, "gpu0"))
+	require.NoDirExists(t, h.RootPath(capabilitiesDir, "mig"))
 }
 
 func TestDiscard_NopWhenNotReady(t *testing.T) {
@@ -196,7 +196,7 @@ func TestStage_CreatesCapDevices(t *testing.T) {
 	require.True(t, sim.Ready())
 
 	for _, c := range capsFor(state.MIG) {
-		path := filepath.Join(h.Root, capDevDir, fmt.Sprintf("nvidia-cap%d", c.Minor))
+		path := h.RootPath(capDevDir, fmt.Sprintf("nvidia-cap%d", c.Minor))
 		require.FileExists(t, path, "cap device for %q", c.Name)
 	}
 
@@ -205,5 +205,5 @@ func TestStage_CreatesCapDevices(t *testing.T) {
 	require.NoError(t, sim.Stage(ctx, state), "second Stage must not error")
 
 	require.NoError(t, sim.Discard(ctx))
-	require.NoDirExists(t, filepath.Join(h.Root, capDevDir))
+	require.NoDirExists(t, h.RootPath(capDevDir))
 }

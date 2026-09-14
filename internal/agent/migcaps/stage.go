@@ -33,7 +33,7 @@ func capsFor(state agent.MIGState) []migcaps.Cap {
 // must exist on disk before containerd will admit a container that asks for
 // them, which is what the device plugin's device specs do.
 func stageCapDevs(h *host.Host, major int, caps []migcaps.Cap) error {
-	dir := filepath.Join(h.Root, capDevDir)
+	dir := h.RootPath(capDevDir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -53,7 +53,7 @@ func stageCapDevs(h *host.Host, major int, caps []migcaps.Cap) error {
 
 // stageMinors writes the table mapping capability names to cap device minors.
 func stageMinors(h *host.Host, caps []migcaps.Cap) error {
-	path := filepath.Join(h.Root, minorsDir, "mig-minors")
+	path := h.RootPath(minorsDir, "mig-minors")
 	return fsutil.Write(path, []byte(migcaps.Minors(caps)), 0o644)
 }
 
@@ -62,7 +62,7 @@ func stageMinors(h *host.Host, caps []migcaps.Cap) error {
 // mig-minors, so the two have to agree.
 func stageCapabilityTree(h *host.Host, caps []migcaps.Cap) error {
 	for _, c := range caps {
-		path := filepath.Join(h.Root, capabilitiesDir, capabilityProcPath(c.Name))
+		path := h.RootPath(capabilitiesDir, capabilityProcPath(c.Name))
 		if err := fsutil.Write(path, []byte(capabilityFile(c.Minor)), 0o644); err != nil {
 			return fmt.Errorf("%s: %w", c.Name, err)
 		}
