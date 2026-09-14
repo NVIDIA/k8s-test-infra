@@ -1,4 +1,6 @@
-# DGXC OSS Policy: only the four official entry points are exposed.
+# DGXC OSS Policy: the four contributor-facing entry points are bug report,
+# documentation, feature request and enhancement. Release and Patch release
+# are maintainer process templates, not contribution paths.
 # Questions are routed to GitHub Discussions per policy guidance.
 blank_issues_enabled: false
 contact_links:
