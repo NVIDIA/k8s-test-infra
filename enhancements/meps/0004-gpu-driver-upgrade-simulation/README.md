@@ -614,80 +614,27 @@ sufficient; where a write needs to trigger a visible side effect elsewhere
 better fit than a new filesystem driver, since Mokka is already structured
 as a Go reconciler and not as a FUSE implementation.
 
-**Module-state surface** (`/sys/module/*/refcnt`, `unix.DeleteModule()`,
-`/proc/modules`). Proposed: a minimal stub kernel module per name
-`k8s-driver-manager` checks (`nvidia`, `nvidia_uvm`, `nvidia_modeset`,
-`nvidia_peermem`, `nvidia_fs`, `nvidia_vgpu_vfio`, `gdrdrv`), loaded by the
-node agent, doing nothing but existing. The kernel then produces
-`/sys/module/<name>/refcnt`, the `/proc/modules` entry, and correct
-`delete_module(2)` semantics without Mokka reproducing any of them. This is
-the one row nothing in userspace can substitute for — no shim reaches a real
-syscall — so it sets the privilege floor for the rest of this MEP's scope
-(see Drawbacks). Optionally, tying each module's refcount to open
-`/dev/nvidia*` file descriptors would let an unload-while-in-use failure
-reproduce faithfully too, but that refinement can wait for the follow-on
-MEP.
+| Surface                                                                              | Mechanism                                                                                                                                                                                                                                                                                                             | Why                                                                                                                                                                                                                                                                                                                                |
+|--------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `/sys/module/*/refcnt`, `unix.DeleteModule()`, `/proc/modules`                       | A minimal stub kernel module per name `k8s-driver-manager` checks (`nvidia`, `nvidia_uvm`, `nvidia_modeset`, `nvidia_peermem`, `nvidia_fs`, `nvidia_vgpu_vfio`, `gdrdrv`), loaded by the node agent, doing nothing but existing.                                                                                      | The kernel produces `refcnt`, the `/proc/modules` entry, and correct `delete_module(2)` semantics for free. No shim reaches a real syscall, so this is the one row nothing in userspace can substitute for — it sets the privilege floor for this MEP's scope (see Drawbacks).                                                     |
+| `/run/nvidia/driver` mount, `nvidia-driver.pid`, `nvidia-driver.state`               | Change `gpudriver.Apply` from a symlink to a real bind mount at `/run/nvidia/driver`; stage the PID file and a digest file matching `DRIVER_CONFIG_DIGEST` alongside it.                                                                                                                                              | `RecursiveUnmount` then unmounts something real instead of degrading to a harmless no-op. Both files are plain files with no kernel involvement — an extension of existing `gpudriver` file-staging, not a new mechanism.                                                                                                          |
+| `driver`, `driver_override`, `modalias`, `/sys/bus/pci/drivers/<name>/{bind,unbind}` | Extend `pcisysfs.Render`'s bind-mounted tree with these paths, plus a lightweight watcher in the node agent (`inotify` on the rendered `bind`/`unbind` files) that updates the `driver` symlink and clears `driver_override` on a write.                                                                              | Reproduces the side effect `vfio-manage` depends on without a real `struct pci_dev` or a synthetic PCI host bridge — fabricating a real PCI device is a materially larger kernel project than the stub modules above, and nothing here needs the device to be functionally real, only for its sysfs attributes to react correctly. |
+| `modules.alias`, MOFED readiness                                                     | Static additions to surfaces `pcibus`/`internal/ib` already own: a kernel-version-matched `/lib/modules/<kernel>/modules.alias` fragment, a PCI vendor `0x15b3` identity in `pcisysfs`'s `Identities` map, and a `/run/mellanox/drivers/.driver-ready` marker gated the same way `gpudriver` gates its own readiness. | No new mechanism class.                                                                                                                                                                                                                                                                                                            |
+| `chroot /host nvidia-smi ...` (host-driver detection)                                | Formalize today's accidental behavior as an explicit decision: a Mokka node deliberately has no `/host/usr/bin/nvidia-smi`.                                                                                                                                                                                           | This branch of `uninstall_driver` always reports "no host driver" — the correct default for a simulated cluster unless a test wants to exercise the pre-installed-driver path.                                                                                                                                                     |
+| New driver version + reconcile trigger                                               | Two parts — see below.                                                                                                                                                                                                                                                                                                | One gap, both parts from "Reconciler vs. imperative handoff" above.                                                                                                                                                                                                                                                                |
 
-**Driver rootfs and bookkeeping files** (`/run/nvidia/driver` mount,
-`nvidia-driver.pid`, `nvidia-driver.state`). Proposed: change
-`gpudriver.Apply` from a symlink to a real bind mount at `/run/nvidia/driver`
-(the node agent already runs with host mount access for staging), so
-`RecursiveUnmount` in `uninstall_driver` unmounts something real instead of
-degrading to a no-op that happens to be harmless. Stage the PID file and a
-digest file matching `DRIVER_CONFIG_DIGEST` alongside it — both are plain
-files with no kernel involvement, so this is an extension of `gpudriver`'s
-existing file-staging logic, not a new mechanism.
+**New driver version + reconcile trigger, in full.** 
 
-**PCI driver-binding surface** (`driver`, `driver_override`, `modalias`,
-`/sys/bus/pci/drivers/<name>/{bind,unbind}`). Proposed: extend
-`pcisysfs.Render`'s bind-mounted tree with these paths, and add a lightweight
-watcher in the node agent (`inotify` on the rendered `bind`/`unbind` files)
-that reacts to a write by updating the device's `driver` symlink and clearing
-`driver_override` — reproducing the side effect `vfio-manage` depends on
-without needing a real `struct pci_dev` or a synthetic PCI host bridge.
-Fabricating a real PCI device would be a materially larger kernel project
-than the stub modules above, and nothing here needs the device to be
-functionally real — only for its sysfs attributes to react correctly to
-reads and writes.
-
-**`modules.alias` and MOFED readiness.** Proposed: static additions to
-surfaces `pcibus`/`internal/ib` already own — a kernel-version-matched
-`/lib/modules/<kernel>/modules.alias` fragment covering the VFIO variants in
-scope, a PCI vendor `0x15b3` identity in `pcisysfs`'s existing `Identities`
-map, and a `/run/mellanox/drivers/.driver-ready` marker file gated the same
-way `gpudriver` gates its own readiness. No new mechanism class.
-
-**Host-driver detection** (`chroot /host nvidia-smi ...`). Proposed:
-formalize today's accidental behavior as an explicit decision rather than
-leave it a gap — document that a Mokka node deliberately has no
-`/host/usr/bin/nvidia-smi`, so this branch of `uninstall_driver` always
-reports "no host driver," which is the correct default for a simulated
-cluster unless a specific test wants to exercise the pre-installed-driver
-path.
-
-**The new driver version and the reconciler/imperative handoff.** These are
-one gap with two parts, both from the "Reconciler vs. imperative handoff"
-finding above. First, a value source: a Control Plane watcher (MEP-0001) reads `ClusterPolicy.spec.driver.version` — the same field GPU
-Operator itself treats as ground truth — and feeds it into `State`, rather
-than Mokka inferring the target version from anywhere else. Second, a
-trigger: the node agent needs to learn when `k8s-driver-manager`'s teardown
-has finished, so it can re-stage `gpudriver`/`pcibus` with that new value at
-the right point in the sequence rather than immediately on `ClusterPolicy`
-change. Two candidate triggers, not yet chosen between:
-
-- *(A) Poke the agent.* Whatever plays `k8s-driver-manager`'s role bumps the
-  `State` generation once `uninstall_driver` exits 0, forcing a reconcile.
-  Small, but invents a signal the real lifecycle has no equivalent of.
-- *(B) Mirror the real initContainer handoff.* Give Mokka's own driver pod
-  the same two-stage shape production uses: `k8s-driver-manager` as an
-  `initContainer`, and a main driver container — analogous to
-  `gpu-driver-container` — whose entrypoint runs `Stage`/`Apply` once it
-  starts, which Kubernetes itself only does after the initContainer exits 0.
-  A DaemonSet rollout then re-triggers install the same way it does for real
-  — no invented signal, just native `initContainer` ordering — at the cost of
-  moving `gpudriver`/`pcibus` from an always-on node-agent responsibility to
-  one tied to a pod GPU Operator is expected to kill and recreate per
-  upgrade, a real change to how those simulators are deployed.
+- First, a value source: a
+Control Plane watcher (MEP-0001) reads `ClusterPolicy.spec.driver.version` —
+the same field GPU Operator itself treats as ground truth — and feeds it
+into `State`, rather than Mokka inferring the target version from anywhere
+else. 
+- Second, a trigger: the node agent needs to learn when
+`k8s-driver-manager`'s teardown has finished, so it can re-stage
+`gpudriver`/`pcibus` with that new value at the right point in the sequence
+rather than immediately on `ClusterPolicy` change. 
+Potentially, the best tradeoff here is to replace the original driver container with a custom one that would signal Mokka to restage simulation.
 
 ## Drawbacks
 
