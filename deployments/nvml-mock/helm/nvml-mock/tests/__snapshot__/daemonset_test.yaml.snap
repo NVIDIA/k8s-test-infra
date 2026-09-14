@@ -8,8 +8,8 @@ should match snapshot with all overrides:
         app.kubernetes.io/instance: custom
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: nvml-mock
-        app.kubernetes.io/version: 550.163.01
-        helm.sh/chart: nvml-mock-0.3.0
+        app.kubernetes.io/version: 0.0.0-dev
+        helm.sh/chart: nvml-mock-0.0.0-dev
       name: nvml-mock-custom
     spec:
       selector:
@@ -171,8 +171,8 @@ should match snapshot with b200 profile:
         app.kubernetes.io/instance: RELEASE-NAME
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: nvml-mock
-        app.kubernetes.io/version: 550.163.01
-        helm.sh/chart: nvml-mock-0.3.0
+        app.kubernetes.io/version: 0.0.0-dev
+        helm.sh/chart: nvml-mock-0.0.0-dev
       name: RELEASE-NAME-nvml-mock
     spec:
       selector:
@@ -322,8 +322,8 @@ should match snapshot with default values:
         app.kubernetes.io/instance: RELEASE-NAME
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: nvml-mock
-        app.kubernetes.io/version: 550.163.01
-        helm.sh/chart: nvml-mock-0.3.0
+        app.kubernetes.io/version: 0.0.0-dev
+        helm.sh/chart: nvml-mock-0.0.0-dev
       name: RELEASE-NAME-nvml-mock
     spec:
       selector:
