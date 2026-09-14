@@ -3,6 +3,11 @@
 suite: NRI DaemonSet
 templates:
   - templates/nri-daemonset.yaml
+# Render against a fixed chart version so releasing a new chart never
+# rewrites expectations or snapshots here.
+chart:
+  version: 0.0.0-dev
+  appVersion: 0.0.0-dev
 tests:
   - it: should not render by default (opt-in feature)
     asserts:
