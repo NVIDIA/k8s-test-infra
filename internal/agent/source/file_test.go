@@ -585,48 +585,63 @@ func TestCompileState_MIGDisabledInEveryShippedProfile(t *testing.T) {
 	}
 }
 
-// TestCompileState_DeclaredMIGPartitionsAllResolve guards the profiles against
-// a typo in a partition name. An unresolvable name is only warned about and
-// skipped, so without this the profile would quietly produce fewer partitions
-// than it declares — visible only as a smaller allocatable count in a cluster.
-func TestCompileState_DeclaredMIGPartitionsAllResolve(t *testing.T) {
+// chartMIGLayouts is the partitioning gpu.mig.gpuInstances documents for each
+// MIG-capable board: the board filled with its smallest slice. No profile
+// declares a layout of its own, so these are what an install actually asks
+// for, and what the test below drives.
+var chartMIGLayouts = map[string]engine.MIGGPUInstanceConfig{
+	"a100":  {Profile: "1g.5gb", Count: 7},
+	"h100":  {Profile: "1g.10gb", Count: 7},
+	"b200":  {Profile: "1g.24gb", Count: 7},
+	"gb200": {Profile: "1g.24gb", Count: 7},
+	"gb300": {Profile: "1g.36gb", Count: 7},
+}
+
+// TestCompileState_ChartMIGLayoutsAllResolve guards the documented layouts
+// against a partition name the board's MIG table does not know. An
+// unresolvable name is only warned about and skipped, so without this an
+// install would quietly get fewer partitions than it asked for — visible only
+// as a smaller allocatable count in a cluster.
+func TestCompileState_ChartMIGLayoutsAllResolve(t *testing.T) {
 	profiles, err := filepath.Glob(helmProfileGlob)
 	require.NoError(t, err)
 	require.NotEmpty(t, profiles)
 
-	sawPartitionedProfile := false
+	covered := 0
 	for _, path := range profiles {
-		data, err := os.ReadFile(path)
-		require.NoError(t, err)
-
-		var cfg engine.YAMLConfig
-		require.NoError(t, yaml.Unmarshal(data, &cfg))
-		if cfg.DeviceDefaults.MIG == nil || len(cfg.DeviceDefaults.MIG.GPUInstances) == 0 {
+		name := strings.TrimSuffix(filepath.Base(path), ".yaml")
+		want, capable := chartMIGLayouts[name]
+		if !capable {
 			continue
 		}
-		sawPartitionedProfile = true
+		covered++
 
-		t.Run(filepath.Base(path), func(t *testing.T) {
-			declared := 0
-			for _, gi := range cfg.DeviceDefaults.MIG.GPUInstances {
-				declared += max(gi.Count, 1)
-			}
+		t.Run(name, func(t *testing.T) {
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
 
-			// Enable MIG the way gpu.mig.enabled does, since the layout is
-			// inert while the profile leaves the mode off.
+			var cfg engine.YAMLConfig
+			require.NoError(t, yaml.Unmarshal(data, &cfg))
+			require.NotNil(t, cfg.DeviceDefaults.MIG, "%s should be a MIG-capable board", name)
+
+			// What the chart renders for gpu.mig.enabled=true with
+			// gpu.mig.gpuInstances: the mode on, the layout supplied.
 			cfg.DeviceDefaults.MIG.ModeCurrent = "enabled"
+			cfg.DeviceDefaults.MIG.GPUInstances = []engine.MIGGPUInstanceConfig{want}
+
 			layout := engine.DeclaredMIGLayout(&engine.Config{NumDevices: 1, YAMLConfig: &cfg})
 
 			require.Len(t, layout, 1)
-			require.Len(t, layout[0].GPUInstances, declared,
-				"every declared partition must resolve and fit")
+			require.Len(t, layout[0].GPUInstances, want.Count,
+				"every partition asked for must resolve and fit")
 			for _, gi := range layout[0].GPUInstances {
 				require.NotEmpty(t, gi.Profile)
 				require.NotEmpty(t, gi.ComputeInstances)
 			}
 		})
 	}
-	require.True(t, sawPartitionedProfile, "no profile declares MIG partitions; has the block moved?")
+	require.Equal(t, len(chartMIGLayouts), covered,
+		"a board in chartMIGLayouts has no chart profile of that name")
 }
 
 // A profile is free to number the device nodes independently of the NVML

@@ -46,6 +46,33 @@ const (
 	migStagedCapDevDir = "/host/var/lib/nvml-mock/driver/dev/nvidia-caps"
 )
 
+// migLayout is a partitioning this suite installs. No chart profile declares
+// one, so the suite states its own and asserts against the same values it
+// passed to helm, which is what keeps the install and the expectations from
+// drifting apart.
+type migLayout struct {
+	Profile string // MIG profile name, e.g. "1g.10gb"
+	Count   int    // instances per GPU
+}
+
+// migLayouts fills each board with its smallest slice — the only shape
+// migStrategy=single can publish under a single resource name. Every
+// MIG-capable profile needs an entry, and a capable board missing one fails
+// the suite instead of skipping: a silent skip is how these boards went
+// untested before.
+// A slice is named for the share of its own board it holds, so the names below
+// follow each profile's declared memory rather than NVIDIA's published listing
+// for that board: the b200 profile describes a 192GiB board and so offers
+// 1g.24gb where NVIDIA publishes 1g.23gb for a 180GB one. Read a board's names
+// off `nvidia-smi mig -lgip` rather than the MIG guide.
+var migLayouts = map[string]migLayout{
+	"a100":  {Profile: "1g.5gb", Count: 7},
+	"h100":  {Profile: "1g.10gb", Count: 7},
+	"b200":  {Profile: "1g.24gb", Count: 7},
+	"gb200": {Profile: "1g.24gb", Count: 7},
+	"gb300": {Profile: "1g.36gb", Count: 7},
+}
+
 // MIG scenario (#241). The acceptance criterion this exists for is the last one
 // on that issue: the upstream device plugin, running migStrategy=single against
 // the mock, publishes one schedulable resource per MIG partition.
@@ -70,6 +97,7 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 		Context("profile "+name, Label(name), Ordered, func() {
 			var (
 				p          profile.Profile
+				layout     migLayout
 				node       string
 				partitions int
 			)
@@ -79,18 +107,14 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 				if !p.MIGCapable() {
 					Skip("profile " + name + " is not a MIG-capable board")
 				}
-				// installMIGChart supplies no gpuInstances, so a capable board
-				// that declares no layout would have the chart refuse the
-				// install rather than boot unpartitioned.
-				if !p.MIGDeclaresLayout() {
-					Skip("profile " + name + " is MIG-capable but declares no default layout, " +
-						"and this spec installs without gpu.mig.gpuInstances")
-				}
-				Expect(p.MIGDeviceProfile()).NotTo(BeEmpty(),
-					"profile %s declares a mixed MIG layout, which migStrategy=single rejects", name)
-				partitions = p.MIGPartitionsPerGPU()
+				var declared bool
+				layout, declared = migLayouts[name]
+				Expect(declared).To(BeTrue(),
+					"profile %s is a MIG-capable board with no entry in migLayouts; "+
+						"add one rather than leaving the board untested", name)
+				partitions = layout.Count
 
-				installMIGChart(ctx, h, p)
+				installMIGChart(ctx, h, p, layout)
 				assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace,
 					"nvml-mock", config.ReadyTimeout(), config.PollInterval())
 				node = migTargetNode(ctx, h)
@@ -139,7 +163,7 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 				Expect(devices).To(HaveLen(total),
 					"nvidia-smi -L should list the %d partitions nvidia-smi -q -x counts; the two NVML paths disagree",
 					total)
-				Expect(nvidiasmi.MigProfiles(devices)).To(Equal([]string{p.MIGDeviceProfile()}),
+				Expect(nvidiasmi.MigProfiles(devices)).To(Equal([]string{layout.Profile}),
 					"migStrategy=single requires every partition to carry one profile")
 
 				uuids := map[string]bool{}
@@ -206,9 +230,9 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 					ids := map[int]bool{}
 					placements := map[string]bool{}
 					for _, i := range onGPU {
-						Expect(i.Profile).To(Equal(p.MIGDeviceProfile()),
+						Expect(i.Profile).To(Equal(layout.Profile),
 							"GPU instance %d on GPU %d carries profile %q, not the declared %q",
-							i.InstanceID, gpu, i.Profile, p.MIGDeviceProfile())
+							i.InstanceID, gpu, i.Profile, layout.Profile)
 						// The capability table under /dev/nvidia-caps is keyed
 						// by instance ID, so a duplicate would collapse two
 						// partitions onto one cap node.
@@ -246,17 +270,17 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 				Expect(err).NotTo(HaveOccurred(), "parse nvidia-smi mig -lgip:\n%s", listing)
 
 				for gpu := range p.ExpectedGPUs() {
-					capacity, ok := nvidiasmi.MigCapacityFor(profiles, gpu, p.MIGDeviceProfile())
+					capacity, ok := nvidiasmi.MigCapacityFor(profiles, gpu, layout.Profile)
 					Expect(ok).To(BeTrue(),
 						"nvidia-smi mig -lgip offers no %s profile on GPU %d:\n%s",
-						p.MIGDeviceProfile(), gpu, listing)
+						layout.Profile, gpu, listing)
 					// Asserting the taken count rather than a bare zero-free
 					// keeps the claim true of a profile that carves only part
 					// of its board; on the profiles this scenario runs, which
 					// fill it, the two say the same thing.
 					Expect(capacity.Total-capacity.Free).To(Equal(partitions),
 						"GPU %d is carved into %d %s partitions, so -lgip should show that many taken, got %d free of %d",
-						gpu, partitions, p.MIGDeviceProfile(), capacity.Free, capacity.Total)
+						gpu, partitions, layout.Profile, capacity.Free, capacity.Total)
 				}
 			})
 
@@ -364,7 +388,7 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 					// And a partition this node actually has. Pinning it to the
 					// nvidia-smi listing is what ties the allocation back to the
 					// engine's own enumeration rather than to a well-formed string.
-					Expect(migProfileOf(onNode, allocated)).To(Equal(p.MIGDeviceProfile()),
+					Expect(migProfileOf(onNode, allocated)).To(Equal(layout.Profile),
 						"allocated %q should be one of the %d partitions nvidia-smi reports on %s",
 						allocated, len(onNode), node)
 
@@ -421,11 +445,11 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 			// leaves the plain plugin manifest in place: ahead of those specs,
 			// each of them would have to deploy the MIG plugin again.
 			It("falls back to whole GPUs when MIG is switched off", Label("mig-device-plugin"), func(ctx SpecContext) {
-				installMIGChart(ctx, h, p, false)
+				installMIGChart(ctx, h, p, layout, false)
 				assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace,
 					"nvml-mock", config.ReadyTimeout(), config.PollInterval())
 				DeferCleanup(func(ctx SpecContext) {
-					installMIGChart(ctx, h, p)
+					installMIGChart(ctx, h, p, layout)
 					assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace,
 						"nvml-mock", config.ReadyTimeout(), config.PollInterval())
 				})
@@ -492,7 +516,7 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 					"profile %s declares %d partition(s) per GPU, which cannot distinguish a repartition from an inert override",
 					p.Name, partitions)
 
-				By("re-lay-out GPU 0 as a single " + p.MIGDeviceProfile() + " partition")
+				By("re-lay-out GPU 0 as a single " + layout.Profile + " partition")
 				// Three separate nvidia-smi processes, which is the point:
 				// each one's engine dies with it, so the second command can
 				// only see what the first recorded. Compute instances go
@@ -502,7 +526,7 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 				// carry a partition no MIG device is derived from.
 				migMutateOnNode(ctx, h, node, "-dci", "-i", "0")
 				migMutateOnNode(ctx, h, node, "-dgi", "-i", "0")
-				migMutateOnNode(ctx, h, node, "-cgi", p.MIGDeviceProfile(), "-C", "-i", "0")
+				migMutateOnNode(ctx, h, node, "-cgi", layout.Profile, "-C", "-i", "0")
 
 				Eventually(func() int {
 					return len(migPartitionsOfGPU(migSnapshotOnNode(ctx, h, node), 0))
@@ -525,17 +549,17 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 				capacityListing := migListingOnNode(ctx, h, node, "-lgip")
 				capacities, err := nvidiasmi.ListMigProfileCapacity(capacityListing)
 				Expect(err).NotTo(HaveOccurred(), "parse nvidia-smi mig -lgip:\n%s", capacityListing)
-				capacity, ok := nvidiasmi.MigCapacityFor(capacities, 0, p.MIGDeviceProfile())
+				capacity, ok := nvidiasmi.MigCapacityFor(capacities, 0, layout.Profile)
 				Expect(ok).To(BeTrue(),
-					"nvidia-smi mig -lgip offers no %s profile on GPU 0:\n%s", p.MIGDeviceProfile(), capacityListing)
+					"nvidia-smi mig -lgip offers no %s profile on GPU 0:\n%s", layout.Profile, capacityListing)
 				Expect(capacity.Total-capacity.Free).To(Equal(1),
 					"GPU 0 now holds one %s partition, so -lgip should show one taken, got %d free of %d",
-					p.MIGDeviceProfile(), capacity.Free, capacity.Total)
+					layout.Profile, capacity.Free, capacity.Total)
 
 				Expect(migPartitionsOfGPU(migSnapshotOnNode(ctx, h, node), 1)).To(HaveLen(partitions),
 					"a repartition of GPU 0 must not disturb its neighbours")
 
-				By("clear the override and let the profile's declared layout come back")
+				By("clear the override and let the installed layout come back")
 				resetRuntimeOverridesOnNode(ctx, h, node)
 
 				Eventually(func() int {
@@ -567,7 +591,7 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 				// delete was targeted rather than wholesale.
 				Expect(partitions).To(BeNumerically(">=", 2),
 					"profile %s fits %d partition(s) of %s per GPU; this spec needs two to tell a targeted delete from a bulk one",
-					p.Name, partitions, p.MIGDeviceProfile())
+					p.Name, partitions, layout.Profile)
 
 				// The profile's id is read off -lgip rather than written in:
 				// the ids are per-board, so no literal is portable across the
@@ -577,9 +601,9 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 				capacityListing := migListingOnNode(ctx, h, node, "-lgip")
 				capacities, err := nvidiasmi.ListMigProfileCapacity(capacityListing)
 				Expect(err).NotTo(HaveOccurred(), "parse nvidia-smi mig -lgip:\n%s", capacityListing)
-				declared, ok := nvidiasmi.MigCapacityFor(capacities, 0, p.MIGDeviceProfile())
+				declared, ok := nvidiasmi.MigCapacityFor(capacities, 0, layout.Profile)
 				Expect(ok).To(BeTrue(),
-					"nvidia-smi mig -lgip offers no %s profile on GPU 0:\n%s", p.MIGDeviceProfile(), capacityListing)
+					"nvidia-smi mig -lgip offers no %s profile on GPU 0:\n%s", layout.Profile, capacityListing)
 
 				By("nvidia-smi mig -dci -i 0 && -dgi -i 0: clear GPU 0 down to bare metal")
 				migMutateOnNode(ctx, h, node, "-dci", "-i", "0")
@@ -594,20 +618,20 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 				Expect(nvidiasmi.MigInstancesOfGPU(migGPUInstancesOnNode(ctx, h, node), 0)).To(BeEmpty(),
 					"GPU 0 should carry no GPU instances once -dgi has run")
 
-				By("nvidia-smi mig -cgi " + strconv.Itoa(declared.ProfileID) + "," + p.MIGDeviceProfile() +
+				By("nvidia-smi mig -cgi " + strconv.Itoa(declared.ProfileID) + "," + layout.Profile +
 					" -C -i 0: create two partitions, naming the profile by id and by name")
 				// One command, both spellings: nvidia-smi resolves each element
 				// of the list separately, so this covers the id form and the
 				// name form against the same profile, and a mock that reported
 				// an id no profile answers to would fail on the first element.
 				migMutateOnNode(ctx, h, node,
-					"-cgi", strconv.Itoa(declared.ProfileID)+","+p.MIGDeviceProfile(), "-C", "-i", "0")
+					"-cgi", strconv.Itoa(declared.ProfileID)+","+layout.Profile, "-C", "-i", "0")
 
 				created := nvidiasmi.MigInstancesOfGPU(migGPUInstancesOnNode(ctx, h, node), 0)
 				Expect(created).To(HaveLen(2),
 					"nvidia-smi mig -lgi should report the two partitions the -cgi list asked for")
 				for _, instance := range created {
-					Expect(instance.Profile).To(Equal(p.MIGDeviceProfile()),
+					Expect(instance.Profile).To(Equal(layout.Profile),
 						"the partition created by id %d should carry the same profile as the one created by name",
 						declared.ProfileID)
 					Expect(instance.ProfileID).To(Equal(declared.ProfileID),
@@ -636,9 +660,9 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 				Expect(migComputeInstanceCountOnNode(ctx, h, node)).To(Equal(baseCIs+1),
 					"the deleted partition's compute instance should have gone with it")
 
-				By("nvidia-smi mig -cgi " + p.MIGDeviceProfile() +
+				By("nvidia-smi mig -cgi " + layout.Profile +
 					" -i 0: a GPU instance with no compute instance, created without -C")
-				migMutateOnNode(ctx, h, node, "-cgi", p.MIGDeviceProfile(), "-i", "0")
+				migMutateOnNode(ctx, h, node, "-cgi", layout.Profile, "-i", "0")
 
 				Expect(nvidiasmi.MigInstancesOfGPU(migGPUInstancesOnNode(ctx, h, node), 0)).To(HaveLen(2),
 					"nvidia-smi mig -lgi should report the partition created without -C")
@@ -679,7 +703,10 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 // installMIGChart installs the release with the profile's declared MIG
 // partitioning switched on. Pass enabled=false for the negative control, which
 // leaves the same profile's layout inert.
-func installMIGChart(ctx context.Context, h *harness.Harness, p profile.Profile, enabled ...bool) {
+// installMIGChart installs the chart with layout as the partitioning. The
+// layout is passed even when MIG is off, since the chart reads it only under
+// gpu.mig.enabled and a uniform call keeps the two paths comparable.
+func installMIGChart(ctx context.Context, h *harness.Harness, p profile.Profile, layout migLayout, enabled ...bool) {
 	GinkgoHelper()
 	on := true
 	if len(enabled) > 0 {
@@ -693,11 +720,13 @@ func installMIGChart(ctx context.Context, h *harness.Harness, p profile.Profile,
 		CreateNamespace: true,
 		HideOutput:      true,
 		Set: map[string]string{
-			"gpu.count":        strconv.Itoa(p.ExpectedGPUs()),
-			"gpu.profile":      p.Name,
-			"image.repository": repo,
-			"image.tag":        tag,
-			"gpu.mig.enabled":  strconv.FormatBool(on),
+			"gpu.count":                       strconv.Itoa(p.ExpectedGPUs()),
+			"gpu.profile":                     p.Name,
+			"image.repository":                repo,
+			"image.tag":                       tag,
+			"gpu.mig.enabled":                 strconv.FormatBool(on),
+			"gpu.mig.gpuInstances[0].profile": layout.Profile,
+			"gpu.mig.gpuInstances[0].count":   strconv.Itoa(layout.Count),
 		},
 		Wait:    true,
 		Timeout: config.HelmTimeout(),

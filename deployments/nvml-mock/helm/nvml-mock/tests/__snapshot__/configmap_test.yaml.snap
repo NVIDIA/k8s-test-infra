@@ -294,17 +294,15 @@ should match snapshot with a100 profile:
           # ---------------------------------------------------------------------------
           # MIG configuration
           # ---------------------------------------------------------------------------
-          # The layout below is what nvidia-mig-parted's all-1g.5gb config produces,
-          # declared but inert: it only takes effect while mode_current is "enabled".
           # MIG ships off because a partitioned board stops publishing nvidia.com/gpu
-          # under migStrategy=single. Turn it on with --set gpu.mig.enabled=true.
+          # under migStrategy=single. How a board is carved is a deployment choice
+          # rather than a property of the silicon, so no layout is declared here:
+          # --set gpu.mig.enabled=true needs gpu.mig.gpuInstances to supply one. Seven
+          # 1g.5gb instances is what nvidia-mig-parted's all-1g.5gb config produces.
           mig:
             mode_current: "disabled"
             mode_pending: "disabled"
             max_gpu_instances: 7            # A100 supports up to 7 MIG instances
-            gpu_instances:
-              - profile: "1g.5gb"
-                count: 7
 
           # ---------------------------------------------------------------------------
           # GPU operation mode (GOM)
@@ -788,18 +786,18 @@ should match snapshot with b200 profile:
           # ---------------------------------------------------------------------------
           # MIG configuration
           # ---------------------------------------------------------------------------
+          # MIG ships off because a partitioned board stops publishing nvidia.com/gpu
+          # under migStrategy=single. How a board is carved is a deployment choice
+          # rather than a property of the silicon, so no layout is declared here:
+          # --set gpu.mig.enabled=true needs gpu.mig.gpuInstances to supply one.
+          # This board declares 192GiB, so its smallest slice is 1g.24gb and seven of
+          # them fills it. NVIDIA publishes 1g.23gb for a 180GB B200; a slice is named
+          # for the share of its own board it holds, so take the names from
+          # `nvidia-smi mig -lgip`.
           mig:
             mode_current: "disabled"
             mode_pending: "disabled"
             max_gpu_instances: 7
-            # The layout gpu.mig.enabled applies. 1g.23gb is the smallest profile
-            # NVIDIA publishes for the B200, and the seven of them are the partitioning
-            # migStrategy=single can publish as a single resource name. The GB trays
-            # declare none: go-nvml carries only this B200 table, so its slice sizes
-            # are exact here and wrong for the boards built on larger dies.
-            gpu_instances:
-              - profile: "1g.23gb"
-                count: 7
 
           # ---------------------------------------------------------------------------
           # GPU operation mode (GOM)
@@ -2396,17 +2394,15 @@ should match snapshot with h100 profile:
           # ---------------------------------------------------------------------------
           # MIG configuration
           # ---------------------------------------------------------------------------
-          # The layout below is what nvidia-mig-parted's all-1g.10gb config produces,
-          # declared but inert: it only takes effect while mode_current is "enabled".
           # MIG ships off because a partitioned board stops publishing nvidia.com/gpu
-          # under migStrategy=single. Turn it on with --set gpu.mig.enabled=true.
+          # under migStrategy=single. How a board is carved is a deployment choice
+          # rather than a property of the silicon, so no layout is declared here:
+          # --set gpu.mig.enabled=true needs gpu.mig.gpuInstances to supply one. Seven
+          # 1g.10gb instances is what nvidia-mig-parted's all-1g.10gb config produces.
           mig:
             mode_current: "disabled"
             mode_pending: "disabled"
             max_gpu_instances: 7
-            gpu_instances:
-              - profile: "1g.10gb"
-                count: 7
 
           # ---------------------------------------------------------------------------
           # GPU operation mode (GOM)

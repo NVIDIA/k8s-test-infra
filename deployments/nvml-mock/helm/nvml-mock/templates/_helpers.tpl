@@ -171,16 +171,16 @@ preserves comments and key order from the profile file.
 {{- end -}}
 {{- if $migEnabled -}}
 {{- /*
-Turn on the partitioning the profile declares, or the one gpuInstances
-describes in its place. The override is applied before the layout is checked:
-gb300, gb200 and b200 are MIG-capable but ship no default layout, so checking
-first would refuse the very case gpuInstances documents itself for.
+The partitioning comes from gpuInstances alone. A profile describes the board,
+not how an install chose to carve it, so none of them declare a layout, and the
+value is folded in before the check because it is the only thing that check can
+be satisfied by.
 
 Two refusals, because they are different mistakes. A board whose profile
 declares no max_gpu_instances cannot partition at all, and no layout supplied
-here changes that. A capable board with no layout from either source would boot
-MIG-enabled and unpartitioned, which publishes no GPU resource whatsoever
-under migStrategy=single.
+here changes that. A capable board with no layout would boot MIG-enabled and
+unpartitioned, which publishes no GPU resource whatsoever under
+migStrategy=single.
 */ -}}
 {{- $mig := get $defaults "mig" | default (dict) -}}
 {{- if .Values.gpu.mig.gpuInstances -}}
@@ -190,7 +190,7 @@ under migStrategy=single.
 {{- fail (printf "gpu.mig.enabled is set but profile %q is not a MIG-capable board: it declares no mig.max_gpu_instances" .Values.gpu.profile) -}}
 {{- end -}}
 {{- if not (get $mig "gpu_instances") -}}
-{{- fail (printf "gpu.mig.enabled is set but neither profile %q nor gpu.mig.gpuInstances declares any partitions, so the node would come up MIG-enabled with nothing partitioned" .Values.gpu.profile) -}}
+{{- fail "gpu.mig.enabled is set but gpu.mig.gpuInstances declares no partitions, so the node would come up MIG-enabled with nothing partitioned. Name the layout, e.g. --set gpu.mig.gpuInstances[0].profile=1g.10gb --set gpu.mig.gpuInstances[0].count=7" -}}
 {{- end -}}
 {{- $_ := set $mig "mode_current" "enabled" -}}
 {{- $_ := set $mig "mode_pending" "enabled" -}}
