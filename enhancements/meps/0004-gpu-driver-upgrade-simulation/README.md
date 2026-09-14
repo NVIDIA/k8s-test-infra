@@ -125,16 +125,14 @@ running plays out like this, once per node:
    driver image.
 3. Kubernetes runs the new pod's `initContainers` to completion before
    starting any regular container. The first is `k8s-driver-manager
-   uninstall_driver` — not a `preStop` hook on the pod that is going away,
-   but an init step on the pod that is coming up. It exists because kernel
-   modules and the `/run/nvidia/driver` mount are host state that outlives
-   the old pod's container, so something has to clean up what the *previous*
-   version left behind before the new version installs. It quiesces the
-   node: pauses every other GPU Operator component via labels, evicts
-   GPU-using pods, unloads the currently loaded (old) driver kernel modules,
-   unbinds `vfio-pci` where applicable, unmounts the old driver rootfs,
-   uncordons the node, and un-pauses the component labels again. (The full
-   step list is in
+   uninstall_driver`, an init step on the *new* pod. It cleans up whatever
+   the previous version left on the host — kernel modules and the
+   `/run/nvidia/driver` mount are host state that outlives the old pod's
+   container, so nothing else removes them. It quiesces the node: pauses
+   every other GPU Operator component via labels, evicts GPU-using pods,
+   unloads the currently loaded (old) driver kernel modules, unbinds
+   `vfio-pci` where applicable, unmounts the old driver rootfs, uncordons the
+   node, and un-pauses the component labels again. (Full step list in
    [Notes/Constraints/Caveats](#notesconstraintscaveats) below.)
 4. Only once that `initContainer` exits 0 does the pod's main driver
    container start — part of the `gpu-driver-container` image, a separate
@@ -301,32 +299,27 @@ GPU-backed runners.
    (PCI vendor `0x15b3`) is present.
 9. Uncordons the node and flips the component labels back to unpaused.
 
-It never installs a new driver. `uninstall_driver` runs as `k8s-driver-manager`'s
-own container, but that container is an **`initContainer`** of the driver
-DaemonSet pod (`manifests/state-driver/0500_daemonset.yaml`), not a `preStop`
-hook — it is not on the *old* pod at all. When a pod is replaced, Kubernetes
-runs its `initContainers` to completion before starting any regular
-container, so `k8s-driver-manager` is the *new* pod's init step: it exists to
-clean up whatever the *previous* pod's driver left sitting on the host —
-kernel modules and the `/run/nvidia/driver` mount are host state, not pod
-state, so killing the old pod's container does not touch either. Only once
-`k8s-driver-manager` exits 0 does the pod's main driver container — the
-`nvidia-driver` entrypoint script in `github.com/NVIDIA/gpu-driver-container`
-(e.g. `ubuntu22.04/nvidia-driver`), a separate repository — start and install
-the new driver. Its `init()` function (line 790) does the mirror image of
-`uninstall_driver`: `_load_driver` loads the new kernel modules,
-`_mount_rootfs` (line 540) recursively bind-mounts the container's own root
-onto `${RUN_DIR}/driver` (`mount --rbind / ${RUN_DIR}/driver`, `RUN_DIR=/run/nvidia`
-— the exact mount `RecursiveUnmount` tears down on the *next* upgrade), and
-`_store_driver_digest` (line 746) writes `${current_digest}` to
-`/run/nvidia/nvidia-driver.state`; `echo $$ >&3` against `PID_FILE=/run/nvidia/nvidia-driver.pid`
-(line 7) is what actually populates the PID file. This script carries its
-own fast path mirroring `shouldSkipUninstall()`: `_should_skip_kernel_module_reload()`
-(line 738) compares `$DRIVER_CONFIG_DIGEST` against that same
-`nvidia-driver.state` file and, on a match, skips `_load_driver`/`_unload_driver`
-entirely — so the digest is checked independently on both sides of the
-handoff, not just on `k8s-driver-manager`'s. Step 9's label flip only
-re-permits scheduling; actual readiness is gated separately by the
+`k8s-driver-manager` never installs a driver. It runs as an
+**`initContainer`** of the driver DaemonSet pod
+(`manifests/state-driver/0500_daemonset.yaml`), on the *new* pod, cleaning up
+whatever the previous version left on the host — kernel modules and the
+`/run/nvidia/driver` mount are host state, so killing the old pod's container
+doesn't touch either.
+
+Once it exits 0, the pod's main driver container runs the `nvidia-driver`
+entrypoint script from `github.com/NVIDIA/gpu-driver-container`
+(e.g. `ubuntu22.04/nvidia-driver`) and installs the new driver. Its `init()`
+(line 790) mirrors `uninstall_driver`: `_load_driver` loads the new kernel
+modules; `_mount_rootfs` (line 540) recursively bind-mounts the container's
+own root onto `${RUN_DIR}/driver` (`mount --rbind / ${RUN_DIR}/driver`,
+`RUN_DIR=/run/nvidia` — the mount `RecursiveUnmount` tears down on the next
+upgrade); `_store_driver_digest` (line 746) writes `${current_digest}` to
+`/run/nvidia/nvidia-driver.state`; and `echo $$ >&3` against
+`PID_FILE=/run/nvidia/nvidia-driver.pid` (line 7) writes the PID file. Its
+own `_should_skip_kernel_module_reload()` (line 738) checks
+`$DRIVER_CONFIG_DIGEST` against that same `nvidia-driver.state` file, so the
+digest is verified independently on both sides of the handoff. Step 9's label
+flip only re-permits scheduling; actual readiness is gated separately by the
 operator-validator.
 
 The `initContainers`/`containers` split, trimmed from an actual rendered
@@ -402,8 +395,8 @@ value GPU Operator computes once per pod, read by both the teardown and the
 install side. And `nodeSelector: nvidia.com/gpu.deploy.driver: "true"` is the
 same label `disableContainerizedDriver()` (step 1 above) rewrites to
 `"pre-installed"` to keep this entire pod off a node — the mechanism behind
-the Analysis section's "driver containers disabled when Mokka is deployed"
-point below.
+[Analysis](#analysis)'s "driver containers disabled when Mokka is deployed"
+point.
 
 `vfio-manage` (`cmd/vfio-manage`) is the PCI-binding half, used on
 vGPU/passthrough nodes to hand a GPU to Virtual Function I/O (VFIO), the
@@ -574,17 +567,14 @@ Two findings constrain *how* these rows can be closed, not just whether:
 
 ### Risks and Mitigations
 
-- **Assuming shim reuse works.** `libpcisysfs`'s `LD_PRELOAD` approach is
-  proven against `lspci` and NVML consumers; it would be a mistake to assume
-  the same mechanism covers `k8s-driver-manager`/`vfio-manage` without
-  re-verifying per binary — it does not, for the reason stated above.
-  Mitigation: this document records the finding so it is not re-litigated.
-- **Reconciler/imperative mismatch going unnoticed until implementation.**
-  If a future MEP builds emulation surface (e.g., a fake `/sys/module` tree)
-  without also addressing how the node agent learns to re-stage it after
-  `k8s-driver-manager` tears it down, the upgrade sequence will leave the
-  node in a permanently torn-down state. Mitigation: called out explicitly
-  in Design Details below as an open question for that MEP.
+- **Assuming the `LD_PRELOAD` shim extends to these binaries.** It doesn't —
+  see Syscall interception above. Mitigation: recorded here so a follow-on
+  MEP doesn't have to re-verify it.
+- **The reconciler/imperative mismatch going unaddressed.** A follow-on MEP
+  that builds emulation surface without also picking a re-stage trigger
+  leaves a simulated node permanently driver-less after the first upgrade.
+  Mitigation: Design Details proposes two trigger options below rather than
+  leaving the question open.
 
 ## Design Details
 
@@ -593,11 +583,10 @@ Two findings constrain *how* these rows can be closed, not just whether:
 A few things make this workflow different from what Mokka is built for today:
 
 - GPU Operator's driver containers — including the one running
-  `k8s-driver-manager` — are expected to be disabled when Mokka is deployed,
-  since Mokka replaces the real driver install with simulation.
+  `k8s-driver-manager` — are purposely disabled when Mokka is deployed,
+  since Mokka replaces the real driver install with simulation. Now we want to somehow enable those.
 - Mokka's supported shape is install → stage once from a profile → serve
-  consumers, all from one `State` compiled up front. A driver upgrade needs
-  two more events layered on top: a *target* driver version arriving from
+  consumers. A driver upgrade needs two more events layered on top: a *target* driver version arriving from
   `ClusterPolicy`, and a *completion signal* from `k8s-driver-manager` saying
   when it is safe to apply that target — neither of which the current
   reconcile loop has a notion of.
@@ -655,12 +644,11 @@ existing file-staging logic, not a new mechanism.
 watcher in the node agent (`inotify` on the rendered `bind`/`unbind` files)
 that reacts to a write by updating the device's `driver` symlink and clearing
 `driver_override` — reproducing the side effect `vfio-manage` depends on
-without needing a real `struct pci_dev` or a synthetic PCI host bridge. This
-was raised and rejected as a kernel-module target in an earlier design
-discussion for this MEP: fabricating a real PCI device is a materially
-larger kernel project than the stub modules above, and nothing here needs
-the device to be functionally real, only for its sysfs attributes to react
-correctly to reads and writes.
+without needing a real `struct pci_dev` or a synthetic PCI host bridge.
+Fabricating a real PCI device would be a materially larger kernel project
+than the stub modules above, and nothing here needs the device to be
+functionally real — only for its sysfs attributes to react correctly to
+reads and writes.
 
 **`modules.alias` and MOFED readiness.** Proposed: static additions to
 surfaces `pcibus`/`internal/ib` already own — a kernel-version-matched
@@ -700,9 +688,6 @@ change. Two candidate triggers, not yet chosen between:
   moving `gpudriver`/`pcibus` from an always-on node-agent responsibility to
   one tied to a pod GPU Operator is expected to kill and recreate per
   upgrade, a real change to how those simulators are deployed.
-
-This MEP does not pick between them; that choice, and the chart or reconciler
-change it implies, belongs to the follow-on MEP that implements this row.
 
 ## Drawbacks
 
