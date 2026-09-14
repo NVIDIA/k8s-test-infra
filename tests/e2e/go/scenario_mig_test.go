@@ -145,42 +145,37 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 				}
 			})
 
-			// `nvidia-smi mig` is the surface operators and nvidia-mig-parted
-			// drive, and it reaches NVML through different entry points than
-			// `nvidia-smi -L`: a mock whose -L enumeration is perfect can still
-			// fail every one of these listings. Asserting nothing but a clean
-			// exit is worth its own spec because it localises that break in one
-			// line, before the assertions below have to explain themselves.
-			It("answers every nvidia-smi mig listing without error", Label("mig-nvml"), func(ctx SpecContext) {
-				listings := map[string]string{}
-				for _, flag := range []string{"-lgi", "-lgip", "-lci", "-lcip"} {
-					listings[flag] = migListingOnNode(ctx, h, node, flag)
-				}
-
-				// The compute-instance listings are read by row count alone.
-				// Their columns restate the GPU-instance table, and the counts
-				// below are the only facts about them a migStrategy=single
-				// consumer depends on: the partition is unusable without a
-				// compute instance, whatever the rest of the row says.
+			// The compute-instance half of `nvidia-smi mig`, which the two specs
+			// below do not reach: they read -lgi and -lgip, and a mock can
+			// answer both perfectly while failing every compute-instance query.
+			//
+			// Both listings are read by row count alone. Their columns restate
+			// the GPU-instance table, and the counts here are the only facts
+			// about them a migStrategy=single consumer depends on: a partition
+			// is unusable without a compute instance, whatever the rest of the
+			// row says.
+			It("lists a compute instance for every partition", Label("mig-nvml"), func(ctx SpecContext) {
 				total := p.ExpectedGPUs() * partitions
 
 				// -lci enumerates the compute instances that exist, and
 				// migStrategy=single gives every partition exactly one.
-				lci, err := nvidiasmi.CountMigTableRows(listings["-lci"], nvidiasmi.MigComputeInstances)
-				Expect(err).NotTo(HaveOccurred(), "parse nvidia-smi mig -lci:\n%s", listings["-lci"])
+				lciListing := migListingOnNode(ctx, h, node, "-lci")
+				lci, err := nvidiasmi.CountMigTableRows(lciListing, nvidiasmi.MigComputeInstances)
+				Expect(err).NotTo(HaveOccurred(), "parse nvidia-smi mig -lci:\n%s", lciListing)
 				Expect(lci).To(Equal(total),
 					"nvidia-smi mig -lci should list one compute instance per partition on a %d-GPU node with %d partitions each:\n%s",
-					p.ExpectedGPUs(), partitions, listings["-lci"])
+					p.ExpectedGPUs(), partitions, lciListing)
 
 				// -lcip is a catalogue, not an inventory: it lists the compute
 				// instance profiles each partition offers, and how many that is
 				// varies by board. The portable claim is that no partition is
 				// missing from it.
-				lcip, err := nvidiasmi.CountMigTableRows(listings["-lcip"], nvidiasmi.MigComputeInstanceProfiles)
-				Expect(err).NotTo(HaveOccurred(), "parse nvidia-smi mig -lcip:\n%s", listings["-lcip"])
+				lcipListing := migListingOnNode(ctx, h, node, "-lcip")
+				lcip, err := nvidiasmi.CountMigTableRows(lcipListing, nvidiasmi.MigComputeInstanceProfiles)
+				Expect(err).NotTo(HaveOccurred(), "parse nvidia-smi mig -lcip:\n%s", lcipListing)
 				Expect(lcip).To(BeNumerically(">=", total),
 					"nvidia-smi mig -lcip should offer at least one compute instance profile for each of the %d partitions:\n%s",
-					total, listings["-lcip"])
+					total, lcipListing)
 			})
 
 			// Two NVML paths describing one board must not disagree. `-lgi` is
@@ -197,13 +192,9 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 
 				for gpu := range p.ExpectedGPUs() {
 					onGPU := nvidiasmi.MigInstancesOfGPU(instances, gpu)
-					reported := migPartitionsOfGPU(snap, gpu)
 					Expect(onGPU).To(HaveLen(partitions),
 						"GPU %d declares %d partitions but nvidia-smi mig -lgi lists %d",
 						gpu, partitions, len(onGPU))
-					Expect(onGPU).To(HaveLen(len(reported)),
-						"nvidia-smi mig -lgi and nvidia-smi -q -x disagree about GPU %d: %d instances against %d mig_device elements",
-						gpu, len(onGPU), len(reported))
 
 					ids := map[int]bool{}
 					placements := map[string]bool{}
@@ -227,12 +218,14 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 					// Equal counts are not the same partitions. The instance IDs
 					// are what the two paths must agree on, because they are what
 					// a partitioning tool and the capability table below both
-					// address a partition by.
-					for _, part := range reported {
-						Expect(ids).To(HaveKey(part.GPUInstanceID),
-							"nvidia-smi -q -x reports instance %d on GPU %d, which nvidia-smi mig -lgi does not list",
-							part.GPUInstanceID, gpu)
+					// address a partition by. Compared as sets, so an instance
+					// one path invents is caught as well as one it drops.
+					reported := map[int]bool{}
+					for _, part := range migPartitionsOfGPU(snap, gpu) {
+						reported[part.GPUInstanceID] = true
 					}
+					Expect(reported).To(Equal(ids),
+						"nvidia-smi -q -x and nvidia-smi mig -lgi disagree about which instances GPU %d holds", gpu)
 				}
 			})
 
@@ -309,16 +302,117 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 				}
 			})
 
-			// The acceptance criterion.
-			It("publishes one nvidia.com/gpu per MIG partition", Label("mig-device-plugin"), func(ctx SpecContext) {
-				deployMIGDevicePlugin(ctx, h, node, p.ExpectedGPUs()*partitions)
+			// Deploying the plugin — applying the manifest, restarting its pods
+			// and waiting for the node to re-advertise — is the most expensive
+			// step in this scenario, and all three specs below need the same
+			// deployment. It runs once here rather than per spec, which nothing
+			// between them disturbs.
+			//
+			// A BeforeAll rather than a preceding spec, so that a label filter
+			// selecting only one of these still gets the plugin.
+			Context("with the device plugin in migStrategy=single", Ordered, func() {
+				BeforeAll(func(ctx SpecContext) {
+					deployMIGDevicePlugin(ctx, h, node, p.ExpectedGPUs()*partitions)
+				})
+
+				// The acceptance criterion. It re-reads the count the setup
+				// above already waited for, rather than asserting nothing, so
+				// the claim is named in the report: a failure attributed to a
+				// BeforeAll says which container broke, not which claim.
+				It("publishes one nvidia.com/gpu per MIG partition", Label("mig-device-plugin"), func(ctx SpecContext) {
+					assertions.WaitAllocatableGPU(ctx, h.Kube, node, p.ExpectedGPUs()*partitions,
+						config.ReadyTimeout(), config.PollInterval())
+				})
+
+				// Advertising the right count is not the same as handing out the
+				// right thing. A pod that schedules onto a MIG resource must be
+				// given one real partition's identity and the cap nodes guarding
+				// it — which is what fails if the agent's instance IDs disagree
+				// with the engine's.
+				//
+				// The claim is about what the pod was handed, not what its own
+				// NVML reports: on this path the in-container library runs on
+				// its compiled-in defaults, because the container toolkit drops
+				// the env that would point it at this node's profile (#747), so
+				// it describes a stock mock GPU no matter how the node is
+				// partitioned. The allocation is therefore asserted where the
+				// runtime honours it.
+				It("gives a scheduled pod exactly one MIG partition", Label("mig-allocation"), func(ctx SpecContext) {
+					// The `nvidia-smi -L` listing, not the -q -x document the
+					// other specs read: what the plugin hands out is a MIG UUID,
+					// and the document carries neither that nor the profile name
+					// to check it against.
+					onNode := migDevicesOnNode(ctx, h, node)
+					workload := applyMIGWorkload(ctx, h, "mig-single", node)
+
+					res, err := h.Kube.ExecSh(ctx, workload, `printf %s "${NVIDIA_VISIBLE_DEVICES:-}"`)
+					Expect(err).NotTo(HaveOccurred(), "read NVIDIA_VISIBLE_DEVICES: %s", res.Combined())
+					allocated := strings.TrimSpace(res.Combined())
+
+					// A partition's own identity, not its parent's: a plugin
+					// handing out whole-GPU UUIDs would have filled this in just
+					// as well.
+					Expect(allocated).To(HavePrefix("MIG-"),
+						"a migStrategy=single allocation must name a partition, got %q", allocated)
+					// And a partition this node actually has. Pinning it to the
+					// nvidia-smi listing is what ties the allocation back to the
+					// engine's own enumeration rather than to a well-formed string.
+					Expect(migProfileOf(onNode, allocated)).To(Equal(p.MIGDeviceProfile()),
+						"allocated %q should be one of the %d partitions nvidia-smi reports on %s",
+						allocated, len(onNode), node)
+
+					// Two cap nodes: one for the GPU instance, one for the
+					// compute instance. Their presence is what a MIG-aware
+					// runtime requires to open the partition.
+					res, err = h.Kube.ExecSh(ctx, workload, "ls "+migCapDevDir)
+					Expect(err).NotTo(HaveOccurred(), "list %s: %s", migCapDevDir, res.Combined())
+					Expect(strings.Fields(res.Combined())).To(HaveLen(2),
+						"a MIG pod should receive its GPU- and compute-instance cap nodes, got:\n%s",
+						res.Combined())
+				})
+
+				// The scheduler gate, on the MIG resource count rather than the
+				// GPU count. A mock that reported partitions without the plugin
+				// accounting for them would let this pod in.
+				It("stops scheduling once every partition is claimed", Label("mig-allocation"), func(ctx SpecContext) {
+					total := p.ExpectedGPUs() * partitions
+
+					name := "mig-oversubscribed"
+					// Unpinned on purpose: a nodeName bypasses scheduling, so
+					// kubelet would admit and then reject the pod, which proves
+					// the device manager works rather than the resource gating.
+					manifest := migPodManifest(name, "", total+1)
+					Expect(h.Kube.Apply(ctx, manifest)).To(Succeed(), "apply %s", name)
+					DeferCleanup(func(ctx SpecContext) { _ = h.Kube.Delete(ctx, manifest) })
+
+					Consistently(func() (string, error) {
+						return h.Kube.PodPhase(ctx, migWorkloadNS, name)
+					}).WithContext(ctx).WithTimeout(30*time.Second).WithPolling(config.PollInterval()).
+						Should(Equal("Pending"),
+							"a pod requesting %d %s on a %d-partition node must not schedule",
+							total+1, kube.GPUResourceName, total)
+
+					// Pending alone is weak: an unschedulable pod and one stuck
+					// pulling an image look identical by phase. Pin the reason
+					// to the GPU resource.
+					out, err := h.Kube.KubectlCombined(ctx, "get", "events", "-n", migWorkloadNS,
+						"--field-selector", "involvedObject.name="+name)
+					Expect(err).NotTo(HaveOccurred(), "read events for %s", name)
+					Expect(out).To(ContainSubstring("Insufficient "+kube.GPUResourceName),
+						"%s should be unschedulable on %s specifically, got events:\n%s",
+						name, kube.GPUResourceName, strings.TrimSpace(out))
+				})
 			})
 
-			// The negative control for the spec above, and the reason it is worth
-			// running: `nvidia.com/gpu: 56` on an 8-GPU node is only evidence of
-			// MIG if the same cluster reports 8 with MIG off. Without this, a
-			// plugin that ignored --mig-strategy and a mock that over-advertised
-			// would be indistinguishable from success.
+			// The negative control for the context above, and the reason it is
+			// worth running: `nvidia.com/gpu: 56` on an 8-GPU node is only
+			// evidence of MIG if the same cluster reports 8 with MIG off.
+			// Without this, a plugin that ignored --mig-strategy and a mock that
+			// over-advertised would be indistinguishable from success.
+			//
+			// It runs after that context rather than before it because it
+			// leaves the plain plugin manifest in place: ahead of those specs,
+			// each of them would have to deploy the MIG plugin again.
 			It("falls back to whole GPUs when MIG is switched off", Label("mig-device-plugin"), func(ctx SpecContext) {
 				installMIGChart(ctx, h, p, false)
 				assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace,
@@ -356,86 +450,6 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 					config.ReadyTimeout(), config.PollInterval())
 				assertions.WaitAllocatableGPU(ctx, h.Kube, node, p.ExpectedGPUs(),
 					config.ReadyTimeout(), config.PollInterval())
-			})
-
-			// Advertising the right count is not the same as handing out the
-			// right thing. A pod that schedules onto a MIG resource must be
-			// given one real partition's identity and the cap nodes guarding
-			// it — which is what fails if the agent's instance IDs disagree
-			// with the engine's.
-			//
-			// The claim is about what the pod was handed, not what its own NVML
-			// reports: on this path the in-container library runs on its
-			// compiled-in defaults, because the container toolkit drops the env
-			// that would point it at this node's profile (#747), so it describes
-			// a stock mock GPU no matter how the node is partitioned. The
-			// allocation is therefore asserted where the runtime honours it.
-			It("gives a scheduled pod exactly one MIG partition", Label("mig-allocation"), func(ctx SpecContext) {
-				deployMIGDevicePlugin(ctx, h, node, p.ExpectedGPUs()*partitions)
-
-				// The `nvidia-smi -L` listing, not the -q -x document the other
-				// specs read: what the plugin hands out is a MIG UUID, and the
-				// document carries neither that nor the profile name to check
-				// it against.
-				onNode := migDevicesOnNode(ctx, h, node)
-				workload := applyMIGWorkload(ctx, h, "mig-single", node)
-
-				res, err := h.Kube.ExecSh(ctx, workload, `printf %s "${NVIDIA_VISIBLE_DEVICES:-}"`)
-				Expect(err).NotTo(HaveOccurred(), "read NVIDIA_VISIBLE_DEVICES: %s", res.Combined())
-				allocated := strings.TrimSpace(res.Combined())
-
-				// A partition's own identity, not its parent's: a plugin handing
-				// out whole-GPU UUIDs would have filled this in just as well.
-				Expect(allocated).To(HavePrefix("MIG-"),
-					"a migStrategy=single allocation must name a partition, got %q", allocated)
-				// And a partition this node actually has. Pinning it to the
-				// nvidia-smi listing is what ties the allocation back to the
-				// engine's own enumeration rather than to a well-formed string.
-				Expect(migProfileOf(onNode, allocated)).To(Equal(p.MIGDeviceProfile()),
-					"allocated %q should be one of the %d partitions nvidia-smi reports on %s",
-					allocated, len(onNode), node)
-
-				// Two cap nodes: one for the GPU instance, one for the compute
-				// instance. Their presence is what a MIG-aware runtime requires
-				// to open the partition.
-				res, err = h.Kube.ExecSh(ctx, workload, "ls "+migCapDevDir)
-				Expect(err).NotTo(HaveOccurred(), "list %s: %s", migCapDevDir, res.Combined())
-				Expect(strings.Fields(res.Combined())).To(HaveLen(2),
-					"a MIG pod should receive its GPU- and compute-instance cap nodes, got:\n%s",
-					res.Combined())
-			})
-
-			// The scheduler gate, on the MIG resource count rather than the GPU
-			// count. A mock that reported partitions without the plugin
-			// accounting for them would let this pod in.
-			It("stops scheduling once every partition is claimed", Label("mig-allocation"), func(ctx SpecContext) {
-				total := p.ExpectedGPUs() * partitions
-				deployMIGDevicePlugin(ctx, h, node, total)
-
-				name := "mig-oversubscribed"
-				// Unpinned on purpose: a nodeName bypasses scheduling, so
-				// kubelet would admit and then reject the pod, which proves the
-				// device manager works rather than the resource gating.
-				manifest := migPodManifest(name, "", total+1)
-				Expect(h.Kube.Apply(ctx, manifest)).To(Succeed(), "apply %s", name)
-				DeferCleanup(func(ctx SpecContext) { _ = h.Kube.Delete(ctx, manifest) })
-
-				Consistently(func() (string, error) {
-					return h.Kube.PodPhase(ctx, migWorkloadNS, name)
-				}).WithContext(ctx).WithTimeout(30*time.Second).WithPolling(config.PollInterval()).
-					Should(Equal("Pending"),
-						"a pod requesting %d %s on a %d-partition node must not schedule",
-						total+1, kube.GPUResourceName, total)
-
-				// Pending alone is weak: an unschedulable pod and one stuck
-				// pulling an image look identical by phase. Pin the reason to
-				// the GPU resource.
-				out, err := h.Kube.KubectlCombined(ctx, "get", "events", "-n", migWorkloadNS,
-					"--field-selector", "involvedObject.name="+name)
-				Expect(err).NotTo(HaveOccurred(), "read events for %s", name)
-				Expect(out).To(ContainSubstring("Insufficient "+kube.GPUResourceName),
-					"%s should be unschedulable on %s specifically, got events:\n%s",
-					name, kube.GPUResourceName, strings.TrimSpace(out))
 			})
 
 			// The runtime knob, driven and read entirely through nvidia-smi.
