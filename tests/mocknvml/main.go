@@ -20,7 +20,19 @@ import (
 	"strings"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
+	"github.com/stretchr/testify/require"
 )
+
+// fatalT satisfies require.TestingT so the assertions below can be written
+// with testify. This harness is a binary rather than a `go test` package —
+// it runs in a minimal image against the mock libnvidia-ml.so, so there is no
+// *testing.T to assert against. Exiting non-zero is what the Docker run
+// reports as a failure, matching the log.Fatalf it replaces.
+type fatalT struct{}
+
+func (fatalT) Errorf(format string, args ...any) { log.Printf(format, args...) }
+
+func (fatalT) FailNow() { os.Exit(1) }
 
 // busIdToString converts a [32]uint8 array to a Go string
 func busIdToString(busId [32]uint8) string {
@@ -204,6 +216,14 @@ func main() {
 	fmt.Println("\nSUCCESS: Mock NVML library is working correctly!")
 }
 
+// Fixture values from util-test-config.yaml's compute process, kept distinct so
+// a bridge that transposes two of the three fails on the pair it swapped.
+const (
+	wantProcessPid     = 4242
+	wantProcessSmUtil  = 75
+	wantProcessMemUtil = 40
+)
+
 // checkProcessUtilization exercises nvmlDeviceGetProcessUtilization end-to-end
 // through go-nvml's two-call wrapper. Without MOCK_NVML_CONFIG (env/default
 // config has no processes) it validates the empty path, which NVML reports as
@@ -211,36 +231,43 @@ func main() {
 // straight through. With MOCK_NVML_CONFIG defining a compute process + sm_util,
 // it validates the populated probe->fill path.
 func checkProcessUtilization() {
+	t := fatalT{}
+
 	dev, ret := nvml.DeviceGetHandleByIndex(0)
-	if ret != nvml.SUCCESS {
-		log.Fatalf("checkProcessUtilization: DeviceGetHandleByIndex: %v", nvml.ErrorString(ret))
-	}
+	require.Equalf(t, nvml.SUCCESS, ret, "checkProcessUtilization: DeviceGetHandleByIndex: %v",
+		nvml.ErrorString(ret))
+
 	if os.Getenv("MOCK_NVML_CONFIG") == "" {
 		s, ret := dev.GetProcessUtilization(0)
-		if ret != nvml.ERROR_NOT_FOUND || len(s) != 0 {
-			log.Fatalf("checkProcessUtilization: no-process config -> ret=%v, %d samples; want NOT_FOUND, 0",
-				nvml.ErrorString(ret), len(s))
-		}
+		require.Equalf(t, nvml.ERROR_NOT_FOUND, ret,
+			"checkProcessUtilization: no-process config reported %v, want NOT_FOUND", nvml.ErrorString(ret))
+		require.Empty(t, s, "checkProcessUtilization: no-process config returned samples")
 		log.Printf("✓ checkProcessUtilization: empty path reports NOT_FOUND (no MOCK_NVML_CONFIG)")
 		return
 	}
+
 	samples, ret := dev.GetProcessUtilization(0)
-	if ret != nvml.SUCCESS {
-		log.Fatalf("checkProcessUtilization: GetProcessUtilization: %v", nvml.ErrorString(ret))
-	}
+	require.Equalf(t, nvml.SUCCESS, ret, "checkProcessUtilization: GetProcessUtilization: %v",
+		nvml.ErrorString(ret))
+
 	// Assert exact values, not just len>0, so a dropped/transposed bridge field is caught.
-	if len(samples) != 1 || samples[0].Pid != 4242 || samples[0].SmUtil != 75 || samples[0].MemUtil != 40 {
-		log.Fatalf("checkProcessUtilization: device 0 = %+v; want one sample pid=4242 smUtil=75 memUtil=40", samples)
-	}
+	// Compared as int so a mismatch reports decimal rather than the hex
+	// testify prints for the uint32 the struct carries.
+	require.Len(t, samples, 1, "checkProcessUtilization: device 0 sample count")
+	require.Equal(t, wantProcessPid, int(samples[0].Pid), "checkProcessUtilization: device 0 pid")
+	require.Equal(t, wantProcessSmUtil, int(samples[0].SmUtil), "checkProcessUtilization: device 0 smUtil")
+	require.Equal(t, wantProcessMemUtil, int(samples[0].MemUtil), "checkProcessUtilization: device 0 memUtil")
+
 	// Device 1 (processes: []) covers the empty path + explicit-clear merge.
 	d1, ret := nvml.DeviceGetHandleByIndex(1)
-	if ret != nvml.SUCCESS {
-		log.Fatalf("checkProcessUtilization: DeviceGetHandleByIndex(1): %v", nvml.ErrorString(ret))
-	}
-	if s1, ret := d1.GetProcessUtilization(0); ret != nvml.ERROR_NOT_FOUND || len(s1) != 0 {
-		log.Fatalf("checkProcessUtilization: device 1 (processes: []) -> ret=%v, %d samples; want NOT_FOUND, 0",
-			nvml.ErrorString(ret), len(s1))
-	}
+	require.Equalf(t, nvml.SUCCESS, ret, "checkProcessUtilization: DeviceGetHandleByIndex(1): %v",
+		nvml.ErrorString(ret))
+
+	s1, ret := d1.GetProcessUtilization(0)
+	require.Equalf(t, nvml.ERROR_NOT_FOUND, ret,
+		"checkProcessUtilization: device 1 (processes: []) reported %v, want NOT_FOUND", nvml.ErrorString(ret))
+	require.Empty(t, s1, "checkProcessUtilization: device 1 (processes: []) returned samples")
+
 	log.Printf("✓ checkProcessUtilization: device 0 pid=%d smUtil=%d memUtil=%d; device 1 NOT_FOUND",
 		samples[0].Pid, samples[0].SmUtil, samples[0].MemUtil)
 }
