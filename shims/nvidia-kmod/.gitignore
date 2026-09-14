@@ -1,0 +1,4 @@
+# Everything the build produces lands here, so one line covers it. The modules
+# are built against one specific kernel and are never portable, so no artifact
+# belongs in git.
+dist/
