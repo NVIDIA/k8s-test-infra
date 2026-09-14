@@ -77,7 +77,14 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 			BeforeAll(func(ctx SpecContext) {
 				p = loadProfile(name)
 				if !p.MIGCapable() {
-					Skip("profile " + name + " declares no MIG partitioning; it is not a MIG-capable board")
+					Skip("profile " + name + " is not a MIG-capable board")
+				}
+				// installMIGChart supplies no gpuInstances, so a capable board
+				// that declares no layout would have the chart refuse the
+				// install rather than boot unpartitioned.
+				if !p.MIGDeclaresLayout() {
+					Skip("profile " + name + " is MIG-capable but declares no default layout, " +
+						"and this spec installs without gpu.mig.gpuInstances")
 				}
 				Expect(p.MIGDeviceProfile()).NotTo(BeEmpty(),
 					"profile %s declares a mixed MIG layout, which migStrategy=single rejects", name)
