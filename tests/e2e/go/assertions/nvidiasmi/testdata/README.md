@@ -36,8 +36,9 @@ For the lost and ECC variants, inject first and wait out the 30 s override TTL:
     kubectl exec -n mokka <pod> -- nvml-mock-ctl fabric-health --gpu 1 route_unhealthy
     kubectl exec -n mokka <pod> -- nvml-mock-ctl set --gpu 0 clocks_throttle_reasons.counters.sw_power_cap_us=39595
 
-For the MIG variant, install the chart with `gpu.mig.enabled=true` on a
-MIG-capable profile; the partitions come from the profile's declared layout.
+For the MIG variant, install the chart on a MIG-capable profile with
+`gpu.mig.enabled=true` and a layout, e.g.
+`--set gpu.mig.gpuInstances[0].profile=1g.10gb --set gpu.mig.gpuInstances[0].count=7`.
 
 Then trim to two GPUs, keeping the header and the first two `<gpu>` blocks and
 rewriting `attached_gpus` to 2.

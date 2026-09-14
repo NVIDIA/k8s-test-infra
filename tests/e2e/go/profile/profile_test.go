@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/gpuarch"
 )
@@ -447,93 +448,55 @@ devices:
 	require.ErrorContains(t, err, "device_defaults.architecture is empty")
 }
 
-// The MIG-capable boards declare a uniform partitioning, which is what makes
-// them usable with the device plugin's migStrategy=single — the strategy
-// refuses a node whose MIG devices are not all the same profile.
-func TestMIGPartitionsComeFromTheProfile(t *testing.T) {
+// MIG capability is a property of the board, so it is read from
+// max_gpu_instances. Inferring it from a declared layout is what once reported
+// the Blackwell boards as non-MIG hardware and silently excused them from the
+// MIG suite.
+func TestMIGCapabilityComesFromMaxGPUInstances(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		name          string
-		partitions    int
-		uniformDevice string
-		capable       bool
+		name    string
+		capable bool
 	}{
-		{"a100", 7, "1g.5gb", true},
-		{"h100", 7, "1g.10gb", true},
-		{"b200", 7, "1g.23gb", true},
-		// Capable boards that ship no default layout. They are why capability
-		// cannot be read off the layout: reporting these as non-MIG hardware
-		// is what silently excused them from the MIG suite.
-		{"gb200", 0, "", true},
-		{"gb300", 0, "", true},
-		// Not MIG-capable boards, and the negative control for the accessors:
-		// a profile with no mig block must report no partitions rather than a
-		// zero-valued one that reads as "declared but empty".
-		{"l40s", 0, "", false},
-		{"t4", 0, "", false},
+		{"a100", true},
+		{"h100", true},
+		{"b200", true},
+		{"gb200", true},
+		{"gb300", true},
+		// The negative control: these carry no mig block at all, so a profile
+		// without one must read as non-MIG rather than as a zero-valued board.
+		{"l40s", false},
+		{"t4", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			p, err := Load(profilesDir, tc.name)
 			require.NoError(t, err)
-			require.Equal(t, tc.partitions, p.MIGPartitionsPerGPU())
-			require.Equal(t, tc.uniformDevice, p.MIGDeviceProfile())
 			require.Equal(t, tc.capable, p.MIGCapable())
-			require.Equal(t, tc.partitions > 0, p.MIGDeclaresLayout())
 		})
 	}
 }
 
-// MIGDeviceProfile is what the migStrategy=single assertion keys on, so a
-// non-uniform layout has to report empty rather than silently picking one of
-// the profiles and asserting against a resource name the plugin never
-// publishes.
-func TestMIGDeviceProfileIsEmptyForMixedLayouts(t *testing.T) {
+// No shipped profile declares a partitioning: how a board is carved is a
+// deployment choice, named at install through gpu.mig.gpuInstances. A profile
+// that reintroduced one would go back to partitioning a board on the strength
+// of which image it is, which is what this asserts against.
+func TestNoProfileDeclaresAMIGLayout(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	const raw = `
-device_defaults:
-  name: "NVIDIA Mock GPU"
-  mig:
-    mode_current: "enabled"
-    max_gpu_instances: 7
-    gpu_instances:
-      - profile: "1g.5gb"
-        count: 2
-      - profile: "3g.20gb"
-        count: 1
-devices:
-  - index: 0
-`
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "mixed.yaml"), []byte(raw), 0o600))
-
-	p, err := Load(dir, "mixed")
-	require.NoError(t, err)
-	require.Equal(t, 3, p.MIGPartitionsPerGPU(), "a mixed layout still declares three partitions")
-	require.Empty(t, p.MIGDeviceProfile(), "a mixed layout has no single device profile")
-	require.True(t, p.MIGCapable())
-	require.True(t, p.MIGDeclaresLayout())
-}
-
-// A count left unset means one instance, matching how the engine reads the
-// same field; a profile that omits it must not contribute zero partitions.
-func TestMIGPartitionCountDefaultsToOne(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	const raw = `
-device_defaults:
-  name: "NVIDIA Mock GPU"
-  mig:
-    gpu_instances:
-      - profile: "7g.40gb"
-devices:
-  - index: 0
-`
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "single.yaml"), []byte(raw), 0o600))
-
-	p, err := Load(dir, "single")
-	require.NoError(t, err)
-	require.Equal(t, 1, p.MIGPartitionsPerGPU())
-	require.Equal(t, "7g.40gb", p.MIGDeviceProfile())
+	for _, name := range KnownProfiles {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			data, err := os.ReadFile(filepath.Join(profilesDir, name+".yaml"))
+			require.NoError(t, err)
+			var doc struct {
+				DeviceDefaults struct {
+					MIG map[string]any `json:"mig"`
+				} `json:"device_defaults"`
+			}
+			require.NoError(t, yaml.Unmarshal(data, &doc))
+			require.NotContains(t, doc.DeviceDefaults.MIG, "gpu_instances",
+				"profile %s declares a MIG layout; a layout belongs in gpu.mig.gpuInstances at install", name)
+		})
+	}
 }

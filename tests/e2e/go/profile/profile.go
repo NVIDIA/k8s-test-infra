@@ -87,8 +87,7 @@ type rawProfile struct {
 			} `json:"availability_histogram"`
 		} `json:"remapped_rows"`
 		MIG *struct {
-			MaxGPUInstances int                 `json:"max_gpu_instances"`
-			GPUInstances    []rawMIGGpuInstance `json:"gpu_instances"`
+			MaxGPUInstances int `json:"max_gpu_instances"`
 		} `json:"mig"`
 	} `json:"device_defaults"`
 	Devices []struct {
@@ -177,9 +176,7 @@ type Profile struct {
 	workloadProfilesRequested []int
 	workloadProfilesDeclared  bool
 
-	migMaxInstances  int
-	migPartitions    int
-	migDeviceProfile string
+	migMaxInstances int
 }
 
 // WorkloadPowerProfile is one profile a board advertises through
@@ -297,7 +294,6 @@ func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
 	}
 	if mig := raw.DeviceDefaults.MIG; mig != nil {
 		p.migMaxInstances = mig.MaxGPUInstances
-		p.migPartitions, p.migDeviceProfile = migLayout(mig.GPUInstances)
 	}
 	if pl := raw.DeviceDefaults.Platform; pl != nil {
 		p.hasPlatform = true
@@ -310,36 +306,6 @@ func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
 			ModuleIDs:           deviceModuleIDs(raw, pl.ModuleID),
 		}
 	}
-}
-
-// rawMIGGpuInstance is one entry of a profile's declared MIG partitioning.
-type rawMIGGpuInstance struct {
-	Profile string `json:"profile"`
-	Count   int    `json:"count"`
-}
-
-// migLayout totals a declared partitioning and reports the profile every
-// partition shares, or "" when they differ. The uniform case is the one the
-// device plugin's migStrategy=single accepts, so collapsing a mixed layout to
-// "" keeps a caller from asserting on a resource name that would never be
-// published.
-func migLayout(instances []rawMIGGpuInstance) (partitions int, uniform string) {
-	for i, gi := range instances {
-		// An omitted count means one instance, matching how the engine reads
-		// the same field.
-		count := gi.Count
-		if count == 0 {
-			count = 1
-		}
-		partitions += count
-		switch {
-		case i == 0:
-			uniform = gi.Profile
-		case uniform != gi.Profile:
-			uniform = ""
-		}
-	}
-	return partitions, uniform
 }
 
 // deviceModuleIDs collects each device's module id, keyed by the declared
@@ -382,28 +348,11 @@ func (p Profile) ExpectedGPUs() int { return p.gpuCount }
 // IBEnabled reports whether the profile ships InfiniBand enabled.
 func (p Profile) IBEnabled() bool { return p.ibEnabled }
 
-// MIGPartitionsPerGPU is how many GPU instances each of the profile's boards
-// declares. Profiles ship this layout inert (mode_current: disabled) and the
-// chart's gpu.mig.enabled turns it on, so the count describes what the board
-// partitions into once MIG is switched on, not what it exposes by default.
-func (p Profile) MIGPartitionsPerGPU() int { return p.migPartitions }
-
-// MIGDeviceProfile is the profile name every declared partition shares, e.g.
-// "1g.5gb", or "" when the profile declares none or declares a mix.
-func (p Profile) MIGDeviceProfile() string { return p.migDeviceProfile }
-
-// MIGCapable reports whether the board can partition at all, which is a
-// property of the hardware and so reads max_gpu_instances. Whether a profile
-// ships a default layout is a separate question, answered by
-// MIGDeclaresLayout: b200, gb200 and gb300 are capable boards that declare
-// none, and conflating the two would report them as non-MIG hardware.
+// MIGCapable reports whether the board can partition at all. That is a
+// property of the hardware, so it reads max_gpu_instances: no profile declares
+// a layout, since how a board is carved is a deployment choice supplied at
+// install through gpu.mig.gpuInstances.
 func (p Profile) MIGCapable() bool { return p.migMaxInstances > 0 }
-
-// MIGDeclaresLayout reports whether the profile boots already partitioned.
-// The chart refuses gpu.mig.enabled on a capable board without a layout from
-// either the profile or gpu.mig.gpuInstances, so a spec that supplies neither
-// can only drive the profiles this is true for.
-func (p Profile) MIGDeclaresLayout() bool { return p.migPartitions > 0 }
 
 // ExpectedHCAs is the number of InfiniBand HCAs the profile should expose:
 // one per GPU when IB is enabled, otherwise 0 (l40s/t4 negative control).

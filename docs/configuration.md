@@ -452,6 +452,11 @@ device_defaults:
     max_gpu_instances: 7
 ```
 
+No shipped profile declares a partitioning. `max_gpu_instances` is what the
+board can do; how it is carved is a deployment choice, which under the chart is
+`gpu.mig.gpuInstances` — required whenever `gpu.mig.enabled` is set, on every
+board.
+
 Declare partitions per device with `gpu_instances`, naming each profile either
 by name or by the id the board publishes for it:
 
@@ -480,12 +485,17 @@ restart.
 Boards without a `mig` section — `t4`, `l40s` — are not MIG-capable, and NVML
 answers `NVML_ERROR_NOT_SUPPORTED` for them as real hardware does.
 
-The profile tables come from go-nvml and are exact for A100, A30, H100, H200
-and B200. go-nvml carries one Blackwell table, the B200's, so the larger
-Blackwell boards report B200 slice sizes: a `gb200` tops out at `7g.180gb`
-where the hardware gives `7g.186gb`, and a `gb300` reports 23gb slices where
-Blackwell Ultra gives 34gb ones. Their slice counts and instance ceiling are
-right; only the per-slice memory is a B200's.
+A slice is named for the share of its own board it holds, so a board's slice
+names follow the memory its profile declares. That reproduces NVIDIA's
+published names where the profile describes the same board they were published
+for — `1g.5gb` on `a100`, `1g.10gb` on `h100` — and diverges where it does not:
+`b200` declares 192GiB and so offers `1g.24gb` where NVIDIA publishes `1g.23gb`
+for a 180GB B200, and `gb300` offers `1g.36gb`. Take the names a board accepts
+from `nvidia-smi mig -lgip` rather than from the MIG user guide.
+
+The slice geometries themselves come from go-nvml, which carries one Blackwell
+table, the B200's. `gb200` and `gb300` are served from it, so their slice
+counts and instance ceiling are a B200's.
 
 Profile ids are transcribed from NVIDIA's published `-lgip` listings, which
 exist for A100, A30, H100 and H200. NVIDIA publishes none for Blackwell, so

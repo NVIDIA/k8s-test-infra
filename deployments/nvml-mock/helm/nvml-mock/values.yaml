@@ -59,18 +59,24 @@ gpu:
   # nvidia.com/gpu under the device plugin's migStrategy=single, so enabling
   # this changes what the node advertises.
   #
-  # Enabling activates the layout the profile declares under
-  # device_defaults.mig.gpu_instances. Set gpuInstances to partition
-  # differently, or to supply a layout for a MIG-capable profile that declares
-  # none of its own (gb300, gb200, b200) — the same schema either way:
+  # Enabling requires gpuInstances: no profile ships a layout, because how a
+  # board is carved is a deployment choice rather than a property of the
+  # silicon. Name the partitioning you want —
   #
   #   gpuInstances:
   #     - profile: "3g.20gb"
   #       count: 2
   #
+  # — or fill the board with its smallest slice, which is the shape
+  # migStrategy=single publishes as one resource name: seven of 1g.5gb on
+  # a100, 1g.10gb on h100, 1g.24gb on b200 and gb200, 1g.36gb on gb300. A
+  # slice is named for the share of its own board it holds, so confirm a
+  # board's names with `nvidia-smi mig -lgip` rather than NVIDIA's listing
+  # for the hardware it stands in for.
+  #
   # A board whose profile declares no mig.max_gpu_instances is refused, as is a
-  # capable board left with no layout from either source: MIG on with nothing
-  # partitioned publishes no GPU resource at all under migStrategy=single.
+  # capable board left with no layout: MIG on with nothing partitioned
+  # publishes no GPU resource at all under migStrategy=single.
   #
   # The instances stay mutable at runtime through NVML, as on real hardware.
   mig:

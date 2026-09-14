@@ -539,26 +539,31 @@ tests:
           errorMessage: "values don't meet the specifications of the schema(s) in the following chart(s):\nnvml-mock:\n- at '/gpu/failureInjection/after_calls': minimum: got -1, want 0\n"
 
   # ── MIG ─────────────────────────────────────────────────────────────
-  - it: should leave the profile's declared partitions inert when MIG is disabled (default)
+  - it: should leave a capable board unpartitioned when MIG is disabled (default)
     set:
       gpu:
         profile: a100
     asserts:
-      # The layout is declared so a profile documents how the board is
-      # normally partitioned, but the mode gates it.
       - matchRegex:
           path: data["config.yaml"]
           pattern: 'mode_current: "disabled"'
-      - matchRegex:
+      # A profile says what the board can do, never how an install chose to
+      # carve it, so it contributes no partitions of its own. Anchored on the
+      # key: an unanchored "gpu_instances" also matches max_gpu_instances,
+      # which the board does declare.
+      - notMatchRegex:
           path: data["config.yaml"]
-          pattern: 'profile: "1g.5gb"'
+          pattern: "(?m)^ +gpu_instances:"
 
-  - it: should enable the profile's declared partitions when MIG is enabled
+  - it: should apply the layout gpuInstances names when MIG is enabled
     set:
       gpu:
         profile: a100
         mig:
           enabled: true
+          gpuInstances:
+            - profile: "1g.5gb"
+              count: 7
     asserts:
       - matchRegex:
           path: data["config.yaml"]
@@ -573,7 +578,11 @@ tests:
           path: data["config.yaml"]
           pattern: "count: 7"
 
-  - it: should replace the declared partitions when gpuInstances is set
+  # gpuInstances is the only source of a partitioning, so what lands in the
+  # config is what was asked for. The negative half guards the board's former
+  # default: an h100 that reintroduced 1g.10gb would partition into something
+  # nobody named here.
+  - it: should take the partitioning from gpuInstances alone
     set:
       gpu:
         profile: h100
@@ -596,6 +605,9 @@ tests:
         profile: a100
         mig:
           enabled: true
+          gpuInstances:
+            - profile: "1g.5gb"
+              count: 7
     asserts:
       # The flag is Helm's, not the engine's schema; leaking it would make the
       # mock warn about an unknown key.
@@ -646,7 +658,19 @@ tests:
       - failedTemplate:
           errorMessage: 'gpu.mig.enabled is set but profile "t4" is not a MIG-capable board: it declares no mig.max_gpu_instances'
 
+  # Every capable board is refused without a layout, including the ones that
+  # used to ship one: a100 is the case that changed.
   - it: should reject MIG on a capable board with no layout to apply
+    set:
+      gpu:
+        profile: a100
+        mig:
+          enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: 'gpu.mig.enabled is set but gpu.mig.gpuInstances declares no partitions, so the node would come up MIG-enabled with nothing partitioned. Name the layout, e.g. --set gpu.mig.gpuInstances[0].profile=1g.10gb --set gpu.mig.gpuInstances[0].count=7'
+
+  - it: should reject MIG on a Blackwell board with no layout to apply
     set:
       gpu:
         profile: gb300
@@ -654,11 +678,11 @@ tests:
           enabled: true
     asserts:
       - failedTemplate:
-          errorMessage: 'gpu.mig.enabled is set but neither profile "gb300" nor gpu.mig.gpuInstances declares any partitions, so the node would come up MIG-enabled with nothing partitioned'
+          errorMessage: 'gpu.mig.enabled is set but gpu.mig.gpuInstances declares no partitions, so the node would come up MIG-enabled with nothing partitioned. Name the layout, e.g. --set gpu.mig.gpuInstances[0].profile=1g.10gb --set gpu.mig.gpuInstances[0].count=7'
 
-  # gb300, gb200 and b200 are MIG-capable but ship no default layout, which is
-  # exactly the case gpuInstances exists for.
-  - it: should accept gpuInstances on a capable board that declares no layout
+  # gpuInstances is what every MIG install partitions with, whichever board it
+  # names.
+  - it: should accept gpuInstances on any capable board
     set:
       gpu:
         profile: gb300

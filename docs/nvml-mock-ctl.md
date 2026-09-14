@@ -49,7 +49,7 @@ made it. What they change is what `nvidia-smi`, DCGM and GFD report, and what
 the device plugin *discovers*.
 
 The driver capability surface is not hot-reloadable — `/dev/nvidia-caps` and
-`/proc/driver/nvidia-caps/mig-minors` are staged once from the profile, so
+`/proc/driver/nvidia-caps/mig-minors` are staged once at pod start, so
 allocating what a runtime repartition produces still needs a Helm change
 (`gpu.mig.enabled` with `gpu.mig.gpuInstances`). Nor is a repartition fully
 reversible: clearing the override, `nvml-mock-ctl reset` included, restores the
