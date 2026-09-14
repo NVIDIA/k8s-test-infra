@@ -230,7 +230,7 @@ func TestStageCharDevs_UsesConfiguredMinorNumber(t *testing.T) {
 	state := testState(t)
 	state.Devices = []agent.DeviceSpec{{Index: 1, MinorNumber: 3}}
 
-	require.NoError(t, stageCharDevs(context.Background(), h, state))
+	require.NoError(t, stageCharDevs(t.Context(), h, state))
 
 	devRoot := filepath.Join(h.Root, "driver/dev")
 	require.FileExists(t, filepath.Join(devRoot, "nvidia3"))

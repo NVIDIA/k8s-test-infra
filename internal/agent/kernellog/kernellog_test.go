@@ -65,8 +65,8 @@ func kernelLog(t *testing.T, path string) string {
 func staged(t *testing.T, h *host.Host, state *agent.State, kmsg string) *Simulator {
 	t.Helper()
 
-	s := New(Options{Path: kmsg})
-	require.NoError(t, s.Stage(t.Context(), h, state))
+	s := New(h, Options{Path: kmsg})
+	require.NoError(t, s.Stage(t.Context(), state))
 	require.True(t, s.Ready())
 
 	return s
@@ -253,7 +253,7 @@ func TestSimulator_ForgetsRenumberedDevices(t *testing.T) {
 	s.Poll(t.Context())
 
 	// A profile edit puts another GPU at index 0, with the fault still standing.
-	require.NoError(t, s.Stage(t.Context(), h, &agent.State{Devices: gpus("0000:3C:00.0")}))
+	require.NoError(t, s.Stage(t.Context(), &agent.State{Devices: gpus("0000:3C:00.0")}))
 	s.Poll(t.Context())
 
 	require.Equal(t, "kernel: NVRM: Xid (PCI:0000:1a:00): 79\nkernel: NVRM: Xid (PCI:0000:3c:00): 79\n",
@@ -281,8 +281,8 @@ func TestSimulator_WithoutAKernelLogIsInert(t *testing.T) {
 	t.Parallel()
 
 	h, state, _ := node(t, gpus("0000:1A:00.0")...)
-	s := New(Options{Path: ""})
-	require.NoError(t, s.Stage(t.Context(), h, state))
+	s := New(h, Options{Path: ""})
+	require.NoError(t, s.Stage(t.Context(), state))
 	require.True(t, s.Ready())
 
 	inject(t, h, mockctl.Target{Index: 0}, engine.FailureModeLost, 79)
@@ -298,8 +298,8 @@ func TestSimulator_RunPolls(t *testing.T) {
 	t.Parallel()
 
 	h, state, kmsg := node(t, gpus("0000:1A:00.0")...)
-	s := New(Options{Path: kmsg, Interval: time.Millisecond})
-	require.NoError(t, s.Stage(t.Context(), h, state))
+	s := New(h, Options{Path: kmsg, Interval: time.Millisecond})
+	require.NoError(t, s.Stage(t.Context(), state))
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -327,7 +327,7 @@ func TestSimulator_DiscardIsQuiet(t *testing.T) {
 	inject(t, h, mockctl.Target{Index: 0}, engine.FailureModeLost, 79)
 	s.Poll(t.Context())
 
-	require.NoError(t, s.Discard(t.Context(), h))
+	require.NoError(t, s.Discard(t.Context()))
 	require.False(t, s.Ready())
 	require.Equal(t, "kernel: NVRM: Xid (PCI:0000:1a:00): 79\n", kernelLog(t, kmsg))
 }

@@ -180,7 +180,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 			cdi.New(h),
 			imex.New(h),
 			nvlink.New(h),
-			kernellog.New(kernellog.Options{Path: cmd.String("kernel-log")}),
+			kernellog.New(h, kernellog.Options{Path: cmd.String("kernel-log")}),
 			fabricmanager.New(h, fabricmanager.Options{
 				InitDelay: cmd.Duration("fabricmanager-init-delay"),
 			}),

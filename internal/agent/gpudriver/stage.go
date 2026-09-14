@@ -238,7 +238,7 @@ func writeMachineType(ctx context.Context, h *host.Host, state *agent.State) err
 	if len(state.Devices) == 0 || state.Devices[0].Name == "" {
 		return nil
 	}
-	return fsutil.Write(filepath.Join(h.Root, machineTypeRel),
+	return fsutil.Write(h.RootPath(machineTypeRel),
 		[]byte(state.Devices[0].Name+"\n"), 0o644)
 }
 

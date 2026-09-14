@@ -41,6 +41,7 @@ var (
 
 // Simulator announces newly injected Xids on the node's kernel log.
 type Simulator struct {
+	host     *host.Host
 	path     string // kernel log to write; empty announces nowhere
 	interval time.Duration
 	staged   atomic.Bool
@@ -73,13 +74,14 @@ type Options struct {
 }
 
 // New returns a kernel log Simulator.
-func New(opts Options) *Simulator {
+func New(h *host.Host, opts Options) *Simulator {
 	interval := opts.Interval
 	if interval == 0 {
 		interval = defaultInterval
 	}
 
 	return &Simulator{
+		host:      h,
 		path:      opts.Path,
 		interval:  interval,
 		announced: map[int]uint64{},
@@ -96,7 +98,7 @@ func (s *Simulator) Ready() bool { return s.staged.Load() }
 // Stage records where the injections arrive and which address each device
 // answers to, so a kernel line names the device the way NVML does. It writes
 // nothing: the artifact this simulator produces is an event, not a file.
-func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) error {
+func (s *Simulator) Stage(_ context.Context, state *agent.State) error {
 	zap.L().Info("staging simulator", zap.String("simulator", name))
 
 	s.mu.Lock()
@@ -105,7 +107,7 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 	// The document nvml-mock-ctl writes and the engine reads. Derived rather
 	// than configured because both ends already agree on it: the DaemonSet
 	// points MOCK_NVML_OVERRIDES here, and it is the CLI's default besides.
-	s.overrides = h.RootPath("driver/config/overrides.yaml")
+	s.overrides = s.host.RootPath("driver/config/overrides.yaml")
 
 	previous := s.devices
 	s.devices = make([]device, 0, len(state.Devices))
@@ -189,7 +191,7 @@ func (s *Simulator) Reload(_ context.Context, _ *agent.State) error { return nil
 // Discard stops the announcements. It retracts nothing — a kernel log never
 // takes an Xid back — and forgets what it announced, so the next agent may
 // report a fault that outlives this one.
-func (s *Simulator) Discard(_ context.Context, _ *host.Host) error {
+func (s *Simulator) Discard(_ context.Context) error {
 	zap.L().Info("discarding simulator", zap.String("simulator", name))
 	s.staged.Store(false)
 
