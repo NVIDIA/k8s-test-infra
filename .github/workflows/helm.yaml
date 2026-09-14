@@ -5,13 +5,13 @@ name: helm
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, 'release-*']
     paths:
       - 'deployments/nvml-mock/helm/**'
       - 'deployments/mokka-crds/helm/**'
 
   push:
-    branches: [main]
+    branches: [main, 'release-*']
     paths:
       - 'deployments/nvml-mock/helm/**'
       - 'deployments/mokka-crds/helm/**'
@@ -103,10 +103,14 @@ jobs:
       - crds
 
     # This job is privileged.
-    # We protect it from malicious forks by only triggering when it's a push event on main.
+    # We protect it from malicious forks by only triggering on a push event to a
+    # branch in this repository: main, or a release-* branch. A fork cannot push
+    # to either. Release branches are included because a release is prepared on
+    # release-X.Y, and a chart bump made only there would otherwise never publish.
     if: >-
       github.event_name == 'push' &&
-      github.ref == 'refs/heads/main'
+      (github.ref == 'refs/heads/main' ||
+       startsWith(github.ref, 'refs/heads/release-'))
 
     runs-on: ubuntu-latest
 
