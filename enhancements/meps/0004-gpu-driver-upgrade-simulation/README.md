@@ -638,6 +638,8 @@ Potentially, the best tradeoff here is to replace the original driver container 
 
 ## Drawbacks
 
+- Mokka Control Plane gets tied to GPU Operator's `ClusterPolicy` CRD.
+- The real driver container (and potentially other setup containers) doesn't involve so GPU operator installation and upgrade flows don't have much fidelity.
 - The rows above that require a real kernel module or a real mounted (not
   shimmed) filesystem tree raise the privilege bar for a Mokka node —
   `CAP_SYS_MODULE`, kernel-version-matched builds, and/or mount capabilities
