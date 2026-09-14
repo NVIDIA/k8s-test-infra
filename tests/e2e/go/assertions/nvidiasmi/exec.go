@@ -248,6 +248,56 @@ func MaxCustomerBoostClock(ctx context.Context, k *kube.Client, pod kube.PodRef,
 		"Max Customer Boost Clocks wrong for profile %s:\n%s", p.Name, strings.Join(problems, "\n"))
 }
 
+// PowerProfiles asserts `nvidia-smi power-profiles` behaves the way the profile
+// declares: on a Blackwell board on a 570-or-newer driver it lists exactly the
+// configured profiles on every GPU and reports nothing requested or enforced;
+// on every other profile it is declined. Both directions come from the profile,
+// so one spec covers them as the CI matrix moves across profiles.
+//
+// The whole subcommand answered "Workload Power Profiles feature is not
+// supported on this device" while both getters behind it were generated stubs,
+// so a consumer could not discover a single profile the board offers.
+func PowerProfiles(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
+	ginkgo.GinkgoHelper()
+
+	declared, _ := p.WorkloadPowerProfiles()
+	wantIDs := make([]int, 0, len(declared))
+	for _, wp := range declared {
+		wantIDs = append(wantIDs, wp.ID)
+	}
+
+	if !p.SupportsWorkloadPowerProfiles() {
+		ginkgo.By(fmt.Sprintf("nvidia-smi power-profiles -l is declined on %s (declares %d profiles, driver %d.x)",
+			p.Name, len(wantIDs), p.DriverMajor()))
+		res, _ := k.Exec(ctx, pod, "nvidia-smi", "power-profiles", "-l")
+		problems := PowerProfileUnsupportedProblems(res.Combined(), res.ExitCode)
+		gomega.Expect(problems).To(gomega.BeEmpty(),
+			"power-profiles should be declined on profile %s:\n%s", p.Name, strings.Join(problems, "\n"))
+		return
+	}
+
+	ginkgo.By(fmt.Sprintf("nvidia-smi power-profiles -l lists %v on each of %d GPU(s) on %s",
+		wantIDs, p.ExpectedGPUs(), p.Name))
+	res, _ := k.Exec(ctx, pod, "nvidia-smi", "power-profiles", "-l")
+	problems := PowerProfileListProblems(res.Combined(), res.ExitCode, p.ExpectedGPUs(), wantIDs)
+	gomega.Expect(problems).To(gomega.BeEmpty(),
+		"power profile list wrong for profile %s:\n%s", p.Name, strings.Join(problems, "\n"))
+
+	// Only the getters are modelled, so a profile that pre-requests something
+	// has no way to have done so through NVML; the shipped profiles all leave
+	// it empty, matching every hardware capture.
+	if len(p.RequestedWorkloadPowerProfiles()) > 0 {
+		return
+	}
+	ginkgo.By("nvidia-smi power-profiles -gr / -ge report nothing requested or enforced")
+	requested, _ := k.Exec(ctx, pod, "nvidia-smi", "power-profiles", "-gr")
+	enforced, _ := k.Exec(ctx, pod, "nvidia-smi", "power-profiles", "-ge")
+	problems = PowerProfileCurrentProblems(
+		requested.Combined(), requested.ExitCode, enforced.Combined(), enforced.ExitCode)
+	gomega.Expect(problems).To(gomega.BeEmpty(),
+		"requested/enforced power profiles wrong for profile %s:\n%s", p.Name, strings.Join(problems, "\n"))
+}
+
 // query execs `nvidia-smi -q -x` and asserts it succeeded, returning stdout.
 func query(ctx context.Context, k *kube.Client, pod kube.PodRef) string {
 	ginkgo.GinkgoHelper()

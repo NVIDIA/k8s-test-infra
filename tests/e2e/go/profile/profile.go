@@ -28,6 +28,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 
 	"sigs.k8s.io/yaml"
@@ -66,6 +68,16 @@ type rawProfile struct {
 		Clocks *struct {
 			GraphicsMax int `json:"graphics_max"`
 		} `json:"clocks"`
+		Power *struct {
+			WorkloadProfiles *struct {
+				Supported []struct {
+					ID        int   `json:"id"`
+					Priority  int   `json:"priority"`
+					Conflicts []int `json:"conflicts"`
+				} `json:"supported"`
+				Requested []int `json:"requested"`
+			} `json:"workload_power_profiles"`
+		} `json:"power"`
 		Platform     *rawPlatform `json:"platform"`
 		RemappedRows *struct {
 			AvailabilityHistogram *struct {
@@ -93,6 +105,9 @@ type rawProfile struct {
 			ID string `json:"id"`
 		} `json:"root_complexes"`
 	} `json:"pcie_topology"`
+	System struct {
+		DriverVersion string `json:"driver_version"`
+	} `json:"system"`
 }
 
 // rawPlatform decodes a platform block, which appears both under
@@ -150,6 +165,20 @@ type Profile struct {
 
 	platform    PlatformIdentity
 	hasPlatform bool
+
+	driverVersion             string
+	workloadProfiles          []WorkloadPowerProfile
+	workloadProfilesRequested []int
+	workloadProfilesDeclared  bool
+}
+
+// WorkloadPowerProfile is one profile a board advertises through
+// `nvidia-smi power-profiles`. ID is an NVML_POWER_PROFILE_* index, which is
+// also what nvidia-smi renders as the profile's name.
+type WorkloadPowerProfile struct {
+	ID        int
+	Priority  int
+	Conflicts []int
 }
 
 // bytesPerMiB is the divisor GPU Feature Discovery uses when it publishes
@@ -196,6 +225,8 @@ func Load(profilesDir, name string) (Profile, error) {
 		c2cEnabled:   raw.NVLink.C2CEnabled,
 		memoryBytes:  raw.DeviceDefaults.Memory.TotalBytes,
 		architecture: strings.ToLower(strings.TrimSpace(raw.DeviceDefaults.Architecture)),
+
+		driverVersion: strings.TrimSpace(raw.System.DriverVersion),
 	}
 	p.applyOptionalDeviceDefaults(raw)
 	// pcibus simulator falls back to a flat single-root layout when a profile
@@ -232,6 +263,7 @@ func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
 	if c := raw.DeviceDefaults.Clocks; c != nil {
 		p.graphicsMaxMHz = c.GraphicsMax
 	}
+	p.applyWorkloadPowerProfiles(raw)
 	if r := raw.DeviceDefaults.RemappedRows; r != nil && r.AvailabilityHistogram != nil {
 		p.rowRemapHistogram = true
 		p.rowRemapBanks = r.AvailabilityHistogram.Max
@@ -382,6 +414,66 @@ func (p Profile) MaxPCIeLinkGen() int { return p.maxPCIeLinkGen }
 // (#712). 0 when the profile declares no clocks block, in which case both rows
 // read N/A.
 func (p Profile) GraphicsMaxClockMHz() int { return p.graphicsMaxMHz }
+
+// applyWorkloadPowerProfiles decodes power.workload_power_profiles. Declaring
+// the block is what separates a board that models the feature from one that
+// declines it, so the flag is recorded even when the profile list is empty.
+func (p *Profile) applyWorkloadPowerProfiles(raw rawProfile) {
+	pw := raw.DeviceDefaults.Power
+	if pw == nil || pw.WorkloadProfiles == nil {
+		return
+	}
+	p.workloadProfilesDeclared = true
+	for _, sp := range pw.WorkloadProfiles.Supported {
+		p.workloadProfiles = append(p.workloadProfiles, WorkloadPowerProfile{
+			ID:        sp.ID,
+			Priority:  sp.Priority,
+			Conflicts: sp.Conflicts,
+		})
+	}
+	p.workloadProfilesRequested = pw.WorkloadProfiles.Requested
+}
+
+// workloadPowerProfileMinDriver is the driver that introduced
+// nvmlDeviceWorkloadPowerProfileGet*. On anything older the mock's version
+// registry reports the symbol as absent, so nvidia-smi fails to find the
+// function rather than being told the device declines.
+const workloadPowerProfileMinDriver = 570
+
+// WorkloadPowerProfiles returns the profiles the board advertises, ascending by
+// id, and whether it declares the feature at all. An empty slice with declared
+// true is a board that supports the feature and lists nothing.
+func (p Profile) WorkloadPowerProfiles() ([]WorkloadPowerProfile, bool) {
+	out := slices.Clone(p.workloadProfiles)
+	slices.SortFunc(out, func(a, b WorkloadPowerProfile) int { return a.ID - b.ID })
+	return out, p.workloadProfilesDeclared
+}
+
+// RequestedWorkloadPowerProfiles is the profile ids the board asks for.
+// Normally empty: every captured board reports no requested profile.
+func (p Profile) RequestedWorkloadPowerProfiles() []int {
+	return slices.Clone(p.workloadProfilesRequested)
+}
+
+// SupportsWorkloadPowerProfiles reports whether `nvidia-smi power-profiles`
+// should succeed on this profile. Both axes have to hold, and they fail
+// differently: a board that declares no profiles is told the device does not
+// support the feature, while one on a pre-570 driver cannot find the function
+// at all.
+func (p Profile) SupportsWorkloadPowerProfiles() bool {
+	return p.workloadProfilesDeclared && p.DriverMajor() >= workloadPowerProfileMinDriver
+}
+
+// DriverMajor is the major component of system.driver_version, or 0 when the
+// profile declares none or it does not parse.
+func (p Profile) DriverMajor() int {
+	major, _, _ := strings.Cut(p.driverVersion, ".")
+	n, err := strconv.Atoi(major)
+	if err != nil {
+		return 0
+	}
+	return n
+}
 
 // preAmpereArchitectures are the device_defaults.architecture values whose
 // hardware predates both row remapping and the split SRAM ECC counters.

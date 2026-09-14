@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 258 stub functions for unimplemented NVML functions.
+// 256 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceDestroy
@@ -807,16 +807,6 @@ func nvmlDeviceVgpuForceGspUnload(device C.nvmlDevice_t) C.nvmlReturn_t {
 //export nvmlDeviceWorkloadPowerProfileClearRequestedProfiles
 func nvmlDeviceWorkloadPowerProfileClearRequestedProfiles(device C.nvmlDevice_t, requestedProfiles *C.nvmlWorkloadPowerProfileRequestedProfiles_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceWorkloadPowerProfileClearRequestedProfiles")
-}
-
-//export nvmlDeviceWorkloadPowerProfileGetCurrentProfiles
-func nvmlDeviceWorkloadPowerProfileGetCurrentProfiles(device C.nvmlDevice_t, currentProfiles *C.nvmlWorkloadPowerProfileCurrentProfiles_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceWorkloadPowerProfileGetCurrentProfiles")
-}
-
-//export nvmlDeviceWorkloadPowerProfileGetProfilesInfo
-func nvmlDeviceWorkloadPowerProfileGetProfilesInfo(device C.nvmlDevice_t, profilesInfo *C.nvmlWorkloadPowerProfileProfilesInfo_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceWorkloadPowerProfileGetProfilesInfo")
 }
 
 //export nvmlDeviceWorkloadPowerProfileSetRequestedProfiles

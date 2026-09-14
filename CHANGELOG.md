@@ -13,6 +13,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lists `nvidia` and `nvidia_uvm`, and `/sys/module/nvidia/refcnt` exists. The
   node's own modules stay visible beside them. See `docs/helm-chart.md` for how
   the surface reaches a container and what the mirror does not cover.
+- nvml-mock: `nvidia-smi power-profiles` now works on the Blackwell profiles.
+  Both getters behind it were generated stubs, so the whole subcommand answered
+  "Workload Power Profiles feature is not supported on this device" on every
+  profile — a consumer could not discover a single profile the board offers, let
+  alone which of them conflict. `gb200` and `gb300` now advertise a profile set
+  through `power.workload_power_profiles`: `-l` lists it, `-ld` adds each
+  profile's priority and conflicts, and `-gr` / `-ge` report the requested and
+  enforced sets. Requested and enforced are separate because asking for mutually
+  exclusive profiles is allowed; enforced is what survives arbitration, dropping
+  any profile that conflicts with a higher-priority one. The shipped profiles
+  request nothing, matching every real GB200, GB300 and B200 capture, so
+  `nvidia-smi -q -x` keeps reporting `N/A` for both. Two axes still decline and
+  do so differently: a device declaring no profiles reports the feature
+  unsupported, while a pre-570 `driver_version` does not export the symbols at
+  all — which is why `b200` stays declined despite being Blackwell. Only the
+  getters are modelled, so the requested set comes from config rather than from
+  `-sr` / `-cr`.
 - nvml-mock: the power management limit can now be set, not just read.
   `nvidia-smi -pl` and any consumer calling
   `nvmlDeviceSetPowerManagementLimit` (or its `_v2` form) previously got

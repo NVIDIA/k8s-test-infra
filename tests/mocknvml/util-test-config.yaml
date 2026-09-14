@@ -10,7 +10,10 @@ version: "1.0"
 # System-level configuration
 # =============================================================================
 system:
-  driver_version: "550.163.01"
+  # 570 or newer is load-bearing for the workload power profile tests below:
+  # the version registry reports those symbols as absent on an older driver, so
+  # the harness would never reach the getters themselves.
+  driver_version: "580.65.06"
   nvml_version: "12.550.163.01"
   cuda_version: "12.4"
   cuda_version_major: 12
@@ -101,6 +104,26 @@ device_defaults:
     max_limit_mw: 400000            # 400W
     current_draw_mw: 72000          # 72W idle
     power_state: "P0"               # P0-P12
+
+    # Declared so the harness reaches the workload profile getters rather than
+    # their NOT_SUPPORTED path: ProfilesInfo is the largest struct the bridge
+    # writes (~11 KB of 255-entry array behind two masks), and this is the only
+    # test that drives that write across the C boundary. The ids are
+    # non-contiguous on purpose — perfProfile is indexed by profile id, so a
+    # gap is what catches an entry written to the wrong slot.
+    workload_power_profiles:
+      supported:
+        - id: 0                     # max_p
+          priority: 10
+          conflicts: [1, 5]
+        - id: 1                     # max_q
+          priority: 20
+          conflicts: [0, 5]
+        - id: 5                     # balanced
+          priority: 30
+          conflicts: [0, 1]
+        - id: 13                    # hpc
+          priority: 40
 
   # ---------------------------------------------------------------------------
   # Thermal configuration

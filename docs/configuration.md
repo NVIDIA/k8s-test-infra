@@ -740,6 +740,47 @@ limit (`nvidia-smi -pl`, in milliwatts and inclusive of `min_limit_mw` /
 `max_limit_mw`; a cap outside those bounds is refused). A cap moves both the
 power management limit and the enforced limit, but not `default_limit_mw`.
 
+### Workload power profiles
+
+`power.workload_power_profiles` opts a device into the Blackwell workload power
+profile feature, which `nvidia-smi power-profiles` reads. Absent — the default —
+the device declines the feature the way every pre-Blackwell board does. Only the
+getters are modelled, so the requested set comes from config rather than from a
+consumer calling the setters:
+
+```yaml
+power:
+  workload_power_profiles:
+    supported:
+      - id: 0                  # NVML_POWER_PROFILE_MAX_P, rendered "Max-P"
+        priority: 10           # lower value wins arbitration
+        conflicts: [1, 5]      # cannot be enforced alongside these
+      - id: 6                  # "LLM Inference"
+        priority: 40
+    requested: []              # profile ids to ask for
+```
+
+`id` is an `NVML_POWER_PROFILE_*` index (0-254) and doubles as the profile's bit
+position in NVML's 255-bit masks, so ids must be unique. It is also what
+nvidia-smi renders as the name: `-l` lists the supported set, `-ld` adds the
+priority and conflicts, `-gr` and `-ge` report the requested and enforced sets.
+
+Requested and enforced differ because asking for mutually exclusive profiles is
+allowed: enforced is what survives arbitration, dropping any profile that
+conflicts with a higher-priority one that was also requested. A requested id the
+device does not advertise is ignored.
+
+`requested` is empty in the shipped profiles, because every real GB200, GB300 and
+B200 capture reports no requested or enforced profile — which is what
+`nvidia-smi -q -x` renders as `N/A` in its `<power_profiles>` block.
+
+Two axes decide whether the feature answers at all, and they fail differently. A
+device that declares no `workload_power_profiles` reports the feature as
+unsupported; one whose `system.driver_version` is older than 570 does not export
+the symbols, so nvidia-smi cannot find the function. Of the shipped profiles only
+`gb200` and `gb300` satisfy both — `b200` is Blackwell but pins driver 560, which
+predates the API.
+
 ### Deliberately fixed
 
 **Profiling metrics (`DCGM_FI_PROF_*`).** DCGM reads these on Hopper+ through the

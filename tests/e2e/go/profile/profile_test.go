@@ -179,6 +179,45 @@ func TestC2CIsGraceOnly(t *testing.T) {
 	}
 }
 
+// TestWorkloadPowerProfilesAreBlackwellOnDriver570 pins both axes the e2e
+// expectation is derived from, so "lists its profiles" cannot quietly become
+// "always lists them". b200 is the interesting case: Blackwell silicon, but the
+// profile pins driver 560, which predates the API — so it must be declined even
+// though the architecture supports the feature.
+func TestWorkloadPowerProfilesAreBlackwellOnDriver570(t *testing.T) {
+	wantSupported := map[string]bool{"gb200": true, "gb300": true}
+	for _, name := range KnownProfiles {
+		p, err := Load(profilesDir, name)
+		require.NoError(t, err, "Load(%q)", name)
+
+		require.Equal(t, wantSupported[name], p.SupportsWorkloadPowerProfiles(),
+			"%s: power-profiles support should be %v (driver %d.x)",
+			name, wantSupported[name], p.DriverMajor())
+
+		profiles, declared := p.WorkloadPowerProfiles()
+		if !wantSupported[name] {
+			require.False(t, declared,
+				"%s: declares workload profiles its driver cannot expose", name)
+			continue
+		}
+		require.NotEmpty(t, profiles, "%s: declared the feature but lists no profile", name)
+		require.Empty(t, p.RequestedWorkloadPowerProfiles(),
+			"%s: every hardware capture reports no requested profile", name)
+
+		// Ascending and unique: the ids double as bit positions in NVML's
+		// 255-bit mask, so a duplicate would silently collapse.
+		seen := map[int]bool{}
+		for i, wp := range profiles {
+			require.False(t, seen[wp.ID], "%s: duplicate profile id %d", name, wp.ID)
+			seen[wp.ID] = true
+			require.Less(t, wp.ID, 255, "%s: profile id %d has no bit in a 255-bit mask", name, wp.ID)
+			if i > 0 {
+				require.Greater(t, wp.ID, profiles[i-1].ID, "%s: profiles should ascend by id", name)
+			}
+		}
+	}
+}
+
 // TestPlatformIdentityIsRackScaleOnly pins platform identity as a rack-scale
 // axis, for the same reason as the C2C one: an e2e expectation derived from the
 // profiles must keep a negative control, or "reports a location" could quietly
