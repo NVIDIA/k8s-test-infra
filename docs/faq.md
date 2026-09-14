@@ -11,7 +11,6 @@ than fail in an interesting way:
 | Kernel module presence — `/proc/modules`, `/sys/module/nvidia/` | `lsmod`, the GPU Operator driver-container gate, DCGM startup checks |
 | PCIe config space — `/sys/bus/pci/devices/<BDF>/config`, `/proc/bus/pci/devices` | `lspci -vv`, low-level probes |
 | fabricmanager telemetry socket, `nvswitch-audit` | DCGM-Exporter fabric-manager collector, operator diagnostics |
-| MIG partition CDI specs and CDI hooks | MIG-aware workloads, GPU Operator toolkit hooks |
 | NVLink link-state change events, RDMA netlink events | tools reacting to link degradation |
 
 ## Can I run CUDA workloads against Mokka?
@@ -80,6 +79,20 @@ Either enable NRI, or mount the driver root yourself the way
 [`local/gpu-validator.k8s.yaml`](https://github.com/NVIDIA/k8s-test-infra/blob/main/local/gpu-validator.k8s.yaml)
 does: a hostPath at `/run/nvidia/driver` plus a matching `LD_LIBRARY_PATH`.
 This is a boundary of the plain install, not a bug.
+
+## Can I use MIG?
+
+Yes, on the MIG-capable profiles — `a100`, `h100`, `b200`, `gb200` and `gb300`.
+`nvidia-smi -mig` and `nvidia-smi mig -cgi/-cci/-dgi/-dci` work against the
+mock as they do against a driver, and a node can boot already partitioned, in
+which case the device plugin advertises one resource per slice under
+`migStrategy=single`.
+
+One boundary: a repartition made at runtime moves the NVML view only. What a
+node can *allocate* is the layout it booted with, because the driver capability
+surface is staged when the pod starts.
+
+See the [MIG partitioning guide](guides/mig.md).
 
 ## Can I simulate a broken GPU?
 

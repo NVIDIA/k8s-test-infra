@@ -114,12 +114,12 @@
         "mig": {
           "type": "object",
           "additionalProperties": true,
-          "description": "MIG partitioning. Activates the layout the profile declares under device_defaults.mig.gpu_instances; a profile that declares none is rejected, because MIG on with nothing partitioned publishes no GPU resource at all under migStrategy=single.",
+          "description": "MIG partitioning. Boots the board partitioned as gpuInstances describes; no profile declares a layout of its own, so enabling this without one is rejected, because MIG on with nothing partitioned publishes no GPU resource at all under migStrategy=single.",
           "properties": {
             "enabled": { "type": "boolean" },
             "gpuInstances": {
               "type": "array",
-              "description": "Overrides the partitions the profile declares. Empty keeps them.",
+              "description": "The partitioning to apply. Required when enabled is true; fill a board with its smallest slice to keep every partition on one profile name, which is what migStrategy=single requires.",
               "items": {
                 "type": "object",
                 "additionalProperties": true,

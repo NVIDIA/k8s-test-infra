@@ -46,7 +46,8 @@ rather than through this CLI: `nvidia-smi -mig` and
 `nvidia-smi mig -cgi/-cci/-dgi/-dci` work against the mock as they do against a
 driver, and the library records each mutation so it outlives the process that
 made it. What they change is what `nvidia-smi`, DCGM and GFD report, and what
-the device plugin *discovers*.
+the device plugin *discovers* — see the
+[MIG partitioning guide](guides/mig.md).
 
 The driver capability surface is not hot-reloadable — `/dev/nvidia-caps` and
 `/proc/driver/nvidia-caps/mig-minors` are staged once at pod start, so
@@ -437,8 +438,10 @@ equivalent.
 
 ### MIG partitioning — use `nvidia-smi`
 
-Repartitioning is not one of this CLI's commands. Use `nvidia-smi`, which works
-against the mock the way it works against a driver:
+Repartitioning is not one of this CLI's commands, and deliberately so: it would
+be a second, non-standard spelling of an interface `nvidia-smi` already covers,
+and a second writer of the same state. Use `nvidia-smi`, which works against
+the mock the way it works against a driver:
 
 ```bash
 # turn MIG on, then carve GPU 0 into seven 1g.5gb partitions
@@ -448,29 +451,24 @@ nvidia-smi mig -i 0 -cgi 1g.5gb,1g.5gb,1g.5gb,1g.5gb,1g.5gb,1g.5gb,1g.5gb -C
 # tear one partition down, or all of them
 nvidia-smi mig -i 0 -dci -ci 0 -gi 3
 nvidia-smi mig -i 0 -dgi -gi 3
-
-# turn MIG off, destroying every partition
-nvidia-smi -i 0 -mig 0
-
-# read it back — from a different process, or a different pod
-nvidia-smi mig -lgi
-nvidia-smi -L
 ```
 
-Each mutation is recorded in the same override document this CLI writes, so it
-outlives the `nvidia-smi` that made it and reaches every other consumer on the
-node within one TTL. `nvml-mock-ctl status` shows the recorded layout and
-`nvml-mock-ctl reset` clears it.
+The full workflow — installing a node already partitioned, what the device
+plugin then advertises, and repartitioning at runtime — is the
+[MIG partitioning guide](guides/mig.md).
 
-A mutation that cannot be recorded — an override document this process cannot
-write — fails with `NVML_ERROR_NO_PERMISSION` rather than succeeding in one
-process only, which is what the driver reports when the same call is made
-without the permissions it needs.
+What concerns this CLI is that each mutation is recorded in the same override
+document it writes, so a partition outlives the `nvidia-smi` that made it.
+`nvml-mock-ctl status` shows the recorded layout and `nvml-mock-ctl reset`
+clears it. A mutation that cannot be recorded fails with
+`NVML_ERROR_NO_PERMISSION` rather than succeeding in one process only, which is
+what the driver reports when the same call is made without the permissions it
+needs.
 
 **This changes the NVML view only.** `/dev/nvidia-caps` and the `mig-minors`
-table stay as the node agent staged them from the profile, so the device plugin
+table stay as the node agent staged them at pod start, so the device plugin
 cannot *allocate* what a repartition produces — including a layout identical to
-the profile's own, since a rebuild draws fresh GPU-instance IDs. Clearing the
+the installed one, since a rebuild draws fresh GPU-instance IDs. Clearing the
 override, `nvml-mock-ctl reset` included, restores the layout NVML reports but
 not the instance IDs it reports them under, so only restarting the `nvml-mock`
 pod makes the node allocatable again — see the v1 scope note above.
