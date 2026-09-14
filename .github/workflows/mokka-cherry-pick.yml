@@ -1,0 +1,180 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Mokka cherry-pick
+
+run-name: "Mokka cherry-pick: ${{ inputs.action_id }}"
+
+"on":
+  workflow_dispatch:
+    inputs:
+      pull_request_number:
+        description: Merged source pull request number
+        required: true
+        type: string
+      source_sha:
+        description: Lowercase 40-character merge commit SHA
+        required: true
+        type: string
+      target_branch:
+        description: Frozen target branch
+        required: true
+        type: string
+      action_id:
+        description: Canonical UUIDv4 action identifier
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: mokka-cherry-pick-${{ inputs.pull_request_number }}-${{ inputs.target_branch }}
+  cancel-in-progress: false
+
+jobs:
+  cherry-pick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Validate dispatch envelope
+        env:
+          GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -Eeuo pipefail
+          invalid() {
+            printf '%s\n' "$1" >&2
+            exit 1
+          }
+          inputs="$(jq -cers '
+            if length != 1 then error("invalid event document count") else .[0] end |
+            .inputs as $inputs |
+            if type != "object" or ($inputs | type) != "object" then error("invalid inputs")
+            elif ($inputs | keys | sort) != ["action_id", "pull_request_number", "source_sha", "target_branch"] then error("unexpected inputs")
+            elif ($inputs | to_entries | all(.value | type == "string")) | not then error("non-string input")
+            elif ($inputs.pull_request_number | test("\\A[1-9][0-9]*\\z") | not) then error("invalid pull request number")
+            elif (($inputs.pull_request_number | length) > 10 or (($inputs.pull_request_number | length) == 10 and $inputs.pull_request_number > "2147483647")) then error("invalid pull request number")
+            elif ($inputs.source_sha | test("\\A[0-9a-f]{40}\\z") | not) then error("invalid source SHA")
+            elif $inputs.target_branch != "main" then error("invalid target branch")
+            elif ($inputs.action_id | test("\\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\\z") | not) then error("invalid action ID")
+            else $inputs end
+          ' "$GITHUB_EVENT_PATH")" || invalid "invalid event inputs"
+          pull_request_number="$(jq -er '.pull_request_number' <<<"$inputs")" || invalid "invalid pull request number"
+          source_sha="$(jq -er '.source_sha' <<<"$inputs")" || invalid "invalid source SHA"
+          target_branch="$(jq -er '.target_branch' <<<"$inputs")" || invalid "invalid target branch"
+          action_id="$(jq -er '.action_id' <<<"$inputs")" || invalid "invalid action ID"
+          [[ "$pull_request_number" =~ ^[1-9][0-9]*$ ]] || invalid "invalid pull request number"
+          awk -v value="$pull_request_number" 'BEGIN { exit !(length(value) < 10 || (length(value) == 10 && sprintf("x%s", value) <= "x2147483647")) }' || invalid "invalid pull request number"
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || invalid "invalid source SHA"
+          [[ "$target_branch" == main ]] || invalid "invalid target branch"
+          [[ "$action_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] || invalid "invalid action ID"
+          [[ "$GITHUB_REPOSITORY" == NVIDIA/k8s-test-infra ]] || invalid "invalid repository"
+          [[ "$GITHUB_REPOSITORY_ID" == 733665780 ]] || invalid "invalid repository ID"
+          [[ "$GITHUB_WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]] || invalid "invalid workflow SHA"
+      - name: Fetch immutable control files without a credential
+        env:
+          GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          [[ "${GITHUB_WORKFLOW_SHA:?}" =~ ^[0-9a-f]{40}$ ]]
+          runner_temp="$(cd -- "${RUNNER_TEMP:?}" && pwd -P)"
+          workspace_dir="$(cd -- "${GITHUB_WORKSPACE:?}" && pwd -P)"
+          control_stage="$(mktemp -d "$runner_temp/mokka-control.XXXXXXXX")"
+          control_home="$(mktemp -d "$runner_temp/mokka-control-home.XXXXXXXX")"
+          control_xdg="$(mktemp -d "$runner_temp/mokka-control-xdg.XXXXXXXX")"
+          helper_stage="$(mktemp -d "$runner_temp/mokka-helper.XXXXXXXX")"
+          template_dir="$(mktemp -d "$runner_temp/mokka-template.XXXXXXXX")"
+          test -z "$(/usr/bin/find "$template_dir" -mindepth 1 -print -quit)"
+          control_dir="${RUNNER_TEMP:?}/mokka-control"
+          helper_dir="${RUNNER_TEMP:?}/mokka-helper"
+          test ! -e "$control_dir"
+          test ! -e "$helper_dir"
+          test "$(cd -- "$(dirname -- "$control_dir")" && pwd -P)" = "$runner_temp"
+          test "$(cd -- "$(dirname -- "$helper_dir")" && pwd -P)" = "$runner_temp"
+          for temporary_path in "$control_stage" "$control_home" "$control_xdg" "$helper_stage" "$template_dir"; do
+            temporary_path="$(cd -- "$temporary_path" && pwd -P)"
+            case "$temporary_path" in "$runner_temp"/*) ;; *) exit 1 ;; esac
+            case "$temporary_path" in "$workspace_dir"/*) exit 1 ;; esac
+          done
+          git_bin="$(command -v git)"
+          test "$git_bin" = "/usr/bin/git"
+          test -x /usr/bin/git
+          git_exec_path="$(env -i PATH="/usr/bin:/bin" /usr/bin/git --exec-path)"
+          case "$git_exec_path" in /*) ;; *) exit 1 ;; esac
+          git_exec_path="$(cd -- "$git_exec_path" && pwd -P)"
+          test -d "$git_exec_path"
+          control_git() {
+            env -i PATH="/usr/bin:/bin" HOME="$control_home" XDG_CONFIG_HOME="$control_xdg" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_COUNT=0 GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=false SSH_ASKPASS=/bin/false GCM_INTERACTIVE=Never "$git_bin" --exec-path="$git_exec_path" -c protocol.allow=never -c protocol.https.allow=always -c protocol.version=2 -c http.followRedirects=false -c http.maxRedirects=0 -c credential.helper= -c http.https://github.com/.extraHeader= -c init.templateDir="$template_dir" -c fetch.recurseSubmodules=false "$@"
+          }
+          control_git -C "$control_stage" init --bare --quiet
+          test "$(control_git -C "$control_stage" rev-parse --is-bare-repository)" = "true"
+          test "$(control_git -C "$control_stage" config --local --name-only --list | /usr/bin/sort)" = $'core.bare\ncore.filemode\ncore.repositoryformatversion'
+          test "$(control_git -C "$control_stage" config --local --get core.bare)" = "true"
+          test "$(control_git -C "$control_stage" config --local --get core.filemode)" = "true"
+          test "$(control_git -C "$control_stage" config --local --get core.repositoryformatversion)" = "0"
+          test -z "$(control_git -C "$control_stage" remote)"
+          control_git -C "$control_stage" fetch --depth=1 --no-tags --no-recurse-submodules https://github.com/NVIDIA/k8s-test-infra.git "$GITHUB_WORKFLOW_SHA"
+          test "$(control_git -C "$control_stage" cat-file -t FETCH_HEAD)" = "commit"
+          control_git -C "$control_stage" update-ref --no-deref HEAD "$GITHUB_WORKFLOW_SHA"
+          test "$(control_git -C "$control_stage" rev-parse HEAD)" = "$GITHUB_WORKFLOW_SHA"
+          test "$(control_git -C "$control_stage" rev-parse FETCH_HEAD)" = "$GITHUB_WORKFLOW_SHA"
+          workflow_path=".github/workflows/mokka-cherry-pick.yml"
+          helper_path=".github/scripts/mokka-cherry-pick.sh"
+          mapfile -d '' -t workflow_entries < <(control_git -C "$control_stage" ls-tree -z "$GITHUB_WORKFLOW_SHA" -- "$workflow_path")
+          test "${#workflow_entries[@]}" -eq 1
+          [[ "${workflow_entries[0]}" =~ ^100644\ blob\ [0-9a-f]{40}$'\t'.github/workflows/mokka-cherry-pick.yml$ ]]
+          mapfile -d '' -t helper_entries < <(control_git -C "$control_stage" ls-tree -z "$GITHUB_WORKFLOW_SHA" -- "$helper_path")
+          test "${#helper_entries[@]}" -eq 1
+          test "${helper_entries[0]}" = "100755 blob 6cf473c1026e8cf83573599c7a0d86593925efda	.github/scripts/mokka-cherry-pick.sh"
+          test "$(control_git -C "$control_stage" cat-file -s 6cf473c1026e8cf83573599c7a0d86593925efda)" = "8078"
+          test "$(control_git -C "$control_stage" cat-file blob 6cf473c1026e8cf83573599c7a0d86593925efda | /usr/bin/sha256sum | /usr/bin/awk '{print $1}')" = "3b03691a91a960b9222a58295c1b78b1245a19bf654cb6b7aab095dde2510065"
+          control_git -C "$control_stage" cat-file blob 6cf473c1026e8cf83573599c7a0d86593925efda > "$helper_stage/mokka-cherry-pick.sh"
+          /usr/bin/chmod 0500 "$helper_stage/mokka-cherry-pick.sh"
+          test -f "$helper_stage/mokka-cherry-pick.sh"
+          test ! -L "$helper_stage/mokka-cherry-pick.sh"
+          test "$(/usr/bin/stat -c '%h:%a:%s:%F' "$helper_stage/mokka-cherry-pick.sh")" = "1:500:8078:regular file"
+          test ! -w "$helper_stage/mokka-cherry-pick.sh"
+          test -x "$helper_stage/mokka-cherry-pick.sh"
+          /usr/bin/mv -- "$control_stage" "$control_dir"
+          /usr/bin/mv -- "$helper_stage" "$helper_dir"
+      - name: Check out validated target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.target_branch }}
+          path: target
+          persist-credentials: true
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+      - name: Cherry-pick merged source pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        working-directory: target
+        run: |
+          set -Eeuo pipefail
+          runner_temp="$(cd -- "${RUNNER_TEMP:?}" && pwd -P)"
+          helper_dir="$(cd -- "${RUNNER_TEMP:?}/mokka-helper" && pwd -P)"
+          test "$helper_dir" = "$runner_temp/mokka-helper"
+          helper_path="$helper_dir/mokka-cherry-pick.sh"
+          test -f "$helper_path"
+          test ! -L "$helper_path"
+          test "$(/usr/bin/stat -c '%h:%a:%s:%F' "$helper_path")" = "1:500:8078:regular file"
+          test ! -w "$helper_path"
+          test -x "$helper_path"
+          test "$(/usr/bin/git hash-object --no-filters "$helper_path")" = "6cf473c1026e8cf83573599c7a0d86593925efda"
+          test "$(/usr/bin/sha256sum "$helper_path" | /usr/bin/awk '{print $1}')" = "3b03691a91a960b9222a58295c1b78b1245a19bf654cb6b7aab095dde2510065"
+          exec /usr/bin/bash "$helper_path"
