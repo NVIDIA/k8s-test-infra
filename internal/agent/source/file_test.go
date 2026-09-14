@@ -73,7 +73,7 @@ func TestFileSource_EmitsInitialState(t *testing.T) {
 	configs, _ := filepath.Glob("../../../pkg/gpu/mocknvml/configs/mock-nvml-config-*.yaml")
 	require.NotEmpty(t, configs, "no configs found")
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	fs := NewFileSource(configs[0], filepath.Join(t.TempDir(), "topology.yaml"), zap.NewNop())
@@ -344,7 +344,7 @@ func pollOnce(t *testing.T, f *FileSource, lastHash *[32]byte) *agent.Update {
 	t.Helper()
 
 	ch := make(chan agent.Update, 1)
-	f.poll(context.Background(), ch, lastHash)
+	f.poll(t.Context(), ch, lastHash)
 	select {
 	case u := <-ch:
 		return &u

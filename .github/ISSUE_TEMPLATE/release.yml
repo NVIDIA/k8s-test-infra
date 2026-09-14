@@ -1,0 +1,99 @@
+name: "Release"
+description: "Track a minor release (v0.X.0) and its candidates."
+title: "Release v0.X.0"
+labels: ["release", "kind/chore"]
+assignees: ["ArangoGutierrez"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tracks one minor release from branch cut to published artefacts.
+        Do not remove checklist items: an item that does not apply is checked
+        with a note saying why, so the record shows it was considered.
+
+        Patch releases on an existing `release-X.Y` branch use the
+        **Patch release** template instead.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "The final version this issue tracks, e.g. v0.4.0"
+      placeholder: "v0.4.0"
+    validations: { required: true }
+  - type: input
+    id: branch
+    attributes:
+      label: Release branch
+      description: "Per NVIDIA convention, no `v` prefix. e.g. release-0.4"
+      placeholder: "release-0.4"
+    validations: { required: true }
+  - type: input
+    id: basesha
+    attributes:
+      label: Base commit
+      description: "The main SHA the release branch is cut from. Must be fully green."
+    validations: { required: true }
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Pre-flight
+      options:
+        - label: "CI Pipeline is green on the base commit, including the full e2e matrix. A flake re-run to green is fine; record the job and the re-run."
+        - label: "No open PR is a fix that belongs in this release. Anything that does belong is merged before the branch is cut, or it becomes a cherry-pick."
+        - label: "The milestone for this release has no open items, or the remainder has been retargeted."
+  - type: checkboxes
+    id: branchcut
+    attributes:
+      label: Cut the release branch
+      options:
+        - label: "`git branch <release-branch> <base-sha>`"
+        - label: "`git push upstream <base-sha>:refs/heads/<release-branch>`"
+        - label: "Confirm it exists: `git ls-remote --heads upstream <release-branch>`"
+        - label: "`main` is now free for the next minor. Feature work does not wait for this release."
+  - type: checkboxes
+    id: prep
+    attributes:
+      label: Release-prep PR (against the release branch)
+      options:
+        - label: "Bump `deployments/nvml-mock/helm/nvml-mock/Chart.yaml` `version` to the release version. Leave `appVersion` alone: it names the mocked NVIDIA driver, not this project."
+        - label: "Bump `deployments/mokka-crds/helm/mokka-crds/Chart.yaml` if the CRDs changed."
+        - label: "Promote `[Unreleased]` in CHANGELOG.md to `## [VERSION] - YYYY-MM-DD`, merging any duplicated subheadings into one each in Keep-a-Changelog order, and add a fresh empty `[Unreleased]`."
+        - label: "Verify no changelog content was lost: the bullet count and the set of content lines must be unchanged. Paste both counts in the PR."
+        - label: "Add the compare link at the bottom of CHANGELOG.md following the existing pattern."
+        - label: "Gates: `make helm-tests`, `make helm-crds-tests`, `make lint`, `make build`, `make test`."
+        - label: "PR reviewed and merged. `main` requires one approving review and dismisses stale reviews on push, so batch any review feedback into a single push."
+  - type: checkboxes
+    id: tag
+    attributes:
+      label: Tag
+      options:
+        - label: "Annotated and signed: `git tag -s -m \"<version>\" <version> <prep-commit>`"
+        - label: "Tag message covers: headline change, breaking changes, and for a candidate an explicit statement that it is not the final release."
+        - label: "`git push upstream <version>`"
+  - type: checkboxes
+    id: artefacts
+    attributes:
+      label: Verify published artefacts
+      description: "Confirm by resolving the artefact, not by reading a green check."
+      options:
+        - label: "`nvml-mock Publish` ran for the tag and succeeded."
+        - label: "`control-plane Publish` ran for the tag and succeeded."
+        - label: "Image resolves: `ghcr.io/nvidia/nvml-mock:<version-without-v>`. The image tag drops the `v`: tag `v0.4.0` publishes image `0.4.0`."
+        - label: "Image resolves: `ghcr.io/nvidia/mokka-control-plane:<version-without-v>`"
+        - label: "Chart resolves: `oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock:<version-without-v>`"
+        - label: "KNOWN GAP: the helm publish job is gated on `github.ref == 'refs/heads/main'`, so a chart bump made only on a release branch never publishes. Until that is fixed, confirm the chart actually resolves and land the bump on `main` too if it did not."
+  - type: checkboxes
+    id: after
+    attributes:
+      label: After the release
+      options:
+        - label: "Draft GitHub release notes from the changelog section and publish."
+        - label: "Close the milestone for this release."
+        - label: "Create the next milestone and retarget anything that slipped."
+        - label: "Link the tag and the release notes in this issue, then close it."
+  - type: textarea
+    id: changelog
+    attributes:
+      label: Changelog
+      description: "Paste the release's changelog section here so the issue is a self-contained record."
+      render: markdown

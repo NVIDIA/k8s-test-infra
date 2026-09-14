@@ -49,13 +49,13 @@ var dmiMountTargets = []struct {
 //
 // Deliberately not a machine-type mock — that is writeMachineType's job (#681).
 func stageDMI(h *host.Host) error {
-	kernelDir := filepath.Join(h.Sys, kernelDMIRelPath)
+	kernelDir := h.SysPath(kernelDMIRelPath)
 	if _, err := os.Stat(kernelDir); err != nil {
 		// No kernel DMI means no hook to satisfy either: both test the host.
 		return nil
 	}
 
-	mockDir := filepath.Join(h.Root, mockDMIRelPath)
+	mockDir := h.RootPath(mockDMIRelPath)
 	if err := os.MkdirAll(mockDir, 0o755); err != nil {
 		return err
 	}
@@ -108,7 +108,7 @@ func stagePCIShim(h *host.Host) error {
 		return nil
 	}
 
-	libDir := filepath.Join(h.Root, "driver/usr/local/lib")
+	libDir := h.RootPath("driver/usr/local/lib")
 
 	if err := os.MkdirAll(libDir, 0o755); err != nil {
 		return err
