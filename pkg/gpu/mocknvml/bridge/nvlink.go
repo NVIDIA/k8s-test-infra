@@ -14,8 +14,16 @@
 // Package main provides NVML NVLink bridge functions not already carried by
 // device.go (state / version / capability / error / remote-PCI live there).
 // This file adds the remote-device-type, utilization-counter, and
-// freeze/reset exports. All are thin marshalling over the pure-Go engine,
-// whose values derive from the immutable NodeFabric.
+// freeze/reset exports, plus per-device link info and the low-power
+// threshold. All are thin marshalling over the pure-Go engine, whose values
+// derive from the immutable NodeFabric.
+//
+// nvmlDeviceGetNvLinkUtilizationControl and its Set counterpart are
+// deliberately left as generated stubs. Both carry DEPRECATED(13.0) upstream —
+// "getting/setting utilization counter control is no longer supported" — so a
+// current driver answers NOT_SUPPORTED and the stub is already the faithful
+// reply. nvidia-smi agrees: `nvlink -gc/-sc` print "Getting counter control is
+// deprecated!" before they call.
 package main
 
 /*
@@ -133,4 +141,48 @@ func nvmlDeviceResetNvLinkErrorCounters(device C.nvmlDevice_t, link C.uint) C.nv
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
 	return toReturn(dev.ResetNvLinkErrorCounters(int(link)))
+}
+
+//export nvmlDeviceGetNvLinkInfo
+func nvmlDeviceGetNvLinkInfo(device C.nvmlDevice_t, info *C.nvmlNvLinkInfo_t) C.nvmlReturn_t {
+	if info == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetNvLinkInfo"); !ok {
+		return ret
+	}
+	if !nvlinkInfoStructVersionOK("nvmlDeviceGetNvLinkInfo", uint32(info.version),
+		unsafe.Sizeof(C.nvmlNvLinkInfo_v1_t{}), unsafe.Sizeof(C.nvmlNvLinkInfo_v2_t{})) {
+		return C.NVML_ERROR_ARGUMENT_VERSION_MISMATCH
+	}
+	dev := engine.GetEngine().LookupConfigurableDevice(unsafe.Pointer(device.handle))
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	nvleEnabled, ret := dev.GetMockNvLinkInfo()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	info.isNvleEnabled = 0
+	if nvleEnabled {
+		info.isNvleEnabled = 1
+	}
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceSetNvLinkDeviceLowPowerThreshold
+func nvmlDeviceSetNvLinkDeviceLowPowerThreshold(device C.nvmlDevice_t, info *C.nvmlNvLinkPowerThres_t) C.nvmlReturn_t {
+	if info == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	if ret, ok := bridgeVersionCheck("nvmlDeviceSetNvLinkDeviceLowPowerThreshold"); !ok {
+		return ret
+	}
+	dev := engine.GetEngine().LookupConfigurableDevice(unsafe.Pointer(device.handle))
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	// nvmlNvLinkPowerThres_t carries no version field, so there is no tag to
+	// validate here — unlike every other struct in this family.
+	return toReturn(dev.SetMockNvLinkLowPowerThreshold(uint32(info.lowPwrThreshold)))
 }
