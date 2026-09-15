@@ -489,12 +489,7 @@ typedef struct nvmlGridLicensableFeatures_st                nvmlGridLicensableFe
 typedef struct nvmlHwbcEntry_st                             nvmlHwbcEntry_t;
 typedef struct nvmlLedState_st                              nvmlLedState_t;
 typedef struct nvmlMarginTemperature_st                     nvmlMarginTemperature_t;
-typedef struct nvmlNvLinkInfo_st                            nvmlNvLinkInfo_t;
-typedef struct nvmlNvLinkPowerThres_st                      nvmlNvLinkPowerThres_t;
 typedef struct nvmlNvLinkUtilizationControl_st              nvmlNvLinkUtilizationControl_t;
-typedef struct nvmlNvlinkGetBwMode_st                       nvmlNvlinkGetBwMode_t;
-typedef struct nvmlNvlinkSetBwMode_st                       nvmlNvlinkSetBwMode_t;
-typedef struct nvmlNvlinkSupportedBwModes_st                nvmlNvlinkSupportedBwModes_t;
 typedef struct nvmlPRMTLV_v1_st                             nvmlPRMTLV_v1_t;
 typedef struct nvmlPSUInfo_st                               nvmlPSUInfo_t;
 typedef struct nvmlPciInfoExt_st                            nvmlPciInfoExt_t;
@@ -546,6 +541,63 @@ _Static_assert(sizeof(nvmlPlatformInfo_v1_t) == sizeof(nvmlPlatformInfo_v2_t),
                "nvmlPlatformInfo v1 and v2 must stay the same size: the bridge serves both from one payload");
 _Static_assert(sizeof(nvmlPlatformInfo_v2_t) == 44,
                "nvmlPlatformInfo_v2_t must stay 44 bytes to match the go-nvml ABI");
+
+/**
+ * NVLink Reduced Bandwidth Mode (RBM). Full definitions needed so the
+ * nvmlDeviceGetNvlink*BwMode exports can populate the caller's struct.
+ * Layout matches the upstream NVML public header; see go-nvml's
+ * pkg/nvml/nvml.h.
+ *
+ * Only v1 exists upstream, but the structs still carry a version field that
+ * the caller sets on the way in, so the exports validate it and answer
+ * NVML_ERROR_ARGUMENT_VERSION_MISMATCH on anything else.
+ */
+#define NVML_NVLINK_TOTAL_SUPPORTED_BW_MODES 23
+
+typedef struct nvmlNvlinkSupportedBwModes_v1_st
+{
+    unsigned int  version;
+    unsigned char bwModes[NVML_NVLINK_TOTAL_SUPPORTED_BW_MODES];
+    unsigned char totalBwModes;
+} nvmlNvlinkSupportedBwModes_v1_t;
+typedef nvmlNvlinkSupportedBwModes_v1_t nvmlNvlinkSupportedBwModes_t;
+
+typedef struct nvmlNvlinkGetBwMode_v1_st
+{
+    unsigned int  version;
+    unsigned int  bIsBest;
+    unsigned char bwMode;
+} nvmlNvlinkGetBwMode_v1_t;
+typedef nvmlNvlinkGetBwMode_v1_t nvmlNvlinkGetBwMode_t;
+
+typedef struct nvmlNvlinkSetBwMode_v1_st
+{
+    unsigned int  version;
+    unsigned int  bSetBest;
+    unsigned char bwMode;
+} nvmlNvlinkSetBwMode_v1_t;
+typedef nvmlNvlinkSetBwMode_v1_t nvmlNvlinkSetBwMode_t;
+
+/**
+ * Per-device NVLink information. isNvleEnabled is NVLink encryption, which
+ * `nvidia-smi nvlink --info` renders as its " NVLE:" row.
+ */
+typedef struct nvmlNvLinkInfo_v1_st
+{
+    unsigned int version;
+    unsigned int isNvleEnabled;
+} nvmlNvLinkInfo_v1_t;
+typedef nvmlNvLinkInfo_v1_t nvmlNvLinkInfo_t;
+
+/**
+ * NVLink low-power threshold. Units come from
+ * NVML_FI_DEV_NVLINK_GET_POWER_THRESHOLD_UNITS (the mock reports 50 us).
+ */
+typedef struct nvmlNvLinkPowerThres_st
+{
+    unsigned int lowPwrThreshold;
+} nvmlNvLinkPowerThres_t;
+
 typedef struct nvmlPowerSmoothingProfile_st                 nvmlPowerSmoothingProfile_t;
 typedef struct nvmlPowerSmoothingState_st                   nvmlPowerSmoothingState_t;
 typedef struct nvmlPowerSource_st                           nvmlPowerSource_t;
