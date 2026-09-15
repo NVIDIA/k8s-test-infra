@@ -3,7 +3,8 @@
 
 // Package gpudriver implements the GPU driver footprint simulator:
 // chardevs, NVML/CUDA shims, nvidia-smi, procfs entries, engine config,
-// and the /run/nvidia/driver GPU-Operator compatibility symlink.
+// and its mirror at /run/nvidia/driver, the path GPU Operator's own
+// operands default to.
 package gpudriver
 
 import (
@@ -25,14 +26,6 @@ import (
 
 const name = "gpudriver"
 
-// The GPU-Operator compatibility symlink and the driver root it points at.
-// This resolves to the node's real /run/nvidia/driver, a path the GPU Operator's
-// driver container also owns.
-const (
-	driverLinkRel    = "nvidia/driver"
-	driverLinkTarget = "/var/lib/nvml-mock/driver"
-)
-
 var (
 	_ agent.Simulator = (*Simulator)(nil)
 	_ agent.Applier   = (*Simulator)(nil)
@@ -50,7 +43,7 @@ func New(h *host.Host) *Simulator { return &Simulator{host: h} }
 // Name returns the simulator's stable identifier.
 func (s *Simulator) Name() string { return name }
 
-// Ready reports whether the driver footprint and its published symlink exist.
+// Ready reports whether the driver footprint and its published mirror exist.
 func (s *Simulator) Ready() bool { return s.ready.Load() }
 
 // Stage materializes the GPU driver footprint under host.Root/driver/.
@@ -117,75 +110,113 @@ func (s *Simulator) Discard(_ context.Context) error {
 	return errors.Join(errs...)
 }
 
-// Apply creates the GPU-Operator compatibility symlink at /run/nvidia/driver,
-// replacing whatever is already there.
+// runMirroredDirs lists the driver/ subtrees Apply mirrors into
+// /run/nvidia/driver. driver/dev is deliberately excluded: GPU Operator's
+// operands reach /dev/nvidia* through the CDI spec, not through
+// NVIDIA_DRIVER_ROOT, and its device nodes cannot be mirrored as regular
+// files anyway.
+var runMirroredDirs = []string{"usr", "proc", "config"}
+
+// Apply mirrors the staged driver tree into /run/nvidia/driver, the path
+// GPU Operator's own operands read by default (driverInstallDir in its chart
+// values — mokka does not need to override NVIDIA_DRIVER_ROOT for it).
+//
+// This writes into that directory rather than replacing it (as a symlink
+// swap would) because GPU Operator's validator can already have it
+// bind-mounted into a container by the time Apply runs: NFD/GFD label the
+// node from the pci-10de.present feature file pcibus writes during Stage,
+// which is enough for the Operator to schedule the validator before this
+// simulator's own Apply — gated behind every simulator's Stage — has run.
+// A container's hostPath mount binds the directory's inode, not its path;
+// replacing that path's directory entry afterwards (unlink + recreate,
+// which is what a symlink swap does) orphans the mount permanently — the
+// container keeps the pre-replacement, now-unlinked directory forever,
+// regardless of what mokka does on the host next. Writing into the
+// directory that's already there, instead of replacing it, keeps any
+// earlier mount valid.
 func (s *Simulator) Apply(_ context.Context, _ *agent.State) error {
 	zap.L().Info("applying simulator", zap.String("simulator", name))
 	s.ready.Store(false)
 
-	driverLink := s.host.RunPath(driverLinkRel)
-
-	// Called for the warning it emits: displacing another owner's driver root is
-	// worth a log line even though we go on to do it.
-	if _, err := ownsDriverLink(driverLink); err != nil {
-		return err
+	driverRoot := s.host.RunPath("nvidia/driver")
+	if err := ensureDriverRootDir(driverRoot); err != nil {
+		return fmt.Errorf("ensure %s: %w", driverRoot, err)
 	}
 
-	if err := fsutil.Symlink(driverLinkTarget, driverLink); err != nil {
-		return err
+	for _, sub := range runMirroredDirs {
+		src := s.host.RootPath("driver", sub)
+		dst := s.host.RunPath("nvidia/driver", sub)
+		if err := fsutil.MirrorTree(src, dst); err != nil {
+			return fmt.Errorf("mirror %s into /run/nvidia/driver: %w", sub, err)
+		}
 	}
 
 	s.ready.Store(true)
 	return nil
 }
 
-// Revoke removes the /run/nvidia/driver symlink. Anything else at that path
-// belongs to another owner of the node's /run/nvidia and is left alone.
+// ensureDriverRootDir makes path a directory Apply can mirror into. An
+// already-existing directory is left exactly as it is — replacing it is the
+// mount-orphaning move Apply exists to avoid, regardless of who created it.
+// Anything else there (a file, or a symlink to some other driver root) can't
+// be mirrored into at all, so it is replaced, with a warning: unlike Revoke,
+// Apply's job is to guarantee the path is ours going forward.
+func ensureDriverRootDir(path string) error {
+	fi, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return os.MkdirAll(path, 0o755)
+	}
+	if err != nil {
+		return fmt.Errorf("lstat %s: %w", path, err)
+	}
+	if fi.IsDir() {
+		return nil
+	}
+
+	zap.L().Warn("driver root is not a directory; replacing it",
+		zap.String("path", path), zap.String("type", fi.Mode().Type().String()))
+
+	if err := os.RemoveAll(path); err != nil {
+		return fmt.Errorf("remove %s: %w", path, err)
+	}
+
+	return os.MkdirAll(path, 0o755)
+}
+
+// Revoke removes the content Apply mirrored into /run/nvidia/driver, leaving
+// the directory itself in place — removing it would reintroduce the same
+// mount-orphaning risk Apply avoids, for no benefit: nothing needs
+// /run/nvidia/driver gone, only its content withdrawn. If the path is not a
+// directory Apply could have mirrored into (a foreign file or symlink), it is
+// left alone entirely: /run/nvidia is shared with the GPU Operator, and only
+// content Apply could have written is ours to remove.
 func (s *Simulator) Revoke(_ context.Context) error {
 	zap.L().Info("revoking simulator", zap.String("simulator", name))
 	s.ready.Store(false)
 
-	link := s.host.RunPath(driverLinkRel)
+	driverRoot := s.host.RunPath("nvidia/driver")
 
-	ours, err := ownsDriverLink(link)
-
-	if err != nil || !ours {
-		return err
-	}
-
-	return fsutil.Remove(link)
-}
-
-// ownsDriverLink reports whether link is the symlink Apply created. Absent, not
-// a symlink, or pointing elsewhere all mean it is not ours.
-func ownsDriverLink(link string) (bool, error) {
-	fi, err := os.Lstat(link)
+	fi, err := os.Lstat(driverRoot)
 	if os.IsNotExist(err) {
-		return false, nil
+		return nil
 	}
-
 	if err != nil {
-		return false, fmt.Errorf("lstat %s: %w", link, err)
+		return fmt.Errorf("lstat %s: %w", driverRoot, err)
+	}
+	if !fi.IsDir() {
+		zap.L().Warn("driver root is not our directory; leaving it",
+			zap.String("path", driverRoot), zap.String("type", fi.Mode().Type().String()))
+
+		return nil
 	}
 
-	if fi.Mode()&os.ModeSymlink == 0 {
-		zap.L().Warn("driver root is not our symlink",
-			zap.String("path", link), zap.String("type", fi.Mode().Type().String()))
-
-		return false, nil
+	var errs []error
+	for _, sub := range runMirroredDirs {
+		p := s.host.RunPath("nvidia/driver", sub)
+		if err := os.RemoveAll(p); err != nil && !os.IsNotExist(err) {
+			errs = append(errs, fmt.Errorf("remove %s: %w", p, err))
+		}
 	}
 
-	target, err := os.Readlink(link)
-	if err != nil {
-		return false, fmt.Errorf("readlink %s: %w", link, err)
-	}
-
-	if target != driverLinkTarget {
-		zap.L().Warn("driver symlink points elsewhere",
-			zap.String("path", link), zap.String("target", target))
-
-		return false, nil
-	}
-
-	return true, nil
+	return errors.Join(errs...)
 }
