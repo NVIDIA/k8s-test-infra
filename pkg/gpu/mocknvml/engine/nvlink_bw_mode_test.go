@@ -342,3 +342,52 @@ func TestSetMockNvLinkLowPowerThreshold_Rejected(t *testing.T) {
 			dev.SetMockNvLinkLowPowerThreshold(500), "UNKNOWN architecture")
 	})
 }
+
+// bwEngine builds an engine whose device_defaults declare an architecture,
+// which is what the system-level gate reads (the API has no device param).
+func bwEngine(t *testing.T, arch string) *Engine {
+	t.Helper()
+	return NewEngine(&Config{
+		NumDevices: 1,
+		YAMLConfig: &YAMLConfig{
+			DeviceDefaults: DeviceConfig{Architecture: arch},
+		},
+	})
+}
+
+func TestSystemNvlinkBwMode_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	e := bwEngine(t, "hopper")
+
+	mode, ret := e.SystemGetNvlinkBwMode()
+	require.Equal(t, nvml.SUCCESS, ret, "get return")
+	require.Equal(t, uint32(0), mode, "default global mode is FULL")
+
+	require.Equal(t, nvml.SUCCESS, e.SystemSetNvlinkBwMode(3), "set HALF")
+
+	mode, ret = e.SystemGetNvlinkBwMode()
+	require.Equal(t, nvml.SUCCESS, ret, "get return after set")
+	require.Equal(t, uint32(3), mode, "global mode after set")
+}
+
+func TestSystemNvlinkBwMode_Rejected(t *testing.T) {
+	t.Parallel()
+
+	t.Run("mode outside supported list", func(t *testing.T) {
+		t.Parallel()
+		e := bwEngine(t, "hopper")
+		require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, e.SystemSetNvlinkBwMode(5))
+	})
+
+	t.Run("architecture below hopper", func(t *testing.T) {
+		t.Parallel()
+		for _, arch := range []string{"", "ampere"} {
+			e := bwEngine(t, arch)
+			_, ret := e.SystemGetNvlinkBwMode()
+			require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret, "get on %q", arch)
+			require.Equal(t, nvml.ERROR_NOT_SUPPORTED, e.SystemSetNvlinkBwMode(0),
+				"set on %q", arch)
+		}
+	})
+}
