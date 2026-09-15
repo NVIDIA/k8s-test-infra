@@ -106,6 +106,20 @@ var functionRegistry = map[string]FunctionVersion{
 	"nvmlDeviceResetNvLinkUtilizationCounter":  {Added: "390.0"},
 	"nvmlDeviceResetNvLinkErrorCounters":       {Added: "390.0"},
 
+	// NVLink Reduced Bandwidth Mode, NVLE, and the low-power threshold.
+	// nvml.h carries no version markers for these, so the values below are
+	// inferences from the architecture era each API targets, not verified
+	// release facts: the system-wide pair and the low-power threshold are
+	// documented Hopper+, the device-level bw-mode trio Blackwell+, and
+	// NvLinkInfo/NVLE arrived with the NVML 13.0 header.
+	"nvmlDeviceSetNvLinkDeviceLowPowerThreshold": {Added: "525.0"},
+	"nvmlSystemGetNvlinkBwMode":                  {Added: "535.0"},
+	"nvmlSystemSetNvlinkBwMode":                  {Added: "535.0"},
+	"nvmlDeviceGetNvlinkBwMode":                  {Added: "570.0"},
+	"nvmlDeviceSetNvlinkBwMode":                  {Added: "570.0"},
+	"nvmlDeviceGetNvlinkSupportedBwModes":        {Added: "570.0"},
+	"nvmlDeviceGetNvLinkInfo":                    {Added: "580.0"},
+
 	// CPU / memory affinity functions
 	"nvmlDeviceGetCpuAffinity":            {Added: "331.0"},
 	"nvmlDeviceGetCpuAffinityWithinScope": {Added: "440.0"},
