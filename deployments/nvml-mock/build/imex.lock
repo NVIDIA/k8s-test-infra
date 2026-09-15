@@ -1,0 +1,11 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+
+# Update both architectures from the same NVIDIA driver redistribution
+# manifest. Keep the complete relative paths: NVIDIA has changed the archive
+# filename prefix between releases.
+IMEX_VERSION=595.91.07
+IMEX_AMD64_PATH=imex/linux-x86_64/imex-linux-x86_64-595.91.07-archive.tar.xz
+IMEX_AMD64_SHA256=5777c308db825c7751b20653d4e4a12e465031084962f25dcb5aa648673a5b09
+IMEX_ARM64_PATH=imex/linux-sbsa/imex-linux-sbsa-595.91.07-archive.tar.xz
+IMEX_ARM64_SHA256=d7d88d0ed626b3d8131a8f65019b8ad4ae702f179a6ef6849cc50165ca8a6946
