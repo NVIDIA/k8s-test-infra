@@ -16,6 +16,9 @@ package engine
 import (
 	"testing"
 
+	"github.com/NVIDIA/go-nvml/pkg/nvml"
+	"github.com/NVIDIA/go-nvml/pkg/nvml/mock/dgxa100"
+	mockserver "github.com/NVIDIA/go-nvml/pkg/nvml/mock/server"
 	"github.com/stretchr/testify/require"
 )
 
@@ -100,6 +103,88 @@ func TestNodeFabric_NvlinkBwModeUnset(t *testing.T) {
 			_, ok := f.NvlinkConfiguredBwMode()
 			require.False(t, ok, "mode configured")
 			require.False(t, f.NvleEnabled(), "nvle_enabled")
+		})
+	}
+}
+
+// bwDevice builds a single device on the given fabric with an explicit
+// architecture string, which is what the bw-mode gates read.
+func bwDevice(t *testing.T, arch string, fabric *NodeFabric) *ConfigurableDevice {
+	t.Helper()
+	base := dgxa100.New()
+	bd, _ := base.Devices[0].(*mockserver.Device)
+	return NewConfigurableDevice(0, bd, &DeviceConfig{Architecture: arch},
+		"GPU-00000000-0000-0000-0000-000000000000", "0000:01:00.0", 0, fabric)
+}
+
+func TestGetMockNvlinkBwMode_BlackwellDefaults(t *testing.T) {
+	t.Parallel()
+
+	dev := bwDevice(t, "blackwell", bwFabric(t, &NVLinkConfig{}))
+
+	supported, ret := dev.GetMockNvlinkSupportedBwModes()
+	require.Equal(t, nvml.SUCCESS, ret, "supported return")
+	require.Equal(t, []uint8{0, 1, 2, 3, 4}, supported,
+		"the five modes the bundled nvidia-smi can name")
+
+	mode, isBest, ret := dev.GetMockNvlinkBwMode()
+	require.Equal(t, nvml.SUCCESS, ret, "get return")
+	require.Equal(t, uint8(0), mode, "default mode is FULL")
+	require.True(t, isBest, "FULL is the best mode")
+}
+
+// TestGetMockNvlinkBwMode_NotBest pins that bIsBest is computed rather than
+// hardcoded true, which is the whole point of the flag.
+func TestGetMockNvlinkBwMode_NotBest(t *testing.T) {
+	t.Parallel()
+
+	mode := uint8(3)
+	dev := bwDevice(t, "blackwell", bwFabric(t, &NVLinkConfig{
+		BwMode: &NVLinkBwModeConfig{Supported: []uint8{0, 3}, Mode: &mode},
+	}))
+
+	got, isBest, ret := dev.GetMockNvlinkBwMode()
+	require.Equal(t, nvml.SUCCESS, ret, "get return")
+	require.Equal(t, uint8(3), got, "configured mode")
+	require.False(t, isBest, "HALF is not the best of {0,3}")
+}
+
+func TestGetMockNvlinkBwMode_ArchitectureGate(t *testing.T) {
+	t.Parallel()
+
+	for _, arch := range []string{"", "ampere", "hopper"} {
+		t.Run(arch, func(t *testing.T) {
+			t.Parallel()
+			dev := bwDevice(t, arch, bwFabric(t, &NVLinkConfig{}))
+
+			_, ret := dev.GetMockNvlinkSupportedBwModes()
+			require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret, "supported return")
+
+			_, _, ret = dev.GetMockNvlinkBwMode()
+			require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret, "get return")
+
+			_, ret = dev.GetMockNvLinkInfo()
+			require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret, "nvlink info return")
+		})
+	}
+}
+
+func TestGetMockNvLinkInfo_Nvle(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		nvlink *NVLinkConfig
+		want   bool
+	}{
+		"enabled":  {&NVLinkConfig{NvleEnabled: true}, true},
+		"disabled": {&NVLinkConfig{NvleEnabled: false}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			dev := bwDevice(t, "blackwell", bwFabric(t, tc.nvlink))
+			enabled, ret := dev.GetMockNvLinkInfo()
+			require.Equal(t, nvml.SUCCESS, ret, "return code")
+			require.Equal(t, tc.want, enabled, "isNvleEnabled")
 		})
 	}
 }
