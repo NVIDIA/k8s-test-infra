@@ -109,8 +109,8 @@ if with_observability:
 # labels, hardcoded worker names in topology.yaml) and its own profile
 # (gb200 for NVLink5 fabric APIs), so it cannot compose with --multi-gpu-profile
 # or with any --gpu-profile the user might pass. --gpu-operator is
-# allowed but experimental — the Operator's RuntimeClass path with the
-# compute-domain-imex layered image is untested.
+# allowed but experimental — the Operator's RuntimeClass path in the
+# compute-domain scenario is untested.
 if with_compute_domain and multi_gpu_profile:
     fail('--compute-domain is mutually exclusive with --multi-gpu-profile ' +
          '(compute-domain uses its own 4-worker cluster shape)')
@@ -121,10 +121,10 @@ if with_fgo and with_compute_domain:
     fail('--fgo is mutually exclusive with --compute-domain')
 
 # --nvmlmock-image only wires the standard nvml-mock build/install path. The
-# compute-domain scenario builds three layered images (base + imex + optional
-# daemon) and cannot consume a single pre-built ref.
+# compute-domain scenario currently owns its local image build and cannot
+# consume a pre-built ref.
 if nvmlmock_image and with_compute_domain:
-    fail('--nvmlmock-image is not supported with --compute-domain (scenario builds its own layered images)')
+    fail('--nvmlmock-image is not supported with --compute-domain (scenario builds its own local image)')
 
 gpu_profile_raw = cfg.get('gpu-profile', None)
 
