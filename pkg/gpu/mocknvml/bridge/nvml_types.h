@@ -561,6 +561,20 @@ typedef struct nvmlNvlinkSupportedBwModes_v1_st
     unsigned char totalBwModes;
 } nvmlNvlinkSupportedBwModes_v1_t;
 typedef nvmlNvlinkSupportedBwModes_v1_t nvmlNvlinkSupportedBwModes_t;
+/* Callers allocate these from go-nvml, so a field added or reordered here would
+ * make the bridge write past — or into the wrong offset of — the caller's
+ * allocation. The sizes are also what the version tags are built from:
+ * NVML_STRUCT_VERSION encodes sizeof in its low 24 bits, so a size change
+ * silently starts rejecting every caller compiled against the real header. */
+_Static_assert(sizeof(nvmlNvlinkSupportedBwModes_v1_t) == 28,
+               "nvmlNvlinkSupportedBwModes_v1_t must stay 28 bytes: version(4) + bwModes[23] + totalBwModes(1)");
+/* Size alone is too weak here: tail padding absorbs a one-element change to
+ * bwModes, and a reorder keeps the size identical. Pin the offsets and the
+ * array bound, which is what the bridge's write loop is bounded by. */
+_Static_assert(offsetof(nvmlNvlinkSupportedBwModes_v1_t, bwModes) == 4,
+               "nvmlNvlinkSupportedBwModes_v1_t.bwModes must stay at offset 4");
+_Static_assert(offsetof(nvmlNvlinkSupportedBwModes_v1_t, totalBwModes) == 27,
+               "nvmlNvlinkSupportedBwModes_v1_t.totalBwModes must stay at offset 27, i.e. bwModes must hold 23 entries");
 
 typedef struct nvmlNvlinkGetBwMode_v1_st
 {
@@ -569,6 +583,10 @@ typedef struct nvmlNvlinkGetBwMode_v1_st
     unsigned char bwMode;
 } nvmlNvlinkGetBwMode_v1_t;
 typedef nvmlNvlinkGetBwMode_v1_t nvmlNvlinkGetBwMode_t;
+_Static_assert(sizeof(nvmlNvlinkGetBwMode_v1_t) == 12,
+               "nvmlNvlinkGetBwMode_v1_t must stay 12 bytes: version(4) + bIsBest(4) + bwMode(1) + 3 tail pad");
+_Static_assert(offsetof(nvmlNvlinkGetBwMode_v1_t, bIsBest) == 4 && offsetof(nvmlNvlinkGetBwMode_v1_t, bwMode) == 8,
+               "nvmlNvlinkGetBwMode_v1_t field order must stay version/bIsBest/bwMode: swapping the last two keeps sizeof at 12");
 
 typedef struct nvmlNvlinkSetBwMode_v1_st
 {
@@ -577,6 +595,10 @@ typedef struct nvmlNvlinkSetBwMode_v1_st
     unsigned char bwMode;
 } nvmlNvlinkSetBwMode_v1_t;
 typedef nvmlNvlinkSetBwMode_v1_t nvmlNvlinkSetBwMode_t;
+_Static_assert(sizeof(nvmlNvlinkSetBwMode_v1_t) == 12,
+               "nvmlNvlinkSetBwMode_v1_t must stay 12 bytes: version(4) + bSetBest(4) + bwMode(1) + 3 tail pad");
+_Static_assert(offsetof(nvmlNvlinkSetBwMode_v1_t, bSetBest) == 4 && offsetof(nvmlNvlinkSetBwMode_v1_t, bwMode) == 8,
+               "nvmlNvlinkSetBwMode_v1_t field order must stay version/bSetBest/bwMode: swapping the last two keeps sizeof at 12");
 
 /**
  * Per-device NVLink information. isNvleEnabled is NVLink encryption, which
@@ -600,6 +622,10 @@ typedef struct nvmlNvLinkInfo_v1_st
     unsigned int isNvleEnabled;
 } nvmlNvLinkInfo_v1_t;
 typedef nvmlNvLinkInfo_v1_t nvmlNvLinkInfo_t;
+_Static_assert(sizeof(nvmlNvLinkInfo_v1_t) == 8,
+               "nvmlNvLinkInfo_v1_t must stay 8 bytes: version(4) + isNvleEnabled(4)");
+_Static_assert(offsetof(nvmlNvLinkInfo_v1_t, isNvleEnabled) == 4,
+               "nvmlNvLinkInfo_v1_t.isNvleEnabled must stay at offset 4");
 
 typedef struct nvmlNvlinkFirmwareVersion_st
 {
@@ -608,6 +634,8 @@ typedef struct nvmlNvlinkFirmwareVersion_st
     unsigned int  minor;
     unsigned int  subMinor;
 } nvmlNvlinkFirmwareVersion_t;
+_Static_assert(sizeof(nvmlNvlinkFirmwareVersion_t) == 16,
+               "nvmlNvlinkFirmwareVersion_t must stay 16 bytes: ucodeType(1) + 3 pad + major/minor/subMinor(12)");
 
 #define NVML_NVLINK_FIRMWARE_VERSION_LENGTH 100
 
@@ -616,6 +644,8 @@ typedef struct nvmlNvlinkFirmwareInfo_st
     nvmlNvlinkFirmwareVersion_t firmwareVersion[NVML_NVLINK_FIRMWARE_VERSION_LENGTH];
     unsigned int                numValidEntries;
 } nvmlNvlinkFirmwareInfo_t;
+_Static_assert(sizeof(nvmlNvlinkFirmwareInfo_t) == 1604,
+               "nvmlNvlinkFirmwareInfo_t must stay 1604 bytes: firmwareVersion[100](1600) + numValidEntries(4)");
 
 typedef struct nvmlNvLinkInfo_v2_st
 {
@@ -623,6 +653,12 @@ typedef struct nvmlNvLinkInfo_v2_st
     unsigned int             isNvleEnabled;
     nvmlNvlinkFirmwareInfo_t firmwareInfo;
 } nvmlNvLinkInfo_v2_t;
+/* v2's size is load-bearing even though the mock never writes firmwareInfo: it
+ * is what nvmlDeviceGetNvLinkInfo's accepted v2 version tag is computed from. */
+_Static_assert(sizeof(nvmlNvLinkInfo_v2_t) == 1612,
+               "nvmlNvLinkInfo_v2_t must stay 1612 bytes: version(4) + isNvleEnabled(4) + firmwareInfo(1604)");
+_Static_assert(offsetof(nvmlNvLinkInfo_v2_t, isNvleEnabled) == offsetof(nvmlNvLinkInfo_v1_t, isNvleEnabled),
+               "isNvleEnabled must sit at one offset in both layouts: the export serves a v1 or v2 caller from the same write");
 
 /**
  * NVLink low-power threshold. Units come from
@@ -632,6 +668,8 @@ typedef struct nvmlNvLinkPowerThres_st
 {
     unsigned int lowPwrThreshold;
 } nvmlNvLinkPowerThres_t;
+_Static_assert(sizeof(nvmlNvLinkPowerThres_t) == 4,
+               "nvmlNvLinkPowerThres_t must stay 4 bytes: lowPwrThreshold(4)");
 
 typedef struct nvmlPowerSmoothingProfile_st                 nvmlPowerSmoothingProfile_t;
 typedef struct nvmlPowerSmoothingState_st                   nvmlPowerSmoothingState_t;
