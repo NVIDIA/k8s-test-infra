@@ -198,15 +198,15 @@ func BuildNodeFabric(cfg *Config) *NodeFabric {
 	}
 
 	f := &NodeFabric{
-		numDevices: n,
-		links:      make([][]ResolvedLink, n),
-		nvCount:    make([][]int, n),
-		pcieLevel:  make([][]nvml.GpuTopologyLevel, n),
-		numaOf:     make([]int, n),
-		rootOf:     make([]string, n),
-		cpusOf:     make([][]int, n),
-		now:        time.Now,
-		epoch:      resolveCounterEpoch(),
+		numDevices:  n,
+		links:       make([][]ResolvedLink, n),
+		nvCount:     make([][]int, n),
+		pcieLevel:   make([][]nvml.GpuTopologyLevel, n),
+		numaOf:      make([]int, n),
+		rootOf:      make([]string, n),
+		cpusOf:      make([][]int, n),
+		now:         time.Now,
+		epoch:       resolveCounterEpoch(),
 		c2cEnabled:  resolveC2CEnabled(cfg),
 		nvleEnabled: resolveNvleEnabled(cfg),
 	}
