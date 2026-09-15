@@ -48,6 +48,40 @@ func TestNodeFabric_NvlinkBwModeConfig(t *testing.T) {
 	require.True(t, f.NvleEnabled(), "nvle_enabled")
 }
 
+// TestNodeFabric_NvlinkBwModeExplicitZero guards the *uint8 mode field: zero
+// is a valid FULL bandwidth mode and must not be treated as "unset".
+func TestNodeFabric_NvlinkBwModeExplicitZero(t *testing.T) {
+	t.Parallel()
+
+	mode := uint8(0)
+	f := bwFabric(t, &NVLinkConfig{
+		BwMode: &NVLinkBwModeConfig{
+			Supported: []uint8{0, 3},
+			Mode:      &mode,
+		},
+	})
+
+	got, ok := f.NvlinkConfiguredBwMode()
+	require.True(t, ok, "explicit mode 0 is configured")
+	require.Equal(t, uint8(0), got, "configured mode")
+}
+
+// TestNodeFabric_NvlinkBwModeSupportedOnly pins a profile that lists supported
+// modes without picking one; downstream must not infer a default from the list.
+func TestNodeFabric_NvlinkBwModeSupportedOnly(t *testing.T) {
+	t.Parallel()
+
+	f := bwFabric(t, &NVLinkConfig{
+		BwMode: &NVLinkBwModeConfig{
+			Supported: []uint8{0, 3},
+		},
+	})
+
+	require.Equal(t, []uint8{0, 3}, f.NvlinkSupportedBwModes(), "supported modes")
+	_, ok := f.NvlinkConfiguredBwMode()
+	require.False(t, ok, "mode configured")
+}
+
 // TestNodeFabric_NvlinkBwModeUnset pins that an absent block reports "not
 // configured" rather than a zero value, so the device layer can tell the
 // difference between an explicit mode 0 (FULL) and no config at all.
