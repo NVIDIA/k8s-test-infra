@@ -333,7 +333,7 @@ should match snapshot with default values:
       template:
         metadata:
           annotations:
-            checksum/config: 77316ad0de46327f19551c1b718d19ad0a45abfb3290336859869457dc578556
+            checksum/config: 82515c9b138722b649acc9584fb9faf4f285bb43836ee95c74e8f6d74b8daa82
           labels:
             app.kubernetes.io/component: daemon
             app.kubernetes.io/instance: RELEASE-NAME
@@ -358,7 +358,7 @@ should match snapshot with default values:
                 - name: GPU_COUNT
                   value: "4"
                 - name: DRIVER_VERSION
-                  value: 570.124.06
+                  value: 580.65.06
                 - name: MOCK_FABRICMANAGER_STATE_DIR
                   value: /var/lib/nvml-mock/fabric-state
                 - name: MOCK_IB
