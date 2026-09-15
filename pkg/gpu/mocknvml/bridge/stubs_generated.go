@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 255 stub functions for unimplemented NVML functions.
+// 253 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceDestroy
@@ -379,11 +379,6 @@ func nvmlDeviceGetNumGpuCores(device C.nvmlDevice_t, numCores *C.uint) C.nvmlRet
 	return stubReturn("nvmlDeviceGetNumGpuCores")
 }
 
-//export nvmlDeviceGetNvLinkInfo
-func nvmlDeviceGetNvLinkInfo(device C.nvmlDevice_t, info *C.nvmlNvLinkInfo_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetNvLinkInfo")
-}
-
 //export nvmlDeviceGetNvLinkUtilizationControl
 func nvmlDeviceGetNvLinkUtilizationControl(device C.nvmlDevice_t, link C.uint, counter C.uint, control *C.nvmlNvLinkUtilizationControl_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetNvLinkUtilizationControl")
@@ -727,11 +722,6 @@ func nvmlDeviceSetMemoryLockedClocks(device C.nvmlDevice_t, minMemClockMHz C.uin
 //export nvmlDeviceSetMigMode
 func nvmlDeviceSetMigMode(device C.nvmlDevice_t, mode C.uint, activationStatus *C.nvmlReturn_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceSetMigMode")
-}
-
-//export nvmlDeviceSetNvLinkDeviceLowPowerThreshold
-func nvmlDeviceSetNvLinkDeviceLowPowerThreshold(device C.nvmlDevice_t, info *C.nvmlNvLinkPowerThres_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceSetNvLinkDeviceLowPowerThreshold")
 }
 
 //export nvmlDeviceSetNvLinkUtilizationControl
