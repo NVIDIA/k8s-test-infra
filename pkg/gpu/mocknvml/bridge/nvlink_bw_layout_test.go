@@ -16,9 +16,16 @@
 // Go forbids cgo in test files for a package that contains //export
 // directives, so these cannot read C.sizeof_* directly. The expected sizes are
 // instead derived field-by-field from nvml_types.h (accounting for natural
-// alignment) and checked against the go-nvml structs. Any change to either
-// side without a matching change to the other trips these tests, which is far
-// cheaper than discovering the drift as garbage in a caller's buffer.
+// alignment) and checked against the go-nvml structs. This guards the go-nvml
+// side only: it catches an upstream bump that changes a layout out from under
+// us, which is far cheaper than discovering the drift as garbage in a caller's
+// buffer.
+//
+// The C side is guarded separately, by _Static_assert on both sizeof and
+// offsetof in nvml_types.h. Those live there rather than here precisely
+// because this file cannot see the C structs, and offsets are asserted as well
+// as sizes because neither a field reorder nor a one-element array change
+// alters sizeof once padding is accounted for.
 
 package main
 
