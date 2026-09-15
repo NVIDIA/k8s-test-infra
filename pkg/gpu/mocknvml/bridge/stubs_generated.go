@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 260 stub functions for unimplemented NVML functions.
+// 253 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceDestroy
@@ -754,16 +754,6 @@ func nvmlDeviceSetNvlinkBwMode(device C.nvmlDevice_t, setBwMode *C.nvmlNvlinkSet
 	return stubReturn("nvmlDeviceSetNvlinkBwMode")
 }
 
-//export nvmlDeviceSetPowerManagementLimit
-func nvmlDeviceSetPowerManagementLimit(device C.nvmlDevice_t, limit C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceSetPowerManagementLimit")
-}
-
-//export nvmlDeviceSetPowerManagementLimit_v2
-func nvmlDeviceSetPowerManagementLimit_v2(device C.nvmlDevice_t, powerValue *C.nvmlPowerValue_v2_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceSetPowerManagementLimit_v2")
-}
-
 //export nvmlDeviceSetPowerMizerMode_v1
 func nvmlDeviceSetPowerMizerMode_v1(device C.nvmlDevice_t, powerMizerMode *C.nvmlDevicePowerMizerModes_v1_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceSetPowerMizerMode_v1")
@@ -812,31 +802,6 @@ func nvmlDeviceValidateInforom(device C.nvmlDevice_t) C.nvmlReturn_t {
 //export nvmlDeviceVgpuForceGspUnload
 func nvmlDeviceVgpuForceGspUnload(device C.nvmlDevice_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceVgpuForceGspUnload")
-}
-
-//export nvmlDeviceWorkloadPowerProfileClearRequestedProfiles
-func nvmlDeviceWorkloadPowerProfileClearRequestedProfiles(device C.nvmlDevice_t, requestedProfiles *C.nvmlWorkloadPowerProfileRequestedProfiles_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceWorkloadPowerProfileClearRequestedProfiles")
-}
-
-//export nvmlDeviceWorkloadPowerProfileGetCurrentProfiles
-func nvmlDeviceWorkloadPowerProfileGetCurrentProfiles(device C.nvmlDevice_t, currentProfiles *C.nvmlWorkloadPowerProfileCurrentProfiles_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceWorkloadPowerProfileGetCurrentProfiles")
-}
-
-//export nvmlDeviceWorkloadPowerProfileGetProfilesInfo
-func nvmlDeviceWorkloadPowerProfileGetProfilesInfo(device C.nvmlDevice_t, profilesInfo *C.nvmlWorkloadPowerProfileProfilesInfo_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceWorkloadPowerProfileGetProfilesInfo")
-}
-
-//export nvmlDeviceWorkloadPowerProfileSetRequestedProfiles
-func nvmlDeviceWorkloadPowerProfileSetRequestedProfiles(device C.nvmlDevice_t, requestedProfiles *C.nvmlWorkloadPowerProfileRequestedProfiles_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceWorkloadPowerProfileSetRequestedProfiles")
-}
-
-//export nvmlDeviceWorkloadPowerProfileUpdateProfiles_v1
-func nvmlDeviceWorkloadPowerProfileUpdateProfiles_v1(device C.nvmlDevice_t, updateProfiles *C.nvmlWorkloadPowerProfileUpdateProfiles_v1_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceWorkloadPowerProfileUpdateProfiles_v1")
 }
 
 //export nvmlGetExcludedDeviceCount

@@ -136,6 +136,31 @@ device_defaults:
     power_state: "P0"
     total_energy_consumption_mj: 1000000  # millijoules since boot
 
+    # Same Blackwell workload power profile set as GB200 — see that profile for
+    # why `requested` is empty. The b200 profile omits this section because it
+    # pins driver 560, which predates the API.
+    workload_power_profiles:
+      supported:
+        - id: 0                     # max_p: highest performance
+          priority: 10
+          conflicts: [1, 5]
+        - id: 1                     # max_q: highest efficiency
+          priority: 20
+          conflicts: [0, 5]
+        - id: 5                     # balanced
+          priority: 30
+          conflicts: [0, 1]
+        - id: 2                     # compute
+          priority: 40
+        - id: 3                     # memory_bound
+          priority: 40
+        - id: 6                     # llm_inference
+          priority: 40
+        - id: 7                     # llm_training
+          priority: 40
+        - id: 13                    # hpc
+          priority: 40
+
   # ---------------------------------------------------------------------------
   # Thermal configuration (same liquid-cooled envelope as GB200)
   # ---------------------------------------------------------------------------

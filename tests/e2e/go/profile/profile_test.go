@@ -6,6 +6,7 @@ package profile
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -176,6 +177,84 @@ func TestC2CIsGraceOnly(t *testing.T) {
 		require.NoError(t, err, "Load(%q)", name)
 		require.Equal(t, graceProfiles[name], p.C2CEnabled(),
 			"%s: nvlink.c2c_enabled should be %v", name, graceProfiles[name])
+	}
+}
+
+// TestWorkloadPowerProfilesAreBlackwellOnDriver570 pins both axes the e2e
+// expectation is derived from, so "lists its profiles" cannot quietly become
+// "always lists them". b200 is the interesting case: Blackwell silicon, but the
+// profile pins driver 560, which predates the API — so it must be declined even
+// though the architecture supports the feature.
+func TestWorkloadPowerProfilesAreBlackwellOnDriver570(t *testing.T) {
+	wantSupported := map[string]bool{"gb200": true, "gb300": true}
+	for _, name := range KnownProfiles {
+		p, err := Load(profilesDir, name)
+		require.NoError(t, err, "Load(%q)", name)
+
+		require.Equal(t, wantSupported[name], p.SupportsWorkloadPowerProfiles(),
+			"%s: power-profiles support should be %v (driver %d.x)",
+			name, wantSupported[name], p.DriverMajor())
+
+		profiles, declared := p.WorkloadPowerProfiles()
+		if !wantSupported[name] {
+			require.False(t, declared,
+				"%s: declares workload profiles its driver cannot expose", name)
+			continue
+		}
+		require.NotEmpty(t, profiles, "%s: declared the feature but lists no profile", name)
+		require.Empty(t, p.RequestedWorkloadPowerProfiles(),
+			"%s: every hardware capture reports no requested profile", name)
+
+		// Ascending and unique: the ids double as bit positions in NVML's
+		// 255-bit mask, so a duplicate would silently collapse.
+		seen := map[int]bool{}
+		for i, wp := range profiles {
+			require.False(t, seen[wp.ID], "%s: duplicate profile id %d", name, wp.ID)
+			seen[wp.ID] = true
+			require.Less(t, wp.ID, 255, "%s: profile id %d has no bit in a 255-bit mask", name, wp.ID)
+			if i > 0 {
+				require.Greater(t, wp.ID, profiles[i-1].ID, "%s: profiles should ascend by id", name)
+			}
+		}
+	}
+}
+
+// TestWorkloadProfilePairsBackTheSetterAssertions checks every profile that
+// supports the feature offers both pairs the `-sr` / `-cr` e2e needs. Without
+// them those assertions skip silently, so a profile that lost its conflicts
+// would quietly stop exercising arbitration.
+func TestWorkloadProfilePairsBackTheSetterAssertions(t *testing.T) {
+	for _, name := range KnownProfiles {
+		p, err := Load(profilesDir, name)
+		require.NoError(t, err, "Load(%q)", name)
+		if !p.SupportsWorkloadPowerProfiles() {
+			continue
+		}
+
+		first, second, ok := p.IndependentWorkloadProfilePair()
+		require.True(t, ok, "%s: no two profiles that can be enforced together", name)
+		require.NotEqual(t, first, second, "%s: independent pair is one profile twice", name)
+
+		winner, loser, ok := p.ConflictingWorkloadProfilePair()
+		require.True(t, ok, "%s: no two conflicting profiles with distinct priorities", name)
+
+		profiles, _ := p.WorkloadPowerProfiles()
+		byID := make(map[int]WorkloadPowerProfile, len(profiles))
+		for _, wp := range profiles {
+			byID[wp.ID] = wp
+		}
+
+		// Lower priority value wins, matching NVML's arbitration.
+		require.Less(t, byID[winner].Priority, byID[loser].Priority,
+			"%s: %d should outrank %d", name, winner, loser)
+		require.True(t,
+			slices.Contains(byID[winner].Conflicts, loser) ||
+				slices.Contains(byID[loser].Conflicts, winner),
+			"%s: %d and %d are not declared as conflicting", name, winner, loser)
+		require.False(t,
+			slices.Contains(byID[first].Conflicts, second) ||
+				slices.Contains(byID[second].Conflicts, first),
+			"%s: %d and %d conflict, so both cannot be enforced", name, first, second)
 	}
 }
 

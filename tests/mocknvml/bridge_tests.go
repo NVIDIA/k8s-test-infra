@@ -18,6 +18,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 	"time"
 
@@ -46,7 +47,346 @@ func bridgeTests(deviceCount int) []testResult {
 	results = append(results, testFabricHealth(deviceCount)...)
 	results = append(results, testThrottleCounters(deviceCount)...)
 	results = append(results, testConfComputeMemory(deviceCount)...)
+	results = append(results, testPowerLimitSetters(deviceCount)...)
+	results = append(results, testWorkloadPowerProfiles(deviceCount)...)
 	return results
+}
+
+// --- Workload power profile tests ---
+
+// testWorkloadPowerProfiles drives the two workload profile getters through the
+// built library. Both write caller-allocated structs, and ProfilesInfo is the
+// largest one the bridge fills at ~11 KB: a 255-entry array behind two masks.
+// A wrong element stride or a mask word written at the wrong offset only shows
+// up on this side of the C boundary.
+//
+// The harness runs against the default config rather than a Blackwell profile,
+// so either answer is legitimate — what it pins is that the two getters agree
+// with each other. Disagreement is the failure that matters: nvidia-smi takes
+// each profile's name from GetProfilesInfo's mask and its state from
+// GetCurrentProfiles', so a board listing profiles through one and declining
+// the other renders a profile it then cannot describe.
+func testWorkloadPowerProfiles(deviceCount int) []testResult {
+	var results []testResult
+
+	for index := 0; index < 2 && index < deviceCount; index++ {
+		name := fmt.Sprintf("workloadprofiles/gpu%d", index)
+		device, ret := nvml.DeviceGetHandleByIndex(index)
+		if ret != nvml.SUCCESS {
+			results = append(results, testResult{name, false,
+				fmt.Sprintf("GetHandleByIndex(%d) failed: %v", index, nvml.ErrorString(ret))})
+			continue
+		}
+
+		info, infoRet := device.WorkloadPowerProfileGetProfilesInfo()
+		current, currentRet := device.WorkloadPowerProfileGetCurrentProfiles()
+		if infoRet != currentRet {
+			results = append(results, testResult{name + "/agreement", false,
+				fmt.Sprintf("GetProfilesInfo returned %v but GetCurrentProfiles returned %v",
+					nvml.ErrorString(infoRet), nvml.ErrorString(currentRet))})
+			continue
+		}
+		if infoRet != nvml.SUCCESS {
+			// NOT_SUPPORTED is the documented answer for a device that does
+			// not model the feature; anything else is a bridge fault.
+			ok := infoRet == nvml.ERROR_NOT_SUPPORTED
+			results = append(results, testResult{name + "/declined", ok,
+				fmt.Sprintf("both getters returned %v, want SUCCESS or NOT_SUPPORTED",
+					nvml.ErrorString(infoRet))})
+			continue
+		}
+
+		results = append(results, checkProfileMasksAgree(name+"/supported_mask", info, current))
+		results = append(results, checkProfileEntries(name+"/entries", info))
+		results = append(results, checkEnforcedWithinRequested(name+"/enforced", current))
+		results = append(results, testRequestedProfileSetters(index, name, device, info)...)
+	}
+
+	return results
+}
+
+// testRequestedProfileSetters drives the three setters and reads each write
+// back through GetCurrentProfiles. The read-after-write is the point: while
+// they were stubs the mock reported a requested set it had no way to change, so
+// `nvidia-smi power-profiles -sr` failed and a consumer could not tell a
+// request that was applied from one that was ignored.
+//
+// All three are covered because they are not interchangeable in practice:
+// nvidia-smi 580 calls the two deprecated ones, while UpdateProfiles_v1 is the
+// entry point upstream directs new callers to.
+func testRequestedProfileSetters(
+	index int, name string, device nvml.Device, info nvml.WorkloadPowerProfileProfilesInfo,
+) []testResult {
+	supported := supportedProfileIDs(info)
+	if len(supported) < 2 {
+		return []testResult{{name + "/setters", true, ""}}
+	}
+	first, second := supported[0], supported[1]
+
+	var results []testResult
+
+	// Start from a known state rather than whatever the config requested, so
+	// the assertions below do not depend on it. CLEAR of everything the board
+	// advertises is the only way to get there through the deprecated pair.
+	results = append(results, checkRequestedProfiles(name+"/clear_all", device,
+		device.WorkloadPowerProfileClearRequestedProfiles(
+			requestedProfilesMask(maskOf(supported))), nil))
+
+	// The deprecated SET adds to the request; nvidia-smi's -sr uses this one.
+	results = append(results, checkRequestedProfiles(name+"/set_requested", device,
+		device.WorkloadPowerProfileSetRequestedProfiles(requestedProfilesMask(profileMask(first))),
+		[]uint32{first}))
+
+	results = append(results, checkRequestedProfiles(name+"/set_requested_adds", device,
+		device.WorkloadPowerProfileSetRequestedProfiles(requestedProfilesMask(profileMask(second))),
+		[]uint32{first, second}))
+
+	// The deprecated CLEAR removes only what it names; -cr uses this one.
+	results = append(results, checkRequestedProfiles(name+"/clear_requested", device,
+		device.WorkloadPowerProfileClearRequestedProfiles(requestedProfilesMask(profileMask(first))),
+		[]uint32{second}))
+
+	// A profile the board never advertised must be refused rather than
+	// silently requested. 254 is the last bit in the mask and is not a
+	// profile any config declares.
+	if ret := device.WorkloadPowerProfileSetRequestedProfiles(
+		requestedProfilesMask(profileMask(254))); ret != nvml.ERROR_INVALID_ARGUMENT {
+		results = append(results, testResult{name + "/reject_unsupported", false,
+			fmt.Sprintf("requesting an unadvertised profile returned %v, want INVALID_ARGUMENT",
+				nvml.ErrorString(ret))})
+	} else {
+		results = append(results, checkRequestedProfiles(name+"/reject_unsupported", device,
+			nvml.SUCCESS, []uint32{second}))
+	}
+
+	// UpdateProfiles_v1 is the entry point upstream directs new callers to,
+	// and the one this module's pinned go-nvml has no binding for, so it is
+	// driven by symbol — see workload_profiles_abi.go.
+	results = append(results, testUpdateProfilesV1ABI(index, device, supported)...)
+
+	return results
+}
+
+// checkRequestedProfiles folds a setter's return and the read-back into one
+// result, since a request is only applied if both agree.
+func checkRequestedProfiles(name string, device nvml.Device, setRet nvml.Return, want []uint32) testResult {
+	if setRet != nvml.SUCCESS {
+		return testResult{name, false, fmt.Sprintf("update failed: %v", nvml.ErrorString(setRet))}
+	}
+	current, ret := device.WorkloadPowerProfileGetCurrentProfiles()
+	if ret != nvml.SUCCESS {
+		return testResult{name, false,
+			fmt.Sprintf("GetCurrentProfiles failed: %v", nvml.ErrorString(ret))}
+	}
+	got := maskProfileIDs(current.RequestedProfilesMask)
+	if !slices.Equal(got, want) {
+		return testResult{name, false, fmt.Sprintf("requested %v after update, want %v", got, want)}
+	}
+	return testResult{name, true, ""}
+}
+
+// requestedProfilesMask builds the struct the two deprecated setters take,
+// stamped the way a caller built against the real header stamps it.
+func requestedProfilesMask(mask nvml.Mask255) *nvml.WorkloadPowerProfileRequestedProfiles {
+	return &nvml.WorkloadPowerProfileRequestedProfiles{
+		Version:               nvml.STRUCT_VERSION(nvml.WorkloadPowerProfileRequestedProfiles_v1{}, 1),
+		RequestedProfilesMask: mask,
+	}
+}
+
+// profileMask is a mask naming a single profile.
+func profileMask(id uint32) nvml.Mask255 {
+	var mask nvml.Mask255
+	mask.Mask[id/32] |= 1 << (id % 32)
+	return mask
+}
+
+// maskOf is a mask naming every given profile.
+func maskOf(ids []uint32) nvml.Mask255 {
+	var mask nvml.Mask255
+	for _, id := range ids {
+		mask.Mask[id/32] |= 1 << (id % 32)
+	}
+	return mask
+}
+
+// supportedProfileIDs expands the advertised mask into ids, ascending.
+func supportedProfileIDs(info nvml.WorkloadPowerProfileProfilesInfo) []uint32 {
+	return maskProfileIDs(info.PerfProfilesMask)
+}
+
+// maskProfileIDs expands a mask into the profile ids it names, ascending.
+func maskProfileIDs(mask nvml.Mask255) []uint32 {
+	var ids []uint32
+	for id := range uint32(len(mask.Mask) * 32) {
+		if mask.Mask[id/32]&(1<<(id%32)) != 0 {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// checkProfileMasksAgree pins the one invariant that spans both structs: they
+// report the same supported set, so nvidia-smi cannot name a profile from one
+// call that the other does not know.
+func checkProfileMasksAgree(
+	name string, info nvml.WorkloadPowerProfileProfilesInfo, current nvml.WorkloadPowerProfileCurrentProfiles,
+) testResult {
+	if info.PerfProfilesMask != current.PerfProfilesMask {
+		return testResult{name, false, fmt.Sprintf(
+			"GetProfilesInfo supported mask %v disagrees with GetCurrentProfiles' %v",
+			info.PerfProfilesMask.Mask, current.PerfProfilesMask.Mask)}
+	}
+	return testResult{name, true, ""}
+}
+
+// checkProfileEntries walks the whole 255-entry array against the mask. Every
+// named profile must carry its own id at that index — nvidia-smi reads
+// perfProfile[id] — and every unnamed one must be zero, which is what catches
+// the bridge leaving a tail of the caller's uninitialised buffer untouched.
+func checkProfileEntries(name string, info nvml.WorkloadPowerProfileProfilesInfo) testResult {
+	for id := range uint32(len(info.PerfProfile)) {
+		supported := info.PerfProfilesMask.Mask[id/32]&(1<<(id%32)) != 0
+		entry := info.PerfProfile[id]
+		switch {
+		case supported && entry.ProfileId != id:
+			return testResult{name, false, fmt.Sprintf(
+				"profile %d is in the mask but perfProfile[%d].profileId = %d", id, id, entry.ProfileId)}
+		case supported && entry.Version == 0:
+			return testResult{name, false, fmt.Sprintf(
+				"profile %d is in the mask but perfProfile[%d] carries no version tag", id, id)}
+		case !supported && (entry.Version != 0 || entry.ProfileId != 0 || entry.Priority != 0):
+			return testResult{name, false, fmt.Sprintf(
+				"profile %d is not in the mask but perfProfile[%d] = %+v", id, id, entry)}
+		}
+	}
+	return testResult{name, true, ""}
+}
+
+// checkEnforcedWithinRequested pins enforced as a subset of requested, the
+// relationship NVML defines between the two masks: arbitration drops conflicting
+// profiles, so it can never engage one nobody asked for.
+func checkEnforcedWithinRequested(name string, current nvml.WorkloadPowerProfileCurrentProfiles) testResult {
+	for i := range current.EnforcedProfilesMask.Mask {
+		enforced := current.EnforcedProfilesMask.Mask[i]
+		if enforced&^current.RequestedProfilesMask.Mask[i] != 0 {
+			return testResult{name, false, fmt.Sprintf(
+				"enforced mask word %d = %#x engages profiles outside the requested %#x",
+				i, enforced, current.RequestedProfilesMask.Mask[i])}
+		}
+	}
+	return testResult{name, true, ""}
+}
+
+// --- Power limit setter tests ---
+
+// testPowerLimitSetters drives the two cap setters through the built library.
+// The read-after-write is the whole point: the getters were implemented long
+// before the setters, so the mock could report a cap it had no way to change,
+// and a capping controller could not tell the difference between "applied" and
+// "ignored". Running it here rather than in the engine unit tests is what
+// covers the C side — the limit crosses the boundary as a bare C.uint in one
+// entry point and inside a padded struct in the other.
+func testPowerLimitSetters(deviceCount int) []testResult {
+	var results []testResult
+
+	for index := 0; index < 2 && index < deviceCount; index++ {
+		name := fmt.Sprintf("powerlimit/gpu%d", index)
+		device, ret := nvml.DeviceGetHandleByIndex(index)
+		if ret != nvml.SUCCESS {
+			results = append(results, testResult{name, false,
+				fmt.Sprintf("GetHandleByIndex(%d) failed: %v", index, nvml.ErrorString(ret))})
+			continue
+		}
+
+		minLimit, maxLimit, ret := device.GetPowerManagementLimitConstraints()
+		if ret != nvml.SUCCESS {
+			results = append(results, testResult{name + "/constraints", false,
+				fmt.Sprintf("GetPowerManagementLimitConstraints failed: %v", nvml.ErrorString(ret))})
+			continue
+		}
+		original, ret := device.GetPowerManagementLimit()
+		if ret != nvml.SUCCESS {
+			results = append(results, testResult{name + "/initial_limit", false,
+				fmt.Sprintf("GetPowerManagementLimit failed: %v", nvml.ErrorString(ret))})
+			continue
+		}
+		want := minLimit + (maxLimit-minLimit)/2
+
+		results = append(results, checkPowerLimitApplied(name+"/set", device,
+			device.SetPowerManagementLimit(want), want))
+
+		// The enforced limit is the row nvidia-smi renders, so it has to
+		// follow the cap and not just the configured profile value.
+		enforced, ret := device.GetEnforcedPowerLimit()
+		switch {
+		case ret != nvml.SUCCESS:
+			results = append(results, testResult{name + "/enforced", false,
+				fmt.Sprintf("GetEnforcedPowerLimit failed: %v", nvml.ErrorString(ret))})
+		case enforced != want:
+			results = append(results, testResult{name + "/enforced", false,
+				fmt.Sprintf("enforced limit %d mW, want %d mW", enforced, want)})
+		default:
+			results = append(results, testResult{name + "/enforced", true, ""})
+		}
+
+		// Out of range must be refused without disturbing the applied cap.
+		if ret := device.SetPowerManagementLimit(maxLimit + 1); ret != nvml.ERROR_INVALID_ARGUMENT {
+			results = append(results, testResult{name + "/above_max", false,
+				fmt.Sprintf("set %d mW returned %v, want INVALID_ARGUMENT", maxLimit+1, nvml.ErrorString(ret))})
+		} else {
+			results = append(results, checkPowerLimitApplied(name+"/above_max", device, nvml.SUCCESS, want))
+		}
+
+		// v2 carries the value behind a one-byte scope field, so a padding
+		// mismatch between nvml_types.h and the caller's header shows up as
+		// the wrong cap (or none) landing here.
+		v2Want := want + 1000
+		gpuScope := nvml.PowerValue_v2{
+			Version:      nvml.STRUCT_VERSION(nvml.PowerValue_v2{}, 2),
+			PowerScope:   nvml.POWER_SCOPE_GPU,
+			PowerValueMw: v2Want,
+		}
+		results = append(results, checkPowerLimitApplied(name+"/set_v2", device,
+			device.SetPowerManagementLimit_v2(&gpuScope), v2Want))
+
+		moduleScope := nvml.PowerValue_v2{
+			Version:      nvml.STRUCT_VERSION(nvml.PowerValue_v2{}, 2),
+			PowerScope:   nvml.POWER_SCOPE_MODULE,
+			PowerValueMw: minLimit,
+		}
+		if ret := device.SetPowerManagementLimit_v2(&moduleScope); ret != nvml.ERROR_NOT_SUPPORTED {
+			results = append(results, testResult{name + "/module_scope", false,
+				fmt.Sprintf("module scope returned %v, want NOT_SUPPORTED", nvml.ErrorString(ret))})
+		} else {
+			results = append(results, checkPowerLimitApplied(name+"/module_scope", device, nvml.SUCCESS, v2Want))
+		}
+
+		if ret := device.SetPowerManagementLimit(original); ret != nvml.SUCCESS {
+			results = append(results, testResult{name + "/restore", false,
+				fmt.Sprintf("restoring %d mW failed: %v", original, nvml.ErrorString(ret))})
+		} else {
+			results = append(results, testResult{name + "/restore", true, ""})
+		}
+	}
+
+	return results
+}
+
+// checkPowerLimitApplied folds the setter's return and the read-back into one
+// result, since a cap is only applied if both agree.
+func checkPowerLimitApplied(name string, device nvml.Device, setRet nvml.Return, want uint32) testResult {
+	if setRet != nvml.SUCCESS {
+		return testResult{name, false, fmt.Sprintf("set failed: %v", nvml.ErrorString(setRet))}
+	}
+	got, ret := device.GetPowerManagementLimit()
+	if ret != nvml.SUCCESS {
+		return testResult{name, false, fmt.Sprintf("GetPowerManagementLimit failed: %v", nvml.ErrorString(ret))}
+	}
+	if got != want {
+		return testResult{name, false, fmt.Sprintf("limit %d mW after set, want %d mW", got, want)}
+	}
+	return testResult{name, true, ""}
 }
 
 // --- Confidential Compute memory tests ---

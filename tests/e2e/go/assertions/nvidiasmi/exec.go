@@ -8,6 +8,7 @@ package nvidiasmi
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
@@ -246,6 +247,209 @@ func MaxCustomerBoostClock(ctx context.Context, k *kube.Client, pod kube.PodRef,
 	problems := MaxCustomerBoostClockProblems(query(ctx, k, pod), p.GraphicsMaxClockMHz())
 	gomega.Expect(problems).To(gomega.BeEmpty(),
 		"Max Customer Boost Clocks wrong for profile %s:\n%s", p.Name, strings.Join(problems, "\n"))
+}
+
+// PowerProfiles asserts `nvidia-smi power-profiles` behaves the way the profile
+// declares: on a Blackwell board on a 570-or-newer driver it lists exactly the
+// configured profiles on every GPU and reports nothing requested or enforced;
+// on every other profile it is declined. Both directions come from the profile,
+// so one spec covers them as the CI matrix moves across profiles.
+//
+// The whole subcommand answered "Workload Power Profiles feature is not
+// supported on this device" while both getters behind it were generated stubs,
+// so a consumer could not discover a single profile the board offers.
+func PowerProfiles(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
+	ginkgo.GinkgoHelper()
+
+	declared, _ := p.WorkloadPowerProfiles()
+	wantIDs := make([]int, 0, len(declared))
+	for _, wp := range declared {
+		wantIDs = append(wantIDs, wp.ID)
+	}
+
+	if !p.SupportsWorkloadPowerProfiles() {
+		ginkgo.By(fmt.Sprintf("nvidia-smi power-profiles -l is declined on %s (declares %d profiles, driver %d.x)",
+			p.Name, len(wantIDs), p.DriverMajor()))
+		res, _ := k.Exec(ctx, pod, "nvidia-smi", "power-profiles", "-l")
+		problems := PowerProfileUnsupportedProblems(res.Combined(), res.ExitCode)
+		gomega.Expect(problems).To(gomega.BeEmpty(),
+			"power-profiles should be declined on profile %s:\n%s", p.Name, strings.Join(problems, "\n"))
+		return
+	}
+
+	ginkgo.By(fmt.Sprintf("nvidia-smi power-profiles -l lists %v on each of %d GPU(s) on %s",
+		wantIDs, p.ExpectedGPUs(), p.Name))
+	res, _ := k.Exec(ctx, pod, "nvidia-smi", "power-profiles", "-l")
+	problems := PowerProfileListProblems(res.Combined(), res.ExitCode, p.ExpectedGPUs(), wantIDs)
+	gomega.Expect(problems).To(gomega.BeEmpty(),
+		"power profile list wrong for profile %s:\n%s", p.Name, strings.Join(problems, "\n"))
+
+	// A profile that pre-requests something reports that instead of nothing,
+	// and the round trip below would start from it rather than from empty.
+	// The shipped profiles all leave it empty, matching every capture.
+	if len(p.RequestedWorkloadPowerProfiles()) > 0 {
+		return
+	}
+	ginkgo.By("nvidia-smi power-profiles -gr / -ge report nothing requested or enforced")
+	requested, _ := k.Exec(ctx, pod, "nvidia-smi", "power-profiles", "-gr")
+	enforced, _ := k.Exec(ctx, pod, "nvidia-smi", "power-profiles", "-ge")
+	problems = PowerProfileCurrentProblems(
+		requested.Combined(), requested.ExitCode, enforced.Combined(), enforced.ExitCode)
+	gomega.Expect(problems).To(gomega.BeEmpty(),
+		"requested/enforced power profiles wrong for profile %s:\n%s", p.Name, strings.Join(problems, "\n"))
+
+	powerProfileWrites(ctx, k, pod, p)
+}
+
+// powerProfileWrites drives `-sr` and `-cr`.
+//
+// Two constraints shape the commands here.
+//
+// A request now persists on the node, so each assertion below clears what it
+// asked for before the next one runs: left in place, one block's request would
+// join the next block's and change what arbitration has to choose between.
+// Most flags still go into a single invocation, because nvidia-smi evaluates
+// `-sr` and `-cr` before `-ge` but `-gr` before either — so only `-ge` can
+// observe a write made in the same invocation. powerProfileCrossProcessWrite
+// covers the request surviving into a later one.
+//
+// And each is scoped to one GPU with `-i 0`, because nvidia-smi 580.65.06
+// applies a comma-separated profile list in full only to the first GPU it
+// visits and passes just the first profile to the rest. That is the consumer's
+// behaviour, not the mock's, so pinning it here would make these assertions
+// fail on a driver that fixed it. `-l` already covers every GPU.
+func powerProfileWrites(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
+	ginkgo.GinkgoHelper()
+
+	const oneGPU = 1
+
+	// A failed assertion leaves the request it made behind, so the node is
+	// restored here rather than only on the happy path.
+	ginkgo.DeferCleanup(func(ctx context.Context) {
+		clearRequestedProfiles(ctx, k, pod, p)
+	})
+
+	if first, second, ok := p.IndependentWorkloadProfilePair(); ok {
+		ginkgo.By(fmt.Sprintf(
+			"nvidia-smi power-profiles -sr %d,%d -cr %d -ge leaves only %d enforced on %s",
+			first, second, first, second, p.Name))
+		res, _ := k.Exec(ctx, pod, "nvidia-smi", "power-profiles",
+			"-sr", fmt.Sprintf("%d,%d", first, second), "-cr", strconv.Itoa(first), "-ge", "-i", "0")
+		problems := PowerProfileRoundTripProblems(
+			res.Combined(), res.ExitCode, oneGPU, []int{second})
+		gomega.Expect(problems).To(gomega.BeEmpty(),
+			"power profile set/clear round trip wrong for profile %s:\n%s",
+			p.Name, strings.Join(problems, "\n"))
+		clearRequestedProfiles(ctx, k, pod, p)
+	}
+
+	// Requesting profiles that exclude each other is what separates the
+	// requested set from the enforced one: both are requested, only the
+	// higher-priority one is enforced.
+	if winner, loser, ok := p.ConflictingWorkloadProfilePair(); ok {
+		ginkgo.By(fmt.Sprintf(
+			"nvidia-smi power-profiles -sr %d,%d -ge enforces only the higher-priority %d on %s",
+			winner, loser, winner, p.Name))
+		res, _ := k.Exec(ctx, pod, "nvidia-smi", "power-profiles",
+			"-sr", fmt.Sprintf("%d,%d", winner, loser), "-ge", "-i", "0")
+		problems := PowerProfileArbitrationProblems(
+			res.Combined(), res.ExitCode, oneGPU, winner, loser)
+		gomega.Expect(problems).To(gomega.BeEmpty(),
+			"power profile arbitration wrong for profile %s:\n%s", p.Name, strings.Join(problems, "\n"))
+		clearRequestedProfiles(ctx, k, pod, p)
+	}
+
+	powerProfileCrossProcessWrite(ctx, k, pod, p)
+
+	// nvidia-smi checks the id against the list the board advertised before
+	// it calls NVML, so refusing this one also confirms the advertised list
+	// reached it intact.
+	if badID, ok := unadvertisedProfileID(p); ok {
+		ginkgo.By(fmt.Sprintf("nvidia-smi power-profiles -sr %d is refused on %s", badID, p.Name))
+		res, _ := k.Exec(ctx, pod, "nvidia-smi", "power-profiles", "-sr", strconv.Itoa(badID), "-i", "0")
+		problems := PowerProfileSetRejectedProblems(res.Combined(), res.ExitCode, badID)
+		gomega.Expect(problems).To(gomega.BeEmpty(),
+			"power profile rejection wrong for profile %s:\n%s", p.Name, strings.Join(problems, "\n"))
+	}
+}
+
+// powerProfileCrossProcessWrite asserts a request set by one nvidia-smi is
+// visible to the next one, which is how a profile request behaves against a
+// real driver: it is node state, not state belonging to whoever wrote it.
+//
+// Every other write assertion here happens inside a single invocation and
+// would pass just as well against a mock that kept the request in the writing
+// process's memory. This is the one that would not.
+func powerProfileCrossProcessWrite(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
+	ginkgo.GinkgoHelper()
+
+	const oneGPU = 1
+
+	want, _, ok := p.IndependentWorkloadProfilePair()
+	if !ok {
+		return
+	}
+
+	ginkgo.By(fmt.Sprintf("nvidia-smi power-profiles -sr %d on %s", want, p.Name))
+	res, _ := k.Exec(ctx, pod, "nvidia-smi", "power-profiles", "-sr", strconv.Itoa(want), "-i", "0")
+	gomega.Expect(res.ExitCode).To(gomega.Equal(0),
+		"nvidia-smi power-profiles -sr %d failed on %s: %s", want, p.Name, res.Combined())
+
+	ginkgo.By(fmt.Sprintf("a separate nvidia-smi power-profiles -gr still reports %d on %s", want, p.Name))
+	read, _ := k.Exec(ctx, pod, "nvidia-smi", "power-profiles", "-gr", "-i", "0")
+	problems := PowerProfileRequestedProblems(read.Combined(), read.ExitCode, oneGPU, []int{want})
+	gomega.Expect(problems).To(gomega.BeEmpty(),
+		"power profile request did not survive the invocation for profile %s:\n%s",
+		p.Name, strings.Join(problems, "\n"))
+
+	clearRequestedProfiles(ctx, k, pod, p)
+}
+
+// clearRequestedProfiles returns GPU 0 to asking for nothing, the state every
+// profile ships with. It clears every advertised id rather than the ones a
+// particular assertion set, so the reset does not depend on which of them ran
+// or on one of them having failed part-way through.
+func clearRequestedProfiles(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
+	ginkgo.GinkgoHelper()
+
+	declared, _ := p.WorkloadPowerProfiles()
+	if len(declared) == 0 {
+		return
+	}
+	ids := make([]string, 0, len(declared))
+	for _, wp := range declared {
+		ids = append(ids, strconv.Itoa(wp.ID))
+	}
+
+	res, _ := k.Exec(ctx, pod, "nvidia-smi", "power-profiles", "-cr", strings.Join(ids, ","), "-i", "0")
+	gomega.Expect(res.ExitCode).To(gomega.Equal(0),
+		"could not restore the requested profiles on %s, later specs will see a board that asked "+
+			"for something: %s", p.Name, res.Combined())
+
+	read, _ := k.Exec(ctx, pod, "nvidia-smi", "power-profiles", "-gr", "-i", "0")
+	problems := PowerProfileRequestedProblems(read.Combined(), read.ExitCode, 0, nil)
+	gomega.Expect(problems).To(gomega.BeEmpty(),
+		"a profile outlived the clear meant to restore %s:\n%s", p.Name, strings.Join(problems, "\n"))
+}
+
+// unadvertisedProfileID picks a profile id the board does not advertise but
+// nvidia-smi still recognises as a name, so the refusal comes from the board's
+// list rather than from the id being unparseable.
+func unadvertisedProfileID(p profile.Profile) (int, bool) {
+	declared, _ := p.WorkloadPowerProfiles()
+	advertised := make(map[int]bool, len(declared))
+	for _, wp := range declared {
+		advertised[wp.ID] = true
+	}
+	// NVML_POWER_PROFILE_* runs to 18 in the headers nvidia-smi 580 was
+	// built against; staying inside that range keeps the refusal about the
+	// board rather than about an out-of-range index.
+	for id := range 19 {
+		if !advertised[id] {
+			return id, true
+		}
+	}
+	return 0, false
 }
 
 // query execs `nvidia-smi -q -x` and asserts it succeeded, returning stdout.

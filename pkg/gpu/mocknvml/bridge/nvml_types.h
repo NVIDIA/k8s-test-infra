@@ -667,6 +667,83 @@ struct nvmlMarginTemperature_st
 };
 
 /*
+ * powerScope is unsigned char upstream, so the trailing powerValueMw sits at
+ * offset 8 behind three bytes of padding. Spelling the type out (rather than
+ * widening it to unsigned int) is what keeps that offset where a caller built
+ * against the real header expects to write.
+ */
+struct nvmlPowerValue_v2_st
+{
+    unsigned int  version;       //!< IN: NVML_STRUCT_VERSION(PowerValue, 2)
+    unsigned char powerScope;    //!< IN: NVML_POWER_SCOPE_* target
+    unsigned int  powerValueMw;  //!< IN: power limit to set, milliwatts
+};
+
+/*
+ * Workload power profiles (Blackwell+). The bridge writes profilesInfo and
+ * currentProfiles into the caller's allocation, so these need exact layouts
+ * rather than the opaque forward declarations above: perfProfile is a
+ * 255-entry array and a wrong element stride would walk off the end of a
+ * caller built against the real header.
+ */
+#define NVML_255_MASK_NUM_ELEMS          8
+#define NVML_WORKLOAD_POWER_MAX_PROFILES 255
+
+typedef struct
+{
+    unsigned int mask[NVML_255_MASK_NUM_ELEMS];  //!< 255 bits, one per profile index
+} nvmlMask255_t;
+
+typedef enum
+{
+    NVML_POWER_PROFILE_OPERATION_CLEAR             = 0,  //!< Remove the named profiles from the request
+    NVML_POWER_PROFILE_OPERATION_SET               = 1,  //!< Add the named profiles to the request
+    NVML_POWER_PROFILE_OPERATION_SET_AND_OVERWRITE = 2,  //!< Replace the request with the named profiles
+
+    NVML_POWER_PROFILE_OPERATION_MAX               = 3,
+} nvmlPowerProfileOperation_t;
+
+typedef struct
+{
+    unsigned int  version;          //!< OUT: NVML_STRUCT_VERSION(WorkloadPowerProfileInfo, 1)
+    unsigned int  profileId;        //!< OUT: NVML_POWER_PROFILE_* semantic id
+    unsigned int  priority;         //!< OUT: lower value wins arbitration
+    nvmlMask255_t conflictingMask;  //!< OUT: profiles that cannot be combined with this one
+} nvmlWorkloadPowerProfileInfo_t;
+
+struct nvmlWorkloadPowerProfileProfilesInfo_st
+{
+    unsigned int                   version;           //!< IN: NVML_STRUCT_VERSION(WorkloadPowerProfileProfilesInfo, 1)
+    nvmlMask255_t                  perfProfilesMask;  //!< OUT: bit set per supported profile
+    nvmlWorkloadPowerProfileInfo_t perfProfile[NVML_WORKLOAD_POWER_MAX_PROFILES]; //!< OUT: metadata per supported profile
+};
+
+struct nvmlWorkloadPowerProfileCurrentProfiles_st
+{
+    unsigned int  version;                //!< IN: NVML_STRUCT_VERSION(WorkloadPowerProfileCurrentProfiles, 1)
+    nvmlMask255_t perfProfilesMask;       //!< OUT: bit set per supported profile
+    nvmlMask255_t requestedProfilesMask;  //!< OUT: profiles asked for
+    nvmlMask255_t enforcedProfilesMask;   //!< OUT: profiles in effect after arbitration
+};
+
+struct nvmlWorkloadPowerProfileRequestedProfiles_st
+{
+    unsigned int  version;                //!< IN: NVML_STRUCT_VERSION(WorkloadPowerProfileRequestedProfiles, 1)
+    nvmlMask255_t requestedProfilesMask;  //!< IN: profiles to add or remove
+};
+
+/*
+ * Unlike its siblings this struct carries no version member, even though
+ * upstream defines a version macro for it — so the bridge has no tag to check
+ * and the operation is the only input that can be validated.
+ */
+struct nvmlWorkloadPowerProfileUpdateProfiles_v1_st
+{
+    nvmlPowerProfileOperation_t operation;          //!< IN: NVML_POWER_PROFILE_OPERATION_*
+    nvmlMask255_t               updateProfilesMask; //!< IN: profiles the operation applies to
+};
+
+/*
  * NVML additions (go-nvml v0.13.2-0, #410). Remapped rows v2 is written by the
  * bridge, so keep this layout in sync with go-nvml's nvml.h.
  */

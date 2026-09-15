@@ -134,6 +134,36 @@ device_defaults:
     power_state: "P0"
     total_energy_consumption_mj: 1000000  # millijoules since boot
 
+    # Workload power profiles, which NVML scopes to Blackwell and newer. ids
+    # are NVML_POWER_PROFILE_* indices and are what `nvidia-smi power-profiles`
+    # renders as names. The set below models a datacenter part: the three
+    # operating points are mutually exclusive, while the workload-shape hints
+    # combine freely. `requested` is deliberately empty — every real GB200,
+    # GB300 and B200 capture under
+    # tests/e2e/go/assertions/nvidiasmi/testdata/hardware reports N/A for the
+    # requested and enforced profiles, and that is what an empty set renders as.
+    workload_power_profiles:
+      supported:
+        - id: 0                     # max_p: highest performance
+          priority: 10
+          conflicts: [1, 5]
+        - id: 1                     # max_q: highest efficiency
+          priority: 20
+          conflicts: [0, 5]
+        - id: 5                     # balanced
+          priority: 30
+          conflicts: [0, 1]
+        - id: 2                     # compute
+          priority: 40
+        - id: 3                     # memory_bound
+          priority: 40
+        - id: 6                     # llm_inference
+          priority: 40
+        - id: 7                     # llm_training
+          priority: 40
+        - id: 13                    # hpc
+          priority: 40
+
   # ---------------------------------------------------------------------------
   # Thermal configuration
   # ---------------------------------------------------------------------------

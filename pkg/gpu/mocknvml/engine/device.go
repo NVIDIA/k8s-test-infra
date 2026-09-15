@@ -827,6 +827,9 @@ func (d *ConfigurableDevice) GetPowerManagementLimit() (uint32, nvml.Return) {
 	if c.Power == nil {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
+	// A cap set through nvmlDeviceSetPowerManagementLimit is merged into the
+	// effective config by the override document, so there is nothing to
+	// prefer here: c.Power already carries it.
 	limit := c.Power.EnforcedLimitMW
 	debugLog("[NVML] nvmlDeviceGetPowerManagementLimit -> %d mW\n", limit)
 	return limit, nvml.SUCCESS

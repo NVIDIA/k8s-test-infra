@@ -68,6 +68,18 @@ var functionRegistry = map[string]FunctionVersion{
 	// 560.x additions
 	"nvmlDeviceGetPlatformInfo": {Added: "560.0"},
 
+	// 570.x additions. Workload power profiles arrived with Blackwell; the
+	// architecture half of that is the profile's own config, which decides
+	// between NOT_SUPPORTED and a profile list. This registry only answers
+	// the driver half: on an older driver the symbol did not exist at all,
+	// so `nvidia-smi power-profiles` must fail to find it rather than be
+	// told the device declines.
+	"nvmlDeviceWorkloadPowerProfileGetProfilesInfo":        {Added: "570.0"},
+	"nvmlDeviceWorkloadPowerProfileGetCurrentProfiles":     {Added: "570.0"},
+	"nvmlDeviceWorkloadPowerProfileSetRequestedProfiles":   {Added: "570.0"},
+	"nvmlDeviceWorkloadPowerProfileClearRequestedProfiles": {Added: "570.0"},
+	"nvmlDeviceWorkloadPowerProfileUpdateProfiles_v1":      {Added: "570.0"},
+
 	// 580.x / NVML 13.0 additions
 	"nvmlDeviceGetVgpuSchedulerLog_v2":        {Added: "580.0"},
 	"nvmlDeviceGetVgpuSchedulerState_v2":      {Added: "580.0"},

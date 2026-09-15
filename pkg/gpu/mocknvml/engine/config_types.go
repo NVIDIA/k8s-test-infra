@@ -296,6 +296,40 @@ type PowerConfig struct {
 	CurrentDrawMW            uint32 `json:"current_draw_mw,omitempty"`
 	PowerState               string `json:"power_state,omitempty"`
 	TotalEnergyConsumptionMJ uint64 `json:"total_energy_consumption_mj,omitempty"` // millijoules since boot
+
+	// WorkloadProfiles opts a device into the Blackwell workload power
+	// profile feature. Absent means the device declines it, which is what
+	// every pre-Blackwell part does.
+	WorkloadProfiles *WorkloadPowerProfilesConfig `json:"workload_power_profiles,omitempty"`
+}
+
+// WorkloadPowerProfilesConfig models the pre-tuned performance/power recipes
+// Blackwell exposes through `nvidia-smi power-profiles`.
+type WorkloadPowerProfilesConfig struct {
+	// Supported lists the profiles the device advertises. An empty list is
+	// not the same as an absent WorkloadProfiles: it models a device that
+	// supports the feature but exposes no profile.
+	Supported []WorkloadPowerProfileConfig `json:"supported,omitempty"`
+
+	// Requested holds the profile ids asked for. Real hardware with nothing
+	// requested reports N/A for both the requested and the enforced mask, so
+	// this defaults to empty rather than preselecting a profile.
+	Requested []uint32 `json:"requested,omitempty"`
+}
+
+// WorkloadPowerProfileConfig is one advertised profile.
+type WorkloadPowerProfileConfig struct {
+	// ID is an NVML_POWER_PROFILE_* index (0-254), which is both the
+	// semantic name nvidia-smi renders and the profile's bit position.
+	ID uint32 `json:"id"`
+
+	// Priority arbitrates between conflicting requested profiles. Lower
+	// wins, matching NVML's "the lower the value, the higher the priority".
+	Priority uint32 `json:"priority,omitempty"`
+
+	// Conflicts lists profile ids that cannot be enforced alongside this
+	// one.
+	Conflicts []uint32 `json:"conflicts,omitempty"`
 }
 
 // ThermalConfig defines thermal settings

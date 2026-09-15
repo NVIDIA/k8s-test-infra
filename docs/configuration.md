@@ -733,6 +733,93 @@ and failure injection. Each holds its configured value until the profile changes
 or `nvml-mock-ctl` writes a runtime override, which takes effect within one
 override TTL — see [nvml-mock-ctl](nvml-mock-ctl.md).
 
+Two of these also accept writes from the consumer, and they differ in how far
+the write reaches.
+
+The power management limit (`nvidia-smi -pl`, in milliwatts and inclusive of
+`min_limit_mw` / `max_limit_mw`; a cap outside those bounds is refused) is
+recorded in the runtime override document, so it behaves like the driver-level
+write it models: every process on the node reads the new cap, including ones
+started afterwards, and it holds until a reset clears it (`nvidia-smi -r`, or
+`nvml-mock-ctl reset`). A cap moves both the power management limit and the
+enforced limit, but not `default_limit_mw`. A mock with nowhere to record the
+write — no config, or an overrides file it cannot write — refuses the cap with
+`NVML_ERROR_NO_PERMISSION` rather than reporting a success that nothing would
+observe.
+
+Persistence mode (`nvidia-smi -pm`) is the exception: it is still held in the
+process that loaded the mock, so a second process reads the configured value.
+
+### Workload power profiles
+
+`power.workload_power_profiles` opts a device into the Blackwell workload power
+profile feature, which `nvidia-smi power-profiles` reads and writes. Absent — the
+default — the device declines the feature the way every pre-Blackwell board does.
+`requested` seeds the set a consumer sees until one of the setters overrides it:
+
+```yaml
+power:
+  workload_power_profiles:
+    supported:
+      - id: 0                  # NVML_POWER_PROFILE_MAX_P, rendered "Max-P"
+        priority: 10           # lower value wins arbitration
+        conflicts: [1, 5]      # cannot be enforced alongside these
+      - id: 6                  # "LLM Inference"
+        priority: 40
+    requested: []              # profile ids to ask for
+```
+
+`id` is an `NVML_POWER_PROFILE_*` index (0-254) and doubles as the profile's bit
+position in NVML's 255-bit masks, so ids must be unique. It is also what
+nvidia-smi renders as the name: `-l` lists the supported set, `-ld` adds the
+priority and conflicts, `-gr` and `-ge` report the requested and enforced sets,
+and `-sr` / `-cr` add to and remove from the requested set.
+
+Requested and enforced differ because asking for mutually exclusive profiles is
+allowed: enforced is what survives arbitration, dropping any profile that
+conflicts with a higher-priority one that was also requested. A requested id the
+device does not advertise is ignored in config, but refused with
+`NVML_ERROR_INVALID_ARGUMENT` when a consumer asks for it at runtime.
+
+`requested` is empty in the shipped profiles, because every real GB200, GB300 and
+B200 capture reports no requested or enforced profile — which is what
+`nvidia-smi -q -x` renders as `N/A` in its `<power_profiles>` block.
+
+A write outranks `requested` from the moment it lands, and like `nvidia-smi -pl`
+it is recorded in the runtime override document rather than in the writing
+process — so a later `nvidia-smi` reads it back, and it holds until a reset:
+
+```console
+$ nvidia-smi power-profiles -sr 2 -i 0
+Successfully set the requested profiles.
+$ nvidia-smi power-profiles -gr -i 0
+2. Compute
+```
+
+Within a single invocation only `-ge` reflects a write, because nvidia-smi
+evaluates `-sr` and `-cr` before `-ge` but after `-gr`:
+
+```console
+$ nvidia-smi power-profiles -sr 0,2 -cr 0 -ge -i 0
+Successfully set the requested profiles.
+Successfully cleared the requested profiles.
+2. Compute
+```
+
+Because the request persists, a consumer that wants the board back at its
+configured state has to clear what it asked for, or reset the device. Two further nvidia-smi
+behaviours are worth knowing, neither of them the mock's: it refuses an id the
+board does not advertise before calling NVML at all, and it applies a
+comma-separated list in full only to the first GPU it visits, passing just the
+first profile to the rest.
+
+Two axes decide whether the feature answers at all, and they fail differently. A
+device that declares no `workload_power_profiles` reports the feature as
+unsupported; one whose `system.driver_version` is older than 570 does not export
+the symbols, so nvidia-smi cannot find the function. Of the shipped profiles only
+`gb200` and `gb300` satisfy both — `b200` is Blackwell but pins driver 560, which
+predates the API.
+
 ### Deliberately fixed
 
 **Profiling metrics (`DCGM_FI_PROF_*`).** DCGM reads these on Hopper+ through the

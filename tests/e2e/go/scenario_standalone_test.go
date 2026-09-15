@@ -199,6 +199,18 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				nvidiasmi.ProcessMonitorAndTopology(ctx, h.Kube, pod)
 			})
 
+			It("lists the workload power profiles via nvidia-smi power-profiles", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Both getters behind the subcommand were generated stubs, so
+				// `nvidia-smi power-profiles -l` answered "Workload Power
+				// Profiles feature is not supported on this device" on every
+				// profile, Blackwell included — a consumer could not discover a
+				// single profile the board offers, let alone which of them
+				// conflict. The expectation comes from the profile, so this one
+				// spec pins the configured list on gb200/gb300 and a refusal
+				// everywhere else.
+				nvidiasmi.PowerProfiles(ctx, h.Kube, pod, p)
+			})
+
 			It("exposes the NVLink topology (gated on fabricmanager)", Label("nvlink"), func(ctx SpecContext) {
 				assertions.FabricManagerGate(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", pod, config.ReadyTimeout(), config.PollInterval())
 				assertions.NVLink(ctx, h.Kube, pod, p)
