@@ -843,6 +843,9 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].command
           content: --shutdown-timeout=5s
+      - contains:
+          path: spec.template.spec.containers[0].command
+          content: --resync-interval=1m
 
   # nodeAgent.resources is the only resources knob left: the container it used
   # to sit beside is gone.
@@ -911,6 +914,21 @@ tests:
               path: /sys
               type: Directory
 
+  # helm upgrade --reuse-values renders a value added after the release was
+  # installed as absent, and an empty duration flag stops the agent from
+  # starting. Unset must omit the flag so the binary's own default applies.
+  - it: should omit the resync interval when the value is unset
+    set:
+      nodeAgent:
+        resyncInterval: null
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].command
+          content: --resync-interval=
+      - lengthEqual:
+          path: spec.template.spec.containers[0].command
+          count: 8
+
   - it: should honour node-agent logging and timeout overrides
     set:
       nodeAgent:
@@ -918,6 +936,7 @@ tests:
           level: debug
           format: plain
         shutdownTimeout: 60s
+        resyncInterval: 30s
     asserts:
       - contains:
           path: spec.template.spec.containers[0].command
@@ -928,6 +947,9 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].command
           content: --shutdown-timeout=60s
+      - contains:
+          path: spec.template.spec.containers[0].command
+          content: --resync-interval=30s
 
   # ── Allocation watcher (#506) ───────────────────────────────────────
   - it: should not run the allocation watcher by default
