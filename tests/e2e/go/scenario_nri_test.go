@@ -506,11 +506,14 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 	// surfaced as an unrelated-looking failure on whichever profile happened to
 	// be running when the disk filled.
 	Context("when a pod opts into mock IMEX channels", Label("nri-imex"), Ordered, func() {
-		var gpuNode string
+		var (
+			gpuNode string
+			p       profile.Profile
+		)
 
 		BeforeAll(func(ctx SpecContext) {
 			Expect(selectedProfiles).NotTo(BeEmpty())
-			p := loadProfile(selectedProfiles[0])
+			p = loadProfile(selectedProfiles[0])
 			installNRIChart(ctx, h, p, topoValues, p.HasFabric())
 			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", config.ReadyTimeout(), config.PollInterval())
 			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriNRIDaemonSet, config.ReadyTimeout(), config.PollInterval())
@@ -564,6 +567,13 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 					"%s carries major %d but proc-devices advertises %d; the node has more than one channel provisioner",
 					name, major, advertised)
 			}
+		})
+
+		It("tracks an IMEX domain as a peer joins and drops", Label("imex-lifecycle"), func(ctx SpecContext) {
+			if !p.HasFabric() {
+				Skip("profile " + p.Name + " has no ComputeDomain fabric identity")
+			}
+			assertIMEXLifecycle(ctx, h, workers)
 		})
 	})
 
