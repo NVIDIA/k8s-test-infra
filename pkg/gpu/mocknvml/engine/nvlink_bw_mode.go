@@ -14,6 +14,7 @@
 package engine
 
 import (
+	"fmt"
 	"math"
 	"slices"
 
@@ -189,6 +190,16 @@ func (d *ConfigurableDevice) SetMockNvLinkLowPowerThreshold(threshold uint32) nv
 	return nvml.SUCCESS
 }
 
+// archLogLabel names an architecture for a log line. The UNKNOWN sentinel is
+// 0xffffffff, so printed as a number it reads as "newer than Hopper" and hides
+// why an architecture gate rejected the caller.
+func archLogLabel(arch nvml.DeviceArchitecture) string {
+	if arch == nvml.DEVICE_ARCH_UNKNOWN {
+		return "UNKNOWN"
+	}
+	return fmt.Sprintf("%d", arch)
+}
+
 // systemSupportsNvlinkBwMode gates the global pair on Hopper, which is what
 // the upstream docs specify ("NVML_ERROR_NOT_SUPPORTED if GPU is not Hopper or
 // newer architecture"). It also returns the architecture the decision was made
@@ -209,7 +220,8 @@ func (e *Engine) systemSupportsNvlinkBwMode() (nvml.DeviceArchitecture, bool) {
 // Reduced Bandwidth Mode.
 func (e *Engine) SystemGetNvlinkBwMode() (uint32, nvml.Return) {
 	if arch, ok := e.systemSupportsNvlinkBwMode(); !ok {
-		debugLog("[NVML] nvmlSystemGetNvlinkBwMode unsupported; architecture=%d needs >= hopper\n", arch)
+		debugLog("[NVML] nvmlSystemGetNvlinkBwMode unsupported; architecture=%s must be known and hopper or newer\n",
+			archLogLabel(arch))
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
 
@@ -231,8 +243,8 @@ func (e *Engine) SystemGetNvlinkBwMode() (uint32, nvml.Return) {
 // models no notion of privilege and has no P2P object lifecycle.
 func (e *Engine) SystemSetNvlinkBwMode(mode uint32) nvml.Return {
 	if arch, ok := e.systemSupportsNvlinkBwMode(); !ok {
-		debugLog("[NVML] nvmlSystemSetNvlinkBwMode(%d) unsupported; architecture=%d needs >= hopper\n",
-			mode, arch)
+		debugLog("[NVML] nvmlSystemSetNvlinkBwMode(%d) unsupported; architecture=%s must be known and hopper or newer\n",
+			mode, archLogLabel(arch))
 		return nvml.ERROR_NOT_SUPPORTED
 	}
 	if mode > math.MaxUint8 || !slices.Contains(defaultNvlinkBwModes, uint8(mode)) {

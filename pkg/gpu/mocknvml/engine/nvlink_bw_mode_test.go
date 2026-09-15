@@ -371,6 +371,27 @@ func TestSystemNvlinkBwMode_RoundTrip(t *testing.T) {
 	require.Equal(t, uint32(3), mode, "global mode after set")
 }
 
+// TestSystemNvlinkBwMode_PerEngineIsolation pins that the node-wide mode is
+// engine state, not process state. Two engines are involved because that is
+// the invariant: a mode set through one engine must be invisible to any other
+// engine in the same process, and so cannot outlive the engine that set it.
+func TestSystemNvlinkBwMode_PerEngineIsolation(t *testing.T) {
+	t.Parallel()
+
+	first := bwEngine(t, "hopper")
+	second := bwEngine(t, "hopper")
+
+	require.Equal(t, nvml.SUCCESS, first.SystemSetNvlinkBwMode(3), "set HALF on the first engine")
+
+	mode, ret := first.SystemGetNvlinkBwMode()
+	require.Equal(t, nvml.SUCCESS, ret, "get return on the first engine")
+	require.Equal(t, uint32(3), mode, "first engine reports the mode it was set to")
+
+	mode, ret = second.SystemGetNvlinkBwMode()
+	require.Equal(t, nvml.SUCCESS, ret, "get return on the second engine")
+	require.Equal(t, uint32(0), mode, "second engine still reports the default FULL")
+}
+
 func TestSystemNvlinkBwMode_Rejected(t *testing.T) {
 	t.Parallel()
 
