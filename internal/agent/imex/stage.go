@@ -51,7 +51,10 @@ func stageProcDevices(h *host.Host, state *agent.State, procDevicesPath string) 
 		return fmt.Errorf("render proc-devices: %w", err)
 	}
 
-	return fsutil.Write(h.RootPath("imex/proc-devices"), []byte(rendered), 0o644)
+	// Keep the substitute inside the driver root. Consumers already mount that
+	// tree as /driver-root, so ALT_PROC_DEVICES_PATH can select it without an
+	// additional hostPath mount.
+	return fsutil.Write(h.RootPath("driver/proc/devices"), []byte(rendered), 0o644)
 }
 
 // stageFabricImexMgmt writes the capability file the DRA plugin reads alongside

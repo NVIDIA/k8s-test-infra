@@ -26,14 +26,13 @@ load('ext://helm_resource', 'helm_resource')
 load('ext://k8s_attach', 'k8s_attach')
 
 _BASE_IMAGE         = 'nvml-mock:compute-domain'
-# Exported (no leading underscore): the root Tiltfile loads this so it
-# can pass image_deps=[DAEMON_IMAGE] into dra_install() when composing
-# --compute-domain --dra. That both drives Tilt's build of this image
-# and pins the DRA chart's image.repository/tag to it via image_keys.
-DAEMON_IMAGE        = 'nvml-mock:compute-domain-daemon'
+# Exported (no leading underscore): the root Tiltfile uses it to drive the
+# adapter build and pin the DRA chart image when composing
+# --compute-domain --dra.
+DRA_ADAPTER_IMAGE   = 'mokka-dra-adapter:compute-domain'
 _CHART              = 'deployments/nvml-mock/helm/nvml-mock'
 _MOCK_DOCKERFILE    = 'deployments/nvml-mock/Dockerfile'
-_OVERLAY_DOCKERFILE = 'deployments/nvml-mock/Dockerfile.compute-domain-daemon'
+_DRA_DOCKERFILE     = 'local/dra/Dockerfile'
 
 
 def build_images(with_dra):
@@ -65,22 +64,15 @@ def build_images(with_dra):
     )
 
     if with_dra:
-        # Daemon overlay: real nvidia-imex + nvidia-imex-shim on top of
-        # the upstream DRA compute-domain-daemon image. Pinned by
-        # local/compute-domain/dra-driver.values.yaml so the DRA
-        # driver's compute-domain-daemon pods run the shim'd real IMEX
-        # in NO-GPU mode instead of the GPU-required upstream binary.
-        # Select the named daemon stage explicitly so later stage additions
-        # cannot silently change this build's output.
+        # The upstream DRA runtime remains the final image. It receives the
+        # IMEX executables already pinned and verified in the Mokka image.
         docker_build(
-            DAEMON_IMAGE,
+            DRA_ADAPTER_IMAGE,
             context='.',
-            dockerfile=_OVERLAY_DOCKERFILE,
-            target='daemon',
+            dockerfile=_DRA_DOCKERFILE,
+            build_args={'NVML_MOCK_IMAGE': _BASE_IMAGE},
             only=[
-                'go.mod',
-                'go.sum',
-                'shims/nvidia-imex-shim/',
+                'local/dra/Dockerfile',
             ],
         )
 
