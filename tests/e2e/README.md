@@ -133,7 +133,7 @@ tests that must not be scoped by `E2E_PROFILES`.
 
 | Scenario | Target | Primary labels | What it proves |
 |---|---|---|---|
-| Standalone | `make e2e` | `labels`, `fgo`, `mockfiles`, `nvidia-smi`, `nvlink`, `ib`, `pcisysfs`, `ibping`, `failure-injection`, `runtime-control` | The mock renders a complete GPU node: driver files, device nodes, `nvidia-smi` inventory, NVLink topology, IB devices, PCI sysfs tree, cross-node `ibping`, and the four failure modes |
+| Standalone | `make e2e` | `labels`, `fgo`, `mockfiles`, `nvidia-smi`, `nvlink`, `ib`, `pcisysfs`, `ibping`, `ibfabric`, `failure-injection`, `runtime-control` | The mock renders a complete GPU node: driver files, device nodes, `nvidia-smi` inventory, NVLink topology, IB devices, PCI sysfs tree, cross-node `ibping` and fabric discovery, and the four failure modes |
 | DRA driver | `make e2e-dra` | `dra` | Dynamic Resource Allocation (DRA) scheduling works end to end: ResourceSlices report the profile's GPU count, and a pod using a `ResourceClaimTemplate` reaches `Running`, which requires `NodePrepareResources` to have succeeded |
 | GPU Operator | `make e2e-gpu-operator` | `gpu-operator`, `device-plugin`, `dcgm`, `xid`, `pcisysfs`, `runtime-control` | The full operator stack accepts the mock: the validator pod starts, GPU Feature Discovery (GFD) labels appear, allocatable `nvidia.com/gpu` matches the profile, and DCGM telemetry is answered |
 | Multi-node fleet | `make e2e-multi-node` | `multi-node` | A heterogeneous fleet works: separate A100 and T4 releases on different workers, correct per-node mock files and IB behaviour, and a GPU workload scheduled across them |
@@ -238,8 +238,9 @@ Read by the Makefile, not the suite:
 profiles directory is resolved from the repo root instead.
 
 Some timeouts are constants rather than variables: NFD label waits (3m), the
-`ibping` retry budget (5 attempts, 10s apart), the operator validator wait (5m),
-and the runtime-override TTL waits (30s).
+`ibping` retry budget (5 attempts, 10s apart), the `ibfabric` scan retry budget
+(3 attempts, 5s apart), the operator validator wait (5m), and the
+runtime-override TTL waits (30s).
 
 ### Label filter examples
 

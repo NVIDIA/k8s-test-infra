@@ -284,8 +284,9 @@ device_defaults:
     pcie_rx_mib_per_sec: 4096
 ```
 
-See `tests/e2e/spike-dcgm.sh` for the end-to-end container recipe
-(nv-hostengine, dcgmi, dcgm-exporter).
+GPM metrics are asserted end to end by the Go e2e `gpu-operator` scenario
+(`dcgm` label, `tests/e2e/go/assertions/dcgm.go`), which scrapes the GPU
+Operator's dcgm-exporter operand.
 
 #### Failure Injection (optional)
 

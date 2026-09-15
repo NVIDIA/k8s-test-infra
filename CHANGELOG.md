@@ -63,6 +63,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   as well as PCI sysfs, so its name no longer described what it does. The
   `MOCK_PCI_ROOT` variable that points it at the fake tree is unchanged.
 
+### Removed
+
+- The `tests/e2e/validate-*.sh` and `tests/e2e/spike-*.sh` scripts, along with
+  `tests/redeploy.sh`. The Go suite under `tests/e2e/go` replaced them and is
+  what CI runs; the scripts were reachable from no target or workflow. The two
+  checks that had no Go equivalent — `ibnetdiscover` whole-fabric discovery and
+  the `sminfo` master-SM identity — are now specs in the standalone scenario
+  under the `ibfabric` label, so they run on every pipeline rather than by hand.
+
 ### Fixed
 
 - nvml-mock: a consumer's read-after-write across two processes now sees the

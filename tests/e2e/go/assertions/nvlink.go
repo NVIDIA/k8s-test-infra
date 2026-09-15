@@ -26,7 +26,7 @@ var (
 	nvlinkLogOutputLines = 50
 )
 
-// nvTokens applies the column-windowed parse from validate-nvlink.sh: in a
+// nvTokens applies a column-windowed parse to `nvidia-smi topo -m`: in a
 // "GPU<n>" row, field 0 is the label and fields 1..count are the GPU data
 // columns (diagonal is "X"); NIC and CPU/NUMA columns come after and must be
 // excluded to avoid environmental false positives.
@@ -59,9 +59,9 @@ func distinctSorted(toks []string) []string {
 	return out
 }
 
-// NVLink ports validate-nvlink.sh. fabricmanager readiness must already be
-// gated by the caller (FabricManagerGate) BEFORE this assertion, matching the
-// real HGX/GB200 ordering.
+// NVLink asserts the NVLink topology the mock renders. fabricmanager readiness
+// must already be gated by the caller (FabricManagerGate) BEFORE this
+// assertion, matching the real HGX/GB200 ordering.
 func NVLink(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
 	ginkgo.GinkgoHelper()
 

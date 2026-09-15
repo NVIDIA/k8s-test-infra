@@ -59,6 +59,20 @@ func nvmlPodOnNode(ctx context.Context, h *harness.Harness, node string) kube.Po
 	return kube.PodRef{Namespace: nvmlMockNamespace, Pod: name}
 }
 
+// ibPodPair returns two running nvml-mock pods for the cross-node IB specs.
+// Every mock-ib check beyond a single CA's own sysfs needs a second pod: the
+// fabric is synthesized from the peers a pod discovers, so one pod proves
+// nothing about cross-pod visibility or a fabric-global SM.
+func ibPodPair(ctx context.Context, h *harness.Harness) (server, client kube.PodRef) {
+	GinkgoHelper()
+	pods, err := h.Kube.RunningPodNames(ctx, nvmlMockNamespace, nvmlMockSelector)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(len(pods)).To(BeNumerically(">=", 2),
+		"need >= 2 running nvml-mock pods for cross-node IB checks, found %d", len(pods))
+	return kube.PodRef{Namespace: nvmlMockNamespace, Pod: pods[0]},
+		kube.PodRef{Namespace: nvmlMockNamespace, Pod: pods[1]}
+}
+
 // podNode resolves the Kubernetes node a pod is scheduled on.
 func podNode(ctx context.Context, h *harness.Harness, pod kube.PodRef) string {
 	GinkgoHelper()

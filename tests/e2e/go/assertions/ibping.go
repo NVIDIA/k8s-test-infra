@@ -21,7 +21,7 @@ import (
 
 const (
 	// These embed the literal `${MOCK_IB_ROOT:-...}` so they expand pod-side
-	// inside `sh -c`, against the pod's env (matching validate-ibping.sh).
+	// inside `sh -c`, against the pod's env rather than the host runner's.
 	ibLIDPath  = `${MOCK_IB_ROOT:-/var/lib/nvml-mock/ib}/sys/class/infiniband/mlx5_0/ports/1/lid`
 	ibGUIDPath = `${MOCK_IB_ROOT:-/var/lib/nvml-mock/ib}/sys/class/infiniband/mlx5_0/ports/1/port_guid`
 	// mockIBSockExpr resolves the mock-ib socket path pod-side. The chart sets
@@ -35,7 +35,7 @@ const (
 )
 
 // ibForbidden are the substrings that mark an ibping failure even if the
-// command exits zero (ported from ibping_fail_patterns).
+// command exits zero, which libibmad-based tools routinely do.
 var ibForbidden = []string{
 	"client_register for mgmt 3 failed",
 	"iberror:",
@@ -51,12 +51,8 @@ var ibForbidden = []string{
 var ibRecvRE = regexp.MustCompile(ibPingRecvRE)
 
 func ibHasForbidden(out string) (string, bool) {
-	for _, p := range ibForbidden {
-		if strings.Contains(out, p) {
-			return p, true
-		}
-	}
-	return "", false
+	p := firstForbidden(out, ibForbidden)
+	return p, p != ""
 }
 
 // ibSuccess requires at least one received reply (not merely "transmitted").
@@ -72,7 +68,7 @@ func readSysfs(ctx context.Context, k *kube.Client, pod kube.PodRef, path string
 	return strings.TrimSpace(res.Stdout)
 }
 
-// IBPing ports validate-ibping.sh: read the server LID/GUID from sysfs, wait
+// IBPing exercises a cross-node ping: read the server LID/GUID from sysfs, wait
 // for both mock-ib sockets, one-shot REGISTER peers (a non-idempotent step run
 // ONCE before polling), then exercise both LID and GUID modes with bounded
 // retries, asserting the forbidden-pattern allowlist AND a positive-received

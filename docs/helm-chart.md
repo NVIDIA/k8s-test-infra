@@ -432,16 +432,18 @@ LID=$(kubectl exec "$SERVER_POD" -- sh -c \
 kubectl exec "$CLIENT_POD" -- ibping -c 3 "$LID"
 ```
 
-For automated cross-node validation (including peer restart and retries), use
-`tests/e2e/validate-ibping.sh`. LID-based ping is the supported path;
-cross-node `ibping -G <port_guid>` is supported (use `0x` hex without colons).
-Companion fabric validators:
+For automated cross-node validation (including peer restart and retries), run
+the `ibping` and `ibfabric` specs of the
+[Go e2e suite](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/e2e/README.md).
+LID-based ping is the supported path; cross-node `ibping -G <port_guid>` is
+supported (use `0x` hex without colons). The same specs cover the companion
+fabric tools:
 
-- [`tests/e2e/validate-iblinkinfo.sh`](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/e2e/validate-iblinkinfo.sh)
-  — direct-route walk reports peer GUIDs without duplicate-port errors.
-- [`tests/e2e/validate-ibv-devinfo.sh`](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/e2e/validate-ibv-devinfo.sh)
-  — `ibv_devinfo -l` claims every rendered HCA via libmlx5; `ibstatus`
+- `iblinkinfo` and `ibnetdiscover` — the directed-route walk reaches peer GUIDs
+  without duplicate-port errors.
+- `ibv_devinfo -l` claims every rendered HCA via libmlx5, and `ibstatus`
   confirms ACTIVE / LinkUp port state.
+- `sminfo` reports a master subnet manager, and every pod names the same one.
 
 The mock reads `MOCK_IB`, `MOCK_IB_PING_FABRIC`, `MOCK_IB_ROOT` and
 `MOCK_IB_PEERS`. The chart derives the first three from the

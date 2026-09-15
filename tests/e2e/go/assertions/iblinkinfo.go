@@ -8,7 +8,6 @@ package assertions
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
@@ -18,16 +17,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/profile"
 )
 
-var guid16RE = regexp.MustCompile(`(?i)0x[0-9a-f]{16}`)
-
-func normGUID(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
-	s = strings.ReplaceAll(s, ":", "")
-	s = strings.TrimPrefix(s, "0x")
-	return s
-}
-
-// IBLinkInfo ports validate-iblinkinfo.sh: the fabric scan from the local pod
+// IBLinkInfo asserts cross-pod visibility: the fabric scan from the local pod
 // must surface at least one cross-pod (non-local) port GUID. The `fabric ready`
 // log line is a soft signal (warning only). Skips for IB-disabled profiles.
 func IBLinkInfo(ctx context.Context, k *kube.Client, local, peer kube.PodRef, p profile.Profile) {
@@ -52,19 +42,10 @@ func IBLinkInfo(ctx context.Context, k *kube.Client, local, peer kube.PodRef, p 
 	out, err := k.ExecSh(ctx, local, "iblinkinfo 2>&1")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "iblinkinfo failed: %s", out.Combined())
 
-	found := map[string]struct{}{}
-	for _, m := range guid16RE.FindAllString(out.Combined(), -1) {
-		found[normGUID(m)] = struct{}{}
-	}
+	found := guidSet(out.Combined())
 	gomega.Expect(found).NotTo(gomega.BeEmpty(), "iblinkinfo on %s printed no port GUIDs", local.Pod)
 
-	var cross string
-	for g := range found {
-		if _, isLocal := localGUIDs[g]; !isLocal {
-			cross = g
-			break
-		}
-	}
+	cross := firstNonLocalGUID(found, localGUIDs)
 	gomega.Expect(cross).NotTo(gomega.BeEmpty(),
 		"iblinkinfo on %s found only local GUIDs, no cross-pod peer", local.Pod)
 	_, _ = fmt.Fprintf(ginkgo.GinkgoWriter, "iblinkinfo cross-pod peer GUID: %s\n", cross)
