@@ -38,11 +38,22 @@ import (
 //	SetBwMode:        version(4) + bSetBest(4) + bwMode(1) + 3 pad = 12
 //	NvLinkInfo_v1:    version(4) + isNvleEnabled(4) = 8
 //	NvLinkPowerThres: lowPwrThreshold(4) = 4
+//
+// The firmware chain behind NvLinkInfo_v2 is pinned too, because v2's size is
+// what nvmlDeviceGetNvLinkInfo's accepted version tag is built from — a drift
+// there would silently start rejecting real callers:
+//
+//	NvlinkFirmwareVersion: ucodeType(1) + 3 pad + major/minor/subMinor(12) = 16
+//	NvlinkFirmwareInfo:    firmwareVersion[100](1600) + numValidEntries(4) = 1604
+//	NvLinkInfo_v2:         version(4) + isNvleEnabled(4) + firmwareInfo(1604) = 1612
 const (
 	expectedNvlinkSupportedBwModesSize uintptr = 28
 	expectedNvlinkGetBwModeSize        uintptr = 12
 	expectedNvlinkSetBwModeSize        uintptr = 12
 	expectedNvLinkInfoV1Size           uintptr = 8
+	expectedNvLinkInfoV2Size           uintptr = 1612
+	expectedNvlinkFirmwareVersionSize  uintptr = 16
+	expectedNvlinkFirmwareInfoSize     uintptr = 1604
 	expectedNvLinkPowerThresSize       uintptr = 4
 )
 
@@ -58,6 +69,9 @@ func TestNvlinkBwModeStructLayouts(t *testing.T) {
 		{"NvlinkGetBwMode", unsafe.Sizeof(nvml.NvlinkGetBwMode{}), expectedNvlinkGetBwModeSize},
 		{"NvlinkSetBwMode", unsafe.Sizeof(nvml.NvlinkSetBwMode{}), expectedNvlinkSetBwModeSize},
 		{"NvLinkInfo_v1", unsafe.Sizeof(nvml.NvLinkInfo_v1{}), expectedNvLinkInfoV1Size},
+		{"NvLinkInfo_v2", unsafe.Sizeof(nvml.NvLinkInfo_v2{}), expectedNvLinkInfoV2Size},
+		{"NvlinkFirmwareVersion", unsafe.Sizeof(nvml.NvlinkFirmwareVersion{}), expectedNvlinkFirmwareVersionSize},
+		{"NvlinkFirmwareInfo", unsafe.Sizeof(nvml.NvlinkFirmwareInfo{}), expectedNvlinkFirmwareInfoSize},
 		{"NvLinkPowerThres", unsafe.Sizeof(nvml.NvLinkPowerThres{}), expectedNvLinkPowerThresSize},
 	}
 	for _, tc := range cases {
