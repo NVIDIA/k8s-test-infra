@@ -133,6 +133,33 @@ func TestGetMockNvlinkBwMode_BlackwellDefaults(t *testing.T) {
 	require.True(t, isBest, "FULL is the best mode")
 }
 
+// TestGetMockNvlinkBwMode_RuntimeOverridesProfile pins getter precedence:
+// process-local SetMockNvlinkBwMode wins over a profile initial mode, which
+// in turn wins over the computed best default.
+func TestGetMockNvlinkBwMode_RuntimeOverridesProfile(t *testing.T) {
+	t.Parallel()
+
+	profileMode := uint8(3)
+	dev := bwDevice(t, "blackwell", bwFabric(t, &NVLinkConfig{
+		BwMode: &NVLinkBwModeConfig{
+			Supported: []uint8{0, 3},
+			Mode:      &profileMode,
+		},
+	}))
+
+	mode, isBest, ret := dev.GetMockNvlinkBwMode()
+	require.Equal(t, nvml.SUCCESS, ret, "get return before override")
+	require.Equal(t, uint8(3), mode, "profile-configured mode")
+	require.False(t, isBest, "HALF is not best of {0,3}")
+
+	require.Equal(t, nvml.SUCCESS, dev.SetMockNvlinkBwMode(0, false), "runtime override to FULL")
+
+	mode, isBest, ret = dev.GetMockNvlinkBwMode()
+	require.Equal(t, nvml.SUCCESS, ret, "get return after override")
+	require.Equal(t, uint8(0), mode, "runtime override wins over profile")
+	require.True(t, isBest, "FULL is best of {0,3}")
+}
+
 // TestGetMockNvlinkBwMode_NotBest pins that bIsBest is computed rather than
 // hardcoded true, which is the whole point of the flag.
 func TestGetMockNvlinkBwMode_NotBest(t *testing.T) {
@@ -304,5 +331,14 @@ func TestSetMockNvLinkLowPowerThreshold_Rejected(t *testing.T) {
 		dev := bwDevice(t, "ampere", bwFabric(t, &NVLinkConfig{}))
 		require.Equal(t, nvml.ERROR_NOT_SUPPORTED,
 			dev.SetMockNvLinkLowPowerThreshold(500))
+	})
+
+	t.Run("device_arch_unknown", func(t *testing.T) {
+		t.Parallel()
+		// UNKNOWN (0xffffffff) satisfies >= HOPPER numerically; the explicit
+		// exclusion is what keeps unconfigured profiles from claiming Hopper APIs.
+		dev := bwDevice(t, "unrecognized_arch", bwFabric(t, &NVLinkConfig{}))
+		require.Equal(t, nvml.ERROR_NOT_SUPPORTED,
+			dev.SetMockNvLinkLowPowerThreshold(500), "UNKNOWN architecture")
 	})
 }
