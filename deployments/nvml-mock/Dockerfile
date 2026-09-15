@@ -21,6 +21,16 @@
 # Both default to the public path, so `docker build` with no arguments still
 # works. The publish workflow overrides GOPROXY and mounts the secret.
 ARG GOLANG_VERSION=1.26.6
+
+FROM debian:bookworm-slim AS imex
+ARG TARGETARCH
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+COPY deployments/nvml-mock/build/imex.lock /tmp/imex.lock
+COPY --chmod=0755 deployments/nvml-mock/build/download-imex.sh /usr/local/bin/download-imex
+RUN /usr/local/bin/download-imex /tmp/imex.lock "${TARGETARCH}" /opt/imex
+
 FROM golang:${GOLANG_VERSION}-bookworm AS builder
 ARG GOPROXY=https://proxy.golang.org,direct
 ENV GOPROXY=${GOPROXY} \
@@ -58,11 +68,18 @@ COPY --from=builder /src/dist/nri-plugin /usr/local/bin/nri-plugin
 COPY --from=builder /src/dist/nvml-mock-ctl /usr/local/bin/nvml-mock-ctl
 COPY --from=builder /src/dist/check-fabric     /usr/local/bin/check-fabric
 COPY --from=builder /src/dist/node-agent /usr/local/bin/node-agent
+COPY --from=imex /opt/imex/usr/bin/nvidia-imex /usr/bin/nvidia-imex.real
+COPY --from=imex /opt/imex/usr/bin/nvidia-imex-ctl /usr/bin/nvidia-imex-ctl
+COPY --from=imex /opt/imex/etc/nvidia-imex/config.cfg /etc/nvidia-imex/config.cfg
+COPY --from=imex /opt/imex/LICENSE /usr/share/doc/nvidia-imex/LICENSE
+COPY --from=imex /opt/imex/usr/share/doc/third-party-notices.txt /usr/share/doc/nvidia-imex/third-party-notices.txt
+COPY --from=imex /tmp/imex.lock /usr/share/doc/nvidia-imex/source.lock
+COPY --from=builder /src/dist/nvidia-imex-shim /usr/bin/nvidia-imex
 # Build-time only: it needs ldd and patchelf, both purged from the final image.
 COPY deployments/nvml-mock/build/bundle-ib-tools.sh /usr/local/bin/bundle-ib-tools.sh
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends curl ca-certificates gnupg2 \
+    apt-get install -y --no-install-recommends curl ca-certificates gnupg2 zlib1g \
         pciutils \
         infiniband-diags rdma-core ibverbs-utils ibverbs-providers; \
     rm -rf /var/lib/apt/lists/*; \
@@ -106,3 +123,12 @@ RUN set -eux; \
     rm -rf /tmp/nvidia-utils /tmp/nvidia-utils-580*.deb \
            /usr/share/keyrings/nvidia.gpg /etc/apt/sources.list.d/nvidia.list; \
     apt-get purge -y --auto-remove curl ca-certificates gnupg2 patchelf
+
+# The CLI exits 1 after printing help. Checking its output rather than its exit
+# code proves the selected platform binary can load in the final runtime.
+RUN set -eu; \
+    status=0; \
+    output=$(/usr/bin/nvidia-imex-ctl --help 2>&1) || status=$?; \
+    test "${status}" -ne 126; \
+    test "${status}" -ne 127; \
+    printf '%s\n' "${output}" | grep -q '^Usage:'
