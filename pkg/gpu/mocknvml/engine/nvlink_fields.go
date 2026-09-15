@@ -221,7 +221,7 @@ func (d *ConfigurableDevice) GetNvLinkFieldValue(fieldID, scopeID uint32) (Field
 			// An accepted SetNvLinkDeviceLowPowerThreshold wins over the
 			// built-in default; this read-back is what keeps that setter
 			// from being a hollow success.
-			if v := d.nvlinkLowPowerOverride; v != nil {
+			if v := d.cfg().NVLinkLowPowerThreshold; v != nil {
 				return FieldValueUint, uint64(*v), nvml.SUCCESS
 			}
 			return FieldValueUint, lowPowerThresholdDefault, nvml.SUCCESS

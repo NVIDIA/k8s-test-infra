@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- nvml-mock: `nvidia-smi nvlink` now answers its bandwidth-mode and link-info
+  subcommands instead of failing. All seven NVML functions behind them were
+  generated stubs, so `-gBwMode`, `-sBwMode`, `--info`, `-gLowPwrInfo` and
+  `-sLowPwrThres` reported the feature as unsupported on every profile, and a
+  consumer that probes NVLink power or bandwidth state could not exercise its
+  own code path. Bandwidth mode is gated on the architecture the driver gates it
+  on — device-level on Blackwell, node-wide on Hopper — so a pre-Hopper profile
+  still declines, as the hardware does. The mode values are opaque driver
+  indices that no header enumerates; a profile can declare its own set through
+  `nvlink.bw_mode`, and the default is the five the bundled `nvidia-smi` can
+  name. NVLink encryption (the `NVLE:` row of `nvlink --info`) is reported from
+  `nvlink.nvle_enabled` and additionally needs driver 580, which is why it is
+  absent on the older profiles.
 - node-agent: containers now see the NVIDIA kernel modules as loaded. `lsmod`
   lists `nvidia` and `nvidia_uvm`, and `/sys/module/nvidia/refcnt` exists. The
   node's own modules stay visible beside them. See `docs/helm-chart.md` for how
@@ -73,6 +86,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `libpcisysfs.so` is now `libmockfs.so`. The shim redirects kernel-module paths
   as well as PCI sysfs, so its name no longer described what it does. The
   `MOCK_PCI_ROOT` variable that points it at the fake tree is unchanged.
+- nvml-mock: the `gb300` profile moves to the 580 driver line — driver
+  `580.65.06`, NVML `13.580.65`, CUDA 13.0. It advertised `570.124.06`, which
+  predates `nvmlDeviceGetNvLinkInfo`, so the newest simulated part reported
+  `Function Not Found` for `nvidia-smi nvlink --info` while older profiles on
+  newer drivers answered it. A consumer that pins the `gb300` driver string
+  sees the new value.
 
 ### Removed
 

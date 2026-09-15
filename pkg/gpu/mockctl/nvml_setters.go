@@ -70,6 +70,38 @@ func UpdateWorkloadProfiles(
 	})
 }
 
+// SetNvlinkBwMode persists an NVLink Reduced Bandwidth Mode. allDevices routes
+// the write to the `all:` bucket, which is how the node-wide NVML pair records
+// a mode that belongs to the node rather than to one GPU.
+func SetNvlinkBwMode(path string, index int, mode uint8, allDevices bool) error {
+	return mutateDevice(path, func(d *Doc) error {
+		d.SetFields(nvlinkTarget(index, allDevices), NvlinkBwModePatch(mode))
+		return nil
+	})
+}
+
+// SetNvlinkLowPowerThreshold persists an NVLink low-power threshold for one
+// device. A nil threshold removes the recorded value so the device falls back
+// to the driver default, which is what the setter's reset sentinel means.
+func SetNvlinkLowPowerThreshold(path string, index int, threshold *uint32) error {
+	return mutateDevice(path, func(d *Doc) error {
+		if threshold == nil {
+			d.ClearField(Target{Index: index}, nvlinkLowPowerThresholdKey)
+			return nil
+		}
+		d.SetFields(Target{Index: index}, NvlinkLowPowerThresholdPatch(*threshold))
+		return nil
+	})
+}
+
+// nvlinkTarget selects the bucket an NVLink write lands in.
+func nvlinkTarget(index int, allDevices bool) Target {
+	if allDevices {
+		return Target{All: true}
+	}
+	return Target{Index: index}
+}
+
 // mutateDevice runs mutate against the document under the flock every writer of
 // this file takes, re-reading inside the lock so a concurrent injection cannot
 // interleave. A mutate that returns an error leaves the file untouched.
@@ -115,6 +147,22 @@ func WorkloadProfilesPatch(requested []uint32) map[string]any {
 			"workload_power_profiles": map[string]any{"requested": requested},
 		},
 	}
+}
+
+// nvlinkLowPowerThresholdKey is the override field the low-power setter writes,
+// named once because the reset path deletes the same key the set path writes.
+const nvlinkLowPowerThresholdKey = "nvlink_low_power_threshold"
+
+// NvlinkBwModePatch builds an override patch recording the bandwidth mode
+// nvmlDeviceSetNvlinkBwMode or nvmlSystemSetNvlinkBwMode applied.
+func NvlinkBwModePatch(mode uint8) map[string]any {
+	return map[string]any{"nvlink_bw_mode": mode}
+}
+
+// NvlinkLowPowerThresholdPatch builds an override patch recording the threshold
+// nvmlDeviceSetNvLinkDeviceLowPowerThreshold applied.
+func NvlinkLowPowerThresholdPatch(threshold uint32) map[string]any {
+	return map[string]any{nvlinkLowPowerThresholdKey: threshold}
 }
 
 // WorkloadRequestedProfiles reports the profiles requested of device index by a

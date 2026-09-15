@@ -159,6 +159,21 @@ type DeviceConfig struct {
 	// baseline. See NVLinkErrorInjectionConfig.
 	NVLinkError *NVLinkErrorInjectionConfig `json:"nvlink_error,omitempty"`
 
+	// NVLinkBwMode records the NVLink Reduced Bandwidth Mode a runtime setter
+	// applied. It is per device because that is what the device-level NVML
+	// pair takes; the node-wide pair writes the same field into the `all:`
+	// bucket, so a node-wide set moves every device the way the driver does.
+	//
+	// A pointer so an explicit 0 (FULL) is distinguishable from "never set",
+	// which falls back to the profile's nvlink.bw_mode.
+	NVLinkBwMode *uint8 `json:"nvlink_bw_mode,omitempty"`
+
+	// NVLinkLowPowerThreshold records the threshold
+	// nvmlDeviceSetNvLinkDeviceLowPowerThreshold applied, in the 50us units
+	// the low-power field values report. Nil is the driver default, which is
+	// also what the reset sentinel restores.
+	NVLinkLowPowerThreshold *uint32 `json:"nvlink_low_power_threshold,omitempty"`
+
 	// Platform describes where the board physically sits in a rack. When nil
 	// (default) nvmlDeviceGetPlatformInfo and nvmlDeviceGetModuleId report
 	// ERROR_NOT_SUPPORTED — matching every board outside a Grace-Blackwell

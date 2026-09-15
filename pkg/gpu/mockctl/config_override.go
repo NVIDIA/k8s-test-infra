@@ -95,6 +95,14 @@ func (d *Doc) SetFields(t Target, kv map[string]any) {
 	mergeInto(d.bucket(t), kv)
 }
 
+// ClearField removes one top-level field from the target's bucket, so the
+// device falls back to its configured value. A setter that has a driver default
+// to return to needs this: writing a zero would record a real value, and the
+// merge has no way to express "unset".
+func (d *Doc) ClearField(t Target, key string) {
+	delete(d.bucket(t), key)
+}
+
 // Fail records a failure override for the target. mode "healthy" removes any
 // existing failure block instead of adding one.
 func (d *Doc) Fail(t Target, mode string, afterCalls int, xidCode uint64) error {

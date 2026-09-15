@@ -34,3 +34,15 @@ func (overrideWriter) UpdateWorkloadProfiles(
 ) error {
 	return mockctl.UpdateWorkloadProfiles(engine.ConfigOverridePath(), index, apply)
 }
+
+// SetNvlinkBwMode records the mode nvmlDeviceSetNvlinkBwMode or
+// nvmlSystemSetNvlinkBwMode applied.
+func (overrideWriter) SetNvlinkBwMode(index int, mode uint8, allDevices bool) error {
+	return mockctl.SetNvlinkBwMode(engine.ConfigOverridePath(), index, mode, allDevices)
+}
+
+// SetNvlinkLowPowerThreshold records the threshold
+// nvmlDeviceSetNvLinkDeviceLowPowerThreshold applied.
+func (overrideWriter) SetNvlinkLowPowerThreshold(index int, threshold *uint32) error {
+	return mockctl.SetNvlinkLowPowerThreshold(engine.ConfigOverridePath(), index, threshold)
+}

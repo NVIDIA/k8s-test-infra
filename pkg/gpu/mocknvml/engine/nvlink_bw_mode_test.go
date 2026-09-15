@@ -133,11 +133,11 @@ func TestGetMockNvlinkBwMode_BlackwellDefaults(t *testing.T) {
 	require.True(t, isBest, "FULL is the best mode")
 }
 
-// TestGetMockNvlinkBwMode_RuntimeOverridesProfile pins getter precedence:
-// process-local SetMockNvlinkBwMode wins over a profile initial mode, which
-// in turn wins over the computed best default.
+// TestGetMockNvlinkBwMode_RuntimeOverridesProfile pins getter precedence: a
+// recorded SetMockNvlinkBwMode wins over a profile initial mode, which in turn
+// wins over the computed best default.
 func TestGetMockNvlinkBwMode_RuntimeOverridesProfile(t *testing.T) {
-	t.Parallel()
+	persistSetterWrites(t)
 
 	profileMode := uint8(3)
 	dev := bwDevice(t, "blackwell", bwFabric(t, &NVLinkConfig{
@@ -217,7 +217,7 @@ func TestGetMockNvLinkInfo_Nvle(t *testing.T) {
 }
 
 func TestSetMockNvlinkBwMode_RoundTrip(t *testing.T) {
-	t.Parallel()
+	persistSetterWrites(t)
 
 	dev := bwDevice(t, "blackwell", bwFabric(t, &NVLinkConfig{}))
 
@@ -232,7 +232,7 @@ func TestSetMockNvlinkBwMode_RoundTrip(t *testing.T) {
 // TestSetMockNvlinkBwMode_SetBest pins that bSetBest ignores the mode field,
 // which is how the upstream struct is documented to behave.
 func TestSetMockNvlinkBwMode_SetBest(t *testing.T) {
-	t.Parallel()
+	persistSetterWrites(t)
 
 	dev := bwDevice(t, "blackwell", bwFabric(t, &NVLinkConfig{}))
 	require.Equal(t, nvml.SUCCESS, dev.SetMockNvlinkBwMode(3, false), "move off best")
@@ -292,6 +292,7 @@ func bwSwitchFabricDevice(t *testing.T, arch string) *ConfigurableDevice {
 }
 
 func TestSetMockNvLinkLowPowerThreshold(t *testing.T) {
+	persistSetterWrites(t)
 	dev := bwSwitchFabricDevice(t, "hopper")
 
 	// Baseline: the field reports the built-in default.
@@ -356,7 +357,7 @@ func bwEngine(t *testing.T, arch string) *Engine {
 }
 
 func TestSystemNvlinkBwMode_RoundTrip(t *testing.T) {
-	t.Parallel()
+	persistSetterWrites(t)
 
 	e := bwEngine(t, "hopper")
 
@@ -371,25 +372,72 @@ func TestSystemNvlinkBwMode_RoundTrip(t *testing.T) {
 	require.Equal(t, uint32(3), mode, "global mode after set")
 }
 
-// TestSystemNvlinkBwMode_PerEngineIsolation pins that the node-wide mode is
-// engine state, not process state. Two engines are involved because that is
-// the invariant: a mode set through one engine must be invisible to any other
-// engine in the same process, and so cannot outlive the engine that set it.
-func TestSystemNvlinkBwMode_PerEngineIsolation(t *testing.T) {
-	t.Parallel()
+// TestSystemNvlinkBwMode_SharedAcrossEngines covers the read-after-write a
+// consumer performs across two processes: `nvidia-smi nvlink -sBwMode` in one
+// and a plain read in another. Two engines stand in for those two processes,
+// since each consumer loads its own copy of the mock and gets its own engine.
+// Reporting the old mode there is the failure this guards against — on real
+// hardware the node-wide mode is driver state every process observes.
+func TestSystemNvlinkBwMode_SharedAcrossEngines(t *testing.T) {
+	persistSetterWrites(t)
 
-	first := bwEngine(t, "hopper")
-	second := bwEngine(t, "hopper")
+	writer := bwEngine(t, "hopper")
+	reader := bwEngine(t, "hopper")
 
-	require.Equal(t, nvml.SUCCESS, first.SystemSetNvlinkBwMode(3), "set HALF on the first engine")
+	require.Equal(t, nvml.SUCCESS, writer.SystemSetNvlinkBwMode(3), "set HALF on the writing engine")
 
-	mode, ret := first.SystemGetNvlinkBwMode()
-	require.Equal(t, nvml.SUCCESS, ret, "get return on the first engine")
-	require.Equal(t, uint32(3), mode, "first engine reports the mode it was set to")
+	mode, ret := reader.SystemGetNvlinkBwMode()
+	require.Equal(t, nvml.SUCCESS, ret, "get return on the reading engine")
+	require.Equal(t, uint32(3), mode, "a second engine must observe the node-wide write")
+}
 
-	mode, ret = second.SystemGetNvlinkBwMode()
-	require.Equal(t, nvml.SUCCESS, ret, "get return on the second engine")
-	require.Equal(t, uint32(0), mode, "second engine still reports the default FULL")
+// TestSystemNvlinkBwMode_IgnoresPerDeviceWrites keeps the two NVML pairs
+// independent. The node-wide getter takes no device, so folding a per-device
+// write into its answer would report a mode nobody set node-wide.
+func TestSystemNvlinkBwMode_IgnoresPerDeviceWrites(t *testing.T) {
+	persistSetterWrites(t)
+
+	e := bwEngine(t, "hopper")
+	dev := bwDevice(t, "blackwell", bwFabric(t, &NVLinkConfig{}))
+
+	require.Equal(t, nvml.SUCCESS, dev.SetMockNvlinkBwMode(3, false), "per-device set HALF")
+
+	mode, ret := e.SystemGetNvlinkBwMode()
+	require.Equal(t, nvml.SUCCESS, ret, "node-wide get return")
+	require.Equal(t, uint32(0), mode, "a per-device write must not move the node-wide mode")
+}
+
+// TestGetMockNvlinkBwMode_ObservesNodeWideWrite is the other direction: the
+// node-wide setter writes the `all:` bucket, so every device must report it.
+// That is how the driver behaves — a node-wide mode change moves every GPU.
+func TestGetMockNvlinkBwMode_ObservesNodeWideWrite(t *testing.T) {
+	persistSetterWrites(t)
+
+	e := bwEngine(t, "hopper")
+	dev := bwDevice(t, "blackwell", bwFabric(t, &NVLinkConfig{}))
+
+	require.Equal(t, nvml.SUCCESS, e.SystemSetNvlinkBwMode(3), "node-wide set HALF")
+
+	mode, isBest, ret := dev.GetMockNvlinkBwMode()
+	require.Equal(t, nvml.SUCCESS, ret, "device get return")
+	require.Equal(t, uint8(3), mode, "the device reports the node-wide mode")
+	require.False(t, isBest, "HALF is not best")
+}
+
+// TestSetMockNvLinkLowPowerThreshold_SharedAcrossDevices covers the same
+// cross-process read-after-write for the low-power threshold, which a consumer
+// reads back through NVML_FI_DEV_NVLINK_GET_POWER_THRESHOLD rather than a
+// dedicated getter.
+func TestSetMockNvLinkLowPowerThreshold_SharedAcrossDevices(t *testing.T) {
+	persistSetterWrites(t)
+
+	writer := bwSwitchFabricDevice(t, "hopper")
+	require.Equal(t, nvml.SUCCESS, writer.SetMockNvLinkLowPowerThreshold(500), "set 500")
+
+	reader := bwSwitchFabricDevice(t, "hopper")
+	_, v, ret := reader.GetNvLinkFieldValue(fiNvlinkGetPowerThreshold, 0)
+	require.Equal(t, nvml.SUCCESS, ret, "field return on the reading device")
+	require.Equal(t, uint64(500), v, "a second device must observe the recorded threshold")
 }
 
 func TestSystemNvlinkBwMode_Rejected(t *testing.T) {

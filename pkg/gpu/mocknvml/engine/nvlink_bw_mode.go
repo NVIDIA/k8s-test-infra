@@ -100,7 +100,9 @@ func (d *ConfigurableDevice) GetMockNvlinkBwMode() (uint8, bool, nvml.Return) {
 	if configured, ok := d.fabric.NvlinkConfiguredBwMode(); ok {
 		mode = configured
 	}
-	if v := d.nvlinkBwModeOverride; v != nil {
+	// A mode recorded by a setter outranks the profile, and is read fresh from
+	// the override document so a write from another process is visible here.
+	if v := d.cfg().NVLinkBwMode; v != nil {
 		mode = *v
 	}
 
@@ -135,8 +137,10 @@ func (d *ConfigurableDevice) supportsNvlinkLowPower() bool {
 // `nvidia-smi nvlink -sBwMode`. setBest maps onto the struct's bSetBest
 // field, which selects the best mode and makes the mode argument irrelevant.
 //
-// The new mode is held in memory only, so it is not visible to a later
-// process — see the nvlinkBwModeOverride comment on ConfigurableDevice.
+// The mode is recorded in the override document rather than in process memory,
+// because on real hardware it is driver state the whole node observes: setting
+// it with one `nvidia-smi` and reading it back with another has to report the
+// new value.
 func (d *ConfigurableDevice) SetMockNvlinkBwMode(mode uint8, setBest bool) nvml.Return {
 	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
 		return ret
@@ -153,7 +157,16 @@ func (d *ConfigurableDevice) SetMockNvlinkBwMode(mode uint8, setBest bool) nvml.
 		return nvml.ERROR_INVALID_ARGUMENT
 	}
 
-	d.nvlinkBwModeOverride = &mode
+	w := overrideWriter()
+	if w == nil {
+		warnLog("[NVML] nvmlDeviceSetNvlinkBwMode(%d) -> NO_PERMISSION (no override writer)\n", mode)
+		return nvml.ERROR_NO_PERMISSION
+	}
+	if err := w.SetNvlinkBwMode(d.PhysicalIndex(), mode, false); err != nil {
+		warnLog("[NVML] nvmlDeviceSetNvlinkBwMode(%d) -> NO_PERMISSION: %v\n", mode, err)
+		return nvml.ERROR_NO_PERMISSION
+	}
+	configOverrides.invalidateAfterLocalWrite()
 	debugLog("[NVML] nvmlDeviceSetNvlinkBwMode -> mode=%d\n", mode)
 	return nvml.SUCCESS
 }
@@ -174,18 +187,29 @@ func (d *ConfigurableDevice) SetMockNvLinkLowPowerThreshold(threshold uint32) nv
 	if !d.supportsNvlinkLowPower() {
 		return nvml.ERROR_NOT_SUPPORTED
 	}
-	if threshold == nvlinkLowPowerThresholdReset {
-		d.nvlinkLowPowerOverride = nil
-		debugLog("[NVML] nvmlDeviceSetNvLinkDeviceLowPowerThreshold -> reset\n")
-		return nvml.SUCCESS
-	}
-	if threshold < lowPowerThresholdMin || threshold > lowPowerThresholdMax {
-		debugLog("[NVML] nvmlDeviceSetNvLinkDeviceLowPowerThreshold(%d) out of range %d..%d\n",
-			threshold, lowPowerThresholdMin, lowPowerThresholdMax)
-		return nvml.ERROR_INVALID_ARGUMENT
+	// The reset sentinel clears the recorded value rather than storing one, so
+	// the device returns to the driver default the profile describes.
+	var record *uint32
+	if threshold != nvlinkLowPowerThresholdReset {
+		if threshold < lowPowerThresholdMin || threshold > lowPowerThresholdMax {
+			debugLog("[NVML] nvmlDeviceSetNvLinkDeviceLowPowerThreshold(%d) out of range %d..%d\n",
+				threshold, lowPowerThresholdMin, lowPowerThresholdMax)
+			return nvml.ERROR_INVALID_ARGUMENT
+		}
+		record = &threshold
 	}
 
-	d.nvlinkLowPowerOverride = &threshold
+	w := overrideWriter()
+	if w == nil {
+		warnLog("[NVML] nvmlDeviceSetNvLinkDeviceLowPowerThreshold(%d) -> NO_PERMISSION (no override writer)\n",
+			threshold)
+		return nvml.ERROR_NO_PERMISSION
+	}
+	if err := w.SetNvlinkLowPowerThreshold(d.PhysicalIndex(), record); err != nil {
+		warnLog("[NVML] nvmlDeviceSetNvLinkDeviceLowPowerThreshold(%d) -> NO_PERMISSION: %v\n", threshold, err)
+		return nvml.ERROR_NO_PERMISSION
+	}
+	configOverrides.invalidateAfterLocalWrite()
 	debugLog("[NVML] nvmlDeviceSetNvLinkDeviceLowPowerThreshold -> %d\n", threshold)
 	return nvml.SUCCESS
 }
@@ -225,15 +249,30 @@ func (e *Engine) SystemGetNvlinkBwMode() (uint32, nvml.Return) {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
 
-	e.systemNvlinkBwModeMu.Lock()
-	defer e.systemNvlinkBwModeMu.Unlock()
-
 	mode := uint32(bestNvlinkBwMode(defaultNvlinkBwModes))
-	if e.systemNvlinkBwModeOverride != nil {
-		mode = *e.systemNvlinkBwModeOverride
+	if v, ok := nodeWideNvlinkBwMode(); ok {
+		mode = uint32(v)
 	}
 	debugLog("[NVML] nvmlSystemGetNvlinkBwMode -> %d\n", mode)
 	return mode, nvml.SUCCESS
+}
+
+// nodeWideNvlinkBwMode reads the mode the node-wide setter recorded.
+//
+// It reads the `all:` bucket directly instead of going through a device,
+// because this API takes none and a per-device write must not be mistaken for a
+// node-wide one: the two NVML pairs are independent, and only the node-wide
+// setter writes here.
+func nodeWideNvlinkBwMode() (uint8, bool) {
+	_, doc := configOverrides.snapshot()
+	if doc == nil || len(doc.All) == 0 {
+		return 0, false
+	}
+	merged, err := MergeDeviceConfig(&DeviceConfig{}, doc.All)
+	if err != nil || merged.NVLinkBwMode == nil {
+		return 0, false
+	}
+	return *merged.NVLinkBwMode, true
 }
 
 // SystemSetNvlinkBwMode backs nvmlSystemSetNvlinkBwMode.
@@ -253,10 +292,18 @@ func (e *Engine) SystemSetNvlinkBwMode(mode uint32) nvml.Return {
 		return nvml.ERROR_INVALID_ARGUMENT
 	}
 
-	e.systemNvlinkBwModeMu.Lock()
-	defer e.systemNvlinkBwModeMu.Unlock()
-
-	e.systemNvlinkBwModeOverride = &mode
+	w := overrideWriter()
+	if w == nil {
+		warnLog("[NVML] nvmlSystemSetNvlinkBwMode(%d) -> NO_PERMISSION (no override writer)\n", mode)
+		return nvml.ERROR_NO_PERMISSION
+	}
+	// The index is irrelevant for an `all:` write, but the port takes one so
+	// the per-device setter can share the method.
+	if err := w.SetNvlinkBwMode(0, uint8(mode), true); err != nil {
+		warnLog("[NVML] nvmlSystemSetNvlinkBwMode(%d) -> NO_PERMISSION: %v\n", mode, err)
+		return nvml.ERROR_NO_PERMISSION
+	}
+	configOverrides.invalidateAfterLocalWrite()
 	debugLog("[NVML] nvmlSystemSetNvlinkBwMode -> %d\n", mode)
 	return nvml.SUCCESS
 }
