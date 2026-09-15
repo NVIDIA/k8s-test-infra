@@ -141,9 +141,11 @@ func TestLoadConfig_GB300Profile(t *testing.T) {
 	expectedMemBytes := uint64(288) * 1024 * 1024 * 1024
 	require.Equal(t, expectedMemBytes, mem.TotalBytes, "GB300 memory total_bytes (288 GiB)")
 
-	// Blackwell Ultra uses the 570.x driver line; the chart's
+	// Blackwell Ultra ships on the 580.x driver line, which is also the floor
+	// for nvmlDeviceGetNvLinkInfo — on an older pin the version registry
+	// answers FUNCTION_NOT_FOUND and the NVLE surface disappears. The chart's
 	// driverVersion helper relies on this value being consistent.
-	require.Equal(t, "570.124.06", yamlCfg.System.DriverVersion, "GB300 driver_version")
+	require.Equal(t, "580.65.06", yamlCfg.System.DriverVersion, "GB300 driver_version")
 
 	// PCIe Gen6 (or NVLink-C2C to Grace).
 	pcie := yamlCfg.DeviceDefaults.PCIe

@@ -8,11 +8,11 @@ version: "1.0"
 # System-level configuration
 # =============================================================================
 system:
-  driver_version: "570.124.06"
-  nvml_version: "12.570.124.06"
-  cuda_version: "12.8"
-  cuda_version_major: 12
-  cuda_version_minor: 8
+  driver_version: "580.65.06"
+  nvml_version: "13.580.65"
+  cuda_version: "13.0"
+  cuda_version_major: 13
+  cuda_version_minor: 0
 
 # Helm-only dynamic-metrics defaults (engine ignores this key). Used when
 # gpu.dynamicMetrics.enabled=true; base sits inside the power limits so it varies.
@@ -371,7 +371,7 @@ device_defaults:
   # ---------------------------------------------------------------------------
   gsp_firmware:
     mode: "enabled"
-    version: "570.124.06"
+    version: "580.65.06"
 
   # ---------------------------------------------------------------------------
   # Blackwell Ultra-specific features
