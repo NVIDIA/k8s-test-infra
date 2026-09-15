@@ -35,11 +35,11 @@ type Engine struct {
 	initCount int
 	mu        sync.RWMutex
 
-	// systemNvlinkBwModeOverride holds the node-wide mode set by
-	// nvmlSystemSetNvlinkBwMode. Process-local, like the per-device
-	// overrides on ConfigurableDevice -- see issue #849. Guarded by its own
-	// mutex rather than the engine's, so a bw-mode write never contends
-	// with device enumeration.
+	// systemNvlinkBwModeMu guards systemNvlinkBwModeOverride, the node-wide
+	// mode set by nvmlSystemSetNvlinkBwMode. Process-local, like the
+	// per-device overrides on ConfigurableDevice -- see issue #849. The pair
+	// carries its own mutex rather than sharing the engine's, so a bw-mode
+	// write never contends with device enumeration.
 	systemNvlinkBwModeMu       sync.Mutex
 	systemNvlinkBwModeOverride *uint32
 }
