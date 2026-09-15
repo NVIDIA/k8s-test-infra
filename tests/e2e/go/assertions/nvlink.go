@@ -183,15 +183,25 @@ func nvlinkBwMode(ctx context.Context, k *kube.Client, pod kube.PodRef, p profil
 	gomega.Expect(out).To(gomega.MatchRegexp(bwModeNameRE.String()),
 		"profile %q did not report a named bandwidth mode:\n%s", p.Name, out)
 
-	// No set-then-get round trip: setter state is process-local and each
-	// nvidia-smi run dlopens a fresh mock, so the new mode is gone by the next
-	// call. Cross-process persistence is issue #849.
 	for _, mode := range bwModeNames {
 		ginkgo.By("nvidia-smi nvlink -sBwMode " + mode)
 		setRes, _ := k.ExecTruncated(ctx, pod, nvlinkLogOutputLines, "nvidia-smi", "nvlink", "-sBwMode", mode)
 		gomega.Expect(setRes.Combined()).To(gomega.MatchRegexp(`(?i)Successfully set nvlink bandwidth mode`),
 			"profile %q rejected supported bandwidth mode %q:\n%s", p.Name, mode, setRes.Combined())
 	}
+
+	// The round trip across two nvidia-smi invocations is the point of
+	// persisting the mode: each invocation dlopens its own copy of the mock, so
+	// a mode held in process memory would be gone by this next call.
+	ginkgo.By("nvidia-smi nvlink -sBwMode survives into a separate process")
+	_, _ = k.ExecTruncated(ctx, pod, nvlinkLogOutputLines, "nvidia-smi", "nvlink", "-sBwMode", "HALF")
+	backRes, _ := k.ExecTruncated(ctx, pod, nvlinkLogOutputLines, "nvidia-smi", "nvlink", "-gBwMode")
+	gomega.Expect(backRes.Combined()).To(gomega.MatchRegexp(`(?i)bandwidth mode:\s*HALF`),
+		"profile %q lost a bandwidth mode set by a previous process:\n%s", p.Name, backRes.Combined())
+
+	// Leave the node on the default, so a later assertion (or a re-run against
+	// the same cluster) starts from FULL rather than inheriting HALF.
+	_, _ = k.ExecTruncated(ctx, pod, nvlinkLogOutputLines, "nvidia-smi", "nvlink", "-sBwMode", "FULL")
 
 	// nvlink --info is per-device, so it needs Blackwell AND a real fabric.
 	// h100 is Hopper, and b200 is standalone with no links at all, so neither
