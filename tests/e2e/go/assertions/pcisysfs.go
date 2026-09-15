@@ -89,7 +89,7 @@ const KernelPCIDevicesDir = "/sys/bus/pci/devices"
 // the rendered tree is readable at the kernel paths.
 //
 // The overlay path the standalone scenario checks proves the renderer ran; it
-// says nothing about whether anything reaches a consumer. libpcisysfs.so covers
+// says nothing about whether anything reaches a consumer. libmockfs.so covers
 // libc consumers such as lspci, but Go's os package issues openat directly, so
 // the shim never sees the open and the process reads the node's real /sys —
 // which is how GPU Feature Discovery came to label a mock node

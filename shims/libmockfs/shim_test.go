@@ -3,7 +3,7 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-package libpcisysfs_test
+package libmockfs_test
 
 import (
 	"os"
@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
+	"github.com/NVIDIA/k8s-test-infra/internal/kmod"
 	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs"
 	"github.com/stretchr/testify/require"
 )
@@ -28,11 +30,11 @@ func requireLinux(t *testing.T) {
 	}
 }
 
-// requireShim returns the path to the built libpcisysfs.so or skips the test
+// requireShim returns the path to the built libmockfs.so or skips the test
 // if it hasn't been built yet.
 func requireShim(t *testing.T) string {
 	t.Helper()
-	return requireBuilt(t, "libpcisysfs.so")
+	return requireBuilt(t, "libmockfs.so")
 }
 
 // requireTestBin returns the path to a Makefile-built C test binary or skips
@@ -48,7 +50,7 @@ func requireBuilt(t *testing.T, name string) string {
 	require.NoError(t, err)
 	path := filepath.Join(wd, name)
 	if _, statErr := os.Stat(path); statErr != nil {
-		t.Skipf("%s not built: %v (run make -C shims/libpcisysfs)", name, statErr)
+		t.Skipf("%s not built: %v (run make -C shims/libmockfs)", name, statErr)
 	}
 	return path
 }
@@ -64,7 +66,7 @@ func renderBasicTree(t *testing.T, root string) {
 			Devices:  []string{"0000:07:00.0"},
 		}},
 	}
-	require.NoError(t, pcisysfs.Render(pcisysfs.Options{Topology: topo, Output: root}))
+	require.NoError(t, pcisysfs.Render(pcisysfs.Options{Topology: topo, OverlayRoot: root}))
 }
 
 func TestReadlinkPCIRedirect(t *testing.T) {
@@ -79,6 +81,45 @@ func TestReadlinkPCIRedirect(t *testing.T) {
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, "readlink failed: %s", out)
 	require.Contains(t, string(out), "pci0000:00/0000:07:00.0")
+}
+
+func TestKernelModuleRedirect(t *testing.T) {
+	requireLinux(t)
+	shim := requireShim(t)
+
+	root := t.TempDir()
+	mods := kmod.Modules("550.163.01")
+	_, err := kmod.Render(kmod.Options{Modules: mods, OverlayRoot: root})
+	require.NoError(t, err)
+	procModules := kmod.ProcModules(kmod.HostModules{}, mods)
+	require.NoError(t, fsutil.Write(filepath.Join(root, kmod.ProcModulesRelPath), []byte(procModules), 0o644))
+
+	env := append(os.Environ(), "LD_PRELOAD="+shim, "MOCK_PCI_ROOT="+root)
+
+	refcnt := exec.Command("cat", "/sys/module/nvidia/refcnt")
+	refcnt.Env = env
+	out, err := refcnt.CombinedOutput()
+	require.NoError(t, err, "cat refcnt failed: %s", out)
+	require.Equal(t, "1\n", string(out))
+
+	modules := exec.Command("cat", "/proc/modules")
+	modules.Env = env
+	out, err = modules.CombinedOutput()
+	require.NoError(t, err, "cat /proc/modules failed: %s", out)
+	require.Contains(t, string(out), "nvidia 62312448 1 nvidia_uvm,")
+}
+
+func TestModulePrefixRequiresAPathBoundary(t *testing.T) {
+	requireLinux(t)
+	shim := requireShim(t)
+
+	root := t.TempDir()
+	require.NoError(t, fsutil.Write(filepath.Join(root, "sys/modulefoo/x"), []byte("redirected\n"), 0o644))
+
+	cmd := exec.Command("cat", "/sys/modulefoo/x")
+	cmd.Env = append(os.Environ(), "LD_PRELOAD="+shim, "MOCK_PCI_ROOT="+root)
+	out, err := cmd.CombinedOutput()
+	require.Error(t, err, "expected the real host path, got: %s", out)
 }
 
 func TestOpenSysDevicesPCIRedirect(t *testing.T) {
@@ -118,7 +159,7 @@ func TestFortifiedOpenPCIRedirect(t *testing.T) {
 	ids := map[string]pcisysfs.PCI{
 		"0000:07:00.0": {BusID: "0000:07:00.0", DeviceID: 0x233010DE},
 	}
-	require.NoError(t, pcisysfs.Render(pcisysfs.Options{Topology: topo, Identities: ids, Output: root}))
+	require.NoError(t, pcisysfs.Render(pcisysfs.Options{Topology: topo, Identities: ids, OverlayRoot: root}))
 
 	cmd := exec.Command(bin, "0", "/sys/bus/pci/devices/0000:07:00.0/config") // flags 0 == O_RDONLY
 	cmd.Env = append(os.Environ(), "LD_PRELOAD="+shim, "MOCK_PCI_ROOT="+root)
@@ -148,7 +189,7 @@ func TestFopenPCIRedirect(t *testing.T) {
 	ids := map[string]pcisysfs.PCI{
 		"0000:07:00.0": {BusID: "0000:07:00.0", DeviceID: 0x233010DE},
 	}
-	require.NoError(t, pcisysfs.Render(pcisysfs.Options{Topology: topo, Identities: ids, Output: root}))
+	require.NoError(t, pcisysfs.Render(pcisysfs.Options{Topology: topo, Identities: ids, OverlayRoot: root}))
 
 	cmd := exec.Command(bin, "/sys/bus/pci/devices/0000:07:00.0/config")
 	cmd.Env = append(os.Environ(), "LD_PRELOAD="+shim, "MOCK_PCI_ROOT="+root)

@@ -15,7 +15,7 @@ import (
 
 func TestRender_NoTopologyNoOp(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, Render(Options{Output: dir}), "Render(no topology)")
+	require.NoError(t, Render(Options{OverlayRoot: dir}), "Render(no topology)")
 	entries, _ := os.ReadDir(dir)
 	require.Empty(t, entries, "expected empty output for nil topology")
 }
@@ -27,7 +27,7 @@ func TestRender_RequiresOutput(t *testing.T) {
 			Devices: []string{"0000:07:00.0"},
 		}},
 	}})
-	require.Error(t, err, "expected error with empty Output")
+	require.Error(t, err, "expected error with empty OverlayRoot")
 }
 
 // TestRender_FullTree exercises the documented sysfs layout end-to-end:
@@ -51,7 +51,7 @@ func TestRender_FullTree(t *testing.T) {
 			},
 		},
 	}
-	require.NoError(t, Render(Options{Topology: topo, Output: dir}), "Render")
+	require.NoError(t, Render(Options{Topology: topo, OverlayRoot: dir}), "Render")
 
 	// numa_node files must contain the per-root NUMA value (and *only*
 	// that — a trailing-newline regression would silently bake "0\n0\n"
@@ -105,7 +105,7 @@ func TestRender_PCIAttributeFiles(t *testing.T) {
 		// H100 SXM: device_id 0x233010DE, subsystem_id 0x165810DE.
 		"0000:1a:00.0": {BusID: "0000:1A:00.0", DeviceID: 0x233010DE, SubsystemID: 0x165810DE},
 	}
-	require.NoError(t, Render(Options{Topology: topo, Identities: ids, Output: dir}), "Render")
+	require.NoError(t, Render(Options{Topology: topo, Identities: ids, OverlayRoot: dir}), "Render")
 
 	devDir := filepath.Join(dir, "sys/devices/pci0000:00/0000:1a:00.0")
 	mustRead := func(name, want string) {
@@ -155,7 +155,7 @@ func TestRender_PCIAttributeFilesDefaultVendor(t *testing.T) {
 			Devices: []string{"0000:07:00.0"},
 		}},
 	}
-	require.NoError(t, Render(Options{Topology: topo, Output: dir}), "Render")
+	require.NoError(t, Render(Options{Topology: topo, OverlayRoot: dir}), "Render")
 
 	devDir := filepath.Join(dir, "sys/devices/pci0000:00/0000:07:00.0")
 	got, err := os.ReadFile(filepath.Join(devDir, "vendor"))
@@ -175,7 +175,7 @@ func TestRender_IdempotentRerender(t *testing.T) {
 		}},
 	}
 	// First pass.
-	require.NoError(t, Render(Options{Topology: topoA, Output: dir}), "Render pass 1")
+	require.NoError(t, Render(Options{Topology: topoA, OverlayRoot: dir}), "Render pass 1")
 
 	// Second pass with a *different* root complex for the same BDF.
 	// Re-render must point the symlink at the new root and overwrite
@@ -186,7 +186,7 @@ func TestRender_IdempotentRerender(t *testing.T) {
 			Devices: []string{"0000:07:00.0"},
 		}},
 	}
-	require.NoError(t, Render(Options{Topology: topoB, Output: dir}), "Render pass 2")
+	require.NoError(t, Render(Options{Topology: topoB, OverlayRoot: dir}), "Render pass 2")
 
 	target, err := os.Readlink(filepath.Join(dir, "sys/bus/pci/devices/0000:07:00.0"))
 	require.NoError(t, err, "readlink")
@@ -205,7 +205,7 @@ func TestRender_NormalizesUppercaseBDF(t *testing.T) {
 			Devices: []string{"0000:BD:00.0"}, // uppercase BDF
 		}},
 	}
-	require.NoError(t, Render(Options{Topology: topo, Output: dir}), "Render")
+	require.NoError(t, Render(Options{Topology: topo, OverlayRoot: dir}), "Render")
 	// Real sysfs is lowercase. Render must lowercase before writing so
 	// downstream tools (lspci, libpciaccess) that string-compare BDFs
 	// see what they expect.
@@ -225,10 +225,10 @@ func TestRender_PrunesRemovedDevices(t *testing.T) {
 	}
 
 	require.NoError(t, Render(Options{
-		Topology: rc("0000:07:00.0", "0000:0f:00.0", "0000:17:00.0"),
-		Output:   dir,
+		Topology:    rc("0000:07:00.0", "0000:0f:00.0", "0000:17:00.0"),
+		OverlayRoot: dir,
 	}))
-	require.NoError(t, Render(Options{Topology: rc("0000:07:00.0"), Output: dir}))
+	require.NoError(t, Render(Options{Topology: rc("0000:07:00.0"), OverlayRoot: dir}))
 
 	require.FileExists(t, filepath.Join(dir, "sys/devices/pci0000:00/0000:07:00.0/vendor"))
 	require.DirExists(t, filepath.Join(dir, "sys/devices/pci0000:00/0000:07:00.0"))
@@ -254,8 +254,8 @@ func TestRender_PrunesRemovedRootComplex(t *testing.T) {
 		{ID: "pci0000:00", NUMANode: 0, Devices: []string{"0000:07:00.0"}},
 	}}
 
-	require.NoError(t, Render(Options{Topology: two, Output: dir}))
-	require.NoError(t, Render(Options{Topology: one, Output: dir}))
+	require.NoError(t, Render(Options{Topology: two, OverlayRoot: dir}))
+	require.NoError(t, Render(Options{Topology: one, OverlayRoot: dir}))
 
 	require.DirExists(t, filepath.Join(dir, "sys/devices/pci0000:00"))
 	require.NoDirExists(t, filepath.Join(dir, "sys/devices/pci0001:00"))
@@ -272,9 +272,9 @@ func TestRender_ClearsTreeWhenTopologyEmpty(t *testing.T) {
 	topo := &PCIeTopology{RootComplexes: []RootComplex{
 		{ID: "pci0000:00", NUMANode: 0, Devices: []string{"0000:07:00.0"}},
 	}}
-	require.NoError(t, Render(Options{Topology: topo, Output: dir}))
+	require.NoError(t, Render(Options{Topology: topo, OverlayRoot: dir}))
 
-	require.NoError(t, Render(Options{Output: dir}), "Render(empty topology)")
+	require.NoError(t, Render(Options{OverlayRoot: dir}), "Render(empty topology)")
 
 	require.NoDirExists(t, filepath.Join(dir, "sys/devices/pci0000:00"))
 	entries, err := os.ReadDir(filepath.Join(dir, PCIDevicesRelPath))
@@ -290,29 +290,29 @@ func TestRender_EmptyTopologyKeepsForeignEntries(t *testing.T) {
 	topo := &PCIeTopology{RootComplexes: []RootComplex{
 		{ID: "pci0000:00", NUMANode: 0, Devices: []string{"0000:07:00.0"}},
 	}}
-	require.NoError(t, Render(Options{Topology: topo, Output: dir}))
+	require.NoError(t, Render(Options{Topology: topo, OverlayRoot: dir}))
 
 	foreign := filepath.Join(dir, SysDevicesRelPath, "virtual/dmi/id")
 	require.NoError(t, os.MkdirAll(foreign, 0o755))
 
-	require.NoError(t, Render(Options{Output: dir}), "Render(empty topology)")
+	require.NoError(t, Render(Options{OverlayRoot: dir}), "Render(empty topology)")
 
 	require.DirExists(t, foreign)
 }
 
 // TestRender_PruneLeavesForeignEntriesAlone guards the ownership boundary:
-// libpcisysfs rewrites only /sys/devices/pci*, so the renderer must not delete
+// libmockfs rewrites only /sys/devices/pci*, so the renderer must not delete
 // anything else a sibling component staged in the same fake root.
 func TestRender_PruneLeavesForeignEntriesAlone(t *testing.T) {
 	dir := t.TempDir()
 	topo := &PCIeTopology{RootComplexes: []RootComplex{
 		{ID: "pci0000:00", NUMANode: 0, Devices: []string{"0000:07:00.0"}},
 	}}
-	require.NoError(t, Render(Options{Topology: topo, Output: dir}))
+	require.NoError(t, Render(Options{Topology: topo, OverlayRoot: dir}))
 
 	foreign := filepath.Join(dir, "sys/devices/platform")
 	require.NoError(t, os.MkdirAll(foreign, 0o755))
-	require.NoError(t, Render(Options{Topology: topo, Output: dir}))
+	require.NoError(t, Render(Options{Topology: topo, OverlayRoot: dir}))
 
 	require.DirExists(t, foreign, "non-pci entries are not this renderer's to remove")
 }
@@ -325,7 +325,7 @@ func TestClear_EmptiesTheServedDirectoriesInPlace(t *testing.T) {
 	topo := &PCIeTopology{RootComplexes: []RootComplex{
 		{ID: "pci0000:00", NUMANode: 0, Devices: []string{"0000:07:00.0"}},
 	}}
-	require.NoError(t, Render(Options{Topology: topo, Output: dir}))
+	require.NoError(t, Render(Options{Topology: topo, OverlayRoot: dir}))
 
 	served := []string{filepath.Join(dir, SysDevicesRelPath), filepath.Join(dir, PCIDevicesRelPath)}
 	before := make([]os.FileInfo, len(served))
@@ -355,7 +355,7 @@ func TestClear_RemovesTheStagedDMI(t *testing.T) {
 	topo := &PCIeTopology{RootComplexes: []RootComplex{
 		{ID: "pci0000:00", NUMANode: 0, Devices: []string{"0000:07:00.0"}},
 	}}
-	require.NoError(t, Render(Options{Topology: topo, Output: dir}))
+	require.NoError(t, Render(Options{Topology: topo, OverlayRoot: dir}))
 	dmi := filepath.Join(dir, SysDevicesRelPath, "virtual/dmi/id")
 	require.NoError(t, os.MkdirAll(dmi, 0o755))
 
@@ -369,7 +369,7 @@ func TestClear_ToleratesAnUnrenderedRoot(t *testing.T) {
 	require.NoError(t, Clear(t.TempDir()))
 }
 
-// Every BDF and root-complex ID becomes a path component under Output, so one
+// Every BDF and root-complex ID becomes a path component under OverlayRoot, so one
 // carrying separators or parent references writes outside the tree. The agent
 // filters these already; failing here keeps that from being the only thing
 // standing between a profile's bus_id and the host filesystem.
@@ -387,9 +387,9 @@ func TestRender_RejectsANameThatEscapesOutput(t *testing.T) {
 			out := filepath.Join(base, "overlay")
 			require.NoError(t, os.MkdirAll(out, 0o755))
 
-			require.Error(t, Render(Options{Topology: topo, Output: out}))
+			require.Error(t, Render(Options{Topology: topo, OverlayRoot: out}))
 			require.NoDirExists(t, filepath.Join(base, "escaped"),
-				"the render escaped Output")
+				"the render escaped OverlayRoot")
 		})
 	}
 }

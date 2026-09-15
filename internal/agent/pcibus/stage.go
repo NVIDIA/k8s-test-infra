@@ -79,9 +79,9 @@ func stageDMI(h *host.Host) error {
 // empties the tree and stages no DMI, since nothing is served.
 func stageSysfs(h *host.Host, state *agent.State) error {
 	if err := pcisysfs.Render(pcisysfs.Options{
-		Topology:   buildTopology(state),
-		Identities: buildIdentities(state),
-		Output:     h.Root,
+		Topology:    buildTopology(state),
+		Identities:  buildIdentities(state),
+		OverlayRoot: h.Root,
 	}); err != nil {
 		return err
 	}
@@ -95,16 +95,16 @@ func stageSysfs(h *host.Host, state *agent.State) error {
 
 // shimGlob locates the shim in the container image. A package var so tests can
 // exercise both branches without depending on what the host has installed.
-var shimGlob = "/usr/local/lib/libpcisysfs.so*"
+var shimGlob = "/usr/local/lib/libmockfs.so*"
 
-// stagePCIShim copies libpcisysfs.so* from /usr/local/lib into the driver
+// stagePCIShim copies libmockfs.so* from /usr/local/lib into the driver
 // lib directory so lspci inside a workload can be LD_PRELOAD-ed by the NRI
 // plugin. Non-fatal when the shim is not built into the container image.
 func stagePCIShim(h *host.Host) error {
 	matches, _ := filepath.Glob(shimGlob)
 
 	if len(matches) == 0 {
-		zap.L().Debug("no libpcisysfs shim in image; skipping PCI shim staging")
+		zap.L().Debug("no libmockfs shim in image; skipping PCI shim staging")
 		return nil
 	}
 

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
+	"github.com/NVIDIA/k8s-test-infra/internal/kmod"
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
 
@@ -213,6 +215,54 @@ func writeProcFS(ctx context.Context, h *host.Host, state *agent.State) error {
 		"NVreg_PreserveVideoMemoryAllocations: 0\n" +
 		"NVreg_EnableResizableBar: 0\n"
 	return fsutil.Write(filepath.Join(procDir, "params"), []byte(params), 0o644)
+}
+
+const kernelSysModuleDir = "module"
+
+// kernelProcModules is the agent's own /proc/modules, not h.ProcPath("modules"):
+// the kernel does not namespace the module list, so the DaemonSet mounts no
+// /host/proc. A package var, as pcibus and ib hold theirs, so a test can retarget it.
+var kernelProcModules = "/proc/modules"
+
+func writeKernelModules(ctx context.Context, h *host.Host, state *agent.State) error {
+	mods := kmod.Modules(state.Software.DriverVersion)
+
+	// Absent and empty both mean a node that loads no module, and a masked /proc
+	// entry reads as empty. A read that fails is fatal: this file is the only
+	// source of host presence for both surfaces.
+	src, err := os.ReadFile(kernelProcModules)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read %s: %w", kernelProcModules, err)
+	}
+	hostMods := kmod.ParseProcModules(string(src))
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	skipped, err := kmod.Render(kmod.Options{
+		Modules:     mods,
+		SourceRoot:  h.SysPath(kernelSysModuleDir),
+		OverlayRoot: h.Root,
+		Host:        hostMods,
+	})
+	if err != nil {
+		return err
+	}
+	if len(skipped) > 0 {
+		slog.Debug("kernel module sources unreadable", "count", len(skipped), "paths", skipped)
+	}
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	procModules := kmod.ProcModules(hostMods, mods)
+	if err := fsutil.Write(h.RootPath(kmod.ProcModulesRelPath), []byte(procModules), 0o644); err != nil {
+		return err
+	}
+
+	return fsutil.Write(h.RootPath(kmod.LsmodRelPath), []byte(kmod.LsmodScript), 0o755)
 }
 
 // machineTypeRel is the machine type served to containers at

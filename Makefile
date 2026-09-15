@@ -160,8 +160,8 @@ build: ## Build all CLIs
 	    $(GO_CMD) build -o $(DIST_DIR)/$$name $$pkg || exit 1; \
 	done
 
-build-mockpcisysfs: ## Build mockpcisysfs
-	@make -C shims/libpcisysfs
+build-mockfs: ## Build mockfs
+	@make -C shims/libmockfs
 
 .PHONY: test
 test: ## Run unit tests with race detection and coverage
@@ -176,13 +176,13 @@ CRDS_HELM_CHART_DIR := deployments/mokka-crds/helm/mokka-crds
 test-mocknvml-bridge:
 	$(MAKE) -C tests/mocknvml test
 
-.PHONY: mockpcisysfs-shim
-mockpcisysfs-shim: ## Build the mockpcisysfs LD_PRELOAD shim (libpcisysfs.so)
-	@$(MAKE) -C shims/libpcisysfs
+.PHONY: mockfs-shim
+mockfs-shim: ## Build the mockfs LD_PRELOAD shim (libmockfs.so)
+	@$(MAKE) -C shims/libmockfs
 
-.PHONY: test-mockpcisysfs
-test-mockpcisysfs: mockpcisysfs-shim ## Run mockpcisysfs integration tests
-	@$(GO_CMD) test -tags integration -v ./shims/libpcisysfs/...
+.PHONY: test-mockfs
+test-mockfs: mockfs-shim ## Run mockfs integration tests
+	@$(GO_CMD) test -tags integration -v ./shims/libmockfs/...
 
 .PHONY: test-nvidia-imex-shim
 test-nvidia-imex-shim: build ## Run nvidia-imex-shim integration tests

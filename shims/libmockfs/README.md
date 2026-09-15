@@ -1,8 +1,12 @@
-# libpcisysfs
+# libmockfs
 
-`libpcisysfs.so` is an `LD_PRELOAD` shim that redirects PCI sysfs accesses to a fake filesystem tree.
+`libmockfs.so` is an `LD_PRELOAD` shim that redirects PCI sysfs and kernel-module accesses to a fake filesystem tree.
 
-It is useful for testing software that discovers or inspects PCI devices without exposing or depending on the host's real PCI topology.
+Use it to test software that finds PCI devices or checks whether a kernel module is loaded. That software then needs neither the real PCI topology nor the real module set.
+
+One shim serves both surfaces. Both render under the same root, and the redirect is a single prefix table. A second shim would repeat this libc interposition to add two entries.
+
+The root variable keeps the name `MOCK_PCI_ROOT`. The NRI plugin sets it in every workload container it serves, and the chart documentation names it, so it is a container-visible contract. Renaming it is a separate change.
 
 ## How it works
 
@@ -12,9 +16,13 @@ When `MOCK_PCI_ROOT` is set, accesses under:
 /sys/bus/pci
 /sys/bus/pci/devices
 /sys/devices/pci*
+/sys/module
+/proc/modules
 ```
 
 are rewritten by prepending `MOCK_PCI_ROOT`.
+
+The shim redirects `/proc/modules` instead of a mount. runc refuses any bind mount inside `/proc` that is not on its allowlist. Therefore `lsmod` depends on this shim.
 
 For example:
 
@@ -68,7 +76,7 @@ Then run the target process with the shim preloaded:
 
 ```bash
 MOCK_PCI_ROOT=/tmp/mock-pci \
-LD_PRELOAD=/path/to/libpcisysfs.so \
+LD_PRELOAD=/path/to/libmockfs.so \
 lspci
 ```
 

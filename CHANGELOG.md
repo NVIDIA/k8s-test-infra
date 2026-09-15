@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- node-agent: containers now see the NVIDIA kernel modules as loaded. `lsmod`
+  lists `nvidia` and `nvidia_uvm`, and `/sys/module/nvidia/refcnt` exists. The
+  node's own modules stay visible beside them. See `docs/helm-chart.md` for how
+  the surface reaches a container and what the mirror does not cover.
+
+### Changed
+
+- `libpcisysfs.so` is now `libmockfs.so`. The shim redirects kernel-module paths
+  as well as PCI sysfs, so its name no longer described what it does. The
+  `MOCK_PCI_ROOT` variable that points it at the fake tree is unchanged.
+
 ### Fixed
 
 - node-agent: the `/run/nvidia/driver` symlink is removed on shutdown only when

@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
 )
 
 // The two directories that together make the tree readable. Exported because a
@@ -34,11 +36,12 @@ type Options struct {
 	// default, so lspci never fatals on a missing `vendor`.
 	Identities map[string]PCI
 
-	// Output is the fake-root directory. The renderer writes under
-	// <Output>/sys/... — Output itself is created if missing. Required when
-	// Topology is non-empty; otherwise Render returns an error. An empty
-	// Topology empties the tree under Output rather than leaving it alone.
-	Output string
+	// OverlayRoot is the fake-root directory. The renderer writes to
+	// <OverlayRoot>/sys/... and creates OverlayRoot itself if it is missing.
+	// Required when Topology is non-empty. Otherwise Render returns an error.
+	// An empty Topology empties the tree under OverlayRoot rather than
+	// leaving it alone.
+	OverlayRoot string
 }
 
 // Render writes the entire tree. It is idempotent and converging: existing
@@ -47,21 +50,21 @@ type Options struct {
 // and entries the new topology no longer declares are pruned.
 func Render(o Options) error {
 	empty := o.Topology == nil || len(o.Topology.RootComplexes) == 0
-	if o.Output == "" {
+	if o.OverlayRoot == "" {
 		if empty {
 			return nil
 		}
-		return errors.New("pcisysfs render: Output is required")
+		return errors.New("pcisysfs render: OverlayRoot is required")
 	}
 
 	// A profile declaring no PCI devices means an empty tree, not the previous
 	// profile's: leftovers would go on being served at the kernel paths as if
 	// the node still simulated those GPUs.
 	if empty {
-		return prune(o.Output, &PCIeTopology{})
+		return prune(o.OverlayRoot, &PCIeTopology{})
 	}
 
-	root := o.Output
+	root := o.OverlayRoot
 	if err := mkdirAll(root, PCIDevicesRelPath); err != nil {
 		return err
 	}
@@ -92,11 +95,11 @@ func Clear(root string) error {
 	return errors.Join(
 		prune(root, &PCIeTopology{}),
 		// prune spares what the renderer does not own; a teardown owns all of it.
-		pruneDir(filepath.Join(root, SysDevicesRelPath), func(string) bool { return false }),
+		fsutil.PruneDir(filepath.Join(root, SysDevicesRelPath), func(string) bool { return false }),
 	)
 }
 
-// safeName reports whether name can be joined under Output as a single
+// safeName reports whether name can be joined under OverlayRoot as a single
 // directory. Every root-complex ID and BDF becomes a path component, so one
 // carrying a separator or a parent reference writes outside the tree. Callers
 // are expected to have validated their input; this is the backstop that keeps a
@@ -125,7 +128,7 @@ func prune(root string, topo *PCIeTopology) error {
 
 	errs := []error{
 		// The flat lookup directory holds only BDF symlinks.
-		pruneDir(filepath.Join(root, PCIDevicesRelPath),
+		fsutil.PruneDir(filepath.Join(root, PCIDevicesRelPath),
 			func(name string) bool { return allBDFs[name] }),
 	}
 
@@ -136,7 +139,7 @@ func prune(root string, topo *PCIeTopology) error {
 	}
 
 	for _, e := range entries {
-		// libpcisysfs rewrites only /sys/devices/pci*, so anything without that
+		// libmockfs rewrites only /sys/devices/pci*, so anything without that
 		// prefix belongs to something other than this renderer.
 		if !strings.HasPrefix(e.Name(), "pci") {
 			continue
@@ -152,33 +155,7 @@ func prune(root string, topo *PCIeTopology) error {
 		}
 
 		// A rendered root complex contains device directories and nothing else.
-		errs = append(errs, pruneDir(rcDir, func(name string) bool { return devs[name] }))
-	}
-
-	return errors.Join(errs...)
-}
-
-// pruneDir removes every entry of dir that keep rejects. A missing dir is not an
-// error: nothing has been rendered there yet.
-func pruneDir(dir string, keep func(string) bool) error {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("read %s: %w", dir, err)
-	}
-
-	var errs []error
-	for _, e := range entries {
-		if keep(e.Name()) {
-			continue
-		}
-
-		p := filepath.Join(dir, e.Name())
-		if err := os.RemoveAll(p); err != nil {
-			errs = append(errs, fmt.Errorf("remove %s: %w", p, err))
-		}
+		errs = append(errs, fsutil.PruneDir(rcDir, func(name string) bool { return devs[name] }))
 	}
 
 	return errors.Join(errs...)

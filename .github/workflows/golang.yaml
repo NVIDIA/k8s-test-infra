@@ -74,8 +74,8 @@ jobs:
     - name: Run unit tests
       run: make test
 
-    - name: Run mockpcisysfs integration tests
-      run: make test-mockpcisysfs
+    - name: Run mockfs integration tests
+      run: make test-mockfs
 
     # The unit run above never links the shared object, so a missing export or
     # a broken --defsym alias passes it. This drives the real .so via go-nvml.

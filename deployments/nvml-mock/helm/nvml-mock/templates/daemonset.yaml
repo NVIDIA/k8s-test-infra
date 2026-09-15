@@ -133,14 +133,17 @@ spec:
             # the mock-ib daemon when MOCK_IB=full. libibmocksys rewrites paths
             # under /sys/class/infiniband, /sys/class/infiniband_mad,
             # /sys/class/infiniband_verbs, /sys/class/infiniband_cm and
-            # /dev/infiniband into $MOCK_IB_ROOT. libpcisysfs rewrites /sys/bus/pci
-            # and /sys/devices/pci into $MOCK_PCI_ROOT. A path outside those
-            # prefixes passes through unchanged, which is why preloading them into
-            # the agent itself is inert -- it writes under /host, not /sys.
+            # /dev/infiniband into $MOCK_IB_ROOT. libmockfs rewrites /sys/bus/pci,
+            # /sys/devices/pci, /sys/module and /proc/modules into $MOCK_PCI_ROOT.
+            # A path outside those prefixes passes through unchanged. The shims
+            # serve tools exec'd here, not the agent: Go issues its file syscalls
+            # directly, so no interposed symbol runs in the agent. That is why the
+            # agent still reads the node's /proc/modules while a libc reader here
+            # sees the rendered copy.
             # libibmockumad must precede libibmocksys so UMAD ioctls are
             # intercepted before sysfs path rewriting.
             - name: LD_PRELOAD
-              value: "/usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcisysfs.so.1"
+              value: "/usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libmockfs.so.1"
             - name: MOCK_IB_ROOT
               value: "/var/lib/nvml-mock/ib"
             - name: MOCK_PCI_ROOT

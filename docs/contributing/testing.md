@@ -30,7 +30,7 @@ because several of its steps fail on files you did not edit:
 |---|---|---|
 | Unit | `make test` | no |
 | Helm chart | `make helm-tests`, `make helm-crds-tests` | no |
-| Shim integration | `make test-mockpcisysfs`, `make test-mocknvml-bridge` | no |
+| Shim integration | `make test-mockfs`, `make test-mocknvml-bridge` | no |
 | E2E framework unit | `make test-e2e-framework` | no |
 | End-to-end | `make e2e` and friends | **yes** |
 
@@ -79,7 +79,7 @@ These are the gates. Running them locally reproduces CI exactly:
 ```bash
 make lint
 make test
-make test-mockpcisysfs
+make test-mockfs
 make test-mocknvml-bridge
 make test-e2e-framework
 make helm-tests          # chart paths only

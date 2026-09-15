@@ -7,7 +7,7 @@ files it reads. Mokka does both, because it can own one and not the other.
 | A tool asks for | Mokka answers with | How |
 |---|---|---|
 | NVML — `nvidia-smi`, DCGM, the device plugin, the DRA driver | the mock `libnvidia-ml.so` | **replacement** |
-| PCI sysfs — `lspci`, topology-aware schedulers | `libpcisysfs.so` | **interception** |
+| PCI sysfs — `lspci`, topology-aware schedulers | `libmockfs.so` | **interception** |
 | InfiniBand — `ibstat`, `ibv_devinfo`, `iblinkinfo` | the `libibmock*` libraries | **interception** |
 | the `nvidia-imex` binary | `nvidia-imex-shim` | **exec wrapper** |
 
@@ -132,13 +132,13 @@ that inherits them without the corresponding configuration sees the real host.
 
 | Shim | Kind | Makes this work |
 |---|---|---|
-| `libpcisysfs` | `LD_PRELOAD` | `lspci` and topology-aware schedulers see mock GPU BDFs |
+| `libmockfs` | `LD_PRELOAD` | `lspci` and topology-aware schedulers see mock GPU BDFs |
 | `libibmock` | `LD_PRELOAD` | `ibstat`, `ibstatus`, `iblinkinfo`, `ibv_devinfo` see mock InfiniBand HCAs |
 | `nvidia-imex-shim` | `execve` wrapper | `nvidia-imex` starts on a machine with no GPU |
 
-### libpcisysfs
+### libmockfs
 
-Builds `libpcisysfs.so`. Redirects lookups under `/sys/bus/pci`,
+Builds `libmockfs.so`. Redirects lookups under `/sys/bus/pci`,
 `/sys/bus/pci/devices` and `/sys/devices/pci` into the tree named by
 `MOCK_PCI_ROOT`, and is a no-op when that variable is unset.
 
@@ -190,7 +190,7 @@ The chart preloads all four libraries on the node daemon, most specific first:
 
 ```text
 LD_PRELOAD=/usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:\
-/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcisysfs.so.1
+/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libmockfs.so.1
 ```
 
 Workload containers receive them through the same CDI injection that delivers
@@ -200,11 +200,11 @@ that make the C tools agree with them.
 ### Building and testing
 
 ```bash
-make mockpcisysfs-shim     # build libpcisysfs.so
-make test-mockpcisysfs     # integration tests against real C test binaries
+make mockfs-shim     # build libmockfs.so
+make test-mockfs     # integration tests against real C test binaries
 ```
 
-`libpcisysfs` ships test binaries under `testbin/` that exercise the fortified
+`libmockfs` ships test binaries under `testbin/` that exercise the fortified
 `open` and `fopen` variants, because glibc's `_FORTIFY_SOURCE` rewrites those
 call sites and a shim that only hooks the plain symbols would silently miss
 them.

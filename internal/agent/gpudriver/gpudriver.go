@@ -20,6 +20,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
+	"github.com/NVIDIA/k8s-test-infra/internal/kmod"
 )
 
 const name = "gpudriver"
@@ -66,6 +67,7 @@ func (s *Simulator) Stage(ctx context.Context, state *agent.State) error {
 	g.Go(func() error { return writeProcFS(gctx, s.host, state) })
 	g.Go(func() error { return writeEngineConfig(gctx, s.host, state) })
 	g.Go(func() error { return writeMachineType(gctx, s.host, state) })
+	g.Go(func() error { return writeKernelModules(gctx, s.host, state) })
 
 	if err := g.Wait(); err != nil {
 		return err
@@ -75,7 +77,8 @@ func (s *Simulator) Stage(ctx context.Context, state *agent.State) error {
 	return nil
 }
 
-// stagedPaths lists exactly the paths Stage writes, in removal order (leaves first).
+// stagedPaths lists the paths that Discard removes, in removal order (leaves
+// first). sys/module is not in the list. kmod.Clear empties it in place.
 // RemoveAll on the whole driver/ tree is intentionally avoided: the ib and pcibus
 // simulators stage tools, libibverbs.d and preload shims there, and those must
 // survive Discard.
@@ -88,10 +91,13 @@ var stagedPaths = []string{
 	"driver/config/config.yaml",
 	machineTypeRel,
 	"config/config.yaml",
+	kmod.ProcModulesRelPath,
+	kmod.LsmodRelPath,
 }
 
-// Discard removes only the paths Stage wrote. Every path is exclusively owned
-// by gpudriver, so removing absent or partially staged paths is safe.
+// Discard removes the paths Stage writes and empties sys/module in place. Every
+// path is exclusively owned by gpudriver, so removing absent or partially staged
+// paths is safe.
 func (s *Simulator) Discard(_ context.Context) error {
 	zap.L().Info("discarding simulator", zap.String("simulator", name))
 
@@ -102,6 +108,10 @@ func (s *Simulator) Discard(_ context.Context) error {
 		if err := os.RemoveAll(p); err != nil && !os.IsNotExist(err) {
 			errs = append(errs, fmt.Errorf("remove %s: %w", p, err))
 		}
+	}
+
+	if err := kmod.Clear(s.host.Root); err != nil {
+		errs = append(errs, fmt.Errorf("clear kernel modules: %w", err))
 	}
 
 	return errors.Join(errs...)

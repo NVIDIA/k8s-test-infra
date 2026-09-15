@@ -20,9 +20,15 @@ Deploys a DaemonSet that creates on every node:
 - A fake PCI sysfs tree at `/var/lib/nvml-mock/sys/bus/pci/devices/...` (symlinks
   into `/var/lib/nvml-mock/sys/devices/pciDDDD:BB/...`) so consumers resolve the
   PCIe root complex via a standard `readlink()`. `lspci` and anything else
-  reaching it through libc read it via `libpcisysfs.so`; containers served the
+  reaching it through libc read it via `libmockfs.so`; containers served the
   `nvidia.com/gpu` CDI spec get it bind-mounted at the kernel paths, which is
   what Go consumers need — see [PCI sysfs in containers](#pci-sysfs-in-containers)
+- A fake kernel-module surface at `/var/lib/nvml-mock/proc/modules` and
+  `/var/lib/nvml-mock/sys/module/...`, so `lsmod` lists `nvidia` and `nvidia_uvm`
+  and `/sys/module/nvidia/refcnt` exists. The node's own modules are mirrored
+  beside them. `libmockfs.so` redirects both paths for libc consumers. Both CDI
+  specs bind-mount the tree for Go consumers. A state reconcile refreshes the
+  mirror, so it can lag a module load or unload
 
 Consumers (DRA driver, device plugin) point at `/var/lib/nvml-mock/driver`
 as the NVIDIA driver root and discover GPUs through standard NVML APIs.
@@ -326,7 +332,7 @@ empties any tree a previous profile left behind.
 
 ### PCI sysfs in containers
 
-Reaching the tree through `MOCK_PCI_ROOT` requires the `libpcisysfs.so`
+Reaching the tree through `MOCK_PCI_ROOT` requires the `libmockfs.so`
 `LD_PRELOAD` shim, which only works for libc consumers: Go's `os` package issues
 `openat` directly, so the shim never sees the open and the process reads the
 node's real `/sys`, where the mock GPUs do not exist. GPU Feature Discovery and
@@ -355,8 +361,8 @@ tracks removing the trade-off.
 A workload that needs the node's real device tree must not request
 `nvidia.com/gpu`, since the mount rides the CDI spec the container toolkit
 resolves for that resource. `nri.excludedNamespaces` is not an escape: it only
-reaches the NRI plugin, whose own `nvml-mock.nvidia.com/gpu` spec carries no
-sysfs mounts.
+reaches the NRI plugin, whose own `nvml-mock.nvidia.com/gpu` spec carries the
+module tree but no PCI sysfs mounts.
 
 ### Machine type (`nvidia.com/gpu.machine`)
 
@@ -454,9 +460,10 @@ to a container that carries `nvml-mock.nvidia.com/devices: "true"`:
 | `raw` (default) | The plugin stages the `/dev/nvidia*` nodes itself, in the NRI adjustment. | Nothing. |
 | `cdi` | The plugin emits the CDI device `nvml-mock.nvidia.com/gpu=all` and the runtime resolves it from the spec the `cdi` simulator stages at `<cdiSpecDir>/nvml-mock-nri.yaml`. | A runtime with CDI on. |
 
-Both modes deliver the same device set, so switching is not meant to change what
-a workload sees. `cdi` additionally sets `NVML_MOCK_DEVICE_SOURCE=cdi` inside
-the container, which is the only way to tell from inside which mechanism ran.
+Both modes deliver the same GPUs, and both inject `libmockfs.so`, so a libc
+reader finds the simulated modules either way. Only `cdi` bind-mounts
+`/sys/module`, so a Go reader finds them only there. `cdi` also sets
+`NVML_MOCK_DEVICE_SOURCE=cdi`, the only way to tell which mechanism ran.
 
 CDI needs no container toolkit on the node. containerd 2.x enables CDI by
 default (`enable_cdi = true`, spec dirs `/etc/cdi` and `/var/run/cdi`), which
@@ -1052,7 +1059,7 @@ W0319 11:41:21.314205       1 nvlib.go:491] error getting PCIe root for device 0
 ```
 
 The driver resolves PCIe root complex topology by `readlink()`-ing
-`/sys/bus/pci/devices/{busID}`, and it is a Go binary, so `libpcisysfs.so` cannot
+`/sys/bus/pci/devices/{busID}`, and it is a Go binary, so `libmockfs.so` cannot
 redirect that read to the rendered tree. A container served the `nvidia.com/gpu`
 CDI spec gets the tree at that path and resolves the root; one the mock does not
 serve reads the node's real sysfs and logs the warning above. GPUs are fully
