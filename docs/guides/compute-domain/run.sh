@@ -42,7 +42,6 @@ set -euo pipefail
 CLUSTER_NAME="nvml-mock-compute-domain"
 KUBE_CONTEXT="kind-${CLUSTER_NAME}"
 IMAGE_NAME="nvml-mock:compute-domain"
-WORKLOAD_IMAGE_NAME="nvml-mock:compute-domain-workload"
 RELEASE_NAME="nvml-mock"
 MOCK_NAMESPACE="mokka"
 WORKLOAD_NAMESPACE="compute-domain-workload"
@@ -307,21 +306,14 @@ fi
 choose_imex_device_majors
 
 ###############################################################################
-# Step 2 — Build + load the image
+# Step 2 — Build + load the unified Mokka image
 ###############################################################################
 info "Building image: ${IMAGE_NAME}"
 docker build -t "${IMAGE_NAME}" \
   -f "${REPO_ROOT}/deployments/nvml-mock/Dockerfile" "${REPO_ROOT}"
 
-# Build the demo workload with real nvidia-imex in NO GPU mode.
-# Local build only — this image repackages the proprietary nvidia-imex.
-info "Building demo workload image with real nvidia-imex: ${WORKLOAD_IMAGE_NAME}"
-docker build -t "${WORKLOAD_IMAGE_NAME}" \
-  --build-arg "GOLANG_VERSION=$("${REPO_ROOT}/hack/golang-version.sh")" \
-  -f "${REPO_ROOT}/docs/guides/compute-domain/Dockerfile" "${REPO_ROOT}"
-
-info "Loading images into Kind"
-kind load docker-image "${IMAGE_NAME}" "${WORKLOAD_IMAGE_NAME}" --name "${CLUSTER_NAME}"
+info "Loading image into Kind"
+kind load docker-image "${IMAGE_NAME}" --name "${CLUSTER_NAME}"
 
 ###############################################################################
 # Step 3 — Stage nvml-mock and deploy the NRI-injected real-IMEX demo workload
@@ -399,8 +391,9 @@ assert_clique "${WORKER4}" 1 "${EXPECTED_DOMAIN_UUID}"
 ###############################################################################
 # Scenario 2 — Real IMEX domain (NO GPU mode) over the pod network
 ###############################################################################
-# The demo workload image carries the real nvidia-imex behind nvidia-imex-shim;
-# NRI supplies the mock NVML overlay, topology environment, and IMEX channels.
+# The standard Mokka image carries the real nvidia-imex behind
+# nvidia-imex-shim; NRI supplies the mock NVML overlay, topology environment,
+# and IMEX channels.
 # /usr/bin/nvidia-imex exec's /usr/bin/nvidia-imex.real --nogpu. The
 # daemons below speak the real gRPC peer protocol (port 50000) and exchange
 # command/status data (port 50005) across pods. The demo workload's NetworkPolicy
@@ -585,10 +578,10 @@ cat <<EOF
 
 ==> The upstream compute-domain-controller and compute-domain-daemon
     can now run unmodified against this cluster: their NVML calls land
-    on the mock library, and the real nvidia-imex / nvidia-imex-ctl are
-    fronted by the nvidia-imex-shim overlay image (see
-    deployments/nvml-mock/Dockerfile.compute-domain-daemon for the
-    thin overlay that runs the real IMEX daemon with --nogpu).
+    on the mock library, and the standard Mokka image includes the real
+    nvidia-imex / nvidia-imex-ctl behind nvidia-imex-shim. The shim starts
+    the daemon with --nogpu; local DRA integration copies the same verified
+    executables into local/dra/Dockerfile.
 
 ==> The cluster is left running for inspection. To tear it down:
     kind delete cluster --name ${CLUSTER_NAME}

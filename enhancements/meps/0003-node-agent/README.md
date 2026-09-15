@@ -37,9 +37,10 @@ by sending the expected sGPU node state from the Mokka Control Plane service via
 
 However, given the current organization of NVML mock, it's not straightforward to do so.
 
-At this moment, NVML mock is essentially:
+Before this proposal, NVML mock was essentially:
 
-- A set of ~a dozen independent CLIs — long-running daemons (`mock-ib`, `fake-fabricmanager`, `fake-imex`), one-shot renderers (`render-pci-sysfs`, `render-imex-procdevices`), one transparent `execve` wrapper (`imex-nogpu-shim`), etc.
+- A set of ~a dozen independent CLIs — long-running daemons and one-shot
+  renderers for individual simulation surfaces, plus transparent shims.
 - Some CLIs are overly fine-grained, doing one very specific thing. On top of that, we don't use a consistent logging setup or a proper CLI framework to structure them well.
 - The CLIs don't have any shared lifecycle. Nothing knows about anything else, either.
 - `deployments/nvml-mock/scripts/setup.sh` (690 lines of bash driving 11 numbered phases) is not just an entrypoint — it contains a sprawl of legitimate simulation logic. This belongs in Go code.
@@ -326,11 +327,11 @@ Legend: **✓** covered, **~** partial, **✗** gap, **N/A** intentionally out o
 | Surface                                                                          | Consumers                                             | Coverage                                                                                                         |
 |----------------------------------------------------------------------------------|-------------------------------------------------------|------------------------------------------------------------------------------------------------------------------|
 | `/dev/nvidia-caps-imex-channels/channel<N>` chardevs (major 235, 2048 minors)    | DRA compute-domain kubelet plugin                     | ✓ `imex` — channels + majors materialized                                                                        |
-| `/proc/devices` entry for `nvidia-caps-imex-channels`                            | DRA driver's `ALT_PROC_DEVICES_PATH` consumer         | ✓ `imex` via `pkg/system/mockimex`                                                                               |
-| Real `nvidia-imex --nogpu` daemon process (compute-domain-daemon image only)     | ComputeDomain workload's cross-node peer coordination | ✓ `imex-nogpu-shim` binary wraps upstream `nvidia-imex`; installed at Docker build time, out of node-agent scope |
-| Legacy IMEX peer marker files `/var/lib/nvml-mock/imex-state/*` (fake-imex path) | none currently                                        | ✗ **deprecated** — `cmd/fake-imex` will retire; superseded by real `--nogpu` daemon                              |
+| `/proc/devices` entry for `nvidia-caps-imex-channels`                            | DRA driver's `ALT_PROC_DEVICES_PATH` consumer         | ✓ `imex` renders the substitute inside the staged driver root                                                    |
+| Real `nvidia-imex --nogpu` daemon process (standard Mokka image)                 | ComputeDomain workload's cross-node peer coordination | ✓ `nvidia-imex-shim` wraps upstream `nvidia-imex`; installed at Docker build time, out of node-agent scope        |
+| Legacy IMEX peer marker files `/var/lib/nvml-mock/imex-state/*`                  | none                                                  | ✗ **removed** — superseded by the real `--nogpu` daemon                                                         |
 
-**Delivery**: chardevs + `/proc/devices` overlay materialized on host; real IMEX daemon delivered via image layer + `imex-nogpu-shim` execve wrapper (not managed by node-agent).
+**Delivery**: chardevs + `/proc/devices` substitute materialized on host; real IMEX daemon delivered in the standard image with the `nvidia-imex-shim` execve wrapper (not managed by node-agent). The local DRA adapter copies those executables from Mokka into the upstream DRA runtime image.
 
 **Restage trigger**: `state.Subsystems.imexChannels` toggle or device count change.
 

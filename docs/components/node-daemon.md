@@ -28,7 +28,7 @@ outlive a reconcile.
 | `gpudriver` | Character devices, the mock NVML library, `nvidia-smi`, procfs entries, the engine config, and the `/run/nvidia/driver` symlink the GPU Operator expects |
 | `pcibus` | A fake `/sys/bus/pci/devices` tree, the `libpcisysfs.so` shim, and the NFD feature file that lets Node Feature Discovery label the node                  |
 | `cdi` | Two CDI specs that containerd uses to inject mock GPUs into workload containers                                                                          |
-| `imex` | IMEX channel character devices, a `/proc/devices` overlay, and the capability file the DRA compute-domain plugin reads                                   |
+| `imex` | IMEX channel character devices, a `/proc/devices` substitute inside the driver root, and the capability file the DRA compute-domain plugin reads          |
 | `nvlink` | The ComputeDomain topology document, which gives the node its NVLink fabric identity                                                                     |
 | `fabricmanager` | A stand-in for `nv-fabricmanager`, which on a real NVSwitch platform must register GPUs before they are usable                                           |
 | `ib` | A fake `/sys/class/infiniband` tree, the IB shims and CLI tools, and the `mock-ib` daemon serving UMAD and verbs                                         |
