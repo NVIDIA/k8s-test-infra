@@ -19,9 +19,9 @@ resources:
   computeDomains:
     enabled: true
 
-# The adapter pins a DRA build that understands this test hook. The Mokka
-# DaemonSet renders the substitute inside its driver tree, which this container
-# already mounts read-only at /driver-root.
+# The shared local/dra version pin selects a chart and runtime that understand
+# this test hook. The Mokka DaemonSet renders the substitute inside its driver
+# tree, which this container already mounts read-only at /driver-root.
 kubeletPlugin:
   containers:
     computeDomains:

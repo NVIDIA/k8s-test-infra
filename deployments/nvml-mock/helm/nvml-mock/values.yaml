@@ -306,10 +306,9 @@ imex:
   #   ALT_PROC_DEVICES_PATH=/driver-root/proc/devices
   #   --set resources.computeDomains.enabled=true
   #
-  # The v25.12.0 chart does not expose this setting directly. Mokka's local DRA
-  # composition supplies the environment variable through the chart's generic
-  # computeDomains env list and pins an image that supports it. See
-  # NVIDIA/k8s-test-infra#498.
+  # Mokka's local DRA composition supplies the environment variable through
+  # the chart's generic computeDomains env list. It pins the chart and runtime
+  # image to the same upstream release. See NVIDIA/k8s-test-infra#498.
   #
   # Off by default: it creates channelCount device nodes per node.
   mockChannels:
