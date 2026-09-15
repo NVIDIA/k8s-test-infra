@@ -193,11 +193,10 @@ else:
     )
 
 # --- Shared NVIDIA Helm repo --------------------------------------------
-# Both consumer subfiles pull from nvidia/... — register the repo once here so
-# each subfile can stay agnostic about who else uses it. Labels are attached
-# per active consumer so the repo groups next to whichever consumers are on.
-if active_consumers:
-    helm_repo('nvidia', 'https://helm.ngc.nvidia.com/nvidia', labels=active_consumers)
+# The GPU Operator still uses the NGC chart repository. The DRA integration
+# uses its versioned registry.k8s.io OCI chart directly.
+if with_gpu_operator:
+    helm_repo('nvidia', 'https://helm.ngc.nvidia.com/nvidia', labels=['gpu-operator'])
 
 if with_topograph:
     helm_repo('topograph-repo', 'https://NVIDIA.github.io/topograph', labels=['topograph'])

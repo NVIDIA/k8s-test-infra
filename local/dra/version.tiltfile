@@ -1,0 +1,9 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+
+# Keep the DRA chart and the runtime image on the same upstream release. Both
+# local Tilt compositions load these values; Dockerfile defaults must not
+# duplicate the version.
+DRA_DRIVER_VERSION = '0.5.0'
+DRA_DRIVER_CHART = 'oci://registry.k8s.io/dra-driver-nvidia/charts/dra-driver-nvidia-gpu'
+DRA_DRIVER_IMAGE = 'registry.k8s.io/dra-driver-nvidia/dra-driver-nvidia-gpu:v' + DRA_DRIVER_VERSION

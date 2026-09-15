@@ -5,7 +5,9 @@
 # Mokka's GPU-less compute-domain simulation. The Mokka image is the sole
 # source of IMEX; this build intentionally contains no download metadata.
 ARG NVML_MOCK_IMAGE=ghcr.io/nvidia/nvml-mock:latest
-ARG DRA_DRIVER_IMAGE=registry.k8s.io/dra-driver-nvidia/dra-driver-nvidia-gpu:v0.4.1
+# Required: Tilt supplies the image pinned beside the matching OCI chart in
+# local/dra/version.tiltfile. Keeping no default here prevents version drift.
+ARG DRA_DRIVER_IMAGE
 
 FROM ${NVML_MOCK_IMAGE} AS mokka
 

@@ -14,6 +14,11 @@
 # Mirrors the DRA driver install used by the CI e2e-dra job
 # (.github/workflows/nvml-mock-e2e.yaml).
 
+# Keep the resource names from the earlier NVIDIA chart releases stable while
+# moving to the upstream semantic-versioned OCI chart. Upstream requires this
+# override on the first upgrade to v0.4.0 or later.
+nameOverride: nvidia-dra-driver-gpu
+
 # Point the DRA kubelet plugin at the mock driver tree instead of "/".
 # The mock DaemonSet lays down libnvidia-ml.so, device nodes, and nvidia-smi
 # under this path — the gpudriver simulator co-locates the device nodes under

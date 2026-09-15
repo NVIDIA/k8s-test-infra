@@ -24,6 +24,7 @@
 
 load('ext://helm_resource', 'helm_resource')
 load('ext://k8s_attach', 'k8s_attach')
+load('../dra/version.tiltfile', 'DRA_DRIVER_IMAGE')
 
 _BASE_IMAGE         = 'nvml-mock:compute-domain'
 # Exported (no leading underscore): the root Tiltfile uses it to drive the
@@ -70,9 +71,13 @@ def build_images(with_dra):
             DRA_ADAPTER_IMAGE,
             context='.',
             dockerfile=_DRA_DOCKERFILE,
-            build_args={'NVML_MOCK_IMAGE': _BASE_IMAGE},
+            build_args={
+                'NVML_MOCK_IMAGE': _BASE_IMAGE,
+                'DRA_DRIVER_IMAGE': DRA_DRIVER_IMAGE,
+            },
             only=[
                 'local/dra/Dockerfile',
+                'local/dra/version.tiltfile',
             ],
         )
 
