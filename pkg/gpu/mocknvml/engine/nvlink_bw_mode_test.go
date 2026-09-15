@@ -358,6 +358,17 @@ func bwEngine(t *testing.T, arch string) *Engine {
 func TestSystemNvlinkBwMode_RoundTrip(t *testing.T) {
 	t.Parallel()
 
+	// The system override is process-wide; restore it so -count>1 and parallel
+	// siblings that assume the default still see unset state.
+	systemNvlinkBwModeMu.Lock()
+	prevOverride := systemNvlinkBwModeOverride
+	systemNvlinkBwModeMu.Unlock()
+	t.Cleanup(func() {
+		systemNvlinkBwModeMu.Lock()
+		systemNvlinkBwModeOverride = prevOverride
+		systemNvlinkBwModeMu.Unlock()
+	})
+
 	e := bwEngine(t, "hopper")
 
 	mode, ret := e.SystemGetNvlinkBwMode()
