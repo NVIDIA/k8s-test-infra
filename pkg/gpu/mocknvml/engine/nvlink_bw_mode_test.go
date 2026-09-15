@@ -188,3 +188,121 @@ func TestGetMockNvLinkInfo_Nvle(t *testing.T) {
 		})
 	}
 }
+
+func TestSetMockNvlinkBwMode_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	dev := bwDevice(t, "blackwell", bwFabric(t, &NVLinkConfig{}))
+
+	require.Equal(t, nvml.SUCCESS, dev.SetMockNvlinkBwMode(3, false), "set HALF")
+
+	mode, isBest, ret := dev.GetMockNvlinkBwMode()
+	require.Equal(t, nvml.SUCCESS, ret, "get return")
+	require.Equal(t, uint8(3), mode, "mode after set")
+	require.False(t, isBest, "HALF is not best")
+}
+
+// TestSetMockNvlinkBwMode_SetBest pins that bSetBest ignores the mode field,
+// which is how the upstream struct is documented to behave.
+func TestSetMockNvlinkBwMode_SetBest(t *testing.T) {
+	t.Parallel()
+
+	dev := bwDevice(t, "blackwell", bwFabric(t, &NVLinkConfig{}))
+	require.Equal(t, nvml.SUCCESS, dev.SetMockNvlinkBwMode(3, false), "move off best")
+	require.Equal(t, nvml.SUCCESS, dev.SetMockNvlinkBwMode(99, true), "setBest ignores mode 99")
+
+	mode, isBest, ret := dev.GetMockNvlinkBwMode()
+	require.Equal(t, nvml.SUCCESS, ret, "get return")
+	require.Equal(t, uint8(0), mode, "best mode is FULL")
+	require.True(t, isBest, "isBest after setBest")
+}
+
+func TestSetMockNvlinkBwMode_Rejected(t *testing.T) {
+	t.Parallel()
+
+	t.Run("mode outside supported list", func(t *testing.T) {
+		t.Parallel()
+		dev := bwDevice(t, "blackwell", bwFabric(t, &NVLinkConfig{
+			BwMode: &NVLinkBwModeConfig{Supported: []uint8{0, 3}},
+		}))
+		require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, dev.SetMockNvlinkBwMode(2, false))
+	})
+
+	t.Run("architecture below blackwell", func(t *testing.T) {
+		t.Parallel()
+		dev := bwDevice(t, "hopper", bwFabric(t, &NVLinkConfig{}))
+		require.Equal(t, nvml.ERROR_NOT_SUPPORTED, dev.SetMockNvlinkBwMode(0, false))
+	})
+}
+
+// bwSwitchFabricDevice builds a device on a switch-attached fabric, which is
+// what makes links *active* — the power-threshold field values are gated on an
+// active link, and LinksPerGPU alone does not produce one. Copied from
+// newSwitchFabricDevice in nvlink_fields_test.go, the proven construction.
+//
+// No t.Parallel() in its callers: Init()/Shutdown() drive engine-wide state.
+func bwSwitchFabricDevice(t *testing.T, arch string) *ConfigurableDevice {
+	t.Helper()
+	yaml := &YAMLConfig{
+		System:         SystemConfig{DriverVersion: "580.65.06", NumDevices: 2},
+		DeviceDefaults: DeviceConfig{Architecture: arch},
+		NVLink: &NVLinkConfig{
+			Version:              5,
+			LinksPerGPU:          4,
+			BandwidthPerLinkMbps: 53000,
+			Switches:             []NVSwitchConfig{{BDF: "0000:01:00.0"}},
+		},
+	}
+	cfg := &Config{NumDevices: 2, DriverVersion: "580.65.06", YAMLConfig: yaml}
+	e := NewEngine(cfg)
+	require.Equal(t, nvml.SUCCESS, e.Init(), "engine init")
+	t.Cleanup(func() { _ = e.Shutdown() })
+
+	handle, _ := e.DeviceGetHandleByIndex(0)
+	cd, ok := e.LookupDevice(handle).(*ConfigurableDevice)
+	require.True(t, ok, "expected ConfigurableDevice")
+	return cd
+}
+
+func TestSetMockNvLinkLowPowerThreshold(t *testing.T) {
+	dev := bwSwitchFabricDevice(t, "hopper")
+
+	// Baseline: the field reports the built-in default.
+	_, v, ret := dev.GetNvLinkFieldValue(fiNvlinkGetPowerThreshold, 0)
+	require.Equal(t, nvml.SUCCESS, ret, "baseline field return")
+	require.Equal(t, uint64(lowPowerThresholdDefault), v, "baseline threshold")
+
+	// An in-range write is visible through the field value.
+	require.Equal(t, nvml.SUCCESS, dev.SetMockNvLinkLowPowerThreshold(500), "set 500")
+	_, v, ret = dev.GetNvLinkFieldValue(fiNvlinkGetPowerThreshold, 0)
+	require.Equal(t, nvml.SUCCESS, ret, "field return after set")
+	require.Equal(t, uint64(500), v, "threshold after set")
+
+	// The reset sentinel (what `nvlink -sLowPwrThres default` sends) clears
+	// the override rather than being rejected as out of range.
+	require.Equal(t, nvml.SUCCESS,
+		dev.SetMockNvLinkLowPowerThreshold(nvlinkLowPowerThresholdReset), "reset")
+	_, v, ret = dev.GetNvLinkFieldValue(fiNvlinkGetPowerThreshold, 0)
+	require.Equal(t, nvml.SUCCESS, ret, "field return after reset")
+	require.Equal(t, uint64(lowPowerThresholdDefault), v, "threshold after reset")
+}
+
+func TestSetMockNvLinkLowPowerThreshold_Rejected(t *testing.T) {
+	t.Parallel()
+
+	t.Run("out of range", func(t *testing.T) {
+		t.Parallel()
+		dev := bwDevice(t, "hopper", bwFabric(t, &NVLinkConfig{}))
+		require.Equal(t, nvml.ERROR_INVALID_ARGUMENT,
+			dev.SetMockNvLinkLowPowerThreshold(0), "below min")
+		require.Equal(t, nvml.ERROR_INVALID_ARGUMENT,
+			dev.SetMockNvLinkLowPowerThreshold(1024), "above max")
+	})
+
+	t.Run("architecture below hopper", func(t *testing.T) {
+		t.Parallel()
+		dev := bwDevice(t, "ampere", bwFabric(t, &NVLinkConfig{}))
+		require.Equal(t, nvml.ERROR_NOT_SUPPORTED,
+			dev.SetMockNvLinkLowPowerThreshold(500))
+	})
+}
