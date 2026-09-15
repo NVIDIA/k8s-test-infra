@@ -74,6 +74,12 @@ jobs:
     - name: Run unit tests
       run: make test
 
+    # The ordinary unit run deliberately skips the exec-path assertions when
+    # no prebuilt shim exists. Build it first so CI verifies argv forwarding,
+    # environment preservation and exit-code propagation through syscall.Exec.
+    - name: Run NVIDIA IMEX shim integration tests
+      run: make test-nvidia-imex-shim
+
     - name: Run mockfs integration tests
       run: make test-mockfs
 

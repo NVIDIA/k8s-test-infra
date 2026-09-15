@@ -95,6 +95,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
 
+      # Release builds publish both platforms. Exercise the arm64 final-image
+      # RUN checks under emulation before merge so an invalid SBSA artifact or
+      # missing arm64 runtime dependency cannot first fail during publication.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
 
@@ -140,6 +146,22 @@ jobs:
           if-no-files-found: error
           # Buildx's docker exporter already writes gzipped layers.
           compression-level: 0
+
+      - name: Build arm64 nvml-mock image
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
+        with:
+          context: .
+          file: deployments/nvml-mock/Dockerfile
+          platforms: linux/arm64
+          push: false
+          outputs: type=cacheonly
+          build-args: |
+            GOLANG_VERSION=${{ env.GO_VERSION }}
+            GOPROXY=https://edge.urm.nvidia.com/artifactory/api/go/dgxc-go-virtual,direct
+          secret-files: |
+            goauth=${{ runner.temp }}/dgxc-goauth
+          cache-from: type=gha,scope=nvml-mock-arm64
+          cache-to: type=gha,mode=max,scope=nvml-mock-arm64
 
       - name: Remove the proxy credential
         if: always()
@@ -402,6 +424,51 @@ jobs:
       - name: Remove the proxy credential
         if: always()
         run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
+
+  # The ordinary DRA matrix validates ResourceClaims against Mokka, but it
+  # does not build the local adapter used by the ComputeDomain composition.
+  # This rollout exercises the adapter Dockerfile, the shared chart/image
+  # version pin, the substituted proc/devices path, and the shimmed daemon.
+  e2e-compute-domain-dra:
+    needs: [build-kind-node-image]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+      - name: Install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+
+      - name: Install Kind
+        run: |
+          curl -fsSLo ./kind "https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION }}/kind-linux-amd64"
+          echo "${{ env.KIND_AMD64_SHA256 }}  ./kind" | sha256sum --check
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+          kind version
+
+      - name: Install Tilt
+        run: |
+          curl -fsSL "https://github.com/tilt-dev/tilt/releases/download/v${TILT_VERSION}/tilt.${TILT_VERSION}.linux.x86_64.tar.gz" \
+            | sudo tar -xzC /usr/local/bin tilt
+          tilt version
+
+      - name: Download pre-built kind-node image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: kind-node-image
+          path: ${{ runner.temp }}
+
+      - name: Load pre-built kind-node image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
+
+      - name: Create ComputeDomain Kind cluster
+        env:
+          KIND_NODE_IMAGE_PREBUILT: "1"
+        run: make cluster-create PROFILE=compute-domain
+
+      - name: Roll out ComputeDomain with NVIDIA DRA
+        run: tilt ci -- --compute-domain --dra
 
   e2e-gpu-operator:
     needs: [build-nvmlmock-image, build-kind-node-image]
