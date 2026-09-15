@@ -90,17 +90,15 @@ gfd:
       value: "/etc/nvml-mock/machine-type"
 
 # Validator checks that the GPU stack is functional.
-# driver-validation: mounts hostPath /run/nvidia/driver → our mock (via symlink).
+# driver-validation: mounts hostPath /run/nvidia/driver, which the nvml-mock
+# DaemonSet mirrors the mock driver root into directly — the chart's own
+# driverInstallDir default, no override needed.
 # toolkit-validation: CDI injection makes nvidia-smi available inside containers.
 # cuda-validation: WITH_WORKLOAD=false skips vectorAdd (kernel launch is a no-op).
 # plugin-validation: checks nvidia.com/gpu in node allocatable.
 validator:
   driver:
     env:
-      - name: DRIVER_INSTALL_DIR
-        value: "/run/nvidia/driver"
-      - name: LD_LIBRARY_PATH
-        value: "/run/nvidia/driver/usr/lib64"
       - name: DISABLE_DEV_CHAR_SYMLINK_CREATION
         value: "true"
   toolkit:
@@ -111,7 +109,3 @@ validator:
     env:
       - name: WITH_WORKLOAD
         value: "false"
-  plugin:
-    env:
-      - name: LD_LIBRARY_PATH
-        value: "/run/nvidia/driver/usr/lib64"

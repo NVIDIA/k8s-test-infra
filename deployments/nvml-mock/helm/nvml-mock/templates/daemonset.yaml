@@ -182,8 +182,8 @@ spec:
             # tool run via `kubectl exec` only resolve them through this mount.
             - name: mokka-root
               mountPath: /var/lib/nvml-mock
-            # gpudriver.Apply puts the /run/nvidia/driver symlink here, which is
-            # the driver root the GPU Operator and DRA driver look for.
+            # gpudriver.Apply mirrors the driver root here, which is the path
+            # the GPU Operator and DRA driver look for.
             - name: driver-root-link
               mountPath: /host/run/nvidia
             # cdi.Apply writes both specs here; containerd scans the directory.

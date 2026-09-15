@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -121,6 +122,47 @@ func Symlink(target, linkPath string) error {
 	}
 
 	return nil
+}
+
+// MirrorTree copies every file and symlink under src into dst, creating
+// directories as needed. It only ever creates directories (MkdirAll) and
+// replaces leaf files/symlinks — it never removes dst itself or any
+// directory under it. A caller with dst already bind-mounted by another
+// process (e.g. a consumer container whose mount predates this call) keeps
+// seeing that same mount as content lands, rather than losing it the way
+// replacing dst's own directory entry would.
+func MirrorTree(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return fmt.Errorf("rel %s: %w", path, err)
+		}
+		target := filepath.Join(dst, rel)
+
+		switch {
+		case d.Type()&fs.ModeSymlink != 0:
+			linkTarget, err := os.Readlink(path)
+			if err != nil {
+				return fmt.Errorf("readlink %s: %w", path, err)
+			}
+			return Symlink(linkTarget, target)
+		case d.IsDir():
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return fmt.Errorf("mkdir %s: %w", target, err)
+			}
+			return nil
+		default:
+			info, err := d.Info()
+			if err != nil {
+				return fmt.Errorf("stat %s: %w", path, err)
+			}
+			return Copy(path, target, info.Mode().Perm())
+		}
+	})
 }
 
 // Remove removes path; not-exist is not an error. It does not recurse, so a
