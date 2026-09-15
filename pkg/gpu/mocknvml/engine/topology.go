@@ -55,6 +55,15 @@ type NodeFabric struct {
 	// of the board — every profile that has it has it on every GPU.
 	c2cEnabled bool
 
+	// nvlinkBwModes / nvlinkBwMode mirror nvlink.bw_mode, and nvleEnabled
+	// mirrors nvlink.nvle_enabled. Node-level for the same reason
+	// c2cEnabled is: they describe the board. nvlinkBwMode is a pointer so
+	// an explicit mode 0 (FULL) is distinguishable from "unset"; the
+	// architecture gate in GetMockNvlinkBwMode supplies the default.
+	nvlinkBwModes []uint8
+	nvlinkBwMode  *uint8
+	nvleEnabled   bool
+
 	// epoch anchors the deterministic NVLink counter accrual. It is
 	// process-independent so counters grow across separate nvidia-smi
 	// invocations. now is injectable for tests.
@@ -150,6 +159,28 @@ func resolveC2CEnabled(cfg *Config) bool {
 	return cfg.YAMLConfig.NVLink.C2CEnabled
 }
 
+// resolveNvleEnabled reads the node-level nvlink.nvle_enabled flag.
+func resolveNvleEnabled(cfg *Config) bool {
+	if cfg == nil || cfg.YAMLConfig == nil || cfg.YAMLConfig.NVLink == nil {
+		return false
+	}
+	return cfg.YAMLConfig.NVLink.NvleEnabled
+}
+
+// resolveNvlinkBwMode reads the node-level nvlink.bw_mode block. Both return
+// values are "unset" markers rather than zero values: the device layer needs
+// to tell an explicitly configured mode 0 (FULL) from no configuration.
+func resolveNvlinkBwMode(cfg *Config) ([]uint8, *uint8) {
+	if cfg == nil || cfg.YAMLConfig == nil || cfg.YAMLConfig.NVLink == nil {
+		return nil, nil
+	}
+	bw := cfg.YAMLConfig.NVLink.BwMode
+	if bw == nil {
+		return nil, nil
+	}
+	return bw.Supported, bw.Mode
+}
+
 // BuildNodeFabric constructs the immutable node fabric from the loaded
 // configuration. It never fails: misconfiguration is recorded as warnings
 // (see Validate) rather than blocking startup, matching the project's
@@ -176,8 +207,10 @@ func BuildNodeFabric(cfg *Config) *NodeFabric {
 		cpusOf:     make([][]int, n),
 		now:        time.Now,
 		epoch:      resolveCounterEpoch(),
-		c2cEnabled: resolveC2CEnabled(cfg),
+		c2cEnabled:  resolveC2CEnabled(cfg),
+		nvleEnabled: resolveNvleEnabled(cfg),
 	}
+	f.nvlinkBwModes, f.nvlinkBwMode = resolveNvlinkBwMode(cfg)
 	for i := 0; i < n; i++ {
 		f.nvCount[i] = make([]int, n)
 		f.pcieLevel[i] = make([]nvml.GpuTopologyLevel, n)
@@ -497,6 +530,33 @@ func (f *NodeFabric) C2CEnabled() bool {
 		return false
 	}
 	return f.c2cEnabled
+}
+
+// NvleEnabled reports whether the node's nvlink block declares NVLink
+// encryption. Nil-safe: legacy/default mode builds no fabric.
+func (f *NodeFabric) NvleEnabled() bool {
+	if f == nil {
+		return false
+	}
+	return f.nvleEnabled
+}
+
+// NvlinkSupportedBwModes returns the configured supported bandwidth-mode
+// list, or nil when the profile did not declare one.
+func (f *NodeFabric) NvlinkSupportedBwModes() []uint8 {
+	if f == nil {
+		return nil
+	}
+	return f.nvlinkBwModes
+}
+
+// NvlinkConfiguredBwMode returns the configured initial bandwidth mode and
+// whether the profile declared one at all.
+func (f *NodeFabric) NvlinkConfiguredBwMode() (uint8, bool) {
+	if f == nil || f.nvlinkBwMode == nil {
+		return 0, false
+	}
+	return *f.nvlinkBwMode, true
 }
 
 // HasPCIeTopology reports whether root-complex / NUMA facts were supplied.

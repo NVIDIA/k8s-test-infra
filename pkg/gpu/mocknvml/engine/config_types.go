@@ -825,6 +825,17 @@ type NVLinkConfig struct {
 	// i.e. 53125 Mbps.
 	BandwidthPerLinkMbps int  `json:"bandwidth_per_link_mbps,omitempty"`
 	C2CEnabled           bool `json:"c2c_enabled,omitempty"`
+
+	// NvleEnabled mirrors nvlink.nvle_enabled: NVLink encryption, reported
+	// by nvmlDeviceGetNvLinkInfo and the " NVLE:" row of
+	// `nvidia-smi nvlink --info`. Node-level for the same reason C2C is —
+	// it is a property of the board, not of one GPU.
+	NvleEnabled bool `json:"nvle_enabled,omitempty"`
+
+	// BwMode overrides the NVLink Reduced Bandwidth Mode surface. Absent
+	// means "use the architecture default", which is what every shipped
+	// profile relies on.
+	BwMode *NVLinkBwModeConfig `json:"bw_mode,omitempty"`
 	// Links is the legacy flat link list. It is kept for backward
 	// compatibility and is mapped to device index 0 when no DeviceLinks
 	// entry exists for that device.
@@ -845,6 +856,21 @@ type NVLinkConfig struct {
 	// device has no entry here the legacy flat Links list is used for
 	// device 0 only.
 	DeviceLinks []DeviceLinksConfig `json:"device_links,omitempty"`
+}
+
+// NVLinkBwModeConfig overrides the NVLink Reduced Bandwidth Mode surface.
+//
+// Mode values are opaque driver indices; the bundled nvidia-smi names them
+// 0=FULL, 1=OFF, 2=MIN, 3=HALF, 4=3QUARTER, so a value above 4 would index
+// past its name table and render as garbage.
+type NVLinkBwModeConfig struct {
+	// Supported is the list nvmlDeviceGetNvlinkSupportedBwModes reports.
+	// Empty means "use the architecture default".
+	Supported []uint8 `json:"supported,omitempty"`
+
+	// Mode is the initial current mode. A pointer so that an explicit 0
+	// (FULL) is distinguishable from "unset".
+	Mode *uint8 `json:"mode,omitempty"`
 }
 
 // NVSwitchConfig describes a single NVSwitch remote endpoint.
