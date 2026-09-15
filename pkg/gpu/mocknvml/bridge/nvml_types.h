@@ -548,9 +548,9 @@ _Static_assert(sizeof(nvmlPlatformInfo_v2_t) == 44,
  * Layout matches the upstream NVML public header; see go-nvml's
  * pkg/nvml/nvml.h.
  *
- * Only v1 exists upstream, but the structs still carry a version field that
- * the caller sets on the way in, so the exports validate it and answer
- * NVML_ERROR_ARGUMENT_VERSION_MISMATCH on anything else.
+ * Only v1 of these three exists upstream, but they still carry a version
+ * field that the caller sets on the way in, so the exports validate it and
+ * answer NVML_ERROR_ARGUMENT_VERSION_MISMATCH on anything else.
  */
 #define NVML_NVLINK_TOTAL_SUPPORTED_BW_MODES 23
 
@@ -581,6 +581,18 @@ typedef nvmlNvlinkSetBwMode_v1_t nvmlNvlinkSetBwMode_t;
 /**
  * Per-device NVLink information. isNvleEnabled is NVLink encryption, which
  * `nvidia-smi nvlink --info` renders as its " NVLE:" row.
+ *
+ * Two versions exist upstream, and v2 only appends firmwareInfo — version and
+ * isNvleEnabled sit at the same offsets in both. The mock reports NVLE and
+ * nothing else, so nvmlDeviceGetNvLinkInfo accepts either tag and writes only
+ * those two fields; a caller that passed a v2 buffer keeps its own
+ * firmwareInfo bytes untouched.
+ *
+ * v2 is defined here purely so its size is available to build the version tag
+ * the API validates against. Unlike upstream, nvmlNvLinkInfo_t stays aliased
+ * to v1: it is the smaller of the two, which keeps the mock from ever writing
+ * past the end of a v1 caller's buffer, and the exports never touch a field
+ * outside it.
  */
 typedef struct nvmlNvLinkInfo_v1_st
 {
@@ -588,6 +600,29 @@ typedef struct nvmlNvLinkInfo_v1_st
     unsigned int isNvleEnabled;
 } nvmlNvLinkInfo_v1_t;
 typedef nvmlNvLinkInfo_v1_t nvmlNvLinkInfo_t;
+
+typedef struct nvmlNvlinkFirmwareVersion_st
+{
+    unsigned char ucodeType;
+    unsigned int  major;
+    unsigned int  minor;
+    unsigned int  subMinor;
+} nvmlNvlinkFirmwareVersion_t;
+
+#define NVML_NVLINK_FIRMWARE_VERSION_LENGTH 100
+
+typedef struct nvmlNvlinkFirmwareInfo_st
+{
+    nvmlNvlinkFirmwareVersion_t firmwareVersion[NVML_NVLINK_FIRMWARE_VERSION_LENGTH];
+    unsigned int                numValidEntries;
+} nvmlNvlinkFirmwareInfo_t;
+
+typedef struct nvmlNvLinkInfo_v2_st
+{
+    unsigned int             version;
+    unsigned int             isNvleEnabled;
+    nvmlNvlinkFirmwareInfo_t firmwareInfo;
+} nvmlNvLinkInfo_v2_t;
 
 /**
  * NVLink low-power threshold. Units come from

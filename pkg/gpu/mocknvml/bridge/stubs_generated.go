@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 253 stub functions for unimplemented NVML functions.
+// 248 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceDestroy
@@ -389,16 +389,6 @@ func nvmlDeviceGetNvLinkUtilizationControl(device C.nvmlDevice_t, link C.uint, c
 	return stubReturn("nvmlDeviceGetNvLinkUtilizationControl")
 }
 
-//export nvmlDeviceGetNvlinkBwMode
-func nvmlDeviceGetNvlinkBwMode(device C.nvmlDevice_t, getBwMode *C.nvmlNvlinkGetBwMode_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetNvlinkBwMode")
-}
-
-//export nvmlDeviceGetNvlinkSupportedBwModes
-func nvmlDeviceGetNvlinkSupportedBwModes(device C.nvmlDevice_t, supportedBwMode *C.nvmlNvlinkSupportedBwModes_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetNvlinkSupportedBwModes")
-}
-
 //export nvmlDeviceGetPcieLinkMaxSpeed
 func nvmlDeviceGetPcieLinkMaxSpeed(device C.nvmlDevice_t, maxSpeed *C.uint) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetPcieLinkMaxSpeed")
@@ -749,11 +739,6 @@ func nvmlDeviceSetNvLinkUtilizationControl(device C.nvmlDevice_t, link C.uint, c
 	return stubReturn("nvmlDeviceSetNvLinkUtilizationControl")
 }
 
-//export nvmlDeviceSetNvlinkBwMode
-func nvmlDeviceSetNvlinkBwMode(device C.nvmlDevice_t, setBwMode *C.nvmlNvlinkSetBwMode_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceSetNvlinkBwMode")
-}
-
 //export nvmlDeviceSetPowerMizerMode_v1
 func nvmlDeviceSetPowerMizerMode_v1(device C.nvmlDevice_t, powerMizerMode *C.nvmlDevicePowerMizerModes_v1_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceSetPowerMizerMode_v1")
@@ -1009,11 +994,6 @@ func nvmlSystemGetHicVersion(hwbcCount *C.uint, hwbcEntries *C.nvmlHwbcEntry_t) 
 	return stubReturn("nvmlSystemGetHicVersion")
 }
 
-//export nvmlSystemGetNvlinkBwMode
-func nvmlSystemGetNvlinkBwMode(nvlinkBwMode *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlSystemGetNvlinkBwMode")
-}
-
 //export nvmlSystemRegisterEvents
 func nvmlSystemRegisterEvents(request *C.nvmlSystemRegisterEventRequest_t) C.nvmlReturn_t {
 	return stubReturn("nvmlSystemRegisterEvents")
@@ -1027,11 +1007,6 @@ func nvmlSystemSetConfComputeGpusReadyState(isAcceptingWork C.uint) C.nvmlReturn
 //export nvmlSystemSetConfComputeKeyRotationThresholdInfo
 func nvmlSystemSetConfComputeKeyRotationThresholdInfo(pKeyRotationThrInfo *C.nvmlConfComputeSetKeyRotationThresholdInfo_t) C.nvmlReturn_t {
 	return stubReturn("nvmlSystemSetConfComputeKeyRotationThresholdInfo")
-}
-
-//export nvmlSystemSetNvlinkBwMode
-func nvmlSystemSetNvlinkBwMode(nvlinkBwMode C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlSystemSetNvlinkBwMode")
 }
 
 //export nvmlUnitGetCount
