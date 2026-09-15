@@ -358,17 +358,6 @@ func bwEngine(t *testing.T, arch string) *Engine {
 func TestSystemNvlinkBwMode_RoundTrip(t *testing.T) {
 	t.Parallel()
 
-	// The system override is process-wide; restore it so -count>1 and parallel
-	// siblings that assume the default still see unset state.
-	systemNvlinkBwModeMu.Lock()
-	prevOverride := systemNvlinkBwModeOverride
-	systemNvlinkBwModeMu.Unlock()
-	t.Cleanup(func() {
-		systemNvlinkBwModeMu.Lock()
-		systemNvlinkBwModeOverride = prevOverride
-		systemNvlinkBwModeMu.Unlock()
-	})
-
 	e := bwEngine(t, "hopper")
 
 	mode, ret := e.SystemGetNvlinkBwMode()
@@ -388,17 +377,38 @@ func TestSystemNvlinkBwMode_Rejected(t *testing.T) {
 	t.Run("mode outside supported list", func(t *testing.T) {
 		t.Parallel()
 		e := bwEngine(t, "hopper")
-		require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, e.SystemSetNvlinkBwMode(5))
+		require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, e.SystemSetNvlinkBwMode(5),
+			"mode 5 is past the bundled nvidia-smi name table")
+	})
+
+	t.Run("mode truncating to a supported uint8", func(t *testing.T) {
+		t.Parallel()
+		// 256 narrows to uint8(0), a valid FULL, so the width check has to
+		// reject it before the supported-list lookup ever sees it.
+		e := bwEngine(t, "hopper")
+		require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, e.SystemSetNvlinkBwMode(256),
+			"mode 256 rejected rather than truncated to FULL")
 	})
 
 	t.Run("architecture below hopper", func(t *testing.T) {
 		t.Parallel()
-		for _, arch := range []string{"", "ampere"} {
-			e := bwEngine(t, arch)
-			_, ret := e.SystemGetNvlinkBwMode()
-			require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret, "get on %q", arch)
-			require.Equal(t, nvml.ERROR_NOT_SUPPORTED, e.SystemSetNvlinkBwMode(0),
-				"set on %q", arch)
-		}
+		e := bwEngine(t, "ampere")
+		_, ret := e.SystemGetNvlinkBwMode()
+		require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret, "get on ampere")
+		require.Equal(t, nvml.ERROR_NOT_SUPPORTED, e.SystemSetNvlinkBwMode(0),
+			"set on ampere")
+	})
+
+	t.Run("device_arch_unknown", func(t *testing.T) {
+		t.Parallel()
+		// An empty device_defaults architecture parses to UNKNOWN
+		// (0xffffffff), which satisfies >= HOPPER numerically; the explicit
+		// exclusion is what keeps unconfigured profiles from claiming
+		// Hopper APIs.
+		e := bwEngine(t, "")
+		_, ret := e.SystemGetNvlinkBwMode()
+		require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret, "get on UNKNOWN architecture")
+		require.Equal(t, nvml.ERROR_NOT_SUPPORTED, e.SystemSetNvlinkBwMode(0),
+			"set on UNKNOWN architecture")
 	})
 }

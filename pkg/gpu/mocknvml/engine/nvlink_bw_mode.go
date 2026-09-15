@@ -16,7 +16,6 @@ package engine
 import (
 	"math"
 	"slices"
-	"sync"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 )
@@ -190,45 +189,36 @@ func (d *ConfigurableDevice) SetMockNvLinkLowPowerThreshold(threshold uint32) nv
 	return nvml.SUCCESS
 }
 
-// systemNvlinkBwMode holds the global mode set by nvmlSystemSetNvlinkBwMode.
-// Package-level rather than a field on Engine because the setter must work on
-// the singleton the bridge reaches through GetEngine() and on a test-built
-// engine alike; it is process-local either way, so the scope difference is not
-// observable to a consumer. Guarded by its own mutex, not the engine's, so a
-// bw-mode write never contends with device enumeration.
-var (
-	systemNvlinkBwModeMu       sync.Mutex
-	systemNvlinkBwModeOverride *uint32
-)
-
 // systemSupportsNvlinkBwMode gates the global pair on Hopper, which is what
 // the upstream docs specify ("NVML_ERROR_NOT_SUPPORTED if GPU is not Hopper or
-// newer architecture").
+// newer architecture"). It also returns the architecture the decision was made
+// on so a rejection can name it.
 //
 // The architecture is read from device_defaults rather than a device handle
 // because these two APIs take no device parameter, and every profile the repo
 // ships is homogeneous.
-func (e *Engine) systemSupportsNvlinkBwMode() bool {
+func (e *Engine) systemSupportsNvlinkBwMode() (nvml.DeviceArchitecture, bool) {
 	if e == nil || e.config == nil || e.config.YAMLConfig == nil {
-		return false
+		return nvml.DEVICE_ARCH_UNKNOWN, false
 	}
 	arch := parseArchitecture(e.config.YAMLConfig.DeviceDefaults.Architecture)
-	return arch >= nvml.DEVICE_ARCH_HOPPER && arch != nvml.DEVICE_ARCH_UNKNOWN
+	return arch, arch >= nvml.DEVICE_ARCH_HOPPER && arch != nvml.DEVICE_ARCH_UNKNOWN
 }
 
 // SystemGetNvlinkBwMode backs nvmlSystemGetNvlinkBwMode: the node-wide NVLink
 // Reduced Bandwidth Mode.
 func (e *Engine) SystemGetNvlinkBwMode() (uint32, nvml.Return) {
-	if !e.systemSupportsNvlinkBwMode() {
+	if arch, ok := e.systemSupportsNvlinkBwMode(); !ok {
+		debugLog("[NVML] nvmlSystemGetNvlinkBwMode unsupported; architecture=%d needs >= hopper\n", arch)
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
 
-	systemNvlinkBwModeMu.Lock()
-	defer systemNvlinkBwModeMu.Unlock()
+	e.systemNvlinkBwModeMu.Lock()
+	defer e.systemNvlinkBwModeMu.Unlock()
 
 	mode := uint32(bestNvlinkBwMode(defaultNvlinkBwModes))
-	if systemNvlinkBwModeOverride != nil {
-		mode = *systemNvlinkBwModeOverride
+	if e.systemNvlinkBwModeOverride != nil {
+		mode = *e.systemNvlinkBwModeOverride
 	}
 	debugLog("[NVML] nvmlSystemGetNvlinkBwMode -> %d\n", mode)
 	return mode, nvml.SUCCESS
@@ -240,7 +230,9 @@ func (e *Engine) SystemGetNvlinkBwMode() (uint32, nvml.Return) {
 // NVML_ERROR_IN_USE when a P2P object exists. Neither is simulated: the mock
 // models no notion of privilege and has no P2P object lifecycle.
 func (e *Engine) SystemSetNvlinkBwMode(mode uint32) nvml.Return {
-	if !e.systemSupportsNvlinkBwMode() {
+	if arch, ok := e.systemSupportsNvlinkBwMode(); !ok {
+		debugLog("[NVML] nvmlSystemSetNvlinkBwMode(%d) unsupported; architecture=%d needs >= hopper\n",
+			mode, arch)
 		return nvml.ERROR_NOT_SUPPORTED
 	}
 	if mode > math.MaxUint8 || !slices.Contains(defaultNvlinkBwModes, uint8(mode)) {
@@ -249,10 +241,10 @@ func (e *Engine) SystemSetNvlinkBwMode(mode uint32) nvml.Return {
 		return nvml.ERROR_INVALID_ARGUMENT
 	}
 
-	systemNvlinkBwModeMu.Lock()
-	defer systemNvlinkBwModeMu.Unlock()
+	e.systemNvlinkBwModeMu.Lock()
+	defer e.systemNvlinkBwModeMu.Unlock()
 
-	systemNvlinkBwModeOverride = &mode
+	e.systemNvlinkBwModeOverride = &mode
 	debugLog("[NVML] nvmlSystemSetNvlinkBwMode -> %d\n", mode)
 	return nvml.SUCCESS
 }
