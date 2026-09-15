@@ -8,6 +8,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -32,6 +33,11 @@ const (
 func assertIMEXLifecycle(ctx SpecContext, h *harness.Harness, workers []cluster.Node) {
 	GinkgoHelper()
 	Expect(len(workers)).To(BeNumerically(">=", 2))
+
+	// Keep peer assignment stable even if a caller obtained the workers from a
+	// Kubernetes collection without using Cluster.Workers, which sorts them.
+	workers = append([]cluster.Node(nil), workers...)
+	sort.Slice(workers, func(i, j int) bool { return workers[i].Name < workers[j].Name })
 
 	peerA := applyIMEXLifecyclePod(ctx, h, "imex-lifecycle-a", workers[0].Name)
 	peerB := applyIMEXLifecyclePod(ctx, h, "imex-lifecycle-b", workers[1].Name)
@@ -63,10 +69,12 @@ func assertIMEXLifecycle(ctx SpecContext, h *harness.Harness, workers []cluster.
 	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
 		Should(Equal("READY"), "peer A never became locally ready")
 
-	onePeer, err := readIMEXStatus(ctx, h, peerA)
-	Expect(err).NotTo(HaveOccurred())
-	Expect(onePeer.State).NotTo(Equal("UP"),
-		"a domain with only one of its two configured peers must not report UP")
+	Eventually(func() (string, error) {
+		status, statusErr := readIMEXStatus(ctx, h, peerA)
+		return status.State, statusErr
+	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
+		ShouldNot(Equal("UP"),
+			"a domain with only one of its two configured peers must not report UP")
 
 	By("starting peer B and waiting for both members to form an UP domain")
 	startIMEXPeer(ctx, h, peerB)
