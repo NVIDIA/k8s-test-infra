@@ -103,6 +103,11 @@ const (
 	lowPowerThresholdMin        = 1
 	lowPowerThresholdMax        = 1023
 	lowPowerThresholdDefault    = 1000
+	// nvlinkLowPowerThresholdReset is NVML_NVLINK_LOW_POWER_THRESHOLD_RESET
+	// (also spelled _DEFAULT upstream). `nvidia-smi nvlink -sLowPwrThres
+	// default` sends it, so the setter must treat it as "clear the
+	// override" rather than rejecting it as out of range.
+	nvlinkLowPowerThresholdReset = 0xFFFFFFFF
 	nvlinkPowerStateHighSpeed   = 0
 	nvlinkPowerThresholdEnabled = 1
 )
@@ -213,6 +218,12 @@ func (d *ConfigurableDevice) GetNvLinkFieldValue(fieldID, scopeID uint32) (Field
 		return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED
 	case fiNvlinkGetPowerThreshold:
 		if l, ok := f.Link(d.index, link); ok && l.Active {
+			// An accepted SetNvLinkDeviceLowPowerThreshold wins over the
+			// built-in default; this read-back is what keeps that setter
+			// from being a hollow success.
+			if v := d.nvlinkLowPowerOverride; v != nil {
+				return FieldValueUint, uint64(*v), nvml.SUCCESS
+			}
 			return FieldValueUint, lowPowerThresholdDefault, nvml.SUCCESS
 		}
 		return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED

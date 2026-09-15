@@ -65,6 +65,14 @@ type ConfigurableDevice struct {
 	// Mutable in-memory state (not persisted across restarts)
 	persistenceModeOverride *nvml.EnableState
 
+	// nvlinkBwModeOverride and nvlinkLowPowerOverride are set by
+	// nvmlDeviceSetNvlinkBwMode and
+	// nvmlDeviceSetNvLinkDeviceLowPowerThreshold. Process-local like
+	// persistenceModeOverride, so a `nvidia-smi nvlink -sBwMode` is not
+	// visible to the next nvidia-smi invocation — see issue #849.
+	nvlinkBwModeOverride   *uint8
+	nvlinkLowPowerOverride *uint32
+
 	// dynamicMetrics holds the current simulator (nil == static mode). It is
 	// swapped atomically on refresh so a runtime config override that edits
 	// dynamic_metrics (e.g. pinning temperature) takes effect on the next

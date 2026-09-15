@@ -13,7 +13,11 @@
 
 package engine
 
-import "github.com/NVIDIA/go-nvml/pkg/nvml"
+import (
+	"slices"
+
+	"github.com/NVIDIA/go-nvml/pkg/nvml"
+)
 
 // defaultNvlinkBwModes is the supported NVLink Reduced Bandwidth Mode list a
 // Blackwell board reports when a profile declares none.
@@ -94,6 +98,9 @@ func (d *ConfigurableDevice) GetMockNvlinkBwMode() (uint8, bool, nvml.Return) {
 	if configured, ok := d.fabric.NvlinkConfiguredBwMode(); ok {
 		mode = configured
 	}
+	if v := d.nvlinkBwModeOverride; v != nil {
+		mode = *v
+	}
 
 	debugLog("[NVML] nvmlDeviceGetNvlinkBwMode -> mode=%d isBest=%t\n", mode, mode == best)
 	return mode, mode == best, nvml.SUCCESS
@@ -112,4 +119,71 @@ func (d *ConfigurableDevice) GetMockNvLinkInfo() (bool, nvml.Return) {
 	enabled := d.fabric.NvleEnabled()
 	debugLog("[NVML] nvmlDeviceGetNvLinkInfo -> isNvleEnabled=%t\n", enabled)
 	return enabled, nvml.SUCCESS
+}
+
+// supportsNvlinkLowPower gates the NVLink low-power threshold on Hopper,
+// which is what the upstream header specifies ("For Hopper or newer fully
+// supported devices").
+func (d *ConfigurableDevice) supportsNvlinkLowPower() bool {
+	return d.Config.Architecture >= nvml.DEVICE_ARCH_HOPPER &&
+		d.Config.Architecture != nvml.DEVICE_ARCH_UNKNOWN
+}
+
+// SetMockNvlinkBwMode backs nvmlDeviceSetNvlinkBwMode and
+// `nvidia-smi nvlink -sBwMode`. setBest maps onto the struct's bSetBest
+// field, which selects the best mode and makes the mode argument irrelevant.
+//
+// The new mode is held in memory only, so it is not visible to a later
+// process — see the nvlinkBwModeOverride comment on ConfigurableDevice.
+func (d *ConfigurableDevice) SetMockNvlinkBwMode(mode uint8, setBest bool) nvml.Return {
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return ret
+	}
+	if !d.supportsNvlinkBwMode() {
+		return nvml.ERROR_NOT_SUPPORTED
+	}
+	supported := d.nvlinkSupportedBwModes()
+
+	if setBest {
+		mode = bestNvlinkBwMode(supported)
+	} else if !slices.Contains(supported, mode) {
+		debugLog("[NVML] nvmlDeviceSetNvlinkBwMode(%d) rejected; supported=%v\n", mode, supported)
+		return nvml.ERROR_INVALID_ARGUMENT
+	}
+
+	d.nvlinkBwModeOverride = &mode
+	debugLog("[NVML] nvmlDeviceSetNvlinkBwMode -> mode=%d\n", mode)
+	return nvml.SUCCESS
+}
+
+// SetMockNvLinkLowPowerThreshold backs
+// nvmlDeviceSetNvLinkDeviceLowPowerThreshold and
+// `nvidia-smi nvlink -sLowPwrThres`. An accepted value is read back through
+// NVML_FI_DEV_NVLINK_GET_POWER_THRESHOLD.
+//
+// The range is the one the mock already advertises through the
+// _THRESHOLD_MIN / _MAX field values, not the header's deprecated 0x1FFF
+// ceiling; nvidia-smi reads that advertised range and pre-validates against
+// it, so the two must agree.
+func (d *ConfigurableDevice) SetMockNvLinkLowPowerThreshold(threshold uint32) nvml.Return {
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return ret
+	}
+	if !d.supportsNvlinkLowPower() {
+		return nvml.ERROR_NOT_SUPPORTED
+	}
+	if threshold == nvlinkLowPowerThresholdReset {
+		d.nvlinkLowPowerOverride = nil
+		debugLog("[NVML] nvmlDeviceSetNvLinkDeviceLowPowerThreshold -> reset\n")
+		return nvml.SUCCESS
+	}
+	if threshold < lowPowerThresholdMin || threshold > lowPowerThresholdMax {
+		debugLog("[NVML] nvmlDeviceSetNvLinkDeviceLowPowerThreshold(%d) out of range %d..%d\n",
+			threshold, lowPowerThresholdMin, lowPowerThresholdMax)
+		return nvml.ERROR_INVALID_ARGUMENT
+	}
+
+	d.nvlinkLowPowerOverride = &threshold
+	debugLog("[NVML] nvmlDeviceSetNvLinkDeviceLowPowerThreshold -> %d\n", threshold)
+	return nvml.SUCCESS
 }
