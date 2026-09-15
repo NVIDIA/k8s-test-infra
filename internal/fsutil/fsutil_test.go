@@ -220,3 +220,57 @@ func TestSymlink_CreatesAndReplaces(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "second", got)
 }
+
+func TestMirrorTree_CopiesFilesDirsAndSymlinks(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+
+	require.NoError(t, os.MkdirAll(filepath.Join(src, "a/b"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(src, "a/b/file"), []byte("content"), 0o644))
+	require.NoError(t, os.Symlink("file", filepath.Join(src, "a/b/link")))
+
+	require.NoError(t, fsutil.MirrorTree(src, dst))
+
+	got, err := os.ReadFile(filepath.Join(dst, "a/b/file"))
+	require.NoError(t, err)
+	require.Equal(t, "content", string(got))
+
+	target, err := os.Readlink(filepath.Join(dst, "a/b/link"))
+	require.NoError(t, err)
+	require.Equal(t, "file", target)
+}
+
+func TestMirrorTree_DoesNotReplaceAnExistingDestinationDirectory(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+
+	require.NoError(t, os.WriteFile(filepath.Join(src, "file"), []byte("v1"), 0o644))
+
+	before, err := os.Stat(dst)
+	require.NoError(t, err)
+
+	require.NoError(t, fsutil.MirrorTree(src, dst))
+
+	after, err := os.Stat(dst)
+	require.NoError(t, err)
+	require.True(t, os.SameFile(before, after), "the destination directory entry must not be replaced")
+
+	got, err := os.ReadFile(filepath.Join(dst, "file"))
+	require.NoError(t, err)
+	require.Equal(t, "v1", string(got))
+}
+
+func TestMirrorTree_OverwritesChangedFileContent(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+
+	require.NoError(t, os.WriteFile(filepath.Join(src, "file"), []byte("v1"), 0o644))
+	require.NoError(t, fsutil.MirrorTree(src, dst))
+
+	require.NoError(t, os.WriteFile(filepath.Join(src, "file"), []byte("v2"), 0o644))
+	require.NoError(t, fsutil.MirrorTree(src, dst), "second mirror must not error")
+
+	got, err := os.ReadFile(filepath.Join(dst, "file"))
+	require.NoError(t, err)
+	require.Equal(t, "v2", string(got), "changed content must land on a second mirror")
+}
