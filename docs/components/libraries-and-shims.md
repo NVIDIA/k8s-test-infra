@@ -175,6 +175,12 @@ Not an `LD_PRELOAD` library — a small Go program installed at
 `/usr/bin/nvidia-imex`, with the real daemon moved to
 `/usr/bin/nvidia-imex.real`.
 
+Both files and `nvidia-imex-ctl` ship in the single, multi-platform Mokka
+image. The NVIDIA archive version and checksums are pinned once; see
+[Updating IMEX](../contributing/imex-dependency.md) for provenance and the
+update procedure. Their presence is dormant until a workload starts the
+daemon.
+
 The upstream compute-domain daemon hard-codes its command line with no flag
 passthrough, so `--nogpu` cannot be injected from outside. The shim appends it
 and `exec`s the real binary, preserving arguments, environment and stdio.

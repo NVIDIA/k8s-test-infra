@@ -16,7 +16,7 @@ introduced by [NVIDIA/k8s-test-infra#304](https://github.com/NVIDIA/k8s-test-inf
   node, and containerd NRI injects that overlay, the node-specific topology
   environment, and annotated IMEX channel nodes into a separate demo workload
   DaemonSet. The demo workload has no mock mounts or mock environment.
-* **Real `nvidia-imex` in NO GPU mode** — the demo workload image fronts
+* **Real `nvidia-imex` in NO GPU mode** — the standard Mokka image fronts
   the real daemon with `nvidia-imex-shim` (`/usr/bin/nvidia-imex` exec's
   `/usr/bin/nvidia-imex.real --nogpu`), so IMEX readiness is the real
   gRPC peer protocol over the pod network: `nvidia-imex-ctl -q` prints
@@ -56,10 +56,9 @@ simulated GPUs before running this demo.
    containerd NRI is enabled on every expected node. A legacy cluster created
    by an older version of the demo is rejected; set `FORCE_RECREATE=true` to
    explicitly delete and recreate it.
-2. Builds and loads the standard `nvml-mock:compute-domain` image, then
-   builds the `nvml-mock:compute-domain-workload` image from the demo's
-   [`Dockerfile`](./Dockerfile). It contains the real `nvidia-imex` (NO GPU
-   mode via `nvidia-imex-shim`) but no mock GPU files.
+2. Builds and loads `nvml-mock:compute-domain`. This is the standard Mokka
+   Dockerfile and includes the real `nvidia-imex`, with NO GPU mode supplied
+   by `nvidia-imex-shim`; there is no capability-specific workload image.
 3. Installs the chart with:
 
    ```text
@@ -138,7 +137,7 @@ directory; the **manual-reproduction commands below assume you run
 them from the repository root**.
 
 Expect roughly 10–20 minutes on a first run (Kind cluster creation
-plus two image builds dominate; Scenario 2's domain convergence alone
+plus the image build dominates; Scenario 2's domain convergence alone
 may legitimately take up to 4 minutes — see Troubleshooting). Reruns
 reuse the existing cluster and build caches, but deliberately recycle the
 staging, NRI, and demo workload DaemonSets so same-tag image rebuilds, restored
@@ -162,18 +161,12 @@ note at the end of this section if you need to rename it.
 kind create cluster --name nvml-mock-compute-domain \
     --config tests/e2e/kind-compute-domain-config.yaml
 
-# 2. Build the standard mock image, then the separate real-IMEX demo workload
-#    image. nvidia-imex is proprietary but comes
-#    from the PUBLIC Ubuntu 22.04 multiverse repo (nvidia-imex-595) —
-#    no NVIDIA credentials or internal access needed. Local build only:
-#    never publish the resulting image.
+# 2. Build the standard Mokka image. Its platform-specific IMEX archive and
+#    checksum are pinned from NVIDIA's public redistribution archive.
 docker build -t nvml-mock:compute-domain -f deployments/nvml-mock/Dockerfile .
-docker build -t nvml-mock:compute-domain-workload \
-    --build-arg GOLANG_VERSION=$(hack/golang-version.sh) \
-    -f docs/guides/compute-domain/Dockerfile .
 
-# 3. Load both images into the Kind cluster.
-kind load docker-image nvml-mock:compute-domain nvml-mock:compute-domain-workload \
+# 3. Load the image into the Kind cluster.
+kind load docker-image nvml-mock:compute-domain \
     --name nvml-mock-compute-domain
 
 # 4. Pick two character-device majors that are unused on every Kind node.
@@ -215,8 +208,8 @@ printf 'Using IMEX device majors: channels=%s, caps=%s\n' \
     "${IMEX_CHANNEL_MAJOR}" "${IMEX_CAPS_MAJOR}"
 
 # 5. Install mock staging + the node-local NRI plugin. The chart's
-#    DaemonSet uses the standard mock image; the real IMEX binary stays in a
-#    separate demo workload image.
+#    DaemonSet and demo workload use the same standard image. IMEX remains
+#    dormant until Scenario 2 starts it.
 helm upgrade --install nvml-mock deployments/nvml-mock/helm/nvml-mock \
     --kube-context kind-nvml-mock-compute-domain \
     --namespace mokka --create-namespace \
@@ -294,17 +287,17 @@ The script doesn't expose this as a flag because the demo is
 documentation-by-example; the canonical name keeps the example
 faithful to what's checked in.
 
-## How the real IMEX fits alongside the compute-domain-daemon
+## How the real IMEX fits alongside the DRA compute-domain daemon
 
 The upstream daemon spawns `nvidia-imex` as a subprocess and probes
 readiness with `nvidia-imex-ctl -c /imexd/imexd.cfg -q`,
-comparing the combined output to exactly `READY`. With this demo's
-overlay installed both paths hold the real binaries: the shim at
+comparing the combined output to exactly `READY`. Mokka's local DRA adapter
+copies the same binaries from the standard Mokka image: the shim at
 `/usr/bin/nvidia-imex` execs `/usr/bin/nvidia-imex.real --nogpu`, so
 the upstream daemon runs unmodified — same argv, same probe, real
-protocol, no GPUs. Point its container image at the default (`daemon`)
-target of
-[`deployments/nvml-mock/Dockerfile.compute-domain-daemon`](https://github.com/NVIDIA/k8s-test-infra/blob/main/deployments/nvml-mock/Dockerfile.compute-domain-daemon).
+protocol, no GPUs. This adapter is local integration infrastructure at
+[`local/dra/Dockerfile`](https://github.com/NVIDIA/k8s-test-infra/blob/main/local/dra/Dockerfile),
+not another published Mokka image.
 
 > **Using the upstream daemon chart.** With NRI enabled, its workload pod
 > does not need a mock driver mount, a topology ConfigMap mount, or manually
@@ -368,6 +361,6 @@ list).
 
 ```bash
 kind delete cluster --name nvml-mock-compute-domain
-# Optional: also remove the locally built demo images.
-docker rmi nvml-mock:compute-domain nvml-mock:compute-domain-workload
+# Optional: also remove the locally built image.
+docker rmi nvml-mock:compute-domain
 ```

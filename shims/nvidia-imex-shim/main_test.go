@@ -71,6 +71,6 @@ func TestRealBin(t *testing.T) {
 	})
 	t.Run("constant pins the documented literal", func(t *testing.T) {
 		require.Equal(t, "IMEX_SHIM_REAL_BIN", envRealBin,
-			"documented in Dockerfile.compute-domain-daemon's shim stage; the constant must match")
+			"documented by the standard Mokka image; the constant must match")
 	})
 }
