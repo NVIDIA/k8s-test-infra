@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The published `nvml-mock` image now includes the version- and checksum-pinned
+  NVIDIA IMEX daemon and control binary on amd64 and arm64, together with
+  Mokka's no-GPU exec shim. Compute-domain examples and the local NVIDIA DRA
+  integration consume that single image instead of building a second
+  capability-specific Mokka image. (#821)
+
 ## [0.4.0-rc1] - 2026-09-14
 
 ### Added

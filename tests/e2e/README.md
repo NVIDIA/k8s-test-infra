@@ -137,7 +137,7 @@ tests that must not be scoped by `E2E_PROFILES`.
 | DRA driver | `make e2e-dra` | `dra` | Dynamic Resource Allocation (DRA) scheduling works end to end: ResourceSlices report the profile's GPU count, and a pod using a `ResourceClaimTemplate` reaches `Running`, which requires `NodePrepareResources` to have succeeded |
 | GPU Operator | `make e2e-gpu-operator` | `gpu-operator`, `device-plugin`, `dcgm`, `xid`, `pcisysfs`, `runtime-control` | The full operator stack accepts the mock: the validator pod starts, GPU Feature Discovery (GFD) labels appear, allocatable `nvidia.com/gpu` matches the profile, and DCGM telemetry is answered |
 | Multi-node fleet | `make e2e-multi-node` | `multi-node` | A heterogeneous fleet works: separate A100 and T4 releases on different workers, correct per-node mock files and IB behaviour, and a GPU workload scheduled across them |
-| Node-wide NRI injection | `make e2e-nri` | `nri`, `nri-*`, `compute-domain`, `imex-channels` | An ordinary pod that requests no GPU, mounts no hostPath and sets no `MOCK_*` env still sees GPUs, via Node Resource Interface (NRI) ambient injection |
+| Node-wide NRI injection | `make e2e-nri` | `nri`, `nri-*`, `compute-domain`, `imex-channels`, `imex-lifecycle` | An ordinary pod that requests no GPU, mounts no hostPath and sets no `MOCK_*` env still sees GPUs; on fabric profiles, real IMEX peers also form and lose a domain over the pod network |
 | NFD label provenance | `make e2e-nfd` | `nfd`, `nfd-provenance` | Node Feature Discovery (NFD) derives `feature.node.kubernetes.io/pci-10de.present` from the feature file the mock writes — and that the mock does not write the label itself. Pinned to `a100`, because the label is vendor-only and identical across profiles |
 | CUDA validator | opt-in | `validator` | The CUDA vectorAdd sample runs against the mock CUDA library. **Skipped by default** — see below |
 
@@ -163,8 +163,15 @@ labels select individual behaviours — device-plugin interaction
 `nri-dp-scheduling`), Container Device Interface handling (`nri-cdi`,
 `nri-cdi-inject`, `nri-cdi-suppression`), failure propagation (`nri-failure`,
 `nri-failure-detect`, `nri-failure-inject`, `nri-failure-recover`), and
-`nri-imex`, `nri-ib-minimal`, `nri-alloc-memory`, `nri-device-plugin`,
-`nri-inject`.
+`nri-imex`, `imex-lifecycle`, `nri-ib-minimal`, `nri-alloc-memory`,
+`nri-device-plugin`, `nri-inject`.
+
+Run only the real IMEX peer lifecycle with:
+
+```bash
+make e2e E2E_PROFILES=gb200 \
+  E2E_GINKGO_FLAGS='--label-filter="imex-lifecycle"'
+```
 
 ### GPU Operator and DCGM
 

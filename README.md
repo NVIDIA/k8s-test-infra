@@ -39,6 +39,9 @@ That makes it a good fit for:
   topology.
 - IMEX peer readiness and liveness over the pod network.
 
+The single published Mokka image contains the optional IMEX userspace tools on
+both `linux/amd64` and `linux/arm64`; ordinary installations do not start them.
+
 Use real hardware for CUDA execution, NCCL, GPUDirect and RDMA data paths, any
 throughput or thermal measurement, driver and firmware lifecycle, switch
 management planes, physically faithful fault timing, MIG partition lifecycle,

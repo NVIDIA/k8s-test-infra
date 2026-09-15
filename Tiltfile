@@ -35,7 +35,7 @@ load('./local/nvml_mock.tiltfile',
 load('./local/compute-domain/compute_domain.tiltfile',
      compute_domain_build_images='build_images',
      compute_domain_install='install',
-     compute_domain_daemon_image='DAEMON_IMAGE')
+     compute_domain_dra_adapter_image='DRA_ADAPTER_IMAGE')
 load('./local/gpu-operator/gpu_operator.tiltfile', gpu_operator_install='install')
 load('./local/dra/dra.tiltfile', dra_install='install')
 load('./local/fgo/fgo.tiltfile', fgo_install='install')
@@ -109,8 +109,8 @@ if with_observability:
 # labels, hardcoded worker names in topology.yaml) and its own profile
 # (gb200 for NVLink5 fabric APIs), so it cannot compose with --multi-gpu-profile
 # or with any --gpu-profile the user might pass. --gpu-operator is
-# allowed but experimental — the Operator's RuntimeClass path with the
-# compute-domain-imex layered image is untested.
+# allowed but experimental — the Operator's RuntimeClass path in the
+# compute-domain scenario is untested.
 if with_compute_domain and multi_gpu_profile:
     fail('--compute-domain is mutually exclusive with --multi-gpu-profile ' +
          '(compute-domain uses its own 4-worker cluster shape)')
@@ -121,10 +121,10 @@ if with_fgo and with_compute_domain:
     fail('--fgo is mutually exclusive with --compute-domain')
 
 # --nvmlmock-image only wires the standard nvml-mock build/install path. The
-# compute-domain scenario builds three layered images (base + imex + optional
-# daemon) and cannot consume a single pre-built ref.
+# compute-domain scenario currently owns its local image build and cannot
+# consume a pre-built ref.
 if nvmlmock_image and with_compute_domain:
-    fail('--nvmlmock-image is not supported with --compute-domain (scenario builds its own layered images)')
+    fail('--nvmlmock-image is not supported with --compute-domain (scenario builds its own local image)')
 
 gpu_profile_raw = cfg.get('gpu-profile', None)
 
@@ -193,11 +193,10 @@ else:
     )
 
 # --- Shared NVIDIA Helm repo --------------------------------------------
-# Both consumer subfiles pull from nvidia/... — register the repo once here so
-# each subfile can stay agnostic about who else uses it. Labels are attached
-# per active consumer so the repo groups next to whichever consumers are on.
-if active_consumers:
-    helm_repo('nvidia', 'https://helm.ngc.nvidia.com/nvidia', labels=active_consumers)
+# The GPU Operator still uses the NGC chart repository. The DRA integration
+# uses its versioned registry.k8s.io OCI chart directly.
+if with_gpu_operator:
+    helm_repo('nvidia', 'https://helm.ngc.nvidia.com/nvidia', labels=['gpu-operator'])
 
 if with_topograph:
     helm_repo('topograph-repo', 'https://NVIDIA.github.io/topograph', labels=['topograph'])
@@ -243,7 +242,7 @@ if with_dra:
 
     if with_compute_domain:
         dra_extra_values.append('local/compute-domain/dra-driver.values.yaml')
-        dra_image_deps.append(compute_domain_daemon_image)
+        dra_image_deps.append(compute_domain_dra_adapter_image)
         dra_image_keys.append(('image.repository', 'image.tag'))
 
     dra_install(

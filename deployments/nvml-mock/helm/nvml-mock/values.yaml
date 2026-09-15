@@ -298,18 +298,17 @@ imex:
   # aborts with "error parsing '/proc/devices': unexpected regex match: []".
   #
   # When enabled, the DaemonSet renders:
-  #   <hostPath>/imex/proc-devices                       substitute /proc/devices
+  #   <driverRoot>/proc/devices                          substitute /proc/devices
   #   <driverRoot>/proc/driver/nvidia/capabilities/...   fabric-imex-mgmt
   #   <driverRoot>/dev/nvidia-caps-imex-channels/channelN  channel device nodes
   #
-  # Pair it with the DRA driver, on a release that supports altProcDevices:
-  #   --set altProcDevices=/var/lib/nvml-mock/imex/proc-devices
+  # Pair it with a DRA driver build that supports ALT_PROC_DEVICES_PATH:
+  #   ALT_PROC_DEVICES_PATH=/driver-root/proc/devices
   #   --set resources.computeDomains.enabled=true
   #
-  # NOTE: as of 2026-07-25 altProcDevices is on the DRA driver's main branch
-  # but is NOT in any release (absent at v25.12.0), so enabling this alone does
-  # not yet make ComputeDomains work with released artifacts. See
-  # NVIDIA/k8s-test-infra#498.
+  # Mokka's local DRA composition supplies the environment variable through
+  # the chart's generic computeDomains env list. It pins the chart and runtime
+  # image to the same upstream release. See NVIDIA/k8s-test-infra#498.
   #
   # Off by default: it creates channelCount device nodes per node.
   mockChannels:

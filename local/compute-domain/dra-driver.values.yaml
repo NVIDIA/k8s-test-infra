@@ -13,8 +13,18 @@
 # image.repository/tag are NOT set here — Tilt injects them via
 # image_keys=[('image.repository', 'image.tag')] in the root Tiltfile
 # when compute-domain is composed, pointing at the locally-built
-# nvml-mock:compute-domain-daemon overlay. Setting them here too would
+# mokka-dra-adapter:compute-domain image. Setting them here too would
 # race with Tilt's injection and defeat the automatic rebuild wiring.
 resources:
   computeDomains:
     enabled: true
+
+# The shared local/dra version pin selects a chart and runtime that understand
+# this test hook. The Mokka DaemonSet renders the substitute inside its driver
+# tree, which this container already mounts read-only at /driver-root.
+kubeletPlugin:
+  containers:
+    computeDomains:
+      env:
+        - name: ALT_PROC_DEVICES_PATH
+          value: /driver-root/proc/devices

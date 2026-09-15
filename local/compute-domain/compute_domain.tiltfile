@@ -4,7 +4,7 @@
 # Loadable Tiltfile for the compute-domain scenario.
 #
 # Scenario, not consumer: compute-domain reconfigures the nvml-mock stack
-# itself (image overlay, gb200 profile, topology ConfigMap, 4-worker
+# itself (gb200 profile, topology ConfigMap, 4-worker
 # cluster) rather than sitting on top of it. So it exports build/install
 # the way local/nvml_mock.tiltfile does — the root Tiltfile calls
 # compute_domain.install() as the BASE install path when --compute-domain
@@ -12,12 +12,11 @@
 #
 # Ports docs/guides/compute-domain/run.sh Scenario 1 (per-node fabric
 # identity) and Scenario 3 (topology rebind) as auto_init=False
-# local_resource triggers. Scenario 2 (real IMEX daemon coordination)
-# stays in run.sh — stateful multi-pod state machine that doesn't fit
-# Tilt's model.
+# local_resource triggers. The real IMEX lifecycle is covered by the E2E
+# suite because it is a stateful multi-pod state machine.
 #
 # Exports:
-#   build_images(with_dra) — build 2 images (or 3 if with_dra).
+#   build_images(with_dra) — build the Mokka image and, with DRA, its adapter.
 #   install(active_consumers) — install one nvml-mock helm release
 #     with the topology overlay + scenario triggers. Returns ['nvml-mock'].
 #
@@ -25,31 +24,28 @@
 
 load('ext://helm_resource', 'helm_resource')
 load('ext://k8s_attach', 'k8s_attach')
+load('../dra/version.tiltfile', 'DRA_DRIVER_IMAGE')
 
 _BASE_IMAGE         = 'nvml-mock:compute-domain'
-_DEMO_IMAGE         = 'nvml-mock:compute-domain-imex'
-# Exported (no leading underscore): the root Tiltfile loads this so it
-# can pass image_deps=[DAEMON_IMAGE] into dra_install() when composing
-# --compute-domain --dra. That both drives Tilt's build of this image
-# and pins the DRA chart's image.repository/tag to it via image_keys.
-DAEMON_IMAGE        = 'nvml-mock:compute-domain-daemon'
+# Exported (no leading underscore): the root Tiltfile uses it to drive the
+# adapter build and pin the DRA chart image when composing
+# --compute-domain --dra.
+DRA_ADAPTER_IMAGE   = 'mokka-dra-adapter:compute-domain'
 _CHART              = 'deployments/nvml-mock/helm/nvml-mock'
 _MOCK_DOCKERFILE    = 'deployments/nvml-mock/Dockerfile'
-_OVERLAY_DOCKERFILE = 'deployments/nvml-mock/Dockerfile.compute-domain-daemon'
+_DRA_DOCKERFILE     = 'local/dra/Dockerfile'
 
 
 def build_images(with_dra):
-    """Build the compute-domain image trio.
+    """Build the unified Mokka image and optional DRA adapter.
 
-    Always builds the nvml-mock base image and the demo overlay (real
-    nvidia-imex + shim on top of the mock). When with_dra is True, also
-    builds the daemon overlay (real nvidia-imex + shim on top of the
-    upstream compute-domain-daemon image) that dra-driver.values.yaml
-    pins the DRA chart image to.
+    The standard Mokka image includes IMEX. When with_dra is True, also
+    build the adapter that adds those files to the upstream
+    compute-domain-daemon image.
     """
-    # Base nvml-mock image. Locally tagged (nvml-mock:compute-domain)
-    # rather than the ghcr.io ref used by local/nvml_mock.tiltfile — the
-    # demo overlay's NVML_MOCK_IMAGE build-arg targets this exact ref.
+    # Locally tagged rather than using the ghcr.io ref from
+    # local/nvml_mock.tiltfile so the optional DRA adapter can use this
+    # exact image as its external source stage.
     # Same Dockerfile as local/nvml_mock.tiltfile, so this list has to carry
     # the same trees.
     docker_build(
@@ -68,40 +64,20 @@ def build_images(with_dra):
         ],
     )
 
-    # Demo overlay: real nvidia-imex + nvidia-imex-shim on top of the
-    # mock. Powers the nvml-mock DaemonSet pods (image_keys pin below)
-    # so kubectl exec workflows (check-fabric, IMEX daemon start/kill)
-    # find the real binaries at their canonical paths.
-    docker_build(
-        _DEMO_IMAGE,
-        context='.',
-        dockerfile=_OVERLAY_DOCKERFILE,
-        target='demo',
-        build_args={'NVML_MOCK_IMAGE': _BASE_IMAGE},
-        only=[
-            'go.mod',
-            'go.sum',
-            'shims/nvidia-imex-shim/',
-        ],
-    )
-
     if with_dra:
-        # Daemon overlay: real nvidia-imex + nvidia-imex-shim on top of
-        # the upstream DRA compute-domain-daemon image. Pinned by
-        # local/compute-domain/dra-driver.values.yaml so the DRA
-        # driver's compute-domain-daemon pods run the shim'd real IMEX
-        # in NO-GPU mode instead of the GPU-required upstream binary.
-        # Select the named daemon stage explicitly so later stage additions
-        # cannot silently change this build's output.
+        # The upstream DRA runtime remains the final image. It receives the
+        # IMEX executables already pinned and verified in the Mokka image.
         docker_build(
-            DAEMON_IMAGE,
+            DRA_ADAPTER_IMAGE,
             context='.',
-            dockerfile=_OVERLAY_DOCKERFILE,
-            target='daemon',
+            dockerfile=_DRA_DOCKERFILE,
+            build_args={
+                'NVML_MOCK_IMAGE': _BASE_IMAGE,
+                'DRA_DRIVER_IMAGE': DRA_DRIVER_IMAGE,
+            },
             only=[
-                'go.mod',
-                'go.sum',
-                'shims/nvidia-imex-shim/',
+                'local/dra/Dockerfile',
+                'local/dra/version.tiltfile',
             ],
         )
 
@@ -127,7 +103,7 @@ def install(active_consumers, control_plane=False):
         if os.path.exists(overlay):
             flags += ['--values', overlay]
 
-    image_deps = [_DEMO_IMAGE]
+    image_deps = [_BASE_IMAGE]
     image_keys = [('image.repository', 'image.tag')]
     if control_plane:
         flags += ['--set', 'controlPlane.enabled=true']

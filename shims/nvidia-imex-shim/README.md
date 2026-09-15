@@ -1,6 +1,6 @@
 # nvidia-imex-shim
 
-`execve` wrapper installed at `/usr/bin/nvidia-imex` in the compute-domain-daemon image.
+`execve` wrapper installed at `/usr/bin/nvidia-imex` in the standard Mokka image.
 
 The upstream daemon hard-codes `nvidia-imex -c /imexd/imexd.cfg` with no flag passthrough,
 so `--nogpu` cannot be injected from outside. This shim execs the real binary (at
