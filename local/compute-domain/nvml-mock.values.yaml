@@ -30,3 +30,10 @@ nodeSelector:
 updateStrategy:
   rollingUpdate:
     maxUnavailable: "100%"
+
+# Supply the kernel capability surface consumed by the DRA compute-domain
+# plugin. The real IMEX executables remain dormant unless a consumer starts
+# them.
+imex:
+  mockChannels:
+    enabled: true

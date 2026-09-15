@@ -13,8 +13,8 @@
 //	error parsing '/proc/devices': unexpected regex match: []
 //
 // The DRA driver supports pointing at a substitute file through the
-// ALT_PROC_DEVICES_PATH environment variable, wired by its chart's
-// altProcDevices value. This package renders that file.
+// ALT_PROC_DEVICES_PATH environment variable. The local DRA composition wires
+// that variable to the substitute this package renders inside the driver root.
 //
 // The output must satisfy the consumer's parser, which requires the entry to
 // appear between the "Character devices:" and "Block devices:" headers and to be

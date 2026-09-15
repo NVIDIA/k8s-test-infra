@@ -35,7 +35,7 @@ load('./local/nvml_mock.tiltfile',
 load('./local/compute-domain/compute_domain.tiltfile',
      compute_domain_build_images='build_images',
      compute_domain_install='install',
-     compute_domain_daemon_image='DAEMON_IMAGE')
+     compute_domain_dra_adapter_image='DRA_ADAPTER_IMAGE')
 load('./local/gpu-operator/gpu_operator.tiltfile', gpu_operator_install='install')
 load('./local/dra/dra.tiltfile', dra_install='install')
 load('./local/fgo/fgo.tiltfile', fgo_install='install')
@@ -243,7 +243,7 @@ if with_dra:
 
     if with_compute_domain:
         dra_extra_values.append('local/compute-domain/dra-driver.values.yaml')
-        dra_image_deps.append(compute_domain_daemon_image)
+        dra_image_deps.append(compute_domain_dra_adapter_image)
         dra_image_keys.append(('image.repository', 'image.tag'))
 
     dra_install(

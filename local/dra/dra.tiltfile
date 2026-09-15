@@ -11,7 +11,7 @@
 #     image_deps + image_keys are threaded straight into helm_resource
 #     so the caller can pin the chart's image to a Tilt-built local
 #     image (used by the --compute-domain --dra composition to inject
-#     nvml-mock:compute-domain-daemon).
+#     the local Mokka DRA adapter).
 #
 # Requires the shared 'nvidia' helm_repo, registered by the main Tiltfile and
 # waited on through resource_deps. Also requires the cluster to have

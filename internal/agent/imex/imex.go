@@ -87,12 +87,15 @@ func (s *Simulator) Discard(_ context.Context) error {
 	var errs []error
 	for _, rel := range []string{
 		"driver/dev/nvidia-caps-imex-channels",
-		"imex",
 	} {
 		p := s.host.RootPath(rel)
 		if err := os.RemoveAll(p); err != nil && !os.IsNotExist(err) {
 			errs = append(errs, fmt.Errorf("remove %s: %w", p, err))
 		}
+	}
+
+	if err := fsutil.Remove(s.host.RootPath("driver/proc/devices")); err != nil {
+		errs = append(errs, err)
 	}
 
 	capFile := s.host.RootPath("driver/proc/driver/nvidia/capabilities/fabric-imex-mgmt")
