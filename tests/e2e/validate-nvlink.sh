@@ -183,5 +183,139 @@ if [ "$EXPECT_NV" -gt 0 ]; then
   fi
 fi
 
+# ---------------------------------------------------------------------------
+# NVLink Reduced Bandwidth Mode.
+#
+# Which gate applies depends on which NVML call nvidia-smi actually makes, and
+# for -gBwMode/-sBwMode that is the SYSTEM pair (nvmlSystemGet/SetNvlinkBwMode),
+# not the per-device trio. The system pair is gated on Hopper and newer, so
+# h100 legitimately reports a mode here — the negative control has to be a
+# pre-Hopper profile (a100, t4, l40s) or it proves nothing. The per-device
+# bandwidth-mode calls are not reachable through this nvidia-smi at all; unit
+# tests are their only coverage.
+#
+# Mode names come from the bundled nvidia-smi's own table, and the engine never
+# emits an index above 4 because a higher one would read past it:
+#   0=FULL 1=OFF 2=MIN 3=HALF 4=3QUARTER
+# ---------------------------------------------------------------------------
+case "$GPU_PROFILE" in
+  h100 | b200 | gb200 | gb300) EXPECT_BWMODE=1 ;;
+  *) EXPECT_BWMODE=0 ;;
+esac
+
+# nvlink --info is per-device, so it needs Blackwell AND a real NVLink fabric.
+# b200 is standalone: it has no links, so nvidia-smi prints nothing at all for
+# it rather than an NVLE row.
+if [ "$EXPECT_BWMODE" -eq 1 ] && [ "$EXPECT_NV" -gt 0 ] && [ "$GPU_PROFILE" != "h100" ]; then
+  EXPECT_NVLE=1
+else
+  EXPECT_NVLE=0
+fi
+
+echo ""
+echo "--- nvidia-smi nvlink -gBwMode (bandwidth mode) ---"
+# `|| true`: below the gate nvidia-smi exits non-zero after printing "not
+# supported", which is the expected outcome there, so the exit code is not the
+# signal we assert on.
+BWMODE=$(docker exec "$NODE_CONTAINER" sh -c "$NVIDIA_SMI nvlink -gBwMode" 2>&1 || true)
+echo "$BWMODE" | sed -n '1,10p'
+
+if [ "$EXPECT_BWMODE" -eq 1 ]; then
+  if grep -qE "bandwidth mode: (FULL|OFF|MIN|HALF|3QUARTER)" <<< "$BWMODE"; then
+    echo "PASS: nvlink -gBwMode reported a named bandwidth mode"
+  else
+    echo "FAIL: profile '$GPU_PROFILE' did not report a bandwidth mode."
+    echo "      Check nvmlSystemGetNvlinkBwMode (bridge/nvlink_bw_mode.go) and the"
+    echo "      Hopper gate in engine/nvlink_bw_mode.go."
+    exit 1
+  fi
+
+  # Every name in the table, not just one: this is what pins the index mapping
+  # end to end, since nvidia-smi resolves the name to the index it sends.
+  echo "--- nvidia-smi nvlink -sBwMode <each named mode> ---"
+  for MODE in FULL OFF MIN HALF 3QUARTER; do
+    BWSET=$(docker exec "$NODE_CONTAINER" sh -c "$NVIDIA_SMI nvlink -sBwMode $MODE" 2>&1 || true)
+    if grep -qiE "Successfully set nvlink bandwidth mode" <<< "$BWSET"; then
+      echo "PASS: nvlink -sBwMode $MODE accepted"
+    else
+      echo "FAIL: profile '$GPU_PROFILE' rejected supported bandwidth mode '$MODE'."
+      echo "      Got: $BWSET"
+      echo "      Check nvmlSystemSetNvlinkBwMode and the supported list default"
+      echo "      (defaultNvlinkBwModes = 0..4 in engine/nvlink_bw_mode.go)."
+      exit 1
+    fi
+  done
+  # NOTE: deliberately no set-then-get round trip. Setter state is
+  # process-local and nvidia-smi dlopens a fresh mock per invocation, so the
+  # new mode is gone by the next call. Cross-process persistence is #849.
+else
+  if grep -qiE "not supported" <<< "$BWMODE"; then
+    echo "PASS: pre-Hopper profile '$GPU_PROFILE' reports bandwidth mode as not supported"
+  else
+    echo "FAIL: pre-Hopper profile '$GPU_PROFILE' must not claim bandwidth-mode support."
+    echo "      The architecture gate in engine/nvlink_bw_mode.go leaked."
+    exit 1
+  fi
+fi
+
+echo ""
+echo "--- nvidia-smi nvlink --info (NVLE) ---"
+NVINFO=$(docker exec "$NODE_CONTAINER" sh -c "$NVIDIA_SMI nvlink --info" 2>&1 || true)
+echo "$NVINFO" | sed -n '1,10p'
+if [ "$EXPECT_NVLE" -eq 1 ]; then
+  if grep -qE "NVLE:" <<< "$NVINFO"; then
+    echo "PASS: nvlink --info reported the NVLE row"
+  else
+    echo "FAIL: nvlink --info did not report NVLE — check nvmlDeviceGetNvLinkInfo."
+    exit 1
+  fi
+else
+  # Below Blackwell this is NVML_ERROR_FUNCTION_NOT_FOUND from the driver-version
+  # registry rather than the architecture gate — the profile's driver predates
+  # the call. Either way nvidia-smi must not print an NVLE row.
+  if grep -qE "NVLE:" <<< "$NVINFO"; then
+    echo "FAIL: profile '$GPU_PROFILE' must not report NVLE."
+    echo "      The Blackwell gate or the version registry leaked."
+    exit 1
+  fi
+  echo "PASS: profile '$GPU_PROFILE' does not report NVLE"
+fi
+
+# Low-power threshold is Hopper+ and per-device, so it needs links too.
+if [ "$EXPECT_BWMODE" -eq 1 ] && [ "$EXPECT_NV" -gt 0 ]; then
+  echo ""
+  echo "--- nvidia-smi nvlink -gLowPwrInfo / -sLowPwrThres ---"
+  LOWPWR=$(docker exec "$NODE_CONTAINER" sh -c "$NVIDIA_SMI nvlink -gLowPwrInfo" 2>&1 || true)
+  echo "$LOWPWR" | sed -n '1,6p'
+  if grep -qiE "Low Power Threshold" <<< "$LOWPWR"; then
+    echo "PASS: nvlink -gLowPwrInfo reported the threshold range"
+  else
+    echo "FAIL: nvlink -gLowPwrInfo did not report the threshold range."
+    exit 1
+  fi
+
+  LOWSET=$(docker exec "$NODE_CONTAINER" sh -c "$NVIDIA_SMI nvlink -sLowPwrThres 500" 2>&1 || true)
+  echo "$LOWSET" | sed -n '1,4p'
+  if grep -qiE "Low Power Threshold set to" <<< "$LOWSET"; then
+    echo "PASS: nvlink -sLowPwrThres accepted an in-range threshold"
+  else
+    echo "FAIL: nvlink -sLowPwrThres rejected an in-range threshold."
+    echo "      Check SetMockNvLinkLowPowerThreshold (range 1..1023)."
+    exit 1
+  fi
+
+  # `default` sends NVML_NVLINK_LOW_POWER_THRESHOLD_RESET (0xFFFFFFFF), which
+  # must clear the override rather than fail range validation.
+  LOWRESET=$(docker exec "$NODE_CONTAINER" sh -c "$NVIDIA_SMI nvlink -sLowPwrThres default" 2>&1 || true)
+  echo "$LOWRESET" | sed -n '1,4p'
+  if grep -qiE "reset successfully" <<< "$LOWRESET"; then
+    echo "PASS: nvlink -sLowPwrThres default reset the threshold"
+  else
+    echo "FAIL: nvlink -sLowPwrThres default did not reset the threshold."
+    echo "      The RESET sentinel (0xFFFFFFFF) must bypass range validation."
+    exit 1
+  fi
+fi
+
 echo ""
 echo "=== NVLink validation PASSED ==="
