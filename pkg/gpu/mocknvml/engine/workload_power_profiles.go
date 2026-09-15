@@ -10,9 +10,8 @@ import (
 )
 
 // Workload power profiles are the pre-tuned performance/power recipes Blackwell
-// exposes through `nvidia-smi power-profiles`. Only the two getters are
-// modelled; the requested set comes from config rather than from a consumer
-// calling the setters.
+// exposes through `nvidia-smi power-profiles`. The requested set starts from
+// config and is replaced by whatever a consumer asks for through the setters.
 const (
 	// workloadPowerProfileMaxProfiles is the width of the profile masks, and
 	// so the first id that has no bit to occupy.
@@ -71,7 +70,10 @@ func (d *ConfigurableDevice) WorkloadPowerProfileGetCurrentProfiles() (nvml.Work
 	}
 
 	supported := supportedWorkloadProfiles(cfg)
-	requested := d.effectiveRequestedProfiles(cfg, supported)
+	// A request written through the setters is merged into the effective
+	// config by the override document, so the configured request is already
+	// the current one.
+	requested := requestedWorkloadProfiles(cfg, supported)
 
 	current.Version = nvml.STRUCT_VERSION(nvml.WorkloadPowerProfileCurrentProfiles_v1{}, 1)
 	for _, p := range supported {
@@ -85,10 +87,11 @@ func (d *ConfigurableDevice) WorkloadPowerProfileGetCurrentProfiles() (nvml.Work
 }
 
 // WorkloadPowerProfileUpdateProfiles applies op to the requested profile set,
-// backing `nvidia-smi power-profiles -sr` and `-cr`. The result is held in
-// memory rather than written back to the profile, the way a real driver keeps a
-// runtime request until it unloads, and it outranks the configured request from
-// the first write onwards.
+// backing `nvidia-smi power-profiles -sr` and `-cr`. The result is recorded in
+// the override document rather than written back to the profile, so it
+// outranks the configured request from the first write onwards and is cleared
+// by a reset — and, unlike process memory, a consumer in another process reads
+// back what was written.
 //
 // The whole mask is validated before any of it is applied: a caller naming one
 // unsupported profile alongside several valid ones gets a clean refusal rather
@@ -120,22 +123,55 @@ func (d *ConfigurableDevice) WorkloadPowerProfileUpdateProfiles(
 		}
 	}
 
-	// Compare-and-swap rather than a plain store: SET and CLEAR both rebuild
-	// the mask from its current value, so two callers updating different
-	// profiles would otherwise lose one of the two writes.
-	for {
-		old := d.requestedProfilesOverride.Load()
-		base := workloadProfileMask(requestedWorkloadProfiles(cfg, supported))
-		if old != nil {
-			base = *old
-		}
-		next := applyProfileOperation(op, base, mask)
-		if d.requestedProfilesOverride.CompareAndSwap(old, &next) {
-			debugLog("[NVML] nvmlDeviceWorkloadPowerProfileUpdateProfiles(op=%d) -> requested %v\n",
-				op, next.Mask)
-			return nvml.SUCCESS
+	w := overrideWriter()
+	if w == nil {
+		warnLog("[NVML] nvmlDeviceWorkloadPowerProfileUpdateProfiles -> NO_PERMISSION (no override writer)\n")
+		return nvml.ERROR_NO_PERMISSION
+	}
+	// The fold runs inside the writer's lock because SET and CLEAR both
+	// rebuild the request from its current value, so two callers updating
+	// different profiles would otherwise lose one of the two writes.
+	err := w.UpdateWorkloadProfiles(d.PhysicalIndex(),
+		func(base []uint32, present bool) ([]uint32, error) {
+			if !present {
+				base = d.configuredRequestedProfiles(supported)
+			}
+			next := applyProfileOperation(op, workloadProfileMask(base), mask)
+			return advertisedProfileIDs(next, supportedMask), nil
+		})
+	if err != nil {
+		warnLog("[NVML] nvmlDeviceWorkloadPowerProfileUpdateProfiles(op=%d) -> NO_PERMISSION: %v\n", op, err)
+		return nvml.ERROR_NO_PERMISSION
+	}
+	configOverrides.invalidateAfterLocalWrite()
+	debugLog("[NVML] nvmlDeviceWorkloadPowerProfileUpdateProfiles(op=%d) -> written\n", op)
+	return nvml.SUCCESS
+}
+
+// configuredRequestedProfiles is the request the profile YAML asks for, read
+// from the pristine config rather than the effective one: the effective config
+// already folds in whatever the last setter wrote, and using it as the base for
+// the next update would apply that write twice.
+func (d *ConfigurableDevice) configuredRequestedProfiles(
+	supported []WorkloadPowerProfileConfig,
+) []uint32 {
+	if d.baseConfig == nil || d.baseConfig.Power == nil || d.baseConfig.Power.WorkloadProfiles == nil {
+		return nil
+	}
+	return requestedWorkloadProfiles(d.baseConfig.Power.WorkloadProfiles, supported)
+}
+
+// advertisedProfileIDs narrows a mask to the profiles the device still
+// advertises: one removed from config by a live reload must not stay requested
+// through a write that landed while it existed.
+func advertisedProfileIDs(mask, advertised nvml.Mask255) []uint32 {
+	var out []uint32
+	for _, id := range maskProfileIDs(mask) {
+		if advertised.Mask[id/maskBitsPerElem]&(1<<(id%maskBitsPerElem)) != 0 {
+			out = append(out, id)
 		}
 	}
+	return out
 }
 
 // applyProfileOperation folds one update into the current request. CLEAR
@@ -155,31 +191,6 @@ func applyProfileOperation(op nvml.PowerProfileOperation, base, mask nvml.Mask25
 		}
 	}
 	return next
-}
-
-// effectiveRequestedProfiles is the request a consumer sees: whatever was last
-// written through the setters, or the configured request until one lands. The
-// override is a pointer so an empty mask written by a caller stays
-// distinguishable from never having been written — otherwise clearing the last
-// profile would fall back to the configured request.
-func (d *ConfigurableDevice) effectiveRequestedProfiles(
-	cfg *WorkloadPowerProfilesConfig, supported []WorkloadPowerProfileConfig,
-) []uint32 {
-	override := d.requestedProfilesOverride.Load()
-	if override == nil {
-		return requestedWorkloadProfiles(cfg, supported)
-	}
-	// Narrowed against the advertised set for the same reason the configured
-	// request is: a profile removed from config by a live reload must not stay
-	// requested through an override written before it disappeared.
-	advertised := workloadProfileMask(profileIDs(supported))
-	var out []uint32
-	for _, id := range maskProfileIDs(*override) {
-		if advertised.Mask[id/maskBitsPerElem]&(1<<(id%maskBitsPerElem)) != 0 {
-			out = append(out, id)
-		}
-	}
-	return out
 }
 
 // maskProfileIDs expands a mask into the profile ids it names, ascending.

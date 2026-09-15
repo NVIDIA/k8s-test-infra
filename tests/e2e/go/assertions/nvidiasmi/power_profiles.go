@@ -93,8 +93,8 @@ func PowerProfileCurrentProblems(requestedOut string, requestedExit int, enforce
 		exit int
 		want string
 	}{
-		{"-gr", requestedOut, requestedExit, "No profiles are currently requested."},
-		{"-ge", enforcedOut, enforcedExit, "No profiles are currently engaged."},
+		{"-gr", requestedOut, requestedExit, powerProfileNoneRequested},
+		{"-ge", enforcedOut, enforcedExit, powerProfileNoneEnforced},
 	} {
 		switch {
 		case tc.exit != 0:
@@ -119,11 +119,10 @@ const (
 // PowerProfileRoundTripProblems checks a set, a clear and a read carried out in
 // one `nvidia-smi power-profiles` invocation, e.g. `-sr 6,13 -cr 6 -ge`.
 //
-// It has to be one invocation. The mock's requested set lives in whichever
-// process loaded libnvidia-ml.so, so a second nvidia-smi starts from the
-// profile's configured request and could never see the first one's write —
-// which is also why `-gr` cannot stand in for `-ge` here: nvidia-smi evaluates
-// the requested query before the write and the enforced query after it.
+// `-gr` cannot stand in for `-ge` here: nvidia-smi evaluates the requested
+// query before the write and the enforced query after it, so within one
+// invocation only the enforced query observes what was just set.
+// PowerProfileRequestedProblems covers the read landing in a later invocation.
 //
 // wantEnforced is what must survive the clear. Checking the surviving profile
 // rather than only the confirmation lines is the point: a clear that wiped
@@ -155,26 +154,55 @@ func PowerProfileRoundTripProblems(out string, exitCode, wantGPUs int, wantEnfor
 		return problems
 	}
 
-	problems = append(problems, enforcedProfileProblems(out, wantGPUs, wantEnforced, "after the clear")...)
+	problems = append(problems,
+		profileListProblems(out, wantGPUs, wantEnforced, "enforced", "after the clear")...)
 	return problems
 }
 
-// powerProfileNoneEnforced is how nvidia-smi renders an empty enforced set.
-const powerProfileNoneEnforced = "No profiles are currently engaged."
+// How nvidia-smi renders an empty set for each query.
+const (
+	powerProfileNoneEnforced  = "No profiles are currently engaged."
+	powerProfileNoneRequested = "No profiles are currently requested."
+)
 
-// enforcedProfileProblems compares the per-GPU enforced lists against want.
-func enforcedProfileProblems(out string, wantGPUs int, want []int, when string) []string {
+// PowerProfileRequestedProblems checks a `-gr` read against what an earlier
+// `-sr` asked for, where the two ran as separate nvidia-smi invocations.
+//
+// The separation is the assertion. A profile request is driver state on real
+// hardware, so a second nvidia-smi observes what the first one set; while the
+// mock held the request in the writing process's memory this read reported
+// nothing at all, and no single-invocation check could tell the difference.
+func PowerProfileRequestedProblems(out string, exitCode, wantGPUs int, wantRequested []int) []string {
+	if exitCode != 0 {
+		return []string{fmt.Sprintf(
+			"nvidia-smi power-profiles -gr exited %d, want 0: %s",
+			exitCode, strings.TrimSpace(out))}
+	}
+	// Naming this outcome keeps the write not surviving the process from
+	// surfacing as a GPU count mismatch below.
+	if len(wantRequested) > 0 && strings.Contains(out, powerProfileNoneRequested) {
+		return []string{fmt.Sprintf(
+			"nvidia-smi power-profiles -gr reported nothing requested, want %v: "+
+				"the request did not outlive the invocation that set it: %s",
+			wantRequested, strings.TrimSpace(out))}
+	}
+	return profileListProblems(out, wantGPUs, wantRequested, "requested", "in a later invocation")
+}
+
+// profileListProblems compares the per-GPU lists nvidia-smi rendered against
+// want. what names the query for the failure message.
+func profileListProblems(out string, wantGPUs int, want []int, what, when string) []string {
 	blocks := powerProfileBlocks(out)
 	if len(blocks) != wantGPUs {
 		return []string{fmt.Sprintf(
-			"nvidia-smi power-profiles reported enforced profiles for %d GPU(s), want %d: %s",
-			len(blocks), wantGPUs, strings.TrimSpace(out))}
+			"nvidia-smi power-profiles reported %s profiles for %d GPU(s), want %d: %s",
+			what, len(blocks), wantGPUs, strings.TrimSpace(out))}
 	}
 	var problems []string
 	for i, got := range blocks {
 		if !equalInts(got, want) {
 			problems = append(problems, fmt.Sprintf(
-				"GPU %d enforced %v %s, want %v", i, got, when, want))
+				"GPU %d %s %v %s, want %v", i, what, got, when, want))
 		}
 	}
 	return problems
@@ -201,7 +229,7 @@ func PowerProfileArbitrationProblems(out string, exitCode, wantGPUs, wantWinner,
 			powerProfileSetConfirmation, got, wantGPUs, strings.TrimSpace(out)))
 	}
 
-	problems = append(problems, enforcedProfileProblems(out, wantGPUs, []int{wantWinner},
+	problems = append(problems, profileListProblems(out, wantGPUs, []int{wantWinner}, "enforced",
 		fmt.Sprintf("after requesting conflicting profiles %d and %d", wantWinner, loser))...)
 	return problems
 }

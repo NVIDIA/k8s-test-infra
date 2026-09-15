@@ -310,3 +310,46 @@ func TestPowerProfileSetRejectedRejectsWrongReason(t *testing.T) {
 	require.Len(t, problems, 1)
 	require.Contains(t, problems[0], "did not report")
 }
+
+// --- Requested read in a later invocation ---
+
+// realRequestedOutput is `nvidia-smi power-profiles -gr -i 0` against the gb200
+// profile, run after a separate invocation asked for profile 13.
+const realRequestedOutput = `13. HPC
+`
+
+func TestPowerProfileRequestedAcceptsRealOutput(t *testing.T) {
+	t.Parallel()
+	require.Empty(t, PowerProfileRequestedProblems(realRequestedOutput, 0, 1, []int{13}))
+}
+
+// TestPowerProfileRequestedRejectsAWriteThatDidNotSurvive is the failure the
+// assertion exists for: the request was set by another process, so a mock
+// holding it in memory answers this read with the empty sentence.
+func TestPowerProfileRequestedRejectsAWriteThatDidNotSurvive(t *testing.T) {
+	t.Parallel()
+	problems := PowerProfileRequestedProblems("No profiles are currently requested.\n", 0, 1, []int{13})
+	require.Len(t, problems, 1)
+	require.Contains(t, problems[0], "did not outlive the invocation that set it")
+}
+
+func TestPowerProfileRequestedRejectsTheWrongProfile(t *testing.T) {
+	t.Parallel()
+	problems := PowerProfileRequestedProblems("6. LLM Inference\n", 0, 1, []int{13})
+	require.Len(t, problems, 1)
+	require.Contains(t, problems[0], "requested [6]")
+}
+
+func TestPowerProfileRequestedRejectsNonZeroExit(t *testing.T) {
+	t.Parallel()
+	problems := PowerProfileRequestedProblems("boom", 1, 1, []int{13})
+	require.Len(t, problems, 1)
+	require.Contains(t, problems[0], "-gr exited 1")
+}
+
+// TestPowerProfileRequestedAcceptsAnEmptyReadWhenNoneExpected keeps the
+// cleanup path assertable: after clearing, nothing requested is the answer.
+func TestPowerProfileRequestedAcceptsAnEmptyReadWhenNoneExpected(t *testing.T) {
+	t.Parallel()
+	require.Empty(t, PowerProfileRequestedProblems("No profiles are currently requested.\n", 0, 0, nil))
+}

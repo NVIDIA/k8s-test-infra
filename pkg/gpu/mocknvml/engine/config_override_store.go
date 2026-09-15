@@ -176,6 +176,24 @@ func (s *configOverrideStore) transition(present bool, mod time.Time, size int64
 	}
 }
 
+// invalidateAfterLocalWrite forces the next snapshot to re-read the document
+// and to treat what it finds as changed.
+//
+// A setter in this process has just rewritten the file, so waiting out the TTL
+// would make a read-after-write in one process report the old value — which is
+// what `nvidia-smi power-profiles -sr 6 -ge` does in a single invocation.
+// Clearing the stat fingerprint as well as the timestamp is what makes the
+// re-read count: a cap going from 250000 to 251000 keeps the file the same size
+// and may land inside one mtime tick, and the change check cannot see that.
+func (s *configOverrideStore) invalidateAfterLocalWrite() {
+	s.mu.Lock()
+	s.checked = time.Time{}
+	s.lastMod = time.Time{}
+	s.lastSize = -1
+	s.mu.Unlock()
+	s.checkedNanos.Store(0)
+}
+
 var configOverrides = newConfigOverrideStore()
 
 func resetConfigOverrideStoreForTesting() {

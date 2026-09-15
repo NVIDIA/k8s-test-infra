@@ -7,10 +7,12 @@ import "github.com/NVIDIA/go-nvml/pkg/nvml"
 
 // SetPowerManagementLimit applies a new power cap, in milliwatts.
 //
-// The cap is held in memory rather than written back to the profile because
-// that is what real NVML does: the limit lives in driver state and is lost on
-// driver unload. It outranks the profile's enforced_limit_mw for the same
-// reason a cap applied at runtime outranks the board default.
+// The cap is recorded in the override document rather than written back to the
+// profile, so it outranks the profile's enforced_limit_mw the way a cap applied
+// at runtime outranks the board default, and is cleared by a reset. It has to
+// go somewhere every process can see, because on real hardware the cap is
+// driver state and `nvidia-smi -pl` followed by a separate `nvidia-smi` reports
+// the new value.
 func (d *ConfigurableDevice) SetPowerManagementLimit(limitMW uint32) nvml.Return {
 	if ret := d.tickFailure(); ret != nvml.SUCCESS {
 		debugLog("[NVML] nvmlDeviceSetPowerManagementLimit(%d) -> %d (injected failure)\n", limitMW, ret)
@@ -26,7 +28,16 @@ func (d *ConfigurableDevice) SetPowerManagementLimit(limitMW uint32) nvml.Return
 			limitMW, c.Power.MinLimitMW, c.Power.MaxLimitMW)
 		return nvml.ERROR_INVALID_ARGUMENT
 	}
-	d.powerLimitOverrideMW.Store(limitMW)
+	w := overrideWriter()
+	if w == nil {
+		warnLog("[NVML] nvmlDeviceSetPowerManagementLimit(%d) -> NO_PERMISSION (no override writer)\n", limitMW)
+		return nvml.ERROR_NO_PERMISSION
+	}
+	if err := w.SetPowerLimit(d.PhysicalIndex(), limitMW); err != nil {
+		warnLog("[NVML] nvmlDeviceSetPowerManagementLimit(%d) -> NO_PERMISSION: %v\n", limitMW, err)
+		return nvml.ERROR_NO_PERMISSION
+	}
+	configOverrides.invalidateAfterLocalWrite()
 	debugLog("[NVML] nvmlDeviceSetPowerManagementLimit(%d mW)\n", limitMW)
 	return nvml.SUCCESS
 }
@@ -49,12 +60,6 @@ func (d *ConfigurableDevice) SetPowerManagementLimit_v2(powerValue *nvml.PowerVa
 		return nvml.ERROR_NOT_SUPPORTED
 	}
 	return d.SetPowerManagementLimit(powerValue.PowerValueMw)
-}
-
-// powerLimitOverride returns the cap set at runtime, or zero when the profile's
-// configured limit still stands.
-func (d *ConfigurableDevice) powerLimitOverride() uint32 {
-	return d.powerLimitOverrideMW.Load()
 }
 
 // powerLimitInRange reports whether a requested cap sits within the constraints

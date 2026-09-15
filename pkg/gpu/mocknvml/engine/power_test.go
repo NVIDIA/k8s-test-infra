@@ -28,6 +28,7 @@ func powerCappableDevice(t *testing.T) *ConfigurableDevice {
 // capping controller performs to confirm its cap landed. Answering SUCCESS
 // while the getters keep reporting the old cap is worse than declining.
 func TestSetPowerManagementLimit_RoundTrips(t *testing.T) {
+	persistSetterWrites(t)
 	dev := powerCappableDevice(t)
 
 	require.Equal(t, nvml.SUCCESS, dev.SetPowerManagementLimit(250000))
@@ -46,6 +47,7 @@ func TestSetPowerManagementLimit_RoundTrips(t *testing.T) {
 // not move: the default limit is a board property, and `nvidia-smi -pl` uses it
 // to offer a reset target.
 func TestSetPowerManagementLimit_LeavesDefaultLimit(t *testing.T) {
+	persistSetterWrites(t)
 	dev := powerCappableDevice(t)
 
 	require.Equal(t, nvml.SUCCESS, dev.SetPowerManagementLimit(250000))
@@ -79,6 +81,7 @@ func TestSetPowerManagementLimit_RejectsOutOfRange(t *testing.T) {
 }
 
 func TestSetPowerManagementLimit_AcceptsConstraintBounds(t *testing.T) {
+	persistSetterWrites(t)
 	for _, limit := range []uint32{100000, 400000} {
 		dev := powerCappableDevice(t)
 		require.Equal(t, nvml.SUCCESS, dev.SetPowerManagementLimit(limit),
@@ -99,6 +102,7 @@ func TestSetPowerManagementLimit_NoPowerConfig(t *testing.T) {
 // limit but no min/max. Real hardware always has constraints, so rather than
 // inventing bounds the setter accepts any non-zero value.
 func TestSetPowerManagementLimit_UnconstrainedConfig(t *testing.T) {
+	persistSetterWrites(t)
 	dev := newTestDeviceWithConfig(t, &DeviceConfig{
 		Power: &PowerConfig{EnforcedLimitMW: 400000},
 	})
@@ -111,6 +115,7 @@ func TestSetPowerManagementLimit_UnconstrainedConfig(t *testing.T) {
 }
 
 func TestSetPowerManagementLimitV2_RoundTripsGPUScope(t *testing.T) {
+	persistSetterWrites(t)
 	dev := powerCappableDevice(t)
 
 	ret := dev.SetPowerManagementLimit_v2(&nvml.PowerValue_v2{
@@ -167,6 +172,7 @@ func TestSetPowerManagementLimitV2_NilValue(t *testing.T) {
 // getter, so a cap that only moved the getter would leave every DCGM power
 // limit metric reporting the pre-cap value.
 func TestSetPowerManagementLimit_VisibleThroughFieldValues(t *testing.T) {
+	persistSetterWrites(t)
 	dev := powerCappableDevice(t)
 
 	require.Equal(t, nvml.SUCCESS, dev.SetPowerManagementLimit(250000))
@@ -206,6 +212,7 @@ func TestSetPowerManagementLimit_LostDevice(t *testing.T) {
 // mutable driver state read by every power getter, so it must not be a plain
 // field: consumers poll power while a controller writes the cap.
 func TestSetPowerManagementLimit_ConcurrentSetAndGet(t *testing.T) {
+	persistSetterWrites(t)
 	dev := powerCappableDevice(t)
 
 	const workers = 4

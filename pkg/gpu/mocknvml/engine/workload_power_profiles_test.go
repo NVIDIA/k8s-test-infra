@@ -4,7 +4,6 @@
 package engine
 
 import (
-	"sync"
 	"testing"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
@@ -258,6 +257,7 @@ func enforcedMask(t *testing.T, dev *ConfigurableDevice) []uint32 {
 // setter exists for: `nvidia-smi power-profiles -sr` must be observable through
 // -gr, and SET adds rather than replaces.
 func TestWorkloadProfiles_SetAddsToRequested(t *testing.T) {
+	persistSetterWrites(t)
 	dev := profileDevice(t, blackwellProfiles())
 
 	require.Equal(t, nvml.SUCCESS, dev.WorkloadPowerProfileUpdateProfiles(
@@ -270,6 +270,7 @@ func TestWorkloadProfiles_SetAddsToRequested(t *testing.T) {
 }
 
 func TestWorkloadProfiles_ClearRemovesFromRequested(t *testing.T) {
+	persistSetterWrites(t)
 	dev := profileDevice(t, blackwellProfiles())
 
 	require.Equal(t, nvml.SUCCESS, dev.WorkloadPowerProfileUpdateProfiles(
@@ -286,6 +287,7 @@ func TestWorkloadProfiles_ClearRemovesFromRequested(t *testing.T) {
 }
 
 func TestWorkloadProfiles_SetAndOverwriteReplaces(t *testing.T) {
+	persistSetterWrites(t)
 	dev := profileDevice(t, blackwellProfiles())
 
 	require.Equal(t, nvml.SUCCESS, dev.WorkloadPowerProfileUpdateProfiles(
@@ -299,6 +301,7 @@ func TestWorkloadProfiles_SetAndOverwriteReplaces(t *testing.T) {
 // write outranks the profile's configured request, the way a real driver holds
 // a runtime request until it unloads.
 func TestWorkloadProfiles_SetOverridesConfiguredRequest(t *testing.T) {
+	persistSetterWrites(t)
 	cfg := blackwellProfiles()
 	cfg.Requested = []uint32{6}
 	dev := profileDevice(t, cfg)
@@ -319,6 +322,7 @@ func TestWorkloadProfiles_SetOverridesConfiguredRequest(t *testing.T) {
 // runtime: requesting conflicting profiles is allowed and both are reported as
 // requested, but only the higher-priority one is enforced.
 func TestWorkloadProfiles_SetArbitratesEnforced(t *testing.T) {
+	persistSetterWrites(t)
 	dev := profileDevice(t, blackwellProfiles())
 
 	require.Equal(t, nvml.SUCCESS, dev.WorkloadPowerProfileUpdateProfiles(
@@ -374,6 +378,7 @@ func TestWorkloadProfiles_UpdateOnUnconfiguredDevice(t *testing.T) {
 // TestWorkloadProfiles_EmptyMaskIsANoOp covers the degenerate write. It must not
 // be mistaken for "clear everything", which is what SET_AND_OVERWRITE is for.
 func TestWorkloadProfiles_EmptyMaskIsANoOp(t *testing.T) {
+	persistSetterWrites(t)
 	dev := profileDevice(t, blackwellProfiles())
 	require.Equal(t, nvml.SUCCESS, dev.WorkloadPowerProfileUpdateProfiles(
 		nvml.POWER_PROFILE_OPERATION_SET, workloadProfileMask([]uint32{6})))
@@ -397,33 +402,11 @@ func TestWorkloadProfiles_UpdateLostDevice(t *testing.T) {
 		nvml.POWER_PROFILE_OPERATION_SET, workloadProfileMask([]uint32{6})))
 }
 
-// TestWorkloadProfiles_ConcurrentUpdates pins the read-modify-write. SET and
-// CLEAR both rebuild the mask from its current value, so two writers racing on
-// different profiles must not lose one of them.
-func TestWorkloadProfiles_ConcurrentUpdates(t *testing.T) {
-	dev := profileDevice(t, blackwellProfiles())
-
-	ids := []uint32{0, 1, 5, 6, 13}
-	writers := len(ids)
-	rets := make([]nvml.Return, writers)
-
-	var wg sync.WaitGroup
-	for i := range writers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			rets[i] = dev.WorkloadPowerProfileUpdateProfiles(
-				nvml.POWER_PROFILE_OPERATION_SET, workloadProfileMask([]uint32{ids[i]}))
-		}()
-	}
-	wg.Wait()
-
-	for i, ret := range rets {
-		require.Equal(t, nvml.SUCCESS, ret, "writer %d", i)
-	}
-	require.Equal(t, ids, requestedMask(t, dev),
-		"every concurrent SET should survive; a lost one means the update is not atomic")
-}
+// Concurrent updates are not covered here. SET and CLEAR rebuild the request
+// from its current value, but the fold now runs inside the writer's lock, so
+// "two racing writers must not lose an update" is a property of the writer:
+// mockctl's TestUpdateWorkloadProfiles_ConcurrentWritersDoNotLoseUpdates pins
+// it against the implementation that actually takes the lock.
 
 // TestWorkloadProfiles_LostDevice keeps the getters consistent with the other
 // power reads under injected failure.

@@ -34,11 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   points rather than `nvmlDeviceWorkloadPowerProfileUpdateProfiles_v1`, so
   leaving those out would have left `-sr` and `-cr` failing; asking for a profile
   the board does not advertise is refused rather than quietly dropped. A write
-  outranks the configured `requested` set and, like persistence mode and
-  `nvidia-smi -pl`, lives in memory in the process that loaded the mock — so
-  observing one through nvidia-smi means a single invocation, e.g.
-  `nvidia-smi power-profiles -sr 0,2 -cr 0 -ge -i 0`, which reports `2. Compute`
-  as all that survives the clear.
+  outranks the configured `requested` set and, like `nvidia-smi -pl`, is
+  recorded in the runtime override document rather than in the writing process,
+  so `nvidia-smi power-profiles -sr 2 -i 0` followed by a separate
+  `-gr` reports `2. Compute`. Within one invocation only `-ge` reflects a write,
+  because nvidia-smi evaluates `-sr` and `-cr` before `-ge` but after `-gr`:
+  `nvidia-smi power-profiles -sr 0,2 -cr 0 -ge -i 0` reports `2. Compute` as all
+  that survives the clear.
 - nvml-mock: the power management limit can now be set, not just read.
   `nvidia-smi -pl` and any consumer calling
   `nvmlDeviceSetPowerManagementLimit` (or its `_v2` form) previously got
@@ -47,11 +49,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the power management limit and the enforced limit — including DCGM's
   `NVML_FI_DEV_POWER_CURRENT_LIMIT` — but not `default_limit_mw`, and is
   refused outside the `min_limit_mw` / `max_limit_mw` constraints the device
-  advertises. Like persistence mode, it lives in memory: it outranks the
-  profile's `enforced_limit_mw` until the mock restarts, the way a real driver
-  holds a cap until it unloads. Only the GPU-wide budget is modelled, so the
-  `_v2` module, memory and base-GPU scopes decline rather than fold into the
-  GPU limit.
+  advertises. The cap is recorded in the runtime override document, so it
+  outranks the profile's `enforced_limit_mw` node-wide the way a driver-level
+  write does: every process reads it back, including ones started afterwards,
+  and it holds until a reset clears it. A mock that cannot record the write
+  refuses the cap with NO_PERMISSION rather than reporting a success nothing
+  would observe. Only the GPU-wide budget is modelled, so the `_v2` module,
+  memory and base-GPU scopes decline rather than fold into the GPU limit.
 
 ### Changed
 
@@ -61,6 +65,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- nvml-mock: a consumer's read-after-write across two processes now sees the
+  write. NVML setter state lived on the device object inside whichever process
+  loaded `libnvidia-ml.so`, and every consumer loads its own copy, so
+  `nvidia-smi -pl 250000` followed by a separate `nvidia-smi` reported the old
+  cap — while on real hardware both are driver state the whole node observes.
+  The power management limit and the workload power profile request are now
+  recorded in the runtime override document, the one piece of state those
+  processes share, and are cleared by a reset like anything else injected
+  there. Persistence mode (`nvidia-smi -pm`) is unchanged and stays
+  per-process. See [#849](https://github.com/NVIDIA/k8s-test-infra/issues/849).
 - node-agent: the `/run/nvidia/driver` symlink is removed on shutdown only when
   it is still the one the agent published. On a node where another component
   owns that path, teardown used to delete it whatever it was; a foreign driver

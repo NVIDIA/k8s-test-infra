@@ -733,12 +733,22 @@ and failure injection. Each holds its configured value until the profile changes
 or `nvml-mock-ctl` writes a runtime override, which takes effect within one
 override TTL — see [nvml-mock-ctl](nvml-mock-ctl.md).
 
-Two of these also accept writes from the consumer, which a real driver keeps in
-memory until it unloads and which therefore outrank the configured value until
-the mock restarts: persistence mode (`nvidia-smi -pm`) and the power management
-limit (`nvidia-smi -pl`, in milliwatts and inclusive of `min_limit_mw` /
-`max_limit_mw`; a cap outside those bounds is refused). A cap moves both the
-power management limit and the enforced limit, but not `default_limit_mw`.
+Two of these also accept writes from the consumer, and they differ in how far
+the write reaches.
+
+The power management limit (`nvidia-smi -pl`, in milliwatts and inclusive of
+`min_limit_mw` / `max_limit_mw`; a cap outside those bounds is refused) is
+recorded in the runtime override document, so it behaves like the driver-level
+write it models: every process on the node reads the new cap, including ones
+started afterwards, and it holds until a reset clears it (`nvidia-smi -r`, or
+`nvml-mock-ctl reset`). A cap moves both the power management limit and the
+enforced limit, but not `default_limit_mw`. A mock with nowhere to record the
+write — no config, or an overrides file it cannot write — refuses the cap with
+`NVML_ERROR_NO_PERMISSION` rather than reporting a success that nothing would
+observe.
+
+Persistence mode (`nvidia-smi -pm`) is the exception: it is still held in the
+process that loaded the mock, so a second process reads the configured value.
 
 ### Workload power profiles
 
@@ -775,11 +785,19 @@ device does not advertise is ignored in config, but refused with
 B200 capture reports no requested or enforced profile — which is what
 `nvidia-smi -q -x` renders as `N/A` in its `<power_profiles>` block.
 
-A write outranks `requested` from the moment it lands, and like persistence mode
-and `nvidia-smi -pl` it lives in memory in the process that loaded the mock's
-`libnvidia-ml.so` — so it is visible to that consumer for as long as it runs, and
-a separate process starts again from `requested`. Observing a write through
-nvidia-smi therefore means one invocation:
+A write outranks `requested` from the moment it lands, and like `nvidia-smi -pl`
+it is recorded in the runtime override document rather than in the writing
+process — so a later `nvidia-smi` reads it back, and it holds until a reset:
+
+```console
+$ nvidia-smi power-profiles -sr 2 -i 0
+Successfully set the requested profiles.
+$ nvidia-smi power-profiles -gr -i 0
+2. Compute
+```
+
+Within a single invocation only `-ge` reflects a write, because nvidia-smi
+evaluates `-sr` and `-cr` before `-ge` but after `-gr`:
 
 ```console
 $ nvidia-smi power-profiles -sr 0,2 -cr 0 -ge -i 0
@@ -788,8 +806,8 @@ Successfully cleared the requested profiles.
 2. Compute
 ```
 
-nvidia-smi evaluates `-sr` and `-cr` before `-ge` but after `-gr`, so `-ge` is
-the one that reflects a write made in the same command. Two further nvidia-smi
+Because the request persists, a consumer that wants the board back at its
+configured state has to clear what it asked for, or reset the device. Two further nvidia-smi
 behaviours are worth knowing, neither of them the mock's: it refuses an id the
 board does not advertise before calling NVML at all, and it applies a
 comma-separated list in full only to the first GPU it visits, passing just the

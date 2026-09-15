@@ -51,6 +51,35 @@ func TestMergeDeviceConfig_AppliesFailureMode(t *testing.T) {
 	require.Nil(t, base.Failure, "base must not be mutated")
 }
 
+// TestMergeDeviceConfig_EmptyListClearsConfiguredProfiles pins the semantics the
+// workload profile setters rely on to express "the caller cleared everything":
+// an empty list in the override must replace the configured request rather than
+// be dropped as absent. It walks the whole path, including the YAML round trip,
+// because that is where an empty sequence is most likely to be lost.
+func TestMergeDeviceConfig_EmptyListClearsConfiguredProfiles(t *testing.T) {
+	t.Parallel()
+
+	doc, err := ParseConfigOverride([]byte(`
+devices:
+  "0":
+    power:
+      workload_power_profiles:
+        requested: []
+`))
+	require.NoError(t, err)
+
+	base := &DeviceConfig{Power: &PowerConfig{
+		WorkloadProfiles: &WorkloadPowerProfilesConfig{Requested: []uint32{6}},
+	}}
+	merged, err := MergeDeviceConfig(base, doc.DeviceConfigOverride(0))
+	require.NoError(t, err)
+
+	require.Empty(t, merged.Power.WorkloadProfiles.Requested,
+		"an empty requested list must clear the configured request, not be ignored")
+	require.Equal(t, []uint32{6}, base.Power.WorkloadProfiles.Requested,
+		"base must not be mutated")
+}
+
 func TestMergeDeviceConfig_RejectsUnknownField(t *testing.T) {
 	_, err := MergeDeviceConfig(&DeviceConfig{}, map[string]any{"not_a_field": 1})
 	require.Error(t, err, "expected error for unknown field")
