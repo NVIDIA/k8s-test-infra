@@ -146,7 +146,8 @@ preserves comments and key order from the profile file.
 {{- $base := include "nvml-mock.gpuConfigBase" . -}}
 {{- $dynEnabled := and .Values.gpu.dynamicMetrics .Values.gpu.dynamicMetrics.enabled -}}
 {{- $failEnabled := and .Values.gpu.failureInjection .Values.gpu.failureInjection.enabled -}}
-{{- if or $dynEnabled $failEnabled -}}
+{{- $migEnabled := and .Values.gpu.mig .Values.gpu.mig.enabled -}}
+{{- if or $dynEnabled $failEnabled $migEnabled -}}
 {{- $cfg := fromYaml $base -}}
 {{- if hasKey $cfg "Error" -}}
 {{- fail (printf "nvml-mock.gpuConfig: failed to parse base YAML for overlay injection: %s" (get $cfg "Error")) -}}
@@ -167,6 +168,33 @@ preserves comments and key order from the profile file.
 {{- end -}}
 {{- if $failEnabled -}}
 {{- $_ := set $defaults "failure" (omit .Values.gpu.failureInjection "enabled") -}}
+{{- end -}}
+{{- if $migEnabled -}}
+{{- /*
+The partitioning comes from gpuInstances alone. A profile describes the board,
+not how an install chose to carve it, so none of them declare a layout, and the
+value is folded in before the check because it is the only thing that check can
+be satisfied by.
+
+Two refusals, because they are different mistakes. A board whose profile
+declares no max_gpu_instances cannot partition at all, and no layout supplied
+here changes that. A capable board with no layout would boot MIG-enabled and
+unpartitioned, which publishes no GPU resource whatsoever under
+migStrategy=single.
+*/ -}}
+{{- $mig := get $defaults "mig" | default (dict) -}}
+{{- if .Values.gpu.mig.gpuInstances -}}
+{{- $_ := set $mig "gpu_instances" .Values.gpu.mig.gpuInstances -}}
+{{- end -}}
+{{- if not (get $mig "max_gpu_instances") -}}
+{{- fail (printf "gpu.mig.enabled is set but profile %q is not a MIG-capable board: it declares no mig.max_gpu_instances" .Values.gpu.profile) -}}
+{{- end -}}
+{{- if not (get $mig "gpu_instances") -}}
+{{- fail "gpu.mig.enabled is set but gpu.mig.gpuInstances declares no partitions, so the node would come up MIG-enabled with nothing partitioned. Name the layout, e.g. --set gpu.mig.gpuInstances[0].profile=1g.10gb --set gpu.mig.gpuInstances[0].count=7" -}}
+{{- end -}}
+{{- $_ := set $mig "mode_current" "enabled" -}}
+{{- $_ := set $mig "mode_pending" "enabled" -}}
+{{- $_ := set $defaults "mig" $mig -}}
 {{- end -}}
 {{- $_ := set $cfg "device_defaults" $defaults -}}
 {{- /* Drop the Helm-only key now it's folded into dynamic_metrics. */ -}}

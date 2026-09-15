@@ -299,6 +299,7 @@ image-load:
 #   make e2e-multi-node            # heterogeneous A100/T4 multi-node scenario
 #   make e2e-nri                   # node-wide NRI ambient-injection scenario
 #   make e2e-nfd                   # NFD label-provenance scenario
+#   make e2e-mig                   # MIG scenario, device plugin in migStrategy=single
 # CI builds the image once per run. Every leg loads it into Kind and sets
 # E2E_IMAGE to that ref. The reshaping scenarios set the DaemonSet to this ref.
 #
@@ -311,10 +312,10 @@ image-load:
 # ---------------------------------------------------------------------------
 GINKGO ?= $(GO_CMD) run github.com/onsi/ginkgo/v2/ginkgo
 E2E_TIMEOUT ?= 90m
-E2E_DEFAULT_LABEL_FILTER ?= !validator && !dra && !gpu-operator && !multi-node && !nri && !nfd
+E2E_DEFAULT_LABEL_FILTER ?= !validator && !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig
 E2E_GINKGO_FLAGS ?= --label-filter='$(E2E_DEFAULT_LABEL_FILTER)'
 
-.PHONY: e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd
+.PHONY: e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd e2e-mig
 
 # `set -o pipefail` is inline on purpose; do not drop it as redundant with
 # .SHELLFLAGS. GNU Make ignores .SHELLFLAGS before 3.82 and macOS ships 3.81,
@@ -342,6 +343,15 @@ e2e-nri: ## e2e — NRI ambient-injection scenario
 # log then reads exactly like one that did exercise gb200.
 e2e-nfd: ## e2e — NFD label-provenance scenario (pinned to a100)
 	$(MAKE) e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter=nfd'
+
+# E2E_PROFILES is the caller's, as for the sibling scenario targets. Pinning it
+# here would be a command-line assignment to the sub-make, which outranks the
+# environment: every CI matrix leg would run the pinned set rather than its own
+# profile. Pick profiles that declare a partitioning — the scenario skips the
+# boards that cannot partition, and the chart refuses a capable board with no
+# layout from either the profile or gpu.mig.gpuInstances.
+e2e-mig: ## e2e — MIG scenario with the device plugin in migStrategy=single
+	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=mig'
 
 ##@ Documentation
 

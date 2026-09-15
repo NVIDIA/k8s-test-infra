@@ -263,6 +263,123 @@ func validateYAMLConfig(config *YAMLConfig) error {
 		return err
 	}
 
+	if err := validateDeviceUUIDs(config); err != nil {
+		return err
+	}
+
+	if err := validateMIGConfig(config.DeviceDefaults.MIG); err != nil {
+		return fmt.Errorf("device_defaults.mig: %w", err)
+	}
+	for _, dev := range config.Devices {
+		if err := validateMIGConfig(dev.MIG); err != nil {
+			return fmt.Errorf("devices[index=%d].mig: %w", dev.Index, err)
+		}
+	}
+
+	return nil
+}
+
+// validateMIGConfig rejects a MIG block that cannot mean anything, so a typo
+// in a profile is a load error the operator sees rather than a device that
+// quietly comes up unpartitioned.
+//
+// Whether the board actually offers a named profile is not checked here: that
+// needs the device's resolved name and memory, which only exist once the
+// device is built.
+func validateMIGConfig(mig *MIGConfig) error {
+	if mig == nil {
+		return nil
+	}
+	if err := validateMIGMode("mode_current", mig.ModeCurrent); err != nil {
+		return err
+	}
+	if err := validateMIGMode("mode_pending", mig.ModePending); err != nil {
+		return err
+	}
+	if mig.MaxGPUInstances < 0 {
+		return errors.New("max_gpu_instances cannot be negative")
+	}
+
+	if err := validateMIGGPUInstanceDecls(mig.GPUInstances); err != nil {
+		return err
+	}
+	if mig.Instances != nil {
+		if err := validateMIGInstances(*mig.Instances); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateMIGGPUInstanceDecls(gpuInstances []MIGGPUInstanceConfig) error {
+	for i, gi := range gpuInstances {
+		if err := validateMIGProfileRef(gi.Profile, gi.ProfileID); err != nil {
+			return fmt.Errorf("gpu_instances[%d]: %w", i, err)
+		}
+		if gi.Count < 0 {
+			return fmt.Errorf("gpu_instances[%d]: count cannot be negative, got %d", i, gi.Count)
+		}
+		for j, ci := range gi.ComputeInstances {
+			if err := validateMIGProfileRef(ci.Profile, ci.ProfileID); err != nil {
+				return fmt.Errorf("gpu_instances[%d].compute_instances[%d]: %w", i, j, err)
+			}
+			if ci.Count < 0 {
+				return fmt.Errorf("gpu_instances[%d].compute_instances[%d]: count cannot be negative, got %d", i, j, ci.Count)
+			}
+		}
+	}
+	return nil
+}
+
+func validateMIGInstances(instances []MIGGPUInstanceRecord) error {
+	seen := make(map[uint32]bool, len(instances))
+	for i, gi := range instances {
+		if seen[gi.ID] {
+			return fmt.Errorf("instances[%d]: duplicate GPU instance id %d", i, gi.ID)
+		}
+		seen[gi.ID] = true
+		if err := validateMIGProfileRef(gi.Profile, gi.ProfileID); err != nil {
+			return fmt.Errorf("instances[%d]: %w", i, err)
+		}
+		if gi.PlacementStart != nil && *gi.PlacementStart < 0 {
+			return fmt.Errorf("instances[%d]: placement_start cannot be negative, got %d", i, *gi.PlacementStart)
+		}
+		// Scoped rather than skipped with a continue, so a later check on the
+		// instance itself still runs for a record that omits the key.
+		if gi.ComputeInstances != nil {
+			ciSeen := make(map[uint32]bool, len(*gi.ComputeInstances))
+			for j, ci := range *gi.ComputeInstances {
+				if ciSeen[ci.ID] {
+					return fmt.Errorf("instances[%d].compute_instances[%d]: duplicate compute instance id %d", i, j, ci.ID)
+				}
+				ciSeen[ci.ID] = true
+				if err := validateMIGProfileRef(ci.Profile, ci.ProfileID); err != nil {
+					return fmt.Errorf("instances[%d].compute_instances[%d]: %w", i, j, err)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func validateMIGMode(field, value string) error {
+	switch value {
+	case "", "enabled", "disabled":
+		return nil
+	}
+	return fmt.Errorf("%s must be \"enabled\" or \"disabled\", got %q", field, value)
+}
+
+// validateMIGProfileRef enforces that a profile is named exactly one way.
+func validateMIGProfileRef(profile string, profileID *int) error {
+	switch {
+	case profile != "" && profileID != nil:
+		return fmt.Errorf("sets both profile %q and profile_id %d; use one", profile, *profileID)
+	case profile == "" && profileID == nil:
+		return errors.New("must set either profile or profile_id")
+	case profileID != nil && *profileID < 0:
+		return fmt.Errorf("profile_id cannot be negative, got %d", *profileID)
+	}
 	return nil
 }
 
@@ -364,6 +481,60 @@ func ValidateMinorNumbers(config *YAMLConfig) error {
 			return fmt.Errorf("duplicate device minor number: %d (devices %d and %d)", minor, other, index)
 		}
 		seen[minor] = index
+	}
+
+	return nil
+}
+
+// validateDeviceUUIDs rejects UUIDs that two devices would end up sharing,
+// either as full GPUs or once their partitions are named.
+//
+// A UUID is how a consumer asks for one specific device — nvmlDeviceGetHandleByUUID
+// resolves it, and the device plugin reports the UUID of what it allocated — so
+// two devices answering to one UUID hand out whichever was found first. A MIG
+// partition inherits the problem: its UUID is derived from its parent's, so
+// parents that differ only where the derivation writes give corresponding
+// partitions identical UUIDs even though the GPUs themselves are distinct.
+//
+// The collision is detected by asking the derivation itself for one fixed pair
+// of instance ids, rather than restating which part of a UUID it writes: the
+// id contribution is the same for both parents, so agreeing there is agreeing
+// for every partition either board can carry.
+//
+// Devices that declare no UUID keep the base mock's own, which is already
+// distinct per device, so they do not take part.
+func validateDeviceUUIDs(config *YAMLConfig) error {
+	if config == nil {
+		return nil
+	}
+
+	type declaration struct {
+		index int
+		uuid  string
+	}
+	byUUID := make(map[string]declaration, len(config.Devices))
+	byMIGStem := make(map[string]declaration, len(config.Devices))
+
+	for _, dev := range config.Devices {
+		if dev.UUID == "" {
+			continue
+		}
+		this := declaration{index: dev.Index, uuid: dev.UUID}
+
+		if other, dup := byUUID[dev.UUID]; dup {
+			return fmt.Errorf("duplicate device uuid: %q (devices %d and %d)",
+				dev.UUID, other.index, dev.Index)
+		}
+		byUUID[dev.UUID] = this
+
+		stem := migDeviceUUID(dev.UUID, 0, 0)
+		if other, dup := byMIGStem[stem]; dup {
+			return fmt.Errorf(
+				"device uuids %q and %q differ only where MIG instance ids are spliced in: "+
+					"devices %d and %d would derive the same MIG device UUIDs",
+				other.uuid, dev.UUID, other.index, dev.Index)
+		}
+		byMIGStem[stem] = this
 	}
 
 	return nil
@@ -486,6 +657,9 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	}
 	if override.Processes != nil {
 		base.Processes = override.Processes // nil = not overridden; [] = explicit clear
+	}
+	if override.MIG != nil {
+		base.MIG = override.MIG
 	}
 	if override.Platform != nil {
 		mergePlatformOverride(base, override.Platform)

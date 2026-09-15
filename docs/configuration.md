@@ -122,6 +122,16 @@ device_defaults:
     rx_throughput_kbps: 0
 ```
 
+`lspci` sees these through the rendered sysfs tree and enumerates every GPU, but
+two of its lines are missing next to real hardware. `Kernel driver in use:
+nvidia` needs a `driver` symlink, which the tree does not render and the
+`libpcisysfs` shim could not surface anyway — it intercepts `open`/`stat`, not
+`readlink`. `Kernel modules:` needs libkmod, which fails to initialise in a
+container with no `/lib/modules`; that is where the `Unable to load libkmod
+resources: error -2` on `lspci -v` comes from, and a container on real hardware
+prints it too. Both are display-only: `lspci` still exits 0, and a consumer
+reading identity out of sysfs gets the full picture.
+
 ### Platform identity (rack location)
 
 Where the node's boards sit in a rack, which `nvidia-smi -q` renders as its
@@ -435,6 +445,79 @@ device_defaults:
     mode_pending: "disabled"
     max_gpu_instances: 7
 ```
+
+This is the reference for the `mig:` block. For installing a partitioned node
+and scheduling onto a slice, see the
+[MIG partitioning guide](guides/mig.md).
+
+No shipped profile declares a partitioning. `max_gpu_instances` is what the
+board can do; how it is carved is a deployment choice, which under the chart is
+`gpu.mig.gpuInstances` — required whenever `gpu.mig.enabled` is set, on every
+board. Boards with no `mig` block at all — `t4`, `l40s` — are not MIG-capable,
+and NVML answers `NVML_ERROR_NOT_SUPPORTED` for them as real hardware does.
+
+#### Declaring a layout by count
+
+`gpu_instances` asks for a number of identical instances. Name each profile
+either by name or by the id the board publishes for it:
+
+```yaml
+devices:
+  - index: 0
+    mig:
+      mode_current: "enabled"
+      gpu_instances:
+        - profile: "3g.20gb"   # by name
+          count: 2
+        - profile_id: 19       # by id: 1g.5gb on an A100
+          count: 1
+```
+
+| Field | Meaning |
+|---|---|
+| `profile` | Profile name as the cluster spells it, e.g. `1g.10gb`, `1g.5gb+me` |
+| `profile_id` | Raw id instead of a name. Exactly one of the two |
+| `count` | How many identical instances. Defaults to 1 |
+| `compute_instances` | Compute slices inside each GPU instance, same `profile`/`profile_id`/`count` shape. Defaults to one spanning the whole GPU instance, which is what `nvidia-mig-parted` creates |
+
+`profile_id` is the id in the `ID` column of `nvidia-smi mig -lgip`, so it can
+be copied straight off that listing — not NVML's profile enum, which numbers
+the same profiles differently and in the opposite order.
+
+#### Declaring a layout explicitly
+
+`instances` states exactly which GPU instances exist, with the ids they were
+created under. A count cannot express a layout with a hole in it — delete
+instance 1 of three and the survivors are 0 and 2, which `count: 2` would
+reload as 0 and 1 — so this is the form a runtime mutation records, and the
+form to use when an instance needs a fixed id:
+
+```yaml
+device_defaults:
+  mig:
+    mode_current: "enabled"
+    max_gpu_instances: 7
+    instances:
+      - id: 0
+        profile: "1g.10gb"
+        compute_instances:
+          - id: 0
+            profile: "1c"
+      - id: 2                  # 1 is deliberately absent
+        profile: "1g.10gb"
+        placement_start: 2     # optional; omitted takes the first free slot
+```
+
+Fixed ids are what let a partition be deleted by id from a process that did not
+create it, and what keeps `nvidia-smi -L` reporting the same MIG UUIDs across
+processes. A changed layout is applied by difference: only the missing instances
+are created and only the superfluous ones destroyed, so a consumer already
+holding handles follows a repartition instead of losing them.
+
+An empty `instances: []` is a MIG-enabled board with every instance deleted,
+which is distinct from omitting the key; the same holds for a GPU instance's
+`compute_instances`, since deleting the last compute instance is a state
+hardware has.
 
 ### InfoROM
 

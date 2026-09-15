@@ -56,12 +56,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   refuses the cap with NO_PERMISSION rather than reporting a success nothing
   would observe. Only the GPU-wide budget is modelled, so the `_v2` module,
   memory and base-GPU scopes decline rather than fold into the GPU limit.
+- mocknvml: the MIG lifecycle is implemented rather than stubbed. Creating and
+  destroying GPU and compute instances, and turning MIG mode on and off, now
+  work over the C ABI as they do against a driver, so `nvidia-smi -mig 1` and
+  `nvidia-smi mig -cgi/-cci/-dgi/-dci` run unmodified against the mock. Each
+  mutation is recorded in the override document, so it outlives the
+  `nvidia-smi` process that made it and reaches every other consumer on the
+  node within one TTL — which is what makes a partition visible to a separate
+  `nvidia-smi`, to DCGM and to GFD at all, since every process gets its own
+  engine. A mutation that cannot be recorded fails with
+  `NVML_ERROR_NO_PERMISSION` instead of succeeding in one process only, matching
+  what the driver reports when the call is made without the permissions it
+  needs. This changes the **NVML view** only: `/dev/nvidia-caps` and the
+  `mig-minors` table are staged once from the profile, so the device plugin
+  cannot allocate what a runtime repartition produces, and returning the node to
+  an allocatable state needs an `nvml-mock` pod restart. Documented in
+  `docs/guides/mig.md`, a runnable walkthrough from an unpartitioned cluster to
+  a pod scheduled onto a slice, with the `mig:` config schema in
+  `docs/configuration.md`. (#241)
+- mocknvml: a profile or override can declare MIG partitions explicitly, giving
+  each GPU instance a fixed id and naming its compute instances, alongside the
+  existing `profile`/`count` form. Fixed ids are what let a partition be deleted
+  by id from a process that did not create it, and what keeps `nvidia-smi -L`
+  reporting the same MIG UUIDs across processes. A changed layout is applied by
+  difference: only the missing instances are created and only the superfluous
+  ones destroyed, so a consumer that is already running follows a repartition
+  instead of losing the instances it still holds handles to. (#241)
+- nvml-mock chart: `gpu.mig.enabled` boots a board already partitioned, with
+  `gpu.mig.gpuInstances` naming the layout to apply. No profile declares one of
+  its own, because how a board is carved is a deployment choice rather than a
+  property of the silicon: a MIG install always states its partitioning, and a
+  capable board given none is refused rather than coming up MIG-enabled with
+  nothing partitioned. Off by default, because a partitioned board stops
+  publishing `nvidia.com/gpu` under the device plugin's `migStrategy=single`.
+  With it on, the plugin serves MIG resources and the agent publishes CDI
+  entries for each partition, so a MIG workload can be scheduled and admitted on
+  a CPU-only node. (#241)
 
 ### Changed
 
 - `libpcisysfs.so` is now `libmockfs.so`. The shim redirects kernel-module paths
   as well as PCI sysfs, so its name no longer described what it does. The
   `MOCK_PCI_ROOT` variable that points it at the fake tree is unchanged.
+- nvml-mock: the `t4` and `l40s` profiles no longer carry a `mig` section. The
+  mock decides MIG support from the board name, so those boards already answered
+  `NVML_ERROR_NOT_SUPPORTED` regardless of what the profile declared, and the
+  section only read as though a disabled mode were something they could leave.
+  `gpu.mig.enabled` still refuses them, now reporting that the profile declares
+  no `mig.max_gpu_instances` rather than that it is `0`.
 
 ### Fixed
 

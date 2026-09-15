@@ -294,11 +294,15 @@ should match snapshot with a100 profile:
           # ---------------------------------------------------------------------------
           # MIG configuration
           # ---------------------------------------------------------------------------
+          # MIG ships off because a partitioned board stops publishing nvidia.com/gpu
+          # under migStrategy=single. How a board is carved is a deployment choice
+          # rather than a property of the silicon, so no layout is declared here:
+          # --set gpu.mig.enabled=true needs gpu.mig.gpuInstances to supply one. Seven
+          # 1g.5gb instances is what nvidia-mig-parted's all-1g.5gb config produces.
           mig:
             mode_current: "disabled"
             mode_pending: "disabled"
             max_gpu_instances: 7            # A100 supports up to 7 MIG instances
-            # GPU instances would be defined here if MIG enabled
 
           # ---------------------------------------------------------------------------
           # GPU operation mode (GOM)
@@ -782,6 +786,14 @@ should match snapshot with b200 profile:
           # ---------------------------------------------------------------------------
           # MIG configuration
           # ---------------------------------------------------------------------------
+          # MIG ships off because a partitioned board stops publishing nvidia.com/gpu
+          # under migStrategy=single. How a board is carved is a deployment choice
+          # rather than a property of the silicon, so no layout is declared here:
+          # --set gpu.mig.enabled=true needs gpu.mig.gpuInstances to supply one.
+          # This board declares 192GiB, so its smallest slice is 1g.24gb and seven of
+          # them fills it. NVIDIA publishes 1g.23gb for a 180GB B200; a slice is named
+          # for the share of its own board it holds, so take the names from
+          # `nvidia-smi mig -lgip`.
           mig:
             mode_current: "disabled"
             mode_pending: "disabled"
@@ -2382,6 +2394,11 @@ should match snapshot with h100 profile:
           # ---------------------------------------------------------------------------
           # MIG configuration
           # ---------------------------------------------------------------------------
+          # MIG ships off because a partitioned board stops publishing nvidia.com/gpu
+          # under migStrategy=single. How a board is carved is a deployment choice
+          # rather than a property of the silicon, so no layout is declared here:
+          # --set gpu.mig.enabled=true needs gpu.mig.gpuInstances to supply one. Seven
+          # 1g.10gb instances is what nvidia-mig-parted's all-1g.10gb config produces.
           mig:
             mode_current: "disabled"
             mode_pending: "disabled"
@@ -2859,13 +2876,9 @@ should match snapshot with l40s profile:
           # ---------------------------------------------------------------------------
           compute_mode: "default"
 
-          # ---------------------------------------------------------------------------
-          # MIG configuration (L40S does not support MIG)
-          # ---------------------------------------------------------------------------
-          mig:
-            mode_current: "disabled"
-            mode_pending: "disabled"
-            max_gpu_instances: 0
+          # No mig section: the L40S is not a MIG-capable board, and the mock derives
+          # that from the board name, so NVML answers NVML_ERROR_NOT_SUPPORTED without
+          # the profile having to declare a disabled mode it can never leave.
 
           # ---------------------------------------------------------------------------
           # GPU operation mode (GOM)
@@ -3296,13 +3309,9 @@ should match snapshot with t4 profile:
           # ---------------------------------------------------------------------------
           compute_mode: "default"
 
-          # ---------------------------------------------------------------------------
-          # MIG configuration (T4 does not support MIG)
-          # ---------------------------------------------------------------------------
-          mig:
-            mode_current: "disabled"
-            mode_pending: "disabled"
-            max_gpu_instances: 0
+          # No mig section: the T4 is not a MIG-capable board, and the mock derives
+          # that from the board name, so NVML answers NVML_ERROR_NOT_SUPPORTED without
+          # the profile having to declare a disabled mode it can never leave.
 
           # ---------------------------------------------------------------------------
           # GPU operation mode (GOM)

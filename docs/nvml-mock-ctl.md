@@ -41,6 +41,23 @@ mode/counters, temperature, power, utilization, clocks, fan, performance state,
 device memory (`memory.total_bytes` / `free_bytes` / `used_bytes` /
 `reserved_bytes` / `memory_bus_width`), and the like. These change within one TTL.
 
+MIG partitioning is hot-reloadable for the **NVML view**, through `nvidia-smi`
+rather than through this CLI: `nvidia-smi -mig` and
+`nvidia-smi mig -cgi/-cci/-dgi/-dci` work against the mock as they do against a
+driver, and the library records each mutation so it outlives the process that
+made it. What they change is what `nvidia-smi`, DCGM and GFD report, and what
+the device plugin *discovers* — see the
+[MIG partitioning guide](guides/mig.md).
+
+The driver capability surface is not hot-reloadable — `/dev/nvidia-caps` and
+`/proc/driver/nvidia-caps/mig-minors` are staged once at pod start, so
+allocating what a runtime repartition produces still needs a Helm change
+(`gpu.mig.enabled` with `gpu.mig.gpuInstances`). Nor is a repartition fully
+reversible: clearing the override, `nvml-mock-ctl reset` included, restores the
+layout NVML reports but not the instance IDs it reports them under, so the
+staged capability surface and the CDI entries no longer match and only
+restarting the `nvml-mock` pod returns the node to an allocatable state.
+
 Memory values are reported **verbatim** from the effective config — setting
 `memory.used_bytes` alone does not recompute `memory.free_bytes`. Set both in one
 command to keep the reported triple coherent:
@@ -418,6 +435,43 @@ because a summary that stays `Healthy` while a condition reports a fault is not 
 state hardware can be in. See
 [fabric health configuration](configuration.md#fabric-health) for the static
 equivalent.
+
+### MIG partitioning — use `nvidia-smi`
+
+Repartitioning is not one of this CLI's commands, and deliberately so: it would
+be a second, non-standard spelling of an interface `nvidia-smi` already covers,
+and a second writer of the same state. Use `nvidia-smi`, which works against
+the mock the way it works against a driver:
+
+```bash
+# turn MIG on, then carve GPU 0 into seven 1g.5gb partitions
+nvidia-smi -i 0 -mig 1
+nvidia-smi mig -i 0 -cgi 1g.5gb,1g.5gb,1g.5gb,1g.5gb,1g.5gb,1g.5gb,1g.5gb -C
+
+# tear one partition down, or all of them
+nvidia-smi mig -i 0 -dci -ci 0 -gi 3
+nvidia-smi mig -i 0 -dgi -gi 3
+```
+
+The full workflow — installing a node already partitioned, what the device
+plugin then advertises, and repartitioning at runtime — is the
+[MIG partitioning guide](guides/mig.md).
+
+What concerns this CLI is that each mutation is recorded in the same override
+document it writes, so a partition outlives the `nvidia-smi` that made it.
+`nvml-mock-ctl status` shows the recorded layout and `nvml-mock-ctl reset`
+clears it. A mutation that cannot be recorded fails with
+`NVML_ERROR_NO_PERMISSION` rather than succeeding in one process only, which is
+what the driver reports when the same call is made without the permissions it
+needs.
+
+**This changes the NVML view only.** `/dev/nvidia-caps` and the `mig-minors`
+table stay as the node agent staged them at pod start, so the device plugin
+cannot *allocate* what a repartition produces — including a layout identical to
+the installed one, since a rebuild draws fresh GPU-instance IDs. Clearing the
+override, `nvml-mock-ctl reset` included, restores the layout NVML reports but
+not the instance IDs it reports them under, so only restarting the `nvml-mock`
+pod makes the node allocatable again — see the v1 scope note above.
 
 ### `set` — set arbitrary fields
 

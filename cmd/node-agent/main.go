@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/imex"
+	"github.com/NVIDIA/k8s-test-infra/internal/agent/migcaps"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/nvlink"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/pcibus"
 	"github.com/urfave/cli/v3"
@@ -179,6 +180,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 			pcibus.New(h),
 			cdi.New(h),
 			imex.New(h),
+			migcaps.New(h),
 			nvlink.New(h),
 			kernellog.New(h, kernellog.Options{Path: cmd.String("kernel-log")}),
 			fabricmanager.New(h, fabricmanager.Options{

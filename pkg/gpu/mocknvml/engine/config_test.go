@@ -332,6 +332,104 @@ devices:
 	require.ErrorContains(t, validateYAMLConfig(&yc), "duplicate device minor number: 3")
 }
 
+// A MIG device's UUID is its parent's with the instance ids spliced into the
+// fourth group, so two parents that differ only there name the same partition.
+// The UUID is how a consumer asks for a specific partition, and how the device
+// plugin identifies the one it allocated.
+func TestValidateYAMLConfig_RejectsUUIDsThatCollapseOntoOneMIGDevice(t *testing.T) {
+	t.Parallel()
+
+	y := `
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+devices:
+  - index: 0
+    uuid: "GPU-01000100-0000-0000-0001-000000000000"
+  - index: 1
+    uuid: "GPU-01000100-0000-0000-0002-000000000000"
+`
+	var yc YAMLConfig
+	require.NoError(t, yaml.Unmarshal([]byte(y), &yc), "yaml decode")
+
+	require.ErrorContains(t, validateYAMLConfig(&yc),
+		"devices 0 and 1 would derive the same MIG device UUIDs")
+}
+
+// The same check catches the blunter mistake it generalizes: two devices given
+// one UUID collide as full GPUs, before MIG enters into it.
+func TestValidateYAMLConfig_RejectsTwoDevicesSharingAUUID(t *testing.T) {
+	t.Parallel()
+
+	y := `
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+devices:
+  - index: 0
+    uuid: "GPU-01000100-0000-0000-0000-000000000000"
+  - index: 1
+    uuid: "GPU-01000100-0000-0000-0000-000000000000"
+`
+	var yc YAMLConfig
+	require.NoError(t, yaml.Unmarshal([]byte(y), &yc), "yaml decode")
+
+	require.ErrorContains(t, validateYAMLConfig(&yc), "duplicate device uuid")
+}
+
+// Distinguishing parents must stay accepted: the shipped profiles vary the last
+// group, which the derivation preserves.
+func TestValidateYAMLConfig_AcceptsUUIDsThatDifferOutsideTheSplicedGroup(t *testing.T) {
+	t.Parallel()
+
+	y := `
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+devices:
+  - index: 0
+    uuid: "GPU-01000100-0000-0000-0001-000000000000"
+  - index: 1
+    uuid: "GPU-01000100-0000-0000-0002-000000000001"
+`
+	var yc YAMLConfig
+	require.NoError(t, yaml.Unmarshal([]byte(y), &yc), "yaml decode")
+
+	require.NoError(t, validateYAMLConfig(&yc))
+}
+
+// Every profile the project ships has to survive its own validation. The
+// checks here reject a config on properties derived from what it declares —
+// minor numbers, MIG UUID stems — so tightening one can turn a shipped profile
+// into a pod that will not start, with nothing between the change and a
+// cluster to say so.
+func TestValidateYAMLConfig_AcceptsEveryShippedProfile(t *testing.T) {
+	t.Parallel()
+
+	globs := []string{
+		"../../../../deployments/nvml-mock/helm/nvml-mock/profiles/*.yaml",
+		"../configs/*.yaml",
+	}
+	for _, glob := range globs {
+		paths, err := filepath.Glob(glob)
+		require.NoError(t, err)
+		require.NotEmptyf(t, paths, "no profiles matched %q", glob)
+
+		for _, path := range paths {
+			t.Run(filepath.Base(path), func(t *testing.T) {
+				t.Parallel()
+
+				data, err := os.ReadFile(path)
+				require.NoError(t, err)
+
+				var yc YAMLConfig
+				require.NoError(t, yaml.Unmarshal(data, &yc), "yaml decode")
+				require.NoError(t, validateYAMLConfig(&yc))
+			})
+		}
+	}
+}
+
 // stageCharDevs formats the node name from the minor and casts it to uint32.
 // A negative value names a node the GPU-node pattern cannot match, so it
 // survives pruning, and 255 is nvidiactl's.
@@ -375,4 +473,97 @@ func TestBaseDevicePCIBusID_TracksTheBaseMock(t *testing.T) {
 
 	require.Empty(t, BaseDevicePCIBusID(MaxDevices), "no device exists past the base mock")
 	require.Empty(t, BaseDevicePCIBusID(-1))
+}
+
+func TestValidateMIGConfig_ExplicitInstances(t *testing.T) {
+	t.Parallel()
+
+	start := 0
+	tests := []struct {
+		name    string
+		mig     *MIGConfig
+		wantErr string
+	}{
+		{
+			name: "valid explicit layout",
+			mig: &MIGConfig{
+				ModeCurrent: "enabled",
+				Instances: &[]MIGGPUInstanceRecord{
+					{ID: 0, Profile: "1g.5gb", PlacementStart: &start},
+					{ID: 2, Profile: "1g.5gb"},
+				},
+			},
+		},
+		{
+			name: "empty list is valid and means no partitions",
+			mig:  &MIGConfig{ModeCurrent: "enabled", Instances: &[]MIGGPUInstanceRecord{}},
+		},
+		{
+			name: "duplicate instance ids",
+			mig: &MIGConfig{
+				ModeCurrent: "enabled",
+				Instances: &[]MIGGPUInstanceRecord{
+					{ID: 1, Profile: "1g.5gb"},
+					{ID: 1, Profile: "1g.5gb"},
+				},
+			},
+			wantErr: "duplicate GPU instance id 1",
+		},
+		{
+			name: "neither profile nor profile_id",
+			mig: &MIGConfig{
+				ModeCurrent: "enabled",
+				Instances:   &[]MIGGPUInstanceRecord{{ID: 0}},
+			},
+			wantErr: "must set either profile or profile_id",
+		},
+		{
+			name: "duplicate compute instance ids",
+			mig: &MIGConfig{
+				ModeCurrent: "enabled",
+				Instances: &[]MIGGPUInstanceRecord{{
+					ID: 0, Profile: "1g.5gb",
+					ComputeInstances: &[]MIGComputeInstanceRecord{{ID: 0, Profile: "1c"}, {ID: 0, Profile: "1c"}},
+				}},
+			},
+			wantErr: "duplicate compute instance id 0",
+		},
+		{
+			name: "empty compute instance list is valid and means none exist",
+			mig: &MIGConfig{
+				ModeCurrent: "enabled",
+				Instances: &[]MIGGPUInstanceRecord{{
+					ID: 0, Profile: "1g.5gb",
+					ComputeInstances: &[]MIGComputeInstanceRecord{},
+				}},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := validateMIGConfig(tt.mig)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
+// The distinction the pointer exists for: absent means "no explicit layout",
+// present-and-empty means "an explicit layout with nothing in it".
+func TestMIGConfig_EmptyInstancesRoundTripsDistinctFromAbsent(t *testing.T) {
+	t.Parallel()
+
+	var absent MIGConfig
+	require.NoError(t, yaml.Unmarshal([]byte("mode_current: enabled\n"), &absent))
+	require.Nil(t, absent.Instances)
+
+	var empty MIGConfig
+	require.NoError(t, yaml.Unmarshal([]byte("mode_current: enabled\ninstances: []\n"), &empty))
+	require.NotNil(t, empty.Instances)
+	require.Empty(t, *empty.Instances)
 }

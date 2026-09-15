@@ -247,8 +247,47 @@ func compileState(data []byte) (*agent.State, error) {
 		}
 	}
 
+	state.MIG = compileMIG(&cfg, numDevices)
+
 	return state, nil
 }
+
+// compileMIG asks the NVML engine which partitions the profile boots with,
+// rather than re-reading the mig block here. The capability names the agent
+// stages are keyed by instance ID, so a second derivation that disagreed with
+// the library's would point a consumer at another partition's cap device.
+func compileMIG(cfg *engine.YAMLConfig, numDevices int) agent.MIGState {
+	ec := &engine.Config{NumDevices: numDevices, YAMLConfig: cfg}
+	layouts := engine.DeclaredMIGLayout(ec)
+	if len(layouts) == 0 {
+		return agent.MIGState{}
+	}
+
+	state := agent.MIGState{CapsMajor: envIntOrDefault("MIG_CAPS_MAJOR", defaultCapsMajor)}
+	for _, layout := range layouts {
+		// A capability name identifies its GPU by device-node minor, which a
+		// profile can set independently of the NVML index. Deriving it from
+		// the index instead would name cap devices for a GPU other than the
+		// one gpudriver mknod'd, whenever the two differ.
+		gpu := agent.MIGGPU{Minor: ec.GetDeviceMinorNumber(layout.GPUIndex)}
+		for _, gi := range layout.GPUInstances {
+			cis := make([]agent.MIGComputeInstance, 0, len(gi.ComputeInstances))
+			for _, ci := range gi.ComputeInstances {
+				cis = append(cis, agent.MIGComputeInstance{ID: ci.ID, UUID: ci.UUID})
+			}
+			gpu.GPUInstances = append(gpu.GPUInstances, agent.MIGGPUInstance{
+				ID:               gi.ID,
+				ComputeInstances: cis,
+			})
+		}
+		state.GPUs = append(state.GPUs, gpu)
+	}
+	return state
+}
+
+// defaultCapsMajor is the char-device major for nvidia-caps. It matches the
+// IMEX simulator's default so a node running both stages one consistent major.
+const defaultCapsMajor = 236
 
 // resolveDeviceCount returns the active GPU count from the profile, applying
 // system.num_devices and then the GPU_COUNT env var as successive overrides.

@@ -66,6 +66,16 @@ type ConfigurableDevice struct {
 	// Mutable in-memory state (not persisted across restarts)
 	persistenceModeOverride *nvml.EnableState
 
+	// migState is the device's MIG partitioning. Non-nil on every physical
+	// GPU (it also records that a board is not MIG-capable); nil on MIG
+	// devices, which cannot themselves be partitioned.
+	migState *migState
+
+	// mig is set only when this device IS a MIG device rather than a physical
+	// GPU, and carries the identity and attributes that differ from its
+	// parent. See migIdentity for why MIG devices reuse this type.
+	mig *migIdentity
+
 	// dynamicMetrics holds the current simulator (nil == static mode). It is
 	// swapped atomically on refresh so a runtime config override that edits
 	// dynamic_metrics (e.g. pinning temperature) takes effect on the next
@@ -81,6 +91,23 @@ type ConfigurableDevice struct {
 	// the time a GPU has already spent throttled is not something a runtime
 	// override can take back.
 	throttle atomic.Pointer[throttleAccrual]
+
+	// appliedMIG is the MIG config reconcileMIG last acted on. Comparing
+	// against it is what keeps an unrelated override — a pinned temperature —
+	// from tearing a partitioned board down and rebuilding it.
+	appliedMIG *MIGConfig
+
+	// migDirty asks for one reconcile the document cannot ask for itself. See
+	// MarkMIGDirty: a mutation this process applied but could not record
+	// leaves the board ahead of a file that never changed, so neither the
+	// generation nor appliedMIG would report anything to do.
+	migDirty atomic.Bool
+
+	// onRepartition reports the MIG devices a repartition destroyed. The handle
+	// tables live on Engine and a device has no back-reference to it, so the
+	// engine supplies this at construction; it is nil for a device a test
+	// drives directly.
+	onRepartition func(devices []*ConfigurableDevice)
 
 	// refresh bookkeeping
 	refreshMu  sync.Mutex
@@ -100,34 +127,55 @@ func NewConfigurableDevice(index int, baseDevice *mockserver.Device, config *Dev
 		minorNumber: minorNumber,
 		baseConfig:  config,
 	}
+	dev.seedFromConfig(config, uuid, pciBusID, minorNumber)
 
-	dev.nvmlIndex.Store(int64(index))
+	debugLog("[DEVICE %d] Created: name=%s uuid=%s pci=%s\n", index, dev.Config.Name, dev.UUID, dev.PciBusID)
+
+	return dev
+}
+
+// seedFromConfig brings the device up on what its YAML profile declares, which
+// is the state every later refresh reconciles away from.
+//
+// It holds the refresh lock for the whole of construction because some of the
+// steps below read the effective config through ordinary getters, and those
+// refresh. A refresh that ran here would reconcile against a device that is
+// only half assembled — one whose migState does not exist yet reads as a board
+// that is not MIG-capable — and would then record the override document as
+// applied, so no later refresh would revisit it. refresh takes this lock with
+// TryLock, so those nested calls become no-ops and appliedGen stays 0, leaving
+// the document to the first refresh that runs against complete state.
+func (d *ConfigurableDevice) seedFromConfig(config *DeviceConfig, uuid, pciBusID string, minorNumber int) {
+	d.refreshMu.Lock()
+	defer d.refreshMu.Unlock()
+
+	d.nvmlIndex.Store(int64(d.index))
 
 	// Override base device properties from config
-	applyDeviceBaseOverrides(dev, config)
+	applyDeviceBaseOverrides(d, config)
 
 	// Override UUID if provided
 	if uuid != "" {
-		dev.UUID = uuid
+		d.UUID = uuid
 	}
 
 	// Override PCI bus ID if provided
 	if pciBusID != "" {
-		dev.PciBusID = pciBusID
+		d.PciBusID = pciBusID
 	}
 
 	// Set minor number
-	dev.Minor = minorNumber
+	d.Minor = minorNumber
 
 	// Initialize cached values from the base config. These run once at
 	// construction and intentionally use the base (pre-config override) config.
-	dev.initBAR1Memory(config)
-	dev.initPciInfo(config)
+	d.initBAR1Memory(config)
+	d.initPciInfo(config)
 
 	// Enable dynamic metric simulation if the YAML opts in. Leaving
 	// config.DynamicMetrics nil preserves the historical static behavior.
 	if config != nil && config.DynamicMetrics != nil {
-		dev.dynamicMetrics.Store(newDynamicMetricsSimulator(config.DynamicMetrics))
+		d.dynamicMetrics.Store(newDynamicMetricsSimulator(config.DynamicMetrics))
 	}
 
 	// Seed effective config + injector from the base. appliedGen stays 0 so
@@ -136,19 +184,19 @@ func NewConfigurableDevice(index int, baseDevice *mockserver.Device, config *Dev
 	if initial == nil {
 		initial = &DeviceConfig{}
 	}
-	dev.effective.Store(initial)
+	d.effective.Store(initial)
 
 	// Enable failure injection (lost/fallen_off_bus/ecc_uncorrectable)
 	// when the YAML opts in. newFailureInjector returns nil for the
 	// default healthy mode, so the per-call hot path stays a single
 	// nil check.
 	if config != nil && config.Failure != nil {
-		dev.failure.Store(newFailureInjector(config.Failure))
+		d.failure.Store(newFailureInjector(config.Failure))
 	}
 
-	debugLog("[DEVICE %d] Created: name=%s uuid=%s pci=%s\n", index, dev.Config.Name, dev.UUID, dev.PciBusID)
-
-	return dev
+	// Last, because resolving the board's MIG tables and materializing any
+	// declared partitions both read the effective config set above.
+	d.initMIG(config)
 }
 
 // applyDeviceBaseOverrides copies whichever base fields the YAML profile
@@ -204,12 +252,34 @@ func (d *ConfigurableDevice) failureInjector() *failureInjector {
 // runs when overrides actually changed.
 func (d *ConfigurableDevice) refresh() {
 	gen, doc := configOverrides.snapshot()
-	if atomic.LoadUint64(&d.appliedGen) == gen {
+	// The dirty flag is consulted alongside the generation because a device
+	// can be out of step with a document that never changed; reconcileMIG
+	// clears it. Costing the hot path one atomic load keeps that case from
+	// needing a second refresh entry point of its own.
+	if atomic.LoadUint64(&d.appliedGen) == gen && !d.migDirty.Load() {
 		return
 	}
-	d.refreshMu.Lock()
+	// TryLock rather than Lock: reconcileMIG rebuilds the partitioning through
+	// failure-guarded NVML methods that call back into refresh on this same
+	// goroutine, and refreshMu is not reentrant. It is the only reconciler that
+	// re-enters — a blocking Lock was correct until it existed. A caller that
+	// cannot take the lock proceeds with whatever the holder has published so
+	// far — the previous config, and state a reconciler may still be rebuilding
+	// — and converges on a later call, since appliedGen is not advanced until
+	// the reconcilers finish.
+	//
+	// The reverse direction is a deadlock rather than a no-op: reconcileMIG
+	// takes migState.mu, so a goroutine already holding that lock must never
+	// reach a getter that refreshes. Such callers read the config already
+	// published instead — effectiveMemoryInfo rather than memoryInfo, and the
+	// Locked-suffixed migState accessors. Nothing detects the violation: it
+	// only self-deadlocks when the document generation advances between the
+	// outer refresh and the inner call.
+	if !d.refreshMu.TryLock() {
+		return
+	}
 	defer d.refreshMu.Unlock()
-	if d.appliedGen == gen {
+	if d.appliedGen == gen && !d.migDirty.Load() {
 		return
 	}
 
@@ -221,12 +291,22 @@ func (d *ConfigurableDevice) refresh() {
 	merged, err := MergeDeviceConfig(base, patch)
 	if err != nil {
 		warnLog("[CONFIG-OVERRIDE] device %d: %v (keeping previous config)\n", d.index, err)
+		// A dirty device is still owed its reconcile, and the mark has to be
+		// consumed on this path or it would defeat the generation store below
+		// and re-merge the same unusable patch on every call. The config kept
+		// is the last one that merged, so that is what the board is pulled
+		// back to — the drift the mark reports is against the document, and
+		// this is the most of the document still readable.
+		if d.migDirty.Load() {
+			d.reconcileMIG(d.effective.Load().MIG)
+		}
 		atomic.StoreUint64(&d.appliedGen, gen) // avoid hot re-merge on a bad doc
 		return
 	}
 	d.effective.Store(merged)
 	d.reconcileFailure(merged.Failure)
 	d.reconcileDynamicMetrics(merged.DynamicMetrics)
+	d.reconcileMIG(merged.MIG)
 	atomic.StoreUint64(&d.appliedGen, gen)
 }
 
@@ -457,6 +537,11 @@ func (d *ConfigurableDevice) GetUUID() (string, nvml.Return) {
 	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
 		return "", ret
 	}
+	// MIG devices carry their own UUID: consumers use it to tell partitions
+	// apart, and it must not collide with the parent's.
+	if d.mig != nil {
+		return d.mig.uuid, nvml.SUCCESS
+	}
 	debugLog("[NVML] nvmlDeviceGetUUID -> %s\n", d.UUID)
 	return d.UUID, nvml.SUCCESS
 }
@@ -467,6 +552,9 @@ func (d *ConfigurableDevice) GetUUID() (string, nvml.Return) {
 func (d *ConfigurableDevice) GetName() (string, nvml.Return) {
 	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
 		return "", ret
+	}
+	if d.mig != nil {
+		return d.mig.name, nvml.SUCCESS
 	}
 	debugLog("[NVML] nvmlDeviceGetName -> %s\n", d.Config.Name)
 	return d.Config.Name, nvml.SUCCESS
@@ -495,8 +583,30 @@ func (d *ConfigurableDevice) GetBAR1MemoryInfo() (nvml.BAR1Memory, nvml.Return) 
 // silently deriving it would make that field dead. Falls back to the
 // construction-time struct when the device was built without a memory block
 // (legacy/default mode), where d.MemoryInfo carries the base mock's values.
+//
+// It refreshes first, which makes it the entry point for callers that do not
+// hold migState.mu; callers that do hold it must use effectiveMemoryInfo.
 func (d *ConfigurableDevice) memoryInfo() nvml.Memory {
-	if c := d.cfg(); c.Memory != nil {
+	d.refresh()
+	return d.effectiveMemoryInfo()
+}
+
+// effectiveMemoryInfo is memoryInfo answered from the config already published,
+// without refreshing first. It exists for callers holding migState.mu: a
+// refresh reconciles MIG, which takes that lock, and neither it nor the refresh
+// lock is reentrant, so refreshing from under it would deadlock the goroutine
+// against itself. What those callers read is the config already published: on a
+// getter path that is the one the enclosing refresh installed, and on the
+// declared-layout path it is deliberately the construction-time one, because a
+// declared layout answers for the config it was handed rather than for the
+// document on disk.
+func (d *ConfigurableDevice) effectiveMemoryInfo() nvml.Memory {
+	// A MIG device reports its slice, not the board it was carved from.
+	if d.mig != nil {
+		total := d.mig.attrs.MemorySizeMB * oneMiB
+		return nvml.Memory{Total: total, Free: total}
+	}
+	if c := d.effective.Load(); c.Memory != nil {
 		return nvml.Memory{
 			Total: c.Memory.TotalBytes,
 			Free:  c.Memory.FreeBytes,
@@ -1848,39 +1958,8 @@ func (d *ConfigurableDevice) GetPowerState() (nvml.Pstates, nvml.Return) {
 	return d.GetPerformanceState()
 }
 
-// GetMigMode returns MIG mode (current, pending)
-func (d *ConfigurableDevice) GetMigMode() (int, int, nvml.Return) {
-	current, pending := 0, 0
-	if c := d.cfg(); c.MIG != nil {
-		if c.MIG.ModeCurrent == "enabled" {
-			current = 1
-		}
-		if c.MIG.ModePending == "enabled" {
-			pending = 1
-		}
-	}
-	debugLog("[NVML] nvmlDeviceGetMigMode -> current=%d pending=%d\n", current, pending)
-	return current, pending, nvml.SUCCESS
-}
-
-// GetMaxMigDeviceCount returns the maximum number of MIG devices
-func (d *ConfigurableDevice) GetMaxMigDeviceCount() (int, nvml.Return) {
-	count := 0
-	if c := d.cfg(); c.MIG != nil {
-		count = c.MIG.MaxGPUInstances
-	}
-	debugLog("[NVML] nvmlDeviceGetMaxMigDeviceCount -> %d\n", count)
-	return count, nvml.SUCCESS
-}
-
-// GetMigDeviceHandleByIndex returns a MIG device handle by index.
-// Returns NOT_FOUND when no MIG devices exist (MIG disabled or no instances).
-// NOT_FOUND (vs NOT_SUPPORTED) signals "no device at this index" which callers
-// like nvidia-device-plugin treat as end-of-iteration, not as a fatal error.
-func (d *ConfigurableDevice) GetMigDeviceHandleByIndex(index int) (nvml.Device, nvml.Return) {
-	debugLog("[NVML] nvmlDeviceGetMigDeviceHandleByIndex(%d) -> NOT_FOUND (no MIG devices)\n", index)
-	return nil, nvml.ERROR_NOT_FOUND
-}
+// MIG mode, MIG device enumeration and the GPU/compute instance lifecycle live
+// in mig.go.
 
 // GetGpmSupport returns whether GPM (GPU Performance Monitoring) is supported.
 // Like real NVML, GPM is supported on Hopper and newer; DCGM's profiling

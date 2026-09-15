@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
 )
 
 // profilesDir is the chart profiles directory relative to this test package
@@ -378,4 +379,57 @@ devices:
 	require.NoError(t, err)
 	require.Equal(t, 1, p.ExpectedPCIRoots(), "topology-less profile spans one synthesized root")
 	require.Equal(t, 2, p.ExpectedGPUs())
+}
+
+// MIG capability is a property of the board, so it is read from
+// max_gpu_instances. Inferring it from a declared layout is what once reported
+// the Blackwell boards as non-MIG hardware and silently excused them from the
+// MIG suite.
+func TestMIGCapabilityComesFromMaxGPUInstances(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		capable bool
+	}{
+		{"a100", true},
+		{"h100", true},
+		{"b200", true},
+		{"gb200", true},
+		{"gb300", true},
+		// The negative control: these carry no mig block at all, so a profile
+		// without one must read as non-MIG rather than as a zero-valued board.
+		{"l40s", false},
+		{"t4", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p, err := Load(profilesDir, tc.name)
+			require.NoError(t, err)
+			require.Equal(t, tc.capable, p.MIGCapable())
+		})
+	}
+}
+
+// No shipped profile declares a partitioning: how a board is carved is a
+// deployment choice, named at install through gpu.mig.gpuInstances. A profile
+// that reintroduced one would go back to partitioning a board on the strength
+// of which image it is, which is what this asserts against.
+func TestNoProfileDeclaresAMIGLayout(t *testing.T) {
+	t.Parallel()
+	for _, name := range KnownProfiles {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			data, err := os.ReadFile(filepath.Join(profilesDir, name+".yaml"))
+			require.NoError(t, err)
+			var doc struct {
+				DeviceDefaults struct {
+					MIG map[string]any `json:"mig"`
+				} `json:"device_defaults"`
+			}
+			require.NoError(t, yaml.Unmarshal(data, &doc))
+			require.NotContains(t, doc.DeviceDefaults.MIG, "gpu_instances",
+				"profile %s declares a MIG layout; a layout belongs in gpu.mig.gpuInstances at install", name)
+		})
+	}
 }

@@ -80,7 +80,29 @@ func nvmlSystemGetProcessName(pid C.uint, name *C.char, length C.uint) C.nvmlRet
 	if !ok {
 		return stubReturn("nvmlSystemGetProcessName")
 	}
-	return goStringToC(p.Name, name, length)
+	return cropStringToC(p.Name, name, length)
+}
+
+// cropStringToC copies s into the caller's buffer, dropping whatever does not
+// fit and always NUL-terminating.
+//
+// This is the one string getter that does not share goStringToC with its
+// siblings. Every other one documents NVML_ERROR_INSUFFICIENT_SIZE for a short
+// buffer; nvmlSystemGetProcessName documents the opposite — the name is cropped
+// to the length provided — and names INVALID_ARGUMENT for a zero length. A
+// caller sizing for a short field is therefore entitled to a truncated name,
+// not an error its own contract gives it no way to interpret.
+func cropStringToC(s string, buf *C.char, length C.uint) C.nvmlReturn_t {
+	if buf == nil || length == 0 {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	if len(s) >= int(length) {
+		s = s[:int(length)-1]
+	}
+	cStr := C.CString(s)
+	defer C.free(unsafe.Pointer(cStr))
+	C.strcpy(buf, cStr)
+	return C.NVML_SUCCESS
 }
 
 //export nvmlSystemGetCudaDriverVersion

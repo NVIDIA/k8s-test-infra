@@ -541,11 +541,81 @@ type DisplayConfig struct {
 	Active string `json:"active,omitempty"`
 }
 
-// MIGConfig defines MIG configuration
+// MIGConfig defines MIG configuration.
+//
+// GPUInstances declares the partitioning the device boots with. It is only
+// honoured while mode_current is "enabled", so a profile can carry the layout
+// its board would normally be partitioned into and leave MIG off. The declared
+// layout seeds in-memory state that NVML callers can then add to and destroy,
+// the same way nvidia-mig-parted would on real hardware.
 type MIGConfig struct {
-	ModeCurrent     string `json:"mode_current,omitempty"`
-	ModePending     string `json:"mode_pending,omitempty"`
-	MaxGPUInstances int    `json:"max_gpu_instances,omitempty"`
+	ModeCurrent     string                 `json:"mode_current,omitempty"`
+	ModePending     string                 `json:"mode_pending,omitempty"`
+	MaxGPUInstances int                    `json:"max_gpu_instances,omitempty"`
+	GPUInstances    []MIGGPUInstanceConfig `json:"gpu_instances,omitempty"`
+	// Instances is the explicit layout: exactly which GPU instances exist,
+	// with the IDs and placements they were created under. It is what a
+	// runtime mutation through NVML records, because a count cannot express
+	// a layout with a hole in it — delete instance 1 of three and the
+	// survivors are 0 and 2, which "count: 2" would reload as 0 and 1.
+	//
+	// A pointer because absent and present-but-empty differ: an empty list is
+	// a MIG-enabled board with every instance deleted, and must not fall back
+	// to GPUInstances.
+	Instances *[]MIGGPUInstanceRecord `json:"instances,omitempty"`
+}
+
+// MIGGPUInstanceConfig declares one or more identical GPU instances.
+//
+// The profile is named the way the cluster names it — "1g.10gb", "2g.20gb",
+// "1g.5gb+me" — so that what a profile declares reads the same as the
+// nvidia.com/mig-<profile> resource the device plugin ends up publishing.
+// ProfileID is the escape hatch for a raw NVML profile ID; exactly one of the
+// two must be set.
+type MIGGPUInstanceConfig struct {
+	Profile   string `json:"profile,omitempty"`
+	ProfileID *int   `json:"profile_id,omitempty"`
+	Count     int    `json:"count,omitempty"`
+	// ComputeInstances defaults to a single instance spanning the whole GPU
+	// instance, which is the only partitioning most consumers ask for and
+	// what nvidia-mig-parted creates when a profile names no compute slices.
+	ComputeInstances []MIGComputeInstanceConfig `json:"compute_instances,omitempty"`
+}
+
+// MIGComputeInstanceConfig declares one or more identical compute instances
+// inside a GPU instance. The profile is the compute-slice spelling NVML uses,
+// e.g. "1c" for a single slice; ProfileID takes a raw NVML profile ID.
+type MIGComputeInstanceConfig struct {
+	Profile   string `json:"profile,omitempty"`
+	ProfileID *int   `json:"profile_id,omitempty"`
+	Count     int    `json:"count,omitempty"`
+}
+
+// MIGGPUInstanceRecord is one GPU instance that exists, as opposed to
+// MIGGPUInstanceConfig which declares how many of a shape to create.
+//
+// PlacementStart pins the instance to a slice offset. It is optional: an
+// omitted placement lets the engine choose the first free slot, which is what
+// a layout hand-written for a test usually wants.
+type MIGGPUInstanceRecord struct {
+	ID             uint32 `json:"id"`
+	Profile        string `json:"profile,omitempty"`
+	ProfileID      *int   `json:"profile_id,omitempty"`
+	PlacementStart *int   `json:"placement_start,omitempty"`
+	// ComputeInstances is a pointer for the same reason MIGConfig.Instances
+	// is: a GPU instance with no compute instances is a state hardware has —
+	// `nvidia-smi mig -cgi` without -C creates one, and deleting the last
+	// compute instance leaves one — so an empty list must not read as
+	// unspecified and be handed the spanning default back.
+	ComputeInstances *[]MIGComputeInstanceRecord `json:"compute_instances,omitempty"`
+}
+
+// MIGComputeInstanceRecord is one compute instance that exists inside a GPU
+// instance.
+type MIGComputeInstanceRecord struct {
+	ID        uint32 `json:"id"`
+	Profile   string `json:"profile,omitempty"`
+	ProfileID *int   `json:"profile_id,omitempty"`
 }
 
 // GPUOperationModeConfig defines GOM settings
