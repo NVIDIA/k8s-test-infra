@@ -426,6 +426,7 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 			return result, nil
 		}
 		capacityGrowthBlocked := false
+		groupMaterializationFailed := false
 		reconcileRack := func(rackIndex int32) error {
 			if err := admissionCurrent(); err != nil {
 				return err
@@ -483,6 +484,7 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 					RackGroup: group.group.ID, ProfileName: group.profile.Name, Reason: err.Error(),
 				})
 				result.ResolvedRefs = false
+				groupMaterializationFailed = true
 				return nil
 			}
 			if durableCapacityCleanupPending(result.CleanupNeeded) {
@@ -510,6 +512,7 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 						RackGroup: group.group.ID, ProfileName: group.profile.Name, Reason: materializationErr.Error(),
 					})
 					result.ResolvedRefs = false
+					groupMaterializationFailed = true
 					return nil
 				}
 				return err
@@ -524,7 +527,7 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 					sortResult(&result)
 					return result, err
 				}
-				if !result.ResolvedRefs || capacityGrowthBlocked {
+				if groupMaterializationFailed || capacityGrowthBlocked {
 					break
 				}
 			}
@@ -539,7 +542,7 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 				sortResult(&result)
 				return result, err
 			}
-			if !result.ResolvedRefs || capacityGrowthBlocked {
+			if groupMaterializationFailed || capacityGrowthBlocked {
 				break
 			}
 		}

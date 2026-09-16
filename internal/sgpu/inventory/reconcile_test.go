@@ -439,6 +439,93 @@ func TestReconcileReportsOverlapAndRetainsLastGoodRackForMissingProfile(t *testi
 	require.Empty(t, h.mokka.Actions(), "missing profiles retain the last-good rack set")
 }
 
+func TestReconcileMaterializesHealthyGroupWhenSiblingProfileIsMissing(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile := testProfile("healthy-profile", "healthy-profile-uid", 1, 1, 1)
+	inventory := testInventory("inventory", "inventory-uid", profile.Name, 3)
+	inventory.Finalizers = []string{InventoryFinalizer}
+	broken := inventory.Spec.RackGroups[0]
+	broken.ID = "broken"
+	broken.ProfileRef.Name = "missing-profile"
+	inventory.Spec.RackGroups = append(inventory.Spec.RackGroups, broken)
+	h := newHarness(t, []runtime.Object{profile, inventory}, nil)
+
+	result, err := h.reconcile(ctx, inventory.Name)
+	require.NoError(t, err)
+	require.False(t, result.ResolvedRefs)
+	require.Equal(t, []ProfileIssue{{
+		RackGroup: "broken", ProfileName: "missing-profile", Reason: "NotFound",
+	}}, result.ProfileIssues)
+	require.EqualValues(t, 3, result.Work.RacksReconciled)
+
+	racks, err := h.mokka.MokkaV1alpha1().SGPURacks().List(ctx, metav1.ListOptions{})
+	require.NoError(t, err)
+	require.Len(t, racks.Items, 3)
+	for rackIndex := int32(0); rackIndex < 3; rackIndex++ {
+		_, err := h.mokka.MokkaV1alpha1().SGPURacks().Get(
+			ctx,
+			rackrender.RackName(inventory.Name, inventory.UID, "group", rackIndex),
+			metav1.GetOptions{},
+		)
+		require.NoError(t, err)
+	}
+}
+
+func TestReconcileGroupProcessesChangedRacksWhenSiblingProfileIsMissing(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile := testProfile("healthy-profile", "healthy-profile-uid", 1, 1, 1)
+	inventory := testInventory("inventory", "inventory-uid", profile.Name, 3)
+	inventory.Finalizers = []string{InventoryFinalizer}
+	broken := inventory.Spec.RackGroups[0]
+	broken.ID = "broken"
+	broken.ProfileRef.Name = "missing-profile"
+	inventory.Spec.RackGroups = append(inventory.Spec.RackGroups, broken)
+
+	nodes := make([]*corev1.Node, 3)
+	objects := []runtime.Object{profile, inventory}
+	for rackIndex := int32(0); rackIndex < 3; rackIndex++ {
+		rendered, err := rackrender.RenderRack(rackrender.RackInput{
+			InventoryName: inventory.Name,
+			InventoryUID:  inventory.UID,
+			Group:         inventory.Spec.RackGroups[0],
+			RackIndex:     rackIndex,
+			Profile:       profile,
+		})
+		require.NoError(t, err)
+		rack := newRack(inventory, rendered.Name, rendered.Spec)
+		rack.UID = types.UID(fmt.Sprintf("rack-uid-%d", rackIndex))
+		rack.ResourceVersion = "1"
+		node := testNode(
+			fmt.Sprintf("node-%d", rackIndex),
+			types.UID(fmt.Sprintf("node-uid-%d", rackIndex)),
+			int64(rackIndex),
+			map[string]string{"pool": "cpu"},
+		)
+		rack.Spec.Nodes[0].NodeRef = &mokkav1alpha1.SGPUNodeReference{Name: node.Name, UID: node.UID}
+		nodes[rackIndex] = node
+		objects = append(objects, rack)
+	}
+	h := newHarness(t, objects, nodes)
+
+	result, err := h.reconcileGroup(ctx, allocate.GroupKey{
+		InventoryName: inventory.Name,
+		InventoryUID:  inventory.UID,
+		RackGroup:     "group",
+	})
+	require.NoError(t, err)
+	require.False(t, result.ResolvedRefs)
+	require.Equal(t, []ProfileIssue{{
+		RackGroup: "broken", ProfileName: "missing-profile", Reason: "NotFound",
+	}}, result.ProfileIssues)
+	require.Len(t, result.Allocation.Released, 3)
+	require.EqualValues(t, 3, result.Work.RacksReconciled)
+	require.Len(t, result.CleanupNeeded, 3)
+}
+
 func TestReconcileExistingBindingWinsNewSelectorOverlap(t *testing.T) {
 	ctx := context.Background()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
