@@ -16,6 +16,48 @@ die() {
   exit 1
 }
 
+source_pull_request_is_eligible() {
+  jq -es --arg repository "$repository" --arg source_sha "$source_sha" '
+    length == 1 and (.[0] |
+      type == "object" and
+      .state == "closed" and .merged == true and .merge_commit_sha == $source_sha and
+      .head.repo.full_name == $repository and .base.repo.full_name == $repository)
+  ' >/dev/null
+}
+
+manual_investigation() {
+  printf 'MOKKA_CHERRY_PICK_MANUAL_INVESTIGATION action_id=%s head_branch=%s\n' "$action_id" "$head_branch" >&2
+}
+
+cleanup_failed_pull_request_creation() {
+  local pull_requests_after_failure current_ref
+  if ! pull_requests_after_failure="$(gh api "/repos/$repository/pulls?state=all&per_page=1&head=NVIDIA:$head_branch&base=$target_branch")"; then
+    manual_investigation
+    return 1
+  fi
+  if ! jq -es 'length == 1 and (.[0] | type == "array" and length == 0)' >/dev/null <<<"$pull_requests_after_failure"; then
+    manual_investigation
+    return 1
+  fi
+  if ! current_ref="$(gh api "/repos/$repository/git/ref/heads/$head_branch")"; then
+    manual_investigation
+    return 1
+  fi
+  if ! jq -es --arg head_branch "$head_branch" --arg produced_head_sha "$produced_head_sha" '
+    length == 1 and (.[0] |
+      type == "object" and
+      .ref == ("refs/heads/" + $head_branch) and
+      .object.type == "commit" and .object.sha == $produced_head_sha)
+  ' >/dev/null <<<"$current_ref"; then
+    manual_investigation
+    return 1
+  fi
+  if ! gh api --method DELETE "/repos/$repository/git/refs/heads/$head_branch" >/dev/null; then
+    manual_investigation
+    return 1
+  fi
+}
+
 inputs="$(jq -cers '
   if length != 1 then error("invalid event document count") else .[0] end |
   .inputs as $inputs |
@@ -45,12 +87,7 @@ awk -v value="$pull_request_number" 'BEGIN { exit !(length(value) < 10 || (lengt
 [[ "${GITHUB_WORKFLOW_SHA:?GITHUB_WORKFLOW_SHA is required}" =~ ^[0-9a-f]{40}$ ]] || die "invalid workflow SHA"
 
 source_pull_request="$(gh api "/repos/$repository/pulls/$pull_request_number")" || die "source pull request lookup failed"
-jq -es --arg repository "$repository" --arg source_sha "$source_sha" '
-  length == 1 and (.[0] |
-    type == "object" and
-    .state == "closed" and .merged == true and .merge_commit_sha == $source_sha and
-    .head.repo.full_name == $repository and .base.repo.full_name == $repository)
-' >/dev/null <<<"$source_pull_request" || die "source pull request is not eligible"
+source_pull_request_is_eligible <<<"$source_pull_request" || die "source pull request is not eligible"
 
 source_commit="$(gh api "/repos/$repository/commits/$source_sha")" || die "source commit lookup failed"
 jq -es --arg source_sha "$source_sha" '
@@ -89,17 +126,34 @@ git show -s --format=%B HEAD |
   --trailer "Mokka-Source-SHA: $source_sha" \
   --trailer "Mokka-Action-ID: $action_id"
 produced_head_sha="$(git rev-parse HEAD)"
+
+# Re-read both mutable inputs immediately before the first remote write. This
+# closes the validation-to-write window and keeps the planned source and target
+# fixed for this dispatch.
+source_pull_request="$(gh api "/repos/$repository/pulls/$pull_request_number")" || die "source pull request revalidation failed"
+source_pull_request_is_eligible <<<"$source_pull_request" || die "source pull request changed before write"
+target_ref="$(gh api "/repos/$repository/git/ref/heads/$target_branch")" || die "target branch revalidation failed"
+jq -es --arg target_branch "$target_branch" --arg target_base_sha "$target_base_sha" '
+  length == 1 and (.[0] |
+    type == "object" and
+    .ref == ("refs/heads/" + $target_branch) and
+    .object.type == "commit" and .object.sha == $target_base_sha)
+' >/dev/null <<<"$target_ref" || die "target branch changed before write"
+
 # The empty expected value makes this an atomic create-only operation: the
 # server rejects the push if a concurrent actor creates the derived branch.
 git push --porcelain --atomic --force-with-lease="refs/heads/$head_branch:" origin "HEAD:refs/heads/$head_branch"
 
 title="Mokka: cherry-pick #$pull_request_number to $target_branch"
-created_pull_request="$(gh api --method POST "/repos/$repository/pulls" \
+if ! created_pull_request="$(gh api --method POST "/repos/$repository/pulls" \
   --raw-field "title=$title" \
   --raw-field "head=$head_branch" \
   --raw-field "base=$target_branch" \
   -F draft=true \
-  --raw-field "body=<!-- mokka-cherry-pick-action-id: $action_id -->")" || die "pull request creation failed"
+  --raw-field "body=<!-- mokka-cherry-pick-action-id: $action_id -->")"; then
+  cleanup_failed_pull_request_creation || :
+  die "pull request creation failed"
+fi
 jq -es --arg repository "$repository" --arg head_branch "$head_branch" --arg produced_head_sha "$produced_head_sha" '
   length == 1 and (.[0] |
     type == "object" and

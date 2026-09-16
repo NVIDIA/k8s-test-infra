@@ -36,9 +36,9 @@ const (
 	mokkaWorkflowSHA         = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	mokkaSourceSHA           = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	mokkaActionID            = "123e4567-e89b-42d3-a456-426614174000"
-	mokkaControlHelperOID    = "cbe113e2f0257d40ce1900e5b0711540ef3c0d55"
-	mokkaControlHelperSHA256 = "b143e0c55e492030ba5194f05b478724364c2ce8f18c550da917f56c45f32db0"
-	mokkaControlHelperSize   = 8022
+	mokkaControlHelperOID    = "008892f40c6710861dcb8bd8d115f7d74aace385"
+	mokkaControlHelperSHA256 = "f5d070f41a364d1a49523ef7abfa7ceba3bcfc9fdacdff9f5512ef6c72172e0e"
+	mokkaControlHelperSize   = 10234
 	mokkaControlFetchScript  = `set -Eeuo pipefail
 umask 077
 [[ "${GITHUB_WORKFLOW_SHA:?}" =~ ^[0-9a-f]{40}$ ]]
@@ -90,14 +90,14 @@ test "${#workflow_entries[@]}" -eq 1
 [[ "${workflow_entries[0]}" =~ ^100644\ blob\ [0-9a-f]{40}$'\t'.github/workflows/mokka-cherry-pick.yml$ ]]
 mapfile -d '' -t helper_entries < <(control_git -C "$control_stage" ls-tree -z "$GITHUB_WORKFLOW_SHA" -- "$helper_path")
 test "${#helper_entries[@]}" -eq 1
-test "${helper_entries[0]}" = "100755 blob cbe113e2f0257d40ce1900e5b0711540ef3c0d55	.github/scripts/mokka-cherry-pick.sh"
-test "$(control_git -C "$control_stage" cat-file -s cbe113e2f0257d40ce1900e5b0711540ef3c0d55)" = "8022"
-test "$(control_git -C "$control_stage" cat-file blob cbe113e2f0257d40ce1900e5b0711540ef3c0d55 | /usr/bin/sha256sum | /usr/bin/awk '{print $1}')" = "b143e0c55e492030ba5194f05b478724364c2ce8f18c550da917f56c45f32db0"
-control_git -C "$control_stage" cat-file blob cbe113e2f0257d40ce1900e5b0711540ef3c0d55 > "$helper_stage/mokka-cherry-pick.sh"
+test "${helper_entries[0]}" = "100755 blob 008892f40c6710861dcb8bd8d115f7d74aace385	.github/scripts/mokka-cherry-pick.sh"
+test "$(control_git -C "$control_stage" cat-file -s 008892f40c6710861dcb8bd8d115f7d74aace385)" = "10234"
+test "$(control_git -C "$control_stage" cat-file blob 008892f40c6710861dcb8bd8d115f7d74aace385 | /usr/bin/sha256sum | /usr/bin/awk '{print $1}')" = "f5d070f41a364d1a49523ef7abfa7ceba3bcfc9fdacdff9f5512ef6c72172e0e"
+control_git -C "$control_stage" cat-file blob 008892f40c6710861dcb8bd8d115f7d74aace385 > "$helper_stage/mokka-cherry-pick.sh"
 /usr/bin/chmod 0500 "$helper_stage/mokka-cherry-pick.sh"
 test -f "$helper_stage/mokka-cherry-pick.sh"
 test ! -L "$helper_stage/mokka-cherry-pick.sh"
-test "$(/usr/bin/stat -c '%h:%a:%s:%F' "$helper_stage/mokka-cherry-pick.sh")" = "1:500:8022:regular file"
+test "$(/usr/bin/stat -c '%h:%a:%s:%F' "$helper_stage/mokka-cherry-pick.sh")" = "1:500:10234:regular file"
 test ! -w "$helper_stage/mokka-cherry-pick.sh"
 test -x "$helper_stage/mokka-cherry-pick.sh"
 /usr/bin/mv -- "$control_stage" "$control_dir"
@@ -110,11 +110,11 @@ test "$helper_dir" = "$runner_temp/mokka-helper"
 helper_path="$helper_dir/mokka-cherry-pick.sh"
 test -f "$helper_path"
 test ! -L "$helper_path"
-test "$(/usr/bin/stat -c '%h:%a:%s:%F' "$helper_path")" = "1:500:8022:regular file"
+test "$(/usr/bin/stat -c '%h:%a:%s:%F' "$helper_path")" = "1:500:10234:regular file"
 test ! -w "$helper_path"
 test -x "$helper_path"
-test "$(/usr/bin/git hash-object --no-filters "$helper_path")" = "cbe113e2f0257d40ce1900e5b0711540ef3c0d55"
-test "$(/usr/bin/sha256sum "$helper_path" | /usr/bin/awk '{print $1}')" = "b143e0c55e492030ba5194f05b478724364c2ce8f18c550da917f56c45f32db0"
+test "$(/usr/bin/git hash-object --no-filters "$helper_path")" = "008892f40c6710861dcb8bd8d115f7d74aace385"
+test "$(/usr/bin/sha256sum "$helper_path" | /usr/bin/awk '{print $1}')" = "f5d070f41a364d1a49523ef7abfa7ceba3bcfc9fdacdff9f5512ef6c72172e0e"
 exec /usr/bin/bash "$helper_path"
 `
 )
@@ -1064,11 +1064,47 @@ func TestMokkaCherryPickFakeRejectsUnreviewedGitHubMutations(t *testing.T) {
 	}
 }
 
-func TestMokkaCherryPickPullRequestCreateFailureStopsWithoutRetry(t *testing.T) {
+func TestMokkaCherryPickSourceChangeBeforePushMakesNoRemoteWrite(t *testing.T) {
 	_, script := mokkaPaths(t)
-	result := runMokkaDriver(t, script, validMokkaInputs(), map[string]string{"FAKE_CREATED_PR": "failure"})
+	result := runMokkaDriver(t, script, validMokkaInputs(), map[string]string{"FAKE_SOURCE": "pull-changes-before-write"})
 	require.Error(t, result.err)
-	require.Equal(t, []string{mokkaExpectedCreatePullRequestCall()}, mokkaGitHubMutationCapableCalls(result.ghCallLog))
+	require.Contains(t, result.output, "source pull request changed before write")
+	require.Empty(t, mokkaCommandLogCalls(result.gitLog, "push"), "a changed source pull request reached the remote: %s", result.gitLog)
+	require.Empty(t, mokkaGitHubMutationCapableCalls(result.ghCallLog), "a changed source pull request made a mutation-capable GitHub call: %s", result.ghCallLog)
+}
+
+func TestMokkaCherryPickTargetChangeBeforePushMakesNoRemoteWrite(t *testing.T) {
+	_, script := mokkaPaths(t)
+	result := runMokkaDriver(t, script, validMokkaInputs(), map[string]string{"FAKE_TARGET_HEAD": "changed"})
+	require.Error(t, result.err)
+	require.Contains(t, result.output, "target branch changed before write")
+	require.Empty(t, mokkaCommandLogCalls(result.gitLog, "push"), "a changed target branch reached the remote: %s", result.gitLog)
+	require.Empty(t, mokkaGitHubMutationCapableCalls(result.ghCallLog), "a changed target branch made a mutation-capable GitHub call: %s", result.ghCallLog)
+}
+
+func TestMokkaCherryPickPullRequestCreateFailureCleansExactDerivedBranch(t *testing.T) {
+	_, script := mokkaPaths(t)
+	result := runMokkaDriver(t, script, validMokkaInputs(), map[string]string{
+		"FAKE_CREATED_PR":     "failure",
+		"FAKE_CLEANUP_BRANCH": "exact",
+	})
+	require.Error(t, result.err)
+	require.Contains(t, result.output, "pull request creation failed")
+	require.Equal(t, []string{
+		mokkaExpectedCreatePullRequestCall(),
+		mokkaExpectedCleanupDeleteCall(),
+	}, mokkaGitHubMutationCapableCalls(result.ghCallLog))
+}
+
+func TestMokkaCherryPickPullRequestCreateFailureDoesNotDeleteChangedDerivedBranch(t *testing.T) {
+	_, script := mokkaPaths(t)
+	result := runMokkaDriver(t, script, validMokkaInputs(), map[string]string{
+		"FAKE_CREATED_PR":     "failure",
+		"FAKE_CLEANUP_BRANCH": "changed",
+	})
+	require.Error(t, result.err)
+	require.Contains(t, result.output, "MOKKA_CHERRY_PICK_MANUAL_INVESTIGATION action_id="+mokkaActionID)
+	require.Equal(t, []string{mokkaExpectedCreatePullRequestCall()}, mokkaGitHubMutationCapableCalls(result.ghCallLog), "cleanup must not delete a branch that no longer names the produced commit")
 }
 
 func TestMokkaCherryPickConcurrentBranchCreateStopsBeforePullRequest(t *testing.T) {
@@ -1209,12 +1245,19 @@ func mokkaExpectedPreMutationGitHubCallLog(sourceSHA string) string {
 		mokkaGitHubCallLedger("api", "/repos/"+mokkaRepository+"/commits/"+sourceSHA),
 		mokkaGitHubCallLedger("api", "--include", "/repos/"+mokkaRepository+"/git/ref/heads/"+head),
 		mokkaGitHubCallLedger("api", "/repos/"+mokkaRepository+"/pulls?state=all&per_page=1&head=NVIDIA:"+head+"&base=main"),
+		mokkaGitHubCallLedger("api", "/repos/"+mokkaRepository+"/pulls/1"),
+		mokkaGitHubCallLedger("api", "/repos/"+mokkaRepository+"/git/ref/heads/main"),
 	}, "\n")
 }
 
 func mokkaExpectedCreatePullRequestCall() string {
 	head := "mokka/cherry-pick/" + mokkaActionID
 	return mokkaGitHubCallLedger("api", "--method", "POST", "/repos/"+mokkaRepository+"/pulls", "--raw-field", "title=Mokka: cherry-pick #1 to main", "--raw-field", "head="+head, "--raw-field", "base=main", "-F", "draft=true", "--raw-field", "body=<!-- mokka-cherry-pick-action-id: "+mokkaActionID+" -->")
+}
+
+func mokkaExpectedCleanupDeleteCall() string {
+	head := "mokka/cherry-pick/" + mokkaActionID
+	return mokkaGitHubCallLedger("api", "--method", "DELETE", "/repos/"+mokkaRepository+"/git/refs/heads/"+head)
 }
 
 func mokkaExpectedEvidencePatchCall() string {
@@ -1355,6 +1398,8 @@ func mokkaApprovedGitHubReadCallForSource(args []string, sourceSHA string) bool 
 	return slicesEqual(args, []string{"api", "/repos/" + mokkaRepository + "/pulls/1"}) ||
 		slicesEqual(args, []string{"api", "/repos/" + mokkaRepository + "/commits/" + sourceSHA}) ||
 		slicesEqual(args, []string{"api", "--include", "/repos/" + mokkaRepository + "/git/ref/heads/" + head}) ||
+		slicesEqual(args, []string{"api", "/repos/" + mokkaRepository + "/git/ref/heads/" + head}) ||
+		slicesEqual(args, []string{"api", "/repos/" + mokkaRepository + "/git/ref/heads/main"}) ||
 		slicesEqual(args, []string{"api", "/repos/" + mokkaRepository + "/pulls?state=all&per_page=1&head=NVIDIA:" + head + "&base=main"})
 }
 
@@ -1460,8 +1505,21 @@ evidence_payload="$(printf 'action_id: %s\nsource_pull_request: 1\nsource_sha: %
 evidence_digest="$(printf '%s' "$evidence_payload" | shasum -a 256 | awk '{print $1}')"
 readonly evidence=$'<!-- mokka-cherry-pick-evidence/v1\n'"$evidence_payload"$'\nsha256: '"$evidence_digest"$'\n-->\n'
 if matches api "/repos/$repository/pulls/1"; then
-  case "${FAKE_SOURCE:-}" in
-    pull-read-failure) exit 1 ;;
+	pull_read_count=0
+	if [[ -f "$GH_PULL_READ_COUNT" ]]; then
+	  read -r pull_read_count < "$GH_PULL_READ_COUNT"
+	fi
+	pull_read_count=$((pull_read_count + 1))
+	printf '%s\n' "$pull_read_count" > "$GH_PULL_READ_COUNT"
+	case "${FAKE_SOURCE:-}" in
+	  pull-changes-before-write)
+	    if [[ "$pull_read_count" -eq 1 ]]; then
+	      echo '{"state":"closed","merged":true,"commits":1,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}}}'
+	    else
+	      echo '{"state":"closed","merged":true,"commits":1,"merge_commit_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}}}'
+	    fi
+	    ;;
+	  pull-read-failure) exit 1 ;;
     pull-malformed) printf '{\n' ;;
     pull-root-array) echo '[]' ;;
     pull-rejected-then-accepted-documents)
@@ -1516,14 +1574,25 @@ elif matches api "/repos/$repository/commits/$source_sha"; then
     *) echo '{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","parents":[{"sha":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}]}' ;;
   esac
 elif matches api --include "/repos/$repository/git/ref/heads/$head_branch"; then
-  case "${FAKE_BRANCH:-}" in
+	case "${FAKE_BRANCH:-}" in
     exists) echo '{}' ;;
     forbidden) echo 'HTTP/2.0 403 Forbidden' >&2; exit 1 ;;
     rate-limited) echo 'HTTP/2.0 429 Too Many Requests' >&2; exit 1 ;;
     failure) echo 'HTTP/2.0 500 Internal Server Error' >&2; exit 1 ;;
     embedded) echo 'HTTP/2.0 500 Internal Server Error: unexpected HTTP 404 text' >&2; exit 1 ;;
     *) printf 'HTTP/2.0 404 Not Found\ncontent-type: application/json\n\n{}\n' >&2; exit 1 ;;
-  esac
+	  esac
+elif matches api "/repos/$repository/git/ref/heads/main"; then
+	case "${FAKE_TARGET_HEAD:-}" in
+	  changed) echo '{"ref":"refs/heads/main","object":{"type":"commit","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}' ;;
+	  *) echo '{"ref":"refs/heads/main","object":{"type":"commit","sha":"dddddddddddddddddddddddddddddddddddddddd"}}' ;;
+	esac
+elif matches api "/repos/$repository/git/ref/heads/$head_branch"; then
+	case "${FAKE_CLEANUP_BRANCH:-}" in
+	  exact) echo '{"ref":"refs/heads/mokka/cherry-pick/123e4567-e89b-42d3-a456-426614174000","object":{"type":"commit","sha":"cccccccccccccccccccccccccccccccccccccccc"}}' ;;
+	  changed) echo '{"ref":"refs/heads/mokka/cherry-pick/123e4567-e89b-42d3-a456-426614174000","object":{"type":"commit","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}' ;;
+	  *) exit 1 ;;
+	esac
 elif matches api "/repos/$repository/pulls?state=all&per_page=1&head=NVIDIA:$head_branch&base=main"; then
   case "${FAKE_PULL:-}" in
     exists) echo '[{"number":98}]' ;;
@@ -1564,7 +1633,9 @@ elif matches api --method POST "/repos/$repository/pulls" --raw-field "title=Mok
     *) printf '{"number":%s,"html_url":"https://github.com/NVIDIA/k8s-test-infra/pull/%s","draft":true,"head":{"ref":"mokka/cherry-pick/123e4567-e89b-42d3-a456-426614174000","sha":"cccccccccccccccccccccccccccccccccccccccc"},"base":{"ref":"main"}}\n' "$created_pr_number" "$created_pr_number" ;;
   esac
 elif matches api --method PATCH "/repos/$repository/pulls/$created_pr_number" --raw-field "body=$evidence"; then
-  [[ "${FAKE_PATCH_FAILURE:-}" != 1 ]] || exit 1
+	[[ "${FAKE_PATCH_FAILURE:-}" != 1 ]] || exit 1
+elif matches api --method DELETE "/repos/$repository/git/refs/heads/$head_branch"; then
+	[[ "${FAKE_CLEANUP_BRANCH:-}" == exact ]] || exit 1
 else
   printf 'unexpected gh call shape\n' >&2
   exit 1
@@ -1580,6 +1651,7 @@ fi
 		"GITHUB_WORKFLOW_SHA="+mokkaWorkflowSHA,
 		"GIT_LOG="+gitLog,
 		"GH_CALL_LOG="+ghCallLog,
+		"GH_PULL_READ_COUNT="+filepath.Join(dir, "pull-read-count"),
 		"GIT_AFTER_PICK="+filepath.Join(dir, "after-pick"),
 	)
 	for key, value := range extraEnv {
@@ -1690,15 +1762,17 @@ evidence_payload="$(printf 'action_id: %s\nsource_pull_request: 1\nsource_sha: %
 evidence_digest="$(printf '%s' "$evidence_payload" | sha256sum | awk '{print $1}')"
 readonly evidence=$'<!-- mokka-cherry-pick-evidence/v1\n'"$evidence_payload"$'\nsha256: '"$evidence_digest"$'\n-->\n'
 if matches api "/repos/$repository/pulls/1"; then
-  printf '{"state":"closed","merged":true,"commits":1,"merge_commit_sha":"%s","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}}}\n' "$source_sha"
+	printf '{"state":"closed","merged":true,"commits":1,"merge_commit_sha":"%s","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}}}\n' "$source_sha"
 elif matches api "/repos/$repository/commits/$source_sha"; then
-  printf '{"sha":"%s","parents":[{"sha":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}]}\n' "$source_sha"
+	printf '{"sha":"%s","parents":[{"sha":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}]}\n' "$source_sha"
 elif matches api --include "/repos/$repository/git/ref/heads/$head_branch"; then
   if [[ "${MOKKA_REAL_PUSH_RACE:-}" == "1" ]]; then
     git --git-dir "$MOKKA_REAL_REMOTE" update-ref "refs/heads/$head_branch" "$MOKKA_REAL_COMPETING_SHA"
   fi
-  printf 'HTTP/2.0 404 Not Found\ncontent-type: application/json\n\n{}\n' >&2
-  exit 1
+	printf 'HTTP/2.0 404 Not Found\ncontent-type: application/json\n\n{}\n' >&2
+	exit 1
+elif matches api "/repos/$repository/git/ref/heads/main"; then
+	printf '{"ref":"refs/heads/main","object":{"type":"commit","sha":"%s"}}\n' "$MOKKA_REAL_TARGET_BASE_SHA"
 elif matches api "/repos/$repository/pulls?state=all&per_page=1&head=NVIDIA:$head_branch&base=main"; then
   printf '[]\n'
 elif matches api --method POST "/repos/$repository/pulls" --raw-field "title=Mokka: cherry-pick #1 to main" --raw-field "head=$head_branch" --raw-field "base=main" -F "draft=true" --raw-field "body=<!-- mokka-cherry-pick-action-id: $action_id -->"; then
