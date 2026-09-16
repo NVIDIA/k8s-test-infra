@@ -131,7 +131,7 @@ device_defaults:
 `lspci` sees these through the rendered sysfs tree and enumerates every GPU, but
 two of its lines are missing next to real hardware. `Kernel driver in use:
 nvidia` needs a `driver` symlink, which the tree does not render and the
-`libpcisysfs` shim could not surface anyway — it intercepts `open`/`stat`, not
+`libmockfs.so` shim could not surface anyway — it intercepts `open`/`stat`, not
 `readlink`. `Kernel modules:` needs libkmod, which fails to initialise in a
 container with no `/lib/modules`; that is where the `Unable to load libkmod
 resources: error -2` on `lspci -v` comes from, and a container on real hardware

@@ -42,7 +42,7 @@ spec:
           # That path cannot be delivered the usual two ways. runc refuses any
           # mount whose target is inside /proc ("cannot be mounted because it is
           # inside /proc"), so the pod spec cannot place it; and an LD_PRELOAD
-          # rewriter like libpcisysfs cannot reach it either, because the plugin
+          # rewriter like libmockfs.so cannot reach it either, because the plugin
           # is a Go binary and Go's os package issues its own syscalls instead of
           # calling libc. What is left is for the container to mount it over
           # itself, which the kernel does allow from a privileged container.
