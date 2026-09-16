@@ -39,7 +39,6 @@ func TestDerivations(t *testing.T) {
 		hasFabric     bool
 		ibEnabled     bool
 		pciRoots      int
-		architecture  string
 		reportsTLimit bool
 		c2c           bool
 		shutdownC     int
@@ -53,13 +52,13 @@ func TestDerivations(t *testing.T) {
 		// edited away from its capture fails here.
 		graphicsMaxMHz int
 	}{
-		{"a100", "NVIDIA A100-SXM4-40GB", 8, 8, 12, true, false, true, 2, "ampere", false, false, 92, 87, 83, 4, 1410}, // NVSwitch (FabricMgr) but no ComputeDomain fabric block
-		{"h100", "NVIDIA H100 80GB HBM3", 8, 8, 18, true, true, true, 2, "hopper", true, false, 92, 87, 83, 5, 1980},
-		{"b200", "NVIDIA B200", 8, 8, 0, false, false, true, 2, "blackwell", true, false, 95, 90, 85, 6, 1965}, // NVLink negative control, IB enabled
-		{"gb200", "NVIDIA GB200", 4, 4, 18, true, true, true, 2, "blackwell", true, true, 95, 90, 85, 6, 2062}, // one NVL72 compute tray: 2 superchips, 4 GPUs
-		{"gb300", "NVIDIA GB300 NVL", 4, 4, 18, true, true, true, 2, "blackwell", true, true, 95, 90, 85, 6, 2070},
-		{"l40s", "NVIDIA L40S", 8, 0, 0, false, false, false, 2, "ada", true, false, 96, 93, 89, 4, 2520}, // IB + NVLink negative control
-		{"t4", "NVIDIA T4", 4, 0, 0, false, false, false, 1, "turing", false, false, 96, 93, 89, 3, 1590},
+		{"a100", "NVIDIA A100-SXM4-40GB", 8, 8, 12, true, false, true, 2, false, false, 92, 87, 83, 4, 1410}, // NVSwitch (FabricMgr) but no ComputeDomain fabric block
+		{"h100", "NVIDIA H100 80GB HBM3", 8, 8, 18, true, true, true, 2, true, false, 92, 87, 83, 5, 1980},
+		{"b200", "NVIDIA B200", 8, 8, 0, false, false, true, 2, true, false, 95, 90, 85, 6, 1965}, // NVLink negative control, IB enabled
+		{"gb200", "NVIDIA GB200", 4, 4, 18, true, true, true, 2, true, true, 95, 90, 85, 6, 2062}, // one NVL72 compute tray: 2 superchips, 4 GPUs
+		{"gb300", "NVIDIA GB300 NVL", 4, 4, 18, true, true, true, 2, true, true, 95, 90, 85, 6, 2070},
+		{"l40s", "NVIDIA L40S", 8, 0, 0, false, false, false, 2, true, false, 96, 93, 89, 4, 2520}, // IB + NVLink negative control
+		{"t4", "NVIDIA T4", 4, 0, 0, false, false, false, 1, false, false, 96, 93, 89, 3, 1590},
 	}
 
 	for _, c := range cases {
@@ -82,7 +81,6 @@ func TestDerivations(t *testing.T) {
 				{"HasFabric", p.HasFabric(), c.hasFabric},
 				{"IBEnabled", p.IBEnabled(), c.ibEnabled},
 				{"ExpectedPCIRoots", p.ExpectedPCIRoots(), c.pciRoots},
-				{"Architecture", p.Architecture(), c.architecture},
 				{"ReportsTLimitTemp", p.ReportsTLimitTemp(), c.reportsTLimit},
 				{"C2CEnabled", p.C2CEnabled(), c.c2c},
 				{"ShutdownThresholdC", p.ShutdownThresholdC(), c.shutdownC},
@@ -391,9 +389,9 @@ devices:
 }
 
 // TestProfileArchitectures pins each shipped profile to its generation. Every
-// "this generation and newer" expectation in the harness keys off Arch(), so a
-// profile silently retagged would otherwise flip those assertions to their
-// negative branch and still pass.
+// "this generation and newer" expectation in the harness keys off
+// Architecture(), so a profile silently retagged would otherwise flip those
+// assertions to their negative branch and still pass.
 func TestProfileArchitectures(t *testing.T) {
 	t.Parallel()
 	want := map[string]gpuarch.Arch{
@@ -408,7 +406,7 @@ func TestProfileArchitectures(t *testing.T) {
 	for _, name := range KnownProfiles {
 		p, err := Load(profilesDir, name)
 		require.NoError(t, err, "Load(%q)", name)
-		require.Equal(t, want[name], p.Arch(), "%s architecture", name)
+		require.Equal(t, want[name], p.Architecture(), "%s architecture", name)
 	}
 }
 
@@ -437,7 +435,7 @@ devices:
 	write(t, "good", "hopper")
 	p, err := Load(dir, "good")
 	require.NoError(t, err)
-	require.Equal(t, gpuarch.Hopper, p.Arch())
+	require.Equal(t, gpuarch.Hopper, p.Architecture())
 
 	write(t, "typo", "hopperr")
 	_, err = Load(dir, "typo")

@@ -397,14 +397,11 @@ func (p Profile) C2CEnabled() bool { return p.c2cEnabled }
 // being satisfiable by constants.
 func (p Profile) PlatformIdentity() (PlatformIdentity, bool) { return p.platform, p.hasPlatform }
 
-// Architecture is the profile's generation in canonical lowercase, e.g.
-// "ampere", for log lines and failure messages. It is derived from Arch rather
-// than stored, so the l40s profile's "ada_lovelace" spelling reports as "ada".
-func (p Profile) Architecture() string { return p.arch.String() }
-
-// Arch is the profile's architecture as an ordered generation, for
-// expectations of the form "this generation and newer".
-func (p Profile) Arch() gpuarch.Arch { return p.arch }
+// Architecture is the profile's generation as an ordered value, for
+// expectations of the form "this generation and newer". It formats itself as
+// the canonical lowercase name, so the l40s profile's "ada_lovelace" spelling
+// prints as "ada".
+func (p Profile) Architecture() gpuarch.Arch { return p.arch }
 
 // ShutdownThresholdC is thermal.shutdown_threshold_c from the profile.
 func (p Profile) ShutdownThresholdC() int { return p.shutdownThresholdC }
