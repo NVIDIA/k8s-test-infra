@@ -75,6 +75,11 @@ type ConfigurableDevice struct {
 	// parent. See migIdentity for why MIG devices reuse this type.
 	mig *migIdentity
 
+	// hostname holds the value nvmlDeviceSetHostname_v1 recorded, nil until
+	// something sets one. Atomic because the bridge's exports run on whichever
+	// thread the consumer calls from.
+	hostname atomic.Pointer[string]
+
 	// dynamicMetrics holds the current simulator (nil == static mode). It is
 	// swapped atomically on refresh so a runtime config override that edits
 	// dynamic_metrics (e.g. pinning temperature) takes effect on the next
