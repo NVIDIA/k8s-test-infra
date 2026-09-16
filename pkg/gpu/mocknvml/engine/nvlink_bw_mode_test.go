@@ -179,8 +179,18 @@ func TestGetMockNvlinkBwMode_NotBest(t *testing.T) {
 func TestGetMockNvlinkBwMode_ArchitectureGate(t *testing.T) {
 	t.Parallel()
 
-	for _, arch := range []string{"", "ampere", "hopper"} {
-		t.Run(arch, func(t *testing.T) {
+	// "unset" takes the dgxa100 base default (Ampere), since
+	// applyDeviceBaseOverrides skips an empty string, so it is a second
+	// pre-Blackwell case rather than an unidentified one. "unrecognized" is
+	// the UNKNOWN case: it must fail the gate despite UNKNOWN being 0xffffffff
+	// and so sorting above Blackwell.
+	for name, arch := range map[string]string{
+		"unset":        "",
+		"unrecognized": "unrecognized_arch",
+		"ampere":       "ampere",
+		"hopper":       "hopper",
+	} {
+		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			dev := bwDevice(t, arch, bwFabric(t, &NVLinkConfig{}))
 
@@ -336,8 +346,8 @@ func TestSetMockNvLinkLowPowerThreshold_Rejected(t *testing.T) {
 
 	t.Run("device_arch_unknown", func(t *testing.T) {
 		t.Parallel()
-		// UNKNOWN (0xffffffff) satisfies >= HOPPER numerically; the explicit
-		// exclusion is what keeps unconfigured profiles from claiming Hopper APIs.
+		// UNKNOWN (0xffffffff) satisfies >= HOPPER numerically, so this asserts
+		// what keeps an unidentified profile from claiming Hopper APIs.
 		dev := bwDevice(t, "unrecognized_arch", bwFabric(t, &NVLinkConfig{}))
 		require.Equal(t, nvml.ERROR_NOT_SUPPORTED,
 			dev.SetMockNvLinkLowPowerThreshold(500), "UNKNOWN architecture")
@@ -470,10 +480,9 @@ func TestSystemNvlinkBwMode_Rejected(t *testing.T) {
 
 	t.Run("device_arch_unknown", func(t *testing.T) {
 		t.Parallel()
-		// An empty device_defaults architecture parses to UNKNOWN
-		// (0xffffffff), which satisfies >= HOPPER numerically; the explicit
-		// exclusion is what keeps unconfigured profiles from claiming
-		// Hopper APIs.
+		// Unlike the device path, the system gate parses device_defaults
+		// directly, so an empty architecture does reach it as UNKNOWN
+		// (0xffffffff) — which satisfies >= HOPPER numerically.
 		e := bwEngine(t, "")
 		_, ret := e.SystemGetNvlinkBwMode()
 		require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret, "get on UNKNOWN architecture")

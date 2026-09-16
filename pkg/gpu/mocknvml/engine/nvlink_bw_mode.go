@@ -14,11 +14,12 @@
 package engine
 
 import (
-	"fmt"
 	"math"
 	"slices"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/gpuarch"
 )
 
 // defaultNvlinkBwModes is the supported NVLink Reduced Bandwidth Mode list a
@@ -33,11 +34,9 @@ var defaultNvlinkBwModes = []uint8{0, 1, 2, 3, 4}
 
 // supportsNvlinkBwMode gates the device-level bandwidth-mode surface on
 // Blackwell, which is what the upstream header specifies ("For Blackwell or
-// newer fully supported devices"). UNKNOWN is excluded so an unconfigured
-// architecture does not accidentally claim support, matching reportsTLimit.
+// newer fully supported devices").
 func (d *ConfigurableDevice) supportsNvlinkBwMode() bool {
-	return d.Config.Architecture >= nvml.DEVICE_ARCH_BLACKWELL &&
-		d.Config.Architecture != nvml.DEVICE_ARCH_UNKNOWN
+	return gpuarch.Arch(d.Config.Architecture).AtLeast(gpuarch.Blackwell)
 }
 
 // bestNvlinkBwMode picks the "best" (highest bandwidth) mode from a supported
@@ -129,8 +128,7 @@ func (d *ConfigurableDevice) GetMockNvLinkInfo() (bool, nvml.Return) {
 // which is what the upstream header specifies ("For Hopper or newer fully
 // supported devices").
 func (d *ConfigurableDevice) supportsNvlinkLowPower() bool {
-	return d.Config.Architecture >= nvml.DEVICE_ARCH_HOPPER &&
-		d.Config.Architecture != nvml.DEVICE_ARCH_UNKNOWN
+	return gpuarch.Arch(d.Config.Architecture).AtLeast(gpuarch.Hopper)
 }
 
 // SetMockNvlinkBwMode backs nvmlDeviceSetNvlinkBwMode and
@@ -214,16 +212,6 @@ func (d *ConfigurableDevice) SetMockNvLinkLowPowerThreshold(threshold uint32) nv
 	return nvml.SUCCESS
 }
 
-// archLogLabel names an architecture for a log line. The UNKNOWN sentinel is
-// 0xffffffff, so printed as a number it reads as "newer than Hopper" and hides
-// why an architecture gate rejected the caller.
-func archLogLabel(arch nvml.DeviceArchitecture) string {
-	if arch == nvml.DEVICE_ARCH_UNKNOWN {
-		return "UNKNOWN"
-	}
-	return fmt.Sprintf("%d", arch)
-}
-
 // systemSupportsNvlinkBwMode gates the global pair on Hopper, which is what
 // the upstream docs specify ("NVML_ERROR_NOT_SUPPORTED if GPU is not Hopper or
 // newer architecture"). It also returns the architecture the decision was made
@@ -232,12 +220,12 @@ func archLogLabel(arch nvml.DeviceArchitecture) string {
 // The architecture is read from device_defaults rather than a device handle
 // because these two APIs take no device parameter, and every profile the repo
 // ships is homogeneous.
-func (e *Engine) systemSupportsNvlinkBwMode() (nvml.DeviceArchitecture, bool) {
+func (e *Engine) systemSupportsNvlinkBwMode() (gpuarch.Arch, bool) {
 	if e == nil || e.config == nil || e.config.YAMLConfig == nil {
-		return nvml.DEVICE_ARCH_UNKNOWN, false
+		return gpuarch.Unknown, false
 	}
-	arch := parseArchitecture(e.config.YAMLConfig.DeviceDefaults.Architecture)
-	return arch, arch >= nvml.DEVICE_ARCH_HOPPER && arch != nvml.DEVICE_ARCH_UNKNOWN
+	arch := gpuarch.Arch(parseArchitecture(e.config.YAMLConfig.DeviceDefaults.Architecture))
+	return arch, arch.AtLeast(gpuarch.Hopper)
 }
 
 // SystemGetNvlinkBwMode backs nvmlSystemGetNvlinkBwMode: the node-wide NVLink
@@ -245,7 +233,7 @@ func (e *Engine) systemSupportsNvlinkBwMode() (nvml.DeviceArchitecture, bool) {
 func (e *Engine) SystemGetNvlinkBwMode() (uint32, nvml.Return) {
 	if arch, ok := e.systemSupportsNvlinkBwMode(); !ok {
 		debugLog("[NVML] nvmlSystemGetNvlinkBwMode unsupported; architecture=%s must be known and hopper or newer\n",
-			archLogLabel(arch))
+			arch)
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
 
@@ -283,7 +271,7 @@ func nodeWideNvlinkBwMode() (uint8, bool) {
 func (e *Engine) SystemSetNvlinkBwMode(mode uint32) nvml.Return {
 	if arch, ok := e.systemSupportsNvlinkBwMode(); !ok {
 		debugLog("[NVML] nvmlSystemSetNvlinkBwMode(%d) unsupported; architecture=%s must be known and hopper or newer\n",
-			mode, archLogLabel(arch))
+			mode, arch)
 		return nvml.ERROR_NOT_SUPPORTED
 	}
 	if mode > math.MaxUint8 || !slices.Contains(defaultNvlinkBwModes, uint8(mode)) {
