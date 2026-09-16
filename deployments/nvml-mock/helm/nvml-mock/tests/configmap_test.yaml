@@ -535,3 +535,49 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: "values don't meet the specifications of the schema(s) in the following chart(s):\nnvml-mock:\n- at '/gpu/failureInjection/after_calls': minimum: got -1, want 0\n"
+
+  # ── system overlay ──────────────────────────────────────────────────
+  # driverVersion has to reach the config and not just DRIVER_VERSION: the
+  # .so ignores the env var whenever a config file is mounted, so an
+  # override that stopped at the env var would move the node labels while
+  # leaving every version-gated NVML function on the profile's version.
+  - it: should inject driverVersion, driverBranch and hic under system
+    set:
+      driverVersion: "590.00.00"
+      driverBranch: r590_00
+      hic:
+        - firmwareVersion: "1.2.3.4"
+        - id: 1
+          firmwareVersion: "5.6.7.8"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "driver_version: 590.00.00"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "driver_branch: r590_00"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "firmware_version: 5.6.7.8"
+
+  - it: should leave the profile untouched when no system value is set
+    asserts:
+      # The profile's own driver version survives, and no empty overlay key
+      # is introduced by the round-trip through fromYaml/toYaml.
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "driver_version:"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "driver_branch:"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "^ *hic:"
+
+  - it: should reject a hic entry without a firmware version
+    set:
+      hic:
+        - id: 0
+    asserts:
+      - failedTemplate:
+          errorMessage: "values don't meet the specifications of the schema(s) in the following chart(s):\nnvml-mock:\n- at '/hic/0': missing property 'firmwareVersion'\n"

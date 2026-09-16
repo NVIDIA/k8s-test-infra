@@ -8,6 +8,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- nvml-mock: the NVML system event set, the Blackwell CPER RAS log and the
+  per-device hostname are implemented, closing the nine stubs a modern driver
+  consumer reaches for instead of the per-device Xid event set:
+  `nvmlSystemEventSetCreate`/`Free`/`Wait`, `nvmlSystemRegisterEvents`,
+  `nvmlSystemGetCPER_v1`, `nvmlSystemGetDriverBranch`,
+  `nvmlSystemGetHicVersion` and the `nvmlDeviceGet/SetHostname_v1` pair.
+  - System events are derived from failure-mode transitions: a GPU that goes
+    lost reports a driver unbind, and its recovery a bind, so
+    `nvml-mock-ctl fail` drives the surface with no new controls. The mock
+    spawns no thread — a library loaded into someone else's process must not —
+    so state is sampled on the wait path, and only transitions that happen
+    while a client is waiting are reported.
+  - CPER records are real UEFI records (2.10, Appendix N): an uncorrectable ECC
+    fault in the standard Memory Error Section, and a lost or bus-dropped GPU in
+    a vendor section carrying the Xid, the PCI-format id and the UUID, since the
+    memory section has nowhere to name a device. Every record sets the Hardware
+    Error Record SIMULATED flag, and the creator GUID is the mock's own rather
+    than NVIDIA's, so an agent can always tell synthetic telemetry from a real
+    fault.
+  - `nvmlSystemGetHicVersion` is the only one of the nine that any nvidia-smi
+    command renders (`nvidia-smi -q -u`), and reaching that block needed
+    `nvmlUnitGetCount`, which was also a stub: the whole unit query printed
+    "Unable to determine number of available units" and nothing else.
+  - New chart values feed them: `driverBranch` and `hic[]`. `driverVersion` now
+    reaches the library too — it was only wired to `DRIVER_VERSION`, which the
+    `.so` ignores whenever a config file is mounted, so overriding it moved the
+    node labels while leaving NVML on the profile's version.
 - nvml-mock: the node agent announces an injected Xid on the node's kernel log,
   the way a driver's printk does, so agents that watch kernel messages see the
   fault instead of only NVML clients. It watches the runtime override document,
@@ -43,6 +70,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   SIGKILL instead of being cut short.
 
 ### Fixed
+- mocknvml: `nvmlErrorString` now returns a pointer that stays valid for the
+  life of the process, as a real driver's static strings do. The cache was
+  freed by `nvmlShutdown`, and consumers that wrap the pointer without copying
+  (go-nvml does) were left reading reused memory — every status a client had
+  already collected turned to garbage the moment it tore NVML down, which is
+  the normal shape of a one-shot NVML client.
 - agent: GPU character devices, both CDI specs and the NVML visibility filter
   now address a device by its `minor_number` rather than by its NVML index. The
   two match on a node whose driver probed in PCI enumeration order, which every

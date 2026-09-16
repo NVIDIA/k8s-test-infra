@@ -36,6 +36,22 @@ type SystemConfig struct {
 	CUDAVersionMajor int    `json:"cuda_version_major"`
 	CUDAVersionMinor int    `json:"cuda_version_minor"`
 	NumDevices       int    `json:"num_devices,omitempty"`
+
+	// DriverBranch names the driver branch nvmlSystemGetDriverBranch reports.
+	// Left empty it is derived from DriverVersion (580.65.06 -> r580_00), so
+	// only a profile modelling a point-release branch needs to state it.
+	DriverBranch string `json:"driver_branch,omitempty"`
+
+	// HIC lists the host interface cards nvmlSystemGetHicVersion reports, which
+	// nvidia-smi renders as the `hic_info` block of `nvidia-smi -q -u`. Absent
+	// on every modern system: HICs belong to the retired S-class enclosures.
+	HIC []HICConfig `json:"hic,omitempty"`
+}
+
+// HICConfig describes one host interface card.
+type HICConfig struct {
+	ID              uint32 `json:"id,omitempty"`
+	FirmwareVersion string `json:"firmware_version,omitempty"`
 }
 
 // DeviceConfig represents the full device configuration.
@@ -47,6 +63,10 @@ type DeviceConfig struct {
 	Serial          string `json:"serial,omitempty"`
 	BoardPartNumber string `json:"board_part_number,omitempty"`
 	VBIOSVersion    string `json:"vbios_version,omitempty"`
+
+	// Hostname seeds nvmlDeviceGetHostname_v1 before anything calls the setter.
+	// Blackwell and newer only, matching NVML's support statement.
+	Hostname string `json:"hostname,omitempty"`
 
 	// Architecture
 	Architecture      string                   `json:"architecture,omitempty"`

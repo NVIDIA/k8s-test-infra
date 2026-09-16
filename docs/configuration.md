@@ -36,11 +36,15 @@ LD_LIBRARY_PATH=. nvidia-smi
 version: "1.0"                    # Config format version (required)
 
 system:                           # System-level settings
-  driver_version: "550.163.01"    # Required
+  driver_version: "550.163.01"    # Required; also gates which NVML functions exist
   nvml_version: "12.550.163.01"
   cuda_version: "12.4"
   cuda_version_major: 12
   cuda_version_minor: 4
+  driver_branch: "r550_00"        # Optional; derived from driver_version when unset
+  hic:                            # Optional; host interface cards `nvidia-smi -q -u` prints
+    - id: 0
+      firmware_version: "1.2.3.4"
 
 device_defaults:                  # Default settings for all devices
   name: "NVIDIA A100-SXM4-40GB"
@@ -73,6 +77,7 @@ device_defaults:
   serial: "1234567890123"             # Serial number
   board_part_number: "900-21001-0000-000"
   vbios_version: "92.00.45.00.03"
+  hostname: "gpu-node-0"              # nvmlDeviceGetHostname_v1; Blackwell or newer
 ```
 
 ### Architecture

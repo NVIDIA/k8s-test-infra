@@ -126,6 +126,20 @@
       }
     },
     "driverVersion": { "type": "string" },
+    "driverBranch": { "type": "string" },
+    "hic": {
+      "type": "array",
+      "description": "Host interface cards nvmlSystemGetHicVersion reports, which is what `nvidia-smi -q -u` prints.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "integer", "minimum": 0 },
+          "firmwareVersion": { "type": "string", "minLength": 1 }
+        },
+        "required": ["firmwareVersion"]
+      }
+    },
     "nodeSelector": { "type": "object" },
     "tolerations": { "type": "array" },
     "nodeLabels": {

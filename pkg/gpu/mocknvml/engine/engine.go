@@ -34,6 +34,16 @@ type Engine struct {
 	handles   *HandleTable
 	initCount int
 	mu        sync.RWMutex
+
+	// systemEvents fans GPU driver bind/unbind transitions out to the
+	// nvmlSystemEventSet_t handles clients have registered. It holds its own
+	// lock and is never nil, so the system event exports work before Init()
+	// the way nvmlSystemGetDriverVersion does.
+	systemEvents *systemEventBroker
+
+	// cper accumulates the Common Platform Error Records synthesised from
+	// injected RAS state. Like systemEvents it is independent of init state.
+	cper *cperLog
 }
 
 var (
@@ -58,8 +68,10 @@ func NewEngine(config *Config) *Engine {
 	}
 
 	e := &Engine{
-		config:  config,
-		handles: NewHandleTable(),
+		config:       config,
+		handles:      NewHandleTable(),
+		systemEvents: newSystemEventBroker(),
+		cper:         newCPERLog(),
 	}
 
 	return e

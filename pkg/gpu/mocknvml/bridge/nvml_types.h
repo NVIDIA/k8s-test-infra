@@ -740,6 +740,82 @@ typedef struct
     unsigned int          bufferSize; //!< [IN/OUT] Size of buffer
 } nvmlGetCPER_v1_t;
 
+/*
+ * Completed bodies for the system event set, HIC, driver branch and hostname
+ * types. The forward declarations earlier in this header only name the
+ * typedefs; these complete the struct tags so the bridge can read and write
+ * their fields. Layouts mirror go-nvml's pkg/nvml/nvml.h (v1). `version` is an
+ * input the caller stamps with the NVML_STRUCT_VERSION macro; the bridge
+ * accepts any value because go-nvml stamps it on the caller's behalf.
+ */
+#define NVML_SYSTEM_DRIVER_VERSION_BUFFER_SIZE 80
+#define NVML_DEVICE_HOSTNAME_BUFFER_SIZE 64
+
+/*
+ * The only two system event types NVML defines. Unlike the per-device event
+ * mask these are driver bind / unbind transitions, not Xid classes.
+ */
+#define nvmlSystemEventTypeGpuDriverUnbind 0x0000000000000001LL
+#define nvmlSystemEventTypeGpuDriverBind   0x0000000000000002LL
+#define nvmlSystemEventTypeCount 2
+
+typedef struct
+{
+    struct nvmlSystemEventSet_st* handle;
+} nvmlSystemEventSet_t;
+
+typedef struct
+{
+    unsigned long long eventType; //!< OUT: which system event occurred
+    unsigned int       gpuId;     //!< OUT: gpuId in PCI format
+} nvmlSystemEventData_v1_t;
+
+struct nvmlSystemEventSetCreateRequest_st
+{
+    unsigned int         version; //!< IN: NVML_STRUCT_VERSION(SystemEventSetCreateRequest, 1)
+    nvmlSystemEventSet_t set;     //!< OUT: the created system event set
+};
+
+struct nvmlSystemEventSetFreeRequest_st
+{
+    unsigned int         version; //!< IN: NVML_STRUCT_VERSION(SystemEventSetFreeRequest, 1)
+    nvmlSystemEventSet_t set;     //!< IN: the system event set to release
+};
+
+struct nvmlSystemRegisterEventRequest_st
+{
+    unsigned int         version;    //!< IN: NVML_STRUCT_VERSION(SystemRegisterEventRequest, 1)
+    unsigned long long   eventTypes; //!< IN: bitmask of nvmlSystemEventType* to record
+    nvmlSystemEventSet_t set;        //!< IN: set the event types are added to
+};
+
+struct nvmlSystemEventSetWaitRequest_st
+{
+    unsigned int              version;   //!< IN/OUT: NVML_STRUCT_VERSION(SystemEventSetWaitRequest, 1)
+    unsigned int              timeoutms; //!< IN: milliseconds to block; 0 polls
+    nvmlSystemEventSet_t      set;       //!< IN: system event set to wait on
+    nvmlSystemEventData_v1_t *data;      //!< IN/OUT: caller-owned event array
+    unsigned int              dataSize;  //!< IN: number of entries in data
+    unsigned int              numEvent;  //!< OUT: number of events collected
+};
+
+struct nvmlHwbcEntry_st
+{
+    unsigned int hwbcId;             //!< OUT: host interface card id
+    char         firmwareVersion[32]; //!< OUT: HIC firmware version string
+};
+
+struct nvmlSystemDriverBranchInfo_st
+{
+    unsigned int version;                                        //!< IN: NVML_STRUCT_VERSION(SystemDriverBranchInfo, 1)
+    char         branch[NVML_SYSTEM_DRIVER_VERSION_BUFFER_SIZE];  //!< OUT: driver branch
+};
+
+struct nvmlHostname_v1_st
+{
+    char value[NVML_DEVICE_HOSTNAME_BUFFER_SIZE]; //!< IN/OUT: NUL-terminated hostname
+};
+
 #ifdef __cplusplus
 }
 #endif

@@ -621,7 +621,9 @@ namespace, on the pod IP where the kubelet reaches it.
 | `image.repository` | `ghcr.io/nvidia/nvml-mock` | Container image repository |
 | `image.tag` | `latest` | Container image tag |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy |
-| `driverVersion` | `""` (auto) | NVIDIA driver version to mock. When empty, read from `system.driver_version` of the resolved GPU config (the selected `gpu.profile` file, or `gpu.customConfig` if set), so the profile is the single source of truth (e.g. GB200 → `580.65.06`, B200 → `560.35.03`, GB300 → `570.124.06`, others → `550.163.01`). Set explicitly only to override the profile. |
+| `driverVersion` | `""` (auto) | NVIDIA driver version to mock. When empty, read from `system.driver_version` of the resolved GPU config (the selected `gpu.profile` file, or `gpu.customConfig` if set), so the profile is the single source of truth (e.g. GB200 → `580.65.06`, B200 → `560.35.03`, GB300 → `570.124.06`, others → `550.163.01`). Set explicitly to override the profile — the version also decides which NVML functions exist, since the mock refuses the ones its declared driver predates. |
+| `driverBranch` | `""` (derived) | Branch `nvmlSystemGetDriverBranch` reports. Derived from the driver version when empty (`580.65.06` → `r580_00`); set it to model a point-release branch such as `r570_40` |
+| `hic` | `[]` | Host interface cards `nvmlSystemGetHicVersion` reports, which is what `nvidia-smi -q -u` prints. Entries are `{id, firmwareVersion}`. Real HICs only exist on the retired S-class enclosures, so no profile configures any |
 | `nodeSelector` | `{}` | Node selector for DaemonSet |
 | `tolerations` | `[{operator: Exists}]` | Pod tolerations (default: tolerate all) |
 | `nodeLabels.featuresDir` | `/etc/kubernetes/node-feature-discovery/features.d` | Host directory NFD's local source reads feature files from. Override only if NFD runs with a non-default `featureFilesDir` |

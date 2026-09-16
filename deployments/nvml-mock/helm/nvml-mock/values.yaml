@@ -62,6 +62,17 @@ image:
 
 driverVersion: ""                  # Auto-derived from profile. Override: "550.163.01"
 
+# Driver branch nvmlSystemGetDriverBranch reports. Derived from driverVersion
+# when empty ("580.65.06" -> "r580_00"), which is the shape real drivers use.
+driverBranch: ""
+
+# Host interface cards nvmlSystemGetHicVersion reports, which is what
+# `nvidia-smi -q -u` prints. Real HICs only exist on S-class enclosures, so the
+# default is none; set entries to exercise a consumer that reads them.
+hic: []
+#  - id: 0
+#    firmwareVersion: "1.2.3.4"
+
 nodeSelector: {}
 tolerations:
   - operator: Exists

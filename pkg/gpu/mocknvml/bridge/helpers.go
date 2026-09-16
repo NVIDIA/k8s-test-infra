@@ -54,6 +54,12 @@ func main() {
 // errorCache manages cached C strings for nvmlErrorString.
 // Real NVML returns static strings that callers must NOT free.
 // We cache allocated strings forever to match this behavior.
+//
+// "Forever" includes across nvmlShutdown: the strings are static in a real
+// driver, and consumers hold them past teardown. go-nvml, for one, wraps the
+// pointer zero-copy, so freeing the cache leaves every error string a consumer
+// already read pointing at reused memory. The cache is bounded by the number
+// of nvmlReturn_t codes, so keeping it is a fixed cost, not a leak.
 type errorCache struct {
 	mu sync.Mutex
 	m  map[nvml.Return]*C.char
@@ -64,9 +70,8 @@ var errStrings = &errorCache{
 }
 
 // get returns a cached C string for the error code.
-// MEMORY CONTRACT: Returned strings are cached until Clear() is called.
-// This matches real NVML behavior where nvmlErrorString returns
-// pointers to static strings that callers must NOT free.
+// MEMORY CONTRACT: the returned string stays valid for the life of the
+// process, which is what real NVML's static strings do.
 func (c *errorCache) get(ret nvml.Return) *C.char {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -79,24 +84,6 @@ func (c *errorCache) get(ret nvml.Return) *C.char {
 	cStr := C.CString(str)
 	c.m[ret] = cStr
 	return cStr
-}
-
-// clear frees all cached C strings and resets the cache.
-// Call this during shutdown to prevent memory leaks.
-func (c *errorCache) clear() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	for _, cStr := range c.m {
-		C.free(unsafe.Pointer(cStr))
-	}
-	c.m = make(map[nvml.Return]*C.char)
-}
-
-// ClearErrorStringCache frees all cached error strings.
-// Exported for use by the bridge layer during shutdown.
-func ClearErrorStringCache() {
-	errStrings.clear()
 }
 
 // debugEnabled controls whether debug messages are printed
@@ -167,4 +154,17 @@ func bridgeVersionCheck(funcName string) (C.nvmlReturn_t, bool) {
 //export nvmlErrorString
 func nvmlErrorString(result C.nvmlReturn_t) *C.char {
 	return errStrings.get(nvml.Return(result))
+}
+
+// errorStringForTest drives nvmlErrorString the way a C caller does, returning
+// both the contents and the address so a test can assert the pointer is static
+// and the bytes are still readable after nvmlShutdown.
+func errorStringForTest(result uint32) (address uintptr, text string) {
+	cStr := nvmlErrorString(C.nvmlReturn_t(result))
+	return uintptr(unsafe.Pointer(cStr)), C.GoString(cStr)
+}
+
+// shutdownForTest calls the nvmlShutdown export.
+func shutdownForTest() uint32 {
+	return uint32(nvmlShutdown())
 }

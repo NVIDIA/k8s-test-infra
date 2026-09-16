@@ -248,6 +248,28 @@ func MaxCustomerBoostClock(ctx context.Context, k *kube.Client, pod kube.PodRef,
 		"Max Customer Boost Clocks wrong for profile %s:\n%s", p.Name, strings.Join(problems, "\n"))
 }
 
+// HICInfo asserts `nvidia-smi -q -u -x` answers the unit query and reports
+// exactly want, the node's host interface cards. Pass nil for a node that
+// configures none, which is every profile the chart ships.
+//
+// This is the only nvidia-smi surface that renders nvmlSystemGetHicVersion,
+// and reaching it also proves nvmlUnitGetCount answered: nvidia-smi bails
+// before printing the HIC block if the unit count fails.
+func HICInfo(ctx context.Context, k *kube.Client, pod kube.PodRef, want []HIC) {
+	ginkgo.GinkgoHelper()
+
+	ginkgo.By(fmt.Sprintf("nvidia-smi -q -u -x reports %d HIC(s)", len(want)))
+	out := unitQuery(ctx, k, pod)
+
+	problems := UnitQueryProblems(out)
+	gomega.Expect(problems).To(gomega.BeEmpty(), "unit query failed:\n%s",
+		strings.Join(problems, "\n"))
+
+	problems = HICProblems(out, want)
+	gomega.Expect(problems).To(gomega.BeEmpty(), "HIC info wrong:\n%s",
+		strings.Join(problems, "\n"))
+}
+
 // query execs `nvidia-smi -q -x` and asserts it succeeded, returning stdout.
 func query(ctx context.Context, k *kube.Client, pod kube.PodRef) string {
 	ginkgo.GinkgoHelper()
@@ -256,6 +278,18 @@ func query(ctx context.Context, k *kube.Client, pod kube.PodRef) string {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 		"nvidia-smi -q -x exited with error: %s", res.Combined())
 	return res.Stdout
+}
+
+// unitQuery execs `nvidia-smi -q -u -x`. The combined output is returned
+// because nvidia-smi writes its unit-count failure to stderr and still exits
+// 0, so UnitQueryProblems has to be able to see it.
+func unitQuery(ctx context.Context, k *kube.Client, pod kube.PodRef) string {
+	ginkgo.GinkgoHelper()
+
+	res, err := k.ExecQuiet(ctx, pod, "nvidia-smi", "-q", "-u", "-x")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+		"nvidia-smi -q -u -x exited with error: %s", res.Combined())
+	return res.Combined()
 }
 
 // SnapshotFromPod execs `nvidia-smi -q -x` in pod and decodes it. It returns an

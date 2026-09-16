@@ -67,6 +67,8 @@ var functionRegistry = map[string]FunctionVersion{
 
 	// 560.x additions
 	"nvmlDeviceGetPlatformInfo": {Added: "560.0"},
+	// Absent from libnvidia-ml.so.550.54.14, present from 560.28.03.
+	"nvmlSystemGetDriverBranch": {Added: "560.0"},
 
 	// 580.x / NVML 13.0 additions
 	"nvmlDeviceGetVgpuSchedulerLog_v2":        {Added: "580.0"},
@@ -76,6 +78,26 @@ var functionRegistry = map[string]FunctionVersion{
 	"nvmlGpuInstanceGetVgpuSchedulerLog_v2":   {Added: "580.0"},
 	"nvmlGpuInstanceGetVgpuSchedulerState_v2": {Added: "580.0"},
 	"nvmlGpuInstanceSetVgpuSchedulerState_v2": {Added: "580.0"},
+
+	// The system event set: absent from libnvidia-ml.so.570.86.15, present
+	// from 580.65.06. A consumer configured on an r570 profile therefore
+	// falls back to the per-device event set, as it must on that driver.
+	"nvmlSystemEventSetCreate": {Added: "580.0"},
+	"nvmlSystemEventSetFree":   {Added: "580.0"},
+	"nvmlSystemEventSetWait":   {Added: "580.0"},
+	"nvmlSystemRegisterEvents": {Added: "580.0"},
+
+	// The per-GPU hostname pair landed mid-branch: absent from
+	// libnvidia-ml.so.580.65.06, present from 580.95.05. The minor component
+	// matters here, which is why this entry is not rounded to 580.0.
+	"nvmlDeviceGetHostname_v1": {Added: "580.95"},
+	"nvmlDeviceSetHostname_v1": {Added: "580.95"},
+
+	// CPER is declared by the NVML 13.0 header go-nvml v0.13.3-1 ships, but no
+	// released driver exports it — checked every libnvidia-ml.so from 550.54.14
+	// through 580.178.04. r590 is the first branch that can carry it, so that
+	// is the gate; a profile must declare a 590+ driver to read CPER records.
+	"nvmlSystemGetCPER_v1": {Added: "590.0"},
 
 	// Topology functions (available since early NVML)
 	"nvmlDeviceGetTopologyCommonAncestor": {Added: "331.0"},
@@ -106,6 +128,12 @@ var functionRegistry = map[string]FunctionVersion{
 	// Power functions (331.x+)
 	"nvmlDeviceGetEnforcedPowerLimit":  {Added: "331.0"},
 	"nvmlDeviceGetPowerManagementMode": {Added: "331.0"},
+
+	// HIC / HWBC enumeration and unit enumeration predate every driver we can
+	// still download; both are present in libnvidia-ml.so.550.54.14 and have
+	// been since the S-class enclosures they describe were current.
+	"nvmlSystemGetHicVersion": {Added: "331.0"},
+	"nvmlUnitGetCount":        {Added: "331.0"},
 }
 
 // GetFunctionRegistry returns a copy of the function version registry.

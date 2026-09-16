@@ -102,6 +102,11 @@ RUN set -eux; \
     # minimal image that ships no IB libraries at all.
     # See NVIDIA/k8s-test-infra#438.
     sh /usr/local/bin/bundle-ib-tools.sh; \
+    # The loader reaches /usr/local/lib only through ld.so.cache, which apt's
+    # triggers happen to rebuild in this layer. Do it explicitly so a client
+    # that dlopens libnvidia-ml.so.1, nvidia-smi included, keeps resolving it
+    # if these apt steps ever move or go away.
+    ldconfig; \
     rm -rf /var/lib/apt/lists/*; \
     rm -rf /tmp/nvidia-utils /tmp/nvidia-utils-580*.deb \
            /usr/share/keyrings/nvidia.gpg /etc/apt/sources.list.d/nvidia.list; \

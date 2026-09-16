@@ -431,6 +431,9 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	if override.VBIOSVersion != "" {
 		base.VBIOSVersion = override.VBIOSVersion
 	}
+	if override.Hostname != "" {
+		base.Hostname = override.Hostname
+	}
 	if override.Architecture != "" {
 		base.Architecture = override.Architecture
 	}
