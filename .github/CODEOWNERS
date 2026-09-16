@@ -1,17 +1,9 @@
 # CODEOWNERS — auto-assigns reviewers to PRs
 # See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Owners mirror the approvers list in the root OWNERS file. GitHub honours only
+# the LAST matching pattern, so per-path rules silently override this default.
+# Keep a single rule unless a path truly needs a different set of reviewers.
 
 # Default owners for everything
-* @ArangoGutierrez
-
-# Mock NVML library
-/pkg/gpu/mocknvml/ @ArangoGutierrez
-
-# Helm chart
-/deployments/nvml-mock/ @ArangoGutierrez
-
-# CI workflows
-/.github/workflows/ @ArangoGutierrez
-
-# E2E tests
-/tests/e2e/ @ArangoGutierrez
+* @ArangoGutierrez @giuliocalzo @roma-glushko
