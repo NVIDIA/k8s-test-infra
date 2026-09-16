@@ -18,10 +18,11 @@ metadata:
     app.kubernetes.io/component: control-plane
 spec:
   replicas: {{ .Values.controlPlane.replicas }}
-  # Leader election coordinates active/passive replicas within a generation;
-  # Recreate keeps whole-generation replacement deterministic.
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       {{- include "nvml-mock.controlPlaneSelectorLabels" . | nindent 6 }}

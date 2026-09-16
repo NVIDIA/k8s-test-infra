@@ -203,8 +203,9 @@ synchronized informer view of profiles, inventories, racks, eligible Nodes, and
 durable rack-slot assignments. Only the elected leader attaches reconciliation
 handlers and runs workers. A standby reports ready after its caches synchronize
 and it observes the elected leader; the leader additionally waits for its
-handlers to replay the current caches and its workers to start. Upgrades retain
-a `Recreate` Deployment strategy for deterministic whole-generation replacement.
+handlers to replay the current caches and its workers to start. Upgrades use a
+`RollingUpdate` Deployment strategy with `maxUnavailable: 0` and `maxSurge: 1`
+to preserve serving overlap while leader election maintains single-writer mutation.
 
 ## Stage 1 exclusions
 
