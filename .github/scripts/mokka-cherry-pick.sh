@@ -48,7 +48,6 @@ source_pull_request="$(gh api "/repos/$repository/pulls/$pull_request_number")" 
 jq -es --arg repository "$repository" --arg source_sha "$source_sha" '
   length == 1 and (.[0] |
     type == "object" and
-    (.commits | type) == "number" and .commits == 1 and
     .state == "closed" and .merged == true and .merge_commit_sha == $source_sha and
     .head.repo.full_name == $repository and .base.repo.full_name == $repository)
 ' >/dev/null <<<"$source_pull_request" || die "source pull request is not eligible"
