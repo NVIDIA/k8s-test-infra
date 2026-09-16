@@ -18,11 +18,11 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
-	"github.com/NVIDIA/k8s-test-infra/internal/mokka/allocate"
-	controllernodes "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/nodecatalog"
-	controllerprojection "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/projection"
-	controllerack "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/rack"
-	controllerstatus "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/status"
+	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
+	nodecatalog "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/nodecatalog"
+	inventoryprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/projection"
+	inventorystatus "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/status"
 	mokkalisters "github.com/NVIDIA/k8s-test-infra/pkg/generated/listers/api/v1alpha1"
 )
 
@@ -30,19 +30,19 @@ type informerCache struct {
 	inventories mokkalisters.SGPUInventoryLister
 	profiles    mokkalisters.SGPURackProfileLister
 	racks       cache.Indexer
-	nodes       *controllernodes.Catalog
+	nodes       *nodecatalog.Catalog
 	liveNodes   corev1client.NodeInterface
 	liveTimeout time.Duration
 }
 
-var _ controllerack.Cache = (*informerCache)(nil)
-var _ controllerprojection.Cache = (*informerCache)(nil)
+var _ sgpuinventory.Cache = (*informerCache)(nil)
+var _ inventoryprojection.Cache = (*informerCache)(nil)
 
 func newInformerCache(
 	inventories mokkalisters.SGPUInventoryLister,
 	profiles mokkalisters.SGPURackProfileLister,
 	racks cache.Indexer,
-	nodes *controllernodes.Catalog,
+	nodes *nodecatalog.Catalog,
 	liveNodes corev1client.NodeInterface,
 	options Options,
 ) *informerCache {
@@ -84,7 +84,7 @@ func (c *informerCache) Racks() ([]*mokkav1alpha1.SGPURack, error) {
 }
 
 func (c *informerCache) RacksByInventoryUID(uid types.UID) ([]*mokkav1alpha1.SGPURack, error) {
-	objects, err := c.racks.ByIndex(controllerack.RackByInventoryUIDIndex, string(uid))
+	objects, err := c.racks.ByIndex(sgpuinventory.RackByInventoryUIDIndex, string(uid))
 	if err != nil {
 		return nil, err
 	}
@@ -93,8 +93,8 @@ func (c *informerCache) RacksByInventoryUID(uid types.UID) ([]*mokkav1alpha1.SGP
 
 func (c *informerCache) RacksByInventoryGroup(uid types.UID, group string) ([]*mokkav1alpha1.SGPURack, error) {
 	objects, err := c.racks.ByIndex(
-		controllerack.RackByInventoryGroupIndex,
-		controllerack.InventoryGroupIndexKey(uid, group),
+		sgpuinventory.RackByInventoryGroupIndex,
+		sgpuinventory.InventoryGroupIndexKey(uid, group),
 	)
 	if err != nil {
 		return nil, err
@@ -103,7 +103,7 @@ func (c *informerCache) RacksByInventoryGroup(uid types.UID, group string) ([]*m
 }
 
 func (c *informerCache) RacksByNodeUID(uid types.UID) ([]*mokkav1alpha1.SGPURack, error) {
-	objects, err := c.racks.ByIndex(controllerack.RackByNodeUIDIndex, string(uid))
+	objects, err := c.racks.ByIndex(sgpuinventory.RackByNodeUIDIndex, string(uid))
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +122,7 @@ func (c *informerCache) ProjectionTarget(
 		return nil, false, nil
 	}
 	node := record.Node()
-	allowed, err := controllerack.ProjectionTargetAllowed(c, rack, slot, node)
+	allowed, err := sgpuinventory.ProjectionTargetAllowed(c, rack, slot, node)
 	if err != nil || !allowed {
 		return nil, allowed, err
 	}
@@ -271,8 +271,8 @@ func castRacks(objects []any) ([]*mokkav1alpha1.SGPURack, error) {
 }
 
 type projectionSnapshots interface {
-	OutcomesForInventory(string, types.UID) []controllerprojection.Outcome
-	OutcomesForRack(string, types.UID) []controllerprojection.Outcome
+	OutcomesForInventory(string, types.UID) []inventoryprojection.Outcome
+	OutcomesForRack(string, types.UID) []inventoryprojection.Outcome
 }
 
 type statusSnapshotWork struct {
@@ -288,20 +288,20 @@ func inventoryStatusInput(
 	projection projectionSnapshots,
 	results *resultStore,
 	inventory *mokkav1alpha1.SGPUInventory,
-) (controllerstatus.InventoryInput, statusSnapshotWork, error) {
+) (inventorystatus.InventoryInput, statusSnapshotWork, error) {
 	racks, err := snapshot.RacksByInventoryUID(inventory.UID)
 	if err != nil {
-		return controllerstatus.InventoryInput{}, statusSnapshotWork{}, err
+		return inventorystatus.InventoryInput{}, statusSnapshotWork{}, err
 	}
 	inventories, err := snapshot.Inventories()
 	if err != nil {
-		return controllerstatus.InventoryInput{}, statusSnapshotWork{}, err
+		return inventorystatus.InventoryInput{}, statusSnapshotWork{}, err
 	}
-	admitted := controllerack.AdmittedRackGroupInventoryUIDs(inventories)
+	admitted := sgpuinventory.AdmittedRackGroupInventoryUIDs(inventories)
 	_, includePlacement := admitted[inventory.UID]
 	nodes, err := snapshot.statusNodesForInventory(inventory, racks, includePlacement)
 	if err != nil {
-		return controllerstatus.InventoryInput{}, statusSnapshotWork{}, err
+		return inventorystatus.InventoryInput{}, statusSnapshotWork{}, err
 	}
 	profiles := make(map[string]*mokkav1alpha1.SGPURackProfile, len(inventory.Spec.RackGroups))
 	for _, group := range inventory.Spec.RackGroups {
@@ -309,11 +309,11 @@ func inventoryStatusInput(
 		if getErr == nil {
 			profiles[group.ProfileRef.Name] = profile
 		} else if !apierrors.IsNotFound(getErr) {
-			return controllerstatus.InventoryInput{}, statusSnapshotWork{}, getErr
+			return inventorystatus.InventoryInput{}, statusSnapshotWork{}, getErr
 		}
 	}
 	outcomes := projection.OutcomesForInventory(inventory.Name, inventory.UID)
-	return controllerstatus.InventoryInput{
+	return inventorystatus.InventoryInput{
 			Inventory:  inventory,
 			Profiles:   profiles,
 			Racks:      racks,
@@ -329,7 +329,7 @@ func rackStatusInput(
 	snapshot *informerCache,
 	projection projectionSnapshots,
 	rack *mokkav1alpha1.SGPURack,
-) (controllerstatus.RackInput, statusSnapshotWork, error) {
+) (inventorystatus.RackInput, statusSnapshotWork, error) {
 	related := map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}
 	stats := statusSnapshotWork{}
 	for _, slot := range rack.Spec.Nodes {
@@ -339,7 +339,7 @@ func rackStatusInput(
 		stats.relatedRackLookups++
 		bound, err := snapshot.RacksByNodeUID(slot.NodeRef.UID)
 		if err != nil {
-			return controllerstatus.RackInput{}, statusSnapshotWork{}, err
+			return inventorystatus.RackInput{}, statusSnapshotWork{}, err
 		}
 		stats.relatedRacksExamined += len(bound)
 		for _, other := range bound {
@@ -361,13 +361,13 @@ func rackStatusInput(
 	})
 	nodes, err := snapshot.statusNodesForRack(rack)
 	if err != nil {
-		return controllerstatus.RackInput{}, statusSnapshotWork{}, err
+		return inventorystatus.RackInput{}, statusSnapshotWork{}, err
 	}
 	outcomes := projection.OutcomesForRack(rack.Name, rack.UID)
 	stats.nodesExamined = nodes.examined
 	stats.racksExamined = len(racks)
 	stats.outcomesExamined = len(outcomes)
-	return controllerstatus.RackInput{
+	return inventorystatus.RackInput{
 		Rack: rack, Racks: racks, Nodes: nodes.nodes, Projection: outcomes,
 	}, stats, nil
 }
@@ -375,7 +375,7 @@ func rackStatusInput(
 func reconcileInventoryStatus(
 	ctx context.Context,
 	snapshot *informerCache,
-	reconciler *controllerstatus.Reconciler,
+	reconciler *inventorystatus.Reconciler,
 	projection projectionSnapshots,
 	results *resultStore,
 	key statusKey,
@@ -398,7 +398,7 @@ func reconcileInventoryStatus(
 func reconcileRackStatus(
 	ctx context.Context,
 	snapshot *informerCache,
-	reconciler *controllerstatus.Reconciler,
+	reconciler *inventorystatus.Reconciler,
 	projection projectionSnapshots,
 	key statusKey,
 ) error {

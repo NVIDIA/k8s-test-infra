@@ -16,11 +16,11 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
-	"github.com/NVIDIA/k8s-test-infra/internal/mokka/allocate"
-	controllernodes "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/nodecatalog"
-	controllerprojection "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/projection"
-	controllerack "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/rack"
-	controllerstatus "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/status"
+	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
+	nodecatalog "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/nodecatalog"
+	inventoryprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/projection"
+	inventorystatus "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/status"
 	mokkalisters "github.com/NVIDIA/k8s-test-infra/pkg/generated/listers/api/v1alpha1"
 	"github.com/stretchr/testify/require"
 )
@@ -32,10 +32,10 @@ func TestStatusSnapshotsBoundWorkToOneInventoryAndRack(t *testing.T) {
 		nodesPerRack      = 100
 	)
 
-	inventoryIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.InventoryIndexers())
+	inventoryIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
 	profileIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
-	rackIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.Indexers())
-	nodes := controllernodes.New()
+	rackIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
+	nodes := nodecatalog.New()
 	profile := &mokkav1alpha1.SGPURackProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile", UID: "profile-uid"}}
 	require.NoError(t, profileIndexer.Add(profile))
 
@@ -79,11 +79,11 @@ func TestStatusSnapshotsBoundWorkToOneInventoryAndRack(t *testing.T) {
 		DefaultOptions(),
 	)
 	projection := &recordingScopedProjection{
-		inventoryOutcomes: []controllerprojection.Outcome{{
+		inventoryOutcomes: []inventoryprojection.Outcome{{
 			InventoryName: targetInventory.Name, InventoryUID: targetInventory.UID,
 			RackName: targetRack.Name, RackUID: targetRack.UID,
 		}},
-		rackOutcomes: []controllerprojection.Outcome{{
+		rackOutcomes: []inventoryprojection.Outcome{{
 			InventoryName: targetInventory.Name, InventoryUID: targetInventory.UID,
 			RackName: targetRack.Name, RackUID: targetRack.UID,
 		}},
@@ -110,33 +110,33 @@ func TestStatusSnapshotsBoundWorkToOneInventoryAndRack(t *testing.T) {
 	require.Equal(t, []exactObjectReference{{name: targetRack.Name, uid: targetRack.UID}}, projection.rackCalls)
 	require.Equal(t, projection.rackOutcomes, rackInput.Projection)
 
-	foreignOutcome := controllerprojection.Outcome{
+	foreignOutcome := inventoryprojection.Outcome{
 		InventoryName: "inventory-99", InventoryUID: "inventory-uid-99",
 		RackName: "rack-999", RackUID: "rack-uid-999", NodeIndex: 99,
-		NodeName: "node-99999", NodeUID: "node-uid-99999", State: controllerprojection.StateConflict,
-		Reason: controllerprojection.ReasonNodeMetadataConflict,
+		NodeName: "node-99999", NodeUID: "node-uid-99999", State: inventoryprojection.StateConflict,
+		Reason: inventoryprojection.ReasonNodeMetadataConflict,
 	}
 	now := metav1.NewTime(time.Unix(100, 0))
 	legacyInventoryInput := inventoryInput
 	legacyInventoryInput.Nodes = allNodes
 	legacyInventoryInput.Projection = append(slices.Clone(inventoryInput.Projection), foreignOutcome)
 	require.Equal(t,
-		controllerstatus.ComputeInventory(legacyInventoryInput, now),
-		controllerstatus.ComputeInventory(inventoryInput, now),
+		inventorystatus.ComputeInventory(legacyInventoryInput, now),
+		inventorystatus.ComputeInventory(inventoryInput, now),
 		"scoping must preserve inventory status computed from the former global inputs",
 	)
 	legacyRackInput := rackInput
 	legacyRackInput.Nodes = allNodes
 	legacyRackInput.Projection = append(slices.Clone(rackInput.Projection), foreignOutcome)
 	require.Equal(t,
-		controllerstatus.ComputeRack(legacyRackInput, now),
-		controllerstatus.ComputeRack(rackInput, now),
+		inventorystatus.ComputeRack(legacyRackInput, now),
+		inventorystatus.ComputeRack(rackInput, now),
 		"scoping must preserve rack status computed from the former global inputs",
 	)
 }
 
 func TestStatusNodeCandidatesPreserveSelectorAndBindingSemantics(t *testing.T) {
-	catalog := controllernodes.New()
+	catalog := nodecatalog.New()
 	nodes := []*corev1.Node{
 		{ObjectMeta: metav1.ObjectMeta{Name: "a", UID: "a-uid", Labels: map[string]string{"pool": "a", "zone": "east"}}},
 		{ObjectMeta: metav1.ObjectMeta{Name: "b", UID: "b-uid", Labels: map[string]string{"pool": "b", "zone": "west"}}},
@@ -179,17 +179,17 @@ func TestStatusNodeCandidatesPreserveSelectorAndBindingSemantics(t *testing.T) {
 }
 
 func TestStatusSnapshotSkipsPlacementForInventoryOutsideRackGroupBudget(t *testing.T) {
-	inventoryIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.InventoryIndexers())
+	inventoryIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
 	profileIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
-	rackIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.Indexers())
+	rackIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	var blocked *mokkav1alpha1.SGPUInventory
-	for index := range controllerack.MaxRackGroups + 1 {
+	for index := range sgpuinventory.MaxRackGroups + 1 {
 		inventory := scaleStatusInventory(index, 1)
 		inventory.CreationTimestamp = metav1.NewTime(time.Unix(int64(index+1), 0))
 		require.NoError(t, inventoryIndexer.Add(inventory))
 		blocked = inventory
 	}
-	nodes := controllernodes.New()
+	nodes := nodecatalog.New()
 	nodes.Upsert(&corev1.Node{ObjectMeta: metav1.ObjectMeta{
 		Name: "blocked-candidate", UID: "blocked-candidate-uid",
 		Labels: map[string]string{
@@ -260,18 +260,18 @@ type exactObjectReference struct {
 }
 
 type recordingScopedProjection struct {
-	inventoryOutcomes []controllerprojection.Outcome
-	rackOutcomes      []controllerprojection.Outcome
+	inventoryOutcomes []inventoryprojection.Outcome
+	rackOutcomes      []inventoryprojection.Outcome
 	inventoryCalls    []exactObjectReference
 	rackCalls         []exactObjectReference
 }
 
-func (r *recordingScopedProjection) OutcomesForInventory(name string, uid types.UID) []controllerprojection.Outcome {
+func (r *recordingScopedProjection) OutcomesForInventory(name string, uid types.UID) []inventoryprojection.Outcome {
 	r.inventoryCalls = append(r.inventoryCalls, exactObjectReference{name: name, uid: uid})
 	return r.inventoryOutcomes
 }
 
-func (r *recordingScopedProjection) OutcomesForRack(name string, uid types.UID) []controllerprojection.Outcome {
+func (r *recordingScopedProjection) OutcomesForRack(name string, uid types.UID) []inventoryprojection.Outcome {
 	r.rackCalls = append(r.rackCalls, exactObjectReference{name: name, uid: uid})
 	return r.rackOutcomes
 }

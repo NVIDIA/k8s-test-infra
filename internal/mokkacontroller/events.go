@@ -18,9 +18,11 @@ import (
 	"k8s.io/klog/v2"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
-	"github.com/NVIDIA/k8s-test-infra/internal/mokka/allocate"
-	controllerprojection "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/projection"
-	controllerack "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/rack"
+	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
+	inventorycleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/cleanup"
+	inventorymetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/metadata"
+	inventoryprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/projection"
 )
 
 // rackConflictWaiters indexes only name collisions observed by reconciliation.
@@ -43,7 +45,7 @@ func newRackConflictWaiters() *rackConflictWaiters {
 
 func (r *rackConflictWaiters) replaceInventory(
 	inventory *mokkav1alpha1.SGPUInventory,
-	conflicts []controllerack.OwnershipConflict,
+	conflicts []sgpuinventory.OwnershipConflict,
 ) {
 	if inventory == nil {
 		return
@@ -61,7 +63,7 @@ func (r *rackConflictWaiters) replaceInventory(
 
 func (r *rackConflictWaiters) replaceGroup(
 	key allocate.GroupKey,
-	conflicts []controllerack.OwnershipConflict,
+	conflicts []sgpuinventory.OwnershipConflict,
 ) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -227,8 +229,8 @@ func (r *placementRegistry) rebuildActiveLocked() {
 	for _, registered := range r.byInventory {
 		inventories = append(inventories, registered.inventory)
 	}
-	admitted := controllerack.AdmittedRackGroupInventoryUIDs(inventories)
-	active := make(map[allocate.GroupKey]labels.Selector, controllerack.MaxRackGroups)
+	admitted := sgpuinventory.AdmittedRackGroupInventoryUIDs(inventories)
+	active := make(map[allocate.GroupKey]labels.Selector, sgpuinventory.MaxRackGroups)
 	for _, registered := range r.byInventory {
 		if _, ok := admitted[registered.inventory.UID]; !ok {
 			continue
@@ -477,7 +479,7 @@ func (r *eventRouter) nodeDelete(object any) {
 			if slot.NodeRef == nil || slot.NodeRef.Name != node.Name || slot.NodeRef.UID != node.UID {
 				continue
 			}
-			cleanup := cleanupFor(rack, slot, controllerack.CleanupNodeIneligible)
+			cleanup := cleanupFor(rack, slot, inventorycleanup.CleanupNodeIneligible)
 			r.queues.projections.Add(projectionKey{mode: projectionCleanup, cleanup: cleanup})
 			deferred[cleanup.Binding.Coordinate.Group] = struct{}{}
 		}
@@ -580,7 +582,7 @@ func (r *eventRouter) rackUpdate(oldObject, newObject any) {
 		if slot.NodeRef == nil || newBindings[slot.Index] == slot.NodeRef.UID {
 			continue
 		}
-		cleanup := cleanupFor(oldRack, slot, controllerack.CleanupCapacityShrink)
+		cleanup := cleanupFor(oldRack, slot, inventorycleanup.CleanupCapacityShrink)
 		r.queues.projections.Add(projectionKey{mode: projectionCleanup, cleanup: cleanup})
 	}
 	if newRack.DeletionTimestamp != nil {
@@ -615,7 +617,7 @@ func (r *eventRouter) rackDelete(object any) {
 		if slot.NodeRef == nil {
 			continue
 		}
-		cleanup := cleanupFor(rack, slot, controllerack.CleanupRackDeleting)
+		cleanup := cleanupFor(rack, slot, inventorycleanup.CleanupRackDeleting)
 		r.queues.projections.Add(projectionKey{mode: projectionCleanup, cleanup: cleanup})
 	}
 	if !r.currentRackDelete(rack) {
@@ -738,8 +740,8 @@ func (r *eventRouter) routeRackInventory(rack *mokkav1alpha1.SGPURack) {
 func (r *eventRouter) boundRacks(name string, uid types.UID) []*mokkav1alpha1.SGPURack {
 	indexed := make(map[string]*mokkav1alpha1.SGPURack)
 	for index, value := range map[string]string{
-		controllerack.RackByNodeUIDIndex:  string(uid),
-		controllerack.RackByNodeNameIndex: name,
+		sgpuinventory.RackByNodeUIDIndex:  string(uid),
+		sgpuinventory.RackByNodeNameIndex: name,
 	} {
 		objects, err := r.racks.ByIndex(index, value)
 		if err != nil {
@@ -760,8 +762,8 @@ func (r *eventRouter) boundRacks(name string, uid types.UID) []*mokkav1alpha1.SG
 	return racks
 }
 
-func cleanupFor(rack *mokkav1alpha1.SGPURack, slot mokkav1alpha1.SGPURackNode, reason controllerack.CleanupReason) controllerack.CleanupNeeded {
-	return controllerack.CleanupNeeded{
+func cleanupFor(rack *mokkav1alpha1.SGPURack, slot mokkav1alpha1.SGPURackNode, reason inventorycleanup.CleanupReason) inventorycleanup.CleanupNeeded {
+	return inventorycleanup.CleanupNeeded{
 		RackName: rack.Name,
 		RackUID:  rack.UID,
 		Reason:   reason,
@@ -884,7 +886,7 @@ func rackBindingsUnchanged(old, current *mokkav1alpha1.SGPURack) bool {
 func nodeUnchanged(old, current *corev1.Node) bool {
 	return old.UID == current.UID &&
 		equality.Semantic.DeepEqual(old.Labels, current.Labels) &&
-		old.Annotations[controllerprojection.AssignmentAnnotation] == current.Annotations[controllerprojection.AssignmentAnnotation] &&
+		old.Annotations[inventorymetadata.AssignmentAnnotation] == current.Annotations[inventorymetadata.AssignmentAnnotation] &&
 		equality.Semantic.DeepEqual(old.ManagedFields, current.ManagedFields) &&
 		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
 }
@@ -897,7 +899,7 @@ func projectionOnlyNodeUpdate(old, current *corev1.Node) bool {
 
 func labelsEqualExceptProjection(old, current map[string]string) bool {
 	for key, value := range old {
-		if key == controllerprojection.AssignedLabel || key == controllerprojection.CliqueLabel {
+		if key == inventorymetadata.AssignedLabel || key == inventorymetadata.CliqueLabel {
 			continue
 		}
 		if currentValue, exists := current[key]; !exists || currentValue != value {
@@ -905,7 +907,7 @@ func labelsEqualExceptProjection(old, current map[string]string) bool {
 		}
 	}
 	for key := range current {
-		if key == controllerprojection.AssignedLabel || key == controllerprojection.CliqueLabel {
+		if key == inventorymetadata.AssignedLabel || key == inventorymetadata.CliqueLabel {
 			continue
 		}
 		if _, exists := old[key]; !exists {
@@ -924,7 +926,7 @@ func projectionsMatchBindings(node *corev1.Node, racks []*mokkav1alpha1.SGPURack
 				continue
 			}
 			found = true
-			if !controllerprojection.MatchesBinding(node, rack, slot) {
+			if !inventoryprojection.MatchesBinding(node, rack, slot) {
 				return false
 			}
 		}

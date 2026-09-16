@@ -19,7 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
-	"github.com/NVIDIA/k8s-test-infra/internal/mokka/materialize"
+	rackrender "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/rack"
 )
 
 const (
@@ -192,7 +192,7 @@ func check(o options, inventory *mokkav1alpha1.SGPUInventory, racks *mokkav1alph
 			addError("rack index %d is duplicated", index)
 		}
 		seenIndexes[index] = struct{}{}
-		wantName := materialize.RackName(inventory.Name, inventory.UID, "compute", index)
+		wantName := rackrender.RackName(inventory.Name, inventory.UID, "compute", index)
 		if rack.Name != wantName {
 			addError("rack index %d is named %q, want deterministic name %q", index, rack.Name, wantName)
 		}

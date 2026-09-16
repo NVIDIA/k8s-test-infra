@@ -28,12 +28,14 @@ import (
 	"k8s.io/klog/v2"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
-	"github.com/NVIDIA/k8s-test-infra/internal/mokka/allocate"
-	"github.com/NVIDIA/k8s-test-infra/internal/mokka/materialize"
-	controllernodes "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/nodecatalog"
-	controllerprojection "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/projection"
-	controllerack "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/rack"
-	controllerstatus "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/status"
+	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
+	inventorycleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/cleanup"
+	inventorymetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/metadata"
+	nodecatalog "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/nodecatalog"
+	inventoryprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/projection"
+	rackrender "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/rack"
+	inventorystatus "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/status"
 	versioned "github.com/NVIDIA/k8s-test-infra/pkg/generated/clientset/versioned"
 	mokkainformers "github.com/NVIDIA/k8s-test-infra/pkg/generated/informers/externalversions"
 )
@@ -114,7 +116,7 @@ type projectionKey struct {
 	rackName  string
 	nodeIndex int32
 	fresh     bool
-	cleanup   controllerack.CleanupNeeded
+	cleanup   inventorycleanup.CleanupNeeded
 }
 
 type statusKind uint8
@@ -211,32 +213,32 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 	profileInformer := profiles.Informer()
 	inventoryInformer := inventories.Informer()
 	rackInformer := racks.Informer()
-	if err := inventoryInformer.AddIndexers(controllerack.InventoryIndexers()); err != nil {
+	if err := inventoryInformer.AddIndexers(sgpuinventory.InventoryIndexers()); err != nil {
 		return nil, fmt.Errorf("add inventory indexes: %w", err)
 	}
-	if err := rackInformer.AddIndexers(controllerack.Indexers()); err != nil {
+	if err := rackInformer.AddIndexers(sgpuinventory.Indexers()); err != nil {
 		return nil, fmt.Errorf("add rack indexes: %w", err)
 	}
 	nodeInformer, err := newFilteredNodeInformer(nodes)
 	if err != nil {
 		return nil, err
 	}
-	nodeCatalog := controllernodes.New()
+	nodeCatalog := nodecatalog.New()
 
 	snapshot := newInformerCache(
 		inventories.Lister(), profiles.Lister(), rackInformer.GetIndexer(), nodeCatalog, nodes,
 		options,
 	)
-	projection := controllerprojection.NewController(snapshot, nodes)
-	allocation := controllerack.NewAllocationCache(snapshot)
-	rackReconciler := controllerack.NewReconcilerWithAllocationCache(
+	projection := inventoryprojection.NewController(snapshot, nodes)
+	allocation := sgpuinventory.NewAllocationCache(snapshot)
+	rackReconciler := sgpuinventory.NewReconcilerWithAllocationCache(
 		snapshot,
 		mokkaClient.MokkaV1alpha1().SGPUInventories(),
 		mokkaClient.MokkaV1alpha1().SGPURacks(),
 		projection,
 		allocation,
 	)
-	statusReconciler := controllerstatus.NewReconciler(
+	statusReconciler := inventorystatus.NewReconciler(
 		mokkaClient.MokkaV1alpha1().SGPUInventories(),
 		mokkaClient.MokkaV1alpha1().SGPURacks(),
 		nil,
@@ -265,7 +267,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 		name string,
 		group *allocate.GroupKey,
 		observed *mokkav1alpha1.SGPUInventory,
-		result controllerack.Result,
+		result sgpuinventory.Result,
 	) error {
 		inventory, getErr := snapshot.Inventory(name)
 		if getErr == nil {
@@ -285,7 +287,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 		if projection.HasAcknowledgedCleanups() {
 			for _, binding := range result.Allocation.Retained {
 				group := binding.Coordinate.Group
-				rackName := materialize.RackName(
+				rackName := rackrender.RackName(
 					group.InventoryName, group.InventoryUID, group.RackGroup, binding.Coordinate.RackIndex,
 				)
 				cleanup, acknowledged := projection.AcknowledgedCleanup(rackName, binding)
@@ -302,8 +304,8 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 			result, err := rackReconciler.Reconcile(ctx, name)
 			routeCapacityTransitions()
 			if err != nil {
-				var ownershipErr *controllerack.OwnershipConflictError
-				if errors.As(err, &ownershipErr) || errors.Is(err, controllerack.ErrRackCacheStale) {
+				var ownershipErr *sgpuinventory.OwnershipConflictError
+				if errors.As(err, &ownershipErr) || errors.Is(err, sgpuinventory.ErrRackCacheStale) {
 					if statusErr := finishRackReconcile(name, nil, observed, result); statusErr != nil {
 						return errors.Join(err, statusErr)
 					}
@@ -326,8 +328,8 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 			result, err := rackReconciler.ReconcileGroup(ctx, key)
 			routeCapacityTransitions()
 			if err != nil {
-				var ownershipErr *controllerack.OwnershipConflictError
-				if errors.As(err, &ownershipErr) || errors.Is(err, controllerack.ErrRackCacheStale) {
+				var ownershipErr *sgpuinventory.OwnershipConflictError
+				if errors.As(err, &ownershipErr) || errors.Is(err, sgpuinventory.ErrRackCacheStale) {
 					if statusErr := finishRackReconcile(key.InventoryName, &key, observed, result); statusErr != nil {
 						return errors.Join(err, statusErr)
 					}
@@ -352,7 +354,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 			if slot == nil {
 				return nil
 			}
-			if !key.fresh && projection.Ready(cleanupFor(rack, *slot, controllerack.CleanupNodeIneligible)) {
+			if !key.fresh && projection.Ready(cleanupFor(rack, *slot, inventorycleanup.CleanupNodeIneligible)) {
 				return nil
 			}
 			if key.fresh {
@@ -363,7 +365,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 			controller.queues.addStatus(statusKey{kind: statusRack, name: rack.Name, uid: rack.UID})
 			controller.queues.addStatus(statusKey{kind: statusInventory, name: rack.Spec.InventoryRef.Name, uid: rack.Spec.InventoryRef.UID})
 		case projectionCleanup:
-			var outcome controllerprojection.Outcome
+			var outcome inventoryprojection.Outcome
 			err = withInventoryLock(key.cleanup.Binding.Coordinate.Group.InventoryName, func() error {
 				if !cleanupTracksAllocation(key.cleanup.Reason) {
 					var cleanupErr error
@@ -408,13 +410,13 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 				}
 				return retryErr
 			})
-			if err == nil && outcome.State == controllerprojection.StateCleaned {
+			if err == nil && outcome.State == inventoryprojection.StateCleaned {
 				switch key.cleanup.Reason {
-				case controllerack.CleanupCapacityShrink,
-					controllerack.CleanupCapacityRejected,
-					controllerack.CleanupGroupRemoved,
-					controllerack.CleanupRackDeleting,
-					controllerack.CleanupInventoryDeleting:
+				case inventorycleanup.CleanupCapacityShrink,
+					inventorycleanup.CleanupCapacityRejected,
+					inventorycleanup.CleanupGroupRemoved,
+					inventorycleanup.CleanupRackDeleting,
+					inventorycleanup.CleanupInventoryDeleting:
 					controller.queues.inventories.Add(key.cleanup.Binding.Coordinate.Group.InventoryName)
 				default:
 					controller.queues.groups.Add(key.cleanup.Binding.Coordinate.Group)
@@ -517,7 +519,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 }
 
 func metadataConflict(err error) bool {
-	var conflict *controllerprojection.MetadataConflictError
+	var conflict *inventoryprojection.MetadataConflictError
 	return errors.As(err, &conflict)
 }
 
@@ -548,7 +550,7 @@ func updateRackConflictWaiters(
 	waiters *rackConflictWaiters,
 	current, observed *mokkav1alpha1.SGPUInventory,
 	group *allocate.GroupKey,
-	result controllerack.Result,
+	result sgpuinventory.Result,
 ) {
 	// A result computed from an obsolete Inventory must not restore waiters
 	// that its update event already discarded.
@@ -704,22 +706,22 @@ func boundRackSlot(rack *mokkav1alpha1.SGPURack, index int32) *mokkav1alpha1.SGP
 	return nil
 }
 
-func cleanupTracksAllocation(reason controllerack.CleanupReason) bool {
+func cleanupTracksAllocation(reason inventorycleanup.CleanupReason) bool {
 	switch reason {
-	case controllerack.CleanupCapacityShrink,
-		controllerack.CleanupCapacityRejected,
-		controllerack.CleanupGroupRemoved,
-		controllerack.CleanupNodeIneligible,
-		controllerack.CleanupSelectorMismatch:
+	case inventorycleanup.CleanupCapacityShrink,
+		inventorycleanup.CleanupCapacityRejected,
+		inventorycleanup.CleanupGroupRemoved,
+		inventorycleanup.CleanupNodeIneligible,
+		inventorycleanup.CleanupSelectorMismatch:
 		return true
-	case controllerack.CleanupRackDeleting, controllerack.CleanupInventoryDeleting:
+	case inventorycleanup.CleanupRackDeleting, inventorycleanup.CleanupInventoryDeleting:
 		return false
 	default:
 		return false
 	}
 }
 
-func cleanupBindingCurrent(snapshot *informerCache, cleanup controllerack.CleanupNeeded) bool {
+func cleanupBindingCurrent(snapshot *informerCache, cleanup inventorycleanup.CleanupNeeded) bool {
 	rack, err := snapshot.Rack(cleanup.RackName)
 	if err != nil || rack.UID != cleanup.RackUID {
 		return false
@@ -742,14 +744,14 @@ type resultKey struct {
 
 type resultStore struct {
 	mu      sync.RWMutex
-	results map[resultKey]controllerack.Result
+	results map[resultKey]sgpuinventory.Result
 }
 
 func newResultStore() *resultStore {
-	return &resultStore{results: make(map[resultKey]controllerack.Result)}
+	return &resultStore{results: make(map[resultKey]sgpuinventory.Result)}
 }
 
-func (s *resultStore) put(name string, uid types.UID, result controllerack.Result) {
+func (s *resultStore) put(name string, uid types.UID, result sgpuinventory.Result) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for key := range s.results {
@@ -760,7 +762,7 @@ func (s *resultStore) put(name string, uid types.UID, result controllerack.Resul
 	s.results[resultKey{name: name, uid: uid}] = result
 }
 
-func (s *resultStore) putGroup(name string, uid types.UID, group string, result controllerack.Result) {
+func (s *resultStore) putGroup(name string, uid types.UID, group string, result sgpuinventory.Result) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	key := resultKey{name: name, uid: uid}
@@ -778,12 +780,12 @@ func (s *resultStore) putGroup(name string, uid types.UID, group string, result 
 	s.results[key] = result
 }
 
-func (s *resultStore) get(name string, uid types.UID) controllerack.Result {
+func (s *resultStore) get(name string, uid types.UID) sgpuinventory.Result {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	result, found := s.results[resultKey{name: name, uid: uid}]
 	if !found {
-		return controllerack.Result{Accepted: true, ResolvedRefs: true}
+		return sgpuinventory.Result{Accepted: true, ResolvedRefs: true}
 	}
 	return result
 }
@@ -807,10 +809,10 @@ func compactNodeObject(object any) (any, error) {
 		return nil, fmt.Errorf("compact Node received %T", object)
 	}
 	annotations := make(map[string]string, 1)
-	if assignment := node.Annotations[controllerprojection.AssignmentAnnotation]; assignment != "" {
-		annotations[controllerprojection.AssignmentAnnotation] = assignment
+	if assignment := node.Annotations[inventorymetadata.AssignmentAnnotation]; assignment != "" {
+		annotations[inventorymetadata.AssignmentAnnotation] = assignment
 	}
-	managedFields := controllerprojection.CompactManagedFields(node.ManagedFields)
+	managedFields := inventoryprojection.CompactManagedFields(node.ManagedFields)
 	return &corev1.Node{
 		TypeMeta: node.TypeMeta,
 		ObjectMeta: metav1.ObjectMeta{

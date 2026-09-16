@@ -18,7 +18,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
-	"github.com/NVIDIA/k8s-test-infra/internal/mokka/materialize"
+	rackrender "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/rack"
 )
 
 func TestTemplatesRenderValidScaleResources(t *testing.T) {
@@ -27,7 +27,7 @@ func TestTemplatesRenderValidScaleResources(t *testing.T) {
 	var profile mokkav1alpha1.SGPURackProfile
 	require.NoError(t, yaml.Unmarshal([]byte(profileData), &profile))
 	require.Equal(t, int32(100), profile.Spec.Rack.NodesPerRack)
-	require.NoError(t, materialize.ValidateProfile(profile.Spec))
+	require.NoError(t, rackrender.ValidateProfile(profile.Spec))
 
 	inventoryData := readFile(t, "inventory.yaml")
 	inventoryData = strings.ReplaceAll(inventoryData, "__RACK_COUNT__", "10")

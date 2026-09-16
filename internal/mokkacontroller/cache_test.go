@@ -14,7 +14,7 @@ import (
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
-	controllernodes "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/nodecatalog"
+	nodecatalog "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/nodecatalog"
 	"github.com/stretchr/testify/require"
 )
 
@@ -22,7 +22,7 @@ func TestProjectionTargetDoesNotLiveGetNodeOutsideEligibleCache(t *testing.T) {
 	live := &countingNodeGetter{node: &corev1.Node{ObjectMeta: metav1.ObjectMeta{
 		Name: "node", UID: "node-uid",
 	}}}
-	snapshot := newInformerCache(nil, nil, nil, controllernodes.New(), live, DefaultOptions())
+	snapshot := newInformerCache(nil, nil, nil, nodecatalog.New(), live, DefaultOptions())
 	rack := &mokkav1alpha1.SGPURack{Spec: mokkav1alpha1.SGPURackSpec{
 		Nodes: []mokkav1alpha1.SGPURackNode{{
 			Index: 0, NodeRef: &mokkav1alpha1.SGPUNodeReference{Name: live.node.Name, UID: live.node.UID},
@@ -39,7 +39,7 @@ func TestProjectionTargetDoesNotLiveGetNodeOutsideEligibleCache(t *testing.T) {
 
 func TestLiveNodeFallbackUsesCallerContextAndDeadline(t *testing.T) {
 	live := newBlockingNodeGetter()
-	cache := newInformerCache(nil, nil, nil, controllernodes.New(), live, Options{
+	cache := newInformerCache(nil, nil, nil, nodecatalog.New(), live, Options{
 		Workers: 1, LiveNodeGetTimeout: 2 * time.Hour,
 	})
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(time.Hour))

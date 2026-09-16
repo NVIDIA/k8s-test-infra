@@ -13,7 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
-	"github.com/NVIDIA/k8s-test-infra/internal/mokka/materialize"
+	rackrender "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/rack"
 )
 
 func TestCheckAcceptsExactProjectionAndRejectsUIDDrift(t *testing.T) {
@@ -85,7 +85,7 @@ func validFixture(t *testing.T) (options, *mokkav1alpha1.SGPUInventory, *mokkav1
 	for index := range inventory.Status.Conditions {
 		inventory.Status.Conditions[index].ObservedGeneration = inventory.Generation
 	}
-	rackName := materialize.RackName(inventory.Name, inventoryUID, "compute", 0)
+	rackName := rackrender.RackName(inventory.Name, inventoryUID, "compute", 0)
 	rack := mokkav1alpha1.SGPURack{
 		ObjectMeta: metav1.ObjectMeta{Name: rackName, UID: rackUID, Generation: 1},
 		Spec: mokkav1alpha1.SGPURackSpec{

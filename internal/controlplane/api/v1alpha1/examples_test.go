@@ -13,7 +13,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
-	"github.com/NVIDIA/k8s-test-infra/internal/mokka/materialize"
+	rackrender "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/rack"
 )
 
 func TestControllerExamplesAreTypedAndMaterializable(t *testing.T) {
@@ -24,7 +24,7 @@ func TestControllerExamplesAreTypedAndMaterializable(t *testing.T) {
 	require.NoError(t, yaml.UnmarshalStrict(profileData, profile))
 	require.Equal(t, mokkav1alpha1.SchemeGroupVersion.String(), profile.APIVersion)
 	require.Equal(t, "SGPURackProfile", profile.Kind)
-	require.NoError(t, materialize.ValidateProfile(profile.Spec))
+	require.NoError(t, rackrender.ValidateProfile(profile.Spec))
 	require.Positive(t, profile.Spec.Node.GPUs.Memory.Capacity.Value())
 	require.Positive(t, profile.Spec.Node.GPUs.Clocks.Supported[0].MemoryMHz)
 
