@@ -181,6 +181,11 @@ declares no max_gpu_instances cannot partition at all, and no layout supplied
 here changes that. A capable board with no layout would boot MIG-enabled and
 unpartitioned, which publishes no GPU resource whatsoever under
 migStrategy=single.
+
+The second is counted rather than measured: a layout can be present and still
+ask for nothing, as a single entry with count 0 does, and that board comes up in
+the same unusable state as one with no layout at all. An entry with no count is
+one instance, which is how the engine reads it.
 */ -}}
 {{- $mig := get $defaults "mig" | default (dict) -}}
 {{- if .Values.gpu.mig.gpuInstances -}}
@@ -189,7 +194,15 @@ migStrategy=single.
 {{- if not (get $mig "max_gpu_instances") -}}
 {{- fail (printf "gpu.mig.enabled is set but profile %q is not a MIG-capable board: it declares no mig.max_gpu_instances" .Values.gpu.profile) -}}
 {{- end -}}
-{{- if not (get $mig "gpu_instances") -}}
+{{- $partitions := 0 -}}
+{{- range $instance := (get $mig "gpu_instances" | default list) -}}
+{{- $count := 1 -}}
+{{- if hasKey $instance "count" -}}
+{{- $count = get $instance "count" | int -}}
+{{- end -}}
+{{- $partitions = add $partitions $count -}}
+{{- end -}}
+{{- if eq (int $partitions) 0 -}}
 {{- fail "gpu.mig.enabled is set but gpu.mig.gpuInstances declares no partitions, so the node would come up MIG-enabled with nothing partitioned. Name the layout, e.g. --set gpu.mig.gpuInstances[0].profile=1g.10gb --set gpu.mig.gpuInstances[0].count=7" -}}
 {{- end -}}
 {{- $_ := set $mig "mode_current" "enabled" -}}

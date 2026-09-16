@@ -680,6 +680,37 @@ tests:
       - failedTemplate:
           errorMessage: 'gpu.mig.enabled is set but gpu.mig.gpuInstances declares no partitions, so the node would come up MIG-enabled with nothing partitioned. Name the layout, e.g. --set gpu.mig.gpuInstances[0].profile=1g.10gb --set gpu.mig.gpuInstances[0].count=7'
 
+  # A layout can be present and still describe nothing. The board would come up
+  # in the same unusable state as one with no layout at all, so it is the same
+  # refusal.
+  - it: should reject a layout whose counts add up to no partitions
+    set:
+      gpu:
+        profile: a100
+        mig:
+          enabled: true
+          gpuInstances:
+            - profile: "1g.5gb"
+              count: 0
+    asserts:
+      - failedTemplate:
+          errorMessage: 'gpu.mig.enabled is set but gpu.mig.gpuInstances declares no partitions, so the node would come up MIG-enabled with nothing partitioned. Name the layout, e.g. --set gpu.mig.gpuInstances[0].profile=1g.10gb --set gpu.mig.gpuInstances[0].count=7'
+
+  # An entry with no count is one instance, which is what the engine reads it
+  # as, so a layout of bare profile names is a valid partitioning.
+  - it: should accept an entry that omits count
+    set:
+      gpu:
+        profile: a100
+        mig:
+          enabled: true
+          gpuInstances:
+            - profile: "7g.40gb"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'mode_current: enabled'
+
   # gpuInstances is what every MIG install partitions with, whichever board it
   # names.
   - it: should accept gpuInstances on any capable board
