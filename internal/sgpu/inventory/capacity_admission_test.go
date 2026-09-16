@@ -520,7 +520,7 @@ func TestReconcileRejectsAggregateCrossInventoryCapacityBeforeAllocationOrWrites
 	h := newHarness(t, []runtime.Object{profile, first, blocked}, nil)
 	allocation := NewAllocationCache(h.cache)
 	allocationCalls := 0
-	allocation.allocate = func(allocate.Input) (allocate.Plan, error) {
+	allocation.allocate = func(allocate.Snapshot) (allocate.Plan, error) {
 		allocationCalls++
 		return allocate.Plan{}, nil
 	}

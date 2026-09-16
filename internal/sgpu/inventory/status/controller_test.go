@@ -76,7 +76,7 @@ func TestComputeInventoryRequestedNodesAreDistinctWhileGroupsOverlap(t *testing.
 	input.RackResult.Allocation = allocate.Plan{Conflicts: []allocate.Conflict{{
 		Kind:       allocate.ConflictSelectorOverlap,
 		Node:       allocationNode(input.Nodes[0]),
-		Candidates: []allocate.GroupKey{groupKey(input.Inventory, "a"), groupKey(input.Inventory, "b")},
+		Candidates: []allocate.RackGroupKey{groupKey(input.Inventory, "a"), groupKey(input.Inventory, "b")},
 	}}}
 
 	got := ComputeInventory(input, metav1.Now())
@@ -575,9 +575,9 @@ func aggregateInput(t testing.TB) InventoryInput {
 		{name: "a-duplicate", uid: "a-duplicate-uid"},
 	})
 	allocation := allocate.Plan{
-		Pending: []allocate.Node{allocationNode(nodes[3])},
+		Pending: []allocate.KubernetesNode{allocationNode(nodes[3])},
 		Conflicts: []allocate.Conflict{
-			{Kind: allocate.ConflictSelectorOverlap, Node: allocationNode(nodes[0]), Candidates: []allocate.GroupKey{groupKey(inventory, "a"), groupKey(inventory, "b")}},
+			{Kind: allocate.ConflictSelectorOverlap, Node: allocationNode(nodes[0]), Candidates: []allocate.RackGroupKey{groupKey(inventory, "a"), groupKey(inventory, "b")}},
 			{Kind: allocate.ConflictDuplicateBinding, Node: allocationNode(nodes[2]), Bindings: []allocate.Binding{
 				binding(inventory, "a", 0, 1, nodes[2]), binding(inventory, "b", 0, 1, nodes[2]),
 			}},
@@ -761,8 +761,8 @@ func statusRack(inventory *mokkav1alpha1.SGPUInventory, name string, uid types.U
 	}
 }
 
-func groupKey(inventory *mokkav1alpha1.SGPUInventory, group string) allocate.GroupKey {
-	return allocate.GroupKey{InventoryName: inventory.Name, InventoryUID: inventory.UID, RackGroup: group}
+func groupKey(inventory *mokkav1alpha1.SGPUInventory, group string) allocate.RackGroupKey {
+	return allocate.RackGroupKey{InventoryName: inventory.Name, InventoryUID: inventory.UID, RackGroup: group}
 }
 
 func binding(inventory *mokkav1alpha1.SGPUInventory, group string, rackIndex, nodeIndex int32, node *corev1.Node) allocate.Binding {
@@ -772,8 +772,8 @@ func binding(inventory *mokkav1alpha1.SGPUInventory, group string, rackIndex, no
 	}
 }
 
-func allocationNode(node *corev1.Node) allocate.Node {
-	return allocate.Node{Name: node.Name, UID: node.UID, Labels: node.Labels}
+func allocationNode(node *corev1.Node) allocate.KubernetesNode {
+	return allocate.KubernetesNode{Name: node.Name, UID: node.UID, Labels: node.Labels}
 }
 
 func condition(conditions []metav1.Condition, conditionType string) metav1.Condition {

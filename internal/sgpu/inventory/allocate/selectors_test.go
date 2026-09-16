@@ -14,7 +14,7 @@ import (
 )
 
 func TestClassifyEligibleNodes(t *testing.T) {
-	groups, err := CompileGroups([]Group{
+	groups, err := CompileGroups([]RackGroup{
 		{
 			Key:      groupKey("inventory-a", "red"),
 			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"pool": "red"}},
@@ -29,7 +29,7 @@ func TestClassifyEligibleNodes(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	classified, stats := Classify([]Node{
+	classified, stats := Classify([]KubernetesNode{
 		node("red-fast", "1", 1, map[string]string{EligibleNodeLabel: "true", "pool": "red", "speed": "fast"}),
 		node("red-slow", "2", 2, map[string]string{EligibleNodeLabel: "true", "pool": "red", "speed": "slow"}),
 		node("unlabelled", "3", 3, map[string]string{"pool": "red"}),
@@ -39,7 +39,7 @@ func TestClassifyEligibleNodes(t *testing.T) {
 	require.Equal(t, []Classification{
 		{
 			Node: node("red-fast", "1", 1, map[string]string{EligibleNodeLabel: "true", "pool": "red", "speed": "fast"}),
-			Candidates: []GroupKey{
+			Candidates: []RackGroupKey{
 				groupKey("inventory-a", "red"),
 				groupKey("inventory-b", "fast"),
 				groupKey("inventory-c", "all"),
@@ -47,7 +47,7 @@ func TestClassifyEligibleNodes(t *testing.T) {
 		},
 		{
 			Node: node("red-slow", "2", 2, map[string]string{EligibleNodeLabel: "true", "pool": "red", "speed": "slow"}),
-			Candidates: []GroupKey{
+			Candidates: []RackGroupKey{
 				groupKey("inventory-a", "red"),
 				groupKey("inventory-c", "all"),
 			},
@@ -57,7 +57,7 @@ func TestClassifyEligibleNodes(t *testing.T) {
 }
 
 func TestCompileGroupsRejectsInvalidAndDuplicateSelectors(t *testing.T) {
-	_, err := CompileGroups([]Group{
+	_, err := CompileGroups([]RackGroup{
 		{
 			Key: groupKey("inventory-a", "invalid"),
 			Selector: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
@@ -68,7 +68,7 @@ func TestCompileGroupsRejectsInvalidAndDuplicateSelectors(t *testing.T) {
 	})
 	require.ErrorContains(t, err, "inventory-a/invalid")
 
-	_, err = CompileGroups([]Group{
+	_, err = CompileGroups([]RackGroup{
 		{Key: groupKey("inventory-a", "same")},
 		{Key: groupKey("inventory-a", "same")},
 	})
@@ -110,22 +110,22 @@ func TestValidatePlacementSelectorAcceptsOperatorOwnedLabels(t *testing.T) {
 }
 
 func TestEmptySelectorMatchesEveryEligibleNode(t *testing.T) {
-	groups, err := CompileGroups([]Group{{
+	groups, err := CompileGroups([]RackGroup{{
 		Key:      groupKey("inventory-a", "all"),
 		Selector: &metav1.LabelSelector{},
 	}})
 	require.NoError(t, err)
 
-	classified, _ := Classify([]Node{
+	classified, _ := Classify([]KubernetesNode{
 		node("eligible", "eligible-uid", 1, eligibleLabels()),
 		node("not-eligible", "not-eligible-uid", 2, nil),
 	}, groups)
 	require.Equal(t, []Classification{{
 		Node:       node("eligible", "eligible-uid", 1, eligibleLabels()),
-		Candidates: []GroupKey{groupKey("inventory-a", "all")},
+		Candidates: []RackGroupKey{groupKey("inventory-a", "all")},
 	}}, classified)
 }
 
-func groupKey(inventory, rackGroup string) GroupKey {
-	return GroupKey{InventoryName: inventory, InventoryUID: types.UID(inventory + "-uid"), RackGroup: rackGroup}
+func groupKey(inventory, rackGroup string) RackGroupKey {
+	return RackGroupKey{InventoryName: inventory, InventoryUID: types.UID(inventory + "-uid"), RackGroup: rackGroup}
 }

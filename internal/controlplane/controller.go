@@ -10,11 +10,9 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/google/uuid"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -35,7 +33,7 @@ type Controller struct {
 
 // NewController builds Kubernetes clients and the informer-driven reconciler.
 func NewController(config Config) (*Controller, error) {
-	if err := ValidateControllerConfig(config); err != nil {
+	if err := config.validate(); err != nil {
 		return nil, err
 	}
 	restConfig, err := controllerRESTConfig(config)
@@ -58,41 +56,6 @@ func NewController(config Config) (*Controller, error) {
 		config: config, kubeClient: kubeClient, reconciler: reconciler,
 		readiness: newElectionReadiness(),
 	}, nil
-}
-
-// ValidateControllerConfig rejects settings that cannot make progress safely.
-//
-//nolint:cyclop // Each branch reports a distinct unsafe controller setting.
-func ValidateControllerConfig(config Config) error {
-	leaderElection := config.LeaderElection
-	if leaderElection.Namespace == "" || leaderElection.Name == "" {
-		return errors.New("leader-election namespace and name must not be empty")
-	}
-	if errs := validation.IsDNS1123Subdomain(leaderElection.Name); len(errs) > 0 {
-		return fmt.Errorf("leader-election name %q is invalid: %s", leaderElection.Name, errs[0])
-	}
-	if errs := validation.IsDNS1123Label(leaderElection.Namespace); len(errs) > 0 {
-		return fmt.Errorf("leader-election namespace %q is invalid: %s", leaderElection.Namespace, errs[0])
-	}
-	controller := config.Controller
-	if controller.Workers < 1 || controller.StatusDebounce < 0 || controller.StatusProgressInterval < 0 ||
-		controller.LiveNodeGetTimeout <= 0 {
-		return errors.New("workers and live Node GET timeout must be positive and status intervals non-negative")
-	}
-	if controller.StatusProgressInterval > 0 && controller.StatusProgressInterval < controller.StatusDebounce {
-		return errors.New("status progress interval must not be shorter than status debounce")
-	}
-	if leaderElection.LeaseDuration <= 0 || leaderElection.RenewDeadline <= 0 ||
-		leaderElection.RetryPeriod <= 0 || leaderElection.LeaseDuration <= leaderElection.RenewDeadline ||
-		leaderElection.RenewDeadline <= time.Duration(
-			leaderelection.JitterFactor*float64(leaderElection.RetryPeriod),
-		) {
-		return errors.New("leader-election durations must satisfy lease > renew > retry*jitter")
-	}
-	if config.Kubernetes.QPS <= 0 || config.Kubernetes.Burst < 1 {
-		return errors.New("kubernetes API QPS and burst must be positive")
-	}
-	return nil
 }
 
 // Ready reports whether this replica has synchronized caches and can participate in service.

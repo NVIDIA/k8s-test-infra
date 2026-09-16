@@ -134,7 +134,7 @@ type statusKey struct {
 
 type queues struct {
 	inventories workqueue.TypedRateLimitingInterface[string]
-	groups      workqueue.TypedRateLimitingInterface[allocate.GroupKey]
+	groups      workqueue.TypedRateLimitingInterface[allocate.RackGroupKey]
 	projections workqueue.TypedRateLimitingInterface[projectionKey]
 	status      workqueue.TypedRateLimitingInterface[statusKey]
 	statuses    *statusCoalescer
@@ -148,7 +148,7 @@ func newQueuesWithStatusIntervals(debounce, progressInterval time.Duration) *que
 	statusQueue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[statusKey]())
 	return &queues{
 		inventories: workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()),
-		groups:      workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[allocate.GroupKey]()),
+		groups:      workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[allocate.RackGroupKey]()),
 		projections: workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[projectionKey]()),
 		status:      statusQueue,
 		statuses:    newStatusCoalescer(statusQueue, debounce, progressInterval, realStatusScheduler{}),
@@ -193,7 +193,7 @@ type Controller struct {
 	snapshot         *informerCache
 
 	reconcileInventory  func(context.Context, string) error
-	reconcileGroup      func(context.Context, allocate.GroupKey) error
+	reconcileGroup      func(context.Context, allocate.RackGroupKey) error
 	reconcileProjection func(context.Context, projectionKey) error
 	reconcileStatus     func(context.Context, statusKey) error
 }
@@ -277,7 +277,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 	}
 	finishRackReconcile := func(
 		name string,
-		group *allocate.GroupKey,
+		group *allocate.RackGroupKey,
 		observed *mokkav1alpha1.SGPUInventory,
 		result sgpuinventory.Result,
 	) error {
@@ -327,7 +327,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 			return finishRackReconcile(name, nil, observed, result)
 		})
 	}
-	controller.reconcileGroup = func(ctx context.Context, key allocate.GroupKey) error {
+	controller.reconcileGroup = func(ctx context.Context, key allocate.RackGroupKey) error {
 		return withInventoryLock(key.InventoryName, func() error {
 			inventory, err := snapshot.Inventory(key.InventoryName)
 			if apierrors.IsNotFound(err) || (err == nil && inventory.UID != key.InventoryUID) {
@@ -559,7 +559,7 @@ func retryProjectionCleanupRevision(ctx context.Context, attempt func() (bool, e
 func updateRackConflictWaiters(
 	waiters *rackConflictWaiters,
 	current, observed *mokkav1alpha1.SGPUInventory,
-	group *allocate.GroupKey,
+	group *allocate.RackGroupKey,
 	result sgpuinventory.Result,
 ) {
 	// A result computed from an obsolete Inventory must not restore waiters

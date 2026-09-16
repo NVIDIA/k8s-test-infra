@@ -338,7 +338,7 @@ func TestControllerCancelsQueuedCleanupWhenSelectorRestoresBinding(t *testing.T)
 	restoring := atomic.Bool{}
 	restored := make(chan struct{})
 	var restoredOnce sync.Once
-	controller.reconcileGroup = func(ctx context.Context, key allocate.GroupKey) error {
+	controller.reconcileGroup = func(ctx context.Context, key allocate.RackGroupKey) error {
 		err := originalGroup(ctx, key)
 		if err == nil && restoring.Load() {
 			restoredOnce.Do(func() { close(restored) })
@@ -421,7 +421,7 @@ func TestControllerRestoresBindingWhenAllocationChangesDuringCleanup(t *testing.
 	restoring := atomic.Bool{}
 	restoreStarted := make(chan struct{})
 	var restoreOnce sync.Once
-	controller.reconcileGroup = func(ctx context.Context, key allocate.GroupKey) error {
+	controller.reconcileGroup = func(ctx context.Context, key allocate.RackGroupKey) error {
 		if restoring.Load() {
 			restoreOnce.Do(func() { close(restoreStarted) })
 		}
@@ -511,7 +511,7 @@ func TestControllerRestoresBindingWhenAllocationChangesAfterCleanup(t *testing.T
 	var releaseOnce sync.Once
 	release := func() { releaseOnce.Do(func() { close(releaseFollowup) }) }
 	t.Cleanup(release)
-	controller.reconcileGroup = func(ctx context.Context, key allocate.GroupKey) error {
+	controller.reconcileGroup = func(ctx context.Context, key allocate.RackGroupKey) error {
 		if mismatchStarted.Load() && mismatchGroups.Add(1) == 2 {
 			close(followupStarted)
 			select {

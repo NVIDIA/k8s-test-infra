@@ -580,7 +580,7 @@ func groupSelector(group mokkav1alpha1.RackGroup) (labels.Selector, error) {
 	return allocate.CompilePlacementSelector(group.Placement.NodeSelector)
 }
 
-func matchingGroups(node allocate.Node, groups map[string]*groupAggregate) []string {
+func matchingGroups(node allocate.KubernetesNode, groups map[string]*groupAggregate) []string {
 	matches := make([]string, 0, 1)
 	if node.Labels[allocate.EligibleNodeLabel] != "true" {
 		return matches

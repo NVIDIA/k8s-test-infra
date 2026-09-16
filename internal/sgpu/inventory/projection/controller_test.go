@@ -1112,7 +1112,7 @@ func cleanupFor(rack *mokkav1alpha1.SGPURack) inventorycleanup.CleanupNeeded {
 		RackUID:  rack.UID,
 		Binding: allocate.Binding{
 			Coordinate: allocate.Coordinate{
-				Group:     allocate.GroupKey{InventoryName: rack.Spec.InventoryRef.Name, InventoryUID: rack.Spec.InventoryRef.UID, RackGroup: rack.Spec.Identity.RackGroup},
+				Group:     allocate.RackGroupKey{InventoryName: rack.Spec.InventoryRef.Name, InventoryUID: rack.Spec.InventoryRef.UID, RackGroup: rack.Spec.Identity.RackGroup},
 				RackIndex: rack.Spec.Identity.RackIndex,
 				NodeIndex: slot.Index,
 			},

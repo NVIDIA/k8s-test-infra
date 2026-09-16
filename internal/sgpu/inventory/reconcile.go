@@ -180,12 +180,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, key string) (Result, error) 
 
 // ReconcileGroup applies one exact allocation group while retaining a global
 // allocation snapshot for cross-inventory overlap and duplicate detection.
-func (r *Reconciler) ReconcileGroup(ctx context.Context, key allocate.GroupKey) (Result, error) {
+func (r *Reconciler) ReconcileGroup(ctx context.Context, key allocate.RackGroupKey) (Result, error) {
 	return r.reconcile(ctx, key.InventoryName, &key)
 }
 
 //nolint:cyclop // The branches are the explicit inventory and rack lifecycle state machine.
-func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *allocate.GroupKey) (Result, error) {
+func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *allocate.RackGroupKey) (Result, error) {
 	result := Result{Accepted: true, ResolvedRefs: true}
 	if r.refreshAllocation {
 		r.allocation.Invalidate()
@@ -560,7 +560,7 @@ type resolvedGroup struct {
 	group    mokkav1alpha1.RackGroup
 	profile  *mokkav1alpha1.SGPURackProfile
 	revision rackrender.PrecomputedProfileRevision
-	key      allocate.GroupKey
+	key      allocate.RackGroupKey
 }
 
 func (r *Reconciler) resolveGroups(inventory *mokkav1alpha1.SGPUInventory) ([]resolvedGroup, []ProfileIssue, error) {
@@ -615,7 +615,7 @@ func (r *Reconciler) resolveGroups(inventory *mokkav1alpha1.SGPUInventory) ([]re
 			group:    group,
 			profile:  profile,
 			revision: observed.revision,
-			key:      allocate.GroupKey{InventoryName: inventory.Name, InventoryUID: inventory.UID, RackGroup: group.ID},
+			key:      allocate.RackGroupKey{InventoryName: inventory.Name, InventoryUID: inventory.UID, RackGroup: group.ID},
 		})
 	}
 	return resolved, issues, nil
@@ -766,7 +766,7 @@ func (r *Reconciler) preservePendingReleases(
 			continue
 		}
 		coordinate := allocate.Coordinate{
-			Group: allocate.GroupKey{
+			Group: allocate.RackGroupKey{
 				InventoryName: existing.Spec.InventoryRef.Name,
 				InventoryUID:  existing.Spec.InventoryRef.UID,
 				RackGroup:     existing.Spec.Identity.RackGroup,
@@ -807,7 +807,7 @@ func (r *Reconciler) retireRack(
 		}
 		binding := allocate.Binding{
 			Coordinate: allocate.Coordinate{
-				Group:     allocate.GroupKey{InventoryName: inventory.Name, InventoryUID: inventory.UID, RackGroup: rack.Spec.Identity.RackGroup},
+				Group:     allocate.RackGroupKey{InventoryName: inventory.Name, InventoryUID: inventory.UID, RackGroup: rack.Spec.Identity.RackGroup},
 				RackIndex: rack.Spec.Identity.RackIndex, NodeIndex: slot.Index,
 			},
 			Node: allocate.NodeReference{Name: slot.NodeRef.Name, UID: slot.NodeRef.UID},
@@ -1272,7 +1272,7 @@ func filterOwnedRacks(racks []*mokkav1alpha1.SGPURack, inventory *mokkav1alpha1.
 }
 
 type allocationRackKey struct {
-	group     allocate.GroupKey
+	group     allocate.RackGroupKey
 	rackIndex int32
 }
 
@@ -1330,7 +1330,7 @@ func indexAllocation(
 	return indexed
 }
 
-func allocationChangedRacks(plan allocate.Plan, group allocate.GroupKey, rackCount int32) []int32 {
+func allocationChangedRacks(plan allocate.Plan, group allocate.RackGroupKey, rackCount int32) []int32 {
 	changed := make(map[int32]struct{}, len(plan.Assigned)+len(plan.Released))
 	for _, binding := range plan.Assigned {
 		if binding.Coordinate.Group == group && binding.Coordinate.RackIndex >= 0 &&
@@ -1354,7 +1354,7 @@ func allocationChangedRacks(plan allocate.Plan, group allocate.GroupKey, rackCou
 
 func indexGroupAllocation(
 	plan allocate.Plan,
-	group allocate.GroupKey,
+	group allocate.RackGroupKey,
 	rackIndices []int32,
 ) allocationIndex {
 	indexed := allocationIndex{

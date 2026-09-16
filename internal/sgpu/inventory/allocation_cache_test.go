@@ -26,7 +26,7 @@ func TestAllocationCacheCoalescesConcurrentGroupViews(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var allocateCalls atomic.Int64
-	planner.allocate = func(input allocate.Input) (allocate.Plan, error) {
+	planner.allocate = func(input allocate.Snapshot) (allocate.Plan, error) {
 		if allocateCalls.Add(1) == 1 {
 			close(started)
 		}
@@ -103,7 +103,7 @@ func TestAllocationCacheInvalidatesNodeIdentitySpecsAndRackBindings(t *testing.T
 	source.mu.Lock()
 	replacement := oldNode
 	replacement.UID = "replacement-uid"
-	source.nodes = []allocate.Node{replacement}
+	source.nodes = []allocate.KubernetesNode{replacement}
 	source.nodeGeneration++
 	source.mu.Unlock()
 	recreated, err := planner.plan(&key, instanceForGroup(key))
@@ -111,7 +111,7 @@ func TestAllocationCacheInvalidatesNodeIdentitySpecsAndRackBindings(t *testing.T
 	require.Len(t, recreated.Released, 1)
 	require.Equal(t, oldNode.UID, recreated.Released[0].Binding.Node.UID)
 	require.Equal(t, allocate.ReleaseNodeGone, recreated.Released[0].Reason)
-	require.Equal(t, []allocate.Node{replacement}, recreated.Pending)
+	require.Equal(t, []allocate.KubernetesNode{replacement}, recreated.Pending)
 	require.EqualValues(t, 2, planner.Stats().Computations)
 
 	source.mu.Lock()
@@ -179,7 +179,7 @@ func TestAllocationCacheRejectsGenerationChangedDuringComputation(t *testing.T) 
 	revision := planner.revision()
 	started := make(chan struct{})
 	release := make(chan struct{})
-	planner.allocate = func(input allocate.Input) (allocate.Plan, error) {
+	planner.allocate = func(input allocate.Snapshot) (allocate.Plan, error) {
 		close(started)
 		<-release
 		return allocate.Allocate(input)
@@ -194,7 +194,7 @@ func TestAllocationCacheRejectsGenerationChangedDuringComputation(t *testing.T) 
 	source.mu.Lock()
 	replacement := source.nodes[0]
 	replacement.UID = "replacement-uid"
-	source.nodes = []allocate.Node{replacement}
+	source.nodes = []allocate.KubernetesNode{replacement}
 	source.nodeGeneration++
 	source.mu.Unlock()
 	close(release)
@@ -213,11 +213,11 @@ func TestAllocationInputPreservedBindingsOccupyNodesUntilInventoryRecovers(t *te
 	contenderProfile := testProfile("contender-profile", "contender-profile-uid", 1, 1, 1)
 	preserved := testInventory("preserved", "preserved-uid", preservedProfile.Name, 1)
 	contender := testInventory("contender", "contender-uid", contenderProfile.Name, 1)
-	node := allocate.Node{
+	node := allocate.KubernetesNode{
 		Name: "node", UID: "node-uid",
 		Labels: map[string]string{allocate.EligibleNodeLabel: "true", "pool": "gpu"},
 	}
-	preservedKey := allocate.GroupKey{
+	preservedKey := allocate.RackGroupKey{
 		InventoryName: preserved.Name, InventoryUID: preserved.UID, RackGroup: "group",
 	}
 	preservedBinding := allocate.Binding{
@@ -234,7 +234,7 @@ func TestAllocationInputPreservedBindingsOccupyNodesUntilInventoryRecovers(t *te
 				Name: node.Name, UID: node.UID,
 			}),
 		},
-		nodes: []allocate.Node{node},
+		nodes: []allocate.KubernetesNode{node},
 	}
 
 	unresolvedInput, err := allocationInput(source)
@@ -248,7 +248,7 @@ func TestAllocationInputPreservedBindingsOccupyNodesUntilInventoryRecovers(t *te
 	require.Equal(t, []allocate.Release{{
 		Binding: preservedBinding, Reason: allocate.ReleaseGroupRemoved,
 	}}, unresolvedPlan.Released)
-	require.Equal(t, []allocate.Node{node}, unresolvedPlan.Pending)
+	require.Equal(t, []allocate.KubernetesNode{node}, unresolvedPlan.Pending)
 
 	source.mu.Lock()
 	source.profiles[preservedProfile.Name] = preservedProfile
@@ -323,7 +323,7 @@ type mutableAllocationSource struct {
 	inventories    []*mokkav1alpha1.SGPUInventory
 	profiles       map[string]*mokkav1alpha1.SGPURackProfile
 	racks          []*mokkav1alpha1.SGPURack
-	nodes          []allocate.Node
+	nodes          []allocate.KubernetesNode
 	nodeGeneration uint64
 }
 
@@ -400,16 +400,16 @@ func (s *mutableAllocationSource) AllocationNodeGeneration() uint64 {
 	return s.nodeGeneration
 }
 
-func (s *mutableAllocationSource) AllocationNodes() ([]allocate.Node, error) {
+func (s *mutableAllocationSource) AllocationNodes() ([]allocate.KubernetesNode, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return append([]allocate.Node(nil), s.nodes...), nil
+	return append([]allocate.KubernetesNode(nil), s.nodes...), nil
 }
 
 func allocationScaleSource(
 	nodeCount int,
 	groupCount int,
-) (*mutableAllocationSource, *mokkav1alpha1.SGPUInventory, []allocate.GroupKey) {
+) (*mutableAllocationSource, *mokkav1alpha1.SGPUInventory, []allocate.RackGroupKey) {
 	perGroup := nodeCount / groupCount
 	rackCount := (perGroup + 1023) / 1024
 	nodesPerRack := perGroup / rackCount
@@ -417,7 +417,7 @@ func allocationScaleSource(
 	inventory := testInventory("inventory", "inventory-uid", profile.Name, 1)
 	inventory.Finalizers = []string{InventoryFinalizer}
 	inventory.Spec.RackGroups = make([]mokkav1alpha1.RackGroup, groupCount)
-	keys := make([]allocate.GroupKey, groupCount)
+	keys := make([]allocate.RackGroupKey, groupCount)
 	for index := range groupCount {
 		group := fmt.Sprintf("group-%02d", index)
 		inventory.Spec.RackGroups[index] = mokkav1alpha1.RackGroup{
@@ -427,14 +427,14 @@ func allocationScaleSource(
 				MatchLabels: map[string]string{"pool": group},
 			}},
 		}
-		keys[index] = allocate.GroupKey{
+		keys[index] = allocate.RackGroupKey{
 			InventoryName: inventory.Name, InventoryUID: inventory.UID, RackGroup: group,
 		}
 	}
-	nodes := make([]allocate.Node, nodeCount)
+	nodes := make([]allocate.KubernetesNode, nodeCount)
 	for index := range nodeCount {
 		group := fmt.Sprintf("group-%02d", index%groupCount)
-		nodes[index] = allocate.Node{
+		nodes[index] = allocate.KubernetesNode{
 			Name: fmt.Sprintf("node-%06d", index), UID: types.UID(fmt.Sprintf("node-uid-%06d", index)),
 			Labels: map[string]string{allocate.EligibleNodeLabel: "true", "pool": group},
 		}
@@ -448,7 +448,7 @@ func allocationScaleSource(
 
 func allocationRack(
 	inventory *mokkav1alpha1.SGPUInventory,
-	key allocate.GroupKey,
+	key allocate.RackGroupKey,
 	uid types.UID,
 	ref *mokkav1alpha1.SGPUNodeReference,
 ) *mokkav1alpha1.SGPURack {

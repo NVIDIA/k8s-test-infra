@@ -19,7 +19,7 @@ import (
 const EligibleNodeLabel = "mokka.nvidia.com/sgpu-node"
 
 type compiledGroup struct {
-	group    Group
+	group    RackGroup
 	selector labels.Selector
 }
 
@@ -30,14 +30,14 @@ type CompiledGroups struct {
 
 // Classification is the ordered candidate set for one eligible Node.
 type Classification struct {
-	Node       Node
-	Candidates []GroupKey
+	Node       KubernetesNode
+	Candidates []RackGroupKey
 }
 
 // CompileGroups validates group identity, capacity, and selectors once.
-func CompileGroups(groups []Group) (CompiledGroups, error) {
+func CompileGroups(groups []RackGroup) (CompiledGroups, error) {
 	compiled := make([]compiledGroup, 0, len(groups))
-	seen := make(map[GroupKey]struct{}, len(groups))
+	seen := make(map[RackGroupKey]struct{}, len(groups))
 	for _, group := range groups {
 		if err := validateGroup(group); err != nil {
 			return CompiledGroups{}, err
@@ -54,7 +54,7 @@ func CompileGroups(groups []Group) (CompiledGroups, error) {
 		compiled = append(compiled, compiledGroup{group: group, selector: selector})
 	}
 	slices.SortFunc(compiled, func(a, b compiledGroup) int {
-		return compareGroupKey(a.group.Key, b.group.Key)
+		return compareRackGroupKey(a.group.Key, b.group.Key)
 	})
 	return CompiledGroups{groups: compiled}, nil
 }
@@ -89,14 +89,14 @@ func CompilePlacementSelector(selector *metav1.LabelSelector) (labels.Selector, 
 }
 
 // Classify evaluates every eligible Node against precompiled group selectors.
-func Classify(nodes []Node, groups CompiledGroups) ([]Classification, Stats) {
+func Classify(nodes []KubernetesNode, groups CompiledGroups) ([]Classification, Stats) {
 	classified := make([]Classification, 0, len(nodes))
 	var stats Stats
 	for _, node := range nodes {
 		if !eligible(node) {
 			continue
 		}
-		candidates := make([]GroupKey, 0, 1)
+		candidates := make([]RackGroupKey, 0, 1)
 		nodeLabels := labels.Set(node.Labels)
 		for _, group := range groups.groups {
 			stats.SelectorEvaluations++
@@ -109,7 +109,7 @@ func Classify(nodes []Node, groups CompiledGroups) ([]Classification, Stats) {
 	return classified, stats
 }
 
-func validateGroup(group Group) error {
+func validateGroup(group RackGroup) error {
 	if group.Key.InventoryName == "" || group.Key.InventoryUID == "" || group.Key.RackGroup == "" {
 		return errors.New("group identity must include inventory name, UID, and rack group")
 	}
@@ -119,11 +119,11 @@ func validateGroup(group Group) error {
 	return nil
 }
 
-func eligible(node Node) bool {
+func eligible(node KubernetesNode) bool {
 	return !node.Terminating && node.Labels[EligibleNodeLabel] == "true"
 }
 
-func compareGroupKey(a, b GroupKey) int {
+func compareRackGroupKey(a, b RackGroupKey) int {
 	if order := cmp.Compare(a.InventoryName, b.InventoryName); order != 0 {
 		return order
 	}

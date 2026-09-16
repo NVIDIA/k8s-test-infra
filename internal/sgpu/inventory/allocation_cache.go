@@ -38,7 +38,7 @@ type inventoryInstance struct {
 
 type allocationSnapshot struct {
 	revision    allocationRevision
-	groups      map[allocate.GroupKey]*allocate.Plan
+	groups      map[allocate.RackGroupKey]*allocate.Plan
 	inventories map[inventoryInstance]*allocate.Plan
 	stats       allocate.Stats
 	err         error
@@ -65,7 +65,7 @@ type AllocationCache struct {
 	computations atomic.Uint64
 	mu           sync.Mutex
 	snapshot     *allocationSnapshot
-	allocate     func(allocate.Input) (allocate.Plan, error)
+	allocate     func(allocate.Snapshot) (allocate.Plan, error)
 }
 
 // NewAllocationCache returns a coalescing allocation cache over informer data.
@@ -163,13 +163,13 @@ func (c *AllocationCache) revision() allocationRevision {
 	}
 }
 
-func (c *AllocationCache) plan(group *allocate.GroupKey, inventory inventoryInstance) (allocate.Plan, error) {
+func (c *AllocationCache) plan(group *allocate.RackGroupKey, inventory inventoryInstance) (allocate.Plan, error) {
 	return c.planRevision(c.revision(), group, inventory)
 }
 
 func (c *AllocationCache) planRevision(
 	revision allocationRevision,
-	group *allocate.GroupKey,
+	group *allocate.RackGroupKey,
 	inventory inventoryInstance,
 ) (allocate.Plan, error) {
 	c.mu.Lock()
@@ -203,7 +203,7 @@ func (c *AllocationCache) planRevision(
 	return snapshot.inventoryView(inventory), nil
 }
 
-func allocationInput(cache Cache) (allocate.Input, error) {
+func allocationInput(cache Cache) (allocate.Snapshot, error) {
 	admission := NewCapacityAdmission(cache)
 	return allocationInputRevision(cache, admission, admission.currentRevision())
 }
@@ -212,24 +212,24 @@ func allocationInputRevision(
 	cache Cache,
 	admission *CapacityAdmission,
 	revision capacityRevision,
-) (allocate.Input, error) {
+) (allocate.Snapshot, error) {
 	inventories, err := cache.Inventories()
 	if err != nil {
-		return allocate.Input{}, fmt.Errorf("list inventories from cache: %w", err)
+		return allocate.Snapshot{}, fmt.Errorf("list inventories from cache: %w", err)
 	}
 	groups, err := allocationGroups(cache, inventories, admission, revision)
 	if err != nil {
-		return allocate.Input{}, err
+		return allocate.Snapshot{}, err
 	}
 	bindings, err := allocationBindings(cache, inventories)
 	if err != nil {
-		return allocate.Input{}, err
+		return allocate.Snapshot{}, err
 	}
 	nodes, err := cache.AllocationNodes()
 	if err != nil {
-		return allocate.Input{}, fmt.Errorf("list Nodes from cache: %w", err)
+		return allocate.Snapshot{}, fmt.Errorf("list Nodes from cache: %w", err)
 	}
-	return allocate.Input{Groups: groups, Nodes: nodes, Bindings: bindings}, nil
+	return allocate.Snapshot{Groups: groups, Nodes: nodes, Bindings: bindings}, nil
 }
 
 func allocationGroups(
@@ -237,8 +237,8 @@ func allocationGroups(
 	inventories []*mokkav1alpha1.SGPUInventory,
 	admission *CapacityAdmission,
 	revision capacityRevision,
-) ([]allocate.Group, error) {
-	groups := make([]allocate.Group, 0)
+) ([]allocate.RackGroup, error) {
+	groups := make([]allocate.RackGroup, 0)
 	for _, inventory := range inventories {
 		resolved, err := materializedInventoryGroups(cache, inventory)
 		if err != nil {
@@ -263,7 +263,7 @@ func allocationGroups(
 			if group.group.Placement != nil {
 				selector = group.group.Placement.NodeSelector
 			}
-			groups = append(groups, allocate.Group{
+			groups = append(groups, allocate.RackGroup{
 				Key: group.key, Selector: selector,
 				Racks: group.group.Count, NodesPerRack: group.profile.Spec.Rack.NodesPerRack,
 			})
@@ -301,7 +301,7 @@ func allocationBindings(
 			}
 			bindings = append(bindings, allocate.Binding{
 				Coordinate: allocate.Coordinate{
-					Group: allocate.GroupKey{
+					Group: allocate.RackGroupKey{
 						InventoryName: inventory.Name, InventoryUID: inventory.UID,
 						RackGroup: rack.Spec.Identity.RackGroup,
 					},
@@ -316,12 +316,12 @@ func allocationBindings(
 
 func partitionAllocation(
 	revision allocationRevision,
-	groups []allocate.Group,
+	groups []allocate.RackGroup,
 	global allocate.Plan,
 ) *allocationSnapshot {
 	snapshot := &allocationSnapshot{
 		revision:    revision,
-		groups:      make(map[allocate.GroupKey]*allocate.Plan, len(groups)),
+		groups:      make(map[allocate.RackGroupKey]*allocate.Plan, len(groups)),
 		inventories: make(map[inventoryInstance]*allocate.Plan),
 		stats:       global.Stats,
 	}
@@ -353,15 +353,15 @@ func partitionBindings(snapshot *allocationSnapshot, global allocate.Plan) {
 	}
 	for _, inventory := range snapshot.inventories {
 		partitionGroupSlice(snapshot, inventory.Retained,
-			func(binding allocate.Binding) allocate.GroupKey { return binding.Coordinate.Group },
+			func(binding allocate.Binding) allocate.RackGroupKey { return binding.Coordinate.Group },
 			func(plan *allocate.Plan, items []allocate.Binding) { plan.Retained = items },
 		)
 		partitionGroupSlice(snapshot, inventory.Released,
-			func(release allocate.Release) allocate.GroupKey { return release.Binding.Coordinate.Group },
+			func(release allocate.Release) allocate.RackGroupKey { return release.Binding.Coordinate.Group },
 			func(plan *allocate.Plan, items []allocate.Release) { plan.Released = items },
 		)
 		partitionGroupSlice(snapshot, inventory.Assigned,
-			func(binding allocate.Binding) allocate.GroupKey { return binding.Coordinate.Group },
+			func(binding allocate.Binding) allocate.RackGroupKey { return binding.Coordinate.Group },
 			func(plan *allocate.Plan, items []allocate.Binding) { plan.Assigned = items },
 		)
 	}
@@ -398,7 +398,7 @@ func partitionConflicts(snapshot *allocationSnapshot, conflicts []allocate.Confl
 	}
 }
 
-func (s *allocationSnapshot) ensureGroup(key allocate.GroupKey) *allocate.Plan {
+func (s *allocationSnapshot) ensureGroup(key allocate.RackGroupKey) *allocate.Plan {
 	if plan := s.groups[key]; plan != nil {
 		return plan
 	}
@@ -408,7 +408,7 @@ func (s *allocationSnapshot) ensureGroup(key allocate.GroupKey) *allocate.Plan {
 	return plan
 }
 
-func (s *allocationSnapshot) ensureInventory(key allocate.GroupKey) *allocate.Plan {
+func (s *allocationSnapshot) ensureInventory(key allocate.RackGroupKey) *allocate.Plan {
 	return s.ensureInventoryInstance(instanceForGroup(key))
 }
 
@@ -421,7 +421,7 @@ func (s *allocationSnapshot) ensureInventoryInstance(instance inventoryInstance)
 	return plan
 }
 
-func (s *allocationSnapshot) groupView(key allocate.GroupKey) allocate.Plan {
+func (s *allocationSnapshot) groupView(key allocate.RackGroupKey) allocate.Plan {
 	if view := s.groups[key]; view != nil {
 		result := *view
 		result.Bindings = make([]allocate.Binding, 0, len(result.Retained)+len(result.Assigned))
@@ -442,7 +442,7 @@ func (s *allocationSnapshot) inventoryView(instance inventoryInstance) allocate.
 func partitionGroupSlice[T any](
 	snapshot *allocationSnapshot,
 	items []T,
-	group func(T) allocate.GroupKey,
+	group func(T) allocate.RackGroupKey,
 	set func(*allocate.Plan, []T),
 ) {
 	for start := 0; start < len(items); {
@@ -456,7 +456,7 @@ func partitionGroupSlice[T any](
 	}
 }
 
-func conflictGroups(conflict allocate.Conflict) []allocate.GroupKey {
+func conflictGroups(conflict allocate.Conflict) []allocate.RackGroupKey {
 	keys := slices.Clone(conflict.Candidates)
 	for _, binding := range conflict.Bindings {
 		keys = append(keys, binding.Coordinate.Group)
@@ -465,11 +465,11 @@ func conflictGroups(conflict allocate.Conflict) []allocate.GroupKey {
 	return slices.Compact(keys)
 }
 
-func instanceForGroup(key allocate.GroupKey) inventoryInstance {
+func instanceForGroup(key allocate.RackGroupKey) inventoryInstance {
 	return inventoryInstance{name: key.InventoryName, uid: key.InventoryUID}
 }
 
-func compareGroupKeys(a, b allocate.GroupKey) int {
+func compareGroupKeys(a, b allocate.RackGroupKey) int {
 	if order := cmp.Compare(a.InventoryName, b.InventoryName); order != 0 {
 		return order
 	}

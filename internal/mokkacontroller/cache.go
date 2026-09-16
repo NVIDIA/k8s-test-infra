@@ -133,7 +133,7 @@ func (c *informerCache) AllocationNodeGeneration() uint64 {
 	return c.nodes.Generation()
 }
 
-func (c *informerCache) AllocationNodes() ([]allocate.Node, error) {
+func (c *informerCache) AllocationNodes() ([]allocate.KubernetesNode, error) {
 	return c.nodes.Snapshot().AllocationNodes(), nil
 }
 

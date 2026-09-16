@@ -16,8 +16,8 @@ import (
 	rl "k8s.io/client-go/tools/leaderelection/resourcelock"
 )
 
-func TestValidateControllerConfig(t *testing.T) {
-	require.NoError(t, ValidateControllerConfig(DefaultConfig()))
+func TestConfigValidate(t *testing.T) {
+	require.NoError(t, DefaultConfig().validate())
 
 	for _, test := range []struct {
 		name   string
@@ -47,7 +47,7 @@ func TestValidateControllerConfig(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			config := DefaultConfig()
 			test.mutate(&config)
-			require.Error(t, ValidateControllerConfig(config))
+			require.Error(t, config.validate())
 		})
 	}
 }

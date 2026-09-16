@@ -14,11 +14,11 @@ import (
 )
 
 func TestAllocatorRetainsBindingsAndFillsOnlyFreeSlots(t *testing.T) {
-	group := Group{Key: groupKey("inventory-a", "compute"), Racks: 2, NodesPerRack: 2}
+	group := RackGroup{Key: groupKey("inventory-a", "compute"), Racks: 2, NodesPerRack: 2}
 	existing := binding(group.Key, 1, 0, "node-b", "uid-b")
-	input := Input{
-		Groups: []Group{group},
-		Nodes: []Node{
+	input := Snapshot{
+		Groups: []RackGroup{group},
+		Nodes: []KubernetesNode{
 			node("node-d", "uid-d", 4, eligibleLabels()),
 			node("node-b", "uid-b", 2, eligibleLabels()),
 			node("node-c", "uid-c", 3, eligibleLabels()),
@@ -36,7 +36,7 @@ func TestAllocatorRetainsBindingsAndFillsOnlyFreeSlots(t *testing.T) {
 		binding(group.Key, 0, 1, "node-c", "uid-c"),
 		binding(group.Key, 1, 1, "node-d", "uid-d"),
 	}, plan.Assigned)
-	require.Equal(t, []Node{node("node-e", "uid-e", 5, eligibleLabels())}, plan.Pending)
+	require.Equal(t, []KubernetesNode{node("node-e", "uid-e", 5, eligibleLabels())}, plan.Pending)
 	require.Empty(t, plan.Released)
 	require.Empty(t, plan.Conflicts)
 	require.Equal(t, append([]Binding{existing}, plan.Assigned...), plan.Bindings)
@@ -50,18 +50,18 @@ func TestAllocatorRetainsBindingsAndFillsOnlyFreeSlots(t *testing.T) {
 	require.NoError(t, err)
 	require.ElementsMatch(t, plan.Bindings, restarted.Retained)
 	require.Empty(t, restarted.Assigned)
-	require.Equal(t, []Node{
+	require.Equal(t, []KubernetesNode{
 		node("node-00", "uid-00", 0, eligibleLabels()),
 		node("node-e", "uid-e", 5, eligibleLabels()),
 	}, restarted.Pending)
 }
 
 func TestAllocatorSortsPendingNodesByCreationNameAndUID(t *testing.T) {
-	group := Group{Key: groupKey("inventory-a", "compute"), Racks: 1, NodesPerRack: 3}
+	group := RackGroup{Key: groupKey("inventory-a", "compute"), Racks: 1, NodesPerRack: 3}
 	created := time.Unix(10, 0).UTC()
-	input := Input{
-		Groups: []Group{group},
-		Nodes: []Node{
+	input := Snapshot{
+		Groups: []RackGroup{group},
+		Nodes: []KubernetesNode{
 			{Name: "same", UID: "uid-z", CreationTimestamp: created, Labels: eligibleLabels()},
 			{Name: "z-last", UID: "uid-b", CreationTimestamp: created, Labels: eligibleLabels()},
 			{Name: "same", UID: "uid-a", CreationTimestamp: created, Labels: eligibleLabels()},
@@ -79,12 +79,12 @@ func TestAllocatorSortsPendingNodesByCreationNameAndUID(t *testing.T) {
 
 func TestAllocatorReportsSelectorOverlapUnlessAValidBindingExists(t *testing.T) {
 	selector := &metav1.LabelSelector{MatchLabels: map[string]string{"pool": "shared"}}
-	groupA := Group{Key: groupKey("inventory-a", "compute"), Selector: selector, Racks: 1, NodesPerRack: 2}
-	groupB := Group{Key: groupKey("inventory-b", "compute"), Selector: selector, Racks: 1, NodesPerRack: 2}
+	groupA := RackGroup{Key: groupKey("inventory-a", "compute"), Selector: selector, Racks: 1, NodesPerRack: 2}
+	groupB := RackGroup{Key: groupKey("inventory-b", "compute"), Selector: selector, Racks: 1, NodesPerRack: 2}
 	bound := binding(groupA.Key, 0, 1, "bound", "bound-uid")
-	input := Input{
-		Groups: []Group{groupB, groupA},
-		Nodes: []Node{
+	input := Snapshot{
+		Groups: []RackGroup{groupB, groupA},
+		Nodes: []KubernetesNode{
 			node("unbound", "unbound-uid", 1, map[string]string{EligibleNodeLabel: "true", "pool": "shared"}),
 			node("bound", "bound-uid", 2, map[string]string{EligibleNodeLabel: "true", "pool": "shared"}),
 		},
@@ -99,20 +99,20 @@ func TestAllocatorReportsSelectorOverlapUnlessAValidBindingExists(t *testing.T) 
 	require.Equal(t, []Conflict{{
 		Kind:       ConflictSelectorOverlap,
 		Node:       input.Nodes[0],
-		Candidates: []GroupKey{groupA.Key, groupB.Key},
+		Candidates: []RackGroupKey{groupA.Key, groupB.Key},
 	}}, plan.Conflicts)
 }
 
 func TestAllocatorPreservesDuplicateBindingsAsADataConflict(t *testing.T) {
-	groupA := Group{Key: groupKey("inventory-a", "compute"), Racks: 1, NodesPerRack: 2}
-	groupB := Group{Key: groupKey("inventory-b", "compute"), Racks: 1, NodesPerRack: 2}
+	groupA := RackGroup{Key: groupKey("inventory-a", "compute"), Racks: 1, NodesPerRack: 2}
+	groupB := RackGroup{Key: groupKey("inventory-b", "compute"), Racks: 1, NodesPerRack: 2}
 	n := node("node-a", "node-uid", 1, eligibleLabels())
 	first := binding(groupA.Key, 0, 0, n.Name, n.UID)
 	second := binding(groupB.Key, 0, 1, n.Name, n.UID)
 
-	plan, err := Allocate(Input{
-		Groups:   []Group{groupA, groupB},
-		Nodes:    []Node{n},
+	plan, err := Allocate(Snapshot{
+		Groups:   []RackGroup{groupA, groupB},
+		Nodes:    []KubernetesNode{n},
 		Bindings: []Binding{second, first},
 	})
 	require.NoError(t, err)
@@ -129,7 +129,7 @@ func TestAllocatorPreservesDuplicateBindingsAsADataConflict(t *testing.T) {
 
 func TestAllocatorPlansBindingReleases(t *testing.T) {
 	matching := &metav1.LabelSelector{MatchLabels: map[string]string{"pool": "matching"}}
-	group := Group{Key: groupKey("inventory-a", "compute"), Selector: matching, Racks: 1, NodesPerRack: 3}
+	group := RackGroup{Key: groupKey("inventory-a", "compute"), Selector: matching, Racks: 1, NodesPerRack: 3}
 	removedGroup := groupKey("inventory-a", "removed")
 	inputs := []Binding{
 		binding(group.Key, 0, 0, "gone", "gone-uid"),
@@ -139,7 +139,7 @@ func TestAllocatorPlansBindingReleases(t *testing.T) {
 		binding(group.Key, 0, 2, "mismatch", "mismatch-uid"),
 		binding(removedGroup, 0, 0, "removed", "removed-uid"),
 	}
-	nodes := []Node{
+	nodes := []KubernetesNode{
 		node("ineligible", "ineligible-uid", 1, map[string]string{"pool": "matching"}),
 		node("shrunk-slot", "shrunk-slot-uid", 2, map[string]string{EligibleNodeLabel: "true", "pool": "matching"}),
 		node("shrunk-rack", "shrunk-rack-uid", 3, map[string]string{EligibleNodeLabel: "true", "pool": "matching"}),
@@ -147,7 +147,7 @@ func TestAllocatorPlansBindingReleases(t *testing.T) {
 		node("removed", "removed-uid", 5, map[string]string{EligibleNodeLabel: "true", "pool": "matching"}),
 	}
 
-	plan, err := Allocate(Input{Groups: []Group{group}, Nodes: nodes, Bindings: inputs})
+	plan, err := Allocate(Snapshot{Groups: []RackGroup{group}, Nodes: nodes, Bindings: inputs})
 	require.NoError(t, err)
 	require.ElementsMatch(t, []Release{
 		{Binding: inputs[0], Reason: ReleaseNodeGone},
@@ -161,20 +161,20 @@ func TestAllocatorPlansBindingReleases(t *testing.T) {
 	require.Empty(t, plan.Assigned)
 
 	// Existing bindings occupy coordinates until their exact cleanup is applied.
-	require.Equal(t, []Node{nodes[1], nodes[2], nodes[4]}, plan.Pending)
+	require.Equal(t, []KubernetesNode{nodes[1], nodes[2], nodes[4]}, plan.Pending)
 }
 
 func TestAllocatorExcludesTerminatingNodes(t *testing.T) {
-	group := Group{Key: groupKey("inventory-a", "compute"), Racks: 1, NodesPerRack: 2}
+	group := RackGroup{Key: groupKey("inventory-a", "compute"), Racks: 1, NodesPerRack: 2}
 	bound := node("bound", "bound-uid", 1, eligibleLabels())
 	bound.Terminating = true
 	unbound := node("unbound", "unbound-uid", 2, eligibleLabels())
 	unbound.Terminating = true
 	binding := binding(group.Key, 0, 0, bound.Name, bound.UID)
 
-	plan, err := Allocate(Input{
-		Groups:   []Group{group},
-		Nodes:    []Node{bound, unbound},
+	plan, err := Allocate(Snapshot{
+		Groups:   []RackGroup{group},
+		Nodes:    []KubernetesNode{bound, unbound},
 		Bindings: []Binding{binding},
 	})
 
@@ -186,21 +186,21 @@ func TestAllocatorExcludesTerminatingNodes(t *testing.T) {
 }
 
 func TestAllocatorHandlesSameNameNewUIDAsAReplacement(t *testing.T) {
-	group := Group{Key: groupKey("inventory-a", "compute"), Racks: 1, NodesPerRack: 1}
+	group := RackGroup{Key: groupKey("inventory-a", "compute"), Racks: 1, NodesPerRack: 1}
 	oldBinding := binding(group.Key, 0, 0, "same-name", "old-uid")
 	replacement := node("same-name", "new-uid", 2, eligibleLabels())
 
-	first, err := Allocate(Input{
-		Groups:   []Group{group},
-		Nodes:    []Node{replacement},
+	first, err := Allocate(Snapshot{
+		Groups:   []RackGroup{group},
+		Nodes:    []KubernetesNode{replacement},
 		Bindings: []Binding{oldBinding},
 	})
 	require.NoError(t, err)
 	require.Equal(t, []Release{{Binding: oldBinding, Reason: ReleaseNodeGone}}, first.Released)
 	require.Empty(t, first.Assigned)
-	require.Equal(t, []Node{replacement}, first.Pending)
+	require.Equal(t, []KubernetesNode{replacement}, first.Pending)
 
-	second, err := Allocate(Input{Groups: []Group{group}, Nodes: []Node{replacement}})
+	second, err := Allocate(Snapshot{Groups: []RackGroup{group}, Nodes: []KubernetesNode{replacement}})
 	require.NoError(t, err)
 	require.Equal(t, []Binding{binding(group.Key, 0, 0, "same-name", "new-uid")}, second.Assigned)
 }
@@ -209,13 +209,13 @@ func TestAllocatorDoesNotCompactAcrossShrinkAndGrowth(t *testing.T) {
 	key := groupKey("inventory-a", "compute")
 	low := binding(key, 0, 1, "low", "low-uid")
 	high := binding(key, 2, 0, "high", "high-uid")
-	nodes := []Node{
+	nodes := []KubernetesNode{
 		node("low", "low-uid", 1, eligibleLabels()),
 		node("high", "high-uid", 2, eligibleLabels()),
 	}
 
-	shrunk, err := Allocate(Input{
-		Groups:   []Group{{Key: key, Racks: 2, NodesPerRack: 2}},
+	shrunk, err := Allocate(Snapshot{
+		Groups:   []RackGroup{{Key: key, Racks: 2, NodesPerRack: 2}},
 		Nodes:    nodes,
 		Bindings: []Binding{high, low},
 	})
@@ -224,8 +224,8 @@ func TestAllocatorDoesNotCompactAcrossShrinkAndGrowth(t *testing.T) {
 	require.Equal(t, []Release{{Binding: high, Reason: ReleaseCapacityShrink}}, shrunk.Released)
 	require.Empty(t, shrunk.Assigned)
 
-	grown, err := Allocate(Input{
-		Groups:   []Group{{Key: key, Racks: 4, NodesPerRack: 2}},
+	grown, err := Allocate(Snapshot{
+		Groups:   []RackGroup{{Key: key, Racks: 4, NodesPerRack: 2}},
 		Nodes:    nodes,
 		Bindings: []Binding{low},
 	})
@@ -234,21 +234,21 @@ func TestAllocatorDoesNotCompactAcrossShrinkAndGrowth(t *testing.T) {
 	require.Equal(t, []Binding{binding(key, 0, 0, "high", "high-uid")}, grown.Assigned)
 }
 
-func TestAllocatorRejectsMalformedInput(t *testing.T) {
+func TestAllocatorRejectsMalformedSnapshot(t *testing.T) {
 	key := groupKey("inventory-a", "compute")
 	tests := []struct {
 		name  string
-		input Input
+		input Snapshot
 		err   string
 	}{
 		{
 			name:  "negative capacity",
-			input: Input{Groups: []Group{{Key: key, Racks: -1, NodesPerRack: 1}}},
+			input: Snapshot{Groups: []RackGroup{{Key: key, Racks: -1, NodesPerRack: 1}}},
 			err:   "capacity",
 		},
 		{
 			name: "duplicate live UID",
-			input: Input{Groups: []Group{{Key: key, Racks: 1, NodesPerRack: 1}}, Nodes: []Node{
+			input: Snapshot{Groups: []RackGroup{{Key: key, Racks: 1, NodesPerRack: 1}}, Nodes: []KubernetesNode{
 				node("one", "same-uid", 1, eligibleLabels()),
 				node("two", "same-uid", 2, eligibleLabels()),
 			}},
@@ -256,9 +256,9 @@ func TestAllocatorRejectsMalformedInput(t *testing.T) {
 		},
 		{
 			name: "two Nodes in one coordinate",
-			input: Input{
-				Groups: []Group{{Key: key, Racks: 1, NodesPerRack: 1}},
-				Nodes: []Node{
+			input: Snapshot{
+				Groups: []RackGroup{{Key: key, Racks: 1, NodesPerRack: 1}},
+				Nodes: []KubernetesNode{
 					node("one", "one-uid", 1, eligibleLabels()),
 					node("two", "two-uid", 2, eligibleLabels()),
 				},
@@ -282,7 +282,7 @@ func TestAllocatorRejectsMalformedInput(t *testing.T) {
 func BenchmarkAllocator100kNodes(b *testing.B) {
 	const nodeCount = 100_000
 	key := groupKey("inventory-a", "compute")
-	nodes := make([]Node, nodeCount)
+	nodes := make([]KubernetesNode, nodeCount)
 	for i := range nodes {
 		nodes[i] = node(
 			fmt.Sprintf("node-%06d", nodeCount-i),
@@ -291,8 +291,8 @@ func BenchmarkAllocator100kNodes(b *testing.B) {
 			eligibleLabels(),
 		)
 	}
-	input := Input{
-		Groups: []Group{{Key: key, Racks: 1000, NodesPerRack: 100}},
+	input := Snapshot{
+		Groups: []RackGroup{{Key: key, Racks: 1000, NodesPerRack: 100}},
 		Nodes:  nodes,
 	}
 
@@ -308,8 +308,8 @@ func BenchmarkAllocator100kNodes(b *testing.B) {
 	}
 }
 
-func node(name string, uid types.UID, seconds int64, labels map[string]string) Node {
-	return Node{
+func node(name string, uid types.UID, seconds int64, labels map[string]string) KubernetesNode {
+	return KubernetesNode{
 		Name:              name,
 		UID:               uid,
 		CreationTimestamp: time.Unix(seconds, 0).UTC(),
@@ -321,7 +321,7 @@ func eligibleLabels() map[string]string {
 	return map[string]string{EligibleNodeLabel: "true"}
 }
 
-func binding(key GroupKey, rack, slot int32, name string, uid types.UID) Binding {
+func binding(key RackGroupKey, rack, slot int32, name string, uid types.UID) Binding {
 	return Binding{
 		Coordinate: Coordinate{Group: key, RackIndex: rack, NodeIndex: slot},
 		Node:       NodeReference{Name: name, UID: uid},

@@ -112,14 +112,14 @@ func (c *listerCache) RacksByInventoryGroup(uid types.UID, group string) ([]*mok
 	return racks, nil
 }
 
-func (c *listerCache) AllocationNodes() ([]allocate.Node, error) {
+func (c *listerCache) AllocationNodes() ([]allocate.KubernetesNode, error) {
 	nodes, err := c.nodes.List(labels.Everything())
 	if err != nil {
 		return nil, err
 	}
-	allocationNodes := make([]allocate.Node, 0, len(nodes))
+	allocationNodes := make([]allocate.KubernetesNode, 0, len(nodes))
 	for _, node := range nodes {
-		allocationNodes = append(allocationNodes, allocate.Node{
+		allocationNodes = append(allocationNodes, allocate.KubernetesNode{
 			Name: node.Name, UID: node.UID,
 			CreationTimestamp: node.CreationTimestamp.Time,
 			Terminating:       node.DeletionTimestamp != nil,

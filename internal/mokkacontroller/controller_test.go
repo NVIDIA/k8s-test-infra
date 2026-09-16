@@ -55,7 +55,7 @@ func TestEventRoutingUsesBoundedDependencyKeys(t *testing.T) {
 
 	node := testNode()
 	router.nodeAdd(node)
-	require.Equal(t, []allocate.GroupKey{testGroupKey()}, drainQueue(queues.groups))
+	require.Equal(t, []allocate.RackGroupKey{testGroupKey()}, drainQueue(queues.groups))
 	require.Empty(t, drainQueue(queues.projections))
 
 	rack := testRack(node)
@@ -171,13 +171,13 @@ func TestControllerOwnedFreeRackAddContinuesPendingAllocation(t *testing.T) {
 	replacement := testNode()
 	replacement.UID = "replacement-uid"
 	router.nodeAdd(replacement)
-	require.Equal(t, []allocate.GroupKey{testGroupKey()}, drainQueue(queues.groups),
+	require.Equal(t, []allocate.RackGroupKey{testGroupKey()}, drainQueue(queues.groups),
 		"the first reconcile can still observe the deleted rack's stale binding")
 
 	recreated := testRack(replacement)
 	recreated.Spec.Nodes[0].NodeRef = nil
 	router.rackAdd(recreated)
-	require.Equal(t, []allocate.GroupKey{testGroupKey()}, drainQueue(queues.groups),
+	require.Equal(t, []allocate.RackGroupKey{testGroupKey()}, drainQueue(queues.groups),
 		"observing the recreated free slot must reconsider a replacement left pending against stale cache state")
 }
 
@@ -206,7 +206,7 @@ func TestRackOwnerRoutingUsesControllerReferenceWhenInventoryRefDrifts(t *testin
 
 	router.rackAdd(rack)
 
-	require.Equal(t, []allocate.GroupKey{testGroupKey()}, drainQueue(queues.groups))
+	require.Equal(t, []allocate.RackGroupKey{testGroupKey()}, drainQueue(queues.groups))
 	require.Empty(t, drainQueue(queues.inventories))
 	require.Contains(t, drainQueue(queues.status), statusKey{
 		kind: statusInventory, name: "inventory", uid: "inventory-uid",
@@ -372,7 +372,7 @@ func TestSameTimestampInventoryAddQueuesDisplacedAdmissionParticipant(t *testing
 		DefaultOptions(),
 	)
 	allocation := sgpuinventory.NewAllocationCache(snapshot)
-	_, err := allocation.BindingDesired(allocate.Binding{Coordinate: allocate.Coordinate{Group: allocate.GroupKey{
+	_, err := allocation.BindingDesired(allocate.Binding{Coordinate: allocate.Coordinate{Group: allocate.RackGroupKey{
 		InventoryName: incumbent.Name, InventoryUID: incumbent.UID, RackGroup: incumbent.Spec.RackGroups[0].ID,
 	}}})
 	require.NoError(t, err)
@@ -397,7 +397,7 @@ func TestSameTimestampInventoryAddQueuesDisplacedAdmissionParticipant(t *testing
 	require.Equal(t, []string{newcomer.Name}, drainQueue(queues.inventories))
 	drainQueue(queues.status)
 
-	_, err = allocation.BindingDesired(allocate.Binding{Coordinate: allocate.Coordinate{Group: allocate.GroupKey{
+	_, err = allocation.BindingDesired(allocate.Binding{Coordinate: allocate.Coordinate{Group: allocate.RackGroupKey{
 		InventoryName: newcomer.Name, InventoryUID: newcomer.UID, RackGroup: newcomer.Spec.RackGroups[0].ID,
 	}}})
 	require.NoError(t, err)
@@ -446,7 +446,7 @@ func TestRackCapacityReleaseQueuesAndPromotesRejectedCandidate(t *testing.T) {
 		DefaultOptions(),
 	)
 	allocation := sgpuinventory.NewAllocationCache(snapshot)
-	binding := allocate.Binding{Coordinate: allocate.Coordinate{Group: allocate.GroupKey{
+	binding := allocate.Binding{Coordinate: allocate.Coordinate{Group: allocate.RackGroupKey{
 		InventoryName: candidate.Name, InventoryUID: candidate.UID, RackGroup: candidate.Spec.RackGroups[0].ID,
 	}}}
 	_, err := allocation.BindingDesired(binding)
@@ -537,7 +537,7 @@ func TestInventoryDeleteRequeuesEverySurvivingInventory(t *testing.T) {
 		{kind: statusInventory, name: first.Name, uid: first.UID},
 		{kind: statusInventory, name: second.Name, uid: second.UID},
 	}, drainQueue(queues.status))
-	require.Equal(t, []allocate.GroupKey{groupKey(first, "group")}, registry.matching(testNode()))
+	require.Equal(t, []allocate.RackGroupKey{groupKey(first, "group")}, registry.matching(testNode()))
 }
 
 func TestPlacementRegistryBoundsAggregateRackGroups(t *testing.T) {
@@ -566,7 +566,7 @@ func TestPlacementRegistryBoundsAggregateRackGroups(t *testing.T) {
 
 	_, removed := registry.remove(first)
 	require.True(t, removed)
-	require.Equal(t, []allocate.GroupKey{groupKey(blocked, "group")}, registry.matching(testNode()),
+	require.Equal(t, []allocate.RackGroupKey{groupKey(blocked, "group")}, registry.matching(testNode()),
 		"removing an older declaration must promote the next whole inventory")
 }
 
@@ -594,7 +594,7 @@ func TestStaleInventoryDeleteDoesNotRequeueUnrelatedInventories(t *testing.T) {
 	survivors, removed := registry.remove(replacement)
 	require.True(t, removed, "a stale delete must retain even a zero-group replacement registry entry")
 	require.Equal(t, []placementInventoryKey{{name: unrelated.Name, uid: unrelated.UID}}, survivors)
-	require.Equal(t, []allocate.GroupKey{groupKey(unrelated, "group")}, registry.matching(testNode()),
+	require.Equal(t, []allocate.RackGroupKey{groupKey(unrelated, "group")}, registry.matching(testNode()),
 		"removing the replacement must retain unrelated placement")
 }
 
@@ -692,7 +692,7 @@ func TestRackUpdateRoutesBindingsLocallyAndTemplateDriftGlobally(t *testing.T) {
 	rebound.Spec.Nodes[0].NodeRef.UID = "replacement-uid"
 	router.rackUpdate(rack, rebound)
 	require.Empty(t, drainQueue(queues.inventories))
-	require.Equal(t, []allocate.GroupKey{testGroupKey()}, drainQueue(queues.groups))
+	require.Equal(t, []allocate.RackGroupKey{testGroupKey()}, drainQueue(queues.groups))
 	drainQueue(queues.projections)
 	drainQueue(queues.status)
 
@@ -850,7 +850,7 @@ func TestRackConflictWaiterIndexRetainsOnlyCurrentReconciledConflicts(t *testing
 		router.inventoryDelete(cache.DeletedFinalStateUnknown{Key: previous.Name, Obj: previous})
 		drainQueue(queues.inventories)
 		drainQueue(queues.status)
-		require.Equal(t, []allocate.GroupKey{groupKey(current, "group")}, router.waiters.waiters(name))
+		require.Equal(t, []allocate.RackGroupKey{groupKey(current, "group")}, router.waiters.waiters(name))
 		require.Equal(t, 1, router.waiters.size())
 	}
 
@@ -1551,7 +1551,7 @@ func TestTerminatingNodeUpdateRoutesAllocationWork(t *testing.T) {
 	terminating.DeletionTimestamp = &now
 	router.nodeUpdate(oldNode, terminating)
 
-	require.Equal(t, []allocate.GroupKey{testGroupKey()}, drainQueue(queues.groups))
+	require.Equal(t, []allocate.RackGroupKey{testGroupKey()}, drainQueue(queues.groups))
 }
 
 func TestSingleNodeEventDoesNotListFromAPI(t *testing.T) {
@@ -1565,7 +1565,7 @@ func TestSingleNodeEventDoesNotListFromAPI(t *testing.T) {
 	nodes := &recordingNodeAPI{}
 
 	router.nodeAdd(testNode())
-	require.Equal(t, []allocate.GroupKey{testGroupKey()}, drainQueue(queues.groups))
+	require.Equal(t, []allocate.RackGroupKey{testGroupKey()}, drainQueue(queues.groups))
 	require.Zero(t, nodes.listCalls(), "event routing must use cached selectors and indexes")
 }
 
@@ -1637,7 +1637,7 @@ func TestProjectedMetadataEventDoesNotReapplyExactBinding(t *testing.T) {
 	damaged.ResourceVersion = "3"
 	delete(damaged.Labels, metadata.AssignedLabel)
 	router.nodeUpdate(projected, damaged)
-	require.Equal(t, []allocate.GroupKey{testGroupKey()}, drainQueue(queues.groups))
+	require.Equal(t, []allocate.RackGroupKey{testGroupKey()}, drainQueue(queues.groups))
 	require.Equal(t, []projectionKey{{mode: projectionApply, rackName: rack.Name, nodeIndex: 0}}, drainQueue(queues.projections),
 		"external removal of "+metadata.AssignedLabel+" must enqueue repair")
 }
@@ -1668,7 +1668,7 @@ func TestForeignProjectionCoOwnerEventRoutesExactBinding(t *testing.T) {
 
 	router.nodeUpdate(projected, coOwned)
 
-	require.Equal(t, []allocate.GroupKey{testGroupKey()}, drainQueue(queues.groups))
+	require.Equal(t, []allocate.RackGroupKey{testGroupKey()}, drainQueue(queues.groups))
 	require.Equal(t, []projectionKey{{mode: projectionApply, rackName: rack.Name, nodeIndex: 0}}, drainQueue(queues.projections))
 	require.ElementsMatch(t, []statusKey{
 		{kind: statusInventory, name: "inventory", uid: "inventory-uid"},
@@ -1683,7 +1683,7 @@ func newTestController() *Controller {
 		cachesSynced:        make(chan struct{}),
 		waitForCacheSync:    func(context.Context) bool { return true },
 		reconcileInventory:  func(context.Context, string) error { return nil },
-		reconcileGroup:      func(context.Context, allocate.GroupKey) error { return nil },
+		reconcileGroup:      func(context.Context, allocate.RackGroupKey) error { return nil },
 		reconcileProjection: func(context.Context, projectionKey) error { return nil },
 		reconcileStatus:     func(context.Context, statusKey) error { return nil },
 	}
@@ -1745,8 +1745,8 @@ func testRack(node *corev1.Node) *mokkav1alpha1.SGPURack {
 	}
 }
 
-func testGroupKey() allocate.GroupKey {
-	return allocate.GroupKey{InventoryName: "inventory", InventoryUID: "inventory-uid", RackGroup: "group"}
+func testGroupKey() allocate.RackGroupKey {
+	return allocate.RackGroupKey{InventoryName: "inventory", InventoryUID: "inventory-uid", RackGroup: "group"}
 }
 
 func setNodeManagedFields(node *corev1.Node, manager string, labelKeys, annotationKeys []string) {

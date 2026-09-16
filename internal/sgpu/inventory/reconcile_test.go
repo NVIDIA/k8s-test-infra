@@ -253,7 +253,7 @@ func TestReconcileRejectsAggregateCapacityBeforeAllocationOrWrites(t *testing.T)
 	h := newHarness(t, []runtime.Object{profile, inventory}, nil)
 	allocation := NewAllocationCache(h.cache)
 	allocationCalls := 0
-	allocation.allocate = func(allocate.Input) (allocate.Plan, error) {
+	allocation.allocate = func(allocate.Snapshot) (allocate.Plan, error) {
 		allocationCalls++
 		return allocate.Plan{}, nil
 	}
@@ -289,7 +289,7 @@ func TestReconcileRejectsAdmittedMaximumPerGroupBeforeProfileResolution(t *testi
 	h := newHarness(t, []runtime.Object{inventory}, nil)
 	allocation := NewAllocationCache(h.cache)
 	allocationCalls := 0
-	allocation.allocate = func(allocate.Input) (allocate.Plan, error) {
+	allocation.allocate = func(allocate.Snapshot) (allocate.Plan, error) {
 		allocationCalls++
 		return allocate.Plan{}, nil
 	}
@@ -355,7 +355,7 @@ func TestReconcileGroupIndexesLargeBindingSetOnce(t *testing.T) {
 
 	h := newHarness(t, objects, nodes)
 	h.mokka.Fake.ClearActions()
-	result, err := h.reconcileGroup(ctx, allocate.GroupKey{
+	result, err := h.reconcileGroup(ctx, allocate.RackGroupKey{
 		InventoryName: inventory.Name,
 		InventoryUID:  inventory.UID,
 		RackGroup:     inventory.Spec.RackGroups[0].ID,
@@ -371,7 +371,7 @@ func TestReconcileGroupIndexesLargeBindingSetOnce(t *testing.T) {
 	h.nodes[changedNode].Labels["pool"] = "cpu"
 	h.sync(t)
 	h.mokka.Fake.ClearActions()
-	result, err = h.reconcileGroup(ctx, allocate.GroupKey{
+	result, err = h.reconcileGroup(ctx, allocate.RackGroupKey{
 		InventoryName: inventory.Name,
 		InventoryUID:  inventory.UID,
 		RackGroup:     inventory.Spec.RackGroups[0].ID,
@@ -387,7 +387,7 @@ func TestReconcileGroupIndexesLargeBindingSetOnce(t *testing.T) {
 }
 
 func TestGroupAllocationIndexesOnlyChangedRackAmong100K(t *testing.T) {
-	group := allocate.GroupKey{InventoryName: "inventory", InventoryUID: "inventory-uid", RackGroup: "group"}
+	group := allocate.RackGroupKey{InventoryName: "inventory", InventoryUID: "inventory-uid", RackGroup: "group"}
 	const changed = int32(54_321)
 	plan := allocate.Plan{Retained: make([]allocate.Binding, 0, 99_999)}
 	for rackIndex := int32(0); rackIndex < 100_000; rackIndex++ {
@@ -421,7 +421,7 @@ func TestReconcileReportsOverlapAndRetainsLastGoodRackForMissingProfile(t *testi
 	node := testNode("node", "node-uid", 1, map[string]string{"pool": "gpu"})
 	h := newHarness(t, []runtime.Object{profile, inventory, other}, []*corev1.Node{node})
 
-	result, err := h.reconcileGroup(ctx, allocate.GroupKey{
+	result, err := h.reconcileGroup(ctx, allocate.RackGroupKey{
 		InventoryName: inventory.Name, InventoryUID: inventory.UID, RackGroup: "group",
 	})
 	require.NoError(t, err)
@@ -511,7 +511,7 @@ func TestReconcileGroupProcessesChangedRacksWhenSiblingProfileIsMissing(t *testi
 	}
 	h := newHarness(t, objects, nodes)
 
-	result, err := h.reconcileGroup(ctx, allocate.GroupKey{
+	result, err := h.reconcileGroup(ctx, allocate.RackGroupKey{
 		InventoryName: inventory.Name,
 		InventoryUID:  inventory.UID,
 		RackGroup:     "group",
@@ -1259,10 +1259,10 @@ type nodeOverrideCache struct {
 	nodes []*corev1.Node
 }
 
-func (c *nodeOverrideCache) AllocationNodes() ([]allocate.Node, error) {
-	nodes := make([]allocate.Node, 0, len(c.nodes))
+func (c *nodeOverrideCache) AllocationNodes() ([]allocate.KubernetesNode, error) {
+	nodes := make([]allocate.KubernetesNode, 0, len(c.nodes))
 	for _, node := range c.nodes {
-		nodes = append(nodes, allocate.Node{
+		nodes = append(nodes, allocate.KubernetesNode{
 			Name: node.Name, UID: node.UID,
 			CreationTimestamp: node.CreationTimestamp.Time,
 			Terminating:       node.DeletionTimestamp != nil,
@@ -1377,7 +1377,7 @@ func (h *harness) reconcile(ctx context.Context, key string) (Result, error) {
 	return reconciler.Reconcile(ctx, key)
 }
 
-func (h *harness) reconcileGroup(ctx context.Context, key allocate.GroupKey) (Result, error) {
+func (h *harness) reconcileGroup(ctx context.Context, key allocate.RackGroupKey) (Result, error) {
 	reconciler := NewReconciler(
 		h.cache,
 		h.mokka.MokkaV1alpha1().SGPUInventories(),

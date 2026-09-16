@@ -23,20 +23,20 @@ import (
 // reconciliation snapshots.
 type Record struct {
 	node       *corev1.Node
-	allocation allocate.Node
+	allocation allocate.KubernetesNode
 }
 
 // Node returns the informer-owned immutable Kubernetes view.
 func (r *Record) Node() *corev1.Node { return r.node }
 
 // Allocation returns the allocation-relevant view without copying labels.
-func (r *Record) Allocation() allocate.Node { return r.allocation }
+func (r *Record) Allocation() allocate.KubernetesNode { return r.allocation }
 
 // Snapshot is one immutable catalog generation. Its slices are shared between
 // reconciles and must be treated as read-only.
 type Snapshot struct {
 	records    []*Record
-	allocation []allocate.Node
+	allocation []allocate.KubernetesNode
 	generation uint64
 }
 
@@ -44,7 +44,7 @@ type Snapshot struct {
 func (s *Snapshot) Records() []*Record { return s.records }
 
 // AllocationNodes returns the cached allocator input for this generation.
-func (s *Snapshot) AllocationNodes() []allocate.Node { return s.allocation }
+func (s *Snapshot) AllocationNodes() []allocate.KubernetesNode { return s.allocation }
 
 // Generation identifies the exact allocation-relevant Node input revision.
 func (s *Snapshot) Generation() uint64 { return s.generation }
@@ -82,7 +82,7 @@ func (c *Catalog) Upsert(node *corev1.Node) {
 	if node == nil || node.Name == "" || node.UID == "" {
 		return
 	}
-	allocation := allocate.Node{
+	allocation := allocate.KubernetesNode{
 		Name: node.Name, UID: node.UID,
 		CreationTimestamp: node.CreationTimestamp.Time,
 		Terminating:       node.DeletionTimestamp != nil,
@@ -158,7 +158,7 @@ func (c *Catalog) Snapshot() *Snapshot {
 		records = append(records, record)
 	}
 	sortRecords(records)
-	allocation := make([]allocate.Node, len(records))
+	allocation := make([]allocate.KubernetesNode, len(records))
 	for index, record := range records {
 		allocation[index] = record.allocation
 	}
@@ -221,7 +221,7 @@ func (c *Catalog) removeLocked(record *Record) {
 	}
 }
 
-func allocationNodeEqual(previous *Record, allocation allocate.Node) bool {
+func allocationNodeEqual(previous *Record, allocation allocate.KubernetesNode) bool {
 	return previous.allocation.Name == allocation.Name &&
 		previous.allocation.UID == allocation.UID &&
 		previous.allocation.CreationTimestamp.Equal(allocation.CreationTimestamp) &&

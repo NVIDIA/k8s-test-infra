@@ -150,5 +150,5 @@ type Cache interface {
 	RacksByInventoryUID(uid types.UID) ([]*mokkav1alpha1.SGPURack, error)
 	RacksByInventoryGroup(uid types.UID, group string) ([]*mokkav1alpha1.SGPURack, error)
 	AllocationNodeGeneration() uint64
-	AllocationNodes() ([]allocate.Node, error)
+	AllocationNodes() ([]allocate.KubernetesNode, error)
 }

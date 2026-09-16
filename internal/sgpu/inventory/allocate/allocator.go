@@ -17,27 +17,27 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-// GroupKey identifies one rack group in an exact inventory instance.
-type GroupKey struct {
+// RackGroupKey identifies one rack group in an exact inventory instance.
+type RackGroupKey struct {
 	InventoryName string
 	InventoryUID  types.UID
 	RackGroup     string
 }
 
-func (key GroupKey) String() string {
+func (key RackGroupKey) String() string {
 	return key.InventoryName + "/" + key.RackGroup
 }
 
-// Group is a resolved placement and capacity declaration.
-type Group struct {
-	Key          GroupKey
+// RackGroup is a resolved placement and capacity declaration.
+type RackGroup struct {
+	Key          RackGroupKey
 	Selector     *metav1.LabelSelector
 	Racks        int32
 	NodesPerRack int32
 }
 
-// Node is the allocation-relevant portion of a Kubernetes Node.
-type Node struct {
+// KubernetesNode is the allocation-relevant portion of a Kubernetes API Node.
+type KubernetesNode struct {
 	Name              string
 	UID               types.UID
 	CreationTimestamp time.Time
@@ -53,7 +53,7 @@ type NodeReference struct {
 
 // Coordinate identifies one durable logical Node in a rack.
 type Coordinate struct {
-	Group     GroupKey
+	Group     RackGroupKey
 	RackIndex int32
 	NodeIndex int32
 }
@@ -96,8 +96,8 @@ const (
 // Conflict contains either overlapping candidates or duplicate bindings.
 type Conflict struct {
 	Kind       ConflictKind
-	Node       Node
-	Candidates []GroupKey
+	Node       KubernetesNode
+	Candidates []RackGroupKey
 	Bindings   []Binding
 }
 
@@ -108,10 +108,10 @@ type Stats struct {
 	NodeVisits          int64
 }
 
-// Input is a complete immutable allocation snapshot.
-type Input struct {
-	Groups   []Group
-	Nodes    []Node
+// Snapshot is a complete immutable allocation snapshot.
+type Snapshot struct {
+	Groups   []RackGroup
+	Nodes    []KubernetesNode
 	Bindings []Binding
 }
 
@@ -121,17 +121,17 @@ type Plan struct {
 	Released []Release
 	Assigned []Binding
 	Bindings []Binding
-	Pending  []Node
+	Pending  []KubernetesNode
 	// PendingGroups is parallel to Pending and identifies the only group that
 	// selected each Node. Keeping the identity makes cached plans partitionable
 	// without repeating selector evaluation.
-	PendingGroups []GroupKey
+	PendingGroups []RackGroupKey
 	Conflicts     []Conflict
 	Stats         Stats
 }
 
 type groupState struct {
-	group    Group
+	group    RackGroup
 	selector labels.Selector
 	occupied map[uint64]struct{}
 	cursor   int64
@@ -141,21 +141,21 @@ type groupState struct {
 // reusing coordinates whose cleanup is still pending.
 //
 //nolint:cyclop // One deterministic pass records each retention, release, conflict, and assignment decision.
-func Allocate(input Input) (Plan, error) {
-	compiled, err := CompileGroups(input.Groups)
+func Allocate(snapshot Snapshot) (Plan, error) {
+	compiled, err := CompileGroups(snapshot.Groups)
 	if err != nil {
 		return Plan{}, err
 	}
 
-	nodesByUID, err := indexNodes(input.Nodes)
+	nodesByUID, err := indexNodes(snapshot.Nodes)
 	if err != nil {
 		return Plan{}, err
 	}
-	if err := validateBindingCoordinates(input.Bindings); err != nil {
+	if err := validateBindingCoordinates(snapshot.Bindings); err != nil {
 		return Plan{}, err
 	}
 
-	states := make(map[GroupKey]*groupState, len(compiled.groups))
+	states := make(map[RackGroupKey]*groupState, len(compiled.groups))
 	for _, group := range compiled.groups {
 		states[group.group.Key] = &groupState{
 			group:    group.group,
@@ -163,7 +163,7 @@ func Allocate(input Input) (Plan, error) {
 			occupied: make(map[uint64]struct{}),
 		}
 	}
-	for _, binding := range input.Bindings {
+	for _, binding := range snapshot.Bindings {
 		if state := states[binding.Coordinate.Group]; state != nil &&
 			coordinateInCapacity(binding.Coordinate, state.group) {
 			state.occupied[slotKey(binding.Coordinate)] = struct{}{}
@@ -171,8 +171,8 @@ func Allocate(input Input) (Plan, error) {
 	}
 
 	plan := Plan{}
-	bindingsByUID := make(map[types.UID][]Binding, len(input.Bindings))
-	for _, binding := range input.Bindings {
+	bindingsByUID := make(map[types.UID][]Binding, len(snapshot.Bindings))
+	for _, binding := range snapshot.Bindings {
 		plan.Stats.BindingLookups++
 		bindingsByUID[binding.Node.UID] = append(bindingsByUID[binding.Node.UID], binding)
 
@@ -216,7 +216,7 @@ func Allocate(input Input) (Plan, error) {
 		}
 		node, exists := nodesByUID[uid]
 		if !exists {
-			node = Node{Name: bindings[0].Node.Name, UID: uid}
+			node = KubernetesNode{Name: bindings[0].Node.Name, UID: uid}
 		}
 		conflictBindings := slices.Clone(bindings)
 		sortBindings(conflictBindings)
@@ -227,7 +227,7 @@ func Allocate(input Input) (Plan, error) {
 		})
 	}
 
-	classified, classificationStats := Classify(input.Nodes, compiled)
+	classified, classificationStats := Classify(snapshot.Nodes, compiled)
 	plan.Stats.SelectorEvaluations += classificationStats.SelectorEvaluations
 	slices.SortFunc(classified, func(a, b Classification) int {
 		return compareNodes(a.Node, b.Node)
@@ -291,8 +291,8 @@ func Allocate(input Input) (Plan, error) {
 	return plan, nil
 }
 
-func indexNodes(nodes []Node) (map[types.UID]Node, error) {
-	indexed := make(map[types.UID]Node, len(nodes))
+func indexNodes(nodes []KubernetesNode) (map[types.UID]KubernetesNode, error) {
+	indexed := make(map[types.UID]KubernetesNode, len(nodes))
 	for _, node := range nodes {
 		if node.Name == "" || node.UID == "" {
 			return nil, errors.New("node identity must include name and UID")
@@ -343,7 +343,7 @@ func nextFreeCoordinate(state *groupState, stats *Stats) (Coordinate, bool) {
 	return Coordinate{}, false
 }
 
-func coordinateInCapacity(coordinate Coordinate, group Group) bool {
+func coordinateInCapacity(coordinate Coordinate, group RackGroup) bool {
 	return coordinate.RackIndex >= 0 &&
 		coordinate.RackIndex < group.Racks &&
 		coordinate.NodeIndex >= 0 &&
@@ -354,7 +354,7 @@ func slotKey(coordinate Coordinate) uint64 {
 	return uint64(uint32(coordinate.RackIndex))<<32 | uint64(uint32(coordinate.NodeIndex))
 }
 
-func compareNodes(a, b Node) int {
+func compareNodes(a, b KubernetesNode) int {
 	if order := a.CreationTimestamp.Compare(b.CreationTimestamp); order != 0 {
 		return order
 	}
@@ -365,7 +365,7 @@ func compareNodes(a, b Node) int {
 }
 
 func compareBindings(a, b Binding) int {
-	if order := compareGroupKey(a.Coordinate.Group, b.Coordinate.Group); order != 0 {
+	if order := compareRackGroupKey(a.Coordinate.Group, b.Coordinate.Group); order != 0 {
 		return order
 	}
 	if order := cmp.Compare(a.Coordinate.RackIndex, b.Coordinate.RackIndex); order != 0 {

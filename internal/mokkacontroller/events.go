@@ -30,16 +30,16 @@ import (
 // desired rack coordinate in memory.
 type rackConflictWaiters struct {
 	mu          sync.RWMutex
-	byRack      map[string]map[allocate.GroupKey]struct{}
-	byGroup     map[allocate.GroupKey]map[string]struct{}
-	byInventory map[string]map[allocate.GroupKey]struct{}
+	byRack      map[string]map[allocate.RackGroupKey]struct{}
+	byGroup     map[allocate.RackGroupKey]map[string]struct{}
+	byInventory map[string]map[allocate.RackGroupKey]struct{}
 }
 
 func newRackConflictWaiters() *rackConflictWaiters {
 	return &rackConflictWaiters{
-		byRack:      make(map[string]map[allocate.GroupKey]struct{}),
-		byGroup:     make(map[allocate.GroupKey]map[string]struct{}),
-		byInventory: make(map[string]map[allocate.GroupKey]struct{}),
+		byRack:      make(map[string]map[allocate.RackGroupKey]struct{}),
+		byGroup:     make(map[allocate.RackGroupKey]map[string]struct{}),
+		byInventory: make(map[string]map[allocate.RackGroupKey]struct{}),
 	}
 }
 
@@ -62,7 +62,7 @@ func (r *rackConflictWaiters) replaceInventory(
 }
 
 func (r *rackConflictWaiters) replaceGroup(
-	key allocate.GroupKey,
+	key allocate.RackGroupKey,
 	conflicts []sgpuinventory.OwnershipConflict,
 ) {
 	r.mu.Lock()
@@ -105,7 +105,7 @@ func (r *rackConflictWaiters) removeInventoryLocked(name string, uid types.UID, 
 	}
 }
 
-func (r *rackConflictWaiters) removeGroupLocked(key allocate.GroupKey) {
+func (r *rackConflictWaiters) removeGroupLocked(key allocate.RackGroupKey) {
 	for name := range r.byGroup[key] {
 		waiters := r.byRack[name]
 		delete(waiters, key)
@@ -121,10 +121,10 @@ func (r *rackConflictWaiters) removeGroupLocked(key allocate.GroupKey) {
 	}
 }
 
-func (r *rackConflictWaiters) addLocked(name string, key allocate.GroupKey) {
+func (r *rackConflictWaiters) addLocked(name string, key allocate.RackGroupKey) {
 	waiters := r.byRack[name]
 	if waiters == nil {
-		waiters = make(map[allocate.GroupKey]struct{})
+		waiters = make(map[allocate.RackGroupKey]struct{})
 		r.byRack[name] = waiters
 	}
 	waiters[key] = struct{}{}
@@ -136,16 +136,16 @@ func (r *rackConflictWaiters) addLocked(name string, key allocate.GroupKey) {
 	names[name] = struct{}{}
 	groups := r.byInventory[key.InventoryName]
 	if groups == nil {
-		groups = make(map[allocate.GroupKey]struct{})
+		groups = make(map[allocate.RackGroupKey]struct{})
 		r.byInventory[key.InventoryName] = groups
 	}
 	groups[key] = struct{}{}
 }
 
-func (r *rackConflictWaiters) waiters(name string) []allocate.GroupKey {
+func (r *rackConflictWaiters) waiters(name string) []allocate.RackGroupKey {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	waiters := make([]allocate.GroupKey, 0, len(r.byRack[name]))
+	waiters := make([]allocate.RackGroupKey, 0, len(r.byRack[name]))
 	for key := range r.byRack[name] {
 		waiters = append(waiters, key)
 	}
@@ -166,12 +166,12 @@ func (r *rackConflictWaiters) size() int {
 type placementRegistry struct {
 	mu          sync.RWMutex
 	byInventory map[string]placementInventory
-	active      map[allocate.GroupKey]labels.Selector
+	active      map[allocate.RackGroupKey]labels.Selector
 }
 
 type placementInventory struct {
 	inventory *mokkav1alpha1.SGPUInventory
-	groups    map[allocate.GroupKey]labels.Selector
+	groups    map[allocate.RackGroupKey]labels.Selector
 }
 
 type placementInventoryKey struct {
@@ -182,7 +182,7 @@ type placementInventoryKey struct {
 func newPlacementRegistry() *placementRegistry {
 	return &placementRegistry{
 		byInventory: make(map[string]placementInventory),
-		active:      make(map[allocate.GroupKey]labels.Selector),
+		active:      make(map[allocate.RackGroupKey]labels.Selector),
 	}
 }
 
@@ -190,7 +190,7 @@ func (r *placementRegistry) replace(inventory *mokkav1alpha1.SGPUInventory) {
 	if inventory == nil {
 		return
 	}
-	groups := make(map[allocate.GroupKey]labels.Selector, len(inventory.Spec.RackGroups))
+	groups := make(map[allocate.RackGroupKey]labels.Selector, len(inventory.Spec.RackGroups))
 	for _, group := range inventory.Spec.RackGroups {
 		key := groupKey(inventory, group.ID)
 		selector := labels.Everything()
@@ -230,7 +230,7 @@ func (r *placementRegistry) rebuildActiveLocked() {
 		inventories = append(inventories, registered.inventory)
 	}
 	admitted := sgpuinventory.AdmittedRackGroupInventoryUIDs(inventories)
-	active := make(map[allocate.GroupKey]labels.Selector, sgpuinventory.MaxRackGroups)
+	active := make(map[allocate.RackGroupKey]labels.Selector, sgpuinventory.MaxRackGroups)
 	for _, registered := range r.byInventory {
 		if _, ok := admitted[registered.inventory.UID]; !ok {
 			continue
@@ -256,13 +256,13 @@ func (r *placementRegistry) inventoryKeysLocked() []placementInventoryKey {
 	return inventories
 }
 
-func (r *placementRegistry) matching(node *corev1.Node) []allocate.GroupKey {
+func (r *placementRegistry) matching(node *corev1.Node) []allocate.RackGroupKey {
 	if node == nil || node.Labels[allocate.EligibleNodeLabel] != "true" {
 		return nil
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	matches := make([]allocate.GroupKey, 0, 1)
+	matches := make([]allocate.RackGroupKey, 0, 1)
 	set := labels.Set(node.Labels)
 	for key, selector := range r.active {
 		if selector.Matches(set) {
@@ -473,7 +473,7 @@ func (r *eventRouter) nodeDelete(object any) {
 	}
 	groups := r.registry.matching(node)
 	bound := r.boundRacks(node.Name, node.UID)
-	deferred := make(map[allocate.GroupKey]struct{})
+	deferred := make(map[allocate.RackGroupKey]struct{})
 	for _, rack := range bound {
 		for _, slot := range rack.Spec.Nodes {
 			if slot.NodeRef == nil || slot.NodeRef.Name != node.Name || slot.NodeRef.UID != node.UID {
@@ -494,7 +494,7 @@ func (r *eventRouter) nodeDelete(object any) {
 
 func (r *eventRouter) routeNodeWithBindings(
 	node *corev1.Node,
-	groups []allocate.GroupKey,
+	groups []allocate.RackGroupKey,
 	bound []*mokkav1alpha1.SGPURack,
 	fresh bool,
 ) {
@@ -639,15 +639,15 @@ func (r *eventRouter) routeRackWaiters(name string) {
 	}
 }
 
-func rackOwnerGroup(rack *mokkav1alpha1.SGPURack) (allocate.GroupKey, bool) {
+func rackOwnerGroup(rack *mokkav1alpha1.SGPURack) (allocate.RackGroupKey, bool) {
 	owner := metav1.GetControllerOf(rack)
 	if owner == nil || owner.APIVersion != mokkav1alpha1.SchemeGroupVersion.String() || owner.Kind != "SGPUInventory" {
-		return allocate.GroupKey{}, false
+		return allocate.RackGroupKey{}, false
 	}
 	if owner.Name == "" || owner.UID == "" || rack.Spec.Identity.RackGroup == "" {
-		return allocate.GroupKey{}, false
+		return allocate.RackGroupKey{}, false
 	}
-	return allocate.GroupKey{
+	return allocate.RackGroupKey{
 		InventoryName: owner.Name,
 		InventoryUID:  owner.UID,
 		RackGroup:     rack.Spec.Identity.RackGroup,
@@ -769,7 +769,7 @@ func cleanupFor(rack *mokkav1alpha1.SGPURack, slot mokkav1alpha1.SGPURackNode, r
 		Reason:   reason,
 		Binding: allocate.Binding{
 			Coordinate: allocate.Coordinate{
-				Group: allocate.GroupKey{
+				Group: allocate.RackGroupKey{
 					InventoryName: rack.Spec.InventoryRef.Name,
 					InventoryUID:  rack.Spec.InventoryRef.UID,
 					RackGroup:     rack.Spec.Identity.RackGroup,
@@ -934,17 +934,17 @@ func projectionsMatchBindings(node *corev1.Node, racks []*mokkav1alpha1.SGPURack
 	return found
 }
 
-func groupKey(inventory *mokkav1alpha1.SGPUInventory, group string) allocate.GroupKey {
-	return allocate.GroupKey{InventoryName: inventory.Name, InventoryUID: inventory.UID, RackGroup: group}
+func groupKey(inventory *mokkav1alpha1.SGPUInventory, group string) allocate.RackGroupKey {
+	return allocate.RackGroupKey{InventoryName: inventory.Name, InventoryUID: inventory.UID, RackGroup: group}
 }
 
-func uniqueGroupKeys(keys []allocate.GroupKey) []allocate.GroupKey {
+func uniqueGroupKeys(keys []allocate.RackGroupKey) []allocate.RackGroupKey {
 	sortGroupKeys(keys)
 	return slices.Compact(keys)
 }
 
-func sortGroupKeys(keys []allocate.GroupKey) {
-	slices.SortFunc(keys, func(a, b allocate.GroupKey) int {
+func sortGroupKeys(keys []allocate.RackGroupKey) {
+	slices.SortFunc(keys, func(a, b allocate.RackGroupKey) int {
 		if order := cmp.Compare(a.InventoryName, b.InventoryName); order != 0 {
 			return order
 		}
