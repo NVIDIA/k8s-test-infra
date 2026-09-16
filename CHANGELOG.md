@@ -59,6 +59,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- nvml-mock: `device_defaults.architecture` now accepts `rubin`, which NVML
+  defines and the mock previously resolved to `NVML_DEVICE_ARCH_UNKNOWN`, so a
+  Rubin profile failed every architecture-gated feature. Spellings are also
+  matched case-insensitively and with surrounding whitespace trimmed. An exact
+  match was required before, and anything else degraded silently to `UNKNOWN`.
+- e2e: the end-to-end test harness now rejects a chart profile whose
+  `device_defaults.architecture` is missing or names no recognized generation.
+  It previously loaded with an architecture nothing recognized, leaving each
+  "this generation and newer" expectation to answer from a default rather than
+  from the profile. This is a test-suite check only; the chart and the mock
+  still accept such a profile and report `NVML_DEVICE_ARCH_UNKNOWN` for it.
 - `libpcisysfs.so` is now `libmockfs.so`. The shim redirects kernel-module paths
   as well as PCI sysfs, so its name no longer described what it does. The
   `MOCK_PCI_ROOT` variable that points it at the fake tree is unchanged.

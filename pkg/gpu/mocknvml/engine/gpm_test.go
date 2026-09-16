@@ -32,7 +32,12 @@ func TestGetGpmSupport_ArchitectureDefault(t *testing.T) {
 		{"ada", 0},
 		{"hopper", 1},
 		{"blackwell", 1},
-		{"", 0}, // unknown architecture
+		// Unset: applyDeviceBaseOverrides skips the assignment, so the dgxa100
+		// base default (Ampere) applies rather than UNKNOWN.
+		{"", 0},
+		// Unrecognized: parseArchitecture answers UNKNOWN, which is 0xFFFFFFFF
+		// and must therefore clear no gate despite sorting above Blackwell.
+		{"bogus_arch", 0},
 	}
 	for _, tt := range tests {
 		dev := newTestDeviceWithConfig(t, &DeviceConfig{Architecture: tt.arch})

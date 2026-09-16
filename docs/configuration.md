@@ -79,13 +79,19 @@ device_defaults:
 
 ```yaml
 device_defaults:
-  architecture: "ampere"              # kepler, maxwell, pascal, volta,
-                                      # turing, ampere, ada, hopper
+  architecture: "ampere"              # kepler, maxwell, pascal, volta, turing,
+                                      # ampere, ada, hopper, blackwell, rubin
   compute_capability:
     major: 8
     minor: 0
   num_gpu_cores: 6912
 ```
+
+Names are matched case-insensitively with surrounding whitespace trimmed, and
+`ada_lovelace` is accepted as a spelling of `ada`. An unrecognized name is
+logged as a warning and reported as `NVML_DEVICE_ARCH_UNKNOWN`, which fails
+every architecture-gated feature — T.Limit temperatures and GPM support among
+them.
 
 ### Memory
 
