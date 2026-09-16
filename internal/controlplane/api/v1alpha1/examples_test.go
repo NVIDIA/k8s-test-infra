@@ -26,7 +26,10 @@ func TestControllerExamplesAreTypedAndMaterializable(t *testing.T) {
 	require.Equal(t, "SGPURackProfile", profile.Kind)
 	require.NoError(t, rackrender.ValidateProfile(profile.Spec))
 	require.Positive(t, profile.Spec.Node.GPUs.Memory.Capacity.Value())
-	require.Positive(t, profile.Spec.Node.GPUs.Clocks.Supported[0].MemoryMHz)
+	require.NotEmpty(t, profile.Spec.Node.GPUs.Clocks.Supported)
+	for _, clocks := range profile.Spec.Node.GPUs.Clocks.Supported {
+		require.Positive(t, clocks.MemoryMHz)
+	}
 
 	inventoryData, err := os.ReadFile(filepath.Join(examples, "sgpu-inventory.yaml"))
 	require.NoError(t, err)

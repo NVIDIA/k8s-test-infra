@@ -24,12 +24,13 @@ func TestCheckAcceptsExactProjectionAndRejectsUIDDrift(t *testing.T) {
 	require.NotEmpty(t, got.AssignmentDigest)
 	require.Equal(t, 1, got.ProjectedNodes)
 
+	node := requireNodeByName(t, nodes, "mokka-node-000000")
 	var projected assignment
-	require.NoError(t, json.Unmarshal([]byte(nodes.Items[0].Annotations[assignmentAnnotation]), &projected))
+	require.NoError(t, json.Unmarshal([]byte(node.Annotations[assignmentAnnotation]), &projected))
 	projected.NodeUID = "replacement-uid"
 	drifted, err := json.Marshal(projected)
 	require.NoError(t, err)
-	nodes.Items[0].Annotations[assignmentAnnotation] = string(drifted)
+	node.Annotations[assignmentAnnotation] = string(drifted)
 
 	got = check(o, inventory, racks, nodes)
 	require.False(t, got.Success)
@@ -49,12 +50,24 @@ func TestCheckRejectsReleasedProjectionKeysWithEmptyValues(t *testing.T) {
 		}
 	}
 	racks.Items = nil
-	nodes.Items[0].Labels[assignedLabel] = ""
-	nodes.Items[0].Annotations[assignmentAnnotation] = ""
+	node := requireNodeByName(t, nodes, "mokka-node-000000")
+	node.Labels[assignedLabel] = ""
+	node.Annotations[assignmentAnnotation] = ""
 
 	got := check(o, inventory, racks, nodes)
 	require.False(t, got.Success)
 	require.Contains(t, got.Errors, `Node "mokka-node-000000" retains released assignment metadata`)
+}
+
+func requireNodeByName(t *testing.T, nodes *corev1.NodeList, name string) *corev1.Node {
+	t.Helper()
+	for index := range nodes.Items {
+		if nodes.Items[index].Name == name {
+			return &nodes.Items[index]
+		}
+	}
+	require.FailNow(t, "node not found", "name: %s", name)
+	return nil
 }
 
 func validFixture(t *testing.T) (options, *mokkav1alpha1.SGPUInventory, *mokkav1alpha1.SGPURackList, *corev1.NodeList) {
