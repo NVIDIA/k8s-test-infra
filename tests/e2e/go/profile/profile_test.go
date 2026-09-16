@@ -344,6 +344,35 @@ func TestDetailedSramECCIsAmpereAndLater(t *testing.T) {
 	}
 }
 
+// The two NVLink predicates answer on different axes, and pinning both per
+// profile is what keeps one from collapsing into the other: the bandwidth mode
+// is node-wide and architecture-only, so h100 and the link-less b200 report it,
+// while the NVLE row additionally needs a 580 driver and a declared fabric,
+// which only gb200 and gb300 have. Driven from KnownProfiles so a newly added
+// profile has to declare which side it belongs on.
+func TestNvlinkDerivations(t *testing.T) {
+	want := map[string]struct{ bwMode, nvle bool }{
+		"t4":    {false, false},
+		"l40s":  {false, false},
+		"a100":  {false, false},
+		"h100":  {true, false},
+		"b200":  {true, false},
+		"gb200": {true, true},
+		"gb300": {true, true},
+	}
+	for _, name := range KnownProfiles {
+		w, ok := want[name]
+		require.True(t, ok, "profile %q declares no NVLink expectation", name)
+		p, err := Load(profilesDir, name)
+		require.NoError(t, err, "Load(%q)", name)
+		require.Equal(t, w.bwMode, p.ReportsNvlinkBwMode(),
+			"%s (%s): nvlink bandwidth mode", name, p.Architecture())
+		require.Equal(t, w.nvle, p.ReportsNvlinkEncryption(),
+			"%s (%s, driver %d.x, %d links): NVLE row",
+			name, p.Architecture(), p.DriverMajor(), p.ExpectedNV())
+	}
+}
+
 // A profile with no remapped_rows block must load and report the histogram
 // unsupported rather than failing.
 func TestRowRemapHistogramDefaultsToUnsupported(t *testing.T) {

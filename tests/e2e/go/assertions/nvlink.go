@@ -140,16 +140,6 @@ func nvlinkCountersTriState(ctx context.Context, k *kube.Client, pod kube.PodRef
 	}
 }
 
-// hopperPlusProfiles are the profiles whose architecture clears the engine's
-// Hopper gate. That is the gate that matters for `nvidia-smi nvlink -gBwMode`
-// and `-sBwMode`, because those route to nvmlSystemGet/SetNvlinkBwMode rather
-// than to the per-device trio — so h100 belongs here, and a pre-Hopper profile
-// is the only honest negative control. The per-device bandwidth-mode calls are
-// not reachable through this nvidia-smi at all.
-var hopperPlusProfiles = map[string]struct{}{
-	"h100": {}, "b200": {}, "gb200": {}, "gb300": {},
-}
-
 // bwModeNameRE matches the bundled nvidia-smi's own mode-name table. Matching
 // the name set rather than pinning one value keeps the assertion from breaking
 // when the default mode changes, while still failing loudly if the mock
@@ -174,9 +164,10 @@ func nvlinkBwMode(ctx context.Context, k *kube.Client, pod kube.PodRef, p profil
 	res, _ := k.ExecTruncated(ctx, pod, nvlinkLogOutputLines, "nvidia-smi", "nvlink", "-gBwMode")
 	out := res.Combined()
 
-	if _, ok := hopperPlusProfiles[p.Name]; !ok {
+	if !p.ReportsNvlinkBwMode() {
 		gomega.Expect(out).To(gomega.MatchRegexp(`(?i)not supported`),
-			"pre-Hopper profile %q must not claim bandwidth-mode support:\n%s", p.Name, out)
+			"pre-Hopper profile %q (%s) must not claim bandwidth-mode support:\n%s",
+			p.Name, p.Architecture(), out)
 		return
 	}
 
@@ -203,16 +194,16 @@ func nvlinkBwMode(ctx context.Context, k *kube.Client, pod kube.PodRef, p profil
 	// the same cluster) starts from FULL rather than inheriting HALF.
 	_, _ = k.ExecTruncated(ctx, pod, nvlinkLogOutputLines, "nvidia-smi", "nvlink", "-sBwMode", "FULL")
 
-	// nvlink --info is per-device, so it needs Blackwell AND a real fabric.
-	// h100 is Hopper, and b200 is standalone with no links at all, so neither
-	// prints an NVLE row — below Blackwell the driver-version registry answers
-	// FUNCTION_NOT_FOUND before the architecture gate is even reached.
+	// nvlink --info is per-device, so unlike the mode above it needs the
+	// driver, the architecture and a real fabric all at once: h100 is Hopper on
+	// a 550 driver, and b200 is standalone with no links at all.
 	ginkgo.By("nvidia-smi nvlink --info reports NVLE")
 	infoRes, _ := k.ExecTruncated(ctx, pod, nvlinkLogOutputLines, "nvidia-smi", "nvlink", "--info")
 	info := infoRes.Combined()
-	if p.Name == "h100" || p.ExpectedNV() == 0 {
+	if !p.ReportsNvlinkEncryption() {
 		gomega.Expect(info).NotTo(gomega.ContainSubstring("NVLE:"),
-			"profile %q must not report NVLE:\n%s", p.Name, info)
+			"profile %q (%s, driver %d.x, %d links) must not report NVLE:\n%s",
+			p.Name, p.Architecture(), p.DriverMajor(), p.ExpectedNV(), info)
 		return
 	}
 	gomega.Expect(info).To(gomega.ContainSubstring("NVLE:"),

@@ -561,3 +561,28 @@ func (p Profile) RowRemapHistogramBanks() int { return p.rowRemapBanks }
 // GPU T.Limit temperature field IDs (Ada and later). Pre-Ada profiles keep the
 // legacy absolute threshold rows via nvmlDeviceGetTemperatureThreshold.
 func (p Profile) ReportsTLimitTemp() bool { return p.arch.AtLeast(gpuarch.Ada) }
+
+// ReportsNvlinkBwMode is true when `nvidia-smi nvlink -gBwMode` and -sBwMode
+// answer on this profile. This nvidia-smi routes both to
+// nvmlSystemGet/SetNvlinkBwMode, whose gate is Hopper and newer; it never calls
+// the per-device bandwidth-mode trio, which is gated on Blackwell. So the axis
+// is the architecture alone — a Hopper board with no declared links still
+// reports a mode, because the answer is node-wide.
+func (p Profile) ReportsNvlinkBwMode() bool { return p.arch.AtLeast(gpuarch.Hopper) }
+
+// nvlinkInfoMinDriver is the driver that introduced nvmlDeviceGetNvLinkInfo.
+// Below it the mock's version registry reports the symbol as absent, so
+// nvidia-smi cannot find the function rather than being told the device
+// declines — which is what a pre-580 Blackwell profile hits first.
+const nvlinkInfoMinDriver = 580
+
+// ReportsNvlinkEncryption is true when `nvidia-smi nvlink --info` prints the
+// NVLE row on this profile. Three axes have to hold: the driver must expose
+// nvmlDeviceGetNvLinkInfo, the architecture must clear the engine's Blackwell
+// gate on that surface, and the board must declare at least one link, since
+// nvidia-smi prints no per-device section for a GPU with no NVLink.
+func (p Profile) ReportsNvlinkEncryption() bool {
+	return p.DriverMajor() >= nvlinkInfoMinDriver &&
+		p.arch.AtLeast(gpuarch.Blackwell) &&
+		p.ExpectedNV() > 0
+}
