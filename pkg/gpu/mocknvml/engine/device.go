@@ -2220,6 +2220,9 @@ func parseArchitecture(name string) nvml.DeviceArchitecture {
 	if !ok {
 		// NVML's own answer for a part it cannot identify, so a bad config
 		// degrades the way unrecognized hardware does rather than failing.
+		// Warned because an unidentified generation clears no architecture
+		// gate, and nothing else in the config path reports the typo.
+		warnLog("[CONFIG] unrecognized architecture %q; reporting UNKNOWN, which fails every architecture-gated feature\n", name)
 		return nvml.DEVICE_ARCH_UNKNOWN
 	}
 	return nvml.DeviceArchitecture(a)

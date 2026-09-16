@@ -104,7 +104,7 @@ func TestBetween(t *testing.T) {
 		{"spans the 11/12 gap", Blackwell, Hopper, Rubin, true},
 		// An inverted range can only be a caller bug, so it admits nothing
 		// rather than silently behaving like the range read the other way.
-		{"inverted range admits its endpoints", Hopper, Rubin, Hopper, false},
+		{"inverted range does not admit its endpoints", Hopper, Rubin, Hopper, false},
 		{"inverted range admits nothing", Blackwell, Rubin, Hopper, false},
 	}
 	for _, tt := range tests {

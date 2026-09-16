@@ -199,6 +199,11 @@ func (p Profile) GFDProductName() string {
 func (p Profile) MemoryMiB() int { return int(p.memoryBytes / bytesPerMiB) }
 
 // Load reads profilesDir/<name>.yaml and returns the typed Profile.
+//
+// device_defaults.architecture is required and must name a generation
+// gpuarch.Parse recognizes: the harness keys its "this generation and newer"
+// expectations off it, so an absent or misspelled value would leave them
+// answering from a default with the suite green.
 func Load(profilesDir, name string) (Profile, error) {
 	path := filepath.Join(profilesDir, name+".yaml")
 	data, err := os.ReadFile(path)
@@ -214,6 +219,9 @@ func Load(profilesDir, name string) (Profile, error) {
 	}
 	if len(raw.Devices) == 0 {
 		return Profile{}, fmt.Errorf("profile %q: devices list is empty", path)
+	}
+	if strings.TrimSpace(raw.DeviceDefaults.Architecture) == "" {
+		return Profile{}, fmt.Errorf("profile %q: device_defaults.architecture is empty", path)
 	}
 	parsedArch, ok := gpuarch.Parse(raw.DeviceDefaults.Architecture)
 	if !ok {

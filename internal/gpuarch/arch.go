@@ -38,6 +38,11 @@ import (
 // The values are NVML's, which are monotonic but not dense: 11 and 12 are
 // reserved and unpublished, so Blackwell (10) is followed by Rubin (13).
 // Ordering by the raw value stays correct across the gap.
+//
+// The zero value is not Unknown: it is an unnamed generation older than
+// Kepler, which Known accepts and which sorts below every real one. Always
+// obtain an Arch from Parse or a named constant, so a field left unset cannot
+// be mistaken for an unidentified part.
 type Arch uint32
 
 // Unknown is NVML's answer for a generation it cannot identify. Its value

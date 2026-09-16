@@ -70,8 +70,11 @@ func TestParseArchitectureRubin(t *testing.T) {
 func TestParseArchitectureNormalizes(t *testing.T) {
 	t.Parallel()
 	for _, in := range []string{"Hopper", "HOPPER", "  hopper  "} {
-		require.Equal(t, nvml.DeviceArchitecture(nvml.DEVICE_ARCH_HOPPER), parseArchitecture(in),
-			"parseArchitecture(%q)", in)
+		t.Run(in, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, nvml.DeviceArchitecture(nvml.DEVICE_ARCH_HOPPER), parseArchitecture(in),
+				"parseArchitecture(%q)", in)
+		})
 	}
 }
 

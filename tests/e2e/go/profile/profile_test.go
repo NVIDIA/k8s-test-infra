@@ -123,6 +123,9 @@ func TestNegativeControlsAreIndependent(t *testing.T) {
 // at all — hence a fixture with distinct non-zero values (#637).
 func TestUtilizationPercentagesComeFromTheProfile(t *testing.T) {
 	dir := t.TempDir()
+	// Load requires device_defaults.architecture, so every fixture in this
+	// file declares one. Where the test is architecture-agnostic, as here, the
+	// value is incidental and carries no meaning for what is being checked.
 	yaml := `
 device_defaults:
   name: "NVIDIA TEST-GPU"
@@ -406,9 +409,6 @@ func TestProfileArchitectures(t *testing.T) {
 		p, err := Load(profilesDir, name)
 		require.NoError(t, err, "Load(%q)", name)
 		require.Equal(t, want[name], p.Arch(), "%s architecture", name)
-		// The raw spelling is a separate question from the generation: it is
-		// what catches a profile retagged without this table being updated.
-		require.NotEmpty(t, p.Architecture(), "%s must report its YAML spelling", name)
 	}
 }
 
@@ -442,4 +442,9 @@ devices:
 	write(t, "typo", "hopperr")
 	_, err = Load(dir, "typo")
 	require.ErrorContains(t, err, "hopperr")
+
+	// An omitted key reports as an omission, not as a misspelling of "".
+	write(t, "absent", "")
+	_, err = Load(dir, "absent")
+	require.ErrorContains(t, err, "device_defaults.architecture is empty")
 }
