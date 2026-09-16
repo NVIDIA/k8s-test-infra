@@ -4,6 +4,7 @@
 package profile
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/gpuarch"
 )
 
 // profilesDir is the chart profiles directory relative to this test package
@@ -55,7 +58,7 @@ func TestDerivations(t *testing.T) {
 		{"b200", "NVIDIA B200", 8, 8, 0, false, false, true, 2, "blackwell", true, false, 95, 90, 85, 6, 1965}, // NVLink negative control, IB enabled
 		{"gb200", "NVIDIA GB200", 4, 4, 18, true, true, true, 2, "blackwell", true, true, 95, 90, 85, 6, 2062}, // one NVL72 compute tray: 2 superchips, 4 GPUs
 		{"gb300", "NVIDIA GB300 NVL", 4, 4, 18, true, true, true, 2, "blackwell", true, true, 95, 90, 85, 6, 2070},
-		{"l40s", "NVIDIA L40S", 8, 0, 0, false, false, false, 2, "ada_lovelace", true, false, 96, 93, 89, 4, 2520}, // IB + NVLink negative control
+		{"l40s", "NVIDIA L40S", 8, 0, 0, false, false, false, 2, "ada", true, false, 96, 93, 89, 4, 2520}, // IB + NVLink negative control
 		{"t4", "NVIDIA T4", 4, 0, 0, false, false, false, 1, "turing", false, false, 96, 93, 89, 3, 1590},
 	}
 
@@ -123,6 +126,7 @@ func TestUtilizationPercentagesComeFromTheProfile(t *testing.T) {
 	yaml := `
 device_defaults:
   name: "NVIDIA TEST-GPU"
+  architecture: "hopper"
   utilization:
     gpu: 21
     memory: 22
@@ -145,6 +149,7 @@ func TestUtilizationPercentagesDefaultToZero(t *testing.T) {
 	yaml := `
 device_defaults:
   name: "NVIDIA TEST-GPU"
+  architecture: "hopper"
 devices:
   - index: 0
 `
@@ -345,6 +350,7 @@ func TestRowRemapHistogramDefaultsToUnsupported(t *testing.T) {
 	yaml := `
 device_defaults:
   name: "NVIDIA TEST-GPU"
+  architecture: "hopper"
 devices:
   - index: 0
 `
@@ -364,6 +370,7 @@ func TestExpectedPCIRootsFallsBackToOneRoot(t *testing.T) {
 	const raw = `
 device_defaults:
   name: "NVIDIA Mock GPU"
+  architecture: "hopper"
 devices:
   - index: 0
     pci:
@@ -378,4 +385,61 @@ devices:
 	require.NoError(t, err)
 	require.Equal(t, 1, p.ExpectedPCIRoots(), "topology-less profile spans one synthesized root")
 	require.Equal(t, 2, p.ExpectedGPUs())
+}
+
+// TestProfileArchitectures pins each shipped profile to its generation. Every
+// "this generation and newer" expectation in the harness keys off Arch(), so a
+// profile silently retagged would otherwise flip those assertions to their
+// negative branch and still pass.
+func TestProfileArchitectures(t *testing.T) {
+	t.Parallel()
+	want := map[string]gpuarch.Arch{
+		"a100":  gpuarch.Ampere,
+		"h100":  gpuarch.Hopper,
+		"b200":  gpuarch.Blackwell,
+		"gb200": gpuarch.Blackwell,
+		"gb300": gpuarch.Blackwell,
+		"l40s":  gpuarch.Ada,
+		"t4":    gpuarch.Turing,
+	}
+	for _, name := range KnownProfiles {
+		p, err := Load(profilesDir, name)
+		require.NoError(t, err, "Load(%q)", name)
+		require.Equal(t, want[name], p.Arch(), "%s architecture", name)
+		// The raw spelling is a separate question from the generation: it is
+		// what catches a profile retagged without this table being updated.
+		require.NotEmpty(t, p.Architecture(), "%s must report its YAML spelling", name)
+	}
+}
+
+// TestLoadRejectsUnknownArchitecture covers the strictness the harness needs
+// and the engine does not: these are our own chart profiles, so an
+// unrecognized spelling is a typo in the repository. Accepting it would leave
+// every architecture gate answering its negative branch with the suite green.
+func TestLoadRejectsUnknownArchitecture(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	// The positive control shares everything with the negative one but the
+	// architecture, so a failure cannot be blamed on the stub profile.
+	const template = `device_defaults:
+  name: "NVIDIA TEST"
+  architecture: %q
+devices:
+  - index: 0
+`
+	write := func(t *testing.T, name, architecture string) {
+		t.Helper()
+		body := fmt.Sprintf(template, architecture)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name+".yaml"), []byte(body), 0o600))
+	}
+
+	write(t, "good", "hopper")
+	p, err := Load(dir, "good")
+	require.NoError(t, err)
+	require.Equal(t, gpuarch.Hopper, p.Arch())
+
+	write(t, "typo", "hopperr")
+	_, err = Load(dir, "typo")
+	require.ErrorContains(t, err, "hopperr")
 }

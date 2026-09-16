@@ -33,6 +33,8 @@ import (
 	"strings"
 
 	"sigs.k8s.io/yaml"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/gpuarch"
 )
 
 // KnownProfiles is the full set of chart profiles shipped in the repo. The
@@ -152,7 +154,7 @@ type Profile struct {
 	pciRoots    int
 	memoryBytes int64
 
-	architecture       string
+	arch               gpuarch.Arch
 	shutdownThresholdC int
 	slowdownThresholdC int
 	maxOperatingC      int
@@ -213,18 +215,23 @@ func Load(profilesDir, name string) (Profile, error) {
 	if len(raw.Devices) == 0 {
 		return Profile{}, fmt.Errorf("profile %q: devices list is empty", path)
 	}
+	parsedArch, ok := gpuarch.Parse(raw.DeviceDefaults.Architecture)
+	if !ok {
+		return Profile{}, fmt.Errorf("profile %q: unrecognized device_defaults.architecture %q",
+			path, raw.DeviceDefaults.Architecture)
+	}
 
 	p := Profile{
-		Name:         name,
-		DisplayName:  raw.DeviceDefaults.Name,
-		gpuCount:     len(raw.Devices),
-		ibEnabled:    raw.Infiniband.Enabled,
-		hcasPerGPU:   raw.Infiniband.HCAsPerGPU,
-		linksPerGPU:  raw.NVLink.LinksPerGPU,
-		hasSwitches:  len(raw.NVLink.Switches) > 0,
-		c2cEnabled:   raw.NVLink.C2CEnabled,
-		memoryBytes:  raw.DeviceDefaults.Memory.TotalBytes,
-		architecture: strings.ToLower(strings.TrimSpace(raw.DeviceDefaults.Architecture)),
+		Name:        name,
+		DisplayName: raw.DeviceDefaults.Name,
+		gpuCount:    len(raw.Devices),
+		ibEnabled:   raw.Infiniband.Enabled,
+		hcasPerGPU:  raw.Infiniband.HCAsPerGPU,
+		linksPerGPU: raw.NVLink.LinksPerGPU,
+		hasSwitches: len(raw.NVLink.Switches) > 0,
+		c2cEnabled:  raw.NVLink.C2CEnabled,
+		memoryBytes: raw.DeviceDefaults.Memory.TotalBytes,
+		arch:        parsedArch,
 
 		driverVersion: strings.TrimSpace(raw.System.DriverVersion),
 	}
@@ -382,8 +389,14 @@ func (p Profile) C2CEnabled() bool { return p.c2cEnabled }
 // being satisfiable by constants.
 func (p Profile) PlatformIdentity() (PlatformIdentity, bool) { return p.platform, p.hasPlatform }
 
-// Architecture is device_defaults.architecture (lowercased), e.g. "ampere".
-func (p Profile) Architecture() string { return p.architecture }
+// Architecture is the profile's generation in canonical lowercase, e.g.
+// "ampere", for log lines and failure messages. It is derived from Arch rather
+// than stored, so the l40s profile's "ada_lovelace" spelling reports as "ada".
+func (p Profile) Architecture() string { return p.arch.String() }
+
+// Arch is the profile's architecture as an ordered generation, for
+// expectations of the form "this generation and newer".
+func (p Profile) Arch() gpuarch.Arch { return p.arch }
 
 // ShutdownThresholdC is thermal.shutdown_threshold_c from the profile.
 func (p Profile) ShutdownThresholdC() int { return p.shutdownThresholdC }
@@ -518,12 +531,6 @@ func (p Profile) DriverMajor() int {
 	return n
 }
 
-// preAmpereArchitectures are the device_defaults.architecture values whose
-// hardware predates both row remapping and the split SRAM ECC counters.
-var preAmpereArchitectures = map[string]bool{
-	"kepler": true, "maxwell": true, "pascal": true, "volta": true, "turing": true,
-}
-
 // ReportsDetailedSramECC is true when nvidia-smi renders the Ampere-and-later
 // SRAM breakdown for this architecture: the uncorrectable count split into
 // parity and SEC-DED, plus the per-unit source list and the threshold flag.
@@ -531,7 +538,7 @@ var preAmpereArchitectures = map[string]bool{
 // the rest, so the expectation is an architecture axis rather than a config one
 // — nvidia-smi picks the layout from the reported architecture, not from what
 // the profile configures (#641).
-func (p Profile) ReportsDetailedSramECC() bool { return !preAmpereArchitectures[p.architecture] }
+func (p Profile) ReportsDetailedSramECC() bool { return p.arch.AtLeast(gpuarch.Ampere) }
 
 // ReportsRowRemapHistogram reports whether the profile configures
 // remapped_rows.availability_histogram, i.e. whether nvidia-smi must render bank
@@ -548,11 +555,4 @@ func (p Profile) RowRemapHistogramBanks() int { return p.rowRemapBanks }
 // ReportsTLimitTemp is true when real hardware of this architecture reports the
 // GPU T.Limit temperature field IDs (Ada and later). Pre-Ada profiles keep the
 // legacy absolute threshold rows via nvmlDeviceGetTemperatureThreshold.
-func (p Profile) ReportsTLimitTemp() bool {
-	switch p.architecture {
-	case "ada", "ada_lovelace", "hopper", "blackwell", "rubin":
-		return true
-	default:
-		return false
-	}
-}
+func (p Profile) ReportsTLimitTemp() bool { return p.arch.AtLeast(gpuarch.Ada) }
