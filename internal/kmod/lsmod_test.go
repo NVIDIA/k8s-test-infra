@@ -32,9 +32,36 @@ func TestLsmodScript_PrintsTheKmodTable(t *testing.T) {
 
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	require.Equal(t, "Module                  Size  Used by", lines[0])
-	require.Contains(t, lines, "nvidia              62312448  1 nvidia_uvm")
+	require.Contains(t, lines, "nvidia              62312448  4 gdrdrv,nvidia_fs,nvidia_modeset,nvidia_uvm")
 	require.Contains(t, lines, "nvidia_uvm           3411968  0",
 		"a holder-less module ends after the count, as kmod's lsmod does")
+}
+
+// The greps the GPU Operator validator runs against lsmod, verbatim. A change
+// to the script's column widths would still parse, and still break them.
+func TestLsmodScript_SatisfiesTheValidatorGreps(t *testing.T) {
+	t.Parallel()
+
+	out := t.TempDir()
+	mods := Modules("550.163.01", true)
+	mustRender(t, Options{Modules: mods, OverlayRoot: out})
+	lsmod := runLsmodScript(t, out)
+
+	// The greps for nvidia_fs and mlx5_core carry no anchor, so they also match
+	// nvidia's Used-by column. Pin a row per module first, or a module could
+	// lose its line and still satisfy every grep below.
+	for _, mod := range mods {
+		require.Regexp(t, `(?m)^`+mod.Name+`\s`, lsmod, "row for %s", mod.Name)
+	}
+
+	for _, grep := range []struct{ module, pattern string }{
+		{GDRDrv, `(?m)^gdrdrv\s`},
+		{NVIDIAPeermem, `(?m)^nvidia_peermem\s`},
+		{NVIDIAFS, `nvidia_fs`},
+		{MLX5Core, `mlx5_core`},
+	} {
+		require.Regexp(t, grep.pattern, lsmod, "the validator's grep for %s must match", grep.module)
+	}
 }
 
 func TestLsmodScript_ReportsMirroredHostModules(t *testing.T) {
@@ -45,7 +72,7 @@ func TestLsmodScript_ReportsMirroredHostModules(t *testing.T) {
 
 	out := t.TempDir()
 	mustRender(t, Options{
-		Modules:     Modules("550.163.01"),
+		Modules:     Modules("550.163.01", false),
 		SourceRoot:  src,
 		OverlayRoot: out,
 	})
@@ -73,7 +100,7 @@ func TestLsmodScript_SkipsEntriesWithoutCoresize(t *testing.T) {
 
 	out := t.TempDir()
 	mustRender(t, Options{
-		Modules:     Modules("550.163.01"),
+		Modules:     Modules("550.163.01", false),
 		SourceRoot:  src,
 		OverlayRoot: out,
 	})
@@ -86,6 +113,6 @@ func renderedTree(t *testing.T) string {
 	t.Helper()
 
 	out := t.TempDir()
-	mustRender(t, Options{Modules: Modules("550.163.01"), OverlayRoot: out})
+	mustRender(t, Options{Modules: Modules("550.163.01", false), OverlayRoot: out})
 	return out
 }
