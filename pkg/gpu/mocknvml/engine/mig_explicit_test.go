@@ -263,7 +263,10 @@ func TestMIGLayoutRecords_MirrorsTheLiveBoard(t *testing.T) {
 	require.Equal(t, uint32(1), records[1].ID)
 	for _, rec := range records {
 		require.NotNil(t, rec.ProfileID)
-		require.Equal(t, nvml.GPU_INSTANCE_PROFILE_1_SLICE, *rec.ProfileID)
+		// The ID an A100 publishes for 1g.5gb, not the enum the instance
+		// carries: profile_id means the same thing here as everywhere else it
+		// is read, and on this board the two differ.
+		require.Equal(t, 19, *rec.ProfileID)
 		require.NotNil(t, rec.PlacementStart)
 	}
 	require.Equal(t, 0, *records[0].PlacementStart)
@@ -298,6 +301,42 @@ func TestMIGLayoutRecords_RoundTripABoardWithNoComputeInstances(t *testing.T) {
 	require.Len(t, gis, 1)
 	require.Empty(t, liveComputeInstances(gis[0]),
 		"a recorded instance with no compute instances must come back with none")
+}
+
+// A layout has to come back as the layout it was read from, profiles included.
+// These records are the baseline a runtime mutation takes its delta against, so
+// a profile that changes meaning across the round trip does not edit the board
+// on the first mutation — it repartitions it.
+//
+// The A100 is where this bites hardest, because the two numberings invert
+// there: a 1g partition carries enum 0, and 0 is the ID the board publishes for
+// the profile that takes the whole GPU.
+func TestMIGLayoutRecords_RoundTripPreservesTheProfile(t *testing.T) {
+	t.Parallel()
+
+	source := newTestDeviceWithConfig(t, a100MIGConfig())
+	enableMIG(t, source)
+	for range 7 {
+		createOneSliceGI(t, source)
+	}
+
+	records := source.MIGLayoutRecords()
+	require.Len(t, records, 7)
+
+	replica := newTestDeviceWithConfig(t, a100MIGConfig())
+	enableMIG(t, replica)
+	replica.applyMIGLayout(&MIGConfig{ModeCurrent: migModeEnabled, Instances: &records})
+
+	st := replica.migState
+	st.mu.Lock()
+	gis := st.liveGpuInstances(replica)
+	st.mu.Unlock()
+
+	require.Len(t, gis, 7, "every recorded partition has to come back")
+	for _, gi := range gis {
+		require.Equal(t, uint32(nvml.GPU_INSTANCE_PROFILE_1_SLICE), gi.Info.ProfileId,
+			"instance %d came back under a different profile", gi.Info.Id)
+	}
 }
 
 // A board that is not partitioned has no layout rather than an empty one:

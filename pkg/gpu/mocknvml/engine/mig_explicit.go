@@ -54,9 +54,15 @@ func (d *ConfigurableDevice) applyMIGLayout(cfg *MIGConfig) {
 // spanning default: a layout written from a board whose instances carry none
 // would otherwise come back with one apiece.
 //
-// Profiles are recorded by ID, which is the identity the instance carries.
-// Naming them instead would go through a spelling more than one profile pair
-// answers to, and the layout would read back as a partition nobody created.
+// Profiles are recorded by ID rather than by name, because a name goes through
+// a spelling more than one profile pair answers to and the layout would read
+// back as a partition nobody created.
+//
+// It is the ID the board publishes, not the enum the instance carries, because
+// that is what every reader of profile_id resolves and what the create path
+// records. The two numberings overlap, so recording the wrong one is not an
+// error but a different layout: on an A100 a 1g instance carries enum 0, and 0
+// is the published ID of the profile that takes the whole board.
 func (d *ConfigurableDevice) MIGLayoutRecords() []MIGGPUInstanceRecord {
 	st, ret := d.migEnabled()
 	if ret != nvml.SUCCESS {
@@ -66,7 +72,7 @@ func (d *ConfigurableDevice) MIGLayoutRecords() []MIGGPUInstanceRecord {
 	instances := st.liveGpuInstances(d)
 	records := make([]MIGGPUInstanceRecord, 0, len(instances))
 	for _, gi := range instances {
-		profileID := int(gi.Info.ProfileId)
+		profileID := st.profileIDs.reported(int(gi.Info.ProfileId))
 		placementStart := int(gi.Info.Placement.Start)
 		records = append(records, MIGGPUInstanceRecord{
 			ID:               gi.Info.Id,
