@@ -12,9 +12,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"golang.org/x/sys/unix"
@@ -124,45 +124,66 @@ func Symlink(target, linkPath string) error {
 	return nil
 }
 
-// MirrorTree copies every file and symlink under src into dst, creating
-// directories as needed. It only ever creates directories (MkdirAll) and
-// replaces leaf files/symlinks — it never removes dst itself or any
-// directory under it. A caller with dst already bind-mounted by another
-// process (e.g. a consumer container whose mount predates this call) keeps
-// seeing that same mount as content lands, rather than losing it the way
-// replacing dst's own directory entry would.
-func MirrorTree(src, dst string) error {
-	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
+// BindMount makes target a bind mount of source: mkdir target if absent
+// (never replacing it if not), then bind-mount source onto it. A no-op if
+// target is already a mount, so repeated calls are safe.
+func BindMount(src, dst string) error {
+	mounted, err := IsMounted(dst)
+	if err != nil {
+		return err
+	}
+	if mounted {
+		return nil
+	}
 
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return fmt.Errorf("rel %s: %w", path, err)
-		}
-		target := filepath.Join(dst, rel)
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", dst, err)
+	}
 
-		switch {
-		case d.Type()&fs.ModeSymlink != 0:
-			linkTarget, err := os.Readlink(path)
-			if err != nil {
-				return fmt.Errorf("readlink %s: %w", path, err)
-			}
-			return Symlink(linkTarget, target)
-		case d.IsDir():
-			if err := os.MkdirAll(target, 0o755); err != nil {
-				return fmt.Errorf("mkdir %s: %w", target, err)
-			}
-			return nil
-		default:
-			info, err := d.Info()
-			if err != nil {
-				return fmt.Errorf("stat %s: %w", path, err)
-			}
-			return Copy(path, target, info.Mode().Perm())
+	if err := bindMount(src, dst); err != nil {
+		return fmt.Errorf("bind mount %s -> %s: %w", src, dst, err)
+	}
+
+	return nil
+}
+
+// Unmount lazily detaches target if it is currently a mount point, leaving
+// the directory entry itself in place. Not-mounted is not an error.
+func Unmount(dst string) error {
+	mounted, err := IsMounted(dst)
+	if err != nil {
+		return err
+	}
+	if !mounted {
+		return nil
+	}
+
+	if err := lazyUnmount(dst); err != nil {
+		return fmt.Errorf("unmount %s: %w", dst, err)
+	}
+
+	return nil
+}
+
+// IsMounted reports whether path is itself a mount point, by scanning this
+// process's mount table.
+func IsMounted(path string) (bool, error) {
+	clean := filepath.Clean(path)
+
+	data, err := os.ReadFile("/proc/self/mountinfo")
+	if err != nil {
+		return false, fmt.Errorf("read /proc/self/mountinfo: %w", err)
+	}
+
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		// mountinfo's 5th whitespace-separated field is the mount point.
+		if len(fields) >= 5 && fields[4] == clean {
+			return true, nil
 		}
-	})
+	}
+
+	return false, nil
 }
 
 // Remove removes path; not-exist is not an error. It does not recurse, so a

@@ -221,56 +221,98 @@ func TestSymlink_CreatesAndReplaces(t *testing.T) {
 	require.Equal(t, "second", got)
 }
 
-func TestMirrorTree_CopiesFilesDirsAndSymlinks(t *testing.T) {
-	src := t.TempDir()
-	dst := t.TempDir()
-
-	require.NoError(t, os.MkdirAll(filepath.Join(src, "a/b"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(src, "a/b/file"), []byte("content"), 0o644))
-	require.NoError(t, os.Symlink("file", filepath.Join(src, "a/b/link")))
-
-	require.NoError(t, fsutil.MirrorTree(src, dst))
-
-	got, err := os.ReadFile(filepath.Join(dst, "a/b/file"))
-	require.NoError(t, err)
-	require.Equal(t, "content", string(got))
-
-	target, err := os.Readlink(filepath.Join(dst, "a/b/link"))
-	require.NoError(t, err)
-	require.Equal(t, "file", target)
+// bindMountCleanup unmounts target at test end: a bind mount is a real mount
+// on the machine, not sandboxed to t.TempDir().
+func bindMountCleanup(t *testing.T, target string) {
+	t.Helper()
+	t.Cleanup(func() { _ = fsutil.Unmount(target) })
 }
 
-func TestMirrorTree_DoesNotReplaceAnExistingDestinationDirectory(t *testing.T) {
+func TestBindMount_MakesSourceContentVisibleAtTarget(t *testing.T) {
+	skipUnlessRootLinux(t)
+
 	src := t.TempDir()
 	dst := t.TempDir()
+	bindMountCleanup(t, dst)
 
-	require.NoError(t, os.WriteFile(filepath.Join(src, "file"), []byte("v1"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(src, "file"), []byte("content"), 0o644))
+	require.NoError(t, fsutil.BindMount(src, dst))
+
+	got, err := os.ReadFile(filepath.Join(dst, "file"))
+	require.NoError(t, err)
+	require.Equal(t, "content", string(got))
+}
+
+func TestBindMount_DoesNotReplaceAnExistingDestinationDirectory(t *testing.T) {
+	skipUnlessRootLinux(t)
+
+	src := t.TempDir()
+	dst := t.TempDir()
+	bindMountCleanup(t, dst)
 
 	before, err := os.Stat(dst)
 	require.NoError(t, err)
 
-	require.NoError(t, fsutil.MirrorTree(src, dst))
+	require.NoError(t, fsutil.BindMount(src, dst))
 
 	after, err := os.Stat(dst)
 	require.NoError(t, err)
 	require.True(t, os.SameFile(before, after), "the destination directory entry must not be replaced")
-
-	got, err := os.ReadFile(filepath.Join(dst, "file"))
-	require.NoError(t, err)
-	require.Equal(t, "v1", string(got))
 }
 
-func TestMirrorTree_OverwritesChangedFileContent(t *testing.T) {
+func TestBindMount_IdempotentWhenAlreadyMounted(t *testing.T) {
+	skipUnlessRootLinux(t)
+
+	src := t.TempDir()
+	dst := t.TempDir()
+	bindMountCleanup(t, dst)
+
+	require.NoError(t, fsutil.BindMount(src, dst))
+	require.NoError(t, fsutil.BindMount(src, dst), "a second BindMount of the same target must not error or stack another mount")
+
+	mounted, err := fsutil.IsMounted(dst)
+	require.NoError(t, err)
+	require.True(t, mounted)
+}
+
+func TestUnmount_RemovesTheMountButKeepsTheDirectory(t *testing.T) {
+	skipUnlessRootLinux(t)
+
 	src := t.TempDir()
 	dst := t.TempDir()
 
-	require.NoError(t, os.WriteFile(filepath.Join(src, "file"), []byte("v1"), 0o644))
-	require.NoError(t, fsutil.MirrorTree(src, dst))
+	require.NoError(t, os.WriteFile(filepath.Join(src, "file"), []byte("content"), 0o644))
+	require.NoError(t, fsutil.BindMount(src, dst))
 
-	require.NoError(t, os.WriteFile(filepath.Join(src, "file"), []byte("v2"), 0o644))
-	require.NoError(t, fsutil.MirrorTree(src, dst), "second mirror must not error")
+	require.NoError(t, fsutil.Unmount(dst))
 
-	got, err := os.ReadFile(filepath.Join(dst, "file"))
+	_, err := os.Stat(dst)
+	require.NoError(t, err, "the directory entry must survive Unmount")
+
+	_, err = os.Stat(filepath.Join(dst, "file"))
+	require.ErrorIs(t, err, os.ErrNotExist, "src's content must no longer be visible through dst")
+}
+
+func TestUnmount_IdempotentWhenNotMounted(t *testing.T) {
+	skipUnlessRootLinux(t)
+
+	require.NoError(t, fsutil.Unmount(t.TempDir()), "Unmount on a plain directory must not error")
+}
+
+func TestIsMounted(t *testing.T) {
+	skipUnlessRootLinux(t)
+
+	src := t.TempDir()
+	dst := t.TempDir()
+	bindMountCleanup(t, dst)
+
+	mounted, err := fsutil.IsMounted(dst)
 	require.NoError(t, err)
-	require.Equal(t, "v2", string(got), "changed content must land on a second mirror")
+	require.False(t, mounted, "a plain directory is not a mount point")
+
+	require.NoError(t, fsutil.BindMount(src, dst))
+
+	mounted, err = fsutil.IsMounted(dst)
+	require.NoError(t, err)
+	require.True(t, mounted)
 }
