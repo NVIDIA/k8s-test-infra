@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -81,24 +82,30 @@ func TestLeaderConfigWaitsForControllerBeforeLeaseRelease(t *testing.T) {
 
 func TestElectionReadinessCoversStandbyAndLeaderLifecycle(t *testing.T) {
 	readiness := newElectionReadiness()
+	cacheReady := false
 	leaderReady := false
-	isReady := func() bool { return readiness.ready(leaderReady) }
+	isReady := func() bool { return readiness.ready(cacheReady, leaderReady) }
 
 	require.False(t, isReady(), "a replica must not be ready before leader election starts")
 	readiness.start()
-	require.False(t, isReady(), "a replica must not be ready before it reaches the Lease")
+	require.False(t, isReady(), "a replica must not be ready before its caches synchronize")
 
 	readiness.observeLeader(false)
-	require.True(t, isReady(), "a standby that observes the elected leader can take over")
+	require.False(t, isReady(), "a standby must wait for its informer caches")
+	cacheReady = true
+	require.True(t, isReady(), "a cache-ready standby that observed the leader can serve")
 
 	readiness.observeLeader(true)
-	require.False(t, isReady(), "a newly elected leader must wait for its informer caches")
+	require.False(t, isReady(), "a newly elected leader must wait for its workers")
 	readiness.observeLeader(false)
 	require.False(t, isReady(), "a delayed standby callback must not downgrade the elected state")
 
 	leaderReady = true
-	require.True(t, isReady(), "an elected leader is ready after its caches synchronize")
+	require.True(t, isReady(), "an elected leader is ready after its workers start")
 
+	cacheReady = false
+	require.False(t, isReady(), "a replica must become unready when its caches stop")
+	cacheReady = true
 	readiness.stop()
 	require.False(t, isReady(), "a stopped election participant must not remain ready")
 	readiness.observeLeader(false)
@@ -114,14 +121,91 @@ func TestLeaderConfigPublishesElectionReadiness(t *testing.T) {
 	election := newLeaderElectionConfig(config, lock, func(context.Context) {}, readiness)
 
 	election.Callbacks.OnNewLeader("other-replica")
-	require.True(t, readiness.ready(false))
+	require.True(t, readiness.ready(true, false))
 
 	election.Callbacks.OnNewLeader(lock.Identity())
-	require.False(t, readiness.ready(false))
-	require.True(t, readiness.ready(true))
+	require.False(t, readiness.ready(true, false))
+	require.True(t, readiness.ready(true, true))
 
 	election.Callbacks.OnStoppedLeading()
-	require.False(t, readiness.ready(true))
+	require.False(t, readiness.ready(true, true))
+}
+
+func TestRunWithCachesSynchronizesBeforeElection(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cacheStarted := make(chan struct{})
+	releaseSync := make(chan struct{})
+	cachesSynced := make(chan struct{})
+	cacheStopped := make(chan struct{})
+	electionStarted := make(chan struct{})
+
+	done := make(chan error, 1)
+	go func() {
+		done <- runWithCaches(
+			ctx,
+			func(cacheCtx context.Context) error {
+				close(cacheStarted)
+				<-releaseSync
+				close(cachesSynced)
+				<-cacheCtx.Done()
+				close(cacheStopped)
+				return nil
+			},
+			cachesSynced,
+			func(context.Context) error {
+				close(electionStarted)
+				cancel()
+				return nil
+			},
+		)
+	}()
+
+	requireClosed(t, cacheStarted, time.Second, "cache lifecycle did not start")
+	select {
+	case <-electionStarted:
+		t.Fatal("election started before cache synchronization")
+	default:
+	}
+	close(releaseSync)
+	requireClosed(t, electionStarted, time.Second, "election did not start after cache synchronization")
+	require.NoError(t, <-done)
+	requireAlreadyClosed(t, cacheStopped, "cache lifecycle outlived controller Run")
+}
+
+func TestRunWithCachesCombinesElectionAndCacheShutdownFailures(t *testing.T) {
+	cachesSynced := make(chan struct{})
+	close(cachesSynced)
+	electionErr := errors.New("election failed")
+	cacheErr := errors.New("cache shutdown failed")
+
+	err := runWithCaches(
+		context.Background(),
+		func(ctx context.Context) error {
+			<-ctx.Done()
+			return cacheErr
+		},
+		cachesSynced,
+		func(context.Context) error { return electionErr },
+	)
+
+	require.ErrorIs(t, err, electionErr)
+	require.ErrorIs(t, err, cacheErr)
+}
+
+func TestRunWithCachesFailsBeforeElection(t *testing.T) {
+	var electionCalled atomic.Bool
+	err := runWithCaches(
+		context.Background(),
+		func(context.Context) error { return errors.New("list failed") },
+		make(chan struct{}),
+		func(context.Context) error {
+			electionCalled.Store(true)
+			return nil
+		},
+	)
+
+	require.EqualError(t, err, "run controller caches: list failed")
+	require.False(t, electionCalled.Load())
 }
 
 func TestLeaderElectionDrainsWorkBeforeRelease(t *testing.T) {
@@ -163,10 +247,10 @@ func TestLeaderElectionStopsWorkBeforeReleaseGet(t *testing.T) {
 	})
 
 	requireClosed(t, workStarted, time.Second, "controller work did not start")
-	require.True(t, readiness.ready(true))
+	require.True(t, readiness.ready(true, true))
 	requireClosed(t, lock.releaseGetStarted, 2*time.Second, "leader election did not begin release GET")
 	requireAlreadyClosed(t, workStopped, "controller work remained active when the release GET began")
-	require.False(t, readiness.ready(true), "a replica that lost leadership must not remain ready")
+	require.False(t, readiness.ready(true, true), "a replica that lost leadership must not remain ready")
 	select {
 	case <-result:
 		t.Fatal("leader election returned before the release GET completed")

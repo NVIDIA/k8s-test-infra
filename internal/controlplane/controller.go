@@ -95,27 +95,76 @@ func ValidateControllerConfig(config Config) error {
 	return nil
 }
 
-// Ready reports whether this replica can participate in controller service.
-// Standbys become ready after observing the Lease; a leader additionally waits
-// for every informer cache to synchronize.
+// Ready reports whether this replica has synchronized caches and can participate in service.
 func (c *Controller) Ready() bool {
-	return c != nil && c.reconciler != nil && c.readiness != nil && c.readiness.ready(c.reconciler.Ready())
+	return c != nil && c.reconciler != nil && c.readiness != nil && c.readiness.ready(
+		c.reconciler.CacheReady(), c.reconciler.LeaderReady(),
+	)
 }
 
-// Run participates in Lease election and runs workers only while leading.
+// Run synchronizes process-lifetime caches before participating in Lease election.
 func (c *Controller) Run(ctx context.Context) error {
-	identity, err := leaderIdentity()
-	if err != nil {
-		return err
-	}
-	lock := &rl.LeaseLock{
-		LeaseMeta: metav1.ObjectMeta{
-			Name: c.config.LeaderElection.Name, Namespace: c.config.LeaderElection.Namespace,
+	return runWithCaches(
+		ctx,
+		c.reconciler.RunCaches,
+		c.reconciler.CachesSynced(),
+		func(electionCtx context.Context) error {
+			identity, err := leaderIdentity()
+			if err != nil {
+				return err
+			}
+			lock := &rl.LeaseLock{
+				LeaseMeta: metav1.ObjectMeta{
+					Name: c.config.LeaderElection.Name, Namespace: c.config.LeaderElection.Namespace,
+				},
+				Client:     c.kubeClient.CoordinationV1(),
+				LockConfig: rl.ResourceLockConfig{Identity: identity},
+			}
+			return runLeaderElection(
+				electionCtx, c.config, lock, c.reconciler.RunLeader, c.readiness,
+			)
 		},
-		Client:     c.kubeClient.CoordinationV1(),
-		LockConfig: rl.ResourceLockConfig{Identity: identity},
+	)
+}
+
+func runWithCaches(
+	ctx context.Context,
+	runCaches func(context.Context) error,
+	cachesSynced <-chan struct{},
+	runElection func(context.Context) error,
+) error {
+	cacheCtx, cancelCaches := context.WithCancel(ctx)
+	cacheDone := make(chan error, 1)
+	go func() { cacheDone <- runCaches(cacheCtx) }()
+
+	select {
+	case <-cachesSynced:
+	case err := <-cacheDone:
+		cancelCaches()
+		if err != nil {
+			return fmt.Errorf("run controller caches: %w", err)
+		}
+		if ctx.Err() != nil {
+			return nil
+		}
+		return errors.New("controller caches stopped before synchronization")
+	case <-ctx.Done():
+		cancelCaches()
+		if err := <-cacheDone; err != nil {
+			return fmt.Errorf("run controller caches: %w", err)
+		}
+		return nil
 	}
-	return runLeaderElection(ctx, c.config, lock, c.reconciler.Run, c.readiness)
+
+	electionErr := runElection(ctx)
+	cancelCaches()
+	cacheErr := <-cacheDone
+	if errors.Is(cacheErr, context.Canceled) {
+		cacheErr = nil
+	} else if cacheErr != nil {
+		cacheErr = fmt.Errorf("run controller caches: %w", cacheErr)
+	}
+	return errors.Join(electionErr, cacheErr)
 }
 
 func controllerRESTConfig(config Config) (*rest.Config, error) {
@@ -272,7 +321,10 @@ func (r *electionReadiness) stop() {
 	r.state.Store(uint32(electionStopped))
 }
 
-func (r *electionReadiness) ready(leaderReady bool) bool {
+func (r *electionReadiness) ready(cacheReady, leaderReady bool) bool {
+	if !cacheReady {
+		return false
+	}
 	switch electionReadinessState(r.state.Load()) {
 	case electionStandby:
 		return true

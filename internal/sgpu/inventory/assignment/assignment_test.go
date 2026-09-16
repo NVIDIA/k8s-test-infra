@@ -19,7 +19,7 @@ func TestEncodeAssignmentPreservesWireFormat(t *testing.T) {
 	rack := testRack()
 	encoded, err := EncodeAssignment(rack, &rack.Spec.Nodes[0])
 	require.NoError(t, err)
-	require.Equal(t, `{"v":1,"inventory":{"name":"inventory","uid":"inventory-uid"},"rack":{"name":"rack","uid":"rack-uid"},"profile":{"name":"profile","uid":"profile-uid","revision":"revision"},"rackGroup":"group","rackIndex":2,"nodeIndex":3,"nodeUID":"node-uid"}`, encoded)
+	require.Equal(t, `{"v":1,"inventory":{"name":"inventory","uid":"inventory-uid"},"rack":{"name":"rack","uid":"rack-uid"},"profile":{"name":"profile","uid":"profile-uid","revision":"revision"},"rackGroup":"group","rackIndex":2,"nodeIndex":3,"nodeUID":"node-uid"}`, encoded) //nolint:testifylint // The wire encoding is a byte-for-byte contract.
 
 	decoded, err := DecodeAssignment(encoded)
 	require.NoError(t, err)

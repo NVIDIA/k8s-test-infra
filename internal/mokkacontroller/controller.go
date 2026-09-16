@@ -173,14 +173,24 @@ func (q *queues) shutdown() {
 	q.status.ShutDown()
 }
 
-// Controller owns informer and worker lifecycle for one elected replica.
+type handlerSpec struct {
+	informer cache.SharedIndexInformer
+	handler  cache.ResourceEventHandler
+}
+
+// Controller owns process-lifetime informer caches and leader-lifetime workers.
 type Controller struct {
 	options Options
 	queues  *queues
-	ready   atomic.Bool
 
-	starters    []func(context.Context)
-	waitForSync func(context.Context) bool
+	cacheReady   atomic.Bool
+	leaderReady  atomic.Bool
+	cachesSynced chan struct{}
+
+	informers        []cache.SharedIndexInformer
+	leaderHandlers   []handlerSpec
+	waitForCacheSync func(context.Context) bool
+	snapshot         *informerCache
 
 	reconcileInventory  func(context.Context, string) error
 	reconcileGroup      func(context.Context, allocate.GroupKey) error
@@ -245,8 +255,10 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 	)
 
 	controller := &Controller{
-		options: options,
-		queues:  newQueuesWithStatusIntervals(options.StatusDebounce, options.statusProgressInterval()),
+		options:      options,
+		queues:       newQueuesWithStatusIntervals(options.StatusDebounce, options.statusProgressInterval()),
+		cachesSynced: make(chan struct{}),
+		snapshot:     snapshot,
 	}
 	// Test environments use short-lived controller instances and only a few inventories,
 	// so per-name locks and results intentionally live for the controller's lifetime.
@@ -454,66 +466,64 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 	router.capacityWakeup = allocation.CapacityWakeup
 	router.observeRackStatus = statusReconciler.ObserveRackStatus
 	router.forgetRackStatus = statusReconciler.ForgetRackStatus
-	profileHandler, err := addHandler(profileInformer, cache.ResourceEventHandlerFuncs{
-		AddFunc: router.profileAdd, UpdateFunc: router.profileUpdate, DeleteFunc: router.profileDelete,
-	})
-	if err != nil {
-		return nil, err
+	controller.informers = []cache.SharedIndexInformer{
+		profileInformer, inventoryInformer, rackInformer, nodeInformer,
 	}
-	inventoryHandler, err := addHandler(inventoryInformer, cache.ResourceEventHandlerFuncs{
-		AddFunc: router.inventoryAdd, UpdateFunc: router.inventoryUpdate, DeleteFunc: router.inventoryDelete,
-	})
-	if err != nil {
-		return nil, err
-	}
-	rackHandler, err := addHandler(rackInformer, cache.ResourceEventHandlerFuncs{
-		AddFunc: router.rackAdd, UpdateFunc: router.rackUpdate, DeleteFunc: router.rackDelete,
-	})
-	if err != nil {
-		return nil, err
-	}
-	nodeHandler, err := nodeInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(object any) {
-			node, ok := eventObject[*corev1.Node](object)
-			if !ok {
-				return
-			}
-			nodeCatalog.Upsert(node)
-			router.nodeAdd(node)
+	controller.leaderHandlers = []handlerSpec{
+		{
+			informer: profileInformer,
+			handler: cache.ResourceEventHandlerFuncs{
+				AddFunc: router.profileAdd, UpdateFunc: router.profileUpdate, DeleteFunc: router.profileDelete,
+			},
 		},
-		UpdateFunc: func(oldObject, newObject any) {
-			node, ok := eventObject[*corev1.Node](newObject)
-			if !ok {
-				return
-			}
-			nodeCatalog.Upsert(node)
-			router.nodeUpdate(oldObject, node)
+		{
+			informer: inventoryInformer,
+			handler: cache.ResourceEventHandlerFuncs{
+				AddFunc: router.inventoryAdd, UpdateFunc: router.inventoryUpdate, DeleteFunc: router.inventoryDelete,
+			},
 		},
-		DeleteFunc: func(object any) {
-			node, ok := eventObject[*corev1.Node](object)
-			if !ok {
-				return
-			}
-			nodeCatalog.Delete(node.Name, node.UID)
-			router.nodeDelete(node)
+		{
+			informer: rackInformer,
+			handler: cache.ResourceEventHandlerFuncs{
+				AddFunc: router.rackAdd, UpdateFunc: router.rackUpdate, DeleteFunc: router.rackDelete,
+			},
 		},
-	})
-	if err != nil {
-		return nil, err
+		{
+			informer: nodeInformer,
+			handler: cache.ResourceEventHandlerFuncs{
+				AddFunc: func(object any) {
+					node, ok := eventObject[*corev1.Node](object)
+					if !ok {
+						return
+					}
+					nodeCatalog.Upsert(node)
+					router.nodeAdd(node)
+				},
+				UpdateFunc: func(oldObject, newObject any) {
+					node, ok := eventObject[*corev1.Node](newObject)
+					if !ok {
+						return
+					}
+					nodeCatalog.Upsert(node)
+					router.nodeUpdate(oldObject, node)
+				},
+				DeleteFunc: func(object any) {
+					node, ok := eventObject[*corev1.Node](object)
+					if !ok {
+						return
+					}
+					nodeCatalog.Delete(node.Name, node.UID)
+					router.nodeDelete(node)
+				},
+			},
+		},
 	}
-
-	informers := []cache.SharedIndexInformer{profileInformer, inventoryInformer, rackInformer, nodeInformer}
-	controller.starters = make([]func(context.Context), 0, len(informers))
-	for _, informer := range informers {
-		controller.starters = append(controller.starters, informer.RunWithContext)
+	cacheSynced := make([]cache.InformerSynced, 0, len(controller.informers))
+	for _, informer := range controller.informers {
+		cacheSynced = append(cacheSynced, informer.HasSynced)
 	}
-	handlers := []cache.ResourceEventHandlerRegistration{profileHandler, inventoryHandler, rackHandler, nodeHandler}
-	synced := make([]cache.InformerSynced, 0, len(handlers))
-	for _, handler := range handlers {
-		synced = append(synced, handler.HasSynced)
-	}
-	controller.waitForSync = func(ctx context.Context) bool {
-		return cache.WaitForCacheSync(ctx.Done(), synced...)
+	controller.waitForCacheSync = func(ctx context.Context) bool {
+		return cache.WaitForCacheSync(ctx.Done(), cacheSynced...)
 	}
 	return controller, nil
 }
@@ -577,33 +587,93 @@ func addHandler(
 	return registration, nil
 }
 
-// Ready reports whether this elected instance has synchronized every cache.
-func (c *Controller) Ready() bool { return c.ready.Load() }
+// CachesSynced is closed after every process-lifetime informer store has synchronized.
+func (c *Controller) CachesSynced() <-chan struct{} { return c.cachesSynced }
 
-// Run starts informers, gates workers on cache synchronization, and waits for
-// all workers to stop before returning.
-func (c *Controller) Run(ctx context.Context) error {
+// CacheReady reports whether synchronized process-lifetime caches are running.
+func (c *Controller) CacheReady() bool { return c.cacheReady.Load() }
+
+// LeaderReady reports whether leader handlers have replayed and workers are running.
+func (c *Controller) LeaderReady() bool { return c.leaderReady.Load() }
+
+// RunCaches runs informer stores for the process lifetime without routing write work.
+func (c *Controller) RunCaches(ctx context.Context) error {
 	runCtx, cancel := context.WithCancel(ctx)
-	var informerWG sync.WaitGroup
-	for _, start := range c.starters {
-		informerWG.Add(1)
+	var informers sync.WaitGroup
+	for _, informer := range c.informers {
+		informers.Add(1)
 		go func() {
-			defer informerWG.Done()
-			start(runCtx)
+			defer informers.Done()
+			informer.RunWithContext(runCtx)
 		}()
 	}
-	if !c.waitForSync(runCtx) {
+	if !c.waitForCacheSync(runCtx) {
 		cancel()
-		c.queues.shutdown()
-		informerWG.Wait()
-		cause := context.Cause(runCtx)
-		if cause == nil {
-			cause = errors.New("one or more informer caches did not synchronize")
+		informers.Wait()
+		if ctx.Err() != nil {
+			return nil
 		}
-		return fmt.Errorf("cache sync failed: %w", cause)
+		return errors.New("cache sync failed: one or more informer stores did not synchronize")
 	}
 
-	var workers sync.WaitGroup
+	c.cacheReady.Store(true)
+	close(c.cachesSynced)
+	<-runCtx.Done()
+	c.cacheReady.Store(false)
+	cancel()
+	informers.Wait()
+	return nil
+}
+
+// RunLeader attaches write-side handlers to warm caches and runs workers for one elected term.
+func (c *Controller) RunLeader(ctx context.Context) error {
+	if !c.CacheReady() {
+		return ErrCacheNotReady
+	}
+
+	detachHandlers, err := c.attachLeaderHandlers(ctx)
+	if err != nil {
+		c.queues.shutdown()
+		return err
+	}
+	workers := c.startLeaderWorkers(ctx)
+	c.leaderReady.Store(true)
+	<-ctx.Done()
+	c.leaderReady.Store(false)
+	shutdownErr := detachHandlers()
+	c.queues.shutdown()
+	workers.Wait()
+	return shutdownErr
+}
+
+func (c *Controller) attachLeaderHandlers(ctx context.Context) (func() error, error) {
+	registrations := make([]cache.ResourceEventHandlerRegistration, 0, len(c.leaderHandlers))
+	registered := make([]handlerSpec, 0, len(c.leaderHandlers))
+	for _, spec := range c.leaderHandlers {
+		registration, err := addHandler(spec.informer, spec.handler)
+		if err != nil {
+			return nil, errors.Join(err, shutDownEventHandlers(registered, registrations))
+		}
+		registered = append(registered, spec)
+		registrations = append(registrations, registration)
+	}
+
+	handlersSynced := make([]cache.InformerSynced, 0, len(registrations))
+	for _, registration := range registrations {
+		handlersSynced = append(handlersSynced, registration.HasSynced)
+	}
+	if !cache.WaitForCacheSync(ctx.Done(), handlersSynced...) {
+		shutdownErr := shutDownEventHandlers(registered, registrations)
+		if ctx.Err() != nil {
+			return nil, errors.Join(context.Cause(ctx), shutdownErr)
+		}
+		return nil, errors.Join(errors.New("leader handler sync failed"), shutdownErr)
+	}
+	return func() error { return shutDownEventHandlers(registered, registrations) }, nil
+}
+
+func (c *Controller) startLeaderWorkers(ctx context.Context) *sync.WaitGroup {
+	workers := &sync.WaitGroup{}
 	startWorkers := func(count int, run func()) {
 		for range count {
 			workers.Add(1)
@@ -611,29 +681,35 @@ func (c *Controller) Run(ctx context.Context) error {
 		}
 	}
 	startWorkers(c.options.Workers, func() {
-		for processNext(runCtx, c.queues.inventories, c.reconcileInventory) {
+		for processNext(ctx, c.queues.inventories, c.reconcileInventory) {
 		}
 	})
 	startWorkers(c.options.Workers, func() {
-		for processNext(runCtx, c.queues.groups, c.reconcileGroup) {
+		for processNext(ctx, c.queues.groups, c.reconcileGroup) {
 		}
 	})
 	startWorkers(c.options.Workers, func() {
-		for processNext(runCtx, c.queues.projections, c.reconcileProjection) {
+		for processNext(ctx, c.queues.projections, c.reconcileProjection) {
 		}
 	})
 	startWorkers(c.options.Workers, func() {
-		for c.processNextStatus(runCtx) {
+		for c.processNextStatus(ctx) {
 		}
 	})
-	c.ready.Store(true)
-	<-runCtx.Done()
-	c.ready.Store(false)
-	c.queues.shutdown()
-	workers.Wait()
-	cancel()
-	informerWG.Wait()
-	return nil
+	return workers
+}
+
+func shutDownEventHandlers(
+	specs []handlerSpec,
+	registrations []cache.ResourceEventHandlerRegistration,
+) error {
+	var errs []error
+	for index := len(registrations) - 1; index >= 0; index-- {
+		if err := cache.ShutDownEventHandler(specs[index].informer, registrations[index]); err != nil {
+			errs = append(errs, fmt.Errorf("shut down informer event handler: %w", err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func (c *Controller) processNextStatus(ctx context.Context) bool {

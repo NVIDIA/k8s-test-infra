@@ -214,9 +214,12 @@ In the current stage, Kubernetes resources are authoritative:
 - Kubernetes Node labels and the assignment annotation are a derived projection
   of those bindings, not a second source of truth.
 
-The controller runs as a Kubernetes controller with leader election. It keeps
-only rebuildable informer indexes and work queues in memory. Redis, agent
-liveness, and mutable simulated GPU runtime state are outside the current stage.
+The controller runs as a Kubernetes controller with leader election. Every
+replica keeps synchronized informer indexes for the authoritative inventory and
+durable assignment resources, so the assignment read view is available on
+standbys. Only the elected replica attaches reconciliation handlers, runs work
+queues, or writes Kubernetes resources. Redis, agent liveness, and mutable
+simulated GPU runtime state are outside the current stage.
 
 ### CRD Design
 

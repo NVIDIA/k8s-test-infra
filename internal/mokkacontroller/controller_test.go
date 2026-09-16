@@ -1247,18 +1247,184 @@ func TestHandlerRegistrationTracksInitialEventDelivery(t *testing.T) {
 	require.Eventually(t, registration.HasSynced, time.Second, time.Millisecond)
 }
 
-func TestRunFailsClosedWhenCacheSyncFails(t *testing.T) {
+func TestRunCachesPublishesReadinessUntilCancellation(t *testing.T) {
 	controller := newTestController()
-	controller.waitForSync = func(context.Context) bool { return false }
-	err := controller.Run(context.Background())
-	require.ErrorContains(t, err, "cache sync")
-	require.False(t, controller.Ready())
-	require.True(t, controller.queues.inventories.ShuttingDown())
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- controller.RunCaches(ctx) }()
+
+	select {
+	case <-controller.CachesSynced():
+	case <-time.After(time.Second):
+		t.Fatal("cache synchronization was not published")
+	}
+	require.True(t, controller.CacheReady())
+	cancel()
+	require.NoError(t, <-done)
+	require.False(t, controller.CacheReady())
 }
 
-func TestRunCancelsAndWaitsForWorkers(t *testing.T) {
+func TestRunCachesFailsClosedWhenCacheSyncFails(t *testing.T) {
 	controller := newTestController()
-	controller.waitForSync = func(context.Context) bool { return true }
+	controller.waitForCacheSync = func(context.Context) bool { return false }
+	err := controller.RunCaches(context.Background())
+	require.ErrorContains(t, err, "cache sync")
+	require.False(t, controller.CacheReady())
+}
+
+func TestRunLeaderRequiresSynchronizedCaches(t *testing.T) {
+	controller := newTestController()
+	err := controller.RunLeader(context.Background())
+	require.ErrorIs(t, err, ErrCacheNotReady)
+	require.False(t, controller.LeaderReady())
+}
+
+type removeTrackingInformer struct {
+	cache.SharedIndexInformer
+	removeStarted chan struct{}
+	removeOnce    sync.Once
+}
+
+func (i *removeTrackingInformer) RemoveEventHandler(handle cache.ResourceEventHandlerRegistration) error {
+	i.removeOnce.Do(func() { close(i.removeStarted) })
+	return i.SharedIndexInformer.RemoveEventHandler(handle)
+}
+
+type getTrackingStringQueue struct {
+	workqueue.TypedRateLimitingInterface[string]
+	started chan struct{}
+	once    sync.Once
+}
+
+func (q *getTrackingStringQueue) Get() (string, bool) {
+	q.once.Do(func() { close(q.started) })
+	return q.TypedRateLimitingInterface.Get()
+}
+
+//nolint:cyclop // The regression test observes each asynchronous cancellation and drain boundary.
+func TestRunLeaderCancellationDuringHandlerReplayStopsWithoutWorkers(t *testing.T) {
+	watcher := watch.NewRaceFreeFake()
+	node := corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node", UID: "node-uid"}}
+	informer := cache.NewSharedIndexInformer(&cache.ListWatch{
+		ListWithContextFunc: func(context.Context, metav1.ListOptions) (runtime.Object, error) {
+			return &corev1.NodeList{
+				ListMeta: metav1.ListMeta{ResourceVersion: "1"},
+				Items:    []corev1.Node{node},
+			}, nil
+		},
+		WatchFuncWithContext: func(_ context.Context, options metav1.ListOptions) (watch.Interface, error) {
+			if options.SendInitialEvents != nil && *options.SendInitialEvents {
+				go func() {
+					watcher.Add(node.DeepCopy())
+					watcher.Action(watch.Bookmark, &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+						ResourceVersion: "1", Annotations: map[string]string{metav1.InitialEventsAnnotationKey: "true"},
+					}})
+				}()
+			}
+			return watcher, nil
+		},
+	}, &corev1.Node{}, 0, cache.Indexers{})
+
+	informerCtx, cancelInformer := context.WithCancel(context.Background())
+	informerDone := make(chan struct{})
+	go func() {
+		defer close(informerDone)
+		informer.RunWithContext(informerCtx)
+	}()
+	t.Cleanup(func() {
+		cancelInformer()
+		watcher.Stop()
+		<-informerDone
+	})
+	require.Eventually(t, informer.HasSynced, time.Second, time.Millisecond)
+
+	handling := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseHandler := func() { releaseOnce.Do(func() { close(release) }) }
+	var handlerCalls atomic.Int32
+	trackedInformer := &removeTrackingInformer{
+		SharedIndexInformer: informer,
+		removeStarted:       make(chan struct{}),
+	}
+	controller := newTestController()
+	controller.cacheReady.Store(true)
+	controller.leaderHandlers = []handlerSpec{{
+		informer: trackedInformer,
+		handler: cache.ResourceEventHandlerFuncs{AddFunc: func(any) {
+			if handlerCalls.Add(1) == 1 {
+				close(handling)
+				<-release
+			}
+		}},
+	}}
+	workerStarted := make(chan struct{})
+	controller.queues.inventories = &getTrackingStringQueue{
+		TypedRateLimitingInterface: controller.queues.inventories,
+		started:                    workerStarted,
+	}
+
+	leaderCtx, cancelLeader := context.WithCancel(context.Background())
+	leaderStopped := make(chan struct{})
+	var leaderErr error
+	go func() {
+		defer close(leaderStopped)
+		leaderErr = controller.RunLeader(leaderCtx)
+	}()
+	t.Cleanup(func() {
+		cancelLeader()
+		releaseHandler()
+		select {
+		case <-leaderStopped:
+		case <-time.After(time.Second):
+			t.Error("RunLeader did not stop")
+		}
+	})
+
+	select {
+	case <-handling:
+	case <-time.After(time.Second):
+		t.Fatal("leader handler replay did not start")
+	}
+	require.False(t, controller.LeaderReady())
+	cancelLeader()
+	select {
+	case <-trackedInformer.removeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("canceled handler replay was not shut down")
+	}
+	select {
+	case <-workerStarted:
+		t.Fatal("workers started while handler replay was incomplete")
+	default:
+	}
+
+	releaseHandler()
+	select {
+	case <-leaderStopped:
+	case <-time.After(time.Second):
+		t.Fatal("RunLeader did not return after handler drain")
+	}
+	require.ErrorIs(t, leaderErr, context.Canceled)
+	require.False(t, controller.LeaderReady())
+	require.True(t, controller.queues.inventories.ShuttingDown())
+	require.True(t, controller.queues.groups.ShuttingDown())
+	require.True(t, controller.queues.projections.ShuttingDown())
+	require.True(t, controller.queues.status.ShuttingDown())
+	select {
+	case <-workerStarted:
+		t.Fatal("workers started after canceled handler replay")
+	default:
+	}
+
+	watcher.Add(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "later", UID: "later-uid"}})
+	require.Never(t, func() bool { return handlerCalls.Load() > 1 }, 100*time.Millisecond, time.Millisecond,
+		"handler remained attached after RunLeader returned")
+}
+
+func TestRunLeaderCancelsAndWaitsForWorkers(t *testing.T) {
+	controller := newTestController()
+	controller.cacheReady.Store(true)
 	started := make(chan struct{})
 	finished := make(chan struct{})
 	controller.reconcileInventory = func(ctx context.Context, _ string) error {
@@ -1270,8 +1436,8 @@ func TestRunCancelsAndWaitsForWorkers(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- controller.Run(ctx) }()
-	require.Eventually(t, controller.Ready, time.Second, time.Millisecond)
+	go func() { done <- controller.RunLeader(ctx) }()
+	require.Eventually(t, controller.LeaderReady, time.Second, time.Millisecond)
 	controller.queues.inventories.Add("inventory")
 	require.Eventually(t, func() bool {
 		select {
@@ -1286,9 +1452,9 @@ func TestRunCancelsAndWaitsForWorkers(t *testing.T) {
 	select {
 	case <-finished:
 	default:
-		t.Fatal("Run returned before its worker stopped")
+		t.Fatal("RunLeader returned before its worker stopped")
 	}
-	require.False(t, controller.Ready())
+	require.False(t, controller.LeaderReady())
 	require.Zero(t, controller.queues.inventories.NumRequeues("inventory"))
 }
 
@@ -1514,12 +1680,31 @@ func newTestController() *Controller {
 	return &Controller{
 		options:             Options{Workers: 1},
 		queues:              newQueues(0),
-		waitForSync:         func(context.Context) bool { return true },
+		cachesSynced:        make(chan struct{}),
+		waitForCacheSync:    func(context.Context) bool { return true },
 		reconcileInventory:  func(context.Context, string) error { return nil },
 		reconcileGroup:      func(context.Context, allocate.GroupKey) error { return nil },
 		reconcileProjection: func(context.Context, projectionKey) error { return nil },
 		reconcileStatus:     func(context.Context, statusKey) error { return nil },
 	}
+}
+
+func runControllerForTest(ctx context.Context, controller *Controller) error {
+	cacheCtx, cancelCaches := context.WithCancel(ctx)
+	cacheDone := make(chan error, 1)
+	go func() { cacheDone <- controller.RunCaches(cacheCtx) }()
+	select {
+	case <-controller.CachesSynced():
+	case err := <-cacheDone:
+		cancelCaches()
+		return err
+	case <-ctx.Done():
+		cancelCaches()
+		return <-cacheDone
+	}
+	leaderErr := controller.RunLeader(ctx)
+	cancelCaches()
+	return errors.Join(leaderErr, <-cacheDone)
 }
 
 func testInventory() *mokkav1alpha1.SGPUInventory {

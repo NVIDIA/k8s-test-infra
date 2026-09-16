@@ -50,7 +50,7 @@ func TestControllerLifecycleAcceptance(t *testing.T) {
 	require.NoError(t, err)
 
 	runDone := make(chan error, 1)
-	go func() { runDone <- controller.Run(ctx) }()
+	go func() { runDone <- runControllerForTest(ctx, controller) }()
 	t.Cleanup(func() {
 		cancel()
 		select {
@@ -59,7 +59,7 @@ func TestControllerLifecycleAcceptance(t *testing.T) {
 			t.Error("controller did not stop")
 		}
 	})
-	require.Eventually(t, controller.Ready, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, controller.LeaderReady, 5*time.Second, 10*time.Millisecond)
 
 	profile := acceptanceProfile(1)
 	inventory := acceptanceInventory()
@@ -168,7 +168,7 @@ func TestControllerRecoversDesiredRackAfterForeignBlockerDelete(t *testing.T) {
 	require.NoError(t, err)
 
 	runDone := make(chan error, 1)
-	go func() { runDone <- controller.Run(ctx) }()
+	go func() { runDone <- runControllerForTest(ctx, controller) }()
 	t.Cleanup(func() {
 		cancel()
 		select {
@@ -177,7 +177,7 @@ func TestControllerRecoversDesiredRackAfterForeignBlockerDelete(t *testing.T) {
 			t.Error("controller did not stop")
 		}
 	})
-	require.Eventually(t, controller.Ready, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, controller.LeaderReady, 5*time.Second, 10*time.Millisecond)
 
 	profile := acceptanceProfile(1)
 	inventory := acceptanceInventory()
@@ -239,7 +239,7 @@ func TestControllerRejectsProjectedLabelPlacementWithoutOscillation(t *testing.T
 	require.NoError(t, err)
 
 	runDone := make(chan error, 1)
-	go func() { runDone <- controller.Run(ctx) }()
+	go func() { runDone <- runControllerForTest(ctx, controller) }()
 	t.Cleanup(func() {
 		cancel()
 		select {
@@ -248,7 +248,7 @@ func TestControllerRejectsProjectedLabelPlacementWithoutOscillation(t *testing.T
 			t.Error("controller did not stop")
 		}
 	})
-	require.Eventually(t, controller.Ready, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, controller.LeaderReady, 5*time.Second, 10*time.Millisecond)
 
 	profile := acceptanceProfile(1)
 	inventory := acceptanceInventory()
@@ -347,7 +347,7 @@ func TestControllerCancelsQueuedCleanupWhenSelectorRestoresBinding(t *testing.T)
 	}
 
 	runDone := make(chan error, 1)
-	go func() { runDone <- controller.Run(ctx) }()
+	go func() { runDone <- runControllerForTest(ctx, controller) }()
 	t.Cleanup(func() {
 		cancel()
 		select {
@@ -356,7 +356,7 @@ func TestControllerCancelsQueuedCleanupWhenSelectorRestoresBinding(t *testing.T)
 			t.Error("controller did not stop")
 		}
 	})
-	require.Eventually(t, controller.Ready, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, controller.LeaderReady, 5*time.Second, 10*time.Millisecond)
 
 	profile := acceptanceProfile(1)
 	inventory := acceptanceInventory()
@@ -429,7 +429,7 @@ func TestControllerRestoresBindingWhenAllocationChangesDuringCleanup(t *testing.
 	}
 
 	runDone := make(chan error, 1)
-	go func() { runDone <- controller.Run(ctx) }()
+	go func() { runDone <- runControllerForTest(ctx, controller) }()
 	t.Cleanup(func() {
 		cancel()
 		select {
@@ -438,7 +438,7 @@ func TestControllerRestoresBindingWhenAllocationChangesDuringCleanup(t *testing.
 			t.Error("controller did not stop")
 		}
 	})
-	require.Eventually(t, controller.Ready, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, controller.LeaderReady, 5*time.Second, 10*time.Millisecond)
 
 	profile := acceptanceProfile(1)
 	inventory := acceptanceInventory()
@@ -534,7 +534,7 @@ func TestControllerRestoresBindingWhenAllocationChangesAfterCleanup(t *testing.T
 	}
 
 	runDone := make(chan error, 1)
-	go func() { runDone <- controller.Run(ctx) }()
+	go func() { runDone <- runControllerForTest(ctx, controller) }()
 	t.Cleanup(func() {
 		cancel()
 		select {
@@ -543,7 +543,7 @@ func TestControllerRestoresBindingWhenAllocationChangesAfterCleanup(t *testing.T
 			t.Error("controller did not stop")
 		}
 	})
-	require.Eventually(t, controller.Ready, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, controller.LeaderReady, 5*time.Second, 10*time.Millisecond)
 
 	profile := acceptanceProfile(1)
 	inventory := acceptanceInventory()
@@ -615,7 +615,7 @@ func TestControllerBoundsCleanupWhenForeignCoOwnerPreservesField(t *testing.T) {
 	require.NoError(t, err)
 
 	runDone := make(chan error, 1)
-	go func() { runDone <- controller.Run(ctx) }()
+	go func() { runDone <- runControllerForTest(ctx, controller) }()
 	t.Cleanup(func() {
 		cancel()
 		select {
@@ -624,7 +624,7 @@ func TestControllerBoundsCleanupWhenForeignCoOwnerPreservesField(t *testing.T) {
 			t.Error("controller did not stop")
 		}
 	})
-	require.Eventually(t, controller.Ready, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, controller.LeaderReady, 5*time.Second, 10*time.Millisecond)
 
 	profile := acceptanceProfile(1)
 	inventory := acceptanceInventory()
@@ -728,7 +728,7 @@ func TestControllerReplacementConvergesWhileRestartQueuesInitialize(t *testing.T
 	require.NoError(t, err)
 
 	runDone := make(chan error, 1)
-	go func() { runDone <- controller.Run(ctx) }()
+	go func() { runDone <- runControllerForTest(ctx, controller) }()
 	t.Cleanup(func() {
 		cancel()
 		select {
@@ -737,7 +737,7 @@ func TestControllerReplacementConvergesWhileRestartQueuesInitialize(t *testing.T
 			t.Error("controller did not stop")
 		}
 	})
-	require.Eventually(t, controller.Ready, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, controller.LeaderReady, 5*time.Second, 10*time.Millisecond)
 
 	replacement := acceptanceNode(oldNode.Name, "replacement-uid", 2)
 	nodes.replace(oldNode.Name, replacement)
