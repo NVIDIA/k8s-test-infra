@@ -50,6 +50,7 @@ Kubernetes: `>= 1.28.0-0`
 | controlPlane.tolerations | list | `[]` | Tolerations for control-plane pods. |
 | controlPlane.topologySpreadConstraints | list | `[]` | Topology spread constraints for control-plane pods. |
 | controlPlane.workers | int | `2` | Number of control-plane worker goroutines. |
+| driverBranch | string | `""` | Driver branch nvmlSystemGetDriverBranch reports; empty derives it from the driver version ("580.65.06" -> "r580_00"). |
 | driverVersion | string | `""` | Driver version reported by the simulated driver; empty derives it from the profile. |
 | extraObjects | list | `[]` | Additional Kubernetes objects rendered with the release after tpl evaluation. |
 | fabricmanager.enabled | string | `""` | Enable or disable the fake fabric manager; empty derives it from the profile. |
@@ -70,6 +71,7 @@ Kubernetes: `>= 1.28.0-0`
 | gpu.mig.enabled | bool | `false` | Enable MIG partitioning for profiles that support it. |
 | gpu.mig.gpuInstances | list | `[]` | GPU instance layout to create on each simulated device. |
 | gpu.profile | string | `"gb300"` | GPU profile and per-device simulation settings. |
+| hic | list | `[]` | Host interface cards `nvidia-smi -q -u` reports, as `{id, firmwareVersion}` entries. |
 | image.digest | string | `""` | Immutable image digest; when set, it takes precedence over the tag. |
 | image.pullPolicy | string | `"IfNotPresent"` | Kubernetes image pull policy. |
 | image.repository | string | `"ghcr.io/nvidia/nvml-mock"` | Container image repository for the node agent. |

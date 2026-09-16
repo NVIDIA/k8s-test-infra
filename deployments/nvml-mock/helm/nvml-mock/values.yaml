@@ -136,6 +136,16 @@ featureGates: {}
 # -- Driver version reported by the simulated driver; empty derives it from the profile.
 driverVersion: ""                  # Auto-derived from profile. Override: "580.65.06"
 
+# -- Driver branch nvmlSystemGetDriverBranch reports; empty derives it from the driver version ("580.65.06" -> "r580_00").
+driverBranch: ""
+
+# Real HICs only exist on S-class enclosures, so the default is none; set
+# entries to exercise a consumer that reads them.
+# -- Host interface cards `nvidia-smi -q -u` reports, as `{id, firmwareVersion}` entries.
+hic: []
+#  - id: 0
+#    firmwareVersion: "1.2.3.4"
+
 # -- Existing node labels required to schedule the mock DaemonSet.
 nodeSelector: {}
 # -- Pod tolerations for the mock DaemonSet.
