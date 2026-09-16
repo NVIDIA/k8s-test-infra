@@ -381,7 +381,7 @@ DOCS_PYTHON_VERSION ?= 3.12
 # works for someone who has mkdocs on PATH by other means.
 DOCS_PATH := PATH="$(DOCS_VENV)/bin:$$PATH"
 
-.PHONY: docs-deps docs-build docs-serve docs-check-exclusion docs
+.PHONY: docs-deps docs-build docs-serve docs-check-exclusion docs managed-eks-terraform-check
 
 # Missing uv is a hard failure, not a pip fallback. A fallback would let CI and
 # a developer resolve different interpreters while both report success, which is
@@ -425,3 +425,12 @@ docs-check-exclusion: ## Verify gitignored internal plans cannot reach the site
 	echo "exclude_docs verified: internal plans are not published"
 
 docs: docs-check-exclusion docs-build ## Verify exclusion then build the site
+
+MANAGED_EKS_TERRAFORM_DIR := docs/guides/managed-eks/terraform
+TERRAFORM                 ?= terraform
+
+managed-eks-terraform-check: ## Format and validate the managed EKS Terraform without AWS credentials
+	$(TERRAFORM) -chdir=$(MANAGED_EKS_TERRAFORM_DIR) fmt -check -recursive
+	TF_IN_AUTOMATION=1 $(TERRAFORM) -chdir=$(MANAGED_EKS_TERRAFORM_DIR) init \
+		-backend=false -input=false -lockfile=readonly
+	TF_IN_AUTOMATION=1 $(TERRAFORM) -chdir=$(MANAGED_EKS_TERRAFORM_DIR) validate
