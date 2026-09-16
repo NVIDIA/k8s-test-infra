@@ -27,6 +27,8 @@ import (
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/NVIDIA/go-nvml/pkg/nvml/mock/dgxa100"
 	mockserver "github.com/NVIDIA/go-nvml/pkg/nvml/mock/server"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/gpuarch"
 )
 
 // nvmlStructVersion computes NVML_STRUCT_VERSION(size, ver) = size | (ver << 24).
@@ -751,7 +753,7 @@ func (d *ConfigurableDevice) GetTemperatureThreshold(thresholdType nvml.Temperat
 // thresholds through nvmlDeviceGetTemperatureThreshold, and nvidia-smi picks
 // its whole temperature section layout from whether these answer.
 func (d *ConfigurableDevice) reportsTLimit() bool {
-	return d.Config.Architecture >= nvml.DEVICE_ARCH_ADA && d.Config.Architecture != nvml.DEVICE_ARCH_UNKNOWN
+	return gpuarch.Arch(d.Config.Architecture).AtLeast(gpuarch.Ada)
 }
 
 // GetMarginTemperature returns the GPU's headroom to its thermal limit in
@@ -1888,7 +1890,7 @@ func (d *ConfigurableDevice) GetMigDeviceHandleByIndex(index int) (nvml.Device, 
 // profiling goes through driver-internal perfworks) off this answer. The
 // architecture default can be overridden via the gpm.supported config knob.
 func (d *ConfigurableDevice) GetGpmSupport() (uint32, nvml.Return) {
-	supported := d.Config.Architecture >= nvml.DEVICE_ARCH_HOPPER && d.Config.Architecture != nvml.DEVICE_ARCH_UNKNOWN
+	supported := gpuarch.Arch(d.Config.Architecture).AtLeast(gpuarch.Hopper)
 	if c := d.cfg(); c.GPM != nil && c.GPM.Supported != nil {
 		supported = *c.GPM.Supported
 	}
@@ -2213,30 +2215,14 @@ func (d *ConfigurableDevice) GetFanSpeed_v2(fan int) (uint32, nvml.Return) {
 
 // Helper functions
 
-//nolint:cyclop // existing complexity; refactor deferred
-func parseArchitecture(arch string) nvml.DeviceArchitecture {
-	switch arch {
-	case "kepler":
-		return nvml.DEVICE_ARCH_KEPLER
-	case "maxwell":
-		return nvml.DEVICE_ARCH_MAXWELL
-	case "pascal":
-		return nvml.DEVICE_ARCH_PASCAL
-	case "volta":
-		return nvml.DEVICE_ARCH_VOLTA
-	case "turing":
-		return nvml.DEVICE_ARCH_TURING
-	case "ampere":
-		return nvml.DEVICE_ARCH_AMPERE
-	case "ada", "ada_lovelace":
-		return nvml.DEVICE_ARCH_ADA
-	case "hopper":
-		return nvml.DEVICE_ARCH_HOPPER
-	case "blackwell":
-		return nvml.DEVICE_ARCH_BLACKWELL
-	default:
+func parseArchitecture(name string) nvml.DeviceArchitecture {
+	a, ok := gpuarch.Parse(name)
+	if !ok {
+		// NVML's own answer for a part it cannot identify, so a bad config
+		// degrades the way unrecognized hardware does rather than failing.
 		return nvml.DEVICE_ARCH_UNKNOWN
 	}
+	return nvml.DeviceArchitecture(a)
 }
 
 func parseBrand(brand string) nvml.BrandType {
