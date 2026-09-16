@@ -60,7 +60,7 @@ func DefaultConfig() Config {
 		},
 		LeaderElection: LeaderElectionConfig{
 			Namespace:     namespace,
-			Name:          "mokka-control-plane.mokka.nvidia.com",
+			Name:          "control-plane.mokka.nvidia.com",
 			LeaseDuration: 15 * time.Second,
 			RenewDeadline: 10 * time.Second,
 			RetryPeriod:   2 * time.Second,

@@ -30,7 +30,7 @@ resources. Removing the Mokka API and its resources requires deleting the CRDs
 explicitly.
 
 Only one Helm release may enable the cluster-wide control plane in a cluster.
-Its fixed `mokka-control-plane.mokka.nvidia.com` ClusterRoleBinding is owned by
+Its fixed `control-plane.mokka.nvidia.com` ClusterRoleBinding is owned by
 that release and acts as the singleton guard: another release must wait until
 the owner is uninstalled. Upgrades and rollbacks of the owning release keep
 using the same guard.
@@ -53,10 +53,10 @@ ClusterRoleBinding.
 
 ```bash
 MOKKA_RELEASE="$(kubectl get clusterrolebinding \
-  mokka-control-plane.mokka.nvidia.com \
+  control-plane.mokka.nvidia.com \
   -o jsonpath='{.metadata.annotations.meta\.helm\.sh/release-name}')"
 MOKKA_NAMESPACE="$(kubectl get clusterrolebinding \
-  mokka-control-plane.mokka.nvidia.com \
+  control-plane.mokka.nvidia.com \
   -o jsonpath='{.metadata.annotations.meta\.helm\.sh/release-namespace}')"
 test -n "$MOKKA_RELEASE"
 test -n "$MOKKA_NAMESPACE"
@@ -180,7 +180,7 @@ kubectl get sgpuinventories,sgpuracks
 kubectl get sgpuinventory example -o yaml
 kubectl get node NODE -o jsonpath='{.metadata.annotations.mokka\.nvidia\.com/sgpu-assignment}'
 kubectl -n mokka logs -l app.kubernetes.io/component=control-plane
-kubectl -n mokka get lease mokka-control-plane.mokka.nvidia.com -o yaml
+kubectl -n mokka get lease control-plane.mokka.nvidia.com -o yaml
 ```
 
 Inventory conditions distinguish invalid input or profile references,

@@ -81,7 +81,7 @@ tests:
           content: --log-format=json
       - contains:
           path: spec.template.spec.containers[0].args
-          content: --leader-election-name=mokka-control-plane.mokka.nvidia.com
+          content: --leader-election-name=control-plane.mokka.nvidia.com
       - contains:
           path: spec.template.spec.containers[0].args
           content: --workers=2

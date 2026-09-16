@@ -23,7 +23,7 @@ func TestDefaultConfig(t *testing.T) {
 	require.Equal(t, controlplane.KubernetesConfig{QPS: 50, Burst: 100}, cfg.Kubernetes)
 	require.Equal(t, controlplane.LeaderElectionConfig{
 		Namespace:     "test-namespace",
-		Name:          "mokka-control-plane.mokka.nvidia.com",
+		Name:          "control-plane.mokka.nvidia.com",
 		LeaseDuration: 15 * time.Second,
 		RenewDeadline: 10 * time.Second,
 		RetryPeriod:   2 * time.Second,
