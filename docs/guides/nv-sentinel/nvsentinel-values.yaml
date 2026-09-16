@@ -216,8 +216,7 @@ mongodb-store:
 # gpu-reset image as a privileged Job, and restores them.
 #
 # The Job's pod spec is built in the janitor's Go code, not a chart template, so
-# its hostPath mounts and DRIVER_ROOT=/run/nvidia/driver are not overridable —
-# which is exactly why the mock driver root has to be chroot-able. See issue #759.
+# only the values it reads can shape it. See issue #759.
 fault-remediation:
   maintenance:
     actions:
@@ -255,6 +254,15 @@ janitor:
           # The chart default names the "nvidia" RuntimeClass, which no Kind
           # cluster has, so the Job pod would stay unschedulable forever.
           runtimeClassName: ""
+          # gpu_reset.sh only ever reaches nvidia-smi as `chroot "$DRIVER_ROOT"
+          # nvidia-smi`, so the default of /run/nvidia/driver demands a driver
+          # root holding a whole filesystem — a binary, its libraries and a
+          # loader. The mock stages driver surfaces, not a filesystem, and the
+          # chroot fails before nvidia-smi starts. "/" makes the chroot a no-op
+          # and the Job uses the nvidia-smi it was given instead; run.sh arranges
+          # for that to be the mock's, through a GPU request on this Job.
+          # Needs the janitor from NVSentinel#1813.
+          driverRoot: "/"
           # The reset image stays NVIDIA's own. The janitor hardcodes
           # imagePullPolicy: Always, so a `kind load`-only image cannot be used
           # anyway — and swapping in one that merely exits 0 would prove

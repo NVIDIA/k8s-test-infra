@@ -51,7 +51,10 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 : "${GPU_OPERATOR_VERSION:=v26.3.3}"
 : "${CERT_MANAGER_VERSION:=v1.19.1}"
 : "${NVSENTINEL_NAMESPACE:=nvsentinel}"
-: "${NVSENTINEL_VERSION:=v1.21.0}"
+# Phase 3 needs resetJob.driverRoot, which the janitor gained after v1.23.0 was
+# cut (NVSentinel#1813). Until that release exists this pin does not resolve, so
+# run with GPU_RESET=false against an older one.
+: "${NVSENTINEL_VERSION:=v1.24.0}"
 : "${NVSENTINEL_CHART:=oci://ghcr.io/nvidia/nvsentinel}"
 
 # The GPU (index) overheated on the target worker.
@@ -214,6 +217,7 @@ helm upgrade --install gpu-operator nvidia/gpu-operator \
   --wait --timeout 8m
 
 info "Waiting for a GPU worker to advertise nvidia.com/gpu"
+alloc=""
 for _ in $(seq 1 60); do
   alloc=$(kubectl_ctx get node "${WORKERS[0]}" -o 'jsonpath={.status.allocatable.nvidia\.com/gpu}' 2>/dev/null || true)
   [[ -n "${alloc}" && "${alloc}" != "0" ]] && { info "${WORKERS[0]} advertises nvidia.com/gpu=${alloc}"; break; }
@@ -236,12 +240,21 @@ kubectl_ctx -n cert-manager wait --for=condition=Available deploy --all --timeou
 # (Percona operator -> PerconaServerMongoDB CR -> cert-manager certs -> the
 # collection-setup Job), and the DB-consuming pods stay unready until it
 # finishes. --wait would just block Helm for the whole sequence and time out.
+# The reset Job brings no nvidia-smi of its own — the gpu-reset image is a CUDA
+# runtime image plus the reset script — so with driverRoot=/ it runs the one CDI
+# injects, and CDI injects only into a container that asks for GPUs. The request
+# is for every GPU the node advertises rather than one: the mock decides which
+# GPUs a container may see from the /dev/nvidiaN nodes it was given and filters
+# only on a partial set, so a Job holding a subset could not reach the UUID the
+# janitor tells it to reset. The count is read from the node so that every
+# GPU_PROFILE works, not just the 8-GPU ones.
 info "Installing NVSentinel ${NVSENTINEL_VERSION} (Percona MongoDB store, DCGM health monitor)"
 helm upgrade --install nvsentinel "${NVSENTINEL_CHART}" \
   --kube-context "${KUBE_CONTEXT}" \
   --version "${NVSENTINEL_VERSION}" \
   --namespace "${NVSENTINEL_NAMESPACE}" --create-namespace \
   -f "${REPO_ROOT}/${DEMO_DIR}/nvsentinel-values.yaml" \
+  --set-string "janitor.config.controllers.gpuReset.resetJob.resources.limits.nvidia\\.com/gpu=${alloc:-1}" \
   --timeout 5m
 
 info "Waiting for the MongoDB collection-setup Job"
@@ -349,9 +362,9 @@ observe kubectl_ctx get nodes
 # An uncorrectable ECC error is a resettable fault: DCGM reports
 # DCGM_FR_VOLATILE_DBE_DETECTED, which NVSentinel maps to COMPONENT_RESET, and
 # with the values above that becomes a GPUReset CR rather than a node reboot.
-# The janitor then runs NVIDIA's real gpu-reset image, whose script reaches
-# nvidia-smi only as `chroot /run/nvidia/driver nvidia-smi` — the path that
-# needed the mock driver root to become chroot-able. See issue #759.
+# The janitor then runs NVIDIA's real gpu-reset image against the mock, reaching
+# nvidia-smi the way the values arrange rather than through the driver root. See
+# issue #759.
 if [[ "${GPU_RESET}" == "true" ]]; then
   # The janitor sets imagePullPolicy: Always on the reset Job, so every attempt
   # re-pulls this image. Seeding it into the Kind nodes first keeps a slow
@@ -398,8 +411,8 @@ if [[ "${GPU_RESET}" == "true" ]]; then
     info "GPUReset created: ${reset_cr}"
 
     # The janitor decides success purely from the reset Job's exit status, and
-    # the Job's first act is the chroot preflight (nvidia-smi --version) under
-    # set -e. A Succeeded phase therefore means the chroot worked.
+    # the Job's first act is an `nvidia-smi --version` preflight under set -e. A
+    # Succeeded phase therefore means the Job reached a working nvidia-smi.
     info "Waiting for ${reset_cr} to complete (teardown -> reset Job -> restore)"
     kubectl_ctx wait --for=condition=Complete \
       "gpuresets.janitor.dgxc.nvidia.com/${reset_cr}" --timeout=900s || \
@@ -413,7 +426,7 @@ if [[ "${GPU_RESET}" == "true" ]]; then
     reset_phase=$(kubectl_ctx get "gpuresets.janitor.dgxc.nvidia.com/${reset_cr}" \
       -o jsonpath='{.status.phase}' 2>/dev/null || true)
     if [[ "${reset_phase}" == "Succeeded" ]]; then
-      info "GPUReset ${reset_cr} succeeded (the chroot preflight and reset both ran)"
+      info "GPUReset ${reset_cr} succeeded (the nvidia-smi preflight and reset both ran)"
     else
       warn "GPUReset ${reset_cr} ended in phase '${reset_phase:-unknown}'; see the Job output below"
     fi
@@ -421,7 +434,7 @@ if [[ "${GPU_RESET}" == "true" ]]; then
     # The CR names its own Job, which matters because concurrent remediations
     # put several reset Jobs in this namespace at once — picking the newest one
     # would happily show another node's logs.
-    echo "--- reset Job output (the chroot preflight is its first line) ---"
+    echo "--- reset Job output (the nvidia-smi preflight is its first line) ---"
     reset_job=$(kubectl_ctx get "gpuresets.janitor.dgxc.nvidia.com/${reset_cr}" \
       -o jsonpath='{.status.jobRef.name}' 2>/dev/null || true)
     if [[ -n "${reset_job}" ]]; then

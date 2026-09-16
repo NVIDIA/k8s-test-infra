@@ -90,6 +90,12 @@ rebuild from scratch. Useful overrides: `GPU_PROFILE`, `HOT_TEMP_C`, `TARGET_GPU
 `GPU_RESET`, `RESET_GPU`, `NVSENTINEL_VERSION`, `GPU_OPERATOR_VERSION`,
 `CERT_MANAGER_VERSION`.
 
+Phase 3 needs `resetJob.driverRoot`, which the janitor gained in
+[NVSentinel#1813](https://github.com/NVIDIA/NVSentinel/pull/1813), after v1.23.0
+was cut. `NVSENTINEL_VERSION` therefore pins a release that does not exist yet;
+until it does, run the thermal phases with `GPU_RESET=false` and an older
+version.
+
 ## What the script does
 
 1. **Cluster** — creates the Kind cluster from [`kind.yaml`](kind.yaml) (CDI
@@ -169,25 +175,33 @@ needed** — that is the key difference from a latched XID/ECC fault.
 ## Why the GPU reset works on a mock node
 
 NVIDIA's `gpu_reset.sh` never calls `nvidia-smi` directly. Every invocation goes
-through `chroot "$DRIVER_ROOT" nvidia-smi`, and NVSentinel's janitor hardcodes
-`DRIVER_ROOT=/run/nvidia/driver` — its Job pod spec is built in Go rather than a
-chart template, so the path is not configurable. On real hardware the driver
-container r-bind-mounts its entire container root there, making it a full
-filesystem that a `chroot` can exec inside.
-
-The mock stages only driver surfaces at that path, so this used to fail before
-`nvidia-smi` ever started, with `chroot: failed to run command 'nvidia-smi'`.
-The node agent now also stages the dynamic loader and its library closure into
-the driver root, which is what lets NVIDIA's unmodified reset image work here
+through `chroot "$DRIVER_ROOT" nvidia-smi`, so `DRIVER_ROOT` has to name a whole
+filesystem: the binary, its shared libraries and a dynamic loader. On real
+hardware the default of `/run/nvidia/driver` is exactly that, because the driver
+container r-bind-mounts its entire container root there. The mock stages driver
+surfaces rather than a filesystem, so the `chroot` failed before `nvidia-smi`
+ever started, with `chroot: failed to run command 'nvidia-smi'`
 ([#759](https://github.com/NVIDIA/k8s-test-infra/issues/759)).
+
+The demo sidesteps the `chroot` instead of trying to satisfy it. `resetJob.driverRoot`
+is set to `/`, which makes the `chroot` a no-op and leaves the script running
+whichever `nvidia-smi` the container already has. The `gpu-reset` image has none
+of its own — it is a CUDA runtime image plus the script — so the demo gives the
+Job a `nvidia.com/gpu` request, and CDI answers it with the mock's `nvidia-smi`,
+its `libnvidia-ml.so.1`, and a writable bind of the mock's config directory,
+which is what lets the reset clear state rather than just report success. The
+request covers every GPU the node advertises, because the mock derives a
+container's visible GPUs from the `/dev/nvidia*` nodes it was handed and filters
+only on a partial set; a Job holding a subset could not reach the UUID the
+janitor told it to reset.
 
 That the image is NVIDIA's own matters for what this demo proves. The janitor
 decides a reset succeeded purely from the Job's exit status, so an image whose
 entrypoint merely exits 0 would drive the CR to `Succeeded` without touching a
 GPU. Two things guard against reading the green CR too generously: the script's
-first act is the `chroot` preflight under `set -e`, and the demo prints
-`nvml-mock-ctl status` for the reset GPU afterwards, which is empty only if the
-reset genuinely cleared the injected fault.
+first act is an `nvidia-smi --version` preflight under `set -e`, and the demo
+prints `nvml-mock-ctl status` for the reset GPU afterwards, which is empty only
+if the reset genuinely cleared the injected fault.
 
 Two artifacts of this setup are worth expecting. Both GPU workers run the same
 mock profile and therefore serve identical GPU UUIDs, so NVSentinel may open a
