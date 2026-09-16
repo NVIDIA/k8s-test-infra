@@ -130,12 +130,12 @@
                   },
                   "profile_id": {
                     "type": "integer",
-                    "description": "Raw NVML GPU instance profile ID, for a partition with no canonical name.",
+                    "description": "The ID the board publishes the profile under, as printed in the ID column of \"nvidia-smi mig -lgip\" — not NVML's profile enum, which numbers the same profiles in the opposite order. The two overlap, so the difference is silent: ID 0 is the whole board on an A100, where NVML's enum 0 is a seventh of it. Mutually exclusive with profile.",
                     "minimum": 0
                   },
                   "count": {
                     "type": "integer",
-                    "description": "How many identical instances to create. Defaults to 1.",
+                    "description": "How many identical instances to create. Defaults to 1. Zero asks for none, so a layout whose counts all sit at zero is rejected the same way an empty one is.",
                     "minimum": 0
                   }
                 }
