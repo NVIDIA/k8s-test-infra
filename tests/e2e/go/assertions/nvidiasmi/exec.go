@@ -137,6 +137,26 @@ func GpuReset(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Pr
 	}
 }
 
+// UnitInventory asserts `nvidia-smi -q -u` reports a node with no S-class
+// units. The subcommand exited 3 with "Unable to determine number of available
+// units" while nvmlUnitGetCount was a generated stub, which says the driver
+// could not find out — where a modern node reports none.
+//
+// It is checked on its own rather than folded into Inventory because it is the
+// only nvidia-smi surface reached by the fan and cooling entry points; the
+// device-level ones are covered by the ABI suite in tests/mocknvml.
+func UnitInventory(ctx context.Context, k *kube.Client, pod kube.PodRef) {
+	ginkgo.GinkgoHelper()
+
+	// The exec error is deliberately not asserted on: the exit code is what
+	// distinguishes an empty enumeration from a refusal, and
+	// UnitInventoryProblems reports it with the output that explains it.
+	ginkgo.By("nvidia-smi -q -u reports 0 attached units")
+	res, _ := k.Exec(ctx, pod, "nvidia-smi", "-q", "-u")
+	problems := UnitInventoryProblems(res.Combined(), res.ExitCode)
+	gomega.Expect(problems).To(gomega.BeEmpty(), strings.Join(problems, "\n"))
+}
+
 // TemperatureThresholds asserts nvidia-smi -q -x uses the
 // architecture-correct threshold presentation for the profile: absolute
 // elements on pre-Ada, *_tlimit_threshold elements on Ada and later. See issue

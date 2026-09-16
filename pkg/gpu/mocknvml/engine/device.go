@@ -1235,20 +1235,26 @@ func (d *ConfigurableDevice) GetEccMode() (nvml.EnableState, nvml.EnableState, n
 	return current, pending, nvml.SUCCESS
 }
 
-// GetFanSpeed returns fan speed percentage
+// GetFanSpeed returns fan speed percentage.
+//
+// NVML's unindexed reading is the board's first fan, so it resolves through the
+// same path as GetFanSpeed_v2(0) and reports a manually held duty cycle. That
+// makes this the one place a fan write is visible to nvidia-smi, whose whole
+// fan surface is this getter and `--query-gpu=fan.speed`.
 func (d *ConfigurableDevice) GetFanSpeed() (uint32, nvml.Return) {
 	c := d.cfg()
-	speed := uint32(0)
-	if c.Fan != nil {
-		if c.Fan.SpeedPercent != "" && c.Fan.SpeedPercent != "N/A" {
-			_, _ = fmt.Sscanf(c.Fan.SpeedPercent, "%d", &speed)
-		}
-	}
-	debugLog("[NVML] nvmlDeviceGetFanSpeed -> %d%%\n", speed)
-	// Fan speed of 0 with count 0 means no fans (liquid cooled)
-	if c.Fan != nil && c.Fan.Count == 0 {
+	// Count 0 means no dedicated fans — every liquid- and passively-cooled
+	// board, which is every profile Mokka ships. nvidia-smi renders the
+	// refusal as [N/A].
+	if c.Fan == nil || c.Fan.Count <= 0 {
+		debugLog("[NVML] nvmlDeviceGetFanSpeed -> NOT_SUPPORTED (board declares no fans)\n")
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
+	// An unparseable or "N/A" reading on a board that does have fans stays
+	// zero with SUCCESS rather than becoming a refusal, which is what this
+	// getter reported before the rest of the family existed.
+	speed, _ := fanSpeedPercent(c.Fan, 0)
+	debugLog("[NVML] nvmlDeviceGetFanSpeed -> %d%%\n", speed)
 	return speed, nvml.SUCCESS
 }
 
@@ -2346,13 +2352,6 @@ func (d *ConfigurableDevice) GetRemappedRows() (int, int, bool, bool, nvml.Retur
 	}
 	debugLog("[NVML] nvmlDeviceGetRemappedRows -> corr=%d unc=%d pending=%v failure=%v\n", corrRows, uncRows, isPending, failureOccurred)
 	return corrRows, uncRows, isPending, failureOccurred, nvml.SUCCESS
-}
-
-// GetFanSpeed_v2 returns fan speed for a specific fan
-func (d *ConfigurableDevice) GetFanSpeed_v2(fan int) (uint32, nvml.Return) {
-	speed, ret := d.GetFanSpeed()
-	debugLog("[NVML] nvmlDeviceGetFanSpeed_v2(fan=%d) -> %d\n", fan, speed)
-	return speed, ret
 }
 
 // Helper functions

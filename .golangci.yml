@@ -120,6 +120,15 @@ linters:
         linters:
           - revive
         text: 'var-naming'
+      # Same reasoning, for a spelling rather than a naming convention:
+      # go-nvml mirrors NVML's own NVML_FAN_POLICY_TEMPERATURE_CONTINOUS_SW,
+      # typo included. The constant belongs to the upstream API, so every
+      # reference to it trips misspell and none of them can be corrected.
+      # Scoped to the name so ordinary prose in these packages is still gated.
+      - path: ^pkg/gpu/mock(nvml|cuda)/
+        linters:
+          - misspell
+        text: '`CONTINOUS` is a misspelling'
       # internal/nri/convert.go casts syscall.Stat_t.Rdev to uint64 — a no-op
       # on Linux (where Rdev is uint64) but required on Darwin (where Rdev is
       # int32). We //nolint:unconvert the two lines; on Darwin those directives

@@ -410,6 +410,22 @@ devices:
       gpu_instances:
         - profile: "1g.5gb"
           count: 7
+    # The one fanned board in an otherwise SXM fixture. Every profile Mokka
+    # ships declares fan.count 0, so without a device that declares fans the
+    # whole family — RPM, target, envelope, cooler descriptor, control policy
+    # and the four setters — would only ever be exercised on its refusal path,
+    # and a bridge writing the wrong struct offset would never be caught.
+    #
+    # The five values are deliberately distinct so a getter reading the wrong
+    # field fails rather than coincidentally agreeing, and the floor is non-zero
+    # so a write below the envelope is testable.
+    fan:
+      count: 2
+      speed_percent: "40"
+      target_speed_percent: "45"
+      max_speed_rpm: 5000            # 40% of 5000 = 2000 RPM at rest
+      min_speed_percent: 30
+      max_speed_percent: 90
 
   - index: 3
     uuid: "GPU-12345678-1234-1234-1234-123456780003"

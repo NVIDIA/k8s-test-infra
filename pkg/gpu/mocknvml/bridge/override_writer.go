@@ -78,3 +78,11 @@ func (overrideWriter) SetLockedClocks(index int, domain engine.ClockDomain, r *e
 func (overrideWriter) SetClockOffset(index int, domain engine.ClockDomain, offsetMHz int32) error {
 	return mockctl.SetClockOffset(engine.ConfigOverridePath(), index, domain, offsetMHz)
 }
+
+// UpdateFanControl records the policy and duty cycle the fan setters left
+// behind, folding the update in under the same lock that guards the write.
+func (overrideWriter) UpdateFanControl(
+	index int, apply func(base []engine.FanControlConfig, present bool) ([]engine.FanControlConfig, error),
+) error {
+	return mockctl.UpdateFanControl(engine.ConfigOverridePath(), index, apply)
+}

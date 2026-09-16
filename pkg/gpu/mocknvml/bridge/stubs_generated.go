@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 172 stub functions for unimplemented NVML functions.
+// 161 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceGetInfo_v1
@@ -94,11 +94,6 @@ func nvmlDeviceGetConfComputeGpuCertificate(device C.nvmlDevice_t, gpuCert *C.nv
 	return stubReturn("nvmlDeviceGetConfComputeGpuCertificate")
 }
 
-//export nvmlDeviceGetCoolerInfo
-func nvmlDeviceGetCoolerInfo(device C.nvmlDevice_t, coolerInfo *C.nvmlCoolerInfo_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetCoolerInfo")
-}
-
 //export nvmlDeviceGetCreatableVgpus
 func nvmlDeviceGetCreatableVgpus(device C.nvmlDevice_t, vgpuCount *C.uint, vgpuTypeIds *C.nvmlVgpuTypeId_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetCreatableVgpus")
@@ -117,16 +112,6 @@ func nvmlDeviceGetDriverModel_v1(device C.nvmlDevice_t, current *C.nvmlDriverMod
 //export nvmlDeviceGetDriverModel_v2
 func nvmlDeviceGetDriverModel_v2(device C.nvmlDevice_t, current *C.nvmlDriverModel_t, pending *C.nvmlDriverModel_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetDriverModel_v2")
-}
-
-//export nvmlDeviceGetFanControlPolicy_v2
-func nvmlDeviceGetFanControlPolicy_v2(device C.nvmlDevice_t, fan C.uint, policy *C.nvmlFanControlPolicy_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetFanControlPolicy_v2")
-}
-
-//export nvmlDeviceGetFanSpeedRPM
-func nvmlDeviceGetFanSpeedRPM(device C.nvmlDevice_t, fanSpeed *C.nvmlFanSpeedInfo_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetFanSpeedRPM")
 }
 
 //export nvmlDeviceGetGpuInstancePossiblePlacements_v1
@@ -194,11 +179,6 @@ func nvmlDeviceGetMPSComputeRunningProcesses_v3(device C.nvmlDevice_t, infoCount
 	return stubReturn("nvmlDeviceGetMPSComputeRunningProcesses_v3")
 }
 
-//export nvmlDeviceGetMinMaxFanSpeed
-func nvmlDeviceGetMinMaxFanSpeed(device C.nvmlDevice_t, minSpeed *C.uint, maxSpeed *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetMinMaxFanSpeed")
-}
-
 //export nvmlDeviceGetNvLinkUtilizationControl
 func nvmlDeviceGetNvLinkUtilizationControl(device C.nvmlDevice_t, link C.uint, counter C.uint, control *C.nvmlNvLinkUtilizationControl_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetNvLinkUtilizationControl")
@@ -247,11 +227,6 @@ func nvmlDeviceGetSramUniqueUncorrectedEccErrorCounts(device C.nvmlDevice_t, err
 //export nvmlDeviceGetSupportedVgpus
 func nvmlDeviceGetSupportedVgpus(device C.nvmlDevice_t, vgpuCount *C.uint, vgpuTypeIds *C.nvmlVgpuTypeId_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetSupportedVgpus")
-}
-
-//export nvmlDeviceGetTargetFanSpeed
-func nvmlDeviceGetTargetFanSpeed(device C.nvmlDevice_t, fan C.uint, targetSpeed *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetTargetFanSpeed")
 }
 
 //export nvmlDeviceGetUnrepairableMemoryFlag_v1
@@ -374,11 +349,6 @@ func nvmlDeviceSetCpuAffinity(device C.nvmlDevice_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceSetCpuAffinity")
 }
 
-//export nvmlDeviceSetDefaultFanSpeed_v2
-func nvmlDeviceSetDefaultFanSpeed_v2(device C.nvmlDevice_t, fan C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceSetDefaultFanSpeed_v2")
-}
-
 //export nvmlDeviceSetDramEncryptionMode
 func nvmlDeviceSetDramEncryptionMode(device C.nvmlDevice_t, dramEncryption *C.nvmlDramEncryptionInfo_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceSetDramEncryptionMode")
@@ -392,16 +362,6 @@ func nvmlDeviceSetDriverModel(device C.nvmlDevice_t, driverModel C.nvmlDriverMod
 //export nvmlDeviceSetEccMode
 func nvmlDeviceSetEccMode(device C.nvmlDevice_t, ecc C.nvmlEnableState_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceSetEccMode")
-}
-
-//export nvmlDeviceSetFanControlPolicy
-func nvmlDeviceSetFanControlPolicy(device C.nvmlDevice_t, fan C.uint, policy C.nvmlFanControlPolicy_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceSetFanControlPolicy")
-}
-
-//export nvmlDeviceSetFanSpeed_v2
-func nvmlDeviceSetFanSpeed_v2(device C.nvmlDevice_t, fan C.uint, speed C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceSetFanSpeed_v2")
 }
 
 //export nvmlDeviceSetGpuOperationMode
@@ -629,24 +589,9 @@ func nvmlSystemSetConfComputeKeyRotationThresholdInfo(pKeyRotationThrInfo *C.nvm
 	return stubReturn("nvmlSystemSetConfComputeKeyRotationThresholdInfo")
 }
 
-//export nvmlUnitGetCount
-func nvmlUnitGetCount(unitCount *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlUnitGetCount")
-}
-
 //export nvmlUnitGetDevices
 func nvmlUnitGetDevices(unit C.nvmlUnit_t, deviceCount *C.uint, devices *C.nvmlDevice_t) C.nvmlReturn_t {
 	return stubReturn("nvmlUnitGetDevices")
-}
-
-//export nvmlUnitGetFanSpeedInfo
-func nvmlUnitGetFanSpeedInfo(unit C.nvmlUnit_t, fanSpeeds *C.nvmlUnitFanSpeeds_t) C.nvmlReturn_t {
-	return stubReturn("nvmlUnitGetFanSpeedInfo")
-}
-
-//export nvmlUnitGetHandleByIndex
-func nvmlUnitGetHandleByIndex(index C.uint, unit *C.nvmlUnit_t) C.nvmlReturn_t {
-	return stubReturn("nvmlUnitGetHandleByIndex")
 }
 
 //export nvmlUnitGetLedState

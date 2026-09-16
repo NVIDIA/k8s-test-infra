@@ -194,6 +194,22 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				nvidiasmi.ConfComputeMemory(ctx, h.Kube, pod)
 			})
 
+			It("reports no S-class units via nvidia-smi -q -u", Label("nvidia-smi"), func(ctx SpecContext) {
+				// The subcommand died with "Unable to determine number of
+				// available units" and exit 3 while nvmlUnitGetCount was a
+				// generated stub, which reads as a driver too broken to answer
+				// rather than as a node with no S-class chassis. Nothing Mokka
+				// models has one, and nor does any GPU a modern driver sees, so
+				// 0 is the expectation on every profile.
+				//
+				// This is also the only nvidia-smi surface the fan and cooling
+				// entry points reach: 575 and 580 reference exactly
+				// nvmlDeviceGetFanSpeed, already covered by the fan command
+				// above, and nvmlUnitGetFanSpeedInfo, which the empty
+				// enumeration here is what makes correctly unreachable.
+				nvidiasmi.UnitInventory(ctx, h.Kube, pod)
+			})
+
 			It("reports the OEM boost ceiling via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
 				// Issue #712: Max Customer Boost Clocks read N/A because both
 				// nvmlDeviceGetMaxCustomerBoostClock and nvmlDeviceGetClock were
