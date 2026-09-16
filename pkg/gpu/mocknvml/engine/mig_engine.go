@@ -568,6 +568,27 @@ func (e *Engine) retireMigDeviceHandles(devices []*ConfigurableDevice) {
 	}
 }
 
+// retireRepartitioned invalidates the handles of everything a repartition
+// destroyed, across all three registries.
+//
+// The explicit destroy calls retire their own instances, because each is handed
+// the one instance to tear down. A repartition is handed nothing: it rebuilds
+// the board wholesale, so the instances have to travel out with the devices or
+// their handles keep resolving after the partitioning is gone — which NVML
+// fails, and which a consumer would read as its partition still being there.
+//
+// Compute instances go before their GPU instances, the order GpuInstanceDestroy
+// uses, so a handle is never left pointing at a parent that is already gone.
+func (e *Engine) retireRepartitioned(retired migRetired) {
+	for _, ci := range retired.computeInstances {
+		e.computeInstances.Retire(ci)
+	}
+	for _, gi := range retired.gpuInstances {
+		e.gpuInstances.Retire(gi)
+	}
+	e.retireMigDeviceHandles(retired.devices)
+}
+
 // handleForDevice returns the handle a device is already registered under,
 // registering it if the caller somehow reached it without one.
 func (e *Engine) handleForDevice(dev nvml.Device) unsafe.Pointer {

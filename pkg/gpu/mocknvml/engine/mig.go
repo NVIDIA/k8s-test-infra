@@ -431,7 +431,7 @@ func (d *ConfigurableDevice) SetMigMode(mode int) (nvml.Return, nvml.Return) {
 	}
 
 	st.mu.Lock()
-	var retired []*ConfigurableDevice
+	var retired migRetired
 	if mode != st.mode {
 		retired = st.destroyAllLocked(d)
 	}
@@ -441,11 +441,12 @@ func (d *ConfigurableDevice) SetMigMode(mode int) (nvml.Return, nvml.Return) {
 
 	// Outside the lock, as in reconcileMIG: the hook is the engine's, and what
 	// it does with the devices is not this lock's business.
-	if len(retired) > 0 && d.onRepartition != nil {
+	if !retired.empty() && d.onRepartition != nil {
 		d.onRepartition(retired)
 	}
 
-	debugLog("[NVML] nvmlDeviceSetMigMode(%d) -> SUCCESS (retired %d MIG devices)\n", mode, len(retired))
+	debugLog("[NVML] nvmlDeviceSetMigMode(%d) -> SUCCESS (retired %d MIG devices, %d GPU instances)\n",
+		mode, len(retired.devices), len(retired.gpuInstances))
 	return nvml.SUCCESS, nvml.SUCCESS
 }
 
@@ -1157,26 +1158,62 @@ func (st *migState) destroyComputeInstanceLocked(gi *mockserver.GpuInstance, ci 
 	delete(st.devices, migInstanceKey{gi: gi.Info.Id, ci: ci.Info.Id})
 }
 
-// destroyAllLocked tears down the whole partitioning, which is what disabling
-// MIG does on hardware, and returns the MIG devices that went with it so their
-// handles can be retired. Requires st.mu.
+// migRetired is everything a repartition destroyed, gathered so the engine can
+// retire the handles of all of it.
 //
-// The devices are returned rather than left for the caller to read because the
-// teardown empties the only table they can be read from: a caller that forgets
-// to collect them first has no second chance, and the handles it should have
-// retired go on answering for partitions that no longer exist.
-func (st *migState) destroyAllLocked(parent *ConfigurableDevice) []*ConfigurableDevice {
-	destroyed := make([]*ConfigurableDevice, 0, len(st.devices))
+// It carries the instances as well as the MIG devices because the two are not
+// interchangeable. A MIG device is derived from a compute instance, so a GPU
+// instance holding none — what `nvidia-smi mig -cgi` without -C leaves — has no
+// device to be found through, and its handle would go on answering after the
+// partitioning it belonged to is gone.
+type migRetired struct {
+	devices          []*ConfigurableDevice
+	gpuInstances     []*mockserver.GpuInstance
+	computeInstances []*mockserver.ComputeInstance
+}
+
+// merge folds one teardown's findings into another's, for the reconcile paths
+// that tear down an instance at a time.
+func (r *migRetired) merge(other migRetired) {
+	r.devices = append(r.devices, other.devices...)
+	r.gpuInstances = append(r.gpuInstances, other.gpuInstances...)
+	r.computeInstances = append(r.computeInstances, other.computeInstances...)
+}
+
+// empty reports that nothing was destroyed, so a caller can skip the hook.
+func (r migRetired) empty() bool {
+	return len(r.devices) == 0 && len(r.gpuInstances) == 0 && len(r.computeInstances) == 0
+}
+
+// destroyAllLocked tears down the whole partitioning, which is what disabling
+// MIG does on hardware, and returns what went with it so the handles can be
+// retired. Requires st.mu.
+//
+// The teardown names the casualties rather than leaving the caller to read them
+// back because it empties the only tables they can be read from: a caller that
+// forgets to collect them first has no second chance, and the handles it should
+// have retired go on answering for partitions that no longer exist.
+func (st *migState) destroyAllLocked(parent *ConfigurableDevice) migRetired {
+	retired := migRetired{devices: make([]*ConfigurableDevice, 0, len(st.devices))}
 	for _, migDev := range st.devices {
-		destroyed = append(destroyed, migDev)
+		retired.devices = append(retired.devices, migDev)
 	}
 
 	parent.Device.Lock()
+	for gi := range parent.Device.GpuInstances {
+		retired.gpuInstances = append(retired.gpuInstances, gi)
+	}
 	parent.Device.GpuInstances = make(map[*mockserver.GpuInstance]struct{})
 	parent.Device.Unlock()
 
+	// Outside the device lock: each instance guards its own compute instances,
+	// and no path takes an instance's lock before the device's.
+	for _, gi := range retired.gpuInstances {
+		retired.computeInstances = append(retired.computeInstances, liveComputeInstances(gi)...)
+	}
+
 	st.devices = make(map[migInstanceKey]*ConfigurableDevice)
-	return destroyed
+	return retired
 }
 
 // GetGpuInstances returns the live GPU instances matching a profile.

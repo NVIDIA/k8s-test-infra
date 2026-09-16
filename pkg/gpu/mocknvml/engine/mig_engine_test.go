@@ -100,6 +100,18 @@ func TestGpuInstanceHandleLifecycle(t *testing.T) {
 	require.Equal(t, nvml.SUCCESS, ret)
 	require.Len(t, instances, 7, "the declared layout is visible through the handle API")
 
+	// The listing is instance-ID ordered, which is what lets this test and the
+	// ones below name a partition by position. It is not incidental: the
+	// reconciler tears instances down in this order so a repartition is
+	// deterministic, so it is pinned here rather than assumed.
+	ids := make([]uint32, 0, len(instances))
+	for _, handle := range instances {
+		info, _, ret := e.GpuInstanceGetInfo(handle)
+		require.Equal(t, nvml.SUCCESS, ret)
+		ids = append(ids, info.Id)
+	}
+	require.IsIncreasing(t, ids, "GPU instances must enumerate in instance-ID order")
+
 	giHandle := instances[0]
 	info, parentHandle, ret := e.GpuInstanceGetInfo(giHandle)
 	require.Equal(t, nvml.SUCCESS, ret)
@@ -153,6 +165,88 @@ func TestComputeInstanceHandleLifecycle(t *testing.T) {
 	// The GPU instance outlives its compute instance, so it can be refilled.
 	_, ret = e.GpuInstanceCreateComputeInstance(giHandle, nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE, nil)
 	require.Equal(t, nvml.SUCCESS, ret)
+}
+
+// TestSetMigMode_RetiresInstanceHandles covers the two registries a wholesale
+// teardown has to reach beyond the device table. Turning MIG off destroys the
+// GPU and compute instances as well as the MIG devices derived from them, so a
+// caller still holding a handle to any of the three must stop getting answers,
+// the way NVML fails those calls once the partitioning is gone.
+//
+// GpuInstanceDestroy already retires all three. This is the same guarantee for
+// the paths that tear the board down without naming an instance.
+func TestSetMigMode_RetiresInstanceHandles(t *testing.T) {
+	t.Parallel()
+
+	e := newFullyPartitionedEngine(t, 1)
+
+	deviceHandle, ret := e.DeviceGetHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	instances, ret := e.DeviceGetGpuInstances(deviceHandle, nvml.GPU_INSTANCE_PROFILE_1_SLICE)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Len(t, instances, 7)
+	giHandle := instances[0]
+
+	computeInstances, ret := e.GpuInstanceGetComputeInstances(giHandle, nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Len(t, computeInstances, 1)
+	ciHandle := computeInstances[0]
+
+	migHandle, ret := e.DeviceGetMigDeviceHandleByIndex(deviceHandle, 0)
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	dev := e.LookupConfigurableDevice(deviceHandle)
+	require.NotNil(t, dev)
+	ret, _ = dev.SetMigMode(nvml.DEVICE_MIG_DISABLE)
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	require.Nil(t, e.LookupConfigurableDevice(migHandle),
+		"the MIG device derived from a destroyed partition must stop resolving")
+	_, _, ret = e.GpuInstanceGetInfo(giHandle)
+	require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret,
+		"a GPU instance handle must stop resolving once MIG is off")
+	_, _, _, ret = e.ComputeInstanceGetInfo(ciHandle)
+	require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret,
+		"a compute instance handle must stop resolving once MIG is off")
+}
+
+// TestSetMigMode_RetiresABareInstanceHandle covers the instance a teardown
+// cannot find by walking MIG devices. MIG devices are derived from compute
+// instances, so a GPU instance holding none — what `nvidia-smi mig -cgi`
+// without -C leaves behind — has no device pointing back at it, and its handle
+// has to be retired from the instance tree rather than from the device table.
+func TestSetMigMode_RetiresABareInstanceHandle(t *testing.T) {
+	t.Parallel()
+
+	e := newFullyPartitionedEngine(t, 1)
+
+	deviceHandle, ret := e.DeviceGetHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	instances, ret := e.DeviceGetGpuInstances(deviceHandle, nvml.GPU_INSTANCE_PROFILE_1_SLICE)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Len(t, instances, 7)
+	giHandle := instances[0]
+
+	// Emptying the instance is what makes it bare: the GPU instance outlives
+	// its compute instance, and the MIG device goes with the compute instance.
+	computeInstances, ret := e.GpuInstanceGetComputeInstances(giHandle, nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Len(t, computeInstances, 1)
+	require.Equal(t, nvml.SUCCESS, e.ComputeInstanceDestroy(computeInstances[0]))
+
+	_, _, ret = e.GpuInstanceGetInfo(giHandle)
+	require.Equal(t, nvml.SUCCESS, ret, "the emptied GPU instance is still live")
+
+	dev := e.LookupConfigurableDevice(deviceHandle)
+	require.NotNil(t, dev)
+	ret, _ = dev.SetMigMode(nvml.DEVICE_MIG_DISABLE)
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	_, _, ret = e.GpuInstanceGetInfo(giHandle)
+	require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret,
+		"a GPU instance with no compute instance must stop resolving once MIG is off")
 }
 
 // TestMigProfileNames_ThroughHandles pins the names the versioned profile-info

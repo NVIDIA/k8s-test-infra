@@ -105,11 +105,11 @@ type ConfigurableDevice struct {
 	// generation nor appliedMIG would report anything to do.
 	migDirty atomic.Bool
 
-	// onRepartition reports the MIG devices a repartition destroyed. The handle
-	// tables live on Engine and a device has no back-reference to it, so the
-	// engine supplies this at construction; it is nil for a device a test
-	// drives directly.
-	onRepartition func(devices []*ConfigurableDevice)
+	// onRepartition reports what a repartition destroyed: the MIG devices, and
+	// the instances they were derived from. The handle tables live on Engine
+	// and a device has no back-reference to it, so the engine supplies this at
+	// construction; it is nil for a device a test drives directly.
+	onRepartition func(retired migRetired)
 
 	// refresh bookkeeping
 	refreshMu  sync.Mutex

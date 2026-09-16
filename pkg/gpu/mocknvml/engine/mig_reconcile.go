@@ -107,8 +107,8 @@ func (d *ConfigurableDevice) rebuildMIG(cfg *MIGConfig, current, pending int) {
 	if d.onRepartition != nil {
 		d.onRepartition(retired)
 	}
-	debugLog("[MIG] device %d: repartitioned from an override (enabled=%v, retired %d MIG devices)\n",
-		d.index, enabled, len(retired))
+	debugLog("[MIG] device %d: repartitioned from an override (enabled=%v, retired %d MIG devices, %d GPU instances)\n",
+		d.index, enabled, len(retired.devices), len(retired.gpuInstances))
 }
 
 // reconcileExplicitInstances brings the board to the recorded layout by
@@ -131,13 +131,13 @@ func (d *ConfigurableDevice) reconcileExplicitInstances(records []MIGGPUInstance
 	// liveGpuInstances guards the instance tree for itself and returns an
 	// ID-ordered snapshot, so the teardown below is deterministic.
 	live := make(map[uint32]struct{})
-	var retired []*ConfigurableDevice
+	var retired migRetired
 	for _, gi := range st.liveGpuInstances(d) {
-		stillLive, retiredDevices := d.reconcileLiveInstance(gi, want)
+		stillLive, instanceRetired := d.reconcileLiveInstance(gi, want)
 		if stillLive {
 			live[gi.Info.Id] = struct{}{}
 		}
-		retired = append(retired, retiredDevices...)
+		retired.merge(instanceRetired)
 	}
 
 	// Destroy before create, so a record can claim the slices an instance
@@ -150,7 +150,7 @@ func (d *ConfigurableDevice) reconcileExplicitInstances(records []MIGGPUInstance
 	}
 	d.applyExplicitPartitions(missing)
 
-	if len(retired) > 0 && d.onRepartition != nil {
+	if !retired.empty() && d.onRepartition != nil {
 		d.onRepartition(retired)
 	}
 }
@@ -177,11 +177,11 @@ func gpuInstanceRecordsByID(records []MIGGPUInstanceRecord) map[uint32]MIGGPUIns
 // Requires d.refreshMu and must not be called with st.mu held.
 func (d *ConfigurableDevice) reconcileLiveInstance(
 	gi *mockserver.GpuInstance, want map[uint32]MIGGPUInstanceRecord,
-) (bool, []*ConfigurableDevice) {
+) (bool, migRetired) {
 	id := gi.Info.Id
 	rec, wanted := want[id]
 
-	var retired []*ConfigurableDevice
+	var retired migRetired
 	if wanted {
 		kept, retiredCIs := d.reconcileSurvivingInstance(gi, rec)
 		if kept {
@@ -191,9 +191,10 @@ func (d *ConfigurableDevice) reconcileLiveInstance(
 	}
 
 	st := d.migState
-	// The MIG devices have to be named before the teardown evicts them from
-	// the cache, exactly as GpuInstanceDestroy does it.
+	// The MIG devices and the instance's own compute instances have to be named
+	// before the teardown evicts them, exactly as GpuInstanceDestroy does it.
 	derived := st.devicesDerivedFrom(id, nil)
+	computeInstances := liveComputeInstances(gi)
 	if ret := gi.Destroy(); ret != nvml.SUCCESS {
 		warnLog("[MIG] device %d: cannot destroy GPU instance %d: %v\n", d.index, id, ret)
 		// Reporting it as live is what keeps its record from being
@@ -206,7 +207,12 @@ func (d *ConfigurableDevice) reconcileLiveInstance(
 		reason = "replaced by its record"
 	}
 	debugLog("[MIG] device %d: destroyed GPU instance %d (%s)\n", d.index, id, reason)
-	return false, append(retired, derived...)
+	retired.merge(migRetired{
+		devices:          derived,
+		gpuInstances:     []*mockserver.GpuInstance{gi},
+		computeInstances: computeInstances,
+	})
+	return false, retired
 }
 
 // reconcileSurvivingInstance brings a live GPU instance to the record sharing
@@ -221,7 +227,7 @@ func (d *ConfigurableDevice) reconcileLiveInstance(
 // Requires d.refreshMu and must not be called with st.mu held.
 func (d *ConfigurableDevice) reconcileSurvivingInstance(
 	gi *mockserver.GpuInstance, rec MIGGPUInstanceRecord,
-) (bool, []*ConfigurableDevice) {
+) (bool, migRetired) {
 	giProfileID, defaultCIProfileID, err := d.resolveDeclaredGpuInstanceProfile(
 		MIGGPUInstanceConfig{Profile: rec.Profile, ProfileID: rec.ProfileID})
 	if err != nil {
@@ -229,19 +235,19 @@ func (d *ConfigurableDevice) reconcileSurvivingInstance(
 		// down: recreating it from that same record would fail as well, so the
 		// board would lose a partition a consumer may be using.
 		warnLog("[MIG] device %d: instance %d: %v\n", d.index, rec.ID, err)
-		return true, nil
+		return true, migRetired{}
 	}
 
 	if giProfileID != int(gi.Info.ProfileId) {
 		debugLog("[MIG] device %d: GPU instance %d recorded under profile %d, live under %d\n",
 			d.index, rec.ID, giProfileID, gi.Info.ProfileId)
-		return false, nil
+		return false, migRetired{}
 	}
 	// A record naming no placement accepts whichever one the instance holds.
 	if rec.PlacementStart != nil && *rec.PlacementStart != int(gi.Info.Placement.Start) {
 		debugLog("[MIG] device %d: GPU instance %d recorded at offset %d, live at %d\n",
 			d.index, rec.ID, *rec.PlacementStart, gi.Info.Placement.Start)
-		return false, nil
+		return false, migRetired{}
 	}
 
 	return true, d.reconcileComputeInstances(gi, giProfileID, defaultCIProfileID, rec.ComputeInstances)
@@ -266,9 +272,9 @@ func (d *ConfigurableDevice) reconcileSurvivingInstance(
 func (d *ConfigurableDevice) reconcileComputeInstances(
 	gi *mockserver.GpuInstance, giProfileID, defaultCIProfileID int,
 	records *[]MIGComputeInstanceRecord,
-) []*ConfigurableDevice {
+) migRetired {
 	if records == nil {
-		return nil
+		return migRetired{}
 	}
 
 	// Indexed rather than reduced to a membership set so a survivor can be
@@ -286,7 +292,7 @@ func (d *ConfigurableDevice) reconcileComputeInstances(
 	st := d.migState
 	giID := gi.Info.Id
 	live := make(map[uint32]struct{})
-	var retired []*ConfigurableDevice
+	var retired migRetired
 	for _, ci := range liveComputeInstances(gi) {
 		ciID := ci.Info.Id
 		if rec, keep := want[ciID]; keep {
@@ -305,7 +311,7 @@ func (d *ConfigurableDevice) reconcileComputeInstances(
 			live[ciID] = struct{}{}
 			continue
 		}
-		retired = append(retired, derived...)
+		retired.merge(migRetired{devices: derived, computeInstances: []*mockserver.ComputeInstance{ci}})
 		debugLog("[MIG] device %d: destroyed compute instance %d of GPU instance %d (no longer in the layout)\n",
 			d.index, ciID, giID)
 	}

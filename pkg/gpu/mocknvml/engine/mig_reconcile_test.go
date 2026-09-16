@@ -407,7 +407,7 @@ func TestReconcileMIG_RetiresDestroyedMigDevices(t *testing.T) {
 	writeConfigOverride(t, path, migEnable7x1g, clock)
 
 	var retired []*ConfigurableDevice
-	dev.onRepartition = func(devices []*ConfigurableDevice) { retired = devices }
+	dev.onRepartition = func(r migRetired) { retired = r.devices }
 	doomed, ret := dev.GetMigDeviceHandleByIndex(0)
 	require.Equal(t, nvml.SUCCESS, ret)
 
@@ -431,7 +431,7 @@ func TestSetMigMode_RetiresTheMigDevicesItDestroys(t *testing.T) {
 	writeConfigOverride(t, path, migEnable7x1g, clock)
 
 	var retired []*ConfigurableDevice
-	dev.onRepartition = func(devices []*ConfigurableDevice) { retired = devices }
+	dev.onRepartition = func(r migRetired) { retired = r.devices }
 	doomed, ret := dev.GetMigDeviceHandleByIndex(0)
 	require.Equal(t, nvml.SUCCESS, ret)
 
@@ -471,7 +471,7 @@ func TestReconcileMIG_ExplicitDeletePreservesSurvivorIDs(t *testing.T) {
 	require.Equal(t, 3, migPartitionCount(t, dev))
 
 	var retired []*ConfigurableDevice
-	dev.onRepartition = func(devices []*ConfigurableDevice) { retired = devices }
+	dev.onRepartition = func(r migRetired) { retired = r.devices }
 	survivor, ret := dev.GetMigDeviceHandleByIndex(0)
 	require.Equal(t, nvml.SUCCESS, ret)
 	// MIG devices enumerate in GPU instance order, so index 1 is the partition
@@ -602,7 +602,7 @@ func TestReconcileMIG_ExplicitRemovesADroppedComputeInstance(t *testing.T) {
 	require.Equal(t, 2, migPartitionCount(t, dev))
 
 	var retired []*ConfigurableDevice
-	dev.onRepartition = func(devices []*ConfigurableDevice) { retired = devices }
+	dev.onRepartition = func(r migRetired) { retired = r.devices }
 
 	giBefore := liveGpuInstance(t, dev, 0)
 	cisBefore := liveComputeInstances(giBefore)
