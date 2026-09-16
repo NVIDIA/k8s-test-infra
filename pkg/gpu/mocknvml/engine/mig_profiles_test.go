@@ -150,12 +150,15 @@ func TestResolveMIGProfiles_ReportsHardwareProfileIDs(t *testing.T) {
 		{"a100 80gb", "NVIDIA A100-SXM4-80GB", 2 * a100_40GiB, sevenSlice},
 		{"h100", "NVIDIA H100 80GB HBM3", h100_80GiB, sevenSlice},
 		{"h200", "NVIDIA H200 141GB HBM3e", 151397302272, sevenSlice},
-		// The A30 carves four slices, so each profile takes the ID of the
-		// A100 profile holding the same fraction of the board.
+		// The A30 has its own numbering, and it is not the 7-slice one
+		// narrowed: its +me profiles are 21 and 6 where an A100's are 20 and
+		// 15. All five are what an A30's -lgip listing prints.
 		{"a30", "NVIDIA A30", 25769803776, map[int]int{
-			nvml.GPU_INSTANCE_PROFILE_1_SLICE: 14,
-			nvml.GPU_INSTANCE_PROFILE_2_SLICE: 5,
-			nvml.GPU_INSTANCE_PROFILE_4_SLICE: 0,
+			nvml.GPU_INSTANCE_PROFILE_1_SLICE:      14,
+			nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: 21, // 1g.6gb+me
+			nvml.GPU_INSTANCE_PROFILE_2_SLICE:      5,
+			nvml.GPU_INSTANCE_PROFILE_2_SLICE_REV1: 6, // 2g.12gb+me
+			nvml.GPU_INSTANCE_PROFILE_4_SLICE:      0,
 		}},
 	}
 
@@ -180,11 +183,15 @@ func TestResolveMIGProfiles_ReportsHardwareProfileIDs(t *testing.T) {
 	}
 }
 
-// TestResolveMIGProfiles_ProfileIDsAreUniquePerBoard guards the fallback. An
-// unmapped profile reports its own enum, so a board that is only partly mapped
-// could report one profile's enum as another's hardware ID and collapse the two
-// onto one partition size.
-func TestResolveMIGProfiles_ProfileIDsAreUniquePerBoard(t *testing.T) {
+// TestResolveMIGProfiles_EveryPublishedProfileResolvesBack is the invariant a
+// per-board ID table has to hold: whatever a board advertises, it must accept.
+//
+// Pinning IDs one by one cannot enforce this, because the profiles a partial
+// table forgets are exactly the ones such a test forgets too. Enumerating the
+// board instead is what makes a half-mapped table fail here: the unmapped
+// profile still enumerates, under its enum, and then `nvidia-smi mig -cgi
+// <that id>` is refused for a profile the board just listed.
+func TestResolveMIGProfiles_EveryPublishedProfileResolvesBack(t *testing.T) {
 	t.Parallel()
 
 	boards := []struct {
@@ -198,6 +205,52 @@ func TestResolveMIGProfiles_ProfileIDsAreUniquePerBoard(t *testing.T) {
 		{"h100", "NVIDIA H100 80GB HBM3", h100_80GiB},
 		{"h200", "NVIDIA H200 141GB HBM3e", 151397302272},
 		{"b200", "NVIDIA B200 180GB HBM3e", 193273528320},
+	}
+
+	for _, board := range boards {
+		t.Run(board.name, func(t *testing.T) {
+			t.Parallel()
+			profiles, ids, ok := resolveMIGProfiles(board.deviceName, board.memoryBytes)
+			require.True(t, ok)
+			require.NotEmpty(t, profiles.GpuInstanceProfiles)
+
+			for profileEnum := range profiles.GpuInstanceProfiles {
+				id := ids.reported(profileEnum)
+				gotEnum, resolved := ids.enumOf(id)
+				require.True(t, resolved,
+					"profile enum %d is advertised under ID %d, which must be accepted back",
+					profileEnum, id)
+				require.Equal(t, profileEnum, gotEnum,
+					"ID %d is advertised for profile enum %d but resolves to %d",
+					id, profileEnum, gotEnum)
+			}
+		})
+	}
+}
+
+// TestResolveMIGProfiles_ProfileIDsAreUniquePerBoard guards the fallback. An
+// unmapped profile reports its own enum, so a board that is only partly mapped
+// could report one profile's enum as another's hardware ID and collapse the two
+// onto one partition size.
+//
+// Only boards with an ID table are listed. On a board without one every profile
+// reports its own enum, so this would assert nothing beyond the map's keys being
+// distinct — true of any map. What is worth pinning about those boards is that
+// they report the enum at all, which is
+// TestResolveMIGProfiles_UnverifiedBoardsReportTheEnum.
+func TestResolveMIGProfiles_ProfileIDsAreUniquePerBoard(t *testing.T) {
+	t.Parallel()
+
+	boards := []struct {
+		name        string
+		deviceName  string
+		memoryBytes uint64
+	}{
+		{"a100 40gb", "NVIDIA A100-SXM4-40GB", a100_40GiB},
+		{"a100 80gb", "NVIDIA A100-SXM4-80GB", 2 * a100_40GiB},
+		{"a30", "NVIDIA A30", 25769803776},
+		{"h100", "NVIDIA H100 80GB HBM3", h100_80GiB},
+		{"h200", "NVIDIA H200 141GB HBM3e", 151397302272},
 	}
 
 	for _, board := range boards {

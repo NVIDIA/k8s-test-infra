@@ -145,13 +145,20 @@ var (
 		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      0,
 	}
 
-	// fourSliceProfileIDs covers the A30, whose slices are twice an A100's, so
-	// each of its profiles takes the ID of the A100 profile holding the same
-	// fraction of its board.
+	// fourSliceProfileIDs covers the A30. Its plain profiles take the ID of the
+	// A100 profile with the same slice count, but its +me variants do not
+	// follow from that — an A30 lists them as 21 and 6 where an A100 lists 20
+	// and 15 — so they are transcribed from the A30's own listing.
+	//
+	// Every profile the board publishes is mapped. A table that covers only
+	// some leaves the rest advertised under their enum and rejected under it,
+	// which is the one state worse than not mapping the board at all.
 	fourSliceProfileIDs = migProfileIDs{
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE: 14,
-		nvml.GPU_INSTANCE_PROFILE_2_SLICE: 5,
-		nvml.GPU_INSTANCE_PROFILE_4_SLICE: 0,
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      14,
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: 21, // 1g.6gb+me
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      5,
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE_REV1: 6, // 2g.12gb+me
+		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      0,
 	}
 )
 
