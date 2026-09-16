@@ -3,12 +3,11 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-// Package assertions ports the bash validate-*.sh checks and the inline
-// workflow verification steps to typed Go helpers, one per concern (not one
-// blurred AssertIB). Checks run through kubectl pod exec and typed Kubernetes
-// reads. Each helper is a Ginkgo helper (GinkgoHelper) so failures point at the
-// calling spec line, and every exec result is attached to the Gomega failure
-// message.
+// Package assertions holds the suite's domain checks as typed Go helpers, one
+// per concern (not one blurred AssertIB). Checks run through kubectl pod exec
+// and typed Kubernetes reads. Each helper is a Ginkgo helper (GinkgoHelper) so
+// failures point at the calling spec line, and every exec result is attached to
+// the Gomega failure message.
 //
 // The `nvidia-smi -q -x` checks live in the nvidiasmi subpackage, which decodes
 // the document once and asserts over the decoded readings.

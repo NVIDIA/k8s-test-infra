@@ -164,7 +164,7 @@ func (s *Server) handleFabricPing(c net.Conn, ping protocol.PingBody) error {
 		// dst either has the wrong LID or the wrong port_guid for our locals.
 		// Logging this here is the only way to spot a one-shot REGISTER that
 		// shipped stale/wrong port advertisements without re-running the
-		// validate-ibping.sh harness by hand.
+		// cross-node ibping e2e spec by hand.
 		s.log.Warn("fabric ping addressed no local port", zap.String("dst_lid", lidHex(ping.DstLID)), zap.String("dst_port_guid", ping.DstPortGUID))
 		return nil
 	}

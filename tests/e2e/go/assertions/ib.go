@@ -15,7 +15,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/profile"
 )
 
-// IBStat ports validate-ibstat.sh: ibstat -l HCA count must equal ExpectedHCAs;
+// IBStat asserts the ibstat surface: the ibstat -l HCA count must equal ExpectedHCAs;
 // for IB-enabled profiles every port must be ACTIVE and there must be one CA
 // section per HCA. IB-disabled profiles (ExpectedHCAs==0) must report zero HCAs
 // (negative control) and then short-circuit.
@@ -48,7 +48,7 @@ func IBStat(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Prof
 		"ibstat reported %d CA sections, expected %d\n%s", cas, expected, full.Combined())
 }
 
-// IBVDevinfo ports validate-ibv-devinfo.sh: libibverbs enumeration via
+// IBVDevinfo asserts libibverbs enumeration via
 // ibv_devinfo -l / ibv_devices, plus per-port ACTIVE/LinkUp via ibstatus.
 // Skips for IB-disabled profiles.
 func IBVDevinfo(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {

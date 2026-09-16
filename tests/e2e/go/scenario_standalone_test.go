@@ -22,6 +22,10 @@ import (
 const (
 	ibPingRetries    = 5
 	ibPingRetrySleep = 10 * time.Second
+	// The fabric scans only need the peer registries to have converged, which
+	// ibping's own retry budget has already waited out by the time these run.
+	ibFabricRetries    = 3
+	ibFabricRetrySleep = 5 * time.Second
 )
 
 // Go port of docs/guides/standalone/demo.sh. ONE shared multi-node cluster is
@@ -239,14 +243,18 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				if !p.IBEnabled() {
 					Skip("InfiniBand disabled for profile " + name)
 				}
-				pods, err := h.Kube.RunningPodNames(ctx, nvmlMockNamespace, nvmlMockSelector)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(len(pods)).To(BeNumerically(">=", 2),
-					"need >= 2 running nvml-mock pods for cross-node ibping, found %d", len(pods))
-				server := kube.PodRef{Namespace: nvmlMockNamespace, Pod: pods[0]}
-				client := kube.PodRef{Namespace: nvmlMockNamespace, Pod: pods[1]}
+				server, client := ibPodPair(ctx, h)
 				assertions.IBPing(ctx, h.Kube, server, client, "both", ibPingRetries, ibPingRetrySleep)
 				assertions.IBLinkInfo(ctx, h.Kube, server, client, p)
+			})
+
+			It("discovers the fabric cross-node via ibnetdiscover + sminfo", Label("ibfabric"), func(ctx SpecContext) {
+				if !p.IBEnabled() {
+					Skip("InfiniBand disabled for profile " + name)
+				}
+				server, client := ibPodPair(ctx, h)
+				assertions.IBNetDiscover(ctx, h.Kube, server, client, p, ibFabricRetries, ibFabricRetrySleep)
+				assertions.SMInfo(ctx, h.Kube, server, client, p, ibFabricRetries, ibFabricRetrySleep)
 			})
 
 			Context("failure injection", Label("failure-injection"), Ordered, func() {

@@ -299,7 +299,7 @@ typo fails the render, not silently disables IB); when empty/unset it derives
 from the profile — "full" when InfiniBand is enabled, "sysfs" otherwise.
 Non-IB profiles use "sysfs" (not "off") so the libibmocksys redirect stays
 active and masks any real InfiniBand the host exposes (e.g. a CI runner with
-mlx5 hardware), matching the behavior expected by validate-ibstat (0 HCAs).
+mlx5 hardware), matching the 0 HCAs the ibstat e2e check expects there.
 */}}
 {{- define "nvml-mock.mockIBTier" -}}
 {{- $ib := .Values.infiniband | default dict -}}

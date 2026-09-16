@@ -5,9 +5,8 @@
 // assertion. They are pure functions (no k8s/exec imports, no build tag) so
 // their table-driven unit tests run in the normal `go test ./...` fast CI.
 //
-// Ported from tests/e2e/validate-ibping.sh:
-//   - normalize_lid_for_ibping:  decimal stays decimal; 0x<hex> -> decimal.
-//   - normalize_guid_for_ibping: strip ':' and 0x, re-prefix "0x".
+// Sysfs and ibping disagree on how a LID and a GUID are spelled, and the two
+// disagree differently, which is why there are two normalizers rather than one.
 package ibutil
 
 import (
