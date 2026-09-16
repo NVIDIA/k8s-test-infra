@@ -220,6 +220,13 @@ When .Values.gpu.vgpu.mode is non-empty, `device_defaults.virtualization` is
 switched to a vGPU host (`host_vgpu`, with its types and running instances) or
 a vGPU guest (`vgpu`, with its guest block).
 
+.Values.driverVersion, .Values.driverBranch and .Values.hic are injected
+under `system:`. The driver version has to land in the config rather than
+only in DRIVER_VERSION, because the .so ignores that env var whenever a
+config file is present — without this overlay an override would move the
+node labels but leave nvmlSystemGetDriverVersion, and every version-gated
+function with it, on the profile's own version.
+
 If no overlay is enabled the base YAML is returned verbatim, which preserves
 comments and key order from the profile file.
 */}}
@@ -229,7 +236,8 @@ comments and key order from the profile file.
 {{- $failEnabled := and .Values.gpu.failureInjection .Values.gpu.failureInjection.enabled -}}
 {{- $migEnabled := and .Values.gpu.mig .Values.gpu.mig.enabled -}}
 {{- $vgpuEnabled := and .Values.gpu.vgpu .Values.gpu.vgpu.mode -}}
-{{- if or $dynEnabled $failEnabled $migEnabled $vgpuEnabled -}}
+{{- $sysEnabled := or .Values.driverVersion .Values.driverBranch .Values.hic -}}
+{{- if or $dynEnabled $failEnabled $migEnabled $vgpuEnabled $sysEnabled -}}
 {{- $cfg := fromYaml $base -}}
 {{- if hasKey $cfg "Error" -}}
 {{- fail (printf "nvml-mock.gpuConfig: failed to parse base YAML for overlay injection: %s" (get $cfg "Error")) -}}
@@ -411,7 +419,26 @@ where an absent one loads as a guest that knows nothing about its host.
 {{- end -}}
 {{- $_ := set $defaults "virtualization" $virt -}}
 {{- end -}}
+{{- if $sysEnabled -}}
+{{- $system := get $cfg "system" | default (dict) -}}
+{{- if .Values.driverVersion -}}
+{{- $_ := set $system "driver_version" .Values.driverVersion -}}
+{{- end -}}
+{{- if .Values.driverBranch -}}
+{{- $_ := set $system "driver_branch" .Values.driverBranch -}}
+{{- end -}}
+{{- if .Values.hic -}}
+{{- $entries := list -}}
+{{- range $i, $entry := .Values.hic -}}
+{{- $entries = append $entries (dict "id" (default $i $entry.id) "firmware_version" $entry.firmwareVersion) -}}
+{{- end -}}
+{{- $_ := set $system "hic" $entries -}}
+{{- end -}}
+{{- $_ := set $cfg "system" $system -}}
+{{- end -}}
+{{- if $defaults -}}
 {{- $_ := set $cfg "device_defaults" $defaults -}}
+{{- end -}}
 {{- /* Drop the Helm-only key now it's folded into dynamic_metrics. */ -}}
 {{- $_ := unset $cfg "dynamic_metrics_defaults" -}}
 {{- toYaml $cfg -}}
