@@ -56,6 +56,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   refuses the cap with NO_PERMISSION rather than reporting a success nothing
   would observe. Only the GPU-wide budget is modelled, so the `_v2` module,
   memory and base-GPU scopes decline rather than fold into the GPU limit.
+- chart: the `node-agent` container now carries a `GPU_PROFILE` env var naming
+  the profile it simulates, beside the `GPU_COUNT` and `DRIVER_VERSION` it
+  already advertised. An exec'd session or a script no longer has to parse the
+  mounted config to tell an `h100` pod from a `gb300` one. Nothing reads the
+  value. A release using `gpu.customConfig` reports `custom`, since `gpu.profile`
+  keeps its default while the inline YAML is what took effect.
 
 ### Changed
 
