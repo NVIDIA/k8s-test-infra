@@ -32,6 +32,23 @@ import (
 // its name table.
 var defaultNvlinkBwModes = []uint8{0, 1, 2, 3, 4}
 
+// maxNameableNvlinkBwMode is the highest index the bundled nvidia-smi has a
+// name for. A configured value above it is legal — the indices are the driver's
+// and a future one may define more — but it renders as an unnamed mode, so the
+// fabric warns about it.
+const maxNameableNvlinkBwMode = 4
+
+// effectiveNvlinkBwModes is the supported list a device answers with: the
+// profile's own when it declares one, the architecture default otherwise. Named
+// once so config validation and the device getters cannot disagree about which
+// modes are in play.
+func effectiveNvlinkBwModes(configured []uint8) []uint8 {
+	if len(configured) > 0 {
+		return configured
+	}
+	return defaultNvlinkBwModes
+}
+
 // supportsNvlinkBwMode gates the device-level bandwidth-mode surface on
 // Blackwell, which is what the upstream header specifies ("For Blackwell or
 // newer fully supported devices").
@@ -60,10 +77,7 @@ func bestNvlinkBwMode(supported []uint8) uint8 {
 // nvlinkSupportedBwModes resolves the effective supported list: profile
 // override first, architecture default otherwise.
 func (d *ConfigurableDevice) nvlinkSupportedBwModes() []uint8 {
-	if configured := d.fabric.NvlinkSupportedBwModes(); len(configured) > 0 {
-		return configured
-	}
-	return defaultNvlinkBwModes
+	return effectiveNvlinkBwModes(d.fabric.NvlinkSupportedBwModes())
 }
 
 // GetMockNvlinkSupportedBwModes backs nvmlDeviceGetNvlinkSupportedBwModes and

@@ -16,6 +16,7 @@ package engine
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -167,18 +168,40 @@ func resolveNvleEnabled(cfg *Config) bool {
 	return cfg.YAMLConfig.NVLink.NvleEnabled
 }
 
-// resolveNvlinkBwMode reads the node-level nvlink.bw_mode block. Both return
-// values are "unset" markers rather than zero values: the device layer needs
+// resolveNvlinkBwMode reads the node-level nvlink.bw_mode block. The list and
+// the mode are "unset" markers rather than zero values: the device layer needs
 // to tell an explicitly configured mode 0 (FULL) from no configuration.
-func resolveNvlinkBwMode(cfg *Config) ([]uint8, *uint8) {
+//
+// A mode the effective supported list does not contain is dropped rather than
+// reported. nvmlDeviceSetNvlinkBwMode answers INVALID_ARGUMENT for exactly that
+// value, so honouring it would have the getter report a mode the setter refuses
+// to accept — and, being an index into nvidia-smi's name table, it would render
+// as an unnamed mode. Dropping it falls back to the best supported mode, which
+// is the answer an undeclared block already gives.
+func resolveNvlinkBwMode(cfg *Config) (supported []uint8, mode *uint8, warnings []string) {
 	if cfg == nil || cfg.YAMLConfig == nil || cfg.YAMLConfig.NVLink == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	bw := cfg.YAMLConfig.NVLink.BwMode
 	if bw == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
-	return bw.Supported, bw.Mode
+
+	effective := effectiveNvlinkBwModes(bw.Supported)
+	for _, m := range bw.Supported {
+		if m > maxNameableNvlinkBwMode {
+			warnings = append(warnings, fmt.Sprintf(
+				"nvlink.bw_mode.supported contains %d, past the last mode nvidia-smi can name (%d); it will render as an unnamed mode",
+				m, maxNameableNvlinkBwMode))
+		}
+	}
+	if bw.Mode != nil && !slices.Contains(effective, *bw.Mode) {
+		warnings = append(warnings, fmt.Sprintf(
+			"nvlink.bw_mode.mode %d is not in the supported list %v; ignoring it and reporting the best supported mode",
+			*bw.Mode, effective))
+		return bw.Supported, nil, warnings
+	}
+	return bw.Supported, bw.Mode, warnings
 }
 
 // BuildNodeFabric constructs the immutable node fabric from the loaded
@@ -210,7 +233,9 @@ func BuildNodeFabric(cfg *Config) *NodeFabric {
 		c2cEnabled:  resolveC2CEnabled(cfg),
 		nvleEnabled: resolveNvleEnabled(cfg),
 	}
-	f.nvlinkBwModes, f.nvlinkBwMode = resolveNvlinkBwMode(cfg)
+	var bwWarnings []string
+	f.nvlinkBwModes, f.nvlinkBwMode, bwWarnings = resolveNvlinkBwMode(cfg)
+	f.warnings = append(f.warnings, bwWarnings...)
 	for i := 0; i < n; i++ {
 		f.nvCount[i] = make([]int, n)
 		f.pcieLevel[i] = make([]nvml.GpuTopologyLevel, n)
@@ -512,9 +537,10 @@ func (f *NodeFabric) computePCIeLevels() {
 	}
 }
 
-// Validate returns human-readable warnings for unresolved NVLink
-// endpoints. Runtime callers warn-and-continue; the built-in profile test
-// asserts this is empty for shipped profiles (decision D-b).
+// Validate returns human-readable warnings about the nvlink block: unresolved
+// endpoints, and a bandwidth-mode setting that contradicts itself. Runtime
+// callers warn-and-continue; the built-in profile test asserts this is empty
+// for shipped profiles (decision D-b).
 func (f *NodeFabric) Validate() []string {
 	return f.warnings
 }

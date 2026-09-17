@@ -14,6 +14,7 @@
 package engine
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
@@ -83,6 +84,82 @@ func TestNodeFabric_NvlinkBwModeSupportedOnly(t *testing.T) {
 	require.Equal(t, []uint8{0, 3}, f.NvlinkSupportedBwModes(), "supported modes")
 	_, ok := f.NvlinkConfiguredBwMode()
 	require.False(t, ok, "mode configured")
+}
+
+// TestNodeFabric_NvlinkBwModeOutsideSupported pins that a self-contradictory
+// block degrades instead of being honoured. Reporting a mode the setter
+// answers INVALID_ARGUMENT for would have the two APIs disagree about the same
+// value, and the mode is an index into nvidia-smi's name table, so an
+// out-of-range one renders as an unnamed mode.
+func TestNodeFabric_NvlinkBwModeOutsideSupported(t *testing.T) {
+	t.Parallel()
+
+	mode := uint8(4)
+	f := bwFabric(t, &NVLinkConfig{
+		BwMode: &NVLinkBwModeConfig{
+			Supported: []uint8{0, 3},
+			Mode:      &mode,
+		},
+	})
+
+	_, ok := f.NvlinkConfiguredBwMode()
+	require.False(t, ok, "a mode outside the supported list must be dropped")
+	require.Contains(t, strings.Join(f.Validate(), "\n"), "not in the supported list",
+		"the drop has to be reported, or a typo is silent")
+}
+
+// TestNodeFabric_NvlinkBwModeAgainstDefaultSupported covers the same check
+// where the profile lists no supported modes: the effective list is then the
+// architecture default, which is what the device getters answer with.
+func TestNodeFabric_NvlinkBwModeAgainstDefaultSupported(t *testing.T) {
+	t.Parallel()
+
+	mode := uint8(9)
+	f := bwFabric(t, &NVLinkConfig{
+		BwMode: &NVLinkBwModeConfig{Mode: &mode},
+	})
+
+	_, ok := f.NvlinkConfiguredBwMode()
+	require.False(t, ok, "mode 9 is outside the default supported list")
+	require.NotEmpty(t, f.Validate(), "warning")
+}
+
+// TestNodeFabric_NvlinkBwModeUnnameable pins a warning for a supported value
+// the bundled nvidia-smi has no name for. It stays in the list — the indices
+// are the driver's, and a later one may define more — but an operator should
+// not have to work out why nvidia-smi prints an unnamed mode.
+func TestNodeFabric_NvlinkBwModeUnnameable(t *testing.T) {
+	t.Parallel()
+
+	mode := uint8(7)
+	f := bwFabric(t, &NVLinkConfig{
+		BwMode: &NVLinkBwModeConfig{
+			Supported: []uint8{0, 7},
+			Mode:      &mode,
+		},
+	})
+
+	got, ok := f.NvlinkConfiguredBwMode()
+	require.True(t, ok, "a value in the supported list is honoured")
+	require.Equal(t, uint8(7), got, "configured mode")
+	require.Contains(t, strings.Join(f.Validate(), "\n"), "nvidia-smi can name", "warning")
+}
+
+// TestNodeFabric_NvlinkBwModeValidConfigIsSilent keeps the two warnings above
+// from firing on a well-formed block, which every shipped profile relies on:
+// the built-in profile test asserts Validate is empty.
+func TestNodeFabric_NvlinkBwModeValidConfigIsSilent(t *testing.T) {
+	t.Parallel()
+
+	mode := uint8(3)
+	f := bwFabric(t, &NVLinkConfig{
+		BwMode: &NVLinkBwModeConfig{
+			Supported: []uint8{0, 3},
+			Mode:      &mode,
+		},
+	})
+
+	require.Empty(t, f.Validate(), "a valid bw_mode block must warn about nothing")
 }
 
 // TestNodeFabric_NvlinkBwModeUnset pins that an absent block reports "not

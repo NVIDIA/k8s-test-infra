@@ -19,7 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   still declines, as the hardware does. The mode values are opaque driver
   indices that no header enumerates; a profile can declare its own set through
   `nvlink.bw_mode`, and the default is the five the bundled `nvidia-smi` can
-  name. NVLink encryption (the `NVLE:` row of `nvlink --info`) is reported from
+  name. An initial mode outside that set is ignored with a warning, since the
+  setter answers `INVALID_ARGUMENT` for the very same value.
+  NVLink encryption (the `NVLE:` row of `nvlink --info`) is reported from
   `nvlink.nvle_enabled` and additionally needs driver 580, which is why it is
   absent on the older profiles.
 - node-agent: containers now see the NVIDIA kernel modules as loaded. `lsmod`
