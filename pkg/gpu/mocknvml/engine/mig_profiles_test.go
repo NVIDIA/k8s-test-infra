@@ -287,6 +287,11 @@ func TestProfileIDsForListing_ABoardPublishingNoListingReportsTheEnum(t *testing
 // a 1g, and `-cgi 4` is refused. NVIDIA publishes no Blackwell listing, and
 // every one of these profiles ships with a comment saying the mock reports
 // NVML's enum.
+//
+// Each row now declares its own profile_id, so the table is present and maps
+// every enum to itself where it used to be absent and resolve to itself by
+// default. What the board reports is the assertion; whether the table exists
+// is not.
 func TestMIGProfilesFromConfig_BlackwellPublishesNoProfileIDs(t *testing.T) {
 	t.Parallel()
 
@@ -297,11 +302,14 @@ func TestMIGProfilesFromConfig_BlackwellPublishesNoProfileIDs(t *testing.T) {
 			migCfg := migConfigOfShippedProfile(t, profile)
 			profiles, ids, supported := migProfilesFromConfig(migCfg, a100_40GiB)
 			require.True(t, supported)
-			require.Nil(t, ids, "%s must publish no profile ID listing", profile)
 
 			for profileEnum := range profiles.GpuInstanceProfiles {
 				require.Equal(t, profileEnum, ids.reported(profileEnum),
 					"profile enum %d must report itself, not a Hopper ID", profileEnum)
+				gotEnum, ok := ids.enumOf(profileEnum)
+				require.True(t, ok,
+					"`mig -cgi %d` must still be accepted on %s", profileEnum, profile)
+				require.Equal(t, profileEnum, gotEnum)
 			}
 		})
 	}

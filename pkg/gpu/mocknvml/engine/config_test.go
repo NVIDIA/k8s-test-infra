@@ -1055,6 +1055,10 @@ func TestValidateMIGConfig_AcceptsTheGeometryTheDerivationProduces(t *testing.T)
 				reported := ids.reported(profileEnum)
 				spec.Slices = sliceCount
 				spec.ProfileID = &reported
+				// The shipped rows now declare this geometry, so the derived
+				// values replace what is there rather than adding to it.
+				spec.Placements = nil
+				spec.ComputeInstances = nil
 				for _, p := range profiles.GpuInstancePlacements[profileEnum] {
 					spec.Placements = append(spec.Placements,
 						MIGPlacementSpec{Start: p.Start, Size: p.Size})

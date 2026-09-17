@@ -313,8 +313,15 @@ device_defaults:
     # NVIDIA MIG user guide, Supported MIG Profiles, Table 5 (B200). Names,
     # memory and engine counts are all Table 5's, because this board is the
     # 180 GB product that table describes: an eighth of 180 GiB is 22.5 GiB,
-    # which -lgip prints as the 1g.23gb NVIDIA publishes. nvml_profile
-    # carries the slice count, so no row restates it.
+    # which -lgip prints as the 1g.23gb NVIDIA publishes.
+    #
+    # Every row declares its full geometry. `slices` restates the width the
+    # nvml_profile enum already spans so load can reconcile the two rather
+    # than trust either. `placements` are in *memory units*, not compute
+    # slices: a 7-slice board has eight units, so a 1g row is eight starts of
+    # size 1 and the full-board row is one `{start: 0, size: 8}`.
+    # `compute_instances` is the row's `mig -lcip` listing, and its engine
+    # counts are NVML's Shared* fields, which repeat the GPU instance's.
     #
     # The names are corroborated by NVIDIA's gpu-operator default mig-parted
     # config (assets/state-mig-manager/0400_configmap.yaml), which keys B200
@@ -328,6 +335,31 @@ device_defaults:
         copy_engines: 2
         decoders: 1
         jpeg: 1
+        slices: 1
+        profile_id: 0
+        placements:
+          - {start: 0, size: 1}
+          - {start: 1, size: 1}
+          - {start: 2, size: 1}
+          - {start: 3, size: 1}
+          - {start: 4, size: 1}
+          - {start: 5, size: 1}
+          - {start: 6, size: 1}
+        compute_instances:
+          - nvml_profile: "1_SLICE"
+            slices: 1
+            instances: 1
+            multiprocessors: 18
+            shared_copy_engines: 2
+            decoders: 1
+            jpeg: 1
+          - nvml_profile: "1_SLICE_REV1"
+            slices: 1
+            instances: 1
+            multiprocessors: 18
+            shared_copy_engines: 2
+            decoders: 1
+            jpeg: 1
       - name: "1g.23gb+me"
         nvml_profile: "1_SLICE_REV1"
         instances: 1
@@ -337,6 +369,33 @@ device_defaults:
         decoders: 1
         jpeg: 1
         ofa: 1
+        slices: 1
+        profile_id: 7
+        placements:
+          - {start: 0, size: 1}
+          - {start: 1, size: 1}
+          - {start: 2, size: 1}
+          - {start: 3, size: 1}
+          - {start: 4, size: 1}
+          - {start: 5, size: 1}
+          - {start: 6, size: 1}
+        compute_instances:
+          - nvml_profile: "1_SLICE"
+            slices: 1
+            instances: 1
+            multiprocessors: 18
+            shared_copy_engines: 2
+            decoders: 1
+            jpeg: 1
+            ofa: 1
+          - nvml_profile: "1_SLICE_REV1"
+            slices: 1
+            instances: 1
+            multiprocessors: 18
+            shared_copy_engines: 2
+            decoders: 1
+            jpeg: 1
+            ofa: 1
       - name: "1g.45gb"
         nvml_profile: "1_SLICE_REV2"
         instances: 4
@@ -345,6 +404,28 @@ device_defaults:
         copy_engines: 2
         decoders: 1
         jpeg: 1
+        slices: 1
+        profile_id: 9
+        placements:
+          - {start: 0, size: 2}
+          - {start: 2, size: 2}
+          - {start: 4, size: 2}
+          - {start: 6, size: 2}
+        compute_instances:
+          - nvml_profile: "1_SLICE"
+            slices: 1
+            instances: 1
+            multiprocessors: 18
+            shared_copy_engines: 2
+            decoders: 1
+            jpeg: 1
+          - nvml_profile: "1_SLICE_REV1"
+            slices: 1
+            instances: 1
+            multiprocessors: 18
+            shared_copy_engines: 2
+            decoders: 1
+            jpeg: 1
       - name: "2g.45gb"
         nvml_profile: "2_SLICE"
         instances: 3
@@ -353,6 +434,34 @@ device_defaults:
         copy_engines: 3
         decoders: 1
         jpeg: 1
+        slices: 2
+        profile_id: 1
+        placements:
+          - {start: 0, size: 2}
+          - {start: 2, size: 2}
+          - {start: 4, size: 2}
+        compute_instances:
+          - nvml_profile: "1_SLICE"
+            slices: 1
+            instances: 2
+            multiprocessors: 18
+            shared_copy_engines: 3
+            decoders: 1
+            jpeg: 1
+          - nvml_profile: "2_SLICE"
+            slices: 2
+            instances: 1
+            multiprocessors: 36
+            shared_copy_engines: 3
+            decoders: 1
+            jpeg: 1
+          - nvml_profile: "1_SLICE_REV1"
+            slices: 1
+            instances: 2
+            multiprocessors: 18
+            shared_copy_engines: 3
+            decoders: 1
+            jpeg: 1
       - name: "3g.90gb"
         nvml_profile: "3_SLICE"
         instances: 2
@@ -361,6 +470,40 @@ device_defaults:
         copy_engines: 6
         decoders: 1
         jpeg: 1
+        slices: 3
+        profile_id: 2
+        placements:
+          - {start: 0, size: 4}
+          - {start: 4, size: 4}
+        compute_instances:
+          - nvml_profile: "1_SLICE"
+            slices: 1
+            instances: 3
+            multiprocessors: 18
+            shared_copy_engines: 6
+            decoders: 1
+            jpeg: 1
+          - nvml_profile: "2_SLICE"
+            slices: 2
+            instances: 1
+            multiprocessors: 36
+            shared_copy_engines: 6
+            decoders: 1
+            jpeg: 1
+          - nvml_profile: "3_SLICE"
+            slices: 3
+            instances: 1
+            multiprocessors: 54
+            shared_copy_engines: 6
+            decoders: 1
+            jpeg: 1
+          - nvml_profile: "1_SLICE_REV1"
+            slices: 1
+            instances: 3
+            multiprocessors: 18
+            shared_copy_engines: 6
+            decoders: 1
+            jpeg: 1
       - name: "4g.90gb"
         nvml_profile: "4_SLICE"
         instances: 1
@@ -369,6 +512,39 @@ device_defaults:
         copy_engines: 8
         decoders: 1
         jpeg: 1
+        slices: 4
+        profile_id: 3
+        placements:
+          - {start: 0, size: 4}
+        compute_instances:
+          - nvml_profile: "1_SLICE"
+            slices: 1
+            instances: 4
+            multiprocessors: 18
+            shared_copy_engines: 8
+            decoders: 1
+            jpeg: 1
+          - nvml_profile: "2_SLICE"
+            slices: 2
+            instances: 2
+            multiprocessors: 36
+            shared_copy_engines: 8
+            decoders: 1
+            jpeg: 1
+          - nvml_profile: "4_SLICE"
+            slices: 4
+            instances: 1
+            multiprocessors: 72
+            shared_copy_engines: 8
+            decoders: 1
+            jpeg: 1
+          - nvml_profile: "1_SLICE_REV1"
+            slices: 1
+            instances: 4
+            multiprocessors: 18
+            shared_copy_engines: 8
+            decoders: 1
+            jpeg: 1
       - name: "7g.180gb"
         nvml_profile: "7_SLICE"
         instances: 1
@@ -378,6 +554,59 @@ device_defaults:
         decoders: 1
         jpeg: 1
         ofa: 1
+        slices: 7
+        profile_id: 4
+        placements:
+          - {start: 0, size: 8}
+        compute_instances:
+          - nvml_profile: "1_SLICE"
+            slices: 1
+            instances: 7
+            multiprocessors: 18
+            shared_copy_engines: 16
+            decoders: 1
+            jpeg: 1
+            ofa: 1
+          - nvml_profile: "2_SLICE"
+            slices: 2
+            instances: 3
+            multiprocessors: 36
+            shared_copy_engines: 16
+            decoders: 1
+            jpeg: 1
+            ofa: 1
+          - nvml_profile: "3_SLICE"
+            slices: 3
+            instances: 2
+            multiprocessors: 54
+            shared_copy_engines: 16
+            decoders: 1
+            jpeg: 1
+            ofa: 1
+          - nvml_profile: "4_SLICE"
+            slices: 4
+            instances: 1
+            multiprocessors: 72
+            shared_copy_engines: 16
+            decoders: 1
+            jpeg: 1
+            ofa: 1
+          - nvml_profile: "7_SLICE"
+            slices: 7
+            instances: 1
+            multiprocessors: 126
+            shared_copy_engines: 16
+            decoders: 1
+            jpeg: 1
+            ofa: 1
+          - nvml_profile: "1_SLICE_REV1"
+            slices: 1
+            instances: 7
+            multiprocessors: 18
+            shared_copy_engines: 16
+            decoders: 1
+            jpeg: 1
+            ofa: 1
 
   # ---------------------------------------------------------------------------
   # GPU operation mode (GOM)
