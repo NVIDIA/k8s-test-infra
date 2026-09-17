@@ -306,6 +306,73 @@ device_defaults:
     mode_current: "disabled"
     mode_pending: "disabled"
     max_gpu_instances: 7
+    # Engine counts from NVIDIA MIG user guide, Supported MIG Profiles,
+    # Table 5 (B200). Names and memory are this board's own rather than
+    # Table 5's: the table describes the 180 GB product and publishes
+    # 1g.23gb, while this profile declares 192 GiB, so a slice is an eighth
+    # of 192. nvml_profile carries the slice count, so no row restates it.
+    #
+    # NVIDIA publishes no profile IDs for Blackwell, so the mock reports NVML's
+    # enum and -lgip ids will not match a real board's listing.
+    supported_profiles:
+      - name: "1g.24gb"
+        nvml_profile: "1_SLICE"
+        instances: 7
+        memory_mb: 24576
+        multiprocessors: 18
+        copy_engines: 2
+        decoders: 1
+        jpeg: 1
+      - name: "1g.24gb+me"
+        nvml_profile: "1_SLICE_REV1"
+        instances: 1
+        memory_mb: 24576
+        multiprocessors: 18
+        copy_engines: 2
+        decoders: 1
+        jpeg: 1
+        ofa: 1
+      - name: "1g.48gb"
+        nvml_profile: "1_SLICE_REV2"
+        instances: 4
+        memory_mb: 49152
+        multiprocessors: 18
+        copy_engines: 2
+        decoders: 1
+        jpeg: 1
+      - name: "2g.48gb"
+        nvml_profile: "2_SLICE"
+        instances: 3
+        memory_mb: 49152
+        multiprocessors: 36
+        copy_engines: 3
+        decoders: 1
+        jpeg: 1
+      - name: "3g.96gb"
+        nvml_profile: "3_SLICE"
+        instances: 2
+        memory_mb: 98304
+        multiprocessors: 54
+        copy_engines: 6
+        decoders: 1
+        jpeg: 1
+      - name: "4g.96gb"
+        nvml_profile: "4_SLICE"
+        instances: 1
+        memory_mb: 98304
+        multiprocessors: 72
+        copy_engines: 8
+        decoders: 1
+        jpeg: 1
+      - name: "7g.192gb"
+        nvml_profile: "7_SLICE"
+        instances: 1
+        memory_mb: 196608
+        multiprocessors: 126
+        copy_engines: 16
+        decoders: 1
+        jpeg: 1
+        ofa: 1
 
   # ---------------------------------------------------------------------------
   # GPU operation mode (GOM)

@@ -128,12 +128,13 @@ func ciProfileSpanningGI(t *testing.T, profiles gpus.MIGProfileConfig, giProfile
 	return widest
 }
 
-// migGoldenWant is what the boards report today, transcribed from this test's
-// own output rather than from NVIDIA's tables. The two do not always agree —
-// the Blackwell boards take their slice geometry from go-nvml's single B200
-// table, so a GB300 names its full-board partition 7g.180gb — and this map
-// records the behaviour a reader can observe, not the behaviour that is
-// correct. Fixing the disagreements means changing these literals.
+// migGoldenWant is what the boards report, transcribed from this test's own
+// output rather than from NVIDIA's tables: it records the behaviour a reader
+// can observe, so a change that moves any of it has to be deliberate.
+//
+// The placement literals are identical across all five boards, which is the
+// check that the derivation is right — placement geometry belongs to the
+// seven-slice layout, not to a board's capacity.
 var migGoldenWant = map[string]map[int]migGoldenRow{
 	"a100": {
 		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      {Name: "1g.5gb", SliceCount: 1, InstanceCount: 7, MemorySizeMB: 4864, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}},
@@ -147,38 +148,38 @@ var migGoldenWant = map[string]map[int]migGoldenRow{
 	"h100": {
 		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      {Name: "1g.10gb", SliceCount: 1, InstanceCount: 7, MemorySizeMB: 10240, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}},
 		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: {Name: "1g.10gb+me", SliceCount: 1, InstanceCount: 1, MemorySizeMB: 10240, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}},
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: {Name: "1g.20gb", SliceCount: 1, InstanceCount: 4, MemorySizeMB: 20480, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: {Name: "1g.20gb", SliceCount: 1, InstanceCount: 4, MemorySizeMB: 20480, Placements: []string{"0:2", "2:2", "4:2", "6:2"}},
 		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      {Name: "2g.20gb", SliceCount: 2, InstanceCount: 3, MemorySizeMB: 20480, Placements: []string{"0:2", "2:2", "4:2"}},
-		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      {Name: "3g.40gb", SliceCount: 3, InstanceCount: 2, MemorySizeMB: 40960, Placements: []string{"0:3", "4:3"}},
+		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      {Name: "3g.40gb", SliceCount: 3, InstanceCount: 2, MemorySizeMB: 40960, Placements: []string{"0:4", "4:4"}},
 		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      {Name: "4g.40gb", SliceCount: 4, InstanceCount: 1, MemorySizeMB: 40960, Placements: []string{"0:4"}},
-		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      {Name: "7g.80gb", SliceCount: 7, InstanceCount: 1, MemorySizeMB: 81920, Placements: []string{"0:7"}},
+		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      {Name: "7g.80gb", SliceCount: 7, InstanceCount: 1, MemorySizeMB: 81920, Placements: []string{"0:8"}},
 	},
 	"b200": {
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      {Name: "1g.24gb", SliceCount: 1, InstanceCount: 7, MemorySizeMB: 23552, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}},
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: {Name: "1g.24gb+me", SliceCount: 1, InstanceCount: 1, MemorySizeMB: 23552, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}},
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: {Name: "1g.48gb", SliceCount: 1, InstanceCount: 4, MemorySizeMB: 46080, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}},
-		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      {Name: "2g.48gb", SliceCount: 2, InstanceCount: 3, MemorySizeMB: 46080, Placements: []string{"0:2", "2:2", "4:2"}},
-		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      {Name: "3g.96gb", SliceCount: 3, InstanceCount: 2, MemorySizeMB: 92160, Placements: []string{"0:3", "4:3"}},
-		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      {Name: "4g.96gb", SliceCount: 4, InstanceCount: 1, MemorySizeMB: 92160, Placements: []string{"0:4"}},
-		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      {Name: "7g.192gb", SliceCount: 7, InstanceCount: 1, MemorySizeMB: 184320, Placements: []string{"0:7"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      {Name: "1g.24gb", SliceCount: 1, InstanceCount: 7, MemorySizeMB: 24576, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: {Name: "1g.24gb+me", SliceCount: 1, InstanceCount: 1, MemorySizeMB: 24576, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: {Name: "1g.48gb", SliceCount: 1, InstanceCount: 4, MemorySizeMB: 49152, Placements: []string{"0:2", "2:2", "4:2", "6:2"}},
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      {Name: "2g.48gb", SliceCount: 2, InstanceCount: 3, MemorySizeMB: 49152, Placements: []string{"0:2", "2:2", "4:2"}},
+		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      {Name: "3g.96gb", SliceCount: 3, InstanceCount: 2, MemorySizeMB: 98304, Placements: []string{"0:4", "4:4"}},
+		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      {Name: "4g.96gb", SliceCount: 4, InstanceCount: 1, MemorySizeMB: 98304, Placements: []string{"0:4"}},
+		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      {Name: "7g.192gb", SliceCount: 7, InstanceCount: 1, MemorySizeMB: 196608, Placements: []string{"0:8"}},
 	},
 	"gb200": {
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      {Name: "1g.24gb", SliceCount: 1, InstanceCount: 7, MemorySizeMB: 23552, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}},
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: {Name: "1g.24gb+me", SliceCount: 1, InstanceCount: 1, MemorySizeMB: 23552, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}},
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: {Name: "1g.48gb", SliceCount: 1, InstanceCount: 4, MemorySizeMB: 46080, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}},
-		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      {Name: "2g.48gb", SliceCount: 2, InstanceCount: 3, MemorySizeMB: 46080, Placements: []string{"0:2", "2:2", "4:2"}},
-		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      {Name: "3g.96gb", SliceCount: 3, InstanceCount: 2, MemorySizeMB: 92160, Placements: []string{"0:3", "4:3"}},
-		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      {Name: "4g.96gb", SliceCount: 4, InstanceCount: 1, MemorySizeMB: 92160, Placements: []string{"0:4"}},
-		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      {Name: "7g.192gb", SliceCount: 7, InstanceCount: 1, MemorySizeMB: 184320, Placements: []string{"0:7"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      {Name: "1g.24gb", SliceCount: 1, InstanceCount: 7, MemorySizeMB: 24576, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: {Name: "1g.24gb+me", SliceCount: 1, InstanceCount: 1, MemorySizeMB: 24576, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: {Name: "1g.48gb", SliceCount: 1, InstanceCount: 4, MemorySizeMB: 49152, Placements: []string{"0:2", "2:2", "4:2", "6:2"}},
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      {Name: "2g.48gb", SliceCount: 2, InstanceCount: 3, MemorySizeMB: 49152, Placements: []string{"0:2", "2:2", "4:2"}},
+		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      {Name: "3g.96gb", SliceCount: 3, InstanceCount: 2, MemorySizeMB: 98304, Placements: []string{"0:4", "4:4"}},
+		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      {Name: "4g.96gb", SliceCount: 4, InstanceCount: 1, MemorySizeMB: 98304, Placements: []string{"0:4"}},
+		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      {Name: "7g.192gb", SliceCount: 7, InstanceCount: 1, MemorySizeMB: 196608, Placements: []string{"0:8"}},
 	},
 	"gb300": {
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      {Name: "1g.36gb", SliceCount: 1, InstanceCount: 7, MemorySizeMB: 23552, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}},
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: {Name: "1g.36gb+me", SliceCount: 1, InstanceCount: 1, MemorySizeMB: 23552, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}},
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: {Name: "1g.72gb", SliceCount: 1, InstanceCount: 4, MemorySizeMB: 46080, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}},
-		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      {Name: "2g.72gb", SliceCount: 2, InstanceCount: 3, MemorySizeMB: 46080, Placements: []string{"0:2", "2:2", "4:2"}},
-		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      {Name: "3g.108gb", SliceCount: 3, InstanceCount: 2, MemorySizeMB: 92160, Placements: []string{"0:3", "4:3"}},
-		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      {Name: "4g.108gb", SliceCount: 4, InstanceCount: 1, MemorySizeMB: 92160, Placements: []string{"0:4"}},
-		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      {Name: "7g.180gb", SliceCount: 7, InstanceCount: 1, MemorySizeMB: 184320, Placements: []string{"0:7"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      {Name: "1g.36gb", SliceCount: 1, InstanceCount: 7, MemorySizeMB: 36864, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: {Name: "1g.36gb+me", SliceCount: 1, InstanceCount: 1, MemorySizeMB: 36864, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: {Name: "1g.72gb", SliceCount: 1, InstanceCount: 4, MemorySizeMB: 73728, Placements: []string{"0:2", "2:2", "4:2", "6:2"}},
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      {Name: "2g.72gb", SliceCount: 2, InstanceCount: 3, MemorySizeMB: 73728, Placements: []string{"0:2", "2:2", "4:2"}},
+		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      {Name: "3g.144gb", SliceCount: 3, InstanceCount: 2, MemorySizeMB: 147456, Placements: []string{"0:4", "4:4"}},
+		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      {Name: "4g.144gb", SliceCount: 4, InstanceCount: 1, MemorySizeMB: 147456, Placements: []string{"0:4"}},
+		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      {Name: "7g.288gb", SliceCount: 7, InstanceCount: 1, MemorySizeMB: 294912, Placements: []string{"0:8"}},
 	},
 }
 
@@ -195,6 +196,57 @@ func TestMIGProfiles_GoldenSnapshot(t *testing.T) {
 			want := migGoldenWant[board.profile]
 			require.NotEmpty(t, want, "no golden rows recorded for %s", board.profile)
 			require.Equal(t, want, migGoldenSnapshot(t, board))
+		})
+	}
+}
+
+// TestMIGProfiles_EngineCountsMatchThePublishedTables guards the correction
+// this change makes. go-nvml's H100 table carried the A100's engine counts —
+// 0 JPEG throughout, 5 NVDEC and 7 copy engines on 7g — where NVIDIA publishes
+// 1 JPEG per slice and 7 NVDEC / 8 copy engines. A future edit that
+// reintroduces the A100 numbers fails here.
+func TestMIGProfiles_EngineCountsMatchThePublishedTables(t *testing.T) {
+	t.Parallel()
+
+	profiles, _, supported := migProfilesFromConfig(migConfigOfShippedProfile(t, "h100"), 85899345920)
+	require.True(t, supported)
+
+	sevenSlice := profiles.GpuInstanceProfiles[nvml.GPU_INSTANCE_PROFILE_7_SLICE]
+	require.EqualValues(t, 7, sevenSlice.DecoderCount, "Table 10 publishes 7 NVDECs for 7g.80gb")
+	require.EqualValues(t, 7, sevenSlice.JpegCount, "Table 10 publishes 7 JPEG for 7g.80gb")
+	require.EqualValues(t, 1, sevenSlice.OfaCount, "Table 10 publishes 1 OFA for 7g.80gb")
+	require.EqualValues(t, 8, sevenSlice.CopyEngineCount, "Table 10 publishes 8 copy engines for 7g.80gb")
+
+	oneSlice := profiles.GpuInstanceProfiles[nvml.GPU_INSTANCE_PROFILE_1_SLICE]
+	require.EqualValues(t, 1, oneSlice.JpegCount, "Table 10 publishes 1 JPEG per slice, not 0")
+}
+
+// TestMIGProfiles_AFullBoardPartitionSpansTheBoard guards the memory fix. The
+// Blackwell profiles all resolved to the B200-180GB table while naming their
+// slices against their own capacity, so gb300's 7g.288gb reported 180 GiB of a
+// 288 GiB board. A full-board GPU instance has to account for the whole board,
+// give or take the reservation real hardware also keeps back.
+func TestMIGProfiles_AFullBoardPartitionSpansTheBoard(t *testing.T) {
+	t.Parallel()
+
+	for _, board := range migGoldenBoards {
+		t.Run(board.profile, func(t *testing.T) {
+			t.Parallel()
+
+			profiles, _, supported := migProfilesFromConfig(
+				migConfigOfShippedProfile(t, board.profile), board.memoryBytes)
+			require.True(t, supported)
+
+			fullBoard := profiles.GpuInstanceProfiles[nvml.GPU_INSTANCE_PROFILE_7_SLICE]
+			capacityMB := board.memoryBytes / oneMiB
+
+			require.LessOrEqual(t, fullBoard.MemorySizeMB, capacityMB,
+				"a partition cannot hold more than the board")
+			// a100 sits at 98% — go-nvml allocates 40192 MB of 40 GiB, which
+			// tracks real hardware holding some back. 95% is loose enough for
+			// that and tight enough to catch 180 of 288.
+			require.Greater(t, fullBoard.MemorySizeMB*100/capacityMB, uint64(95),
+				"a full-board partition leaves too much of the board unreachable")
 		})
 	}
 }

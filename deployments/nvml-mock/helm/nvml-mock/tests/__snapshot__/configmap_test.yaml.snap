@@ -303,6 +303,65 @@ should match snapshot with a100 profile:
             mode_current: "disabled"
             mode_pending: "disabled"
             max_gpu_instances: 7            # A100 supports up to 7 MIG instances
+            # NVIDIA MIG user guide, Supported MIG Profiles, Table 12
+            # (A100-SXM4-40GB). nvml_profile binds each row to the NVML enum the mock
+            # keys on, and it carries the slice count, so no row restates it.
+            supported_profiles:
+              - name: "1g.5gb"
+                nvml_profile: "1_SLICE"
+                instances: 7
+                # Not 5120. A slice holds an eighth of a 40 GiB board, and the "5gb"
+                # in the name is that eighth rounded for display. The raw allocation
+                # is what NVML reports and what -lgip prints as 4.75 GiB.
+                memory_mb: 4864
+                multiprocessors: 14
+                copy_engines: 1
+              - name: "1g.5gb+me"
+                nvml_profile: "1_SLICE_REV1"
+                instances: 1
+                memory_mb: 4864
+                multiprocessors: 14
+                copy_engines: 1
+                decoders: 1
+                jpeg: 1
+                ofa: 1
+              - name: "1g.10gb"
+                nvml_profile: "1_SLICE_REV2"
+                instances: 4
+                memory_mb: 9856
+                multiprocessors: 14
+                copy_engines: 1
+                decoders: 1
+              - name: "2g.10gb"
+                nvml_profile: "2_SLICE"
+                instances: 3
+                memory_mb: 9856
+                multiprocessors: 28
+                copy_engines: 2
+                decoders: 1
+              - name: "3g.20gb"
+                nvml_profile: "3_SLICE"
+                instances: 2
+                memory_mb: 19968
+                multiprocessors: 42
+                copy_engines: 3
+                decoders: 2
+              - name: "4g.20gb"
+                nvml_profile: "4_SLICE"
+                instances: 1
+                memory_mb: 19968
+                multiprocessors: 56
+                copy_engines: 4
+                decoders: 2
+              - name: "7g.40gb"
+                nvml_profile: "7_SLICE"
+                instances: 1
+                memory_mb: 40192
+                multiprocessors: 98
+                copy_engines: 7
+                decoders: 5
+                jpeg: 1
+                ofa: 1
 
           # ---------------------------------------------------------------------------
           # GPU operation mode (GOM)
@@ -798,6 +857,73 @@ should match snapshot with b200 profile:
             mode_current: "disabled"
             mode_pending: "disabled"
             max_gpu_instances: 7
+            # Engine counts from NVIDIA MIG user guide, Supported MIG Profiles,
+            # Table 5 (B200). Names and memory are this board's own rather than
+            # Table 5's: the table describes the 180 GB product and publishes
+            # 1g.23gb, while this profile declares 192 GiB, so a slice is an eighth
+            # of 192. nvml_profile carries the slice count, so no row restates it.
+            #
+            # NVIDIA publishes no profile IDs for Blackwell, so the mock reports NVML's
+            # enum and -lgip ids will not match a real board's listing.
+            supported_profiles:
+              - name: "1g.24gb"
+                nvml_profile: "1_SLICE"
+                instances: 7
+                memory_mb: 24576
+                multiprocessors: 18
+                copy_engines: 2
+                decoders: 1
+                jpeg: 1
+              - name: "1g.24gb+me"
+                nvml_profile: "1_SLICE_REV1"
+                instances: 1
+                memory_mb: 24576
+                multiprocessors: 18
+                copy_engines: 2
+                decoders: 1
+                jpeg: 1
+                ofa: 1
+              - name: "1g.48gb"
+                nvml_profile: "1_SLICE_REV2"
+                instances: 4
+                memory_mb: 49152
+                multiprocessors: 18
+                copy_engines: 2
+                decoders: 1
+                jpeg: 1
+              - name: "2g.48gb"
+                nvml_profile: "2_SLICE"
+                instances: 3
+                memory_mb: 49152
+                multiprocessors: 36
+                copy_engines: 3
+                decoders: 1
+                jpeg: 1
+              - name: "3g.96gb"
+                nvml_profile: "3_SLICE"
+                instances: 2
+                memory_mb: 98304
+                multiprocessors: 54
+                copy_engines: 6
+                decoders: 1
+                jpeg: 1
+              - name: "4g.96gb"
+                nvml_profile: "4_SLICE"
+                instances: 1
+                memory_mb: 98304
+                multiprocessors: 72
+                copy_engines: 8
+                decoders: 1
+                jpeg: 1
+              - name: "7g.192gb"
+                nvml_profile: "7_SLICE"
+                instances: 1
+                memory_mb: 196608
+                multiprocessors: 126
+                copy_engines: 16
+                decoders: 1
+                jpeg: 1
+                ofa: 1
 
           # ---------------------------------------------------------------------------
           # GPU operation mode (GOM)
@@ -1341,6 +1467,73 @@ should match snapshot with default gb300 profile:
             mode_current: "disabled"
             mode_pending: "disabled"
             max_gpu_instances: 7
+            # Engine counts from NVIDIA MIG user guide, Supported MIG Profiles,
+            # Table 5 (B200). Names and memory are this board's own rather than
+            # Table 5's: the table describes the 180 GB product and publishes
+            # 1g.23gb, while this profile declares 288 GiB, so a slice is an eighth
+            # of 288. nvml_profile carries the slice count, so no row restates it.
+            #
+            # NVIDIA publishes no profile IDs for Blackwell, so the mock reports NVML's
+            # enum and -lgip ids will not match a real board's listing.
+            supported_profiles:
+              - name: "1g.36gb"
+                nvml_profile: "1_SLICE"
+                instances: 7
+                memory_mb: 36864
+                multiprocessors: 18
+                copy_engines: 2
+                decoders: 1
+                jpeg: 1
+              - name: "1g.36gb+me"
+                nvml_profile: "1_SLICE_REV1"
+                instances: 1
+                memory_mb: 36864
+                multiprocessors: 18
+                copy_engines: 2
+                decoders: 1
+                jpeg: 1
+                ofa: 1
+              - name: "1g.72gb"
+                nvml_profile: "1_SLICE_REV2"
+                instances: 4
+                memory_mb: 73728
+                multiprocessors: 18
+                copy_engines: 2
+                decoders: 1
+                jpeg: 1
+              - name: "2g.72gb"
+                nvml_profile: "2_SLICE"
+                instances: 3
+                memory_mb: 73728
+                multiprocessors: 36
+                copy_engines: 3
+                decoders: 1
+                jpeg: 1
+              - name: "3g.144gb"
+                nvml_profile: "3_SLICE"
+                instances: 2
+                memory_mb: 147456
+                multiprocessors: 54
+                copy_engines: 6
+                decoders: 1
+                jpeg: 1
+              - name: "4g.144gb"
+                nvml_profile: "4_SLICE"
+                instances: 1
+                memory_mb: 147456
+                multiprocessors: 72
+                copy_engines: 8
+                decoders: 1
+                jpeg: 1
+              - name: "7g.288gb"
+                nvml_profile: "7_SLICE"
+                instances: 1
+                memory_mb: 294912
+                multiprocessors: 126
+                copy_engines: 16
+                decoders: 1
+                jpeg: 1
+                ofa: 1
 
           # ---------------------------------------------------------------------------
           # GPU operation mode (GOM)
@@ -1898,6 +2091,73 @@ should match snapshot with gb200 profile:
             mode_current: "disabled"
             mode_pending: "disabled"
             max_gpu_instances: 7
+            # Engine counts from NVIDIA MIG user guide, Supported MIG Profiles,
+            # Table 5 (B200). Names and memory are this board's own rather than
+            # Table 5's: the table describes the 180 GB product and publishes
+            # 1g.23gb, while this profile declares 192 GiB, so a slice is an eighth
+            # of 192. nvml_profile carries the slice count, so no row restates it.
+            #
+            # NVIDIA publishes no profile IDs for Blackwell, so the mock reports NVML's
+            # enum and -lgip ids will not match a real board's listing.
+            supported_profiles:
+              - name: "1g.24gb"
+                nvml_profile: "1_SLICE"
+                instances: 7
+                memory_mb: 24576
+                multiprocessors: 18
+                copy_engines: 2
+                decoders: 1
+                jpeg: 1
+              - name: "1g.24gb+me"
+                nvml_profile: "1_SLICE_REV1"
+                instances: 1
+                memory_mb: 24576
+                multiprocessors: 18
+                copy_engines: 2
+                decoders: 1
+                jpeg: 1
+                ofa: 1
+              - name: "1g.48gb"
+                nvml_profile: "1_SLICE_REV2"
+                instances: 4
+                memory_mb: 49152
+                multiprocessors: 18
+                copy_engines: 2
+                decoders: 1
+                jpeg: 1
+              - name: "2g.48gb"
+                nvml_profile: "2_SLICE"
+                instances: 3
+                memory_mb: 49152
+                multiprocessors: 36
+                copy_engines: 3
+                decoders: 1
+                jpeg: 1
+              - name: "3g.96gb"
+                nvml_profile: "3_SLICE"
+                instances: 2
+                memory_mb: 98304
+                multiprocessors: 54
+                copy_engines: 6
+                decoders: 1
+                jpeg: 1
+              - name: "4g.96gb"
+                nvml_profile: "4_SLICE"
+                instances: 1
+                memory_mb: 98304
+                multiprocessors: 72
+                copy_engines: 8
+                decoders: 1
+                jpeg: 1
+              - name: "7g.192gb"
+                nvml_profile: "7_SLICE"
+                instances: 1
+                memory_mb: 196608
+                multiprocessors: 126
+                copy_engines: 16
+                decoders: 1
+                jpeg: 1
+                ofa: 1
 
           # ---------------------------------------------------------------------------
           # GPU operation mode (GOM)
@@ -2403,6 +2663,70 @@ should match snapshot with h100 profile:
             mode_current: "disabled"
             mode_pending: "disabled"
             max_gpu_instances: 7
+            # NVIDIA MIG user guide, Supported MIG Profiles, Table 10 (H100 80GB,
+            # PCIe and SXM5). nvml_profile binds each row to the NVML enum the mock
+            # keys on, and it carries the slice count, so no row restates it. Slice
+            # placements are derived from that count and max_gpu_instances rather
+            # than declared, because NVIDIA publishes them only as diagrams.
+            supported_profiles:
+              - name: "1g.10gb"
+                nvml_profile: "1_SLICE"
+                instances: 7
+                memory_mb: 10240
+                multiprocessors: 16
+                copy_engines: 1
+                decoders: 1
+                jpeg: 1
+              - name: "1g.10gb+me"
+                nvml_profile: "1_SLICE_REV1"
+                instances: 1
+                memory_mb: 10240
+                multiprocessors: 16
+                copy_engines: 1
+                decoders: 1
+                jpeg: 1
+                ofa: 1
+              - name: "1g.20gb"
+                nvml_profile: "1_SLICE_REV2"
+                instances: 4
+                memory_mb: 20480
+                multiprocessors: 16
+                copy_engines: 1
+                decoders: 1
+                jpeg: 1
+              - name: "2g.20gb"
+                nvml_profile: "2_SLICE"
+                instances: 3
+                memory_mb: 20480
+                multiprocessors: 32
+                copy_engines: 2
+                decoders: 2
+                jpeg: 2
+              - name: "3g.40gb"
+                nvml_profile: "3_SLICE"
+                instances: 2
+                memory_mb: 40960
+                multiprocessors: 48
+                copy_engines: 3
+                decoders: 3
+                jpeg: 3
+              - name: "4g.40gb"
+                nvml_profile: "4_SLICE"
+                instances: 1
+                memory_mb: 40960
+                multiprocessors: 64
+                copy_engines: 4
+                decoders: 4
+                jpeg: 4
+              - name: "7g.80gb"
+                nvml_profile: "7_SLICE"
+                instances: 1
+                memory_mb: 81920
+                multiprocessors: 112
+                copy_engines: 8
+                decoders: 7
+                jpeg: 7
+                ofa: 1
 
           # ---------------------------------------------------------------------------
           # GPU operation mode (GOM)

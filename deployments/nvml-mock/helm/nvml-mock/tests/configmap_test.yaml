@@ -581,7 +581,9 @@ tests:
   # gpuInstances is the only source of a partitioning, so what lands in the
   # config is what was asked for. The negative half guards the board's former
   # default: an h100 that reintroduced 1g.10gb would partition into something
-  # nobody named here.
+  # nobody named here. It matches "profile:", the key a partition is named
+  # under, because the board's profile catalogue lists 1g.10gb as a row it
+  # offers — offering a partition and having created one are different things.
   - it: should take the partitioning from gpuInstances alone
     set:
       gpu:
@@ -597,7 +599,7 @@ tests:
           pattern: "profile: 3g.40gb"
       - notMatchRegex:
           path: data["config.yaml"]
-          pattern: "1g.10gb"
+          pattern: "profile: 1g.10gb"
 
   - it: should not emit the mig 'enabled' flag into the rendered config
     set:
