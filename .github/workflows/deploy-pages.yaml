@@ -68,7 +68,9 @@ jobs:
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:
-          terraform_version: 1.16.2
+          # Resolve patch releases automatically while keeping minor-version
+          # changes explicit and reviewable.
+          terraform_version: "~1.16.0"
 
       - name: Validate managed EKS Terraform
         run: make managed-eks-terraform-check

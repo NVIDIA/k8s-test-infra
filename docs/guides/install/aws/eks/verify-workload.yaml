@@ -1,3 +1,6 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+
 apiVersion: v1
 kind: Pod
 metadata:
@@ -9,7 +12,9 @@ spec:
   containers:
     - name: nvidia-smi
       # This image deliberately contains no Mokka components. The device
-      # plugin and CDI must inject nvidia-smi, libnvidia-ml and the mock config.
+      # plugin allocates a simulated GPU UUID, and the NVIDIA runtime applies
+      # Mokka's CDI specification to mount nvidia-smi, libnvidia-ml, and the
+      # mock configuration.
       image: ubuntu:24.04
       command: [nvidia-smi]
       args: [-L]

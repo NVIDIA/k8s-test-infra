@@ -1,3 +1,6 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+
 variable "aws_account_id" {
   description = "AWS account that Terraform is allowed to modify."
   type        = string
@@ -27,7 +30,7 @@ variable "kubernetes_version" {
 }
 
 variable "eks_ami_release_version" {
-  description = "Pinned EKS-optimized AL2023 release for reproducible workers."
+  description = "Pinned EKS-optimized accelerated AL2023 release for reproducible workers."
   type        = string
   default     = "1.35.7-20260911"
 }
@@ -65,10 +68,4 @@ variable "worker_count" {
     condition     = var.worker_count >= 1 && floor(var.worker_count) == var.worker_count
     error_message = "worker_count must be a positive integer."
   }
-}
-
-variable "nvidia_container_toolkit_version" {
-  description = "NVIDIA Container Toolkit RPM version installed for CDI hooks. No GPU driver is installed."
-  type        = string
-  default     = "1.20.0-1"
 }

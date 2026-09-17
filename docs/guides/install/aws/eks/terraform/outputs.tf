@@ -1,3 +1,6 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+
 output "cluster_name" {
   description = "EKS cluster name."
   value       = module.eks.cluster_name

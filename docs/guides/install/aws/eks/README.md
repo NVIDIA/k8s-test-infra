@@ -9,29 +9,30 @@ one, the optional Terraform path creates a disposable reference cluster with
 the required worker runtime configuration. It creates billable AWS resources,
 so destroy that stack when you finish.
 
-## What you will validate
+## Validation scope
 
-By the end, you will understand:
+The procedure validates:
 
-- why a managed CPU node needs NVIDIA Container Toolkit but no NVIDIA driver;
-- how the NVIDIA device plugin, NVIDIA runtime, Container Device Interface
-  (CDI), and Mokka divide responsibility;
-- how to scope Mokka to a dedicated managed node group; and
-- how to prove that a normal application container received one simulated GPU.
+- NVIDIA Container Toolkit operation on managed CPU nodes without physical
+  GPUs;
+- the integration between the NVIDIA device plugin, NVIDIA runtime, Container
+  Device Interface (CDI), and Mokka;
+- Mokka placement on a dedicated managed node group; and
+- simulated GPU injection into a normal application container.
 
-The reference configuration validated for this guide is deliberately small but
-exercises DaemonSet placement across availability zones:
+The reference configuration is deliberately small but spans availability zones
+to verify DaemonSet placement:
 
 | Component | Validated value | Why |
 |---|---|---|
 | Region | `us-west-2` | Example default; override it in `terraform.tfvars` |
 | Kubernetes | EKS `1.35` | Matches the current Mokka Kind test target |
 | Workers | 2 × on-demand `t3.large` | CPU-only, enough memory for system and Mokka pods |
-| Worker image | EKS-optimized AL2023 x86_64, `1.35.7-20260911` | Pins the validated containerd and operating-system combination |
-| Worker placement | Private subnets in two availability zones, one shared NAT gateway | Exercises one Mokka pod per worker without public worker IPs while keeping the reference cluster's NAT cost down |
-| Mokka | chart `0.3.0`, chart-default `latest` image, `gb300` profile | Published chart compatible with the current node agent; see the image note below |
+| Worker image | EKS-optimized accelerated AL2023 x86_64, `1.35.7-20260911` | Includes the NVIDIA runtime and CDI hook binaries while still running on CPU-only instances |
+| Worker placement | Private subnets in two availability zones, one shared NAT gateway | Runs one Mokka pod per worker without public worker IPs while keeping the reference cluster's NAT cost down |
+| Mokka | chart and image `0.4.0-rc1`, `gb300` profile | Pins the newest compatible published chart and image pair |
 | Device plugin | `nvcr.io/nvidia/k8s-device-plugin:v0.18.2` | Advertises `nvidia.com/gpu` through Mokka's NVML implementation |
-| Container toolkit | `1.20.0-1` | Supplies the NVIDIA runtime and CDI hook binaries on CPU nodes |
+| Container toolkit | `1.20.0-1`, bundled with the worker image | Supplies the NVIDIA runtime and CDI hook binaries on CPU nodes |
 
 These versions record a reproducible Mokka validation target; they are not an
 AWS support statement. When updating Kubernetes or the AL2023 release, repeat
@@ -58,8 +59,9 @@ You also need an EKS cluster with at least one dedicated Linux x86_64 CPU
 worker. Mokka requires privileged pods and `hostPath` volumes. The worker image
 must use containerd with Container Device Interface (CDI) enabled, and must
 contain NVIDIA Container Toolkit with `nvidia-container-runtime` configured as
-the default runtime in CDI mode. It must not have an NVIDIA kernel driver. The
-optional reference-cluster path supplies that configuration.
+the default runtime in CDI mode. A physical GPU is not required. The optional
+reference-cluster path uses AWS's accelerated AL2023 image for the runtime
+components, even though the selected EC2 instance type is CPU-only.
 
 Set variables for your cluster. The AWS variables are needed only when creating
 the optional reference cluster:
@@ -80,9 +82,9 @@ need a source checkout.
 mkdir mokka-eks-guide
 cd mokka-eks-guide
 
-export MOKKA_ASSET_BASE=https://raw.githubusercontent.com/NVIDIA/k8s-test-infra/main/docs/guides/managed-eks
+export MOKKA_ASSET_BASE=https://raw.githubusercontent.com/NVIDIA/k8s-test-infra/main/docs/guides/install/aws/eks
 
-for file in mokka-values.yaml device-plugin.yaml verify-workload.yaml; do
+for file in mokka-values.yaml device-plugin-values.yaml verify-workload.yaml; do
   curl -fsSLO "${MOKKA_ASSET_BASE}/${file}"
 done
 ```
@@ -92,29 +94,29 @@ These assets scope Mokka and the device plugin to nodes labelled
 
 ## 2. Select a cluster path
 
-=== "Use an existing cluster"
+### Use an existing cluster
 
-    Set `MOKKA_CONTEXT` to the kubeconfig context for the cluster. Select the
-    dedicated CPU workers and label each one; do not label real GPU nodes or a
-    shared general-purpose pool:
+Set `MOKKA_CONTEXT` to the kubeconfig context for the cluster. Select the
+dedicated CPU workers and label each one; do not label real GPU nodes or a
+shared general-purpose pool:
 
-    ```bash
-    kubectl --context "${MOKKA_CONTEXT}" get nodes -o wide
-    kubectl --context "${MOKKA_CONTEXT}" label node \
-      <worker-name> mokka.nvidia.com/type=sgpu
-    ```
+```bash
+kubectl --context "${MOKKA_CONTEXT}" get nodes -o wide
+kubectl --context "${MOKKA_CONTEXT}" label node \
+  <worker-name> mokka.nvidia.com/type=sgpu
+```
 
-    Confirm with the cluster administrator that the labelled nodes meet the
-    runtime requirements above. Worker runtime configuration happens before
-    kubelet starts; if the nodes are not prepared, create a replacement managed
-    node group rather than modifying live shared nodes. Continue at
-    [Step 4](#4-install-mokka).
+Confirm with the cluster administrator that the labelled nodes meet the
+runtime requirements above. Worker runtime configuration happens before
+kubelet starts; if the nodes are not prepared, create a replacement managed
+node group rather than modifying live shared nodes. Continue at
+[Step 4](#4-install-mokka).
 
-=== "Create the reference cluster"
+### Create the reference cluster
 
-    Continue with Step 3. The supplied Terraform creates and labels two
-    prepared workers. It is an optional reproducibility aid, not a requirement
-    for installing Mokka.
+Continue with Step 3. The supplied Terraform creates and labels two prepared
+workers. It is an optional reproducibility aid, not a requirement for
+installing Mokka.
 
 ## 3. Create the optional reference cluster
 
@@ -123,6 +125,16 @@ and [Terraform](https://developer.hashicorp.com/terraform/install) 1.5.7 or
 newer. Your AWS identity needs permission to manage EKS, EC2 networking and
 instances, IAM roles, Key Management Service (KMS) keys, and CloudWatch log
 groups. A production account should use narrowly scoped permissions.
+
+!!! warning "Cluster-creator access is only for the reference cluster"
+
+    The template sets `enable_cluster_creator_admin_permissions = true`. The
+    EKS module creates an access entry that grants the Terraform caller the
+    `AmazonEKSClusterAdminPolicy`, which provides full cluster-admin access.
+    This keeps a disposable test cluster operable by the person who creates it;
+    it is not a recommended production access model. Production deployments
+    should manage access entries explicitly and grant each operator or role
+    only the permissions it needs.
 
 Download the Terraform assets:
 
@@ -134,10 +146,12 @@ for file in versions.tf variables.tf main.tf outputs.tf \
 done
 ```
 
-Learning checkpoint: inspect [`terraform/main.tf`](terraform/main.tf). The
-workers, not the control plane, are in your VPC. Cloud-init installs NVIDIA
-Container Toolkit before EKS bootstrap, then configures the NVIDIA runtime in
-CDI mode after `nodeadm` has written containerd's base configuration.
+The workers, not the control plane, are in your VPC. The accelerated AL2023
+image already includes NVIDIA Container Toolkit and registers the NVIDIA
+runtime. After `nodeadm` writes containerd's base configuration, cloud-init
+changes the runtime from hardware-probing `auto` mode to CDI mode and restarts
+containerd. See [`terraform/main.tf`](terraform/main.tf) for the reference
+configuration.
 
 ### Authenticate and constrain access
 
@@ -205,19 +219,21 @@ kubectl --context "${MOKKA_CONTEXT}" get nodes -o wide
 kubectl --context "${MOKKA_CONTEXT}" get pods -n kube-system
 ```
 
-Expect two Ready AL2023 nodes in different availability zones, with no external
-IP address. CoreDNS, `aws-node`, and `kube-proxy` should be Running.
+Expect two Ready accelerated AL2023 nodes in different availability zones,
+with no external IP address. CoreDNS, `aws-node`, and `kube-proxy` should be
+Running.
 
-Learning checkpoint: the bootstrap installs NVIDIA Container Toolkit on these
-CPU nodes, configures `nvidia-container-runtime` in CDI mode, and makes it the
-containerd default. It intentionally installs no NVIDIA kernel driver.
+AWS's accelerated image supplies NVIDIA Container Toolkit and makes
+`nvidia-container-runtime` the containerd default. The bootstrap only forces
+CDI mode because the image's `auto` mode tries to initialize a physical GPU
+before Mokka's CDI specification can be used.
 
 ## 4. Install Mokka
 
 ```bash
 helm upgrade --install nvml-mock \
   oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
-  --version 0.3.0 \
+  --version 0.4.0-rc1 \
   --kube-context "${MOKKA_CONTEXT}" \
   --namespace mokka \
   --create-namespace \
@@ -234,25 +250,30 @@ There should be one Ready Mokka pod per worker. The command reports four
 `NVIDIA GB300 NVL` devices. It proves that Mokka staged its mock driver tree,
 configuration, device nodes, and CDI specification on a node.
 
-!!! note "The chart and image releases are not yet aligned"
-
-    Chart `0.3.0` defaults to image tag `latest`. Do not override it to
-    `0.3.0`: that older image predates the chart's `node-agent` executable and
-    fails at container start. Publishing matching immutable chart and image
-    versions is a follow-up packaging gap; the rest of this guide pins every
-    component that currently has a compatible release tag. The same version
-    skew can produce a harmless `libpcisysfs.so.1` loader warning during
-    `kubectl exec`; the neutral workload should still complete without it.
-
 ## 5. Advertise the simulated GPUs
 
 Mokka provides the device behavior; the unmodified NVIDIA device plugin tells
-the kubelet that the devices are schedulable resources:
+the kubelet that the devices are schedulable resources. Install the official
+chart with the supplied values. They point the plugin at Mokka's staged driver
+tree, select the simulated-GPU workers, and remove the chart's physical-GPU
+node affinity:
 
 ```bash
-kubectl --context "${MOKKA_CONTEXT}" apply -f device-plugin.yaml
-kubectl --context "${MOKKA_CONTEXT}" --namespace kube-system rollout status \
-  daemonset/nvidia-device-plugin-mock --timeout=5m
+helm repo add nvdp https://nvidia.github.io/k8s-device-plugin
+helm repo update nvdp
+
+helm upgrade --install nvidia-device-plugin \
+  nvdp/nvidia-device-plugin \
+  --version 0.18.2 \
+  --kube-context "${MOKKA_CONTEXT}" \
+  --namespace nvidia-device-plugin \
+  --create-namespace \
+  --values device-plugin-values.yaml \
+  --wait --timeout 5m
+
+kubectl --context "${MOKKA_CONTEXT}" \
+  --namespace nvidia-device-plugin rollout status \
+  daemonset/nvidia-device-plugin --timeout=5m
 
 kubectl --context "${MOKKA_CONTEXT}" get nodes -o json | jq -r '
   .items[] |
@@ -268,16 +289,34 @@ The request path is:
 
 ```mermaid
 flowchart LR
-    Pod[Pod requests nvidia.com/gpu] --> Plugin[NVIDIA device plugin allocates a UUID]
-    Plugin --> Runtime[NVIDIA runtime resolves nvidia.com/gpu CDI]
-    Runtime --> Spec[Mokka CDI spec injects library, config, tool, and one device]
-    Spec --> App[Unmodified application sees one simulated GPU]
+    Pod[Pod declares nvidia.com/gpu: 1]
+    Scheduler[Kubernetes scheduler selects a node]
+    Kubelet[Kubelet selects an advertised GPU UUID]
+    Plugin[NVIDIA device plugin returns NVIDIA_VISIBLE_DEVICES=UUID]
+    Runtime[NVIDIA runtime resolves nvidia.com/gpu=UUID]
+    Spec[Mokka-generated /run/cdi/nvidia.yaml]
+    OCI[Runtime applies the spec's container edits]
+    App[Unmodified application sees one simulated GPU]
+
+    Pod --> Scheduler
+    Scheduler --> Kubelet
+    Kubelet -->|Allocate UUID| Plugin
+    Plugin --> Runtime
+    Runtime --> Spec
+    Spec --> OCI
+    OCI --> App
 ```
 
-The default device-plugin environment strategy is intentional. The NVIDIA
-runtime translates the allocated UUID to Mokka's `nvidia.com/gpu` CDI device.
-Using the plugin's `cdi-annotations` strategy instead generates a second CDI
-spec that does not carry Mokka's selected profile configuration.
+The default device-plugin discovery and environment-allocation strategies are
+intentional. The plugin discovers the simulated devices through Mokka's driver
+root and advertises their UUIDs to the kubelet. When a pod requests
+`nvidia.com/gpu`, the kubelet selects an advertised UUID and the plugin returns
+it through `NVIDIA_VISIBLE_DEVICES`. The NVIDIA runtime, configured in explicit
+CDI mode, resolves that UUID against the `nvidia.com/gpu` specification
+generated by Mokka and applies its container edits. This guide validates the
+device plugin's default `envvar` allocation strategy. CDI-native device-plugin
+strategies use a different, device-plugin-owned specification and are outside
+the scope of this guide.
 
 ## 6. Test from a neutral workload
 
@@ -304,20 +343,6 @@ This validates three separate outcomes: Kubernetes scheduled a GPU request,
 the runtime injected the mock driver into an ordinary image, and the selected
 GB300 configuration reached the consumer.
 
-## Why EKS workers need preparation
-
-The [NVIDIA device plugin guide](../device-plugin.md) uses a custom Kind node
-image that already contains the runtime pieces. A stock EKS AL2023 CPU worker
-can parse CDI specifications, but it does not contain the NVIDIA runtime or CDI
-hook binaries. Mokka therefore needs the toolkit installation and runtime
-configuration described in the prerequisites.
-
-With stock `runc`, the neutral pod fails because `nvidia-smi` is not injected.
-With the device plugin's `cdi-annotations` strategy, the pod starts but reports
-Mokka's fallback A100 instead of the selected GB300 because the generated CDI
-spec omits Mokka's profile configuration. The supplied worker bootstrap and
-device-plugin manifest avoid both failure modes.
-
 ## Troubleshooting
 
 ### Terraform uses the wrong AWS identity
@@ -338,8 +363,8 @@ Confirm that Mokka is Ready first, then inspect the plugin:
 
 ```bash
 kubectl --context "${MOKKA_CONTEXT}" --namespace mokka get pods -o wide
-kubectl --context "${MOKKA_CONTEXT}" --namespace kube-system logs \
-  daemonset/nvidia-device-plugin-mock --tail=100
+kubectl --context "${MOKKA_CONTEXT}" --namespace nvidia-device-plugin logs \
+  daemonset/nvidia-device-plugin --tail=100
 ```
 
 Warnings about optional graphics libraries are expected because Mokka stages
@@ -348,14 +373,8 @@ the NVML/CUDA management surface, not a complete physical GPU driver.
 ### The workload says `nvidia-smi: not found`
 
 The worker is using plain `runc`, or the NVIDIA runtime setup did not complete.
-Recreate the managed node group from this Terraform template; do not install a
-GPU driver.
-
-### The workload reports the default A100 profile
-
-Do not add `--device-list-strategy=cdi-annotations` to the device plugin. That
-strategy's generated CDI spec injects the library but not Mokka's profile file.
-Use the manifest supplied with this guide and the NVIDIA runtime in CDI mode.
+Recreate the managed node group from this Terraform template instead of
+modifying a live shared node.
 
 ## Clean up
 
@@ -364,7 +383,8 @@ the cluster:
 
 ```bash
 kubectl --context "${MOKKA_CONTEXT}" delete -f verify-workload.yaml
-kubectl --context "${MOKKA_CONTEXT}" delete -f device-plugin.yaml
+helm --kube-context "${MOKKA_CONTEXT}" uninstall nvidia-device-plugin \
+  --namespace nvidia-device-plugin
 helm --kube-context "${MOKKA_CONTEXT}" uninstall nvml-mock --namespace mokka
 ```
 
@@ -380,16 +400,3 @@ terraform -chdir=terraform destroy
 Review the destroy plan, enter `yes`, and wait for completion. Confirm that it
 reports `Destroy complete` before deleting the local guide directory or its
 Terraform state.
-
-## Next steps
-
-- Change `gpu.profile` in `mokka-values.yaml` and verify that the neutral
-  workload sees the new identity.
-- Enable [allocation-aware memory](../../configuration.md#allocation-aware--opt-in)
-  and observe the simulated memory state while a GPU claim exists.
-- Follow the [Node-Wide Injection](../node-wide-injection/README.md) or
-  [Compute Domain](../compute-domain/README.md) guide for those feature-specific
-  workflows; their behavior is not repeated here.
-- Add the [GPU Operator](../gpu-operator.md) after the base runtime path works.
-- Use separate labelled managed node groups for heterogeneous profiles; one
-  node must belong to exactly one Mokka release.

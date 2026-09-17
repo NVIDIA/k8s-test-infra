@@ -1,3 +1,6 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+
 terraform {
   required_version = ">= 1.5.7"
 

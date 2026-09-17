@@ -426,7 +426,7 @@ docs-check-exclusion: ## Verify gitignored internal plans cannot reach the site
 
 docs: docs-check-exclusion docs-build ## Verify exclusion then build the site
 
-MANAGED_EKS_TERRAFORM_DIR := docs/guides/managed-eks/terraform
+MANAGED_EKS_TERRAFORM_DIR := docs/guides/install/aws/eks/terraform
 TERRAFORM                 ?= terraform
 
 managed-eks-terraform-check: ## Format and validate the managed EKS Terraform without AWS credentials

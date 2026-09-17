@@ -1,3 +1,6 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+
 data "aws_availability_zones" "available" {
   state = "available"
 
@@ -67,7 +70,7 @@ module "eks" {
 
   eks_managed_node_groups = {
     mokka = {
-      ami_type            = "AL2023_x86_64_STANDARD"
+      ami_type            = "AL2023_x86_64_NVIDIA"
       ami_release_version = var.eks_ami_release_version
       instance_types      = var.worker_instance_types
 
@@ -81,32 +84,9 @@ module "eks" {
       # can run after containerd's base configuration has been generated.
       enable_bootstrap_user_data = true
 
-      # Mokka and the NVIDIA device plugin generate CDI specs whose OCI hooks
-      # call nvidia-ctk/nvidia-cdi-hook. The stock AL2023 image enables CDI in
-      # containerd, but it does not contain those hook binaries.
-      cloudinit_pre_nodeadm = [
-        {
-          content_type = "text/x-shellscript"
-          content      = <<-EOT
-            #!/bin/bash
-            set -euxo pipefail
-
-            curl -fsSL \
-              https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo \
-              -o /etc/yum.repos.d/nvidia-container-toolkit.repo
-
-            dnf install -y \
-              nvidia-container-toolkit-${var.nvidia_container_toolkit_version} \
-              nvidia-container-toolkit-base-${var.nvidia_container_toolkit_version} \
-              libnvidia-container-tools-${var.nvidia_container_toolkit_version} \
-              libnvidia-container1-${var.nvidia_container_toolkit_version}
-          EOT
-        }
-      ]
-
-      # nodeadm writes containerd's base configuration, so register the
-      # NVIDIA runtime only after nodeadm has finished. CDI mode makes an
-      # allocated UUID resolve against the spec staged by Mokka.
+      # The accelerated AL2023 image already installs and registers the NVIDIA
+      # runtime. Its auto mode probes physical hardware before Mokka can supply
+      # a CDI spec, so force CDI mode after nodeadm has finished.
       cloudinit_post_nodeadm = [
         {
           content_type = "text/x-shellscript"
@@ -119,10 +99,6 @@ module "eks" {
             grep -q '^mode = "cdi"$' \
               /etc/nvidia-container-runtime/config.toml
 
-            nvidia-ctk runtime configure \
-              --runtime=containerd \
-              --set-as-default \
-              --enable-cdi
             systemctl restart containerd
           EOT
         }
