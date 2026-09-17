@@ -38,7 +38,7 @@ import (
 )
 
 func TestEventRoutingUsesBoundedDependencyKeys(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
@@ -73,7 +73,7 @@ func TestEventRoutingUsesBoundedDependencyKeys(t *testing.T) {
 }
 
 func TestRackCapacityEventsQueueAdmissionRecompute(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
@@ -127,7 +127,7 @@ func TestRackCapacityEventsQueueAdmissionRecompute(t *testing.T) {
 }
 
 func TestReturningBoundNodeAddRoutesOnlyExactSlotFresh(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
@@ -161,7 +161,7 @@ func TestReturningBoundNodeAddRoutesOnlyExactSlotFresh(t *testing.T) {
 }
 
 func TestControllerOwnedFreeRackAddContinuesPendingAllocation(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
@@ -185,7 +185,7 @@ func TestControllerOwnedFreeRackAddContinuesPendingAllocation(t *testing.T) {
 }
 
 func TestForeignRackBindingDoesNotRouteProjection(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
@@ -199,7 +199,7 @@ func TestForeignRackBindingDoesNotRouteProjection(t *testing.T) {
 }
 
 func TestRackOwnerRoutingUsesControllerReferenceWhenInventoryRefDrifts(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
@@ -217,7 +217,7 @@ func TestRackOwnerRoutingUsesControllerReferenceWhenInventoryRefDrifts(t *testin
 }
 
 func TestNoOpUpdatesAreSuppressed(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
@@ -243,7 +243,7 @@ func TestNoOpUpdatesAreSuppressed(t *testing.T) {
 }
 
 func TestAllocationRevisionIgnoresOwnedMetadataAndTracksTopologyInputs(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
@@ -286,7 +286,7 @@ func TestAllocationRevisionIgnoresOwnedMetadataAndTracksTopologyInputs(t *testin
 }
 
 func TestCapacityTopologyEventsInvalidateAdmissionAndRequeueSurvivors(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
@@ -347,7 +347,7 @@ func TestCapacityTopologyEventsInvalidateAdmissionAndRequeueSurvivors(t *testing
 }
 
 func TestSameTimestampInventoryAddQueuesDisplacedAdmissionParticipant(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	profiles := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
@@ -412,7 +412,7 @@ func TestSameTimestampInventoryAddQueuesDisplacedAdmissionParticipant(t *testing
 }
 
 func TestRackCapacityReleaseQueuesAndPromotesRejectedCandidate(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	profiles := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
@@ -482,7 +482,7 @@ func TestRackCapacityReleaseQueuesAndPromotesRejectedCandidate(t *testing.T) {
 }
 
 func TestDeleteTombstonesRouteExactCleanupBeforeGroup(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
@@ -517,7 +517,7 @@ func TestDeleteTombstonesRouteExactCleanupBeforeGroup(t *testing.T) {
 }
 
 func TestInventoryDeleteRequeuesEverySurvivingInventory(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
@@ -577,7 +577,7 @@ func TestPlacementRegistryBoundsAggregateRackGroups(t *testing.T) {
 }
 
 func TestStaleInventoryDeleteDoesNotRequeueUnrelatedInventories(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
@@ -605,7 +605,7 @@ func TestStaleInventoryDeleteDoesNotRequeueUnrelatedInventories(t *testing.T) {
 }
 
 func TestForeignRackDeleteRoutesRegisteredCollisionWaiter(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
@@ -644,7 +644,7 @@ func TestForeignRackDeleteRoutesRegisteredCollisionWaiter(t *testing.T) {
 }
 
 func TestRackOwnershipTransitionRoutesRegisteredCollisionWaiter(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
@@ -686,7 +686,7 @@ func TestRackOwnershipTransitionRoutesRegisteredCollisionWaiter(t *testing.T) {
 }
 
 func TestRackUpdateRoutesBindingsLocallyAndTemplateDriftGlobally(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
@@ -711,7 +711,7 @@ func TestRackUpdateRoutesBindingsLocallyAndTemplateDriftGlobally(t *testing.T) {
 }
 
 func TestRackUpdateIgnoresStatusAndFinalizerOnlyChanges(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
@@ -734,7 +734,7 @@ func TestRackUpdateIgnoresStatusAndFinalizerOnlyChanges(t *testing.T) {
 }
 
 func TestStaleRackDeleteDoesNotRouteClaimantPastSameNameReplacement(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
@@ -760,7 +760,7 @@ func TestStaleRackDeleteDoesNotRouteClaimantPastSameNameReplacement(t *testing.T
 }
 
 func TestInventoryEventRoutingDoesNotExpandDesiredRackNames(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
@@ -785,7 +785,7 @@ func TestInventoryEventRoutingDoesNotExpandDesiredRackNames(t *testing.T) {
 }
 
 func TestRackConflictWaitersTrackInventoryReplacement(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
@@ -827,7 +827,7 @@ func TestRackConflictWaitersTrackInventoryReplacement(t *testing.T) {
 }
 
 func TestRackConflictWaiterIndexRetainsOnlyCurrentReconciledConflicts(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
@@ -865,7 +865,7 @@ func TestRackConflictWaiterIndexRetainsOnlyCurrentReconciledConflicts(t *testing
 }
 
 func TestRackConflictWaitersRouteEveryActualNameCollision(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
@@ -894,7 +894,7 @@ func TestRackConflictWaitersRouteEveryActualNameCollision(t *testing.T) {
 }
 
 func TestRackConflictWaitersClearAfterResolutionSpecChangeAndDeletion(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
@@ -948,7 +948,7 @@ func TestRackConflictWaitersClearAfterResolutionSpecChangeAndDeletion(t *testing
 }
 
 func TestRackConflictWaitersRebuildFromInitialInventoryReconciliation(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
@@ -1573,7 +1573,7 @@ func TestCompactNodeObjectRetainsOnlyControllerReadSurface(t *testing.T) {
 }
 
 func TestNodeSpecUpdateDoesNotRouteAllocationWork(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
@@ -1594,7 +1594,7 @@ func TestNodeSpecUpdateDoesNotRouteAllocationWork(t *testing.T) {
 }
 
 func TestTerminatingNodeUpdateRoutesAllocationWork(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
@@ -1612,7 +1612,7 @@ func TestTerminatingNodeUpdateRoutesAllocationWork(t *testing.T) {
 }
 
 func TestSingleNodeEventDoesNotListFromAPI(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
@@ -1627,7 +1627,7 @@ func TestSingleNodeEventDoesNotListFromAPI(t *testing.T) {
 }
 
 func TestProjectedLabelEventsDoNotRouteInvalidPlacement(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
@@ -1660,7 +1660,7 @@ func TestProjectedLabelEventsDoNotRouteInvalidPlacement(t *testing.T) {
 }
 
 func TestProjectedMetadataEventDoesNotReapplyExactBinding(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
@@ -1700,7 +1700,7 @@ func TestProjectedMetadataEventDoesNotReapplyExactBinding(t *testing.T) {
 }
 
 func TestForeignProjectionCoOwnerEventRoutesExactBinding(t *testing.T) {
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)

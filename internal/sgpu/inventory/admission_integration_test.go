@@ -295,7 +295,7 @@ func requireAdmissionDenied(t require.TestingT, err error) {
 
 func admissionReconcile(ctx context.Context, t *testing.T, mokka *mokkaclient.Clientset, name string, profile *mokkav1alpha1.SGPURackProfile) {
 	t.Helper()
-	inventoryIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, InventoryIndexers())
+	inventoryIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	profileIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	rackIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, Indexers())
 	nodeIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})

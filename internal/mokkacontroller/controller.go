@@ -223,9 +223,6 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 	profileInformer := profiles.Informer()
 	inventoryInformer := inventories.Informer()
 	rackInformer := racks.Informer()
-	if err := inventoryInformer.AddIndexers(sgpuinventory.InventoryIndexers()); err != nil {
-		return nil, fmt.Errorf("add inventory indexes: %w", err)
-	}
 	if err := rackInformer.AddIndexers(sgpuinventory.Indexers()); err != nil {
 		return nil, fmt.Errorf("add rack indexes: %w", err)
 	}

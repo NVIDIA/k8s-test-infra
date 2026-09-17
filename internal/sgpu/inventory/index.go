@@ -16,20 +16,11 @@ import (
 
 //nolint:revive // These names define one cohesive informer index contract.
 const (
-	// InventoryByProfileNameIndex identifies direct profile dependents.
-	InventoryByProfileNameIndex = "mokkaInventoryByProfileName"
-	RackByInventoryUIDIndex     = "mokkaRackByInventoryUID"
-	RackByInventoryGroupIndex   = "mokkaRackByInventoryGroup"
-	RackByNodeUIDIndex          = "mokkaRackByNodeUID"
-	RackByNodeNameIndex         = "mokkaRackByNodeName"
+	RackByInventoryUIDIndex   = "mokkaRackByInventoryUID"
+	RackByInventoryGroupIndex = "mokkaRackByInventoryGroup"
+	RackByNodeUIDIndex        = "mokkaRackByNodeUID"
+	RackByNodeNameIndex       = "mokkaRackByNodeName"
 )
-
-// InventoryIndexers provides the dependency index needed by profile events.
-//
-//nolint:revive // The established name is preserved while moving package ownership.
-func InventoryIndexers() cache.Indexers {
-	return cache.Indexers{InventoryByProfileNameIndex: inventoryByProfileName}
-}
 
 // Indexers provides all rack lookups used by reconciliation and later
 // projection event routing.
@@ -48,27 +39,6 @@ func Indexers() cache.Indexers {
 //nolint:revive // The established name is preserved while moving package ownership.
 func InventoryGroupIndexKey(inventoryUID types.UID, group string) string {
 	return string(inventoryUID) + "\x00" + group
-}
-
-func inventoryByProfileName(obj any) ([]string, error) {
-	inventory, ok := obj.(*mokkav1alpha1.SGPUInventory)
-	if !ok {
-		return nil, fmt.Errorf("inventory index received %T", obj)
-	}
-	values := make([]string, 0, len(inventory.Spec.RackGroups))
-	seen := make(map[string]struct{}, len(inventory.Spec.RackGroups))
-	for _, group := range inventory.Spec.RackGroups {
-		if group.ProfileRef.Name == "" {
-			continue
-		}
-		if _, exists := seen[group.ProfileRef.Name]; exists {
-			continue
-		}
-		seen[group.ProfileRef.Name] = struct{}{}
-		values = append(values, group.ProfileRef.Name)
-	}
-	slices.Sort(values)
-	return values, nil
 }
 
 func rackByInventoryUID(obj any) ([]string, error) {

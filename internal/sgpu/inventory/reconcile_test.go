@@ -1269,15 +1269,7 @@ func TestReconcileInventoryDeletionPropagatesLiveListError(t *testing.T) {
 }
 
 func TestInformerIndexesExposeOnlyDirectDependents(t *testing.T) {
-	inventoryIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, InventoryIndexers())
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
-	inventory.Spec.RackGroups = append(inventory.Spec.RackGroups, mokkav1alpha1.RackGroup{
-		ID: "second", ProfileRef: mokkav1alpha1.ProfileReference{Name: "p"},
-	})
-	require.NoError(t, inventoryIndexer.Add(inventory))
-	byProfile, err := inventoryIndexer.ByIndex(InventoryByProfileNameIndex, "p")
-	require.NoError(t, err)
-	require.Equal(t, []any{inventory}, byProfile)
 
 	rackIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, Indexers())
 	rack := &mokkav1alpha1.SGPURack{
@@ -1418,7 +1410,7 @@ func (h *harness) installRackUpdateReactor() {
 func (h *harness) sync(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
-	inventoryIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, InventoryIndexers())
+	inventoryIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	profileIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	rackIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, Indexers())
 	nodeIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})

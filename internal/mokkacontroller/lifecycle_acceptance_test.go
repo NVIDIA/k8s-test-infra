@@ -838,7 +838,7 @@ func TestRestartCleanupGatesReleasedAndRetiredBindings(t *testing.T) {
 			}
 
 			mokka := mokkafake.NewSimpleClientset(profile, inventory, rack)
-			inventoryIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+			inventoryIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 			profileIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 			rackIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 			nodeCatalog := nodecatalog.New()

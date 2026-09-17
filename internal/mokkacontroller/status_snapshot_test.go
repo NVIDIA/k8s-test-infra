@@ -32,7 +32,7 @@ func TestStatusSnapshotsBoundWorkToOneInventoryAndRack(t *testing.T) {
 		nodesPerRack      = 100
 	)
 
-	inventoryIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventoryIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	profileIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	rackIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	nodes := nodecatalog.New()
@@ -179,7 +179,7 @@ func TestStatusNodeCandidatesPreserveSelectorAndBindingSemantics(t *testing.T) {
 }
 
 func TestStatusSnapshotSkipsPlacementForInventoryOutsideRackGroupBudget(t *testing.T) {
-	inventoryIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventoryIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	profileIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	rackIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	var blocked *mokkav1alpha1.SGPUInventory

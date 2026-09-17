@@ -25,7 +25,7 @@ import (
 func TestRackBindingReleaseWakesDestinationAfterEarlierWorkDrains(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	profiles := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	catalog := nodecatalog.New()
@@ -153,7 +153,7 @@ func TestRackBindingReleaseRoutesOnlyCurrentExactNodePlacement(t *testing.T) {
 			for _, scenario := range []string{"exact", "missing", "replacement UID", "different name", "ineligible", "nonmatching"} {
 				t.Run(scenario, func(t *testing.T) {
 					t.Parallel()
-					inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.InventoryIndexers())
+					inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 					racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 					catalog := nodecatalog.New()
 					queues := newQueues(0)
