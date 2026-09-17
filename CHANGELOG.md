@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The CDI-enabled KIND node image is published at
+  `ghcr.io/nvidia/mokka-kind-node` for amd64 and arm64. Publication is gated by
+  an amd64 smoke test that boots a cluster, verifies the effective NVIDIA/CDI
+  runtime configuration, and starts a pod before any public tag is updated.
 - node-agent: containers now see the NVIDIA kernel modules as loaded. `lsmod`
   lists `nvidia` and `nvidia_uvm`, and `/sys/module/nvidia/refcnt` exists. The
   node's own modules stay visible beside them. See `docs/helm-chart.md` for how

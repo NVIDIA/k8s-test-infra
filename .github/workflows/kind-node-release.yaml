@@ -1,0 +1,20 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+name: KIND node Release
+
+permissions: {}
+
+# Keep tag publication separate because repository policy forbids combining
+# tag and path filters in one push trigger.
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    uses: ./.github/workflows/kind-node-publish.yaml
