@@ -28,6 +28,12 @@ load('ext://helm_resource', 'helm_resource')
 
 _REPO_RESOURCE = 'nvidia'
 
+# Pinned rather than floating: an upstream chart release would otherwise land in
+# CI without a commit, so a red e2e-dra run could not be told apart from a
+# regression in this repo. Bump deliberately.
+_CHART = 'nvidia/dra-driver-nvidia-gpu'
+_CHART_VERSION = '0.5.0'
+
 def install(nvml_mock_releases, extra_values=[], image_deps=[], image_keys=[]):
     values_flags = ['--values', 'local/dra/dra-driver.values.yaml']
     for v in extra_values:
@@ -35,11 +41,11 @@ def install(nvml_mock_releases, extra_values=[], image_deps=[], image_keys=[]):
 
     helm_resource(
         'nvidia-dra-driver',
-        'nvidia/nvidia-dra-driver-gpu',
+        _CHART,
         namespace='nvidia',
         image_deps=image_deps,
         image_keys=image_keys,
-        flags=['--create-namespace'] + values_flags + ['--timeout', '300s'],
+        flags=['--create-namespace', '--version', _CHART_VERSION] + values_flags + ['--timeout', '300s'],
         resource_deps=[_REPO_RESOURCE] + nvml_mock_releases,
         labels=['dra'],
     )

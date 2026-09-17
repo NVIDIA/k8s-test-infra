@@ -1105,7 +1105,7 @@ docker exec "$NODE_CONTAINER" cat /var/lib/nvml-mock/driver/config/config.yaml
 
 **DRA driver pods not ready**: Check DRA logs:
 ```bash
-kubectl -n nvidia logs -l app.kubernetes.io/name=nvidia-dra-driver-gpu --tail=100
+kubectl -n nvidia logs -l app.kubernetes.io/name=dra-driver-nvidia-gpu --tail=100
 ```
 
 **PCIe root warnings from DRA driver**: See [Known Limitations](#known-limitations).
