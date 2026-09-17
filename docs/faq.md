@@ -92,7 +92,7 @@ One boundary: a repartition made at runtime moves the NVML view only. What a
 node can *allocate* is the layout it booted with, because the driver capability
 surface is staged when the pod starts.
 
-See the [MIG partitioning guide](guides/mig.md).
+See the [MIG partitioning guide](guides/mig/README.md).
 
 ## Can I simulate a broken GPU?
 

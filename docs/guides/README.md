@@ -35,7 +35,7 @@ Things you do *with* Mokka, whichever consumer you are running.
 
 | Guide | What it covers |
 |---|---|
-| [MIG partitioning](mig.md) | Carve a board into MIG slices, advertise each one, and schedule a pod onto a single slice |
+| [MIG partitioning](mig/README.md) | Carve a board into MIG slices, advertise each one, and schedule a pod onto a single slice |
 | [Failure injection](failure-injection/README.md) | Present a broken GPU — uncorrectable ECC, lost, fallen off the bus — and watch consumers react |
 | [Use in CI/CD](ci-cd.md) | Run GPU-dependent tests on CPU runners |
 | [Runtime control](../nvml-mock-ctl.md) | Change temperature, power, utilisation or health on a running node, with no redeploy |

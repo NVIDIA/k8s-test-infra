@@ -75,8 +75,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `mig-minors` table are staged once from the profile, so the device plugin
   cannot allocate what a runtime repartition produces, and returning the node to
   an allocatable state needs an `nvml-mock` pod restart. Documented in
-  `docs/guides/mig.md`, a runnable walkthrough from an unpartitioned cluster to
-  a pod scheduled onto a slice, with the `mig:` config schema in
+  `docs/guides/mig/README.md`, a runnable walkthrough from an unpartitioned
+  cluster to a pod scheduled onto a slice, with `docs/guides/mig/run.sh` beside
+  it driving the instance lifecycle end to end through `nvidia-smi mig` and
+  asserting each step, and the `mig:` config schema in
   `docs/configuration.md`. (#241)
 - mocknvml: a profile or override can declare MIG partitions explicitly, giving
   each GPU instance a fixed id and naming its compute instances, alongside the

@@ -454,7 +454,7 @@ device_defaults:
 
 This is the reference for the `mig:` block. For installing a partitioned node
 and scheduling onto a slice, see the
-[MIG partitioning guide](guides/mig.md).
+[MIG partitioning guide](guides/mig/README.md).
 
 No shipped profile declares a partitioning. `max_gpu_instances` is what the
 board can do; how it is carved is a deployment choice, which under the chart is

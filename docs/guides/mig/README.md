@@ -256,6 +256,31 @@ clears it. There is deliberately no `nvml-mock-ctl mig`: it would be a second,
 non-standard spelling of an interface `nvidia-smi` already covers, and a second
 writer of the same state.
 
+### Run the lifecycle as a script
+
+`run.sh` beside this page walks the whole lifecycle on one GPU — enable,
+create, list, delete, disable — and asserts each step instead of only printing
+it. It installs an *unpartitioned* board and carves it at runtime, so it
+covers the `nvidia-smi` path above rather than Step 1's chart layout, and it
+never involves the device plugin.
+
+```bash
+cd docs/guides/mig
+BUILD_LOCAL=true ./run.sh
+```
+
+`BUILD_LOCAL=true` builds the image from source and side-loads it into a Kind
+cluster of its own. Use it until the MIG instance lifecycle reaches a published
+release; without it the script installs `ghcr.io/nvidia/nvml-mock:latest` into
+your current context, and stops with that advice if the image cannot enable
+MIG. It defaults to an `h100`, so pass `GPU_PROFILE=a100` or
+`MIG_PROFILE=3g.40gb` to carve a different board or a larger slice.
+
+Two of its steps are assertions rather than demonstrations, because both were
+real defects: that `mig -lgip` never reports more free instances of a profile
+than exist in total, and that `mig -dgi` is refused — leaving the partition
+intact — while a compute instance is still live.
+
 ## How slices are named
 
 A slice is named for the share of *its own* board it holds, so the name follows
@@ -319,7 +344,7 @@ kind delete cluster --name mokka-mig
 
 | To read about | See |
 |---|---|
-| The `mig:` config schema, including per-device layouts and fixed instance ids | [Configuration](../configuration.md#mig) |
-| Every chart value | [Installation](../helm-chart.md) |
-| Whole-GPU allocation, and the plugin without MIG | [NVIDIA Device Plugin](device-plugin.md) |
-| Changing temperature, power or health at runtime | [Runtime control](../nvml-mock-ctl.md) |
+| The `mig:` config schema, including per-device layouts and fixed instance ids | [Configuration](../../configuration.md#mig) |
+| Every chart value | [Installation](../../helm-chart.md) |
+| Whole-GPU allocation, and the plugin without MIG | [NVIDIA Device Plugin](../device-plugin.md) |
+| Changing temperature, power or health at runtime | [Runtime control](../../nvml-mock-ctl.md) |

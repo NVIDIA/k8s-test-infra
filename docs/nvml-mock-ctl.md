@@ -47,7 +47,7 @@ rather than through this CLI: `nvidia-smi -mig` and
 driver, and the library records each mutation so it outlives the process that
 made it. What they change is what `nvidia-smi`, DCGM and GFD report, and what
 the device plugin *discovers* — see the
-[MIG partitioning guide](guides/mig.md).
+[MIG partitioning guide](guides/mig/README.md).
 
 The driver capability surface is not hot-reloadable — `/dev/nvidia-caps` and
 `/proc/driver/nvidia-caps/mig-minors` are staged once at pod start, so
@@ -455,7 +455,7 @@ nvidia-smi mig -i 0 -dgi -gi 3
 
 The full workflow — installing a node already partitioned, what the device
 plugin then advertises, and repartitioning at runtime — is the
-[MIG partitioning guide](guides/mig.md).
+[MIG partitioning guide](guides/mig/README.md).
 
 What concerns this CLI is that each mutation is recorded in the same override
 document it writes, so a partition outlives the `nvidia-smi` that made it.
