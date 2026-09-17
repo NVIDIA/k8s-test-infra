@@ -143,6 +143,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- nvml-mock: `nvidia-smi mig -dgi` is now refused while the GPU instance still
+  holds a compute instance, reporting `NVML_ERROR_IN_USE` as NVML does. It used
+  to destroy the compute instances for the caller and report success, so a
+  partitioning tool that tore a board down in the wrong order passed against
+  the mock and failed on hardware. Destroy the compute instances first, which
+  is the order `nvidia-mig-parted` and the MIG user guide already use.
 - nvml-mock: a consumer's read-after-write across two processes now sees the
   write. NVML setter state lived on the device object inside whichever process
   loaded `libnvidia-ml.so`, and every consumer loads its own copy, so

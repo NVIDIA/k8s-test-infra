@@ -302,16 +302,30 @@ func (e *Engine) GpuInstanceGetInfo(handle unsafe.Pointer) (nvml.GpuInstanceInfo
 
 // GpuInstanceDestroy tears down a GPU instance, invalidating its handle and
 // the handles of everything derived from it.
+//
+// An occupied instance is refused rather than cascaded. NVML reports
+// NVML_ERROR_IN_USE here, so every partitioning tool destroys compute
+// instances first; a mock that tore them down for the caller would let a tool
+// with that order wrong pass against the mock and fail on hardware. The
+// internal paths that legitimately cascade — disabling MIG, applying a
+// declared layout — tear the tree down directly and do not come through this
+// NVML entry point.
 func (e *Engine) GpuInstanceDestroy(handle unsafe.Pointer) nvml.Return {
 	gi, ret := e.gpuInstanceOf(handle)
 	if ret != nvml.SUCCESS {
 		return ret
 	}
 
-	// Collect the descendants before the teardown, because afterwards neither
-	// the instance tree nor the parent's MIG device cache names them.
+	if len(allComputeInstances(gi)) > 0 {
+		return nvml.ERROR_IN_USE
+	}
+
+	// Name the derived MIG devices before the teardown, because afterwards the
+	// parent's device cache no longer does. Destroying the last compute
+	// instance already retired these, so this is the belt to that braces: a
+	// device minted outside the compute-instance path would otherwise keep a
+	// handle resolving to a partition that no longer exists.
 	info, infoRet := gi.GetInfo()
-	computeInstances := allComputeInstances(gi)
 	var migDevices []*ConfigurableDevice
 	if infoRet == nvml.SUCCESS {
 		migDevices = migDevicesDerivedFrom(info.Device, info.Id, nil)
@@ -321,9 +335,6 @@ func (e *Engine) GpuInstanceDestroy(handle unsafe.Pointer) nvml.Return {
 		return ret
 	}
 
-	for _, ci := range computeInstances {
-		e.computeInstances.Retire(ci)
-	}
 	e.retireMigDeviceHandles(migDevices)
 	e.gpuInstances.Retire(gi)
 	return nvml.SUCCESS

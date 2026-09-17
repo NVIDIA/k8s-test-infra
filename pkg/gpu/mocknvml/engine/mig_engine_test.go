@@ -122,6 +122,14 @@ func TestGpuInstanceHandleLifecycle(t *testing.T) {
 	migHandle, ret := e.DeviceGetMigDeviceHandleByIndex(deviceHandle, 0)
 	require.Equal(t, nvml.SUCCESS, ret)
 
+	// The declared partition holds a compute instance, which NVML requires be
+	// gone first; the refusal itself is covered by
+	// TestGpuInstanceDestroy_RefusedWhileAComputeInstanceLives.
+	computeInstances, ret := e.GpuInstanceGetComputeInstances(giHandle, nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Len(t, computeInstances, 1)
+	require.Equal(t, nvml.SUCCESS, e.ComputeInstanceDestroy(computeInstances[0]))
+
 	require.Equal(t, nvml.SUCCESS, e.GpuInstanceDestroy(giHandle))
 
 	_, _, ret = e.GpuInstanceGetInfo(giHandle)
@@ -132,6 +140,82 @@ func TestGpuInstanceHandleLifecycle(t *testing.T) {
 	remaining, ret := e.DeviceGetGpuInstances(deviceHandle, nvml.GPU_INSTANCE_PROFILE_1_SLICE)
 	require.Equal(t, nvml.SUCCESS, ret)
 	require.Len(t, remaining, 6)
+}
+
+// NVML refuses to tear down a GPU instance that still holds a compute
+// instance, which is why every partitioning tool destroys compute instances
+// first. A mock that cascades instead lets a tool with that order wrong pass
+// here and fail on hardware — the one kind of failure a mock must not hide.
+func TestGpuInstanceDestroy_RefusedWhileAComputeInstanceLives(t *testing.T) {
+	t.Parallel()
+
+	e := newFullyPartitionedEngine(t, 1)
+
+	deviceHandle, ret := e.DeviceGetHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	instances, ret := e.DeviceGetGpuInstances(deviceHandle, nvml.GPU_INSTANCE_PROFILE_1_SLICE)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Len(t, instances, 7)
+	giHandle := instances[0]
+
+	computeInstances, ret := e.GpuInstanceGetComputeInstances(giHandle, nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Len(t, computeInstances, 1)
+	ciHandle := computeInstances[0]
+
+	require.Equal(t, nvml.ERROR_IN_USE, e.GpuInstanceDestroy(giHandle),
+		"a GPU instance still holding a compute instance must not be destroyable")
+
+	// A refusal has to leave the partition whole. Tearing part of it down and
+	// then reporting failure would be worse than either outcome on its own,
+	// because a caller that retries correctly would find the state already
+	// half gone.
+	_, _, ret = e.GpuInstanceGetInfo(giHandle)
+	require.Equal(t, nvml.SUCCESS, ret, "a refused destroy must leave the GPU instance alive")
+	_, _, _, ret = e.ComputeInstanceGetInfo(ciHandle)
+	require.Equal(t, nvml.SUCCESS, ret, "a refused destroy must leave the compute instance alive")
+	require.NotNil(t, e.LookupConfigurableDevice(mustMigDeviceHandle(t, e, deviceHandle, 0)),
+		"a refused destroy must leave the derived MIG device alive")
+
+	// And the order a partitioning tool is written to still works.
+	require.Equal(t, nvml.SUCCESS, e.ComputeInstanceDestroy(ciHandle))
+	require.Equal(t, nvml.SUCCESS, e.GpuInstanceDestroy(giHandle))
+
+	survivors, ret := e.DeviceGetGpuInstances(deviceHandle, nvml.GPU_INSTANCE_PROFILE_1_SLICE)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Len(t, survivors, 6)
+}
+
+// A GPU instance with no compute instance is destroyable, which is the control
+// that keeps the refusal above about occupancy rather than about GPU instances
+// in general.
+func TestGpuInstanceDestroy_AllowedWhenBare(t *testing.T) {
+	t.Parallel()
+
+	e := newFullyPartitionedEngine(t, 1)
+
+	deviceHandle, ret := e.DeviceGetHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	instances, ret := e.DeviceGetGpuInstances(deviceHandle, nvml.GPU_INSTANCE_PROFILE_1_SLICE)
+	require.Equal(t, nvml.SUCCESS, ret)
+	giHandle := instances[0]
+
+	computeInstances, ret := e.GpuInstanceGetComputeInstances(giHandle, nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Len(t, computeInstances, 1)
+	require.Equal(t, nvml.SUCCESS, e.ComputeInstanceDestroy(computeInstances[0]))
+
+	require.Equal(t, nvml.SUCCESS, e.GpuInstanceDestroy(giHandle),
+		"a GPU instance holding nothing must be destroyable")
+}
+
+func mustMigDeviceHandle(t *testing.T, e *Engine, parent unsafe.Pointer, index int) unsafe.Pointer {
+	t.Helper()
+	handle, ret := e.DeviceGetMigDeviceHandleByIndex(parent, index)
+	require.Equal(t, nvml.SUCCESS, ret)
+	return handle
 }
 
 // TestComputeInstanceHandleLifecycle checks the same for compute instances,

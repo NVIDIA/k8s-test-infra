@@ -178,6 +178,13 @@ func TestMIGMutations_DestroyOnADeclaredBoardKeepsTheSurvivors(t *testing.T) {
 	handles, ret := e.DeviceGetGpuInstances(device, nvml.GPU_INSTANCE_PROFILE_1_SLICE)
 	require.Equal(t, nvml.SUCCESS, ret)
 	require.Len(t, handles, 3)
+
+	// A declared instance comes up holding a compute instance, and NVML will
+	// not destroy a GPU instance until that is gone.
+	cis, ret := e.GpuInstanceGetComputeInstances(handles[1], nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Len(t, cis, 1)
+	require.Equal(t, nvml.SUCCESS, migDestroyComputeInstance(cis[0]))
 	require.Equal(t, nvml.SUCCESS, migDestroyGpuInstance(handles[1]))
 
 	require.Equal(t, []uint32{before[0].ID, before[2].ID}, recordedIDs(recordedInstances(t, overrides)),
@@ -245,6 +252,10 @@ func TestMIGPersistFailed_AnswersTheCallerAndResyncsTheBoard(t *testing.T) {
 	handles, ret := e.DeviceGetGpuInstances(device, nvml.GPU_INSTANCE_PROFILE_1_SLICE)
 	require.Equal(t, nvml.SUCCESS, ret)
 	require.Len(t, handles, 3)
+	cis, ret := e.GpuInstanceGetComputeInstances(handles[1], nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Len(t, cis, 1)
+	require.Equal(t, nvml.SUCCESS, e.ComputeInstanceDestroy(cis[0]))
 	require.Equal(t, nvml.SUCCESS, e.GpuInstanceDestroy(handles[1]))
 	require.Equal(t, 2, migPartitionCount(t, dev), "the board has drifted and nothing has noticed")
 

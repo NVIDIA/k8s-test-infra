@@ -647,6 +647,19 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 				// chooses these, so a spec that assumed 0 and 1 would be
 				// asserting against the allocator rather than the delete.
 				doomed, spared := created[0].InstanceID, created[1].InstanceID
+
+				// The refusal first, which is what makes the order below a
+				// contract rather than a convention. A mock that tore the
+				// compute instance down for the caller would let a partitioning
+				// tool with the order wrong pass here and fail on a real board,
+				// and the correct-order steps that follow cannot detect that.
+				By("nvidia-smi mig -dgi -gi <id>: refused while the partition still holds a compute instance")
+				migMutateRefusedOnNode(ctx, h, node, "-dgi", "-gi", strconv.Itoa(doomed))
+				Expect(nvidiasmi.MigInstancesOfGPU(migGPUInstancesOnNode(ctx, h, node), 0)).To(HaveLen(2),
+					"a refused destroy must leave both partitions standing")
+				Expect(migComputeInstanceCountOnNode(ctx, h, node)).To(Equal(baseCIs+2),
+					"a refused destroy must not have taken the compute instance with it")
+
 				// The compute instance goes first. Real NVML refuses to destroy
 				// a GPU instance that still holds one, so this is the order a
 				// partitioning tool has to use.
@@ -835,6 +848,23 @@ func migMutateOnNode(ctx context.Context, h *harness.Harness, node string, args 
 	res, err := h.Kube.Exec(ctx, target, append([]string{"nvidia-smi", "mig"}, args...)...)
 	Expect(err).NotTo(HaveOccurred(), "nvidia-smi mig %v in %s exited non-zero: %s",
 		args, target.Pod, res.Combined())
+}
+
+// migMutateRefusedOnNode runs one `nvidia-smi mig` mutation that NVML is
+// expected to reject, and returns its output.
+//
+// The non-zero exit is the assertion, so this cannot go through
+// migMutateOnNode: there, a refusal is the failure. Reading the exit code
+// rather than the error keeps the check on what nvidia-smi reported instead of
+// on how the runner wrapped it.
+func migMutateRefusedOnNode(ctx context.Context, h *harness.Harness, node string, args ...string) string {
+	GinkgoHelper()
+	target := nvmlPodOnNode(ctx, h, node)
+	By("nvidia-smi mig " + strings.Join(args, " ") + " (expected to be refused)")
+	res, _ := h.Kube.Exec(ctx, target, append([]string{"nvidia-smi", "mig"}, args...)...)
+	Expect(res.ExitCode).NotTo(BeZero(),
+		"nvidia-smi mig %v in %s should have been refused, got:\n%s", args, target.Pod, res.Combined())
+	return res.Combined()
 }
 
 // migSetModeOnNode switches one GPU's MIG mode with `nvidia-smi -i <gpu> -mig

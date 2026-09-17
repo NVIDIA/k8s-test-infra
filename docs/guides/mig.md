@@ -227,7 +227,8 @@ to change several:
 ```bash
 SMI="kubectl -n mokka exec $POD -- nvidia-smi"
 
-# tear one partition down by id, then rebuild it
+# tear one partition down by id, then rebuild it. The compute instance goes
+# first: NVML refuses to destroy a GPU instance that still holds one.
 $SMI mig -i 0 -dci -ci 0 -gi 3
 $SMI mig -i 0 -dgi -gi 3
 $SMI mig -i 0 -cgi 1g.10gb -C
@@ -303,6 +304,10 @@ kubectl -n kube-system logs -l name=nvidia-device-plugin-mock --tail=30
 **A partition `nvidia-smi` reports cannot be allocated.** It was created at
 runtime. The capability surface is staged at pod start; restart the
 `nvml-mock` pod on that node.
+
+**`mig -dgi` fails saying the GPU instance is in use.** It still holds a
+compute instance. Destroy that first with `mig -dci -gi <id> -ci <id>`, as on
+real hardware — see [Repartition at runtime](#repartition-at-runtime).
 
 ## Clean up
 
