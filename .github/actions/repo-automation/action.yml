@@ -7,8 +7,17 @@ inputs:
   pr-number:
     description: Pull request number for modes that operate on a pull request
     required: false
+  source-sha:
+    description: Exact source commit for Mokka cherry-pick mode
+    required: false
   target-branch:
     description: Policy-approved target branch for backport modes
+    required: false
+  action-id:
+    description: Canonical Mokka action UUID for retry-safe branch identity
+    required: false
+  working-directory:
+    description: Fixed target checkout for Mokka cherry-pick mode
     required: false
   dry-run:
     description: Plan changes without mutating GitHub

@@ -300,18 +300,26 @@ test("action metadata pins the Node 24 entry point and stable input/output contr
 
   assert.deepEqual(action.runs, { using: "node24", main: "dist/index.js" });
   assert.deepEqual(Object.keys(action.inputs).sort(), [
+    "action-id",
     "dry-run",
     "mode",
     "pr-number",
+    "source-sha",
     "target-branch",
+    "working-directory",
   ]);
-  for (const input of ["mode", "pr-number", "target-branch", "dry-run"]) {
+  for (const input of [
+    "mode", "pr-number", "source-sha", "target-branch", "action-id", "working-directory", "dry-run",
+  ]) {
     assert.equal(typeof action.inputs[input].description, "string");
     assert.notEqual(action.inputs[input].description.trim(), "");
   }
   assert.equal(action.inputs.mode.required, true);
   assert.equal(action.inputs["pr-number"].required, false);
   assert.equal(action.inputs["target-branch"].required, false);
+  assert.equal(action.inputs["source-sha"].required, false);
+  assert.equal(action.inputs["action-id"].required, false);
+  assert.equal(action.inputs["working-directory"].required, false);
   assert.equal(action.inputs["dry-run"].required, false);
   assert.equal(action.inputs["dry-run"].default, "true");
   assert.deepEqual(action.outputs, {

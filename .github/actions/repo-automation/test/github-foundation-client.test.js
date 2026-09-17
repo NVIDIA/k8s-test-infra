@@ -34,11 +34,17 @@ function mockOctokit(overrides = {}) {
         draft: false,
         state: "open",
         user: { login: "Author" },
-        head: { sha: "a".repeat(40) },
+        head: {
+          ref: "feature",
+          sha: "a".repeat(40),
+          repo: { owner: { login: "NVIDIA" }, name: "k8s-test-infra" },
+        },
         base: {
           ref: "main",
           repo: { owner: { login: "NVIDIA" }, name: "k8s-test-infra" },
         },
+        merged: false,
+        merge_commit_sha: null,
       }),
       listReviews: response("listReviews", [{
         id: 501,
@@ -254,5 +260,107 @@ test("exposes bounded branch and backport pull-request operations", async () => 
       base: "release-1.2",
       per_page: 100,
     },
+  );
+});
+
+test("maps bounded Mokka commit and draft pull-request operations", async () => {
+  const branch = "mokka/cherry-pick/123e4567-e89b-42d3-a456-426614174000";
+  const headOid = "c".repeat(40);
+  const pullRequest = {
+    number: 901,
+    html_url: "https://github.com/NVIDIA/k8s-test-infra/pull/901",
+    state: "open",
+    draft: true,
+    base: { ref: "main" },
+    head: { ref: branch, sha: headOid },
+    title: "Mokka: cherry-pick #42 to main",
+    body: "bound evidence",
+  };
+  const base = mockOctokit({
+    rest: {
+      repos: {
+        getCommit: async (parameters) => {
+          base.calls.push({ name: "getCommit", parameters });
+          return { data: { sha: "a".repeat(40), parents: [{ sha: "b".repeat(40) }] } };
+        },
+      },
+      pulls: {
+        list: async (parameters) => {
+          base.calls.push({ name: "findMokkaPullRequests", parameters });
+          return { data: [pullRequest] };
+        },
+        create: async (parameters) => {
+          base.calls.push({ name: "createMokkaPullRequest", parameters });
+          return { data: pullRequest };
+        },
+        update: async (parameters) => {
+          base.calls.push({ name: "updateMokkaPullRequest", parameters });
+          return { data: { ...pullRequest, body: parameters.body } };
+        },
+      },
+    },
+  });
+  const client = createGitHubClient(base.octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+
+  assert.deepEqual(await client.getCommit("a".repeat(40)), {
+    sha: "a".repeat(40),
+    parents: ["b".repeat(40)],
+  });
+  assert.deepEqual(await client.findMokkaPullRequests(branch, "main"), [{
+    number: 901,
+    url: pullRequest.html_url,
+    state: "open",
+    draft: true,
+    base: "main",
+    head: branch,
+    headOid,
+    title: pullRequest.title,
+    body: pullRequest.body,
+  }]);
+  assert.deepEqual(await client.createMokkaPullRequest({
+    base: "main",
+    head: branch,
+    title: pullRequest.title,
+    body: "bound evidence",
+    draft: true,
+  }), {
+    number: 901,
+    url: pullRequest.html_url,
+    state: "open",
+    draft: true,
+    base: "main",
+    head: branch,
+    headOid,
+    title: pullRequest.title,
+    body: pullRequest.body,
+  });
+  await client.updateMokkaPullRequestBody(901, "new evidence");
+
+  assert.deepEqual(
+    base.calls.find(({ name }) => name === "findMokkaPullRequests").parameters,
+    {
+      owner: "NVIDIA",
+      repo: "k8s-test-infra",
+      state: "all",
+      head: `NVIDIA:${branch}`,
+      base: "main",
+      per_page: 100,
+    },
+  );
+  assert.deepEqual(
+    base.calls.find(({ name }) => name === "createMokkaPullRequest").parameters,
+    {
+      owner: "NVIDIA",
+      repo: "k8s-test-infra",
+      base: "main",
+      head: branch,
+      title: pullRequest.title,
+      body: "bound evidence",
+      draft: true,
+    },
+  );
+  assert.deepEqual(
+    base.calls.find(({ name }) => name === "updateMokkaPullRequest").parameters,
+    { owner: "NVIDIA", repo: "k8s-test-infra", pull_number: 901, body: "new evidence" },
   );
 });

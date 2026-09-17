@@ -22,7 +22,7 @@ function coreFor(inputs) {
     },
     getBooleanInput(name) {
       assert.equal(name, "dry-run");
-      return true;
+      return inputs["dry-run"] === "false" ? false : true;
     },
     setOutput(name, value) {
       outputs.push({ name, value });
@@ -120,5 +120,88 @@ test("index accepts only the approved v0.11 mode set", async () => {
   await assert.rejects(
     () => run({ core, workspace: repositoryRoot, githubClient: createFakeGitHub() }),
     /Unsupported mode: release/,
+  );
+});
+
+test("index dispatches Mokka only to the fixed target checkout and identity", async () => {
+  const { run } = require("../src/index.js");
+  const actionId = "123e4567-e89b-42d3-a456-426614174000";
+  const sourceSha = "2".repeat(40);
+  const targetSha = "1".repeat(40);
+  const producedSha = "4".repeat(40);
+  const workflowSha = "5".repeat(40);
+  const branch = `mokka/cherry-pick/${actionId}`;
+  const core = coreFor({
+    mode: "mokka-cherry-pick",
+    "pr-number": "42",
+    "source-sha": sourceSha,
+    "target-branch": "main",
+    "action-id": actionId,
+    "working-directory": "target",
+    "dry-run": "false",
+  });
+  const githubClient = createFakeGitHub({
+    pullRequest: {
+      number: 42,
+      state: "closed",
+      merged: true,
+      mergeCommitOid: sourceSha,
+      baseBranch: "source-base",
+      baseRepository: { owner: "nvidia", repo: "k8s-test-infra" },
+      headRepository: { owner: "nvidia", repo: "k8s-test-infra" },
+    },
+    commitsBySha: {
+      [sourceSha]: { sha: sourceSha, parents: ["3".repeat(40)] },
+    },
+    branches: { main: targetSha },
+  });
+  const gitCalls = [];
+  let revParseCalls = 0;
+  const git = async (args, options) => {
+    gitCalls.push({ args: [...args], options: { ...options } });
+    if (args[0] === "rev-parse") {
+      revParseCalls += 1;
+      return { stdout: `${revParseCalls === 1 ? targetSha : producedSha}\n`, stderr: "" };
+    }
+    if (args[0] === "show") return { stdout: "feat: source\n", stderr: "" };
+    if (args[0] === "push" && args.at(-1) === `HEAD:refs/heads/${branch}`) {
+      githubClient.setBranch(branch, producedSha);
+    }
+    return { stdout: "", stderr: "" };
+  };
+
+  const result = await run({
+    core,
+    workspace: "/trusted/workspace",
+    githubClient,
+    git,
+    owner: "NVIDIA",
+    repo: "k8s-test-infra",
+    repositoryId: "733665780",
+    workflowSha,
+  });
+
+  assert.equal(result.outcome, "created");
+  assert.equal(gitCalls.every(({ options }) => options.cwd === "/trusted/workspace/target"), true);
+  assert.deepEqual(githubClient.calls.createMokkaPullRequest.length, 1);
+  assert.deepEqual(githubClient.calls.updateMokkaPullRequestBody.length, 1);
+});
+
+test("index rejects every Mokka working directory except target", async () => {
+  const { run } = require("../src/index.js");
+  const core = coreFor({
+    mode: "mokka-cherry-pick",
+    "working-directory": "control",
+    "dry-run": "false",
+  });
+  await assert.rejects(
+    () => run({
+      core,
+      workspace: "/trusted/workspace",
+      githubClient: createFakeGitHub(),
+      owner: "NVIDIA",
+      repo: "k8s-test-infra",
+    }),
+    /working directory/,
   );
 });
