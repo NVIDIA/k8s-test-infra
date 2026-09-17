@@ -184,7 +184,8 @@ func TestRackUpdateIsIdempotentAndNeverAdoptsForeignOwner(t *testing.T) {
 	require.Empty(t, writer.updateCalls)
 }
 
-func TestCreateRackAlreadyExistsUsesLiveRecreatedUID(t *testing.T) {
+func TestCreateRackAlreadyExistsRecreatedUIDWaitsForCache(t *testing.T) {
+	t.Parallel()
 	inventory := testInventory("inventory", "inventory-uid", "profile", 1)
 	desired := newRack(inventory, "rack", mokkav1alpha1.SGPURackSpec{
 		InventoryRef: mokkav1alpha1.SGPURackInventoryReference{Name: inventory.Name, UID: inventory.UID},
@@ -198,8 +199,6 @@ func TestCreateRackAlreadyExistsUsesLiveRecreatedUID(t *testing.T) {
 	live.ResourceVersion = "23"
 	setRackSpecManagedFields(live, RackFieldManager, metav1.ManagedFieldsOperationUpdate)
 	live.Spec.Identity.RackIndex = 2
-	updated := live.DeepCopy()
-	updated.Spec = *desired.Spec.DeepCopy()
 	writer := &recordingRackWriter{createResult: created}
 	reconciler := &Reconciler{racks: writer}
 
@@ -213,21 +212,19 @@ func TestCreateRackAlreadyExistsUsesLiveRecreatedUID(t *testing.T) {
 	writer.createResult = &mokkav1alpha1.SGPURack{}
 	writer.createErr = apierrors.NewAlreadyExists(mokkav1alpha1.Resource("sgpuracks"), desired.Name)
 	writer.getResult = live
-	writer.updateResult = updated
 	changed, conflict, err = reconciler.createOrUpdateRack(
 		context.Background(), inventory, nil, desired.Name, desired.Spec,
 	)
-	require.NoError(t, err)
-	require.True(t, changed)
+	require.ErrorIs(t, err, ErrRackCacheStale)
+	require.False(t, changed)
 	require.Nil(t, conflict)
 	require.Len(t, writer.createCalls, 2)
 	require.Equal(t, 1, writer.getCalls)
-	require.Len(t, writer.updateCalls, 1)
-	require.Equal(t, live.ResourceVersion, writer.updateCalls[0].rack.ResourceVersion)
-	require.Equal(t, RackFieldManager, writer.updateCalls[0].options.FieldManager)
+	require.Empty(t, writer.updateCalls)
 }
 
-func TestCreateRackAlreadyExistsSameUIDCacheLagIsIdempotent(t *testing.T) {
+func TestCreateRackAlreadyExistsSameUIDWaitsForCache(t *testing.T) {
+	t.Parallel()
 	inventory := testInventory("inventory", "inventory-uid", "profile", 1)
 	desired := newRack(inventory, "rack", mokkav1alpha1.SGPURackSpec{
 		InventoryRef: mokkav1alpha1.SGPURackInventoryReference{Name: inventory.Name, UID: inventory.UID},
@@ -252,7 +249,7 @@ func TestCreateRackAlreadyExistsSameUIDCacheLagIsIdempotent(t *testing.T) {
 	changed, conflict, err = reconciler.createOrUpdateRack(
 		context.Background(), inventory, nil, desired.Name, desired.Spec,
 	)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, ErrRackCacheStale)
 	require.False(t, changed)
 	require.Nil(t, conflict)
 	require.Len(t, writer.createCalls, 2)

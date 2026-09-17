@@ -60,8 +60,8 @@ type Mutations interface {
 	Delete(context.Context, string, metav1.DeleteOptions) error
 }
 
-// ErrRackCacheStale requests a rate-limited retry after a live rack missing
-// from the informer cache has been retired.
+// ErrRackCacheStale requests a rate-limited retry when reconciliation finds
+// an owned live rack missing from the informer cache.
 var ErrRackCacheStale = errors.New("owned rack is missing from the informer cache")
 
 // ProfileIssue identifies an unresolved or invalid group profile.
@@ -1046,7 +1046,13 @@ func (r *Reconciler) createCacheMissingRack(
 	if err != nil {
 		return false, nil, fmt.Errorf("get rack %q after create reported already exists: %w", name, err)
 	}
-	return r.createOrUpdateRack(ctx, inventory, created, name, spec)
+	if !controlledByInventory(created, inventory) {
+		conflict := ownershipConflict(created, spec.Identity.RackGroup)
+		return false, &conflict, nil
+	}
+	// The plan omitted this rack's bindings and cleanup checks. Recompute it
+	// after the informer observes the rack rather than applying it to live state.
+	return false, nil, fmt.Errorf("%w: rack %q", ErrRackCacheStale, name)
 }
 
 func (r *Reconciler) mutateInventory(

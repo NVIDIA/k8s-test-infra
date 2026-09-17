@@ -129,6 +129,89 @@ func TestReconcileCreatesCacheMissingRacksWithOneWriteEach(t *testing.T) {
 	require.Equal(t, map[string]int{"create": rackCount}, actionCounts)
 }
 
+func TestReconcileRetriesCacheMissingRackWithChangedAllocationInputs(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name        string
+		boundPool   string
+		wantCleanup bool
+	}{
+		{name: "retain eligible binding", boundPool: "gpu"},
+		{name: "clean ineligible binding before release", boundPool: "cpu", wantCleanup: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			profile := testProfile("p", "profile-uid", 1, 1, 1)
+			inventory := testInventory("inventory", "inventory-uid", profile.Name, 1)
+			inventory.Finalizers = []string{InventoryFinalizer}
+			bound := testNode("bound", "bound-uid", 2, map[string]string{"pool": "gpu"})
+			h := newHarness(t, []runtime.Object{profile, inventory}, []*corev1.Node{bound})
+			_, err := h.reconcile(ctx, inventory.Name)
+			require.NoError(t, err)
+
+			rackName := rackrender.RackName(inventory.Name, inventory.UID, "group", 0)
+			committed, err := h.mokka.MokkaV1alpha1().SGPURacks().Get(ctx, rackName, metav1.GetOptions{})
+			require.NoError(t, err)
+			require.Equal(t, bound.UID, committed.Spec.Nodes[0].NodeRef.UID)
+			_, err = h.cache.Rack(rackName)
+			require.True(t, apierrors.IsNotFound(err))
+
+			// Node events can change allocation inputs before the rack create reaches the informer.
+			bound.Labels["pool"] = tc.boundPool
+			earlier := testNode("earlier", "earlier-uid", 1, map[string]string{"pool": "gpu"})
+			h.nodes = append(h.nodes, earlier)
+			reconciler := NewReconciler(
+				&nodeOverrideCache{Cache: h.cache, nodes: h.nodes},
+				h.mokka.MokkaV1alpha1().SGPUInventories(),
+				h.mokka.MokkaV1alpha1().SGPURacks(),
+				inventorycleanup.CleanupGateFunc(func(inventorycleanup.CleanupNeeded) bool { return false }),
+			)
+			h.mokka.Fake.ClearActions()
+			result, err := reconciler.Reconcile(ctx, inventory.Name)
+			require.ErrorIs(t, err, ErrRackCacheStale)
+			require.False(t, result.Changed)
+			require.Empty(t, result.OwnershipConflicts)
+			require.Empty(t, result.CleanupNeeded)
+			actions := h.mokka.Actions()
+			require.Len(t, actions, 2)
+			require.True(t, actions[0].Matches("create", "sgpuracks"))
+			require.True(t, actions[1].Matches("get", "sgpuracks"))
+			attempted := actions[0].(k8stesting.CreateAction).GetObject().(*mokkav1alpha1.SGPURack)
+			require.Equal(t, earlier.UID, attempted.Spec.Nodes[0].NodeRef.UID)
+			unchanged, err := h.mokka.MokkaV1alpha1().SGPURacks().Get(ctx, rackName, metav1.GetOptions{})
+			require.NoError(t, err)
+			require.Equal(t, committed, unchanged)
+
+			h.sync(t)
+			result, err = h.reconcile(ctx, inventory.Name)
+			require.NoError(t, err)
+			require.False(t, result.Changed)
+			unchanged, err = h.mokka.MokkaV1alpha1().SGPURacks().Get(ctx, rackName, metav1.GetOptions{})
+			require.NoError(t, err)
+			require.Equal(t, committed, unchanged)
+			if !tc.wantCleanup {
+				require.Empty(t, result.CleanupNeeded)
+				return
+			}
+			require.Len(t, result.CleanupNeeded, 1)
+			require.Equal(t, inventorycleanup.CleanupSelectorMismatch, result.CleanupNeeded[0].Reason)
+			require.Equal(t, committed.UID, result.CleanupNeeded[0].RackUID)
+			require.Equal(t, bound.UID, result.CleanupNeeded[0].Binding.Node.UID)
+
+			h.cleaned = true
+			_, err = h.reconcile(ctx, inventory.Name)
+			require.NoError(t, err)
+			h.sync(t)
+			_, err = h.reconcile(ctx, inventory.Name)
+			require.NoError(t, err)
+			rebound, err := h.mokka.MokkaV1alpha1().SGPURacks().Get(ctx, rackName, metav1.GetOptions{})
+			require.NoError(t, err)
+			require.Equal(t, earlier.UID, rebound.Spec.Nodes[0].NodeRef.UID)
+		})
+	}
+}
+
 func TestReconcileComputesRevisionOncePerProfileObservation(t *testing.T) {
 	ctx := context.Background()
 	shared := testProfile("shared", "shared-profile-uid", 7, 1, 1)
