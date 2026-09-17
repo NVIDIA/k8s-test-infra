@@ -58,6 +58,11 @@ name, which is what the device plugin's `migStrategy=single` requires:
 `l40s` and `t4` cannot partition. The chart refuses MIG on them, and NVML
 answers `NVML_ERROR_NOT_SUPPORTED` exactly as it does on that hardware.
 
+The full table each board offers, not just its smallest slice, is declared in
+the board's profile YAML under `mig.supported_profiles`, alongside the
+`mig.profile_ids` listing that decides which profile ids it publishes. Both are
+described in the [`mig:` configuration reference](../../configuration.md#mig).
+
 Mixed layouts and fixed instance ids are described in
 [Configuration](../../configuration.md#mig).
 

@@ -462,6 +462,64 @@ board can do; how it is carved is a deployment choice, which under the chart is
 board. Boards with no `mig` block at all — `t4`, `l40s` — are not MIG-capable,
 and NVML answers `NVML_ERROR_NOT_SUPPORTED` for them as real hardware does.
 
+#### Declaring the profile table
+
+`supported_profiles` is the board's MIG profile table: the rows
+`nvidia-smi mig -lgip` prints. It is declared in the profile YAML rather than
+resolved in Go from the device name, so teaching the mock a new board is a YAML
+edit. One row of `h100`:
+
+```yaml
+device_defaults:
+  mig:
+    max_gpu_instances: 7
+    profile_ids: "7_slice"
+    supported_profiles:
+      - name: "1g.10gb"
+        nvml_profile: "1_SLICE"
+        instances: 7
+        memory_mb: 10240
+        multiprocessors: 16
+        copy_engines: 1
+        decoders: 1
+        jpeg: 1
+```
+
+| Field | Meaning |
+|---|---|
+| `name` | What the listing prints and the cluster spells, e.g. `1g.10gb`, `1g.10gb+me` |
+| `nvml_profile` | NVML's profile enum suffix — `1_SLICE`, `1_SLICE_REV1`, `2_SLICE`, `7_SLICE` — which every lookup keys on. An unknown suffix, or one declared twice, is refused at load |
+| `instances` | How many of this profile the board offers at once |
+| `memory_mb` | The partition's framebuffer. Checked at load against the size `name` advertises, loosely — a real allocation runs short of its name, by more on the wider profiles |
+| `multiprocessors`, `copy_engines`, `decoders`, `encoders`, `jpeg`, `ofa` | Engine counts the listing reports. Omitted is zero |
+
+A row declares no slice count, because `nvml_profile` already carries it.
+Slice placements are not declared either: they follow from the row's
+`memory_mb` against the board's capacity together with `max_gpu_instances`,
+since NVIDIA publishes placements only as diagrams.
+
+Transcribe rows from the Supported MIG Profiles tables of NVIDIA's MIG user
+guide, which is where every shipped profile's rows come from — each names its
+table in a YAML comment. A board that declares `max_gpu_instances` but no
+`supported_profiles` is not MIG-capable and answers
+`NVML_ERROR_NOT_SUPPORTED`, the same as `t4` and `l40s`.
+
+`profile_ids` names the published `nvidia-smi mig -lgip` listing whose reported
+profile ids the board publishes. It is a separate fact from the board's width,
+and it is declared rather than inferred so that no board inherits another's
+numbering by being the same number of slices wide.
+
+| Value | Listing |
+|---|---|
+| `7_slice` | The A100/H100 numbering, which follows a partition's fraction of the board rather than the board's capacity |
+| `4_slice` | The A30's |
+| `none` (default) | The board publishes no ids and every profile reports its own NVML enum |
+
+Any other value is refused at load rather than defaulted, so a board never
+advertises ids its author did not choose. `b200`, `gb200` and `gb300` declare
+`none` because NVIDIA publishes no `mig -lgip` listing for Blackwell; `a100`
+and `h100` declare `7_slice`.
+
 #### Declaring a layout by count
 
 `gpu_instances` asks for a number of identical instances. Name each profile
@@ -487,8 +545,14 @@ devices:
 | `compute_instances` | Compute slices inside each GPU instance, same `profile`/`profile_id`/`count` shape. Defaults to one spanning the whole GPU instance, which is what `nvidia-mig-parted` creates |
 
 `profile_id` is the id in the `ID` column of `nvidia-smi mig -lgip`, so it can
-be copied straight off that listing — not NVML's profile enum, which numbers
-the same profiles differently and in the opposite order.
+be copied straight off that listing. Which numbers appear there is the board's
+own `profile_ids` listing: on `a100` and `h100` they are the published ids,
+where `19` is a 1-slice partition and NVML's profile enum for the same
+partition is a different number entirely. On a board declaring `profile_ids:
+"none"` — every Blackwell profile — the listing reports NVML's enums, so `19`
+names nothing and `0` is the 1-slice profile rather than the whole board. Name
+partitions by `profile` there, and take any id from the mock's own listing
+rather than from a real board's.
 
 #### Declaring a layout explicitly
 
