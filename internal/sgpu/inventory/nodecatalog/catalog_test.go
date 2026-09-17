@@ -128,6 +128,25 @@ func TestCatalogGenerationTracksExactAllocationInputWithoutProjectionFeedback(t 
 	require.EqualValues(t, 5, catalog.Generation())
 }
 
+func TestCatalogGenerationAdvancesWhenEmptyValuedLabelIsRemoved(t *testing.T) {
+	t.Parallel()
+	catalog := New()
+	node := catalogNode("node", "node-uid", 1, map[string]string{"pool": ""})
+	catalog.Upsert(node)
+	initial := catalog.Snapshot()
+
+	catalog.Upsert(node.DeepCopy())
+	require.Equal(t, initial.Generation(), catalog.Generation(), "an unchanged empty-valued label must not invalidate allocation")
+
+	updated := node.DeepCopy()
+	delete(updated.Labels, "pool")
+	catalog.Upsert(updated)
+
+	require.Equal(t, initial.Generation()+1, catalog.Generation(), "removing an empty-valued label must invalidate allocation")
+	require.Equal(t, catalog.Generation(), catalog.Snapshot().Generation())
+	require.NotContains(t, catalog.Snapshot().AllocationNodes()[0].Labels, "pool")
+}
+
 func BenchmarkCatalogSteadySnapshot100K(b *testing.B) {
 	catalog := New()
 	for index := range 100_000 {

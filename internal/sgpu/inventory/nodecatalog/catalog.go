@@ -234,7 +234,7 @@ func allocationLabelsEqual(previous, current map[string]string) bool {
 		if key == metadata.AssignedLabel || key == metadata.CliqueLabel {
 			continue
 		}
-		if current[key] != value {
+		if currentValue, exists := current[key]; !exists || currentValue != value {
 			return false
 		}
 	}

@@ -16,6 +16,7 @@ import (
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/nodecatalog"
 )
 
 func TestAllocationCacheCoalescesConcurrentGroupViews(t *testing.T) {
@@ -137,6 +138,52 @@ func TestAllocationCacheInvalidatesNodeIdentitySpecsAndRackBindings(t *testing.T
 	require.NoError(t, err)
 	require.Empty(t, specPlan.Assigned)
 	require.EqualValues(t, 4, planner.Stats().Computations)
+}
+
+func TestAllocationCacheReleasesExistsBindingWhenEmptyValuedLabelIsRemoved(t *testing.T) {
+	t.Parallel()
+	profile := testProfile("profile", "profile-uid", 1, 1, 1)
+	inventory := testInventory("inventory", "inventory-uid", profile.Name, 1)
+	inventory.Spec.RackGroups[0].Placement.NodeSelector = &metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{{Key: "pool", Operator: metav1.LabelSelectorOpExists}},
+	}
+	node := testNode("node", "node-uid", 1, map[string]string{"pool": ""})
+	catalog := nodecatalog.New()
+	catalog.Upsert(node)
+	key := allocate.RackGroupKey{InventoryName: inventory.Name, InventoryUID: inventory.UID, RackGroup: "group"}
+	binding := allocate.Binding{
+		Coordinate: allocate.Coordinate{Group: key},
+		Node:       allocate.NodeReference{Name: node.Name, UID: node.UID},
+	}
+	source := &catalogAllocationSource{
+		Cache: &mutableAllocationSource{
+			inventories: []*mokkav1alpha1.SGPUInventory{inventory},
+			profiles:    map[string]*mokkav1alpha1.SGPURackProfile{profile.Name: profile},
+			racks: []*mokkav1alpha1.SGPURack{allocationRack(inventory, key, "rack-uid", &mokkav1alpha1.SGPUNodeReference{
+				Name: node.Name, UID: node.UID,
+			})},
+		},
+		nodes: catalog,
+	}
+	planner := NewAllocationCache(source)
+
+	stable, err := planner.plan(&key, instanceForGroup(key))
+	require.NoError(t, err)
+	require.Equal(t, []allocate.Binding{binding}, stable.Retained)
+	_, err = planner.plan(&key, instanceForGroup(key))
+	require.NoError(t, err)
+	require.EqualValues(t, 1, planner.Stats().Computations)
+
+	updated := node.DeepCopy()
+	delete(updated.Labels, "pool")
+	catalog.Upsert(updated)
+
+	released, err := planner.plan(&key, instanceForGroup(key))
+	require.NoError(t, err)
+	require.Equal(t, []allocate.Release{{Binding: binding, Reason: allocate.ReleaseSelectorMismatch}}, released.Released)
+	require.Empty(t, released.Retained)
+	require.Empty(t, released.Bindings)
+	require.EqualValues(t, 2, planner.Stats().Computations, "the Node generation alone must invalidate the cached plan")
 }
 
 func TestBindingDesiredRevisionFencesEveryAllocationInput(t *testing.T) {
@@ -316,6 +363,19 @@ func BenchmarkAllocationCache100KNodes64Groups(b *testing.B) {
 	b.StopTimer()
 	require.EqualValues(b, b.N, planner.Stats().Computations)
 	b.ReportMetric(float64(planner.Stats().Computations)/float64(b.N), "global-plans/op")
+}
+
+type catalogAllocationSource struct {
+	Cache
+	nodes *nodecatalog.Catalog
+}
+
+func (s *catalogAllocationSource) AllocationNodeGeneration() uint64 {
+	return s.nodes.Generation()
+}
+
+func (s *catalogAllocationSource) AllocationNodes() ([]allocate.KubernetesNode, error) {
+	return s.nodes.Snapshot().AllocationNodes(), nil
 }
 
 type mutableAllocationSource struct {
