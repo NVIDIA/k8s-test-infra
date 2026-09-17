@@ -34,10 +34,9 @@ Set `gpu.profile` to one of the profiles shipped in `profiles/`:
 | `vr200` | Vera Rubin NVL72 | 280 GiB | Rubin |
 
 `vr200` is a Vera-Rubin compute tray authored from a capture of pre-release
-hardware, so it differs from the others in two ways: it reports `NVIDIA Graphics
+hardware, so it differs from the others in one way: it reports `NVIDIA Graphics
 Device` as its GPU name, because the board shipped before the driver's product
-table carried one, and it is not in the e2e suite's profile set, so its rendered
-output is not asserted against on every change.
+table carried one.
 
 ```bash
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \

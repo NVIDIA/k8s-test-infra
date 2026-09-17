@@ -166,6 +166,14 @@ func TestLoadConfig_GB300Profile(t *testing.T) {
 	require.Equal(t, 18, yamlCfg.NVLink.LinksPerGPU, "GB300 nvlink.links_per_gpu")
 }
 
+// giB and miB express the memory column below in the units each board reports,
+// while keeping it a byte count. vr200 needs miB: its 286524 MiB is 279.81
+// GiB, which no whole-GiB figure can hold.
+const (
+	miB uint64 = 1024 * 1024
+	giB uint64 = 1024 * miB
+)
+
 func TestLoadConfig_AllProfilesConsistent(t *testing.T) {
 	profiles := []struct {
 		name         string
@@ -173,16 +181,17 @@ func TestLoadConfig_AllProfilesConsistent(t *testing.T) {
 		architecture string
 		ccMajor      int
 		ccMinor      int
-		memGiB       uint64
+		memBytes     uint64
 		deviceCount  int
 	}{
-		{"A100", "a100.yaml", "ampere", 8, 0, 40, 8},
-		{"H100", "h100.yaml", "hopper", 9, 0, 80, 8},
-		{"B200", "b200.yaml", "blackwell", 10, 0, 192, 8},
-		{"GB200", "gb200.yaml", "blackwell", 10, 0, 192, 4},
-		{"GB300", "gb300.yaml", "blackwell", 10, 0, 288, 4},
-		{"L40S", "l40s.yaml", "ada_lovelace", 8, 9, 48, 8},
-		{"T4", "t4.yaml", "turing", 7, 5, 16, 4},
+		{"A100", "a100.yaml", "ampere", 8, 0, 40 * giB, 8},
+		{"H100", "h100.yaml", "hopper", 9, 0, 80 * giB, 8},
+		{"B200", "b200.yaml", "blackwell", 10, 0, 192 * giB, 8},
+		{"GB200", "gb200.yaml", "blackwell", 10, 0, 192 * giB, 4},
+		{"GB300", "gb300.yaml", "blackwell", 10, 0, 288 * giB, 4},
+		{"L40S", "l40s.yaml", "ada_lovelace", 8, 9, 48 * giB, 8},
+		{"T4", "t4.yaml", "turing", 7, 5, 16 * giB, 4},
+		{"VR200", "vr200.yaml", "rubin", 10, 7, 286524 * miB, 4},
 	}
 
 	for _, p := range profiles {
@@ -200,8 +209,7 @@ func TestLoadConfig_AllProfilesConsistent(t *testing.T) {
 
 			mem := yamlCfg.DeviceDefaults.Memory
 			require.NotNil(t, mem, "%s memory config is nil", p.name)
-			expectedBytes := p.memGiB * 1024 * 1024 * 1024
-			require.Equal(t, expectedBytes, mem.TotalBytes, "%s memory (%d GiB)", p.name, p.memGiB)
+			require.Equal(t, p.memBytes, mem.TotalBytes, "%s memory (%d bytes)", p.name, p.memBytes)
 
 			require.Len(t, yamlCfg.Devices, p.deviceCount, "%s device count", p.name)
 
