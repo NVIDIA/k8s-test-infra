@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -1073,6 +1075,57 @@ func TestProjectionConflictWorkerRetryPolicy(t *testing.T) {
 		require.Zero(t, queue.NumRequeues(key))
 		require.Zero(t, queue.Len())
 	})
+}
+
+func TestProcessNextLogsReconciliationFailureToGlobalLogger(t *testing.T) {
+	// Replacing the process-wide logger precludes parallel execution.
+	core, logs := observer.New(zap.ErrorLevel)
+	t.Cleanup(zap.ReplaceGlobals(zap.New(core)))
+	queue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[projectionKey]())
+	t.Cleanup(queue.ShutDown)
+	key := projectionKey{mode: projectionApply, rackName: "rack", nodeIndex: 2}
+	queue.Add(key)
+	err := errors.New("projection failed")
+
+	require.True(t, processNext(context.Background(), queue, func(context.Context, projectionKey) error {
+		return err
+	}))
+
+	entries := logs.All()
+	require.Len(t, entries, 1)
+	require.Equal(t, zap.ErrorLevel, entries[0].Level)
+	require.Equal(t, "Controller reconciliation failed", entries[0].Message)
+	fields := entries[0].ContextMap()
+	require.Equal(t, err.Error(), fields["error"])
+	// Projection keys have unexported fields that JSON reflection would omit.
+	require.Contains(t, fields["key"], "rackName:rack")
+	require.Contains(t, fields["key"], "nodeIndex:2")
+}
+
+func TestProcessNextStatusLogsReconciliationFailureToGlobalLogger(t *testing.T) {
+	// Replacing the process-wide logger precludes parallel execution.
+	core, logs := observer.New(zap.ErrorLevel)
+	t.Cleanup(zap.ReplaceGlobals(zap.New(core)))
+	queues := newQueues(0)
+	t.Cleanup(queues.shutdown)
+	err := errors.New("status update failed")
+	controller := &Controller{
+		queues:          queues,
+		reconcileStatus: func(context.Context, statusKey) error { return err },
+	}
+	key := testInventoryStatusKey()
+	queues.addStatus(key)
+
+	require.True(t, controller.processNextStatus(context.Background()))
+
+	entries := logs.All()
+	require.Len(t, entries, 1)
+	require.Equal(t, zap.ErrorLevel, entries[0].Level)
+	require.Equal(t, "Controller reconciliation failed", entries[0].Message)
+	fields := entries[0].ContextMap()
+	require.Equal(t, err.Error(), fields["error"])
+	require.Contains(t, fields["key"], "name:"+key.name)
+	require.Contains(t, fields["key"], "uid:"+string(key.uid))
 }
 
 func TestProcessNextDistinguishesRequestTimeoutFromCallerShutdown(t *testing.T) {

@@ -9,13 +9,13 @@ import (
 	"slices"
 	"sync"
 
+	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/klog/v2"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
 	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
@@ -675,7 +675,7 @@ func rackOwnerGroup(rack *mokkav1alpha1.SGPURack) (allocate.RackGroupKey, bool) 
 func (r *eventRouter) currentRackDelete(deleted *mokkav1alpha1.SGPURack) bool {
 	object, exists, err := r.racks.GetByKey(deleted.Name)
 	if err != nil {
-		klog.Background().Error(err, "Check Rack delete against informer cache", "rack", deleted.Name)
+		zap.L().Error("Check Rack delete against informer cache", zap.Error(err), zap.String("rack", deleted.Name))
 		return true
 	}
 	if !exists {
@@ -763,7 +763,7 @@ func (r *eventRouter) boundRacks(name string, uid types.UID) []*mokkav1alpha1.SG
 	} {
 		objects, err := r.racks.ByIndex(index, value)
 		if err != nil {
-			klog.Background().Error(err, "Look up racks for Node", "node", name, "index", index)
+			zap.L().Error("Look up racks for Node", zap.Error(err), zap.String("node", name), zap.String("index", index))
 			continue
 		}
 		for _, object := range objects {
@@ -813,7 +813,7 @@ func eventObject[T any](object any) (T, bool) {
 		return typed, ok
 	default:
 		var zero T
-		klog.Background().Error(nil, "Unexpected informer event object", "type", fmt.Sprintf("%T", object))
+		zap.L().Error("Unexpected informer event object", zap.String("type", fmt.Sprintf("%T", object)))
 		return zero, false
 	}
 }

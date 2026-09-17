@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -25,7 +26,6 @@ import (
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
-	"k8s.io/klog/v2"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
 	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
@@ -733,7 +733,7 @@ func (c *Controller) processNextStatus(ctx context.Context) bool {
 			c.queues.status.Forget(key)
 		}
 		c.queues.statuses.finish(key, false)
-		klog.FromContext(ctx).Error(err, "Controller reconciliation failed", "key", key)
+		zap.L().Error("Controller reconciliation failed", zap.Error(err), zap.String("key", fmt.Sprintf("%+v", key)))
 		return true
 	}
 	c.queues.status.Forget(key)
@@ -762,7 +762,8 @@ func processNext[T comparable](
 		} else {
 			queue.Forget(key)
 		}
-		klog.FromContext(ctx).Error(err, "Controller reconciliation failed", "key", key)
+		// Format explicitly so unexported projection key fields remain visible in JSON logs.
+		zap.L().Error("Controller reconciliation failed", zap.Error(err), zap.String("key", fmt.Sprintf("%+v", key)))
 		return true
 	}
 	queue.Forget(key)
