@@ -36,9 +36,9 @@ const (
 	mokkaWorkflowSHA         = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	mokkaSourceSHA           = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	mokkaActionID            = "123e4567-e89b-42d3-a456-426614174000"
-	mokkaControlHelperOID    = "008892f40c6710861dcb8bd8d115f7d74aace385"
-	mokkaControlHelperSHA256 = "f5d070f41a364d1a49523ef7abfa7ceba3bcfc9fdacdff9f5512ef6c72172e0e"
-	mokkaControlHelperSize   = 10234
+	mokkaControlHelperOID    = "2f7599ccc901465e5c361bb4b7964edb4ef13bab"
+	mokkaControlHelperSHA256 = "0d31b826dbaa2577c048d7a3bf4935157d9509dd9e4ea1a01e3f2a2da3e37e24"
+	mokkaControlHelperSize   = 10413
 	mokkaControlFetchScript  = `set -Eeuo pipefail
 umask 077
 [[ "${GITHUB_WORKFLOW_SHA:?}" =~ ^[0-9a-f]{40}$ ]]
@@ -90,14 +90,14 @@ test "${#workflow_entries[@]}" -eq 1
 [[ "${workflow_entries[0]}" =~ ^100644\ blob\ [0-9a-f]{40}$'\t'.github/workflows/mokka-cherry-pick.yml$ ]]
 mapfile -d '' -t helper_entries < <(control_git -C "$control_stage" ls-tree -z "$GITHUB_WORKFLOW_SHA" -- "$helper_path")
 test "${#helper_entries[@]}" -eq 1
-test "${helper_entries[0]}" = "100755 blob 008892f40c6710861dcb8bd8d115f7d74aace385	.github/scripts/mokka-cherry-pick.sh"
-test "$(control_git -C "$control_stage" cat-file -s 008892f40c6710861dcb8bd8d115f7d74aace385)" = "10234"
-test "$(control_git -C "$control_stage" cat-file blob 008892f40c6710861dcb8bd8d115f7d74aace385 | /usr/bin/sha256sum | /usr/bin/awk '{print $1}')" = "f5d070f41a364d1a49523ef7abfa7ceba3bcfc9fdacdff9f5512ef6c72172e0e"
-control_git -C "$control_stage" cat-file blob 008892f40c6710861dcb8bd8d115f7d74aace385 > "$helper_stage/mokka-cherry-pick.sh"
+test "${helper_entries[0]}" = "100755 blob 2f7599ccc901465e5c361bb4b7964edb4ef13bab	.github/scripts/mokka-cherry-pick.sh"
+test "$(control_git -C "$control_stage" cat-file -s 2f7599ccc901465e5c361bb4b7964edb4ef13bab)" = "10413"
+test "$(control_git -C "$control_stage" cat-file blob 2f7599ccc901465e5c361bb4b7964edb4ef13bab | /usr/bin/sha256sum | /usr/bin/awk '{print $1}')" = "0d31b826dbaa2577c048d7a3bf4935157d9509dd9e4ea1a01e3f2a2da3e37e24"
+control_git -C "$control_stage" cat-file blob 2f7599ccc901465e5c361bb4b7964edb4ef13bab > "$helper_stage/mokka-cherry-pick.sh"
 /usr/bin/chmod 0500 "$helper_stage/mokka-cherry-pick.sh"
 test -f "$helper_stage/mokka-cherry-pick.sh"
 test ! -L "$helper_stage/mokka-cherry-pick.sh"
-test "$(/usr/bin/stat -c '%h:%a:%s:%F' "$helper_stage/mokka-cherry-pick.sh")" = "1:500:10234:regular file"
+test "$(/usr/bin/stat -c '%h:%a:%s:%F' "$helper_stage/mokka-cherry-pick.sh")" = "1:500:10413:regular file"
 test ! -w "$helper_stage/mokka-cherry-pick.sh"
 test -x "$helper_stage/mokka-cherry-pick.sh"
 /usr/bin/mv -- "$control_stage" "$control_dir"
@@ -110,11 +110,11 @@ test "$helper_dir" = "$runner_temp/mokka-helper"
 helper_path="$helper_dir/mokka-cherry-pick.sh"
 test -f "$helper_path"
 test ! -L "$helper_path"
-test "$(/usr/bin/stat -c '%h:%a:%s:%F' "$helper_path")" = "1:500:10234:regular file"
+test "$(/usr/bin/stat -c '%h:%a:%s:%F' "$helper_path")" = "1:500:10413:regular file"
 test ! -w "$helper_path"
 test -x "$helper_path"
-test "$(/usr/bin/git hash-object --no-filters "$helper_path")" = "008892f40c6710861dcb8bd8d115f7d74aace385"
-test "$(/usr/bin/sha256sum "$helper_path" | /usr/bin/awk '{print $1}')" = "f5d070f41a364d1a49523ef7abfa7ceba3bcfc9fdacdff9f5512ef6c72172e0e"
+test "$(/usr/bin/git hash-object --no-filters "$helper_path")" = "2f7599ccc901465e5c361bb4b7964edb4ef13bab"
+test "$(/usr/bin/sha256sum "$helper_path" | /usr/bin/awk '{print $1}')" = "0d31b826dbaa2577c048d7a3bf4935157d9509dd9e4ea1a01e3f2a2da3e37e24"
 exec /usr/bin/bash "$helper_path"
 `
 )
@@ -795,6 +795,8 @@ func TestMokkaCherryPickCreatesCorrelatedCommitInRealRepository(t *testing.T) {
 	lowerMessage := strings.ToLower(message)
 	require.Equal(t, 1, strings.Count(lowerMessage, "mokka-source-sha:"))
 	require.Equal(t, 1, strings.Count(lowerMessage, "mokka-action-id:"))
+	require.NotContains(t, lowerMessage, "mokka-source-sha :")
+	require.NotContains(t, lowerMessage, "mokka-action-id\t:")
 	committer := strings.TrimSpace(runMokkaGit(t, repository.target, "show", "-s", "--format=%cn <%ce>", "HEAD"))
 	require.Equal(t, "mokka[bot] <mokka[bot]@users.noreply.github.com>", committer)
 }
@@ -836,6 +838,23 @@ func TestMokkaCherryPickConcurrentBranchCreatePreservesCompetingRealRef(t *testi
 	require.Equal(t, targetBaseSHA, competingSHA, "the rejected push must not replace the competing branch")
 }
 
+func TestMokkaCherryPickCleanupLeasePreservesConcurrentRealRef(t *testing.T) {
+	_, script := mokkaPaths(t)
+	repository := newMokkaRealRepository(t, false)
+	targetBaseSHA := strings.TrimSpace(runMokkaGit(t, repository.target, "rev-parse", "HEAD"))
+	result := runMokkaRealDriverWithEnv(t, script, repository, map[string]string{
+		"MOKKA_REAL_CREATE_FAILURE": "1",
+		"MOKKA_REAL_CLEANUP_RACE":   "1",
+	})
+	require.Error(t, result.err)
+	require.Contains(t, result.output, "MOKKA_CHERRY_PICK_MANUAL_INVESTIGATION action_id="+mokkaActionID)
+	require.Equal(t, []string{mokkaExpectedCreatePullRequestCall()}, mokkaGitHubMutationCapableCallsForSource(result.ghCallLog, repository.sourceSHA), "cleanup must not issue an unguarded GitHub ref deletion")
+
+	head := "mokka/cherry-pick/" + mokkaActionID
+	competingSHA := strings.TrimSpace(runMokkaGit(t, repository.target, "--git-dir", repository.remote, "rev-parse", "refs/heads/"+head))
+	require.Equal(t, targetBaseSHA, competingSHA, "the lease-protected cleanup must preserve the concurrent replacement")
+}
+
 func TestMokkaCherryPickRejectsIneligibleSourceBeforeGit(t *testing.T) {
 	_, script := mokkaPaths(t)
 	for _, source := range []string{
@@ -847,6 +866,9 @@ func TestMokkaCherryPickRejectsIneligibleSourceBeforeGit(t *testing.T) {
 		"open",
 		"unmerged-with-merged-at",
 		"wrong-sha",
+		"pull-missing-base-ref",
+		"pull-base-ref-wrong-type",
+		"target-base",
 		"fork-head",
 		"fork-base",
 		"commit-read-failure",
@@ -1090,10 +1112,11 @@ func TestMokkaCherryPickPullRequestCreateFailureCleansExactDerivedBranch(t *test
 	})
 	require.Error(t, result.err)
 	require.Contains(t, result.output, "pull request creation failed")
+	require.Equal(t, []string{mokkaExpectedCreatePullRequestCall()}, mokkaGitHubMutationCapableCalls(result.ghCallLog))
 	require.Equal(t, []string{
-		mokkaExpectedCreatePullRequestCall(),
-		mokkaExpectedCleanupDeleteCall(),
-	}, mokkaGitHubMutationCapableCalls(result.ghCallLog))
+		mokkaGitHubCallLedger("push", "--porcelain", "--atomic", "--force-with-lease=refs/heads/mokka/cherry-pick/"+mokkaActionID+":", "origin", "HEAD:refs/heads/mokka/cherry-pick/"+mokkaActionID),
+		mokkaExpectedCleanupDeletePush(),
+	}, mokkaCommandLogCalls(result.gitLog, "push"))
 }
 
 func TestMokkaCherryPickPullRequestCreateFailureDoesNotDeleteChangedDerivedBranch(t *testing.T) {
@@ -1105,6 +1128,22 @@ func TestMokkaCherryPickPullRequestCreateFailureDoesNotDeleteChangedDerivedBranc
 	require.Error(t, result.err)
 	require.Contains(t, result.output, "MOKKA_CHERRY_PICK_MANUAL_INVESTIGATION action_id="+mokkaActionID)
 	require.Equal(t, []string{mokkaExpectedCreatePullRequestCall()}, mokkaGitHubMutationCapableCalls(result.ghCallLog), "cleanup must not delete a branch that no longer names the produced commit")
+	require.Len(t, mokkaCommandLogCalls(result.gitLog, "push"), 1, "cleanup must not try to delete a branch that already names another commit")
+}
+
+func TestMokkaCherryPickPullRequestCreateFailurePreservesConcurrentReplacement(t *testing.T) {
+	_, script := mokkaPaths(t)
+	result := runMokkaDriver(t, script, validMokkaInputs(), map[string]string{
+		"FAKE_CREATED_PR":     "failure",
+		"FAKE_CLEANUP_BRANCH": "changed-after-read",
+	})
+	require.Error(t, result.err)
+	require.Contains(t, result.output, "MOKKA_CHERRY_PICK_MANUAL_INVESTIGATION action_id="+mokkaActionID)
+	require.Equal(t, []string{mokkaExpectedCreatePullRequestCall()}, mokkaGitHubMutationCapableCalls(result.ghCallLog))
+	require.Equal(t, []string{
+		mokkaGitHubCallLedger("push", "--porcelain", "--atomic", "--force-with-lease=refs/heads/mokka/cherry-pick/"+mokkaActionID+":", "origin", "HEAD:refs/heads/mokka/cherry-pick/"+mokkaActionID),
+		mokkaExpectedCleanupDeletePush(),
+	}, mokkaCommandLogCalls(result.gitLog, "push"), "the cleanup delete must be guarded by the produced commit SHA")
 }
 
 func TestMokkaCherryPickConcurrentBranchCreateStopsBeforePullRequest(t *testing.T) {
@@ -1255,9 +1294,9 @@ func mokkaExpectedCreatePullRequestCall() string {
 	return mokkaGitHubCallLedger("api", "--method", "POST", "/repos/"+mokkaRepository+"/pulls", "--raw-field", "title=Mokka: cherry-pick #1 to main", "--raw-field", "head="+head, "--raw-field", "base=main", "-F", "draft=true", "--raw-field", "body=<!-- mokka-cherry-pick-action-id: "+mokkaActionID+" -->")
 }
 
-func mokkaExpectedCleanupDeleteCall() string {
+func mokkaExpectedCleanupDeletePush() string {
 	head := "mokka/cherry-pick/" + mokkaActionID
-	return mokkaGitHubCallLedger("api", "--method", "DELETE", "/repos/"+mokkaRepository+"/git/refs/heads/"+head)
+	return mokkaGitHubCallLedger("push", "--porcelain", "--atomic", "--force-with-lease=refs/heads/"+head+":cccccccccccccccccccccccccccccccccccccccc", "origin", ":refs/heads/"+head)
 }
 
 func mokkaExpectedEvidencePatchCall() string {
@@ -1471,6 +1510,8 @@ elif matches commit --amend --file - --trailer "Mokka-Source-SHA: $source_sha" -
   exit 0
 elif matches push --porcelain --atomic "--force-with-lease=refs/heads/$head_branch:" origin "HEAD:refs/heads/$head_branch"; then
   [[ "${FAKE_PUSH_RACE:-}" != 1 ]] || exit 1
+elif matches push --porcelain --atomic "--force-with-lease=refs/heads/$head_branch:cccccccccccccccccccccccccccccccccccccccc" origin ":refs/heads/$head_branch"; then
+  [[ "${FAKE_CLEANUP_BRANCH:-}" == exact ]] || exit 1
 else
   printf 'unexpected git call shape\n' >&2
   exit 1
@@ -1514,34 +1555,37 @@ if matches api "/repos/$repository/pulls/1"; then
 	case "${FAKE_SOURCE:-}" in
 	  pull-changes-before-write)
 	    if [[ "$pull_read_count" -eq 1 ]]; then
-	      echo '{"state":"closed","merged":true,"commits":1,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}}}'
+	      echo '{"state":"closed","merged":true,"commits":1,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"ref":"release-1.32","repo":{"full_name":"NVIDIA/k8s-test-infra"}}}'
 	    else
-	      echo '{"state":"closed","merged":true,"commits":1,"merge_commit_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}}}'
+	      echo '{"state":"closed","merged":true,"commits":1,"merge_commit_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"ref":"release-1.32","repo":{"full_name":"NVIDIA/k8s-test-infra"}}}'
 	    fi
 	    ;;
 	  pull-read-failure) exit 1 ;;
     pull-malformed) printf '{\n' ;;
     pull-root-array) echo '[]' ;;
     pull-rejected-then-accepted-documents)
-      printf '%s\n%s\n' '{}' '{"state":"closed","merged":true,"commits":1,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}}}'
+      printf '%s\n%s\n' '{}' '{"state":"closed","merged":true,"commits":1,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"ref":"release-1.32","repo":{"full_name":"NVIDIA/k8s-test-infra"}}}'
       ;;
     pull-accepted-then-rejected-documents)
-      printf '%s\n%s\n' '{"state":"closed","merged":true,"commits":1,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' '{}'
+      printf '%s\n%s\n' '{"state":"closed","merged":true,"commits":1,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"ref":"release-1.32","repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' '{}'
       ;;
-    pull-missing-state) echo '{"merged":true,"commits":1,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' ;;
-    pull-state-wrong-type) echo '{"state":1,"merged":true,"commits":1,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' ;;
-    pull-commits-missing) echo '{"state":"closed","merged":true,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' ;;
-    pull-commits-null) echo '{"state":"closed","merged":true,"commits":null,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' ;;
-    pull-commits-string) echo '{"state":"closed","merged":true,"commits":"1","merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' ;;
-    pull-commits-zero) echo '{"state":"closed","merged":true,"commits":0,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' ;;
-    pull-commits-fractional) echo '{"state":"closed","merged":true,"commits":1.5,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' ;;
-    pull-commits-two) echo '{"state":"closed","merged":true,"commits":2,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' ;;
-    open) echo '{"state":"open","merged":true,"commits":1,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' ;;
-    unmerged-with-merged-at) echo '{"state":"closed","merged":false,"commits":1,"merged_at":"2026-09-13T00:00:00Z","merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' ;;
-    wrong-sha) echo '{"state":"closed","merged":true,"commits":1,"merge_commit_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' ;;
-    fork-head) echo '{"state":"closed","merged":true,"commits":1,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"fork/source"}},"base":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' ;;
+    pull-missing-state) echo '{"merged":true,"commits":1,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"ref":"release-1.32","repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' ;;
+    pull-state-wrong-type) echo '{"state":1,"merged":true,"commits":1,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"ref":"release-1.32","repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' ;;
+    pull-commits-missing) echo '{"state":"closed","merged":true,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"ref":"release-1.32","repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' ;;
+    pull-commits-null) echo '{"state":"closed","merged":true,"commits":null,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"ref":"release-1.32","repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' ;;
+    pull-commits-string) echo '{"state":"closed","merged":true,"commits":"1","merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"ref":"release-1.32","repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' ;;
+    pull-commits-zero) echo '{"state":"closed","merged":true,"commits":0,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"ref":"release-1.32","repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' ;;
+    pull-commits-fractional) echo '{"state":"closed","merged":true,"commits":1.5,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"ref":"release-1.32","repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' ;;
+    pull-commits-two) echo '{"state":"closed","merged":true,"commits":2,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"ref":"release-1.32","repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' ;;
+    open) echo '{"state":"open","merged":true,"commits":1,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"ref":"release-1.32","repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' ;;
+    unmerged-with-merged-at) echo '{"state":"closed","merged":false,"commits":1,"merged_at":"2026-09-13T00:00:00Z","merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"ref":"release-1.32","repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' ;;
+    wrong-sha) echo '{"state":"closed","merged":true,"commits":1,"merge_commit_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"ref":"release-1.32","repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' ;;
+    pull-missing-base-ref) echo '{"state":"closed","merged":true,"commits":1,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' ;;
+    pull-base-ref-wrong-type) echo '{"state":"closed","merged":true,"commits":1,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"ref":1,"repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' ;;
+    target-base) echo '{"state":"closed","merged":true,"commits":1,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"ref":"main","repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' ;;
+    fork-head) echo '{"state":"closed","merged":true,"commits":1,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"fork/source"}},"base":{"ref":"release-1.32","repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' ;;
     fork-base) echo '{"state":"closed","merged":true,"commits":1,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"repo":{"full_name":"fork/base"}}}' ;;
-    *) echo '{"state":"closed","merged":true,"commits":1,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' ;;
+    *) echo '{"state":"closed","merged":true,"commits":1,"merge_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"ref":"release-1.32","repo":{"full_name":"NVIDIA/k8s-test-infra"}}}' ;;
   esac
 elif matches api "/repos/$repository/commits/$source_sha"; then
   case "${FAKE_SOURCE:-}" in
@@ -1589,7 +1633,7 @@ elif matches api "/repos/$repository/git/ref/heads/main"; then
 	esac
 elif matches api "/repos/$repository/git/ref/heads/$head_branch"; then
 	case "${FAKE_CLEANUP_BRANCH:-}" in
-	  exact) echo '{"ref":"refs/heads/mokka/cherry-pick/123e4567-e89b-42d3-a456-426614174000","object":{"type":"commit","sha":"cccccccccccccccccccccccccccccccccccccccc"}}' ;;
+	  exact|changed-after-read) echo '{"ref":"refs/heads/mokka/cherry-pick/123e4567-e89b-42d3-a456-426614174000","object":{"type":"commit","sha":"cccccccccccccccccccccccccccccccccccccccc"}}' ;;
 	  changed) echo '{"ref":"refs/heads/mokka/cherry-pick/123e4567-e89b-42d3-a456-426614174000","object":{"type":"commit","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}' ;;
 	  *) exit 1 ;;
 	esac
@@ -1634,8 +1678,6 @@ elif matches api --method POST "/repos/$repository/pulls" --raw-field "title=Mok
   esac
 elif matches api --method PATCH "/repos/$repository/pulls/$created_pr_number" --raw-field "body=$evidence"; then
 	[[ "${FAKE_PATCH_FAILURE:-}" != 1 ]] || exit 1
-elif matches api --method DELETE "/repos/$repository/git/refs/heads/$head_branch"; then
-	[[ "${FAKE_CLEANUP_BRANCH:-}" == exact ]] || exit 1
 else
   printf 'unexpected gh call shape\n' >&2
   exit 1
@@ -1709,7 +1751,7 @@ func newMokkaRealRepository(t *testing.T, conflict bool) mokkaRealRepository {
 	}
 	sourceMessage := "source change"
 	if !conflict {
-		sourceMessage += "\n\nMokka-Source-SHA: ffffffffffffffffffffffffffffffffffffffff\nMokka-Action-ID: 00000000-0000-4000-8000-000000000000\nmokka-source-sha: eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\nMOKKA-ACTION-ID: 11111111-1111-4111-8111-111111111111"
+		sourceMessage += "\n\nMokka-Source-SHA: ffffffffffffffffffffffffffffffffffffffff\nMokka-Action-ID: 00000000-0000-4000-8000-000000000000\nmokka-source-sha: eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\nMOKKA-ACTION-ID: 11111111-1111-4111-8111-111111111111\nMokka-Source-SHA : dddddddddddddddddddddddddddddddddddddddd\nMokka-Action-ID\t: 22222222-2222-4222-8222-222222222222"
 	}
 	runMokkaGit(t, source, "commit", "-m", sourceMessage)
 	sourceSHA := strings.TrimSpace(runMokkaGit(t, source, "rev-parse", "HEAD"))
@@ -1762,7 +1804,7 @@ evidence_payload="$(printf 'action_id: %s\nsource_pull_request: 1\nsource_sha: %
 evidence_digest="$(printf '%s' "$evidence_payload" | sha256sum | awk '{print $1}')"
 readonly evidence=$'<!-- mokka-cherry-pick-evidence/v1\n'"$evidence_payload"$'\nsha256: '"$evidence_digest"$'\n-->\n'
 if matches api "/repos/$repository/pulls/1"; then
-	printf '{"state":"closed","merged":true,"commits":1,"merge_commit_sha":"%s","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}}}\n' "$source_sha"
+	printf '{"state":"closed","merged":true,"commits":1,"merge_commit_sha":"%s","head":{"repo":{"full_name":"NVIDIA/k8s-test-infra"}},"base":{"ref":"release-1.32","repo":{"full_name":"NVIDIA/k8s-test-infra"}}}\n' "$source_sha"
 elif matches api "/repos/$repository/commits/$source_sha"; then
 	printf '{"sha":"%s","parents":[{"sha":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}]}\n' "$source_sha"
 elif matches api --include "/repos/$repository/git/ref/heads/$head_branch"; then
@@ -1773,9 +1815,16 @@ elif matches api --include "/repos/$repository/git/ref/heads/$head_branch"; then
 	exit 1
 elif matches api "/repos/$repository/git/ref/heads/main"; then
 	printf '{"ref":"refs/heads/main","object":{"type":"commit","sha":"%s"}}\n' "$MOKKA_REAL_TARGET_BASE_SHA"
+elif matches api "/repos/$repository/git/ref/heads/$head_branch"; then
+	produced_head_sha="$(git -C "$MOKKA_REAL_TARGET" rev-parse HEAD)"
+	if [[ "${MOKKA_REAL_CLEANUP_RACE:-}" == "1" ]]; then
+		git --git-dir "$MOKKA_REAL_REMOTE" update-ref "refs/heads/$head_branch" "$MOKKA_REAL_COMPETING_SHA"
+	fi
+	printf '{"ref":"refs/heads/%s","object":{"type":"commit","sha":"%s"}}\n' "$head_branch" "$produced_head_sha"
 elif matches api "/repos/$repository/pulls?state=all&per_page=1&head=NVIDIA:$head_branch&base=main"; then
   printf '[]\n'
 elif matches api --method POST "/repos/$repository/pulls" --raw-field "title=Mokka: cherry-pick #1 to main" --raw-field "head=$head_branch" --raw-field "base=main" -F "draft=true" --raw-field "body=<!-- mokka-cherry-pick-action-id: $action_id -->"; then
+  [[ "${MOKKA_REAL_CREATE_FAILURE:-}" != "1" ]] || exit 1
   head_sha="$(git -C "$MOKKA_REAL_TARGET" rev-parse HEAD)"
   printf '{"number":99,"html_url":"https://github.com/NVIDIA/k8s-test-infra/pull/99","draft":true,"head":{"ref":"%s","sha":"%s"},"base":{"ref":"main"}}\n' "$head_branch" "$head_sha"
 elif matches api --method PATCH "/repos/$repository/pulls/99" --raw-field "body=$evidence"; then

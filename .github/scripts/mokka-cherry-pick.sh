@@ -17,11 +17,12 @@ die() {
 }
 
 source_pull_request_is_eligible() {
-  jq -es --arg repository "$repository" --arg source_sha "$source_sha" '
+  jq -es --arg repository "$repository" --arg source_sha "$source_sha" --arg target_branch "$target_branch" '
     length == 1 and (.[0] |
       type == "object" and
       .state == "closed" and .merged == true and .merge_commit_sha == $source_sha and
-      .head.repo.full_name == $repository and .base.repo.full_name == $repository)
+      .head.repo.full_name == $repository and .base.repo.full_name == $repository and
+      (.base.ref | type) == "string" and .base.ref != $target_branch)
   ' >/dev/null
 }
 
@@ -52,7 +53,7 @@ cleanup_failed_pull_request_creation() {
     manual_investigation
     return 1
   fi
-  if ! gh api --method DELETE "/repos/$repository/git/refs/heads/$head_branch" >/dev/null; then
+  if ! git push --porcelain --atomic --force-with-lease="refs/heads/$head_branch:$produced_head_sha" origin ":refs/heads/$head_branch"; then
     manual_investigation
     return 1
   fi
@@ -118,7 +119,7 @@ if ! git cherry-pick "$source_sha"; then
 fi
 git show -s --format=%B HEAD |
   awk '
-    tolower($0) ~ /^mokka-source-sha:/ || tolower($0) ~ /^mokka-action-id:/ { skip_continuation = 1; next }
+    tolower($0) ~ /^mokka-source-sha[[:space:]]*:/ || tolower($0) ~ /^mokka-action-id[[:space:]]*:/ { skip_continuation = 1; next }
     /^[[:space:]]/ && skip_continuation { next }
     { skip_continuation = 0; print }
   ' |
