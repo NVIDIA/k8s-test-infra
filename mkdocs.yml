@@ -120,6 +120,7 @@ nav:
           - Installation: helm-chart.md
       - Architecture:
           - Overview: architecture.md
+          - Mokka Controller: mokka-controller.md
           - Node Daemon: components/node-daemon.md
           - Libraries and Shims: components/libraries-and-shims.md
           - NRI Plugin: components/nri-plugin.md
