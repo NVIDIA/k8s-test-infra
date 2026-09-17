@@ -60,7 +60,7 @@ func TestAllocationCacheCoalescesConcurrentGroupViews(t *testing.T) {
 		require.NoError(t, errors[index])
 		require.Len(t, view.Assigned, 1)
 		require.Equal(t, keys[index], view.Assigned[0].Coordinate.Group)
-		require.Len(t, view.Bindings, 1, "a group view must not retain another group's global slice")
+		require.Empty(t, view.Retained)
 	}
 	require.EqualValues(t, 1, allocateCalls.Load())
 	require.EqualValues(t, 1, planner.Stats().Computations)
@@ -79,7 +79,6 @@ func TestAllocationCacheCoalescesConcurrentGroupViews(t *testing.T) {
 	require.Len(t, planner.snapshot.groups, groupCount)
 	partitioned := 0
 	for _, group := range planner.snapshot.groups {
-		require.Empty(t, group.Bindings, "derived binding views must not be retained twice")
 		partitioned += len(group.Assigned) + len(group.Retained)
 	}
 	require.Equal(t, groupCount, partitioned, "the snapshot retains each global binding in exactly one group partition")
@@ -182,7 +181,7 @@ func TestAllocationCacheReleasesExistsBindingWhenEmptyValuedLabelIsRemoved(t *te
 	require.NoError(t, err)
 	require.Equal(t, []allocate.Release{{Binding: binding, Reason: allocate.ReleaseSelectorMismatch}}, released.Released)
 	require.Empty(t, released.Retained)
-	require.Empty(t, released.Bindings)
+	require.Empty(t, released.Assigned)
 	require.EqualValues(t, 2, planner.Stats().Computations, "the Node generation alone must invalidate the cached plan")
 }
 
@@ -217,6 +216,32 @@ func TestBindingDesiredRevisionFencesEveryAllocationInput(t *testing.T) {
 	source.nodeGeneration++
 	source.mu.Unlock()
 	require.False(t, planner.RevisionCurrent(revision), "Node input changes must invalidate the cleanup decision")
+}
+
+func TestBindingDesiredRevisionDoesNotAllocateForCachedGroup(t *testing.T) {
+	source, inventory, keys := allocationScaleSource(128, 1)
+	key := keys[0]
+	node := source.nodes[0]
+	source.racks = []*mokkav1alpha1.SGPURack{allocationRack(inventory, key, "rack-uid", &mokkav1alpha1.SGPUNodeReference{
+		Name: node.Name, UID: node.UID,
+	})}
+	planner := NewAllocationCache(source)
+	binding := allocate.Binding{
+		Coordinate: allocate.Coordinate{Group: key},
+		Node:       allocate.NodeReference{Name: node.Name, UID: node.UID},
+	}
+
+	desired, revision, err := planner.BindingDesiredRevision(binding)
+	require.NoError(t, err)
+	require.True(t, desired)
+
+	allocations := testing.AllocsPerRun(100, func() {
+		desired, revision, err = planner.BindingDesiredRevision(binding)
+	})
+	require.NoError(t, err)
+	require.True(t, desired)
+	require.True(t, planner.RevisionCurrent(revision))
+	require.Zero(t, allocations, "warm binding lookups must reuse the shallow group view")
 }
 
 func TestAllocationCacheRejectsGenerationChangedDuringComputation(t *testing.T) {
@@ -306,7 +331,6 @@ func TestAllocationInputPreservedBindingsOccupyNodesUntilInventoryRecovers(t *te
 	recoveredPlan, err := allocate.Allocate(recoveredInput)
 	require.NoError(t, err)
 	require.Equal(t, []allocate.Binding{preservedBinding}, recoveredPlan.Retained)
-	require.Equal(t, []allocate.Binding{preservedBinding}, recoveredPlan.Bindings)
 	require.Empty(t, recoveredPlan.Assigned)
 	require.Empty(t, recoveredPlan.Released)
 	require.Empty(t, recoveredPlan.Conflicts)
@@ -340,11 +364,11 @@ func BenchmarkAllocationCache100KNodes64Groups(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			if len(view.Bindings) != expectedBindings/groupCount {
+			if bindings := len(view.Retained) + len(view.Assigned); bindings != expectedBindings/groupCount {
 				b.Fatalf(
 					"group %d has %d bindings, want %d",
 					index,
-					len(view.Bindings),
+					bindings,
 					expectedBindings/groupCount,
 				)
 			}
@@ -353,8 +377,8 @@ func BenchmarkAllocationCache100KNodes64Groups(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		if len(view.Bindings) != expectedBindings {
-			b.Fatalf("got %d bindings, want %d", len(view.Bindings), expectedBindings)
+		if bindings := len(view.Retained) + len(view.Assigned); bindings != expectedBindings {
+			b.Fatalf("got %d bindings, want %d", bindings, expectedBindings)
 		}
 		if len(view.Pending) != nodeCount-expectedBindings {
 			b.Fatalf("got %d pending Nodes, want %d", len(view.Pending), nodeCount-expectedBindings)

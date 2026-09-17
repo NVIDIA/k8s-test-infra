@@ -120,7 +120,6 @@ type Plan struct {
 	Retained []Binding
 	Released []Release
 	Assigned []Binding
-	Bindings []Binding
 	Pending  []KubernetesNode
 	// PendingGroups is parallel to Pending and identifies the only group that
 	// selected each Node. Keeping the identity makes cached plans partitionable
@@ -284,9 +283,6 @@ func Allocate(snapshot Snapshot) (Plan, error) {
 	}
 
 	sortBindings(plan.Assigned)
-	plan.Bindings = make([]Binding, 0, len(plan.Retained)+len(plan.Assigned))
-	plan.Bindings = append(plan.Bindings, plan.Retained...)
-	plan.Bindings = append(plan.Bindings, plan.Assigned...)
 	sortConflicts(plan.Conflicts)
 	return plan, nil
 }

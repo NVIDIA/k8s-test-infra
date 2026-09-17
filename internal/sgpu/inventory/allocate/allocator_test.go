@@ -5,6 +5,7 @@ package allocate
 
 import (
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -39,16 +40,15 @@ func TestAllocatorRetainsBindingsAndFillsOnlyFreeSlots(t *testing.T) {
 	require.Equal(t, []KubernetesNode{node("node-e", "uid-e", 5, eligibleLabels())}, plan.Pending)
 	require.Empty(t, plan.Released)
 	require.Empty(t, plan.Conflicts)
-	require.Equal(t, append([]Binding{existing}, plan.Assigned...), plan.Bindings)
 	require.LessOrEqual(t, plan.Stats.NodeVisits, int64(4))
 
 	// A newly observed older Node cannot move an existing durable binding.
 	restart := input
-	restart.Bindings = plan.Bindings
+	restart.Bindings = slices.Concat(plan.Retained, plan.Assigned)
 	restart.Nodes = append(restart.Nodes, node("node-00", "uid-00", 0, eligibleLabels()))
 	restarted, err := Allocate(restart)
 	require.NoError(t, err)
-	require.ElementsMatch(t, plan.Bindings, restarted.Retained)
+	require.ElementsMatch(t, restart.Bindings, restarted.Retained)
 	require.Empty(t, restarted.Assigned)
 	require.Equal(t, []KubernetesNode{
 		node("node-00", "uid-00", 0, eligibleLabels()),
@@ -117,7 +117,6 @@ func TestAllocatorPreservesDuplicateBindingsAsADataConflict(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.ElementsMatch(t, []Binding{first, second}, plan.Retained)
-	require.ElementsMatch(t, []Binding{first, second}, plan.Bindings)
 	require.Empty(t, plan.Released)
 	require.Empty(t, plan.Assigned)
 	require.Equal(t, []Conflict{{

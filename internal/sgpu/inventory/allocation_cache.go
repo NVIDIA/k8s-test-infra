@@ -347,10 +347,6 @@ func partitionBindings(snapshot *allocationSnapshot, global allocate.Plan) {
 		view := snapshot.ensureInventory(binding.Coordinate.Group)
 		view.Assigned = append(view.Assigned, binding)
 	}
-	for _, binding := range global.Bindings {
-		view := snapshot.ensureInventory(binding.Coordinate.Group)
-		view.Bindings = append(view.Bindings, binding)
-	}
 	for _, inventory := range snapshot.inventories {
 		partitionGroupSlice(snapshot, inventory.Retained,
 			func(binding allocate.Binding) allocate.RackGroupKey { return binding.Coordinate.Group },
@@ -423,11 +419,7 @@ func (s *allocationSnapshot) ensureInventoryInstance(instance inventoryInstance)
 
 func (s *allocationSnapshot) groupView(key allocate.RackGroupKey) allocate.Plan {
 	if view := s.groups[key]; view != nil {
-		result := *view
-		result.Bindings = make([]allocate.Binding, 0, len(result.Retained)+len(result.Assigned))
-		result.Bindings = append(result.Bindings, result.Retained...)
-		result.Bindings = append(result.Bindings, result.Assigned...)
-		return result
+		return *view
 	}
 	return allocate.Plan{Stats: s.stats}
 }
