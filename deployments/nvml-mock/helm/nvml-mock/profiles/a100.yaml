@@ -305,7 +305,7 @@ device_defaults:
     # Every row declares its full geometry. `slices` restates the width the
     # nvml_profile enum already spans so load can reconcile the two rather
     # than trust either. `placements` are in *memory units*, not compute
-    # slices: a 7-slice board has eight units, so a 1g row is eight starts of
+    # slices: a 7-slice board has eight units, so a 1g row is seven starts of
     # size 1 and the full-board row is one `{start: 0, size: 8}`.
     # `compute_instances` is the row's `mig -lcip` listing, and its engine
     # counts are NVML's Shared* fields, which repeat the GPU instance's.
