@@ -13,7 +13,9 @@ LOG_DIR="${LOG_DIR:-$SCRIPT_DIR/logs}"
 
 EXPECTED_GPUS="${EXPECTED_GPUS:-8}"
 CLUSTER_NAME="${CLUSTER_NAME:-nvml-mock-poc}"
-DRA_CHART_VERSION="${DRA_CHART_VERSION:-0.5.0}"  # Set to "" to track latest
+# No colon in the expansion: an explicitly empty value must survive, since that
+# is the documented way to opt out of the pin and track the latest chart.
+DRA_CHART_VERSION="${DRA_CHART_VERSION-0.5.0}"  # Set to "" to track latest
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
