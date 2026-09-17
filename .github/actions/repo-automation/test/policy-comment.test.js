@@ -22,7 +22,11 @@ function policyResult(overrides = {}) {
 }
 
 test("renders one stable marker and the current live head OID", () => {
-  const { POLICY_COMMENT_MARKER, renderPolicyComment } = require("../src/policy-comment.js");
+  const {
+    POLICY_COMMENT_MARKER,
+    parseMetadataHeadEvidence,
+    renderPolicyComment,
+  } = require("../src/policy-comment.js");
 
   const body = renderPolicyComment(policyResult());
 
@@ -32,6 +36,16 @@ test("renders one stable marker and the current live head OID", () => {
   assert.match(body, /title/i);
   assert.match(body, /DCO/i);
   assert.match(body, /ownership/i);
+  assert.equal(parseMetadataHeadEvidence(body), "live-head-oid-6f9d");
+});
+
+test("rejects missing, duplicate, or malformed metadata head evidence", () => {
+  const { parseMetadataHeadEvidence } = require("../src/policy-comment.js");
+  const marker = "<!-- repo-automation-metadata-head:v1 {\"headOid\":\"a\"} -->";
+
+  assert.equal(parseMetadataHeadEvidence("no evidence"), null);
+  assert.equal(parseMetadataHeadEvidence(`${marker}\n${marker}`), null);
+  assert.equal(parseMetadataHeadEvidence("<!-- repo-automation-metadata-head:v1 {} -->"), null);
 });
 
 test("renders deterministically from normalized policy results", () => {
@@ -102,4 +116,35 @@ test("renders adversarial OIDs and paths without breaking diagnostic delimiters"
   assert.equal(body.includes("<script>"), false);
   assert.match(body, /&lt;script&gt;/);
   assert.match(body, /<code>.*@everyone.*<\/code>/);
+});
+
+test("preserves one valid command-state marker during metadata refresh", () => {
+  const { renderPolicyComment } = require("../src/policy-comment.js");
+  const state = "<!-- repo-automation-state:v2 {\"repository\":\"nvidia/k8s-test-infra\"} -->";
+  const existing = `${MARKER}\n${state}\nold visible text\n`;
+
+  const body = renderPolicyComment(policyResult(), existing);
+
+  assert.equal(body.split(state).length - 1, 1);
+  assert.equal(body.includes("old visible text"), false);
+});
+
+test("renders bounded command results without reflecting raw command text", () => {
+  const {
+    renderCommandPolicyComment,
+  } = require("../src/policy-comment.js");
+  const serializedState = "<!-- repo-automation-state:v2 {\"safe\":true} -->";
+  const secret = "raw-command-secret-2a91";
+  const body = renderCommandPolicyComment({
+    existingBody: `${MARKER}\n## PR metadata policy\n\nHead: <code>head</code>\n`,
+    serializedState,
+    commands: [{ line: 1, name: "lgtm", status: "applied", code: "lgtm-recorded", raw: secret }],
+    diagnostics: [],
+    policy: { lgtm: true, approved: false, hold: false, needsApproval: true },
+  });
+
+  assert.equal(body.split(MARKER).length - 1, 1);
+  assert.equal(body.split("repo-automation-state:v2").length - 1, 1);
+  assert.match(body, /lgtm-recorded/);
+  assert.equal(body.includes(secret), false);
 });

@@ -289,11 +289,11 @@ async function runMetadata({ event, github, config, dryRun }) {
     reviewers,
     apply: { status: dryRun ? "planned" : "pending", attempted: [], applied: [], failed: null },
   };
-  const commentBody = renderPolicyComment(resultBase);
-  const existingComment = await github.planPolicyComment(identity.prNumber, POLICY_COMMENT_MARKER);
+  const existingComment = await github.getPolicyComment(identity.prNumber, POLICY_COMMENT_MARKER);
+  const commentBody = renderPolicyComment(resultBase, existingComment.body);
   const result = {
     ...resultBase,
-    comment: { marker: POLICY_COMMENT_MARKER, body: commentBody, ...existingComment },
+    comment: { marker: POLICY_COMMENT_MARKER, ...existingComment, body: commentBody },
   };
   const failures = policyFailureNames(result);
 

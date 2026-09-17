@@ -42,7 +42,7 @@ const readOperations = new Set([
   "getContentAtDefaultBranch",
   "getDefaultBranchRevision",
   "getContentAtRevision",
-  "planPolicyComment",
+  "getPolicyComment",
 ]);
 const writeOperations = new Set([
   "requestReviewers",
@@ -68,12 +68,14 @@ function metadataState(overrides = {}) {
   return {
     pullRequest: {
       number: 42,
+      nodeId: "PR_kwDOABC42",
       title: "feat: secure metadata automation",
       body: "live-private-body-secret-sentinel-b037",
       draft: true,
       author: "pr-author",
       headOid: "live-head-oid-6f9d",
       state: "open",
+      baseBranch: "main",
       baseRepository: { owner: "nvidia", repo: "k8s-test-infra" },
     },
     filePages: [
@@ -329,7 +331,13 @@ test("GitHub boundary paginates and normalizes every metadata list", async () =>
     [{ filename: "b.go", additions: 3, deletions: 4, status: "added" }],
   ]);
   const listCommits = endpoint("commits", [[signedCommit()], [signedCommit({ sha: "second" })]]);
-  const listReviews = endpoint("reviews", [[{ user: { login: "alice" }, state: "APPROVED", commit_id: "head" }], []]);
+  const listReviews = endpoint("reviews", [[{
+    id: 7,
+    user: { login: "alice" },
+    state: "APPROVED",
+    commit_id: "head",
+    submitted_at: "2026-09-17T10:00:00.000Z",
+  }], []]);
   const listRequested = endpoint("requested", [[{ users: [{ login: "alice" }], teams: [] }], [{ users: [{ login: "bob" }], teams: [] }]]);
   const listLabels = endpoint("labels", [[{ name: "kind/bug" }], [{ name: "lgtm" }]]);
   const octokit = {
@@ -363,7 +371,13 @@ test("GitHub boundary paginates and normalizes every metadata list", async () =>
   ]);
   assert.equal((await github.listPullRequestCommits(42)).length, 2);
   assert.deepEqual(await github.listPullRequestReviews(42), [
-    { user: "alice", state: "APPROVED", commitOid: "head" },
+    {
+      id: 7,
+      user: "alice",
+      state: "APPROVED",
+      commitOid: "head",
+      submittedAt: "2026-09-17T10:00:00.000Z",
+    },
   ]);
   assert.deepEqual(await github.listRequestedReviewers(42), ["alice", "bob"]);
   assert.deepEqual(await github.listIssueLabels(42), ["kind/bug", "lgtm"]);
@@ -381,13 +395,14 @@ test("GitHub boundary re-fetches PR and default branch content without an event 
           calls.push({ operation: "pull", parameters });
           return { data: {
             number: 42,
+            node_id: "PR_kwDOABC42",
             title: "feat: live",
             body: "private-live-body",
             draft: false,
             state: "open",
             user: { login: "author" },
             head: { sha: "live-head" },
-            base: { repo: { name: "k8s-test-infra", owner: { login: "nvidia" } } },
+            base: { ref: "main", repo: { name: "k8s-test-infra", owner: { login: "nvidia" } } },
           } };
         },
       },
@@ -427,12 +442,14 @@ test("GitHub boundary re-fetches PR and default branch content without an event 
 
   assert.deepEqual(await github.getPullRequest(42), {
     number: 42,
+    nodeId: "PR_kwDOABC42",
     title: "feat: live",
     body: "private-live-body",
     draft: false,
     author: "author",
     headOid: "live-head",
     state: "open",
+    baseBranch: "main",
     baseRepository: { owner: "nvidia", repo: "k8s-test-infra" },
   });
   assert.equal(await github.getContentAtDefaultBranch("/OWNERS_ALIASES"), "aliases: {}\n");
@@ -557,13 +574,14 @@ test("GitHub boundary retries transient idempotent operations only and never uns
           if (readAttempts < 3) throw transient;
           return { data: {
             number: 42,
+            node_id: "PR_kwDOABC42",
             title: "feat: live",
             body: "",
             draft: false,
             state: "open",
             user: { login: "author" },
             head: { sha: "head" },
-            base: { repo: { name: "k8s-test-infra", owner: { login: "nvidia" } } },
+            base: { ref: "main", repo: { name: "k8s-test-infra", owner: { login: "nvidia" } } },
           } };
         },
         async requestReviewers() {
@@ -1007,8 +1025,8 @@ test("retry policy handles transports and server-directed rate limits only", asy
         if (attempts === 1) throw failure;
         return { data: {
           number: 42, title: "feat: live", body: "", draft: false, state: "open",
-          user: { login: "author" }, head: { sha: "head" },
-          base: { repo: { name: "k8s-test-infra", owner: { login: "nvidia" } } },
+          user: { login: "author" }, node_id: "PR_kwDOABC42", head: { sha: "head" },
+          base: { ref: "main", repo: { name: "k8s-test-infra", owner: { login: "nvidia" } } },
         } };
       } } } };
       const github = createGitHubClient(octokit, "nvidia", "k8s-test-infra", {

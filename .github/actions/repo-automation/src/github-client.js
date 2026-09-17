@@ -3,7 +3,10 @@
 const { Buffer } = require("node:buffer");
 const { setTimeout: delay } = require("node:timers/promises");
 const { TextDecoder } = require("node:util");
-const { isManagedMetadataLabel } = require("./managed-labels.js");
+const {
+  isManagedMetadataLabel,
+  isManagedPolicyLabel,
+} = require("./managed-labels.js");
 const { MAX_API_COLLECTION_ITEMS } = require("./limits.js");
 
 const MAX_CONTENT_BYTES = 1024 * 1024;
@@ -17,6 +20,10 @@ const ACTIONS_COMMENT_AUTHOR = Object.freeze({
   login: "github-actions[bot]",
   type: "Bot",
 });
+const MERGE_POLICY_CHECK = "repository-automation/merge-policy";
+const REVIEW_STATES = new Set([
+  "APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED", "PENDING",
+]);
 
 function copyLabel(label) {
   return {
@@ -97,6 +104,58 @@ function repositoryPath(value) {
     throw new TypeError("content path must be a safe repository path");
   }
   return withoutSlash;
+}
+
+function normalizedLogin(value, name) {
+  return nonEmptyString(value, name).toLowerCase();
+}
+
+function mappedReview(review) {
+  const state = nonEmptyString(review?.state, "review state").toUpperCase();
+  if (!REVIEW_STATES.has(state)) throw new TypeError("review state is unsupported");
+  const mapped = {
+    id: positiveInteger(review?.id, "review id"),
+    user: normalizedLogin(review?.user?.login, "review user"),
+    state,
+    commitOid: review?.commit_id === null
+      ? null
+      : nonEmptyString(review?.commit_id, "review commit OID").toLowerCase(),
+  };
+  if (state !== "PENDING") {
+    mapped.submittedAt = nonEmptyString(review?.submitted_at, "review submission time");
+  }
+  return mapped;
+}
+
+function issueNumberFromUrl(value) {
+  if (typeof value !== "string") throw new TypeError("issue comment URL is invalid");
+  const match = /\/issues\/([1-9][0-9]*)$/.exec(value);
+  if (match === null) throw new TypeError("issue comment URL is invalid");
+  return positiveInteger(Number(match[1]), "issue comment pull request number");
+}
+
+function mappedWorkflowRun(run) {
+  const rawPath = nonEmptyString(run?.path, "workflow path");
+  const separator = rawPath.indexOf("@");
+  const workflowPath = separator === -1 ? rawPath : rawPath.slice(0, separator);
+  const workflowSourceRef = separator === -1 ? null : rawPath.slice(separator + 1);
+  if (workflowPath === "" || (separator !== -1 && workflowSourceRef === "")) {
+    throw new TypeError("workflow identity is invalid");
+  }
+  if (!Array.isArray(run?.pull_requests) || run.pull_requests.length !== 1) {
+    throw new TypeError("workflow run must bind exactly one pull request");
+  }
+  return {
+    id: positiveInteger(run.id, "workflow run id"),
+    headOid: nonEmptyString(run.head_sha, "workflow run head OID").toLowerCase(),
+    status: nonEmptyString(run.status, "workflow run status"),
+    conclusion: run.conclusion === null ? null : nonEmptyString(run.conclusion, "workflow conclusion"),
+    workflowPath,
+    workflowSourceRef,
+    event: nonEmptyString(run.event, "workflow event"),
+    prNumber: positiveInteger(run.pull_requests[0]?.number, "workflow pull request number"),
+    repository: nonEmptyString(run.repository?.full_name, "workflow repository").toLowerCase(),
+  };
 }
 
 function headersFor(error) {
@@ -277,7 +336,7 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
     throw new Error("unreachable repository policy path traversal");
   }
 
-  async function readCommentPlan(prNumber, marker) {
+  async function readPolicyComment(prNumber, marker) {
     positiveInteger(prNumber, "PR number");
     nonEmptyString(marker, "comment marker");
     const comments = await paginate("listIssueComments", octokit.rest.issues.listComments, {
@@ -294,9 +353,13 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
     ));
     if (matches.length > 1) throw new Error("duplicate policy comments");
     if (matches.length === 1) {
-      return { action: "update", id: positiveInteger(matches[0].id, "comment id") };
+      return {
+        action: "update",
+        id: positiveInteger(matches[0].id, "comment id"),
+        body: matches[0].body,
+      };
     }
-    return { action: "create", id: null };
+    return { action: "create", id: null, body: null };
   }
 
   async function writePolicyComment(prNumber, marker, body, plan) {
@@ -358,12 +421,14 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
       }
       return {
         number: positiveInteger(data.number, "live PR number"),
+        nodeId: nonEmptyString(data.node_id, "live PR node ID"),
         title: nonEmptyString(data.title, "live PR title"),
         body: typeof data.body === "string" ? data.body : "",
         draft: data.draft,
         author: nonEmptyString(data.user?.login, "live PR author"),
         headOid: nonEmptyString(data.head?.sha, "live PR head OID"),
         state: nonEmptyString(data.state, "live PR state").toLowerCase(),
+        baseBranch: nonEmptyString(data.base?.ref, "live PR base branch"),
         baseRepository: {
           owner: nonEmptyString(data.base?.repo?.owner?.login, "base repository owner").toLowerCase(),
           repo: nonEmptyString(data.base?.repo?.name, "base repository name").toLowerCase(),
@@ -404,11 +469,66 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
       const reviews = await paginate("listPullRequestReviews", octokit.rest.pulls.listReviews, {
         owner, repo, pull_number: prNumber,
       });
-      return reviews.map((review) => ({
-        user: nonEmptyString(review.user?.login, "review user"),
-        state: nonEmptyString(review.state, "review state"),
-        commitOid: review.commit_id === null ? null : nonEmptyString(review.commit_id, "review commit OID"),
-      }));
+      return reviews.map(mappedReview);
+    },
+
+    async getPullRequestReview(prNumber, reviewId) {
+      positiveInteger(prNumber, "PR number");
+      positiveInteger(reviewId, "review id");
+      const response = await call("getPullRequestReview", () => octokit.rest.pulls.getReview({
+        owner, repo, pull_number: prNumber, review_id: reviewId,
+      }), true);
+      return mappedReview(response.data);
+    },
+
+    async getIssueComment(commentId) {
+      positiveInteger(commentId, "comment id");
+      const response = await call("getIssueComment", () => octokit.rest.issues.getComment({
+        owner, repo, comment_id: commentId,
+      }), true);
+      const data = response.data;
+      return {
+        id: positiveInteger(data?.id, "live comment id"),
+        issueNumber: issueNumberFromUrl(data?.issue_url),
+        body: typeof data?.body === "string" ? data.body : "",
+        author: normalizedLogin(data?.user?.login, "live comment author"),
+        authorType: nonEmptyString(data?.user?.type, "live comment author type"),
+        edited: data?.updated_at !== data?.created_at,
+      };
+    },
+
+    async getUserIdentity(login) {
+      const normalized = normalizedLogin(login, "user login");
+      try {
+        const response = await call("getUserIdentity", () => octokit.rest.users.getByUsername({
+          username: normalized,
+        }), true);
+        return {
+          login: normalizedLogin(response.data?.login, "resolved user login"),
+          type: nonEmptyString(response.data?.type, "resolved user type"),
+          resolved: true,
+          deleted: false,
+        };
+      } catch (error) {
+        if (error.status !== 404) throw error;
+        return { login: normalized, type: null, resolved: false, deleted: true };
+      }
+    },
+
+    async getCollaboratorAccess(login) {
+      const normalized = normalizedLogin(login, "collaborator login");
+      try {
+        const response = await call("getCollaboratorAccess", () => (
+          octokit.rest.repos.getCollaboratorPermissionLevel({
+            owner, repo, username: normalized,
+          })
+        ), true);
+        const permission = nonEmptyString(response.data?.permission, "collaborator permission").toLowerCase();
+        return { liveCollaborator: permission !== "none", permission };
+      } catch (error) {
+        if (error.status !== 404) throw error;
+        return { liveCollaborator: false, permission: "none" };
+      }
     },
 
     async listRequestedReviewers(prNumber) {
@@ -498,12 +618,162 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
       }
     },
 
+    async addPolicyLabel(prNumber, label) {
+      positiveInteger(prNumber, "PR number");
+      if (!isManagedPolicyLabel(label)) throw new TypeError("label is not policy-managed");
+      await call("addPolicyLabel", () => octokit.rest.issues.addLabels({
+        owner, repo, issue_number: prNumber, labels: [label.toLowerCase()],
+      }), true);
+    },
+
+    async removePolicyLabel(prNumber, label) {
+      positiveInteger(prNumber, "PR number");
+      if (!isManagedPolicyLabel(label)) throw new TypeError("label is not policy-managed");
+      try {
+        await call("removePolicyLabel", () => octokit.rest.issues.removeLabel({
+          owner, repo, issue_number: prNumber, name: label.toLowerCase(),
+        }), true);
+      } catch (error) {
+        if (error.status !== 404) throw error;
+      }
+    },
+
+    async listWorkflowRunsForHead(headOid, prNumber) {
+      nonEmptyString(headOid, "workflow head OID");
+      positiveInteger(prNumber, "PR number");
+      const runs = await paginate(
+        "listWorkflowRunsForHead",
+        octokit.rest.actions.listWorkflowRunsForRepo,
+        { owner, repo, head_sha: headOid },
+        (response) => response.data.workflow_runs,
+      );
+      return runs.map(mappedWorkflowRun).filter((run) => (
+        run.headOid === headOid.toLowerCase() && run.prNumber === prNumber
+      ));
+    },
+
+    async getWorkflowRun(runId, headOid, prNumber) {
+      positiveInteger(runId, "workflow run id");
+      nonEmptyString(headOid, "workflow head OID");
+      positiveInteger(prNumber, "PR number");
+      const response = await call("getWorkflowRun", () => octokit.rest.actions.getWorkflowRun({
+        owner, repo, run_id: runId,
+      }), true);
+      const run = mappedWorkflowRun(response.data);
+      if (run.id !== runId || run.headOid !== headOid.toLowerCase() || run.prNumber !== prNumber) {
+        throw new Error("workflow run identity changed");
+      }
+      return run;
+    },
+
+    async rerunFailedJobs(runId) {
+      positiveInteger(runId, "workflow run id");
+      await call("rerunFailedJobs", () => octokit.rest.actions.reRunWorkflowFailedJobs({
+        owner, repo, run_id: runId,
+      }), false);
+    },
+
+    async listOpenPullRequestNumbers() {
+      const pullRequests = await paginate("listOpenPullRequests", octokit.rest.pulls.list, {
+        owner, repo, state: "open",
+      });
+      return pullRequests.map((pullRequest) => positiveInteger(pullRequest.number, "open PR number"));
+    },
+
+    async getMergeState(prNumber) {
+      positiveInteger(prNumber, "PR number");
+      const response = await call("getMergeState", () => octokit.graphql(`
+        query RepositoryAutomationMergeState($owner: String!, $repo: String!, $number: Int!) {
+          repository(owner: $owner, name: $repo) {
+            pullRequest(number: $number) {
+              number id state isDraft mergeable headRefOid baseRefName
+              autoMergeRequest { mergeMethod }
+            }
+          }
+        }
+      `, { owner, repo, number: prNumber }), true);
+      const pullRequest = response?.repository?.pullRequest;
+      return {
+        number: positiveInteger(pullRequest?.number, "GraphQL PR number"),
+        nodeId: nonEmptyString(pullRequest?.id, "GraphQL PR node ID"),
+        repository: `${owner}/${repo}`.toLowerCase(),
+        state: nonEmptyString(pullRequest?.state, "GraphQL PR state").toUpperCase(),
+        draft: pullRequest?.isDraft,
+        mergeability: nonEmptyString(pullRequest?.mergeable, "GraphQL mergeability").toUpperCase(),
+        headOid: nonEmptyString(pullRequest?.headRefOid, "GraphQL head OID").toLowerCase(),
+        baseBranch: nonEmptyString(pullRequest?.baseRefName, "GraphQL base branch"),
+        autoMergeMethod: pullRequest?.autoMergeRequest === null
+          ? null
+          : nonEmptyString(pullRequest?.autoMergeRequest?.mergeMethod, "auto-merge method").toUpperCase(),
+      };
+    },
+
+    async getBranchProtection(branch) {
+      nonEmptyString(branch, "branch");
+      try {
+        await call("getBranchProtection", () => octokit.rest.repos.getBranchProtection({
+          owner, repo, branch,
+        }), true);
+        return true;
+      } catch (error) {
+        if (error.status === 404) return false;
+        throw error;
+      }
+    },
+
+    async setMergePolicyCheck(prNumber, headOid, conclusion, summary) {
+      positiveInteger(prNumber, "PR number");
+      nonEmptyString(headOid, "merge policy head OID");
+      if (conclusion !== "success" && conclusion !== "action_required") {
+        throw new TypeError("merge policy conclusion is invalid");
+      }
+      nonEmptyString(summary, "merge policy summary");
+      await call("setMergePolicyCheck", () => octokit.rest.checks.create({
+        owner,
+        repo,
+        name: MERGE_POLICY_CHECK,
+        head_sha: headOid,
+        status: "completed",
+        conclusion,
+        output: { title: MERGE_POLICY_CHECK, summary },
+      }), false);
+    },
+
+    async enableAutoMerge(nodeId, mergeMethod) {
+      nonEmptyString(nodeId, "pull request node ID");
+      if (mergeMethod !== "SQUASH") throw new TypeError("auto-merge method must be SQUASH");
+      await call("enableAutoMerge", () => octokit.graphql(`
+        mutation EnableAutoMerge($pullRequestId: ID!, $mergeMethod: PullRequestMergeMethod!) {
+          enablePullRequestAutoMerge(input: {
+            pullRequestId: $pullRequestId,
+            mergeMethod: $mergeMethod
+          }) { clientMutationId }
+        }
+      `, { pullRequestId: nodeId, mergeMethod }), false);
+    },
+
+    async disableAutoMerge(nodeId) {
+      nonEmptyString(nodeId, "pull request node ID");
+      await call("disableAutoMerge", () => octokit.graphql(`
+        mutation DisableAutoMerge($pullRequestId: ID!) {
+          disablePullRequestAutoMerge(input: { pullRequestId: $pullRequestId }) {
+            clientMutationId
+          }
+        }
+      `, { pullRequestId: nodeId }), false);
+    },
+
+    async getPolicyComment(prNumber, marker) {
+      return readPolicyComment(prNumber, marker);
+    },
+
     async planPolicyComment(prNumber, marker) {
-      return readCommentPlan(prNumber, marker);
+      const comment = await readPolicyComment(prNumber, marker);
+      return { action: comment.action, id: comment.id };
     },
 
     async upsertPolicyComment(prNumber, marker, body, existingPlan) {
-      const plan = existingPlan ?? await readCommentPlan(prNumber, marker);
+      const plan = existingPlan ?? await readPolicyComment(prNumber, marker);
       return writePolicyComment(prNumber, marker, body, plan);
     },
   };

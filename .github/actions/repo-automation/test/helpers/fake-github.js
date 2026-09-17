@@ -25,6 +25,13 @@ function createFakeGitHub(initialState = []) {
     Object.hasOwn(label, "color") ? copyLabel(label) : { name: label.name ?? label }
   ));
   const comments = clone(options.comments ?? []);
+  const issueComments = new Map(
+    (options.issueComments ?? []).map((comment) => [comment.id, clone(comment)]),
+  );
+  const users = clone(options.users ?? {});
+  const collaboratorAccess = clone(options.collaboratorAccess ?? {});
+  const workflowRuns = clone(options.workflowRuns ?? []);
+  const mergeStates = clone(options.mergeStates ?? []);
   const automationLogin = options.automationLogin ?? "github-actions[bot]";
   for (const comment of comments) {
     if (comment.author === undefined) comment.author = automationLogin;
@@ -45,6 +52,10 @@ function createFakeGitHub(initialState = []) {
     listPullRequestFiles: [],
     listPullRequestCommits: [],
     listPullRequestReviews: [],
+    getPullRequestReview: [],
+    getIssueComment: [],
+    getUserIdentity: [],
+    getCollaboratorAccess: [],
     listRequestedReviewers: [],
     listIssueLabels: [],
     getContentAtDefaultBranch: [],
@@ -53,6 +64,18 @@ function createFakeGitHub(initialState = []) {
     requestReviewers: [],
     addIssueLabel: [],
     removeIssueLabel: [],
+    addPolicyLabel: [],
+    removePolicyLabel: [],
+    listWorkflowRunsForHead: [],
+    getWorkflowRun: [],
+    rerunFailedJobs: [],
+    listOpenPullRequestNumbers: [],
+    getMergeState: [],
+    getBranchProtection: [],
+    setMergePolicyCheck: [],
+    enableAutoMerge: [],
+    disableAutoMerge: [],
+    getPolicyComment: [],
     planPolicyComment: [],
     upsertPolicyComment: [],
   };
@@ -125,6 +148,40 @@ function createFakeGitHub(initialState = []) {
       return clone((options.reviewPages ?? [options.reviews ?? []]).flat());
     },
 
+    async getPullRequestReview(prNumber, reviewId) {
+      record("getPullRequestReview", { prNumber, reviewId });
+      const review = (options.reviewPages ?? [options.reviews ?? []])
+        .flat()
+        .find((candidate) => candidate.id === reviewId);
+      if (review === undefined) throw new Error(`missing pull request review: ${reviewId}`);
+      return clone(review);
+    },
+
+    async getIssueComment(commentId) {
+      record("getIssueComment", { commentId });
+      const comment = issueComments.get(commentId);
+      if (comment === undefined) throw new Error(`missing issue comment: ${commentId}`);
+      return clone(comment);
+    },
+
+    async getUserIdentity(login) {
+      record("getUserIdentity", { login });
+      return clone(users[login] ?? {
+        login,
+        type: "User",
+        resolved: true,
+        deleted: false,
+      });
+    },
+
+    async getCollaboratorAccess(login) {
+      record("getCollaboratorAccess", { login });
+      return clone(collaboratorAccess[login] ?? {
+        liveCollaborator: false,
+        permission: "none",
+      });
+    },
+
     async listRequestedReviewers(prNumber) {
       record("listRequestedReviewers", { prNumber });
       return [...requestedReviewers];
@@ -178,6 +235,77 @@ function createFakeGitHub(initialState = []) {
       if (index !== -1) {
         labels.splice(index, 1);
       }
+    },
+
+    async addPolicyLabel(prNumber, label) {
+      record("addPolicyLabel", { prNumber, label });
+      if (!labels.some((entry) => entry.name === label)) labels.push({ name: label });
+    },
+
+    async removePolicyLabel(prNumber, label) {
+      record("removePolicyLabel", { prNumber, label });
+      const index = labels.findIndex((entry) => entry.name === label);
+      if (index !== -1) labels.splice(index, 1);
+    },
+
+    async listWorkflowRunsForHead(headOid, prNumber) {
+      record("listWorkflowRunsForHead", { headOid, prNumber });
+      return clone(workflowRuns.filter((run) => run.headOid === headOid && run.prNumber === prNumber));
+    },
+
+    async getWorkflowRun(runId, headOid, prNumber) {
+      record("getWorkflowRun", { runId, headOid, prNumber });
+      const run = workflowRuns.find((candidate) => (
+        candidate.id === runId && candidate.headOid === headOid && candidate.prNumber === prNumber
+      ));
+      if (run === undefined) throw new Error(`missing workflow run: ${runId}`);
+      return clone(run);
+    },
+
+    async rerunFailedJobs(runId) {
+      record("rerunFailedJobs", { runId });
+    },
+
+    async listOpenPullRequestNumbers() {
+      record("listOpenPullRequestNumbers", {});
+      return clone(options.openPullRequestNumbers ?? pullRequests
+        .filter((pullRequest) => pullRequest?.state === "open")
+        .map((pullRequest) => pullRequest.number));
+    },
+
+    async getMergeState(prNumber) {
+      record("getMergeState", { prNumber });
+      const index = Math.min(calls.getMergeState.length - 1, mergeStates.length - 1);
+      if (index < 0) throw new Error("missing merge state");
+      return clone(mergeStates[index]);
+    },
+
+    async getBranchProtection(branch) {
+      record("getBranchProtection", { branch });
+      return options.branchProtection?.[branch] ?? false;
+    },
+
+    async setMergePolicyCheck(prNumber, headOid, conclusion, summary) {
+      record("setMergePolicyCheck", { prNumber, headOid, conclusion, summary });
+    },
+
+    async enableAutoMerge(nodeId, mergeMethod) {
+      record("enableAutoMerge", { nodeId, mergeMethod });
+    },
+
+    async disableAutoMerge(nodeId) {
+      record("disableAutoMerge", { nodeId });
+    },
+
+    async getPolicyComment(prNumber, marker) {
+      record("getPolicyComment", { prNumber, marker });
+      const matches = comments.filter(
+        (comment) => comment.author === automationLogin && comment.body.includes(marker),
+      );
+      if (matches.length > 1) throw new Error("duplicate policy comments");
+      return matches.length === 1
+        ? { action: "update", id: matches[0].id, body: matches[0].body }
+        : { action: "create", id: null, body: null };
     },
 
     async planPolicyComment(prNumber, marker) {

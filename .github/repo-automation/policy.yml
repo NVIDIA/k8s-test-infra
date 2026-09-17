@@ -5,6 +5,9 @@ review:
   reviewerTarget: 2
 commands:
   retestCooldownSeconds: 600
+  historyLimit: 256
+  retestWorkflows: [.github/workflows/automation-ci.yml]
+  backportBranches: ["release-*"]
 merge:
   method: SQUASH
 bots:

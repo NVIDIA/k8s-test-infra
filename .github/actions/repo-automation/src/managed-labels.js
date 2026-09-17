@@ -1,6 +1,12 @@
 "use strict";
 
 const MANAGED_STATE_LABELS = new Set(["do-not-merge/work-in-progress"]);
+const MANAGED_POLICY_LABELS = new Set([
+  "lgtm",
+  "approved",
+  "do-not-merge/hold",
+  "do-not-merge/needs-approval",
+]);
 
 function isManagedMetadataLabel(label) {
   if (typeof label !== "string") return false;
@@ -11,4 +17,8 @@ function isManagedMetadataLabel(label) {
     || MANAGED_STATE_LABELS.has(normalized);
 }
 
-module.exports = { isManagedMetadataLabel };
+function isManagedPolicyLabel(label) {
+  return typeof label === "string" && MANAGED_POLICY_LABELS.has(label.toLowerCase());
+}
+
+module.exports = { isManagedMetadataLabel, isManagedPolicyLabel };

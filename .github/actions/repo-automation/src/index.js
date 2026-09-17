@@ -3,7 +3,9 @@
 const { Buffer } = require("node:buffer");
 const { loadConfig } = require("./config.js");
 const { createGitHubClient } = require("./github-client.js");
+const { runCommand } = require("./modes/command.js");
 const { syncLabels } = require("./modes/label-sync.js");
+const { runMergeEvaluate } = require("./modes/merge-evaluate.js");
 const { runMetadata } = require("./modes/metadata.js");
 const { MAX_SUMMARY_BYTES } = require("./limits.js");
 
@@ -18,7 +20,7 @@ function serializeSummary(summary) {
 async function run(dependencies) {
   const { core } = dependencies;
   const mode = core.getInput("mode", { required: true });
-  if (mode !== "label-sync" && mode !== "metadata") {
+  if (!["label-sync", "metadata", "command", "merge-evaluate"].includes(mode)) {
     throw new Error(`Unsupported mode: ${mode}`);
   }
 
@@ -30,6 +32,7 @@ async function run(dependencies) {
   } = dependencies;
   const client = dependencies.githubClient ?? createGitHubClient(octokit, owner, repo);
   const dryRun = core.getBooleanInput("dry-run");
+  const prNumber = core.getInput("pr-number");
   let config;
   if (mode === "metadata") {
     try {
@@ -42,18 +45,43 @@ async function run(dependencies) {
   }
   let summary;
   try {
-    summary = mode === "label-sync"
-      ? await syncLabels({
+    switch (mode) {
+      case "label-sync":
+        summary = await syncLabels({
         github: client,
         declaredLabels: config.labels.labels,
         dryRun,
-      })
-      : await runMetadata({
-        event: dependencies.event,
-        github: client,
-        config,
-        dryRun,
-      });
+        });
+        break;
+      case "metadata":
+        summary = await runMetadata({
+          event: dependencies.event,
+          github: client,
+          config,
+          dryRun,
+        });
+        break;
+      case "command":
+        summary = await runCommand({
+          event: dependencies.event,
+          github: client,
+          config,
+          dryRun,
+        });
+        break;
+      case "merge-evaluate":
+        summary = await runMergeEvaluate({
+          event: dependencies.event,
+          eventName: dependencies.eventName,
+          github: client,
+          config,
+          dryRun,
+          prNumber,
+        });
+        break;
+      default:
+        throw new Error(`Unsupported mode: ${mode}`);
+    }
   } catch (error) {
     if (error?.summary !== undefined) {
       core.setOutput("summary", serializeSummary(error.summary));
@@ -73,7 +101,14 @@ async function executeAction() {
   try {
     const { owner, repo } = github.context.repo;
     const octokit = github.getOctokit(process.env.GITHUB_TOKEN);
-    await run({ core, octokit, owner, repo, event: github.context.payload });
+    await run({
+      core,
+      octokit,
+      owner,
+      repo,
+      event: github.context.payload,
+      eventName: github.context.eventName,
+    });
   } catch (error) {
     core.setFailed(error instanceof Error ? error.message : String(error));
   }

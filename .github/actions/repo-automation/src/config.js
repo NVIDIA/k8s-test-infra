@@ -137,16 +137,69 @@ function validatePolicy(policy, errors) {
   }
 
   if (requireRecord(policy.commands, "policy.commands", errors)) {
-    rejectUnknownKeys(policy.commands, ["retestCooldownSeconds"], "policy.commands", errors);
-    if (
-      !Number.isInteger(policy.commands.retestCooldownSeconds)
-      || policy.commands.retestCooldownSeconds < 0
-    ) {
+    rejectUnknownKeys(
+      policy.commands,
+      ["retestCooldownSeconds", "historyLimit", "retestWorkflows", "backportBranches"],
+      "policy.commands",
+      errors,
+    );
+    if (policy.commands.retestCooldownSeconds !== 600) {
       addError(
         errors,
         "policy.commands.retestCooldownSeconds",
-        "must be a non-negative integer",
+        "must be 600",
       );
+    }
+    if (
+      !Number.isInteger(policy.commands.historyLimit)
+      || policy.commands.historyLimit < 1
+      || policy.commands.historyLimit > 256
+    ) {
+      addError(errors, "policy.commands.historyLimit", "must be an integer from 1 through 256");
+    }
+    if (requireStringArray(
+      policy.commands.retestWorkflows,
+      "policy.commands.retestWorkflows",
+      errors,
+      32,
+    )) {
+      const seen = new Set();
+      for (let index = 0; index < policy.commands.retestWorkflows.length; index += 1) {
+        const workflow = policy.commands.retestWorkflows[index];
+        if (
+          typeof workflow !== "string"
+          || !/^\.github\/workflows\/[A-Za-z0-9][A-Za-z0-9._/-]{0,471}\.ya?ml$/.test(workflow)
+          || workflow.includes("//")
+          || workflow.split("/").some((segment) => segment === "." || segment === "..")
+          || seen.has(workflow)
+        ) {
+          addError(errors, `policy.commands.retestWorkflows[${index}]`, "must be a unique safe workflow path");
+        }
+        seen.add(workflow);
+      }
+    }
+    if (requireStringArray(
+      policy.commands.backportBranches,
+      "policy.commands.backportBranches",
+      errors,
+      64,
+    )) {
+      const seen = new Set();
+      for (let index = 0; index < policy.commands.backportBranches.length; index += 1) {
+        const pattern = policy.commands.backportBranches[index];
+        const wildcard = typeof pattern === "string" && pattern.endsWith("*");
+        const prefix = wildcard ? pattern.slice(0, -1) : pattern;
+        if (
+          typeof pattern !== "string"
+          || prefix === ""
+          || prefix.includes("*")
+          || !/^(?!-)(?!.*(?:\.\.|@\{|\/\/|\\|[\x00-\x20\x7f~^:?*\[]))[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/.test(prefix)
+          || seen.has(pattern)
+        ) {
+          addError(errors, `policy.commands.backportBranches[${index}]`, "must be a unique safe branch pattern");
+        }
+        seen.add(pattern);
+      }
     }
   }
 

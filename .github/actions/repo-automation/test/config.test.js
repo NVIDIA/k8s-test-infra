@@ -134,6 +134,12 @@ test("loads exact authority, branch, review, command, bot, and size policy", () 
   assert.deepEqual(policy.protectedBranches, ["main", "release-*"]);
   assert.equal(policy.review.reviewerTarget, 2);
   assert.equal(policy.commands.retestCooldownSeconds, 600);
+  assert.equal(policy.commands.historyLimit, 256);
+  assert.deepEqual(policy.commands.retestWorkflows, [
+    ".github/workflows/automation-ci.yml",
+  ]);
+  assert.deepEqual(policy.commands.backportBranches, ["release-*"]);
+  assert.equal(policy.merge.method, "SQUASH");
   assert.deepEqual(policy.bots, [
     {
       login: "dependabot[bot]",
@@ -175,6 +181,26 @@ test("rejects invalid policy values with path-specific errors instead of default
     "policy.merge.method",
     "policy.bots[0].emails",
     "policy.sizeThresholds.S",
+  ]);
+});
+
+test("rejects unsafe command bounds, workflow paths, and backport patterns", () => {
+  const valid = loadConfig(repositoryRoot);
+  const policy = {
+    ...valid.policy,
+    commands: {
+      retestCooldownSeconds: 599,
+      historyLimit: 257,
+      retestWorkflows: ["../workflows/hostile.yml"],
+      backportBranches: ["refs/heads/*/nested*"],
+    },
+  };
+
+  assertConfigError(() => validateConfig({ ...valid, policy }), [
+    "policy.commands.retestCooldownSeconds",
+    "policy.commands.historyLimit",
+    "policy.commands.retestWorkflows[0]",
+    "policy.commands.backportBranches[0]",
   ]);
 });
 
