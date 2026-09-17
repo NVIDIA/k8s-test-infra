@@ -4,17 +4,18 @@ Tested component versions for the mock GPU E2E test suite.
 
 ## Tested Versions
 
-"Status" means exactly what CI does, not what the suite is capable of. Three of
-these components are installed as GPU Operator operands from a Helm chart that
-carries no `--version`, so their versions **float**: the value recorded here is
-what a run resolved on the stated date, not a constraint. Only Node Feature
-Discovery is pinned (`scenario_nfd_test.go:126`).
+"Status" means exactly what CI does, not what the suite is capable of. The GPU
+Operator and its operands are installed from a Helm chart that carries no
+`--version`, so their versions **float**: the value recorded here is what a run
+resolved on the stated date, not a constraint. The two Helm charts installed
+directly are pinned — Node Feature Discovery (`scenario_nfd_test.go:126`) and
+the DRA driver (`local/dra/dra.tiltfile`).
 
 | Component | Version | Chart / Image | Status |
 |---|---|---|---|
 | NVIDIA Device Plugin (standalone) | v0.18.2 | `nvcr.io/nvidia/k8s-device-plugin:v0.18.2` | **Pinned** + runs in CI (`e2e-nri` ×6 profiles, `e2e-multi-node`) |
 | NVIDIA Device Plugin (GPU Operator operand) | floats — v0.19.3 observed 2026-07-29 | from the `gpu-operator` chart | Not pinned; runs in CI |
-| DRA Driver (GPU) | floats — chart carries no `--version` | `nvidia/nvidia-dra-driver-gpu` (Helm) | Not pinned; runs in CI |
+| DRA Driver (GPU) | 0.5.0 | `nvidia/dra-driver-nvidia-gpu` (Helm) | **Pinned** + runs in CI |
 | GPU Feature Discovery (standalone) | v0.8.2 | `nvcr.io/nvidia/gpu-feature-discovery:v0.8.2` | Pinned, **not run in CI** — see below |
 | Node Feature Discovery | v0.19.0 | `nfd/node-feature-discovery` (Helm) | **Pinned** + runs in CI |
 | CUDA vectorAdd sample | cuda12.5.0 | `nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0` | Pinned, **not run in CI** — see below |

@@ -59,6 +59,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- nvml-mock: `device_defaults.architecture` now accepts `rubin`, which NVML
+  defines and the mock previously resolved to `NVML_DEVICE_ARCH_UNKNOWN`, so a
+  Rubin profile failed every architecture-gated feature. Spellings are also
+  matched case-insensitively and with surrounding whitespace trimmed. An exact
+  match was required before, and anything else degraded silently to `UNKNOWN`.
+- e2e: the end-to-end test harness now rejects a chart profile whose
+  `device_defaults.architecture` is missing or names no recognized generation.
+  It previously loaded with an architecture nothing recognized, leaving each
+  "this generation and newer" expectation to answer from a default rather than
+  from the profile. This is a test-suite check only; the chart and the mock
+  still accept such a profile and report `NVML_DEVICE_ARCH_UNKNOWN` for it.
+- The DRA driver is now installed from `nvidia/dra-driver-nvidia-gpu` pinned at
+  `0.5.0`, replacing the unpinned `nvidia/nvidia-dra-driver-gpu`. `0.5.0` is
+  published only under the new chart name, which follows the upstream rename to
+  `kubernetes-sigs/dra-driver-nvidia-gpu`. The `e2e-dra` job installs through
+  `local/dra/dra.tiltfile`, so it previously resolved whatever NGC had published
+  that morning and a red run could not be told apart from a regression here.
+  Every value in `local/dra/dra-driver.values.yaml` carries over unchanged. If
+  you select the driver's pods by label, note the chart renames
+  `app.kubernetes.io/name` to `dra-driver-nvidia-gpu` and replaces
+  `app.kubernetes.io/component=kubelet-plugin` with
+  `dra-driver-nvidia-gpu-component=kubelet-plugin`. The GPU Operator chart still
+  floats — see [#581](https://github.com/NVIDIA/k8s-test-infra/issues/581).
 - `libpcisysfs.so` is now `libmockfs.so`. The shim redirects kernel-module paths
   as well as PCI sysfs, so its name no longer described what it does. The
   `MOCK_PCI_ROOT` variable that points it at the fake tree is unchanged.
