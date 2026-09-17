@@ -81,6 +81,42 @@ const (
 	oneGiB = 1024 * oneMiB
 )
 
+// gpuInstanceProfileEnums maps the name a YAML profile uses to NVML's GPU
+// instance profile enum. The names are NVML's own constant suffixes, so a
+// reader comparing the YAML against nvml.h or the MIG guide sees the same
+// spelling.
+var gpuInstanceProfileEnums = map[string]int{
+	"1_SLICE":        nvml.GPU_INSTANCE_PROFILE_1_SLICE,
+	"1_SLICE_REV1":   nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1,
+	"1_SLICE_REV2":   nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2,
+	"1_SLICE_GFX":    nvml.GPU_INSTANCE_PROFILE_1_SLICE_GFX,
+	"1_SLICE_NO_ME":  nvml.GPU_INSTANCE_PROFILE_1_SLICE_NO_ME,
+	"1_SLICE_ALL_ME": nvml.GPU_INSTANCE_PROFILE_1_SLICE_ALL_ME,
+	"2_SLICE":        nvml.GPU_INSTANCE_PROFILE_2_SLICE,
+	"2_SLICE_REV1":   nvml.GPU_INSTANCE_PROFILE_2_SLICE_REV1,
+	"2_SLICE_GFX":    nvml.GPU_INSTANCE_PROFILE_2_SLICE_GFX,
+	"2_SLICE_NO_ME":  nvml.GPU_INSTANCE_PROFILE_2_SLICE_NO_ME,
+	"2_SLICE_ALL_ME": nvml.GPU_INSTANCE_PROFILE_2_SLICE_ALL_ME,
+	"3_SLICE":        nvml.GPU_INSTANCE_PROFILE_3_SLICE,
+	"3_SLICE_GFX":    nvml.GPU_INSTANCE_PROFILE_3_SLICE_GFX,
+	"4_SLICE":        nvml.GPU_INSTANCE_PROFILE_4_SLICE,
+	"4_SLICE_GFX":    nvml.GPU_INSTANCE_PROFILE_4_SLICE_GFX,
+	"6_SLICE":        nvml.GPU_INSTANCE_PROFILE_6_SLICE,
+	"7_SLICE":        nvml.GPU_INSTANCE_PROFILE_7_SLICE,
+	"8_SLICE":        nvml.GPU_INSTANCE_PROFILE_8_SLICE,
+}
+
+// gpuInstanceProfileEnum resolves a YAML profile name to its NVML enum.
+//
+// The enum is meaningless unless ok: an unknown name returns 0, which is
+// GPU_INSTANCE_PROFILE_1_SLICE, so a caller dropping the second result binds
+// every name it cannot resolve to a valid 1-slice partition rather than to
+// something visibly wrong.
+func gpuInstanceProfileEnum(name string) (int, bool) {
+	profileEnum, ok := gpuInstanceProfileEnums[name]
+	return profileEnum, ok
+}
+
 // migProfileIDs maps NVML's GPU instance profile enum to the profile ID the
 // board reports for it.
 //

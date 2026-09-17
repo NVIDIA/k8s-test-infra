@@ -549,10 +549,16 @@ type DisplayConfig struct {
 // layout seeds in-memory state that NVML callers can then add to and destroy,
 // the same way nvidia-mig-parted would on real hardware.
 type MIGConfig struct {
-	ModeCurrent     string                 `json:"mode_current,omitempty"`
-	ModePending     string                 `json:"mode_pending,omitempty"`
-	MaxGPUInstances int                    `json:"max_gpu_instances,omitempty"`
-	GPUInstances    []MIGGPUInstanceConfig `json:"gpu_instances,omitempty"`
+	ModeCurrent     string `json:"mode_current,omitempty"`
+	ModePending     string `json:"mode_pending,omitempty"`
+	MaxGPUInstances int    `json:"max_gpu_instances,omitempty"`
+	// SupportedProfiles is the board's MIG profile table: the rows
+	// `nvidia-smi mig -lgip` prints. It is declared here rather than derived
+	// in Go so that teaching the mock a new board is a YAML edit. A board
+	// declaring none is not MIG-capable, which is how l40s and t4 report
+	// ERROR_NOT_SUPPORTED.
+	SupportedProfiles []MIGProfileSpec       `json:"supported_profiles,omitempty"`
+	GPUInstances      []MIGGPUInstanceConfig `json:"gpu_instances,omitempty"`
 	// Instances is the explicit layout: exactly which GPU instances exist,
 	// with the IDs and placements they were created under. It is what a
 	// runtime mutation through NVML records, because a count cannot express
@@ -1012,4 +1018,32 @@ type RootComplexConfig struct {
 	// list ("0,2,4"). When empty the affinity set is synthesized from the
 	// NUMA node index and CoresPerNUMA.
 	CPUAffinity string `json:"cpu_affinity,omitempty"`
+}
+
+// MIGProfileSpec is one row of a board's MIG profile table, transcribed from
+// NVIDIA's MIG user guide.
+//
+// NVMLProfile binds the row to the NVML enum every lookup keys on. It is named
+// rather than inferred from Name: the +me, +gfx, -me and +me.all families make
+// a display name an unreliable key. What validateMIGSupportedProfiles refuses
+// is an enum it does not recognise or one declared twice; Name stays
+// authoritative for what `nvidia-smi mig -lgip` prints and is not reconciled
+// against the enum's span.
+//
+// There is deliberately no slice count: NVMLProfile already carries it, since
+// gpuInstanceSliceCount answers it for every profile the enum has. Declaring
+// it as well would put two machine-read sources behind one fact with nothing
+// reconciling them, so a row could bind the 7-slice enum while every check
+// reading the declared count bounded it as a 1-slice partition.
+type MIGProfileSpec struct {
+	Name            string `json:"name"`
+	NVMLProfile     string `json:"nvml_profile"`
+	Instances       int    `json:"instances"`
+	MemoryMB        uint64 `json:"memory_mb"`
+	Multiprocessors int    `json:"multiprocessors,omitempty"`
+	CopyEngines     int    `json:"copy_engines,omitempty"`
+	Decoders        int    `json:"decoders,omitempty"`
+	Encoders        int    `json:"encoders,omitempty"`
+	JPEG            int    `json:"jpeg,omitempty"`
+	OFA             int    `json:"ofa,omitempty"`
 }

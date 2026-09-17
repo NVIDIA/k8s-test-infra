@@ -290,6 +290,11 @@ func validateMIGConfig(mig *MIGConfig) error {
 	if mig == nil {
 		return nil
 	}
+
+	if err := validateMIGSupportedProfiles(mig.SupportedProfiles, mig.MaxGPUInstances); err != nil {
+		return err
+	}
+
 	if err := validateMIGMode("mode_current", mig.ModeCurrent); err != nil {
 		return err
 	}
@@ -307,6 +312,105 @@ func validateMIGConfig(mig *MIGConfig) error {
 		if err := validateMIGInstances(*mig.Instances); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// validateMIGSupportedProfiles rejects a declared profile table that cannot
+// describe the board it is declared on.
+//
+// Every rejection refuses the whole document rather than dropping the row, and
+// names the offending value. This is the rationale the checks below and their
+// tests share: a table one row short is a board that partitions differently
+// from what it advertises, behind an NVML surface that still answers every
+// call successfully, and nothing in that surface leads a consumer back to the
+// profile YAML.
+func validateMIGSupportedProfiles(profiles []MIGProfileSpec, maxGPUInstances int) error {
+	if len(profiles) == 0 {
+		return nil
+	}
+
+	// A declared table needs a board width to place its partitions on, and
+	// NVML's widest GPU instance profile spans eight slices. Beyond that,
+	// derivePlacements offers nothing and the board would look capable while
+	// partitioning nothing, so refuse the document instead. Validating the
+	// width first is what lets the rows below be bounded against it.
+	if maxGPUInstances < 1 || maxGPUInstances > maxGPUInstanceSlices {
+		return fmt.Errorf("max_gpu_instances must be between 1 and %d when supported_profiles is declared, got %d",
+			maxGPUInstanceSlices, maxGPUInstances)
+	}
+
+	seenProfiles := make(map[string]struct{}, len(profiles))
+	seenNames := make(map[string]struct{}, len(profiles))
+	for i, spec := range profiles {
+		// The name is checked here rather than alongside the other required
+		// fields because it is what locates every other rejection of the row.
+		if spec.Name == "" {
+			return fmt.Errorf("supported_profiles[%d]: name is required", i)
+		}
+		if err := validateMIGProfileSpec(spec, maxGPUInstances); err != nil {
+			return fmt.Errorf("supported_profiles[%d] (%s): %w", i, spec.Name, err)
+		}
+		if _, dup := seenProfiles[spec.NVMLProfile]; dup {
+			return fmt.Errorf("supported_profiles[%d] (%s): nvml_profile %q is declared twice",
+				i, spec.Name, spec.NVMLProfile)
+		}
+		// Display names are deduplicated as well as profiles, even though the
+		// table itself is keyed on the profile: go-nvlib derives the
+		// nvidia.com/mig-<name> resource name from the display name, so two
+		// rows sharing one publish a Kubernetes resource that resolves to
+		// either of them.
+		if _, dup := seenNames[spec.Name]; dup {
+			return fmt.Errorf("supported_profiles[%d]: name %q is declared twice", i, spec.Name)
+		}
+		seenProfiles[spec.NVMLProfile] = struct{}{}
+		seenNames[spec.Name] = struct{}{}
+	}
+	return nil
+}
+
+// validateMIGProfileSpec rejects a row that advertises a profile nothing can be
+// created from: derivePlacements answers "no placements" for a partition wider
+// than its board or holding no memory, and a row claiming more instances than
+// fit claims partitions that cannot all exist.
+//
+// The span a row occupies is read off its NVML profile rather than declared,
+// so what is bounded here is the board: a 7-slice partition has no room on a
+// 4-slice board, whatever NVML could address.
+//
+// The caller locates the row it passes, so these messages carry the offending
+// value alone.
+func validateMIGProfileSpec(spec MIGProfileSpec, maxGPUInstances int) error {
+	// The enum is resolved before anything derived from it is checked, so that
+	// a row naming a profile NVML has never had is reported as that, rather
+	// than as a geometry the name never had in the first place.
+	profileEnum, ok := gpuInstanceProfileEnum(spec.NVMLProfile)
+	if !ok {
+		return fmt.Errorf("unknown nvml_profile %q", spec.NVMLProfile)
+	}
+	span, mapped := gpuInstanceSliceCount(profileEnum)
+	// No document reaches this while gpuInstanceProfileEnums and
+	// gpuInstanceSliceCount agree on these profiles, which the enum table's
+	// guard test asserts. It stays because a later edit to either can break
+	// that agreement, and because it is what keeps the divisor below nonzero.
+	if !mapped {
+		return fmt.Errorf("nvml_profile %q has no known slice count", spec.NVMLProfile)
+	}
+	// The enum itself confines the span to 1..8, so the open question is
+	// whether the profile fits this board: a partition spanning the whole
+	// board is legal — 7g.40gb is the A100's widest profile — and one slice
+	// wider than the board has nowhere to sit.
+	if span > maxGPUInstances {
+		return fmt.Errorf("nvml_profile %q spans %d slices, more than the %d max_gpu_instances this board is wide",
+			spec.NVMLProfile, span, maxGPUInstances)
+	}
+	if spec.MemoryMB == 0 {
+		return errors.New("memory_mb must be greater than 0")
+	}
+	// A 2-slice profile fits a 7-slice board three times, not seven.
+	if fits := maxGPUInstances / span; spec.Instances < 1 || spec.Instances > fits {
+		return fmt.Errorf("instances must be between 1 and %d for a %d-slice profile on a %d-slice board, got %d",
+			fits, span, maxGPUInstances, spec.Instances)
 	}
 	return nil
 }

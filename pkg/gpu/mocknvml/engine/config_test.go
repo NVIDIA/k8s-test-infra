@@ -567,3 +567,197 @@ func TestMIGConfig_EmptyInstancesRoundTripsDistinctFromAbsent(t *testing.T) {
 	require.NotNil(t, empty.Instances)
 	require.Empty(t, *empty.Instances)
 }
+
+func TestValidateMIGConfig_RejectsAnUnknownNVMLProfile(t *testing.T) {
+	t.Parallel()
+
+	err := validateMIGConfig(&MIGConfig{
+		MaxGPUInstances: 7,
+		SupportedProfiles: []MIGProfileSpec{
+			{Name: "1g.10gb", NVMLProfile: "1_SLICE", Instances: 7, MemoryMB: 10240},
+			{Name: "9g.99gb", NVMLProfile: "9_SLICE", Instances: 1, MemoryMB: 99999},
+		},
+	})
+
+	require.Error(t, err)
+	// The offending value has to appear; validateMIGSupportedProfiles explains
+	// why the document is refused rather than the row dropped.
+	require.Contains(t, err.Error(), "9_SLICE")
+}
+
+func TestValidateMIGConfig_RejectsADuplicateNVMLProfile(t *testing.T) {
+	t.Parallel()
+
+	err := validateMIGConfig(&MIGConfig{
+		MaxGPUInstances: 7,
+		SupportedProfiles: []MIGProfileSpec{
+			{Name: "1g.10gb", NVMLProfile: "1_SLICE", Instances: 7, MemoryMB: 10240},
+			{Name: "1g.10gb duplicate", NVMLProfile: "1_SLICE", Instances: 7, MemoryMB: 10240},
+		},
+	})
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "1_SLICE")
+}
+
+func TestValidateMIGConfig_RejectsADuplicateProfileName(t *testing.T) {
+	t.Parallel()
+
+	// Distinct profiles, one display name. go-nvlib turns that name into the
+	// nvidia.com/mig-<name> resource the cluster schedules on, so the two rows
+	// would publish one ambiguous resource.
+	err := validateMIGConfig(&MIGConfig{
+		MaxGPUInstances: 7,
+		SupportedProfiles: []MIGProfileSpec{
+			{Name: "1g.10gb", NVMLProfile: "1_SLICE", Instances: 7, MemoryMB: 10240},
+			{Name: "1g.10gb", NVMLProfile: "1_SLICE_REV1", Instances: 7, MemoryMB: 10240},
+		},
+	})
+
+	require.ErrorContains(t, err, `name "1g.10gb" is declared twice`)
+}
+
+func TestValidateMIGConfig_RejectsAProfileWithNoName(t *testing.T) {
+	t.Parallel()
+
+	err := validateMIGConfig(&MIGConfig{
+		MaxGPUInstances: 7,
+		SupportedProfiles: []MIGProfileSpec{
+			{NVMLProfile: "1_SLICE", Instances: 7, MemoryMB: 10240},
+		},
+	})
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "name")
+}
+
+func TestValidateMIGConfig_AcceptsABoardThatDeclaresNoProfiles(t *testing.T) {
+	t.Parallel()
+
+	// t4 and l40s: not MIG-capable, and that is expressed by declaring nothing.
+	require.NoError(t, validateMIGConfig(&MIGConfig{}))
+}
+
+func TestValidateMIGConfig_RejectsABoardWiderThanNVMLCanAddress(t *testing.T) {
+	t.Parallel()
+
+	// Nine slices is past NVML's widest profile, so the rows below cannot be
+	// bounded against a width like this; validateMIGSupportedProfiles refuses
+	// it before reading them.
+	err := validateMIGConfig(&MIGConfig{
+		MaxGPUInstances: 9,
+		SupportedProfiles: []MIGProfileSpec{
+			{Name: "1g.10gb", NVMLProfile: "1_SLICE", Instances: 7, MemoryMB: 10240},
+		},
+	})
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "max_gpu_instances")
+}
+
+// The json tags are the contract with every shipped profile YAML, and a
+// misspelled one drops its column silently — a decode short of a field is the
+// one malformed table validateMIGSupportedProfiles cannot see.
+//
+// Every value below is deliberately nonzero and distinct from the others. A
+// field asserted as zero would pass with its tag deleted, and two fields
+// sharing a value would pass with their tags transposed, which would make the
+// assertion cover the field in name only.
+func TestMIGConfig_SupportedProfilesDecodeFromYAML(t *testing.T) {
+	t.Parallel()
+
+	var mig MIGConfig
+	require.NoError(t, yaml.Unmarshal([]byte(`
+max_gpu_instances: 7
+supported_profiles:
+  - name: 1g.10gb
+    nvml_profile: 1_SLICE
+    instances: 7
+    memory_mb: 10240
+    multiprocessors: 16
+    copy_engines: 3
+    decoders: 4
+    encoders: 2
+    jpeg: 5
+    ofa: 6
+`), &mig))
+
+	require.Equal(t, []MIGProfileSpec{{
+		Name:            "1g.10gb",
+		NVMLProfile:     "1_SLICE",
+		Instances:       7,
+		MemoryMB:        10240,
+		Multiprocessors: 16,
+		CopyEngines:     3,
+		Decoders:        4,
+		Encoders:        2,
+		JPEG:            5,
+		OFA:             6,
+	}}, mig.SupportedProfiles)
+	require.NoError(t, validateMIGConfig(&mig))
+}
+
+// A partition spanning its whole board is the one every MIG board ships: 7g on
+// an A100 or H100, 4g on an A30. It is also the boundary the board-fit check
+// sits on, and the rejecting cases below only reach that check from above the
+// boundary, so a check written as >= would leave every one of them green while
+// refusing the full-board profile of every MIG board.
+func TestValidateMIGConfig_AcceptsAProfileSpanningTheWholeBoard(t *testing.T) {
+	t.Parallel()
+
+	require.NoError(t, validateMIGConfig(&MIGConfig{
+		MaxGPUInstances: 7,
+		SupportedProfiles: []MIGProfileSpec{
+			{Name: "7g.40gb", NVMLProfile: "7_SLICE", Instances: 1, MemoryMB: 40960},
+		},
+	}))
+}
+
+// Every row here decodes cleanly and was accepted before validateMIGProfileSpec
+// existed, which would have put it in the table `nvidia-smi mig -lgip` prints.
+// See that function for what makes each of them impossible.
+func TestValidateMIGConfig_RejectsAProfileThatCannotBeCreated(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		boardSlices int
+		spec        MIGProfileSpec
+		wantErr     string
+	}{
+		"wider than its own board": {
+			boardSlices: 4,
+			spec:        MIGProfileSpec{Name: "7g.40gb", NVMLProfile: "7_SLICE", Instances: 1, MemoryMB: 40960},
+			wantErr:     `nvml_profile "7_SLICE" spans 7 slices, more than the 4 max_gpu_instances this board is wide`,
+		},
+		"no memory": {
+			boardSlices: 7,
+			spec:        MIGProfileSpec{Name: "1g.0gb", NVMLProfile: "1_SLICE", Instances: 7},
+			wantErr:     "memory_mb must be greater than 0",
+		},
+		"no instances": {
+			boardSlices: 7,
+			spec:        MIGProfileSpec{Name: "1g.10gb", NVMLProfile: "1_SLICE", Instances: 0, MemoryMB: 10240},
+			wantErr:     "instances must be between 1 and 7 for a 1-slice profile on a 7-slice board, got 0",
+		},
+		"more instances than fit the board": {
+			boardSlices: 7,
+			spec:        MIGProfileSpec{Name: "2g.20gb", NVMLProfile: "2_SLICE", Instances: 7, MemoryMB: 20480},
+			wantErr:     "instances must be between 1 and 3 for a 2-slice profile on a 7-slice board, got 7",
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			err := validateMIGConfig(&MIGConfig{
+				MaxGPUInstances:   tt.boardSlices,
+				SupportedProfiles: []MIGProfileSpec{tt.spec},
+			})
+
+			require.ErrorContains(t, err, tt.wantErr)
+			// The row has to be locatable from the message alone.
+			require.ErrorContains(t, err, tt.spec.Name)
+		})
+	}
+}

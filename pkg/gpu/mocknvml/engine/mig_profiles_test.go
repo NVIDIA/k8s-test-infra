@@ -14,6 +14,8 @@
 package engine
 
 import (
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
@@ -284,4 +286,44 @@ func TestResolveMIGProfiles_UnverifiedBoardsReportTheEnum(t *testing.T) {
 	gotEnum, ok := ids.enumOf(nvml.GPU_INSTANCE_PROFILE_7_SLICE)
 	require.True(t, ok, "a board with no ID table resolves every id to itself")
 	require.Equal(t, nvml.GPU_INSTANCE_PROFILE_7_SLICE, gotEnum)
+}
+
+// gpuInstanceProfileEnums is transcribed by hand and its values are asserted
+// nowhere else: validation consumes only the second result of
+// gpuInstanceProfileEnum, so a transposition binding "3_SLICE" to the 4-slice
+// enum compiles, and every board declaring that profile would then partition
+// to the wrong width.
+//
+// The assertions bound the table without restating its 18 bindings. Counting
+// against NVML's own total catches a profile left out, which no board could
+// then declare, and distinctness catches two names bound to one enum. Neither
+// catches a permutation — swapping "3_SLICE" and "4_SLICE" keeps all 18
+// distinct at a count of 18, which is the shape a misaligned block edit
+// produces — so each name's leading digit is checked against the span its enum
+// actually occupies. That catches any permutation across slice counts, and
+// pins the two hand-maintained enumerations of these profiles, this table and
+// gpuInstanceSliceCount, against each other.
+//
+// A swap within one slice count stays invisible: "1_SLICE_GFX" and
+// "1_SLICE_NO_ME" both span one slice, so nothing here separates them. Closing
+// that would need either a restatement of the table or a map from name suffix
+// to capability, which does not exist.
+func TestGPUInstanceProfileEnums_BindEveryNVMLProfileExactlyOnce(t *testing.T) {
+	t.Parallel()
+
+	require.Len(t, gpuInstanceProfileEnums, nvml.GPU_INSTANCE_PROFILE_COUNT)
+
+	names := make(map[int]string, len(gpuInstanceProfileEnums))
+	for name, profileEnum := range gpuInstanceProfileEnums {
+		require.NotContainsf(t, names, profileEnum,
+			"%q and %q both bind NVML profile %d", name, names[profileEnum], profileEnum)
+		names[profileEnum] = name
+
+		wantSpan, err := strconv.Atoi(strings.SplitN(name, "_", 2)[0])
+		require.NoErrorf(t, err, "%q does not begin with the slice count it names", name)
+
+		gotSpan, ok := gpuInstanceSliceCount(profileEnum)
+		require.Truef(t, ok, "%q binds NVML profile %d, which has no slice count", name, profileEnum)
+		require.Equalf(t, wantSpan, gotSpan, "%q binds an enum spanning %d slices", name, gotSpan)
+	}
 }
