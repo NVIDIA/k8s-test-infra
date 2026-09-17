@@ -12,7 +12,7 @@ tests:
       - hasDocuments:
           count: 0
 
-  - it: should restrict only main-resource creates and updates to this controller
+  - it: should protect main-resource writes while retaining this controller identity
     release:
       name: protected
       namespace: mokka-system
@@ -38,7 +38,7 @@ tests:
           path: spec.matchConstraints.resourceRules[0].resources
           value: [sgpuracks]
       - equal:
-          path: spec.validations[0].expression
+          path: spec.variables[0].expression
           value: "request.userInfo.username == 'system:serviceaccount:mokka-system:protected-nvml-mock-control-plane'"
 
   - it: should bind the policy in deny mode
