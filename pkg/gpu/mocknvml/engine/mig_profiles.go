@@ -27,9 +27,10 @@ import (
 // profile IDs the board reports, and whether it is MIG-capable at all.
 //
 // The tables are assembled rather than looked up in go-nvml so that teaching
-// the mock a new board is a YAML edit. Placements and reported profile IDs are
-// derived from the declared slice counts, because NVIDIA publishes the first
-// only as diagrams and the second not at all for Blackwell.
+// the mock a new board is a YAML edit. Placements are derived from the
+// declared slice counts, because NVIDIA publishes them only as diagrams. The
+// reported profile IDs come from the listing the board declares, because
+// NVIDIA publishes none at all for Blackwell.
 //
 // The ID table travels with the profile tables rather than being looked up
 // separately, so the two cannot disagree about which geometry this board has.
@@ -84,7 +85,11 @@ func migProfilesFromConfig(migCfg *MIGConfig, deviceMemoryBytes uint64) (gpus.MI
 		profiles.ComputeInstancePlacements[profileEnum] = computeInstancePlacementSlots(ciProfiles)
 	}
 
-	return profiles, profileIDsForBoard(boardSlices), true
+	// A listing config load has already accepted; an unknown one reaches here
+	// only through a hand-built MIGConfig, and reporting the enums is the
+	// answer that cannot mispartition the board.
+	profileIDs, _ := profileIDsForListing(migCfg.ProfileIDs)
+	return profiles, profileIDs, true
 }
 
 // deriveComputeInstanceProfiles gives a GPU instance of sliceCount slices the
@@ -219,23 +224,45 @@ func computeInstancePlacementSlots(
 	return slots
 }
 
-// profileIDsForBoard picks the reported-ID table by the board's slice count.
+// MIG profile-ID listings a board can declare through mig.profile_ids.
 //
-// The numbering follows the partition's fraction of the board rather than the
-// board's capacity, so every 7-slice datacenter board shares one table and
-// every 4-slice board another. Selecting on slice count rather than on the
-// device name is what lets a new board arrive as YAML.
-func profileIDsForBoard(boardSlices int) migProfileIDs {
-	switch boardSlices {
-	case 7:
-		return sevenSliceProfileIDs
-	case 4:
-		return fourSliceProfileIDs
+// The value names the published `nvidia-smi mig -lgip` listing whose reported
+// IDs the board publishes, not the board's geometry. Those are different
+// questions: NVIDIA publishes no listing for Blackwell, and a Blackwell board
+// is seven slices wide all the same, so a board that publishes nothing has to
+// be able to say so.
+const (
+	// migProfileIDsNone is the default. It is spelled out so a profile can
+	// declare it, which is how the Blackwell boards say in their own YAML
+	// that they report NVML's enums.
+	migProfileIDsNone = "none"
+	// migProfileIDs7Slice is the listing A100, H100 and H200 share.
+	migProfileIDs7Slice = "7_slice"
+	// migProfileIDs4Slice is the A30's listing.
+	migProfileIDs4Slice = "4_slice"
+)
+
+// profileIDsForListing resolves the listing a board declares to its ID table.
+// The second result is false for a listing that has never been transcribed,
+// which config load refuses.
+//
+// Declaring the listing rather than inferring it from the board's slice count
+// is what keeps "adding a board is a YAML edit" from also meaning "a board
+// inherits another board's profile IDs by being the same width". A guessed ID
+// reads as correct and then partitions the board wrongly.
+func profileIDsForListing(listing string) (migProfileIDs, bool) {
+	switch listing {
+	case "", migProfileIDsNone:
+		// No listing: every profile reports its own enum, which is what
+		// go-nvml already did. This is the default because publishing nothing
+		// is always defensible and publishing the wrong number never is.
+		return nil, true
+	case migProfileIDs7Slice:
+		return sevenSliceProfileIDs, true
+	case migProfileIDs4Slice:
+		return fourSliceProfileIDs, true
 	}
-	// A width with no transcribed listing keeps go-nvml's numbering, which
-	// reports every profile under its own enum: a guessed ID reads as correct
-	// and then partitions the board wrongly.
-	return nil
+	return nil, false
 }
 
 // declaredProfileNames maps each declared NVML profile enum to the name its

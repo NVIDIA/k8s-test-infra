@@ -295,6 +295,15 @@ func validateMIGConfig(mig *MIGConfig) error {
 		return err
 	}
 
+	// A listing nobody has transcribed is refused rather than defaulted: the
+	// document asked for a numbering the mock does not have, and quietly
+	// reporting enums instead is a board advertising IDs its author did not
+	// choose.
+	if _, known := profileIDsForListing(mig.ProfileIDs); !known {
+		return fmt.Errorf("unknown profile_ids %q, expected %q, %q or %q",
+			mig.ProfileIDs, migProfileIDsNone, migProfileIDs7Slice, migProfileIDs4Slice)
+	}
+
 	if err := validateMIGMode("mode_current", mig.ModeCurrent); err != nil {
 		return err
 	}

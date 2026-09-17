@@ -303,6 +303,11 @@ should match snapshot with a100 profile:
             mode_current: "disabled"
             mode_pending: "disabled"
             max_gpu_instances: 7            # A100 supports up to 7 MIG instances
+            # The reported profile IDs `mig -cgi` takes, transcribed from this board's
+            # own `mig -lgip` listing. They are not the NVML profile enums, and a
+            # board declares which published listing it follows rather than inheriting
+            # one from its width.
+            profile_ids: "7_slice"
             # NVIDIA MIG user guide, Supported MIG Profiles, Table 12
             # (A100-SXM4-40GB). nvml_profile binds each row to the NVML enum the mock
             # keys on, and it carries the slice count, so no row restates it.
@@ -857,6 +862,12 @@ should match snapshot with b200 profile:
             mode_current: "disabled"
             mode_pending: "disabled"
             max_gpu_instances: 7
+            # NVIDIA publishes no `mig -lgip` listing for Blackwell, so this board
+            # publishes no profile IDs and every profile reports its NVML enum. Seven
+            # slices wide is not reason enough to borrow Hopper's numbering: under it
+            # `mig -cgi 0` would partition the whole board where this one hands back
+            # a 1g.
+            profile_ids: "none"
             # Engine counts from NVIDIA MIG user guide, Supported MIG Profiles,
             # Table 5 (B200). Names and memory are this board's own rather than
             # Table 5's: the table describes the 180 GB product and publishes
@@ -1467,6 +1478,12 @@ should match snapshot with default gb300 profile:
             mode_current: "disabled"
             mode_pending: "disabled"
             max_gpu_instances: 7
+            # NVIDIA publishes no `mig -lgip` listing for Blackwell, so this board
+            # publishes no profile IDs and every profile reports its NVML enum. Seven
+            # slices wide is not reason enough to borrow Hopper's numbering: under it
+            # `mig -cgi 0` would partition the whole board where this one hands back
+            # a 1g.
+            profile_ids: "none"
             # Engine counts from NVIDIA MIG user guide, Supported MIG Profiles,
             # Table 5 (B200). Names and memory are this board's own rather than
             # Table 5's: the table describes the 180 GB product and publishes
@@ -2091,6 +2108,12 @@ should match snapshot with gb200 profile:
             mode_current: "disabled"
             mode_pending: "disabled"
             max_gpu_instances: 7
+            # NVIDIA publishes no `mig -lgip` listing for Blackwell, so this board
+            # publishes no profile IDs and every profile reports its NVML enum. Seven
+            # slices wide is not reason enough to borrow Hopper's numbering: under it
+            # `mig -cgi 0` would partition the whole board where this one hands back
+            # a 1g.
+            profile_ids: "none"
             # Engine counts from NVIDIA MIG user guide, Supported MIG Profiles,
             # Table 5 (B200). Names and memory are this board's own rather than
             # Table 5's: the table describes the 180 GB product and publishes
@@ -2663,6 +2686,9 @@ should match snapshot with h100 profile:
             mode_current: "disabled"
             mode_pending: "disabled"
             max_gpu_instances: 7
+            # H100 shares the A100's reported profile IDs: the numbering follows the
+            # partition's fraction of the board, not the board's capacity.
+            profile_ids: "7_slice"
             # NVIDIA MIG user guide, Supported MIG Profiles, Table 10 (H100 80GB,
             # PCIe and SXM5). nvml_profile binds each row to the NVML enum the mock
             # keys on, and it carries the slice count, so no row restates it. Slice

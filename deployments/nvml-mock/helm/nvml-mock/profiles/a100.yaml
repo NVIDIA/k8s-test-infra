@@ -298,6 +298,11 @@ device_defaults:
     mode_current: "disabled"
     mode_pending: "disabled"
     max_gpu_instances: 7            # A100 supports up to 7 MIG instances
+    # The reported profile IDs `mig -cgi` takes, transcribed from this board's
+    # own `mig -lgip` listing. They are not the NVML profile enums, and a
+    # board declares which published listing it follows rather than inheriting
+    # one from its width.
+    profile_ids: "7_slice"
     # NVIDIA MIG user guide, Supported MIG Profiles, Table 12
     # (A100-SXM4-40GB). nvml_profile binds each row to the NVML enum the mock
     # keys on, and it carries the slice count, so no row restates it.

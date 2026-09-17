@@ -48,6 +48,7 @@ func a100MIGConfig() *DeviceConfig {
 			ModeCurrent:       "disabled",
 			ModePending:       "disabled",
 			MaxGPUInstances:   7,
+			ProfileIDs:        migProfileIDs7Slice,
 			SupportedProfiles: a100SupportedProfiles(),
 		},
 	}

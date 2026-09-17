@@ -557,8 +557,19 @@ type MIGConfig struct {
 	// in Go so that teaching the mock a new board is a YAML edit. A board
 	// declaring none is not MIG-capable, which is how l40s and t4 report
 	// ERROR_NOT_SUPPORTED.
-	SupportedProfiles []MIGProfileSpec       `json:"supported_profiles,omitempty"`
-	GPUInstances      []MIGGPUInstanceConfig `json:"gpu_instances,omitempty"`
+	SupportedProfiles []MIGProfileSpec `json:"supported_profiles,omitempty"`
+	// ProfileIDs names the published `nvidia-smi mig -lgip` listing whose
+	// reported profile IDs this board publishes: "7_slice" for the A100/H100
+	// numbering, "4_slice" for the A30's, "none" — the default — for a board
+	// NVIDIA publishes no listing for, which then reports NVML's own enums.
+	//
+	// It is declared rather than inferred from max_gpu_instances because the
+	// two are different facts. Blackwell is seven slices wide and has no
+	// published listing, so inferring one from the width hands it Hopper's
+	// numbering, under which `mig -cgi 0` partitions the whole board where it
+	// should hand back a 1g.
+	ProfileIDs   string                 `json:"profile_ids,omitempty"`
+	GPUInstances []MIGGPUInstanceConfig `json:"gpu_instances,omitempty"`
 	// Instances is the explicit layout: exactly which GPU instances exist,
 	// with the IDs and placements they were created under. It is what a
 	// runtime mutation through NVML records, because a count cannot express
