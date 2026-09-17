@@ -827,11 +827,16 @@ func migDevicesOnNode(ctx context.Context, h *harness.Harness, node string) []nv
 // a query and print no table at all, so the error check is both the
 // exit-status assertion and what keeps a parser from being handed an error
 // message to find no partitions in.
+//
+// ExecQuiet keeps the table out of the Ginkgo log. The pollers below re-read
+// these listings every interval, so streaming them buried the mutations the
+// specs are actually narrating. Nothing is lost: the output is still captured,
+// and every assertion that can fail on it prints the listing it read.
 func migListingOnNode(ctx context.Context, h *harness.Harness, node, flag string) string {
 	GinkgoHelper()
 	target := nvmlPodOnNode(ctx, h, node)
 	By("nvidia-smi mig " + flag)
-	res, err := h.Kube.Exec(ctx, target, "nvidia-smi", "mig", flag)
+	res, err := h.Kube.ExecQuiet(ctx, target, "nvidia-smi", "mig", flag)
 	Expect(err).NotTo(HaveOccurred(), "nvidia-smi mig %s in %s exited non-zero: %s",
 		flag, target.Pod, res.Combined())
 	return res.Combined()
@@ -943,9 +948,13 @@ func migGPUInstancesOnNode(ctx context.Context, h *harness.Harness, node string)
 }
 
 // migDevicesInPod lists the partitions nvidia-smi reports inside a pod.
+//
+// Quiet for the same reason as migListingOnNode: on a fully partitioned board
+// this is one line per partition per call, and the counting helpers read it
+// repeatedly.
 func migDevicesInPod(ctx context.Context, h *harness.Harness, target kube.PodRef) []nvidiasmi.MigDevice {
 	GinkgoHelper()
-	res, err := h.Kube.Exec(ctx, target, "nvidia-smi", "-L")
+	res, err := h.Kube.ExecQuiet(ctx, target, "nvidia-smi", "-L")
 	Expect(err).NotTo(HaveOccurred(), "nvidia-smi -L in %s: %s", target.Pod, res.Combined())
 	return nvidiasmi.ListMigDevices(res.Combined())
 }
