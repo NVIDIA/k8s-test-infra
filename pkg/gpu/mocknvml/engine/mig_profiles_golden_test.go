@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
@@ -45,21 +46,42 @@ var migGoldenBoards = []migGoldenBoard{
 }
 
 // migGoldenRow is the part of a profile that must survive the move to YAML
-// unchanged. Engine counts are deliberately absent: go-nvml's tables disagree
-// with NVIDIA's published ones, and are corrected separately.
+// unchanged.
 type migGoldenRow struct {
 	Name          string
 	SliceCount    uint32
 	InstanceCount uint32
 	MemorySizeMB  uint64
-	Placements    []string
+	// InfoID is the profile info's own Id field. It equals the profile enum
+	// only by construction, so it is pinned apart from ProfileID: a table
+	// that started carrying the reported id here would change what
+	// nvmlDeviceGetGpuInstanceProfileInfo answers, and every other column
+	// would still agree.
+	InfoID uint32
+	// IsP2pSupported is pinned although no board sets it. A column reading
+	// zero on all thirty-five rows still refuses a table that starts filling
+	// it in without a profile asking for it.
+	IsP2pSupported uint32
+	// ProfileID is the id the board publishes for this profile, which is what
+	// nvmlDeviceCreateGpuInstance takes. Nothing else in this row can see it:
+	// it travels beside the profile tables rather than inside them, and a
+	// board may publish a number that is not the profile enum.
+	ProfileID int
+	// Engines counts the GPU instance's fixed-function engines as
+	// "DEC/ENC/JPEG/OFA/CE". One string keeps the literals readable.
+	Engines    string
+	Placements []string
 	// ComputeInstances is the row's `mig -lcip` listing, one entry per offered
-	// compute instance as "<slices>c[+me]:<count>@<multiprocessors>". It is
-	// here because nothing else in this row can see that table: Name renders
-	// the widest compute instance, which spells the same name whatever the
-	// narrower ones are, so a derivation that invents or drops a width moves
-	// nothing else the golden pins.
+	// compute instance as
+	// "ci<enum>/id<Id>:<slices>c:<count>@<multiprocessors> DEC/ENC/JPEG/OFA/CE".
+	// It is here because nothing else in this row can see that table: Name
+	// renders the widest compute instance, which spells the same name whatever
+	// the narrower ones are, so a derivation that invents or drops a width
+	// moves nothing else the golden pins.
 	ComputeInstances []string
+	// ComputeInstancePlacements is the row's possible-placement table, one
+	// entry per key as "ci<enum>:[<start>:<size>,...]".
+	ComputeInstancePlacements []string
 }
 
 // migConfigOfShippedProfile reads a board's MIG block out of the profile the
@@ -86,7 +108,7 @@ func migGoldenSnapshot(t *testing.T, b migGoldenBoard) map[int]migGoldenRow {
 	t.Helper()
 
 	migCfg := migConfigOfShippedProfile(t, b.profile)
-	profiles, _, supported := migProfilesFromConfig(migCfg, b.memoryBytes)
+	profiles, ids, supported := migProfilesFromConfig(migCfg, b.memoryBytes)
 	require.True(t, supported, "%s must declare a MIG profile table", b.profile)
 
 	snapshot := make(map[int]migGoldenRow, len(profiles.GpuInstanceProfiles))
@@ -106,33 +128,78 @@ func migGoldenSnapshot(t *testing.T, b migGoldenBoard) map[int]migGoldenRow {
 		sort.Strings(placements)
 
 		snapshot[profileEnum] = migGoldenRow{
-			Name:             name,
-			SliceCount:       info.SliceCount,
-			InstanceCount:    info.InstanceCount,
-			MemorySizeMB:     info.MemorySizeMB,
-			Placements:       placements,
-			ComputeInstances: migGoldenComputeInstances(profiles, profileEnum),
+			Name:                      name,
+			SliceCount:                info.SliceCount,
+			InstanceCount:             info.InstanceCount,
+			MemorySizeMB:              info.MemorySizeMB,
+			InfoID:                    info.Id,
+			IsP2pSupported:            info.IsP2pSupported,
+			ProfileID:                 ids.reported(profileEnum),
+			Engines:                   migGoldenEngines(info),
+			Placements:                placements,
+			ComputeInstances:          migGoldenComputeInstances(profiles, profileEnum),
+			ComputeInstancePlacements: migGoldenCIPlacements(profiles, profileEnum),
 		}
 	}
 	return snapshot
 }
 
 // migGoldenComputeInstances renders a GPU instance's compute-instance listing
-// in a form a diff can read. The media-extension 1-slice profile is spelled
-// "+me" because it is the one entry a slice count alone cannot distinguish.
+// in a form a diff can read.
+//
+// The enum is rendered exactly rather than as a slice count with the
+// media-extension profile flagged. A width does not identify a profile:
+// COMPUTE_INSTANCE_PROFILE_7_SLICE and _7_SLICE_NVL are both seven slices
+// wide, so a board swapping one for the other would spell an identical row.
+// go-nvlib derives the resource names a cluster publishes from this listing,
+// which makes the exact enum the thing that matters.
 func migGoldenComputeInstances(profiles gpus.MIGProfileConfig, giProfileEnum int) []string {
 	offered := profiles.ComputeInstanceProfiles[giProfileEnum]
 	rows := make([]string, 0, len(offered))
 	for ciEnum, ci := range offered {
-		suffix := ""
-		if ciEnum == nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE_REV1 {
-			suffix = "+me"
-		}
-		rows = append(rows, fmt.Sprintf("%dc%s:%d@%d",
-			ci.SliceCount, suffix, ci.InstanceCount, ci.MultiprocessorCount))
+		rows = append(rows, fmt.Sprintf("ci%d/id%d:%dc:%d@%d %d/%d/%d/%d/%d",
+			ciEnum, ci.Id, ci.SliceCount, ci.InstanceCount, ci.MultiprocessorCount,
+			ci.SharedDecoderCount, ci.SharedEncoderCount, ci.SharedJpegCount,
+			ci.SharedOfaCount, ci.SharedCopyEngineCount))
 	}
 	sort.Strings(rows)
 	return rows
+}
+
+// migGoldenCIPlacements renders a GPU instance's possible compute-instance
+// placements, one entry per key in the table.
+//
+// Every shipped board leaves every list empty, which is NVML's way of saying
+// "this instance exists and enumerates no placement". What the entries
+// therefore pin is the key set, and that is the point: a consumer asking about
+// an instance the table does not mention gets a different answer from one it
+// mentions with nothing in it. A GPU instance missing from the table
+// altogether renders "<absent>", which no key set can spell.
+func migGoldenCIPlacements(profiles gpus.MIGProfileConfig, giProfileEnum int) []string {
+	slots, ok := profiles.ComputeInstancePlacements[giProfileEnum]
+	if !ok {
+		return []string{"<absent>"}
+	}
+
+	rows := make([]string, 0, len(slots))
+	for ciEnum, placements := range slots {
+		rendered := make([]string, 0, len(placements))
+		for _, p := range placements {
+			rendered = append(rendered, fmt.Sprintf("%d:%d", p.Start, p.Size))
+		}
+		sort.Strings(rendered)
+		rows = append(rows, fmt.Sprintf("ci%d:[%s]", ciEnum, strings.Join(rendered, ",")))
+	}
+	sort.Strings(rows)
+	return rows
+}
+
+// migGoldenEngines renders a GPU instance's fixed-function engine counts as
+// "DEC/ENC/JPEG/OFA/CE".
+func migGoldenEngines(info nvml.GpuInstanceProfileInfo) string {
+	return fmt.Sprintf("%d/%d/%d/%d/%d",
+		info.DecoderCount, info.EncoderCount, info.JpegCount,
+		info.OfaCount, info.CopyEngineCount)
 }
 
 // ciProfileSpanningGI returns the compute-instance profile that fills the whole
@@ -165,49 +232,49 @@ func ciProfileSpanningGI(t *testing.T, profiles gpus.MIGProfileConfig, giProfile
 // seven-slice layout, not to a board's capacity.
 var migGoldenWant = map[string]map[int]migGoldenRow{
 	"a100": {
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      {Name: "1g.5gb", SliceCount: 1, InstanceCount: 7, MemorySizeMB: 4864, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"1c+me:1@14", "1c:1@14"}},
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: {Name: "1g.5gb+me", SliceCount: 1, InstanceCount: 1, MemorySizeMB: 4864, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"1c+me:1@14", "1c:1@14"}},
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: {Name: "1g.10gb", SliceCount: 1, InstanceCount: 4, MemorySizeMB: 9856, Placements: []string{"0:2", "2:2", "4:2", "6:2"}, ComputeInstances: []string{"1c+me:1@14", "1c:1@14"}},
-		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      {Name: "2g.10gb", SliceCount: 2, InstanceCount: 3, MemorySizeMB: 9856, Placements: []string{"0:2", "2:2", "4:2"}, ComputeInstances: []string{"1c+me:2@14", "1c:2@14", "2c:1@28"}},
-		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      {Name: "3g.20gb", SliceCount: 3, InstanceCount: 2, MemorySizeMB: 19968, Placements: []string{"0:4", "4:4"}, ComputeInstances: []string{"1c+me:3@14", "1c:3@14", "2c:1@28", "3c:1@42"}},
-		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      {Name: "4g.20gb", SliceCount: 4, InstanceCount: 1, MemorySizeMB: 19968, Placements: []string{"0:4"}, ComputeInstances: []string{"1c+me:4@14", "1c:4@14", "2c:2@28", "4c:1@56"}},
-		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      {Name: "7g.40gb", SliceCount: 7, InstanceCount: 1, MemorySizeMB: 40192, Placements: []string{"0:8"}, ComputeInstances: []string{"1c+me:7@14", "1c:7@14", "2c:3@28", "3c:2@42", "4c:1@56", "7c:1@98"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      {Name: "1g.5gb", SliceCount: 1, InstanceCount: 7, MemorySizeMB: 4864, InfoID: 0, IsP2pSupported: 0, ProfileID: 19, Engines: "0/0/0/0/1", Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"ci0/id0:1c:1@14 0/0/0/0/1", "ci7/id7:1c:1@14 0/0/0/0/1"}, ComputeInstancePlacements: []string{"ci0:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: {Name: "1g.5gb+me", SliceCount: 1, InstanceCount: 1, MemorySizeMB: 4864, InfoID: 7, IsP2pSupported: 0, ProfileID: 20, Engines: "1/0/1/1/1", Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"ci0/id0:1c:1@14 1/0/1/1/1", "ci7/id7:1c:1@14 1/0/1/1/1"}, ComputeInstancePlacements: []string{"ci0:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: {Name: "1g.10gb", SliceCount: 1, InstanceCount: 4, MemorySizeMB: 9856, InfoID: 9, IsP2pSupported: 0, ProfileID: 15, Engines: "1/0/0/0/1", Placements: []string{"0:2", "2:2", "4:2", "6:2"}, ComputeInstances: []string{"ci0/id0:1c:1@14 1/0/0/0/1", "ci7/id7:1c:1@14 1/0/0/0/1"}, ComputeInstancePlacements: []string{"ci0:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      {Name: "2g.10gb", SliceCount: 2, InstanceCount: 3, MemorySizeMB: 9856, InfoID: 1, IsP2pSupported: 0, ProfileID: 14, Engines: "1/0/0/0/2", Placements: []string{"0:2", "2:2", "4:2"}, ComputeInstances: []string{"ci0/id0:1c:2@14 1/0/0/0/2", "ci1/id1:2c:1@28 1/0/0/0/2", "ci7/id7:1c:2@14 1/0/0/0/2"}, ComputeInstancePlacements: []string{"ci0:[]", "ci1:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      {Name: "3g.20gb", SliceCount: 3, InstanceCount: 2, MemorySizeMB: 19968, InfoID: 2, IsP2pSupported: 0, ProfileID: 9, Engines: "2/0/0/0/3", Placements: []string{"0:4", "4:4"}, ComputeInstances: []string{"ci0/id0:1c:3@14 2/0/0/0/3", "ci1/id1:2c:1@28 2/0/0/0/3", "ci2/id2:3c:1@42 2/0/0/0/3", "ci7/id7:1c:3@14 2/0/0/0/3"}, ComputeInstancePlacements: []string{"ci0:[]", "ci1:[]", "ci2:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      {Name: "4g.20gb", SliceCount: 4, InstanceCount: 1, MemorySizeMB: 19968, InfoID: 3, IsP2pSupported: 0, ProfileID: 5, Engines: "2/0/0/0/4", Placements: []string{"0:4"}, ComputeInstances: []string{"ci0/id0:1c:4@14 2/0/0/0/4", "ci1/id1:2c:2@28 2/0/0/0/4", "ci3/id3:4c:1@56 2/0/0/0/4", "ci7/id7:1c:4@14 2/0/0/0/4"}, ComputeInstancePlacements: []string{"ci0:[]", "ci1:[]", "ci3:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      {Name: "7g.40gb", SliceCount: 7, InstanceCount: 1, MemorySizeMB: 40192, InfoID: 4, IsP2pSupported: 0, ProfileID: 0, Engines: "5/0/1/1/7", Placements: []string{"0:8"}, ComputeInstances: []string{"ci0/id0:1c:7@14 5/0/1/1/7", "ci1/id1:2c:3@28 5/0/1/1/7", "ci2/id2:3c:2@42 5/0/1/1/7", "ci3/id3:4c:1@56 5/0/1/1/7", "ci4/id4:7c:1@98 5/0/1/1/7", "ci7/id7:1c:7@14 5/0/1/1/7"}, ComputeInstancePlacements: []string{"ci0:[]", "ci1:[]", "ci2:[]", "ci3:[]", "ci4:[]", "ci7:[]"}},
 	},
 	"h100": {
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      {Name: "1g.10gb", SliceCount: 1, InstanceCount: 7, MemorySizeMB: 10240, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"1c+me:1@16", "1c:1@16"}},
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: {Name: "1g.10gb+me", SliceCount: 1, InstanceCount: 1, MemorySizeMB: 10240, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"1c+me:1@16", "1c:1@16"}},
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: {Name: "1g.20gb", SliceCount: 1, InstanceCount: 4, MemorySizeMB: 20480, Placements: []string{"0:2", "2:2", "4:2", "6:2"}, ComputeInstances: []string{"1c+me:1@16", "1c:1@16"}},
-		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      {Name: "2g.20gb", SliceCount: 2, InstanceCount: 3, MemorySizeMB: 20480, Placements: []string{"0:2", "2:2", "4:2"}, ComputeInstances: []string{"1c+me:2@16", "1c:2@16", "2c:1@32"}},
-		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      {Name: "3g.40gb", SliceCount: 3, InstanceCount: 2, MemorySizeMB: 40960, Placements: []string{"0:4", "4:4"}, ComputeInstances: []string{"1c+me:3@16", "1c:3@16", "2c:1@32", "3c:1@48"}},
-		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      {Name: "4g.40gb", SliceCount: 4, InstanceCount: 1, MemorySizeMB: 40960, Placements: []string{"0:4"}, ComputeInstances: []string{"1c+me:4@16", "1c:4@16", "2c:2@32", "4c:1@64"}},
-		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      {Name: "7g.80gb", SliceCount: 7, InstanceCount: 1, MemorySizeMB: 81920, Placements: []string{"0:8"}, ComputeInstances: []string{"1c+me:7@16", "1c:7@16", "2c:3@32", "3c:2@48", "4c:1@64", "7c:1@112"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      {Name: "1g.10gb", SliceCount: 1, InstanceCount: 7, MemorySizeMB: 10240, InfoID: 0, IsP2pSupported: 0, ProfileID: 19, Engines: "1/0/1/0/1", Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"ci0/id0:1c:1@16 1/0/1/0/1", "ci7/id7:1c:1@16 1/0/1/0/1"}, ComputeInstancePlacements: []string{"ci0:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: {Name: "1g.10gb+me", SliceCount: 1, InstanceCount: 1, MemorySizeMB: 10240, InfoID: 7, IsP2pSupported: 0, ProfileID: 20, Engines: "1/0/1/1/1", Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"ci0/id0:1c:1@16 1/0/1/1/1", "ci7/id7:1c:1@16 1/0/1/1/1"}, ComputeInstancePlacements: []string{"ci0:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: {Name: "1g.20gb", SliceCount: 1, InstanceCount: 4, MemorySizeMB: 20480, InfoID: 9, IsP2pSupported: 0, ProfileID: 15, Engines: "1/0/1/0/1", Placements: []string{"0:2", "2:2", "4:2", "6:2"}, ComputeInstances: []string{"ci0/id0:1c:1@16 1/0/1/0/1", "ci7/id7:1c:1@16 1/0/1/0/1"}, ComputeInstancePlacements: []string{"ci0:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      {Name: "2g.20gb", SliceCount: 2, InstanceCount: 3, MemorySizeMB: 20480, InfoID: 1, IsP2pSupported: 0, ProfileID: 14, Engines: "2/0/2/0/2", Placements: []string{"0:2", "2:2", "4:2"}, ComputeInstances: []string{"ci0/id0:1c:2@16 2/0/2/0/2", "ci1/id1:2c:1@32 2/0/2/0/2", "ci7/id7:1c:2@16 2/0/2/0/2"}, ComputeInstancePlacements: []string{"ci0:[]", "ci1:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      {Name: "3g.40gb", SliceCount: 3, InstanceCount: 2, MemorySizeMB: 40960, InfoID: 2, IsP2pSupported: 0, ProfileID: 9, Engines: "3/0/3/0/3", Placements: []string{"0:4", "4:4"}, ComputeInstances: []string{"ci0/id0:1c:3@16 3/0/3/0/3", "ci1/id1:2c:1@32 3/0/3/0/3", "ci2/id2:3c:1@48 3/0/3/0/3", "ci7/id7:1c:3@16 3/0/3/0/3"}, ComputeInstancePlacements: []string{"ci0:[]", "ci1:[]", "ci2:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      {Name: "4g.40gb", SliceCount: 4, InstanceCount: 1, MemorySizeMB: 40960, InfoID: 3, IsP2pSupported: 0, ProfileID: 5, Engines: "4/0/4/0/4", Placements: []string{"0:4"}, ComputeInstances: []string{"ci0/id0:1c:4@16 4/0/4/0/4", "ci1/id1:2c:2@32 4/0/4/0/4", "ci3/id3:4c:1@64 4/0/4/0/4", "ci7/id7:1c:4@16 4/0/4/0/4"}, ComputeInstancePlacements: []string{"ci0:[]", "ci1:[]", "ci3:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      {Name: "7g.80gb", SliceCount: 7, InstanceCount: 1, MemorySizeMB: 81920, InfoID: 4, IsP2pSupported: 0, ProfileID: 0, Engines: "7/0/7/1/8", Placements: []string{"0:8"}, ComputeInstances: []string{"ci0/id0:1c:7@16 7/0/7/1/8", "ci1/id1:2c:3@32 7/0/7/1/8", "ci2/id2:3c:2@48 7/0/7/1/8", "ci3/id3:4c:1@64 7/0/7/1/8", "ci4/id4:7c:1@112 7/0/7/1/8", "ci7/id7:1c:7@16 7/0/7/1/8"}, ComputeInstancePlacements: []string{"ci0:[]", "ci1:[]", "ci2:[]", "ci3:[]", "ci4:[]", "ci7:[]"}},
 	},
 	"b200": {
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      {Name: "1g.23gb", SliceCount: 1, InstanceCount: 7, MemorySizeMB: 23040, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"1c+me:1@18", "1c:1@18"}},
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: {Name: "1g.23gb+me", SliceCount: 1, InstanceCount: 1, MemorySizeMB: 23040, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"1c+me:1@18", "1c:1@18"}},
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: {Name: "1g.45gb", SliceCount: 1, InstanceCount: 4, MemorySizeMB: 46080, Placements: []string{"0:2", "2:2", "4:2", "6:2"}, ComputeInstances: []string{"1c+me:1@18", "1c:1@18"}},
-		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      {Name: "2g.45gb", SliceCount: 2, InstanceCount: 3, MemorySizeMB: 46080, Placements: []string{"0:2", "2:2", "4:2"}, ComputeInstances: []string{"1c+me:2@18", "1c:2@18", "2c:1@36"}},
-		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      {Name: "3g.90gb", SliceCount: 3, InstanceCount: 2, MemorySizeMB: 92160, Placements: []string{"0:4", "4:4"}, ComputeInstances: []string{"1c+me:3@18", "1c:3@18", "2c:1@36", "3c:1@54"}},
-		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      {Name: "4g.90gb", SliceCount: 4, InstanceCount: 1, MemorySizeMB: 92160, Placements: []string{"0:4"}, ComputeInstances: []string{"1c+me:4@18", "1c:4@18", "2c:2@36", "4c:1@72"}},
-		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      {Name: "7g.180gb", SliceCount: 7, InstanceCount: 1, MemorySizeMB: 184320, Placements: []string{"0:8"}, ComputeInstances: []string{"1c+me:7@18", "1c:7@18", "2c:3@36", "3c:2@54", "4c:1@72", "7c:1@126"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      {Name: "1g.23gb", SliceCount: 1, InstanceCount: 7, MemorySizeMB: 23040, InfoID: 0, IsP2pSupported: 0, ProfileID: 0, Engines: "1/0/1/0/2", Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"ci0/id0:1c:1@18 1/0/1/0/2", "ci7/id7:1c:1@18 1/0/1/0/2"}, ComputeInstancePlacements: []string{"ci0:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: {Name: "1g.23gb+me", SliceCount: 1, InstanceCount: 1, MemorySizeMB: 23040, InfoID: 7, IsP2pSupported: 0, ProfileID: 7, Engines: "1/0/1/1/2", Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"ci0/id0:1c:1@18 1/0/1/1/2", "ci7/id7:1c:1@18 1/0/1/1/2"}, ComputeInstancePlacements: []string{"ci0:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: {Name: "1g.45gb", SliceCount: 1, InstanceCount: 4, MemorySizeMB: 46080, InfoID: 9, IsP2pSupported: 0, ProfileID: 9, Engines: "1/0/1/0/2", Placements: []string{"0:2", "2:2", "4:2", "6:2"}, ComputeInstances: []string{"ci0/id0:1c:1@18 1/0/1/0/2", "ci7/id7:1c:1@18 1/0/1/0/2"}, ComputeInstancePlacements: []string{"ci0:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      {Name: "2g.45gb", SliceCount: 2, InstanceCount: 3, MemorySizeMB: 46080, InfoID: 1, IsP2pSupported: 0, ProfileID: 1, Engines: "1/0/1/0/3", Placements: []string{"0:2", "2:2", "4:2"}, ComputeInstances: []string{"ci0/id0:1c:2@18 1/0/1/0/3", "ci1/id1:2c:1@36 1/0/1/0/3", "ci7/id7:1c:2@18 1/0/1/0/3"}, ComputeInstancePlacements: []string{"ci0:[]", "ci1:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      {Name: "3g.90gb", SliceCount: 3, InstanceCount: 2, MemorySizeMB: 92160, InfoID: 2, IsP2pSupported: 0, ProfileID: 2, Engines: "1/0/1/0/6", Placements: []string{"0:4", "4:4"}, ComputeInstances: []string{"ci0/id0:1c:3@18 1/0/1/0/6", "ci1/id1:2c:1@36 1/0/1/0/6", "ci2/id2:3c:1@54 1/0/1/0/6", "ci7/id7:1c:3@18 1/0/1/0/6"}, ComputeInstancePlacements: []string{"ci0:[]", "ci1:[]", "ci2:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      {Name: "4g.90gb", SliceCount: 4, InstanceCount: 1, MemorySizeMB: 92160, InfoID: 3, IsP2pSupported: 0, ProfileID: 3, Engines: "1/0/1/0/8", Placements: []string{"0:4"}, ComputeInstances: []string{"ci0/id0:1c:4@18 1/0/1/0/8", "ci1/id1:2c:2@36 1/0/1/0/8", "ci3/id3:4c:1@72 1/0/1/0/8", "ci7/id7:1c:4@18 1/0/1/0/8"}, ComputeInstancePlacements: []string{"ci0:[]", "ci1:[]", "ci3:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      {Name: "7g.180gb", SliceCount: 7, InstanceCount: 1, MemorySizeMB: 184320, InfoID: 4, IsP2pSupported: 0, ProfileID: 4, Engines: "1/0/1/1/16", Placements: []string{"0:8"}, ComputeInstances: []string{"ci0/id0:1c:7@18 1/0/1/1/16", "ci1/id1:2c:3@36 1/0/1/1/16", "ci2/id2:3c:2@54 1/0/1/1/16", "ci3/id3:4c:1@72 1/0/1/1/16", "ci4/id4:7c:1@126 1/0/1/1/16", "ci7/id7:1c:7@18 1/0/1/1/16"}, ComputeInstancePlacements: []string{"ci0:[]", "ci1:[]", "ci2:[]", "ci3:[]", "ci4:[]", "ci7:[]"}},
 	},
 	"gb200": {
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      {Name: "1g.23gb", SliceCount: 1, InstanceCount: 7, MemorySizeMB: 23808, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"1c+me:1@18", "1c:1@18"}},
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: {Name: "1g.23gb+me", SliceCount: 1, InstanceCount: 1, MemorySizeMB: 23808, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"1c+me:1@18", "1c:1@18"}},
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: {Name: "1g.47gb", SliceCount: 1, InstanceCount: 4, MemorySizeMB: 47616, Placements: []string{"0:2", "2:2", "4:2", "6:2"}, ComputeInstances: []string{"1c+me:1@18", "1c:1@18"}},
-		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      {Name: "2g.47gb", SliceCount: 2, InstanceCount: 3, MemorySizeMB: 47616, Placements: []string{"0:2", "2:2", "4:2"}, ComputeInstances: []string{"1c+me:2@18", "1c:2@18", "2c:1@36"}},
-		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      {Name: "3g.93gb", SliceCount: 3, InstanceCount: 2, MemorySizeMB: 95232, Placements: []string{"0:4", "4:4"}, ComputeInstances: []string{"1c+me:3@18", "1c:3@18", "2c:1@36", "3c:1@54"}},
-		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      {Name: "4g.93gb", SliceCount: 4, InstanceCount: 1, MemorySizeMB: 95232, Placements: []string{"0:4"}, ComputeInstances: []string{"1c+me:4@18", "1c:4@18", "2c:2@36", "4c:1@72"}},
-		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      {Name: "7g.186gb", SliceCount: 7, InstanceCount: 1, MemorySizeMB: 190464, Placements: []string{"0:8"}, ComputeInstances: []string{"1c+me:7@18", "1c:7@18", "2c:3@36", "3c:2@54", "4c:1@72", "7c:1@126"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      {Name: "1g.23gb", SliceCount: 1, InstanceCount: 7, MemorySizeMB: 23808, InfoID: 0, IsP2pSupported: 0, ProfileID: 0, Engines: "1/0/1/0/2", Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"ci0/id0:1c:1@18 1/0/1/0/2", "ci7/id7:1c:1@18 1/0/1/0/2"}, ComputeInstancePlacements: []string{"ci0:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: {Name: "1g.23gb+me", SliceCount: 1, InstanceCount: 1, MemorySizeMB: 23808, InfoID: 7, IsP2pSupported: 0, ProfileID: 7, Engines: "1/0/1/1/2", Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"ci0/id0:1c:1@18 1/0/1/1/2", "ci7/id7:1c:1@18 1/0/1/1/2"}, ComputeInstancePlacements: []string{"ci0:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: {Name: "1g.47gb", SliceCount: 1, InstanceCount: 4, MemorySizeMB: 47616, InfoID: 9, IsP2pSupported: 0, ProfileID: 9, Engines: "1/0/1/0/2", Placements: []string{"0:2", "2:2", "4:2", "6:2"}, ComputeInstances: []string{"ci0/id0:1c:1@18 1/0/1/0/2", "ci7/id7:1c:1@18 1/0/1/0/2"}, ComputeInstancePlacements: []string{"ci0:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      {Name: "2g.47gb", SliceCount: 2, InstanceCount: 3, MemorySizeMB: 47616, InfoID: 1, IsP2pSupported: 0, ProfileID: 1, Engines: "1/0/1/0/3", Placements: []string{"0:2", "2:2", "4:2"}, ComputeInstances: []string{"ci0/id0:1c:2@18 1/0/1/0/3", "ci1/id1:2c:1@36 1/0/1/0/3", "ci7/id7:1c:2@18 1/0/1/0/3"}, ComputeInstancePlacements: []string{"ci0:[]", "ci1:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      {Name: "3g.93gb", SliceCount: 3, InstanceCount: 2, MemorySizeMB: 95232, InfoID: 2, IsP2pSupported: 0, ProfileID: 2, Engines: "1/0/1/0/6", Placements: []string{"0:4", "4:4"}, ComputeInstances: []string{"ci0/id0:1c:3@18 1/0/1/0/6", "ci1/id1:2c:1@36 1/0/1/0/6", "ci2/id2:3c:1@54 1/0/1/0/6", "ci7/id7:1c:3@18 1/0/1/0/6"}, ComputeInstancePlacements: []string{"ci0:[]", "ci1:[]", "ci2:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      {Name: "4g.93gb", SliceCount: 4, InstanceCount: 1, MemorySizeMB: 95232, InfoID: 3, IsP2pSupported: 0, ProfileID: 3, Engines: "1/0/1/0/8", Placements: []string{"0:4"}, ComputeInstances: []string{"ci0/id0:1c:4@18 1/0/1/0/8", "ci1/id1:2c:2@36 1/0/1/0/8", "ci3/id3:4c:1@72 1/0/1/0/8", "ci7/id7:1c:4@18 1/0/1/0/8"}, ComputeInstancePlacements: []string{"ci0:[]", "ci1:[]", "ci3:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      {Name: "7g.186gb", SliceCount: 7, InstanceCount: 1, MemorySizeMB: 190464, InfoID: 4, IsP2pSupported: 0, ProfileID: 4, Engines: "1/0/1/1/16", Placements: []string{"0:8"}, ComputeInstances: []string{"ci0/id0:1c:7@18 1/0/1/1/16", "ci1/id1:2c:3@36 1/0/1/1/16", "ci2/id2:3c:2@54 1/0/1/1/16", "ci3/id3:4c:1@72 1/0/1/1/16", "ci4/id4:7c:1@126 1/0/1/1/16", "ci7/id7:1c:7@18 1/0/1/1/16"}, ComputeInstancePlacements: []string{"ci0:[]", "ci1:[]", "ci2:[]", "ci3:[]", "ci4:[]", "ci7:[]"}},
 	},
 	"gb300": {
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      {Name: "1g.35gb", SliceCount: 1, InstanceCount: 7, MemorySizeMB: 35584, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"1c+me:1@18", "1c:1@18"}},
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: {Name: "1g.35gb+me", SliceCount: 1, InstanceCount: 1, MemorySizeMB: 35584, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"1c+me:1@18", "1c:1@18"}},
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: {Name: "1g.70gb", SliceCount: 1, InstanceCount: 4, MemorySizeMB: 71168, Placements: []string{"0:2", "2:2", "4:2", "6:2"}, ComputeInstances: []string{"1c+me:1@18", "1c:1@18"}},
-		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      {Name: "2g.70gb", SliceCount: 2, InstanceCount: 3, MemorySizeMB: 71168, Placements: []string{"0:2", "2:2", "4:2"}, ComputeInstances: []string{"1c+me:2@18", "1c:2@18", "2c:1@36"}},
-		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      {Name: "3g.139gb", SliceCount: 3, InstanceCount: 2, MemorySizeMB: 142336, Placements: []string{"0:4", "4:4"}, ComputeInstances: []string{"1c+me:3@18", "1c:3@18", "2c:1@36", "3c:1@54"}},
-		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      {Name: "4g.139gb", SliceCount: 4, InstanceCount: 1, MemorySizeMB: 142336, Placements: []string{"0:4"}, ComputeInstances: []string{"1c+me:4@18", "1c:4@18", "2c:2@36", "4c:1@72"}},
-		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      {Name: "7g.278gb", SliceCount: 7, InstanceCount: 1, MemorySizeMB: 284672, Placements: []string{"0:8"}, ComputeInstances: []string{"1c+me:7@18", "1c:7@18", "2c:3@36", "3c:2@54", "4c:1@72", "7c:1@126"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      {Name: "1g.35gb", SliceCount: 1, InstanceCount: 7, MemorySizeMB: 35584, InfoID: 0, IsP2pSupported: 0, ProfileID: 0, Engines: "1/0/1/0/2", Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"ci0/id0:1c:1@18 1/0/1/0/2", "ci7/id7:1c:1@18 1/0/1/0/2"}, ComputeInstancePlacements: []string{"ci0:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: {Name: "1g.35gb+me", SliceCount: 1, InstanceCount: 1, MemorySizeMB: 35584, InfoID: 7, IsP2pSupported: 0, ProfileID: 7, Engines: "1/0/1/1/2", Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"ci0/id0:1c:1@18 1/0/1/1/2", "ci7/id7:1c:1@18 1/0/1/1/2"}, ComputeInstancePlacements: []string{"ci0:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: {Name: "1g.70gb", SliceCount: 1, InstanceCount: 4, MemorySizeMB: 71168, InfoID: 9, IsP2pSupported: 0, ProfileID: 9, Engines: "1/0/1/0/2", Placements: []string{"0:2", "2:2", "4:2", "6:2"}, ComputeInstances: []string{"ci0/id0:1c:1@18 1/0/1/0/2", "ci7/id7:1c:1@18 1/0/1/0/2"}, ComputeInstancePlacements: []string{"ci0:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      {Name: "2g.70gb", SliceCount: 2, InstanceCount: 3, MemorySizeMB: 71168, InfoID: 1, IsP2pSupported: 0, ProfileID: 1, Engines: "1/0/1/0/3", Placements: []string{"0:2", "2:2", "4:2"}, ComputeInstances: []string{"ci0/id0:1c:2@18 1/0/1/0/3", "ci1/id1:2c:1@36 1/0/1/0/3", "ci7/id7:1c:2@18 1/0/1/0/3"}, ComputeInstancePlacements: []string{"ci0:[]", "ci1:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      {Name: "3g.139gb", SliceCount: 3, InstanceCount: 2, MemorySizeMB: 142336, InfoID: 2, IsP2pSupported: 0, ProfileID: 2, Engines: "1/0/1/0/6", Placements: []string{"0:4", "4:4"}, ComputeInstances: []string{"ci0/id0:1c:3@18 1/0/1/0/6", "ci1/id1:2c:1@36 1/0/1/0/6", "ci2/id2:3c:1@54 1/0/1/0/6", "ci7/id7:1c:3@18 1/0/1/0/6"}, ComputeInstancePlacements: []string{"ci0:[]", "ci1:[]", "ci2:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      {Name: "4g.139gb", SliceCount: 4, InstanceCount: 1, MemorySizeMB: 142336, InfoID: 3, IsP2pSupported: 0, ProfileID: 3, Engines: "1/0/1/0/8", Placements: []string{"0:4"}, ComputeInstances: []string{"ci0/id0:1c:4@18 1/0/1/0/8", "ci1/id1:2c:2@36 1/0/1/0/8", "ci3/id3:4c:1@72 1/0/1/0/8", "ci7/id7:1c:4@18 1/0/1/0/8"}, ComputeInstancePlacements: []string{"ci0:[]", "ci1:[]", "ci3:[]", "ci7:[]"}},
+		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      {Name: "7g.278gb", SliceCount: 7, InstanceCount: 1, MemorySizeMB: 284672, InfoID: 4, IsP2pSupported: 0, ProfileID: 4, Engines: "1/0/1/1/16", Placements: []string{"0:8"}, ComputeInstances: []string{"ci0/id0:1c:7@18 1/0/1/1/16", "ci1/id1:2c:3@36 1/0/1/1/16", "ci2/id2:3c:2@54 1/0/1/1/16", "ci3/id3:4c:1@72 1/0/1/1/16", "ci4/id4:7c:1@126 1/0/1/1/16", "ci7/id7:1c:7@18 1/0/1/1/16"}, ComputeInstancePlacements: []string{"ci0:[]", "ci1:[]", "ci2:[]", "ci3:[]", "ci4:[]", "ci7:[]"}},
 	},
 }
 
