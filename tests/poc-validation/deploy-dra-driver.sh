@@ -13,7 +13,7 @@ LOG_DIR="${LOG_DIR:-$SCRIPT_DIR/logs}"
 
 EXPECTED_GPUS="${EXPECTED_GPUS:-8}"
 CLUSTER_NAME="${CLUSTER_NAME:-nvml-mock-poc}"
-DRA_CHART_VERSION="${DRA_CHART_VERSION:-}"  # Empty = latest
+DRA_CHART_VERSION="${DRA_CHART_VERSION:-0.5.0}"  # Set to "" to track latest
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -44,7 +44,7 @@ if [ -n "$DRA_CHART_VERSION" ]; then
 fi
 
 # shellcheck disable=SC2086
-helm install nvidia-dra-driver nvidia/nvidia-dra-driver-gpu \
+helm install nvidia-dra-driver nvidia/dra-driver-nvidia-gpu \
   --namespace nvidia \
   --create-namespace \
   --set nvidiaDriverRoot=/var/lib/nvml-mock/driver \
@@ -62,7 +62,7 @@ kubectl -n nvidia wait --for=condition=ready pod --all --timeout=120s
 echo ""
 echo "=== Step 4: Capturing DRA driver logs ==="
 sleep 5  # Allow time for initial NVML discovery
-kubectl -n nvidia logs -l app.kubernetes.io/name=nvidia-dra-driver-gpu --tail=500 \
+kubectl -n nvidia logs -l app.kubernetes.io/name=dra-driver-nvidia-gpu --tail=500 \
   > "$LOG_DIR/dra-driver-startup.log" 2>&1 || true
 
 # Capture kubelet-plugin logs specifically (this is where NVML calls happen)
@@ -95,7 +95,7 @@ for i in $(seq 1 30); do
       "$LOG_DIR/resourceslices.json"
 
     # Save final DRA logs
-    kubectl -n nvidia logs -l app.kubernetes.io/name=nvidia-dra-driver-gpu --tail=2000 \
+    kubectl -n nvidia logs -l app.kubernetes.io/name=dra-driver-nvidia-gpu --tail=2000 \
       > "$LOG_DIR/dra-driver-full.log" 2>&1 || true
 
     echo ""
@@ -115,7 +115,7 @@ echo ""
 echo "=== Collecting failure debug info ==="
 kubectl -n nvidia get pods -o wide > "$LOG_DIR/dra-pods.log" 2>&1 || true
 kubectl -n nvidia describe pods > "$LOG_DIR/dra-pods-describe.log" 2>&1 || true
-kubectl -n nvidia logs -l app.kubernetes.io/name=nvidia-dra-driver-gpu --tail=2000 \
+kubectl -n nvidia logs -l app.kubernetes.io/name=dra-driver-nvidia-gpu --tail=2000 \
   > "$LOG_DIR/dra-driver-full.log" 2>&1 || true
 kubectl get resourceslices -o yaml > "$LOG_DIR/resourceslices.yaml" 2>&1 || true
 kubectl describe nodes > "$LOG_DIR/node-describe.log" 2>&1 || true
