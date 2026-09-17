@@ -140,21 +140,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `NVML_ERROR_NOT_SUPPORTED`, the same as `l40s` and `t4`. Every profile the
   chart ships declares its table. See
   [the `mig:` reference](docs/configuration.md#mig).
-- nvml-mock: a board now declares which published `nvidia-smi mig -lgip`
-  listing its profile ids come from, through `mig.profile_ids` — `7_slice` for
-  the A100/H100 numbering, `4_slice` for the A30's, or `none`. The listing used
-  to be picked from `max_gpu_instances`, which handed the three Blackwell
-  profiles Hopper's numbering because they are also seven slices wide: `b200`
-  reported id `19` for its 1-slice profile, so `mig -cgi 0` carved the whole
-  board where it now hands back a `1g` and `-cgi 4` was refused. NVIDIA
-  publishes no `mig -lgip` listing for Blackwell, so `b200`, `gb200` and
-  `gb300` declare `none` and every profile of theirs reports its own NVML enum
-  — under which `0` is the 1-slice profile. A layout named by `profile` rather
-  than `profile_id` is unaffected on every board. **Breaking for
-  externally-authored configs:** a config that declares `supported_profiles`
-  and no `profile_ids` reports NVML's enums, since `none` is the default;
-  publishing nothing is defensible where publishing another board's ids is not.
-  An unrecognized value is refused at load.
+- nvml-mock: every row of `mig.supported_profiles` now declares the profile id
+  the board publishes for it, under `profile_id` — `19` for an A100's
+  `1g.5gb`, copied off the `ID` column of `nvidia-smi mig -lgip`. The ids used
+  to come from one of two hardcoded tables, picked by `max_gpu_instances`,
+  which handed the three Blackwell profiles Hopper's numbering because they are
+  also seven slices wide: `b200` reported id `19` for its 1-slice profile, so
+  `mig -cgi 0` carved the whole board where it now hands back a `1g` and
+  `-cgi 4` was refused. NVIDIA publishes no `mig -lgip` listing for Blackwell,
+  so `b200`, `gb200` and `gb300` declare each row's own NVML enum — under which
+  `0` is the 1-slice profile. A layout named by `profile` rather than
+  `profile_id` is unaffected on every board. **Breaking for
+  externally-authored configs:** a row that declares no `profile_id` publishes
+  `0`, and a second such row on the same board is refused at load, since two
+  rows cannot share one id.
+- nvml-mock: a row of `mig.supported_profiles` now declares its whole partition
+  — `placements`, `compute_instances` and its `slices` alongside the
+  `profile_id` above — and the engine transcribes them rather than computing
+  anything. Placements were derived from the row's memory against the board's
+  capacity, and the compute-instance listing was enumerated from the row's
+  width; geometry an algorithm was not taught is geometry the mock could not
+  express in YAML at all, which is what roughly 400 lines of declared YAML per
+  board buys. No board behaves differently: each shipped profile declares what
+  the derivation produced. **Breaking for externally-authored configs:** add
+  `placements` and `compute_instances` to every row — both are required, and a
+  row missing either is refused at load rather than filled in — and drop the
+  board-level `mig.profile_ids` key, which no longer exists and is now read as
+  an unknown key and ignored. `placements` are measured in memory units, not
+  compute slices: a 7-slice board has eight units, so the full-board row is one
+  `{start: 0, size: 8}`. `slices` may be omitted, in which case the width comes
+  from the row's `nvml_profile` enum, and a declared width that disagrees with
+  that enum is refused. See
+  [the `mig:` reference](docs/configuration.md#mig).
 
 ### Removed
 
@@ -233,8 +250,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reported; the other four boards reported seven and three. Each board's
   one-slice double-memory profile — `1g.20gb`, `1g.45gb`, `1g.47gb` and
   `1g.70gb` — changes from seven placements of size 1 to four of size 2. All
-  five profiles now agree, because placement geometry follows the seven-slice
-  layout rather than the board's capacity.
+  five profiles now declare the same placement geometry, which belongs to the
+  seven-slice layout rather than to a board's capacity.
 
 ## [0.4.0-rc1] - 2026-09-14
 

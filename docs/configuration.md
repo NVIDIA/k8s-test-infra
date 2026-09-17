@@ -467,58 +467,105 @@ and NVML answers `NVML_ERROR_NOT_SUPPORTED` for them as real hardware does.
 `supported_profiles` is the board's MIG profile table: the rows
 `nvidia-smi mig -lgip` prints. It is declared in the profile YAML rather than
 resolved in Go from the device name, so teaching the mock a new board is a YAML
-edit. One row of `h100`:
+edit. Each row describes its partition completely — the slices it spans, the id
+the board publishes for it, the slots it may occupy and the compute instances
+it offers — and nothing in a row is computed from the rest. One full row of
+`h100`:
 
 ```yaml
 device_defaults:
   mig:
     max_gpu_instances: 7
-    profile_ids: "7_slice"
     supported_profiles:
       - name: "1g.10gb"
         nvml_profile: "1_SLICE"
+        slices: 1
+        profile_id: 19
         instances: 7
         memory_mb: 10240
         multiprocessors: 16
         copy_engines: 1
         decoders: 1
         jpeg: 1
+        placements:            # memory units, not compute slices
+          - {start: 0, size: 1}
+          - {start: 1, size: 1}
+          - {start: 2, size: 1}
+          - {start: 3, size: 1}
+          - {start: 4, size: 1}
+          - {start: 5, size: 1}
+          - {start: 6, size: 1}
+        compute_instances:     # the row's `mig -lcip` listing
+          - nvml_profile: "1_SLICE"
+            slices: 1
+            instances: 1
+            multiprocessors: 16
+            shared_copy_engines: 1
+            decoders: 1
+            jpeg: 1
+          - nvml_profile: "1_SLICE_REV1"
+            slices: 1
+            instances: 1
+            multiprocessors: 16
+            shared_copy_engines: 1
+            decoders: 1
+            jpeg: 1
 ```
 
 | Field | Meaning |
 |---|---|
-| `name` | What the listing prints and the cluster spells, e.g. `1g.10gb`, `1g.10gb+me` |
+| `name` | What the listing prints and the cluster spells, e.g. `1g.10gb`, `1g.10gb+me`. Required, and refused if two rows share one — go-nvlib derives the `nvidia.com/mig-<name>` resource name from it |
 | `nvml_profile` | NVML's profile enum suffix — `1_SLICE`, `1_SLICE_REV1`, `2_SLICE`, `7_SLICE` — which every lookup keys on. An unknown suffix, or one declared twice, is refused at load |
-| `instances` | How many of this profile the board offers at once |
+| `slices` | How many compute slices the partition spans. The enum carries the same width, and a row where the two disagree is refused, so this is a second reading of one fact rather than a second source for it. Omitted takes the enum's width |
+| `profile_id` | The id the board publishes for this profile: the `ID` column of `mig -lgip`, and what `mig -cgi <id>` takes. It is not the NVML enum — an A100's `1g.5gb` binds `1_SLICE` and publishes `19`. Two rows publishing one id are refused, which is also what catches a row that omits the key, since an omitted `profile_id` publishes `0` |
+| `instances` | How many of this profile the board offers at once. Bounded at load by how many partitions of that width fit the board: a 2-slice profile fits a 7-slice board three times, not seven |
 | `memory_mb` | The partition's framebuffer. Checked at load against the size `name` advertises, loosely — a real allocation runs short of its name, by more on the wider profiles |
+| `placements` | The slots on the board this partition may occupy, in memory units. Required — see below |
+| `compute_instances` | The row's `nvidia-smi mig -lcip` listing. Required — see below |
 | `multiprocessors`, `copy_engines`, `decoders`, `encoders`, `jpeg`, `ofa` | Engine counts the listing reports. Omitted is zero |
 
-A row declares no slice count, because `nvml_profile` already carries it.
-Slice placements are not declared either: they follow from the row's
-`memory_mb` against the board's capacity together with `max_gpu_instances`,
-since NVIDIA publishes placements only as diagrams.
+`placements` are measured in **memory units, not compute slices**, and this is
+the single easiest thing to get wrong on a new board. A board has as many
+memory units as the next power of two at or above its `max_gpu_instances` —
+eight for a 7-slice board, four for a 4-slice one. So a `3g` partition holding
+half the board's memory occupies four of eight units, and the full-board `7g`
+is one `{start: 0, size: 8}` rather than a size of 7. A `1g` row on a 7-slice
+board is seven starts of size 1, and a 1-slice row holding two eighths of the
+memory — `h100`'s `1g.20gb` — is four starts of size 2.
+
+Load refuses a `size` that is not a power of two, since the units divide the
+board exactly and every start is aligned to its own size; that is what lets a
+`1g`, a `2g` and a `3g` placement coexist without a partial overlap, and it
+rules out a size of zero. It also refuses a `start` plus `size` that runs past
+the board's memory units, and two placements sharing a `start`, which would
+advertise one slot twice.
+
+`compute_instances` is the row's `mig -lcip` listing. A GPU instance does not
+offer every width that fits inside it — a 7-slice instance offers `3c` and `4c`
+and then jumps to `7c` — so the listing is declared per row rather than
+enumerated from the width.
+
+| Field | Meaning |
+|---|---|
+| `nvml_profile` | NVML's compute instance profile enum suffix, e.g. `1_SLICE`. Unknown, or declared twice within one row, is refused |
+| `slices` | Cross-checked against the enum the same way the GPU instance's `slices` is, and additionally bounded by the width of the GPU instance it sits in |
+| `instances` | How many of this compute instance fit the GPU instance: three `2c` in a `7g`, not seven |
+| `multiprocessors` | This compute instance's own share of the GPU instance's SMs |
+| `shared_copy_engines`, `decoders`, `encoders`, `jpeg`, `ofa` | NVML's `Shared*` counts. Every compute instance inside a GPU instance sees all of its fixed-function engines, so these repeat the GPU instance's counts |
+
+Declaring the geometry costs about 400 lines of YAML per board, and a
+contributor adding a board writes all of it. That is a deliberate trade of
+verbosity for expressiveness, not a simplification: an algorithm can only
+produce the geometry it was taught, so a board whose layout does not match one
+cannot be expressed in YAML at all — and the derivations that used to fill
+these fields in Go were where this area's defects concentrated.
 
 Transcribe rows from the Supported MIG Profiles tables of NVIDIA's MIG user
 guide, which is where every shipped profile's rows come from — each names its
-table in a YAML comment. A board that declares `max_gpu_instances` but no
-`supported_profiles` is not MIG-capable and answers
+table in a YAML comment. NVIDIA publishes placements only as diagrams, so those
+are transcribed from the layout the diagrams show. A board that declares
+`max_gpu_instances` but no `supported_profiles` is not MIG-capable and answers
 `NVML_ERROR_NOT_SUPPORTED`, the same as `t4` and `l40s`.
-
-`profile_ids` names the published `nvidia-smi mig -lgip` listing whose reported
-profile ids the board publishes. It is a separate fact from the board's width,
-and it is declared rather than inferred so that no board inherits another's
-numbering by being the same number of slices wide.
-
-| Value | Listing |
-|---|---|
-| `7_slice` | The A100/H100 numbering, which follows a partition's fraction of the board rather than the board's capacity |
-| `4_slice` | The A30's |
-| `none` (default) | The board publishes no ids and every profile reports its own NVML enum |
-
-Any other value is refused at load rather than defaulted, so a board never
-advertises ids its author did not choose. `b200`, `gb200` and `gb300` declare
-`none` because NVIDIA publishes no `mig -lgip` listing for Blackwell; `a100`
-and `h100` declare `7_slice`.
 
 #### Declaring a layout by count
 
@@ -545,14 +592,15 @@ devices:
 | `compute_instances` | Compute slices inside each GPU instance, same `profile`/`profile_id`/`count` shape. Defaults to one spanning the whole GPU instance, which is what `nvidia-mig-parted` creates |
 
 `profile_id` is the id in the `ID` column of `nvidia-smi mig -lgip`, so it can
-be copied straight off that listing. Which numbers appear there is the board's
-own `profile_ids` listing: on `a100` and `h100` they are the published ids,
-where `19` is a 1-slice partition and NVML's profile enum for the same
-partition is a different number entirely. On a board declaring `profile_ids:
-"none"` — every Blackwell profile — the listing reports NVML's enums, so `19`
-names nothing and `0` is the 1-slice profile rather than the whole board. Name
-partitions by `profile` there, and take any id from the mock's own listing
-rather than from a real board's.
+be copied straight off that listing. Which numbers appear there is whatever the
+board's own rows declare as their `profile_id`: on `a100` and `h100` those are
+the ids NVIDIA publishes, where `19` is a 1-slice partition and NVML's profile
+enum for the same partition is a different number entirely. NVIDIA publishes no
+`mig -lgip` listing for Blackwell, so `b200`, `gb200` and `gb300` declare each
+row's own NVML enum instead — `19` names nothing there and `0` is the 1-slice
+profile rather than the whole board. Name partitions by `profile` on those
+boards, and take any id from the mock's own listing rather than from a real
+board's.
 
 #### Declaring a layout explicitly
 
