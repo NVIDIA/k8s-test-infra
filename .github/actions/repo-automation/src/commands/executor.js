@@ -217,6 +217,7 @@ function planCommandExecution(input) {
     }
     mutations.backportRequests.push({
       command: command.name,
+      prNumber: input.context.pullRequest,
       targetBranch: command.targetBranch,
       sourceCommentId: input.commentId,
     });

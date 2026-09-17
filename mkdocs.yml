@@ -158,3 +158,4 @@ nav:
           - generate-bridge: tools/generate-bridge.md
       - Enhancement Proposals: contributing/enhancements.md
       - Pull Requests: contributing/pull-requests.md
+      - Repository Automation: maintainers/repository-automation.md

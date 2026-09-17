@@ -25,6 +25,13 @@ const POLICY_MARKER = "<!-- repo-automation-policy:v1 -->";
 const METADATA = (head = HEAD) => (
   `<!-- repo-automation-metadata-head:v1 {"headOid":"${head}"} -->`
 );
+const WORKFLOW_EVENT = {
+  repository: {
+    name: "k8s-test-infra",
+    full_name: "NVIDIA/k8s-test-infra",
+    owner: { login: "NVIDIA" },
+  },
+};
 
 function digest() {
   return policyDigest({
@@ -158,18 +165,12 @@ async function run(state = evaluatorState(), options = {}) {
   const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
   const github = createFakeGitHub(state);
   const result = await runMergeEvaluate({
-    event: {
-      repository: {
-        name: "k8s-test-infra",
-        full_name: "NVIDIA/k8s-test-infra",
-        owner: { login: "NVIDIA" },
-      },
-    },
-    eventName: "workflow_dispatch",
+    event: options.event ?? WORKFLOW_EVENT,
+    eventName: options.eventName ?? "workflow_dispatch",
     github,
     config,
     dryRun: options.dryRun ?? false,
-    prNumber: "42",
+    prNumber: Object.hasOwn(options, "prNumber") ? options.prNumber : "42",
   });
   return { github, result };
 }
@@ -267,6 +268,39 @@ test("an unprotected target branch fails closed", async () => {
   assert.deepEqual(github.calls.enableAutoMerge, []);
 });
 
+test("an evaluation load error fails the action and forces restrictive state", async () => {
+  const github = createFakeGitHub(evaluatorState({
+    mergeStates: [
+      mergeState({ autoMergeMethod: "SQUASH" }),
+      mergeState({ autoMergeMethod: "SQUASH" }),
+      mergeState({ autoMergeMethod: "SQUASH" }),
+    ],
+    failures: { getPolicyComment: new Error("transient authority failure") },
+  }));
+  const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
+
+  await assert.rejects(
+    () => runMergeEvaluate({
+      event: WORKFLOW_EVENT,
+      eventName: "workflow_dispatch",
+      github,
+      config,
+      dryRun: false,
+      prNumber: "42",
+    }),
+    (error) => {
+      assert.equal(error.summary.status, "failed");
+      assert.deepEqual(error.summary.candidates, [42]);
+      return /evaluation failed closed/.test(error.message);
+    },
+  );
+  assert.equal(github.calls.setMergePolicyCheck.at(-1).conclusion, "action_required");
+  assert.deepEqual(github.calls.disableAutoMerge, [{ nodeId: "PR_node_42" }]);
+  assert.equal(github.calls.addPolicyLabel.some(({ label }) => label === "do-not-merge/needs-approval"), true);
+  assert.equal(github.calls.removePolicyLabel.some(({ label }) => label === "lgtm"), true);
+  assert.equal(github.calls.removePolicyLabel.some(({ label }) => label === "approved"), true);
+});
+
 test("a head change after the success check stops auto-merge enablement", async () => {
   const { github, result } = await run(evaluatorState({
     pullRequests: [pullRequest(), pullRequest(), pullRequest({ headOid: NEXT_HEAD })],
@@ -294,6 +328,94 @@ test("dry-run calculates policy but performs no GitHub writes", async () => {
     "addPolicyLabel",
     "removePolicyLabel",
   ]) assert.deepEqual(github.calls[operation], []);
+});
+
+test("workflow completion evaluates only a refetched trusted workflow identity", async () => {
+  const state = evaluatorState({
+    evaluationWorkflowRuns: [{
+      id: 901,
+      name: "PR metadata",
+      workflowPath: ".github/workflows/pr-metadata.yml",
+      workflowSourceRef: "refs/heads/main",
+      event: "pull_request_target",
+      status: "completed",
+      repository: REPOSITORY,
+      pullRequestNumbers: [42],
+    }],
+  });
+  const event = {
+    ...WORKFLOW_EVENT,
+    action: "completed",
+    workflow_run: { id: 901, status: "completed" },
+  };
+  const { github, result } = await run(state, {
+    dryRun: true,
+    event,
+    eventName: "workflow_run",
+    prNumber: "",
+  });
+
+  assert.deepEqual(github.calls.getEvaluationWorkflowRun, [{ runId: 901 }]);
+  assert.deepEqual(result.candidates, [42]);
+});
+
+test("workflow completion ignores a refetched workflow with a spoofed path", async () => {
+  const state = evaluatorState({
+    evaluationWorkflowRuns: [{
+      id: 902,
+      name: "PR metadata",
+      workflowPath: ".github/workflows/spoof.yml",
+      workflowSourceRef: "refs/heads/main",
+      event: "pull_request_target",
+      status: "completed",
+      repository: REPOSITORY,
+      pullRequestNumbers: [42],
+    }],
+  });
+  const event = {
+    ...WORKFLOW_EVENT,
+    action: "completed",
+    workflow_run: { id: 902, status: "completed" },
+  };
+  const { github, result } = await run(state, {
+    dryRun: true,
+    event,
+    eventName: "workflow_run",
+    prNumber: "",
+  });
+
+  assert.deepEqual(github.calls.getEvaluationWorkflowRun, [{ runId: 902 }]);
+  assert.deepEqual(result, { status: "planned", candidates: [], pullRequests: [] });
+});
+
+test("trusted command completion scans every bounded open pull request", async () => {
+  const state = evaluatorState({
+    evaluationWorkflowRuns: [{
+      id: 903,
+      name: "Commands",
+      workflowPath: ".github/workflows/commands.yml",
+      workflowSourceRef: "refs/heads/main",
+      event: "issue_comment",
+      status: "completed",
+      repository: REPOSITORY,
+      pullRequestNumbers: [],
+    }],
+    openPullRequestNumbers: [42],
+  });
+  const event = {
+    ...WORKFLOW_EVENT,
+    action: "completed",
+    workflow_run: { id: 903, status: "completed" },
+  };
+  const { github, result } = await run(state, {
+    dryRun: true,
+    event,
+    eventName: "workflow_run",
+    prNumber: "",
+  });
+
+  assert.deepEqual(github.calls.listOpenPullRequestNumbers, [{}]);
+  assert.deepEqual(result.candidates, [42]);
 });
 
 test("merge policy contains no direct merge endpoint", () => {

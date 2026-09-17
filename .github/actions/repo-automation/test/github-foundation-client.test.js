@@ -211,6 +211,80 @@ test("maps merge, workflow, and pull-request state with exact heads", async () =
   await client.rerunFailedJobs(701);
 });
 
+test("ignores unrelated workflow runs before mapping their pull request identity", async () => {
+  const base = mockOctokit({
+    rest: {
+      actions: {
+        listWorkflowRunsForRepo: async (parameters) => {
+          base.calls.push({ name: "listWorkflowRuns", parameters });
+          return { data: { workflow_runs: [
+            {
+              id: 701,
+              head_sha: "a".repeat(40),
+              status: "completed",
+              conclusion: "failure",
+              path: ".github/workflows/automation-ci.yml@refs/heads/main",
+              event: "pull_request",
+              pull_requests: [{ number: 42 }],
+              repository: { full_name: "NVIDIA/k8s-test-infra" },
+            },
+            {
+              id: 702,
+              head_sha: "a".repeat(40),
+              status: "completed",
+              conclusion: "failure",
+              path: ".github/workflows/automation-ci.yml@refs/heads/main",
+              event: "push",
+              pull_requests: [],
+              repository: { full_name: "NVIDIA/k8s-test-infra" },
+            },
+          ] } };
+        },
+      },
+    },
+  });
+  const client = createGitHubClient(base.octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+
+  assert.equal((await client.listWorkflowRunsForHead("a".repeat(40), 42)).length, 1);
+});
+
+test("refetches only a bounded evaluator workflow identity", async () => {
+  let workflowPath = ".github/workflows/pr-metadata.yml@refs/heads/main";
+  const base = mockOctokit({
+    rest: {
+      actions: {
+        getWorkflowRun: async (parameters) => {
+          base.calls.push({ name: "getEvaluationWorkflowRun", parameters });
+          return { data: {
+            id: 702,
+            name: "PR metadata",
+            path: workflowPath,
+            event: "pull_request_target",
+            status: "completed",
+            pull_requests: [{ number: 42 }],
+            repository: { full_name: "NVIDIA/k8s-test-infra" },
+          } };
+        },
+      },
+    },
+  });
+  const client = createGitHubClient(base.octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+
+  assert.deepEqual(await client.getEvaluationWorkflowRun(702), {
+    id: 702,
+    name: "PR metadata",
+    workflowPath: ".github/workflows/pr-metadata.yml",
+    workflowSourceRef: "refs/heads/main",
+    event: "pull_request_target",
+    status: "completed",
+    repository: "nvidia/k8s-test-infra",
+    pullRequestNumbers: [42],
+  });
+
+  workflowPath = ".github/workflows/pr-metadata.yml@refs/heads/main@spoof";
+  assert.equal(await client.getEvaluationWorkflowRun(702), null);
+});
+
 test("exposes bounded branch and backport pull-request operations", async () => {
   const existingPullRequest = {
     number: 900,

@@ -96,8 +96,8 @@ test("plans only policy-allowed backport requests and preserves the alias", () =
     },
   }));
   assert.deepEqual(result.mutations.backportRequests, [
-    { command: "backport", targetBranch: "release-1.2", sourceCommentId: 100 },
-    { command: "cherry-pick", targetBranch: "release-1.3", sourceCommentId: 100 },
+    { command: "backport", prNumber: 42, targetBranch: "release-1.2", sourceCommentId: 100 },
+    { command: "cherry-pick", prNumber: 42, targetBranch: "release-1.3", sourceCommentId: 100 },
   ]);
   assert.equal(result.commands[2].code, "target-branch-not-allowed");
 });

@@ -25,6 +25,23 @@ const MAX_FILES = 1000;
 const MAX_REVIEWS = 1000;
 const ZERO_OID = "0".repeat(40);
 const SUCCESS_SUMMARY = "Repository merge policy passed.";
+const TRUSTED_WORKFLOWS = Object.freeze(new Map([
+  ["Review observer", Object.freeze({
+    path: ".github/workflows/review-observer.yml",
+    event: "pull_request_review",
+    allOpen: false,
+  })],
+  ["PR metadata", Object.freeze({
+    path: ".github/workflows/pr-metadata.yml",
+    event: "pull_request_target",
+    allOpen: false,
+  })],
+  ["Commands", Object.freeze({
+    path: ".github/workflows/commands.yml",
+    event: "issue_comment",
+    allOpen: true,
+  })],
+]));
 
 function eventRepository(event) {
   const owner = event?.repository?.owner?.login;
@@ -74,10 +91,48 @@ function boundedCandidates(numbers) {
   return [...unique].sort((left, right) => left - right);
 }
 
-async function candidatesFor({ event, eventName, github, prNumber }) {
+function trustedRun(run, repository) {
+  if (
+    run === null
+    || typeof run !== "object"
+    || run.status !== "completed"
+    || run.repository !== repository.fullName
+  ) return null;
+  const expected = TRUSTED_WORKFLOWS.get(run.name);
+  if (
+    expected === undefined
+    || run.workflowPath !== expected.path
+    || run.event !== expected.event
+  ) return null;
+  return expected;
+}
+
+async function candidatesFor({ event, eventName, github, repository, prNumber }) {
   const explicit = explicitNumber(prNumber);
+  if (eventName === "workflow_run") {
+    if (explicit !== null) throw new TypeError("workflow_run rejects an explicit pull request");
+    if (
+      event?.schedule !== undefined
+      || event?.workflow_run === null
+      || event?.action !== "completed"
+      || event?.workflow_run?.status !== "completed"
+      || !Number.isSafeInteger(event.workflow_run?.id)
+      || event.workflow_run.id <= 0
+    ) throw new TypeError("workflow completion event is invalid");
+    const run = await github.getEvaluationWorkflowRun(event.workflow_run.id);
+    if (run?.id !== event.workflow_run.id) return [];
+    const expected = trustedRun(run, repository);
+    if (expected === null) return [];
+    if (expected.allOpen) return boundedCandidates(await github.listOpenPullRequestNumbers());
+    return boundedCandidates(run.pullRequestNumbers);
+  }
   if (eventName === "schedule") {
-    if (explicit !== null || typeof event?.schedule !== "string" || event.schedule === "") {
+    if (
+      explicit !== null
+      || event?.workflow_run !== undefined
+      || typeof event?.schedule !== "string"
+      || event.schedule === ""
+    ) {
       throw new TypeError("schedule event is invalid");
     }
     return boundedCandidates(await github.listOpenPullRequestNumbers());
@@ -516,6 +571,104 @@ async function applyRestrictive({ github, repository, evaluation, dryRun }) {
   return resultFor(evaluation);
 }
 
+function failClosedDecision({ config, pullRequest, graph, authority }) {
+  return decideMergeAction({
+    pullRequestState: graph.state === "OPEN" ? "OPEN" : "CLOSED",
+    draft: graph.draft,
+    baseBranch: graph.baseBranch,
+    baseBranchAllowed: branchAllowed(graph.baseBranch, config.policy.protectedBranches),
+    baseBranchProtected: false,
+    headOid: pullRequest.headOid,
+    holdActive: false,
+    finalHeadOid: graph.headOid,
+    metadataHeadOid: ZERO_OID,
+    approvalHeadOid: pullRequest.headOid,
+    lgtm: null,
+    lgtmStateOwnedByBot: false,
+    approvalCoverageComplete: false,
+    mergeability: graph.mergeability,
+    labels: effectivePolicyLabels(authority.labels, authority),
+    loadError: true,
+    ciState: "FAILED",
+    autoMergeMethod: graph.autoMergeMethod,
+  });
+}
+
+async function loadFailClosedEvaluation({ github, config, repository, number }) {
+  const pullRequest = validatePullRequest(
+    await github.getPullRequest(number),
+    number,
+    repository,
+  );
+  const graph = validateGraphState(
+    await github.getMergeState(number),
+    pullRequest,
+    repository,
+  );
+  const labels = await github.listIssueLabels(number);
+  const authority = {
+    labels,
+    lgtm: null,
+    lgtmOwned: false,
+    approved: false,
+    holdActive: false,
+    metadataHead: null,
+  };
+  return {
+    pullRequest,
+    graph,
+    authority,
+    labels: labelPlan(labels, authority),
+    merge: failClosedDecision({ config, pullRequest, graph, authority }),
+  };
+}
+
+async function applyFailClosedBestEffort({ github, repository, evaluation }) {
+  const failures = [];
+  const attempt = async (operation) => {
+    try {
+      await operation();
+    } catch {
+      failures.push("mutation-failed");
+    }
+  };
+
+  await attempt(() => github.setMergePolicyCheck(
+    evaluation.pullRequest.number,
+    evaluation.pullRequest.headOid,
+    "action_required",
+    blockedSummary(evaluation.merge.blockers),
+  ));
+  for (const label of evaluation.labels.add) {
+    await attempt(() => github.addPolicyLabel(evaluation.pullRequest.number, label));
+  }
+  for (const label of evaluation.labels.remove) {
+    await attempt(() => github.removePolicyLabel(evaluation.pullRequest.number, label));
+  }
+  if (evaluation.merge.action === "DISABLE") {
+    await attempt(() => disableIfStillArmed({ github, repository, evaluation }));
+  }
+  return { ...resultFor(evaluation), failClosedMutationFailures: failures.length };
+}
+
+async function failClosed({ github, config, repository, number, dryRun }) {
+  if (dryRun) return { number, failClosed: false };
+  try {
+    const evaluation = await loadFailClosedEvaluation({
+      github,
+      config,
+      repository,
+      number,
+    });
+    return {
+      ...await applyFailClosedBestEffort({ github, repository, evaluation }),
+      failClosed: true,
+    };
+  } catch {
+    return { number, failClosed: false };
+  }
+}
+
 function headChangedResult(evaluation) {
   return resultFor(evaluation, { action: "NOOP", blockers: ["head-changed"] });
 }
@@ -574,25 +727,28 @@ async function runMergeEvaluate({ event, eventName, github, config, dryRun, prNu
   if (typeof dryRun !== "boolean") throw new TypeError("dry-run must be a boolean");
   validateConfig(config);
   const repository = eventRepository(event);
-  const candidates = await candidatesFor({ event, eventName, github, prNumber });
+  const candidates = await candidatesFor({ event, eventName, github, repository, prNumber });
   const pullRequests = [];
-  let partial = false;
+  let failed = false;
   for (const number of candidates) {
     try {
       pullRequests.push(await reconcile({ github, config, repository, number, dryRun }));
-    } catch (error) {
-      partial = true;
-      pullRequests.push({
-        number,
-        error: error instanceof Error ? error.message : "pull request evaluation failed",
-      });
+    } catch {
+      failed = true;
+      pullRequests.push(await failClosed({ github, config, repository, number, dryRun }));
     }
   }
-  return {
-    status: partial ? "partial" : (dryRun ? "planned" : "complete"),
+  const summary = {
+    status: failed ? "failed" : (dryRun ? "planned" : "complete"),
     candidates,
     pullRequests,
   };
+  if (failed) {
+    const error = new Error("pull request evaluation failed closed");
+    error.summary = summary;
+    throw error;
+  }
+  return summary;
 }
 
 module.exports = { runMergeEvaluate };

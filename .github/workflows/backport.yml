@@ -11,44 +11,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: Mokka cherry-pick
-
-run-name: "Mokka cherry-pick: ${{ inputs.action_id }}"
+name: Backport
 
 "on":
-  workflow_dispatch:
+  workflow_call:
     inputs:
-      pull_request_number:
+      pr-number:
         description: Merged source pull request number
         required: true
-        type: string
-      source_sha:
-        description: Lowercase 40-character merge commit SHA
-        required: true
-        type: string
-      target_branch:
-        description: Frozen target branch
-        required: true
-        type: string
-      action_id:
-        description: Canonical UUIDv4 action identifier
+        type: number
+      target-branch:
+        description: Policy-approved target branch
         required: true
         type: string
 
 permissions: {}
 
-concurrency:
-  group: mokka-cherry-pick-${{ inputs.pull_request_number }}-${{ inputs.target_branch }}
-  cancel-in-progress: false
-
 jobs:
-  cherry-pick:
-    if: ${{ vars.REPOSITORY_AUTOMATION_MOKKA_ENABLED == 'true' && github.ref_name == github.event.repository.default_branch }}
+  backport:
+    if: ${{ vars.REPOSITORY_AUTOMATION_BACKPORT_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
       pull-requests: write
+    concurrency:
+      group: backport-${{ inputs.pr-number }}-${{ inputs.target-branch }}
+      cancel-in-progress: false
     steps:
       - name: Resolve trusted default branch
         id: trusted
@@ -80,21 +69,20 @@ jobs:
       - name: Check out validated target
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.target_branch }}
+          ref: ${{ inputs.target-branch }}
           path: target
           persist-credentials: true
           fetch-depth: 1
           submodules: false
           lfs: false
-      - name: Cherry-pick merged source pull request
+      - name: Create generic backport
         uses: ./control/.github/actions/repo-automation
         env:
           GITHUB_TOKEN: ${{ github.token }}
         with:
-          mode: mokka-cherry-pick
-          pull_request_number: ${{ inputs.pull_request_number }}
-          source_sha: ${{ inputs.source_sha }}
-          target-branch: ${{ inputs.target_branch }}
-          action_id: ${{ inputs.action_id }}
+          mode: backport
+          pr-number: ${{ inputs.pr-number }}
+          target-branch: ${{ inputs.target-branch }}
+          control-directory: control
           working-directory: target
           dry-run: "false"

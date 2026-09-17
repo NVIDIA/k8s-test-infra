@@ -7,23 +7,37 @@ inputs:
   pr-number:
     description: Pull request number for modes that operate on a pull request
     required: false
+  pull_request_number:
+    description: Exact pull request number for Mokka cherry-pick mode
+    required: false
   source-sha:
+    description: Exact source commit for generic modes
+    required: false
+  source_sha:
     description: Exact source commit for Mokka cherry-pick mode
     required: false
   target-branch:
     description: Policy-approved target branch for backport modes
     required: false
   action-id:
+    description: Canonical action identity for generic modes
+    required: false
+  action_id:
     description: Canonical Mokka action UUID for retry-safe branch identity
     required: false
   working-directory:
-    description: Fixed target checkout for Mokka cherry-pick mode
+    description: Fixed target checkout for backport modes
+    required: false
+  control-directory:
+    description: Fixed trusted checkout containing repository automation policy
     required: false
   dry-run:
-    description: Plan changes without mutating GitHub
+    description: Plan supported modes without mutating GitHub; Mokka requires false
     required: false
     default: "true"
 outputs:
+  backport-requests:
+    description: Bounded JSON array of validated generic backport requests
   summary:
     description: JSON summary of the idempotent operation
 runs:

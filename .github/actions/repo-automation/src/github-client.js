@@ -24,6 +24,11 @@ const MERGE_POLICY_CHECK = "repository-automation/merge-policy";
 const REVIEW_STATES = new Set([
   "APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED", "PENDING",
 ]);
+const EVALUATOR_WORKFLOW_PATHS = new Set([
+  ".github/workflows/review-observer.yml",
+  ".github/workflows/pr-metadata.yml",
+  ".github/workflows/commands.yml",
+]);
 
 function copyLabel(label) {
   return {
@@ -156,6 +161,38 @@ function mappedWorkflowRun(run) {
     prNumber: positiveInteger(run.pull_requests[0]?.number, "workflow pull request number"),
     repository: nonEmptyString(run.repository?.full_name, "workflow repository").toLowerCase(),
   };
+}
+
+function safeWorkflowSourceRef(value) {
+  if (
+    typeof value !== "string"
+    || value === ""
+    || value.length > 256
+    || /[\0-\x20\x7f~^:?*\[\]\\]/.test(value)
+    || value.includes("@")
+    || value.includes("//")
+    || value.includes("..")
+    || value.includes("@{")
+  ) return null;
+  const segments = value.split("/");
+  if (segments.some((segment) => (
+    segment === ""
+    || segment.startsWith(".")
+    || segment.endsWith(".")
+    || segment.endsWith(".lock")
+  ))) return null;
+  return value;
+}
+
+function evaluatorWorkflowIdentity(value) {
+  if (typeof value !== "string" || value.length > 512 || /[\0\r\n\\]/.test(value)) return null;
+  const separator = value.indexOf("@");
+  if (separator <= 0 || value.indexOf("@", separator + 1) !== -1) return null;
+  const workflowPath = value.slice(0, separator);
+  const workflowSourceRef = safeWorkflowSourceRef(value.slice(separator + 1));
+  return EVALUATOR_WORKFLOW_PATHS.has(workflowPath) && workflowSourceRef !== null
+    ? { workflowPath, workflowSourceRef }
+    : null;
 }
 
 function mappedMokkaPullRequest(pullRequest) {
@@ -699,9 +736,14 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
         { owner, repo, head_sha: headOid },
         (response) => response.data.workflow_runs,
       );
-      return runs.map(mappedWorkflowRun).filter((run) => (
-        run.headOid === headOid.toLowerCase() && run.prNumber === prNumber
-      ));
+      const expectedHead = headOid.toLowerCase();
+      return runs.filter((run) => (
+        typeof run?.head_sha === "string"
+        && run.head_sha.toLowerCase() === expectedHead
+        && Array.isArray(run.pull_requests)
+        && run.pull_requests.length === 1
+        && run.pull_requests[0]?.number === prNumber
+      )).map(mappedWorkflowRun);
     },
 
     async getWorkflowRun(runId, headOid, prNumber) {
@@ -716,6 +758,37 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
         throw new Error("workflow run identity changed");
       }
       return run;
+    },
+
+    async getEvaluationWorkflowRun(runId) {
+      positiveInteger(runId, "workflow run id");
+      const response = await call("getEvaluationWorkflowRun", () => octokit.rest.actions.getWorkflowRun({
+        owner, repo, run_id: runId,
+      }), true);
+      const data = response.data;
+      try {
+        const workflow = evaluatorWorkflowIdentity(nonEmptyString(data?.path, "workflow path"));
+        if (workflow === null) return null;
+        if (!Array.isArray(data.pull_requests) || data.pull_requests.length > 100) return null;
+        const pullRequestNumbers = data.pull_requests.map((pullRequest) => (
+          positiveInteger(pullRequest?.number, "workflow PR number")
+        ));
+        if (new Set(pullRequestNumbers).size !== pullRequestNumbers.length) return null;
+        const liveId = positiveInteger(data.id, "workflow run id");
+        if (liveId !== runId) return null;
+        return {
+          id: liveId,
+          name: nonEmptyString(data.name, "workflow name"),
+          workflowPath: workflow.workflowPath,
+          workflowSourceRef: workflow.workflowSourceRef,
+          event: nonEmptyString(data.event, "workflow source event"),
+          status: nonEmptyString(data.status, "workflow run status"),
+          repository: nonEmptyString(data.repository?.full_name, "workflow run repository").toLowerCase(),
+          pullRequestNumbers: pullRequestNumbers.sort((left, right) => left - right),
+        };
+      } catch {
+        return null;
+      }
     },
 
     async rerunFailedJobs(runId) {

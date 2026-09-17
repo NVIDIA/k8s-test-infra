@@ -210,8 +210,8 @@ test("returns bounded backport requests without dispatching remote work", async 
   const result = await run(github);
 
   assert.deepEqual(result.backportRequests, [
-    { command: "backport", targetBranch: "release-0.11", sourceCommentId: 99 },
-    { command: "cherry-pick", targetBranch: "release-0.12", sourceCommentId: 99 },
+    { command: "backport", prNumber: 42, targetBranch: "release-0.11", sourceCommentId: 99 },
+    { command: "cherry-pick", prNumber: 42, targetBranch: "release-0.12", sourceCommentId: 99 },
   ]);
   assert.equal(github.callOrder.some(({ operation }) => /dispatch/i.test(operation)), false);
 });

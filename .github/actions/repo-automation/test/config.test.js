@@ -306,17 +306,23 @@ test("repository automation CI contains every Task 1 gate", () => {
     "utf8",
   );
 
+  const makefile = fs.readFileSync(path.join(repositoryRoot, "Makefile"), "utf8");
+
+  assert.match(workflow, /run:\s+make repository-automation-ci/);
   for (const command of [
     "npm ci",
     "npm test",
     "npm run lint",
+    "npm audit --audit-level=high",
     "npm run package",
     "git diff --exit-code -- dist",
     "go test ./tests/hack -run TestMokkaCherryPick -count=1",
     "make actionlint",
   ]) {
-    assert.equal(workflow.includes(command), true, `workflow must run ${command}`);
+    assert.equal(makefile.includes(command), true, `Make target must run ${command}`);
   }
+  assert.match(makefile, /\.PHONY:\s+repository-automation-ci/);
+  assert.doesNotMatch(workflow, /run:\s+npm (?:ci|test|run)/);
   assert.doesNotMatch(workflow, /SPDX-License-Identifier/);
   assert.doesNotMatch(workflow, /uses:\s+[^\s]+@(?![0-9a-f]{40}(?:\s|$))/);
 });

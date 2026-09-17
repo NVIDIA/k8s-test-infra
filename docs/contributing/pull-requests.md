@@ -81,4 +81,5 @@ cover, but it is not authoritative.
 |---|---|
 | Running the checks | [Testing](testing.md) |
 | Proposing a design first | [Enhancement Proposals](enhancements.md) |
+| Using maintainer commands and merge policy | [Repository automation](../maintainers/repository-automation.md) |
 | Getting a cluster up | [Local Development](local-development.md) |

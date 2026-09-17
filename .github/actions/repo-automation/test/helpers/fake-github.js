@@ -31,6 +31,7 @@ function createFakeGitHub(initialState = []) {
   const users = clone(options.users ?? {});
   const collaboratorAccess = clone(options.collaboratorAccess ?? {});
   const workflowRuns = clone(options.workflowRuns ?? []);
+  const evaluationWorkflowRuns = clone(options.evaluationWorkflowRuns ?? []);
   const mergeStates = clone(options.mergeStates ?? []);
   const branches = clone(options.branches ?? {});
   const backportPullRequests = clone(options.backportPullRequests ?? []);
@@ -73,6 +74,7 @@ function createFakeGitHub(initialState = []) {
     removePolicyLabel: [],
     listWorkflowRunsForHead: [],
     getWorkflowRun: [],
+    getEvaluationWorkflowRun: [],
     rerunFailedJobs: [],
     listOpenPullRequestNumbers: [],
     getMergeState: [],
@@ -277,6 +279,11 @@ function createFakeGitHub(initialState = []) {
       ));
       if (run === undefined) throw new Error(`missing workflow run: ${runId}`);
       return clone(run);
+    },
+
+    async getEvaluationWorkflowRun(runId) {
+      record("getEvaluationWorkflowRun", { runId });
+      return clone(evaluationWorkflowRuns.find((candidate) => candidate.id === runId) ?? null);
     },
 
     async rerunFailedJobs(runId) {

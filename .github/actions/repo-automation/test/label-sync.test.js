@@ -301,28 +301,41 @@ test("action metadata pins the Node 24 entry point and stable input/output contr
   assert.deepEqual(action.runs, { using: "node24", main: "dist/index.js" });
   assert.deepEqual(Object.keys(action.inputs).sort(), [
     "action-id",
+    "action_id",
+    "control-directory",
     "dry-run",
     "mode",
     "pr-number",
+    "pull_request_number",
     "source-sha",
+    "source_sha",
     "target-branch",
     "working-directory",
   ]);
   for (const input of [
-    "mode", "pr-number", "source-sha", "target-branch", "action-id", "working-directory", "dry-run",
+    "mode", "pr-number", "pull_request_number", "source-sha", "source_sha", "target-branch",
+    "action-id", "action_id", "working-directory", "control-directory", "dry-run",
   ]) {
     assert.equal(typeof action.inputs[input].description, "string");
     assert.notEqual(action.inputs[input].description.trim(), "");
   }
   assert.equal(action.inputs.mode.required, true);
   assert.equal(action.inputs["pr-number"].required, false);
+  assert.equal(action.inputs.pull_request_number.required, false);
   assert.equal(action.inputs["target-branch"].required, false);
   assert.equal(action.inputs["source-sha"].required, false);
+  assert.equal(action.inputs.source_sha.required, false);
   assert.equal(action.inputs["action-id"].required, false);
+  assert.equal(action.inputs.action_id.required, false);
   assert.equal(action.inputs["working-directory"].required, false);
+  assert.equal(action.inputs["control-directory"].required, false);
   assert.equal(action.inputs["dry-run"].required, false);
   assert.equal(action.inputs["dry-run"].default, "true");
+  assert.match(action.inputs["dry-run"].description, /Mokka.*false/i);
   assert.deepEqual(action.outputs, {
+    "backport-requests": {
+      description: "Bounded JSON array of validated generic backport requests",
+    },
     summary: { description: "JSON summary of the idempotent operation" },
   });
 });
@@ -349,7 +362,9 @@ test("packaged dist is a standalone runnable dry-run action", async (t) => {
   const address = await listen(server);
   const outputRoot = fs.mkdtempSync(path.join(os.tmpdir(), "repo-automation-dist-"));
   const outputPath = path.join(outputRoot, "github-output");
+  const summaryPath = path.join(outputRoot, "github-step-summary");
   fs.writeFileSync(outputPath, "");
+  fs.writeFileSync(summaryPath, "");
 
   const result = await spawnNode([distEntry], {
     cwd: repositoryRoot,
@@ -358,6 +373,7 @@ test("packaged dist is a standalone runnable dry-run action", async (t) => {
       GITHUB_API_URL: `http://127.0.0.1:${address.port}`,
       GITHUB_OUTPUT: outputPath,
       GITHUB_REPOSITORY: "nvidia/k8s-test-infra",
+      GITHUB_STEP_SUMMARY: summaryPath,
       GITHUB_TOKEN: "package-smoke-token",
       GITHUB_WORKSPACE: repositoryRoot,
       "INPUT_DRY-RUN": "true",
@@ -368,6 +384,7 @@ test("packaged dist is a standalone runnable dry-run action", async (t) => {
 
   assert.equal(result.code, 0, `${result.stderr}\n${result.stdout}`);
   assert.equal(result.signal, null);
+  assert.match(fs.readFileSync(summaryPath, "utf8"), /Repository automation: label-sync/);
   const actionOutput = fs.readFileSync(outputPath, "utf8");
   assert.match(actionOutput, /summary<</);
   assert.match(actionOutput, /kind\/feature/);
