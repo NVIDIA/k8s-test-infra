@@ -85,7 +85,18 @@ func (w *fileOverrideWriter) SetNvlinkBwMode(index int, mode uint8, allDevices b
 		return nil
 	}
 	if allDevices {
-		return w.mutateAll(patch)
+		// Mirrors mockctl.SetNvlinkBwMode: the write lands in the `all:`
+		// bucket, and also drops the per-device copies, which would otherwise
+		// outrank `all:` in the merge and mask it.
+		return w.write(func(doc *ConfigOverrideDoc) (map[string]any, error) {
+			for _, bucket := range doc.Devices {
+				delete(bucket, "nvlink_bw_mode")
+			}
+			if doc.All == nil {
+				doc.All = map[string]any{}
+			}
+			return doc.All, nil
+		}, patch)
 	}
 	return w.mutate(index, patch)
 }
@@ -111,17 +122,6 @@ func (w *fileOverrideWriter) mutate(index int, patch func(bucket map[string]any)
 			doc.Devices[key] = map[string]any{}
 		}
 		return doc.Devices[key], nil
-	}, patch)
-}
-
-// mutateAll targets the `all:` bucket, which is where the node-wide NVLink
-// setter records a value that belongs to no single device.
-func (w *fileOverrideWriter) mutateAll(patch func(bucket map[string]any) error) error {
-	return w.write(func(doc *ConfigOverrideDoc) (map[string]any, error) {
-		if doc.All == nil {
-			doc.All = map[string]any{}
-		}
-		return doc.All, nil
 	}, patch)
 }
 

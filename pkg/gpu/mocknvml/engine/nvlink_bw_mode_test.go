@@ -434,6 +434,32 @@ func TestGetMockNvlinkBwMode_ObservesNodeWideWrite(t *testing.T) {
 	require.False(t, isBest, "HALF is not best")
 }
 
+// TestGetMockNvlinkBwMode_NodeWideWriteOutranksEarlierDeviceWrite is that same
+// direction for a device the per-device setter had already moved. The
+// per-device field wins the merge, so the node-wide write has to drop it or the
+// device would go on reporting the mode it was set to individually — a
+// node-wide change no GPU honours is not one the driver would make.
+func TestGetMockNvlinkBwMode_NodeWideWriteOutranksEarlierDeviceWrite(t *testing.T) {
+	persistSetterWrites(t)
+
+	e := bwEngine(t, "hopper")
+	dev := bwDevice(t, "blackwell", bwFabric(t, &NVLinkConfig{}))
+
+	require.Equal(t, nvml.SUCCESS, dev.SetMockNvlinkBwMode(2, false), "per-device set MIN")
+	require.Equal(t, nvml.SUCCESS, e.SystemSetNvlinkBwMode(3), "node-wide set HALF")
+
+	mode, _, ret := dev.GetMockNvlinkBwMode()
+	require.Equal(t, nvml.SUCCESS, ret, "device get return")
+	require.Equal(t, uint8(3), mode, "the later node-wide mode wins")
+
+	// The opposite order still leaves the per-device write in charge: it is the
+	// more specific scope and, here, also the more recent write.
+	require.Equal(t, nvml.SUCCESS, dev.SetMockNvlinkBwMode(2, false), "per-device set MIN again")
+	mode, _, ret = dev.GetMockNvlinkBwMode()
+	require.Equal(t, nvml.SUCCESS, ret, "device get return")
+	require.Equal(t, uint8(2), mode, "a later per-device mode wins")
+}
+
 // TestSetMockNvLinkLowPowerThreshold_SharedAcrossDevices covers the same
 // cross-process read-after-write for the low-power threshold, which a consumer
 // reads back through NVML_FI_DEV_NVLINK_GET_POWER_THRESHOLD rather than a

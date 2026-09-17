@@ -73,8 +73,18 @@ func UpdateWorkloadProfiles(
 // SetNvlinkBwMode persists an NVLink Reduced Bandwidth Mode. allDevices routes
 // the write to the `all:` bucket, which is how the node-wide NVML pair records
 // a mode that belongs to the node rather than to one GPU.
+//
+// A node-wide write also drops the mode any per-device write left behind, so
+// that every GPU reports the new one. On real hardware the node-wide call moves
+// the whole node, and the per-device field outranks `all:` in the merge — so
+// without this an earlier per-device set would keep masking a later node-wide
+// one. Only the bandwidth mode is cleared; the rest of a device's injected
+// state has nothing to do with this API.
 func SetNvlinkBwMode(path string, index int, mode uint8, allDevices bool) error {
 	return mutateDevice(path, func(d *Doc) error {
+		if allDevices {
+			d.ClearDeviceField(nvlinkBwModeKey)
+		}
 		d.SetFields(nvlinkTarget(index, allDevices), NvlinkBwModePatch(mode))
 		return nil
 	})
@@ -153,10 +163,15 @@ func WorkloadProfilesPatch(requested []uint32) map[string]any {
 // named once because the reset path deletes the same key the set path writes.
 const nvlinkLowPowerThresholdKey = "nvlink_low_power_threshold"
 
+// nvlinkBwModeKey is the override field both bandwidth-mode setters write,
+// named once because a node-wide write deletes from the per-device buckets the
+// same key a per-device write records.
+const nvlinkBwModeKey = "nvlink_bw_mode"
+
 // NvlinkBwModePatch builds an override patch recording the bandwidth mode
 // nvmlDeviceSetNvlinkBwMode or nvmlSystemSetNvlinkBwMode applied.
 func NvlinkBwModePatch(mode uint8) map[string]any {
-	return map[string]any{"nvlink_bw_mode": mode}
+	return map[string]any{nvlinkBwModeKey: mode}
 }
 
 // NvlinkLowPowerThresholdPatch builds an override patch recording the threshold

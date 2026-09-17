@@ -77,6 +77,30 @@ func TestSetNvlinkBwMode_NodeWideTargetsAllBucket(t *testing.T) {
 	require.Empty(t, doc.Devices, "a node-wide set belongs to no single device")
 }
 
+// TestSetNvlinkBwMode_NodeWideClearsPerDeviceModes pins that a node-wide set
+// moves a device that a per-device set had already moved. The per-device field
+// outranks `all:` in the merge, so leaving it in place would have the older
+// per-device value keep masking the newer node-wide one — on real hardware the
+// node-wide call moves the whole node.
+func TestSetNvlinkBwMode_NodeWideClearsPerDeviceModes(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+
+	require.NoError(t, SetNvlinkBwMode(path, 0, 3, false))
+	threshold := uint32(500)
+	require.NoError(t, SetNvlinkLowPowerThreshold(path, 0, &threshold))
+
+	require.NoError(t, SetNvlinkBwMode(path, 0, 1, true))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, doc.All["nvlink_bw_mode"], "node-wide mode")
+	require.NotContains(t, doc.Devices["0"], "nvlink_bw_mode",
+		"a stale per-device mode would outrank the node-wide one")
+	require.EqualValues(t, 500, doc.Devices["0"]["nvlink_low_power_threshold"],
+		"clearing the mode must not disturb unrelated per-device state")
+}
+
 // TestSetNvlinkLowPowerThreshold_ClearsOnReset pins that the reset sentinel
 // removes the field rather than recording a zero, so the device falls back to
 // the driver default instead of to a threshold nobody asked for.
