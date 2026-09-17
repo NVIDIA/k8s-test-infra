@@ -53,6 +53,13 @@ type migGoldenRow struct {
 	InstanceCount uint32
 	MemorySizeMB  uint64
 	Placements    []string
+	// ComputeInstances is the row's `mig -lcip` listing, one entry per offered
+	// compute instance as "<slices>c[+me]:<count>@<multiprocessors>". It is
+	// here because nothing else in this row can see that table: Name renders
+	// the widest compute instance, which spells the same name whatever the
+	// narrower ones are, so a derivation that invents or drops a width moves
+	// nothing else the golden pins.
+	ComputeInstances []string
 }
 
 // migConfigOfShippedProfile reads a board's MIG block out of the profile the
@@ -99,22 +106,42 @@ func migGoldenSnapshot(t *testing.T, b migGoldenBoard) map[int]migGoldenRow {
 		sort.Strings(placements)
 
 		snapshot[profileEnum] = migGoldenRow{
-			Name:          name,
-			SliceCount:    info.SliceCount,
-			InstanceCount: info.InstanceCount,
-			MemorySizeMB:  info.MemorySizeMB,
-			Placements:    placements,
+			Name:             name,
+			SliceCount:       info.SliceCount,
+			InstanceCount:    info.InstanceCount,
+			MemorySizeMB:     info.MemorySizeMB,
+			Placements:       placements,
+			ComputeInstances: migGoldenComputeInstances(profiles, profileEnum),
 		}
 	}
 	return snapshot
 }
 
+// migGoldenComputeInstances renders a GPU instance's compute-instance listing
+// in a form a diff can read. The media-extension 1-slice profile is spelled
+// "+me" because it is the one entry a slice count alone cannot distinguish.
+func migGoldenComputeInstances(profiles gpus.MIGProfileConfig, giProfileEnum int) []string {
+	rows := []string{}
+	for ciEnum, ci := range profiles.ComputeInstanceProfiles[giProfileEnum] {
+		suffix := ""
+		if ciEnum == nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE_REV1 {
+			suffix = "+me"
+		}
+		rows = append(rows, fmt.Sprintf("%dc%s:%d@%d",
+			ci.SliceCount, suffix, ci.InstanceCount, ci.MultiprocessorCount))
+	}
+	sort.Strings(rows)
+	return rows
+}
+
 // ciProfileSpanningGI returns the compute-instance profile that fills the whole
 // GPU instance, which is the one whose name carries no "Nc." prefix.
 //
-// The widest is taken strictly, so a tie cannot be broken by map iteration
-// order: two profiles of equal slice count render the same name today, which
-// would make this pick arbitrarily and the test intermittent later.
+// A 1-slice GPU instance offers two profiles that both span it — the plain
+// 1-slice compute instance and its media-extension revision — so the widest is
+// a genuine tie there. Taking it strictly picks whichever the map yields
+// first, which is safe only because both spell the same name: the name follows
+// the GPU instance's own attributes, not the compute instance's revision.
 func ciProfileSpanningGI(t *testing.T, profiles gpus.MIGProfileConfig, giProfileEnum int) int {
 	t.Helper()
 
@@ -137,49 +164,49 @@ func ciProfileSpanningGI(t *testing.T, profiles gpus.MIGProfileConfig, giProfile
 // seven-slice layout, not to a board's capacity.
 var migGoldenWant = map[string]map[int]migGoldenRow{
 	"a100": {
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      {Name: "1g.5gb", SliceCount: 1, InstanceCount: 7, MemorySizeMB: 4864, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}},
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: {Name: "1g.5gb+me", SliceCount: 1, InstanceCount: 1, MemorySizeMB: 4864, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}},
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: {Name: "1g.10gb", SliceCount: 1, InstanceCount: 4, MemorySizeMB: 9856, Placements: []string{"0:2", "2:2", "4:2", "6:2"}},
-		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      {Name: "2g.10gb", SliceCount: 2, InstanceCount: 3, MemorySizeMB: 9856, Placements: []string{"0:2", "2:2", "4:2"}},
-		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      {Name: "3g.20gb", SliceCount: 3, InstanceCount: 2, MemorySizeMB: 19968, Placements: []string{"0:4", "4:4"}},
-		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      {Name: "4g.20gb", SliceCount: 4, InstanceCount: 1, MemorySizeMB: 19968, Placements: []string{"0:4"}},
-		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      {Name: "7g.40gb", SliceCount: 7, InstanceCount: 1, MemorySizeMB: 40192, Placements: []string{"0:8"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      {Name: "1g.5gb", SliceCount: 1, InstanceCount: 7, MemorySizeMB: 4864, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"1c+me:1@14", "1c:1@14"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: {Name: "1g.5gb+me", SliceCount: 1, InstanceCount: 1, MemorySizeMB: 4864, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"1c+me:1@14", "1c:1@14"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: {Name: "1g.10gb", SliceCount: 1, InstanceCount: 4, MemorySizeMB: 9856, Placements: []string{"0:2", "2:2", "4:2", "6:2"}, ComputeInstances: []string{"1c+me:1@14", "1c:1@14"}},
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      {Name: "2g.10gb", SliceCount: 2, InstanceCount: 3, MemorySizeMB: 9856, Placements: []string{"0:2", "2:2", "4:2"}, ComputeInstances: []string{"1c+me:2@14", "1c:2@14", "2c:1@28"}},
+		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      {Name: "3g.20gb", SliceCount: 3, InstanceCount: 2, MemorySizeMB: 19968, Placements: []string{"0:4", "4:4"}, ComputeInstances: []string{"1c+me:3@14", "1c:3@14", "2c:1@28", "3c:1@42"}},
+		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      {Name: "4g.20gb", SliceCount: 4, InstanceCount: 1, MemorySizeMB: 19968, Placements: []string{"0:4"}, ComputeInstances: []string{"1c+me:4@14", "1c:4@14", "2c:2@28", "4c:1@56"}},
+		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      {Name: "7g.40gb", SliceCount: 7, InstanceCount: 1, MemorySizeMB: 40192, Placements: []string{"0:8"}, ComputeInstances: []string{"1c+me:7@14", "1c:7@14", "2c:3@28", "3c:2@42", "4c:1@56", "7c:1@98"}},
 	},
 	"h100": {
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      {Name: "1g.10gb", SliceCount: 1, InstanceCount: 7, MemorySizeMB: 10240, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}},
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: {Name: "1g.10gb+me", SliceCount: 1, InstanceCount: 1, MemorySizeMB: 10240, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}},
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: {Name: "1g.20gb", SliceCount: 1, InstanceCount: 4, MemorySizeMB: 20480, Placements: []string{"0:2", "2:2", "4:2", "6:2"}},
-		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      {Name: "2g.20gb", SliceCount: 2, InstanceCount: 3, MemorySizeMB: 20480, Placements: []string{"0:2", "2:2", "4:2"}},
-		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      {Name: "3g.40gb", SliceCount: 3, InstanceCount: 2, MemorySizeMB: 40960, Placements: []string{"0:4", "4:4"}},
-		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      {Name: "4g.40gb", SliceCount: 4, InstanceCount: 1, MemorySizeMB: 40960, Placements: []string{"0:4"}},
-		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      {Name: "7g.80gb", SliceCount: 7, InstanceCount: 1, MemorySizeMB: 81920, Placements: []string{"0:8"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      {Name: "1g.10gb", SliceCount: 1, InstanceCount: 7, MemorySizeMB: 10240, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"1c+me:1@16", "1c:1@16"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: {Name: "1g.10gb+me", SliceCount: 1, InstanceCount: 1, MemorySizeMB: 10240, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"1c+me:1@16", "1c:1@16"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: {Name: "1g.20gb", SliceCount: 1, InstanceCount: 4, MemorySizeMB: 20480, Placements: []string{"0:2", "2:2", "4:2", "6:2"}, ComputeInstances: []string{"1c+me:1@16", "1c:1@16"}},
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      {Name: "2g.20gb", SliceCount: 2, InstanceCount: 3, MemorySizeMB: 20480, Placements: []string{"0:2", "2:2", "4:2"}, ComputeInstances: []string{"1c+me:2@16", "1c:2@16", "2c:1@32"}},
+		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      {Name: "3g.40gb", SliceCount: 3, InstanceCount: 2, MemorySizeMB: 40960, Placements: []string{"0:4", "4:4"}, ComputeInstances: []string{"1c+me:3@16", "1c:3@16", "2c:1@32", "3c:1@48"}},
+		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      {Name: "4g.40gb", SliceCount: 4, InstanceCount: 1, MemorySizeMB: 40960, Placements: []string{"0:4"}, ComputeInstances: []string{"1c+me:4@16", "1c:4@16", "2c:2@32", "4c:1@64"}},
+		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      {Name: "7g.80gb", SliceCount: 7, InstanceCount: 1, MemorySizeMB: 81920, Placements: []string{"0:8"}, ComputeInstances: []string{"1c+me:7@16", "1c:7@16", "2c:3@32", "3c:2@48", "4c:1@64", "7c:1@112"}},
 	},
 	"b200": {
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      {Name: "1g.24gb", SliceCount: 1, InstanceCount: 7, MemorySizeMB: 24576, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}},
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: {Name: "1g.24gb+me", SliceCount: 1, InstanceCount: 1, MemorySizeMB: 24576, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}},
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: {Name: "1g.48gb", SliceCount: 1, InstanceCount: 4, MemorySizeMB: 49152, Placements: []string{"0:2", "2:2", "4:2", "6:2"}},
-		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      {Name: "2g.48gb", SliceCount: 2, InstanceCount: 3, MemorySizeMB: 49152, Placements: []string{"0:2", "2:2", "4:2"}},
-		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      {Name: "3g.96gb", SliceCount: 3, InstanceCount: 2, MemorySizeMB: 98304, Placements: []string{"0:4", "4:4"}},
-		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      {Name: "4g.96gb", SliceCount: 4, InstanceCount: 1, MemorySizeMB: 98304, Placements: []string{"0:4"}},
-		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      {Name: "7g.192gb", SliceCount: 7, InstanceCount: 1, MemorySizeMB: 196608, Placements: []string{"0:8"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      {Name: "1g.24gb", SliceCount: 1, InstanceCount: 7, MemorySizeMB: 24576, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"1c+me:1@18", "1c:1@18"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: {Name: "1g.24gb+me", SliceCount: 1, InstanceCount: 1, MemorySizeMB: 24576, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"1c+me:1@18", "1c:1@18"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: {Name: "1g.48gb", SliceCount: 1, InstanceCount: 4, MemorySizeMB: 49152, Placements: []string{"0:2", "2:2", "4:2", "6:2"}, ComputeInstances: []string{"1c+me:1@18", "1c:1@18"}},
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      {Name: "2g.48gb", SliceCount: 2, InstanceCount: 3, MemorySizeMB: 49152, Placements: []string{"0:2", "2:2", "4:2"}, ComputeInstances: []string{"1c+me:2@18", "1c:2@18", "2c:1@36"}},
+		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      {Name: "3g.96gb", SliceCount: 3, InstanceCount: 2, MemorySizeMB: 98304, Placements: []string{"0:4", "4:4"}, ComputeInstances: []string{"1c+me:3@18", "1c:3@18", "2c:1@36", "3c:1@54"}},
+		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      {Name: "4g.96gb", SliceCount: 4, InstanceCount: 1, MemorySizeMB: 98304, Placements: []string{"0:4"}, ComputeInstances: []string{"1c+me:4@18", "1c:4@18", "2c:2@36", "4c:1@72"}},
+		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      {Name: "7g.192gb", SliceCount: 7, InstanceCount: 1, MemorySizeMB: 196608, Placements: []string{"0:8"}, ComputeInstances: []string{"1c+me:7@18", "1c:7@18", "2c:3@36", "3c:2@54", "4c:1@72", "7c:1@126"}},
 	},
 	"gb200": {
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      {Name: "1g.24gb", SliceCount: 1, InstanceCount: 7, MemorySizeMB: 24576, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}},
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: {Name: "1g.24gb+me", SliceCount: 1, InstanceCount: 1, MemorySizeMB: 24576, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}},
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: {Name: "1g.48gb", SliceCount: 1, InstanceCount: 4, MemorySizeMB: 49152, Placements: []string{"0:2", "2:2", "4:2", "6:2"}},
-		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      {Name: "2g.48gb", SliceCount: 2, InstanceCount: 3, MemorySizeMB: 49152, Placements: []string{"0:2", "2:2", "4:2"}},
-		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      {Name: "3g.96gb", SliceCount: 3, InstanceCount: 2, MemorySizeMB: 98304, Placements: []string{"0:4", "4:4"}},
-		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      {Name: "4g.96gb", SliceCount: 4, InstanceCount: 1, MemorySizeMB: 98304, Placements: []string{"0:4"}},
-		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      {Name: "7g.192gb", SliceCount: 7, InstanceCount: 1, MemorySizeMB: 196608, Placements: []string{"0:8"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      {Name: "1g.24gb", SliceCount: 1, InstanceCount: 7, MemorySizeMB: 24576, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"1c+me:1@18", "1c:1@18"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: {Name: "1g.24gb+me", SliceCount: 1, InstanceCount: 1, MemorySizeMB: 24576, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"1c+me:1@18", "1c:1@18"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: {Name: "1g.48gb", SliceCount: 1, InstanceCount: 4, MemorySizeMB: 49152, Placements: []string{"0:2", "2:2", "4:2", "6:2"}, ComputeInstances: []string{"1c+me:1@18", "1c:1@18"}},
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      {Name: "2g.48gb", SliceCount: 2, InstanceCount: 3, MemorySizeMB: 49152, Placements: []string{"0:2", "2:2", "4:2"}, ComputeInstances: []string{"1c+me:2@18", "1c:2@18", "2c:1@36"}},
+		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      {Name: "3g.96gb", SliceCount: 3, InstanceCount: 2, MemorySizeMB: 98304, Placements: []string{"0:4", "4:4"}, ComputeInstances: []string{"1c+me:3@18", "1c:3@18", "2c:1@36", "3c:1@54"}},
+		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      {Name: "4g.96gb", SliceCount: 4, InstanceCount: 1, MemorySizeMB: 98304, Placements: []string{"0:4"}, ComputeInstances: []string{"1c+me:4@18", "1c:4@18", "2c:2@36", "4c:1@72"}},
+		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      {Name: "7g.192gb", SliceCount: 7, InstanceCount: 1, MemorySizeMB: 196608, Placements: []string{"0:8"}, ComputeInstances: []string{"1c+me:7@18", "1c:7@18", "2c:3@36", "3c:2@54", "4c:1@72", "7c:1@126"}},
 	},
 	"gb300": {
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      {Name: "1g.36gb", SliceCount: 1, InstanceCount: 7, MemorySizeMB: 36864, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}},
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: {Name: "1g.36gb+me", SliceCount: 1, InstanceCount: 1, MemorySizeMB: 36864, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}},
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: {Name: "1g.72gb", SliceCount: 1, InstanceCount: 4, MemorySizeMB: 73728, Placements: []string{"0:2", "2:2", "4:2", "6:2"}},
-		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      {Name: "2g.72gb", SliceCount: 2, InstanceCount: 3, MemorySizeMB: 73728, Placements: []string{"0:2", "2:2", "4:2"}},
-		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      {Name: "3g.144gb", SliceCount: 3, InstanceCount: 2, MemorySizeMB: 147456, Placements: []string{"0:4", "4:4"}},
-		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      {Name: "4g.144gb", SliceCount: 4, InstanceCount: 1, MemorySizeMB: 147456, Placements: []string{"0:4"}},
-		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      {Name: "7g.288gb", SliceCount: 7, InstanceCount: 1, MemorySizeMB: 294912, Placements: []string{"0:8"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      {Name: "1g.36gb", SliceCount: 1, InstanceCount: 7, MemorySizeMB: 36864, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"1c+me:1@18", "1c:1@18"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: {Name: "1g.36gb+me", SliceCount: 1, InstanceCount: 1, MemorySizeMB: 36864, Placements: []string{"0:1", "1:1", "2:1", "3:1", "4:1", "5:1", "6:1"}, ComputeInstances: []string{"1c+me:1@18", "1c:1@18"}},
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: {Name: "1g.72gb", SliceCount: 1, InstanceCount: 4, MemorySizeMB: 73728, Placements: []string{"0:2", "2:2", "4:2", "6:2"}, ComputeInstances: []string{"1c+me:1@18", "1c:1@18"}},
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      {Name: "2g.72gb", SliceCount: 2, InstanceCount: 3, MemorySizeMB: 73728, Placements: []string{"0:2", "2:2", "4:2"}, ComputeInstances: []string{"1c+me:2@18", "1c:2@18", "2c:1@36"}},
+		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      {Name: "3g.144gb", SliceCount: 3, InstanceCount: 2, MemorySizeMB: 147456, Placements: []string{"0:4", "4:4"}, ComputeInstances: []string{"1c+me:3@18", "1c:3@18", "2c:1@36", "3c:1@54"}},
+		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      {Name: "4g.144gb", SliceCount: 4, InstanceCount: 1, MemorySizeMB: 147456, Placements: []string{"0:4"}, ComputeInstances: []string{"1c+me:4@18", "1c:4@18", "2c:2@36", "4c:1@72"}},
+		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      {Name: "7g.288gb", SliceCount: 7, InstanceCount: 1, MemorySizeMB: 294912, Placements: []string{"0:8"}, ComputeInstances: []string{"1c+me:7@18", "1c:7@18", "2c:3@36", "3c:2@54", "4c:1@72", "7c:1@126"}},
 	},
 }
 

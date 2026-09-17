@@ -373,8 +373,9 @@ func TestMIGProfilesFromConfig_ReportsTheDeclaredRows(t *testing.T) {
 	require.EqualValues(t, 1, oneSlice.JpegCount)
 	require.Len(t, profiles.GpuInstancePlacements[nvml.GPU_INSTANCE_PROFILE_1_SLICE], 7)
 
-	// A 2-slice GPU instance offers 1- and 2-slice compute instances.
-	require.Len(t, profiles.ComputeInstanceProfiles[nvml.GPU_INSTANCE_PROFILE_2_SLICE], 2)
+	// A 2-slice GPU instance offers a 1-slice compute instance, its
+	// media-extension revision, and one spanning both slices.
+	require.Len(t, profiles.ComputeInstanceProfiles[nvml.GPU_INSTANCE_PROFILE_2_SLICE], 3)
 	ci := profiles.ComputeInstanceProfiles[nvml.GPU_INSTANCE_PROFILE_2_SLICE][nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE]
 	require.EqualValues(t, 2, ci.InstanceCount, "two 1-slice compute instances fit a 2-slice GPU instance")
 	require.EqualValues(t, 16, ci.MultiprocessorCount, "multiprocessors scale with the slice ratio")

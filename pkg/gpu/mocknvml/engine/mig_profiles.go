@@ -88,23 +88,30 @@ func migProfilesFromConfig(migCfg *MIGConfig, deviceMemoryBytes uint64) (gpus.MI
 }
 
 // deriveComputeInstanceProfiles gives a GPU instance of sliceCount slices the
-// compute instances of 1..S slices that hardware offers, each counted by how
-// many fit and given its share of the GPU instance's multiprocessors.
+// compute instances hardware offers inside it, each counted by how many fit
+// and given its share of the GPU instance's multiprocessors.
 //
 // The engine counts are not divided between the compute instances the way the
 // multiprocessors are: a GPU instance's decoders, JPEG and OFA engines are
 // shared by every compute instance inside it, which is what NVML's "Shared"
 // naming means and what a MIG device reports as its own attributes.
 func deriveComputeInstanceProfiles(spec MIGProfileSpec, sliceCount int) map[int]nvml.ComputeInstanceProfileInfo {
+	// A GPU instance's multiprocessors are handed out in whole slices, so an
+	// SM count that does not divide the slices leaves the remainder in no
+	// compute instance — which is what hardware does with an odd SM. No
+	// published profile has an indivisible count, so this never truncates for
+	// a shipped board; a YAML declaring one gets the faithful answer.
 	perSlice := 0
 	if sliceCount > 0 {
 		perSlice = spec.Multiprocessors / sliceCount
 	}
 
 	ciProfiles := map[int]nvml.ComputeInstanceProfileInfo{}
-	for ciSlices := 1; ciSlices <= sliceCount; ciSlices++ {
-		ciEnum, ok := computeInstanceProfileForSliceCount(ciSlices)
+	for _, ciEnum := range computeInstanceProfilesOffered(sliceCount) {
+		ciSlices, ok := computeInstanceSliceCount(ciEnum)
 		if !ok {
+			// Unreachable: the tables below hold only profiles
+			// computeInstanceSliceCount maps, which a guard test asserts.
 			continue
 		}
 		ciProfiles[ciEnum] = nvml.ComputeInstanceProfileInfo{
@@ -120,6 +127,77 @@ func deriveComputeInstanceProfiles(spec MIGProfileSpec, sliceCount int) map[int]
 		}
 	}
 	return ciProfiles
+}
+
+// offeredComputeInstanceProfiles is the compute-instance listing of a GPU
+// instance, keyed by how many slices that GPU instance spans. It is
+// transcribed from what `nvidia-smi mig -lcip` prints, which go-nvml's A100
+// table also carries.
+//
+// A GPU instance does not offer every width that would fit inside it, so this
+// cannot be a loop over 1..S. A 4-slice instance offers 1c, 2c and 4c but not
+// 3c; a 7-slice instance offers 3c and 4c but stops there and jumps to 7c. It
+// also offers the media-extension 1-slice compute instance alongside the plain
+// one, on every GPU instance.
+//
+// Getting this wrong is not cosmetic. go-nvlib derives the
+// nvidia.com/mig-<name> resource names a cluster publishes from these values,
+// so an invented 6-slice compute instance under a 7g partition publishes
+// 6c.7g.40gb — a resource name no real cluster has.
+var offeredComputeInstanceProfiles = map[int][]int{
+	1: {
+		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE,
+		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE_REV1,
+	},
+	2: {
+		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE,
+		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE_REV1,
+		nvml.COMPUTE_INSTANCE_PROFILE_2_SLICE,
+	},
+	3: {
+		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE,
+		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE_REV1,
+		nvml.COMPUTE_INSTANCE_PROFILE_2_SLICE,
+		nvml.COMPUTE_INSTANCE_PROFILE_3_SLICE,
+	},
+	4: {
+		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE,
+		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE_REV1,
+		nvml.COMPUTE_INSTANCE_PROFILE_2_SLICE,
+		nvml.COMPUTE_INSTANCE_PROFILE_4_SLICE,
+	},
+	7: {
+		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE,
+		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE_REV1,
+		nvml.COMPUTE_INSTANCE_PROFILE_2_SLICE,
+		nvml.COMPUTE_INSTANCE_PROFILE_3_SLICE,
+		nvml.COMPUTE_INSTANCE_PROFILE_4_SLICE,
+		nvml.COMPUTE_INSTANCE_PROFILE_7_SLICE,
+	},
+}
+
+// computeInstanceProfilesOffered answers the listing for a GPU instance of the
+// given width.
+//
+// A width NVIDIA publishes no listing for — 6 and 8 slices, which NVML has
+// enums for and no shipped board declares — gets the narrowest compute
+// instance and one spanning the whole GPU instance. Those two are the least
+// any GPU instance offers, and stopping there is the most that can be claimed
+// without guessing: an intermediate width invented here would be advertised,
+// created, and then named as a partition no cluster has.
+func computeInstanceProfilesOffered(giSlices int) []int {
+	if offered, ok := offeredComputeInstanceProfiles[giSlices]; ok {
+		return offered
+	}
+	spanning, ok := computeInstanceProfileForSliceCount(giSlices)
+	if !ok {
+		return nil
+	}
+	return []int{
+		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE,
+		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE_REV1,
+		spanning,
+	}
 }
 
 // computeInstancePlacementSlots registers a placement list for every compute
