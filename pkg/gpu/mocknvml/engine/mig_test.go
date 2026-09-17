@@ -795,3 +795,70 @@ func TestMigProfileNameForDevice(t *testing.T) {
 	_, _, err = dev.resolveMigProfileByName("9g.99gb")
 	require.Error(t, err, "a profile the board does not offer must fail loudly")
 }
+
+// Remaining capacity answers "how many more of this profile fit", so it cannot
+// exceed the count the profile itself declares. Slice geometry is not the only
+// limit: a +me profile occupies one slice but exists once per board, and a
+// double-memory 1g profile fits four times on a board with seven free slices.
+// nvidia-smi prints this as Free against the profile's own count as Total, so
+// an unclamped value shows up as "7/1" — Free above Total, which no board can
+// report.
+func TestGpuInstanceRemainingCapacity_HonoursTheProfileInstanceCount(t *testing.T) {
+	t.Parallel()
+
+	dev := newTestDeviceWithConfig(t, a100MIGConfig())
+	enableMIG(t, dev)
+
+	for _, profile := range []int{
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE,
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1,
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2,
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE,
+		nvml.GPU_INSTANCE_PROFILE_3_SLICE,
+		nvml.GPU_INSTANCE_PROFILE_4_SLICE,
+		nvml.GPU_INSTANCE_PROFILE_7_SLICE,
+	} {
+		info, ret := dev.GetGpuInstanceProfileInfo(profile)
+		require.Equal(t, nvml.SUCCESS, ret)
+
+		remaining, ret := dev.GetGpuInstanceRemainingCapacity(&info)
+		require.Equal(t, nvml.SUCCESS, ret)
+		require.Equal(t, int(info.InstanceCount), remaining,
+			"an empty board must offer exactly the %d instance(s) profile %d declares",
+			info.InstanceCount, profile)
+	}
+}
+
+// Creating an instance has to draw down the capacity of every profile the new
+// instance constrains, not just its own. The draw-down follows the placement
+// grid rather than arithmetic on free slices: a two-slice profile sits only at
+// offsets 0, 2 and 4, so taking the first slice blocks one of those three
+// outright and leaves two — not the three that dividing six free slices by two
+// would suggest.
+func TestGpuInstanceRemainingCapacity_FallsAsInstancesAreCreated(t *testing.T) {
+	t.Parallel()
+
+	dev := newTestDeviceWithConfig(t, a100MIGConfig())
+	enableMIG(t, dev)
+
+	remainingFor := func(t *testing.T, profile int) int {
+		t.Helper()
+		info, ret := dev.GetGpuInstanceProfileInfo(profile)
+		require.Equal(t, nvml.SUCCESS, ret)
+		remaining, ret := dev.GetGpuInstanceRemainingCapacity(&info)
+		require.Equal(t, nvml.SUCCESS, ret)
+		return remaining
+	}
+
+	require.Equal(t, 7, remainingFor(t, nvml.GPU_INSTANCE_PROFILE_1_SLICE))
+	require.Equal(t, 1, remainingFor(t, nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1))
+
+	createOneSliceGI(t, dev)
+
+	require.Equal(t, 6, remainingFor(t, nvml.GPU_INSTANCE_PROFILE_1_SLICE),
+		"one slice taken leaves six")
+	require.Equal(t, 2, remainingFor(t, nvml.GPU_INSTANCE_PROFILE_2_SLICE),
+		"the two-slice placement at offset 0 is blocked, leaving those at 2 and 4")
+	require.Zero(t, remainingFor(t, nvml.GPU_INSTANCE_PROFILE_7_SLICE),
+		"a board with a partition on it has no room for a whole-board instance")
+}

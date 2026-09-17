@@ -149,6 +149,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   partitioning tool that tore a board down in the wrong order passed against
   the mock and failed on hardware. Destroy the compute instances first, which
   is the order `nvidia-mig-parted` and the MIG user guide already use.
+- nvml-mock: `nvidia-smi mig -lgip` no longer reports more free instances of a
+  profile than the board has in total. Remaining capacity counted free slice
+  placements and applied only the board-wide instance cap, ignoring the
+  profile's own count, so an idle H100 advertised seven `1g.10gb+me` where one
+  exists and seven `1g.20gb` where four do — printed as `7/1` and `7/4`, a free
+  count above the total.
 - nvml-mock: a consumer's read-after-write across two processes now sees the
   write. NVML setter state lived on the device object inside whichever process
   loaded `libnvidia-ml.so`, and every consumer loads its own copy, so

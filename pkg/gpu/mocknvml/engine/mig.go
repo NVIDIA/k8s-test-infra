@@ -1279,6 +1279,22 @@ func (d *ConfigurableDevice) GetGpuInstanceRemainingCapacity(
 			remaining++
 		}
 	}
+
+	// Free slices are not the only limit. A profile carries its own ceiling —
+	// a +me variant occupies one slice but exists once per board, and a
+	// double-memory 1g fits four times where the slices would allow seven — so
+	// the profile's count caps the answer the way it does for compute
+	// instances. Without this the board reports more free than it has total,
+	// which is how nvidia-smi comes to print "7/1" in mig -lgip.
+	if info.InstanceCount > 0 {
+		live := 0
+		for _, gi := range st.liveGpuInstances(d) {
+			if gi.Info.ProfileId == info.Id {
+				live++
+			}
+		}
+		remaining = min(remaining, int(info.InstanceCount)-live)
+	}
 	if st.maxGPUInstances > 0 {
 		remaining = min(remaining, st.maxGPUInstances-len(st.liveGpuInstances(d)))
 	}
