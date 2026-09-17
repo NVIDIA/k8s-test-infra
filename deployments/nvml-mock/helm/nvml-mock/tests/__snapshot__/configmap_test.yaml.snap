@@ -317,6 +317,8 @@ should match snapshot with a100 profile:
             supported_profiles:
               - name: "1g.5gb"
                 nvml_profile: "1_SLICE"
+                slices: 1
+                profile_id: 19
                 instances: 7
                 # Not 5120. A slice holds an eighth of a 40 GiB board, and the "5gb"
                 # in the name is that eighth rounded for display. The raw allocation
@@ -324,8 +326,6 @@ should match snapshot with a100 profile:
                 memory_mb: 4864
                 multiprocessors: 14
                 copy_engines: 1
-                slices: 1
-                profile_id: 19
                 placements:
                   - {start: 0, size: 1}
                   - {start: 1, size: 1}
@@ -347,6 +347,8 @@ should match snapshot with a100 profile:
                     shared_copy_engines: 1
               - name: "1g.5gb+me"
                 nvml_profile: "1_SLICE_REV1"
+                slices: 1
+                profile_id: 20
                 instances: 1
                 memory_mb: 4864
                 multiprocessors: 14
@@ -354,8 +356,6 @@ should match snapshot with a100 profile:
                 decoders: 1
                 jpeg: 1
                 ofa: 1
-                slices: 1
-                profile_id: 20
                 placements:
                   - {start: 0, size: 1}
                   - {start: 1, size: 1}
@@ -383,13 +383,13 @@ should match snapshot with a100 profile:
                     ofa: 1
               - name: "1g.10gb"
                 nvml_profile: "1_SLICE_REV2"
+                slices: 1
+                profile_id: 15
                 instances: 4
                 memory_mb: 9856
                 multiprocessors: 14
                 copy_engines: 1
                 decoders: 1
-                slices: 1
-                profile_id: 15
                 placements:
                   - {start: 0, size: 2}
                   - {start: 2, size: 2}
@@ -410,13 +410,13 @@ should match snapshot with a100 profile:
                     decoders: 1
               - name: "2g.10gb"
                 nvml_profile: "2_SLICE"
+                slices: 2
+                profile_id: 14
                 instances: 3
                 memory_mb: 9856
                 multiprocessors: 28
                 copy_engines: 2
                 decoders: 1
-                slices: 2
-                profile_id: 14
                 placements:
                   - {start: 0, size: 2}
                   - {start: 2, size: 2}
@@ -442,13 +442,13 @@ should match snapshot with a100 profile:
                     decoders: 1
               - name: "3g.20gb"
                 nvml_profile: "3_SLICE"
+                slices: 3
+                profile_id: 9
                 instances: 2
                 memory_mb: 19968
                 multiprocessors: 42
                 copy_engines: 3
                 decoders: 2
-                slices: 3
-                profile_id: 9
                 placements:
                   - {start: 0, size: 4}
                   - {start: 4, size: 4}
@@ -479,13 +479,13 @@ should match snapshot with a100 profile:
                     decoders: 2
               - name: "4g.20gb"
                 nvml_profile: "4_SLICE"
+                slices: 4
+                profile_id: 5
                 instances: 1
                 memory_mb: 19968
                 multiprocessors: 56
                 copy_engines: 4
                 decoders: 2
-                slices: 4
-                profile_id: 5
                 placements:
                   - {start: 0, size: 4}
                 compute_instances:
@@ -515,6 +515,8 @@ should match snapshot with a100 profile:
                     decoders: 2
               - name: "7g.40gb"
                 nvml_profile: "7_SLICE"
+                slices: 7
+                profile_id: 0
                 instances: 1
                 memory_mb: 40192
                 multiprocessors: 98
@@ -522,8 +524,6 @@ should match snapshot with a100 profile:
                 decoders: 5
                 jpeg: 1
                 ofa: 1
-                slices: 7
-                profile_id: 0
                 placements:
                   - {start: 0, size: 8}
                 compute_instances:
@@ -1087,14 +1087,14 @@ should match snapshot with b200 profile:
             supported_profiles:
               - name: "1g.23gb"
                 nvml_profile: "1_SLICE"
+                slices: 1
+                profile_id: 0
                 instances: 7
                 memory_mb: 23040
                 multiprocessors: 18
                 copy_engines: 2
                 decoders: 1
                 jpeg: 1
-                slices: 1
-                profile_id: 0
                 placements:
                   - {start: 0, size: 1}
                   - {start: 1, size: 1}
@@ -1120,6 +1120,8 @@ should match snapshot with b200 profile:
                     jpeg: 1
               - name: "1g.23gb+me"
                 nvml_profile: "1_SLICE_REV1"
+                slices: 1
+                profile_id: 7
                 instances: 1
                 memory_mb: 23040
                 multiprocessors: 18
@@ -1127,8 +1129,6 @@ should match snapshot with b200 profile:
                 decoders: 1
                 jpeg: 1
                 ofa: 1
-                slices: 1
-                profile_id: 7
                 placements:
                   - {start: 0, size: 1}
                   - {start: 1, size: 1}
@@ -1156,14 +1156,14 @@ should match snapshot with b200 profile:
                     ofa: 1
               - name: "1g.45gb"
                 nvml_profile: "1_SLICE_REV2"
+                slices: 1
+                profile_id: 9
                 instances: 4
                 memory_mb: 46080
                 multiprocessors: 18
                 copy_engines: 2
                 decoders: 1
                 jpeg: 1
-                slices: 1
-                profile_id: 9
                 placements:
                   - {start: 0, size: 2}
                   - {start: 2, size: 2}
@@ -1186,14 +1186,14 @@ should match snapshot with b200 profile:
                     jpeg: 1
               - name: "2g.45gb"
                 nvml_profile: "2_SLICE"
+                slices: 2
+                profile_id: 1
                 instances: 3
                 memory_mb: 46080
                 multiprocessors: 36
                 copy_engines: 3
                 decoders: 1
                 jpeg: 1
-                slices: 2
-                profile_id: 1
                 placements:
                   - {start: 0, size: 2}
                   - {start: 2, size: 2}
@@ -1222,14 +1222,14 @@ should match snapshot with b200 profile:
                     jpeg: 1
               - name: "3g.90gb"
                 nvml_profile: "3_SLICE"
+                slices: 3
+                profile_id: 2
                 instances: 2
                 memory_mb: 92160
                 multiprocessors: 54
                 copy_engines: 6
                 decoders: 1
                 jpeg: 1
-                slices: 3
-                profile_id: 2
                 placements:
                   - {start: 0, size: 4}
                   - {start: 4, size: 4}
@@ -1264,14 +1264,14 @@ should match snapshot with b200 profile:
                     jpeg: 1
               - name: "4g.90gb"
                 nvml_profile: "4_SLICE"
+                slices: 4
+                profile_id: 3
                 instances: 1
                 memory_mb: 92160
                 multiprocessors: 72
                 copy_engines: 8
                 decoders: 1
                 jpeg: 1
-                slices: 4
-                profile_id: 3
                 placements:
                   - {start: 0, size: 4}
                 compute_instances:
@@ -1305,6 +1305,8 @@ should match snapshot with b200 profile:
                     jpeg: 1
               - name: "7g.180gb"
                 nvml_profile: "7_SLICE"
+                slices: 7
+                profile_id: 4
                 instances: 1
                 memory_mb: 184320
                 multiprocessors: 126
@@ -1312,8 +1314,6 @@ should match snapshot with b200 profile:
                 decoders: 1
                 jpeg: 1
                 ofa: 1
-                slices: 7
-                profile_id: 4
                 placements:
                   - {start: 0, size: 8}
                 compute_instances:
@@ -1928,14 +1928,14 @@ should match snapshot with default gb300 profile:
             supported_profiles:
               - name: "1g.35gb"
                 nvml_profile: "1_SLICE"
+                slices: 1
+                profile_id: 0
                 instances: 7
                 memory_mb: 35584
                 multiprocessors: 18
                 copy_engines: 2
                 decoders: 1
                 jpeg: 1
-                slices: 1
-                profile_id: 0
                 placements:
                   - {start: 0, size: 1}
                   - {start: 1, size: 1}
@@ -1961,6 +1961,8 @@ should match snapshot with default gb300 profile:
                     jpeg: 1
               - name: "1g.35gb+me"
                 nvml_profile: "1_SLICE_REV1"
+                slices: 1
+                profile_id: 7
                 instances: 1
                 memory_mb: 35584
                 multiprocessors: 18
@@ -1968,8 +1970,6 @@ should match snapshot with default gb300 profile:
                 decoders: 1
                 jpeg: 1
                 ofa: 1
-                slices: 1
-                profile_id: 7
                 placements:
                   - {start: 0, size: 1}
                   - {start: 1, size: 1}
@@ -1997,14 +1997,14 @@ should match snapshot with default gb300 profile:
                     ofa: 1
               - name: "1g.70gb"
                 nvml_profile: "1_SLICE_REV2"
+                slices: 1
+                profile_id: 9
                 instances: 4
                 memory_mb: 71168
                 multiprocessors: 18
                 copy_engines: 2
                 decoders: 1
                 jpeg: 1
-                slices: 1
-                profile_id: 9
                 placements:
                   - {start: 0, size: 2}
                   - {start: 2, size: 2}
@@ -2027,14 +2027,14 @@ should match snapshot with default gb300 profile:
                     jpeg: 1
               - name: "2g.70gb"
                 nvml_profile: "2_SLICE"
+                slices: 2
+                profile_id: 1
                 instances: 3
                 memory_mb: 71168
                 multiprocessors: 36
                 copy_engines: 3
                 decoders: 1
                 jpeg: 1
-                slices: 2
-                profile_id: 1
                 placements:
                   - {start: 0, size: 2}
                   - {start: 2, size: 2}
@@ -2063,14 +2063,14 @@ should match snapshot with default gb300 profile:
                     jpeg: 1
               - name: "3g.139gb"
                 nvml_profile: "3_SLICE"
+                slices: 3
+                profile_id: 2
                 instances: 2
                 memory_mb: 142336
                 multiprocessors: 54
                 copy_engines: 6
                 decoders: 1
                 jpeg: 1
-                slices: 3
-                profile_id: 2
                 placements:
                   - {start: 0, size: 4}
                   - {start: 4, size: 4}
@@ -2105,14 +2105,14 @@ should match snapshot with default gb300 profile:
                     jpeg: 1
               - name: "4g.139gb"
                 nvml_profile: "4_SLICE"
+                slices: 4
+                profile_id: 3
                 instances: 1
                 memory_mb: 142336
                 multiprocessors: 72
                 copy_engines: 8
                 decoders: 1
                 jpeg: 1
-                slices: 4
-                profile_id: 3
                 placements:
                   - {start: 0, size: 4}
                 compute_instances:
@@ -2146,6 +2146,8 @@ should match snapshot with default gb300 profile:
                     jpeg: 1
               - name: "7g.278gb"
                 nvml_profile: "7_SLICE"
+                slices: 7
+                profile_id: 4
                 instances: 1
                 memory_mb: 284672
                 multiprocessors: 126
@@ -2153,8 +2155,6 @@ should match snapshot with default gb300 profile:
                 decoders: 1
                 jpeg: 1
                 ofa: 1
-                slices: 7
-                profile_id: 4
                 placements:
                   - {start: 0, size: 8}
                 compute_instances:
@@ -2783,14 +2783,14 @@ should match snapshot with gb200 profile:
             supported_profiles:
               - name: "1g.23gb"
                 nvml_profile: "1_SLICE"
+                slices: 1
+                profile_id: 0
                 instances: 7
                 memory_mb: 23808
                 multiprocessors: 18
                 copy_engines: 2
                 decoders: 1
                 jpeg: 1
-                slices: 1
-                profile_id: 0
                 placements:
                   - {start: 0, size: 1}
                   - {start: 1, size: 1}
@@ -2816,6 +2816,8 @@ should match snapshot with gb200 profile:
                     jpeg: 1
               - name: "1g.23gb+me"
                 nvml_profile: "1_SLICE_REV1"
+                slices: 1
+                profile_id: 7
                 instances: 1
                 memory_mb: 23808
                 multiprocessors: 18
@@ -2823,8 +2825,6 @@ should match snapshot with gb200 profile:
                 decoders: 1
                 jpeg: 1
                 ofa: 1
-                slices: 1
-                profile_id: 7
                 placements:
                   - {start: 0, size: 1}
                   - {start: 1, size: 1}
@@ -2852,14 +2852,14 @@ should match snapshot with gb200 profile:
                     ofa: 1
               - name: "1g.47gb"
                 nvml_profile: "1_SLICE_REV2"
+                slices: 1
+                profile_id: 9
                 instances: 4
                 memory_mb: 47616
                 multiprocessors: 18
                 copy_engines: 2
                 decoders: 1
                 jpeg: 1
-                slices: 1
-                profile_id: 9
                 placements:
                   - {start: 0, size: 2}
                   - {start: 2, size: 2}
@@ -2882,14 +2882,14 @@ should match snapshot with gb200 profile:
                     jpeg: 1
               - name: "2g.47gb"
                 nvml_profile: "2_SLICE"
+                slices: 2
+                profile_id: 1
                 instances: 3
                 memory_mb: 47616
                 multiprocessors: 36
                 copy_engines: 3
                 decoders: 1
                 jpeg: 1
-                slices: 2
-                profile_id: 1
                 placements:
                   - {start: 0, size: 2}
                   - {start: 2, size: 2}
@@ -2918,14 +2918,14 @@ should match snapshot with gb200 profile:
                     jpeg: 1
               - name: "3g.93gb"
                 nvml_profile: "3_SLICE"
+                slices: 3
+                profile_id: 2
                 instances: 2
                 memory_mb: 95232
                 multiprocessors: 54
                 copy_engines: 6
                 decoders: 1
                 jpeg: 1
-                slices: 3
-                profile_id: 2
                 placements:
                   - {start: 0, size: 4}
                   - {start: 4, size: 4}
@@ -2960,14 +2960,14 @@ should match snapshot with gb200 profile:
                     jpeg: 1
               - name: "4g.93gb"
                 nvml_profile: "4_SLICE"
+                slices: 4
+                profile_id: 3
                 instances: 1
                 memory_mb: 95232
                 multiprocessors: 72
                 copy_engines: 8
                 decoders: 1
                 jpeg: 1
-                slices: 4
-                profile_id: 3
                 placements:
                   - {start: 0, size: 4}
                 compute_instances:
@@ -3001,6 +3001,8 @@ should match snapshot with gb200 profile:
                     jpeg: 1
               - name: "7g.186gb"
                 nvml_profile: "7_SLICE"
+                slices: 7
+                profile_id: 4
                 instances: 1
                 memory_mb: 190464
                 multiprocessors: 126
@@ -3008,8 +3010,6 @@ should match snapshot with gb200 profile:
                 decoders: 1
                 jpeg: 1
                 ofa: 1
-                slices: 7
-                profile_id: 4
                 placements:
                   - {start: 0, size: 8}
                 compute_instances:
@@ -3581,14 +3581,14 @@ should match snapshot with h100 profile:
             supported_profiles:
               - name: "1g.10gb"
                 nvml_profile: "1_SLICE"
+                slices: 1
+                profile_id: 19
                 instances: 7
                 memory_mb: 10240
                 multiprocessors: 16
                 copy_engines: 1
                 decoders: 1
                 jpeg: 1
-                slices: 1
-                profile_id: 19
                 placements:
                   - {start: 0, size: 1}
                   - {start: 1, size: 1}
@@ -3614,6 +3614,8 @@ should match snapshot with h100 profile:
                     jpeg: 1
               - name: "1g.10gb+me"
                 nvml_profile: "1_SLICE_REV1"
+                slices: 1
+                profile_id: 20
                 instances: 1
                 memory_mb: 10240
                 multiprocessors: 16
@@ -3621,8 +3623,6 @@ should match snapshot with h100 profile:
                 decoders: 1
                 jpeg: 1
                 ofa: 1
-                slices: 1
-                profile_id: 20
                 placements:
                   - {start: 0, size: 1}
                   - {start: 1, size: 1}
@@ -3650,14 +3650,14 @@ should match snapshot with h100 profile:
                     ofa: 1
               - name: "1g.20gb"
                 nvml_profile: "1_SLICE_REV2"
+                slices: 1
+                profile_id: 15
                 instances: 4
                 memory_mb: 20480
                 multiprocessors: 16
                 copy_engines: 1
                 decoders: 1
                 jpeg: 1
-                slices: 1
-                profile_id: 15
                 placements:
                   - {start: 0, size: 2}
                   - {start: 2, size: 2}
@@ -3680,14 +3680,14 @@ should match snapshot with h100 profile:
                     jpeg: 1
               - name: "2g.20gb"
                 nvml_profile: "2_SLICE"
+                slices: 2
+                profile_id: 14
                 instances: 3
                 memory_mb: 20480
                 multiprocessors: 32
                 copy_engines: 2
                 decoders: 2
                 jpeg: 2
-                slices: 2
-                profile_id: 14
                 placements:
                   - {start: 0, size: 2}
                   - {start: 2, size: 2}
@@ -3716,14 +3716,14 @@ should match snapshot with h100 profile:
                     jpeg: 2
               - name: "3g.40gb"
                 nvml_profile: "3_SLICE"
+                slices: 3
+                profile_id: 9
                 instances: 2
                 memory_mb: 40960
                 multiprocessors: 48
                 copy_engines: 3
                 decoders: 3
                 jpeg: 3
-                slices: 3
-                profile_id: 9
                 placements:
                   - {start: 0, size: 4}
                   - {start: 4, size: 4}
@@ -3758,14 +3758,14 @@ should match snapshot with h100 profile:
                     jpeg: 3
               - name: "4g.40gb"
                 nvml_profile: "4_SLICE"
+                slices: 4
+                profile_id: 5
                 instances: 1
                 memory_mb: 40960
                 multiprocessors: 64
                 copy_engines: 4
                 decoders: 4
                 jpeg: 4
-                slices: 4
-                profile_id: 5
                 placements:
                   - {start: 0, size: 4}
                 compute_instances:
@@ -3799,6 +3799,8 @@ should match snapshot with h100 profile:
                     jpeg: 4
               - name: "7g.80gb"
                 nvml_profile: "7_SLICE"
+                slices: 7
+                profile_id: 0
                 instances: 1
                 memory_mb: 81920
                 multiprocessors: 112
@@ -3806,8 +3808,6 @@ should match snapshot with h100 profile:
                 decoders: 7
                 jpeg: 7
                 ofa: 1
-                slices: 7
-                profile_id: 0
                 placements:
                   - {start: 0, size: 8}
                 compute_instances:

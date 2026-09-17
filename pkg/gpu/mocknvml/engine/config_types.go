@@ -1096,7 +1096,7 @@ type MIGComputeInstanceSpec struct {
 	// Slices is cross-checked against NVMLProfile the same way
 	// MIGProfileSpec.Slices is, and additionally bounded by the width of the
 	// GPU instance the row sits in.
-	Slices            int `json:"slices"`
+	Slices            int `json:"slices,omitempty"`
 	Instances         int `json:"instances"`
 	Multiprocessors   int `json:"multiprocessors,omitempty"`
 	SharedCopyEngines int `json:"shared_copy_engines,omitempty"`

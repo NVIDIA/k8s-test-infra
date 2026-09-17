@@ -382,14 +382,14 @@ device_defaults:
     supported_profiles:
       - name: "1g.35gb"
         nvml_profile: "1_SLICE"
+        slices: 1
+        profile_id: 0
         instances: 7
         memory_mb: 35584
         multiprocessors: 18
         copy_engines: 2
         decoders: 1
         jpeg: 1
-        slices: 1
-        profile_id: 0
         placements:
           - {start: 0, size: 1}
           - {start: 1, size: 1}
@@ -415,6 +415,8 @@ device_defaults:
             jpeg: 1
       - name: "1g.35gb+me"
         nvml_profile: "1_SLICE_REV1"
+        slices: 1
+        profile_id: 7
         instances: 1
         memory_mb: 35584
         multiprocessors: 18
@@ -422,8 +424,6 @@ device_defaults:
         decoders: 1
         jpeg: 1
         ofa: 1
-        slices: 1
-        profile_id: 7
         placements:
           - {start: 0, size: 1}
           - {start: 1, size: 1}
@@ -451,14 +451,14 @@ device_defaults:
             ofa: 1
       - name: "1g.70gb"
         nvml_profile: "1_SLICE_REV2"
+        slices: 1
+        profile_id: 9
         instances: 4
         memory_mb: 71168
         multiprocessors: 18
         copy_engines: 2
         decoders: 1
         jpeg: 1
-        slices: 1
-        profile_id: 9
         placements:
           - {start: 0, size: 2}
           - {start: 2, size: 2}
@@ -481,14 +481,14 @@ device_defaults:
             jpeg: 1
       - name: "2g.70gb"
         nvml_profile: "2_SLICE"
+        slices: 2
+        profile_id: 1
         instances: 3
         memory_mb: 71168
         multiprocessors: 36
         copy_engines: 3
         decoders: 1
         jpeg: 1
-        slices: 2
-        profile_id: 1
         placements:
           - {start: 0, size: 2}
           - {start: 2, size: 2}
@@ -517,14 +517,14 @@ device_defaults:
             jpeg: 1
       - name: "3g.139gb"
         nvml_profile: "3_SLICE"
+        slices: 3
+        profile_id: 2
         instances: 2
         memory_mb: 142336
         multiprocessors: 54
         copy_engines: 6
         decoders: 1
         jpeg: 1
-        slices: 3
-        profile_id: 2
         placements:
           - {start: 0, size: 4}
           - {start: 4, size: 4}
@@ -559,14 +559,14 @@ device_defaults:
             jpeg: 1
       - name: "4g.139gb"
         nvml_profile: "4_SLICE"
+        slices: 4
+        profile_id: 3
         instances: 1
         memory_mb: 142336
         multiprocessors: 72
         copy_engines: 8
         decoders: 1
         jpeg: 1
-        slices: 4
-        profile_id: 3
         placements:
           - {start: 0, size: 4}
         compute_instances:
@@ -600,6 +600,8 @@ device_defaults:
             jpeg: 1
       - name: "7g.278gb"
         nvml_profile: "7_SLICE"
+        slices: 7
+        profile_id: 4
         instances: 1
         memory_mb: 284672
         multiprocessors: 126
@@ -607,8 +609,6 @@ device_defaults:
         decoders: 1
         jpeg: 1
         ofa: 1
-        slices: 7
-        profile_id: 4
         placements:
           - {start: 0, size: 8}
         compute_instances:
