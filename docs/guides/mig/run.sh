@@ -47,13 +47,14 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/preflight.sh"
 CLUSTER_NAME="nvml-mock-mig-demo"
 # BUILD_LOCAL=true builds the image from source and side-loads it into a Kind
 # cluster, creating that cluster if it is missing. It is the ONLY path that
-# needs Docker and Kind. The default installs the published image into the
-# cluster your current context already points at, and never creates one.
+# needs Docker and Kind. BUILD_LOCAL=false installs the published image into
+# the cluster your current context already points at, and never creates one.
 #
-# Until the MIG instance lifecycle reaches a published release, the default
-# image cannot run this demo. Step 2 detects that and says so rather than
-# failing on an assertion twenty lines later.
-: "${BUILD_LOCAL:=false}"
+# It defaults to true, unlike the sibling demos, because the MIG instance
+# lifecycle has not reached a published release: the published image cannot run
+# this demo at all. Step 2 detects that on the false path and says so rather
+# than failing on an assertion twenty lines later.
+: "${BUILD_LOCAL:=true}"
 : "${LOCAL_IMAGE:=nvml-mock:mig-demo}"
 # Populated only on the BUILD_LOCAL path, when the demo switches contexts.
 PRIOR_CONTEXT=""
@@ -61,13 +62,18 @@ PRIOR_CONTEXT=""
 # helm call so a kubeconfig that changes under the demo cannot redirect it.
 KUBE_CONTEXT=""
 # MUST contain the chart name, so nvml-mock.fullname collapses to exactly this
-# string, and MUST differ from every other demo's release name: the chart's
-# ClusterRole and ClusterRoleBinding are named after the release and are
-# cluster-scoped, so a namespace cannot separate two releases that share a name.
-RELEASE_NAME="nvml-mock-mig"
-# A namespace of its own, so `kubectl -n mokka-mig get all` shows this demo
-# rather than this one interleaved with another.
-: "${NAMESPACE:=mokka-mig}"
+# string.
+#
+# Deliberately the standard release name and namespace rather than a pair of
+# this demo's own. Every nvml-mock release mounts the same per-node hostPaths,
+# which neither a namespace nor a release name scopes, so a demo-specific name
+# would only stand a second mock up beside the usual one and leave the two
+# writing the same files. Sharing the name makes that impossible by
+# construction: Step 2's `helm upgrade --install` adopts an existing nvml-mock
+# rather than installing alongside it. It also means an install here can be an
+# upgrade of a release the reader already had, which Step 2 says out loud.
+RELEASE_NAME="nvml-mock"
+: "${NAMESPACE:=mokka}"
 CHART_PATH="deployments/nvml-mock/helm/nvml-mock"
 # Pods carry app.kubernetes.io/name=<chart> and instance=<release>. Selecting
 # on name alone would match another demo's pods on a shared cluster.
@@ -211,10 +217,15 @@ fi
 # shellcheck disable=SC2034  # read by demo::preflight in ../lib/preflight.sh
 DEMO_NAMESPACE="${NAMESPACE}"
 demo::preflight
-# Every other demo's release. All of them mount the same per-node hostPaths,
-# which no namespace or release name scopes, so a co-located run leaves the
-# shared mock config in whichever state the last one wrote.
-demo::require_no_sibling_release "nvml-mock" "${RELEASE_NAME}"
+# The demos that install under a name of their own. All of them mount the same
+# per-node hostPaths, which no namespace or release name scopes, so a
+# co-located run leaves the shared mock config in whichever state the last one
+# wrote.
+#
+# Plain "nvml-mock" is absent on purpose: that is this demo's own release name,
+# and the guard matches names exactly with no notion of self. Checking for it
+# would refuse against this demo's own leftovers — nothing here uninstalls, so
+# every run after the first — when Step 2 upgrades them in place instead.
 demo::require_no_sibling_release "nvml-mock-failure" "${RELEASE_NAME}"
 demo::require_no_sibling_release "nvml-mock-operator" "${RELEASE_NAME}"
 KUBE_CONTEXT="${DEMO_KUBE_CONTEXT}"
@@ -246,6 +257,14 @@ fi
 # gpu.mig.gpuInstances layout.
 ###############################################################################
 info "Step 2: install ${GPU_PROFILE} with MIG off"
+# Step 1's guard cannot speak for this release, so say plainly when an install
+# is really an upgrade of one the reader already had: it moves that release onto
+# GPU_PROFILE and this demo's image, and the steps below reset its runtime
+# override.
+if helm status "${RELEASE_NAME}" --kube-context "${KUBE_CONTEXT}" \
+  --namespace "${NAMESPACE}" >/dev/null 2>&1; then
+  sub "${RELEASE_NAME} already exists in ${NAMESPACE}; upgrading it to ${GPU_PROFILE}"
+fi
 demo::announce_pull "${IMAGE_NAME}"
 helm upgrade --install "${RELEASE_NAME}" "${REPO_ROOT}/${CHART_PATH}" \
   --kube-context "${KUBE_CONTEXT}" \
@@ -484,7 +503,9 @@ cat >&2 <<SUMMARY
     Inspect it yourself:
       kubectl --context ${KUBE_CONTEXT} -n ${NAMESPACE} exec ${POD} -- nvidia-smi mig -lgip
 
-    Remove the demo:
+    Remove it. This is the standard ${RELEASE_NAME} release, not a
+    demo-specific one, so on a cluster you share this takes the mock away from
+    everything else on these nodes too:
       helm uninstall ${RELEASE_NAME} -n ${NAMESPACE} --kube-context ${KUBE_CONTEXT}
 SUMMARY
 

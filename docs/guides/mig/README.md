@@ -266,15 +266,23 @@ never involves the device plugin.
 
 ```bash
 cd docs/guides/mig
-BUILD_LOCAL=true ./run.sh
+./run.sh
 ```
 
-`BUILD_LOCAL=true` builds the image from source and side-loads it into a Kind
-cluster of its own. Use it until the MIG instance lifecycle reaches a published
-release; without it the script installs `ghcr.io/nvidia/nvml-mock:latest` into
-your current context, and stops with that advice if the image cannot enable
-MIG. It defaults to an `h100`, so pass `GPU_PROFILE=a100` or
-`MIG_PROFILE=3g.40gb` to carve a different board or a larger slice.
+It defaults to `BUILD_LOCAL=true`, which builds the image from source and
+side-loads it into a Kind cluster of its own, leaving your current context
+untouched. That default holds until the MIG instance lifecycle reaches a
+published release, because `ghcr.io/nvidia/nvml-mock:latest` cannot enable MIG
+yet; `BUILD_LOCAL=false` installs it anyway, into your current context, and
+stops with that advice. The board defaults to an `h100`, so pass
+`GPU_PROFILE=a100` or `MIG_PROFILE=3g.40gb` to carve a different one or a
+larger slice.
+
+It installs under the usual `nvml-mock` release name in the `mokka` namespace
+rather than a pair of its own, so if either already exists it upgrades them in
+place — onto `GPU_PROFILE` and this image — instead of standing a second mock
+up beside them. On a cluster you share with other work, prefer the default Kind
+cluster.
 
 Two of its steps are assertions rather than demonstrations, because both were
 real defects: that `mig -lgip` never reports more free instances of a profile
