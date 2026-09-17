@@ -1041,20 +1041,78 @@ type RootComplexConfig struct {
 // authoritative for what `nvidia-smi mig -lgip` prints and is not reconciled
 // against the enum's span.
 //
-// There is deliberately no slice count: NVMLProfile already carries it, since
-// gpuInstanceSliceCount answers it for every profile the enum has. Declaring
-// it as well would put two machine-read sources behind one fact with nothing
-// reconciling them, so a row could bind the 7-slice enum while every check
-// reading the declared count bounded it as a 1-slice partition.
+// A row describes its partition completely: the slices it spans, the id the
+// board reports for it, where it may sit, and the compute instances it offers.
+// Geometry an algorithm cannot express is geometry the mock cannot mock, so
+// none of it is computed from the rest.
 type MIGProfileSpec struct {
-	Name            string `json:"name"`
-	NVMLProfile     string `json:"nvml_profile"`
-	Instances       int    `json:"instances"`
-	MemoryMB        uint64 `json:"memory_mb"`
-	Multiprocessors int    `json:"multiprocessors,omitempty"`
-	CopyEngines     int    `json:"copy_engines,omitempty"`
-	Decoders        int    `json:"decoders,omitempty"`
-	Encoders        int    `json:"encoders,omitempty"`
-	JPEG            int    `json:"jpeg,omitempty"`
-	OFA             int    `json:"ofa,omitempty"`
+	Name        string `json:"name"`
+	NVMLProfile string `json:"nvml_profile"`
+	// Slices is how many compute slices the partition spans. NVMLProfile
+	// carries the same fact — gpuInstanceSliceCount answers it for every enum
+	// — and validateMIGProfileSpec refuses a row where the two disagree, so
+	// neither source is trusted alone. That cross-check is what makes stating
+	// the width here a second reading of one fact rather than a second source
+	// for it.
+	Slices int `json:"slices,omitempty"`
+	// ProfileID is the id the board publishes for this profile, which is what
+	// nvmlDeviceCreateGpuInstance takes. It is not the NVML profile enum: an
+	// A100's 1g.5gb is enum 0 and reports 19.
+	//
+	// A pointer because 0 is a real reported id — the full-board 7g of an A100
+	// or H100 publishes it — so a row that declares nothing, and still falls
+	// back to the mig.profile_ids listing, stays distinguishable from one that
+	// declares 0. The fallback is transitional and so is the pointer; see
+	// docs/superpowers/plans/2026-09-17-mig-profiles-fully-declarative.md.
+	ProfileID *int   `json:"profile_id,omitempty"`
+	Instances int    `json:"instances"`
+	MemoryMB  uint64 `json:"memory_mb"`
+	// Placements are the slots on the board this profile may occupy.
+	Placements []MIGPlacementSpec `json:"placements,omitempty"`
+	// ComputeInstances is the profile's `nvidia-smi mig -lcip` listing. A GPU
+	// instance does not offer every width that fits inside it — a 7-slice
+	// instance offers 3c and 4c and then jumps to 7c — which is why the
+	// listing is declared per row rather than enumerated from the width.
+	ComputeInstances []MIGComputeInstanceSpec `json:"compute_instances,omitempty"`
+	Multiprocessors  int                      `json:"multiprocessors,omitempty"`
+	CopyEngines      int                      `json:"copy_engines,omitempty"`
+	Decoders         int                      `json:"decoders,omitempty"`
+	Encoders         int                      `json:"encoders,omitempty"`
+	JPEG             int                      `json:"jpeg,omitempty"`
+	OFA              int                      `json:"ofa,omitempty"`
+}
+
+// MIGPlacementSpec is one slot a GPU instance profile may occupy on the board.
+//
+// Start and Size are measured in memory units, not compute slices. A board has
+// as many memory units as the next power of two at or above its compute-slice
+// count — eight for a 7-slice datacenter board — so a 3g partition holding
+// half the memory occupies four of eight units and a 7g partition occupies all
+// eight. Reading Size as a slice count is what makes go-nvml's H100 table
+// report a 7g placement of size 7.
+type MIGPlacementSpec struct {
+	Start uint32 `json:"start"`
+	Size  uint32 `json:"size"`
+}
+
+// MIGComputeInstanceSpec is one row of a GPU instance's compute-instance
+// listing.
+//
+// Multiprocessors is this compute instance's own share of the GPU instance's
+// SMs. The fixed-function engines are not divided that way: NVML reports them
+// as Shared* because every compute instance inside a GPU instance sees all of
+// them, so Decoders through OFA repeat the GPU instance's counts.
+type MIGComputeInstanceSpec struct {
+	NVMLProfile string `json:"nvml_profile"`
+	// Slices is cross-checked against NVMLProfile the same way
+	// MIGProfileSpec.Slices is, and additionally bounded by the width of the
+	// GPU instance the row sits in.
+	Slices            int `json:"slices"`
+	Instances         int `json:"instances"`
+	Multiprocessors   int `json:"multiprocessors,omitempty"`
+	SharedCopyEngines int `json:"shared_copy_engines,omitempty"`
+	Decoders          int `json:"decoders,omitempty"`
+	Encoders          int `json:"encoders,omitempty"`
+	JPEG              int `json:"jpeg,omitempty"`
+	OFA               int `json:"ofa,omitempty"`
 }

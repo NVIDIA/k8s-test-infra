@@ -459,6 +459,113 @@ func TestMIGProfilesFromConfig_DeclaredRowsWithoutABoardWidthGetNoPlacements(t *
 	require.Zero(t, resolveMaxGPUInstances(migCfg, supported, profiles))
 }
 
+// TestComputeInstanceProfileEnums_SpellEveryWidthTheyName is the guard
+// validateMIGComputeInstances relies on when it treats an enum with no known
+// slice count as unreachable.
+//
+// It also holds each name to the width it advertises. The name is what a
+// profile YAML writes and the enum is what NVML sizes, so an entry bound to
+// the wrong enum would let a row read as 3c while partitioning four slices —
+// and go-nvlib names the nvidia.com/mig-<name> resource from the width, not
+// from the spelling.
+func TestComputeInstanceProfileEnums_SpellEveryWidthTheyName(t *testing.T) {
+	t.Parallel()
+
+	for name, ciEnum := range computeInstanceProfileEnums {
+		slices, ok := computeInstanceSliceCount(ciEnum)
+		require.True(t, ok, "compute instance profile %q (enum %d) has no slice count", name, ciEnum)
+		require.True(t, strings.HasPrefix(name, strconv.Itoa(slices)+"_SLICE"),
+			"compute instance profile %q is bound to an enum of %d slices", name, slices)
+	}
+}
+
+// TestMIGProfilesFromConfig_PrefersTheDeclaredGeometry asserts a row's own
+// placements, compute instances and reported id reach the tables unchanged
+// rather than being recomputed from its shape.
+//
+// Every declared value below is one the derivation would not produce: a single
+// 1-unit placement where four 2-unit ones would be derived, a compute-instance
+// listing without the media-extension profile that is always offered, and an
+// id no listing publishes. A transcription that fell back would answer with
+// the derived values instead.
+func TestMIGProfilesFromConfig_PrefersTheDeclaredGeometry(t *testing.T) {
+	t.Parallel()
+
+	declaredID := 42
+	migCfg := &MIGConfig{
+		MaxGPUInstances: 7,
+		SupportedProfiles: []MIGProfileSpec{{
+			Name: "1g.10gb", NVMLProfile: "1_SLICE", Slices: 1, Instances: 7, MemoryMB: 10240,
+			ProfileID:  &declaredID,
+			Placements: []MIGPlacementSpec{{Start: 3, Size: 1}},
+			ComputeInstances: []MIGComputeInstanceSpec{{
+				NVMLProfile: "1_SLICE", Slices: 1, Instances: 1,
+				Multiprocessors: 16, SharedCopyEngines: 3,
+				Decoders: 4, Encoders: 5, JPEG: 6, OFA: 7,
+			}},
+		}},
+	}
+	require.NoError(t, validateMIGConfig(migCfg))
+
+	profiles, ids, supported := migProfilesFromConfig(migCfg, h100_80GiB)
+	require.True(t, supported)
+
+	const profileEnum = nvml.GPU_INSTANCE_PROFILE_1_SLICE
+	require.Equal(t, []nvml.GpuInstancePlacement{{Start: 3, Size: 1}},
+		profiles.GpuInstancePlacements[profileEnum])
+	require.Equal(t, map[int]nvml.ComputeInstanceProfileInfo{
+		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE: {
+			Id:                    nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE,
+			SliceCount:            1,
+			InstanceCount:         1,
+			MultiprocessorCount:   16,
+			SharedCopyEngineCount: 3,
+			SharedDecoderCount:    4,
+			SharedEncoderCount:    5,
+			SharedJpegCount:       6,
+			SharedOfaCount:        7,
+		},
+	}, profiles.ComputeInstanceProfiles[profileEnum])
+	// The possible-placement table keys off the declared listing too, so a
+	// compute instance the row does not declare has no entry rather than an
+	// empty one — the difference between "fits nowhere" and "not offered".
+	require.Equal(t, map[int][]nvml.ComputeInstancePlacement{
+		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE: {},
+	}, profiles.ComputeInstancePlacements[profileEnum])
+	require.Equal(t, declaredID, ids.reported(profileEnum))
+	// profile_id is the id the board publishes, not the profile's NVML
+	// identity: assigning it to Id would change what
+	// nvmlDeviceGetGpuInstanceProfileInfo answers.
+	require.Equal(t, uint32(profileEnum), profiles.GpuInstanceProfiles[profileEnum].Id)
+}
+
+// TestMIGProfilesFromConfig_ADeclaredIDDoesNotDisturbTheListing pins that
+// declaring one row's id leaves the ids the board's listing publishes for the
+// other rows intact, rather than replacing the table wholesale.
+func TestMIGProfilesFromConfig_ADeclaredIDDoesNotDisturbTheListing(t *testing.T) {
+	t.Parallel()
+
+	declaredID := 42
+	_, ids, supported := migProfilesFromConfig(&MIGConfig{
+		MaxGPUInstances: 7,
+		ProfileIDs:      migProfileIDs7Slice,
+		SupportedProfiles: []MIGProfileSpec{
+			{
+				Name: "1g.10gb", NVMLProfile: "1_SLICE", Instances: 7, MemoryMB: 10240,
+				ProfileID: &declaredID,
+			},
+			{Name: "2g.20gb", NVMLProfile: "2_SLICE", Instances: 3, MemoryMB: 20480},
+		},
+	}, h100_80GiB)
+
+	require.True(t, supported)
+	require.Equal(t, declaredID, ids.reported(nvml.GPU_INSTANCE_PROFILE_1_SLICE))
+	require.Equal(t, 14, ids.reported(nvml.GPU_INSTANCE_PROFILE_2_SLICE))
+	// The listing's own table is shared between every board that names it, so
+	// a declared id must not be written into it.
+	require.Equal(t, 19, sevenSliceProfileIDs[nvml.GPU_INSTANCE_PROFILE_1_SLICE])
+}
+
 // deriveComputeInstanceProfiles skips any offered profile it cannot size,
 // which would silently drop a compute instance from a MIG device's listing.
 // This asserts the skip is unreachable: every profile any GPU instance width

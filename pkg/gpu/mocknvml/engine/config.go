@@ -414,6 +414,9 @@ func validateMIGProfileSpec(spec MIGProfileSpec, maxGPUInstances int) error {
 		return fmt.Errorf("nvml_profile %q spans %d slices, more than the %d max_gpu_instances this board is wide",
 			spec.NVMLProfile, span, maxGPUInstances)
 	}
+	if err := validateDeclaredSliceCount(spec.Slices, span, spec.NVMLProfile); err != nil {
+		return err
+	}
 	if spec.MemoryMB == 0 {
 		return errors.New("memory_mb must be greater than 0")
 	}
@@ -424,6 +427,114 @@ func validateMIGProfileSpec(spec MIGProfileSpec, maxGPUInstances int) error {
 	if fits := maxGPUInstances / span; spec.Instances < 1 || spec.Instances > fits {
 		return fmt.Errorf("instances must be between 1 and %d for a %d-slice profile on a %d-slice board, got %d",
 			fits, span, maxGPUInstances, spec.Instances)
+	}
+	if err := validateMIGPlacements(spec.Placements, maxGPUInstances); err != nil {
+		return err
+	}
+	return validateMIGComputeInstances(spec.ComputeInstances, span)
+}
+
+// validateDeclaredSliceCount cross-checks a declared width against the width
+// the NVML enum it is declared beside already carries.
+//
+// The enum knows its own span, so the declared count is a second reading of
+// one fact rather than a second source for it. Without the check a row could
+// bind the 7-slice enum and call itself one slice wide: every bound computed
+// from the declared count would treat it as a 1g while the partition it
+// creates takes seven sevenths of the board.
+//
+// Zero means nothing is declared, and the span stands in. That is
+// transitional, for as long as the shipped profiles are still being filled in
+// — see docs/superpowers/plans/2026-09-17-mig-profiles-fully-declarative.md.
+func validateDeclaredSliceCount(declared, span int, nvmlProfile string) error {
+	if declared != 0 && declared != span {
+		return fmt.Errorf("slices %d disagrees with the %d slices nvml_profile %q spans",
+			declared, span, nvmlProfile)
+	}
+	return nil
+}
+
+// validateMIGPlacements refuses a placement list that would put a partition
+// where the board cannot hold it. It computes nothing the row left out: a row
+// declaring no placements is accepted here and takes the derivation, which is
+// transitional — see
+// docs/superpowers/plans/2026-09-17-mig-profiles-fully-declarative.md.
+//
+// The checks encode the geometry a board partitions by:
+//
+//   - Start and Size are memory units, of which a board has the next power of
+//     two at or above its width, so the bound is eight on a 7-slice board and
+//     a 7g placement of size 8 is in range while a 1g at start 6 of size 4 is
+//     not. The sum is widened before the comparison so a start near the top of
+//     uint32 cannot wrap past the bound.
+//   - Size is a power of two because the units divide the board exactly and
+//     every start is aligned to its own size. That is what lets a 1g, a 2g and
+//     a 3g placement coexist without a partial overlap, and it makes a size of
+//     zero — a slot holding nothing — fall out of the same check.
+//   - Two placements at one offset advertise a single slot twice, so a
+//     consumer enumerating them sees room for two partitions where the board
+//     has room for one.
+func validateMIGPlacements(placements []MIGPlacementSpec, maxGPUInstances int) error {
+	memoryUnits := nextPowerOfTwo(maxGPUInstances)
+	seen := make(map[uint32]struct{}, len(placements))
+	for i, p := range placements {
+		if p.Size == 0 || p.Size&(p.Size-1) != 0 {
+			return fmt.Errorf("placements[%d]: size %d is not a power of two", i, p.Size)
+		}
+		if uint64(p.Start)+uint64(p.Size) > uint64(memoryUnits) {
+			return fmt.Errorf("placements[%d]: start %d plus size %d runs past the %d memory units a %d-slice board has",
+				i, p.Start, p.Size, memoryUnits, maxGPUInstances)
+		}
+		if _, dup := seen[p.Start]; dup {
+			return fmt.Errorf("placements[%d]: start %d is declared twice", i, p.Start)
+		}
+		seen[p.Start] = struct{}{}
+	}
+	return nil
+}
+
+// validateMIGComputeInstances refuses a compute-instance listing that could
+// not exist inside the GPU instance declaring it.
+//
+// Widths go through validateDeclaredSliceCount like the GPU instance's own,
+// and are then bounded by the GPU instance: a 4c compute
+// instance inside a 2g partition has nowhere to sit, and more compute
+// instances than fit claim partitions that cannot all exist. The table is
+// keyed on the enum, so a profile named twice would collapse to one entry and
+// advertise a listing one row short of what the YAML reads as.
+//
+// As with the placements, an empty listing is accepted and takes the
+// derivation while the shipped profiles are being filled in.
+func validateMIGComputeInstances(computeInstances []MIGComputeInstanceSpec, giSlices int) error {
+	seen := make(map[string]struct{}, len(computeInstances))
+	for i, ci := range computeInstances {
+		ciEnum, ok := computeInstanceProfileEnum(ci.NVMLProfile)
+		if !ok {
+			return fmt.Errorf("compute_instances[%d]: unknown nvml_profile %q", i, ci.NVMLProfile)
+		}
+		span, mapped := computeInstanceSliceCount(ciEnum)
+		// Unreachable while computeInstanceProfileEnums and
+		// computeInstanceSliceCount agree, which a guard test asserts. It
+		// stays because it is what keeps the divisor below nonzero.
+		if !mapped {
+			return fmt.Errorf("compute_instances[%d]: nvml_profile %q has no known slice count",
+				i, ci.NVMLProfile)
+		}
+		if err := validateDeclaredSliceCount(ci.Slices, span, ci.NVMLProfile); err != nil {
+			return fmt.Errorf("compute_instances[%d]: %w", i, err)
+		}
+		if span > giSlices {
+			return fmt.Errorf("compute_instances[%d]: nvml_profile %q spans %d slices, more than the %d its GPU instance spans",
+				i, ci.NVMLProfile, span, giSlices)
+		}
+		if fits := giSlices / span; ci.Instances < 1 || ci.Instances > fits {
+			return fmt.Errorf("compute_instances[%d]: instances must be between 1 and %d for a %d-slice compute instance in a %d-slice GPU instance, got %d",
+				i, fits, span, giSlices, ci.Instances)
+		}
+		if _, dup := seen[ci.NVMLProfile]; dup {
+			return fmt.Errorf("compute_instances[%d]: nvml_profile %q is declared twice", i, ci.NVMLProfile)
+		}
+		seen[ci.NVMLProfile] = struct{}{}
 	}
 	return nil
 }

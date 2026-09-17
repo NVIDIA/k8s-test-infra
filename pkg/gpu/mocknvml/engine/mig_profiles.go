@@ -15,6 +15,7 @@ package engine
 
 import (
 	"fmt"
+	"maps"
 	"math"
 	"strings"
 
@@ -58,12 +59,16 @@ func migProfilesFromConfig(migCfg *MIGConfig, deviceMemoryBytes uint64) (gpus.MI
 			continue
 		}
 
-		// The enum is the single source of the slice count; the YAML does not
-		// restate it. Validation has already refused any row whose enum is
-		// unknown, so this cannot fail for a validated config.
+		// Validation has already refused any row whose enum is unknown, so
+		// this cannot fail for a validated config, and any row whose declared
+		// width disagrees with the enum — so the two are interchangeable and
+		// the declared one is preferred where it exists.
 		sliceCount, ok := gpuInstanceSliceCount(profileEnum)
 		if !ok {
 			continue
+		}
+		if spec.Slices != 0 {
+			sliceCount = spec.Slices
 		}
 
 		profiles.GpuInstanceProfiles[profileEnum] = nvml.GpuInstanceProfileInfo{
@@ -78,18 +83,113 @@ func migProfilesFromConfig(migCfg *MIGConfig, deviceMemoryBytes uint64) (gpus.MI
 			OfaCount:            uint32(spec.OFA),
 			MemorySizeMB:        spec.MemoryMB,
 		}
-		profiles.GpuInstancePlacements[profileEnum] = derivePlacements(
-			sliceCount, boardSlices, spec.MemoryMB, deviceMemoryBytes/oneMiB)
-		ciProfiles := deriveComputeInstanceProfiles(spec, sliceCount)
+		profiles.GpuInstancePlacements[profileEnum] = placementsOfSpec(
+			spec, sliceCount, boardSlices, deviceMemoryBytes/oneMiB)
+		ciProfiles := computeInstanceProfilesOfSpec(spec, sliceCount)
 		profiles.ComputeInstanceProfiles[profileEnum] = ciProfiles
 		profiles.ComputeInstancePlacements[profileEnum] = computeInstancePlacementSlots(ciProfiles)
 	}
 
+	return profiles, profileIDsOfConfig(migCfg), true
+}
+
+// placementsOfSpec transcribes the slots a row declares it may occupy.
+//
+// A row that declares none falls back to derivePlacements. That fallback is
+// transitional — it exists only while the shipped profiles are being filled
+// in, and the plan that introduced this field replaces it with a validation
+// error, so it is not a supported way to write a profile. See
+// docs/superpowers/plans/2026-09-17-mig-profiles-fully-declarative.md.
+func placementsOfSpec(spec MIGProfileSpec, sliceCount, boardSlices int, capacityMB uint64) []nvml.GpuInstancePlacement {
+	if len(spec.Placements) == 0 {
+		return derivePlacements(sliceCount, boardSlices, spec.MemoryMB, capacityMB)
+	}
+
+	placements := make([]nvml.GpuInstancePlacement, 0, len(spec.Placements))
+	for _, p := range spec.Placements {
+		placements = append(placements, nvml.GpuInstancePlacement{Start: p.Start, Size: p.Size})
+	}
+	return placements
+}
+
+// computeInstanceProfilesOfSpec transcribes the compute-instance listing a row
+// declares, falling back to deriveComputeInstanceProfiles on the same
+// transitional terms as placementsOfSpec.
+//
+// Id is the NVML enum, not anything the row declares. It is the profile's
+// identity rather than an id a board publishes, and the two only coincide for
+// compute instances.
+func computeInstanceProfilesOfSpec(spec MIGProfileSpec, sliceCount int) map[int]nvml.ComputeInstanceProfileInfo {
+	if len(spec.ComputeInstances) == 0 {
+		return deriveComputeInstanceProfiles(spec, sliceCount)
+	}
+
+	ciProfiles := make(map[int]nvml.ComputeInstanceProfileInfo, len(spec.ComputeInstances))
+	for _, ci := range spec.ComputeInstances {
+		ciEnum, ok := computeInstanceProfileEnum(ci.NVMLProfile)
+		if !ok {
+			// Refused at config load; unreachable for a validated config.
+			continue
+		}
+		ciSlices := ci.Slices
+		if ciSlices == 0 {
+			// The enum carries the same width, and validation refuses a row
+			// where the declared one disagrees with it.
+			ciSlices, _ = computeInstanceSliceCount(ciEnum)
+		}
+		ciProfiles[ciEnum] = nvml.ComputeInstanceProfileInfo{
+			Id:                    uint32(ciEnum),
+			SliceCount:            uint32(ciSlices),
+			InstanceCount:         uint32(ci.Instances),
+			MultiprocessorCount:   uint32(ci.Multiprocessors),
+			SharedCopyEngineCount: uint32(ci.SharedCopyEngines),
+			SharedDecoderCount:    uint32(ci.Decoders),
+			SharedEncoderCount:    uint32(ci.Encoders),
+			SharedJpegCount:       uint32(ci.JPEG),
+			SharedOfaCount:        uint32(ci.OFA),
+		}
+	}
+	return ciProfiles
+}
+
+// profileIDsOfConfig resolves the ids the board reports: the ids its rows
+// declare for themselves, over the published listing it names.
+//
+// The listing is the transitional half, on the same terms as the two
+// transcriptions above. Until every row declares its id, a board that names no
+// listing and declares some ids reports the declared ones and refuses the rest
+// in enumOf, because a partially populated table is no longer the nil one that
+// maps every id to itself.
+func profileIDsOfConfig(migCfg *MIGConfig) migProfileIDs {
 	// A listing config load has already accepted; an unknown one reaches here
 	// only through a hand-built MIGConfig, and reporting the enums is the
 	// answer that cannot mispartition the board.
-	profileIDs, _ := profileIDsForListing(migCfg.ProfileIDs)
-	return profiles, profileIDs, true
+	listing, _ := profileIDsForListing(migCfg.ProfileIDs)
+
+	declared := migProfileIDs(nil)
+	for _, spec := range migCfg.SupportedProfiles {
+		if spec.ProfileID == nil {
+			continue
+		}
+		profileEnum, ok := gpuInstanceProfileEnum(spec.NVMLProfile)
+		if !ok {
+			// Refused at config load; unreachable for a validated config.
+			continue
+		}
+		if declared == nil {
+			// Copied rather than written through: the listing's table is a
+			// package-level map shared by every board that names it, so
+			// writing a declared id into it would republish that id on
+			// unrelated boards.
+			declared = make(migProfileIDs, len(listing)+len(migCfg.SupportedProfiles))
+			maps.Copy(declared, listing)
+		}
+		declared[profileEnum] = *spec.ProfileID
+	}
+	if declared != nil {
+		return declared
+	}
+	return listing
 }
 
 // deriveComputeInstanceProfiles gives a GPU instance of sliceCount slices the
@@ -325,6 +425,33 @@ var gpuInstanceProfileEnums = map[string]int{
 func gpuInstanceProfileEnum(name string) (int, bool) {
 	profileEnum, ok := gpuInstanceProfileEnums[name]
 	return profileEnum, ok
+}
+
+// computeInstanceProfileEnums maps the name a YAML profile uses to NVML's
+// compute instance profile enum, spelled as NVML's own constant suffixes the
+// same way gpuInstanceProfileEnums spells the GPU instance ones.
+//
+// It is a separate namespace: COMPUTE_INSTANCE_PROFILE_1_SLICE and
+// GPU_INSTANCE_PROFILE_1_SLICE are both 0, and the two enums diverge above
+// that, so a name resolved through the wrong table names a different width.
+var computeInstanceProfileEnums = map[string]int{
+	"1_SLICE":      nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE,
+	"1_SLICE_REV1": nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE_REV1,
+	"2_SLICE":      nvml.COMPUTE_INSTANCE_PROFILE_2_SLICE,
+	"3_SLICE":      nvml.COMPUTE_INSTANCE_PROFILE_3_SLICE,
+	"4_SLICE":      nvml.COMPUTE_INSTANCE_PROFILE_4_SLICE,
+	"6_SLICE":      nvml.COMPUTE_INSTANCE_PROFILE_6_SLICE,
+	"7_SLICE":      nvml.COMPUTE_INSTANCE_PROFILE_7_SLICE,
+	"7_SLICE_NVL":  nvml.COMPUTE_INSTANCE_PROFILE_7_SLICE_NVL,
+	"8_SLICE":      nvml.COMPUTE_INSTANCE_PROFILE_8_SLICE,
+}
+
+// computeInstanceProfileEnum resolves a YAML compute-instance profile name to
+// its NVML enum. As with gpuInstanceProfileEnum, the enum is meaningless
+// unless ok.
+func computeInstanceProfileEnum(name string) (int, bool) {
+	ciEnum, ok := computeInstanceProfileEnums[name]
+	return ciEnum, ok
 }
 
 // migProfileIDs maps NVML's GPU instance profile enum to the profile ID the

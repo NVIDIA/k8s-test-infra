@@ -794,3 +794,291 @@ func TestValidateMIGConfig_RejectsAProfileThatCannotBeCreated(t *testing.T) {
 		})
 	}
 }
+
+// The declared geometry carries four facts the Go code used to derive, and its
+// json tags are the contract with every shipped profile YAML on the same terms
+// as TestMIGConfig_SupportedProfilesDecodeFromYAML: a misspelled tag drops a
+// column silently.
+//
+// Every numeric value below is nonzero and distinct within its struct, so a
+// transposed pair of tags cannot pass either. The row is a 2-slice profile
+// because that is the narrowest shape whose placements have a nonzero start —
+// a full-board row places only at 0, where a dropped `start` would decode to
+// the value the assertion expects.
+func TestMIGConfig_DeclaredGeometryDecodesFromYAML(t *testing.T) {
+	t.Parallel()
+
+	var mig MIGConfig
+	require.NoError(t, yaml.Unmarshal([]byte(`
+max_gpu_instances: 7
+supported_profiles:
+  - name: 2g.20gb
+    nvml_profile: 2_SLICE
+    slices: 2
+    profile_id: 21
+    instances: 3
+    memory_mb: 20480
+    multiprocessors: 42
+    copy_engines: 12
+    decoders: 13
+    encoders: 14
+    jpeg: 15
+    ofa: 16
+    placements:
+      - {start: 0, size: 2}
+      - {start: 4, size: 2}
+    compute_instances:
+      - nvml_profile: 1_SLICE
+        slices: 1
+        instances: 2
+        multiprocessors: 21
+        shared_copy_engines: 3
+        decoders: 4
+        encoders: 5
+        jpeg: 6
+        ofa: 7
+      - nvml_profile: 2_SLICE
+        slices: 2
+        instances: 1
+        multiprocessors: 42
+        shared_copy_engines: 8
+        decoders: 9
+        encoders: 10
+        jpeg: 11
+        ofa: 17
+`), &mig))
+
+	profileID := 21
+	require.Equal(t, []MIGProfileSpec{{
+		Name:            "2g.20gb",
+		NVMLProfile:     "2_SLICE",
+		Slices:          2,
+		ProfileID:       &profileID,
+		Instances:       3,
+		MemoryMB:        20480,
+		Multiprocessors: 42,
+		CopyEngines:     12,
+		Decoders:        13,
+		Encoders:        14,
+		JPEG:            15,
+		OFA:             16,
+		Placements: []MIGPlacementSpec{
+			{Start: 0, Size: 2},
+			{Start: 4, Size: 2},
+		},
+		ComputeInstances: []MIGComputeInstanceSpec{
+			{
+				NVMLProfile:       "1_SLICE",
+				Slices:            1,
+				Instances:         2,
+				Multiprocessors:   21,
+				SharedCopyEngines: 3,
+				Decoders:          4,
+				Encoders:          5,
+				JPEG:              6,
+				OFA:               7,
+			},
+			{
+				NVMLProfile:       "2_SLICE",
+				Slices:            2,
+				Instances:         1,
+				Multiprocessors:   42,
+				SharedCopyEngines: 8,
+				Decoders:          9,
+				Encoders:          10,
+				JPEG:              11,
+				OFA:               17,
+			},
+		},
+	}}, mig.SupportedProfiles)
+	require.NoError(t, validateMIGConfig(&mig))
+}
+
+// Every row here decodes cleanly and describes a board that would partition
+// wrongly: a placement the board has no room for, a compute instance that
+// cannot sit inside its GPU instance, or a declared width contradicting the
+// one its own NVML enum carries.
+//
+// The width cases are why declaring `slices` is safe rather than a return to
+// two sources for one fact: the enum still knows its own span, so the declared
+// count is cross-checked against it instead of either being trusted alone.
+func TestValidateMIGConfig_RejectsDeclaredGeometryThatCannotPartitionTheBoard(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		boardSlices int
+		spec        MIGProfileSpec
+		wantErr     string
+	}{
+		"a placement running past the board's memory units": {
+			boardSlices: 7,
+			spec: MIGProfileSpec{
+				Name: "1g.10gb", NVMLProfile: "1_SLICE", Instances: 7, MemoryMB: 10240,
+				Placements: []MIGPlacementSpec{{Start: 6, Size: 4}},
+			},
+			wantErr: "placements[0]: start 6 plus size 4 runs past the 8 memory units a 7-slice board has",
+		},
+		"a placement size that is not a power of two": {
+			boardSlices: 7,
+			spec: MIGProfileSpec{
+				Name: "3g.20gb", NVMLProfile: "3_SLICE", Instances: 2, MemoryMB: 20480,
+				Placements: []MIGPlacementSpec{{Start: 0, Size: 3}},
+			},
+			wantErr: "placements[0]: size 3 is not a power of two",
+		},
+		"a placement of no size": {
+			boardSlices: 7,
+			spec: MIGProfileSpec{
+				Name: "1g.10gb", NVMLProfile: "1_SLICE", Instances: 7, MemoryMB: 10240,
+				Placements: []MIGPlacementSpec{{Start: 2}},
+			},
+			wantErr: "placements[0]: size 0 is not a power of two",
+		},
+		"two placements at one offset": {
+			boardSlices: 7,
+			spec: MIGProfileSpec{
+				Name: "2g.20gb", NVMLProfile: "2_SLICE", Instances: 3, MemoryMB: 20480,
+				Placements: []MIGPlacementSpec{{Start: 2, Size: 2}, {Start: 2, Size: 2}},
+			},
+			wantErr: "placements[1]: start 2 is declared twice",
+		},
+		"a declared width that disagrees with its own enum": {
+			boardSlices: 7,
+			spec: MIGProfileSpec{
+				Name: "1g.10gb", NVMLProfile: "1_SLICE", Slices: 2, Instances: 7, MemoryMB: 10240,
+			},
+			wantErr: `slices 2 disagrees with the 1 slices nvml_profile "1_SLICE" spans`,
+		},
+		"a compute instance naming an enum NVML does not have": {
+			boardSlices: 7,
+			spec: MIGProfileSpec{
+				Name: "2g.20gb", NVMLProfile: "2_SLICE", Instances: 3, MemoryMB: 20480,
+				ComputeInstances: []MIGComputeInstanceSpec{
+					{NVMLProfile: "9_SLICE", Slices: 9, Instances: 1},
+				},
+			},
+			wantErr: `compute_instances[0]: unknown nvml_profile "9_SLICE"`,
+		},
+		"a compute instance wider than its GPU instance": {
+			boardSlices: 7,
+			spec: MIGProfileSpec{
+				Name: "2g.20gb", NVMLProfile: "2_SLICE", Instances: 3, MemoryMB: 20480,
+				ComputeInstances: []MIGComputeInstanceSpec{
+					{NVMLProfile: "4_SLICE", Slices: 4, Instances: 1},
+				},
+			},
+			wantErr: `compute_instances[0]: nvml_profile "4_SLICE" spans 4 slices, more than the 2 its GPU instance spans`,
+		},
+		"a compute instance width that disagrees with its own enum": {
+			boardSlices: 7,
+			spec: MIGProfileSpec{
+				Name: "2g.20gb", NVMLProfile: "2_SLICE", Instances: 3, MemoryMB: 20480,
+				ComputeInstances: []MIGComputeInstanceSpec{
+					{NVMLProfile: "2_SLICE", Slices: 1, Instances: 1},
+				},
+			},
+			wantErr: `compute_instances[0]: slices 1 disagrees with the 2 slices nvml_profile "2_SLICE" spans`,
+		},
+		"more compute instances than fit the GPU instance": {
+			boardSlices: 7,
+			spec: MIGProfileSpec{
+				Name: "2g.20gb", NVMLProfile: "2_SLICE", Instances: 3, MemoryMB: 20480,
+				ComputeInstances: []MIGComputeInstanceSpec{
+					{NVMLProfile: "1_SLICE", Slices: 1, Instances: 3},
+				},
+			},
+			wantErr: "compute_instances[0]: instances must be between 1 and 2 for a 1-slice compute instance in a 2-slice GPU instance, got 3",
+		},
+		// The compute-instance table is keyed on the enum, so two rows naming
+		// one profile collapse into a single entry rather than being reported.
+		"a compute instance declared twice": {
+			boardSlices: 7,
+			spec: MIGProfileSpec{
+				Name: "2g.20gb", NVMLProfile: "2_SLICE", Instances: 3, MemoryMB: 20480,
+				ComputeInstances: []MIGComputeInstanceSpec{
+					{NVMLProfile: "1_SLICE", Slices: 1, Instances: 2},
+					{NVMLProfile: "1_SLICE", Slices: 1, Instances: 2},
+				},
+			},
+			wantErr: `compute_instances[1]: nvml_profile "1_SLICE" is declared twice`,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			err := validateMIGConfig(&MIGConfig{
+				MaxGPUInstances:   tt.boardSlices,
+				SupportedProfiles: []MIGProfileSpec{tt.spec},
+			})
+
+			require.ErrorContains(t, err, tt.wantErr)
+			// The row has to be locatable from the message alone.
+			require.ErrorContains(t, err, tt.spec.Name)
+		})
+	}
+}
+
+// TestValidateMIGConfig_AcceptsTheGeometryTheDerivationProduces feeds each
+// shipped board's derived geometry back into the config as declared geometry
+// and asserts validation accepts it.
+//
+// This is the contract the generated YAML has to satisfy: the placements,
+// compute instances, widths and reported ids the derivation produces today are
+// exactly what those files will carry, so a validation rule the derivation
+// violates on any shipped board would refuse a board the mock supports.
+func TestValidateMIGConfig_AcceptsTheGeometryTheDerivationProduces(t *testing.T) {
+	t.Parallel()
+
+	ciProfileNames := make(map[int]string, len(computeInstanceProfileEnums))
+	for name, ciEnum := range computeInstanceProfileEnums {
+		ciProfileNames[ciEnum] = name
+	}
+
+	for _, board := range migGoldenBoards {
+		t.Run(board.profile, func(t *testing.T) {
+			t.Parallel()
+
+			migCfg := migConfigOfShippedProfile(t, board.profile)
+			profiles, ids, supported := migProfilesFromConfig(migCfg, board.memoryBytes)
+			require.True(t, supported, "%s must declare a MIG profile table", board.profile)
+
+			declared := *migCfg
+			declared.SupportedProfiles = nil
+			for _, spec := range migCfg.SupportedProfiles {
+				profileEnum, ok := gpuInstanceProfileEnum(spec.NVMLProfile)
+				require.True(t, ok)
+				sliceCount, ok := gpuInstanceSliceCount(profileEnum)
+				require.True(t, ok)
+
+				reported := ids.reported(profileEnum)
+				spec.Slices = sliceCount
+				spec.ProfileID = &reported
+				for _, p := range profiles.GpuInstancePlacements[profileEnum] {
+					spec.Placements = append(spec.Placements,
+						MIGPlacementSpec{Start: p.Start, Size: p.Size})
+				}
+				for ciEnum, ci := range profiles.ComputeInstanceProfiles[profileEnum] {
+					name, named := ciProfileNames[ciEnum]
+					require.True(t, named,
+						"compute instance profile %d has no YAML spelling", ciEnum)
+					spec.ComputeInstances = append(spec.ComputeInstances, MIGComputeInstanceSpec{
+						NVMLProfile:       name,
+						Slices:            int(ci.SliceCount),
+						Instances:         int(ci.InstanceCount),
+						Multiprocessors:   int(ci.MultiprocessorCount),
+						SharedCopyEngines: int(ci.SharedCopyEngineCount),
+						Decoders:          int(ci.SharedDecoderCount),
+						Encoders:          int(ci.SharedEncoderCount),
+						JPEG:              int(ci.SharedJpegCount),
+						OFA:               int(ci.SharedOfaCount),
+					})
+				}
+				declared.SupportedProfiles = append(declared.SupportedProfiles, spec)
+			}
+
+			require.NoError(t, validateMIGConfig(&declared))
+		})
+	}
+}
