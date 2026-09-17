@@ -46,12 +46,12 @@ device_defaults:
     pwr_object: "1.0"
 
   # ---------------------------------------------------------------------------
-  # Memory configuration - 192 GiB HBM3e
+  # Memory configuration - 180 GiB HBM3e
   # ---------------------------------------------------------------------------
   memory:
-    total_bytes: 206158430208       # 192 GiB HBM3e
+    total_bytes: 193273528320       # 180 GiB HBM3e
     reserved_bytes: 1073741824      # ~1 GiB reserved
-    free_bytes: 205084688384        # total - reserved at idle
+    free_bytes: 192199786496        # total - reserved at idle
     used_bytes: 0
     memory_bus_width: 8192
 
@@ -268,68 +268,69 @@ device_defaults:
     # `mig -cgi 0` would partition the whole board where this one hands back
     # a 1g.
     profile_ids: "none"
-    # Engine counts from NVIDIA MIG user guide, Supported MIG Profiles,
-    # Table 5 (B200). Names and memory are this board's own rather than
-    # Table 5's: the table describes the 180 GB product and publishes
-    # 1g.23gb, while this profile declares 192 GiB, so a slice is an eighth
-    # of 192. nvml_profile carries the slice count, so no row restates it.
+    # NVIDIA MIG user guide, Supported MIG Profiles, Table 5 (B200). Names,
+    # memory and engine counts are all Table 5's, because this board is the
+    # 180 GB product that table describes: an eighth of 180 GiB is 22.5 GiB,
+    # which -lgip prints as the 1g.23gb NVIDIA publishes. nvml_profile
+    # carries the slice count, so no row restates it.
     #
-    # NVIDIA publishes no profile IDs for Blackwell, so the mock reports NVML's
-    # enum and -lgip ids will not match a real board's listing.
+    # The names are corroborated by NVIDIA's gpu-operator default mig-parted
+    # config (assets/state-mig-manager/0400_configmap.yaml), which keys B200
+    # by PCI device 0x290110DE and lists 1g.23gb, 2g.45gb and 3g.90gb.
     supported_profiles:
-      - name: "1g.24gb"
+      - name: "1g.23gb"
         nvml_profile: "1_SLICE"
         instances: 7
-        memory_mb: 24576
+        memory_mb: 23040
         multiprocessors: 18
         copy_engines: 2
         decoders: 1
         jpeg: 1
-      - name: "1g.24gb+me"
+      - name: "1g.23gb+me"
         nvml_profile: "1_SLICE_REV1"
         instances: 1
-        memory_mb: 24576
+        memory_mb: 23040
         multiprocessors: 18
         copy_engines: 2
         decoders: 1
         jpeg: 1
         ofa: 1
-      - name: "1g.48gb"
+      - name: "1g.45gb"
         nvml_profile: "1_SLICE_REV2"
         instances: 4
-        memory_mb: 49152
+        memory_mb: 46080
         multiprocessors: 18
         copy_engines: 2
         decoders: 1
         jpeg: 1
-      - name: "2g.48gb"
+      - name: "2g.45gb"
         nvml_profile: "2_SLICE"
         instances: 3
-        memory_mb: 49152
+        memory_mb: 46080
         multiprocessors: 36
         copy_engines: 3
         decoders: 1
         jpeg: 1
-      - name: "3g.96gb"
+      - name: "3g.90gb"
         nvml_profile: "3_SLICE"
         instances: 2
-        memory_mb: 98304
+        memory_mb: 92160
         multiprocessors: 54
         copy_engines: 6
         decoders: 1
         jpeg: 1
-      - name: "4g.96gb"
+      - name: "4g.90gb"
         nvml_profile: "4_SLICE"
         instances: 1
-        memory_mb: 98304
+        memory_mb: 92160
         multiprocessors: 72
         copy_engines: 8
         decoders: 1
         jpeg: 1
-      - name: "7g.192gb"
+      - name: "7g.180gb"
         nvml_profile: "7_SLICE"
         instances: 1
-        memory_mb: 196608
+        memory_mb: 184320
         multiprocessors: 126
         copy_engines: 16
         decoders: 1

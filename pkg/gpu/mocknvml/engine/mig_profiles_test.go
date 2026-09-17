@@ -350,8 +350,10 @@ func TestGPUInstanceProfileEnums_BindEveryNVMLProfileExactlyOnce(t *testing.T) {
 func TestMIGProfileName_PrefersTheDeclaredName(t *testing.T) {
 	t.Parallel()
 
-	// A 180GB B200 publishes 1g.23gb. Computing the name from a board that
-	// declares 192 GiB would give 1g.24gb, so the declared string has to win.
+	// No shipped board needs this now that each declares its real capacity,
+	// which is the point: a board whose allocation does not land on a clean
+	// fraction of what it declares still names its own partitions. Computing
+	// 1g.23gb against a 192 GiB board would give 1g.24gb.
 	name, err := migProfileName("1g.23gb",
 		nvml.GPU_INSTANCE_PROFILE_1_SLICE, nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE,
 		23552, 206158430208)

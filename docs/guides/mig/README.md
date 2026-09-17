@@ -51,9 +51,9 @@ name, which is what the device plugin's `migStrategy=single` requires:
 |---|---|---|
 | `a100` | `1g.5gb` | 7 |
 | `h100` | `1g.10gb` | 7 |
-| `b200` | `1g.24gb` | 7 |
-| `gb200` | `1g.24gb` | 7 |
-| `gb300` | `1g.36gb` | 7 |
+| `b200` | `1g.23gb` | 7 |
+| `gb200` | `1g.23gb` | 7 |
+| `gb300` | `1g.35gb` | 7 |
 
 `l40s` and `t4` cannot partition. The chart refuses MIG on them, and NVML
 answers `NVML_ERROR_NOT_SUPPORTED` exactly as it does on that hardware.
@@ -158,17 +158,16 @@ staging, is kept under test at `tests/e2e/go/assets/device-plugin-mock-mig.yaml`
 
 ## How slices are named
 
-A slice is named for the share of *its own* board it holds, so the name follows
-the memory the profile declares rather than NVIDIA's published listing for the
-hardware that profile stands in for. Where the two describe the same board the
-names agree: `a100` offers `1g.5gb`, `h100` offers `1g.10gb`. Where they do
-not, they diverge — the `b200` profile describes a 192GiB board and so offers
-`1g.24gb`, while NVIDIA publishes `1g.23gb` for a 180GB B200.
+A slice is named for the share of *its own* board it holds, and every shipped
+profile declares the capacity of the product NVIDIA publishes its names for —
+180 GiB for `b200`, 186 for `gb200`, 278 for `gb300` — so the names the mock
+reports are the names those boards report.
 
 Take the names a board accepts from `nvidia-smi mig -lgip` rather than from the
-MIG user guide. On Blackwell, name partitions by profile rather than profile
-id: NVIDIA publishes no profile ids for those boards, so the mock reports
-NVML's enum instead and the ids will not match a real board's listing.
+MIG user guide, which has no GB200 or GB300 table. On Blackwell, name
+partitions by profile rather than profile id: NVIDIA publishes no profile ids
+for those boards, so the mock reports NVML's enum instead and the ids will not
+match a real board's listing.
 
 ## Limits
 

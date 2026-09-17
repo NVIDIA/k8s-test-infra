@@ -60,17 +60,15 @@ type migLayout struct {
 // MIG-capable profile needs an entry, and a capable board missing one fails
 // the suite instead of skipping: a silent skip is how these boards went
 // untested before.
-// A slice is named for the share of its own board it holds, so the names below
-// follow each profile's declared memory rather than NVIDIA's published listing
-// for that board: the b200 profile describes a 192GiB board and so offers
-// 1g.24gb where NVIDIA publishes 1g.23gb for a 180GB one. Read a board's names
-// off `nvidia-smi mig -lgip` rather than the MIG guide.
+// A slice is named for the share of its own board it holds, so each name below
+// is an eighth of that board's capacity: 180 GiB for b200, 186 for gb200, 278
+// for gb300. Read a board's names off `nvidia-smi mig -lgip`.
 var migLayouts = map[string]migLayout{
 	"a100":  {Profile: "1g.5gb", Count: 7},
 	"h100":  {Profile: "1g.10gb", Count: 7},
-	"b200":  {Profile: "1g.24gb", Count: 7},
-	"gb200": {Profile: "1g.24gb", Count: 7},
-	"gb300": {Profile: "1g.36gb", Count: 7},
+	"b200":  {Profile: "1g.23gb", Count: 7},
+	"gb200": {Profile: "1g.23gb", Count: 7},
+	"gb300": {Profile: "1g.35gb", Count: 7},
 }
 
 // MIG scenario (#241). The acceptance criterion this exists for is the last one

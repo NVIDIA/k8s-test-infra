@@ -601,9 +601,9 @@ func TestCompileState_MIGDisabledInEveryShippedProfile(t *testing.T) {
 var chartMIGLayouts = map[string]engine.MIGGPUInstanceConfig{
 	"a100":  {Profile: "1g.5gb", Count: 7},
 	"h100":  {Profile: "1g.10gb", Count: 7},
-	"b200":  {Profile: "1g.24gb", Count: 7},
-	"gb200": {Profile: "1g.24gb", Count: 7},
-	"gb300": {Profile: "1g.36gb", Count: 7},
+	"b200":  {Profile: "1g.23gb", Count: 7},
+	"gb200": {Profile: "1g.23gb", Count: 7},
+	"gb300": {Profile: "1g.35gb", Count: 7},
 }
 
 // TestCompileState_ChartMIGLayoutsAllResolve guards the documented layouts

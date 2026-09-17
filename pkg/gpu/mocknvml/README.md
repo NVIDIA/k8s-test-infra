@@ -114,9 +114,9 @@ YAML configs allow full control over GPU properties. See `configs/` for examples
 
 - `mock-nvml-config-a100.yaml` - DGX A100 (8x A100-SXM4-40GB)
 - `mock-nvml-config-h100.yaml` - HGX H100 (8x H100 80GB HBM3)
-- `mock-nvml-config-b200.yaml` - B200 (8x B200, 192 GiB HBM3e)
-- `mock-nvml-config-gb200.yaml` - GB200 NVL (4x GB200 with 192 GiB HBM3e — one NVL72 compute tray)
-- `mock-nvml-config-gb300.yaml` - GB300 NVL (4x Blackwell Ultra with 288 GiB HBM3e, 1.4 kW TDP)
+- `mock-nvml-config-b200.yaml` - B200 (8x B200, 180 GiB HBM3e)
+- `mock-nvml-config-gb200.yaml` - GB200 NVL (4x GB200 with 186 GiB HBM3e — one NVL72 compute tray)
+- `mock-nvml-config-gb300.yaml` - GB300 NVL (4x Blackwell Ultra with 278 GiB HBM3e, 1.4 kW TDP)
 - `mock-nvml-config-l40s.yaml` - L40S (8x L40S, 48 GiB)
 - `mock-nvml-config-t4.yaml` - T4 (4x T4, 16 GiB)
 

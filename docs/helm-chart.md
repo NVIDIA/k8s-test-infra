@@ -725,7 +725,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 | **Architecture** | Ampere | Hopper | Blackwell | Blackwell | Blackwell Ultra | Ada Lovelace | Turing |
 | **Compute capability** | 8.0 | 9.0 | 10.0 | 10.0 | 10.0 | 8.9 | 7.5 |
 | **CUDA cores** | 6,912 | 16,896 | 18,432 | 18,432 | 21,632 | 18,176 | 2,560 |
-| **Memory** | 40 GiB HBM2e | 80 GiB HBM3 | 192 GiB HBM3e | 192 GiB HBM3e | 288 GiB HBM3e | 48 GiB GDDR6 | 16 GiB GDDR6 |
+| **Memory** | 40 GiB HBM2e | 80 GiB HBM3 | 180 GiB HBM3e | 186 GiB HBM3e | 278 GiB HBM3e | 48 GiB GDDR6 | 16 GiB GDDR6 |
 | **NVLink** | v3, 12 links | v4, 18 links | v5, 18 links | v5, 18 links | v5, 18 links | — | — |
 | **NVLink BW** | 600 GB/s | 900 GB/s | 1.8 TB/s | 1.8 TB/s | 1.8 TB/s | — | — |
 | **TDP** | 400W | 700W | 1,000W | 1,000W | 1,400W | 350W | 70W |
@@ -743,7 +743,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 - **`h100`** — testing Hopper-specific features: FP8, Transformer Engine, PCIe Gen5, or NVLink v4 topology.
 - **`b200`** — testing next-gen Blackwell features: FP4, NVLink v5, PCIe Gen6. Standalone GPU (no Grace CPU).
 - **`gb200`** — testing Grace-Blackwell Superchip: NVLink-C2C to Grace CPU, unified memory, and Blackwell features.
-- **`gb300`** (default) — testing Grace-Blackwell Ultra Superchip: 288 GiB HBM3e per GPU, 1.4 kW TDP, FP6 in addition to FP4/FP8, and Blackwell Ultra driver line (570.124.06).
+- **`gb300`** (default) — testing Grace-Blackwell Ultra Superchip: 278 GiB HBM3e per GPU, 1.4 kW TDP, FP6 in addition to FP4/FP8, and Blackwell Ultra driver line (570.124.06).
 - **`l40s`** — testing Ada Lovelace inference workloads: FP8, PCIe Gen4, no NVLink (PCIe-only topology).
 - **`t4`** — testing Turing inference GPUs: low power (70W), small memory (16 GiB), 4 GPUs per node.
 

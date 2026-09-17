@@ -69,10 +69,9 @@ gpu:
   #
   # — or fill the board with its smallest slice, which is the shape
   # migStrategy=single publishes as one resource name: seven of 1g.5gb on
-  # a100, 1g.10gb on h100, 1g.24gb on b200 and gb200, 1g.36gb on gb300. A
+  # a100, 1g.10gb on h100, 1g.23gb on b200 and gb200, 1g.35gb on gb300. A
   # slice is named for the share of its own board it holds, so confirm a
-  # board's names with `nvidia-smi mig -lgip` rather than NVIDIA's listing
-  # for the hardware it stands in for.
+  # board's names with `nvidia-smi mig -lgip`.
   #
   # A board whose profile declares no mig.max_gpu_instances is refused, as is a
   # capable board left with no layout: MIG on with nothing partitioned

@@ -754,9 +754,9 @@ Standalone configuration files are provided for each supported GPU model:
 
 | File | GPU Model | Memory | Architecture |
 |------|-----------|--------|--------------|
-| `pkg/gpu/mocknvml/configs/mock-nvml-config-gb300.yaml` | NVIDIA GB300 NVL | 288 GiB | Blackwell Ultra |
-| `pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml` | NVIDIA GB200 NVL | 192 GiB | Blackwell |
-| `pkg/gpu/mocknvml/configs/mock-nvml-config-b200.yaml` | NVIDIA B200 | 192 GiB | Blackwell |
+| `pkg/gpu/mocknvml/configs/mock-nvml-config-gb300.yaml` | NVIDIA GB300 NVL | 278 GiB | Blackwell Ultra |
+| `pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml` | NVIDIA GB200 NVL | 186 GiB | Blackwell |
+| `pkg/gpu/mocknvml/configs/mock-nvml-config-b200.yaml` | NVIDIA B200 | 180 GiB | Blackwell |
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-h100.yaml` | NVIDIA H100 80GB HBM3 | 80 GiB | Hopper |
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-a100.yaml` | NVIDIA A100-SXM4-40GB | 40 GiB | Ampere |
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-l40s.yaml` | NVIDIA L40S | 48 GiB | Ada Lovelace |
