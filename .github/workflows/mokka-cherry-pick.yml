@@ -43,35 +43,17 @@ concurrency:
 
 jobs:
   cherry-pick:
-    if: ${{ vars.REPOSITORY_AUTOMATION_MOKKA_ENABLED == 'true' && github.ref_name == github.event.repository.default_branch }}
+    if: ${{ vars.REPOSITORY_AUTOMATION_MOKKA_ENABLED == 'true' && github.ref == 'refs/tags/mokka-cherry-pick-v0.11.0' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
       pull-requests: write
     steps:
-      - name: Resolve trusted default branch
-        id: trusted
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
-        with:
-          github-token: ${{ github.token }}
-          result-encoding: string
-          script: |
-            const branch = context.payload.repository.default_branch;
-            const { data } = await github.rest.repos.getBranch({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              branch,
-            });
-            const sha = data.commit.sha;
-            if (!/^[0-9a-f]{40}$/.test(sha)) {
-              throw new Error("default branch did not resolve to a canonical commit SHA");
-            }
-            return sha;
       - name: Check out trusted automation
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ steps.trusted.outputs.result }}
+          ref: ${{ github.sha }}
           path: control
           persist-credentials: false
           fetch-depth: 1
