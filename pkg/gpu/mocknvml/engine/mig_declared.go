@@ -116,7 +116,7 @@ func (d *ConfigurableDevice) declaredGpuInstanceLayout() []MIGGpuInstanceLayout 
 		}
 		instances = append(instances, MIGGpuInstanceLayout{
 			ID:               gi.Info.Id,
-			Profile:          st.gpuInstanceProfileNameLocked(d, int(gi.Info.ProfileId)),
+			Profile:          st.gpuInstanceProfileNameLocked(int(gi.Info.ProfileId)),
 			ComputeInstances: cis,
 		})
 	}
@@ -137,16 +137,12 @@ func (st *migState) migDeviceUUIDLocked(giID, ciID uint32) string {
 // cluster names it. The name is that of a compute instance spanning the whole
 // GPU instance, which is how a partition is named when it is not subdivided.
 // Requires st.mu.
-func (st *migState) gpuInstanceProfileNameLocked(parent *ConfigurableDevice, giProfileID int) string {
+func (st *migState) gpuInstanceProfileNameLocked(giProfileID int) string {
 	ciProfileID, err := spanningComputeInstanceProfile(giProfileID)
 	if err != nil {
 		return ""
 	}
-	name, err := migProfileName(
-		st.declaredName(giProfileID), giProfileID, ciProfileID,
-		st.profiles.GpuInstanceProfiles[giProfileID].MemorySizeMB,
-		parent.effectiveMemoryInfo().Total,
-	)
+	name, err := migProfileName(st.declaredName(giProfileID), giProfileID, ciProfileID)
 	if err != nil {
 		return ""
 	}

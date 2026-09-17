@@ -114,8 +114,7 @@ func migGoldenSnapshot(t *testing.T, b migGoldenBoard) map[int]migGoldenRow {
 	snapshot := make(map[int]migGoldenRow, len(profiles.GpuInstanceProfiles))
 	for profileEnum, info := range profiles.GpuInstanceProfiles {
 		name, err := migProfileName(declaredProfileNames(migCfg)[profileEnum],
-			profileEnum, ciProfileSpanningGI(t, profiles, profileEnum),
-			info.MemorySizeMB, b.memoryBytes)
+			profileEnum, ciProfileSpanningGI(t, profiles, profileEnum))
 		require.NoError(t, err)
 
 		// Keyed by the profile enum, not info.Id. They hold the same value

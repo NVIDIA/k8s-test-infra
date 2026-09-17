@@ -15,8 +15,6 @@ package engine
 
 import (
 	"fmt"
-	"math"
-	"strings"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/NVIDIA/go-nvml/pkg/nvml/mock/gpus"
@@ -166,8 +164,10 @@ func computeInstancesOfSpec(spec MIGProfileSpec) (
 //
 // It is built once per device and held on migState, because the five places
 // that name a profile have the board's tables in hand but not its config.
-// An enum the board does not declare is absent, which leaves migProfileName
-// computing the name from the memory fraction.
+//
+// It covers exactly the enums migProfilesFromConfig admits into the board's
+// tables — the two walk the same rows — and validation requires a name of
+// every row, so every profile a board offers is named here.
 func declaredProfileNames(migCfg *MIGConfig) map[int]string {
 	if migCfg == nil {
 		return nil
@@ -182,10 +182,7 @@ func declaredProfileNames(migCfg *MIGConfig) map[int]string {
 	return names
 }
 
-const (
-	oneMiB = 1024 * 1024
-	oneGiB = 1024 * oneMiB
-)
+const oneMiB = 1024 * 1024
 
 // gpuInstanceProfileEnums maps the name a YAML profile uses to NVML's GPU
 // instance profile enum. The names are NVML's own constant suffixes, so a
@@ -300,15 +297,19 @@ func (m migProfileIDs) enumOf(reportedID int) (int, bool) {
 // (GPU instance, compute instance) profile pair, e.g. "1g.5gb", "2c.7g.40gb"
 // or "1g.5gb+me".
 //
-// This deliberately mirrors go-nvlib's NewMigProfile and MigProfileInfo.String
-// (pkg/nvlib/device/mig_profile.go), because go-nvlib is what the device plugin
-// uses to derive the nvidia.com/mig-<name> resource names from the values this
-// mock reports. A name computed differently here would mean a YAML profile
-// naming a partition that never matches the resource the cluster publishes.
+// declaredName is the board's own spelling of the GPU instance, copied from
+// NVIDIA's published table, and is the only source of the name: `name` is
+// required of every row, so a validated board declares one for every profile
+// it offers. It names the GPU instance, so a narrower compute instance still
+// needs the "Nc." prefix composing onto it.
 //
-// declaredName is the board's own spelling of the GPU instance, and overrides
-// the computation; empty means compute the name from the memory fraction.
-func migProfileName(declaredName string, giProfileID, ciProfileID int, migMemorySizeMB, deviceMemoryBytes uint64) (string, error) {
+// The name reaches a cluster: go-nvlib parses it back (its NewMigProfile and
+// MigProfileInfo.String, pkg/nvlib/device/mig_profile.go) and the device
+// plugin derives the nvidia.com/mig-<name> resource names from it. A name this
+// mock reports that no board publishes is a resource no cluster has, which is
+// why a profile with nothing declared is an error rather than a name invented
+// here.
+func migProfileName(declaredName string, giProfileID, ciProfileID int) (string, error) {
 	giSlices, ok := gpuInstanceSliceCount(giProfileID)
 	if !ok {
 		return "", fmt.Errorf("invalid GPU instance profile ID: %d", giProfileID)
@@ -317,53 +318,16 @@ func migProfileName(declaredName string, giProfileID, ciProfileID int, migMemory
 	if !ok {
 		return "", fmt.Errorf("invalid compute instance profile ID: %d", ciProfileID)
 	}
-
-	// A declared name is the board's own spelling, taken from NVIDIA's
-	// published table. It wins over the computed one because the computation
-	// scales the memory fraction against the board's declared capacity, which
-	// is not always the capacity of the product NVIDIA published the name for.
-	//
-	// It names the GPU instance, so a narrower compute instance still needs
-	// the "Nc." prefix composing onto it.
-	if declaredName != "" {
-		if ciSlices == giSlices {
-			return declaredName, nil
-		}
-		return fmt.Sprintf("%dc.%s", ciSlices, declaredName), nil
-	}
-
-	gb := migMemorySizeGB(deviceMemoryBytes, migMemorySizeMB)
-
-	var suffix string
-	if attrs := gpuInstanceAttributes(giProfileID); len(attrs) > 0 {
-		suffix = "+" + strings.Join(attrs, ",")
-	} else if negAttrs := gpuInstanceNegAttributes(giProfileID); len(negAttrs) > 0 {
-		suffix = "-" + strings.Join(negAttrs, ",")
+	if declaredName == "" {
+		return "", fmt.Errorf("GPU instance profile %d declares no name", giProfileID)
 	}
 
 	// A compute instance spanning its whole GPU instance is spelled without
 	// the redundant "Nc." prefix.
 	if ciSlices == giSlices {
-		return fmt.Sprintf("%dg.%dgb%s", giSlices, gb, suffix), nil
+		return declaredName, nil
 	}
-	return fmt.Sprintf("%dc.%dg.%dgb%s", ciSlices, giSlices, gb, suffix), nil
-}
-
-// migMemorySizeGB converts a slice's raw MiB allocation into the rounded GB
-// figure the profile name carries. A 1-slice A100 40GB partition holds
-// 4864 MiB, which the name reports as 5gb: the raw size is snapped to the
-// nearest eighth of the board before being scaled back up, which is how the
-// advertised sizes come out as round numbers.
-func migMemorySizeGB(totalDeviceMemory, migMemorySizeMB uint64) uint64 {
-	const fracDenominator = 8
-
-	if totalDeviceMemory == 0 {
-		return 0
-	}
-	fractionalGPUMem := (float64(migMemorySizeMB) * oneMiB) / float64(totalDeviceMemory)
-	fractionalGPUMem = math.Ceil(fractionalGPUMem*fracDenominator) / fracDenominator
-	totalMemGB := float64((totalDeviceMemory + oneGiB - 1) / oneGiB)
-	return uint64(math.Round(fractionalGPUMem * totalMemGB))
+	return fmt.Sprintf("%dc.%s", ciSlices, declaredName), nil
 }
 
 // gpuInstanceSliceCount maps a GPU instance profile ID to the number of GPU
@@ -421,36 +385,4 @@ func computeInstanceSliceCount(ciProfileID int) (int, bool) {
 		return 8, true
 	}
 	return 0, false
-}
-
-// MIG profile name attributes, spelled as go-nvlib spells them.
-const (
-	migAttributeMediaExtensions    = "me"
-	migAttributeMediaExtensionsAll = "me.all"
-	migAttributeGraphics           = "gfx"
-)
-
-func gpuInstanceAttributes(giProfileID int) []string {
-	switch giProfileID {
-	case nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1,
-		nvml.GPU_INSTANCE_PROFILE_2_SLICE_REV1:
-		return []string{migAttributeMediaExtensions}
-	case nvml.GPU_INSTANCE_PROFILE_1_SLICE_ALL_ME,
-		nvml.GPU_INSTANCE_PROFILE_2_SLICE_ALL_ME:
-		return []string{migAttributeMediaExtensionsAll}
-	case nvml.GPU_INSTANCE_PROFILE_1_SLICE_GFX,
-		nvml.GPU_INSTANCE_PROFILE_2_SLICE_GFX,
-		nvml.GPU_INSTANCE_PROFILE_4_SLICE_GFX:
-		return []string{migAttributeGraphics}
-	}
-	return nil
-}
-
-func gpuInstanceNegAttributes(giProfileID int) []string {
-	switch giProfileID {
-	case nvml.GPU_INSTANCE_PROFILE_1_SLICE_NO_ME,
-		nvml.GPU_INSTANCE_PROFILE_2_SLICE_NO_ME:
-		return []string{migAttributeMediaExtensions}
-	}
-	return nil
 }

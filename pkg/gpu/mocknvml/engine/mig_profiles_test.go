@@ -27,68 +27,18 @@ const (
 	h100_80GiB = 85899345920
 )
 
-// TestMigProfileName pins the profile-name spelling against go-nvlib's
-// algorithm (pkg/nvlib/device/mig_profile.go). The names are not cosmetic:
-// they are what the device plugin publishes as nvidia.com/mig-<name>, and
-// they are what a YAML profile's mig.gpu_instances[].profile is matched
-// against, so a divergence here silently mismatches config and cluster state.
-func TestMigProfileName(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name         string
-		giProfileID  int
-		ciProfileID  int
-		migMemoryMB  uint64
-		deviceMemory uint64
-		want         string
-	}{
-		// A100 40GB: a whole-GPU compute instance drops the "Nc." prefix.
-		{"a100 1 slice", nvml.GPU_INSTANCE_PROFILE_1_SLICE, nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE, 4864, a100_40GiB, "1g.5gb"},
-		{"a100 2 slice", nvml.GPU_INSTANCE_PROFILE_2_SLICE, nvml.COMPUTE_INSTANCE_PROFILE_2_SLICE, 9856, a100_40GiB, "2g.10gb"},
-		{"a100 3 slice", nvml.GPU_INSTANCE_PROFILE_3_SLICE, nvml.COMPUTE_INSTANCE_PROFILE_3_SLICE, 19968, a100_40GiB, "3g.20gb"},
-		{"a100 7 slice", nvml.GPU_INSTANCE_PROFILE_7_SLICE, nvml.COMPUTE_INSTANCE_PROFILE_7_SLICE, 40192, a100_40GiB, "7g.40gb"},
-
-		// A compute instance narrower than its GPU instance keeps the prefix.
-		{"a100 1c in 3g", nvml.GPU_INSTANCE_PROFILE_3_SLICE, nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE, 19968, a100_40GiB, "1c.3g.20gb"},
-		{"a100 2c in 7g", nvml.GPU_INSTANCE_PROFILE_7_SLICE, nvml.COMPUTE_INSTANCE_PROFILE_2_SLICE, 40192, a100_40GiB, "2c.7g.40gb"},
-
-		// Revision profiles carry attribute suffixes.
-		{"a100 1 slice rev1", nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1, nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE, 4864, a100_40GiB, "1g.5gb+me"},
-		{"a100 1 slice rev2", nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2, nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE, 9856, a100_40GiB, "1g.10gb"},
-
-		{"h100 1 slice", nvml.GPU_INSTANCE_PROFILE_1_SLICE, nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE, 10240, h100_80GiB, "1g.10gb"},
-		{"h100 7 slice", nvml.GPU_INSTANCE_PROFILE_7_SLICE, nvml.COMPUTE_INSTANCE_PROFILE_7_SLICE, 81920, h100_80GiB, "7g.80gb"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got, err := migProfileName("", tt.giProfileID, tt.ciProfileID, tt.migMemoryMB, tt.deviceMemory)
-			require.NoError(t, err)
-			require.Equal(t, tt.want, got)
-		})
-	}
-}
-
 func TestMigProfileName_RejectsUnknownProfileIDs(t *testing.T) {
 	t.Parallel()
 
-	_, err := migProfileName("", nvml.GPU_INSTANCE_PROFILE_COUNT, nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE, 4864, a100_40GiB)
-	require.Error(t, err, "an out-of-range GPU instance profile has no slice count")
-
-	_, err = migProfileName("", nvml.GPU_INSTANCE_PROFILE_1_SLICE, nvml.COMPUTE_INSTANCE_PROFILE_COUNT, 4864, a100_40GiB)
-	require.Error(t, err, "an out-of-range compute instance profile has no slice count")
-
-	// A declared name must not buy a profile past the same checks. Both slice
+	// A declared name must not buy a profile past the slice-count checks. Both
 	// counts are still needed to decide whether the name takes the "Nc."
 	// prefix, so an unresolvable ID is an error whatever the board declares —
 	// returning the declared string for a profile that cannot exist would
 	// advertise a partition nothing can create.
-	_, err = migProfileName("1g.5gb", nvml.GPU_INSTANCE_PROFILE_COUNT, nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE, 4864, a100_40GiB)
+	_, err := migProfileName("1g.5gb", nvml.GPU_INSTANCE_PROFILE_COUNT, nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE)
 	require.Error(t, err, "a declared name does not excuse an out-of-range GPU instance profile")
 
-	_, err = migProfileName("1g.5gb", nvml.GPU_INSTANCE_PROFILE_1_SLICE, nvml.COMPUTE_INSTANCE_PROFILE_COUNT, 4864, a100_40GiB)
+	_, err = migProfileName("1g.5gb", nvml.GPU_INSTANCE_PROFILE_1_SLICE, nvml.COMPUTE_INSTANCE_PROFILE_COUNT)
 	require.Error(t, err, "a declared name does not excuse an out-of-range compute instance profile")
 }
 
@@ -355,13 +305,11 @@ func TestGPUInstanceProfileEnums_BindEveryNVMLProfileExactlyOnce(t *testing.T) {
 func TestMIGProfileName_PrefersTheDeclaredName(t *testing.T) {
 	t.Parallel()
 
-	// No shipped board needs this now that each declares its real capacity,
-	// which is the point: a board whose allocation does not land on a clean
-	// fraction of what it declares still names its own partitions. Computing
-	// 1g.23gb against a 192 GiB board would give 1g.24gb.
+	// A board's own spelling is reported as declared, whatever fraction of the
+	// board the partition's allocation actually works out to: the name comes
+	// from NVIDIA's published table for the product, not from its capacity.
 	name, err := migProfileName("1g.23gb",
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE, nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE,
-		23552, 206158430208)
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE, nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE)
 	require.NoError(t, err)
 	require.Equal(t, "1g.23gb", name)
 }
@@ -371,27 +319,22 @@ func TestMIGProfileName_ComposesTheComputeInstanceFormFromTheDeclaredName(t *tes
 
 	// A compute instance narrower than its GPU instance keeps the Nc. prefix,
 	// which the declared name does not carry: it names the GPU instance only.
-	//
-	// The declared memory deliberately disagrees with what the computation
-	// would produce — 40960 MB of an 80 GiB board is half of it, which computes
-	// to "3g.40gb" — so the expected name is reachable only by composing the
-	// prefix onto the declared string. A fixture where the two agree passes
-	// with the declared branch deleted.
 	name, err := migProfileName("3g.37gb",
-		nvml.GPU_INSTANCE_PROFILE_3_SLICE, nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE,
-		40960, h100_80GiB)
+		nvml.GPU_INSTANCE_PROFILE_3_SLICE, nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE)
 	require.NoError(t, err)
 	require.Equal(t, "1c.3g.37gb", name)
 }
 
-func TestMIGProfileName_FallsBackToComputingWhenNothingIsDeclared(t *testing.T) {
+func TestMIGProfileName_RefusesAProfileTheBoardDoesNotName(t *testing.T) {
 	t.Parallel()
 
-	name, err := migProfileName("",
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE, nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE,
-		10240, h100_80GiB)
-	require.NoError(t, err)
-	require.Equal(t, "1g.10gb", name)
+	// Validation requires a `name` of every row, so no validated board reaches
+	// this. It is asserted rather than assumed because the alternative to an
+	// error is a partition advertised under a name — and so a
+	// nvidia.com/mig-<name> resource — that no NVIDIA table publishes.
+	_, err := migProfileName("",
+		nvml.GPU_INSTANCE_PROFILE_1_SLICE, nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE)
+	require.Error(t, err)
 }
 
 func TestMIGProfilesFromConfig_ReportsTheDeclaredRows(t *testing.T) {

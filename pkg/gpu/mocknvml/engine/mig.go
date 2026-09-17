@@ -100,8 +100,9 @@ type migIdentity struct {
 }
 
 // declaredName is the board's own spelling of a GPU instance profile, or ""
-// for a profile it does not declare — which leaves migProfileName computing
-// the name. Safe on a device with no MIG state at all.
+// for a profile it does not declare — which migProfileName refuses to name,
+// since the name is the board's to give. Safe on a device with no MIG state at
+// all.
 func (st *migState) declaredName(giProfileEnum int) string {
 	if st == nil {
 		return ""
@@ -327,10 +328,8 @@ func (d *ConfigurableDevice) resolveMigProfileByName(name string) (int, int, err
 		return 0, 0, errors.New("device does not support MIG")
 	}
 
-	deviceMemory := d.memoryInfo().Total
 	for giProfileID := range nvml.GPU_INSTANCE_PROFILE_COUNT {
-		giProfile, ok := st.profiles.GpuInstanceProfiles[giProfileID]
-		if !ok {
+		if _, ok := st.profiles.GpuInstanceProfiles[giProfileID]; !ok {
 			continue
 		}
 		ciProfiles, ok := st.profiles.ComputeInstanceProfiles[giProfileID]
@@ -342,7 +341,7 @@ func (d *ConfigurableDevice) resolveMigProfileByName(name string) (int, int, err
 				continue
 			}
 			candidate, err := migProfileName(st.declaredName(giProfileID),
-				giProfileID, ciProfileID, giProfile.MemorySizeMB, deviceMemory)
+				giProfileID, ciProfileID)
 			if err != nil {
 				continue
 			}
@@ -665,7 +664,7 @@ func (st *migState) newMigDeviceLocked(
 	name := parent.Config.Name
 	if profileName, err := migProfileName(
 		st.declaredName(int(gi.Info.ProfileId)),
-		int(gi.Info.ProfileId), int(ci.Info.ProfileId), giProfile.MemorySizeMB, parent.effectiveMemoryInfo().Total,
+		int(gi.Info.ProfileId), int(ci.Info.ProfileId),
 	); err == nil {
 		// Real NVML spells a MIG device's name as the board followed by its
 		// partition, e.g. "NVIDIA A100-SXM4-40GB MIG 1g.5gb".
