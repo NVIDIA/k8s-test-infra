@@ -22,6 +22,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
 	inventorycleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/cleanup"
 	inventorymetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/metadata"
+	nodecatalog "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/nodecatalog"
 	inventoryprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/projection"
 )
 
@@ -276,6 +277,7 @@ func (r *placementRegistry) matching(node *corev1.Node) []allocate.RackGroupKey 
 type eventRouter struct {
 	inventories        cache.Indexer
 	racks              cache.Indexer
+	nodes              *nodecatalog.Catalog
 	registry           *placementRegistry
 	waiters            *rackConflictWaiters
 	queues             *queues
@@ -288,6 +290,7 @@ type eventRouter struct {
 
 func newEventRouter(
 	inventories, racks cache.Indexer,
+	nodes *nodecatalog.Catalog,
 	registry *placementRegistry,
 	queues *queues,
 	invalidators ...func(),
@@ -301,7 +304,7 @@ func newEventRouter(
 		invalidateCapacity = invalidators[1]
 	}
 	return &eventRouter{
-		inventories: inventories, racks: racks, registry: registry, waiters: newRackConflictWaiters(),
+		inventories: inventories, racks: racks, nodes: nodes, registry: registry, waiters: newRackConflictWaiters(),
 		queues: queues, invalidate: invalidate, invalidateCapacity: invalidateCapacity,
 	}
 }
@@ -584,6 +587,7 @@ func (r *eventRouter) rackUpdate(oldObject, newObject any) {
 		}
 		cleanup := cleanupFor(oldRack, slot, inventorycleanup.CleanupCapacityShrink)
 		r.queues.projections.Add(projectionKey{mode: projectionCleanup, cleanup: cleanup})
+		r.routeReleasedNode(cleanup.Binding.Node)
 	}
 	if newRack.DeletionTimestamp != nil {
 		r.routeRackInventory(newRack)
@@ -619,6 +623,7 @@ func (r *eventRouter) rackDelete(object any) {
 		}
 		cleanup := cleanupFor(rack, slot, inventorycleanup.CleanupRackDeleting)
 		r.queues.projections.Add(projectionKey{mode: projectionCleanup, cleanup: cleanup})
+		r.routeReleasedNode(cleanup.Binding.Node)
 	}
 	if !r.currentRackDelete(rack) {
 		return
@@ -626,6 +631,19 @@ func (r *eventRouter) rackDelete(object any) {
 	r.routeRackWaiters(rack.Name)
 	if r.rackDesired(rack) {
 		r.routeRackInventory(rack)
+	}
+}
+
+// A destination may have already processed the Node's placement and cleanup
+// events while the old durable binding still prevented allocation.
+func (r *eventRouter) routeReleasedNode(reference allocate.NodeReference) {
+	record, exists := r.nodes.GetByName(reference.Name)
+	if !exists || record.Node().UID != reference.UID {
+		return
+	}
+	for _, key := range r.registry.matching(record.Node()) {
+		r.queues.groups.Add(key)
+		r.queues.addStatus(statusKey{kind: statusInventory, name: key.InventoryName, uid: key.InventoryUID})
 	}
 }
 

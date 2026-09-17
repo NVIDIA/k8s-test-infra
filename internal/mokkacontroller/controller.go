@@ -458,7 +458,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 	}
 
 	router := newEventRouter(
-		inventoryInformer.GetIndexer(), rackInformer.GetIndexer(), newPlacementRegistry(), controller.queues,
+		inventoryInformer.GetIndexer(), rackInformer.GetIndexer(), nodeCatalog, newPlacementRegistry(), controller.queues,
 		allocation.InvalidateAllocation,
 		allocation.InvalidateCapacity,
 	)

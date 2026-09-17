@@ -40,7 +40,7 @@ func TestEventRoutingUsesBoundedDependencyKeys(t *testing.T) {
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
-	router := newEventRouter(inventories, racks, newPlacementRegistry(), queues)
+	router := newEventRouter(inventories, racks, nodecatalog.New(), newPlacementRegistry(), queues)
 
 	inventory := testInventory()
 	require.NoError(t, inventories.Add(inventory))
@@ -80,6 +80,7 @@ func TestRackCapacityEventsQueueAdmissionRecompute(t *testing.T) {
 	router := newEventRouter(
 		inventories,
 		racks,
+		nodecatalog.New(),
 		newPlacementRegistry(),
 		queues,
 		func() { allocationInvalidations++ },
@@ -128,7 +129,7 @@ func TestReturningBoundNodeAddRoutesOnlyExactSlotFresh(t *testing.T) {
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
-	router := newEventRouter(inventories, racks, newPlacementRegistry(), queues)
+	router := newEventRouter(inventories, racks, nodecatalog.New(), newPlacementRegistry(), queues)
 
 	node := testNode()
 	rack := testRack(node)
@@ -166,7 +167,7 @@ func TestControllerOwnedFreeRackAddContinuesPendingAllocation(t *testing.T) {
 	inventory := testInventory()
 	require.NoError(t, inventories.Add(inventory))
 	registry.replace(inventory)
-	router := newEventRouter(inventories, racks, registry, queues)
+	router := newEventRouter(inventories, racks, nodecatalog.New(), registry, queues)
 
 	replacement := testNode()
 	replacement.UID = "replacement-uid"
@@ -186,7 +187,7 @@ func TestForeignRackBindingDoesNotRouteProjection(t *testing.T) {
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
-	router := newEventRouter(inventories, racks, newPlacementRegistry(), queues)
+	router := newEventRouter(inventories, racks, nodecatalog.New(), newPlacementRegistry(), queues)
 	rack := testRack(testNode())
 	rack.OwnerReferences = nil
 
@@ -200,7 +201,7 @@ func TestRackOwnerRoutingUsesControllerReferenceWhenInventoryRefDrifts(t *testin
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
-	router := newEventRouter(inventories, racks, newPlacementRegistry(), queues)
+	router := newEventRouter(inventories, racks, nodecatalog.New(), newPlacementRegistry(), queues)
 	rack := testRack(testNode())
 	rack.Spec.InventoryRef = mokkav1alpha1.SGPURackInventoryReference{Name: "foreign", UID: "foreign-uid"}
 
@@ -218,7 +219,7 @@ func TestNoOpUpdatesAreSuppressed(t *testing.T) {
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
-	router := newEventRouter(inventories, racks, newPlacementRegistry(), queues)
+	router := newEventRouter(inventories, racks, nodecatalog.New(), newPlacementRegistry(), queues)
 
 	objects := []struct {
 		old any
@@ -246,7 +247,7 @@ func TestAllocationRevisionIgnoresOwnedMetadataAndTracksTopologyInputs(t *testin
 	t.Cleanup(queues.shutdown)
 	var invalidations atomic.Int64
 	router := newEventRouter(
-		inventories, racks, newPlacementRegistry(), queues,
+		inventories, racks, nodecatalog.New(), newPlacementRegistry(), queues,
 		func() { invalidations.Add(1) },
 	)
 
@@ -293,6 +294,7 @@ func TestCapacityTopologyEventsInvalidateAdmissionAndRequeueSurvivors(t *testing
 	router := newEventRouter(
 		inventories,
 		racks,
+		nodecatalog.New(),
 		registry,
 		queues,
 		func() { allocationInvalidations.Add(1) },
@@ -382,6 +384,7 @@ func TestSameTimestampInventoryAddQueuesDisplacedAdmissionParticipant(t *testing
 	router := newEventRouter(
 		inventories,
 		racks,
+		nodecatalog.New(),
 		registry,
 		queues,
 		allocation.InvalidateAllocation,
@@ -456,6 +459,7 @@ func TestRackCapacityReleaseQueuesAndPromotesRejectedCandidate(t *testing.T) {
 	router := newEventRouter(
 		inventories,
 		racks,
+		nodecatalog.New(),
 		newPlacementRegistry(),
 		queues,
 		allocation.InvalidateAllocation,
@@ -481,7 +485,7 @@ func TestDeleteTombstonesRouteExactCleanupBeforeGroup(t *testing.T) {
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
 	registry := newPlacementRegistry()
-	router := newEventRouter(inventories, racks, registry, queues)
+	router := newEventRouter(inventories, racks, nodecatalog.New(), registry, queues)
 	inventory := testInventory()
 	node := testNode()
 	rack := testRack(node)
@@ -516,7 +520,7 @@ func TestInventoryDeleteRequeuesEverySurvivingInventory(t *testing.T) {
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
 	registry := newPlacementRegistry()
-	router := newEventRouter(inventories, racks, registry, queues)
+	router := newEventRouter(inventories, racks, nodecatalog.New(), registry, queues)
 
 	deleted := testInventory()
 	deleted.Name, deleted.UID = "deleted", "deleted-uid"
@@ -576,7 +580,7 @@ func TestStaleInventoryDeleteDoesNotRequeueUnrelatedInventories(t *testing.T) {
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
 	registry := newPlacementRegistry()
-	router := newEventRouter(inventories, racks, registry, queues)
+	router := newEventRouter(inventories, racks, nodecatalog.New(), registry, queues)
 
 	stale := testInventory()
 	replacement := stale.DeepCopy()
@@ -603,7 +607,7 @@ func TestForeignRackDeleteRoutesRegisteredCollisionWaiter(t *testing.T) {
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
-	router := newEventRouter(inventories, racks, newPlacementRegistry(), queues)
+	router := newEventRouter(inventories, racks, nodecatalog.New(), newPlacementRegistry(), queues)
 	inventory := testInventory()
 	require.NoError(t, inventories.Add(inventory))
 	router.inventoryAdd(inventory)
@@ -642,7 +646,7 @@ func TestRackOwnershipTransitionRoutesRegisteredCollisionWaiter(t *testing.T) {
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
-	router := newEventRouter(inventories, racks, newPlacementRegistry(), queues)
+	router := newEventRouter(inventories, racks, nodecatalog.New(), newPlacementRegistry(), queues)
 	inventory := testInventory()
 	require.NoError(t, inventories.Add(inventory))
 	router.inventoryAdd(inventory)
@@ -684,7 +688,7 @@ func TestRackUpdateRoutesBindingsLocallyAndTemplateDriftGlobally(t *testing.T) {
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
-	router := newEventRouter(inventories, racks, newPlacementRegistry(), queues)
+	router := newEventRouter(inventories, racks, nodecatalog.New(), newPlacementRegistry(), queues)
 
 	rack := testRack(testNode())
 	rebound := rack.DeepCopy()
@@ -709,7 +713,7 @@ func TestRackUpdateIgnoresStatusAndFinalizerOnlyChanges(t *testing.T) {
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
-	router := newEventRouter(inventories, racks, newPlacementRegistry(), queues)
+	router := newEventRouter(inventories, racks, nodecatalog.New(), newPlacementRegistry(), queues)
 	var observed *mokkav1alpha1.SGPURack
 	router.observeRackStatus = func(rack *mokkav1alpha1.SGPURack) { observed = rack }
 
@@ -732,7 +736,7 @@ func TestStaleRackDeleteDoesNotRouteClaimantPastSameNameReplacement(t *testing.T
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
-	router := newEventRouter(inventories, racks, newPlacementRegistry(), queues)
+	router := newEventRouter(inventories, racks, nodecatalog.New(), newPlacementRegistry(), queues)
 	inventory := testInventory()
 	require.NoError(t, inventories.Add(inventory))
 	router.inventoryAdd(inventory)
@@ -758,7 +762,7 @@ func TestInventoryEventRoutingDoesNotExpandDesiredRackNames(t *testing.T) {
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
-	router := newEventRouter(inventories, racks, newPlacementRegistry(), queues)
+	router := newEventRouter(inventories, racks, nodecatalog.New(), newPlacementRegistry(), queues)
 	inventory := testInventory()
 	inventory.Spec.RackGroups = make([]mokkav1alpha1.RackGroup, 64)
 	for i := range inventory.Spec.RackGroups {
@@ -783,7 +787,7 @@ func TestRackConflictWaitersTrackInventoryReplacement(t *testing.T) {
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
-	router := newEventRouter(inventories, racks, newPlacementRegistry(), queues)
+	router := newEventRouter(inventories, racks, nodecatalog.New(), newPlacementRegistry(), queues)
 	oldInventory := testInventory()
 	require.NoError(t, inventories.Add(oldInventory))
 	router.inventoryAdd(oldInventory)
@@ -825,7 +829,7 @@ func TestRackConflictWaiterIndexRetainsOnlyCurrentReconciledConflicts(t *testing
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
-	router := newEventRouter(inventories, racks, newPlacementRegistry(), queues)
+	router := newEventRouter(inventories, racks, nodecatalog.New(), newPlacementRegistry(), queues)
 	current := testInventory()
 	require.NoError(t, inventories.Add(current))
 	router.inventoryAdd(current)
@@ -863,7 +867,7 @@ func TestRackConflictWaitersRouteEveryActualNameCollision(t *testing.T) {
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
-	router := newEventRouter(inventories, racks, newPlacementRegistry(), queues)
+	router := newEventRouter(inventories, racks, nodecatalog.New(), newPlacementRegistry(), queues)
 	first := testInventory()
 	first.Name, first.UID = "first", "first-uid"
 	second := testInventory()
@@ -892,7 +896,7 @@ func TestRackConflictWaitersClearAfterResolutionSpecChangeAndDeletion(t *testing
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
-	router := newEventRouter(inventories, racks, newPlacementRegistry(), queues)
+	router := newEventRouter(inventories, racks, nodecatalog.New(), newPlacementRegistry(), queues)
 	current := testInventory()
 	require.NoError(t, inventories.Add(current))
 	router.inventoryAdd(current)
@@ -946,7 +950,7 @@ func TestRackConflictWaitersRebuildFromInitialInventoryReconciliation(t *testing
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
-	router := newEventRouter(inventories, racks, newPlacementRegistry(), queues)
+	router := newEventRouter(inventories, racks, nodecatalog.New(), newPlacementRegistry(), queues)
 	inventory := testInventory()
 	require.NoError(t, inventories.Add(inventory))
 	blocker := &mokkav1alpha1.SGPURack{ObjectMeta: metav1.ObjectMeta{
@@ -1522,7 +1526,7 @@ func TestNodeSpecUpdateDoesNotRouteAllocationWork(t *testing.T) {
 	t.Cleanup(queues.shutdown)
 	registry := newPlacementRegistry()
 	registry.replace(testInventory())
-	router := newEventRouter(inventories, racks, registry, queues)
+	router := newEventRouter(inventories, racks, nodecatalog.New(), registry, queues)
 
 	oldNode := testNode()
 	current := oldNode.DeepCopy()
@@ -1543,7 +1547,7 @@ func TestTerminatingNodeUpdateRoutesAllocationWork(t *testing.T) {
 	t.Cleanup(queues.shutdown)
 	registry := newPlacementRegistry()
 	registry.replace(testInventory())
-	router := newEventRouter(inventories, racks, registry, queues)
+	router := newEventRouter(inventories, racks, nodecatalog.New(), registry, queues)
 
 	oldNode := testNode()
 	terminating := oldNode.DeepCopy()
@@ -1561,7 +1565,7 @@ func TestSingleNodeEventDoesNotListFromAPI(t *testing.T) {
 	t.Cleanup(queues.shutdown)
 	registry := newPlacementRegistry()
 	registry.replace(testInventory())
-	router := newEventRouter(inventories, racks, registry, queues)
+	router := newEventRouter(inventories, racks, nodecatalog.New(), registry, queues)
 	nodes := &recordingNodeAPI{}
 
 	router.nodeAdd(testNode())
@@ -1580,7 +1584,7 @@ func TestProjectedLabelEventsDoNotRouteInvalidPlacement(t *testing.T) {
 		metadata.AssignedLabel: "true",
 	}}
 	registry.replace(inventory)
-	router := newEventRouter(inventories, racks, registry, queues)
+	router := newEventRouter(inventories, racks, nodecatalog.New(), registry, queues)
 
 	oldNode := testNode()
 	projected := oldNode.DeepCopy()
@@ -1614,7 +1618,7 @@ func TestProjectedMetadataEventDoesNotReapplyExactBinding(t *testing.T) {
 	rack := testRack(node)
 	rack.Spec.Identity.FabricUUID = "fabric"
 	require.NoError(t, racks.Add(rack))
-	router := newEventRouter(inventories, racks, registry, queues)
+	router := newEventRouter(inventories, racks, nodecatalog.New(), registry, queues)
 
 	projected := node.DeepCopy()
 	projected.ResourceVersion = "2"
@@ -1652,7 +1656,7 @@ func TestForeignProjectionCoOwnerEventRoutesExactBinding(t *testing.T) {
 	node := testNode()
 	rack := testRack(node)
 	require.NoError(t, racks.Add(rack))
-	router := newEventRouter(inventories, racks, registry, queues)
+	router := newEventRouter(inventories, racks, nodecatalog.New(), registry, queues)
 
 	projected := node.DeepCopy()
 	projected.ResourceVersion = "2"
