@@ -62,7 +62,7 @@ func migGoldenSnapshot(t *testing.T, b migGoldenBoard) map[int]migGoldenRow {
 
 	snapshot := make(map[int]migGoldenRow, len(profiles.GpuInstanceProfiles))
 	for profileEnum, info := range profiles.GpuInstanceProfiles {
-		name, err := migProfileName(profileEnum, ciProfileSpanningGI(t, profiles, profileEnum), info.MemorySizeMB, b.memoryBytes)
+		name, err := migProfileName("", profileEnum, ciProfileSpanningGI(t, profiles, profileEnum), info.MemorySizeMB, b.memoryBytes)
 		require.NoError(t, err)
 
 		placements := []string{}

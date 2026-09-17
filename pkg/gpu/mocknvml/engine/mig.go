@@ -326,7 +326,7 @@ func (d *ConfigurableDevice) resolveMigProfileByName(name string) (int, int, err
 			if _, ok := ciProfiles[ciProfileID]; !ok {
 				continue
 			}
-			candidate, err := migProfileName(giProfileID, ciProfileID, giProfile.MemorySizeMB, deviceMemory)
+			candidate, err := migProfileName("", giProfileID, ciProfileID, giProfile.MemorySizeMB, deviceMemory)
 			if err != nil {
 				continue
 			}
@@ -648,7 +648,7 @@ func (st *migState) newMigDeviceLocked(
 
 	name := parent.Config.Name
 	if profileName, err := migProfileName(
-		int(gi.Info.ProfileId), int(ci.Info.ProfileId), giProfile.MemorySizeMB, parent.effectiveMemoryInfo().Total,
+		"", int(gi.Info.ProfileId), int(ci.Info.ProfileId), giProfile.MemorySizeMB, parent.effectiveMemoryInfo().Total,
 	); err == nil {
 		// Real NVML spells a MIG device's name as the board followed by its
 		// partition, e.g. "NVIDIA A100-SXM4-40GB MIG 1g.5gb".

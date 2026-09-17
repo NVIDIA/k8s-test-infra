@@ -207,7 +207,10 @@ var (
 // uses to derive the nvidia.com/mig-<name> resource names from the values this
 // mock reports. A name computed differently here would mean a YAML profile
 // naming a partition that never matches the resource the cluster publishes.
-func migProfileName(giProfileID, ciProfileID int, migMemorySizeMB, deviceMemoryBytes uint64) (string, error) {
+//
+// declaredName is the board's own spelling of the GPU instance, and overrides
+// the computation; empty means compute the name from the memory fraction.
+func migProfileName(declaredName string, giProfileID, ciProfileID int, migMemorySizeMB, deviceMemoryBytes uint64) (string, error) {
 	giSlices, ok := gpuInstanceSliceCount(giProfileID)
 	if !ok {
 		return "", fmt.Errorf("invalid GPU instance profile ID: %d", giProfileID)
@@ -215,6 +218,20 @@ func migProfileName(giProfileID, ciProfileID int, migMemorySizeMB, deviceMemoryB
 	ciSlices, ok := computeInstanceSliceCount(ciProfileID)
 	if !ok {
 		return "", fmt.Errorf("invalid compute instance profile ID: %d", ciProfileID)
+	}
+
+	// A declared name is the board's own spelling, taken from NVIDIA's
+	// published table. It wins over the computed one because the computation
+	// scales the memory fraction against the board's declared capacity, which
+	// is not always the capacity of the product NVIDIA published the name for.
+	//
+	// It names the GPU instance, so a narrower compute instance still needs
+	// the "Nc." prefix composing onto it.
+	if declaredName != "" {
+		if ciSlices == giSlices {
+			return declaredName, nil
+		}
+		return fmt.Sprintf("%dc.%s", ciSlices, declaredName), nil
 	}
 
 	gb := migMemorySizeGB(deviceMemoryBytes, migMemorySizeMB)
