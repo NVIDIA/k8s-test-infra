@@ -156,12 +156,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rows cannot share one id.
 - nvml-mock: a row of `mig.supported_profiles` now declares its whole partition
   — `placements`, `compute_instances` and its `slices` alongside the
-  `profile_id` above — and the engine transcribes them rather than computing
-  anything. Placements were derived from the row's memory against the board's
-  capacity, and the compute-instance listing was enumerated from the row's
-  width; geometry an algorithm was not taught is geometry the mock could not
-  express in YAML at all, which is what roughly 400 lines of declared YAML per
-  board buys. No board behaves differently: each shipped profile declares what
+  `profile_id` above — and the engine transcribes them rather than deriving
+  them from the row's width. One piece of geometry is still synthesized, since
+  no row can declare it: the compute-slice offsets a compute instance occupies
+  inside its GPU instance. Placements were derived from the row's memory
+  against the board's capacity, and the compute-instance listing was
+  enumerated from the row's width; geometry an algorithm was not taught is
+  geometry the mock could not express in YAML at all, which is what roughly
+  400 lines of declared YAML per board buys. No board behaves differently: each shipped profile declares what
   the derivation produced. **Breaking for externally-authored configs:** add
   `placements` and `compute_instances` to every row — both are required, and a
   row missing either is refused at load rather than filled in — and drop the
@@ -217,6 +219,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   engines for `7g.80gb`. Every published A100 count already matched, which is
   what identified the H100 table as an uncorrected copy. The `DEC`, `JPEG`,
   `OFA` and `CE` columns change for `h100`, `b200`, `gb200` and `gb300`.
+- nvml-mock: `nvidia-smi mig -lcip` lists the compute instances the hardware
+  offers, which changes which ones a caller can create. **Breaking: `a100` no
+  longer offers `6c.7g.40gb`, so a `nvidia.com/mig-6c.7g.40gb` request can no
+  longer be satisfied** — no real A100 publishes that partition, and go-nvlib
+  derives the `nvidia.com/mig-<name>` resource names from this listing. The
+  listing used to be enumerated by walking every width from 1 up to the GPU
+  instance's, which invents partitions no board offers — a `6c` under a
+  7-slice instance, a `3c` under a 4-slice one — while dropping the
+  media-extension one-slice compute instance (`1_SLICE_REV1`) that every MIG
+  board does offer and every board's listing now gains. No rule generates the
+  listing: a 7-slice instance offers `3c` and `4c` but not `6c`, a 4-slice one
+  `4c` but not `3c`. Each row therefore declares its own listing under
+  `compute_instances`, and `a100` — the reference board — reports exactly what
+  go-nvml's table reports. See
+  [the `mig:` reference](docs/configuration.md#mig).
 - nvml-mock: **every MIG profile name on the `b200`, `gb200` and `gb300`
   profiles changes, so a `nvidia.com/mig-*` resource request against these
   boards needs updating.** `b200` and `gb200` now publish the `1g.23gb` family

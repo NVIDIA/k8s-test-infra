@@ -469,8 +469,10 @@ and NVML answers `NVML_ERROR_NOT_SUPPORTED` for them as real hardware does.
 resolved in Go from the device name, so teaching the mock a new board is a YAML
 edit. Each row describes its partition completely — the slices it spans, the id
 the board publishes for it, the slots it may occupy and the compute instances
-it offers — and nothing in a row is computed from the rest. One full row of
-`h100`:
+it offers — and the engine reports those values rather than deriving them from
+each other. One piece of geometry is still synthesized; see
+[compute-instance placements](#compute-instance-placements) below. One full row
+of `h100`:
 
 ```yaml
 device_defaults:
@@ -552,6 +554,19 @@ enumerated from the width.
 | `instances` | How many of this compute instance fit the GPU instance: three `2c` in a `7g`, not seven |
 | `multiprocessors` | This compute instance's own share of the GPU instance's SMs |
 | `shared_copy_engines`, `decoders`, `encoders`, `jpeg`, `ofa` | NVML's `Shared*` counts. Every compute instance inside a GPU instance sees all of its fixed-function engines, so these repeat the GPU instance's counts |
+
+##### Compute-instance placements
+
+One piece of geometry is not declared and is still synthesized: the
+compute-slice offsets a compute instance may occupy *inside* its GPU instance,
+which `nvmlGpuInstanceGetComputeInstancePossiblePlacements` reports. A
+`compute_instances` entry has no field for them, so the engine lays them out
+from the entry itself — `instances` placements of `slices` slices each, end to
+end — which is the layout every board NVIDIA publishes a listing for follows.
+
+The consequence for a new board: a board whose compute-instance placements are
+not uniform end to end cannot be expressed in YAML yet. The GPU instance's own
+`placements` are unaffected — those are declared, in memory units, as above.
 
 Declaring the geometry costs about 400 lines of YAML per board, and a
 contributor adding a board writes all of it. That is a deliberate trade of
