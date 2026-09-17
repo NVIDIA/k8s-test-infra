@@ -458,3 +458,21 @@ func TestMIGProfilesFromConfig_DeclaredRowsWithoutABoardWidthGetNoPlacements(t *
 	require.Empty(t, profiles.GpuInstancePlacements[nvml.GPU_INSTANCE_PROFILE_1_SLICE])
 	require.Zero(t, resolveMaxGPUInstances(migCfg, supported, profiles))
 }
+
+// deriveComputeInstanceProfiles skips any offered profile it cannot size,
+// which would silently drop a compute instance from a MIG device's listing.
+// This asserts the skip is unreachable: every profile any GPU instance width
+// offers — the transcribed listings and the fallback for widths NVIDIA
+// publishes no listing for — is one computeInstanceSliceCount can size.
+func TestComputeInstanceProfilesOffered_EveryOfferedProfileHasASliceCount(t *testing.T) {
+	t.Parallel()
+
+	for giSlices := 0; giSlices <= maxGPUInstanceSlices; giSlices++ {
+		for _, ciEnum := range computeInstanceProfilesOffered(giSlices) {
+			_, ok := computeInstanceSliceCount(ciEnum)
+			require.True(t, ok,
+				"GPU instance of %d slices offers compute instance profile %d, which has no slice count",
+				giSlices, ciEnum)
+		}
+	}
+}
