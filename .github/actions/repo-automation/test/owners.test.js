@@ -17,7 +17,7 @@ function readFixture(...segments) {
 
 function fixtureOwnerFiles() {
   return [
-    parseOwnersFile(readFixture("vendor", "OWNERS"), "/vendor/OWNERS"),
+    parseOwnersFile(readFixture("vendor-owners", "OWNERS"), "/vendor/OWNERS"),
     parseOwnersFile(readFixture("no-parent", "OWNERS"), "/no-parent/OWNERS"),
     parseOwnersFile(readFixture("nested", "OWNERS"), "nested/OWNERS"),
     parseOwnersFile(readFixture("root", "OWNERS"), "OWNERS"),
