@@ -109,7 +109,7 @@ device_defaults:
   # PCI configuration
   # ---------------------------------------------------------------------------
   pci:
-    device_id: 0x294110DE           # GB300 NVL (mock placeholder, Blackwell Ultra)
+    device_id: 0x31C210DE           # GB300
     subsystem_id: 0x183010DE
 
   pcie:

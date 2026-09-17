@@ -108,7 +108,7 @@ device_defaults:
   # PCI configuration
   # ---------------------------------------------------------------------------
   pci:
-    device_id: 0x234110DE
+    device_id: 0x294110DE           # GB200 HGX
     subsystem_id: 0x181710DE
 
   pcie:

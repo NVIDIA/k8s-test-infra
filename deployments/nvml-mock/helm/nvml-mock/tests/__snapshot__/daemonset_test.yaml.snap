@@ -182,7 +182,7 @@ should match snapshot with b200 profile:
       template:
         metadata:
           annotations:
-            checksum/config: c8def8d308462f2b7bbbeddcda6eb511927d170977615527b9227e68158b8f80
+            checksum/config: a2300eabda79fd73ef0f87f9bd3e570299edd83aebbc8154c94f2eb98b64934d
           labels:
             app.kubernetes.io/component: daemon
             app.kubernetes.io/instance: RELEASE-NAME
@@ -333,7 +333,7 @@ should match snapshot with default values:
       template:
         metadata:
           annotations:
-            checksum/config: 874f38fd6ef77fc3a8780ec7b8e8e5f42b6989c9f119a35757073d38615de070
+            checksum/config: fea6813dc212f5ec604a4448b99cbce10065148ea42d541adc61d3d7d48b56eb
           labels:
             app.kubernetes.io/component: daemon
             app.kubernetes.io/instance: RELEASE-NAME

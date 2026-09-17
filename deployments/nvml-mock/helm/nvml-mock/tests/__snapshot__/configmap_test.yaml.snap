@@ -627,7 +627,7 @@ should match snapshot with b200 profile:
           # PCI configuration
           # ---------------------------------------------------------------------------
           pci:
-            device_id: 0x234010DE           # B200 standalone
+            device_id: 0x290110DE           # B200
             subsystem_id: 0x181810DE
 
           pcie:
@@ -1224,7 +1224,7 @@ should match snapshot with default gb300 profile:
           # PCI configuration
           # ---------------------------------------------------------------------------
           pci:
-            device_id: 0x294110DE           # GB300 NVL (mock placeholder, Blackwell Ultra)
+            device_id: 0x31C210DE           # GB300
             subsystem_id: 0x183010DE
 
           pcie:
@@ -1852,7 +1852,7 @@ should match snapshot with gb200 profile:
           # PCI configuration
           # ---------------------------------------------------------------------------
           pci:
-            device_id: 0x234110DE
+            device_id: 0x294110DE           # GB200 HGX
             subsystem_id: 0x181710DE
 
           pcie:

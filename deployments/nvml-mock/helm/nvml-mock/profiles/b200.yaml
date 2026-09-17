@@ -71,7 +71,7 @@ device_defaults:
   # PCI configuration
   # ---------------------------------------------------------------------------
   pci:
-    device_id: 0x234010DE           # B200 standalone
+    device_id: 0x290110DE           # B200
     subsystem_id: 0x181810DE
 
   pcie:
