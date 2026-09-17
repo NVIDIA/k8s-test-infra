@@ -1,0 +1,19 @@
+schemaVersion: 1
+protectedBranches: [main, "release-*"]
+activeOwnerFiles: [/OWNERS]
+review:
+  reviewerTarget: 2
+commands:
+  retestCooldownSeconds: 600
+merge:
+  method: SQUASH
+bots:
+  - login: dependabot[bot]
+    emails: ["49699333+dependabot[bot]@users.noreply.github.com"]
+  - login: github-actions[bot]
+    emails: ["41898282+github-actions[bot]@users.noreply.github.com"]
+sizeThresholds:
+  S: 0
+  M: 50
+  L: 250
+  XL: 1000

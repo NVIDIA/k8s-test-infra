@@ -192,6 +192,10 @@ test-nvidia-imex-shim: build ## Run nvidia-imex-shim integration tests
 verify-greptile: ## Validate the .greptile review configuration
 	@bash hack/verify-greptile-config.sh
 
+.PHONY: actionlint
+actionlint: ## Validate GitHub Actions workflows
+	@./hack/actionlint.sh
+
 .PHONY: helm-tests
 helm-tests: ## Run the nvml-mock chart unit test suite
 	helm unittest $(HELM_CHART_DIR)
