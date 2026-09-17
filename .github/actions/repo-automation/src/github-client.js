@@ -419,7 +419,7 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
       if (typeof data.draft !== "boolean") {
         throw new TypeError("live PR draft state must be a boolean");
       }
-      return {
+      const pullRequest = {
         number: positiveInteger(data.number, "live PR number"),
         nodeId: nonEmptyString(data.node_id, "live PR node ID"),
         title: nonEmptyString(data.title, "live PR title"),
@@ -434,6 +434,16 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
           repo: nonEmptyString(data.base?.repo?.name, "base repository name").toLowerCase(),
         },
       };
+      if (typeof data.merged === "boolean") pullRequest.merged = data.merged;
+      if (data.merge_commit_sha === null) {
+        pullRequest.mergeCommitOid = null;
+      } else if (data.merge_commit_sha !== undefined) {
+        pullRequest.mergeCommitOid = nonEmptyString(
+          data.merge_commit_sha,
+          "live PR merge commit OID",
+        ).toLowerCase();
+      }
+      return pullRequest;
     },
 
     async listPullRequestFiles(prNumber) {
@@ -719,6 +729,63 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
         if (error.status === 404) return false;
         throw error;
       }
+    },
+
+    async getBranch(branch) {
+      nonEmptyString(branch, "branch");
+      try {
+        const response = await call("getBranch", () => octokit.rest.repos.getBranch({
+          owner, repo, branch,
+        }), true);
+        return {
+          name: nonEmptyString(response.data?.name, "branch name"),
+          oid: nonEmptyString(response.data?.commit?.sha, "branch commit OID").toLowerCase(),
+        };
+      } catch (error) {
+        if (error.status === 404) return null;
+        throw error;
+      }
+    },
+
+    async findOpenBackportPullRequest(head, base) {
+      nonEmptyString(head, "backport head branch");
+      nonEmptyString(base, "backport base branch");
+      const pullRequests = await paginate("findOpenBackportPullRequest", octokit.rest.pulls.list, {
+        owner,
+        repo,
+        state: "open",
+        head: `${owner}:${head}`,
+        base,
+      });
+      if (pullRequests.length > 1) throw new Error("duplicate open backport pull requests");
+      if (pullRequests.length === 0) return null;
+      const pullRequest = pullRequests[0];
+      return {
+        number: positiveInteger(pullRequest.number, "backport PR number"),
+        url: nonEmptyString(pullRequest.html_url, "backport PR URL"),
+        state: nonEmptyString(pullRequest.state, "backport PR state").toLowerCase(),
+        base: nonEmptyString(pullRequest.base?.ref, "backport PR base branch"),
+        head: nonEmptyString(pullRequest.head?.ref, "backport PR head branch"),
+        title: nonEmptyString(pullRequest.title, "backport PR title"),
+        body: typeof pullRequest.body === "string" ? pullRequest.body : "",
+      };
+    },
+
+    async createBackportPullRequest(pullRequest) {
+      if (pullRequest === null || typeof pullRequest !== "object" || Array.isArray(pullRequest)) {
+        throw new TypeError("backport pull request must be an object");
+      }
+      const base = nonEmptyString(pullRequest.base, "backport base branch");
+      const head = nonEmptyString(pullRequest.head, "backport head branch");
+      const title = nonEmptyString(pullRequest.title, "backport PR title");
+      const body = nonEmptyString(pullRequest.body, "backport PR body");
+      const response = await call("createBackportPullRequest", () => octokit.rest.pulls.create({
+        owner, repo, base, head, title, body,
+      }), false);
+      return {
+        number: positiveInteger(response.data?.number, "created backport PR number"),
+        url: nonEmptyString(response.data?.html_url, "created backport PR URL"),
+      };
     },
 
     async setMergePolicyCheck(prNumber, headOid, conclusion, summary) {

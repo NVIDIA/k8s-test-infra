@@ -69,6 +69,51 @@ test("index passes the event name and explicit PR input to merge evaluation", as
   assert.deepEqual(core.outputs, [{ name: "summary", value: JSON.stringify(result) }]);
 });
 
+test("index passes explicit pull request and target inputs to backport mode", async () => {
+  const { run } = require("../src/index.js");
+  const core = coreFor({
+    mode: "backport",
+    "pr-number": "42",
+    "target-branch": "release-1.2",
+  });
+  const mergeOid = "2".repeat(40);
+  const githubClient = createFakeGitHub({
+    pullRequests: [{
+      number: 42,
+      nodeId: "PR_node_42",
+      title: "feat: add gpu probe",
+      body: "",
+      draft: false,
+      author: "orig-author",
+      headOid: "7".repeat(40),
+      state: "closed",
+      merged: true,
+      mergeCommitOid: mergeOid,
+      baseBranch: "main",
+      baseRepository: { owner: "nvidia", repo: "k8s-test-infra" },
+    }],
+    branches: { "release-1.2": "1".repeat(40) },
+  });
+  const result = await run({
+    core,
+    workspace: repositoryRoot,
+    githubClient,
+    owner: "NVIDIA",
+    repo: "k8s-test-infra",
+  });
+
+  assert.deepEqual(result, {
+    status: "planned",
+    outcome: "create",
+    sourcePullRequest: 42,
+    sourceCommit: mergeOid,
+    targetBranch: "release-1.2",
+    backportBranch: "backport/42-to-release-1.2-61744f7f6745",
+  });
+  assert.deepEqual(githubClient.calls.getPullRequest, [{ prNumber: 42 }]);
+  assert.deepEqual(core.outputs, [{ name: "summary", value: JSON.stringify(result) }]);
+});
+
 test("index accepts only the approved v0.11 mode set", async () => {
   const { run } = require("../src/index.js");
   const core = coreFor({ mode: "release" });

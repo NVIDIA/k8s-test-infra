@@ -55,6 +55,10 @@ function mockOctokit(overrides = {}) {
         submitted_at: "2026-09-17T09:00:00Z",
       }),
       list: response("listPullRequests", [{ number: 42 }, { number: 44 }]),
+      create: response("createPullRequest", {
+        number: 900,
+        html_url: "https://github.com/NVIDIA/k8s-test-infra/pull/900",
+      }),
     },
     users: {
       getByUsername: response("getUser", { login: "Alice", type: "User" }),
@@ -62,6 +66,7 @@ function mockOctokit(overrides = {}) {
     repos: {
       getCollaboratorPermissionLevel: response("getPermission", { permission: "write" }),
       getBranchProtection: response("getBranchProtection", { required_status_checks: {} }),
+      getBranch: response("getBranch", { name: "release-1.2", commit: { sha: "b".repeat(40) } }),
     },
     actions: {
       listWorkflowRunsForRepo: response("listWorkflowRuns", { workflow_runs: [{
@@ -198,4 +203,56 @@ test("maps merge, workflow, and pull-request state with exact heads", async () =
   assert.equal((await client.listWorkflowRunsForHead("a".repeat(40), 42)).length, 1);
   assert.equal((await client.getWorkflowRun(701, "a".repeat(40), 42)).id, 701);
   await client.rerunFailedJobs(701);
+});
+
+test("exposes bounded branch and backport pull-request operations", async () => {
+  const existingPullRequest = {
+    number: 900,
+    html_url: "https://github.com/NVIDIA/k8s-test-infra/pull/900",
+    state: "open",
+    base: { ref: "release-1.2" },
+    head: { ref: "backport/42" },
+    title: "[release-1.2] feat: foundation",
+    body: "bound evidence",
+  };
+  const base = mockOctokit();
+  base.octokit.rest.pulls.list = async (parameters) => {
+    base.calls.push({ name: "listBackportPullRequests", parameters });
+    return { data: [existingPullRequest] };
+  };
+  const client = createGitHubClient(base.octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+
+  assert.deepEqual(await client.getBranch("release-1.2"), {
+    name: "release-1.2",
+    oid: "b".repeat(40),
+  });
+  assert.deepEqual(await client.findOpenBackportPullRequest("backport/42", "release-1.2"), {
+    number: 900,
+    url: existingPullRequest.html_url,
+    state: "open",
+    base: "release-1.2",
+    head: "backport/42",
+    title: existingPullRequest.title,
+    body: existingPullRequest.body,
+  });
+  assert.deepEqual(await client.createBackportPullRequest({
+    base: "release-1.2",
+    head: "backport/42",
+    title: existingPullRequest.title,
+    body: existingPullRequest.body,
+  }), {
+    number: 900,
+    url: existingPullRequest.html_url,
+  });
+  assert.deepEqual(
+    base.calls.find(({ name }) => name === "listBackportPullRequests").parameters,
+    {
+      owner: "NVIDIA",
+      repo: "k8s-test-infra",
+      state: "open",
+      head: "NVIDIA:backport/42",
+      base: "release-1.2",
+      per_page: 100,
+    },
+  );
 });

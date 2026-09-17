@@ -32,6 +32,8 @@ function createFakeGitHub(initialState = []) {
   const collaboratorAccess = clone(options.collaboratorAccess ?? {});
   const workflowRuns = clone(options.workflowRuns ?? []);
   const mergeStates = clone(options.mergeStates ?? []);
+  const branches = clone(options.branches ?? {});
+  const backportPullRequests = clone(options.backportPullRequests ?? []);
   const automationLogin = options.automationLogin ?? "github-actions[bot]";
   for (const comment of comments) {
     if (comment.author === undefined) comment.author = automationLogin;
@@ -72,6 +74,9 @@ function createFakeGitHub(initialState = []) {
     listOpenPullRequestNumbers: [],
     getMergeState: [],
     getBranchProtection: [],
+    getBranch: [],
+    findOpenBackportPullRequest: [],
+    createBackportPullRequest: [],
     setMergePolicyCheck: [],
     enableAutoMerge: [],
     disableAutoMerge: [],
@@ -283,6 +288,35 @@ function createFakeGitHub(initialState = []) {
     async getBranchProtection(branch) {
       record("getBranchProtection", { branch });
       return options.branchProtection?.[branch] ?? false;
+    },
+
+    async getBranch(branch) {
+      record("getBranch", { branch });
+      if (!Object.hasOwn(branches, branch)) return null;
+      return { name: branch, oid: branches[branch] };
+    },
+
+    async findOpenBackportPullRequest(head, base) {
+      record("findOpenBackportPullRequest", { head, base });
+      const matches = backportPullRequests.filter((pullRequest) => (
+        pullRequest.state === "open"
+        && pullRequest.head === head
+        && pullRequest.base === base
+      ));
+      if (matches.length > 1) throw new Error("duplicate open backport pull requests");
+      return clone(matches[0] ?? null);
+    },
+
+    async createBackportPullRequest(pullRequest) {
+      record("createBackportPullRequest", pullRequest);
+      const created = {
+        ...clone(pullRequest),
+        number: 1000 + backportPullRequests.length,
+        url: `https://github.com/NVIDIA/k8s-test-infra/pull/${1000 + backportPullRequests.length}`,
+        state: "open",
+      };
+      backportPullRequests.push(created);
+      return clone(created);
     },
 
     async setMergePolicyCheck(prNumber, headOid, conclusion, summary) {

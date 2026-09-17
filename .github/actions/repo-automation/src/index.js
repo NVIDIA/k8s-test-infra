@@ -3,6 +3,8 @@
 const { Buffer } = require("node:buffer");
 const { loadConfig } = require("./config.js");
 const { createGitHubClient } = require("./github-client.js");
+const { runGit } = require("./git.js");
+const { runBackport } = require("./modes/backport.js");
 const { runCommand } = require("./modes/command.js");
 const { syncLabels } = require("./modes/label-sync.js");
 const { runMergeEvaluate } = require("./modes/merge-evaluate.js");
@@ -20,7 +22,7 @@ function serializeSummary(summary) {
 async function run(dependencies) {
   const { core } = dependencies;
   const mode = core.getInput("mode", { required: true });
-  if (!["label-sync", "metadata", "command", "merge-evaluate"].includes(mode)) {
+  if (!["label-sync", "metadata", "command", "merge-evaluate", "backport"].includes(mode)) {
     throw new Error(`Unsupported mode: ${mode}`);
   }
 
@@ -33,6 +35,7 @@ async function run(dependencies) {
   const client = dependencies.githubClient ?? createGitHubClient(octokit, owner, repo);
   const dryRun = core.getBooleanInput("dry-run");
   const prNumber = core.getInput("pr-number");
+  const targetBranch = core.getInput("target-branch");
   let config;
   if (mode === "metadata") {
     try {
@@ -77,6 +80,20 @@ async function run(dependencies) {
           config,
           dryRun,
           prNumber,
+        });
+        break;
+      case "backport":
+        summary = await runBackport({
+          github: client,
+          git: dependencies.git ?? ((args, options) => runGit(args, {
+            ...options,
+            cwd: workspace,
+          })),
+          config,
+          dryRun,
+          prNumber,
+          targetBranch,
+          repository: `${owner}/${repo}`,
         });
         break;
       default:
