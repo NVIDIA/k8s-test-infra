@@ -541,10 +541,25 @@ device_defaults:
     supported_profiles:
       - name: "1g.5gb"
         nvml_profile: "1_SLICE"
+        profile_id: 19
         instances: 7
         memory_mb: 4864
         multiprocessors: 14
         copy_engines: 1
+        placements:
+          - {start: 0, size: 1}
+          - {start: 1, size: 1}
+          - {start: 2, size: 1}
+          - {start: 3, size: 1}
+          - {start: 4, size: 1}
+          - {start: 5, size: 1}
+          - {start: 6, size: 1}
+        compute_instances:
+          - nvml_profile: "1_SLICE"
+            slices: 1
+            instances: 1
+            multiprocessors: 14
+            shared_copy_engines: 1
     gpu_instances:
       - profile: "1g.5gb"
         count: 3
@@ -673,10 +688,25 @@ device_defaults:
     supported_profiles:
       - name: "1g.5gb"
         nvml_profile: "1_SLICE"
+        profile_id: 19
         instances: 7
         memory_mb: 4864
         multiprocessors: 14
         copy_engines: 1
+        placements:
+          - {start: 0, size: 1}
+          - {start: 1, size: 1}
+          - {start: 2, size: 1}
+          - {start: 3, size: 1}
+          - {start: 4, size: 1}
+          - {start: 5, size: 1}
+          - {start: 6, size: 1}
+        compute_instances:
+          - nvml_profile: "1_SLICE"
+            slices: 1
+            instances: 1
+            multiprocessors: 14
+            shared_copy_engines: 1
     gpu_instances:
       - profile: "1g.5gb"
         count: 1

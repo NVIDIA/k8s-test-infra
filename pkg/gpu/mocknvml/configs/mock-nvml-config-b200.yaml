@@ -262,12 +262,6 @@ device_defaults:
     mode_current: "disabled"
     mode_pending: "disabled"
     max_gpu_instances: 7
-    # NVIDIA publishes no `mig -lgip` listing for Blackwell, so this board
-    # publishes no profile IDs and every profile reports its NVML enum. Seven
-    # slices wide is not reason enough to borrow Hopper's numbering: under it
-    # `mig -cgi 0` would partition the whole board where this one hands back
-    # a 1g.
-    profile_ids: "none"
     # NVIDIA MIG user guide, Supported MIG Profiles, Table 5 (B200). Names,
     # memory and engine counts are all Table 5's, because this board is the
     # 180 GB product that table describes: an eighth of 180 GiB is 22.5 GiB,

@@ -272,12 +272,6 @@ device_defaults:
     mode_current: "disabled"
     mode_pending: "disabled"
     max_gpu_instances: 7
-    # NVIDIA publishes no `mig -lgip` listing for Blackwell, so this board
-    # publishes no profile IDs and every profile reports its NVML enum. Seven
-    # slices wide is not reason enough to borrow Hopper's numbering: under it
-    # `mig -cgi 0` would partition the whole board where this one hands back
-    # a 1g.
-    profile_ids: "none"
     # NVIDIA's MIG user guide has no GB200 table. The names come from the
     # gpu-operator default mig-parted config
     # (assets/state-mig-manager/0400_configmap.yaml), which keys GB200 HGX by

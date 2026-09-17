@@ -93,16 +93,22 @@ func TestMigProfileName_RejectsUnknownProfileIDs(t *testing.T) {
 }
 
 // a30SupportedProfiles is a 4-slice board's declared table, transcribed from
-// go-nvml's A30 24GB. It is here for the reported-ID tests: the A30 is the one
-// shipped geometry that is not seven slices wide, and its numbering is a
-// different table rather than the 7-slice one narrowed.
+// go-nvml's A30 24GB with the reported ids from the A30's own `mig -lgip`
+// listing. It is here for the reported-ID tests: the A30 is the one geometry
+// these tests reach for that is not seven slices wide, and its numbering is a
+// different table rather than the 7-slice one narrowed — its +me profiles are
+// 21 and 6 where an A100's are 20 and 15.
+//
+// The rows declare no placements or compute instances, which config load
+// refuses. They do not need to: these tests read the id table alone, and no
+// board ships this geometry for them to be checked against.
 func a30SupportedProfiles() []MIGProfileSpec {
 	return []MIGProfileSpec{
-		{Name: "1g.6gb", NVMLProfile: "1_SLICE", Instances: 4, MemoryMB: 5836, Multiprocessors: 14, CopyEngines: 1},
-		{Name: "1g.6gb+me", NVMLProfile: "1_SLICE_REV1", Instances: 1, MemoryMB: 5836, Multiprocessors: 14, CopyEngines: 1, Decoders: 1, JPEG: 1, OFA: 1},
-		{Name: "2g.12gb", NVMLProfile: "2_SLICE", Instances: 2, MemoryMB: 11672, Multiprocessors: 28, CopyEngines: 2, Decoders: 2},
-		{Name: "2g.12gb+me", NVMLProfile: "2_SLICE_REV1", Instances: 1, MemoryMB: 11672, Multiprocessors: 28, CopyEngines: 2, Decoders: 2, JPEG: 1, OFA: 1},
-		{Name: "4g.24gb", NVMLProfile: "4_SLICE", Instances: 1, MemoryMB: 23344, Multiprocessors: 56, CopyEngines: 4, Decoders: 4, JPEG: 1, OFA: 1},
+		{Name: "1g.6gb", NVMLProfile: "1_SLICE", ProfileID: 14, Instances: 4, MemoryMB: 5836, Multiprocessors: 14, CopyEngines: 1},
+		{Name: "1g.6gb+me", NVMLProfile: "1_SLICE_REV1", ProfileID: 21, Instances: 1, MemoryMB: 5836, Multiprocessors: 14, CopyEngines: 1, Decoders: 1, JPEG: 1, OFA: 1},
+		{Name: "2g.12gb", NVMLProfile: "2_SLICE", ProfileID: 5, Instances: 2, MemoryMB: 11672, Multiprocessors: 28, CopyEngines: 2, Decoders: 2},
+		{Name: "2g.12gb+me", NVMLProfile: "2_SLICE_REV1", ProfileID: 6, Instances: 1, MemoryMB: 11672, Multiprocessors: 28, CopyEngines: 2, Decoders: 2, JPEG: 1, OFA: 1},
+		{Name: "4g.24gb", NVMLProfile: "4_SLICE", ProfileID: 0, Instances: 1, MemoryMB: 23344, Multiprocessors: 56, CopyEngines: 4, Decoders: 4, JPEG: 1, OFA: 1},
 	}
 }
 
@@ -114,8 +120,9 @@ func a30SupportedProfiles() []MIGProfileSpec {
 // partition than the same command creates on hardware. The ends invert: ID 0 is
 // the whole board on hardware and one seventh of it under the enum.
 //
-// The table is the listing the board declares through mig.profile_ids. A
-// board that declares none reports its enums, which is covered separately.
+// The table is built from the id each row declares. A board reports its enums
+// by declaring them, which the Blackwell boards do and a test below reads out
+// of the shipped profiles.
 func TestMIGProfilesFromConfig_ReportsHardwareProfileIDs(t *testing.T) {
 	t.Parallel()
 
@@ -124,7 +131,7 @@ func TestMIGProfilesFromConfig_ReportsHardwareProfileIDs(t *testing.T) {
 		migCfg *MIGConfig
 		want   map[int]int
 	}{
-		{"a 7-slice board", &MIGConfig{MaxGPUInstances: 7, ProfileIDs: migProfileIDs7Slice, SupportedProfiles: a100SupportedProfiles()}, map[int]int{
+		{"a 7-slice board", &MIGConfig{MaxGPUInstances: 7, SupportedProfiles: a100SupportedProfiles()}, map[int]int{
 			nvml.GPU_INSTANCE_PROFILE_1_SLICE:      19,
 			nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: 20,
 			nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: 15,
@@ -136,7 +143,7 @@ func TestMIGProfilesFromConfig_ReportsHardwareProfileIDs(t *testing.T) {
 		// The A30 has its own numbering, and it is not the 7-slice one
 		// narrowed: its +me profiles are 21 and 6 where an A100's are 20 and
 		// 15. All five are what an A30's -lgip listing prints.
-		{"a 4-slice board", &MIGConfig{MaxGPUInstances: 4, ProfileIDs: migProfileIDs4Slice, SupportedProfiles: a30SupportedProfiles()}, map[int]int{
+		{"a 4-slice board", &MIGConfig{MaxGPUInstances: 4, SupportedProfiles: a30SupportedProfiles()}, map[int]int{
 			nvml.GPU_INSTANCE_PROFILE_1_SLICE:      14,
 			nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: 21, // 1g.6gb+me
 			nvml.GPU_INSTANCE_PROFILE_2_SLICE:      5,
@@ -182,15 +189,15 @@ func TestMIGProfilesFromConfig_EveryPublishedProfileResolvesBack(t *testing.T) {
 		name   string
 		migCfg *MIGConfig
 	}{
-		{"a 7-slice board", &MIGConfig{MaxGPUInstances: 7, ProfileIDs: migProfileIDs7Slice, SupportedProfiles: a100SupportedProfiles()}},
-		{"a 4-slice board", &MIGConfig{MaxGPUInstances: 4, ProfileIDs: migProfileIDs4Slice, SupportedProfiles: a30SupportedProfiles()}},
-		// A board declaring no listing publishes every profile under its
-		// enum, which has to resolve back just the same.
-		{"a board that publishes no listing", &MIGConfig{
+		{"a 7-slice board", &MIGConfig{MaxGPUInstances: 7, SupportedProfiles: a100SupportedProfiles()}},
+		{"a 4-slice board", &MIGConfig{MaxGPUInstances: 4, SupportedProfiles: a30SupportedProfiles()}},
+		// A board NVIDIA publishes no listing for declares its NVML enums as
+		// its ids, which have to resolve back just the same.
+		{"a board that publishes its enums", &MIGConfig{
 			MaxGPUInstances: 3,
 			SupportedProfiles: []MIGProfileSpec{
-				{Name: "1g.8gb", NVMLProfile: "1_SLICE", Instances: 3, MemoryMB: 8192, Multiprocessors: 15},
-				{Name: "3g.24gb", NVMLProfile: "3_SLICE", Instances: 1, MemoryMB: 24576, Multiprocessors: 45},
+				{Name: "1g.8gb", NVMLProfile: "1_SLICE", ProfileID: nvml.GPU_INSTANCE_PROFILE_1_SLICE, Instances: 3, MemoryMB: 8192, Multiprocessors: 15},
+				{Name: "3g.24gb", NVMLProfile: "3_SLICE", ProfileID: nvml.GPU_INSTANCE_PROFILE_3_SLICE, Instances: 1, MemoryMB: 24576, Multiprocessors: 45},
 			},
 		}},
 	}
@@ -216,16 +223,14 @@ func TestMIGProfilesFromConfig_EveryPublishedProfileResolvesBack(t *testing.T) {
 	}
 }
 
-// TestMIGProfilesFromConfig_ProfileIDsAreUniquePerBoard guards the fallback. An
-// unmapped profile reports its own enum, so a board that is only partly mapped
-// could report one profile's enum as another's hardware ID and collapse the two
-// onto one partition size.
+// TestMIGProfilesFromConfig_ProfileIDsAreUniquePerBoard is the invariant a
+// per-row id declaration has to hold. Two rows publishing one id collapse two
+// partition sizes onto whatever `mig -cgi <id>` resolves to first.
 //
-// Only the boards declaring an ID table are listed. On a board without one
-// every profile reports its own enum, so this would assert nothing beyond the
-// map's keys being distinct — true of any map. What is worth pinning about
-// those boards is that they report the enum at all, which is
-// TestProfileIDsForListing_ABoardPublishingNoListingReportsTheEnum.
+// validateMIGSupportedProfiles refuses that at load, which is where a
+// contributor meets it; this reads the assembled table instead, so a
+// transcription that lost a row's id — and therefore reported the enum for it
+// — fails here too.
 func TestMIGProfilesFromConfig_ProfileIDsAreUniquePerBoard(t *testing.T) {
 	t.Parallel()
 
@@ -233,8 +238,8 @@ func TestMIGProfilesFromConfig_ProfileIDsAreUniquePerBoard(t *testing.T) {
 		name   string
 		migCfg *MIGConfig
 	}{
-		{"a 7-slice board", &MIGConfig{MaxGPUInstances: 7, ProfileIDs: migProfileIDs7Slice, SupportedProfiles: a100SupportedProfiles()}},
-		{"a 4-slice board", &MIGConfig{MaxGPUInstances: 4, ProfileIDs: migProfileIDs4Slice, SupportedProfiles: a30SupportedProfiles()}},
+		{"a 7-slice board", &MIGConfig{MaxGPUInstances: 7, SupportedProfiles: a100SupportedProfiles()}},
+		{"a 4-slice board", &MIGConfig{MaxGPUInstances: 4, SupportedProfiles: a30SupportedProfiles()}},
 	}
 
 	for _, board := range boards {
@@ -255,28 +260,20 @@ func TestMIGProfilesFromConfig_ProfileIDsAreUniquePerBoard(t *testing.T) {
 	}
 }
 
-// TestProfileIDsForListing_ABoardPublishingNoListingReportsTheEnum documents
-// what a board NVIDIA publishes no listing for gets, and that it is also what
-// a board gets by saying nothing. Only the 7- and 4-slice listings have been
-// transcribed from the MIG guide; anything else keeps NVML's own numbering
-// rather than a guessed one, because a guessed ID reads as correct and then
-// partitions the board wrongly.
-func TestProfileIDsForListing_ABoardPublishingNoListingReportsTheEnum(t *testing.T) {
+// TestMIGProfileIDs_ABoardWithNoTableReportsTheEnum documents what a board
+// that declares no profiles at all answers. It is the only way to reach a nil
+// table now that every declared row publishes an id, and the answers have to
+// stay go-nvml's own numbering rather than nothing: a MIGConfig built in code
+// reaches these two methods without going through a profile table.
+func TestMIGProfileIDs_ABoardWithNoTableReportsTheEnum(t *testing.T) {
 	t.Parallel()
 
-	for _, listing := range []string{"", migProfileIDsNone} {
-		ids, known := profileIDsForListing(listing)
-		require.True(t, known, "%q must be an accepted listing", listing)
-		require.Nil(t, ids)
-		require.Equal(t, nvml.GPU_INSTANCE_PROFILE_1_SLICE,
-			ids.reported(nvml.GPU_INSTANCE_PROFILE_1_SLICE))
-		gotEnum, ok := ids.enumOf(nvml.GPU_INSTANCE_PROFILE_7_SLICE)
-		require.True(t, ok, "a board with no ID table resolves every id to itself")
-		require.Equal(t, nvml.GPU_INSTANCE_PROFILE_7_SLICE, gotEnum)
-	}
-
-	_, known := profileIDsForListing("6_slice")
-	require.False(t, known, "a listing nobody transcribed is not silently accepted")
+	ids := migProfileIDs(nil)
+	require.Equal(t, nvml.GPU_INSTANCE_PROFILE_1_SLICE,
+		ids.reported(nvml.GPU_INSTANCE_PROFILE_1_SLICE))
+	gotEnum, ok := ids.enumOf(nvml.GPU_INSTANCE_PROFILE_7_SLICE)
+	require.True(t, ok, "a board with no ID table resolves every id to itself")
+	require.Equal(t, nvml.GPU_INSTANCE_PROFILE_7_SLICE, gotEnum)
 }
 
 // TestMIGProfilesFromConfig_BlackwellPublishesNoProfileIDs reads the shipped
@@ -403,10 +400,33 @@ func TestMIGProfilesFromConfig_ReportsTheDeclaredRows(t *testing.T) {
 	// An 80 GiB board, so a 10240 MB slice is an exact eighth of it.
 	profiles, ids, supported := migProfilesFromConfig(&MIGConfig{
 		MaxGPUInstances: 7,
-		ProfileIDs:      migProfileIDs7Slice,
 		SupportedProfiles: []MIGProfileSpec{
-			{Name: "1g.10gb", NVMLProfile: "1_SLICE", Instances: 7, MemoryMB: 10240, Multiprocessors: 16, CopyEngines: 1, Decoders: 1, JPEG: 1},
-			{Name: "2g.20gb", NVMLProfile: "2_SLICE", Instances: 3, MemoryMB: 20480, Multiprocessors: 32, CopyEngines: 2, Decoders: 2, JPEG: 2},
+			{
+				Name: "1g.10gb", NVMLProfile: "1_SLICE", ProfileID: 19,
+				Instances: 7, MemoryMB: 10240,
+				Multiprocessors: 16, CopyEngines: 1, Decoders: 1, JPEG: 1,
+				Placements: []MIGPlacementSpec{
+					{Start: 0, Size: 1}, {Start: 1, Size: 1}, {Start: 2, Size: 1},
+					{Start: 3, Size: 1}, {Start: 4, Size: 1}, {Start: 5, Size: 1},
+					{Start: 6, Size: 1},
+				},
+				ComputeInstances: []MIGComputeInstanceSpec{
+					{NVMLProfile: "1_SLICE", Slices: 1, Instances: 1, Multiprocessors: 16, SharedCopyEngines: 1, Decoders: 1, JPEG: 1},
+				},
+			},
+			{
+				Name: "2g.20gb", NVMLProfile: "2_SLICE", ProfileID: 14,
+				Instances: 3, MemoryMB: 20480,
+				Multiprocessors: 32, CopyEngines: 2, Decoders: 2, JPEG: 2,
+				Placements: []MIGPlacementSpec{
+					{Start: 0, Size: 2}, {Start: 2, Size: 2}, {Start: 4, Size: 2},
+				},
+				ComputeInstances: []MIGComputeInstanceSpec{
+					{NVMLProfile: "1_SLICE", Slices: 1, Instances: 2, Multiprocessors: 16, SharedCopyEngines: 2, Decoders: 2, JPEG: 2},
+					{NVMLProfile: "1_SLICE_REV1", Slices: 1, Instances: 2, Multiprocessors: 16, SharedCopyEngines: 2, Decoders: 2, JPEG: 2},
+					{NVMLProfile: "2_SLICE", Slices: 2, Instances: 1, Multiprocessors: 32, SharedCopyEngines: 2, Decoders: 2, JPEG: 2},
+				},
+			},
 		},
 	}, h100_80GiB)
 
@@ -419,19 +439,19 @@ func TestMIGProfilesFromConfig_ReportsTheDeclaredRows(t *testing.T) {
 	require.EqualValues(t, 1, oneSlice.JpegCount)
 	require.Len(t, profiles.GpuInstancePlacements[nvml.GPU_INSTANCE_PROFILE_1_SLICE], 7)
 
-	// A 2-slice GPU instance offers a 1-slice compute instance, its
-	// media-extension revision, and one spanning both slices.
+	// The 2-slice row declares a 1-slice compute instance, its media-extension
+	// revision, and one spanning both slices — the listing NVIDIA publishes
+	// for a 2g partition.
 	require.Len(t, profiles.ComputeInstanceProfiles[nvml.GPU_INSTANCE_PROFILE_2_SLICE], 3)
 	ci := profiles.ComputeInstanceProfiles[nvml.GPU_INSTANCE_PROFILE_2_SLICE][nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE]
 	require.EqualValues(t, 2, ci.InstanceCount, "two 1-slice compute instances fit a 2-slice GPU instance")
-	require.EqualValues(t, 16, ci.MultiprocessorCount, "multiprocessors scale with the slice ratio")
+	require.EqualValues(t, 16, ci.MultiprocessorCount)
 	// The engines of a GPU instance are shared by every compute instance in
 	// it, rather than divided between them, which is how go-nvml's own tables
 	// report them and what a MIG device's attributes are read from.
 	require.EqualValues(t, 2, ci.SharedCopyEngineCount)
 	require.EqualValues(t, 2, ci.SharedJpegCount)
 
-	// A board declaring the datacenter listing reports its IDs.
 	require.Equal(t, 19, ids.reported(nvml.GPU_INSTANCE_PROFILE_1_SLICE))
 }
 
@@ -445,26 +465,33 @@ func TestMIGProfilesFromConfig_ABoardDeclaringNothingIsNotCapable(t *testing.T) 
 	require.False(t, supported)
 }
 
-// TestMIGProfilesFromConfig_DeclaredRowsWithoutABoardWidthGetNoPlacements
-// pins the one state validation exists to refuse. A row needs a board to sit
-// on: with no width, derivePlacements can offer nowhere to put it, and the
-// device ceiling derived from those placements falls to zero. Config load
-// rejects the document, so no YAML can reach this — but migProfilesFromConfig
-// is reachable directly, and answering "capable, with nowhere to partition"
-// silently is worse than answering it visibly.
-func TestMIGProfilesFromConfig_DeclaredRowsWithoutABoardWidthGetNoPlacements(t *testing.T) {
+// TestMIGProfilesFromConfig_ARowDeclaringNoPlacementHasNowhereToSit pins what
+// a row that declares nothing now gets: nothing. The geometry used to be
+// derived from the board width, so this same row came back with seven
+// placements and a full compute-instance listing on a 7-slice board.
+//
+// Config load refuses the document — validateMIGProfileSpec names both missing
+// keys — so no YAML can reach this. migProfilesFromConfig is reachable
+// directly, and what it must not do is invent the row's geometry back.
+func TestMIGProfilesFromConfig_ARowDeclaringNoPlacementHasNowhereToSit(t *testing.T) {
 	t.Parallel()
 
 	migCfg := &MIGConfig{
+		MaxGPUInstances: 7,
 		SupportedProfiles: []MIGProfileSpec{
 			{Name: "1g.10gb", NVMLProfile: "1_SLICE", Instances: 7, MemoryMB: 10240},
 		},
 	}
-	profiles, _, supported := migProfilesFromConfig(migCfg, h100_80GiB)
+	require.ErrorContains(t, validateMIGConfig(migCfg), "placements is required")
 
+	profiles, _, supported := migProfilesFromConfig(migCfg, h100_80GiB)
 	require.True(t, supported)
 	require.Empty(t, profiles.GpuInstancePlacements[nvml.GPU_INSTANCE_PROFILE_1_SLICE])
-	require.Zero(t, resolveMaxGPUInstances(migCfg, supported, profiles))
+	require.Empty(t, profiles.ComputeInstanceProfiles[nvml.GPU_INSTANCE_PROFILE_1_SLICE])
+	// The compute-instance placement table follows the listing, so the
+	// difference between "fits nowhere" and "not offered" is not invented for
+	// a row that offers nothing.
+	require.Empty(t, profiles.ComputeInstancePlacements[nvml.GPU_INSTANCE_PROFILE_1_SLICE])
 }
 
 // TestComputeInstanceProfileEnums_SpellEveryWidthTheyName is the guard
@@ -487,24 +514,24 @@ func TestComputeInstanceProfileEnums_SpellEveryWidthTheyName(t *testing.T) {
 	}
 }
 
-// TestMIGProfilesFromConfig_PrefersTheDeclaredGeometry asserts a row's own
-// placements, compute instances and reported id reach the tables unchanged
-// rather than being recomputed from its shape.
+// TestMIGProfilesFromConfig_TranscribesTheDeclaredGeometry asserts a row's own
+// placements, compute instances and reported id reach the tables unchanged.
 //
-// Every declared value below is one the derivation would not produce: a single
-// 1-unit placement where four 2-unit ones would be derived, a compute-instance
-// listing without the media-extension profile that is always offered, and an
-// id no listing publishes. A transcription that fell back would answer with
-// the derived values instead.
-func TestMIGProfilesFromConfig_PrefersTheDeclaredGeometry(t *testing.T) {
+// Every declared value below is one no algorithm over the row's shape would
+// produce: a single 1-unit placement at offset 3 where a 1g on a 7-slice board
+// would be given seven, a compute-instance listing without the media-extension
+// profile that every GPU instance offers, and an id NVIDIA publishes for no
+// profile. That is the point of declaring them — a board whose geometry the
+// derivation could not express can now be described.
+func TestMIGProfilesFromConfig_TranscribesTheDeclaredGeometry(t *testing.T) {
 	t.Parallel()
 
-	declaredID := 42
+	const declaredID = 42
 	migCfg := &MIGConfig{
 		MaxGPUInstances: 7,
 		SupportedProfiles: []MIGProfileSpec{{
 			Name: "1g.10gb", NVMLProfile: "1_SLICE", Slices: 1, Instances: 7, MemoryMB: 10240,
-			ProfileID:  &declaredID,
+			ProfileID:  declaredID,
 			Placements: []MIGPlacementSpec{{Start: 3, Size: 1}},
 			ComputeInstances: []MIGComputeInstanceSpec{{
 				NVMLProfile: "1_SLICE", Slices: 1, Instances: 1,
@@ -547,47 +574,26 @@ func TestMIGProfilesFromConfig_PrefersTheDeclaredGeometry(t *testing.T) {
 	require.Equal(t, uint32(profileEnum), profiles.GpuInstanceProfiles[profileEnum].Id)
 }
 
-// TestMIGProfilesFromConfig_ADeclaredIDDoesNotDisturbTheListing pins that
-// declaring one row's id leaves the ids the board's listing publishes for the
-// other rows intact, rather than replacing the table wholesale.
-func TestMIGProfilesFromConfig_ADeclaredIDDoesNotDisturbTheListing(t *testing.T) {
+// TestMIGProfilesFromConfig_EachRowPublishesItsOwnID pins that one row's id
+// does not reach another. The ids came from a table per published listing
+// before, so a board's rows shared one map; they are now per-row, and the
+// table is rebuilt per device.
+func TestMIGProfilesFromConfig_EachRowPublishesItsOwnID(t *testing.T) {
 	t.Parallel()
 
-	declaredID := 42
 	_, ids, supported := migProfilesFromConfig(&MIGConfig{
 		MaxGPUInstances: 7,
-		ProfileIDs:      migProfileIDs7Slice,
 		SupportedProfiles: []MIGProfileSpec{
-			{
-				Name: "1g.10gb", NVMLProfile: "1_SLICE", Instances: 7, MemoryMB: 10240,
-				ProfileID: &declaredID,
-			},
-			{Name: "2g.20gb", NVMLProfile: "2_SLICE", Instances: 3, MemoryMB: 20480},
+			{Name: "1g.10gb", NVMLProfile: "1_SLICE", ProfileID: 42, Instances: 7, MemoryMB: 10240},
+			{Name: "2g.20gb", NVMLProfile: "2_SLICE", ProfileID: 14, Instances: 3, MemoryMB: 20480},
 		},
 	}, h100_80GiB)
 
 	require.True(t, supported)
-	require.Equal(t, declaredID, ids.reported(nvml.GPU_INSTANCE_PROFILE_1_SLICE))
+	require.Equal(t, 42, ids.reported(nvml.GPU_INSTANCE_PROFILE_1_SLICE))
 	require.Equal(t, 14, ids.reported(nvml.GPU_INSTANCE_PROFILE_2_SLICE))
-	// The listing's own table is shared between every board that names it, so
-	// a declared id must not be written into it.
-	require.Equal(t, 19, sevenSliceProfileIDs[nvml.GPU_INSTANCE_PROFILE_1_SLICE])
-}
-
-// deriveComputeInstanceProfiles skips any offered profile it cannot size,
-// which would silently drop a compute instance from a MIG device's listing.
-// This asserts the skip is unreachable: every profile any GPU instance width
-// offers — the transcribed listings and the fallback for widths NVIDIA
-// publishes no listing for — is one computeInstanceSliceCount can size.
-func TestComputeInstanceProfilesOffered_EveryOfferedProfileHasASliceCount(t *testing.T) {
-	t.Parallel()
-
-	for giSlices := 0; giSlices <= maxGPUInstanceSlices; giSlices++ {
-		for _, ciEnum := range computeInstanceProfilesOffered(giSlices) {
-			_, ok := computeInstanceSliceCount(ciEnum)
-			require.True(t, ok,
-				"GPU instance of %d slices offers compute instance profile %d, which has no slice count",
-				giSlices, ciEnum)
-		}
-	}
+	// A profile the board does not declare has no id, and falls back to its
+	// enum rather than to another row's number.
+	require.Equal(t, nvml.GPU_INSTANCE_PROFILE_7_SLICE,
+		ids.reported(nvml.GPU_INSTANCE_PROFILE_7_SLICE))
 }

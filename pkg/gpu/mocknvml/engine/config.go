@@ -296,15 +296,6 @@ func validateMIGConfig(mig *MIGConfig) error {
 		return err
 	}
 
-	// A listing nobody has transcribed is refused rather than defaulted: the
-	// document asked for a numbering the mock does not have, and quietly
-	// reporting enums instead is a board advertising IDs its author did not
-	// choose.
-	if _, known := profileIDsForListing(mig.ProfileIDs); !known {
-		return fmt.Errorf("unknown profile_ids %q, expected %q, %q or %q",
-			mig.ProfileIDs, migProfileIDsNone, migProfileIDs7Slice, migProfileIDs4Slice)
-	}
-
 	if err := validateMIGMode("mode_current", mig.ModeCurrent); err != nil {
 		return err
 	}
@@ -341,10 +332,11 @@ func validateMIGSupportedProfiles(profiles []MIGProfileSpec, maxGPUInstances int
 	}
 
 	// A declared table needs a board width to place its partitions on, and
-	// NVML's widest GPU instance profile spans eight slices. Beyond that,
-	// derivePlacements offers nothing and the board would look capable while
-	// partitioning nothing, so refuse the document instead. Validating the
-	// width first is what lets the rows below be bounded against it.
+	// NVML's widest GPU instance profile spans eight slices. Beyond that no
+	// profile could occupy the extra slices, so the document is malformed
+	// rather than describing a board the code has yet to learn about.
+	// Validating the width first is what lets the rows below be bounded
+	// against it.
 	if maxGPUInstances < 1 || maxGPUInstances > maxGPUInstanceSlices {
 		return fmt.Errorf("max_gpu_instances must be between 1 and %d when supported_profiles is declared, got %d",
 			maxGPUInstanceSlices, maxGPUInstances)
@@ -352,6 +344,7 @@ func validateMIGSupportedProfiles(profiles []MIGProfileSpec, maxGPUInstances int
 
 	seenProfiles := make(map[string]struct{}, len(profiles))
 	seenNames := make(map[string]struct{}, len(profiles))
+	seenIDs := make(map[int]string, len(profiles))
 	for i, spec := range profiles {
 		// The name is checked here rather than alongside the other required
 		// fields because it is what locates every other rejection of the row.
@@ -373,16 +366,37 @@ func validateMIGSupportedProfiles(profiles []MIGProfileSpec, maxGPUInstances int
 		if _, dup := seenNames[spec.Name]; dup {
 			return fmt.Errorf("supported_profiles[%d]: name %q is declared twice", i, spec.Name)
 		}
+		// The reported id is what `nvidia-smi mig -cgi <id>` names, so two
+		// rows sharing one leave that command creating either partition. The
+		// ids used to come from a table per published listing, which could not
+		// collide; now each row states its own, and the id a row that forgets
+		// the key publishes — 0 — is the one a real full-board profile
+		// publishes too.
+		if other, dup := seenIDs[spec.ProfileID]; dup {
+			return fmt.Errorf("supported_profiles[%d] (%s): profile_id %d is already declared by %q",
+				i, spec.Name, spec.ProfileID, other)
+		}
 		seenProfiles[spec.NVMLProfile] = struct{}{}
 		seenNames[spec.Name] = struct{}{}
+		seenIDs[spec.ProfileID] = spec.Name
 	}
 	return nil
 }
 
+// maxGPUInstanceSlices is the widest board a profile document may declare.
+// NVML's widest GPU instance profile is GPU_INSTANCE_PROFILE_8_SLICE, so a
+// board claiming more compute slices than that is a malformed document rather
+// than a board the code has yet to learn about — there is no profile that
+// could occupy the extra slices.
+//
+// It is also what keeps the doubling in nextPowerOfTwo below in range for any
+// width a document can contain.
+const maxGPUInstanceSlices = 8
+
 // validateMIGProfileSpec rejects a row that advertises a profile nothing can be
-// created from: derivePlacements answers "no placements" for a partition wider
-// than its board or holding no memory, and a row claiming more instances than
-// fit claims partitions that cannot all exist.
+// created from: a partition wider than its board or holding no memory has
+// nowhere to sit, and a row claiming more instances than fit claims partitions
+// that cannot all exist.
 //
 // The span a row occupies is read off its NVML profile rather than declared,
 // so what is bounded here is the board: a 7-slice partition has no room on a
@@ -428,8 +442,27 @@ func validateMIGProfileSpec(spec MIGProfileSpec, maxGPUInstances int) error {
 		return fmt.Errorf("instances must be between 1 and %d for a %d-slice profile on a %d-slice board, got %d",
 			fits, span, maxGPUInstances, spec.Instances)
 	}
+	return validateMIGProfileGeometry(spec, span, maxGPUInstances)
+}
+
+// validateMIGProfileGeometry refuses a row that does not describe where its
+// partition sits and what can run inside it.
+//
+// A row describes its partition completely or not at all. Nothing computes the
+// geometry a row leaves out any more, so an empty list is not a default — it
+// is a partition with nowhere to sit, or a GPU instance that can hold no
+// compute instance, behind an NVML surface that still answers every call
+// successfully. Naming the missing key is what a half-written board gets
+// instead of one that looks fine until something tries to partition it.
+func validateMIGProfileGeometry(spec MIGProfileSpec, span, maxGPUInstances int) error {
+	if len(spec.Placements) == 0 {
+		return errors.New("placements is required: a profile that declares no placement has nowhere on the board to sit")
+	}
 	if err := validateMIGPlacements(spec.Placements, maxGPUInstances); err != nil {
 		return err
+	}
+	if len(spec.ComputeInstances) == 0 {
+		return errors.New("compute_instances is required: a profile that declares none offers no compute instance to run on")
 	}
 	return validateMIGComputeInstances(spec.ComputeInstances, span)
 }
@@ -443,9 +476,9 @@ func validateMIGProfileSpec(spec MIGProfileSpec, maxGPUInstances int) error {
 // from the declared count would treat it as a 1g while the partition it
 // creates takes seven sevenths of the board.
 //
-// Zero means nothing is declared, and the span stands in. That is
-// transitional, for as long as the shipped profiles are still being filled in
-// — see docs/superpowers/plans/2026-09-17-mig-profiles-fully-declarative.md.
+// Zero means nothing is declared, and the span the enum already carries
+// stands in. The width is the one piece of geometry an enum does state, so
+// reading it from there is a lookup rather than a derivation.
 func validateDeclaredSliceCount(declared, span int, nvmlProfile string) error {
 	if declared != 0 && declared != span {
 		return fmt.Errorf("slices %d disagrees with the %d slices nvml_profile %q spans",
@@ -455,10 +488,8 @@ func validateDeclaredSliceCount(declared, span int, nvmlProfile string) error {
 }
 
 // validateMIGPlacements refuses a placement list that would put a partition
-// where the board cannot hold it. It computes nothing the row left out: a row
-// declaring no placements is accepted here and takes the derivation, which is
-// transitional — see
-// docs/superpowers/plans/2026-09-17-mig-profiles-fully-declarative.md.
+// where the board cannot hold it. It computes nothing the row left out; the
+// caller has already refused a row that declared no placement at all.
 //
 // The checks encode the geometry a board partitions by:
 //
@@ -493,6 +524,24 @@ func validateMIGPlacements(placements []MIGPlacementSpec, maxGPUInstances int) e
 	return nil
 }
 
+// nextPowerOfTwo returns the smallest power of two at or above n, and 1 for
+// any n below 1. It converts a board's compute-slice count into the number of
+// memory units its placements are measured in.
+//
+// Callers must bound n. The result is reached by doubling up from 1, so for an
+// n within a factor of two of the largest int the doubling overflows to
+// negative and then to zero and the loop never ends. Computing it as
+// 1 << bits.Len(uint(n-1)) overflows on the same inputs, so the bound has to
+// come from the caller rather than from here — which is what
+// maxGPUInstanceSlices is checked before any of this runs.
+func nextPowerOfTwo(n int) int {
+	p := 1
+	for p < n {
+		p *= 2
+	}
+	return p
+}
+
 // validateMIGComputeInstances refuses a compute-instance listing that could
 // not exist inside the GPU instance declaring it.
 //
@@ -503,8 +552,8 @@ func validateMIGPlacements(placements []MIGPlacementSpec, maxGPUInstances int) e
 // keyed on the enum, so a profile named twice would collapse to one entry and
 // advertise a listing one row short of what the YAML reads as.
 //
-// As with the placements, an empty listing is accepted and takes the
-// derivation while the shipped profiles are being filled in.
+// As with the placements, the caller has already refused a row whose listing
+// is empty, so what is checked here is a listing that exists.
 func validateMIGComputeInstances(computeInstances []MIGComputeInstanceSpec, giSlices int) error {
 	seen := make(map[string]struct{}, len(computeInstances))
 	for i, ci := range computeInstances {

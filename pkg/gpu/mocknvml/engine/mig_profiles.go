@@ -15,7 +15,6 @@ package engine
 
 import (
 	"fmt"
-	"maps"
 	"math"
 	"strings"
 
@@ -23,15 +22,17 @@ import (
 	"github.com/NVIDIA/go-nvml/pkg/nvml/mock/gpus"
 )
 
-// migProfilesFromConfig builds the board's MIG profile tables from the rows its
-// YAML profile declares: the GPU-instance and compute-instance tables, the
-// profile IDs the board reports, and whether it is MIG-capable at all.
+// migProfilesFromConfig transcribes the board's MIG profile tables out of the
+// rows its YAML profile declares: the GPU-instance and compute-instance
+// tables, the profile IDs the board reports, and whether it is MIG-capable at
+// all.
 //
-// The tables are assembled rather than looked up in go-nvml so that teaching
-// the mock a new board is a YAML edit. Placements are derived from the
-// declared slice counts, because NVIDIA publishes them only as diagrams. The
-// reported profile IDs come from the listing the board declares, because
-// NVIDIA publishes none at all for Blackwell.
+// Nothing here is computed. A row declares the slices it spans, the id the
+// board publishes for it, the slots it may occupy and the compute instances it
+// offers, and config load refuses a row that leaves any of that out. The
+// geometry used to be derived from the slice count, and a board whose geometry
+// did not match the derivation could not be described in YAML at all — which
+// is the class of defect this transcription removes.
 //
 // The ID table travels with the profile tables rather than being looked up
 // separately, so the two cannot disagree about which geometry this board has.
@@ -39,18 +40,23 @@ import (
 // A board declaring no rows is reported as having no tables rather than empty
 // ones, which is what lets GetMigMode answer ERROR_NOT_SUPPORTED — how a
 // consumer detects a board that cannot partition.
-func migProfilesFromConfig(migCfg *MIGConfig, deviceMemoryBytes uint64) (gpus.MIGProfileConfig, migProfileIDs, bool) {
+//
+// The board's memory capacity is no longer read: it scaled the derived
+// placements against the board, and a declared placement needs no scaling. The
+// parameter stays so that every caller keeps naming the device whose tables
+// these are.
+func migProfilesFromConfig(migCfg *MIGConfig, _ uint64) (gpus.MIGProfileConfig, migProfileIDs, bool) {
 	if migCfg == nil || len(migCfg.SupportedProfiles) == 0 {
 		return gpus.MIGProfileConfig{}, nil, false
 	}
 
-	boardSlices := migCfg.MaxGPUInstances
 	profiles := gpus.MIGProfileConfig{
 		GpuInstanceProfiles:       map[int]nvml.GpuInstanceProfileInfo{},
 		GpuInstancePlacements:     map[int][]nvml.GpuInstancePlacement{},
 		ComputeInstanceProfiles:   map[int]map[int]nvml.ComputeInstanceProfileInfo{},
 		ComputeInstancePlacements: map[int]map[int][]nvml.ComputeInstancePlacement{},
 	}
+	ids := make(migProfileIDs, len(migCfg.SupportedProfiles))
 
 	for _, spec := range migCfg.SupportedProfiles {
 		profileEnum, ok := gpuInstanceProfileEnum(spec.NVMLProfile)
@@ -83,28 +89,23 @@ func migProfilesFromConfig(migCfg *MIGConfig, deviceMemoryBytes uint64) (gpus.MI
 			OfaCount:            uint32(spec.OFA),
 			MemorySizeMB:        spec.MemoryMB,
 		}
-		profiles.GpuInstancePlacements[profileEnum] = placementsOfSpec(
-			spec, sliceCount, boardSlices, deviceMemoryBytes/oneMiB)
-		ciProfiles := computeInstanceProfilesOfSpec(spec, sliceCount)
+		profiles.GpuInstancePlacements[profileEnum] = placementsOfSpec(spec)
+		ciProfiles, ciPlacements := computeInstancesOfSpec(spec)
 		profiles.ComputeInstanceProfiles[profileEnum] = ciProfiles
-		profiles.ComputeInstancePlacements[profileEnum] = computeInstancePlacementSlots(ciProfiles)
+		profiles.ComputeInstancePlacements[profileEnum] = ciPlacements
+		// Every row publishes an id, so the table covers the whole board. It
+		// is built per device rather than shared between the boards of one
+		// numbering, so a declared id cannot leak onto an unrelated board.
+		ids[profileEnum] = spec.ProfileID
 	}
 
-	return profiles, profileIDsOfConfig(migCfg), true
+	return profiles, ids, true
 }
 
 // placementsOfSpec transcribes the slots a row declares it may occupy.
-//
-// A row that declares none falls back to derivePlacements. That fallback is
-// transitional — it exists only while the shipped profiles are being filled
-// in, and the plan that introduced this field replaces it with a validation
-// error, so it is not a supported way to write a profile. See
-// docs/superpowers/plans/2026-09-17-mig-profiles-fully-declarative.md.
-func placementsOfSpec(spec MIGProfileSpec, sliceCount, boardSlices int, capacityMB uint64) []nvml.GpuInstancePlacement {
-	if len(spec.Placements) == 0 {
-		return derivePlacements(sliceCount, boardSlices, spec.MemoryMB, capacityMB)
-	}
-
+// Validation refuses a row declaring none, so the result is never empty for a
+// board that loaded.
+func placementsOfSpec(spec MIGProfileSpec) []nvml.GpuInstancePlacement {
 	placements := make([]nvml.GpuInstancePlacement, 0, len(spec.Placements))
 	for _, p := range spec.Placements {
 		placements = append(placements, nvml.GpuInstancePlacement{Start: p.Start, Size: p.Size})
@@ -112,19 +113,26 @@ func placementsOfSpec(spec MIGProfileSpec, sliceCount, boardSlices int, capacity
 	return placements
 }
 
-// computeInstanceProfilesOfSpec transcribes the compute-instance listing a row
-// declares, falling back to deriveComputeInstanceProfiles on the same
-// transitional terms as placementsOfSpec.
+// computeInstancesOfSpec transcribes the compute-instance listing a row
+// declares, together with the possible-placement table that accompanies it.
 //
 // Id is the NVML enum, not anything the row declares. It is the profile's
 // identity rather than an id a board publishes, and the two only coincide for
 // compute instances.
-func computeInstanceProfilesOfSpec(spec MIGProfileSpec, sliceCount int) map[int]nvml.ComputeInstanceProfileInfo {
-	if len(spec.ComputeInstances) == 0 {
-		return deriveComputeInstanceProfiles(spec, sliceCount)
-	}
-
+//
+// The placement lists are empty on purpose, and exist for exactly the profiles
+// the row declares. NVML answers "this profile fits nowhere" and "this profile
+// is not offered here" through different returns, and the mock server's
+// distinction between them is whether the profile has an entry at all — so the
+// entry has to exist. computeInstancePlacements then lays the offsets out from
+// the profile's own shape, which is the path go-nvml's A100 table already
+// takes and the one every board's compute instances are placed by.
+func computeInstancesOfSpec(spec MIGProfileSpec) (
+	map[int]nvml.ComputeInstanceProfileInfo,
+	map[int][]nvml.ComputeInstancePlacement,
+) {
 	ciProfiles := make(map[int]nvml.ComputeInstanceProfileInfo, len(spec.ComputeInstances))
+	ciPlacements := make(map[int][]nvml.ComputeInstancePlacement, len(spec.ComputeInstances))
 	for _, ci := range spec.ComputeInstances {
 		ciEnum, ok := computeInstanceProfileEnum(ci.NVMLProfile)
 		if !ok {
@@ -148,221 +156,9 @@ func computeInstanceProfilesOfSpec(spec MIGProfileSpec, sliceCount int) map[int]
 			SharedJpegCount:       uint32(ci.JPEG),
 			SharedOfaCount:        uint32(ci.OFA),
 		}
+		ciPlacements[ciEnum] = []nvml.ComputeInstancePlacement{}
 	}
-	return ciProfiles
-}
-
-// profileIDsOfConfig resolves the ids the board reports: the ids its rows
-// declare for themselves, over the published listing it names.
-//
-// The listing is the transitional half, on the same terms as the two
-// transcriptions above. Until every row declares its id, a board that names no
-// listing and declares some ids reports the declared ones and refuses the rest
-// in enumOf, because a partially populated table is no longer the nil one that
-// maps every id to itself.
-func profileIDsOfConfig(migCfg *MIGConfig) migProfileIDs {
-	// A listing config load has already accepted; an unknown one reaches here
-	// only through a hand-built MIGConfig, and reporting the enums is the
-	// answer that cannot mispartition the board.
-	listing, _ := profileIDsForListing(migCfg.ProfileIDs)
-
-	declared := migProfileIDs(nil)
-	for _, spec := range migCfg.SupportedProfiles {
-		if spec.ProfileID == nil {
-			continue
-		}
-		profileEnum, ok := gpuInstanceProfileEnum(spec.NVMLProfile)
-		if !ok {
-			// Refused at config load; unreachable for a validated config.
-			continue
-		}
-		if declared == nil {
-			// Copied rather than written through: the listing's table is a
-			// package-level map shared by every board that names it, so
-			// writing a declared id into it would republish that id on
-			// unrelated boards.
-			declared = make(migProfileIDs, len(listing)+len(migCfg.SupportedProfiles))
-			maps.Copy(declared, listing)
-		}
-		declared[profileEnum] = *spec.ProfileID
-	}
-	if declared != nil {
-		return declared
-	}
-	return listing
-}
-
-// deriveComputeInstanceProfiles gives a GPU instance of sliceCount slices the
-// compute instances hardware offers inside it, each counted by how many fit
-// and given its share of the GPU instance's multiprocessors.
-//
-// The engine counts are not divided between the compute instances the way the
-// multiprocessors are: a GPU instance's decoders, JPEG and OFA engines are
-// shared by every compute instance inside it, which is what NVML's "Shared"
-// naming means and what a MIG device reports as its own attributes.
-func deriveComputeInstanceProfiles(spec MIGProfileSpec, sliceCount int) map[int]nvml.ComputeInstanceProfileInfo {
-	// A GPU instance's multiprocessors are handed out in whole slices, so an
-	// SM count that does not divide the slices leaves the remainder in no
-	// compute instance — which is what hardware does with an odd SM. No
-	// published profile has an indivisible count, so this never truncates for
-	// a shipped board; a YAML declaring one gets the faithful answer.
-	perSlice := 0
-	if sliceCount > 0 {
-		perSlice = spec.Multiprocessors / sliceCount
-	}
-
-	ciProfiles := map[int]nvml.ComputeInstanceProfileInfo{}
-	for _, ciEnum := range computeInstanceProfilesOffered(sliceCount) {
-		ciSlices, ok := computeInstanceSliceCount(ciEnum)
-		if !ok {
-			// Unreachable: the tables below hold only profiles
-			// computeInstanceSliceCount maps, which a guard test asserts.
-			continue
-		}
-		ciProfiles[ciEnum] = nvml.ComputeInstanceProfileInfo{
-			Id:                    uint32(ciEnum),
-			SliceCount:            uint32(ciSlices),
-			InstanceCount:         uint32(sliceCount / ciSlices),
-			MultiprocessorCount:   uint32(perSlice * ciSlices),
-			SharedCopyEngineCount: uint32(spec.CopyEngines),
-			SharedDecoderCount:    uint32(spec.Decoders),
-			SharedEncoderCount:    uint32(spec.Encoders),
-			SharedJpegCount:       uint32(spec.JPEG),
-			SharedOfaCount:        uint32(spec.OFA),
-		}
-	}
-	return ciProfiles
-}
-
-// offeredComputeInstanceProfiles is the compute-instance listing of a GPU
-// instance, keyed by how many slices that GPU instance spans. It is
-// transcribed from what `nvidia-smi mig -lcip` prints, which go-nvml's A100
-// table also carries.
-//
-// A GPU instance does not offer every width that would fit inside it, so this
-// cannot be a loop over 1..S. A 4-slice instance offers 1c, 2c and 4c but not
-// 3c; a 7-slice instance offers 3c and 4c but stops there and jumps to 7c. It
-// also offers the media-extension 1-slice compute instance alongside the plain
-// one, on every GPU instance.
-//
-// Getting this wrong is not cosmetic. go-nvlib derives the
-// nvidia.com/mig-<name> resource names a cluster publishes from these values,
-// so an invented 6-slice compute instance under a 7g partition publishes
-// 6c.7g.40gb — a resource name no real cluster has.
-var offeredComputeInstanceProfiles = map[int][]int{
-	1: {
-		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE,
-		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE_REV1,
-	},
-	2: {
-		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE,
-		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE_REV1,
-		nvml.COMPUTE_INSTANCE_PROFILE_2_SLICE,
-	},
-	3: {
-		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE,
-		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE_REV1,
-		nvml.COMPUTE_INSTANCE_PROFILE_2_SLICE,
-		nvml.COMPUTE_INSTANCE_PROFILE_3_SLICE,
-	},
-	4: {
-		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE,
-		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE_REV1,
-		nvml.COMPUTE_INSTANCE_PROFILE_2_SLICE,
-		nvml.COMPUTE_INSTANCE_PROFILE_4_SLICE,
-	},
-	7: {
-		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE,
-		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE_REV1,
-		nvml.COMPUTE_INSTANCE_PROFILE_2_SLICE,
-		nvml.COMPUTE_INSTANCE_PROFILE_3_SLICE,
-		nvml.COMPUTE_INSTANCE_PROFILE_4_SLICE,
-		nvml.COMPUTE_INSTANCE_PROFILE_7_SLICE,
-	},
-}
-
-// computeInstanceProfilesOffered answers the listing for a GPU instance of the
-// given width.
-//
-// A width NVIDIA publishes no listing for — 6 and 8 slices, which NVML has
-// enums for and no shipped board declares — gets the narrowest compute
-// instance and one spanning the whole GPU instance. Those two are the least
-// any GPU instance offers, and stopping there is the most that can be claimed
-// without guessing: an intermediate width invented here would be advertised,
-// created, and then named as a partition no cluster has.
-func computeInstanceProfilesOffered(giSlices int) []int {
-	if offered, ok := offeredComputeInstanceProfiles[giSlices]; ok {
-		return offered
-	}
-	spanning, ok := computeInstanceProfileForSliceCount(giSlices)
-	if !ok {
-		return nil
-	}
-	return []int{
-		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE,
-		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE_REV1,
-		spanning,
-	}
-}
-
-// computeInstancePlacementSlots registers a placement list for every compute
-// instance profile the GPU instance offers.
-//
-// The lists are empty on purpose. NVML answers "this profile fits nowhere" and
-// "this profile is not offered here" through different returns, and the mock
-// server's distinction between them is whether the profile has an entry at all
-// — so the entry has to exist. computeInstancePlacements then lays the offsets
-// out from the profile's own shape, which is the path go-nvml's A100 table
-// already takes and the one every board's compute instances are placed by.
-func computeInstancePlacementSlots(
-	ciProfiles map[int]nvml.ComputeInstanceProfileInfo,
-) map[int][]nvml.ComputeInstancePlacement {
-	slots := make(map[int][]nvml.ComputeInstancePlacement, len(ciProfiles))
-	for ciEnum := range ciProfiles {
-		slots[ciEnum] = []nvml.ComputeInstancePlacement{}
-	}
-	return slots
-}
-
-// MIG profile-ID listings a board can declare through mig.profile_ids.
-//
-// The value names the published `nvidia-smi mig -lgip` listing whose reported
-// IDs the board publishes, not the board's geometry. Those are different
-// questions: NVIDIA publishes no listing for Blackwell, and a Blackwell board
-// is seven slices wide all the same, so a board that publishes nothing has to
-// be able to say so.
-const (
-	// migProfileIDsNone is the default. It is spelled out so a profile can
-	// declare it, which is how the Blackwell boards say in their own YAML
-	// that they report NVML's enums.
-	migProfileIDsNone = "none"
-	// migProfileIDs7Slice is the listing A100, H100 and H200 share.
-	migProfileIDs7Slice = "7_slice"
-	// migProfileIDs4Slice is the A30's listing.
-	migProfileIDs4Slice = "4_slice"
-)
-
-// profileIDsForListing resolves the listing a board declares to its ID table.
-// The second result is false for a listing that has never been transcribed,
-// which config load refuses.
-//
-// Declaring the listing rather than inferring it from the board's slice count
-// is what keeps "adding a board is a YAML edit" from also meaning "a board
-// inherits another board's profile IDs by being the same width". A guessed ID
-// reads as correct and then partitions the board wrongly.
-func profileIDsForListing(listing string) (migProfileIDs, bool) {
-	switch listing {
-	case "", migProfileIDsNone:
-		// No listing: every profile reports its own enum, which is what
-		// go-nvml already did. This is the default because publishing nothing
-		// is always defensible and publishing the wrong number never is.
-		return nil, true
-	case migProfileIDs7Slice:
-		return sevenSliceProfileIDs, true
-	case migProfileIDs4Slice:
-		return fourSliceProfileIDs, true
-	}
-	return nil, false
+	return ciProfiles, ciPlacements
 }
 
 // declaredProfileNames maps each declared NVML profile enum to the name its
@@ -485,8 +281,9 @@ func (m migProfileIDs) reported(profileEnum int) int {
 // reports 3, and resolving it to the enum of the same value would hand back a
 // 4-slice instance that hardware would never have created.
 //
-// A board with no ID table maps every ID to itself, keeping go-nvml's numbering
-// end to end.
+// A nil table maps every ID to itself, keeping go-nvml's numbering end to end.
+// Every board that declares a profile table has one entry per row, so nil only
+// arises for a board that declares no profiles at all.
 func (m migProfileIDs) enumOf(reportedID int) (int, bool) {
 	if m == nil {
 		return reportedID, true
@@ -498,42 +295,6 @@ func (m migProfileIDs) enumOf(reportedID int) (int, bool) {
 	}
 	return 0, false
 }
-
-// The IDs below are transcribed from the `nvidia-smi mig -lgip` listings in
-// NVIDIA's MIG user guide. Boards whose listings are not verified are left
-// reporting the enum rather than guessed at: a wrong ID reads as correct and
-// then partitions the board wrongly, where the enum at least stays
-// self-consistent with the placements and capacities reported alongside it.
-var (
-	// sevenSliceProfileIDs covers the 7-slice datacenter boards — A100, H100
-	// and H200 — which share one numbering because it follows the partition's
-	// fraction of the board rather than the board's own capacity.
-	sevenSliceProfileIDs = migProfileIDs{
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      19,
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: 20, // the +me variant
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV2: 15, // 1g at double memory
-		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      14,
-		nvml.GPU_INSTANCE_PROFILE_3_SLICE:      9,
-		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      5,
-		nvml.GPU_INSTANCE_PROFILE_7_SLICE:      0,
-	}
-
-	// fourSliceProfileIDs covers the A30. Its plain profiles take the ID of the
-	// A100 profile with the same slice count, but its +me variants do not
-	// follow from that — an A30 lists them as 21 and 6 where an A100 lists 20
-	// and 15 — so they are transcribed from the A30's own listing.
-	//
-	// Every profile the board publishes is mapped. A table that covers only
-	// some leaves the rest advertised under their enum and rejected under it,
-	// which is the one state worse than not mapping the board at all.
-	fourSliceProfileIDs = migProfileIDs{
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE:      14,
-		nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1: 21, // 1g.6gb+me
-		nvml.GPU_INSTANCE_PROFILE_2_SLICE:      5,
-		nvml.GPU_INSTANCE_PROFILE_2_SLICE_REV1: 6, // 2g.12gb+me
-		nvml.GPU_INSTANCE_PROFILE_4_SLICE:      0,
-	}
-)
 
 // migProfileName renders the canonical MIG profile name for a
 // (GPU instance, compute instance) profile pair, e.g. "1g.5gb", "2c.7g.40gb"

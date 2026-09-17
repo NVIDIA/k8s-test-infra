@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"testing"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml/mock/dgxa100"
@@ -568,15 +569,53 @@ func TestMIGConfig_EmptyInstancesRoundTripsDistinctFromAbsent(t *testing.T) {
 	require.Empty(t, *empty.Instances)
 }
 
+// declaredRows completes each row with the placements and compute-instance
+// listing a row is now required to declare, for the tests below whose subject
+// is some other field. A row is given one slot at offset 0 wide enough for the
+// whole partition and one compute instance spanning it, which is the least a
+// row can say and still describe a partition.
+//
+// Rows that already declare either are left alone, so a test whose subject is
+// the geometry still states it. A row NVML has no profile for is left alone
+// too — there is no width to complete it from, and that row's own rejection is
+// what its test is asserting.
+func declaredRows(specs ...MIGProfileSpec) []MIGProfileSpec {
+	rows := make([]MIGProfileSpec, 0, len(specs))
+	for _, spec := range specs {
+		profileEnum, known := gpuInstanceProfileEnum(spec.NVMLProfile)
+		span, sized := gpuInstanceSliceCount(profileEnum)
+		if known && sized {
+			if spec.ProfileID == 0 {
+				// The enum, which is distinct per row because a row is keyed
+				// on it — so the ids stay unique without a test having to
+				// invent numbers for them.
+				spec.ProfileID = profileEnum
+			}
+			if len(spec.Placements) == 0 {
+				spec.Placements = []MIGPlacementSpec{
+					{Start: 0, Size: uint32(nextPowerOfTwo(span))},
+				}
+			}
+			if len(spec.ComputeInstances) == 0 {
+				spec.ComputeInstances = []MIGComputeInstanceSpec{
+					{NVMLProfile: strconv.Itoa(span) + "_SLICE", Slices: span, Instances: 1},
+				}
+			}
+		}
+		rows = append(rows, spec)
+	}
+	return rows
+}
+
 func TestValidateMIGConfig_RejectsAnUnknownNVMLProfile(t *testing.T) {
 	t.Parallel()
 
 	err := validateMIGConfig(&MIGConfig{
 		MaxGPUInstances: 7,
-		SupportedProfiles: []MIGProfileSpec{
-			{Name: "1g.10gb", NVMLProfile: "1_SLICE", Instances: 7, MemoryMB: 10240},
-			{Name: "9g.99gb", NVMLProfile: "9_SLICE", Instances: 1, MemoryMB: 99999},
-		},
+		SupportedProfiles: declaredRows(
+			MIGProfileSpec{Name: "1g.10gb", NVMLProfile: "1_SLICE", Instances: 7, MemoryMB: 10240},
+			MIGProfileSpec{Name: "9g.99gb", NVMLProfile: "9_SLICE", Instances: 1, MemoryMB: 99999},
+		),
 	})
 
 	require.Error(t, err)
@@ -590,10 +629,10 @@ func TestValidateMIGConfig_RejectsADuplicateNVMLProfile(t *testing.T) {
 
 	err := validateMIGConfig(&MIGConfig{
 		MaxGPUInstances: 7,
-		SupportedProfiles: []MIGProfileSpec{
-			{Name: "1g.10gb", NVMLProfile: "1_SLICE", Instances: 7, MemoryMB: 10240},
-			{Name: "1g.10gb duplicate", NVMLProfile: "1_SLICE", Instances: 7, MemoryMB: 10240},
-		},
+		SupportedProfiles: declaredRows(
+			MIGProfileSpec{Name: "1g.10gb", NVMLProfile: "1_SLICE", Instances: 7, MemoryMB: 10240},
+			MIGProfileSpec{Name: "1g.10gb duplicate", NVMLProfile: "1_SLICE", Instances: 7, MemoryMB: 10240},
+		),
 	})
 
 	require.Error(t, err)
@@ -608,10 +647,10 @@ func TestValidateMIGConfig_RejectsADuplicateProfileName(t *testing.T) {
 	// would publish one ambiguous resource.
 	err := validateMIGConfig(&MIGConfig{
 		MaxGPUInstances: 7,
-		SupportedProfiles: []MIGProfileSpec{
-			{Name: "1g.10gb", NVMLProfile: "1_SLICE", Instances: 7, MemoryMB: 10240},
-			{Name: "1g.10gb", NVMLProfile: "1_SLICE_REV1", Instances: 7, MemoryMB: 10240},
-		},
+		SupportedProfiles: declaredRows(
+			MIGProfileSpec{Name: "1g.10gb", NVMLProfile: "1_SLICE", Instances: 7, MemoryMB: 10240},
+			MIGProfileSpec{Name: "1g.10gb", NVMLProfile: "1_SLICE_REV1", Instances: 7, MemoryMB: 10240},
+		),
 	})
 
 	require.ErrorContains(t, err, `name "1g.10gb" is declared twice`)
@@ -629,6 +668,60 @@ func TestValidateMIGConfig_RejectsAProfileWithNoName(t *testing.T) {
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "name")
+}
+
+// TestValidateMIGConfig_RejectsARowThatDeclaresNoGeometry covers the two keys
+// a row used to be allowed to omit, when the placements and the
+// compute-instance listing were computed from its slice count.
+//
+// Nothing computes them now, so an omission is a partition with nowhere to sit
+// or a GPU instance nothing can run inside — and every NVML call on such a
+// board still succeeds, answering with an empty listing. The message names the
+// missing key because nothing else leads a contributor from that behaviour
+// back to the row.
+func TestValidateMIGConfig_RejectsARowThatDeclaresNoGeometry(t *testing.T) {
+	t.Parallel()
+
+	row := MIGProfileSpec{Name: "1g.10gb", NVMLProfile: "1_SLICE", Instances: 7, MemoryMB: 10240}
+
+	err := validateMIGConfig(&MIGConfig{
+		MaxGPUInstances:   7,
+		SupportedProfiles: []MIGProfileSpec{row},
+	})
+	require.ErrorContains(t, err, "placements is required")
+	require.ErrorContains(t, err, row.Name)
+
+	withPlacements := row
+	withPlacements.Placements = []MIGPlacementSpec{{Start: 0, Size: 1}}
+	err = validateMIGConfig(&MIGConfig{
+		MaxGPUInstances:   7,
+		SupportedProfiles: []MIGProfileSpec{withPlacements},
+	})
+	require.ErrorContains(t, err, "compute_instances is required")
+	require.ErrorContains(t, err, row.Name)
+}
+
+// TestValidateMIGConfig_RejectsADuplicateProfileID refuses two rows publishing
+// one reported id. The id is what `nvidia-smi mig -cgi <id>` names, so a board
+// declaring it twice leaves that command creating whichever partition the
+// table resolves first.
+//
+// It could not happen while the ids came from a table per published listing,
+// which was keyed on the profile enum. Each row states its own now, and the id
+// a row that forgets the key publishes — 0 — is one a real full-board profile
+// publishes too.
+func TestValidateMIGConfig_RejectsADuplicateProfileID(t *testing.T) {
+	t.Parallel()
+
+	err := validateMIGConfig(&MIGConfig{
+		MaxGPUInstances: 7,
+		SupportedProfiles: declaredRows(
+			MIGProfileSpec{Name: "1g.10gb", NVMLProfile: "1_SLICE", ProfileID: 19, Instances: 7, MemoryMB: 10240},
+			MIGProfileSpec{Name: "2g.20gb", NVMLProfile: "2_SLICE", ProfileID: 19, Instances: 3, MemoryMB: 20480},
+		),
+	})
+
+	require.ErrorContains(t, err, `profile_id 19 is already declared by "1g.10gb"`)
 }
 
 func TestValidateMIGConfig_AcceptsABoardThatDeclaresNoProfiles(t *testing.T) {
@@ -694,6 +787,12 @@ supported_profiles:
 		JPEG:            5,
 		OFA:             6,
 	}}, mig.SupportedProfiles)
+
+	// The row above states no geometry, which is a document validation
+	// refuses; the tags of the fields that carry it are covered by the decode
+	// test below. Completing the row is what leaves this one asserting that
+	// the engine counts above are otherwise a valid document.
+	mig.SupportedProfiles = declaredRows(mig.SupportedProfiles...)
 	require.NoError(t, validateMIGConfig(&mig))
 }
 
@@ -707,9 +806,9 @@ func TestValidateMIGConfig_AcceptsAProfileSpanningTheWholeBoard(t *testing.T) {
 
 	require.NoError(t, validateMIGConfig(&MIGConfig{
 		MaxGPUInstances: 7,
-		SupportedProfiles: []MIGProfileSpec{
-			{Name: "7g.40gb", NVMLProfile: "7_SLICE", Instances: 1, MemoryMB: 40960},
-		},
+		SupportedProfiles: declaredRows(
+			MIGProfileSpec{Name: "7g.40gb", NVMLProfile: "7_SLICE", Instances: 1, MemoryMB: 40960},
+		),
 	}))
 }
 
@@ -723,18 +822,18 @@ func TestValidateMIGConfig_AcceptsTheRoundingRealBoardsShow(t *testing.T) {
 
 	require.NoError(t, validateMIGConfig(&MIGConfig{
 		MaxGPUInstances: 7,
-		SupportedProfiles: []MIGProfileSpec{
-			{Name: "1g.5gb", NVMLProfile: "1_SLICE", Instances: 7, MemoryMB: 4864},
-			{Name: "1g.23gb", NVMLProfile: "1_SLICE_REV2", Instances: 4, MemoryMB: 23040},
-			{Name: "7g.40gb", NVMLProfile: "7_SLICE", Instances: 1, MemoryMB: 40192},
-		},
+		SupportedProfiles: declaredRows(
+			MIGProfileSpec{Name: "1g.5gb", NVMLProfile: "1_SLICE", Instances: 7, MemoryMB: 4864},
+			MIGProfileSpec{Name: "1g.23gb", NVMLProfile: "1_SLICE_REV2", Instances: 4, MemoryMB: 23040},
+			MIGProfileSpec{Name: "7g.40gb", NVMLProfile: "7_SLICE", Instances: 1, MemoryMB: 40192},
+		),
 	}))
 
 	require.NoError(t, validateMIGConfig(&MIGConfig{
 		MaxGPUInstances: 4,
-		SupportedProfiles: []MIGProfileSpec{
-			{Name: "4g.24gb", NVMLProfile: "4_SLICE", Instances: 1, MemoryMB: 23344},
-		},
+		SupportedProfiles: declaredRows(
+			MIGProfileSpec{Name: "4g.24gb", NVMLProfile: "4_SLICE", Instances: 1, MemoryMB: 23344},
+		),
 	}))
 }
 
@@ -785,7 +884,7 @@ func TestValidateMIGConfig_RejectsAProfileThatCannotBeCreated(t *testing.T) {
 
 			err := validateMIGConfig(&MIGConfig{
 				MaxGPUInstances:   tt.boardSlices,
-				SupportedProfiles: []MIGProfileSpec{tt.spec},
+				SupportedProfiles: declaredRows(tt.spec),
 			})
 
 			require.ErrorContains(t, err, tt.wantErr)
@@ -848,12 +947,11 @@ supported_profiles:
         ofa: 17
 `), &mig))
 
-	profileID := 21
 	require.Equal(t, []MIGProfileSpec{{
 		Name:            "2g.20gb",
 		NVMLProfile:     "2_SLICE",
 		Slices:          2,
-		ProfileID:       &profileID,
+		ProfileID:       21,
 		Instances:       3,
 		MemoryMB:        20480,
 		Multiprocessors: 42,
@@ -1010,7 +1108,7 @@ func TestValidateMIGConfig_RejectsDeclaredGeometryThatCannotPartitionTheBoard(t 
 
 			err := validateMIGConfig(&MIGConfig{
 				MaxGPUInstances:   tt.boardSlices,
-				SupportedProfiles: []MIGProfileSpec{tt.spec},
+				SupportedProfiles: declaredRows(tt.spec),
 			})
 
 			require.ErrorContains(t, err, tt.wantErr)
@@ -1020,15 +1118,16 @@ func TestValidateMIGConfig_RejectsDeclaredGeometryThatCannotPartitionTheBoard(t 
 	}
 }
 
-// TestValidateMIGConfig_AcceptsTheGeometryTheDerivationProduces feeds each
-// shipped board's derived geometry back into the config as declared geometry
-// and asserts validation accepts it.
+// TestValidateMIGConfig_AcceptsTheGeometryItReports feeds each shipped board's
+// assembled tables back into the config as declared geometry and asserts
+// validation accepts it.
 //
-// This is the contract the generated YAML has to satisfy: the placements,
-// compute instances, widths and reported ids the derivation produces today are
-// exactly what those files will carry, so a validation rule the derivation
-// violates on any shipped board would refuse a board the mock supports.
-func TestValidateMIGConfig_AcceptsTheGeometryTheDerivationProduces(t *testing.T) {
+// It closes the loop between the two halves: what a board reports has to be
+// something a board may declare. A validation rule that refuses geometry the
+// transcription hands out would refuse a board the mock already supports, and
+// the spelling of every compute-instance enum has to survive the round trip
+// for a contributor to be able to write the row at all.
+func TestValidateMIGConfig_AcceptsTheGeometryItReports(t *testing.T) {
 	t.Parallel()
 
 	ciProfileNames := make(map[int]string, len(computeInstanceProfileEnums))
@@ -1052,11 +1151,11 @@ func TestValidateMIGConfig_AcceptsTheGeometryTheDerivationProduces(t *testing.T)
 				sliceCount, ok := gpuInstanceSliceCount(profileEnum)
 				require.True(t, ok)
 
-				reported := ids.reported(profileEnum)
 				spec.Slices = sliceCount
-				spec.ProfileID = &reported
-				// The shipped rows now declare this geometry, so the derived
-				// values replace what is there rather than adding to it.
+				spec.ProfileID = ids.reported(profileEnum)
+				// The row it came from declares this geometry too, so the
+				// reported values replace what is there rather than adding to
+				// it.
 				spec.Placements = nil
 				spec.ComputeInstances = nil
 				for _, p := range profiles.GpuInstancePlacements[profileEnum] {

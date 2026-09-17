@@ -311,9 +311,6 @@ device_defaults:
     mode_current: "disabled"
     mode_pending: "disabled"
     max_gpu_instances: 7
-    # H100 shares the A100's reported profile IDs: the numbering follows the
-    # partition's fraction of the board, not the board's capacity.
-    profile_ids: "7_slice"
     # NVIDIA MIG user guide, Supported MIG Profiles, Table 10 (H100 80GB,
     # PCIe and SXM5). nvml_profile binds each row to the NVML enum the mock
     # keys on. NVIDIA publishes the slice placements below only as diagrams,
