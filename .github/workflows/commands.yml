@@ -1,0 +1,87 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Commands
+
+"on":
+  issue_comment:
+    types: [created, edited, deleted]
+
+permissions: {}
+
+jobs:
+  command:
+    if: ${{ vars.REPOSITORY_AUTOMATION_COMMANDS_ENABLED == 'true' && github.event.issue.pull_request != null && github.event.action == 'created' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      contents: read
+      issues: write
+      pull-requests: write
+    concurrency:
+      group: repository-automation-state
+      cancel-in-progress: false
+    outputs:
+      backport-requests: ${{ steps.command.outputs.backport-requests }}
+    steps:
+      - name: Resolve trusted default branch
+        id: trusted
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          github-token: ${{ github.token }}
+          result-encoding: string
+          script: |
+            const branch = context.payload.repository.default_branch;
+            const { data } = await github.rest.repos.getBranch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch,
+            });
+            const sha = data.commit.sha;
+            if (!/^[0-9a-f]{40}$/.test(sha)) {
+              throw new Error("default branch did not resolve to a canonical commit SHA");
+            }
+            return sha;
+      - name: Check out trusted automation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.trusted.outputs.result }}
+          path: control
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - name: Apply authorized command
+        id: command
+        uses: ./control/.github/actions/repo-automation
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          mode: command
+          control-directory: control
+          dry-run: "false"
+
+  backport:
+    needs: command
+    if: ${{ vars.REPOSITORY_AUTOMATION_BACKPORT_ENABLED == 'true' && needs.command.outputs.backport-requests != '[]' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        request: ${{ fromJSON(needs.command.outputs.backport-requests) }}
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/backport.yml
+    with:
+      pr-number: ${{ matrix.request.prNumber }}
+      target-branch: ${{ matrix.request.targetBranch }}

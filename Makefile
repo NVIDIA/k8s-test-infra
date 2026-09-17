@@ -192,6 +192,23 @@ test-nvidia-imex-shim: build ## Run nvidia-imex-shim integration tests
 verify-greptile: ## Validate the .greptile review configuration
 	@bash hack/verify-greptile-config.sh
 
+.PHONY: actionlint
+actionlint: ## Validate GitHub Actions workflows
+	@./hack/actionlint.sh
+
+REPOSITORY_AUTOMATION_DIR := .github/actions/repo-automation
+
+.PHONY: repository-automation-ci
+repository-automation-ci: ## Validate and package the repository automation action
+	cd $(REPOSITORY_AUTOMATION_DIR) && npm ci
+	cd $(REPOSITORY_AUTOMATION_DIR) && npm test
+	cd $(REPOSITORY_AUTOMATION_DIR) && npm run lint
+	cd $(REPOSITORY_AUTOMATION_DIR) && npm audit --audit-level=high
+	go test ./tests/hack -run TestMokkaCherryPick -count=1
+	make actionlint
+	cd $(REPOSITORY_AUTOMATION_DIR) && npm run package
+	cd $(REPOSITORY_AUTOMATION_DIR) && git diff --exit-code -- dist
+
 .PHONY: helm-tests
 helm-tests: ## Run the nvml-mock chart unit test suite
 	helm unittest $(HELM_CHART_DIR)
