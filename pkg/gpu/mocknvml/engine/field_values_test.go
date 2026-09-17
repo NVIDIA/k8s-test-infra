@@ -133,7 +133,11 @@ func TestGetMarginTemperature_PreAdaNotSupported(t *testing.T) {
 	// it, nvidia-smi keeps the whole temperature section in its "T.Limit" form
 	// (the "GPU T.Limit Temp" row) and never prints the absolute
 	// shutdown/slowdown/max-operating rows real Ampere and Turing report.
-	for _, arch := range []string{"turing", "ampere"} {
+	//
+	// An unrecognized spelling resolves to UNKNOWN, which is not a generation
+	// at all, so it takes the same answer: no T.Limit margin, absolute
+	// thresholds still available.
+	for _, arch := range []string{"turing", "ampere", "bogus_arch"} {
 		arch := arch
 		t.Run(arch, func(t *testing.T) {
 			dev := newTestDeviceWithConfig(t, &DeviceConfig{
@@ -147,7 +151,7 @@ func TestGetMarginTemperature_PreAdaNotSupported(t *testing.T) {
 			})
 			_, ret := dev.GetMarginTemperature()
 			require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret,
-				"pre-Ada arch %q must not report a T.Limit margin", arch)
+				"arch %q must not report a T.Limit margin", arch)
 
 			// The absolute thresholds stay available: that is what nvidia-smi
 			// falls back to on this hardware.
@@ -206,7 +210,10 @@ func TestGetFieldValue_TlimitThresholds_PreAdaNotSupported(t *testing.T) {
 	// nvidia-smi falls back to nvmlDeviceGetTemperatureThreshold absolute
 	// scalars. The mock must return NOT_SUPPORTED so pre-Ada profiles do not
 	// render signed margins as absolute (and inverted) temperatures.
-	for _, arch := range []string{"turing", "ampere"} {
+	//
+	// An unrecognized spelling resolves to UNKNOWN, which identifies no
+	// generation and so must clear the gate the same way.
+	for _, arch := range []string{"turing", "ampere", "bogus_arch"} {
 		arch := arch
 		t.Run(arch, func(t *testing.T) {
 			dev := newTestDeviceWithConfig(t, &DeviceConfig{
@@ -226,7 +233,7 @@ func TestGetFieldValue_TlimitThresholds_PreAdaNotSupported(t *testing.T) {
 			} {
 				_, _, ret := dev.GetFieldValue(fieldID, 0)
 				require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret,
-					"pre-Ada arch %q must not answer T.Limit field %d", arch, fieldID)
+					"arch %q must not answer T.Limit field %d", arch, fieldID)
 			}
 		})
 	}

@@ -1,8 +1,9 @@
 # See the OWNERS docs at https://go.k8s.io/owners
 
 reviewers:
-  - ArangoGutierrez
-  - elezar
+  - faganihajizada
+  - olegleyz
 approvers:
   - ArangoGutierrez
-  - elezar
+  - giuliocalzo
+  - roma-glushko

@@ -33,6 +33,9 @@ RUN --mount=type=secret,id=goauth,mode=0500 \
     go mod download
 COPY pkg/ ./pkg/
 COPY cmd/ ./cmd/
+# The library reaches outside pkg/ for the architecture ordering, so this stage
+# needs every root-module tree it imports, not only the mock's own.
+COPY internal/ ./internal/
 
 # Build via the Makefile, not a bare `go build`: it owns the --defsym aliases
 # for the unversioned entry points (nvmlEventSetWait, ...), the SONAME and the
