@@ -1,13 +1,12 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <!-- SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION -->
 
-# Mokka controller
+# Mokka control plane
 
-The Stage 1 controller turns `SGPURackProfile` and `SGPUInventory` resources into
-controller-owned `SGPURack` resources, assigns eligible Kubernetes Nodes to
-logical rack Nodes,
-and projects the assignment onto those Nodes. It models static capacity and
-topology; it does not provide GPUs to workloads by itself.
+The Stage 1 control plane turns `SGPURackProfile` and `SGPUInventory` resources
+into control-plane-owned `SGPURack` resources, assigns eligible Kubernetes Nodes
+to logical rack Nodes, and projects the assignment onto those Nodes. It models
+static capacity and topology; it does not provide GPUs to workloads by itself.
 
 ## Install
 
@@ -23,7 +22,7 @@ helm upgrade --install nvml-mock deployments/nvml-mock/helm/nvml-mock \
 ```
 
 Replace the example digest with the immutable `sha256:...` digest published
-for the controller image.
+for the control-plane image.
 
 Uninstalling the `mokka-crds` release retains the CRDs and existing Mokka
 resources. Removing the Mokka API and its resources requires deleting the CRDs
@@ -39,14 +38,14 @@ using the same guard.
 
 Do not disable `controlPlane.enabled`, uninstall its `nvml-mock` release, or
 delete the Mokka CRDs while an `SGPUInventory` exists. Disabling or uninstalling
-removes the controller Deployment and RBAC; deleting the CRDs removes its API
-objects. Either order prevents the controller from releasing the
+removes the control-plane Deployment and RBAC; deleting the CRDs removes its API
+objects. Either order prevents the control plane from releasing the
 `mokka.nvidia.com/inventory-cleanup` and `mokka.nvidia.com/rack-cleanup`
 finalizers or removing its Node projection metadata. The CRD chart retains
 every CRD on uninstall, so removing either Helm release is not a cleanup
 mechanism.
 
-Drain the controller before removing it. All Mokka custom resources and Nodes
+Drain the control plane before removing it. All Mokka custom resources and Nodes
 are cluster-scoped; the commands intentionally omit `--namespace` for them and
 discover the namespace of the one owning Helm release from its singleton
 ClusterRoleBinding.
@@ -70,10 +69,10 @@ kubectl delete sgpuinventories.mokka.nvidia.com \
 ```
 
 The delete must complete successfully. It waits for the inventory finalizers;
-those finalizers wait for every controller-owned rack and exact Node projection
-to drain. If it times out, keep the controller and RBAC running, inspect the
-remaining finalizers and controller logs, and resolve the reported cleanup
-conflict. Do not force-remove finalizers.
+those finalizers wait for every control-plane-owned rack and exact Node projection
+to drain. If it times out, keep the control plane running with its RBAC permissions,
+inspect the remaining finalizers and control-plane logs, and resolve the reported
+cleanup conflict. Do not force-remove finalizers.
 
 Verify the drain before changing the Helm release. The first command must
 produce no objects. The second must produce no Node names: it checks the two
@@ -105,7 +104,7 @@ helm uninstall "$MOKKA_RELEASE" --namespace "$MOKKA_NAMESPACE"
 ```
 
 Profiles, runtime policies, and the retained CRDs may remain for a later
-controller installation. To remove the API completely, uninstall the
+control-plane installation. To remove the API completely, uninstall the
 `mokka-crds` Helm release and then explicitly delete all four retained CRDs,
 but only after the drain above:
 
@@ -127,7 +126,7 @@ docker build -f deployments/control-plane/Dockerfile \
   -t REGISTRY/mokka-control-plane:TAG .
 ```
 
-For local Tilt development, pass `--control-plane`; the controller and its
+For local Tilt development, pass `--control-plane`; the control plane and its
 CRDs are otherwise disabled and existing Tilt defaults are unchanged.
 
 ## Declare capacity
@@ -144,7 +143,7 @@ kubectl label node NODE \
   mokka.nvidia.com/pool=example
 ```
 
-Only Nodes with `mokka.nvidia.com/sgpu-node=true` enter the controller cache.
+Only Nodes with `mokka.nvidia.com/sgpu-node=true` enter the control plane's cache.
 An empty group selector matches every eligible Node; otherwise both eligibility
 and the selector must match. Placement selectors cannot reference
 `mokka.nvidia.com/sgpu-assigned` or `nvidia.com/gpu.clique` because those labels
@@ -166,7 +165,7 @@ coordinates in rack/index order. GPU, serial, fabric, and rack identities derive
 inventory UID and coordinate, so retries, restarts, and leader changes do not
 change an unchanged coordinate.
 
-For each successfully projected binding the controller owns only:
+For each successfully projected binding the control plane owns only:
 
 - `mokka.nvidia.com/sgpu-assigned=true`;
 - `nvidia.com/gpu.clique=<fabric UUID>.<clique ID>`;
@@ -192,8 +191,8 @@ metadata are reported and never overwritten.
 
 Shrinking capacity, deleting an inventory or rack, losing eligibility, and
 replacing a Node UID remove the exact old projection before clearing a live
-binding. Cleanup removes only controller keys whose assignment annotation still
-names that binding; incompatible values are preserved and retried. If the exact
+binding. Cleanup removes only control-plane-owned keys whose assignment annotation
+still names that binding; incompatible values are preserved and retried. If the exact
 Node UID no longer exists, cleanup may proceed without touching a same-name
 replacement. The singleton ClusterRoleBinding ensures only the owning release
 has cluster permissions. Within that release, its namespace-local Lease
