@@ -242,7 +242,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: DRIVER_VERSION
-            value: "570.124.06"
+            value: "580.65.06"
 
   - it: should use explicit driverVersion when provided
     set:

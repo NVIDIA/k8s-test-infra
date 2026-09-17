@@ -95,6 +95,28 @@ func (d *Doc) SetFields(t Target, kv map[string]any) {
 	mergeInto(d.bucket(t), kv)
 }
 
+// ClearField removes one top-level field from the target's bucket, so the
+// device falls back to its configured value. A setter that has a driver default
+// to return to needs this: writing a zero would record a real value, and the
+// merge has no way to express "unset".
+func (d *Doc) ClearField(t Target, key string) {
+	delete(d.bucket(t), key)
+}
+
+// ClearDeviceField removes one field from every per-device bucket, leaving the
+// shared `all:` bucket and the rest of each device's state untouched.
+//
+// A setter whose scope is the whole node needs it: the merge gives a per-device
+// field precedence over `all:`, so an earlier per-device write would go on
+// masking the node-wide value no matter how recent that value is. Doc.Reset
+// takes the same position for an `all:` target, where it drops the per-device
+// buckets outright.
+func (d *Doc) ClearDeviceField(key string) {
+	for _, bucket := range d.Devices {
+		delete(bucket, key)
+	}
+}
+
 // Fail records a failure override for the target. mode "healthy" removes any
 // existing failure block instead of adding one.
 func (d *Doc) Fail(t Target, mode string, afterCalls int, xidCode uint64) error {

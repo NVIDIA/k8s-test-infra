@@ -32,6 +32,17 @@ type OverrideWriter interface {
 	// separates "nothing has been written" from "written, then cleared": only
 	// the first may fall back to the profile's configured request.
 	UpdateWorkloadProfiles(index int, apply func(base []uint32, present bool) ([]uint32, error)) error
+
+	// SetNvlinkBwMode records an NVLink Reduced Bandwidth Mode. allDevices
+	// selects the `all:` bucket, which is how the node-wide NVML pair writes
+	// a value that is not about one device; otherwise it applies to index.
+	SetNvlinkBwMode(index int, mode uint8, allDevices bool) error
+
+	// SetNvlinkLowPowerThreshold records an NVLink low-power threshold for one
+	// device. A nil threshold clears the recorded value, which is what the
+	// setter's reset sentinel asks for — the field has a driver default to
+	// fall back to, so clearing it is meaningful rather than ambiguous.
+	SetNvlinkLowPowerThreshold(index int, threshold *uint32) error
 }
 
 // overrideWriterRef is atomic because it is installed once at load time but

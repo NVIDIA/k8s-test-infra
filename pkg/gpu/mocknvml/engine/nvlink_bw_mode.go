@@ -1,0 +1,311 @@
+// Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package engine
+
+import (
+	"math"
+	"slices"
+
+	"github.com/NVIDIA/go-nvml/pkg/nvml"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/gpuarch"
+)
+
+// defaultNvlinkBwModes is the supported NVLink Reduced Bandwidth Mode list a
+// Blackwell board reports when a profile declares none.
+//
+// The values are opaque driver indices — neither nvml.h nor the NVML API
+// reference enumerates them. The set is pinned to five entries because that is
+// how many the nvidia-smi the mock image bundles can name
+// (0=FULL, 1=OFF, 2=MIN, 3=HALF, 4=3QUARTER); a sixth value would index past
+// its name table.
+var defaultNvlinkBwModes = []uint8{0, 1, 2, 3, 4}
+
+// maxNameableNvlinkBwMode is the highest index the bundled nvidia-smi has a
+// name for. A configured value above it is legal — the indices are the driver's
+// and a future one may define more — but it renders as an unnamed mode, so the
+// fabric warns about it.
+const maxNameableNvlinkBwMode = 4
+
+// effectiveNvlinkBwModes is the supported list a device answers with: the
+// profile's own when it declares one, the architecture default otherwise. Named
+// once so config validation and the device getters cannot disagree about which
+// modes are in play.
+func effectiveNvlinkBwModes(configured []uint8) []uint8 {
+	if len(configured) > 0 {
+		return configured
+	}
+	return defaultNvlinkBwModes
+}
+
+// supportsNvlinkBwMode gates the device-level bandwidth-mode surface on
+// Blackwell, which is what the upstream header specifies ("For Blackwell or
+// newer fully supported devices").
+func (d *ConfigurableDevice) supportsNvlinkBwMode() bool {
+	return gpuarch.Arch(d.Config.Architecture).AtLeast(gpuarch.Blackwell)
+}
+
+// bestNvlinkBwMode picks the "best" (highest bandwidth) mode from a supported
+// list. Because the values are opaque, lowest-wins is a mock convention rather
+// than a driver fact; it is chosen so the default mode 0 (FULL) reads as best,
+// which is the semantically right answer for the one value whose meaning the
+// bundled nvidia-smi does tell us.
+func bestNvlinkBwMode(supported []uint8) uint8 {
+	if len(supported) == 0 {
+		return 0
+	}
+	best := supported[0]
+	for _, m := range supported[1:] {
+		if m < best {
+			best = m
+		}
+	}
+	return best
+}
+
+// nvlinkSupportedBwModes resolves the effective supported list: profile
+// override first, architecture default otherwise.
+func (d *ConfigurableDevice) nvlinkSupportedBwModes() []uint8 {
+	return effectiveNvlinkBwModes(d.fabric.NvlinkSupportedBwModes())
+}
+
+// GetMockNvlinkSupportedBwModes backs nvmlDeviceGetNvlinkSupportedBwModes and
+// `nvidia-smi nvlink -sBwMode values`.
+//
+// Named GetMock* to avoid shadowing the embedded mock Device's
+// GetNvlinkSupportedBwModes, following GetMockC2cMode.
+func (d *ConfigurableDevice) GetMockNvlinkSupportedBwModes() ([]uint8, nvml.Return) {
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return nil, ret
+	}
+	if !d.supportsNvlinkBwMode() {
+		return nil, nvml.ERROR_NOT_SUPPORTED
+	}
+	modes := d.nvlinkSupportedBwModes()
+	debugLog("[NVML] nvmlDeviceGetNvlinkSupportedBwModes -> %v\n", modes)
+	return modes, nvml.SUCCESS
+}
+
+// GetMockNvlinkBwMode backs nvmlDeviceGetNvlinkBwMode and
+// `nvidia-smi nvlink -gBwMode`. isBest maps onto the struct's bIsBest field.
+func (d *ConfigurableDevice) GetMockNvlinkBwMode() (uint8, bool, nvml.Return) {
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return 0, false, ret
+	}
+	if !d.supportsNvlinkBwMode() {
+		return 0, false, nvml.ERROR_NOT_SUPPORTED
+	}
+	supported := d.nvlinkSupportedBwModes()
+	best := bestNvlinkBwMode(supported)
+
+	mode := best
+	if configured, ok := d.fabric.NvlinkConfiguredBwMode(); ok {
+		mode = configured
+	}
+	// A mode recorded by a setter outranks the profile, and is read fresh from
+	// the override document so a write from another process is visible here.
+	if v := d.cfg().NVLinkBwMode; v != nil {
+		mode = *v
+	}
+
+	debugLog("[NVML] nvmlDeviceGetNvlinkBwMode -> mode=%d isBest=%t\n", mode, mode == best)
+	return mode, mode == best, nvml.SUCCESS
+}
+
+// GetMockNvLinkInfo backs nvmlDeviceGetNvLinkInfo, whose only field the mock
+// models is NVLink encryption (NVLE) — the " NVLE:" row of
+// `nvidia-smi nvlink --info`.
+func (d *ConfigurableDevice) GetMockNvLinkInfo() (bool, nvml.Return) {
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return false, ret
+	}
+	if !d.supportsNvlinkBwMode() {
+		return false, nvml.ERROR_NOT_SUPPORTED
+	}
+	enabled := d.fabric.NvleEnabled()
+	debugLog("[NVML] nvmlDeviceGetNvLinkInfo -> isNvleEnabled=%t\n", enabled)
+	return enabled, nvml.SUCCESS
+}
+
+// supportsNvlinkLowPower gates the NVLink low-power threshold on Hopper,
+// which is what the upstream header specifies ("For Hopper or newer fully
+// supported devices").
+func (d *ConfigurableDevice) supportsNvlinkLowPower() bool {
+	return gpuarch.Arch(d.Config.Architecture).AtLeast(gpuarch.Hopper)
+}
+
+// SetMockNvlinkBwMode backs nvmlDeviceSetNvlinkBwMode and
+// `nvidia-smi nvlink -sBwMode`. setBest maps onto the struct's bSetBest
+// field, which selects the best mode and makes the mode argument irrelevant.
+//
+// The mode is recorded in the override document rather than in process memory,
+// because on real hardware it is driver state the whole node observes: setting
+// it with one `nvidia-smi` and reading it back with another has to report the
+// new value.
+func (d *ConfigurableDevice) SetMockNvlinkBwMode(mode uint8, setBest bool) nvml.Return {
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return ret
+	}
+	if !d.supportsNvlinkBwMode() {
+		return nvml.ERROR_NOT_SUPPORTED
+	}
+	supported := d.nvlinkSupportedBwModes()
+
+	if setBest {
+		mode = bestNvlinkBwMode(supported)
+	} else if !slices.Contains(supported, mode) {
+		debugLog("[NVML] nvmlDeviceSetNvlinkBwMode(%d) rejected; supported=%v\n", mode, supported)
+		return nvml.ERROR_INVALID_ARGUMENT
+	}
+
+	w := overrideWriter()
+	if w == nil {
+		warnLog("[NVML] nvmlDeviceSetNvlinkBwMode(%d) -> NO_PERMISSION (no override writer)\n", mode)
+		return nvml.ERROR_NO_PERMISSION
+	}
+	if err := w.SetNvlinkBwMode(d.PhysicalIndex(), mode, false); err != nil {
+		warnLog("[NVML] nvmlDeviceSetNvlinkBwMode(%d) -> NO_PERMISSION: %v\n", mode, err)
+		return nvml.ERROR_NO_PERMISSION
+	}
+	configOverrides.invalidateAfterLocalWrite()
+	debugLog("[NVML] nvmlDeviceSetNvlinkBwMode -> mode=%d\n", mode)
+	return nvml.SUCCESS
+}
+
+// SetMockNvLinkLowPowerThreshold backs
+// nvmlDeviceSetNvLinkDeviceLowPowerThreshold and
+// `nvidia-smi nvlink -sLowPwrThres`. An accepted value is read back through
+// NVML_FI_DEV_NVLINK_GET_POWER_THRESHOLD.
+//
+// The range is the one the mock already advertises through the
+// _THRESHOLD_MIN / _MAX field values, not the header's deprecated 0x1FFF
+// ceiling; nvidia-smi reads that advertised range and pre-validates against
+// it, so the two must agree.
+func (d *ConfigurableDevice) SetMockNvLinkLowPowerThreshold(threshold uint32) nvml.Return {
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return ret
+	}
+	if !d.supportsNvlinkLowPower() {
+		return nvml.ERROR_NOT_SUPPORTED
+	}
+	// The reset sentinel clears the recorded value rather than storing one, so
+	// the device returns to the driver default the profile describes.
+	var record *uint32
+	if threshold != nvlinkLowPowerThresholdReset {
+		if threshold < lowPowerThresholdMin || threshold > lowPowerThresholdMax {
+			debugLog("[NVML] nvmlDeviceSetNvLinkDeviceLowPowerThreshold(%d) out of range %d..%d\n",
+				threshold, lowPowerThresholdMin, lowPowerThresholdMax)
+			return nvml.ERROR_INVALID_ARGUMENT
+		}
+		record = &threshold
+	}
+
+	w := overrideWriter()
+	if w == nil {
+		warnLog("[NVML] nvmlDeviceSetNvLinkDeviceLowPowerThreshold(%d) -> NO_PERMISSION (no override writer)\n",
+			threshold)
+		return nvml.ERROR_NO_PERMISSION
+	}
+	if err := w.SetNvlinkLowPowerThreshold(d.PhysicalIndex(), record); err != nil {
+		warnLog("[NVML] nvmlDeviceSetNvLinkDeviceLowPowerThreshold(%d) -> NO_PERMISSION: %v\n", threshold, err)
+		return nvml.ERROR_NO_PERMISSION
+	}
+	configOverrides.invalidateAfterLocalWrite()
+	debugLog("[NVML] nvmlDeviceSetNvLinkDeviceLowPowerThreshold -> %d\n", threshold)
+	return nvml.SUCCESS
+}
+
+// systemSupportsNvlinkBwMode gates the global pair on Hopper, which is what
+// the upstream docs specify ("NVML_ERROR_NOT_SUPPORTED if GPU is not Hopper or
+// newer architecture"). It also returns the architecture the decision was made
+// on so a rejection can name it.
+//
+// The architecture is read from device_defaults rather than a device handle
+// because these two APIs take no device parameter, and every profile the repo
+// ships is homogeneous.
+func (e *Engine) systemSupportsNvlinkBwMode() (gpuarch.Arch, bool) {
+	if e == nil || e.config == nil || e.config.YAMLConfig == nil {
+		return gpuarch.Unknown, false
+	}
+	arch := gpuarch.Arch(parseArchitecture(e.config.YAMLConfig.DeviceDefaults.Architecture))
+	return arch, arch.AtLeast(gpuarch.Hopper)
+}
+
+// SystemGetNvlinkBwMode backs nvmlSystemGetNvlinkBwMode: the node-wide NVLink
+// Reduced Bandwidth Mode.
+func (e *Engine) SystemGetNvlinkBwMode() (uint32, nvml.Return) {
+	if arch, ok := e.systemSupportsNvlinkBwMode(); !ok {
+		debugLog("[NVML] nvmlSystemGetNvlinkBwMode unsupported; architecture=%s must be known and hopper or newer\n",
+			arch)
+		return 0, nvml.ERROR_NOT_SUPPORTED
+	}
+
+	mode := uint32(bestNvlinkBwMode(defaultNvlinkBwModes))
+	if v, ok := nodeWideNvlinkBwMode(); ok {
+		mode = uint32(v)
+	}
+	debugLog("[NVML] nvmlSystemGetNvlinkBwMode -> %d\n", mode)
+	return mode, nvml.SUCCESS
+}
+
+// nodeWideNvlinkBwMode reads the mode the node-wide setter recorded.
+//
+// It reads the `all:` bucket directly instead of going through a device,
+// because this API takes none and a per-device write must not be mistaken for a
+// node-wide one: the two NVML pairs are independent, and only the node-wide
+// setter writes here.
+func nodeWideNvlinkBwMode() (uint8, bool) {
+	_, doc := configOverrides.snapshot()
+	if doc == nil || len(doc.All) == 0 {
+		return 0, false
+	}
+	merged, err := MergeDeviceConfig(&DeviceConfig{}, doc.All)
+	if err != nil || merged.NVLinkBwMode == nil {
+		return 0, false
+	}
+	return *merged.NVLinkBwMode, true
+}
+
+// SystemSetNvlinkBwMode backs nvmlSystemSetNvlinkBwMode.
+//
+// The docs also list NVML_ERROR_NO_PERMISSION for a non-root caller and
+// NVML_ERROR_IN_USE when a P2P object exists. Neither is simulated: the mock
+// models no notion of privilege and has no P2P object lifecycle.
+func (e *Engine) SystemSetNvlinkBwMode(mode uint32) nvml.Return {
+	if arch, ok := e.systemSupportsNvlinkBwMode(); !ok {
+		debugLog("[NVML] nvmlSystemSetNvlinkBwMode(%d) unsupported; architecture=%s must be known and hopper or newer\n",
+			mode, arch)
+		return nvml.ERROR_NOT_SUPPORTED
+	}
+	if mode > math.MaxUint8 || !slices.Contains(defaultNvlinkBwModes, uint8(mode)) {
+		debugLog("[NVML] nvmlSystemSetNvlinkBwMode(%d) rejected; supported=%v\n",
+			mode, defaultNvlinkBwModes)
+		return nvml.ERROR_INVALID_ARGUMENT
+	}
+
+	w := overrideWriter()
+	if w == nil {
+		warnLog("[NVML] nvmlSystemSetNvlinkBwMode(%d) -> NO_PERMISSION (no override writer)\n", mode)
+		return nvml.ERROR_NO_PERMISSION
+	}
+	// The index is irrelevant for an `all:` write, but the port takes one so
+	// the per-device setter can share the method.
+	if err := w.SetNvlinkBwMode(0, uint8(mode), true); err != nil {
+		warnLog("[NVML] nvmlSystemSetNvlinkBwMode(%d) -> NO_PERMISSION: %v\n", mode, err)
+		return nvml.ERROR_NO_PERMISSION
+	}
+	configOverrides.invalidateAfterLocalWrite()
+	debugLog("[NVML] nvmlSystemSetNvlinkBwMode -> %d\n", mode)
+	return nvml.SUCCESS
+}

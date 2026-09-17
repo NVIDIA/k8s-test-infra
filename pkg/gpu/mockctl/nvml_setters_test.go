@@ -49,6 +49,86 @@ func TestSetPowerLimit_FailsWithoutADocumentPath(t *testing.T) {
 		"a setter that cannot persist must report failure rather than silently succeed")
 }
 
+func TestSetNvlinkBwMode_SurvivesReload(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+
+	require.NoError(t, SetNvlinkBwMode(path, 1, 3, false))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	require.EqualValues(t, 3, doc.Devices["1"]["nvlink_bw_mode"])
+	require.NotContains(t, doc.All, "nvlink_bw_mode",
+		"a per-device set must not land in the bucket the node-wide getter reads")
+}
+
+// TestSetNvlinkBwMode_NodeWideTargetsAllBucket pins where the node-wide NVML
+// pair records its value. It has to be the `all:` bucket: the getter takes no
+// device, and every device must move with it.
+func TestSetNvlinkBwMode_NodeWideTargetsAllBucket(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+
+	require.NoError(t, SetNvlinkBwMode(path, 0, 2, true))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, doc.All["nvlink_bw_mode"])
+	require.Empty(t, doc.Devices, "a node-wide set belongs to no single device")
+}
+
+// TestSetNvlinkBwMode_NodeWideClearsPerDeviceModes pins that a node-wide set
+// moves a device that a per-device set had already moved. The per-device field
+// outranks `all:` in the merge, so leaving it in place would have the older
+// per-device value keep masking the newer node-wide one — on real hardware the
+// node-wide call moves the whole node.
+func TestSetNvlinkBwMode_NodeWideClearsPerDeviceModes(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+
+	require.NoError(t, SetNvlinkBwMode(path, 0, 3, false))
+	threshold := uint32(500)
+	require.NoError(t, SetNvlinkLowPowerThreshold(path, 0, &threshold))
+
+	require.NoError(t, SetNvlinkBwMode(path, 0, 1, true))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, doc.All["nvlink_bw_mode"], "node-wide mode")
+	require.NotContains(t, doc.Devices["0"], "nvlink_bw_mode",
+		"a stale per-device mode would outrank the node-wide one")
+	require.EqualValues(t, 500, doc.Devices["0"]["nvlink_low_power_threshold"],
+		"clearing the mode must not disturb unrelated per-device state")
+}
+
+// TestSetNvlinkLowPowerThreshold_ClearsOnReset pins that the reset sentinel
+// removes the field rather than recording a zero, so the device falls back to
+// the driver default instead of to a threshold nobody asked for.
+func TestSetNvlinkLowPowerThreshold_ClearsOnReset(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+
+	threshold := uint32(500)
+	require.NoError(t, SetNvlinkLowPowerThreshold(path, 0, &threshold))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	require.EqualValues(t, 500, doc.Devices["0"]["nvlink_low_power_threshold"])
+
+	require.NoError(t, SetNvlinkLowPowerThreshold(path, 0, nil))
+
+	doc, err = Load(path)
+	require.NoError(t, err)
+	require.NotContains(t, doc.Devices["0"], "nvlink_low_power_threshold",
+		"a reset must remove the recorded threshold")
+}
+
+func TestNvlinkSetters_FailWithoutADocumentPath(t *testing.T) {
+	t.Parallel()
+	require.Error(t, SetNvlinkBwMode("", 0, 3, false), "bandwidth mode")
+	require.Error(t, SetNvlinkLowPowerThreshold("", 0, nil), "low-power threshold")
+}
+
 // TestUpdateWorkloadProfiles_ReportsNoBaseUntilSomethingIsWritten lets the
 // caller tell "nobody has written" from "written, then cleared": only the
 // former may fall back to the profile's configured request.
