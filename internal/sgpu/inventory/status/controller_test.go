@@ -25,6 +25,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/assignment"
 	inventorymetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/metadata"
 	inventoryprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/projection"
+	rackrender "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/rack"
 )
 
 func TestComputeInventoryStatusExactAggregateMathAndConditions(t *testing.T) {
@@ -113,9 +114,12 @@ func TestComputeInventoryCapacityBoundaryAndRejectedOverflow(t *testing.T) {
 				ID: "group", Count: math.MaxInt32, ProfileRef: mokkav1alpha1.ProfileReference{Name: "p"},
 			}}},
 		}
+		overflowProfile := profile("p", 1, 1)
+		overflowProfile.Spec.Rack.NodesPerRack = math.MaxInt32
+		overflowProfile.Spec.Node.GPUs.Count = math.MaxInt32
 		got := ComputeInventory(InventoryInput{
 			Inventory: inventory,
-			Profiles:  map[string]*mokkav1alpha1.SGPURackProfile{"p": profile("p", math.MaxInt32, math.MaxInt32)},
+			Profiles:  map[string]*mokkav1alpha1.SGPURackProfile{"p": overflowProfile},
 			RackResult: sgpuinventory.Result{
 				Accepted: false, ResolvedRefs: true,
 				ValidationReason: sgpuinventory.ReasonCapacityExceeded,
@@ -131,6 +135,125 @@ func TestComputeInventoryCapacityBoundaryAndRejectedOverflow(t *testing.T) {
 		require.Equal(t, ReasonCapacityExceeded,
 			condition(got.Conditions, mokkav1alpha1.InventoryConditionProgrammed).Reason)
 	})
+}
+
+func TestComputeInventoryProgrammedWaitsForCurrentProfileAndProjection(t *testing.T) {
+	t.Parallel()
+	input := singleProjectedInventoryInput(t)
+	now := metav1.NewTime(time.Unix(200, 0))
+
+	got := ComputeInventory(input, now)
+	require.Equal(t, mokkav1alpha1.InventoryCapacity{Racks: 1, Nodes: 1, GPUs: 1}, got.Capacity)
+	programmed := condition(got.Conditions, mokkav1alpha1.InventoryConditionProgrammed)
+	require.Equal(t, metav1.ConditionTrue, programmed.Status)
+	require.Equal(t, ReasonProgrammed, programmed.Reason)
+
+	currentProfile := input.Profiles["pa"]
+	currentProfile.Generation++
+	currentProfile.Spec.Rack.NodesPerRack = 2
+	got = ComputeInventory(input, now)
+	capacity := mokkav1alpha1.InventoryCapacity{Racks: 1, Nodes: 2, GPUs: 2}
+	require.Equal(t, capacity, got.Capacity, "declared capacity advances before racks and projections")
+	require.Equal(t, capacity, got.RackGroups[0].Capacity)
+	require.Equal(t, int32(1), got.Usage.AllocatedNodes)
+	require.True(t, inventoryprojection.MatchesBinding(input.Nodes[0], input.Racks[0], &input.Racks[0].Spec.Nodes[0]))
+	programmed = condition(got.Conditions, mokkav1alpha1.InventoryConditionProgrammed)
+	require.Equal(t, metav1.ConditionFalse, programmed.Status)
+	require.Equal(t, ReasonRacksPending, programmed.Reason)
+
+	rendered, err := rackrender.RenderRack(rackrender.RackInput{
+		InventoryName: input.Inventory.Name, InventoryUID: input.Inventory.UID,
+		Group: input.Inventory.Spec.RackGroups[0], Profile: currentProfile,
+	})
+	require.NoError(t, err)
+	rendered.Spec.Nodes[0].NodeRef = input.Racks[0].Spec.Nodes[0].NodeRef
+	input.Racks[0].Spec = rendered.Spec
+	got = ComputeInventory(input, now)
+	require.Equal(t, capacity, got.Capacity)
+	require.Equal(t, int32(1), got.Usage.AllocatedNodes)
+	programmed = condition(got.Conditions, mokkav1alpha1.InventoryConditionProgrammed)
+	require.Equal(t, metav1.ConditionFalse, programmed.Status)
+	require.Equal(t, ReasonProjectionIncomplete, programmed.Reason)
+
+	setStatusProjection(input.Nodes[0], input.Racks[0], &input.Racks[0].Spec.Nodes[0])
+	got = ComputeInventory(input, now)
+	require.Equal(t, capacity, got.Capacity)
+	require.Equal(t, int32(1), got.Usage.AllocatedNodes)
+	programmed = condition(got.Conditions, mokkav1alpha1.InventoryConditionProgrammed)
+	require.Equal(t, metav1.ConditionTrue, programmed.Status)
+	require.Equal(t, ReasonProgrammed, programmed.Reason)
+}
+
+func TestComputeInventoryProgrammedRequiresExactProfileReference(t *testing.T) {
+	t.Parallel()
+	otherRevision := statusProfileReference(t, profile("pa", 2, 1)).Revision
+	tests := []struct {
+		name   string
+		mutate func(*mokkav1alpha1.SGPURackProfileReference)
+	}{
+		{name: "name", mutate: func(ref *mokkav1alpha1.SGPURackProfileReference) { ref.Name = "old-profile" }},
+		{name: "UID", mutate: func(ref *mokkav1alpha1.SGPURackProfileReference) { ref.UID = "old-profile-uid" }},
+		{name: "generation", mutate: func(ref *mokkav1alpha1.SGPURackProfileReference) { ref.Generation++ }},
+		{name: "revision", mutate: func(ref *mokkav1alpha1.SGPURackProfileReference) { ref.Revision = otherRevision }},
+	}
+	for _, test := range tests {
+		for _, assigned := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/assigned=%t", test.name, assigned), func(t *testing.T) {
+				t.Parallel()
+				input := singleProjectedInventoryInput(t)
+				rack := input.Racks[0]
+				if !assigned {
+					rack.Spec.Nodes[0].NodeRef = nil
+					input.Nodes = nil
+					input.Projection = nil
+				}
+				got := ComputeInventory(input, metav1.Now())
+				require.Equal(t, metav1.ConditionTrue, condition(got.Conditions, mokkav1alpha1.InventoryConditionProgrammed).Status)
+
+				test.mutate(&rack.Spec.ProfileRef)
+				if assigned {
+					setStatusProjection(input.Nodes[0], rack, &rack.Spec.Nodes[0])
+					require.True(t, inventoryprojection.MatchesBinding(input.Nodes[0], rack, &rack.Spec.Nodes[0]))
+				}
+				got = ComputeInventory(input, metav1.Now())
+				programmed := condition(got.Conditions, mokkav1alpha1.InventoryConditionProgrammed)
+				require.Equal(t, metav1.ConditionFalse, programmed.Status)
+				require.Equal(t, ReasonRacksPending, programmed.Reason)
+			})
+		}
+	}
+}
+
+func TestComputeInventoryProgrammedRequiresProfileGenerationWithoutReprojection(t *testing.T) {
+	t.Parallel()
+	input := singleProjectedInventoryInput(t)
+	currentProfile := input.Profiles["pa"]
+	currentProfile.Generation++
+	currentRef := statusProfileReference(t, currentProfile)
+	require.Equal(t, input.Racks[0].Spec.ProfileRef.Revision, currentRef.Revision)
+
+	got := ComputeInventory(input, metav1.Now())
+	programmed := condition(got.Conditions, mokkav1alpha1.InventoryConditionProgrammed)
+	require.Equal(t, metav1.ConditionFalse, programmed.Status)
+	require.Equal(t, ReasonRacksPending, programmed.Reason)
+
+	input.Racks[0].Spec.ProfileRef = currentRef
+	require.True(t, inventoryprojection.MatchesBinding(input.Nodes[0], input.Racks[0], &input.Racks[0].Spec.Nodes[0]))
+	got = ComputeInventory(input, metav1.Now())
+	programmed = condition(got.Conditions, mokkav1alpha1.InventoryConditionProgrammed)
+	require.Equal(t, metav1.ConditionTrue, programmed.Status, "unchanged canonical content needs no new Node annotation")
+	require.Equal(t, ReasonProgrammed, programmed.Reason)
+}
+
+func TestComputeInventoryProgrammedRejectsUnhashableProfile(t *testing.T) {
+	t.Parallel()
+	input := singleProjectedInventoryInput(t)
+	input.Profiles["pa"].Spec.Node.Topology = nil
+
+	got := ComputeInventory(input, metav1.Now())
+	programmed := condition(got.Conditions, mokkav1alpha1.InventoryConditionProgrammed)
+	require.Equal(t, metav1.ConditionFalse, programmed.Status)
+	require.Equal(t, ReasonRacksPending, programmed.Reason)
 }
 
 func TestComputeRackStatusCountsExactProjectionAndDuplicateBindings(t *testing.T) {
@@ -588,6 +711,8 @@ func aggregateInput(t testing.TB) InventoryInput {
 		{RackName: rackB.Name, RackUID: rackB.UID, NodeIndex: 0, NodeName: nodes[4].Name, NodeUID: nodes[4].UID, State: inventoryprojection.StateProjected},
 		{RackName: rackA.Name, RackUID: rackA.UID, NodeIndex: 1, NodeName: nodes[2].Name, NodeUID: nodes[2].UID, State: inventoryprojection.StateConflict, Reason: inventoryprojection.ReasonDuplicateBinding},
 	}
+	rackA.Spec.ProfileRef = statusProfileReference(t, profiles["pa"])
+	rackB.Spec.ProfileRef = statusProfileReference(t, profiles["pb"])
 	setStatusProjection(nodes[1], rackA, &rackA.Spec.Nodes[0])
 	setStatusProjection(nodes[4], rackB, &rackB.Spec.Nodes[0])
 	return InventoryInput{
@@ -606,9 +731,17 @@ func singleProjectedInventoryInput(t testing.TB) InventoryInput {
 	input := aggregateInput(t)
 	input.Inventory.Spec.RackGroups = input.Inventory.Spec.RackGroups[:1]
 	input.Inventory.Spec.RackGroups[0].Count = 1
-	input.Racks[0].Spec.Nodes = input.Racks[0].Spec.Nodes[:1]
+	input.Profiles = map[string]*mokkav1alpha1.SGPURackProfile{"pa": profile("pa", 1, 1)}
+	rendered, err := rackrender.RenderRack(rackrender.RackInput{
+		InventoryName: input.Inventory.Name, InventoryUID: input.Inventory.UID,
+		Group: input.Inventory.Spec.RackGroups[0], Profile: input.Profiles["pa"],
+	})
+	require.NoError(t, err)
+	rendered.Spec.Nodes[0].NodeRef = input.Racks[0].Spec.Nodes[0].NodeRef
+	input.Racks[0].Spec = rendered.Spec
 	input.Racks = input.Racks[:1]
 	input.Nodes = input.Nodes[1:2]
+	setStatusProjection(input.Nodes[0], input.Racks[0], &input.Racks[0].Spec.Nodes[0])
 	input.RackResult = sgpuinventory.Result{Accepted: true, ResolvedRefs: true}
 	input.Projection = projectedOutcomeFor(input.Racks[0], &input.Racks[0].Spec.Nodes[0])
 	return input
@@ -720,12 +853,29 @@ func placement(values ...string) *mokkav1alpha1.RackPlacement {
 }
 
 func profile(name string, nodesPerRack, gpus int32) *mokkav1alpha1.SGPURackProfile {
+	slots := make([]mokkav1alpha1.GPUSlot, gpus)
+	for i := range slots {
+		slots[i] = mokkav1alpha1.GPUSlot{
+			Index: int32(i), PCIAddress: fmt.Sprintf("0000:%02x:00.0", i+1), RootComplex: "pci0000:00",
+		}
+	}
 	return &mokkav1alpha1.SGPURackProfile{
 		ObjectMeta: metav1.ObjectMeta{Name: name, UID: types.UID(name + "-uid"), Generation: 1},
 		Spec: mokkav1alpha1.SGPURackProfileSpec{
 			Rack: mokkav1alpha1.SGPURackShape{NodesPerRack: nodesPerRack},
-			Node: mokkav1alpha1.SGPUNode{GPUs: mokkav1alpha1.SGPUGPUs{Count: gpus}},
+			Node: mokkav1alpha1.SGPUNode{
+				GPUs: mokkav1alpha1.SGPUGPUs{Count: gpus}, Topology: &mokkav1alpha1.SGPUTopology{GPUSlots: slots},
+			},
 		},
+	}
+}
+
+func statusProfileReference(t testing.TB, profile *mokkav1alpha1.SGPURackProfile) mokkav1alpha1.SGPURackProfileReference {
+	t.Helper()
+	revision, err := rackrender.ProfileRevision(profile.Spec)
+	require.NoError(t, err)
+	return mokkav1alpha1.SGPURackProfileReference{
+		Name: profile.Name, UID: profile.UID, Generation: profile.Generation, Revision: revision,
 	}
 }
 
@@ -754,7 +904,6 @@ func statusRack(inventory *mokkav1alpha1.SGPUInventory, name string, uid types.U
 		},
 		Spec: mokkav1alpha1.SGPURackSpec{
 			InventoryRef: mokkav1alpha1.SGPURackInventoryReference{Name: inventory.Name, UID: inventory.UID},
-			ProfileRef:   mokkav1alpha1.SGPURackProfileReference{Name: "p", UID: "p-uid", Revision: "revision"},
 			Identity:     mokkav1alpha1.SGPURackIdentity{RackGroup: group, RackIndex: index},
 			Nodes:        slots,
 		},

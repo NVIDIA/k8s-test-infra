@@ -27,6 +27,7 @@ import (
 	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
 	inventoryprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/projection"
+	rackrender "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/rack"
 )
 
 //nolint:revive // These reasons form one closed status-condition vocabulary.
@@ -526,7 +527,7 @@ func inventoryConditions(
 	case len(input.RackResult.OwnershipConflicts) > 0:
 		programmed.Status, programmed.Reason, programmed.Message = metav1.ConditionFalse, ReasonRackOwnershipConflict, "A deterministic rack name is owned by another object."
 	case !desiredRacksPresent(input):
-		programmed.Status, programmed.Reason, programmed.Message = metav1.ConditionFalse, ReasonRacksPending, "One or more desired racks are not present in the cache."
+		programmed.Status, programmed.Reason, programmed.Message = metav1.ConditionFalse, ReasonRacksPending, "One or more desired racks are missing from the cache or do not match the current profile."
 	case projectedNodes != status.Usage.AllocatedNodes:
 		programmed.Status, programmed.Reason = metav1.ConditionFalse, ReasonProjectionIncomplete
 		programmed.Message = fmt.Sprintf("%d of %d allocated Nodes are projected.", projectedNodes, status.Usage.AllocatedNodes)
@@ -661,9 +662,32 @@ func ownedByInventory(rack *mokkav1alpha1.SGPURack, inventory *mokkav1alpha1.SGP
 
 //nolint:cyclop // Presence requires exact owner, group, index, and rendered spec identity.
 func desiredRacksPresent(input InventoryInput) bool {
+	issues := make(map[string]struct{}, len(input.RackResult.ProfileIssues))
+	for _, issue := range input.RackResult.ProfileIssues {
+		issues[issue.RackGroup] = struct{}{}
+	}
+	expected := make(map[string]mokkav1alpha1.SGPURackProfileReference, len(input.Inventory.Spec.RackGroups))
+	for _, group := range input.Inventory.Spec.RackGroups {
+		profile := input.Profiles[group.ProfileRef.Name]
+		if _, unresolved := issues[group.ID]; unresolved || profile == nil {
+			continue
+		}
+		revision, err := rackrender.ProfileRevision(profile.Spec)
+		if err != nil {
+			// Programming cannot be confirmed without a canonical profile revision.
+			return false
+		}
+		expected[group.ID] = mokkav1alpha1.SGPURackProfileReference{
+			Name: profile.Name, UID: profile.UID, Generation: profile.Generation, Revision: revision,
+		}
+	}
+
 	present := make(map[string]map[int32]struct{})
 	for _, rack := range input.Racks {
 		if !ownedByInventory(rack, input.Inventory) || rack.DeletionTimestamp != nil {
+			continue
+		}
+		if ref, resolved := expected[rack.Spec.Identity.RackGroup]; !resolved || rack.Spec.ProfileRef != ref {
 			continue
 		}
 		if present[rack.Spec.Identity.RackGroup] == nil {
@@ -671,12 +695,8 @@ func desiredRacksPresent(input InventoryInput) bool {
 		}
 		present[rack.Spec.Identity.RackGroup][rack.Spec.Identity.RackIndex] = struct{}{}
 	}
-	issues := make(map[string]struct{}, len(input.RackResult.ProfileIssues))
-	for _, issue := range input.RackResult.ProfileIssues {
-		issues[issue.RackGroup] = struct{}{}
-	}
 	for _, group := range input.Inventory.Spec.RackGroups {
-		if _, unresolved := issues[group.ID]; unresolved || input.Profiles[group.ProfileRef.Name] == nil {
+		if _, resolved := expected[group.ID]; !resolved {
 			continue
 		}
 		for index := int32(0); index < group.Count; index++ {
