@@ -21,6 +21,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// a100SupportedProfiles is the A100-SXM4-40GB profile table, the same rows the
+// shipped a100.yaml declares. A board is MIG-capable only if it declares a
+// table, so every test device that partitions needs one, and the A100's is the
+// reference: NVIDIA's published values for it are what the mock already
+// reported before this data moved into YAML.
+func a100SupportedProfiles() []MIGProfileSpec {
+	return []MIGProfileSpec{
+		{Name: "1g.5gb", NVMLProfile: "1_SLICE", Instances: 7, MemoryMB: 4864, Multiprocessors: 14, CopyEngines: 1},
+		{Name: "1g.5gb+me", NVMLProfile: "1_SLICE_REV1", Instances: 1, MemoryMB: 4864, Multiprocessors: 14, CopyEngines: 1, Decoders: 1, JPEG: 1, OFA: 1},
+		{Name: "1g.10gb", NVMLProfile: "1_SLICE_REV2", Instances: 4, MemoryMB: 9856, Multiprocessors: 14, CopyEngines: 1, Decoders: 1},
+		{Name: "2g.10gb", NVMLProfile: "2_SLICE", Instances: 3, MemoryMB: 9856, Multiprocessors: 28, CopyEngines: 2, Decoders: 1},
+		{Name: "3g.20gb", NVMLProfile: "3_SLICE", Instances: 2, MemoryMB: 19968, Multiprocessors: 42, CopyEngines: 3, Decoders: 2},
+		{Name: "4g.20gb", NVMLProfile: "4_SLICE", Instances: 1, MemoryMB: 19968, Multiprocessors: 56, CopyEngines: 4, Decoders: 2},
+		{Name: "7g.40gb", NVMLProfile: "7_SLICE", Instances: 1, MemoryMB: 40192, Multiprocessors: 98, CopyEngines: 7, Decoders: 5, JPEG: 1, OFA: 1},
+	}
+}
+
 // a100MIGConfig is a MIG-capable A100 with MIG left off, the state a real
 // board ships in.
 func a100MIGConfig() *DeviceConfig {
@@ -28,9 +45,10 @@ func a100MIGConfig() *DeviceConfig {
 		Name:   "NVIDIA A100-SXM4-40GB",
 		Memory: &MemoryConfig{TotalBytes: a100_40GiB, FreeBytes: a100_40GiB},
 		MIG: &MIGConfig{
-			ModeCurrent:     "disabled",
-			ModePending:     "disabled",
-			MaxGPUInstances: 7,
+			ModeCurrent:       "disabled",
+			ModePending:       "disabled",
+			MaxGPUInstances:   7,
+			SupportedProfiles: a100SupportedProfiles(),
 		},
 	}
 }

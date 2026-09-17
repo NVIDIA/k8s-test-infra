@@ -40,6 +40,16 @@ device_defaults:
     mode_current: "disabled"
     mode_pending: "disabled"
     max_gpu_instances: 7
+    # A board is MIG-capable by declaring its profile table. Only the row
+    # these tests partition with is declared; the full A100 table lives in the
+    # chart's a100 profile.
+    supported_profiles:
+      - name: "1g.5gb"
+        nvml_profile: "1_SLICE"
+        instances: 7
+        memory_mb: 4864
+        multiprocessors: 14
+        copy_engines: 1
 devices:
   - index: 0
     uuid: "GPU-12345678-1234-1234-1234-123456780000"
@@ -58,6 +68,13 @@ device_defaults:
     mode_current: "enabled"
     mode_pending: "enabled"
     max_gpu_instances: 7
+    supported_profiles:
+      - name: "1g.5gb"
+        nvml_profile: "1_SLICE"
+        instances: 7
+        memory_mb: 4864
+        multiprocessors: 14
+        copy_engines: 1
     gpu_instances:
       - profile: "1g.5gb"
         count: 3
@@ -194,19 +211,18 @@ func TestMIGMutations_DestroyOnADeclaredBoardKeepsTheSurvivors(t *testing.T) {
 // With nowhere to record it, a mutation has to be refused rather than applied
 // in this process alone: the engine assigns the instance id, so a mutation
 // that has already happened cannot be taken back.
+//
+// The document is placed in a directory nothing may write to. A MIG-capable
+// board is one whose profile declares a table, so the board itself cannot be
+// the thing that is missing — what is missing is somewhere to record the
+// change.
 func TestMIGMutations_RefusedWhenThereIsNowhereToRecord(t *testing.T) {
-	t.Setenv("MOCK_NVML_NUM_DEVICES", "1")
-	t.Setenv("MOCK_NVML_CONFIG", "")
-	t.Setenv("MOCK_NVML_OVERRIDES", "")
-	engine.ResetForTesting()
-	t.Cleanup(engine.ResetForTesting)
-	e := engine.GetEngine()
-	require.Equal(t, nvml.SUCCESS, e.Init())
-	t.Cleanup(func() { require.Equal(t, nvml.SUCCESS, e.Shutdown()) })
-	require.Empty(t, engine.ConfigOverridePath(), "this test needs a mock with no override document")
+	sealed := filepath.Join(t.TempDir(), "sealed")
+	require.NoError(t, os.Mkdir(sealed, 0o500))
 
-	device, ret := e.DeviceGetHandleByIndex(0)
-	require.Equal(t, nvml.SUCCESS, ret)
+	device := bootMIGEngine(t, migOffConfig, filepath.Join(sealed, "overrides.yaml"))
+	e := engine.GetEngine()
+
 	modeRet, _ := migSetMode(device, nvml.DEVICE_MIG_ENABLE)
 	require.Equal(t, nvml.ERROR_NO_PERMISSION, modeRet)
 

@@ -20,7 +20,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// migYAMLConfig is a one-profile A100 document carrying the MIG block given.
+// A block that declares no profile table gets the A100's, because a board is
+// MIG-capable only by declaring one and every case here partitions.
 func migYAMLConfig(mig *MIGConfig) *YAMLConfig {
+	if mig != nil && mig.SupportedProfiles == nil {
+		declared := *mig
+		declared.MaxGPUInstances = 7
+		declared.SupportedProfiles = a100SupportedProfiles()
+		mig = &declared
+	}
 	return &YAMLConfig{
 		Version: "1.0",
 		DeviceDefaults: DeviceConfig{
@@ -149,9 +158,11 @@ func TestDeclaredMIGLayout_PerDeviceOverride(t *testing.T) {
 		Index: 1,
 		DeviceConfig: DeviceConfig{
 			MIG: &MIGConfig{
-				ModeCurrent:  "enabled",
-				ModePending:  "enabled",
-				GPUInstances: []MIGGPUInstanceConfig{{Profile: "2g.10gb", Count: 3}},
+				ModeCurrent:       "enabled",
+				ModePending:       "enabled",
+				MaxGPUInstances:   7,
+				SupportedProfiles: a100SupportedProfiles(),
+				GPUInstances:      []MIGGPUInstanceConfig{{Profile: "2g.10gb", Count: 3}},
 			},
 		},
 	}}

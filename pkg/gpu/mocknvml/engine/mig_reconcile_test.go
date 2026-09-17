@@ -857,6 +857,10 @@ func TestReconcileMIG_ConcurrentCeilingReads(t *testing.T) {
 func a100NodeConfig(mig *MIGConfig) *Config {
 	dev := a100MIGConfig()
 	if mig != nil {
+		// The caller names the partitioning, not the board: the profile table
+		// is what makes this an A100 at all, so it carries over.
+		mig.MaxGPUInstances = dev.MIG.MaxGPUInstances
+		mig.SupportedProfiles = dev.MIG.SupportedProfiles
 		dev.MIG = mig
 	}
 	return &Config{

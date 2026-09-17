@@ -536,6 +536,15 @@ device_defaults:
     mode_current: "enabled"
     mode_pending: "enabled"
     max_gpu_instances: 7
+    # A board is MIG-capable by declaring its profile table, so the row this
+    # layout partitions with has to be in it.
+    supported_profiles:
+      - name: "1g.5gb"
+        nvml_profile: "1_SLICE"
+        instances: 7
+        memory_mb: 4864
+        multiprocessors: 14
+        copy_engines: 1
     gpu_instances:
       - profile: "1g.5gb"
         count: 3
@@ -660,6 +669,14 @@ device_defaults:
   mig:
     mode_current: "enabled"
     mode_pending: "enabled"
+    max_gpu_instances: 7
+    supported_profiles:
+      - name: "1g.5gb"
+        nvml_profile: "1_SLICE"
+        instances: 7
+        memory_mb: 4864
+        multiprocessors: 14
+        copy_engines: 1
     gpu_instances:
       - profile: "1g.5gb"
         count: 1

@@ -108,7 +108,8 @@ func (e *Engine) DeviceGetGpuInstanceProfileName(handle unsafe.Pointer, profile 
 	if err != nil {
 		return "", nvml.ERROR_NOT_SUPPORTED
 	}
-	name, err := migProfileName("", profile, ciProfile, info.MemorySizeMB, dev.memoryInfo().Total)
+	name, err := migProfileName(dev.migState.declaredName(profile),
+		profile, ciProfile, info.MemorySizeMB, dev.memoryInfo().Total)
 	if err != nil {
 		return "", nvml.ERROR_NOT_SUPPORTED
 	}
@@ -137,7 +138,8 @@ func (e *Engine) GpuInstanceGetComputeInstanceProfileName(
 		return "", nvml.ERROR_NOT_SUPPORTED
 	}
 	name, err := migProfileName(
-		"", int(giInfo.ProfileId), profile, giProfile.MemorySizeMB, dev.memoryInfo().Total)
+		dev.migState.declaredName(int(giInfo.ProfileId)),
+		int(giInfo.ProfileId), profile, giProfile.MemorySizeMB, dev.memoryInfo().Total)
 	if err != nil {
 		return "", nvml.ERROR_NOT_SUPPORTED
 	}

@@ -15,12 +15,15 @@ package engine
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"testing"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/NVIDIA/go-nvml/pkg/nvml/mock/gpus"
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
 )
 
 // migGoldenBoard is one shipped GPU profile, named the way the YAML names it.
@@ -42,8 +45,8 @@ var migGoldenBoards = []migGoldenBoard{
 }
 
 // migGoldenRow is the part of a profile that must survive the move to YAML
-// unchanged. Engine counts are deliberately absent: NVIDIA's published tables
-// disagree with go-nvml's, and correcting them is part of this change.
+// unchanged. Engine counts are deliberately absent: go-nvml's tables disagree
+// with NVIDIA's published ones, and are corrected separately.
 type migGoldenRow struct {
 	Name          string
 	SliceCount    uint32
@@ -52,21 +55,45 @@ type migGoldenRow struct {
 	Placements    []string
 }
 
+// migConfigOfShippedProfile reads a board's MIG block out of the profile the
+// chart ships, through the same decode and validation the library performs at
+// load. Reading the shipped file rather than a fixture is the point: these
+// tests assert what a user of the chart gets.
+func migConfigOfShippedProfile(t *testing.T, profile string) *MIGConfig {
+	t.Helper()
+
+	path := filepath.Join("../../../../deployments/nvml-mock/helm/nvml-mock/profiles", profile+".yaml")
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	var cfg YAMLConfig
+	require.NoError(t, yaml.Unmarshal(raw, &cfg))
+	require.NoError(t, validateYAMLConfig(&cfg))
+
+	return cfg.DeviceDefaults.MIG
+}
+
 // migGoldenSnapshot renders the board's profile table in a form a diff can
 // read, keyed by the NVML profile enum.
 func migGoldenSnapshot(t *testing.T, b migGoldenBoard) map[int]migGoldenRow {
 	t.Helper()
 
-	profiles, _, supported := resolveMIGProfiles(b.deviceName, b.memoryBytes)
-	require.True(t, supported, "%s must be MIG-capable", b.profile)
+	migCfg := migConfigOfShippedProfile(t, b.profile)
+	profiles, _, supported := migProfilesFromConfig(migCfg, b.memoryBytes)
+	require.True(t, supported, "%s must declare a MIG profile table", b.profile)
 
 	snapshot := make(map[int]migGoldenRow, len(profiles.GpuInstanceProfiles))
 	for profileEnum, info := range profiles.GpuInstanceProfiles {
-		name, err := migProfileName("", profileEnum, ciProfileSpanningGI(t, profiles, profileEnum), info.MemorySizeMB, b.memoryBytes)
+		name, err := migProfileName(declaredProfileNames(migCfg)[profileEnum],
+			profileEnum, ciProfileSpanningGI(t, profiles, profileEnum),
+			info.MemorySizeMB, b.memoryBytes)
 		require.NoError(t, err)
 
+		// Keyed by the profile enum, not info.Id. They hold the same value
+		// today, but the two are different things: one is NVML's profile
+		// identity, the other is the id a board reports for it.
 		placements := []string{}
-		for _, p := range profiles.GpuInstancePlacements[int(info.Id)] {
+		for _, p := range profiles.GpuInstancePlacements[profileEnum] {
 			placements = append(placements, fmt.Sprintf("%d:%d", p.Start, p.Size))
 		}
 		sort.Strings(placements)
@@ -84,12 +111,16 @@ func migGoldenSnapshot(t *testing.T, b migGoldenBoard) map[int]migGoldenRow {
 
 // ciProfileSpanningGI returns the compute-instance profile that fills the whole
 // GPU instance, which is the one whose name carries no "Nc." prefix.
+//
+// The widest is taken strictly, so a tie cannot be broken by map iteration
+// order: two profiles of equal slice count render the same name today, which
+// would make this pick arbitrarily and the test intermittent later.
 func ciProfileSpanningGI(t *testing.T, profiles gpus.MIGProfileConfig, giProfileEnum int) int {
 	t.Helper()
 
 	widest, widestSlices := -1, uint32(0)
 	for ciEnum, ci := range profiles.ComputeInstanceProfiles[giProfileEnum] {
-		if ci.SliceCount >= widestSlices {
+		if ci.SliceCount > widestSlices {
 			widest, widestSlices = ciEnum, ci.SliceCount
 		}
 	}

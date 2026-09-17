@@ -143,7 +143,7 @@ func (st *migState) gpuInstanceProfileNameLocked(parent *ConfigurableDevice, giP
 		return ""
 	}
 	name, err := migProfileName(
-		"", giProfileID, ciProfileID,
+		st.declaredName(giProfileID), giProfileID, ciProfileID,
 		st.profiles.GpuInstanceProfiles[giProfileID].MemorySizeMB,
 		parent.effectiveMemoryInfo().Total,
 	)

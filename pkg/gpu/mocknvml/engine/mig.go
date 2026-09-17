@@ -54,6 +54,9 @@ type migState struct {
 
 	// profiles are the board's GPU- and compute-instance profile tables.
 	profiles gpus.MIGProfileConfig
+	// declaredNames is the board's own spelling of each profile it declares,
+	// which is what a partition is named by. Immutable after construction.
+	declaredNames map[int]string
 	// profileIDs translates between the profile enum those tables are keyed by
 	// and the profile ID the board reports. Held here rather than applied to
 	// the tables because go-nvml's tables are package-level and shared:
@@ -96,6 +99,16 @@ type migIdentity struct {
 	attrs  nvml.DeviceAttributes
 }
 
+// declaredName is the board's own spelling of a GPU instance profile, or ""
+// for a profile it does not declare — which leaves migProfileName computing
+// the name. Safe on a device with no MIG state at all.
+func (st *migState) declaredName(giProfileEnum int) string {
+	if st == nil {
+		return ""
+	}
+	return st.declaredNames[giProfileEnum]
+}
+
 // resolveMaxGPUInstances returns the board's MIG device ceiling from config,
 // defaulting to the narrowest GPU-instance placement count when the config
 // names no ceiling. Real NVML reports this as a static capability independent
@@ -116,13 +129,19 @@ func resolveMaxGPUInstances(migCfg *MIGConfig, supported bool, profiles gpus.MIG
 // profile, materializing any declared partitions. Called once per device at
 // construction.
 func (d *ConfigurableDevice) initMIG(config *DeviceConfig) {
-	profiles, profileIDs, supported := resolveMIGProfiles(d.Config.Name, d.memoryInfo().Total)
+	var migCfg *MIGConfig
+	if config != nil {
+		migCfg = config.MIG
+	}
+
+	profiles, profileIDs, supported := migProfilesFromConfig(migCfg, d.memoryInfo().Total)
 
 	st := &migState{
-		profiles:   profiles,
-		profileIDs: profileIDs,
-		supported:  supported,
-		devices:    make(map[migInstanceKey]*ConfigurableDevice),
+		profiles:      profiles,
+		declaredNames: declaredProfileNames(migCfg),
+		profileIDs:    profileIDs,
+		supported:     supported,
+		devices:       make(map[migInstanceKey]*ConfigurableDevice),
 	}
 
 	// The embedded mock device stamps each GPU instance it creates with these
@@ -131,10 +150,6 @@ func (d *ConfigurableDevice) initMIG(config *DeviceConfig) {
 	// built from.
 	d.Config.MIGProfiles = profiles
 
-	var migCfg *MIGConfig
-	if config != nil {
-		migCfg = config.MIG
-	}
 	if migCfg != nil {
 		if migCfg.ModeCurrent == migModeEnabled {
 			st.mode = nvml.DEVICE_MIG_ENABLE
@@ -326,7 +341,8 @@ func (d *ConfigurableDevice) resolveMigProfileByName(name string) (int, int, err
 			if _, ok := ciProfiles[ciProfileID]; !ok {
 				continue
 			}
-			candidate, err := migProfileName("", giProfileID, ciProfileID, giProfile.MemorySizeMB, deviceMemory)
+			candidate, err := migProfileName(st.declaredName(giProfileID),
+				giProfileID, ciProfileID, giProfile.MemorySizeMB, deviceMemory)
 			if err != nil {
 				continue
 			}
@@ -648,7 +664,8 @@ func (st *migState) newMigDeviceLocked(
 
 	name := parent.Config.Name
 	if profileName, err := migProfileName(
-		"", int(gi.Info.ProfileId), int(ci.Info.ProfileId), giProfile.MemorySizeMB, parent.effectiveMemoryInfo().Total,
+		st.declaredName(int(gi.Info.ProfileId)),
+		int(gi.Info.ProfileId), int(ci.Info.ProfileId), giProfile.MemorySizeMB, parent.effectiveMemoryInfo().Total,
 	); err == nil {
 		// Real NVML spells a MIG device's name as the board followed by its
 		// partition, e.g. "NVIDIA A100-SXM4-40GB MIG 1g.5gb".
