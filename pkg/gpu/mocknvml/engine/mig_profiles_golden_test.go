@@ -121,8 +121,9 @@ func migGoldenSnapshot(t *testing.T, b migGoldenBoard) map[int]migGoldenRow {
 // in a form a diff can read. The media-extension 1-slice profile is spelled
 // "+me" because it is the one entry a slice count alone cannot distinguish.
 func migGoldenComputeInstances(profiles gpus.MIGProfileConfig, giProfileEnum int) []string {
-	rows := []string{}
-	for ciEnum, ci := range profiles.ComputeInstanceProfiles[giProfileEnum] {
+	offered := profiles.ComputeInstanceProfiles[giProfileEnum]
+	rows := make([]string, 0, len(offered))
+	for ciEnum, ci := range offered {
 		suffix := ""
 		if ciEnum == nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE_REV1 {
 			suffix = "+me"
@@ -264,7 +265,10 @@ func TestMIGProfiles_AFullBoardPartitionSpansTheBoard(t *testing.T) {
 				migConfigOfShippedProfile(t, board.profile), board.memoryBytes)
 			require.True(t, supported)
 
-			fullBoard := profiles.GpuInstanceProfiles[nvml.GPU_INSTANCE_PROFILE_7_SLICE]
+			// The widest profile the board declares, not a hardcoded 7-slice
+			// one: a 4-slice board such as an A30 — which the profile-ID
+			// tables already anticipate — fills its board with 4g.
+			fullBoard := widestDeclaredProfile(t, profiles)
 			capacityMB := board.memoryBytes / oneMiB
 
 			require.LessOrEqual(t, fullBoard.MemorySizeMB, capacityMB,
@@ -276,4 +280,19 @@ func TestMIGProfiles_AFullBoardPartitionSpansTheBoard(t *testing.T) {
 				"a full-board partition leaves too much of the board unreachable")
 		})
 	}
+}
+
+// widestDeclaredProfile returns the GPU instance profile spanning the most
+// slices, which is the one that fills the board.
+func widestDeclaredProfile(t *testing.T, profiles gpus.MIGProfileConfig) nvml.GpuInstanceProfileInfo {
+	t.Helper()
+
+	var widest nvml.GpuInstanceProfileInfo
+	for _, info := range profiles.GpuInstanceProfiles {
+		if info.SliceCount > widest.SliceCount {
+			widest = info
+		}
+	}
+	require.NotZero(t, widest.SliceCount, "board declares no GPU instance profile")
+	return widest
 }

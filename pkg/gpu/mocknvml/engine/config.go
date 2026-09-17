@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -416,10 +417,53 @@ func validateMIGProfileSpec(spec MIGProfileSpec, maxGPUInstances int) error {
 	if spec.MemoryMB == 0 {
 		return errors.New("memory_mb must be greater than 0")
 	}
+	if err := validateMIGProfileMemoryMatchesName(spec); err != nil {
+		return err
+	}
 	// A 2-slice profile fits a 7-slice board three times, not seven.
 	if fits := maxGPUInstances / span; spec.Instances < 1 || spec.Instances > fits {
 		return fmt.Errorf("instances must be between 1 and %d for a %d-slice profile on a %d-slice board, got %d",
 			fits, span, maxGPUInstances, spec.Instances)
+	}
+	return nil
+}
+
+// migProfileNameSize reads the GB figure out of a profile name — the 139 in
+// "3g.139gb", suffixes and all.
+var migProfileNameSize = regexp.MustCompile(`^\d+g\.(\d+)gb`)
+
+// validateMIGProfileMemoryMatchesName refuses a row whose declared memory
+// contradicts the size its own name advertises.
+//
+// The two are independent literals in the YAML, and only the full-board row is
+// checked arithmetically anywhere else, so without this a row can read
+// `name: 3g.139gb` beside `memory_mb: 92160` — a partition advertising 139 GB
+// and handing over 90 — with every test still green.
+//
+// The comparison is loose on purpose. A name is the raw allocation rounded up
+// to a fraction of the board, and a board holds some memory back, so the two
+// never match exactly: an A100's 1g.5gb holds 4864 MiB and an A30's 4g.24gb
+// holds 23344, 1.2 GiB short. The shortfall scales with the partition, so the
+// slack does too, with a floor for the small ones.
+//
+// A name that does not spell a size is left alone: nothing else constrains the
+// spelling, and inventing a constraint here would refuse a board whose
+// partitions NVIDIA names some other way.
+func validateMIGProfileMemoryMatchesName(spec MIGProfileSpec) error {
+	match := migProfileNameSize.FindStringSubmatch(spec.Name)
+	if match == nil {
+		return nil
+	}
+	namedGB, err := strconv.ParseUint(match[1], 10, 64)
+	if err != nil {
+		return fmt.Errorf("name %q advertises a size that is not a number", spec.Name)
+	}
+
+	namedMB := namedGB * 1024
+	slack := max(namedMB/16, 1024)
+	if spec.MemoryMB+slack < namedMB || spec.MemoryMB > namedMB+slack {
+		return fmt.Errorf("memory_mb %d does not hold the %d GB the name %q advertises",
+			spec.MemoryMB, namedGB, spec.Name)
 	}
 	return nil
 }

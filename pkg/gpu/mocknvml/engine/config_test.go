@@ -713,6 +713,31 @@ func TestValidateMIGConfig_AcceptsAProfileSpanningTheWholeBoard(t *testing.T) {
 	}))
 }
 
+// TestValidateMIGConfig_AcceptsTheRoundingRealBoardsShow guards the loose end
+// of the name/memory cross-check. Real allocations fall short of the size
+// their name advertises, by a margin that grows with the partition: an A100's
+// 1g.5gb holds 4864 MiB and an A30's 4g.24gb holds 23344, 1.2 GiB short. A
+// check tight enough to be exact would refuse both.
+func TestValidateMIGConfig_AcceptsTheRoundingRealBoardsShow(t *testing.T) {
+	t.Parallel()
+
+	require.NoError(t, validateMIGConfig(&MIGConfig{
+		MaxGPUInstances: 7,
+		SupportedProfiles: []MIGProfileSpec{
+			{Name: "1g.5gb", NVMLProfile: "1_SLICE", Instances: 7, MemoryMB: 4864},
+			{Name: "1g.23gb", NVMLProfile: "1_SLICE_REV2", Instances: 4, MemoryMB: 23040},
+			{Name: "7g.40gb", NVMLProfile: "7_SLICE", Instances: 1, MemoryMB: 40192},
+		},
+	}))
+
+	require.NoError(t, validateMIGConfig(&MIGConfig{
+		MaxGPUInstances: 4,
+		SupportedProfiles: []MIGProfileSpec{
+			{Name: "4g.24gb", NVMLProfile: "4_SLICE", Instances: 1, MemoryMB: 23344},
+		},
+	}))
+}
+
 // Every row here decodes cleanly and was accepted before validateMIGProfileSpec
 // existed, which would have put it in the table `nvidia-smi mig -lgip` prints.
 // See that function for what makes each of them impossible.
@@ -743,6 +768,14 @@ func TestValidateMIGConfig_RejectsAProfileThatCannotBeCreated(t *testing.T) {
 			boardSlices: 7,
 			spec:        MIGProfileSpec{Name: "2g.20gb", NVMLProfile: "2_SLICE", Instances: 7, MemoryMB: 20480},
 			wantErr:     "instances must be between 1 and 3 for a 2-slice profile on a 7-slice board, got 7",
+		},
+		// The shape the gb300 memory defect had: a row advertising one size
+		// in its name and holding another. Name and memory are independent
+		// literals, so nothing else in the row contradicts it.
+		"memory that contradicts its own name": {
+			boardSlices: 7,
+			spec:        MIGProfileSpec{Name: "3g.139gb", NVMLProfile: "3_SLICE", Instances: 2, MemoryMB: 92160},
+			wantErr:     `memory_mb 92160 does not hold the 139 GB the name "3g.139gb" advertises`,
 		},
 	}
 
