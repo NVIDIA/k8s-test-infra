@@ -63,14 +63,14 @@ YAML — each row carrying the partition's slices, published profile id,
 placements and compute instances. It is a document of its own, which the chart
 mounts from a ConfigMap of its own; the schema and how the engine finds the
 table are in the
-[`mig:` configuration reference](../../configuration.md#declaring-the-profile-table).
+[`mig:` reference](../../mig.md#declaring-the-profile-table).
 A board whose table does not arrive comes up
-[not MIG-capable](../../configuration.md#a-board-with-no-resolvable-table-is-not-mig-capable),
+[not MIG-capable](../../mig.md#a-board-with-no-resolvable-table-is-not-mig-capable),
 which is the first thing to check if MIG unexpectedly declines on a capable
 board.
 
 Mixed layouts and fixed instance ids are described in
-[Configuration](../../configuration.md#mig).
+[MIG](../../mig.md).
 
 ## Look at the partitions
 
@@ -222,7 +222,7 @@ runtime; see [Limits](#limits). Restart the `nvml-mock` pod on that node.
 
 | To read about | See |
 |---|---|
-| The `mig:` config schema, including per-device layouts and fixed instance ids | [Configuration](../../configuration.md#mig) |
+| The `mig:` config schema, including per-device layouts and fixed instance ids | [MIG](../../mig.md) |
 | Every chart value | [Installation](../../helm-chart.md) |
 | Whole-GPU allocation, and the plugin without MIG | [NVIDIA Device Plugin](../device-plugin.md) |
 | Changing temperature, power or health at runtime | [Runtime control](../../nvml-mock-ctl.md) |

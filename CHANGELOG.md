@@ -99,6 +99,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- docs: the MIG configuration reference has a page of its own,
+  [MIG](docs/mig.md), instead of a section inside
+  [Configuration](docs/configuration.md). It had grown to about a third of that
+  page — the profile table schema, placement geometry, table resolution and
+  both layout forms — which is a subject rather than one more device property.
+  `Configuration` keeps the three `device_defaults.mig` keys and links out.
+  Links into the old anchors, such as `configuration.md#where-the-table-lives`,
+  now live under `mig.md`.
 - nvml-mock: `device_defaults.architecture` now accepts `rubin`, which NVML
   defines and the mock previously resolved to `NVML_DEVICE_ARCH_UNKNOWN`, so a
   Rubin profile failed every architecture-gated feature. Spellings are also
@@ -139,7 +147,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   declares no `supported_profiles` is no longer MIG-capable and answers
   `NVML_ERROR_NOT_SUPPORTED`, the same as `l40s` and `t4`. Every profile the
   chart ships declares its table. See
-  [the `mig:` reference](docs/configuration.md#mig).
+  [the `mig:` reference](docs/mig.md).
 - nvml-mock: every row of the MIG profile table now declares the profile id
   the board publishes for it, under `profile_id` — `19` for an A100's
   `1g.5gb`, copied off the `ID` column of `nvidia-smi mig -lgip`. The ids used
@@ -173,7 +181,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `{start: 0, size: 8}`. `slices` may be omitted, in which case the width comes
   from the row's `nvml_profile` enum, and a declared width that disagrees with
   that enum is refused. See
-  [the `mig:` reference](docs/configuration.md#mig).
+  [the `mig:` reference](docs/mig.md).
 - nvml-mock: a board's MIG profile table now lives in a document of its own
   rather than in the profile that describes the board. `device_defaults.mig`
   keeps `mode_current`, `mode_pending` and `max_gpu_instances` — properties of
@@ -195,7 +203,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not MIG-capable and answers `NVML_ERROR_NOT_SUPPORTED`; that is not a load
   error, and the only trace is a debug-level line naming the path that was
   tried. See
-  [where the table lives](docs/configuration.md#where-the-table-lives).
+  [where the table lives](docs/mig.md#where-the-table-lives).
 
 ### Removed
 
@@ -277,7 +285,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `4c` but not `3c`. Each row therefore declares its own listing under
   `compute_instances`, and `a100` — the reference board — reports exactly what
   go-nvml's table reports. See
-  [the `mig:` reference](docs/configuration.md#mig).
+  [the `mig:` reference](docs/mig.md).
 - nvml-mock: **every MIG profile name on the `b200`, `gb200` and `gb300`
   profiles changes, so a `nvidia.com/mig-*` resource request against these
   boards needs updating.** `b200` and `gb200` now publish the `1g.23gb` family
