@@ -1,0 +1,553 @@
+# Mock NVML Configuration: VR200 NVL (Vera-Rubin Superchip)
+# Full configuration for nvidia-smi -x -q compatibility
+# Use: export MOCK_NVML_CONFIG=/path/to/this/file.yaml
+#
+# Authored from tests/e2e/go/assertions/nvidiasmi/testdata/hardware/qx-vr200.xml,
+# an `nvidia-smi -q -x` capture of a 4-GPU Vera-Rubin tray on driver 615.23 /
+# CUDA 13.4. Where a value could not be read from that capture, the comment on
+# it says so.
+#
+# Driver 615 reports several elements the mock's schema has no field for, and
+# they are therefore absent rather than wrong: the root-level kmd_version and
+# cuda_umd_version that deprecate driver_version/cuda_version, the GPU's pdi,
+# the base-power scope beneath the power ceiling, edpp_multiplier, the bank
+# remapper, dla_clocks, inforom_time_data, ECC unrepairable_memory, the fabric
+# clique list, and the EGM capability.
+
+version: "1.0"
+
+# =============================================================================
+# System-level configuration
+# =============================================================================
+system:
+  driver_version: "615.23"
+  nvml_version: "13.615.23"
+  cuda_version: "13.4"
+  cuda_version_major: 13
+  cuda_version_minor: 4
+
+# Helm-only dynamic-metrics defaults (engine ignores this key). Used when
+# gpu.dynamicMetrics.enabled=true; base sits inside the power limits so it varies.
+dynamic_metrics_defaults:
+  power:
+    base_mw: 400000                 # 400W, the idle draw the capture's four GPUs averaged
+    variance_mw: 25000              # spans the 394W-414W spread they reported
+
+# =============================================================================
+# Default device configuration (applied to all devices unless overridden)
+# =============================================================================
+device_defaults:
+  # ---------------------------------------------------------------------------
+  # Basic identification
+  #
+  # The capture reports "NVIDIA Graphics Device", which is what a board whose
+  # marketing name has not shipped in the driver's product table reports, and
+  # is kept because consumers meet exactly that on pre-release silicon. Set
+  # `name` in an override if a test needs a recognisable product string.
+  # ---------------------------------------------------------------------------
+  name: "NVIDIA Graphics Device"
+  brand: "nvidia"
+  serial: "1650000000001"
+  board_part_number: "699-2G558-3201-TS3"
+  vbios_version: "99.00.1B.00.00"
+
+  # ---------------------------------------------------------------------------
+  # Architecture
+  #
+  # The capture does not include compute capability. The CUDA 13.4 developer
+  # preview identifies Rubin as compute capability 10.7 (sm_107); support there
+  # is functional preview only, ahead of a GA release:
+  # https://docs.nvidia.com/cuda/developer-preview/13.4/cuda-toolkit-release-notes/
+  #
+  # num_gpu_cores is omitted rather than guessed: the capture does not report
+  # it, and no getter reads the field.
+  # ---------------------------------------------------------------------------
+  architecture: "rubin"
+  compute_capability:
+    major: 10
+    minor: 7
+
+  # ---------------------------------------------------------------------------
+  # NVLink fabric. clique_id is the value the captured tray reported, which is
+  # the default clique of an unpartitioned fabric rather than a rack-specific
+  # id. Both it and cluster_uuid are rewritten per node by the topology-overlay
+  # step when Helm value `topology.enabled=true`; nodes absent from the topology
+  # keep these. See pkg/gpu/mocknvml/engine/fabric.go.
+  # ---------------------------------------------------------------------------
+  fabric:
+    cluster_uuid: "00000000-0000-0000-0000-000000000001"
+    clique_id: 32766
+    state: "auto"                   # couple GPU fabric registration to fake fabricmanager readiness
+    # Health defaults to a healthy fabric, which is what the capture reported
+    # (Summary: Healthy, Bandwidth: Full). Add a `health:` block to fault a
+    # specific condition, or use `nvml-mock-ctl fabric-health` at runtime.
+
+  # ---------------------------------------------------------------------------
+  # Platform identity — where this node sits in the rack, which nvidia-smi -q
+  # renders as its "Platform Info" block and rack-scale fault correlation reads
+  # to turn a GPU fault into a physical location.
+  #
+  # The captured tray sits low in a development rack (slot 2, compute tray 1)
+  # rather than in a full NVL72, so slot_number does not run ahead of
+  # tray_index the way it does on a rack with switch trays below this one.
+  # Only module_id varies per GPU; the rest describe the node.
+  # ---------------------------------------------------------------------------
+  platform:
+    chassis_serial_number: "1820000000001"
+    slot_number: 2
+    tray_index: 1
+    host_id: 1                      # the tray's OS domain; all its GPUs report it
+    peer_type: "switch_connected"   # peers reached through the NVSwitch trays
+
+  # ---------------------------------------------------------------------------
+  # InfoROM versions. pwr_object is absent because the capture reports N/A.
+  # ---------------------------------------------------------------------------
+  inforom:
+    image_version: "G558.0200.00.01"
+    oem_object: "2.1"
+    ecc_object: "7.16"
+
+  # ---------------------------------------------------------------------------
+  # Memory — the 288 GB of HBM4 NVIDIA publishes for Rubin, and a 512 GiB BAR1
+  # aperture. total_bytes carries that nameplate capacity the way every other
+  # profile carries its own, not the 286524 MiB the capture's sample reports
+  # usable after its carveout. The bus width is not in the capture; 16384 bits
+  # follows HBM4 doubling the interface width of HBM3e.
+  # ---------------------------------------------------------------------------
+  memory:
+    total_bytes: 309237645312       # 288 GiB: 8 HBM4 stacks, 12-Hi, 36 GiB each
+    reserved_bytes: 1339031552      # 1277 MiB, the reserve the capture reports
+    free_bytes: 307898613760        # total - reserved at idle
+    used_bytes: 0
+    memory_bus_width: 16384
+
+  bar1_memory:
+    total_bytes: 549755813888       # 512 GiB
+    free_bytes: 549755813888
+    used_bytes: 0
+
+  # ---------------------------------------------------------------------------
+  # PCI configuration
+  # ---------------------------------------------------------------------------
+  pci:
+    device_id: 0x307F10DE
+    subsystem_id: 0x221A10DE
+
+  pcie:
+    max_link_gen: 6                 # PCIe Gen6, or NVLink-C2C to the Vera CPU
+    current_link_gen: 6
+    max_link_width: 16              # x16
+    current_link_width: 2           # the capture's links were narrowed at idle
+    replay_counter: 0
+    tx_throughput_kbps: 0
+    rx_throughput_kbps: 0
+
+  # ---------------------------------------------------------------------------
+  # Power. Rubin splits the envelope in two, and only the ceiling fits the
+  # schema: the capture reports a 2300W ceiling alongside a 2100W base power
+  # (the sustained scope, which the mock cannot express and so does not
+  # report). current_draw_mw is the idle draw the capture's GPUs averaged.
+  # ---------------------------------------------------------------------------
+  power:
+    management_supported: true
+    management_mode: "enabled"
+    default_limit_mw: 2300000       # 2300W ceiling
+    enforced_limit_mw: 2300000
+    min_limit_mw: 200000            # 200W floor
+    max_limit_mw: 2300000
+    current_draw_mw: 400000         # 400W idle (liquid cooled)
+    power_state: "P5"
+    total_energy_consumption_mj: 1000000  # millijoules since boot
+
+  # ---------------------------------------------------------------------------
+  # Thermal. Rubin reports T.Limit margins rather than absolute temperatures,
+  # and the mock derives them from these thresholds: the margin nvidia-smi
+  # prints as "GPU T.Limit Temp" is slowdown minus current, so 85 - 30 gives
+  # the 55 C the capture reported, and the shutdown offset lands on its -5 C.
+  #
+  # The capture puts slowdown 2 C above its reference rather than on it, which
+  # the mock cannot reproduce: it uses the slowdown threshold AS the reference,
+  # so the slowdown offset is always 0 where the capture reports -2 C.
+  #
+  # memory_temp and the target temperature are absent because the capture
+  # reports N/A for both.
+  # ---------------------------------------------------------------------------
+  thermal:
+    temperature_gpu_c: 30           # idle temperature (liquid cooled)
+    shutdown_threshold_c: 90
+    slowdown_threshold_c: 85
+    max_operating_c: 85
+
+  # ---------------------------------------------------------------------------
+  # Fan configuration (N/A - liquid cooled)
+  # ---------------------------------------------------------------------------
+  fan:
+    count: 0
+    speed_percent: "N/A"
+    target_speed_percent: "N/A"
+
+  # ---------------------------------------------------------------------------
+  # Clock speeds (MHz). The application-clock rows are set to the boost clocks
+  # for consumers that read them, but driver 615 answers the underlying API as
+  # deprecated, so a real Rubin node prints that string rather than a value.
+  # ---------------------------------------------------------------------------
+  clocks:
+    graphics_current: 120           # idle
+    graphics_max: 2424              # boost
+    graphics_app: 2424
+    graphics_app_default: 2424
+    sm_current: 120
+    sm_max: 2424
+    memory_current: 3186            # HBM4 idles a step below its top bin
+    memory_max: 4752
+    memory_app: 4752
+    memory_app_default: 4752
+    video_current: 744
+    video_max: 2412
+
+  # ---------------------------------------------------------------------------
+  # Clocks throttle reasons
+  # ---------------------------------------------------------------------------
+  clocks_throttle_reasons:
+    gpu_idle: true
+    applications_clocks_setting: false
+    sw_power_cap: false
+    hw_slowdown: false
+    hw_thermal_slowdown: false
+    hw_power_brake_slowdown: false
+    sync_boost: false
+    sw_thermal_slowdown: false
+    display_clocks_setting: false
+
+  # ---------------------------------------------------------------------------
+  # Supported clocks. The capture offers three memory bins, each against the
+  # same 193-step graphics ladder from 120 to 2424 MHz; the ladder is thinned
+  # to its endpoints and a few steps between, as the other profiles do.
+  # ---------------------------------------------------------------------------
+  supported_clocks:
+    memory_clocks:
+      - freq_mhz: 4752
+        graphics_clocks: [120, 612, 1200, 1812, 2124, 2412, 2424]
+      - freq_mhz: 3996
+        graphics_clocks: [120, 612, 1200, 1812, 2124, 2412, 2424]
+      - freq_mhz: 3186
+        graphics_clocks: [120, 612, 1200, 1812, 2124, 2412, 2424]
+
+  # ---------------------------------------------------------------------------
+  # Performance state
+  # ---------------------------------------------------------------------------
+  performance_state: "P5"
+
+  # ---------------------------------------------------------------------------
+  # Utilization (percentage, 0-100)
+  # ---------------------------------------------------------------------------
+  utilization:
+    gpu: 0
+    memory: 0
+    encoder: 0
+    decoder: 0
+    jpeg: 0
+    ofa: 0
+
+  # ---------------------------------------------------------------------------
+  # Dynamic utilization (#506)
+  #
+  # Live without any Helm overlay, so `utilization.gpu` -- and every
+  # DCGM_FI_PROF_* fraction derived from it -- is never a constant 0.
+  # The driver is elapsed time, NOT workload: these numbers move on a fully
+  # idle node and do not rise under load. gpu_min is deliberately > 0 so
+  # "utilization is reported" is a deterministic assertion, not a flaky one.
+  # ---------------------------------------------------------------------------
+  dynamic_metrics:
+    utilization:
+      pattern: "steady"
+      gpu_min: 10
+      gpu_max: 45
+      memory_min: 5
+      memory_max: 25
+
+  # ---------------------------------------------------------------------------
+  # Encoder/Decoder statistics
+  # ---------------------------------------------------------------------------
+  encoder_stats:
+    session_count: 0
+    average_fps: 0
+    average_latency_us: 0
+
+  fbc_stats:
+    session_count: 0
+    average_fps: 0
+    average_latency_us: 0
+
+  # ---------------------------------------------------------------------------
+  # ECC. Driver 615 drops the per-location DRAM breakdown for a DRAM/SRAM
+  # split, so device_memory carries the DRAM counters and the sram block the
+  # rest. The zeros are spelled out so nvidia-smi reports counts on a healthy
+  # GPU rather than N/A.
+  # ---------------------------------------------------------------------------
+  ecc:
+    mode_current: "enabled"
+    mode_pending: "enabled"
+    default_mode: "enabled"
+    errors:
+      volatile:
+        single_bit:
+          device_memory: 0
+          total: 0
+        double_bit:
+          device_memory: 0
+          total: 0
+      aggregate:
+        single_bit:
+          device_memory: 0
+          total: 0
+        double_bit:
+          device_memory: 0
+          total: 0
+    sram:
+      volatile:
+        correctable: 0
+        uncorrectable_parity: 0
+        uncorrectable_secded: 0
+      aggregate:
+        correctable: 0
+        uncorrectable_parity: 0
+        uncorrectable_secded: 0
+      uncorrectable_sources:
+        l2: 0
+        sm: 0
+        microcontroller: 0
+        pcie: 0
+        other: 0
+
+  # Retired pages have no block here on purpose: the capture reports N/A for
+  # every row, because Rubin retires memory by remapping rows rather than
+  # pages, and an absent block is how the mock reports the feature unsupported.
+
+  # ---------------------------------------------------------------------------
+  # Remapped rows. The histogram max is the spare-row capacity of a GPU that
+  # has never remapped, which is what the capture reported.
+  # ---------------------------------------------------------------------------
+  remapped_rows:
+    correctable: 0
+    uncorrectable: 0
+    pending: false
+    failure_occurred: false
+    availability_histogram:
+      max: 12096
+      high: 0
+      partial: 0
+      low: 0
+      none: 0
+
+  # ---------------------------------------------------------------------------
+  # Display configuration
+  # ---------------------------------------------------------------------------
+  display:
+    mode: "disabled"
+    active: "disabled"
+
+  # ---------------------------------------------------------------------------
+  # Persistence mode
+  # ---------------------------------------------------------------------------
+  persistence_mode: "enabled"
+
+  # ---------------------------------------------------------------------------
+  # Compute mode
+  # ---------------------------------------------------------------------------
+  compute_mode: "default"
+
+  # ---------------------------------------------------------------------------
+  # MIG. The capture reports it disabled and does not expose the instance
+  # count, so max_gpu_instances is left unset rather than carried over from
+  # Blackwell.
+  # ---------------------------------------------------------------------------
+  mig:
+    mode_current: "disabled"
+    mode_pending: "disabled"
+
+  # GPU operation mode has no block here because the capture reports N/A for
+  # both the current and pending mode, as every board that cannot switch does.
+
+  # ---------------------------------------------------------------------------
+  # Driver model (Windows only)
+  # ---------------------------------------------------------------------------
+  driver_model:
+    current: "N/A"
+    pending: "N/A"
+
+  # ---------------------------------------------------------------------------
+  # Accounting mode
+  # ---------------------------------------------------------------------------
+  accounting:
+    mode: "disabled"
+    buffer_size: 4000
+
+  # ---------------------------------------------------------------------------
+  # Virtualization
+  # ---------------------------------------------------------------------------
+  virtualization:
+    mode: "none"
+    host_vgpu_mode: "N/A"
+
+  # ---------------------------------------------------------------------------
+  # GSP Firmware
+  # ---------------------------------------------------------------------------
+  gsp_firmware:
+    mode: "enabled"
+    version: "615.23"
+
+  # ---------------------------------------------------------------------------
+  # Only nvlink_c2c is claimed here, because the capture backs it (C2C Mode:
+  # Enabled) and the rest of this block is descriptive metadata no getter
+  # reads. See FeaturesConfig on why unread claims are left out.
+  # ---------------------------------------------------------------------------
+  features:
+    nvlink_c2c: true
+
+  # ---------------------------------------------------------------------------
+  # CPU pairing. The capture reports nothing about the Vera CPU this superchip
+  # pairs two Rubin GPUs with, so only the coherent NVLink-C2C attachment it
+  # does evidence is set; the core count and memory size are left out rather
+  # than guessed.
+  # ---------------------------------------------------------------------------
+  cpu:
+    type: "vera"                    # NVLink-C2C attached Vera, not a PCIe host
+    coherent_memory: true           # NVLink-C2C coherent memory
+
+  # ---------------------------------------------------------------------------
+  # Processes (empty at idle)
+  # ---------------------------------------------------------------------------
+  processes: []
+
+# =============================================================================
+# Device-specific overrides
+#
+# Four GPUs, because that is what the captured Vera-Rubin tray presents to one
+# OS domain: two superchips, so 2 Vera CPUs and 4 Rubin GPUs.
+#
+# Two properties of the capture are deliberately reproduced, because a consumer
+# that assumes them away breaks on real hardware:
+#
+#   - Each Vera superchip is its own PCI domain, so the bus IDs are the first
+#     in any shipped profile with a non-zero domain. Profiles declare the
+#     canonical Linux sysfs BDF and the engine widens the domain to the 8 digits
+#     NVML's busId uses.
+#   - minor_number does not follow the device index (the capture reports
+#     0, 3, 1, 2 across devices 0..3), and the two GPUs of a superchip report
+#     the same board serial.
+# =============================================================================
+devices:
+  - index: 0
+    uuid: "GPU-307f0000-0000-0000-0000-000000000000"
+    serial: "1650000000001"         # superchip board serial, shared with GPU 1
+    pci:
+      bus_id: "0002:81:00.0"
+    minor_number: 0
+    grace_cpu_pair: 0               # paired with Vera CPU 0
+    platform:
+      module_id: 1                  # ID of this GPU within the node
+
+  - index: 1
+    uuid: "GPU-307f0000-0000-0000-0000-000000000001"
+    serial: "1650000000001"
+    pci:
+      bus_id: "0002:C1:00.0"
+    minor_number: 3
+    grace_cpu_pair: 0               # same superchip as GPU 0
+    platform:
+      module_id: 2
+
+  - index: 2
+    uuid: "GPU-307f0000-0000-0000-0000-000000000002"
+    serial: "1650000000002"         # second superchip, shared with GPU 3
+    pci:
+      bus_id: "000A:81:00.0"
+    minor_number: 1
+    grace_cpu_pair: 1
+    platform:
+      module_id: 3
+
+  - index: 3
+    uuid: "GPU-307f0000-0000-0000-0000-000000000003"
+    serial: "1650000000002"
+    pci:
+      bus_id: "000A:E1:00.0"
+    minor_number: 2
+    grace_cpu_pair: 1
+    platform:
+      module_id: 4
+
+# =============================================================================
+# NVLink topology - NVLink 6.
+#
+# The capture establishes switch-attached peers and C2C, but no link inventory.
+# Model the 3,600 GB/s bidirectional GPU bandwidth in NVIDIA's Rubin architecture
+# article using 18 links at 100 GB/s each way. The link count and four switch
+# endpoints are simulation assumptions, not a captured physical topology.
+# This profile targets that article; NVIDIA's product page lists 3,000 GB/s
+# instead. The aggregate alone cannot establish the physical link layout.
+# https://developer.nvidia.com/blog/inside-nvidia-rubin-gpu-architecture-powering-the-era-of-agentic-ai/
+# =============================================================================
+nvlink:
+  version: 6
+  links_per_gpu: 18
+  bandwidth_per_link_mbps: 100000   # 100 GB/s/link unidirectional; 18 links ~= 1.8 TB/s/GPU (3.6 TB/s bidir)
+  c2c_enabled: true                 # NVLink-C2C to the Vera CPU
+  # Switch-link auto-expansion: because switches are declared and
+  # links_per_gpu > 0 (and no explicit per-device links exist), the engine
+  # synthesizes 18 active links per GPU fanned round-robin across these
+  # NVSwitches. Every switch-attached link reaches all peers through the
+  # shared fabric, so `nvidia-smi topo -m` shows NV18 between every GPU pair.
+  # Fabric-manager readiness is coupled via device_defaults.fabric.state: auto.
+  switches:
+    - bdf: "0000:01:00.0"
+      uuid: "NVSwitch-VR200-0000-0000-0000-000000000000"
+    - bdf: "0000:02:00.0"
+      uuid: "NVSwitch-VR200-0000-0000-0000-000000000001"
+    - bdf: "0000:03:00.0"
+      uuid: "NVSwitch-VR200-0000-0000-0000-000000000002"
+    - bdf: "0000:04:00.0"
+      uuid: "NVSwitch-VR200-0000-0000-0000-000000000003"
+
+# =============================================================================
+# InfiniBand topology — ConnectX-9 XDR, 800 Gb/s per port and 1.6 Tb/s per GPU.
+# The renderer exposes one port per HCA, so two single-port endpoints per GPU
+# model the published aggregate. This is not a measured adapter inventory.
+# Firmware is a published ConnectX-9 release, not a value from the GPU capture.
+# The board PSID is unknown; explicit N/A prevents the ConnectX-7 default.
+# https://networking-docs.nvidia.com/connectx9fwrn/82.50.1002
+# https://github.com/Mellanox/mstflint/blob/master/kernel/mst_main.c
+# =============================================================================
+infiniband:
+  enabled: true
+  hca_type: "MT4133"                # ConnectX-9 PCI device ID 4133
+  fw_version: "82.50.1002"
+  hw_rev: "0x0"                     # synthetic hardware revision
+  board_id: "N/A"
+  link_layer: "InfiniBand"
+  rate_gbps: 800                    # XDR per port, not the per-GPU aggregate
+  port_state: "ACTIVE"
+  phys_state: "LinkUp"
+  hcas_per_gpu: 2                   # 2 x 800 Gb/s = 1.6 Tb/s per GPU
+  guid_prefix: "9b88c2:0301:cd"
+  node_desc_template: "{node_name} mlx5_{idx}"
+
+# =============================================================================
+# PCIe topology (consumed by render-pci-sysfs to materialize
+# /sys/bus/pci/devices/<bdf> -> ../../../devices/pciDDDD:BB/<bdf> symlinks
+# and per-device numa_node files). One root complex per Vera+2xRubin superchip,
+# each in its own PCI domain and NUMA-aligned per superchip.
+# =============================================================================
+pcie_topology:
+  root_complexes:
+    - id: "pci0002:80"
+      numa_node: 0
+      devices:
+        - "0002:81:00.0"
+        - "0002:C1:00.0"
+    - id: "pci000a:80"
+      numa_node: 1
+      devices:
+        - "000A:81:00.0"
+        - "000A:E1:00.0"

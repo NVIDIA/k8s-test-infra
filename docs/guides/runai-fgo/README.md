@@ -47,7 +47,7 @@ match exactly, and each is fatal on its own:
 | Namespace | FGO's own release namespace | `NotFound` — the loader has no cross-namespace fallback |
 
 Because the names carry no release prefix, two Mokka releases in one namespace
-collide on these seven ConfigMaps. Enable the integration on one release per
+collide on these eight ConfigMaps. Enable the integration on one release per
 namespace.
 
 !!! warning "Set FGO's `builtinProfiles.enabled=false` first"
@@ -124,7 +124,7 @@ EOF
 
 `backend: mock` hands the pool to Mokka; `backend: fake` keeps it on FGO's own
 shim. `builtinProfiles.enabled=false` is what lets this install succeed at all
-now that Mokka owns those seven ConfigMap names — see
+now that Mokka owns those eight ConfigMap names — see
 [the discovery contract](#the-discovery-contract).
 
 ## Step 4 — Verify

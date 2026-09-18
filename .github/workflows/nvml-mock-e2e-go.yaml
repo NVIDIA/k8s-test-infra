@@ -47,7 +47,7 @@ on:
       gpu_profiles:
         required: false
         type: string
-        default: '["a100", "h100", "b200", "gb200", "gb300", "t4"]'
+        default: '["a100", "h100", "b200", "gb200", "gb300", "t4", "vr200"]'
       golang_version:
         required: true
         type: string

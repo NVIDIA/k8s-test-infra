@@ -8,7 +8,7 @@
 # path. See docs/guides/runai-fgo/README.md for the tested version pair
 # and for the builtinProfiles prerequisite that targetNamespace implies.
 {{- if .Values.integrations.fakeGpuOperator.enabled }}
-{{- $profiles := list "a100" "h100" "b200" "gb200" "gb300" "l40s" "t4" }}
+{{- $profiles := list "a100" "h100" "b200" "gb200" "gb300" "l40s" "t4" "vr200" }}
 {{- $targetNS := default $.Release.Namespace $.Values.integrations.fakeGpuOperator.targetNamespace }}
 {{- range $profile := $profiles }}
 {{- $content := $.Files.Get (printf "profiles/%s.yaml" $profile) }}

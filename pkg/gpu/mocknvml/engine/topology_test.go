@@ -335,6 +335,7 @@ func TestNodeFabric_BuiltinProfiles(t *testing.T) {
 	}{
 		{"gb200", 18, true}, // NVLink5, 4 NVSwitches -> NV18 all-to-all
 		{"gb300", 18, true},
+		{"vr200", 18, true}, // NVLink6, 4 NVSwitches -> NV18
 		{"h100", 18, true}, // HGX H100, 4 NVSwitches -> NV18
 		{"a100", 12, true}, // DGX A100, 6 NVSwitches -> NV12
 		{"b200", 0, false}, // standalone: negative control, no NVLink fabric

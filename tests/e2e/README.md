@@ -282,9 +282,9 @@ others. `e2e-nfd` is pinned to `a100`; `e2e-multi-node` has no matrix and uses
 its own fixed A100/T4 topology. There is no validator job.
 
 Pull requests get the full matrix — `a100`, `h100`, `b200`, `gb200`, `gb300`,
-`t4`. Manual `workflow_dispatch` defaults to `gb200` alone for a fast run. The
-`l40s` profile is supported by the chart and the `profile` package but appears
-in no CI matrix, so it is only ever exercised locally.
+`t4`, `vr200`. Manual `workflow_dispatch` defaults to `gb200` alone for a fast
+run. The `l40s` profile is supported by the chart and the `profile` package but
+appears in no CI matrix, so it is only ever exercised locally.
 
 CI stages [`ci/nvml-mock.values.yaml`](ci/nvml-mock.values.yaml) as Tilt's
 local-override values file, which turns on dynamic metrics with a fixed seed and
