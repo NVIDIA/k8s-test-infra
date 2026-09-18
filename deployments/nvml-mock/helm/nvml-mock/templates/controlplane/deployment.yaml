@@ -58,6 +58,9 @@ spec:
             - --workers={{ .Values.controlPlane.workers }}
             - --kube-api-qps={{ .Values.controlPlane.kubeAPIQPS }}
             - --kube-api-burst={{ .Values.controlPlane.kubeAPIBurst }}
+            {{- if .Values.featureGates.controlPlane }}
+            - --feature-gates={{ join "," .Values.featureGates.controlPlane }}
+            {{- end }}
           env:
             - name: POD_NAMESPACE
               valueFrom:
