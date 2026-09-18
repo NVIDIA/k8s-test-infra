@@ -459,11 +459,11 @@ func TestWriteKernelModules_WritesBothSurfaces(t *testing.T) {
 	procModules, err := os.ReadFile(filepath.Join(h.Root, kmod.ProcModulesRelPath))
 	require.NoError(t, err)
 	require.Contains(t, string(procModules), "xfs 1556480 2")
-	require.Contains(t, string(procModules), "nvidia 62312448 1 nvidia_uvm,")
+	require.Contains(t, string(procModules), "nvidia 62312448 4 nvidia_uvm,")
 
 	refcnt, err := os.ReadFile(filepath.Join(h.Root, kmod.SysModuleRelPath, kmod.NVIDIA, "refcnt"))
 	require.NoError(t, err)
-	require.Equal(t, "1\n", string(refcnt))
+	require.Equal(t, "4\n", string(refcnt))
 
 	version, err := os.ReadFile(filepath.Join(h.Root, kmod.SysModuleRelPath, kmod.NVIDIA, "version"))
 	require.NoError(t, err)
@@ -473,6 +473,29 @@ func TestWriteKernelModules_WritesBothSurfaces(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "2\n", string(hostRefcnt),
 		"a host module must keep its own refcnt so lsmod columns stay correct")
+}
+
+// internal/kmod covers the gate itself. This covers the wiring: the surface
+// must follow the node shape, not a constant.
+func TestWriteKernelModules_ServesTheFabricModulesWhenTheShapeEnablesIB(t *testing.T) {
+	h := testHost(t)
+	withProcModules(t, hostProcModulesLine)
+
+	state := testState(t)
+	state.NodeShape.Network.IBEnabled = true
+	require.NoError(t, writeKernelModules(t.Context(), h, state))
+
+	for _, name := range []string{kmod.NVIDIAPeermem, kmod.MLX5Core} {
+		require.DirExists(t, filepath.Join(h.Root, kmod.SysModuleRelPath, name),
+			"%s must reach the served tree when the node shape enables InfiniBand", name)
+	}
+
+	refcnt, err := os.ReadFile(filepath.Join(h.Root, kmod.SysModuleRelPath, kmod.NVIDIA, "refcnt"))
+	require.NoError(t, err)
+	require.Equal(t, "5\n", string(refcnt), "nvidia_peermem joins the holders under IB")
+
+	require.FileExists(t,
+		filepath.Join(h.Root, kmod.SysModuleRelPath, kmod.NVIDIA, "holders", kmod.NVIDIAPeermem))
 }
 
 func TestWriteKernelModules_KeepsBuiltInModules(t *testing.T) {
