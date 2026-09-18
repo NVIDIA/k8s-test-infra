@@ -13,6 +13,7 @@ dist
 # from tests/e2e/go, so the relative artifacts/e2e/go default resolves there.
 e2e.log
 tests/e2e/go/artifacts/
+/_artifacts/kwok/
 
 pkg/network/*/libibmock*
 # Stray binaries from `go build ./cmd/...` at repo root
@@ -35,3 +36,13 @@ site/
 
 # MkDocs toolchain venv created by `make docs-deps`
 .venv-docs/
+
+# Terraform local state and per-user inputs. Provider selections remain tracked
+# through .terraform.lock.hcl for reproducible infrastructure tests.
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+*.tfplan
+crash.log

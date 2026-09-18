@@ -12,7 +12,8 @@ not exist. Five minutes, no NVIDIA hardware.
 ## Install
 
 ```bash
-kind create cluster --name mokka
+kind create cluster --name mokka \
+    --image ghcr.io/nvidia/mokka-kind-node:latest
 
 helm install nvml-mock \
     oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
@@ -20,8 +21,15 @@ helm install nvml-mock \
     --create-namespace
 ```
 
-Already have a cluster? Skip the `kind` line — the rest runs against your
-current context.
+Already have a cluster? Skip the `kind` line for the basic Mokka DaemonSet.
+Managed clusters need additional runtime preparation before ordinary workloads
+can request and consume simulated GPUs; see the [Amazon EKS
+guide](guides/install/aws/eks/README.md) for a validated setup.
+
+`latest` follows Mokka's main branch and is the simplest way to try it. For
+repeatable CI, select a published release tag or digest from the
+[`mokka-kind-node` package](https://github.com/NVIDIA/k8s-test-infra/pkgs/container/mokka-kind-node)
+instead.
 
 ## Verify
 
@@ -74,7 +82,10 @@ real software at it.
 | Change temperature, power or health on a running node | [Runtime control](nvml-mock-ctl.md) |
 | Understand what is actually happening | [Architecture](architecture.md) |
 
-!!! note "Some consumers need a CDI-enabled cluster"
-    The device plugin, DRA driver and GPU Operator paths expect a Kind node
-    image with CDI baked into containerd. A plain `kind create cluster` does not
-    provide one — [Installation](helm-chart.md) covers building it.
+The published KIND node image includes the NVIDIA container runtime and enables
+the Container Device Interface (CDI) in containerd. This is the runtime setup
+used by the [device plugin](guides/device-plugin.md),
+[DRA](guides/dra.md), and [GPU Operator](guides/gpu-operator.md) paths. On a
+managed cluster, runtime support is provider- and node-image-specific; the
+[Amazon EKS guide](guides/install/aws/eks/README.md) shows the required worker
+bootstrap.

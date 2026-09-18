@@ -22,12 +22,14 @@ on:
       - "docs/**"
       - "mkdocs.yml"
       - "requirements-docs.txt"
+      - "Makefile"
       - ".github/workflows/deploy-pages.yaml"
   pull_request:
     paths:
       - "docs/**"
       - "mkdocs.yml"
       - "requirements-docs.txt"
+      - "Makefile"
       - ".github/workflows/deploy-pages.yaml"
   workflow_dispatch:
 
@@ -55,13 +57,23 @@ jobs:
       # so no separate Python setup step is needed. `make docs-deps` pins the
       # version via DOCS_PYTHON_VERSION.
       - name: Set up uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
           cache-dependency-glob: requirements-docs.txt
 
       - name: Install documentation dependencies
         run: make docs-deps
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          # Resolve patch releases automatically while keeping minor-version
+          # changes explicit and reviewable.
+          terraform_version: "~1.16.0"
+
+      - name: Validate managed EKS Terraform
+        run: make managed-eks-terraform-check
 
       # Verifies exclude_docs still drops gitignored internal plans, then does
       # the strict build. Reproduce a failure locally with the same `make docs`.

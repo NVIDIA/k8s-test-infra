@@ -120,6 +120,7 @@ nav:
           - Installation: helm-chart.md
       - Architecture:
           - Overview: architecture.md
+          - Mokka Control Plane: mokka-controller.md
           - Node Daemon: components/node-daemon.md
           - Libraries and Shims: components/libraries-and-shims.md
           - NRI Plugin: components/nri-plugin.md
@@ -139,6 +140,7 @@ nav:
       - Overview: guides/README.md
       - Scenarios:
           - NVIDIA Device Plugin: guides/device-plugin.md
+          - Amazon EKS: guides/install/aws/eks/README.md
           - NVIDIA DRA Driver: guides/dra.md
           - NVIDIA GPU Operator: guides/gpu-operator.md
           - Compute Domain: guides/compute-domain/README.md
@@ -158,3 +160,4 @@ nav:
           - generate-bridge: tools/generate-bridge.md
       - Enhancement Proposals: contributing/enhancements.md
       - Pull Requests: contributing/pull-requests.md
+      - Repository Automation: maintainers/repository-automation.md

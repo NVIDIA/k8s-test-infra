@@ -38,3 +38,10 @@ updates:
       interval: "daily"
     labels:
     - dependencies
+
+  - package-ecosystem: "terraform"
+    directory: "/docs/guides/install/aws/eks/terraform"
+    schedule:
+      interval: "quarterly"
+    labels:
+    - dependencies
