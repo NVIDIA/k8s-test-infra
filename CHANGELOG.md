@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- profiles: four SKUs identified themselves over PCI as a different GPU than
+  they model, which `lspci` resolves and names. `gb300` reported an HGX GB200
+  (`0x2941`) where the board is `10de:31c2 GB110 [GB300]`; `gb200` (`0x2341`)
+  and `b200` (`0x2340`) reported IDs inside the Hopper `23xx` range that no
+  NVIDIA board carries, rather than `10de:2941` and `10de:2901`; and `l40s`
+  reported an L40 (`0x26b5`) rather than an L40S (`10de:26b9`). The engine's
+  `gb200` copy had drifted furthest, carrying an H100 ID outright. Each is now
+  the ID in the real-hardware `nvidia-smi` capture the profile is modelled on,
+  and a new cross-check holds every profile to its capture so the two cannot
+  drift again — it is what caught `b200` and `l40s`. NVML consumers were
+  unaffected either way, since `name` carries the board there; this is visible
+  in the rendered PCI tree.
 - node-agent: the `/run/nvidia/driver` symlink is removed on shutdown only when
   it is still the one the agent published. On a node where another component
   owns that path, teardown used to delete it whatever it was; a foreign driver
