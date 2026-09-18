@@ -1,0 +1,21 @@
+%% The ~3-month procurement-to-silicon window.
+%% Numbers are from the 2026-08-03 sweep. No "day-one first token" is drawn:
+%% simulation does not prove it.
+flowchart LR
+    subgraph WITHOUT["WITHOUT preflight"]
+        direction TB
+        W1["Months 1-3: hardware in procurement.<br/>Engineers idle on integration."]
+        W2["Silicon lands"]
+        W3["Integration failures found HERE:<br/>operator install, resource advertisement,<br/>DRA, telemetry, version constraints"]
+        W4["Then: hardware-dependent validation<br/>(CUDA, NCCL, TTFT)"]
+        W1 --> W2 --> W3 --> W4
+    end
+    subgraph WITH["WITH preflight"]
+        direction TB
+        P1["Months 1-3: AICR runs unmodified<br/>on a Mokka fleet.<br/>16 of 21 checks are analytically<br/>capable of real signal."]
+        P2["Integration failures found and fixed HERE.<br/>Measured in this sweep: 3 real passes,<br/>1 real version-constraint catch."]
+        P3["Silicon lands"]
+        P4["Silicon time spent on the 4 checks<br/>that REQUIRE it:<br/>3x NCCL + inference-perf"]
+        P1 --> P2 --> P3 --> P4
+    end
+    WITHOUT -.-> WITH

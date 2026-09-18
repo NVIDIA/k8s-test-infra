@@ -1,0 +1,31 @@
+# Evidence: AICR recipe resolution on the kind service, pinned 0752ea14
+# Captured 2026-08-26T14:18:00Z by running the CLI, not by reading the catalog.
+#
+# Reason: two cells (base-gb200-kind-training-stack, axis-compute-domain-fabric)
+# declare intent=training and were recorded as BUDGET and U respectively. Neither
+# cell ever ran, so neither attribution was tested. Both are X: AICR resolves no
+# training recipe for gb200 on kind, so the cell fails before memory or the DRA
+# driver release can matter.
+
+ACCEL          INTENT     RC   MESSAGE
+gb200          inference  0    
+gb200          training   2    [INVALID_REQUEST] no recipe provides intent 'training' for criteria(service=kind, accelerator=gb200, intent=training)
+gb300          inference  2    [INVALID_REQUEST] no recipe provides accelerator 'gb300' for criteria(service=kind, accelerator=gb300, intent=inference)
+gb300          training   2    [INVALID_REQUEST] no recipe provides accelerator 'gb300' for criteria(service=kind, accelerator=gb300, intent=training); no recipe provides intent 'training' for criteria(service=kind, accelerator=gb300, intent=training)
+h100           inference  0    
+h100           training   0    
+h200           inference  0    
+h200           training   2    [INVALID_REQUEST] no recipe provides intent 'training' for criteria(service=kind, accelerator=h200, intent=training)
+b200           inference  0    
+b200           training   2    [INVALID_REQUEST] no recipe provides intent 'training' for criteria(service=kind, accelerator=b200, intent=training)
+a100           inference  0    
+a100           training   2    [INVALID_REQUEST] no recipe provides intent 'training' for criteria(service=kind, accelerator=a100, intent=training)
+l40s           inference  0    
+l40s           training   2    [INVALID_REQUEST] no recipe provides intent 'training' for criteria(service=kind, accelerator=l40s, intent=training)
+rtx-pro-6000   inference  0    
+rtx-pro-6000   training   2    [INVALID_REQUEST] no recipe provides intent 'training' for criteria(service=kind, accelerator=rtx-pro-6000, intent=training)
+
+## Summary
+- inference resolves for 7 accelerators: gb200 h100 h200 b200 a100 l40s rtx-pro-6000
+- training resolves for exactly one: h100
+- gb300 resolves for neither (no such accelerator in the catalog)
