@@ -89,6 +89,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `libpcisysfs.so` is now `libmockfs.so`. The shim redirects kernel-module paths
   as well as PCI sysfs, so its name no longer described what it does. The
   `MOCK_PCI_ROOT` variable that points it at the fake tree is unchanged.
+- The mock CUDA library moved from `pkg/gpu/mockcuda` to `shims/libcuda`. The
+  image still builds and ships `libcuda.so` and the agent still stages it, so a
+  node is unchanged. The gated e2e scenario that ran vectorAdd against it is now
+  a standalone-GFD check under the Ginkgo label `gfd`, and unused
+  `pkg/kubernetes` is gone. (#TBD)
 
 ### Removed
 
