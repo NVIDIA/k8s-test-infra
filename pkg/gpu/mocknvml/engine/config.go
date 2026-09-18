@@ -263,7 +263,7 @@ func validateYAMLConfig(config *YAMLConfig) error {
 		return err
 	}
 
-	return nil
+	return ValidateUniqueBDFs(config)
 }
 
 // GetDeviceConfig returns the device configuration for a specific index,
@@ -364,6 +364,61 @@ func ValidateMinorNumbers(config *YAMLConfig) error {
 			return fmt.Errorf("duplicate device minor number: %d (devices %d and %d)", minor, other, index)
 		}
 		seen[minor] = index
+	}
+
+	return nil
+}
+
+// ValidateUniqueBDFs rejects a PCI address that more than one function claims.
+//
+// A BDF is a hardware address, so two functions cannot share one, and a
+// consumer holding an address has no way to tell which of them it reached. The
+// rendered PCI tree is where a collision does its damage silently: it holds one
+// entry per address, so a switch landing on a GPU's BDF takes over the GPU's
+// node and gives it the bridge class, and GPU Feature Discovery then derives
+// nvidia.com/gpu.mode for a GPU it is inspecting as fabric silicon.
+//
+// Switches count whether or not they are PCIe-visible. An address is no more
+// shareable for being absent from the tree today, and adding device_id to a
+// switch should not be the edit that turns a latent collision into a GPU with
+// the wrong class.
+func ValidateUniqueBDFs(config *YAMLConfig) error {
+	if config == nil {
+		return nil
+	}
+
+	// Lowercased, because profiles write BDFs in either case and the renderer
+	// lowercases before using one as a path component.
+	claimedBy := make(map[string]string, len(config.Devices))
+	claim := func(bdf, owner string) error {
+		if bdf == "" {
+			return nil
+		}
+		key := strings.ToLower(bdf)
+		if other, dup := claimedBy[key]; dup {
+			return fmt.Errorf("duplicate pci bus id: %s (%s and %s)", key, other, owner)
+		}
+		claimedBy[key] = owner
+
+		return nil
+	}
+
+	for _, dev := range config.Devices {
+		if dev.PCI == nil {
+			continue
+		}
+		if err := claim(dev.PCI.BusID, fmt.Sprintf("device %d", dev.Index)); err != nil {
+			return err
+		}
+	}
+
+	if config.NVLink == nil {
+		return nil
+	}
+	for i, sw := range config.NVLink.Switches {
+		if err := claim(sw.BDF, fmt.Sprintf("nvlink.switches[%d]", i)); err != nil {
+			return err
+		}
 	}
 
 	return nil

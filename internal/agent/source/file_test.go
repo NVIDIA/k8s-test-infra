@@ -552,3 +552,27 @@ devices:
 		require.Equal(t, ec.GetDeviceMinorNumber(d.Index), d.MinorNumber, "device %d", d.Index)
 	}
 }
+
+// The agent renders the PCI tree itself, so a BDF two functions claim has to
+// fail here rather than reach buildIdentities, where the second claim would
+// silently take over the first's node and change its class.
+func TestCompileState_RejectsBDFClaimedTwice(t *testing.T) {
+	t.Parallel()
+
+	profile := []byte(`
+version: "1.0"
+system:
+  driver_version: "580.105.08"
+devices:
+  - index: 0
+    pci:
+      bus_id: "0000:1A:00.0"
+nvlink:
+  switches:
+    - bdf: "0000:1a:00.0"
+      device_id: 0x22A310DE
+`)
+
+	_, err := compileState(profile)
+	require.ErrorContains(t, err, "duplicate pci bus id: 0000:1a:00.0 (device 0 and nvlink.switches[0])")
+}

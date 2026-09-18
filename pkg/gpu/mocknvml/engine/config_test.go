@@ -376,3 +376,114 @@ func TestBaseDevicePCIBusID_TracksTheBaseMock(t *testing.T) {
 	require.Empty(t, BaseDevicePCIBusID(MaxDevices), "no device exists past the base mock")
 	require.Empty(t, BaseDevicePCIBusID(-1))
 }
+
+// A BDF is a hardware address, so no two functions can claim the same one.
+// Rendering is where a collision does its damage quietly: the sysfs tree holds
+// one entry per address, so a switch that lands on a GPU's BDF takes over the
+// GPU's node and turns it into a bridge, leaving sysfs and NVML describing
+// different hardware at the same address.
+func TestValidateYAMLConfig_RejectsBDFClaimedTwice(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name, yaml, wantErr string
+	}{
+		{
+			name: "switch collides with gpu",
+			yaml: `
+devices:
+  - index: 0
+    pci:
+      bus_id: "0000:0a:00.0"
+nvlink:
+  switches:
+    - bdf: "0000:0a:00.0"
+      device_id: 0x22A310DE
+`,
+			wantErr: `duplicate pci bus id: 0000:0a:00.0 (device 0 and nvlink.switches[0])`,
+		},
+		{
+			// Profiles write BDFs in both cases, and the renderer lowercases
+			// before it uses one as a path component, so the check has to too.
+			name: "case does not make a second address",
+			yaml: `
+devices:
+  - index: 0
+    pci:
+      bus_id: "0000:0A:00.0"
+nvlink:
+  switches:
+    - bdf: "0000:0a:00.0"
+      device_id: 0x22A310DE
+`,
+			wantErr: `duplicate pci bus id: 0000:0a:00.0 (device 0 and nvlink.switches[0])`,
+		},
+		{
+			name: "two gpus collide",
+			yaml: `
+devices:
+  - index: 0
+    pci:
+      bus_id: "0000:0a:00.0"
+  - index: 1
+    pci:
+      bus_id: "0000:0a:00.0"
+`,
+			wantErr: `duplicate pci bus id: 0000:0a:00.0 (device 0 and device 1)`,
+		},
+		{
+			// An NVLink-only switch is absent from the rendered tree, but an
+			// address is no more shareable for that: adding device_id later
+			// must not be what turns a latent collision into a wrong class.
+			name: "pcie invisible switch collides with gpu",
+			yaml: `
+devices:
+  - index: 0
+    pci:
+      bus_id: "0000:0a:00.0"
+nvlink:
+  switches:
+    - bdf: "0000:0A:00.0"
+`,
+			wantErr: `duplicate pci bus id: 0000:0a:00.0 (device 0 and nvlink.switches[0])`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var yc YAMLConfig
+			require.NoError(t, yaml.Unmarshal([]byte(preamble+tc.yaml), &yc), "yaml decode")
+			require.ErrorContains(t, validateYAMLConfig(&yc), tc.wantErr)
+		})
+	}
+}
+
+// Negative control: distinct addresses pass, switches included, so the check
+// cannot be the reason a well-formed profile is rejected.
+func TestValidateYAMLConfig_AcceptsDistinctBDFs(t *testing.T) {
+	t.Parallel()
+
+	y := preamble + `
+devices:
+  - index: 0
+    pci:
+      bus_id: "0000:0A:00.0"
+  - index: 1
+    pci:
+      bus_id: "0000:0b:00.0"
+nvlink:
+  switches:
+    - bdf: "0000:01:00.0"
+      device_id: 0x22A310DE
+    - bdf: "0000:02:00.0"
+`
+	var yc YAMLConfig
+	require.NoError(t, yaml.Unmarshal([]byte(y), &yc), "yaml decode")
+	require.NoError(t, validateYAMLConfig(&yc))
+}
+
+const preamble = `
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+`
