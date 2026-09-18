@@ -690,6 +690,40 @@ func TestFileSource_MIGTableArrivingLateTriggersAReconcile(t *testing.T) {
 	require.True(t, u.State.MIG.Partitioned())
 }
 
+// A table that cannot be read is not a board without one. The distinction
+// matters here rather than in the engine because this is where it turns
+// destructive: gpudriver withdraws the staged table whenever the state it is
+// given carries none, so compiling an unreadable mount as "unpartitioned"
+// would take the partition table and the capability nodes away from a node
+// that is serving partitions. An error leaves the last good state in place.
+func TestFileSource_AnUnreadableMIGTableDoesNotWithdrawThePartitions(t *testing.T) {
+	t.Parallel()
+
+	configPath := migSiblingLayout(t)
+	migWriteSiblingTable(t, configPath)
+
+	f := NewFileSource(configPath, filepath.Join(filepath.Dir(configPath), "topology.yaml"), zap.NewNop())
+
+	var hash [32]byte
+	u := pollOnce(t, f, &hash)
+	require.NotNil(t, u)
+	require.NoError(t, u.Err)
+	require.True(t, u.State.MIG.Partitioned(), "the board starts out partitioned")
+
+	// A symlink loop in place of the table: the name still resolves as
+	// present, so this is not absence, and the lookup fails with ELOOP rather
+	// than "not found". Deterministic, and unlike an unreadable directory it
+	// does not depend on the uid the tests run as.
+	sibling := strings.TrimSuffix(configPath, filepath.Ext(configPath)) + ".mig.yaml"
+	require.NoError(t, os.Remove(sibling))
+	require.NoError(t, os.Symlink(sibling, sibling))
+
+	u = pollOnce(t, f, &hash)
+	require.NotNil(t, u, "an unreadable table must emit rather than go quiet")
+	require.Error(t, u.Err, "an unreadable table must fail the compile, not partition the board away")
+	require.Nil(t, u.State, "no state means gpudriver stages nothing and withdraws nothing")
+}
+
 // TestCompileState_MIGDisabledInEveryShippedProfile pins the deliberate default:
 // a MIG-capable profile declares what it could be partitioned into but boots
 // with MIG off, because migStrategy=single stops publishing nvidia.com/gpu the

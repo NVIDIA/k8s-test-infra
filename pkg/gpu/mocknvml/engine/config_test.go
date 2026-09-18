@@ -1072,6 +1072,19 @@ func TestValidateMIGConfig_RejectsDeclaredGeometryThatCannotPartitionTheBoard(t 
 			},
 			wantErr: "placements[1]: start 2 is declared twice",
 		},
+		// Distinct starts are not enough to keep two placements apart: every
+		// row of one profile is the same size, so an unaligned start overlaps
+		// its neighbour without ever repeating an offset. Slots 1-2 and 2-3
+		// below share unit 2, and a consumer enumerating them would see room
+		// for two instances that cannot both exist.
+		"a placement start not aligned to its own size": {
+			boardSlices: 7,
+			spec: MIGProfileSpec{
+				Name: "2g.20gb", NVMLProfile: "2_SLICE", Instances: 3, MemoryMB: 20480,
+				Placements: []MIGPlacementSpec{{Start: 1, Size: 2}, {Start: 2, Size: 2}},
+			},
+			wantErr: "placements[0]: start 1 is not aligned to size 2",
+		},
 		"a declared width that disagrees with its own enum": {
 			boardSlices: 7,
 			spec: MIGProfileSpec{
@@ -1324,6 +1337,24 @@ func TestLoadYAMLConfig_NoMIGProfileTableLeavesTheBoardNotMIGCapable(t *testing.
 
 	require.NoError(t, err)
 	require.Empty(t, cfg.DeviceDefaults.MIG.SupportedProfiles)
+}
+
+// Absent and unreachable are different failures too, and this is the more
+// dangerous confusion of the two: a table that cannot be reached used to read
+// as a board that has none, so a ConfigMap mid-remount or a permission fault
+// presented as a board deliberately without MIG. The node agent withdraws the
+// staged table when it compiles a board without one, so answering "no table"
+// to an I/O error takes the partitions off a board that has them.
+func TestLoadYAMLConfig_RefusesAnUnreachableExternalMIGProfileTable(t *testing.T) {
+	// A path whose parent is a regular file, so the lookup fails with ENOTDIR
+	// rather than "not found". Deterministic, and unlike an unreadable
+	// directory it does not depend on the uid the tests run as.
+	notADir := writeMIGProfileTable(t, migExternalTable1g)
+	t.Setenv(EnvMIGProfilesConfig, filepath.Join(notADir, "table.yaml"))
+
+	_, err := LoadYAMLConfig(stageMIGProfileFixtures(t, migBoardDeclaringNoProfiles, ""))
+
+	require.ErrorContains(t, err, "MIG profiles")
 }
 
 // Absent and present-but-wrong are different failures. A table that does not

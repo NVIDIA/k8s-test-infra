@@ -208,6 +208,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- nvml-mock: a MIG partition table that cannot be read no longer takes a node's
+  partitions away. Only "the file is not there" means a board has no table; any
+  other failure — a ConfigMap part-way through a remount, a permission fault —
+  used to resolve as a board deliberately without MIG. Because the node agent
+  withdraws the table it staged whenever it compiles a board without one, a
+  transient error removed the partition table and the capability nodes from a
+  node that was serving partitions. Such a failure is now reported, which
+  leaves the last good state in place.
+- nvml-mock: a MIG profile table declaring misaligned placements is refused at
+  load. Every placement of one profile is the same width, so distinct starts
+  alone do not keep them apart: `{start: 1, size: 2}` and `{start: 2, size: 2}`
+  repeat no offset and still share a memory unit, which advertised two GPU
+  instances that cannot both exist. Starts must be aligned to their own size,
+  as the geometry NVML reports always is. No shipped profile changes.
 - nvml-mock: a single GPU can be partitioned through a `devices[]` entry again.
   A per-device `mig` block replaced the board's whole MIG block, and since the
   partition table moved into a document of its own there was no way for that

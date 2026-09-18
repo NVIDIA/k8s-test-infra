@@ -18,6 +18,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -504,10 +505,16 @@ func validateDeclaredSliceCount(declared, span int, nvmlProfile string) error {
 //     a 7g placement of size 8 is in range while a 1g at start 6 of size 4 is
 //     not. The sum is widened before the comparison so a start near the top of
 //     uint32 cannot wrap past the bound.
-//   - Size is a power of two because the units divide the board exactly and
-//     every start is aligned to its own size. That is what lets a 1g, a 2g and
-//     a 3g placement coexist without a partial overlap, and it makes a size of
-//     zero — a slot holding nothing — fall out of the same check.
+//   - Size is a power of two because the units divide the board exactly. That
+//     is what lets a 1g, a 2g and a 3g placement coexist without a partial
+//     overlap, and it makes a size of zero — a slot holding nothing — fall out
+//     of the same check.
+//   - Start is aligned to its own Size, which is the rule that keeps the rows
+//     of one profile apart. Every row here is the same width, so distinct
+//     starts alone do not separate them: {1, 2} and {2, 2} repeat no offset
+//     and still share unit 2. Aligned starts of equal size either coincide or
+//     do not meet at all, so this plus the check below leaves no overlap to
+//     look for.
 //   - Two placements at one offset advertise a single slot twice, so a
 //     consumer enumerating them sees room for two partitions where the board
 //     has room for one.
@@ -518,9 +525,14 @@ func validateMIGPlacements(placements []MIGPlacementSpec, maxGPUInstances int) e
 		if p.Size == 0 || p.Size&(p.Size-1) != 0 {
 			return fmt.Errorf("placements[%d]: size %d is not a power of two", i, p.Size)
 		}
+		// Bounds before alignment: a placement can breach both, and running
+		// past the end of the board is the more fundamental complaint.
 		if uint64(p.Start)+uint64(p.Size) > uint64(memoryUnits) {
 			return fmt.Errorf("placements[%d]: start %d plus size %d runs past the %d memory units a %d-slice board has",
 				i, p.Start, p.Size, memoryUnits, maxGPUInstances)
+		}
+		if p.Start%p.Size != 0 {
+			return fmt.Errorf("placements[%d]: start %d is not aligned to size %d", i, p.Start, p.Size)
 		}
 		if _, dup := seen[p.Start]; dup {
 			return fmt.Errorf("placements[%d]: start %d is declared twice", i, p.Start)
@@ -1190,7 +1202,16 @@ func ApplyMIGProfilesOverlay(yamlConfig *YAMLConfig, configPath string) error {
 	if migPath == "" {
 		return nil
 	}
+	// Only "it is not there" means the board has no table. Any other failure
+	// is a table we cannot read — a mount part-way up, a permission fault —
+	// and reporting those as absence is destructive rather than merely wrong:
+	// the node agent stages the table beside every config it writes and
+	// withdraws it again when it compiles a board without one, so a transient
+	// error would take the partitions off a board that has them.
 	if _, err := os.Stat(migPath); err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("looking for MIG profiles %s: %w", migPath, err)
+		}
 		debugLog("[CONFIG] MIG profiles: no table at %s, board is not MIG-capable\n", migPath)
 		return nil
 	}
