@@ -39,15 +39,17 @@ func a100SupportedProfiles() []MIGProfileSpec {
 }
 
 // shippedProfileMIG decodes a board's mig block out of the profile the chart
-// ships.
+// ships, with the partition table the chart mounts beside it attached — the
+// same two documents applyMIGProfilesOverlay joins at load.
 //
 // It panics rather than taking a *testing.T so the fixtures above stay usable
 // from table literals. A shipped profile that is missing or does not decode is
 // a broken tree rather than one test's failure, and every test in the package
 // would report it.
 func shippedProfileMIG(profile string) *MIGConfig {
-	raw, err := os.ReadFile(filepath.Join(
-		"../../../../deployments/nvml-mock/helm/nvml-mock/profiles", profile+".yaml"))
+	const chartProfiles = "../../../../deployments/nvml-mock/helm/nvml-mock/profiles"
+
+	raw, err := os.ReadFile(filepath.Join(chartProfiles, profile+".yaml"))
 	if err != nil {
 		panic(err)
 	}
@@ -55,6 +57,17 @@ func shippedProfileMIG(profile string) *MIGConfig {
 	if err := yaml.Unmarshal(raw, &cfg); err != nil {
 		panic(err)
 	}
+
+	rawMIG, err := os.ReadFile(filepath.Join(chartProfiles, "mig", profile+".yaml"))
+	if err != nil {
+		panic(err)
+	}
+	var doc MIGProfilesDocument
+	if err := yaml.Unmarshal(rawMIG, &doc); err != nil {
+		panic(err)
+	}
+	cfg.DeviceDefaults.MIG.SupportedProfiles = doc.SupportedProfiles
+
 	return cfg.DeviceDefaults.MIG
 }
 

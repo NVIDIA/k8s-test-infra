@@ -19,7 +19,8 @@ should match snapshot with all overrides:
       template:
         metadata:
           annotations:
-            checksum/config: 9b7acea6089cd489f3185389d7751551ebf0f997542a644f75565ab64cd043d6
+            checksum/config: 5f60b3ba88c53f04c2834ac3d0a531afe660954c5fcd16715829e26f050efeea
+            checksum/mig-profiles: 145750938467ba2a5efdfdd0bc7bcb266e98e1a43c5f937d01619cf6ab382228
           labels:
             app.kubernetes.io/component: daemon
             app.kubernetes.io/instance: custom
@@ -65,6 +66,8 @@ should match snapshot with all overrides:
                   value: /var/lib/nvml-mock/driver/config/overrides.yaml
                 - name: MOCK_NVML_KMSG
                   value: ""
+                - name: MOCK_MIG_PROFILES_CONFIG
+                  value: /etc/nvml-mock/mig/mig-profiles.yaml
                 - name: MOCK_IB_PING_SOCKET
                   value: /var/lib/nvml-mock/run/mock-ib.sock
                 - name: LD_PRELOAD
@@ -116,6 +119,9 @@ should match snapshot with all overrides:
                   readOnly: true
                 - mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
                   name: nfd-features
+                - mountPath: /etc/nvml-mock/mig
+                  name: mig-profiles
+                  readOnly: true
                 - mountPath: /host/var/lib/nvml-mock/fabric-state
                   name: fabric-state
                 - mountPath: /host/sys
@@ -153,6 +159,9 @@ should match snapshot with all overrides:
                 path: /sys
                 type: Directory
               name: node-sysfs
+            - configMap:
+                name: nvml-mock-custom-mig-profiles
+              name: mig-profiles
             - hostPath:
                 path: /var/lib/nvml-mock/fabric-state
                 type: DirectoryOrCreate
@@ -182,7 +191,8 @@ should match snapshot with b200 profile:
       template:
         metadata:
           annotations:
-            checksum/config: 456a31a5055b75b3b89a821078b0a7bfcd2d6cf5ec9a7651d53ba5c439572245
+            checksum/config: 243551ae44cfc7ae71736b22f2fdb44a5d6bb1aaf0591ae8c732ee8d28f0ff6c
+            checksum/mig-profiles: a52fc5c6c993c5711c0200044254550207b30524bcc4765693304f3958f50fce
           labels:
             app.kubernetes.io/component: daemon
             app.kubernetes.io/instance: RELEASE-NAME
@@ -226,6 +236,8 @@ should match snapshot with b200 profile:
                   value: /var/lib/nvml-mock/driver/config/overrides.yaml
                 - name: MOCK_NVML_KMSG
                   value: ""
+                - name: MOCK_MIG_PROFILES_CONFIG
+                  value: /etc/nvml-mock/mig/mig-profiles.yaml
                 - name: MOCK_IB_PING_SOCKET
                   value: /var/lib/nvml-mock/run/mock-ib.sock
                 - name: LD_PRELOAD
@@ -277,6 +289,9 @@ should match snapshot with b200 profile:
                   readOnly: true
                 - mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
                   name: nfd-features
+                - mountPath: /etc/nvml-mock/mig
+                  name: mig-profiles
+                  readOnly: true
                 - mountPath: /host/sys
                   name: node-sysfs
                   readOnly: true
@@ -308,6 +323,9 @@ should match snapshot with b200 profile:
                 path: /sys
                 type: Directory
               name: node-sysfs
+            - configMap:
+                name: RELEASE-NAME-nvml-mock-mig-profiles
+              name: mig-profiles
       updateStrategy:
         rollingUpdate:
           maxUnavailable: 25%
@@ -333,7 +351,8 @@ should match snapshot with default values:
       template:
         metadata:
           annotations:
-            checksum/config: cfc09177cf1879a1b4c0d0efd2472c7538bd6bfe7bbfeadd929401face686055
+            checksum/config: 4b932c74f957614f83512ba6e857c7fa347a225c1d969fe301c2730cfb93960f
+            checksum/mig-profiles: 6ae1822b8be8a0097cd6e8ec28865cf5d3357c222536fe4730e51b7faa23ec9c
           labels:
             app.kubernetes.io/component: daemon
             app.kubernetes.io/instance: RELEASE-NAME
@@ -379,6 +398,8 @@ should match snapshot with default values:
                   value: /var/lib/nvml-mock/driver/config/overrides.yaml
                 - name: MOCK_NVML_KMSG
                   value: ""
+                - name: MOCK_MIG_PROFILES_CONFIG
+                  value: /etc/nvml-mock/mig/mig-profiles.yaml
                 - name: MOCK_IB_PING_SOCKET
                   value: /var/lib/nvml-mock/run/mock-ib.sock
                 - name: LD_PRELOAD
@@ -430,6 +451,9 @@ should match snapshot with default values:
                   readOnly: true
                 - mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
                   name: nfd-features
+                - mountPath: /etc/nvml-mock/mig
+                  name: mig-profiles
+                  readOnly: true
                 - mountPath: /host/var/lib/nvml-mock/fabric-state
                   name: fabric-state
                 - mountPath: /host/sys
@@ -463,6 +487,9 @@ should match snapshot with default values:
                 path: /sys
                 type: Directory
               name: node-sysfs
+            - configMap:
+                name: RELEASE-NAME-nvml-mock-mig-profiles
+              name: mig-profiles
             - hostPath:
                 path: /var/lib/nvml-mock/fabric-state
                 type: DirectoryOrCreate

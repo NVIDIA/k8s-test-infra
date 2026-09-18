@@ -194,6 +194,16 @@ one instance, which is how the engine reads it.
 {{- if not (get $mig "max_gpu_instances") -}}
 {{- fail (printf "gpu.mig.enabled is set but profile %q is not a MIG-capable board: it declares no mig.max_gpu_instances" .Values.gpu.profile) -}}
 {{- end -}}
+{{- /*
+A capable board whose table did not come with it boots not MIG-capable and
+says nothing about why, which is the one failure mode splitting the table out
+of the profile introduces. Here it is the only place that can still tell the
+difference, so a partition request against a board the chart has no table for
+fails the render instead.
+*/ -}}
+{{- if and (not .Values.gpu.customConfig) (not (include "nvml-mock.migProfiles" .)) -}}
+{{- fail (printf "gpu.mig.enabled is set but the chart ships no MIG profile table for profile %q at profiles/mig/%s.yaml, so the board would come up not MIG-capable" .Values.gpu.profile .Values.gpu.profile) -}}
+{{- end -}}
 {{- $partitions := 0 -}}
 {{- range $instance := (get $mig "gpu_instances" | default list) -}}
 {{- $count := 1 -}}
@@ -215,6 +225,23 @@ one instance, which is how the engine reads it.
 {{- toYaml $cfg -}}
 {{- else -}}
 {{- $base -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+The selected board's MIG partition table, or "" when the chart does not own
+one. Empty is the answer for a board that ships no table (l40s, t4 — not
+MIG-capable silicon) and for gpu.customConfig, where the config is the user's
+and so is any table in it: mounting a table beside an inline one makes the
+engine refuse the load, because a board's table has exactly one home.
+
+Everything the table needs — the ConfigMap, the volume, the mount and
+MOCK_MIG_PROFILES_CONFIG — is gated on this one value, so the four cannot
+disagree about whether a table is present.
+*/}}
+{{- define "nvml-mock.migProfiles" -}}
+{{- if not .Values.gpu.customConfig -}}
+{{- .Files.Get (printf "profiles/mig/%s.yaml" .Values.gpu.profile) -}}
 {{- end -}}
 {{- end }}
 

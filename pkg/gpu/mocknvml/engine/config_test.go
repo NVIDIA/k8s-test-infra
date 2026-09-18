@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml/mock/dgxa100"
@@ -417,6 +418,13 @@ func TestValidateYAMLConfig_AcceptsEveryShippedProfile(t *testing.T) {
 		require.NotEmptyf(t, paths, "no profiles matched %q", glob)
 
 		for _, path := range paths {
+			// A board's MIG table is a sibling document rather than a
+			// profile, and validates only once attached to the board it
+			// partitions. TestLoadYAMLConfig_ShippedConfigsResolveTheirMIGTable
+			// is where that happens.
+			if strings.HasSuffix(path, ".mig.yaml") {
+				continue
+			}
 			t.Run(filepath.Base(path), func(t *testing.T) {
 				t.Parallel()
 
@@ -428,6 +436,30 @@ func TestValidateYAMLConfig_AcceptsEveryShippedProfile(t *testing.T) {
 				require.NoError(t, validateYAMLConfig(&yc))
 			})
 		}
+	}
+}
+
+// TestLoadYAMLConfig_ShippedConfigsResolveTheirMIGTable is the end-to-end
+// check that the split arrives: each standalone config finds its own
+// mock-nvml-config-<board>.mig.yaml with no environment set, and comes out
+// MIG-capable. A board whose table failed to resolve is silently not
+// MIG-capable, so nothing else in the tree would report a table that went
+// missing or was named wrong.
+func TestLoadYAMLConfig_ShippedConfigsResolveTheirMIGTable(t *testing.T) {
+	t.Setenv("MOCK_MIG_PROFILES_CONFIG", "")
+
+	tables, err := filepath.Glob("../configs/*.mig.yaml")
+	require.NoError(t, err)
+	require.NotEmpty(t, tables, "no MIG tables ship alongside the standalone configs")
+
+	for _, table := range tables {
+		configPath := strings.TrimSuffix(table, ".mig.yaml") + ".yaml"
+
+		cfg, err := LoadYAMLConfig(configPath)
+		require.NoError(t, err, configPath)
+		require.NotNil(t, cfg.DeviceDefaults.MIG, configPath)
+		require.NotEmpty(t, cfg.DeviceDefaults.MIG.SupportedProfiles,
+			"%s resolved no MIG profile table from %s", configPath, table)
 	}
 }
 

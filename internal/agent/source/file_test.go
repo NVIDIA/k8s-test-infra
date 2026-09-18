@@ -19,9 +19,7 @@ import (
 )
 
 func TestCompileState_AllSKUs(t *testing.T) {
-	configs, err := filepath.Glob("../../../pkg/gpu/mocknvml/configs/mock-nvml-config-*.yaml")
-	require.NoError(t, err)
-	require.NotEmpty(t, configs, "no config YAMLs found")
+	configs := shippedConfigs(t)
 
 	for _, path := range configs {
 		t.Run(filepath.Base(path), func(t *testing.T) {
@@ -71,7 +69,7 @@ func TestCompileState_ManagerStateDir(t *testing.T) {
 }
 
 func TestFileSource_EmitsInitialState(t *testing.T) {
-	configs, _ := filepath.Glob("../../../pkg/gpu/mocknvml/configs/mock-nvml-config-*.yaml")
+	configs := shippedConfigs(t)
 	require.NotEmpty(t, configs, "no configs found")
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -107,9 +105,7 @@ func TestCompileState_PCIIdentityFromDefaults(t *testing.T) {
 }
 
 func TestCompileState_EverySKUCarriesPCIIdentity(t *testing.T) {
-	configs, err := filepath.Glob("../../../pkg/gpu/mocknvml/configs/mock-nvml-config-*.yaml")
-	require.NoError(t, err)
-	require.NotEmpty(t, configs, "no config YAMLs found")
+	configs := shippedConfigs(t)
 
 	for _, path := range configs {
 		t.Run(filepath.Base(path), func(t *testing.T) {
@@ -188,6 +184,25 @@ devices:
 }
 
 const helmProfileGlob = "../../../deployments/nvml-mock/helm/nvml-mock/profiles/*.yaml"
+
+// shippedConfigs lists the standalone board configs, without the MIG tables
+// that sit beside them. A mock-nvml-config-<board>.mig.yaml is one board's
+// partition table, not a config, and compiles to no node state at all.
+func shippedConfigs(t *testing.T) []string {
+	t.Helper()
+
+	matched, err := filepath.Glob("../../../pkg/gpu/mocknvml/configs/mock-nvml-config-*.yaml")
+	require.NoError(t, err)
+
+	configs := make([]string, 0, len(matched))
+	for _, path := range matched {
+		if !strings.HasSuffix(path, ".mig.yaml") {
+			configs = append(configs, path)
+		}
+	}
+	require.NotEmpty(t, configs, "no config YAMLs found")
+	return configs
+}
 
 // The runtime ConfigMap is rendered from the Helm profiles (see
 // nvml-mock.gpuConfigBase in _helpers.tpl), and only those carry an
@@ -647,6 +662,15 @@ func TestCompileState_ChartMIGLayoutsAllResolve(t *testing.T) {
 			var cfg engine.YAMLConfig
 			require.NoError(t, yaml.Unmarshal(data, &cfg))
 			require.NotNil(t, cfg.DeviceDefaults.MIG, "%s should be a MIG-capable board", name)
+
+			// The partition table is a document of its own, which the chart
+			// mounts from its own ConfigMap; attaching it here is what the
+			// engine does at load.
+			tableData, err := os.ReadFile(filepath.Join(filepath.Dir(path), "mig", name+".yaml"))
+			require.NoError(t, err, "%s declares a mig block but ships no table", name)
+			var table engine.MIGProfilesDocument
+			require.NoError(t, yaml.Unmarshal(tableData, &table))
+			cfg.DeviceDefaults.MIG.SupportedProfiles = table.SupportedProfiles
 
 			// What the chart renders for gpu.mig.enabled=true with
 			// gpu.mig.gpuInstances: the mode on, the layout supplied.

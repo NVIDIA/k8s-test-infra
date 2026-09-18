@@ -86,17 +86,32 @@ type migGoldenRow struct {
 
 // migConfigOfShippedProfile reads a board's MIG block out of the profile the
 // chart ships, through the same decode and validation the library performs at
-// load. Reading the shipped file rather than a fixture is the point: these
+// load. Reading the shipped files rather than a fixture is the point: these
 // tests assert what a user of the chart gets.
+//
+// Two files, because the partition table lives in its own document that the
+// chart mounts from its own ConfigMap. This does what applyMIGProfilesOverlay
+// does without going through LoadYAMLConfig, which would resolve the table by
+// path and refuse the chart profiles' Helm templating.
 func migConfigOfShippedProfile(t *testing.T, profile string) *MIGConfig {
 	t.Helper()
 
-	path := filepath.Join("../../../../deployments/nvml-mock/helm/nvml-mock/profiles", profile+".yaml")
-	raw, err := os.ReadFile(path)
+	const chartProfiles = "../../../../deployments/nvml-mock/helm/nvml-mock/profiles"
+
+	raw, err := os.ReadFile(filepath.Join(chartProfiles, profile+".yaml"))
 	require.NoError(t, err)
 
 	var cfg YAMLConfig
 	require.NoError(t, yaml.Unmarshal(raw, &cfg))
+
+	rawMIG, err := os.ReadFile(filepath.Join(chartProfiles, "mig", profile+".yaml"))
+	require.NoError(t, err)
+
+	var doc MIGProfilesDocument
+	require.NoError(t, yaml.Unmarshal(rawMIG, &doc))
+	require.NotNil(t, cfg.DeviceDefaults.MIG, "%s declares no mig block to attach a table to", profile)
+	cfg.DeviceDefaults.MIG.SupportedProfiles = doc.SupportedProfiles
+
 	require.NoError(t, validateYAMLConfig(&cfg))
 
 	return cfg.DeviceDefaults.MIG

@@ -1,0 +1,25 @@
+{{- /*
+Copyright 2026 NVIDIA CORPORATION
+SPDX-License-Identifier: Apache-2.0
+
+The selected board's MIG partition table. Consumed only by the mock NVML
+engine at LoadConfig() time, which attaches it to
+device_defaults.mig.supported_profiles; see pkg/gpu/mocknvml/engine/config.go
+applyMIGProfilesOverlay().
+
+It is a ConfigMap of its own rather than another key in -config because the
+table is several hundred lines a reader of the rest of the profile never
+needs, and because a table change should roll the DaemonSet on its own.
+*/ -}}
+{{- $table := include "nvml-mock.migProfiles" . -}}
+{{- if $table }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nvml-mock.fullname" . }}-mig-profiles
+  labels:
+    {{- include "nvml-mock.labels" . | nindent 4 }}
+data:
+  mig-profiles.yaml: |
+    {{- $table | nindent 4 }}
+{{- end }}
