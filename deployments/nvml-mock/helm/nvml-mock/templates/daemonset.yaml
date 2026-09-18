@@ -62,6 +62,8 @@ spec:
               value: "{{ include "nvml-mock.gpuCount" . }}"
             - name: DRIVER_VERSION
               value: "{{ include "nvml-mock.driverVersion" . }}"
+            - name: GPU_PROFILE
+              value: "{{ include "nvml-mock.gpuProfile" . }}"
             {{- if $fmEnabled }}
             # Non-empty is what turns the fabricmanager simulator on, and it is
             # also the path the cdi simulator mounts into workloads. The agent

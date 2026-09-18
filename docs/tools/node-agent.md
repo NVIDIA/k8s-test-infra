@@ -42,6 +42,11 @@ gates) are read where the profile is compiled into state rather than by any
 simulator, so no flag shadows them. The chart sets them — see
 [Configuration](../configuration.md).
 
+The chart also stamps `GPU_PROFILE` on the container. Nothing reads it: it
+names the profile in effect (`gpu.profile`, or `custom` when `gpu.customConfig`
+supplies the config inline) so an exec'd session or script can tell which
+hardware the pod simulates without parsing the mounted config.
+
 ## Behaviour the flag list does not show
 
 - `--config` and `--topology` are re-read every 5s. State is emitted once at

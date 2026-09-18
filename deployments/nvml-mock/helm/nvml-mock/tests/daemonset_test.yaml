@@ -114,6 +114,42 @@ tests:
             name: GPU_COUNT
             value: "4"
 
+  - it: should set GPU_PROFILE env var from the default profile
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GPU_PROFILE
+            value: "gb300"
+
+  - it: should set GPU_PROFILE env var from the selected profile
+    set:
+      gpu:
+        profile: t4
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GPU_PROFILE
+            value: "t4"
+
+  - it: should report GPU_PROFILE as custom when customConfig overrides the profile
+    set:
+      gpu:
+        customConfig: |
+          version: "1.0"
+          system:
+            driver_version: "550.163.01"
+          devices:
+            - index: 0
+              name: Custom GPU
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GPU_PROFILE
+            value: "custom"
+
   - it: should set default DRIVER_VERSION for non-Blackwell profile
     set:
       gpu:

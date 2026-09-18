@@ -315,6 +315,21 @@ mlx5 hardware), matching the 0 HCAs the ibstat e2e check expects there.
 {{- end }}
 
 {{/*
+Name of the profile in effect, for introspection only — nothing in the agent
+or the simulators reads it. It answers "which profile is this pod running?"
+for an exec'd session or a script, which otherwise has to infer it from the
+rendered config. customConfig reports "custom" rather than gpu.profile, which
+keeps its default value even though the inline YAML is what took effect.
+*/}}
+{{- define "nvml-mock.gpuProfile" -}}
+{{- if .Values.gpu.customConfig -}}
+custom
+{{- else -}}
+{{- .Values.gpu.profile -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Driver version helper.
 Returns the user-provided driverVersion, otherwise reads system.driver_version
 from the resolved GPU config (customConfig or the selected profile file) so the
