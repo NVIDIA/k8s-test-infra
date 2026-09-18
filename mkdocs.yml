@@ -126,6 +126,7 @@ nav:
           - NRI Plugin: components/nri-plugin.md
       - Reference:
           - Configuration: configuration.md
+          - MIG: mig.md
           # The pages stay under docs/tools/ because hack/check-docs-tools-sync.sh
           # scans that directory to hold them in step with cmd/. The nav label is
           # what places them, not the path.
@@ -148,6 +149,7 @@ nav:
           - Run.ai Fake GPU Operator: guides/runai-fgo/README.md
           - Node-Wide Injection: guides/node-wide-injection/README.md
       - Tasks:
+          - MIG Partitioning: guides/mig/README.md
           - Failure Injection: guides/failure-injection/README.md
           - Use in CI/CD: guides/ci-cd.md
           - Runtime Control: nvml-mock-ctl.md

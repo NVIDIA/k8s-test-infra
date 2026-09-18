@@ -64,6 +64,10 @@ RUN --mount=type=secret,id=goauth,mode=0500 \
     go mod download
 
 COPY tests/mocknvml/*.go ./
+# The ABI tests call the library's MIG entry points directly and must pass the
+# structs it writes into. Copying its header beside them keeps both sides on
+# one definition rather than on a copy that can drift into memory corruption.
+COPY pkg/gpu/mocknvml/bridge/nvml_types.h ./
 RUN CGO_ENABLED=1 go build -o mocknvml-test .
 
 # Runtime stage
@@ -83,6 +87,16 @@ COPY --from=test-builder /build/mocknvml-test /app/
 # The Makefile points MOCK_NVML_CONFIG at this so the integration test runs against
 # a real profile config rather than the env-var fallback.
 COPY tests/mocknvml/util-test-config.yaml /app/util-test-config.yaml
+
+# The fixture's MIG partition table, which is a document of its own: a board is
+# MIG-capable by declaring one, and the name below is the sibling the engine
+# resolves from the config path with no environment set.
+#
+# It is the shipped A100 table rather than a copy, because the fixture is an
+# A100-SXM4-40GB and the MIG tests assert that board's real profile IDs. A copy
+# would let the two drift until the bridge tests passed against numbers no
+# board reports.
+COPY pkg/gpu/mocknvml/configs/mock-nvml-config-a100.mig.yaml /app/util-test-config.mig.yaml
 
 # The real file only: a wildcard also drags in the cgo header (ldconfig rejects
 # it) and flattens the sonames into three 12 MiB copies.

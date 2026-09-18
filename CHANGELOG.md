@@ -60,9 +60,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   refuses the cap with NO_PERMISSION rather than reporting a success nothing
   would observe. Only the GPU-wide budget is modelled, so the `_v2` module,
   memory and base-GPU scopes decline rather than fold into the GPU limit.
+- mocknvml: the MIG lifecycle is implemented rather than stubbed. Creating and
+  destroying GPU and compute instances, and turning MIG mode on and off, now
+  work over the C ABI as they do against a driver, so `nvidia-smi -mig 1` and
+  `nvidia-smi mig -cgi/-cci/-dgi/-dci` run unmodified against the mock. Each
+  mutation is recorded in the override document, so it outlives the
+  `nvidia-smi` process that made it and reaches every other consumer on the
+  node within one TTL — which is what makes a partition visible to a separate
+  `nvidia-smi`, to DCGM and to GFD at all, since every process gets its own
+  engine. A mutation that cannot be recorded fails with
+  `NVML_ERROR_NO_PERMISSION` instead of succeeding in one process only, matching
+  what the driver reports when the call is made without the permissions it
+  needs. This changes the **NVML view** only: `/dev/nvidia-caps` and the
+  `mig-minors` table are staged once from the profile, so the device plugin
+  cannot allocate what a runtime repartition produces, and returning the node to
+  an allocatable state needs an `nvml-mock` pod restart. Documented in
+  `docs/guides/mig/README.md`, which covers both ways to partition a board and
+  when each applies, and the `mig:` config schema in
+  `docs/configuration.md`. (#241)
+- mocknvml: a profile or override can declare MIG partitions explicitly, giving
+  each GPU instance a fixed id and naming its compute instances, alongside the
+  existing `profile`/`count` form. Fixed ids are what let a partition be deleted
+  by id from a process that did not create it, and what keeps `nvidia-smi -L`
+  reporting the same MIG UUIDs across processes. A changed layout is applied by
+  difference: only the missing instances are created and only the superfluous
+  ones destroyed, so a consumer that is already running follows a repartition
+  instead of losing the instances it still holds handles to. (#241)
+- nvml-mock chart: `gpu.mig.enabled` boots a board already partitioned, with
+  `gpu.mig.gpuInstances` naming the layout to apply. No profile declares one of
+  its own, because how a board is carved is a deployment choice rather than a
+  property of the silicon: a MIG install always states its partitioning, and a
+  capable board given none is refused rather than coming up MIG-enabled with
+  nothing partitioned. Off by default, because a partitioned board stops
+  publishing `nvidia.com/gpu` under the device plugin's `migStrategy=single`.
+  With it on, the plugin serves MIG resources and the agent publishes CDI
+  entries for each partition, so a MIG workload can be scheduled and admitted on
+  a CPU-only node. (#241)
 
 ### Changed
 
+- docs: the MIG configuration reference has a page of its own,
+  [MIG](docs/mig.md), instead of a section inside
+  [Configuration](docs/configuration.md). It had grown to about a third of that
+  page — the profile table schema, placement geometry, table resolution and
+  both layout forms — which is a subject rather than one more device property.
+  `Configuration` keeps the three `device_defaults.mig` keys and links out.
+  Links into the old anchors, such as `configuration.md#where-the-table-lives`,
+  now live under `mig.md`.
 - nvml-mock: `device_defaults.architecture` now accepts `rubin`, which NVML
   defines and the mock previously resolved to `NVML_DEVICE_ARCH_UNKNOWN`, so a
   Rubin profile failed every architecture-gated feature. Spellings are also
@@ -89,6 +133,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `libpcisysfs.so` is now `libmockfs.so`. The shim redirects kernel-module paths
   as well as PCI sysfs, so its name no longer described what it does. The
   `MOCK_PCI_ROOT` variable that points it at the fake tree is unchanged.
+- nvml-mock: the `t4` and `l40s` profiles no longer carry a `mig` section. Those
+  boards already answered `NVML_ERROR_NOT_SUPPORTED` regardless of what the
+  profile declared, and the section only read as though a disabled mode were
+  something they could leave. They ship no MIG profile table either, which is
+  what decides MIG support now.
+  `gpu.mig.enabled` still refuses them, now reporting that the profile declares
+  no `mig.max_gpu_instances` rather than that it is `0`.
+- nvml-mock: a board's MIG profile table is now declared in YAML, under
+  `supported_profiles`, rather than resolved in Go from the configured device
+  name, so teaching the mock a new board is a YAML edit. **Breaking for
+  externally-authored configs:** a config that sets `mig.max_gpu_instances` but
+  declares no `supported_profiles` is no longer MIG-capable and answers
+  `NVML_ERROR_NOT_SUPPORTED`, the same as `l40s` and `t4`. Every profile the
+  chart ships declares its table. See
+  [the `mig:` reference](docs/mig.md).
+- nvml-mock: every row of the MIG profile table now declares the profile id
+  the board publishes for it, under `profile_id` — `19` for an A100's
+  `1g.5gb`, copied off the `ID` column of `nvidia-smi mig -lgip`. The ids used
+  to come from one of two hardcoded tables, picked by `max_gpu_instances`,
+  which handed the three Blackwell profiles Hopper's numbering because they are
+  also seven slices wide: `b200` reported id `19` for its 1-slice profile, so
+  `mig -cgi 0` carved the whole board where it now hands back a `1g` and
+  `-cgi 4` was refused. NVIDIA publishes no `mig -lgip` listing for Blackwell,
+  so `b200`, `gb200` and `gb300` declare each row's own NVML enum — under which
+  `0` is the 1-slice profile. A layout named by `profile` rather than
+  `profile_id` is unaffected on every board. **Breaking for
+  externally-authored configs:** a row that declares no `profile_id` publishes
+  `0`, and a second such row on the same board is refused at load, since two
+  rows cannot share one id.
+- nvml-mock: a row of the MIG profile table now declares its whole partition
+  — `placements`, `compute_instances` and its `slices` alongside the
+  `profile_id` above — and the engine transcribes them rather than deriving
+  them from the row's width. One piece of geometry is still synthesized, since
+  no row can declare it: the compute-slice offsets a compute instance occupies
+  inside its GPU instance. Placements were derived from the row's memory
+  against the board's capacity, and the compute-instance listing was
+  enumerated from the row's width; geometry an algorithm was not taught is
+  geometry the mock could not express in YAML at all, which is what roughly
+  400 lines of declared YAML per board buys. No board behaves differently: each shipped profile declares what
+  the derivation produced. **Breaking for externally-authored configs:** add
+  `placements` and `compute_instances` to every row — both are required, and a
+  row missing either is refused at load rather than filled in — and drop the
+  board-level `mig.profile_ids` key, which no longer exists and is now read as
+  an unknown key and ignored. `placements` are measured in memory units, not
+  compute slices: a 7-slice board has eight units, so the full-board row is one
+  `{start: 0, size: 8}`. `slices` may be omitted, in which case the width comes
+  from the row's `nvml_profile` enum, and a declared width that disagrees with
+  that enum is refused. See
+  [the `mig:` reference](docs/mig.md).
+- nvml-mock: a board's MIG profile table now lives in a document of its own
+  rather than in the profile that describes the board. `device_defaults.mig`
+  keeps `mode_current`, `mode_pending` and `max_gpu_instances` — properties of
+  the silicon, and small — while `supported_profiles`, several hundred rows of
+  partition geometry, moves to a sibling file, restoring the shipped profiles
+  to a length a reader of the rest of them can work with. The engine resolves
+  the table from `MOCK_MIG_PROFILES_CONFIG`, then from a sibling derived from
+  the config path (`config.yaml` -> `config.mig.yaml`), which is what makes a
+  local run and the standalone configs work with no environment set. Nothing
+  changes for a chart install: the selected board's table renders into its own
+  ConfigMap, mounts at `/etc/nvml-mock/mig` and sets the env var, and every
+  board reports exactly what it did before. A consumer pod needs nothing
+  mounted either — the node agent stages the table beside every config it
+  writes under the mock root, so a process holding one of those configs, the
+  device plugin above all, resolves the table by the sibling rule. **Breaking for externally-authored
+  configs:** the table has to move, not be copied — a config declaring
+  `supported_profiles` inline while an external table also resolves is refused
+  as ambiguous, naming both sources. A board whose table cannot be resolved is
+  not MIG-capable and answers `NVML_ERROR_NOT_SUPPORTED`; that is not a load
+  error, and the only trace is a debug-level line naming the path that was
+  tried. See
+  [where the table lives](docs/mig.md#where-the-table-lives).
 
 ### Removed
 
@@ -101,6 +216,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- nvml-mock: a MIG partition table that cannot be read no longer takes a node's
+  partitions away. Only "the file is not there" means a board has no table; any
+  other failure — a ConfigMap part-way through a remount, a permission fault —
+  used to resolve as a board deliberately without MIG. Because the node agent
+  withdraws the table it staged whenever it compiles a board without one, a
+  transient error removed the partition table and the capability nodes from a
+  node that was serving partitions. Such a failure is now reported, which
+  leaves the last good state in place.
+- nvml-mock: a MIG profile table declaring misaligned placements is refused at
+  load. Every placement of one profile is the same width, so distinct starts
+  alone do not keep them apart: `{start: 1, size: 2}` and `{start: 2, size: 2}`
+  repeat no offset and still share a memory unit, which advertised two GPU
+  instances that cannot both exist. Starts must be aligned to their own size,
+  as the geometry NVML reports always is. No shipped profile changes.
+- nvml-mock: a single GPU can be partitioned through a `devices[]` entry again.
+  A per-device `mig` block replaced the board's whole MIG block, and since the
+  partition table moved into a document of its own there was no way for that
+  entry to restate it — so the one GPU named came up not MIG-capable, answering
+  `ERROR_NOT_SUPPORTED` while its siblings partitioned normally. The block now
+  merges field by field: mode, layout and instances come from the device, while
+  the table and the instance ceiling are inherited from the board. A device
+  that declares a table of its own still keeps it, so a node can mix boards.
+- nvml-mock: `nvidia-smi mig -dgi` is now refused while the GPU instance still
+  holds a compute instance, reporting `NVML_ERROR_IN_USE` as NVML does. It used
+  to destroy the compute instances for the caller and report success, so a
+  partitioning tool that tore a board down in the wrong order passed against
+  the mock and failed on hardware. Destroy the compute instances first, which
+  is the order `nvidia-mig-parted` and the MIG user guide already use.
+- nvml-mock: `nvidia-smi mig -lgip` no longer reports more free instances of a
+  profile than the board has in total. Remaining capacity counted free slice
+  placements and applied only the board-wide instance cap, ignoring the
+  profile's own count, so an idle H100 advertised seven `1g.10gb+me` where one
+  exists and seven `1g.20gb` where four do — printed as `7/1` and `7/4`, a free
+  count above the total.
 - nvml-mock: a consumer's read-after-write across two processes now sees the
   write. NVML setter state lived on the device object inside whichever process
   loaded `libnvidia-ml.so`, and every consumer loads its own copy, so
@@ -115,6 +264,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it is still the one the agent published. On a node where another component
   owns that path, teardown used to delete it whatever it was; a foreign driver
   root is now left alone, and displacing one at startup is logged.
+- nvml-mock: `nvidia-smi mig -lgip` reports the engine counts NVIDIA publishes
+  for H100 and Blackwell boards. go-nvml's H100 table carries the A100's — no
+  JPEG engines on any plain profile, 5 NVDEC and 7 copy engines on `7g` — where
+  the MIG user guide publishes one JPEG per slice and 7 NVDEC with 8 copy
+  engines for `7g.80gb`. Every published A100 count already matched, which is
+  what identified the H100 table as an uncorrected copy. The `DEC`, `JPEG`,
+  `OFA` and `CE` columns change for `h100`, `b200`, `gb200` and `gb300`.
+- nvml-mock: `nvidia-smi mig -lcip` lists the compute instances the hardware
+  offers, which changes which ones a caller can create. **Breaking: `a100` no
+  longer offers `6c.7g.40gb`, so a `nvidia.com/mig-6c.7g.40gb` request can no
+  longer be satisfied** — no real A100 publishes that partition, and go-nvlib
+  derives the `nvidia.com/mig-<name>` resource names from this listing. The
+  listing used to be enumerated by walking every width from 1 up to the GPU
+  instance's, which invents partitions no board offers — a `6c` under a
+  7-slice instance, a `3c` under a 4-slice one — while dropping the
+  media-extension one-slice compute instance (`1_SLICE_REV1`) that every MIG
+  board does offer and every board's listing now gains. No rule generates the
+  listing: a 7-slice instance offers `3c` and `4c` but not `6c`, a 4-slice one
+  `4c` but not `3c`. Each row therefore declares its own listing under
+  `compute_instances`, and `a100` — the reference board — reports exactly what
+  go-nvml's table reports. See
+  [the `mig:` reference](docs/mig.md).
+- nvml-mock: **every MIG profile name on the `b200`, `gb200` and `gb300`
+  profiles changes, so a `nvidia.com/mig-*` resource request against these
+  boards needs updating.** `b200` and `gb200` now publish the `1g.23gb` family
+  NVIDIA's MIG user guide lists for B200, and `gb300` the `1g.35gb` family from
+  NVIDIA's gpu-operator mig-parted configuration; a board's smallest slice is
+  tabulated in [the MIG guide](docs/guides/mig/README.md). All three used to
+  declare a capacity no such board has — 192, 192 and 288 GiB — while resolving
+  to the same B200-180GB memory table, so `gb300` offered a full-board
+  partition named `7g.180gb` on a 288 GiB board, leaving 37% of it unreachable.
+  Each now declares the capacity of the product it stands in for — 180, 186 and
+  278 GiB — and the MIG profiles NVIDIA lists for it. `nvidia-smi mig -lgip`'s
+  `Name` and `Memory GiB` columns, the memory a MIG device reports, and the
+  resource names a cluster publishes all move with them. The `a100` and `h100`
+  profiles are unaffected.
+- nvml-mock: the `b200`, `gb200` and `gb300` profiles report the PCI device ids
+  NVIDIA publishes for those boards — `0x290110DE`, `0x294110DE` and
+  `0x31C210DE`, taken from the device-filter keys in the gpu-operator
+  mig-manager ConfigMap. `nvidia-mig-parted` selects a board's MIG layout by
+  matching that id, so the wrong identity applied the wrong board's
+  partitioning: `gb300` answered GB200 HGX's id and would have had its
+  `1g.23gb` layout applied to a board publishing `1g.35gb`, while `b200` and
+  `gb200` answered Hopper-era ids under comments naming them Blackwell. The
+  chart profiles and the standalone `pkg/gpu/mocknvml/configs` also disagreed
+  with each other — standalone `gb200` declared an H100-80GB id — and now
+  match. `subsystem_id` is unchanged: no published source for the Blackwell
+  board subsystem ids was found, so changing it would be guessing.
+- nvml-mock: `nvidia-smi mig -lgipp` reports placement sizes in memory units
+  rather than compute slices on `h100`, `b200`, `gb200` and `gb300`. A `7g`
+  partition occupies all eight of a board's memory units and a `3g` occupies
+  four, which is what the `a100` profile and real hardware have always
+  reported; the other four boards reported seven and three. Each board's
+  one-slice double-memory profile — `1g.20gb`, `1g.45gb`, `1g.47gb` and
+  `1g.70gb` — changes from seven placements of size 1 to four of size 2. All
+  five profiles now declare the same placement geometry, which belongs to the
+  seven-slice layout rather than to a board's capacity.
 
 ## [0.4.0-rc1] - 2026-09-14
 

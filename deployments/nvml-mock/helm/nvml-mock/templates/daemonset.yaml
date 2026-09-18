@@ -4,6 +4,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 {{- $ibEnabled := eq (include "nvml-mock.infinibandEnabled" .) "true" }}
 {{- $fmEnabled := eq (include "nvml-mock.fabricmanagerEnabled" .) "true" }}
+{{- $migProfiles := include "nvml-mock.migProfiles" . }}
 metadata:
   name: {{ include "nvml-mock.fullname" . }}
   labels:
@@ -23,6 +24,11 @@ spec:
       annotations:
         # Roll the DaemonSet on any config.yaml change.
         checksum/config: {{ include "nvml-mock.gpuConfig" . | sha256sum }}
+        {{- if $migProfiles }}
+        # And on any change to the board's MIG table, which is a ConfigMap of
+        # its own and so does not move the checksum above.
+        checksum/mig-profiles: {{ $migProfiles | sha256sum }}
+        {{- end }}
     spec:
       serviceAccountName: {{ include "nvml-mock.fullname" . }}
       automountServiceAccountToken: false
@@ -124,6 +130,14 @@ spec:
             - name: MOCK_TOPOLOGY_CONFIG
               value: /etc/nvml-mock/topology/topology.yaml
             {{- end }}
+            {{- if $migProfiles }}
+            # Names the MIG table mount below. The engine's other way of
+            # finding a table is a sibling of MOCK_NVML_CONFIG, which a
+            # ConfigMap mounted at its own path is not, so leaving this unset
+            # is what leaves the board not MIG-capable.
+            - name: MOCK_MIG_PROFILES_CONFIG
+              value: /etc/nvml-mock/mig/mig-profiles.yaml
+            {{- end }}
             # The socket the UMAD/verbs shims dial. The agent serves it; exec'd
             # tools only need to find it.
             - name: MOCK_IB_PING_SOCKET
@@ -202,6 +216,14 @@ spec:
             # the overlay, where the NRI plugin points workloads at it.
             - name: cluster-topology
               mountPath: /etc/nvml-mock/topology
+              readOnly: true
+            {{- end }}
+            {{- if $migProfiles }}
+            # The board's MIG partition table, read at LoadConfig() time by the
+            # agent and by anything exec'd here. Its own mount rather than a
+            # key beside config.yaml, so a table change rolls only this.
+            - name: mig-profiles
+              mountPath: /etc/nvml-mock/mig
               readOnly: true
             {{- end }}
             {{- if $fmEnabled }}
@@ -314,6 +336,11 @@ spec:
         - name: cluster-topology
           configMap:
             name: {{ include "nvml-mock.fullname" . }}-topology
+        {{- end }}
+        {{- if $migProfiles }}
+        - name: mig-profiles
+          configMap:
+            name: {{ include "nvml-mock.fullname" . }}-mig-profiles
         {{- end }}
         {{- if $fmEnabled }}
         - name: fabric-state

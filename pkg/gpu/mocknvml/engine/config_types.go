@@ -541,11 +541,87 @@ type DisplayConfig struct {
 	Active string `json:"active,omitempty"`
 }
 
-// MIGConfig defines MIG configuration
+// MIGConfig defines MIG configuration.
+//
+// GPUInstances declares the partitioning the device boots with. It is only
+// honoured while mode_current is "enabled", so a profile can carry the layout
+// its board would normally be partitioned into and leave MIG off. The declared
+// layout seeds in-memory state that NVML callers can then add to and destroy,
+// the same way nvidia-mig-parted would on real hardware.
 type MIGConfig struct {
 	ModeCurrent     string `json:"mode_current,omitempty"`
 	ModePending     string `json:"mode_pending,omitempty"`
 	MaxGPUInstances int    `json:"max_gpu_instances,omitempty"`
+	// SupportedProfiles is the board's MIG profile table: the rows
+	// `nvidia-smi mig -lgip` prints. It is declared here rather than derived
+	// in Go so that teaching the mock a new board is a YAML edit. A board
+	// declaring none is not MIG-capable, which is how l40s and t4 report
+	// ERROR_NOT_SUPPORTED.
+	SupportedProfiles []MIGProfileSpec       `json:"supported_profiles,omitempty"`
+	GPUInstances      []MIGGPUInstanceConfig `json:"gpu_instances,omitempty"`
+	// Instances is the explicit layout: exactly which GPU instances exist,
+	// with the IDs and placements they were created under. It is what a
+	// runtime mutation through NVML records, because a count cannot express
+	// a layout with a hole in it — delete instance 1 of three and the
+	// survivors are 0 and 2, which "count: 2" would reload as 0 and 1.
+	//
+	// A pointer because absent and present-but-empty differ: an empty list is
+	// a MIG-enabled board with every instance deleted, and must not fall back
+	// to GPUInstances.
+	Instances *[]MIGGPUInstanceRecord `json:"instances,omitempty"`
+}
+
+// MIGGPUInstanceConfig declares one or more identical GPU instances.
+//
+// The profile is named the way the cluster names it — "1g.10gb", "2g.20gb",
+// "1g.5gb+me" — so that what a profile declares reads the same as the
+// nvidia.com/mig-<profile> resource the device plugin ends up publishing.
+// ProfileID is the escape hatch for a raw NVML profile ID; exactly one of the
+// two must be set.
+type MIGGPUInstanceConfig struct {
+	Profile   string `json:"profile,omitempty"`
+	ProfileID *int   `json:"profile_id,omitempty"`
+	Count     int    `json:"count,omitempty"`
+	// ComputeInstances defaults to a single instance spanning the whole GPU
+	// instance, which is the only partitioning most consumers ask for and
+	// what nvidia-mig-parted creates when a profile names no compute slices.
+	ComputeInstances []MIGComputeInstanceConfig `json:"compute_instances,omitempty"`
+}
+
+// MIGComputeInstanceConfig declares one or more identical compute instances
+// inside a GPU instance. The profile is the compute-slice spelling NVML uses,
+// e.g. "1c" for a single slice; ProfileID takes a raw NVML profile ID.
+type MIGComputeInstanceConfig struct {
+	Profile   string `json:"profile,omitempty"`
+	ProfileID *int   `json:"profile_id,omitempty"`
+	Count     int    `json:"count,omitempty"`
+}
+
+// MIGGPUInstanceRecord is one GPU instance that exists, as opposed to
+// MIGGPUInstanceConfig which declares how many of a shape to create.
+//
+// PlacementStart pins the instance to a slice offset. It is optional: an
+// omitted placement lets the engine choose the first free slot, which is what
+// a layout hand-written for a test usually wants.
+type MIGGPUInstanceRecord struct {
+	ID             uint32 `json:"id"`
+	Profile        string `json:"profile,omitempty"`
+	ProfileID      *int   `json:"profile_id,omitempty"`
+	PlacementStart *int   `json:"placement_start,omitempty"`
+	// ComputeInstances is a pointer for the same reason MIGConfig.Instances
+	// is: a GPU instance with no compute instances is a state hardware has —
+	// `nvidia-smi mig -cgi` without -C creates one, and deleting the last
+	// compute instance leaves one — so an empty list must not read as
+	// unspecified and be handed the spanning default back.
+	ComputeInstances *[]MIGComputeInstanceRecord `json:"compute_instances,omitempty"`
+}
+
+// MIGComputeInstanceRecord is one compute instance that exists inside a GPU
+// instance.
+type MIGComputeInstanceRecord struct {
+	ID        uint32 `json:"id"`
+	Profile   string `json:"profile,omitempty"`
+	ProfileID *int   `json:"profile_id,omitempty"`
 }
 
 // GPUOperationModeConfig defines GOM settings
@@ -852,6 +928,17 @@ type TopologyClique struct {
 	Nodes []string `json:"nodes"`
 }
 
+// MIGProfilesDocument is a board's MIG profile table, held in its own file
+// rather than inside the profile that describes the board.
+//
+// SupportedProfiles is the same type the profile declares inline, so a table
+// decodes and validates identically wherever it was authored. See
+// MIGConfig.SupportedProfiles for what the rows mean.
+type MIGProfilesDocument struct {
+	Version           int              `json:"version"`
+	SupportedProfiles []MIGProfileSpec `json:"supported_profiles"`
+}
+
 // NVLinkConfig defines NVLink topology
 type NVLinkConfig struct {
 	Version     int `json:"version,omitempty"`
@@ -942,4 +1029,90 @@ type RootComplexConfig struct {
 	// list ("0,2,4"). When empty the affinity set is synthesized from the
 	// NUMA node index and CoresPerNUMA.
 	CPUAffinity string `json:"cpu_affinity,omitempty"`
+}
+
+// MIGProfileSpec is one row of a board's MIG profile table, transcribed from
+// NVIDIA's MIG user guide.
+//
+// NVMLProfile binds the row to the NVML enum every lookup keys on. It is named
+// rather than inferred from Name: the +me, +gfx, -me and +me.all families make
+// a display name an unreliable key. What validateMIGSupportedProfiles refuses
+// is an enum it does not recognise or one declared twice; Name stays
+// authoritative for what `nvidia-smi mig -lgip` prints and is not reconciled
+// against the enum's span.
+//
+// A row describes its partition completely: the slices it spans, the id the
+// board reports for it, where it may sit, and the compute instances it offers.
+// Geometry an algorithm cannot express is geometry the mock cannot mock, so
+// none of it is computed from the rest.
+type MIGProfileSpec struct {
+	Name        string `json:"name"`
+	NVMLProfile string `json:"nvml_profile"`
+	// Slices is how many compute slices the partition spans. NVMLProfile
+	// carries the same fact — gpuInstanceSliceCount answers it for every enum
+	// — and validateMIGProfileSpec refuses a row where the two disagree, so
+	// neither source is trusted alone. That cross-check is what makes stating
+	// the width here a second reading of one fact rather than a second source
+	// for it.
+	Slices int `json:"slices,omitempty"`
+	// ProfileID is the id the board publishes for this profile, which is what
+	// nvmlDeviceCreateGpuInstance takes. It is not the NVML profile enum: an
+	// A100's 1g.5gb is enum 0 and reports 19.
+	//
+	// There is no absent state to distinguish, so it is a plain int: 0 is a
+	// real reported id — the full-board 7g of an A100 or H100 publishes it —
+	// and nothing is derived for a row that omits the key. A row omitting it
+	// therefore publishes 0, which validateMIGSupportedProfiles refuses as
+	// soon as a second row on the board does the same.
+	ProfileID int    `json:"profile_id"`
+	Instances int    `json:"instances"`
+	MemoryMB  uint64 `json:"memory_mb"`
+	// Placements are the slots on the board this profile may occupy.
+	Placements []MIGPlacementSpec `json:"placements,omitempty"`
+	// ComputeInstances is the profile's `nvidia-smi mig -lcip` listing. A GPU
+	// instance does not offer every width that fits inside it — a 7-slice
+	// instance offers 3c and 4c and then jumps to 7c — which is why the
+	// listing is declared per row rather than enumerated from the width.
+	ComputeInstances []MIGComputeInstanceSpec `json:"compute_instances,omitempty"`
+	Multiprocessors  int                      `json:"multiprocessors,omitempty"`
+	CopyEngines      int                      `json:"copy_engines,omitempty"`
+	Decoders         int                      `json:"decoders,omitempty"`
+	Encoders         int                      `json:"encoders,omitempty"`
+	JPEG             int                      `json:"jpeg,omitempty"`
+	OFA              int                      `json:"ofa,omitempty"`
+}
+
+// MIGPlacementSpec is one slot a GPU instance profile may occupy on the board.
+//
+// Start and Size are measured in memory units, not compute slices. A board has
+// as many memory units as the next power of two at or above its compute-slice
+// count — eight for a 7-slice datacenter board — so a 3g partition holding
+// half the memory occupies four of eight units and a 7g partition occupies all
+// eight. Reading Size as a slice count is what makes go-nvml's H100 table
+// report a 7g placement of size 7.
+type MIGPlacementSpec struct {
+	Start uint32 `json:"start"`
+	Size  uint32 `json:"size"`
+}
+
+// MIGComputeInstanceSpec is one row of a GPU instance's compute-instance
+// listing.
+//
+// Multiprocessors is this compute instance's own share of the GPU instance's
+// SMs. The fixed-function engines are not divided that way: NVML reports them
+// as Shared* because every compute instance inside a GPU instance sees all of
+// them, so Decoders through OFA repeat the GPU instance's counts.
+type MIGComputeInstanceSpec struct {
+	NVMLProfile string `json:"nvml_profile"`
+	// Slices is cross-checked against NVMLProfile the same way
+	// MIGProfileSpec.Slices is, and additionally bounded by the width of the
+	// GPU instance the row sits in.
+	Slices            int `json:"slices,omitempty"`
+	Instances         int `json:"instances"`
+	Multiprocessors   int `json:"multiprocessors,omitempty"`
+	SharedCopyEngines int `json:"shared_copy_engines,omitempty"`
+	Decoders          int `json:"decoders,omitempty"`
+	Encoders          int `json:"encoders,omitempty"`
+	JPEG              int `json:"jpeg,omitempty"`
+	OFA               int `json:"ofa,omitempty"`
 }

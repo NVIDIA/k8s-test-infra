@@ -761,6 +761,99 @@ tests:
           content:
             name: cluster-topology
 
+  # ── MIG profile table ───────────────────────────────────────────────
+  # The table lives in its own ConfigMap, and the engine's only other way of
+  # finding one is a sibling of MOCK_NVML_CONFIG — which a mount at its own
+  # path is not. So the volume, the mount and the env var have to name the
+  # same place; if any one of them is wrong the board comes up not
+  # MIG-capable and nothing says why.
+  - it: should mount the board's MIG profile table and name it in the env
+    set:
+      gpu:
+        profile: a100
+        count: 8
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: mig-profiles
+            configMap:
+              name: RELEASE-NAME-nvml-mock-mig-profiles
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: mig-profiles
+            mountPath: /etc/nvml-mock/mig
+            readOnly: true
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_MIG_PROFILES_CONFIG
+            value: /etc/nvml-mock/mig/mig-profiles.yaml
+
+  # The table moved out of config.yaml, so checksum/config no longer moves
+  # when it changes. Its own annotation is what still rolls the DaemonSet.
+  - it: should roll the DaemonSet on a MIG table change
+    set:
+      gpu:
+        profile: a100
+        count: 8
+    asserts:
+      - exists:
+          path: spec.template.metadata.annotations["checksum/mig-profiles"]
+
+  - it: should not mount a MIG table for a board that ships none
+    set:
+      gpu:
+        profile: t4
+    asserts:
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: mig-profiles
+            configMap:
+              name: RELEASE-NAME-nvml-mock-mig-profiles
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: mig-profiles
+            mountPath: /etc/nvml-mock/mig
+            readOnly: true
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_MIG_PROFILES_CONFIG
+            value: /etc/nvml-mock/mig/mig-profiles.yaml
+      - notExists:
+          path: spec.template.metadata.annotations["checksum/mig-profiles"]
+
+  # A partitioned board needs the table to have arrived, which is why the
+  # render refuses when gpu.mig.enabled names a profile the chart ships no
+  # table for. Here it is present, so the layout goes through and the mount
+  # still comes with it.
+  - it: should keep the MIG table mounted when the board is partitioned
+    set:
+      gpu:
+        profile: a100
+        count: 8
+        mig:
+          enabled: true
+          gpuInstances:
+            - profile: 1g.5gb
+              count: 7
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: mig-profiles
+            mountPath: /etc/nvml-mock/mig
+            readOnly: true
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_MIG_PROFILES_CONFIG
+            value: /etc/nvml-mock/mig/mig-profiles.yaml
+
   - it: should wire fabricmanager state dir into the node-agent when enabled
     set:
       fabricmanager:

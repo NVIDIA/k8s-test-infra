@@ -53,12 +53,12 @@ device_defaults:
     pwr_object: "1.0"
 
   # ---------------------------------------------------------------------------
-  # Memory configuration - 192 GiB HBM3e
+  # Memory configuration - 180 GiB HBM3e
   # ---------------------------------------------------------------------------
   memory:
-    total_bytes: 206158430208       # 192 GiB HBM3e
+    total_bytes: 193273528320       # 180 GiB HBM3e
     reserved_bytes: 1073741824      # ~1 GiB reserved
-    free_bytes: 205084688384        # total - reserved at idle
+    free_bytes: 192199786496        # total - reserved at idle
     used_bytes: 0
     memory_bus_width: 8192
 
@@ -71,7 +71,7 @@ device_defaults:
   # PCI configuration
   # ---------------------------------------------------------------------------
   pci:
-    device_id: 0x234010DE           # B200 standalone
+    device_id: 0x290110DE           # B200
     subsystem_id: 0x181810DE
 
   pcie:
@@ -294,6 +294,12 @@ device_defaults:
   # ---------------------------------------------------------------------------
   # MIG configuration
   # ---------------------------------------------------------------------------
+  # MIG ships off because a partitioned board stops publishing nvidia.com/gpu
+  # under migStrategy=single. How a board is carved is a deployment choice
+  # rather than a property of the silicon, so no layout is declared here:
+  # --set gpu.mig.enabled=true needs gpu.mig.gpuInstances to supply one.
+  # This is the 180 GB B200 NVIDIA publishes profiles for, so its smallest
+  # slice is 1g.23gb and seven of them fills it.
   mig:
     mode_current: "disabled"
     mode_pending: "disabled"

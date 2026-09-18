@@ -111,6 +111,8 @@ type gpuElement struct {
 	PCI                      pciInfo           `xml:"pci"`
 	FanSpeed                 reading           `xml:"fan_speed"`
 	PerformanceState         reading           `xml:"performance_state"`
+	MIGMode                  migMode           `xml:"mig_mode"`
+	MIGDevices               migDevices        `xml:"mig_devices"`
 	FBMemoryUsage            memoryUsage       `xml:"fb_memory_usage"`
 	CCProtectedMemoryUsage   memoryUsage       `xml:"cc_protected_memory_usage"`
 	AccountingModeBufferSize reading           `xml:"accounting_mode_buffer_size"`
@@ -143,6 +145,62 @@ type memoryUsage struct {
 	Reserved reading `xml:"reserved"`
 	Used     reading `xml:"used"`
 	Free     reading `xml:"free"`
+}
+
+// migMode is <mig_mode>: whether this GPU is partitioned. The pending reading
+// is decoded beside the current one because a mode switch only takes effect
+// after the GPU is reset, so the two disagree while a switch is outstanding —
+// a state that is neither "partitioned" nor "not partitioned" for a consumer.
+// Both read N/A on a board that cannot partition at all.
+type migMode struct {
+	Current reading `xml:"current_mig"`
+	Pending reading `xml:"pending_mig"`
+}
+
+// migDevices is <mig_devices>: the partitions carved out of one GPU.
+//
+// Body is kept beside the decoded children because an empty Devices slice has
+// two causes that must not look alike. A GPU with no partitions renders the
+// block as the literal "None", which is a valid state; a document whose
+// partition elements this schema no longer matches renders it as markup, which
+// is a rename. Every count over Devices would pass vacuously on the second.
+type migDevices struct {
+	Body    string             `xml:",innerxml"`
+	Devices []migDeviceElement `xml:"mig_device"`
+}
+
+// migDeviceElement is one <mig_device>.
+//
+// The block carries neither the partition's MIG UUID nor its profile name:
+// nvidia-smi emits neither anywhere in -q -x, which is why the assertions that
+// need those still read `nvidia-smi -L`. The instance IDs are what identifies a
+// partition here, and they are the keys the capability table under
+// /dev/nvidia-caps is named by.
+//
+// <index> is deliberately not decoded: in the documents this package is pinned
+// against its body repeats the parent GPU's index rather than the partition's
+// position, so it distinguishes nothing within a GPU.
+type migDeviceElement struct {
+	GPUInstanceID     reading             `xml:"gpu_instance_id"`
+	ComputeInstanceID reading             `xml:"compute_instance_id"`
+	DeviceAttributes  migDeviceAttributes `xml:"device_attributes"`
+	// FBMemoryUsage is the partition's own framebuffer, not its parent board's.
+	// The <bar1_memory_usage> sibling repeats the same child names and is
+	// deliberately not decoded.
+	FBMemoryUsage memoryUsage `xml:"fb_memory_usage"`
+}
+
+// migDeviceAttributes is <device_attributes>, which nests the partition's
+// engine counts under a <shared> child — the only child nvidia-smi emits.
+type migDeviceAttributes struct {
+	Shared migSharedAttributes `xml:"shared"`
+}
+
+// migSharedAttributes is <device_attributes><shared>. Only the SM count is
+// decoded; the copy-engine, encoder, decoder, OFA and JPG siblings beside it
+// are not read by any assertion.
+type migSharedAttributes struct {
+	MultiprocessorCount reading `xml:"multiprocessor_count"`
 }
 
 // platformInfo is <platformInfo> — the one camelCase container in the document.

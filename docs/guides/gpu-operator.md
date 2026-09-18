@@ -170,15 +170,14 @@ driver root, exercises CDI injection, and checks the node advertises GPUs.
 | `dcgmExporter.enabled: true` | Kept on deliberately — it reads the mock through libdcgm, which is part of what this proves |
 | `NVIDIA_DRIVER_ROOT` | Points every operand at `/var/lib/nvml-mock/driver` instead of the real driver root |
 | `GFD_MACHINE_TYPE_FILE` | GFD's default reads `/sys/class/dmi/id/product_name`, which says `kind` here and is absent on hosts with no DMI. Mokka writes a file of its own |
-| `mig.strategy: none` | MIG is not simulated. Without this the device plugin enumerates MIG devices, and the CDI spec generator treats any non-`NOT_FOUND` return as fatal |
+| `mig.strategy: none` | The install above does not partition the board, so there are no slices to advertise and whole GPUs are the right view. MIG itself is simulated: [MIG partitioning](mig/README.md) carves a board and serves the slices through the device plugin in `migStrategy=single` |
 | `validator.cuda.WITH_WORKLOAD: false` | The CUDA validation step launches a kernel, and [CUDA is not simulated](../faq.md#can-i-run-cuda-workloads-against-mokka) |
 | `DISABLE_DEV_CHAR_SYMLINK_CREATION` | The `/dev/char` symlink step runs `modprobe nvidia`, which cannot work in a Kind container. Mokka already staged those nodes |
 
 ## Three labels that look wrong and are not
 
 Inspecting the node labels after a run turns up three that seem to contradict
-the overlay. None of them breaks anything, and none is a claim about what the
-mock implements.
+the overlay. None of them breaks anything.
 
 - `nvidia.com/gpu.deploy.driver=true` and
   `nvidia.com/gpu.deploy.container-toolkit=true` are the operator's own
@@ -187,9 +186,10 @@ mock implements.
   `driver.enabled=false` and `toolkit.enabled=false` the DaemonSets are never
   created, so the labels have nothing to select. Confirm with
   `kubectl -n gpu-operator get ds`, which lists neither.
-- `nvidia.com/mig.capable=true` reports what the simulated board advertises,
-  not what the mock implements. The profile models a MIG-capable card, so GFD
-  labels it as one — which is exactly why `mig.strategy: none` has to stay.
+- `nvidia.com/mig.capable=true` looks like it contradicts `mig.strategy: none`,
+  and does not. The board really is MIG-capable and the mock really partitions
+  it; this install simply does not carve it, which is why the strategy stays
+  `none`. Carving it is the [MIG partitioning](mig/README.md) guide.
 
 ## Troubleshooting
 
