@@ -108,14 +108,16 @@ device_defaults:
     ecc_object: "7.16"
 
   # ---------------------------------------------------------------------------
-  # Memory — 286524 MiB usable of the 288 GB HBM4 stack, and a 512 GiB BAR1
-  # aperture. The bus width is not in the capture; 16384 bits follows HBM4
-  # doubling the interface width of the HBM3e on gb300.
+  # Memory — the 288 GB of HBM4 NVIDIA publishes for Rubin, and a 512 GiB BAR1
+  # aperture. total_bytes carries that nameplate capacity the way every other
+  # profile carries its own, not the 286524 MiB the capture's sample reports
+  # usable after its carveout. The bus width is not in the capture; 16384 bits
+  # follows HBM4 doubling the interface width of HBM3e.
   # ---------------------------------------------------------------------------
   memory:
-    total_bytes: 300442189824       # 286524 MiB
-    reserved_bytes: 1339031552      # 1277 MiB
-    free_bytes: 299103158272        # total - reserved at idle
+    total_bytes: 309237645312       # 288 GiB: 8 HBM4 stacks, 12-Hi, 36 GiB each
+    reserved_bytes: 1339031552      # 1277 MiB, the reserve the capture reports
+    free_bytes: 307898613760        # total - reserved at idle
     used_bytes: 0
     memory_bus_width: 16384
 

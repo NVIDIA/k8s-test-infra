@@ -739,7 +739,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 | **Architecture** | Ampere | Hopper | Blackwell | Blackwell | Blackwell Ultra | Ada Lovelace | Turing | Rubin |
 | **Compute capability** | 8.0 | 9.0 | 10.0 | 10.0 | 10.0 | 8.9 | 7.5 | 10.7 |
 | **CUDA cores** | 6,912 | 16,896 | 18,432 | 18,432 | 21,632 | 18,176 | 2,560 | not captured |
-| **Memory** | 40 GiB HBM2e | 80 GiB HBM3 | 192 GiB HBM3e | 192 GiB HBM3e | 288 GiB HBM3e | 48 GiB GDDR6 | 16 GiB GDDR6 | 280 GiB |
+| **Memory** | 40 GiB HBM2e | 80 GiB HBM3 | 192 GiB HBM3e | 192 GiB HBM3e | 288 GiB HBM3e | 48 GiB GDDR6 | 16 GiB GDDR6 | 288 GiB HBM4 |
 | **NVLink** | v3, 12 links | v4, 18 links | v5, 18 links | v5, 18 links | v5, 18 links | — | — | v6, 18 links |
 | **NVLink BW** | 600 GB/s | 900 GB/s | 1.8 TB/s | 1.8 TB/s | 1.8 TB/s | — | — | 3.6 TB/s |
 | **TDP** | 400W | 700W | 1,000W | 1,000W | 1,400W | 350W | 70W | 2,300W |
@@ -769,7 +769,7 @@ and the profile keeps that verbatim.
 - **`gb300`** (default) — testing Grace-Blackwell Ultra Superchip: 288 GiB HBM3e per GPU, 1.4 kW TDP, FP6 in addition to FP4/FP8, and Blackwell Ultra driver line (570.124.06).
 - **`l40s`** — testing Ada Lovelace inference workloads: FP8, PCIe Gen4, no NVLink (PCIe-only topology).
 - **`t4`** — testing Turing inference GPUs: low power (70W), small memory (16 GiB), 4 GPUs per node.
-- **`vr200`** — testing Vera-Rubin: NVLink 6.0, a 2.3 kW power ceiling, 280 GiB per GPU, and NVLink-C2C to a Vera CPU. Also the only profile whose PCI domains are non-zero and whose device minor numbers do not follow the device index, so it is the one to reach for when checking that a consumer reads both off the driver rather than assuming them.
+- **`vr200`** — testing Vera-Rubin: NVLink 6.0, a 2.3 kW power ceiling, 288 GB of HBM4 per GPU, and NVLink-C2C to a Vera CPU. Also the only profile whose PCI domains are non-zero and whose device minor numbers do not follow the device index, so it is the one to reach for when checking that a consumer reads both off the driver rather than assuming them.
 
 ### Custom Configuration
 

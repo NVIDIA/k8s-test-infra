@@ -57,16 +57,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   would observe. Only the GPU-wide budget is modelled, so the `_v2` module,
   memory and base-GPU scopes decline rather than fold into the GPU limit.
 - nvml-mock: new `vr200` profile, an eighth GPU profile modelling a four-GPU
-  Vera-Rubin tray — 280 GiB per GPU, a 2.3 kW ceiling, NVLink 6.0 and C2C to a
-  Vera host CPU — authored from an `nvidia-smi -q -x` capture on driver 615.23
-  / CUDA 13.4. Select it with `--set gpu.profile=vr200`; the capture ships under
-  the nvidia-smi hardware fixtures so the profile can be checked against what
-  the boards report. Two details follow the hardware rather than convention:
-  the board predates the driver's product table and so reports its name as
-  `NVIDIA Graphics Device`, and its `/dev/nvidia*` minor numbers do not follow
-  the device index. Elements driver 615 emits that the schema has no field for
-  are left absent rather than guessed. See `docs/helm-chart.md` for how the
-  profile compares with the Grace-Blackwell trays.
+  Vera-Rubin tray — 288 GB of HBM4 per GPU, a 2.3 kW ceiling, NVLink 6.0 and
+  C2C to a Vera host CPU — authored from an `nvidia-smi -q -x` capture on
+  driver 615.23 / CUDA 13.4. Select it with `--set gpu.profile=vr200`; the
+  capture ships under the nvidia-smi hardware fixtures so the profile can be
+  checked against what the boards report. Two details follow the hardware
+  rather than convention: the board predates the driver's product table and so
+  reports its name as `NVIDIA Graphics Device`, and its `/dev/nvidia*` minor
+  numbers do not follow the device index. Elements driver 615 emits that the
+  schema has no field for are left absent rather than guessed. See
+  `docs/helm-chart.md` for how the profile compares with the Grace-Blackwell
+  trays.
 
 ### Changed
 
