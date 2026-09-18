@@ -982,12 +982,54 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 		base.Processes = override.Processes // nil = not overridden; [] = explicit clear
 	}
 	if override.MIG != nil {
-		base.MIG = override.MIG
+		mergeMIGOverride(base, override.MIG)
 	}
 	if override.Platform != nil {
 		mergePlatformOverride(base, override.Platform)
 	}
 	// Add more fields as needed
+}
+
+// mergeMIGOverride merges per-field, for the same reason as
+// mergePlatformOverride: what varies between the GPUs of a node is the mode and
+// the layout, while the partition table and the instance ceiling describe the
+// board they all are.
+//
+// Replacing the block would make a devices[] entry restate the table to keep
+// it, and since the table is a document of its own it cannot — so that GPU
+// would answer ERROR_NOT_SUPPORTED while its siblings partitioned normally. A
+// device that does declare a table still wins, because a node is free to mix
+// boards and the table is then the only thing saying which one this GPU is.
+//
+// The block is copied before it is written to, as the platform merge is: every
+// device's merge starts out pointing at the same MIGConfig.
+func mergeMIGOverride(base *DeviceConfig, override *MIGConfig) {
+	if base.MIG == nil {
+		base.MIG = &MIGConfig{}
+	} else {
+		clone := *base.MIG
+		base.MIG = &clone
+	}
+	if override.ModeCurrent != "" {
+		base.MIG.ModeCurrent = override.ModeCurrent
+	}
+	if override.ModePending != "" {
+		base.MIG.ModePending = override.ModePending
+	}
+	if override.MaxGPUInstances != 0 {
+		base.MIG.MaxGPUInstances = override.MaxGPUInstances
+	}
+	if len(override.SupportedProfiles) > 0 {
+		base.MIG.SupportedProfiles = override.SupportedProfiles
+	}
+	if len(override.GPUInstances) > 0 {
+		base.MIG.GPUInstances = override.GPUInstances
+	}
+	// Absent and present-but-empty differ here: an empty list is a partitioned
+	// board with every instance deleted, so the pointer is carried as given.
+	if override.Instances != nil {
+		base.MIG.Instances = override.Instances
+	}
 }
 
 // mergePlatformOverride merges per-field rather than replacing the block, so a

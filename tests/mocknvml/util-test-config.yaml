@@ -295,6 +295,12 @@ device_defaults:
 
   # ---------------------------------------------------------------------------
   # MIG configuration
+  #
+  # What makes this board MIG-capable is its partition table, and the table is
+  # a document of its own: util-test-config.mig.yaml, which the Dockerfile
+  # stages from the shipped A100 table. Declaring supported_profiles here as
+  # well is refused as ambiguous, so this block carries only the properties of
+  # the silicon.
   # ---------------------------------------------------------------------------
   mig:
     mode_current: "disabled"

@@ -826,6 +826,80 @@ func TestPerDeviceMIGOverride(t *testing.T) {
 	require.Equal(t, 7, overridden.GPUInstances[0].Count)
 }
 
+// A per-device mig block says what that GPU's mode and layout are, not what
+// silicon it is. The partition table belongs to the board, and it now lives in
+// a document of its own that a devices[] entry has no way to restate — so
+// replacing the whole block leaves that one GPU not MIG-capable, answering
+// ERROR_NOT_SUPPORTED on a node whose other GPUs partition fine.
+func TestPerDeviceMIGOverride_InheritsTheBoardsTable(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		NumDevices: 2,
+		YAMLConfig: &YAMLConfig{
+			DeviceDefaults: DeviceConfig{
+				Name: "NVIDIA A100-SXM4-40GB",
+				MIG: &MIGConfig{
+					ModeCurrent:       "disabled",
+					MaxGPUInstances:   7,
+					SupportedProfiles: a100SupportedProfiles(),
+				},
+			},
+			Devices: []DeviceOverride{{
+				Index: 1,
+				DeviceConfig: DeviceConfig{
+					MIG: &MIGConfig{
+						ModeCurrent:  "enabled",
+						ModePending:  "enabled",
+						GPUInstances: []MIGGPUInstanceConfig{{Profile: "1g.5gb", Count: 7}},
+					},
+				},
+			}},
+		},
+	}
+
+	overridden := cfg.GetDeviceConfig(1).MIG
+	require.Equal(t, "enabled", overridden.ModeCurrent)
+	require.Equal(t, a100SupportedProfiles(), overridden.SupportedProfiles,
+		"the board's partition table must survive a per-device mode and layout override")
+	// Inherited too, because it describes the silicon rather than this GPU's
+	// partitioning, and a device that restated it could disagree with the table.
+	require.Equal(t, 7, overridden.MaxGPUInstances)
+
+	// The defaults must not have been mutated on the way through: every device
+	// merge starts from a shallow copy of them.
+	require.Equal(t, "disabled", cfg.GetDeviceConfig(0).MIG.ModeCurrent)
+	require.Empty(t, cfg.GetDeviceConfig(0).MIG.GPUInstances,
+		"device 1's layout must not leak onto the board's other GPUs")
+}
+
+// A device that does declare a table of its own keeps it: a node can mix
+// boards, and the table is then the only thing saying which one this GPU is.
+func TestPerDeviceMIGOverride_KeepsADeclaredTable(t *testing.T) {
+	t.Parallel()
+
+	own := a100SupportedProfiles()[:1]
+	cfg := &Config{
+		NumDevices: 2,
+		YAMLConfig: &YAMLConfig{
+			DeviceDefaults: DeviceConfig{
+				Name: "NVIDIA A100-SXM4-40GB",
+				MIG: &MIGConfig{
+					ModeCurrent:       "disabled",
+					MaxGPUInstances:   7,
+					SupportedProfiles: a100SupportedProfiles(),
+				},
+			},
+			Devices: []DeviceOverride{{
+				Index:        1,
+				DeviceConfig: DeviceConfig{MIG: &MIGConfig{SupportedProfiles: own}},
+			}},
+		},
+	}
+
+	require.Equal(t, own, cfg.GetDeviceConfig(1).MIG.SupportedProfiles)
+}
+
 // TestMigProfileNameForDevice resolves a name against a device's own tables,
 // which is how a declared partition's profile string becomes NVML profile IDs.
 func TestMigProfileNameForDevice(t *testing.T) {

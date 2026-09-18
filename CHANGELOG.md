@@ -208,6 +208,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- nvml-mock: a single GPU can be partitioned through a `devices[]` entry again.
+  A per-device `mig` block replaced the board's whole MIG block, and since the
+  partition table moved into a document of its own there was no way for that
+  entry to restate it — so the one GPU named came up not MIG-capable, answering
+  `ERROR_NOT_SUPPORTED` while its siblings partitioned normally. The block now
+  merges field by field: mode, layout and instances come from the device, while
+  the table and the instance ceiling are inherited from the board. A device
+  that declares a table of its own still keeps it, so a node can mix boards.
 - nvml-mock: `nvidia-smi mig -dgi` is now refused while the GPU instance still
   holds a compute instance, reporting `NVML_ERROR_IN_USE` as NVML does. It used
   to destroy the compute instances for the caller and report success, so a
