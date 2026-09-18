@@ -111,10 +111,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   processes share, and are cleared by a reset like anything else injected
   there. Persistence mode (`nvidia-smi -pm`) is unchanged and stays
   per-process. See [#849](https://github.com/NVIDIA/k8s-test-infra/issues/849).
-- node-agent: the `/run/nvidia/driver` symlink is removed on shutdown only when
-  it is still the one the agent published. On a node where another component
-  owns that path, teardown used to delete it whatever it was; a foreign driver
-  root is now left alone, and displacing one at startup is logged.
+- node-agent: fixed the GPU Operator validator getting stuck retrying driver
+  validation forever if its pod started before node-agent had finished, or
+  restarted while node-agent was mid-restart. `/run/nvidia/driver` is now a
+  bind mount of the staged driver root instead of a symlink to it, so a
+  consumer that already mounted the path keeps seeing it as content lands,
+  the way it would with a real driver. Teardown unmounts but never deletes
+  the directory, and never touches a path it did not mount. See
+  [#857](https://github.com/NVIDIA/k8s-test-infra/issues/857).
 
 ## [0.4.0-rc1] - 2026-09-14
 

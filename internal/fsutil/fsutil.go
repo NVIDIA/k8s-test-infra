@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"golang.org/x/sys/unix"
@@ -121,6 +122,110 @@ func Symlink(target, linkPath string) error {
 	}
 
 	return nil
+}
+
+// BindMount makes target a bind mount of source: mkdir target if absent
+// (never replacing it if not), then bind-mount source onto it. A no-op if
+// target is already bind-mounted from source. An error, not a silent
+// success, if target is already mounted from somewhere else — a foreign
+// owner of the path is never mistaken for done.
+func BindMount(src, dst string) error {
+	mounted, err := IsMounted(dst)
+	if err != nil {
+		return err
+	}
+
+	if mounted {
+		ours, err := sameContent(src, dst)
+
+		if err != nil {
+			return err
+		}
+
+		if !ours {
+			return fmt.Errorf("%s is already mounted from somewhere other than %s", dst, src)
+		}
+
+		return nil
+	}
+
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", dst, err)
+	}
+
+	if err := bindMount(src, dst); err != nil {
+		return fmt.Errorf("bind mount %s -> %s: %w", src, dst, err)
+	}
+
+	return nil
+}
+
+// Unmount lazily detaches target if it is currently bind-mounted from
+// source, leaving the directory entry itself in place. Not-mounted, or
+// mounted from somewhere else, is not an error — a foreign mount is left
+// alone rather than blindly detached.
+func Unmount(src, dst string) error {
+	mounted, err := IsMounted(dst)
+	if err != nil {
+		return err
+	}
+	if !mounted {
+		return nil
+	}
+
+	ours, err := sameContent(src, dst)
+	if err != nil {
+		return err
+	}
+	if !ours {
+		return nil
+	}
+
+	if err := lazyUnmount(dst); err != nil {
+		return fmt.Errorf("unmount %s: %w", dst, err)
+	}
+
+	return nil
+}
+
+// sameContent reports whether a and b resolve to the same underlying inode
+// — true for a target already bind-mounted from source.
+func sameContent(a, b string) (bool, error) {
+	fa, err := os.Stat(a)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("stat %s: %w", a, err)
+	}
+
+	fb, err := os.Stat(b)
+	if err != nil {
+		return false, fmt.Errorf("stat %s: %w", b, err)
+	}
+
+	return os.SameFile(fa, fb), nil
+}
+
+// IsMounted reports whether path is itself a mount point, by scanning this
+// process's mount table.
+func IsMounted(path string) (bool, error) {
+	clean := filepath.Clean(path)
+
+	data, err := os.ReadFile("/proc/self/mountinfo")
+	if err != nil {
+		return false, fmt.Errorf("read /proc/self/mountinfo: %w", err)
+	}
+
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		// mountinfo's 5th whitespace-separated field is the mount point.
+		if len(fields) >= 5 && fields[4] == clean {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // Remove removes path; not-exist is not an error. It does not recurse, so a
