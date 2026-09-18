@@ -235,7 +235,7 @@ func LoadYAMLConfig(path string) (*YAMLConfig, error) {
 
 	// Before validation, so a table that arrived from its own file is checked
 	// by the same rules as one declared inline.
-	if err := applyMIGProfilesOverlay(&config, path); err != nil {
+	if err := ApplyMIGProfilesOverlay(&config, path); err != nil {
 		return nil, fmt.Errorf("resolving MIG profile table: %w", err)
 	}
 
@@ -1112,10 +1112,20 @@ func overrideFabric(yamlConfig *YAMLConfig, clusterUUID string, cliqueID uint32)
 	}
 }
 
-// applyMIGProfilesOverlay attaches a board's MIG profile table to
+// EnvMIGProfilesConfig names the board's MIG profile table explicitly. The
+// chart sets it because the table mounts from a ConfigMap of its own, at a
+// path the config's directory does not predict.
+const EnvMIGProfilesConfig = "MOCK_MIG_PROFILES_CONFIG"
+
+// ApplyMIGProfilesOverlay attaches a board's MIG profile table to
 // yamlConfig.DeviceDefaults.MIG from a document of its own, so the profile
 // describing the board does not have to carry several hundred rows of
 // partition geometry.
+//
+// It is exported because the node agent has to reach the same table: it stages
+// the capability nodes for the partitions NVML enumerates, so resolving the
+// table differently there would leave a board that partitions under NVML with
+// no cap device to reach a partition through.
 //
 // It mirrors applyTopologyOverlay: resolve a path, and return quietly when
 // nothing is mounted there. A board with no resolvable table is simply not
@@ -1128,13 +1138,13 @@ func overrideFabric(yamlConfig *YAMLConfig, clusterUUID string, cliqueID uint32)
 // rather than leaving a broken board looking deliberately non-MIG.
 //
 // Resolution order for the table path:
-//  1. MOCK_MIG_PROFILES_CONFIG env var (explicit path, what the chart sets
-//     because the table mounts from its own ConfigMap at its own path)
+//  1. EnvMIGProfilesConfig (explicit path, what the chart sets because the
+//     table mounts from its own ConfigMap at its own path)
 //  2. A sibling of the config: config.yaml -> config.mig.yaml, which is what
 //     makes a local run and the standalone configs work with no environment
 //     set at all.
-func applyMIGProfilesOverlay(yamlConfig *YAMLConfig, configPath string) error {
-	migPath := migProfilesPathFor(configPath)
+func ApplyMIGProfilesOverlay(yamlConfig *YAMLConfig, configPath string) error {
+	migPath := MIGProfilesPathFor(configPath)
 	if migPath == "" {
 		return nil
 	}
@@ -1171,12 +1181,26 @@ func applyMIGProfilesOverlay(yamlConfig *YAMLConfig, configPath string) error {
 	return nil
 }
 
-// migProfilesPathFor resolves the MIG profile table path, or "" when neither
-// source names one. See applyMIGProfilesOverlay for why the order is this way.
-func migProfilesPathFor(configPath string) string {
-	if p := os.Getenv("MOCK_MIG_PROFILES_CONFIG"); p != "" {
+// MIGProfilesPathFor resolves the MIG profile table path, or "" when neither
+// source names one. See ApplyMIGProfilesOverlay for why the order is this way.
+//
+// Exported alongside it so a caller that has to watch the table for changes
+// names the same file the overlay will read, rather than guessing at it.
+func MIGProfilesPathFor(configPath string) string {
+	if p := os.Getenv(EnvMIGProfilesConfig); p != "" {
 		return p
 	}
+	return MIGProfilesSiblingPath(configPath)
+}
+
+// MIGProfilesSiblingPath returns the table path that sits beside configPath:
+// config.yaml -> config.mig.yaml, and "" for an empty path.
+//
+// It is the naming rule on its own, without the environment MIGProfilesPathFor
+// consults, for a caller that has to *write* a table a later reader will
+// resolve by this rule — the node agent staging a config for consumer
+// processes, which carry no environment naming a table of their own.
+func MIGProfilesSiblingPath(configPath string) string {
 	if configPath == "" {
 		return ""
 	}

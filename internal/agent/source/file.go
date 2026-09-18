@@ -95,20 +95,23 @@ func (f *FileSource) poll(ctx context.Context, ch chan<- agent.Update, lastHash 
 		return
 	}
 
-	h := inputsHash(data, topology)
+	migTable := f.migTable()
+
+	h := inputsHash(data, topology, migTable)
 	if h == *lastHash {
-		f.log.Debug("config and topology unchanged; skipping reconcile")
+		f.log.Debug("watched documents unchanged; skipping reconcile")
 		return // content unchanged
 	}
 	*lastHash = h
 
-	state, err := compileState(data)
+	state, err := compileState(data, f.configPath)
 	if err != nil {
 		f.send(ctx, ch, agent.Update{Err: fmt.Errorf("%s: %w", f.configPath, err), At: time.Now()})
 		return
 	}
 	state.ConfigRaw = data
 	state.TopologyRaw = topology
+	state.MIGProfilesRaw = migTable
 	f.log.Info("state updated from config", zap.String("config", f.configPath))
 	f.send(ctx, ch, agent.Update{State: state, At: time.Now()})
 }
@@ -141,12 +144,43 @@ func readTopology(path string, log *zap.Logger) ([]byte, error) {
 	return data, nil
 }
 
-// inputsHash digests both documents so an edit to either is a change. Hashing
-// the fixed-width sums keeps a byte from shifting across the boundary.
-func inputsHash(config, topology []byte) [32]byte {
-	c, t := sha256.Sum256(config), sha256.Sum256(topology)
+// migTable returns the board's partition table bytes, or nil where the node has
+// none. The bytes are hashed to detect a change and carried on the State for
+// gpudriver to stage; parseProfile resolves and validates the document for the
+// agent's own use, so a read failure surfaces from there rather than here.
+//
+// The table has to be hashed because it is a mount of its own. It can arrive
+// after the first poll, and the config it belongs to does not change when it
+// does, so hashing the config alone would latch the compile that saw no table
+// and the node would stage no capability surface for the rest of its life.
+func (f *FileSource) migTable() []byte {
+	path := engine.MIGProfilesPathFor(f.configPath)
+	if path == "" {
+		return nil
+	}
 
-	return sha256.Sum256(append(c[:], t[:]...))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		f.log.Debug("MIG profile table not readable; treating the board as unpartitioned",
+			zap.String("path", path), zap.Error(err))
+		return nil
+	}
+
+	return data
+}
+
+// inputsHash digests every watched document so an edit to any of them is a
+// change. Hashing the fixed-width sums keeps a byte from shifting across a
+// boundary.
+func inputsHash(config, topology, migTable []byte) [32]byte {
+	c, t, m := sha256.Sum256(config), sha256.Sum256(topology), sha256.Sum256(migTable)
+
+	joined := make([]byte, 0, len(c)+len(t)+len(m))
+	joined = append(joined, c[:]...)
+	joined = append(joined, t[:]...)
+	joined = append(joined, m[:]...)
+
+	return sha256.Sum256(joined)
 }
 
 // parseProfile decodes a profile and checks what the agent acts on before the
@@ -154,10 +188,18 @@ func inputsHash(config, topology []byte) [32]byte {
 // both CDI specs, so it cannot wait for the engine to reject minors that
 // collide. Only that check runs here: the rest of the engine's validation
 // demands fields the agent deliberately tolerates, driver_version among them.
-func parseProfile(data []byte) (engine.YAMLConfig, error) {
+func parseProfile(data []byte, configPath string) (engine.YAMLConfig, error) {
 	var cfg engine.YAMLConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return cfg, fmt.Errorf("parse yaml: %w", err)
+	}
+	// A board's partition table is a document of its own, and the agent has to
+	// join it exactly as the library does: the capability nodes it stages are
+	// keyed by the instance IDs the library derives from this table, so an
+	// agent that could not see it would compile a node with no MIG surface
+	// while NVML enumerated the partitions regardless.
+	if err := engine.ApplyMIGProfilesOverlay(&cfg, configPath); err != nil {
+		return cfg, fmt.Errorf("resolve MIG profile table: %w", err)
 	}
 	return cfg, engine.ValidateMinorNumbers(&cfg)
 }
@@ -165,8 +207,12 @@ func parseProfile(data []byte) (engine.YAMLConfig, error) {
 // compileState parses raw YAML config bytes and builds the agent State.
 // Runtime telemetry fields (utilization, power, temperature, clocks) are
 // discarded — they belong to the runtime override file owned by nvml-mock-ctl.
-func compileState(data []byte) (*agent.State, error) {
-	cfg, err := parseProfile(data)
+//
+// configPath is where those bytes came from, because a board's partition table
+// is resolved relative to it. Callers with a config that carries its own table
+// inline pass "".
+func compileState(data []byte, configPath string) (*agent.State, error) {
+	cfg, err := parseProfile(data, configPath)
 	if err != nil {
 		return nil, err
 	}

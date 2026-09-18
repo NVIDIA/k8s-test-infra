@@ -446,7 +446,7 @@ func TestValidateYAMLConfig_AcceptsEveryShippedProfile(t *testing.T) {
 // MIG-capable, so nothing else in the tree would report a table that went
 // missing or was named wrong.
 func TestLoadYAMLConfig_ShippedConfigsResolveTheirMIGTable(t *testing.T) {
-	t.Setenv("MOCK_MIG_PROFILES_CONFIG", "")
+	t.Setenv(EnvMIGProfilesConfig, "")
 
 	tables, err := filepath.Glob("../configs/*.mig.yaml")
 	require.NoError(t, err)
@@ -1292,7 +1292,7 @@ func writeMIGProfileTable(t *testing.T, table string) string {
 // out t.Parallel for them.
 
 func TestLoadYAMLConfig_AttachesAnExternalMIGProfileTable(t *testing.T) {
-	t.Setenv("MOCK_MIG_PROFILES_CONFIG", "")
+	t.Setenv(EnvMIGProfilesConfig, "")
 
 	cfg, err := LoadYAMLConfig(stageMIGProfileFixtures(t, migBoardDeclaringNoProfiles, migExternalTable1g))
 
@@ -1304,7 +1304,7 @@ func TestLoadYAMLConfig_AttachesAnExternalMIGProfileTable(t *testing.T) {
 
 func TestLoadYAMLConfig_MIGProfilesEnvVarWinsOverTheSibling(t *testing.T) {
 	configPath := stageMIGProfileFixtures(t, migBoardDeclaringNoProfiles, migExternalTable1g)
-	t.Setenv("MOCK_MIG_PROFILES_CONFIG", writeMIGProfileTable(t, migExternalTable7g))
+	t.Setenv(EnvMIGProfilesConfig, writeMIGProfileTable(t, migExternalTable7g))
 
 	cfg, err := LoadYAMLConfig(configPath)
 
@@ -1318,7 +1318,7 @@ func TestLoadYAMLConfig_MIGProfilesEnvVarWinsOverTheSibling(t *testing.T) {
 // the chart provides is the thing that can be absent, and refusing the config
 // would take the whole board down with it.
 func TestLoadYAMLConfig_NoMIGProfileTableLeavesTheBoardNotMIGCapable(t *testing.T) {
-	t.Setenv("MOCK_MIG_PROFILES_CONFIG", "")
+	t.Setenv(EnvMIGProfilesConfig, "")
 
 	cfg, err := LoadYAMLConfig(stageMIGProfileFixtures(t, migBoardDeclaringNoProfiles, ""))
 
@@ -1330,7 +1330,7 @@ func TestLoadYAMLConfig_NoMIGProfileTableLeavesTheBoardNotMIGCapable(t *testing.
 // parse is an operator mistake, and dropping it would present as the board
 // above — deliberately non-MIG — when it is in fact broken.
 func TestLoadYAMLConfig_RefusesAMalformedExternalMIGProfileTable(t *testing.T) {
-	t.Setenv("MOCK_MIG_PROFILES_CONFIG", "")
+	t.Setenv(EnvMIGProfilesConfig, "")
 
 	_, err := LoadYAMLConfig(stageMIGProfileFixtures(t, migBoardDeclaringNoProfiles, "supported_profiles: [oh: dear\n"))
 
@@ -1341,7 +1341,7 @@ func TestLoadYAMLConfig_RefusesAMalformedExternalMIGProfileTable(t *testing.T) {
 // Splitting the file must not split the guarantees: a table validated as
 // inline data is validated identically once it arrives from its own file.
 func TestLoadYAMLConfig_ExternalMIGProfileTableFacesTheSameValidation(t *testing.T) {
-	t.Setenv("MOCK_MIG_PROFILES_CONFIG", "")
+	t.Setenv(EnvMIGProfilesConfig, "")
 	narrowBoard := `
 version: "1.0"
 system:
@@ -1362,7 +1362,7 @@ device_defaults:
 // silently ignored. The config refuses to load and names both, the way
 // validateMIGProfileRef already refuses a profile named two ways.
 func TestLoadYAMLConfig_RefusesAMIGProfileTableDeclaredInlineAndExternally(t *testing.T) {
-	t.Setenv("MOCK_MIG_PROFILES_CONFIG", "")
+	t.Setenv(EnvMIGProfilesConfig, "")
 	inline := migBoardDeclaringNoProfiles + `    supported_profiles:
       - name: 1g.5gb
         nvml_profile: 1_SLICE

@@ -26,7 +26,7 @@ func TestCompileState_AllSKUs(t *testing.T) {
 			data, err := os.ReadFile(path)
 			require.NoError(t, err)
 
-			state, err := compileState(data)
+			state, err := compileState(data, path)
 			require.NoError(t, err)
 
 			require.NotEmpty(t, state.Software.DriverVersion, "empty DriverVersion")
@@ -45,7 +45,7 @@ func TestCompileState_FabricState(t *testing.T) {
 	data, err := os.ReadFile("../../../pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml")
 	require.NoError(t, err)
 
-	state, err := compileState(data)
+	state, err := compileState(data, "../../../pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml")
 	require.NoError(t, err)
 
 	require.True(t, state.Fabric.Enabled, "gb200 fabric should be enabled")
@@ -58,12 +58,12 @@ func TestCompileState_ManagerStateDir(t *testing.T) {
 	data, err := os.ReadFile("../../../pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml")
 	require.NoError(t, err)
 
-	state, err := compileState(data)
+	state, err := compileState(data, "../../../pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml")
 	require.NoError(t, err)
 	require.Empty(t, state.Fabric.ManagerStateDir)
 
 	t.Setenv(engine.EnvFabricStateDir, " /var/lib/nvml-mock/fabric-state ")
-	state, err = compileState(data)
+	state, err = compileState(data, "../../../pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml")
 	require.NoError(t, err)
 	require.Equal(t, "/var/lib/nvml-mock/fabric-state", state.Fabric.ManagerStateDir)
 }
@@ -91,7 +91,7 @@ func TestCompileState_PCIIdentityFromDefaults(t *testing.T) {
 	data, err := os.ReadFile("../../../pkg/gpu/mocknvml/configs/mock-nvml-config-h100.yaml")
 	require.NoError(t, err)
 
-	state, err := compileState(data)
+	state, err := compileState(data, "../../../pkg/gpu/mocknvml/configs/mock-nvml-config-h100.yaml")
 	require.NoError(t, err)
 	require.NotEmpty(t, state.Devices)
 
@@ -112,7 +112,7 @@ func TestCompileState_EverySKUCarriesPCIIdentity(t *testing.T) {
 			data, err := os.ReadFile(path)
 			require.NoError(t, err)
 
-			state, err := compileState(data)
+			state, err := compileState(data, path)
 			require.NoError(t, err)
 
 			for i, d := range state.Devices {
@@ -129,11 +129,12 @@ func TestCompileState_EverySKUCarriesPCIIdentity(t *testing.T) {
 // show a consumer an NVIDIA 3D controller that NVML denies exists.
 func TestCompileState_TopologyTracksACappedDeviceCount(t *testing.T) {
 	t.Setenv("GPU_COUNT", "2")
-	data, err := os.ReadFile(filepath.Join("..", "..", "..", "pkg", "gpu", "mocknvml",
-		"configs", "mock-nvml-config-gb300.yaml"))
+	path := filepath.Join("..", "..", "..", "pkg", "gpu", "mocknvml",
+		"configs", "mock-nvml-config-gb300.yaml")
+	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 
-	state, err := compileState(data)
+	state, err := compileState(data, path)
 	require.NoError(t, err)
 	require.Len(t, state.Devices, 2, "GPU_COUNT caps the devices NVML reports")
 	require.Len(t, state.NodeShape.Topology.RootComplexes, 2,
@@ -168,7 +169,7 @@ devices:
       device_id: 0x234010DE
       subsystem_id: 0x181810DE
 `
-	state, err := compileState([]byte(cfg))
+	state, err := compileState([]byte(cfg), "")
 	require.NoError(t, err)
 	require.Len(t, state.Devices, 2)
 
@@ -217,7 +218,7 @@ func TestCompileState_NetworkResolvedForEveryProfile(t *testing.T) {
 			data, err := os.ReadFile(path)
 			require.NoError(t, err)
 
-			state, err := compileState(data)
+			state, err := compileState(data, path)
 			require.NoError(t, err)
 
 			net := state.NodeShape.Network
@@ -243,7 +244,7 @@ func TestCompileState_NetworkFromProfile(t *testing.T) {
 	data, err := os.ReadFile("../../../deployments/nvml-mock/helm/nvml-mock/profiles/gb200.yaml")
 	require.NoError(t, err)
 
-	state, err := compileState(data)
+	state, err := compileState(data, "../../../deployments/nvml-mock/helm/nvml-mock/profiles/gb200.yaml")
 	require.NoError(t, err)
 
 	net := state.NodeShape.Network
@@ -272,7 +273,7 @@ func TestCompileState_NetworkDisabled(t *testing.T) {
 			data, err := os.ReadFile(c.path)
 			require.NoError(t, err)
 
-			state, err := compileState(data)
+			state, err := compileState(data, c.path)
 			require.NoError(t, err)
 			require.False(t, state.NodeShape.Network.IBEnabled)
 			require.Equal(t, agent.NetworkShape{}, state.NodeShape.Network)
@@ -467,7 +468,7 @@ devices:
   - index: 1
     uuid: "GPU-bbb"
 `
-	state, err := compileState([]byte(cfg))
+	state, err := compileState([]byte(cfg), "")
 	require.NoError(t, err)
 	require.Len(t, state.Devices, 4)
 	for i, d := range state.Devices {
@@ -487,7 +488,7 @@ devices:
   - index: 1
     minor_number: 0
 `
-	state, err := compileState([]byte(cfg))
+	state, err := compileState([]byte(cfg), "")
 	require.NoError(t, err)
 	require.Equal(t, 1, state.Devices[0].MinorNumber)
 	require.Equal(t, 0, state.Devices[1].MinorNumber, "minor 0 on a device that is not index 0")
@@ -507,7 +508,7 @@ devices:
     minor_number: 1
   - index: 1
 `
-	_, err := compileState([]byte(cfg))
+	_, err := compileState([]byte(cfg), "")
 	require.ErrorContains(t, err, "duplicate device minor number: 1")
 }
 
@@ -526,7 +527,7 @@ devices:
   - index: 3
     minor_number: 1
 `
-	state, err := compileState([]byte(cfg))
+	state, err := compileState([]byte(cfg), "")
 	require.NoError(t, err)
 
 	var yc engine.YAMLConfig
@@ -580,7 +581,7 @@ device_defaults:
         count: 3
 `)
 
-	state, err := compileState(data)
+	state, err := compileState(data, "")
 	require.NoError(t, err)
 
 	require.True(t, state.MIG.Partitioned())
@@ -597,6 +598,96 @@ device_defaults:
 			require.NotEmpty(t, gi.ComputeInstances[0].UUID)
 		}
 	}
+}
+
+// migLayoutWithoutTable is a MIG-capable board that declares a layout and no
+// partition table, which is what the chart renders now that the table is a
+// document of its own. The name it partitions with is a row of the shipped
+// gb200 table, so the two files only compile together.
+const migLayoutWithoutTable = `
+version: "1.0"
+system:
+  driver_version: "580.65.06"
+  num_devices: 1
+device_defaults:
+  name: "NVIDIA GB200"
+  memory:
+    total_bytes: 193273528320
+  mig:
+    mode_current: "enabled"
+    mode_pending: "enabled"
+    max_gpu_instances: 7
+    gpu_instances:
+      - profile: "1g.23gb"
+        count: 7
+`
+
+// migSiblingLayout writes that config and the shipped gb200 table into a
+// directory as the sibling pair, and returns the config path.
+func migSiblingLayout(t *testing.T) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(migLayoutWithoutTable), 0o600))
+
+	return configPath
+}
+
+// migWriteSiblingTable puts the shipped gb200 partition table beside configPath.
+func migWriteSiblingTable(t *testing.T, configPath string) {
+	t.Helper()
+
+	table, err := os.ReadFile("../../../pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.mig.yaml")
+	require.NoError(t, err)
+
+	sibling := strings.TrimSuffix(configPath, filepath.Ext(configPath)) + ".mig.yaml"
+	require.NoError(t, os.WriteFile(sibling, table, 0o600))
+}
+
+// The agent has to resolve the partition table the same way the engine does.
+// Compiling the profile alone leaves a MIG-capable board looking unpartitionable,
+// and the symptom is remote from the cause: NVML enumerates the partitions
+// correctly while the node stages no capability table at all, so a consumer
+// finds a MIG device it has no cap node to reach.
+func TestCompileState_MIGTableFromASiblingDocument(t *testing.T) {
+	t.Parallel()
+
+	configPath := migSiblingLayout(t)
+	migWriteSiblingTable(t, configPath)
+
+	state, err := compileState([]byte(migLayoutWithoutTable), configPath)
+	require.NoError(t, err)
+
+	require.True(t, state.MIG.Partitioned(),
+		"a board whose table sits in a sibling document must still partition")
+	require.Len(t, state.MIG.GPUs, 1)
+	require.Len(t, state.MIG.GPUs[0].GPUInstances, 7,
+		"every partition the layout asks for must resolve against the sibling table")
+}
+
+// The table is a second mount, so it can arrive after the first poll. Hashing
+// the config alone would latch the unpartitioned compile: the config never
+// changes afterwards, so no later poll would reconcile and the node would stage
+// no capability table for the rest of the pod's life.
+func TestFileSource_MIGTableArrivingLateTriggersAReconcile(t *testing.T) {
+	t.Parallel()
+
+	configPath := migSiblingLayout(t)
+	f := NewFileSource(configPath, filepath.Join(filepath.Dir(configPath), "topology.yaml"), zap.NewNop())
+
+	var hash [32]byte
+	u := pollOnce(t, f, &hash)
+	require.NotNil(t, u, "initial poll emits")
+	require.NoError(t, u.Err)
+	require.False(t, u.State.MIG.Partitioned(), "no table is mounted yet")
+
+	migWriteSiblingTable(t, configPath)
+
+	u = pollOnce(t, f, &hash)
+	require.NotNil(t, u, "a table that arrives late must emit an update")
+	require.NoError(t, u.Err)
+	require.True(t, u.State.MIG.Partitioned())
 }
 
 // TestCompileState_MIGDisabledInEveryShippedProfile pins the deliberate default:
@@ -616,7 +707,7 @@ func TestCompileState_MIGDisabledInEveryShippedProfile(t *testing.T) {
 			data, err := os.ReadFile(path)
 			require.NoError(t, err)
 
-			state, err := compileState(data)
+			state, err := compileState(data, path)
 			require.NoError(t, err)
 			require.False(t, state.MIG.Partitioned(),
 				"%s must boot unpartitioned", filepath.Base(path))
@@ -641,6 +732,11 @@ var chartMIGLayouts = map[string]engine.MIGGPUInstanceConfig{
 // unresolvable name is only warned about and skipped, so without this an
 // install would quietly get fewer partitions than it asked for — visible only
 // as a smaller allocatable count in a cluster.
+//
+// It drives compileState, and mounts the table the way the chart does, so the
+// agent's own resolution is what is under test. Attaching the table here
+// instead would prove the two documents agree while saying nothing about
+// whether the agent ever joins them.
 func TestCompileState_ChartMIGLayoutsAllResolve(t *testing.T) {
 	profiles, err := filepath.Glob(helmProfileGlob)
 	require.NoError(t, err)
@@ -663,28 +759,27 @@ func TestCompileState_ChartMIGLayoutsAllResolve(t *testing.T) {
 			require.NoError(t, yaml.Unmarshal(data, &cfg))
 			require.NotNil(t, cfg.DeviceDefaults.MIG, "%s should be a MIG-capable board", name)
 
-			// The partition table is a document of its own, which the chart
-			// mounts from its own ConfigMap; attaching it here is what the
-			// engine does at load.
-			tableData, err := os.ReadFile(filepath.Join(filepath.Dir(path), "mig", name+".yaml"))
-			require.NoError(t, err, "%s declares a mig block but ships no table", name)
-			var table engine.MIGProfilesDocument
-			require.NoError(t, yaml.Unmarshal(tableData, &table))
-			cfg.DeviceDefaults.MIG.SupportedProfiles = table.SupportedProfiles
-
 			// What the chart renders for gpu.mig.enabled=true with
 			// gpu.mig.gpuInstances: the mode on, the layout supplied.
 			cfg.DeviceDefaults.MIG.ModeCurrent = "enabled"
 			cfg.DeviceDefaults.MIG.GPUInstances = []engine.MIGGPUInstanceConfig{want}
+			enabled, err := yaml.Marshal(&cfg)
+			require.NoError(t, err)
 
-			layout := engine.DeclaredMIGLayout(&engine.Config{NumDevices: 1, YAMLConfig: &cfg})
+			table := filepath.Join(filepath.Dir(path), "mig", name+".yaml")
+			require.FileExists(t, table, "%s declares a mig block but ships no table", name)
+			t.Setenv(engine.EnvMIGProfilesConfig, table)
 
-			require.Len(t, layout, 1)
-			require.Len(t, layout[0].GPUInstances, want.Count,
-				"every partition asked for must resolve and fit")
-			for _, gi := range layout[0].GPUInstances {
-				require.NotEmpty(t, gi.Profile)
-				require.NotEmpty(t, gi.ComputeInstances)
+			state, err := compileState(enabled, path)
+			require.NoError(t, err)
+
+			require.NotEmpty(t, state.MIG.GPUs)
+			for _, gpu := range state.MIG.GPUs {
+				require.Len(t, gpu.GPUInstances, want.Count,
+					"every partition asked for must resolve and fit")
+				for _, gi := range gpu.GPUInstances {
+					require.NotEmpty(t, gi.ComputeInstances)
+				}
 			}
 		})
 	}
@@ -741,7 +836,7 @@ devices:
     minor_number: 4
 `)
 
-	state, err := compileState(data)
+	state, err := compileState(data, "")
 	require.NoError(t, err)
 	require.True(t, state.MIG.Partitioned())
 	require.Len(t, state.MIG.GPUs, 2)

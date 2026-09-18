@@ -90,7 +90,7 @@ type migGoldenRow struct {
 // tests assert what a user of the chart gets.
 //
 // Two files, because the partition table lives in its own document that the
-// chart mounts from its own ConfigMap. This does what applyMIGProfilesOverlay
+// chart mounts from its own ConfigMap. This does what ApplyMIGProfilesOverlay
 // does without going through LoadYAMLConfig, which would resolve the table by
 // path and refuse the chart profiles' Helm templating.
 func migConfigOfShippedProfile(t *testing.T, profile string) *MIGConfig {

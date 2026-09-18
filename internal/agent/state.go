@@ -33,6 +33,12 @@ type State struct {
 	// engine picks this node's entry by NODE_NAME at load time, so there is no
 	// per-node view for the agent to compile.
 	TopologyRaw []byte
+	// MIGProfilesRaw holds the board's MIG partition table verbatim, empty on
+	// a board that has none. It is carried so gpudriver can stage it beside
+	// every config it writes: a consumer process resolves the table relative
+	// to the config it was given, and the device plugin is handed no
+	// environment that could name it anywhere else.
+	MIGProfilesRaw []byte
 }
 
 // DefaultRootComplexID is the host bridge a synthesized layout hangs every

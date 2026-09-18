@@ -618,6 +618,19 @@ and mounted read-only at `/etc/nvml-mock/mig`; the container gets
 the only thing that finds it there. A table edit rolls the DaemonSet through
 its own `checksum/mig-profiles` annotation.
 
+##### Consumer pods get the table without any environment
+
+A pod that loads the mock library — the device plugin above all — reads the
+config the [node agent](tools/node-agent.md) stages under the mock root,
+and carries no environment naming a table. The agent therefore writes the table
+beside each config it stages, as `config.mig.yaml`, so those processes resolve
+it by rule 2 above. Nothing has to be mounted into the consumer.
+
+This is why a board's table has to reach the agent and not only the library:
+a consumer whose config had no table beside it would see a board that cannot
+partition, and the device plugin would publish whole GPUs on a node where NVML
+reports partitions.
+
 !!! warning "A table declared inline *and* externally is refused"
 
     A config that keeps `supported_profiles` under `device_defaults.mig` while

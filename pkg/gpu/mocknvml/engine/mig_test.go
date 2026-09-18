@@ -40,7 +40,7 @@ func a100SupportedProfiles() []MIGProfileSpec {
 
 // shippedProfileMIG decodes a board's mig block out of the profile the chart
 // ships, with the partition table the chart mounts beside it attached — the
-// same two documents applyMIGProfilesOverlay joins at load.
+// same two documents ApplyMIGProfilesOverlay joins at load.
 //
 // It panics rather than taking a *testing.T so the fixtures above stay usable
 // from table literals. A shipped profile that is missing or does not decode is

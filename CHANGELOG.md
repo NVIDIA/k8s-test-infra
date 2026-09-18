@@ -185,7 +185,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   local run and the standalone configs work with no environment set. Nothing
   changes for a chart install: the selected board's table renders into its own
   ConfigMap, mounts at `/etc/nvml-mock/mig` and sets the env var, and every
-  board reports exactly what it did before. **Breaking for externally-authored
+  board reports exactly what it did before. A consumer pod needs nothing
+  mounted either — the node agent stages the table beside every config it
+  writes under the mock root, so a process holding one of those configs, the
+  device plugin above all, resolves the table by the sibling rule. **Breaking for externally-authored
   configs:** the table has to move, not be copied — a config declaring
   `supported_profiles` inline while an external table also resolves is refused
   as ambiguous, naming both sources. A board whose table cannot be resolved is
