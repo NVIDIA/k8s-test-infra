@@ -54,7 +54,7 @@ var _ = Describe("nvml-mock GPU feature discovery", Label("gfd"), Ordered, func(
 			})
 
 			It("labels the node from the mock GPU inventory", func(ctx SpecContext) {
-				deployGPUFeatureDiscovery(ctx, h, node)
+				deployGPUFeatureDiscovery(ctx, h, node, p)
 			})
 		})
 	}
@@ -68,18 +68,15 @@ func deployDevicePlugin(ctx SpecContext, h *harness.Harness, node string, expect
 	assertions.WaitAllocatableGPU(ctx, h.Kube, node, expectedGPUs, config.ReadyTimeout(), config.PollInterval())
 }
 
-func deployGPUFeatureDiscovery(ctx SpecContext, h *harness.Harness, node string) {
+func deployGPUFeatureDiscovery(ctx SpecContext, h *harness.Harness, node string, p profile.Profile) {
 	GinkgoHelper()
 	Expect(h.Kube.Apply(ctx, assets.GFDManifest)).To(Succeed(), "apply GFD manifest")
 	Expect(h.Kube.DeletePodsByLabel(ctx, gfdNamespace, gfdSelector)).To(Succeed(), "restart GFD pods")
 	assertions.WaitDaemonSetReady(ctx, h.Kube, gfdNamespace, gfdName, config.ReadyTimeout(), config.PollInterval())
-	assertions.WaitNodeLabelsPresent(ctx, h.Kube, node, gfdRequiredLabels(), config.ReadyTimeout(), config.PollInterval())
-}
-
-func gfdRequiredLabels() []string {
-	return []string{
-		"nvidia.com/gpu.product",
-		"nvidia.com/gpu.memory",
-		"nvidia.com/gpu.compute.major",
-	}
+	// Values from the profile, not merely the keys: every profile runs against
+	// the same cluster, so a label the previous one left behind is present and
+	// non-empty while still describing the wrong GPU.
+	assertions.WaitGFDLabels(ctx, h.Kube, node,
+		assertions.ExpectedGFDLabels(p.GFDProductName(), p.MemoryMiB(), p.ExpectedGPUs()),
+		config.ReadyTimeout(), config.PollInterval())
 }
