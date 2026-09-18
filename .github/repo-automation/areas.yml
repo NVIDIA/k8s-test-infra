@@ -1,0 +1,23 @@
+schemaVersion: 1
+areas:
+  - paths:
+      - deployments/nvml-mock/**
+      - cmd/nvml-mock/**
+    labels: [area/nvml-mock]
+  - paths: [pkg/gpu/mocknvml/**]
+    labels: [area/nvml-mock]
+  - paths: [pkg/gpu/mockcuda/**]
+    labels: [area/mockcuda]
+  - paths: [deployments/nvml-mock/helm/**]
+    labels: [area/helm]
+  - paths: [tests/e2e/**]
+    labels: [area/kubernetes]
+  - paths:
+      - .github/**
+      - hack/**
+      - Makefile
+    labels: [area/ci]
+  - paths:
+      - docs/**
+      - "*.md"
+    labels: [area/docs]

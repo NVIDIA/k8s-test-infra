@@ -65,7 +65,8 @@ kubectl label node --all nvidia.com/gpu.present=true
 
 helm repo add nvidia https://helm.ngc.nvidia.com/nvidia && helm repo update
 
-helm install nvidia-dra-driver nvidia/nvidia-dra-driver-gpu \
+helm install nvidia-dra-driver nvidia/dra-driver-nvidia-gpu \
+  --version 0.5.0 \
   --namespace nvidia --create-namespace \
   --set nvidiaDriverRoot=/var/lib/nvml-mock/driver \
   --set gpuResourcesEnabledOverride=true \

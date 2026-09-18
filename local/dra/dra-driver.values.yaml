@@ -1,7 +1,7 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Helm values for nvidia-dra-driver-gpu when running against nvml-mock in the
+# Helm values for dra-driver-nvidia-gpu when running against nvml-mock in the
 # 'dra' local dev scenario.
 #
 # Usage (via Tilt):

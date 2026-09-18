@@ -21,3 +21,8 @@ SPDX-License-Identifier = "Apache-2.0"
 path = ["go.sum", ".gitignore", ".editorconfig"]
 SPDX-FileCopyrightText = "Copyright 2024-2026 NVIDIA CORPORATION"
 SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = ["docs/guides/install/aws/eks/terraform/.terraform.lock.hcl"]
+SPDX-FileCopyrightText = "Copyright 2026 NVIDIA CORPORATION"
+SPDX-License-Identifier = "Apache-2.0"

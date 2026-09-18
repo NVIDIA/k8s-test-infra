@@ -95,8 +95,8 @@ func collectDRAOnFailure(ctx context.Context, h *harness.Harness) {
 	}
 	c := diagnostics.New(config.ArtifactsDir(), h.Kube, h.Cluster, "dra")
 	c.Kubectl(ctx, "dra-pods.txt", "get", "pods", "-n", draNamespace, "-o", "wide")
-	c.Kubectl(ctx, "dra-kubelet-plugin-describe.txt", "describe", "pod", "-n", draNamespace, "-l", "app.kubernetes.io/component=kubelet-plugin")
-	c.Kubectl(ctx, "dra-driver-logs.txt", "logs", "-n", draNamespace, "-l", "app.kubernetes.io/name=nvidia-dra-driver-gpu", "--tail=100")
+	c.Kubectl(ctx, "dra-kubelet-plugin-describe.txt", "describe", "pod", "-n", draNamespace, "-l", "dra-driver-nvidia-gpu-component=kubelet-plugin")
+	c.Kubectl(ctx, "dra-driver-logs.txt", "logs", "-n", draNamespace, "-l", "app.kubernetes.io/name=dra-driver-nvidia-gpu", "--tail=100")
 	c.Kubectl(ctx, "resourceslices.yaml", "get", "resourceslices", "-o", "yaml")
 	c.Kubectl(ctx, "gpu-test-pod-describe.txt", "describe", "pod", "-n", draTestNamespace, draTestPodName)
 	c.Kubectl(ctx, "resourceclaims.yaml", "get", "resourceclaims", "-A", "-o", "yaml")
