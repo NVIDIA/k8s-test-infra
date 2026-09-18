@@ -29,6 +29,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/ib"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/kernellog"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/source"
+	"github.com/NVIDIA/k8s-test-infra/internal/featuregate"
 	"github.com/NVIDIA/k8s-test-infra/internal/health"
 	"github.com/NVIDIA/k8s-test-infra/internal/logging"
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mockctl"
@@ -56,6 +57,7 @@ func startCommand() *cli.Command {
 		Name:  "start",
 		Usage: "start the node agent",
 		Flags: []cli.Flag{
+			featuregate.CLIFlag(),
 			&cli.StringFlag{
 				Name:    "log-level",
 				Value:   "info",
@@ -142,6 +144,10 @@ func startCommand() *cli.Command {
 }
 
 func runStart(ctx context.Context, cmd *cli.Command) error {
+	if err := featuregate.ConfigureFromCLI(cmd); err != nil {
+		return fmt.Errorf("configure feature gates: %w", err)
+	}
+
 	level, err := logging.ParseLevel(cmd.String("log-level"))
 	if err != nil {
 		return err

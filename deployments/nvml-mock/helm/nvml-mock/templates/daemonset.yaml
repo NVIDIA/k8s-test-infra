@@ -125,6 +125,9 @@ spec:
             {{- if .Values.nri.enabled }}
             - --staging-lock-path={{ $stagingLock }}
             {{- end }}
+            {{- if .Values.featureGates.nodeAgent }}
+            - --feature-gates={{ join "," .Values.featureGates.nodeAgent }}
+            {{- end }}
           env:
             - name: NODE_NAME
               valueFrom:
@@ -358,6 +361,9 @@ spec:
             - --staging-lock-path={{ $stagingLock }}
             - --log-level={{ .Values.nri.logging.level }}
             - --log-format={{ .Values.nri.logging.format }}
+            {{- if .Values.featureGates.nri }}
+            - --feature-gates={{ join "," .Values.featureGates.nri }}
+            {{- end }}
           env:
             - name: NODE_NAME
               valueFrom:

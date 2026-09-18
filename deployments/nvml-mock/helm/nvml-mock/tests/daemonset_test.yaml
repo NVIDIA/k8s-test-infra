@@ -61,6 +61,17 @@ tests:
           path: metadata.name
           value: RELEASE-NAME-nvml-mock
 
+  - it: should pass feature gates to the node agent as one ordered argument
+    set:
+      featureGates:
+        nodeAgent:
+          - mokka.alpha
+          - "-mokka.beta"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].command
+          content: --feature-gates=mokka.alpha,-mokka.beta
+
   - it: should include standard labels
     asserts:
       - equal:
