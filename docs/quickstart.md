@@ -21,8 +21,10 @@ helm install nvml-mock \
     --create-namespace
 ```
 
-Already have a cluster? Skip the `kind` line — the rest runs against your
-current context.
+Already have a cluster? Skip the `kind` line for the basic Mokka DaemonSet.
+Managed clusters need additional runtime preparation before ordinary workloads
+can request and consume simulated GPUs; see the [Amazon EKS
+guide](guides/install/aws/eks/README.md) for a validated setup.
 
 `latest` follows Mokka's main branch and is the simplest way to try it. For
 repeatable CI, select a published release tag or digest from the
@@ -83,4 +85,7 @@ real software at it.
 The published KIND node image includes the NVIDIA container runtime and enables
 the Container Device Interface (CDI) in containerd. This is the runtime setup
 used by the [device plugin](guides/device-plugin.md),
-[DRA](guides/dra.md), and [GPU Operator](guides/gpu-operator.md) paths.
+[DRA](guides/dra.md), and [GPU Operator](guides/gpu-operator.md) paths. On a
+managed cluster, runtime support is provider- and node-image-specific; the
+[Amazon EKS guide](guides/install/aws/eks/README.md) shows the required worker
+bootstrap.
