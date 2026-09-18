@@ -55,8 +55,8 @@ echo ""
 
 # Capture DRA driver traces
 echo "--- DRA Driver logs ---"
-if kubectl -n nvidia get pods -l app.kubernetes.io/name=nvidia-dra-driver-gpu --no-headers 2>/dev/null | grep -q Running; then
-  kubectl -n nvidia logs -l app.kubernetes.io/name=nvidia-dra-driver-gpu --all-containers --tail=5000 \
+if kubectl -n nvidia get pods -l app.kubernetes.io/name=dra-driver-nvidia-gpu --no-headers 2>/dev/null | grep -q Running; then
+  kubectl -n nvidia logs -l app.kubernetes.io/name=dra-driver-nvidia-gpu --all-containers --tail=5000 \
     > "$OUTPUT_DIR/dra-driver-trace-raw.log" 2>&1
 
   # Extract NVML stub/bridge calls

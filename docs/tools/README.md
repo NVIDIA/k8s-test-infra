@@ -8,7 +8,7 @@ Three of the four below are workloads the chart runs for you; only
 |------|---------|
 | [`node-agent`](node-agent.md) | Compiles a mock NVML profile into on-host state and keeps it reconciled. The process the nvml-mock DaemonSet runs. |
 | [`nri-plugin`](nri-plugin.md) | containerd NRI plugin that injects the mock driver overlay, LD_PRELOAD shims and device nodes into containers at creation time. |
-| [`control-plane`](control-plane.md) | HTTP service for the Mokka Control Plane; today a health surface only. |
+| [`control-plane`](control-plane.md) | Runs the [Mokka controller](../mokka-controller.md) and serves liveness and controller-readiness probes. |
 | [`nvml-mock-ctl`](../nvml-mock-ctl.md) | Mutate the simulated GPU state of a running node without a restart. |
 
 Two more are documented under [Contributing](../contributing/index.md):

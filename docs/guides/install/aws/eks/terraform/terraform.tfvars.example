@@ -1,0 +1,14 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+
+aws_account_id = "123456789012"
+
+# Discover yours with: curl -fsS https://checkip.amazonaws.com
+cluster_endpoint_public_access_cidrs = ["203.0.113.10/32"]
+
+# Optional overrides:
+# aws_region         = "us-west-2"
+# cluster_name       = "mokka-817"
+# kubernetes_version = "1.35"
+# eks_ami_release_version = "1.35.7-20260911"
+# worker_count       = 2

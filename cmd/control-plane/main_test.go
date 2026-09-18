@@ -10,82 +10,120 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/controlplane"
 	"github.com/NVIDIA/k8s-test-infra/internal/logging"
+	"github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller"
 	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli/v3"
 )
 
-type capturedArgs struct {
-	cfg    controlplane.Config
-	level  logging.Level
-	format logging.Format
-}
-
-// TestFlagsProduceExpectedConfig pins the CLI-to-Config wiring so a rename or
-// missing flag can't silently regress. The Action is swapped so nothing binds
-// a listener; the test only cares about flag resolution.
-func TestFlagsProduceExpectedConfig(t *testing.T) {
+// TestConfigFromFlags pins the production CLI-to-Config wiring. The Action is
+// swapped so the test only resolves flags and does not contact a cluster.
+func TestConfigFromFlags(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		args []string
-		want capturedArgs
+		want controlplane.Config
 	}{
 		{
-			name: "defaults when no flags",
+			name: "defaults align with control plane defaults",
 			args: []string{"control-plane"},
-			want: capturedArgs{
-				cfg:    controlplane.DefaultConfig(),
-				level:  logging.LevelInfo,
-				format: logging.FormatJSON,
-			},
+			want: controlplane.DefaultConfig(),
 		},
 		{
-			name: "listen-addr override",
-			args: []string{"control-plane", "--listen-addr", ":9090"},
-			want: capturedArgs{
-				cfg:    controlplane.Config{ListenAddr: ":9090", ShutdownTimeout: 5 * time.Second},
-				level:  logging.LevelInfo,
-				format: logging.FormatJSON,
+			name: "all config flags overridden",
+			args: []string{
+				"control-plane",
+				"--listen-addr", ":19090",
+				"--shutdown-timeout", "11s",
+				"--kubeconfig", "/tmp/control-plane.kubeconfig",
+				"--kube-api-qps", "12.5",
+				"--kube-api-burst", "13",
+				"--leader-election-namespace", "leader-system",
+				"--leader-election-name", "control-plane-test",
+				"--leader-election-lease-duration", "37s",
+				"--leader-election-renew-deadline", "29s",
+				"--leader-election-retry-period", "17s",
+				"--workers", "19",
+				"--status-debounce", "23ms",
+				"--status-progress-interval", "31s",
+				"--live-node-get-timeout", "41ms",
 			},
-		},
-		{
-			name: "log-level and shutdown-timeout override",
-			args: []string{"control-plane", "--log-level", "debug", "--shutdown-timeout", "12s"},
-			want: capturedArgs{
-				cfg:    controlplane.Config{ListenAddr: ":8080", ShutdownTimeout: 12 * time.Second},
-				level:  logging.LevelDebug,
-				format: logging.FormatJSON,
-			},
-		},
-		{
-			name: "log-format plain override",
-			args: []string{"control-plane", "--log-format", "plain"},
-			want: capturedArgs{
-				cfg:    controlplane.Config{ListenAddr: ":8080", ShutdownTimeout: 5 * time.Second},
-				level:  logging.LevelInfo,
-				format: logging.FormatPlain,
+			want: controlplane.Config{
+				Server: controlplane.ServerConfig{
+					ListenAddr:      ":19090",
+					ShutdownTimeout: 11 * time.Second,
+				},
+				Kubernetes: controlplane.KubernetesConfig{
+					Kubeconfig: "/tmp/control-plane.kubeconfig",
+					QPS:        12.5,
+					Burst:      13,
+				},
+				LeaderElection: controlplane.LeaderElectionConfig{
+					Namespace:     "leader-system",
+					Name:          "control-plane-test",
+					LeaseDuration: 37 * time.Second,
+					RenewDeadline: 29 * time.Second,
+					RetryPeriod:   17 * time.Second,
+				},
+				Controller: mokkacontroller.Options{
+					Workers:                19,
+					StatusDebounce:         23 * time.Millisecond,
+					StatusProgressInterval: 31 * time.Second,
+					LiveNodeGetTimeout:     41 * time.Millisecond,
+				},
 			},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var got capturedArgs
+			var got controlplane.Config
 			cmd := newCLI()
-			cmd.Action = func(_ context.Context, c *cli.Command) error {
-				level, err := logging.ParseLevel(c.String("log-level"))
-				require.NoError(t, err)
-				format, err := logging.ParseFormat(c.String("log-format"))
-				require.NoError(t, err)
-				got = capturedArgs{
-					cfg: controlplane.Config{
-						ListenAddr:      c.String("listen-addr"),
-						ShutdownTimeout: c.Duration("shutdown-timeout"),
-					},
-					level:  level,
-					format: format,
-				}
+			cmd.Action = func(_ context.Context, cmd *cli.Command) error {
+				got = configFrom(cmd)
 				return nil
 			}
+
 			require.NoError(t, cmd.Run(context.Background(), tc.args))
 			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestLoggingFlags(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		args       []string
+		wantLevel  logging.Level
+		wantFormat logging.Format
+	}{
+		{
+			name:       "defaults",
+			args:       []string{"control-plane"},
+			wantLevel:  logging.LevelInfo,
+			wantFormat: logging.FormatJSON,
+		},
+		{
+			name:       "overrides",
+			args:       []string{"control-plane", "--log-level", "debug", "--log-format", "plain"},
+			wantLevel:  logging.LevelDebug,
+			wantFormat: logging.FormatPlain,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotLevel logging.Level
+			var gotFormat logging.Format
+			cmd := newCLI()
+			cmd.Action = func(_ context.Context, cmd *cli.Command) error {
+				var err error
+				gotLevel, err = logging.ParseLevel(cmd.String("log-level"))
+				if err != nil {
+					return err
+				}
+				gotFormat, err = logging.ParseFormat(cmd.String("log-format"))
+				return err
+			}
+
+			require.NoError(t, cmd.Run(context.Background(), tc.args))
+			require.Equal(t, tc.wantLevel, gotLevel)
+			require.Equal(t, tc.wantFormat, gotFormat)
 		})
 	}
 }

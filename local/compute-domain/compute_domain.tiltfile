@@ -130,7 +130,10 @@ def install(active_consumers, control_plane=False):
     image_deps = [_DEMO_IMAGE]
     image_keys = [('image.repository', 'image.tag')]
     if control_plane:
-        flags += ['--set', 'controlPlane.enabled=true']
+        flags += [
+            '--set', 'controlPlane.enabled=true',
+            '--set', 'controlPlane.image.allowMutableTag=true',
+        ]
         image_deps.append('ghcr.io/nvidia/mokka-control-plane')
         image_keys.append(('controlPlane.image.repository', 'controlPlane.image.tag'))
 

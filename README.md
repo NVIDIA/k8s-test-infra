@@ -47,7 +47,8 @@ and Confidential Computing.
 ## Quick start
 
 ```bash
-kind create cluster --name mokka
+kind create cluster --name mokka \
+    --image ghcr.io/nvidia/mokka-kind-node:latest
 
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
     --namespace mokka --create-namespace
