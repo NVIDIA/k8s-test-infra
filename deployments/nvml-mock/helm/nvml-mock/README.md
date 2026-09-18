@@ -46,6 +46,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 |-----|---------|
 | `gpu` | Profile, device count, per-device overrides |
 | `image` | Repository, tag, pull policy |
+| `featureGates` | Component-scoped, process-wide feature gate overrides |
 | `nodeSelector`, `tolerations` | Standard scheduling; `nodeAgent.resources` sets limits |
 | `nodeAgent.kernelLog` | Announce injected Xids on the node's `/dev/kmsg` (off; makes the agent privileged) |
 | `nodeLabels` | Labels applied to nodes running the mock |
