@@ -30,15 +30,15 @@ const profilesDir = "../../../../deployments/nvml-mock/helm/nvml-mock/profiles"
 // configs/ copies from drifting in a way the e2e would not catch.
 func TestDerivations(t *testing.T) {
 	cases := []struct {
-		name          string
-		displayName   string
-		gpus          int
-		hcas          int
-		nv            int
-		fabricMgr     bool
-		hasFabric     bool
-		ibEnabled     bool
-		pciRoots      int
+		name        string
+		displayName string
+		gpus        int
+		hcas        int
+		nv          int
+		fabricMgr   bool
+		hasFabric   bool
+		ibEnabled   bool
+		pciRoots    int
 		// pciBridges is how many NVSwitches the profile puts on the node's own
 		// PCIe bus, i.e. how many bridge-class entries `lspci` must list beside
 		// the GPUs. Non-zero only for the HGX baseboard profiles: on NVL72 the
