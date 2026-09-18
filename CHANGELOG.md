@@ -13,6 +13,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ghcr.io/nvidia/mokka-kind-node` for amd64 and arm64. Publication is gated by
   an amd64 smoke test that boots a cluster, verifies the effective NVIDIA/CDI
   runtime configuration, and starts a pod before any public tag is updated.
+- node-agent: an HGX baseboard's NVSwitches now appear on the node's PCI bus.
+  `lspci` inside a served container previously listed the eight GPUs and nothing
+  else, while a real HGX H100 also shows four `Bridge: NVIDIA Corporation GH100
+  [H100 NVSwitch]` lines — so anything auditing NVIDIA hardware by walking the
+  PCI bus saw a node with no fabric silicon on it. `a100` renders its six
+  NVSwitches and `h100` its four, each with the device's real PCI ID
+  (`10de:1af1`, `10de:22a3`) and bridge class, placed on the first root complex
+  so they carry a NUMA node like any device. A switch enters the tree by
+  declaring `device_id` under `nvlink.switches`; a switch without one stays an
+  NVLink endpoint only, which is what `gb200` and `gb300` do, because NVL72 keeps
+  its switches in separate trays that a compute tray never enumerates. GPUs keep
+  the 3D-controller class GPU Feature Discovery derives `nvidia.com/gpu.mode`
+  from. See `docs/configuration.md` for the key and `docs/helm-chart.md` for what
+  it renders.
 - node-agent: containers now see the NVIDIA kernel modules as loaded. `lsmod`
   lists `nvidia` and `nvidia_uvm`, and `/sys/module/nvidia/refcnt` exists. The
   node's own modules stay visible beside them. See `docs/helm-chart.md` for how
@@ -101,6 +115,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- profiles: four SKUs identified themselves over PCI as a different GPU than
+  they model, which `lspci` resolves and names. `gb300` reported an HGX GB200
+  (`0x2941`) where the board is `10de:31c2 GB110 [GB300]`; `gb200` (`0x2341`)
+  and `b200` (`0x2340`) reported IDs inside the Hopper `23xx` range that no
+  NVIDIA board carries, rather than `10de:2941` and `10de:2901`; and `l40s`
+  reported an L40 (`0x26b5`) rather than an L40S (`10de:26b9`). The engine's
+  `gb200` copy had drifted furthest, carrying an H100 ID outright. Each is now
+  the ID in the real-hardware `nvidia-smi` capture the profile is modelled on,
+  and a new cross-check holds every profile to its capture so the two cannot
+  drift again — it is what caught `b200` and `l40s`. NVML consumers were
+  unaffected either way, since `name` carries the board there; this is visible
+  in the rendered PCI tree.
 - nvml-mock: a consumer's read-after-write across two processes now sees the
   write. NVML setter state lived on the device object inside whichever process
   loaded `libnvidia-ml.so`, and every consumer loads its own copy, so

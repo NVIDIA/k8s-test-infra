@@ -137,7 +137,9 @@ func TestBuildIdentities_LowercasesKey(t *testing.T) {
 	entry, ok := ids["0000:0b:00.0"]
 	require.True(t, ok, "key must be lowercase")
 	// BusID in value is kept as-is; DeviceID is copied verbatim.
-	require.Equal(t, pcisysfs.PCI{BusID: "0000:0B:00.0", DeviceID: 0x232010de}, entry)
+	require.Equal(t,
+		pcisysfs.PCI{BusID: "0000:0B:00.0", DeviceID: 0x232010de, Class: pcisysfs.PCIClass3DController},
+		entry)
 }
 
 func TestBuildIdentities_MultipleDevices(t *testing.T) {
@@ -163,8 +165,28 @@ func TestBuildIdentities_CarriesFullIdentity(t *testing.T) {
 	// Every identity word the renderer unpacks must survive the mapping; a
 	// dropped one renders as a plausible default rather than an error.
 	require.Equal(t,
-		pcisysfs.PCI{BusID: "0000:07:00.0", DeviceID: 0x233010DE, SubsystemID: 0x165810DE},
+		pcisysfs.PCI{
+			BusID: "0000:07:00.0", DeviceID: 0x233010DE, SubsystemID: 0x165810DE,
+			Class: pcisysfs.PCIClass3DController,
+		},
 		buildIdentities(state)["0000:07:00.0"])
+}
+
+// An NVSwitch is the one entry in the tree that is not a GPU, and the class is
+// the only attribute that says so. Rendered as a 3D controller it would be an
+// eight-GPU node advertising twelve to anything reading the bus.
+func TestBuildIdentities_SwitchIsABridge(t *testing.T) {
+	state := &agent.State{
+		Devices:  []agent.DeviceSpec{{Index: 0, PCIBusID: "0000:1A:00.0", PCIDeviceID: 0x233010de}},
+		Switches: []agent.SwitchSpec{{PCIBusID: "0000:05:00.0", PCIDeviceID: 0x22a310de}},
+	}
+
+	ids := buildIdentities(state)
+	require.Len(t, ids, 2)
+	require.Equal(t,
+		pcisysfs.PCI{BusID: "0000:05:00.0", DeviceID: 0x22a310de, Class: pcisysfs.PCIClassBridge},
+		ids["0000:05:00.0"])
+	require.Equal(t, uint32(pcisysfs.PCIClass3DController), ids["0000:1a:00.0"].Class)
 }
 
 // ─── stageSysfs ──────────────────────────────────────────────────────────────

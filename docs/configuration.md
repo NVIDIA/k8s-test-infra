@@ -554,6 +554,10 @@ nvlink:
       state: "active"
       remote_device_type: "GPU"
       remote_pci_bus_id: "0000:0F:00.0"
+  switches:                          # see NVSwitches below
+    - bdf: "0000:05:00.0"
+      uuid: "NVSwitch-H100-0000-0000-0000-000000000000"
+      device_id: 0x22A310DE
 ```
 
 `c2c_enabled` is node-level and drives the `GPU C2C Mode` row of `nvidia-smi -q`
@@ -563,6 +567,32 @@ reports `N/A` — never `Disabled`, because NVML answers
 link to a host CPU. Only `gb200` and `gb300` enable it. This is the only key that
 drives the row: `device_defaults.features.nvlink_c2c` is descriptive metadata and
 is not read.
+
+### NVSwitches
+
+`switches:` lists the NVSwitches on the node. They are modelled as NVLink remote
+endpoints: declaring them (with `links_per_gpu > 0` and no explicit per-device
+`links:`) is what makes the engine fan each GPU's links across them, which is
+what `nvidia-smi topo -m` renders as `NV<links_per_gpu>` between every GPU pair.
+NVML offers no per-switch API, so the `nvmlUnit*` chassis calls stay stubbed, as
+they are on real DGX/HGX nodes.
+
+```yaml
+nvlink:
+  switches:
+    - bdf: "0000:05:00.0"
+      uuid: "NVSwitch-H100-0000-0000-0000-000000000000"
+      device_id: 0x22A310DE         # 10de:22a3 GH100 [H100 NVSwitch]
+```
+
+`device_id` is the packed `(device << 16) | vendor` word, the same form
+`device_defaults.pci.device_id` takes for a GPU. It is optional, and it decides
+whether the node can see the switch over PCIe at all:
+
+| `device_id` | Meaning | Profiles |
+|---|---|---|
+| set | Baseboard switch on the node's PCIe bus. Rendered into the PCI tree as a bridge, so `lspci` lists it beside the GPUs — see [NVSwitches on the PCI bus](helm-chart.md#nvswitches-on-the-pci-bus). | `a100`, `h100` |
+| unset | NVLink endpoint only. The node never enumerates it, which is how a rack-scale switch tray presents. | `gb200`, `gb300` |
 
 ### NVLink error injection (per device)
 

@@ -14,8 +14,11 @@
 package engine
 
 import (
+	"encoding/xml"
+	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -51,10 +54,11 @@ func TestLoadConfig_L40SProfile(t *testing.T) {
 	expectedMemBytes := uint64(51539607552) // 48 GiB
 	require.Equal(t, expectedMemBytes, mem.TotalBytes, "L40S memory total_bytes")
 
-	// Verify PCI device ID: 0x26B510DE
+	// Verify PCI device ID: 0x26B910DE, the L40S board's. 0x26b5 is an L40,
+	// which is what this asserted until the capture cross-check caught it.
 	pci := yamlCfg.DeviceDefaults.PCI
 	require.NotNil(t, pci, "L40S PCI config is nil")
-	expectedDeviceID := uint32(0x26B510DE)
+	expectedDeviceID := uint32(0x26B910DE)
 	require.Equal(t, expectedDeviceID, pci.DeviceID, "L40S PCI device_id")
 
 	// Verify GPU name
@@ -206,6 +210,62 @@ func TestLoadConfig_AllProfilesConsistent(t *testing.T) {
 			require.Len(t, yamlCfg.Devices, p.deviceCount, "%s device count", p.name)
 
 			require.NotEmpty(t, yamlCfg.System.DriverVersion, "%s driver_version is empty", p.name)
+		})
+	}
+}
+
+// hardwareCaptureDir returns the absolute path to the real-hardware
+// `nvidia-smi -q -x` captures the shipped profiles are modelled on.
+func hardwareCaptureDir() string {
+	_, filename, _, _ := runtime.Caller(0)
+	return filepath.Join(filepath.Dir(filename), "..", "..", "..", "..",
+		"tests", "e2e", "go", "assertions", "nvidiasmi", "testdata", "hardware")
+}
+
+// TestProfilePCIDeviceIDMatchesHardwareCapture holds every profile's PCI device
+// identity to the board it claims to model.
+//
+// The captures are the authority: their README names each one's node and tells
+// whoever authors a profile to check it against what the real board reports.
+// Nothing enforced it, and four profiles had drifted — `gb300` reported an HGX
+// GB200 ID, `gb200` and `b200` reported IDs inside the Hopper range that no
+// NVIDIA board carries, and `l40s` reported an L40. A wrong device_id is not
+// visible through NVML, where `name` carries the board: it surfaces in the
+// rendered PCI tree, where `lspci` resolves it against the system's pci.ids and
+// names a different GPU than the one the mock claims to be.
+func TestProfilePCIDeviceIDMatchesHardwareCapture(t *testing.T) {
+	t.Parallel()
+
+	// Every capture is a whole node, so the first GPU carries the board's
+	// identity and the rest repeat it.
+	type capture struct {
+		GPUs []struct {
+			PCI struct {
+				DeviceID string `xml:"pci_device_id"`
+			} `xml:"pci"`
+		} `xml:"gpu"`
+	}
+
+	for _, sku := range []string{"a100", "b200", "gb200", "gb300", "h100", "l40s", "t4"} {
+		t.Run(sku, func(t *testing.T) {
+			t.Parallel()
+
+			raw, err := os.ReadFile(filepath.Join(hardwareCaptureDir(), "qx-"+sku+".xml"))
+			require.NoError(t, err, "read hardware capture")
+
+			var c capture
+			require.NoError(t, xml.Unmarshal(raw, &c), "parse hardware capture")
+			require.NotEmpty(t, c.GPUs, "capture declares no GPU")
+
+			want, err := strconv.ParseUint(c.GPUs[0].PCI.DeviceID, 16, 32)
+			require.NoError(t, err, "capture pci_device_id %q", c.GPUs[0].PCI.DeviceID)
+
+			cfg, err := LoadYAMLConfig(filepath.Join(testdataDir(), sku+".yaml"))
+			require.NoError(t, err, "load profile")
+			require.NotNil(t, cfg.DeviceDefaults.PCI, "profile declares no pci block")
+
+			require.Equal(t, uint32(want), cfg.DeviceDefaults.PCI.DeviceID,
+				"%s device_defaults.pci.device_id must be the captured board's", sku)
 		})
 	}
 }

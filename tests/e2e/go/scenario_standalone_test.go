@@ -232,7 +232,8 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 			})
 
 			It("renders the PCI sysfs topology", Label("pcisysfs"), func(ctx SpecContext) {
-				assertions.PCISysfs(ctx, h.Kube, pod, p.ExpectedGPUs(), p.ExpectedPCIRoots())
+				assertions.PCISysfs(ctx, h.Kube, pod,
+					p.ExpectedGPUs(), p.ExpectedPCIBridges(), p.ExpectedPCIRoots())
 			})
 
 			It("renders the kernel-module surface", Label("kmod"), func(ctx SpecContext) {

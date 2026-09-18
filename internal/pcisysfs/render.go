@@ -212,10 +212,19 @@ func renderRootComplex(root string, rc RootComplex, ids map[string]PCI) error {
 // on a missing `vendor` file.
 const nvidiaVendorID = 0x10de
 
-// pciClass3DController is the sysfs `class` value for NVIDIA data-center GPUs:
+// PCIClass3DController is the sysfs `class` value for NVIDIA data-center GPUs:
 // base class 0x03 (display controller), subclass 0x02 (3D controller),
 // prog-if 0x00. This is how real H100/A100 boards enumerate under lspci.
-const pciClass3DController = 0x030200
+const PCIClass3DController = 0x030200
+
+// PCIClassBridge is the sysfs `class` value an NVSwitch enumerates with: base
+// class 0x06 (bridge), subclass 0x80 (other bridge), prog-if 0x00. lspci
+// renders it as the bare "Bridge" class name, which is why an NVSwitch on a
+// real HGX baseboard reads "Bridge: NVIDIA Corporation GH100 [H100 NVSwitch]".
+//
+// Despite the bridge class the device is a PCI endpoint, not a PCI-to-PCI
+// bridge, so its config-space header type stays 0x00 like a GPU's.
+const PCIClassBridge = 0x068000
 
 // pciResourceBARs is the number of "start end flags" lines a Linux kernel
 // emits in a device's `resource` file (6 standard BARs + expansion ROM).
@@ -233,24 +242,29 @@ var pciResource = strings.Repeat(
 // single device. The NVML packed identity words are unpacked as the kernel
 // exposes them: device_id = (device<<16)|vendor, subsystem_id =
 // (subdevice<<16)|subvendor. When no identity is known the vendor defaults
-// to NVIDIA so the mandatory `vendor`/`device` files still exist.
+// to NVIDIA and the class to a GPU's, so the mandatory `vendor`/`device`/
+// `class` files still exist for a BDF the topology names and nothing claims.
 func renderDeviceAttrs(root, devDir string, pci PCI) error {
 	vendor := pci.DeviceID & 0xffff
 	device := (pci.DeviceID >> 16) & 0xffff
 	subVendor := pci.SubsystemID & 0xffff
 	subDevice := (pci.SubsystemID >> 16) & 0xffff
+	class := pci.Class
 	if vendor == 0 {
 		vendor = nvidiaVendorID
 	}
 	if subVendor == 0 {
 		subVendor = vendor
 	}
+	if class == 0 {
+		class = PCIClass3DController
+	}
 
 	// libpci reads these with die-on-error; they must exist.
 	writes := []struct{ name, val string }{
 		{"vendor", fmt.Sprintf("0x%04x\n", vendor)},
 		{"device", fmt.Sprintf("0x%04x\n", device)},
-		{"class", fmt.Sprintf("0x%06x\n", pciClass3DController)},
+		{"class", fmt.Sprintf("0x%06x\n", class)},
 		{"revision", "0x00\n"},
 		{"irq", "0\n"},
 		// Optional but cheap; lets lspci print the subsystem line.
@@ -269,25 +283,35 @@ func renderDeviceAttrs(root, devDir string, pci PCI) error {
 	// Providing a synthetic config space silences the
 	// "pcilib: Cannot open .../config" warning and makes `lspci -x` render
 	// a coherent header.
-	return writeConfigSpace(root, filepath.Join(devDir, "config"),
-		uint16(vendor), uint16(device), uint16(subVendor), uint16(subDevice))
+	return writeConfigSpace(root, filepath.Join(devDir, "config"), configSpace{
+		vendor: uint16(vendor), device: uint16(device),
+		subVendor: uint16(subVendor), subDevice: uint16(subDevice),
+		class: class,
+	})
+}
+
+// configSpace is the identity a synthetic PCI config-space header carries.
+type configSpace struct {
+	vendor, device       uint16
+	subVendor, subDevice uint16
+	class                uint32
 }
 
 // writeConfigSpace emits a minimal 256-byte PCI configuration space with the
 // identity, class, and header-type fields populated. All other bytes are
 // zero — enough for libpci to parse a Type 0 header without erroring.
-func writeConfigSpace(root, rel string, vendor, device, subVendor, subDevice uint16) error {
+func writeConfigSpace(root, rel string, id configSpace) error {
 	cfg := make([]byte, 256)
-	binary.LittleEndian.PutUint16(cfg[0x00:], vendor)
-	binary.LittleEndian.PutUint16(cfg[0x02:], device)
+	binary.LittleEndian.PutUint16(cfg[0x00:], id.vendor)
+	binary.LittleEndian.PutUint16(cfg[0x02:], id.device)
 	// Class code at 0x09-0x0b: prog-if, subclass, base class.
-	cfg[0x09] = byte(pciClass3DController & 0xff)
-	cfg[0x0a] = byte((pciClass3DController >> 8) & 0xff)
-	cfg[0x0b] = byte((pciClass3DController >> 16) & 0xff)
+	cfg[0x09] = byte(id.class & 0xff)
+	cfg[0x0a] = byte((id.class >> 8) & 0xff)
+	cfg[0x0b] = byte((id.class >> 16) & 0xff)
 	// Header type 0x00 (normal device, single function).
 	cfg[0x0e] = 0x00
-	binary.LittleEndian.PutUint16(cfg[0x2c:], subVendor)
-	binary.LittleEndian.PutUint16(cfg[0x2e:], subDevice)
+	binary.LittleEndian.PutUint16(cfg[0x2c:], id.subVendor)
+	binary.LittleEndian.PutUint16(cfg[0x2e:], id.subDevice)
 
 	full := filepath.Join(root, rel)
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
