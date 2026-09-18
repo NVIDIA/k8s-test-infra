@@ -26,7 +26,7 @@ const activationGates = {
     "${{ vars.REPOSITORY_AUTOMATION_MERGE_ENABLED == 'true' && (github.event_name != 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch) }}",
   reusableBackport: "${{ vars.REPOSITORY_AUTOMATION_BACKPORT_ENABLED == 'true' }}",
   mokka:
-    "${{ vars.REPOSITORY_AUTOMATION_MOKKA_ENABLED == 'true' && github.ref == 'refs/tags/mokka-cherry-pick-v0.11.0' }}",
+    "${{ vars.REPOSITORY_AUTOMATION_MOKKA_ENABLED == 'true' && github.ref == 'refs/tags/mokka-cherry-pick-v0.11.0-r1' }}",
 };
 
 function readWorkflow(name) {

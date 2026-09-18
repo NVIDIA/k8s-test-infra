@@ -43,7 +43,7 @@ concurrency:
 
 jobs:
   cherry-pick:
-    if: ${{ vars.REPOSITORY_AUTOMATION_MOKKA_ENABLED == 'true' && github.ref == 'refs/tags/mokka-cherry-pick-v0.11.0' }}
+    if: ${{ vars.REPOSITORY_AUTOMATION_MOKKA_ENABLED == 'true' && github.ref == 'refs/tags/mokka-cherry-pick-v0.11.0-r1' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
