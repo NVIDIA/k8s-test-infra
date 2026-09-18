@@ -233,6 +233,12 @@ func LoadYAMLConfig(path string) (*YAMLConfig, error) {
 		return nil, fmt.Errorf("parsing YAML config: %w", err)
 	}
 
+	// Before validation, so a table that arrived from its own file is checked
+	// by the same rules as one declared inline.
+	if err := applyMIGProfilesOverlay(&config, path); err != nil {
+		return nil, fmt.Errorf("resolving MIG profile table: %w", err)
+	}
+
 	// Validate config
 	if err := validateYAMLConfig(&config); err != nil {
 		return nil, fmt.Errorf("validating config: %w", err)
@@ -1104,6 +1110,80 @@ func overrideFabric(yamlConfig *YAMLConfig, clusterUUID string, cliqueID uint32)
 			yamlConfig.Devices[i].Fabric.State = "completed"
 		}
 	}
+}
+
+// applyMIGProfilesOverlay attaches a board's MIG profile table to
+// yamlConfig.DeviceDefaults.MIG from a document of its own, so the profile
+// describing the board does not have to carry several hundred rows of
+// partition geometry.
+//
+// It mirrors applyTopologyOverlay: resolve a path, and return quietly when
+// nothing is mounted there. A board with no resolvable table is simply not
+// MIG-capable, which is already what a board declaring no profiles means, so
+// an absent file is logged at debug level — enough to diagnose a mount that
+// did not arrive — and not an error.
+//
+// A table that *is* there and cannot be used is the opposite case: the
+// operator authored something wrong and needs telling, so it fails the load
+// rather than leaving a broken board looking deliberately non-MIG.
+//
+// Resolution order for the table path:
+//  1. MOCK_MIG_PROFILES_CONFIG env var (explicit path, what the chart sets
+//     because the table mounts from its own ConfigMap at its own path)
+//  2. A sibling of the config: config.yaml -> config.mig.yaml, which is what
+//     makes a local run and the standalone configs work with no environment
+//     set at all.
+func applyMIGProfilesOverlay(yamlConfig *YAMLConfig, configPath string) error {
+	migPath := migProfilesPathFor(configPath)
+	if migPath == "" {
+		return nil
+	}
+	if _, err := os.Stat(migPath); err != nil {
+		debugLog("[CONFIG] MIG profiles: no table at %s, board is not MIG-capable\n", migPath)
+		return nil
+	}
+	data, err := os.ReadFile(migPath)
+	if err != nil {
+		return fmt.Errorf("reading MIG profiles %s: %w", migPath, err)
+	}
+	var doc MIGProfilesDocument
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return fmt.Errorf("parsing MIG profiles %s: %w", migPath, err)
+	}
+	if len(doc.SupportedProfiles) == 0 {
+		return fmt.Errorf("MIG profiles %s declares no supported_profiles", migPath)
+	}
+	// Two authoritative tables for one board is an ambiguity rather than a
+	// precedence question: whichever source lost would be a table someone
+	// wrote and the mock silently ignored, and nothing in the NVML surface
+	// would say which one is in force. Refusing both is how
+	// validateMIGProfileRef already treats a profile named two ways.
+	if mig := yamlConfig.DeviceDefaults.MIG; mig != nil && len(mig.SupportedProfiles) > 0 {
+		return fmt.Errorf(
+			"device_defaults.mig declares supported_profiles inline and %s declares a table too; keep one",
+			migPath)
+	}
+	if yamlConfig.DeviceDefaults.MIG == nil {
+		yamlConfig.DeviceDefaults.MIG = &MIGConfig{}
+	}
+	yamlConfig.DeviceDefaults.MIG.SupportedProfiles = doc.SupportedProfiles
+	debugLog("[CONFIG] MIG profiles: attached %d profiles from %s\n", len(doc.SupportedProfiles), migPath)
+	return nil
+}
+
+// migProfilesPathFor resolves the MIG profile table path, or "" when neither
+// source names one. See applyMIGProfilesOverlay for why the order is this way.
+func migProfilesPathFor(configPath string) string {
+	if p := os.Getenv("MOCK_MIG_PROFILES_CONFIG"); p != "" {
+		return p
+	}
+	if configPath == "" {
+		return ""
+	}
+	// The sibling is derived by replacing the extension rather than appending
+	// to it, so the five standalone configs — mock-nvml-config-<board>.yaml —
+	// each get a table of their own in one directory without colliding.
+	return strings.TrimSuffix(configPath, filepath.Ext(configPath)) + ".mig.yaml"
 }
 
 // Note: debugLog is defined in utils.go to avoid duplication

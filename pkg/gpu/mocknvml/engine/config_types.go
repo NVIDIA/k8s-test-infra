@@ -928,6 +928,17 @@ type TopologyClique struct {
 	Nodes []string `json:"nodes"`
 }
 
+// MIGProfilesDocument is a board's MIG profile table, held in its own file
+// rather than inside the profile that describes the board.
+//
+// SupportedProfiles is the same type the profile declares inline, so a table
+// decodes and validates identically wherever it was authored. See
+// MIGConfig.SupportedProfiles for what the rows mean.
+type MIGProfilesDocument struct {
+	Version           int              `json:"version"`
+	SupportedProfiles []MIGProfileSpec `json:"supported_profiles"`
+}
+
 // NVLinkConfig defines NVLink topology
 type NVLinkConfig struct {
 	Version     int `json:"version,omitempty"`

@@ -1185,3 +1185,169 @@ func TestValidateMIGConfig_AcceptsTheGeometryItReports(t *testing.T) {
 		})
 	}
 }
+
+// migBoardDeclaringNoProfiles is a board whose mig: block carries the
+// properties of the silicon and leaves the profile table to be resolved from
+// elsewhere — the shape every shipped profile takes once its table has moved
+// out.
+const migBoardDeclaringNoProfiles = `
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+device_defaults:
+  mig:
+    mode_current: enabled
+    max_gpu_instances: 7
+`
+
+const migExternalTable1g = `
+version: 1
+supported_profiles:
+  - name: 1g.5gb
+    nvml_profile: 1_SLICE
+    profile_id: 19
+    instances: 7
+    memory_mb: 4864
+    placements:
+      - start: 0
+        size: 1
+    compute_instances:
+      - nvml_profile: 1_SLICE
+        instances: 1
+`
+
+const migExternalTable7g = `
+version: 1
+supported_profiles:
+  - name: 7g.40gb
+    nvml_profile: 7_SLICE
+    profile_id: 0
+    instances: 1
+    memory_mb: 40192
+    placements:
+      - start: 0
+        size: 8
+    compute_instances:
+      - nvml_profile: 7_SLICE
+        instances: 1
+`
+
+// stageMIGProfileFixtures writes a config, and optionally a sibling table
+// beside it, into a fresh directory and returns the config path.
+func stageMIGProfileFixtures(t *testing.T, config, sibling string) string {
+	t.Helper()
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(config), 0o600))
+	if sibling != "" {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "config.mig.yaml"), []byte(sibling), 0o600))
+	}
+	return configPath
+}
+
+// writeMIGProfileTable stages a table on its own, away from any config, so a
+// test can point MOCK_MIG_PROFILES_CONFIG at a path the sibling rule would
+// never reach.
+func writeMIGProfileTable(t *testing.T, table string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "mig-table.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(table), 0o600))
+	return path
+}
+
+// The tests below set MOCK_MIG_PROFILES_CONFIG — to "" where they mean "no
+// env var" — so an inherited value cannot decide the outcome. t.Setenv rules
+// out t.Parallel for them.
+
+func TestLoadYAMLConfig_AttachesAnExternalMIGProfileTable(t *testing.T) {
+	t.Setenv("MOCK_MIG_PROFILES_CONFIG", "")
+
+	cfg, err := LoadYAMLConfig(stageMIGProfileFixtures(t, migBoardDeclaringNoProfiles, migExternalTable1g))
+
+	require.NoError(t, err)
+	require.Len(t, cfg.DeviceDefaults.MIG.SupportedProfiles, 1)
+	require.Equal(t, "1g.5gb", cfg.DeviceDefaults.MIG.SupportedProfiles[0].Name)
+	require.Equal(t, 19, cfg.DeviceDefaults.MIG.SupportedProfiles[0].ProfileID)
+}
+
+func TestLoadYAMLConfig_MIGProfilesEnvVarWinsOverTheSibling(t *testing.T) {
+	configPath := stageMIGProfileFixtures(t, migBoardDeclaringNoProfiles, migExternalTable1g)
+	t.Setenv("MOCK_MIG_PROFILES_CONFIG", writeMIGProfileTable(t, migExternalTable7g))
+
+	cfg, err := LoadYAMLConfig(configPath)
+
+	require.NoError(t, err)
+	require.Len(t, cfg.DeviceDefaults.MIG.SupportedProfiles, 1)
+	require.Equal(t, "7g.40gb", cfg.DeviceDefaults.MIG.SupportedProfiles[0].Name)
+}
+
+// A board with no table anywhere is not MIG-capable, which is what a board
+// declaring no profiles has always meant. It is not a load error: the mount
+// the chart provides is the thing that can be absent, and refusing the config
+// would take the whole board down with it.
+func TestLoadYAMLConfig_NoMIGProfileTableLeavesTheBoardNotMIGCapable(t *testing.T) {
+	t.Setenv("MOCK_MIG_PROFILES_CONFIG", "")
+
+	cfg, err := LoadYAMLConfig(stageMIGProfileFixtures(t, migBoardDeclaringNoProfiles, ""))
+
+	require.NoError(t, err)
+	require.Empty(t, cfg.DeviceDefaults.MIG.SupportedProfiles)
+}
+
+// Absent and present-but-wrong are different failures. A table that does not
+// parse is an operator mistake, and dropping it would present as the board
+// above — deliberately non-MIG — when it is in fact broken.
+func TestLoadYAMLConfig_RefusesAMalformedExternalMIGProfileTable(t *testing.T) {
+	t.Setenv("MOCK_MIG_PROFILES_CONFIG", "")
+
+	_, err := LoadYAMLConfig(stageMIGProfileFixtures(t, migBoardDeclaringNoProfiles, "supported_profiles: [oh: dear\n"))
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "config.mig.yaml")
+}
+
+// Splitting the file must not split the guarantees: a table validated as
+// inline data is validated identically once it arrives from its own file.
+func TestLoadYAMLConfig_ExternalMIGProfileTableFacesTheSameValidation(t *testing.T) {
+	t.Setenv("MOCK_MIG_PROFILES_CONFIG", "")
+	narrowBoard := `
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+device_defaults:
+  mig:
+    max_gpu_instances: 4
+`
+
+	_, err := LoadYAMLConfig(stageMIGProfileFixtures(t, narrowBoard, migExternalTable7g))
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "spans 7 slices, more than the 4 max_gpu_instances this board is wide")
+}
+
+// Two authoritative tables for one board is an ambiguity, not a precedence
+// question: whichever source loses is a table an operator wrote and the mock
+// silently ignored. The config refuses to load and names both, the way
+// validateMIGProfileRef already refuses a profile named two ways.
+func TestLoadYAMLConfig_RefusesAMIGProfileTableDeclaredInlineAndExternally(t *testing.T) {
+	t.Setenv("MOCK_MIG_PROFILES_CONFIG", "")
+	inline := migBoardDeclaringNoProfiles + `    supported_profiles:
+      - name: 1g.5gb
+        nvml_profile: 1_SLICE
+        profile_id: 19
+        instances: 7
+        memory_mb: 4864
+        placements:
+          - start: 0
+            size: 1
+        compute_instances:
+          - nvml_profile: 1_SLICE
+            instances: 1
+`
+
+	_, err := LoadYAMLConfig(stageMIGProfileFixtures(t, inline, migExternalTable7g))
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "supported_profiles")
+	require.Contains(t, err.Error(), "config.mig.yaml")
+}
