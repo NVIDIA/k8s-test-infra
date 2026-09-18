@@ -2,10 +2,14 @@
 Copyright 2026 NVIDIA CORPORATION
 SPDX-License-Identifier: Apache-2.0
 
-The selected board's MIG partition table. Consumed only by the mock NVML
-engine at LoadConfig() time, which attaches it to
-device_defaults.mig.supported_profiles; see pkg/gpu/mocknvml/engine/config.go
-applyMIGProfilesOverlay().
+The selected board's MIG partition table, attached to
+device_defaults.mig.supported_profiles at load time; see
+pkg/gpu/mocknvml/engine/config.go ApplyMIGProfilesOverlay().
+
+Both the node agent and the mock NVML engine read it. The agent stages the
+capability devices for the partitions NVML enumerates, so a table only the
+engine resolved would leave a partitioned board with no cap device to reach
+a partition through.
 
 It is a ConfigMap of its own rather than another key in -config because the
 table is several hundred lines a reader of the rest of the profile never

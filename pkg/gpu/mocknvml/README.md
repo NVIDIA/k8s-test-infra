@@ -603,7 +603,8 @@ NVML library.
 
 ## Supported NVML Functions
 
-The mock library implements 89 NVML functions required by nvidia-smi:
+The mock library hand-implements 192 of the 420 NVML functions it exports,
+covering the surfaces nvidia-smi and the GPU stack exercise:
 
 - **Device enumeration**: `nvmlDeviceGetCount`, `nvmlDeviceGetHandleByIndex`
 - **Device properties**: `nvmlDeviceGetName`, `nvmlDeviceGetUUID`, `nvmlDeviceGetMemoryInfo`
@@ -611,11 +612,14 @@ The mock library implements 89 NVML functions required by nvidia-smi:
 - **Clocks**: `nvmlDeviceGetClockInfo`, `nvmlDeviceGetMaxClockInfo`
 - **ECC**: `nvmlDeviceGetEccMode`, `nvmlDeviceGetTotalEccErrors`
 - **PCIe**: `nvmlDeviceGetPciInfo`, `nvmlDeviceGetCurrPcieLinkGeneration`
-- **MIG**: `nvmlDeviceGetMigMode`
+- **MIG**: the partition lifecycle — `nvmlDeviceGetMigMode`/`nvmlDeviceSetMigMode`,
+  `nvmlDeviceCreateGpuInstance`, `nvmlGpuInstanceCreateComputeInstance`, the
+  `Destroy`, `GetInfo`, profile and placement calls behind them, and the MIG
+  device handles `nvmlDeviceGetMigDeviceHandleByIndex` enumerates
 - **Events**: `nvmlEventSetCreate`, `nvmlEventSetWait_v1`/`nvmlEventSetWait_v2` (EventSetCreate returns `SUCCESS`; the waits deliver an injected Xid, return `ERROR_GPU_IS_LOST` immediately once a lost/`fallen_off_bus` device has tripped, otherwise block for the caller's timeout and return `TIMEOUT`)
 
-All other NVML functions return `NVML_ERROR_NOT_SUPPORTED`, providing full API
-coverage for linking.
+The remaining 228 exports are generated stubs returning
+`NVML_ERROR_NOT_SUPPORTED`, so the library links against any consumer.
 
 ## Regenerating Stubs
 
@@ -643,7 +647,10 @@ bridge file (e.g., `device.go`) and regenerate stubs.
   system configuration.
 - **Read-only simulation**: No actual GPU operations
 - **Static device properties**: Device properties set at initialization
-- **Limited MIG support**: GetMigMode is implemented; MIG device enumeration returns `NOT_FOUND` (end-of-iteration signal)
+- **MIG repartitioning moves the NVML view only**: the partition lifecycle is
+  implemented, but `/dev/nvidia-caps` and `/proc/driver/nvidia-caps/mig-minors`
+  are staged once at pod start, so what a node can allocate stays the layout it
+  booted with
 - **Process list**: Always empty (configurable in YAML)
 
 ## Troubleshooting

@@ -47,9 +47,9 @@ dcgmExporter:
     - name: DCGM_EXPORTER_COLLECT_INTERVAL
       value: "5000"
 
-# MIG is not supported by the mock NVML — disable manager and set strategy to none.
-# Without this, the device-plugin enumerates MIG devices and the CDI spec generator
-# treats any non-NOT_FOUND return as fatal (the mock now returns NOT_FOUND).
+# This deployment does not partition the board, so there are no slices to
+# advertise and whole GPUs are the right view; mig-manager partitions through a
+# real driver. MIG itself is simulated — see the MIG partitioning guide.
 mig:
   strategy: none
 migManager:

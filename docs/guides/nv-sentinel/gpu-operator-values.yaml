@@ -34,7 +34,8 @@ dcgmExporter:
     - name: DCGM_EXPORTER_COLLECT_INTERVAL
       value: "5000"
 
-# MIG unsupported by the mock.
+# MIG is simulated, but this deployment does not partition the board, so there
+# are no slices to advertise; mig-manager partitions through a real driver.
 mig:
   strategy: none
 migManager:
