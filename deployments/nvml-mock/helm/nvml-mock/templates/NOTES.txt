@@ -12,6 +12,7 @@ image locally and loaded it into your cluster. See the chart README for
 build-from-source instructions.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- if .Values.nri.enabled }}
 
 DEFAULT: Ordinary workload through NRI
 
@@ -25,6 +26,7 @@ DEFAULT: Ordinary workload through NRI
     kubectl logs mokka-check
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- end }}
 
 OPTION A: NVIDIA Device Plugin
 
