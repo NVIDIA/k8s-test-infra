@@ -223,9 +223,9 @@ func TestSymlink_CreatesAndReplaces(t *testing.T) {
 
 // bindMountCleanup unmounts target at test end: a bind mount is a real mount
 // on the machine, not sandboxed to t.TempDir().
-func bindMountCleanup(t *testing.T, target string) {
+func bindMountCleanup(t *testing.T, source, target string) {
 	t.Helper()
-	t.Cleanup(func() { _ = fsutil.Unmount(target) })
+	t.Cleanup(func() { _ = fsutil.Unmount(source, target) })
 }
 
 func TestBindMount_MakesSourceContentVisibleAtTarget(t *testing.T) {
@@ -233,7 +233,7 @@ func TestBindMount_MakesSourceContentVisibleAtTarget(t *testing.T) {
 
 	src := t.TempDir()
 	dst := t.TempDir()
-	bindMountCleanup(t, dst)
+	bindMountCleanup(t, src, dst)
 
 	require.NoError(t, os.WriteFile(filepath.Join(src, "file"), []byte("content"), 0o644))
 	require.NoError(t, fsutil.BindMount(src, dst))
@@ -248,13 +248,17 @@ func TestBindMount_DoesNotReplaceAnExistingDestinationDirectory(t *testing.T) {
 
 	src := t.TempDir()
 	dst := t.TempDir()
-	bindMountCleanup(t, dst)
+	bindMountCleanup(t, src, dst)
 
 	before, err := os.Stat(dst)
 	require.NoError(t, err)
 
 	require.NoError(t, fsutil.BindMount(src, dst))
 
+	// stat(dst) now resolves through the mount, to src's inode — that's what
+	// a bind mount is. Unmount and confirm the same pre-existing directory
+	// entry is still underneath it, unchanged.
+	require.NoError(t, fsutil.Unmount(src, dst))
 	after, err := os.Stat(dst)
 	require.NoError(t, err)
 	require.True(t, os.SameFile(before, after), "the destination directory entry must not be replaced")
@@ -265,7 +269,7 @@ func TestBindMount_IdempotentWhenAlreadyMounted(t *testing.T) {
 
 	src := t.TempDir()
 	dst := t.TempDir()
-	bindMountCleanup(t, dst)
+	bindMountCleanup(t, src, dst)
 
 	require.NoError(t, fsutil.BindMount(src, dst))
 	require.NoError(t, fsutil.BindMount(src, dst), "a second BindMount of the same target must not error or stack another mount")
@@ -273,6 +277,21 @@ func TestBindMount_IdempotentWhenAlreadyMounted(t *testing.T) {
 	mounted, err := fsutil.IsMounted(dst)
 	require.NoError(t, err)
 	require.True(t, mounted)
+}
+
+// TestBindMount_RefusesAForeignMount covers the review finding: a target
+// already mounted from somewhere other than source is not ours to claim.
+func TestBindMount_RefusesAForeignMount(t *testing.T) {
+	skipUnlessRootLinux(t)
+
+	src := t.TempDir()
+	foreignSrc := t.TempDir()
+	dst := t.TempDir()
+	bindMountCleanup(t, foreignSrc, dst)
+
+	require.NoError(t, fsutil.BindMount(foreignSrc, dst))
+
+	require.Error(t, fsutil.BindMount(src, dst), "a mount from a different source must not be accepted as ours")
 }
 
 func TestUnmount_RemovesTheMountButKeepsTheDirectory(t *testing.T) {
@@ -284,7 +303,7 @@ func TestUnmount_RemovesTheMountButKeepsTheDirectory(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(src, "file"), []byte("content"), 0o644))
 	require.NoError(t, fsutil.BindMount(src, dst))
 
-	require.NoError(t, fsutil.Unmount(dst))
+	require.NoError(t, fsutil.Unmount(src, dst))
 
 	_, err := os.Stat(dst)
 	require.NoError(t, err, "the directory entry must survive Unmount")
@@ -296,7 +315,45 @@ func TestUnmount_RemovesTheMountButKeepsTheDirectory(t *testing.T) {
 func TestUnmount_IdempotentWhenNotMounted(t *testing.T) {
 	skipUnlessRootLinux(t)
 
-	require.NoError(t, fsutil.Unmount(t.TempDir()), "Unmount on a plain directory must not error")
+	require.NoError(t, fsutil.Unmount(t.TempDir(), t.TempDir()), "Unmount on a plain directory must not error")
+}
+
+// TestUnmount_LeavesAForeignMountAlone covers the review finding: Revoke
+// must not detach a mount some other owner put at this path.
+func TestUnmount_LeavesAForeignMountAlone(t *testing.T) {
+	skipUnlessRootLinux(t)
+
+	src := t.TempDir()
+	foreignSrc := t.TempDir()
+	dst := t.TempDir()
+	bindMountCleanup(t, foreignSrc, dst)
+
+	require.NoError(t, fsutil.BindMount(foreignSrc, dst))
+
+	require.NoError(t, fsutil.Unmount(src, dst))
+
+	mounted, err := fsutil.IsMounted(dst)
+	require.NoError(t, err)
+	require.True(t, mounted, "a foreign mount must survive Unmount")
+}
+
+// A source that does not exist yet (e.g. Revoke called before Stage ever
+// ran) cannot possibly be what a mount was made from; this must not error.
+func TestUnmount_LeavesAForeignMountAloneWhenSourceIsAbsent(t *testing.T) {
+	skipUnlessRootLinux(t)
+
+	absentSrc := filepath.Join(t.TempDir(), "never-created")
+	foreignSrc := t.TempDir()
+	dst := t.TempDir()
+	bindMountCleanup(t, foreignSrc, dst)
+
+	require.NoError(t, fsutil.BindMount(foreignSrc, dst))
+
+	require.NoError(t, fsutil.Unmount(absentSrc, dst))
+
+	mounted, err := fsutil.IsMounted(dst)
+	require.NoError(t, err)
+	require.True(t, mounted, "a foreign mount must survive Unmount")
 }
 
 func TestIsMounted(t *testing.T) {
@@ -304,7 +361,7 @@ func TestIsMounted(t *testing.T) {
 
 	src := t.TempDir()
 	dst := t.TempDir()
-	bindMountCleanup(t, dst)
+	bindMountCleanup(t, src, dst)
 
 	mounted, err := fsutil.IsMounted(dst)
 	require.NoError(t, err)

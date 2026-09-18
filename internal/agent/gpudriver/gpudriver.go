@@ -132,8 +132,11 @@ func (s *Simulator) Revoke(_ context.Context) error {
 	zap.L().Info("revoking simulator", zap.String("simulator", name))
 	s.ready.Store(false)
 
-	if err := fsutil.Unmount(s.host.RunPath("nvidia/driver")); err != nil {
-		return fmt.Errorf("unmount %s: %w", s.host.RunPath("nvidia/driver"), err)
+	mokkaDriverRoot := s.host.RootPath("driver")
+	nvidiaDriverRoot := s.host.RunPath("nvidia/driver")
+
+	if err := fsutil.Unmount(mokkaDriverRoot, nvidiaDriverRoot); err != nil {
+		return fmt.Errorf("unmount %s: %w", nvidiaDriverRoot, err)
 	}
 
 	return nil

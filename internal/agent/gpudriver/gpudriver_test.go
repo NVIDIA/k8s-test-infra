@@ -244,7 +244,7 @@ func TestStageCharDevs_UsesConfiguredMinorNumber(t *testing.T) {
 // real mount on the test machine, not sandboxed to h's t.TempDir().
 func bindMountCleanup(t *testing.T, h *host.Host) {
 	t.Helper()
-	t.Cleanup(func() { _ = fsutil.Unmount(h.RunPath("nvidia/driver")) })
+	t.Cleanup(func() { _ = fsutil.Unmount(h.RootPath("driver"), h.RunPath("nvidia/driver")) })
 }
 
 func TestApply_BindMountsTheDriverTreeOntoRunNvidiaDriver(t *testing.T) {
@@ -294,13 +294,18 @@ func TestApply_DoesNotReplaceAnExistingDirectoryEntry(t *testing.T) {
 
 	require.NoError(t, sim.Apply(ctx, state))
 
+	_, err = os.Lstat(h.RunPath("nvidia/driver/usr/bin/nvidia-smi"))
+	require.NoError(t, err, "content must be visible inside the pre-existing directory")
+
+	// stat(preexisting) now resolves through the mount, to source's inode —
+	// that's what a bind mount is. The invariant that actually matters is
+	// that the pre-existing directory survives underneath it, unchanged:
+	// unmount and confirm the same directory entry is still there.
+	require.NoError(t, fsutil.Unmount(h.RootPath("driver"), preexisting))
 	after, err := os.Stat(preexisting)
 	require.NoError(t, err)
 	require.True(t, os.SameFile(before, after),
 		"Apply must not replace the /run/nvidia/driver directory entry")
-
-	_, err = os.Lstat(h.RunPath("nvidia/driver/usr/bin/nvidia-smi"))
-	require.NoError(t, err, "content must be visible inside the pre-existing directory")
 }
 
 func TestApply_IdempotentWhenAlreadyMounted(t *testing.T) {
@@ -318,6 +323,29 @@ func TestApply_IdempotentWhenAlreadyMounted(t *testing.T) {
 
 	require.NoError(t, sim.Apply(ctx, state))
 	require.NoError(t, sim.Apply(ctx, state), "a second Apply must not error or stack another mount")
+}
+
+// Regression test: Apply must not mistake a mount from another owner for
+// its own, or it would report Ready without ever publishing the driver tree.
+func TestApply_RefusesAForeignMount(t *testing.T) {
+	skipUnlessRootLinux(t)
+
+	h := testHost(t)
+	sim := New(h)
+	state := testState(t)
+	ctx := t.Context()
+	driverRoot := h.RunPath("nvidia/driver")
+
+	foreignSrc := t.TempDir()
+	require.NoError(t, fsutil.BindMount(foreignSrc, driverRoot))
+	t.Cleanup(func() { _ = fsutil.Unmount(foreignSrc, driverRoot) })
+
+	require.NoError(t, stageNvidiaSMI(ctx, h, state))
+	require.NoError(t, writeProcFS(ctx, h, state))
+	require.NoError(t, writeEngineConfig(ctx, h, state))
+
+	require.Error(t, sim.Apply(ctx, state))
+	require.False(t, sim.Ready())
 }
 
 func TestRevoke_UnmountsButKeepsTheDirectory(t *testing.T) {
@@ -364,6 +392,25 @@ func TestRevoke_LeavesForeignDirectoryContentAlone(t *testing.T) {
 
 	_, err := os.Stat(filepath.Join(path, "someone-elses-file"))
 	require.NoError(t, err, "Revoke must not touch content it never mounted")
+}
+
+// Regression test: Revoke must not detach a mount another owner put at
+// /run/nvidia/driver.
+func TestRevoke_LeavesAForeignMountAlone(t *testing.T) {
+	skipUnlessRootLinux(t)
+
+	h := testHost(t)
+	driverRoot := h.RunPath("nvidia/driver")
+
+	foreignSrc := t.TempDir()
+	require.NoError(t, fsutil.BindMount(foreignSrc, driverRoot))
+	t.Cleanup(func() { _ = fsutil.Unmount(foreignSrc, driverRoot) })
+
+	require.NoError(t, New(h).Revoke(t.Context()))
+
+	mounted, err := fsutil.IsMounted(driverRoot)
+	require.NoError(t, err)
+	require.True(t, mounted, "a foreign mount must survive Revoke")
 }
 
 // ─── Discard ─────────────────────────────────────────────────────────────────
