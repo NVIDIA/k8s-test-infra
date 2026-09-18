@@ -59,10 +59,15 @@ name, which is what the device plugin's `migStrategy=single` requires:
 answers `NVML_ERROR_NOT_SUPPORTED` exactly as it does on that hardware.
 
 The full table each board offers, not just its smallest slice, is declared in
-the board's profile YAML under `mig.supported_profiles` — each row carrying the
-partition's slices, published profile id, placements and compute instances. The
-schema is described in the
-[`mig:` configuration reference](../../configuration.md#mig).
+YAML — each row carrying the partition's slices, published profile id,
+placements and compute instances. It is a document of its own, which the chart
+mounts from a ConfigMap of its own; the schema and how the engine finds the
+table are in the
+[`mig:` configuration reference](../../configuration.md#declaring-the-profile-table).
+A board whose table does not arrive comes up
+[not MIG-capable](../../configuration.md#a-board-with-no-resolvable-table-is-not-mig-capable),
+which is the first thing to check if MIG unexpectedly declines on a capable
+board.
 
 Mixed layouts and fixed instance ids are described in
 [Configuration](../../configuration.md#mig).

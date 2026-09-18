@@ -128,19 +128,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nvml-mock: the `t4` and `l40s` profiles no longer carry a `mig` section. Those
   boards already answered `NVML_ERROR_NOT_SUPPORTED` regardless of what the
   profile declared, and the section only read as though a disabled mode were
-  something they could leave. They declare no `mig.supported_profiles` either,
-  which is what decides MIG support now.
+  something they could leave. They ship no MIG profile table either, which is
+  what decides MIG support now.
   `gpu.mig.enabled` still refuses them, now reporting that the profile declares
   no `mig.max_gpu_instances` rather than that it is `0`.
-- nvml-mock: a board's MIG profile table is now declared in its profile YAML
-  under `mig.supported_profiles` rather than resolved in Go from the configured
-  device name, so teaching the mock a new board is a YAML edit. **Breaking for
+- nvml-mock: a board's MIG profile table is now declared in YAML, under
+  `supported_profiles`, rather than resolved in Go from the configured device
+  name, so teaching the mock a new board is a YAML edit. **Breaking for
   externally-authored configs:** a config that sets `mig.max_gpu_instances` but
   declares no `supported_profiles` is no longer MIG-capable and answers
   `NVML_ERROR_NOT_SUPPORTED`, the same as `l40s` and `t4`. Every profile the
   chart ships declares its table. See
   [the `mig:` reference](docs/configuration.md#mig).
-- nvml-mock: every row of `mig.supported_profiles` now declares the profile id
+- nvml-mock: every row of the MIG profile table now declares the profile id
   the board publishes for it, under `profile_id` — `19` for an A100's
   `1g.5gb`, copied off the `ID` column of `nvidia-smi mig -lgip`. The ids used
   to come from one of two hardcoded tables, picked by `max_gpu_instances`,
@@ -154,7 +154,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   externally-authored configs:** a row that declares no `profile_id` publishes
   `0`, and a second such row on the same board is refused at load, since two
   rows cannot share one id.
-- nvml-mock: a row of `mig.supported_profiles` now declares its whole partition
+- nvml-mock: a row of the MIG profile table now declares its whole partition
   — `placements`, `compute_instances` and its `slices` alongside the
   `profile_id` above — and the engine transcribes them rather than deriving
   them from the row's width. One piece of geometry is still synthesized, since
@@ -174,6 +174,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from the row's `nvml_profile` enum, and a declared width that disagrees with
   that enum is refused. See
   [the `mig:` reference](docs/configuration.md#mig).
+- nvml-mock: a board's MIG profile table now lives in a document of its own
+  rather than in the profile that describes the board. `device_defaults.mig`
+  keeps `mode_current`, `mode_pending` and `max_gpu_instances` — properties of
+  the silicon, and small — while `supported_profiles`, several hundred rows of
+  partition geometry, moves to a sibling file, restoring the shipped profiles
+  to a length a reader of the rest of them can work with. The engine resolves
+  the table from `MOCK_MIG_PROFILES_CONFIG`, then from a sibling derived from
+  the config path (`config.yaml` -> `config.mig.yaml`), which is what makes a
+  local run and the standalone configs work with no environment set. Nothing
+  changes for a chart install: the selected board's table renders into its own
+  ConfigMap, mounts at `/etc/nvml-mock/mig` and sets the env var, and every
+  board reports exactly what it did before. **Breaking for externally-authored
+  configs:** the table has to move, not be copied — a config declaring
+  `supported_profiles` inline while an external table also resolves is refused
+  as ambiguous, naming both sources. A board whose table cannot be resolved is
+  not MIG-capable and answers `NVML_ERROR_NOT_SUPPORTED`; that is not a load
+  error, and the only trace is a debug-level line naming the path that was
+  tried. See
+  [where the table lives](docs/configuration.md#where-the-table-lives).
 
 ### Removed
 

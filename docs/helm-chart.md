@@ -1031,6 +1031,11 @@ The chart deploys:
      `feature.node.kubernetes.io/pci-10de.present=true` appear — see
      [Node Labels](#node-labels)
 2. **ConfigMap** — GPU configuration from the selected profile
+3. **ConfigMap** (`<fullname>-mig-profiles`) — the selected board's MIG
+   partition table, mounted at `/etc/nvml-mock/mig` and pointed at by
+   `MOCK_MIG_PROFILES_CONFIG`. Rendered only for the five MIG-capable
+   profiles, and never with `gpu.customConfig`, whose table is the user's —
+   see [where the table lives](configuration.md#where-the-table-lives)
 3. **ServiceAccount** — no cluster RBAC; nothing in the pod calls the API
 
 Consumer components (DRA driver, device plugin) mount `/var/lib/nvml-mock`

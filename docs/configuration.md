@@ -18,6 +18,7 @@ YAML configuration takes precedence when `MOCK_NVML_CONFIG` is set.
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `MOCK_NVML_CONFIG` | Path to YAML configuration file | (none) |
+| `MOCK_MIG_PROFILES_CONFIG` | Path to the board's [MIG profile table](#declaring-the-profile-table), which lives in a document of its own | (none) — a sibling of `MOCK_NVML_CONFIG` is tried instead |
 | `MOCK_NVML_NUM_DEVICES` | Number of GPUs to simulate | 8 |
 | `MOCK_NVML_DRIVER_VERSION` | NVIDIA driver version string | 550.163.01 |
 | `MOCK_NVML_DEBUG` | Enable debug logging (any value) | (disabled) |
@@ -456,6 +457,13 @@ This is the reference for the `mig:` block. For installing a partitioned node
 and scheduling onto a slice, see the
 [MIG partitioning guide](guides/mig/README.md).
 
+The three keys above are the whole of `device_defaults.mig` — they are
+properties of the silicon, and they are small. The board's partition table,
+`supported_profiles`, is several hundred rows of geometry and lives in
+[a document of its own](#declaring-the-profile-table). A per-device `mig:`
+block, which declares a layout rather than a capability, is described under
+[declaring a layout by count](#declaring-a-layout-by-count).
+
 No shipped profile declares a partitioning. `max_gpu_instances` is what the
 board can do; how it is carved is a deployment choice, which under the chart is
 `gpu.mig.gpuInstances` — required whenever `gpu.mig.enabled` is set, on every
@@ -465,54 +473,58 @@ and NVML answers `NVML_ERROR_NOT_SUPPORTED` for them as real hardware does.
 #### Declaring the profile table
 
 `supported_profiles` is the board's MIG profile table: the rows
-`nvidia-smi mig -lgip` prints. It is declared in the profile YAML rather than
-resolved in Go from the device name, so teaching the mock a new board is a YAML
-edit. Each row describes its partition completely — the slices it spans, the id
+`nvidia-smi mig -lgip` prints. It is declared in YAML rather than resolved in
+Go from the device name, so teaching the mock a new board is a YAML edit. The
+table is a document of its own, not part of the profile — see
+[where the table lives](#where-the-table-lives) for how the engine finds it.
+Each row describes its partition completely — the slices it spans, the id
 the board publishes for it, the slots it may occupy and the compute instances
 it offers — and the engine reports those values rather than deriving them from
 each other. One piece of geometry is still synthesized; see
-[compute-instance placements](#compute-instance-placements) below. One full row
-of `h100`:
+[compute-instance placements](#compute-instance-placements) below. The whole
+of `h100`'s table document, with one full row of its seven:
 
 ```yaml
-device_defaults:
-  mig:
-    max_gpu_instances: 7
-    supported_profiles:
-      - name: "1g.10gb"
-        nvml_profile: "1_SLICE"
+version: 1               # decoded, and nothing reads it yet
+supported_profiles:
+  - name: "1g.10gb"
+    nvml_profile: "1_SLICE"
+    slices: 1
+    profile_id: 19
+    instances: 7
+    memory_mb: 10240
+    multiprocessors: 16
+    copy_engines: 1
+    decoders: 1
+    jpeg: 1
+    placements:            # memory units, not compute slices
+      - {start: 0, size: 1}
+      - {start: 1, size: 1}
+      - {start: 2, size: 1}
+      - {start: 3, size: 1}
+      - {start: 4, size: 1}
+      - {start: 5, size: 1}
+      - {start: 6, size: 1}
+    compute_instances:     # the row's `mig -lcip` listing
+      - nvml_profile: "1_SLICE"
         slices: 1
-        profile_id: 19
-        instances: 7
-        memory_mb: 10240
+        instances: 1
         multiprocessors: 16
-        copy_engines: 1
+        shared_copy_engines: 1
         decoders: 1
         jpeg: 1
-        placements:            # memory units, not compute slices
-          - {start: 0, size: 1}
-          - {start: 1, size: 1}
-          - {start: 2, size: 1}
-          - {start: 3, size: 1}
-          - {start: 4, size: 1}
-          - {start: 5, size: 1}
-          - {start: 6, size: 1}
-        compute_instances:     # the row's `mig -lcip` listing
-          - nvml_profile: "1_SLICE"
-            slices: 1
-            instances: 1
-            multiprocessors: 16
-            shared_copy_engines: 1
-            decoders: 1
-            jpeg: 1
-          - nvml_profile: "1_SLICE_REV1"
-            slices: 1
-            instances: 1
-            multiprocessors: 16
-            shared_copy_engines: 1
-            decoders: 1
-            jpeg: 1
+      - nvml_profile: "1_SLICE_REV1"
+        slices: 1
+        instances: 1
+        multiprocessors: 16
+        shared_copy_engines: 1
+        decoders: 1
+        jpeg: 1
 ```
+
+`supported_profiles` sits at the root of the table document, and the engine
+attaches it to `device_defaults.mig.supported_profiles` before validation runs,
+so a row is checked identically wherever it was written.
 
 | Field | Meaning |
 |---|---|
@@ -578,9 +590,82 @@ these fields in Go were where this area's defects concentrated.
 Transcribe rows from the Supported MIG Profiles tables of NVIDIA's MIG user
 guide, which is where every shipped profile's rows come from — each names its
 table in a YAML comment. NVIDIA publishes placements only as diagrams, so those
-are transcribed from the layout the diagrams show. A board that declares
-`max_gpu_instances` but no `supported_profiles` is not MIG-capable and answers
-`NVML_ERROR_NOT_SUPPORTED`, the same as `t4` and `l40s`.
+are transcribed from the layout the diagrams show.
+
+#### Where the table lives
+
+The table is a sibling document of the profile, not a section of it. The five
+MIG-capable boards ship theirs twice, once per config tree:
+
+| | file |
+|---|---|
+| chart profiles | `deployments/nvml-mock/helm/nvml-mock/profiles/mig/<board>.yaml` |
+| standalone configs | `pkg/gpu/mocknvml/configs/mock-nvml-config-<board>.mig.yaml` |
+
+The engine resolves the table at load time, in this order:
+
+1. **`MOCK_MIG_PROFILES_CONFIG`.** An explicit path, and what the chart sets.
+2. **A sibling derived from the config path**, replacing the extension:
+   `config.yaml` → `config.mig.yaml`. This is what makes a local run and the
+   standalone configs work with no environment set at all, and why five boards'
+   tables share one directory without colliding.
+
+Under the chart nothing needs setting. The selected board's table renders into
+a ConfigMap of its own, `<fullname>-mig-profiles`, keyed `mig-profiles.yaml`
+and mounted read-only at `/etc/nvml-mock/mig`; the container gets
+`MOCK_MIG_PROFILES_CONFIG=/etc/nvml-mock/mig/mig-profiles.yaml`. The chart's
+`mig/` layout is not a sibling of the profile it belongs to, so the env var is
+the only thing that finds it there. A table edit rolls the DaemonSet through
+its own `checksum/mig-profiles` annotation.
+
+!!! warning "A table declared inline *and* externally is refused"
+
+    A config that keeps `supported_profiles` under `device_defaults.mig` while
+    a table also resolves fails to load, naming both sources. This is an
+    ambiguity rather than a precedence question: whichever table lost would be
+    one somebody authored and the mock silently ignored, and nothing a consumer
+    sees through NVML says which file is in force.
+
+    For an externally-authored config written against the old single-file
+    layout, that is the migration instruction: **move** the table into a
+    sibling document, do not copy it. Nothing the chart ships declares a table
+    inline, so no chart install can reach this.
+
+##### A board with no resolvable table is not MIG-capable
+
+An absent table is not a load error. The board simply has no partition table,
+which is already what a board declaring no profiles means — `t4` and `l40s`
+have always been that board — so NVML answers `NVML_ERROR_NOT_SUPPORTED` for
+every MIG call on it, and the rest of the config loads and serves normally.
+The only trace is one line at debug level:
+
+```text
+[CONFIG] MIG profiles: no table at /etc/nvml-mock/mig/mig-profiles.yaml, board is not MIG-capable
+```
+
+This is deliberate: the thing that can go missing is a Kubernetes mount, and
+taking a whole board's config down because one mount did not arrive would be
+worse than a board that reports no MIG. The cost is that a board which
+*should* partition and a board which genuinely cannot look identical from
+outside.
+
+So if a board that should partition does not — `nvidia-smi mig` declining on
+it, `NVML_ERROR_NOT_SUPPORTED` reaching a consumer — the table is the first
+thing to check, and the debug line is how. Every process loads the engine for
+itself, so run one with debug logging on:
+
+```bash
+kubectl exec ds/nvml-mock -- env MOCK_NVML_DEBUG=1 \
+  nvidia-smi mig -lgip 2>&1 | grep 'MIG profiles'
+```
+
+The line prints the exact path that was tried, which says whether the env var,
+the mount or the file name is wrong. No line at all means no path resolved:
+neither `MOCK_MIG_PROFILES_CONFIG` nor a config path was set.
+
+Everything else is an operator authoring mistake and does fail the load, with
+an error naming the file: unreadable, unparseable, a table file declaring no
+rows, a row failing the validation above, or the inline-and-external clash.
 
 #### Declaring a layout by count
 
