@@ -8,28 +8,60 @@ Author: [Roman Hlushko](https://github.com/roma-glushko)
   - [Goals](#goals)
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
-  - [User Stories (Optional)](#user-stories-optional)
-    - [Story 1 (Optional)](#story-1-optional)
-    - [Story 2 (Optional)](#story-2-optional)
+  - [Context](#context)
+  - [Mental Model](#mental-model)
+  - [Architecture](#architecture)
+    - [Runtime State](#runtime-state)
+  - [User Stories](#user-stories)
+    - [S1: Precise Multi-GPU Distribution Simulation](#s1-precise-multi-gpu-distribution-simulation)
+    - [S2: Dynamic Failure Injection](#s2-dynamic-failure-injection)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
+  - [sGPU Inventory Distribution](#sgpu-inventory-distribution)
+  - [Node Agent](#node-agent)
+  - [Control Plane State](#control-plane-state)
+  - [CRD Design](#crd-design)
+    - [SGPURackProfile](#sgpurackprofile)
+    - [SGPUInventory](#sgpuinventory)
+    - [SGPURuntimePolicy](#sgpuruntimepolicy)
+    - [SGPURack](#sgpurack)
+  - [SGPURuntimePolicy Apply Strategy](#sgpuruntimepolicy-apply-strategy)
+  - [Runtime View Computation and Delivery](#runtime-view-computation-and-delivery)
+- [CRD Packaging](#crd-packaging)
+- [sGPU to Node Placement](#sgpu-to-node-placement)
+  - [Topology](#topology)
+  - [Cluster Admin Experience](#cluster-admin-experience)
+    - [Scenario 1. Simple sGPU Setup](#scenario-1-simple-sgpu-setup)
+    - [Scenario 2. Selective sGPU Placement](#scenario-2-selective-sgpu-placement)
+    - [Scenario 3. Half of sGPUs Failed](#scenario-3-half-of-sgpus-failed)
 - [Drawbacks](#drawbacks)
-- [Alternatives](#alternatives)
+- [Alternatives and Design History](#alternatives-and-design-history)
+  - [State Categories](#state-categories)
+  - [Per-Node SGPUNodeAllocation Resources](#per-node-sgpunodeallocation-resources)
+  - [Redis as a Runtime Backend](#redis-as-a-runtime-backend)
+  - [Heartbeat-Based Assignment Reclamation](#heartbeat-based-assignment-reclamation)
+  - [Eager Runtime-View Fanout](#eager-runtime-view-fanout)
 <!-- /toc -->
 
 ## Summary
 
-This proposal introduces a new component called Mokka Control Plane that centralizes:
-- distribution of virtual GPU inventory (a new concept) across a K8s cluster 
-- management of simulated GPU runtime state (for example, useful for chaos testing and fault injection)
+Mokka Control Plane centralizes:
+
+- distribution of virtual GPU inventory across a Kubernetes cluster;
+- management of simulated GPU runtime state, including chaos testing and fault
+  injection.
 
 ## Motivation
 
-The current architecture includes:
-- a single central NVML mock component that acts as a node agent that applies NVML mock configuration and topology from configmaps
-- each NVML instance is an independent component that knows nothing about the existence of any other NVML mock instances
-- if you want to have different GPU profiles for different nodes, you need to label those nodes differently and deploy multiple Mokka helm charts with different node selectors.
+Without the control plane, the architecture has these limitations:
+
+- a central NVML mock component acts as a node agent that applies configuration
+  and topology from ConfigMaps;
+- each NVML instance is independent and knows nothing about other NVML mock
+  instances;
+- different GPU profiles on different Nodes require labels and multiple Mokka
+  Helm releases with different Node selectors.
 
 ![todays-architecture.png](./img/todays-architecture.png)
 
@@ -38,7 +70,7 @@ However, we are approaching use cases that push it to its limits:
 
 - there is no way to simulate capacity distribution of GPU platforms like GB300. For example, if you want to simulate two GB300 instances in the cluster, you can get at most 2 × 18 = 36 GPU nodes, each with 4 GPUs. Today it's the responsibility of Mokka users to enforce that cap, which may lead to unrealistic cluster topologies.
 - we would like to have a simple way to change simulated GPU runtime state like temperature, failure modes, etc., so that a cluster operator can quickly propagate a failure across thousands of nodes.
-- we ask cluster administrators to set `nvidia.com/clique` labels while it should be based on the GPU rack the node belongs to.
+- we ask cluster administrators to set `nvidia.com/gpu.clique` labels while it should be based on the GPU rack the node belongs to.
 - we ask cluster administrators to provide cross-rack network topology.
 
 ### Goals
@@ -86,43 +118,97 @@ The sGPU racks are characterized by:
 
 ### Architecture
 
-We propose to transform the current system state into a classic control-data plane architecture where:
-- (new) Control Plane is a single, centralized source of truth for sGPU inventory information and network topology
-- Data Plane is a node-level agent that applies the sGPU node information, runtime state, and network topology.
+Mokka uses a control-plane/data-plane architecture:
+
+- The control plane owns simulated GPU (sGPU) inventory, assignment, topology,
+  and runtime-policy decisions.
+- A node-level data-plane agent applies the effective sGPU and networking state
+  returned for its Kubernetes Node.
 
 ![proposed-architecture.png](./img/proposed-architecture.png)
 
-With this, NVML mock becomes a node-level agent (or Mokka Node Agent). 
-It makes sure sGPU and networking reflect the desired state. 
-In that sense, it can be thought of as a virtual device driver (for GPU and network card).
+The Kubernetes API is the durable authority. `SGPURackProfile` and
+`SGPUInventory` declare capacity, controller-owned `SGPURack` objects store
+materialized racks and exact Node assignments, and `SGPURuntimePolicy` objects
+declare runtime overrides. Redis is not part of the architecture.
 
-At the same time, Control Plane is responsible for distributing and assigning sGPU capacity to the node agents, 
-receiving changes that external clients want to apply to the sGPUs' runtime state.
+Every control-plane replica maintains a rebuildable, informer-backed read view
+of these resources. A replica becomes ready to serve reads only after its
+caches synchronize. All ready replicas may answer node-agent REST requests, but
+only the leader elected through Kubernetes may reconcile or mutate Kubernetes
+resources. A replica that cannot establish a sufficiently current view for an
+agent request must retry the read rather than serve older state.
+
+Each rack records the exact inventory name and UID, plus the exact profile name,
+UID, generation, and canonical content revision used to render it. Rack group,
+rack index, logical Node index, and GPU index form stable coordinates. Fabric
+UUIDs, GPU UUIDs, and serials are generated deterministically from the inventory
+UID and those coordinates; minor numbers and topology placement come from the
+profile's indexed GPU slots. They remain stable across reconciliation and
+Kubernetes Node rebinding. Recreating an inventory with the same name produces
+a new identity because its UID changes.
+
+Logical Nodes may be unbound. A bound slot records the exact Kubernetes Node
+name and UID plus an assignment revision, so a same-name Node replacement is a
+different assignment. The revision is monotonic only within that exact Node
+UID. The controller preserves valid bindings and allocates free slots
+deterministically. It projects successful assignments onto the bound Node
+without forcing field ownership:
+
+- `mokka.nvidia.com/sgpu-assigned: "true"`
+- `nvidia.com/gpu.clique: <fabric UUID>.<clique ID>`
+- `mokka.nvidia.com/sgpu-assignment`: a versioned compact annotation containing
+  the Node UID, assignment revision, exact rack UID and logical coordinates,
+  and a rack delivery generation floor
+
+`SGPURack` remains the assignment authority. The assignment annotation is the
+publication and fencing record that makes an authoritative binding safe to
+serve; it is not a second assignment authority. Its rack generation is the
+minimum generation settled before that assignment was published, not a
+permanently exact generation. The leader increments the persisted revision with
+a Kubernetes `resourceVersion`-guarded Node update for every assignment
+transition. On release it removes the assignment labels and binding details but
+retains a minimal unassigned annotation containing the exact Node UID and
+advanced revision. Thus a move, release, or later rebind cannot reuse an earlier
+fence.
+
+The controller does not overwrite incompatible values or fields owned by
+another manager. Capacity shrink, group removal, selector mismatch, Node
+ineligibility, inventory deletion, and rack deletion first remove compatible
+controller-owned Node metadata for the exact binding, while retaining the fence
+when the exact Node still exists. Finalizers keep the binding or rack until that
+cleanup is acknowledged. Missing Nodes and same-name replacements are treated
+as the exact old UID being absent; a replacement UID starts a new revision
+domain. Controller-owned racks use an inventory controller owner reference with
+`blockOwnerDeletion: false`; finalizers, rather than a blocking owner reference,
+coordinate projection cleanup. Racks owned by another object are not adopted.
+
+This MEP defines the complete architecture rather than the delivery status of
+an implementation stage. See the [Mokka controller operational
+documentation](../../../docs/mokka-controller.md#stage-1-exclusions) for
+currently available behavior and its Stage 1 exclusions.
 
 #### Runtime State
 
-While the high-level architecture is the same, there are two different ways to manage runtime state.
+Runtime state is split by durability and ownership:
 
-Control Plane runtime state includes:
-- sGPU node to K8s Node allocation
-- The last time the node agent asked for its identity (acts as a health check, so we can automatically find allocations that are assigned to dead nodes or agents)
-- sGPU runtime information (failures, temperature, fan state, etc.)
+| State | Authority and lifetime |
+| --- | --- |
+| Inventory, profiles, and runtime-policy declarations | Durable Kubernetes resources managed declaratively by administrators or GitOps. |
+| Exact Node assignments, assignment fences, and materialized identities | Durable controller-owned `SGPURack` state is authoritative for bindings; controller-owned Kubernetes Node projection metadata publishes a monotonic fence scoped to the exact Node UID. |
+| Informer indexes and effective per-node runtime views | Rebuildable control-plane memory. Effective views are computed lazily for agent requests and are not persisted. |
+| Last successfully applied node state | A node-agent cache used while the control plane is temporarily unavailable. |
 
-There are two ways to store it:
+An effective runtime view combines the assigned rack slot and profile defaults
+with all accepted `SGPURuntimePolicy` overrides that target its coordinates.
+The control plane computes this view when the assigned node agent requests it;
+it does not fan policies out into one durable object per Node or GPU.
 
-1. Custom resources in K8s etcd (sGPU Node Allocation):
-- [Good] No additional dependency — uses vanilla K8s capabilities.
-- [Bad/Neutral] Implementation-wise it's harder to achieve correctness when working with etcd via the K8s API than with Redis directly.
-- [Bad] Each NodeAllocation corresponds to a K8s Node so we will have roughly 5k records when simulating a 5k-node GPU cluster, for example. So NodeAllocations have a high cardinality.
-- [Bad] It's likely that we will update those objects quite often, which adds load to the K8s Control Plane.
-
-2. Use Redis:
-- [Good] Much easier to operate on the state, change it concurrently and atomically and even search compared to etcd.
-- [Good] It scales well. It might be helpful for more advanced functionality
-- [Good] No additional pressure on the Kubernetes Control Plane
-- [Bad] We add an external dependency in a form of Redis. Even though it's the least demanding DB in terms of maintenance, we need to deploy it and potentially make sure it's snapshotting its content for persistence (so PVC would be needed).
-
-Decision: The proposal suggests moving forward with Redis as a medium to store runtime state because it makes implementation easier and removes high-cardinality data load from the K8s Control Plane.
+Polling is a state-delivery mechanism, not an independent liveness authority.
+The control plane does not persist agent last-seen records and does not reclaim
+an assignment because a polling interval elapsed. Kubernetes Node identity and
+lifecycle, including deletion, replacement with a new UID, or loss of
+eligibility, control assignment release.
 
 ### User Stories
 
@@ -135,8 +221,10 @@ I just specify the GPU racks we expect to have and rough network topology betwee
 
 #### S2: Dynamic Failure Injection
 
-As a cluster administrator, I can manage runtime state of my simulated GPU inventory in one place via Kubernetes Custom Resources.
-I can write an automation that modifies the Kubernetes CR state and expect it to be propagated to all nodes without being concerned with cluster topology.
+As a cluster administrator, I can manage runtime state of my simulated GPU
+inventory in one place through Kubernetes custom resources. I can write
+an automation that modifies the Kubernetes state and expect node agents to
+observe it without being concerned with cluster topology.
 
 ### Notes/Constraints/Caveats (Optional)
 
@@ -159,59 +247,113 @@ this will impact our users.
 
 ### sGPU Inventory Distribution
 
-Control Plane holds the currently configured sGPU inventory.
-Then, cluster admins are free to label their CPU nodes with a custom label (for example, `mokka.nvidia.com/sgpu: gb300`) that indicates which sGPU type should be available on that node.
+The controller resolves every `SGPUInventory.spec.rackGroups[].profileRef` and
+materializes the declared rack count as `SGPURack` resources. Each materialized
+rack contains rendered logical Nodes and GPUs, stable identities, topology
+placement, and optional exact Kubernetes Node bindings. Inventory and rack
+status summarize realized capacity, allocation, pending requests, projection,
+and conflicts.
 
-When the node agent reaches out to the Control Plane, it provides information about the current node it was installed on.
-Based on that data, Control Plane does the following:
-
-- resolves the current Kubernetes node information
-- finds the sGPU type in the `mokka.nvidia.com/sgpu` label
-- looks into the current sGPU inventory to see whether this is a newly created node that requires sGPU capacity assignment or a node with existing assignment
-- for a newly created node, Control Plane tries to find capacity and assign it, generating runtime identifiers such as GPU UUIDs and PCI IDs to make them unique. Control Plane also labels the K8s node with `nvidia.com/clique` when sGPU is assigned to the node.
-
-For both existing and new assignments, Control Plane returns sGPU profile information and runtime status.
-Control Plane may return an error indicating we are out of capacity (because there is not enough sGPU in the inventory or because the capacity was reduced at runtime).
+A Kubernetes Node requests capacity by carrying
+`mokka.nvidia.com/sgpu-node: "true"`. If a rack group has
+`placement.nodeSelector`, the Node must also match that selector. A Node that
+matches more than one rack group is left unassigned until the placement is
+unambiguous. Existing valid bindings remain stable; pending Nodes and free
+logical slots are ordered deterministically before assignment.
 
 ### Node Agent
 
-The node agent focuses purely on what NVML mock does today: applying the expected state of NVML and networking.
+The node agent applies, but does not author, expected NVML and networking state.
+It periodically polls the control-plane REST API using its exact Kubernetes
+Node name and UID. Any cache-synchronized ready control-plane replica may serve
+the request.
 
-However, the agent doesn't control the expected state, it merely receives and applies it (similarly to kubelet).
+Each response identifies the exact Kubernetes Node UID and carries its
+assignment revision plus the assigned rack's durable delivery generation. The
+elected leader advances the rack generation in `SGPURack.status.delivery`
+whenever an assignment or an accepted input to any effective runtime view in
+the rack changes. The status records the exact rack, inventory, profile, and
+accepted-policy revisions for that generation; it does not contain the
+effective runtime payload.
 
-In order to get the most recent sGPU state, the agent should periodically poll Control Plane (a.k.a. node agent heartbeat).
-It should cache the previous state in memory, so we can survive any temporary Control Plane crashes.
+The agent sends its last successfully applied Node UID, assignment revision,
+and rack delivery generation when polling. For the same Node UID it compares
+`(assignment revision, rack delivery generation)` lexicographically and accepts
+only a non-regressing pair. A higher assignment revision may therefore select a
+new rack whose delivery generation is numerically lower, while an equal
+assignment revision requires an equal or higher rack generation. Equal pairs
+are idempotent. An unassigned tombstone uses rack generation zero. A different
+Kubernetes Node UID starts a fresh ordering domain, but a response must still
+match the exact UID requested by that agent.
 
-If the node agent fails to send a heartbeat, it will be assumed inactive and the capacity it was holding will be returned to the sGPU inventory for reuse.
-This is also a self-healing mechanism in case the node dies and the node agent had no chance to inform us about shutdown.
+A read replica serves assigned state only when its informer caches contain the
+exact Node UID, assignment revision, rack UID, logical coordinates, and
+authoritative binding. Its current cached rack delivery generation must be at
+least the floor in the assignment annotation, and its caches must contain the
+exact rack spec and complete dependency manifest for that current generation.
+The replica offers its current generation and requires the resulting pair not
+to precede the pair sent by the agent. Otherwise it returns retry/not-ready
+without replacement state. A stale replica may therefore serve an older runtime
+generation only until the agent reports that it has applied a newer one. These
+rules prevent a lagging replica from combining revisions or replaying an old
+assignment after a newer one.
+
+The agent uses the [node-agent state
+cache](../0003-node-agent/README.md#state) to retain the last successfully
+received and applied state. A temporary API or control-plane failure therefore
+does not erase working node state. Poll failure or silence does not release
+capacity; Kubernetes Node identity and lifecycle drive release.
 
 ### Control Plane State
 
-Control Plane should keep three types of state:
+Kubernetes resources are authoritative:
 
-- sGPU inventory state (cluster-wide configuration, mostly static, but may change infrequently if needed)
-- sGPU-to-node assignment state (runtime, can be lost and recreated)
-- sGPU-level runtime state (runtime, can be lost)
+- `SGPURackProfile` stores reusable static rack and GPU shape, including default
+  runtime values.
+- `SGPUInventory` declares rack groups, counts, profiles, and placement.
+- Controller-owned `SGPURack` stores rendered identity, topology placement, and
+  exact optional Node bindings.
+- `SGPURuntimePolicy` declares sparse runtime overrides.
+- Kubernetes Node labels and the assignment annotation are a derived projection
+  of rack bindings, not another source of truth. The annotation is the durable
+  publication fence for the exact Node UID.
 
-The sGPU inventory state may be kept in etcd as Kubernetes custom resources. 
-This will make sure Mokka configuration is declarative.
+Every replica rebuilds read indexes from synchronized informers. The indexes
+support assignment lookup and lazy policy evaluation, but loss of a replica
+does not lose authoritative state. Only the elected replica attaches mutation
+handlers, runs reconciliation work queues, advances the generation in each
+rack's status, or writes Kubernetes resources. A new leader reads both the
+persisted rack generation and the exact Node's persisted assignment annotation
+before advancing either value. Kubernetes optimistic concurrency rejects a
+rack or Node update based on an older `resourceVersion`; the leader rereads and
+retries instead of publishing a locally chosen counter. Policy deletion and
+leadership changes therefore cannot reset or reuse a generation within a rack
+UID, and assignment transitions cannot reset or reuse a revision within a Node
+UID. All cache-synchronized ready replicas may serve read-only agent requests
+from their local view while enforcing the publication and dependency checks
+described below.
 
-In terms of the node assignment and runtime information, we have [two options as mentioned above](#runtime-state).
-
-Control Plane would operate as a K8s Operator. We need to ensure multiple replicas can be active simultaneously to fulfill node agent requests and handle sGPU distribution.
+No Redis service, persisted per-node effective runtime view, agent last-seen
+record, or heartbeat-expiry controller participates in this state model.
 
 ### CRD Design
 
-Here is the list of CRDs that map to our system concepts:
+The architecture uses these cluster-scoped CRDs:
 
-![Mokka Control Plane CRDs](./img/mokka-sgpu-crds.png)
+- [Admin/GitOps] sGPU Rack Profile: specifies reusable static rack and GPU
+  shape, including default runtime values.
+- [Admin/GitOps] sGPU Inventory: specifies rack groups, counts, profiles, and
+  Node placement constraints.
+- [Admin/GitOps] sGPU Runtime Policy: declares sparse runtime overrides for an
+  inventory or selected coordinates within it.
+- [Control Plane] sGPU Rack: materializes one inventory rack, including stable
+  logical identities and optional exact Node bindings.
 
-- [Admin/GitOps] sGPU Profile: Specifies custom sGPU profiles
-- [Admin/GitOps] sGPU Inventory: Specifies a set of sGPUs available for node assignment (e.g. Rack Name: sGPU profile × count)
-- [Admin/GitOps] sGPU Runtime Policy: Modifies runtime information for the whole sGPU inventory, a sGPU rack, a node inside a sGPU rack, or a specific sGPU inside the sGPU node.
-- [Control Plane] sGPU Node Allocation (in case of storing [the runtime state in etcd](#runtime-state)): Defines the expected state of sGPU node including sGPU<->K8s Node assignment, last agent fetch time, etc.
+There is no `SGPUNodeAllocation` CRD. Durable assignment is represented by
+`SGPURack.spec.nodes[].nodeRef`; effective per-node runtime views are computed
+on demand rather than stored as Kubernetes resources.
 
-All CRDs are meant to be cluster-wide.
+All CRDs are cluster-scoped.
 
 #### SGPURackProfile
 
@@ -536,10 +678,10 @@ status:
     gpus: 168
 
   usage:
-    requestedNodes: 40
+    requestedNodes: 45
     allocatedNodes: 40
     availableNodes: 8
-    pendingNodes: 0
+    pendingNodes: 5
 
   rackGroups:
     - id: training
@@ -551,13 +693,13 @@ status:
         gpus: 144
 
       usage:
-        requestedNodes: 32
+        requestedNodes: 37
         allocatedNodes: 32
         availableNodes: 4
-        pendingNodes: 0
+        pendingNodes: 5
 
     - id: ci
-      profileName: a100-2gpu-test-rack
+      profileName: custom-vera-rubin-300
       capacity:
         racks: 3
         nodes: 12
@@ -580,23 +722,21 @@ status:
     - type: ResolvedRefs
       status: "True"
       reason: ProfilesResolved
-      message: All referenced SGPURackProfile resources were resolved.
+      message: All referenced profiles are resolved.
       observedGeneration: 3
       lastTransitionTime: "2026-08-05T10:40:20Z"
 
     - type: Programmed
       status: "True"
-      reason: InventoryPublished
-      message: The inventory capacity was published to the allocation backend.
+      reason: Programmed
+      message: All desired racks and Node projections are programmed.
       observedGeneration: 3
       lastTransitionTime: "2026-08-05T10:40:40Z"
 
     - type: RequestsSatisfied
       status: "False"
-      reason: InsufficientCapacity
-      message: >-
-        5 requested sGPU nodes in rack group "training" are waiting because
-        all matching capacity is allocated.
+      reason: PendingNodes
+      message: 5 requested Nodes are pending capacity.
       observedGeneration: 3
       lastTransitionTime: "2026-08-05T10:45:12Z"
 ```
@@ -609,10 +749,13 @@ x-kubernetes-list-map-keys:
   - id
 ```
 
-We should probably limit the number of rack groups that users can specify to a reasonable number like 64 (as [Gateway API does for listeners](https://www.romaglushko.com/blog/k8s-gateway-api/#listenerset)).
+The controller admits at most 64 rack groups across all inventories (as
+[Gateway API does for listeners](https://www.romaglushko.com/blog/k8s-gateway-api/#listenerset)).
+One group can expand to many racks through `count`, so this bounds selector
+classification without reducing the 100,000-rack topology limit.
 
-A specific rack runtime state that contains clique compute domain information is a part of [the runtime state](#runtime-state) 
-and should be kept outside the Kubernetes etcd.
+Rack-local fabric and clique identity is materialized in `SGPURack`. Mutable
+simulated GPU state follows the [runtime-state model](#runtime-state).
 
 #### SGPURuntimePolicy
 
@@ -652,7 +795,7 @@ minItems: 1
 maxItems: 64
 ```
 
-The controller performs reference-dependent validation of `targetRef`:
+The runtime-policy controller must perform reference-dependent validation of `targetRef`:
 
 - Does the inventory exist?
 - Does rackGroup exist?
@@ -666,574 +809,130 @@ A policy should contain only the fields it wants to control. It's a sparse overr
 - Explicit zero is a real value to set e.g. empty list [] or 0 int.
 - A more-specific list replaces a less-specific list
 
-#### SGPUNodeAllocation
+#### SGPURack
 
-This only applies to the architecture where we store [runtime state in Kubernetes CRD](#runtime-state).
+`SGPURack` supersedes the earlier `SGPUNodeAllocation` design. Cluster
+administrators do not create these resources. The controller renders them from
+an exact inventory instance and profile observation, then updates only the
+optional `nodeRef` bindings while retaining stable logical identities.
 
-These resources are fully owned by Control Plane, not created by cluster administrators.
+The following illustrative one-Node, one-GPU rack uses the `v1alpha1` fields:
 
 ```yaml
 apiVersion: mokka.nvidia.com/v1alpha1
-kind: SGPUNodeAllocation
+kind: SGPURack
 metadata:
-  name: dev-training-r000-n005
+  name: dev-training-0-cf4957078095
+  uid: 7f6db22d-f91b-4f98-a0d2-a408bc3b78a2
   labels:
     mokka.nvidia.com/inventory: dev
     mokka.nvidia.com/rack-group: training
     mokka.nvidia.com/rack-index: "0"
-    mokka.nvidia.com/node-index: "5"
-    mokka.nvidia.com/profile: gb300-nvl72
-    mokka.nvidia.com/node: aws-ec2-worker-06
+  annotations:
+    mokka.nvidia.com/inventory-uid: 2d50c972-39d4-4f63-ae42-ea2d639a17a1
+  finalizers:
+    - mokka.nvidia.com/rack-cleanup
   ownerReferences:
     - apiVersion: mokka.nvidia.com/v1alpha1
       kind: SGPUInventory
       name: dev
       uid: 2d50c972-39d4-4f63-ae42-ea2d639a17a1
       controller: true
-      blockOwnerDeletion: true
+      blockOwnerDeletion: false
 spec:
   inventoryRef:
     name: dev
     uid: 2d50c972-39d4-4f63-ae42-ea2d639a17a1
-  
-  nodeRef:
-    name: aws-ec2-worker-06
-    uid: 33427206-1021-4bd9-a6fb-c23737696e98
-
   profileRef:
-    name: gb300-nvl72
+    name: one-gpu-ci
     uid: 26fc3c9b-a857-4320-863d-334af5a5d768
-
+    generation: 3
+    revision: 5a683f0d9ad8d10e5a683f0d9ad8d10e5a683f0d9ad8d10e5a683f0d9ad8d10e
   identity:
     rackGroup: training
     rackIndex: 0
-    nodeIndex: 5
-  
-  system:
-    driverVersion: 570.124.06
-    nvmlVersion: 12.570.124.06
-    cudaVersion: "12.8"
-
-  fabric:
-    type: NVLink
-    generation: 5
-    domain:
-      id: 57a4a472-6f43-58b3-a006-c95ac30a76e7
-      scope: Rack
-      gpuCount: 72
-    cliqueID: 967ec0fb-43e0-5705-b455-c5da7abc77d1
-
-  devices:
+    fabricUUID: 612ee4ea-82ff-5045-bb7e-04c5f9617370
+    cliqueID: 0
+  nodes:
     - index: 0
-
-      identity:
-        uuid: GPU-6ee1737d-7a63-58f9-9dd6-e8e5a2bd8327
-        serial: "1326025000001"
-        minor: 0
-
-      hardware:
-        productName: NVIDIA GB300 NVL
-        architecture: Blackwell
-        computeCapability:
-          major: 10
-          minor: 0
-
-        memory:
-          capacity: 288Gi
-          reserved: 1536Mi
-          bar1Capacity: 768Gi
-          busWidthBits: 8192
-
-        pci:
-          address: "0000:0a:00.0"
-          vendorID: "10de"
-          deviceID: "2941"
-          subsystemVendorID: "10de"
-          subsystemDeviceID: "1830"
-          numaNode: 0
+      nodeRef:
+        name: worker-06
+        uid: 33427206-1021-4bd9-a6fb-c23737696e98
+        assignmentRevision: 7
+      gpus:
+        - index: 0
+          uuid: GPU-18c43468-a120-56a8-acce-00213dc46934
+          serial: "13714374014097840417"
+          minorNumber: 0
+          pciAddress: "0000:0a:00.0"
           rootComplex: pci0000:00
-          link:
-            generation: 6
-            width: 16
-
-        powerLimits:
-          minimum: 500W
-          default: 1400W
-          maximum: 1600W
-
-        thermalLimits:
-          targetCelsius: 85
-          slowdownCelsius: 90
-          shutdownCelsius: 95
-
-        capabilities:
-          mig:
-            supported: true
-            maxGPUInstances: 7
-
-      runtime:
-        health: Healthy
-
-        modes:
-          persistence: Enabled
-          compute: Default
-          mig: Disabled
-          ecc: Enabled
-          accounting: Disabled
-
-        telemetry:
-          performanceState: P0
-
-          utilization:
-            generator:
-              type: Steady
-              gpuPercent:
-                minimum: 10
-                maximum: 45
-              memoryPercent:
-                minimum: 5
-                maximum: 25
-
-          memory:
-            used: 0
-            reserved: 1536Mi
-
-          power:
-            generator:
-              type: Variation
-              base: 800W
-              variance: 75W
-            enforcedLimit: 1400W
-
-          temperature:
-            gpuCelsius: 38
-            memoryCelsius: 36
-
-          clocks:
-            graphicsMHz: 345
-            smMHz: 345
-            memoryMHz: 2625
-            videoMHz: 1200
-
-        errors:
-          xid: []
-
-    - index: 1
-
-      identity:
-        uuid: GPU-ca442075-4534-553c-8b18-a24c4ddcc263
-        serial: "1326025000002"
-        minor: 1
-
-      hardware:
-        productName: NVIDIA GB300 NVL
-        architecture: Blackwell
-        computeCapability:
-          major: 10
-          minor: 0
-
-        memory:
-          capacity: 288Gi
-          reserved: 1536Mi
-          bar1Capacity: 768Gi
-          busWidthBits: 8192
-
-        pci:
-          address: "0000:0b:00.0"
-          vendorID: "10de"
-          deviceID: "2941"
-          subsystemVendorID: "10de"
-          subsystemDeviceID: "1830"
           numaNode: 0
-          rootComplex: pci0000:00
-          link:
-            generation: 6
-            width: 16
-
-        powerLimits:
-          minimum: 500W
-          default: 1400W
-          maximum: 1600W
-
-        thermalLimits:
-          targetCelsius: 85
-          slowdownCelsius: 90
-          shutdownCelsius: 95
-
-        capabilities:
-          mig:
-            supported: true
-            maxGPUInstances: 7
-
-      runtime:
-        health: Healthy
-
-        modes:
-          persistence: Enabled
-          compute: Default
-          mig: Disabled
-          ecc: Enabled
-          accounting: Disabled
-
-        telemetry:
-          performanceState: P0
-
-          utilization:
-            generator:
-              type: Steady
-              gpuPercent:
-                minimum: 10
-                maximum: 45
-              memoryPercent:
-                minimum: 5
-                maximum: 25
-
-          memory:
-            used: 0
-            reserved: 1536Mi
-
-          power:
-            generator:
-              type: Variation
-              base: 800W
-              variance: 75W
-            enforcedLimit: 1400W
-
-          temperature:
-            gpuCelsius: 38
-            memoryCelsius: 36
-
-          clocks:
-            graphicsMHz: 345
-            smMHz: 345
-            memoryMHz: 2625
-            videoMHz: 1200
-
-        errors:
-          xid: []
-
-    - index: 2
-
-      identity:
-        uuid: GPU-f89d212f-c33e-5cd4-b295-99e7b7b28202
-        serial: "1326025000003"
-        minor: 2
-
-      hardware:
-        productName: NVIDIA GB300 NVL
-        architecture: Blackwell
-        computeCapability:
-          major: 10
-          minor: 0
-
-        memory:
-          capacity: 288Gi
-          reserved: 1536Mi
-          bar1Capacity: 768Gi
-          busWidthBits: 8192
-
-        pci:
-          address: "0000:4a:00.0"
-          vendorID: "10de"
-          deviceID: "2941"
-          subsystemVendorID: "10de"
-          subsystemDeviceID: "1830"
-          numaNode: 1
-          rootComplex: pci0000:40
-          link:
-            generation: 6
-            width: 16
-
-        powerLimits:
-          minimum: 500W
-          default: 1400W
-          maximum: 1600W
-
-        thermalLimits:
-          targetCelsius: 85
-          slowdownCelsius: 90
-          shutdownCelsius: 95
-
-        capabilities:
-          mig:
-            supported: true
-            maxGPUInstances: 7
-
-      runtime:
-        health: Unhealthy
-
-        modes:
-          persistence: Enabled
-          compute: Default
-          mig: Disabled
-          ecc: Enabled
-          accounting: Disabled
-
-        telemetry:
-          performanceState: P0
-
-          utilization:
-            gpuPercent: 0
-            memoryPercent: 0
-
-          memory:
-            used: 0
-            reserved: 1536Mi
-
-          power:
-            draw: 40W
-            enforcedLimit: 1400W
-
-          temperature:
-            gpuCelsius: 96
-            memoryCelsius: 36
-
-          clocks:
-            graphicsMHz: 345
-            smMHz: 345
-            memoryMHz: 2625
-            videoMHz: 1200
-
-        errors:
-          xid:
-            - code: 79
-              message: GPU has fallen off the bus
-
-    - index: 3
-
-      identity:
-        uuid: GPU-49ce713e-a942-5e57-b0cd-c740efc1c0b1
-        serial: "1326025000004"
-        minor: 3
-
-      hardware:
-        productName: NVIDIA GB300 NVL
-        architecture: Blackwell
-        computeCapability:
-          major: 10
-          minor: 0
-
-        memory:
-          capacity: 288Gi
-          reserved: 1536Mi
-          bar1Capacity: 768Gi
-          busWidthBits: 8192
-
-        pci:
-          address: "0000:4b:00.0"
-          vendorID: "10de"
-          deviceID: "2941"
-          subsystemVendorID: "10de"
-          subsystemDeviceID: "1830"
-          numaNode: 1
-          rootComplex: pci0000:40
-          link:
-            generation: 6
-            width: 16
-
-        powerLimits:
-          minimum: 500W
-          default: 1400W
-          maximum: 1600W
-
-        thermalLimits:
-          targetCelsius: 85
-          slowdownCelsius: 90
-          shutdownCelsius: 95
-
-        capabilities:
-          mig:
-            supported: true
-            maxGPUInstances: 7
-
-      runtime:
-        health: Healthy
-
-        modes:
-          persistence: Enabled
-          compute: Default
-          mig: Disabled
-          ecc: Enabled
-          accounting: Disabled
-
-        telemetry:
-          performanceState: P0
-
-          utilization:
-            generator:
-              type: Steady
-              gpuPercent:
-                minimum: 10
-                maximum: 45
-              memoryPercent:
-                minimum: 5
-                maximum: 25
-
-          memory:
-            used: 0
-            reserved: 1536Mi
-
-          power:
-            generator:
-              type: Variation
-              base: 800W
-              variance: 75W
-            enforcedLimit: 1400W
-
-          temperature:
-            gpuCelsius: 38
-            memoryCelsius: 36
-
-          clocks:
-            graphicsMHz: 345
-            smMHz: 345
-            memoryMHz: 2625
-            videoMHz: 1200
-
-        errors:
-          xid: []
+          hostProcessorIndex: 0
+status:
+  observedGeneration: 2
+  assignedNodes: 1
+  delivery:
+    generation: 12
+    rackSpecGeneration: 2
+    inventoryRef:
+      uid: 2d50c972-39d4-4f63-ae42-ea2d639a17a1
+      generation: 3
+    profileRef:
+      uid: 26fc3c9b-a857-4320-863d-334af5a5d768
+      generation: 3
+      revision: 5a683f0d9ad8d10e5a683f0d9ad8d10e5a683f0d9ad8d10e5a683f0d9ad8d10e
+    acceptedPolicies:
+      - uid: 6da9d1bf-3d0f-4416-95ce-220f42eb51c2
+        generation: 4
+  conditions:
+    - type: Ready
+      status: "True"
+      reason: Ready
+      message: Rack bindings are valid.
+      observedGeneration: 2
+      lastTransitionTime: "2026-08-05T10:40:00Z"
 ```
 
-The full, materialized state with information for 4 GPUs weighs 9 kB. It'll be
-- 45 MB for 5k nodes,
-- 250 MB for 20k nodes,
-- 9 GB for 1M nodes.
-
-Alternatively, we can keep the state in semi-computed runtime information and blend it with static SGPURackProfile data:
+The corresponding controller-owned Node projection is compact. It pins the
+assignment identity and publishes the rack generation floor established for
+that assignment:
 
 ```yaml
-apiVersion: mokka.nvidia.com/v1alpha1
-kind: SGPUNodeAllocation
+apiVersion: v1
+kind: Node
 metadata:
-  name: dev-training-r000-n005
+  name: worker-06
+  uid: 33427206-1021-4bd9-a6fb-c23737696e98
   labels:
-    mokka.nvidia.com/inventory: development-cluster
-    mokka.nvidia.com/rack-group: training
-    mokka.nvidia.com/rack-index: "0"
-    mokka.nvidia.com/node-index: "5"
-    mokka.nvidia.com/profile: gb300-nvl72-v1
-    mokka.nvidia.com/node: worker-06
-
-spec:
-  inventoryRef:
-    name: development-cluster
-    uid: 2d50c972-39d4-4f63-ae42-ea2d639a17a1
-
-  identity:
-    rackGroup: training
-    rackIndex: 0
-    nodeIndex: 5
-
-  nodeRef:
-    name: worker-06
-    uid: 33427206-1021-4bd9-a6fb-c23737696e98
-
-  profileRef:
-    name: gb300-nvl72-v1
-    uid: 26fc3c9b-a857-4320-863d-334af5a5d768
-    revision: sha256:5a683f0d9ad8d10e
-
-  devices:
-    - index: 0
-      uuid: GPU-6ee1737d-7a63-58f9-9dd6-e8e5a2bd8327
-      serial: "1326025000001"
-      minor: 0
-      pciAddress: "0000:0a:00.0"
-
-    - index: 1
-      uuid: GPU-ca442075-4534-553c-8b18-a24c4ddcc263
-      serial: "1326025000002"
-      minor: 1
-      pciAddress: "0000:0b:00.0"
-
-    - index: 2
-      uuid: GPU-f89d212f-c33e-5cd4-b295-99e7b7b28202
-      serial: "1326025000003"
-      minor: 2
-      pciAddress: "0000:4a:00.0"
-
-    - index: 3
-      uuid: GPU-49ce713e-a942-5e57-b0cd-c740efc1c0b1
-      serial: "1326025000004"
-      minor: 3
-      pciAddress: "0000:4b:00.0"
-
-  # Fully compiled runtime state.
-  #
-  # This is not a policy patch. The control plane has already resolved all
-  # profile defaults and all accepted runtime policies.
-  runtime:
-    defaults:
-      health: Healthy
-
-      modes:
-        persistence: Enabled
-        compute: Default
-        mig: Disabled
-        ecc: Enabled
-        accounting: Disabled
-
-      telemetry:
-        performanceState: P0
-
-        utilization:
-          gpuPercent: 95
-          memoryPercent: 80
-
-        memory:
-          used: 196Gi
-
-        power:
-          draw: 1200W
-          limit: 1400W
-
-        temperature:
-          gpuCelsius: 72
-          memoryCelsius: 68
-
-        clocks:
-          graphicsMHz: 1725
-          smMHz: 1725
-          memoryMHz: 2625
-          videoMHz: 1200
-
-      errors:
-        xid: []
-
-    devices:
-      - index: 2
-        health: Unhealthy
-
-        telemetry:
-          performanceState: P8
-
-          utilization:
-            gpuPercent: 0
-            memoryPercent: 0
-
-          memory:
-            used: 0
-
-          power:
-            draw: 40W
-
-          temperature:
-            gpuCelsius: 96
-
-        errors:
-          xid:
-            - code: 79
-              message: GPU has fallen off the bus
+    mokka.nvidia.com/sgpu-assigned: "true"
+    nvidia.com/gpu.clique: 612ee4ea-82ff-5045-bb7e-04c5f9617370.0
+  annotations:
+    mokka.nvidia.com/sgpu-assignment: >-
+      {"v":1,"nodeUID":"33427206-1021-4bd9-a6fb-c23737696e98","assignmentRevision":7,"assigned":true,"rack":{"name":"dev-training-0-cf4957078095","uid":"7f6db22d-f91b-4f98-a0d2-a408bc3b78a2"},"rackGroup":"training","rackIndex":0,"nodeIndex":0,"rackDeliveryGenerationFloor":12}
 ```
 
-This way, the effective runtime for each sGPU is:
+`assignmentRevision` is allocated from this annotation and is monotonic only
+for its exact `nodeUID`. The matching `SGPURack.spec.nodes[].nodeRef` records
+the same revision so readers can verify that the publication describes the
+authoritative binding. `rackDeliveryGenerationFloor` is the generation whose
+binding and dependency manifest were settled before publication. Later profile
+or policy revisions advance `SGPURack.status.delivery` without rewriting this
+annotation; those mutable revisions come from the current delivery manifest.
+After release, the controller removes the assignment labels and retains only
+the fence:
 
+```yaml
+metadata:
+  annotations:
+    mokka.nvidia.com/sgpu-assignment: >-
+      {"v":1,"nodeUID":"33427206-1021-4bd9-a6fb-c23737696e98","assignmentRevision":8,"assigned":false}
 ```
-effective runtime for GPU N
-    = SGPURackProfile hardware information +
-      runtime.defaults +
-      overridden with runtime.devices[index=N]
-```
+
+The absent rack generation in a tombstone is represented as zero on the wire.
+The tombstone prevents a cached response at revision 7 from restoring the old
+binding. Deleting this Kubernetes Node ends the ordering domain; a Node later
+created with the same name has a different UID and starts its own revision
+sequence.
 
 ### SGPURuntimePolicy Apply Strategy
 
@@ -1279,42 +978,143 @@ Conflicting policies are policies that:
 - are applied at the same level (neither is more specific than the other)
 - modify the same fields
 
-In this case, we keep the oldest policy in place based on `creationTime` and reject all challenger policies as conflicting.
+In this case, the oldest policy by Kubernetes `creationTimestamp` remains in
+force and all challenger policies are rejected as conflicting. Policy UID
+breaks a tie so the leader selects a deterministic winner and publishes the
+accepted set in each affected rack's delivery status.
 
-Deleting a policy triggers recompilation of affected allocations. 
-Their effective values fall back to the next less-specific policy or profile default.
+After a policy is deleted, the leader first recomputes conflict acceptance and
+winner selection at the same specificity. The oldest remaining policy at that
+level becomes accepted and effective, including a former challenger that is no
+longer conflicting. Only when no same-specificity policy controls a field does
+that field fall back to the next less-specific policy or profile default.
 
-### SGPURuntimePolicy Fanout
+### Runtime View Computation and Delivery
 
-`SGPURuntimePolicy` may be applied to a set of inventory resources or the whole inventory. 
-When it comes to a simulation of big clusters, we can easily have tens of thousands of specific sGPU allocation states to update.
-So the question is how to do that efficiently on that scale and above?
+A policy can target a broad inventory or selected rack groups, racks, logical
+Nodes, and GPUs. The control plane does not eagerly materialize every affected
+per-node or per-GPU view. On each node-agent request, a ready replica looks up
+the exact Node UID's durable rack binding, selects the applicable accepted
+policies from its informer indexes, and computes the effective view using the
+precedence rules above.
 
-Option 1. Shard states to recompute by allocation ID. Use all Control Plane replicas to process the existing sGPU node allocation states.
+This lazy path scales with agent polling and the policies relevant to the
+requested coordinates instead of creating or rewriting an object for every
+possible target. Policy changes and deletions invalidate rebuildable indexes.
+On deletion, conflict acceptance and winner selection are recomputed at the
+same specificity first: the oldest remaining policy at that level becomes
+effective, and only the absence of a same-level winner causes a field to fall
+back to a less-specific policy or profile default.
 
-Option 2. Recompute the states in a lazy manner when the node agent requests that.
+`SGPURack.status.delivery` is the Kubernetes-authoritative ordering record for
+this lazy computation. It contains a monotonically increasing generation, the
+observed rack spec generation, the inventory UID and generation, the profile
+UID, generation, and canonical revision, and the exact set of accepted policy
+UIDs and Kubernetes metadata generations that can affect the rack. Within an
+object UID, `metadata.generation` identifies the exact inventory or policy spec
+revision; the profile's existing canonical revision additionally identifies
+the rendered defaults. The policy set is also the selection manifest for that
+generation: a reader uses only those policies, so a stale policy-cache entry
+cannot reintroduce a deleted policy. A policy revision becomes effective for a
+rack only when the leader publishes it in this manifest.
 
-## How to Package CRDs?
+The leader updates the delivery record whenever the rack assignment, rendered
+profile/default inputs, or accepted-policy set or content changes. A deletion
+that promotes a same-level challenger or exposes a less-specific value
+therefore advances the generation just like an addition or update. A profile
+or policy change requires one status update per affected rack; it does not
+rewrite assignment annotations or create a Kubernetes object or persisted
+payload per Node.
 
-Since we have a new set of CRDs proposed here, we will need to package them.
+The leader obtains the current rack and increments its persisted generation in
+a status update guarded by the rack's Kubernetes `resourceVersion`. After a
+leader change, the new leader continues from that stored value rather than
+from replica-local state. A conflicting write is reread and retried, never
+replaced with a locally chosen counter. A recreated rack has a new rack UID and
+may restart its rack generation, because assignment ordering across racks is
+provided by the Node-scoped fence.
 
-We suggest packing them as a separate mokka-crds helm chart that is intended to be installed 
-by a privileged admin user before the main chart installation. This is a popular approach chosen by [Envoy Gateway](https://github.com/envoyproxy/gateway/tree/main/charts), for example.
+Assignment changes use two-phase publication because a rack binding and its
+Node projection cannot be changed in one Kubernetes transaction:
 
-This should prevent a cyclic dependency between the presence of CRDs in the cluster and the content of the main Mokka helm chart.
+1. The leader reads the exact Node UID and its persisted assignment annotation,
+   chooses the next assignment revision, and first changes the authoritative
+   `SGPURack` binding. A direct move removes the old binding before installing
+   the new one. An assigned `nodeRef` records the chosen revision. The leader
+   also advances each affected rack's delivery status with
+   `resourceVersion`-guarded updates until the new binding and its dependency
+   manifest are complete. A release ends this phase with no rack binding.
+2. Only after the authoritative binding, rack spec, and dependency manifest are
+   settled, the leader publishes that completed state by updating the same
+   exact Node with a fresh `resourceVersion`. An assignment annotation contains
+   the new revision, exact rack UID and coordinates, and the settled rack
+   delivery generation as its publication floor. A release publishes the new
+   revision as the minimal unassigned tombstone. Assignment labels are added or
+   removed with this projection update.
 
-## Redis as a Dependency
+The first assignment for a Node UID uses revision 1. Every subsequent move,
+release, and rebind advances it; a release followed later by a rebind therefore
+uses two distinct revisions. A failed Node update is reread and retried, so an
+old writer cannot overwrite a newer fence. Reconciliation does not erase the
+annotation or reset the counter. After failover, a new leader reads the
+persisted rack and Node values: it completes an authoritative binding whose
+chosen next revision has not yet been published, recognizes an already matching
+publication as complete, or advances from the Node's greater persisted value
+when reconciling a superseding transition. An extra increment after ambiguous
+failure is harmless, but reuse or regression is not allowed.
 
-We should not include Redis as a subchart of the Mokka chart. 
-This gives end users more flexibility. They can install a Bitnami chart or any other community chart and then plug it into Mokka.
+A read replica may serve assigned state only when its informer caches contain
+all of the following:
 
-At the same time, Mokka should support connecting to:
-- Standalone Redis instance
-- Redis Sentinel
-- Redis Cluster
-- Redis instance with a custom CA
+- the requested Kubernetes Node UID and its assignment annotation exactly;
+- an authoritative `SGPURack.spec.nodes[].nodeRef` with the same Node UID and
+  assignment revision at exactly the annotation's rack UID and logical
+  coordinates;
+- the replica's current `SGPURack.status.delivery`, with a generation greater
+  than or equal to the annotation's `rackDeliveryGenerationFloor`, and the
+  exact current rack spec whose `metadata.generation` equals its
+  `rackSpecGeneration`; and
+- every inventory, profile, and accepted-policy identity and revision in that
+  current delivery generation's complete dependency manifest.
 
-For local development, we can create a very simple chart with a Redis Deployment and Service.
+The replica computes the payload from exactly that current manifest and offers
+`(assignmentRevision, currentRackDeliveryGeneration)`. Mutable profile and
+policy revisions always come from the manifest, not from assignment-time Node
+metadata. For an unassigned response, the cached tombstone must match the
+requested Node UID and revision and the synchronized binding index must contain
+no rack binding for that UID. Any missing or unequal exact value, generation
+below the publication floor, partial publication phase, incomplete manifest, or
+offered pair older than the agent's last applied `(assignment revision, rack
+delivery generation)` yields retry/not-ready instead of replacement state. The
+effective per-node runtime payload itself remains lazy and is never written to
+Redis or Kubernetes.
+
+For example, an assignment published at `(7, 12)` remains valid after a profile
+or policy change advances that rack's delivery record to generation 13. A
+replica whose current complete view is generation 13 offers `(7, 13)`. A stale
+replica may still offer `(7, 12)` to an agent at `(7, 12)`, but after the agent
+applies `(7, 13)`, its last-applied pair makes that stale response regress and
+the replica returns retry/not-ready.
+
+If Node UID `N` moves from assignment `A` at revision 7 to `B` at revision 8,
+the new annotation's floor is published only after `B` and its current delivery
+state are settled. A replica older than that transition cannot satisfy the
+floor and binding checks. Every cached response for `A` also sorts before the
+agent's applied `(8, G-B)` pair even when `A` and `B` use different rack UIDs and
+unrelated rack generation ranges. A lagging standby therefore cannot replay `A`
+after `B`. Deleting and recreating the Kubernetes Node ends `N`'s domain: the
+replacement UID may start again at revision 1, while responses for `N` fail the
+exact-UID check.
+
+## CRD Packaging
+
+The `mokka-crds` Helm chart packages the CRDs in
+[`deployments/mokka-crds/helm/mokka-crds`](../../../deployments/mokka-crds/helm/mokka-crds).
+The chart is intended to be installed by a privileged admin user before the main chart.
+This approach is also used by [Envoy Gateway](https://github.com/envoyproxy/gateway/tree/main/charts), for example.
+
+Separate packaging prevents a cyclic dependency between the presence of CRDs in the cluster
+and the content of the main Mokka Helm chart.
 
 ## sGPU to Node Placement
 
@@ -1323,14 +1123,15 @@ In terms of sGPU placement on Kubernetes CPU nodes, we have two aspects:
 - we need to allow cluster admins to specify what type of sGPU they want to see on the CPU node
 
 In order to do that, we should allow:
-- specifying a nodeSelector for sGPU nodes e.g. `mokka.nvidia.com/sgpu-node: "true"` (the Mokka node agent Daemonset will use it)
+- specifying a nodeSelector for sGPU nodes e.g. `mokka.nvidia.com/sgpu-node: "true"` (the Mokka node agent DaemonSet uses it)
 - specifying `SGPUInventory.rackGroups[].placement` and an additional node label like `mokka.nvidia.com/sgpu: "training"` to match a specific rackGroup
 
 ### Topology
 
-When it comes to network topology, we should:
-- generate clique IDs per rack and make sure sGPU nodes have them consistently assigned
-- cross-rack topology could be generated by default using a three-level core-spine-leaf switch topology.
+For network topology, the control plane generates rack-local fabric and clique
+identity and projects the clique label consistently to assigned Nodes.
+Cross-rack topology generation is outside this MEP's scope; a separate proposal
+may define a three-level core-spine-leaf switch topology.
 
 The core-spine-leaf switch topology is used by major clouds like AWS, GCP, OCI, etc. 
 By using it by default, we can simplify the cluster administrator's life.
@@ -1344,7 +1145,7 @@ The implementation details are outside the scope of this MEP and likely need a d
 The main high-level goal of this proposal is to simplify and reduce the number of things
 the cluster admins who deploy Mokka and set up sGPU clusters should be responsible for.
 
-After this proposal is implemented, the following steps would be needed to set up a new sGPU cluster.
+The complete architecture supports the following workflows for setting up an sGPU cluster.
 
 #### Scenario 1. Simple sGPU Setup 
 
@@ -1441,28 +1242,126 @@ spec:
     name: sgpu-inventory
     rackGroups: [training]
 
-  runtime: 
-    telemetry:
-      errors:
-        xid:
-          - code: 79
-            message: GPU has fallen off the bus :(
+  runtime:
+    deviceState: Failed
 ```
 
 ## Drawbacks
 
-The main drawback is that we push the system to be more complicated. 
-We add one more component, introduce network communication between the control and data planes, and have to manage Control Plane state.
+The control plane adds a networked component and requires node agents to poll
+it. Kubernetes stores materialized racks and exact Node bindings in addition to
+the administrator-authored declarations. At very large scale this increases
+Kubernetes object size and reconciliation work, although rack-granular objects
+avoid one object per assigned Node and lazy runtime evaluation avoids one
+object per effective Node or GPU view.
 
-Since we plan to keep sGPU inventory state in Kubernetes etcd and node assignment state in Redis,
-the etcd load is limited to infrequent inventory updates.
-The hot path that feeds Mokka node agents with sGPU information pulls data from an in-memory cache
-and updates periodically, so the impact there is minimal.
+Keeping the effective views only in memory makes them rebuildable rather than
+durable, so a restarted replica must synchronize its informers before becoming
+ready. Agents must also retain the last successfully applied state to tolerate
+a temporary period with no ready control-plane endpoint.
 
-## Alternatives
+## Alternatives and Design History
 
-<!--
-What other approaches did you consider, and why did you rule them out? These do
-not need to be as detailed as the proposal, but should include enough
-information to express the idea and why it was not acceptable.
--->
+The selected design keeps Kubernetes as the durable authority, keeps exact
+assignments in rack-granular resources, computes effective runtime views lazily,
+and uses Kubernetes Node lifecycle for reclamation. The alternatives below
+record why earlier proposals differed and which parts remain.
+
+### State Categories
+
+An earlier model divided control-plane data into mostly static inventory,
+recreatable Node assignments, and disposable sGPU runtime state. Treating an
+assignment as disposable simplifies recovery only while Node identity and
+projection cleanup are ignored. It can otherwise reassign capacity after a
+restart and leave a Node with stale metadata.
+
+The selected model retains the useful distinction between durable declarations
+and high-churn derived state, but moves the boundary:
+
+- inventory, profiles, policy declarations, rack identities, exact Node
+  assignments, and Node-scoped assignment fences are durable Kubernetes state;
+- informer indexes and effective per-node/per-GPU views are rebuildable;
+- the node agent retains only its last successfully applied view for temporary
+  control-plane outages.
+
+This preserves declarative recovery without persisting high-cardinality
+computed views.
+
+### Per-Node SGPUNodeAllocation Resources
+
+The original Kubernetes-only alternative proposed one `SGPUNodeAllocation` per
+assigned Node. Each object could hold the sGPU-to-Kubernetes-Node assignment,
+last agent fetch time, and fully or partially computed runtime state. Its main
+advantages were a single Kubernetes dependency, declarative inspection, and
+standard Kubernetes persistence and correctness mechanisms.
+
+At large scale, however, it creates roughly one object per simulated GPU Node
+and turns agent polling or runtime changes into frequent API writes. A policy
+covering thousands of Nodes could update thousands of objects, adding
+high-cardinality and high-churn load to the API server and etcd.
+
+The selected design preserves the Kubernetes-only dependency and durable exact
+assignment, but stores bindings in `SGPURack.spec.nodes[].nodeRef`. One rack
+object amortizes many logical Node bindings and also contains their stable
+rendered identities. The existing Kubernetes Node carries only its compact
+projection and monotonic assignment fence. The design rejects per-Node custom
+resources, persisted last-fetch timestamps, and persisted effective runtime
+views.
+
+### Redis as a Runtime Backend
+
+An earlier proposal selected Redis for Node assignment, last-seen, and runtime
+state. Redis offers convenient atomic and concurrent operations, efficient
+lookup and search, horizontal scaling options, and no hot-state write pressure
+on Kubernetes etcd. Those properties were attractive for heartbeat updates and
+eagerly materialized runtime views.
+
+Redis also introduces another stateful production dependency. Durable use
+requires persistence and persistent volumes, and deployments must define
+standalone, Sentinel, or clustered topology, backup and recovery, TLS and
+custom certificate authorities, upgrades, and failure semantics. Splitting
+assignment authority between Kubernetes and Redis also complicates recovery
+and exact cleanup when a Kubernetes Node is replaced with the same name.
+
+The selected architecture rejects Redis. Kubernetes resources are the complete
+durable authority, and replicas derive their read views from informer caches.
+It retains Redis's intended avoidance of hot per-agent writes by not recording
+polls and by computing effective runtime state in memory rather than persisting
+it.
+
+### Heartbeat-Based Assignment Reclamation
+
+The earlier node-agent poll was both state fetch and heartbeat. The control
+plane would persist a last-seen time and release capacity after missed polls.
+This promised automatic recovery when a host or agent disappeared without a
+clean shutdown.
+
+A timeout cannot reliably distinguish a dead Node from a partitioned agent or
+control plane. Releasing its assignment while the old agent continues using a
+cached configuration can assign the same simulated capacity twice. Persisting
+every poll also creates write load proportional to Node count and polling
+frequency.
+
+The selected design retains periodic polling and the agent's last-known-good
+cache for delivery and outage tolerance, but rejects heartbeat expiry and
+last-seen state. Assignment reclamation follows the exact Kubernetes Node UID
+and lifecycle. Deletion, replacement, or loss of eligibility releases the
+binding through normal reconciliation and finalizer cleanup; a missed poll does
+not.
+
+### Eager Runtime-View Fanout
+
+Earlier fanout designs considered sharding affected allocation IDs or logical
+rack/Node coordinates across control-plane replicas, then eagerly recomputing
+and storing each view after a broad policy change. This can make reads cheap and
+allows parallel recomputation, but one inventory-wide change still creates
+work and storage proportional to all affected Nodes or GPUs. Multi-writer
+recomputation also conflicts with the simpler single-writer Kubernetes model.
+
+The selected design rejects eager fanout. All ready replicas index policy
+declarations and lazily compute only the exact Node view requested by an agent.
+Only the elected replica mutates Kubernetes resources; read replicas do not
+materialize views. Assignment-publication floors, current rack-scoped delivery
+generations, and the agent's last-applied pair prevent a lagging read replica
+from rolling an agent back across either runtime changes or assignment
+transitions without per-Node policy fanout.

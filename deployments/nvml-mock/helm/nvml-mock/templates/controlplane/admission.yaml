@@ -1,0 +1,66 @@
+{{- if .Values.controlPlane.enabled }}
+{{- if semverCompare "<1.30.0-0" .Capabilities.KubeVersion.Version }}
+{{- fail "controlPlane.enabled requires Kubernetes 1.30+ for stable ValidatingAdmissionPolicy" }}
+{{- end }}
+{{- $policyName := printf "%s-sgpurack-writes" (include "nvml-mock.controlPlaneName" .) }}
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $policyName }}
+  labels:
+    {{- include "nvml-mock.controlPlaneLabels" . | nindent 4 }}
+    app.kubernetes.io/component: control-plane
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["mokka.nvidia.com"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["sgpuracks"]
+  variables:
+    - name: isMokkaController
+      expression: {{ printf "request.userInfo.username == 'system:serviceaccount:%s:%s'" .Release.Namespace (include "nvml-mock.controlPlaneName" .) | quote }}
+    - name: oldFinalizers
+      expression: "oldObject != null && has(oldObject.metadata.finalizers) ? oldObject.metadata.finalizers : []"
+    - name: newFinalizers
+      expression: "has(object.metadata.finalizers) ? object.metadata.finalizers : []"
+  validations:
+    # The shared controller-manager identity is not GC-exclusive. Permit only
+    # deletion-finalizer removal, never changes to Mokka's state or cleanup gate.
+    - expression: >-
+        variables.isMokkaController || (
+          request.operation == 'UPDATE' &&
+          request.userInfo.username in [
+            'system:serviceaccount:kube-system:generic-garbage-collector',
+            'system:kube-controller-manager'
+          ] &&
+          has(oldObject.metadata.deletionTimestamp) &&
+          object.spec == oldObject.spec &&
+          (has(object.metadata.labels) ? object.metadata.labels : {}) ==
+            (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) &&
+          (has(object.metadata.annotations) ? object.metadata.annotations : {}) ==
+            (has(oldObject.metadata.annotations) ? oldObject.metadata.annotations : {}) &&
+          (has(object.metadata.ownerReferences) ? object.metadata.ownerReferences : []) ==
+            (has(oldObject.metadata.ownerReferences) ? oldObject.metadata.ownerReferences : []) &&
+          variables.newFinalizers.all(f, f in variables.oldFinalizers) &&
+          variables.oldFinalizers.filter(f, !(f in ['foregroundDeletion', 'orphan'])) ==
+            variables.newFinalizers.filter(f, !(f in ['foregroundDeletion', 'orphan'])) &&
+          variables.oldFinalizers.exists(f,
+            f in ['foregroundDeletion', 'orphan'] && !(f in variables.newFinalizers))
+        )
+      message: SGPURack writes are restricted to the Mokka controller or garbage-collector deletion-finalizer removal
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $policyName }}
+  labels:
+    {{- include "nvml-mock.controlPlaneLabels" . | nindent 4 }}
+    app.kubernetes.io/component: control-plane
+spec:
+  policyName: {{ $policyName }}
+  validationActions: ["Deny"]
+{{- end }}
