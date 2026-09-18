@@ -147,6 +147,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an SBOM attestation, on the same triggers as the nvml-mock image. It was
   previously buildable from `deployments/control-plane/Dockerfile` but never
   pushed anywhere, so it could only be run from a local build.
+- demo: the NVSentinel demo now drives GPU reset remediation end to end, and
+  `GPU_RESET=false` skips it. An uncorrectable ECC error on a mock GPU becomes a
+  `COMPONENT_RESET` health event, a `GPUReset` custom resource, and a privileged
+  reset Job running NVIDIA's own `gpu-reset` image against the mock. The reset
+  script reaches `nvidia-smi` only through `chroot "$DRIVER_ROOT"`, which needs a
+  driver root holding a whole filesystem; the mock stages driver surfaces, so the
+  demo sets `resetJob.driverRoot: "/"` to make that `chroot` a no-op and hands
+  the Job the mock's `nvidia-smi` through a GPU request instead. That value needs
+  a janitor newer than NVSentinel v1.23.0.
 - The node agent gains `pcibus`, `cdi` and `imex` simulators, each an
   `agent.Simulator` with the same stage/apply/discard lifecycle as the existing
   `gpudriver`. Together they subsume the device-surface construction that

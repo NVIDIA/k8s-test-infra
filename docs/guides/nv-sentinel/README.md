@@ -87,7 +87,14 @@ cd docs/guides/nv-sentinel
 
 The script is idempotent and reuses the cluster; set `FORCE_RECREATE=true` to
 rebuild from scratch. Useful overrides: `GPU_PROFILE`, `HOT_TEMP_C`, `TARGET_GPU`,
-`NVSENTINEL_VERSION`, `GPU_OPERATOR_VERSION`, `CERT_MANAGER_VERSION`.
+`GPU_RESET`, `RESET_GPU`, `NVSENTINEL_VERSION`, `GPU_OPERATOR_VERSION`,
+`CERT_MANAGER_VERSION`.
+
+Phase 3 needs `resetJob.driverRoot`, which the janitor gained in
+[NVSentinel#1813](https://github.com/NVIDIA/NVSentinel/pull/1813), after v1.23.0
+was cut. `NVSENTINEL_VERSION` therefore pins a release that does not exist yet;
+until it does, run the thermal phases with `GPU_RESET=false` and an older
+version.
 
 ## What the script does
 
@@ -113,6 +120,13 @@ rebuild from scratch. Useful overrides: `GPU_PROFILE`, `HOT_TEMP_C`, `TARGET_GPU
    workload reschedules to the other worker.
 8. **Phase 2 — auto-recover** — clears the temperature override and waits for
    NVSentinel to uncordon the node. No DCGM restart is involved.
+9. **Phase 3 — remediate in place** (set `GPU_RESET=false` to skip; it roughly
+   doubles the run) — injects an
+   uncorrectable ECC error on a second GPU. DCGM reports
+   `DCGM_FR_VOLATILE_DBE_DETECTED`, which NVSentinel maps to `COMPONENT_RESET`;
+   `fault-remediation` writes a `GPUReset`, and the janitor tears down the GPU
+   Operator operands on the node, runs NVIDIA's own `gpu-reset` image as a
+   privileged Job, and restores them.
 
 ## The fault and the recovery
 
@@ -157,6 +171,44 @@ needed** — that is the key difference from a latched XID/ECC fault.
 > read the slowdown offset, and its `nvmlDeviceGetMarginTemperature` returns a
 > *signed* margin that goes negative past the slowdown limit (rather than clamping
 > at 0) so the watch can actually trip.
+
+## Why the GPU reset works on a mock node
+
+NVIDIA's `gpu_reset.sh` never calls `nvidia-smi` directly. Every invocation goes
+through `chroot "$DRIVER_ROOT" nvidia-smi`, so `DRIVER_ROOT` has to name a whole
+filesystem: the binary, its shared libraries and a dynamic loader. On real
+hardware the default of `/run/nvidia/driver` is exactly that, because the driver
+container r-bind-mounts its entire container root there. The mock stages driver
+surfaces rather than a filesystem, so the `chroot` failed before `nvidia-smi`
+ever started, with `chroot: failed to run command 'nvidia-smi'`
+([#759](https://github.com/NVIDIA/k8s-test-infra/issues/759)).
+
+The demo sidesteps the `chroot` instead of trying to satisfy it. `resetJob.driverRoot`
+is set to `/`, which makes the `chroot` a no-op and leaves the script running
+whichever `nvidia-smi` the container already has. The `gpu-reset` image has none
+of its own — it is a CUDA runtime image plus the script — so the demo gives the
+Job a `nvidia.com/gpu` request, and CDI answers it with the mock's `nvidia-smi`,
+its `libnvidia-ml.so.1`, and a writable bind of the mock's config directory,
+which is what lets the reset clear state rather than just report success. The
+request covers every GPU the node advertises, because the mock derives a
+container's visible GPUs from the `/dev/nvidia*` nodes it was handed and filters
+only on a partial set; a Job holding a subset could not reach the UUID the
+janitor told it to reset.
+
+That the image is NVIDIA's own matters for what this demo proves. The janitor
+decides a reset succeeded purely from the Job's exit status, so an image whose
+entrypoint merely exits 0 would drive the CR to `Succeeded` without touching a
+GPU. Two things guard against reading the green CR too generously: the script's
+first act is an `nvidia-smi --version` preflight under `set -e`, and the demo
+prints `nvml-mock-ctl status` for the reset GPU afterwards, which is empty only
+if the reset genuinely cleared the injected fault.
+
+Two artifacts of this setup are worth expecting. Both GPU workers run the same
+mock profile and therefore serve identical GPU UUIDs, so NVSentinel may open a
+GPUReset against the other worker for the same UUID; the demo scopes everything
+it reports to the node it faulted. And a reset that fails once usually recovers
+on the janitor's retry — the Job re-pulls its image on every attempt, so the
+first can lose its deadline to the registry rather than to anything on the node.
 
 ## Why these config choices matter
 
