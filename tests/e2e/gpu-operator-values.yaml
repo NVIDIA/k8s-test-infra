@@ -39,8 +39,6 @@ dcgm:
 dcgmExporter:
   enabled: true
   env:
-    - name: NVIDIA_DRIVER_ROOT
-      value: "/var/lib/nvml-mock/driver"
     - name: DCGM_EXPORTER_COLLECT_INTERVAL
       value: "5000"
 
@@ -67,9 +65,6 @@ devicePlugin:
   enabled: true
   config:
     name: ""
-  env:
-    - name: NVIDIA_DRIVER_ROOT
-      value: "/var/lib/nvml-mock/driver"
 
 # GFD reads GPU attributes via mock NVML and labels the node.
 #
@@ -84,8 +79,6 @@ devicePlugin:
 gfd:
   enabled: true
   env:
-    - name: NVIDIA_DRIVER_ROOT
-      value: "/var/lib/nvml-mock/driver"
     - name: GFD_MACHINE_TYPE_FILE
       value: "/etc/nvml-mock/machine-type"
 
