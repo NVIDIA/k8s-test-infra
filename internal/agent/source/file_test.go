@@ -126,6 +126,37 @@ func TestCompileState_EverySKUCarriesPCIIdentity(t *testing.T) {
 	}
 }
 
+// An HGX baseboard's NVSwitches are on the node's PCIe bus, so the profile
+// gives them a PCI identity and they reach the rendered tree as bridges.
+func TestCompileState_CompilesBaseboardSwitches(t *testing.T) {
+	data, err := os.ReadFile("../../../pkg/gpu/mocknvml/configs/mock-nvml-config-h100.yaml")
+	require.NoError(t, err)
+
+	state, err := compileState(data)
+	require.NoError(t, err)
+
+	require.Len(t, state.Switches, 4, "HGX H100 carries four NVSwitches")
+	for i, sw := range state.Switches {
+		require.True(t, agent.ValidBDF(sw.PCIBusID), "switch %d bus_id %q", i, sw.PCIBusID)
+		require.Equal(t, uint32(0x22a310de), sw.PCIDeviceID, "switch %d device_id", i)
+	}
+}
+
+// The mirror case, and the reason the identity is what gates compilation: on
+// GB200 NVL the switches live in their own trays, so the compute tray's lspci
+// shows its GPUs and no bridges, even though the profile declares the switches
+// as NVLink endpoints for `nvidia-smi topo -m`.
+func TestCompileState_SkipsSwitchesOffTheNodesBus(t *testing.T) {
+	data, err := os.ReadFile("../../../pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml")
+	require.NoError(t, err)
+
+	state, err := compileState(data)
+	require.NoError(t, err)
+
+	require.True(t, state.Fabric.Enabled, "the switches are still NVLink endpoints")
+	require.Empty(t, state.Switches)
+}
+
 // GPU_COUNT truncates the device list while pcie_topology is compiled from the
 // profile whole, so the two disagree on any capped node. The rendered tree is
 // served at the kernel paths now, so a BDF left over from the profile would

@@ -144,10 +144,15 @@ func buildTopology(state *agent.State) *pcisysfs.PCIeTopology {
 	return topo
 }
 
-// buildIdentities maps each device's lowercased BDF to its PCI identity for
+// buildIdentities maps each PCI function's lowercased BDF to its identity for
 // the renderer's attribute files (vendor, device, class, config space).
+//
+// This is the one place that knows which kind of hardware a BDF names, so it is
+// where the class is decided: a GPU enumerates as a 3D controller, an NVSwitch
+// as a bridge. Getting that wrong is not cosmetic — GPU Feature Discovery reads
+// the class out of this tree to derive nvidia.com/gpu.mode.
 func buildIdentities(state *agent.State) map[string]pcisysfs.PCI {
-	ids := make(map[string]pcisysfs.PCI, len(state.Devices))
+	ids := make(map[string]pcisysfs.PCI, len(state.Devices)+len(state.Switches))
 
 	for _, d := range state.Devices {
 		if d.PCIBusID == "" {
@@ -158,6 +163,20 @@ func buildIdentities(state *agent.State) map[string]pcisysfs.PCI {
 			BusID:       d.PCIBusID,
 			DeviceID:    d.PCIDeviceID,
 			SubsystemID: d.PCISubsystemID,
+			Class:       pcisysfs.PCIClass3DController,
+		}
+	}
+
+	for _, sw := range state.Switches {
+		if sw.PCIBusID == "" {
+			continue
+		}
+
+		ids[strings.ToLower(sw.PCIBusID)] = pcisysfs.PCI{
+			BusID:       sw.PCIBusID,
+			DeviceID:    sw.PCIDeviceID,
+			SubsystemID: sw.PCISubsystemID,
+			Class:       pcisysfs.PCIClassBridge,
 		}
 	}
 

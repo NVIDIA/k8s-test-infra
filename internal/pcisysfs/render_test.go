@@ -164,6 +164,44 @@ func TestRender_PCIAttributeFilesDefaultVendor(t *testing.T) {
 	got, err = os.ReadFile(filepath.Join(devDir, "device"))
 	require.NoError(t, err, "read device")
 	require.Equal(t, "0x0000\n", string(got), "device without identity")
+	got, err = os.ReadFile(filepath.Join(devDir, "class"))
+	require.NoError(t, err, "read class")
+	require.Equal(t, "0x030200\n", string(got), "class should default to a GPU's")
+}
+
+// TestRender_BridgeClass covers the NVSwitches an HGX baseboard puts on the
+// node's PCIe bus: the text and binary class must both say bridge, which is
+// what makes `lspci` print "Bridge: NVIDIA Corporation GH100 [H100 NVSwitch]"
+// rather than filing the switch under the node's GPUs.
+func TestRender_BridgeClass(t *testing.T) {
+	dir := t.TempDir()
+	topo := &PCIeTopology{
+		RootComplexes: []RootComplex{{
+			ID: "pci0000:00", NUMANode: 0,
+			Devices: []string{"0000:05:00.0"},
+		}},
+	}
+	ids := map[string]PCI{
+		// H100 NVSwitch: 10de:22a3, no subsystem of its own.
+		"0000:05:00.0": {BusID: "0000:05:00.0", DeviceID: 0x22a310de, Class: PCIClassBridge},
+	}
+	require.NoError(t, Render(Options{Topology: topo, Identities: ids, OverlayRoot: dir}), "Render")
+
+	devDir := filepath.Join(dir, "sys/devices/pci0000:00/0000:05:00.0")
+	class, err := os.ReadFile(filepath.Join(devDir, "class"))
+	require.NoError(t, err, "read class")
+	require.Equal(t, "0x068000\n", string(class))
+
+	device, err := os.ReadFile(filepath.Join(devDir, "device"))
+	require.NoError(t, err, "read device")
+	require.Equal(t, "0x22a3\n", string(device))
+
+	cfg, err := os.ReadFile(filepath.Join(devDir, "config"))
+	require.NoError(t, err, "read config")
+	require.Equal(t, byte(0x06), cfg[0x0b], "config class base")
+	require.Equal(t, byte(0x80), cfg[0x0a], "config subclass")
+	require.Equal(t, byte(0x00), cfg[0x0e],
+		"an NVSwitch is a PCI endpoint despite the bridge class, so header type stays 0")
 }
 
 func TestRender_IdempotentRerender(t *testing.T) {

@@ -493,6 +493,11 @@ nvlink:
   # NVSwitches. Every switch-attached link reaches all peers through the
   # shared fabric, so `nvidia-smi topo -m` shows NV18 between every GPU pair.
   # Fabric-manager readiness is coupled via device_defaults.fabric.state: auto.
+  #
+  # No device_id on any of them: on NVL72 the NVSwitches are in their own switch
+  # trays, reached over the NVLink cable cartridge, so the compute tray's PCIe
+  # bus never sees them and `lspci` shows the GPUs alone. Contrast HGX A100 /
+  # H100, whose baseboard switches are PCIe endpoints the node enumerates.
   switches:
     - bdf: "0000:01:00.0"
       uuid: "NVSwitch-GB300-0000-0000-0000-000000000000"

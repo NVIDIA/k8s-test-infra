@@ -23,26 +23,28 @@ import (
 const PCIDevicesDir = "/var/lib/nvml-mock/sys/bus/pci/devices"
 
 // PCISysfs ports demo.sh step 9. From inside a pod it asserts:
-//   - exactly gpuCount device symlinks under /sys/bus/pci/devices,
-//   - the first symlink resolves to a RELATIVE ../../../devices/pci.../<bdf>
+//   - exactly gpuCount + bridgeCount device symlinks under /sys/bus/pci/devices,
+//     split by class into that many GPUs and that many NVSwitch bridges,
+//   - the first GPU symlink resolves to a RELATIVE ../../../devices/pci.../<bdf>
 //     target (the contract deviceattribute readlink()s for the PCIe root),
 //   - that device's numa_node is an integer,
 //   - that device carries a non-zero PCI subsystem identity,
 //   - the devices span exactly expectedRoots distinct PCIe root complexes.
-func PCISysfs(ctx context.Context, k *kube.Client, pod kube.PodRef, gpuCount, expectedRoots int) {
+func PCISysfs(
+	ctx context.Context, k *kube.Client, pod kube.PodRef, gpuCount, bridgeCount, expectedRoots int,
+) {
 	ginkgo.GinkgoHelper()
 
-	ginkgo.By(fmt.Sprintf("%d PCI device symlinks present", gpuCount))
+	ginkgo.By(fmt.Sprintf("%d PCI device symlinks present", gpuCount+bridgeCount))
 	res, err := k.ExecSh(ctx, pod, "ls "+PCIDevicesDir+" 2>/dev/null | wc -l")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "listing %s: %s", PCIDevicesDir, res.Combined())
-	gomega.Expect(atoiTrim(res.Stdout)).To(gomega.Equal(gpuCount),
+	gomega.Expect(atoiTrim(res.Stdout)).To(gomega.Equal(gpuCount+bridgeCount),
 		"rendered PCI device count\n%s", res.Combined())
 
-	ginkgo.By("first device symlink resolves to a relative root-complex path")
-	first, err := k.ExecSh(ctx, pod, "ls "+PCIDevicesDir+" | sort | head -1")
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	dev := strings.TrimSpace(first.Stdout)
-	gomega.Expect(dev).NotTo(gomega.BeEmpty(), "no PCI devices under %s", PCIDevicesDir)
+	pciClassSplit(ctx, k, pod, PCIDevicesDir, gpuCount, bridgeCount)
+
+	ginkgo.By("first GPU symlink resolves to a relative root-complex path")
+	dev := firstDeviceOfClass(ctx, k, pod, PCIDevicesDir, pciClass3DController)
 
 	target, err := k.ExecSh(ctx, pod, "readlink "+PCIDevicesDir+"/"+dev)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "readlink %s", dev)
@@ -94,22 +96,24 @@ const KernelPCIDevicesDir = "/sys/bus/pci/devices"
 // the shim never sees the open and the process reads the node's real /sys —
 // which is how GPU Feature Discovery came to label a mock node
 // nvidia.com/gpu.mode=unknown (#673).
-func PCISysfsAtKernelPaths(ctx context.Context, k *kube.Client, pod kube.PodRef, gpuCount int) {
+func PCISysfsAtKernelPaths(
+	ctx context.Context, k *kube.Client, pod kube.PodRef, gpuCount, bridgeCount int,
+) {
 	ginkgo.GinkgoHelper()
 
-	ginkgo.By(fmt.Sprintf("%d mock GPUs visible at %s", gpuCount, KernelPCIDevicesDir))
+	ginkgo.By(fmt.Sprintf("%d mock PCI functions visible at %s",
+		gpuCount+bridgeCount, KernelPCIDevicesDir))
 	// Exact, not "at least": the mount replaces the directory outright, so a
 	// higher count means the host's real devices are showing through or a
 	// previous profile's render was never pruned.
 	res, err := k.ExecSh(ctx, pod, "ls "+KernelPCIDevicesDir+" 2>/dev/null | wc -l")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "listing %s: %s", KernelPCIDevicesDir, res.Combined())
-	gomega.Expect(atoiTrim(res.Stdout)).To(gomega.Equal(gpuCount),
-		"mock GPUs served at the kernel path\n%s", res.Combined())
+	gomega.Expect(atoiTrim(res.Stdout)).To(gomega.Equal(gpuCount+bridgeCount),
+		"mock PCI functions served at the kernel path\n%s", res.Combined())
 
-	first, err := k.ExecSh(ctx, pod, "ls "+KernelPCIDevicesDir+" | sort | head -1")
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	dev := strings.TrimSpace(first.Stdout)
-	gomega.Expect(dev).NotTo(gomega.BeEmpty(), "no PCI devices under %s", KernelPCIDevicesDir)
+	pciClassSplit(ctx, k, pod, KernelPCIDevicesDir, gpuCount, bridgeCount)
+
+	dev := firstDeviceOfClass(ctx, k, pod, KernelPCIDevicesDir, pciClass3DController)
 
 	ginkgo.By("vendor resolves through the symlink into the served /sys/devices")
 	// This is what separates delivery from coincidence, and why the two mounts
@@ -128,8 +132,61 @@ func PCISysfsAtKernelPaths(ctx context.Context, k *kube.Client, pod kube.PodRef,
 	// of the served tree, not because it defaulted to it.
 	class, err := k.ExecSh(ctx, pod, "cat "+KernelPCIDevicesDir+"/"+dev+"/class")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "reading class for %s", dev)
-	gomega.Expect(strings.TrimSpace(class.Stdout)).To(gomega.Equal("0x030200"),
+	gomega.Expect(strings.TrimSpace(class.Stdout)).To(gomega.Equal(pciClass3DController),
 		"class for %s", dev)
+}
+
+// The two sysfs class words the mock renders. An NVIDIA GPU enumerates as a 3D
+// controller; an NVSwitch on an HGX baseboard enumerates as a bridge, which is
+// what makes lspci print "Bridge: ... [H100 NVSwitch]" for it.
+const (
+	pciClass3DController = "0x030200"
+	pciClassBridge       = "0x068000"
+)
+
+// pciClassSplit asserts how the entries under dir divide by class. The total
+// alone cannot tell a node that gained a switch from one that lost a GPU, and
+// the class is what a consumer keys off: GFD derives nvidia.com/gpu.mode from
+// it, so a switch rendered as a 3D controller is a phantom GPU.
+func pciClassSplit(
+	ctx context.Context, k *kube.Client, pod kube.PodRef, dir string, gpuCount, bridgeCount int,
+) {
+	ginkgo.GinkgoHelper()
+
+	count := func(class string) int {
+		// `|| true` because grep -c exits 1 when it counts nothing, and zero
+		// bridges is the expected answer on every non-baseboard profile.
+		res, err := k.ExecSh(ctx, pod,
+			"for d in "+dir+"/*; do cat \"$d/class\"; done | grep -c '^"+class+"$' || true")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+			"counting class %s: %s", class, res.Combined())
+		return atoiTrim(res.Stdout)
+	}
+
+	ginkgo.By(fmt.Sprintf("%d GPUs and %d NVSwitch bridges by PCI class", gpuCount, bridgeCount))
+	gomega.Expect(count(pciClass3DController)).To(gomega.Equal(gpuCount), "3D-controller entries")
+	gomega.Expect(count(pciClassBridge)).To(gomega.Equal(bridgeCount), "bridge entries")
+}
+
+// firstDeviceOfClass returns the lowest BDF under dir whose class file holds
+// class. The per-device assertions are about a GPU, and on an HGX profile the
+// lowest BDF overall is an NVSwitch, so the entry has to be chosen by class
+// rather than by sort order.
+func firstDeviceOfClass(
+	ctx context.Context, k *kube.Client, pod kube.PodRef, dir, class string,
+) string {
+	ginkgo.GinkgoHelper()
+
+	res, err := k.ExecSh(ctx, pod,
+		"for d in "+dir+"/*; do "+
+			"if [ \"$(cat \"$d/class\")\" = \""+class+"\" ]; then echo \"${d##*/}\"; break; fi; "+
+			"done")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "scanning %s: %s", dir, res.Combined())
+
+	dev := strings.TrimSpace(res.Stdout)
+	gomega.Expect(dev).NotTo(gomega.BeEmpty(), "no device of class %s under %s", class, dir)
+
+	return dev
 }
 
 func atoiTrim(s string) int {

@@ -17,6 +17,7 @@ type State struct {
 	Software   SoftwareVersions
 	NodeShape  NodeShape
 	Devices    []DeviceSpec
+	Switches   []SwitchSpec
 	Fabric     FabricState
 	IMEX       IMEXState
 	// ConfigRaw holds the raw YAML profile bytes so gpudriver can write the
@@ -42,8 +43,12 @@ const DefaultRootComplexID = "pci0000:00"
 // tree that disagrees with NVML is worse than no tree: a consumer resolves a
 // GPU in one and not the other.
 //
+// The GPUs are not the whole tree. An HGX baseboard's NVSwitches sit on the
+// node's PCIe bus alongside them, so Switches are rendered too and a consumer
+// enumerating the bus finds the fabric silicon real hardware would show it.
+//
 // The profile's pcie_topology outlives its device list — GPU_COUNT truncates
-// Devices and leaves the layout whole — so declared BDFs no device claims are
+// Devices and leaves the layout whole — so declared BDFs nothing claims are
 // dropped, along with any root that empties out. A device no root claims is
 // rendered under a root its own address implies, never folded into a declared
 // one: locality is what a consumer reads this tree for, so a GPU carrying the
@@ -83,8 +88,8 @@ func (s *State) PCITopology() []RootComplex {
 // consumer already handles, rather than asserting a node we do not know.
 const numaNodeUnknown = -1
 
-// adopt renders the devices no declared root claims — a profile whose
-// pcie_topology omits a BDF its device list carries.
+// adopt renders the functions no declared root claims — a profile whose
+// pcie_topology omits a BDF its device or switch list carries.
 //
 // Each lands under the root its own address implies (pciDDDD:BB), joining a
 // declared root only when that root is the one the address names, where
@@ -174,26 +179,43 @@ func isLowerHex(c byte) bool {
 	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')
 }
 
-// activeBDFs returns the BDFs of the devices that exist at runtime, lowercased
-// to match the paths the renderer writes, in device order and deduplicated.
-// A device whose bus_id is absent or not an address is left out entirely.
+// activeBDFs returns the BDFs of every PCI function to render — the GPUs that
+// exist at runtime followed by the NVSwitches on this node's own PCIe bus —
+// lowercased to match the paths the renderer writes, in declaration order and
+// deduplicated. A function whose bus_id is absent or not an address is left out
+// entirely.
+//
+// No GPU means nothing at all, switches included. The tree exists so that a
+// consumer can resolve what NVML reports from the BDF it was handed, and a
+// baseboard's switches on their own are not something any of them looks up.
 func (s *State) activeBDFs() []string {
-	seen := make(map[string]bool, len(s.Devices))
-	out := make([]string, 0, len(s.Devices))
+	seen := make(map[string]bool, len(s.Devices)+len(s.Switches))
+	out := make([]string, 0, len(s.Devices)+len(s.Switches))
 
 	for _, d := range s.Devices {
-		bdf := strings.ToLower(d.PCIBusID)
-		if !ValidBDF(bdf) {
-			continue
-		}
-		if seen[bdf] {
-			continue
-		}
-		seen[bdf] = true
-		out = append(out, bdf)
+		out = appendBDF(out, seen, d.PCIBusID)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+
+	for _, sw := range s.Switches {
+		out = appendBDF(out, seen, sw.PCIBusID)
 	}
 
 	return out
+}
+
+// appendBDF appends bdf lowercased, unless it is not an address the renderer
+// can use as a path component or a previous entry already claimed it.
+func appendBDF(out []string, seen map[string]bool, bdf string) []string {
+	lower := strings.ToLower(bdf)
+	if !ValidBDF(lower) || seen[lower] {
+		return out
+	}
+	seen[lower] = true
+
+	return append(out, lower)
 }
 
 // placeDeclared keeps the BDFs of each declared root that an active device
@@ -303,6 +325,22 @@ type DeviceSpec struct {
 	MemoryTotalBytes uint64
 	PCIDeviceID      uint32
 	PCISubsystemID   uint32
+}
+
+// SwitchSpec is one NVSwitch that sits on this node's own PCIe bus, as an HGX
+// baseboard's do. It carries only a PCI identity because that is the whole of
+// what the mock can simulate: NVML models an NVSwitch as the far end of a GPU's
+// NVLink and offers no per-switch API, and the nvmlUnit* chassis calls stay
+// stubbed the way they are on real DGX/HGX nodes.
+//
+// A rack-scale platform has NVSwitches that are not on the node's bus at all —
+// on GB200/GB300 NVL they live in their own switch trays, reachable over NVLink
+// and invisible to the compute tray's lspci. Those profiles declare the switches
+// for NVLink topology and no PCI identity, so nothing is compiled here for them.
+type SwitchSpec struct {
+	PCIBusID       string
+	PCIDeviceID    uint32
+	PCISubsystemID uint32
 }
 
 // FabricState describes the NVLink / NVSwitch fabric configuration.

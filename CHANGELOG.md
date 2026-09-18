@@ -13,6 +13,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ghcr.io/nvidia/mokka-kind-node` for amd64 and arm64. Publication is gated by
   an amd64 smoke test that boots a cluster, verifies the effective NVIDIA/CDI
   runtime configuration, and starts a pod before any public tag is updated.
+- node-agent: an HGX baseboard's NVSwitches now appear on the node's PCI bus.
+  `lspci` inside a served container previously listed the eight GPUs and nothing
+  else, while a real HGX H100 also shows four `Bridge: NVIDIA Corporation GH100
+  [H100 NVSwitch]` lines — so anything auditing NVIDIA hardware by walking the
+  PCI bus saw a node with no fabric silicon on it. `a100` renders its six
+  NVSwitches and `h100` its four, each with the device's real PCI ID
+  (`10de:1af1`, `10de:22a3`) and bridge class, placed on the first root complex
+  so they carry a NUMA node like any device. A switch enters the tree by
+  declaring `device_id` under `nvlink.switches`; a switch without one stays an
+  NVLink endpoint only, which is what `gb200` and `gb300` do, because NVL72 keeps
+  its switches in separate trays that a compute tray never enumerates. GPUs keep
+  the 3D-controller class GPU Feature Discovery derives `nvidia.com/gpu.mode`
+  from. See `docs/configuration.md` for the key and `docs/helm-chart.md` for what
+  it renders.
 - node-agent: containers now see the NVIDIA kernel modules as loaded. `lsmod`
   lists `nvidia` and `nvidia_uvm`, and `/sys/module/nvidia/refcnt` exists. The
   node's own modules stay visible beside them. See `docs/helm-chart.md` for how

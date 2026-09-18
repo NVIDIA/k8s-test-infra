@@ -278,15 +278,19 @@ $ cat /var/lib/nvml-mock/sys/devices/pci0000:00/0000:07:00.0/numa_node
 
 ### Defaults per profile
 
-| Profile | Root complexes | NUMA nodes | Devices per root |
-|---|---|---|---|
-| `a100`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual EPYC) | 4 |
-| `h100`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 |
-| `b200`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 |
-| `gb200` | 2 (`pci0000:00`, `pci0000:40`) | 2 (one per Grace CPU) | 2 |
-| `gb300` | 2 (`pci0000:00`, `pci0000:40`) | 2 (one per Grace CPU) | 2 |
-| `l40s`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 |
-| `t4`    | 1 (`pci0000:00`) | 1 | 4 |
+| Profile | Root complexes | NUMA nodes | GPUs per root | NVSwitch bridges |
+|---|---|---|---|---|
+| `a100`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual EPYC) | 4 | 6 |
+| `h100`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 | 4 |
+| `b200`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 | 0 |
+| `gb200` | 2 (`pci0000:00`, `pci0000:40`) | 2 (one per Grace CPU) | 2 | 0 |
+| `gb300` | 2 (`pci0000:00`, `pci0000:40`) | 2 (one per Grace CPU) | 2 | 0 |
+| `l40s`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 | 0 |
+| `t4`    | 1 (`pci0000:00`) | 1 | 4 | 0 |
+
+The bridges sit on the first root complex, which is where a baseboard's
+switches are attached on real hardware. See
+[NVSwitches on the PCI bus](#nvswitches-on-the-pci-bus).
 
 ### `pcie_topology:` block schema
 
@@ -329,6 +333,37 @@ If a profile omits `pcie_topology:` entirely the renderer falls back to
 a flat single-root layout (every device under `pci0000:00`, NUMA 0). A profile
 whose devices declare no `bus_id` at all renders nothing, and the simulator
 empties any tree a previous profile left behind.
+
+### NVSwitches on the PCI bus
+
+A GPU is not the only NVIDIA device on an HGX node. The baseboard's NVSwitches
+are PCIe endpoints too, and `lspci` lists them as bridges beside the GPUs:
+
+```console
+$ lspci | grep NVIDIA
+05:00.0 Bridge: NVIDIA Corporation GH100 [H100 NVSwitch]
+...
+1a:00.0 3D controller: NVIDIA Corporation GH100 [H100 SXM5 80GB]
+```
+
+A switch reaches the tree by declaring a `device_id` in the profile's
+[`nvlink.switches`](configuration.md#nvswitches) list. List the same BDF under a
+`pcie_topology:` root complex to give the switch that root's `numa_node`;
+otherwise it lands under the root its address implies with `numa_node` `-1`,
+exactly as an unplaced GPU does.
+
+The switch renders with PCI class `0x068000` (base class `0x06` bridge, subclass
+`0x80`), while a GPU renders `0x030200` (3D controller). The distinction is not
+cosmetic: GPU Feature Discovery derives `nvidia.com/gpu.mode` from this class, so
+a switch enumerating as a 3D controller would read as an extra GPU.
+
+!!! note "Rack-scale platforms have no PCIe-visible switches"
+
+    `gb200` and `gb300` declare NVSwitches without a `device_id`. On NVL72 the
+    switches live in their own switch trays, reached over the NVLink cable
+    cartridge, so a compute tray's `lspci` shows its GPUs and no bridges. Those
+    switches still act as NVLink remote endpoints, which is what produces the
+    `NV18` all-to-all in `nvidia-smi topo -m`.
 
 ### PCI sysfs in containers
 

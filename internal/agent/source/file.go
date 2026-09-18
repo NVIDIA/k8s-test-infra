@@ -221,6 +221,7 @@ func compileState(data []byte) (*agent.State, error) {
 		state.Fabric.Enabled = true
 		state.Fabric.LinksPerGPU = cfg.NVLink.LinksPerGPU
 		state.Fabric.BandwidthPerLinkMbps = cfg.NVLink.BandwidthPerLinkMbps
+		state.Switches = compileSwitches(cfg.NVLink.Switches)
 	}
 	if defaults.Fabric != nil {
 		state.Fabric.ClusterUUID = defaults.Fabric.ClusterUUID
@@ -331,6 +332,31 @@ func applyDeviceOverride(spec *agent.DeviceSpec, ov engine.DeviceOverride) {
 			spec.PCISubsystemID = ov.PCI.SubsystemID
 		}
 	}
+}
+
+// compileSwitches keeps the NVSwitches that sit on this node's PCIe bus, which
+// is the subset of nvlink.switches carrying a PCI identity. A switch without
+// one is an NVLink remote endpoint the node cannot see over PCIe — how a
+// rack-scale platform's switch trays present — and compiling it anyway would
+// put a bridge in lspci that no compute tray has.
+func compileSwitches(switches []engine.NVSwitchConfig) []agent.SwitchSpec {
+	out := make([]agent.SwitchSpec, 0, len(switches))
+
+	for _, sw := range switches {
+		if sw.DeviceID == 0 {
+			continue
+		}
+		out = append(out, agent.SwitchSpec{
+			PCIBusID:       sw.BDF,
+			PCIDeviceID:    sw.DeviceID,
+			PCISubsystemID: sw.SubsystemID,
+		})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+
+	return out
 }
 
 // compileNetwork resolves the profile's infiniband block into a NetworkShape.
