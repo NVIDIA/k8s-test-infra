@@ -34,6 +34,7 @@ jobs:
         uses: helm/kind-action@v1
         with:
           cluster_name: mokka
+          node_image: ghcr.io/nvidia/mokka-kind-node:latest
 
       - name: Install Mokka
         run: |
@@ -94,11 +95,12 @@ allocate GPUs need more:
 
 | Testing this | Also needs |
 |---|---|
-| The mock driver, `nvidia-smi`, node labels | nothing beyond a cluster |
+| Mokka, including injection into ordinary workloads | containerd with NRI enabled |
 | The NVIDIA device plugin, DRA driver, or GPU Operator | a Kind node image with CDI enabled in containerd |
-| Node-wide NRI injection | containerd with the NRI socket enabled |
 
-[Installation](../helm-chart.md) covers building a node image for those paths.
+The published `mokka-kind-node` image used above enables NRI and CDI and
+includes NVIDIA Container Toolkit. [Installation](../helm-chart.md) covers the
+equivalent runtime setup for another cluster.
 
 ## Keeping jobs fast
 

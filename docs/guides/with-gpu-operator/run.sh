@@ -98,9 +98,10 @@ fi
 #
 # This demo never creates a cluster, not even on the BUILD_LOCAL path, and
 # that is deliberate. The Operator's toolkit-validation and the device plugin
-# both go through CDI, so the node needs containerd in CDI mode with the
-# nvidia runtime handler registered. A stock `kind create cluster` node has
-# neither. `make cluster-create` builds and uses the node image that does
+# both go through CDI, while Mokka's workload delivery goes through NRI. The
+# node therefore needs containerd in CDI and NRI mode with the nvidia runtime
+# handler registered. A stock `kind create cluster` node does not provide that
+# setup. `make cluster-create` builds and uses the node image that does
 # (deployments/kind-nvidia-cdi), and the README says so; silently creating a
 # stock cluster here would just fail later, in the validator, with an error
 # that does not name the cause.

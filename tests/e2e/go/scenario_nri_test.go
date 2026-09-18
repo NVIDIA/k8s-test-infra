@@ -77,10 +77,9 @@ const (
 	nriDeviceAnnotation = "nvml-mock.nvidia.com/devices"
 )
 
-// Go port of docs/guides/node-wide-injection/run.sh. A dedicated Kind cluster
-// with containerd NRI enabled is created once; the nvml-mock chart is installed
-// per selected GPU profile with `nri.enabled=true` (plus a per-node
-// ComputeDomain overlay for fabric-attached profiles). The scenario then proves
+// The nvml-mock chart is installed per selected GPU profile on the shared Kind
+// cluster, where containerd NRI is enabled by default. Fabric-attached profiles
+// also get a per-node ComputeDomain overlay. The scenario then proves
 // that an ordinary `gpu-agent` DaemonSet — no `nvidia.com/gpu` request, no
 // hostPath/mock volumes, no `MOCK_*` env — sees the full mock GPU stack purely
 // through NRI ambient injection, and that each node carries its assigned
@@ -747,8 +746,8 @@ func nriPluginHostPID(ctx context.Context, container string) string {
 	return pids[0]
 }
 
-// installNRIChart (re)installs the nvml-mock release with the NRI plugin
-// enabled. Fabric-attached profiles additionally get the generated
+// installNRIChart (re)installs the nvml-mock release with its default NRI
+// plugin. Fabric-attached profiles additionally get the generated
 // ComputeDomain overlay via `-f` (a structured merge of topology.domains, never
 // --set-file which would stuff the raw bytes in as a string literal).
 func installNRIChart(ctx context.Context, h *harness.Harness, p profile.Profile, topoValues string,
@@ -767,7 +766,6 @@ func installNRIChart(ctx context.Context, h *harness.Harness, p profile.Profile,
 			"gpu.profile":      p.Name,
 			"image.repository": repo,
 			"image.tag":        tag,
-			"nri.enabled":      "true",
 			// Stage the mock IMEX channel nodes so the NRI channel opt-in has
 			// something to deliver (#437). This is the ONLY mechanism that
 			// creates them; the NRI plugin consumes what this stages.
@@ -1052,7 +1050,6 @@ func installNRICDIChart(ctx context.Context, h *harness.Harness, p profile.Profi
 			"gpu.profile":               p.Name,
 			"image.repository":          repo,
 			"image.tag":                 tag,
-			"nri.enabled":               "true",
 			"nri.deviceInjectionMode":   "cdi",
 			"imex.mockChannels.enabled": "false",
 		},

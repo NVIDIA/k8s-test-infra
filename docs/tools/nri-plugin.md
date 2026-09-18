@@ -9,11 +9,12 @@ unmodified workload sees mock GPUs.
 two injection layers, when a container is left alone, how it composes with the
 NVIDIA device plugin, and why it fails open. This page is the command line.
 
-It is off by default: the chart renders the DaemonSet only when `nri.enabled`
-is `true`. That DaemonSet is separate from the main nvml-mock one. Its pod runs
-as root with `allowPrivilegeEscalation: false` and no service account token,
-and mounts three hostPaths — the NRI socket directory read-write, and the
-overlay and CDI spec directories read-only.
+The chart renders this DaemonSet by default as a separate component from the
+main nvml-mock DaemonSet. Its pod runs as root with
+`allowPrivilegeEscalation: false` and no service account token, and mounts three
+hostPaths — the NRI socket directory read-write, and the overlay and CDI spec
+directories read-only. Set `nri.enabled=false` only when the runtime does not
+support NRI or the test deliberately needs uninjected pods.
 
 ## Probes
 
@@ -131,5 +132,5 @@ The binary is installed in the nvml-mock image at `/usr/local/bin/nri-plugin`.
 
 - [Command-line tools](README.md)
 - [NRI Plugin](../components/nri-plugin.md) — what it injects, and what it skips
-- [Node-Wide Injection](../guides/node-wide-injection/README.md) — a runnable walkthrough
+- [Installation](../helm-chart.md) — runtime prerequisites and chart values
 - [Installation](../helm-chart.md) — every `nri` chart value

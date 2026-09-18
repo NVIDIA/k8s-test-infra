@@ -59,7 +59,7 @@ docker exec "$NODE" cat /var/lib/nvml-mock/driver/config/config.yaml
 kubectl logs -n mokka -l app.kubernetes.io/name=nvml-mock | grep -i cdi
 ```
 
-### A pod gets no ambient GPUs even though NRI is enabled
+### An ordinary pod gets no mock GPUs
 
 The NRI plugin fails open: when it cannot inject, containers are created
 without the mock rather than failing. That makes a silent window possible, so

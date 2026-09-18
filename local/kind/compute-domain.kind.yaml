@@ -18,7 +18,7 @@
 #      on separate clusters. The Tilt scenario supports the
 #      --compute-domain --dra combo, so DRA support is baked in here.
 #
-# CDI + the runtimes.nvidia handler are baked into the node image
+# CDI, NRI, and the runtimes.nvidia handler are baked into the node image
 # (deployments/kind-nvidia-cdi/), so no containerdConfigPatches are needed.
 #
 # Each worker carries mokka.nvidia.com/type=sgpu, the simulated-GPU fleet

@@ -350,12 +350,9 @@ and suppress only the device list.
 
 ### Change 3: e2e scenario
 
-A new scenario, or a new `Context` inside the existing NRI scenario, that for
-the first time deploys **both** the `nvml-mock` chart with `nri.enabled=true`
-**and** the device-plugin DaemonSet on the same nodes. Today
-`scenario_nri_test.go` never deploys the device plugin, and
-`scenario_multi_node_test.go` never enables NRI, so this interaction has no
-coverage at all.
+A new scenario, or a new `Context` inside the existing NRI scenario, that
+deploys **both** the `nvml-mock` chart and the device-plugin DaemonSet on the
+same nodes and covers their interaction explicitly.
 
 Assertions, mapped to the goals:
 

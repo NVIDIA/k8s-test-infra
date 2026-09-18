@@ -192,7 +192,11 @@
       "additionalProperties": true,
       "description": "Node-wide ambient injection via containerd NRI.",
       "properties": {
-        "enabled": { "type": "boolean" },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Deploy the containerd NRI plugin. Enabled by default because this is Mokka's workload-injection path; disable only for runtimes without NRI or deliberately uninjected tests."
+        },
         "logging": {
           "type": "object",
           "additionalProperties": false,

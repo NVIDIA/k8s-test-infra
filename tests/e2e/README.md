@@ -143,10 +143,9 @@ tests that must not be scoped by `E2E_PROFILES`.
 
 ### Node-wide NRI injection
 
-The Go port of the [node-wide injection demo](../../docs/guides/node-wide-injection).
-It installs the profile with `nri.enabled=true` and, for fabric-attached
-profiles, a generated two-clique ComputeDomain overlay derived from the
-discovered worker names. It then applies a plain
+This scenario exercises Mokka's default NRI delivery path. For fabric-attached
+profiles it adds a generated two-clique ComputeDomain overlay derived from the
+discovered worker names, then applies a plain
 [`nri-gpu-agent.yaml`](go/assets/nri-gpu-agent.yaml) DaemonSet and asserts that
 the pod spec never requests `nvidia.com/gpu`, that `nvidia-smi -L` inside it
 lists the profile's GPUs, and — on fabric profiles — that each node reports its

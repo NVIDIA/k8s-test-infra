@@ -54,7 +54,7 @@ Most of the Kubernetes control plane is Go, so file surfaces need to be mounted 
 | Simulators | Packages inside the node daemon | One per surface: GPU driver, PCI bus, CDI, IMEX, NVLink, fabricmanager, InfiniBand |
 | Mock NVML library | Shared object loaded by each consumer process | Answers NVML calls from the profile instead of a driver |
 | Shims | `LD_PRELOAD` libraries and an `execve` wrapper | Make C tools read the staged tree at the real paths |
-| NRI plugin | Optional DaemonSet | Injects the mock into containers that never requested a GPU |
+| NRI plugin | DaemonSet, enabled by default | Injects the mock into containers that never requested a GPU |
 | Allocation watcher | Sidecar next to the node daemon | Reads the kubelet pod-resources socket to see which GPUs are claimed |
 | `nvml-mock-ctl` | CLI, run against a node | Changes simulated state at runtime without a redeploy |
 | Control plane | Deployment, disabled by default | Health probes only today; see MEP-0001 for the intent |

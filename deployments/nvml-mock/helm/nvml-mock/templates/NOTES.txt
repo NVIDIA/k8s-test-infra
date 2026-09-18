@@ -13,6 +13,19 @@ build-from-source instructions.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+DEFAULT: Ordinary workload through NRI
+
+  The chart deploys the NRI plugin by default. On a containerd node with NRI
+  enabled, a pod needs no GPU request, hostPath, or Mokka-specific environment:
+
+    kubectl run mokka-check --image=debian:bookworm-slim \
+      --restart=Never --command -- nvidia-smi -L
+    kubectl wait --for=jsonpath='{.status.phase}'=Succeeded \
+      pod/mokka-check --timeout=120s
+    kubectl logs mokka-check
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 OPTION A: NVIDIA Device Plugin
 
   kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-test-infra/main/tests/e2e/device-plugin-mock.yaml

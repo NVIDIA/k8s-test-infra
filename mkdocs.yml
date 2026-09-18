@@ -146,7 +146,6 @@ nav:
           - Compute Domain: guides/compute-domain/README.md
           - NVSentinel: guides/nv-sentinel/README.md
           - Run.ai Fake GPU Operator: guides/runai-fgo/README.md
-          - Node-Wide Injection: guides/node-wide-injection/README.md
       - Tasks:
           - Failure Injection: guides/failure-injection/README.md
           - Use in CI/CD: guides/ci-cd.md

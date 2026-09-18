@@ -1,7 +1,8 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Build and push the Kind node image with nvidia-container-toolkit + CDI baked in.
+# Build and push the Kind node image with nvidia-container-toolkit, CDI, and NRI
+# baked in.
 #
 #   make build              # build IMAGE into the local docker daemon
 #   make push IMAGE=<registry>/kind-nvidia-cdi:<tag>
@@ -85,12 +86,17 @@ smoke-verify-runtime:
 	@set -eu; \
 	node="$(KIND_CLUSTER_NAME)-control-plane"; \
 	config=$$(mktemp); \
-	trap 'rm -f "$$config"' EXIT; \
+	nri=$$(mktemp); \
+	trap 'rm -f "$$config" "$$nri"' EXIT; \
 	$(DOCKER) exec "$$node" containerd config dump > "$$config"; \
 	grep -Eq 'enable_cdi[[:space:]]*=[[:space:]]*true' "$$config"; \
 	grep -Eq "default_runtime_name[[:space:]]*=[[:space:]]*['\"]nvidia['\"]" "$$config"; \
 	grep -Eq 'runtimes\.nvidia' "$$config"; \
 	grep -Eq "BinaryName[[:space:]]*=[[:space:]]*['\"]/usr/bin/nvidia-container-runtime['\"]" "$$config"; \
+	awk '$$0 == "[plugins.\"io.containerd.nri.v1.nri\"]" { active = 1; next } \
+	     active && /^\[/ { exit } active { print }' "$$config" > "$$nri"; \
+	grep -Eq 'disable[[:space:]]*=[[:space:]]*false' "$$nri"; \
+	grep -Eq 'socket_path[[:space:]]*=[[:space:]]*"/var/run/nri/nri.sock"' "$$nri"; \
 	$(DOCKER) exec "$$node" test -x /usr/bin/nvidia-container-runtime; \
 	$(DOCKER) exec "$$node" grep -Eq 'mode[[:space:]]*=[[:space:]]*"cdi"' \
 		/etc/nvidia-container-runtime/config.toml

@@ -73,11 +73,11 @@ nodeLabels:
   # featureFilesDir the deployed NFD actually reads.
   featuresDir: /etc/kubernetes/node-feature-discovery/features.d
 
-# Node-wide ambient injection via containerd NRI. When enabled, a lightweight
-# node-local plugin appends the nvml-mock overlay mount and environment to each
-# container at runtime without mutating pod specs. Opt-in (default false): it
-# injects into workloads cluster-wide, so enable it only for the
-# node-wide-injection demo/use case. See docs/guides/node-wide-injection.
+# Node-wide ambient injection via containerd NRI. A lightweight node-local
+# plugin appends the nvml-mock overlay mount and environment to each container
+# at runtime without mutating pod specs. This is Mokka's default delivery path:
+# disable it only when the container runtime does not support NRI or when a
+# test deliberately needs ordinary pods to remain outside the mock environment.
 
 nodeAgent:
   logging:
@@ -141,7 +141,7 @@ allocationWatcher:
       memory: 32Mi
 
 nri:
-  enabled: false
+  enabled: true
   logging:
     level: info    # debug | info | warn | error
     format: json   # json | plain
