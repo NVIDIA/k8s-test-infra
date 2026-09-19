@@ -190,7 +190,7 @@
     "nri": {
       "type": "object",
       "additionalProperties": true,
-      "description": "Node-wide ambient injection via containerd NRI.",
+      "description": "Allocation-aware mock driver injection via containerd NRI.",
       "properties": {
         "enabled": {
           "type": "boolean",

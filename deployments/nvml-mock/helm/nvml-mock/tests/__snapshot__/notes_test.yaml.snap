@@ -16,13 +16,15 @@ should match snapshot with b200 profile:
 
       ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-      DEFAULT: Ordinary workload through NRI
+      DEFAULT: Explicit management workload through NRI
 
         The chart deploys the NRI plugin by default. On a containerd node with NRI
-        enabled, a pod needs no GPU request, hostPath, or Mokka-specific environment:
+        enabled, opt a management pod into node-wide visibility without hostPath
+        mounts or Mokka-specific environment variables:
 
-          kubectl run mokka-check --image=debian:bookworm-slim \
-            --restart=Never --command -- nvidia-smi -L
+          kubectl run mokka-check --image=debian:bookworm-slim --restart=Never \
+            --annotations='nvml-mock.nvidia.com/devices=true' \
+            --command -- nvidia-smi -L
           kubectl wait --for=jsonpath='{.status.phase}'=Succeeded \
             pod/mokka-check --timeout=120s
           kubectl logs mokka-check
@@ -62,6 +64,7 @@ should match snapshot with b200 profile:
             --create-namespace \
             --set nvidiaDriverRoot=/var/lib/nvml-mock/driver \
             --set gpuResourcesEnabledOverride=true \
+            --set-string 'kubeletPlugin.podAnnotations.nvml-mock\.nvidia\.com/devices=true' \
             --set resources.computeDomains.enabled=false \
             --wait --timeout 180s
 
@@ -121,13 +124,15 @@ should match snapshot with default values:
 
       ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-      DEFAULT: Ordinary workload through NRI
+      DEFAULT: Explicit management workload through NRI
 
         The chart deploys the NRI plugin by default. On a containerd node with NRI
-        enabled, a pod needs no GPU request, hostPath, or Mokka-specific environment:
+        enabled, opt a management pod into node-wide visibility without hostPath
+        mounts or Mokka-specific environment variables:
 
-          kubectl run mokka-check --image=debian:bookworm-slim \
-            --restart=Never --command -- nvidia-smi -L
+          kubectl run mokka-check --image=debian:bookworm-slim --restart=Never \
+            --annotations='nvml-mock.nvidia.com/devices=true' \
+            --command -- nvidia-smi -L
           kubectl wait --for=jsonpath='{.status.phase}'=Succeeded \
             pod/mokka-check --timeout=120s
           kubectl logs mokka-check
@@ -167,6 +172,7 @@ should match snapshot with default values:
             --create-namespace \
             --set nvidiaDriverRoot=/var/lib/nvml-mock/driver \
             --set gpuResourcesEnabledOverride=true \
+            --set-string 'kubeletPlugin.podAnnotations.nvml-mock\.nvidia\.com/devices=true' \
             --set resources.computeDomains.enabled=false \
             --wait --timeout 180s
 

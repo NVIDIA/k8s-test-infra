@@ -63,12 +63,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- The Helm chart now deploys the containerd NRI plugin by default, so ordinary
-  workload pods receive Mokka's driver overlay without adding mounts,
-  environment variables, or GPU resource requests. The published Kind node
-  image, local environment, examples, and managed-EKS reference configuration
-  enable the matching runtime socket. Set `nri.enabled=false` only for a
-  runtime without NRI or a test that deliberately needs uninjected pods.
+- The Helm chart now deploys the containerd NRI plugin by default, so allocated
+  workload containers receive Mokka's driver overlay without adding mounts or
+  environment variables, while unallocated containers stay untouched. An
+  explicit pod annotation gives node-management agents full inventory. The
+  published Kind node image, local environment, examples, and managed-EKS
+  reference configuration enable the matching runtime socket. Set
+  `nri.enabled=false` only for a runtime without NRI or a test that deliberately
+  needs uninjected pods.
 - nvml-mock: `device_defaults.architecture` now accepts `rubin`, which NVML
   defines and the mock previously resolved to `NVML_DEVICE_ARCH_UNKNOWN`, so a
   Rubin profile failed every architecture-gated feature. Spellings are also

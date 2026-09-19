@@ -104,7 +104,7 @@ tilt up -- --nvmlmock-image=nvml-mock:e2e     # or `tilt ci` for a headless run
 [`local/kind/default.kind.yaml`](../../local/kind/default.kind.yaml) gives one
 control-plane and two workers named `worker-0` and `worker-1`, turns on the
 `DynamicResourceAllocation` feature gate, and enables the containerd NRI socket
-that the node-wide injection scenario requires.
+that the allocation-aware injection scenario requires.
 
 ### Run
 
@@ -134,22 +134,21 @@ tests that must not be scoped by `E2E_PROFILES`.
 | Scenario | Target | Primary labels | What it proves |
 |---|---|---|---|
 | Standalone | `make e2e` | `labels`, `fgo`, `mockfiles`, `nvidia-smi`, `nvlink`, `ib`, `pcisysfs`, `ibping`, `ibfabric`, `failure-injection`, `runtime-control` | The mock renders a complete GPU node: driver files, device nodes, `nvidia-smi` inventory, NVLink topology, IB devices, PCI sysfs tree, cross-node `ibping` and fabric discovery, and the four failure modes |
-| DRA driver | `make e2e-dra` | `dra` | Dynamic Resource Allocation (DRA) scheduling works end to end: ResourceSlices report the profile's GPU count, and a pod using a `ResourceClaimTemplate` reaches `Running`, which requires `NodePrepareResources` to have succeeded |
+| DRA driver | `make e2e-dra` | `dra` | Dynamic Resource Allocation (DRA) works end to end: ResourceSlices report the profile's GPU count, and a pod using a `ResourceClaimTemplate` sees exactly its claimed GPU |
 | GPU Operator | `make e2e-gpu-operator` | `gpu-operator`, `device-plugin`, `dcgm`, `xid`, `pcisysfs`, `runtime-control` | The full operator stack accepts the mock: the validator pod starts, GPU Feature Discovery (GFD) labels appear, allocatable `nvidia.com/gpu` matches the profile, and DCGM telemetry is answered |
 | Multi-node fleet | `make e2e-multi-node` | `multi-node` | A heterogeneous fleet works: separate A100 and T4 releases on different workers, correct per-node mock files and IB behaviour, and a GPU workload scheduled across them |
-| Node-wide NRI injection | `make e2e-nri` | `nri`, `nri-*`, `compute-domain`, `imex-channels` | An ordinary pod that requests no GPU, mounts no hostPath and sets no `MOCK_*` env still sees GPUs, via Node Resource Interface (NRI) ambient injection |
+| Allocation-aware NRI injection | `make e2e-nri` | `nri`, `nri-*`, `compute-domain`, `imex-channels` | NRI exposes only allocated GPUs to application containers, leaves unallocated containers untouched, and supports explicit node-management opt-ins |
 | NFD label provenance | `make e2e-nfd` | `nfd`, `nfd-provenance` | Node Feature Discovery (NFD) derives `feature.node.kubernetes.io/pci-10de.present` from the feature file the mock writes — and that the mock does not write the label itself. Pinned to `a100`, because the label is vendor-only and identical across profiles |
 | CUDA validator | opt-in | `validator` | The CUDA vectorAdd sample runs against the mock CUDA library. **Skipped by default** — see below |
 
-### Node-wide NRI injection
+### Allocation-aware NRI injection
 
 This scenario exercises Mokka's default NRI delivery path. For fabric-attached
 profiles it adds a generated two-clique ComputeDomain overlay derived from the
-discovered worker names, then applies a plain
-[`nri-gpu-agent.yaml`](go/assets/nri-gpu-agent.yaml) DaemonSet and asserts that
-the pod spec never requests `nvidia.com/gpu`, that `nvidia-smi -L` inside it
-lists the profile's GPUs, and — on fabric profiles — that each node reports its
-assigned clique and cluster UUID.
+discovered worker names, then applies an explicitly annotated
+[`nri-gpu-agent.yaml`](go/assets/nri-gpu-agent.yaml) management DaemonSet. It
+also composes with the device plugin to prove exact allocation visibility,
+sidecar isolation, no-allocation behavior, and scheduler accounting.
 
 ```bash
 make e2e-nri                    # gb200: fabric and ComputeDomain checks included

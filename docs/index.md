@@ -41,8 +41,9 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
     --namespace mokka --create-namespace --wait
 ```
 
-Ordinary workload pods now receive the mock GPU stack through containerd NRI.
-The [Quick Start](quickstart.md) verifies that path.
+Containerd NRI now delivers the mock GPU stack according to each container's
+GPU allocation. Explicitly annotated management pods can inspect the complete
+node inventory. The [Quick Start](quickstart.md) verifies that path.
 
 ## Simulation depth by area
 

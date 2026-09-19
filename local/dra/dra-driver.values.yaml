@@ -28,6 +28,11 @@ gpuResourcesEnabledOverride: true
 # Pin the kubelet plugin to the simulated-GPU pool. The chart's default affinity
 # accepts only NFD/GFD-owned labels, which nothing in this scenario produces.
 kubeletPlugin:
+  # The kubelet plugin is a node-management consumer: it must discover the
+  # complete simulated inventory before Kubernetes can allocate from it. NRI
+  # otherwise leaves containers without an allocation untouched.
+  podAnnotations:
+    nvml-mock.nvidia.com/devices: "true"
   affinity:
     nodeAffinity:
       requiredDuringSchedulingIgnoredDuringExecution:

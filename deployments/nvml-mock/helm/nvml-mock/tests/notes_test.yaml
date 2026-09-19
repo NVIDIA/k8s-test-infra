@@ -91,7 +91,7 @@ tests:
         enabled: false
     asserts:
       - notMatchRegexRaw:
-          pattern: "DEFAULT: Ordinary workload through NRI"
+          pattern: "DEFAULT: Explicit management workload through NRI"
       - matchRegexRaw:
           pattern: "OPTION A: NVIDIA Device Plugin"
 
