@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- ComputeDomain simulation can stage IMEX userspace on each node without a
+  specialized container image. When `imex.userspace.enabled=true`, the node
+  agent downloads the architecture-specific archive pinned by version and
+  SHA-256, caches it node-locally, and publishes the daemon, CLI, config, and
+  Mokka `--nogpu` shim through the existing driver tree. For the upstream DRA
+  daemon, NRI matches its DRA-owned pod label and container name and mounts
+  only the staged real executable and mock topology missing from the CDI edits. The standard
+  Mokka image remains the single image for ordinary and ComputeDomain
+  installations; the guide and e2e suite validate peer join, readiness, and
+  loss. (#821)
+
 - The CDI-enabled KIND node image is published at
   `ghcr.io/nvidia/mokka-kind-node` for amd64 and arm64. Publication is gated by
   an amd64 smoke test that boots a cluster, verifies the effective NVIDIA/CDI

@@ -327,12 +327,12 @@ Legend: **✓** covered, **~** partial, **✗** gap, **N/A** intentionally out o
 |----------------------------------------------------------------------------------|-------------------------------------------------------|------------------------------------------------------------------------------------------------------------------|
 | `/dev/nvidia-caps-imex-channels/channel<N>` chardevs (major 235, 2048 minors)    | DRA compute-domain kubelet plugin                     | ✓ `imex` — channels + majors materialized                                                                        |
 | `/proc/devices` entry for `nvidia-caps-imex-channels`                            | DRA driver's `ALT_PROC_DEVICES_PATH` consumer         | ✓ `imex` via `pkg/system/mockimex`                                                                               |
-| Real `nvidia-imex --nogpu` daemon process (compute-domain-daemon image only)     | ComputeDomain workload's cross-node peer coordination | ✓ `imex-nogpu-shim` binary wraps upstream `nvidia-imex`; installed at Docker build time, out of node-agent scope |
+| Real `nvidia-imex --nogpu` daemon process                                        | ComputeDomain workload's cross-node peer coordination | ✓ `imex` downloads the pinned archive, verifies its checksum, and stages it beside the `nvidia-imex-shim` wrapper in the driver tree |
 | Legacy IMEX peer marker files `/var/lib/nvml-mock/imex-state/*` (fake-imex path) | none currently                                        | ✗ **deprecated** — `cmd/fake-imex` will retire; superseded by real `--nogpu` daemon                              |
 
-**Delivery**: chardevs + `/proc/devices` overlay materialized on host; real IMEX daemon delivered via image layer + `imex-nogpu-shim` execve wrapper (not managed by node-agent).
+**Delivery**: chardevs + `/proc/devices` overlay materialized on host; when enabled, the node agent stages checksum-verified IMEX userspace in the same driver tree and NRI injects it into the upstream daemon container.
 
-**Restage trigger**: `state.Subsystems.imexChannels` toggle or device count change.
+**Restage trigger**: IMEX channel or userspace toggle, or device count change.
 
 #### InfiniBand HCA
 
