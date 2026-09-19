@@ -63,9 +63,9 @@ spec:
             - --excluded-namespaces={{ .Release.Namespace }},kube-system{{- range .Values.nri.excludedNamespaces }},{{ . }}{{- end }}
             # NODE_NAME (below) gates ComputeDomain topology injection: when
             # topology.enabled stages a topology document into the overlay,
-            # the plugin injects NODE_NAME + MOCK_TOPOLOGY_CONFIG into each
-            # workload so its mock GPUs report this node's clique / cluster
-            # UUID. Harmless when topology is disabled (no document to stage).
+            # the plugin exposes it to adjusted containers so their mock GPUs
+            # report this node's clique / cluster UUID. Harmless when topology
+            # is disabled (no document to stage).
             - --node-name=$(NODE_NAME)
             - --health-addr=:{{ .Values.nri.healthPort }}
             - --log-level={{ .Values.nri.logging.level }}

@@ -295,6 +295,17 @@
               "description": "Character-device major advertised for nvidia-caps. Must differ from channelMajor."
             }
           }
+        },
+        "userspace": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Downloads a pinned architecture-specific IMEX archive from NVIDIA and stages its userspace tools under Mokka's node driver root.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable checksum-verified node-local IMEX userspace staging. Disabled installations perform no download."
+            }
+          }
         }
       }
     },

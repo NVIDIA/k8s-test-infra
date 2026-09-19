@@ -319,10 +319,11 @@ type FabricState struct {
 
 // IMEXState describes the IMEX capability surface for the DRA compute-domain plugin.
 type IMEXState struct {
-	Enabled      bool
-	IMEXMajor    int
-	CapsMajor    int
-	ChannelCount int
+	Enabled          bool
+	UserspaceEnabled bool
+	IMEXMajor        int
+	CapsMajor        int
+	ChannelCount     int
 }
 
 // StateSource emits State observations.

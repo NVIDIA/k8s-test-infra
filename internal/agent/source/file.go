@@ -236,15 +236,14 @@ func compileState(data []byte) (*agent.State, error) {
 	}
 	state.NodeShape.Network = network
 
-	// IMEX mock surface: opt-in via IMEX_MOCK_CHANNELS=true, same shim
-	// pattern as GPU_COUNT until MEP-0001 embeds this in the profile.
+	// IMEX surfaces are independent opt-ins: userspace can be staged for a
+	// consumer that does not need mock channel nodes, and vice versa.
+	state.IMEX.UserspaceEnabled = os.Getenv("IMEX_USERSPACE_ENABLED") == "true"
 	if os.Getenv("IMEX_MOCK_CHANNELS") == "true" {
-		state.IMEX = agent.IMEXState{
-			Enabled:      true,
-			IMEXMajor:    envIntOrDefault("IMEX_CHANNEL_MAJOR", 235),
-			CapsMajor:    envIntOrDefault("IMEX_CAPS_MAJOR", 236),
-			ChannelCount: envIntOrDefault("IMEX_CHANNEL_COUNT", 2048),
-		}
+		state.IMEX.Enabled = true
+		state.IMEX.IMEXMajor = envIntOrDefault("IMEX_CHANNEL_MAJOR", 235)
+		state.IMEX.CapsMajor = envIntOrDefault("IMEX_CAPS_MAJOR", 236)
+		state.IMEX.ChannelCount = envIntOrDefault("IMEX_CHANNEL_COUNT", 2048)
 	}
 
 	return state, nil

@@ -60,7 +60,7 @@ func TestStageProcDevices_WritesRenderedFile(t *testing.T) {
 
 	require.NoError(t, stageProcDevices(h, state, writeProcDevicesFixture(t)))
 
-	content, err := os.ReadFile(h.RootPath("imex/proc-devices"))
+	content, err := os.ReadFile(h.RootPath("driver/proc/devices"))
 	require.NoError(t, err)
 	require.Contains(t, string(content), "nvidia-caps-imex-channels")
 	require.Contains(t, string(content), "nvidia-caps")

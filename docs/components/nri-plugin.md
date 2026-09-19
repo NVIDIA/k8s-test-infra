@@ -33,7 +33,7 @@ of confusion.
 
 | Layer | Applies to | Delivers |
 |---|---|---|
-| **Overlay** | every container, unless skipped | The mock driver tree and environment — enough for `nvidia-smi` to run and report the node's profile |
+| **Overlay** | every container unless skipped or identified as the DRA ComputeDomain daemon | The mock driver tree and environment — enough for `nvidia-smi` to run and report the node's profile |
 | **Devices** | only containers that opt in | Actual `/dev/nvidia*` nodes, or a CDI reference the runtime resolves |
 
 The overlay is **ambient**: a plain pod that requests nothing gets it. Devices
@@ -48,7 +48,9 @@ Adjustment runs as a fixed sequence, and no step can fail:
 flowchart TB
     create[containerd: CreateContainer] --> skip{Skip?}
     skip -->|opt-out annotation<br/>excluded namespace<br/>overlay already mounted| asis[Leave exactly as authored]
-    skip -->|no| overlay[Mount overlay]
+    skip -->|no| domain{DRA ComputeDomain<br/>daemon?}
+    domain -->|yes| missing[Mount only real IMEX<br/>and mock topology] --> done[Return adjustment]
+    domain -->|no| overlay[Mount overlay]
     overlay --> env[Set environment]
     env --> gpus{Device annotation?}
     gpus -->|no| imex
@@ -67,6 +69,21 @@ Three conditions, any of which skips adjustment entirely:
 
 That last check is what makes re-adjustment safe. A container that already has
 the overlay has been through here before, so re-running would double-apply.
+
+### ComputeDomain CDI composition
+
+The upstream DRA driver's CDI edits deliver the mock driver, IMEX shim and CLI,
+generated domain config, and device nodes. NRI receives `CreateContainer`
+before containerd resolves CDI devices sourced from the pod's resource claim,
+so that CDI reference is not available as a selector. Mokka instead requires
+both the DRA-owned `resource.nvidia.com/computeDomain` pod label and the
+`compute-domain-daemon` container name. It then adds only the node-staged
+`nvidia-imex.real` executable and mock topology document, plus the environment
+pointer to that topology. It does not mount the ambient overlay, rewrite
+`PATH`, or attach devices again.
+
+The two-part match keeps the exception limited to the intended container;
+matching only the `nvidia` namespace would also affect unrelated containers.
 
 ## Composing with the NVIDIA device plugin
 
@@ -115,17 +132,20 @@ only visible in the OCI spec of an already-running pod.
 | `nvml-mock.nvidia.com/devices: "true"` | Opt in to GPU device injection |
 | `nvml-mock.nvidia.com/imex-channels` | Request IMEX channels |
 
-## Failing open
+## Startup ordering and recovery
 
-Every step degrades rather than blocks. Nothing orders this plugin's DaemonSet
+Ordinary container adjustment fails open. Nothing orders this plugin's DaemonSet
 after the node daemon's, so on a fresh node the plugin may be asked to adjust a
 container before the GPU tree exists. When a surface is missing, injection is
 reduced — overlay-only instead of overlay-plus-devices — and container creation
 proceeds.
 
-The alternative would be worse: a plugin that errors on a missing surface blocks
-every container on the node, including the daemon that would have created the
-surface.
+The DRA ComputeDomain daemon is the exception. Its Mokka-specific adjustment is
+useful only when both the real IMEX executable and the node topology are staged.
+The plugin rejects that container's creation while either prerequisite is
+missing, so kubelet retries after the node agent converges. This gate applies
+only to a container named `compute-domain-daemon` in a pod carrying the DRA
+ComputeDomain label; it cannot block the node agent or unrelated workloads.
 
 That choice has a consequence worth knowing about. **A plugin containerd has
 unregistered stays alive and silently stops injecting** — nothing crashes, pods

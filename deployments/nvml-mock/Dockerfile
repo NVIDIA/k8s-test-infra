@@ -58,6 +58,7 @@ COPY --from=builder /src/dist/nri-plugin /usr/local/bin/nri-plugin
 COPY --from=builder /src/dist/nvml-mock-ctl /usr/local/bin/nvml-mock-ctl
 COPY --from=builder /src/dist/check-fabric     /usr/local/bin/check-fabric
 COPY --from=builder /src/dist/node-agent /usr/local/bin/node-agent
+COPY --from=builder /src/dist/nvidia-imex-shim /usr/local/bin/nvidia-imex-shim
 # Build-time only: it needs ldd and patchelf, both purged from the final image.
 COPY deployments/nvml-mock/build/bundle-ib-tools.sh /usr/local/bin/bundle-ib-tools.sh
 RUN set -eux; \
@@ -106,4 +107,6 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*; \
     rm -rf /tmp/nvidia-utils /tmp/nvidia-utils-580*.deb \
            /usr/share/keyrings/nvidia.gpg /etc/apt/sources.list.d/nvidia.list; \
-    apt-get purge -y --auto-remove curl ca-certificates gnupg2 patchelf
+    # The node daemon uses the system trust store when explicitly configured
+    # to acquire IMEX userspace from the pinned NVIDIA HTTPS endpoint. \
+    apt-get purge -y --auto-remove curl gnupg2 patchelf
