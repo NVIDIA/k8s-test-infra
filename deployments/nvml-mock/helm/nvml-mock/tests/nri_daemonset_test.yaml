@@ -186,7 +186,6 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: --excluded-namespaces=NAMESPACE,kube-system,monitoring,gpu-system
-
   # Mock IMEX channel delivery (#437). The channel nodes are staged by the main
   # DaemonSet under imex.mockChannels; the plugin must read them from that one
   # location. A host path that disagrees with where the imex simulator writes

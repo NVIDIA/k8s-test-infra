@@ -45,7 +45,7 @@ func TestAdjustPointsTheLoaderAtTheOverlay(t *testing.T) {
 		},
 	}
 
-	adjustment, ok := Adjust(DefaultConfig(), container)
+	adjustment, ok := requireAdjust(t, DefaultConfig(), container)
 	require.True(t, ok)
 
 	require.Contains(t, adjustment.Env, "PATH=/opt/nvml-mock/driver/usr/bin:/usr/local/bin:/usr/bin")
@@ -72,7 +72,7 @@ func TestAdjustLeavesAnAuthoredMachineTypeFile(t *testing.T) {
 		Env:       []string{"GFD_MACHINE_TYPE_FILE=/etc/machine-type"},
 	}
 
-	adjustment, ok := Adjust(DefaultConfig(), container)
+	adjustment, ok := requireAdjust(t, DefaultConfig(), container)
 	require.True(t, ok)
 
 	requireNoEnvKey(t, adjustment.Env, "GFD_MACHINE_TYPE_FILE")
@@ -90,7 +90,7 @@ func TestAdjustEmitsOnlyAddedOrChangedEnv(t *testing.T) {
 		},
 	}
 
-	adjustment, ok := Adjust(DefaultConfig(), container)
+	adjustment, ok := requireAdjust(t, DefaultConfig(), container)
 	require.True(t, ok)
 
 	requireNoEnvKey(t, adjustment.Env, "FOO")
@@ -101,7 +101,7 @@ func TestAdjustEmitsOnlyAddedOrChangedEnv(t *testing.T) {
 func TestAdjustPrependsDefaultsWhenEnvIsUnset(t *testing.T) {
 	t.Parallel()
 
-	adjustment, ok := Adjust(DefaultConfig(), Container{Namespace: "default"})
+	adjustment, ok := requireAdjust(t, DefaultConfig(), Container{Namespace: "default"})
 	require.True(t, ok)
 
 	require.Contains(t, adjustment.Env, "PATH=/opt/nvml-mock/driver/usr/bin")
@@ -117,7 +117,7 @@ func TestAdjustInjectsTopologyEnvWhenStaged(t *testing.T) {
 	cfg.HostOverlayPath = stageTopology(t)
 	cfg.NodeName = "kind-worker3"
 
-	adjustment, ok := Adjust(cfg, Container{Namespace: "default"})
+	adjustment, ok := requireAdjust(t, cfg, Container{Namespace: "default"})
 	require.True(t, ok)
 
 	require.Contains(t, adjustment.Env, "NODE_NAME=kind-worker3")
@@ -148,7 +148,7 @@ func TestAdjustSkipsTopologyEnvWhenNotConfigured(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			adjustment, ok := Adjust(configure(t), Container{Namespace: "default"})
+			adjustment, ok := requireAdjust(t, configure(t), Container{Namespace: "default"})
 			require.True(t, ok)
 			requireNoEnvKey(t, adjustment.Env, "MOCK_TOPOLOGY_CONFIG")
 			requireNoEnvKey(t, adjustment.Env, "NODE_NAME")
@@ -163,7 +163,7 @@ func TestAdjustDoesNotOverrideAuthoredNodeName(t *testing.T) {
 	cfg.HostOverlayPath = stageTopology(t)
 	cfg.NodeName = "kind-worker3"
 
-	adjustment, ok := Adjust(cfg, Container{
+	adjustment, ok := requireAdjust(t, cfg, Container{
 		Namespace: "default",
 		Env:       []string{"NODE_NAME=authored-node"},
 	})
@@ -185,7 +185,7 @@ func TestShimPathsResolveRelativeEntriesAgainstTheOverlay(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Shims = []string{"driver/lib/librelative.so", "/opt/absolute/libabsolute.so"}
 
-	adjustment, ok := Adjust(cfg, Container{Namespace: "default"})
+	adjustment, ok := requireAdjust(t, cfg, Container{Namespace: "default"})
 	require.True(t, ok)
 	require.Contains(t, adjustment.Env,
 		"LD_PRELOAD=/opt/nvml-mock/driver/lib/librelative.so:/opt/absolute/libabsolute.so")

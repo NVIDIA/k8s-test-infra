@@ -74,6 +74,15 @@ jobs:
     - name: Run unit tests
       run: make test
 
+    - name: Run NVIDIA IMEX shim integration tests
+      run: make test-nvidia-imex-shim
+
+    # The in-memory downloader tests prove failure handling; this also catches
+    # an upstream archive replacement, a stale checksum, or layout drift for
+    # either supported architecture before the node agent reaches a cluster.
+    - name: Validate pinned NVIDIA IMEX archives
+      run: make test-imex-userspace-download
+
     - name: Run mockfs integration tests
       run: make test-mockfs
 

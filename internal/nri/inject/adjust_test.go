@@ -4,10 +4,18 @@
 package inject
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func requireAdjust(t testing.TB, cfg Config, container Container) (Adjustment, bool) {
+	t.Helper()
+	adjustment, ok, err := Adjust(cfg, container)
+	require.NoError(t, err)
+	return adjustment, ok
+}
 
 // overlayMount is the one mount every adjusted container gets, whatever the
 // opt-ins say.
@@ -33,7 +41,7 @@ func configMount() Mount {
 func TestAdjustMountsTheOverlayForAPlainContainer(t *testing.T) {
 	t.Parallel()
 
-	adjustment, ok := Adjust(DefaultConfig(), Container{Namespace: "default"})
+	adjustment, ok := requireAdjust(t, DefaultConfig(), Container{Namespace: "default"})
 	require.True(t, ok)
 	require.Contains(t, adjustment.Mounts, overlayMount())
 }
@@ -46,7 +54,7 @@ func TestAdjustMountsTheOverlayForAPlainContainer(t *testing.T) {
 func TestAdjustMountsConfigDirWritableOverReadOnlyOverlay(t *testing.T) {
 	t.Parallel()
 
-	adjustment, ok := Adjust(DefaultConfig(), Container{Namespace: "default"})
+	adjustment, ok := requireAdjust(t, DefaultConfig(), Container{Namespace: "default"})
 	require.True(t, ok)
 	require.Contains(t, adjustment.Mounts, configMount())
 
@@ -70,11 +78,124 @@ func TestAdjustMountsConfigDirWritableOverReadOnlyOverlay(t *testing.T) {
 func TestAdjustWithoutOptInsDeliversNoDevices(t *testing.T) {
 	t.Parallel()
 
-	adjustment, ok := Adjust(DefaultConfig(), Container{Namespace: "default"})
+	adjustment, ok := requireAdjust(t, DefaultConfig(), Container{Namespace: "default"})
 	require.True(t, ok)
 	require.Empty(t, adjustment.Devices)
 	require.Empty(t, adjustment.CDIDevices)
 	require.NotEmpty(t, adjustment.Env)
+}
+
+func TestAdjustComputeDomainCDIMountsOnlyMissingFiles(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.HostOverlayPath = t.TempDir()
+	cfg.NodeName = "worker-1"
+	realIMEX := cfg.HostOverlayPath + "/driver/usr/bin/nvidia-imex.real"
+	require.NoError(t, os.MkdirAll(cfg.HostOverlayPath+"/driver/usr/bin", 0o755))
+	require.NoError(t, os.WriteFile(realIMEX, []byte("imex"), 0o755))
+	cfg.TopologyHostPath = cfg.HostOverlayPath + "/topology/topology.yaml"
+	require.NoError(t, os.MkdirAll(cfg.HostOverlayPath+"/topology", 0o755))
+	require.NoError(t, os.WriteFile(cfg.TopologyHostPath, []byte("version: 1\n"), 0o600))
+	cfg.TopologyContainerPath = "/etc/nvml-mock/topology.yaml"
+	adjustment, ok := requireAdjust(t, cfg, Container{
+		Name:      computeDomainContainerName,
+		Namespace: "nvidia",
+		PodLabels: map[string]string{computeDomainLabel: "domain-uid"},
+	})
+
+	require.True(t, ok)
+	require.Equal(t, []Mount{
+		{
+			Source:      realIMEX,
+			Destination: "/usr/bin/nvidia-imex.real",
+			Type:        "bind",
+			Options:     []string{"rbind", "ro", "nosuid", "nodev"},
+		},
+		{
+			Source:      cfg.TopologyHostPath,
+			Destination: cfg.TopologyContainerPath,
+			Type:        "bind",
+			Options:     []string{"rbind", "ro", "nosuid", "nodev"},
+		},
+	}, adjustment.Mounts)
+	require.Equal(t, []string{"MOCK_TOPOLOGY_CONFIG=/etc/nvml-mock/topology.yaml"}, adjustment.Env)
+	require.Empty(t, adjustment.Devices)
+	require.Empty(t, adjustment.CDIDevices)
+}
+
+func TestComputeDomainDaemonRequiresNameAndDomainLabel(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		container Container
+		want      bool
+	}{
+		"name and label": {
+			container: Container{
+				Name:      computeDomainContainerName,
+				PodLabels: map[string]string{computeDomainLabel: "domain-uid"},
+			},
+			want: true,
+		},
+		"name alone": {
+			container: Container{Name: computeDomainContainerName},
+		},
+		"label alone": {
+			container: Container{PodLabels: map[string]string{computeDomainLabel: "domain-uid"}},
+		},
+		"empty label": {
+			container: Container{
+				Name:      computeDomainContainerName,
+				PodLabels: map[string]string{computeDomainLabel: ""},
+			},
+		},
+		"none": {},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, computeDomainDaemon(tt.container))
+		})
+	}
+}
+
+func TestAdjustComputeDomainRejectsPartialNodeStaging(t *testing.T) {
+	t.Parallel()
+
+	for name, staged := range map[string]struct {
+		realIMEX bool
+		topology bool
+	}{
+		"neither prerequisite": {},
+		"real IMEX only":       {realIMEX: true},
+		"topology only":        {topology: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			cfg := DefaultConfig()
+			cfg.HostOverlayPath = t.TempDir()
+			cfg.NodeName = "worker-1"
+			cfg.TopologyHostPath = cfg.HostOverlayPath + "/topology/topology.yaml"
+			if staged.realIMEX {
+				require.NoError(t, os.MkdirAll(cfg.HostOverlayPath+"/driver/usr/bin", 0o755))
+				require.NoError(t, os.WriteFile(cfg.HostOverlayPath+"/driver/usr/bin/nvidia-imex.real", []byte("imex"), 0o755))
+			}
+			if staged.topology {
+				require.NoError(t, os.MkdirAll(cfg.HostOverlayPath+"/topology", 0o755))
+				require.NoError(t, os.WriteFile(cfg.TopologyHostPath, []byte("version: 1\n"), 0o600))
+			}
+
+			adjustment, ok, err := Adjust(cfg, Container{
+				Name:      computeDomainContainerName,
+				Namespace: "nvidia",
+				PodLabels: map[string]string{computeDomainLabel: "domain-uid"},
+			})
+
+			require.Error(t, err)
+			require.False(t, ok)
+			require.Empty(t, adjustment)
+		})
+	}
 }
 
 func TestAdjustSkipsOptOutExcludedNamespaceAndExistingMount(t *testing.T) {
@@ -105,7 +226,7 @@ func TestAdjustSkipsOptOutExcludedNamespaceAndExistingMount(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			adjustment, ok := Adjust(cfg, container)
+			adjustment, ok := requireAdjust(t, cfg, container)
 			require.False(t, ok)
 			require.Empty(t, adjustment)
 		})
@@ -120,6 +241,6 @@ func TestEmptyExclusionListExcludesNothing(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.ExcludedNamespaces = nil
 
-	_, ok := Adjust(cfg, Container{Namespace: "kube-system"})
+	_, ok := requireAdjust(t, cfg, Container{Namespace: "kube-system"})
 	require.True(t, ok)
 }

@@ -17,18 +17,25 @@ import (
 )
 
 // Adjust returns what to add to a container, or ok=false when the container
-// should be left exactly as authored.
+// should be left exactly as authored. An error is reserved for a recognized
+// ComputeDomain daemon whose node prerequisites are incomplete; rejecting that
+// CreateContainer request lets kubelet retry after the node agent converges.
 //
 // The steps run in a fixed order, each contributing to the same adjustment.
-// None of them can fail, which is why there is no error to return.
-func Adjust(cfg Config, container Container) (Adjustment, bool) {
+func Adjust(cfg Config, container Container) (Adjustment, bool, error) {
 	cfg = withDefaults(cfg)
 	if reason, skipped := skip(cfg, container); skipped {
 		zap.L().Debug("skipping container injection", zap.String("namespace", container.Namespace), zap.String("reason", reason))
-		return Adjustment{}, false
+		return Adjustment{}, false, nil
 	}
 
 	var adjustment Adjustment
+	if computeDomainDaemon(container) {
+		if err := adjustComputeDomain(cfg, container, &adjustment); err != nil {
+			return Adjustment{}, false, err
+		}
+		return adjustment, true, nil
+	}
 	mountOverlay(cfg, &adjustment)
 	setEnvironment(cfg, container, &adjustment)
 	attachGPUs(cfg, container, &adjustment)
@@ -39,7 +46,7 @@ func Adjust(cfg Config, container Container) (Adjustment, bool) {
 		zap.Int("mounts", len(adjustment.Mounts)),
 		zap.Int("devices", len(adjustment.Devices)))
 
-	return adjustment, true
+	return adjustment, true, nil
 }
 
 // skip reports whether the container must be left exactly as authored, and why.
@@ -81,13 +88,8 @@ func skip(cfg Config, container Container) (reason string, ok bool) {
 // below it immutable; the order matters, since the overlay would cover this
 // mount if it came second.
 func mountOverlay(cfg Config, adjustment *Adjustment) {
+	mountReadOnlyOverlay(cfg, adjustment)
 	adjustment.Mounts = append(adjustment.Mounts,
-		Mount{
-			Source:      cfg.HostOverlayPath,
-			Destination: cfg.ContainerOverlayPath,
-			Type:        "bind",
-			Options:     []string{"rbind", "ro", "nosuid", "nodev"},
-		},
 		Mount{
 			Source:      filepath.Join(cfg.HostOverlayPath, configRelPath),
 			Destination: filepath.Join(cfg.ContainerOverlayPath, configRelPath),
@@ -95,4 +97,13 @@ func mountOverlay(cfg Config, adjustment *Adjustment) {
 			Options:     []string{"rbind", "rw", "nosuid", "nodev"},
 		},
 	)
+}
+
+func mountReadOnlyOverlay(cfg Config, adjustment *Adjustment) {
+	adjustment.Mounts = append(adjustment.Mounts, Mount{
+		Source:      cfg.HostOverlayPath,
+		Destination: cfg.ContainerOverlayPath,
+		Type:        "bind",
+		Options:     []string{"rbind", "ro", "nosuid", "nodev"},
+	})
 }

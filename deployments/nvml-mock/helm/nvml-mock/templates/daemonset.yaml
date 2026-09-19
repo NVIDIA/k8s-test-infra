@@ -88,6 +88,11 @@ spec:
             - name: IMEX_CAPS_MAJOR
               value: "{{ .Values.imex.mockChannels.capsMajor }}"
             {{- end }}
+            {{- if .Values.imex.userspace.enabled }}
+            # Opt-in node-provided userspace for ComputeDomain simulation.
+            - name: IMEX_USERSPACE_ENABLED
+              value: "true"
+            {{- end }}
             # Drives both the IB tree the agent renders and the tier the
             # LD_PRELOAD shims operate at, so the two can never disagree.
             - name: MOCK_IB

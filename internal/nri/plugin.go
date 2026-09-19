@@ -90,7 +90,10 @@ func (p *Plugin) CreateContainer(_ context.Context, pod *api.PodSandbox, contain
 	// alive, so nothing else notices it.
 	defer p.health.begin()()
 
-	adjustment, ok := inject.Adjust(p.cfg.Inject, containerFromNRI(pod, container))
+	adjustment, ok, err := inject.Adjust(p.cfg.Inject, containerFromNRI(pod, container))
+	if err != nil {
+		return nil, nil, fmt.Errorf("adjust container %s/%s: %w", pod.GetName(), container.GetName(), err)
+	}
 	if !ok {
 		zap.L().Debug("container left unmodified", zap.String("pod", pod.Name), zap.String("container", container.Name))
 		return nil, nil, nil

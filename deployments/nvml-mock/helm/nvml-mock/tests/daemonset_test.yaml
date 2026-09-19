@@ -114,6 +114,26 @@ tests:
             name: GPU_COUNT
             value: "4"
 
+  - it: should not enable IMEX userspace downloads by default
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: IMEX_USERSPACE_ENABLED
+            value: "true"
+
+  - it: should enable node-staged IMEX userspace explicitly
+    set:
+      imex:
+        userspace:
+          enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: IMEX_USERSPACE_ENABLED
+            value: "true"
+
   - it: should set default DRIVER_VERSION for non-Blackwell profile
     set:
       gpu:
