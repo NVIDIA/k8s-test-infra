@@ -28,10 +28,16 @@ func Adjust(cfg Config, container Container) (Adjustment, bool) {
 		return Adjustment{}, false
 	}
 
+	selected := selectSurfaces(cfg, container)
+	if !selected.any() {
+		zap.L().Debug("skipping container injection",
+			zap.String("namespace", container.Namespace),
+			zap.String("reason", "no allocated or explicitly requested devices"))
+		return Adjustment{}, false
+	}
+
 	var adjustment Adjustment
-	mountOverlay(cfg, &adjustment)
-	setEnvironment(cfg, container, &adjustment)
-	attachGPUs(cfg, container, &adjustment)
+	adjustSelectedSurfaces(cfg, container, selected, &adjustment)
 	attachIMEXChannels(cfg, container, &adjustment)
 
 	zap.L().Debug("injecting container",
@@ -40,6 +46,55 @@ func Adjust(cfg Config, container Container) (Adjustment, bool) {
 		zap.Int("devices", len(adjustment.Devices)))
 
 	return adjustment, true
+}
+
+type selectedSurfaces struct {
+	gpuAllocated bool
+	allGPUs      bool
+	infiniBand   bool
+	imexChannels bool
+}
+
+func selectSurfaces(cfg Config, container Container) selectedSurfaces {
+	return selectedSurfaces{
+		gpuAllocated: hasAllocatedGPU(container),
+		allGPUs:      container.annotated(cfg.DeviceAnnotation, "true"),
+		infiniBand: hasAllocatedInfiniBand(container) ||
+			container.annotated(cfg.InfiniBandAnnotation, "true"),
+		imexChannels: container.annotated(cfg.ImexChannelAnnotation, "true"),
+	}
+}
+
+func (s selectedSurfaces) gpu() bool {
+	return s.gpuAllocated || s.allGPUs
+}
+
+func (s selectedSurfaces) any() bool {
+	return s.gpu() || s.infiniBand || s.imexChannels
+}
+
+func adjustSelectedSurfaces(cfg Config, container Container, selected selectedSurfaces, adjustment *Adjustment) {
+	// IMEX is independently gated. A channel-only container needs the channel
+	// nodes, not the GPU driver overlay: mounting the overlay would make mock
+	// NVML interpret the absence of /dev/nvidiaN as permission to enumerate the
+	// entire node.
+	if selected.gpu() || selected.infiniBand {
+		mountOverlay(cfg, adjustment)
+		setEnvironment(cfg, container, selected.gpu(), selected.infiniBand, adjustment)
+	}
+	if selected.gpu() {
+		attachGPUs(cfg, container, adjustment)
+		attachAllocatedGPUControls(cfg, container, adjustment)
+	}
+}
+
+func hasAllocatedInfiniBand(container Container) bool {
+	for _, device := range container.Devices {
+		if filepath.Dir(device.Path) == "/dev/infiniband" {
+			return true
+		}
+	}
+	return false
 }
 
 // skip reports whether the container must be left exactly as authored, and why.
@@ -67,9 +122,9 @@ func skip(cfg Config, container Container) (reason string, ok bool) {
 // mountOverlay binds the staged mock driver tree into the container, read-only
 // except for the config directory.
 //
-// This is the one step with no opt-in gate: the shims, the mock NVML config and
-// the IB sysfs tree all live under this path, so every later step describes
-// something reachable only through it.
+// Eligibility is decided before this function runs. The overlay is mounted for
+// a selected GPU or InfiniBand surface, never merely because the container
+// happens to run on a simulated node.
 //
 // The config directory is writable because the container writes back through
 // it: the mock serves `nvidia-smi --gpu-reset` by clearing the device's bucket

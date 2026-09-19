@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// overlayMount is the one mount every adjusted container gets, whatever the
-// opt-ins say.
+// overlayMount is the driver tree delivered to an allocated or explicitly
+// all-GPU container.
 func overlayMount() Mount {
 	return Mount{
 		Source:      "/var/lib/nvml-mock",
@@ -30,12 +30,12 @@ func configMount() Mount {
 	}
 }
 
-func TestAdjustMountsTheOverlayForAPlainContainer(t *testing.T) {
+func TestAdjustLeavesAPlainContainerUntouched(t *testing.T) {
 	t.Parallel()
 
 	adjustment, ok := Adjust(DefaultConfig(), Container{Namespace: "default"})
-	require.True(t, ok)
-	require.Contains(t, adjustment.Mounts, overlayMount())
+	require.False(t, ok)
+	require.Empty(t, adjustment)
 }
 
 // `nvidia-smi --gpu-reset` clears the device's bucket from overrides.yaml, which
@@ -46,7 +46,7 @@ func TestAdjustMountsTheOverlayForAPlainContainer(t *testing.T) {
 func TestAdjustMountsConfigDirWritableOverReadOnlyOverlay(t *testing.T) {
 	t.Parallel()
 
-	adjustment, ok := Adjust(DefaultConfig(), Container{Namespace: "default"})
+	adjustment, ok := Adjust(DefaultConfig(), deviceOptIn())
 	require.True(t, ok)
 	require.Contains(t, adjustment.Mounts, configMount())
 
@@ -67,14 +67,18 @@ func TestAdjustMountsConfigDirWritableOverReadOnlyOverlay(t *testing.T) {
 
 // An unannotated container gets the overlay and the environment but nothing
 // else: both device paths are opt-in, so the default must stay empty.
-func TestAdjustWithoutOptInsDeliversNoDevices(t *testing.T) {
+func TestAdjustAllocatedGPUReceivesOverlayWithoutWideningGPUSet(t *testing.T) {
 	t.Parallel()
 
-	adjustment, ok := Adjust(DefaultConfig(), Container{Namespace: "default"})
+	adjustment, ok := Adjust(DefaultConfig(), Container{
+		Namespace: "default",
+		Devices:   []Device{{Path: "/dev/nvidia3"}},
+	})
 	require.True(t, ok)
 	require.Empty(t, adjustment.Devices)
 	require.Empty(t, adjustment.CDIDevices)
 	require.NotEmpty(t, adjustment.Env)
+	require.Contains(t, adjustment.Mounts, overlayMount())
 }
 
 func TestAdjustSkipsOptOutExcludedNamespaceAndExistingMount(t *testing.T) {
@@ -120,6 +124,48 @@ func TestEmptyExclusionListExcludesNothing(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.ExcludedNamespaces = nil
 
-	_, ok := Adjust(cfg, Container{Namespace: "kube-system"})
+	_, ok := Adjust(cfg, Container{Namespace: "kube-system", Devices: []Device{{Path: "/dev/nvidia0"}}})
 	require.True(t, ok)
+}
+
+func TestAdjustIMEXOnlyDoesNotExposeGPUOverlay(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+	cfg.ImexChannelHostPath = stageDeviceNodes(t, "channel0")
+
+	adjustment, ok := Adjust(cfg, Container{
+		Namespace:      "default",
+		PodAnnotations: map[string]string{cfg.ImexChannelAnnotation: "true"},
+	})
+	require.True(t, ok)
+	require.Empty(t, adjustment.Mounts)
+	require.Empty(t, adjustment.Env)
+	require.Empty(t, adjustment.CDIDevices)
+	require.Len(t, adjustment.Devices, 1)
+}
+
+func TestAdjustRecognizesAllocatedInfiniBandDeviceWithoutExposingGPUs(t *testing.T) {
+	t.Parallel()
+
+	adjustment, ok := Adjust(DefaultConfig(), Container{
+		Namespace: "default",
+		Devices:   []Device{{Path: "/dev/infiniband/uverbs0"}},
+	})
+	require.True(t, ok)
+	require.Contains(t, adjustment.Mounts, overlayMount())
+	require.Contains(t, adjustment.Env, "MOCK_IB=full")
+	require.Contains(t, adjustment.Env, "MOCK_NVML_VISIBLE_DEVICES=none")
+	require.Empty(t, adjustment.Devices)
+}
+
+func TestAdjustDoesNotMistakeControlNodeForGPUAllocation(t *testing.T) {
+	t.Parallel()
+
+	adjustment, ok := Adjust(DefaultConfig(), Container{
+		Namespace: "default",
+		Devices:   []Device{{Path: "/dev/nvidiactl"}},
+	})
+	require.False(t, ok)
+	require.Empty(t, adjustment)
 }

@@ -14,8 +14,13 @@ is a summary so that `helm show readme` stays useful.
 
 ## Install
 
+Mokka uses containerd NRI to inject its mock driver stack into workload
+containers. Enable the runtime's NRI plugin at `/var/run/nri/nri.sock` first;
+the published `ghcr.io/nvidia/mokka-kind-node` image is already configured.
+
 ```bash
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock
+helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  --namespace mokka --create-namespace
 ```
 
 ## GPU profiles
@@ -50,7 +55,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 | `nodeAgent.kernelLog` | Announce injected Xids on the node's `/dev/kmsg` (off; makes the agent privileged) |
 | `nodeLabels` | Labels applied to nodes running the mock |
 | `allocationWatcher` | Tracks device-plugin allocations for utilization simulation |
-| `nri` | Node-wide NRI injection (see MEP-0002) |
+| `nri` | Default workload injection through containerd NRI (see MEP-0002) |
 | `topology` | Multi-node and multi-GPU interconnect layout |
 | `infiniband` | Mock IB devices and counters |
 | `imex`, `fabricmanager` | IMEX and fabric-manager simulation |

@@ -10,6 +10,14 @@
 #   - make cluster-create
 #   - nvml-mock deployed first (Tilt handles ordering via resource_deps)
 
+# GPU Operator operands are node-management consumers: the validator, device
+# plugin, GFD, and DCGM exporter must inspect the complete simulated inventory.
+# Allocation-aware NRI deliberately leaves an unannotated, unallocated
+# container untouched.
+daemonsets:
+  annotations:
+    nvml-mock.nvidia.com/devices: "true"
+
 # Driver is replaced by nvml-mock chart — no real kernel module needed.
 driver:
   enabled: false
@@ -65,8 +73,8 @@ devicePlugin:
 #
 # Set here only because this overlay drives the CDI path, where the toolkit
 # resolving nvidia.com/gpu applies the spec's mounts and drops its env (#747).
-# With nri.enabled the plugin injects GFD_MACHINE_TYPE_FILE itself and no
-# override is needed.
+# The default NRI plugin injects GFD_MACHINE_TYPE_FILE itself. Keep the
+# override for the GPU Operator's CDI path, where the toolkit can replace it.
 gfd:
   enabled: true
   env:

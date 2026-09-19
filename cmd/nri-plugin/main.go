@@ -207,6 +207,12 @@ func gpuFlags(defaults nri.Config) []cli.Flag {
 func imexChannelFlags(defaults nri.Config) []cli.Flag {
 	return []cli.Flag{
 		&cli.StringFlag{
+			Name:    "infiniband-annotation",
+			Value:   defaults.Inject.InfiniBandAnnotation,
+			Sources: cli.EnvVars("MOKKA_NRI_INFINIBAND_ANNOTATION"),
+			Usage:   "pod annotation key; value true enables the mock InfiniBand userspace surface",
+		},
+		&cli.StringFlag{
 			Name:    "imex-channel-annotation",
 			Value:   defaults.Inject.ImexChannelAnnotation,
 			Sources: cli.EnvVars("MOKKA_NRI_IMEX_CHANNEL_ANNOTATION"),
@@ -247,6 +253,7 @@ func configFrom(cmd *cli.Command) (nri.Config, error) {
 			DeviceAnnotation:      cmd.String("device-annotation"),
 			ImexChannelAnnotation: cmd.String("imex-channel-annotation"),
 			ImexChannelHostPath:   cmd.String("imex-channel-host-path"),
+			InfiniBandAnnotation:  cmd.String("infiniband-annotation"),
 			ExcludedNamespaces:    cmd.StringSlice("excluded-namespaces"),
 			Shims:                 cmd.StringSlice("ld-preload-shims"),
 		},

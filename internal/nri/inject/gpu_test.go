@@ -97,6 +97,10 @@ func TestAdjustSuppressesDeviceInjectionWhenDevicePluginServedContainer(t *testi
 			container:       Container{CDIDevices: []string{"nvidia.com/gpu=0"}},
 			wantSuppression: true,
 		},
+		"DRA driver already supplied a claim cdi device": {
+			container:       Container{CDIDevices: []string{"k8s.gpu.nvidia.com/claim=claim-uid-gpu-0"}},
+			wantSuppression: true,
+		},
 		// Discrimination: a container carrying an unrelated device must still get
 		// the full opt-in injection, otherwise the guard is a constant.
 		"unrelated device node does not suppress": {
@@ -127,8 +131,15 @@ func TestAdjustSuppressesDeviceInjectionWhenDevicePluginServedContainer(t *testi
 			require.True(t, ok, "the container must still be adjusted; only the device list is suppressed")
 
 			if test.wantSuppression {
-				require.Empty(t, adjustment.Devices,
-					"device plugin already served this container, so the plugin must not add device nodes")
+				if hasRawAllocatedGPU(container) {
+					require.Equal(t, []Device{
+						{HostPath: filepath.Join(deviceRoot, "nvidiactl"), Path: "/dev/nvidiactl"},
+					}, adjustment.Devices,
+						"raw allocation gains only the common control node, never another GPU")
+				} else {
+					require.Empty(t, adjustment.Devices,
+						"CDI allocation is complete and must not receive raw device nodes")
+				}
 			} else {
 				require.ElementsMatch(t, []Device{
 					{HostPath: filepath.Join(deviceRoot, "nvidia0"), Path: "/dev/nvidia0"},
@@ -285,6 +296,7 @@ func TestAdjustCDIModeStillSuppressesWhenDevicePluginServedContainer(t *testing.
 			Devices: []Device{{HostPath: "/var/lib/nvml-mock/driver/dev/nvidia0", Path: "/dev/nvidia0"}},
 		},
 		"cdi device from the device plugin": {CDIDevices: []string{"nvidia.com/gpu=0"}},
+		"cdi device from the DRA driver":    {CDIDevices: []string{"k8s.gpu.nvidia.com/claim=claim-uid-gpu-0"}},
 	}
 
 	for name, container := range tests {

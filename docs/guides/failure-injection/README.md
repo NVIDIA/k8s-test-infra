@@ -54,7 +54,8 @@ FGO-style labels) — failure injection doesn't need its own topology.
 
 - **A Kubernetes cluster and a valid `KUBECONFIG`.** This demo installs into
   whatever cluster your current context points at. Check yours with
-  `kubectl config current-context`.
+  `kubectl config current-context`. Its container runtime must have NRI enabled;
+  the Kind cluster created by `BUILD_LOCAL=true` is configured accordingly.
 - **A clone of this repository.** The chart is installed from the checkout, not
   from a registry.
 - [Helm 3.8 or newer](https://helm.sh/docs/intro/install/) — the floor the

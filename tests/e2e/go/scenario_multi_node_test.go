@@ -89,7 +89,7 @@ var _ = Describe("nvml-mock multi-node", Label("multi-node"), Ordered, func() {
 
 func firstReleasePod(ctx context.Context, h *harness.Harness, releaseName string) kube.PodRef {
 	GinkgoHelper()
-	selector := "app.kubernetes.io/instance=" + releaseName
+	selector := "app.kubernetes.io/instance=" + releaseName + ",app.kubernetes.io/component=daemon"
 	var name string
 	Eventually(func() (string, error) {
 		n, err := h.Kube.FirstPodName(ctx, nvmlMockNamespace, selector)

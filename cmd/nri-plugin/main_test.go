@@ -65,6 +65,7 @@ func TestUnsetFlagsFallBackToPackageDefaults(t *testing.T) {
 	require.Equal(t, defaults.Inject.HostOverlayPath, cfg.Inject.HostOverlayPath)
 	require.Equal(t, defaults.Inject.ContainerOverlayPath, cfg.Inject.ContainerOverlayPath)
 	require.Equal(t, defaults.Inject.Shims, cfg.Inject.Shims)
+	require.Equal(t, defaults.Inject.InfiniBandAnnotation, cfg.Inject.InfiniBandAnnotation)
 	require.Equal(t, inject.DeviceInjectionModeRaw, cfg.Inject.DeviceInjectionMode)
 }
 

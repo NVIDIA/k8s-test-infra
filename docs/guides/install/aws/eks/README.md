@@ -57,7 +57,8 @@ For every path, install these tools locally:
 
 You also need an EKS cluster with at least one dedicated Linux x86_64 CPU
 worker. Mokka requires privileged pods and `hostPath` volumes. The worker image
-must use containerd with Container Device Interface (CDI) enabled, and must
+must use containerd with the Node Resource Interface (NRI) and Container Device
+Interface (CDI) enabled, and must
 contain NVIDIA Container Toolkit with `nvidia-container-runtime` configured as
 the default runtime in CDI mode. A physical GPU is not required. The optional
 reference-cluster path uses AWS's accelerated AL2023 image for the runtime
@@ -149,9 +150,9 @@ done
 The workers, not the control plane, are in your VPC. The accelerated AL2023
 image already includes NVIDIA Container Toolkit and registers the NVIDIA
 runtime. After `nodeadm` writes containerd's base configuration, cloud-init
-changes the runtime from hardware-probing `auto` mode to CDI mode and restarts
-containerd. See [`terraform/main.tf`](terraform/main.tf) for the reference
-configuration.
+enables NRI, changes the runtime from hardware-probing `auto` mode to CDI mode,
+and restarts containerd. See [`terraform/main.tf`](terraform/main.tf) for the
+reference configuration.
 
 ### Authenticate and constrain access
 
@@ -226,7 +227,8 @@ Running.
 AWS's accelerated image supplies NVIDIA Container Toolkit and makes
 `nvidia-container-runtime` the containerd default. The bootstrap only forces
 CDI mode because the image's `auto` mode tries to initialize a physical GPU
-before Mokka's CDI specification can be used.
+before Mokka's CDI specification can be used. It also enables containerd NRI,
+which Mokka uses to deliver the mock stack to workload containers by default.
 
 ## 4. Install Mokka
 

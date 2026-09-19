@@ -9,37 +9,58 @@ import (
 	"strings"
 )
 
-// setEnvironment points the container's loader and the mock libraries at the
-// overlay.
-func setEnvironment(cfg Config, container Container, adjustment *Adjustment) {
+// setEnvironment points the container's loader and the selected mock surfaces
+// at the overlay. GPU and InfiniBand eligibility are independent.
+func setEnvironment(cfg Config, container Container, gpu, infiniband bool, adjustment *Adjustment) {
 	env := newEnvSet(container.Env)
 
 	env.prepend("PATH", filepath.Join(cfg.ContainerOverlayPath, "driver/usr/bin"))
 	env.prepend("LD_LIBRARY_PATH", filepath.Join(cfg.ContainerOverlayPath, "driver/usr/lib64"))
 	env.appendList("LD_PRELOAD", shimPaths(cfg))
-	env.setDefault("MOCK_NVML_CONFIG", filepath.Join(cfg.ContainerOverlayPath, configRelPath, "config.yaml"))
-	env.setDefault("MOCK_IB", "full")
-	env.setDefault("MOCK_IB_ROOT", filepath.Join(cfg.ContainerOverlayPath, "ib"))
-	env.setDefault("MOCK_IB_PING_SOCKET", filepath.Join(cfg.ContainerOverlayPath, "run/mock-ib.sock"))
-	env.setDefault("MOCK_PCI_ROOT", cfg.ContainerOverlayPath)
+	if gpu {
+		env.setDefault("MOCK_NVML_CONFIG", filepath.Join(cfg.ContainerOverlayPath, configRelPath, "config.yaml"))
+		env.setDefault("MOCK_PCI_ROOT", cfg.ContainerOverlayPath)
+	} else {
+		// The IB tools and NVML live in the same staged tree. Make an IB-only
+		// container report zero GPUs even if it invokes the staged nvidia-smi.
+		env.set("MOCK_NVML_VISIBLE_DEVICES", "none")
+	}
+	if infiniband {
+		env.setDefault("MOCK_IB", "full")
+		env.setDefault("MOCK_IB_ROOT", filepath.Join(cfg.ContainerOverlayPath, "ib"))
+		env.setDefault("MOCK_IB_PING_SOCKET", filepath.Join(cfg.ContainerOverlayPath, "run/mock-ib.sock"))
+	} else {
+		// Do not let a GPU allocation imply fabric access, even when the image
+		// authored MOCK_IB=full. The preloaded IB shims are no-ops in this mode.
+		env.set("MOCK_IB", "off")
+	}
 	// GFD derives nvidia.com/gpu.machine from this file. Its own default,
 	// /sys/class/dmi/id/product_name, is a path no mock can own: kind's node
 	// image writes "kind" there and re-binds it into every container, and hosts
 	// without DMI have no such path. Injecting it here means a mokka install
 	// labels the node correctly with no GPU Operator values override (#681).
-	env.setDefault("GFD_MACHINE_TYPE_FILE",
-		filepath.Join(cfg.ContainerOverlayPath, configRelPath, "machine-type"))
+	if gpu {
+		env.setDefault("GFD_MACHINE_TYPE_FILE",
+			filepath.Join(cfg.ContainerOverlayPath, configRelPath, "machine-type"))
+	}
 
 	// ComputeDomain topology overlay: point the mock NVML engine at the staged
 	// topology document and tell it which node this container runs on, so every
 	// mock GPU reports the node's clique / cluster UUID
 	// (nvmlDeviceGetGpuFabricInfo).
-	if topologyInjectable(cfg) {
+	if gpu && topologyInjectable(cfg) {
 		env.setDefault("NODE_NAME", cfg.NodeName)
 		env.setDefault("MOCK_TOPOLOGY_CONFIG", cfg.TopologyContainerPath)
 	}
 
 	adjustment.Env = append(adjustment.Env, env.changed()...)
+}
+
+func (e *envSet) set(key, value string) {
+	if _, ok := e.values[key]; !ok {
+		e.order = append(e.order, key)
+	}
+	e.values[key] = value
 }
 
 // envSet is the container's environment plus the edits this package makes to

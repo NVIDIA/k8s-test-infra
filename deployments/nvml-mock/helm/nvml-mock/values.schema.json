@@ -190,9 +190,13 @@
     "nri": {
       "type": "object",
       "additionalProperties": true,
-      "description": "Node-wide ambient injection via containerd NRI.",
+      "description": "Allocation-aware mock driver injection via containerd NRI.",
       "properties": {
-        "enabled": { "type": "boolean" },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Deploy the containerd NRI plugin. Enabled by default because this is Mokka's workload-injection path; disable only for runtimes without NRI or deliberately uninjected tests."
+        },
         "logging": {
           "type": "object",
           "additionalProperties": false,
@@ -236,6 +240,7 @@
         "deviceInjectionMode": { "type": "string", "enum": ["raw", "cdi"] },
         "cdiSpecDir": { "type": "string", "minLength": 1 },
         "imexChannelAnnotation": { "type": "string", "minLength": 1 },
+        "infinibandAnnotation": { "type": "string", "minLength": 1 },
         "excludedNamespaces": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 }

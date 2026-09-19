@@ -59,3 +59,8 @@ version = 2
   tolerate_missing_hugepages_controller = true
   # restrict_oom_score_adj needs to be true when running inside UserNS (rootless)
   restrict_oom_score_adj = false
+
+# NVIDIA: Mokka's default injection path registers through NRI.
+[plugins."io.containerd.nri.v1.nri"]
+  disable = false
+  socket_path = "/var/run/nri/nri.sock"

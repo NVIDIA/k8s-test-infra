@@ -47,7 +47,7 @@ make e2e                  # standalone scenario, default profile
 make e2e-dra              # DRA driver
 make e2e-gpu-operator     # GPU Operator
 make e2e-multi-node       # heterogeneous a100/t4 fleet
-make e2e-nri              # node-wide NRI injection
+make e2e-nri              # allocation-aware NRI injection
 make e2e-nfd              # NFD label provenance
 ```
 

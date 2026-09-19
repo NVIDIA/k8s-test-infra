@@ -19,7 +19,7 @@
 # Prerequisites:
 #   - the nvml-mock chart already installed (it stages the mock NVML and CUDA
 #     libraries and labels the node nvidia.com/gpu.present=true)
-#   - containerd on every node in CDI mode with the nvidia runtime handler
+#   - containerd on every node in CDI and NRI mode with the nvidia runtime handler
 #     registered; see the demo README for how to get a cluster like that
 
 # Driver is replaced by nvml-mock chart — no real kernel module needed.
@@ -80,8 +80,8 @@ devicePlugin:
 # the toolkit resolving nvidia.com/gpu applies the spec's mounts and drops its
 # env (#747). Without it GFD falls back to the host's DMI product file and
 # labels the node with the host's machine type instead of the simulated one.
-# The NRI path injects this variable itself, so a demo using nri.enabled would
-# not need the override.
+# The default NRI path injects this variable itself. This override is retained
+# for the GPU Operator's CDI path, where the toolkit can replace that env.
 gfd:
   enabled: true
   env:

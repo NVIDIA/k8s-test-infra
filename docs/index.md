@@ -38,11 +38,12 @@ kind create cluster --name mokka \
     --image ghcr.io/nvidia/mokka-kind-node:latest
 
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
-    --namespace mokka --create-namespace
+    --namespace mokka --create-namespace --wait
 ```
 
-Every node now reports mock GPUs. The [Quick Start](quickstart.md) takes it from
-here.
+Containerd NRI now delivers the mock GPU stack according to each container's
+GPU allocation. Explicitly annotated management pods can inspect the complete
+node inventory. The [Quick Start](quickstart.md) verifies that path.
 
 ## Simulation depth by area
 
@@ -107,7 +108,7 @@ topology, counters and failures are synthesised.
 -   **Do something specific**
 
     Task-oriented walkthroughs: the device plugin, DRA, the GPU Operator,
-    failure injection, node-wide injection.
+    failure injection, and runtime control.
 
     [Guides](guides/README.md)
 

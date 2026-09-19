@@ -51,7 +51,7 @@ kind create cluster --name mokka \
     --image ghcr.io/nvidia/mokka-kind-node:latest
 
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
-    --namespace mokka --create-namespace
+    --namespace mokka --create-namespace --wait
 ```
 
 Every node now reports four mock GB300 GPUs. Swap in `a100`, `b200`, `gb200`,
@@ -82,7 +82,7 @@ Visit **[our documentation website](https://nvidia.github.io/k8s-test-infra/)** 
 |-------------------------------------------------------------------------|--------------------------------------------------------------------------|
 | [Quick Start](https://nvidia.github.io/k8s-test-infra/quickstart/)      | Install and see simulated GPUs                                           |
 | [Architecture](https://nvidia.github.io/k8s-test-infra/architecture/)   | The moving parts and how the system behaves                              |
-| [Guides](https://nvidia.github.io/k8s-test-infra/guides/)                 | Device plugin, DRA, GPU Operator, failure injection, node-wide injection |
+| [Guides](https://nvidia.github.io/k8s-test-infra/guides/)                 | Device plugin, DRA, GPU Operator, failure injection, runtime control      |
 | [Configuration](https://nvidia.github.io/k8s-test-infra/configuration/) | Every profile knob                                                       |
 | [FAQ](https://nvidia.github.io/k8s-test-infra/faq/)                     | What Mokka simulates, and what it does not                               |
 

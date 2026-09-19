@@ -66,6 +66,7 @@ type Config struct {
 	// consumes them.
 	ImexChannelAnnotation string
 	ImexChannelHostPath   string
+	InfiniBandAnnotation  string
 
 	// ComputeDomain topology — NodeName gives the mock NVML engine's per-node
 	// overlay its lookup key, so every mock GPU reports the node's clique and
@@ -106,6 +107,7 @@ func DefaultConfig() Config {
 
 		ImexChannelAnnotation: "nvml-mock.nvidia.com/imex-channels",
 		ImexChannelHostPath:   filepath.Join(hostOverlay, imexChannelRelPath),
+		InfiniBandAnnotation:  "nvml-mock.nvidia.com/infiniband",
 	}
 }
 
@@ -121,6 +123,7 @@ func withDefaults(cfg Config) Config {
 	cfg.CDIDeviceName = orDefault(cfg.CDIDeviceName, defaults.CDIDeviceName)
 	cfg.CDISpecHostPath = orDefault(cfg.CDISpecHostPath, defaults.CDISpecHostPath)
 	cfg.ImexChannelAnnotation = orDefault(cfg.ImexChannelAnnotation, defaults.ImexChannelAnnotation)
+	cfg.InfiniBandAnnotation = orDefault(cfg.InfiniBandAnnotation, defaults.InfiniBandAnnotation)
 
 	// Derived from the overlay roots, so they resolve against whatever those
 	// ended up being rather than against the packaged defaults.

@@ -51,7 +51,7 @@ type podResourcesLister struct {
 // returns the node's complete current allocation, so a reader that misses a
 // window recovers on the next poll rather than carrying a stale delta forever.
 // It also reports device-plugin, DRA and NRI allocations alike, and does not
-// depend on nri.enabled, which ships false.
+// depend on whether nri.enabled is overridden.
 //
 // The dial blocks so a missing or unmountable socket fails at startup. The
 // alternative — a lazy connection — would leave the watcher reporting an idle
