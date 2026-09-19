@@ -4,7 +4,7 @@
 # Loadable Tiltfile for the compute-domain scenario.
 #
 # Scenario, not consumer: compute-domain reconfigures the nvml-mock stack
-# itself (image overlay, gb200 profile, topology ConfigMap, 4-worker
+# itself (gb200 profile, topology ConfigMap, 4-worker
 # cluster) rather than sitting on top of it. So it exports build/install
 # the way local/nvml_mock.tiltfile does — the root Tiltfile calls
 # compute_domain.install() as the BASE install path when --compute-domain
@@ -17,7 +17,7 @@
 # Tilt's model.
 #
 # Exports:
-#   build_images(with_dra) — build 2 images (or 3 if with_dra).
+#   build_images(nvmlmock_image) — build the single Mokka image unless supplied.
 #   install(active_consumers) — install one nvml-mock helm release
 #     with the topology overlay + scenario triggers. Returns ['nvml-mock'].
 #
@@ -26,30 +26,27 @@
 load('ext://helm_resource', 'helm_resource')
 load('ext://k8s_attach', 'k8s_attach')
 
-_BASE_IMAGE         = 'nvml-mock:compute-domain'
-_DEMO_IMAGE         = 'nvml-mock:compute-domain-imex'
-# Exported (no leading underscore): the root Tiltfile loads this so it
-# can pass image_deps=[DAEMON_IMAGE] into dra_install() when composing
-# --compute-domain --dra. That both drives Tilt's build of this image
-# and pins the DRA chart's image.repository/tag to it via image_keys.
-DAEMON_IMAGE        = 'nvml-mock:compute-domain-daemon'
-_CHART              = 'deployments/nvml-mock/helm/nvml-mock'
-_MOCK_DOCKERFILE    = 'deployments/nvml-mock/Dockerfile'
-_OVERLAY_DOCKERFILE = 'deployments/nvml-mock/Dockerfile.compute-domain-daemon'
+_BASE_IMAGE      = 'nvml-mock:compute-domain'
+_CHART           = 'deployments/nvml-mock/helm/nvml-mock'
+_MOCK_DOCKERFILE = 'deployments/nvml-mock/Dockerfile'
 
 
-def build_images(with_dra):
-    """Build the compute-domain image trio.
+def _split_image(ref):
+    if '@' in ref:
+        fail('--nvmlmock-image=%s is a digest ref; the nvml-mock chart only supports repo:tag' % ref)
+    colon = ref.rfind(':')
+    if colon < 0 or colon < ref.rfind('/'):
+        fail('--nvmlmock-image=%s must be repo:tag' % ref)
+    return ref[:colon], ref[colon+1:]
 
-    Always builds the nvml-mock base image and the demo overlay (real
-    nvidia-imex + shim on top of the mock). When with_dra is True, also
-    builds the daemon overlay (real nvidia-imex + shim on top of the
-    upstream compute-domain-daemon image) that dra-driver.values.yaml
-    pins the DRA chart image to.
-    """
-    # Base nvml-mock image. Locally tagged (nvml-mock:compute-domain)
-    # rather than the ghcr.io ref used by local/nvml_mock.tiltfile — the
-    # demo overlay's NVML_MOCK_IMAGE build-arg targets this exact ref.
+def build_images(nvmlmock_image=''):
+    """Build the single Mokka image used by the compute-domain scenario."""
+    if nvmlmock_image:
+        return
+    # Locally tagged rather than the ghcr.io ref used by
+    # local/nvml_mock.tiltfile so the scenario is isolated from other Tilt
+    # sessions. IMEX userspace is acquired on the node at runtime; neither
+    # Mokka nor the upstream DRA image needs a capability-specific variant.
     # Same Dockerfile as local/nvml_mock.tiltfile, so this list has to carry
     # the same trees.
     docker_build(
@@ -68,45 +65,7 @@ def build_images(with_dra):
         ],
     )
 
-    # Demo overlay: real nvidia-imex + nvidia-imex-shim on top of the
-    # mock. Powers the nvml-mock DaemonSet pods (image_keys pin below)
-    # so kubectl exec workflows (check-fabric, IMEX daemon start/kill)
-    # find the real binaries at their canonical paths.
-    docker_build(
-        _DEMO_IMAGE,
-        context='.',
-        dockerfile=_OVERLAY_DOCKERFILE,
-        target='demo',
-        build_args={'NVML_MOCK_IMAGE': _BASE_IMAGE},
-        only=[
-            'go.mod',
-            'go.sum',
-            'shims/nvidia-imex-shim/',
-        ],
-    )
-
-    if with_dra:
-        # Daemon overlay: real nvidia-imex + nvidia-imex-shim on top of
-        # the upstream DRA compute-domain-daemon image. Pinned by
-        # local/compute-domain/dra-driver.values.yaml so the DRA
-        # driver's compute-domain-daemon pods run the shim'd real IMEX
-        # in NO-GPU mode instead of the GPU-required upstream binary.
-        # Select the named daemon stage explicitly so later stage additions
-        # cannot silently change this build's output.
-        docker_build(
-            DAEMON_IMAGE,
-            context='.',
-            dockerfile=_OVERLAY_DOCKERFILE,
-            target='daemon',
-            only=[
-                'go.mod',
-                'go.sum',
-                'shims/nvidia-imex-shim/',
-            ],
-        )
-
-
-def install(active_consumers, control_plane=False):
+def install(active_consumers, nvmlmock_image='', control_plane=False):
     """Install the nvml-mock helm release with the compute-domain topology.
 
     Returns ['nvml-mock'] so downstream consumers (dra, gpu-operator)
@@ -117,9 +76,14 @@ def install(active_consumers, control_plane=False):
     rolls the Deployment alongside the compute-domain scenario.
     """
     flags = [
+        '--create-namespace',
         '--values', 'local/compute-domain/topology.yaml',
         '--values', 'local/compute-domain/nvml-mock.values.yaml',
     ]
+
+    if nvmlmock_image:
+        repo, tag = _split_image(nvmlmock_image)
+        flags += ['--set', 'image.repository=' + repo, '--set', 'image.tag=' + tag]
 
     # Optional per-consumer overlays. Consumers with no mock-side needs
     for consumer in active_consumers:
@@ -127,8 +91,8 @@ def install(active_consumers, control_plane=False):
         if os.path.exists(overlay):
             flags += ['--values', overlay]
 
-    image_deps = [_DEMO_IMAGE]
-    image_keys = [('image.repository', 'image.tag')]
+    image_deps = [] if nvmlmock_image else [_BASE_IMAGE]
+    image_keys = [] if nvmlmock_image else [('image.repository', 'image.tag')]
     if control_plane:
         flags += [
             '--set', 'controlPlane.enabled=true',
@@ -140,6 +104,7 @@ def install(active_consumers, control_plane=False):
     helm_resource(
         'nvml-mock',
         _CHART,
+        namespace='mokka',
         image_deps=image_deps,
         image_keys=image_keys,
         flags=flags,
