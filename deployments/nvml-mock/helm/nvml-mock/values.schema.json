@@ -240,6 +240,7 @@
         "deviceInjectionMode": { "type": "string", "enum": ["raw", "cdi"] },
         "cdiSpecDir": { "type": "string", "minLength": 1 },
         "imexChannelAnnotation": { "type": "string", "minLength": 1 },
+        "infinibandAnnotation": { "type": "string", "minLength": 1 },
         "excludedNamespaces": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 }

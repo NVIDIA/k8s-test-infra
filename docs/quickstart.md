@@ -35,13 +35,25 @@ instead.
 
 ## Verify
 
-Create an ordinary workload with no GPU request, host mount, or Mokka-specific
-environment. The default NRI component supplies the mock stack when containerd
-creates it:
+The base chart does not install a scheduler-facing device plugin. For this
+first check, create an explicit management pod that asks Mokka for node-wide
+visibility without claiming a schedulable GPU:
 
 ```bash
-kubectl run mokka-check --image=debian:bookworm-slim \
-  --restart=Never --command -- nvidia-smi -L
+kubectl apply -f - <<'EOF'
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mokka-check
+  annotations:
+    nvml-mock.nvidia.com/devices: "true"
+spec:
+  restartPolicy: Never
+  containers:
+    - name: check
+      image: debian:bookworm-slim
+      command: ["nvidia-smi", "-L"]
+EOF
 kubectl wait --for=jsonpath='{.status.phase}'=Succeeded pod/mokka-check \
   --timeout=120s
 kubectl logs mokka-check
@@ -89,7 +101,7 @@ real software at it.
 |---|---|
 | Schedule GPU workloads with the device plugin, DRA or the GPU Operator | [Installation](helm-chart.md) |
 | Break a GPU and watch consumers react | [Failure injection](guides/failure-injection/README.md) |
-| Understand how ordinary pods receive the mock | [NRI Plugin](components/nri-plugin.md) |
+| Understand allocation-aware delivery and the management annotation | [NRI Plugin](components/nri-plugin.md) |
 | Change temperature, power or health on a running node | [Runtime control](nvml-mock-ctl.md) |
 | Understand what is actually happening | [Architecture](architecture.md) |
 

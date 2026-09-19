@@ -78,6 +78,9 @@ tests:
           path: spec.template.spec.containers[0].args
           content: --node-name=$(NODE_NAME)
       - contains:
+          path: spec.template.spec.containers[0].args
+          content: --infiniband-annotation=nvml-mock.nvidia.com/infiniband
+      - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: NODE_NAME
@@ -231,6 +234,16 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: --device-host-path=/custom/nvml-mock/driver/dev
+
+  - it: should pass a custom InfiniBand annotation to the plugin
+    set:
+      nri:
+        enabled: true
+        infinibandAnnotation: example.com/infiniband
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --infiniband-annotation=example.com/infiniband
 
   # A probe that cannot reach the plugin is worse than no probe: the pod never
   # goes Ready and the DaemonSet stalls. These pin the three values that have

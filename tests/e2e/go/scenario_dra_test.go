@@ -81,9 +81,12 @@ var _ = Describe("nvml-mock DRA", Label("dra"), Ordered, func() {
 				assertions.WaitResourceSlicePerNode(ctx, h.Kube, p.ExpectedGPUs(), config.ReadyTimeout(), config.PollInterval())
 			})
 
-			It("schedules a pod with a DRA ResourceClaim", func(ctx SpecContext) {
+			It("schedules a pod with a DRA ResourceClaim and exposes only its claimed GPU", func(ctx SpecContext) {
 				scheduleDRAResourceClaimPod(ctx, h)
 				waitDRATestPodRunning(ctx, h)
+				visible := visibleGPUUUIDs(ctx, h, kube.PodRef{Namespace: draTestNamespace, Pod: draTestPodName})
+				Expect(visible).To(HaveLen(1),
+					"a single DRA device request should expose exactly one GPU, not the node inventory")
 			})
 		})
 	}
@@ -143,7 +146,7 @@ spec:
   restartPolicy: Never
   containers:
     - name: app
-      image: busybox:1.36
+      image: debian:bookworm-slim
       command: ["sleep", "300"]
       resources:
         claims:

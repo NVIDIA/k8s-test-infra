@@ -95,7 +95,7 @@ allocate GPUs need more:
 
 | Testing this | Also needs |
 |---|---|
-| Mokka, including injection into ordinary workloads | containerd with NRI enabled |
+| Mokka, including allocation-aware workload injection | containerd with NRI enabled |
 | The NVIDIA device plugin, DRA driver, or GPU Operator | a Kind node image with CDI enabled in containerd |
 
 The published `mokka-kind-node` image used above enables NRI and CDI and

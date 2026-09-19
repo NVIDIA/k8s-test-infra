@@ -2,8 +2,9 @@
 
 The binary behind the NRI DaemonSet. It registers with containerd over the
 [NRI](https://github.com/containerd/nri) socket, subscribes to
-`CreateContainer` only, and edits containers as they are created so an
-unmodified workload sees mock GPUs.
+`CreateContainer` only, and edits eligible containers as they are created so an
+allocated workload receives Mokka's userspace driver without gaining devices
+outside its allocation.
 
 [NRI Plugin](../components/nri-plugin.md) covers what it decides and why — the
 two injection layers, when a container is left alone, how it composes with the
@@ -13,8 +14,8 @@ The chart renders this DaemonSet by default as a separate component from the
 main nvml-mock DaemonSet. Its pod runs as root with
 `allowPrivilegeEscalation: false` and no service account token, and mounts three
 hostPaths — the NRI socket directory read-write, and the overlay and CDI spec
-directories read-only. Set `nri.enabled=false` only when the runtime does not
-support NRI or the test deliberately needs uninjected pods.
+directories read-only. Set `nri.enabled=false` when the runtime does not
+support NRI.
 
 ## Probes
 
@@ -56,13 +57,14 @@ Every flag also reads an environment variable; the flag wins when both are set.
 | `--node-name` | `NODE_NAME` | empty | Enables ComputeDomain topology injection when a topology document is staged in the overlay |
 | `--topology-host-path` | `MOKKA_NRI_TOPOLOGY_HOST_PATH` | `<overlay-host-path>/topology/topology.yaml` | Host path checked for the staged topology document |
 | `--topology-mount-path` | `MOKKA_NRI_TOPOLOGY_MOUNT_PATH` | `<overlay-mount-path>/topology/topology.yaml` | Container path injected as `MOCK_TOPOLOGY_CONFIG` |
-| `--device-annotation` | `MOKKA_NRI_DEVICE_ANNOTATION` | `nvml-mock.nvidia.com/devices` | Pod annotation key; value `true` adds `/dev/nvidia*` nodes |
+| `--device-annotation` | `MOKKA_NRI_DEVICE_ANNOTATION` | `nvml-mock.nvidia.com/devices` | Pod annotation key; value `true` explicitly exposes all mock GPUs without scheduler accounting |
 | `--device-host-path` | `MOKKA_NRI_DEVICE_HOST_PATH` | `<overlay-host-path>/driver/dev` | Host path containing the mock `/dev/nvidia*` nodes |
 | `--device-injection-mode` | `MOKKA_NRI_DEVICE_INJECTION_MODE` | `raw` | `raw` (device nodes) or `cdi` (CDI reference). Any other value is rejected at startup |
 | `--cdi-device-name` | `MOKKA_NRI_CDI_DEVICE_NAME` | `nvml-mock.nvidia.com/gpu=all` | Fully qualified CDI device injected in `cdi` mode |
 | `--cdi-spec-host-path` | `MOKKA_NRI_CDI_SPEC_HOST_PATH` | `/var/run/cdi/nvml-mock-nri.yaml` | Spec checked before a CDI reference is emitted; a missing spec falls back to raw injection |
 | `--imex-channel-annotation` | `MOKKA_NRI_IMEX_CHANNEL_ANNOTATION` | `nvml-mock.nvidia.com/imex-channels` | Pod annotation key; value `true` adds `/dev/nvidia-caps-imex-channels/*` nodes |
 | `--imex-channel-host-path` | `MOKKA_NRI_IMEX_CHANNEL_HOST_PATH` | `<overlay-host-path>/driver/dev/nvidia-caps-imex-channels` | Host path containing the mock IMEX channel nodes staged by `imex.mockChannels` |
+| `--infiniband-annotation` | `MOKKA_NRI_INFINIBAND_ANNOTATION` | `nvml-mock.nvidia.com/infiniband` | Pod annotation key; value `true` enables the mock InfiniBand userspace surface independently of GPU access |
 
 The three `<overlay-...>` derivations resolve against whatever the overlay flags
 ended up being, not against the packaged defaults. An error out of the plugin
@@ -100,6 +102,7 @@ excluded namespaces and supplying `NODE_NAME` through the downward API:
   --cdi-spec-host-path=/var/run/cdi/nvml-mock-nri.yaml \
   --imex-channel-annotation=nvml-mock.nvidia.com/imex-channels \
   --imex-channel-host-path=/var/lib/nvml-mock/driver/dev/nvidia-caps-imex-channels \
+  --infiniband-annotation=nvml-mock.nvidia.com/infiniband \
   --excluded-namespaces=<release-namespace>,kube-system \
   --node-name=$(NODE_NAME) \
   --health-addr=:8080 \
@@ -110,12 +113,13 @@ excluded namespaces and supplying `NODE_NAME` through the downward API:
 `--cdi-device-name`, the two topology flags and `--ld-preload-shims` are not
 templated, so a deployed plugin runs them at their compiled-in defaults.
 
-The opt-in a workload author writes:
+The explicit management opt-in a workload author writes:
 
 ```yaml
 metadata:
   annotations:
     nvml-mock.nvidia.com/devices: "true"
+    nvml-mock.nvidia.com/infiniband: "true"
     nvml-mock.nvidia.com/imex-channels: "true"
 ```
 

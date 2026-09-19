@@ -127,8 +127,15 @@ func TestAdjustSuppressesDeviceInjectionWhenDevicePluginServedContainer(t *testi
 			require.True(t, ok, "the container must still be adjusted; only the device list is suppressed")
 
 			if test.wantSuppression {
-				require.Empty(t, adjustment.Devices,
-					"device plugin already served this container, so the plugin must not add device nodes")
+				if hasRawAllocatedGPU(container) {
+					require.Equal(t, []Device{
+						{HostPath: filepath.Join(deviceRoot, "nvidiactl"), Path: "/dev/nvidiactl"},
+					}, adjustment.Devices,
+						"raw allocation gains only the common control node, never another GPU")
+				} else {
+					require.Empty(t, adjustment.Devices,
+						"CDI allocation is complete and must not receive raw device nodes")
+				}
 			} else {
 				require.ElementsMatch(t, []Device{
 					{HostPath: filepath.Join(deviceRoot, "nvidia0"), Path: "/dev/nvidia0"},

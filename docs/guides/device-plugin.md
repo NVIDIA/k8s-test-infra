@@ -224,4 +224,4 @@ kind delete cluster --name mokka-device-plugin
 | Every chart value | [Installation](../helm-chart.md) |
 | Node labelling and the full operand stack | [NVIDIA GPU Operator](gpu-operator.md) |
 | Claim-based allocation instead of counters | [NVIDIA DRA Driver](dra.md) |
-| How ordinary pods receive the mock | [NRI Plugin](../components/nri-plugin.md) |
+| How allocated containers receive the mock | [NRI Plugin](../components/nri-plugin.md) |

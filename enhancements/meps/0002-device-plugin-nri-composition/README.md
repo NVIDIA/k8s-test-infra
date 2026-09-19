@@ -44,6 +44,13 @@ mock-aware wiring in its spec.
 No new component is built. The change is one flag in two manifests, one
 suppression rule in `pkg/nri/nvmlmock/adjust.go`, and one e2e scenario.
 
+> **Allocation-aware NRI follow-up:** The measurements in this MEP remain
+> useful, but its original goal that a plain, unallocated pod should see every
+> GPU has been superseded. NRI now adjusts a container only when the runtime
+> presents allocation evidence or the pod explicitly requests a management
+> surface. This preserves the exact-N composition result while matching the
+> ordinary Kubernetes contract: no allocation means no GPU visibility.
+
 ## Motivation
 
 Issue #440 asks how to "compose mock device plugin advertisement with NRI
@@ -141,9 +148,11 @@ subset present. Its own comment states the intent: it "mimics real NVML
 behavior where cgroup device permissions limit which GPUs a container can see."
 
 The function returns `nil` — meaning no filtering — in two cases: when every
-node is present, and when none is. The "none present" branch is what makes the
-node-wide NRI story work, because a plain unmodified pod must still see the mock
-GPUs. It is also what makes case A report two GPUs.
+node is present, and when none is. The "none present" branch remains useful to
+node components that discover the complete simulated inventory. Workload
+containers without an allocation no longer receive the overlay, so they do not
+reach this fallback. In the measured implementation, it is also what made case
+A report two GPUs.
 
 The filter is live and unit-tested. The deployed manifest simply never triggers
 it. Case E is the proof: with `--pass-device-specs=true` the plugin delivers
@@ -183,8 +192,8 @@ direct evidence that the two paths do not coordinate.
 2. A pod with the device opt-in annotation and **no** resource request keeps
    today's behaviour: all device nodes, all GPUs visible, no scheduler capacity
    consumed.
-3. A plain pod with neither keeps today's behaviour: no device nodes, all GPUs
-   visible through the overlay. The node-wide NRI story does not regress.
+3. A plain pod with neither is left untouched: no mock overlay, loader
+   environment, or GPU devices.
 4. Scheduling stays correct on multi-node kind: capacity is per node, the
    allocated UUID set is disjoint within a node, and an over-subscribed pod
    stays `Pending`.
@@ -215,9 +224,9 @@ Compose at the device-node layer, in three changes.
    with no container runtime hook, which is exactly what a kind node is.
 
 2. **The NRI plugin stops injecting device nodes into a container the device
-   plugin already served.** It keeps injecting the overlay and the environment
-   into every container, unchanged. Only the device list is suppressed, and only
-   when the incoming container already carries GPU device nodes or CDI devices.
+   plugin already served.** It injects the overlay and environment only into
+   eligible containers. The allocated device list remains authoritative when
+   the incoming container already carries numbered GPU nodes or CDI devices.
 
 3. **One e2e scenario proves it**, co-deploying both paths for the first time.
 
@@ -241,13 +250,10 @@ GPU. Today this test cannot be written; both pods see both GPUs.
 
 ### Notes/Constraints/Caveats
 
-- **`--pass-device-specs=true` delivers only `/dev/nvidiaN`.** It does not
-  deliver `/dev/nvidiactl` or the UVM nodes; on a real node the container
-  runtime hook adds those. The mock does not need them, because
-  `detectVisibleDevicesAt` stats only `/dev/nvidia%d`. A workload that opens
-  `/dev/nvidiactl` directly will not find it. Document this; do not paper over
-  it by having the NRI plugin add the control nodes back, which would make the
-  suppression rule ambiguous.
+- **`--pass-device-specs=true` delivers only `/dev/nvidiaN`.** On a real node
+  the runtime hook also adds common control nodes. NRI completes the raw path
+  with `/dev/nvidiactl`, `/dev/nvidia-uvm`, and `/dev/nvidia-uvm-tools`, while
+  never adding another numbered GPU. CDI allocations are treated as complete.
 - **The annotation's contract narrows.** `nvml-mock.nvidia.com/devices: "true"`
   currently means "give me every device node". It comes to mean "give me every
   device node **unless** the device plugin already gave me some". A pod that
@@ -361,7 +367,7 @@ Assertions, mapped to the goals:
    the pod's `NVIDIA_VISIBLE_DEVICES`.
 2. Two such pods on one node report **different** UUIDs.
 3. A pod with the annotation and no request reports all `gpu.count` GPUs.
-4. A plain pod reports all `gpu.count` GPUs.
+4. A plain pod has no mock overlay, GPU devices, or working mock `nvidia-smi`.
 5. Over-subscribing the workers leaves the surplus pods `Pending` with
    `Insufficient nvidia.com/gpu`.
 

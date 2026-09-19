@@ -42,13 +42,16 @@ func TestAdjustWithoutImexAnnotationInjectsNoChannels(t *testing.T) {
 
 	channelRoot := stageDeviceNodes(t, "channel0")
 
-	tests := map[string]map[string]string{
-		"no annotations at all":  nil,
-		"opt-in set to false":    {"nvml-mock.nvidia.com/imex-channels": "false"},
-		"only the device opt-in": {"nvml-mock.nvidia.com/devices": "true"},
+	tests := map[string]struct {
+		annotations  map[string]string
+		wantAdjusted bool
+	}{
+		"no annotations at all":  {annotations: nil, wantAdjusted: false},
+		"opt-in set to false":    {annotations: map[string]string{"nvml-mock.nvidia.com/imex-channels": "false"}, wantAdjusted: false},
+		"only the device opt-in": {annotations: map[string]string{"nvml-mock.nvidia.com/devices": "true"}, wantAdjusted: true},
 	}
 
-	for name, annotations := range tests {
+	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -56,8 +59,8 @@ func TestAdjustWithoutImexAnnotationInjectsNoChannels(t *testing.T) {
 			cfg.ImexChannelHostPath = channelRoot
 			cfg.DeviceHostPath = t.TempDir()
 
-			adjustment, ok := Adjust(cfg, Container{Namespace: "default", PodAnnotations: annotations})
-			require.True(t, ok)
+			adjustment, ok := Adjust(cfg, Container{Namespace: "default", PodAnnotations: test.annotations})
+			require.Equal(t, test.wantAdjusted, ok)
 			require.Empty(t, adjustment.Devices)
 		})
 	}
@@ -65,7 +68,8 @@ func TestAdjustWithoutImexAnnotationInjectsNoChannels(t *testing.T) {
 
 // TestAdjustImexChannelOptInFailsOpenWhenTreeMissing mirrors the device path:
 // imex.mockChannels is off by default, so an annotation on a node that never
-// staged channels must degrade to overlay-only rather than block the pod.
+// staged channels must degrade to an empty adjustment rather than block the
+// pod. A channel request by itself must not expose the GPU overlay.
 func TestAdjustImexChannelOptInFailsOpenWhenTreeMissing(t *testing.T) {
 	t.Parallel()
 
@@ -78,7 +82,8 @@ func TestAdjustImexChannelOptInFailsOpenWhenTreeMissing(t *testing.T) {
 	})
 	require.True(t, ok)
 	require.Empty(t, adjustment.Devices)
-	require.Contains(t, adjustment.Mounts, overlayMount())
+	require.Empty(t, adjustment.Mounts)
+	require.Empty(t, adjustment.Env)
 }
 
 // TestAdjustImexChannelsSurviveDevicePluginAllocation pins the composition rule

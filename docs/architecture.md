@@ -100,7 +100,7 @@ three delivery paths and uses whichever the consumer's runtime allows:
 |---|---|---|
 | hostPath mounts | anything, including Go binaries | the only approach that survives direct syscalls |
 | `LD_PRELOAD` shims | C tools — `lspci`, `ibv_devinfo` | rewrites libc path calls, so tools read the mock tree at real paths |
-| NRI injection | pods with no GPU request | adds devices and mounts at container-create time, with no pod spec change |
+| NRI injection | containers with an allocated GPU or explicit management annotation | adds the mock userspace driver at container-create time without widening the allocated device set |
 
 ## How the system behaves
 
@@ -148,7 +148,7 @@ being real.
 |---|---|
 | How a node gets its simulated surfaces | [Node Daemon](components/node-daemon.md) |
 | How consumers are made to see fake hardware | [Libraries and Shims](components/libraries-and-shims.md) |
-| How a pod gets GPUs without asking | [NRI Plugin](components/nri-plugin.md) |
+| How allocated and management containers receive the mock | [NRI Plugin](components/nri-plugin.md) |
 | Every knob in the profile | [Configuration](configuration.md) |
 | Deploying and shaping a cluster | [Installation](helm-chart.md) |
 | Changing state on a running node | [Runtime Control](nvml-mock-ctl.md) |
