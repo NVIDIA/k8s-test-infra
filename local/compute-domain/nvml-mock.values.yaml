@@ -41,5 +41,3 @@ nri:
 imex:
   mockChannels:
     enabled: true
-  userspace:
-    enabled: true

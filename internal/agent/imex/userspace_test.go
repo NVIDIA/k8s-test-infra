@@ -81,7 +81,7 @@ func testUserspaceSimulator(t *testing.T, lock Lock, client *http.Client) (*Simu
 }
 
 func userspaceState() *agent.State {
-	return &agent.State{IMEX: agent.IMEXState{UserspaceEnabled: true}}
+	return &agent.State{IMEX: agent.IMEXState{NodeSoftwareEnabled: true}}
 }
 
 func TestUserspaceStageDownloadsCachesAndPublishes(t *testing.T) {

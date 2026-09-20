@@ -53,20 +53,20 @@ func TestCompileState_FabricState(t *testing.T) {
 	require.Positive(t, state.Fabric.LinksPerGPU)
 }
 
-func TestCompileState_IMEXUserspaceIsIndependentFromMockChannels(t *testing.T) {
+func TestCompileState_IMEXNodeSoftwareIsIndependentFromMockChannels(t *testing.T) {
 	data, err := os.ReadFile("../../../pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml")
 	require.NoError(t, err)
 
-	t.Setenv("IMEX_USERSPACE_ENABLED", "true")
+	t.Setenv("IMEX_NODE_SOFTWARE_ENABLED", "true")
 	state, err := compileState(data)
 	require.NoError(t, err)
-	require.True(t, state.IMEX.UserspaceEnabled)
+	require.True(t, state.IMEX.NodeSoftwareEnabled)
 	require.False(t, state.IMEX.Enabled)
 
 	t.Setenv("IMEX_MOCK_CHANNELS", "true")
 	state, err = compileState(data)
 	require.NoError(t, err)
-	require.True(t, state.IMEX.UserspaceEnabled)
+	require.True(t, state.IMEX.NodeSoftwareEnabled)
 	require.True(t, state.IMEX.Enabled)
 }
 

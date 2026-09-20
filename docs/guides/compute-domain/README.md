@@ -60,9 +60,10 @@ simulated GPUs before running this demo.
    explicitly delete and recreate it.
 2. Builds and loads the standard `nvml-mock:compute-domain` image. There is no
    ComputeDomain-specific image: the node agent obtains the pinned IMEX
-   archive when userspace staging is enabled. If the DRA daemon arrives before
-   IMEX and topology staging finish, Mokka rejects only that container's first
-   creation attempts; kubelet retries it after both prerequisites are present.
+   archive through the default-enabled node software staging. If the DRA daemon
+   arrives before IMEX and topology staging finish, Mokka rejects only that
+   container's first creation attempts; kubelet retries it after both
+   prerequisites are present.
 3. Installs the chart with:
 
    ```text
@@ -71,7 +72,7 @@ simulated GPUs before running this demo.
    topology.domains=<demo topology>
    nri.enabled=true
    imex.mockChannels.enabled=true
-   imex.userspace.enabled=true
+   imex.nodeSoftware.enabled=true  # chart default
    ```
 
    This renders both ConfigMaps (`nvml-mock-config` and
@@ -224,7 +225,6 @@ helm upgrade --install nvml-mock deployments/nvml-mock/helm/nvml-mock \
     --set gpu.profile=gb200 \
     --set nri.enabled=true \
     --set imex.mockChannels.enabled=true \
-    --set imex.userspace.enabled=true \
     --set imex.mockChannels.channelMajor="${IMEX_CHANNEL_MAJOR}" \
     --set imex.mockChannels.capsMajor="${IMEX_CAPS_MAJOR}" \
     --set-string updateStrategy.rollingUpdate.maxUnavailable=100% \

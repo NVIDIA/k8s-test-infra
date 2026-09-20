@@ -97,13 +97,13 @@ func (s *Simulator) Ready() bool { return s.ready.Load() }
 func (s *Simulator) Stage(ctx context.Context, state *agent.State) error {
 	s.ready.Store(false)
 	zap.L().Info("staging simulator", zap.String("simulator", name))
-	if !state.IMEX.UserspaceEnabled {
+	if !state.IMEX.NodeSoftwareEnabled {
 		if err := s.reconcileUserspace(ctx, false); err != nil {
 			return err
 		}
 	}
 
-	if !state.IMEX.Enabled && !state.IMEX.UserspaceEnabled {
+	if !state.IMEX.Enabled && !state.IMEX.NodeSoftwareEnabled {
 		s.ready.Store(true)
 		zap.L().Info("simulator staged; imex disabled", zap.String("simulator", name))
 		return nil
@@ -114,7 +114,7 @@ func (s *Simulator) Stage(ctx context.Context, state *agent.State) error {
 			return err
 		}
 	}
-	if state.IMEX.UserspaceEnabled {
+	if state.IMEX.NodeSoftwareEnabled {
 		if err := s.reconcileUserspace(ctx, true); err != nil {
 			return err
 		}

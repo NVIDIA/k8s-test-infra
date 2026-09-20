@@ -296,14 +296,14 @@
             }
           }
         },
-        "userspace": {
+        "nodeSoftware": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Downloads a pinned architecture-specific IMEX archive from NVIDIA and stages its userspace tools under Mokka's node driver root.",
+          "description": "Downloads a pinned architecture-specific IMEX archive from NVIDIA and stages its node software under Mokka's driver root.",
           "properties": {
             "enabled": {
               "type": "boolean",
-              "description": "Enable checksum-verified node-local IMEX userspace staging. Disabled installations perform no download."
+              "description": "Enable checksum-verified node-local IMEX software staging. Set false to perform no download."
             }
           }
         }

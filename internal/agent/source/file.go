@@ -236,9 +236,9 @@ func compileState(data []byte) (*agent.State, error) {
 	}
 	state.NodeShape.Network = network
 
-	// IMEX surfaces are independent opt-ins: userspace can be staged for a
-	// consumer that does not need mock channel nodes, and vice versa.
-	state.IMEX.UserspaceEnabled = os.Getenv("IMEX_USERSPACE_ENABLED") == "true"
+	// IMEX node software and mock kernel-facing channels are independent: the
+	// software can be staged for a consumer that does not need channel nodes.
+	state.IMEX.NodeSoftwareEnabled = os.Getenv("IMEX_NODE_SOFTWARE_ENABLED") == "true"
 	if os.Getenv("IMEX_MOCK_CHANNELS") == "true" {
 		state.IMEX.Enabled = true
 		state.IMEX.IMEXMajor = envIntOrDefault("IMEX_CHANNEL_MAJOR", 235)

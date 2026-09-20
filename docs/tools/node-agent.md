@@ -36,18 +36,19 @@ instead of running it in the wrong mode. Any error out of `start` prints as
 ### Inputs with no flag
 
 `GPU_COUNT`, `DRIVER_VERSION`, `NODE_NAME`, `HOSTNAME`,
-`MOCK_FABRICMANAGER_STATE_DIR`, `IMEX_USERSPACE_ENABLED` and
+`MOCK_FABRICMANAGER_STATE_DIR`, `IMEX_NODE_SOFTWARE_ENABLED` and
 `IMEX_MOCK_CHANNELS` (with the
 `IMEX_CHANNEL_MAJOR`, `IMEX_CAPS_MAJOR` and `IMEX_CHANNEL_COUNT` values it
 gates) are read where the profile is compiled into state rather than by any
 simulator, so no flag shadows them. The chart sets them — see
 [Configuration](../configuration.md).
 
-`IMEX_USERSPACE_ENABLED=true` makes the IMEX simulator download the
+`IMEX_NODE_SOFTWARE_ENABLED=true` makes the IMEX simulator download the
 architecture-specific archive pinned in the repository lock, verify its
 SHA-256 checksum, cache it under the node root, and stage the daemon, control
-tool, config, and Mokka shim in the driver tree. The default is disabled and
-performs no download.
+tool, config, and Mokka shim in the driver tree. The chart enables this by
+default to match the node software footprint of common physical-cluster driver
+installations. Set `imex.nodeSoftware.enabled=false` to perform no download.
 
 ## Behaviour the flag list does not show
 
