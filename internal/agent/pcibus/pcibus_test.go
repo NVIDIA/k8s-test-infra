@@ -37,7 +37,7 @@ func stateWithTopology() *agent.State {
 				Index:          0,
 				PCIBusID:       "0000:07:00.0",
 				PCIDeviceID:    0x233010DE,
-				PCISubsystemID: 0x165810DE,
+				PCISubsystemID: 0x16C110DE,
 			},
 		},
 	}

@@ -101,7 +101,7 @@ func TestCompileState_PCIIdentityFromDefaults(t *testing.T) {
 	// attribute files lspci reads.
 	for i, d := range state.Devices {
 		require.Equal(t, uint32(0x233010DE), d.PCIDeviceID, "device %d device_id", i)
-		require.Equal(t, uint32(0x165810DE), d.PCISubsystemID, "device %d subsystem_id", i)
+		require.Equal(t, uint32(0x16C110DE), d.PCISubsystemID, "device %d subsystem_id", i)
 	}
 }
 
@@ -160,7 +160,7 @@ device_defaults:
   name: "Mock GPU"
   pci:
     device_id: 0x233010DE
-    subsystem_id: 0x165810DE
+    subsystem_id: 0x16C110DE
 devices:
   - index: 0
     pci:
@@ -168,8 +168,8 @@ devices:
   - index: 1
     pci:
       bus_id: "0000:1B:00.0"
-      device_id: 0x234010DE
-      subsystem_id: 0x181810DE
+      device_id: 0x290110DE
+      subsystem_id: 0x199910DE
 `
 	state, err := compileState([]byte(cfg))
 	require.NoError(t, err)
@@ -178,12 +178,12 @@ devices:
 	// Device 0 sets only bus_id, so it keeps both profile defaults.
 	require.Equal(t, "0000:1A:00.0", state.Devices[0].PCIBusID)
 	require.Equal(t, uint32(0x233010DE), state.Devices[0].PCIDeviceID)
-	require.Equal(t, uint32(0x165810DE), state.Devices[0].PCISubsystemID)
+	require.Equal(t, uint32(0x16C110DE), state.Devices[0].PCISubsystemID)
 
 	// Device 1 overrides each word independently of bus_id.
 	require.Equal(t, "0000:1B:00.0", state.Devices[1].PCIBusID)
-	require.Equal(t, uint32(0x234010DE), state.Devices[1].PCIDeviceID)
-	require.Equal(t, uint32(0x181810DE), state.Devices[1].PCISubsystemID)
+	require.Equal(t, uint32(0x290110DE), state.Devices[1].PCIDeviceID)
+	require.Equal(t, uint32(0x199910DE), state.Devices[1].PCISubsystemID)
 }
 
 const helmProfileGlob = "../../../deployments/nvml-mock/helm/nvml-mock/profiles/*.yaml"

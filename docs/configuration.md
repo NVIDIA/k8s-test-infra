@@ -109,7 +109,7 @@ device_defaults:
 device_defaults:
   pci:
     device_id: 0x20B010DE             # A100 device ID
-    subsystem_id: 0x134710DE
+    subsystem_id: 0x134F10DE
     bus_id: "0000:07:00.0"        # Usually per-device
 
   pcie:

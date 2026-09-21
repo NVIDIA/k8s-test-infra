@@ -77,7 +77,7 @@ device_defaults:
   # ---------------------------------------------------------------------------
   pci:
     device_id: 0x20B010DE           # A100 SXM4 40GB
-    subsystem_id: 0x134710DE
+    subsystem_id: 0x134F10DE
     # bus_id is auto-generated per device if not specified
 
   pcie:
