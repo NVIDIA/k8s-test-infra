@@ -383,9 +383,11 @@ func (d *ConfigurableDevice) initPciInfo(config *DeviceConfig) {
 			d.pciInfo.PciSubSystemId = config.PCI.SubsystemID
 		}
 	} else {
-		// Default A100 IDs
+		// Default A100 IDs, as the captured board reports them (see
+		// tests/e2e/go/assertions/nvidiasmi/testdata/hardware/qx-a100.xml and
+		// TestDefaultPCIIdentityMatchesA100Capture).
 		d.pciInfo.PciDeviceId = 0x20B010DE
-		d.pciInfo.PciSubSystemId = 0x134710DE
+		d.pciInfo.PciSubSystemId = 0x134F10DE
 	}
 
 	// Populate both the modern busId ([32]) and the legacy busIdLegacy ([16])
