@@ -342,7 +342,7 @@ func TestProfilePCIDeviceIDMatchesHardwareCapture(t *testing.T) {
 
 	// Both copies must ship the same SKUs; a profile added to one copy only is
 	// a half-landed change, and the missing half would otherwise go unchecked.
-	var skuSets []map[string]string
+	skuSets := make([]map[string]string, 0, len(sources))
 	for _, src := range sources {
 		skuSets = append(skuSets, src.profiles(t))
 	}
