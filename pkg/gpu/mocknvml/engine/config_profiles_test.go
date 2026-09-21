@@ -23,6 +23,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/stretchr/testify/require"
 )
 
@@ -379,4 +380,34 @@ func sortedKeys(m map[string]string) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// TestDefaultPCIIdentityMatchesA100Capture covers the fallback in initPciInfo
+// that runs when a device has no `pci` block to read: it hands out a built-in
+// A100 identity. Both words reach consumers through nvmlDeviceGetPciInfo, and
+// the subsystem word had been left at a retired value that no A100 reports,
+// which survived because the only test on this path asserted device_id alone.
+//
+// NewEngine(nil) is the fallback: no YAML, so no per-device PCI config.
+func TestDefaultPCIIdentityMatchesA100Capture(t *testing.T) {
+	t.Parallel()
+
+	want := readCapture(t, "a100")
+
+	e := NewEngine(nil)
+	require.Equal(t, nvml.SUCCESS, e.Init(), "engine init")
+	defer func() { require.Equal(t, nvml.SUCCESS, e.Shutdown(), "engine shutdown") }()
+
+	handle, ret := e.DeviceGetHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret, "get device 0")
+	dev, ok := e.LookupDevice(handle).(*ConfigurableDevice)
+	require.True(t, ok, "device 0 is a ConfigurableDevice")
+
+	pciInfo, ret := dev.GetPciInfo()
+	require.Equal(t, nvml.SUCCESS, ret, "GetPciInfo")
+
+	require.Equal(t, want.deviceID, pciInfo.PciDeviceId,
+		"default pci identity device_id must be the captured A100 board's")
+	require.Equal(t, want.subsystemID, pciInfo.PciSubSystemId,
+		"default pci identity subsystem_id must be the captured A100 board's")
 }
