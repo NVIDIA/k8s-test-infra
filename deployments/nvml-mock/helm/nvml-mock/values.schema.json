@@ -303,7 +303,7 @@
           "properties": {
             "enabled": {
               "type": "boolean",
-              "description": "Enable checksum-verified node-local IMEX software staging. Set false to perform no download."
+              "description": "Enable checksum-verified node-local IMEX software staging. Disabled by default."
             }
           }
         }

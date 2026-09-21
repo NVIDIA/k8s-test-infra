@@ -322,19 +322,18 @@ imex:
     # must not collide with a major already present on the node.
     channelMajor: 235
     capsMajor: 236
-  # Stage IMEX node software in Mokka's node driver tree, matching common
-  # physical-cluster driver installations where IMEX is present regardless of
-  # whether a ComputeDomain is active. The node daemon resolves the current
-  # architecture through a repository lock, downloads the
-  # pinned archive from NVIDIA, verifies its SHA-256 checksum, and keeps a
-  # verified node-local cache for restart recovery. NRI recognizes the upstream
+  # Stage IMEX node software in Mokka's node driver tree for ComputeDomain
+  # simulation. The node daemon resolves the current architecture through a
+  # repository lock, downloads the pinned archive from NVIDIA, verifies its
+  # SHA-256 checksum, and keeps a verified node-local cache for restart
+  # recovery. NRI recognizes the upstream
   # DRA compute-domain-daemon by its pod label and container name and adds only
   # the staged real executable and mock topology absent from the CDI edits,
-  # without changing its image. Disable explicitly for installations that
-  # cannot reach the pinned NVIDIA archive; the first successful stage requires
+  # without changing its image. Disabled by default so ordinary installations
+  # do not depend on an external download. The first successful stage requires
   # outbound HTTPS.
   nodeSoftware:
-    enabled: true
+    enabled: false
 
 # Fake nvidia-fabricmanager. NVSwitch platforms (HGX H100 / GB200 / GB300)
 # run nvidia-fabricmanager to register GPUs with the NVSwitch fabric. When

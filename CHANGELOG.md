@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Mokka stages IMEX node software on each node without a specialized container
   image, matching common physical-cluster driver installations. The
-  `imex.nodeSoftware.enabled` setting defaults to `true`; when enabled, the node
+  `imex.nodeSoftware.enabled` setting defaults to `false`; when enabled, the node
   agent downloads the architecture-specific archive pinned by version and
   SHA-256, caches it node-locally, and publishes the daemon, CLI, config, and
   Mokka `--nogpu` shim through the existing driver tree. For the upstream DRA

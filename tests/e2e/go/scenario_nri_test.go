@@ -529,7 +529,11 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 		BeforeAll(func(ctx SpecContext) {
 			Expect(selectedProfiles).NotTo(BeEmpty())
 			p = loadProfile(selectedProfiles[0])
-			installNRIChart(ctx, h, p, topoValues, p.HasFabric(), nil)
+			var overrides map[string]string
+			if p.HasFabric() {
+				overrides = map[string]string{"imex.nodeSoftware.enabled": "true"}
+			}
+			installNRIChart(ctx, h, p, topoValues, p.HasFabric(), overrides)
 			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", config.ReadyTimeout(), config.PollInterval())
 			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriNRIDaemonSet, config.ReadyTimeout(), config.PollInterval())
 			gpuNode = workers[0].Name

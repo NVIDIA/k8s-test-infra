@@ -46,9 +46,9 @@ simulator, so no flag shadows them. The chart sets them — see
 `IMEX_NODE_SOFTWARE_ENABLED=true` makes the IMEX simulator download the
 architecture-specific archive pinned in the repository lock, verify its
 SHA-256 checksum, cache it under the node root, and stage the daemon, control
-tool, config, and Mokka shim in the driver tree. The chart enables this by
-default to match the node software footprint of common physical-cluster driver
-installations. Set `imex.nodeSoftware.enabled=false` to perform no download.
+tool, config, and Mokka shim in the driver tree. The chart stages it only when
+explicitly enabled, so ordinary installations do not depend on an external
+download. Set `imex.nodeSoftware.enabled=true` to enable staging.
 
 ## Behaviour the flag list does not show
 

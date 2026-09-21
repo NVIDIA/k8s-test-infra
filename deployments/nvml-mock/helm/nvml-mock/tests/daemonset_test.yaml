@@ -114,21 +114,21 @@ tests:
             name: GPU_COUNT
             value: "4"
 
-  - it: should stage IMEX node software by default
+  - it: should not stage IMEX node software by default
     asserts:
-      - contains:
+      - notContains:
           path: spec.template.spec.containers[0].env
           content:
             name: IMEX_NODE_SOFTWARE_ENABLED
             value: "true"
 
-  - it: should allow IMEX node software staging to be disabled
+  - it: should allow IMEX node software staging to be enabled
     set:
       imex:
         nodeSoftware:
-          enabled: false
+          enabled: true
     asserts:
-      - notContains:
+      - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: IMEX_NODE_SOFTWARE_ENABLED

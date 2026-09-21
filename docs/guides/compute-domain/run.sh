@@ -344,6 +344,7 @@ helm upgrade --install "${RELEASE_NAME}" "${REPO_ROOT}/${CHART_PATH}" \
   --set gpu.profile=gb200 \
   --set nri.enabled=true \
   --set imex.mockChannels.enabled=true \
+  --set imex.nodeSoftware.enabled=true \
   --set imex.mockChannels.channelMajor="${IMEX_CHANNEL_MAJOR}" \
   --set imex.mockChannels.capsMajor="${IMEX_CAPS_MAJOR}" \
   --set-string updateStrategy.rollingUpdate.maxUnavailable=100% \

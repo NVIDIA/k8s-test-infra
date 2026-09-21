@@ -60,9 +60,9 @@ simulated GPUs before running this demo.
    explicitly delete and recreate it.
 2. Builds and loads the standard `nvml-mock:compute-domain` image. There is no
    ComputeDomain-specific image: the node agent obtains the pinned IMEX
-   archive through the default-enabled node software staging. If the DRA daemon
-   arrives before IMEX and topology staging finish, Mokka rejects only that
-   container's first creation attempts; kubelet retries it after both
+   archive through node software staging enabled by this guide. If the DRA
+   daemon arrives before IMEX and topology staging finish, Mokka rejects only
+   that container's first creation attempts; kubelet retries it after both
    prerequisites are present.
 3. Installs the chart with:
 
@@ -72,7 +72,7 @@ simulated GPUs before running this demo.
    topology.domains=<demo topology>
    nri.enabled=true
    imex.mockChannels.enabled=true
-   imex.nodeSoftware.enabled=true  # chart default
+   imex.nodeSoftware.enabled=true
    ```
 
    This renders both ConfigMaps (`nvml-mock-config` and
@@ -168,7 +168,7 @@ kind create cluster --name nvml-mock-compute-domain \
     --config tests/e2e/kind-compute-domain-config.yaml
 
 # 2. Build the standard Mokka image. The node agent downloads and stages IMEX
-#    at runtime when the chart enables imex.userspace.
+#    at runtime when the chart enables imex.nodeSoftware.
 docker build -t nvml-mock:compute-domain -f deployments/nvml-mock/Dockerfile .
 
 # 3. Load the image into the Kind cluster.
@@ -225,6 +225,7 @@ helm upgrade --install nvml-mock deployments/nvml-mock/helm/nvml-mock \
     --set gpu.profile=gb200 \
     --set nri.enabled=true \
     --set imex.mockChannels.enabled=true \
+    --set imex.nodeSoftware.enabled=true \
     --set imex.mockChannels.channelMajor="${IMEX_CHANNEL_MAJOR}" \
     --set imex.mockChannels.capsMajor="${IMEX_CAPS_MAJOR}" \
     --set-string updateStrategy.rollingUpdate.maxUnavailable=100% \

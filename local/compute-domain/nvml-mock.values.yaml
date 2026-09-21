@@ -39,5 +39,7 @@ nri:
   enabled: true
 
 imex:
+  nodeSoftware:
+    enabled: true
   mockChannels:
     enabled: true
