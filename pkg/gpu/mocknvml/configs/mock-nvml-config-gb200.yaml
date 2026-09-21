@@ -76,7 +76,7 @@ device_defaults:
   # ---------------------------------------------------------------------------
   pci:
     device_id: 0x294110DE           # GB200 NVL (10de:2941 GB100 [HGX GB200])
-    subsystem_id: 0x181710DE
+    subsystem_id: 0x204610DE
 
   pcie:
     max_link_gen: 6                 # PCIe Gen6 (or NVLink-C2C to Grace)

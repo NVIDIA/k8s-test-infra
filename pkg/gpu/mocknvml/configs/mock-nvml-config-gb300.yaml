@@ -77,7 +77,7 @@ device_defaults:
   # ---------------------------------------------------------------------------
   pci:
     device_id: 0x31C210DE           # GB300 NVL (10de:31c2 GB110 [GB300])
-    subsystem_id: 0x183010DE
+    subsystem_id: 0x21F110DE
 
   pcie:
     max_link_gen: 6                 # PCIe Gen6 (or NVLink-C2C to Grace)

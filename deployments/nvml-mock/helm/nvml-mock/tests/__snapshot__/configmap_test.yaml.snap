@@ -70,7 +70,7 @@ should match snapshot with a100 profile:
           # ---------------------------------------------------------------------------
           pci:
             device_id: 0x20B010DE           # A100 SXM4 40GB
-            subsystem_id: 0x134710DE
+            subsystem_id: 0x134F10DE
             # bus_id is auto-generated per device if not specified
 
           pcie:
@@ -560,7 +560,7 @@ should match snapshot with b200 profile:
           # ---------------------------------------------------------------------------
           pci:
             device_id: 0x290110DE           # B200 standalone (10de:2901 GB100 [B200])
-            subsystem_id: 0x181810DE
+            subsystem_id: 0x199910DE
 
           pcie:
             max_link_gen: 6                 # PCIe Gen6
@@ -1077,7 +1077,7 @@ should match snapshot with default gb300 profile:
           # ---------------------------------------------------------------------------
           pci:
             device_id: 0x31C210DE           # GB300 NVL (10de:31c2 GB110 [GB300])
-            subsystem_id: 0x183010DE
+            subsystem_id: 0x21F110DE
 
           pcie:
             max_link_gen: 6                 # PCIe Gen6 (or NVLink-C2C to Grace)
@@ -1605,7 +1605,7 @@ should match snapshot with gb200 profile:
           # ---------------------------------------------------------------------------
           pci:
             device_id: 0x294110DE           # GB200 NVL (10de:2941 GB100 [HGX GB200])
-            subsystem_id: 0x181710DE
+            subsystem_id: 0x204610DE
 
           pcie:
             max_link_gen: 6                 # PCIe Gen6 (or NVLink-C2C to Grace)
@@ -2105,7 +2105,7 @@ should match snapshot with h100 profile:
           # ---------------------------------------------------------------------------
           pci:
             device_id: 0x233010DE           # H100 SXM 80GB
-            subsystem_id: 0x165810DE
+            subsystem_id: 0x16C110DE
 
           pcie:
             max_link_gen: 5                 # PCIe Gen5
@@ -2585,7 +2585,7 @@ should match snapshot with l40s profile:
           # ---------------------------------------------------------------------------
           pci:
             device_id: 0x26B910DE           # L40S (10de:26b9 AD102GL [L40S])
-            subsystem_id: 0x169710DE
+            subsystem_id: 0x185110DE
 
           pcie:
             max_link_gen: 4                  # PCIe Gen4
