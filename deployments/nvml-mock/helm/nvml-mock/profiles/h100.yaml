@@ -80,7 +80,7 @@ device_defaults:
   # ---------------------------------------------------------------------------
   pci:
     device_id: 0x233010DE           # H100 SXM 80GB
-    subsystem_id: 0x165810DE
+    subsystem_id: 0x16C110DE
 
   pcie:
     max_link_gen: 5                 # PCIe Gen5
