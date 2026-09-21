@@ -9,22 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- profiles: four SKUs identified themselves over PCI as a different GPU than
-  they model, which `lspci` resolves and names. `gb300` reported an HGX GB200
-  (`0x2941`) where the board is `10de:31c2 GB110 [GB300]`; `gb200` (`0x2341`)
-  and `b200` (`0x2340`) reported IDs inside the Hopper `23xx` range that no
-  NVIDIA board carries, rather than `10de:2941` and `10de:2901`; and `l40s`
-  reported an L40 (`0x26b5`) rather than an L40S (`10de:26b9`). The engine's
-  `gb200` copy had drifted furthest, carrying an H100 ID outright. Each is now
-  the ID in the real-hardware `nvidia-smi` capture the profile is modelled on,
-  and a new cross-check holds every profile to its capture so the two cannot
-  drift again — it is what caught `b200` and `l40s`. NVML consumers were
-  unaffected either way, since `name` carries the board there; this is visible
-  in the rendered PCI tree.
-- node-agent: the `/run/nvidia/driver` symlink is removed on shutdown only when
-  it is still the one the agent published. On a node where another component
-  owns that path, teardown used to delete it whatever it was; a foreign driver
-  root is now left alone, and displacing one at startup is logged.
+- profiles: every shipped profile now reports the PCI identity of the board it
+  models, in both the `device_id` and the `subsystem_id` word, matching the
+  real-hardware `nvidia-smi -q -x` capture it is modelled on. Previously four
+  SKUs named a different GPU through `device_id`: `gb300` reported `0x2941`,
+  which is the HGX GB200 ID, where the captured board reports `10de:31c2`;
+  `gb200` reported `0x2341` and `b200` reported `0x2340`, where the captures
+  report `10de:2941` and `10de:2901`; and `l40s` reported `0x26b5`, an L40,
+  rather than the captured `10de:26b9`. `subsystem_id` was wrong in six of the
+  seven profiles against the same captures. Both words reach consumers two ways,
+  so this was never cosmetic: `nvmlDeviceGetPciInfo` returns them directly, and
+  the rendered PCI tree exposes them where `lspci` resolves and names a board.
+  The engine's own profile copies carried the same errors and are corrected
+  alongside the chart's.
+- nvml-mock: a device configured without a `pci` block reported a retired
+  subsystem ID (`0x1347`) through `nvmlDeviceGetPciInfo`. The built-in default
+  is now the captured A100 identity in both words.
+- node-agent: the agent leaves a `/run/nvidia/driver` it did not create the way
+  it found it. A foreign symlink there is displaced while the agent runs and
+  restored on teardown; a directory or file belonging to another component is
+  refused outright, with an error naming what is in the way, rather than the
+  bare `file exists` the symlink call used to surface. Teardown removes only a
+  link the agent can positively identify as the one it published, so a path it
+  cannot identify is left untouched.
+
+### Added
+
+- profiles: a cross-check holds every profile to its hardware capture, on both
+  PCI identity words and across both the chart and engine copies. It enumerates
+  the profile directories rather than a fixed list, so a profile added without a
+  matching capture fails the suite, as does a SKU present in one copy and not
+  the other. It is what found the `subsystem_id` drift and the retired default.
 
 ## [0.4.0-rc1] - 2026-09-14
 
