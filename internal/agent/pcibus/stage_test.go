@@ -156,14 +156,14 @@ func TestBuildIdentities_MultipleDevices(t *testing.T) {
 func TestBuildIdentities_CarriesFullIdentity(t *testing.T) {
 	state := &agent.State{
 		Devices: []agent.DeviceSpec{
-			{Index: 0, PCIBusID: "0000:07:00.0", PCIDeviceID: 0x233010DE, PCISubsystemID: 0x165810DE},
+			{Index: 0, PCIBusID: "0000:07:00.0", PCIDeviceID: 0x233010DE, PCISubsystemID: 0x16C110DE},
 		},
 	}
 
 	// Every identity word the renderer unpacks must survive the mapping; a
 	// dropped one renders as a plausible default rather than an error.
 	require.Equal(t,
-		pcisysfs.PCI{BusID: "0000:07:00.0", DeviceID: 0x233010DE, SubsystemID: 0x165810DE},
+		pcisysfs.PCI{BusID: "0000:07:00.0", DeviceID: 0x233010DE, SubsystemID: 0x16C110DE},
 		buildIdentities(state)["0000:07:00.0"])
 }
 
@@ -197,7 +197,7 @@ func TestStageSysfs_RendersSubsystemAttrs(t *testing.T) {
 		{"vendor", "0x10de\n"},
 		{"device", "0x2330\n"},
 		{"subsystem_vendor", "0x10de\n"},
-		{"subsystem_device", "0x1658\n"},
+		{"subsystem_device", "0x16c1\n"},
 	} {
 		data, err := os.ReadFile(filepath.Join(devDir, tc.file))
 		require.NoError(t, err, "reading %s", tc.file)
@@ -225,7 +225,7 @@ func TestStageSysfs_RendersFlatDefault(t *testing.T) {
 	h := testHost(t)
 	state := &agent.State{
 		Devices: []agent.DeviceSpec{
-			{Index: 0, PCIBusID: "0000:1A:00.0", PCIDeviceID: 0x233010DE, PCISubsystemID: 0x165810DE},
+			{Index: 0, PCIBusID: "0000:1A:00.0", PCIDeviceID: 0x233010DE, PCISubsystemID: 0x16C110DE},
 		},
 	}
 
