@@ -5,8 +5,8 @@
 // modules beside it. The kernel publishes that state twice.
 //
 //	/proc/modules:
-//	name        size      refcnt  used_by      state  address              [taint]
-//	nvidia      62312448  1       nvidia_uvm,  Live   0x0000000000000000
+//	name    size      refcnt  used_by                                      state  address
+//	nvidia  62312448  4       nvidia_uvm,nvidia_modeset,gdrdrv,nvidia_fs,  Live   0x0000000000000000
 //
 //	/sys/module/<name>/: coresize, refcnt, initstate, version, holders/
 //
@@ -19,10 +19,17 @@ import (
 	"strings"
 )
 
-// NVIDIA and NVIDIAUVM are simulated module names.
+// Simulated module names. The GPU Operator validator greps lsmod for
+// nvidia_fs, gdrdrv, nvidia_peermem and mlx5_core, and stats nvidia's refcnt.
+// Nothing checks nvidia_uvm or nvidia_modeset; a real node loads them.
 const (
-	NVIDIA    = "nvidia"
-	NVIDIAUVM = "nvidia_uvm"
+	NVIDIA        = "nvidia"
+	NVIDIAUVM     = "nvidia_uvm"
+	NVIDIAModeset = "nvidia_modeset"
+	NVIDIAFS      = "nvidia_fs"
+	NVIDIAPeermem = "nvidia_peermem"
+	GDRDrv        = "gdrdrv"
+	MLX5Core      = "mlx5_core"
 )
 
 // ProcModulesRelPath and SysModuleRelPath are overlay paths.
@@ -32,10 +39,16 @@ const (
 )
 
 // In-memory sizes, captured from a node with the real driver. The kernel serves
-// these as coresize. They are not the size of the .ko file on disk.
+// these as coresize. They are not the size of the .ko file on disk. Every build
+// reports its own numbers, so these are representative rather than exact.
 const (
-	nvidiaModuleSizeBytes    = 62312448
-	nvidiaUVMModuleSizeBytes = 3411968
+	nvidiaModuleSizeBytes        = 62312448
+	nvidiaUVMModuleSizeBytes     = 3411968
+	nvidiaModesetModuleSizeBytes = 2097152
+	nvidiaFSModuleSizeBytes      = 245760
+	nvidiaPeermemModuleSizeBytes = 16384
+	gdrdrvModuleSizeBytes        = 262144
+	mlx5CoreModuleSizeBytes      = 3145728
 )
 
 const initStateLive = "live"
@@ -58,20 +71,37 @@ type Module struct {
 // Refcnt returns the number of holders.
 func (m Module) Refcnt() int { return len(m.Holders) }
 
-// Modules returns the simulated NVIDIA modules.
-func Modules(driverVersion string) []Module {
-	return []Module{
-		{
+// Modules returns the simulated NVIDIA modules. ibEnabled adds the two that
+// need a fabric, because nothing loads nvidia_peermem automatically.
+func Modules(driverVersion string, ibEnabled bool) []Module {
+	holders := []string{NVIDIAUVM, NVIDIAModeset, GDRDrv, NVIDIAFS}
+	if ibEnabled {
+		holders = append(holders, NVIDIAPeermem)
+	}
+
+	mods := make([]Module, 0, 7)
+	mods = append(mods,
+		Module{
 			Name:      NVIDIA,
 			SizeBytes: nvidiaModuleSizeBytes,
-			Holders:   []string{NVIDIAUVM},
+			Holders:   holders,
 			Version:   driverVersion,
 		},
-		{
-			Name:      NVIDIAUVM,
-			SizeBytes: nvidiaUVMModuleSizeBytes,
-		},
+		Module{Name: NVIDIAUVM, SizeBytes: nvidiaUVMModuleSizeBytes},
+		Module{Name: NVIDIAModeset, SizeBytes: nvidiaModesetModuleSizeBytes},
+		Module{Name: GDRDrv, SizeBytes: gdrdrvModuleSizeBytes},
+		Module{Name: NVIDIAFS, SizeBytes: nvidiaFSModuleSizeBytes},
+	)
+
+	if !ibEnabled {
+		return mods
 	}
+
+	// mlx5_core is held by mlx5_ib on a real node, and nothing reads that.
+	return append(mods,
+		Module{Name: NVIDIAPeermem, SizeBytes: nvidiaPeermemModuleSizeBytes},
+		Module{Name: MLX5Core, SizeBytes: mlx5CoreModuleSizeBytes},
+	)
 }
 
 // HostModules is the node's /proc/modules, read once. Render and ProcModules

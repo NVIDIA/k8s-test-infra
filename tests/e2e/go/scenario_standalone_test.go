@@ -236,7 +236,7 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 			})
 
 			It("renders the kernel-module surface", Label("kmod"), func(ctx SpecContext) {
-				assertions.KernelModules(ctx, h.Kube, pod)
+				assertions.KernelModules(ctx, h.Kube, pod, p.IBEnabled())
 			})
 
 			It("performs cross-node ibping + iblinkinfo", Label("ibping"), func(ctx SpecContext) {
