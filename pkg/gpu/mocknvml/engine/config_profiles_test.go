@@ -18,7 +18,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -214,58 +216,167 @@ func TestLoadConfig_AllProfilesConsistent(t *testing.T) {
 	}
 }
 
+// repoRoot returns the absolute path to the repository root.
+func repoRoot() string {
+	_, filename, _, _ := runtime.Caller(0)
+	return filepath.Join(filepath.Dir(filename), "..", "..", "..", "..")
+}
+
 // hardwareCaptureDir returns the absolute path to the real-hardware
 // `nvidia-smi -q -x` captures the shipped profiles are modelled on.
 func hardwareCaptureDir() string {
-	_, filename, _, _ := runtime.Caller(0)
-	return filepath.Join(filepath.Dir(filename), "..", "..", "..", "..",
-		"tests", "e2e", "go", "assertions", "nvidiasmi", "testdata", "hardware")
+	return filepath.Join(repoRoot(), "tests", "e2e", "go", "assertions",
+		"nvidiasmi", "testdata", "hardware")
 }
 
-// TestProfilePCIDeviceIDMatchesHardwareCapture holds every profile's PCI device
-// identity to the board it claims to model.
-//
-// The captures are the authority: their README names each one's node and tells
-// whoever authors a profile to check it against what the real board reports.
-// Nothing enforced it, and four profiles had drifted — `gb300` reported an HGX
-// GB200 ID, `gb200` and `b200` reported IDs inside the Hopper range that no
-// NVIDIA board carries, and `l40s` reported an L40. A wrong device_id is not
-// visible through NVML, where `name` carries the board: it surfaces in the
-// rendered PCI tree, where `lspci` resolves it against the system's pci.ids and
-// names a different GPU than the one the mock claims to be.
-func TestProfilePCIDeviceIDMatchesHardwareCapture(t *testing.T) {
-	t.Parallel()
+// profileSource is one of the two directories that ship GPU profiles. The
+// chart copy is what a Helm install renders into its ConfigMap; the engine copy
+// is what MOCK_NVML_CONFIG points at for a local run. Both are consumed by the
+// same loader and both must carry the same PCI identity, so both are globbed.
+type profileSource struct {
+	label  string
+	dir    string
+	prefix string
+}
 
-	// Every capture is a whole node, so the first GPU carries the board's
-	// identity and the rest repeat it.
-	type capture struct {
+func profileSources() []profileSource {
+	return []profileSource{
+		{
+			label: "chart",
+			dir:   filepath.Join(repoRoot(), "deployments", "nvml-mock", "helm", "nvml-mock", "profiles"),
+		},
+		{
+			label:  "engine",
+			dir:    filepath.Join(repoRoot(), "pkg", "gpu", "mocknvml", "configs"),
+			prefix: "mock-nvml-config-",
+		},
+	}
+}
+
+// profiles globs the source directory and returns sku -> absolute path. A
+// profile added later is picked up here, so it cannot escape the cross-check by
+// being absent from a hand-maintained list.
+func (s profileSource) profiles(t *testing.T) map[string]string {
+	t.Helper()
+
+	matches, err := filepath.Glob(filepath.Join(s.dir, s.prefix+"*.yaml"))
+	require.NoError(t, err, "glob %s profiles", s.label)
+	require.NotEmpty(t, matches, "%s profile directory %s holds no profile", s.label, s.dir)
+
+	found := make(map[string]string, len(matches))
+	for _, m := range matches {
+		sku := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(m), s.prefix), ".yaml")
+		found[sku] = m
+	}
+	return found
+}
+
+// capturedPCI is the PCI identity a real board reports through
+// `nvidia-smi -q -x`. The captures are the authority for both words.
+type capturedPCI struct {
+	deviceID    uint32
+	subsystemID uint32
+}
+
+// readCapture parses qx-<sku>.xml and returns the board's PCI identity,
+// requiring every GPU in the capture to agree on it.
+func readCapture(t *testing.T, sku string) capturedPCI {
+	t.Helper()
+
+	var doc struct {
 		GPUs []struct {
 			PCI struct {
-				DeviceID string `xml:"pci_device_id"`
+				DeviceID    string `xml:"pci_device_id"`
+				SubsystemID string `xml:"pci_sub_system_id"`
 			} `xml:"pci"`
 		} `xml:"gpu"`
 	}
 
-	for _, sku := range []string{"a100", "b200", "gb200", "gb300", "h100", "l40s", "t4"} {
-		t.Run(sku, func(t *testing.T) {
-			t.Parallel()
+	raw, err := os.ReadFile(filepath.Join(hardwareCaptureDir(), "qx-"+sku+".xml"))
+	require.NoErrorf(t, err, "no hardware capture for profile %q: every profile must be modelled on a captured board", sku)
+	require.NoError(t, xml.Unmarshal(raw, &doc), "parse hardware capture for %s", sku)
+	require.NotEmpty(t, doc.GPUs, "capture for %s declares no GPU", sku)
 
-			raw, err := os.ReadFile(filepath.Join(hardwareCaptureDir(), "qx-"+sku+".xml"))
-			require.NoError(t, err, "read hardware capture")
-
-			var c capture
-			require.NoError(t, xml.Unmarshal(raw, &c), "parse hardware capture")
-			require.NotEmpty(t, c.GPUs, "capture declares no GPU")
-
-			want, err := strconv.ParseUint(c.GPUs[0].PCI.DeviceID, 16, 32)
-			require.NoError(t, err, "capture pci_device_id %q", c.GPUs[0].PCI.DeviceID)
-
-			cfg, err := LoadYAMLConfig(filepath.Join(testdataDir(), sku+".yaml"))
-			require.NoError(t, err, "load profile")
-			require.NotNil(t, cfg.DeviceDefaults.PCI, "profile declares no pci block")
-
-			require.Equal(t, uint32(want), cfg.DeviceDefaults.PCI.DeviceID,
-				"%s device_defaults.pci.device_id must be the captured board's", sku)
-		})
+	parse := func(field, value string) uint32 {
+		t.Helper()
+		v, err := strconv.ParseUint(value, 16, 32)
+		require.NoErrorf(t, err, "capture %s %s %q", sku, field, value)
+		return uint32(v)
 	}
+
+	first := doc.GPUs[0].PCI
+	got := capturedPCI{
+		deviceID:    parse("pci_device_id", first.DeviceID),
+		subsystemID: parse("pci_sub_system_id", first.SubsystemID),
+	}
+	for i, gpu := range doc.GPUs {
+		require.Equalf(t, first.DeviceID, gpu.PCI.DeviceID, "capture %s GPU %d disagrees on pci_device_id", sku, i)
+		require.Equalf(t, first.SubsystemID, gpu.PCI.SubsystemID, "capture %s GPU %d disagrees on pci_sub_system_id", sku, i)
+	}
+	return got
+}
+
+// TestProfilePCIDeviceIDMatchesHardwareCapture holds every shipped profile's
+// PCI identity, in BOTH copies, to the board it claims to model.
+//
+// The captures are the authority: their README names each one's node and tells
+// whoever authors a profile to check it against what the real board reports.
+// Nothing enforced it, and four profiles had drifted their device_id - `gb300`
+// reported an HGX GB200 ID, `gb200` and `b200` reported IDs inside the Hopper
+// range that no NVIDIA board carries, and `l40s` reported an L40 - while six of
+// seven carried a subsystem_id belonging to some other board entirely.
+//
+// Neither word is cosmetic. device_id and subsystem_id both reach the rendered
+// PCI sysfs tree (internal/pcisysfs/render.go), where `lspci` resolves them
+// against the system's pci.ids and names a different GPU and a different board
+// vendor than the one the mock claims to be; subsystem_id also reaches NVML
+// callers as nvmlPciInfo_t.pciSubSystemId (pkg/gpu/mocknvml/engine/device.go).
+//
+// The profile set is globbed, not listed, so a profile added later is checked
+// on its first run - and a profile with no matching capture fails rather than
+// passing unnoticed.
+func TestProfilePCIDeviceIDMatchesHardwareCapture(t *testing.T) {
+	t.Parallel()
+
+	sources := profileSources()
+
+	// Both copies must ship the same SKUs; a profile added to one copy only is
+	// a half-landed change, and the missing half would otherwise go unchecked.
+	var skuSets []map[string]string
+	for _, src := range sources {
+		skuSets = append(skuSets, src.profiles(t))
+	}
+	for i := 1; i < len(skuSets); i++ {
+		require.Equal(t, sortedKeys(skuSets[0]), sortedKeys(skuSets[i]),
+			"%s and %s must ship the same profile SKUs", sources[0].label, sources[i].label)
+	}
+
+	for i, src := range sources {
+		for _, sku := range sortedKeys(skuSets[i]) {
+			path := skuSets[i][sku]
+			t.Run(src.label+"/"+sku, func(t *testing.T) {
+				t.Parallel()
+
+				want := readCapture(t, sku)
+
+				cfg, err := LoadYAMLConfig(path)
+				require.NoError(t, err, "load profile %s", path)
+				require.NotNil(t, cfg.DeviceDefaults.PCI, "profile %s declares no pci block", path)
+
+				require.Equal(t, want.deviceID, cfg.DeviceDefaults.PCI.DeviceID,
+					"%s %s device_defaults.pci.device_id must be the captured board's", src.label, sku)
+				require.Equal(t, want.subsystemID, cfg.DeviceDefaults.PCI.SubsystemID,
+					"%s %s device_defaults.pci.subsystem_id must be the captured board's", src.label, sku)
+			})
+		}
+	}
+}
+
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
