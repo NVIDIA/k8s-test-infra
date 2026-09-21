@@ -225,7 +225,7 @@ const kernelSysModuleDir = "module"
 var kernelProcModules = "/proc/modules"
 
 func writeKernelModules(ctx context.Context, h *host.Host, state *agent.State) error {
-	mods := kmod.Modules(state.Software.DriverVersion)
+	mods := kmod.Modules(state.Software.DriverVersion, state.NodeShape.Network.IBEnabled)
 
 	// Absent and empty both mean a node that loads no module, and a masked /proc
 	// entry reads as empty. A read that fails is fatal: this file is the only
