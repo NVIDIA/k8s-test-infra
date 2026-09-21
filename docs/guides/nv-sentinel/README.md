@@ -90,12 +90,6 @@ rebuild from scratch. Useful overrides: `GPU_PROFILE`, `HOT_TEMP_C`, `TARGET_GPU
 `GPU_RESET`, `RESET_GPU`, `NVSENTINEL_VERSION`, `GPU_OPERATOR_VERSION`,
 `CERT_MANAGER_VERSION`.
 
-Phase 3 needs `resetJob.driverRoot`, which the janitor gained in
-[NVSentinel#1813](https://github.com/NVIDIA/NVSentinel/pull/1813), after v1.23.0
-was cut. `NVSENTINEL_VERSION` therefore pins a release that does not exist yet;
-until it does, run the thermal phases with `GPU_RESET=false` and an older
-version.
-
 ## What the script does
 
 1. **Cluster** — creates the Kind cluster from [`kind.yaml`](kind.yaml) (CDI
@@ -183,17 +177,23 @@ surfaces rather than a filesystem, so the `chroot` failed before `nvidia-smi`
 ever started, with `chroot: failed to run command 'nvidia-smi'`
 ([#759](https://github.com/NVIDIA/k8s-test-infra/issues/759)).
 
-The demo sidesteps the `chroot` instead of trying to satisfy it. `resetJob.driverRoot`
-is set to `/`, which makes the `chroot` a no-op and leaves the script running
-whichever `nvidia-smi` the container already has. The `gpu-reset` image has none
-of its own — it is a CUDA runtime image plus the script — so the demo gives the
-Job a `nvidia.com/gpu` request, and CDI answers it with the mock's `nvidia-smi`,
-its `libnvidia-ml.so.1`, and a writable bind of the mock's config directory,
-which is what lets the reset clear state rather than just report success. The
-request covers every GPU the node advertises, because the mock derives a
-container's visible GPUs from the `/dev/nvidia*` nodes it was handed and filters
-only on a partial set; a Job holding a subset could not reach the UUID the
-janitor told it to reset.
+The demo satisfies the `chroot` rather than avoiding it. The `gpudriver`
+simulator stages the loader closure alongside the driver surfaces it already
+wrote: the dynamic loader named in each binary's `PT_INTERP`, the shared
+libraries both it and `libnvidia-ml.so` need, and the transitive closure of
+those. `chroot /run/nvidia/driver nvidia-smi` then resolves, and because the
+mock also writes `config/config.yaml` into that same root — where the shim's
+`/proc/self/maps` discovery looks for it, one directory up from
+`usr/lib64/libnvidia-ml.so.*` — the `nvidia-smi` running under the `chroot`
+reads the mock's real configuration and clears the real `overrides.yaml`.
+
+The tempting alternative, setting `resetJob.driverRoot` to `/` so the `chroot`
+becomes a no-op, does not work here. The `gpu-reset` image carries no
+`nvidia-smi` of its own, so the Job would need a `nvidia.com/gpu` request for
+CDI to inject the mock's — but the janitor disables the device plugin on the
+node before it creates the Job, and the kubelet then rejects the pod with
+`no healthy devices present` before the container starts. Chrooting needs no GPU
+allocated, so it is unaffected by that teardown.
 
 That the image is NVIDIA's own matters for what this demo proves. The janitor
 decides a reset succeeded purely from the Job's exit status, so an image whose

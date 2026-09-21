@@ -254,15 +254,19 @@ janitor:
           # The chart default names the "nvidia" RuntimeClass, which no Kind
           # cluster has, so the Job pod would stay unschedulable forever.
           runtimeClassName: ""
-          # gpu_reset.sh only ever reaches nvidia-smi as `chroot "$DRIVER_ROOT"
-          # nvidia-smi`, so the default of /run/nvidia/driver demands a driver
-          # root holding a whole filesystem — a binary, its libraries and a
-          # loader. The mock stages driver surfaces, not a filesystem, and the
-          # chroot fails before nvidia-smi starts. "/" makes the chroot a no-op
-          # and the Job uses the nvidia-smi it was given instead; run.sh arranges
-          # for that to be the mock's, through a GPU request on this Job.
-          # Needs the janitor from NVSentinel#1813.
-          driverRoot: "/"
+          # driverRoot is left at the chart default of /run/nvidia/driver: the
+          # janitor mounts that host path into the Job and gpu_reset.sh reaches
+          # nvidia-smi only as `chroot "$DRIVER_ROOT" nvidia-smi`. The mock
+          # stages a chroot-able closure there — nvidia-smi, libnvidia-ml, their
+          # libc and loader, and config/config.yaml where the shim's
+          # /proc/self/maps discovery expects it — so the chroot resolves
+          # against the mock's own overrides.yaml and the reset clears the fault
+          # it was asked to clear.
+          #
+          # The alternative of driverRoot: "/" does not work here: it needs the
+          # device plugin to inject the mock's nvidia-smi, but the janitor
+          # disables that plugin on the node before creating the Job, so the pod
+          # is rejected at admission. Chrooting needs no GPU allocated at all.
           # The reset image stays NVIDIA's own. The janitor hardcodes
           # imagePullPolicy: Always, so a `kind load`-only image cannot be used
           # anyway — and swapping in one that merely exits 0 would prove

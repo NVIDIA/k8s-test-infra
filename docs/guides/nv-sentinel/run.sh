@@ -51,9 +51,6 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 : "${GPU_OPERATOR_VERSION:=v26.3.3}"
 : "${CERT_MANAGER_VERSION:=v1.19.1}"
 : "${NVSENTINEL_NAMESPACE:=nvsentinel}"
-# Phase 3 needs resetJob.driverRoot, which the janitor gained after v1.23.0 was
-# cut (NVSentinel#1813). Until that release exists this pin does not resolve, so
-# run with GPU_RESET=false against an older one.
 : "${NVSENTINEL_VERSION:=v1.24.0}"
 : "${NVSENTINEL_CHART:=oci://ghcr.io/nvidia/nvsentinel}"
 
@@ -202,6 +199,13 @@ helm upgrade --install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
   --set nodeAgent.kernelLog.enabled=true \
   --wait --timeout 180s
 
+# The image tag never changes, so on a reused cluster the DaemonSet spec is
+# identical and Kubernetes keeps the running pods — which serve the driver
+# surfaces staged by the *previous* build. The restart is what makes a re-run
+# test the code that was just built rather than silently re-test the old code.
+kubectl_ctx -n "${NAMESPACE}" rollout restart daemonset nvml-mock
+kubectl_ctx -n "${NAMESPACE}" rollout status daemonset nvml-mock --timeout=300s
+
 # --- Install the NVIDIA GPU Operator with standalone DCGM ---------------------
 # gpu-operator-values.yaml disables the real driver/toolkit (the mock provides
 # them) and, unlike the repo e2e, ENABLES the standalone DCGM (nv-hostengine)
@@ -242,38 +246,12 @@ kubectl_ctx -n cert-manager wait --for=condition=Available deploy --all --timeou
 # (Percona operator -> PerconaServerMongoDB CR -> cert-manager certs -> the
 # collection-setup Job), and the DB-consuming pods stay unready until it
 # finishes. --wait would just block Helm for the whole sequence and time out.
-# The reset Job brings no nvidia-smi of its own — the gpu-reset image is a CUDA
-# runtime image plus the reset script — so with driverRoot=/ it runs the one CDI
-# injects, and CDI injects only into a container that asks for GPUs. The request
-# is for every GPU the node advertises rather than one: the mock decides which
-# GPUs a container may see from the /dev/nvidiaN nodes it was given and filters
-# only on a partial set, so a Job holding a subset could not reach the UUID the
-# janitor tells it to reset. The count is read from the node so that every
-# GPU_PROFILE works, not just the 8-GPU ones.
-#
-# Re-read it here rather than trust the earlier probe: that one gives up while
-# the operands may still be pulling, and guessing a count is worse than saying
-# so, because the reset would fail much later for a reason that looks nothing
-# like a missing device plugin.
-reset_gpu_request="${alloc:-}"
-if [[ -z "${reset_gpu_request}" || "${reset_gpu_request}" == "0" ]]; then
-  reset_gpu_request=$(kubectl_ctx get node "${WORKERS[0]}" \
-    -o 'jsonpath={.status.allocatable.nvidia\.com/gpu}' 2>/dev/null || true)
-fi
-if [[ -z "${reset_gpu_request}" || "${reset_gpu_request}" == "0" ]]; then
-  if [[ "${GPU_RESET}" == "true" ]]; then
-    fail "${WORKERS[0]} advertises no nvidia.com/gpu, so the reset Job cannot be given the mock's nvidia-smi; wait for the GPU Operator operands, or re-run with GPU_RESET=false"
-  fi
-  reset_gpu_request=1
-fi
-
 info "Installing NVSentinel ${NVSENTINEL_VERSION} (Percona MongoDB store, DCGM health monitor)"
 helm upgrade --install nvsentinel "${NVSENTINEL_CHART}" \
   --kube-context "${KUBE_CONTEXT}" \
   --version "${NVSENTINEL_VERSION}" \
   --namespace "${NVSENTINEL_NAMESPACE}" --create-namespace \
   -f "${REPO_ROOT}/${DEMO_DIR}/nvsentinel-values.yaml" \
-  --set-string "janitor.config.controllers.gpuReset.resetJob.resources.limits.nvidia\\.com/gpu=${reset_gpu_request}" \
   --timeout 5m
 
 info "Waiting for the MongoDB collection-setup Job"
