@@ -493,7 +493,16 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 			res, err = h.Kube.ExecSh(ctx, pod,
 				`env -u LD_PRELOAD -u MOCK_PCI_ROOT cat /sys/module/nvidia/refcnt`)
 			Expect(err).NotTo(HaveOccurred(), "the module tree must work without the preload shim\n%s", res.Combined())
-			Expect(strings.TrimSpace(res.Stdout)).To(Equal("1"))
+			refcnt := strings.TrimSpace(res.Stdout)
+			Expect(refcnt).To(MatchRegexp(`^[1-9]\d*$`),
+				"the mounted tree must serve a refcount, not an empty or zero file")
+
+			// refcnt and holders/ are separate files in the same mounted tree.
+			res, err = h.Kube.ExecSh(ctx, pod,
+				`env -u LD_PRELOAD -u MOCK_PCI_ROOT sh -c 'ls /sys/module/nvidia/holders | wc -l'`)
+			Expect(err).NotTo(HaveOccurred(), "listing nvidia holders\n%s", res.Combined())
+			Expect(strings.TrimSpace(res.Stdout)).To(Equal(refcnt),
+				"the mounted tree must serve a refcount its holders/ agrees with")
 		})
 
 		It("still suppresses injection for a pod the device plugin served", Label("nri-cdi-suppression"), func(ctx SpecContext) {

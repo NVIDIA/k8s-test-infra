@@ -25,10 +25,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ghcr.io/nvidia/mokka-kind-node` for amd64 and arm64. Publication is gated by
   an amd64 smoke test that boots a cluster, verifies the effective NVIDIA/CDI
   runtime configuration, and starts a pod before any public tag is updated.
-- node-agent: containers now see the NVIDIA kernel modules as loaded. `lsmod`
-  lists `nvidia` and `nvidia_uvm`, and `/sys/module/nvidia/refcnt` exists. The
-  node's own modules stay visible beside them. See `docs/helm-chart.md` for how
-  the surface reaches a container and what the mirror does not cover.
+- node-agent: containers now see the NVIDIA kernel modules as loaded.
+  `/sys/module/nvidia/refcnt` exists, and `lsmod` lists `nvidia`, `nvidia_uvm`,
+  `nvidia_modeset`, `gdrdrv` and `nvidia_fs`, plus `nvidia_peermem` and
+  `mlx5_core` where the profile's `infiniband.enabled` is set. That covers every
+  module the GPU Operator validator greps for. Enabling GDRCopy, GPUDirect
+  Storage or GPUDirect RDMA used to stop at a validator check for a module the
+  mock never served. The node's own modules stay visible beside all of them.
+  This simulates presence, not a working data path. See `docs/helm-chart.md` for
+  how the surface reaches a container and what the mirror does not cover.
 - nvml-mock: `nvidia-smi power-profiles` now works on the Blackwell profiles.
   Both getters behind it were generated stubs, so the whole subcommand answered
   "Workload Power Profiles feature is not supported on this device" on every

@@ -88,7 +88,7 @@ func TestKernelModuleRedirect(t *testing.T) {
 	shim := requireShim(t)
 
 	root := t.TempDir()
-	mods := kmod.Modules("550.163.01")
+	mods := kmod.Modules("550.163.01", false)
 	_, err := kmod.Render(kmod.Options{Modules: mods, OverlayRoot: root})
 	require.NoError(t, err)
 	procModules := kmod.ProcModules(kmod.HostModules{}, mods)
@@ -100,13 +100,13 @@ func TestKernelModuleRedirect(t *testing.T) {
 	refcnt.Env = env
 	out, err := refcnt.CombinedOutput()
 	require.NoError(t, err, "cat refcnt failed: %s", out)
-	require.Equal(t, "1\n", string(out))
+	require.Equal(t, "4\n", string(out))
 
 	modules := exec.Command("cat", "/proc/modules")
 	modules.Env = env
 	out, err = modules.CombinedOutput()
 	require.NoError(t, err, "cat /proc/modules failed: %s", out)
-	require.Contains(t, string(out), "nvidia 62312448 1 nvidia_uvm,")
+	require.Contains(t, string(out), "nvidia 62312448 4 nvidia_uvm,")
 }
 
 func TestModulePrefixRequiresAPathBoundary(t *testing.T) {
