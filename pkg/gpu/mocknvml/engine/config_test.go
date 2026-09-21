@@ -163,11 +163,14 @@ devices:
 	require.Equal(t, 3, config.NumDevices, "Expected NumDevices=3 from device list")
 }
 
+// These two cover the maps-derived path specifically. discoverConfigPath also
+// consults chrootConfigPaths, which are absolute and may exist on the machine
+// running the test, so asserting emptiness through it would be a coin flip.
 func TestDiscoverConfigPath_NonLinux(t *testing.T) {
 	if runtime.GOOS == "linux" {
 		t.Skip("Test only applies to non-Linux platforms")
 	}
-	result := discoverConfigPath()
+	result := discoverConfigPathFromMaps()
 	require.Empty(t, result, "Expected empty string on non-Linux")
 }
 
@@ -176,13 +179,19 @@ func TestDiscoverConfigPath_Linux(t *testing.T) {
 		t.Skip("Test only applies to Linux")
 	}
 	// On Linux without a mock .so loaded, should return empty
-	result := discoverConfigPath()
+	result := discoverConfigPathFromMaps()
 	require.Empty(t, result, "Expected empty string when no libnvidia-ml.so is mapped")
 }
 
 func TestLoadConfig_AutoDiscoverFallback(t *testing.T) {
 	// When MOCK_NVML_CONFIG is not set and auto-discovery fails,
 	// should fall back to env vars / defaults
+	for _, p := range chrootConfigPaths {
+		if _, err := os.Stat(p); err == nil {
+			t.Skipf("%s exists here, so auto-discovery succeeds and there is no fallback to observe", p)
+		}
+	}
+
 	ClearConfigCache()
 
 	config := LoadConfig()
@@ -375,4 +384,48 @@ func TestBaseDevicePCIBusID_TracksTheBaseMock(t *testing.T) {
 
 	require.Empty(t, BaseDevicePCIBusID(MaxDevices), "no device exists past the base mock")
 	require.Empty(t, BaseDevicePCIBusID(-1))
+}
+
+func TestDiscoverConfigPathFrom_PrefersTheLoadedLibrary(t *testing.T) {
+	t.Parallel()
+
+	fallback := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(fallback, []byte("system: {}\n"), 0o600))
+
+	got := discoverConfigPathFrom(func() string { return "/from/maps/config.yaml" }, []string{fallback})
+
+	require.Equal(t, "/from/maps/config.yaml", got,
+		"the path derived from the loaded .so is authoritative when it resolves")
+}
+
+// A chroot has no /proc/self/maps, so the library cannot locate itself and the
+// fixed driver-root path is the only way it finds its config. Without it the
+// engine serves compiled-in defaults and reports GPUs the node does not have.
+// See issue #759.
+func TestDiscoverConfigPathFrom_FallsBackWhenMapsSaysNothing(t *testing.T) {
+	t.Parallel()
+
+	fallback := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(fallback, []byte("system: {}\n"), 0o600))
+
+	got := discoverConfigPathFrom(func() string { return "" },
+		[]string{"/nonexistent/config.yaml", fallback})
+
+	require.Equal(t, fallback, got, "the first candidate that exists wins")
+}
+
+func TestDiscoverConfigPathFrom_ReportsNothingWhenNoCandidateExists(t *testing.T) {
+	t.Parallel()
+
+	require.Empty(t, discoverConfigPathFrom(func() string { return "" },
+		[]string{"/nonexistent/config.yaml"}))
+}
+
+// The order is load-bearing: inside a chroot of the driver root, that root's
+// own config/ directory is at /config, and it describes this node's GPUs.
+// /etc/nvml-mock is the in-container ConfigMap mount and only a second choice.
+func TestChrootConfigPaths_LeadsWithTheDriverRootPath(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, []string{"/config/config.yaml", "/etc/nvml-mock/config.yaml"}, chrootConfigPaths)
 }
