@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"unsafe"
 
@@ -689,6 +690,9 @@ func ResetForTesting() {
 // exist (host context where /dev/nvidia* may not be present but NVML should
 // still work).
 func detectVisibleDevices(config *Config) []int {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("MOCK_NVML_VISIBLE_DEVICES")), "none") {
+		return []int{}
+	}
 	return detectVisibleDevicesAt("/dev/nvidia%d", config)
 }
 

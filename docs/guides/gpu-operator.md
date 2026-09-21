@@ -25,27 +25,16 @@ Takes about 15 minutes, most of it pulling operator images.
 
 ## Step 1 — Create a cluster with CDI enabled
 
-The operator resolves GPUs through the Container Device Interface, so
-containerd needs CDI turned on and the NVIDIA container toolkit present.
+The operator resolves GPUs through the Container Device Interface (CDI), while
+Mokka injects its driver overlay through the Node Resource Interface (NRI).
+The published Kind node image configures both and includes NVIDIA Container
+Toolkit.
 
 ```bash
-kind create cluster --name mokka-operator
+kind create cluster --name mokka-operator \
+  --image ghcr.io/nvidia/mokka-kind-node:latest
 
 NODE=mokka-operator-control-plane
-
-docker exec "$NODE" bash -c '
-  apt-get update -qq && apt-get install -y -qq curl gpg
-  curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
-    | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-  curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
-    | sed "s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g" \
-    > /etc/apt/sources.list.d/nvidia-container-toolkit.list
-  apt-get update -qq && apt-get install -y -qq nvidia-container-toolkit
-'
-
-docker exec "$NODE" nvidia-ctk runtime configure \
-  --runtime=containerd --cdi.enabled --set-as-default
-docker exec "$NODE" systemctl restart containerd
 ```
 
 ## Step 2 — Install Mokka

@@ -36,25 +36,23 @@ Deploys a DaemonSet that creates on every node:
 Consumers (DRA driver, device plugin) point at `/var/lib/nvml-mock/driver`
 as the NVIDIA driver root and discover GPUs through standard NVML APIs.
 
-When `nri.enabled=true` (opt-in; default `false`), the chart also deploys
-`nvml-mock-nri`, a node-local containerd NRI plugin. It mounts the host overlay
+The chart also deploys `nvml-mock-nri`, a node-local containerd Node Resource
+Interface (NRI) plugin. It mounts the host overlay
 into newly created containers at `/opt/nvml-mock` and injects the mock
-environment at runtime, so plain pods can run `nvidia-smi` without GPU resource
-requests or pod-spec mutation. The overlay and environment are injected ambiently into
-containers in non-excluded namespaces, while host device nodes (`/dev/nvidia*`) remain opt-in
-(via `nvidia.com/gpu` requests or the `nvml-mock.nvidia.com/devices: "true"` annotation).
-Unannotated pods without GPU requests will still report GPUs if `nvidia-smi` is run inside them.
-Test suites that rely on non-GPU pods seeing zero GPUs should either keep NRI disabled (`nri.enabled=false`)
-or run within an excluded namespace (`nri.excludedNamespaces`). Because it injects cluster-wide, it is off by
-default. Kind clusters must have containerd NRI enabled; see
-[`docs/guides/node-wide-injection`](guides/node-wide-injection/README.md).
+environment at runtime. Delivery is allocation-aware and per container:
+
+- a container carrying a numbered NVIDIA device or an `nvidia.com` CDI
+  allocation receives the overlay but no additional GPUs;
+- `nvml-mock.nvidia.com/devices: "true"` explicitly gives a management or test
+  container every mock GPU without scheduler accounting;
+- an ordinary container with neither is left unchanged, including sidecars of
+  GPU workloads.
 
 **Install it into its own namespace, and pass `-n`:**
 
 ```bash
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
-  -n mokka --create-namespace \
-  --set nri.enabled=true
+  -n mokka --create-namespace
 ```
 
 The plugin always excludes its own release namespace, so that the main
@@ -83,6 +81,17 @@ use "Option B: Build from source" in the quick start sections below.
 
 **Cluster requirements:**
 - Privileged pods must be allowed (nvml-mock DaemonSet uses `privileged: true` for `mknod`)
+- containerd NRI must be enabled at `/var/run/nri/nri.sock`. The published
+  `ghcr.io/nvidia/mokka-kind-node` image is preconfigured. For another
+  containerd node, configure:
+
+  ```toml
+  [plugins."io.containerd.nri.v1.nri"]
+    disable = false
+    socket_path = "/var/run/nri/nri.sock"
+  ```
+
+  Restart containerd after changing its configuration.
 - For DRA: Kubernetes 1.32+ with `DynamicResourceAllocation` feature gate enabled
 
 ## Walkthroughs
@@ -181,7 +190,7 @@ tree.
 
 ### In NRI-injected pods
 
-With `nri.enabled=true` the same tools are staged into the node overlay and
+The same tools are staged into the node overlay and
 reachable from any injected workload at
 `/opt/nvml-mock/driver/usr/bin/<tool>`. They carry their shared libraries
 (`libibmad`, `libibumad`, `libibverbs`, `libnl`) alongside them in
@@ -454,8 +463,7 @@ The mock reads `MOCK_IB`, `MOCK_IB_PING_FABRIC`, `MOCK_IB_ROOT` and
 
 ## Device injection mode
 
-Applies only when `nri.enabled=true`, and only to the `nri.deviceAnnotation`
-opt-in path.
+Applies to the `nri.deviceAnnotation` opt-in path while NRI is enabled.
 
 `nri.deviceInjectionMode` selects how the plugin delivers mock GPU device nodes
 to a container that carries `nvml-mock.nvidia.com/devices: "true"`:
@@ -485,11 +493,10 @@ device plugin already served keeps exactly its allocation in both modes, per
 
 ## NRI plugin failure modes
 
-Applies only when `nri.enabled=true`.
+This behavior applies while NRI is enabled (the default).
 
-The NRI plugin injects the mock GPU stack at container-creation time, which is
-what lets ordinary pods see mock GPUs without a pod-spec change. It also means
-the injection is written into the container's OCI spec once, at creation. A pod
+The NRI plugin injects the mock GPU stack into eligible containers at creation
+time. The adjustment is written into the container's OCI spec once. A pod
 that is already running keeps everything it was given, whatever happens to the
 plugin afterwards. **Only pods created after a failure are affected**, and they
 are affected silently.
@@ -643,7 +650,7 @@ namespace, on the pod IP where the kubelet reaches it.
 | `infiniband.mockTier` | `""` (auto) | `MOCK_IB` tier: `off`, `sysfs`, or `full`. Empty auto-derives `full` for IB-enabled profiles and `sysfs` otherwise (keeps the `libibmocksys` redirect active so any real host IB is masked). `off` makes every shim a no-op and skips the daemon. An invalid value fails `helm template` |
 | `infiniband.ping.port` | `18515` | TCP port for fabric relay between nvml-mock pods (`mock-ib` / `ibping` always enabled) |
 | `infiniband.ping.networkPolicy.enabled` | `true` | Restrict inbound access to the fabric port to peer nvml-mock pods. No-op on CNIs that don't enforce NetworkPolicy (e.g. Kind's kindnet) |
-| `nri.enabled` | `false` | Deploy the `nvml-mock-nri` containerd NRI plugin DaemonSet. Injects mock overlay and environment cluster-wide into non-excluded namespaces. Always install into a dedicated namespace (`-n mokka`) to avoid excluding `default`. Device node injection remains opt-in (`nvidia.com/gpu` request or `nvml-mock.nvidia.com/devices: "true"` annotation). |
+| `nri.enabled` | `true` | Deploy the `nvml-mock-nri` containerd NRI plugin DaemonSet. Eligible containers have an allocated NVIDIA or InfiniBand device, or an explicit GPU, InfiniBand, or IMEX annotation; ordinary containers are untouched. Always install into a dedicated namespace (`-n mokka`) to avoid excluding `default`. Set to `false` for a runtime without NRI. |
 | `nri.socketPath` | `/var/run/nri/nri.sock` | NRI socket on the host. Its directory is hostPath-mounted into the plugin |
 | `nri.pluginName` / `nri.pluginIndex` | `nvml-mock` / `"10"` | NRI registration identity. The index orders this plugin against others |
 | `nri.overlay.hostPath` / `nri.overlay.mountPath` | `/var/lib/nvml-mock` / `/opt/nvml-mock` | Host overlay staged by the main DaemonSet, and the path it is injected at inside workloads |
@@ -652,6 +659,7 @@ namespace, on the pod IP where the kubelet reaches it.
 | `nri.deviceInjectionMode` | `raw` | How `nri.deviceAnnotation` delivers GPUs: `raw` stages the device nodes directly, `cdi` emits a CDI device reference the runtime resolves. See [Device injection mode](#device-injection-mode) |
 | `nri.cdiSpecDir` | `/var/run/cdi` | Host directory holding CDI specs, mounted read-only into the plugin. Must be one of the runtime's configured `cdi_spec_dirs` |
 | `nri.imexChannelAnnotation` | `nvml-mock.nvidia.com/imex-channels` | Pod annotation; value `true` adds the mock `/dev/nvidia-caps-imex-channels/channelN` nodes staged by `imex.mockChannels`. A no-op when that is disabled. Same trust boundary as `nri.deviceAnnotation` |
+| `nri.infinibandAnnotation` | `nvml-mock.nvidia.com/infiniband` | Pod annotation; value `true` enables the staged InfiniBand tools and shims. NRI also recognizes allocated `/dev/infiniband/*` devices. GPU allocation alone leaves `MOCK_IB=off` |
 | `nri.excludedNamespaces` | `[]` | Extra namespaces to skip. The release namespace and `kube-system` are always excluded |
 | `nri.healthPort` | `8080` | Port serving `/healthz` and `/readyz`. Bound only in the pod's network namespace — this DaemonSet does not use `hostNetwork`, so nothing is exposed on the node |
 | `nri.readinessProbe` | `/readyz`, `periodSeconds: 10`, `failureThreshold: 2` | Detects that the node has stopped injecting. Set to `null` to drop. See [NRI plugin failure modes](#nri-plugin-failure-modes) |

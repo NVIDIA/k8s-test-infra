@@ -1,14 +1,13 @@
 # NRI Plugin
 
-The component that puts mock GPUs inside a container the pod author never
-changed.
+The component that gives an allocated GPU container Mokka's userspace driver
+surface without widening the allocation.
 
 The [node daemon](node-daemon.md) stages a GPU tree on the host, but a container
-sees only what its runtime gives it. The usual way in is a pod spec change — a
-resource request, a `hostPath` mount, some `MOCK_*` environment. The NRI plugin
-removes that step: it registers with containerd's Node Resource Interface and
-edits containers as they are created, so an unmodified workload comes up
-believing it has GPUs.
+sees only what its runtime gives it. The NVIDIA device plugin or Dynamic
+Resource Allocation (DRA) selects devices, but a CPU-only node has no NVIDIA
+runtime hook to deliver Mokka's userspace driver. The NRI plugin fills that
+runtime role by editing eligible containers as they are created.
 
 !!! note "What NRI is"
     The **Node Resource Interface** is a framework for plugging extensions into
@@ -33,12 +32,12 @@ of confusion.
 
 | Layer | Applies to | Delivers |
 |---|---|---|
-| **Overlay** | every container, unless skipped | The mock driver tree and environment — enough for `nvidia-smi` to run and report the node's profile |
-| **Devices** | only containers that opt in | Actual `/dev/nvidia*` nodes, or a CDI reference the runtime resolves |
+| **Overlay** | a container with an allocated GPU, or the explicit all-GPU annotation | The mock driver tree and environment — enough for `nvidia-smi` to report the container's allocated devices |
+| **Devices** | only the explicit all-GPU management path | Every mock `/dev/nvidia*` node, or a CDI reference the runtime resolves |
 
-The overlay is **ambient**: a plain pod that requests nothing gets it. Devices
-are **opt-in**, because handing every container real device nodes would be both
-surprising and wrong.
+A plain container with no allocation and no annotation is left untouched. The
+decision is per container, so a sidecar does not inherit a sibling container's
+GPU allocation.
 
 ## What happens to a container
 
@@ -48,18 +47,24 @@ Adjustment runs as a fixed sequence, and no step can fail:
 flowchart TB
     create[containerd: CreateContainer] --> skip{Skip?}
     skip -->|opt-out annotation<br/>excluded namespace<br/>overlay already mounted| asis[Leave exactly as authored]
-    skip -->|no| overlay[Mount overlay]
+    skip -->|no| eligible{GPU or InfiniBand<br/>allocation/annotation?}
+    eligible -->|no| imexOnly{IMEX annotation?}
+    imexOnly -->|no| asis
+    imexOnly -->|yes| imex[Attach IMEX channels only]
+    eligible -->|yes| overlay[Mount overlay]
     overlay --> env[Set environment]
-    env --> gpus{Device annotation?}
-    gpus -->|no| imex
-    gpus -->|yes| served{Already has<br/>GPU devices?}
-    served -->|yes — device plugin served it| imex[Attach IMEX channels]
-    served -->|no| attach[Attach devices<br/>raw nodes or CDI ref] --> imex
+    env --> gpus{GPU selected?}
+    gpus -->|no — InfiniBand only| imex
+    gpus -->|yes| served{Allocation evidence?}
+    served -->|yes| preserve[Preserve allocated GPUs;<br/>complete raw control nodes] --> imex
+    served -->|no — management annotation| attach[Attach all GPU devices<br/>raw nodes or CDI ref] --> imex
 ```
 
 ### When a container is left alone
 
-Three conditions, any of which skips adjustment entirely:
+The plugin leaves a container alone when it has no allocated NVIDIA GPU or
+InfiniBand device, and no GPU, InfiniBand, or IMEX annotation. Three structural conditions also
+skip adjustment entirely:
 
 - the container carries `nvml-mock.nvidia.com/inject: "false"`;
 - its namespace is in the excluded list;
@@ -81,12 +86,15 @@ else put there, recognising both delivery mechanisms the device plugin supports:
 
 | Evidence | Produced by |
 |---|---|
-| A device path under `/dev/nvidia` | device plugin with `--pass-device-specs` |
+| A numbered device path such as `/dev/nvidia0` | device plugin with `--pass-device-specs` |
 | A CDI device named `nvidia.com/…` | device plugin with `--device-list-strategy=cdi-*` |
 
-If either is present, device injection is suppressed and the container keeps
+If either is present, all-GPU injection is suppressed and the container keeps
 exactly the GPUs it was allocated. The overlay still applies, so `nvidia-smi`
-works — it just reports the allocated subset rather than the whole node.
+reports the allocated subset rather than the whole node. For a raw allocation,
+NRI adds only missing node-wide control devices (`/dev/nvidiactl`,
+`/dev/nvidia-uvm`, and `/dev/nvidia-uvm-tools`); it never adds another numbered
+GPU. A CDI allocation is treated as complete.
 
 !!! note "IMEX sits outside this rule"
     IMEX channel injection is deliberately not suppressed. The device plugin
@@ -94,7 +102,8 @@ works — it just reports the allocated subset rather than the whole node.
 
 ## Device injection modes
 
-When the plugin does deliver devices, `deviceInjectionMode` picks the mechanism.
+When the explicit management annotation asks for all devices,
+`deviceInjectionMode` picks the mechanism.
 It changes *how*, never *whether* — suppression is decided before this is
 consulted.
 
@@ -112,8 +121,9 @@ only visible in the OCI spec of an already-running pod.
 | Annotation | Effect |
 |---|---|
 | `nvml-mock.nvidia.com/inject: "false"` | Opt out of adjustment entirely |
-| `nvml-mock.nvidia.com/devices: "true"` | Opt in to GPU device injection |
-| `nvml-mock.nvidia.com/imex-channels` | Request IMEX channels |
+| `nvml-mock.nvidia.com/devices: "true"` | Explicitly expose every mock GPU without scheduler accounting; intended for node-management and test agents |
+| `nvml-mock.nvidia.com/infiniband: "true"` | Enable the mock InfiniBand userspace surface; a GPU allocation alone keeps it disabled |
+| `nvml-mock.nvidia.com/imex-channels: "true"` | Request IMEX channels independently; by itself this does not mount the GPU overlay |
 
 ## Failing open
 
@@ -152,5 +162,4 @@ cannot trigger a restart, but a genuinely stuck plugin gets replaced.
 |---|---|
 | How the whole system fits together | [Architecture](../architecture.md) |
 | What stages the tree this plugin mounts | [Node Daemon](node-daemon.md) |
-| Enabling NRI and its chart values | [Installation](../helm-chart.md) |
-| A runnable walkthrough | [Node-Wide Injection](../guides/node-wide-injection/README.md) |
+| NRI runtime prerequisites and chart values | [Installation](../helm-chart.md) |

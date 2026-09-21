@@ -35,7 +35,7 @@ named — does not resolve.
 - **Device Plugin** (standalone DaemonSet, `device-plugin-mock.yaml`): the pinned upstream `k8s-device-plugin:v0.18.2` discovers mock GPUs via NVML and registers the `nvidia.com/gpu` resource. Applied by `deployDevicePlugin`, which has three callers — `scenario_nri_test.go` (`e2e-nri`, 6 profiles), `scenario_multi_node_test.go` (`e2e-multi-node`, in `BeforeAll`), and the gated validator scenario. The first two run on every pipeline. The `e2e-nri` legs additionally assert MEP-0002 composition: a requesting pod sees exactly its allocated GPU, two pods on one node stay isolated, and the suppression rule is mutation-checked.
 - **DRA Driver** (Helm chart): discovers mock GPUs via NVML, publishes ResourceSlices, and schedules a pod with a ResourceClaim (`e2e-dra`, 6 profiles)
 - **Node Feature Discovery** (Helm chart): derives the PCI vendor label from the feature file nvml-mock writes, not nvml-mock itself (`e2e-nfd`)
-- **GPU Operator** (Helm chart + values overlay): its own device plugin, GFD, dcgm-exporter and validator operands, at unpinned versions (`e2e-gpu-operator`, 6 profiles) — see the overlay section below
+- **GPU Operator** (Helm chart + values overlay): its own device plugin, GFD, dcgm-exporter and validator operands explicitly opt into the complete simulated node inventory, at unpinned versions (`e2e-gpu-operator`, 6 profiles) — see the overlay section below
 
 ### Written but NOT run in CI
 

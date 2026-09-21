@@ -79,6 +79,40 @@ func attachGPUs(cfg Config, container Container, adjustment *Adjustment) {
 	}
 }
 
+// attachAllocatedGPUControls completes the raw device-plugin path with the
+// node-wide control devices a real NVIDIA runtime normally supplies. It never
+// adds another /dev/nvidiaN, so the allocated GPU subset remains authoritative.
+// CDI allocations already describe their complete edits and are left alone.
+func attachAllocatedGPUControls(cfg Config, container Container, adjustment *Adjustment) {
+	if !hasRawAllocatedGPU(container) || hasNVIDIACDIAllocation(container) {
+		return
+	}
+
+	devices, err := discoverDevices(cfg.DeviceHostPath)
+	if err != nil {
+		zap.L().Warn("gpu allocation detected but the control device tree is unavailable; injecting overlay only",
+			zap.String("path", cfg.DeviceHostPath), zap.Error(err))
+		return
+	}
+
+	existing := make(map[string]struct{}, len(container.Devices)+len(adjustment.Devices))
+	for _, device := range container.Devices {
+		existing[device.Path] = struct{}{}
+	}
+	for _, device := range adjustment.Devices {
+		existing[device.Path] = struct{}{}
+	}
+	for _, device := range devices {
+		if !isGPUControlPath(device.Path) {
+			continue
+		}
+		if _, ok := existing[device.Path]; ok {
+			continue
+		}
+		adjustment.Devices = append(adjustment.Devices, device)
+	}
+}
+
 // attachRawGPUNodes stages the mock /dev/nvidia* nodes directly.
 //
 // Both failure arms fail open. The device tree is staged by the node agent and
@@ -108,23 +142,56 @@ func attachRawGPUNodes(cfg Config, adjustment *Adjustment) {
 }
 
 // alreadyHasGPUDevices reports whether the container arrived carrying GPU
-// devices that something else put there — in practice the NVIDIA device plugin,
-// whose Allocate response the kubelet applies before the runtime asks this
-// plugin to adjust anything. It recognises both delivery mechanisms that plugin
-// supports: raw device nodes (--pass-device-specs) and CDI device references
-// (--device-list-strategy=cdi-*).
+// allocation evidence from the device plugin or DRA driver. Control nodes alone
+// are not allocation evidence. Both raw device nodes and CDI references are
+// recognised.
 func alreadyHasGPUDevices(container Container) bool {
+	return hasAllocatedGPU(container)
+}
+
+func hasAllocatedGPU(container Container) bool {
+	return hasRawAllocatedGPU(container) || hasNVIDIACDIAllocation(container)
+}
+
+func hasRawAllocatedGPU(container Container) bool {
 	for _, device := range container.Devices {
-		if strings.HasPrefix(device.Path, "/dev/nvidia") {
-			return true
-		}
-	}
-	for _, device := range container.CDIDevices {
-		if strings.HasPrefix(device, "nvidia.com/") {
+		if isPerGPUDevicePath(device.Path) {
 			return true
 		}
 	}
 	return false
+}
+
+func hasNVIDIACDIAllocation(container Container) bool {
+	for _, device := range container.CDIDevices {
+		if strings.HasPrefix(device, "nvidia.com/") ||
+			strings.HasPrefix(device, "k8s.gpu.nvidia.com/") {
+			return true
+		}
+	}
+	return false
+}
+
+func isPerGPUDevicePath(path string) bool {
+	index := strings.TrimPrefix(path, "/dev/nvidia")
+	if index == path || index == "" {
+		return false
+	}
+	for _, r := range index {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func isGPUControlPath(path string) bool {
+	switch path {
+	case "/dev/nvidiactl", "/dev/nvidia-uvm", "/dev/nvidia-uvm-tools":
+		return true
+	default:
+		return false
+	}
 }
 
 // cdiSpecStaged reports whether the CDI spec backing cfg.CDIDeviceName is

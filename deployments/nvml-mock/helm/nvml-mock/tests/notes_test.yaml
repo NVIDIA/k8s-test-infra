@@ -85,6 +85,16 @@ tests:
       - matchRegexRaw:
           pattern: "OPTION C: GPU Operator"
 
+  - it: should omit the NRI workload check when NRI is disabled
+    set:
+      nri:
+        enabled: false
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "DEFAULT: Explicit management workload through NRI"
+      - matchRegexRaw:
+          pattern: "OPTION A: NVIDIA Device Plugin"
+
   # Guards the OPTION C fix. The printed install must keep pointing at the
   # overlay the demo and docs use (tests/e2e/gpu-operator-values.yaml, which
   # currently matches the one CI installs through Tilt, though nothing

@@ -26,7 +26,7 @@ const (
 	ibGUIDPath = `${MOCK_IB_ROOT:-/var/lib/nvml-mock/ib}/sys/class/infiniband/mlx5_0/ports/1/port_guid`
 	// mockIBSockExpr resolves the mock-ib socket path pod-side. The chart sets
 	// MOCK_IB_PING_SOCKET under the overlay tree
-	// (/var/lib/nvml-mock/run/mock-ib.sock) so the NRI node-wide-injection plugin
+	// (/var/lib/nvml-mock/run/mock-ib.sock) so the NRI plugin
 	// can bind-mount it into injected pods; fall back to the daemon's own default
 	// (/run/mock-ib.sock) only when the env is unset. Expanded inside `sh -c`
 	// against the pod's env, matching the ${MOCK_IB_ROOT:-...} sysfs paths above.

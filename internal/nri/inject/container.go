@@ -13,9 +13,9 @@ type Container struct {
 	Mounts         []Mount
 
 	// Devices and CDIDevices are what the container already carries when the
-	// runtime asks the plugin to adjust it. The kubelet applies the device
-	// plugin's Allocate response before this point, so a non-empty NVIDIA entry
-	// here means the device plugin already served this container. See MEP-0002.
+	// runtime asks the plugin to adjust it. The kubelet applies device-plugin or
+	// DRA allocation edits before this point, so a per-GPU entry here is the
+	// container's allocation evidence. See MEP-0002.
 	Devices    []Device
 	CDIDevices []string
 }

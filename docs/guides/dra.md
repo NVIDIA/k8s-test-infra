@@ -33,6 +33,9 @@ containerdConfigPatches:
   - |-
     [plugins."io.containerd.grpc.v1.cri"]
       enable_cdi = true
+    [plugins."io.containerd.nri.v1.nri"]
+      disable = false
+      socket_path = "/var/run/nri/nri.sock"
 nodes:
   - role: control-plane
     kubeadmConfigPatches:
@@ -70,6 +73,7 @@ helm install nvidia-dra-driver nvidia/dra-driver-nvidia-gpu \
   --namespace nvidia --create-namespace \
   --set nvidiaDriverRoot=/var/lib/nvml-mock/driver \
   --set gpuResourcesEnabledOverride=true \
+  --set-string 'kubeletPlugin.podAnnotations.nvml-mock\.nvidia\.com/devices=true' \
   --set resources.computeDomains.enabled=false \
   --wait --timeout 180s
 ```
@@ -78,6 +82,7 @@ helm install nvidia-dra-driver nvidia/dra-driver-nvidia-gpu \
 |---|---|
 | `nvidiaDriverRoot` | Points the driver at Mokka's staged tree instead of a real driver root |
 | `gpuResourcesEnabledOverride` | The driver otherwise gates GPU resource publishing on checks a mock node does not satisfy |
+| `kubeletPlugin.podAnnotations...devices` | Explicitly gives the node-management plugin the complete simulated inventory it must publish; ordinary unallocated pods remain untouched |
 | `resources.computeDomains.enabled=false` | ComputeDomain support needs an NVLink fabric — see the [ComputeDomain guide](compute-domain/README.md) for that path |
 
 ## Step 4 — Check the ResourceSlices

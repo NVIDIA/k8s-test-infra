@@ -1,9 +1,10 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Kind node image with nvidia-container-toolkit + CDI pre-configured for mock GPU
-# E2E. Everything the cluster needs is baked in here, so the Kind cluster configs
-# need no containerdConfigPatches — just point kind-action at this node_image.
+# Kind node image with nvidia-container-toolkit, CDI, and NRI pre-configured for
+# mock GPU E2E. Everything the cluster needs is baked in here, so the Kind
+# cluster configs need no containerdConfigPatches — just point kind-action at
+# this node_image.
 # Base image must match helm/kind-action default (kind v0.31.0 → kindest/node:v1.35.0).
 #
 # Build:

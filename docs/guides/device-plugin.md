@@ -19,7 +19,8 @@ Takes about 5 minutes.
 ## Step 1 — Create a cluster and install Mokka
 
 ```bash
-kind create cluster --name mokka-device-plugin
+kind create cluster --name mokka-device-plugin \
+  --image ghcr.io/nvidia/mokka-kind-node:latest
 
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
   --namespace mokka --create-namespace \
@@ -90,7 +91,7 @@ kubectl -n kube-system wait --for=condition=ready \
 |---|---|
 | `--nvidia-driver-root`, `--driver-root-ctr-path` | Point the plugin at Mokka's staged tree instead of a real driver root |
 | `--device-discovery-strategy=nvml` | Discover through NVML, which is the interface Mokka implements |
-| `--pass-device-specs=true` | Deliver the device nodes into the container. Required if you also run [node-wide NRI injection](node-wide-injection/README.md), so the two do not both inject |
+| `--pass-device-specs=true` | Deliver the device nodes into the container. It also lets Mokka's default [NRI plugin](../components/nri-plugin.md) recognize that the device plugin already served the workload and avoid injecting a second device set |
 
 ## Step 4 — Verify allocatable GPUs
 
@@ -138,6 +139,11 @@ releases that do not overlap. Start from a cluster with more than one worker:
 cat > kind-fleet.yaml <<'EOF'
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.nri.v1.nri"]
+      disable = false
+      socket_path = "/var/run/nri/nri.sock"
 nodes:
   - role: control-plane
   - role: worker
@@ -148,7 +154,8 @@ nodes:
       nvml-mock/profile: t4
 EOF
 
-kind create cluster --name mokka-fleet --config kind-fleet.yaml
+kind create cluster --name mokka-fleet --config kind-fleet.yaml \
+  --image ghcr.io/nvidia/mokka-kind-node:latest
 kubectl label node --all mokka.nvidia.com/type=sgpu
 ```
 
@@ -217,4 +224,4 @@ kind delete cluster --name mokka-device-plugin
 | Every chart value | [Installation](../helm-chart.md) |
 | Node labelling and the full operand stack | [NVIDIA GPU Operator](gpu-operator.md) |
 | Claim-based allocation instead of counters | [NVIDIA DRA Driver](dra.md) |
-| GPUs without a resource request | [Node-Wide Injection](node-wide-injection/README.md) |
+| How allocated containers receive the mock | [NRI Plugin](../components/nri-plugin.md) |

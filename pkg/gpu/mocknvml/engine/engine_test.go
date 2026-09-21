@@ -509,6 +509,11 @@ func TestEngine_DeviceGetHandleByPciBusIdInvalid(t *testing.T) {
 
 // --- Visibility filtering tests ---
 
+func TestDetectVisibleDevices_ExplicitNone(t *testing.T) {
+	t.Setenv("MOCK_NVML_VISIBLE_DEVICES", "none")
+	require.Empty(t, detectVisibleDevices(&Config{NumDevices: 4}))
+}
+
 // TestDetectVisibleDevices_NonePresent verifies nil is returned when no device
 // nodes exist (typical host/driver-plugin context).
 func TestDetectVisibleDevices_NonePresent(t *testing.T) {

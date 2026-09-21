@@ -54,7 +54,7 @@ Most of the Kubernetes control plane is Go, so file surfaces need to be mounted 
 | Simulators | Packages inside the node daemon | One per surface: GPU driver, PCI bus, CDI, IMEX, NVLink, fabricmanager, InfiniBand |
 | Mock NVML library | Shared object loaded by each consumer process | Answers NVML calls from the profile instead of a driver |
 | Shims | `LD_PRELOAD` libraries and an `execve` wrapper | Make C tools read the staged tree at the real paths |
-| NRI plugin | Optional DaemonSet | Injects the mock into containers that never requested a GPU |
+| NRI plugin | DaemonSet, enabled by default | Injects the mock into containers that never requested a GPU |
 | Allocation watcher | Sidecar next to the node daemon | Reads the kubelet pod-resources socket to see which GPUs are claimed |
 | `nvml-mock-ctl` | CLI, run against a node | Changes simulated state at runtime without a redeploy |
 | Control plane | Deployment, disabled by default | Health probes only today; see MEP-0001 for the intent |
@@ -100,7 +100,7 @@ three delivery paths and uses whichever the consumer's runtime allows:
 |---|---|---|
 | hostPath mounts | anything, including Go binaries | the only approach that survives direct syscalls |
 | `LD_PRELOAD` shims | C tools — `lspci`, `ibv_devinfo` | rewrites libc path calls, so tools read the mock tree at real paths |
-| NRI injection | pods with no GPU request | adds devices and mounts at container-create time, with no pod spec change |
+| NRI injection | containers with an allocated GPU or explicit management annotation | adds the mock userspace driver at container-create time without widening the allocated device set |
 
 ## How the system behaves
 
@@ -148,7 +148,7 @@ being real.
 |---|---|
 | How a node gets its simulated surfaces | [Node Daemon](components/node-daemon.md) |
 | How consumers are made to see fake hardware | [Libraries and Shims](components/libraries-and-shims.md) |
-| How a pod gets GPUs without asking | [NRI Plugin](components/nri-plugin.md) |
+| How allocated and management containers receive the mock | [NRI Plugin](components/nri-plugin.md) |
 | Every knob in the profile | [Configuration](configuration.md) |
 | Deploying and shaping a cluster | [Installation](helm-chart.md) |
 | Changing state on a running node | [Runtime Control](nvml-mock-ctl.md) |

@@ -18,13 +18,15 @@ kind create cluster --name mokka \
 helm install nvml-mock \
     oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
     --namespace mokka \
-    --create-namespace
+    --create-namespace \
+    --wait --timeout 2m
 ```
 
-Already have a cluster? Skip the `kind` line for the basic Mokka DaemonSet.
-Managed clusters need additional runtime preparation before ordinary workloads
-can request and consume simulated GPUs; see the [Amazon EKS
-guide](guides/install/aws/eks/README.md) for a validated setup.
+Already have a cluster? Skip the `kind` line when its container runtime has NRI
+enabled. Managed clusters need runtime preparation before Mokka can inject the
+mock into workloads; see [Installation](helm-chart.md#prerequisites) for the
+containerd setting and the [Amazon EKS guide](guides/install/aws/eks/README.md)
+for a validated managed-cluster setup.
 
 `latest` follows Mokka's main branch and is the simplest way to try it. For
 repeatable CI, select a published release tag or digest from the
@@ -33,8 +35,28 @@ instead.
 
 ## Verify
 
+The base chart does not install a scheduler-facing device plugin. For this
+first check, create an explicit management pod that asks Mokka for node-wide
+visibility without claiming a schedulable GPU:
+
 ```bash
-kubectl exec -n mokka ds/nvml-mock -- nvidia-smi -L
+kubectl apply -f - <<'EOF'
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mokka-check
+  annotations:
+    nvml-mock.nvidia.com/devices: "true"
+spec:
+  restartPolicy: Never
+  containers:
+    - name: check
+      image: debian:bookworm-slim
+      command: ["nvidia-smi", "-L"]
+EOF
+kubectl wait --for=jsonpath='{.status.phase}'=Succeeded pod/mokka-check \
+  --timeout=120s
+kubectl logs mokka-check
 ```
 
 ```text
@@ -66,6 +88,7 @@ and how to change individual values.
 
 ```bash
 helm uninstall nvml-mock --namespace mokka
+kubectl delete pod mokka-check --ignore-not-found
 kind delete cluster --name mokka          # if you created one above
 ```
 
@@ -78,13 +101,14 @@ real software at it.
 |---|---|
 | Schedule GPU workloads with the device plugin, DRA or the GPU Operator | [Installation](helm-chart.md) |
 | Break a GPU and watch consumers react | [Failure injection](guides/failure-injection/README.md) |
-| Give a pod GPUs without changing its spec | [Node-wide injection](guides/node-wide-injection/README.md) |
+| Understand allocation-aware delivery and the management annotation | [NRI Plugin](components/nri-plugin.md) |
 | Change temperature, power or health on a running node | [Runtime control](nvml-mock-ctl.md) |
 | Understand what is actually happening | [Architecture](architecture.md) |
 
-The published KIND node image includes the NVIDIA container runtime and enables
-the Container Device Interface (CDI) in containerd. This is the runtime setup
-used by the [device plugin](guides/device-plugin.md),
+The published KIND node image enables the Node Resource Interface (NRI), and
+includes the NVIDIA container runtime with the Container Device Interface
+(CDI) enabled. This is the runtime setup used by the
+[device plugin](guides/device-plugin.md),
 [DRA](guides/dra.md), and [GPU Operator](guides/gpu-operator.md) paths. On a
 managed cluster, runtime support is provider- and node-image-specific; the
 [Amazon EKS guide](guides/install/aws/eks/README.md) shows the required worker

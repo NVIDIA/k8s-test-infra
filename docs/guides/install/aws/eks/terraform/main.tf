@@ -86,7 +86,9 @@ module "eks" {
 
       # The accelerated AL2023 image already installs and registers the NVIDIA
       # runtime. Its auto mode probes physical hardware before Mokka can supply
-      # a CDI spec, so force CDI mode after nodeadm has finished.
+      # a CDI spec, so force CDI mode after nodeadm has finished. Mokka also
+      # uses NRI as its default workload-injection path, so enable that
+      # containerd plugin before the single runtime restart.
       cloudinit_post_nodeadm = [
         {
           content_type = "text/x-shellscript"
@@ -98,6 +100,21 @@ module "eks" {
               /etc/nvidia-container-runtime/config.toml
             grep -q '^mode = "cdi"$' \
               /etc/nvidia-container-runtime/config.toml
+
+            config_tmp=$(mktemp)
+            awk '
+              $0 == "[plugins.\"io.containerd.nri.v1.nri\"]" { skip = 1; next }
+              skip && /^\[/ { skip = 0 }
+              !skip { print }
+            ' /etc/containerd/config.toml > "$config_tmp"
+            cat >> "$config_tmp" <<'NRI_CONFIG'
+
+            [plugins."io.containerd.nri.v1.nri"]
+              disable = false
+              socket_path = "/var/run/nri/nri.sock"
+            NRI_CONFIG
+            install -m 0644 "$config_tmp" /etc/containerd/config.toml
+            rm -f "$config_tmp"
 
             systemctl restart containerd
           EOT

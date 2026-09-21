@@ -73,11 +73,10 @@ nodeLabels:
   # featureFilesDir the deployed NFD actually reads.
   featuresDir: /etc/kubernetes/node-feature-discovery/features.d
 
-# Node-wide ambient injection via containerd NRI. When enabled, a lightweight
-# node-local plugin appends the nvml-mock overlay mount and environment to each
-# container at runtime without mutating pod specs. Opt-in (default false): it
-# injects into workloads cluster-wide, so enable it only for the
-# node-wide-injection demo/use case. See docs/guides/node-wide-injection.
+# Allocation-aware delivery via containerd NRI. A lightweight node-local plugin
+# adds the nvml-mock userspace driver only to containers that already carry an
+# allocated NVIDIA device, or that explicitly request management-style access
+# through an annotation. Ordinary unallocated containers remain untouched.
 
 nodeAgent:
   logging:
@@ -141,7 +140,7 @@ allocationWatcher:
       memory: 32Mi
 
 nri:
-  enabled: false
+  enabled: true
   logging:
     level: info    # debug | info | warn | error
     format: json   # json | plain
@@ -189,6 +188,10 @@ nri:
   # imex.mockChannels.channelCount adds real container-start cost: creating the
   # default 2048 nodes measures around one second.
   imexChannelAnnotation: nvml-mock.nvidia.com/imex-channels
+  # Enables the staged InfiniBand shims and tools independently of GPU access.
+  # NRI also recognizes an allocated /dev/infiniband/* device. A GPU allocation
+  # alone keeps MOCK_IB=off, matching real clusters where RDMA is separate.
+  infinibandAnnotation: nvml-mock.nvidia.com/infiniband
   excludedNamespaces: []
   resources: {}
   # Port serving the plugin's /healthz and /readyz endpoints. The NRI DaemonSet

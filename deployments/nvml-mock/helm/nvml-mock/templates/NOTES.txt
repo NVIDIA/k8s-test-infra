@@ -12,6 +12,23 @@ image locally and loaded it into your cluster. See the chart README for
 build-from-source instructions.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- if .Values.nri.enabled }}
+
+DEFAULT: Explicit management workload through NRI
+
+  The chart deploys the NRI plugin by default. On a containerd node with NRI
+  enabled, opt a management pod into node-wide visibility without hostPath
+  mounts or Mokka-specific environment variables:
+
+    kubectl run mokka-check --image=debian:bookworm-slim --restart=Never \
+      --annotations='nvml-mock.nvidia.com/devices=true' \
+      --command -- nvidia-smi -L
+    kubectl wait --for=jsonpath='{.status.phase}'=Succeeded \
+      pod/mokka-check --timeout=120s
+    kubectl logs mokka-check
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- end }}
 
 OPTION A: NVIDIA Device Plugin
 
@@ -46,6 +63,7 @@ OPTION B: NVIDIA DRA Driver (requires DRA-enabled cluster)
       --create-namespace \
       --set nvidiaDriverRoot=/var/lib/nvml-mock/driver \
       --set gpuResourcesEnabledOverride=true \
+      --set-string 'kubeletPlugin.podAnnotations.nvml-mock\.nvidia\.com/devices=true' \
       --set resources.computeDomains.enabled=false \
       --wait --timeout 180s
 
