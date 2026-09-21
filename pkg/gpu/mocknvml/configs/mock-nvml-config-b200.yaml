@@ -65,7 +65,7 @@ device_defaults:
   # ---------------------------------------------------------------------------
   pci:
     device_id: 0x290110DE           # B200 standalone (10de:2901 GB100 [B200])
-    subsystem_id: 0x181810DE
+    subsystem_id: 0x199910DE
 
   pcie:
     max_link_gen: 6                 # PCIe Gen6

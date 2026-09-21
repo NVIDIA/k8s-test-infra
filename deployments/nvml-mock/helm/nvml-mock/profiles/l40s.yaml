@@ -65,7 +65,7 @@ device_defaults:
   # ---------------------------------------------------------------------------
   pci:
     device_id: 0x26B910DE           # L40S (10de:26b9 AD102GL [L40S])
-    subsystem_id: 0x169710DE
+    subsystem_id: 0x185110DE
 
   pcie:
     max_link_gen: 4                  # PCIe Gen4
