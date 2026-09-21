@@ -217,8 +217,10 @@ helm upgrade --install gpu-operator nvidia/gpu-operator \
   --wait --timeout 8m
 
 info "Waiting for a GPU worker to advertise nvidia.com/gpu"
+# Generous, because this waits on the operands' first image pull: dcgm,
+# dcgm-exporter, GFD and the device plugin together are a slow cold cache.
 alloc=""
-for _ in $(seq 1 60); do
+for _ in $(seq 1 180); do
   alloc=$(kubectl_ctx get node "${WORKERS[0]}" -o 'jsonpath={.status.allocatable.nvidia\.com/gpu}' 2>/dev/null || true)
   [[ -n "${alloc}" && "${alloc}" != "0" ]] && { info "${WORKERS[0]} advertises nvidia.com/gpu=${alloc}"; break; }
   sleep 5
@@ -248,13 +250,30 @@ kubectl_ctx -n cert-manager wait --for=condition=Available deploy --all --timeou
 # only on a partial set, so a Job holding a subset could not reach the UUID the
 # janitor tells it to reset. The count is read from the node so that every
 # GPU_PROFILE works, not just the 8-GPU ones.
+#
+# Re-read it here rather than trust the earlier probe: that one gives up while
+# the operands may still be pulling, and guessing a count is worse than saying
+# so, because the reset would fail much later for a reason that looks nothing
+# like a missing device plugin.
+reset_gpu_request="${alloc:-}"
+if [[ -z "${reset_gpu_request}" || "${reset_gpu_request}" == "0" ]]; then
+  reset_gpu_request=$(kubectl_ctx get node "${WORKERS[0]}" \
+    -o 'jsonpath={.status.allocatable.nvidia\.com/gpu}' 2>/dev/null || true)
+fi
+if [[ -z "${reset_gpu_request}" || "${reset_gpu_request}" == "0" ]]; then
+  if [[ "${GPU_RESET}" == "true" ]]; then
+    fail "${WORKERS[0]} advertises no nvidia.com/gpu, so the reset Job cannot be given the mock's nvidia-smi; wait for the GPU Operator operands, or re-run with GPU_RESET=false"
+  fi
+  reset_gpu_request=1
+fi
+
 info "Installing NVSentinel ${NVSENTINEL_VERSION} (Percona MongoDB store, DCGM health monitor)"
 helm upgrade --install nvsentinel "${NVSENTINEL_CHART}" \
   --kube-context "${KUBE_CONTEXT}" \
   --version "${NVSENTINEL_VERSION}" \
   --namespace "${NVSENTINEL_NAMESPACE}" --create-namespace \
   -f "${REPO_ROOT}/${DEMO_DIR}/nvsentinel-values.yaml" \
-  --set-string "janitor.config.controllers.gpuReset.resetJob.resources.limits.nvidia\\.com/gpu=${alloc:-1}" \
+  --set-string "janitor.config.controllers.gpuReset.resetJob.resources.limits.nvidia\\.com/gpu=${reset_gpu_request}" \
   --timeout 5m
 
 info "Waiting for the MongoDB collection-setup Job"
