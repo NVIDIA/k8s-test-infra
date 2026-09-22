@@ -670,10 +670,10 @@ docs-deps: ## Install the pinned MkDocs toolchain into .venv-docs using uv
 	@echo "MkDocs installed into $(DOCS_VENV); make docs picks it up with no activation."
 
 docs-build: ## Build the documentation site (strict: broken links fail)
-	$(DOCS_PATH) $(MKDOCS) build --strict
+	$(DOCS_PATH) MKDOCS=$(MKDOCS) ./hack/mkdocs-with-meps.sh build --strict
 
 docs-serve: ## Serve the documentation site locally on :8000
-	$(DOCS_PATH) $(MKDOCS) serve
+	$(DOCS_PATH) MKDOCS=$(MKDOCS) ./hack/mkdocs-with-meps.sh serve
 
 # docs/plans/ and docs/superpowers/ are gitignored scratch directories, so they
 # are absent in CI and grepping the built site for them would pass no matter
@@ -685,7 +685,7 @@ docs-check-exclusion: ## Verify gitignored internal plans cannot reach the site
 	mkdir -p docs/plans; \
 	printf '# Internal\n\nPAGES_EXCLUSION_CANARY\n' > docs/plans/_canary.md; \
 	trap 'rm -rf docs/plans/_canary.md "$(CURDIR)/tmp/canary-site"; rmdir docs/plans 2>/dev/null || true' EXIT; \
-	$(MKDOCS) build --strict --site-dir "$(CURDIR)/tmp/canary-site" >/dev/null; \
+	MKDOCS="$(MKDOCS)" ./hack/mkdocs-with-meps.sh build --strict --site-dir "$(CURDIR)/tmp/canary-site" >/dev/null; \
 	if grep -rq 'PAGES_EXCLUSION_CANARY' "$(CURDIR)/tmp/canary-site"/; then \
 		echo "ERROR: docs/plans/ leaked into the site; check exclude_docs in mkdocs.yml"; \
 		exit 1; \

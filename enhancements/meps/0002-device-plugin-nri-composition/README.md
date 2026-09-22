@@ -52,7 +52,7 @@ delivery". The premise needs one correction before the design starts.
 **There is no mock device plugin in this repository.** There is no
 `cmd/device-plugin`, no `pkg/deviceplugin`, and no path matching
 `deviceplugin` anywhere in the tree. What exists is
-[`tests/e2e/go/assets/device-plugin-mock.yaml`](../../../tests/e2e/go/assets/device-plugin-mock.yaml),
+[`tests/e2e/go/assets/device-plugin-mock.yaml`](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/e2e/go/assets/device-plugin-mock.yaml),
 a DaemonSet that deploys the **genuine** upstream plugin,
 `nvcr.io/nvidia/k8s-device-plugin:v0.18.2`, pointed at the mock driver root:
 
@@ -135,7 +135,7 @@ allocated against visible — passes today against the wrong reality.
 ### Finding 3: the mock already has the mechanism
 
 `detectVisibleDevicesAt` in
-[`pkg/gpu/mocknvml/engine/engine.go`](../../../pkg/gpu/mocknvml/engine/engine.go)
+[`pkg/gpu/mocknvml/engine/engine.go`](https://github.com/NVIDIA/k8s-test-infra/blob/main/pkg/gpu/mocknvml/engine/engine.go)
 scans `/dev/nvidia<N>` for `N < NumDevices` and filters the visible set to the
 subset present. Its own comment states the intent: it "mimics real NVML
 behavior where cgroup device permissions limit which GPUs a container can see."
@@ -269,7 +269,7 @@ GPU. Today this test cannot be written; both pods see both GPUs.
 
 | Risk | Mitigation |
 | --- | --- |
-| **`gpu-validator-mock` regresses.** [`validator-mock.yaml`](../../../tests/e2e/go/assets/validator-mock.yaml) requests `nvidia.com/gpu: "1"` and runs the real `cuda-vectorAdd` sample. Today it sees all GPUs. With device specs on, it will be allocated one GPU and the visible-index mapping will remap index 0 onto the allocated device. | This must be **run**, not reasoned about, before the change merges. If `cuda-vectorAdd` fails when allocated a non-zero device, that is a genuine bug in the visible-index mapping and it belongs to this MEP's implementation, not to a follow-up. |
+| **`gpu-validator-mock` regresses.** [`validator-mock.yaml`](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/e2e/go/assets/validator-mock.yaml) requests `nvidia.com/gpu: "1"` and runs the real `cuda-vectorAdd` sample. Today it sees all GPUs. With device specs on, it will be allocated one GPU and the visible-index mapping will remap index 0 onto the allocated device. | This must be **run**, not reasoned about, before the change merges. If `cuda-vectorAdd` fails when allocated a non-zero device, that is a genuine bug in the visible-index mapping and it belongs to this MEP's implementation, not to a follow-up. |
 | Other scenarios that deploy the device plugin (`standalone`, `multi-node`, `gpu-operator`) change behaviour. | The only other GPU-requesting workloads are `gpu-scheduling-test` (busybox, echoes its hostname) and the nv-sentinel sample (`pause` image). Neither observes GPUs. Re-run the full matrix regardless. |
 | The device plugin's default strategy changes in a future release and the flag becomes wrong. | The e2e scenario asserts the *outcome* (one GPU visible), not the flag. A strategy change that preserves the outcome passes; one that breaks it fails loudly. |
 | Suppression hides a real staging failure: a container gets no device nodes because the device plugin failed, and the NRI plugin stays quiet. | Suppression triggers only when GPU device nodes are **present**. An empty device list is not a trigger, so the annotation path still injects. |
@@ -289,8 +289,8 @@ args:
   - "--pass-device-specs=true"      # new
 ```
 
-- [`tests/e2e/go/assets/device-plugin-mock.yaml`](../../../tests/e2e/go/assets/device-plugin-mock.yaml) — the embedded asset the Go e2e suite applies.
-- [`tests/e2e/device-plugin-mock.yaml`](../../../tests/e2e/device-plugin-mock.yaml) — the copy the README tells users to `kubectl apply` from raw GitHub.
+- [`tests/e2e/go/assets/device-plugin-mock.yaml`](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/e2e/go/assets/device-plugin-mock.yaml) — the embedded asset the Go e2e suite applies.
+- [`tests/e2e/device-plugin-mock.yaml`](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/e2e/device-plugin-mock.yaml) — the copy the README tells users to `kubectl apply` from raw GitHub.
 
 The two files are currently identical. Keep them identical.
 
