@@ -74,6 +74,9 @@ jobs:
     - name: Run unit tests
       run: make test
 
+    - name: Run privileged unit tests (bind mount, mknod)
+      run: make test-privileged
+
     - name: Run mockfs integration tests
       run: make test-mockfs
 
