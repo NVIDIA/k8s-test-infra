@@ -673,7 +673,7 @@ docs-build: ## Build the documentation site (strict: broken links fail)
 	$(DOCS_PATH) MKDOCS=$(MKDOCS) ./hack/mkdocs-with-meps.sh build --strict
 
 docs-serve: ## Serve the documentation site locally on :8000
-	$(DOCS_PATH) MKDOCS=$(MKDOCS) ./hack/mkdocs-with-meps.sh serve
+	$(DOCS_PATH) MKDOCS=$(MKDOCS) ./hack/mkdocs-with-meps.sh serve --watch enhancements/meps
 
 # docs/plans/ and docs/superpowers/ are gitignored scratch directories, so they
 # are absent in CI and grepping the built site for them would pass no matter
