@@ -9,7 +9,7 @@
 #     -f tests/e2e/gpu-operator-values.yaml
 #
 # Prerequisites:
-#   - nvml-mock Helm chart already installed (provides mock NVML + CUDA libs)
+#   - nvml-mock Helm chart already installed (provides the mock NVML library)
 #   - NFD deployed (the operator bundles it) so operands see pci-10de.present
 #
 # Tested versions:

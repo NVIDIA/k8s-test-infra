@@ -7,6 +7,7 @@ package assertions
 
 import (
 	"context"
+	"strconv"
 	"strings"
 
 	ginkgo "github.com/onsi/ginkgo/v2"
@@ -24,22 +25,83 @@ const driverProcVersionPath = "/var/lib/nvml-mock/driver/proc/driver/nvidia/vers
 // shell execs cmd, so it is silently inert for a builtin such as `test`.
 const nodeView = "env -u LD_PRELOAD -u MOCK_PCI_ROOT "
 
-func lsmodSizes(out string) map[string]string {
-	sizes := make(map[string]string)
+// lsmodRow is one module's columns: Size, Used-by count, Used-by names.
+type lsmodRow struct {
+	size    string
+	refcnt  string
+	holders []string
+}
+
+func parseLsmod(out string) map[string]lsmodRow {
+	rows := make(map[string]lsmodRow)
 
 	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 2 || fields[0] == "Module" {
 			continue
 		}
-		sizes[fields[0]] = fields[1]
+
+		row := lsmodRow{size: fields[1]}
+		if len(fields) > 2 {
+			row.refcnt = fields[2]
+		}
+		if len(fields) > 3 {
+			row.holders = strings.Split(fields[3], ",")
+		}
+
+		rows[fields[0]] = row
 	}
 
-	return sizes
+	return rows
+}
+
+// simulatedHolders, simulatedFabricHolders and simulatedFabricOnly are the
+// modules the agent adds beside the node's own. mlx5_core is the one that needs
+// a fabric without also holding nvidia.
+var (
+	simulatedHolders       = []string{"gdrdrv", "nvidia_fs", "nvidia_modeset", "nvidia_uvm"}
+	simulatedFabricHolders = []string{"nvidia_peermem"}
+	simulatedFabricOnly    = []string{"mlx5_core"}
+)
+
+func expectedHolders(ibEnabled bool) []string {
+	holders := append([]string{}, simulatedHolders...)
+	if ibEnabled {
+		holders = append(holders, simulatedFabricHolders...)
+	}
+
+	return holders
+}
+
+func expectLsmodListsSimulatedModules(rows map[string]lsmodRow, combined string, ibEnabled bool) {
+	ginkgo.GinkgoHelper()
+
+	want := expectedHolders(ibEnabled)
+	if ibEnabled {
+		want = append(want, simulatedFabricOnly...)
+	}
+
+	for _, mod := range want {
+		gomega.Expect(rows).To(gomega.HaveKey(mod),
+			"%s needs its own lsmod line\n%s", mod, combined)
+	}
+
+	nvidia, ok := rows["nvidia"]
+	gomega.Expect(ok).To(gomega.BeTrue(), "nvidia needs an lsmod line\n%s", combined)
+	gomega.Expect(nvidia.holders).To(gomega.ConsistOf(expectedHolders(ibEnabled)),
+		"nvidia's Used-by column must name every module that holds it\n%s", combined)
+
+	// The count and the names come from different files: refcnt from
+	// /sys/module/nvidia/refcnt, Used-by from holders/. They must agree.
+	gomega.Expect(nvidia.refcnt).To(gomega.Equal(strconv.Itoa(len(nvidia.holders))),
+		"nvidia's refcount must match its holder count\n%s", combined)
+
+	gomega.Expect(rows["nvidia_uvm"].refcnt).To(gomega.Equal("0"),
+		"nvidia_uvm must report no holders\n%s", combined)
 }
 
 // KernelModules checks the simulated module surface.
-func KernelModules(ctx context.Context, k *kube.Client, pod kube.PodRef) {
+func KernelModules(ctx context.Context, k *kube.Client, pod kube.PodRef, ibEnabled bool) {
 	ginkgo.GinkgoHelper()
 
 	ginkgo.By("checking whether the node loads a real nvidia module")
@@ -57,29 +119,26 @@ func KernelModules(ctx context.Context, k *kube.Client, pod kube.PodRef) {
 	ginkgo.By("lsmod reports the simulated NVIDIA modules")
 	res, err = k.ExecSh(ctx, pod, "lsmod")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "lsmod failed\n%s", res.Combined())
+	mirrored := parseLsmod(res.Stdout)
 	if !hostDriver {
-		gomega.Expect(res.Stdout).To(gomega.MatchRegexp(`(?m)^nvidia\s+\d+\s+1\s+nvidia_uvm`),
-			"nvidia must be held by nvidia_uvm\n%s", res.Combined())
-		gomega.Expect(res.Stdout).To(gomega.MatchRegexp(`(?m)^nvidia_uvm\s+\d+\s+0`),
-			"nvidia_uvm must report no holders\n%s", res.Combined())
+		expectLsmodListsSimulatedModules(mirrored, res.Combined(), ibEnabled)
 	}
 
 	// lsmod takes Size from /sys/module/<name>/coresize, not from the
 	// /proc/modules line, so this compares the mirror, not the copied host text.
 	ginkgo.By("a host module keeps its own size in the mirror")
-	mirrored := lsmodSizes(res.Stdout)
 	served := res.Stdout
 	res, err = k.ExecSh(ctx, pod, nodeView+"lsmod")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "node lsmod failed\n%s", res.Combined())
 
 	shared := 0
-	for name, size := range lsmodSizes(res.Stdout) {
+	for name, node := range parseLsmod(res.Stdout) {
 		got, ok := mirrored[name]
 		if !ok {
 			continue
 		}
 		shared++
-		gomega.Expect(got).To(gomega.Equal(size),
+		gomega.Expect(got.size).To(gomega.Equal(node.size),
 			"the mirror altered the size of host module %s. Only size is compared: a "+
 				"holders/ directory cannot reproduce the dependency order the kernel "+
 				"prints in Used by.\nnode:\n%s\nserved:\n%s",
@@ -106,7 +165,9 @@ func KernelModules(ctx context.Context, k *kube.Client, pod kube.PodRef) {
 	gomega.Expect(strings.TrimSpace(res.Stdout)).To(gomega.MatchRegexp(`^\d+$`),
 		"the validator parses this as an integer\n%s", res.Combined())
 	if !hostDriver {
-		gomega.Expect(strings.TrimSpace(res.Stdout)).To(gomega.Equal("1"))
+		gomega.Expect(strings.TrimSpace(res.Stdout)).
+			To(gomega.Equal(strconv.Itoa(len(expectedHolders(ibEnabled)))),
+				"the served refcount must match the simulated holder count\n%s", res.Combined())
 	}
 
 	if !hostDriver {

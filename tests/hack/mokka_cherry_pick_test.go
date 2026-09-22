@@ -63,18 +63,13 @@ func TestMokkaCherryPickNodeWorkflowContract(t *testing.T) {
 	require.Len(t, jobs, 1)
 	job, ok := jobs["cherry-pick"].(map[string]any)
 	require.True(t, ok)
+	require.Equal(t, "${{ vars.REPOSITORY_AUTOMATION_MOKKA_ENABLED == 'true' && github.ref == 'refs/tags/mokka-cherry-pick-v0.11.0-r1' }}", job["if"])
 	require.Equal(t, map[string]any{"contents": "write", "pull-requests": "write"}, job["permissions"])
 	steps, ok := job["steps"].([]any)
 	require.True(t, ok)
-	require.Len(t, steps, 4, "the workflow must resolve and check out trusted code, check out the target, and invoke the action")
+	require.Len(t, steps, 3, "the workflow must check out tagged trusted code, check out the target, and invoke the action")
 
-	trustedResolver, ok := steps[0].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "Resolve trusted default branch", trustedResolver["name"])
-	require.Equal(t, "trusted", trustedResolver["id"])
-	require.Equal(t, "actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd", trustedResolver["uses"])
-
-	trustedCheckout, ok := steps[1].(map[string]any)
+	trustedCheckout, ok := steps[0].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "Check out trusted automation", trustedCheckout["name"])
 	require.Equal(t, "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", trustedCheckout["uses"])
@@ -83,11 +78,11 @@ func TestMokkaCherryPickNodeWorkflowContract(t *testing.T) {
 		"lfs":                 false,
 		"path":                "control",
 		"persist-credentials": false,
-		"ref":                 "${{ steps.trusted.outputs.result }}",
+		"ref":                 "${{ github.sha }}",
 		"submodules":          false,
 	}, trustedCheckout["with"])
 
-	targetCheckout, ok := steps[2].(map[string]any)
+	targetCheckout, ok := steps[1].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "Check out validated target", targetCheckout["name"])
 	require.Equal(t, "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", targetCheckout["uses"])
@@ -100,7 +95,7 @@ func TestMokkaCherryPickNodeWorkflowContract(t *testing.T) {
 		"submodules":          false,
 	}, targetCheckout["with"])
 
-	driver, ok := steps[3].(map[string]any)
+	driver, ok := steps[2].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "Cherry-pick merged source pull request", driver["name"])
 	require.Equal(t, "./control/.github/actions/repo-automation", driver["uses"])

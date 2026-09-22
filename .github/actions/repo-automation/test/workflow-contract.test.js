@@ -26,7 +26,7 @@ const activationGates = {
     "${{ vars.REPOSITORY_AUTOMATION_MERGE_ENABLED == 'true' && (github.event_name != 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch) }}",
   reusableBackport: "${{ vars.REPOSITORY_AUTOMATION_BACKPORT_ENABLED == 'true' }}",
   mokka:
-    "${{ vars.REPOSITORY_AUTOMATION_MOKKA_ENABLED == 'true' && github.ref_name == github.event.repository.default_branch }}",
+    "${{ vars.REPOSITORY_AUTOMATION_MOKKA_ENABLED == 'true' && github.ref == 'refs/tags/mokka-cherry-pick-v0.11.0-r1' }}",
 };
 
 function readWorkflow(name) {
@@ -159,9 +159,21 @@ test("generic backport is reusable only and isolates its target checkout", () =>
 
 test("Mokka dispatch stays disabled until its repository variable is enabled", () => {
   const workflow = readWorkflow("mokka-cherry-pick.yml").workflow;
-  assert.equal(workflow.jobs["cherry-pick"].if, activationGates.mokka);
-  assertTrustedCheckout(workflow.jobs["cherry-pick"]);
-  assert.deepEqual(actionStep(workflow.jobs["cherry-pick"], "mokka-cherry-pick").with, {
+  const job = workflow.jobs["cherry-pick"];
+  assert.equal(job.if, activationGates.mokka);
+  const trustedCheckout = job.steps.find((candidate) => candidate.name === "Check out trusted automation");
+  assert.ok(trustedCheckout, "trusted tagged automation checkout is required");
+  assert.equal(trustedCheckout.uses, checkout);
+  assert.deepEqual(trustedCheckout.with, {
+    ref: "${{ github.sha }}",
+    path: "control",
+    "persist-credentials": false,
+    "fetch-depth": 1,
+    submodules: false,
+    lfs: false,
+  });
+  assert.equal(job.steps.some((candidate) => candidate.id === "trusted"), false);
+  assert.deepEqual(actionStep(job, "mokka-cherry-pick").with, {
     mode: "mokka-cherry-pick",
     pull_request_number: "${{ inputs.pull_request_number }}",
     source_sha: "${{ inputs.source_sha }}",

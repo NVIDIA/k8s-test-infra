@@ -17,8 +17,8 @@
 #     two as well.
 #
 # Prerequisites:
-#   - the nvml-mock chart already installed (it stages the mock NVML and CUDA
-#     libraries and labels the node nvidia.com/gpu.present=true)
+#   - the nvml-mock chart already installed (it stages the mock NVML library
+#     and labels the node nvidia.com/gpu.present=true)
 #   - containerd on every node in CDI mode with the nvidia runtime handler
 #     registered; see the demo README for how to get a cluster like that
 
