@@ -68,6 +68,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- nvml-mock: PCIe `Host Max` is now configurable independently of the GPU's
+  maximum. The Blackwell profiles model the Grace-hosted GB200/GB300 trays at
+  Gen4 and the switch-connected B200 host as unsupported, so `nvidia-smi` no
+  longer derives a host value that conflicts with the hardware profile.
 - nvml-mock: `device_defaults.architecture` now accepts `rubin`, which NVML
   defines and the mock previously resolved to `NVML_DEVICE_ARCH_UNKNOWN`, so a
   Rubin profile failed every architecture-gated feature. Spellings are also

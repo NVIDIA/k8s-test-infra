@@ -114,6 +114,7 @@ device_defaults:
 
   pcie:
     max_link_gen: 6                 # PCIe Gen6 (or NVLink-C2C to Grace)
+    host_max_link_gen: 4             # Grace host bridge is PCIe Gen4
     current_link_gen: 6
     max_link_width: 16              # x16
     current_link_width: 16
