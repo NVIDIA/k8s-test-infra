@@ -12,8 +12,9 @@ Deploys a DaemonSet that creates on every node:
 - GPU configuration at `/var/lib/nvml-mock/driver/config/config.yaml`
 - An NFD feature file at
   `/etc/kubernetes/node-feature-discovery/features.d/nvml-mock.features`, which
-  NFD turns into the node label
-  `feature.node.kubernetes.io/pci-10de.present=true` (see [Node Labels](#node-labels))
+  NFD turns into the node labels
+  `feature.node.kubernetes.io/pci-10de.present=true` and
+  `feature.node.kubernetes.io/nvml-mock.present=true` (see [Node Labels](#node-labels))
 - A fake InfiniBand sysfs tree at `/var/lib/nvml-mock/ib/sys/class/infiniband/...`
   paired with `libibmocksys.so` (`LD_PRELOAD`) so real `ibstat`, `ibstatus`,
   `iblinkinfo`, ... read mock HCAs
@@ -661,23 +662,34 @@ namespace, on the pod IP where the kubelet reaches it.
 ### Node Labels
 
 nvml-mock writes no node labels itself. It writes a feature file NFD turns into
-one label, and NFD retires that label on its next cycle once the daemon deletes
+two labels, and NFD retires them on its next cycle once the daemon deletes
 the file at shutdown:
 
 | Label | Written by | Removed by |
 |-------|-----------|------------|
 | `feature.node.kubernetes.io/pci-10de.present=true` | **NFD**, from a feature file the node daemon writes | NFD, once the node daemon deletes the file |
+| `feature.node.kubernetes.io/nvml-mock.present=true` | **NFD**, from the same feature file | NFD, once the node daemon deletes the file |
+
+`nvml-mock.present` is the only label that distinguishes a simulated node from
+real hardware. Everything else a Mokka node publishes, including
+`nvidia.com/gpu.product` and `nvidia.com/gpu.memory`, reports exactly what the
+same GPU reports on real silicon, which is the point: consumers under test must
+not need special cases. That also means a snapshot or conformance artifact
+captured here would read as real hardware unless something records otherwise,
+so the node agent states the fact instead of leaving it to be inferred.
+Consumers that must branch on it, such as a test lane selecting a mocked
+configuration, should key on this label rather than on a driver version.
 
 Labels under `nvidia.com/` — `gpu.present`, `gpu.count`, `gpu.product` — belong
 to NFD and GFD exactly as on real hardware, and are absent unless those are
 deployed. Workloads that need to land on a mock node select the GPU node-pool
 label their cluster gives those nodes, as they would on real hardware.
 
-The label above is produced by Node Feature Discovery. nvml-mock only supplies
-the input: `internal/agent/pcibus` writes `pci-10de.present=true` into
-`nodeLabels.featuresDir`, which NFD's local source reads and turns into the
-namespaced label. With no NFD on the cluster the file is inert and the label
-does not exist — which is the honest state, and is what the e2e in
+The labels above are produced by Node Feature Discovery. nvml-mock only supplies
+the input: `internal/agent/pcibus` writes `pci-10de.present=true` and
+`nvml-mock.present=true` into `nodeLabels.featuresDir`, which NFD's local source
+reads and turns into the namespaced labels. With no NFD on the cluster the file
+is inert and the labels do not exist — which is the honest state, and is what the e2e in
 `tests/e2e/go/scenario_nfd_test.go` asserts.
 
 NFD's *PCI* source still cannot see mock GPUs as deployed: it reads a
@@ -1031,8 +1043,9 @@ The chart deploys:
    - Creates mock device nodes at `/var/lib/nvml-mock/driver/dev/nvidia{N,ctl,-uvm,-uvm-tools}` (CDI bind-mounts them to `/dev/nvidia*` in consumer containers)
    - Writes GPU config YAML at `/var/lib/nvml-mock/driver/config/config.yaml`
    - Writes the NFD feature file that makes
-     `feature.node.kubernetes.io/pci-10de.present=true` appear — see
-     [Node Labels](#node-labels)
+     `feature.node.kubernetes.io/pci-10de.present=true` and
+     `feature.node.kubernetes.io/nvml-mock.present=true` appear (see
+     [Node Labels](#node-labels))
 2. **ConfigMap** — GPU configuration from the selected profile
 3. **ServiceAccount** — no cluster RBAC; nothing in the pod calls the API
 

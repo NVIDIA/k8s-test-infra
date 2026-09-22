@@ -5,7 +5,8 @@
 // /sys/bus/pci/devices tree and stages libmockfs.so so that lspci and
 // topology-aware schedulers see mock GPU BDFs. It also writes the NFD
 // local-source feature file so NFD can label the node with
-// feature.node.kubernetes.io/pci-10de.present=true.
+// feature.node.kubernetes.io/pci-10de.present=true and
+// feature.node.kubernetes.io/nvml-mock.present=true.
 package pcibus
 
 import (
@@ -28,7 +29,7 @@ import (
 const (
 	name           = "pcibus"
 	nfdFeatureFile = "kubernetes/node-feature-discovery/features.d/nvml-mock.features"
-	nfdContent     = "pci-10de.present=true\n"
+	nfdContent     = "pci-10de.present=true\nnvml-mock.present=true\n"
 )
 
 var (
@@ -94,8 +95,17 @@ func (s *Simulator) Discard(_ context.Context) error {
 	return errors.Join(errs...)
 }
 
-// Apply writes the NFD local-source feature file so NFD can derive
-// feature.node.kubernetes.io/pci-10de.present=true from it.
+// Apply writes the NFD local-source feature file, one feature per line, so NFD
+// can derive feature.node.kubernetes.io/pci-10de.present=true and
+// feature.node.kubernetes.io/nvml-mock.present=true from it.
+//
+// The vendor-presence feature is what a real NVIDIA node also reports.
+// nvml-mock.present is true only here, and is the sole label separating a
+// simulated node from real silicon: every other label the stack publishes from
+// this mock, product name and memory size included, matches what the same GPU
+// reports on hardware. Without it a snapshot or conformance artifact captured
+// against a mocked cluster reads as real silicon, so the fact is stated rather
+// than left to be inferred from a driver version or a pod name.
 func (s *Simulator) Apply(_ context.Context, _ *agent.State) error {
 	s.ready.Store(false)
 
