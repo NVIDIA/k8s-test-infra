@@ -25,8 +25,8 @@ outlive a reconcile.
 
 | Simulator | Stages                                                                                                                                                   |
 |---|----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `gpudriver` | Character devices, the mock NVML library, `nvidia-smi`, procfs entries, the engine config, and a mirror of the driver tree at `/run/nvidia/driver`, the path GPU Operator expects |
-| `pcibus` | A fake `/sys/bus/pci/devices` tree, the `libpcisysfs.so` shim, and the NFD feature file that lets Node Feature Discovery label the node                  |
+| `gpudriver` | Character devices, the mock NVML library, `nvidia-smi`, procfs entries, the engine config, and a bind mount of the driver tree at `/run/nvidia/driver`, the path GPU Operator expects |
+| `pcibus` | A fake `/sys/bus/pci/devices` tree, the `libmockfs.so` shim, and the NFD feature file that lets Node Feature Discovery label the node                  |
 | `cdi` | Two CDI specs that containerd uses to inject mock GPUs into workload containers                                                                          |
 | `imex` | IMEX channel character devices, a `/proc/devices` overlay, and the capability file the DRA compute-domain plugin reads                                   |
 | `nvlink` | The ComputeDomain topology document, which gives the node its NVLink fabric identity                                                                     |
