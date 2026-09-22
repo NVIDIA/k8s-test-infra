@@ -14,10 +14,6 @@
 dcgmExporter:
   enabled: true
   env:
-    # The exporter loads the mock libnvidia-ml.so from the driver root the
-    # nvml-mock DaemonSet stages on each node.
-    - name: NVIDIA_DRIVER_ROOT
-      value: "/var/lib/nvml-mock/driver"
     # 5s so an injected fault reaches the dashboard promptly; matches
     # prometheus.prometheusSpec.scrapeInterval in
     # kube-prometheus-stack.values.yaml.

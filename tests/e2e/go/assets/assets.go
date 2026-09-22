@@ -29,11 +29,6 @@ var NRIGpuAgentManifest []byte
 //go:embed gfd-mock.yaml
 var GFDManifest []byte
 
-// ValidatorManifest is the embedded GPU Operator validator manifest used by the standalone scenario.
-//
-//go:embed validator-mock.yaml
-var ValidatorManifest []byte
-
 // WriteTemp writes content to a temp file with the given pattern and returns
 // the path. Used for `helm install -f <values>` which needs a file path.
 func WriteTemp(pattern string, content []byte) (string, error) {
