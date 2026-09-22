@@ -117,7 +117,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bind mount of the staged driver root instead of a symlink to it, so a
   consumer that already mounted the path keeps seeing it as content lands,
   the way it would with a real driver. Teardown unmounts but never deletes
-  the directory, and never touches a path it did not mount. See
+  the directory, and never touches a path it did not mount.
+  **Breaking (security):** the node-agent container is now privileged on
+  every install, not only when `nodeAgent.kernelLog.enabled` is set —
+  Kubernetes rejects `mountPropagation: Bidirectional` (needed for that bind
+  mount to reach other containers) on anything less, regardless of
+  capabilities granted. A cluster whose PodSecurity admits no privileged pod
+  will refuse this release's DaemonSet on `helm upgrade`. See
   [#857](https://github.com/NVIDIA/k8s-test-infra/issues/857).
 
 ## [0.4.0-rc1] - 2026-09-14
