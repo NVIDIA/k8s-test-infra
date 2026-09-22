@@ -27,10 +27,18 @@ has_header() {
   local file=$1
   local header
   header=$(sed -n '1,20p' "$file")
-  [[ "$header" == *'SPDX-License-Identifier: Apache-2.0'* &&
-     "$header" == *'Copyright'* ]] ||
-    [[ "$header" == *'Licensed under the Apache License, Version 2.0'* &&
-       "$header" == *'Copyright'* ]]
+  local has_copyright=false
+  local has_license=false
+
+  if grep -Eq '^[[:space:]]*(//|#|\*)[[:space:]]*(SPDX-FileCopyrightText:.*Copyright|Copyright)' <<<"$header"; then
+    has_copyright=true
+  fi
+  if grep -Eq '^[[:space:]]*(//|#|\*)[[:space:]]*SPDX-License-Identifier: Apache-2\.0[[:space:]]*$' <<<"$header" ||
+     grep -Eq '^[[:space:]]*(//|#|\*)[[:space:]]*Licensed under the Apache License, Version 2\.0' <<<"$header"; then
+    has_license=true
+  fi
+
+  [[ "$has_copyright" == true && "$has_license" == true ]]
 }
 
 add_header() {
@@ -40,7 +48,7 @@ add_header() {
   trap 'rm -f "$temporary"' RETURN
 
   {
-    if [[ "$file" == *.sh && "$(sed -n '1p' "$file")" == '#!'* ]]; then
+    if [[ "$(sed -n '1p' "$file")" == '#!'* ]]; then
       sed -n '1p' "$file"
       printf '# SPDX-License-Identifier: Apache-2.0\n# SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION\n\n'
       sed -n '2,$p' "$file"
