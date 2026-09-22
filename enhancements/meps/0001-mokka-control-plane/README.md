@@ -185,7 +185,7 @@ coordinate projection cleanup. Racks owned by another object are not adopted.
 
 This MEP defines the complete architecture rather than the delivery status of
 an implementation stage. See the [Mokka controller operational
-documentation](../../../docs/mokka-controller.md#stage-1-exclusions) for
+documentation](https://github.com/NVIDIA/k8s-test-infra/blob/main/docs/mokka-controller.md#stage-1-exclusions) for
 currently available behavior and its Stage 1 exclusions.
 
 #### Runtime State
@@ -1109,7 +1109,7 @@ exact-UID check.
 ## CRD Packaging
 
 The `mokka-crds` Helm chart packages the CRDs in
-[`deployments/mokka-crds/helm/mokka-crds`](../../../deployments/mokka-crds/helm/mokka-crds).
+[`deployments/mokka-crds/helm/mokka-crds`](https://github.com/NVIDIA/k8s-test-infra/tree/main/deployments/mokka-crds/helm/mokka-crds).
 The chart is intended to be installed by a privileged admin user before the main chart.
 This approach is also used by [Envoy Gateway](https://github.com/envoyproxy/gateway/tree/main/charts), for example.
 
