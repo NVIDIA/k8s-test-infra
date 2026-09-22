@@ -294,6 +294,36 @@ func TestBindMount_RefusesAForeignMount(t *testing.T) {
 	require.Error(t, fsutil.BindMount(src, dst), "a mount from a different source must not be accepted as ours")
 }
 
+// TestBindMount_RecognizesAStaleMountFromTheSamePath covers a mount whose
+// source directory was deleted and recreated (new inode, same path) while
+// the mount is still attached: ownership is judged by the path recorded in
+// the mount table, not by comparing inodes, so this is still recognized as
+// ours rather than refused as foreign.
+func TestBindMount_RecognizesAStaleMountFromTheSamePath(t *testing.T) {
+	skipUnlessRootLinux(t)
+
+	parent := t.TempDir()
+	src := filepath.Join(parent, "src")
+	dst := t.TempDir()
+	bindMountCleanup(t, src, dst)
+
+	require.NoError(t, os.Mkdir(src, 0o755))
+	require.NoError(t, fsutil.BindMount(src, dst))
+
+	require.NoError(t, os.Remove(src))
+	require.NoError(t, os.Mkdir(src, 0o755))
+
+	require.NoError(t, fsutil.BindMount(src, dst),
+		"a stale mount from src's own path must still be recognized as ours")
+
+	require.NoError(t, fsutil.Unmount(src, dst),
+		"Unmount must be able to clean up a stale mount from src's own path")
+
+	mounted, err := fsutil.IsMounted(dst)
+	require.NoError(t, err)
+	require.False(t, mounted)
+}
+
 func TestUnmount_RemovesTheMountButKeepsTheDirectory(t *testing.T) {
 	skipUnlessRootLinux(t)
 
