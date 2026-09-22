@@ -20,12 +20,24 @@ This guide takes about 10 minutes and does not require a GPU.
 
 ## Step 1 — Create a cluster and install Mokka
 
+Kind's default cluster contains only a control-plane node. That node may be
+tainted `NoSchedule`, so the NFD worker would never run there. Create one
+worker explicitly for this guide:
+
 ```console
-$ kind create cluster --name mokka-nfd
+$ cat > mokka-nfd-kind.yaml <<'EOF'
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+- role: control-plane
+- role: worker
+EOF
+$ kind create cluster --name mokka-nfd --config mokka-nfd-kind.yaml
 $ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
     --namespace mokka --create-namespace \
     --wait --timeout 120s
 $ kubectl label node --all mokka.nvidia.com/type=sgpu
+$ rm mokka-nfd-kind.yaml
 ```
 
 The chart's default `nodeLabels.featuresDir` is
@@ -70,6 +82,7 @@ The simulated nodes should report `true`:
 ```text
 NODE                         NFD_GPU
 mokka-nfd-control-plane      true
+mokka-nfd-worker             true
 ```
 
 The input is a feature file, not a label written by Mokka. You can inspect it
