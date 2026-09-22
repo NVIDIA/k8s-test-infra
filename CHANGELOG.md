@@ -27,13 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nvml-mock: a device configured without a `pci` block reported a retired
   subsystem ID (`0x1347`) through `nvmlDeviceGetPciInfo`. The built-in default
   is now the captured A100 identity in both words.
-- node-agent: the agent leaves a `/run/nvidia/driver` it did not create the way
-  it found it. A foreign symlink there is displaced while the agent runs and
-  restored on teardown; a directory or file belonging to another component is
-  refused outright, with an error naming what is in the way, rather than the
-  bare `file exists` the symlink call used to surface. Teardown removes only a
-  link the agent can positively identify as the one it published, so a path it
-  cannot identify is left untouched.
+- node-agent: teardown no longer removes a `/run/nvidia/driver` the agent cannot
+  prove it published. Previously it removed whatever was at that path; it now
+  removes only the symlink it created, and leaves anything else alone. Startup
+  still replaces what is at the path, so a component that published its own
+  driver root before the agent started is still displaced. See
+  [#857](https://github.com/NVIDIA/k8s-test-infra/issues/857).
 
 ### Added
 
