@@ -295,6 +295,13 @@ func EncoderFBCProblems(out string, encoder, fbc EncoderFBCStats, accountingBuff
 // wantGPUs guards against a truncated document silently passing every per-GPU
 // check.
 func PCIeIdentityProblems(out string, wantGPUs, wantMaxLinkGen int) []string {
+	return PCIeIdentityProblemsForProfile(out, wantGPUs, wantMaxLinkGen, wantMaxLinkGen, false)
+}
+
+// PCIeIdentityProblemsForProfile compares the device and host PCIe maxima
+// independently. Grace-Blackwell profiles have a Gen4 host bridge next to a
+// Gen6 device, while standalone B200 deliberately reports no host maximum.
+func PCIeIdentityProblemsForProfile(out string, wantGPUs, wantDeviceMaxLinkGen, wantHostMaxLinkGen int, hostMaxUnsupported bool) []string {
 	snap, err := ParseSnapshot(out)
 	if err != nil {
 		return []string{err.Error()}
@@ -310,11 +317,17 @@ func PCIeIdentityProblems(out string, wantGPUs, wantMaxLinkGen int) []string {
 		name := gpu.label(i)
 		gen := gpu.PCI.GPULinkInfo.PCIeGen
 		problems = append(problems,
-			intReadingProblems(name+" max_link_gen", gen.Max, wantMaxLinkGen, "")...)
+			intReadingProblems(name+" max_link_gen", gen.Max, wantDeviceMaxLinkGen, "")...)
 		problems = append(problems,
-			intReadingProblems(name+" max_device_link_gen", gen.DeviceMax, wantMaxLinkGen, "")...)
-		problems = append(problems,
-			intReadingProblems(name+" max_host_link_gen", gen.HostMax, wantMaxLinkGen, "")...)
+			intReadingProblems(name+" max_device_link_gen", gen.DeviceMax, wantDeviceMaxLinkGen, "")...)
+		if hostMaxUnsupported {
+			if !gen.HostMax.unsupported() {
+				problems = append(problems, fmt.Sprintf("%s max_host_link_gen = %q, want N/A", name, string(gen.HostMax)))
+			}
+		} else {
+			problems = append(problems,
+				intReadingProblems(name+" max_host_link_gen", gen.HostMax, wantHostMaxLinkGen, "")...)
+		}
 		problems = append(problems, boardIDProblems(name, gpu.BoardID, boardIDs)...)
 	}
 	return problems
