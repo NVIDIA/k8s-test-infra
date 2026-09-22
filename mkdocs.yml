@@ -158,6 +158,10 @@ nav:
       - Tools:
           - check-fabric: tools/check-fabric.md
           - generate-bridge: tools/generate-bridge.md
-      - Enhancement Proposals: contributing/enhancements.md
+      - Enhancement Proposals:
+          - Overview: contributing/enhancements.md
+          - MEP-0001: meps/0001-mokka-control-plane/README.md
+          - MEP-0002: meps/0002-device-plugin-nri-composition/README.md
+          - MEP-0003: meps/0003-node-agent/README.md
       - Pull Requests: contributing/pull-requests.md
       - Repository Automation: maintainers/repository-automation.md
