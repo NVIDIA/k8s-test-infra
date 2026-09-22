@@ -125,11 +125,11 @@ func (f *FileSource) run(ctx context.Context, ch chan<- agent.Update) {
 			f.log.Warn("config watch error", zap.Error(err))
 			settle.Reset(settleDelay)
 		case <-settle.C:
-			f.reload(ctx, ch, &lastHash)
-			names = f.rewatch(w) // the change may have retargeted a symlink
-		case <-resync:
-			f.reload(ctx, ch, &lastHash)
 			names = f.rewatch(w)
+			f.reload(ctx, ch, &lastHash)
+		case <-resync:
+			names = f.rewatch(w)
+			f.reload(ctx, ch, &lastHash)
 		}
 	}
 }
@@ -147,7 +147,7 @@ func (w watched) carries(e fsnotify.Event) bool {
 }
 
 // rewatch attaches the watcher to the directory holding each document and
-// returns the names to react to. It runs again after every reload: a save can
+// returns the names to react to. It runs before every reload: a save can
 // retarget a symlink, and a directory that was missing — an unmounted topology
 // ConfigMap — may have appeared since.
 func (f *FileSource) rewatch(w *fsnotify.Watcher) watched {
