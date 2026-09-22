@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package engine is the pure-Go mock CUDA runtime driving the mockcuda bridge.
+// Package engine is the pure-Go mock CUDA runtime driving the libcuda bridge.
 package engine
 
 import (
