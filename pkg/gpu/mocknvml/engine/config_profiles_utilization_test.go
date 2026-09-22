@@ -38,7 +38,7 @@ const (
 // shippedProfiles is the full set of chart profiles. Kept as a literal so a
 // newly added profile that forgets the utilization block fails here loudly
 // rather than being silently skipped by a directory glob.
-var shippedProfiles = []string{"a100", "h100", "b200", "gb200", "gb300", "l40s", "t4"}
+var shippedProfiles = []string{"a100", "h100", "b200", "gb200", "gb300", "l40s", "t4", "vr200"}
 
 // TestProfiles_ReportNonZeroUtilization is the regression guard for #506 item 3.
 //

@@ -119,7 +119,7 @@ YAML configs allow full control over GPU properties. See `configs/` for examples
 - `mock-nvml-config-gb300.yaml` - GB300 NVL (4x Blackwell Ultra with 288 GiB HBM3e, 1.4 kW TDP)
 - `mock-nvml-config-l40s.yaml` - L40S (8x L40S, 48 GiB)
 - `mock-nvml-config-t4.yaml` - T4 (4x T4, 16 GiB)
-- `mock-nvml-config-vr200.yaml` - VR200 NVL (4x Rubin with 280 GiB, 2.3 kW power ceiling — one Vera-Rubin compute tray)
+- `mock-nvml-config-vr200.yaml` - VR200 NVL (4x Rubin with 288 GiB HBM4, 2.3 kW power ceiling — one Vera-Rubin compute tray)
 
 #### Configuration Structure
 
