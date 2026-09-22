@@ -435,6 +435,23 @@ mokka-control-plane-image-attest: ## Attest each Mokka control-plane child manif
 test: ## Run unit tests with race detection and coverage
 	@$(GO_CMD) test -v -race -coverprofile=coverage.out -covermode=atomic ./...
 
+# internal/fsutil and internal/agent/gpudriver skip their bind-mount, mknod
+# and Stage tests outside root on Linux (skipUnlessRootLinux) — the `test`
+# target above always runs as the invoking user, so those never execute
+# there. GOPROXY=off and the GOMODCACHE mount are what let this run offline:
+# `test` already downloaded and verified everything this needs on the same
+# runner, in the same job, moments earlier. The mount has to be writable —
+# Go's module cache takes a lock file even to read from it — which is fine
+# on a CI runner thrown away at the end of the job, less so reused locally.
+.PHONY: test-privileged
+test-privileged: ## Run internal/fsutil and internal/agent/gpudriver as root in a privileged container, for the tests `test` always skips
+	@docker run --rm --privileged \
+		-e GOPROXY=off \
+		-v "$(CURDIR)":/src -w /src \
+		-v "$(shell $(GO_CMD) env GOMODCACHE)":/go/pkg/mod \
+		golang:$(shell ./hack/golang-version.sh) \
+		go test -v ./internal/fsutil/... ./internal/agent/gpudriver/...
+
 HELM_CHART_DIR      := deployments/nvml-mock/helm/nvml-mock
 CRDS_HELM_CHART_DIR := deployments/mokka-crds/helm/mokka-crds
 
@@ -600,7 +617,7 @@ image-load:
 # ---------------------------------------------------------------------------
 GINKGO ?= $(GO_CMD) run github.com/onsi/ginkgo/v2/ginkgo
 E2E_TIMEOUT ?= 90m
-E2E_DEFAULT_LABEL_FILTER ?= !validator && !dra && !gpu-operator && !multi-node && !nri && !nfd
+E2E_DEFAULT_LABEL_FILTER ?= !gfd && !dra && !gpu-operator && !multi-node && !nri && !nfd
 E2E_GINKGO_FLAGS ?= --label-filter='$(E2E_DEFAULT_LABEL_FILTER)'
 
 .PHONY: e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd

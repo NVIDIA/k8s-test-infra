@@ -81,33 +81,22 @@ devicePlugin:
   enabled: true
   config:
     name: ""
-  env:
-    - name: NVIDIA_DRIVER_ROOT
-      value: "/var/lib/nvml-mock/driver"
 
 gfd:
   enabled: true
   env:
-    - name: NVIDIA_DRIVER_ROOT
-      value: "/var/lib/nvml-mock/driver"
     - name: GFD_MACHINE_TYPE_FILE
       value: "/etc/nvml-mock/machine-type"
 
 dcgmExporter:
   enabled: true
   env:
-    - name: NVIDIA_DRIVER_ROOT
-      value: "/var/lib/nvml-mock/driver"
     - name: DCGM_EXPORTER_COLLECT_INTERVAL
       value: "5000"
 
 validator:
   driver:
     env:
-      - name: DRIVER_INSTALL_DIR
-        value: "/run/nvidia/driver"
-      - name: LD_LIBRARY_PATH
-        value: "/run/nvidia/driver/usr/lib64"
       - name: DISABLE_DEV_CHAR_SYMLINK_CREATION
         value: "true"
   toolkit:
@@ -118,10 +107,6 @@ validator:
     env:
       - name: WITH_WORKLOAD
         value: "false"
-  plugin:
-    env:
-      - name: LD_LIBRARY_PATH
-        value: "/run/nvidia/driver/usr/lib64"
 EOF
 
 helm repo add nvidia https://helm.ngc.nvidia.com/nvidia && helm repo update
@@ -168,7 +153,6 @@ driver root, exercises CDI injection, and checks the node advertises GPUs.
 | `cdi.enabled` / `cdi.default` | The runtime reads `/var/run/cdi/nvidia.yaml`, which Mokka generates. This is what replaces the toolkit operand |
 | `dcgm.enabled: false` | The separate nv-hostengine DaemonSet is redundant: `dcgm-exporter` embeds the host engine in-process |
 | `dcgmExporter.enabled: true` | Kept on deliberately — it reads the mock through libdcgm, which is part of what this proves |
-| `NVIDIA_DRIVER_ROOT` | Points every operand at `/var/lib/nvml-mock/driver` instead of the real driver root |
 | `GFD_MACHINE_TYPE_FILE` | GFD's default reads `/sys/class/dmi/id/product_name`, which says `kind` here and is absent on hosts with no DMI. Mokka writes a file of its own |
 | `mig.strategy: none` | MIG is not simulated. Without this the device plugin enumerates MIG devices, and the CDI spec generator treats any non-`NOT_FOUND` return as fatal |
 | `validator.cuda.WITH_WORKLOAD: false` | The CUDA validation step launches a kernel, and [CUDA is not simulated](../faq.md#can-i-run-cuda-workloads-against-mokka) |

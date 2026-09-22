@@ -25,7 +25,7 @@ import (
 	"sync"
 	"unsafe"
 
-	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mockcuda/engine"
+	"github.com/NVIDIA/k8s-test-infra/shims/libcuda/engine"
 )
 
 // main is required for buildmode=c-shared.
