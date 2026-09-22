@@ -76,6 +76,7 @@ device_defaults:
 
   pcie:
     max_link_gen: 6                 # PCIe Gen6
+    host_max_unsupported: true      # switch-connected host has no reported maximum
     current_link_gen: 6
     max_link_width: 16              # x16
     current_link_width: 16
