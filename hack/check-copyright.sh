@@ -12,8 +12,26 @@ elif [[ "${1:-}" != "" ]]; then
   exit 2
 fi
 
-header='SPDX-License-Identifier|SPDX-FileCopyrightText|Licensed under the Apache License|Copyright'
 missing=()
+
+tracked_sources() {
+  while IFS= read -r file; do
+    case "$file" in
+      *.go|*.sh) printf '%s\n' "$file" ;;
+      *) [[ -f "$file" ]] && head -n 1 "$file" | grep -q '^#!' && printf '%s\n' "$file" ;;
+    esac
+  done < <(git ls-files)
+}
+
+has_header() {
+  local file=$1
+  local header
+  header=$(sed -n '1,20p' "$file")
+  [[ "$header" == *'SPDX-License-Identifier: Apache-2.0'* &&
+     "$header" == *'Copyright'* ]] ||
+    [[ "$header" == *'Licensed under the Apache License, Version 2.0'* &&
+       "$header" == *'Copyright'* ]]
+}
 
 add_header() {
   local file=$1
@@ -42,7 +60,7 @@ add_header() {
 }
 
 while IFS= read -r file; do
-  if sed -n '1,20p' "$file" | grep -qE "$header"; then
+  if has_header "$file"; then
     continue
   fi
 
@@ -52,7 +70,7 @@ while IFS= read -r file; do
   else
     missing+=("$file")
   fi
-done < <(git ls-files -- '*.go' '*.sh')
+done < <(tracked_sources)
 
 if ((${#missing[@]} > 0)); then
   printf 'missing copyright header:\n' >&2
