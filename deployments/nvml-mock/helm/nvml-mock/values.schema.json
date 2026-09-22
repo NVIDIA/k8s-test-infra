@@ -168,7 +168,7 @@
         "kernelLog": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Announce injected Xids on the node's kernel log. Closed to unknown keys because a typo here would leave the privileged container it grants in place while reading as if it had been turned off.",
+          "description": "Announce injected Xids on the node's kernel log. Closed to unknown keys because a typo here would silently leave the /dev/kmsg mount and announcement off while reading as if it had been turned on.",
           "properties": {
             "enabled": { "type": "boolean" }
           }

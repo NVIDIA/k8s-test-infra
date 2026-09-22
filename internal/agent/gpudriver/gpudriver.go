@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package gpudriver implements the GPU driver footprint simulator:
-// chardevs, NVML/CUDA shims, nvidia-smi, procfs entries, engine config,
-// and the /run/nvidia/driver GPU-Operator compatibility symlink.
+// chardevs, NVML/CUDA shims, nvidia-smi, procfs entries, engine config, and a
+// bind mount of that tree onto /run/nvidia/driver, the path GPU Operator's
+// own operands default to.
 package gpudriver
 
 import (
@@ -24,14 +25,6 @@ import (
 
 const name = "gpudriver"
 
-// The GPU-Operator compatibility symlink and the driver root it points at.
-// This resolves to the node's real /run/nvidia/driver, a path the GPU Operator's
-// driver container also owns.
-const (
-	driverLinkRel    = "nvidia/driver"
-	driverLinkTarget = "/var/lib/nvml-mock/driver"
-)
-
 var (
 	_ agent.Simulator = (*Simulator)(nil)
 	_ agent.Applier   = (*Simulator)(nil)
@@ -49,7 +42,7 @@ func New(h *host.Host) *Simulator { return &Simulator{host: h} }
 // Name returns the simulator's stable identifier.
 func (s *Simulator) Name() string { return name }
 
-// Ready reports whether the driver footprint and its published symlink exist.
+// Ready reports whether the driver footprint and its bind mount exist.
 func (s *Simulator) Ready() bool { return s.ready.Load() }
 
 // Stage materializes the GPU driver footprint under host.Root/driver/.
@@ -107,75 +100,34 @@ func (s *Simulator) Discard(_ context.Context) error {
 	return errors.Join(errs...)
 }
 
-// Apply creates the GPU-Operator compatibility symlink at /run/nvidia/driver,
-// replacing whatever is already there.
+// Apply bind-mounts the staged driver tree onto /run/nvidia/driver — the
+// same mechanism the real NVIDIA driver container uses — so a consumer that
+// already bind-mounted the path isn't orphaned, and exec resolves against
+// the mount source rather than /run's own (often noexec) flags.
 func (s *Simulator) Apply(_ context.Context, _ *agent.State) error {
 	zap.L().Info("applying simulator", zap.String("simulator", name))
 	s.ready.Store(false)
 
-	driverLink := s.host.RunPath(driverLinkRel)
-
-	// Called for the warning it emits: displacing another owner's driver root is
-	// worth a log line even though we go on to do it.
-	if _, err := ownsDriverLink(driverLink); err != nil {
-		return err
-	}
-
-	if err := fsutil.Symlink(driverLinkTarget, driverLink); err != nil {
-		return err
+	driverRoot := s.host.RunPath("nvidia/driver")
+	if err := fsutil.BindMount(s.host.RootPath("driver"), driverRoot); err != nil {
+		return fmt.Errorf("bind mount %s: %w", driverRoot, err)
 	}
 
 	s.ready.Store(true)
 	return nil
 }
 
-// Revoke removes the /run/nvidia/driver symlink. Anything else at that path
-// belongs to another owner of the node's /run/nvidia and is left alone.
+// Revoke unmounts /run/nvidia/driver, leaving the directory itself in place.
 func (s *Simulator) Revoke(_ context.Context) error {
 	zap.L().Info("revoking simulator", zap.String("simulator", name))
 	s.ready.Store(false)
 
-	link := s.host.RunPath(driverLinkRel)
+	mokkaDriverRoot := s.host.RootPath("driver")
+	nvidiaDriverRoot := s.host.RunPath("nvidia/driver")
 
-	ours, err := ownsDriverLink(link)
-
-	if err != nil || !ours {
-		return err
+	if err := fsutil.Unmount(mokkaDriverRoot, nvidiaDriverRoot); err != nil {
+		return fmt.Errorf("unmount %s: %w", nvidiaDriverRoot, err)
 	}
 
-	return fsutil.Remove(link)
-}
-
-// ownsDriverLink reports whether link is the symlink Apply created. Absent, not
-// a symlink, or pointing elsewhere all mean it is not ours.
-func ownsDriverLink(link string) (bool, error) {
-	fi, err := os.Lstat(link)
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-
-	if err != nil {
-		return false, fmt.Errorf("lstat %s: %w", link, err)
-	}
-
-	if fi.Mode()&os.ModeSymlink == 0 {
-		zap.L().Warn("driver root is not our symlink",
-			zap.String("path", link), zap.String("type", fi.Mode().Type().String()))
-
-		return false, nil
-	}
-
-	target, err := os.Readlink(link)
-	if err != nil {
-		return false, fmt.Errorf("readlink %s: %w", link, err)
-	}
-
-	if target != driverLinkTarget {
-		zap.L().Warn("driver symlink points elsewhere",
-			zap.String("path", link), zap.String("target", target))
-
-		return false, nil
-	}
-
-	return true, nil
+	return nil
 }

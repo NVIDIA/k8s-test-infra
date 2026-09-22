@@ -157,19 +157,9 @@ spec:
               protocol: TCP
             {{- end }}
           securityContext:
-            {{- if .Values.nodeAgent.kernelLog.enabled }}
-            # Writing /dev/kmsg needs no capability, but it does need past the
-            # device cgroup, which only privileged lifts -- mounting the device
-            # into an unprivileged container still fails with EPERM. Stated
-            # alone: a capability set is inert under privileged, so dropping ALL
-            # here would advertise a bound the container does not have.
+            # Kubernetes rejects mountPropagation: Bidirectional (below) on a
+            # non-privileged container regardless of capabilities granted.
             privileged: true
-            {{- else }}
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: [ALL]
-              add: [MKNOD]
-            {{- end }}
           volumeMounts:
             # Where the simulators write. Every path they stage is rooted here.
             - name: mokka-root
@@ -179,10 +169,11 @@ spec:
             # tool run via `kubectl exec` only resolve them through this mount.
             - name: mokka-root
               mountPath: /var/lib/nvml-mock
-            # gpudriver.Apply puts the /run/nvidia/driver symlink here, which is
-            # the driver root the GPU Operator and DRA driver look for.
+            # gpudriver.Apply bind-mounts the driver root here. Bidirectional
+            # so that mount propagates to our consumer workloads that mounted this path before we did (the workload started before Mokka node daemon).
             - name: driver-root-link
               mountPath: /host/run/nvidia
+              mountPropagation: Bidirectional
             # cdi.Apply writes both specs here; containerd scans the directory.
             - name: cdi-specs
               mountPath: /host/run/cdi

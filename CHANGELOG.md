@@ -27,11 +27,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nvml-mock: a device configured without a `pci` block reported a retired
   subsystem ID (`0x1347`) through `nvmlDeviceGetPciInfo`. The built-in default
   is now the captured A100 identity in both words.
-- node-agent: teardown no longer removes a `/run/nvidia/driver` the agent cannot
-  prove it published. Previously it removed whatever was at that path; it now
-  removes only the symlink it created, and leaves anything else alone. Startup
-  still replaces what is at the path, so a component that published its own
-  driver root before the agent started is still displaced. See
+- node-agent: fixed the GPU Operator validator getting stuck retrying driver
+  validation forever if its pod started before node-agent had finished, or
+  restarted while node-agent was mid-restart. `/run/nvidia/driver` is now a
+  bind mount of the staged driver root instead of a symlink to it, so a
+  consumer that already mounted the path keeps seeing it as content lands,
+  the way it would with a real driver. Teardown unmounts but never deletes
+  the directory, and never touches a path it did not mount.
+  **Breaking (security):** the node-agent container is now privileged on
+  every install, not only when `nodeAgent.kernelLog.enabled` is set —
+  Kubernetes rejects `mountPropagation: Bidirectional` (needed for that bind
+  mount to reach other containers) on anything less, regardless of
+  capabilities granted. A cluster whose PodSecurity admits no privileged pod
+  will refuse this release's DaemonSet on `helm upgrade`. See
   [#857](https://github.com/NVIDIA/k8s-test-infra/issues/857).
 
 ### Added
