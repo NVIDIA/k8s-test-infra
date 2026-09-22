@@ -48,7 +48,7 @@ else
   exit 1
 fi
 
-if [[ ! "${GOLANG_VERSION}" =~ ^[0-9]+\.[0-9]+([.][0-9]+)?([[:alnum:]][[:alnum:]._-]*)?$ ]]; then
+if [[ ! "${GOLANG_VERSION}" =~ ^[0-9]+\.[0-9]+((beta|rc)[0-9]+|([.][0-9]+)((beta|rc)[0-9]+)?)?$ ]]; then
   echo "error: invalid Go version '${GOLANG_VERSION}' in ${DOCKERFILE}" >&2
   exit 1
 fi
