@@ -34,6 +34,7 @@ COPY go.mod go.sum ./
 RUN --mount=type=secret,id=goauth,mode=0500 \
     if [ -f /run/secrets/goauth ]; then export GOAUTH=/run/secrets/goauth; fi; \
     go mod download
+COPY api/ api/
 COPY pkg/ pkg/
 COPY cmd/ cmd/
 COPY internal/ internal/

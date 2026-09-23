@@ -185,7 +185,7 @@ coordinate projection cleanup. Racks owned by another object are not adopted.
 
 This MEP defines the complete architecture rather than the delivery status of
 an implementation stage. See the [Mokka controller operational
-documentation](../../../docs/mokka-controller.md#stage-1-exclusions) for
+documentation](../../../docs/control-plane.md#stage-1-exclusions) for
 currently available behavior and its Stage 1 exclusions.
 
 #### Runtime State

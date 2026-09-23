@@ -116,7 +116,7 @@ nav:
           - Installation: helm-chart.md
       - Architecture:
           - Overview: architecture.md
-          - Mokka Control Plane: mokka-controller.md
+          - Mokka Control Plane: control-plane.md
           - Node Daemon: components/node-daemon.md
           - Libraries and Shims: components/libraries-and-shims.md
           - NRI Plugin: components/nri-plugin.md

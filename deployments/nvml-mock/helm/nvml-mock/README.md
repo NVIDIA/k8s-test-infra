@@ -71,7 +71,7 @@ so a mistyped key fails fast rather than deploying a broken DaemonSet.
 - Chart version: see `Chart.yaml`
 
 Before disabling the control plane or uninstalling its release, follow the
-[controller decommission procedure](../../../../docs/mokka-controller.md#disable-or-uninstall-safely).
+[controller decommission procedure](../../../../docs/control-plane.md#disable-or-uninstall-safely).
 The controller must remove its finalizers and Node projection metadata while
 its Deployment and RBAC still exist; retained CRDs cannot perform this cleanup.
 

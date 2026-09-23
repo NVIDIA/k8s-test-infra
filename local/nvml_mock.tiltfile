@@ -70,6 +70,7 @@ def build_nvml_mock_image(nvmlmock_image=''):
         only=[
             'go.mod',
             'go.sum',
+            'api/',
             'cmd/',
             'pkg/',
             'internal/',
@@ -94,6 +95,7 @@ def build_control_plane_image():
         only=[
             'go.mod',
             'go.sum',
+            'api/',
             'cmd/',
             'pkg/',
             'internal/',

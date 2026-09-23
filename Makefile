@@ -156,7 +156,7 @@ deps-verify: ## Re-download every module into a throwaway cache and re-verify it
 	exit $$status
 
 CRDS_OUT     := deployments/mokka-crds/helm/mokka-crds/templates
-API_PKG_PATH := ./internal/controlplane/api/...
+API_PKG_PATH := ./api/...
 # The bridge generator reads go-nvml's nvml.go and nvml.h. Their module cache path
 # is version-stamped, so resolve it here instead of hardcoding the pinned version.
 GO_NVML_MOD  := github.com/NVIDIA/go-nvml
@@ -181,11 +181,11 @@ gen: tools ## Generate machine-controlled code
 gen-check: gen ## Check whether all generated code is up to date
 	@git diff --quiet HEAD -- \
 		./pkg/gpu/mocknvml/bridge/ \
-		./internal/controlplane/api/ \
+		./api/ \
 		./pkg/generated/ \
 		$(CRDS_OUT) || { \
 		echo "ERROR: generated code is out of date. Run 'make gen' and commit the result."; \
-		git diff -- ./internal/controlplane/api/ $(CRDS_OUT); \
+		git diff -- ./api/ $(CRDS_OUT); \
 		exit 1; }
 
 DIST_DIR ?= dist

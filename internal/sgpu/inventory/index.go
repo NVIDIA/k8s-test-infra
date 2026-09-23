@@ -10,8 +10,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
 
-	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
+	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
 )
 
 //nolint:revive // These names define one cohesive informer index contract.
@@ -50,7 +50,7 @@ func rackByInventoryUID(obj any) ([]string, error) {
 	if rack.Spec.InventoryRef.UID != "" {
 		values = append(values, string(rack.Spec.InventoryRef.UID))
 	}
-	if owner := controllerInventoryOwner(rack); owner != nil && owner.UID != "" &&
+	if owner := rack.InventoryOwner(); owner != nil && owner.UID != "" &&
 		!slices.Contains(values, string(owner.UID)) {
 		values = append(values, string(owner.UID))
 	}
