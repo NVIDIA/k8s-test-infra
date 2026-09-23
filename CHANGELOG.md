@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The GPU Operator chart is now pinned at `v26.3.3` in
+  `local/gpu-operator/gpu_operator.tiltfile`, which drives both local Tilt runs
+  and the `e2e-gpu-operator` job, and in the `with-gpu-operator` guide script
+  (override with `GPU_OPERATOR_VERSION`). It floated before, so v26.7.1 reached
+  CI without a commit here. That release gates every operand's
+  `toolkit-validation` init container on an `nvidia` line in `/proc/modules`,
+  which the mock cannot serve to those containers, and GFD, the device plugin
+  and dcgm-exporter never start. Lifting the pin is tracked in
+  [#911](https://github.com/NVIDIA/k8s-test-infra/issues/911).
+
 ## [0.4.0-rc2] - 2026-09-22
 
 ### Fixed
