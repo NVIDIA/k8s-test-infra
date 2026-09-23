@@ -126,6 +126,15 @@ func TestEmptySelectorMatchesEveryEligibleNode(t *testing.T) {
 	}}, classified)
 }
 
+func TestNodeEligibleRequiresLabelAndLiveNode(t *testing.T) {
+	t.Parallel()
+
+	require.True(t, NodeEligible(eligibleLabels(), false))
+	require.False(t, NodeEligible(eligibleLabels(), true), "a terminating Node is never placed")
+	require.False(t, NodeEligible(map[string]string{EligibleNodeLabel: "false"}, false))
+	require.False(t, NodeEligible(nil, false))
+}
+
 func groupKey(inventory, rackGroup string) RackGroupKey {
 	return RackGroupKey{InventoryName: inventory, InventoryUID: types.UID(inventory + "-uid"), RackGroup: rackGroup}
 }

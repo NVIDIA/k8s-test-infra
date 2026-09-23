@@ -52,8 +52,7 @@ func projectionBindingIdentityValid(
 	if rack == nil || slot == nil || node == nil {
 		return false
 	}
-	if rack.DeletionTimestamp != nil || node.DeletionTimestamp != nil ||
-		node.Labels[allocate.EligibleNodeLabel] != "true" {
+	if rack.DeletionTimestamp != nil || !allocate.NodeEligible(node.Labels, node.DeletionTimestamp != nil) {
 		return false
 	}
 	return slot.BoundTo(node.Name, node.UID)

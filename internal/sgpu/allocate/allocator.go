@@ -216,7 +216,7 @@ func Allocate(snapshot Snapshot) (Plan, error) {
 			plan.Released = append(plan.Released, Release{Binding: binding, Reason: ReleaseNodeGone})
 			continue
 		}
-		if !eligible(node) {
+		if !NodeEligible(node.Labels, node.Terminating) {
 			plan.Released = append(plan.Released, Release{Binding: binding, Reason: ReleaseNodeIneligible})
 			continue
 		}

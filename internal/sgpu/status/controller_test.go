@@ -87,6 +87,27 @@ func TestComputeInventoryRequestedNodesAreDistinctWhileGroupsOverlap(t *testing.
 	require.Equal(t, ReasonPlacementConflicts, condition(got.Conditions, mokkav1alpha1.InventoryConditionRequestsSatisfied).Reason)
 }
 
+func TestComputeInventoryDoesNotCountTerminatingNodesAsRequested(t *testing.T) {
+	t.Parallel()
+
+	input := aggregateInput(t)
+	input.RackResult.ProfileIssues = nil
+	input.RackResult.ResolvedRefs = true
+	delete(input.Profiles, "missing")
+	input.Inventory.Spec.RackGroups = input.Inventory.Spec.RackGroups[:1]
+	input.Racks = nil
+	input.RackResult.Allocation = allocate.Plan{}
+	terminating := node("terminating", "terminating-uid", true, "a")
+	deleting := metav1.Now()
+	terminating.DeletionTimestamp = &deleting
+	input.Nodes = []*corev1.Node{node("waiting", "waiting-uid", true, "a"), terminating}
+
+	got := ComputeInventory(input, metav1.Now())
+
+	require.Equal(t, int32(1), got.Usage.RequestedNodes, "the allocator never places a terminating Node")
+	require.Equal(t, int32(1), got.RackGroups[0].Usage.RequestedNodes)
+}
+
 func TestComputeInventoryCapacityBoundaryAndRejectedOverflow(t *testing.T) {
 	t.Run("maximum GPUs at supported node boundary", func(t *testing.T) {
 		inventory := &mokkav1alpha1.SGPUInventory{
