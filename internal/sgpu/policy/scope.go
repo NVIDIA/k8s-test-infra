@@ -49,5 +49,6 @@ func (s Scope) String() string {
 	case ScopeGPU:
 		return "GPU"
 	}
+
 	return "Unknown"
 }

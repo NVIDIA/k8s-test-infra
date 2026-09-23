@@ -30,5 +30,6 @@ func (o Outcome) Accepted() bool {
 	case TargetNotFound, InvalidTarget, Conflicted:
 		return false
 	}
+
 	return false
 }

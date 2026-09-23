@@ -109,5 +109,6 @@ func (s selection) overlaps(other selection) bool {
 			return true
 		}
 	}
+
 	return false
 }
