@@ -141,8 +141,8 @@ kubectl --context $CTX -n gpu-operator get cm -l fake-gpu-operator/gpu-profile=t
 # A real nvidia-smi, on a node with no GPU.
 kubectl --context $CTX exec ds/nvml-mock -- nvidia-smi
 
-# FGO runs on the scale workers.
-kubectl --context $CTX get pods -l app=fake-gpu-operator -o wide
+# FGO's component-specific pods run in its release namespace.
+kubectl --context "$CTX" -n gpu-operator get pods -o wide
 ```
 
 You should end up with:
