@@ -469,6 +469,16 @@ mockfs-shim: ## Build the mockfs LD_PRELOAD shim (libmockfs.so)
 test-mockfs: mockfs-shim ## Run mockfs integration tests
 	@$(GO_CMD) test -tags integration -v ./shims/libmockfs/...
 
+.PHONY: nvidia-kmod
+nvidia-kmod: ## Build the simulated NVIDIA kernel modules (needs a kernel build tree)
+	@$(MAKE) -C shims/nvidia-kmod
+
+# Delegates rather than calling go test directly: loading a module needs root,
+# and the sub-Makefile owns how it elevates (see TEST_EXEC there).
+.PHONY: test-nvidia-kmod
+test-nvidia-kmod: ## Load the simulated NVIDIA kernel modules and assert their surface
+	@$(MAKE) -C shims/nvidia-kmod test
+
 .PHONY: test-nvidia-imex-shim
 test-nvidia-imex-shim: build ## Run nvidia-imex-shim integration tests
 	@$(GO_CMD) test -v ./shims/nvidia-imex-shim/...
