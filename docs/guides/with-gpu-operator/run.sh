@@ -51,6 +51,7 @@ RELEASE_NAME="nvml-mock-operator"
 # release: this one is the upstream chart.
 OPERATOR_RELEASE="gpu-operator"
 : "${OPERATOR_NAMESPACE:=gpu-operator}"
+: "${GPU_OPERATOR_VERSION:=v26.7.0}"
 OPERATOR_VALUES="${DEMO_DIR}/gpu-operator-values.yaml"
 # Pods carry app.kubernetes.io/name=<CHART name> and
 # app.kubernetes.io/instance=<RELEASE name> (nvml-mock.selectorLabels). The
@@ -196,13 +197,14 @@ info "Adding the NVIDIA Helm repository"
 helm repo add nvidia https://helm.ngc.nvidia.com/nvidia --force-update
 helm repo update nvidia
 
-info "Installing ${OPERATOR_RELEASE} into namespace ${OPERATOR_NAMESPACE}"
+info "Installing ${OPERATOR_RELEASE} ${GPU_OPERATOR_VERSION} into namespace ${OPERATOR_NAMESPACE}"
 sub "values: ${OPERATOR_VALUES}"
 sub "The operator pulls several images of its own on a cold cluster, so this"
 sub "waits up to $(demo::install_timeout) as well. Raise it with HELM_TIMEOUT=30m."
 helm upgrade --install "${OPERATOR_RELEASE}" nvidia/gpu-operator \
   --kube-context "${KUBE_CONTEXT}" \
   --namespace "${OPERATOR_NAMESPACE}" --create-namespace \
+  --version "${GPU_OPERATOR_VERSION}" \
   -f "${OPERATOR_VALUES}" \
   --wait --timeout "$(demo::install_timeout)"
 

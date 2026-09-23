@@ -18,6 +18,9 @@
 load('ext://helm_resource', 'helm_resource')
 
 _REPO_RESOURCE = 'nvidia'
+# v26.7.1 requires a real NVIDIA kernel module during operand validation,
+# which is intentionally absent from the nvml-mock Kind environment.
+_GPU_OPERATOR_VERSION = 'v26.7.0'
 
 def install(nvml_mock_releases, extra_values=[], extra_resource_deps=[]):
     # local/gpu-operator/gpu-operator.values.yaml disables driver/toolkit/DCGM
@@ -31,7 +34,11 @@ def install(nvml_mock_releases, extra_values=[], extra_resource_deps=[]):
         'gpu-operator',
         'nvidia/gpu-operator',
         namespace='gpu-operator',
-        flags=['--create-namespace'] + values_flags + ['--timeout', '300s'],
+        flags=[
+            '--create-namespace',
+            '--version',
+            _GPU_OPERATOR_VERSION,
+        ] + values_flags + ['--timeout', '300s'],
         resource_deps=[_REPO_RESOURCE] + nvml_mock_releases + extra_resource_deps,
         labels=['gpu-operator'],
     )
