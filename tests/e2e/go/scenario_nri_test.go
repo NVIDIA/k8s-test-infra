@@ -134,6 +134,21 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 				assertAgentSeesGPUs(ctx, h, p.ExpectedGPUs())
 			})
 
+			// #780. The DRA ComputeDomain plugin reads this capability from the
+			// kernel path inside its workload container. Checking only the staged
+			// host file would miss a broken NRI mount or CDI delivery rule.
+			It("serves the IMEX capability file at the consumer kernel path", Label("compute-domain"), func(ctx SpecContext) {
+				if !computeDomain {
+					Skip("profile " + name + " declares no fabric; the IMEX capability is unsupported")
+				}
+
+				consumer := nriAgentPodOnNode(ctx, h, workers[0].Name)
+				res, err := h.Kube.Exec(ctx, consumer, "test", "-f", "/proc/driver/nvidia/capabilities/fabric-imex-mgmt")
+				Expect(err).NotTo(HaveOccurred(),
+					"IMEX capability file is not present at the consumer kernel path in %s:\n%s",
+					consumer.Pod, res.Combined())
+			})
+
 			It("resets a GPU with nvidia-smi -r from inside an injected container", Label("nvidia-smi"), Label("nri-inject"), func(ctx SpecContext) {
 				assertGpuResetFromInjectedContainer(ctx, h)
 			})
