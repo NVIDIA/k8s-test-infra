@@ -13,7 +13,7 @@ import (
 //
 // Zero is the point of the check rather than a weak expectation. Every row read
 // N/A while the two NVML getters behind them were generated stubs (#711), which
-// says the driver answered nothing where real hardware answers none: all seven
+// says the driver answered nothing where real hardware answers none: all eight
 // hardware captures report 0 MiB here, including the A100, L40S and T4 boards
 // that cannot do Confidential Compute at all. The expectation is therefore not
 // derived from the profile — nothing partitions protected memory until CC mode

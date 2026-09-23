@@ -126,7 +126,7 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func(
 })
 
 // gpmProfiles are the Hopper+ profiles that serve DCGM_FI_PROF_* GPM metrics.
-var gpmProfiles = map[string]bool{"h100": true, "b200": true, "gb200": true, "gb300": true}
+var gpmProfiles = map[string]bool{"h100": true, "b200": true, "gb200": true, "gb300": true, "vr200": true}
 
 // xidTestCode is the Xid injected and asserted on (79 = GPU fallen off the bus).
 const xidTestCode = 79

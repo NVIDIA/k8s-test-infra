@@ -28,7 +28,7 @@ tests:
           enabled: true
     asserts:
       - hasDocuments:
-          count: 7
+          count: 8
 
   # FGO's CmNamePrefix. A Get by exact name means any other prefix is a
   # NotFound, so the name is asserted literally rather than by pattern.
@@ -50,6 +50,10 @@ tests:
           path: metadata.name
           value: gpu-profile-t4
         documentIndex: 6
+      - equal:
+          path: metadata.name
+          value: gpu-profile-vr200
+        documentIndex: 7
 
   # FGO's CmProfileKey. Load() errors with "missing key" on anything else.
   - it: should key profile data under profile.yaml, not config.yaml
@@ -148,4 +152,4 @@ tests:
       - equal:
           path: metadata.namespace
           value: gpu-operator
-        documentIndex: 6
+        documentIndex: 7

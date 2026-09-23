@@ -15,16 +15,27 @@ rename lands first.
 | `qx-l40s.xml` | 1x NVIDIA L40S (AWS `g6e.2xlarge`) | 595.91.07 / 13.2 |
 | `qx-t4.xml` | 1x Tesla T4 (AWS `g4dn.xlarge`) | 595.91.07 / 13.2 |
 | `qx-a100.xml` | 1x NVIDIA A100-SXM4-40GB (Lambda `gpu_1x_a100_sxm4`) | 570.148.08 / 12.8 |
+| `qx-vr200.xml` | 4x NVIDIA Rubin, pre-release | 615.23 / 13.4 |
 
 The single-GPU captures are the no-NVLink, no-fabric end of the range — useful
 for seeing which elements a small board omits. The drivers deliberately spread
-from 570 to 595, since a spread is what exposes an element rename: the A100 is
-the oldest and the T4 and L40S the newest.
+from 570 to 615, since a spread is what exposes an element rename: the A100 is
+the oldest and the VR200 the newest.
 
-The GB200 and GB300 are the only ones in a fabric cluster, so they are the only
-place `clusterUuid` and `cliqueId` carry values rather than zeros or `N/A`. The
-GB200 is also the only arm64 host, taken from a running GPU-operator driver pod
-rather than a node we control directly.
+The GB200, GB300 and VR200 are the only ones in a fabric cluster, so they are
+the only place `clusterUuid` and `cliqueId` carry values rather than zeros or
+`N/A`. The GB200 is also the only arm64 host, taken from a running
+GPU-operator driver pod rather than a node we control directly.
+
+The VR200 is the furthest ahead of the mock and the only capture of unreleased
+silicon, which is why it reports `NVIDIA Graphics Device` as its product name:
+the board shipped before the driver's product table knew it. It is also the
+only one carrying elements the mock's schema has no field for at all, so its
+value is as much in showing where driver 615 has moved on as in checking the
+mock against it — the root-level `kmd_version` and `cuda_umd_version` that
+deprecate `driver_version` and `cuda_version`, a base-power scope beneath the
+power ceiling, `edpp_multiplier`, `remapped_banks`, `dla_clocks` and the
+fabric clique list.
 
 The A100 matches the board `mock-nvml-config-a100.yaml` models
 (`NVIDIA A100-SXM4-40GB`). It came from a rented single-GPU VM rather than a
@@ -66,11 +77,14 @@ Two rules matter when scrubbing by hand, both of which are easy to get wrong:
   how nvidia-smi says "not in a fabric cluster", and a node that was in one
   must not come out looking like a node that was not.
 - Use one placeholder per distinct value, so GPUs that shared an identifier
-  upstream still share one here. The GB200 and GB300 modules each cover two
-  GPUs and so report a serial twice, and every GPU on a node repeats the one
-  `chassis_serial_number` and `clusterUuid`. `pdi` and `gpu_fabric_guid` share
-  one numbering for the same reason: on Grace-Blackwell they are the same value,
-  and scrubbing them apart would invent a difference the node did not report.
+  upstream still share one here. The GB200, GB300 and VR200 modules each cover
+  two GPUs and so report a serial twice, and every GPU on a node repeats the one
+  `chassis_serial_number` and `clusterUuid`. `pdi` and `gpu_fabric_guid` draw
+  from one numbering for the same reason: on Grace-Blackwell they are the same
+  value, and scrubbing them apart would invent a difference the node did not
+  report. The rule cuts the other way on the VR200, which reports them as
+  different values and so carries a different number for each — the numbering is
+  shared, the numbers are not.
 
 To add a capture, take it and replace the six elements above:
 

@@ -31,6 +31,12 @@ Set `gpu.profile` to one of the profiles shipped in `profiles/`:
 | `gb300` (default) | GB300 NVL | 288 GiB | Blackwell Ultra |
 | `l40s` | L40S | 48 GiB | Ada Lovelace |
 | `t4` | Tesla T4 | 16 GiB | Turing |
+| `vr200` | Vera Rubin NVL72 | 288 GiB | Rubin |
+
+`vr200` is a Vera-Rubin compute tray authored from a capture of pre-release
+hardware, so it differs from the others in one way: it reports `NVIDIA Graphics
+Device` as its GPU name, because the board shipped before the driver's product
+table carried one.
 
 ```bash
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \

@@ -25,7 +25,7 @@ const profilesDir = "../../../../deployments/nvml-mock/helm/nvml-mock/profiles"
 // YAML against an authoritative table. The NV# column matches the engine
 // oracle constants in
 // pkg/gpu/mocknvml/engine/topology_test.go:TestNodeFabric_BuiltinProfiles
-// (a100 NV12; h100/gb200/gb300 NV18; b200 NV0). Keeping this table in lockstep
+// (a100 NV12; h100/gb200/gb300/vr200 NV18; b200 NV0). Keeping this table in lockstep
 // with that oracle is the guard that stops the chart profiles/ and engine
 // configs/ copies from drifting in a way the e2e would not catch.
 func TestDerivations(t *testing.T) {
@@ -59,6 +59,7 @@ func TestDerivations(t *testing.T) {
 		{"gb300", "NVIDIA GB300 NVL", 4, 4, 18, true, true, true, 2, true, true, 95, 90, 85, 6, 2070},
 		{"l40s", "NVIDIA L40S", 8, 0, 0, false, false, false, 2, true, false, 96, 93, 89, 4, 2520}, // IB + NVLink negative control
 		{"t4", "NVIDIA T4", 4, 0, 0, false, false, false, 1, false, false, 96, 93, 89, 3, 1590},
+		{"vr200", "NVIDIA Graphics Device", 4, 8, 18, true, true, true, 2, true, true, 90, 85, 85, 6, 2424}, // one Vera-Rubin tray; the only profile pairing two HCAs with each GPU
 	}
 
 	for _, c := range cases {
@@ -169,20 +170,22 @@ func TestAll(t *testing.T) {
 	require.Len(t, ps, len(KnownProfiles), "All() returned wrong count")
 }
 
-// TestC2CIsGraceOnly pins C2C as a Grace-only axis. gb200/gb300 declare the
-// link; every other shipped profile must report false, including b200, which is
-// Blackwell but has no Grace CPU. Without this, a profile-derived e2e
-// expectation could quietly become "always Enabled". See issue #639.
+// TestC2CIsSuperchipOnly pins C2C as a superchip axis: the link exists only
+// where a CPU sits on the other end of it, which is Grace on gb200/gb300 and
+// Vera on vr200. Every other shipped profile must report false, including b200,
+// which is Blackwell but has no host CPU on NVLink. Without this, a
+// profile-derived e2e expectation could quietly become "always Enabled". See
+// issue #639.
 //
 // Driven from KnownProfiles so a newly added profile has to declare which side
 // it belongs on rather than defaulting into the untested one.
-func TestC2CIsGraceOnly(t *testing.T) {
-	graceProfiles := map[string]bool{"gb200": true, "gb300": true}
+func TestC2CIsSuperchipOnly(t *testing.T) {
+	superchipProfiles := map[string]bool{"gb200": true, "gb300": true, "vr200": true}
 	for _, name := range KnownProfiles {
 		p, err := Load(profilesDir, name)
 		require.NoError(t, err, "Load(%q)", name)
-		require.Equal(t, graceProfiles[name], p.C2CEnabled(),
-			"%s: nvlink.c2c_enabled should be %v", name, graceProfiles[name])
+		require.Equal(t, superchipProfiles[name], p.C2CEnabled(),
+			"%s: nvlink.c2c_enabled should be %v", name, superchipProfiles[name])
 	}
 }
 
@@ -270,7 +273,7 @@ func TestWorkloadProfilePairsBackTheSetterAssertions(t *testing.T) {
 // become "always reports one". b200 is the interesting case — Blackwell, but a
 // board in no rack. See issue #642.
 func TestPlatformIdentityIsRackScaleOnly(t *testing.T) {
-	rackProfiles := map[string]bool{"gb200": true, "gb300": true}
+	rackProfiles := map[string]bool{"gb200": true, "gb300": true, "vr200": true}
 	for _, name := range KnownProfiles {
 		p, err := Load(profilesDir, name)
 		require.NoError(t, err, "Load(%q)", name)
@@ -402,6 +405,7 @@ func TestProfileArchitectures(t *testing.T) {
 		"gb300": gpuarch.Blackwell,
 		"l40s":  gpuarch.Ada,
 		"t4":    gpuarch.Turing,
+		"vr200": gpuarch.Rubin,
 	}
 	for _, name := range KnownProfiles {
 		p, err := Load(profilesDir, name)
