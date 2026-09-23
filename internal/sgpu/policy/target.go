@@ -118,8 +118,10 @@ func sortedCopy(values []int32) []int32 {
 
 func quoted(values []string) string {
 	quotedValues := make([]string, len(values))
+
 	for i, value := range values {
 		quotedValues[i] = strconv.Quote(value)
 	}
+
 	return strings.Join(quotedValues, ", ")
 }

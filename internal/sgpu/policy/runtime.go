@@ -30,6 +30,7 @@ type layer struct {
 // GPU set disjoint fields, so their relative order does not change the result.
 func layersByGroup(accepted []candidate) map[string][]layer {
 	layers := make(map[string][]layer)
+
 	for _, winner := range accepted {
 		for group, selected := range winner.selection {
 			layers[group] = append(layers[group], layer{
@@ -39,9 +40,11 @@ func layersByGroup(accepted []candidate) map[string][]layer {
 			})
 		}
 	}
+
 	for _, groupLayers := range layers {
 		slices.SortStableFunc(groupLayers, func(a, b layer) int { return cmp.Compare(a.scope, b.scope) })
 	}
+
 	return layers
 }
 
