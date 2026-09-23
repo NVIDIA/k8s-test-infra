@@ -69,7 +69,7 @@ func TestProjectAppliesOnlyOwnedMetadataWithExactAssignment(t *testing.T) {
 	require.Empty(t, controller.Outcomes(), "successful projections are derived from Node metadata for status")
 }
 
-func TestProjectRejectsUnauthorizedReplacementAndClearsPriorConflict(t *testing.T) {
+func TestProjectRejectsDisallowedReplacementAndClearsPriorConflict(t *testing.T) {
 	rack := testRack()
 	cache := &fakeCache{
 		racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack},
@@ -77,7 +77,7 @@ func TestProjectRejectsUnauthorizedReplacementAndClearsPriorConflict(t *testing.
 			return nil, false, nil
 		},
 		nodeLookup: func(context.Context, string) (*corev1.Node, error) {
-			t.Fatal("an unauthorized projection must not fall back to a live Node GET")
+			t.Fatal("a disallowed projection must not fall back to a live Node GET")
 			return nil, nil
 		},
 	}
@@ -94,7 +94,7 @@ func TestProjectRejectsUnauthorizedReplacementAndClearsPriorConflict(t *testing.
 	require.Equal(t, StateAbsent, outcome.State)
 	require.Equal(t, ReasonBindingNotAllocated, outcome.Reason)
 	require.Empty(t, patcher.calls)
-	require.Empty(t, controller.Outcomes(), "a terminal unauthorized result clears the prior conflict at the coordinate")
+	require.Empty(t, controller.Outcomes(), "a terminal disallowed result clears the prior conflict at the coordinate")
 }
 
 func TestProjectSkipsApplyForExactOwnedProjection(t *testing.T) {

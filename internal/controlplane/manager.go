@@ -146,7 +146,7 @@ func controllerRESTConfig(config Config) (*rest.Config, error) {
 	result = rest.CopyConfig(result)
 	result.QPS = float32(config.Kubernetes.QPS)
 	result.Burst = config.Kubernetes.Burst
-	result.UserAgent = "mokka-control-plane"
+	result.UserAgent = "mokka/control-plane"
 	return result, nil
 }
 

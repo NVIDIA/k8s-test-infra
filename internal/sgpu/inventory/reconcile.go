@@ -9,6 +9,7 @@ package inventory
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -1245,6 +1246,57 @@ func filterOwnedRacks(racks []*mokkav1alpha1.SGPURack, inventory *mokkav1alpha1.
 	}
 	slices.SortFunc(filtered, func(a, b *mokkav1alpha1.SGPURack) int { return cmp.Compare(a.Name, b.Name) })
 	return filtered
+}
+
+func controllerOwnsRackSpec(rack *mokkav1alpha1.SGPURack) bool {
+	owned := false
+	for _, entry := range rack.ManagedFields {
+		if !rackSpecManagedFieldsEntry(entry) {
+			continue
+		}
+		ownsSpec, valid := fieldsV1OwnsTopLevel(entry.FieldsV1, "f:spec")
+		if !valid {
+			return false
+		}
+		if !ownsSpec {
+			continue
+		}
+		if entry.Manager != RackFieldManager {
+			return false
+		}
+		owned = owned || entry.Operation == metav1.ManagedFieldsOperationApply ||
+			entry.Operation == metav1.ManagedFieldsOperationUpdate
+	}
+	return owned
+}
+
+func rackSpecManagedFieldsEntry(entry metav1.ManagedFieldsEntry) bool {
+	return entry.Subresource == "" && entry.FieldsType == "FieldsV1" && entry.FieldsV1 != nil &&
+		entry.APIVersion == mokkav1alpha1.SchemeGroupVersion.String()
+}
+
+func fieldsV1OwnsTopLevel(fields *metav1.FieldsV1, key string) (bool, bool) {
+	decoder := json.NewDecoder(fields.GetRawReader())
+	token, err := decoder.Token()
+	if err != nil || token != json.Delim('{') {
+		return false, false
+	}
+	for decoder.More() {
+		token, err = decoder.Token()
+		name, stringKey := token.(string)
+		if err != nil || !stringKey {
+			return false, false
+		}
+		if name == key {
+			return true, true
+		}
+		var value json.RawMessage
+		if err = decoder.Decode(&value); err != nil {
+			return false, false
+		}
+	}
+	token, err = decoder.Token()
+	return false, err == nil && token == json.Delim('}')
 }
 
 type allocationRackKey struct {

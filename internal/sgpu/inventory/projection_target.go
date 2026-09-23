@@ -4,13 +4,11 @@
 package inventory
 
 import (
-	"encoding/json"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -124,9 +122,11 @@ func projectionTargetMatches(
 		RackIndex:     rack.Spec.Identity.RackIndex,
 		Profile:       group.profile,
 	}, group.revision)
+
 	if err != nil {
 		return false, nil
 	}
+
 	if rack.Name != rendered.Name ||
 		!equality.Semantic.DeepEqual(rack.Spec.WithoutBindings(), rendered.Spec.WithoutBindings()) {
 		return false, nil
@@ -140,55 +140,4 @@ func projectionTargetMatches(
 		return false, nil
 	}
 	return selector.Matches(labels.Set(node.Labels)), nil
-}
-
-func controllerOwnsRackSpec(rack *mokkav1alpha1.SGPURack) bool {
-	owned := false
-	for _, entry := range rack.ManagedFields {
-		if !rackSpecManagedFieldsEntry(entry) {
-			continue
-		}
-		ownsSpec, valid := fieldsV1OwnsTopLevel(entry.FieldsV1, "f:spec")
-		if !valid {
-			return false
-		}
-		if !ownsSpec {
-			continue
-		}
-		if entry.Manager != RackFieldManager {
-			return false
-		}
-		owned = owned || entry.Operation == metav1.ManagedFieldsOperationApply ||
-			entry.Operation == metav1.ManagedFieldsOperationUpdate
-	}
-	return owned
-}
-
-func rackSpecManagedFieldsEntry(entry metav1.ManagedFieldsEntry) bool {
-	return entry.Subresource == "" && entry.FieldsType == "FieldsV1" && entry.FieldsV1 != nil &&
-		entry.APIVersion == mokkav1alpha1.SchemeGroupVersion.String()
-}
-
-func fieldsV1OwnsTopLevel(fields *metav1.FieldsV1, key string) (bool, bool) {
-	decoder := json.NewDecoder(fields.GetRawReader())
-	token, err := decoder.Token()
-	if err != nil || token != json.Delim('{') {
-		return false, false
-	}
-	for decoder.More() {
-		token, err = decoder.Token()
-		name, stringKey := token.(string)
-		if err != nil || !stringKey {
-			return false, false
-		}
-		if name == key {
-			return true, true
-		}
-		var value json.RawMessage
-		if err = decoder.Decode(&value); err != nil {
-			return false, false
-		}
-	}
-	token, err = decoder.Token()
-	return false, err == nil && token == json.Delim('}')
 }
