@@ -60,6 +60,15 @@ image:
   tag: latest
   pullPolicy: IfNotPresent
 
+# Process-wide feature gate overrides for each Mokka service. An entry enables
+# a gate; prefix it with "-" to disable a beta gate. Gates are component-scoped:
+# sending a node-agent gate to the NRI plugin, where it is unknown, would fail
+# that plugin's startup. No gates are registered in the current release.
+featureGates:
+  nodeAgent: []
+  nri: []
+  controlPlane: []
+
 driverVersion: ""                  # Auto-derived from profile. Override: "550.163.01"
 
 nodeSelector: {}

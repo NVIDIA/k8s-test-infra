@@ -41,6 +41,7 @@ Every flag also reads an environment variable; the flag wins when both are set.
 
 | Flag | Environment variable | Default | Description |
 |------|----------------------|---------|-------------|
+| `--feature-gates` | `MOKKA_FEATURE_GATES` | empty | Comma-separated startup overrides. See [Feature Gates](../contributing/feature-gates.md) |
 | `--log-level` | `MOKKA_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. `warning` is an alias of `warn`; empty falls back to `info` |
 | `--log-format` | `MOKKA_LOG_FORMAT` | `json` | `json` or `plain`; empty falls back to `json` |
 | `--health-addr` | `MOKKA_NRI_HEALTH_ADDR` | `:8080` | Address for `/healthz` and `/readyz`; empty disables them |

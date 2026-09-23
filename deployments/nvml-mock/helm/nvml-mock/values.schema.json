@@ -125,6 +125,16 @@
         }
       }
     },
+    "featureGates": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Component-scoped feature gate overrides. Prefix an identifier with '-' to disable it or '+' to enable it explicitly.",
+      "properties": {
+        "nodeAgent": { "$ref": "#/$defs/featureGateList" },
+        "nri": { "$ref": "#/$defs/featureGateList" },
+        "controlPlane": { "$ref": "#/$defs/featureGateList" }
+      }
+    },
     "driverVersion": { "type": "string" },
     "nodeSelector": { "type": "object" },
     "tolerations": { "type": "array" },
@@ -437,6 +447,16 @@
           "minimum": 0,
           "description": "Pod-level grace period. Must be >= preStop sleep + shutdownTimeout, otherwise kube SIGKILLs the drain window."
         }
+      }
+    }
+  },
+  "$defs": {
+    "featureGateList": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[+-]?[A-Za-z0-9]+(\\.[A-Za-z0-9]+)*$"
       }
     }
   }

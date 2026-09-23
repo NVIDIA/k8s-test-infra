@@ -53,6 +53,9 @@ spec:
             - --log-level={{ .Values.nodeAgent.logging.level }}
             - --log-format={{ .Values.nodeAgent.logging.format }}
             - --shutdown-timeout={{ .Values.nodeAgent.shutdownTimeout }}
+            {{- if .Values.featureGates.nodeAgent }}
+            - --feature-gates={{ join "," .Values.featureGates.nodeAgent }}
+            {{- end }}
           env:
             - name: NODE_NAME
               valueFrom:

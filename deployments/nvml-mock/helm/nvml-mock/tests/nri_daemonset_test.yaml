@@ -92,6 +92,19 @@ tests:
           path: spec.template.spec.containers[0].args
           content: --log-format=plain
 
+  - it: should pass feature gates to the NRI plugin as one ordered argument
+    set:
+      nri:
+        enabled: true
+      featureGates:
+        nri:
+          - mokka.alpha
+          - "-mokka.beta"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --feature-gates=mokka.alpha,-mokka.beta
+
   - it: should reject an unknown logging.level via the values schema
     set:
       nri:

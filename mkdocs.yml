@@ -151,6 +151,7 @@ nav:
       - Overview: contributing/index.md
       - Local Development: contributing/local-development.md
       - Testing: contributing/testing.md
+      - Feature Gates: contributing/feature-gates.md
       - Tools:
           - check-fabric: tools/check-fabric.md
           - generate-bridge: tools/generate-bridge.md
