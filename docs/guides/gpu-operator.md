@@ -216,6 +216,7 @@ not tolerate the control-plane `NoSchedule` taint.
 | `GPU_PROFILE` | `gb300` | Any profile under the chart's `profiles/` directory |
 | `NAMESPACE` | `mokka-operator` | Namespace for the Mokka release |
 | `OPERATOR_NAMESPACE` | `gpu-operator` | Namespace for the GPU Operator release |
+| `GPU_OPERATOR_VERSION` | `v26.3.3` | GPU Operator chart version to install |
 | `NVML_MOCK_IMAGE` | `ghcr.io/nvidia/nvml-mock:latest` | Published image to install |
 | `BUILD_LOCAL` | `false` | Build the image from source and side-load it with `kind load` |
 | `HELM_TIMEOUT` | `15m` | Wait budget for each Helm install |
