@@ -17,10 +17,11 @@ import (
 //	nvidia.com/gpu.memory=196608
 //
 // Deriving them from the profile and comparing against those observed literals
-// is what makes the e2e GFD assertion discriminating. The count follows the
-// profile's device list rather than that capture, which was taken while the
-// profile still declared a node of eight GPUs; it now models the four an NVL72
-// compute tray actually reports.
+// is what makes the e2e GFD assertion discriminating. Two literals have moved
+// since that capture, both because the profile changed under it rather than
+// because GFD did: the node declared eight GPUs then and now models the four
+// an NVL72 compute tray reports, and the board declared 192 GiB then and now
+// declares the 186 GiB its published MIG profiles are eighths of.
 func TestGB200ProfileDerivesObservedGFDLabelValues(t *testing.T) {
 	t.Parallel()
 
@@ -28,7 +29,7 @@ func TestGB200ProfileDerivesObservedGFDLabelValues(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "NVIDIA-GB200", p.GFDProductName())
-	assert.Equal(t, 196608, p.MemoryMiB())
+	assert.Equal(t, 190464, p.MemoryMiB())
 	assert.Equal(t, 4, p.ExpectedGPUs())
 }
 

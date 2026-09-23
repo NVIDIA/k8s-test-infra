@@ -19,6 +19,12 @@ import (
 //go:embed device-plugin-mock.yaml
 var DevicePluginManifest []byte
 
+// DevicePluginMIGManifest is the embedded device-plugin manifest for the MIG
+// scenario: the same DaemonSet configured with --mig-strategy=single.
+//
+//go:embed device-plugin-mock-mig.yaml
+var DevicePluginMIGManifest []byte
+
 // NRIGpuAgentManifest is the embedded NRI plugin manifest that injects nvml-mock.
 //
 //go:embed nri-gpu-agent.yaml

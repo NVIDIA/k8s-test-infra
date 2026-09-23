@@ -295,6 +295,12 @@ device_defaults:
 
   # ---------------------------------------------------------------------------
   # MIG configuration
+  #
+  # What makes this board MIG-capable is its partition table, and the table is
+  # a document of its own: util-test-config.mig.yaml, which the Dockerfile
+  # stages from the shipped A100 table. Declaring supported_profiles here as
+  # well is refused as ambiguous, so this block carries only the properties of
+  # the silicon.
   # ---------------------------------------------------------------------------
   mig:
     mode_current: "disabled"
@@ -392,6 +398,18 @@ devices:
     pci:
       bus_id: "0000:47:00.0"
     minor_number: 2
+    # Boots already partitioned into the uniform layout migStrategy=single
+    # requires, so testMIG covers the declared path over the real C ABI while
+    # device 0 stays unpartitioned for the runtime create/destroy path. This
+    # also pins the per-device override merge: `mig` was silently dropped
+    # before, which would leave this device looking like the defaults.
+    mig:
+      mode_current: "enabled"
+      mode_pending: "enabled"
+      max_gpu_instances: 7
+      gpu_instances:
+        - profile: "1g.5gb"
+          count: 7
 
   - index: 3
     uuid: "GPU-12345678-1234-1234-1234-123456780003"
@@ -399,6 +417,14 @@ devices:
     pci:
       bus_id: "0000:4E:00.0"
     minor_number: 3
+    # The only graphics process in the fixture, so the graphics running-process
+    # query has a non-empty answer to probe: the defaults run a compute process
+    # and device 1 runs none, which between them cover neither.
+    processes:
+      - pid: 5150
+        type: "G"
+        name: "Xorg"
+        used_memory_mib: 128
 
   - index: 4
     uuid: "GPU-12345678-1234-1234-1234-123456780004"

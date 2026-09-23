@@ -745,15 +745,31 @@ func TestConfigurableDevice_GetDisplayActive_Enabled(t *testing.T) {
 // MIG Tests (Batch 3)
 // =============================================================================
 
-func TestConfigurableDevice_GetMaxMigDeviceCount_Default(t *testing.T) {
+func TestConfigurableDevice_GetMaxMigDeviceCount_MIGDisabled(t *testing.T) {
 	dev := newTestDeviceWithConfig(t, &DeviceConfig{
 		Name: "NVIDIA A100-SXM4-80GB",
+		MIG: &MIGConfig{
+			ModeCurrent:       "disabled",
+			MaxGPUInstances:   7,
+			SupportedProfiles: a100SupportedProfiles(),
+		},
 	})
 
 	count, ret := dev.GetMaxMigDeviceCount()
 	require.Equal(t, nvml.SUCCESS, ret, "GetMaxMigDeviceCount failed")
-	// Default: MIG disabled, count = 0
-	require.Zero(t, count, "Expected 0 (MIG disabled)")
+	// Real NVML reports the board's MIG ceiling as a static capability, so a
+	// MIG-capable A100 answers 7 whether or not MIG is currently on.
+	require.Equal(t, 7, count, "Expected the A100 board ceiling")
+}
+
+func TestConfigurableDevice_GetMaxMigDeviceCount_NonMigBoard(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "Tesla T4",
+	})
+
+	count, ret := dev.GetMaxMigDeviceCount()
+	require.Equal(t, nvml.SUCCESS, ret, "GetMaxMigDeviceCount failed")
+	require.Zero(t, count, "a board that cannot be partitioned has no MIG devices")
 }
 
 func TestConfigurableDevice_GetMaxMigDeviceCount_Configured(t *testing.T) {
@@ -774,8 +790,10 @@ func TestConfigurableDevice_GetMigMode_WithConfig(t *testing.T) {
 	dev := newTestDeviceWithConfig(t, &DeviceConfig{
 		Name: "NVIDIA A100-SXM4-80GB",
 		MIG: &MIGConfig{
-			ModeCurrent: "enabled",
-			ModePending: "disabled",
+			ModeCurrent:       "enabled",
+			ModePending:       "disabled",
+			MaxGPUInstances:   7,
+			SupportedProfiles: a100SupportedProfiles(),
 		},
 	})
 

@@ -97,6 +97,11 @@ typedef enum nvmlBrandType_enum
 #define NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE      32
 #define NVML_DEVICE_PCI_BUS_ID_LEGACY_FMT_SIZE  16
 
+/* Buffer for a device or MIG profile name. Fixed by the NVML ABI: it sizes
+ * the trailing name array of the versioned MIG profile-info structs, which
+ * callers allocate. */
+#define NVML_DEVICE_NAME_V2_BUFFER_SIZE         96
+
 typedef struct nvmlPciInfo_st
 {
     char busIdLegacy[NVML_DEVICE_PCI_BUS_ID_LEGACY_FMT_SIZE]; //!< Legacy PCI bus ID
@@ -260,10 +265,72 @@ _Static_assert(sizeof(nvmlC2cModeInfo_v1_t) == 4,
                "nvmlC2cModeInfo_v1_t must stay a single unsigned int to match the go-nvml ABI");
 typedef struct nvmlClkMonStatus_st                          nvmlClkMonStatus_t;
 typedef struct nvmlClockOffset_st                           nvmlClockOffset_t;
-typedef struct nvmlComputeInstanceInfo_st                   nvmlComputeInstanceInfo_t;
-typedef struct nvmlComputeInstancePlacement_st              nvmlComputeInstancePlacement_t;
-typedef struct nvmlComputeInstanceProfileInfo_st            nvmlComputeInstanceProfileInfo_t;
-typedef struct nvmlComputeInstanceProfileInfo_v2_st         nvmlComputeInstanceProfileInfo_v2_t;
+/* --- MIG compute instances ---
+ * Full definitions needed by bridge so mig.go can fill the caller's buffers.
+ * The v2 and v3 profile structs differ from v1 by a leading version field, a
+ * trailing name, and (v3) a capabilities field; all three are live because
+ * nvmlGpuInstanceGetComputeInstanceProfileInfoV dispatches on the version the
+ * caller stamps. See mig_layout_test.go, which pins every size and offset here
+ * against go-nvml's Go structs — callers allocate these buffers from those, so
+ * a mismatch means the bridge writes past the caller's allocation. */
+typedef struct nvmlComputeInstancePlacement_st
+{
+    unsigned int start;                 //!< Index of first occupied compute slice
+    unsigned int size;                  //!< Number of compute slices occupied
+} nvmlComputeInstancePlacement_t;
+
+typedef struct nvmlComputeInstanceProfileInfo_st
+{
+    unsigned int id;                    //!< Unique profile ID within the GPU instance
+    unsigned int sliceCount;            //!< GPU Slice count
+    unsigned int instanceCount;         //!< Compute instance count
+    unsigned int multiprocessorCount;   //!< Streaming Multiprocessor count
+    unsigned int sharedCopyEngineCount; //!< Shared Copy Engine count
+    unsigned int sharedDecoderCount;    //!< Shared Decoder Engine count
+    unsigned int sharedEncoderCount;    //!< Shared Encoder Engine count
+    unsigned int sharedJpegCount;       //!< Shared JPEG Engine count
+    unsigned int sharedOfaCount;        //!< Shared OFA Engine count
+} nvmlComputeInstanceProfileInfo_t;
+
+typedef struct nvmlComputeInstanceProfileInfo_v2_st
+{
+    unsigned int version;                       //!< IN: NVML_STRUCT_VERSION(ComputeInstanceProfileInfo, 2)
+    unsigned int id;
+    unsigned int sliceCount;
+    unsigned int instanceCount;
+    unsigned int multiprocessorCount;
+    unsigned int sharedCopyEngineCount;
+    unsigned int sharedDecoderCount;
+    unsigned int sharedEncoderCount;
+    unsigned int sharedJpegCount;
+    unsigned int sharedOfaCount;
+    char         name[NVML_DEVICE_NAME_V2_BUFFER_SIZE];
+} nvmlComputeInstanceProfileInfo_v2_t;
+
+typedef struct nvmlComputeInstanceProfileInfo_v3_st
+{
+    unsigned int version;                       //!< IN: NVML_STRUCT_VERSION(ComputeInstanceProfileInfo, 3)
+    unsigned int id;
+    unsigned int sliceCount;
+    unsigned int instanceCount;
+    unsigned int multiprocessorCount;
+    unsigned int sharedCopyEngineCount;
+    unsigned int sharedDecoderCount;
+    unsigned int sharedEncoderCount;
+    unsigned int sharedJpegCount;
+    unsigned int sharedOfaCount;
+    char         name[NVML_DEVICE_NAME_V2_BUFFER_SIZE];
+    unsigned int capabilities;
+} nvmlComputeInstanceProfileInfo_v3_t;
+
+typedef struct nvmlComputeInstanceInfo_st
+{
+    nvmlDevice_t                   device;      //!< Parent device
+    nvmlGpuInstance_t              gpuInstance; //!< Parent GPU instance
+    unsigned int                   id;
+    unsigned int                   profileId;
+    nvmlComputeInstancePlacement_t placement;
+} nvmlComputeInstanceInfo_t;
 typedef struct nvmlConfComputeGetKeyRotationThresholdInfo_st nvmlConfComputeGetKeyRotationThresholdInfo_t;
 typedef struct nvmlConfComputeGpuAttestationReport_st       nvmlConfComputeGpuAttestationReport_t;
 typedef struct nvmlConfComputeGpuCertificate_st             nvmlConfComputeGpuCertificate_t;
@@ -283,7 +350,21 @@ typedef struct nvmlConfComputeSystemCaps_st                 nvmlConfComputeSyste
 typedef struct nvmlConfComputeSystemState_st                nvmlConfComputeSystemState_t;
 typedef struct nvmlCoolerInfo_st                            nvmlCoolerInfo_t;
 typedef struct nvmlDeviceAddressingMode_st                  nvmlDeviceAddressingMode_t;
-typedef struct nvmlDeviceAttributes_st                      nvmlDeviceAttributes_t;
+/* A MIG device's engine and memory allocation. Full definition needed by
+ * bridge: this is the query the device plugin compares across devices before
+ * it will accept a node with migStrategy=single. */
+typedef struct nvmlDeviceAttributes_st
+{
+    unsigned int       multiprocessorCount;
+    unsigned int       sharedCopyEngineCount;
+    unsigned int       sharedDecoderCount;
+    unsigned int       sharedEncoderCount;
+    unsigned int       sharedJpegCount;
+    unsigned int       sharedOfaCount;
+    unsigned int       gpuInstanceSliceCount;
+    unsigned int       computeInstanceSliceCount;
+    unsigned long long memorySizeMB;        //!< Device memory size (in MiB)
+} nvmlDeviceAttributes_t;
 typedef struct nvmlDeviceCapabilities_st                    nvmlDeviceCapabilities_t;
 typedef struct nvmlDeviceCurrentClockFreqs_st               nvmlDeviceCurrentClockFreqs_t;
 typedef struct nvmlDevicePerfModes_st                       nvmlDevicePerfModes_t;
@@ -452,10 +533,73 @@ typedef struct nvmlGpuFabricInfo_v3_st {
 } nvmlGpuFabricInfo_v3_t;
 
 typedef nvmlGpuFabricInfo_v3_t nvmlGpuFabricInfoV_t;
-typedef struct nvmlGpuInstanceInfo_st                       nvmlGpuInstanceInfo_t;
-typedef struct nvmlGpuInstancePlacement_st                  nvmlGpuInstancePlacement_t;
-typedef struct nvmlGpuInstanceProfileInfo_st                nvmlGpuInstanceProfileInfo_t;
-typedef struct nvmlGpuInstanceProfileInfo_v2_st             nvmlGpuInstanceProfileInfo_v2_t;
+/* --- MIG GPU instances ---
+ * Full definitions needed by bridge so mig.go can fill the caller's buffers.
+ * Note v3 drops isP2pSupported and appends capabilities, so it is not a
+ * superset of v2; the version the caller stamps decides which layout the
+ * bridge writes. Sizes and offsets are pinned in mig_layout_test.go. */
+typedef struct nvmlGpuInstancePlacement_st
+{
+    unsigned int start;               //!< Index of first occupied memory slice
+    unsigned int size;                //!< Number of memory slices occupied
+} nvmlGpuInstancePlacement_t;
+
+typedef struct nvmlGpuInstanceProfileInfo_st
+{
+    unsigned int       id;                  //!< Unique profile ID within the device
+    unsigned int       isP2pSupported;      //!< Peer-to-Peer support
+    unsigned int       sliceCount;          //!< GPU Slice count
+    unsigned int       instanceCount;       //!< GPU instance count
+    unsigned int       multiprocessorCount; //!< Streaming Multiprocessor count
+    unsigned int       copyEngineCount;
+    unsigned int       decoderCount;
+    unsigned int       encoderCount;
+    unsigned int       jpegCount;
+    unsigned int       ofaCount;
+    unsigned long long memorySizeMB;        //!< Memory size in MBytes
+} nvmlGpuInstanceProfileInfo_t;
+
+typedef struct nvmlGpuInstanceProfileInfo_v2_st
+{
+    unsigned int       version;             //!< IN: NVML_STRUCT_VERSION(GpuInstanceProfileInfo, 2)
+    unsigned int       id;
+    unsigned int       isP2pSupported;
+    unsigned int       sliceCount;
+    unsigned int       instanceCount;
+    unsigned int       multiprocessorCount;
+    unsigned int       copyEngineCount;
+    unsigned int       decoderCount;
+    unsigned int       encoderCount;
+    unsigned int       jpegCount;
+    unsigned int       ofaCount;
+    unsigned long long memorySizeMB;
+    char               name[NVML_DEVICE_NAME_V2_BUFFER_SIZE];
+} nvmlGpuInstanceProfileInfo_v2_t;
+
+typedef struct nvmlGpuInstanceProfileInfo_v3_st
+{
+    unsigned int       version;             //!< IN: NVML_STRUCT_VERSION(GpuInstanceProfileInfo, 3)
+    unsigned int       id;
+    unsigned int       sliceCount;
+    unsigned int       instanceCount;
+    unsigned int       multiprocessorCount;
+    unsigned int       copyEngineCount;
+    unsigned int       decoderCount;
+    unsigned int       encoderCount;
+    unsigned int       jpegCount;
+    unsigned int       ofaCount;
+    unsigned long long memorySizeMB;
+    char               name[NVML_DEVICE_NAME_V2_BUFFER_SIZE];
+    unsigned int       capabilities;
+} nvmlGpuInstanceProfileInfo_v3_t;
+
+typedef struct nvmlGpuInstanceInfo_st
+{
+    nvmlDevice_t               device;    //!< Parent device
+    unsigned int               id;
+    unsigned int               profileId;
+    nvmlGpuInstancePlacement_t placement;
+} nvmlGpuInstanceInfo_t;
 /* Thermal sensor settings - full definition needed by bridge */
 #define NVML_MAX_THERMAL_SENSORS_PER_GPU 3
 

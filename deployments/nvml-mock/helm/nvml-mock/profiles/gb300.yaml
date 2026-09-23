@@ -91,12 +91,12 @@ device_defaults:
     pwr_object: "1.0"
 
   # ---------------------------------------------------------------------------
-  # Memory configuration - 288 GiB HBM3e per GPU (1.5x GB200's 192 GiB)
+  # Memory configuration - 278 GiB HBM3e per GPU (1.5x GB200's 186 GiB)
   # ---------------------------------------------------------------------------
   memory:
-    total_bytes: 309237645312       # 288 GiB HBM3e
+    total_bytes: 298500227072       # 278 GiB HBM3e
     reserved_bytes: 1610612736      # ~1.5 GiB reserved
-    free_bytes: 307627032576        # total - reserved at idle
+    free_bytes: 296889614336        # total - reserved at idle
     used_bytes: 0
     memory_bus_width: 8192
 
@@ -109,7 +109,7 @@ device_defaults:
   # PCI configuration
   # ---------------------------------------------------------------------------
   pci:
-    device_id: 0x294110DE           # GB300 NVL (mock placeholder, Blackwell Ultra)
+    device_id: 0x31C210DE           # GB300
     subsystem_id: 0x183010DE
 
   pcie:

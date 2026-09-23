@@ -157,7 +157,8 @@ preserves comments and key order from the profile file.
 {{- $base := include "nvml-mock.gpuConfigBase" . -}}
 {{- $dynEnabled := and .Values.gpu.dynamicMetrics .Values.gpu.dynamicMetrics.enabled -}}
 {{- $failEnabled := and .Values.gpu.failureInjection .Values.gpu.failureInjection.enabled -}}
-{{- if or $dynEnabled $failEnabled -}}
+{{- $migEnabled := and .Values.gpu.mig .Values.gpu.mig.enabled -}}
+{{- if or $dynEnabled $failEnabled $migEnabled -}}
 {{- $cfg := fromYaml $base -}}
 {{- if hasKey $cfg "Error" -}}
 {{- fail (printf "nvml-mock.gpuConfig: failed to parse base YAML for overlay injection: %s" (get $cfg "Error")) -}}
@@ -179,12 +180,145 @@ preserves comments and key order from the profile file.
 {{- if $failEnabled -}}
 {{- $_ := set $defaults "failure" (omit .Values.gpu.failureInjection "enabled") -}}
 {{- end -}}
+{{- if $migEnabled -}}
+{{- /*
+The partitioning comes from gpuInstances alone. A profile describes the board,
+not how an install chose to carve it, so none of them declare a layout, and the
+value is folded in before the check because it is the only thing that check can
+be satisfied by.
+
+Two refusals, because they are different mistakes. A board whose profile
+declares no max_gpu_instances cannot partition at all, and no layout supplied
+here changes that. A capable board with no layout would boot MIG-enabled and
+unpartitioned, which publishes no GPU resource whatsoever under
+migStrategy=single.
+
+The second is counted rather than measured: a layout can be present and still
+ask for nothing, as a single entry with count 0 does, and that board comes up in
+the same unusable state as one with no layout at all. An entry with no count is
+one instance, which is how the engine reads it.
+*/ -}}
+{{- $mig := get $defaults "mig" | default (dict) -}}
+{{- if .Values.gpu.mig.gpuInstances -}}
+{{- $_ := set $mig "gpu_instances" .Values.gpu.mig.gpuInstances -}}
+{{- end -}}
+{{- if not (get $mig "max_gpu_instances") -}}
+{{- fail (printf "gpu.mig.enabled is set but profile %q is not a MIG-capable board: it declares no mig.max_gpu_instances" .Values.gpu.profile) -}}
+{{- end -}}
+{{- /*
+A capable board whose table did not come with it boots not MIG-capable and
+says nothing about why, which is the one failure mode splitting the table out
+of the profile introduces. Here it is the only place that can still tell the
+difference, so a partition request against a board the chart has no table for
+fails the render instead.
+*/ -}}
+{{- if and (not .Values.gpu.customConfig) (not (include "nvml-mock.migProfiles" .)) -}}
+{{- fail (printf "gpu.mig.enabled is set but the chart ships no MIG profile table for profile %q at profiles/mig/%s.yaml, so the board would come up not MIG-capable" .Values.gpu.profile .Values.gpu.profile) -}}
+{{- end -}}
+{{- /*
+The board's own table, indexed both ways a layout can select a row. A layout
+the board cannot satisfy is not a partial layout: the engine creates what
+fits, logs the rest and the install still reports success, so the node comes
+up short of slices and nothing says why. Everything below is checked against
+this table, which is why all of it is skipped for gpu.customConfig, where the
+table is the user's and the chart cannot know its rows.
+
+The board's width is the widest row it publishes — the whole-board profile —
+and a row's `instances` is how many of that shape the board holds, which is
+the memory limit as much as the slice one: an A100 fits seven 1g.5gb but only
+four 1g.10gb.
+*/ -}}
+{{- $rows := get (fromYaml (include "nvml-mock.migProfiles" .)) "supported_profiles" | default list -}}
+{{- $byName := dict -}}
+{{- $byID := dict -}}
+{{- $names := list -}}
+{{- $ids := list -}}
+{{- $width := 0 -}}
+{{- range $row := $rows -}}
+{{- $_ := set $byName (get $row "name") $row -}}
+{{- $_ := set $byID (get $row "profile_id" | toString) $row -}}
+{{- $names = append $names (get $row "name") -}}
+{{- $ids = append $ids (get $row "profile_id" | toString) -}}
+{{- $width = max $width (get $row "slices" | int) -}}
+{{- end -}}
+{{- $partitions := 0 -}}
+{{- $slices := 0 -}}
+{{- range $instance := (get $mig "gpu_instances" | default list) -}}
+{{- $count := 1 -}}
+{{- if hasKey $instance "count" -}}
+{{- $count = get $instance "count" | int -}}
+{{- end -}}
+{{- $selector := "" -}}
+{{- if hasKey $instance "profile" -}}
+{{- $selector = printf "profile %q" (get $instance "profile") -}}
+{{- else if hasKey $instance "profile_id" -}}
+{{- $selector = printf "profile_id %v" (get $instance "profile_id") -}}
+{{- end -}}
+{{- /*
+values.schema.json rejects this too, and rejects it earlier. It is repeated
+here because the schema is skippable — `helm install --skip-schema-validation`
+is a supported flag, and a user reaching for it to get past an unrelated
+complaint would otherwise lose this rule alone, since every other refusal in
+this block lives in the template.
+*/ -}}
+{{- if lt $count 1 -}}
+{{- fail (printf "gpu.mig.gpuInstances declares %s with count: %d, which still creates one instance. Drop the entry instead." $selector $count) -}}
+{{- end -}}
+{{- $partitions = add $partitions $count -}}
+{{- if $rows -}}
+{{- $offers := "" -}}
+{{- $row := dict -}}
+{{- if hasKey $instance "profile" -}}
+{{- $offers = join ", " $names -}}
+{{- $row = get $byName (get $instance "profile") | default dict -}}
+{{- else if hasKey $instance "profile_id" -}}
+{{- $offers = join ", " $ids -}}
+{{- $row = get $byID (get $instance "profile_id" | toString) | default dict -}}
+{{- end -}}
+{{- if and $selector (not $row) -}}
+{{- fail (printf "gpu.mig.gpuInstances declares %s, which board %q does not publish. Its table offers: %s" $selector $.Values.gpu.profile $offers) -}}
+{{- end -}}
+{{- if $row -}}
+{{- if gt $count (get $row "instances" | int) -}}
+{{- fail (printf "gpu.mig.gpuInstances asks for %d of %q, but board %q holds %d." $count (get $row "name") $.Values.gpu.profile (get $row "instances" | int)) -}}
+{{- end -}}
+{{- $slices = add $slices (mul $count (get $row "slices" | int)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if eq (int $partitions) 0 -}}
+{{- fail "gpu.mig.enabled is set but gpu.mig.gpuInstances declares no partitions, so the node would come up MIG-enabled with nothing partitioned. Name the layout, e.g. --set gpu.mig.gpuInstances[0].profile=1g.10gb --set gpu.mig.gpuInstances[0].count=7" -}}
+{{- end -}}
+{{- if gt (int $slices) (int $width) -}}
+{{- fail (printf "gpu.mig.gpuInstances asks for %d compute slices, but board %q has %d." (int $slices) $.Values.gpu.profile (int $width)) -}}
+{{- end -}}
+{{- $_ := set $mig "mode_current" "enabled" -}}
+{{- $_ := set $mig "mode_pending" "enabled" -}}
+{{- $_ := set $defaults "mig" $mig -}}
+{{- end -}}
 {{- $_ := set $cfg "device_defaults" $defaults -}}
 {{- /* Drop the Helm-only key now it's folded into dynamic_metrics. */ -}}
 {{- $_ := unset $cfg "dynamic_metrics_defaults" -}}
 {{- toYaml $cfg -}}
 {{- else -}}
 {{- $base -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+The selected board's MIG partition table, or "" when the chart does not own
+one. Empty is the answer for a board that ships no table (l40s, t4 — not
+MIG-capable silicon) and for gpu.customConfig, where the config is the user's
+and so is any table in it: mounting a table beside an inline one makes the
+engine refuse the load, because a board's table has exactly one home.
+
+Everything the table needs — the ConfigMap, the volume, the mount and
+MOCK_MIG_PROFILES_CONFIG — is gated on this one value, so the four cannot
+disagree about whether a table is present.
+*/}}
+{{- define "nvml-mock.migProfiles" -}}
+{{- if not .Values.gpu.customConfig -}}
+{{- .Files.Get (printf "profiles/mig/%s.yaml" .Values.gpu.profile) -}}
 {{- end -}}
 {{- end }}
 
