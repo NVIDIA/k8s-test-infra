@@ -88,7 +88,8 @@ nodeAgent:
   # it too, not just NVML clients. Watches the runtime override document, so
   # any writer's Xid — `nvml-mock-ctl fail --xid` included — is announced.
   kernelLog:
-    # TODO: remove the flag and make it on by default
+    # Keep kernel-log access opt-in: enabling it mounts the host's /dev/kmsg
+    # device and requires a node and PodSecurity policy that allow that access.
     enabled: false
   # Go duration string: 5s, 1m30s, etc. Teardown is a handful of parallel file
   # removals, and it has to finish inside terminationGracePeriodSeconds.

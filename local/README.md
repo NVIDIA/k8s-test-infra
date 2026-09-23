@@ -41,9 +41,9 @@ make cluster-delete                         # tear down (PROFILE= must match cre
 The `default` profile also mounts `local/kind/journald-node-syslog.conf` on every
 node, which makes the Xid the node agent puts on `/dev/kmsg` for an
 `nvml-mock-ctl fail --xid` injection readable from the node journal —
-`docker exec worker-0 dmesg | grep 'NVRM: Xid'`. The announcement itself is off
-in the chart, since it makes the node agent privileged;
-`local/nvml-mock.values.yaml` turns it on for these clusters.
+`docker exec worker-0 dmesg | grep 'NVRM: Xid'`. Host `/dev/kmsg` access is
+opt-in in the chart; `local/nvml-mock.values.yaml` turns it on for these
+clusters.
 Kind nodes share the host's kernel ring buffer, so an Xid injected on one node
 shows up on all of them.
 Since Kind resolves a config's paths against the working directory, create the
