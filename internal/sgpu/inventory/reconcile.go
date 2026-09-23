@@ -687,14 +687,9 @@ func orderGroupsForCapacityRelease(
 }
 
 func durableCapacityCleanupPending(cleanup []sgpucleanup.CleanupNeeded) bool {
-	for _, needed := range cleanup {
-		switch needed.Reason {
-		case sgpucleanup.CleanupCapacityShrink, sgpucleanup.CleanupGroupRemoved, sgpucleanup.CleanupRackDeleting:
-			return true
-		case sgpucleanup.CleanupCapacityRejected, sgpucleanup.CleanupNodeIneligible, sgpucleanup.CleanupSelectorMismatch, sgpucleanup.CleanupInventoryDeleting:
-		}
-	}
-	return false
+	return slices.ContainsFunc(cleanup, func(needed sgpucleanup.CleanupNeeded) bool {
+		return needed.Reason.FreesCapacity()
+	})
 }
 
 func rackCapacityGrows(
@@ -759,7 +754,7 @@ func (r *Reconciler) preservePendingReleases(
 		if !found {
 			continue
 		}
-		needed := sgpucleanup.CleanupNeeded{RackName: existing.Name, RackUID: existing.UID, Binding: release.Binding, Reason: cleanupReason(release.Reason)}
+		needed := sgpucleanup.CleanupNeeded{RackName: existing.Name, RackUID: existing.UID, Binding: release.Binding, Reason: sgpucleanup.ReasonForRelease(release.Reason)}
 		if r.cleanup != nil && r.cleanup.Ready(needed) {
 			continue
 		}
@@ -1465,21 +1460,6 @@ func applyBindings(spec *mokkav1alpha1.SGPURackSpec, bindings []allocate.Binding
 		applied++
 	}
 	return applied
-}
-
-func cleanupReason(reason allocate.ReleaseReason) sgpucleanup.CleanupReason {
-	switch reason {
-	case allocate.ReleaseCapacityShrink:
-		return sgpucleanup.CleanupCapacityShrink
-	case allocate.ReleaseNodeIneligible:
-		return sgpucleanup.CleanupNodeIneligible
-	case allocate.ReleaseSelectorMismatch:
-		return sgpucleanup.CleanupSelectorMismatch
-	case allocate.ReleaseGroupRemoved:
-		return sgpucleanup.CleanupGroupRemoved
-	default:
-		return sgpucleanup.CleanupReason(reason)
-	}
 }
 
 func ownershipConflict(rack *mokkav1alpha1.SGPURack, rackGroup string) OwnershipConflict {
