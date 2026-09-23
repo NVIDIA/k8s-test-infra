@@ -64,7 +64,7 @@ func (s *RuntimeState) FieldPaths() ([]string, error) {
 		return nil, err
 	}
 
-	paths := leafPaths(document)
+	paths := leafJSONPaths(document)
 	slices.Sort(paths)
 
 	return paths, nil
@@ -245,10 +245,10 @@ func mergePatch(document, patch map[string]any) {
 	}
 }
 
-// leafPaths returns the dotted path of every value in document that is not
+// leafJSONPaths returns the dotted path of every value in document that is not
 // itself an object.
-func leafPaths(document map[string]any) []string {
-	var paths []string
+func leafJSONPaths(document map[string]any) []string {
+	var paths = make([]string, len(document))
 
 	for name, value := range document {
 		group, isGroup := value.(map[string]any)
@@ -257,7 +257,7 @@ func leafPaths(document map[string]any) []string {
 			continue
 		}
 
-		for _, path := range leafPaths(group) {
+		for _, path := range leafJSONPaths(group) {
 			paths = append(paths, name+"."+path)
 		}
 	}
