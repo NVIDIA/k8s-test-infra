@@ -76,6 +76,7 @@ should match snapshot with b200 profile:
           helm repo update
 
           helm install gpu-operator nvidia/gpu-operator \
+            --version v26.3.3 \
             --namespace gpu-operator --create-namespace \
             -f https://raw.githubusercontent.com/NVIDIA/k8s-test-infra/main/tests/e2e/gpu-operator-values.yaml \
             --wait --timeout 600s
@@ -167,6 +168,7 @@ should match snapshot with default values:
           helm repo update
 
           helm install gpu-operator nvidia/gpu-operator \
+            --version v26.3.3 \
             --namespace gpu-operator --create-namespace \
             -f https://raw.githubusercontent.com/NVIDIA/k8s-test-infra/main/tests/e2e/gpu-operator-values.yaml \
             --wait --timeout 600s
