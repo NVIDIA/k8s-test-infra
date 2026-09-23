@@ -2,12 +2,9 @@
 
 ## Supported Versions
 
-Fixes land on the current release line. Older lines receive no backports.
-
-| Version | Supported          |
-|---------|--------------------|
-| 0.3.x   | :white_check_mark: |
-| < 0.3   | :x:                |
+Security fixes ship as patch releases for every release line that the
+[support policy](docs/support-policy.md#support-status) marks Supported or
+Maintenance. That page holds the current status of each line.
 
 ## Reporting a Vulnerability
 
