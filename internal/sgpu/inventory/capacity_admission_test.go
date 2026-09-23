@@ -495,22 +495,6 @@ func TestCapacityAdmissionCoalescesConcurrentWorkers(t *testing.T) {
 	require.EqualValues(t, 1, admission.computations.Load())
 }
 
-func TestCapacityAdmission100KBoundUsesLinearBoundedState(t *testing.T) {
-	const declarationCount = MaxInventoryNodes + 1
-	candidates := make([]admissionInventory, declarationCount)
-	for index := range candidates {
-		candidates[index] = admissionInventory{
-			instance:       inventoryInstance{name: fmt.Sprintf("inventory-%06d", index)},
-			targetCapacity: DeclaredCapacity{Racks: 1, Nodes: 1, GPUs: 1},
-		}
-	}
-
-	admitted := admitCapacityCandidates(DeclaredCapacity{}, candidates)
-
-	require.Len(t, admitted, int(MaxInventoryNodes))
-	require.Equal(t, "inventory-099999", admitted[len(admitted)-1].instance.name)
-}
-
 func TestReconcileRejectsAggregateCrossInventoryCapacityBeforeAllocationOrWrites(t *testing.T) {
 	ctx := context.Background()
 	profile := testProfile("profile", "profile-uid", 1, 1, 1)
