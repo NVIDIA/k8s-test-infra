@@ -45,6 +45,10 @@ docker exec "$NODE" bash -c '
 
 docker exec "$NODE" nvidia-ctk runtime configure \
   --runtime=containerd --cdi.enabled --set-as-default
+docker exec "$NODE" sed -i 's/^mode = "auto"$/mode = "cdi"/' \
+  /etc/nvidia-container-runtime/config.toml
+docker exec "$NODE" grep -q '^mode = "cdi"$' \
+  /etc/nvidia-container-runtime/config.toml
 docker exec "$NODE" systemctl restart containerd
 ```
 
@@ -113,12 +117,14 @@ helm repo add nvidia https://helm.ngc.nvidia.com/nvidia && helm repo update
 
 helm install gpu-operator nvidia/gpu-operator \
   --namespace gpu-operator --create-namespace \
+  --version v26.7.0 \
   -f gpu-operator-values.yaml \
   --wait --timeout 600s
 ```
 
-Pin `--version` in anything you keep. The overlay tracks the operator's chart
-schema, and an unpinned install can pick up a release that renames a value.
+The version is deliberate. GPU Operator `v26.7.0` is the validated release for
+this workflow. Later releases can add hardware checks or change the chart
+schema, so validate them against Mokka before updating the pin.
 
 !!! warning "Use a values file, not `--set`"
 
@@ -216,6 +222,7 @@ not tolerate the control-plane `NoSchedule` taint.
 | `GPU_PROFILE` | `gb300` | Any profile under the chart's `profiles/` directory |
 | `NAMESPACE` | `mokka-operator` | Namespace for the Mokka release |
 | `OPERATOR_NAMESPACE` | `gpu-operator` | Namespace for the GPU Operator release |
+| `GPU_OPERATOR_VERSION` | `v26.7.0` | Validated GPU Operator chart version |
 | `NVML_MOCK_IMAGE` | `ghcr.io/nvidia/nvml-mock:latest` | Published image to install |
 | `BUILD_LOCAL` | `false` | Build the image from source and side-load it with `kind load` |
 | `HELM_TIMEOUT` | `15m` | Wait budget for each Helm install |
