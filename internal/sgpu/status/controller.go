@@ -331,7 +331,7 @@ func ComputeInventory(input InventoryInput, now metav1.Time) mokkav1alpha1.SGPUI
 			continue
 		}
 		liveNodes[node.UID] = node
-		if node.Labels[allocate.EligibleNodeLabel] != "true" {
+		if !allocate.NodeEligible(node.Labels, node.DeletionTimestamp != nil) {
 			continue
 		}
 		for _, aggregate := range groups {
@@ -575,7 +575,7 @@ func mergeConditions(old, desired []metav1.Condition, generation int64, now meta
 
 func matchingGroups(node allocate.KubernetesNode, groups map[string]*groupAggregate) []string {
 	matches := make([]string, 0, 1)
-	if node.Labels[allocate.EligibleNodeLabel] != "true" {
+	if !allocate.NodeEligible(node.Labels, node.Terminating) {
 		return matches
 	}
 	for id, aggregate := range groups {

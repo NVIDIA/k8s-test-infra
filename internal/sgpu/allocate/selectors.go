@@ -92,7 +92,7 @@ func Classify(nodes []KubernetesNode, groups CompiledGroups) ([]Classification, 
 	classified := make([]Classification, 0, len(nodes))
 	var stats Stats
 	for _, node := range nodes {
-		if !eligible(node) {
+		if !NodeEligible(node.Labels, node.Terminating) {
 			continue
 		}
 		candidates := make([]RackGroupKey, 0, 1)
@@ -118,6 +118,8 @@ func validateGroup(group RackGroup) error {
 	return nil
 }
 
-func eligible(node KubernetesNode) bool {
-	return !node.Terminating && node.Labels[EligibleNodeLabel] == "true"
+// NodeEligible reports whether a Node takes part in sGPU placement: it carries
+// the eligible label and is not terminating.
+func NodeEligible(labels map[string]string, terminating bool) bool {
+	return !terminating && labels[EligibleNodeLabel] == "true"
 }

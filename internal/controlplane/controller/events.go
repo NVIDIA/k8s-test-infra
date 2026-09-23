@@ -253,6 +253,8 @@ func (r *placementRegistry) inventoryKeysLocked() []placementInventoryKey {
 }
 
 func (r *placementRegistry) matching(node *corev1.Node) []allocate.RackGroupKey {
+	// Routing may over-approximate allocate.NodeEligible: skipping a terminating
+	// Node's groups would leave their status and bindings stale.
 	if node == nil || node.Labels[allocate.EligibleNodeLabel] != "true" {
 		return nil
 	}
