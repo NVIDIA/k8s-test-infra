@@ -473,10 +473,8 @@ func durableRackCapacities(
 		if !owned {
 			continue
 		}
-		capacity, err := capacityForRack(rack)
-		if err != nil {
-			return nil, DeclaredCapacity{}, err
-		}
+		capacity := capacityForRackSpec(&rack.Spec)
+		var err error
 		total, err = AddCapacity(total, capacity)
 		if err != nil {
 			return nil, DeclaredCapacity{}, err
@@ -506,24 +504,14 @@ func durableRackOwner(rack *mokkav1alpha1.SGPURack) (inventoryInstance, bool) {
 	return inventoryInstance{name: rack.Spec.InventoryRef.Name, uid: rack.Spec.InventoryRef.UID}, true
 }
 
-func capacityForRack(rack *mokkav1alpha1.SGPURack) (DeclaredCapacity, error) {
-	capacity, err := capacityForRackSpec(&rack.Spec)
-	if err != nil {
-		return DeclaredCapacity{}, fmt.Errorf("rack %q: %w", rack.Name, err)
+// capacityForRackSpec counts what a rack has already rendered. Unlike declared
+// capacity, these counts are bounded by in-memory slices and cannot overflow.
+func capacityForRackSpec(spec *mokkav1alpha1.SGPURackSpec) DeclaredCapacity {
+	return DeclaredCapacity{
+		Racks: 1,
+		Nodes: int64(len(spec.Nodes)),
+		GPUs:  int64(spec.GPUCount()),
 	}
-	return capacity, nil
-}
-
-func capacityForRackSpec(spec *mokkav1alpha1.SGPURackSpec) (DeclaredCapacity, error) {
-	capacity := DeclaredCapacity{Racks: 1, Nodes: int64(len(spec.Nodes))}
-	for _, node := range spec.Nodes {
-		gpus, ok := checkedAdd(capacity.GPUs, int64(len(node.GPUs)))
-		if !ok {
-			return DeclaredCapacity{}, errors.New("GPU capacity overflows int64")
-		}
-		capacity.GPUs = gpus
-	}
-	return capacity, nil
 }
 
 func subtractCapacity(total, remove DeclaredCapacity) (DeclaredCapacity, error) {

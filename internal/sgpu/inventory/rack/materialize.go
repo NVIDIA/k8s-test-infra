@@ -238,12 +238,7 @@ func renderRack(input RackInput, revision string) (Rack, error) {
 			Name: input.InventoryName,
 			UID:  input.InventoryUID,
 		},
-		ProfileRef: mokkav1alpha1.SGPURackProfileReference{
-			Name:       input.Profile.Name,
-			UID:        input.Profile.UID,
-			Generation: input.Profile.Generation,
-			Revision:   revision,
-		},
+		ProfileRef: input.Profile.Reference(revision),
 		Identity: mokkav1alpha1.SGPURackIdentity{
 			RackGroup: input.Group.ID,
 			RackIndex: input.RackIndex,

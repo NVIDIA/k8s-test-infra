@@ -226,27 +226,7 @@ func allocationNodeEqual(previous *Record, allocation allocate.KubernetesNode) b
 		previous.allocation.UID == allocation.UID &&
 		previous.allocation.CreationTimestamp.Equal(allocation.CreationTimestamp) &&
 		previous.allocation.Terminating == allocation.Terminating &&
-		allocationLabelsEqual(previous.allocation.Labels, allocation.Labels)
-}
-
-func allocationLabelsEqual(previous, current map[string]string) bool {
-	for key, value := range previous {
-		if key == metadata.AssignedLabel || key == metadata.CliqueLabel {
-			continue
-		}
-		if currentValue, exists := current[key]; !exists || currentValue != value {
-			return false
-		}
-	}
-	for key := range current {
-		if key == metadata.AssignedLabel || key == metadata.CliqueLabel {
-			continue
-		}
-		if _, exists := previous[key]; !exists {
-			return false
-		}
-	}
-	return true
+		metadata.LabelsEqualIgnoringProjection(previous.allocation.Labels, allocation.Labels)
 }
 
 func addToSet[K comparable](index map[K]recordSet, key K, record *Record) {

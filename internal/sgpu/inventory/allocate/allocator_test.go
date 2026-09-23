@@ -307,6 +307,34 @@ func BenchmarkAllocator100kNodes(b *testing.B) {
 	}
 }
 
+func TestRackGroupKeyCompareOrdersByInventoryThenGroup(t *testing.T) {
+	t.Parallel()
+
+	key := RackGroupKey{InventoryName: "b", InventoryUID: "b-uid", RackGroup: "b"}
+
+	require.Zero(t, key.Compare(key))
+	require.Equal(t, 1, key.Compare(RackGroupKey{InventoryName: "a", InventoryUID: "z-uid", RackGroup: "z"}),
+		"inventory name decides first")
+	require.Equal(t, -1, key.Compare(RackGroupKey{InventoryName: "b", InventoryUID: "c-uid", RackGroup: "a"}),
+		"then inventory UID")
+	require.Equal(t, 1, key.Compare(RackGroupKey{InventoryName: "b", InventoryUID: "b-uid", RackGroup: "a"}),
+		"then rack group")
+}
+
+func TestBindingCompareOrdersByCoordinateThenNodeUID(t *testing.T) {
+	t.Parallel()
+
+	key := groupKey("inventory-b", "compute")
+	base := binding(key, 1, 1, "node", "uid-b")
+
+	require.Zero(t, base.Compare(base))
+	require.Equal(t, 1, base.Compare(binding(groupKey("inventory-a", "compute"), 9, 9, "node", "uid-z")),
+		"rack group decides first")
+	require.Equal(t, -1, base.Compare(binding(key, 2, 0, "node", "uid-a")), "then rack index")
+	require.Equal(t, 1, base.Compare(binding(key, 1, 0, "node", "uid-z")), "then node index")
+	require.Equal(t, -1, base.Compare(binding(key, 1, 1, "node", "uid-c")), "then Node UID")
+}
+
 func node(name string, uid types.UID, seconds int64, labels map[string]string) KubernetesNode {
 	return KubernetesNode{
 		Name:              name,

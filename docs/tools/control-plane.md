@@ -1,6 +1,6 @@
 # control-plane
 
-The binary that runs the [Mokka controller](../control-plane.md) and serves
+The binary that runs the [Mokka control plane](../control-plane.md) and serves
 HTTP health probes. It reconciles declarative simulated GPU (sGPU) inventory
 through the Kubernetes API. The architecture page covers placement, Node
 projection, leader election and the [Stage 1 exclusions](../control-plane.md#stage-1-exclusions);
@@ -141,5 +141,5 @@ CRDs and chart with `controlPlane.enabled=true`.
 ## See also
 
 - [Command-line tools](README.md)
-- [Mokka controller](../control-plane.md) — architecture and lifecycle
+- [Mokka control plane](../control-plane.md) — architecture and lifecycle
 - [Installation](../helm-chart.md) — the nvml-mock chart

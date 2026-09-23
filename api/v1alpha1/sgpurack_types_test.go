@@ -156,6 +156,40 @@ func TestSGPURackSpecNodeByIndexUsesListMapKey(t *testing.T) {
 	require.Nil(t, spec.NodeByIndex(0))
 }
 
+func TestSGPURackSpecGPUCountSumsEveryNode(t *testing.T) {
+	t.Parallel()
+
+	spec := SGPURackSpec{Nodes: []SGPURackNode{
+		{Index: 0, GPUs: make([]SGPURackGPU, 4)},
+		{Index: 1, GPUs: make([]SGPURackGPU, 2)},
+	}}
+
+	require.Equal(t, 6, spec.GPUCount())
+}
+
+func TestSGPURackSpecWithoutBindingsStripsOnlyBindings(t *testing.T) {
+	t.Parallel()
+
+	spec := SGPURackSpec{
+		Identity: SGPURackIdentity{RackGroup: "training", RackIndex: 1},
+		Nodes: []SGPURackNode{
+			{
+				Index:   0,
+				NodeRef: &SGPUNodeReference{Name: "worker-0", UID: "node-uid"},
+				GPUs:    []SGPURackGPU{{Index: 0, Serial: "serial-0"}},
+			},
+			{Index: 1, GPUs: []SGPURackGPU{{Index: 0, Serial: "serial-1"}}},
+		},
+	}
+
+	unbound := spec.WithoutBindings()
+
+	require.Nil(t, unbound.Nodes[0].NodeRef)
+	require.NotNil(t, spec.Nodes[0].NodeRef, "callers pass informer-owned racks, which must not change")
+	unbound.Nodes[0].NodeRef = spec.Nodes[0].NodeRef
+	require.Equal(t, spec, *unbound)
+}
+
 func TestSGPURackNodeBoundToRequiresExactNodeInstance(t *testing.T) {
 	t.Parallel()
 

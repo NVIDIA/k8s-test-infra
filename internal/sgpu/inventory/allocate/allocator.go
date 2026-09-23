@@ -28,6 +28,17 @@ func (key RackGroupKey) String() string {
 	return key.InventoryName + "/" + key.RackGroup
 }
 
+// Compare orders keys by inventory name, inventory UID, then rack group.
+func (key RackGroupKey) Compare(other RackGroupKey) int {
+	if order := cmp.Compare(key.InventoryName, other.InventoryName); order != 0 {
+		return order
+	}
+	if order := cmp.Compare(string(key.InventoryUID), string(other.InventoryUID)); order != 0 {
+		return order
+	}
+	return cmp.Compare(key.RackGroup, other.RackGroup)
+}
+
 // RackGroup is a resolved placement and capacity declaration.
 type RackGroup struct {
 	Key          RackGroupKey
@@ -62,6 +73,22 @@ type Coordinate struct {
 type Binding struct {
 	Coordinate Coordinate
 	Node       NodeReference
+}
+
+// Compare orders bindings by rack group, rack index, node index, then Node
+// UID. Plans keep their binding slices in this order, so binary searches over
+// them must use it.
+func (b Binding) Compare(other Binding) int {
+	if order := b.Coordinate.Group.Compare(other.Coordinate.Group); order != 0 {
+		return order
+	}
+	if order := cmp.Compare(b.Coordinate.RackIndex, other.Coordinate.RackIndex); order != 0 {
+		return order
+	}
+	if order := cmp.Compare(b.Coordinate.NodeIndex, other.Coordinate.NodeIndex); order != 0 {
+		return order
+	}
+	return cmp.Compare(string(b.Node.UID), string(other.Node.UID))
 }
 
 // ReleaseReason explains why an existing binding is no longer valid.
@@ -360,26 +387,13 @@ func compareNodes(a, b KubernetesNode) int {
 	return cmp.Compare(string(a.UID), string(b.UID))
 }
 
-func compareBindings(a, b Binding) int {
-	if order := compareRackGroupKey(a.Coordinate.Group, b.Coordinate.Group); order != 0 {
-		return order
-	}
-	if order := cmp.Compare(a.Coordinate.RackIndex, b.Coordinate.RackIndex); order != 0 {
-		return order
-	}
-	if order := cmp.Compare(a.Coordinate.NodeIndex, b.Coordinate.NodeIndex); order != 0 {
-		return order
-	}
-	return cmp.Compare(string(a.Node.UID), string(b.Node.UID))
-}
-
 func sortBindings(bindings []Binding) {
-	slices.SortFunc(bindings, compareBindings)
+	slices.SortFunc(bindings, Binding.Compare)
 }
 
 func sortReleases(releases []Release) {
 	slices.SortFunc(releases, func(a, b Release) int {
-		if order := compareBindings(a.Binding, b.Binding); order != 0 {
+		if order := a.Binding.Compare(b.Binding); order != 0 {
 			return order
 		}
 		return cmp.Compare(a.Reason, b.Reason)

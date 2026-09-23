@@ -92,6 +92,29 @@ func (s *SGPURackSpec) NodeByIndex(index int32) *SGPURackNode {
 	return nil
 }
 
+// WithoutBindings returns a copy of the spec with every Kubernetes Node
+// binding cleared, leaving only the rendered rack.
+func (s *SGPURackSpec) WithoutBindings() *SGPURackSpec {
+	unbound := s.DeepCopy()
+
+	for i := range unbound.Nodes {
+		unbound.Nodes[i].NodeRef = nil
+	}
+
+	return unbound
+}
+
+// GPUCount returns the number of GPUs rendered across all logical Nodes.
+func (s *SGPURackSpec) GPUCount() int {
+	count := 0
+
+	for i := range s.Nodes {
+		count += len(s.Nodes[i].GPUs)
+	}
+
+	return count
+}
+
 // SGPURackInventoryReference pins a rack to an exact inventory instance.
 // +kubebuilder:validation:XValidation:rule="size(self.uid) > 0",message="uid must not be empty"
 type SGPURackInventoryReference struct {

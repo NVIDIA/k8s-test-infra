@@ -7,6 +7,7 @@ package cleanup
 import (
 	"k8s.io/apimachinery/pkg/types"
 
+	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
 )
 
@@ -37,6 +38,21 @@ type CleanupNeeded struct {
 	RackUID  types.UID
 	Binding  allocate.Binding
 	Reason   CleanupReason
+}
+
+// MatchesRack reports whether rack still holds the exact binding this cleanup
+// retires: the same rack instance and coordinate, bound to the same Node.
+func (c CleanupNeeded) MatchesRack(rack *mokkav1alpha1.SGPURack) bool {
+	binding := c.Binding
+	if rack == nil || rack.Name != c.RackName || rack.UID != c.RackUID ||
+		rack.Spec.InventoryRef.Name != binding.Coordinate.Group.InventoryName ||
+		rack.Spec.InventoryRef.UID != binding.Coordinate.Group.InventoryUID ||
+		rack.Spec.Identity.RackGroup != binding.Coordinate.Group.RackGroup ||
+		rack.Spec.Identity.RackIndex != binding.Coordinate.RackIndex {
+		return false
+	}
+	slot := rack.Spec.NodeByIndex(binding.Coordinate.NodeIndex)
+	return slot != nil && slot.BoundTo(binding.Node.Name, binding.Node.UID)
 }
 
 // CleanupGate is the acknowledgement seam implemented by Node projection.
