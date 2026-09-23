@@ -28,12 +28,12 @@ import (
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
-	sgpucleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/cleanup"
 	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
 	sgpumetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/nodecatalog"
 	sgpuprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/projection"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/rackrender"
+	sgpurelease "github.com/NVIDIA/k8s-test-infra/internal/sgpu/release"
 	sgpustatus "github.com/NVIDIA/k8s-test-infra/internal/sgpu/status"
 	versioned "github.com/NVIDIA/k8s-test-infra/pkg/generated/clientset/versioned"
 	mokkainformers "github.com/NVIDIA/k8s-test-infra/pkg/generated/informers/externalversions"
@@ -115,7 +115,7 @@ type projectionKey struct {
 	rackName  string
 	nodeIndex int32
 	fresh     bool
-	cleanup   sgpucleanup.CleanupNeeded
+	cleanup   sgpurelease.Cleanup
 }
 
 type statusKind uint8
@@ -362,7 +362,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 			if slot == nil || slot.NodeRef == nil {
 				return nil
 			}
-			if !key.fresh && projection.Ready(cleanupFor(rack, *slot, sgpucleanup.CleanupNodeIneligible)) {
+			if !key.fresh && projection.Ready(cleanupFor(rack, *slot, sgpurelease.NodeIneligible)) {
 				return nil
 			}
 			if key.fresh {
@@ -765,7 +765,7 @@ func shouldRetry(ctx context.Context, err error) bool {
 	return ctx.Err() == nil && !errors.Is(err, context.Canceled)
 }
 
-func cleanupBindingCurrent(snapshot *informerCache, cleanup sgpucleanup.CleanupNeeded) bool {
+func cleanupBindingCurrent(snapshot *informerCache, cleanup sgpurelease.Cleanup) bool {
 	rack, err := snapshot.Rack(cleanup.RackName)
 	return err == nil && cleanup.MatchesRack(rack)
 }

@@ -14,7 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
-	sgpucleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/cleanup"
+	sgpurelease "github.com/NVIDIA/k8s-test-infra/internal/sgpu/release"
 )
 
 const (
@@ -59,9 +59,9 @@ func capacityWithPreservedGroups(
 // admitInventories applies the aggregate capacity rule to candidates ordered
 // oldest first. Each candidate is admitted whole when its eventual topology
 // fits beside the fixed capacity and every candidate admitted before it.
-// Growth is then released in the same order: the first growth that does not
-// fit the live topology holds back every later one, so readiness never
-// overtakes admission order.
+// Growth then proceeds in the same order: the first growth that does not fit
+// the live topology holds back every later one, so readiness never overtakes
+// admission order.
 func admitInventories(candidates []admissionInventory, fixed, live DeclaredCapacity) []admissionInventory {
 	admitted := make([]admissionInventory, 0, min(len(candidates), int(MaxInventoryNodes)))
 	targetTotal := fixed
@@ -140,8 +140,8 @@ func orderGroupsForCapacityRelease(
 
 // durableCapacityCleanupPending reports whether any cleanup frees capacity,
 // which holds back growth until it completes.
-func durableCapacityCleanupPending(cleanup []sgpucleanup.CleanupNeeded) bool {
-	return slices.ContainsFunc(cleanup, func(needed sgpucleanup.CleanupNeeded) bool {
+func durableCapacityCleanupPending(cleanup []sgpurelease.Cleanup) bool {
+	return slices.ContainsFunc(cleanup, func(needed sgpurelease.Cleanup) bool {
 		return needed.Reason.FreesCapacity()
 	})
 }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
 
-package cleanup
+package release
 
 import (
 	"testing"
@@ -13,7 +13,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
 )
 
-func TestCleanupNeededMatchesRackRequiresExactBinding(t *testing.T) {
+func TestCleanupMatchesRackRequiresExactBinding(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -48,22 +48,22 @@ func TestCleanupNeededMatchesRackRequiresExactBinding(t *testing.T) {
 	}
 }
 
-func TestCleanupReasonClassifiesCauseAndEffect(t *testing.T) {
+func TestReasonClassifiesCauseAndEffect(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		reason        CleanupReason
+		reason        Reason
 		revocable     bool
 		freesCapacity bool
 	}{
-		{reason: CleanupCapacityShrink, revocable: true, freesCapacity: true},
-		{reason: CleanupCapacityRejected, revocable: true, freesCapacity: true},
-		{reason: CleanupGroupRemoved, revocable: true, freesCapacity: true},
-		{reason: CleanupNodeIneligible, revocable: true},
-		{reason: CleanupSelectorMismatch, revocable: true},
-		{reason: CleanupNodeGone, revocable: true},
-		{reason: CleanupRackDeleting, freesCapacity: true},
-		{reason: CleanupInventoryDeleting, freesCapacity: true},
+		{reason: CapacityShrink, revocable: true, freesCapacity: true},
+		{reason: CapacityRejected, revocable: true, freesCapacity: true},
+		{reason: GroupRemoved, revocable: true, freesCapacity: true},
+		{reason: NodeIneligible, revocable: true},
+		{reason: SelectorMismatch, revocable: true},
+		{reason: NodeGone, revocable: true},
+		{reason: RackDeleting, freesCapacity: true},
+		{reason: InventoryDeleting, freesCapacity: true},
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.reason), func(t *testing.T) {
@@ -75,17 +75,17 @@ func TestCleanupReasonClassifiesCauseAndEffect(t *testing.T) {
 	}
 }
 
-func TestReasonForReleaseCoversEveryAllocatorRelease(t *testing.T) {
+func TestReasonForCoversEveryAllocatorRelease(t *testing.T) {
 	t.Parallel()
 
-	require.Equal(t, CleanupGroupRemoved, ReasonForRelease(allocate.ReleaseGroupRemoved))
-	require.Equal(t, CleanupCapacityShrink, ReasonForRelease(allocate.ReleaseCapacityShrink))
-	require.Equal(t, CleanupNodeGone, ReasonForRelease(allocate.ReleaseNodeGone))
-	require.Equal(t, CleanupNodeIneligible, ReasonForRelease(allocate.ReleaseNodeIneligible))
-	require.Equal(t, CleanupSelectorMismatch, ReasonForRelease(allocate.ReleaseSelectorMismatch))
+	require.Equal(t, GroupRemoved, ReasonFor(allocate.ReleaseGroupRemoved))
+	require.Equal(t, CapacityShrink, ReasonFor(allocate.ReleaseCapacityShrink))
+	require.Equal(t, NodeGone, ReasonFor(allocate.ReleaseNodeGone))
+	require.Equal(t, NodeIneligible, ReasonFor(allocate.ReleaseNodeIneligible))
+	require.Equal(t, SelectorMismatch, ReasonFor(allocate.ReleaseSelectorMismatch))
 }
 
-func TestCleanupNeededMatchesRackRejectsMissingRack(t *testing.T) {
+func TestCleanupMatchesRackRejectsMissingRack(t *testing.T) {
 	t.Parallel()
 
 	needed, _ := boundRack()
@@ -93,7 +93,7 @@ func TestCleanupNeededMatchesRackRejectsMissingRack(t *testing.T) {
 	require.False(t, needed.MatchesRack(nil))
 }
 
-func boundRack() (CleanupNeeded, *mokkav1alpha1.SGPURack) {
+func boundRack() (Cleanup, *mokkav1alpha1.SGPURack) {
 	rack := &mokkav1alpha1.SGPURack{
 		ObjectMeta: metav1.ObjectMeta{Name: "rack", UID: "rack-uid"},
 		Spec: mokkav1alpha1.SGPURackSpec{
@@ -105,10 +105,10 @@ func boundRack() (CleanupNeeded, *mokkav1alpha1.SGPURack) {
 			}},
 		},
 	}
-	needed := CleanupNeeded{
+	needed := Cleanup{
 		RackName: "rack",
 		RackUID:  "rack-uid",
-		Reason:   CleanupNodeIneligible,
+		Reason:   NodeIneligible,
 		Binding: allocate.Binding{
 			Coordinate: allocate.Coordinate{
 				Group:     allocate.RackGroupKey{InventoryName: "inventory", InventoryUID: "inventory-uid", RackGroup: "group"},

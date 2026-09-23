@@ -29,12 +29,12 @@ import (
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
 	sgpuassignment "github.com/NVIDIA/k8s-test-infra/internal/sgpu/assignment"
-	sgpucleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/cleanup"
 	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
 	sgpumetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/nodecatalog"
 	sgpuprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/projection"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/rackrender"
+	sgpurelease "github.com/NVIDIA/k8s-test-infra/internal/sgpu/release"
 	sgpustatus "github.com/NVIDIA/k8s-test-infra/internal/sgpu/status"
 	mokkafake "github.com/NVIDIA/k8s-test-infra/pkg/generated/clientset/versioned/fake"
 	mokkalisters "github.com/NVIDIA/k8s-test-infra/pkg/generated/listers/api/v1alpha1"
@@ -324,7 +324,7 @@ func TestControllerCancelsQueuedCleanupWhenSelectorRestoresBinding(t *testing.T)
 	cleanupStarted := make(chan struct{})
 	releaseCleanup := make(chan struct{})
 	controller.reconcileProjection = func(ctx context.Context, key projectionKey) error {
-		if key.mode == projectionCleanup && key.cleanup.Reason == sgpucleanup.CleanupSelectorMismatch {
+		if key.mode == projectionCleanup && key.cleanup.Reason == sgpurelease.SelectorMismatch {
 			close(cleanupStarted)
 			select {
 			case <-releaseCleanup:

@@ -18,7 +18,7 @@ import (
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
-	sgpucleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/cleanup"
+	sgpurelease "github.com/NVIDIA/k8s-test-infra/internal/sgpu/release"
 )
 
 func TestCapacityAdmissionIsDeterministicAndRecoversCapacity(t *testing.T) {
@@ -336,7 +336,7 @@ func TestCapacityRejectedReconcileRetiresMaterializedRacks(t *testing.T) {
 	require.False(t, result.Accepted)
 	require.Equal(t, ReasonCapacityExceeded, result.ValidationReason)
 	require.Len(t, result.CleanupNeeded, 1)
-	require.Equal(t, sgpucleanup.CleanupCapacityRejected, result.CleanupNeeded[0].Reason)
+	require.Equal(t, sgpurelease.CapacityRejected, result.CleanupNeeded[0].Reason)
 	stored, err := h.mokka.MokkaV1alpha1().SGPURacks().Get(ctx, rack.Name, metav1.GetOptions{})
 	require.NoError(t, err)
 	require.Equal(t, types.UID("node-uid"), stored.Spec.Nodes[0].NodeRef.UID,
@@ -361,7 +361,7 @@ func TestRackGroupCapacityRejectedReconcileRetiresWhollyUnresolvedLastGoodRack(t
 	require.False(t, result.Accepted)
 	require.Equal(t, ReasonCapacityExceeded, result.ValidationReason)
 	require.Len(t, result.CleanupNeeded, 1)
-	require.Equal(t, sgpucleanup.CleanupCapacityRejected, result.CleanupNeeded[0].Reason)
+	require.Equal(t, sgpurelease.CapacityRejected, result.CleanupNeeded[0].Reason)
 }
 
 func TestRackGroupAdmissionAcceptsWhollyUnresolvedInventoryWithinBudget(t *testing.T) {
@@ -512,7 +512,7 @@ func TestReconcileRejectsAggregateCrossInventoryCapacityBeforeAllocationOrWrites
 		h.cache,
 		h.mokka.MokkaV1alpha1().SGPUInventories(),
 		h.mokka.MokkaV1alpha1().SGPURacks(),
-		sgpucleanup.CleanupGateFunc(func(sgpucleanup.CleanupNeeded) bool { return false }),
+		sgpurelease.GateFunc(func(sgpurelease.Cleanup) bool { return false }),
 		allocation,
 	)
 	h.mokka.Fake.ClearActions()
@@ -555,7 +555,7 @@ func TestReconcileStopsStaleMaterializationAfterAdmissionChanges(t *testing.T) {
 		h.cache,
 		h.mokka.MokkaV1alpha1().SGPUInventories(),
 		h.mokka.MokkaV1alpha1().SGPURacks(),
-		sgpucleanup.CleanupGateFunc(func(sgpucleanup.CleanupNeeded) bool { return false }),
+		sgpurelease.GateFunc(func(sgpurelease.Cleanup) bool { return false }),
 		allocation,
 	)
 	created := 0

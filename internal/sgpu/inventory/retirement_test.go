@@ -10,8 +10,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
-	sgpucleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/cleanup"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/rackrender"
+	sgpurelease "github.com/NVIDIA/k8s-test-infra/internal/sgpu/release"
 )
 
 func TestRetirementReasonDecidesWhichOwnedRacksRetire(t *testing.T) {
@@ -37,15 +37,15 @@ func TestRetirementReasonDecidesWhichOwnedRacksRetire(t *testing.T) {
 	tests := []struct {
 		name   string
 		rack   *mokkav1alpha1.SGPURack
-		reason sgpucleanup.CleanupReason
+		reason sgpurelease.Reason
 		retire bool
 	}{
 		{name: "declared", rack: rack("group", 1)},
 		{name: "profile unresolved", rack: rack("unresolved", 0)},
-		{name: "being deleted", rack: deleting, reason: sgpucleanup.CleanupRackDeleting, retire: true},
-		{name: "beyond group count", rack: rack("group", 2), reason: sgpucleanup.CleanupCapacityShrink, retire: true},
-		{name: "group removed", rack: rack("removed", 0), reason: sgpucleanup.CleanupGroupRemoved, retire: true},
-		{name: "not canonical for its coordinate", rack: renamed, reason: sgpucleanup.CleanupGroupRemoved, retire: true},
+		{name: "being deleted", rack: deleting, reason: sgpurelease.RackDeleting, retire: true},
+		{name: "beyond group count", rack: rack("group", 2), reason: sgpurelease.CapacityShrink, retire: true},
+		{name: "group removed", rack: rack("removed", 0), reason: sgpurelease.GroupRemoved, retire: true},
+		{name: "not canonical for its coordinate", rack: renamed, reason: sgpurelease.GroupRemoved, retire: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
