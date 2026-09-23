@@ -136,6 +136,7 @@ nav:
       - Overview: guides/README.md
       - Scenarios:
           - NVIDIA Device Plugin: guides/device-plugin.md
+          - Node Feature Discovery: guides/nfd.md
           - Amazon EKS: guides/install/aws/eks/README.md
           - NVIDIA DRA Driver: guides/dra.md
           - NVIDIA GPU Operator: guides/gpu-operator.md
