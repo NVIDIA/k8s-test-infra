@@ -26,9 +26,9 @@ Set `gpu.profile` to one of the profiles shipped in `profiles/`:
 |---------|----------|------|--------------|
 | `a100` | A100-SXM4-40GB | 40 GiB | Ampere |
 | `h100` | H100 80GB HBM3 | 80 GiB | Hopper |
-| `b200` | B200 | 192 GiB | Blackwell |
-| `gb200` | GB200 | 192 GiB | Blackwell |
-| `gb300` (default) | GB300 NVL | 288 GiB | Blackwell Ultra |
+| `b200` | B200 | 180 GiB | Blackwell |
+| `gb200` | GB200 | 186 GiB | Blackwell |
+| `gb300` (default) | GB300 NVL | 278 GiB | Blackwell Ultra |
 | `l40s` | L40S | 48 GiB | Ada Lovelace |
 | `t4` | Tesla T4 | 16 GiB | Turing |
 

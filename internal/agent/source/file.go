@@ -95,20 +95,23 @@ func (f *FileSource) poll(ctx context.Context, ch chan<- agent.Update, lastHash 
 		return
 	}
 
-	h := inputsHash(data, topology)
+	migTable := f.migTable()
+
+	h := inputsHash(data, topology, migTable)
 	if h == *lastHash {
-		f.log.Debug("config and topology unchanged; skipping reconcile")
+		f.log.Debug("watched documents unchanged; skipping reconcile")
 		return // content unchanged
 	}
 	*lastHash = h
 
-	state, err := compileState(data)
+	state, err := compileState(data, f.configPath)
 	if err != nil {
 		f.send(ctx, ch, agent.Update{Err: fmt.Errorf("%s: %w", f.configPath, err), At: time.Now()})
 		return
 	}
 	state.ConfigRaw = data
 	state.TopologyRaw = topology
+	state.MIGProfilesRaw = migTable
 	f.log.Info("state updated from config", zap.String("config", f.configPath))
 	f.send(ctx, ch, agent.Update{State: state, At: time.Now()})
 }
@@ -141,32 +144,76 @@ func readTopology(path string, log *zap.Logger) ([]byte, error) {
 	return data, nil
 }
 
-// inputsHash digests both documents so an edit to either is a change. Hashing
-// the fixed-width sums keeps a byte from shifting across the boundary.
-func inputsHash(config, topology []byte) [32]byte {
-	c, t := sha256.Sum256(config), sha256.Sum256(topology)
+// migTable returns the board's partition table bytes, or nil where the node has
+// none. The bytes are hashed to detect a change and carried on the State for
+// gpudriver to stage; parseProfile resolves and validates the document for the
+// agent's own use, so a read failure surfaces from there rather than here.
+//
+// The table has to be hashed because it is a mount of its own. It can arrive
+// after the first poll, and the config it belongs to does not change when it
+// does, so hashing the config alone would latch the compile that saw no table
+// and the node would stage no capability surface for the rest of its life.
+func (f *FileSource) migTable() []byte {
+	path := engine.MIGProfilesPathFor(f.configPath)
+	if path == "" {
+		return nil
+	}
 
-	return sha256.Sum256(append(c[:], t[:]...))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		f.log.Debug("MIG profile table not readable; treating the board as unpartitioned",
+			zap.String("path", path), zap.Error(err))
+		return nil
+	}
+
+	return data
 }
 
-// parseProfile decodes a profile and checks what the agent acts on before the
-// engine ever sees the file. The agent stages the character devices and writes
-// both CDI specs, so it cannot wait for the engine to reject minors that
-// collide. Only that check runs here: the rest of the engine's validation
-// demands fields the agent deliberately tolerates, driver_version among them.
-func parseProfile(data []byte) (engine.YAMLConfig, error) {
+// inputsHash digests every watched document so an edit to any of them is a
+// change. Hashing the fixed-width sums keeps a byte from shifting across a
+// boundary.
+func inputsHash(config, topology, migTable []byte) [32]byte {
+	c, t, m := sha256.Sum256(config), sha256.Sum256(topology), sha256.Sum256(migTable)
+
+	joined := make([]byte, 0, len(c)+len(t)+len(m))
+	joined = append(joined, c[:]...)
+	joined = append(joined, t[:]...)
+	joined = append(joined, m[:]...)
+
+	return sha256.Sum256(joined)
+}
+
+// parseProfile decodes a profile and holds it to the same rules the mock
+// library applies when it loads one. The agent stages the document the library
+// later reads, and the library answers a profile it rejects by falling back to
+// its built-in defaults rather than failing, so a profile the agent waved
+// through would leave the node simulating hardware that the character devices,
+// capability nodes and CDI entries staged beside it do not describe.
+func parseProfile(data []byte, configPath string) (engine.YAMLConfig, error) {
 	var cfg engine.YAMLConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return cfg, fmt.Errorf("parse yaml: %w", err)
 	}
-	return cfg, engine.ValidateMinorNumbers(&cfg)
+	// A board's partition table is a document of its own, and the agent has to
+	// join it exactly as the library does: the capability nodes it stages are
+	// keyed by the instance IDs the library derives from this table, so an
+	// agent that could not see it would compile a node with no MIG surface
+	// while NVML enumerated the partitions regardless.
+	if err := engine.ApplyMIGProfilesOverlay(&cfg, configPath); err != nil {
+		return cfg, fmt.Errorf("resolve MIG profile table: %w", err)
+	}
+	return cfg, engine.ValidateConfig(&cfg)
 }
 
 // compileState parses raw YAML config bytes and builds the agent State.
 // Runtime telemetry fields (utilization, power, temperature, clocks) are
 // discarded — they belong to the runtime override file owned by nvml-mock-ctl.
-func compileState(data []byte) (*agent.State, error) {
-	cfg, err := parseProfile(data)
+//
+// configPath is where those bytes came from, because a board's partition table
+// is resolved relative to it. Callers with a config that carries its own table
+// inline pass "".
+func compileState(data []byte, configPath string) (*agent.State, error) {
+	cfg, err := parseProfile(data, configPath)
 	if err != nil {
 		return nil, err
 	}
@@ -247,8 +294,47 @@ func compileState(data []byte) (*agent.State, error) {
 		}
 	}
 
+	state.MIG = compileMIG(&cfg, numDevices)
+
 	return state, nil
 }
+
+// compileMIG asks the NVML engine which partitions the profile boots with,
+// rather than re-reading the mig block here. The capability names the agent
+// stages are keyed by instance ID, so a second derivation that disagreed with
+// the library's would point a consumer at another partition's cap device.
+func compileMIG(cfg *engine.YAMLConfig, numDevices int) agent.MIGState {
+	ec := &engine.Config{NumDevices: numDevices, YAMLConfig: cfg}
+	layouts := engine.DeclaredMIGLayout(ec)
+	if len(layouts) == 0 {
+		return agent.MIGState{}
+	}
+
+	state := agent.MIGState{CapsMajor: envIntOrDefault("MIG_CAPS_MAJOR", defaultCapsMajor)}
+	for _, layout := range layouts {
+		// A capability name identifies its GPU by device-node minor, which a
+		// profile can set independently of the NVML index. Deriving it from
+		// the index instead would name cap devices for a GPU other than the
+		// one gpudriver mknod'd, whenever the two differ.
+		gpu := agent.MIGGPU{Minor: ec.GetDeviceMinorNumber(layout.GPUIndex)}
+		for _, gi := range layout.GPUInstances {
+			cis := make([]agent.MIGComputeInstance, 0, len(gi.ComputeInstances))
+			for _, ci := range gi.ComputeInstances {
+				cis = append(cis, agent.MIGComputeInstance{ID: ci.ID, UUID: ci.UUID})
+			}
+			gpu.GPUInstances = append(gpu.GPUInstances, agent.MIGGPUInstance{
+				ID:               gi.ID,
+				ComputeInstances: cis,
+			})
+		}
+		state.GPUs = append(state.GPUs, gpu)
+	}
+	return state
+}
+
+// defaultCapsMajor is the char-device major for nvidia-caps. It matches the
+// IMEX simulator's default so a node running both stages one consistent major.
+const defaultCapsMajor = 236
 
 // resolveDeviceCount returns the active GPU count from the profile, applying
 // system.num_devices and then the GPU_COUNT env var as successive overrides.

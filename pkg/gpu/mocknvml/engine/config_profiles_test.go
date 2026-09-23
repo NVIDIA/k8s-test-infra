@@ -134,12 +134,15 @@ func TestLoadConfig_GB300Profile(t *testing.T) {
 
 	require.Equal(t, "NVIDIA GB300 NVL", yamlCfg.DeviceDefaults.Name, "GB300 name")
 
-	// 288 GiB HBM3e per GPU is the headline GB300 vs. GB200 delta — make
-	// sure a regression in the YAML can never quietly drop us back to 192.
+	// 278 GiB HBM3e per GPU is the headline GB300 vs. GB200 delta — make
+	// sure a regression in the YAML can never quietly drop us back to 186.
+	// The capacity is what NVIDIA's gpu-operator mig-parted config implies
+	// for GB300 (PCI 0x31C210DE): it lists 1g.35gb and 3g.139gb, the eighth
+	// and half of 278 GiB.
 	mem := yamlCfg.DeviceDefaults.Memory
 	require.NotNil(t, mem, "GB300 memory config is nil")
-	expectedMemBytes := uint64(288) * 1024 * 1024 * 1024
-	require.Equal(t, expectedMemBytes, mem.TotalBytes, "GB300 memory total_bytes (288 GiB)")
+	expectedMemBytes := uint64(278) * 1024 * 1024 * 1024
+	require.Equal(t, expectedMemBytes, mem.TotalBytes, "GB300 memory total_bytes (278 GiB)")
 
 	// Blackwell Ultra uses the 570.x driver line; the chart's
 	// driverVersion helper relies on this value being consistent.
@@ -178,9 +181,9 @@ func TestLoadConfig_AllProfilesConsistent(t *testing.T) {
 	}{
 		{"A100", "a100.yaml", "ampere", 8, 0, 40, 8},
 		{"H100", "h100.yaml", "hopper", 9, 0, 80, 8},
-		{"B200", "b200.yaml", "blackwell", 10, 0, 192, 8},
-		{"GB200", "gb200.yaml", "blackwell", 10, 0, 192, 4},
-		{"GB300", "gb300.yaml", "blackwell", 10, 0, 288, 4},
+		{"B200", "b200.yaml", "blackwell", 10, 0, 180, 8},
+		{"GB200", "gb200.yaml", "blackwell", 10, 0, 186, 4},
+		{"GB300", "gb300.yaml", "blackwell", 10, 0, 278, 4},
 		{"L40S", "l40s.yaml", "ada_lovelace", 8, 9, 48, 8},
 		{"T4", "t4.yaml", "turing", 7, 5, 16, 4},
 	}

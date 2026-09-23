@@ -86,6 +86,9 @@ type rawProfile struct {
 				Max int `json:"max"`
 			} `json:"availability_histogram"`
 		} `json:"remapped_rows"`
+		MIG *struct {
+			MaxGPUInstances int `json:"max_gpu_instances"`
+		} `json:"mig"`
 	} `json:"device_defaults"`
 	Devices []struct {
 		Index    int          `json:"index"`
@@ -172,6 +175,8 @@ type Profile struct {
 	workloadProfiles          []WorkloadPowerProfile
 	workloadProfilesRequested []int
 	workloadProfilesDeclared  bool
+
+	migMaxInstances int
 }
 
 // WorkloadPowerProfile is one profile a board advertises through
@@ -287,6 +292,9 @@ func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
 		p.hasFabric = true
 		p.fabricAuto = strings.EqualFold(strings.TrimSpace(f.State), "auto")
 	}
+	if mig := raw.DeviceDefaults.MIG; mig != nil {
+		p.migMaxInstances = mig.MaxGPUInstances
+	}
 	if pl := raw.DeviceDefaults.Platform; pl != nil {
 		p.hasPlatform = true
 		p.platform = PlatformIdentity{
@@ -339,6 +347,12 @@ func (p Profile) ExpectedGPUs() int { return p.gpuCount }
 
 // IBEnabled reports whether the profile ships InfiniBand enabled.
 func (p Profile) IBEnabled() bool { return p.ibEnabled }
+
+// MIGCapable reports whether the board can partition at all. That is a
+// property of the hardware, so it reads max_gpu_instances: no profile declares
+// a layout, since how a board is carved is a deployment choice supplied at
+// install through gpu.mig.gpuInstances.
+func (p Profile) MIGCapable() bool { return p.migMaxInstances > 0 }
 
 // ExpectedHCAs is the number of InfiniBand HCAs the profile should expose:
 // one per GPU when IB is enabled, otherwise 0 (l40s/t4 negative control).

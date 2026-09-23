@@ -58,12 +58,12 @@ device_defaults:
     pwr_object: "1.0"
 
   # ---------------------------------------------------------------------------
-  # Memory configuration - 192 GiB HBM3e per GPU
+  # Memory configuration - 186 GiB HBM3e per GPU
   # ---------------------------------------------------------------------------
   memory:
-    total_bytes: 206158430208       # 192 GiB HBM3e
+    total_bytes: 199715979264       # 186 GiB HBM3e
     reserved_bytes: 1073741824      # ~1 GiB reserved
-    free_bytes: 205084688384        # total - reserved at idle
+    free_bytes: 198642237440        # total - reserved at idle
     used_bytes: 0
 
   bar1_memory:
@@ -75,7 +75,7 @@ device_defaults:
   # PCI configuration
   # ---------------------------------------------------------------------------
   pci:
-    device_id: 0x233010DE           # GB200 (placeholder - check real ID)
+    device_id: 0x294110DE           # GB200 HGX
     subsystem_id: 0x181710DE
 
   pcie:
