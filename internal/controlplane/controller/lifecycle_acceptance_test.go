@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
 
-package mokkacontroller
+package controller
 
 import (
 	"context"
@@ -26,7 +26,7 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
 
-	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
+	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/assignment"

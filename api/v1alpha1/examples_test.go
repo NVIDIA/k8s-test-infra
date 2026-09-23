@@ -12,12 +12,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
 
-	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
+	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	rackrender "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/rack"
 )
 
 func TestControllerExamplesAreTypedAndMaterializable(t *testing.T) {
-	examples := filepath.Join("..", "..", "..", "..", "examples", "mokka-controller")
+	examples := filepath.Join("..", "..", "examples", "mokka-controller")
 	profileData, err := os.ReadFile(filepath.Join(examples, "sgpu-rack-profile.yaml"))
 	require.NoError(t, err)
 	profile := &mokkav1alpha1.SGPURackProfile{}

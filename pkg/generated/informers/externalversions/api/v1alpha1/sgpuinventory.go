@@ -9,7 +9,7 @@ import (
 	context "context"
 	time "time"
 
-	controlplaneapiv1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
+	k8stestinfraapiv1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	versioned "github.com/NVIDIA/k8s-test-infra/pkg/generated/clientset/versioned"
 	internalinterfaces "github.com/NVIDIA/k8s-test-infra/pkg/generated/informers/externalversions/internalinterfaces"
 	apiv1alpha1 "github.com/NVIDIA/k8s-test-infra/pkg/generated/listers/api/v1alpha1"
@@ -38,22 +38,22 @@ type TypedSGPUInventoryInformer interface {
 
 // SGPUInventoryIndexInformer is a wrapper around the underlying [cache.SharedIndexInformer]
 // with type-safe variants of several methods.
-type SGPUInventoryIndexInformer cache.TypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPUInventory]
+type SGPUInventoryIndexInformer cache.TypedSharedIndexInformer[*k8stestinfraapiv1alpha1.SGPUInventory]
 
 // SGPUInventoryHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerFuncs] for SGPUInventory.
-type SGPUInventoryHandlerFuncs = cache.TypedResourceEventHandlerFuncs[*controlplaneapiv1alpha1.SGPUInventory]
+type SGPUInventoryHandlerFuncs = cache.TypedResourceEventHandlerFuncs[*k8stestinfraapiv1alpha1.SGPUInventory]
 
 // SGPUInventoryDetailedHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerDetailedFuncs] for SGPUInventory.
-type SGPUInventoryDetailedHandlerFuncs = cache.TypedResourceEventHandlerDetailedFuncs[*controlplaneapiv1alpha1.SGPUInventory]
+type SGPUInventoryDetailedHandlerFuncs = cache.TypedResourceEventHandlerDetailedFuncs[*k8stestinfraapiv1alpha1.SGPUInventory]
 
 // SGPUInventoryFilteringHandler is a specialization of [cache.TypedFilteringResourceEventHandler] for SGPUInventory.
-type SGPUInventoryFilteringHandler = cache.TypedFilteringResourceEventHandler[*controlplaneapiv1alpha1.SGPUInventory]
+type SGPUInventoryFilteringHandler = cache.TypedFilteringResourceEventHandler[*k8stestinfraapiv1alpha1.SGPUInventory]
 
 // SGPUInventoryIndexers is a specialization of [cache.TypedIndexers] for SGPUInventory.
-type SGPUInventoryIndexers = cache.TypedIndexers[*controlplaneapiv1alpha1.SGPUInventory]
+type SGPUInventoryIndexers = cache.TypedIndexers[*k8stestinfraapiv1alpha1.SGPUInventory]
 
 // DeletedSGPUInventory is a specialization of [cache.DeletedObject] for SGPUInventory.
-type DeletedSGPUInventory = cache.DeletedObject[*controlplaneapiv1alpha1.SGPUInventory]
+type DeletedSGPUInventory = cache.DeletedObject[*k8stestinfraapiv1alpha1.SGPUInventory]
 
 type sGPUInventoryInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
@@ -105,7 +105,7 @@ func NewTypedSGPUInventoryInformerWithOptions(client versioned.Interface, option
 	gvr := schema.GroupVersionResource{Group: "mokka.nvidia.com", Version: "v1alpha1", Resource: "sgpuinventorys"}
 	identifier := options.InformerName.WithResource(gvr)
 	tweakListOptions := options.TweakListOptions
-	return cache.NewTypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPUInventory](cache.NewSharedIndexInformerWithOptions(
+	return cache.NewTypedSharedIndexInformer[*k8stestinfraapiv1alpha1.SGPUInventory](cache.NewSharedIndexInformerWithOptions(
 		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
 			ListFunc: func(opts v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
@@ -132,7 +132,7 @@ func NewTypedSGPUInventoryInformerWithOptions(client versioned.Interface, option
 				return client.MokkaV1alpha1().SGPUInventories().Watch(ctx, opts)
 			},
 		}, client),
-		&controlplaneapiv1alpha1.SGPUInventory{},
+		&k8stestinfraapiv1alpha1.SGPUInventory{},
 		cache.SharedIndexInformerOptions{
 			ResyncPeriod: options.ResyncPeriod,
 			Indexers:     options.Indexers,
@@ -150,7 +150,7 @@ func (f *sGPUInventoryInformer) Informer() cache.SharedIndexInformer {
 }
 
 func (f *sGPUInventoryInformer) TypedInformer() SGPUInventoryIndexInformer {
-	return cache.NewTypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPUInventory](f.factory.InformerFor(&controlplaneapiv1alpha1.SGPUInventory{}, f.defaultInformer))
+	return cache.NewTypedSharedIndexInformer[*k8stestinfraapiv1alpha1.SGPUInventory](f.factory.InformerFor(&k8stestinfraapiv1alpha1.SGPUInventory{}, f.defaultInformer))
 }
 
 func (f *sGPUInventoryInformer) Lister() apiv1alpha1.SGPUInventoryLister {
@@ -176,7 +176,7 @@ type sGPUInventoryTypedInformerAdapter struct {
 }
 
 func (a *sGPUInventoryTypedInformerAdapter) TypedInformer() SGPUInventoryIndexInformer {
-	return cache.NewTypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPUInventory](a.Informer())
+	return cache.NewTypedSharedIndexInformer[*k8stestinfraapiv1alpha1.SGPUInventory](a.Informer())
 }
 
 // ToSGPUInventoryIndexInformer converts an untyped informer into a SGPUInventoryIndexInformer.
@@ -190,5 +190,5 @@ func ToSGPUInventoryIndexInformer(informer cache.SharedIndexInformer) SGPUInvent
 	if informer, ok := informer.(SGPUInventoryIndexInformer); ok {
 		return informer
 	}
-	return cache.NewTypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPUInventory](informer)
+	return cache.NewTypedSharedIndexInformer[*k8stestinfraapiv1alpha1.SGPUInventory](informer)
 }

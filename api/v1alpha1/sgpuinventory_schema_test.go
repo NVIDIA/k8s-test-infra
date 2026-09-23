@@ -33,7 +33,7 @@ func TestSGPUInventoryCRDRackGroupCountBound(t *testing.T) {
 func loadSGPUInventoryCRD(t *testing.T) *apixv1.CustomResourceDefinition {
 	t.Helper()
 
-	path := filepath.Join("..", "..", "..", "..", "deployments", "mokka-crds", "helm", "mokka-crds", "templates", inventoryCRDFile)
+	path := filepath.Join("..", "..", "deployments", "mokka-crds", "helm", "mokka-crds", "templates", inventoryCRDFile)
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 

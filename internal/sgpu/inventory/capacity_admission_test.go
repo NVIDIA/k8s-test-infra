@@ -16,7 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	clienttesting "k8s.io/client-go/testing"
 
-	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
+	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
 	inventorycleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/cleanup"
 )

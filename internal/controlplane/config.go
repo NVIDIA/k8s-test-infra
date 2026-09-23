@@ -13,7 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/tools/leaderelection"
 
-	"github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller"
+	"github.com/NVIDIA/k8s-test-infra/internal/controlplane/controller"
 )
 
 // Config groups the CLI-driven knobs that shape the control plane. Use
@@ -22,7 +22,7 @@ type Config struct {
 	Server         ServerConfig
 	Kubernetes     KubernetesConfig
 	LeaderElection LeaderElectionConfig
-	Controller     mokkacontroller.Options
+	Controller     controller.Options
 }
 
 // validate rejects settings that cannot make progress safely.
@@ -39,12 +39,12 @@ func (config Config) validate() error {
 	if errs := validation.IsDNS1123Label(leaderElection.Namespace); len(errs) > 0 {
 		return fmt.Errorf("leader-election namespace %q is invalid: %s", leaderElection.Namespace, errs[0])
 	}
-	controller := config.Controller
-	if controller.Workers < 1 || controller.StatusDebounce < 0 || controller.StatusProgressInterval < 0 ||
-		controller.LiveNodeGetTimeout <= 0 {
+	opts := config.Controller
+	if opts.Workers < 1 || opts.StatusDebounce < 0 || opts.StatusProgressInterval < 0 ||
+		opts.LiveNodeGetTimeout <= 0 {
 		return errors.New("workers and live Node GET timeout must be positive and status intervals non-negative")
 	}
-	if controller.StatusProgressInterval > 0 && controller.StatusProgressInterval < controller.StatusDebounce {
+	if opts.StatusProgressInterval > 0 && opts.StatusProgressInterval < opts.StatusDebounce {
 		return errors.New("status progress interval must not be shorter than status debounce")
 	}
 	if leaderElection.LeaseDuration <= 0 || leaderElection.RenewDeadline <= 0 ||
@@ -88,7 +88,7 @@ func DefaultConfig() Config {
 	if namespace == "" {
 		namespace = "default"
 	}
-	controller := mokkacontroller.DefaultOptions()
+	opts := controller.DefaultOptions()
 	return Config{
 		Server: ServerConfig{
 			ListenAddr:      ":8080",
@@ -105,6 +105,6 @@ func DefaultConfig() Config {
 			RenewDeadline: 10 * time.Second,
 			RetryPeriod:   2 * time.Second,
 		},
-		Controller: controller,
+		Controller: opts,
 	}
 }

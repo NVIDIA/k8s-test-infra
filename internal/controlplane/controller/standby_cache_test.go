@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
 
-package mokkacontroller
+package controller
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8stesting "k8s.io/client-go/testing"
 
-	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
+	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
 	rackrender "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/rack"
 	mokkafake "github.com/NVIDIA/k8s-test-infra/pkg/generated/clientset/versioned/fake"

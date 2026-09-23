@@ -6,7 +6,7 @@
 package fake
 
 import (
-	v1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
+	v1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	apiv1alpha1 "github.com/NVIDIA/k8s-test-infra/pkg/generated/clientset/versioned/typed/api/v1alpha1"
 	gentype "k8s.io/client-go/gentype"
 )

@@ -74,7 +74,7 @@ func TestSGPURackProfileCRDRequiresDeterministicGPUTopology(t *testing.T) {
 func loadSGPURackProfileCRD(t *testing.T) *apixv1.CustomResourceDefinition {
 	t.Helper()
 
-	path := filepath.Join("..", "..", "..", "..", "deployments", "mokka-crds", "helm", "mokka-crds", "templates", profileCRDFile)
+	path := filepath.Join("..", "..", "deployments", "mokka-crds", "helm", "mokka-crds", "templates", profileCRDFile)
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 

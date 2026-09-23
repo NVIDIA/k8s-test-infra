@@ -21,7 +21,7 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
 
-	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
+	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
 	inventorycleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/cleanup"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/metadata"

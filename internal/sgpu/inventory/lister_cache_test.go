@@ -13,7 +13,7 @@ import (
 	"k8s.io/client-go/listers"
 	"k8s.io/client-go/tools/cache"
 
-	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
+	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
 	mokkalisters "github.com/NVIDIA/k8s-test-infra/pkg/generated/listers/api/v1alpha1"
 )

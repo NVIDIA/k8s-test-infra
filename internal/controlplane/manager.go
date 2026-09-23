@@ -19,20 +19,20 @@ import (
 	"k8s.io/client-go/tools/leaderelection"
 	rl "k8s.io/client-go/tools/leaderelection/resourcelock"
 
-	"github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller"
+	"github.com/NVIDIA/k8s-test-infra/internal/controlplane/controller"
 	versioned "github.com/NVIDIA/k8s-test-infra/pkg/generated/clientset/versioned"
 )
 
-// Controller owns the elected controller lifecycle and readiness state.
-type Controller struct {
+// Manager owns the elected controller lifecycle and readiness state.
+type Manager struct {
 	config     Config
 	kubeClient kubernetes.Interface
-	reconciler *mokkacontroller.Controller
+	reconciler *controller.Controller
 	readiness  *electionReadiness
 }
 
-// NewController builds Kubernetes clients and the informer-driven reconciler.
-func NewController(config Config) (*Controller, error) {
+// NewManager builds Kubernetes clients and the informer-driven reconciler.
+func NewManager(config Config) (*Manager, error) {
 	if err := config.validate(); err != nil {
 		return nil, err
 	}
@@ -48,29 +48,29 @@ func NewController(config Config) (*Controller, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create Mokka client: %w", err)
 	}
-	reconciler, err := mokkacontroller.New(kubeClient, mokkaClient, config.Controller)
+	reconciler, err := controller.New(kubeClient, mokkaClient, config.Controller)
 	if err != nil {
 		return nil, fmt.Errorf("create Mokka controller: %w", err)
 	}
-	return &Controller{
+	return &Manager{
 		config: config, kubeClient: kubeClient, reconciler: reconciler,
 		readiness: newElectionReadiness(),
 	}, nil
 }
 
 // Ready reports whether this replica has synchronized caches and can participate in service.
-func (c *Controller) Ready() bool {
-	return c != nil && c.reconciler != nil && c.readiness != nil && c.readiness.ready(
-		c.reconciler.CacheReady(), c.reconciler.LeaderReady(),
+func (m *Manager) Ready() bool {
+	return m != nil && m.reconciler != nil && m.readiness != nil && m.readiness.ready(
+		m.reconciler.CacheReady(), m.reconciler.LeaderReady(),
 	)
 }
 
 // Run synchronizes process-lifetime caches before participating in Lease election.
-func (c *Controller) Run(ctx context.Context) error {
+func (m *Manager) Run(ctx context.Context) error {
 	return runWithCaches(
 		ctx,
-		c.reconciler.RunCaches,
-		c.reconciler.CachesSynced(),
+		m.reconciler.RunCaches,
+		m.reconciler.CachesSynced(),
 		func(electionCtx context.Context) error {
 			identity, err := leaderIdentity()
 			if err != nil {
@@ -78,13 +78,13 @@ func (c *Controller) Run(ctx context.Context) error {
 			}
 			lock := &rl.LeaseLock{
 				LeaseMeta: metav1.ObjectMeta{
-					Name: c.config.LeaderElection.Name, Namespace: c.config.LeaderElection.Namespace,
+					Name: m.config.LeaderElection.Name, Namespace: m.config.LeaderElection.Namespace,
 				},
-				Client:     c.kubeClient.CoordinationV1(),
+				Client:     m.kubeClient.CoordinationV1(),
 				LockConfig: rl.ResourceLockConfig{Identity: identity},
 			}
 			return runLeaderElection(
-				electionCtx, c.config, lock, c.reconciler.RunLeader, c.readiness,
+				electionCtx, m.config, lock, m.reconciler.RunLeader, m.readiness,
 			)
 		},
 	)
