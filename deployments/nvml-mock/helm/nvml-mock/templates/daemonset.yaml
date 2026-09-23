@@ -88,6 +88,11 @@ spec:
             - name: IMEX_CAPS_MAJOR
               value: "{{ .Values.imex.mockChannels.capsMajor }}"
             {{- end }}
+            {{- if .Values.imex.nodeSoftware.enabled }}
+            # Node-provided IMEX software, matching the physical driver footprint.
+            - name: IMEX_NODE_SOFTWARE_ENABLED
+              value: "true"
+            {{- end }}
             # Drives both the IB tree the agent renders and the tier the
             # LD_PRELOAD shims operate at, so the two can never disagree.
             - name: MOCK_IB

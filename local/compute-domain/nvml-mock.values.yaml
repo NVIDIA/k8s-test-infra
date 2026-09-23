@@ -30,3 +30,16 @@ nodeSelector:
 updateStrategy:
   rollingUpdate:
     maxUnavailable: "100%"
+
+# The DRA compute-domain-daemon uses the upstream image unchanged. Its CDI
+# device supplies the driver footprint; NRI identifies the daemon from its
+# DRA-owned label and container name, then adds only the staged real IMEX
+# executable and mock topology absent from those CDI edits.
+nri:
+  enabled: true
+
+imex:
+  nodeSoftware:
+    enabled: true
+  mockChannels:
+    enabled: true

@@ -14,9 +14,8 @@
 // nvidia-imex-shim is a drop-in argv wrapper for the real `nvidia-imex`
 // daemon. The upstream compute-domain-daemon hard-codes the daemon
 // command line (`nvidia-imex -c /imexd/imexd.cfg`) with no
-// flag passthrough, so GPU-less environments install this shim at
-// /usr/bin/nvidia-imex and the real binary at
-// /usr/bin/nvidia-imex.real: the shim exec's the real daemon with
+// flag passthrough, so GPU-less environments install this shim as
+// nvidia-imex and the real binary beside it as nvidia-imex.real: the shim exec's the real daemon with
 // `--nogpu` (NO GPU mode) appended, preserving all caller arguments,
 // environment, stdio, and the process image (exec replaces the shim —
 // no wrapper process lingers, signals reach the daemon directly).
@@ -27,6 +26,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"syscall"
 )
 
@@ -34,14 +34,14 @@ import (
 // an escape hatch for non-standard installs.
 const envRealBin = "IMEX_SHIM_REAL_BIN"
 
-const defaultRealBin = "/usr/bin/nvidia-imex.real"
-
-// realBin returns the path of the real nvidia-imex binary.
-func realBin() string {
+// realBin returns the path of the real nvidia-imex binary. Resolving it beside
+// the shim keeps the pair relocatable when a node driver root is mounted into a
+// container at a different path.
+func realBin(shimPath string) string {
 	if v := os.Getenv(envRealBin); v != "" {
 		return v
 	}
-	return defaultRealBin
+	return filepath.Join(filepath.Dir(shimPath), "nvidia-imex.real")
 }
 
 // buildArgv assembles the exec argv: argv[0] is the real binary path,
@@ -58,7 +58,12 @@ func buildArgv(realPath string, args []string) []string {
 }
 
 func main() {
-	bin := realBin()
+	shimPath, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "nvidia-imex-shim: resolve executable: %v\n", err)
+		os.Exit(127)
+	}
+	bin := realBin(shimPath)
 	if err := syscall.Exec(bin, buildArgv(bin, os.Args[1:]), os.Environ()); err != nil {
 		fmt.Fprintf(os.Stderr, "nvidia-imex-shim: exec %s: %v\n", bin, err)
 		os.Exit(127)

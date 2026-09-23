@@ -53,6 +53,23 @@ func TestCompileState_FabricState(t *testing.T) {
 	require.Positive(t, state.Fabric.LinksPerGPU)
 }
 
+func TestCompileState_IMEXNodeSoftwareIsIndependentFromMockChannels(t *testing.T) {
+	data, err := os.ReadFile("../../../pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml")
+	require.NoError(t, err)
+
+	t.Setenv("IMEX_NODE_SOFTWARE_ENABLED", "true")
+	state, err := compileState(data)
+	require.NoError(t, err)
+	require.True(t, state.IMEX.NodeSoftwareEnabled)
+	require.False(t, state.IMEX.Enabled)
+
+	t.Setenv("IMEX_MOCK_CHANNELS", "true")
+	state, err = compileState(data)
+	require.NoError(t, err)
+	require.True(t, state.IMEX.NodeSoftwareEnabled)
+	require.True(t, state.IMEX.Enabled)
+}
+
 // The state dir comes from the environment, not the profile: NVLink in the
 // config says nothing about whether fabricmanager runs on the node.
 func TestCompileState_ManagerStateDir(t *testing.T) {

@@ -172,8 +172,11 @@ also intercepted so the shim still behaves on earlier libc versions.
 ### nvidia-imex-shim
 
 Not an `LD_PRELOAD` library — a small Go program installed at
-`/usr/bin/nvidia-imex`, with the real daemon moved to
-`/usr/bin/nvidia-imex.real`.
+`<driver-root>/usr/bin/nvidia-imex`, beside the staged real daemon at
+`<driver-root>/usr/bin/nvidia-imex.real`. The node agent downloads the pinned
+archive for the node architecture, verifies its checksum, and retains a
+node-local cache. NRI injects the driver tree and puts its `usr/bin` on
+`PATH`; the normal Mokka container image does not carry the IMEX payload.
 
 The upstream compute-domain daemon hard-codes its command line with no flag
 passthrough, so `--nogpu` cannot be injected from outside. The shim appends it
@@ -202,6 +205,8 @@ that make the C tools agree with them.
 ```bash
 make mockfs-shim     # build libmockfs.so
 make test-mockfs     # integration tests against real C test binaries
+make test-nvidia-imex-shim
+make test-imex-userspace-download # opt-in official archive validation
 ```
 
 `libmockfs` ships test binaries under `testbin/` that exercise the fortified
