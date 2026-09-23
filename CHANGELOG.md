@@ -143,6 +143,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   capabilities granted. A cluster whose PodSecurity admits no privileged pod
   will refuse this release's DaemonSet on `helm upgrade`. See
   [#857](https://github.com/NVIDIA/k8s-test-infra/issues/857).
+- `--observability`: dcgm-exporter is now collected and scraped every 10s
+  instead of 5s. GPU Operator charts from v26.7.0 default the ServiceMonitor
+  `scrapeTimeout` to 10s, and the Prometheus Operator skips a ServiceMonitor
+  whose timeout exceeds its interval, so with a 5s interval Prometheus never
+  scraped dcgm-exporter and every GPU panel stayed empty. Injected faults take
+  up to 10s longer to reach the dashboard.
 
 ## [0.4.0-rc1] - 2026-09-14
 
