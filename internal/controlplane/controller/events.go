@@ -475,7 +475,7 @@ func (r *eventRouter) nodeDelete(object any) {
 			if !slot.BoundTo(node.Name, node.UID) {
 				continue
 			}
-			cleanup := cleanupFor(rack, slot, sgpucleanup.CleanupNodeIneligible)
+			cleanup := cleanupFor(rack, slot, sgpucleanup.CleanupNodeGone)
 			r.queues.projections.Add(projectionKey{mode: projectionCleanup, cleanup: cleanup})
 			deferred[cleanup.Binding.Coordinate.Group] = struct{}{}
 		}
