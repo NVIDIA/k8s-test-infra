@@ -60,6 +60,43 @@ func TestEncode_RejectsWhatNFDWouldMisread(t *testing.T) {
 	}
 }
 
+func TestDecode_ReadsLikeNFD(t *testing.T) {
+	t.Parallel()
+
+	features := Decode([]byte(
+		"# +expiry-time=2030-01-01T00:00:00Z\n" +
+			"\n" +
+			"pci-10de.present=true\n" +
+			"  gpu.count=8  \n" +
+			"bare.flag\n" +
+			"example.com/empty=\n",
+	))
+	require.Equal(t, Features{
+		"pci-10de.present":  "true",
+		"gpu.count":         "8",
+		"bare.flag":         "true",
+		"example.com/empty": "",
+	}, features)
+}
+
+func TestDecode_RoundTripsEncode(t *testing.T) {
+	t.Parallel()
+
+	want := Features{"pci-10de.present": "true", "gpu.count": "8"}
+	data, err := want.Encode()
+	require.NoError(t, err)
+	require.Equal(t, want, Decode(data))
+}
+
+func TestHas(t *testing.T) {
+	t.Parallel()
+
+	f := Features{"pci-10de.present": "true", "example.com/empty": ""}
+	require.True(t, f.Has("pci-10de.present"))
+	require.True(t, f.Has("example.com/empty"), "an empty value is still a published feature")
+	require.False(t, f.Has("pci-15b3.present"))
+}
+
 func TestWrite_CreatesFileWithEncodedFeatures(t *testing.T) {
 	t.Parallel()
 

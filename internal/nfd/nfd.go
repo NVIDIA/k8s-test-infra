@@ -52,6 +52,34 @@ func (f Features) Encode() ([]byte, error) {
 	return []byte(b.String()), nil
 }
 
+// Decode parses local-source file contents the way NFD reads them: blank lines
+// and '#' lines (comments and directives) are skipped, and a bare name without
+// '=' stands for name=true.
+func Decode(data []byte) Features {
+	f := Features{}
+	for line := range strings.Lines(string(data)) {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		name, value, ok := strings.Cut(line, "=")
+		if !ok {
+			value = "true"
+		}
+		f[name] = value
+	}
+
+	return f
+}
+
+// Has reports whether name is published, whatever its value.
+func (f Features) Has(name string) bool {
+	_, ok := f[name]
+
+	return ok
+}
+
 // Write atomically replaces path with the encoded features. Invalid features
 // leave any existing file untouched.
 func Write(path string, f Features) error {
