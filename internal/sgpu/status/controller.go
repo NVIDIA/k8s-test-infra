@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
 
-// Package status computes aggregate inventory and rack status from cached
-// controller snapshots and writes only semantic changes.
+// Package status computes aggregate inventory and rack status, and runtime
+// policy status, from cached controller snapshots and writes only semantic
+// changes.
 package status
 
 import (

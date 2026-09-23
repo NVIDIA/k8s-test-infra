@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
 
 // Package controller wires informer snapshots and keyed workqueues to the
-// rack, projection, and status reconcilers.
+// rack, projection, and status reconcilers, and compiles effective runtime
+// state from runtime policies.
 package controller
 
 import (
@@ -123,6 +124,10 @@ type statusKind uint8
 const (
 	statusInventory statusKind = iota + 1
 	statusRack
+	// statusRuntimePolicies evaluates every runtime policy that targets the
+	// named inventory together, because one policy can accept or reject
+	// another. The key has no UID: the inventory may not exist.
+	statusRuntimePolicies
 )
 
 type statusKey struct {
@@ -190,6 +195,7 @@ type Controller struct {
 	leaderHandlers   []handlerSpec
 	waitForCacheSync func(context.Context) bool
 	snapshot         *informerCache
+	runtimePolicies  *runtimePolicyView
 
 	reconcileInventory  func(context.Context, string) error
 	reconcileGroup      func(context.Context, allocate.RackGroupKey) error
@@ -222,8 +228,12 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 	profileInformer := profiles.Informer()
 	inventoryInformer := inventories.Informer()
 	rackInformer := racks.Informer()
+	runtimePolicyInformer := mokka.SGPURuntimePolicies().Informer()
 	if err := rackInformer.AddIndexers(sgpuinventory.Indexers()); err != nil {
 		return nil, fmt.Errorf("add rack indexes: %w", err)
+	}
+	if err := runtimePolicyInformer.AddIndexers(runtimePolicyIndexers()); err != nil {
+		return nil, fmt.Errorf("add runtime policy indexes: %w", err)
 	}
 	nodeInformer, err := newFilteredNodeInformer(nodes)
 	if err != nil {
@@ -249,12 +259,19 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 		mokkaClient.MokkaV1alpha1().SGPURacks(),
 		nil,
 	)
+	runtimePolicies := &runtimePolicyView{
+		inventories: inventories.Lister(),
+		profiles:    profiles.Lister(),
+		policies:    runtimePolicyInformer.GetIndexer(),
+	}
+	runtimePolicyStatus := sgpustatus.NewRuntimePolicyReconciler(mokkaClient.MokkaV1alpha1().SGPURuntimePolicies(), nil)
 
 	controller := &Controller{
-		options:      options,
-		queues:       newQueuesWithStatusIntervals(options.StatusDebounce, options.statusProgressInterval()),
-		cachesSynced: make(chan struct{}),
-		snapshot:     snapshot,
+		options:         options,
+		queues:          newQueuesWithStatusIntervals(options.StatusDebounce, options.statusProgressInterval()),
+		cachesSynced:    make(chan struct{}),
+		snapshot:        snapshot,
+		runtimePolicies: runtimePolicies,
 	}
 	// Test environments use short-lived controller instances and only a few inventories,
 	// so per-name locks and results intentionally live for the controller's lifetime.
@@ -445,6 +462,8 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 			return reconcileInventoryStatus(ctx, snapshot, statusReconciler, projection, results, key)
 		case statusRack:
 			return reconcileRackStatus(ctx, snapshot, statusReconciler, projection, key)
+		case statusRuntimePolicies:
+			return reconcileRuntimePolicyStatus(ctx, runtimePolicies, runtimePolicyStatus, key.name)
 		default:
 			return fmt.Errorf("unknown status work kind %d", key.kind)
 		}
@@ -460,7 +479,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 	router.observeRackStatus = statusReconciler.ObserveRackStatus
 	router.forgetRackStatus = statusReconciler.ForgetRackStatus
 	controller.informers = []cache.SharedIndexInformer{
-		profileInformer, inventoryInformer, rackInformer, nodeInformer,
+		profileInformer, inventoryInformer, rackInformer, nodeInformer, runtimePolicyInformer,
 	}
 	controller.leaderHandlers = []handlerSpec{
 		{
@@ -508,6 +527,14 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 					nodeCatalog.Delete(node.Name, node.UID)
 					router.nodeDelete(node)
 				},
+			},
+		},
+		{
+			informer: runtimePolicyInformer,
+			handler: cache.ResourceEventHandlerFuncs{
+				AddFunc:    router.runtimePolicyAdd,
+				UpdateFunc: router.runtimePolicyUpdate,
+				DeleteFunc: router.runtimePolicyDelete,
 			},
 		},
 	}
