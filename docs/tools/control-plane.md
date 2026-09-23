@@ -1,9 +1,9 @@
 # control-plane
 
-The binary that runs the [Mokka controller](../mokka-controller.md) and serves
+The binary that runs the [Mokka controller](../control-plane.md) and serves
 HTTP health probes. It reconciles declarative simulated GPU (sGPU) inventory
 through the Kubernetes API. The architecture page covers placement, Node
-projection, leader election and the [Stage 1 exclusions](../mokka-controller.md#stage-1-exclusions);
+projection, leader election and the [Stage 1 exclusions](../control-plane.md#stage-1-exclusions);
 this page describes the command line and probes.
 
 It is off by default: the chart renders a Deployment only when
@@ -14,7 +14,7 @@ It is off by default: the chart renders a Deployment only when
 The controller requires Kubernetes API access; there is no health-only or
 offline mode. Chart installations require Kubernetes 1.30+ for stable
 `ValidatingAdmissionPolicy`. Install the Mokka CustomResourceDefinitions (CRDs)
-before starting the controller; see [controller installation](../mokka-controller.md#install).
+before starting the controller; see [controller installation](../control-plane.md#install).
 
 In a cluster, the binary uses in-cluster configuration and a mounted
 ServiceAccount token. The chart provisions the controller's ServiceAccount and
@@ -71,7 +71,7 @@ positive.
 | `GET /healthz` | HTTP 200 with `{"ok":true}` while the HTTP server is serving; it does not check Kubernetes API access |
 | `GET /readyz` | HTTP 200 with `{"ok":true}` when the controller is ready; otherwise HTTP 503 with `{"ok":false,"reason":"controller is not ready"}` |
 
-Readiness follows the [controller's cache and leader-election state](../mokka-controller.md#observe-and-troubleshoot),
+Readiness follows the [controller's cache and leader-election state](../control-plane.md#observe-and-troubleshoot),
 not inventory convergence. A healthy HTTP listener alone does not make the
 replica ready.
 
@@ -126,7 +126,7 @@ The chart takes these values from `controlPlane.service.port`,
     inside `controlPlane.terminationGracePeriodSeconds`, 30s by default,
     because the kubelet sends SIGKILL at that boundary whatever is still in
     flight. `--shutdown-timeout` bounds HTTP draining, not controller cleanup;
-    follow the [safe disable and uninstall procedure](../mokka-controller.md#disable-or-uninstall-safely)
+    follow the [safe disable and uninstall procedure](../control-plane.md#disable-or-uninstall-safely)
     before removing the controller.
 
 ## Deployment
@@ -141,5 +141,5 @@ CRDs and chart with `controlPlane.enabled=true`.
 ## See also
 
 - [Command-line tools](README.md)
-- [Mokka controller](../mokka-controller.md) — architecture and lifecycle
+- [Mokka controller](../control-plane.md) — architecture and lifecycle
 - [Installation](../helm-chart.md) — the nvml-mock chart

@@ -131,13 +131,13 @@ CRDs are otherwise disabled and existing Tilt defaults are unchanged.
 
 ## Declare capacity
 
-Apply the [example profile](https://github.com/NVIDIA/k8s-test-infra/blob/main/examples/mokka-controller/sgpu-rack-profile.yaml)
-and [inventory](https://github.com/NVIDIA/k8s-test-infra/blob/main/examples/mokka-controller/sgpu-inventory.yaml), then make a
+Apply the [example profile](https://github.com/NVIDIA/k8s-test-infra/blob/main/examples/controlplane-crds/sgpu-rack-profile.yaml)
+and [inventory](https://github.com/NVIDIA/k8s-test-infra/blob/main/examples/controlplane-crds/sgpu-inventory.yaml), then make a
 Node eligible and match the example group selector:
 
 ```bash
-kubectl apply -f examples/mokka-controller/sgpu-rack-profile.yaml
-kubectl apply -f examples/mokka-controller/sgpu-inventory.yaml
+kubectl apply -f examples/controlplane-crds/sgpu-rack-profile.yaml
+kubectl apply -f examples/controlplane-crds/sgpu-inventory.yaml
 kubectl label node NODE \
   mokka.nvidia.com/sgpu-node=true \
   mokka.nvidia.com/pool=example
