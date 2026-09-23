@@ -351,18 +351,21 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 	blockedNames := make(map[string]struct{})
 	existingByName := make(map[string]*mokkav1alpha1.SGPURack, len(ownedRacks))
 	for _, existing := range ownedRacks {
+		existingByName[existing.Name] = existing
+		if existing.DeletionTimestamp != nil {
+			blockedNames[existing.Name] = struct{}{}
+		}
+	}
+	// Only full reconciliation lists owned racks, so only it retires them.
+	for _, existing := range ownedRacks {
 		if err := admissionCurrent(); err != nil {
 			return result, err
 		}
-		existingByName[existing.Name] = existing
-		if existing.DeletionTimestamp == nil {
+		reason, retire := retirementReason(inventory, existing, resolvedByID, unresolved)
+		if !retire {
 			continue
 		}
-		blockedNames[existing.Name] = struct{}{}
-		if requestedGroup != nil {
-			continue
-		}
-		changed, cleanup, err := r.retireRack(ctx, inventory, existing, sgpucleanup.CleanupRackDeleting)
+		changed, cleanup, err := r.retireRack(ctx, inventory, existing, reason)
 		if err != nil {
 			appendOwnershipConflict(&result, err)
 			sortResult(&result)
@@ -370,44 +373,6 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 		}
 		result.Changed = result.Changed || changed
 		result.CleanupNeeded = append(result.CleanupNeeded, cleanup...)
-	}
-
-	if requestedGroup == nil { //nolint:nestif // Full inventory reconciliation also owns rack retirement.
-		for _, existing := range ownedRacks {
-			if err := admissionCurrent(); err != nil {
-				return result, err
-			}
-			if existing.DeletionTimestamp != nil {
-				continue
-			}
-			if _, keepLastGood := unresolved[existing.Spec.Identity.RackGroup]; keepLastGood {
-				continue
-			}
-			group, declared := resolvedByID[existing.Spec.Identity.RackGroup]
-			if declared && existing.Spec.Identity.RackIndex >= 0 &&
-				existing.Spec.Identity.RackIndex < group.group.Count &&
-				existing.Name == rackrender.RackName(
-					inventory.Name,
-					inventory.UID,
-					group.group.ID,
-					existing.Spec.Identity.RackIndex,
-				) {
-				continue
-			}
-			reason := sgpucleanup.CleanupGroupRemoved
-			if group, exists := resolvedByID[existing.Spec.Identity.RackGroup]; exists &&
-				existing.Spec.Identity.RackIndex >= group.group.Count {
-				reason = sgpucleanup.CleanupCapacityShrink
-			}
-			changed, cleanup, err := r.retireRack(ctx, inventory, existing, reason)
-			if err != nil {
-				appendOwnershipConflict(&result, err)
-				sortResult(&result)
-				return result, err
-			}
-			result.Changed = result.Changed || changed
-			result.CleanupNeeded = append(result.CleanupNeeded, cleanup...)
-		}
 	}
 
 	var allocations allocationIndex
@@ -647,60 +612,6 @@ func capacityForResolvedGroups(groups []resolvedGroup) (DeclaredCapacity, error)
 		}
 	}
 	return total, nil
-}
-
-func orderGroupsForCapacityRelease(
-	groups []resolvedGroup,
-	racks []*mokkav1alpha1.SGPURack,
-) ([]resolvedGroup, map[string]bool, error) {
-	actual := make(map[string]DeclaredCapacity)
-	for _, rack := range racks {
-		group := rack.Spec.Identity.RackGroup
-		var err error
-		actual[group], err = AddCapacity(actual[group], capacityForRackSpec(&rack.Spec))
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-	ordered := slices.Clone(groups)
-	growing := make(map[string]bool, len(groups))
-	for _, group := range groups {
-		desired, err := CapacityForGroup(group.group, group.profile)
-		if err != nil {
-			return nil, nil, err
-		}
-		growing[group.group.ID] = !capacityIsZero(positiveCapacityDifference(desired, actual[group.group.ID]))
-	}
-	slices.SortStableFunc(ordered, func(a, b resolvedGroup) int {
-		aGrowing := growing[a.group.ID]
-		bGrowing := growing[b.group.ID]
-		switch {
-		case aGrowing == bGrowing:
-			return 0
-		case aGrowing:
-			return 1
-		default:
-			return -1
-		}
-	})
-	return ordered, growing, nil
-}
-
-func durableCapacityCleanupPending(cleanup []sgpucleanup.CleanupNeeded) bool {
-	return slices.ContainsFunc(cleanup, func(needed sgpucleanup.CleanupNeeded) bool {
-		return needed.Reason.FreesCapacity()
-	})
-}
-
-func rackCapacityGrows(
-	existing *mokkav1alpha1.SGPURack,
-	target *mokkav1alpha1.SGPURackSpec,
-) bool {
-	currentCapacity := DeclaredCapacity{}
-	if existing != nil {
-		currentCapacity = capacityForRackSpec(&existing.Spec)
-	}
-	return !capacityIsZero(positiveCapacityDifference(capacityForRackSpec(target), currentCapacity))
 }
 
 func validateGroupMaterialization(

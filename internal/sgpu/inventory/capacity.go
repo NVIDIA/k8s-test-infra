@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
+	sgpucleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/cleanup"
 )
 
 const (
@@ -91,6 +92,69 @@ func admitInventories(candidates []admissionInventory, fixed, live DeclaredCapac
 		}
 	}
 	return admitted
+}
+
+// orderGroupsForCapacityRelease orders groups that grow after those that do
+// not, and marks the groups that grow. An Inventory releases capacity before
+// it claims more, because admission charges existing racks until they are
+// released: while a cleanup that frees capacity is pending, reconciliation
+// stops before a growing group or a rack that would grow. Reconciling the
+// other groups first makes every release in a pass known before any growth is
+// considered.
+func orderGroupsForCapacityRelease(
+	groups []resolvedGroup,
+	racks []*mokkav1alpha1.SGPURack,
+) ([]resolvedGroup, map[string]bool, error) {
+	actual := make(map[string]DeclaredCapacity)
+	for _, rack := range racks {
+		group := rack.Spec.Identity.RackGroup
+		var err error
+		actual[group], err = AddCapacity(actual[group], capacityForRackSpec(&rack.Spec))
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	ordered := slices.Clone(groups)
+	growing := make(map[string]bool, len(groups))
+	for _, group := range groups {
+		desired, err := CapacityForGroup(group.group, group.profile)
+		if err != nil {
+			return nil, nil, err
+		}
+		growing[group.group.ID] = !capacityIsZero(positiveCapacityDifference(desired, actual[group.group.ID]))
+	}
+	slices.SortStableFunc(ordered, func(a, b resolvedGroup) int {
+		aGrowing := growing[a.group.ID]
+		bGrowing := growing[b.group.ID]
+		switch {
+		case aGrowing == bGrowing:
+			return 0
+		case aGrowing:
+			return 1
+		default:
+			return -1
+		}
+	})
+	return ordered, growing, nil
+}
+
+// durableCapacityCleanupPending reports whether any cleanup frees capacity,
+// which holds back growth until it completes.
+func durableCapacityCleanupPending(cleanup []sgpucleanup.CleanupNeeded) bool {
+	return slices.ContainsFunc(cleanup, func(needed sgpucleanup.CleanupNeeded) bool {
+		return needed.Reason.FreesCapacity()
+	})
+}
+
+func rackCapacityGrows(
+	existing *mokkav1alpha1.SGPURack,
+	target *mokkav1alpha1.SGPURackSpec,
+) bool {
+	currentCapacity := DeclaredCapacity{}
+	if existing != nil {
+		currentCapacity = capacityForRackSpec(&existing.Spec)
+	}
+	return !capacityIsZero(positiveCapacityDifference(capacityForRackSpec(target), currentCapacity))
 }
 
 type durableInventoryCapacity struct {
