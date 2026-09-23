@@ -13,7 +13,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -21,7 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/util/retry"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
@@ -112,7 +111,7 @@ func (r *Reconciler) ReconcileInventory(ctx context.Context, input InventoryInpu
 		return false, errors.New("inventory status requires exact name and UID")
 	}
 	changed := false
-	err := retryOnConflict(func() error {
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		latest, err := r.inventories.Get(ctx, input.Inventory.Name, metav1.GetOptions{})
 		if err != nil {
 			return err
@@ -154,7 +153,7 @@ func (r *Reconciler) ReconcileRack(ctx context.Context, input RackInput) (bool, 
 		return false, nil
 	}
 	changed := false
-	err := retryOnConflict(func() error {
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		latest, err := r.racks.Get(ctx, input.Rack.Name, metav1.GetOptions{})
 		if apierrors.IsNotFound(err) {
 			r.clearPendingRackStatus(input.Rack.Name, input.Rack.UID)
@@ -662,9 +661,7 @@ func desiredRacksPresent(input InventoryInput) bool {
 			// Programming cannot be confirmed without a canonical profile revision.
 			return false
 		}
-		expected[group.ID] = mokkav1alpha1.SGPURackProfileReference{
-			Name: profile.Name, UID: profile.UID, Generation: profile.Generation, Revision: revision,
-		}
+		expected[group.ID] = profile.Reference(revision)
 	}
 
 	present := make(map[string]map[int32]struct{})
@@ -745,25 +742,4 @@ func projectionKeyForBinding(rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.S
 		rackName: rack.Name, rackUID: rack.UID, nodeIndex: slot.Index,
 		nodeName: slot.NodeRef.Name, nodeUID: slot.NodeRef.UID,
 	}
-}
-
-func retryOnConflict(operation func() error) error {
-	var lastErr error
-	err := wait.ExponentialBackoff(wait.Backoff{
-		Steps: 5, Duration: 10 * time.Millisecond, Factor: 1, Jitter: 0.1,
-	}, func() (bool, error) {
-		err := operation()
-		if err == nil {
-			return true, nil
-		}
-		if !apierrors.IsConflict(err) {
-			return false, err
-		}
-		lastErr = err
-		return false, nil
-	})
-	if wait.Interrupted(err) {
-		return lastErr
-	}
-	return err
 }

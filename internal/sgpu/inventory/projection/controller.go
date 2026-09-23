@@ -283,7 +283,7 @@ func (c *Controller) Cleanup(ctx context.Context, needed inventorycleanup.Cleanu
 	if rackErr != nil && !apierrors.IsNotFound(rackErr) {
 		return Outcome{}, fmt.Errorf("get rack %q: %w", needed.RackName, rackErr)
 	}
-	exactBindingPresent := rackErr == nil && cleanupBindingMatchesRack(needed, rack)
+	exactBindingPresent := rackErr == nil && needed.MatchesRack(rack)
 	if !exactBindingPresent {
 		rack = nil
 	}
@@ -813,19 +813,6 @@ func cleanupAssignmentMatches(current assignment.Assignment, needed inventorycle
 		return false
 	}
 	return true
-}
-
-func cleanupBindingMatchesRack(needed inventorycleanup.CleanupNeeded, rack *mokkav1alpha1.SGPURack) bool {
-	binding := needed.Binding
-	if rack == nil || rack.Name != needed.RackName || rack.UID != needed.RackUID ||
-		rack.Spec.InventoryRef.Name != binding.Coordinate.Group.InventoryName ||
-		rack.Spec.InventoryRef.UID != binding.Coordinate.Group.InventoryUID ||
-		rack.Spec.Identity.RackGroup != binding.Coordinate.Group.RackGroup ||
-		rack.Spec.Identity.RackIndex != binding.Coordinate.RackIndex {
-		return false
-	}
-	slot := rack.Spec.NodeByIndex(binding.Coordinate.NodeIndex)
-	return slot != nil && slot.BoundTo(binding.Node.Name, binding.Node.UID)
 }
 
 func (c *Controller) duplicateBindings(uid types.UID) (int, error) {

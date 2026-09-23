@@ -127,7 +127,8 @@ func projectionTargetMatches(
 	if err != nil {
 		return false, nil
 	}
-	if rack.Name != rendered.Name || !rackTemplateMatches(rack.Spec, rendered.Spec) {
+	if rack.Name != rendered.Name ||
+		!equality.Semantic.DeepEqual(rack.Spec.WithoutBindings(), rendered.Spec.WithoutBindings()) {
 		return false, nil
 	}
 	observed := rack.Spec.NodeByIndex(slot.Index)
@@ -190,16 +191,4 @@ func fieldsV1OwnsTopLevel(fields *metav1.FieldsV1, key string) (bool, bool) {
 	}
 	token, err = decoder.Token()
 	return false, err == nil && token == json.Delim('}')
-}
-
-func rackTemplateMatches(observed, desired mokkav1alpha1.SGPURackSpec) bool {
-	observedCopy := observed.DeepCopy()
-	desiredCopy := desired.DeepCopy()
-	for index := range observedCopy.Nodes {
-		observedCopy.Nodes[index].NodeRef = nil
-	}
-	for index := range desiredCopy.Nodes {
-		desiredCopy.Nodes[index].NodeRef = nil
-	}
-	return equality.Semantic.DeepEqual(observedCopy, desiredCopy)
 }

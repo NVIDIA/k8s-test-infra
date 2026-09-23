@@ -149,7 +149,7 @@ func (r *rackConflictWaiters) waiters(name string) []allocate.RackGroupKey {
 	for key := range r.byRack[name] {
 		waiters = append(waiters, key)
 	}
-	sortGroupKeys(waiters)
+	slices.SortFunc(waiters, allocate.RackGroupKey.Compare)
 	return waiters
 }
 
@@ -265,7 +265,7 @@ func (r *placementRegistry) matching(node *corev1.Node) []allocate.RackGroupKey 
 			matches = append(matches, key)
 		}
 	}
-	sortGroupKeys(matches)
+	slices.SortFunc(matches, allocate.RackGroupKey.Compare)
 	return matches
 }
 
@@ -355,9 +355,7 @@ func (r *eventRouter) inventoryUpdate(oldObject, newObject any) {
 	if inventoryUnchanged(oldInventory, newInventory) {
 		return
 	}
-	if oldInventory.Name != newInventory.Name || oldInventory.UID != newInventory.UID ||
-		!equality.Semantic.DeepEqual(oldInventory.Spec, newInventory.Spec) ||
-		!equality.Semantic.DeepEqual(oldInventory.DeletionTimestamp, newInventory.DeletionTimestamp) {
+	if topologyChanged {
 		r.waiters.removeInventory(oldInventory)
 	}
 	r.registry.replace(newInventory)
@@ -419,12 +417,10 @@ func (r *eventRouter) profileUpdate(oldObject, newObject any) {
 	if !oldOK || !newOK {
 		return
 	}
-	if !profileAllocationUnchanged(oldProfile, newProfile) {
-		r.invalidateTopology()
-	}
 	if profileUnchanged(oldProfile, newProfile) {
 		return
 	}
+	r.invalidateTopology()
 	r.routeAllInventories()
 }
 
@@ -551,13 +547,13 @@ func (r *eventRouter) rackUpdate(oldObject, newObject any) {
 	if r.observeRackStatus != nil {
 		r.observeRackStatus(newRack)
 	}
-	if !rackCapacityUnchanged(oldRack, newRack) {
-		r.invalidateRackCapacity()
-	} else if !rackAllocationUnchanged(oldRack, newRack) {
-		r.invalidateAllocation()
-	}
 	if rackUnchanged(oldRack, newRack) {
 		return
+	}
+	if rackCapacityUnchanged(oldRack, newRack) {
+		r.invalidateAllocation()
+	} else {
+		r.invalidateRackCapacity()
 	}
 	deletionStarted := oldRack.DeletionTimestamp == nil && newRack.DeletionTimestamp != nil
 	if rackOwnershipChanged(oldRack, newRack) || deletionStarted {
@@ -829,21 +825,8 @@ func profileUnchanged(old, current *mokkav1alpha1.SGPURackProfile) bool {
 		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
 }
 
-func profileAllocationUnchanged(old, current *mokkav1alpha1.SGPURackProfile) bool {
-	return old.Name == current.Name && old.UID == current.UID &&
-		equality.Semantic.DeepEqual(old.Spec, current.Spec) &&
-		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
-}
-
 func rackUnchanged(old, current *mokkav1alpha1.SGPURack) bool {
 	return old.UID == current.UID &&
-		equality.Semantic.DeepEqual(old.Spec, current.Spec) &&
-		equality.Semantic.DeepEqual(old.OwnerReferences, current.OwnerReferences) &&
-		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
-}
-
-func rackAllocationUnchanged(old, current *mokkav1alpha1.SGPURack) bool {
-	return old.Name == current.Name && old.UID == current.UID &&
 		equality.Semantic.DeepEqual(old.Spec, current.Spec) &&
 		equality.Semantic.DeepEqual(old.OwnerReferences, current.OwnerReferences) &&
 		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
@@ -857,27 +840,11 @@ func rackCapacityUnchanged(old, current *mokkav1alpha1.SGPURack) bool {
 		len(old.Spec.Nodes) != len(current.Spec.Nodes) {
 		return false
 	}
-	oldGPUs := 0
-	for _, node := range old.Spec.Nodes {
-		oldGPUs += len(node.GPUs)
-	}
-	currentGPUs := 0
-	for _, node := range current.Spec.Nodes {
-		currentGPUs += len(node.GPUs)
-	}
-	return oldGPUs == currentGPUs
+	return old.Spec.GPUCount() == current.Spec.GPUCount()
 }
 
 func rackTemplateUnchanged(old, current *mokkav1alpha1.SGPURack) bool {
-	oldSpec := old.Spec.DeepCopy()
-	currentSpec := current.Spec.DeepCopy()
-	for index := range oldSpec.Nodes {
-		oldSpec.Nodes[index].NodeRef = nil
-	}
-	for index := range currentSpec.Nodes {
-		currentSpec.Nodes[index].NodeRef = nil
-	}
-	return equality.Semantic.DeepEqual(oldSpec, currentSpec) &&
+	return equality.Semantic.DeepEqual(old.Spec.WithoutBindings(), current.Spec.WithoutBindings()) &&
 		equality.Semantic.DeepEqual(old.OwnerReferences, current.OwnerReferences)
 }
 
@@ -903,28 +870,8 @@ func nodeUnchanged(old, current *corev1.Node) bool {
 
 func projectionOnlyNodeUpdate(old, current *corev1.Node) bool {
 	return old.Name == current.Name && old.UID == current.UID &&
-		labelsEqualExceptProjection(old.Labels, current.Labels) &&
+		inventorymetadata.LabelsEqualIgnoringProjection(old.Labels, current.Labels) &&
 		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
-}
-
-func labelsEqualExceptProjection(old, current map[string]string) bool {
-	for key, value := range old {
-		if key == inventorymetadata.AssignedLabel || key == inventorymetadata.CliqueLabel {
-			continue
-		}
-		if currentValue, exists := current[key]; !exists || currentValue != value {
-			return false
-		}
-	}
-	for key := range current {
-		if key == inventorymetadata.AssignedLabel || key == inventorymetadata.CliqueLabel {
-			continue
-		}
-		if _, exists := old[key]; !exists {
-			return false
-		}
-	}
-	return true
 }
 
 func projectionsMatchBindings(node *corev1.Node, racks []*mokkav1alpha1.SGPURack) bool {
@@ -949,18 +896,6 @@ func groupKey(inventory *mokkav1alpha1.SGPUInventory, group string) allocate.Rac
 }
 
 func uniqueGroupKeys(keys []allocate.RackGroupKey) []allocate.RackGroupKey {
-	sortGroupKeys(keys)
+	slices.SortFunc(keys, allocate.RackGroupKey.Compare)
 	return slices.Compact(keys)
-}
-
-func sortGroupKeys(keys []allocate.RackGroupKey) {
-	slices.SortFunc(keys, func(a, b allocate.RackGroupKey) int {
-		if order := cmp.Compare(a.InventoryName, b.InventoryName); order != 0 {
-			return order
-		}
-		if order := cmp.Compare(string(a.InventoryUID), string(b.InventoryUID)); order != 0 {
-			return order
-		}
-		return cmp.Compare(a.RackGroup, b.RackGroup)
-	})
 }

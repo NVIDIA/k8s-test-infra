@@ -25,6 +25,17 @@ type SGPURackProfile struct {
 	Spec SGPURackProfileSpec `json:"spec"`
 }
 
+// Reference returns the reference that pins this profile observation and the
+// given content revision.
+func (p *SGPURackProfile) Reference(revision string) SGPURackProfileReference {
+	return SGPURackProfileReference{
+		Name:       p.Name,
+		UID:        p.UID,
+		Generation: p.Generation,
+		Revision:   revision,
+	}
+}
+
 // SGPURackProfileList is the list wrapper for SGPURackProfile.
 // +kubebuilder:object:root=true
 type SGPURackProfileList struct {

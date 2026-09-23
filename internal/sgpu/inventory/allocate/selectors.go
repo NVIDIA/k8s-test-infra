@@ -4,7 +4,6 @@
 package allocate
 
 import (
-	"cmp"
 	"errors"
 	"fmt"
 	"slices"
@@ -54,7 +53,7 @@ func CompileGroups(groups []RackGroup) (CompiledGroups, error) {
 		compiled = append(compiled, compiledGroup{group: group, selector: selector})
 	}
 	slices.SortFunc(compiled, func(a, b compiledGroup) int {
-		return compareRackGroupKey(a.group.Key, b.group.Key)
+		return a.group.Key.Compare(b.group.Key)
 	})
 	return CompiledGroups{groups: compiled}, nil
 }
@@ -121,14 +120,4 @@ func validateGroup(group RackGroup) error {
 
 func eligible(node KubernetesNode) bool {
 	return !node.Terminating && node.Labels[EligibleNodeLabel] == "true"
-}
-
-func compareRackGroupKey(a, b RackGroupKey) int {
-	if order := cmp.Compare(a.InventoryName, b.InventoryName); order != 0 {
-		return order
-	}
-	if order := cmp.Compare(string(a.InventoryUID), string(b.InventoryUID)); order != 0 {
-		return order
-	}
-	return cmp.Compare(a.RackGroup, b.RackGroup)
 }

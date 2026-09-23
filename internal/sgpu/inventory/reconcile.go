@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
-	"time"
 
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -21,7 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
-	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
@@ -487,15 +486,9 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 				groupMaterializationFailed = true
 				return nil
 			}
-			if durableCapacityCleanupPending(result.CleanupNeeded) {
-				grows, err := rackCapacityGrows(existing, &targetSpec)
-				if err != nil {
-					return fmt.Errorf("compute target capacity for rack %q: %w", rendered.Name, err)
-				}
-				if grows {
-					capacityGrowthBlocked = true
-					return nil
-				}
+			if durableCapacityCleanupPending(result.CleanupNeeded) && rackCapacityGrows(existing, &targetSpec) {
+				capacityGrowthBlocked = true
+				return nil
 			}
 
 			if err := admissionCurrent(); err != nil {
@@ -661,12 +654,9 @@ func orderGroupsForCapacityRelease(
 ) ([]resolvedGroup, map[string]bool, error) {
 	actual := make(map[string]DeclaredCapacity)
 	for _, rack := range racks {
-		capacity, err := capacityForRack(rack)
-		if err != nil {
-			return nil, nil, err
-		}
 		group := rack.Spec.Identity.RackGroup
-		actual[group], err = AddCapacity(actual[group], capacity)
+		var err error
+		actual[group], err = AddCapacity(actual[group], capacityForRackSpec(&rack.Spec))
 		if err != nil {
 			return nil, nil, err
 		}
@@ -709,20 +699,12 @@ func durableCapacityCleanupPending(cleanup []inventorycleanup.CleanupNeeded) boo
 func rackCapacityGrows(
 	existing *mokkav1alpha1.SGPURack,
 	target *mokkav1alpha1.SGPURackSpec,
-) (bool, error) {
+) bool {
 	currentCapacity := DeclaredCapacity{}
 	if existing != nil {
-		var err error
-		currentCapacity, err = capacityForRack(existing)
-		if err != nil {
-			return false, err
-		}
+		currentCapacity = capacityForRackSpec(&existing.Spec)
 	}
-	targetCapacity, err := capacityForRackSpec(target)
-	if err != nil {
-		return false, err
-	}
-	return !capacityIsZero(positiveCapacityDifference(targetCapacity, currentCapacity)), nil
+	return !capacityIsZero(positiveCapacityDifference(capacityForRackSpec(target), currentCapacity))
 }
 
 func validateGroupMaterialization(
@@ -1413,7 +1395,7 @@ func allocationReleasesForRack(releases []allocate.Release, key allocationRackKe
 }
 
 func compareAllocationRackKey(a, b allocationRackKey) int {
-	if order := compareGroupKeys(a.group, b.group); order != 0 {
+	if order := a.group.Compare(b.group); order != 0 {
 		return order
 	}
 	return cmp.Compare(a.rackIndex, b.rackIndex)
@@ -1478,8 +1460,7 @@ func removeString(values []string, remove string) []string {
 }
 
 func appendOwnershipConflict(result *Result, err error) {
-	var ownershipErr *OwnershipConflictError
-	if errors.As(err, &ownershipErr) {
+	if ownershipErr, ok := errors.AsType[*OwnershipConflictError](err); ok {
 		result.OwnershipConflicts = append(result.OwnershipConflicts, ownershipErr.Conflict)
 	}
 }
@@ -1500,27 +1481,11 @@ func sortResult(result *Result) {
 	})
 }
 
+// retryOnConflict retries API conflicts. Ownership conflicts also wrap an API
+// conflict, but they return at once so status can report them.
 func retryOnConflict(operation func() error) error {
-	var lastErr error
-	err := wait.ExponentialBackoff(wait.Backoff{
-		Steps: 5, Duration: 10 * time.Millisecond, Factor: 1, Jitter: 0.1,
-	}, func() (bool, error) {
-		err := operation()
-		if err == nil {
-			return true, nil
-		}
-		var ownershipErr *OwnershipConflictError
-		if errors.As(err, &ownershipErr) {
-			return false, err
-		}
-		if !apierrors.IsConflict(err) {
-			return false, err
-		}
-		lastErr = err
-		return false, nil
-	})
-	if wait.Interrupted(err) {
-		return lastErr
-	}
-	return err
+	return retry.OnError(retry.DefaultRetry, func(err error) bool {
+		_, ownership := errors.AsType[*OwnershipConflictError](err)
+		return !ownership && apierrors.IsConflict(err)
+	}, operation)
 }

@@ -15,7 +15,6 @@ import (
 
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -561,9 +560,7 @@ func updateRackConflictWaiters(
 ) {
 	// A result computed from an obsolete Inventory must not restore waiters
 	// that its update event already discarded.
-	if waiters == nil || current == nil || observed == nil || current.UID != observed.UID ||
-		!equality.Semantic.DeepEqual(current.Spec, observed.Spec) ||
-		!equality.Semantic.DeepEqual(current.DeletionTimestamp, observed.DeletionTimestamp) {
+	if waiters == nil || current == nil || observed == nil || !inventoryAllocationUnchanged(observed, current) {
 		return
 	}
 	if group == nil {
@@ -788,18 +785,7 @@ func cleanupTracksAllocation(reason inventorycleanup.CleanupReason) bool {
 
 func cleanupBindingCurrent(snapshot *informerCache, cleanup inventorycleanup.CleanupNeeded) bool {
 	rack, err := snapshot.Rack(cleanup.RackName)
-	if err != nil || rack.UID != cleanup.RackUID {
-		return false
-	}
-	binding := cleanup.Binding
-	if rack.Spec.InventoryRef.Name != binding.Coordinate.Group.InventoryName ||
-		rack.Spec.InventoryRef.UID != binding.Coordinate.Group.InventoryUID ||
-		rack.Spec.Identity.RackGroup != binding.Coordinate.Group.RackGroup ||
-		rack.Spec.Identity.RackIndex != binding.Coordinate.RackIndex {
-		return false
-	}
-	slot := rack.Spec.NodeByIndex(binding.Coordinate.NodeIndex)
-	return slot != nil && slot.BoundTo(binding.Node.Name, binding.Node.UID)
+	return err == nil && cleanup.MatchesRack(rack)
 }
 
 type resultKey struct {
