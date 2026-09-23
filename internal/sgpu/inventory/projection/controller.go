@@ -197,7 +197,7 @@ func (c *Controller) project(ctx context.Context, rackName string, nodeIndex int
 	}
 	node, allowed, err := c.cache.ProjectionTarget(rack, slot)
 	if err != nil {
-		return Outcome{}, fmt.Errorf("authorize rack %q logical Node %d projection: %w", rackName, nodeIndex, err)
+		return Outcome{}, fmt.Errorf("verify rack %q logical Node %d projection target: %w", rackName, nodeIndex, err)
 	}
 	if !allowed {
 		outcome.State, outcome.Reason = StateAbsent, ReasonBindingNotAllocated
