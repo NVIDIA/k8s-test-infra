@@ -171,8 +171,9 @@ spec:
                                   utilization curve.
                                 properties:
                                   gpuPercent:
-                                    description: PercentRange is a min/max percentage
-                                      bound.
+                                    description: |-
+                                      PercentRange is a min/max percentage bound. Both bounds are required, so an
+                                      override replaces an inherited range whole.
                                     properties:
                                       maximum:
                                         format: int32
@@ -189,8 +190,9 @@ spec:
                                     - minimum
                                     type: object
                                   memoryPercent:
-                                    description: PercentRange is a min/max percentage
-                                      bound.
+                                    description: |-
+                                      PercentRange is a min/max percentage bound. Both bounds are required, so an
+                                      override replaces an inherited range whole.
                                     properties:
                                       maximum:
                                         format: int32

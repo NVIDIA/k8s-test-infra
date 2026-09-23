@@ -803,6 +803,18 @@ The runtime-policy controller must perform reference-dependent validation of `ta
 - Is nodeIndex < nodesPerRack?
 - Is gpuIndex < devicesPerNode?
 
+A target may select rack groups of different shapes, either by listing them or
+by omitting `rackGroups`. An index is then valid when at least one selected rack
+group contains it together with the other listed indexes, and each rack group
+applies only the indexes it contains. Node and GPU indexes come from a rack
+group's profile, so a rack group whose profile is missing contains none.
+
+The controller reports the result in the policy's `Accepted` condition. Its
+reason is `Accepted`, `TargetNotFound` when the inventory does not exist,
+`InvalidTarget` when a listed rack group is not declared or a listed index
+selects no GPU, or `Conflicted` as described in the
+[apply strategy](#sgpuruntimepolicy-apply-strategy).
+
 A policy should contain only the fields it wants to control. It's a sparse override.
 
 - Omitted field means inherit
@@ -976,12 +988,15 @@ Specificity can be represented as target depth:
 
 Conflicting policies are policies that:
 - are applied at the same level (neither is more specific than the other)
+- select at least one common GPU
 - modify the same fields
 
 In this case, the oldest policy by Kubernetes `creationTimestamp` remains in
 force and all challenger policies are rejected as conflicting. Policy UID
 breaks a tie so the leader selects a deterministic winner and publishes the
-accepted set in each affected rack's delivery status.
+accepted set in each affected rack's delivery status. Policies are checked
+oldest first and only against the policies already accepted, so a rejected
+challenger does not block a younger policy.
 
 After a policy is deleted, the leader first recomputes conflict acceptance and
 winner selection at the same specificity. The oldest remaining policy at that

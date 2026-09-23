@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Mokka control plane: `SGPURuntimePolicy` resources are evaluated. Each policy
+  is checked against its inventory and profiles; when two policies of the same
+  scope set a field for the same GPUs, the older one stays in force and the
+  newer one is rejected. The outcome is reported in an `Accepted` condition and
+  a `kubectl get sgpuruntimepolicies` column. Every control-plane replica can
+  compile a GPU's effective runtime state from its profile defaults and the
+  accepted policies; no component applies that state to simulated GPUs yet.
+  Numeric runtime fields now tell an explicit `0` apart from an omitted field, so
+  a profile whose `defaults.runtime` sets a zero gets a new revision and its racks
+  re-render once, keeping their bindings. Upgrade the `mokka-crds` chart before
+  the control plane so the API server keeps the new policy status conditions.
 - The CDI-enabled KIND node image is published at
   `ghcr.io/nvidia/mokka-kind-node` for amd64 and arm64. Publication is gated by
   an amd64 smoke test that boots a cluster, verifies the effective NVIDIA/CDI
@@ -68,6 +79,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Mokka control plane: logs follow the project's level guidelines. Info
+  records startup, cache synchronization, and leader election. It also records
+  racks created, re-rendered and deleted, and each Kubernetes Node assigned to
+  or released from a logical rack Node, with the release reason. Node
+  projections applied and removed are recorded too, along with inventory and
+  runtime policy condition transitions. Warn records Node metadata conflicts
+  that block a projection. Debug records every informer event received, each
+  allocation plan, every runtime policy decision, the policies applied to each
+  compiled GPU, rack condition transitions, and per-key reconciliation timing.
+  Requeues caused by a moving informer cache are logged at Debug instead of
+  Error, because the controller retries them.
 - nvml-mock: `device_defaults.architecture` now accepts `rubin`, which NVML
   defines and the mock previously resolved to `NVML_DEVICE_ARCH_UNKNOWN`, so a
   Rubin profile failed every architecture-gated feature. Spellings are also
