@@ -112,6 +112,7 @@ EOF
 helm repo add nvidia https://helm.ngc.nvidia.com/nvidia && helm repo update
 
 helm install gpu-operator nvidia/gpu-operator \
+  --version v26.3.3 \
   --namespace gpu-operator --create-namespace \
   -f gpu-operator-values.yaml \
   --wait --timeout 600s
