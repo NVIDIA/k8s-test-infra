@@ -454,6 +454,15 @@ test-privileged: ## Run internal/fsutil and internal/agent/gpudriver as root in 
 
 HELM_CHART_DIR      := deployments/nvml-mock/helm/nvml-mock
 CRDS_HELM_CHART_DIR := deployments/mokka-crds/helm/mokka-crds
+HELM_DOCS_VERSION   ?= v1.14.2
+
+.PHONY: helm-docs
+helm-docs: ## Generate the published nvml-mock Helm values reference
+	$(GO_CMD) run github.com/norwoodj/helm-docs/cmd/helm-docs@$(HELM_DOCS_VERSION) \
+		-c $(HELM_CHART_DIR) \
+		-g $(HELM_CHART_DIR) \
+		-o ../../../../docs/helm-chart-values.md \
+		--skip-version-footer
 
 # Drives the built libnvidia-ml.so through go-nvml over the real C ABI.
 # Docker-based, hence separate from the `go test` run.

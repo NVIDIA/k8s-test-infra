@@ -122,6 +122,7 @@ nav:
           - NRI Plugin: components/nri-plugin.md
       - Reference:
           - Configuration: configuration.md
+          - Helm Chart Values: helm-chart-values.md
           # The pages stay under docs/tools/ because hack/check-docs-tools-sync.sh
           # scans that directory to hold them in step with cmd/. The nav label is
           # what places them, not the path.
