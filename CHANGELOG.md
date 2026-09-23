@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which the mock cannot serve to those containers, and GFD, the device plugin
   and dcgm-exporter never start. Lifting the pin is tracked in
   [#911](https://github.com/NVIDIA/k8s-test-infra/issues/911).
+- The chart's install notes and the GPU Operator guide now install the GPU
+  Operator chart with `--version v26.3.3`. Without it, `helm install` resolves
+  v26.7.1, whose operands never start on the mock
+  ([#911](https://github.com/NVIDIA/k8s-test-infra/issues/911)).
 
 ### Fixed
 
