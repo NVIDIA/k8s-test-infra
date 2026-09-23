@@ -15,8 +15,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/nodecatalog"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/nodecatalog"
 )
 
 func TestAllocationCacheCoalescesConcurrentGroupViews(t *testing.T) {

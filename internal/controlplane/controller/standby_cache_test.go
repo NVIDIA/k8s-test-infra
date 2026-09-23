@@ -15,7 +15,7 @@ import (
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
-	rackrender "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/rack"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/rackrender"
 	mokkafake "github.com/NVIDIA/k8s-test-infra/pkg/generated/clientset/versioned/fake"
 )
 

@@ -26,13 +26,13 @@ import (
 	"k8s.io/client-go/util/workqueue"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
+	sgpuassignment "github.com/NVIDIA/k8s-test-infra/internal/sgpu/assignment"
 	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/assignment"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/metadata"
-	nodecatalog "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/nodecatalog"
-	inventoryprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/projection"
-	rackrender "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/rack"
+	sgpumetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/nodecatalog"
+	sgpuprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/projection"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/rackrender"
 	mokkalisters "github.com/NVIDIA/k8s-test-infra/pkg/generated/listers/api/v1alpha1"
 	"github.com/stretchr/testify/require"
 )
@@ -1034,7 +1034,7 @@ func TestProjectionCleanupRevisionRetryPolicy(t *testing.T) {
 }
 
 func TestProjectionConflictWorkerRetryPolicy(t *testing.T) {
-	conflict := &inventoryprojection.MetadataConflictError{NodeName: "node"}
+	conflict := &sgpuprojection.MetadataConflictError{NodeName: "node"}
 
 	t.Run("cleanup retries and succeeds without another event", func(t *testing.T) {
 		queue := workqueue.NewTypedRateLimitingQueue(
@@ -1535,14 +1535,14 @@ func TestCompactNodeObjectRetainsOnlyControllerReadSurface(t *testing.T) {
 	node.CreationTimestamp = metav1.NewTime(time.Unix(50, 0))
 	node.DeletionTimestamp = &deleting
 	node.Annotations = map[string]string{
-		metadata.AssignmentAnnotation: "assignment",
-		"foreign":                     "large-unrelated-value",
+		sgpumetadata.AssignmentAnnotation: "assignment",
+		"foreign":                         "large-unrelated-value",
 	}
-	setNodeManagedFields(node, inventoryprojection.FieldManager,
-		[]string{metadata.CliqueLabel}, []string{metadata.AssignmentAnnotation})
-	setNodeManagedFields(node, "foreign-controller", []string{metadata.AssignedLabel}, nil)
+	setNodeManagedFields(node, sgpuprojection.FieldManager,
+		[]string{sgpumetadata.CliqueLabel}, []string{sgpumetadata.AssignmentAnnotation})
+	setNodeManagedFields(node, "foreign-controller", []string{sgpumetadata.AssignedLabel}, nil)
 	node.ManagedFields[1].FieldsV1 = metav1.NewFieldsV1(
-		`{"f:metadata":{"f:labels":{"f:` + metadata.AssignedLabel + `":{}}},"f:spec":{"f:podCIDR":{}}}`,
+		`{"f:metadata":{"f:labels":{"f:` + sgpumetadata.AssignedLabel + `":{}}},"f:spec":{"f:podCIDR":{}}}`,
 	)
 	node.ManagedFields = append(node.ManagedFields, metav1.ManagedFieldsEntry{
 		Manager: "unrelated-controller", Operation: metav1.ManagedFieldsOperationUpdate,
@@ -1562,10 +1562,10 @@ func TestCompactNodeObjectRetainsOnlyControllerReadSurface(t *testing.T) {
 	require.Equal(t, node.CreationTimestamp, compact.CreationTimestamp)
 	require.Equal(t, node.DeletionTimestamp, compact.DeletionTimestamp)
 	require.Equal(t, node.Labels, compact.Labels)
-	require.Equal(t, "assignment", compact.Annotations[metadata.AssignmentAnnotation])
+	require.Equal(t, "assignment", compact.Annotations[sgpumetadata.AssignmentAnnotation])
 	require.Len(t, compact.Annotations, 1)
 	require.Len(t, compact.ManagedFields, 2)
-	require.Equal(t, inventoryprojection.FieldManager, compact.ManagedFields[0].Manager)
+	require.Equal(t, sgpuprojection.FieldManager, compact.ManagedFields[0].Manager)
 	require.Equal(t, "foreign-controller", compact.ManagedFields[1].Manager)
 	require.NotContains(t, compact.ManagedFields[1].FieldsV1.GetRawString(), "podCIDR")
 	require.Empty(t, compact.Spec)
@@ -1634,7 +1634,7 @@ func TestProjectedLabelEventsDoNotRouteInvalidPlacement(t *testing.T) {
 	registry := newPlacementRegistry()
 	inventory := testInventory()
 	inventory.Spec.RackGroups[0].Placement.NodeSelector = &metav1.LabelSelector{MatchLabels: map[string]string{
-		metadata.AssignedLabel: "true",
+		sgpumetadata.AssignedLabel: "true",
 	}}
 	registry.replace(inventory)
 	router := newEventRouter(inventories, racks, nodecatalog.New(), registry, queues)
@@ -1642,9 +1642,9 @@ func TestProjectedLabelEventsDoNotRouteInvalidPlacement(t *testing.T) {
 	oldNode := testNode()
 	projected := oldNode.DeepCopy()
 	projected.ResourceVersion = "2"
-	projected.Labels[metadata.AssignedLabel] = "true"
-	projected.Labels[metadata.CliqueLabel] = "fabric.0"
-	projected.Annotations = map[string]string{metadata.AssignmentAnnotation: `{}`}
+	projected.Labels[sgpumetadata.AssignedLabel] = "true"
+	projected.Labels[sgpumetadata.CliqueLabel] = "fabric.0"
+	projected.Annotations = map[string]string{sgpumetadata.AssignmentAnnotation: `{}`}
 	router.nodeUpdate(oldNode, projected)
 
 	require.Empty(t, drainQueue(queues.groups), "invalid placement must not react to projection-owned label membership")
@@ -1675,13 +1675,13 @@ func TestProjectedMetadataEventDoesNotReapplyExactBinding(t *testing.T) {
 
 	projected := node.DeepCopy()
 	projected.ResourceVersion = "2"
-	projected.Labels[metadata.AssignedLabel] = "true"
-	projected.Labels[metadata.CliqueLabel] = "fabric.0"
-	assignment, err := assignment.EncodeAssignment(rack, &rack.Spec.Nodes[0])
+	projected.Labels[sgpumetadata.AssignedLabel] = "true"
+	projected.Labels[sgpumetadata.CliqueLabel] = "fabric.0"
+	assignment, err := sgpuassignment.EncodeAssignment(rack, &rack.Spec.Nodes[0])
 	require.NoError(t, err)
-	projected.Annotations = map[string]string{metadata.AssignmentAnnotation: assignment}
-	setNodeManagedFields(projected, inventoryprojection.FieldManager,
-		[]string{metadata.AssignedLabel, metadata.CliqueLabel}, []string{metadata.AssignmentAnnotation})
+	projected.Annotations = map[string]string{sgpumetadata.AssignmentAnnotation: assignment}
+	setNodeManagedFields(projected, sgpuprojection.FieldManager,
+		[]string{sgpumetadata.AssignedLabel, sgpumetadata.CliqueLabel}, []string{sgpumetadata.AssignmentAnnotation})
 	router.nodeUpdate(node, projected)
 	require.Empty(t, drainQueue(queues.groups))
 	require.Empty(t, drainQueue(queues.projections), "the successful projection event must not enqueue itself")
@@ -1692,11 +1692,11 @@ func TestProjectedMetadataEventDoesNotReapplyExactBinding(t *testing.T) {
 
 	damaged := projected.DeepCopy()
 	damaged.ResourceVersion = "3"
-	delete(damaged.Labels, metadata.AssignedLabel)
+	delete(damaged.Labels, sgpumetadata.AssignedLabel)
 	router.nodeUpdate(projected, damaged)
 	require.Equal(t, []allocate.RackGroupKey{testGroupKey()}, drainQueue(queues.groups))
 	require.Equal(t, []projectionKey{{mode: projectionApply, rackName: rack.Name, nodeIndex: 0}}, drainQueue(queues.projections),
-		"external removal of "+metadata.AssignedLabel+" must enqueue repair")
+		"external removal of "+sgpumetadata.AssignedLabel+" must enqueue repair")
 }
 
 func TestForeignProjectionCoOwnerEventRoutesExactBinding(t *testing.T) {
@@ -1713,15 +1713,15 @@ func TestForeignProjectionCoOwnerEventRoutesExactBinding(t *testing.T) {
 
 	projected := node.DeepCopy()
 	projected.ResourceVersion = "2"
-	projected.Labels[metadata.AssignedLabel] = "true"
-	assignment, err := assignment.EncodeAssignment(rack, &rack.Spec.Nodes[0])
+	projected.Labels[sgpumetadata.AssignedLabel] = "true"
+	assignment, err := sgpuassignment.EncodeAssignment(rack, &rack.Spec.Nodes[0])
 	require.NoError(t, err)
-	projected.Annotations = map[string]string{metadata.AssignmentAnnotation: assignment}
-	setNodeManagedFields(projected, inventoryprojection.FieldManager,
-		[]string{metadata.AssignedLabel}, []string{metadata.AssignmentAnnotation})
+	projected.Annotations = map[string]string{sgpumetadata.AssignmentAnnotation: assignment}
+	setNodeManagedFields(projected, sgpuprojection.FieldManager,
+		[]string{sgpumetadata.AssignedLabel}, []string{sgpumetadata.AssignmentAnnotation})
 	coOwned := projected.DeepCopy()
 	coOwned.ResourceVersion = "3"
-	setNodeManagedFields(coOwned, "foreign-controller", nil, []string{metadata.AssignmentAnnotation})
+	setNodeManagedFields(coOwned, "foreign-controller", nil, []string{sgpumetadata.AssignmentAnnotation})
 
 	router.nodeUpdate(projected, coOwned)
 

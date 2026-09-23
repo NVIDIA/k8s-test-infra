@@ -15,8 +15,8 @@ import (
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/metadata"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
+	sgpumetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
 )
 
 // Record is one immutable Node observation shared by catalog indexes and
@@ -226,7 +226,7 @@ func allocationNodeEqual(previous *Record, allocation allocate.KubernetesNode) b
 		previous.allocation.UID == allocation.UID &&
 		previous.allocation.CreationTimestamp.Equal(allocation.CreationTimestamp) &&
 		previous.allocation.Terminating == allocation.Terminating &&
-		metadata.LabelsEqualIgnoringProjection(previous.allocation.Labels, allocation.Labels)
+		sgpumetadata.LabelsEqualIgnoringProjection(previous.allocation.Labels, allocation.Labels)
 }
 
 func addToSet[K comparable](index map[K]recordSet, key K, record *Record) {

@@ -13,7 +13,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
-	rackrender "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/rack"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/rackrender"
 )
 
 func TestControllerExamplesAreTypedAndMaterializable(t *testing.T) {

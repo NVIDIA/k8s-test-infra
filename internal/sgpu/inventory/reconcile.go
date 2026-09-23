@@ -25,9 +25,9 @@ import (
 	"k8s.io/utils/ptr"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
-	inventorycleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/cleanup"
-	rackrender "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/rack"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
+	sgpucleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/cleanup"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/rackrender"
 )
 
 //nolint:revive // These constants define one rack ownership metadata protocol.
@@ -111,7 +111,7 @@ type Result struct {
 	ValidationError    string
 	ProfileIssues      []ProfileIssue
 	OwnershipConflicts []OwnershipConflict
-	CleanupNeeded      []inventorycleanup.CleanupNeeded
+	CleanupNeeded      []sgpucleanup.CleanupNeeded
 	Allocation         allocate.Plan
 	// InventoryAllocation carries the inventory status view when Allocation is
 	// deliberately restricted to one reconciled group.
@@ -137,7 +137,7 @@ type Reconciler struct {
 	cache                     Cache
 	inventories               InventoryMutations
 	racks                     Mutations
-	cleanup                   inventorycleanup.CleanupGate
+	cleanup                   sgpucleanup.CleanupGate
 	allocation                *AllocationCache
 	precomputeProfileRevision profileRevisionPrecomputer
 	// refreshAllocation preserves the standalone reconciler contract for
@@ -150,7 +150,7 @@ func NewReconciler(
 	cache Cache,
 	inventories InventoryMutations,
 	racks Mutations,
-	cleanup inventorycleanup.CleanupGate,
+	cleanup sgpucleanup.CleanupGate,
 ) *Reconciler {
 	reconciler := NewReconcilerWithAllocationCache(
 		cache, inventories, racks, cleanup, NewAllocationCache(cache),
@@ -165,7 +165,7 @@ func NewReconcilerWithAllocationCache(
 	cache Cache,
 	inventories InventoryMutations,
 	racks Mutations,
-	cleanup inventorycleanup.CleanupGate,
+	cleanup sgpucleanup.CleanupGate,
 	allocation *AllocationCache,
 ) *Reconciler {
 	return &Reconciler{
@@ -362,7 +362,7 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 		if requestedGroup != nil {
 			continue
 		}
-		changed, cleanup, err := r.retireRack(ctx, inventory, existing, inventorycleanup.CleanupRackDeleting)
+		changed, cleanup, err := r.retireRack(ctx, inventory, existing, sgpucleanup.CleanupRackDeleting)
 		if err != nil {
 			appendOwnershipConflict(&result, err)
 			sortResult(&result)
@@ -394,10 +394,10 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 				) {
 				continue
 			}
-			reason := inventorycleanup.CleanupGroupRemoved
+			reason := sgpucleanup.CleanupGroupRemoved
 			if group, exists := resolvedByID[existing.Spec.Identity.RackGroup]; exists &&
 				existing.Spec.Identity.RackIndex >= group.group.Count {
-				reason = inventorycleanup.CleanupCapacityShrink
+				reason = sgpucleanup.CleanupCapacityShrink
 			}
 			changed, cleanup, err := r.retireRack(ctx, inventory, existing, reason)
 			if err != nil {
@@ -686,12 +686,12 @@ func orderGroupsForCapacityRelease(
 	return ordered, growing, nil
 }
 
-func durableCapacityCleanupPending(cleanup []inventorycleanup.CleanupNeeded) bool {
+func durableCapacityCleanupPending(cleanup []sgpucleanup.CleanupNeeded) bool {
 	for _, needed := range cleanup {
 		switch needed.Reason {
-		case inventorycleanup.CleanupCapacityShrink, inventorycleanup.CleanupGroupRemoved, inventorycleanup.CleanupRackDeleting:
+		case sgpucleanup.CleanupCapacityShrink, sgpucleanup.CleanupGroupRemoved, sgpucleanup.CleanupRackDeleting:
 			return true
-		case inventorycleanup.CleanupCapacityRejected, inventorycleanup.CleanupNodeIneligible, inventorycleanup.CleanupSelectorMismatch, inventorycleanup.CleanupInventoryDeleting:
+		case sgpucleanup.CleanupCapacityRejected, sgpucleanup.CleanupNodeIneligible, sgpucleanup.CleanupSelectorMismatch, sgpucleanup.CleanupInventoryDeleting:
 		}
 	}
 	return false
@@ -737,8 +737,8 @@ func (r *Reconciler) preservePendingReleases(
 	existing *mokkav1alpha1.SGPURack,
 	target *mokkav1alpha1.SGPURackSpec,
 	releases map[allocate.Coordinate]allocate.Release,
-) []inventorycleanup.CleanupNeeded {
-	cleanup := make([]inventorycleanup.CleanupNeeded, 0)
+) []sgpucleanup.CleanupNeeded {
+	cleanup := make([]sgpucleanup.CleanupNeeded, 0)
 	targetSlots := make(map[int32]*mokkav1alpha1.SGPURackNode, len(target.Nodes))
 	for i := range target.Nodes {
 		targetSlots[target.Nodes[i].Index] = &target.Nodes[i]
@@ -759,7 +759,7 @@ func (r *Reconciler) preservePendingReleases(
 		if !found {
 			continue
 		}
-		needed := inventorycleanup.CleanupNeeded{RackName: existing.Name, RackUID: existing.UID, Binding: release.Binding, Reason: cleanupReason(release.Reason)}
+		needed := sgpucleanup.CleanupNeeded{RackName: existing.Name, RackUID: existing.UID, Binding: release.Binding, Reason: cleanupReason(release.Reason)}
 		if r.cleanup != nil && r.cleanup.Ready(needed) {
 			continue
 		}
@@ -779,10 +779,10 @@ func (r *Reconciler) retireRack(
 	ctx context.Context,
 	inventory *mokkav1alpha1.SGPUInventory,
 	rack *mokkav1alpha1.SGPURack,
-	reason inventorycleanup.CleanupReason,
-) (bool, []inventorycleanup.CleanupNeeded, error) {
+	reason sgpucleanup.CleanupReason,
+) (bool, []sgpucleanup.CleanupNeeded, error) {
 	clearSlots := make(map[int32]types.UID)
-	cleanup := make([]inventorycleanup.CleanupNeeded, 0)
+	cleanup := make([]sgpucleanup.CleanupNeeded, 0)
 	for _, slot := range rack.Spec.Nodes {
 		if slot.NodeRef == nil {
 			continue
@@ -794,7 +794,7 @@ func (r *Reconciler) retireRack(
 			},
 			Node: allocate.NodeReference{Name: slot.NodeRef.Name, UID: slot.NodeRef.UID},
 		}
-		needed := inventorycleanup.CleanupNeeded{RackName: rack.Name, RackUID: rack.UID, Binding: binding, Reason: reason}
+		needed := sgpucleanup.CleanupNeeded{RackName: rack.Name, RackUID: rack.UID, Binding: binding, Reason: reason}
 		if r.cleanup != nil && r.cleanup.Ready(needed) {
 			clearSlots[slot.Index] = slot.NodeRef.UID
 			continue
@@ -857,7 +857,7 @@ func (r *Reconciler) retireCapacityRejectedInventory(
 		if err := admissionCurrent(); err != nil {
 			return result, err
 		}
-		changed, cleanup, err := r.retireRack(ctx, inventory, rack, inventorycleanup.CleanupCapacityRejected)
+		changed, cleanup, err := r.retireRack(ctx, inventory, rack, sgpucleanup.CleanupCapacityRejected)
 		if err != nil {
 			appendOwnershipConflict(&result, err)
 			sortResult(&result)
@@ -878,7 +878,7 @@ func (r *Reconciler) reconcileInventoryDeletion(
 ) (Result, error) {
 	allGone := true
 	for _, rack := range racks {
-		changed, cleanup, err := r.retireRack(ctx, inventory, rack, inventorycleanup.CleanupInventoryDeleting)
+		changed, cleanup, err := r.retireRack(ctx, inventory, rack, sgpucleanup.CleanupInventoryDeleting)
 		if err != nil {
 			appendOwnershipConflict(&result, err)
 			sortResult(&result)
@@ -933,7 +933,7 @@ func (r *Reconciler) retireLiveOwnedRacks(
 	result Result,
 ) (Result, error) {
 	for _, rack := range racks {
-		changed, cleanup, err := r.retireRack(ctx, inventory, rack, inventorycleanup.CleanupInventoryDeleting)
+		changed, cleanup, err := r.retireRack(ctx, inventory, rack, sgpucleanup.CleanupInventoryDeleting)
 		if err != nil {
 			appendOwnershipConflict(&result, err)
 			return result, err
@@ -1467,18 +1467,18 @@ func applyBindings(spec *mokkav1alpha1.SGPURackSpec, bindings []allocate.Binding
 	return applied
 }
 
-func cleanupReason(reason allocate.ReleaseReason) inventorycleanup.CleanupReason {
+func cleanupReason(reason allocate.ReleaseReason) sgpucleanup.CleanupReason {
 	switch reason {
 	case allocate.ReleaseCapacityShrink:
-		return inventorycleanup.CleanupCapacityShrink
+		return sgpucleanup.CleanupCapacityShrink
 	case allocate.ReleaseNodeIneligible:
-		return inventorycleanup.CleanupNodeIneligible
+		return sgpucleanup.CleanupNodeIneligible
 	case allocate.ReleaseSelectorMismatch:
-		return inventorycleanup.CleanupSelectorMismatch
+		return sgpucleanup.CleanupSelectorMismatch
 	case allocate.ReleaseGroupRemoved:
-		return inventorycleanup.CleanupGroupRemoved
+		return sgpucleanup.CleanupGroupRemoved
 	default:
-		return inventorycleanup.CleanupReason(reason)
+		return sgpucleanup.CleanupReason(reason)
 	}
 }
 
@@ -1525,7 +1525,7 @@ func sortResult(result *Result) {
 		return cmp.Compare(a.ProfileName, b.ProfileName)
 	})
 	slices.SortFunc(result.OwnershipConflicts, func(a, b OwnershipConflict) int { return cmp.Compare(a.RackName, b.RackName) })
-	slices.SortFunc(result.CleanupNeeded, func(a, b inventorycleanup.CleanupNeeded) int {
+	slices.SortFunc(result.CleanupNeeded, func(a, b sgpucleanup.CleanupNeeded) int {
 		if order := cmp.Compare(a.RackName, b.RackName); order != 0 {
 			return order
 		}

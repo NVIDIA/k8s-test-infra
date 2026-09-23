@@ -23,10 +23,10 @@ import (
 	"k8s.io/client-go/util/retry"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
 	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
-	inventoryprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/projection"
-	rackrender "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/rack"
+	sgpuprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/projection"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/rackrender"
 )
 
 //nolint:revive // These reasons form one closed status-condition vocabulary.
@@ -59,7 +59,7 @@ type InventoryInput struct {
 	Racks      []*mokkav1alpha1.SGPURack
 	Nodes      []*corev1.Node
 	RackResult sgpuinventory.Result
-	Projection []inventoryprojection.Outcome
+	Projection []sgpuprojection.Outcome
 }
 
 // RackInput is the cached data needed to describe one rack.
@@ -67,7 +67,7 @@ type RackInput struct {
 	Rack       *mokkav1alpha1.SGPURack
 	Racks      []*mokkav1alpha1.SGPURack
 	Nodes      []*corev1.Node
-	Projection []inventoryprojection.Outcome
+	Projection []sgpuprojection.Outcome
 }
 
 // InventoryStatusWriter is the narrow live-client surface for inventory status.
@@ -360,7 +360,7 @@ func ComputeInventory(input InventoryInput, now metav1.Time) mokkav1alpha1.SGPUI
 				continue
 			}
 			aggregate.status.Usage.AllocatedNodes++
-			if inventoryprojection.MatchesBinding(node, rack, slot) {
+			if sgpuprojection.MatchesBinding(node, rack, slot) {
 				aggregate.projected++
 			}
 		}
@@ -450,7 +450,7 @@ func ComputeRack(input RackInput, now metav1.Time) mokkav1alpha1.SGPURackStatus 
 			invalid = true
 			continue
 		}
-		if inventoryprojection.MatchesBinding(node, rack, slot) {
+		if sgpuprojection.MatchesBinding(node, rack, slot) {
 			projectedSlots++
 		}
 	}
@@ -610,8 +610,8 @@ type projectionKey struct {
 	nodeUID   types.UID
 }
 
-func indexProjection(outcomes []inventoryprojection.Outcome) map[projectionKey]inventoryprojection.Outcome {
-	indexed := make(map[projectionKey]inventoryprojection.Outcome, len(outcomes))
+func indexProjection(outcomes []sgpuprojection.Outcome) map[projectionKey]sgpuprojection.Outcome {
+	indexed := make(map[projectionKey]sgpuprojection.Outcome, len(outcomes))
 	for _, outcome := range outcomes {
 		indexed[projectionKeyForOutcome(outcome)] = outcome
 	}
@@ -708,29 +708,29 @@ func inventoryHasMetadataConflict(input InventoryInput) bool {
 	}
 	for _, outcome := range input.Projection {
 		if _, ok := owned[outcome.RackName]; ok &&
-			outcome.State == inventoryprojection.StateConflict &&
-			outcome.Reason == inventoryprojection.ReasonNodeMetadataConflict {
+			outcome.State == sgpuprojection.StateConflict &&
+			outcome.Reason == sgpuprojection.ReasonNodeMetadataConflict {
 			return true
 		}
 	}
 	return false
 }
 
-func rackHasMetadataConflict(outcomes map[projectionKey]inventoryprojection.Outcome, rack *mokkav1alpha1.SGPURack) bool {
+func rackHasMetadataConflict(outcomes map[projectionKey]sgpuprojection.Outcome, rack *mokkav1alpha1.SGPURack) bool {
 	for i := range rack.Spec.Nodes {
 		slot := &rack.Spec.Nodes[i]
 		if slot.NodeRef == nil {
 			continue
 		}
 		outcome, exists := outcomes[projectionKeyForBinding(rack, slot)]
-		if exists && outcome.State == inventoryprojection.StateConflict && outcome.Reason == inventoryprojection.ReasonNodeMetadataConflict {
+		if exists && outcome.State == sgpuprojection.StateConflict && outcome.Reason == sgpuprojection.ReasonNodeMetadataConflict {
 			return true
 		}
 	}
 	return false
 }
 
-func projectionKeyForOutcome(outcome inventoryprojection.Outcome) projectionKey {
+func projectionKeyForOutcome(outcome sgpuprojection.Outcome) projectionKey {
 	return projectionKey{
 		rackName: outcome.RackName, rackUID: outcome.RackUID, nodeIndex: outcome.NodeIndex,
 		nodeName: outcome.NodeName, nodeUID: outcome.NodeUID,

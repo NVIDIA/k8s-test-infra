@@ -19,10 +19,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/assignment"
-	inventorycleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/cleanup"
-	inventorymetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/metadata"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
+	sgpuassignment "github.com/NVIDIA/k8s-test-infra/internal/sgpu/assignment"
+	sgpucleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/cleanup"
+	sgpumetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
 )
 
 func TestProjectAppliesOnlyOwnedMetadataWithExactAssignment(t *testing.T) {
@@ -50,18 +50,18 @@ func TestProjectAppliesOnlyOwnedMetadataWithExactAssignment(t *testing.T) {
 	require.Equal(t, node.Name, metadata["name"])
 	require.Equal(t, string(node.UID), metadata["uid"], "apply must not cross a same-name Node replacement")
 	require.Equal(t, map[string]any{
-		inventorymetadata.AssignedLabel: "true",
-		inventorymetadata.CliqueLabel:   rack.Spec.Identity.FabricUUID + ".0",
+		sgpumetadata.AssignedLabel: "true",
+		sgpumetadata.CliqueLabel:   rack.Spec.Identity.FabricUUID + ".0",
 	}, metadata["labels"])
 	annotations := metadata["annotations"].(map[string]any)
 	require.Len(t, annotations, 1)
 
-	var decoded assignment.Assignment
-	require.NoError(t, json.Unmarshal([]byte(annotations[inventorymetadata.AssignmentAnnotation].(string)), &decoded))
-	require.Equal(t, assignment.AssignmentVersion, decoded.Version)
-	require.Equal(t, assignment.ObjectReference{Name: "inventory", UID: "inventory-uid"}, decoded.Inventory)
-	require.Equal(t, assignment.ObjectReference{Name: rack.Name, UID: rack.UID}, decoded.Rack)
-	require.Equal(t, assignment.ProfileReference{Name: "profile", UID: "profile-uid", Revision: "revision"}, decoded.Profile)
+	var decoded sgpuassignment.Assignment
+	require.NoError(t, json.Unmarshal([]byte(annotations[sgpumetadata.AssignmentAnnotation].(string)), &decoded))
+	require.Equal(t, sgpuassignment.AssignmentVersion, decoded.Version)
+	require.Equal(t, sgpuassignment.ObjectReference{Name: "inventory", UID: "inventory-uid"}, decoded.Inventory)
+	require.Equal(t, sgpuassignment.ObjectReference{Name: rack.Name, UID: rack.UID}, decoded.Rack)
+	require.Equal(t, sgpuassignment.ProfileReference{Name: "profile", UID: "profile-uid", Revision: "revision"}, decoded.Profile)
 	require.Equal(t, "group", decoded.RackGroup)
 	require.Equal(t, int32(0), decoded.RackIndex)
 	require.Equal(t, int32(0), decoded.NodeIndex)
@@ -101,7 +101,7 @@ func TestProjectSkipsApplyForExactOwnedProjection(t *testing.T) {
 	rack := testRack()
 	node := testNode("node", "node-uid")
 	setExactProjection(t, node, rack)
-	setManagedFields(node, FieldManager, []string{inventorymetadata.AssignedLabel, inventorymetadata.CliqueLabel}, []string{inventorymetadata.AssignmentAnnotation})
+	setManagedFields(node, FieldManager, []string{sgpumetadata.AssignedLabel, sgpumetadata.CliqueLabel}, []string{sgpumetadata.AssignmentAnnotation})
 	cache := &fakeCache{nodes: map[string]*corev1.Node{node.Name: node}, racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}}
 	patcher := &recordingPatcher{node: node}
 	controller := NewController(cache, patcher)
@@ -125,7 +125,7 @@ func TestProjectAppliesWhenExactValuesAreNotOwned(t *testing.T) {
 		annotations []string
 	}{
 		{name: "no managed fields"},
-		{name: "partial ownership", manager: FieldManager, labels: []string{inventorymetadata.AssignedLabel}, annotations: []string{inventorymetadata.AssignmentAnnotation}},
+		{name: "partial ownership", manager: FieldManager, labels: []string{sgpumetadata.AssignedLabel}, annotations: []string{sgpumetadata.AssignmentAnnotation}},
 	}
 
 	for _, test := range tests {
@@ -157,20 +157,20 @@ func TestProjectRejectsExactValuesWithForeignOwnership(t *testing.T) {
 	}{
 		{
 			name:       "foreign owner has every exact value",
-			foreign:    []string{inventorymetadata.AssignedLabel, inventorymetadata.CliqueLabel, inventorymetadata.AssignmentAnnotation},
-			wantFields: []string{inventorymetadata.AssignedLabel, inventorymetadata.AssignmentAnnotation, inventorymetadata.CliqueLabel},
+			foreign:    []string{sgpumetadata.AssignedLabel, sgpumetadata.CliqueLabel, sgpumetadata.AssignmentAnnotation},
+			wantFields: []string{sgpumetadata.AssignedLabel, sgpumetadata.AssignmentAnnotation, sgpumetadata.CliqueLabel},
 		},
 		{
 			name:        "foreign owner intersects partial Mokka ownership",
-			mokkaLabels: []string{inventorymetadata.AssignedLabel},
-			foreign:     []string{inventorymetadata.CliqueLabel},
-			wantFields:  []string{inventorymetadata.CliqueLabel},
+			mokkaLabels: []string{sgpumetadata.AssignedLabel},
+			foreign:     []string{sgpumetadata.CliqueLabel},
+			wantFields:  []string{sgpumetadata.CliqueLabel},
 		},
 		{
 			name:        "foreign owner shares one Mokka field",
-			mokkaLabels: []string{inventorymetadata.AssignedLabel, inventorymetadata.CliqueLabel},
-			foreign:     []string{inventorymetadata.AssignedLabel},
-			wantFields:  []string{inventorymetadata.AssignedLabel},
+			mokkaLabels: []string{sgpumetadata.AssignedLabel, sgpumetadata.CliqueLabel},
+			foreign:     []string{sgpumetadata.AssignedLabel},
+			wantFields:  []string{sgpumetadata.AssignedLabel},
 		},
 	}
 
@@ -180,12 +180,12 @@ func TestProjectRejectsExactValuesWithForeignOwnership(t *testing.T) {
 			node := testNode("node", "node-uid")
 			setExactProjection(t, node, rack)
 			if len(test.mokkaLabels) > 0 {
-				setManagedFields(node, FieldManager, test.mokkaLabels, []string{inventorymetadata.AssignmentAnnotation})
+				setManagedFields(node, FieldManager, test.mokkaLabels, []string{sgpumetadata.AssignmentAnnotation})
 			}
 			foreignLabels := make([]string, 0, len(test.foreign))
 			foreignAnnotations := make([]string, 0, 1)
 			for _, field := range test.foreign {
-				if field == inventorymetadata.AssignmentAnnotation {
+				if field == sgpumetadata.AssignmentAnnotation {
 					foreignAnnotations = append(foreignAnnotations, field)
 				} else {
 					foreignLabels = append(foreignLabels, field)
@@ -215,8 +215,8 @@ func TestProjectRejectsForeignCoOwnerInApplyResponse(t *testing.T) {
 	node := testNode("node", "node-uid")
 	response := node.DeepCopy()
 	setExactProjection(t, response, rack)
-	setManagedFields(response, FieldManager, []string{inventorymetadata.AssignedLabel, inventorymetadata.CliqueLabel}, []string{inventorymetadata.AssignmentAnnotation})
-	setManagedFields(response, "racing-controller", []string{inventorymetadata.AssignedLabel}, nil)
+	setManagedFields(response, FieldManager, []string{sgpumetadata.AssignedLabel, sgpumetadata.CliqueLabel}, []string{sgpumetadata.AssignmentAnnotation})
+	setManagedFields(response, "racing-controller", []string{sgpumetadata.AssignedLabel}, nil)
 	cache := &fakeCache{
 		nodes: map[string]*corev1.Node{node.Name: node},
 		racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack},
@@ -227,7 +227,7 @@ func TestProjectRejectsForeignCoOwnerInApplyResponse(t *testing.T) {
 
 	var conflict *MetadataConflictError
 	require.ErrorAs(t, err, &conflict)
-	require.Equal(t, []string{inventorymetadata.AssignedLabel}, conflict.Fields)
+	require.Equal(t, []string{sgpumetadata.AssignedLabel}, conflict.Fields)
 	require.Equal(t, StateConflict, outcome.State)
 	require.Equal(t, ReasonNodeMetadataConflict, outcome.Reason)
 	require.Len(t, patcher.calls, 1, "the race is detected from the one apply response")
@@ -238,7 +238,7 @@ func TestProjectRequiresCliqueOwnership(t *testing.T) {
 	rack := testRack()
 	node := testNode("node", "node-uid")
 	setExactProjection(t, node, rack)
-	setManagedFields(node, FieldManager, []string{inventorymetadata.AssignedLabel}, []string{inventorymetadata.AssignmentAnnotation})
+	setManagedFields(node, FieldManager, []string{sgpumetadata.AssignedLabel}, []string{sgpumetadata.AssignmentAnnotation})
 	cache := &fakeCache{nodes: map[string]*corev1.Node{node.Name: node}, racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}}
 	patcher := &recordingPatcher{node: node}
 
@@ -257,25 +257,25 @@ func TestProjectRetainsPartialAndConflictingMetadataBehavior(t *testing.T) {
 	}{
 		{
 			name:   "partial metadata is completed",
-			mutate: func(node *corev1.Node) { delete(node.Labels, inventorymetadata.CliqueLabel) },
+			mutate: func(node *corev1.Node) { delete(node.Labels, sgpumetadata.CliqueLabel) },
 		},
 		{
 			name:          "wrong assigned label conflicts",
-			mutate:        func(node *corev1.Node) { node.Labels[inventorymetadata.AssignedLabel] = "foreign" },
+			mutate:        func(node *corev1.Node) { node.Labels[sgpumetadata.AssignedLabel] = "foreign" },
 			wantConflict:  true,
-			conflictField: inventorymetadata.AssignedLabel,
+			conflictField: sgpumetadata.AssignedLabel,
 		},
 		{
 			name:          "wrong clique label conflicts",
-			mutate:        func(node *corev1.Node) { node.Labels[inventorymetadata.CliqueLabel] = "foreign" },
+			mutate:        func(node *corev1.Node) { node.Labels[sgpumetadata.CliqueLabel] = "foreign" },
 			wantConflict:  true,
-			conflictField: inventorymetadata.CliqueLabel,
+			conflictField: sgpumetadata.CliqueLabel,
 		},
 		{
 			name:          "wrong annotation conflicts",
-			mutate:        func(node *corev1.Node) { node.Annotations[inventorymetadata.AssignmentAnnotation] = "foreign" },
+			mutate:        func(node *corev1.Node) { node.Annotations[sgpumetadata.AssignmentAnnotation] = "foreign" },
 			wantConflict:  true,
-			conflictField: inventorymetadata.AssignmentAnnotation,
+			conflictField: sgpumetadata.AssignmentAnnotation,
 		},
 	}
 
@@ -284,7 +284,7 @@ func TestProjectRetainsPartialAndConflictingMetadataBehavior(t *testing.T) {
 			rack := testRack()
 			node := testNode("node", "node-uid")
 			setExactProjection(t, node, rack)
-			setManagedFields(node, FieldManager, []string{inventorymetadata.AssignedLabel, inventorymetadata.CliqueLabel}, []string{inventorymetadata.AssignmentAnnotation})
+			setManagedFields(node, FieldManager, []string{sgpumetadata.AssignedLabel, sgpumetadata.CliqueLabel}, []string{sgpumetadata.AssignmentAnnotation})
 			test.mutate(node)
 			cache := &fakeCache{nodes: map[string]*corev1.Node{node.Name: node}, racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}}
 			patcher := &recordingPatcher{node: node}
@@ -308,7 +308,7 @@ func TestProjectRetainsPartialAndConflictingMetadataBehavior(t *testing.T) {
 func TestProjectPreservesIncompatibleValuesAndSurfacesPatchConflicts(t *testing.T) {
 	rack := testRack()
 	node := testNode("node", "node-uid")
-	node.Labels = map[string]string{inventorymetadata.AssignedLabel: "foreign"}
+	node.Labels = map[string]string{sgpumetadata.AssignedLabel: "foreign"}
 	cache := &fakeCache{nodes: map[string]*corev1.Node{node.Name: node}, racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}}
 	patcher := &recordingPatcher{node: node}
 	controller := NewController(cache, patcher)
@@ -320,7 +320,7 @@ func TestProjectPreservesIncompatibleValuesAndSurfacesPatchConflicts(t *testing.
 	require.Equal(t, ReasonNodeMetadataConflict, outcome.Reason)
 	require.Empty(t, patcher.calls)
 	require.Equal(t, []Outcome{outcome}, controller.Outcomes())
-	require.Equal(t, "foreign", node.Labels[inventorymetadata.AssignedLabel])
+	require.Equal(t, "foreign", node.Labels[sgpumetadata.AssignedLabel])
 
 	node.Labels = nil
 	patcher.err = apierrors.NewConflict(schema.GroupResource{Resource: "nodes"}, node.Name, errors.New("owned elsewhere"))
@@ -388,11 +388,11 @@ func TestCleanupPassesCancellationToNodeLookup(t *testing.T) {
 func TestCleanupRequiresExactAnnotationAndSupportsPartialProgress(t *testing.T) {
 	rack := testRack()
 	node := testNode("node", "node-uid")
-	assignment, err := assignment.EncodeAssignment(rack, &rack.Spec.Nodes[0])
+	assignment, err := sgpuassignment.EncodeAssignment(rack, &rack.Spec.Nodes[0])
 	require.NoError(t, err)
-	node.Annotations = map[string]string{inventorymetadata.AssignmentAnnotation: assignment}
-	node.Labels = map[string]string{inventorymetadata.AssignedLabel: "true", inventorymetadata.CliqueLabel: "foreign-clique"}
-	setManagedFields(node, FieldManager, []string{inventorymetadata.AssignedLabel, inventorymetadata.CliqueLabel}, []string{inventorymetadata.AssignmentAnnotation})
+	node.Annotations = map[string]string{sgpumetadata.AssignmentAnnotation: assignment}
+	node.Labels = map[string]string{sgpumetadata.AssignedLabel: "true", sgpumetadata.CliqueLabel: "foreign-clique"}
+	setManagedFields(node, FieldManager, []string{sgpumetadata.AssignedLabel, sgpumetadata.CliqueLabel}, []string{sgpumetadata.AssignmentAnnotation})
 	cache := &fakeCache{nodes: map[string]*corev1.Node{node.Name: node}, racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}}
 	patcher := &recordingPatcher{node: node}
 	controller := NewController(cache, patcher)
@@ -407,7 +407,7 @@ func TestCleanupRequiresExactAnnotationAndSupportsPartialProgress(t *testing.T) 
 	require.NoError(t, json.Unmarshal(patcher.calls[0].data, &partial))
 	metadata := partial["metadata"].(map[string]any)
 	require.NotContains(t, metadata, "labels", "SSA deletes fields previously owned by the manager when they are omitted")
-	require.Equal(t, map[string]any{inventorymetadata.AssignmentAnnotation: assignment}, metadata["annotations"], "the binding identity remains until cleanup can finish")
+	require.Equal(t, map[string]any{sgpumetadata.AssignmentAnnotation: assignment}, metadata["annotations"], "the binding identity remains until cleanup can finish")
 
 	partialResponse := applyNodePayload(node, node.Name, patcher.calls[0].data)
 	cache.nodes[node.Name] = partialResponse
@@ -429,7 +429,7 @@ func TestCleanupRetryClearsMetadataConflictOnGenericError(t *testing.T) {
 	rack := testRack()
 	node := testNode("node", "node-uid")
 	setExactProjection(t, node, rack)
-	setManagedFields(node, FieldManager, []string{inventorymetadata.AssignedLabel, inventorymetadata.CliqueLabel}, []string{inventorymetadata.AssignmentAnnotation})
+	setManagedFields(node, FieldManager, []string{sgpumetadata.AssignedLabel, sgpumetadata.CliqueLabel}, []string{sgpumetadata.AssignmentAnnotation})
 	cache := &fakeCache{
 		nodes: map[string]*corev1.Node{node.Name: node},
 		racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack},
@@ -465,23 +465,23 @@ func TestCleanupRejectsResponseThatRetainsProjectionFields(t *testing.T) {
 		{
 			name:                 "assignment annotation",
 			retainedAnnotation:   true,
-			wantFieldsAfterRetry: []string{inventorymetadata.AssignmentAnnotation},
+			wantFieldsAfterRetry: []string{sgpumetadata.AssignmentAnnotation},
 		},
 		{
 			name:                 "assigned label",
-			retainedLabels:       []string{inventorymetadata.AssignedLabel},
-			wantFieldsAfterRetry: []string{inventorymetadata.AssignedLabel},
+			retainedLabels:       []string{sgpumetadata.AssignedLabel},
+			wantFieldsAfterRetry: []string{sgpumetadata.AssignedLabel},
 		},
 		{
 			name:                 "clique label",
-			retainedLabels:       []string{inventorymetadata.CliqueLabel},
-			wantFieldsAfterRetry: []string{inventorymetadata.CliqueLabel},
+			retainedLabels:       []string{sgpumetadata.CliqueLabel},
+			wantFieldsAfterRetry: []string{sgpumetadata.CliqueLabel},
 		},
 		{
 			name:                 "one of two retained labels is removed",
-			retainedLabels:       []string{inventorymetadata.AssignedLabel, inventorymetadata.CliqueLabel},
-			removeBeforeRetry:    inventorymetadata.AssignedLabel,
-			wantFieldsAfterRetry: []string{inventorymetadata.CliqueLabel},
+			retainedLabels:       []string{sgpumetadata.AssignedLabel, sgpumetadata.CliqueLabel},
+			removeBeforeRetry:    sgpumetadata.AssignedLabel,
+			wantFieldsAfterRetry: []string{sgpumetadata.CliqueLabel},
 		},
 	}
 
@@ -490,7 +490,7 @@ func TestCleanupRejectsResponseThatRetainsProjectionFields(t *testing.T) {
 			rack := testRack()
 			node := testNode("node", "node-uid")
 			setExactProjection(t, node, rack)
-			setManagedFields(node, FieldManager, []string{inventorymetadata.AssignedLabel, inventorymetadata.CliqueLabel}, []string{inventorymetadata.AssignmentAnnotation})
+			setManagedFields(node, FieldManager, []string{sgpumetadata.AssignedLabel, sgpumetadata.CliqueLabel}, []string{sgpumetadata.AssignmentAnnotation})
 			response := testNode(node.Name, node.UID)
 			for _, key := range test.retainedLabels {
 				if response.Labels == nil {
@@ -500,8 +500,8 @@ func TestCleanupRejectsResponseThatRetainsProjectionFields(t *testing.T) {
 			}
 			var foreignAnnotations []string
 			if test.retainedAnnotation {
-				response.Annotations = map[string]string{inventorymetadata.AssignmentAnnotation: node.Annotations[inventorymetadata.AssignmentAnnotation]}
-				foreignAnnotations = []string{inventorymetadata.AssignmentAnnotation}
+				response.Annotations = map[string]string{sgpumetadata.AssignmentAnnotation: node.Annotations[sgpumetadata.AssignmentAnnotation]}
+				foreignAnnotations = []string{sgpumetadata.AssignmentAnnotation}
 			}
 			setManagedFields(response, "racing-controller", test.retainedLabels, foreignAnnotations)
 			cache := &fakeCache{
@@ -553,7 +553,7 @@ func TestCleanupAcknowledgesSoleOwnerOnlyAfterCleanResponse(t *testing.T) {
 	rack := testRack()
 	node := testNode("node", "node-uid")
 	setExactProjection(t, node, rack)
-	setManagedFields(node, FieldManager, []string{inventorymetadata.AssignedLabel, inventorymetadata.CliqueLabel}, []string{inventorymetadata.AssignmentAnnotation})
+	setManagedFields(node, FieldManager, []string{sgpumetadata.AssignedLabel, sgpumetadata.CliqueLabel}, []string{sgpumetadata.AssignmentAnnotation})
 	response := testNode(node.Name, node.UID)
 	cache := &fakeCache{
 		nodes: map[string]*corev1.Node{node.Name: node},
@@ -574,7 +574,7 @@ func TestCleanupAcknowledgesSoleOwnerOnlyAfterCleanResponse(t *testing.T) {
 func TestCleanupTreatsAbsentExactUIDAsCleanAndPreservesStaleAnnotation(t *testing.T) {
 	rack := testRack()
 	node := testNode("node", "node-uid")
-	node.Annotations = map[string]string{inventorymetadata.AssignmentAnnotation: `{"v":1,"nodeUID":"somebody-else"}`}
+	node.Annotations = map[string]string{sgpumetadata.AssignmentAnnotation: `{"v":1,"nodeUID":"somebody-else"}`}
 	cache := &fakeCache{nodes: map[string]*corev1.Node{node.Name: node}, racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}}
 	patcher := &recordingPatcher{node: node}
 	controller := NewController(cache, patcher)
@@ -585,7 +585,7 @@ func TestCleanupTreatsAbsentExactUIDAsCleanAndPreservesStaleAnnotation(t *testin
 	require.Equal(t, StateCleaned, outcome.State)
 	require.True(t, controller.Ready(cleanup))
 	require.Empty(t, patcher.calls)
-	require.Contains(t, node.Annotations, inventorymetadata.AssignmentAnnotation)
+	require.Contains(t, node.Annotations, sgpumetadata.AssignmentAnnotation)
 
 	_, err = controller.Project(context.Background(), rack.Name, 0) // a stale apply preserves the cleanup acknowledgement
 	require.NoError(t, err)
@@ -600,11 +600,11 @@ func TestCleanupTreatsAbsentExactUIDAsCleanAndPreservesStaleAnnotation(t *testin
 func TestStaleProjectionApplyDoesNotRecreateMetadataAfterCleanup(t *testing.T) {
 	rack := testRack()
 	node := testNode("node", "node-uid")
-	assignment, err := assignment.EncodeAssignment(rack, &rack.Spec.Nodes[0])
+	assignment, err := sgpuassignment.EncodeAssignment(rack, &rack.Spec.Nodes[0])
 	require.NoError(t, err)
-	node.Labels = map[string]string{inventorymetadata.AssignedLabel: "true", inventorymetadata.CliqueLabel: rack.Spec.Identity.FabricUUID + ".0"}
-	node.Annotations = map[string]string{inventorymetadata.AssignmentAnnotation: assignment}
-	setManagedFields(node, FieldManager, []string{inventorymetadata.AssignedLabel, inventorymetadata.CliqueLabel}, []string{inventorymetadata.AssignmentAnnotation})
+	node.Labels = map[string]string{sgpumetadata.AssignedLabel: "true", sgpumetadata.CliqueLabel: rack.Spec.Identity.FabricUUID + ".0"}
+	node.Annotations = map[string]string{sgpumetadata.AssignmentAnnotation: assignment}
+	setManagedFields(node, FieldManager, []string{sgpumetadata.AssignedLabel, sgpumetadata.CliqueLabel}, []string{sgpumetadata.AssignmentAnnotation})
 	cache := &fakeCache{
 		nodes: map[string]*corev1.Node{node.Name: node},
 		racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack},
@@ -629,7 +629,7 @@ func TestReturningEligibleNodeFreshProjectionSupersedesCleanupAcknowledgement(t 
 	node := testNode("node", "node-uid")
 	setExactProjection(t, node, rack)
 	node.Labels[allocate.EligibleNodeLabel] = "true"
-	setManagedFields(node, FieldManager, []string{inventorymetadata.AssignedLabel, inventorymetadata.CliqueLabel}, []string{inventorymetadata.AssignmentAnnotation})
+	setManagedFields(node, FieldManager, []string{sgpumetadata.AssignedLabel, sgpumetadata.CliqueLabel}, []string{sgpumetadata.AssignmentAnnotation})
 	ineligible := node.DeepCopy()
 	delete(ineligible.Labels, allocate.EligibleNodeLabel)
 	cache := &fakeCache{
@@ -639,16 +639,16 @@ func TestReturningEligibleNodeFreshProjectionSupersedesCleanupAcknowledgement(t 
 	patcher := &recordingPatcher{node: ineligible}
 	controller := NewController(cache, patcher)
 	cleanup := cleanupFor(rack)
-	cleanup.Reason = inventorycleanup.CleanupNodeIneligible
+	cleanup.Reason = sgpucleanup.CleanupNodeIneligible
 
 	_, err := controller.Cleanup(context.Background(), cleanup)
 	require.NoError(t, err)
 	require.True(t, controller.Ready(cleanup))
 	require.Len(t, patcher.calls, 1)
 	cleaned := applyNodePayload(ineligible, node.Name, patcher.calls[0].data)
-	require.NotContains(t, cleaned.Labels, inventorymetadata.AssignedLabel)
-	require.NotContains(t, cleaned.Labels, inventorymetadata.CliqueLabel)
-	require.NotContains(t, cleaned.Annotations, inventorymetadata.AssignmentAnnotation)
+	require.NotContains(t, cleaned.Labels, sgpumetadata.AssignedLabel)
+	require.NotContains(t, cleaned.Labels, sgpumetadata.CliqueLabel)
+	require.NotContains(t, cleaned.Annotations, sgpumetadata.AssignmentAnnotation)
 
 	returning := cleaned.DeepCopy()
 	returning.Labels = map[string]string{allocate.EligibleNodeLabel: "true"}
@@ -752,7 +752,7 @@ func TestCleanupAcknowledgementsAreExactAndBoundedByCachedBindings(t *testing.T)
 
 	cache := &fakeCache{nodes: make(map[string]*corev1.Node), racks: make(map[string]*mokkav1alpha1.SGPURack)}
 	controller := NewController(cache, &recordingPatcher{})
-	pending := make([]inventorycleanup.CleanupNeeded, 0, pendingCount)
+	pending := make([]sgpucleanup.CleanupNeeded, 0, pendingCount)
 	for i := range pendingCount {
 		rack := testRack()
 		rack.Name = fmt.Sprintf("rack-%d", i)
@@ -981,9 +981,9 @@ func applyNodePayload(current *corev1.Node, name string, data []byte) *corev1.No
 	updated.Name = name
 	updated.UID = payload.Metadata.UID
 	updated.Labels = applyProjectionMap(updated.Labels, payload.Metadata.Labels,
-		[]string{inventorymetadata.AssignedLabel, inventorymetadata.CliqueLabel}, managedFieldKeys(updated, FieldManager, "labels"))
+		[]string{sgpumetadata.AssignedLabel, sgpumetadata.CliqueLabel}, managedFieldKeys(updated, FieldManager, "labels"))
 	updated.Annotations = applyProjectionMap(updated.Annotations, payload.Metadata.Annotations,
-		[]string{inventorymetadata.AssignmentAnnotation}, managedFieldKeys(updated, FieldManager, "annotations"))
+		[]string{sgpumetadata.AssignmentAnnotation}, managedFieldKeys(updated, FieldManager, "annotations"))
 	foreign := make([]metav1.ManagedFieldsEntry, 0, len(updated.ManagedFields))
 	for _, entry := range updated.ManagedFields {
 		if entry.Manager != FieldManager {
@@ -1030,7 +1030,7 @@ func applyProjectionMap(
 
 func managedFieldKeys(node *corev1.Node, manager, section string) map[string]struct{} {
 	keys := make(map[string]struct{})
-	for _, key := range []string{inventorymetadata.AssignedLabel, inventorymetadata.CliqueLabel, inventorymetadata.AssignmentAnnotation} {
+	for _, key := range []string{sgpumetadata.AssignedLabel, sgpumetadata.CliqueLabel, sgpumetadata.AssignmentAnnotation} {
 		for _, entry := range node.ManagedFields {
 			if entry.Manager == manager && entry.FieldsV1 != nil &&
 				fieldsV1Owns(entry.FieldsV1.GetRawBytes(), []string{"f:metadata", "f:" + section, "f:" + key}) {
@@ -1070,13 +1070,13 @@ func testNode(name string, uid types.UID) *corev1.Node {
 
 func setExactProjection(t *testing.T, node *corev1.Node, rack *mokkav1alpha1.SGPURack) {
 	t.Helper()
-	assignment, err := assignment.EncodeAssignment(rack, &rack.Spec.Nodes[0])
+	assignment, err := sgpuassignment.EncodeAssignment(rack, &rack.Spec.Nodes[0])
 	require.NoError(t, err)
-	node.Labels = map[string]string{inventorymetadata.AssignedLabel: "true"}
+	node.Labels = map[string]string{sgpumetadata.AssignedLabel: "true"}
 	if clique, ok := cliqueValue(rack); ok {
-		node.Labels[inventorymetadata.CliqueLabel] = clique
+		node.Labels[sgpumetadata.CliqueLabel] = clique
 	}
-	node.Annotations = map[string]string{inventorymetadata.AssignmentAnnotation: assignment}
+	node.Annotations = map[string]string{sgpumetadata.AssignmentAnnotation: assignment}
 }
 
 func setManagedFields(node *corev1.Node, manager string, labels, annotations []string) {
@@ -1105,9 +1105,9 @@ func setManagedFields(node *corev1.Node, manager string, labels, annotations []s
 	})
 }
 
-func cleanupFor(rack *mokkav1alpha1.SGPURack) inventorycleanup.CleanupNeeded {
+func cleanupFor(rack *mokkav1alpha1.SGPURack) sgpucleanup.CleanupNeeded {
 	slot := rack.Spec.Nodes[0]
-	return inventorycleanup.CleanupNeeded{
+	return sgpucleanup.CleanupNeeded{
 		RackName: rack.Name,
 		RackUID:  rack.UID,
 		Binding: allocate.Binding{

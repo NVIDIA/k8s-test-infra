@@ -11,7 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/metadata"
+	sgpumetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
 )
 
 // EligibleNodeLabel gates all Mokka placement.
@@ -70,7 +70,7 @@ func CompilePlacementSelector(selector *metav1.LabelSelector) (labels.Selector, 
 	if selector == nil {
 		return labels.Everything(), nil
 	}
-	for _, key := range metadata.ProjectionLabelKeys() {
+	for _, key := range sgpumetadata.ProjectionLabelKeys() {
 		if _, exists := selector.MatchLabels[key]; exists {
 			return nil, fmt.Errorf("selector must not reference controller-owned label %q", key)
 		}

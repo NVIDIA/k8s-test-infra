@@ -17,12 +17,12 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
+	sgpucleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/cleanup"
 	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
-	inventorycleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/cleanup"
-	inventorymetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/metadata"
-	nodecatalog "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/nodecatalog"
-	inventoryprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/projection"
+	sgpumetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/nodecatalog"
+	sgpuprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/projection"
 )
 
 // rackConflictWaiters indexes only name collisions observed by reconciliation.
@@ -473,7 +473,7 @@ func (r *eventRouter) nodeDelete(object any) {
 			if !slot.BoundTo(node.Name, node.UID) {
 				continue
 			}
-			cleanup := cleanupFor(rack, slot, inventorycleanup.CleanupNodeIneligible)
+			cleanup := cleanupFor(rack, slot, sgpucleanup.CleanupNodeIneligible)
 			r.queues.projections.Add(projectionKey{mode: projectionCleanup, cleanup: cleanup})
 			deferred[cleanup.Binding.Coordinate.Group] = struct{}{}
 		}
@@ -576,7 +576,7 @@ func (r *eventRouter) rackUpdate(oldObject, newObject any) {
 		if slot.NodeRef == nil || newBindings[slot.Index] == slot.NodeRef.UID {
 			continue
 		}
-		cleanup := cleanupFor(oldRack, slot, inventorycleanup.CleanupCapacityShrink)
+		cleanup := cleanupFor(oldRack, slot, sgpucleanup.CleanupCapacityShrink)
 		r.queues.projections.Add(projectionKey{mode: projectionCleanup, cleanup: cleanup})
 		r.routeReleasedNode(cleanup.Binding.Node)
 	}
@@ -612,7 +612,7 @@ func (r *eventRouter) rackDelete(object any) {
 		if slot.NodeRef == nil {
 			continue
 		}
-		cleanup := cleanupFor(rack, slot, inventorycleanup.CleanupRackDeleting)
+		cleanup := cleanupFor(rack, slot, sgpucleanup.CleanupRackDeleting)
 		r.queues.projections.Add(projectionKey{mode: projectionCleanup, cleanup: cleanup})
 		r.routeReleasedNode(cleanup.Binding.Node)
 	}
@@ -768,8 +768,8 @@ func (r *eventRouter) boundRacks(name string, uid types.UID) []*mokkav1alpha1.SG
 	return racks
 }
 
-func cleanupFor(rack *mokkav1alpha1.SGPURack, slot mokkav1alpha1.SGPURackNode, reason inventorycleanup.CleanupReason) inventorycleanup.CleanupNeeded {
-	return inventorycleanup.CleanupNeeded{
+func cleanupFor(rack *mokkav1alpha1.SGPURack, slot mokkav1alpha1.SGPURackNode, reason sgpucleanup.CleanupReason) sgpucleanup.CleanupNeeded {
+	return sgpucleanup.CleanupNeeded{
 		RackName: rack.Name,
 		RackUID:  rack.UID,
 		Reason:   reason,
@@ -863,14 +863,14 @@ func rackBindingsUnchanged(old, current *mokkav1alpha1.SGPURack) bool {
 func nodeUnchanged(old, current *corev1.Node) bool {
 	return old.UID == current.UID &&
 		equality.Semantic.DeepEqual(old.Labels, current.Labels) &&
-		old.Annotations[inventorymetadata.AssignmentAnnotation] == current.Annotations[inventorymetadata.AssignmentAnnotation] &&
+		old.Annotations[sgpumetadata.AssignmentAnnotation] == current.Annotations[sgpumetadata.AssignmentAnnotation] &&
 		equality.Semantic.DeepEqual(old.ManagedFields, current.ManagedFields) &&
 		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
 }
 
 func projectionOnlyNodeUpdate(old, current *corev1.Node) bool {
 	return old.Name == current.Name && old.UID == current.UID &&
-		inventorymetadata.LabelsEqualIgnoringProjection(old.Labels, current.Labels) &&
+		sgpumetadata.LabelsEqualIgnoringProjection(old.Labels, current.Labels) &&
 		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
 }
 
@@ -883,7 +883,7 @@ func projectionsMatchBindings(node *corev1.Node, racks []*mokkav1alpha1.SGPURack
 				continue
 			}
 			found = true
-			if !inventoryprojection.MatchesBinding(node, rack, slot) {
+			if !sgpuprojection.MatchesBinding(node, rack, slot) {
 				return false
 			}
 		}

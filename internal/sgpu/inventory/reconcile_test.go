@@ -22,10 +22,10 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
-	inventorycleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/cleanup"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/metadata"
-	rackrender "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/rack"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
+	sgpucleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/cleanup"
+	sgpumetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/rackrender"
 	mokkafake "github.com/NVIDIA/k8s-test-infra/pkg/generated/clientset/versioned/fake"
 	mokkalisters "github.com/NVIDIA/k8s-test-infra/pkg/generated/listers/api/v1alpha1"
 )
@@ -165,7 +165,7 @@ func TestReconcileRetriesCacheMissingRackWithChangedAllocationInputs(t *testing.
 				&nodeOverrideCache{Cache: h.cache, nodes: h.nodes},
 				h.mokka.MokkaV1alpha1().SGPUInventories(),
 				h.mokka.MokkaV1alpha1().SGPURacks(),
-				inventorycleanup.CleanupGateFunc(func(inventorycleanup.CleanupNeeded) bool { return false }),
+				sgpucleanup.CleanupGateFunc(func(sgpucleanup.CleanupNeeded) bool { return false }),
 			)
 			h.mokka.Fake.ClearActions()
 			result, err := reconciler.Reconcile(ctx, inventory.Name)
@@ -195,7 +195,7 @@ func TestReconcileRetriesCacheMissingRackWithChangedAllocationInputs(t *testing.
 				return
 			}
 			require.Len(t, result.CleanupNeeded, 1)
-			require.Equal(t, inventorycleanup.CleanupSelectorMismatch, result.CleanupNeeded[0].Reason)
+			require.Equal(t, sgpucleanup.CleanupSelectorMismatch, result.CleanupNeeded[0].Reason)
 			require.Equal(t, committed.UID, result.CleanupNeeded[0].RackUID)
 			require.Equal(t, bound.UID, result.CleanupNeeded[0].Binding.Node.UID)
 
@@ -238,7 +238,7 @@ func TestReconcileComputesRevisionOncePerProfileObservation(t *testing.T) {
 		h.cache,
 		h.mokka.MokkaV1alpha1().SGPUInventories(),
 		h.mokka.MokkaV1alpha1().SGPURacks(),
-		inventorycleanup.CleanupGateFunc(func(inventorycleanup.CleanupNeeded) bool { return false }),
+		sgpucleanup.CleanupGateFunc(func(sgpucleanup.CleanupNeeded) bool { return false }),
 	)
 	reconciler.precomputeProfileRevision = func(
 		profile *mokkav1alpha1.SGPURackProfile,
@@ -344,7 +344,7 @@ func TestReconcileRejectsAggregateCapacityBeforeAllocationOrWrites(t *testing.T)
 		h.cache,
 		h.mokka.MokkaV1alpha1().SGPUInventories(),
 		h.mokka.MokkaV1alpha1().SGPURacks(),
-		inventorycleanup.CleanupGateFunc(func(inventorycleanup.CleanupNeeded) bool { return false }),
+		sgpucleanup.CleanupGateFunc(func(sgpucleanup.CleanupNeeded) bool { return false }),
 		allocation,
 	)
 	h.mokka.Fake.ClearActions()
@@ -380,7 +380,7 @@ func TestReconcileRejectsAdmittedMaximumPerGroupBeforeProfileResolution(t *testi
 		h.cache,
 		h.mokka.MokkaV1alpha1().SGPUInventories(),
 		h.mokka.MokkaV1alpha1().SGPURacks(),
-		inventorycleanup.CleanupGateFunc(func(inventorycleanup.CleanupNeeded) bool { return false }),
+		sgpucleanup.CleanupGateFunc(func(sgpucleanup.CleanupNeeded) bool { return false }),
 		allocation,
 	)
 	h.mokka.Fake.ClearActions()
@@ -687,7 +687,7 @@ func TestReconcileProjectedLabelSelectorRetainsBindingWithoutWrites(t *testing.T
 	invalid, err := h.mokka.MokkaV1alpha1().SGPUInventories().Get(ctx, inventory.Name, metav1.GetOptions{})
 	require.NoError(t, err)
 	invalid.Spec.RackGroups[0].Placement.NodeSelector = &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
-		Key: metadata.CliqueLabel, Operator: metav1.LabelSelectorOpExists,
+		Key: sgpumetadata.CliqueLabel, Operator: metav1.LabelSelectorOpExists,
 	}}}
 	invalid.Generation++
 	_, err = h.mokka.MokkaV1alpha1().SGPUInventories().Update(ctx, invalid, metav1.UpdateOptions{})
@@ -699,7 +699,7 @@ func TestReconcileProjectedLabelSelectorRetainsBindingWithoutWrites(t *testing.T
 	require.NoError(t, err)
 	require.False(t, result.Accepted)
 	require.Equal(t,
-		`rack group "group" selector: selector must not reference controller-owned label "`+metadata.CliqueLabel+`"`,
+		`rack group "group" selector: selector must not reference controller-owned label "`+sgpumetadata.CliqueLabel+`"`,
 		result.ValidationError,
 	)
 	require.Empty(t, result.CleanupNeeded)
@@ -736,7 +736,7 @@ func TestReconcileReleasesTerminatingNodeAsIneligible(t *testing.T) {
 	require.Len(t, result.Allocation.Released, 1)
 	require.Equal(t, allocate.ReleaseNodeIneligible, result.Allocation.Released[0].Reason)
 	require.Len(t, result.CleanupNeeded, 1)
-	require.Equal(t, inventorycleanup.CleanupNodeIneligible, result.CleanupNeeded[0].Reason)
+	require.Equal(t, sgpucleanup.CleanupNodeIneligible, result.CleanupNeeded[0].Reason)
 }
 
 func TestReconcileUsesCurrentInventoryOverStaleListSnapshot(t *testing.T) {
@@ -752,14 +752,14 @@ func TestReconcileUsesCurrentInventoryOverStaleListSnapshot(t *testing.T) {
 	current := inventory.DeepCopy()
 	current.Finalizers = []string{InventoryFinalizer}
 	current.Spec.RackGroups[0].Placement.NodeSelector = &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
-		Key: metadata.AssignedLabel, Operator: metav1.LabelSelectorOpExists,
+		Key: sgpumetadata.AssignedLabel, Operator: metav1.LabelSelectorOpExists,
 	}}}
 	h.mokka.Fake.ClearActions()
 	reconciler := NewReconciler(
 		&inventoryOverrideCache{Cache: h.cache, inventory: current},
 		h.mokka.MokkaV1alpha1().SGPUInventories(),
 		h.mokka.MokkaV1alpha1().SGPURacks(),
-		inventorycleanup.CleanupGateFunc(func(inventorycleanup.CleanupNeeded) bool { return false }),
+		sgpucleanup.CleanupGateFunc(func(sgpucleanup.CleanupNeeded) bool { return false }),
 	)
 
 	result, err := reconciler.Reconcile(ctx, inventory.Name)
@@ -884,7 +884,7 @@ func TestReconcileDoesNotGrowRackWhileRetiredCapacityAwaitsCleanup(t *testing.T)
 	result, err := h.reconcile(ctx, inventory.Name)
 	require.NoError(t, err)
 	require.Len(t, result.CleanupNeeded, 1)
-	require.Equal(t, inventorycleanup.CleanupCapacityShrink, result.CleanupNeeded[0].Reason)
+	require.Equal(t, sgpucleanup.CleanupCapacityShrink, result.CleanupNeeded[0].Reason)
 	surviving, err := h.mokka.MokkaV1alpha1().SGPURacks().Get(
 		ctx,
 		rackrender.RackName(inventory.Name, inventory.UID, "group", 0),
@@ -1046,7 +1046,7 @@ func TestReconcileRetriesWhenStaleRackUpdateFindsDeletedObject(t *testing.T) {
 		&nodeOverrideCache{Cache: h.cache, nodes: []*corev1.Node{replacement}},
 		h.mokka.MokkaV1alpha1().SGPUInventories(),
 		h.mokka.MokkaV1alpha1().SGPURacks(),
-		inventorycleanup.CleanupGateFunc(func(inventorycleanup.CleanupNeeded) bool { return true }),
+		sgpucleanup.CleanupGateFunc(func(sgpucleanup.CleanupNeeded) bool { return true }),
 	)
 
 	_, err = reconciler.Reconcile(ctx, inventory.Name)
@@ -1061,7 +1061,7 @@ func TestReconcileRetriesWhenStaleRackUpdateFindsDeletedObject(t *testing.T) {
 		h.cache,
 		h.mokka.MokkaV1alpha1().SGPUInventories(),
 		h.mokka.MokkaV1alpha1().SGPURacks(),
-		inventorycleanup.CleanupGateFunc(func(inventorycleanup.CleanupNeeded) bool { return true }),
+		sgpucleanup.CleanupGateFunc(func(sgpucleanup.CleanupNeeded) bool { return true }),
 	)
 	_, err = reconciler.Reconcile(ctx, inventory.Name)
 	require.NoError(t, err)
@@ -1105,7 +1105,7 @@ func TestCleanupAcknowledgementSurvivesConflictAndStaleCache(t *testing.T) {
 	_, err = reconciler.Reconcile(ctx, inventory.Name)
 	require.NoError(t, err)
 	require.True(t, conflicted)
-	require.True(t, gate.Ready(inventorycleanup.CleanupNeeded{}), "cleanup must remain acknowledged until the cache observes the removed binding")
+	require.True(t, gate.Ready(sgpucleanup.CleanupNeeded{}), "cleanup must remain acknowledged until the cache observes the removed binding")
 	stored, err := h.mokka.MokkaV1alpha1().SGPURacks().Get(
 		ctx,
 		rackrender.RackName(inventory.Name, inventory.UID, "group", 0),
@@ -1117,7 +1117,7 @@ func TestCleanupAcknowledgementSurvivesConflictAndStaleCache(t *testing.T) {
 	_, err = reconciler.Reconcile(ctx, inventory.Name)
 	require.Error(t, err)
 	require.True(t, apierrors.IsConflict(err))
-	require.True(t, gate.Ready(inventorycleanup.CleanupNeeded{}), "a stale-cache conflict must not discard the acknowledgement")
+	require.True(t, gate.Ready(sgpucleanup.CleanupNeeded{}), "a stale-cache conflict must not discard the acknowledgement")
 	h.sync(t)
 	reconciler = NewReconciler(
 		h.cache,
@@ -1315,7 +1315,7 @@ type testCleanupGate struct {
 	ready bool
 }
 
-func (g *testCleanupGate) Ready(inventorycleanup.CleanupNeeded) bool { return g.ready }
+func (g *testCleanupGate) Ready(sgpucleanup.CleanupNeeded) bool { return g.ready }
 
 type inventoryOverrideCache struct {
 	Cache
@@ -1447,7 +1447,7 @@ func (h *harness) reconcile(ctx context.Context, key string) (Result, error) {
 		h.cache,
 		h.mokka.MokkaV1alpha1().SGPUInventories(),
 		h.mokka.MokkaV1alpha1().SGPURacks(),
-		inventorycleanup.CleanupGateFunc(func(inventorycleanup.CleanupNeeded) bool { return h.cleaned }),
+		sgpucleanup.CleanupGateFunc(func(sgpucleanup.CleanupNeeded) bool { return h.cleaned }),
 	)
 	return reconciler.Reconcile(ctx, key)
 }
@@ -1457,7 +1457,7 @@ func (h *harness) reconcileGroup(ctx context.Context, key allocate.RackGroupKey)
 		h.cache,
 		h.mokka.MokkaV1alpha1().SGPUInventories(),
 		h.mokka.MokkaV1alpha1().SGPURacks(),
-		inventorycleanup.CleanupGateFunc(func(inventorycleanup.CleanupNeeded) bool { return h.cleaned }),
+		sgpucleanup.CleanupGateFunc(func(sgpucleanup.CleanupNeeded) bool { return h.cleaned }),
 	)
 	return reconciler.ReconcileGroup(ctx, key)
 }

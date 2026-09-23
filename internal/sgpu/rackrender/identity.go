@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
 
-package rack
+package rackrender
 
 import (
 	"crypto/sha1" // UUIDv5 is defined in terms of SHA-1.

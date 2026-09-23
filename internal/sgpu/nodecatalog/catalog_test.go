@@ -14,7 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/metadata"
+	sgpumetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
 	"github.com/stretchr/testify/require"
 )
 
@@ -90,8 +90,8 @@ func TestCatalogGenerationTracksExactAllocationInputWithoutProjectionFeedback(t 
 	require.EqualValues(t, 1, catalog.Generation())
 
 	projected := node.DeepCopy()
-	projected.Labels[metadata.AssignedLabel] = "true"
-	projected.Labels[metadata.CliqueLabel] = "rack"
+	projected.Labels[sgpumetadata.AssignedLabel] = "true"
+	projected.Labels[sgpumetadata.CliqueLabel] = "rack"
 	catalog.Upsert(projected)
 	require.EqualValues(t, 1, catalog.Generation(), "controller projection must not invalidate allocation")
 
