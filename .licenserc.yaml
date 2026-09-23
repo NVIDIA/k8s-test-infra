@@ -6,7 +6,6 @@ header:
     - '**'
   paths-ignore:
     - '.git/**'
-    - '.github/**'
     - '.cache/**'
     - 'dist/**'
     - 'licenses/**'

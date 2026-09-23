@@ -34,7 +34,7 @@ jobs:
       name: Checkout code
 
     - name: Check license headers
-      uses: apache/skywalking-eyes/header@v0.7.0
+      uses: apache/skywalking-eyes/header@5c5b974209f0de5d905f37deb69369068ebfc15c # v0.7.0
       with:
         config: .licenserc.yaml
 
