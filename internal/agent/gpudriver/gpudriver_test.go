@@ -16,6 +16,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 	"github.com/NVIDIA/k8s-test-infra/internal/kmod"
+	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
 
 // testState returns a minimal State for gpudriver tests with a real engine YAML.
@@ -99,6 +100,61 @@ func TestWriteEngineConfig_EmptyConfigRawErrors(t *testing.T) {
 
 	err := writeEngineConfig(t.Context(), h, state)
 	require.Error(t, err)
+}
+
+// migProfileTable is the partition table shipped beside a board's config.
+func migProfileTable(t *testing.T, board string) []byte {
+	t.Helper()
+
+	data, err := os.ReadFile(filepath.Join("..", "..", "..", "pkg", "gpu", "mocknvml",
+		"configs", "mock-nvml-config-"+board+".mig.yaml"))
+	require.NoError(t, err)
+	return data
+}
+
+// A consumer process reads the config the agent stages with no environment of
+// its own to name the partition table, so the table has to be staged beside it.
+// Staging the config alone leaves that process seeing a board that cannot
+// partition — the device plugin then publishes whole GPUs while NVML inside the
+// mock reports partitions, and the two disagree with no error anywhere.
+func TestWriteEngineConfig_StagesThePartitionTableBesideTheConfig(t *testing.T) {
+	// The sibling rule is all a consumer has; an explicit path would mask it.
+	t.Setenv(engine.EnvMIGProfilesConfig, "")
+
+	h := testHost(t)
+	state := testState(t)
+	state.MIGProfilesRaw = migProfileTable(t, "a100")
+
+	require.NoError(t, writeEngineConfig(t.Context(), h, state))
+
+	for _, rel := range []string{"config/config.yaml", "driver/config/config.yaml"} {
+		staged, err := engine.LoadYAMLConfig(h.RootPath(rel))
+		require.NoError(t, err, "%s must load the way a consumer loads it", rel)
+		require.NotNil(t, staged.DeviceDefaults.MIG, "%s: board should be MIG-capable", rel)
+		require.NotEmpty(t, staged.DeviceDefaults.MIG.SupportedProfiles,
+			"a consumer loading %s must resolve the board's partition table", rel)
+	}
+}
+
+// Withdrawal matters as much as writing. A node reconfigured onto a board that
+// cannot partition keeps the previous board's table beside the new config
+// otherwise, and the sibling rule would then hand a board that has no
+// partitions at all someone else's.
+func TestWriteEngineConfig_WithdrawsAStalePartitionTable(t *testing.T) {
+	t.Setenv(engine.EnvMIGProfilesConfig, "")
+
+	h := testHost(t)
+	state := testState(t)
+	state.MIGProfilesRaw = migProfileTable(t, "a100")
+	require.NoError(t, writeEngineConfig(t.Context(), h, state))
+
+	state.MIGProfilesRaw = nil
+	require.NoError(t, writeEngineConfig(t.Context(), h, state))
+
+	for _, rel := range []string{"config/config.mig.yaml", "driver/config/config.mig.yaml"} {
+		require.NoFileExists(t, h.RootPath(rel),
+			"a board with no table must not keep the previous one")
+	}
 }
 
 // GFD reads its machine type from a file, so the mock has to serve one: under
