@@ -15,7 +15,7 @@ import (
 // candidate is a valid policy awaiting conflict resolution.
 type candidate struct {
 	decision  *Decision
-	footprint footprint
+	selection selection
 	fields    []string
 }
 
@@ -52,7 +52,7 @@ func firstConflict(accepted []candidate, challenger candidate) (*mokkav1alpha1.S
 			continue
 		}
 		shared := sharedFields(incumbent.fields, challenger.fields)
-		if len(shared) > 0 && incumbent.footprint.overlaps(challenger.footprint) {
+		if len(shared) > 0 && incumbent.selection.overlaps(challenger.selection) {
 			return incumbent.decision.Policy, shared
 		}
 	}

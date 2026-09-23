@@ -90,6 +90,23 @@ func TestEvaluationRuntimeComposesAcceptedPoliciesFieldByField(t *testing.T) {
 		"without profile defaults the policies alone make up the state")
 }
 
+func TestEvaluationAppliedListsSelectingPoliciesInOverrideOrder(t *testing.T) {
+	t.Parallel()
+
+	gpu := testPolicy("gpu-2-failed", 1, mokkav1alpha1.PolicyTargetRef{GPUIndexes: []int32{2}}, failedGPU())
+	inventory := testPolicy("inventory-warm", 2, mokkav1alpha1.PolicyTargetRef{}, gpuCelsius(50))
+	rackGroup := testPolicy("training-hot", 3, mokkav1alpha1.PolicyTargetRef{RackGroups: []string{"training"}}, hotGPU())
+	conflicted := testPolicy("inventory-cool", 4, mokkav1alpha1.PolicyTargetRef{}, coolGPU())
+	evaluation := Evaluate("dev", testInventory(), testProfiles(),
+		[]*mokkav1alpha1.SGPURuntimePolicy{gpu, inventory, rackGroup, conflicted})
+
+	require.Equal(t, []*mokkav1alpha1.SGPURuntimePolicy{inventory, rackGroup, gpu},
+		evaluation.Applied(Coordinate{RackGroup: "training", GPUIndex: 2}),
+		"accepted policies apply from the broadest scope to the narrowest")
+	require.Equal(t, []*mokkav1alpha1.SGPURuntimePolicy{inventory},
+		evaluation.Applied(Coordinate{RackGroup: "inference", GPUIndex: 3}))
+}
+
 func TestEvaluationRuntimeIsOwnedByTheCaller(t *testing.T) {
 	t.Parallel()
 

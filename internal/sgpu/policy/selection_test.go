@@ -32,37 +32,37 @@ func TestWithinKeepsListedIndexesBelowTheBound(t *testing.T) {
 	}
 }
 
-func TestSelectionsOverlapOnlyWhenEveryAxisIntersects(t *testing.T) {
+func TestGroupSelectionsOverlapOnlyWhenEveryAxisIntersects(t *testing.T) {
 	t.Parallel()
 
 	every := indexes{every: true}
 	listed := func(values ...int32) indexes { return indexes{listed: values} }
 	tests := []struct {
 		name string
-		a, b selection
+		a, b groupSelection
 		want bool
 	}{
 		{
 			name: "unlisted axes overlap anything",
-			a:    selection{racks: every, nodes: every, gpus: every},
-			b:    selection{racks: listed(1), nodes: listed(2), gpus: listed(3)},
+			a:    groupSelection{racks: every, nodes: every, gpus: every},
+			b:    groupSelection{racks: listed(1), nodes: listed(2), gpus: listed(3)},
 			want: true,
 		},
 		{
 			name: "shared indexes on every axis overlap",
-			a:    selection{racks: listed(0, 1), nodes: every, gpus: listed(2)},
-			b:    selection{racks: listed(1), nodes: listed(5), gpus: listed(0, 2)},
+			a:    groupSelection{racks: listed(0, 1), nodes: every, gpus: listed(2)},
+			b:    groupSelection{racks: listed(1), nodes: listed(5), gpus: listed(0, 2)},
 			want: true,
 		},
 		{
 			name: "one disjoint axis keeps the selections apart",
-			a:    selection{racks: listed(0, 1), nodes: every, gpus: listed(2)},
-			b:    selection{racks: listed(1), nodes: every, gpus: listed(3)},
+			a:    groupSelection{racks: listed(0, 1), nodes: every, gpus: listed(2)},
+			b:    groupSelection{racks: listed(1), nodes: every, gpus: listed(3)},
 		},
 		{
 			name: "an empty axis overlaps nothing",
-			a:    selection{racks: listed(), nodes: every, gpus: every},
-			b:    selection{racks: every, nodes: every, gpus: every},
+			a:    groupSelection{racks: listed(), nodes: every, gpus: every},
+			b:    groupSelection{racks: every, nodes: every, gpus: every},
 		},
 	}
 	for _, tt := range tests {
@@ -74,11 +74,11 @@ func TestSelectionsOverlapOnlyWhenEveryAxisIntersects(t *testing.T) {
 	}
 }
 
-func TestFootprintsOverlapOnlyInASharedRackGroup(t *testing.T) {
+func TestSelectionsOverlapOnlyInASharedRackGroup(t *testing.T) {
 	t.Parallel()
 
-	all := selection{racks: indexes{every: true}, nodes: indexes{every: true}, gpus: indexes{every: true}}
-	require.True(t, footprint{"training": all}.overlaps(footprint{"inference": all, "training": all}))
-	require.False(t, footprint{"training": all}.overlaps(footprint{"inference": all}))
-	require.False(t, footprint{}.overlaps(footprint{"training": all}))
+	all := groupSelection{racks: indexes{every: true}, nodes: indexes{every: true}, gpus: indexes{every: true}}
+	require.True(t, selection{"training": all}.overlaps(selection{"inference": all, "training": all}))
+	require.False(t, selection{"training": all}.overlaps(selection{"inference": all}))
+	require.False(t, selection{}.overlaps(selection{"training": all}))
 }

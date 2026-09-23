@@ -21,8 +21,8 @@ type Coordinate struct {
 // layer is one accepted policy's override within a rack group.
 type layer struct {
 	scope   Scope
-	selects selection
-	runtime *mokkav1alpha1.RuntimeState
+	selects groupSelection
+	policy  *mokkav1alpha1.SGPURuntimePolicy
 }
 
 // layersByGroup orders each rack group's accepted overrides from the broadest
@@ -31,11 +31,11 @@ type layer struct {
 func layersByGroup(accepted []candidate) map[string][]layer {
 	layers := make(map[string][]layer)
 	for _, winner := range accepted {
-		for group, selected := range winner.footprint {
+		for group, selected := range winner.selection {
 			layers[group] = append(layers[group], layer{
 				scope:   winner.decision.Scope,
 				selects: selected,
-				runtime: winner.decision.Policy.Spec.Runtime,
+				policy:  winner.decision.Policy,
 			})
 		}
 	}
@@ -45,15 +45,30 @@ func layersByGroup(accepted []candidate) map[string][]layer {
 	return layers
 }
 
-// Runtime returns the effective runtime state of the GPU at a coordinate: the
-// profile defaults overridden by every accepted policy that selects it, from
-// the broadest scope to the narrowest. The caller owns the result.
-func (e *Evaluation) Runtime(defaults *mokkav1alpha1.RuntimeState, at Coordinate) mokkav1alpha1.RuntimeState {
-	effective := defaults.WithOverride(nil)
-	for _, override := range e.layers[at.RackGroup] {
+// Applied returns the accepted policies that select the GPU at a coordinate,
+// in the order their overrides apply: from the broadest scope to the narrowest.
+func (e *Evaluation) Applied(at Coordinate) []*mokkav1alpha1.SGPURuntimePolicy {
+	layers := e.layers[at.RackGroup]
+	applied := make([]*mokkav1alpha1.SGPURuntimePolicy, 0, len(layers))
+
+	for _, override := range layers {
 		if override.selects.contains(at) {
-			effective = effective.WithOverride(override.runtime)
+			applied = append(applied, override.policy)
 		}
 	}
+
+	return applied
+}
+
+// Runtime returns the effective runtime state of the GPU at a coordinate: the
+// profile defaults overridden by each policy Applied returns, in that order.
+// The caller owns the result.
+func (e *Evaluation) Runtime(defaults *mokkav1alpha1.RuntimeState, at Coordinate) mokkav1alpha1.RuntimeState {
+	effective := defaults.WithOverride(nil)
+
+	for _, policy := range e.Applied(at) {
+		effective = effective.WithOverride(policy.Spec.Runtime)
+	}
+
 	return *effective
 }

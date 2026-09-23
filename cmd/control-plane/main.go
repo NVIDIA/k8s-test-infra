@@ -14,7 +14,9 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/controlplane"
 	"github.com/NVIDIA/k8s-test-infra/internal/controlplane/controller"
 	"github.com/NVIDIA/k8s-test-infra/internal/logging"
+	"github.com/NVIDIA/k8s-test-infra/internal/version"
 	"github.com/urfave/cli/v3"
+	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -140,6 +142,8 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	}
 	logger := logging.NewLogger(logging.Config{Level: level, Format: format})
 	defer func() { _ = logger.Sync() }()
+	zap.L().Info("Starting Mokka control plane", zap.String("version", version.Version),
+		zap.String("commit", version.GitCommit))
 
 	cfg := configFrom(cmd)
 	manager, err := controlplane.NewManager(cfg)

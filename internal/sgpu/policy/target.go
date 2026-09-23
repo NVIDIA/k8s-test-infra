@@ -27,31 +27,40 @@ func resolveTarget(
 	inventoryName string,
 	shapes map[string]shape,
 	target *mokkav1alpha1.PolicyTargetRef,
-) (footprint, string) {
+) (selection, string) {
 	groups := target.RackGroups
+
 	if len(groups) == 0 {
 		groups = slices.Sorted(maps.Keys(shapes))
 	}
+
 	undeclared := slices.DeleteFunc(slices.Clone(groups), func(group string) bool {
 		_, declared := shapes[group]
 		return declared
 	})
+
 	if len(undeclared) > 0 {
 		return nil, fmt.Sprintf("SGPUInventory %q does not declare rack groups %s.", inventoryName, quoted(undeclared))
 	}
 
 	racks, nodes, gpus := sortedCopy(target.RackIndexes), sortedCopy(target.NodeIndexes), sortedCopy(target.GPUIndexes)
-	selected := make(footprint, len(groups))
+
+	selectedGroups := make(selection, len(groups))
+
 	var reach shape
+
 	for _, group := range groups {
 		groupShape := shapes[group]
-		groupSelection := selection{
+
+		inGroup := groupSelection{
 			racks: within(racks, groupShape.racks),
 			nodes: within(nodes, groupShape.nodes),
 			gpus:  within(gpus, groupShape.gpus),
 		}
-		if groupSelection.selectsAny() {
-			selected[group] = groupSelection
+
+		if inGroup.selectsAny() {
+			selectedGroups[group] = inGroup
+
 			reach.racks = max(reach.racks, groupShape.racks)
 			reach.nodes = max(reach.nodes, groupShape.nodes)
 			reach.gpus = max(reach.gpus, groupShape.gpus)
@@ -62,15 +71,19 @@ func resolveTarget(
 	// groups the target reaches, because every rack group counts from zero.
 	unusedNodesOrGPUs := slices.Concat(outside("nodeIndexes", nodes, reach.nodes), outside("gpuIndexes", gpus, reach.gpus))
 	unused := slices.Concat(outside("rackIndexes", racks, reach.racks), unusedNodesOrGPUs)
+
 	if len(unused) == 0 {
-		return selected, ""
+		return selectedGroups, ""
 	}
+
 	var unresolved []string
+
 	if len(unusedNodesOrGPUs) > 0 {
 		unresolved = slices.DeleteFunc(slices.Clone(groups), func(group string) bool {
 			return shapes[group].profileResolved
 		})
 	}
+
 	return nil, unusedIndexesMessage(unused, unresolved)
 }
 
@@ -78,18 +91,22 @@ func resolveTarget(
 func outside(axis string, sorted []int32, reach int32) []string {
 	low, _ := slices.BinarySearch(sorted, 0)
 	high, _ := slices.BinarySearch(sorted, reach)
+
 	if unused := slices.Concat(sorted[:low], sorted[high:]); len(unused) > 0 {
 		return []string{fmt.Sprintf("%s %v", axis, unused)}
 	}
+
 	return nil
 }
 
 func unusedIndexesMessage(unused, unresolvedGroups []string) string {
 	message := "The target lists indexes that select no GPU in the selected rack groups: " +
 		strings.Join(unused, ", ") + "."
+
 	if len(unresolvedGroups) == 0 {
 		return message
 	}
+
 	return message + " The profiles of rack groups " + quoted(unresolvedGroups) +
 		" are not found, so those rack groups select no Node or GPU."
 }

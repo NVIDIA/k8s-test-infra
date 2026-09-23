@@ -79,6 +79,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Mokka control plane: logs follow the project's level guidelines. Info
+  records startup, cache synchronization, and leader election. It also records
+  racks created, re-rendered and deleted, and each Kubernetes Node assigned to
+  or released from a logical rack Node, with the release reason. Node
+  projections applied and removed are recorded too, along with inventory and
+  runtime policy condition transitions. Warn records Node metadata conflicts
+  that block a projection. Debug records every informer event received, each
+  allocation plan, every runtime policy decision, the policies applied to each
+  compiled GPU, rack condition transitions, and per-key reconciliation timing.
+  Requeues caused by a moving informer cache are logged at Debug instead of
+  Error, because the controller retries them.
 - nvml-mock: `device_defaults.architecture` now accepts `rubin`, which NVML
   defines and the mock previously resolved to `NVML_DEVICE_ARCH_UNKNOWN`, so a
   Rubin profile failed every architecture-gated feature. Spellings are also

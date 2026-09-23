@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
@@ -335,6 +336,7 @@ func (r *eventRouter) inventoryAdd(object any) {
 	if !ok {
 		return
 	}
+	zap.L().Debug("Received informer event", eventFields("SGPUInventory", "add", inventory)...)
 	r.invalidateTopology()
 	r.registry.replace(inventory)
 	r.waiters.retainInventory(inventory)
@@ -350,6 +352,7 @@ func (r *eventRouter) inventoryUpdate(oldObject, newObject any) {
 	if !oldOK || !newOK {
 		return
 	}
+	zap.L().Debug("Received informer event", eventFields("SGPUInventory", "update", newInventory)...)
 	topologyChanged := !inventoryAllocationUnchanged(oldInventory, newInventory)
 	if topologyChanged {
 		r.invalidateTopology()
@@ -374,6 +377,7 @@ func (r *eventRouter) inventoryDelete(object any) {
 	if !ok {
 		return
 	}
+	zap.L().Debug("Received informer event", eventFields("SGPUInventory", "delete", inventory)...)
 	r.invalidateTopology()
 	survivors, removed := r.registry.remove(inventory)
 	r.waiters.removeInventory(inventory)
@@ -398,15 +402,21 @@ func (r *eventRouter) routeRuntimePolicies(inventoryName string) {
 
 func (r *eventRouter) runtimePolicyAdd(object any) {
 	policy, ok := eventObject[*mokkav1alpha1.SGPURuntimePolicy](object)
-	if ok {
-		r.routeRuntimePolicies(policy.Spec.TargetRef.Name)
+	if !ok {
+		return
 	}
+	zap.L().Debug("Received informer event", eventFields("SGPURuntimePolicy", "add", policy)...)
+	r.routeRuntimePolicies(policy.Spec.TargetRef.Name)
 }
 
 func (r *eventRouter) runtimePolicyUpdate(oldObject, newObject any) {
 	oldPolicy, oldOK := eventObject[*mokkav1alpha1.SGPURuntimePolicy](oldObject)
 	newPolicy, newOK := eventObject[*mokkav1alpha1.SGPURuntimePolicy](newObject)
-	if !oldOK || !newOK || runtimePolicyUnchanged(oldPolicy, newPolicy) {
+	if !oldOK || !newOK {
+		return
+	}
+	zap.L().Debug("Received informer event", eventFields("SGPURuntimePolicy", "update", newPolicy)...)
+	if runtimePolicyUnchanged(oldPolicy, newPolicy) {
 		return
 	}
 	r.routeRuntimePolicies(newPolicy.Spec.TargetRef.Name)
@@ -417,9 +427,11 @@ func (r *eventRouter) runtimePolicyUpdate(oldObject, newObject any) {
 
 func (r *eventRouter) runtimePolicyDelete(object any) {
 	policy, ok := eventObject[*mokkav1alpha1.SGPURuntimePolicy](object)
-	if ok {
-		r.routeRuntimePolicies(policy.Spec.TargetRef.Name)
+	if !ok {
+		return
 	}
+	zap.L().Debug("Received informer event", eventFields("SGPURuntimePolicy", "delete", policy)...)
+	r.routeRuntimePolicies(policy.Spec.TargetRef.Name)
 }
 
 func (r *eventRouter) routeInventoryKey(inventory placementInventoryKey) {
@@ -438,11 +450,13 @@ func (r *eventRouter) routeAllInventories() {
 }
 
 func (r *eventRouter) profileAdd(object any) {
-	_, ok := eventObject[*mokkav1alpha1.SGPURackProfile](object)
-	if ok {
-		r.invalidateTopology()
-		r.routeAllInventories()
+	profile, ok := eventObject[*mokkav1alpha1.SGPURackProfile](object)
+	if !ok {
+		return
 	}
+	zap.L().Debug("Received informer event", eventFields("SGPURackProfile", "add", profile)...)
+	r.invalidateTopology()
+	r.routeAllInventories()
 }
 
 func (r *eventRouter) profileUpdate(oldObject, newObject any) {
@@ -451,6 +465,7 @@ func (r *eventRouter) profileUpdate(oldObject, newObject any) {
 	if !oldOK || !newOK {
 		return
 	}
+	zap.L().Debug("Received informer event", eventFields("SGPURackProfile", "update", newProfile)...)
 	if profileUnchanged(oldProfile, newProfile) {
 		return
 	}
@@ -459,11 +474,13 @@ func (r *eventRouter) profileUpdate(oldObject, newObject any) {
 }
 
 func (r *eventRouter) profileDelete(object any) {
-	_, ok := eventObject[*mokkav1alpha1.SGPURackProfile](object)
-	if ok {
-		r.invalidateTopology()
-		r.routeAllInventories()
+	profile, ok := eventObject[*mokkav1alpha1.SGPURackProfile](object)
+	if !ok {
+		return
 	}
+	zap.L().Debug("Received informer event", eventFields("SGPURackProfile", "delete", profile)...)
+	r.invalidateTopology()
+	r.routeAllInventories()
 }
 
 func (r *eventRouter) nodeAdd(object any) {
@@ -471,13 +488,18 @@ func (r *eventRouter) nodeAdd(object any) {
 	if !ok {
 		return
 	}
+	zap.L().Debug("Received informer event", eventFields("Node", "add", node)...)
 	r.routeNodeWithBindings(node, nil, nil, true)
 }
 
 func (r *eventRouter) nodeUpdate(oldObject, newObject any) {
 	oldNode, oldOK := eventObject[*corev1.Node](oldObject)
 	newNode, newOK := eventObject[*corev1.Node](newObject)
-	if !oldOK || !newOK || nodeUnchanged(oldNode, newNode) {
+	if !oldOK || !newOK {
+		return
+	}
+	zap.L().Debug("Received informer event", eventFields("Node", "update", newNode)...)
+	if nodeUnchanged(oldNode, newNode) {
 		return
 	}
 	bound := r.boundRacks(newNode.Name, newNode.UID)
@@ -499,6 +521,7 @@ func (r *eventRouter) nodeDelete(object any) {
 	if !ok {
 		return
 	}
+	zap.L().Debug("Received informer event", eventFields("Node", "delete", node)...)
 	groups := r.registry.matching(node)
 	bound := r.boundRacks(node.Name, node.UID)
 	deferred := make(map[allocate.RackGroupKey]struct{})
@@ -552,23 +575,25 @@ func (r *eventRouter) routeNodeWithBindings(
 
 func (r *eventRouter) rackAdd(object any) {
 	rack, ok := eventObject[*mokkav1alpha1.SGPURack](object)
-	if ok {
-		if r.observeRackStatus != nil {
-			r.observeRackStatus(rack)
-		}
-		r.invalidateRackCapacity()
-		r.routeRackWaiters(rack.Name)
-		fresh := make(map[int32]types.UID)
-		freeSlot := false
-		for _, slot := range rack.Spec.Nodes {
-			if slot.NodeRef == nil {
-				freeSlot = true
-				continue
-			}
-			fresh[slot.Index] = slot.NodeRef.UID
-		}
-		r.routeRackCurrent(rack, freeSlot || !rackOwnedByReference(rack), fresh)
+	if !ok {
+		return
 	}
+	zap.L().Debug("Received informer event", eventFields("SGPURack", "add", rack)...)
+	if r.observeRackStatus != nil {
+		r.observeRackStatus(rack)
+	}
+	r.invalidateRackCapacity()
+	r.routeRackWaiters(rack.Name)
+	fresh := make(map[int32]types.UID)
+	freeSlot := false
+	for _, slot := range rack.Spec.Nodes {
+		if slot.NodeRef == nil {
+			freeSlot = true
+			continue
+		}
+		fresh[slot.Index] = slot.NodeRef.UID
+	}
+	r.routeRackCurrent(rack, freeSlot || !rackOwnedByReference(rack), fresh)
 }
 
 //nolint:cyclop // Rack updates route independent cleanup, projection, allocation, and status edges.
@@ -578,6 +603,7 @@ func (r *eventRouter) rackUpdate(oldObject, newObject any) {
 	if !oldOK || !newOK {
 		return
 	}
+	zap.L().Debug("Received informer event", eventFields("SGPURack", "update", newRack)...)
 	if r.observeRackStatus != nil {
 		r.observeRackStatus(newRack)
 	}
@@ -638,6 +664,7 @@ func (r *eventRouter) rackDelete(object any) {
 	if !ok {
 		return
 	}
+	zap.L().Debug("Received informer event", eventFields("SGPURack", "delete", rack)...)
 	if r.forgetRackStatus != nil {
 		r.forgetRackStatus(rack.Name, rack.UID)
 	}
@@ -822,6 +849,17 @@ func cleanupFor(rack *mokkav1alpha1.SGPURack, slot mokkav1alpha1.SGPURackNode, r
 	}
 }
 
+// eventFields identifies a received informer event in log entries.
+func eventFields(kind, event string, object metav1.Object) []zap.Field {
+	return []zap.Field{
+		zap.String("kind", kind),
+		zap.String("event", event),
+		zap.String("name", object.GetName()),
+		zap.String("uid", string(object.GetUID())),
+		zap.String("resourceVersion", object.GetResourceVersion()),
+	}
+}
+
 func eventObject[T any](object any) (T, bool) {
 	if typed, ok := object.(T); ok {
 		return typed, true
@@ -835,7 +873,9 @@ func eventObject[T any](object any) (T, bool) {
 		return typed, ok
 	default:
 		var zero T
-		zap.L().Error("Unexpected informer event object", zap.String("type", fmt.Sprintf("%T", object)))
+		// The event is dropped and informers keep running, so this is unexpected
+		// rather than a failed operation.
+		zap.L().Warn("Unexpected informer event object", zap.String("type", fmt.Sprintf("%T", object)))
 		return zero, false
 	}
 }

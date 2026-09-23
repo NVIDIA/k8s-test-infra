@@ -270,7 +270,7 @@ func TestAllocationCacheRejectsGenerationChangedDuringComputation(t *testing.T) 
 	source.nodeGeneration++
 	source.mu.Unlock()
 	close(release)
-	require.ErrorIs(t, <-result, errAllocationInputChanged)
+	require.ErrorIs(t, <-result, ErrAllocationInputChanged)
 
 	planner.allocate = allocate.Allocate
 	view, err := planner.plan(&key, instanceForGroup(key))

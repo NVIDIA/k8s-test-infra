@@ -94,7 +94,7 @@ func TestConvergedRuntimePolicyStatusAvoidsLiveRequests(t *testing.T) {
 	writer := &fakeRuntimePolicyWriter{getErr: errors.New("a converged cached status must not issue a live GET")}
 	reconciler := NewRuntimePolicyReconciler(writer, func() metav1.Time { return now })
 
-	changed, err := reconciler.Reconcile(context.Background(), decision)
+	changed, err := reconciler.Reconcile(t.Context(), decision)
 
 	require.NoError(t, err)
 	require.False(t, changed)
@@ -179,7 +179,7 @@ func TestRuntimePolicyStatusWritesAgainstTheLiveObject(t *testing.T) {
 			}
 			reconciler := NewRuntimePolicyReconciler(&writer, func() metav1.Time { return now })
 
-			changed, err := reconciler.Reconcile(context.Background(), decision)
+			changed, err := reconciler.Reconcile(t.Context(), decision)
 
 			if tt.wantErr {
 				require.ErrorContains(t, err, `update runtime policy "hot-gpus" status`)

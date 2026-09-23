@@ -1114,8 +1114,31 @@ func TestProcessNextLogsReconciliationFailureToGlobalLogger(t *testing.T) {
 	fields := entries[0].ContextMap()
 	require.Equal(t, err.Error(), fields["error"])
 	// Projection keys have unexported fields that JSON reflection would omit.
+	require.Contains(t, fields["key"], "mode:apply")
 	require.Contains(t, fields["key"], "rackName:rack")
 	require.Contains(t, fields["key"], "nodeIndex:2")
+}
+
+func TestProcessNextLogsRoutineCacheRetriesAtDebug(t *testing.T) {
+	// Replacing the process-wide logger precludes parallel execution.
+	for _, routine := range []error{sgpuinventory.ErrRackCacheStale, sgpuinventory.ErrAllocationInputChanged} {
+		core, logs := observer.New(zap.DebugLevel)
+		restore := zap.ReplaceGlobals(zap.New(core))
+		queue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]())
+		queue.Add("inventory")
+
+		require.True(t, processNext(t.Context(), queue, func(context.Context, string) error {
+			return fmt.Errorf("%w for inventory %q", routine, "inventory")
+		}))
+
+		require.Equal(t, 1, queue.NumRequeues("inventory"), "a routine retry is still rate limited")
+		require.Empty(t, logs.FilterLevelExact(zap.ErrorLevel).All(), "a routine retry is not a failure")
+		requeued := logs.FilterMessage("Controller reconciliation requeued").All()
+		require.Len(t, requeued, 1)
+		require.Equal(t, zap.DebugLevel, requeued[0].Level)
+		queue.ShutDown()
+		restore()
+	}
 }
 
 func TestProcessNextStatusLogsReconciliationFailureToGlobalLogger(t *testing.T) {
@@ -1140,6 +1163,7 @@ func TestProcessNextStatusLogsReconciliationFailureToGlobalLogger(t *testing.T) 
 	require.Equal(t, "Controller reconciliation failed", entries[0].Message)
 	fields := entries[0].ContextMap()
 	require.Equal(t, err.Error(), fields["error"])
+	require.Contains(t, fields["key"], "kind:inventory")
 	require.Contains(t, fields["key"], "name:"+key.name)
 	require.Contains(t, fields["key"], "uid:"+string(key.uid))
 }
