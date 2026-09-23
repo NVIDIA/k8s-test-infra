@@ -50,7 +50,7 @@ func rackByInventoryUID(obj any) ([]string, error) {
 	if rack.Spec.InventoryRef.UID != "" {
 		values = append(values, string(rack.Spec.InventoryRef.UID))
 	}
-	if owner := controllerInventoryOwner(rack); owner != nil && owner.UID != "" &&
+	if owner := rack.InventoryOwner(); owner != nil && owner.UID != "" &&
 		!slices.Contains(values, string(owner.UID)) {
 		values = append(values, string(owner.UID))
 	}

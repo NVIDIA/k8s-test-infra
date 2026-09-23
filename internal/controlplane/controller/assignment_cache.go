@@ -58,8 +58,7 @@ func assignmentsInRack(
 ) []AssignmentSnapshot {
 	result := make([]AssignmentSnapshot, 0)
 	for index := range rack.Spec.Nodes {
-		nodeRef := rack.Spec.Nodes[index].NodeRef
-		if nodeRef == nil || nodeRef.Name != ref.Name || nodeRef.UID != ref.UID {
+		if !rack.Spec.Nodes[index].BoundTo(ref.Name, ref.UID) {
 			continue
 		}
 		rackCopy := rack.DeepCopy()

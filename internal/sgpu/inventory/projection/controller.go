@@ -186,7 +186,7 @@ func (c *Controller) project(ctx context.Context, rackName string, nodeIndex int
 	if err != nil {
 		return Outcome{}, fmt.Errorf("get rack %q: %w", rackName, err)
 	}
-	slot := findSlot(rack, nodeIndex)
+	slot := rack.Spec.NodeByIndex(nodeIndex)
 	if slot == nil || slot.NodeRef == nil {
 		return Outcome{}, fmt.Errorf("rack %q logical Node %d has no binding", rackName, nodeIndex)
 	}
@@ -506,8 +506,7 @@ func sortOutcomes(outcomes []Outcome) {
 //
 //nolint:cyclop // The predicate intentionally checks every exact identity component.
 func MatchesBinding(node *corev1.Node, rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackNode) bool {
-	if node == nil || rack == nil || slot == nil || slot.NodeRef == nil ||
-		node.Name != slot.NodeRef.Name || node.UID != slot.NodeRef.UID ||
+	if node == nil || rack == nil || slot == nil || !slot.BoundTo(node.Name, node.UID) ||
 		node.Labels[inventorymetadata.AssignedLabel] != "true" {
 		return false
 	}
@@ -816,7 +815,6 @@ func cleanupAssignmentMatches(current assignment.Assignment, needed inventorycle
 	return true
 }
 
-//nolint:cyclop // Cleanup acknowledgement requires every object and coordinate identity to match.
 func cleanupBindingMatchesRack(needed inventorycleanup.CleanupNeeded, rack *mokkav1alpha1.SGPURack) bool {
 	binding := needed.Binding
 	if rack == nil || rack.Name != needed.RackName || rack.UID != needed.RackUID ||
@@ -826,8 +824,8 @@ func cleanupBindingMatchesRack(needed inventorycleanup.CleanupNeeded, rack *mokk
 		rack.Spec.Identity.RackIndex != binding.Coordinate.RackIndex {
 		return false
 	}
-	slot := findSlot(rack, binding.Coordinate.NodeIndex)
-	return slot != nil && slot.NodeRef != nil && slot.NodeRef.Name == binding.Node.Name && slot.NodeRef.UID == binding.Node.UID
+	slot := rack.Spec.NodeByIndex(binding.Coordinate.NodeIndex)
+	return slot != nil && slot.BoundTo(binding.Node.Name, binding.Node.UID)
 }
 
 func (c *Controller) duplicateBindings(uid types.UID) (int, error) {
@@ -844,15 +842,6 @@ func (c *Controller) duplicateBindings(uid types.UID) (int, error) {
 		}
 	}
 	return count, nil
-}
-
-func findSlot(rack *mokkav1alpha1.SGPURack, index int32) *mokkav1alpha1.SGPURackNode {
-	for i := range rack.Spec.Nodes {
-		if rack.Spec.Nodes[i].Index == index {
-			return &rack.Spec.Nodes[i]
-		}
-	}
-	return nil
 }
 
 func findSlotByUID(rack *mokkav1alpha1.SGPURack, uid types.UID) *mokkav1alpha1.SGPURackNode {

@@ -62,6 +62,15 @@ type RackGroup struct {
 	Placement *RackPlacement `json:"placement,omitempty"`
 }
 
+// NodeSelector returns the group's placement Node selector, or nil when none
+// is set.
+func (g *RackGroup) NodeSelector() *metav1.LabelSelector {
+	if g.Placement == nil {
+		return nil
+	}
+	return g.Placement.NodeSelector
+}
+
 // ProfileReference targets an SGPURackProfile by name.
 type ProfileReference struct {
 	// +kubebuilder:validation:MinLength=1

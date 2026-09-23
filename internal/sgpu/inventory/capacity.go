@@ -500,14 +500,10 @@ func durableRackCapacities(
 }
 
 func durableRackOwner(rack *mokkav1alpha1.SGPURack) (inventoryInstance, bool) {
-	if rack == nil {
+	if rack == nil || !rack.OwnerMatchesInventoryRef() {
 		return inventoryInstance{}, false
 	}
-	owner := controllerInventoryOwner(rack)
-	if owner == nil || owner.Name != rack.Spec.InventoryRef.Name || owner.UID != rack.Spec.InventoryRef.UID {
-		return inventoryInstance{}, false
-	}
-	return inventoryInstance{name: owner.Name, uid: owner.UID}, true
+	return inventoryInstance{name: rack.Spec.InventoryRef.Name, uid: rack.Spec.InventoryRef.UID}, true
 }
 
 func capacityForRack(rack *mokkav1alpha1.SGPURack) (DeclaredCapacity, error) {

@@ -12,7 +12,6 @@ import (
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
@@ -194,13 +193,9 @@ func (r *placementRegistry) replace(inventory *mokkav1alpha1.SGPUInventory) {
 	groups := make(map[allocate.RackGroupKey]labels.Selector, len(inventory.Spec.RackGroups))
 	for _, group := range inventory.Spec.RackGroups {
 		key := groupKey(inventory, group.ID)
-		selector := labels.Everything()
-		if group.Placement != nil && group.Placement.NodeSelector != nil {
-			var err error
-			selector, err = allocate.CompilePlacementSelector(group.Placement.NodeSelector)
-			if err != nil {
-				selector = labels.Nothing()
-			}
+		selector, err := allocate.CompilePlacementSelector(group.NodeSelector())
+		if err != nil {
+			selector = labels.Nothing()
 		}
 		groups[key] = selector
 	}
@@ -479,7 +474,7 @@ func (r *eventRouter) nodeDelete(object any) {
 	deferred := make(map[allocate.RackGroupKey]struct{})
 	for _, rack := range bound {
 		for _, slot := range rack.Spec.Nodes {
-			if slot.NodeRef == nil || slot.NodeRef.Name != node.Name || slot.NodeRef.UID != node.UID {
+			if !slot.BoundTo(node.Name, node.UID) {
 				continue
 			}
 			cleanup := cleanupFor(rack, slot, inventorycleanup.CleanupNodeIneligible)
@@ -516,7 +511,7 @@ func (r *eventRouter) routeNodeWithBindings(
 		if fresh {
 			freshSlots = make(map[int32]types.UID)
 			for _, slot := range rack.Spec.Nodes {
-				if slot.NodeRef != nil && slot.NodeRef.Name == node.Name && slot.NodeRef.UID == node.UID {
+				if slot.BoundTo(node.Name, node.UID) {
 					freshSlots[slot.Index] = slot.NodeRef.UID
 				}
 			}
@@ -658,11 +653,8 @@ func (r *eventRouter) routeRackWaiters(name string) {
 }
 
 func rackOwnerGroup(rack *mokkav1alpha1.SGPURack) (allocate.RackGroupKey, bool) {
-	owner := metav1.GetControllerOf(rack)
-	if owner == nil || owner.APIVersion != mokkav1alpha1.SchemeGroupVersion.String() || owner.Kind != "SGPUInventory" {
-		return allocate.RackGroupKey{}, false
-	}
-	if owner.Name == "" || owner.UID == "" || rack.Spec.Identity.RackGroup == "" {
+	owner := rack.InventoryOwner()
+	if owner == nil || owner.Name == "" || owner.UID == "" || rack.Spec.Identity.RackGroup == "" {
 		return allocate.RackGroupKey{}, false
 	}
 	return allocate.RackGroupKey{
@@ -708,8 +700,8 @@ func (r *eventRouter) routeRackCurrent(rack *mokkav1alpha1.SGPURack, reconcile b
 }
 
 func rackOwnedByReference(rack *mokkav1alpha1.SGPURack) bool {
-	key, owned := rackOwnerGroup(rack)
-	return owned && key.InventoryName == rack.Spec.InventoryRef.Name && key.InventoryUID == rack.Spec.InventoryRef.UID
+	_, owned := rackOwnerGroup(rack)
+	return owned && rack.OwnerMatchesInventoryRef()
 }
 
 func (r *eventRouter) rackDesired(rack *mokkav1alpha1.SGPURack) bool {
@@ -940,7 +932,7 @@ func projectionsMatchBindings(node *corev1.Node, racks []*mokkav1alpha1.SGPURack
 	for _, rack := range racks {
 		for i := range rack.Spec.Nodes {
 			slot := &rack.Spec.Nodes[i]
-			if slot.NodeRef == nil || slot.NodeRef.Name != node.Name || slot.NodeRef.UID != node.UID {
+			if !slot.BoundTo(node.Name, node.UID) {
 				continue
 			}
 			found = true

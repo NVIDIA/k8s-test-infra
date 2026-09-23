@@ -51,46 +51,35 @@ func projectionBindingIdentityValid(
 	slot *mokkav1alpha1.SGPURackNode,
 	node *corev1.Node,
 ) bool {
-	if rack == nil || slot == nil || slot.NodeRef == nil || node == nil {
+	if rack == nil || slot == nil || node == nil {
 		return false
 	}
 	if rack.DeletionTimestamp != nil || node.DeletionTimestamp != nil ||
 		node.Labels[allocate.EligibleNodeLabel] != "true" {
 		return false
 	}
-	return slot.NodeRef.Name == node.Name && slot.NodeRef.UID == node.UID
+	return slot.BoundTo(node.Name, node.UID)
 }
 
 func projectionInventory(
 	cache Cache,
 	rack *mokkav1alpha1.SGPURack,
 ) (*mokkav1alpha1.SGPUInventory, bool, error) {
-	owner, valid := projectionOwner(rack)
-	if !valid {
+	if !rack.OwnerMatchesInventoryRef() {
 		return nil, false, nil
 	}
-	inventory, err := cache.Inventory(owner.Name)
+	ref := rack.Spec.InventoryRef
+	inventory, err := cache.Inventory(ref.Name)
 	if apierrors.IsNotFound(err) {
 		return nil, false, nil
 	}
 	if err != nil {
-		return nil, false, fmt.Errorf("get projection inventory %q: %w", owner.Name, err)
+		return nil, false, fmt.Errorf("get projection inventory %q: %w", ref.Name, err)
 	}
-	if !projectionInventoryValid(inventory, owner.UID) {
+	if !projectionInventoryValid(inventory, ref.UID) {
 		return nil, false, nil
 	}
 	return inventory, true, nil
-}
-
-func projectionOwner(rack *mokkav1alpha1.SGPURack) (*metav1.OwnerReference, bool) {
-	owner := controllerInventoryOwner(rack)
-	if owner == nil || owner.Name == "" || owner.UID == "" {
-		return nil, false
-	}
-	if rack.Spec.InventoryRef.Name != owner.Name || rack.Spec.InventoryRef.UID != owner.UID {
-		return nil, false
-	}
-	return owner, true
 }
 
 func projectionInventoryValid(inventory *mokkav1alpha1.SGPUInventory, uid types.UID) bool {
@@ -141,15 +130,11 @@ func projectionTargetMatches(
 	if rack.Name != rendered.Name || !rackTemplateMatches(rack.Spec, rendered.Spec) {
 		return false, nil
 	}
-	observed := boundSlot(rack, slot.Index)
+	observed := rack.Spec.NodeByIndex(slot.Index)
 	if observed == nil || !equality.Semantic.DeepEqual(observed, slot) {
 		return false, nil
 	}
-	var placement *metav1.LabelSelector
-	if group.group.Placement != nil {
-		placement = group.group.Placement.NodeSelector
-	}
-	selector, err := allocate.CompilePlacementSelector(placement)
+	selector, err := allocate.CompilePlacementSelector(group.group.NodeSelector())
 	if err != nil {
 		return false, nil
 	}
@@ -217,13 +202,4 @@ func rackTemplateMatches(observed, desired mokkav1alpha1.SGPURackSpec) bool {
 		desiredCopy.Nodes[index].NodeRef = nil
 	}
 	return equality.Semantic.DeepEqual(observedCopy, desiredCopy)
-}
-
-func boundSlot(rack *mokkav1alpha1.SGPURack, index int32) *mokkav1alpha1.SGPURackNode {
-	for slotIndex := range rack.Spec.Nodes {
-		if rack.Spec.Nodes[slotIndex].Index == index {
-			return &rack.Spec.Nodes[slotIndex]
-		}
-	}
-	return nil
 }
