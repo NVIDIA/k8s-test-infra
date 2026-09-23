@@ -1184,20 +1184,31 @@ func (d *ConfigurableDevice) GetGpuMaxPcieLinkGeneration() (int, nvml.Return) {
 //
 // This is deliberately not a Get* NVML method: no public NVML API exposes a
 // host-side maximum, and nvidia-smi instead reads it through a slot of the
-// internal export table (see the bridge's internal.go). The mock models a host
-// that keeps up with the GPU, so the host maximum is the configured
-// max_link_gen — keeping nvidia-smi's Max, Device Max and Host Max rows
-// consistent, since the negotiable Max cannot exceed either endpoint.
+// internal export table (see the bridge's internal.go). A profile may model a
+// host limit independently from the GPU's own maximum, or mark the host value
+// unsupported when the link is behind a switch.
 //
 // Returns 0 when the profile configures no PCIe block, which the bridge treats
 // as "unknown" and leaves the reading untouched.
 func (d *ConfigurableDevice) HostMaxPcieLinkGeneration() int {
 	gen := 0
 	if c := d.cfg(); c.PCIe != nil {
-		gen = c.PCIe.MaxLinkGen
+		gen = c.PCIe.HostMaxLinkGen
+		if gen == 0 && !c.PCIe.HostMaxUnsupported {
+			gen = c.PCIe.MaxLinkGen
+		}
 	}
 	debugLog("[NVML] hostMaxPcieLinkGeneration -> %d\n", gen)
 	return gen
+}
+
+// HostMaxPcieLinkGenerationUnsupported reports whether the profile explicitly
+// models a host that does not expose a maximum PCIe generation.
+func (d *ConfigurableDevice) HostMaxPcieLinkGenerationUnsupported() bool {
+	if c := d.cfg(); c.PCIe != nil {
+		return c.PCIe.HostMaxUnsupported
+	}
+	return false
 }
 
 // GetCurrPcieLinkWidth returns current PCIe link width

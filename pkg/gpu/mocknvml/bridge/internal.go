@@ -38,8 +38,8 @@ extern int mockInternalIsDeviceHandle(void* handle);
 extern unsigned int mockInternalFillProcessList(void* handle, void* buf, unsigned int capacity);
 
 // Forward declaration of the host-side max PCIe link generation lookup (defined
-// below in Go). Returns 0 when the device is unknown or configures no PCIe block.
-extern unsigned int mockInternalHostMaxPcieLinkGen(void* handle);
+// below in Go). It returns NOT_SUPPORTED for an explicitly unsupported host.
+extern int mockInternalHostMaxPcieLinkGen(void* handle, unsigned int* value);
 
 // Forward declaration of the GPU reset (defined in gpu_reset.go). Returns 1 when
 // the device returned to its healthy baseline, 0 when it could not.
@@ -175,7 +175,11 @@ static nvmlReturn_t internalStubFunction(unsigned int slot, void* arg0, void* ar
     // Host Max row of `-q`, the <max_host_link_gen> element of `-q -x` and the
     // pcie.link.gen.hostmax query field together.
     if (slot == MOCK_SLOT_HOST_MAX_PCIE_LINK_GEN) {
-        unsigned int gen = mockInternalHostMaxPcieLinkGen(arg0);
+        unsigned int gen = 0;
+        nvmlReturn_t ret = mockInternalHostMaxPcieLinkGen(arg0, &gen);
+        if (ret != NVML_SUCCESS) {
+            return ret;
+        }
         // Leave an unconfigured profile on the zero-count path rather than
         // inventing a generation for it.
         if (gen > 0) {
@@ -184,8 +188,8 @@ static nvmlReturn_t internalStubFunction(unsigned int slot, void* arg0, void* ar
                 fprintf(stderr, "[C-STUB] slot %u host max PCIe link gen (handle=%p) -> %u\n",
                         slot, arg0, gen);
             }
-            return NVML_SUCCESS;
         }
+        return NVML_SUCCESS;
     }
 
     // Every other per-device call still gets an explicit zero count. Leaving it
@@ -256,12 +260,16 @@ func mockInternalIsDeviceHandle(handle unsafe.Pointer) C.int {
 // the value live on engine.ConfigurableDevice.HostMaxPcieLinkGeneration.
 //
 //export mockInternalHostMaxPcieLinkGen
-func mockInternalHostMaxPcieLinkGen(handle unsafe.Pointer) C.uint {
+func mockInternalHostMaxPcieLinkGen(handle unsafe.Pointer, value *C.uint) C.int {
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
-		return 0
+		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	return C.uint(dev.HostMaxPcieLinkGeneration())
+	if dev.HostMaxPcieLinkGenerationUnsupported() {
+		return C.NVML_ERROR_NOT_SUPPORTED
+	}
+	*value = C.uint(dev.HostMaxPcieLinkGeneration())
+	return C.NVML_SUCCESS
 }
 
 // Layout of one entry in the internal process-list array, recovered by probing

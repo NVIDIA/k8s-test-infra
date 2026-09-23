@@ -359,6 +359,18 @@ func TestPCIeIdentityProblems_AcceptsGen6Output(t *testing.T) {
 	assert.Empty(t, problems, strings.Join(problems, "; "))
 }
 
+func TestPCIeIdentityProblems_AcceptsIndependentHostMaximum(t *testing.T) {
+	out := xmlDocument(pcieIdentityGPUGens("0000:0A:00.0", "0xa00", "6", "6", "4"))
+	problems := PCIeIdentityProblemsForProfile(out, 1, 6, 4, false)
+	assert.Empty(t, problems, strings.Join(problems, "; "))
+}
+
+func TestPCIeIdentityProblems_AcceptsUnsupportedHostMaximum(t *testing.T) {
+	out := xmlDocument(pcieIdentityGPUGens("0000:0A:00.0", "0xa00", "6", "6", "N/A"))
+	problems := PCIeIdentityProblemsForProfile(out, 1, 6, 0, true)
+	assert.Empty(t, problems, strings.Join(problems, "; "))
+}
+
 // The defect as captured before the fix: board_id 0x0 on every GPU,
 // max_device_link_gen N/A from the generated stub, and a Gen0 host maximum.
 func TestPCIeIdentityProblems_RejectsBuggyOutput(t *testing.T) {
