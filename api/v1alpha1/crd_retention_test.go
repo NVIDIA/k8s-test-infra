@@ -15,7 +15,7 @@ import (
 
 func TestGeneratedCRDsAreRetainedOnHelmUninstall(t *testing.T) {
 	chartTemplates := filepath.Join(
-		"..", "..", "..", "..", "deployments", "mokka-crds", "helm", "mokka-crds", "templates",
+		"..", "..", "deployments", "mokka-crds", "helm", "mokka-crds", "templates",
 	)
 	paths, err := filepath.Glob(filepath.Join(chartTemplates, "mokka.nvidia.com_*.yaml"))
 	require.NoError(t, err)

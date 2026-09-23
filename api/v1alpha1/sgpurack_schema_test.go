@@ -149,7 +149,7 @@ func loadSGPURackCRD(t *testing.T) *apixv1.CustomResourceDefinition {
 func loadCRD(t *testing.T, filename string) *apixv1.CustomResourceDefinition {
 	t.Helper()
 
-	path := filepath.Join("..", "..", "..", "..", "deployments", "mokka-crds", "helm", "mokka-crds", "templates", filename)
+	path := filepath.Join("..", "..", "deployments", "mokka-crds", "helm", "mokka-crds", "templates", filename)
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 

@@ -12,8 +12,8 @@ import (
 	"syscall"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/controlplane"
+	"github.com/NVIDIA/k8s-test-infra/internal/controlplane/controller"
 	"github.com/NVIDIA/k8s-test-infra/internal/logging"
-	"github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller"
 	"github.com/urfave/cli/v3"
 	"golang.org/x/sync/errgroup"
 )
@@ -120,7 +120,7 @@ func configFrom(cmd *cli.Command) controlplane.Config {
 			RenewDeadline: cmd.Duration("leader-election-renew-deadline"),
 			RetryPeriod:   cmd.Duration("leader-election-retry-period"),
 		},
-		Controller: mokkacontroller.Options{
+		Controller: controller.Options{
 			Workers:                cmd.Int("workers"),
 			StatusDebounce:         cmd.Duration("status-debounce"),
 			StatusProgressInterval: cmd.Duration("status-progress-interval"),
@@ -142,7 +142,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	defer func() { _ = logger.Sync() }()
 
 	cfg := configFrom(cmd)
-	controller, err := controlplane.NewController(cfg)
+	manager, err := controlplane.NewManager(cfg)
 	if err != nil {
 		return err
 	}
@@ -152,10 +152,10 @@ func run(ctx context.Context, cmd *cli.Command) error {
 
 	// Group ctx fires on SIGTERM upstream OR when either process returns.
 	g, gctx := errgroup.WithContext(signalCtx)
-	server := controlplane.NewServerWithReadiness(cfg, logger, controller.Ready)
+	server := controlplane.NewServerWithReadiness(cfg, logger, manager.Ready)
 
 	g.Go(func() error { return server.Run(gctx) })
-	g.Go(func() error { return controller.Run(gctx) })
+	g.Go(func() error { return manager.Run(gctx) })
 
 	return g.Wait()
 }

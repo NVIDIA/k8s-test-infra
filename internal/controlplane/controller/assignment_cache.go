@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
 
-package mokkacontroller
+package controller
 
 import (
 	"cmp"
@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"slices"
 
-	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
+	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 )
 
 // ErrCacheNotReady indicates that the replica has not synchronized its informer stores.
