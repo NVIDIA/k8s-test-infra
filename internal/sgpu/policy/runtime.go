@@ -66,12 +66,21 @@ func (e *Evaluation) Applied(at Coordinate) []*mokkav1alpha1.SGPURuntimePolicy {
 // Runtime returns the effective runtime state of the GPU at a coordinate: the
 // profile defaults overridden by each policy Applied returns, in that order.
 // The caller owns the result.
-func (e *Evaluation) Runtime(defaults *mokkav1alpha1.RuntimeState, at Coordinate) mokkav1alpha1.RuntimeState {
-	effective := defaults.WithOverride(nil)
+func (e *Evaluation) Runtime(
+	defaults *mokkav1alpha1.RuntimeState,
+	at Coordinate,
+) (mokkav1alpha1.RuntimeState, error) {
+	applied := e.Applied(at)
+	overrides := make([]*mokkav1alpha1.RuntimeState, 0, len(applied))
 
-	for _, policy := range e.Applied(at) {
-		effective = effective.WithOverride(policy.Spec.Runtime)
+	for _, policy := range applied {
+		overrides = append(overrides, policy.Spec.Runtime)
 	}
 
-	return *effective
+	runtime, err := defaults.WithOverride(overrides...)
+	if err != nil {
+		return mokkav1alpha1.RuntimeState{}, err
+	}
+
+	return *runtime, nil
 }

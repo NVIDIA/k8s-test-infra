@@ -109,9 +109,11 @@ func TestEffectiveRuntimeCompilesEveryGPUOfTheLogicalNode(t *testing.T) {
 	runtimes, err := controller.EffectiveRuntime(AssignmentSnapshot{Rack: rack, Node: &rack.Spec.Nodes[0]})
 
 	require.NoError(t, err)
-	warm := *testRuntimeDefaults().WithOverride(gpuTemperature(50))
-	failed := *warm.WithOverride(&mokkav1alpha1.RuntimeState{DeviceState: mokkav1alpha1.DeviceStateFailed})
-	require.Equal(t, []GPURuntime{{Index: 0, Runtime: warm}, {Index: 1, Runtime: failed}}, runtimes)
+	warm, err := testRuntimeDefaults().WithOverride(gpuTemperature(50))
+	require.NoError(t, err)
+	failed, err := warm.WithOverride(&mokkav1alpha1.RuntimeState{DeviceState: mokkav1alpha1.DeviceStateFailed})
+	require.NoError(t, err)
+	require.Equal(t, []GPURuntime{{Index: 0, Runtime: *warm}, {Index: 1, Runtime: *failed}}, runtimes)
 
 	*runtimes[1].Runtime.Telemetry.Temperature.GPUCelsius = 1
 	again, err := controller.EffectiveRuntime(AssignmentSnapshot{Rack: rack, Node: &rack.Spec.Nodes[0]})
@@ -285,8 +287,9 @@ func TestStandbyCompilesEffectiveRuntimeWithoutWriteWork(t *testing.T) {
 	require.Len(t, assignments, 1)
 	runtimes, err := controller.EffectiveRuntime(assignments[0])
 	require.NoError(t, err)
-	want := *gpuTemperature(38).WithOverride(&mokkav1alpha1.RuntimeState{DeviceState: mokkav1alpha1.DeviceStateFailed})
-	require.Equal(t, []GPURuntime{{Index: 0, Runtime: want}}, runtimes)
+	want, err := gpuTemperature(38).WithOverride(&mokkav1alpha1.RuntimeState{DeviceState: mokkav1alpha1.DeviceStateFailed})
+	require.NoError(t, err)
+	require.Equal(t, []GPURuntime{{Index: 0, Runtime: *want}}, runtimes)
 	require.False(t, controller.LeaderReady())
 	require.Zero(t, controller.queues.status.Len())
 	require.Never(t, func() bool { return hasMutatingAction(mokka.Actions()) }, 100*time.Millisecond, time.Millisecond)

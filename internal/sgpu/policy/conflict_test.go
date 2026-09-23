@@ -118,7 +118,7 @@ func TestEvaluateAcceptsTheOldestOfConflictingPolicies(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			require.Equal(t, tt.want, outcomes(Evaluate("dev", testInventory(), testProfiles(), tt.policies)))
+			require.Equal(t, tt.want, outcomes(mustEvaluate(t, "dev", testInventory(), testProfiles(), tt.policies)))
 		})
 	}
 }
@@ -130,10 +130,10 @@ func TestEvaluatePromotesTheOldestRemainingChallengerWhenTheWinnerIsDeleted(t *t
 	next := testPolicy("next", 2, mokkav1alpha1.PolicyTargetRef{}, coolGPU())
 	last := testPolicy("last", 3, mokkav1alpha1.PolicyTargetRef{}, hotGPU())
 
-	before := Evaluate("dev", testInventory(), testProfiles(), []*mokkav1alpha1.SGPURuntimePolicy{winner, next, last})
+	before := mustEvaluate(t, "dev", testInventory(), testProfiles(), []*mokkav1alpha1.SGPURuntimePolicy{winner, next, last})
 	require.Equal(t, map[string]Outcome{"winner": Accepted, "next": Conflicted, "last": Conflicted}, outcomes(before))
 
-	after := Evaluate("dev", testInventory(), testProfiles(), []*mokkav1alpha1.SGPURuntimePolicy{next, last})
+	after := mustEvaluate(t, "dev", testInventory(), testProfiles(), []*mokkav1alpha1.SGPURuntimePolicy{next, last})
 	require.Equal(t, map[string]Outcome{"next": Accepted, "last": Conflicted}, outcomes(after))
 }
 
@@ -154,7 +154,7 @@ func TestConflictMessageNamesTheWinnerAndTheSharedFields(t *testing.T) {
 		},
 	})
 
-	evaluation := Evaluate("dev", testInventory(), testProfiles(), []*mokkav1alpha1.SGPURuntimePolicy{winner, challenger})
+	evaluation := mustEvaluate(t, "dev", testInventory(), testProfiles(), []*mokkav1alpha1.SGPURuntimePolicy{winner, challenger})
 
 	require.Equal(t, []Decision{
 		{

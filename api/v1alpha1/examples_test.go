@@ -51,10 +51,11 @@ func TestRuntimePolicyExampleIsAcceptedForTheExampleInventory(t *testing.T) {
 	require.Equal(t, mokkav1alpha1.SchemeGroupVersion.String(), policy.APIVersion)
 	require.Equal(t, "SGPURuntimePolicy", policy.Kind)
 
-	evaluation := sgpupolicy.Evaluate(inventory.Name, inventory,
+	evaluation, err := sgpupolicy.Evaluate(inventory.Name, inventory,
 		map[string]*mokkav1alpha1.SGPURackProfile{profile.Name: profile},
 		[]*mokkav1alpha1.SGPURuntimePolicy{policy})
 
+	require.NoError(t, err)
 	require.Len(t, evaluation.Decisions, 1)
 	require.Equal(t, sgpupolicy.Accepted, evaluation.Decisions[0].Outcome, evaluation.Decisions[0].Message)
 }

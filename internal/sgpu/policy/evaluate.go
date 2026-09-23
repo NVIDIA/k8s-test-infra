@@ -40,13 +40,15 @@ type Evaluation struct {
 
 // Evaluate decides every policy that targets inventoryName. inventory is nil
 // when it does not exist, and profiles holds the cached profiles by name; a
-// rack group whose profile is absent has no Node or GPU indexes.
+// rack group whose profile is absent has no Node or GPU indexes. Invalid and
+// conflicting policies are decisions; Evaluate returns an error only when a
+// policy's runtime cannot be encoded as JSON.
 func Evaluate(
 	inventoryName string,
 	inventory *mokkav1alpha1.SGPUInventory,
 	profiles map[string]*mokkav1alpha1.SGPURackProfile,
 	policies []*mokkav1alpha1.SGPURuntimePolicy,
-) *Evaluation {
+) (*Evaluation, error) {
 	evaluation := &Evaluation{
 		InventoryName: inventoryName,
 		Decisions:     make([]Decision, len(policies)),
@@ -66,7 +68,7 @@ func Evaluate(
 			evaluation.Decisions[i].Message = fmt.Sprintf("SGPUInventory %q does not exist.", inventoryName)
 		}
 
-		return evaluation
+		return evaluation, nil
 	}
 
 	evaluation.InventoryUID = inventory.UID
@@ -82,14 +84,19 @@ func Evaluate(
 			continue
 		}
 
+		fields, err := decision.Policy.Spec.Runtime.FieldPaths()
+		if err != nil {
+			return nil, fmt.Errorf("list the runtime fields of policy %q: %w", decision.Policy.Name, err)
+		}
+
 		candidates = append(candidates, candidate{
 			decision:  decision,
 			selection: selected,
-			fields:    decision.Policy.Spec.Runtime.FieldPaths(),
+			fields:    fields,
 		})
 	}
 
 	evaluation.layers = layersByGroup(accept(candidates))
 
-	return evaluation
+	return evaluation, nil
 }
