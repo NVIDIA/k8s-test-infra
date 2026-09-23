@@ -1,0 +1,21 @@
+header:
+  license:
+    spdx-id: Apache-2.0
+    copyright-owner: NVIDIA CORPORATION
+  paths:
+    - '**'
+  paths-ignore:
+    - '.git/**'
+    - '.github/**'
+    - '.cache/**'
+    - 'dist/**'
+    - 'licenses/**'
+    - '**/*.md'
+    - '**/*.json'
+    - '**/*.yaml'
+    - '**/*.yml'
+    - '**/*.tpl'
+    - '**/*.html'
+    - 'LICENSE'
+    - 'NOTICE'
+  comment: on-failure

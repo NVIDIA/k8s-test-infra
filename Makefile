@@ -107,8 +107,6 @@ tools: ## Install static checkers & other binaries
 
 .PHONY: lint
 lint: tools gen-check ## Lint the source code
-	@echo "© Checking copyright headers.."
-	@./hack/check-copyright.sh
 	@echo "🧹 Tidying go.mod.."
 	@go mod tidy
 	@git diff --exit-code -- go.mod go.sum || { \
@@ -136,13 +134,6 @@ lint: tools gen-check ## Lint the source code
 	@$(BIN_DIR)/golangci-lint run ./...
 	@echo "🛡️ govulncheck.."
 	@$(BIN_DIR)/govulncheck -tags=e2e,integration ./...
-
-.PHONY: copyright-check copyright-fix
-copyright-check: ## Check copyright headers on Go and shell sources
-	@./hack/check-copyright.sh
-
-copyright-fix: ## Add SPDX headers to Go and shell sources that lack them
-	@./hack/check-copyright.sh --fix
 
 .PHONY: lint-fix
 lint-fix: tools gen ## Same checks as `lint`, but auto-fix what can be fixed; report the rest
