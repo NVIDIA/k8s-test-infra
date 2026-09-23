@@ -149,7 +149,7 @@ func TestApply_WritesNFDFeatureFile(t *testing.T) {
 
 	data, err := os.ReadFile(h.EtcPath(nfdFeatureFile))
 	require.NoError(t, err)
-	require.Equal(t, nfdContent, string(data))
+	require.Equal(t, "pci-10de.present=true\n", string(data))
 }
 
 func TestRevoke_RemovesNFDFile(t *testing.T) {
