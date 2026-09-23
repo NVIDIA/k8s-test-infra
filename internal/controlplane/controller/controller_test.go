@@ -28,12 +28,12 @@ import (
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
 	sgpuassignment "github.com/NVIDIA/k8s-test-infra/internal/sgpu/assignment"
-	sgpucleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/cleanup"
 	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
 	sgpumetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/nodecatalog"
 	sgpuprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/projection"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/rackrender"
+	sgpurelease "github.com/NVIDIA/k8s-test-infra/internal/sgpu/release"
 	mokkalisters "github.com/NVIDIA/k8s-test-infra/pkg/generated/listers/api/v1alpha1"
 	"github.com/stretchr/testify/require"
 )
@@ -501,7 +501,7 @@ func TestDeleteTombstonesRouteExactCleanupBeforeGroup(t *testing.T) {
 	require.Len(t, cleanup, 1)
 	require.Equal(t, projectionCleanup, cleanup[0].mode)
 	require.Equal(t, node.UID, cleanup[0].cleanup.Binding.Node.UID)
-	require.Equal(t, sgpucleanup.CleanupNodeGone, cleanup[0].cleanup.Reason)
+	require.Equal(t, sgpurelease.NodeGone, cleanup[0].cleanup.Reason)
 	require.Zero(t, queues.groups.Len(), "the cleanup worker continues the affected group")
 
 	router.rackDelete(cache.DeletedFinalStateUnknown{Key: rack.Name, Obj: rack})

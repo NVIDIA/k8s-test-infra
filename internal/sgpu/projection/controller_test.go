@@ -21,8 +21,8 @@ import (
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
 	sgpuassignment "github.com/NVIDIA/k8s-test-infra/internal/sgpu/assignment"
-	sgpucleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/cleanup"
 	sgpumetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
+	sgpurelease "github.com/NVIDIA/k8s-test-infra/internal/sgpu/release"
 )
 
 func TestProjectAppliesOnlyOwnedMetadataWithExactAssignment(t *testing.T) {
@@ -639,7 +639,7 @@ func TestReturningEligibleNodeFreshProjectionSupersedesCleanupAcknowledgement(t 
 	patcher := &recordingPatcher{node: ineligible}
 	controller := NewController(cache, patcher)
 	cleanup := cleanupFor(rack)
-	cleanup.Reason = sgpucleanup.CleanupNodeIneligible
+	cleanup.Reason = sgpurelease.NodeIneligible
 
 	_, err := controller.Cleanup(context.Background(), cleanup)
 	require.NoError(t, err)
@@ -752,7 +752,7 @@ func TestCleanupAcknowledgementsAreExactAndBoundedByCachedBindings(t *testing.T)
 
 	cache := &fakeCache{nodes: make(map[string]*corev1.Node), racks: make(map[string]*mokkav1alpha1.SGPURack)}
 	controller := NewController(cache, &recordingPatcher{})
-	pending := make([]sgpucleanup.CleanupNeeded, 0, pendingCount)
+	pending := make([]sgpurelease.Cleanup, 0, pendingCount)
 	for i := range pendingCount {
 		rack := testRack()
 		rack.Name = fmt.Sprintf("rack-%d", i)
@@ -1105,9 +1105,9 @@ func setManagedFields(node *corev1.Node, manager string, labels, annotations []s
 	})
 }
 
-func cleanupFor(rack *mokkav1alpha1.SGPURack) sgpucleanup.CleanupNeeded {
+func cleanupFor(rack *mokkav1alpha1.SGPURack) sgpurelease.Cleanup {
 	slot := rack.Spec.Nodes[0]
-	return sgpucleanup.CleanupNeeded{
+	return sgpurelease.Cleanup{
 		RackName: rack.Name,
 		RackUID:  rack.UID,
 		Binding: allocate.Binding{

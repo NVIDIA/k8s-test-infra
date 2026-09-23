@@ -11,7 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-func TestAdmitInventoriesAdmitsWholeInventoriesThenReleasesGrowthInOrder(t *testing.T) {
+func TestAdmitInventoriesAdmitsWholeInventoriesThenLetsGrowthProceedInOrder(t *testing.T) {
 	t.Parallel()
 
 	nodes := func(count int64) DeclaredCapacity { return DeclaredCapacity{Racks: count, Nodes: count} }

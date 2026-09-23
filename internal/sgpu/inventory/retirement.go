@@ -5,8 +5,8 @@ package inventory
 
 import (
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
-	sgpucleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/cleanup"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/rackrender"
+	sgpurelease "github.com/NVIDIA/k8s-test-infra/internal/sgpu/release"
 )
 
 // retirementReason decides whether full reconciliation retires an owned rack,
@@ -21,9 +21,9 @@ func retirementReason(
 	rack *mokkav1alpha1.SGPURack,
 	groups map[string]resolvedGroup,
 	unresolved map[string]struct{},
-) (sgpucleanup.CleanupReason, bool) {
+) (sgpurelease.Reason, bool) {
 	if rack.DeletionTimestamp != nil {
-		return sgpucleanup.CleanupRackDeleting, true
+		return sgpurelease.RackDeleting, true
 	}
 	identity := rack.Spec.Identity
 	if _, keepLastGood := unresolved[identity.RackGroup]; keepLastGood {
@@ -32,12 +32,12 @@ func retirementReason(
 	group, exists := groups[identity.RackGroup]
 	switch {
 	case !exists:
-		return sgpucleanup.CleanupGroupRemoved, true
+		return sgpurelease.GroupRemoved, true
 	case identity.RackIndex >= group.group.Count:
-		return sgpucleanup.CleanupCapacityShrink, true
+		return sgpurelease.CapacityShrink, true
 	case identity.RackIndex < 0 ||
 		rack.Name != rackrender.RackName(inventory.Name, inventory.UID, group.group.ID, identity.RackIndex):
-		return sgpucleanup.CleanupGroupRemoved, true
+		return sgpurelease.GroupRemoved, true
 	default:
 		return "", false
 	}

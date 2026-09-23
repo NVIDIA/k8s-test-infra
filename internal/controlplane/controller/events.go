@@ -18,11 +18,11 @@ import (
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
-	sgpucleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/cleanup"
 	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
 	sgpumetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/nodecatalog"
 	sgpuprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/projection"
+	sgpurelease "github.com/NVIDIA/k8s-test-infra/internal/sgpu/release"
 )
 
 // rackConflictWaiters indexes only name collisions observed by reconciliation.
@@ -475,7 +475,7 @@ func (r *eventRouter) nodeDelete(object any) {
 			if !slot.BoundTo(node.Name, node.UID) {
 				continue
 			}
-			cleanup := cleanupFor(rack, slot, sgpucleanup.CleanupNodeGone)
+			cleanup := cleanupFor(rack, slot, sgpurelease.NodeGone)
 			r.queues.projections.Add(projectionKey{mode: projectionCleanup, cleanup: cleanup})
 			deferred[cleanup.Binding.Coordinate.Group] = struct{}{}
 		}
@@ -578,7 +578,7 @@ func (r *eventRouter) rackUpdate(oldObject, newObject any) {
 		if slot.NodeRef == nil || newBindings[slot.Index] == slot.NodeRef.UID {
 			continue
 		}
-		cleanup := cleanupFor(oldRack, slot, sgpucleanup.CleanupCapacityShrink)
+		cleanup := cleanupFor(oldRack, slot, sgpurelease.CapacityShrink)
 		r.queues.projections.Add(projectionKey{mode: projectionCleanup, cleanup: cleanup})
 		r.routeReleasedNode(cleanup.Binding.Node)
 	}
@@ -614,7 +614,7 @@ func (r *eventRouter) rackDelete(object any) {
 		if slot.NodeRef == nil {
 			continue
 		}
-		cleanup := cleanupFor(rack, slot, sgpucleanup.CleanupRackDeleting)
+		cleanup := cleanupFor(rack, slot, sgpurelease.RackDeleting)
 		r.queues.projections.Add(projectionKey{mode: projectionCleanup, cleanup: cleanup})
 		r.routeReleasedNode(cleanup.Binding.Node)
 	}
@@ -770,8 +770,8 @@ func (r *eventRouter) boundRacks(name string, uid types.UID) []*mokkav1alpha1.SG
 	return racks
 }
 
-func cleanupFor(rack *mokkav1alpha1.SGPURack, slot mokkav1alpha1.SGPURackNode, reason sgpucleanup.CleanupReason) sgpucleanup.CleanupNeeded {
-	return sgpucleanup.CleanupNeeded{
+func cleanupFor(rack *mokkav1alpha1.SGPURack, slot mokkav1alpha1.SGPURackNode, reason sgpurelease.Reason) sgpurelease.Cleanup {
+	return sgpurelease.Cleanup{
 		RackName: rack.Name,
 		RackUID:  rack.UID,
 		Reason:   reason,

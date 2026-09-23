@@ -22,8 +22,8 @@ import (
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
 	sgpuassignment "github.com/NVIDIA/k8s-test-infra/internal/sgpu/assignment"
-	sgpucleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/cleanup"
 	sgpumetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
+	sgpurelease "github.com/NVIDIA/k8s-test-infra/internal/sgpu/release"
 )
 
 const (
@@ -107,7 +107,7 @@ type Controller struct {
 	outcomeByCoordinate map[coordinateKey]bindingKey
 	outcomesByInventory map[objectKey]map[bindingKey]struct{}
 	outcomesByRack      map[objectKey]map[bindingKey]struct{}
-	cleaned             map[bindingKey]sgpucleanup.CleanupReason
+	cleaned             map[bindingKey]sgpurelease.Reason
 	cleanedByCoordinate map[coordinateKey]bindingKey
 	cleanupBlocks       map[bindingKey]cleanupBlock
 	blocksByCoordinate  map[coordinateKey]bindingKey
@@ -115,7 +115,7 @@ type Controller struct {
 	operations [operationShards]sync.Mutex
 }
 
-var _ sgpucleanup.CleanupGate = (*Controller)(nil)
+var _ sgpurelease.Gate = (*Controller)(nil)
 
 type bindingKey struct {
 	inventoryName string
@@ -158,7 +158,7 @@ func NewController(cache Cache, patcher NodePatcher) *Controller {
 		outcomeByCoordinate: make(map[coordinateKey]bindingKey),
 		outcomesByInventory: make(map[objectKey]map[bindingKey]struct{}),
 		outcomesByRack:      make(map[objectKey]map[bindingKey]struct{}),
-		cleaned:             make(map[bindingKey]sgpucleanup.CleanupReason),
+		cleaned:             make(map[bindingKey]sgpurelease.Reason),
 		cleanedByCoordinate: make(map[coordinateKey]bindingKey),
 		cleanupBlocks:       make(map[bindingKey]cleanupBlock),
 		blocksByCoordinate:  make(map[coordinateKey]bindingKey),
@@ -274,7 +274,7 @@ func (c *Controller) project(ctx context.Context, rackName string, nodeIndex int
 // identifies the exact binding being retired.
 //
 //nolint:cyclop // Cleanup deliberately distinguishes deletion, replacement, ownership, and partial progress.
-func (c *Controller) Cleanup(ctx context.Context, needed sgpucleanup.CleanupNeeded) (Outcome, error) {
+func (c *Controller) Cleanup(ctx context.Context, needed sgpurelease.Cleanup) (Outcome, error) {
 	operation := c.operationLock(needed.RackName, needed.Binding.Coordinate.NodeIndex)
 	operation.Lock()
 	defer operation.Unlock()
@@ -384,7 +384,7 @@ func (c *Controller) Cleanup(ctx context.Context, needed sgpucleanup.CleanupNeed
 }
 
 // Ready reports whether an exact cleanup acknowledgement is pending.
-func (c *Controller) Ready(needed sgpucleanup.CleanupNeeded) bool {
+func (c *Controller) Ready(needed sgpurelease.Cleanup) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	_, ready := c.cleaned[bindingKeyForCleanup(needed)]
@@ -393,7 +393,7 @@ func (c *Controller) Ready(needed sgpucleanup.CleanupNeeded) bool {
 
 // RevokeCleanup removes only the exact acknowledgement for an obsolete
 // allocation decision.
-func (c *Controller) RevokeCleanup(needed sgpucleanup.CleanupNeeded) {
+func (c *Controller) RevokeCleanup(needed sgpurelease.Cleanup) {
 	operation := c.operationLock(needed.RackName, needed.Binding.Coordinate.NodeIndex)
 	operation.Lock()
 	defer operation.Unlock()
@@ -421,7 +421,7 @@ func (c *Controller) HasAcknowledgedCleanups() bool {
 func (c *Controller) AcknowledgedCleanup(
 	rackName string,
 	binding allocate.Binding,
-) (sgpucleanup.CleanupNeeded, bool) {
+) (sgpurelease.Cleanup, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	coordinate := coordinateKey{rackName: rackName, nodeIndex: binding.Coordinate.NodeIndex}
@@ -431,13 +431,13 @@ func (c *Controller) AcknowledgedCleanup(
 		key.rackGroup != binding.Coordinate.Group.RackGroup ||
 		key.rackIndex != binding.Coordinate.RackIndex ||
 		key.nodeName != binding.Node.Name || key.nodeUID != binding.Node.UID {
-		return sgpucleanup.CleanupNeeded{}, false
+		return sgpurelease.Cleanup{}, false
 	}
 	reason, ready := c.cleaned[key]
 	if !ready {
-		return sgpucleanup.CleanupNeeded{}, false
+		return sgpurelease.Cleanup{}, false
 	}
-	return sgpucleanup.CleanupNeeded{
+	return sgpurelease.Cleanup{
 		RackName: rackName, RackUID: key.rackUID, Binding: binding, Reason: reason,
 	}, true
 }
@@ -803,7 +803,7 @@ func assignmentMatches(current sgpuassignment.Assignment, rack *mokkav1alpha1.SG
 		current.NodeIndex == slot.Index && current.NodeUID == slot.NodeRef.UID
 }
 
-func cleanupAssignmentMatches(current sgpuassignment.Assignment, needed sgpucleanup.CleanupNeeded) bool {
+func cleanupAssignmentMatches(current sgpuassignment.Assignment, needed sgpurelease.Cleanup) bool {
 	binding := needed.Binding
 	if current.Version != sgpuassignment.AssignmentVersion || current.Inventory.Name != binding.Coordinate.Group.InventoryName ||
 		current.Inventory.UID != binding.Coordinate.Group.InventoryUID || current.Rack.Name != needed.RackName ||
@@ -849,7 +849,7 @@ func outcomeFor(rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackNode) 
 	}
 }
 
-func cleanupOutcome(needed sgpucleanup.CleanupNeeded) Outcome {
+func cleanupOutcome(needed sgpurelease.Cleanup) Outcome {
 	binding := needed.Binding
 	return Outcome{
 		InventoryName: binding.Coordinate.Group.InventoryName, InventoryUID: binding.Coordinate.Group.InventoryUID,
@@ -903,7 +903,7 @@ func (c *Controller) recordCleanupFailure(outcome Outcome, exactRackPresent bool
 }
 
 func (c *Controller) completeCleanup(
-	needed sgpucleanup.CleanupNeeded,
+	needed sgpurelease.Cleanup,
 	outcome Outcome,
 	reason string,
 	exactRackPresent bool,
@@ -947,7 +947,7 @@ func (c *Controller) beginProjection(rack *mokkav1alpha1.SGPURack, slot *mokkav1
 	}
 }
 
-func (c *Controller) blockedCleanup(needed sgpucleanup.CleanupNeeded, node *corev1.Node) ([]string, bool) {
+func (c *Controller) blockedCleanup(needed sgpurelease.Cleanup, node *corev1.Node) ([]string, bool) {
 	c.mu.RLock()
 	block, exists := c.cleanupBlocks[bindingKeyForCleanup(needed)]
 	c.mu.RUnlock()
@@ -967,7 +967,7 @@ func (c *Controller) blockedCleanup(needed sgpucleanup.CleanupNeeded, node *core
 }
 
 func (c *Controller) blockCleanup(
-	needed sgpucleanup.CleanupNeeded,
+	needed sgpurelease.Cleanup,
 	before, after *corev1.Node,
 	assignment string,
 ) {
@@ -1097,7 +1097,7 @@ func bindingKeyForOutcome(outcome Outcome) bindingKey {
 	}
 }
 
-func bindingKeyForCleanup(needed sgpucleanup.CleanupNeeded) bindingKey {
+func bindingKeyForCleanup(needed sgpurelease.Cleanup) bindingKey {
 	binding := needed.Binding
 	return bindingKey{
 		inventoryName: binding.Coordinate.Group.InventoryName, inventoryUID: binding.Coordinate.Group.InventoryUID,
