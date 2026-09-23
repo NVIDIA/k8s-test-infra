@@ -81,30 +81,30 @@ func (x indexes) overlaps(y indexes) bool {
 	}
 }
 
-// selection is what a target selects within one rack group.
-type selection struct {
+// groupSelection is what a target selects within one rack group.
+type groupSelection struct {
 	racks, nodes, gpus indexes
 }
 
-func (s selection) selectsAny() bool {
+func (s groupSelection) selectsAny() bool {
 	return s.racks.selectsAny() && s.nodes.selectsAny() && s.gpus.selectsAny()
 }
 
-func (s selection) contains(at Coordinate) bool {
+func (s groupSelection) contains(at Coordinate) bool {
 	return s.racks.has(at.RackIndex) && s.nodes.has(at.NodeIndex) && s.gpus.has(at.GPUIndex)
 }
 
-func (s selection) overlaps(other selection) bool {
+func (s groupSelection) overlaps(other groupSelection) bool {
 	return s.racks.overlaps(other.racks) && s.nodes.overlaps(other.nodes) && s.gpus.overlaps(other.gpus)
 }
 
-// footprint is what a target selects in each rack group it reaches. Two
-// footprints overlap only when they select a common GPU, so listed indexes
+// selection is what a target selects in each rack group it reaches. Two
+// selections overlap only when they select a common GPU, so listed indexes
 // that coincide outside every rack group's shape never make policies collide.
-type footprint map[string]selection
+type selection map[string]groupSelection
 
-func (f footprint) overlaps(other footprint) bool {
-	for group, selected := range f {
+func (s selection) overlaps(other selection) bool {
+	for group, selected := range s {
 		if otherSelected, ok := other[group]; ok && selected.overlaps(otherSelected) {
 			return true
 		}

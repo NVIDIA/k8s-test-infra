@@ -47,37 +47,49 @@ func Evaluate(
 	profiles map[string]*mokkav1alpha1.SGPURackProfile,
 	policies []*mokkav1alpha1.SGPURuntimePolicy,
 ) *Evaluation {
-	evaluation := &Evaluation{InventoryName: inventoryName, Decisions: make([]Decision, len(policies))}
-	byName := slices.SortedFunc(slices.Values(policies), func(a, b *mokkav1alpha1.SGPURuntimePolicy) int {
+	evaluation := &Evaluation{
+		InventoryName: inventoryName,
+		Decisions:     make([]Decision, len(policies)),
+	}
+
+	polByName := slices.SortedFunc(slices.Values(policies), func(a, b *mokkav1alpha1.SGPURuntimePolicy) int {
 		return cmp.Compare(a.Name, b.Name)
 	})
-	for i, policy := range byName {
-		evaluation.Decisions[i] = Decision{Policy: policy, Scope: scopeOf(&policy.Spec.TargetRef)}
+
+	for i, pol := range polByName {
+		evaluation.Decisions[i] = Decision{Policy: pol, Scope: scopeOf(&pol.Spec.TargetRef)}
 	}
+
 	if inventory == nil {
 		for i := range evaluation.Decisions {
 			evaluation.Decisions[i].Outcome = TargetNotFound
 			evaluation.Decisions[i].Message = fmt.Sprintf("SGPUInventory %q does not exist.", inventoryName)
 		}
+
 		return evaluation
 	}
 
 	evaluation.InventoryUID = inventory.UID
 	shapes := shapesOf(inventory, profiles)
 	candidates := make([]candidate, 0, len(policies))
+
 	for i := range evaluation.Decisions {
 		decision := &evaluation.Decisions[i]
 		selected, problem := resolveTarget(inventoryName, shapes, &decision.Policy.Spec.TargetRef)
+
 		if problem != "" {
 			decision.Outcome, decision.Message = InvalidTarget, problem
 			continue
 		}
+
 		candidates = append(candidates, candidate{
 			decision:  decision,
-			footprint: selected,
+			selection: selected,
 			fields:    decision.Policy.Spec.Runtime.FieldPaths(),
 		})
 	}
+
 	evaluation.layers = layersByGroup(accept(candidates))
+
 	return evaluation
 }

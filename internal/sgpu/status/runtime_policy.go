@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -139,6 +140,10 @@ func (r *RuntimePolicyReconciler) writeLive(
 	case err != nil:
 		return false, err
 	default:
+		for _, transition := range conditionTransitions(latest.Status.Conditions, desired.Conditions) {
+			zap.L().Info("Runtime policy condition changed", append(conditionFields(transition),
+				zap.String("policy", cached.Name), zap.String("inventory", cached.Spec.TargetRef.Name))...)
+		}
 		return true, nil
 	}
 }

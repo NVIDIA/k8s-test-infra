@@ -10,13 +10,27 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
 )
 
-var errAllocationInputChanged = errors.New("allocation input changed during reconciliation")
+// ErrAllocationInputChanged requests a rate-limited retry when the allocation
+// inputs change while a reconciliation runs.
+var ErrAllocationInputChanged = errors.New("allocation input changed during reconciliation")
+
+// conflictedNodes names the Nodes whose placement a plan left unresolved,
+// such as a Node that several rack groups select.
+func conflictedNodes(plan allocate.Plan) []string {
+	names := make([]string, 0, len(plan.Conflicts))
+	for _, conflict := range plan.Conflicts {
+		names = append(names, conflict.Node.Name)
+	}
+
+	return names
+}
 
 type allocationRevision struct {
 	topology uint64
@@ -173,7 +187,7 @@ func (c *AllocationCache) planRevision(
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if revision != c.revision() {
-		return allocate.Plan{}, errAllocationInputChanged
+		return allocate.Plan{}, ErrAllocationInputChanged
 	}
 	if c.snapshot == nil || c.snapshot.revision != revision {
 		input, err := allocationInputRevision(c.cache, c.admission, revision.capacity)
@@ -183,11 +197,17 @@ func (c *AllocationCache) planRevision(
 			c.computations.Add(1)
 		}
 		if revision != c.revision() {
-			return allocate.Plan{}, errAllocationInputChanged
+			return allocate.Plan{}, ErrAllocationInputChanged
 		}
 		if err != nil {
 			c.snapshot = &allocationSnapshot{revision: revision, err: err}
 		} else {
+			zap.L().Debug("Planned sGPU allocation",
+				zap.Int("retained", len(plan.Retained)),
+				zap.Int("assigned", len(plan.Assigned)),
+				zap.Int("released", len(plan.Released)),
+				zap.Int("pending", len(plan.Pending)),
+				zap.Strings("conflictedNodes", conflictedNodes(plan)))
 			c.snapshot = partitionAllocation(revision, input.Groups, plan)
 		}
 	}

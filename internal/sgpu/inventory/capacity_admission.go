@@ -81,14 +81,14 @@ func (a *CapacityAdmission) decision(
 	capacity DeclaredCapacity,
 ) (capacityDecision, error) {
 	if !a.current(revision) {
-		return capacityAdmissionRejected, errAllocationInputChanged
+		return capacityAdmissionRejected, ErrAllocationInputChanged
 	}
 	snapshot := a.snapshotFor(revision)
 	if snapshot.err != nil {
 		return capacityAdmissionRejected, snapshot.err
 	}
 	if !a.current(revision) {
-		return capacityAdmissionRejected, errAllocationInputChanged
+		return capacityAdmissionRejected, ErrAllocationInputChanged
 	}
 	if capacity.Racks == 0 {
 		if _, admitted := snapshot.rackGroupAdmissions[inventory.UID]; !admitted {
@@ -107,7 +107,7 @@ func (a *CapacityAdmission) decision(
 	}
 	admitted := snapshot.admitted[index]
 	if admitted.capacity != candidate.capacity {
-		return capacityAdmissionRejected, errAllocationInputChanged
+		return capacityAdmissionRejected, ErrAllocationInputChanged
 	}
 	if !admitted.ready {
 		return capacityAdmissionPending, nil
@@ -165,11 +165,11 @@ func (a *CapacityAdmission) snapshotFor(revision capacityRevision) *capacityAdmi
 		return a.snapshot
 	}
 	if !a.current(revision) {
-		return &capacityAdmissionSnapshot{revision: revision, err: errAllocationInputChanged}
+		return &capacityAdmissionSnapshot{revision: revision, err: ErrAllocationInputChanged}
 	}
 	snapshot := a.computeSnapshot(revision)
 	if !a.current(revision) {
-		return &capacityAdmissionSnapshot{revision: revision, err: errAllocationInputChanged}
+		return &capacityAdmissionSnapshot{revision: revision, err: ErrAllocationInputChanged}
 	}
 	if snapshot.err == nil {
 		a.computations.Add(1)

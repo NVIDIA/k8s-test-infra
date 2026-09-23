@@ -74,18 +74,24 @@ func (v *runtimePolicyView) evaluateInventory(
 	if err != nil {
 		return nil, err
 	}
+
 	objects, err := v.policies.ByIndex(runtimePolicyByTargetIndex, inventoryName)
 	if err != nil {
 		return nil, fmt.Errorf("look up runtime policies for inventory %q: %w", inventoryName, err)
 	}
+
 	policies := make([]*mokkav1alpha1.SGPURuntimePolicy, 0, len(objects))
+
 	for _, object := range objects {
 		policy, ok := object.(*mokkav1alpha1.SGPURuntimePolicy)
+
 		if !ok {
 			return nil, fmt.Errorf("runtime policy cache contained %T", object)
 		}
+
 		policies = append(policies, policy)
 	}
+
 	return sgpupolicy.Evaluate(inventoryName, inventory, profiles, policies), nil
 }
 
@@ -136,15 +142,15 @@ func (v *runtimePolicyView) nodeRuntime(
 	}
 	runtimes := make([]GPURuntime, 0, len(slot.GPUs))
 	for _, gpu := range slot.GPUs {
-		runtimes = append(runtimes, GPURuntime{
-			Index: gpu.Index,
-			Runtime: evaluation.Runtime(defaults, sgpupolicy.Coordinate{
-				RackGroup: rack.Spec.Identity.RackGroup,
-				RackIndex: rack.Spec.Identity.RackIndex,
-				NodeIndex: slot.Index,
-				GPUIndex:  gpu.Index,
-			}),
-		})
+		at := sgpupolicy.Coordinate{
+			RackGroup: rack.Spec.Identity.RackGroup,
+			RackIndex: rack.Spec.Identity.RackIndex,
+			NodeIndex: slot.Index,
+			GPUIndex:  gpu.Index,
+		}
+		runtimes = append(runtimes, GPURuntime{Index: gpu.Index, Runtime: evaluation.Runtime(defaults, at)})
+		zap.L().Debug("Compiled GPU runtime", zap.String("rack", rack.Name), zap.Int32("nodeIndex", slot.Index),
+			zap.Int32("gpuIndex", gpu.Index), zap.Strings("policies", policyNames(evaluation.Applied(at))))
 	}
 	return runtimes, nil
 }
@@ -181,6 +187,16 @@ func (v *runtimePolicyView) renderedProfile(
 	return profile, nil
 }
 
+// policyNames lists policy names in order, for log entries.
+func policyNames(policies []*mokkav1alpha1.SGPURuntimePolicy) []string {
+	names := make([]string, 0, len(policies))
+	for _, policy := range policies {
+		names = append(names, policy.Name)
+	}
+
+	return names
+}
+
 // EffectiveRuntime compiles the effective runtime state of every GPU on an
 // assignment's logical Node: the profile defaults overridden by each accepted
 // runtime policy that selects the GPU. Any replica with synchronized caches
@@ -211,20 +227,24 @@ func reconcileRuntimePolicyStatus(
 	if err != nil {
 		return err
 	}
+
 	var errs []error
+	accepted := 0
+
 	for _, decision := range evaluation.Decisions {
-		changed, err := reconciler.Reconcile(ctx, decision)
-		if err != nil {
-			errs = append(errs, err)
-			continue
+		zap.L().Debug("Runtime policy decided", zap.String("policy", decision.Policy.Name),
+			zap.String("inventory", inventoryName), zap.Stringer("scope", decision.Scope),
+			zap.String("outcome", string(decision.Outcome)), zap.String("message", decision.Message))
+		if decision.Outcome.Accepted() {
+			accepted++
 		}
-		if changed {
-			zap.L().Info("Runtime policy status updated",
-				zap.String("policy", decision.Policy.Name),
-				zap.String("inventory", inventoryName),
-				zap.String("reason", string(decision.Outcome)),
-				zap.String("message", decision.Message))
+		if _, err := reconciler.Reconcile(ctx, decision); err != nil {
+			errs = append(errs, err)
 		}
 	}
+
+	zap.L().Debug("Evaluated runtime policies", zap.String("inventory", inventoryName),
+		zap.Int("policies", len(evaluation.Decisions)), zap.Int("accepted", accepted))
+
 	return errors.Join(errs...)
 }

@@ -39,15 +39,15 @@ func scopeOf(target *mokkav1alpha1.PolicyTargetRef) Scope {
 func (s Scope) String() string {
 	switch s {
 	case ScopeInventory:
-		return "inventory"
+		return "Inventory"
 	case ScopeRackGroup:
-		return "rack group"
+		return "Rack Group"
 	case ScopeRack:
-		return "rack"
+		return "Rack"
 	case ScopeNode:
 		return "Node"
 	case ScopeGPU:
 		return "GPU"
 	}
-	return "unknown"
+	return "Unknown"
 }

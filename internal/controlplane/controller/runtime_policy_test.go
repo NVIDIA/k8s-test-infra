@@ -180,10 +180,10 @@ func TestRuntimePolicyStatusReconcileContinuesPastAFailedWrite(t *testing.T) {
 	view := testRuntimePolicyView(t, testInventory(), testRuntimeProfile(), broken, healthy)
 	reconciler := sgpustatus.NewRuntimePolicyReconciler(mokka.MokkaV1alpha1().SGPURuntimePolicies(), nil)
 
-	err := reconcileRuntimePolicyStatus(context.Background(), view, reconciler, "inventory")
+	err := reconcileRuntimePolicyStatus(t.Context(), view, reconciler, "inventory")
 
 	require.ErrorContains(t, err, `update runtime policy "broken" status: status write failed`)
-	stored, getErr := mokka.MokkaV1alpha1().SGPURuntimePolicies().Get(context.Background(), healthy.Name, metav1.GetOptions{})
+	stored, getErr := mokka.MokkaV1alpha1().SGPURuntimePolicies().Get(t.Context(), healthy.Name, metav1.GetOptions{})
 	require.NoError(t, getErr)
 	accepted := findCondition(stored.Status.Conditions, mokkav1alpha1.RuntimePolicyConditionAccepted)
 	require.NotNil(t, accepted)
@@ -191,7 +191,7 @@ func TestRuntimePolicyStatusReconcileContinuesPastAFailedWrite(t *testing.T) {
 }
 
 func TestRuntimePolicyStatusAcceptance(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	mokka := mokkafake.NewSimpleClientset()
 	installAcceptanceAPIReactors(t, mokka)
 	controller, err := newForNodes(newAcceptanceNodeClient(), mokka, Options{Workers: 2, StatusDebounce: 0})
@@ -294,7 +294,7 @@ func TestStandbyCompilesEffectiveRuntimeWithoutWriteWork(t *testing.T) {
 	edited := profile.DeepCopy()
 	edited.Generation++
 	edited.Spec.Defaults.Runtime = gpuTemperature(45)
-	_, err = mokka.MokkaV1alpha1().SGPURackProfiles().Update(context.Background(), edited, metav1.UpdateOptions{})
+	_, err = mokka.MokkaV1alpha1().SGPURackProfiles().Update(t.Context(), edited, metav1.UpdateOptions{})
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		_, err := controller.EffectiveRuntime(assignments[0])
