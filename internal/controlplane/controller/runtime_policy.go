@@ -92,7 +92,12 @@ func (v *runtimePolicyView) evaluateInventory(
 		policies = append(policies, policy)
 	}
 
-	return sgpupolicy.Evaluate(inventoryName, inventory, profiles, policies), nil
+	evaluation, err := sgpupolicy.Evaluate(inventoryName, inventory, profiles, policies)
+	if err != nil {
+		return nil, fmt.Errorf("evaluate runtime policies for inventory %q: %w", inventoryName, err)
+	}
+
+	return evaluation, nil
 }
 
 // referencedProfiles returns the cached profiles an inventory's rack groups
@@ -148,7 +153,12 @@ func (v *runtimePolicyView) nodeRuntime(
 			NodeIndex: slot.Index,
 			GPUIndex:  gpu.Index,
 		}
-		runtimes = append(runtimes, GPURuntime{Index: gpu.Index, Runtime: evaluation.Runtime(defaults, at)})
+		runtime, err := evaluation.Runtime(defaults, at)
+		if err != nil {
+			return nil, fmt.Errorf("compile the runtime of GPU %d on Node %d of rack %q: %w",
+				gpu.Index, slot.Index, rack.Name, err)
+		}
+		runtimes = append(runtimes, GPURuntime{Index: gpu.Index, Runtime: runtime})
 		zap.L().Debug("Compiled GPU runtime", zap.String("rack", rack.Name), zap.Int32("nodeIndex", slot.Index),
 			zap.Int32("gpuIndex", gpu.Index), zap.Strings("policies", policyNames(evaluation.Applied(at))))
 	}

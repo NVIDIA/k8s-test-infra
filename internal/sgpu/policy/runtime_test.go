@@ -16,7 +16,7 @@ func TestEvaluationRuntimeComposesAcceptedPoliciesFieldByField(t *testing.T) {
 	t.Parallel()
 
 	training := []string{"training"}
-	evaluation := Evaluate("dev", testInventory(), testProfiles(), []*mokkav1alpha1.SGPURuntimePolicy{
+	evaluation := mustEvaluate(t, "dev", testInventory(), testProfiles(), []*mokkav1alpha1.SGPURuntimePolicy{
 		testPolicy("inventory-warm", 1, mokkav1alpha1.PolicyTargetRef{}, gpuCelsius(50)),
 		testPolicy("training-unpowered", 2, mokkav1alpha1.PolicyTargetRef{RackGroups: training},
 			&mokkav1alpha1.RuntimeState{Telemetry: &mokkav1alpha1.RuntimeTelemetry{
@@ -82,11 +82,11 @@ func TestEvaluationRuntimeComposesAcceptedPoliciesFieldByField(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			require.Equal(t, tt.want, evaluation.Runtime(testDefaults(), tt.at))
+			require.Equal(t, tt.want, mustRuntime(t, evaluation, testDefaults(), tt.at))
 		})
 	}
 
-	require.Equal(t, *gpuCelsius(50), evaluation.Runtime(nil, Coordinate{RackGroup: "inference", NodeIndex: 1}),
+	require.Equal(t, *gpuCelsius(50), mustRuntime(t, evaluation, nil, Coordinate{RackGroup: "inference", NodeIndex: 1}),
 		"without profile defaults the policies alone make up the state")
 }
 
@@ -97,7 +97,7 @@ func TestEvaluationAppliedListsSelectingPoliciesInOverrideOrder(t *testing.T) {
 	inventory := testPolicy("inventory-warm", 2, mokkav1alpha1.PolicyTargetRef{}, gpuCelsius(50))
 	rackGroup := testPolicy("training-hot", 3, mokkav1alpha1.PolicyTargetRef{RackGroups: []string{"training"}}, hotGPU())
 	conflicted := testPolicy("inventory-cool", 4, mokkav1alpha1.PolicyTargetRef{}, coolGPU())
-	evaluation := Evaluate("dev", testInventory(), testProfiles(),
+	evaluation := mustEvaluate(t, "dev", testInventory(), testProfiles(),
 		[]*mokkav1alpha1.SGPURuntimePolicy{gpu, inventory, rackGroup, conflicted})
 
 	require.Equal(t, []*mokkav1alpha1.SGPURuntimePolicy{inventory, rackGroup, gpu},
@@ -112,9 +112,9 @@ func TestEvaluationRuntimeIsOwnedByTheCaller(t *testing.T) {
 
 	policy := testPolicy("hot", 1, mokkav1alpha1.PolicyTargetRef{}, hotGPU())
 	defaults := testDefaults()
-	evaluation := Evaluate("dev", testInventory(), testProfiles(), []*mokkav1alpha1.SGPURuntimePolicy{policy})
+	evaluation := mustEvaluate(t, "dev", testInventory(), testProfiles(), []*mokkav1alpha1.SGPURuntimePolicy{policy})
 
-	state := evaluation.Runtime(defaults, Coordinate{RackGroup: "training"})
+	state := mustRuntime(t, evaluation, defaults, Coordinate{RackGroup: "training"})
 	*state.Telemetry.Temperature.GPUCelsius = 1
 	*state.Telemetry.Power.DrawMilliWatts = 1
 

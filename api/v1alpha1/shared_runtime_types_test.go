@@ -5,9 +5,7 @@ package v1alpha1
 
 import (
 	"encoding/json"
-	"fmt"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 
@@ -46,35 +44,37 @@ func TestRuntimeStateWithOverride(t *testing.T) {
 	baseWith := func(mutate func(*RuntimeState)) *RuntimeState {
 		state := base.DeepCopy()
 		mutate(state)
+
 		return state
+	}
+	power := func(milliwatts int64) *RuntimeState {
+		return &RuntimeState{Telemetry: &RuntimeTelemetry{Power: &PowerTelemetry{DrawMilliWatts: ptr.To(milliwatts)}}}
 	}
 
 	tests := []struct {
-		name     string
-		base     *RuntimeState
-		override *RuntimeState
-		want     *RuntimeState
+		name      string
+		base      *RuntimeState
+		overrides []*RuntimeState
+		want      *RuntimeState
 	}{
 		{
-			name:     "set field replaces its value and siblings inherit",
-			base:     base,
-			override: &RuntimeState{Modes: &RuntimeModes{ECC: "Disabled"}},
-			want:     baseWith(func(state *RuntimeState) { state.Modes.ECC = "Disabled" }),
+			name:      "set field replaces its value and siblings inherit",
+			base:      base,
+			overrides: []*RuntimeState{{Modes: &RuntimeModes{ECC: "Disabled"}}},
+			want:      baseWith(func(state *RuntimeState) { state.Modes.ECC = "Disabled" }),
 		},
 		{
-			name: "explicit zero replaces a non-zero value",
-			base: base,
-			override: &RuntimeState{Telemetry: &RuntimeTelemetry{
-				Power: &PowerTelemetry{DrawMilliWatts: ptr.To[int64](0)},
-			}},
-			want: baseWith(func(state *RuntimeState) { state.Telemetry.Power.DrawMilliWatts = ptr.To[int64](0) }),
+			name:      "explicit zero replaces a non-zero value",
+			base:      base,
+			overrides: []*RuntimeState{power(0)},
+			want:      baseWith(func(state *RuntimeState) { state.Telemetry.Power.DrawMilliWatts = ptr.To[int64](0) }),
 		},
 		{
 			name: "percent range replaces the inherited range whole",
 			base: base,
-			override: &RuntimeState{Telemetry: &RuntimeTelemetry{Utilization: &UtilizationTelemetry{
+			overrides: []*RuntimeState{{Telemetry: &RuntimeTelemetry{Utilization: &UtilizationTelemetry{
 				Pattern: &UtilizationPattern{GPUPercent: &PercentRange{Minimum: 0, Maximum: 5}},
-			}}},
+			}}}},
 			want: baseWith(func(state *RuntimeState) {
 				state.Telemetry.Utilization.Pattern.GPUPercent = &PercentRange{Minimum: 0, Maximum: 5}
 			}),
@@ -82,194 +82,120 @@ func TestRuntimeStateWithOverride(t *testing.T) {
 		{
 			name: "group missing from the base is taken from the override",
 			base: base,
-			override: &RuntimeState{Telemetry: &RuntimeTelemetry{
+			overrides: []*RuntimeState{{Telemetry: &RuntimeTelemetry{
 				Temperature: &TemperatureTelemetry{GPUCelsius: ptr.To[int32](80)},
-			}},
+			}}},
 			want: baseWith(func(state *RuntimeState) {
 				state.Telemetry.Temperature = &TemperatureTelemetry{GPUCelsius: ptr.To[int32](80)}
 			}),
 		},
-		{name: "nil override copies the base", base: base, want: base},
-		{name: "nil base copies the override", override: base, want: base},
+		{
+			name:      "later override wins a field both set",
+			base:      base,
+			overrides: []*RuntimeState{power(100), nil, power(200)},
+			want:      baseWith(func(state *RuntimeState) { state.Telemetry.Power.DrawMilliWatts = ptr.To[int64](200) }),
+		},
+		{
+			name:      "integers beyond float64 precision survive exactly",
+			base:      base,
+			overrides: []*RuntimeState{power(1<<53 + 1)},
+			want:      baseWith(func(state *RuntimeState) { state.Telemetry.Power.DrawMilliWatts = ptr.To[int64](1<<53 + 1) }),
+		},
+		{name: "no override copies the base", base: base, want: base},
+		{name: "nil base copies the override", overrides: []*RuntimeState{base}, want: base},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			require.Equal(t, tt.want, tt.base.WithOverride(tt.override))
+
+			merged, err := tt.base.WithOverride(tt.overrides...)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, merged)
 		})
 	}
-}
-
-func TestRuntimeStateWithOverrideNeverAliasesInputs(t *testing.T) {
-	t.Parallel()
-
-	base := fullRuntimeState(t, 1)
-	override := fullRuntimeState(t, 2)
-	merged := base.WithOverride(override)
-	for _, leaf := range runtimeLeaves(t) {
-		leaf.overwrite(t, merged)
-	}
-
-	require.Equal(t, fullRuntimeState(t, 1), base)
-	require.Equal(t, fullRuntimeState(t, 2), override)
 }
 
 func TestRuntimeStateFieldPaths(t *testing.T) {
 	t.Parallel()
 
-	var unset *RuntimeState
-	require.Empty(t, unset.FieldPaths())
-	require.Empty(t, (&RuntimeState{Modes: &RuntimeModes{}, Telemetry: &RuntimeTelemetry{}}).FieldPaths(),
-		"a group without set fields sets nothing")
-
-	state := &RuntimeState{
-		DeviceState: DeviceStateFailed,
-		Telemetry: &RuntimeTelemetry{
-			Temperature: &TemperatureTelemetry{GPUCelsius: ptr.To[int32](0)},
-			Utilization: &UtilizationTelemetry{Pattern: &UtilizationPattern{
-				MemoryPercent: &PercentRange{Maximum: 5},
-			}},
+	tests := []struct {
+		name  string
+		state *RuntimeState
+		want  []string
+	}{
+		{name: "nil state sets nothing"},
+		{
+			name:  "group without set fields sets nothing",
+			state: &RuntimeState{Modes: &RuntimeModes{}, Telemetry: &RuntimeTelemetry{}},
+		},
+		{
+			name: "every set value is listed, a range by its bounds",
+			state: &RuntimeState{
+				DeviceState: DeviceStateFailed,
+				Telemetry: &RuntimeTelemetry{
+					Temperature: &TemperatureTelemetry{GPUCelsius: ptr.To[int32](0)},
+					Utilization: &UtilizationTelemetry{Pattern: &UtilizationPattern{
+						MemoryPercent: &PercentRange{Maximum: 5},
+					}},
+				},
+			},
+			want: []string{
+				"deviceState",
+				"telemetry.temperature.gpuCelsius",
+				"telemetry.utilization.pattern.memoryPercent.maximum",
+				"telemetry.utilization.pattern.memoryPercent.minimum",
+			},
 		},
 	}
-	require.Equal(t, []string{
-		"deviceState",
-		"telemetry.temperature.gpuCelsius",
-		"telemetry.utilization.pattern.memoryPercent",
-	}, state.FieldPaths())
-}
-
-// A new RuntimeState field must be able to express "unset", and both
-// WithOverride and FieldPaths must handle it, or a policy that sets it would
-// be silently ignored or never reported as conflicting.
-func TestRuntimeStateOverrideCoversEveryField(t *testing.T) {
-	t.Parallel()
-
-	leaves := runtimeLeaves(t)
-	paths := make([]string, 0, len(leaves))
-	for _, leaf := range leaves {
-		paths = append(paths, leaf.path)
-	}
-	slices.Sort(paths)
-	require.Equal(t, paths, fullRuntimeState(t, 1).FieldPaths())
-
-	for _, leaf := range leaves {
-		t.Run(leaf.path, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			// Sample 0 is an explicit zero for numbers and replaces a range whole.
-			for _, sample := range []int32{0, 7} {
-				only := &RuntimeState{}
-				leaf.set(t, only, sample)
-				require.Equal(t, []string{leaf.path}, only.FieldPaths())
-				require.Equal(t, only, (*RuntimeState)(nil).WithOverride(only))
-				require.Equal(t, only, only.WithOverride(nil))
 
-				want := fullRuntimeState(t, 1)
-				leaf.set(t, want, sample)
-				require.Equal(t, want, fullRuntimeState(t, 1).WithOverride(only))
-			}
+			paths, err := tt.state.FieldPaths()
+			require.NoError(t, err)
+			require.Equal(t, tt.want, paths)
 		})
 	}
 }
 
-// runtimeLeaf is one overridable RuntimeState field, addressed by its JSON
-// path and by the struct field indexes leading to it.
-type runtimeLeaf struct {
-	path  string
-	index []int
-}
+// A policy must be able to leave any runtime field unset, or a merge patch
+// could not tell "inherit" from a zero value. Each struct is therefore either
+// a group, whose fields are all omittable and merge one by one, or a value
+// such as a percent range, whose fields are all required so that a patch
+// replaces it whole.
+func TestRuntimeStateFieldsMergeUnambiguously(t *testing.T) {
+	t.Parallel()
 
-func runtimeLeaves(t *testing.T) []runtimeLeaf {
-	t.Helper()
-
-	var leaves []runtimeLeaf
-	var walk func(typ reflect.Type, prefix string, index []int)
-	walk = func(typ reflect.Type, prefix string, index []int) {
+	var walk func(typ reflect.Type, path string)
+	walk = func(typ reflect.Type, path string) {
 		for i := range typ.NumField() {
 			field := typ.Field(i)
-			name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
-			leaf := runtimeLeaf{path: prefix + name, index: append(slices.Clone(index), i)}
-			switch {
-			case field.Type.Kind() == reflect.String:
-				leaves = append(leaves, leaf)
-			case field.Type == reflect.TypeFor[*PercentRange]():
-				leaves = append(leaves, leaf)
-			case field.Type.Kind() == reflect.Pointer && field.Type.Elem().Kind() == reflect.Struct:
-				walk(field.Type.Elem(), leaf.path+".", leaf.index)
-			case field.Type.Kind() == reflect.Pointer:
-				leaves = append(leaves, leaf)
-			default:
-				t.Fatalf("%s is a %s; a runtime field must be a string or a pointer so that omitting it "+
-					"differs from setting its zero value", leaf.path, field.Type)
+			name, options, _ := strings.Cut(field.Tag.Get("json"), ",")
+			fieldPath := path + name
+			require.Equal(t, "omitempty", options, "%s must be omitempty so a policy can leave it unset", fieldPath)
+			require.Contains(t, []reflect.Kind{reflect.String, reflect.Pointer}, field.Type.Kind(),
+				"%s must be a string or a pointer to tell unset from zero", fieldPath)
+
+			if field.Type.Kind() != reflect.Pointer {
+				continue
+			}
+
+			if group := field.Type.Elem(); group.Kind() == reflect.Struct && !requiredOnly(group) {
+				walk(group, fieldPath+".")
 			}
 		}
 	}
-	walk(reflect.TypeFor[RuntimeState](), "", nil)
-	return leaves
+	walk(reflect.TypeFor[RuntimeState](), "")
 }
 
-// set assigns the leaf a sample value derived from n, allocating the groups
-// on its path.
-func (l runtimeLeaf) set(t *testing.T, state *RuntimeState, n int32) {
-	t.Helper()
-
-	field := reflect.ValueOf(state).Elem()
-	for depth, i := range l.index {
-		field = field.Field(i)
-		if depth == len(l.index)-1 {
-			break
-		}
-		if field.IsNil() {
-			field.Set(reflect.New(field.Type().Elem()))
-		}
-		field = field.Elem()
-	}
-	field.Set(runtimeSample(t, field.Type(), n))
-}
-
-// overwrite writes a new value through the leaf's existing storage, so any
-// other state sharing that storage changes too.
-func (l runtimeLeaf) overwrite(t *testing.T, state *RuntimeState) {
-	t.Helper()
-
-	field := reflect.ValueOf(state).Elem()
-	for depth, i := range l.index {
-		field = field.Field(i)
-		if depth < len(l.index)-1 {
-			field = field.Elem()
+// requiredOnly reports whether every field of a struct is required, which
+// makes the struct a value that a merge patch replaces whole.
+func requiredOnly(typ reflect.Type) bool {
+	for i := range typ.NumField() {
+		if strings.Contains(typ.Field(i).Tag.Get("json"), "omitempty") {
+			return false
 		}
 	}
-	sample := runtimeSample(t, field.Type(), 9)
-	if field.Kind() == reflect.Pointer {
-		field.Elem().Set(sample.Elem())
-		return
-	}
-	field.Set(sample)
-}
 
-func runtimeSample(t *testing.T, typ reflect.Type, n int32) reflect.Value {
-	t.Helper()
-
-	switch {
-	case typ.Kind() == reflect.String:
-		return reflect.ValueOf(fmt.Sprintf("value-%d", n)).Convert(typ)
-	case typ == reflect.TypeFor[*PercentRange]():
-		return reflect.ValueOf(&PercentRange{Minimum: n, Maximum: n + 1})
-	case typ.Kind() == reflect.Pointer && reflect.New(typ.Elem()).Elem().CanInt():
-		value := reflect.New(typ.Elem())
-		value.Elem().SetInt(int64(n))
-		return value
-	default:
-		t.Fatalf("add a sample value for runtime field type %s", typ)
-		return reflect.Value{}
-	}
-}
-
-func fullRuntimeState(t *testing.T, n int32) *RuntimeState {
-	t.Helper()
-
-	state := &RuntimeState{}
-	for _, leaf := range runtimeLeaves(t) {
-		leaf.set(t, state, n)
-	}
-	return state
+	return true
 }

@@ -22,14 +22,14 @@ func TestEvaluateRejectsEveryPolicyOfAMissingInventory(t *testing.T) {
 	second := testPolicy("second", 2, mokkav1alpha1.PolicyTargetRef{GPUIndexes: []int32{0}}, hotGPU())
 	first := testPolicy("first", 1, mokkav1alpha1.PolicyTargetRef{}, hotGPU())
 
-	evaluation := Evaluate("dev", nil, testProfiles(), []*mokkav1alpha1.SGPURuntimePolicy{second, first})
+	evaluation := mustEvaluate(t, "dev", nil, testProfiles(), []*mokkav1alpha1.SGPURuntimePolicy{second, first})
 
 	require.Empty(t, evaluation.InventoryUID)
 	require.Equal(t, []Decision{
 		{Policy: first, Scope: ScopeInventory, Outcome: TargetNotFound, Message: `SGPUInventory "dev" does not exist.`},
 		{Policy: second, Scope: ScopeGPU, Outcome: TargetNotFound, Message: `SGPUInventory "dev" does not exist.`},
 	}, evaluation.Decisions)
-	require.Equal(t, mokkav1alpha1.RuntimeState{}, evaluation.Runtime(nil, Coordinate{RackGroup: "training"}))
+	require.Equal(t, mokkav1alpha1.RuntimeState{}, mustRuntime(t, evaluation, nil, Coordinate{RackGroup: "training"}))
 }
 
 func TestEvaluateIsDeterministicForAnyPolicyOrder(t *testing.T) {
@@ -43,13 +43,13 @@ func TestEvaluateIsDeterministicForAnyPolicyOrder(t *testing.T) {
 		testPolicy("gpu-cool", 5, mokkav1alpha1.PolicyTargetRef{GPUIndexes: []int32{3, 5}}, coolGPU()),
 		testPolicy("ghost", 6, mokkav1alpha1.PolicyTargetRef{RackGroups: []string{"ghost"}}, hotGPU()),
 	}
-	want := Evaluate("dev", testInventory(), testProfiles(), policies)
+	want := mustEvaluate(t, "dev", testInventory(), testProfiles(), policies)
 
 	reversed := slices.Clone(policies)
 	slices.Reverse(reversed)
 	rotated := append(slices.Clone(policies[2:]), policies[:2]...)
 	for _, order := range [][]*mokkav1alpha1.SGPURuntimePolicy{reversed, rotated} {
-		require.Equal(t, want, Evaluate("dev", testInventory(), testProfiles(), order))
+		require.Equal(t, want, mustEvaluate(t, "dev", testInventory(), testProfiles(), order))
 	}
 }
 
@@ -73,8 +73,8 @@ func TestEvaluateDoesNotModifyItsInputs(t *testing.T) {
 	}
 	wantPolicies := []*mokkav1alpha1.SGPURuntimePolicy{policies[0].DeepCopy(), policies[1].DeepCopy()}
 
-	evaluation := Evaluate("dev", inventory, profiles, policies)
-	evaluation.Runtime(testDefaults(), Coordinate{RackGroup: "training", GPUIndex: 2})
+	evaluation := mustEvaluate(t, "dev", inventory, profiles, policies)
+	mustRuntime(t, evaluation, testDefaults(), Coordinate{RackGroup: "training", GPUIndex: 2})
 
 	require.Equal(t, wantInventory, inventory)
 	require.Equal(t, wantProfiles, profiles)
@@ -152,6 +152,35 @@ func coolGPU() *mokkav1alpha1.RuntimeState { return gpuCelsius(40) }
 
 func failedGPU() *mokkav1alpha1.RuntimeState {
 	return &mokkav1alpha1.RuntimeState{DeviceState: mokkav1alpha1.DeviceStateFailed}
+}
+
+func mustEvaluate(
+	t *testing.T,
+	inventoryName string,
+	inventory *mokkav1alpha1.SGPUInventory,
+	profiles map[string]*mokkav1alpha1.SGPURackProfile,
+	policies []*mokkav1alpha1.SGPURuntimePolicy,
+) *Evaluation {
+	t.Helper()
+
+	evaluation, err := Evaluate(inventoryName, inventory, profiles, policies)
+	require.NoError(t, err)
+
+	return evaluation
+}
+
+func mustRuntime(
+	t *testing.T,
+	evaluation *Evaluation,
+	defaults *mokkav1alpha1.RuntimeState,
+	at Coordinate,
+) mokkav1alpha1.RuntimeState {
+	t.Helper()
+
+	state, err := evaluation.Runtime(defaults, at)
+	require.NoError(t, err)
+
+	return state
 }
 
 func outcomes(evaluation *Evaluation) map[string]Outcome {
