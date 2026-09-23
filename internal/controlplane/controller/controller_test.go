@@ -47,14 +47,19 @@ func TestEventRoutingUsesBoundedDependencyKeys(t *testing.T) {
 
 	inventory := testInventory()
 	require.NoError(t, inventories.Add(inventory))
+	inventoryStatuses := []statusKey{
+		{kind: statusInventory, name: "inventory", uid: "inventory-uid"},
+		{kind: statusRuntimePolicies, name: "inventory"},
+	}
 	router.inventoryAdd(inventory)
 	require.Equal(t, []string{"inventory"}, drainQueue(queues.inventories))
 	require.Empty(t, drainQueue(queues.groups), "inventory work owns configuration materialization")
-	require.Equal(t, []statusKey{{kind: statusInventory, name: "inventory", uid: "inventory-uid"}}, drainQueue(queues.status))
+	require.ElementsMatch(t, inventoryStatuses, drainQueue(queues.status))
 
 	router.profileAdd(&mokkav1alpha1.SGPURackProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile"}})
 	require.Equal(t, []string{"inventory"}, drainQueue(queues.inventories))
 	require.Empty(t, drainQueue(queues.groups), "inventory work owns profile-driven materialization")
+	require.ElementsMatch(t, inventoryStatuses, drainQueue(queues.status))
 
 	node := testNode()
 	router.nodeAdd(node)
@@ -223,6 +228,8 @@ func TestNoOpUpdatesAreSuppressed(t *testing.T) {
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
 	router := newEventRouter(inventories, racks, nodecatalog.New(), newPlacementRegistry(), queues)
+	labeledPolicy := testRuntimePolicy("hot", "inventory")
+	labeledPolicy.Labels = map[string]string{"team": "chaos"}
 
 	objects := []struct {
 		old any
@@ -233,6 +240,7 @@ func TestNoOpUpdatesAreSuppressed(t *testing.T) {
 		{&mokkav1alpha1.SGPURackProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile"}}, &mokkav1alpha1.SGPURackProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile", ResourceVersion: "2"}}, router.profileUpdate},
 		{testRack(testNode()), testRack(testNode()).DeepCopy(), router.rackUpdate},
 		{testNode(), testNode().DeepCopy(), router.nodeUpdate},
+		{testRuntimePolicy("hot", "inventory"), labeledPolicy, router.runtimePolicyUpdate},
 	}
 	for _, object := range objects {
 		object.fn(object.old, object.new)
@@ -544,7 +552,8 @@ func TestInventoryDeleteRequeuesEverySurvivingInventory(t *testing.T) {
 		{kind: statusInventory, name: deleted.Name, uid: deleted.UID},
 		{kind: statusInventory, name: first.Name, uid: first.UID},
 		{kind: statusInventory, name: second.Name, uid: second.UID},
-	}, drainQueue(queues.status))
+		{kind: statusRuntimePolicies, name: deleted.Name},
+	}, drainQueue(queues.status), "policy validity does not depend on capacity admission, so survivors keep theirs")
 	require.Equal(t, []allocate.RackGroupKey{groupKey(first, "group")}, registry.matching(testNode()))
 }
 
@@ -598,7 +607,10 @@ func TestStaleInventoryDeleteDoesNotRequeueUnrelatedInventories(t *testing.T) {
 	router.inventoryDelete(cache.DeletedFinalStateUnknown{Key: stale.Name, Obj: stale})
 
 	require.Equal(t, []string{stale.Name}, drainQueue(queues.inventories))
-	require.Equal(t, []statusKey{{kind: statusInventory, name: stale.Name, uid: stale.UID}}, drainQueue(queues.status))
+	require.ElementsMatch(t, []statusKey{
+		{kind: statusInventory, name: stale.Name, uid: stale.UID},
+		{kind: statusRuntimePolicies, name: stale.Name},
+	}, drainQueue(queues.status))
 	survivors, removed := registry.remove(replacement)
 	require.True(t, removed, "a stale delete must retain even a zero-group replacement registry entry")
 	require.Equal(t, []placementInventoryKey{{name: unrelated.Name, uid: unrelated.UID}}, survivors)
@@ -782,8 +794,10 @@ func TestInventoryEventRoutingDoesNotExpandDesiredRackNames(t *testing.T) {
 	require.Zero(t, router.waiters.size(), "informer callbacks only retain actual reconciliation conflicts")
 	require.Equal(t, []string{inventory.Name}, drainQueue(queues.inventories),
 		"aggregate-invalid input must reach normal reconciliation")
-	require.Equal(t, []statusKey{{kind: statusInventory, name: inventory.Name, uid: inventory.UID}},
-		drainQueue(queues.status))
+	require.ElementsMatch(t, []statusKey{
+		{kind: statusInventory, name: inventory.Name, uid: inventory.UID},
+		{kind: statusRuntimePolicies, name: inventory.Name},
+	}, drainQueue(queues.status))
 }
 
 func TestRackConflictWaitersTrackInventoryReplacement(t *testing.T) {

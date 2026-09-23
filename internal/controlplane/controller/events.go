@@ -388,6 +388,38 @@ func (r *eventRouter) inventoryDelete(object any) {
 
 func (r *eventRouter) routeInventory(inventory *mokkav1alpha1.SGPUInventory) {
 	r.routeInventoryKey(placementInventoryKey{name: inventory.Name, uid: inventory.UID})
+	// Runtime policies are validated against the inventory and its profiles.
+	r.routeRuntimePolicies(inventory.Name)
+}
+
+func (r *eventRouter) routeRuntimePolicies(inventoryName string) {
+	r.queues.addStatus(statusKey{kind: statusRuntimePolicies, name: inventoryName})
+}
+
+func (r *eventRouter) runtimePolicyAdd(object any) {
+	policy, ok := eventObject[*mokkav1alpha1.SGPURuntimePolicy](object)
+	if ok {
+		r.routeRuntimePolicies(policy.Spec.TargetRef.Name)
+	}
+}
+
+func (r *eventRouter) runtimePolicyUpdate(oldObject, newObject any) {
+	oldPolicy, oldOK := eventObject[*mokkav1alpha1.SGPURuntimePolicy](oldObject)
+	newPolicy, newOK := eventObject[*mokkav1alpha1.SGPURuntimePolicy](newObject)
+	if !oldOK || !newOK || runtimePolicyUnchanged(oldPolicy, newPolicy) {
+		return
+	}
+	r.routeRuntimePolicies(newPolicy.Spec.TargetRef.Name)
+	if oldPolicy.Spec.TargetRef.Name != newPolicy.Spec.TargetRef.Name {
+		r.routeRuntimePolicies(oldPolicy.Spec.TargetRef.Name)
+	}
+}
+
+func (r *eventRouter) runtimePolicyDelete(object any) {
+	policy, ok := eventObject[*mokkav1alpha1.SGPURuntimePolicy](object)
+	if ok {
+		r.routeRuntimePolicies(policy.Spec.TargetRef.Name)
+	}
 }
 
 func (r *eventRouter) routeInventoryKey(inventory placementInventoryKey) {
@@ -825,6 +857,16 @@ func profileUnchanged(old, current *mokkav1alpha1.SGPURackProfile) bool {
 	return old.UID == current.UID &&
 		equality.Semantic.DeepEqual(old.Spec, current.Spec) &&
 		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
+}
+
+// runtimePolicyUnchanged ignores metadata-only updates. Unlike racks, a
+// status-only update still counts: the status reconciler trusts a cached
+// status that already matches its decision, so it must look again once the
+// informer observes a status write it had not seen.
+func runtimePolicyUnchanged(old, current *mokkav1alpha1.SGPURuntimePolicy) bool {
+	return old.UID == current.UID &&
+		equality.Semantic.DeepEqual(old.Spec, current.Spec) &&
+		equality.Semantic.DeepEqual(old.Status, current.Status)
 }
 
 func rackUnchanged(old, current *mokkav1alpha1.SGPURack) bool {
