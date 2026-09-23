@@ -34,6 +34,24 @@ type SGPURack struct {
 	Status SGPURackStatus `json:"status,omitempty"`
 }
 
+// InventoryOwner returns the rack's controller reference when it names an
+// SGPUInventory, and nil otherwise.
+func (r *SGPURack) InventoryOwner() *metav1.OwnerReference {
+	owner := metav1.GetControllerOf(r)
+	if owner == nil || owner.APIVersion != GroupVersion.String() || owner.Kind != "SGPUInventory" {
+		return nil
+	}
+	return owner
+}
+
+// OwnerMatchesInventoryRef reports whether the controlling SGPUInventory is
+// the exact instance pinned by spec.inventoryRef.
+func (r *SGPURack) OwnerMatchesInventoryRef() bool {
+	owner := r.InventoryOwner()
+	return owner != nil && owner.Name != "" && owner.UID != "" &&
+		owner.Name == r.Spec.InventoryRef.Name && owner.UID == r.Spec.InventoryRef.UID
+}
+
 // SGPURackList is the list wrapper for SGPURack.
 // +kubebuilder:object:root=true
 type SGPURackList struct {
@@ -61,6 +79,17 @@ type SGPURackSpec struct {
 	// +listType=map
 	// +listMapKey=index
 	Nodes []SGPURackNode `json:"nodes"`
+}
+
+// NodeByIndex returns the logical Node with the given index, or nil when the
+// rack has none.
+func (s *SGPURackSpec) NodeByIndex(index int32) *SGPURackNode {
+	for i := range s.Nodes {
+		if s.Nodes[i].Index == index {
+			return &s.Nodes[i]
+		}
+	}
+	return nil
 }
 
 // SGPURackInventoryReference pins a rack to an exact inventory instance.
@@ -124,6 +153,12 @@ type SGPURackNode struct {
 	// +listType=map
 	// +listMapKey=index
 	GPUs []SGPURackGPU `json:"gpus"`
+}
+
+// BoundTo reports whether the logical Node is bound to the exact Kubernetes
+// Node instance with the given name and UID.
+func (n *SGPURackNode) BoundTo(name string, uid types.UID) bool {
+	return n.NodeRef != nil && n.NodeRef.Name == name && n.NodeRef.UID == uid
 }
 
 // SGPUNodeReference identifies an exact Kubernetes Node instance.

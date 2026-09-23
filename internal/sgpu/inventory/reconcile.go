@@ -506,8 +506,7 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 				result.OwnershipConflicts = append(result.OwnershipConflicts, *conflict)
 			}
 			if err != nil {
-				var materializationErr *profileMaterializationError
-				if errors.As(err, &materializationErr) {
+				if materializationErr, ok := errors.AsType[*profileMaterializationError](err); ok {
 					result.ProfileIssues = append(result.ProfileIssues, ProfileIssue{
 						RackGroup: group.group.ID, ProfileName: group.profile.Name, Reason: materializationErr.Error(),
 					})
@@ -1208,10 +1207,8 @@ func validateInventory(inventory *mokkav1alpha1.SGPUInventory) error {
 		if group.ProfileRef.Name == "" {
 			return fmt.Errorf("rack group %q profileRef.name must not be empty", group.ID)
 		}
-		if group.Placement != nil && group.Placement.NodeSelector != nil {
-			if err := allocate.ValidatePlacementSelector(group.Placement.NodeSelector); err != nil {
-				return fmt.Errorf("rack group %q selector: %w", group.ID, err)
-			}
+		if err := allocate.ValidatePlacementSelector(group.NodeSelector()); err != nil {
+			return fmt.Errorf("rack group %q selector: %w", group.ID, err)
 		}
 	}
 	return nil
@@ -1253,17 +1250,8 @@ func ensureRackMetadata(rack *mokkav1alpha1.SGPURack, inventory *mokkav1alpha1.S
 }
 
 func controlledByInventory(rack *mokkav1alpha1.SGPURack, inventory *mokkav1alpha1.SGPUInventory) bool {
-	owner := metav1.GetControllerOf(rack)
-	return owner != nil && owner.APIVersion == mokkav1alpha1.SchemeGroupVersion.String() &&
-		owner.Kind == "SGPUInventory" && owner.Name == inventory.Name && owner.UID == inventory.UID
-}
-
-func controllerInventoryOwner(rack *mokkav1alpha1.SGPURack) *metav1.OwnerReference {
-	owner := metav1.GetControllerOf(rack)
-	if owner == nil || owner.APIVersion != mokkav1alpha1.SchemeGroupVersion.String() || owner.Kind != "SGPUInventory" {
-		return nil
-	}
-	return owner
+	owner := rack.InventoryOwner()
+	return owner != nil && owner.Name == inventory.Name && owner.UID == inventory.UID
 }
 
 func filterOwnedRacks(racks []*mokkav1alpha1.SGPURack, inventory *mokkav1alpha1.SGPUInventory) []*mokkav1alpha1.SGPURack {

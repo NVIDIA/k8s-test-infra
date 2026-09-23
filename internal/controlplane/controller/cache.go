@@ -150,11 +150,7 @@ func (c *informerCache) statusNodesForInventory(
 	selectors := make([]labels.Selector, 0, len(inventory.Spec.RackGroups))
 	if includePlacement {
 		for _, group := range inventory.Spec.RackGroups {
-			var nodeSelector *metav1.LabelSelector
-			if group.Placement != nil {
-				nodeSelector = group.Placement.NodeSelector
-			}
-			selector, err := allocate.CompilePlacementSelector(nodeSelector)
+			selector, err := allocate.CompilePlacementSelector(group.NodeSelector())
 			if err != nil {
 				continue
 			}

@@ -359,8 +359,8 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 			if getErr != nil {
 				return getErr
 			}
-			slot := boundRackSlot(rack, key.nodeIndex)
-			if slot == nil {
+			slot := rack.Spec.NodeByIndex(key.nodeIndex)
+			if slot == nil || slot.NodeRef == nil {
 				return nil
 			}
 			if !key.fresh && projection.Ready(cleanupFor(rack, *slot, inventorycleanup.CleanupNodeIneligible)) {
@@ -771,15 +771,6 @@ func shouldRetry(ctx context.Context, err error) bool {
 	return ctx.Err() == nil && !errors.Is(err, context.Canceled)
 }
 
-func boundRackSlot(rack *mokkav1alpha1.SGPURack, index int32) *mokkav1alpha1.SGPURackNode {
-	for i := range rack.Spec.Nodes {
-		if rack.Spec.Nodes[i].Index == index && rack.Spec.Nodes[i].NodeRef != nil {
-			return &rack.Spec.Nodes[i]
-		}
-	}
-	return nil
-}
-
 func cleanupTracksAllocation(reason inventorycleanup.CleanupReason) bool {
 	switch reason {
 	case inventorycleanup.CleanupCapacityShrink,
@@ -807,8 +798,8 @@ func cleanupBindingCurrent(snapshot *informerCache, cleanup inventorycleanup.Cle
 		rack.Spec.Identity.RackIndex != binding.Coordinate.RackIndex {
 		return false
 	}
-	slot := boundRackSlot(rack, binding.Coordinate.NodeIndex)
-	return slot != nil && slot.NodeRef.Name == binding.Node.Name && slot.NodeRef.UID == binding.Node.UID
+	slot := rack.Spec.NodeByIndex(binding.Coordinate.NodeIndex)
+	return slot != nil && slot.BoundTo(binding.Node.Name, binding.Node.UID)
 }
 
 type resultKey struct {

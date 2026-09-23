@@ -289,7 +289,7 @@ func ComputeInventory(input InventoryInput, now metav1.Time) mokkav1alpha1.SGPUI
 			},
 			selector: labels.Nothing(), requested: make(map[types.UID]struct{}),
 		}
-		if selector, err := groupSelector(declaration); err == nil {
+		if selector, err := allocate.CompilePlacementSelector(declaration.NodeSelector()); err == nil {
 			aggregate.selector = selector
 		}
 		profile := input.Profiles[declaration.ProfileRef.Name]
@@ -357,7 +357,7 @@ func ComputeInventory(input InventoryInput, now metav1.Time) mokkav1alpha1.SGPUI
 				continue
 			}
 			node := liveNodes[slot.NodeRef.UID]
-			if node == nil || node.Name != slot.NodeRef.Name {
+			if node == nil || !slot.BoundTo(node.Name, node.UID) {
 				continue
 			}
 			aggregate.status.Usage.AllocatedNodes++
@@ -447,7 +447,7 @@ func ComputeRack(input RackInput, now metav1.Time) mokkav1alpha1.SGPURackStatus 
 			hasDuplicate = true
 		}
 		node := liveNodes[slot.NodeRef.UID]
-		if node == nil || node.Name != slot.NodeRef.Name {
+		if node == nil || !slot.BoundTo(node.Name, node.UID) {
 			invalid = true
 			continue
 		}
@@ -574,13 +574,6 @@ func mergeConditions(old, desired []metav1.Condition, generation int64, now meta
 	return merged
 }
 
-func groupSelector(group mokkav1alpha1.RackGroup) (labels.Selector, error) {
-	if group.Placement == nil || group.Placement.NodeSelector == nil {
-		return labels.Everything(), nil
-	}
-	return allocate.CompilePlacementSelector(group.Placement.NodeSelector)
-}
-
 func matchingGroups(node allocate.KubernetesNode, groups map[string]*groupAggregate) []string {
 	matches := make([]string, 0, 1)
 	if node.Labels[allocate.EligibleNodeLabel] != "true" {
@@ -648,16 +641,8 @@ func duplicateUIDs(racks []*mokkav1alpha1.SGPURack) map[types.UID]struct{} {
 }
 
 func ownedByInventory(rack *mokkav1alpha1.SGPURack, inventory *mokkav1alpha1.SGPUInventory) bool {
-	if rack == nil ||
-		rack.Spec.InventoryRef.Name != inventory.Name ||
-		rack.Spec.InventoryRef.UID != inventory.UID {
-		return false
-	}
-	owner := metav1.GetControllerOf(rack)
-	return owner != nil &&
-		owner.APIVersion == mokkav1alpha1.SchemeGroupVersion.String() &&
-		owner.Kind == "SGPUInventory" &&
-		owner.Name == inventory.Name && owner.UID == inventory.UID
+	return rack != nil && rack.OwnerMatchesInventoryRef() &&
+		rack.Spec.InventoryRef.Name == inventory.Name && rack.Spec.InventoryRef.UID == inventory.UID
 }
 
 //nolint:cyclop // Presence requires exact owner, group, index, and rendered spec identity.

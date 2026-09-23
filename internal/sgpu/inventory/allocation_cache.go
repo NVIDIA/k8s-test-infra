@@ -11,7 +11,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
@@ -259,13 +258,11 @@ func allocationGroups(
 			continue
 		}
 		for _, group := range resolved {
-			var selector *metav1.LabelSelector
-			if group.group.Placement != nil {
-				selector = group.group.Placement.NodeSelector
-			}
 			groups = append(groups, allocate.RackGroup{
-				Key: group.key, Selector: selector,
-				Racks: group.group.Count, NodesPerRack: group.profile.Spec.Rack.NodesPerRack,
+				Key:          group.key,
+				Selector:     group.group.NodeSelector(),
+				Racks:        group.group.Count,
+				NodesPerRack: group.profile.Spec.Rack.NodesPerRack,
 			})
 		}
 	}
