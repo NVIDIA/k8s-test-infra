@@ -17,7 +17,7 @@ import (
 )
 
 func TestControllerExamplesAreTypedAndMaterializable(t *testing.T) {
-	examples := filepath.Join("..", "..", "examples", "mokka-controller")
+	examples := filepath.Join("..", "..", "examples", "controlplane-crds")
 	profileData, err := os.ReadFile(filepath.Join(examples, "sgpu-rack-profile.yaml"))
 	require.NoError(t, err)
 	profile := &mokkav1alpha1.SGPURackProfile{}
