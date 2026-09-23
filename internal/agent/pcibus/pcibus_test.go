@@ -6,6 +6,7 @@ package pcibus
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -149,7 +150,11 @@ func TestApply_WritesNFDFeatureFile(t *testing.T) {
 
 	data, err := os.ReadFile(h.EtcPath(nfdFeatureFile))
 	require.NoError(t, err)
-	require.Equal(t, nfdContent, string(data))
+	// Literal, not nfdContent: comparing the file back to the constant that
+	// wrote it holds for any value of that constant, including an empty one.
+	// This pins the exact bytes NFD's local source parses, trailing newline
+	// included; the semantic facts are asserted separately below.
+	require.Equal(t, "pci-10de.present=true\nnvml-mock.present=true\n", string(data))
 }
 
 func TestRevoke_RemovesNFDFile(t *testing.T) {
@@ -207,4 +212,29 @@ func TestReady_SurvivesDiscard(t *testing.T) {
 	// Discard removes staged artifacts but does not withdraw published ones;
 	// Revoke runs first during teardown and clears readiness.
 	require.True(t, sim.Ready(), "Discard does not reset ready flag")
+}
+
+// A Mokka node is otherwise byte-identical to real hardware at the label
+// level: NFD derives feature.node.kubernetes.io/pci-10de.present=true from
+// this file, and a real NVIDIA node carries the same key. Nothing downstream
+// could tell the GPUs were simulated, so snapshots and conformance evidence
+// captured against a mocked cluster read as real silicon. The agent therefore
+// states the fact rather than leaving consumers to infer it.
+//
+// Asserted against literals, not against nfdContent: comparing the file back
+// to the constant that wrote it passes for any value of that constant.
+func TestApply_FeatureFileDeclaresTheGPUsAreSimulated(t *testing.T) {
+	h := testHost(t)
+	sim := New(h)
+
+	require.NoError(t, sim.Apply(t.Context(), nil))
+
+	data, err := os.ReadFile(h.EtcPath(nfdFeatureFile))
+	require.NoError(t, err)
+
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	require.Contains(t, lines, "pci-10de.present=true",
+		"NFD must still derive the PCI vendor label")
+	require.Contains(t, lines, "nvml-mock.present=true",
+		"a simulated node must be distinguishable from real hardware")
 }

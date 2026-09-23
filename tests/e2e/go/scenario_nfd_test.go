@@ -43,6 +43,13 @@ const (
 	nfdOwnedLabelsAnnotation = "nfd.node.kubernetes.io/feature-labels"
 	pciVendorFeature         = "pci-10de.present"
 
+	// Mokka's self-identifying label. Only a simulated node carries it. Every
+	// other label a Mokka node publishes, product name and memory size
+	// included, is identical to what the same GPU reports on real hardware, so
+	// without this key nothing downstream can tell the two apart.
+	mockPresentLabel   = "feature.node.kubernetes.io/nvml-mock.present"
+	mockPresentFeature = "nvml-mock.present"
+
 	// Container path of the feature file the node agent writes
 	// (internal/agent/pcibus); the hostPath behind it is nodeLabels.featuresDir.
 	nfdFeatureFile = "/host/etc/kubernetes/node-feature-discovery/features.d/nvml-mock.features"
@@ -97,6 +104,7 @@ var _ = Describe("nvml-mock NFD label provenance", Label("nfd"), Ordered, Contin
 		// Without that, demoRelease's maxUnavailable=100% lets `helm --wait`
 		// return on merely-scheduled pods and the check passes vacuously.
 		assertions.NodeLabelAbsent(ctx, h.Kube, node, pciVendorLabel)
+		assertions.NodeLabelAbsent(ctx, h.Kube, node, mockPresentLabel)
 	})
 
 	It("writes the feature file NFD's local source reads", Label("nfd-provenance"), func(ctx SpecContext) {
@@ -105,8 +113,10 @@ var _ = Describe("nvml-mock NFD label provenance", Label("nfd"), Ordered, Contin
 
 		res, err := h.Kube.ExecSh(ctx, agent, "cat "+nfdFeatureFile)
 		Expect(err).NotTo(HaveOccurred(), "reading %s: %s", nfdFeatureFile, res.Combined())
-		Expect(strings.TrimSpace(res.Stdout)).To(Equal("pci-10de.present=true"),
-			"feature file contents drive the label NFD creates")
+		Expect(strings.Split(strings.TrimSpace(res.Stdout), "\n")).To(ConsistOf(
+			"pci-10de.present=true",
+			"nvml-mock.present=true",
+		), "feature file contents drive the labels NFD creates")
 	})
 
 	It("gets the label from NFD once NFD is installed", Label("nfd-provenance"), func(ctx SpecContext) {
@@ -122,8 +132,9 @@ var _ = Describe("nvml-mock NFD label provenance", Label("nfd"), Ordered, Contin
 		})).To(Succeed(), "install NFD")
 
 		assertions.WaitNodeLabelsPresent(ctx, h.Kube, node,
-			[]string{pciVendorLabel}, nfdLabelTimeout, nfdLabelPoll)
+			[]string{pciVendorLabel, mockPresentLabel}, nfdLabelTimeout, nfdLabelPoll)
 		assertions.NodeLabelEquals(ctx, h.Kube, node, pciVendorLabel, "true")
+		assertions.NodeLabelEquals(ctx, h.Kube, node, mockPresentLabel, "true")
 
 		// Presence alone cannot tell "NFD derived it" from "something else wrote
 		// it", so assert ownership directly: NFD patches the label and this
@@ -131,6 +142,8 @@ var _ = Describe("nvml-mock NFD label provenance", Label("nfd"), Ordered, Contin
 		// annotation is too — no second wait needed.
 		assertions.NodeAnnotationListContains(ctx, h.Kube, node,
 			nfdOwnedLabelsAnnotation, pciVendorFeature)
+		assertions.NodeAnnotationListContains(ctx, h.Kube, node,
+			nfdOwnedLabelsAnnotation, mockPresentFeature)
 	})
 })
 
