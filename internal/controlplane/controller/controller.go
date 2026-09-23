@@ -299,7 +299,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 					group.InventoryName, group.InventoryUID, group.RackGroup, binding.Coordinate.RackIndex,
 				)
 				cleanup, acknowledged := projection.AcknowledgedCleanup(rackName, binding)
-				if acknowledged && cleanupTracksAllocation(cleanup.Reason) {
+				if acknowledged && cleanup.Reason.Revocable() {
 					controller.queues.projections.Add(projectionKey{mode: projectionCleanup, cleanup: cleanup})
 				}
 			}
@@ -375,7 +375,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 		case projectionCleanup:
 			var outcome sgpuprojection.Outcome
 			err = withInventoryLock(key.cleanup.Binding.Coordinate.Group.InventoryName, func() error {
-				if !cleanupTracksAllocation(key.cleanup.Reason) {
+				if !key.cleanup.Reason.Revocable() {
 					var cleanupErr error
 					outcome, cleanupErr = projection.Cleanup(ctx, key.cleanup)
 					return cleanupErr
@@ -419,14 +419,11 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 				return retryErr
 			})
 			if err == nil && outcome.State == sgpuprojection.StateCleaned {
-				switch key.cleanup.Reason {
-				case sgpucleanup.CleanupCapacityShrink,
-					sgpucleanup.CleanupCapacityRejected,
-					sgpucleanup.CleanupGroupRemoved,
-					sgpucleanup.CleanupRackDeleting,
-					sgpucleanup.CleanupInventoryDeleting:
+				// Retiring or shrinking racks resumes in the inventory reconcile; a
+				// released binding only needs its group reallocated.
+				if key.cleanup.Reason.FreesCapacity() {
 					controller.queues.inventories.Add(key.cleanup.Binding.Coordinate.Group.InventoryName)
-				default:
+				} else {
 					controller.queues.groups.Add(key.cleanup.Binding.Coordinate.Group)
 				}
 			}
@@ -766,21 +763,6 @@ func processNext[T comparable](
 
 func shouldRetry(ctx context.Context, err error) bool {
 	return ctx.Err() == nil && !errors.Is(err, context.Canceled)
-}
-
-func cleanupTracksAllocation(reason sgpucleanup.CleanupReason) bool {
-	switch reason {
-	case sgpucleanup.CleanupCapacityShrink,
-		sgpucleanup.CleanupCapacityRejected,
-		sgpucleanup.CleanupGroupRemoved,
-		sgpucleanup.CleanupNodeIneligible,
-		sgpucleanup.CleanupSelectorMismatch:
-		return true
-	case sgpucleanup.CleanupRackDeleting, sgpucleanup.CleanupInventoryDeleting:
-		return false
-	default:
-		return false
-	}
 }
 
 func cleanupBindingCurrent(snapshot *informerCache, cleanup sgpucleanup.CleanupNeeded) bool {

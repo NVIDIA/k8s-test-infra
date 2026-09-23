@@ -21,13 +21,61 @@ const (
 	// CleanupCapacityShrink removes bindings outside the newly declared capacity.
 	CleanupCapacityShrink CleanupReason = "CapacityShrink"
 	// CleanupCapacityRejected retires an Inventory displaced by aggregate admission.
-	CleanupCapacityRejected  CleanupReason = "CapacityRejected"
-	CleanupGroupRemoved      CleanupReason = "GroupRemoved"
-	CleanupNodeIneligible    CleanupReason = "NodeIneligible"
+	CleanupCapacityRejected CleanupReason = "CapacityRejected"
+	CleanupGroupRemoved     CleanupReason = "GroupRemoved"
+	CleanupNodeIneligible   CleanupReason = "NodeIneligible"
+	// CleanupNodeGone removes bindings whose Node left the eligible Node set.
+	CleanupNodeGone          CleanupReason = "NodeGone"
 	CleanupSelectorMismatch  CleanupReason = "SelectorMismatch"
 	CleanupRackDeleting      CleanupReason = "RackDeleting"
 	CleanupInventoryDeleting CleanupReason = "InventoryDeleting"
 )
+
+// Revocable reports whether a later allocation can make the binding desired
+// again, so the cleanup must be re-checked against the current allocation
+// before it completes.
+func (r CleanupReason) Revocable() bool {
+	switch r {
+	case CleanupCapacityShrink, CleanupCapacityRejected, CleanupGroupRemoved,
+		CleanupNodeIneligible, CleanupNodeGone, CleanupSelectorMismatch:
+		return true
+	case CleanupRackDeleting, CleanupInventoryDeleting:
+		return false
+	}
+	return false
+}
+
+// FreesCapacity reports whether the cleanup is part of retiring or shrinking
+// racks, which frees durable capacity, rather than releasing one binding in a
+// rack that stays.
+func (r CleanupReason) FreesCapacity() bool {
+	switch r {
+	case CleanupCapacityShrink, CleanupCapacityRejected, CleanupGroupRemoved,
+		CleanupRackDeleting, CleanupInventoryDeleting:
+		return true
+	case CleanupNodeIneligible, CleanupSelectorMismatch, CleanupNodeGone:
+		return false
+	}
+	return false
+}
+
+// ReasonForRelease returns the cleanup reason for a binding the allocator
+// released.
+func ReasonForRelease(reason allocate.ReleaseReason) CleanupReason {
+	switch reason {
+	case allocate.ReleaseGroupRemoved:
+		return CleanupGroupRemoved
+	case allocate.ReleaseCapacityShrink:
+		return CleanupCapacityShrink
+	case allocate.ReleaseNodeGone:
+		return CleanupNodeGone
+	case allocate.ReleaseNodeIneligible:
+		return CleanupNodeIneligible
+	case allocate.ReleaseSelectorMismatch:
+		return CleanupSelectorMismatch
+	}
+	return CleanupReason(reason)
+}
 
 // CleanupNeeded is the exact binding whose Node projection must be removed
 // before reconciliation may clear or retire its rack coordinate.

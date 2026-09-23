@@ -48,6 +48,43 @@ func TestCleanupNeededMatchesRackRequiresExactBinding(t *testing.T) {
 	}
 }
 
+func TestCleanupReasonClassifiesCauseAndEffect(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		reason        CleanupReason
+		revocable     bool
+		freesCapacity bool
+	}{
+		{reason: CleanupCapacityShrink, revocable: true, freesCapacity: true},
+		{reason: CleanupCapacityRejected, revocable: true, freesCapacity: true},
+		{reason: CleanupGroupRemoved, revocable: true, freesCapacity: true},
+		{reason: CleanupNodeIneligible, revocable: true},
+		{reason: CleanupSelectorMismatch, revocable: true},
+		{reason: CleanupNodeGone, revocable: true},
+		{reason: CleanupRackDeleting, freesCapacity: true},
+		{reason: CleanupInventoryDeleting, freesCapacity: true},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.reason), func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tt.revocable, tt.reason.Revocable())
+			require.Equal(t, tt.freesCapacity, tt.reason.FreesCapacity())
+		})
+	}
+}
+
+func TestReasonForReleaseCoversEveryAllocatorRelease(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, CleanupGroupRemoved, ReasonForRelease(allocate.ReleaseGroupRemoved))
+	require.Equal(t, CleanupCapacityShrink, ReasonForRelease(allocate.ReleaseCapacityShrink))
+	require.Equal(t, CleanupNodeGone, ReasonForRelease(allocate.ReleaseNodeGone))
+	require.Equal(t, CleanupNodeIneligible, ReasonForRelease(allocate.ReleaseNodeIneligible))
+	require.Equal(t, CleanupSelectorMismatch, ReasonForRelease(allocate.ReleaseSelectorMismatch))
+}
+
 func TestCleanupNeededMatchesRackRejectsMissingRack(t *testing.T) {
 	t.Parallel()
 
