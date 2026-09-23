@@ -19,6 +19,14 @@ load('ext://helm_resource', 'helm_resource')
 
 _REPO_RESOURCE = 'nvidia'
 
+# Pinned rather than floating: an upstream release would otherwise land in CI
+# without a commit. v26.7.1 gates every operand's toolkit-validation init
+# container on an `nvidia` line in /proc/modules (NVIDIA/gpu-operator#2881),
+# which the mock cannot serve to those containers, so GFD, the device plugin
+# and dcgm-exporter never start (#911). Bump deliberately.
+_CHART = 'nvidia/gpu-operator'
+_CHART_VERSION = 'v26.3.3'
+
 def install(nvml_mock_releases, extra_values=[], extra_resource_deps=[]):
     # local/gpu-operator/gpu-operator.values.yaml disables driver/toolkit/DCGM
     # (not needed with nvml-mock) and enables CDI mode so the Operator reads
@@ -29,9 +37,9 @@ def install(nvml_mock_releases, extra_values=[], extra_resource_deps=[]):
 
     helm_resource(
         'gpu-operator',
-        'nvidia/gpu-operator',
+        _CHART,
         namespace='gpu-operator',
-        flags=['--create-namespace'] + values_flags + ['--timeout', '300s'],
+        flags=['--create-namespace', '--version', _CHART_VERSION] + values_flags + ['--timeout', '300s'],
         resource_deps=[_REPO_RESOURCE] + nvml_mock_releases + extra_resource_deps,
         labels=['gpu-operator'],
     )

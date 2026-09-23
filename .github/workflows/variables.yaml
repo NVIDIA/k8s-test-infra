@@ -39,11 +39,11 @@ jobs:
 
     - name: Generate Commit Short SHA
       id: version
-      run: echo "version=$(echo $GITHUB_SHA | cut -c1-8)" >> "$GITHUB_OUTPUT"
+      run: echo "version=${GITHUB_SHA:0:8}" >> "$GITHUB_OUTPUT"
 
     - name: Get Golang Version
       id: golang_version
       run: |
         GOLANG_VERSION=$(./hack/golang-version.sh)
-        echo "Detected $GOLANG_VERSION"
-        echo "golang_version=${GOLANG_VERSION}" >> $GITHUB_OUTPUT
+        echo "Detected ${GOLANG_VERSION}"
+        echo "golang_version=${GOLANG_VERSION}" >> "$GITHUB_OUTPUT"

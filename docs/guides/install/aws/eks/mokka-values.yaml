@@ -1,0 +1,13 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+
+image:
+  tag: 0.4.0-rc1
+
+# Keep Mokka away from real GPU nodes and unrelated managed node groups.
+nodeSelector:
+  mokka.nvidia.com/type: sgpu
+
+# The dedicated EKS node group is untainted. Do not inherit the chart's broad
+# default toleration, which would otherwise admit the DaemonSet onto any taint.
+tolerations: []

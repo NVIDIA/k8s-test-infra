@@ -24,11 +24,14 @@ Deploys a DaemonSet that creates on every node:
   `nvidia.com/gpu` CDI spec get it bind-mounted at the kernel paths, which is
   what Go consumers need — see [PCI sysfs in containers](#pci-sysfs-in-containers)
 - A fake kernel-module surface at `/var/lib/nvml-mock/proc/modules` and
-  `/var/lib/nvml-mock/sys/module/...`, so `lsmod` lists `nvidia` and `nvidia_uvm`
-  and `/sys/module/nvidia/refcnt` exists. The node's own modules are mirrored
-  beside them. `libmockfs.so` redirects both paths for libc consumers. Both CDI
-  specs bind-mount the tree for Go consumers. A state reconcile refreshes the
-  mirror, so it can lag a module load or unload
+  `/var/lib/nvml-mock/sys/module/...`. `/sys/module/nvidia/refcnt` exists, and
+  `lsmod` lists `nvidia`, `nvidia_uvm`, `nvidia_modeset`, `gdrdrv` and
+  `nvidia_fs`, plus `nvidia_peermem` and `mlx5_core` when InfiniBand is enabled.
+  That covers every module the GPU Operator validator greps for and the `nvidia`
+  refcount it stats. The node's own modules are mirrored beside them.
+  `libmockfs.so` redirects both paths for libc consumers. Both CDI specs
+  bind-mount the tree for Go consumers. A state reconcile refreshes the mirror,
+  so it can lag a module load or unload
 
 Consumers (DRA driver, device plugin) point at `/var/lib/nvml-mock/driver`
 as the NVIDIA driver root and discover GPUs through standard NVML APIs.

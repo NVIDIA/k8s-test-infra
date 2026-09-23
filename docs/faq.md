@@ -8,7 +8,6 @@ than fail in an interesting way:
 
 | Surface | Consumer that reads it |
 |---|---|
-| Kernel module presence — `/proc/modules`, `/sys/module/nvidia/` | `lsmod`, the GPU Operator driver-container gate, DCGM startup checks |
 | PCIe config space — `/sys/bus/pci/devices/<BDF>/config`, `/proc/bus/pci/devices` | `lspci -vv`, low-level probes |
 | fabricmanager telemetry socket, `nvswitch-audit` | DCGM-Exporter fabric-manager collector, operator diagnostics |
 | MIG partition CDI specs and CDI hooks | MIG-aware workloads, GPU Operator toolkit hooks |
@@ -62,12 +61,17 @@ they report that a claim *exists*, not what a workload touched — which is enou
 to exercise a consumer that reads memory pressure. See
 [allocation-aware memory](configuration.md#allocation-aware--opt-in).
 
-## Why does `lsmod` show no `nvidia` module?
+## Which kernel modules does `lsmod` show?
 
-Because kernel module presence is not simulated. Consumers that gate on
-`/proc/modules` or `/sys/module/nvidia/` will conclude no driver is installed.
-This is one of a handful of known gaps — see
-[what is not simulated yet](#what-is-not-simulated-yet).
+`nvidia`, `nvidia_uvm`, `nvidia_modeset`, `gdrdrv` and `nvidia_fs`, plus
+`nvidia_peermem` and `mlx5_core` where InfiniBand is enabled.
+`/sys/module/nvidia/refcnt` exists too, and the node's own modules stay visible
+beside the simulated ones.
+
+That covers the modules the GPU Operator validator greps for. The mirror is
+refreshed by a state reconcile, so it can lag a module load or unload on the
+node. See [the Helm chart reference](helm-chart.md) for how the surface reaches
+a container.
 
 ## My pod requests a GPU but has no `nvidia-smi`. Why?
 

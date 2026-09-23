@@ -53,7 +53,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 | `gpu` | Profile, device count, per-device overrides |
 | `image` | Repository, tag, pull policy |
 | `nodeSelector`, `tolerations` | Standard scheduling; `nodeAgent.resources` sets limits |
-| `nodeAgent.kernelLog` | Announce injected Xids on the node's `/dev/kmsg` (off; makes the agent privileged) |
+| `nodeAgent.kernelLog` | Announce injected Xids on the node's `/dev/kmsg` (off by default) |
 | `nodeLabels` | Labels applied to nodes running the mock |
 | `allocationWatcher` | Tracks device-plugin allocations for utilization simulation |
 | `nri` | Node-wide NRI injection (see MEP-0002) |
@@ -69,7 +69,17 @@ so a mistyped key fails fast rather than deploying a broken DaemonSet.
 ## Support matrix
 
 - Kubernetes >= 1.28.0
+- `controlPlane.enabled` requires Kubernetes >= 1.30.0 for its
+  `ValidatingAdmissionPolicy`
+- `controlPlane.enabled` requires an immutable image digest in
+  `controlPlane.image.digest` for normal installs. Tilt explicitly enables
+  `controlPlane.image.allowMutableTag` only to inject locally built images.
 - Chart version: see `Chart.yaml`
+
+Before disabling the control plane or uninstalling its release, follow the
+[controller decommission procedure](../../../../docs/mokka-controller.md#disable-or-uninstall-safely).
+The controller must remove its finalizers and Node projection metadata while
+its Deployment and RBAC still exist; retained CRDs cannot perform this cleanup.
 
 ## Links
 

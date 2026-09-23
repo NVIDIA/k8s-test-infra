@@ -6,6 +6,7 @@ package kmod
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -38,10 +39,10 @@ func TestRender_WritesTheSimulatedModules(t *testing.T) {
 
 	out := t.TempDir()
 
-	mustRender(t, Options{Modules: Modules("550.163.01"), OverlayRoot: out})
+	mustRender(t, Options{Modules: Modules("550.163.01", false), OverlayRoot: out})
 
 	nvidia := filepath.Join(out, SysModuleRelPath, NVIDIA)
-	requireFileContent(t, filepath.Join(nvidia, "refcnt"), "1\n")
+	requireFileContent(t, filepath.Join(nvidia, "refcnt"), "4\n")
 	requireFileContent(t, filepath.Join(nvidia, "coresize"), "62312448\n")
 	requireFileContent(t, filepath.Join(nvidia, "initstate"), "live\n")
 	requireFileContent(t, filepath.Join(nvidia, "version"), "550.163.01\n")
@@ -66,7 +67,7 @@ func TestRender_MirrorsLoadedHostModules(t *testing.T) {
 
 	out := t.TempDir()
 	mustRender(t, Options{
-		Modules:     Modules("550.163.01"),
+		Modules:     Modules("550.163.01", false),
 		SourceRoot:  src,
 		OverlayRoot: out,
 	})
@@ -90,10 +91,10 @@ func TestRender_PreservesARealNVIDIAModule(t *testing.T) {
 
 	out := t.TempDir()
 	mustRender(t, Options{
-		Modules:     Modules("550.163.01"),
+		Modules:     Modules("550.163.01", false),
 		SourceRoot:  src,
 		OverlayRoot: out,
-		Host:        ParseProcModules("nvidia 999 7 nvidia_modeset, Live 0x0000000000000000\n"),
+		Host:        ParseProcModules("nvidia 999 7 host_only_holder, Live 0x0000000000000000\n"),
 	})
 
 	nvidia := filepath.Join(out, SysModuleRelPath, NVIDIA)
@@ -113,7 +114,7 @@ func TestRender_ReplacesADepartedRealNVIDIAModuleWithTheFallback(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(params, "NVreg_EnableGpuFirmware"), []byte("1\n"), 0o644))
 
 	out := t.TempDir()
-	opts := Options{Modules: Modules("550.163.01"), SourceRoot: src, OverlayRoot: out}
+	opts := Options{Modules: Modules("550.163.01", false), SourceRoot: src, OverlayRoot: out}
 	mustRender(t, opts)
 
 	require.NoError(t, os.RemoveAll(filepath.Join(src, NVIDIA)))
@@ -204,16 +205,16 @@ func TestRender_CompletesAHostNVIDIADirectoryThatCarriesNoAttributes(t *testing.
 	require.NoError(t, os.MkdirAll(filepath.Join(src, NVIDIA), 0o755))
 
 	out := t.TempDir()
-	mods := Modules("550.163.01")
+	mods := Modules("550.163.01", false)
 	mustRender(t, Options{Modules: mods, SourceRoot: src, OverlayRoot: out})
 
 	served := filepath.Join(out, SysModuleRelPath, NVIDIA)
-	requireFileContent(t, filepath.Join(served, "refcnt"), "1\n")
+	requireFileContent(t, filepath.Join(served, "refcnt"), "4\n")
 	requireFileContent(t, filepath.Join(served, "coresize"), "62312448\n")
 	requireFileContent(t, filepath.Join(served, "version"), "550.163.01\n")
 	require.FileExists(t, filepath.Join(served, "initstate"))
 
-	require.Contains(t, ProcModules(HostModules{}, mods), "nvidia 62312448 1 nvidia_uvm,",
+	require.Contains(t, ProcModules(HostModules{}, mods), "nvidia 62312448 4 nvidia_uvm,",
 		"proc/modules advertises nvidia, so the sysfs entry must answer for it")
 }
 
@@ -222,19 +223,19 @@ func TestRender_ServesHostValuesForAModuleTheMirrorMissed(t *testing.T) {
 
 	// The host loads nvidia, but SourceRoot holds no directory for it, which is
 	// what an unreadable /sys/module leaves behind.
-	host := ParseProcModules("nvidia 999999 3 nvidia_modeset, Live 0x0\n")
+	host := ParseProcModules("nvidia 999999 3 host_only_holder, Live 0x0\n")
 	out := t.TempDir()
-	mods := Modules("550.163.01")
+	mods := Modules("550.163.01", false)
 	mustRender(t, Options{Modules: mods, OverlayRoot: out, Host: host})
 
 	served := filepath.Join(out, SysModuleRelPath, NVIDIA)
 	requireFileContent(t, filepath.Join(served, "coresize"), "999999\n")
 	requireFileContent(t, filepath.Join(served, "refcnt"), "3\n")
-	require.FileExists(t, filepath.Join(served, "holders", "nvidia_modeset"))
+	require.FileExists(t, filepath.Join(served, "holders", "host_only_holder"))
 	require.NoFileExists(t, filepath.Join(served, "version"),
 		"the host line carries no version, so the simulated driver's must not land on a host module")
 
-	require.Contains(t, ProcModules(host, mods), "nvidia 999999 3 nvidia_modeset,",
+	require.Contains(t, ProcModules(host, mods), "nvidia 999999 3 host_only_holder,",
 		"and the two surfaces must describe that module the same way")
 }
 
@@ -244,20 +245,20 @@ func TestRender_ConvergesWhenAModuleTheMirrorMissedBecomesHostLoaded(t *testing.
 	t.Parallel()
 
 	out := t.TempDir()
-	mods := Modules("550.163.01")
+	mods := Modules("550.163.01", false)
 	mustRender(t, Options{Modules: mods, OverlayRoot: out})
 
-	host := ParseProcModules("nvidia 999999 3 nvidia_modeset, Live 0x0\n")
+	host := ParseProcModules("nvidia 999999 3 host_only_holder, Live 0x0\n")
 	mustRender(t, Options{Modules: mods, OverlayRoot: out, Host: host})
 
 	served := filepath.Join(out, SysModuleRelPath, NVIDIA)
 	requireFileContent(t, filepath.Join(served, "coresize"), "999999\n")
 	requireFileContent(t, filepath.Join(served, "refcnt"), "3\n")
-	require.FileExists(t, filepath.Join(served, "holders", "nvidia_modeset"))
+	require.FileExists(t, filepath.Join(served, "holders", "host_only_holder"))
 	require.NoFileExists(t, filepath.Join(served, "version"),
 		"the previous pass's simulated version must not survive onto a host module")
 
-	require.Contains(t, ProcModules(host, mods), "nvidia 999999 3 nvidia_modeset,",
+	require.Contains(t, ProcModules(host, mods), "nvidia 999999 3 host_only_holder,",
 		"and the two surfaces must still describe the module the same way")
 }
 
@@ -265,21 +266,21 @@ func TestRender_ConvergesWhenAModuleTheMirrorMissedStopsBeingHostLoaded(t *testi
 	t.Parallel()
 
 	out := t.TempDir()
-	mods := Modules("550.163.01")
+	mods := Modules("550.163.01", false)
 	mustRender(t, Options{
 		Modules:     mods,
 		OverlayRoot: out,
-		Host:        ParseProcModules("nvidia 999999 3 nvidia_modeset, Live 0x0\n"),
+		Host:        ParseProcModules("nvidia 999999 3 host_only_holder, Live 0x0\n"),
 	})
 
 	mustRender(t, Options{Modules: mods, OverlayRoot: out})
 
 	served := filepath.Join(out, SysModuleRelPath, NVIDIA)
 	requireFileContent(t, filepath.Join(served, "coresize"), "62312448\n")
-	requireFileContent(t, filepath.Join(served, "refcnt"), "1\n")
+	requireFileContent(t, filepath.Join(served, "refcnt"), "4\n")
 	requireFileContent(t, filepath.Join(served, "version"), "550.163.01\n")
 	require.FileExists(t, filepath.Join(served, "holders", NVIDIAUVM))
-	require.NoFileExists(t, filepath.Join(served, "holders", "nvidia_modeset"),
+	require.NoFileExists(t, filepath.Join(served, "holders", "host_only_holder"),
 		"the previous pass's host holder must not survive onto a simulated module")
 }
 
@@ -290,22 +291,22 @@ func TestRender_AgreesWithProcModulesWhenTheHostListsNoLine(t *testing.T) {
 	writeHostModule(t, src, NVIDIA, map[string]string{"refcnt": "42\n"})
 
 	out := t.TempDir()
-	mods := Modules("550.163.01")
+	mods := Modules("550.163.01", false)
 	mustRender(t, Options{Modules: mods, SourceRoot: src, OverlayRoot: out})
 
 	served := filepath.Join(out, SysModuleRelPath, NVIDIA)
-	requireFileContent(t, filepath.Join(served, "refcnt"), "1\n")
+	requireFileContent(t, filepath.Join(served, "refcnt"), "4\n")
 	requireFileContent(t, filepath.Join(served, "coresize"), "62312448\n")
 	require.FileExists(t, filepath.Join(served, "holders", NVIDIAUVM))
 
-	require.Contains(t, ProcModules(HostModules{}, mods), "nvidia 62312448 1 nvidia_uvm,",
+	require.Contains(t, ProcModules(HostModules{}, mods), "nvidia 62312448 4 nvidia_uvm,",
 		"the sysfs refcnt and holders must match the line proc/modules advertises")
 }
 
 func TestRender_RequiresAnOutput(t *testing.T) {
 	t.Parallel()
 
-	_, err := Render(Options{Modules: Modules("550.163.01")})
+	_, err := Render(Options{Modules: Modules("550.163.01", false)})
 	require.Error(t, err, "an empty OverlayRoot would render into the working directory")
 }
 
@@ -317,15 +318,15 @@ func TestRender_RecoversHostHoldersFromTheProcModulesLine(t *testing.T) {
 
 	out := t.TempDir()
 	mustRender(t, Options{
-		Modules:     Modules("550.163.01"),
+		Modules:     Modules("550.163.01", false),
 		SourceRoot:  src,
 		OverlayRoot: out,
-		Host:        ParseProcModules("nvidia 999 2 nvidia_modeset,nvidia_uvm, Live 0x0000000000000000\n"),
+		Host:        ParseProcModules("nvidia 999 2 host_only_holder,nvidia_uvm, Live 0x0000000000000000\n"),
 	})
 
 	served := filepath.Join(out, SysModuleRelPath, NVIDIA)
 	requireFileContent(t, filepath.Join(served, "refcnt"), "2\n")
-	require.FileExists(t, filepath.Join(served, "holders", "nvidia_modeset"))
+	require.FileExists(t, filepath.Join(served, "holders", "host_only_holder"))
 	require.FileExists(t, filepath.Join(served, "holders", NVIDIAUVM))
 }
 
@@ -337,15 +338,15 @@ func TestRender_ReconcilesAHostHoldersDirectoryThatLostALink(t *testing.T) {
 
 	out := t.TempDir()
 	mustRender(t, Options{
-		Modules:     Modules("550.163.01"),
+		Modules:     Modules("550.163.01", false),
 		SourceRoot:  src,
 		OverlayRoot: out,
-		Host:        ParseProcModules("nvidia 999 2 nvidia_modeset,nvidia_uvm, Live 0x0000000000000000\n"),
+		Host:        ParseProcModules("nvidia 999 2 host_only_holder,nvidia_uvm, Live 0x0000000000000000\n"),
 	})
 
 	holders := filepath.Join(out, SysModuleRelPath, NVIDIA, "holders")
 	require.FileExists(t, filepath.Join(holders, NVIDIAUVM))
-	require.FileExists(t, filepath.Join(holders, "nvidia_modeset"),
+	require.FileExists(t, filepath.Join(holders, "host_only_holder"),
 		"the proc line names two holders, so the mirror's single link is not the whole set")
 }
 
@@ -357,7 +358,7 @@ func TestRender_KeepsMirroredHoldersWhenTheProcLineOmitsDependencies(t *testing.
 
 	out := t.TempDir()
 	mustRender(t, Options{
-		Modules:     Modules("550.163.01"),
+		Modules:     Modules("550.163.01", false),
 		SourceRoot:  src,
 		OverlayRoot: out,
 		Host:        ParseProcModules("nvidia 999 2\n"),
@@ -374,10 +375,10 @@ func TestRender_ReconcilesHostHoldersIdempotently(t *testing.T) {
 	writeHostModule(t, src, NVIDIA, map[string]string{"coresize": "999\n", "refcnt": "2\n"}, NVIDIAUVM)
 
 	opts := Options{
-		Modules:     Modules("550.163.01"),
+		Modules:     Modules("550.163.01", false),
 		SourceRoot:  src,
 		OverlayRoot: t.TempDir(),
-		Host:        ParseProcModules("nvidia 999 2 nvidia_modeset,nvidia_uvm, Live 0x0000000000000000\n"),
+		Host:        ParseProcModules("nvidia 999 2 host_only_holder,nvidia_uvm, Live 0x0000000000000000\n"),
 	}
 	mustRender(t, opts)
 	mustRender(t, opts)
@@ -401,10 +402,10 @@ func TestRender_FillsAHostGapFromTheProcModulesLine(t *testing.T) {
 
 	out := t.TempDir()
 	mustRender(t, Options{
-		Modules:     Modules("550.163.01"),
+		Modules:     Modules("550.163.01", false),
 		SourceRoot:  src,
 		OverlayRoot: out,
-		Host:        ParseProcModules("nvidia 999 7 nvidia_modeset, Live 0x0000000000000000\n"),
+		Host:        ParseProcModules("nvidia 999 7 host_only_holder, Live 0x0000000000000000\n"),
 	})
 
 	served := filepath.Join(out, SysModuleRelPath, NVIDIA)
@@ -424,6 +425,43 @@ func TestRender_MirrorsHostHoldersAsSymlinks(t *testing.T) {
 	target, err := os.Readlink(filepath.Join(out, SysModuleRelPath, "mlx5_core", "holders", "mlx5_ib"))
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join("..", "..", "mlx5_ib"), target)
+}
+
+func TestRender_ServesEverySimulatedModule(t *testing.T) {
+	t.Parallel()
+
+	out := t.TempDir()
+	mods := Modules("550.163.01", true)
+	require.NotEmpty(t, mods)
+	mustRender(t, Options{Modules: mods, OverlayRoot: out})
+
+	for _, m := range mods {
+		dir := filepath.Join(out, SysModuleRelPath, m.Name)
+		requireFileContent(t, filepath.Join(dir, "coresize"), strconv.Itoa(m.SizeBytes)+"\n")
+		requireFileContent(t, filepath.Join(dir, "refcnt"), strconv.Itoa(m.Refcnt())+"\n")
+		requireFileContent(t, filepath.Join(dir, "initstate"), initStateLive+"\n")
+	}
+}
+
+func TestRender_PrunesTheFabricModulesWhenIBIsDisabled(t *testing.T) {
+	t.Parallel()
+
+	out := t.TempDir()
+	mustRender(t, Options{Modules: Modules("550.163.01", true), OverlayRoot: out})
+
+	for _, name := range []string{NVIDIAPeermem, MLX5Core} {
+		require.DirExists(t, filepath.Join(out, SysModuleRelPath, name))
+	}
+
+	mustRender(t, Options{Modules: Modules("550.163.01", false), OverlayRoot: out})
+
+	for _, name := range []string{NVIDIAPeermem, MLX5Core} {
+		require.NoDirExists(t, filepath.Join(out, SysModuleRelPath, name),
+			"%s must not outlive the fabric it needs", name)
+	}
+
+	requireFileContent(t, filepath.Join(out, SysModuleRelPath, NVIDIA, "refcnt"), "4\n")
+	require.NoFileExists(t, filepath.Join(out, SysModuleRelPath, NVIDIA, "holders", NVIDIAPeermem))
 }
 
 func TestRender_PrunesModulesTheSourceNoLongerHas(t *testing.T) {
@@ -488,13 +526,13 @@ func TestRender_FallsBackWhenAHostNVIDIAModuleVanishesMidPass(t *testing.T) {
 
 	out := t.TempDir()
 	mustRender(t, Options{
-		Modules:     Modules("550.163.01"),
+		Modules:     Modules("550.163.01", false),
 		SourceRoot:  src,
 		OverlayRoot: out,
 	})
 
 	nvidia := filepath.Join(out, SysModuleRelPath, NVIDIA)
-	requireFileContent(t, filepath.Join(nvidia, "refcnt"), "1\n")
+	requireFileContent(t, filepath.Join(nvidia, "refcnt"), "4\n")
 	requireFileContent(t, filepath.Join(nvidia, "coresize"), "62312448\n")
 }
 
@@ -517,7 +555,7 @@ func TestClear_EmptiesTheTreeButKeepsTheDirectory(t *testing.T) {
 	t.Parallel()
 
 	out := t.TempDir()
-	mustRender(t, Options{Modules: Modules("550.163.01"), OverlayRoot: out})
+	mustRender(t, Options{Modules: Modules("550.163.01", false), OverlayRoot: out})
 
 	root := filepath.Join(out, SysModuleRelPath)
 	before, err := os.Stat(root)
@@ -544,12 +582,12 @@ func TestRender_IdempotentRerender(t *testing.T) {
 	t.Parallel()
 
 	out := t.TempDir()
-	opts := Options{Modules: Modules("550.163.01"), OverlayRoot: out}
+	opts := Options{Modules: Modules("550.163.01", false), OverlayRoot: out}
 
 	mustRender(t, opts)
 	mustRender(t, opts)
 
-	requireFileContent(t, filepath.Join(out, SysModuleRelPath, NVIDIA, "refcnt"), "1\n")
+	requireFileContent(t, filepath.Join(out, SysModuleRelPath, NVIDIA, "refcnt"), "4\n")
 	target, err := os.Readlink(filepath.Join(out, SysModuleRelPath, NVIDIA, "holders", NVIDIAUVM))
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join("..", "..", NVIDIAUVM), target)

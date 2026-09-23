@@ -1,0 +1,5 @@
+aliases:
+  nested_reviewers:
+    - alias-reviewer
+    - alias-duplicate
+    - ALIAS-DUPLICATE
