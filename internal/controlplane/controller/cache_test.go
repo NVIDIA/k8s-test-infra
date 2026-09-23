@@ -14,7 +14,7 @@ import (
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
-	nodecatalog "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/nodecatalog"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/nodecatalog"
 	"github.com/stretchr/testify/require"
 )
 

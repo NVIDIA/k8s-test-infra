@@ -27,14 +27,14 @@ import (
 	"k8s.io/client-go/util/workqueue"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
+	sgpucleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/cleanup"
 	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
-	inventorycleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/cleanup"
-	inventorymetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/metadata"
-	nodecatalog "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/nodecatalog"
-	inventoryprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/projection"
-	rackrender "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/rack"
-	inventorystatus "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/status"
+	sgpumetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/nodecatalog"
+	sgpuprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/projection"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/rackrender"
+	sgpustatus "github.com/NVIDIA/k8s-test-infra/internal/sgpu/status"
 	versioned "github.com/NVIDIA/k8s-test-infra/pkg/generated/clientset/versioned"
 	mokkainformers "github.com/NVIDIA/k8s-test-infra/pkg/generated/informers/externalversions"
 )
@@ -115,7 +115,7 @@ type projectionKey struct {
 	rackName  string
 	nodeIndex int32
 	fresh     bool
-	cleanup   inventorycleanup.CleanupNeeded
+	cleanup   sgpucleanup.CleanupNeeded
 }
 
 type statusKind uint8
@@ -235,7 +235,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 		inventories.Lister(), profiles.Lister(), rackInformer.GetIndexer(), nodeCatalog, nodes,
 		options,
 	)
-	projection := inventoryprojection.NewController(snapshot, nodes)
+	projection := sgpuprojection.NewController(snapshot, nodes)
 	allocation := sgpuinventory.NewAllocationCache(snapshot)
 	rackReconciler := sgpuinventory.NewReconcilerWithAllocationCache(
 		snapshot,
@@ -244,7 +244,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 		projection,
 		allocation,
 	)
-	statusReconciler := inventorystatus.NewReconciler(
+	statusReconciler := sgpustatus.NewReconciler(
 		mokkaClient.MokkaV1alpha1().SGPUInventories(),
 		mokkaClient.MokkaV1alpha1().SGPURacks(),
 		nil,
@@ -362,7 +362,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 			if slot == nil || slot.NodeRef == nil {
 				return nil
 			}
-			if !key.fresh && projection.Ready(cleanupFor(rack, *slot, inventorycleanup.CleanupNodeIneligible)) {
+			if !key.fresh && projection.Ready(cleanupFor(rack, *slot, sgpucleanup.CleanupNodeIneligible)) {
 				return nil
 			}
 			if key.fresh {
@@ -373,7 +373,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 			controller.queues.addStatus(statusKey{kind: statusRack, name: rack.Name, uid: rack.UID})
 			controller.queues.addStatus(statusKey{kind: statusInventory, name: rack.Spec.InventoryRef.Name, uid: rack.Spec.InventoryRef.UID})
 		case projectionCleanup:
-			var outcome inventoryprojection.Outcome
+			var outcome sgpuprojection.Outcome
 			err = withInventoryLock(key.cleanup.Binding.Coordinate.Group.InventoryName, func() error {
 				if !cleanupTracksAllocation(key.cleanup.Reason) {
 					var cleanupErr error
@@ -418,13 +418,13 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 				}
 				return retryErr
 			})
-			if err == nil && outcome.State == inventoryprojection.StateCleaned {
+			if err == nil && outcome.State == sgpuprojection.StateCleaned {
 				switch key.cleanup.Reason {
-				case inventorycleanup.CleanupCapacityShrink,
-					inventorycleanup.CleanupCapacityRejected,
-					inventorycleanup.CleanupGroupRemoved,
-					inventorycleanup.CleanupRackDeleting,
-					inventorycleanup.CleanupInventoryDeleting:
+				case sgpucleanup.CleanupCapacityShrink,
+					sgpucleanup.CleanupCapacityRejected,
+					sgpucleanup.CleanupGroupRemoved,
+					sgpucleanup.CleanupRackDeleting,
+					sgpucleanup.CleanupInventoryDeleting:
 					controller.queues.inventories.Add(key.cleanup.Binding.Coordinate.Group.InventoryName)
 				default:
 					controller.queues.groups.Add(key.cleanup.Binding.Coordinate.Group)
@@ -525,7 +525,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 }
 
 func metadataConflict(err error) bool {
-	var conflict *inventoryprojection.MetadataConflictError
+	var conflict *sgpuprojection.MetadataConflictError
 	return errors.As(err, &conflict)
 }
 
@@ -768,22 +768,22 @@ func shouldRetry(ctx context.Context, err error) bool {
 	return ctx.Err() == nil && !errors.Is(err, context.Canceled)
 }
 
-func cleanupTracksAllocation(reason inventorycleanup.CleanupReason) bool {
+func cleanupTracksAllocation(reason sgpucleanup.CleanupReason) bool {
 	switch reason {
-	case inventorycleanup.CleanupCapacityShrink,
-		inventorycleanup.CleanupCapacityRejected,
-		inventorycleanup.CleanupGroupRemoved,
-		inventorycleanup.CleanupNodeIneligible,
-		inventorycleanup.CleanupSelectorMismatch:
+	case sgpucleanup.CleanupCapacityShrink,
+		sgpucleanup.CleanupCapacityRejected,
+		sgpucleanup.CleanupGroupRemoved,
+		sgpucleanup.CleanupNodeIneligible,
+		sgpucleanup.CleanupSelectorMismatch:
 		return true
-	case inventorycleanup.CleanupRackDeleting, inventorycleanup.CleanupInventoryDeleting:
+	case sgpucleanup.CleanupRackDeleting, sgpucleanup.CleanupInventoryDeleting:
 		return false
 	default:
 		return false
 	}
 }
 
-func cleanupBindingCurrent(snapshot *informerCache, cleanup inventorycleanup.CleanupNeeded) bool {
+func cleanupBindingCurrent(snapshot *informerCache, cleanup sgpucleanup.CleanupNeeded) bool {
 	rack, err := snapshot.Rack(cleanup.RackName)
 	return err == nil && cleanup.MatchesRack(rack)
 }
@@ -860,10 +860,10 @@ func compactNodeObject(object any) (any, error) {
 		return nil, fmt.Errorf("compact Node received %T", object)
 	}
 	annotations := make(map[string]string, 1)
-	if assignment := node.Annotations[inventorymetadata.AssignmentAnnotation]; assignment != "" {
-		annotations[inventorymetadata.AssignmentAnnotation] = assignment
+	if assignment := node.Annotations[sgpumetadata.AssignmentAnnotation]; assignment != "" {
+		annotations[sgpumetadata.AssignmentAnnotation] = assignment
 	}
-	managedFields := inventoryprojection.CompactManagedFields(node.ManagedFields)
+	managedFields := sgpuprojection.CompactManagedFields(node.ManagedFields)
 	return &corev1.Node{
 		TypeMeta: node.TypeMeta,
 		ObjectMeta: metav1.ObjectMeta{

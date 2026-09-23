@@ -27,15 +27,15 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
+	sgpuassignment "github.com/NVIDIA/k8s-test-infra/internal/sgpu/assignment"
+	sgpucleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/cleanup"
 	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/assignment"
-	inventorycleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/cleanup"
-	inventorymetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/metadata"
-	nodecatalog "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/nodecatalog"
-	inventoryprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/projection"
-	rackrender "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/rack"
-	inventorystatus "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/status"
+	sgpumetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/nodecatalog"
+	sgpuprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/projection"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/rackrender"
+	sgpustatus "github.com/NVIDIA/k8s-test-infra/internal/sgpu/status"
 	mokkafake "github.com/NVIDIA/k8s-test-infra/pkg/generated/clientset/versioned/fake"
 	mokkalisters "github.com/NVIDIA/k8s-test-infra/pkg/generated/listers/api/v1alpha1"
 )
@@ -135,7 +135,7 @@ func TestControllerLifecycleAcceptance(t *testing.T) {
 			slot := &rack.Spec.Nodes[index]
 			if slot.NodeRef != nil && slot.NodeRef.UID == "node-a-v2" {
 				bindings++
-				projected = projected || inventoryprojection.MatchesBinding(node, rack, slot)
+				projected = projected || sgpuprojection.MatchesBinding(node, rack, slot)
 			}
 		}
 		return bindings == 1 && projected
@@ -202,7 +202,7 @@ func TestControllerRecoversDesiredRackAfterForeignBlockerDelete(t *testing.T) {
 		}
 		programmed := findCondition(current.Status.Conditions, mokkav1alpha1.InventoryConditionProgrammed)
 		return programmed != nil && programmed.Status == metav1.ConditionFalse &&
-			programmed.Reason == inventorystatus.ReasonRackOwnershipConflict
+			programmed.Reason == sgpustatus.ReasonRackOwnershipConflict
 	}, 10*time.Second, 20*time.Millisecond)
 	retained, err := mokka.MokkaV1alpha1().SGPURacks().Get(ctx, rackName, metav1.GetOptions{})
 	require.NoError(t, err)
@@ -276,7 +276,7 @@ func TestControllerRejectsProjectedLabelPlacementWithoutOscillation(t *testing.T
 	invalid, err := mokka.MokkaV1alpha1().SGPUInventories().Get(ctx, inventory.Name, metav1.GetOptions{})
 	require.NoError(t, err)
 	invalid.Spec.RackGroups[0].Placement.NodeSelector = &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
-		Key: inventorymetadata.AssignedLabel, Operator: metav1.LabelSelectorOpDoesNotExist,
+		Key: sgpumetadata.AssignedLabel, Operator: metav1.LabelSelectorOpDoesNotExist,
 	}}}
 	invalid.Generation++
 	_, err = mokka.MokkaV1alpha1().SGPUInventories().Update(ctx, invalid, metav1.UpdateOptions{})
@@ -284,7 +284,7 @@ func TestControllerRejectsProjectedLabelPlacementWithoutOscillation(t *testing.T
 	controller.queues.inventories.Add(inventory.Name)
 
 	wantValidationError := `rack group "compute" selector: selector must not reference controller-owned label "` +
-		inventorymetadata.AssignedLabel + `"`
+		sgpumetadata.AssignedLabel + `"`
 	require.Eventually(t, func() bool {
 		current, err := mokka.MokkaV1alpha1().SGPUInventories().Get(ctx, inventory.Name, metav1.GetOptions{})
 		if err != nil {
@@ -324,7 +324,7 @@ func TestControllerCancelsQueuedCleanupWhenSelectorRestoresBinding(t *testing.T)
 	cleanupStarted := make(chan struct{})
 	releaseCleanup := make(chan struct{})
 	controller.reconcileProjection = func(ctx context.Context, key projectionKey) error {
-		if key.mode == projectionCleanup && key.cleanup.Reason == inventorycleanup.CleanupSelectorMismatch {
+		if key.mode == projectionCleanup && key.cleanup.Reason == sgpucleanup.CleanupSelectorMismatch {
 			close(cleanupStarted)
 			select {
 			case <-releaseCleanup:
@@ -648,7 +648,7 @@ func TestControllerBoundsCleanupWhenForeignCoOwnerPreservesField(t *testing.T) {
 	}, 5*time.Second, 20*time.Millisecond)
 
 	projected := nodes.snapshot(node.Name)
-	nodes.coOwn(node.Name, nil, []string{inventorymetadata.AssignmentAnnotation})
+	nodes.coOwn(node.Name, nil, []string{sgpumetadata.AssignmentAnnotation})
 	patchesBeforeCleanup := nodes.patchCalls()
 	deleting, err := mokka.MokkaV1alpha1().SGPUInventories().Get(ctx, inventory.Name, metav1.GetOptions{})
 	require.NoError(t, err)
@@ -661,10 +661,10 @@ func TestControllerBoundsCleanupWhenForeignCoOwnerPreservesField(t *testing.T) {
 	require.Eventually(t, func() bool {
 		current := nodes.snapshot(node.Name)
 		return nodes.patchCalls() == patchesBeforeCleanup+1 &&
-			current.Labels[inventorymetadata.AssignedLabel] == "" &&
-			current.Labels[inventorymetadata.CliqueLabel] == "" &&
-			current.Annotations[inventorymetadata.AssignmentAnnotation] ==
-				projected.Annotations[inventorymetadata.AssignmentAnnotation]
+			current.Labels[sgpumetadata.AssignedLabel] == "" &&
+			current.Labels[sgpumetadata.CliqueLabel] == "" &&
+			current.Annotations[sgpumetadata.AssignmentAnnotation] ==
+				projected.Annotations[sgpumetadata.AssignmentAnnotation]
 	}, 10*time.Second, 20*time.Millisecond, "cleanup must relinquish sole-owned fields once")
 
 	require.Never(t, func() bool {
@@ -711,11 +711,11 @@ func TestControllerReplacementConvergesWhileRestartQueuesInitialize(t *testing.T
 			int64(index+1),
 		)
 		rack.Spec.Nodes[index].NodeRef = &mokkav1alpha1.SGPUNodeReference{Name: node.Name, UID: node.UID}
-		assignment, encodeErr := assignment.EncodeAssignment(rack, &rack.Spec.Nodes[index])
+		assignment, encodeErr := sgpuassignment.EncodeAssignment(rack, &rack.Spec.Nodes[index])
 		require.NoError(t, encodeErr)
-		node.Labels[inventorymetadata.AssignedLabel] = "true"
-		node.Labels[inventorymetadata.CliqueLabel] = rack.Spec.Identity.FabricUUID + ".0"
-		node.Annotations = map[string]string{inventorymetadata.AssignmentAnnotation: assignment}
+		node.Labels[sgpumetadata.AssignedLabel] = "true"
+		node.Labels[sgpumetadata.CliqueLabel] = rack.Spec.Identity.FabricUUID + ".0"
+		node.Annotations = map[string]string{sgpumetadata.AssignmentAnnotation: assignment}
 		nodes.create(node)
 		if index == 0 {
 			oldNode = node
@@ -817,11 +817,11 @@ func TestRestartCleanupGatesReleasedAndRetiredBindings(t *testing.T) {
 			}
 			rack.Spec.Nodes[0].NodeRef = &mokkav1alpha1.SGPUNodeReference{Name: oldNode.Name, UID: oldNode.UID}
 			setAcceptanceRackManagedFields(rack)
-			assignment, err := assignment.EncodeAssignment(rack, &rack.Spec.Nodes[0])
+			assignment, err := sgpuassignment.EncodeAssignment(rack, &rack.Spec.Nodes[0])
 			require.NoError(t, err)
-			oldNode.Labels[inventorymetadata.AssignedLabel] = "true"
-			oldNode.Labels[inventorymetadata.CliqueLabel] = rack.Spec.Identity.FabricUUID + ".0"
-			oldNode.Annotations = map[string]string{inventorymetadata.AssignmentAnnotation: assignment}
+			oldNode.Labels[sgpumetadata.AssignedLabel] = "true"
+			oldNode.Labels[sgpumetadata.CliqueLabel] = rack.Spec.Identity.FabricUUID + ".0"
+			oldNode.Annotations = map[string]string{sgpumetadata.AssignmentAnnotation: assignment}
 
 			liveNode := tt.liveNode(oldNode.DeepCopy())
 			liveNodes := newAcceptanceNodeClient()
@@ -856,7 +856,7 @@ func TestRestartCleanupGatesReleasedAndRetiredBindings(t *testing.T) {
 				liveNodes,
 				DefaultOptions(),
 			)
-			projection := inventoryprojection.NewController(snapshot, liveNodes)
+			projection := sgpuprojection.NewController(snapshot, liveNodes)
 			reconciler := sgpuinventory.NewReconciler(
 				snapshot,
 				mokka.MokkaV1alpha1().SGPUInventories(),
@@ -1054,17 +1054,17 @@ func getAcceptanceRack(ctx context.Context, t *testing.T, client *mokkafake.Clie
 }
 
 func nodeHasProjection(node *corev1.Node) bool {
-	return node != nil && (node.Labels[inventorymetadata.AssignedLabel] != "" ||
-		node.Labels[inventorymetadata.CliqueLabel] != "" ||
-		node.Annotations[inventorymetadata.AssignmentAnnotation] != "")
+	return node != nil && (node.Labels[sgpumetadata.AssignedLabel] != "" ||
+		node.Labels[sgpumetadata.CliqueLabel] != "" ||
+		node.Annotations[sgpumetadata.AssignmentAnnotation] != "")
 }
 
 func nodeIsProjected(node *corev1.Node, uid types.UID) bool {
-	if node == nil || node.Labels[inventorymetadata.AssignedLabel] != "true" ||
-		node.Annotations[inventorymetadata.AssignmentAnnotation] == "" {
+	if node == nil || node.Labels[sgpumetadata.AssignedLabel] != "true" ||
+		node.Annotations[sgpumetadata.AssignmentAnnotation] == "" {
 		return false
 	}
-	assignment, err := assignment.DecodeAssignment(node.Annotations[inventorymetadata.AssignmentAnnotation])
+	assignment, err := sgpuassignment.DecodeAssignment(node.Annotations[sgpumetadata.AssignmentAnnotation])
 	return err == nil && assignment.NodeUID == uid
 }
 
@@ -1215,14 +1215,14 @@ func (c *acceptanceNodeClient) create(node *corev1.Node) {
 	delete(c.ownedAnnotations, node.Name)
 	delete(c.foreignLabels, node.Name)
 	delete(c.foreignAnnotations, node.Name)
-	if node.Labels[inventorymetadata.AssignedLabel] == "true" {
-		c.ownedLabels[node.Name] = map[string]struct{}{inventorymetadata.AssignedLabel: {}}
-		if node.Labels[inventorymetadata.CliqueLabel] != "" {
-			c.ownedLabels[node.Name][inventorymetadata.CliqueLabel] = struct{}{}
+	if node.Labels[sgpumetadata.AssignedLabel] == "true" {
+		c.ownedLabels[node.Name] = map[string]struct{}{sgpumetadata.AssignedLabel: {}}
+		if node.Labels[sgpumetadata.CliqueLabel] != "" {
+			c.ownedLabels[node.Name][sgpumetadata.CliqueLabel] = struct{}{}
 		}
 	}
-	if node.Annotations[inventorymetadata.AssignmentAnnotation] != "" {
-		c.ownedAnnotations[node.Name] = map[string]struct{}{inventorymetadata.AssignmentAnnotation: {}}
+	if node.Annotations[sgpumetadata.AssignmentAnnotation] != "" {
+		c.ownedAnnotations[node.Name] = map[string]struct{}{sgpumetadata.AssignmentAnnotation: {}}
 	}
 	setAcceptanceManagedFields(c.nodes[node.Name], c.ownedLabels[node.Name], c.ownedAnnotations[node.Name])
 	watcher := c.watcher
@@ -1370,7 +1370,7 @@ func keySet(keys []string) map[string]struct{} {
 func setAcceptanceManagedFields(node *corev1.Node, ownedLabels, ownedAnnotations map[string]struct{}) {
 	managedFields := node.ManagedFields[:0]
 	for _, entry := range node.ManagedFields {
-		if entry.Manager != inventoryprojection.FieldManager {
+		if entry.Manager != sgpuprojection.FieldManager {
 			managedFields = append(managedFields, entry)
 		}
 	}
@@ -1384,7 +1384,7 @@ func setAcceptanceManagedFields(node *corev1.Node, ownedLabels, ownedAnnotations
 		annotations = append(annotations, key)
 	}
 	if len(labels)+len(annotations) > 0 {
-		setNodeManagedFields(node, inventoryprojection.FieldManager, labels, annotations)
+		setNodeManagedFields(node, sgpuprojection.FieldManager, labels, annotations)
 	}
 }
 

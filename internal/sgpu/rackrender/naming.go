@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
 
-package rack
+package rackrender
 
 import (
 	"crypto/sha256"
@@ -21,8 +21,6 @@ const (
 
 // RackName returns a readable DNS label with a coordinate hash that survives
 // truncation.
-//
-//nolint:revive // The established name is preserved while moving package ownership.
 func RackName(inventoryName string, inventoryUID types.UID, rackGroup string, rackIndex int32) string {
 	hashInput := appendLengthPrefixed(nil, string(inventoryUID))
 	hashInput = appendLengthPrefixed(hashInput, rackGroup)

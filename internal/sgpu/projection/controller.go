@@ -20,10 +20,10 @@ import (
 	"k8s.io/utils/ptr"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/assignment"
-	inventorycleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/cleanup"
-	inventorymetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/metadata"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
+	sgpuassignment "github.com/NVIDIA/k8s-test-infra/internal/sgpu/assignment"
+	sgpucleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/cleanup"
+	sgpumetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
 )
 
 const (
@@ -107,7 +107,7 @@ type Controller struct {
 	outcomeByCoordinate map[coordinateKey]bindingKey
 	outcomesByInventory map[objectKey]map[bindingKey]struct{}
 	outcomesByRack      map[objectKey]map[bindingKey]struct{}
-	cleaned             map[bindingKey]inventorycleanup.CleanupReason
+	cleaned             map[bindingKey]sgpucleanup.CleanupReason
 	cleanedByCoordinate map[coordinateKey]bindingKey
 	cleanupBlocks       map[bindingKey]cleanupBlock
 	blocksByCoordinate  map[coordinateKey]bindingKey
@@ -115,7 +115,7 @@ type Controller struct {
 	operations [operationShards]sync.Mutex
 }
 
-var _ inventorycleanup.CleanupGate = (*Controller)(nil)
+var _ sgpucleanup.CleanupGate = (*Controller)(nil)
 
 type bindingKey struct {
 	inventoryName string
@@ -158,7 +158,7 @@ func NewController(cache Cache, patcher NodePatcher) *Controller {
 		outcomeByCoordinate: make(map[coordinateKey]bindingKey),
 		outcomesByInventory: make(map[objectKey]map[bindingKey]struct{}),
 		outcomesByRack:      make(map[objectKey]map[bindingKey]struct{}),
-		cleaned:             make(map[bindingKey]inventorycleanup.CleanupReason),
+		cleaned:             make(map[bindingKey]sgpucleanup.CleanupReason),
 		cleanedByCoordinate: make(map[coordinateKey]bindingKey),
 		cleanupBlocks:       make(map[bindingKey]cleanupBlock),
 		blocksByCoordinate:  make(map[coordinateKey]bindingKey),
@@ -217,15 +217,15 @@ func (c *Controller) project(ctx context.Context, rackName string, nodeIndex int
 		return outcome, err
 	}
 
-	encodedAssignment, err := assignment.EncodeAssignment(rack, slot)
+	encodedAssignment, err := sgpuassignment.EncodeAssignment(rack, slot)
 	if err != nil {
 		return c.fail(outcome, err)
 	}
 	labels, incompatible := projectionLabels(node, rack)
-	if current := node.Annotations[inventorymetadata.AssignmentAnnotation]; current != "" && current != encodedAssignment {
-		decoded, decodeErr := assignment.DecodeAssignment(current)
+	if current := node.Annotations[sgpumetadata.AssignmentAnnotation]; current != "" && current != encodedAssignment {
+		decoded, decodeErr := sgpuassignment.DecodeAssignment(current)
 		if decodeErr != nil || !assignmentMatches(decoded, rack, slot) {
-			incompatible = append(incompatible, inventorymetadata.AssignmentAnnotation)
+			incompatible = append(incompatible, sgpumetadata.AssignmentAnnotation)
 		}
 	}
 	incompatible = append(incompatible, foreignOwnedFields(node, projectionManagedFields(labels))...)
@@ -238,7 +238,7 @@ func (c *Controller) project(ctx context.Context, rackName string, nodeIndex int
 		return outcome, nil
 	}
 
-	payload, err := nodeApplyPayload(node.Name, node.UID, labels, map[string]any{inventorymetadata.AssignmentAnnotation: encodedAssignment})
+	payload, err := nodeApplyPayload(node.Name, node.UID, labels, map[string]any{sgpumetadata.AssignmentAnnotation: encodedAssignment})
 	if err != nil {
 		return c.fail(outcome, err)
 	}
@@ -274,7 +274,7 @@ func (c *Controller) project(ctx context.Context, rackName string, nodeIndex int
 // identifies the exact binding being retired.
 //
 //nolint:cyclop // Cleanup deliberately distinguishes deletion, replacement, ownership, and partial progress.
-func (c *Controller) Cleanup(ctx context.Context, needed inventorycleanup.CleanupNeeded) (Outcome, error) {
+func (c *Controller) Cleanup(ctx context.Context, needed sgpucleanup.CleanupNeeded) (Outcome, error) {
 	operation := c.operationLock(needed.RackName, needed.Binding.Coordinate.NodeIndex)
 	operation.Lock()
 	defer operation.Unlock()
@@ -304,35 +304,35 @@ func (c *Controller) Cleanup(ctx context.Context, needed inventorycleanup.Cleanu
 		return outcome, conflict
 	}
 
-	encoded := node.Annotations[inventorymetadata.AssignmentAnnotation]
-	assignment, decodeErr := assignment.DecodeAssignment(encoded)
+	encoded := node.Annotations[sgpumetadata.AssignmentAnnotation]
+	assignment, decodeErr := sgpuassignment.DecodeAssignment(encoded)
 	if encoded == "" || decodeErr != nil || !cleanupAssignmentMatches(assignment, needed) {
 		return c.completeCleanup(needed, outcome, ReasonCleaned, exactBindingPresent), nil
 	}
 
 	incompatible := make([]string, 0, 2)
-	if value, exists := node.Labels[inventorymetadata.AssignedLabel]; exists {
+	if value, exists := node.Labels[sgpumetadata.AssignedLabel]; exists {
 		if value != "true" {
-			incompatible = append(incompatible, inventorymetadata.AssignedLabel)
+			incompatible = append(incompatible, sgpumetadata.AssignedLabel)
 		}
 	}
-	if value, exists := node.Labels[inventorymetadata.CliqueLabel]; exists {
+	if value, exists := node.Labels[sgpumetadata.CliqueLabel]; exists {
 		expected, hasExpected := cliqueValue(rack)
 		if hasExpected && value != expected {
-			incompatible = append(incompatible, inventorymetadata.CliqueLabel)
+			incompatible = append(incompatible, sgpumetadata.CliqueLabel)
 		}
 	}
 
 	annotations := map[string]any(nil)
 	if len(incompatible) > 0 {
-		annotations = map[string]any{inventorymetadata.AssignmentAnnotation: encoded}
+		annotations = map[string]any{sgpumetadata.AssignmentAnnotation: encoded}
 	}
 	released := []managedMetadataField{
-		{section: "labels", key: inventorymetadata.AssignedLabel},
-		{section: "labels", key: inventorymetadata.CliqueLabel},
+		{section: "labels", key: sgpumetadata.AssignedLabel},
+		{section: "labels", key: sgpumetadata.CliqueLabel},
 	}
 	if len(annotations) == 0 {
-		released = append(released, managedMetadataField{section: "annotations", key: inventorymetadata.AssignmentAnnotation})
+		released = append(released, managedMetadataField{section: "annotations", key: sgpumetadata.AssignmentAnnotation})
 	}
 	if len(mokkaOwnedFields(node, released)) == 0 {
 		fields := incompatible
@@ -372,7 +372,7 @@ func (c *Controller) Cleanup(ctx context.Context, needed inventorycleanup.Cleanu
 	}
 	if retained := retainedCleanupFields(response, encoded); len(retained) > 0 {
 		blockedAfter := response
-		if len(incompatible) > 0 && len(retained) == 1 && retained[0] == inventorymetadata.AssignmentAnnotation {
+		if len(incompatible) > 0 && len(retained) == 1 && retained[0] == sgpumetadata.AssignmentAnnotation {
 			blockedAfter = nil
 		}
 		c.blockCleanup(needed, node, blockedAfter, encoded)
@@ -384,7 +384,7 @@ func (c *Controller) Cleanup(ctx context.Context, needed inventorycleanup.Cleanu
 }
 
 // Ready reports whether an exact cleanup acknowledgement is pending.
-func (c *Controller) Ready(needed inventorycleanup.CleanupNeeded) bool {
+func (c *Controller) Ready(needed sgpucleanup.CleanupNeeded) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	_, ready := c.cleaned[bindingKeyForCleanup(needed)]
@@ -393,7 +393,7 @@ func (c *Controller) Ready(needed inventorycleanup.CleanupNeeded) bool {
 
 // RevokeCleanup removes only the exact acknowledgement for an obsolete
 // allocation decision.
-func (c *Controller) RevokeCleanup(needed inventorycleanup.CleanupNeeded) {
+func (c *Controller) RevokeCleanup(needed sgpucleanup.CleanupNeeded) {
 	operation := c.operationLock(needed.RackName, needed.Binding.Coordinate.NodeIndex)
 	operation.Lock()
 	defer operation.Unlock()
@@ -421,7 +421,7 @@ func (c *Controller) HasAcknowledgedCleanups() bool {
 func (c *Controller) AcknowledgedCleanup(
 	rackName string,
 	binding allocate.Binding,
-) (inventorycleanup.CleanupNeeded, bool) {
+) (sgpucleanup.CleanupNeeded, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	coordinate := coordinateKey{rackName: rackName, nodeIndex: binding.Coordinate.NodeIndex}
@@ -431,13 +431,13 @@ func (c *Controller) AcknowledgedCleanup(
 		key.rackGroup != binding.Coordinate.Group.RackGroup ||
 		key.rackIndex != binding.Coordinate.RackIndex ||
 		key.nodeName != binding.Node.Name || key.nodeUID != binding.Node.UID {
-		return inventorycleanup.CleanupNeeded{}, false
+		return sgpucleanup.CleanupNeeded{}, false
 	}
 	reason, ready := c.cleaned[key]
 	if !ready {
-		return inventorycleanup.CleanupNeeded{}, false
+		return sgpucleanup.CleanupNeeded{}, false
 	}
-	return inventorycleanup.CleanupNeeded{
+	return sgpucleanup.CleanupNeeded{
 		RackName: rackName, RackUID: key.rackUID, Binding: binding, Reason: reason,
 	}, true
 }
@@ -507,55 +507,55 @@ func sortOutcomes(outcomes []Outcome) {
 //nolint:cyclop // The predicate intentionally checks every exact identity component.
 func MatchesBinding(node *corev1.Node, rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackNode) bool {
 	if node == nil || rack == nil || slot == nil || !slot.BoundTo(node.Name, node.UID) ||
-		node.Labels[inventorymetadata.AssignedLabel] != "true" {
+		node.Labels[sgpumetadata.AssignedLabel] != "true" {
 		return false
 	}
 	clique, hasClique := cliqueValue(rack)
-	if hasClique && node.Labels[inventorymetadata.CliqueLabel] != clique {
+	if hasClique && node.Labels[sgpumetadata.CliqueLabel] != clique {
 		return false
 	}
 	if !hasClique {
-		if _, exists := node.Labels[inventorymetadata.CliqueLabel]; exists {
+		if _, exists := node.Labels[sgpumetadata.CliqueLabel]; exists {
 			return false
 		}
 	}
-	assignment, err := assignment.EncodeAssignment(rack, slot)
-	if err != nil || node.Annotations[inventorymetadata.AssignmentAnnotation] != assignment {
+	assignment, err := sgpuassignment.EncodeAssignment(rack, slot)
+	if err != nil || node.Annotations[sgpumetadata.AssignmentAnnotation] != assignment {
 		return false
 	}
-	projectionLabels := map[string]any{inventorymetadata.AssignedLabel: "true"}
+	projectionLabels := map[string]any{sgpumetadata.AssignedLabel: "true"}
 	if hasClique {
-		projectionLabels[inventorymetadata.CliqueLabel] = clique
+		projectionLabels[sgpumetadata.CliqueLabel] = clique
 	}
 	return len(foreignOwnedFields(node, projectionManagedFields(projectionLabels))) == 0 &&
 		projectionFieldsOwned(node, projectionLabels)
 }
 
 func projectionLabels(node *corev1.Node, rack *mokkav1alpha1.SGPURack) (map[string]any, []string) {
-	labels := map[string]any{inventorymetadata.AssignedLabel: "true"}
+	labels := map[string]any{sgpumetadata.AssignedLabel: "true"}
 	incompatible := make([]string, 0, 2)
-	if value, exists := node.Labels[inventorymetadata.AssignedLabel]; exists && value != "true" {
-		incompatible = append(incompatible, inventorymetadata.AssignedLabel)
+	if value, exists := node.Labels[sgpumetadata.AssignedLabel]; exists && value != "true" {
+		incompatible = append(incompatible, sgpumetadata.AssignedLabel)
 	}
 	if clique, hasClique := cliqueValue(rack); hasClique {
-		labels[inventorymetadata.CliqueLabel] = clique
-		if value, exists := node.Labels[inventorymetadata.CliqueLabel]; exists && value != clique {
-			incompatible = append(incompatible, inventorymetadata.CliqueLabel)
+		labels[sgpumetadata.CliqueLabel] = clique
+		if value, exists := node.Labels[sgpumetadata.CliqueLabel]; exists && value != clique {
+			incompatible = append(incompatible, sgpumetadata.CliqueLabel)
 		}
-	} else if _, exists := node.Labels[inventorymetadata.CliqueLabel]; exists {
-		current, err := assignment.DecodeAssignment(node.Annotations[inventorymetadata.AssignmentAnnotation])
+	} else if _, exists := node.Labels[sgpumetadata.CliqueLabel]; exists {
+		current, err := sgpuassignment.DecodeAssignment(node.Annotations[sgpumetadata.AssignmentAnnotation])
 		slot := findSlotByUID(rack, node.UID)
 		if err == nil && slot != nil && assignmentMatches(current, rack, slot) {
-			labels[inventorymetadata.CliqueLabel] = nil
+			labels[sgpumetadata.CliqueLabel] = nil
 		} else {
-			incompatible = append(incompatible, inventorymetadata.CliqueLabel)
+			incompatible = append(incompatible, sgpumetadata.CliqueLabel)
 		}
 	}
 	return labels, incompatible
 }
 
 func projectionIsCurrent(node *corev1.Node, labels map[string]any, assignment string) bool {
-	if node.Annotations[inventorymetadata.AssignmentAnnotation] != assignment {
+	if node.Annotations[sgpumetadata.AssignmentAnnotation] != assignment {
 		return false
 	}
 	for key, desired := range labels {
@@ -589,7 +589,7 @@ func (f managedMetadataField) path() []string {
 
 func projectionManagedFields(labels map[string]any) []managedMetadataField {
 	fields := make([]managedMetadataField, 0, 1+len(labels))
-	fields = append(fields, managedMetadataField{section: "annotations", key: inventorymetadata.AssignmentAnnotation})
+	fields = append(fields, managedMetadataField{section: "annotations", key: sgpumetadata.AssignmentAnnotation})
 	for key := range labels {
 		fields = append(fields, managedMetadataField{section: "labels", key: key})
 	}
@@ -598,7 +598,7 @@ func projectionManagedFields(labels map[string]any) []managedMetadataField {
 
 func projectionPresentFields(labels map[string]any) []managedMetadataField {
 	fields := make([]managedMetadataField, 0, 1+len(labels))
-	fields = append(fields, managedMetadataField{section: "annotations", key: inventorymetadata.AssignmentAnnotation})
+	fields = append(fields, managedMetadataField{section: "annotations", key: sgpumetadata.AssignmentAnnotation})
 	for key, value := range labels {
 		if value != nil {
 			fields = append(fields, managedMetadataField{section: "labels", key: key})
@@ -617,8 +617,8 @@ func projectionResponseConflicts(node *corev1.Node, labels map[string]any, assig
 
 func projectionValueConflicts(node *corev1.Node, labels map[string]any, assignment string) []string {
 	conflicts := make([]string, 0, len(labels)+1)
-	if node.Annotations[inventorymetadata.AssignmentAnnotation] != assignment {
-		conflicts = append(conflicts, inventorymetadata.AssignmentAnnotation)
+	if node.Annotations[sgpumetadata.AssignmentAnnotation] != assignment {
+		conflicts = append(conflicts, sgpumetadata.AssignmentAnnotation)
 	}
 	for key, desired := range labels {
 		current, exists := node.Labels[key]
@@ -689,9 +689,9 @@ func mokkaOwnedFields(node *corev1.Node, fields []managedMetadataField) []string
 // The informer does not need the rest of a Node's potentially large field set.
 func CompactManagedFields(entries []metav1.ManagedFieldsEntry) []metav1.ManagedFieldsEntry {
 	relevant := []managedMetadataField{
-		{section: "annotations", key: inventorymetadata.AssignmentAnnotation},
-		{section: "labels", key: inventorymetadata.AssignedLabel},
-		{section: "labels", key: inventorymetadata.CliqueLabel},
+		{section: "annotations", key: sgpumetadata.AssignmentAnnotation},
+		{section: "labels", key: sgpumetadata.AssignedLabel},
+		{section: "labels", key: sgpumetadata.CliqueLabel},
 	}
 	compacted := make([]metav1.ManagedFieldsEntry, 0, len(entries))
 	for _, entry := range entries {
@@ -748,14 +748,14 @@ func fieldsV1Owns(raw []byte, path []string) bool {
 
 func retainedCleanupFields(node *corev1.Node, assignment string) []string {
 	retained := make([]string, 0, 3)
-	if node.Annotations[inventorymetadata.AssignmentAnnotation] == assignment {
-		retained = append(retained, inventorymetadata.AssignmentAnnotation)
+	if node.Annotations[sgpumetadata.AssignmentAnnotation] == assignment {
+		retained = append(retained, sgpumetadata.AssignmentAnnotation)
 	}
-	if _, exists := node.Labels[inventorymetadata.AssignedLabel]; exists {
-		retained = append(retained, inventorymetadata.AssignedLabel)
+	if _, exists := node.Labels[sgpumetadata.AssignedLabel]; exists {
+		retained = append(retained, sgpumetadata.AssignedLabel)
 	}
-	if _, exists := node.Labels[inventorymetadata.CliqueLabel]; exists {
-		retained = append(retained, inventorymetadata.CliqueLabel)
+	if _, exists := node.Labels[sgpumetadata.CliqueLabel]; exists {
+		retained = append(retained, sgpumetadata.CliqueLabel)
 	}
 	return sortedUnique(retained)
 }
@@ -795,17 +795,17 @@ func cliqueValue(rack *mokkav1alpha1.SGPURack) (string, bool) {
 	return fmt.Sprintf("%s.%d", rack.Spec.Identity.FabricUUID, rack.Spec.Identity.CliqueID), true
 }
 
-func assignmentMatches(current assignment.Assignment, rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackNode) bool {
-	return current.Version == assignment.AssignmentVersion && rack != nil && slot != nil && slot.NodeRef != nil &&
-		current.Inventory == (assignment.ObjectReference{Name: rack.Spec.InventoryRef.Name, UID: rack.Spec.InventoryRef.UID}) &&
-		current.Rack == (assignment.ObjectReference{Name: rack.Name, UID: rack.UID}) &&
+func assignmentMatches(current sgpuassignment.Assignment, rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackNode) bool {
+	return current.Version == sgpuassignment.AssignmentVersion && rack != nil && slot != nil && slot.NodeRef != nil &&
+		current.Inventory == (sgpuassignment.ObjectReference{Name: rack.Spec.InventoryRef.Name, UID: rack.Spec.InventoryRef.UID}) &&
+		current.Rack == (sgpuassignment.ObjectReference{Name: rack.Name, UID: rack.UID}) &&
 		current.RackGroup == rack.Spec.Identity.RackGroup && current.RackIndex == rack.Spec.Identity.RackIndex &&
 		current.NodeIndex == slot.Index && current.NodeUID == slot.NodeRef.UID
 }
 
-func cleanupAssignmentMatches(current assignment.Assignment, needed inventorycleanup.CleanupNeeded) bool {
+func cleanupAssignmentMatches(current sgpuassignment.Assignment, needed sgpucleanup.CleanupNeeded) bool {
 	binding := needed.Binding
-	if current.Version != assignment.AssignmentVersion || current.Inventory.Name != binding.Coordinate.Group.InventoryName ||
+	if current.Version != sgpuassignment.AssignmentVersion || current.Inventory.Name != binding.Coordinate.Group.InventoryName ||
 		current.Inventory.UID != binding.Coordinate.Group.InventoryUID || current.Rack.Name != needed.RackName ||
 		current.Rack.UID != needed.RackUID ||
 		current.RackGroup != binding.Coordinate.Group.RackGroup || current.RackIndex != binding.Coordinate.RackIndex ||
@@ -849,7 +849,7 @@ func outcomeFor(rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackNode) 
 	}
 }
 
-func cleanupOutcome(needed inventorycleanup.CleanupNeeded) Outcome {
+func cleanupOutcome(needed sgpucleanup.CleanupNeeded) Outcome {
 	binding := needed.Binding
 	return Outcome{
 		InventoryName: binding.Coordinate.Group.InventoryName, InventoryUID: binding.Coordinate.Group.InventoryUID,
@@ -903,7 +903,7 @@ func (c *Controller) recordCleanupFailure(outcome Outcome, exactRackPresent bool
 }
 
 func (c *Controller) completeCleanup(
-	needed inventorycleanup.CleanupNeeded,
+	needed sgpucleanup.CleanupNeeded,
 	outcome Outcome,
 	reason string,
 	exactRackPresent bool,
@@ -947,7 +947,7 @@ func (c *Controller) beginProjection(rack *mokkav1alpha1.SGPURack, slot *mokkav1
 	}
 }
 
-func (c *Controller) blockedCleanup(needed inventorycleanup.CleanupNeeded, node *corev1.Node) ([]string, bool) {
+func (c *Controller) blockedCleanup(needed sgpucleanup.CleanupNeeded, node *corev1.Node) ([]string, bool) {
 	c.mu.RLock()
 	block, exists := c.cleanupBlocks[bindingKeyForCleanup(needed)]
 	c.mu.RUnlock()
@@ -960,14 +960,14 @@ func (c *Controller) blockedCleanup(needed inventorycleanup.CleanupNeeded, node 
 	}
 	observation := cleanupObservation(node)
 	if observation != block.before && observation != block.after &&
-		node.Annotations[inventorymetadata.AssignmentAnnotation] == block.assignment {
+		node.Annotations[sgpumetadata.AssignmentAnnotation] == block.assignment {
 		return nil, false
 	}
 	return fields, true
 }
 
 func (c *Controller) blockCleanup(
-	needed inventorycleanup.CleanupNeeded,
+	needed sgpucleanup.CleanupNeeded,
 	before, after *corev1.Node,
 	assignment string,
 ) {
@@ -999,14 +999,14 @@ func cleanupObservation(node *corev1.Node) string {
 		return ""
 	}
 	labels := make(map[string]string, 2)
-	for _, key := range []string{inventorymetadata.AssignedLabel, inventorymetadata.CliqueLabel} {
+	for _, key := range []string{sgpumetadata.AssignedLabel, sgpumetadata.CliqueLabel} {
 		if value, exists := node.Labels[key]; exists {
 			labels[key] = value
 		}
 	}
 	annotations := make(map[string]string, 1)
-	if value, exists := node.Annotations[inventorymetadata.AssignmentAnnotation]; exists {
-		annotations[inventorymetadata.AssignmentAnnotation] = value
+	if value, exists := node.Annotations[sgpumetadata.AssignmentAnnotation]; exists {
+		annotations[sgpumetadata.AssignmentAnnotation] = value
 	}
 	encoded, err := json.Marshal(struct {
 		UID           types.UID                   `json:"uid"`
@@ -1097,7 +1097,7 @@ func bindingKeyForOutcome(outcome Outcome) bindingKey {
 	}
 }
 
-func bindingKeyForCleanup(needed inventorycleanup.CleanupNeeded) bindingKey {
+func bindingKeyForCleanup(needed sgpucleanup.CleanupNeeded) bindingKey {
 	binding := needed.Binding
 	return bindingKey{
 		inventoryName: binding.Coordinate.Group.InventoryName, inventoryUID: binding.Coordinate.Group.InventoryUID,

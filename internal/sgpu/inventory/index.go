@@ -11,7 +11,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
 )
 
 //nolint:revive // These names define one cohesive informer index contract.

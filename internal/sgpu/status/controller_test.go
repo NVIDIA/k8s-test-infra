@@ -20,12 +20,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
+	sgpuassignment "github.com/NVIDIA/k8s-test-infra/internal/sgpu/assignment"
 	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/assignment"
-	inventorymetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/metadata"
-	inventoryprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/projection"
-	rackrender "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/rack"
+	sgpumetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
+	sgpuprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/projection"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/rackrender"
 )
 
 func TestComputeInventoryStatusExactAggregateMathAndConditions(t *testing.T) {
@@ -156,7 +156,7 @@ func TestComputeInventoryProgrammedWaitsForCurrentProfileAndProjection(t *testin
 	require.Equal(t, capacity, got.Capacity, "declared capacity advances before racks and projections")
 	require.Equal(t, capacity, got.RackGroups[0].Capacity)
 	require.Equal(t, int32(1), got.Usage.AllocatedNodes)
-	require.True(t, inventoryprojection.MatchesBinding(input.Nodes[0], input.Racks[0], &input.Racks[0].Spec.Nodes[0]))
+	require.True(t, sgpuprojection.MatchesBinding(input.Nodes[0], input.Racks[0], &input.Racks[0].Spec.Nodes[0]))
 	programmed = condition(got.Conditions, mokkav1alpha1.InventoryConditionProgrammed)
 	require.Equal(t, metav1.ConditionFalse, programmed.Status)
 	require.Equal(t, ReasonRacksPending, programmed.Reason)
@@ -213,7 +213,7 @@ func TestComputeInventoryProgrammedRequiresExactProfileReference(t *testing.T) {
 				test.mutate(&rack.Spec.ProfileRef)
 				if assigned {
 					setStatusProjection(input.Nodes[0], rack, &rack.Spec.Nodes[0])
-					require.True(t, inventoryprojection.MatchesBinding(input.Nodes[0], rack, &rack.Spec.Nodes[0]))
+					require.True(t, sgpuprojection.MatchesBinding(input.Nodes[0], rack, &rack.Spec.Nodes[0]))
 				}
 				got = ComputeInventory(input, metav1.Now())
 				programmed := condition(got.Conditions, mokkav1alpha1.InventoryConditionProgrammed)
@@ -238,7 +238,7 @@ func TestComputeInventoryProgrammedRequiresProfileGenerationWithoutReprojection(
 	require.Equal(t, ReasonRacksPending, programmed.Reason)
 
 	input.Racks[0].Spec.ProfileRef = currentRef
-	require.True(t, inventoryprojection.MatchesBinding(input.Nodes[0], input.Racks[0], &input.Racks[0].Spec.Nodes[0]))
+	require.True(t, sgpuprojection.MatchesBinding(input.Nodes[0], input.Racks[0], &input.Racks[0].Spec.Nodes[0]))
 	got = ComputeInventory(input, metav1.Now())
 	programmed = condition(got.Conditions, mokkav1alpha1.InventoryConditionProgrammed)
 	require.Equal(t, metav1.ConditionTrue, programmed.Status, "unchanged canonical content needs no new Node annotation")
@@ -297,8 +297,8 @@ func TestComputeRackDerivesProjectionFromExactCachedNodeMetadata(t *testing.T) {
 		{
 			name: "exact projection supersedes stale process error",
 			mutate: func(input *RackInput) {
-				input.Projection[0].State = inventoryprojection.StateConflict
-				input.Projection[0].Reason = inventoryprojection.ReasonNodeMetadataConflict
+				input.Projection[0].State = sgpuprojection.StateConflict
+				input.Projection[0].Reason = sgpuprojection.ReasonNodeMetadataConflict
 			},
 			wantStatus: metav1.ConditionTrue,
 			wantReason: ReasonReady,
@@ -306,7 +306,7 @@ func TestComputeRackDerivesProjectionFromExactCachedNodeMetadata(t *testing.T) {
 		{
 			name: "successful process outcome cannot hide missing label",
 			mutate: func(input *RackInput) {
-				delete(input.Nodes[0].Labels, inventorymetadata.AssignedLabel)
+				delete(input.Nodes[0].Labels, sgpumetadata.AssignedLabel)
 			},
 			wantStatus: metav1.ConditionFalse,
 			wantReason: ReasonProjectionIncomplete,
@@ -314,7 +314,7 @@ func TestComputeRackDerivesProjectionFromExactCachedNodeMetadata(t *testing.T) {
 		{
 			name: "missing assignment",
 			mutate: func(input *RackInput) {
-				delete(input.Nodes[0].Annotations, inventorymetadata.AssignmentAnnotation)
+				delete(input.Nodes[0].Annotations, sgpumetadata.AssignmentAnnotation)
 			},
 			wantStatus: metav1.ConditionFalse,
 			wantReason: ReasonProjectionIncomplete,
@@ -324,7 +324,7 @@ func TestComputeRackDerivesProjectionFromExactCachedNodeMetadata(t *testing.T) {
 			mutate: func(input *RackInput) {
 				assignment := decodeStatusAssignment(input.Nodes[0])
 				assignment.NodeUID = "replacement-uid"
-				input.Nodes[0].Annotations[inventorymetadata.AssignmentAnnotation] = encodeStatusAssignment(assignment)
+				input.Nodes[0].Annotations[sgpumetadata.AssignmentAnnotation] = encodeStatusAssignment(assignment)
 			},
 			wantStatus: metav1.ConditionFalse,
 			wantReason: ReasonProjectionIncomplete,
@@ -334,7 +334,7 @@ func TestComputeRackDerivesProjectionFromExactCachedNodeMetadata(t *testing.T) {
 			mutate: func(input *RackInput) {
 				assignment := decodeStatusAssignment(input.Nodes[0])
 				assignment.Rack.UID = "replacement-rack-uid"
-				input.Nodes[0].Annotations[inventorymetadata.AssignmentAnnotation] = encodeStatusAssignment(assignment)
+				input.Nodes[0].Annotations[sgpumetadata.AssignmentAnnotation] = encodeStatusAssignment(assignment)
 			},
 			wantStatus: metav1.ConditionFalse,
 			wantReason: ReasonProjectionIncomplete,
@@ -344,7 +344,7 @@ func TestComputeRackDerivesProjectionFromExactCachedNodeMetadata(t *testing.T) {
 			mutate: func(input *RackInput) {
 				assignment := decodeStatusAssignment(input.Nodes[0])
 				assignment.Profile.Revision = "stale-revision"
-				input.Nodes[0].Annotations[inventorymetadata.AssignmentAnnotation] = encodeStatusAssignment(assignment)
+				input.Nodes[0].Annotations[sgpumetadata.AssignmentAnnotation] = encodeStatusAssignment(assignment)
 			},
 			wantStatus: metav1.ConditionFalse,
 			wantReason: ReasonProjectionIncomplete,
@@ -369,8 +369,8 @@ func TestComputeRackDerivesProjectionFromExactCachedNodeMetadata(t *testing.T) {
 			name: "foreign co-owner",
 			mutate: func(input *RackInput) {
 				setStatusManagedFields(input.Nodes[0], "foreign-controller",
-					[]string{inventorymetadata.AssignedLabel},
-					[]string{inventorymetadata.AssignmentAnnotation})
+					[]string{sgpumetadata.AssignedLabel},
+					[]string{sgpumetadata.AssignmentAnnotation})
 			},
 			wantStatus: metav1.ConditionFalse,
 			wantReason: ReasonProjectionIncomplete,
@@ -391,7 +391,7 @@ func TestComputeRackDerivesProjectionFromExactCachedNodeMetadata(t *testing.T) {
 				input.Rack.Spec.Identity.FabricUUID = "fabric"
 				input.Rack.Spec.Identity.CliqueID = 7
 				setStatusProjection(input.Nodes[0], input.Rack, &input.Rack.Spec.Nodes[0])
-				delete(input.Nodes[0].Labels, inventorymetadata.CliqueLabel)
+				delete(input.Nodes[0].Labels, sgpumetadata.CliqueLabel)
 			},
 			wantStatus: metav1.ConditionFalse,
 			wantReason: ReasonProjectionIncomplete,
@@ -399,7 +399,7 @@ func TestComputeRackDerivesProjectionFromExactCachedNodeMetadata(t *testing.T) {
 		{
 			name: "wrong clique retained",
 			mutate: func(input *RackInput) {
-				input.Nodes[0].Labels[inventorymetadata.CliqueLabel] = "foreign-clique"
+				input.Nodes[0].Labels[sgpumetadata.CliqueLabel] = "foreign-clique"
 			},
 			wantStatus: metav1.ConditionFalse,
 			wantReason: ReasonProjectionIncomplete,
@@ -407,7 +407,7 @@ func TestComputeRackDerivesProjectionFromExactCachedNodeMetadata(t *testing.T) {
 		{
 			name: "empty clique retained",
 			mutate: func(input *RackInput) {
-				input.Nodes[0].Labels[inventorymetadata.CliqueLabel] = ""
+				input.Nodes[0].Labels[sgpumetadata.CliqueLabel] = ""
 			},
 			wantStatus: metav1.ConditionFalse,
 			wantReason: ReasonProjectionIncomplete,
@@ -462,7 +462,7 @@ func TestRestartStatusBeforeProjectionDoesNotFlapAndLaterRepairConverges(t *test
 	require.Zero(t, inventoryWriter.updates)
 	require.Zero(t, rackWriter.updates)
 
-	delete(input.Nodes[0].Labels, inventorymetadata.AssignedLabel)
+	delete(input.Nodes[0].Labels, sgpumetadata.AssignedLabel)
 	changed, err = reconciler.ReconcileInventory(context.Background(), input)
 	require.NoError(t, err)
 	require.True(t, changed)
@@ -475,8 +475,8 @@ func TestRestartStatusBeforeProjectionDoesNotFlapAndLaterRepairConverges(t *test
 		condition(rackWriter.object.Status.Conditions, mokkav1alpha1.RackConditionReady).Reason)
 
 	setStatusProjection(input.Nodes[0], input.Racks[0], &input.Racks[0].Spec.Nodes[0])
-	input.Projection[0].State = inventoryprojection.StateConflict
-	input.Projection[0].Reason = inventoryprojection.ReasonNodeMetadataConflict
+	input.Projection[0].State = sgpuprojection.StateConflict
+	input.Projection[0].Reason = sgpuprojection.ReasonNodeMetadataConflict
 	changed, err = reconciler.ReconcileInventory(context.Background(), input)
 	require.NoError(t, err)
 	require.True(t, changed)
@@ -624,10 +624,10 @@ func TestProjectionErrorsRemainRetryableStatusInputs(t *testing.T) {
 	input.RackResult.ResolvedRefs = true
 	input.Inventory.Spec.RackGroups = input.Inventory.Spec.RackGroups[:2]
 	input.Inventory.Spec.RackGroups[0].Count = 1
-	input.Projection[0].State = inventoryprojection.StateConflict
-	input.Projection[0].Reason = inventoryprojection.ReasonNodeMetadataConflict
+	input.Projection[0].State = sgpuprojection.StateConflict
+	input.Projection[0].Reason = sgpuprojection.ReasonNodeMetadataConflict
 	input.Projection[0].Message = "owned elsewhere"
-	delete(input.Nodes[1].Labels, inventorymetadata.AssignedLabel)
+	delete(input.Nodes[1].Labels, sgpumetadata.AssignedLabel)
 	got := ComputeInventory(input, metav1.Now())
 	programmed := condition(got.Conditions, mokkav1alpha1.InventoryConditionProgrammed)
 	require.Equal(t, metav1.ConditionFalse, programmed.Status)
@@ -706,10 +706,10 @@ func aggregateInput(t testing.TB) InventoryInput {
 			}},
 		},
 	}
-	projection := []inventoryprojection.Outcome{
-		{RackName: rackA.Name, RackUID: rackA.UID, NodeIndex: 0, NodeName: nodes[1].Name, NodeUID: nodes[1].UID, State: inventoryprojection.StateProjected},
-		{RackName: rackB.Name, RackUID: rackB.UID, NodeIndex: 0, NodeName: nodes[4].Name, NodeUID: nodes[4].UID, State: inventoryprojection.StateProjected},
-		{RackName: rackA.Name, RackUID: rackA.UID, NodeIndex: 1, NodeName: nodes[2].Name, NodeUID: nodes[2].UID, State: inventoryprojection.StateConflict, Reason: inventoryprojection.ReasonDuplicateBinding},
+	projection := []sgpuprojection.Outcome{
+		{RackName: rackA.Name, RackUID: rackA.UID, NodeIndex: 0, NodeName: nodes[1].Name, NodeUID: nodes[1].UID, State: sgpuprojection.StateProjected},
+		{RackName: rackB.Name, RackUID: rackB.UID, NodeIndex: 0, NodeName: nodes[4].Name, NodeUID: nodes[4].UID, State: sgpuprojection.StateProjected},
+		{RackName: rackA.Name, RackUID: rackA.UID, NodeIndex: 1, NodeName: nodes[2].Name, NodeUID: nodes[2].UID, State: sgpuprojection.StateConflict, Reason: sgpuprojection.ReasonDuplicateBinding},
 	}
 	rackA.Spec.ProfileRef = statusProfileReference(t, profiles["pa"])
 	rackB.Spec.ProfileRef = statusProfileReference(t, profiles["pb"])
@@ -762,8 +762,8 @@ func singleProjectedRackInput(t testing.TB) RackInput {
 func projectedOutcomeFor(
 	rack *mokkav1alpha1.SGPURack,
 	slot *mokkav1alpha1.SGPURackNode,
-) []inventoryprojection.Outcome {
-	return []inventoryprojection.Outcome{{
+) []sgpuprojection.Outcome {
+	return []sgpuprojection.Outcome{{
 		InventoryName: rack.Spec.InventoryRef.Name,
 		InventoryUID:  rack.Spec.InventoryRef.UID,
 		RackGroup:     rack.Spec.Identity.RackGroup,
@@ -773,7 +773,7 @@ func projectedOutcomeFor(
 		NodeIndex:     slot.Index,
 		NodeName:      slot.NodeRef.Name,
 		NodeUID:       slot.NodeRef.UID,
-		State:         inventoryprojection.StateProjected,
+		State:         sgpuprojection.StateProjected,
 	}}
 }
 
@@ -782,24 +782,24 @@ func setStatusProjection(
 	rack *mokkav1alpha1.SGPURack,
 	slot *mokkav1alpha1.SGPURackNode,
 ) {
-	assignment, err := assignment.EncodeAssignment(rack, slot)
+	assignment, err := sgpuassignment.EncodeAssignment(rack, slot)
 	if err != nil {
 		panic(err)
 	}
 	if node.Labels == nil {
 		node.Labels = make(map[string]string)
 	}
-	node.Labels[inventorymetadata.AssignedLabel] = "true"
-	node.Labels[inventorymetadata.CliqueLabel] =
+	node.Labels[sgpumetadata.AssignedLabel] = "true"
+	node.Labels[sgpumetadata.CliqueLabel] =
 		fmt.Sprintf("%s.%d", rack.Spec.Identity.FabricUUID, rack.Spec.Identity.CliqueID)
-	labels := []string{inventorymetadata.AssignedLabel, inventorymetadata.CliqueLabel}
+	labels := []string{sgpumetadata.AssignedLabel, sgpumetadata.CliqueLabel}
 	if node.Annotations == nil {
 		node.Annotations = make(map[string]string)
 	}
-	node.Annotations[inventorymetadata.AssignmentAnnotation] = assignment
+	node.Annotations[sgpumetadata.AssignmentAnnotation] = assignment
 	node.ManagedFields = nil
-	setStatusManagedFields(node, inventoryprojection.FieldManager, labels,
-		[]string{inventorymetadata.AssignmentAnnotation})
+	setStatusManagedFields(node, sgpuprojection.FieldManager, labels,
+		[]string{sgpumetadata.AssignmentAnnotation})
 }
 
 func setStatusManagedFields(node *corev1.Node, manager string, labelKeys, annotationKeys []string) {
@@ -828,9 +828,9 @@ func setStatusManagedFields(node *corev1.Node, manager string, labelKeys, annota
 	})
 }
 
-func decodeStatusAssignment(node *corev1.Node) assignment.Assignment {
-	assignment, err := assignment.DecodeAssignment(
-		node.Annotations[inventorymetadata.AssignmentAnnotation],
+func decodeStatusAssignment(node *corev1.Node) sgpuassignment.Assignment {
+	assignment, err := sgpuassignment.DecodeAssignment(
+		node.Annotations[sgpumetadata.AssignmentAnnotation],
 	)
 	if err != nil {
 		panic(err)
@@ -838,7 +838,7 @@ func decodeStatusAssignment(node *corev1.Node) assignment.Assignment {
 	return assignment
 }
 
-func encodeStatusAssignment(assignment assignment.Assignment) string {
+func encodeStatusAssignment(assignment sgpuassignment.Assignment) string {
 	raw, err := json.Marshal(assignment)
 	if err != nil {
 		panic(err)

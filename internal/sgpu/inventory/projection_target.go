@@ -13,8 +13,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
-	rackrender "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/rack"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/rackrender"
 )
 
 // ProjectionTargetAllowed verifies that the rack matches controller

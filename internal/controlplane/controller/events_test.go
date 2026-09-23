@@ -13,11 +13,11 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
 	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
-	nodecatalog "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/nodecatalog"
-	inventoryprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/projection"
-	rackrender "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/rack"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/nodecatalog"
+	sgpuprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/projection"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/rackrender"
 	mokkafake "github.com/NVIDIA/k8s-test-infra/pkg/generated/clientset/versioned/fake"
 	mokkalisters "github.com/NVIDIA/k8s-test-infra/pkg/generated/listers/api/v1alpha1"
 )
@@ -77,7 +77,7 @@ func TestRackBindingReleaseWakesDestinationAfterEarlierWorkDrains(t *testing.T) 
 		racks, catalog, liveNodes, DefaultOptions(),
 	)
 	allocation := sgpuinventory.NewAllocationCache(snapshot)
-	projection := inventoryprojection.NewController(snapshot, liveNodes)
+	projection := sgpuprojection.NewController(snapshot, liveNodes)
 	reconciler := sgpuinventory.NewReconcilerWithAllocationCache(
 		snapshot, mokka.MokkaV1alpha1().SGPUInventories(), mokka.MokkaV1alpha1().SGPURacks(), projection, allocation,
 	)

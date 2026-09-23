@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
 
-// Package rack renders immutable rack topology and identities from API
+// Package rackrender renders immutable rack topology and identities from API
 // inputs without Kubernetes clients, mutable global state, or time.
-package rack
+package rackrender
 
 import (
 	"cmp"
@@ -33,8 +33,6 @@ var canonicalPCIAddress = regexp.MustCompile(`^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{
 var canonicalRootComplex = regexp.MustCompile("^pci[0-9a-f]{4}:[0-9a-f]{2}$")
 
 // RackInput pins every input needed to render one rack.
-//
-//nolint:revive // The established name is preserved while moving package ownership.
 type RackInput struct {
 	InventoryName string
 	InventoryUID  types.UID

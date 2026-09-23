@@ -10,7 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
 )
 
 func TestCleanupNeededMatchesRackRequiresExactBinding(t *testing.T) {

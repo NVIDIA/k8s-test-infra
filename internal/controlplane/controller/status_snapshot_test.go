@@ -16,11 +16,11 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
 	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
-	nodecatalog "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/nodecatalog"
-	inventoryprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/projection"
-	inventorystatus "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/status"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/nodecatalog"
+	sgpuprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/projection"
+	sgpustatus "github.com/NVIDIA/k8s-test-infra/internal/sgpu/status"
 	mokkalisters "github.com/NVIDIA/k8s-test-infra/pkg/generated/listers/api/v1alpha1"
 	"github.com/stretchr/testify/require"
 )
@@ -79,11 +79,11 @@ func TestStatusSnapshotsBoundWorkToOneInventoryAndRack(t *testing.T) {
 		DefaultOptions(),
 	)
 	projection := &recordingScopedProjection{
-		inventoryOutcomes: []inventoryprojection.Outcome{{
+		inventoryOutcomes: []sgpuprojection.Outcome{{
 			InventoryName: targetInventory.Name, InventoryUID: targetInventory.UID,
 			RackName: targetRack.Name, RackUID: targetRack.UID,
 		}},
-		rackOutcomes: []inventoryprojection.Outcome{{
+		rackOutcomes: []sgpuprojection.Outcome{{
 			InventoryName: targetInventory.Name, InventoryUID: targetInventory.UID,
 			RackName: targetRack.Name, RackUID: targetRack.UID,
 		}},
@@ -110,27 +110,27 @@ func TestStatusSnapshotsBoundWorkToOneInventoryAndRack(t *testing.T) {
 	require.Equal(t, []exactObjectReference{{name: targetRack.Name, uid: targetRack.UID}}, projection.rackCalls)
 	require.Equal(t, projection.rackOutcomes, rackInput.Projection)
 
-	foreignOutcome := inventoryprojection.Outcome{
+	foreignOutcome := sgpuprojection.Outcome{
 		InventoryName: "inventory-99", InventoryUID: "inventory-uid-99",
 		RackName: "rack-999", RackUID: "rack-uid-999", NodeIndex: 99,
-		NodeName: "node-99999", NodeUID: "node-uid-99999", State: inventoryprojection.StateConflict,
-		Reason: inventoryprojection.ReasonNodeMetadataConflict,
+		NodeName: "node-99999", NodeUID: "node-uid-99999", State: sgpuprojection.StateConflict,
+		Reason: sgpuprojection.ReasonNodeMetadataConflict,
 	}
 	now := metav1.NewTime(time.Unix(100, 0))
 	legacyInventoryInput := inventoryInput
 	legacyInventoryInput.Nodes = allNodes
 	legacyInventoryInput.Projection = append(slices.Clone(inventoryInput.Projection), foreignOutcome)
 	require.Equal(t,
-		inventorystatus.ComputeInventory(legacyInventoryInput, now),
-		inventorystatus.ComputeInventory(inventoryInput, now),
+		sgpustatus.ComputeInventory(legacyInventoryInput, now),
+		sgpustatus.ComputeInventory(inventoryInput, now),
 		"scoping must preserve inventory status computed from the former global inputs",
 	)
 	legacyRackInput := rackInput
 	legacyRackInput.Nodes = allNodes
 	legacyRackInput.Projection = append(slices.Clone(rackInput.Projection), foreignOutcome)
 	require.Equal(t,
-		inventorystatus.ComputeRack(legacyRackInput, now),
-		inventorystatus.ComputeRack(rackInput, now),
+		sgpustatus.ComputeRack(legacyRackInput, now),
+		sgpustatus.ComputeRack(rackInput, now),
 		"scoping must preserve rack status computed from the former global inputs",
 	)
 }
@@ -260,18 +260,18 @@ type exactObjectReference struct {
 }
 
 type recordingScopedProjection struct {
-	inventoryOutcomes []inventoryprojection.Outcome
-	rackOutcomes      []inventoryprojection.Outcome
+	inventoryOutcomes []sgpuprojection.Outcome
+	rackOutcomes      []sgpuprojection.Outcome
 	inventoryCalls    []exactObjectReference
 	rackCalls         []exactObjectReference
 }
 
-func (r *recordingScopedProjection) OutcomesForInventory(name string, uid types.UID) []inventoryprojection.Outcome {
+func (r *recordingScopedProjection) OutcomesForInventory(name string, uid types.UID) []sgpuprojection.Outcome {
 	r.inventoryCalls = append(r.inventoryCalls, exactObjectReference{name: name, uid: uid})
 	return r.inventoryOutcomes
 }
 
-func (r *recordingScopedProjection) OutcomesForRack(name string, uid types.UID) []inventoryprojection.Outcome {
+func (r *recordingScopedProjection) OutcomesForRack(name string, uid types.UID) []sgpuprojection.Outcome {
 	r.rackCalls = append(r.rackCalls, exactObjectReference{name: name, uid: uid})
 	return r.rackOutcomes
 }

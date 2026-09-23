@@ -10,7 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/metadata"
+	sgpumetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
 )
 
 func TestClassifyEligibleNodes(t *testing.T) {
@@ -82,7 +82,7 @@ func TestValidatePlacementSelectorRejectsProjectedLabels(t *testing.T) {
 		{Operator: metav1.LabelSelectorOpExists},
 		{Operator: metav1.LabelSelectorOpDoesNotExist},
 	}
-	for _, key := range []string{metadata.AssignedLabel, metadata.CliqueLabel} {
+	for _, key := range []string{sgpumetadata.AssignedLabel, sgpumetadata.CliqueLabel} {
 		t.Run(key+"/matchLabels", func(t *testing.T) {
 			err := ValidatePlacementSelector(&metav1.LabelSelector{MatchLabels: map[string]string{key: "value"}})
 			require.EqualError(t, err, `selector must not reference controller-owned label "`+key+`"`)
