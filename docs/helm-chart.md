@@ -619,7 +619,7 @@ namespace, on the pod IP where the kubelet reaches it.
 | `gpu.failureInjection.seed` | `0` | RNG seed for probability rolls; `0` uses a time-based seed. |
 | `gpu.failureInjection.xid.code` | `0` | Xid error code delivered via the NVML event set (`NVML_EVENT_TYPE_XID_CRITICAL_ERROR`) once tripped. `0` = no Xid. |
 | `image.repository` | `ghcr.io/nvidia/nvml-mock` | Container image repository |
-| `image.tag` | `latest` | Container image tag |
+| `image.tag` | `"0.4.0"` | Container image tag. Defaults to the image of the chart's own release |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy |
 | `driverVersion` | `""` (auto) | NVIDIA driver version to mock. When empty, read from `system.driver_version` of the resolved GPU config (the selected `gpu.profile` file, or `gpu.customConfig` if set), so the profile is the single source of truth (e.g. GB200 → `580.65.06`, B200 → `560.35.03`, GB300 → `570.124.06`, others → `550.163.01`). Set explicitly only to override the profile. |
 | `nodeSelector` | `{}` | Node selector for DaemonSet |

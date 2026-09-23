@@ -19,6 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and dcgm-exporter never start. Lifting the pin is tracked in
   [#911](https://github.com/NVIDIA/k8s-test-infra/issues/911).
 
+### Fixed
+
+- The nvml-mock chart now defaults `image.tag` and `controlPlane.image.tag` to
+  the image of its own release instead of `latest`. `latest` is republished
+  from `main` on every merge, so a released chart could run an image built for
+  a different version of the chart. See
+  [#919](https://github.com/NVIDIA/k8s-test-infra/issues/919).
+
 ## [0.4.0-rc2] - 2026-09-22
 
 ### Fixed
