@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Mokka control plane: `SGPURuntimePolicy` resources are evaluated. Each policy
+  is checked against its inventory and profiles; when two policies of the same
+  scope set a field for the same GPUs, the older one stays in force and the
+  newer one is rejected. The outcome is reported in an `Accepted` condition and
+  a `kubectl get sgpuruntimepolicies` column. Every control-plane replica can
+  compile a GPU's effective runtime state from its profile defaults and the
+  accepted policies; no component applies that state to simulated GPUs yet.
+  Numeric runtime fields now tell an explicit `0` apart from an omitted field, so
+  a profile whose `defaults.runtime` sets a zero gets a new revision and its racks
+  re-render once, keeping their bindings. Upgrade the `mokka-crds` chart before
+  the control plane so the API server keeps the new policy status conditions.
 - The CDI-enabled KIND node image is published at
   `ghcr.io/nvidia/mokka-kind-node` for amd64 and arm64. Publication is gated by
   an amd64 smoke test that boots a cluster, verifies the effective NVIDIA/CDI
