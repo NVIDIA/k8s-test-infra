@@ -101,7 +101,7 @@ tests:
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: "ghcr.io/nvidia/nvml-mock:latest"
+          value: "ghcr.io/nvidia/nvml-mock:0.4.0"
       - equal:
           path: spec.template.spec.containers[0].imagePullPolicy
           value: IfNotPresent

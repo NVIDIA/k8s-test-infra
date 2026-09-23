@@ -41,7 +41,7 @@ tests:
           value: false
       - equal:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/nvidia/nvml-mock:latest
+          value: ghcr.io/nvidia/nvml-mock:0.4.0
       # Must match where the Dockerfile copies the binary; nothing else checks
       # the two agree, and a mismatch is a CrashLoopBackOff on every node.
       - equal:
