@@ -7,64 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- The GPU Operator chart is now pinned at `v26.3.3` in
-  `local/gpu-operator/gpu_operator.tiltfile`, which drives both local Tilt runs
-  and the `e2e-gpu-operator` job, and in the `with-gpu-operator` guide script
-  (override with `GPU_OPERATOR_VERSION`). It floated before, so v26.7.1 reached
-  CI without a commit here. That release gates every operand's
-  `toolkit-validation` init container on an `nvidia` line in `/proc/modules`,
-  which the mock cannot serve to those containers, and GFD, the device plugin
-  and dcgm-exporter never start. Lifting the pin is tracked in
-  [#911](https://github.com/NVIDIA/k8s-test-infra/issues/911).
-- The chart's install notes and the GPU Operator guide now install the GPU
-  Operator chart with `--version v26.3.3`. Without it, `helm install` resolves
-  v26.7.1, whose operands never start on the mock
-  ([#911](https://github.com/NVIDIA/k8s-test-infra/issues/911)).
-
-### Fixed
-
-- The nvml-mock chart now defaults `image.tag` and `controlPlane.image.tag` to
-  the image of its own release instead of `latest`. `latest` is republished
-  from `main` on every merge, so a released chart could run an image built for
-  a different version of the chart. See
-  [#919](https://github.com/NVIDIA/k8s-test-infra/issues/919).
-
-## [0.4.0-rc2] - 2026-09-22
-
-### Fixed
-
-- profiles: every shipped profile now reports the PCI identity of the board it
-  models, in both the `device_id` and the `subsystem_id` word, matching the
-  real-hardware `nvidia-smi -q -x` capture it is modelled on. Previously four
-  SKUs named a different GPU through `device_id`: `gb300` reported `0x2941`,
-  which is the HGX GB200 ID, where the captured board reports `10de:31c2`;
-  `gb200` reported `0x2341` and `b200` reported `0x2340`, where the captures
-  report `10de:2941` and `10de:2901`; and `l40s` reported `0x26b5`, an L40,
-  rather than the captured `10de:26b9`. `subsystem_id` was wrong in six of the
-  seven profiles against the same captures. Both words reach consumers two ways,
-  so this was never cosmetic: `nvmlDeviceGetPciInfo` returns them directly, and
-  the rendered PCI tree exposes them where `lspci` resolves and names a board.
-  The engine's own profile copies carried the same errors and are corrected
-  alongside the chart's.
-- nvml-mock: a device configured without a `pci` block reported a retired
-  subsystem ID (`0x1347`) through `nvmlDeviceGetPciInfo`. The built-in default
-  is now the captured A100 identity in both words.
-- node-agent: fixed the GPU Operator validator getting stuck retrying driver
-  validation forever if its pod started before node-agent had finished, or
-  restarted while node-agent was mid-restart. `/run/nvidia/driver` is now a
-  bind mount of the staged driver root instead of a symlink to it, so a
-  consumer that already mounted the path keeps seeing it as content lands,
-  the way it would with a real driver. Teardown unmounts but never deletes
-  the directory, and never touches a path it did not mount.
-  **Breaking (security):** the node-agent container is now privileged on
-  every install, not only when `nodeAgent.kernelLog.enabled` is set —
-  Kubernetes rejects `mountPropagation: Bidirectional` (needed for that bind
-  mount to reach other containers) on anything less, regardless of
-  capabilities granted. A cluster whose PodSecurity admits no privileged pod
-  will refuse this release's DaemonSet on `helm upgrade`. See
-  [#857](https://github.com/NVIDIA/k8s-test-infra/issues/857).
+## [0.4.0] - 2026-09-23
 
 ### Added
 
@@ -73,11 +16,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the profile directories rather than a fixed list, so a profile added without a
   matching capture fails the suite, as does a SKU present in one copy and not
   the other. It is what found the `subsystem_id` drift and the retired default.
-
-## [0.4.0-rc1] - 2026-09-14
-
-### Added
-
 - nvml-mock: the node agent announces an injected Xid on the node's kernel log,
   the way a driver's printk does, so agents that watch kernel messages see the
   fault instead of only NVML clients. It watches the runtime override document,
@@ -252,6 +190,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The GPU Operator chart is now pinned at `v26.3.3` in
+  `local/gpu-operator/gpu_operator.tiltfile`, which drives both local Tilt runs
+  and the `e2e-gpu-operator` job, and in the `with-gpu-operator` guide script
+  (override with `GPU_OPERATOR_VERSION`). It floated before, so v26.7.1 reached
+  CI without a commit here. That release gates every operand's
+  `toolkit-validation` init container on an `nvidia` line in `/proc/modules`,
+  which the mock cannot serve to those containers, and GFD, the device plugin
+  and dcgm-exporter never start. Lifting the pin is tracked in
+  [#911](https://github.com/NVIDIA/k8s-test-infra/issues/911).
+- The chart's install notes and the GPU Operator guide now install the GPU
+  Operator chart with `--version v26.3.3`. Without it, `helm install` resolves
+  v26.7.1, whose operands never start on the mock
+  ([#911](https://github.com/NVIDIA/k8s-test-infra/issues/911)).
 - nvml-mock: `terminationGracePeriodSeconds` defaults to `10` and
   `nodeAgent.shutdownTimeout` to `5s`, so the agent's teardown finishes before
   SIGKILL instead of being cut short.
@@ -417,6 +368,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The nvml-mock chart now defaults `image.tag` and `controlPlane.image.tag` to
+  the image of its own release instead of `latest`. `latest` is republished
+  from `main` on every merge, so a released chart could run an image built for
+  a different version of the chart. See
+  [#919](https://github.com/NVIDIA/k8s-test-infra/issues/919).
+- profiles: every shipped profile now reports the PCI identity of the board it
+  models, in both the `device_id` and the `subsystem_id` word, matching the
+  real-hardware `nvidia-smi -q -x` capture it is modelled on. Previously four
+  SKUs named a different GPU through `device_id`: `gb300` reported `0x2941`,
+  which is the HGX GB200 ID, where the captured board reports `10de:31c2`;
+  `gb200` reported `0x2341` and `b200` reported `0x2340`, where the captures
+  report `10de:2941` and `10de:2901`; and `l40s` reported `0x26b5`, an L40,
+  rather than the captured `10de:26b9`. `subsystem_id` was wrong in six of the
+  seven profiles against the same captures. Both words reach consumers two ways,
+  so this was never cosmetic: `nvmlDeviceGetPciInfo` returns them directly, and
+  the rendered PCI tree exposes them where `lspci` resolves and names a board.
+  The engine's own profile copies carried the same errors and are corrected
+  alongside the chart's.
+- nvml-mock: a device configured without a `pci` block reported a retired
+  subsystem ID (`0x1347`) through `nvmlDeviceGetPciInfo`. The built-in default
+  is now the captured A100 identity in both words.
+- node-agent: fixed the GPU Operator validator getting stuck retrying driver
+  validation forever if its pod started before node-agent had finished, or
+  restarted while node-agent was mid-restart. `/run/nvidia/driver` is now a
+  bind mount of the staged driver root instead of a symlink to it, so a
+  consumer that already mounted the path keeps seeing it as content lands,
+  the way it would with a real driver. Teardown unmounts but never deletes
+  the directory, and never touches a path it did not mount.
+  **Breaking (security):** the node-agent container is now privileged on
+  every install, not only when `nodeAgent.kernelLog.enabled` is set —
+  Kubernetes rejects `mountPropagation: Bidirectional` (needed for that bind
+  mount to reach other containers) on anything less, regardless of
+  capabilities granted. A cluster whose PodSecurity admits no privileged pod
+  will refuse this release's DaemonSet on `helm upgrade`. See
+  [#857](https://github.com/NVIDIA/k8s-test-infra/issues/857).
 - agent: the InfiniBand simulator no longer reports ready before the mock-ib
   socket exists. It flipped its serving flag and only then called
   `ListenAndServe`, which creates the socket directory, clears a stale socket
@@ -975,7 +961,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Rebranded from gpu-mock to nvml-mock (PRs #273, #274, #275, #281, #282)
 
-[Unreleased]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.1.0...v0.2.0
