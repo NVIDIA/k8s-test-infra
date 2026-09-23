@@ -22,6 +22,10 @@ dcgmExporter:
   serviceMonitor:
     enabled: true
     interval: 5s
+    # Must not exceed interval. Charts from v26.7.1 default it to 10s, and the
+    # Prometheus Operator skips a ServiceMonitor whose timeout is longer than
+    # its interval, logging only a warning, so dcgm-exporter is never scraped.
+    scrapeTimeout: 5s
     additionalLabels:
       # THE most fragile coupling in this consumer. kube-prometheus-stack
       # defaults serviceMonitorSelectorNilUsesHelmValues=true, so Prometheus
