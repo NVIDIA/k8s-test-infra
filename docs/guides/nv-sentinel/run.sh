@@ -175,10 +175,9 @@ info "Loading image into Kind"
 kind load docker-image "${IMAGE_NAME}" --name "${CLUSTER_NAME}"
 
 # --- Install nvml-mock (pinned to the GPU workers) ----------------------------
-# nodeAgent.kernelLog is what this demo turns on: the chart ships it off, since
-# it makes the node-agent container privileged, and without it an injected Xid
-# reaches NVML alone -- invisible to NVSentinel's syslog monitor, which is the
-# half of NVSentinel this demo exists to show.
+# nodeAgent.kernelLog is what this demo turns on: the chart keeps host
+# /dev/kmsg access opt-in, while this demo needs the injected Xid to reach
+# NVSentinel's syslog monitor rather than NVML alone.
 info "Installing nvml-mock (profile=${GPU_PROFILE}) on the GPU workers"
 helm upgrade --install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
   --kube-context "${KUBE_CONTEXT}" \

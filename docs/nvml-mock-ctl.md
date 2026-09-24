@@ -221,15 +221,15 @@ is missing or unwritable keeps the NVML side, and the agent logs the skip.
 Two node-level requirements, neither of which the mock can arrange for itself:
 
 - the agent must be able to write `/dev/kmsg`, which takes
-  `nodeAgent.kernelLog.enabled=true`. It is off by default because it mounts the
-  device and runs `node-agent` **privileged**: mounting alone is not enough, as
-  the container device cgroup rejects the write (`operation not permitted`) even
-  for root with the node's world-writable `/dev/kmsg` bind-mounted, and no
-  lesser capability lifts that. A cluster that will not take a privileged pod,
-  or a node with no `/dev/kmsg`, has to leave it off; the DaemonSet then sets
-  `MOCK_NVML_KMSG=""` and the agent stays quiet instead of warning about a
-  device it was not given. `local/nvml-mock.values.yaml` and the nv-sentinel
-  demo enable it, so an Xid injected there lands on the kernel log. Where
+  `nodeAgent.kernelLog.enabled=true`. It is off by default because enabling it
+  mounts the host's `/dev/kmsg` device and requires a node and PodSecurity
+  policy that allow that access. The node agent is already privileged for its
+  mount-propagation setup, but a cluster that will not take a privileged pod,
+  or a node with no `/dev/kmsg`, has to leave kernel-log access off; the
+  DaemonSet then sets `MOCK_NVML_KMSG=""` and the agent stays quiet instead of
+  warning about a device it was not given. `local/nvml-mock.values.yaml` and
+  the nv-sentinel demo enable it, so an Xid injected there lands on the kernel
+  log. Where
   PodSecurity is enforced, the namespace has to admit the pod:
   `kubectl label namespace mokka pod-security.kubernetes.io/enforce=privileged`
   — under `baseline` or `restricted` the DaemonSet is rejected outright rather
