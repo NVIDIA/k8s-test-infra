@@ -168,7 +168,7 @@ gen: tools ## Generate machine-controlled code
 	@go mod download $(GO_NVML_MOD)
 	@GO_NVML_DIR=$$(go list -m -f '{{.Dir}}' $(GO_NVML_MOD)) go generate ./pkg/gpu/mocknvml/bridge/...
 	@echo "Generating deepcopy for $(API_PKG_PATH).."
-	@$(BIN_DIR)/controller-gen object paths="$(API_PKG_PATH)"
+	@$(BIN_DIR)/controller-gen object:headerFile=hack/boilerplate.go.txt paths="$(API_PKG_PATH)"
 	@echo "Generating CRD manifests into $(CRDS_OUT).."
 	@mkdir -p $(CRDS_OUT)
 	@$(BIN_DIR)/controller-gen crd:allowDangerousTypes=true \

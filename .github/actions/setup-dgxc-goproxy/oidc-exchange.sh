@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
+
 # Exchange a GitHub Actions OIDC token for a short-lived JFrog access token.
 #
 # Ships inside the composite action directory rather than scripts/ so the action stays

@@ -1,0 +1,28 @@
+header:
+  license:
+    spdx-id: Apache-2.0
+    copyright-owner: NVIDIA CORPORATION
+  paths:
+    - '**/*.go'
+    - '**/*.sh'
+    - '**/*.tiltfile'
+    - 'Tiltfile'
+    - '**/*.real'
+    - '**/Makefile'
+    - 'Makefile'
+    - '**/Dockerfile'
+    - '**/Dockerfile.*'
+  paths-ignore:
+    - '.git/**'
+    - '.cache/**'
+    - 'dist/**'
+    - 'licenses/**'
+    - '**/*.md'
+    - '**/*.json'
+    - '**/*.yaml'
+    - '**/*.yml'
+    - '**/*.tpl'
+    - '**/*.html'
+    - 'LICENSE'
+    - 'NOTICE'
+  comment: on-failure
