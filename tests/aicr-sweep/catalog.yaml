@@ -1,0 +1,308 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# AICR check-coverage catalog under Mokka (nvml-mock).
+#
+# One row per check in the AICR validate catalog. The bucket is an ANALYTICAL
+# judgment about what the check proves when it runs against a simulated cluster.
+# It is made from source evidence and is reviewable independently of any run.
+# The harness supplies the observed outcome separately and never edits a bucket
+# to match a result.
+#
+# Buckets:
+#   A  exercises real integration; could plausibly fail for a real reason.
+#   B  green only because the mock answers the API; would pass regardless of
+#      correctness. Not a win. Recorded honestly because it bounds the claim.
+#   C  hardware-dependent; cannot be judged pre-silicon. These are why
+#      AICR-on-silicon remains the final readiness gate.
+#   G  would be meaningful pre-silicon, but Mokka lacks the capability. Not
+#      hardware-dependent, therefore closable, therefore roadmap. Needs an issue.
+#
+# gpuDependent records whether the check actually touches the GPU stack. A
+# bucket-A row with gpuDependent:false still moves left, but ANY cluster runs it,
+# so Mokka is not what unlocks it. Keeping that split visible is what stops the
+# headline A number from being inflated by pure control-plane checks.
+#
+# Check names and evidence lines are from NVIDIA/aicr at upstream/main
+# 0752ea148aa1ae849cbef86ec59d0c970a582496 (2026-07-31). The authoritative
+# source list is recipes/validators/catalog.yaml: 21 entries, 4 deployment,
+# 4 performance, 13 conformance.
+
+source: "NVIDIA/aicr recipes/validators/catalog.yaml @0752ea14 (21 checks)"
+
+checks:
+  # ---------------------------------------------------------------- deployment
+  - name: operator-health
+    area: operator-install
+    phase: deployment
+    bucket: A
+    gpuDependent: true
+    rationale: >-
+      Installs and reconciles the real NVIDIA GPU Operator against the mock
+      driver surface, then requires its pods to reach a healthy state. Fails for
+      real reasons: a broken operand, an unschedulable DaemonSet, a driver-root
+      misconfiguration. This sweep saw exactly that class of failure when the
+      operator demanded a runtime class the node did not have, which is
+      integration work that genuinely moves left.
+    evidence: "validators/deployment/operator_health.go:33,45"
+
+  - name: expected-resources
+    area: control-plane
+    phase: deployment
+    bucket: A
+    gpuDependent: true
+    rationale: >-
+      Verifies every resource declared in the recipe's componentRefs exists and
+      is healthy, then dispatches 37 nested chainsaw component health checks
+      in-process. One of those asserts ClusterPolicy status.state == ready, the
+      deepest driver-coupled signal in the suite. Real control-plane
+      reconciliation; a missing prerequisite or a stuck operand fails it.
+    evidence: "validators/deployment/expected_resources.go:196,240-257,299"
+
+  - name: gpu-operator-version
+    area: operator-install
+    phase: deployment
+    bucket: A
+    gpuDependent: false
+    rationale: >-
+      Reads the deployed operator version and evaluates it against the recipe
+      constraint, so a wrong or unpinned chart version fails it for a real
+      reason. Marked GPU-independent: it inspects a Helm release and would work
+      on any cluster with the operator installed, so Mokka is not what unlocks
+      it. Skips when the recipe declares no constraint.
+    evidence: "validators/deployment/gpu_operator_version.go:31,42"
+
+  - name: check-nvidia-smi
+    area: nvml-surface
+    phase: deployment
+    bucket: A
+    gpuDependent: true
+    rationale: >-
+      The strongest bucket-A case in the suite. Schedules a CUDA base-image pod
+      on every schedulable GPU node and requires the log to carry the NVIDIA-SMI
+      banner, a Driver or KMD version, a CUDA or CUDA-UMD version, and a success
+      marker. That exercises the whole chain: device-plugin allocation, device
+      injection, and dlopen resolution of libnvidia-ml.so.1. It is exactly the
+      class of breakage that otherwise waits for silicon.
+    evidence: "validators/deployment/nvidia_smi.go:126,328-333"
+
+  # --------------------------------------------------------------- performance
+  - name: nccl-all-reduce-bw
+    area: nccl-nvlink-fabric
+    phase: performance
+    bucket: C
+    gpuDependent: true
+    rationale: >-
+      Measures NCCL all-reduce bus bandwidth against a GB/s threshold. Mokka
+      simulates fabric MANAGEMENT (NVSwitch topology, fabricmanager, IB subnet
+      manager) but not the collective data plane. NVLink throughput counters in
+      the mock accrue from a clock epoch, not from traffic, so no bandwidth
+      number here can be meaningful. Hardware-dependent by construction.
+    evidence: "validators/performance/nccl_all_reduce_bw.go:30"
+
+  - name: nccl-all-reduce-bw-net
+    area: nccl-nvlink-fabric
+    phase: performance
+    bucket: C
+    gpuDependent: true
+    rationale: >-
+      As nccl-all-reduce-bw, and additionally asserts the NET transport actually
+      carried traffic by matching an NCCL log line naming the network. Requires
+      EFA or RoCE. Data-plane, therefore hardware-dependent.
+    evidence: "validators/performance/nccl_all_reduce_bw_constraint.go:198"
+
+  - name: nccl-all-reduce-bw-nvls
+    area: nccl-nvlink-fabric
+    phase: performance
+    bucket: C
+    gpuDependent: true
+    rationale: >-
+      As nccl-all-reduce-bw, and additionally asserts NVLS multicast was
+      available and an NVLS communicator was initialised, across an NVL72 IMEX
+      domain. Mokka renders IMEX channels but runs no collectives. Hardware.
+    evidence: "validators/performance/nccl_all_reduce_bw_constraint.go:199-200"
+
+  - name: inference-perf
+    area: ttft-throughput
+    phase: performance
+    bucket: C
+    gpuDependent: true
+    rationale: >-
+      Runs AIPerf against a live Dynamo endpoint and asserts throughput and p99
+      time-to-first-token against thresholds. The mock executes no CUDA kernel,
+      so there is no inference to measure. This check is the literal definition
+      of what simulation cannot prove, and it is why "reduce time to first
+      token" is the defensible claim rather than "hit first token on day one".
+    evidence: "validators/performance/inference_perf.go:29,93"
+
+  # --------------------------------------------------------------- conformance
+  - name: dra-support
+    area: dra
+    phase: conformance
+    bucket: A
+    gpuDependent: true
+    rationale: >-
+      Requires a served resource.k8s.io version, an available DRA driver
+      controller Deployment, a ready kubelet-plugin DaemonSet, at least one
+      validated *.nvidia.com ResourceSlice on a schedulable node, and a
+      behavioural ResourceClaim pod that reaches PodSucceeded. Every one of
+      those is real control-plane and allocation work that Mokka's NVML surface
+      drives. A driver that cannot enumerate devices fails it for a real reason.
+    evidence: "validators/conformance/dra_support_check.go:55,263-320,524"
+
+  - name: gang-scheduling
+    area: scheduling
+    phase: conformance
+    bucket: A
+    gpuDependent: false
+    rationale: >-
+      Verifies KAI scheduler Deployments, the queue and podgroup CRDs, and that
+      two pods co-schedule inside a window with the right scheduler name and
+      pod-group label. Real scheduling integration, but the validator uses
+      CPU-only workers by design and asserts zero resourceClaims, so any cluster
+      runs it. Mokka is not what unlocks this one, and counting it as GPU
+      coverage would inflate the headline.
+    evidence: "validators/conformance/gang_scheduling_check.go:96-99,352-420"
+
+  - name: accelerator-metrics
+    area: telemetry
+    phase: conformance
+    bucket: A
+    gpuDependent: true
+    rationale: >-
+      Scrapes dcgm-exporter and requires DCGM_FI_DEV_GPU_UTIL, FB_USED, GPU_TEMP
+      and POWER_USAGE to be present. v0.3.0 backs these through
+      nvmlDeviceGetFieldValues, so a real dcgm-exporter loads the mock NVML like
+      any other consumer and the whole exporter path is exercised. Note the
+      values themselves are clock-driven, not workload-driven; this check
+      asserts presence, not magnitude, which is why it is A and not B.
+    evidence: "validators/conformance/accelerator_metrics_check.go:27-32,39"
+
+  - name: ai-service-metrics
+    area: telemetry
+    phase: conformance
+    bucket: A
+    gpuDependent: true
+    rationale: >-
+      Queries Prometheus for a DCGM_FI_DEV_GPU_UTIL series and requires the
+      custom-metrics API to be reachable. Exercises the full scrape and
+      registration path from the mock NVML through dcgm-exporter into Prometheus
+      and prometheus-adapter. Plumbing failures here are real.
+    evidence: "validators/conformance/ai_service_metrics_check.go:41,105,143,164-176"
+
+  - name: inference-gateway
+    area: control-plane
+    phase: conformance
+    bucket: A
+    gpuDependent: false
+    rationale: >-
+      Requires the agentgateway GatewayClass Accepted, the Gateway Programmed,
+      the Gateway API and Inference Extension CRDs present, and proxy endpoints
+      Ready. Real reconciliation, but nothing in it touches the GPU stack, so it
+      runs on any cluster.
+    evidence: "validators/conformance/inference_gateway_check.go:54,68,91,121,385"
+
+  - name: pod-autoscaling
+    area: telemetry
+    phase: conformance
+    bucket: B
+    gpuDependent: true
+    rationale: >-
+      Gates on a non-empty dcgm_gpu_power_usage external metric and then drives
+      an HPA against a 10 W target. The validator's own comment says an idle
+      H100 draws about 46 W so the HPA always computes a scale-up. Under Mokka
+      the power number is clock-driven and never responds to load, so the HPA
+      scales on a signal that cannot fall. The wiring is exercised, but the
+      check passes regardless of whether GPU-driven autoscaling would work,
+      which is the definition of bucket B. Recorded as B deliberately.
+    evidence: "validators/conformance/pod_autoscaling_check.go:70,208,228,417-420"
+
+  - name: cluster-autoscaling
+    area: scheduling
+    phase: conformance
+    bucket: A
+    gpuDependent: false
+    rationale: >-
+      Requires a Karpenter controller, a GPU NodePool with nvidia.com/gpu
+      limits, and a behavioural scale-up in which pending pods drive node
+      provisioning above baseline. Real scheduling and provisioning integration.
+      AICR's own KWOK provider is the intended substrate for this check, so it
+      is not GPU-dependent, and it skips outside EKS or GKE when Karpenter is
+      absent.
+    evidence: "validators/conformance/cluster_autoscaling_check.go:68,112,276-289,494"
+
+  - name: robust-controller
+    area: control-plane
+    phase: conformance
+    bucket: A
+    gpuDependent: false
+    rationale: >-
+      Requires an AI operator controller Deployment, a ValidatingWebhook with a
+      reachable endpoint, the CRD, and proof that the webhook actively rejects an
+      invalid custom resource. Real admission-path integration. Skips when the
+      recipe carries neither dynamo-platform nor kubeflow-trainer.
+    evidence: "validators/conformance/robust_controller_check.go:78,93,193,425"
+
+  - name: secure-accelerator-access
+    area: scheduling
+    phase: conformance
+    bucket: A
+    gpuDependent: true
+    rationale: >-
+      The check that most directly exercises MEP-0002. A granted container must
+      see exactly one GPU, an unauthorized sibling and a standalone probe must
+      see no /dev/nvidia* at all, and no hostPath may carry /dev/nvidia. That is
+      precisely the "exactly one component serves a container" contract, and it
+      fails for a real reason if device-spec passing or NRI suppression is wrong.
+    evidence: "validators/conformance/secure_access_check.go:99,111-115,276,663"
+
+  - name: slinky-slurm-health
+    area: control-plane
+    phase: conformance
+    bucket: A
+    gpuDependent: true
+    rationale: >-
+      Requires a responsive Slurm controller, idle or mixed nodes, a successful
+      srun, and on GPU NodeSets a containerized GPU job. Controller, scheduling
+      and accounting are real integration. Note the validator explicitly skips
+      when every NodeSet pod sits on a KWOK node, which is the one place in the
+      whole AICR validator tree that detects a simulated node.
+    evidence: "validators/conformance/slinky_slurm_health_check.go:95,106,346-353"
+
+  - name: slinky-slurm-imex-channel
+    area: dra
+    phase: conformance
+    bucket: A
+    gpuDependent: true
+    rationale: >-
+      Requires concurrent Slurm jobs to receive fixed IMEX resources and
+      distinct channels through the ComputeDomain API. v0.3.0 renders the IMEX
+      channel surface, so the semantics are reachable in principle rather than
+      hardware-bound. Distinguish carefully from NVLS throughput, which is C:
+      channel assignment is fabric MANAGEMENT, not the data plane.
+    evidence: "validators/conformance/slinky_slurm_imex_channel_check.go:85,96"
+
+  - name: gpu-operator-health
+    area: operator-install
+    phase: conformance
+    bucket: A
+    gpuDependent: true
+    rationale: >-
+      Requires the gpu-operator Deployment, the singleton ClusterPolicy at
+      status.state == ready, and a ready nvidia-dcgm-exporter DaemonSet. The
+      ClusterPolicy gate only clears once the driver, toolkit, CUDA and plugin
+      validators have all passed, so this is the deepest single assertion about
+      whether the GPU stack actually came up.
+    evidence: "validators/conformance/gpu_operator_health_check.go:30,38,55-66,69"
+
+  - name: platform-health
+    area: control-plane
+    phase: conformance
+    bucket: A
+    gpuDependent: false
+    rationale: >-
+      Requires every enabled component namespace to be Active and every declared
+      expected resource to verify. Real control-plane reconciliation across the
+      whole recipe, but no part of it reads the GPU stack, so any cluster runs
+      it.
+    evidence: "validators/conformance/platform_health_check.go:31,47,58,72"

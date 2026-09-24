@@ -1,0 +1,56 @@
+{
+  "reportFormat": "CTRF",
+  "specVersion": "0.0.1",
+  "timestamp": "2026-08-03T19:13:15Z",
+  "generatedBy": "aicr",
+  "results": {
+    "tool": {
+      "name": "aicr",
+      "version": "dev"
+    },
+    "summary": {
+      "tests": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0,
+      "pending": 0,
+      "other": 0,
+      "start": 1785784391525,
+      "stop": 1785784395710
+    },
+    "tests": [
+      {
+        "name": "operator-health",
+        "status": "passed",
+        "duration": 0,
+        "suite": [
+          "deployment"
+        ]
+      },
+      {
+        "name": "expected-resources",
+        "status": "passed",
+        "duration": 0,
+        "suite": [
+          "deployment"
+        ]
+      },
+      {
+        "name": "gpu-operator-version",
+        "status": "passed",
+        "duration": 0,
+        "suite": [
+          "deployment"
+        ]
+      },
+      {
+        "name": "check-nvidia-smi",
+        "status": "passed",
+        "duration": 0,
+        "suite": [
+          "deployment"
+        ]
+      }
+    ]
+  }
+}
