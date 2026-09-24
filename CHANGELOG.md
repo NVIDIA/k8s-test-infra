@@ -179,6 +179,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SGPURackProfile` and `SGPUInventory` declarations into stable `SGPURack`
   Node bindings and projects the required assignment metadata onto Kubernetes
   Nodes. The controller rebuilds its derived state from Kubernetes after restart.
+- demo: the NVSentinel demo now drives GPU reset remediation end to end, and
+  `GPU_RESET=false` skips it. An uncorrectable ECC error on a mock GPU becomes a
+  `COMPONENT_RESET` health event, a `GPUReset` custom resource, and a privileged
+  reset Job running NVIDIA's own `gpu-reset` image against the mock's driver
+  root. The reset runs under `chroot /run/nvidia/driver`, so it needs no GPU
+  allocated and is unaffected by the janitor disabling the device plugin on the
+  node before the Job starts.
+- The node agent stages the loader closure that makes the driver root
+  chroot-able. NVIDIA's `gpu_reset.sh` reaches `nvidia-smi` only as
+  `chroot /run/nvidia/driver nvidia-smi`, which a real driver container satisfies
+  by r-bind-mounting its whole container root there; the mock staged driver
+  surfaces alone, so the exec died on the missing dynamic loader
+  ([#759](https://github.com/NVIDIA/k8s-test-infra/issues/759)). The agent now
+  stages the loader and the transitive `DT_NEEDED` closure, read out of the
+  binaries' own `PT_INTERP`/`DT_NEEDED`, under `driver/lib*` — remapping host
+  `/usr/lib*` into `driver/lib*` so a RHEL-style layout never lands glibc in the
+  CDI-injected `driver/usr/lib64`. A reset that cannot resolve its overrides path
+  now fails, instead of reporting a GPU repaired that was never touched.
 - The node agent gains `pcibus`, `cdi` and `imex` simulators, each an
   `agent.Simulator` with the same stage/apply/discard lifecycle as the existing
   `gpudriver`. Together they subsume the device-surface construction that
