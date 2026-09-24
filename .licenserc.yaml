@@ -6,6 +6,7 @@ header:
     - '**/*.go'
     - '**/*.sh'
     - '**/*.tiltfile'
+    - 'Tiltfile'
     - '**/*.real'
     - '**/Makefile'
     - 'Makefile'
