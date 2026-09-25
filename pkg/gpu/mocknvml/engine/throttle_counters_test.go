@@ -305,3 +305,83 @@ func TestGetViolationStatus_RejectsPoliciesOutsideTheEnum(t *testing.T) {
 		require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret, "policy %d", policy)
 	}
 }
+
+func TestThrottleCounterFieldsReportLostDevices(t *testing.T) {
+	for _, mode := range []string{FailureModeLost, FailureModeFallenOffBus} {
+		for _, field := range append(throttleCounterFields[:len(throttleCounterFields):len(throttleCounterFields)],
+			struct {
+				name    string
+				fieldID uint32
+			}{"Thermal alias", fiPerfPolicyThermal}) {
+			t.Run(mode+"/"+field.name, func(t *testing.T) {
+				dev := newTestDeviceWithConfig(t, &DeviceConfig{
+					Architecture: "blackwell",
+					ClocksThrottleReasons: &ClocksThrottleReasonsConfig{
+						Counters: &ThrottleCountersConfig{SWPowerCapUS: 123},
+					},
+					Failure: &FailureInjectionConfig{Mode: mode},
+				})
+				vt, value, ret := dev.GetFieldValue(field.fieldID, 0)
+				require.Equal(t, nvml.ERROR_GPU_IS_LOST, ret)
+				require.Equal(t, FieldValueUnsupported, vt)
+				require.Zero(t, value)
+				_, directRet := dev.GetViolationStatus(nvml.PERF_POLICY_POWER)
+				require.Equal(t, directRet, ret)
+			})
+		}
+	}
+}
+
+func TestThrottleCounterFieldsHonorDelayedLoss(t *testing.T) {
+	for _, field := range throttleCounterFields {
+		t.Run(field.name, func(t *testing.T) {
+			dev := newTestDeviceWithConfig(t, &DeviceConfig{
+				Architecture: "blackwell",
+				Failure:      &FailureInjectionConfig{Mode: FailureModeLost, AfterCalls: 3},
+			})
+			for call := 1; call <= 4; call++ {
+				vt, value, ret := dev.GetFieldValue(field.fieldID, 0)
+				if call < 3 {
+					require.Equal(t, nvml.SUCCESS, ret)
+					require.Equal(t, FieldValueUint64, vt)
+				} else {
+					require.Equal(t, nvml.ERROR_GPU_IS_LOST, ret)
+					require.Equal(t, FieldValueUnsupported, vt)
+				}
+				require.Zero(t, value)
+				require.Equal(t, int64(call), dev.failureInjector().CallCount())
+			}
+		})
+	}
+}
+
+func TestThrottleCounterFieldsPreserveNonLostDevices(t *testing.T) {
+	for _, mode := range []string{FailureModeHealthy, FailureModeECCUncorrectable} {
+		t.Run(mode, func(t *testing.T) {
+			dev := newTestDeviceWithConfig(t, &DeviceConfig{
+				Architecture: "blackwell",
+				Failure:      &FailureInjectionConfig{Mode: mode},
+				ClocksThrottleReasons: &ClocksThrottleReasonsConfig{
+					Counters: &ThrottleCountersConfig{SWPowerCapUS: 123},
+				},
+			})
+			vt, value, ret := dev.GetFieldValue(fiPerfPolicyPower, 0)
+			require.Equal(t, nvml.SUCCESS, ret)
+			require.Equal(t, FieldValueUint64, vt)
+			require.Equal(t, uint64(123000), value)
+		})
+	}
+}
+
+func TestThrottleCounterUnknownFieldDoesNotAdvanceFailure(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Architecture: "blackwell",
+		Failure:      &FailureInjectionConfig{Mode: FailureModeLost, AfterCalls: 3},
+	})
+	vt, value, ret, handled := dev.throttleCounterFieldValue(9999)
+	require.False(t, handled)
+	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret)
+	require.Equal(t, FieldValueUnsupported, vt)
+	require.Zero(t, value)
+	require.Zero(t, dev.failureInjector().CallCount())
+}
