@@ -176,6 +176,9 @@ func (d *ConfigurableDevice) throttleCounterFieldValue(fieldID uint32) (FieldVal
 	if !ok {
 		return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED, false
 	}
+	if ret := d.tickFailure(); ret != nvml.SUCCESS {
+		return FieldValueUnsupported, 0, ret, true
+	}
 	return FieldValueUint64, d.throttleAccrual().resolve()[cause], nvml.SUCCESS, true
 }
 
