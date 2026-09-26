@@ -25,6 +25,9 @@ spec:
         checksum/config: {{ include "nvml-mock.gpuConfig" . | sha256sum }}
     spec:
       serviceAccountName: {{ include "nvml-mock.fullname" . }}
+      {{- with include "nvml-mock.imagePullSecrets" . }}
+      {{- . | nindent 6 }}
+      {{- end }}
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       {{- with .Values.nodeSelector }}
@@ -37,8 +40,8 @@ spec:
       {{- end }}
       containers:
         - name: node-agent
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          image: {{ include "nvml-mock.image" (dict "image" .Values.image "context" $) | quote }}
+          imagePullPolicy: {{ include "nvml-mock.imagePullPolicy" (dict "image" .Values.image "context" $) }}
           command:
             - /usr/local/bin/node-agent
             - start
@@ -228,8 +231,8 @@ spec:
         # one TTL. A sidecar rather than its own DaemonSet so it shares the
         # driver-root hostPath the override file lives in.
         - name: allocation-watcher
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          image: {{ include "nvml-mock.image" (dict "image" .Values.image "context" $) | quote }}
+          imagePullPolicy: {{ include "nvml-mock.imagePullPolicy" (dict "image" .Values.image "context" $) }}
           command:
             - /usr/local/bin/nvml-mock-ctl
             - watch-allocations

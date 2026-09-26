@@ -1,12 +1,4 @@
 {{- if .Values.controlPlane.enabled }}
-{{- $image := "" }}
-{{- if .Values.controlPlane.image.allowMutableTag }}
-{{- $tag := required "controlPlane.image.tag is required when controlPlane.image.allowMutableTag is true" .Values.controlPlane.image.tag }}
-{{- $image = printf "%s:%s" .Values.controlPlane.image.repository $tag }}
-{{- else }}
-{{- $digest := required "controlPlane.image.digest is required when controlPlane.enabled is true" .Values.controlPlane.image.digest }}
-{{- $image = printf "%s@%s" .Values.controlPlane.image.repository $digest }}
-{{- end }}
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 apiVersion: apps/v1
@@ -34,6 +26,9 @@ spec:
         app.kubernetes.io/component: control-plane
     spec:
       serviceAccountName: {{ include "nvml-mock.controlPlaneName" . }}
+      {{- with include "nvml-mock.imagePullSecrets" . }}
+      {{- . | nindent 6 }}
+      {{- end }}
       automountServiceAccountToken: true
       terminationGracePeriodSeconds: {{ .Values.controlPlane.terminationGracePeriodSeconds }}
       {{- with .Values.controlPlane.nodeSelector }}
@@ -46,8 +41,8 @@ spec:
       {{- end }}
       containers:
         - name: control-plane
-          image: "{{ $image }}"
-          imagePullPolicy: {{ .Values.controlPlane.image.pullPolicy }}
+          image: {{ include "nvml-mock.image" (dict "image" .Values.controlPlane.image "context" $) | quote }}
+          imagePullPolicy: {{ include "nvml-mock.imagePullPolicy" (dict "image" .Values.controlPlane.image "context" $) }}
           args:
             - --listen-addr=:{{ .Values.controlPlane.service.port }}
             - --log-level={{ .Values.controlPlane.logging.level }}

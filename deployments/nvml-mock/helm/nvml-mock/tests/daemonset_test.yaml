@@ -97,11 +97,11 @@ tests:
           path: spec.template.spec.serviceAccountName
           value: RELEASE-NAME-nvml-mock
 
-  - it: should render the default image
+  - it: should default the image tag to the chart appVersion
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: "ghcr.io/nvidia/nvml-mock:latest"
+          value: "ghcr.io/nvidia/nvml-mock:0.0.0-dev"
       - equal:
           path: spec.template.spec.containers[0].imagePullPolicy
           value: IfNotPresent
@@ -444,6 +444,123 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].imagePullPolicy
           value: Always
+
+  - it: should pin the image by digest over the tag
+    set:
+      allocationWatcher:
+        enabled: true
+      image:
+        tag: v1.2.3
+        digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/nvidia/nvml-mock@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      - equal:
+          path: spec.template.spec.containers[1].image
+          value: ghcr.io/nvidia/nvml-mock@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+  - it: should replace the image registry with global.imageRegistry
+    set:
+      allocationWatcher:
+        enabled: true
+      global:
+        imageRegistry: mirror.example.com
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: mirror.example.com/nvidia/nvml-mock:0.0.0-dev
+      - equal:
+          path: spec.template.spec.containers[1].image
+          value: mirror.example.com/nvidia/nvml-mock:0.0.0-dev
+
+  - it: should replace a registry with a port and keep a pinned digest
+    set:
+      global:
+        imageRegistry: mirror.example.com:5000/
+      image:
+        repository: localhost:5000/team/nvml-mock
+        digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: mirror.example.com:5000/team/nvml-mock@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+  # A first path component without a dot, colon or "localhost" is a Docker Hub
+  # namespace, not a registry host, so it must be kept.
+  - it: should prefix a registry-less repository with global.imageRegistry
+    set:
+      global:
+        imageRegistry: mirror.example.com
+      image:
+        repository: team/nvml-mock
+        tag: v1
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: mirror.example.com/team/nvml-mock:v1
+
+  # An empty pullPolicy follows the Kubernetes default for the rendered tag,
+  # so a floating "latest" is re-pulled instead of served stale from the node.
+  - it: should always pull a latest tag when the pull policy is empty
+    set:
+      allocationWatcher:
+        enabled: true
+      image:
+        tag: latest
+        pullPolicy: ""
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].imagePullPolicy
+          value: Always
+      - equal:
+          path: spec.template.spec.containers[1].imagePullPolicy
+          value: Always
+
+  - it: should pull a release tag if not present when the pull policy is empty
+    set:
+      image:
+        pullPolicy: ""
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].imagePullPolicy
+          value: IfNotPresent
+
+  - it: should not set image pull secrets by default
+    asserts:
+      - notExists:
+          path: spec.template.spec.imagePullSecrets
+
+  - it: should merge global and chart image pull secrets without duplicates
+    set:
+      global:
+        imagePullSecrets:
+          - mirror-creds
+          - name: shared-creds
+      imagePullSecrets:
+        - name: mirror-creds
+        - ghcr-creds
+    asserts:
+      - equal:
+          path: spec.template.spec.imagePullSecrets
+          value:
+            - name: mirror-creds
+            - name: shared-creds
+            - name: ghcr-creds
+
+  - it: should reject an image pull secret without a name via the values schema
+    set:
+      imagePullSecrets:
+        - namespace: other
+    asserts:
+      - failedTemplate: {}
+
+  - it: should reject a malformed image digest via the values schema
+    set:
+      image:
+        digest: sha256:not-a-digest
+    asserts:
+      - failedTemplate: {}
 
   - it: should respect nameOverride
     release:
@@ -943,6 +1060,22 @@ tests:
             hostPath:
               path: /var/lib/kubelet/pod-resources
               type: Directory
+
+  - it: should run the allocation watcher sidecar from the chart image
+    set:
+      allocationWatcher:
+        enabled: true
+      image:
+        repository: custom-registry/nvml-mock
+        tag: v1.2.3
+        pullPolicy: Always
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[1].image
+          value: custom-registry/nvml-mock:v1.2.3
+      - equal:
+          path: spec.template.spec.containers[1].imagePullPolicy
+          value: Always
 
   - it: should add the allocation watcher sidecar and its socket mount when enabled
     set:

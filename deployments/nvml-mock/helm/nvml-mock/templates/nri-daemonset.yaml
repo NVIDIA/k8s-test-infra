@@ -1,5 +1,10 @@
 {{- if .Values.nri.enabled }}
-{{- $image := mergeOverwrite (deepCopy .Values.image) (.Values.nri.image | default dict) }}
+{{- $nriImage := .Values.nri.image | default dict }}
+{{- $image := mergeOverwrite (deepCopy .Values.image) $nriImage }}
+{{- /* The chart digest names the nvml-mock image; it must not pin an NRI repository or tag override. */}}
+{{- if and (not $nriImage.digest) (or $nriImage.repository $nriImage.tag) }}
+{{- $_ := unset $image "digest" }}
+{{- end }}
 {{- $socketDir := dir .Values.nri.socketPath }}
 {{- if not (has .Values.nri.deviceInjectionMode (list "raw" "cdi")) }}
 {{- fail (printf "nri.deviceInjectionMode must be \"raw\" or \"cdi\", got %q" .Values.nri.deviceInjectionMode) }}
@@ -27,6 +32,9 @@ spec:
         app.kubernetes.io/component: nri
     spec:
       serviceAccountName: {{ include "nvml-mock.fullname" . }}
+      {{- with include "nvml-mock.imagePullSecrets" . }}
+      {{- . | nindent 6 }}
+      {{- end }}
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       {{- with .Values.nodeSelector }}
@@ -39,8 +47,8 @@ spec:
       {{- end }}
       containers:
         - name: nvml-mock-nri
-          image: "{{ $image.repository }}:{{ $image.tag }}"
-          imagePullPolicy: {{ $image.pullPolicy }}
+          image: {{ include "nvml-mock.image" (dict "image" $image "context" $) | quote }}
+          imagePullPolicy: {{ include "nvml-mock.imagePullPolicy" (dict "image" $image "context" $) }}
           command: ["/usr/local/bin/nri-plugin"]
           args:
             - --socket-path={{ .Values.nri.socketPath }}
