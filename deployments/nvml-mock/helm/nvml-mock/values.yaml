@@ -1,6 +1,18 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 
+global:
+  # Pulls every image the chart runs from this registry (e.g. a mirror),
+  # replacing the registry host of each image repository.
+  imageRegistry: ""
+  # Pull secrets added to every chart pod, ahead of imagePullSecrets below.
+  # Each entry is a Secret name or {name: <secret>}.
+  imagePullSecrets: []
+
+# Pull secrets added to every chart pod (nvml-mock, NRI and control plane).
+# Each entry is a Secret name or {name: <secret>}.
+imagePullSecrets: []
+
 gpu:
   profile: gb300          # any *.yaml basename under profiles/ (e.g. a100, h100, b200, gb200, gb300, l40s, t4)
   # Number of GPUs to expose. Empty (default) derives the count from the
@@ -57,7 +69,8 @@ gpu:
 
 image:
   repository: ghcr.io/nvidia/nvml-mock
-  tag: latest
+  digest: ""                       # sha256:...; pins the image and wins over tag
+  tag: ""                          # Defaults to the chart appVersion
   pullPolicy: IfNotPresent
 
 driverVersion: ""                  # Auto-derived from profile. Override: "550.163.01"
@@ -360,14 +373,10 @@ controlPlane:
   replicas: 1
   image:
     repository: ghcr.io/nvidia/mokka-control-plane
-    # Required when enabled outside Tilt's explicit local mutable-tag mode.
-    # Digest pinning prevents the cluster-privileged controller artifact from
-    # changing without a Helm values change.
+    # Pins the image and wins over tag. Recommended for the cluster-privileged
+    # controller, so its artifact cannot change without a Helm values change.
     digest: ""
-    # Tilt sets both fields for locally built images. Keep mutable tags disabled
-    # for normal installs so the cluster-privileged controller stays immutable.
-    tag: ""
-    allowMutableTag: false
+    tag: ""                        # Defaults to the chart appVersion
     pullPolicy: IfNotPresent
   logging:
     level: info    # debug | info | warn | error

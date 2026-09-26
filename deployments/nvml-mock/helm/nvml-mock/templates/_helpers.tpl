@@ -54,6 +54,80 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
+Container image reference. A digest, when set, pins the image and wins over
+the tag. The tag defaults to the chart appVersion, so a chart release pulls
+the image cut from the same tag. Takes the image values explicitly, so a
+component can pass its own merged image:
+  include "nvml-mock.image" (dict "image" .Values.image "context" $)
+*/}}
+{{- define "nvml-mock.image" -}}
+{{- $repository := include "nvml-mock.imageRepository" . }}
+{{- if .image.digest }}
+{{- printf "%s@%s" $repository .image.digest }}
+{{- else }}
+{{- printf "%s:%s" $repository (.image.tag | default .context.Chart.AppVersion) }}
+{{- end }}
+{{- end }}
+
+{{/*
+Container image pull policy. An empty pullPolicy gets the default Kubernetes
+would apply to the rendered reference: Always for a floating "latest" tag,
+IfNotPresent for a release tag or a digest. Takes the same argument as
+nvml-mock.image.
+*/}}
+{{- define "nvml-mock.imagePullPolicy" -}}
+{{- if .image.pullPolicy }}
+{{- .image.pullPolicy }}
+{{- else if and (not .image.digest) (eq "latest" (.image.tag | default .context.Chart.AppVersion)) }}
+{{- "Always" }}
+{{- else }}
+{{- "IfNotPresent" }}
+{{- end }}
+{{- end }}
+
+{{/*
+Image repository, moved to global.imageRegistry when set so every image the
+chart runs can be pulled from one mirror. The registry host is the first path
+component only if it contains "." or ":" or is "localhost", the same rule
+container runtimes use; otherwise it is a Docker Hub namespace and is kept.
+*/}}
+{{- define "nvml-mock.imageRepository" -}}
+{{- $registry := (.context.Values.global | default dict).imageRegistry | default "" | trimSuffix "/" }}
+{{- if $registry }}
+{{- $parts := splitList "/" .image.repository }}
+{{- $host := first $parts }}
+{{- if and (gt (len $parts) 1) (or (contains "." $host) (contains ":" $host) (eq "localhost" $host)) }}
+{{- $parts = rest $parts }}
+{{- end }}
+{{- printf "%s/%s" $registry (join "/" $parts) }}
+{{- else }}
+{{- .image.repository }}
+{{- end }}
+{{- end }}
+
+{{/*
+Pod imagePullSecrets: global.imagePullSecrets followed by imagePullSecrets,
+de-duplicated. Entries may be a secret name or a {name: ...} object. Renders
+nothing when no secret is configured.
+*/}}
+{{- define "nvml-mock.imagePullSecrets" -}}
+{{- $names := list }}
+{{- range concat ((.Values.global | default dict).imagePullSecrets | default list) (.Values.imagePullSecrets | default list) }}
+{{- if kindIs "map" . }}
+{{- $names = append $names .name }}
+{{- else }}
+{{- $names = append $names . }}
+{{- end }}
+{{- end }}
+{{- with $names | compact | uniq -}}
+imagePullSecrets:
+{{- range . }}
+  - name: {{ . | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
 NRI app name.
 */}}
 {{- define "nvml-mock.nriName" -}}

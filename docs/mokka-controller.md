@@ -16,13 +16,14 @@ Install the CRDs, then enable the control plane in the existing chart:
 helm upgrade --install mokka-crds deployments/mokka-crds/helm/mokka-crds
 helm upgrade --install nvml-mock deployments/nvml-mock/helm/nvml-mock \
   --namespace mokka --create-namespace \
-  --set controlPlane.enabled=true \
-  --set controlPlane.image.repository=REGISTRY/mokka-control-plane \
-  --set-string controlPlane.image.digest=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  --set controlPlane.enabled=true
 ```
 
-Replace the example digest with the immutable `sha256:...` digest published
-for the control-plane image.
+By default the control plane runs `ghcr.io/nvidia/mokka-control-plane` tagged
+with the chart `appVersion`, the image published for the same release. The
+controller is cluster-privileged, so pin it by digest in production: set
+`controlPlane.image.digest` to the `sha256:...` digest published for the
+control-plane image. A digest takes precedence over `controlPlane.image.tag`.
 
 Uninstalling the `mokka-crds` release retains the CRDs and existing Mokka
 resources. Removing the Mokka API and its resources requires deleting the CRDs

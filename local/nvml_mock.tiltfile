@@ -36,13 +36,12 @@ _CRDS_RESOURCE = 'mokka-crds'
 _NAMESPACE = 'mokka'
 
 def _split_image(ref):
-    # Digest refs (repo@sha256:...) are NOT supported here: the chart renders
-    # `image: {{ .Values.image.repository }}:{{ .Values.image.tag }}` (see
-    # templates/daemonset.yaml), so a digest would silently produce the invalid
-    # form `repo:sha256:abc`. If you need digest pinning, add image.digest to
-    # the chart first.
+    # Digest refs (repo@sha256:...) are NOT supported here: the ref is split
+    # into image.repository and image.tag, so a digest would silently produce
+    # the invalid form `repo:sha256:abc`. Wire image.digest through first if
+    # you need digest pinning.
     if ref.rfind('@') >= 0:
-        fail('--nvmlmock-image=%s is a digest ref; the nvml-mock chart only supports repo:tag' % ref)
+        fail('--nvmlmock-image=%s is a digest ref; only repo:tag is supported here' % ref)
     colon = ref.rfind(':')
     # No colon at all, or the last colon is inside the registry (before the
     # last '/'), means there's no tag — e.g. 'ghcr.io/foo' or 'reg:5000/foo'.
@@ -128,10 +127,7 @@ def _install(release, profile, active_consumers, extra_set, nvmlmock_image='', c
     # Flip the chart's controlPlane.enabled gate. build_control_plane_image()
     # must have already run so the manifest reference in image_deps resolves.
     if control_plane:
-        flags += [
-            '--set', 'controlPlane.enabled=true',
-            '--set', 'controlPlane.image.allowMutableTag=true',
-        ]
+        flags += ['--set', 'controlPlane.enabled=true']
 
     # Shared committed baseline for local-dev (e.g. MOCK_IB, gpu.count tweaks).
     if os.path.exists('local/nvml-mock.values.yaml'):

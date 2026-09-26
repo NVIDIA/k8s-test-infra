@@ -113,15 +113,61 @@
         }
       }
     },
+    "global": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "imageRegistry": {
+          "type": "string",
+          "description": "Registry every chart image is pulled from, replacing the registry host of each image repository."
+        },
+        "imagePullSecrets": {
+          "type": "array",
+          "description": "Pull secrets added to every chart pod, ahead of imagePullSecrets.",
+          "items": {
+            "oneOf": [
+              { "type": "string", "minLength": 1 },
+              {
+                "type": "object",
+                "required": ["name"],
+                "properties": { "name": { "type": "string", "minLength": 1 } }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "description": "Pull secrets added to every chart pod.",
+      "items": {
+        "oneOf": [
+          { "type": "string", "minLength": 1 },
+          {
+            "type": "object",
+            "required": ["name"],
+            "properties": { "name": { "type": "string", "minLength": 1 } }
+          }
+        ]
+      }
+    },
     "image": {
       "type": "object",
       "additionalProperties": true,
       "properties": {
         "repository": { "type": "string" },
-        "tag": { "type": "string" },
+        "digest": {
+          "type": "string",
+          "pattern": "^(|sha256:[a-f0-9]{64})$",
+          "description": "Immutable image digest. When set, it pins the image and takes precedence over tag."
+        },
+        "tag": {
+          "type": "string",
+          "description": "Image tag used when digest is empty. Defaults to the chart appVersion."
+        },
         "pullPolicy": {
           "type": "string",
-          "enum": ["Always", "IfNotPresent", "Never"]
+          "enum": ["", "Always", "IfNotPresent", "Never"]
         }
       }
     },
@@ -214,12 +260,17 @@
         "image": {
           "type": "object",
           "additionalProperties": true,
+          "description": "Overrides merged over the top-level image. The top-level digest is inherited only when neither repository nor tag is overridden here.",
           "properties": {
             "repository": { "type": "string" },
+            "digest": {
+              "type": "string",
+              "pattern": "^(|sha256:[a-f0-9]{64})$"
+            },
             "tag": { "type": "string" },
             "pullPolicy": {
               "type": "string",
-              "enum": ["Always", "IfNotPresent", "Never"]
+              "enum": ["", "Always", "IfNotPresent", "Never"]
             }
           }
         },
@@ -361,17 +412,13 @@
             "digest": {
               "type": "string",
               "pattern": "^(|sha256:[a-f0-9]{64})$",
-              "description": "Immutable image digest required when controlPlane.enabled is true outside the explicit local mutable-tag mode."
+              "description": "Immutable image digest. When set, it pins the image and takes precedence over tag."
             },
             "tag": {
               "type": "string",
-              "description": "Mutable image tag used only for local Tilt builds when allowMutableTag is true."
+              "description": "Image tag used when digest is empty. Defaults to the chart appVersion."
             },
-            "allowMutableTag": {
-              "type": "boolean",
-              "description": "Allows mutable image tags for local development; keep false for normal installs to enforce digest pinning."
-            },
-            "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+            "pullPolicy": { "type": "string", "enum": ["", "Always", "IfNotPresent", "Never"] }
           }
         },
         "logging": {

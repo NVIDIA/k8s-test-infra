@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- nvml-mock chart: `global.imageRegistry` pulls every chart image (nvml-mock,
+  NRI and control plane) from one registry, such as an air-gapped mirror, by
+  replacing the registry host of each image repository.
+- nvml-mock chart: `global.imagePullSecrets` and `imagePullSecrets` add pull
+  secrets to every chart pod, so the images can come from a private registry
+  or mirror. Both lists are merged and de-duplicated; each entry is a Secret
+  name or `{name: <secret>}`.
+- nvml-mock chart: an empty `image.pullPolicy`, `nri.image.pullPolicy` or
+  `controlPlane.image.pullPolicy` now resolves to the Kubernetes default for
+  the rendered image (`Always` for `latest`, `IfNotPresent` otherwise) instead
+  of failing schema validation. The shipped default stays `IfNotPresent`.
 - The CDI-enabled KIND node image is published at
   `ghcr.io/nvidia/mokka-kind-node` for amd64 and arm64. Publication is gated by
   an amd64 smoke test that boots a cluster, verifies the effective NVIDIA/CDI
@@ -68,6 +79,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- nvml-mock chart: `image.tag` now defaults to the chart `appVersion`, so a
+  chart release installs the image built from the same release instead of the
+  floating `latest`. `appVersion` is now the project release version
+  (`0.4.0-rc1`) rather than the mocked driver version (`550.163.01`), which also
+  changes the `app.kubernetes.io/version` label. The mocked driver version is
+  still taken from the GPU profile or `driverVersion`. Set `image.tag: latest`
+  to keep following `main`, or `image.digest` to pin an immutable image; a
+  digest takes precedence over the tag. The NRI DaemonSet inherits that digest
+  only when `nri.image` overrides neither `repository` nor `tag`.
+- nvml-mock chart: an enabled control plane no longer requires
+  `controlPlane.image.digest`. Without one, it runs
+  `ghcr.io/nvidia/mokka-control-plane` tagged with the chart `appVersion`;
+  `controlPlane.image.tag` overrides the tag and a digest, when set, still pins
+  the image. `controlPlane.image.allowMutableTag` is removed; installs that
+  still set it are unaffected, since the value is now ignored.
 - nvml-mock: `device_defaults.architecture` now accepts `rubin`, which NVML
   defines and the mock previously resolved to `NVML_DEVICE_ARCH_UNKNOWN`, so a
   Rubin profile failed every architecture-gated feature. Spellings are also

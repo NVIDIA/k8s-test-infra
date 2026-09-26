@@ -55,7 +55,7 @@ body:
     attributes:
       label: Release-prep PR (against the release branch)
       options:
-        - label: "Bump `deployments/nvml-mock/helm/nvml-mock/Chart.yaml` `version` to the release version. Leave `appVersion` alone: it names the mocked NVIDIA driver, not this project."
+        - label: "Bump `deployments/nvml-mock/helm/nvml-mock/Chart.yaml` `version` and `appVersion` to the release version without the `v` prefix. `appVersion` is the chart's default image tag, so a mismatch makes default installs pull an image that does not exist."
         - label: "Bump `deployments/mokka-crds/helm/mokka-crds/Chart.yaml` if the CRDs changed."
         - label: "Promote `[Unreleased]` in CHANGELOG.md to `## [VERSION] - YYYY-MM-DD`, merging any duplicated subheadings into one each in Keep-a-Changelog order, and add a fresh empty `[Unreleased]`."
         - label: "Verify no changelog content was lost: the bullet count and the set of content lines must be unchanged. Paste both counts in the PR."

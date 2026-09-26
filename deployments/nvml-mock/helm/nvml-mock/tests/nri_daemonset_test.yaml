@@ -41,7 +41,7 @@ tests:
           value: false
       - equal:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/nvidia/nvml-mock:latest
+          value: ghcr.io/nvidia/nvml-mock:0.0.0-dev
       # Must match where the Dockerfile copies the binary; nothing else checks
       # the two agree, and a mismatch is a CrashLoopBackOff on every node.
       - equal:
@@ -161,6 +161,72 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].resources.requests.memory
           value: 32Mi
+
+  - it: should inherit the chart image digest when the NRI image is not overridden
+    set:
+      image:
+        digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      nri:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/nvidia/nvml-mock@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+  # The chart digest names an nvml-mock image, so pinning it onto another
+  # repository or over an explicit NRI tag would pull the wrong artifact.
+  - it: should not inherit the chart image digest when the NRI image is overridden
+    set:
+      image:
+        digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      nri:
+        enabled: true
+        image:
+          repository: custom/nvml-mock-nri
+          tag: v1
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: custom/nvml-mock-nri:v1
+
+  - it: should pull the NRI image from global.imageRegistry
+    set:
+      global:
+        imageRegistry: mirror.example.com
+      nri:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: mirror.example.com/nvidia/nvml-mock:0.0.0-dev
+
+  - it: should use the chart image pull secrets
+    set:
+      global:
+        imagePullSecrets:
+          - mirror-creds
+      imagePullSecrets:
+        - ghcr-creds
+      nri:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.imagePullSecrets
+          value:
+            - name: mirror-creds
+            - name: ghcr-creds
+
+  - it: should pin the NRI image by its own digest
+    set:
+      nri:
+        enabled: true
+        image:
+          repository: custom/nvml-mock-nri
+          digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: custom/nvml-mock-nri@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 
   - it: should pass custom overlay and namespace exclusions
     set:
