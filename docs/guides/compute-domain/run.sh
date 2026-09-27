@@ -336,13 +336,12 @@ kind load docker-image "${IMAGE_NAME}" "${WORKLOAD_IMAGE_NAME}" --name "${CLUSTE
 info "Installing chart (gb200 + topology + NRI channel injection)"
 # NOTE: `--set gpu.count=...` is intentionally NOT passed. The flag
 # only controls the host-side CDI spec / /dev/nvidia* device nodes
-# emitted by the cdi simulator; the in-pod ConfigMap mounted at
-# /etc/nvml-mock/config.yaml — which is what check-fabric below
-# loads — always reflects the profile's full device list (8 for
-# gb200). For this demo the GPU count is irrelevant: what matters is
-# that every GPU on a node reports the cliqueId / clusterUuid the
-# topology overlay assigned to that node, which is stronger evidence
-# the deeper the per-node device list goes.
+# emitted by the cdi simulator; the profile config staged in the NRI
+# overlay always reflects the profile's full device list (4 for gb200).
+# For this demo the GPU count is irrelevant: what matters is that every
+# GPU on a node reports the cliqueId / clusterUuid the topology overlay
+# assigned to that node, which is stronger evidence the deeper the
+# per-node device list goes.
 helm upgrade --install "${RELEASE_NAME}" "${REPO_ROOT}/${CHART_PATH}" \
   --kube-context "${KUBE_CONTEXT}" \
   --namespace "${MOCK_NAMESPACE}" --create-namespace \
@@ -399,7 +398,8 @@ assert_clique "${WORKER4}" 1 "${EXPECTED_DOMAIN_UUID}"
 # Scenario 2 — Real IMEX domain (NO GPU mode) over the pod network
 ###############################################################################
 # The demo workload image carries the real nvidia-imex behind nvidia-imex-shim;
-# NRI supplies the mock NVML overlay, topology environment, and IMEX channels.
+# its GPU annotation asks NRI for the mock NVML overlay and topology environment,
+# while its separate IMEX annotation asks for the channel nodes.
 # /usr/bin/nvidia-imex exec's /usr/bin/nvidia-imex.real --nogpu. The
 # daemons below speak the real gRPC peer protocol (port 50000) and exchange
 # command/status data (port 50005) across pods. The demo workload's NetworkPolicy

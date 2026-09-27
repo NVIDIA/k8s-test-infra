@@ -103,8 +103,13 @@ module "eks" {
 
             config_tmp=$(mktemp)
             awk '
-              $0 == "[plugins.\"io.containerd.nri.v1.nri\"]" { skip = 1; next }
-              skip && /^\[/ { skip = 0 }
+              {
+                normalized = $0
+                gsub(/[[:space:]]/, "", normalized)
+                gsub(/\047/, "\"", normalized)
+              }
+              normalized == "[plugins.\"io.containerd.nri.v1.nri\"]" { skip = 1; next }
+              skip && normalized ~ /^\[/ { skip = 0 }
               !skip { print }
             ' /etc/containerd/config.toml > "$config_tmp"
             cat >> "$config_tmp" <<'NRI_CONFIG'

@@ -74,18 +74,19 @@ simulated GPUs before running this demo.
 
    The script intentionally does **not** pass `--set gpu.count=...`.
    That flag only sizes the host-side CDI spec produced by
-   the `cdi` simulator; the in-pod ConfigMap at
-   `/etc/nvml-mock/config.yaml` — which is what `check-fabric` loads
-   — always reflects the chosen profile's full device list (4 GPUs
-   for `gb200`, one NVL72 compute tray). For ComputeDomain verification
-   this is actually *stronger* evidence: every GPU on each node must
-   report the same `cliqueId` / `clusterUuid`, exercising the
-   topology overlay over the full device list rather than a subset.
+   the `cdi` simulator; the profile config staged in the NRI overlay
+   always reflects the chosen profile's full device list (4 GPUs for
+   `gb200`, one NVL72 compute tray). For ComputeDomain verification this
+   is actually *stronger* evidence: every GPU on each node must report
+   the same `cliqueId` / `clusterUuid`, exercising the topology overlay
+   over the full device list rather than a subset.
 4. Recycles the staging and NRI DaemonSets in order, then creates a separate
    `compute-domain-workload` namespace and deploys the freshly restarted
-   `compute-domain-demo-workload` DaemonSet. Its only mock-related configuration
-   is the `nvml-mock.nvidia.com/imex-channels: "true"` annotation. NRI supplies
-   the mock NVML overlay and per-node topology identity at container creation.
+   `compute-domain-demo-workload` DaemonSet. The
+   `nvml-mock.nvidia.com/devices: "true"` annotation asks NRI for the node-wide
+   mock GPU view, including the overlay and per-node topology identity. The
+   independent `nvml-mock.nvidia.com/imex-channels: "true"` annotation asks for
+   the mock IMEX channel nodes.
    The demo workload manifest also installs its own ingress NetworkPolicy,
    allowing TCP 50000 and 50005 only from peer
    `app.kubernetes.io/name=compute-domain-demo-workload` pods in that same
@@ -307,9 +308,11 @@ target of
 > **Using the upstream daemon chart.** With NRI enabled, its workload pod
 > does not need a mock driver mount, a topology ConfigMap mount, or manually
 > authored `NODE_NAME` / `MOCK_TOPOLOGY_CONFIG` variables: the node-local NRI
-> plugin injects those at container creation. It does need the
-> `nvml-mock.nvidia.com/imex-channels: "true"` annotation while the mock uses
-> channel nodes, and its namespace must not be one excluded by the NRI chart.
+> plugin injects those at container creation when the workload opts into the
+> node-wide mock GPU view with `nvml-mock.nvidia.com/devices: "true"`. It also
+> needs the independent `nvml-mock.nvidia.com/imex-channels: "true"` annotation
+> while the mock uses channel nodes, and its namespace must not be one excluded
+> by the NRI chart.
 
 ## Topology / clique layout used by the demo
 

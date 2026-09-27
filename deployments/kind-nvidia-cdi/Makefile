@@ -93,10 +93,16 @@ smoke-verify-runtime:
 	grep -Eq "default_runtime_name[[:space:]]*=[[:space:]]*['\"]nvidia['\"]" "$$config"; \
 	grep -Eq 'runtimes\.nvidia' "$$config"; \
 	grep -Eq "BinaryName[[:space:]]*=[[:space:]]*['\"]/usr/bin/nvidia-container-runtime['\"]" "$$config"; \
-	awk '$$0 == "[plugins.\"io.containerd.nri.v1.nri\"]" { active = 1; next } \
-	     active && /^\[/ { exit } active { print }' "$$config" > "$$nri"; \
+	awk '{ \
+	         line = $$0; \
+	         gsub(/[[:space:]]/, "", line); \
+	         gsub(/\047/, "\"", line); \
+	     } \
+	     line == "[plugins.\"io.containerd.nri.v1.nri\"]" { active = 1; next } \
+	     active && line ~ /^\[/ { exit } \
+	     active { print }' "$$config" > "$$nri"; \
 	grep -Eq 'disable[[:space:]]*=[[:space:]]*false' "$$nri"; \
-	grep -Eq 'socket_path[[:space:]]*=[[:space:]]*"/var/run/nri/nri.sock"' "$$nri"; \
+	grep -Eq "socket_path[[:space:]]*=[[:space:]]*['\"]/var/run/nri/nri.sock['\"]" "$$nri"; \
 	$(DOCKER) exec "$$node" test -x /usr/bin/nvidia-container-runtime; \
 	$(DOCKER) exec "$$node" grep -Eq 'mode[[:space:]]*=[[:space:]]*"cdi"' \
 		/etc/nvidia-container-runtime/config.toml
