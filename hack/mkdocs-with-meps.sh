@@ -32,5 +32,13 @@ trap cleanup EXIT
 mkdir -p "$destination"
 cp -R "$root/enhancements/meps/." "$destination/"
 
+# MEPs are browsable from the repository and from the generated site. A link
+# from an enhancement directory to docs/ needs three parent traversals in the
+# source tree, but only two after the MEP is staged below docs/meps/.
+find "$destination" -type f -name '*.md' -exec perl -pi -e \
+  's#\(\.\./\.\./\.\./docs/#(../../#g' {} +
+find "$destination" -type f -name '*.md' -exec perl -pi -e \
+  's#\(\.\./\.\./\.\./local/#(https://github.com/NVIDIA/k8s-test-infra/blob/main/local/#g' {} +
+
 cd "$root"
 "${MKDOCS:-mkdocs}" "$@"

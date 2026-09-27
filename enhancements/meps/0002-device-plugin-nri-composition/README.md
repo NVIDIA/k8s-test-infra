@@ -269,7 +269,7 @@ GPU. Today this test cannot be written; both pods see both GPUs.
 
 | Risk | Mitigation |
 | --- | --- |
-| **`gpu-validator-mock` regresses.** [`validator-mock.yaml`](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/e2e/go/assets/validator-mock.yaml) requests `nvidia.com/gpu: "1"` and runs the real `cuda-vectorAdd` sample. Today it sees all GPUs. With device specs on, it will be allocated one GPU and the visible-index mapping will remap index 0 onto the allocated device. | This must be **run**, not reasoned about, before the change merges. If `cuda-vectorAdd` fails when allocated a non-zero device, that is a genuine bug in the visible-index mapping and it belongs to this MEP's implementation, not to a follow-up. |
+| **The validator scenario regresses.** The historical `gpu-validator-mock` manifest was removed when the old validation scripts were replaced. The maintained [`local/gpu-validator.k8s.yaml`](../../../local/gpu-validator.k8s.yaml) requests `nvidia.com/gpu: "1"` and runs `nvidia-smi`; it does not exercise `cuda-vectorAdd`. | This MEP must add and run a maintained `cuda-vectorAdd` validation before relying on visible-index behavior for that workload. The current validator manifest is not evidence for the vector-add path. |
 | Other scenarios that deploy the device plugin (`standalone`, `multi-node`, `gpu-operator`) change behaviour. | The only other GPU-requesting workloads are `gpu-scheduling-test` (busybox, echoes its hostname) and the nv-sentinel sample (`pause` image). Neither observes GPUs. Re-run the full matrix regardless. |
 | The device plugin's default strategy changes in a future release and the flag becomes wrong. | The e2e scenario asserts the *outcome* (one GPU visible), not the flag. A strategy change that preserves the outcome passes; one that breaks it fails loudly. |
 | Suppression hides a real staging failure: a container gets no device nodes because the device plugin failed, and the NRI plugin stays quiet. | Suppression triggers only when GPU device nodes are **present**. An empty device list is not a trigger, so the annotation path still injects. |
@@ -434,8 +434,10 @@ Sequencing: #440 lands first. #436 rebases onto it.
   device; and an annotation-plus-devices case asserting the device list comes
   back empty while mounts and environment stay intact.
 - The e2e scenario above, with assertion 2 mutation-checked.
-- A full re-run of the e2e matrix, with the `gpu-validator-mock` result read
-  directly rather than inferred from a green badge.
+- A full re-run of the e2e matrix, with the maintained validator result read
+  directly rather than inferred from a green badge. The vector-add validation
+  must be an explicit maintained asset; the current `local/gpu-validator.k8s.yaml`
+  only exercises `nvidia-smi`.
 
 ## Drawbacks
 
