@@ -36,6 +36,7 @@ should match snapshot with all overrides:
                 - --log-level=info
                 - --log-format=json
                 - --shutdown-timeout=5s
+                - --resync-interval=1m
               env:
                 - name: NODE_NAME
                   valueFrom:
@@ -195,6 +196,7 @@ should match snapshot with b200 profile:
                 - --log-level=info
                 - --log-format=json
                 - --shutdown-timeout=5s
+                - --resync-interval=1m
               env:
                 - name: NODE_NAME
                   valueFrom:
@@ -342,6 +344,7 @@ should match snapshot with default values:
                 - --log-level=info
                 - --log-format=json
                 - --shutdown-timeout=5s
+                - --resync-interval=1m
               env:
                 - name: NODE_NAME
                   valueFrom:

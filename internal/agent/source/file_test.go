@@ -7,7 +7,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -76,7 +78,7 @@ func TestFileSource_EmitsInitialState(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	fs := NewFileSource(configs[0], filepath.Join(t.TempDir(), "topology.yaml"), zap.NewNop())
+	fs := NewFileSource(configs[0], filepath.Join(t.TempDir(), "topology.yaml"), 0, zap.NewNop())
 	ch := fs.Watch(ctx)
 
 	u := <-ch
@@ -335,16 +337,16 @@ func sourceWith(t *testing.T, topology string) (*FileSource, string) {
 		require.NoError(t, os.WriteFile(topologyPath, []byte(topology), 0o600))
 	}
 
-	return NewFileSource(configPath, topologyPath, zap.NewNop()), topologyPath
+	return NewFileSource(configPath, topologyPath, 0, zap.NewNop()), topologyPath
 }
 
-// poll is what the ticker calls, so driving it directly exercises the same
-// change detection the running agent sees without waiting on the interval.
-func pollOnce(t *testing.T, f *FileSource, lastHash *[32]byte) *agent.Update {
+// reload is what both an event and the resync call, so driving it directly
+// exercises the same change detection without waiting on either.
+func reloadOnce(t *testing.T, f *FileSource, lastHash *[32]byte) *agent.Update {
 	t.Helper()
 
 	ch := make(chan agent.Update, 1)
-	f.poll(t.Context(), ch, lastHash)
+	f.reload(t.Context(), ch, lastHash)
 	select {
 	case u := <-ch:
 		return &u
@@ -359,7 +361,7 @@ func TestFileSource_CarriesTheTopologyDocument(t *testing.T) {
 	f, _ := sourceWith(t, topologyDoc)
 
 	var hash [32]byte
-	u := pollOnce(t, f, &hash)
+	u := reloadOnce(t, f, &hash)
 	require.NotNil(t, u)
 	require.NoError(t, u.Err)
 	require.Equal(t, topologyDoc, string(u.State.TopologyRaw))
@@ -371,7 +373,7 @@ func TestFileSource_AbsentTopologyIsEmptyNotAnError(t *testing.T) {
 	f, _ := sourceWith(t, "")
 
 	var hash [32]byte
-	u := pollOnce(t, f, &hash)
+	u := reloadOnce(t, f, &hash)
 	require.NotNil(t, u)
 	require.NoError(t, u.Err)
 	require.Empty(t, u.State.TopologyRaw)
@@ -383,13 +385,13 @@ func TestFileSource_TopologyEditTriggersAReconcile(t *testing.T) {
 	f, topologyPath := sourceWith(t, topologyDoc)
 
 	var hash [32]byte
-	require.NotNil(t, pollOnce(t, f, &hash), "initial poll emits")
-	require.Nil(t, pollOnce(t, f, &hash), "an unchanged pair emits nothing")
+	require.NotNil(t, reloadOnce(t, f, &hash), "the initial reload emits")
+	require.Nil(t, reloadOnce(t, f, &hash), "an unchanged pair emits nothing")
 
 	updated := topologyDoc + "      - id: 2\n        nodes: [worker-1]\n"
 	require.NoError(t, os.WriteFile(topologyPath, []byte(updated), 0o600))
 
-	u := pollOnce(t, f, &hash)
+	u := reloadOnce(t, f, &hash)
 	require.NotNil(t, u, "a topology edit must emit an update")
 	require.NoError(t, u.Err)
 	require.Equal(t, updated, string(u.State.TopologyRaw))
@@ -400,11 +402,11 @@ func TestFileSource_TopologyRemovalTriggersAReconcile(t *testing.T) {
 	f, topologyPath := sourceWith(t, topologyDoc)
 
 	var hash [32]byte
-	require.NotNil(t, pollOnce(t, f, &hash))
+	require.NotNil(t, reloadOnce(t, f, &hash))
 
 	require.NoError(t, os.Remove(topologyPath))
 
-	u := pollOnce(t, f, &hash)
+	u := reloadOnce(t, f, &hash)
 	require.NotNil(t, u, "a withdrawn topology must emit an update")
 	require.NoError(t, u.Err)
 	require.Empty(t, u.State.TopologyRaw)
@@ -417,7 +419,7 @@ func TestFileSource_UnsetTopologyPathIsEmptyNotAnError(t *testing.T) {
 	f.topologyPath = ""
 
 	var hash [32]byte
-	u := pollOnce(t, f, &hash)
+	u := reloadOnce(t, f, &hash)
 	require.NotNil(t, u)
 	require.NoError(t, u.Err)
 	require.Empty(t, u.State.TopologyRaw)
@@ -430,7 +432,7 @@ func TestFileSource_ReportsAnUnreadableTopology(t *testing.T) {
 	f.topologyPath = filepath.Join(topologyPath, "topology.yaml") // a file, not a directory
 
 	var hash [32]byte
-	u := pollOnce(t, f, &hash)
+	u := reloadOnce(t, f, &hash)
 	require.NotNil(t, u)
 	require.Error(t, u.Err)
 	require.Nil(t, u.State)
@@ -520,4 +522,208 @@ devices:
 	for _, d := range state.Devices {
 		require.Equal(t, ec.GetDeviceMinorNumber(d.Index), d.MinorNumber, "device %d", d.Index)
 	}
+}
+
+// profileBytes returns a real profile and an edited copy. The edit is a
+// trailing comment: it moves the bytes the source hashes while leaving every
+// field compileState reads exactly as the fixture has them, so an assertion on
+// the raw document does not depend on GPU_COUNT or DRIVER_VERSION.
+func profileBytes(t *testing.T) (original, edited []byte) {
+	t.Helper()
+
+	original, err := os.ReadFile("../../../pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml")
+	require.NoError(t, err)
+
+	return original, []byte(string(original) + "\n# edited\n")
+}
+
+// watchedSource subscribes and consumes the state emitted on subscribe, leaving
+// the caller ready to edit. The resync is disabled, so an update the caller
+// then observes proves a filesystem event delivered it.
+func watchedSource(t *testing.T, configPath, topologyPath string) <-chan agent.Update {
+	t.Helper()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+
+	ch := NewFileSource(configPath, topologyPath, 0, zap.NewNop()).Watch(ctx)
+	u := <-ch
+	require.NoError(t, u.Err)
+
+	return ch
+}
+
+// nextUpdate waits for the update an edit should produce. The budget is
+// generous for CI's sake; the watch fires within milliseconds or not at all.
+func nextUpdate(t *testing.T, ch <-chan agent.Update) agent.Update {
+	t.Helper()
+
+	select {
+	case u := <-ch:
+		return u
+	case <-time.After(10 * time.Second):
+		require.FailNow(t, "the edit never reached the watch")
+		return agent.Update{}
+	}
+}
+
+// swapConfigMap performs the update the kubelet performs: a new timestamped
+// directory holding the content, then a rename of ..data onto it. It leaves the
+// superseded directory in place, though the kubelet removes it, so that a watch
+// which only recovers once the old content is unlinked still fails here.
+func swapConfigMap(t *testing.T, dir, stamp string, data []byte) {
+	t.Helper()
+
+	versioned := filepath.Join(dir, stamp)
+	require.NoError(t, os.Mkdir(versioned, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(versioned, "config.yaml"), data, 0o600))
+
+	tmp := filepath.Join(dir, "..data_tmp")
+	require.NoError(t, os.Symlink(stamp, tmp))
+	require.NoError(t, os.Rename(tmp, filepath.Join(dir, "..data")))
+
+}
+
+// A hostPath mount and a local `go run` both write the profile in place.
+func TestFileSource_EmitsOnConfigWrite(t *testing.T) {
+	t.Parallel()
+
+	original, edited := profileBytes(t)
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, original, 0o600))
+
+	ch := watchedSource(t, configPath, "")
+	require.NoError(t, os.WriteFile(configPath, edited, 0o600))
+
+	u := nextUpdate(t, ch)
+	require.NoError(t, u.Err)
+	require.Equal(t, string(edited), string(u.State.ConfigRaw))
+}
+
+// vim, sed -i and Ansible all save by renaming a temporary file over the
+// target, replacing the inode that a watch on the file itself would hold.
+func TestFileSource_EmitsOnAtomicRename(t *testing.T) {
+	t.Parallel()
+
+	original, edited := profileBytes(t)
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, original, 0o600))
+
+	ch := watchedSource(t, configPath, "")
+
+	tmp := filepath.Join(dir, "config.yaml.tmp")
+	require.NoError(t, os.WriteFile(tmp, edited, 0o600))
+	require.NoError(t, os.Rename(tmp, configPath))
+
+	u := nextUpdate(t, ch)
+	require.NoError(t, u.Err)
+	require.Equal(t, string(edited), string(u.State.ConfigRaw))
+}
+
+// Pointing --config at a symlink into a directory of profiles is how a host
+// switches between them, and the edit lands in a directory the literal path
+// never names.
+func TestFileSource_EmitsWhenConfigIsASymlinkElsewhere(t *testing.T) {
+	t.Parallel()
+
+	original, edited := profileBytes(t)
+	etc, profiles := t.TempDir(), t.TempDir()
+
+	target := filepath.Join(profiles, "gb200.yaml")
+	require.NoError(t, os.WriteFile(target, original, 0o600))
+	configPath := filepath.Join(etc, "config.yaml")
+	require.NoError(t, os.Symlink(target, configPath))
+
+	ch := watchedSource(t, configPath, "")
+	require.NoError(t, os.WriteFile(target, edited, 0o600))
+
+	u := nextUpdate(t, ch)
+	require.NoError(t, u.Err)
+	require.Equal(t, string(edited), string(u.State.ConfigRaw))
+}
+
+// Kubernetes renames ..data onto a fresh directory and deletes the old one, so
+// the leaf the agent reads never changes and the inode behind it does.
+func TestFileSource_EmitsOnConfigMapSymlinkSwap(t *testing.T) {
+	t.Parallel()
+
+	original, edited := profileBytes(t)
+	dir := t.TempDir()
+
+	swapConfigMap(t, dir, "..2026_09_09_12_00_00.000000001", original)
+	configPath := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.Symlink("..data/config.yaml", configPath))
+
+	ch := watchedSource(t, configPath, "")
+	swapConfigMap(t, dir, "..2026_09_09_12_00_01.000000002", edited)
+
+	u := nextUpdate(t, ch)
+	require.NoError(t, u.Err)
+	require.Equal(t, string(edited), string(u.State.ConfigRaw))
+}
+
+// The chart mounts the topology ConfigMap in its own directory, so it needs a
+// watch of its own rather than riding along on the profile's.
+func TestFileSource_EmitsOnTopologyEdit(t *testing.T) {
+	t.Parallel()
+
+	original, _ := profileBytes(t)
+	configDir, topologyDir := t.TempDir(), t.TempDir()
+
+	configPath := filepath.Join(configDir, "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, original, 0o600))
+	topologyPath := filepath.Join(topologyDir, "topology.yaml")
+	require.NoError(t, os.WriteFile(topologyPath, []byte(topologyDoc), 0o600))
+
+	ch := watchedSource(t, configPath, topologyPath)
+
+	updated := topologyDoc + "      - id: 2\n        nodes: [worker-1]\n"
+	require.NoError(t, os.WriteFile(topologyPath, []byte(updated), 0o600))
+
+	u := nextUpdate(t, ch)
+	require.NoError(t, u.Err)
+	require.Equal(t, updated, string(u.State.TopologyRaw))
+}
+
+// Repointing the symlink is how a host switches profiles, and it moves the
+// directory later edits arrive in, so the watch has to move with it. Only
+// inotify reports a symlink being replaced in a watched directory; kqueue
+// follows the link when it opens the entry and never sees the swap, so on a
+// developer's macOS the resync is what catches this.
+func TestFileSource_FollowsARetargetedSymlink(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("only inotify reports a symlink swap inside a watched directory")
+	}
+	t.Parallel()
+
+	original, edited := profileBytes(t)
+	replacement := []byte(string(original) + "\n# replacement\n")
+	etc, before, after := t.TempDir(), t.TempDir(), t.TempDir()
+
+	initial := filepath.Join(before, "gb200.yaml")
+	require.NoError(t, os.WriteFile(initial, original, 0o600))
+	configPath := filepath.Join(etc, "config.yaml")
+	require.NoError(t, os.Symlink(initial, configPath))
+
+	ch := watchedSource(t, configPath, "")
+
+	// Retarget into a directory nothing has watched yet.
+	target := filepath.Join(after, "h100.yaml")
+	require.NoError(t, os.WriteFile(target, replacement, 0o600))
+	tmp := filepath.Join(etc, "config.yaml.tmp")
+	require.NoError(t, os.Symlink(target, tmp))
+	require.NoError(t, os.Rename(tmp, configPath))
+
+	u := nextUpdate(t, ch)
+	require.NoError(t, u.Err)
+	require.Equal(t, string(replacement), string(u.State.ConfigRaw))
+
+	// Editing the new target reaches the source only if the reload above moved
+	// the watch to the directory holding it.
+	require.NoError(t, os.WriteFile(target, edited, 0o600))
+
+	u = nextUpdate(t, ch)
+	require.NoError(t, u.Err)
+	require.Equal(t, string(edited), string(u.State.ConfigRaw))
 }

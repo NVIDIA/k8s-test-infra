@@ -107,6 +107,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   node is unchanged. The gated e2e scenario that ran vectorAdd against it is now
   a standalone-GFD check under the Ginkgo label `gfd`, and unused
   `pkg/kubernetes` is gone. (#TBD)
+- node-agent: the profile and topology documents reload from filesystem events
+  instead of a 5s poll, so an edit applies in milliseconds and an idle node
+  costs nothing. `nodeAgent.resyncInterval` (default `1m`) still re-reads both
+  on a timer, covering a node whose kernel reports no events.
 
 ### Removed
 
