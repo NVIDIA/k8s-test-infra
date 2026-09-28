@@ -84,8 +84,8 @@ func TestFileSource_EmitsInitialState(t *testing.T) {
 	require.NotNil(t, u.State)
 
 	cancel()
-	for range ch { //nolint:revive // drain closed channel
-	}
+	_, open := <-ch
+	require.False(t, open, "Watch must close the channel once the context is cancelled")
 }
 
 func TestCompileState_PCIIdentityFromDefaults(t *testing.T) {

@@ -94,13 +94,20 @@ kwok-scale-matrix:
 	done
 
 CONTROLLER_GEN_VERSION ?= v0.20.1
+# CI installs this exact version too (see .github/workflows/golang.yaml), so a
+# new golangci-lint release cannot fail the check job on code nobody changed.
+GOLANGCI_LINT_VERSION ?= v2.14.0
+
+.PHONY: print-golangci-lint-version
+print-golangci-lint-version:
+	@echo $(GOLANGCI_LINT_VERSION)
 
 .PHONY: tools
 tools: ## Install static checkers & other binaries
 	@echo "🚚 Downloading tools.."
 	@mkdir -p $(GOBIN)
 	@ \
-	test -x $(BIN_DIR)/golangci-lint || curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(BIN_DIR) v2.12.2 & \
+	$(BIN_DIR)/golangci-lint version 2>/dev/null | grep -q " $(GOLANGCI_LINT_VERSION:v%=%) " || curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(BIN_DIR) $(GOLANGCI_LINT_VERSION) & \
 	test -x $(BIN_DIR)/govulncheck || go install golang.org/x/vuln/cmd/govulncheck@latest & \
 	test -x $(BIN_DIR)/controller-gen || go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION) & \
 	wait
