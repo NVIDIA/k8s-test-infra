@@ -1,0 +1,8 @@
+kind: Added
+body: |-
+  nvml-mock: `nvidia-smi nvlink` now answers `-gBwMode`, `-sBwMode`, `--info`,
+    `-gLowPwrInfo` and `-sLowPwrThres` instead of reporting them unsupported.
+    Bandwidth mode needs a Hopper or newer profile. See `docs/configuration.md`.
+time: 2026-09-30T08:55:00Z
+custom:
+  Issue: "861"

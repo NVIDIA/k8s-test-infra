@@ -146,3 +146,37 @@ func TestFunctionRegistry_Coverage(t *testing.T) {
 		require.True(t, ok, "expected function %q not found in registry", name)
 	}
 }
+
+// TestFunctionAvailable_NvlinkBwMode pins the registry entries for the NVLink
+// bandwidth-mode family. Without an entry, FunctionAvailable defaults to
+// "available" for every driver version, which would have an ancient driver
+// claim a Blackwell-era symbol.
+func TestFunctionAvailable_NvlinkBwMode(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		funcName      string
+		driverVersion string
+		want          bool
+	}{
+		{"nvmlDeviceGetNvlinkBwMode", "570.0", true},
+		{"nvmlDeviceGetNvlinkBwMode", "560.0", false},
+		{"nvmlDeviceSetNvlinkBwMode", "580.65", true},
+		{"nvmlDeviceSetNvlinkBwMode", "535.0", false},
+		{"nvmlDeviceGetNvlinkSupportedBwModes", "570.0", true},
+		{"nvmlSystemGetNvlinkBwMode", "535.0", true},
+		{"nvmlSystemGetNvlinkBwMode", "525.0", false},
+		{"nvmlSystemSetNvlinkBwMode", "535.0", true},
+		{"nvmlDeviceSetNvLinkDeviceLowPowerThreshold", "525.0", true},
+		{"nvmlDeviceSetNvLinkDeviceLowPowerThreshold", "510.0", false},
+		{"nvmlDeviceGetNvLinkInfo", "580.0", true},
+		{"nvmlDeviceGetNvLinkInfo", "570.0", false},
+	}
+	for _, tt := range cases {
+		t.Run(tt.funcName+"@"+tt.driverVersion, func(t *testing.T) {
+			t.Parallel()
+			got := FunctionAvailable(tt.funcName, tt.driverVersion)
+			require.Equal(t, tt.want, got, "FunctionAvailable(%q, %q)", tt.funcName, tt.driverVersion)
+		})
+	}
+}
