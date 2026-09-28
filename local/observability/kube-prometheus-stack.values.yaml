@@ -47,9 +47,9 @@ prometheus:
   service:
     type: ClusterIP
   prometheusSpec:
-    # dcgm-exporter collects every 5s (see gpu-operator.values.yaml); scraping
+    # dcgm-exporter collects every 10s (see gpu-operator.values.yaml); scraping
     # slower would alias away the step change the fault scenarios assert on.
-    scrapeInterval: 5s
+    scrapeInterval: 10s
     evaluationInterval: 30s
     retention: 2h
     resources:
