@@ -57,6 +57,7 @@ func (s *Simulator) Stage(ctx context.Context, state *agent.State) error {
 	g.Go(func() error { return stageNVMLShim(gctx, s.host, state) })
 	g.Go(func() error { return stageCUDAShim(gctx, s.host, state) })
 	g.Go(func() error { return stageNvidiaSMI(gctx, s.host, state) })
+	g.Go(func() error { return stageChrootRuntime(gctx, s.host, state) })
 	g.Go(func() error { return writeProcFS(gctx, s.host, state) })
 	g.Go(func() error { return writeEngineConfig(gctx, s.host, state) })
 	g.Go(func() error { return writeMachineType(gctx, s.host, state) })
@@ -78,6 +79,8 @@ func (s *Simulator) Stage(ctx context.Context, state *agent.State) error {
 var stagedPaths = []string{
 	"driver/dev",
 	"driver/usr/lib64",
+	"driver/lib",
+	"driver/lib64",
 	"driver/usr/bin/nvidia-smi",
 	"driver/usr/bin/nvidia-smi.sh",
 	"driver/proc/driver/nvidia",
