@@ -395,15 +395,24 @@ nvlink:
   # GPU fanned round-robin across these NVSwitches, yielding NV18 all-to-all in
   # `nvidia-smi topo -m`. HGX H100 couples fabric-manager readiness via
   # device_defaults.fabric.state: auto.
+  #
+  # device_id is what puts a switch on the node's PCI bus as well as its NVLink
+  # fabric: an HGX baseboard's NVSwitches are PCIe endpoints, so `lspci` lists
+  # them as "Bridge: NVIDIA Corporation GH100 [H100 NVSwitch]" beside the GPUs.
+  # They must also appear under pcie_topology below to inherit a NUMA node.
   switches:
     - bdf: "0000:05:00.0"
       uuid: "NVSwitch-H100-0000-0000-0000-000000000000"
+      device_id: 0x22A310DE         # 10de:22a3 GH100 [H100 NVSwitch]
     - bdf: "0000:06:00.0"
       uuid: "NVSwitch-H100-0000-0000-0000-000000000001"
+      device_id: 0x22A310DE
     - bdf: "0000:07:00.0"
       uuid: "NVSwitch-H100-0000-0000-0000-000000000002"
+      device_id: 0x22A310DE
     - bdf: "0000:08:00.0"
       uuid: "NVSwitch-H100-0000-0000-0000-000000000003"
+      device_id: 0x22A310DE
 
 # =============================================================================
 # PCIe topology - HGX H100, 2 NUMA nodes, 4 GPUs each.
@@ -423,6 +432,13 @@ pcie_topology:
         - "0000:1B:00.0"
         - "0000:4A:00.0"
         - "0000:4B:00.0"
+        # The baseboard's four NVSwitches, PCIe-attached to socket 0 as on real
+        # HGX H100. Listed here so they inherit this root's NUMA node; the
+        # switches themselves are declared under nvlink.switches.
+        - "0000:05:00.0"
+        - "0000:06:00.0"
+        - "0000:07:00.0"
+        - "0000:08:00.0"
     - id: "pci0000:80"
       numa_node: 1
       devices:

@@ -13,6 +13,11 @@ type PCI struct {
 	BusID       string `json:"bus_id" yaml:"bus_id"`
 	DeviceID    uint32 `json:"device_id,omitempty"    yaml:"device_id,omitempty"`
 	SubsystemID uint32 `json:"subsystem_id,omitempty" yaml:"subsystem_id,omitempty"`
+	// Class is the sysfs `class` word. It is what tells a GPU apart from an
+	// NVSwitch for every consumer that reads the tree instead of NVML: lspci
+	// prints the class name, and GPU Feature Discovery derives
+	// nvidia.com/gpu.mode from it. Zero means PCIClass3DController.
+	Class uint32 `json:"class,omitempty" yaml:"class,omitempty"`
 }
 
 // PCIeTopology describes the root-complex layout the renderer materializes

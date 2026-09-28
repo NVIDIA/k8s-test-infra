@@ -150,16 +150,21 @@ func inputsHash(config, topology []byte) [32]byte {
 }
 
 // parseProfile decodes a profile and checks what the agent acts on before the
-// engine ever sees the file. The agent stages the character devices and writes
-// both CDI specs, so it cannot wait for the engine to reject minors that
-// collide. Only that check runs here: the rest of the engine's validation
-// demands fields the agent deliberately tolerates, driver_version among them.
+// engine ever sees the file. The agent stages the character devices, renders
+// the PCI tree and writes both CDI specs, so it cannot wait for the engine to
+// reject minors or PCI addresses that collide. Only those checks run here: the
+// rest of the engine's validation demands fields the agent deliberately
+// tolerates, driver_version among them.
 func parseProfile(data []byte) (engine.YAMLConfig, error) {
 	var cfg engine.YAMLConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return cfg, fmt.Errorf("parse yaml: %w", err)
 	}
-	return cfg, engine.ValidateMinorNumbers(&cfg)
+	if err := engine.ValidateMinorNumbers(&cfg); err != nil {
+		return cfg, err
+	}
+
+	return cfg, engine.ValidateUniqueBDFs(&cfg)
 }
 
 // compileState parses raw YAML config bytes and builds the agent State.
@@ -221,6 +226,7 @@ func compileState(data []byte) (*agent.State, error) {
 		state.Fabric.Enabled = true
 		state.Fabric.LinksPerGPU = cfg.NVLink.LinksPerGPU
 		state.Fabric.BandwidthPerLinkMbps = cfg.NVLink.BandwidthPerLinkMbps
+		state.Switches = compileSwitches(cfg.NVLink.Switches)
 	}
 	if defaults.Fabric != nil {
 		state.Fabric.ClusterUUID = defaults.Fabric.ClusterUUID
@@ -331,6 +337,31 @@ func applyDeviceOverride(spec *agent.DeviceSpec, ov engine.DeviceOverride) {
 			spec.PCISubsystemID = ov.PCI.SubsystemID
 		}
 	}
+}
+
+// compileSwitches keeps the NVSwitches that sit on this node's PCIe bus, which
+// is the subset of nvlink.switches carrying a PCI identity. A switch without
+// one is an NVLink remote endpoint the node cannot see over PCIe — how a
+// rack-scale platform's switch trays present — and compiling it anyway would
+// put a bridge in lspci that no compute tray has.
+func compileSwitches(switches []engine.NVSwitchConfig) []agent.SwitchSpec {
+	out := make([]agent.SwitchSpec, 0, len(switches))
+
+	for _, sw := range switches {
+		if sw.DeviceID == 0 {
+			continue
+		}
+		out = append(out, agent.SwitchSpec{
+			PCIBusID:       sw.BDF,
+			PCIDeviceID:    sw.DeviceID,
+			PCISubsystemID: sw.SubsystemID,
+		})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+
+	return out
 }
 
 // compileNetwork resolves the profile's infiniband block into a NetworkShape.
