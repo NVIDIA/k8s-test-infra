@@ -80,13 +80,34 @@ module "eks" {
 
       disk_size = 30
 
-      # Own the full AL2023 nodeadm document so a post-nodeadm runtime setup
-      # can run after containerd's base configuration has been generated.
+      # Own the full AL2023 nodeadm document so the runtime configuration can
+      # be extended before nodeadm starts containerd.
       enable_bootstrap_user_data = true
 
+      # nodeadm merges this partial NodeConfig into the module-generated
+      # configuration, preserving the AMI defaults while declaring the NRI
+      # endpoint that Mokka can connect to when its NRI plugin is enabled.
+      cloudinit_pre_nodeadm = [
+        {
+          content_type = "application/node.eks.aws"
+          content      = <<-EOT
+            ---
+            apiVersion: node.eks.aws/v1alpha1
+            kind: NodeConfig
+            spec:
+              containerd:
+                config: |
+                  [plugins."io.containerd.nri.v1.nri"]
+                    disable = false
+                    disable_connections = false
+                    socket_path = "/var/run/nri/nri.sock"
+          EOT
+        }
+      ]
+
       # The accelerated AL2023 image already installs and registers the NVIDIA
-      # runtime. Its auto mode probes physical hardware before Mokka can supply
-      # a CDI spec, so force CDI mode after nodeadm has finished.
+      # runtime. Select CDI mode after nodeadm has generated the base runtime
+      # configuration, then restart containerd once and verify the result.
       cloudinit_post_nodeadm = [
         {
           content_type = "text/x-shellscript"
@@ -94,12 +115,23 @@ module "eks" {
             #!/bin/bash
             set -euxo pipefail
 
-            sed -i 's/^mode = "auto"$/mode = "cdi"/' \
-              /etc/nvidia-container-runtime/config.toml
-            grep -q '^mode = "cdi"$' \
+            nvidia-ctk config --in-place \
+              --set nvidia-container-runtime.mode=cdi
+            grep -Eq '^[[:space:]]*mode[[:space:]]*=[[:space:]]*"cdi"[[:space:]]*$' \
               /etc/nvidia-container-runtime/config.toml
 
             systemctl restart containerd
+            systemctl is-active --quiet containerd
+
+            for _ in $(seq 30); do
+              test -S /var/run/nri/nri.sock && break
+              sleep 1
+            done
+
+            if ! test -S /var/run/nri/nri.sock; then
+              journalctl -u containerd --no-pager | tail -50 || true
+              exit 1
+            fi
           EOT
         }
       ]

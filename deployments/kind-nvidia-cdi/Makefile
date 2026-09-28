@@ -1,7 +1,8 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Build and push the Kind node image with nvidia-container-toolkit + CDI baked in.
+# Build and push the Kind node image with nvidia-container-toolkit and the CDI
+# and NRI runtime prerequisites baked in.
 #
 #   make build              # build IMAGE into the local docker daemon
 #   make push IMAGE=<registry>/kind-nvidia-cdi:<tag>
@@ -31,6 +32,7 @@ NVIDIA_CONTAINER_TOOLKIT_VERSION ?= 1.19.1-1
 KIND_VERSION ?= v0.31.0
 KIND_AMD64_SHA256 ?= eb244cbafcc157dff60cf68693c14c9a75c4e6e6fedaf9cd71c58117cb93e3fa
 KIND_CLUSTER_NAME ?= kind-node-smoke
+KIND_CONTEXT ?= kind-$(KIND_CLUSTER_NAME)
 SMOKE_POD ?= runtime-smoke
 SMOKE_POD_IMAGE ?= registry.k8s.io/pause:3.10
 
@@ -79,31 +81,45 @@ smoke-create:
 		--name "$(KIND_CLUSTER_NAME)" \
 		--image "$(IMAGE)" \
 		--wait 120s
-	$(KUBECTL) wait --for=condition=Ready node --all --timeout=30s
+	$(KUBECTL) --context "$(KIND_CONTEXT)" wait --for=condition=Ready node --all --timeout=30s
 
 smoke-verify-runtime:
 	@set -eu; \
 	node="$(KIND_CLUSTER_NAME)-control-plane"; \
 	config=$$(mktemp); \
-	trap 'rm -f "$$config"' EXIT; \
+	nri=$$(mktemp); \
+	trap 'rm -f "$$config" "$$nri"' EXIT; \
 	$(DOCKER) exec "$$node" containerd config dump > "$$config"; \
 	grep -Eq 'enable_cdi[[:space:]]*=[[:space:]]*true' "$$config"; \
 	grep -Eq "default_runtime_name[[:space:]]*=[[:space:]]*['\"]nvidia['\"]" "$$config"; \
 	grep -Eq 'runtimes\.nvidia' "$$config"; \
 	grep -Eq "BinaryName[[:space:]]*=[[:space:]]*['\"]/usr/bin/nvidia-container-runtime['\"]" "$$config"; \
+	awk '{ \
+	         header = $$0; \
+	         gsub(/[[:space:]]/, "", header); \
+	         gsub(/\047/, "\"", header); \
+	     } \
+	     header == "[plugins.\"io.containerd.nri.v1.nri\"]" { active = 1; tables++; next } \
+	     active && header ~ /^\[/ { active = 0 } \
+	     active { print } \
+	     END { if (tables != 1) exit 1 }' "$$config" > "$$nri"; \
+	grep -Eq '^[[:space:]]*disable[[:space:]]*=[[:space:]]*false$$' "$$nri"; \
+	grep -Eq '^[[:space:]]*disable_connections[[:space:]]*=[[:space:]]*false$$' "$$nri"; \
+	grep -Eq "^[[:space:]]*socket_path[[:space:]]*=[[:space:]]*['\"]/var/run/nri/nri.sock['\"]$$" "$$nri"; \
+	$(DOCKER) exec "$$node" test -S /var/run/nri/nri.sock; \
 	$(DOCKER) exec "$$node" test -x /usr/bin/nvidia-container-runtime; \
 	$(DOCKER) exec "$$node" grep -Eq 'mode[[:space:]]*=[[:space:]]*"cdi"' \
 		/etc/nvidia-container-runtime/config.toml
 
 smoke-pod:
-	$(KUBECTL) delete pod "$(SMOKE_POD)" --ignore-not-found --wait=true
-	$(KUBECTL) run "$(SMOKE_POD)" --image="$(SMOKE_POD_IMAGE)" --restart=Never
-	$(KUBECTL) wait --for=condition=Ready pod/"$(SMOKE_POD)" --timeout=60s
+	$(KUBECTL) --context "$(KIND_CONTEXT)" delete pod "$(SMOKE_POD)" --ignore-not-found --wait=true
+	$(KUBECTL) --context "$(KIND_CONTEXT)" run "$(SMOKE_POD)" --image="$(SMOKE_POD_IMAGE)" --restart=Never
+	$(KUBECTL) --context "$(KIND_CONTEXT)" wait --for=condition=Ready pod/"$(SMOKE_POD)" --timeout=60s
 
 smoke-diagnostics:
 	@node="$(KIND_CLUSTER_NAME)-control-plane"; \
-	$(KUBECTL) get nodes -o wide || true; \
-	$(KUBECTL) get pods --all-namespaces -o wide || true; \
+	$(KUBECTL) --context "$(KIND_CONTEXT)" get nodes -o wide || true; \
+	$(KUBECTL) --context "$(KIND_CONTEXT)" get pods --all-namespaces -o wide || true; \
 	$(DOCKER) logs "$$node" || true; \
 	$(DOCKER) exec "$$node" journalctl -u containerd -u kubelet --no-pager || true
 
