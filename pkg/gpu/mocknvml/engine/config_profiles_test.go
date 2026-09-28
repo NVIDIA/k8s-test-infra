@@ -151,9 +151,11 @@ func TestLoadConfig_GB300Profile(t *testing.T) {
 	expectedMemBytes := uint64(278) * 1024 * 1024 * 1024
 	require.Equal(t, expectedMemBytes, mem.TotalBytes, "GB300 memory total_bytes (278 GiB)")
 
-	// Blackwell Ultra uses the 570.x driver line; the chart's
+	// Blackwell Ultra ships on the 580.x driver line, which is also the floor
+	// for nvmlDeviceGetNvLinkInfo — on an older pin the version registry
+	// answers FUNCTION_NOT_FOUND and the NVLE surface disappears. The chart's
 	// driverVersion helper relies on this value being consistent.
-	require.Equal(t, "570.124.06", yamlCfg.System.DriverVersion, "GB300 driver_version")
+	require.Equal(t, "580.65.06", yamlCfg.System.DriverVersion, "GB300 driver_version")
 
 	// PCIe Gen6 (or NVLink-C2C to Grace).
 	pcie := yamlCfg.DeviceDefaults.PCIe
@@ -176,6 +178,10 @@ func TestLoadConfig_GB300Profile(t *testing.T) {
 	require.Equal(t, 18, yamlCfg.NVLink.LinksPerGPU, "GB300 nvlink.links_per_gpu")
 }
 
+// noBwMode marks a profile without an nvlink.bw_mode block: no
+// bandwidth-mode call answers, as on boards before Hopper.
+const noBwMode NVLinkBwModeScope = ""
+
 func TestLoadConfig_AllProfilesConsistent(t *testing.T) {
 	profiles := []struct {
 		name         string
@@ -185,14 +191,19 @@ func TestLoadConfig_AllProfilesConsistent(t *testing.T) {
 		ccMinor      int
 		memGiB       uint64
 		deviceCount  int
+		// bwScope is the NVML family the board answers bandwidth mode on:
+		// the node-wide pair on Hopper, the per-device trio on Blackwell,
+		// neither before Hopper. A real GB300 prints "Getting nvlink
+		// bandwidth mode is not supported" for the node-wide pair.
+		bwScope NVLinkBwModeScope
 	}{
-		{"A100", "a100.yaml", "ampere", 8, 0, 40, 8},
-		{"H100", "h100.yaml", "hopper", 9, 0, 80, 8},
-		{"B200", "b200.yaml", "blackwell", 10, 0, 180, 8},
-		{"GB200", "gb200.yaml", "blackwell", 10, 0, 186, 4},
-		{"GB300", "gb300.yaml", "blackwell", 10, 0, 278, 4},
-		{"L40S", "l40s.yaml", "ada_lovelace", 8, 9, 48, 8},
-		{"T4", "t4.yaml", "turing", 7, 5, 16, 4},
+		{"A100", "a100.yaml", "ampere", 8, 0, 40, 8, noBwMode},
+		{"H100", "h100.yaml", "hopper", 9, 0, 80, 8, NVLinkBwModeScopeSystem},
+		{"B200", "b200.yaml", "blackwell", 10, 0, 180, 8, NVLinkBwModeScopeDevice},
+		{"GB200", "gb200.yaml", "blackwell", 10, 0, 186, 4, NVLinkBwModeScopeDevice},
+		{"GB300", "gb300.yaml", "blackwell", 10, 0, 278, 4, NVLinkBwModeScopeDevice},
+		{"L40S", "l40s.yaml", "ada_lovelace", 8, 9, 48, 8, noBwMode},
+		{"T4", "t4.yaml", "turing", 7, 5, 16, 4, noBwMode},
 	}
 
 	for _, p := range profiles {
@@ -216,6 +227,9 @@ func TestLoadConfig_AllProfilesConsistent(t *testing.T) {
 			require.Len(t, yamlCfg.Devices, p.deviceCount, "%s device count", p.name)
 
 			require.NotEmpty(t, yamlCfg.System.DriverVersion, "%s driver_version is empty", p.name)
+
+			f := BuildNodeFabric(&Config{NumDevices: len(yamlCfg.Devices), YAMLConfig: yamlCfg})
+			require.Equal(t, p.bwScope, f.NvlinkBwModeScope(), "%s nvlink.bw_mode.scope", p.name)
 		})
 	}
 }

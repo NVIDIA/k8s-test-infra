@@ -102,12 +102,20 @@ func NVLink(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Prof
 			"nvlink -c printed no capabilities for NVLink profile %q", p.Name)
 
 		nvlinkCountersTriState(ctx, k, pod)
+		nvlinkBwMode(ctx, k, pod, p)
+		nvlinkInfo(ctx, k, pod, p)
 		return
 	}
 
 	// Negative control: no NV# links may leak (b200 standalone, t4, l40s).
 	gomega.Expect(distinct).To(gomega.BeEmpty(),
 		"non-NVLink profile %q leaked NV# links: %v", p.Name, distinct)
+
+	// Both run here too, as negative controls: the bandwidth-mode gate reads
+	// nvlink.bw_mode rather than the fabric, and --info must decline on a
+	// board with no links.
+	nvlinkBwMode(ctx, k, pod, p)
+	nvlinkInfo(ctx, k, pod, p)
 }
 
 // nvlinkCountersTriState samples `nvlink -gt d` twice and is tri-state:
@@ -132,4 +140,129 @@ func nvlinkCountersTriState(ctx context.Context, k *kube.Client, pod kube.PodRef
 	default:
 		ginkgo.Fail(fmt.Sprintf("NVLink counters decreased (%d -> %d) — not monotonic", s1, s2))
 	}
+}
+
+// nvlinkFirmware asserts the "Firmware Version:" rows of an already-captured
+// `nvidia-smi nvlink --info` against what the profile declares. The rows are
+// checked per GPU rather than once, because the firmware table is written into
+// each caller's own struct: a bridge that filled only the first device would
+// still satisfy a whole-output substring match.
+func nvlinkFirmware(info string, p profile.Profile) {
+	ginkgo.GinkgoHelper()
+
+	rows := p.ExpectedNvlinkFirmware()
+	if len(rows) == 0 {
+		ginkgo.By("nvidia-smi nvlink --info reports no firmware table")
+		gomega.Expect(info).To(gomega.ContainSubstring("Firmware Version: N/A"),
+			"profile %q declares no nvlink.firmware, so every GPU must report N/A:\n%s",
+			p.Name, info)
+		return
+	}
+
+	ginkgo.By("nvidia-smi nvlink --info reports the declared firmware versions")
+	gpus := p.ExpectedGPUs()
+	prev := -1
+	for _, r := range rows {
+		row := fmt.Sprintf("%s: %s", r.Label, r.Version)
+		gomega.Expect(strings.Count(info, row)).To(gomega.Equal(gpus),
+			"profile %q expected row %q on each of its %d GPUs:\n%s", p.Name, row, gpus, info)
+
+		// nvidia-smi orders the labels by the ucodeType index the mock sends,
+		// so a mis-numbered entry shows up as a row printed out of order
+		// rather than as a missing one.
+		at := strings.Index(info, row)
+		gomega.Expect(at).To(gomega.BeNumerically(">", prev),
+			"profile %q printed %q out of order:\n%s", p.Name, row, info)
+		prev = at
+	}
+
+	gomega.Expect(info).NotTo(gomega.ContainSubstring("Firmware Version: N/A"),
+		"profile %q declares nvlink.firmware, so no GPU may report N/A:\n%s", p.Name, info)
+}
+
+// bwModeNameRE matches the bundled nvidia-smi's own mode-name table. Matching
+// the name set rather than pinning one value keeps the assertion from breaking
+// when the default mode changes, while still failing loudly if the mock
+// answers NOT_SUPPORTED.
+var bwModeNameRE = regexp.MustCompile(`bandwidth mode: (FULL|OFF|MIN|HALF|3QUARTER)`)
+
+// bwModeNames is the whole table. Setting each one pins the name-to-index
+// mapping end to end, since nvidia-smi is what resolves a name to the index it
+// sends down.
+var bwModeNames = []string{"FULL", "OFF", "MIN", "HALF", "3QUARTER"}
+
+// nvlinkBwMode asserts `nvidia-smi nvlink -gBwMode` and -sBwMode. Outside the
+// gate it asserts the negative direction, which is what keeps the gate from
+// silently degrading into a blanket success.
+func nvlinkBwMode(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
+	ginkgo.GinkgoHelper()
+
+	// nvidia-smi exits non-zero after printing "not supported", which is the
+	// expected outcome below the gate, so the output is the signal, not err.
+	ginkgo.By("nvidia-smi nvlink -gBwMode")
+	res, _ := k.ExecTruncated(ctx, pod, nvlinkLogOutputLines, "nvidia-smi", "nvlink", "-gBwMode")
+	out := res.Combined()
+
+	if !p.ReportsNvlinkBwMode() {
+		gomega.Expect(out).To(gomega.MatchRegexp(`(?i)not supported`),
+			"profile %q does not declare nvlink.bw_mode.scope: system, so it must not claim bandwidth-mode support:\n%s",
+			p.Name, out)
+		return
+	}
+
+	gomega.Expect(out).To(gomega.MatchRegexp(bwModeNameRE.String()),
+		"profile %q did not report a named bandwidth mode:\n%s", p.Name, out)
+
+	for _, mode := range bwModeNames {
+		ginkgo.By("nvidia-smi nvlink -sBwMode " + mode)
+		setRes, _ := k.ExecTruncated(ctx, pod, nvlinkLogOutputLines, "nvidia-smi", "nvlink", "-sBwMode", mode)
+		gomega.Expect(setRes.Combined()).To(gomega.MatchRegexp(`(?i)Successfully set nvlink bandwidth mode`),
+			"profile %q rejected supported bandwidth mode %q:\n%s", p.Name, mode, setRes.Combined())
+	}
+
+	// The round trip across two nvidia-smi invocations is the point of
+	// persisting the mode: each invocation dlopens its own copy of the mock, so
+	// a mode held in process memory would be gone by this next call.
+	ginkgo.By("nvidia-smi nvlink -sBwMode survives into a separate process")
+	_, _ = k.ExecTruncated(ctx, pod, nvlinkLogOutputLines, "nvidia-smi", "nvlink", "-sBwMode", "HALF")
+	backRes, _ := k.ExecTruncated(ctx, pod, nvlinkLogOutputLines, "nvidia-smi", "nvlink", "-gBwMode")
+	gomega.Expect(backRes.Combined()).To(gomega.MatchRegexp(`(?i)bandwidth mode:\s*HALF`),
+		"profile %q lost a bandwidth mode set by a previous process:\n%s", p.Name, backRes.Combined())
+
+	// Leave the node on the default, so a later assertion (or a re-run against
+	// the same cluster) starts from FULL rather than inheriting HALF.
+	_, _ = k.ExecTruncated(ctx, pod, nvlinkLogOutputLines, "nvidia-smi", "nvlink", "-sBwMode", "FULL")
+}
+
+// nvlinkInfo asserts `nvidia-smi nvlink --info` and, where it answers, the
+// low-power threshold. It is independent of the bandwidth mode: the two gates
+// barely overlap, since only h100 puts the mode on the node-wide pair while
+// --info needs a 580 driver, which today only the Blackwell profiles pin.
+func nvlinkInfo(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
+	ginkgo.GinkgoHelper()
+
+	ginkgo.By("nvidia-smi nvlink --info reports NVLE")
+	infoRes, _ := k.ExecTruncated(ctx, pod, nvlinkLogOutputLines, "nvidia-smi", "nvlink", "--info")
+	info := infoRes.Combined()
+	if !p.ReportsNvlinkEncryption() {
+		gomega.Expect(info).NotTo(gomega.ContainSubstring("NVLE:"),
+			"profile %q (%s, driver %d.x, %d links) must not report NVLE:\n%s",
+			p.Name, p.Architecture(), p.DriverMajor(), p.ExpectedNV(), info)
+		return
+	}
+	gomega.Expect(info).To(gomega.ContainSubstring("NVLE:"),
+		"profile %q did not report the NVLE row:\n%s", p.Name, info)
+
+	nvlinkFirmware(info, p)
+
+	ginkgo.By("nvidia-smi nvlink -sLowPwrThres round trip")
+	lowRes, _ := k.ExecTruncated(ctx, pod, nvlinkLogOutputLines, "nvidia-smi", "nvlink", "-sLowPwrThres", "500")
+	gomega.Expect(lowRes.Combined()).To(gomega.MatchRegexp(`(?i)Low Power Threshold set to`),
+		"profile %q rejected an in-range low-power threshold:\n%s", p.Name, lowRes.Combined())
+
+	// `default` sends NVML_NVLINK_LOW_POWER_THRESHOLD_RESET (0xFFFFFFFF), which
+	// must clear the override rather than fail range validation.
+	resetRes, _ := k.ExecTruncated(ctx, pod, nvlinkLogOutputLines, "nvidia-smi", "nvlink", "-sLowPwrThres", "default")
+	gomega.Expect(resetRes.Combined()).To(gomega.MatchRegexp(`(?i)reset successfully`),
+		"profile %q did not reset the low-power threshold:\n%s", p.Name, resetRes.Combined())
 }
