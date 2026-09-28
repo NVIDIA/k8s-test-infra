@@ -608,7 +608,7 @@ whether the node can see the switch over PCIe at all:
 | `device_id` | Meaning | Profiles |
 |---|---|---|
 | set | Baseboard switch on the node's PCIe bus. Rendered into the PCI tree as a bridge, so `lspci` lists it beside the GPUs — see [NVSwitches on the PCI bus](helm-chart.md#nvswitches-on-the-pci-bus). | `a100`, `h100` |
-| unset | NVLink endpoint only. The node never enumerates it, which is how a rack-scale switch tray presents. | `gb200`, `gb300` |
+| unset | NVLink endpoint only. The node never enumerates it, which is how a rack-scale switch tray presents. | `gb200`, `gb300`, `vrnvl72` |
 
 ### NVLink error injection (per device)
 
@@ -724,10 +724,12 @@ Standalone configuration files are provided for each supported GPU model:
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-a100.yaml` | NVIDIA A100-SXM4-40GB | 40 GiB | Ampere |
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-l40s.yaml` | NVIDIA L40S | 48 GiB | Ada Lovelace |
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-t4.yaml` | NVIDIA T4 | 16 GiB | Turing |
+| `pkg/gpu/mocknvml/configs/mock-nvml-config-vrnvl72.yaml` | NVIDIA Vera Rubin NVL72 | 288 GiB | Rubin |
 
 Each file contains a complete configuration with every device configured: 8 for
 the baseboard profiles, 4 for the Grace-Blackwell ones (`gb200`, `gb300`), which
-model one NVL72 compute tray, the unit a real node reports.
+model one NVL72 compute tray, the unit a real node reports, and 4 for `vrnvl72`,
+which models one Vera-Rubin tray of two superchips.
 
 ## Integration Values
 

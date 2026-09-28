@@ -31,6 +31,13 @@ Set `gpu.profile` to one of the profiles shipped in `profiles/`:
 | `gb300` (default) | GB300 NVL | 278 GiB | Blackwell Ultra |
 | `l40s` | L40S | 48 GiB | Ada Lovelace |
 | `t4` | Tesla T4 | 16 GiB | Turing |
+| `vrnvl72` | Vera Rubin NVL72 | 288 GiB | Rubin |
+
+`vrnvl72` is a Vera-Rubin compute tray authored from a capture of pre-release
+hardware, so its GPU name reads `NVIDIA Graphics Device`. It is also the only
+profile with non-zero PCI domains and with device minor numbers that do not
+follow the device index; see
+[when to use each profile](https://nvidia.github.io/k8s-test-infra/helm-chart/#when-to-use-each-profile).
 
 ```bash
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \

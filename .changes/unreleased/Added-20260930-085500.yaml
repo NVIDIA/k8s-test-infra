@@ -1,0 +1,12 @@
+kind: Added
+body: |-
+  nvml-mock: new `vrnvl72` profile modelling a four-GPU Vera-Rubin tray (288 GB
+    of HBM4 per GPU, a 2.3 kW ceiling, NVLink 6.0 and C2C to a Vera CPU),
+    authored from an `nvidia-smi -q -x` capture on driver 615.23 that ships
+    with the hardware fixtures. Select it with `--set gpu.profile=vrnvl72`. Like
+    the pre-release board, it reports `NVIDIA Graphics Device` as its name,
+    non-zero PCI domains and minor numbers that do not follow the device index.
+    It ships no MIG partition table, so the mock reports it as not MIG-capable.
+time: 2026-09-30T08:55:00Z
+custom:
+  Issue: "459"

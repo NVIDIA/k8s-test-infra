@@ -316,7 +316,7 @@ func assertRuntimeSetTemperature(ctx SpecContext, h *harness.Harness, consumer k
 	count := gpuCount(ctx, h, consumer)
 	target := count - 1 // exercise a non-zero index where possible
 	// Distinct from the ~55-70 dynamic baseline and below every profile's
-	// shutdown threshold (min 92), so nvidia-smi never clamps the reading.
+	// shutdown threshold (min 90), so nvidia-smi never clamps the reading.
 	const overrideC = 85
 
 	baseline := smiGPUTempC(ctx, h, consumer, target)
@@ -363,7 +363,7 @@ func assertRuntimeTempCommand(ctx SpecContext, h *harness.Harness, consumer kube
 	count := gpuCount(ctx, h, consumer)
 	target := count - 1 // exercise a non-zero index where possible
 	// Distinct from the dynamic baseline and below every profile's shutdown
-	// threshold (min 92), so nvidia-smi never clamps the reading.
+	// threshold (min 90), so nvidia-smi never clamps the reading.
 	const overrideC = 84
 
 	baseline := smiGPUTempC(ctx, h, consumer, target)
@@ -416,7 +416,7 @@ func assertGpuResetViaNvidiaSmi(ctx SpecContext, h *harness.Harness, consumer ku
 	count := gpuCount(ctx, h, consumer)
 	target := count - 1 // exercise a non-zero index where possible
 	// Distinct from the ~55-70 dynamic baseline and below every profile's
-	// shutdown threshold (min 92), so nvidia-smi never clamps the reading.
+	// shutdown threshold (min 90), so nvidia-smi never clamps the reading.
 	const overrideC = 87
 
 	baseline := smiGPUTempC(ctx, h, consumer, target)

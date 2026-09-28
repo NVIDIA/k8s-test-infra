@@ -27,6 +27,7 @@ import (
 var gracePlatformProfiles = map[string]bool{
 	"gb200.yaml": true,
 	"gb300.yaml": true,
+	"vrnvl72.yaml": true,
 	"a100.yaml":  false,
 	"b200.yaml":  false,
 	"h100.yaml":  false,

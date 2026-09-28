@@ -33,11 +33,12 @@ TARGET_GPU="${TARGET_GPU:-0}"
 #     variance), so a sibling GPU cannot wander onto the injected value and make
 #     the scope check below accuse this run of leaking an override it scoped
 #     correctly.
-#   - AT OR BELOW the LOWEST thermal shutdown threshold of any profile (92C on
-#     a100 and h100; 95C on b200/gb200/gb300; 96C on t4/l40s). The mock clamps
-#     an injected temperature to that threshold, and the wait below is for the
-#     exact value, so a higher default would burn the whole poll budget and then
-#     report "never became == 95" without ever mentioning the clamp.
+#   - AT OR BELOW the LOWEST thermal shutdown threshold of any profile (90C on
+#     vrnvl72; 92C on a100 and h100; 95C on b200/gb200/gb300; 96C on t4/l40s).
+#     The mock clamps an injected temperature to that threshold, and the wait
+#     below is for the exact value, so a higher default would burn the whole
+#     poll budget and then report "never became == 95" without ever mentioning
+#     the clamp.
 HOT_TEMP_C="${HOT_TEMP_C:-90}"
 # Each poll has to cover the mock's override TTL + dcgm-exporter's collect
 # interval + Prometheus' scrape interval. Measured propagation is 25-45s.
@@ -51,8 +52,8 @@ fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 [[ "${HOT_TEMP_C}" =~ ^[0-9]+$ ]] || fail "HOT_TEMP_C='${HOT_TEMP_C}' is not an integer"
 [[ "${HOT_TEMP_C}" -gt 73 ]] \
   || fail "HOT_TEMP_C=${HOT_TEMP_C} is inside the simulator's own 52-73C band, so a sibling GPU will read it too and the scope check will report a leak that did not happen"
-[[ "${HOT_TEMP_C}" -le 92 ]] \
-  || fail "HOT_TEMP_C=${HOT_TEMP_C} exceeds the lowest profile shutdown threshold (92C on a100/h100); the mock would clamp it and the exact-value wait below could never pass"
+[[ "${HOT_TEMP_C}" -le 90 ]] \
+  || fail "HOT_TEMP_C=${HOT_TEMP_C} exceeds the lowest profile shutdown threshold (90C on vrnvl72); the mock would clamp it and the exact-value wait below could never pass"
 
 # Query Prometheus through the API-server service proxy, the same way
 # tests/e2e/go/assertions/dcgm.go reaches dcgm-exporter. Keeps the scenario

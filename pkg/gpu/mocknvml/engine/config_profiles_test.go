@@ -193,6 +193,7 @@ func TestLoadConfig_AllProfilesConsistent(t *testing.T) {
 		{"GB300", "gb300.yaml", "blackwell", 10, 0, 278, 4},
 		{"L40S", "l40s.yaml", "ada_lovelace", 8, 9, 48, 8},
 		{"T4", "t4.yaml", "turing", 7, 5, 16, 4},
+		{"VRNVL72", "vrnvl72.yaml", "rubin", 10, 7, 288, 4},
 	}
 
 	for _, p := range profiles {

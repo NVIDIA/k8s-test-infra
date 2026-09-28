@@ -128,6 +128,7 @@ gpu-profile-gb200                 1      10s
 gpu-profile-gb300                 1      10s
 gpu-profile-l40s                  1      10s
 gpu-profile-t4                    1      10s
+gpu-profile-vrnvl72                 1      10s
 ```
 
 FGO loads these by name from its own namespace, so set `integrations.fakeGpuOperator.targetNamespace` to FGO's release namespace for them to be found. That requires FGO's `builtinProfiles.enabled=false`, because their builtin set uses the same seven names. See the [fake-gpu-operator guide](guides/runai-fgo/README.md).
@@ -214,6 +215,15 @@ RPATH can redirect that.
 | `gb300` | yes | ConnectX-7 (`MT4129`) | NDR 400 Gb/s | 1 |
 | `l40s`  | no  | — | — | — |
 | `t4`    | no  | — | — | — |
+| `vrnvl72` | yes | ConnectX-9 (`MT4133`) | XDR 800 Gb/s | 2 |
+
+The `vrnvl72` row is not a measured adapter inventory: the Vera-Rubin capture
+covers GPUs only. It models the published ConnectX-9 pairing for a Rubin tray —
+800 Gb/s per port, 1.6 Tb/s per GPU — and since the renderer exposes one port
+per HCA, that aggregate is expressed as two single-port HCAs per GPU. The
+firmware is a published ConnectX-9 release rather than a captured value, and
+`board_id` is set to `N/A` because the board PSID is unknown; leaving it empty
+would inherit the ConnectX-7 default.
 
 ### `infiniband:` block schema
 
@@ -290,10 +300,14 @@ $ cat /var/lib/nvml-mock/sys/devices/pci0000:00/0000:07:00.0/numa_node
 | `gb300` | 2 (`pci0000:00`, `pci0000:40`) | 2 (one per Grace CPU) | 2 | 0 |
 | `l40s`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 | 0 |
 | `t4`    | 1 (`pci0000:00`) | 1 | 4 | 0 |
+| `vrnvl72` | 2 (`pci0002:80`, `pci000a:80`) | 2 (one per Vera CPU) | 2 | 0 |
 
 The bridges sit on the first root complex, which is where a baseboard's
 switches are attached on real hardware. See
 [NVSwitches on the PCI bus](#nvswitches-on-the-pci-bus).
+
+`vrnvl72` is the only profile whose root complexes sit outside PCI domain 0000 —
+each Vera superchip is its own domain, as the capture reports.
 
 ### `pcie_topology:` block schema
 
@@ -362,9 +376,10 @@ a switch enumerating as a 3D controller would read as an extra GPU.
 
 !!! note "Rack-scale platforms have no PCIe-visible switches"
 
-    `gb200` and `gb300` declare NVSwitches without a `device_id`. On NVL72 the
-    switches live in their own switch trays, reached over the NVLink cable
-    cartridge, so a compute tray's `lspci` shows its GPUs and no bridges. Those
+    `gb200`, `gb300` and `vrnvl72` declare NVSwitches without a `device_id`. On
+    these racks the switches live in their own switch trays, reached over the
+    NVLink cable cartridge, so a compute tray's `lspci` shows its GPUs and no
+    bridges. Those
     switches still act as NVLink remote endpoints, which is what produces the
     `NV18` all-to-all in `nvidia-smi topo -m`.
 
@@ -651,13 +666,13 @@ namespace, on the pod IP where the kubelet reaches it.
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `gpu.profile` | `gb300` | GPU profile: `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`, or `t4` |
-| `gpu.count` | `""` | Number of mock GPUs per node. Empty derives it from the profile's `devices:` list (8 for the baseboard profiles, 4 for `t4`, `gb200` and `gb300`); a larger value is capped to that list at runtime |
+| `gpu.profile` | `gb300` | GPU profile: `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`, `t4`, or `vrnvl72` |
+| `gpu.count` | `""` | Number of mock GPUs per node. Empty derives it from the profile's `devices:` list (8 for the baseboard profiles, 4 for `t4`, `gb200`, `gb300` and `vrnvl72`); a larger value is capped to that list at runtime |
 | `gpu.customConfig` | `""` | Inline YAML to override profile config entirely |
 | `gpu.dynamicMetrics.enabled` | `false` | Make the mock return time-varying temperature / power / utilization readings instead of the static profile values. See [Dynamic Metrics](#dynamic-metrics) below. |
 | `gpu.dynamicMetrics.seed` | `0` (baseline) | RNG seed; `0` uses a time-based seed, non-zero produces reproducible sequences. |
 | `gpu.dynamicMetrics.temperature.*` | baseline (`base_c: 55`, …) | `base_c`, `variance_c`, `ramp_c`, `ramp_period_sec` for the GPU temperature generator. |
-| `gpu.dynamicMetrics.power.*` | profile default, else baseline `250000`/`25000` | `base_mw`, `variance_mw` for the power generator (clamped to the profile's `min/max_limit_mw`). Resolved **baseline < profile default < user override**; profiles outside the 250W baseline set their own (`t4` ~65W, `b200`/`gb200` ~600W, `gb300` ~800W). See [Dynamic Metrics](#dynamic-metrics). |
+| `gpu.dynamicMetrics.power.*` | profile default, else baseline `250000`/`25000` | `base_mw`, `variance_mw` for the power generator (clamped to the profile's `min/max_limit_mw`). Resolved **baseline < profile default < user override**; profiles outside the 250W baseline set their own (`t4` ~65W, `b200`/`gb200` ~600W, `gb300` ~800W, `vrnvl72` ~400W). See [Dynamic Metrics](#dynamic-metrics). |
 | `gpu.dynamicMetrics.utilization.*` | baseline (`pattern: burst`, …) | `pattern` (`idle` \| `busy` \| `burst` \| `steady`), `gpu_min/max`, `memory_min/max`, `burst_period_sec`. |
 | `gpu.failureInjection.enabled` | `false` | Enable simulated GPU failures (lost / fallen off bus / uncorrectable ECC). See [Failure Injection](#failure-injection) below. |
 | `gpu.failureInjection.mode` | `healthy` | Failure mode: `healthy` (default, no-op), `lost`, `fallen_off_bus`, or `ecc_uncorrectable`. With the inert default, `enabled: true` alone produces a healthy device — you must set `mode` explicitly to engage failures. |
@@ -756,24 +771,33 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 
 #### Profile Comparison
 
-| | A100 | H100 | B200 | GB200 | GB300 | L40S | T4 |
-|---|---|---|---|---|---|---|---|
-| **Profile name** | `a100` | `h100` | `b200` | `gb200` | `gb300` | `l40s` | `t4` |
-| **Full name** | A100-SXM4-40GB | H100 80GB HBM3 | B200 | GB200 NVL | GB300 NVL | L40S | Tesla T4 |
-| **Architecture** | Ampere | Hopper | Blackwell | Blackwell | Blackwell Ultra | Ada Lovelace | Turing |
-| **Compute capability** | 8.0 | 9.0 | 10.0 | 10.0 | 10.0 | 8.9 | 7.5 |
-| **CUDA cores** | 6,912 | 16,896 | 18,432 | 18,432 | 21,632 | 18,176 | 2,560 |
-| **Memory** | 40 GiB HBM2e | 80 GiB HBM3 | 180 GiB HBM3e | 186 GiB HBM3e | 278 GiB HBM3e | 48 GiB GDDR6 | 16 GiB GDDR6 |
-| **NVLink** | v3, 12 links | v4, 18 links | v5, 18 links | v5, 18 links | v5, 18 links | — | — |
-| **NVLink BW** | 600 GB/s | 900 GB/s | 1.8 TB/s | 1.8 TB/s | 1.8 TB/s | — | — |
-| **TDP** | 400W | 700W | 1,000W | 1,000W | 1,400W | 350W | 70W |
-| **PCIe** | Gen4 | Gen5 | Gen6 | Gen6 | Gen6 | Gen4 | Gen3 |
-| **MIG instances** | 7 | 7 | 7 | 7 | 7 | 0 | 0 |
-| **Grace CPU** | — | — | — | Yes (NVLink-C2C) | Yes (NVLink-C2C) | — | — |
-| **FP8** | — | Yes | Yes | Yes | Yes | Yes | — |
-| **FP4** | — | — | Yes | Yes | Yes | — | — |
-| **FP6** | — | — | — | — | Yes | — | — |
-| **Driver version** | 550.163.01 | 550.163.01 | 560.35.03 | 560.35.03 | 570.124.06 | 550.163.01 | 550.163.01 |
+| | A100 | H100 | B200 | GB200 | GB300 | L40S | T4 | VRNVL72 |
+|---|---|---|---|---|---|---|---|---|
+| **Profile name** | `a100` | `h100` | `b200` | `gb200` | `gb300` | `l40s` | `t4` | `vrnvl72` |
+| **Full name** | A100-SXM4-40GB | H100 80GB HBM3 | B200 | GB200 NVL | GB300 NVL | L40S | Tesla T4 | Vera Rubin NVL72 |
+| **Architecture** | Ampere | Hopper | Blackwell | Blackwell | Blackwell Ultra | Ada Lovelace | Turing | Rubin |
+| **Compute capability** | 8.0 | 9.0 | 10.0 | 10.0 | 10.0 | 8.9 | 7.5 | 10.7 |
+| **CUDA cores** | 6,912 | 16,896 | 18,432 | 18,432 | 21,632 | 18,176 | 2,560 | not captured |
+| **Memory** | 40 GiB HBM2e | 80 GiB HBM3 | 180 GiB HBM3e | 186 GiB HBM3e | 278 GiB HBM3e | 48 GiB GDDR6 | 16 GiB GDDR6 | 288 GiB HBM4 |
+| **NVLink** | v3, 12 links | v4, 18 links | v5, 18 links | v5, 18 links | v5, 18 links | — | — | v6, 18 links |
+| **NVLink BW** | 600 GB/s | 900 GB/s | 1.8 TB/s | 1.8 TB/s | 1.8 TB/s | — | — | 3.6 TB/s |
+| **TDP** | 400W | 700W | 1,000W | 1,000W | 1,400W | 350W | 70W | 2,300W |
+| **PCIe** | Gen4 | Gen5 | Gen6 | Gen6 | Gen6 | Gen4 | Gen3 | Gen6 |
+| **MIG instances** | 7 | 7 | 7 | 7 | 7 | 0 | 0 | not captured |
+| **Superchip CPU** | — | — | — | Grace (NVLink-C2C) | Grace (NVLink-C2C) | — | — | Vera (NVLink-C2C) |
+| **FP8** | — | Yes | Yes | Yes | Yes | Yes | — | not captured |
+| **FP4** | — | — | Yes | Yes | Yes | — | — | not captured |
+| **FP6** | — | — | — | — | Yes | — | — | not captured |
+| **Driver version** | 550.163.01 | 550.163.01 | 560.35.03 | 560.35.03 | 570.124.06 | 550.163.01 | 550.163.01 | 615.23 |
+
+"not captured" is not the same as "—". A dash means the hardware lacks the
+feature; "not captured" means the `nvidia-smi` capture the `vrnvl72` profile was
+built from does not report it, so the profile makes no claim rather than
+inventing one. Rubin's tensor-core precisions are a case in point: the capture
+evidences only NVLink-C2C, so the FP rows stay unstated. The **Full name** row
+names the product, which is not what `nvidia-smi` prints for it: the board
+predates the driver's product table, so NVML reports `NVIDIA Graphics Device`,
+and the profile keeps that verbatim.
 
 #### When to Use Each Profile
 
@@ -784,6 +808,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 - **`gb300`** (default) — testing Grace-Blackwell Ultra Superchip: 278 GiB HBM3e per GPU, 1.4 kW TDP, FP6 in addition to FP4/FP8, and Blackwell Ultra driver line (570.124.06).
 - **`l40s`** — testing Ada Lovelace inference workloads: FP8, PCIe Gen4, no NVLink (PCIe-only topology).
 - **`t4`** — testing Turing inference GPUs: low power (70W), small memory (16 GiB), 4 GPUs per node.
+- **`vrnvl72`** — testing Vera-Rubin: NVLink 6.0, a 2.3 kW power ceiling, 288 GB of HBM4 per GPU, and NVLink-C2C to a Vera CPU. Its capture is of pre-release hardware, so it differs from the other profiles in three ways: it reports `NVIDIA Graphics Device` as its GPU name, because the board shipped before the driver's product table carried one; its PCI domains are non-zero; and its device minor numbers do not follow the device index. That makes it the one to reach for when checking that a consumer reads the domain and minor number off the driver rather than assuming them.
 
 ### Custom Configuration
 
@@ -887,8 +912,9 @@ chart baseline  <  GPU profile default  <  user override (values / --set)
 The profile layer matters for **power**: one global `base_mw` can't fit every
 profile's `[min_limit_mw, max_limit_mw]` envelope, so profiles outside the 250W
 baseline declare their own base via a Helm-only `dynamic_metrics_defaults` key
-(`t4` ~65W, `b200`/`gb200` ~600W, `gb300` ~800W). The engine ignores that key;
-it only takes effect once `enabled: true` folds it into `dynamic_metrics`.
+(`t4` ~65W, `b200`/`gb200` ~600W, `gb300` ~800W, `vrnvl72` ~400W). The engine
+ignores that key; it only takes effect once `enabled: true` folds it into
+`dynamic_metrics`.
 
 ```bash
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \

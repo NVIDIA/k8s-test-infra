@@ -63,7 +63,7 @@ tilt up -- --gpu-profile h100
 tilt up -- --gpu-profile gb200
 ```
 
-Supported `--gpu-profile` values: `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`, `t4`.
+Supported `--gpu-profile` values: `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`, `t4`, `vrnvl72`.
 
 ### Heterogeneous fleet (per-GPU-profile releases)
 
