@@ -888,6 +888,21 @@ type NVLinkConfig struct {
 type NVSwitchConfig struct {
 	BDF  string `json:"bdf,omitempty"`
 	UUID string `json:"uuid,omitempty"`
+
+	// DeviceID is the packed PCI identity word, (device<<16)|vendor, as
+	// device_defaults.pci.device_id carries for a GPU — 0x22a310de for an
+	// H100 NVSwitch. Setting it is what puts the switch in the node's
+	// rendered PCI tree, where lspci enumerates it as a bridge next to the
+	// GPUs, the way it appears on an HGX baseboard.
+	//
+	// Leave it unset for a switch the node cannot see over PCIe: on
+	// GB200/GB300 NVL the switches are in their own trays, so the compute
+	// tray's lspci shows the GPUs and no bridges. Such a switch still serves
+	// as an NVLink remote endpoint.
+	DeviceID uint32 `json:"device_id,omitempty"`
+	// SubsystemID is the packed subsystem word, (subdevice<<16)|subvendor.
+	// Only meaningful alongside DeviceID.
+	SubsystemID uint32 `json:"subsystem_id,omitempty"`
 }
 
 // NVLinkDefaults carries per-link defaults expanded across all links so
