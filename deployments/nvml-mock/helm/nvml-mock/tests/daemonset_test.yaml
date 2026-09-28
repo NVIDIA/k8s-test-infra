@@ -354,6 +354,7 @@ tests:
           content:
             name: driver-root-link
             mountPath: /host/run/nvidia
+            mountPropagation: Bidirectional
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
@@ -1022,7 +1023,7 @@ tests:
               type: Directory
 
   # ── Kernel log (Xid announcement) ───────────────────────────────────
-  - it: should grant the kernel log and the privilege it needs when enabled
+  - it: should grant the kernel log access it needs when enabled
     set:
       nodeAgent:
         kernelLog:
@@ -1033,16 +1034,6 @@ tests:
           content:
             name: MOCK_NVML_KMSG
             value: /dev/kmsg
-      # The device cgroup rejects the write from an unprivileged container even
-      # with /dev/kmsg mounted, so the mount alone would render a no-op.
-      - equal:
-          path: spec.template.spec.containers[0].securityContext.privileged
-          value: true
-      # A capability set is inert under privileged, so the chart must not claim
-      # one: `drop: [ALL]` here would read as a bound on a container that has
-      # every capability.
-      - isNull:
-          path: spec.template.spec.containers[0].securityContext.capabilities
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
@@ -1056,9 +1047,16 @@ tests:
               path: /dev/kmsg
               type: CharDevice
 
-  # The default, and it must stay the default: `helm upgrade` of an existing
-  # install cannot be what turns the node agent privileged.
-  - it: should leave the node agent unprivileged by default
+  # Bidirectional mountPropagation (below) needs it unconditionally.
+  - it: should always run the node agent privileged
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.privileged
+          value: true
+      - isNull:
+          path: spec.template.spec.containers[0].securityContext.capabilities
+
+  - it: should leave the kernel log unmounted by default
     asserts:
       # Empty, not absent: it tells the agent the pod cannot reach /dev/kmsg,
       # so it skips the announcement instead of warning on every injection.
@@ -1067,11 +1065,6 @@ tests:
           content:
             name: MOCK_NVML_KMSG
             value: ""
-      - isNull:
-          path: spec.template.spec.containers[0].securityContext.privileged
-      - equal:
-          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
-          value: false
       - notContains:
           path: spec.template.spec.containers[0].volumeMounts
           content:

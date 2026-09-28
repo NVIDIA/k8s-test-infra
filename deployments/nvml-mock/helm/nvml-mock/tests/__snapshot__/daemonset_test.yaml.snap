@@ -96,18 +96,14 @@ should match snapshot with all overrides:
                   cpu: 10m
                   memory: 32Mi
               securityContext:
-                allowPrivilegeEscalation: false
-                capabilities:
-                  add:
-                    - MKNOD
-                  drop:
-                    - ALL
+                privileged: true
               volumeMounts:
                 - mountPath: /host/var/lib/nvml-mock
                   name: mokka-root
                 - mountPath: /var/lib/nvml-mock
                   name: mokka-root
                 - mountPath: /host/run/nvidia
+                  mountPropagation: Bidirectional
                   name: driver-root-link
                 - mountPath: /host/run/cdi
                   name: cdi-specs
@@ -257,18 +253,14 @@ should match snapshot with b200 profile:
                   cpu: 10m
                   memory: 32Mi
               securityContext:
-                allowPrivilegeEscalation: false
-                capabilities:
-                  add:
-                    - MKNOD
-                  drop:
-                    - ALL
+                privileged: true
               volumeMounts:
                 - mountPath: /host/var/lib/nvml-mock
                   name: mokka-root
                 - mountPath: /var/lib/nvml-mock
                   name: mokka-root
                 - mountPath: /host/run/nvidia
+                  mountPropagation: Bidirectional
                   name: driver-root-link
                 - mountPath: /host/run/cdi
                   name: cdi-specs
@@ -410,18 +402,14 @@ should match snapshot with default values:
                   cpu: 10m
                   memory: 32Mi
               securityContext:
-                allowPrivilegeEscalation: false
-                capabilities:
-                  add:
-                    - MKNOD
-                  drop:
-                    - ALL
+                privileged: true
               volumeMounts:
                 - mountPath: /host/var/lib/nvml-mock
                   name: mokka-root
                 - mountPath: /var/lib/nvml-mock
                   name: mokka-root
                 - mountPath: /host/run/nvidia
+                  mountPropagation: Bidirectional
                   name: driver-root-link
                 - mountPath: /host/run/cdi
                   name: cdi-specs

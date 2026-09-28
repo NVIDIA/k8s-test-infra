@@ -26,8 +26,6 @@ dcgm:
 dcgmExporter:
   enabled: true
   env:
-    - name: NVIDIA_DRIVER_ROOT
-      value: "/var/lib/nvml-mock/driver"
     - name: DCGM_EXPORTER_COLLECT_INTERVAL
       value: "5000"
 
@@ -53,9 +51,6 @@ devicePlugin:
   enabled: true
   config:
     name: ""
-  env:
-    - name: NVIDIA_DRIVER_ROOT
-      value: "/var/lib/nvml-mock/driver"
 
 # GFD reads GPU attributes via mock NVML and labels the node.
 #
@@ -70,15 +65,15 @@ devicePlugin:
 gfd:
   enabled: true
   env:
-    - name: NVIDIA_DRIVER_ROOT
-      value: "/var/lib/nvml-mock/driver"
     - name: GFD_MACHINE_TYPE_FILE
       value: "/etc/nvml-mock/machine-type"
 
 # Validator checks that the GPU stack is functional.
 #
-# driver-validation passes: it finds nvidia-smi via DRIVER_INSTALL_DIR and loads
-# libnvidia-ml.so via LD_LIBRARY_PATH, both pointing at the mock driver root.
+# driver-validation passes: it finds nvidia-smi and loads libnvidia-ml.so under
+# /run/nvidia/driver, the chart's own driverInstallDir default — the nvml-mock
+# DaemonSet mirrors the mock driver root there directly, so no
+# DRIVER_INSTALL_DIR/LD_LIBRARY_PATH override is needed.
 # DISABLE_DEV_CHAR_SYMLINK_CREATION=true is required. Without it, the /dev/char
 # symlink step finds /sys/module/nvidia/refcnt (served by the agent), skips
 # modprobe, and then fails with "failed to create devices info: no NVIDIA
@@ -90,10 +85,6 @@ gfd:
 validator:
   driver:
     env:
-      - name: DRIVER_INSTALL_DIR
-        value: "/run/nvidia/driver"
-      - name: LD_LIBRARY_PATH
-        value: "/run/nvidia/driver/usr/lib64"
       - name: DISABLE_DEV_CHAR_SYMLINK_CREATION
         value: "true"
   toolkit:
@@ -104,7 +95,3 @@ validator:
     env:
       - name: WITH_WORKLOAD
         value: "false"
-  plugin:
-    env:
-      - name: LD_LIBRARY_PATH
-        value: "/run/nvidia/driver/usr/lib64"

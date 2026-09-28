@@ -89,8 +89,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   you select the driver's pods by label, note the chart renames
   `app.kubernetes.io/name` to `dra-driver-nvidia-gpu` and replaces
   `app.kubernetes.io/component=kubelet-plugin` with
-  `dra-driver-nvidia-gpu-component=kubelet-plugin`. The GPU Operator chart still
-  floats — see [#581](https://github.com/NVIDIA/k8s-test-infra/issues/581).
+  `dra-driver-nvidia-gpu-component=kubelet-plugin`.
+- The GPU Operator chart is now pinned at `v26.3.3` in
+  `local/gpu-operator/gpu_operator.tiltfile`, which drives both local Tilt runs
+  and the `e2e-gpu-operator` job, and in the `with-gpu-operator` guide script
+  (override with `GPU_OPERATOR_VERSION`). It floated before, so v26.7.1 reached
+  CI without a commit here. That release gates every operand's
+  `toolkit-validation` init container on an `nvidia` line in `/proc/modules`,
+  which the mock cannot serve to those containers, and GFD, the device plugin
+  and dcgm-exporter never start. Lifting the pin is tracked in
+  [#911](https://github.com/NVIDIA/k8s-test-infra/issues/911).
 - `libpcisysfs.so` is now `libmockfs.so`. The shim redirects kernel-module paths
   as well as PCI sysfs, so its name no longer described what it does. The
   `MOCK_PCI_ROOT` variable that points it at the fake tree is unchanged.
@@ -121,10 +129,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   processes share, and are cleared by a reset like anything else injected
   there. Persistence mode (`nvidia-smi -pm`) is unchanged and stays
   per-process. See [#849](https://github.com/NVIDIA/k8s-test-infra/issues/849).
-- node-agent: the `/run/nvidia/driver` symlink is removed on shutdown only when
-  it is still the one the agent published. On a node where another component
-  owns that path, teardown used to delete it whatever it was; a foreign driver
-  root is now left alone, and displacing one at startup is logged.
+- node-agent: fixed the GPU Operator validator getting stuck retrying driver
+  validation forever if its pod started before node-agent had finished, or
+  restarted while node-agent was mid-restart. `/run/nvidia/driver` is now a
+  bind mount of the staged driver root instead of a symlink to it, so a
+  consumer that already mounted the path keeps seeing it as content lands,
+  the way it would with a real driver. Teardown unmounts but never deletes
+  the directory, and never touches a path it did not mount.
+  **Breaking (security):** the node-agent container is now privileged on
+  every install, not only when `nodeAgent.kernelLog.enabled` is set —
+  Kubernetes rejects `mountPropagation: Bidirectional` (needed for that bind
+  mount to reach other containers) on anything less, regardless of
+  capabilities granted. A cluster whose PodSecurity admits no privileged pod
+  will refuse this release's DaemonSet on `helm upgrade`. See
+  [#857](https://github.com/NVIDIA/k8s-test-infra/issues/857).
 
 ## [0.4.0-rc1] - 2026-09-14
 
