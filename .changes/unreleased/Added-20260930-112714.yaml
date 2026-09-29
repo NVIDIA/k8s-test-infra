@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  helm: `priorityClassName`, `affinity`, `podAnnotations` and `podLabels` apply to the node DaemonSet pods; `podLabels` cannot override the selector labels.
+time: 2026-09-30T09:27:14Z
+custom:
+  Issue: "929"

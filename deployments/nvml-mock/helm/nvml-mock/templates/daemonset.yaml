@@ -4,7 +4,12 @@ apiVersion: apps/v1
 kind: DaemonSet
 {{- $ibEnabled := eq (include "nvml-mock.infinibandEnabled" .) "true" }}
 {{- $fmEnabled := eq (include "nvml-mock.fabricmanagerEnabled" .) "true" }}
-{{- $nriImage := mergeOverwrite (deepCopy .Values.image) (.Values.nri.image | default dict) }}
+{{- $nriImageOverride := .Values.nri.image | default dict }}
+{{- $nriImage := mergeOverwrite (deepCopy .Values.image) $nriImageOverride }}
+{{- /* The chart digest names the nvml-mock image; it must not pin an NRI repository or tag override. */}}
+{{- if and (not $nriImageOverride.digest) (or $nriImageOverride.repository $nriImageOverride.tag) }}
+{{- $_ := unset $nriImage "digest" }}
+{{- end }}
 {{- $nriSocketDir := dir .Values.nri.socketPath }}
 {{- $nriOverlayVolume := "mokka-root" }}
 {{- if ne .Values.nri.overlay.hostPath "/var/lib/nvml-mock" }}
@@ -39,7 +44,13 @@ spec:
       labels:
         {{- include "nvml-mock.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: daemon
+        {{- with include "nvml-mock.podLabels" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
       annotations:
+        {{- with omit (.Values.podAnnotations | default dict) "checksum/config" "checksum/mig-profiles" "kubectl.kubernetes.io/default-container" }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
         # Roll the DaemonSet on any config.yaml change.
         checksum/config: {{ include "nvml-mock.gpuConfig" . | sha256sum }}
         {{- if $migProfiles }}
@@ -51,10 +62,20 @@ spec:
         kubectl.kubernetes.io/default-container: node-agent
     spec:
       serviceAccountName: {{ include "nvml-mock.fullname" . }}
+      {{- with include "nvml-mock.imagePullSecrets" . }}
+      {{- . | nindent 6 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       {{- with .Values.tolerations }}
@@ -63,8 +84,8 @@ spec:
       {{- end }}
       containers:
         - name: node-agent
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          image: {{ include "nvml-mock.image" (dict "image" .Values.image "context" $) | quote }}
+          imagePullPolicy: {{ include "nvml-mock.imagePullPolicy" (dict "image" .Values.image "context" $) }}
           command:
             - /usr/local/bin/node-agent
             - start
@@ -254,22 +275,22 @@ spec:
             - name: kernel-log
               mountPath: /dev/kmsg
             {{- end }}
+          {{- with .Values.nodeAgent.livenessProbe }}
           livenessProbe:
-            httpGet:
-              path: /healthz
-              port: 9091
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.nodeAgent.readinessProbe }}
           readinessProbe:
-            httpGet:
-              path: /readyz
-              port: 9091
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           resources:
             {{- toYaml .Values.nodeAgent.resources | nindent 12 }}
         {{- if .Values.nri.enabled }}
         # The NRI plugin shares this pod with the node agent so staging and
         # injection have one scheduling and rollout lifecycle per node.
         - name: nvml-mock-nri
-          image: "{{ $nriImage.repository }}:{{ $nriImage.tag }}"
-          imagePullPolicy: {{ $nriImage.pullPolicy }}
+          image: {{ include "nvml-mock.image" (dict "image" $nriImage "context" $) | quote }}
+          imagePullPolicy: {{ include "nvml-mock.imagePullPolicy" (dict "image" $nriImage "context" $) }}
           command: ["/usr/local/bin/nri-plugin"]
           args:
             - --socket-path={{ .Values.nri.socketPath }}
@@ -331,8 +352,8 @@ spec:
         # one TTL. A sidecar rather than its own DaemonSet so it shares the
         # driver-root hostPath the override file lives in.
         - name: allocation-watcher
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          image: {{ include "nvml-mock.image" (dict "image" .Values.image "context" $) | quote }}
+          imagePullPolicy: {{ include "nvml-mock.imagePullPolicy" (dict "image" .Values.image "context" $) }}
           command:
             - /usr/local/bin/nvml-mock-ctl
             - watch-allocations

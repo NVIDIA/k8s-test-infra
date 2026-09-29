@@ -54,6 +54,97 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
+Container image reference. A digest, when set, pins the image and wins over
+the tag. The tag defaults to the chart appVersion, so a chart release pulls
+the image cut from the same tag. Takes the image values explicitly, so a
+component can pass its own merged image:
+  include "nvml-mock.image" (dict "image" .Values.image "context" $)
+*/}}
+{{- define "nvml-mock.image" -}}
+{{- $repository := include "nvml-mock.imageRepository" . }}
+{{- if .image.digest }}
+{{- printf "%s@%s" $repository .image.digest }}
+{{- else }}
+{{- printf "%s:%s" $repository (.image.tag | default .context.Chart.AppVersion) }}
+{{- end }}
+{{- end }}
+
+{{/*
+Container image pull policy. An empty pullPolicy gets the default Kubernetes
+would apply to the rendered reference: Always for a floating "latest" tag,
+IfNotPresent for a release tag or a digest. Takes the same argument as
+nvml-mock.image.
+*/}}
+{{- define "nvml-mock.imagePullPolicy" -}}
+{{- if .image.pullPolicy }}
+{{- .image.pullPolicy }}
+{{- else if and (not .image.digest) (eq "latest" (.image.tag | default .context.Chart.AppVersion)) }}
+{{- "Always" }}
+{{- else }}
+{{- "IfNotPresent" }}
+{{- end }}
+{{- end }}
+
+{{/*
+Image repository, moved to global.imageRegistry when set so every image the
+chart runs can be pulled from one mirror. The registry host is the first path
+component only if it contains "." or ":" or is "localhost", the same rule
+container runtimes use; otherwise it is a Docker Hub namespace and is kept.
+*/}}
+{{- define "nvml-mock.imageRepository" -}}
+{{- $registry := (.context.Values.global | default dict).imageRegistry | default "" | trimSuffix "/" }}
+{{- if $registry }}
+{{- $parts := splitList "/" .image.repository }}
+{{- $host := first $parts }}
+{{- if and (gt (len $parts) 1) (or (contains "." $host) (contains ":" $host) (eq "localhost" $host)) }}
+{{- $parts = rest $parts }}
+{{- end }}
+{{- printf "%s/%s" $registry (join "/" $parts) }}
+{{- else }}
+{{- .image.repository }}
+{{- end }}
+{{- end }}
+
+{{/*
+Pod imagePullSecrets: global.imagePullSecrets followed by imagePullSecrets,
+de-duplicated. Entries may be a secret name or a {name: ...} object. Renders
+nothing when no secret is configured.
+*/}}
+{{- define "nvml-mock.imagePullSecrets" -}}
+{{- $names := list }}
+{{- range concat ((.Values.global | default dict).imagePullSecrets | default list) (.Values.imagePullSecrets | default list) }}
+{{- if kindIs "map" . }}
+{{- $names = append $names .name }}
+{{- else }}
+{{- $names = append $names . }}
+{{- end }}
+{{- end }}
+{{- with $names | compact | uniq -}}
+imagePullSecrets:
+{{- range . }}
+  - name: {{ . | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+User podLabels for the node DaemonSet pod template. The selector labels are
+refused rather than dropped: the selector matches them, so an override would
+orphan running pods on upgrade and should fail at render time.
+*/}}
+{{- define "nvml-mock.podLabels" -}}
+{{- $labels := .Values.podLabels | default dict }}
+{{- range $key := list "app.kubernetes.io/name" "app.kubernetes.io/instance" "app.kubernetes.io/component" }}
+{{- if hasKey $labels $key }}
+{{- fail (printf "podLabels must not set %s: the chart's DaemonSet selectors own it" $key) }}
+{{- end }}
+{{- end }}
+{{- with $labels }}
+{{- toYaml . }}
+{{- end }}
+{{- end }}
+
+{{/*
 NRI probe from nri.readinessProbe or nri.livenessProbe. The plugin's port was
 named `health` while it ran in its own DaemonSet; that name belongs to the
 node agent in the shared pod, so values carried over from 0.4.0 are pointed at
@@ -467,5 +558,38 @@ driver_version the engine reports via NVML. Fails if neither is set.
 {{- else -}}
 {{- fail (printf "GPU config for profile %q has no system.driver_version; set .Values.driverVersion explicitly." .Values.gpu.profile) -}}
 {{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Pass every string key and value of the map .value through tpl against
+.context, rewriting .value in place; callers hand in a deepCopy so .Values is
+left alone. Each string is evaluated on its own, so an evaluated value holding
+quotes or newlines cannot corrupt the document, as it would if the whole
+object were serialized first and templated afterwards. Other values are not
+re-encoded, which keeps their types and --set int64 values exact.
+*/}}
+{{- define "nvml-mock.tplInPlace" -}}
+{{- $map := .value -}}
+{{- $context := .context -}}
+{{- range $key, $item := $map -}}
+{{- if kindIs "string" $item -}}
+{{- $item = tpl $item $context -}}
+{{- else if kindIs "map" $item -}}
+{{- $_ := include "nvml-mock.tplInPlace" (dict "value" $item "context" $context) -}}
+{{- else if kindIs "slice" $item -}}
+{{- $items := list -}}
+{{- range $element := $item -}}
+{{- $holder := dict "element" $element -}}
+{{- $_ := include "nvml-mock.tplInPlace" (dict "value" $holder "context" $context) -}}
+{{- $items = append $items $holder.element -}}
+{{- end -}}
+{{- $item = $items -}}
+{{- end -}}
+{{- $renderedKey := tpl $key $context -}}
+{{- if ne $renderedKey $key -}}
+{{- $_ := unset $map $key -}}
+{{- end -}}
+{{- $_ := set $map $renderedKey $item -}}
 {{- end -}}
 {{- end }}

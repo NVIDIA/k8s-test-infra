@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  helm: `extraObjects` renders additional Kubernetes objects with the nvml-mock release, such as a pull Secret for a mirror; see [Installation](docs/helm-chart.md).
+time: 2026-09-30T09:27:16Z
+custom:
+  Issue: "929"
