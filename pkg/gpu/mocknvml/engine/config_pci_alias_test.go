@@ -95,3 +95,20 @@ func TestGetDeviceConfigPCIOverrideDoesNotLeakIntoDefaults(t *testing.T) {
 		assert.Equal(t, defaultDeviceID, again.PCI.DeviceID, "second resolve of device 1 must still see the default")
 	})
 }
+
+func TestGetDeviceConfigPCIeOverride(t *testing.T) {
+	cfg := &Config{YAMLConfig: &YAMLConfig{
+		DeviceDefaults: DeviceConfig{PCIe: &PCIeConfig{MaxLinkGen: 6, CurrentLinkGen: 6}},
+		Devices: []DeviceOverride{{Index: 0, DeviceConfig: DeviceConfig{PCIe: &PCIeConfig{
+			HostMaxLinkGen: 4,
+		}}}},
+	}}
+
+	device := cfg.GetDeviceConfig(0)
+	require.NotNil(t, device.PCIe)
+	assert.Equal(t, 6, device.PCIe.MaxLinkGen)
+	assert.Equal(t, 4, device.PCIe.HostMaxLinkGen)
+	assert.Equal(t, 6, device.PCIe.CurrentLinkGen)
+	assert.Equal(t, 6, cfg.YAMLConfig.DeviceDefaults.PCIe.MaxLinkGen,
+		"per-device PCIe override must not mutate defaults")
+}
