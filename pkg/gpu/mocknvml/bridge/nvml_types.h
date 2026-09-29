@@ -817,6 +817,265 @@ typedef struct
     unsigned int          bufferSize; //!< [IN/OUT] Size of buffer
 } nvmlGetCPER_v1_t;
 
+/*
+ * NVML additions (go-nvml v0.13.4-0). The generated stubs for the new entry
+ * points take these types by pointer. Per the repo rule for go-nvml bumps they
+ * carry full field layouts, not opaque forward declarations. Definitions and
+ * their dependencies are extracted verbatim from go-nvml v0.13.4-0
+ * pkg/nvml/nvml.h, in the same field order and widths.
+ */
+#define NVML_PERF_METRICS_PWR_MODEL_DLPPM_1X_MAX_CORE_RAILS                                2  //!< Maximum number of core rails for DLPPM 1x power model
+typedef struct
+{
+    unsigned int freqkHz;                                   //!< Frequency in kilohertz
+    unsigned long long utilPct;                             //!< Utilization percentage (fixed-point)
+} nvmlRailMetrics_t;
+
+typedef struct
+{
+    nvmlRailMetrics_t rails[NVML_PERF_METRICS_PWR_MODEL_DLPPM_1X_MAX_CORE_RAILS];  //!< Array of core rail metrics
+} nvmlCoreRailMetrics_t;
+
+typedef struct
+{
+    unsigned int pwrmW;                                     //!< Power consumption in milliwatts
+} nvmlPmgrPwrTuple_t;
+
+typedef struct
+{
+    unsigned int perfms;                                    //!< Performance metric in milliseconds
+} nvmlPwrModelMetricsDlppm1xPerf_t;
+
+#define NVML_PERF_METRICS_NNE_DESC_INFERENCE_LOOPS_MAX                                     8  //!< Maximum number of NNE descriptor inference loops
+#define NVML_PERF_METRICS_PWR_MODEL_SCALE_METRICS_INPUT_MAX                               16  //!< Maximum number of power model scale metrics inputs
+typedef struct
+{
+    unsigned char bValid;                                   //!< Validity flag: non-zero if metrics are valid
+    nvmlCoreRailMetrics_t coreRail;                         //!< Core rail metrics
+    nvmlRailMetrics_t fbRail;                               //!< Fb rail metrics
+    nvmlPmgrPwrTuple_t tgpPwrTuple;                         //!< Total Graphics Power (TGP) in milliwatts
+    nvmlPwrModelMetricsDlppm1xPerf_t perfMetrics;           //!< Performance metrics
+} nvmlPwrModelMetricsDlppm1x_t;
+
+#define NVML_PERF_METRICS_PWR_MODEL_METRICS_DLPPM_1X_OBESRVED_INTIAL_DRAMCLK_ESTIMATES_MAX 3  //!< Maximum number of initial DRAMCLK estimates for DLPPM 1x observed metrics
+#define NVML_PERF_METRICS_PWR_MODEL_SCALE_LOOPS_MAX_PFPP_1X                               32  //!< Maximum number of power model scale loops for PFPP 1x
+typedef struct
+{
+    nvmlPwrModelMetricsDlppm1x_t estimatedMetrics[NVML_PERF_METRICS_NNE_DESC_INFERENCE_LOOPS_MAX];  //!< Array of estimated metrics for each inference loop
+    unsigned char numEstimatedMetrics;                                                              //!< Number of valid entries in estimatedMetrics array
+} nvmlPwrModelMetricsDlppm1xDramclkEstimates_t;
+
+typedef struct
+{
+    unsigned int freqkHz[NVML_PERF_METRICS_PWR_MODEL_SCALE_METRICS_INPUT_MAX];  //!< Array of input frequencies in kilohertz for each domain
+    unsigned int estTgpPwrmW;                                                   //!< Estimated Total Graphics Power in milliwatts
+} nvmlPwrModelMetricsSamplePfpp1x_t;
+
+typedef struct
+{
+    unsigned int freqkHz;                                   //!< Operating frequency in kilohertz
+    unsigned int pwrmW;                                     //!< Power consumption at this frequency in milliwatts
+} nvmlPwrModelOperatingPointPfpp1x_t;
+
+typedef struct
+{
+    nvmlPwrModelMetricsDlppm1xDramclkEstimates_t initialDramclkEst[NVML_PERF_METRICS_PWR_MODEL_METRICS_DLPPM_1X_OBESRVED_INTIAL_DRAMCLK_ESTIMATES_MAX];  //!< Initial DRAMCLK estimates for different scenarios
+    unsigned char bValid;                                                                                                                                //!< Validity flag: non-zero if observed metrics are valid
+    nvmlCoreRailMetrics_t coreRail;                                                                                                                      //!< Observed core rail metrics
+    nvmlRailMetrics_t fbRail;                                                                                                                            //!< Observed fb rail metrics
+    nvmlPmgrPwrTuple_t tgpPwrTuple;                                                                                                                      //!< Observed Total Graphics Power (TGP) in milliwatts
+    nvmlPwrModelMetricsDlppm1xPerf_t perfMetrics;                                                                                                        //!< Observed performance metrics
+} nvmlObservedMetrics_t;
+
+typedef struct
+{
+    unsigned char numVfPoints;                                                                                //!< Number of valid vf points
+    nvmlPwrModelMetricsSamplePfpp1x_t estimatedMetrics[NVML_PERF_METRICS_PWR_MODEL_SCALE_LOOPS_MAX_PFPP_1X];  //!< Array of estimated metrics for different operating points
+    unsigned char bValid;                                                                                     //!< Validity flag: non-zero if metrics are valid
+    nvmlPwrModelOperatingPointPfpp1x_t maxPerfPerWattPoint;                                                   //!< Operating point with maximum performance per watt
+    nvmlPwrModelOperatingPointPfpp1x_t fmaxAtVmaxPoint;                                                       //!< Operating point at maximum frequency and voltage
+    unsigned int tgpHeadroommW;                                                                               //!< TGP headroom in milliwatts
+} nvmlPwrModelMetricsPfpp1x_t;
+
+typedef struct
+{
+    nvmlObservedMetrics_t observedMetrics;                  //!< Observed metrics from the DLPPC 2x controller
+} nvmlPerfMetricsDlppc2xSample_t;
+
+typedef struct
+{
+    nvmlPwrModelMetricsPfpp1x_t estimatedMetrics;           //!< Estimated metrics from the PFPP 1x controller
+} nvmlPerfMetricsPfpp1xSample_t;
+
+#define NVML_PERF_METRICS_CONTROLLER_SAMPLE_CONTROLLER_MAX_NUM                             4  //!< Maximum number of controllers that can be sampled
+typedef struct
+{
+    unsigned int controllerType;                            //!< Controller type: NVML_PERF_METRICS_CONTROLLER_TYPE_DLPPC_2X or NVML_PERF_METRICS_CONTROLLER_TYPE_PFPP_1X
+    union{
+        nvmlPerfMetricsDlppc2xSample_t dlppc2x;             //!< DLPPC 2x controller sample data
+        nvmlPerfMetricsPfpp1xSample_t  pfpp1x;              //!< PFPP 1x controller sample data
+    } data;                                                 //!< Union containing controller-specific data
+} nvmlPerfMetricControllerSample_t;
+
+#define NVML_DEVICE_UUID_V2_BUFFER_SIZE               96
+#define NVML_GPU_FABRIC_CLIQUE_MAX       64
+#define NVML_PERF_METRICS_SAMPLE_COUNT                                                    13  //!< Total number of performance metrics samples that can be collected
+typedef struct
+{
+    unsigned int maxSpareGroupCount;    //!< Number of groups that have maximum spare.
+    unsigned int noSpareGroupCount;     //!< Number of groups that have not spare.
+} nvmlEccBankRemapperHistogram_v1_t;
+
+typedef struct
+{
+    unsigned char type;  //!< Clique type. See NVML_GPU_FABRIC_CLIQUE_TYPE_*
+    unsigned int  id;    //!< Clique ID assigned by the Fabric Manager
+} nvmlGpuFabricClique_v1_t;
+
+typedef struct
+{
+    unsigned int linkId;         //!<[in] LinkId
+    unsigned int sampleType;     //!<[in] Type of telemetry to sample, specified by `nvmlNvlinkTelemetrySampleType_t`
+    unsigned int sampleCount;    //!<[in,out]: Number of samples users need to allocate. If set to 0, will return max
+                                 //! supported count of samples without touching the `samples` pointer.
+    unsigned long long *samples; //!<[in,out]: Array of samples allocated by the user. Can be set to NULL when getting count
+    nvmlReturn_t nvmlReturn;     //!<[out]: Return code for retrieving this sample. This must be checked by the client
+                                 //! before looking at any output values, as they are invalid if `nvmlReturn != NVML_SUCCESS`.
+} nvmlNvlinkTelemetrySample_v1_t;
+
+typedef struct
+{
+    unsigned char numControllerData;                                                                          //!< Number of valid controller samples in this sample
+    nvmlPerfMetricControllerSample_t controllerData[NVML_PERF_METRICS_CONTROLLER_SAMPLE_CONTROLLER_MAX_NUM];  //!< Array of controller samples
+} nvmlPerfMetricsSample_t;
+
+
+typedef struct
+{
+    const char* nameSpace;         //!<[in] Full path to sysfs cgroup file name
+    unsigned long long softLimit;  //!<[in] Soft memory limit in Bytes.
+    unsigned long long hardLimit;  //!<[in] Hard memory limit in Bytes.
+} nvmlSetMemoryLimits_v1_t;
+
+typedef struct
+{
+    const char* nameSpace;           //!<[in]  Full path to sysfs cgroup file name
+    unsigned long long softLimit;    //!<[out] Currently set soft memory limit in Bytes.
+    unsigned long long hardLimit;    //!<[out] Currently set hard memory limit in Bytes.
+    unsigned long long currentUsed;  //!<[out] Currently used memory in Bytes.
+} nvmlGetMemoryLimits_v1_t;
+
+typedef struct
+{
+    unsigned int numSamples;                                          //!< Number of samples in the samples array
+    nvmlPerfMetricsSample_t samples[NVML_PERF_METRICS_SAMPLE_COUNT];  //!< Array of performance metrics samples
+} nvmlPerfMetricsSamples_v1_t;
+
+typedef struct
+{
+    nvmlEnableState_t inBandEnableRequest;    //!< [out] In-band enable requested (NVML_FEATURE_ENABLED) or not requested (NVML_FEATURE_DISABLED)
+    nvmlEnableState_t featureAllowedByAdmin;  //!< [out] Feature allowed by out-of-band/admin (NVML_FEATURE_ENABLED) or not allowed (NVML_FEATURE_DISABLED)
+    nvmlEnableState_t adminOverrideEnabled;   //!< [out] Out-of-band/admin override active (NVML_FEATURE_ENABLED) or inactive (NVML_FEATURE_DISABLED)
+    nvmlEnableState_t enablementStatus;       //!< [out] Enablement after arbitration: active (NVML_FEATURE_ENABLED) or inactive (NVML_FEATURE_DISABLED)
+    unsigned int adjustedLimitMw;             //!< [out] Adjusted TGP limit in milliwatts (valid only when feature is enabled)
+} nvmlAdaptiveTgpModeInfo_v1_t;
+
+typedef struct
+{
+    unsigned int activeRemappings;                      //!< Number of active remappings
+    unsigned int inactiveRemappings;                    //!< Number of inactive remappings
+    unsigned int bPending;                              //!< Whether there exists any pending bank remapping. 0 for no pending remapping, 1 for pending remapping.
+    nvmlEccBankRemapperHistogram_v1_t histogram;        //!< Bank remapper histogram
+} nvmlEccBankRemapperStatus_v1_t;
+
+typedef struct
+{
+    unsigned int count; //!< [out] Number of context records associated with the most recent event.
+} nvmlEventSetGetContextCount_v1_t;
+
+typedef struct
+{
+    unsigned int   index;                                //!< [in] Zero-based context index.
+    unsigned int   nvmlGpuOperationalEventContextType;  //!< [out] \ref nvmlGpuOperationalEventContextType_t value describing the NVML public interpretation of the context payload.
+    unsigned int   sourceEventContextType;              //!< [out] Source-defined context payload type identifier carried by the event.
+    unsigned int   dataSize;                            //!< [out] Context payload size in bytes, excluding alignment padding.
+    unsigned short dataFormatVersion;                   //!< [out] Payload format version for \c sourceEventContextType.
+} nvmlEventSetGetContextInfo_v1_t;
+
+typedef struct
+{
+    void         *data;     //!< [in] Optional caller-owned buffer that receives the raw context payload.
+    unsigned int index;     //!< [in] Zero-based context index.
+    unsigned int dataSize;  //!< [in,out] Size of \c data on input; actual or required size on output.
+} nvmlEventSetGetContextData_v1_t;
+
+typedef struct
+{
+    unsigned int index;    //!< [in] Zero-based context index.
+    unsigned int xidCode;  //!< [out] Legacy Xid code carried in a GPU Operational Event context.
+} nvmlEventSetGetGpuOperationalEventContextLegacyXid_v1_t;
+
+typedef struct
+{
+    unsigned char            clusterUuid[NVML_GPU_FABRIC_UUID_LEN]; //!< Uuid of the cluster to which this GPU belongs
+    nvmlReturn_t             status;                               //!< Probe Error status, if any. Must be checked only if state returns "complete".
+    nvmlGpuFabricClique_v1_t cliques[NVML_GPU_FABRIC_CLIQUE_MAX];  //!< Clique entries, sorted by ascending type then ascending id
+    unsigned int             numCliques;                           //!< Number of valid entries in \a cliques[]
+    nvmlGpuFabricState_t     state;                                //!< Current Probe State. See NVML_GPU_FABRIC_STATE_*
+    unsigned int             healthMask;                           //!< GPU Fabric health Status Mask. See NVML_GPU_FABRIC_HEALTH_MASK_*
+    unsigned char            healthSummary;                        //!< GPU Fabric health summary. See NVML_GPU_FABRIC_HEALTH_SUMMARY_*
+} nvmlGpuFabricInfo_v4_t;
+
+typedef struct nvmlGpuOperationalEventConfig_v1_st
+{
+    char                                uuid[NVML_DEVICE_UUID_V2_BUFFER_SIZE]; //!< [in] Target GPU UUID string. Must be a NULL-terminated "GPU-..." UUID.
+    unsigned int                        minLogLevel;                           //!< [in] \ref nvmlGpuOperationalEventLogLevel_t value for the minimum GPU Operational Event log level. \c NVML_GPU_OPERATIONAL_EVENT_LOG_LEVEL_ALL means no filter.
+    unsigned int                        minSeverity;                           //!< [in] \ref nvmlOperationalEventSeverity_t value for the minimum Operational Event severity threshold. \c NVML_OPERATIONAL_EVENT_SEVERITY_ALL means no filter.
+} nvmlGpuOperationalEventConfig_v1_t;
+
+typedef struct
+{
+    unsigned int        timeoutMs;                             //!< [in] Maximum amount of time to wait, in milliseconds.
+    unsigned int        dataType;                              //!< [out] \ref nvmlEventDataType_t value indicating which event-data format is populated.
+    char                uuid[NVML_DEVICE_UUID_V2_BUFFER_SIZE]; //!< [out] UUID for the GPU where the event occurred. Empty if unavailable.
+    char                sourceModule[16];                      //!< [out] Source module signature for structured events. Not guaranteed to be NULL-terminated. Empty for NVML event-bit events.
+    unsigned long long  eventType;                             //!< [out] NVML event bit for \ref NVML_EVENT_DATA_TYPE_NVML_EVENT events; \ref nvmlEventTypeNone for structured events.
+    unsigned long long  eventData;                             //!< [out] Xid code for \ref nvmlEventTypeXidCriticalError, or 0 when not applicable.
+    unsigned long long  groupCursor;                           //!< [out] Structured event group identifier. 0 for NVML event-bit events.
+    unsigned long long  instanceId;                            //!< [out] Structured event sequence identifier. 0 for NVML event-bit events.
+    unsigned long long  timestampUsec;                         //!< [out] Event timestamp in microseconds. 0 if unavailable.
+    unsigned long long  traceId;                               //!< [out] Structured event trace identifier. 0 for NVML event-bit events.
+    unsigned int        gpuInstanceId;                         //!< [out] MIG GPU instance ID for NVML event-bit data, or \c NVML_GPU_INSTANCE_ID_ANY when not applicable.
+    unsigned int        computeInstanceId;                     //!< [out] MIG compute instance ID for NVML event-bit data, or \c NVML_COMPUTE_INSTANCE_ID_ANY when not applicable.
+    unsigned int        severity;                              //!< [out] \ref nvmlOperationalEventSeverity_t value for structured events. May contain newer severity values not named in this header. \c NVML_OPERATIONAL_EVENT_SEVERITY_ALL for NVML event-bit events.
+    unsigned int        categoryId;                            //!< [out] Source-defined structured event category identifier. 0 for NVML event-bit events.
+    unsigned int        moduleEventCode;                       //!< [out] Source-module-defined event code. Interpret with \c sourceModule. 0 for NVML event-bit events.
+    unsigned int        scope;                                 //!< [out] Structured event scope identifier. 0 for NVML event-bit events.
+    unsigned int        originator;                            //!< [out] Structured event originator identifier. 0 for NVML event-bit events.
+    unsigned int        moduleInstance;                        //!< [out] Structured event module instance identifier. 0 for NVML event-bit events.
+    unsigned int        chipletId;                             //!< [out] Structured event chiplet identifier. 0 for NVML event-bit events.
+    unsigned int        logLevel;                              //!< [out] \ref nvmlGpuOperationalEventLogLevel_t value for structured GPU Operational Events. May contain newer log-level values not named in this header. \c NVML_GPU_OPERATIONAL_EVENT_LOG_LEVEL_ALL for NVML event-bit events.
+    unsigned int        attributes;                            //!< [out] Bitmask of \c NVML_OPERATIONAL_EVENT_ATTR_* values for structured events. May contain newer bits not named in this header. 0 for NVML event-bit events. May include \c NVML_OPERATIONAL_EVENT_ATTR_OVERFLOW if events or associated payloads were dropped.
+    unsigned int        groupCperSize;                         //!< [out] Associated CPER record size in bytes. 0 when unavailable.
+    unsigned int        groupAttributes;                       //!< [out] Bitmask of \c NVML_OPERATIONAL_EVENT_GROUP_ATTR_* values for structured events. May contain newer bits not named in this header. 0 for NVML event-bit events.
+    unsigned char       groupSize;                             //!< [out] Total number of events in the structured event group. 0 for NVML event-bit events.
+    unsigned char       groupIndex;                            //!< [out] Zero-based index within the structured event group. 0 for NVML event-bit events.
+} nvmlEventSetWait_v3_t;
+
+typedef struct
+{
+    unsigned int bSetBest;           //!< [in]  - Set to the best available Bandwidth mode
+    unsigned int bwMode;             //!< [in]  - Requested Bandwidth mode to set. Values can be found from \ref nvmlDeviceGetNvlinkSupportedBwModes()
+    unsigned int asyncPollTimeoutMs; //!< [out] - Time in ms to poll to validate bandwidth setting.
+} nvmlNvlinkSetBwModeAsync_v1_t;
+
+typedef struct
+{
+    unsigned int telemetryCount;                      //!<[in]     Number of valid entries in \a telemetrySamples
+    nvmlNvlinkTelemetrySample_v1_t *telemetrySamples; //!<[in,out] Caller-allocated array of \a telemetryCount request slots
+} nvmlNvlinkTelemetrySamples_v1_t;
+
+
 #ifdef __cplusplus
 }
 #endif
