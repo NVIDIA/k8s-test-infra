@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  helm: `image.digest` pins the nvml-mock image by digest and takes precedence over `image.tag`, as `controlPlane.image.digest` does for the control plane.
+time: 2026-09-30T09:27:12Z
+custom:
+  Issue: "929"

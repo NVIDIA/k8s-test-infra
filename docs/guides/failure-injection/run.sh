@@ -218,7 +218,7 @@ KUBE_CONTEXT="${DEMO_KUBE_CONTEXT}"
 IMAGE_NAME="$(demo::image_ref)"
 
 # Split "repo:tag" for the chart's two separate values. Shared with the
-# standalone demo, and it rejects digest refs the chart cannot express.
+# standalone demo, and it rejects digest refs the demo cannot express.
 # `exit` inside $() only leaves the subshell, so propagate the code explicitly
 # rather than relying on set -e to notice the failed assignment.
 IMAGE_PARTS="$(demo::image_parts "${IMAGE_NAME}")" || exit $?

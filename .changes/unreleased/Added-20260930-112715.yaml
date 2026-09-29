@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  helm: the node-agent probes are configurable through `nodeAgent.livenessProbe` and `nodeAgent.readinessProbe`; set one to `null` to drop it.
+time: 2026-09-30T09:27:15Z
+custom:
+  Issue: "929"

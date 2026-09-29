@@ -1,0 +1,30 @@
+{{/* Copyright 2026 NVIDIA CORPORATION */}}
+{{/* SPDX-License-Identifier: Apache-2.0 */}}
+{{- $entries := list -}}
+{{- $extraObjects := .Values.extraObjects | default list -}}
+{{- if kindIs "map" $extraObjects -}}
+{{- range $key, $object := $extraObjects -}}
+{{- $entries = append $entries (dict "id" $key "object" $object) -}}
+{{- end -}}
+{{- else -}}
+{{- range $index, $object := $extraObjects -}}
+{{- $entries = append $entries (dict "id" $index "object" $object) -}}
+{{- end -}}
+{{- end -}}
+{{- range $entry := $entries }}
+{{- $object := $entry.object }}
+{{- $rendered := "" }}
+{{- if kindIs "string" $object }}
+{{- $rendered = tpl $object $ }}
+{{- else if kindIs "map" $object }}
+{{- $copy := deepCopy $object }}
+{{- $_ := include "nvml-mock.tplInPlace" (dict "value" $copy "context" $) }}
+{{- $rendered = toYaml $copy }}
+{{- else }}
+{{- fail (printf "extraObjects[%v]: expected a map or a string, got %s" $entry.id (kindOf $object)) }}
+{{- end }}
+{{- if trim $rendered }}
+---
+{{- $rendered | nindent 0 }}
+{{- end }}
+{{- end }}

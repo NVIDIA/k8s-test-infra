@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  helm: `global.imageRegistry` pulls every nvml-mock chart image (nvml-mock, NRI and control plane) from one registry mirror.
+time: 2026-09-30T09:27:10Z
+custom:
+  Issue: "929"
