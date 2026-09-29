@@ -1,0 +1,8 @@
+kind: Added
+body: |-
+  node-agent: the GPU Operator's own device plugin and GFD now serve MIG
+    partitions under `mig.strategy=single` or `mixed`. See
+    `docs/guides/mig/README.md`.
+time: 2026-09-30T09:13:51Z
+custom:
+  Issue: "963"

@@ -83,6 +83,15 @@ tilt up -- --gpu-operator --gpu-profile gb200
 tilt up -- --multi-gpu-profile --gpu-operator
 ```
 
+### With MIG partitioning
+
+Boots every board MIG-partitioned and serves the partitions through the GPU Operator's own device plugin, so `--mig` implies `--gpu-operator`. `--mig-strategy` picks the layout and the Operator's `mig.strategy` together: `single` (default) carves each board into seven of its smallest slice, published as `nvidia.com/gpu`; `mixed` carves one `1g`, one `2g` and one `3g` slice, each published as `nvidia.com/mig-<profile>`. Needs a MIG-capable `--gpu-profile` (`a100`, `h100`, `b200`, `gb200`, `gb300`) and is mutually exclusive with `--multi-gpu-profile` and `--compute-domain`.
+
+```bash
+tilt up -- --mig --gpu-profile h100
+tilt up -- --mig --mig-strategy mixed --gpu-profile a100
+```
+
 ### With NVIDIA DRA driver
 
 Deploys the DRA driver on top of nvml-mock. Composes with both homogeneous and heterogeneous modes; under `--multi-gpu-profile` each worker publishes a distinct ResourceSlice.
