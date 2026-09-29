@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Helm charts are published by a dedicated `helm-publish` workflow that runs
+  on pushes to `main` and on `v*` tags, instead of by `helm.yaml` on pushes to
+  `main` and `release-*` that touched a chart. A release branch now publishes
+  its charts when it is tagged. Publishing is still gated on the chart lint,
+  unit tests and CRDs render, which `helm.yaml` now runs on pull requests and
+  as a reusable workflow. Every push to `main` re-publishes the current chart
+  versions, not only pushes that change a chart.
+- A push to `main` now tags the `ghcr.io/nvidia/nvml-mock` image with the
+  `appVersion` from the `nvml-mock` chart's `Chart.yaml` instead of `latest`,
+  overwriting that tag on each push. `latest` is no longer updated. Release
+  tags still publish the semver tags, and every build keeps its `sha-` tag.
+
 ## [0.4.0] - 2026-09-23
 
 ### Added
