@@ -1078,8 +1078,11 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 		}
 		if override.PCIe.HostMaxLinkGen != 0 {
 			base.PCIe.HostMaxLinkGen = override.PCIe.HostMaxLinkGen
+			// A numeric per-device value supersedes an inherited unsupported
+			// marker from the defaults.
+			base.PCIe.HostMaxUnsupported = false
 		}
-		if override.PCIe.HostMaxUnsupported {
+		if override.PCIe.HostMaxUnsupported && override.PCIe.HostMaxLinkGen == 0 {
 			base.PCIe.HostMaxUnsupported = true
 		}
 		if override.PCIe.CurrentLinkGen != 0 {
