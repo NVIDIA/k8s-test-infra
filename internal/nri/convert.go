@@ -41,10 +41,24 @@ func containerFromNRI(pod *api.PodSandbox, container *api.Container) inject.Cont
 			Options:     append([]string(nil), mount.GetOptions()...),
 		})
 	}
-	// What the runtime already applied, so the steps can tell whether the device
-	// plugin served this container. GetLinux() is nil-safe.
+	// Copy incoming devices and cgroup grants independently of outgoing
+	// adjustments. GetLinux and GetResources are nil-safe.
 	for _, device := range container.GetLinux().GetDevices() {
-		result.Devices = append(result.Devices, inject.Device{Path: device.GetPath()})
+		result.IncomingDevices = append(result.IncomingDevices, inject.RuntimeDevice{
+			Path: device.GetPath(), Type: device.GetType(), Major: device.GetMajor(), Minor: device.GetMinor(),
+		})
+	}
+	for _, rule := range container.GetLinux().GetResources().GetDevices() {
+		converted := inject.DeviceRule{Allow: rule.GetAllow(), Type: rule.GetType(), Access: rule.GetAccess()}
+		if rule.Major != nil {
+			major := rule.Major.GetValue()
+			converted.Major = &major
+		}
+		if rule.Minor != nil {
+			minor := rule.Minor.GetValue()
+			converted.Minor = &minor
+		}
+		result.DeviceRules = append(result.DeviceRules, converted)
 	}
 	for _, device := range container.GetCDIDevices() {
 		result.CDIDevices = append(result.CDIDevices, device.GetName())
