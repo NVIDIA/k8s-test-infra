@@ -269,6 +269,11 @@ func (s profileSource) profiles(t *testing.T) map[string]string {
 
 	found := make(map[string]string, len(matches))
 	for _, m := range matches {
+		// A board's MIG table is a sibling document of its profile, not a
+		// profile of its own: it carries no PCI identity and has no capture.
+		if strings.HasSuffix(m, ".mig.yaml") {
+			continue
+		}
 		sku := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(m), s.prefix), ".yaml")
 		found[sku] = m
 	}
