@@ -28,9 +28,11 @@ type SGPURack struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
+	// Spec is the controller-owned rendered rack specification.
 	Spec SGPURackSpec `json:"spec"`
 
 	// +optional
+	// Status reports node binding and readiness state.
 	Status SGPURackStatus `json:"status,omitempty"`
 }
 
@@ -67,8 +69,10 @@ type SGPURackSpec struct {
 // +kubebuilder:validation:XValidation:rule="size(self.uid) > 0",message="uid must not be empty"
 type SGPURackInventoryReference struct {
 	// +kubebuilder:validation:MinLength=1
+	// Name is the inventory resource name.
 	Name string `json:"name"`
 
+	// UID identifies the exact inventory instance.
 	UID types.UID `json:"uid"`
 }
 
@@ -76,11 +80,14 @@ type SGPURackInventoryReference struct {
 // +kubebuilder:validation:XValidation:rule="size(self.uid) > 0",message="uid must not be empty"
 type SGPURackProfileReference struct {
 	// +kubebuilder:validation:MinLength=1
+	// Name is the profile resource name.
 	Name string `json:"name"`
 
+	// UID identifies the exact profile instance.
 	UID types.UID `json:"uid"`
 
 	// +kubebuilder:validation:Minimum=1
+	// Generation is the profile resource generation used to render the rack.
 	Generation int64 `json:"generation"`
 
 	// Revision identifies the rendered profile content, independent of its name.
@@ -93,17 +100,21 @@ type SGPURackIdentity struct {
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:Format=dns1123Label
+	// RackGroup is the stable group identifier.
 	RackGroup string `json:"rackGroup"`
 
 	// +kubebuilder:validation:Minimum=0
+	// RackIndex is the zero-based index within the group.
 	RackIndex int32 `json:"rackIndex"`
 
 	// +kubebuilder:validation:Format=uuid
+	// FabricUUID identifies the fabric clique represented by this rack.
 	FabricUUID string `json:"fabricUUID"`
 
 	// CliqueID remains zero while each rack represents one fabric clique.
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=0
+	// CliqueID is reserved for future multi-clique racks and is currently zero.
 	CliqueID int32 `json:"cliqueID"`
 }
 
@@ -111,6 +122,7 @@ type SGPURackIdentity struct {
 type SGPURackNode struct {
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=1023
+	// Index is the logical node index within the rack.
 	Index int32 `json:"index"`
 
 	// NodeRef is absent while the logical Node is unbound. Its UID distinguishes
@@ -130,8 +142,10 @@ type SGPURackNode struct {
 // +kubebuilder:validation:XValidation:rule="size(self.uid) > 0",message="uid must not be empty"
 type SGPUNodeReference struct {
 	// +kubebuilder:validation:MinLength=1
+	// Name is the Kubernetes Node name.
 	Name string `json:"name"`
 
+	// UID identifies the exact Kubernetes Node instance.
 	UID types.UID `json:"uid"`
 }
 
@@ -139,27 +153,34 @@ type SGPUNodeReference struct {
 type SGPURackGPU struct {
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=63
+	// Index is the logical GPU index within the node.
 	Index int32 `json:"index"`
 
 	// +kubebuilder:validation:Pattern=`^GPU-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`
+	// UUID is the stable GPU identifier.
 	UUID string `json:"uuid"`
 
 	// +kubebuilder:validation:MinLength=1
+	// Serial is the simulated GPU serial number.
 	Serial string `json:"serial"`
 
 	// +kubebuilder:validation:Minimum=0
+	// MinorNumber is the simulated device minor number.
 	MinorNumber int32 `json:"minorNumber"`
 
 	// +kubebuilder:validation:Pattern=`^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$`
 	PCIAddress string `json:"pciAddress"`
 
 	// +kubebuilder:validation:Pattern=`^pci[0-9a-f]{4}:[0-9a-f]{2}$`
+	// RootComplex identifies the PCI root complex.
 	RootComplex string `json:"rootComplex"`
 
 	// +kubebuilder:validation:Minimum=0
+	// NUMANode is the host NUMA node containing the GPU.
 	NUMANode int32 `json:"numaNode"`
 
 	// +kubebuilder:validation:Minimum=0
+	// HostProcessorIndex is the host processor index associated with the GPU.
 	HostProcessorIndex int32 `json:"hostProcessorIndex"`
 }
 
@@ -182,6 +203,7 @@ type SGPURackStatus struct {
 	// +listMapKey=type
 	// +patchStrategy=merge
 	// +patchMergeKey=type
+	// Conditions report whether the rack assignment is ready.
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
 

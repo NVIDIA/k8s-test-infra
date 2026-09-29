@@ -94,13 +94,20 @@ kwok-scale-matrix:
 	done
 
 CONTROLLER_GEN_VERSION ?= v0.20.1
+# CI installs this exact version too (see .github/workflows/golang.yaml), so a
+# new golangci-lint release cannot fail the check job on code nobody changed.
+GOLANGCI_LINT_VERSION ?= v2.14.0
+
+.PHONY: print-golangci-lint-version
+print-golangci-lint-version:
+	@echo $(GOLANGCI_LINT_VERSION)
 
 .PHONY: tools
 tools: ## Install static checkers & other binaries
 	@echo "🚚 Downloading tools.."
 	@mkdir -p $(GOBIN)
 	@ \
-	test -x $(BIN_DIR)/golangci-lint || curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(BIN_DIR) v2.12.2 & \
+	$(BIN_DIR)/golangci-lint version 2>/dev/null | grep -q " $(GOLANGCI_LINT_VERSION:v%=%) " || curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(BIN_DIR) $(GOLANGCI_LINT_VERSION) & \
 	test -x $(BIN_DIR)/govulncheck || go install golang.org/x/vuln/cmd/govulncheck@latest & \
 	test -x $(BIN_DIR)/controller-gen || go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION) & \
 	wait
@@ -435,6 +442,23 @@ mokka-control-plane-image-attest: ## Attest each Mokka control-plane child manif
 test: ## Run unit tests with race detection and coverage
 	@$(GO_CMD) test -v -race -coverprofile=coverage.out -covermode=atomic ./...
 
+# internal/fsutil and internal/agent/gpudriver skip their bind-mount, mknod
+# and Stage tests outside root on Linux (skipUnlessRootLinux) — the `test`
+# target above always runs as the invoking user, so those never execute
+# there. GOPROXY=off and the GOMODCACHE mount are what let this run offline:
+# `test` already downloaded and verified everything this needs on the same
+# runner, in the same job, moments earlier. The mount has to be writable —
+# Go's module cache takes a lock file even to read from it — which is fine
+# on a CI runner thrown away at the end of the job, less so reused locally.
+.PHONY: test-privileged
+test-privileged: ## Run internal/fsutil and internal/agent/gpudriver as root in a privileged container, for the tests `test` always skips
+	@docker run --rm --privileged \
+		-e GOPROXY=off \
+		-v "$(CURDIR)":/src -w /src \
+		-v "$(shell $(GO_CMD) env GOMODCACHE)":/go/pkg/mod \
+		golang:$(shell ./hack/golang-version.sh) \
+		go test -v ./internal/fsutil/... ./internal/agent/gpudriver/...
+
 HELM_CHART_DIR      := deployments/nvml-mock/helm/nvml-mock
 CRDS_HELM_CHART_DIR := deployments/mokka-crds/helm/mokka-crds
 CRD_REF_DOCS_VERSION ?= v0.3.0
@@ -598,6 +622,7 @@ image-load:
 #   make e2e-multi-node            # heterogeneous A100/T4 multi-node scenario
 #   make e2e-nri                   # node-wide NRI ambient-injection scenario
 #   make e2e-nfd                   # NFD label-provenance scenario
+#   make e2e-mig                   # MIG scenario, device plugin in migStrategy=single
 # CI builds the image once per run. Every leg loads it into Kind and sets
 # E2E_IMAGE to that ref. The reshaping scenarios set the DaemonSet to this ref.
 #
@@ -610,10 +635,10 @@ image-load:
 # ---------------------------------------------------------------------------
 GINKGO ?= $(GO_CMD) run github.com/onsi/ginkgo/v2/ginkgo
 E2E_TIMEOUT ?= 90m
-E2E_DEFAULT_LABEL_FILTER ?= !validator && !dra && !gpu-operator && !multi-node && !nri && !nfd
+E2E_DEFAULT_LABEL_FILTER ?= !gfd && !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig
 E2E_GINKGO_FLAGS ?= --label-filter='$(E2E_DEFAULT_LABEL_FILTER)'
 
-.PHONY: e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd
+.PHONY: e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd e2e-mig
 
 # `set -o pipefail` is inline on purpose; do not drop it as redundant with
 # .SHELLFLAGS. GNU Make ignores .SHELLFLAGS before 3.82 and macOS ships 3.81,
@@ -641,6 +666,15 @@ e2e-nri: ## e2e — NRI ambient-injection scenario
 # log then reads exactly like one that did exercise gb200.
 e2e-nfd: ## e2e — NFD label-provenance scenario (pinned to a100)
 	$(MAKE) e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter=nfd'
+
+# E2E_PROFILES is the caller's, as for the sibling scenario targets. Pinning it
+# here would be a command-line assignment to the sub-make, which outranks the
+# environment: every CI matrix leg would run the pinned set rather than its own
+# profile. Pick profiles that declare a partitioning — the scenario skips the
+# boards that cannot partition, and the chart refuses a capable board with no
+# layout from either the profile or gpu.mig.gpuInstances.
+e2e-mig: ## e2e — MIG scenario with the device plugin in migStrategy=single
+	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=mig'
 
 ##@ Documentation
 

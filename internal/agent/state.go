@@ -7,6 +7,8 @@ import (
 	"context"
 	"strings"
 	"time"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/migcaps"
 )
 
 // State is the compiled desired simulation state the agent reconciles toward.
@@ -17,8 +19,10 @@ type State struct {
 	Software   SoftwareVersions
 	NodeShape  NodeShape
 	Devices    []DeviceSpec
+	Switches   []SwitchSpec
 	Fabric     FabricState
 	IMEX       IMEXState
+	MIG        MIGState
 	// ConfigRaw holds the raw YAML profile bytes so gpudriver can write the
 	// engine config without re-deriving it from the narrower State fields.
 	// TODO(https://github.com/NVIDIA/k8s-test-infra/issues/717): replace with Profile/Runtime *config.YAMLConfig split — Profile carries
@@ -30,6 +34,12 @@ type State struct {
 	// engine picks this node's entry by NODE_NAME at load time, so there is no
 	// per-node view for the agent to compile.
 	TopologyRaw []byte
+	// MIGProfilesRaw holds the board's MIG partition table verbatim, empty on
+	// a board that has none. It is carried so gpudriver can stage it beside
+	// every config it writes: a consumer process resolves the table relative
+	// to the config it was given, and the device plugin is handed no
+	// environment that could name it anywhere else.
+	MIGProfilesRaw []byte
 }
 
 // DefaultRootComplexID is the host bridge a synthesized layout hangs every
@@ -42,8 +52,12 @@ const DefaultRootComplexID = "pci0000:00"
 // tree that disagrees with NVML is worse than no tree: a consumer resolves a
 // GPU in one and not the other.
 //
+// The GPUs are not the whole tree. An HGX baseboard's NVSwitches sit on the
+// node's PCIe bus alongside them, so Switches are rendered too and a consumer
+// enumerating the bus finds the fabric silicon real hardware would show it.
+//
 // The profile's pcie_topology outlives its device list — GPU_COUNT truncates
-// Devices and leaves the layout whole — so declared BDFs no device claims are
+// Devices and leaves the layout whole — so declared BDFs nothing claims are
 // dropped, along with any root that empties out. A device no root claims is
 // rendered under a root its own address implies, never folded into a declared
 // one: locality is what a consumer reads this tree for, so a GPU carrying the
@@ -83,8 +97,8 @@ func (s *State) PCITopology() []RootComplex {
 // consumer already handles, rather than asserting a node we do not know.
 const numaNodeUnknown = -1
 
-// adopt renders the devices no declared root claims — a profile whose
-// pcie_topology omits a BDF its device list carries.
+// adopt renders the functions no declared root claims — a profile whose
+// pcie_topology omits a BDF its device or switch list carries.
 //
 // Each lands under the root its own address implies (pciDDDD:BB), joining a
 // declared root only when that root is the one the address names, where
@@ -174,26 +188,43 @@ func isLowerHex(c byte) bool {
 	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')
 }
 
-// activeBDFs returns the BDFs of the devices that exist at runtime, lowercased
-// to match the paths the renderer writes, in device order and deduplicated.
-// A device whose bus_id is absent or not an address is left out entirely.
+// activeBDFs returns the BDFs of every PCI function to render — the GPUs that
+// exist at runtime followed by the NVSwitches on this node's own PCIe bus —
+// lowercased to match the paths the renderer writes, in declaration order and
+// deduplicated. A function whose bus_id is absent or not an address is left out
+// entirely.
+//
+// No GPU means nothing at all, switches included. The tree exists so that a
+// consumer can resolve what NVML reports from the BDF it was handed, and a
+// baseboard's switches on their own are not something any of them looks up.
 func (s *State) activeBDFs() []string {
-	seen := make(map[string]bool, len(s.Devices))
-	out := make([]string, 0, len(s.Devices))
+	seen := make(map[string]bool, len(s.Devices)+len(s.Switches))
+	out := make([]string, 0, len(s.Devices)+len(s.Switches))
 
 	for _, d := range s.Devices {
-		bdf := strings.ToLower(d.PCIBusID)
-		if !ValidBDF(bdf) {
-			continue
-		}
-		if seen[bdf] {
-			continue
-		}
-		seen[bdf] = true
-		out = append(out, bdf)
+		out = appendBDF(out, seen, d.PCIBusID)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+
+	for _, sw := range s.Switches {
+		out = appendBDF(out, seen, sw.PCIBusID)
 	}
 
 	return out
+}
+
+// appendBDF appends bdf lowercased, unless it is not an address the renderer
+// can use as a path component or a previous entry already claimed it.
+func appendBDF(out []string, seen map[string]bool, bdf string) []string {
+	lower := strings.ToLower(bdf)
+	if !ValidBDF(lower) || seen[lower] {
+		return out
+	}
+	seen[lower] = true
+
+	return append(out, lower)
 }
 
 // placeDeclared keeps the BDFs of each declared root that an active device
@@ -305,6 +336,22 @@ type DeviceSpec struct {
 	PCISubsystemID   uint32
 }
 
+// SwitchSpec is one NVSwitch that sits on this node's own PCIe bus, as an HGX
+// baseboard's do. It carries only a PCI identity because that is the whole of
+// what the mock can simulate: NVML models an NVSwitch as the far end of a GPU's
+// NVLink and offers no per-switch API, and the nvmlUnit* chassis calls stay
+// stubbed the way they are on real DGX/HGX nodes.
+//
+// A rack-scale platform has NVSwitches that are not on the node's bus at all —
+// on GB200/GB300 NVL they live in their own switch trays, reachable over NVLink
+// and invisible to the compute tray's lspci. Those profiles declare the switches
+// for NVLink topology and no PCI identity, so nothing is compiled here for them.
+type SwitchSpec struct {
+	PCIBusID       string
+	PCIDeviceID    uint32
+	PCISubsystemID uint32
+}
+
 // FabricState describes the NVLink / NVSwitch fabric configuration.
 type FabricState struct {
 	// Profile declares NVLink; does not imply fabricmanager runs.
@@ -323,6 +370,76 @@ type IMEXState struct {
 	IMEXMajor    int
 	CapsMajor    int
 	ChannelCount int
+}
+
+// MIGState describes the MIG capability surface: which GPUs boot partitioned
+// and how, so the agent can stage the cap device nodes and the mig-minors
+// table a consumer needs to reach a MIG device it found through NVML.
+//
+// The instance IDs are compiled from the same profile the mock NVML library
+// loads, via engine.DeclaredMIGLayout, so the two cannot name a partition
+// differently.
+type MIGState struct {
+	// CapsMajor is the char-device major for /dev/nvidia-caps.
+	CapsMajor int
+	GPUs      []MIGGPU
+}
+
+// MIGGPU is one partitioned GPU. Minor is its device-node minor, which is how
+// the capability names identify it.
+type MIGGPU struct {
+	Minor        int
+	GPUInstances []MIGGPUInstance
+}
+
+// MIGGPUInstance is one GPU instance and the compute instances inside it.
+type MIGGPUInstance struct {
+	ID               uint32
+	ComputeInstances []MIGComputeInstance
+}
+
+// MIGComputeInstance is one compute instance, which is one MIG device as a
+// consumer sees it. UUID is what NVML reports for the partition, and the
+// container runtime resolves an allocated partition by that name, so it is
+// carried alongside the ID the capability names are keyed by.
+type MIGComputeInstance struct {
+	ID   uint32
+	UUID string
+}
+
+// Partitioned reports whether any GPU boots with MIG partitions, which is what
+// decides whether the MIG capability surface exists on this node at all.
+func (m MIGState) Partitioned() bool {
+	for _, gpu := range m.GPUs {
+		if len(gpu.GPUInstances) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// Caps allocates the node's MIG capability table.
+//
+// It lives on the state because two simulators consume it and they must agree
+// exactly: one stages the chardevs and the mig-minors table, the other names
+// those same chardevs in the CDI spec that delivers a partition into a
+// container. Allocating twice from the same input would work until the two
+// walked it in different orders, at which point a container would receive the
+// node guarding a different partition than the one it was allocated.
+func (m MIGState) Caps() []migcaps.Cap {
+	gpus := make([]migcaps.GPU, 0, len(m.GPUs))
+	for _, gpu := range m.GPUs {
+		instances := make([]migcaps.GPUInstance, 0, len(gpu.GPUInstances))
+		for _, gi := range gpu.GPUInstances {
+			ids := make([]uint32, 0, len(gi.ComputeInstances))
+			for _, ci := range gi.ComputeInstances {
+				ids = append(ids, ci.ID)
+			}
+			instances = append(instances, migcaps.GPUInstance{ID: gi.ID, ComputeInstanceIDs: ids})
+		}
+		gpus = append(gpus, migcaps.GPU{Minor: gpu.Minor, GPUInstances: instances})
+	}
+	return migcaps.Caps(gpus)
 }
 
 // StateSource emits State observations.

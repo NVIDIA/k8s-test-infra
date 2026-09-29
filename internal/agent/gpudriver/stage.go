@@ -323,6 +323,27 @@ func writeEngineConfig(ctx context.Context, h *host.Host, state *agent.State) er
 		if err := fsutil.Write(p, configBytes, 0o644); err != nil {
 			return err
 		}
+		if err := writeMIGProfiles(p, state.MIGProfilesRaw); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// writeMIGProfiles stages the board's partition table beside a config just
+// written, or withdraws a previously staged one where the board has none.
+//
+// The table is a document of its own, and a consumer process — the device
+// plugin above all — is handed the config with no environment that could name
+// the table anywhere else, so the sibling beside the config is the only way it
+// resolves. Withdrawal is the same fact in reverse: a node reconfigured onto a
+// board without partitions must not keep the previous board's table, which the
+// sibling rule would otherwise still resolve.
+func writeMIGProfiles(configPath string, table []byte) error {
+	path := engine.MIGProfilesSiblingPath(configPath)
+
+	if len(table) == 0 {
+		return fsutil.Remove(path)
+	}
+	return fsutil.Write(path, table, 0o644)
 }
