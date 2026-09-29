@@ -98,6 +98,13 @@ function nonEmptyString(value, name) {
   return value;
 }
 
+function commitMessage(value) {
+  if (typeof value !== "string" || value.trim() === "" || value.includes("\0")) {
+    throw new TypeError("invalid Mokka commit message");
+  }
+  return value;
+}
+
 function repositoryPath(value) {
   nonEmptyString(value, "content path");
   const withoutSlash = value.startsWith("/") ? value.slice(1) : value;
@@ -525,6 +532,68 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
       };
     },
 
+    async createMokkaCommit(commit) {
+      if (commit === null || typeof commit !== "object" || Array.isArray(commit)) {
+        throw new TypeError("Mokka commit must be an object");
+      }
+      const requested = {
+        message: commitMessage(commit.message),
+        tree: nonEmptyString(commit.tree, "Mokka tree OID"),
+        parents: commit.parents,
+      };
+      if (!Array.isArray(requested.parents) || requested.parents.length !== 1) {
+        throw new TypeError("Mokka commit must have one parent");
+      }
+      nonEmptyString(requested.parents[0], "Mokka parent OID");
+      const response = await call("createMokkaCommit", () => octokit.rest.git.createCommit({
+        owner, repo, ...requested,
+      }), false);
+      if (!Array.isArray(response.data?.parents)) throw new TypeError("Mokka commit parents are invalid");
+      return {
+        sha: nonEmptyString(response.data.sha, "Mokka created commit OID").toLowerCase(),
+        message: commitMessage(response.data.message),
+        tree: nonEmptyString(response.data.tree?.sha, "Mokka created tree OID").toLowerCase(),
+        parents: response.data.parents.map((parent) => nonEmptyString(parent?.sha, "Mokka created parent OID").toLowerCase()),
+        verification: {
+          verified: response.data.verification?.verified === true,
+          hasSignature: typeof response.data.verification?.signature === "string"
+            && response.data.verification.signature.length > 0,
+        },
+      };
+    },
+
+    async getMokkaCommit(sha) {
+      const requestedSha = nonEmptyString(sha, "Mokka commit OID").toLowerCase();
+      const response = await call("getMokkaCommit", () => octokit.rest.git.getCommit({
+        owner, repo, commit_sha: requestedSha,
+      }), true);
+      if (!Array.isArray(response.data?.parents)) throw new TypeError("Mokka commit parents are invalid");
+      return {
+        sha: nonEmptyString(response.data.sha, "Mokka commit OID").toLowerCase(),
+        message: commitMessage(response.data.message),
+        tree: nonEmptyString(response.data.tree?.sha, "Mokka tree OID").toLowerCase(),
+        parents: response.data.parents.map((parent) => nonEmptyString(parent?.sha, "Mokka commit parent OID").toLowerCase()),
+        verification: {
+          verified: response.data.verification?.verified === true,
+          hasSignature: typeof response.data.verification?.signature === "string"
+            && response.data.verification.signature.length > 0,
+        },
+      };
+    },
+
+    async createMokkaRef(branch, sha) {
+      nonEmptyString(branch, "Mokka branch");
+      nonEmptyString(sha, "Mokka commit OID");
+      const ref = `refs/heads/${branch}`;
+      const response = await call("createMokkaRef", () => octokit.rest.git.createRef({
+        owner, repo, ref, sha,
+      }), false);
+      if (response.data?.ref !== ref || response.data?.object?.sha !== sha) {
+        throw new Error("created Mokka ref response does not match the request");
+      }
+      return { name: branch, oid: sha };
+    },
+
     async listPullRequestFiles(prNumber) {
       positiveInteger(prNumber, "PR number");
       const files = await paginate("listPullRequestFiles", octokit.rest.pulls.listFiles, {
@@ -864,14 +933,14 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
 
     async findMokkaPullRequests(head, base) {
       nonEmptyString(head, "Mokka head branch");
-      nonEmptyString(base, "Mokka base branch");
-      const pullRequests = await paginate("findMokkaPullRequests", octokit.rest.pulls.list, {
+      const query = {
         owner,
         repo,
         state: "all",
         head: `${owner}:${head}`,
-        base,
-      });
+      };
+      if (base !== undefined) query.base = nonEmptyString(base, "Mokka base branch");
+      const pullRequests = await paginate("findMokkaPullRequests", octokit.rest.pulls.list, query);
       return pullRequests.map(mappedMokkaPullRequest);
     },
 

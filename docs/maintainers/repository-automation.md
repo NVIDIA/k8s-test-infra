@@ -49,19 +49,35 @@ Activate the functions in this order:
 6. After every configured `release-*` target is protected and exists, set
    `REPOSITORY_AUTOMATION_BACKPORT_ENABLED=true`.
 7. After the external caller uses the documented UUID, source SHA, target
-   branch, and repository identity contract, set
-   `REPOSITORY_AUTOMATION_MOKKA_ENABLED=true`.
+   branch, workflow commit SHA, and repository identity contract, review the
+   Mokka workflow and packaged action on `main`. Confirm that the `main` branch
+   rule rejects force pushes and applies the required merge checks to Mokka
+   draft pull requests. Set
+   `REPOSITORY_AUTOMATION_MOKKA_REVIEWED_SHA` to the full commit SHA of that
+   reviewed version, then set `REPOSITORY_AUTOMATION_MOKKA_ENABLED=true`.
 
 Keep each earlier step active while you validate the next step. Do not enable a
 later write path when an earlier validation fails.
 
 ## Mokka dispatch contract
 
-Start **Mokka cherry-pick** only from the repository default branch. The job
-will not run from another selected workflow ref. It resolves the current
-default branch to an exact commit SHA and loads the automation from that SHA.
+Start **Mokka cherry-pick** only from `main`. The caller supplies the `main`
+commit SHA it checked. The job runs only when GitHub resolves the selected
+`main` ref to that SHA. The caller stops if its preflight sees a different SHA.
+If GitHub selects a different SHA, the job skips. A later `main` move does not
+change the selected commit for that run. The caller must check the new commit
+before it retries.
 
-The dispatch accepts exactly four required string inputs:
+The job loads automation from the selected `main` commit and compares the Mokka
+workflow, action metadata, and packaged action byte for byte with the commit
+in `REPOSITORY_AUTOMATION_MOKKA_REVIEWED_SHA`. It does this before it checks
+out the target with credentials. Unrelated changes to `main` do not require a
+new reviewed SHA. With this workflow version, a change to any compared file
+stops the job until a reviewer approves that automation and updates the
+reviewed SHA. GitHub branch protection remains the authority for later
+workflow changes, including edits to this guard.
+
+The dispatch accepts exactly five required string inputs:
 
 - `pull_request_number`: the number of a merged pull request in
   `NVIDIA/k8s-test-infra`.
@@ -70,6 +86,8 @@ The dispatch accepts exactly four required string inputs:
 - `target_branch`: the exact value `main`.
 - `action_id`: a canonical lowercase UUIDv4 that makes the request
   idempotent.
+- `workflow_commit_sha`: the lowercase, 40-character `main` commit SHA that
+  the caller checked for this dispatch.
 
 The action also verifies GitHub repository ID `733665780`, validates that the
 source pull request belongs to this repository, and rejects a source pull
@@ -78,9 +96,30 @@ pull request commit and must have one parent. The action creates or reuses a
 `mokka/cherry-pick/<action_id>` branch and opens a draft pull request. It does
 not merge the pull request.
 
+Before each cherry-pick attempt, the action fetches the current target branch
+and starts from that commit. If `main` advances before the upload, the action
+fetches it and retries the cherry-pick, up to three attempts. It rejects a
+target history rewrite, a source pull request change, or a cherry-pick
+conflict. The action uploads the result tree on a temporary branch, then asks
+GitHub to create a signed commit with the checked target commit as its parent.
+It requires GitHub to report a valid signature before it creates the final
+`mokka/cherry-pick/<action_id>` branch. The temporary branch is removed with
+an exact lease before the draft pull request is opened. The result records the
+target commit used for the signed commit. If the action detects that `main`
+moved before final branch creation, it stops after it removes the temporary
+branch; review the failure before retrying the dispatch. A failed cleanup
+requires manual investigation.
+If GitHub reports an error while creating the draft pull request, the action
+keeps the final branch for manual investigation because the request may have
+succeeded without a response.
+
+If `main` advances after the action creates the final branch, GitHub branch
+protection controls whether the draft pull request can merge.
+
 Mokka dispatch does not support dry-run mode. Its action input must be the
 exact string `false`. Keep `REPOSITORY_AUTOMATION_MOKKA_ENABLED` unset until
-the external caller meets this contract.
+the external caller meets this contract. A missing or malformed reviewed SHA
+fails the job before any checkout.
 
 ## Security and operations
 
