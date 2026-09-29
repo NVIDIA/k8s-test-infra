@@ -21,11 +21,13 @@ tests:
       - equal:
           path: spec.clusterIP
           value: None
+      - notExists:
+          path: spec.publishNotReadyAddresses
       - equal:
           path: spec.selector["app.kubernetes.io/name"]
           value: nvml-mock
-      # Scoped to the daemon component so the NRI DaemonSet pods (same app
-      # name, no fabric listener) are never returned as fabric peers.
+      # The NRI plugin shares these pods; targetPort still resolves the
+      # node-agent container's named fabric listener.
       - equal:
           path: spec.selector["app.kubernetes.io/component"]
           value: daemon
@@ -43,6 +45,15 @@ tests:
       - equal:
           path: spec.ports[0].protocol
           value: TCP
+
+  - it: should keep the relay discoverable when only the NRI sidecar is unready
+    set:
+      nri:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.publishNotReadyAddresses
+          value: true
 
   - it: should use a custom ping port
     set:

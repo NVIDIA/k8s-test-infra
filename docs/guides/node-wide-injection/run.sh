@@ -85,13 +85,12 @@ helm upgrade --install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
   "${TOPOLOGY_ARGS[@]}" \
   --wait --timeout 180s
 
-info "Waiting for setup and NRI DaemonSets"
+info "Waiting for the node DaemonSet and its NRI sidecar"
 # Restart the daemon so the nvlink simulator re-stages the topology overlay
 # into /var/lib/nvml-mock/topology on every node without waiting out the agent's
 # config poll, even when reusing a cluster whose pods predate a topology change.
 kubectl_ctx -n "${NVML_MOCK_NAMESPACE}" rollout restart daemonset/nvml-mock
 kubectl_ctx -n "${NVML_MOCK_NAMESPACE}" rollout status daemonset/nvml-mock --timeout=120s
-kubectl_ctx -n "${NVML_MOCK_NAMESPACE}" rollout status daemonset/nvml-mock-nri --timeout=90s
 
 if [[ "${WORKLOAD_NAMESPACE}" != "default" ]]; then
   info "Preparing workload namespace: ${WORKLOAD_NAMESPACE}"

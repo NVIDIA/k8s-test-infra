@@ -47,8 +47,8 @@ Takes about 10 minutes on a warm image cache.
 
 1. Creates a 4-worker Kind cluster with containerd NRI enabled.
 2. Builds and loads the local `nvml-mock` image.
-3. Installs the Helm chart with the `nvml-mock-nri` DaemonSet enabled in the
-   `mokka` namespace, plus the ComputeDomain topology overlay
+3. Installs the Helm chart with the `nvml-mock-nri` sidecar enabled in the
+   `mokka` node DaemonSet, plus the ComputeDomain topology overlay
    (`gb200` profile; workers 1-2 -> clique 0, workers 3-4 -> clique 1).
 4. Uses `default` as the workload namespace. The NRI plugin excludes its own
    Helm release namespace and `kube-system`, so keeping workloads in `default`
@@ -121,7 +121,7 @@ injecting. There are two ways it stops:
 Fail-closed announces itself. Fail-open is the one to plan for: containerd
 decides it, the plugin cannot prevent it, and nothing in the workload reports it.
 
-The `nvml-mock-nri` DaemonSet carries two probes that make that window visible
+The `nvml-mock-nri` sidecar carries two probes that make that window visible
 rather than preventing it:
 
 - **`/readyz`** reports serving only while the plugin is registered with the
@@ -152,12 +152,12 @@ be current — which may have a `mokka` namespace of its own and answer from the
 wrong cluster.
 
 ```bash
-# Is the node still injecting? READY must equal DESIRED on nvml-mock-nri.
-kubectl --context kind-nvml-mock-node-wide-demo -n mokka get daemonset nvml-mock nvml-mock-nri
+# Is every shared node pod Ready? A failing NRI readiness probe lowers READY.
+kubectl --context kind-nvml-mock-node-wide-demo -n mokka get daemonset nvml-mock
 
 # Which nodes are injecting right now, and why one is not
-kubectl --context kind-nvml-mock-node-wide-demo -n mokka get pods -l app.kubernetes.io/name=nvml-mock-nri -o wide
-kubectl --context kind-nvml-mock-node-wide-demo -n mokka describe pod -l app.kubernetes.io/name=nvml-mock-nri
+kubectl --context kind-nvml-mock-node-wide-demo -n mokka get pods -l app.kubernetes.io/name=nvml-mock -o wide
+kubectl --context kind-nvml-mock-node-wide-demo -n mokka describe pod -l app.kubernetes.io/name=nvml-mock
 
 # The workload itself
 kubectl --context kind-nvml-mock-node-wide-demo -n default get daemonset gpu-agent
@@ -165,8 +165,8 @@ kubectl --context kind-nvml-mock-node-wide-demo -n default logs daemonset/gpu-ag
 ```
 
 Substitute the namespaces if you set `NVML_MOCK_NAMESPACE` or
-`WORKLOAD_NAMESPACE`. Both mock DaemonSets run on the control-plane node as well,
-so they report one more pod than `gpu-agent`, which is pinned to the four
+`WORKLOAD_NAMESPACE`. The mock DaemonSet runs on the control-plane node as
+well, so it reports one more pod than `gpu-agent`, which is pinned to the four
 workers.
 
 The `gpu-agent` pod spec stays plain; the mock GPU stack is injected by

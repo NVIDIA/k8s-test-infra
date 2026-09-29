@@ -26,7 +26,7 @@ spec:
         # Name + component, not instance: the fabric spans every daemon pod
         # cluster-wide and ibping-multinode deploys one release per node, so
         # instance scoping would drop cross-release REGISTER. The component
-        # label keeps the NRI sidecar out.
+        # label identifies the shared node-agent/NRI pods.
         #
         # namespaceSelector {} is load-bearing, not redundant: a bare
         # podSelector matches only this policy's own namespace, silently

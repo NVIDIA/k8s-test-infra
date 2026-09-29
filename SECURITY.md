@@ -53,8 +53,9 @@ Mokka is a test double for CI and test clusters, not production.
 When enabled, the `control-plane` pod mounts a dedicated ServiceAccount token
 for Kubernetes API access. Its ClusterRole grants Node reads and patches and
 the Mokka resource permissions needed for reconciliation; its namespaced Role
-grants leader-election Lease access in the release namespace. The node-agent
-and NRI DaemonSets do not mount ServiceAccount tokens. See the
+grants leader-election Lease access in the release namespace. The node
+DaemonSet, including its optional NRI sidecar, does not mount a ServiceAccount
+token. See the
 [Mokka controller](docs/mokka-controller.md) for its reconciliation and
 single-writer lifecycle. No component runs privileged or in a host namespace.
 

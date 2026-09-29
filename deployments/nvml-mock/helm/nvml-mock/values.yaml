@@ -74,10 +74,10 @@ nodeLabels:
   featuresDir: /etc/kubernetes/node-feature-discovery/features.d
 
 # Node-wide ambient injection via containerd NRI. When enabled, a lightweight
-# node-local plugin appends the nvml-mock overlay mount and environment to each
-# container at runtime without mutating pod specs. Opt-in (default false): it
-# injects into workloads cluster-wide, so enable it only for the
-# node-wide-injection demo/use case. See docs/guides/node-wide-injection.
+# sidecar in the node DaemonSet appends the nvml-mock overlay mount and
+# environment to each container at runtime without mutating pod specs. Opt-in
+# (default false): it injects into workloads cluster-wide, so enable it only for
+# the node-wide-injection demo/use case. See docs/guides/node-wide-injection.
 
 nodeAgent:
   logging:
@@ -180,7 +180,7 @@ nri:
   imexChannelAnnotation: nvml-mock.nvidia.com/imex-channels
   excludedNamespaces: []
   resources: {}
-  # Port serving the plugin's /healthz and /readyz endpoints. The NRI DaemonSet
+  # Port serving the plugin's /healthz and /readyz endpoints. The node DaemonSet
   # does not use host networking, so this port lives only inside the pod's own
   # network namespace: it is reachable by the kubelet on the pod IP and is not
   # bound on the node.
@@ -200,17 +200,20 @@ nri:
   #
   # Set either to null to drop that probe (an empty map merges with the
   # default rather than replacing it).
+  #
+  # The chart rewrites the legacy `port: health` name to `nri-health` for
+  # httpGet and tcpSocket probes. gRPC probes require the numeric healthPort.
   readinessProbe:
     httpGet:
       path: /readyz
-      port: health
+      port: nri-health
     periodSeconds: 10
     timeoutSeconds: 2
     failureThreshold: 2
   livenessProbe:
     httpGet:
       path: /healthz
-      port: health
+      port: nri-health
     periodSeconds: 10
     timeoutSeconds: 2
     failureThreshold: 3

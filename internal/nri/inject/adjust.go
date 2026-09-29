@@ -7,7 +7,7 @@
 //
 // Every step fails open. A surface the node agent has not staged yet degrades
 // the injection instead of failing container creation, because nothing orders
-// the plugin's DaemonSet after the agent's.
+// the plugin's container after the agent's.
 package inject
 
 import (

@@ -121,6 +121,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   node is unchanged. The gated e2e scenario that ran vectorAdd against it is now
   a standalone-GFD check under the Ginkgo label `gfd`, and unused
   `pkg/kubernetes` is gone. (#TBD)
+- The NRI plugin now runs as the `nvml-mock-nri` container in the node-agent
+  pod instead of in its own `<release>-nri` DaemonSet, so the two are scheduled,
+  versioned and rolled out together; changing an `nri.*` value now also
+  restarts the node agent. `nri.enabled` still defaults to `false`, and which
+  containers are injected is unchanged. To find the plugin, select the node
+  pods with `app.kubernetes.io/name=nvml-mock` and use the `nvml-mock-nri`
+  container. Its probe port is now named `nri-health`: custom probes that name
+  the old `health` port are rewritten, and numeric ports are kept. An
+  `nri.healthPort` that collides with the node agent (9091) or the InfiniBand
+  relay port now fails at template time. Because NRI readiness now counts
+  toward the node pod's readiness, the `-ibping` Service publishes not-ready
+  addresses while NRI is enabled, so an unready plugin cannot hide a healthy
+  relay.
 
 ### Removed
 
