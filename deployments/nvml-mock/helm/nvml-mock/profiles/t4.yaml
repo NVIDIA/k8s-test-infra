@@ -71,7 +71,7 @@ device_defaults:
   # PCI configuration
   # ---------------------------------------------------------------------------
   pci:
-    device_id: 0x1EB810DE            # T4
+    device_id: 0x1EB810DE           # T4
     subsystem_id: 0x12A210DE
 
   pcie:

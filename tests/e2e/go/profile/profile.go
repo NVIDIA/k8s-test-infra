@@ -15,6 +15,7 @@
 //   - ExpectedHCAs  = infiniband.enabled ? GPUs*hcas_per_gpu : 0
 //   - ExpectedNV    = len(nvlink.switches) > 0 ? links_per_gpu : 0
 //   - FabricMgr     = len(nvlink.switches) > 0 || device_defaults.fabric.state == "auto"
+//   - ExpectedPCIBridges = nvlink.switches carrying a device_id
 //
 // NOTE on ExpectedNV: the signal is the PRESENCE of an NVSwitch list, NOT
 // links_per_gpu on its own. b200 ships links_per_gpu: 18 but switch_support:
@@ -95,7 +96,8 @@ type rawProfile struct {
 		LinksPerGPU int  `json:"links_per_gpu"`
 		C2CEnabled  bool `json:"c2c_enabled"`
 		Switches    []struct {
-			BDF string `json:"bdf"`
+			BDF      string `json:"bdf"`
+			DeviceID uint32 `json:"device_id"`
 		} `json:"switches"`
 	} `json:"nvlink"`
 	Infiniband struct {
@@ -148,6 +150,7 @@ type Profile struct {
 	hcasPerGPU  int
 	linksPerGPU int
 	hasSwitches bool
+	pciBridges  int
 	c2cEnabled  bool
 	fabricAuto  bool
 	hasFabric   bool
@@ -237,6 +240,7 @@ func Load(profilesDir, name string) (Profile, error) {
 		hcasPerGPU:  raw.Infiniband.HCAsPerGPU,
 		linksPerGPU: raw.NVLink.LinksPerGPU,
 		hasSwitches: len(raw.NVLink.Switches) > 0,
+		pciBridges:  pcieVisibleSwitches(raw),
 		c2cEnabled:  raw.NVLink.C2CEnabled,
 		memoryBytes: raw.DeviceDefaults.Memory.TotalBytes,
 		arch:        parsedArch,
@@ -336,6 +340,34 @@ func All(profilesDir string) ([]Profile, error) {
 
 // ExpectedGPUs is the number of GPUs the profile exposes (len of devices).
 func (p Profile) ExpectedGPUs() int { return p.gpuCount }
+
+// pcieVisibleSwitches counts the NVSwitches that sit on the node's own PCIe
+// bus, which is the subset of nvlink.switches carrying a PCI identity. Mirrors
+// internal/agent/source compileSwitches.
+func pcieVisibleSwitches(raw rawProfile) int {
+	n := 0
+	for _, sw := range raw.NVLink.Switches {
+		if sw.DeviceID != 0 {
+			n++
+		}
+	}
+	return n
+}
+
+// ExpectedPCIBridges is the number of NVSwitches the rendered PCI tree should
+// carry as bridge-class devices: the HGX baseboard profiles (a100, h100) put
+// their switches on the node's PCIe bus, so `lspci` lists them beside the GPUs.
+//
+// Zero for every other profile, and two different reasons produce it. b200/l40s/
+// t4 declare no NVSwitches at all. gb200/gb300 declare them for NVLink topology
+// but give them no PCI identity, because on NVL72 the switches are in their own
+// trays and the compute tray never enumerates them — which makes those profiles
+// the negative control that keeps this from being satisfiable by "any switch".
+func (p Profile) ExpectedPCIBridges() int { return p.pciBridges }
+
+// ExpectedPCIFunctions is the total number of entries the rendered
+// /sys/bus/pci/devices should hold: the GPUs plus any PCIe-visible NVSwitch.
+func (p Profile) ExpectedPCIFunctions() int { return p.gpuCount + p.pciBridges }
 
 // IBEnabled reports whether the profile ships InfiniBand enabled.
 func (p Profile) IBEnabled() bool { return p.ibEnabled }

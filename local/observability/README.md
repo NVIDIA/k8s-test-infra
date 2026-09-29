@@ -39,7 +39,7 @@ needs to correlate GPU symptoms against.
 | File                                | Purpose                                                        |
 |-------------------------------------|----------------------------------------------------------------|
 | `observability.tiltfile`            | Installs the stack, provisions the dashboard, serves Grafana, registers the triggers |
-| `kube-prometheus-stack.values.yaml` | Chart trimming, 5s scrape interval, dashboard sidecar          |
+| `kube-prometheus-stack.values.yaml` | Chart trimming, 10s scrape interval, dashboard sidecar         |
 | `gpu-operator.values.yaml`          | Overlay re-enabling `dcgmExporter` and its `ServiceMonitor`    |
 | `nvml-mock.values.yaml`             | Overlay enabling `gpu.dynamicMetrics`                          |
 | `dashboards/mokka-gpu.json`         | The dashboard, in git rather than click-together UI state      |
@@ -100,10 +100,10 @@ wander onto the injected value and fake a scope leak, and at or below the lowest
 threshold of any profile (92 °C on a100/h100). A higher `HOT_TEMP_C` is rejected
 up front rather than timing out on a value the mock would never report.
 
-## Two couplings that fail silently
+## Three couplings that fail silently
 
-Both are pinned in this directory with comments naming them, so they move
-together or not at all. They are worth knowing because neither produces an error:
+All are pinned in this directory with comments naming them, so they move
+together or not at all. They are worth knowing because none produces an error:
 
 1. **The `ServiceMonitor` `release` label.** kube-prometheus-stack defaults to
    `serviceMonitorSelectorNilUsesHelmValues: true`, so Prometheus only discovers
@@ -112,6 +112,11 @@ together or not at all. They are worth knowing because neither produces an error
 2. **The dashboard sidecar label.** The ConfigMap must carry
    `grafana_dashboard: "1"` to be imported. A mismatch applies cleanly and no
    dashboard ever appears.
+3. **The `ServiceMonitor` scrape interval.** It must not be shorter than the
+   scrape timeout. GPU Operator charts from v26.7.0 default the timeout to 10s,
+   so the overlay scrapes every 10s. A shorter interval makes the Prometheus
+   Operator skip the ServiceMonitor with only a warning in its own log, and
+   every GPU panel stays empty.
 
 Install order is also load-bearing: kube-prometheus-stack goes in **before** the
 GPU Operator, because it ships the `ServiceMonitor` CRD the Operator's chart
@@ -128,7 +133,7 @@ Both scripts read these from the environment: `TARGET_GPU` (default `0`),
 ## Troubleshooting
 
 Every GPU panel empty? Check that Prometheus actually discovered the exporter —
-this is the `release`-label trap above:
+this catches both the `release`-label and the scrape-interval traps above:
 
 ```bash
 kubectl get --raw '/api/v1/namespaces/monitoring/services/kube-prometheus-stack-prometheus:9090/proxy/api/v1/targets?state=active' \
@@ -136,6 +141,12 @@ kubectl get --raw '/api/v1/namespaces/monitoring/services/kube-prometheus-stack-
 ```
 
 Expect one `up` line per GPU worker, on a `serviceMonitor/...` scrape pool.
+No line at all, with the label correct? Ask the Prometheus Operator why it
+skipped the ServiceMonitor:
+
+```bash
+kubectl -n monitoring logs deploy/kube-prometheus-stack-operator | grep 'skipping object'
+```
 
 Dashboard missing in Grafana? Ask Grafana rather than trusting the ConfigMap:
 
