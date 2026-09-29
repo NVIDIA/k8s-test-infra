@@ -12,7 +12,7 @@ const workflowRoot = path.join(repositoryRoot, ".github", "workflows");
 const trustedRef = "${{ steps.trusted.outputs.result }}";
 const mokkaTrustedRef = "${{ github.sha }}";
 const mokkaActivationGate =
-  "${{ vars.REPOSITORY_AUTOMATION_MOKKA_ENABLED == 'true' && github.ref == 'refs/tags/mokka-cherry-pick-v0.11.0-r1' }}";
+  "${{ vars.REPOSITORY_AUTOMATION_MOKKA_ENABLED == 'true' && github.ref == 'refs/heads/main' }}";
 const managed = [
   "automation-ci.yml",
   "backport.yml",
