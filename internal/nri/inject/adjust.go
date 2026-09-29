@@ -5,9 +5,9 @@
 // the runtime-neutral half of the NRI plugin: no containerd types cross this
 // boundary, so the decision is exercisable as a plain table test.
 //
-// Every step fails open. A surface the node agent has not staged yet degrades
-// the injection instead of failing container creation, because nothing orders
-// the plugin's container after the agent's.
+// Every step fails open. A missing surface degrades injection instead of
+// failing container creation. The runtime-facing plugin separately gates
+// adjustments while the node agent is staging or unavailable.
 package inject
 
 import (
@@ -50,6 +50,14 @@ func Adjust(cfg Config, container Container) (Adjustment, bool) {
 	return adjustment, true
 }
 
+// Skip reports whether Adjust would leave the container exactly as authored,
+// and why. It reads only the container, so the plugin can ask before it
+// consults the node agent.
+func Skip(cfg Config, container Container) (reason string, skipped bool) {
+	_, reason, skipped = decide(withDefaults(cfg), container)
+	return reason, skipped
+}
+
 // selection records which surfaces a container asked for. It is derived from
 // the container alone, never from the node's staged tree.
 type selection struct {
@@ -62,7 +70,7 @@ type selection struct {
 	imex       bool
 }
 
-// decide selects the surfaces for a container, or reports why it is left alone.
+// decide is the single source of truth shared by Adjust and Skip.
 //
 // The mount check is what makes re-adjustment safe: a container that already
 // carries the overlay at its destination has been through here before, and

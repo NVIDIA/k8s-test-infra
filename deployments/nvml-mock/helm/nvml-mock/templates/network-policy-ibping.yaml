@@ -37,6 +37,7 @@ spec:
               app.kubernetes.io/name: {{ include "nvml-mock.name" . }}
               app.kubernetes.io/component: daemon
       ports:
-        - port: ibping
+        # Some CNIs do not resolve named ports on restartable init containers.
+        - port: {{ .Values.infiniband.ping.port }}
           protocol: TCP
 {{- end }}
