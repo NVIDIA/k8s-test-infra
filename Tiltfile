@@ -58,6 +58,10 @@ config.define_bool('compute-domain', args=False,
     usage='ComputeDomain scenario: 4-worker cluster with GB200 profile + NVLink topology overlay (requires PROFILE=compute-domain cluster)')
 config.define_bool('gpu-operator', args=False,
     usage='Also deploy NVIDIA GPU Operator on top of nvml-mock')
+config.define_bool('mig', args=False,
+    usage='Boot every board MIG-partitioned and serve the partitions through the GPU Operator. Implies --gpu-operator. Needs a MIG-capable --gpu-profile: a100 | h100 | b200 | gb200 | gb300.')
+config.define_string('mig-strategy', args=False,
+    usage='With --mig: single (default) carves each board into seven of its smallest slice, published as nvidia.com/gpu; mixed carves one 1g, 2g and 3g slice each, published as nvidia.com/mig-<profile>.')
 config.define_bool('dra', args=False,
     usage='Also deploy NVIDIA DRA driver on top of nvml-mock')
 config.define_bool('fgo', args=False,
@@ -82,6 +86,7 @@ nvmlmock_image      = cfg.get('nvmlmock-image', '')
 multi_gpu_profile   = cfg.get('multi-gpu-profile', False)
 with_compute_domain = cfg.get('compute-domain', False)
 with_gpu_operator   = cfg.get('gpu-operator', False)
+with_mig            = cfg.get('mig', False)
 with_dra            = cfg.get('dra', False)
 with_fgo            = cfg.get('fgo', False)
 with_topograph      = cfg.get('topograph', False)
@@ -102,6 +107,11 @@ if with_topograph:
 # stack installs cleanly and every GPU panel stays empty, so implying the
 # flag is friendlier than failing on it.
 if with_observability:
+    with_gpu_operator = True
+
+# --mig implies --gpu-operator: the partitions are served by the Operator's
+# device plugin, and a partitioned node with no plugin advertises nothing.
+if with_mig:
     with_gpu_operator = True
 
 # --- Guardrails ----------------------------------------------------------
@@ -132,6 +142,42 @@ if with_compute_domain and gpu_profile_raw != None:
     fail('--compute-domain forces gpu.profile=gb200; do not pass --gpu-profile explicitly')
 
 gpu_profile = gpu_profile_raw or 'a100'
+
+# Per-board layout for each device plugin MIG strategy, as (profile, count).
+# single fills the board seven times over with its smallest slice, since that
+# strategy rejects a node whose partitions do not all share one profile. mixed
+# takes one each of the 1g, 2g and 3g slices — six of the seven compute slices,
+# placed without overlap — so every partition is published under a resource
+# name of its own.
+_MIG_LAYOUTS = {
+    'a100':  {'single': [('1g.5gb', 7)],  'mixed': [('1g.5gb', 1),  ('2g.10gb', 1), ('3g.20gb', 1)]},
+    'h100':  {'single': [('1g.10gb', 7)], 'mixed': [('1g.10gb', 1), ('2g.20gb', 1), ('3g.40gb', 1)]},
+    'b200':  {'single': [('1g.23gb', 7)], 'mixed': [('1g.23gb', 1), ('2g.45gb', 1), ('3g.90gb', 1)]},
+    'gb200': {'single': [('1g.23gb', 7)], 'mixed': [('1g.23gb', 1), ('2g.47gb', 1), ('3g.93gb', 1)]},
+    'gb300': {'single': [('1g.35gb', 7)], 'mixed': [('1g.35gb', 1), ('2g.70gb', 1), ('3g.139gb', 1)]},
+}
+
+mig_strategy = cfg.get('mig-strategy', 'single')
+
+nvml_mock_mig_set = []
+if with_mig:
+    # The fleet pins t4, which cannot partition, and compute-domain brings its
+    # own mock stack and cluster shape.
+    if multi_gpu_profile or with_compute_domain:
+        fail('--mig is mutually exclusive with --multi-gpu-profile and --compute-domain')
+    if gpu_profile not in _MIG_LAYOUTS:
+        fail('--mig needs a MIG-capable --gpu-profile (%s); %s cannot partition' %
+             (' | '.join(_MIG_LAYOUTS.keys()), gpu_profile))
+    if mig_strategy not in _MIG_LAYOUTS[gpu_profile]:
+        fail('--mig-strategy must be one of: single | mixed (got %s)' % mig_strategy)
+    nvml_mock_mig_set = ['gpu.mig.enabled=true']
+    for i, (profile, count) in enumerate(_MIG_LAYOUTS[gpu_profile][mig_strategy]):
+        nvml_mock_mig_set += [
+            'gpu.mig.gpuInstances[%d].profile=%s' % (i, profile),
+            'gpu.mig.gpuInstances[%d].count=%d' % (i, count),
+        ]
+elif cfg.get('mig-strategy', None) != None:
+    fail('--mig-strategy has no effect without --mig')
 
 k8s_context_default = 'kind-mokka-compute-domain' if with_compute_domain else 'kind-mokka'
 k8s_context         = cfg.get('k8s-context', k8s_context_default)
@@ -190,6 +236,7 @@ else:
         active_consumers,
         nvmlmock_image=nvmlmock_image,
         control_plane=with_control_plane,
+        extra_set=nvml_mock_mig_set,
     )
 
 # --- Shared NVIDIA Helm repo --------------------------------------------
@@ -227,6 +274,7 @@ if with_gpu_operator:
         nvml_mock_releases,
         extra_values=gpu_operator_extra_values,
         extra_resource_deps=gpu_operator_extra_deps,
+        mig_strategy=mig_strategy if with_mig else '',
     )
 
 if with_dra:

@@ -154,7 +154,7 @@ driver root, exercises CDI injection, and checks the node advertises GPUs.
 | `dcgm.enabled: false` | The separate nv-hostengine DaemonSet is redundant: `dcgm-exporter` embeds the host engine in-process |
 | `dcgmExporter.enabled: true` | Kept on deliberately — it reads the mock through libdcgm, which is part of what this proves |
 | `GFD_MACHINE_TYPE_FILE` | GFD's default reads `/sys/class/dmi/id/product_name`, which says `kind` here and is absent on hosts with no DMI. Mokka writes a file of its own |
-| `mig.strategy: none` | The install above does not partition the board, so there are no slices to advertise and whole GPUs are the right view. MIG itself is simulated: [MIG partitioning](mig/README.md) carves a board and serves the slices through the device plugin in `migStrategy=single` |
+| `mig.strategy: none` | The install above does not partition the board, so there are no slices to advertise and whole GPUs are the right view. MIG itself is simulated: [MIG partitioning](mig/README.md) carves a board, and [under the GPU Operator](mig/README.md#under-the-gpu-operator) setting `mig.strategy` is all the Operator needs to serve the slices |
 | `validator.cuda.WITH_WORKLOAD: false` | The CUDA validation step launches a kernel, and [CUDA is not simulated](../faq.md#can-i-run-cuda-workloads-against-mokka) |
 | `DISABLE_DEV_CHAR_SYMLINK_CREATION` | The `/dev/char` symlink step runs `modprobe nvidia`, which cannot work in a Kind container. Mokka already staged those nodes |
 
