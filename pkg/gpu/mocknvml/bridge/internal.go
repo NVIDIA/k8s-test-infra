@@ -180,14 +180,12 @@ static nvmlReturn_t internalStubFunction(unsigned int slot, void* arg0, void* ar
         if (ret != NVML_SUCCESS) {
             return ret;
         }
-        // Leave an unconfigured profile on the zero-count path rather than
-        // inventing a generation for it.
-        if (gen > 0) {
-            *(unsigned int*)arg1 = gen;
-            if (isDebugEnabled()) {
-                fprintf(stderr, "[C-STUB] slot %u host max PCIe link gen (handle=%p) -> %u\n",
-                        slot, arg0, gen);
-            }
+        // Always write the result, including zero, because callers may reuse a
+        // pre-filled output buffer for an unconfigured profile.
+        *(unsigned int*)arg1 = gen;
+        if (gen > 0 && isDebugEnabled()) {
+            fprintf(stderr, "[C-STUB] slot %u host max PCIe link gen (handle=%p) -> %u\n",
+                    slot, arg0, gen);
         }
         return NVML_SUCCESS;
     }
