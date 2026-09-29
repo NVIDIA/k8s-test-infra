@@ -130,6 +130,7 @@ nav:
               - control-plane: tools/control-plane.md
               - node-agent: tools/node-agent.md
               - nri-plugin: tools/nri-plugin.md
+          - Support Policy: support-policy.md
       - Troubleshooting: troubleshooting.md
       - FAQ: faq.md
   - Guides:

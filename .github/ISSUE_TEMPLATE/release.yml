@@ -90,6 +90,7 @@ body:
         - label: "Draft GitHub release notes from the changelog section and publish."
         - label: "Close the milestone for this release."
         - label: "Create the next milestone and retarget anything that slipped."
+        - label: "PR against `main` updating the status table in `docs/support-policy.md`: this line becomes Supported, the previous line Maintenance, every older line Deprecated. The docs site publishes from `main`, not from the release branch."
         - label: "Link the tag and the release notes in this issue, then close it."
   - type: textarea
     id: changelog
