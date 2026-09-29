@@ -49,7 +49,7 @@ Kubernetes: `>= 1.28.0-0`
 | fabricmanager.initDelay | string | `""` | Delay before publishing fabric readiness. |
 | fabricmanager.stateDir | string | `"/var/lib/nvml-mock/fabric-state"` | Host directory for fabric-manager readiness state. |
 | gpu.count | string | `""` | Number of simulated GPUs; empty derives the count from the selected profile. |
-| gpu.customConfig | string | `""` | Optional JSON configuration merged into the selected GPU profile. |
+| gpu.customConfig | string | `""` | Complete YAML configuration that replaces the selected GPU profile. |
 | gpu.dynamicMetrics.enabled | bool | `false` | Enable time-varying synthetic temperature, power, and utilization values. |
 | gpu.failureInjection.after_calls | int | `0` | Trigger the selected failure after this many guarded calls; zero disables it. |
 | gpu.failureInjection.enabled | bool | `false` | Enable deterministic or probabilistic simulated GPU failures. |
@@ -82,7 +82,7 @@ Kubernetes: `>= 1.28.0-0`
 | nodeAgent.resources.requests.memory | string | `"32Mi"` | Memory requested by the node agent. |
 | nodeAgent.shutdownTimeout | string | `"5s"` | Graceful shutdown timeout for the node agent. |
 | nodeLabels.featuresDir | string | `"/etc/kubernetes/node-feature-discovery/features.d"` | Host directory from which NFD reads generated feature files. |
-| nodeSelector | object | `{}` | Node labels applied to nodes running the mock. |
+| nodeSelector | object | `{}` | Existing node labels required to schedule the mock DaemonSet. |
 | nri.cdiSpecDir | string | `"/var/run/cdi"` | Host directory containing staged CDI specifications. |
 | nri.deviceAnnotation | string | `"nvml-mock.nvidia.com/devices"` | Pod annotation enabling mock GPU device injection. |
 | nri.deviceInjectionMode | string | `"raw"` | Device injection mode: raw nodes or CDI references. |
@@ -98,7 +98,7 @@ Kubernetes: `>= 1.28.0-0`
 | nri.livenessProbe.timeoutSeconds | int | `2` | Liveness probe timeout. |
 | nri.logging.format | string | `"json"` | Log encoding for the NRI plugin. |
 | nri.logging.level | string | `"info"` | Log level for the NRI plugin. |
-| nri.optOutAnnotation | string | `"nvml-mock.nvidia.com/inject"` | Pod annotation enabling mock GPU injection. |
+| nri.optOutAnnotation | string | `"nvml-mock.nvidia.com/inject"` | Pod annotation that disables ambient mock injection when set to "false". |
 | nri.overlay.hostPath | string | `"/var/lib/nvml-mock"` | Host path containing the staged mock driver overlay. |
 | nri.overlay.mountPath | string | `"/opt/nvml-mock"` | Container mount path for the mock driver overlay. |
 | nri.pluginIndex | string | `"10"` | NRI plugin ordering index. |

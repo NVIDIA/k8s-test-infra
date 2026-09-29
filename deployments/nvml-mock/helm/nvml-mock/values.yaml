@@ -11,7 +11,7 @@ gpu:
   # The node agent caps it to the profile's device count at runtime.
   # -- Number of simulated GPUs; empty derives the count from the selected profile.
   count: ""
-  # -- Optional JSON configuration merged into the selected GPU profile.
+  # -- Complete YAML configuration that replaces the selected GPU profile.
   customConfig: ""
 
   # Opt-in time-varying temperature / power / utilization. Disabled by default
@@ -106,7 +106,7 @@ image:
 # -- Driver version reported by the simulated driver; empty derives it from the profile.
 driverVersion: ""                  # Auto-derived from profile. Override: "550.163.01"
 
-# -- Node labels applied to nodes running the mock.
+# -- Existing node labels required to schedule the mock DaemonSet.
 nodeSelector: {}
 # -- Pod tolerations for the mock DaemonSet.
 tolerations:
@@ -213,7 +213,7 @@ nri:
     hostPath: /var/lib/nvml-mock
     # -- Container mount path for the mock driver overlay.
     mountPath: /opt/nvml-mock
-  # -- Pod annotation enabling mock GPU injection.
+  # -- Pod annotation that disables ambient mock injection when set to "false".
   optOutAnnotation: nvml-mock.nvidia.com/inject
   # Workloads that can set this pod annotation to "true" can opt into host GPU
   # device-node mounts from the staged mock overlay. Treat that pod-authored
