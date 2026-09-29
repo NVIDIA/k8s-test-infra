@@ -97,7 +97,7 @@ if [[ "${WORKLOAD_NAMESPACE}" != "default" ]]; then
   kubectl_ctx create namespace "${WORKLOAD_NAMESPACE}" --dry-run=client -o yaml | kubectl_ctx apply -f -
 fi
 
-info "Deploying gpu-agent DaemonSet (plain workload; GPU stack comes from NRI)"
+info "Deploying gpu-agent DaemonSet (devices annotation only; GPU stack comes from NRI)"
 kubectl_ctx -n "${WORKLOAD_NAMESPACE}" delete daemonset gpu-agent --ignore-not-found
 kubectl_ctx -n "${WORKLOAD_NAMESPACE}" apply -f "${REPO_ROOT}/${DEMO_DIR}/gpu-agent.yaml"
 kubectl_ctx -n "${WORKLOAD_NAMESPACE}" rollout status daemonset/gpu-agent --timeout=120s
