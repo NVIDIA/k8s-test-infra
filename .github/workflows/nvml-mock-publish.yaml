@@ -70,7 +70,13 @@ jobs:
       - name: Read chart appVersion
         id: chart
         run: |
-          app_version=$(yq -e '.appVersion' deployments/nvml-mock/helm/nvml-mock/Chart.yaml)
+          app_version=$(grep '^appVersion:' deployments/nvml-mock/helm/nvml-mock/Chart.yaml | awk '{print $2}' | tr -d '"')
+
+          if [ -z "${app_version}" ]; then
+            echo "could not read appVersion from the nvml-mock Chart.yaml" >&2
+            exit 1
+          fi
+
           echo "app_version=${app_version}" >> "$GITHUB_OUTPUT"
 
       - name: Extract metadata
