@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/gpuarch"
 )
@@ -30,15 +31,21 @@ const profilesDir = "../../../../deployments/nvml-mock/helm/nvml-mock/profiles"
 // configs/ copies from drifting in a way the e2e would not catch.
 func TestDerivations(t *testing.T) {
 	cases := []struct {
-		name          string
-		displayName   string
-		gpus          int
-		hcas          int
-		nv            int
-		fabricMgr     bool
-		hasFabric     bool
-		ibEnabled     bool
-		pciRoots      int
+		name        string
+		displayName string
+		gpus        int
+		hcas        int
+		nv          int
+		fabricMgr   bool
+		hasFabric   bool
+		ibEnabled   bool
+		pciRoots    int
+		// pciBridges is how many NVSwitches the profile puts on the node's own
+		// PCIe bus, i.e. how many bridge-class entries `lspci` must list beside
+		// the GPUs. Non-zero only for the HGX baseboard profiles: on NVL72 the
+		// switches are in their own trays, so gb200/gb300 declare NVSwitches
+		// (NV18 above) and render no bridges.
+		pciBridges    int
 		reportsTLimit bool
 		c2c           bool
 		shutdownC     int
@@ -52,13 +59,13 @@ func TestDerivations(t *testing.T) {
 		// edited away from its capture fails here.
 		graphicsMaxMHz int
 	}{
-		{"a100", "NVIDIA A100-SXM4-40GB", 8, 8, 12, true, false, true, 2, false, false, 92, 87, 83, 4, 1410}, // NVSwitch (FabricMgr) but no ComputeDomain fabric block
-		{"h100", "NVIDIA H100 80GB HBM3", 8, 8, 18, true, true, true, 2, true, false, 92, 87, 83, 5, 1980},
-		{"b200", "NVIDIA B200", 8, 8, 0, false, false, true, 2, true, false, 95, 90, 85, 6, 1965}, // NVLink negative control, IB enabled
-		{"gb200", "NVIDIA GB200", 4, 4, 18, true, true, true, 2, true, true, 95, 90, 85, 6, 2062}, // one NVL72 compute tray: 2 superchips, 4 GPUs
-		{"gb300", "NVIDIA GB300 NVL", 4, 4, 18, true, true, true, 2, true, true, 95, 90, 85, 6, 2070},
-		{"l40s", "NVIDIA L40S", 8, 0, 0, false, false, false, 2, true, false, 96, 93, 89, 4, 2520}, // IB + NVLink negative control
-		{"t4", "NVIDIA T4", 4, 0, 0, false, false, false, 1, false, false, 96, 93, 89, 3, 1590},
+		{"a100", "NVIDIA A100-SXM4-40GB", 8, 8, 12, true, false, true, 2, 6, false, false, 92, 87, 83, 4, 1410}, // NVSwitch (FabricMgr) but no ComputeDomain fabric block
+		{"h100", "NVIDIA H100 80GB HBM3", 8, 8, 18, true, true, true, 2, 4, true, false, 92, 87, 83, 5, 1980},
+		{"b200", "NVIDIA B200", 8, 8, 0, false, false, true, 2, 0, true, false, 95, 90, 85, 6, 1965}, // NVLink negative control, IB enabled
+		{"gb200", "NVIDIA GB200", 4, 4, 18, true, true, true, 2, 0, true, true, 95, 90, 85, 6, 2062}, // one NVL72 compute tray: 2 superchips, 4 GPUs
+		{"gb300", "NVIDIA GB300 NVL", 4, 4, 18, true, true, true, 2, 0, true, true, 95, 90, 85, 6, 2070},
+		{"l40s", "NVIDIA L40S", 8, 0, 0, false, false, false, 2, 0, true, false, 96, 93, 89, 4, 2520}, // IB + NVLink negative control
+		{"t4", "NVIDIA T4", 4, 0, 0, false, false, false, 1, 0, false, false, 96, 93, 89, 3, 1590},
 	}
 
 	for _, c := range cases {
@@ -81,6 +88,8 @@ func TestDerivations(t *testing.T) {
 				{"HasFabric", p.HasFabric(), c.hasFabric},
 				{"IBEnabled", p.IBEnabled(), c.ibEnabled},
 				{"ExpectedPCIRoots", p.ExpectedPCIRoots(), c.pciRoots},
+				{"ExpectedPCIBridges", p.ExpectedPCIBridges(), c.pciBridges},
+				{"ExpectedPCIFunctions", p.ExpectedPCIFunctions(), c.gpus + c.pciBridges},
 				{"ReportsTLimitTemp", p.ReportsTLimitTemp(), c.reportsTLimit},
 				{"C2CEnabled", p.C2CEnabled(), c.c2c},
 				{"ShutdownThresholdC", p.ShutdownThresholdC(), c.shutdownC},
@@ -113,6 +122,25 @@ func TestNegativeControlsAreIndependent(t *testing.T) {
 		assert.Zero(t, p.ExpectedHCAs(), "%s ExpectedHCAs() want 0 (IB disabled)", name)
 		assert.Zero(t, p.ExpectedNV(), "%s ExpectedNV() want 0 (no NVSwitch)", name)
 	}
+}
+
+// TestSwitchesAndPCIBridgesAreIndependent pins the third axis the table above
+// covers only by value: having NVSwitches and enumerating them over PCIe are
+// separate facts. gb200 has the switches and no bridges because NVL72 keeps
+// them in their own trays, while h100's baseboard switches are PCIe endpoints.
+// An accessor that keyed bridges off the switch list would pass the table for
+// a100/h100 and put four phantom bridges on every GB200 node.
+func TestSwitchesAndPCIBridgesAreIndependent(t *testing.T) {
+	gb200, err := Load(profilesDir, "gb200")
+	require.NoError(t, err, "Load(gb200)")
+	require.NotZero(t, gb200.ExpectedNV(), "gb200 ExpectedNV() want > 0 (switches are declared)")
+	require.Zero(t, gb200.ExpectedPCIBridges(), "gb200 ExpectedPCIBridges() want 0 (switch trays)")
+	require.Equal(t, gb200.ExpectedGPUs(), gb200.ExpectedPCIFunctions(),
+		"gb200 renders its GPUs and nothing else")
+
+	h100, err := Load(profilesDir, "h100")
+	require.NoError(t, err, "Load(h100)")
+	require.Equal(t, h100.ExpectedGPUs()+h100.ExpectedPCIBridges(), h100.ExpectedPCIFunctions())
 }
 
 // TestUtilizationPercentagesComeFromTheProfile pins which config keys the JPEG
@@ -445,4 +473,57 @@ devices:
 	write(t, "absent", "")
 	_, err = Load(dir, "absent")
 	require.ErrorContains(t, err, "device_defaults.architecture is empty")
+}
+
+// MIG capability is a property of the board, so it is read from
+// max_gpu_instances. Inferring it from a declared layout is what once reported
+// the Blackwell boards as non-MIG hardware and silently excused them from the
+// MIG suite.
+func TestMIGCapabilityComesFromMaxGPUInstances(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		capable bool
+	}{
+		{"a100", true},
+		{"h100", true},
+		{"b200", true},
+		{"gb200", true},
+		{"gb300", true},
+		// The negative control: these carry no mig block at all, so a profile
+		// without one must read as non-MIG rather than as a zero-valued board.
+		{"l40s", false},
+		{"t4", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p, err := Load(profilesDir, tc.name)
+			require.NoError(t, err)
+			require.Equal(t, tc.capable, p.MIGCapable())
+		})
+	}
+}
+
+// No shipped profile declares a partitioning: how a board is carved is a
+// deployment choice, named at install through gpu.mig.gpuInstances. A profile
+// that reintroduced one would go back to partitioning a board on the strength
+// of which image it is, which is what this asserts against.
+func TestNoProfileDeclaresAMIGLayout(t *testing.T) {
+	t.Parallel()
+	for _, name := range KnownProfiles {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			data, err := os.ReadFile(filepath.Join(profilesDir, name+".yaml"))
+			require.NoError(t, err)
+			var doc struct {
+				DeviceDefaults struct {
+					MIG map[string]any `json:"mig"`
+				} `json:"device_defaults"`
+			}
+			require.NoError(t, yaml.Unmarshal(data, &doc))
+			require.NotContains(t, doc.DeviceDefaults.MIG, "gpu_instances",
+				"profile %s declares a MIG layout; a layout belongs in gpu.mig.gpuInstances at install", name)
+		})
+	}
 }

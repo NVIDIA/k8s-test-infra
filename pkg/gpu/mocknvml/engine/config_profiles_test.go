@@ -14,10 +14,16 @@
 package engine
 
 import (
+	"encoding/xml"
+	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strconv"
+	"strings"
 	"testing"
 
+	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/stretchr/testify/require"
 )
 
@@ -51,10 +57,11 @@ func TestLoadConfig_L40SProfile(t *testing.T) {
 	expectedMemBytes := uint64(51539607552) // 48 GiB
 	require.Equal(t, expectedMemBytes, mem.TotalBytes, "L40S memory total_bytes")
 
-	// Verify PCI device ID: 0x26B510DE
+	// Verify PCI device ID: 0x26B910DE, the L40S board's. 0x26b5 is an L40,
+	// which is what this asserted until the capture cross-check caught it.
 	pci := yamlCfg.DeviceDefaults.PCI
 	require.NotNil(t, pci, "L40S PCI config is nil")
-	expectedDeviceID := uint32(0x26B510DE)
+	expectedDeviceID := uint32(0x26B910DE)
 	require.Equal(t, expectedDeviceID, pci.DeviceID, "L40S PCI device_id")
 
 	// Verify GPU name
@@ -134,12 +141,15 @@ func TestLoadConfig_GB300Profile(t *testing.T) {
 
 	require.Equal(t, "NVIDIA GB300 NVL", yamlCfg.DeviceDefaults.Name, "GB300 name")
 
-	// 288 GiB HBM3e per GPU is the headline GB300 vs. GB200 delta — make
-	// sure a regression in the YAML can never quietly drop us back to 192.
+	// 278 GiB HBM3e per GPU is the headline GB300 vs. GB200 delta — make
+	// sure a regression in the YAML can never quietly drop us back to 186.
+	// The capacity is what NVIDIA's gpu-operator mig-parted config implies
+	// for GB300 (PCI 0x31C210DE): it lists 1g.35gb and 3g.139gb, the eighth
+	// and half of 278 GiB.
 	mem := yamlCfg.DeviceDefaults.Memory
 	require.NotNil(t, mem, "GB300 memory config is nil")
-	expectedMemBytes := uint64(288) * 1024 * 1024 * 1024
-	require.Equal(t, expectedMemBytes, mem.TotalBytes, "GB300 memory total_bytes (288 GiB)")
+	expectedMemBytes := uint64(278) * 1024 * 1024 * 1024
+	require.Equal(t, expectedMemBytes, mem.TotalBytes, "GB300 memory total_bytes (278 GiB)")
 
 	// Blackwell Ultra uses the 570.x driver line; the chart's
 	// driverVersion helper relies on this value being consistent.
@@ -178,9 +188,9 @@ func TestLoadConfig_AllProfilesConsistent(t *testing.T) {
 	}{
 		{"A100", "a100.yaml", "ampere", 8, 0, 40, 8},
 		{"H100", "h100.yaml", "hopper", 9, 0, 80, 8},
-		{"B200", "b200.yaml", "blackwell", 10, 0, 192, 8},
-		{"GB200", "gb200.yaml", "blackwell", 10, 0, 192, 4},
-		{"GB300", "gb300.yaml", "blackwell", 10, 0, 288, 4},
+		{"B200", "b200.yaml", "blackwell", 10, 0, 180, 8},
+		{"GB200", "gb200.yaml", "blackwell", 10, 0, 186, 4},
+		{"GB300", "gb300.yaml", "blackwell", 10, 0, 278, 4},
 		{"L40S", "l40s.yaml", "ada_lovelace", 8, 9, 48, 8},
 		{"T4", "t4.yaml", "turing", 7, 5, 16, 4},
 	}
@@ -208,4 +218,204 @@ func TestLoadConfig_AllProfilesConsistent(t *testing.T) {
 			require.NotEmpty(t, yamlCfg.System.DriverVersion, "%s driver_version is empty", p.name)
 		})
 	}
+}
+
+// repoRoot returns the absolute path to the repository root.
+func repoRoot() string {
+	_, filename, _, _ := runtime.Caller(0)
+	return filepath.Join(filepath.Dir(filename), "..", "..", "..", "..")
+}
+
+// hardwareCaptureDir returns the absolute path to the real-hardware
+// `nvidia-smi -q -x` captures the shipped profiles are modelled on.
+func hardwareCaptureDir() string {
+	return filepath.Join(repoRoot(), "tests", "e2e", "go", "assertions",
+		"nvidiasmi", "testdata", "hardware")
+}
+
+// profileSource is one of the two directories that ship GPU profiles. The
+// chart copy is what a Helm install renders into its ConfigMap; the engine copy
+// is what MOCK_NVML_CONFIG points at for a local run. Both are consumed by the
+// same loader and both must carry the same PCI identity, so both are globbed.
+type profileSource struct {
+	label  string
+	dir    string
+	prefix string
+}
+
+func profileSources() []profileSource {
+	return []profileSource{
+		{
+			label: "chart",
+			dir:   filepath.Join(repoRoot(), "deployments", "nvml-mock", "helm", "nvml-mock", "profiles"),
+		},
+		{
+			label:  "engine",
+			dir:    filepath.Join(repoRoot(), "pkg", "gpu", "mocknvml", "configs"),
+			prefix: "mock-nvml-config-",
+		},
+	}
+}
+
+// profiles globs the source directory and returns sku -> absolute path. A
+// profile added later is picked up here, so it cannot escape the cross-check by
+// being absent from a hand-maintained list.
+func (s profileSource) profiles(t *testing.T) map[string]string {
+	t.Helper()
+
+	matches, err := filepath.Glob(filepath.Join(s.dir, s.prefix+"*.yaml"))
+	require.NoError(t, err, "glob %s profiles", s.label)
+	require.NotEmpty(t, matches, "%s profile directory %s holds no profile", s.label, s.dir)
+
+	found := make(map[string]string, len(matches))
+	for _, m := range matches {
+		// A board's MIG table is a sibling document of its profile, not a
+		// profile of its own: it carries no PCI identity and has no capture.
+		if strings.HasSuffix(m, ".mig.yaml") {
+			continue
+		}
+		sku := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(m), s.prefix), ".yaml")
+		found[sku] = m
+	}
+	return found
+}
+
+// capturedPCI is the PCI identity a real board reports through
+// `nvidia-smi -q -x`. The captures are the authority for both words.
+type capturedPCI struct {
+	deviceID    uint32
+	subsystemID uint32
+}
+
+// readCapture parses qx-<sku>.xml and returns the board's PCI identity,
+// requiring every GPU in the capture to agree on it.
+func readCapture(t *testing.T, sku string) capturedPCI {
+	t.Helper()
+
+	var doc struct {
+		GPUs []struct {
+			PCI struct {
+				DeviceID    string `xml:"pci_device_id"`
+				SubsystemID string `xml:"pci_sub_system_id"`
+			} `xml:"pci"`
+		} `xml:"gpu"`
+	}
+
+	raw, err := os.ReadFile(filepath.Join(hardwareCaptureDir(), "qx-"+sku+".xml"))
+	require.NoErrorf(t, err, "no hardware capture for profile %q: every profile must be modelled on a captured board", sku)
+	require.NoError(t, xml.Unmarshal(raw, &doc), "parse hardware capture for %s", sku)
+	require.NotEmpty(t, doc.GPUs, "capture for %s declares no GPU", sku)
+
+	parse := func(field, value string) uint32 {
+		t.Helper()
+		v, err := strconv.ParseUint(value, 16, 32)
+		require.NoErrorf(t, err, "capture %s %s %q", sku, field, value)
+		return uint32(v)
+	}
+
+	first := doc.GPUs[0].PCI
+	got := capturedPCI{
+		deviceID:    parse("pci_device_id", first.DeviceID),
+		subsystemID: parse("pci_sub_system_id", first.SubsystemID),
+	}
+	for i, gpu := range doc.GPUs {
+		require.Equalf(t, first.DeviceID, gpu.PCI.DeviceID, "capture %s GPU %d disagrees on pci_device_id", sku, i)
+		require.Equalf(t, first.SubsystemID, gpu.PCI.SubsystemID, "capture %s GPU %d disagrees on pci_sub_system_id", sku, i)
+	}
+	return got
+}
+
+// TestProfilePCIDeviceIDMatchesHardwareCapture holds every shipped profile's
+// PCI identity, in BOTH copies, to the board it claims to model.
+//
+// The captures are the authority: their README names each one's node and tells
+// whoever authors a profile to check it against what the real board reports.
+// Nothing enforced it, and four profiles had drifted their device_id - `gb300`
+// reported an HGX GB200 ID, `gb200` and `b200` reported IDs inside the Hopper
+// range that no NVIDIA board carries, and `l40s` reported an L40 - while six of
+// seven carried a subsystem_id belonging to some other board entirely.
+//
+// Neither word is cosmetic. device_id and subsystem_id both reach the rendered
+// PCI sysfs tree (internal/pcisysfs/render.go), where `lspci` resolves them
+// against the system's pci.ids and names a different GPU and a different board
+// vendor than the one the mock claims to be; subsystem_id also reaches NVML
+// callers as nvmlPciInfo_t.pciSubSystemId (pkg/gpu/mocknvml/engine/device.go).
+//
+// The profile set is globbed, not listed, so a profile added later is checked
+// on its first run - and a profile with no matching capture fails rather than
+// passing unnoticed.
+func TestProfilePCIDeviceIDMatchesHardwareCapture(t *testing.T) {
+	t.Parallel()
+
+	sources := profileSources()
+
+	// Both copies must ship the same SKUs; a profile added to one copy only is
+	// a half-landed change, and the missing half would otherwise go unchecked.
+	skuSets := make([]map[string]string, 0, len(sources))
+	for _, src := range sources {
+		skuSets = append(skuSets, src.profiles(t))
+	}
+	for i := 1; i < len(skuSets); i++ {
+		require.Equal(t, sortedKeys(skuSets[0]), sortedKeys(skuSets[i]),
+			"%s and %s must ship the same profile SKUs", sources[0].label, sources[i].label)
+	}
+
+	for i, src := range sources {
+		for _, sku := range sortedKeys(skuSets[i]) {
+			path := skuSets[i][sku]
+			t.Run(src.label+"/"+sku, func(t *testing.T) {
+				t.Parallel()
+
+				want := readCapture(t, sku)
+
+				cfg, err := LoadYAMLConfig(path)
+				require.NoError(t, err, "load profile %s", path)
+				require.NotNil(t, cfg.DeviceDefaults.PCI, "profile %s declares no pci block", path)
+
+				require.Equal(t, want.deviceID, cfg.DeviceDefaults.PCI.DeviceID,
+					"%s %s device_defaults.pci.device_id must be the captured board's", src.label, sku)
+				require.Equal(t, want.subsystemID, cfg.DeviceDefaults.PCI.SubsystemID,
+					"%s %s device_defaults.pci.subsystem_id must be the captured board's", src.label, sku)
+			})
+		}
+	}
+}
+
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// TestDefaultPCIIdentityMatchesA100Capture covers the fallback in initPciInfo
+// that runs when a device has no `pci` block to read: it hands out a built-in
+// A100 identity. Both words reach consumers through nvmlDeviceGetPciInfo, and
+// the subsystem word had been left at a retired value that no A100 reports,
+// which survived because the only test on this path asserted device_id alone.
+//
+// NewEngine(nil) is the fallback: no YAML, so no per-device PCI config.
+func TestDefaultPCIIdentityMatchesA100Capture(t *testing.T) {
+	t.Parallel()
+
+	want := readCapture(t, "a100")
+
+	e := NewEngine(nil)
+	require.Equal(t, nvml.SUCCESS, e.Init(), "engine init")
+	defer func() { require.Equal(t, nvml.SUCCESS, e.Shutdown(), "engine shutdown") }()
+
+	handle, ret := e.DeviceGetHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret, "get device 0")
+	dev, ok := e.LookupDevice(handle).(*ConfigurableDevice)
+	require.True(t, ok, "device 0 is a ConfigurableDevice")
+
+	pciInfo, ret := dev.GetPciInfo()
+	require.Equal(t, nvml.SUCCESS, ret, "GetPciInfo")
+
+	require.Equal(t, want.deviceID, pciInfo.PciDeviceId,
+		"default pci identity device_id must be the captured A100 board's")
+	require.Equal(t, want.subsystemID, pciInfo.PciSubSystemId,
+		"default pci identity subsystem_id must be the captured A100 board's")
 }

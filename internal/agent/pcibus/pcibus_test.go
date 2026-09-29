@@ -37,7 +37,7 @@ func stateWithTopology() *agent.State {
 				Index:          0,
 				PCIBusID:       "0000:07:00.0",
 				PCIDeviceID:    0x233010DE,
-				PCISubsystemID: 0x165810DE,
+				PCISubsystemID: 0x16C110DE,
 			},
 		},
 	}
@@ -149,7 +149,7 @@ func TestApply_WritesNFDFeatureFile(t *testing.T) {
 
 	data, err := os.ReadFile(h.EtcPath(nfdFeatureFile))
 	require.NoError(t, err)
-	require.Equal(t, nfdContent, string(data))
+	require.Equal(t, "pci-10de.present=true\n", string(data))
 }
 
 func TestRevoke_RemovesNFDFile(t *testing.T) {

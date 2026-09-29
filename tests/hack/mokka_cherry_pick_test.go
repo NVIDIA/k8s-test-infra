@@ -63,11 +63,11 @@ func TestMokkaCherryPickNodeWorkflowContract(t *testing.T) {
 	require.Len(t, jobs, 1)
 	job, ok := jobs["cherry-pick"].(map[string]any)
 	require.True(t, ok)
-	require.Equal(t, "${{ vars.REPOSITORY_AUTOMATION_MOKKA_ENABLED == 'true' && github.ref == 'refs/tags/mokka-cherry-pick-v0.11.0-r1' }}", job["if"])
+	require.Equal(t, "${{ vars.REPOSITORY_AUTOMATION_MOKKA_ENABLED == 'true' && github.ref == 'refs/heads/main' }}", job["if"])
 	require.Equal(t, map[string]any{"contents": "write", "pull-requests": "write"}, job["permissions"])
 	steps, ok := job["steps"].([]any)
 	require.True(t, ok)
-	require.Len(t, steps, 3, "the workflow must check out tagged trusted code, check out the target, and invoke the action")
+	require.Len(t, steps, 3, "the workflow must check out trusted default-branch code, check out the target, and invoke the action")
 
 	trustedCheckout, ok := steps[0].(map[string]any)
 	require.True(t, ok)

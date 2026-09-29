@@ -8,12 +8,12 @@ package e2e
 import (
 	"context"
 	"sort"
-	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/nfd"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/config"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
@@ -45,7 +45,7 @@ const (
 
 	// Container path of the feature file the node agent writes
 	// (internal/agent/pcibus); the hostPath behind it is nodeLabels.featuresDir.
-	nfdFeatureFile = "/host/etc/kubernetes/node-feature-discovery/features.d/nvml-mock.features"
+	nfdFeatureFile = "/host/etc/" + nfd.FeaturesDir + "/nvml-mock.features"
 
 	// Named explicitly so the read stays pinned to the container that mounts
 	// featuresDir even if the pod grows another one.
@@ -105,7 +105,10 @@ var _ = Describe("nvml-mock NFD label provenance", Label("nfd"), Ordered, Contin
 
 		res, err := h.Kube.ExecSh(ctx, agent, "cat "+nfdFeatureFile)
 		Expect(err).NotTo(HaveOccurred(), "reading %s: %s", nfdFeatureFile, res.Combined())
-		Expect(strings.TrimSpace(res.Stdout)).To(Equal("pci-10de.present=true"),
+		features := nfd.Decode([]byte(res.Stdout))
+		Expect(features.Has(pciVendorFeature)).To(BeTrue(),
+			"feature file %s must publish %s, got %q", nfdFeatureFile, pciVendorFeature, res.Stdout)
+		Expect(features[pciVendorFeature]).To(Equal("true"),
 			"feature file contents drive the label NFD creates")
 	})
 

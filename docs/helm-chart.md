@@ -281,15 +281,19 @@ $ cat /var/lib/nvml-mock/sys/devices/pci0000:00/0000:07:00.0/numa_node
 
 ### Defaults per profile
 
-| Profile | Root complexes | NUMA nodes | Devices per root |
-|---|---|---|---|
-| `a100`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual EPYC) | 4 |
-| `h100`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 |
-| `b200`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 |
-| `gb200` | 2 (`pci0000:00`, `pci0000:40`) | 2 (one per Grace CPU) | 2 |
-| `gb300` | 2 (`pci0000:00`, `pci0000:40`) | 2 (one per Grace CPU) | 2 |
-| `l40s`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 |
-| `t4`    | 1 (`pci0000:00`) | 1 | 4 |
+| Profile | Root complexes | NUMA nodes | GPUs per root | NVSwitch bridges |
+|---|---|---|---|---|
+| `a100`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual EPYC) | 4 | 6 |
+| `h100`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 | 4 |
+| `b200`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 | 0 |
+| `gb200` | 2 (`pci0000:00`, `pci0000:40`) | 2 (one per Grace CPU) | 2 | 0 |
+| `gb300` | 2 (`pci0000:00`, `pci0000:40`) | 2 (one per Grace CPU) | 2 | 0 |
+| `l40s`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 | 0 |
+| `t4`    | 1 (`pci0000:00`) | 1 | 4 | 0 |
+
+The bridges sit on the first root complex, which is where a baseboard's
+switches are attached on real hardware. See
+[NVSwitches on the PCI bus](#nvswitches-on-the-pci-bus).
 
 ### `pcie_topology:` block schema
 
@@ -332,6 +336,37 @@ If a profile omits `pcie_topology:` entirely the renderer falls back to
 a flat single-root layout (every device under `pci0000:00`, NUMA 0). A profile
 whose devices declare no `bus_id` at all renders nothing, and the simulator
 empties any tree a previous profile left behind.
+
+### NVSwitches on the PCI bus
+
+A GPU is not the only NVIDIA device on an HGX node. The baseboard's NVSwitches
+are PCIe endpoints too, and `lspci` lists them as bridges beside the GPUs:
+
+```console
+$ lspci | grep NVIDIA
+05:00.0 Bridge: NVIDIA Corporation GH100 [H100 NVSwitch]
+...
+1a:00.0 3D controller: NVIDIA Corporation GH100 [H100 SXM5 80GB]
+```
+
+A switch reaches the tree by declaring a `device_id` in the profile's
+[`nvlink.switches`](configuration.md#nvswitches) list. List the same BDF under a
+`pcie_topology:` root complex to give the switch that root's `numa_node`;
+otherwise it lands under the root its address implies with `numa_node` `-1`,
+exactly as an unplaced GPU does.
+
+The switch renders with PCI class `0x068000` (base class `0x06` bridge, subclass
+`0x80`), while a GPU renders `0x030200` (3D controller). The distinction is not
+cosmetic: GPU Feature Discovery derives `nvidia.com/gpu.mode` from this class, so
+a switch enumerating as a 3D controller would read as an extra GPU.
+
+!!! note "Rack-scale platforms have no PCIe-visible switches"
+
+    `gb200` and `gb300` declare NVSwitches without a `device_id`. On NVL72 the
+    switches live in their own switch trays, reached over the NVLink cable
+    cartridge, so a compute tray's `lspci` shows its GPUs and no bridges. Those
+    switches still act as NVLink remote endpoints, which is what produces the
+    `NV18` all-to-all in `nvidia-smi topo -m`.
 
 ### PCI sysfs in containers
 
@@ -728,7 +763,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 | **Architecture** | Ampere | Hopper | Blackwell | Blackwell | Blackwell Ultra | Ada Lovelace | Turing |
 | **Compute capability** | 8.0 | 9.0 | 10.0 | 10.0 | 10.0 | 8.9 | 7.5 |
 | **CUDA cores** | 6,912 | 16,896 | 18,432 | 18,432 | 21,632 | 18,176 | 2,560 |
-| **Memory** | 40 GiB HBM2e | 80 GiB HBM3 | 192 GiB HBM3e | 192 GiB HBM3e | 288 GiB HBM3e | 48 GiB GDDR6 | 16 GiB GDDR6 |
+| **Memory** | 40 GiB HBM2e | 80 GiB HBM3 | 180 GiB HBM3e | 186 GiB HBM3e | 278 GiB HBM3e | 48 GiB GDDR6 | 16 GiB GDDR6 |
 | **NVLink** | v3, 12 links | v4, 18 links | v5, 18 links | v5, 18 links | v5, 18 links | — | — |
 | **NVLink BW** | 600 GB/s | 900 GB/s | 1.8 TB/s | 1.8 TB/s | 1.8 TB/s | — | — |
 | **TDP** | 400W | 700W | 1,000W | 1,000W | 1,400W | 350W | 70W |
@@ -746,7 +781,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 - **`h100`** — testing Hopper-specific features: FP8, Transformer Engine, PCIe Gen5, or NVLink v4 topology.
 - **`b200`** — testing next-gen Blackwell features: FP4, NVLink v5, PCIe Gen6. Standalone GPU (no Grace CPU).
 - **`gb200`** — testing Grace-Blackwell Superchip: NVLink-C2C to Grace CPU, unified memory, and Blackwell features.
-- **`gb300`** (default) — testing Grace-Blackwell Ultra Superchip: 288 GiB HBM3e per GPU, 1.4 kW TDP, FP6 in addition to FP4/FP8, and Blackwell Ultra driver line (570.124.06).
+- **`gb300`** (default) — testing Grace-Blackwell Ultra Superchip: 278 GiB HBM3e per GPU, 1.4 kW TDP, FP6 in addition to FP4/FP8, and Blackwell Ultra driver line (570.124.06).
 - **`l40s`** — testing Ada Lovelace inference workloads: FP8, PCIe Gen4, no NVLink (PCIe-only topology).
 - **`t4`** — testing Turing inference GPUs: low power (70W), small memory (16 GiB), 4 GPUs per node.
 
@@ -1034,6 +1069,11 @@ The chart deploys:
      `feature.node.kubernetes.io/pci-10de.present=true` appear — see
      [Node Labels](#node-labels)
 2. **ConfigMap** — GPU configuration from the selected profile
+3. **ConfigMap** (`<fullname>-mig-profiles`) — the selected board's MIG
+   partition table, mounted at `/etc/nvml-mock/mig` and pointed at by
+   `MOCK_MIG_PROFILES_CONFIG`. Rendered only for the five MIG-capable
+   profiles, and never with `gpu.customConfig`, whose table is the user's —
+   see [where the table lives](mig.md#where-the-table-lives)
 3. **ServiceAccount** — no cluster RBAC; nothing in the pod calls the API
 
 Consumer components (DRA driver, device plugin) mount `/var/lib/nvml-mock`
