@@ -65,7 +65,7 @@ body:
       label: Verify published artefacts
       options:
         - label: "Image resolves: `ghcr.io/nvidia/nvml-mock:<version-without-v>` (the tag drops the `v`)."
-        - label: "Chart resolves, noting the known gap that the helm publish job only runs from `main`."
+        - label: "Chart resolves: `oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock:<version-without-v>`, published by `helm-publish` for the tag."
         - label: "GitHub release notes published, tag linked in this issue, issue closed."
   - type: textarea
     id: changelog

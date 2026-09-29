@@ -67,14 +67,20 @@ jobs:
       - name: Assert the proxy is actually in front
         run: ./hack/check-goproxy.sh enforced
 
+      - name: Read chart appVersion
+        id: chart
+        run: |
+          app_version=$(yq -e '.appVersion' deployments/nvml-mock/helm/nvml-mock/Chart.yaml)
+          echo "app_version=${app_version}" >> "$GITHUB_OUTPUT"
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            # On push to main: tag as "latest"
-            type=raw,value=latest,enable={{is_default_branch}}
+            # On push to main: tag with the chart's appVersion, overwriting it
+            type=raw,value=${{ steps.chart.outputs.app_version }},enable={{is_default_branch}}
             # On tag push: use the tag (e.g., v0.1.0)
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
