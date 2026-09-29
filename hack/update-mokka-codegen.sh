@@ -6,7 +6,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 module="github.com/NVIDIA/k8s-test-infra"
-api_package="${module}/internal/controlplane/api/v1alpha1"
+api_package="${module}/api/v1alpha1"
 generated_package="${module}/pkg/generated"
 header="${repo_root}/hack/boilerplate.go.txt"
 tool_dir="$(mktemp -d)"
@@ -25,7 +25,7 @@ rm -rf "${repo_root}/pkg/generated"
 "${tool_dir}/client-gen" \
 	--go-header-file "${header}" \
 	--clientset-name versioned \
-	--input-base "${module}/internal/controlplane" \
+	--input-base "${module}" \
 	--input api/v1alpha1 \
 	--output-dir "${repo_root}/pkg/generated/clientset" \
 	--output-pkg "${generated_package}/clientset"

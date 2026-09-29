@@ -55,7 +55,7 @@ for Kubernetes API access. Its ClusterRole grants Node reads and patches and
 the Mokka resource permissions needed for reconciliation; its namespaced Role
 grants leader-election Lease access in the release namespace. The node-agent
 and NRI DaemonSets do not mount ServiceAccount tokens. See the
-[Mokka controller](docs/mokka-controller.md) for its reconciliation and
+[Mokka Control Plane](docs/control-plane.md) for its reconciliation and
 single-writer lifecycle. No component runs privileged or in a host namespace.
 
 Privilege is scoped per container:
