@@ -63,86 +63,97 @@ spec:
           metadata:
             type: object
           spec:
-            description: SGPURuntimePolicySpec pairs a target selector with the RuntimeState
-              to apply.
+            description: Spec selects the inventory scope and runtime override.
             properties:
               runtime:
-                description: |-
-                  RuntimeState is the effective runtime settings of a simulated GPU.
-                  Sparse: omitted fields inherit; explicit zero is a set value.
+                description: Runtime is the sparse runtime override to apply.
                 properties:
                   deviceState:
-                    description: DeviceState is a simulated GPU health state.
+                    description: DeviceState is the simulated GPU health state.
                     enum:
                     - Healthy
                     - Degraded
                     - Failed
                     type: string
                   modes:
-                    description: RuntimeModes is the persistent NVML/CUDA mode settings.
+                    description: Modes contains persistent NVML/CUDA mode settings.
                     properties:
                       accounting:
+                        description: Accounting controls accounting mode.
                         enum:
                         - Enabled
                         - Disabled
                         type: string
                       compute:
+                        description: Compute controls compute mode.
                         enum:
                         - Default
                         - Exclusive
                         - Prohibited
                         type: string
                       ecc:
+                        description: ECC controls ECC mode.
                         enum:
                         - Enabled
                         - Disabled
                         type: string
                       mig:
+                        description: MIG controls MIG mode.
                         enum:
                         - Enabled
                         - Disabled
                         type: string
                       persistence:
+                        description: Persistence controls persistence mode.
                         enum:
                         - Enabled
                         - Disabled
                         type: string
                     type: object
                   telemetry:
-                    description: RuntimeTelemetry is the synthetic NVML telemetry.
+                    description: Telemetry contains synthetic NVML telemetry values.
                     properties:
                       clocks:
                         description: ClocksTelemetry reports current clock rates.
                         properties:
                           graphicsMHz:
+                            description: GraphicsMHz is the graphics clock in MHz.
                             format: int32
                             minimum: 0
                             type: integer
                           memoryMHz:
+                            description: MemoryMHz is the memory clock in MHz.
                             format: int32
                             minimum: 0
                             type: integer
                           smMHz:
+                            description: SMMHz is the SM clock in MHz.
                             format: int32
                             minimum: 0
                             type: integer
                           videoMHz:
+                            description: VideoMHz is the video clock in MHz.
                             format: int32
                             minimum: 0
                             type: integer
                         type: object
                       performanceState:
-                        description: NVML P-state, e.g. "P0".
+                        description: |-
+                          NVML P-state, e.g. "P0".
+                          PerformanceState is the NVML performance state, such as P0.
                         pattern: ^P[0-9]+$
                         type: string
                       power:
                         description: PowerTelemetry drives synthetic power draw.
                         properties:
                           drawMilliWatts:
+                            description: DrawMilliWatts is the synthetic power draw
+                              in milliwatts.
                             format: int64
                             minimum: 0
                             type: integer
                           mode:
+                            description: Mode selects fixed or patterned power draw.
                             enum:
                             - Fixed
                             - Pattern
@@ -153,12 +164,16 @@ spec:
                           temperature.
                         properties:
                           gpuCelsius:
+                            description: GPUCelsius is the GPU temperature in Celsius.
                             format: int32
                             type: integer
                           memoryCelsius:
+                            description: MemoryCelsius is the memory temperature in
+                              Celsius.
                             format: int32
                             type: integer
                           mode:
+                            description: Mode selects fixed or patterned temperature.
                             enum:
                             - Fixed
                             - Pattern
@@ -169,24 +184,26 @@ spec:
                           utilization.
                         properties:
                           mode:
+                            description: Mode selects fixed or patterned utilization.
                             enum:
                             - Pattern
                             - Fixed
                             type: string
                           pattern:
-                            description: UtilizationPattern shapes the generated utilization
-                              curve.
+                            description: Pattern describes the utilization curve when
+                              Mode is Pattern.
                             properties:
                               gpuPercent:
-                                description: PercentRange is a min/max percentage
-                                  bound.
+                                description: GPUPercent is the GPU utilization range.
                                 properties:
                                   maximum:
+                                    description: Maximum is the upper percentage bound.
                                     format: int32
                                     maximum: 100
                                     minimum: 0
                                     type: integer
                                   minimum:
+                                    description: Minimum is the lower percentage bound.
                                     format: int32
                                     maximum: 100
                                     minimum: 0
@@ -196,15 +213,17 @@ spec:
                                 - minimum
                                 type: object
                               memoryPercent:
-                                description: PercentRange is a min/max percentage
-                                  bound.
+                                description: MemoryPercent is the memory utilization
+                                  range.
                                 properties:
                                   maximum:
+                                    description: Maximum is the upper percentage bound.
                                     format: int32
                                     maximum: 100
                                     minimum: 0
                                     type: integer
                                   minimum:
+                                    description: Minimum is the lower percentage bound.
                                     format: int32
                                     maximum: 100
                                     minimum: 0
@@ -214,6 +233,7 @@ spec:
                                 - minimum
                                 type: object
                               type:
+                                description: Type selects the utilization curve shape.
                                 enum:
                                 - Steady
                                 - Bursty
@@ -224,11 +244,11 @@ spec:
                     type: object
                 type: object
               targetRef:
-                description: |-
-                  PolicyTargetRef selects the fan-out scope. Each optional slice narrows
-                  the level above.
+                description: TargetRef identifies the inventory and optional rack,
+                  node, and GPU axes.
                 properties:
                   gpuIndexes:
+                    description: GPUIndexes limits the policy to these GPU indexes.
                     items:
                       format: int32
                       type: integer
@@ -237,17 +257,21 @@ spec:
                     type: array
                     x-kubernetes-list-type: set
                   group:
+                    description: Group is the API group of the selected inventory.
                     enum:
                     - mokka.nvidia.com
                     type: string
                   kind:
+                    description: Kind is the resource kind being selected.
                     enum:
                     - SGPUInventory
                     type: string
                   name:
+                    description: Name is the selected SGPUInventory resource name.
                     minLength: 1
                     type: string
                   nodeIndexes:
+                    description: NodeIndexes limits the policy to these node indexes.
                     items:
                       format: int32
                       type: integer
@@ -256,6 +280,8 @@ spec:
                     type: array
                     x-kubernetes-list-type: set
                   rackGroups:
+                    description: RackGroups limits the policy to these rack-group
+                      IDs.
                     items:
                       type: string
                     maxItems: 64
@@ -263,6 +289,7 @@ spec:
                     type: array
                     x-kubernetes-list-type: set
                   rackIndexes:
+                    description: RackIndexes limits the policy to these rack indexes.
                     items:
                       format: int32
                       type: integer
@@ -279,17 +306,19 @@ spec:
             - targetRef
             type: object
           status:
-            description: |-
-              SGPURuntimePolicyStatus holds comma-joined denormalizations of
-              spec.targetRef axes for print columns.
+            description: Status contains denormalized target axes for print columns.
             properties:
               gpuIndexesSummary:
+                description: GPUIndexesSummary lists the selected GPU indexes.
                 type: string
               nodeIndexesSummary:
+                description: NodeIndexesSummary lists the selected node indexes.
                 type: string
               rackGroupsSummary:
+                description: RackGroupsSummary lists the selected rack groups.
                 type: string
               rackIndexesSummary:
+                description: RackIndexesSummary lists the selected rack indexes.
                 type: string
             type: object
         required:
