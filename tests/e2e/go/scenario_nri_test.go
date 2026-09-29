@@ -81,9 +81,9 @@ const (
 // with containerd NRI enabled is created once; the nvml-mock chart is installed
 // per selected GPU profile with `nri.enabled=true` (plus a per-node
 // ComputeDomain overlay for fabric-attached profiles). The scenario then proves
-// that an ordinary `gpu-agent` DaemonSet — no `nvidia.com/gpu` request, no
-// hostPath/mock volumes, no `MOCK_*` env — sees the full mock GPU stack purely
-// through NRI ambient injection, and that each node carries its assigned
+// that a `gpu-agent` DaemonSet — no `nvidia.com/gpu` request, no hostPath/mock
+// volumes, no `MOCK_*` env, only the devices annotation — sees the full mock GPU
+// stack purely through NRI injection, and that each node carries its assigned
 // ComputeDomain clique / cluster UUID.
 var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, func() {
 	var (
@@ -124,8 +124,8 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 			})
 
 			// gpu-agent readiness alone already proves injection (its `set -eu`
-			// self-test fails otherwise); this asserts the pod spec stayed plain.
-			It("keeps the workload pod plain (no nvidia.com/gpu request)", Label("nri-inject"), func(ctx SpecContext) {
+			// self-test fails otherwise); this asserts the pod spec requests no GPU.
+			It("injects without an nvidia.com/gpu request", Label("nri-inject"), func(ctx SpecContext) {
 				assertAgentHasNoGPURequest(ctx, h)
 			})
 
@@ -286,8 +286,9 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 		// pushing the engine's visibility filter back to "all present" and
 		// exposing every GPU to a pod allocated one.
 		//
-		// Mutation-checked: reverting alreadyHasGPUDevices turns this red with
-		// nvidia-smi reporting every GPU instead of one.
+		// Mutation-checked: letting the devices annotation win over
+		// hasGPUAllocation turns this red with nvidia-smi reporting every GPU
+		// instead of one.
 		It("keeps an annotated pod's allocation intact", Label("nri-dp-suppression"), func(ctx SpecContext) {
 			pod := applyNRIWorkload(ctx, h,
 				nriRequestPodManifest("nri-dp-annotated-request", gpuNode, 1,
@@ -386,18 +387,19 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 				"default deviceInjectionMode is raw, so the CDI spec must not have been applied")
 		})
 
-		It("handles a plain unannotated pod with no GPU request", Label("nri-dp-plain"), func(ctx SpecContext) {
+		// The negative half of the allocation rule: on a node where the device
+		// plugin is serving, a pod that requested no GPU and carries no
+		// annotation must look exactly as it would on a real GPU node — no mock
+		// driver, no mock environment, no GPU device nodes.
+		It("leaves a pod with no GPU request and no annotation untouched", Label("nri-dp-plain"), func(ctx SpecContext) {
 			pod := applyNRIWorkload(ctx, h, nriPlainPodManifest("nri-dp-plain"), "nri-dp-plain")
 
-			// Verify ambient overlay injection is present.
-			res, err := h.Kube.ExecSh(ctx, pod, "test -d /opt/nvml-mock/driver")
-			Expect(err).NotTo(HaveOccurred(), "check overlay mount in nri-dp-plain: %s", res.Combined())
-
-			// Verify GPU visibility reported via nvidia-smi -L.
-			visible := visibleGPUUUIDs(ctx, h, pod)
-			Expect(visible).To(HaveLen(p.ExpectedGPUs()),
-				"plain unannotated pod on DP node receives ambient overlay and reports all %d profile GPUs",
-				p.ExpectedGPUs())
+			res, err := h.Kube.ExecSh(ctx, pod,
+				`test ! -e /opt/nvml-mock && test -z "${MOCK_NVML_CONFIG:-}" && `+
+					`! command -v nvidia-smi && ! ls /dev/nvidia[0-9]* 2>/dev/null`)
+			Expect(err).NotTo(HaveOccurred(),
+				"a pod with no GPU request and no annotation must receive no overlay, mock env or GPU nodes:\n%s",
+				res.Combined())
 		})
 
 		It("leaves the scheduler gate intact once the node is saturated", Label("nri-dp-scheduling"), func(ctx SpecContext) {
@@ -796,7 +798,7 @@ func installNRIChart(ctx context.Context, h *harness.Harness, p profile.Profile,
 // deployNRIAgent (re)creates the plain gpu-agent DaemonSet. It deletes any
 // prior instance first so containers are created AFTER the nvml-mock daemon
 // staged the overlay — NRI only injects at container-creation time — then waits
-// for readiness, which fails unless every pod's ambient self-test passed.
+// for readiness, which fails unless every pod's injection self-test passed.
 func deployNRIAgent(ctx context.Context, h *harness.Harness) {
 	GinkgoHelper()
 	Expect(h.Kube.Delete(ctx, assets.NRIGpuAgentManifest)).To(Succeed(), "delete previous gpu-agent DaemonSet")
@@ -805,15 +807,15 @@ func deployNRIAgent(ctx context.Context, h *harness.Harness) {
 }
 
 // assertAgentHasNoGPURequest mirrors run.sh's "gpu-agent has no nvidia.com/gpu
-// resource request" guard: node-wide injection must not depend on the extended
-// resource being requested.
+// resource request" guard: the devices annotation alone must be enough to
+// receive every mock GPU.
 func assertAgentHasNoGPURequest(ctx context.Context, h *harness.Harness) {
 	GinkgoHelper()
 	out, err := h.Kube.KubectlCombined(ctx, "get", "daemonset", "-n", nriWorkloadNS, nriAgentDaemonSet,
 		"-o", "jsonpath={.spec.template.spec.containers[0].resources}")
 	Expect(err).NotTo(HaveOccurred(), "read gpu-agent container resources")
 	Expect(out).NotTo(ContainSubstring(kube.GPUResourceName),
-		"gpu-agent must not request %s; node-wide injection is ambient (resources=%s)", kube.GPUResourceName, out)
+		"gpu-agent must not request %s; the devices annotation alone selects it (resources=%s)", kube.GPUResourceName, out)
 }
 
 // assertAgentSeesGPUs reads `nvidia-smi -q -x` in a gpu-agent pod and asserts
@@ -981,8 +983,7 @@ func nriAnnotatedPodManifest(name string, node ...string) []byte {
 }
 
 // nriPlainPodManifest renders a pod that opts into nothing: no GPU request and
-// no device annotation. It still receives the overlay and the environment,
-// which is the node-wide NRI contract.
+// no annotation. The NRI plugin leaves it exactly as authored.
 func nriPlainPodManifest(name string) []byte {
 	return nriAnyGPUNode(nriWorkload(name), "").Render()
 }
@@ -992,9 +993,14 @@ func nriPlainPodManifest(name string) []byte {
 // `sleep` wrapper and no `sh -c`: the image has no shell, which is the whole
 // point of using it. The label is what the spec selects on to read the pod's
 // logs, since it has already exited by the time they are collected.
+//
+// The IB tools and their libraries ship in the GPU overlay, so the pod opts
+// into it with the devices annotation; without it the tool path would not
+// exist.
 func nriMinimalIBPodManifest(name, tool string, args ...string) []byte {
 	spec := nriAnyGPUNode(nriWorkload(name), "")
 	spec.Image = nriMinimalImage
+	spec.Annotations = map[string]string{nriDeviceAnnotation: "true"}
 	// Replaces the keepalive shell wholesale; this image has none, so the trap
 	// script would reach the tool as arguments.
 	spec.Command = append([]string{nriOverlayBinDir + "/" + tool}, args...)
