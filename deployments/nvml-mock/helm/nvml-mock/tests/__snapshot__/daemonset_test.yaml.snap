@@ -19,7 +19,7 @@ should match snapshot with all overrides:
       template:
         metadata:
           annotations:
-            checksum/config: 3c0d51158b7ac5d4a9e185eae603f4e22bd302cd2bf199be012d4bff3d852666
+            checksum/config: e99fb3c70faadf41ab8f67bba86914ea223e2967613b248abf08e876c72b93c2
             checksum/mig-profiles: 7f5c00954886487b5209e5d1724a12cb1c9555a6c1fbf79d10f385fed9923237
           labels:
             app.kubernetes.io/component: daemon
@@ -187,7 +187,7 @@ should match snapshot with b200 profile:
       template:
         metadata:
           annotations:
-            checksum/config: a33f6815aa9f0bcf50cf9009aa6094a5ac1ec6f260e3cfc5d317a10d4ebbb466
+            checksum/config: 9083c6cdf1748790ce344e59f43aeb39cef47bf005534e3a227fef7d716df4f7
             checksum/mig-profiles: 872e4e600afe92907f403d7ba38f14a091ffb356dc113d23c5c136a0284625d1
           labels:
             app.kubernetes.io/component: daemon
@@ -343,7 +343,7 @@ should match snapshot with default values:
       template:
         metadata:
           annotations:
-            checksum/config: 6df7c908f27db9d27956d4a4ab98af1752b10c4e19aa5165268403aadbf1136f
+            checksum/config: aed0a67a7b02a2b9b5d1bb7c6132d15cdd553a4b4a629ff7f4e56b3ac1a17efb
             checksum/mig-profiles: fb2ebf8b158ede295783bcc2f137d194ef2e4f7648855ea626d419f41e62cf2d
           labels:
             app.kubernetes.io/component: daemon
