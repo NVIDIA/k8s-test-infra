@@ -11,6 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// migEnabledFixture is the only capture in testdata with MIG switched on: an
+// h100 board carved into seven 1g.10gb partitions. Every other fixture reports
+// the mode off, which is what the negative-control assertions read.
+const migEnabledFixture = "qx-h100-mig-enabled.xml"
+
 func TestParseSnapshot_ReportsInventory(t *testing.T) {
 	snap, err := ParseSnapshot(loadFixture(t, "qx-a100-healthy.xml"))
 	require.NoError(t, err)
@@ -248,6 +253,156 @@ func TestGPU_FanSpeed(t *testing.T) {
 	pct, ok := gpu.FanSpeedPercent()
 	require.True(t, ok)
 	assert.Equal(t, 57, pct)
+}
+
+// The <mig_devices> readings, against a document captured from a MIG-enabled
+// h100 node whose boards are each carved into seven 1g.10gb partitions. Neither
+// the partition's UUID nor its profile name appears anywhere in -q -x, so the
+// instance IDs are what the assertions have to identify a partition by.
+func TestGPU_MIGPartitions(t *testing.T) {
+	t.Parallel()
+	snap, err := ParseSnapshot(loadFixture(t, migEnabledFixture))
+	require.NoError(t, err)
+
+	total, err := snap.MIGPartitionCount()
+	require.NoError(t, err)
+	assert.Equal(t, 14, total, "two boards of seven partitions each")
+
+	for i := range snap.Count() {
+		gpu, err := snap.GPU(i)
+		require.NoError(t, err)
+
+		assert.Equal(t, "Enabled", gpu.MIGMode())
+		assert.Equal(t, "Enabled", gpu.MIGModePending())
+		assert.True(t, gpu.MIGEnabled())
+
+		partitions, err := gpu.MIGPartitions()
+		require.NoError(t, err)
+		require.Len(t, partitions, 7)
+
+		// A partition is identified here by its GPU instance ID, and the
+		// capability table is keyed by it, so a duplicate would collapse two
+		// partitions onto one cap node.
+		var ids []int
+		for _, p := range partitions {
+			ids = append(ids, p.GPUInstanceID)
+			assert.Equal(t, 0, p.ComputeInstanceID, "migStrategy=single gives each partition one compute instance")
+			assert.Equal(t, 10240, p.MemoryTotalMiB, "a 1g.10gb slice of an 81920 MiB board")
+			assert.Equal(t, 16, p.MultiprocessorCount)
+		}
+		assert.Equal(t, []int{0, 1, 2, 3, 4, 5, 6}, ids)
+	}
+}
+
+// A GPU with MIG off is a valid state, not a decode failure, and the mode says
+// so outright — which the `nvidia-smi -L` listing this reading replaced could
+// only infer from the absence of partition lines.
+func TestGPU_MIGPartitionsOnUnpartitionedGPU(t *testing.T) {
+	t.Parallel()
+	snap, err := ParseSnapshot(loadFixture(t, "qx-a100-healthy.xml"))
+	require.NoError(t, err)
+	gpu, err := snap.GPU(0)
+	require.NoError(t, err)
+
+	assert.Equal(t, "Disabled", gpu.MIGMode())
+	assert.Equal(t, "Disabled", gpu.MIGModePending())
+	assert.False(t, gpu.MIGEnabled())
+
+	partitions, err := gpu.MIGPartitions()
+	require.NoError(t, err)
+	assert.Empty(t, partitions)
+
+	total, err := snap.MIGPartitionCount()
+	require.NoError(t, err)
+	assert.Equal(t, 0, total)
+}
+
+// A board that cannot partition answers the mode N/A rather than "Disabled".
+// Collapsing the two would report a T4 as a MIG-capable board that happens to
+// be unpartitioned.
+func TestGPU_MIGModeOnBoardThatCannotPartition(t *testing.T) {
+	t.Parallel()
+	snap, err := ParseSnapshot(loadHardwareCapture(t, "qx-t4.xml"))
+	require.NoError(t, err)
+	gpu, err := snap.GPU(0)
+	require.NoError(t, err)
+
+	assert.Equal(t, "N/A", gpu.MIGMode())
+	assert.False(t, gpu.MIGEnabled())
+	partitions, err := gpu.MIGPartitions()
+	require.NoError(t, err)
+	assert.Empty(t, partitions)
+}
+
+// The negative control for every count built on MIGPartitions. A block whose
+// partition elements this schema cannot find decodes to nothing, and reading
+// that as a board with no partitions would make every count pass on a fully
+// carved board by accident. The precondition is asserted alongside the error,
+// because the control is only meaningful if the mutation really does leave the
+// schema an empty decode rather than an undecodable document.
+func TestGPU_MIGPartitionsRejectsEmptyDecodeOfPopulatedBlock(t *testing.T) {
+	t.Parallel()
+	renamed := strings.ReplaceAll(loadFixture(t, migEnabledFixture), "mig_device>", "mig_partition>")
+	snap, err := ParseSnapshot(renamed)
+	require.NoError(t, err)
+	gpu, err := snap.GPU(0)
+	require.NoError(t, err)
+
+	require.Empty(t, gpu.element.MIGDevices.Devices,
+		"precondition: the rename leaves the schema no partition elements to decode")
+
+	_, err = gpu.MIGPartitions()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not recognise")
+
+	// The node-wide count has to fail with it rather than report 0.
+	_, err = snap.MIGPartitionCount()
+	require.Error(t, err)
+}
+
+// The remaining shapes a document can take that a partition count must not read
+// as zero or as a plausible reading.
+func TestGPU_MIGPartitionsRejectsUnreadableBlock(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		mutate  func(string) string
+		wantErr string
+	}{
+		{
+			name: "block element renamed",
+			mutate: func(doc string) string {
+				return strings.ReplaceAll(doc, "mig_devices>", "mig_partitions>")
+			},
+			wantErr: "no <mig_devices> block",
+		},
+		{
+			name: "instance id is not a number",
+			mutate: func(doc string) string {
+				return strings.Replace(doc,
+					"<gpu_instance_id>3</gpu_instance_id>",
+					"<gpu_instance_id>N/A</gpu_instance_id>", 1)
+			},
+			wantErr: "gpu_instance_id",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			snap, err := ParseSnapshot(tc.mutate(loadFixture(t, migEnabledFixture)))
+			require.NoError(t, err, "the mutation must leave a decodable document")
+			gpu, err := snap.GPU(0)
+			require.NoError(t, err)
+
+			_, err = gpu.MIGPartitions()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+
+			// The node-wide count has to fail with it rather than report the
+			// GPUs it could still read.
+			_, err = snap.MIGPartitionCount()
+			require.Error(t, err)
+		})
+	}
 }
 
 func TestGPU_ProcessesDecodesConfiguredEntries(t *testing.T) {

@@ -302,6 +302,11 @@ device_defaults:
   # ---------------------------------------------------------------------------
   # MIG configuration
   # ---------------------------------------------------------------------------
+  # MIG ships off because a partitioned board stops publishing nvidia.com/gpu
+  # under migStrategy=single. How a board is carved is a deployment choice
+  # rather than a property of the silicon, so no layout is declared here:
+  # --set gpu.mig.enabled=true needs gpu.mig.gpuInstances to supply one. Seven
+  # 1g.10gb instances is what nvidia-mig-parted's all-1g.10gb config produces.
   mig:
     mode_current: "disabled"
     mode_pending: "disabled"
