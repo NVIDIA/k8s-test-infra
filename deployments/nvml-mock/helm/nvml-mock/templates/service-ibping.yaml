@@ -9,8 +9,8 @@ metadata:
     {{- include "nvml-mock.labels" . | nindent 4 }}
 spec:
   # Headless: DNS returns node DaemonSet pod IPs for peer discovery. The NRI
-  # sidecar shares those pods, while targetPort still resolves only the named
-  # ibping port exposed by the node-agent container.
+  # sidecar shares those pods, while the numeric target reaches the ibping
+  # listener exposed by the node-agent container.
   clusterIP: None
   {{- if .Values.nri.enabled }}
   # NRI contributes pod readiness but does not serve the relay. Keep a healthy
@@ -23,6 +23,9 @@ spec:
   ports:
     - name: ibping
       port: {{ .Values.infiniband.ping.port }}
-      targetPort: ibping
+      # Kubernetes 1.29-1.31 cannot resolve named Service ports from
+      # restartable init containers. The configured number works in both pod
+      # layouts and across every supported Kubernetes version.
+      targetPort: {{ .Values.infiniband.ping.port }}
       protocol: TCP
 {{- end }}

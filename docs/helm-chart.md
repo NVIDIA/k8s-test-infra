@@ -37,7 +37,7 @@ Consumers (DRA driver, device plugin) point at `/var/lib/nvml-mock/driver`
 as the NVIDIA driver root and discover GPUs through standard NVML APIs.
 
 When `nri.enabled=true` (opt-in; default `false`), the chart adds
-`nvml-mock-nri` as a sidecar in the node DaemonSet. This node-local containerd
+`nvml-mock-nri` to the node DaemonSet. This node-local containerd
 NRI plugin mounts the host overlay into newly created containers at
 `/opt/nvml-mock` and injects the mock environment at runtime, so a pod needs no
 Mokka-specific pod spec changes. It injects only containers that hold a GPU allocation from the
@@ -554,17 +554,41 @@ allocation in both modes, even with the annotation, per
 Applies only when `nri.enabled=true`.
 
 The node agent and the NRI plugin run as separate containers in the same node
-DaemonSet pod. They are scheduled to the same nodes, use the same release, and
-roll together. Changing an `nri.*` value therefore rolls the node DaemonSet and
-briefly rebuilds the staged driver tree. The chart has no option to deploy the
-plugin separately, so this is the operational cost of enabling NRI.
+DaemonSet pod. On Kubernetes 1.29 and later, the node agent is a [restartable
+init container](https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/)
+and NRI a regular container, which orders them:
+
+- **Startup.** The node agent's startup probe reads `/stagedz`, which opens once
+  its first Stage wave has written the driver tree, so Kubernetes starts NRI
+  only after that. `/stagedz` does not wait for an intentional
+  `fabricmanager.initDelay`, so new workloads can still observe the simulated
+  `IN_PROGRESS` fabric state. Kubernetes runs no liveness probe until the
+  startup probe passes, so `nodeAgent.nriStartupTimeoutSeconds` (120 by
+  default) is also how long a node agent whose first staging failed waits
+  before it is restarted.
+- **Termination.** Kubernetes stops NRI before the node agent, so the plugin
+  disconnects before the agent removes the staged driver tree.
+
+While both run, NRI checks the node agent before each adjustment and leaves new
+containers unmodified while the agent is restarting or restaging; see
+[Failing open](components/nri-plugin.md#failing-open).
+
+If a cluster administrator has explicitly disabled the `SidecarContainers`
+feature gate, set `nri.nativeSidecar=false`. That setting, and Kubernetes 1.28,
+render both as regular containers, which Kubernetes does not order, so NRI
+leaves containers unmodified while the node agent stages files at startup. The
+chart picks the layout from Helm's `.Capabilities.KubeVersion`: pass
+`--kube-version` to `helm template`, or the equivalent setting in a GitOps
+renderer, when rendering offline. An upgrade across Kubernetes 1.29 switches
+the layout on the next Helm upgrade and rolls every node pod.
+
+Changing an `nri.*` value rolls the node DaemonSet and briefly rebuilds the
+staged driver tree. The chart has no option to deploy the plugin separately, so
+this is the operational cost of enabling NRI.
 
 Readiness is shared as well. A plugin that is not Ready, including one on a
 node whose container runtime has NRI disabled, marks the whole node pod
 NotReady; see [NRI plugin failure modes](#nri-plugin-failure-modes).
-
-Kubernetes does not order containers in the same pod, so NRI can briefly fail
-open while the node agent stages files during startup.
 
 For InfiniBand-enabled profiles, the headless `-ibping` Service publishes pod
 addresses even when the shared pod is NotReady. The relay runs in the node
@@ -738,6 +762,7 @@ namespace, on the pod IP where the kubelet reaches it.
 | `nodeAgent.livenessProbe` | `httpGet /healthz` on `health` | Node agent liveness probe. Set to `null` to drop it. |
 | `nodeAgent.readinessProbe` | `httpGet /readyz` on `health` | Node agent readiness probe. Set to `null` to drop it. |
 | `nodeLabels.featuresDir` | `/etc/kubernetes/node-feature-discovery/features.d` | Host directory NFD's local source reads feature files from. Override only if NFD runs with a non-default `featureFilesDir` |
+| `nodeAgent.nriStartupTimeoutSeconds` | `120` | On Kubernetes 1.29+, maximum time the node-agent `/stagedz` gate may wait for its first staging and apply cycle before Kubernetes restarts it when NRI uses native sidecars |
 | `integrations.fakeGpuOperator.enabled` | `false` | Create per-profile ConfigMaps named `gpu-profile-<profile>`, keyed `profile.yaml`, in the shape fake-gpu-operator's loader reads |
 | `integrations.fakeGpuOperator.targetNamespace` | `""` (release namespace) | Namespace for the profile ConfigMaps. Set to FGO's release namespace for FGO to find them; requires FGO's `builtinProfiles.enabled=false` to avoid a Helm ownership collision on the same seven names |
 | `integrations.fakeGpuOperator.profileLabels` | `{"run.ai/gpu-profile": "true"}` | Extra labels on profile ConfigMaps. The contract labels `fake-gpu-operator/gpu-profile` and `nvml-mock/profile-name` are always emitted and cannot be removed here |
@@ -745,6 +770,7 @@ namespace, on the pod IP where the kubelet reaches it.
 | `infiniband.ping.port` | `18515` | TCP port for fabric relay between nvml-mock pods (`mock-ib` / `ibping` always enabled) |
 | `infiniband.ping.networkPolicy.enabled` | `true` | Restrict inbound access to the fabric port to peer nvml-mock pods. No-op on CNIs that don't enforce NetworkPolicy (e.g. Kind's kindnet) |
 | `nri.enabled` | `false` | Add the `nvml-mock-nri` containerd NRI plugin as a sidecar in the node DaemonSet. Injects mock overlay and environment cluster-wide into non-excluded namespaces. Always install into a dedicated namespace (`-n mokka`) to avoid excluding `default`. Device node injection remains opt-in (`nvidia.com/gpu` request or `nvml-mock.nvidia.com/devices: "true"` annotation). |
+| `nri.nativeSidecar` | `true` | On Kubernetes 1.29+, use the ordered `SidecarContainers` layout. Set to `false` when that feature gate is explicitly disabled; the chart falls back to unordered regular containers |
 | `nri.socketPath` | `/var/run/nri/nri.sock` | NRI socket on the host. Its directory is hostPath-mounted into the plugin |
 | `nri.pluginName` / `nri.pluginIndex` | `nvml-mock` / `"10"` | NRI registration identity. The index orders this plugin against others |
 | `nri.overlay.hostPath` / `nri.overlay.mountPath` | `/var/lib/nvml-mock` / `/opt/nvml-mock` | Host overlay staged by the main DaemonSet, and the path it is injected at inside workloads |

@@ -20,6 +20,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/health"
+	"github.com/NVIDIA/k8s-test-infra/internal/staginggate"
 )
 
 // Agent is the reconciler and supervisor for all simulators.
@@ -28,7 +29,9 @@ type Agent struct {
 	source          StateSource
 	log             *zap.Logger
 	shutdownTimeout time.Duration
+	stagingLockPath string
 	live            atomic.Pointer[health.Probe] // last Stage wave outcome, served on /healthz
+	staged          atomic.Bool                  // latest Stage wave completed; false while restaging and during teardown
 
 	// Daemons launch into this group from reconcile but bind to supervisorCtx,
 	// so they outlive the reconcile that started them.
@@ -44,6 +47,7 @@ type Config struct {
 	Source          StateSource
 	Log             *zap.Logger
 	ShutdownTimeout time.Duration
+	StagingLockPath string
 }
 
 // New returns an Agent from cfg.
@@ -56,6 +60,7 @@ func New(cfg Config) *Agent {
 		source:          cfg.Source,
 		log:             cfg.Log,
 		shutdownTimeout: cfg.ShutdownTimeout,
+		stagingLockPath: cfg.StagingLockPath,
 		started:         make(map[string]bool),
 	}
 	a.setLive(health.OK())
@@ -67,6 +72,17 @@ func (a *Agent) setLive(probe health.Probe) { a.live.Store(&probe) }
 // Liveness passes while the last Stage wave completed without error, naming the
 // simulators that failed when it did. It recovers once Stage succeeds again.
 func (a *Agent) Liveness() health.Probe { return *a.live.Load() }
+
+// Staged passes once the latest Stage wave has written the tree NRI injects.
+// It closes during restaging and teardown, and stays closed after a failed
+// Stage. It ignores Apply and daemon readiness, including an intentional
+// fabricmanager initialization delay.
+func (a *Agent) Staged() health.Probe {
+	if a.staged.Load() {
+		return health.OK()
+	}
+	return health.Unhealthy("driver tree not staged")
+}
 
 // Readiness aggregates every simulator's readiness and attributes the result
 // per simulator, so a red /readyz names which one is not serving.
@@ -100,15 +116,31 @@ func (a *Agent) Run(ctx context.Context) error {
 	err := g.Wait()
 
 	a.log.Info("agent stopping; tearing down simulators")
+	a.staged.Store(false)
 
 	// Teardown: Revoke then Discard, best-effort with a fresh context because
 	// gctx is already cancelled at this point.
 	teardownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), a.shutdownTimeout)
 	defer cancel()
-	a.revoke(teardownCtx)
-	a.discard(teardownCtx)
+	teardown := func() error {
+		a.revoke(teardownCtx)
+		a.discard(teardownCtx)
+		return nil
+	}
+	// In-flight NRI decisions get at most half the budget, so teardown keeps
+	// the other half even when a wedged plugin never releases the lock.
+	lockCtx, cancelLock := context.WithTimeout(teardownCtx, a.shutdownTimeout/2)
+	defer cancelLock()
+	teardownErr := a.withStagingLock(lockCtx, teardown)
+	if errors.Is(teardownErr, errStagingLockUnavailable) {
+		// The pod is terminating and the grace period is finite. /stagedz
+		// already reports unstaged, so NRI starts no new decisions; only one
+		// already in flight can race this teardown.
+		a.log.Warn("staging lock unavailable; tearing down without it", zap.Error(teardownErr))
+		teardownErr = teardown()
+	}
 
-	return err
+	return errors.Join(err, teardownErr)
 }
 
 func (a *Agent) reconcileLoop(ctx context.Context) error {
@@ -137,6 +169,29 @@ func (a *Agent) reconcileLoop(ctx context.Context) error {
 // reconcile runs Stage on all simulators in parallel, waits for the barrier,
 // starts (or reloads) the daemons, then runs Apply on all appliers in parallel.
 func (a *Agent) reconcile(ctx context.Context, state *State) error {
+	return a.withStagingLock(ctx, func() error { return a.reconcileLocked(ctx, state) })
+}
+
+// errStagingLockUnavailable marks a failure to take the staging lock, as
+// opposed to a failure of the work the lock guards.
+var errStagingLockUnavailable = errors.New("staging lock unavailable")
+
+// withStagingLock runs fn while holding the exclusive staging lock, so no NRI
+// adjustment is decided against a tree that is being changed.
+func (a *Agent) withStagingLock(ctx context.Context, fn func() error) (err error) {
+	if a.stagingLockPath == "" {
+		return fn()
+	}
+	lock, err := staginggate.Exclusive(ctx, a.stagingLockPath)
+	if err != nil {
+		return fmt.Errorf("%w: %w", errStagingLockUnavailable, err)
+	}
+	defer func() { err = errors.Join(err, lock.Close()) }()
+	return fn()
+}
+
+func (a *Agent) reconcileLocked(ctx context.Context, state *State) error {
+	a.staged.Store(false)
 	// Stage wave: all simulators run concurrently and are fully isolated from
 	// each other — a failure never cancels sibling goroutines. All errors are
 	// collected; if any Stage failed the Apply wave is skipped entirely, because
@@ -171,6 +226,11 @@ func (a *Agent) reconcile(ctx context.Context, state *State) error {
 	}
 
 	a.setLive(health.OK())
+	// NRI injects the tree Stage has just written. Apply publishes nothing NRI
+	// needs (the CDI spec it can reference is checked before use), and a failed
+	// Apply is not retried until the state changes, so gating on it would stop
+	// injection on this node until then.
+	a.staged.Store(true)
 
 	// Supervisor wave sits on the barrier: a daemon starts against surfaces Stage
 	// has written, and before Apply publishes them off-node.

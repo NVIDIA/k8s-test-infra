@@ -149,11 +149,27 @@ only visible in the OCI spec of an already-running pod.
 
 ## Failing open
 
-Every step degrades rather than blocks. Nothing orders this plugin's container
-after the node agent's, so on a fresh node the plugin may be asked to adjust a
-container before the GPU tree exists. When a surface is missing, injection is
-reduced — overlay-only instead of overlay-plus-devices — and container creation
-proceeds.
+Every step degrades rather than blocks.
+
+Before each adjustment, the plugin checks the node agent in its pod. It takes
+the shared side of a staging lock, which the agent holds exclusively while it
+stages or tears down the driver tree, and asks the agent's `/stagedz` endpoint
+whether the tree is staged. `/stagedz` follows the agent's Stage wave only, so
+a failed Apply, such as a failed write of the NFD feature file, does not close
+it. While the agent is restarting, restaging or not yet staged, the plugin
+leaves the container unmodified, logs a warning naming its namespace, pod and
+container, and fails `/readyz` with the reason. Containers the plugin skips
+anyway, such as those in an excluded namespace, are not reported.
+
+The lock file lives in a memory-backed `emptyDir` mounted only into the node
+agent and the plugin, so no workload can hold it and stall staging. It covers
+the plugin's decision, not the runtime applying it, so a teardown that starts
+in between can still race one container. During pod termination the agent
+waits at most half of its shutdown timeout for the lock, then tears down
+without it.
+
+Once the agent is serving, individual missing device surfaces can still reduce
+injection to overlay-only instead of blocking container creation.
 
 The alternative would be worse: a plugin that errors on a missing surface blocks
 every container on the node, including the daemon that would have created the
