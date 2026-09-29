@@ -209,8 +209,9 @@ nri:
     hostPath: /var/lib/nvml-mock
     mountPath: /opt/nvml-mock
   optOutAnnotation: nvml-mock.nvidia.com/inject
-  # Workloads that can set this pod annotation to "true" can opt into host GPU
-  # device-node mounts from the staged mock overlay. Treat that pod-authored
+  # Workloads that set this pod annotation to "true" request all staged mock
+  # GPUs for node-wide management. A scheduler-backed allocation takes
+  # precedence and remains exact. Treat this pod-authored
   # control as part of the demo trust boundary and exclude namespaces as needed.
   deviceAnnotation: nvml-mock.nvidia.com/devices
   # How the deviceAnnotation opt-in delivers mock GPUs to a container:
@@ -223,8 +224,8 @@ nri:
   # enables CDI by default, so cdi mode needs no container toolkit on the node;
   # containerd 1.x gates it behind enable_cdi.
   #
-  # Neither mode changes WHETHER a container is served. A container the device
-  # plugin already served is left alone in both.
+  # Neither mode changes WHICH GPUs an allocated container gets. Device-plugin
+  # and NVIDIA DRA allocations keep their incoming GPU set in both modes.
   #
   # If cdi is selected and no spec is staged, the plugin logs a warning and
   # falls back to raw rather than failing container creation.

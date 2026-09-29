@@ -12,12 +12,29 @@ type Container struct {
 	Env            []string
 	Mounts         []Mount
 
-	// Devices and CDIDevices are what the container already carries when the
-	// runtime asks the plugin to adjust it. The kubelet applies the device
-	// plugin's Allocate response before this point, so a non-empty NVIDIA entry
-	// here means the device plugin already served this container. See MEP-0002.
-	Devices    []Device
-	CDIDevices []string
+	// IncomingDevices and DeviceRules describe the runtime spec before Mokka's
+	// adjustment. A numbered node alone is not allocation evidence: privileged
+	// containers can inherit it without asking the scheduler for a GPU.
+	IncomingDevices []RuntimeDevice
+	DeviceRules     []DeviceRule
+	CDIDevices      []string
+}
+
+// RuntimeDevice is a device already present in the container spec.
+type RuntimeDevice struct {
+	Path  string
+	Type  string
+	Major int64
+	Minor int64
+}
+
+// DeviceRule is a pre-existing cgroup rule. Nil numbers mean wildcards.
+type DeviceRule struct {
+	Allow  bool
+	Type   string
+	Major  *int64
+	Minor  *int64
+	Access string
 }
 
 // annotated reports whether the pod set annotation to value, case-insensitively.

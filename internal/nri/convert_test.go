@@ -127,17 +127,54 @@ func TestContainerFromNRI(t *testing.T) {
 					{Path: "/dev/nvidia0", Type: "c", Major: 195, Minor: 0},
 					{Path: "/dev/fuse", Type: "c", Major: 10, Minor: 229},
 				},
+				Resources: &api.LinuxResources{Devices: []*api.LinuxDeviceCgroup{
+					{Allow: true, Type: "c", Major: api.Int64(195), Minor: api.Int64(0), Access: "rwm"},
+				}},
 			},
 			CDIDevices: []*api.CDIDevice{{Name: "nvidia.com/gpu=0"}},
 		}
 
 		result := containerFromNRI(nil, container)
 
-		require.Equal(t, []inject.Device{
-			{Path: "/dev/nvidia0"},
-			{Path: "/dev/fuse"},
-		}, result.Devices)
+		require.Equal(t, []inject.RuntimeDevice{
+			{Path: "/dev/nvidia0", Type: "c", Major: 195, Minor: 0},
+			{Path: "/dev/fuse", Type: "c", Major: 10, Minor: 229},
+		}, result.IncomingDevices)
+		require.Len(t, result.DeviceRules, 1)
+		require.True(t, result.DeviceRules[0].Allow)
+		require.Equal(t, int64(195), *result.DeviceRules[0].Major)
 		require.Equal(t, []string{"nvidia.com/gpu=0"}, result.CDIDevices)
+		adjustment, ok := inject.Adjust(inject.DefaultConfig(), result)
+		require.True(t, ok)
+		require.NotEmpty(t, adjustment.Mounts)
+		require.Empty(t, adjustment.Devices)
+	})
+
+	t.Run("privileged wildcard does not classify inherited GPU", func(t *testing.T) {
+		t.Parallel()
+		result := containerFromNRI(nil, &api.Container{Linux: &api.LinuxContainer{
+			Devices: []*api.LinuxDevice{{Path: "/dev/nvidia0", Type: "c", Major: 195, Minor: 0}},
+			Resources: &api.LinuxResources{Devices: []*api.LinuxDeviceCgroup{
+				{Allow: true, Type: "a", Access: "rwm"},
+			}},
+		}})
+		require.Nil(t, result.DeviceRules[0].Major)
+		require.Nil(t, result.DeviceRules[0].Minor)
+		adjustment, ok := inject.Adjust(inject.DefaultConfig(), result)
+		require.False(t, ok)
+		require.Empty(t, adjustment)
+	})
+
+	t.Run("DRA claim selects the GPU overlay without widening", func(t *testing.T) {
+		t.Parallel()
+		result := containerFromNRI(nil, &api.Container{CDIDevices: []*api.CDIDevice{
+			{Name: "k8s.gpu.nvidia.com/claim=claim-uid-gpu-0"},
+		}})
+		adjustment, ok := inject.Adjust(inject.DefaultConfig(), result)
+		require.True(t, ok)
+		require.NotEmpty(t, adjustment.Mounts)
+		require.Empty(t, adjustment.Devices)
+		require.Empty(t, adjustment.CDIDevices)
 	})
 
 	t.Run("tolerates a nil Linux block", func(t *testing.T) {
@@ -146,7 +183,8 @@ func TestContainerFromNRI(t *testing.T) {
 		// here takes the plugin down and stops injection node-wide.
 		require.NotPanics(t, func() {
 			result := containerFromNRI(nil, &api.Container{Env: []string{"PATH=/usr/bin"}})
-			require.Empty(t, result.Devices)
+			require.Empty(t, result.IncomingDevices)
+			require.Empty(t, result.DeviceRules)
 			require.Empty(t, result.CDIDevices)
 		})
 	})
@@ -156,16 +194,27 @@ func TestContainerFromNRI(t *testing.T) {
 		container := &api.Container{
 			Env:    []string{"PATH=/usr/bin"},
 			Mounts: []*api.Mount{{Source: "/src", Options: []string{"rbind"}}},
+			Linux: &api.LinuxContainer{Devices: []*api.LinuxDevice{{Path: "/dev/nvidia0", Type: "c", Major: 195, Minor: 0}},
+				Resources: &api.LinuxResources{Devices: []*api.LinuxDeviceCgroup{
+					{Allow: true, Type: "c", Major: api.Int64(195), Minor: api.Int64(0), Access: "rwm"},
+				}}},
+			CDIDevices: []*api.CDIDevice{{Name: "nvidia.com/gpu=0"}},
 		}
 
 		result := containerFromNRI(nil, container)
 		result.Env[0] = "PATH=/clobbered"
 		result.Mounts[0].Options[0] = "rw"
+		result.IncomingDevices[0].Path = "/dev/changed"
+		*result.DeviceRules[0].Major = 1
+		result.CDIDevices[0] = "example.com/widget=1"
 
 		// Catches dropping the defensive copies. NRI owns these slices; writing
 		// through them corrupts the runtime's own view of the container.
 		require.Equal(t, []string{"PATH=/usr/bin"}, container.Env)
 		require.Equal(t, []string{"rbind"}, container.Mounts[0].Options)
+		require.Equal(t, "/dev/nvidia0", container.Linux.Devices[0].Path)
+		require.Equal(t, int64(195), container.Linux.Resources.Devices[0].Major.GetValue())
+		require.Equal(t, "nvidia.com/gpu=0", container.CDIDevices[0].Name)
 	})
 
 	t.Run("tolerates nil pod and nil container", func(t *testing.T) {
