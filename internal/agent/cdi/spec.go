@@ -108,9 +108,10 @@ func buildNvidiaSpec(state *agent.State) cdiSpec {
 		// None of this currently reaches a container. The toolkit resolving this
 		// spec applies the mounts from the same block and drops its env (#747) —
 		// unlike buildNRISpec's, which containerd resolves natively and whose env
-		// does arrive. Kept because the values are correct and the mock's
-		// compiled-in defaults match them, so nothing depends on the channel
-		// working — do not add a key that would.
+		// does arrive. Kept because the values are correct and the mock library
+		// falls back to the /etc/nvml-mock mount above when MOCK_NVML_CONFIG is
+		// unset, so nothing depends on the channel working — do not add a key
+		// that would.
 		Env: []string{
 			// void tells the container toolkit to skip its own device enumeration;
 			// without it the toolkit would override our mock nodes with an empty set.

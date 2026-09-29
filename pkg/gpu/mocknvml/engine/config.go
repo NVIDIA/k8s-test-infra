@@ -37,6 +37,10 @@ var (
 	configCacheMu   sync.Mutex
 )
 
+// cdiConfigPath is where the nvidia.com/gpu CDI spec mounts the node's config
+// directory. A variable so tests can point it at a file they own.
+var cdiConfigPath = "/etc/nvml-mock/config.yaml"
+
 // ClearConfigCache clears the cached configuration.
 // Use in tests to ensure clean state between test runs.
 func ClearConfigCache() {
@@ -66,15 +70,10 @@ func DefaultConfig() *Config {
 // LoadConfig loads configuration from YAML file (if specified) or environment variables.
 // Results are cached - subsequent calls with the same config path return cached config.
 //
-// Config resolution order:
-//  1. MOCK_NVML_CONFIG env var (explicit path)
-//  2. Auto-discover from /proc/self/maps (Linux only)
-//  3. Fall back to env vars / defaults
+// The config path comes from resolveConfigPath; without one, env vars and
+// defaults apply.
 func LoadConfig() *Config {
-	configPath := os.Getenv("MOCK_NVML_CONFIG")
-	if configPath == "" {
-		configPath = discoverConfigPath()
-	}
+	configPath := resolveConfigPath()
 
 	configCacheMu.Lock()
 	defer configCacheMu.Unlock()
@@ -162,6 +161,30 @@ func ConfigOverridePathFor(configPath string) string {
 		return ""
 	}
 	return filepath.Join(filepath.Dir(configPath), "overrides.yaml")
+}
+
+// resolveConfigPath returns the config file this process should load, or ""
+// when there is none:
+//  1. MOCK_NVML_CONFIG env var (explicit path)
+//  2. Auto-discover from /proc/self/maps (Linux only)
+//  3. cdiConfigPath, when that file exists
+//
+// The last step serves containers given the library through the nvidia.com/gpu
+// CDI spec: the toolkit resolving it applies the spec's mounts but drops its
+// env (#747), and it mounts the library at /usr/lib64, outside the driver root
+// that maps discovery walks up to.
+func resolveConfigPath() string {
+	if configPath := os.Getenv("MOCK_NVML_CONFIG"); configPath != "" {
+		return configPath
+	}
+	if configPath := discoverConfigPath(); configPath != "" {
+		return configPath
+	}
+	if _, err := os.Stat(cdiConfigPath); err == nil {
+		debugLog("[CONFIG] Using CDI-mounted config at %s\n", cdiConfigPath)
+		return cdiConfigPath
+	}
+	return ""
 }
 
 // discoverConfigPath attempts to locate the config file by reading /proc/self/maps
