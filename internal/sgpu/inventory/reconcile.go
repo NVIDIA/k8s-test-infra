@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 
+	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -255,7 +256,7 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 	}
 	admissionCurrent := func() error {
 		if !r.allocation.admission.current(allocationRevision.capacity) {
-			return errAllocationInputChanged
+			return ErrAllocationInputChanged
 		}
 		return nil
 	}
@@ -264,6 +265,7 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 	}
 	switch decision {
 	case capacityAdmissionPending:
+		zap.L().Debug("Inventory waits for capacity admission", zap.String("inventory", inventory.Name))
 		return result, nil
 	case capacityAdmissionRejected:
 		result.Accepted = false
@@ -293,13 +295,7 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 		if err := admissionCurrent(); err != nil {
 			return result, err
 		}
-		changed, err := r.mutateInventory(ctx, inventory, func(latest *mokkav1alpha1.SGPUInventory) bool {
-			if slices.Contains(latest.Finalizers, InventoryFinalizer) {
-				return false
-			}
-			latest.Finalizers = append(latest.Finalizers, InventoryFinalizer)
-			return true
-		})
+		changed, err := r.addInventoryFinalizer(ctx, inventory)
 		if err != nil {
 			return result, err
 		}
@@ -460,7 +456,7 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 			if err := admissionCurrent(); err != nil {
 				return err
 			}
-			changed, conflict, err := r.createOrUpdateRack(ctx, inventory, existing, rendered.Name, targetSpec)
+			changed, conflict, err := r.createOrUpdateRack(ctx, inventory, existing, rendered.Name, targetSpec, allocations.releases)
 			if conflict != nil {
 				result.OwnershipConflicts = append(result.OwnershipConflicts, *conflict)
 			}
@@ -653,15 +649,7 @@ func (r *Reconciler) preservePendingReleases(
 		if slot.NodeRef == nil {
 			continue
 		}
-		coordinate := allocate.Coordinate{
-			Group: allocate.RackGroupKey{
-				InventoryName: existing.Spec.InventoryRef.Name,
-				InventoryUID:  existing.Spec.InventoryRef.UID,
-				RackGroup:     existing.Spec.Identity.RackGroup,
-			},
-			RackIndex: existing.Spec.Identity.RackIndex, NodeIndex: slot.Index,
-		}
-		release, found := releases[coordinate]
+		release, found := releases[rackCoordinate(existing, slot.Index)]
 		if !found {
 			continue
 		}
@@ -732,8 +720,15 @@ func (r *Reconciler) retireRack(
 	}
 	if latest != nil {
 		empty = rackEmpty(latest)
+		_, released := bindingChanges(&rack.Spec, &latest.Spec)
+		for _, slot := range released {
+			zap.L().Info("Released Node from logical rack Node",
+				append(bindingFields(rack, slot), zap.String("reason", string(reason)))...)
+		}
 	}
 	if !empty {
+		zap.L().Debug("Rack retirement waits for Node projection cleanup", append(rackFields(rack),
+			zap.String("reason", string(reason)), zap.Int("pendingCleanups", len(cleanup)))...)
 		return changed, cleanup, nil
 	}
 	uid := rack.UID
@@ -745,6 +740,9 @@ func (r *Reconciler) retireRack(
 	err = r.racks.Delete(ctx, rack.Name, metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &uid, ResourceVersion: &rv}})
 	if err != nil && !apierrors.IsNotFound(err) {
 		return changed, cleanup, fmt.Errorf("delete rack %q: %w", rack.Name, err)
+	}
+	if err == nil {
+		zap.L().Info("Deleted rack", append(rackFields(rack), zap.String("reason", string(reason)))...)
 	}
 	return true, cleanup, nil
 }
@@ -774,6 +772,24 @@ func (r *Reconciler) retireCapacityRejectedInventory(
 	}
 	sortResult(&result)
 	return result, nil
+}
+
+// addInventoryFinalizer makes the inventory's deletion wait until its racks
+// and Node projections are cleaned up.
+func (r *Reconciler) addInventoryFinalizer(ctx context.Context, inventory *mokkav1alpha1.SGPUInventory) (bool, error) {
+	changed, err := r.mutateInventory(ctx, inventory, func(latest *mokkav1alpha1.SGPUInventory) bool {
+		if slices.Contains(latest.Finalizers, InventoryFinalizer) {
+			return false
+		}
+		latest.Finalizers = append(latest.Finalizers, InventoryFinalizer)
+
+		return true
+	})
+	if changed {
+		zap.L().Debug("Added cleanup finalizer to inventory", zap.String("inventory", inventory.Name))
+	}
+
+	return changed, err
 }
 
 func (r *Reconciler) reconcileInventoryDeletion(
@@ -828,6 +844,9 @@ func (r *Reconciler) reconcileTerminalInventoryDeletion(
 	if err != nil {
 		return result, err
 	}
+	if changed {
+		zap.L().Info("Released inventory cleanup finalizer", zap.String("inventory", inventory.Name))
+	}
 	result.Changed = result.Changed || changed
 	return result, nil
 }
@@ -881,6 +900,7 @@ func (r *Reconciler) createOrUpdateRack(
 	existing *mokkav1alpha1.SGPURack,
 	name string,
 	spec mokkav1alpha1.SGPURackSpec,
+	releases map[allocate.Coordinate]allocate.Release,
 ) (bool, *OwnershipConflict, error) {
 	if existing == nil {
 		return r.createCacheMissingRack(ctx, inventory, name, spec)
@@ -889,7 +909,7 @@ func (r *Reconciler) createOrUpdateRack(
 		conflict := ownershipConflict(existing, spec.Identity.RackGroup)
 		return false, &conflict, nil
 	}
-	changed, _, _, err := r.mutateRack(ctx, inventory, existing, func(latest *mokkav1alpha1.SGPURack) bool {
+	changed, _, updated, err := r.mutateRack(ctx, inventory, existing, func(latest *mokkav1alpha1.SGPURack) bool {
 		before := latest.DeepCopy()
 		latest.Spec = *spec.DeepCopy()
 		ensureRackMetadata(latest, inventory)
@@ -900,8 +920,28 @@ func (r *Reconciler) createOrUpdateRack(
 		if errors.As(err, &ownershipErr) {
 			return changed, &ownershipErr.Conflict, err
 		}
+
+		return changed, nil, err
 	}
-	return changed, nil, err
+	if !changed {
+		return false, nil, nil
+	}
+
+	zap.L().Debug("Updated rack", rackFields(updated)...)
+	if !equality.Semantic.DeepEqual(existing.Spec.WithoutBindings(), spec.WithoutBindings()) {
+		zap.L().Info("Re-rendered rack", append(rackFields(updated), zap.String("profileRevision", spec.ProfileRef.Revision))...)
+	}
+	assigned, released := bindingChanges(&existing.Spec, &spec)
+	for _, slot := range released {
+		reason := releases[rackCoordinate(updated, slot.Index)].Reason
+		zap.L().Info("Released Node from logical rack Node",
+			append(bindingFields(updated, slot), zap.String("reason", string(reason)))...)
+	}
+	for _, slot := range assigned {
+		zap.L().Info("Assigned Node to logical rack Node", bindingFields(updated, slot)...)
+	}
+
+	return true, nil, nil
 }
 
 func (r *Reconciler) createCacheMissingRack(
@@ -921,6 +961,11 @@ func (r *Reconciler) createCacheMissingRack(
 			return false, &conflict, &OwnershipConflictError{
 				Conflict: conflict, Cause: errors.New("created rack has a different controller owner"),
 			}
+		}
+		zap.L().Info("Created rack", rackFields(created)...)
+		assigned, _ := bindingChanges(&mokkav1alpha1.SGPURackSpec{}, &created.Spec)
+		for _, slot := range assigned {
+			zap.L().Info("Assigned Node to logical rack Node", bindingFields(created, slot)...)
 		}
 		return true, nil, nil
 	}
@@ -1101,6 +1146,65 @@ func validateInventory(inventory *mokkav1alpha1.SGPUInventory) error {
 		}
 	}
 	return nil
+}
+
+// bindingChanges returns the logical Nodes whose Kubernetes Node binding
+// differs between two versions of a rack spec: those bound only in after,
+// and those bound only in before. A logical Node moved to another Kubernetes
+// Node appears in both.
+func bindingChanges(before, after *mokkav1alpha1.SGPURackSpec) (assigned, released []mokkav1alpha1.SGPURackNode) {
+	for _, slot := range after.Nodes {
+		if slot.NodeRef != nil && !boundIn(before, slot) {
+			assigned = append(assigned, slot)
+		}
+	}
+	for _, slot := range before.Nodes {
+		if slot.NodeRef != nil && !boundIn(after, slot) {
+			released = append(released, slot)
+		}
+	}
+
+	return assigned, released
+}
+
+// boundIn reports whether spec binds slot's logical Node to the same
+// Kubernetes Node as slot does.
+func boundIn(spec *mokkav1alpha1.SGPURackSpec, slot mokkav1alpha1.SGPURackNode) bool {
+	other := spec.NodeByIndex(slot.Index)
+
+	return other != nil && other.BoundTo(slot.NodeRef.Name, slot.NodeRef.UID)
+}
+
+// rackCoordinate identifies one logical Node of a rack in allocation plans.
+func rackCoordinate(rack *mokkav1alpha1.SGPURack, nodeIndex int32) allocate.Coordinate {
+	return allocate.Coordinate{
+		Group: allocate.RackGroupKey{
+			InventoryName: rack.Spec.InventoryRef.Name,
+			InventoryUID:  rack.Spec.InventoryRef.UID,
+			RackGroup:     rack.Spec.Identity.RackGroup,
+		},
+		RackIndex: rack.Spec.Identity.RackIndex, NodeIndex: nodeIndex,
+	}
+}
+
+// bindingFields identifies one logical Node's Kubernetes Node binding in log
+// entries.
+func bindingFields(rack *mokkav1alpha1.SGPURack, slot mokkav1alpha1.SGPURackNode) []zap.Field {
+	return append(rackFields(rack),
+		zap.Int32("nodeIndex", slot.Index),
+		zap.String("node", slot.NodeRef.Name),
+		zap.String("nodeUID", string(slot.NodeRef.UID)),
+	)
+}
+
+// rackFields identifies a rack in log entries.
+func rackFields(rack *mokkav1alpha1.SGPURack) []zap.Field {
+	return []zap.Field{
+		zap.String("rack", rack.Name),
+		zap.String("inventory", rack.Spec.InventoryRef.Name),
+		zap.String("rackGroup", rack.Spec.Identity.RackGroup),
+		zap.Int32("rackIndex", rack.Spec.Identity.RackIndex),
+	}
 }
 
 func newRack(inventory *mokkav1alpha1.SGPUInventory, name string, spec mokkav1alpha1.SGPURackSpec) *mokkav1alpha1.SGPURack {

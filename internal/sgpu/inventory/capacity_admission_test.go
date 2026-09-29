@@ -569,7 +569,7 @@ func TestReconcileStopsStaleMaterializationAfterAdmissionChanges(t *testing.T) {
 
 	result, err := reconciler.Reconcile(ctx, inventory.Name)
 
-	require.ErrorIs(t, err, errAllocationInputChanged)
+	require.ErrorIs(t, err, ErrAllocationInputChanged)
 	require.Equal(t, 1, created)
 	require.EqualValues(t, 1, result.Work.RacksReconciled)
 }

@@ -31,7 +31,7 @@ func TestCreateRackUsesFieldManagedCreateWithoutReadOrApply(t *testing.T) {
 	reconciler := &Reconciler{racks: writer}
 
 	changed, conflict, err := reconciler.createOrUpdateRack(
-		context.Background(), inventory, nil, desired.Name, desired.Spec,
+		t.Context(), inventory, nil, desired.Name, desired.Spec, nil,
 	)
 	require.NoError(t, err)
 	require.True(t, changed)
@@ -67,7 +67,7 @@ func TestUpdateRackPreservesUnrelatedMetadataWithResourceVersion(t *testing.T) {
 	reconciler := &Reconciler{racks: writer}
 
 	changed, conflict, err := reconciler.createOrUpdateRack(
-		context.Background(), inventory, existing, existing.Name, desiredSpec,
+		t.Context(), inventory, existing, existing.Name, desiredSpec, nil,
 	)
 	require.NoError(t, err)
 	require.True(t, changed)
@@ -109,7 +109,7 @@ func TestRackUpdateClearsReleasedNodeBinding(t *testing.T) {
 	reconciler := &Reconciler{racks: writer}
 
 	changed, conflict, err := reconciler.createOrUpdateRack(
-		context.Background(), inventory, existing, existing.Name, desiredSpec,
+		t.Context(), inventory, existing, existing.Name, desiredSpec, nil,
 	)
 
 	require.NoError(t, err)
@@ -138,7 +138,7 @@ func TestRackUpdateRejectsForeignSpecCoOwner(t *testing.T) {
 	reconciler := &Reconciler{racks: writer}
 
 	changed, conflict, err := reconciler.createOrUpdateRack(
-		context.Background(), inventory, existing, existing.Name, desiredSpec,
+		t.Context(), inventory, existing, existing.Name, desiredSpec, nil,
 	)
 
 	require.Error(t, err)
@@ -160,7 +160,7 @@ func TestRackUpdateIsIdempotentAndNeverAdoptsForeignOwner(t *testing.T) {
 	reconciler := &Reconciler{racks: writer}
 
 	changed, conflict, err := reconciler.createOrUpdateRack(
-		context.Background(), inventory, existing, existing.Name, existing.Spec,
+		t.Context(), inventory, existing, existing.Name, existing.Spec, nil,
 	)
 	require.NoError(t, err)
 	require.False(t, changed)
@@ -172,7 +172,7 @@ func TestRackUpdateIsIdempotentAndNeverAdoptsForeignOwner(t *testing.T) {
 	writer.getResult = foreign
 	writer.createErr = apierrors.NewAlreadyExists(mokkav1alpha1.Resource("sgpuracks"), existing.Name)
 	changed, conflict, err = reconciler.createOrUpdateRack(
-		context.Background(), inventory, nil, existing.Name, existing.Spec,
+		t.Context(), inventory, nil, existing.Name, existing.Spec, nil,
 	)
 	require.NoError(t, err)
 	require.False(t, changed)
@@ -203,7 +203,7 @@ func TestCreateRackAlreadyExistsRecreatedUIDWaitsForCache(t *testing.T) {
 	reconciler := &Reconciler{racks: writer}
 
 	changed, conflict, err := reconciler.createOrUpdateRack(
-		context.Background(), inventory, nil, desired.Name, desired.Spec,
+		t.Context(), inventory, nil, desired.Name, desired.Spec, nil,
 	)
 	require.NoError(t, err)
 	require.True(t, changed)
@@ -213,7 +213,7 @@ func TestCreateRackAlreadyExistsRecreatedUIDWaitsForCache(t *testing.T) {
 	writer.createErr = apierrors.NewAlreadyExists(mokkav1alpha1.Resource("sgpuracks"), desired.Name)
 	writer.getResult = live
 	changed, conflict, err = reconciler.createOrUpdateRack(
-		context.Background(), inventory, nil, desired.Name, desired.Spec,
+		t.Context(), inventory, nil, desired.Name, desired.Spec, nil,
 	)
 	require.ErrorIs(t, err, ErrRackCacheStale)
 	require.False(t, changed)
@@ -237,7 +237,7 @@ func TestCreateRackAlreadyExistsSameUIDWaitsForCache(t *testing.T) {
 	reconciler := &Reconciler{racks: writer}
 
 	changed, conflict, err := reconciler.createOrUpdateRack(
-		context.Background(), inventory, nil, desired.Name, desired.Spec,
+		t.Context(), inventory, nil, desired.Name, desired.Spec, nil,
 	)
 	require.NoError(t, err)
 	require.True(t, changed)
@@ -247,7 +247,7 @@ func TestCreateRackAlreadyExistsSameUIDWaitsForCache(t *testing.T) {
 	writer.createErr = apierrors.NewAlreadyExists(mokkav1alpha1.Resource("sgpuracks"), desired.Name)
 	writer.getResult = live
 	changed, conflict, err = reconciler.createOrUpdateRack(
-		context.Background(), inventory, nil, desired.Name, desired.Spec,
+		t.Context(), inventory, nil, desired.Name, desired.Spec, nil,
 	)
 	require.ErrorIs(t, err, ErrRackCacheStale)
 	require.False(t, changed)
@@ -270,7 +270,7 @@ func TestCreateRackClassifiesPermanentAndTransientErrors(t *testing.T) {
 		)}
 		reconciler := &Reconciler{racks: writer}
 		_, _, err := reconciler.createOrUpdateRack(
-			context.Background(), inventory, nil, desired.Name, desired.Spec,
+			t.Context(), inventory, nil, desired.Name, desired.Spec, nil,
 		)
 		var materializationErr *profileMaterializationError
 		require.ErrorAs(t, err, &materializationErr)
@@ -283,7 +283,7 @@ func TestCreateRackClassifiesPermanentAndTransientErrors(t *testing.T) {
 		writer := &recordingRackWriter{createErr: apierrors.NewServiceUnavailable("apiserver unavailable")}
 		reconciler := &Reconciler{racks: writer}
 		_, _, err := reconciler.createOrUpdateRack(
-			context.Background(), inventory, nil, desired.Name, desired.Spec,
+			t.Context(), inventory, nil, desired.Name, desired.Spec, nil,
 		)
 		require.Error(t, err)
 		require.True(t, apierrors.IsServiceUnavailable(err))
@@ -306,7 +306,7 @@ func TestCreatedRackUsesSameManagerForLaterUpdate(t *testing.T) {
 	reconciler := &Reconciler{racks: writer}
 
 	changed, conflict, err := reconciler.createOrUpdateRack(
-		context.Background(), inventory, nil, desired.Name, desired.Spec,
+		t.Context(), inventory, nil, desired.Name, desired.Spec, nil,
 	)
 	require.NoError(t, err)
 	require.True(t, changed)
@@ -317,7 +317,7 @@ func TestCreatedRackUsesSameManagerForLaterUpdate(t *testing.T) {
 	writer.updateResult = created.DeepCopy()
 	writer.updateResult.Spec = updatedSpec
 	changed, conflict, err = reconciler.createOrUpdateRack(
-		context.Background(), inventory, created, desired.Name, updatedSpec,
+		t.Context(), inventory, created, desired.Name, updatedSpec, nil,
 	)
 	require.NoError(t, err)
 	require.True(t, changed)
@@ -351,7 +351,7 @@ func TestRackUpdateRetriesResourceVersionConflict(t *testing.T) {
 	reconciler := &Reconciler{racks: writer}
 
 	changed, conflict, err := reconciler.createOrUpdateRack(
-		context.Background(), inventory, existing, existing.Name, desiredSpec,
+		t.Context(), inventory, existing, existing.Name, desiredSpec, nil,
 	)
 	require.NoError(t, err)
 	require.True(t, changed)

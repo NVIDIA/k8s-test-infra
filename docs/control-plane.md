@@ -5,8 +5,10 @@
 
 The Stage 1 control plane turns `SGPURackProfile` and `SGPUInventory` resources
 into control-plane-owned `SGPURack` resources, assigns eligible Kubernetes Nodes
-to logical rack Nodes, and projects the assignment onto those Nodes. It models
-static capacity and topology; it does not provide GPUs to workloads by itself.
+to logical rack Nodes, and projects the assignment onto those Nodes. It also
+decides which [`SGPURuntimePolicy` overrides](#override-runtime-state) apply to
+each simulated GPU. It models capacity, topology, and runtime state; it does not
+provide GPUs to workloads by itself.
 
 ## Install
 
@@ -172,10 +174,73 @@ For each successfully projected binding the control plane owns only:
 - `mokka.nvidia.com/sgpu-assignment`, compact JSON containing exact inventory,
   rack, profile revision, coordinate, and Node UID data.
 
+## Override runtime state
+
+An `SGPURuntimePolicy` overrides the simulated runtime state of some GPUs in one
+inventory: their health, device modes, and telemetry. A profile's
+`defaults.runtime` sets the starting state of every GPU the profile renders, and
+a policy changes only the fields it sets. An omitted field keeps the value it
+would otherwise have, and an explicit zero is a value: `drawMilliWatts: 0` sets
+the power draw to zero. Stage 1 evaluates policies and reports whether each is
+accepted, but it does not apply them to simulated GPUs yet.
+
+The [example policy](https://github.com/NVIDIA/k8s-test-infra/blob/main/examples/controlplane-crds/sgpu-runtime-policy.yaml)
+marks the GPU on logical Node 1 of the example rack as failed and drops its
+power draw to zero:
+
+```bash
+kubectl apply -f examples/controlplane-crds/sgpu-runtime-policy.yaml
+```
+
+`spec.targetRef` names the inventory and can narrow the selection with
+`rackGroups`, `rackIndexes`, `nodeIndexes`, and `gpuIndexes`; an omitted list
+selects every index on that axis. The deepest list sets the policy's scope:
+
+| Deepest list in `targetRef` | Scope |
+| --- | --- |
+| none | Inventory |
+| `rackGroups` | Rack group |
+| `rackIndexes` | Rack |
+| `nodeIndexes` | Node |
+| `gpuIndexes` | GPU |
+
+A GPU's effective state starts from its profile defaults and applies the
+accepted policies that select it from the broadest scope to the narrowest, so a
+narrower scope overrides a broader one field by field.
+
+Every listed rack group must be declared by the inventory. When a policy selects
+rack groups of different shapes, each listed index must exist in at least one of
+them, and each rack group applies only the indexes it has. Node and GPU indexes
+come from a rack group's profile, so a rack group whose profile is missing has
+none.
+
+Two policies conflict when they have the same scope, select at least one common
+GPU, and set a common field. The policy with the older `creationTimestamp` stays
+in force, with the UID breaking ties, and the other is rejected as a whole.
+Deleting the winner accepts the oldest remaining policy.
+
+The `Accepted` condition reports the outcome:
+
+| Reason | Status | Meaning |
+| --- | --- | --- |
+| `Accepted` | `True` | The policy applies to its target. |
+| `TargetNotFound` | `False` | The target inventory does not exist. |
+| `InvalidTarget` | `False` | A listed rack group is not declared, or a listed index selects no GPU. |
+| `Conflicted` | `False` | An older policy of the same scope sets one of its fields for some of the same GPUs. |
+
+`kubectl get sgpuruntimepolicies` shows each policy's target and acceptance, and
+the condition message explains a rejection:
+
+```bash
+kubectl get sgpuruntimepolicies
+kubectl get sgpuruntimepolicy example-node-1-failed \
+  -o jsonpath='{.status.conditions[?(@.type=="Accepted")].message}'
+```
+
 ## Observe and troubleshoot
 
 ```bash
-kubectl get sgpuinventories,sgpuracks
+kubectl get sgpuinventories,sgpuracks,sgpuruntimepolicies
 kubectl get sgpuinventory example -o yaml
 kubectl get node NODE -o jsonpath='{.metadata.annotations.mokka\.nvidia\.com/sgpu-assignment}'
 kubectl -n mokka logs -l app.kubernetes.io/component=control-plane
@@ -187,7 +252,8 @@ materialization failures, pending or conflicting placements, and projection
 failures. A missing or invalid profile preserves the last materialized racks
 but blocks new allocations for that group. Selector overlaps leave an
 unassigned Node in conflict. Foreign rack ownership and incompatible Node
-metadata are reported and never overwritten.
+metadata are reported and never overwritten. A runtime policy's `Accepted`
+condition names the reason it does not apply.
 
 Shrinking capacity, deleting an inventory or rack, losing eligibility, and
 replacing a Node UID remove the exact old projection before clearing a live
@@ -198,8 +264,8 @@ replacement. The singleton ClusterRoleBinding ensures only the owning release
 has cluster permissions. Within that release, its namespace-local Lease
 prevents replicas from reconciling concurrently; cluster-wide Lease permissions
 are unnecessary under the single-installation invariant. Every replica keeps a
-synchronized informer view of profiles, inventories, racks, eligible Nodes, and
-durable rack-slot assignments. Only the elected leader attaches reconciliation
+synchronized informer view of profiles, inventories, racks, runtime policies,
+eligible Nodes, and durable rack-slot assignments. Only the elected leader attaches reconciliation
 handlers and runs workers. A standby reports ready after its caches synchronize
 and it observes the elected leader; the leader additionally waits for its
 handlers to replay the current caches and its workers to start. Upgrades use a
@@ -208,6 +274,6 @@ to preserve serving overlap while leader election maintains single-writer mutati
 
 ## Stage 1 exclusions
 
-Stage 1 has no runtime policy evaluation, agent or driver, workload GPU
-injection, REST API, Redis, heartbeat-based reclamation, Node lease, or
-cross-rack switch graph. The only Lease is Kubernetes leader election.
+Stage 1 has no agent or driver, workload GPU injection, REST API, Redis,
+heartbeat-based reclamation, Node lease, or cross-rack switch graph. The only
+Lease is Kubernetes leader election.
