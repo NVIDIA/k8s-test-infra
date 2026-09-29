@@ -64,29 +64,33 @@ spec:
           metadata:
             type: object
           spec:
-            description: SGPURackSpec is a rendered rack with durable logical Node
-              bindings.
+            description: Spec is the controller-owned rendered rack specification.
             properties:
               identity:
                 description: Identity is the stable coordinate used by agents and
                   topology consumers.
                 properties:
                   cliqueID:
-                    description: CliqueID remains zero while each rack represents
-                      one fabric clique.
+                    description: |-
+                      CliqueID remains zero while each rack represents one fabric clique.
+                      CliqueID is reserved for future multi-clique racks and is currently zero.
                     format: int32
                     maximum: 0
                     minimum: 0
                     type: integer
                   fabricUUID:
+                    description: FabricUUID identifies the fabric clique represented
+                      by this rack.
                     format: uuid
                     type: string
                   rackGroup:
+                    description: RackGroup is the stable group identifier.
                     format: dns1123Label
                     maxLength: 63
                     minLength: 1
                     type: string
                   rackIndex:
+                    description: RackIndex is the zero-based index within the group.
                     format: int32
                     minimum: 0
                     type: integer
@@ -102,13 +106,11 @@ spec:
                   same-name replacement cannot inherit this rack.
                 properties:
                   name:
+                    description: Name is the inventory resource name.
                     minLength: 1
                     type: string
                   uid:
-                    description: |-
-                      UID is a type that holds unique ID values, including UUIDs.  Because we
-                      don't ONLY use UUIDs, this is an alias to string.  Being a type captures
-                      intent and helps make sure that UIDs and names do not get conflated.
+                    description: UID identifies the exact inventory instance.
                     type: string
                 required:
                 - name
@@ -133,19 +135,27 @@ spec:
                           structural placement.
                         properties:
                           hostProcessorIndex:
+                            description: HostProcessorIndex is the host processor
+                              index associated with the GPU.
                             format: int32
                             minimum: 0
                             type: integer
                           index:
+                            description: Index is the logical GPU index within the
+                              node.
                             format: int32
                             maximum: 63
                             minimum: 0
                             type: integer
                           minorNumber:
+                            description: MinorNumber is the simulated device minor
+                              number.
                             format: int32
                             minimum: 0
                             type: integer
                           numaNode:
+                            description: NUMANode is the host NUMA node containing
+                              the GPU.
                             format: int32
                             minimum: 0
                             type: integer
@@ -153,12 +163,15 @@ spec:
                             pattern: ^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$
                             type: string
                           rootComplex:
+                            description: RootComplex identifies the PCI root complex.
                             pattern: ^pci[0-9a-f]{4}:[0-9a-f]{2}$
                             type: string
                           serial:
+                            description: Serial is the simulated GPU serial number.
                             minLength: 1
                             type: string
                           uuid:
+                            description: UUID is the stable GPU identifier.
                             pattern: ^GPU-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
                             type: string
                         required:
@@ -178,6 +191,7 @@ spec:
                       - index
                       x-kubernetes-list-type: map
                     index:
+                      description: Index is the logical node index within the rack.
                       format: int32
                       maximum: 1023
                       minimum: 0
@@ -188,13 +202,11 @@ spec:
                         a replacement Kubernetes Node that reuses the same name.
                       properties:
                         name:
+                          description: Name is the Kubernetes Node name.
                           minLength: 1
                           type: string
                         uid:
-                          description: |-
-                            UID is a type that holds unique ID values, including UUIDs.  Because we
-                            don't ONLY use UUIDs, this is an alias to string.  Being a type captures
-                            intent and helps make sure that UIDs and names do not get conflated.
+                          description: UID identifies the exact Kubernetes Node instance.
                           type: string
                       required:
                       - name
@@ -218,10 +230,13 @@ spec:
                   render the rack.
                 properties:
                   generation:
+                    description: Generation is the profile resource generation used
+                      to render the rack.
                     format: int64
                     minimum: 1
                     type: integer
                   name:
+                    description: Name is the profile resource name.
                     minLength: 1
                     type: string
                   revision:
@@ -230,10 +245,7 @@ spec:
                     pattern: ^[0-9a-f]{64}$
                     type: string
                   uid:
-                    description: |-
-                      UID is a type that holds unique ID values, including UUIDs.  Because we
-                      don't ONLY use UUIDs, this is an alias to string.  Being a type captures
-                      intent and helps make sure that UIDs and names do not get conflated.
+                    description: UID identifies the exact profile instance.
                     type: string
                 required:
                 - generation
@@ -251,7 +263,7 @@ spec:
             - profileRef
             type: object
           status:
-            description: SGPURackStatus summarizes durable logical Node assignments.
+            description: Status reports node binding and readiness state.
             properties:
               assignedNodes:
                 description: |-
@@ -261,8 +273,9 @@ spec:
                 minimum: 0
                 type: integer
               conditions:
-                description: Conditions report whether the rendered assignment is
-                  ready for agents.
+                description: |-
+                  Conditions report whether the rendered assignment is ready for agents.
+                  Conditions report whether the rack assignment is ready.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
