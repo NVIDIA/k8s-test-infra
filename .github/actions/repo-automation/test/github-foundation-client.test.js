@@ -340,6 +340,8 @@ test("exposes bounded branch and backport pull-request operations", async () => 
 test("maps bounded Mokka commit and draft pull-request operations", async () => {
   const branch = "mokka/cherry-pick/123e4567-e89b-42d3-a456-426614174000";
   const headOid = "c".repeat(40);
+  const treeOid = "d".repeat(40);
+  const parentOid = "e".repeat(40);
   const pullRequest = {
     number: 901,
     html_url: "https://github.com/NVIDIA/k8s-test-infra/pull/901",
@@ -350,8 +352,35 @@ test("maps bounded Mokka commit and draft pull-request operations", async () => 
     title: "Mokka: cherry-pick #42 to main",
     body: "bound evidence",
   };
+  const mokkaMessage = "cherry pick with evidence\n\nMokka-Source-SHA: " + "a".repeat(40) + "\n";
   const base = mockOctokit({
     rest: {
+      git: {
+        getCommit: async (parameters) => {
+          base.calls.push({ name: "getMokkaCommit", parameters });
+          return { data: {
+            sha: headOid,
+            message: mokkaMessage,
+            tree: { sha: treeOid },
+            parents: [{ sha: parentOid }],
+            verification: { verified: true, signature: "signed-payload" },
+          } };
+        },
+        createCommit: async (parameters) => {
+          base.calls.push({ name: "createMokkaCommit", parameters });
+          return { data: {
+            sha: headOid,
+            message: parameters.message,
+            tree: { sha: treeOid },
+            parents: [{ sha: parentOid }],
+            verification: { verified: true, reason: "valid", signature: "signed-payload" },
+          } };
+        },
+        createRef: async (parameters) => {
+          base.calls.push({ name: "createMokkaRef", parameters });
+          return { data: { ref: parameters.ref, object: { sha: parameters.sha } } };
+        },
+      },
       repos: {
         getCommit: async (parameters) => {
           base.calls.push({ name: "getCommit", parameters });
@@ -380,6 +409,25 @@ test("maps bounded Mokka commit and draft pull-request operations", async () => 
     sha: "a".repeat(40),
     parents: ["b".repeat(40)],
   });
+  assert.deepEqual(await client.getMokkaCommit(headOid), {
+    sha: headOid,
+    message: mokkaMessage,
+    tree: treeOid,
+    parents: [parentOid],
+    verification: { verified: true, hasSignature: true },
+  });
+  assert.deepEqual(await client.createMokkaCommit({
+    message: "cherry pick with evidence",
+    tree: treeOid,
+    parents: [parentOid],
+  }), {
+    sha: headOid,
+    message: "cherry pick with evidence",
+    tree: treeOid,
+    parents: [parentOid],
+    verification: { verified: true, hasSignature: true },
+  });
+  assert.deepEqual(await client.createMokkaRef(branch, headOid), { name: branch, oid: headOid });
   assert.deepEqual(await client.findMokkaPullRequests(branch, "main"), [{
     number: 901,
     url: pullRequest.html_url,
@@ -391,6 +439,7 @@ test("maps bounded Mokka commit and draft pull-request operations", async () => 
     title: pullRequest.title,
     body: pullRequest.body,
   }]);
+  assert.equal((await client.findMokkaPullRequests(branch)).length, 1);
   assert.deepEqual(await client.createMokkaPullRequest({
     base: "main",
     head: branch,
@@ -411,6 +460,20 @@ test("maps bounded Mokka commit and draft pull-request operations", async () => 
   await client.updateMokkaPullRequestBody(901, "new evidence");
 
   assert.deepEqual(
+    base.calls.find(({ name }) => name === "createMokkaCommit").parameters,
+    {
+      owner: "NVIDIA",
+      repo: "k8s-test-infra",
+      message: "cherry pick with evidence",
+      tree: treeOid,
+      parents: [parentOid],
+    },
+  );
+  assert.deepEqual(
+    base.calls.find(({ name }) => name === "createMokkaRef").parameters,
+    { owner: "NVIDIA", repo: "k8s-test-infra", ref: `refs/heads/${branch}`, sha: headOid },
+  );
+  assert.deepEqual(
     base.calls.find(({ name }) => name === "findMokkaPullRequests").parameters,
     {
       owner: "NVIDIA",
@@ -418,6 +481,16 @@ test("maps bounded Mokka commit and draft pull-request operations", async () => 
       state: "all",
       head: `NVIDIA:${branch}`,
       base: "main",
+      per_page: 100,
+    },
+  );
+  assert.deepEqual(
+    base.calls.filter(({ name }) => name === "findMokkaPullRequests")[1].parameters,
+    {
+      owner: "NVIDIA",
+      repo: "k8s-test-infra",
+      state: "all",
+      head: `NVIDIA:${branch}`,
       per_page: 100,
     },
   );
