@@ -137,7 +137,7 @@ tests that must not be scoped by `E2E_PROFILES`.
 | DRA driver | `make e2e-dra` | `dra` | Dynamic Resource Allocation (DRA) scheduling works end to end: ResourceSlices report the profile's GPU count, and a pod using a `ResourceClaimTemplate` reaches `Running`, which requires `NodePrepareResources` to have succeeded |
 | GPU Operator | `make e2e-gpu-operator` | `gpu-operator`, `device-plugin`, `dcgm`, `xid`, `pcisysfs`, `runtime-control` | The full operator stack accepts the mock: the validator pod starts, GPU Feature Discovery (GFD) labels appear, allocatable `nvidia.com/gpu` matches the profile, and DCGM telemetry is answered |
 | Multi-node fleet | `make e2e-multi-node` | `multi-node` | A heterogeneous fleet works: separate A100 and T4 releases on different workers, correct per-node mock files and IB behaviour, and a GPU workload scheduled across them |
-| Node-wide NRI injection | `make e2e-nri` | `nri`, `nri-*`, `compute-domain`, `imex-channels` | An ordinary pod that requests no GPU, mounts no hostPath and sets no `MOCK_*` env still sees GPUs, via Node Resource Interface (NRI) ambient injection |
+| Node-wide NRI injection | `make e2e-nri` | `nri`, `nri-*`, `compute-domain`, `imex-channels` | Node Resource Interface (NRI) injection follows the allocation rules: a pod with no Mokka-specific spec sees exactly its device-plugin allocation, a `devices`-annotated pod with no GPU request sees every GPU, and a pod that asks for neither is left untouched |
 | NFD label provenance | `make e2e-nfd` | `nfd`, `nfd-provenance` | Node Feature Discovery (NFD) derives `feature.node.kubernetes.io/pci-10de.present` from the feature file the mock writes — and that the mock does not write the label itself. Pinned to `a100`, because the label is vendor-only and identical across profiles |
 | Standalone GFD | opt-in | `gfd` | Standalone GPU Feature Discovery derives the required node labels from the mock GPU inventory. **Skipped by default** — see below |
 
@@ -146,15 +146,17 @@ tests that must not be scoped by `E2E_PROFILES`.
 The Go port of the [node-wide injection demo](../../docs/guides/node-wide-injection).
 It installs the profile with `nri.enabled=true` and, for fabric-attached
 profiles, a generated two-clique ComputeDomain overlay derived from the
-discovered worker names. It then applies a plain
-[`nri-gpu-agent.yaml`](go/assets/nri-gpu-agent.yaml) DaemonSet and asserts that
-the pod spec never requests `nvidia.com/gpu`, that `nvidia-smi -L` inside it
-lists the profile's GPUs, and — on fabric profiles — that each node reports its
-assigned clique and cluster UUID.
+discovered worker names. It then applies the
+[`nri-gpu-agent.yaml`](go/assets/nri-gpu-agent.yaml) DaemonSet, which carries
+only the `nvml-mock.nvidia.com/devices: "true"` annotation, and asserts that the
+pod spec never requests `nvidia.com/gpu`, that `nvidia-smi -L` inside it lists
+the profile's GPUs, and — on fabric profiles — that each node reports its
+assigned clique and cluster UUID. `nri-dp-plain` asserts the other half: a pod
+with neither a GPU request nor an annotation receives nothing.
 
 ```bash
 make e2e-nri                    # gb200: fabric and ComputeDomain checks included
-make e2e-nri E2E_PROFILES=t4    # plain injection; fabric checks skip
+make e2e-nri E2E_PROFILES=t4    # no fabric; ComputeDomain checks skip
 ```
 
 This scenario carries the largest label vocabulary in the suite. The `nri-*`
