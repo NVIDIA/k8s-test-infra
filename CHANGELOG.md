@@ -243,6 +243,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- nvml-mock: a container served through mokka's `nvidia.com/gpu` CDI spec now
+  sees the node's profile instead of the built-in eight-A100 default. The
+  toolkit resolving that spec mounts the node's config at `/etc/nvml-mock` but
+  drops `MOCK_NVML_CONFIG` (#747), and the library never looked there. It now
+  falls back to `/etc/nvml-mock/config.yaml` when neither `MOCK_NVML_CONFIG` nor
+  discovery from the loaded library's path finds a config, and resolves
+  `overrides.yaml` beside it, so `nvidia-smi --gpu-reset` clears the file the
+  library reads. Pods served by the GPU Operator's own device-plugin CDI spec
+  are unaffected: that spec carries no mokka config, which only the NRI plugin
+  delivers (#947).
 - profiles: four SKUs identified themselves over PCI as a different GPU than
   they model, which `lspci` resolves and names. `gb300` reported an HGX GB200
   (`0x2941`) where the board is `10de:31c2 GB110 [GB300]`; `gb200` (`0x2341`)

@@ -192,6 +192,92 @@ func TestLoadConfig_AutoDiscoverFallback(t *testing.T) {
 	require.Equal(t, 8, config.NumDevices, "Expected default NumDevices 8")
 }
 
+// withCDIConfigPath points the CDI mount fallback at a test-owned file.
+func withCDIConfigPath(t *testing.T, path string) {
+	t.Helper()
+	previous := cdiConfigPath
+	cdiConfigPath = path
+	ClearConfigCache()
+	t.Cleanup(func() {
+		cdiConfigPath = previous
+		ClearConfigCache()
+	})
+}
+
+func writeTwoDeviceConfig(t *testing.T, path string) {
+	t.Helper()
+	const yamlContent = `version: "1.0"
+system:
+  driver_version: "570.00.00"
+device_defaults:
+  name: "NVIDIA B200"
+devices:
+  - index: 0
+    uuid: "GPU-b200-0"
+  - index: 1
+    uuid: "GPU-b200-1"
+`
+	require.NoError(t, os.WriteFile(path, []byte(yamlContent), 0o644))
+}
+
+// A container served through the nvidia.com/gpu CDI spec gets the node's
+// config directory at /etc/nvml-mock but not the spec's env (#747), and the
+// library it loads sits at /usr/lib64, where maps discovery finds nothing.
+// Without this fallback the pod sees the built-in A100s instead of the node's
+// profile (#947).
+func TestLoadConfig_FallsBackToCDIConfigPath(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	writeTwoDeviceConfig(t, configPath)
+	withCDIConfigPath(t, configPath)
+	t.Setenv("MOCK_NVML_CONFIG", "")
+
+	config := LoadConfig()
+	require.NotNil(t, config.YAMLConfig, "expected the CDI-mounted profile to load")
+	require.Equal(t, 2, config.NumDevices)
+	require.Equal(t, "570.00.00", config.DriverVersion)
+}
+
+func TestLoadConfig_ExplicitConfigWinsOverCDIConfigPath(t *testing.T) {
+	withCDIConfigPath(t, filepath.Join(t.TempDir(), "config.yaml"))
+	writeTwoDeviceConfig(t, cdiConfigPath)
+
+	explicit := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(explicit, []byte(`version: "1.0"
+system:
+  driver_version: "550.163.01"
+devices:
+  - index: 0
+    uuid: "GPU-explicit"
+`), 0o644))
+	t.Setenv("MOCK_NVML_CONFIG", explicit)
+
+	config := LoadConfig()
+	require.Equal(t, 1, config.NumDevices)
+	require.Equal(t, "550.163.01", config.DriverVersion)
+}
+
+// GPU reset writes through ConfigOverridePath, so it must resolve beside the
+// same config LoadConfig read, or a reset clears a file no reader consults.
+func TestConfigOverridePath_FollowsCDIConfigPath(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	writeTwoDeviceConfig(t, configPath)
+	withCDIConfigPath(t, configPath)
+	t.Setenv("MOCK_NVML_CONFIG", "")
+	t.Setenv("MOCK_NVML_OVERRIDES", "")
+
+	require.Equal(t, filepath.Join(dir, "overrides.yaml"), ConfigOverridePath())
+}
+
+func TestLoadConfig_MissingCDIConfigPathUsesDefaults(t *testing.T) {
+	withCDIConfigPath(t, filepath.Join(t.TempDir(), "absent", "config.yaml"))
+	t.Setenv("MOCK_NVML_CONFIG", "")
+
+	config := LoadConfig()
+	require.Nil(t, config.YAMLConfig)
+	require.Equal(t, 8, config.NumDevices)
+}
+
 // Per-device processes, decoded from real YAML through the inline-embedded
 // DeviceConfig and merged: covers override (d0), explicit-clear (d1), inherit (d2).
 func TestYAMLConfig_PerDeviceProcesses(t *testing.T) {
