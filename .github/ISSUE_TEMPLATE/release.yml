@@ -78,10 +78,10 @@ body:
       options:
         - label: "`nvml-mock Publish` ran for the tag and succeeded."
         - label: "`control-plane Publish` ran for the tag and succeeded."
+        - label: "`helm-publish` ran for the tag and succeeded."
         - label: "Image resolves: `ghcr.io/nvidia/nvml-mock:<version-without-v>`. The image tag drops the `v`: tag `v0.4.0` publishes image `0.4.0`."
         - label: "Image resolves: `ghcr.io/nvidia/mokka-control-plane:<version-without-v>`"
         - label: "Chart resolves: `oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock:<version-without-v>`"
-        - label: "KNOWN GAP: the helm publish job is gated on `github.ref == 'refs/heads/main'`, so a chart bump made only on a release branch never publishes. Until that is fixed, confirm the chart actually resolves and land the bump on `main` too if it did not."
   - type: checkboxes
     id: after
     attributes:
