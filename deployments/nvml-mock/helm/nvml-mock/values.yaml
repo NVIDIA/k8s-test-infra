@@ -2,13 +2,16 @@
 # SPDX-License-Identifier: Apache-2.0
 
 gpu:
+  # -- GPU profile and per-device simulation settings.
   profile: gb300          # any *.yaml basename under profiles/ (e.g. a100, h100, b200, gb200, gb300, l40s, t4)
   # Number of GPUs to expose. Empty (default) derives the count from the
   # selected profile's `devices:` list (t4 and the Grace-Blackwell trays
   # gb200/gb300 -> 4, the 8-GPU baseboards -> 8), so the profile is the single
   # source of truth. Set to a positive integer to force a smaller/larger slice;
   # The node agent caps it to the profile's device count at runtime.
+  # -- Number of simulated GPUs; empty derives the count from the selected profile.
   count: ""
+  # -- Optional JSON configuration merged into the selected GPU profile.
   customConfig: ""
 
   # Opt-in time-varying temperature / power / utilization. Disabled by default
@@ -20,6 +23,7 @@ gpu:
   # TDP envelope (t4 ~65W, b200/gb200 ~600W, gb300 ~800W; others use the 250W
   # baseline) so it isn't force-clamped to a bound.
   dynamicMetrics:
+    # -- Enable time-varying synthetic temperature, power, and utilization values.
     enabled: false
     # Chart baseline defaults, shown for reference. Uncomment to override:
     # seed: 0                            # 0 = time-based; non-zero for reproducibility
@@ -47,22 +51,34 @@ gpu:
   # See pkg/gpu/mocknvml/README.md#failure-injection-optional for the full
   # behavioural contract per mode.
   failureInjection:
+    # -- Enable deterministic or probabilistic simulated GPU failures.
     enabled: false
+    # -- Failure mode to expose when failure injection is enabled.
     mode: healthy                        # healthy (no-op) | lost | fallen_off_bus | ecc_uncorrectable
+    # -- Probability that each guarded NVML call triggers the selected failure.
     probability: 0.0                     # 0..1 chance per guarded NVML call
+    # -- Trigger the selected failure after this many guarded calls; zero disables it.
     after_calls: 0                       # deterministic trip after N guarded calls (0 = disabled)
+    # -- Random seed; zero uses a time-based seed.
     seed: 0                              # 0 = time-based; non-zero for reproducible rolls
     xid:
+      # -- Xid code reported when the failure mode emits an Xid event.
       code: 0                            # 0 = no Xid surfaced; e.g. 79 = "GPU has fallen off the bus"
 
 image:
+  # -- Container image repository for the node agent.
   repository: ghcr.io/nvidia/nvml-mock
+  # -- Container image tag.
   tag: latest
+  # -- Kubernetes image pull policy.
   pullPolicy: IfNotPresent
 
+# -- Driver version reported by the simulated driver; empty derives it from the profile.
 driverVersion: ""                  # Auto-derived from profile. Override: "550.163.01"
 
+# -- Node labels applied to nodes running the mock.
 nodeSelector: {}
+ # -- Pod tolerations for the mock DaemonSet.
 tolerations:
   - operator: Exists
 
@@ -71,6 +87,7 @@ tolerations:
 nodeLabels:
   # Host directory NFD's local source reads feature files from; must match the
   # featureFilesDir the deployed NFD actually reads.
+  # -- Host directory from which NFD reads generated feature files.
   featuresDir: /etc/kubernetes/node-feature-discovery/features.d
 
 # Node-wide ambient injection via containerd NRI. When enabled, a lightweight
@@ -80,8 +97,11 @@ nodeLabels:
 # node-wide-injection demo/use case. See docs/guides/node-wide-injection.
 
 nodeAgent:
+  # -- Node-agent logging settings and lifecycle behavior.
   logging:
+    # -- Log level for the node agent.
     level: info    # debug | info | warn | error
+    # -- Log encoding for the node agent.
     format: json   # json | plain
   # Let the agent announce an injected Xid on the node's kernel log, the way a
   # real driver's printk does, so agents that read kernel logs (and journald
@@ -100,13 +120,17 @@ nodeAgent:
   # (the CharDevice hostPath fails the pod rather than inventing one). Left off,
   # the announcement is skipped and the NVML injection is unaffected.
   kernelLog:
+    # -- Announce injected Xids through the host kernel log.
     enabled: false
   # Go duration string: 5s, 1m30s, etc. Teardown is a handful of parallel file
   # removals, and it has to finish inside terminationGracePeriodSeconds.
   shutdownTimeout: 5s
+  # -- Resource requests for the node agent.
   resources:
     requests:
+      # -- CPU requested by the node agent.
       cpu: 10m
+      # -- Memory requested by the node agent.
       memory: 32Mi
 
 # Allocation-aware GPU memory (#506). When enabled, a sidecar in the nvml-mock
@@ -123,39 +147,58 @@ nodeAgent:
 # `nvml-mock-ctl set --gpu N memory.used_bytes=...` is overwritten on the next
 # poll. Every other field nvml-mock-ctl writes is preserved.
 allocationWatcher:
+  # -- Enable allocation-based synthetic memory metrics.
   enabled: false
   # Poll period. The engine re-reads the override file at most once per its own
   # TTL (1s), so polling much faster is not observable.
+  # -- Poll period for the kubelet pod-resources socket.
   interval: 2s
   # Share of the usable aperture (total - reserved) attributed to each claim.
   # Claims on one device add up and clamp at the aperture, so a time-sliced GPU
   # held by two containers reads as full at the 0.5 default.
+  # -- Fraction of usable GPU memory attributed to each claim.
   usedFractionPerClaim: 0.5
+  # -- Kubelet pod-resources socket path.
   podResourcesSocket: /var/lib/kubelet/pod-resources/kubelet.sock
   resources:
     limits:
+      # -- CPU limit for the allocation watcher.
       cpu: 100m
+      # -- Memory limit for the allocation watcher.
       memory: 64Mi
     requests:
+      # -- CPU request for the allocation watcher.
       cpu: 10m
+      # -- Memory request for the allocation watcher.
       memory: 32Mi
 
 nri:
+  # -- Enable node-wide container injection through the NRI plugin.
   enabled: false
   logging:
+    # -- Log level for the NRI plugin.
     level: info    # debug | info | warn | error
+    # -- Log encoding for the NRI plugin.
     format: json   # json | plain
+  # -- Runtime NRI socket path.
   socketPath: /var/run/nri/nri.sock
+  # -- NRI plugin name.
   pluginName: nvml-mock
+  # -- NRI plugin ordering index.
   pluginIndex: "10"
+  # -- Optional container image overrides for the NRI plugin.
   image: {}
   overlay:
+    # -- Host path containing the staged mock driver overlay.
     hostPath: /var/lib/nvml-mock
+    # -- Container mount path for the mock driver overlay.
     mountPath: /opt/nvml-mock
+  # -- Pod annotation enabling mock GPU injection.
   optOutAnnotation: nvml-mock.nvidia.com/inject
   # Workloads that can set this pod annotation to "true" can opt into host GPU
   # device-node mounts from the staged mock overlay. Treat that pod-authored
   # control as part of the demo trust boundary and exclude namespaces as needed.
+  # -- Pod annotation enabling mock GPU device injection.
   deviceAnnotation: nvml-mock.nvidia.com/devices
   # How the deviceAnnotation opt-in delivers mock GPUs to a container:
   #   raw - stage the /dev/nvidiaN nodes directly in the NRI adjustment.
@@ -172,10 +215,12 @@ nri:
   #
   # If cdi is selected and no spec is staged, the plugin logs a warning and
   # falls back to raw rather than failing container creation.
+  # -- Device injection mode: raw nodes or CDI references.
   deviceInjectionMode: raw
   # Host directory containing CDI specs. Mounted read-only into the plugin so it
   # can confirm its spec is staged before emitting a reference. Must be one of
   # the runtime's configured cdi_spec_dirs.
+  # -- Host directory containing staged CDI specifications.
   cdiSpecDir: /var/run/cdi
   # Workloads that set this pod annotation to "true" additionally get the mock
   # IMEX channel nodes at /dev/nvidia-caps-imex-channels/channelN — the fabric
@@ -188,13 +233,17 @@ nri:
   # Every channel staged on the node is injected, so a large
   # imex.mockChannels.channelCount adds real container-start cost: creating the
   # default 2048 nodes measures around one second.
+  # -- Pod annotation enabling IMEX channel injection.
   imexChannelAnnotation: nvml-mock.nvidia.com/imex-channels
+  # -- Namespaces excluded from NRI injection.
   excludedNamespaces: []
+  # -- Additional NRI plugin resources.
   resources: {}
   # Port serving the plugin's /healthz and /readyz endpoints. The NRI DaemonSet
   # does not use host networking, so this port lives only inside the pod's own
   # network namespace: it is reachable by the kubelet on the pod IP and is not
   # bound on the node.
+  # -- NRI plugin health and readiness port.
   healthPort: 8080
   # Probes for the two ways this plugin fails while its process stays alive.
   # See the "NRI plugin failure modes" section of the chart README before
@@ -228,12 +277,15 @@ nri:
 
 # DaemonSet rolling update strategy.
 updateStrategy:
+  # -- DaemonSet update strategy.
   type: RollingUpdate
   rollingUpdate:
+    # -- Maximum number of DaemonSet pods unavailable during an update.
     maxUnavailable: 25%
 
 # Pod termination grace period. It must exceed nodeAgent.shutdownTimeout or
 # SIGKILL lands mid-teardown, leaving the CDI specs and driver symlink behind.
+# -- Pod termination grace period for the node-agent DaemonSet.
 terminationGracePeriodSeconds: 10
 
 # ComputeDomain (NVLink fabric) simulation. Opt-in: when `topology.enabled`
@@ -243,6 +295,7 @@ terminationGracePeriodSeconds: 10
 # fabric cluster_uuid / clique_id accordingly. See
 # pkg/gpu/mocknvml/engine/fabric.go and issue NVIDIA/k8s-test-infra#304.
 topology:
+  # -- Enable simulation of multi-node GPU fabric topology.
   enabled: false
   # Cluster-level topology document, read by the mock NVML engine and staged
   # for workloads by the node agent. Each node must appear in exactly one
@@ -255,6 +308,7 @@ topology:
   #         nodes: [kind-worker, kind-worker2]
   #       - id: 1
   #         nodes: [kind-worker3, kind-worker4]
+  # -- Synthetic topology domains and clique membership.
   domains: []
 
 # InfiniBand ping mock. For profiles with infiniband.enabled=true, the
@@ -271,6 +325,7 @@ topology:
 # The shims stay LD_PRELOAD'd in every container process regardless of tier and
 # no-op when MOCK_IB=off, so `MOCK_IB=off <cmd>` is the per-command escape hatch.
 infiniband:
+  # -- InfiniBand mock tier; empty derives the tier from the selected profile.
   # mockTier sets the container's MOCK_IB value: off | sysfs | full.
   # Defaults to "full" for InfiniBand-enabled profiles and "sysfs" for non-IB
   # profiles (sysfs keeps the libibmocksys redirect active so any real host IB
@@ -279,6 +334,7 @@ infiniband:
   # `helm template`).
   mockTier: ""
   ping:
+    # -- TCP port used by the mock InfiniBand ping service.
     port: 18515
     # The mock-ib TCP fabric listener binds 0.0.0.0:<port> with no
     # authentication. This NetworkPolicy restricts inbound
@@ -288,6 +344,7 @@ infiniband:
     # NetworkPolicy on current releases, so this allow-list is load-bearing
     # there; it also matters on Calico/Cilium.
     networkPolicy:
+      # -- Restrict mock InfiniBand traffic to peer nvml-mock pods.
       enabled: true
 
 imex:
@@ -313,14 +370,18 @@ imex:
   #
   # Off by default: it creates channelCount device nodes per node.
   mockChannels:
+    # -- Enable simulation of IMEX channel devices.
     enabled: false
     # Number of channel device nodes. 2048 matches getImexChannelCount() in the
     # DRA driver's compute-domain kubelet plugin.
+    # -- Number of IMEX channel device nodes to create per node.
     channelCount: 2048
     # Device majors advertised in the rendered proc-devices file. Defaults match
     # the DRA driver's own CI fixtures. They must differ from each other and
     # must not collide with a major already present on the node.
+    # -- Major number used for IMEX channel devices.
     channelMajor: 235
+    # -- Major number used for IMEX capability devices.
     capsMajor: 236
 
 # Fake nvidia-fabricmanager. NVSwitch platforms (HGX H100 / GB200 / GB300)
@@ -339,17 +400,21 @@ imex:
 # no NVSwitches and do not start the daemon. Set to true/false to force it
 # regardless of profile (e.g. with gpu.customConfig).
 fabricmanager:
+  # -- Enable or disable the fake fabric manager; empty derives it from the profile.
   enabled: ""
+  # -- Host directory for fabric-manager readiness state.
   stateDir: /var/lib/nvml-mock/fabric-state
   # Delay before the node agent publishes fabric readiness, as a Go duration
   # ("15s"). Real NVSwitch registration is not instant; set this to exercise the
   # IN_PROGRESS window a workload sees before the fabric comes up. Empty means
   # publish immediately.
+  # -- Delay before publishing fabric readiness.
   initDelay: ""
 
 # Integration with external projects
 integrations:
   fakeGpuOperator:
+    # -- Enable fake-gpu-operator profile integration.
     enabled: false
     # Namespace for the profile ConfigMaps. Empty means the release namespace.
     # fake-gpu-operator loads profiles from its OWN release namespace, so set
@@ -358,42 +423,60 @@ integrations:
     # `builtinProfiles.enabled=false`, because their builtin set uses the same
     # seven names and is owned by their Helm release. See
     # docs/guides/runai-fgo/README.md.
+    # -- Namespace where fake-gpu-operator reads profile ConfigMaps.
     targetNamespace: ""
     # Extra labels applied to per-profile ConfigMaps. The contract labels
     # `fake-gpu-operator/gpu-profile` and `nvml-mock/profile-name` are always
     # emitted by the template and cannot be removed through this map.
     profileLabels:
+      # -- Additional label applied to generated fake-gpu-operator profiles.
       run.ai/gpu-profile: "true"
 
 # Mokka Control Plane (MEP-0001). Defaults to disabled.
 controlPlane:
+  # -- Enable the Mokka control-plane service.
   enabled: false
+  # -- Number of control-plane replicas.
   replicas: 1
   image:
+    # -- Control-plane image repository.
     repository: ghcr.io/nvidia/mokka-control-plane
     # Required when enabled outside Tilt's explicit local mutable-tag mode.
     # Digest pinning prevents the cluster-privileged controller artifact from
     # changing without a Helm values change.
+    # -- Immutable digest for the control-plane image.
     digest: ""
     # Tilt sets both fields for locally built images. Keep mutable tags disabled
     # for normal installs so the cluster-privileged controller stays immutable.
+    # -- Control-plane image tag for local development.
     tag: ""
+    # -- Allow a mutable control-plane image tag.
     allowMutableTag: false
+    # -- Kubernetes image pull policy for the control plane.
     pullPolicy: IfNotPresent
   logging:
+    # -- Control-plane log level.
     level: info    # debug | info | warn | error
+    # -- Control-plane log encoding.
     format: json   # json | plain
   # Go duration string: 5s, 1m30s, etc.
+  # -- Graceful control-plane shutdown timeout.
   shutdownTimeout: 5s
+  # -- Number of control-plane worker goroutines.
   workers: 2
   # Client-side Kubernetes API throttling. Raise these together with workers
   # when faster initial convergence is worth the additional control-plane load.
+  # -- Kubernetes API request rate for the control plane.
   kubeAPIQPS: 50
+  # -- Kubernetes API burst allowance for the control plane.
   kubeAPIBurst: 100
   leaderElection:
+    # -- Lease name used for control-plane leader election.
     name: control-plane.mokka.nvidia.com
   service:
+    # -- Kubernetes Service type for the control plane.
     type: ClusterIP
+    # -- Kubernetes Service port for the control plane.
     port: 8080
   # Total shutdown budget on the pod: preStop sleep + in-flight request drain
   # (shutdownTimeout above) must fit inside this. 30s matches the kube default
@@ -401,13 +484,20 @@ controlPlane:
   # together with shutdownTimeout if the CP starts holding long-lived connections.
   # Setting it below preStop + drain truncates the drain — kube SIGKILLs at the
   # grace boundary regardless.
+  # -- Pod termination grace period for the control plane.
   terminationGracePeriodSeconds: 30
   resources:
     requests:
+      # -- CPU requested by the control plane.
       cpu: 50m
+      # -- Memory requested by the control plane.
       memory: 64Mi
     limits:
+      # -- CPU limit for the control plane.
       cpu: 500m
+      # -- Memory limit for the control plane.
       memory: 1Gi
+  # -- Node selector for control-plane pods.
   nodeSelector: {}
+  # -- Tolerations for control-plane pods.
   tolerations: []
