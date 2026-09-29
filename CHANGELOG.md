@@ -145,6 +145,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   drift again — it is what caught `b200` and `l40s`. NVML consumers were
   unaffected either way, since `name` carries the board there; this is visible
   in the rendered PCI tree.
+- nvml-mock: throttle-counter field reads now honor simulated GPU loss and
+  delayed failure triggers, matching the dedicated violation-status API.
 - nvml-mock: a consumer's read-after-write across two processes now sees the
   write. NVML setter state lived on the device object inside whichever process
   loaded `libnvidia-ml.so`, and every consumer loads its own copy, so
