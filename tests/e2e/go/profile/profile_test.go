@@ -124,25 +124,6 @@ func TestNegativeControlsAreIndependent(t *testing.T) {
 	}
 }
 
-// TestSwitchesAndPCIBridgesAreIndependent pins the third axis the table above
-// covers only by value: having NVSwitches and enumerating them over PCIe are
-// separate facts. gb200 has the switches and no bridges because NVL72 keeps
-// them in their own trays, while h100's baseboard switches are PCIe endpoints.
-// An accessor that keyed bridges off the switch list would pass the table for
-// a100/h100 and put four phantom bridges on every GB200 node.
-func TestSwitchesAndPCIBridgesAreIndependent(t *testing.T) {
-	gb200, err := Load(profilesDir, "gb200")
-	require.NoError(t, err, "Load(gb200)")
-	require.NotZero(t, gb200.ExpectedNV(), "gb200 ExpectedNV() want > 0 (switches are declared)")
-	require.Zero(t, gb200.ExpectedPCIBridges(), "gb200 ExpectedPCIBridges() want 0 (switch trays)")
-	require.Equal(t, gb200.ExpectedGPUs(), gb200.ExpectedPCIFunctions(),
-		"gb200 renders its GPUs and nothing else")
-
-	h100, err := Load(profilesDir, "h100")
-	require.NoError(t, err, "Load(h100)")
-	require.Equal(t, h100.ExpectedGPUs()+h100.ExpectedPCIBridges(), h100.ExpectedPCIFunctions())
-}
-
 func TestHostMaxPCIeLinkGenUsesProfileSpecificValues(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
@@ -164,6 +145,25 @@ func TestHostMaxPCIeLinkGenUsesProfileSpecificValues(t *testing.T) {
 			require.Equal(t, tc.unsupported, p.HostMaxPCIeLinkGenUnsupported())
 		})
 	}
+}
+
+// TestSwitchesAndPCIBridgesAreIndependent pins the third axis the table above
+// covers only by value: having NVSwitches and enumerating them over PCIe are
+// separate facts. gb200 has the switches and no bridges because NVL72 keeps
+// them in their own trays, while h100's baseboard switches are PCIe endpoints.
+// An accessor that keyed bridges off the switch list would pass the table for
+// a100/h100 and put four phantom bridges on every GB200 node.
+func TestSwitchesAndPCIBridgesAreIndependent(t *testing.T) {
+	gb200, err := Load(profilesDir, "gb200")
+	require.NoError(t, err, "Load(gb200)")
+	require.NotZero(t, gb200.ExpectedNV(), "gb200 ExpectedNV() want > 0 (switches are declared)")
+	require.Zero(t, gb200.ExpectedPCIBridges(), "gb200 ExpectedPCIBridges() want 0 (switch trays)")
+	require.Equal(t, gb200.ExpectedGPUs(), gb200.ExpectedPCIFunctions(),
+		"gb200 renders its GPUs and nothing else")
+
+	h100, err := Load(profilesDir, "h100")
+	require.NoError(t, err, "Load(h100)")
+	require.Equal(t, h100.ExpectedGPUs()+h100.ExpectedPCIBridges(), h100.ExpectedPCIFunctions())
 }
 
 // TestUtilizationPercentagesComeFromTheProfile pins which config keys the JPEG
