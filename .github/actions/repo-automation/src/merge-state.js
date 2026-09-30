@@ -335,7 +335,7 @@ function decideMergeAction(input) {
 
   if (blockers.length === 0) {
     return {
-      action: state.autoMergeMethod === "SQUASH" ? "NOOP" : "ENABLE",
+      action: "NOOP",
       blockers,
     };
   }
