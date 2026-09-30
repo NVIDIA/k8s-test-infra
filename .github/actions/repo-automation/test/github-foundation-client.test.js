@@ -2,8 +2,47 @@
 
 const assert = require("node:assert/strict");
 const test = require("node:test");
+const { URL } = require("node:url");
 
 const { createGitHubClient } = require("../src/github-client.js");
+
+const actionsGitHub = import("@actions/github");
+
+function workflowRun(id, options = {}) {
+  return {
+    id,
+    head_sha: options.headSha ?? "a".repeat(40),
+    status: "completed",
+    conclusion: "failure",
+    path: ".github/workflows/automation-ci.yml@refs/heads/main",
+    event: "pull_request",
+    pull_requests: options.pullRequests ?? [{ number: 42 }],
+    repository: { full_name: "NVIDIA/k8s-test-infra" },
+  };
+}
+
+async function octokitWithWorkflowFetch(fetch) {
+  const { getOctokit } = await actionsGitHub;
+  return getOctokit("test-token", {
+    baseUrl: "https://api.github.com",
+    request: {
+      fetch: async (input, init) => {
+        const response = await fetch(input, init);
+        Object.defineProperty(response, "url", {
+          value: typeof input === "string" ? input : input.url,
+        });
+        return response;
+      },
+    },
+  });
+}
+
+function jsonResponse(data, headers = {}) {
+  return new globalThis.Response(JSON.stringify(data), {
+    status: 200,
+    headers: { "content-type": "application/json", ...headers },
+  });
+}
 
 function mockOctokit(overrides = {}) {
   const calls = [];
@@ -75,7 +114,7 @@ function mockOctokit(overrides = {}) {
       getBranch: response("getBranch", { name: "release-1.2", commit: { sha: "b".repeat(40) } }),
     },
     actions: {
-      listWorkflowRunsForRepo: response("listWorkflowRuns", { workflow_runs: [{
+      listWorkflowRunsForRepo: response("listWorkflowRuns", [{
         id: 701,
         head_sha: "a".repeat(40),
         status: "completed",
@@ -84,7 +123,7 @@ function mockOctokit(overrides = {}) {
         event: "pull_request",
         pull_requests: [{ number: 42 }],
         repository: { full_name: "NVIDIA/k8s-test-infra" },
-      }] }),
+      }]),
       getWorkflowRun: response("getWorkflowRun", {
         id: 701,
         head_sha: "a".repeat(40),
@@ -217,7 +256,7 @@ test("ignores unrelated workflow runs before mapping their pull request identity
       actions: {
         listWorkflowRunsForRepo: async (parameters) => {
           base.calls.push({ name: "listWorkflowRuns", parameters });
-          return { data: { workflow_runs: [
+          return { data: [
             {
               id: 701,
               head_sha: "a".repeat(40),
@@ -238,7 +277,7 @@ test("ignores unrelated workflow runs before mapping their pull request identity
               pull_requests: [],
               repository: { full_name: "NVIDIA/k8s-test-infra" },
             },
-          ] } };
+          ] };
         },
       },
     },
@@ -246,6 +285,113 @@ test("ignores unrelated workflow runs before mapping their pull request identity
   const client = createGitHubClient(base.octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
 
   assert.equal((await client.listWorkflowRunsForHead("a".repeat(40), 42)).length, 1);
+});
+
+test("maps Octokit-normalized workflow pages for the exact head and pull request", async () => {
+  const headOid = "a".repeat(40);
+  const requests = [];
+  const octokit = await octokitWithWorkflowFetch(async (url) => {
+    const request = new URL(url);
+    requests.push(request);
+    return jsonResponse({
+      total_count: 5,
+      workflow_runs: [
+        workflowRun(701),
+        workflowRun(702, { headSha: "b".repeat(40) }),
+        workflowRun(703, { pullRequests: [{ number: 43 }] }),
+        workflowRun(704, { pullRequests: [] }),
+        workflowRun(705, { pullRequests: [{ number: 42 }, { number: 44 }] }),
+      ],
+    });
+  });
+  const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+
+  assert.deepEqual(await client.listWorkflowRunsForHead(headOid, 42), [{
+    id: 701,
+    headOid,
+    status: "completed",
+    conclusion: "failure",
+    workflowPath: ".github/workflows/automation-ci.yml",
+    workflowSourceRef: "refs/heads/main",
+    event: "pull_request",
+    prNumber: 42,
+    repository: "nvidia/k8s-test-infra",
+  }]);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].pathname, "/repos/NVIDIA/k8s-test-infra/actions/runs");
+  assert.equal(requests[0].searchParams.get("head_sha"), headOid);
+  assert.equal(requests[0].searchParams.get("per_page"), "100");
+});
+
+test("returns an empty Octokit-normalized workflow collection", async () => {
+  const octokit = await octokitWithWorkflowFetch(async () => jsonResponse({
+    total_count: 0,
+    workflow_runs: [],
+  }));
+  const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+
+  assert.deepEqual(await client.listWorkflowRunsForHead("a".repeat(40), 42), []);
+});
+
+test("maps linked Octokit workflow pages", async () => {
+  const headOid = "a".repeat(40);
+  const requests = [];
+  const octokit = await octokitWithWorkflowFetch(async (url) => {
+    const request = new URL(url);
+    requests.push(request);
+    const page = request.searchParams.get("page") ?? "1";
+    if (page === "1") {
+      return jsonResponse({ total_count: 2, workflow_runs: [workflowRun(711)] }, {
+        link: `<https://api.github.com/repos/NVIDIA/k8s-test-infra/actions/runs?head_sha=${headOid}&per_page=100&page=2>; rel="next"`,
+      });
+    }
+    return jsonResponse({ total_count: 2, workflow_runs: [workflowRun(712)] });
+  });
+  const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+
+  const runs = await client.listWorkflowRunsForHead(headOid, 42);
+
+  assert.deepEqual(runs.map(({ id }) => id), [711, 712]);
+  assert.deepEqual(requests.map((request) => request.searchParams.get("page")), [null, "2"]);
+});
+
+test("fails closed for a malformed Octokit workflow collection", async () => {
+  const octokit = await octokitWithWorkflowFetch(async () => jsonResponse({
+    total_count: 1,
+    workflow_runs: {},
+  }));
+  const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+
+  await assert.rejects(
+    () => client.listWorkflowRunsForHead("a".repeat(40), 42),
+    /listWorkflowRunsForHead failed: GitHub API request failed/,
+  );
+});
+
+test("keeps the default 1000-item workflow collection bound", async () => {
+  const requests = [];
+  const octokit = await octokitWithWorkflowFetch(async (url) => {
+    const request = new URL(url);
+    requests.push(request);
+    const page = Number(request.searchParams.get("page") ?? "1");
+    const firstId = ((page - 1) * 100) + 1;
+    const count = page === 11 ? 1 : 100;
+    const headers = page < 11 ? {
+      link: `<https://api.github.com/repos/NVIDIA/k8s-test-infra/actions/runs?head_sha=${"a".repeat(40)}&per_page=100&page=${page + 1}>; rel="next"`,
+    } : {};
+    return jsonResponse({
+      total_count: 1001,
+      workflow_runs: Array.from({ length: count }, (_, offset) => workflowRun(firstId + offset)),
+    }, headers);
+  });
+  const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+
+  await assert.rejects(
+    () => client.listWorkflowRunsForHead("a".repeat(40), 42),
+    /listWorkflowRunsForHead result must not exceed 1000 items/,
+  );
+  assert.equal(requests.length, 11);
+  assert.equal(requests.every((request) => request.searchParams.get("per_page") === "100"), true);
 });
 
 test("refetches only a bounded evaluator workflow identity", async () => {

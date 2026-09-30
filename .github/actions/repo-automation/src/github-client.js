@@ -803,7 +803,6 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
         "listWorkflowRunsForHead",
         octokit.rest.actions.listWorkflowRunsForRepo,
         { owner, repo, head_sha: headOid },
-        (response) => response.data.workflow_runs,
       );
       const expectedHead = headOid.toLowerCase();
       return runs.filter((run) => (
