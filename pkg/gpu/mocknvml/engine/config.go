@@ -170,9 +170,9 @@ func ConfigOverridePathFor(configPath string) string {
 //  3. cdiConfigPath, when that file exists
 //
 // The last step serves containers given the library through the nvidia.com/gpu
-// CDI spec: the toolkit resolving it applies the spec's mounts but drops its
-// env (#747), and it mounts the library at /usr/lib64, outside the driver root
-// that maps discovery walks up to.
+// CDI spec, which mounts it at /usr/lib64, outside the driver root that maps
+// discovery walks up to. The spec also sets MOCK_NVML_CONFIG, but that reaches
+// only the container's own processes, not `kubectl exec` sessions.
 func resolveConfigPath() string {
 	if configPath := os.Getenv("MOCK_NVML_CONFIG"); configPath != "" {
 		return configPath

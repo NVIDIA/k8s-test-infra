@@ -221,10 +221,11 @@ devices:
 }
 
 // A container served through the nvidia.com/gpu CDI spec gets the node's
-// config directory at /etc/nvml-mock but not the spec's env (#747), and the
-// library it loads sits at /usr/lib64, where maps discovery finds nothing.
-// Without this fallback the pod sees the built-in A100s instead of the node's
-// profile (#947).
+// config directory at /etc/nvml-mock, and the library it loads sits at
+// /usr/lib64, where maps discovery finds nothing. The spec's MOCK_NVML_CONFIG
+// reaches the container's own processes but not `kubectl exec` sessions, so
+// without this fallback an exec'd nvidia-smi sees the built-in A100s instead
+// of the node's profile.
 func TestLoadConfig_FallsBackToCDIConfigPath(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	writeTwoDeviceConfig(t, configPath)
