@@ -466,11 +466,9 @@ does not exist at all.
 The daemon therefore writes the machine type to `driver/config/machine-type`, and
 the CDI mount that carries `config.yaml` serves it at
 `/etc/nvml-mock/machine-type`. GFD has to be pointed at it by hand, with or
-without `nri.enabled`. The toolkit resolving `nvidia.com/gpu` applies the spec's
-mounts and drops its env
-([#747](https://github.com/NVIDIA/k8s-test-infra/issues/747)). The NRI plugin
-sets `GFD_MACHINE_TYPE_FILE` only in the containers it injects, which hold a GPU
-allocation or opt in by annotation (see
+without `nri.enabled`. The node agent's `nvidia.com/gpu` spec does not set
+`GFD_MACHINE_TYPE_FILE`. The NRI plugin sets it only in the containers it
+injects, which hold a GPU allocation or opt in by annotation (see
 [Which containers are injected](components/nri-plugin.md#which-containers-are-injected)),
 and GFD does neither:
 
