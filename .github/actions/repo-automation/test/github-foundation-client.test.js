@@ -170,7 +170,7 @@ test("maps live command and approval provenance", async () => {
   });
 });
 
-test("exposes only managed policy labels and native auto-merge mutations", async () => {
+test("exposes only managed policy labels and native auto-merge disarm", async () => {
   const { octokit, calls } = mockOctokit();
   const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
 
@@ -178,12 +178,12 @@ test("exposes only managed policy labels and native auto-merge mutations", async
   await client.removePolicyLabel(42, "do-not-merge/hold");
   await assert.rejects(() => client.addPolicyLabel(42, "kind/feature"), /policy-managed/);
   await client.setMergePolicyCheck(42, "a".repeat(40), "success", "all gates passed");
-  await client.enableAutoMerge("PR_node_42", "SQUASH");
   await client.disableAutoMerge("PR_node_42");
 
   assert.equal(typeof client.mergePullRequest, "undefined");
+  assert.equal(typeof client.enableAutoMerge, "undefined");
   assert.equal(calls.some(({ name }) => name === "createCheck"), true);
-  assert.equal(calls.filter(({ name }) => name === "graphql").length, 2);
+  assert.equal(calls.filter(({ name }) => name === "graphql").length, 1);
 });
 
 test("maps merge, workflow, and pull-request state with exact heads", async () => {
