@@ -61,11 +61,11 @@ CI splits the suite into parallel jobs.
 entirely as exclusions:
 
 ```make
-E2E_DEFAULT_LABEL_FILTER ?= !gfd && !dra && !gpu-operator && !multi-node && !nri && !nfd
+E2E_DEFAULT_LABEL_FILTER ?= !gfd && !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig && !gpu-operator-mig
 ```
 
 The filter is phrased that way because the standalone scenario has no scenario
-label of its own — it is whatever remains once the six specialised scenarios are
+label of its own — it is whatever remains once the specialised scenarios are
 excluded. So a bare `make e2e` runs the standalone scenario only; use the
 per-scenario targets for the rest.
 

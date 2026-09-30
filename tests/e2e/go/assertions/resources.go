@@ -41,11 +41,18 @@ func WaitNodeReady(ctx context.Context, k *kube.Client, node string, timeout, po
 // WaitAllocatableGPU polls until a node reports exactly want allocatable GPUs.
 func WaitAllocatableGPU(ctx context.Context, k *kube.Client, node string, want int, timeout, poll time.Duration) {
 	ginkgo.GinkgoHelper()
-	ginkgo.By(fmt.Sprintf("waiting for allocatable %s=%d on %s", kube.GPUResourceName, want, node))
+	WaitAllocatable(ctx, k, node, kube.GPUResourceName, want, timeout, poll)
+}
+
+// WaitAllocatable polls until a node reports exactly want of an extended
+// resource, such as the per-profile nvidia.com/mig-* resources.
+func WaitAllocatable(ctx context.Context, k *kube.Client, node, resource string, want int, timeout, poll time.Duration) {
+	ginkgo.GinkgoHelper()
+	ginkgo.By(fmt.Sprintf("waiting for allocatable %s=%d on %s", resource, want, node))
 	gomega.Eventually(func() (int, error) {
-		return k.AllocatableGPU(ctx, node)
+		return k.Allocatable(ctx, node, resource)
 	}).WithContext(ctx).WithTimeout(timeout).WithPolling(poll).
-		Should(gomega.Equal(want), "node %s allocatable GPUs", node)
+		Should(gomega.Equal(want), "node %s allocatable %s", node, resource)
 }
 
 // WaitNodeLabelsPresent polls until every requested node label is set to a

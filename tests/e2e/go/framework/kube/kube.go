@@ -221,17 +221,23 @@ func (c *Client) NodeReady(ctx context.Context, node string) (bool, error) {
 
 // AllocatableGPU returns the integer allocatable nvidia.com/gpu on a node.
 func (c *Client) AllocatableGPU(ctx context.Context, node string) (int, error) {
+	return c.Allocatable(ctx, node, GPUResourceName)
+}
+
+// Allocatable returns the integer allocatable quantity of an extended resource
+// on a node, 0 when the node does not advertise it.
+func (c *Client) Allocatable(ctx context.Context, node, resource string) (int, error) {
 	var n nodeObj
 	if err := c.getJSON(ctx, &n, "node", node); err != nil {
 		return 0, err
 	}
-	v, ok := n.Status.Allocatable[GPUResourceName]
+	v, ok := n.Status.Allocatable[resource]
 	if !ok {
 		return 0, nil
 	}
 	q, err := strconv.Atoi(v)
 	if err != nil {
-		return 0, fmt.Errorf("allocatable %s=%q not an integer: %w", GPUResourceName, v, err)
+		return 0, fmt.Errorf("allocatable %s=%q not an integer: %w", resource, v, err)
 	}
 	return q, nil
 }
