@@ -3,7 +3,7 @@
 # additions marked below. COPYied verbatim to /etc/containerd/config.toml.
 #
 # NOTE: this is a fork of Kind's base config. When bumping KIND_NODE_IMAGE,
-# re-extract the base config and re-apply the three NVIDIA changes:
+# re-extract the base config and re-apply the NVIDIA runtime changes:
 #   docker create <new-node-image>; docker cp <id>:/etc/containerd/config.toml -
 # The kind entrypoint still seds the `snapshotter` and `restrict_oom_score_adj`
 # lines at start-up, so keep those keys intact.
@@ -59,3 +59,9 @@ version = 2
   tolerate_missing_hugepages_controller = true
   # restrict_oom_score_adj needs to be true when running inside UserNS (rootless)
   restrict_oom_score_adj = false
+
+# NVIDIA: expose the NRI endpoint so an NRI plugin can connect when deployed.
+[plugins."io.containerd.nri.v1.nri"]
+  disable = false
+  disable_connections = false
+  socket_path = "/var/run/nri/nri.sock"
