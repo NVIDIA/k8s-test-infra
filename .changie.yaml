@@ -1,0 +1,30 @@
+changesDir: .changes
+unreleasedDir: unreleased
+headerPath: header.tpl.md
+changelogPath: CHANGELOG.md
+versionExt: md
+# Timestamped, non-serial filenames so concurrent PRs and backports never collide.
+fragmentFileFormat: '{{.Kind}}-{{.Time.Format "20060102-150405"}}'
+versionFormat: '## [{{.Version}}] - {{.Time.Format "2006-01-02"}}'
+kindFormat: '### {{.Kind}}'
+# Trailing "(#123)" matches how issues and PRs are already referenced in CHANGELOG.md.
+changeFormat: '- {{.Body}}{{if .Custom.Issue}} ([#{{.Custom.Issue}}](https://github.com/NVIDIA/k8s-test-infra/issues/{{.Custom.Issue}})){{end}}'
+# Keep a Changelog kinds, in its section order.
+kinds:
+  - label: Added
+  - label: Changed
+  - label: Deprecated
+  - label: Removed
+  - label: Fixed
+  - label: Security
+custom:
+  - key: Issue
+    label: Issue or PR number (optional, e.g. 636)
+    type: string
+    optional: true
+newlines:
+  afterChangelogHeader: 0
+  beforeChangelogVersion: 1
+  beforeKind: 1
+  afterKind: 1
+  endOfVersion: 1

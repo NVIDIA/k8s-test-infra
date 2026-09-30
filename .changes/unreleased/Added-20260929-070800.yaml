@@ -1,0 +1,7 @@
+kind: Added
+body: |-
+  control-plane: an opt-in controller materializes `SGPURackProfile` and
+    `SGPUInventory` declarations into stable `SGPURack` Node bindings and
+    projects the assignment metadata onto Nodes. It rebuilds its state from
+    Kubernetes after a restart.
+time: 2026-09-29T07:08:00Z

@@ -1,0 +1,70 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+
+name: validate changelog
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+    branches:
+      - main
+      - release-*
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-changelog:
+    name: validate changelog
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Needed to diff against the base branch.
+          fetch-depth: 0
+
+      # CHANGELOG.md is written at release time only — contributors record entries
+      # as fragments under .changes/unreleased/, which never conflict between PRs.
+      # The label is an escape hatch for a deliberate edit (a fix to a released
+      # section, say); applying labels needs write access, so it stays maintainer-gated.
+      - name: Reject unauthorized CHANGELOG.md changes
+        if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-changelog') }}
+        env:
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if git diff --quiet "origin/$BASE_REF...HEAD" -- CHANGELOG.md; then
+            echo "CHANGELOG.md was not changed."
+            exit 0
+          fi
+
+          # Strip only the list marker and any trailing comment: logins contain hyphens.
+          approvers=$(awk '/^approvers:/{f=1;next} /^[^[:space:]]/{f=0} f{sub(/^[[:space:]]*-[[:space:]]*/, ""); sub(/[[:space:]]*(#.*)?$/, ""); if ($0 != "") print}' OWNERS)
+          if echo "$approvers" | grep -Fxq "$PR_AUTHOR"; then
+            echo "CHANGELOG.md change authorized for $PR_AUTHOR."
+            exit 0
+          fi
+
+          echo "::error::Only approvers listed in OWNERS may modify CHANGELOG.md. Record the entry as a fragment instead: make changelog KIND=<kind> BODY=\"...\""
+          exit 1
+
+      # A behavior-changing PR must add a fragment. Labels opt out: skip-changelog
+      # for refactors, docs, tests and CI, dependencies for dependabot PRs.
+      - name: Check changelog fragment added
+        if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-changelog') && !contains(github.event.pull_request.labels.*.name, 'dependencies') }}
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          # AM, not all changes: deleting or moving a fragment does not record an entry.
+          if git diff --name-only --diff-filter=AM "origin/$BASE_REF...HEAD" | grep -qE '^\.changes/unreleased/[^/]+\.yaml$'; then
+            echo "Changelog fragment added."
+          else
+            echo "::error::No changelog fragment found. Run 'make changelog KIND=<kind> BODY=\"...\"', or add the 'skip-changelog' label if this change needs no entry."
+            exit 1
+          fi

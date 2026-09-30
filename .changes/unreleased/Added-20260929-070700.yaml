@@ -1,0 +1,10 @@
+kind: Added
+body: |-
+  helm: `gpu.mig.enabled` boots a board already partitioned into the layout
+    `gpu.mig.gpuInstances` names, which is required. The device plugin then
+    serves MIG resources, so MIG workloads schedule on CPU-only nodes. Off by
+    default, since under `migStrategy=single` a partitioned board publishes no
+    `nvidia.com/gpu`.
+time: 2026-09-29T07:07:00Z
+custom:
+  Issue: "241"

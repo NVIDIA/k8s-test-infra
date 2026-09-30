@@ -1,0 +1,10 @@
+kind: Added
+body: |-
+  nvml-mock: MIG is implemented rather than stubbed: `nvidia-smi -mig 1` and
+    `nvidia-smi mig -cgi/-cci/-dgi/-dci` work, and partitions are visible
+    node-wide to DCGM and GFD. Only the NVML view changes: the device plugin
+    cannot allocate a runtime repartition until the `nvml-mock` pod restarts.
+    See `docs/guides/mig/README.md`.
+time: 2026-09-29T07:05:00Z
+custom:
+  Issue: "241"
