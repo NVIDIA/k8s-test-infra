@@ -168,8 +168,40 @@ func (a *Agent) reconcileLoop(ctx context.Context) error {
 
 // reconcile runs Stage on all simulators in parallel, waits for the barrier,
 // starts (or reloads) the daemons, then runs Apply on all appliers in parallel.
+//
+// Only the Stage wave holds the staging lock: it rewrites the tree NRI injects,
+// while the daemons and Apply publish nothing NRI reads when it decides.
 func (a *Agent) reconcile(ctx context.Context, state *State) error {
-	return a.withStagingLock(ctx, func() error { return a.reconcileLocked(ctx, state) })
+	if err := a.withStagingLock(ctx, func() error { return a.stage(ctx, state) }); err != nil {
+		return err
+	}
+	// Open the gate only after the lock is released, so NRI can always take its
+	// shared side once /stagedz passes. Apply publishes nothing NRI needs (the
+	// CDI spec it can reference is checked before use), and a failed Apply is
+	// not retried until the state changes, so it must not keep the gate shut.
+	a.staged.Store(true)
+
+	// Supervisor wave sits on the barrier: a daemon starts against surfaces Stage
+	// has written, and before Apply publishes them off-node.
+	a.supervise(ctx, state)
+
+	// Apply wave: fail-fast — appliers share cross-component dependencies
+	// (CDI spec references chardevs that gpudriver must have staged first).
+	// Only simulators that also implement Applier participate.
+	applyG, applyCtx := errgroup.WithContext(ctx)
+	for _, sim := range a.simulators {
+		app, ok := sim.(Applier)
+		if !ok {
+			continue
+		}
+		applyG.Go(func() error {
+			if err := app.Apply(applyCtx, state); err != nil {
+				return fmt.Errorf("apply %s: %w", applierName(app), err)
+			}
+			return nil
+		})
+	}
+	return applyG.Wait()
 }
 
 // errStagingLockUnavailable marks a failure to take the staging lock, as
@@ -190,7 +222,9 @@ func (a *Agent) withStagingLock(ctx context.Context, fn func() error) (err error
 	return fn()
 }
 
-func (a *Agent) reconcileLocked(ctx context.Context, state *State) error {
+// stage runs the Stage wave with the gate closed. A failure leaves it closed and
+// fails liveness, so kubelet restarts the agent into a fresh reconcile.
+func (a *Agent) stage(ctx context.Context, state *State) error {
 	a.staged.Store(false)
 	// Stage wave: all simulators run concurrently and are fully isolated from
 	// each other — a failure never cancels sibling goroutines. All errors are
@@ -226,33 +260,7 @@ func (a *Agent) reconcileLocked(ctx context.Context, state *State) error {
 	}
 
 	a.setLive(health.OK())
-	// NRI injects the tree Stage has just written. Apply publishes nothing NRI
-	// needs (the CDI spec it can reference is checked before use), and a failed
-	// Apply is not retried until the state changes, so gating on it would stop
-	// injection on this node until then.
-	a.staged.Store(true)
-
-	// Supervisor wave sits on the barrier: a daemon starts against surfaces Stage
-	// has written, and before Apply publishes them off-node.
-	a.supervise(ctx, state)
-
-	// Apply wave: fail-fast — appliers share cross-component dependencies
-	// (CDI spec references chardevs that gpudriver must have staged first).
-	// Only simulators that also implement Applier participate.
-	applyG, applyCtx := errgroup.WithContext(ctx)
-	for _, sim := range a.simulators {
-		app, ok := sim.(Applier)
-		if !ok {
-			continue
-		}
-		applyG.Go(func() error {
-			if err := app.Apply(applyCtx, state); err != nil {
-				return fmt.Errorf("apply %s: %w", applierName(app), err)
-			}
-			return nil
-		})
-	}
-	return applyG.Wait()
+	return nil
 }
 
 // supervise launches each Daemon's Run once and delivers later States via
