@@ -151,14 +151,16 @@ function fakeGitHub(options = {}) {
 }
 
 async function invoke(githubClient, options = {}) {
-  const outputs = new Map();
+  const outputs = options.outputs ?? new Map();
   const core = {
+    summary: options.jobSummary,
     getInput(name) { return name === "mode" ? "conflict-labels" : ""; },
     getBooleanInput(name) {
       assert.equal(name, "dry-run");
       return options.dryRun ?? false;
     },
     setOutput(name, value) { outputs.set(name, value); },
+    info(message) { options.info?.push(message); },
   };
   let summary;
   try {
@@ -202,6 +204,50 @@ function assertLiveReads(github, minimum = 1) {
       `${operation} must read live state`);
   }
 }
+
+test("successful conflict scan publishes the exact output JSON to the action log", async () => {
+  const github = fakeGitHub();
+  const outputs = new Map();
+  const info = [];
+  const summary = await invoke(github, {
+    outputs, info, eventName: "schedule", event: { repository, schedule: "*/15 * * * *" },
+  });
+  assert.deepEqual(github.mutations, [{ operation: "addIssueLabel", number: 42, label: "needs-rebase" }]);
+  assert.ok(reportsOperation(summary, 42, /applied|added|updated/i));
+  assert.deepEqual(info, [`Repository automation conflict-labels: ${outputs.get("summary")}`]);
+});
+
+test("ordinary command summary does not publish scan JSON to the action log", async () => {
+  const github = fakeGitHub();
+  const outputs = new Map();
+  const info = [];
+  const codeBlocks = [];
+  const core = {
+    getInput(name) { return name === "mode" ? "command" : ""; },
+    getBooleanInput() { return true; },
+    setOutput(name, value) { outputs.set(name, value); },
+    info(message) { info.push(message); },
+    summary: {
+      addHeading() { return this; },
+      addCodeBlock(content, language) { codeBlocks.push({ content, language }); return this; },
+      async write() { return this; },
+    },
+  };
+  const summary = await run({
+    core, githubClient: github, owner: "NVIDIA", repo: "k8s-test-infra", workspace: repositoryRoot,
+    eventName: "issue_comment",
+    event: {
+      action: "created", repository, issue: { number: 42 },
+      comment: { id: 9001, body: "/approve", user: { login: "contributor" } },
+    },
+  });
+  assert.deepEqual(summary, { status: "ignored", reason: "not-pull-request" });
+  assert.equal(outputs.get("summary"), JSON.stringify(summary));
+  assert.deepEqual(codeBlocks, [{ content: outputs.get("summary"), language: "json" }]);
+  assert.deepEqual(info, []);
+  assert.deepEqual(github.calls, []);
+  assert.deepEqual(github.mutations, []);
+});
 
 async function assertNoWrite(github, options = {}) {
   try {
@@ -532,6 +578,45 @@ for (const [name, overrides] of [
     assert.ok(reportsOperation(summary, 42, /applied|added|updated/i), "summary must report the applied PR");
     assert.ok(reportsOperation(summary, 43, /failed|failure/i), "summary must identify the failed PR operation");
     assert.doesNotMatch(JSON.stringify(summary), /rolled.?back|rollback complete/i);
+  });
+}
+
+for (const [name, overrides, expectedError] of [
+  ["fresh read", { failure: { operation: "getPullRequest", key: 43, at: 2 } }, /^conflict label fresh read failed for PR 43$/],
+  ["mutation", { mutationFailure: 43 }, /^conflict label label mutation failed for PR 43$/],
+]) {
+  test(`candidate 2 conflict ${name} failure publishes exact partial JSON to the action log and still throws`, async () => {
+    const github = fakeGitHub({
+      pullRequests: [pullRequest(), pullRequest({ number: 43, nodeId: "PR_43" })], ...overrides,
+    });
+    const outputs = new Map();
+    const info = [];
+    const codeBlocks = [];
+    const jobSummary = {
+      addHeading() { return this; },
+      addCodeBlock(content, language) { codeBlocks.push({ content, language }); return this; },
+      async write() { return this; },
+    };
+    let failedSummary;
+    await assert.rejects(() => invoke(github, {
+      outputs, info, jobSummary, eventName: "schedule", event: { repository, schedule: "*/15 * * * *" },
+    }), (error) => {
+      assert.match(error.message, expectedError);
+      assert.ok(error.summary);
+      failedSummary = error.summary;
+      return true;
+    });
+    assert.ok(github.labels.get(42).has("needs-rebase"), "candidate 1 remains applied");
+    assert.equal(github.labels.get(43).has("needs-rebase"), false);
+    assert.ok(reportsOperation(failedSummary, 42, /applied|added|updated/i));
+    assert.ok(reportsOperation(failedSummary, 43, /failed|failure/i));
+    const serialized = outputs.get("summary");
+    assert.equal(typeof serialized, "string");
+    assert.deepEqual(JSON.parse(serialized), failedSummary);
+    assert.ok(Buffer.byteLength(serialized, "utf8") <= 64 * 1024);
+    assert.deepEqual(codeBlocks, [{ content: serialized, language: "json" }]);
+    assert.deepEqual(info, [`Repository automation conflict-labels: ${serialized}`]);
+    assert.equal(serialized.includes("private-body-must-not-enter-the-summary"), false);
   });
 }
 

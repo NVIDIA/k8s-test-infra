@@ -64,10 +64,14 @@ function serializeBackportRequests(summary) {
 }
 
 async function publishJobSummary(core, mode, summary) {
+  const serialized = serializeSummary(summary);
+  if (mode === "conflict-labels" || mode === "metadata-labels") {
+    core.info?.(`Repository automation ${mode}: ${serialized}`);
+  }
   if (core.summary?.addHeading === undefined) return;
   await core.summary
     .addHeading(`Repository automation: ${mode}`, 2)
-    .addCodeBlock(serializeSummary(summary), "json")
+    .addCodeBlock(serialized, "json")
     .write();
 }
 

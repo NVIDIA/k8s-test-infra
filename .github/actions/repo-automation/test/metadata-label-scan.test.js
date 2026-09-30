@@ -111,6 +111,7 @@ async function invoke(githubClient, options = {}) {
     },
     getBooleanInput() { return options.dryRun ?? false; },
     setOutput(name, value) { outputs.set(name, value); },
+    info(message) { options.info?.push(message); },
   };
   let summary;
   try {
@@ -158,6 +159,16 @@ async function noWrite(github, options = {}) {
   assert.deepEqual(github.mutations, []);
   assert.deepEqual(github.forbidden, []);
 }
+
+test("successful metadata scan publishes the exact output JSON to the action log", async () => {
+  const github = fakeGitHub({ labels: [] });
+  const outputs = new Map();
+  const info = [];
+  const summary = await invoke(github, { outputs, info });
+  assert.deepEqual([...github.labels.get(42)].sort(), desired);
+  assert.ok(reports(summary, 42, /applied|updated/i));
+  assert.deepEqual(info, [`Repository automation metadata-labels: ${outputs.get("summary")}`]);
+});
 
 test("scheduled metadata scan repairs all old open PRs and preserves other labels", async () => {
   const github = fakeGitHub({ pullRequests: [
@@ -478,9 +489,10 @@ for (const [name, options, expectedError] of [
   ["fresh read", { failure: { operation: "getPullRequest", key: 43, at: 2 } }, /metadata label fresh read failed for PR 43/],
   ["mutation", { mutationFailure: 43 }, /metadata label label mutation failed for PR 43/],
 ]) {
-  test(`candidate 2 ${name} failure publishes exact partial JSON to the job summary and still throws`, async () => {
+  test(`candidate 2 ${name} failure publishes exact partial JSON to the job summary and action log and still throws`, async () => {
     const github = fakeGitHub({ pullRequests: [pullRequest(), pullRequest({ number: 43, nodeId: "PR_43" })], ...options });
     const outputs = new Map();
+    const info = [];
     const codeBlocks = [];
     const published = [];
     const jobSummary = {
@@ -496,7 +508,7 @@ for (const [name, options, expectedError] of [
       },
     };
     let failedSummary;
-    await assert.rejects(() => invoke(github, { outputs, jobSummary }), (error) => {
+    await assert.rejects(() => invoke(github, { outputs, jobSummary, info }), (error) => {
       assert.match(error.message, expectedError);
       assert.ok(error.summary);
       failedSummary = error.summary;
@@ -511,6 +523,7 @@ for (const [name, options, expectedError] of [
     assert.ok(Buffer.byteLength(serialized, "utf8") <= 64 * 1024);
     assert.deepEqual(codeBlocks, [{ content: serialized, language: "json" }]);
     assert.deepEqual(published, ["codeBlock", "write"]);
+    assert.deepEqual(info, [`Repository automation metadata-labels: ${serialized}`]);
     assert.equal(serialized.includes("private-body-must-not-enter-the-summary"), false);
     assert.deepEqual(github.forbidden, []);
   });

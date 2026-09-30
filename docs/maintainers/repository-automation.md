@@ -94,10 +94,12 @@ Both scans fully read their candidate list before the first mutation and
 reject a list above 100 requests instead of silently omitting requests. They
 repeat live identity checks before each write. Metadata also checks the base
 tip, derived labels, and the exact trusted policy revision. The job summary
-records each request as applied, unchanged, deferred, or failed. A later API
-failure reports earlier writes; it does not claim that they were rolled back.
-Review both summaries and the current open list before declaring a sweep
-complete. Investigate every deferred, failed, or missing request.
+records each request as applied, unchanged, deferred, or failed. Each scan also
+logs the same bounded JSON with the prefix `Repository automation conflict-labels: `
+or `Repository automation metadata-labels: `. These reports can be read through
+the job-log API. A later API failure reports earlier writes; it does not claim
+that they were rolled back. Review both reports and the current open list before
+declaring a sweep complete. Investigate every deferred, failed, or missing request.
 
 An initially correct metadata label set needs no fresh write checks. If a
 successful label update is still absent at the next read, the scan stops and
