@@ -17,6 +17,8 @@ The foundation provides these functions:
    auto-merge disarm.
 6. Generic backport pull requests for explicitly allowed target branches.
 7. Explicit Mokka cherry-pick dispatch for its validated contract.
+8. Conflict labels and metadata label repair for all open pull requests,
+   including older requests and requests based on another feature branch.
 
 `/backport <branch>` and `/cherry-pick <branch>` are aliases for the generic
 backport command. They create a backport pull request for an allowed
@@ -66,6 +68,47 @@ Activate the functions in this order:
 
 Keep each earlier step active while you validate the next step. Do not enable a
 later write path when an earlier validation fails.
+
+## Labels for all open pull requests
+
+With `REPOSITORY_AUTOMATION_METADATA_ENABLED=true`, **PR metadata** scans all
+open pull requests hourly, at minute 17. GitHub can delay scheduled runs. There is
+no creation-date or update-date filter. A push to `main` or a `release-*` branch
+also scans open requests based on that exact branch. The scheduled scan covers
+every valid base branch in this repository, including stacked pull requests
+and PRs created by bots.
+
+The conflict scan adds `needs-rebase` only when GitHub reports `CONFLICTING` for
+the current head and base tip. It removes that label only when GitHub reports
+`MERGEABLE`. Unknown mergeability, a missing base, inconsistent identity, or a
+changed head or base tip defers the request and preserves its labels.
+
+The label-only metadata scan repairs `kind/*`, `size/*`, `area/*`, and
+`do-not-merge/work-in-progress`. It uses the same classifiers as PR metadata.
+An invalid title preserves existing kind labels; size, area, and draft labels
+can still be repaired. Invalid configuration preserves all existing labels.
+The scan does not request reviewers or post comments. It preserves conflict,
+approval, hold, and other labels outside its metadata ownership.
+
+Both scans fully read their candidate list before the first mutation and
+reject a list above 100 requests instead of silently omitting requests. They
+repeat live identity checks before each write. Metadata also checks the base
+tip, derived labels, and the exact trusted policy revision. The job summary
+records each request as applied, unchanged, deferred, or failed. A later API
+failure reports earlier writes; it does not claim that they were rolled back.
+Review both summaries and the current open list before declaring a sweep
+complete. Investigate every deferred, failed, or missing request.
+
+An initially correct metadata label set needs no fresh write checks. If a
+successful label update is still absent at the next read, the scan stops and
+reports the partial result instead of repeating the same update. The hourly
+schedule limits routine API use; the workflow token's actual rate limit is
+not assumed. A large first backfill can require another run after an API
+failure. Check the per-PR results before retrying.
+
+Approval labels remain part of the guarded merge evaluator. They require its
+activation gates and current validated human review or command evidence. A
+metadata backfill does not grant approval or enable auto-merge.
 
 ## Mokka dispatch contract
 

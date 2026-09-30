@@ -4,6 +4,7 @@ const { Buffer } = require("node:buffer");
 const { setTimeout: delay } = require("node:timers/promises");
 const { TextDecoder } = require("node:util");
 const {
+  isManagedConflictLabel,
   isManagedMetadataLabel,
   isManagedPolicyLabel,
 } = require("./managed-labels.js");
@@ -758,7 +759,7 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
 
     async addIssueLabel(prNumber, label) {
       positiveInteger(prNumber, "PR number");
-      if (!isManagedMetadataLabel(label)) throw new TypeError("label is not metadata-managed");
+      if (!isManagedMetadataLabel(label) && !isManagedConflictLabel(label)) throw new TypeError("label is not metadata/conflict-managed");
       await call("addIssueLabel", () => octokit.rest.issues.addLabels({
         owner, repo, issue_number: prNumber, labels: [label],
       }), true);
@@ -766,7 +767,7 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
 
     async removeIssueLabel(prNumber, label) {
       positiveInteger(prNumber, "PR number");
-      if (!isManagedMetadataLabel(label)) throw new TypeError("label is not metadata-managed");
+      if (!isManagedMetadataLabel(label) && !isManagedConflictLabel(label)) throw new TypeError("label is not metadata/conflict-managed");
       try {
         await call("removeIssueLabel", () => octokit.rest.issues.removeLabel({
           owner, repo, issue_number: prNumber, name: label,
@@ -871,6 +872,31 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
         owner, repo, state: "open",
       });
       return pullRequests.map((pullRequest) => positiveInteger(pullRequest.number, "open PR number"));
+    },
+
+    async getConflictState(prNumber) {
+      positiveInteger(prNumber, "PR number");
+      const response = await call("getConflictState", () => octokit.graphql(`
+        query RepositoryAutomationConflictState($owner: String!, $repo: String!, $number: Int!) {
+          repository(owner: $owner, name: $repo) {
+            pullRequest(number: $number) {
+              number id state isDraft mergeable headRefOid baseRefName baseRefOid
+            }
+          }
+        }
+      `, { owner, repo, number: prNumber }), true);
+      const pullRequest = response?.repository?.pullRequest;
+      return {
+        number: positiveInteger(pullRequest?.number, "GraphQL PR number"),
+        nodeId: nonEmptyString(pullRequest?.id, "GraphQL PR node ID"),
+        repository: `${owner}/${repo}`.toLowerCase(),
+        state: nonEmptyString(pullRequest?.state, "GraphQL PR state").toUpperCase(),
+        draft: pullRequest?.isDraft,
+        headOid: nonEmptyString(pullRequest?.headRefOid, "GraphQL head OID").toLowerCase(),
+        baseBranch: nonEmptyString(pullRequest?.baseRefName, "GraphQL base branch"),
+        baseOid: nonEmptyString(pullRequest?.baseRefOid, "GraphQL base OID").toLowerCase(),
+        mergeability: nonEmptyString(pullRequest?.mergeable, "GraphQL mergeability").toUpperCase(),
+      };
     },
 
     async getMergeState(prNumber) {
