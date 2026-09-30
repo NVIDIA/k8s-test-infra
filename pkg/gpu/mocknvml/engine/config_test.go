@@ -272,10 +272,16 @@ func TestConfigOverridePath_FollowsCDIConfigPath(t *testing.T) {
 func TestLoadConfig_MissingCDIConfigPathUsesDefaults(t *testing.T) {
 	withCDIConfigPath(t, filepath.Join(t.TempDir(), "absent", "config.yaml"))
 	t.Setenv("MOCK_NVML_CONFIG", "")
+	t.Setenv("MOCK_NVML_OVERRIDES", "")
 
 	config := LoadConfig()
 	require.Nil(t, config.YAMLConfig)
 	require.Equal(t, 8, config.NumDevices)
+	// The defaults alone cannot tell a skipped fallback from a failed one: a
+	// missing file only warns and lands on the same defaults. The overrides
+	// path can, because it resolves beside whatever path was chosen.
+	require.Empty(t, ConfigOverridePath(),
+		"a fallback path that does not exist must not become the overrides location")
 }
 
 // Per-device processes, decoded from real YAML through the inline-embedded
