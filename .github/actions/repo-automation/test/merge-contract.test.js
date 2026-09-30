@@ -179,7 +179,7 @@ function operationIndex(github, operation) {
   return github.callOrder.findIndex((entry) => entry.operation === operation);
 }
 
-test("publishes success for the exact head, re-reads gates and head, then enables native SQUASH", async () => {
+test("publishes success for the exact head without arming native auto-merge", async () => {
   const { github, result } = await run();
 
   assert.equal(result.status, "complete");
@@ -189,17 +189,102 @@ test("publishes success for the exact head, re-reads gates and head, then enable
     conclusion: "success",
     summary: "Repository merge policy passed.",
   }]);
-  assert.deepEqual(github.calls.enableAutoMerge, [{
-    nodeId: "PR_node_42",
-    mergeMethod: "SQUASH",
-  }]);
+  assert.deepEqual(github.calls.enableAutoMerge, []);
   assert.deepEqual(github.calls.disableAutoMerge, []);
   assert.ok(github.calls.getPolicyComment.length >= 2, "gate inputs must be re-read");
   assert.ok(github.calls.getPullRequest.length >= 3, "head must be re-read after success");
-  assert.ok(
-    operationIndex(github, "setMergePolicyCheck") < operationIndex(github, "enableAutoMerge"),
-    "success must be visible before auto-merge is enabled",
-  );
+  assert.equal(operationIndex(github, "enableAutoMerge"), -1);
+});
+
+test("leaves an eligible human SQUASH auto-merge request unchanged", async () => {
+  const { github, result } = await run(evaluatorState({
+    mergeStates: [
+      mergeState({ autoMergeMethod: "SQUASH" }),
+      mergeState({ autoMergeMethod: "SQUASH" }),
+      mergeState({ autoMergeMethod: "SQUASH" }),
+      mergeState({ autoMergeMethod: "SQUASH" }),
+    ],
+  }));
+
+  assert.equal(result.pullRequests[0].merge.action, "NOOP");
+  assert.deepEqual(github.calls.setMergePolicyCheck, [{
+    prNumber: 42,
+    headOid: HEAD,
+    conclusion: "success",
+    summary: "Repository merge policy passed.",
+  }]);
+  assert.deepEqual(github.calls.enableAutoMerge, []);
+  assert.deepEqual(github.calls.disableAutoMerge, []);
+});
+
+test("disarms an unsupported method armed after the permissive re-read", async (t) => {
+  for (const method of ["MERGE", "REBASE"]) await t.test(method, async () => {
+    const { github, result } = await run(evaluatorState({
+      mergeStates: [
+        mergeState(),
+        mergeState(),
+        mergeState({ autoMergeMethod: method }),
+        mergeState({ autoMergeMethod: method }),
+      ],
+    }));
+
+    assert.equal(result.pullRequests[0].merge.action, "DISABLE");
+    assert.deepEqual(github.calls.setMergePolicyCheck, [
+      {
+        prNumber: 42,
+        headOid: HEAD,
+        conclusion: "success",
+        summary: "Repository merge policy passed.",
+      },
+      {
+        prNumber: 42,
+        headOid: HEAD,
+        conclusion: "action_required",
+        summary: "Repository merge policy blocked: auto-merge-method-mismatch.",
+      },
+    ]);
+    assert.deepEqual(github.calls.disableAutoMerge, [{ nodeId: "PR_node_42" }]);
+    const restrictiveCheck = github.callOrder.findIndex(({ operation, parameters }) => (
+      operation === "setMergePolicyCheck" && parameters.conclusion === "action_required"
+    ));
+    assert.ok(restrictiveCheck < operationIndex(github, "disableAutoMerge"));
+  });
+});
+
+test("does not disarm an unsupported request that changes before the restrictive write", async () => {
+  const { github, result } = await run(evaluatorState({
+    mergeStates: [
+      mergeState(),
+      mergeState(),
+      mergeState({ autoMergeMethod: "MERGE" }),
+      mergeState({ autoMergeMethod: "SQUASH" }),
+    ],
+  }));
+
+  assert.equal(result.pullRequests[0].merge.action, "DISABLE");
+  assert.equal(github.calls.setMergePolicyCheck.at(-1).conclusion, "action_required");
+  assert.deepEqual(github.calls.disableAutoMerge, []);
+});
+
+test("does not disarm an unsupported request when its head changes before the restrictive write", async () => {
+  const { github, result } = await run(evaluatorState({
+    pullRequests: [
+      pullRequest(),
+      pullRequest(),
+      pullRequest(),
+      pullRequest({ headOid: NEXT_HEAD }),
+    ],
+    mergeStates: [
+      mergeState(),
+      mergeState(),
+      mergeState({ autoMergeMethod: "MERGE" }),
+      mergeState({ autoMergeMethod: "MERGE", headOid: NEXT_HEAD }),
+    ],
+  }));
+
+  assert.equal(result.pullRequests[0].merge.action, "DISABLE");
+  assert.equal(github.calls.setMergePolicyCheck.at(-1).conclusion, "action_required");
+  assert.deepEqual(github.calls.disableAutoMerge, []);
 });
 
 test("publishes a non-success check before it disables an armed pull request", async () => {
@@ -301,7 +386,7 @@ test("an evaluation load error fails the action and forces restrictive state", a
   assert.equal(github.calls.removePolicyLabel.some(({ label }) => label === "approved"), true);
 });
 
-test("a head change after the success check stops auto-merge enablement", async () => {
+test("a head change after the success check fails closed before policy completion", async () => {
   const { github, result } = await run(evaluatorState({
     pullRequests: [pullRequest(), pullRequest(), pullRequest({ headOid: NEXT_HEAD })],
   }));

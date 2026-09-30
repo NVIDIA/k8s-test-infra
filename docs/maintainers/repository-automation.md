@@ -13,8 +13,8 @@ The foundation provides these functions:
 3. Guarded `/lgtm`, `/approve`, `/hold`, `/unhold`, `/retest`, `/backport`, and
    `/cherry-pick` commands.
 4. Review-change observation.
-5. A stable `repository-automation/merge-policy` check and GitHub native
-   auto-merge.
+5. A stable `repository-automation/merge-policy` check and safe GitHub native
+   auto-merge disarm.
 6. Generic backport pull requests for explicitly allowed target branches.
 7. Explicit Mokka cherry-pick dispatch for its validated contract.
 
@@ -23,8 +23,10 @@ backport command. They create a backport pull request for an allowed
 `release-*` branch. They do not start the Mokka dispatch workflow.
 
 The foundation does not install Prow or Tide. GitHub branch protection remains
-the final merge authority. The automation can enable or disable GitHub native
-auto-merge, but it does not call a direct merge endpoint.
+the final merge authority. The automation publishes its policy check and
+disables an unsafe GitHub native auto-merge request. A maintainer enables
+native auto-merge for each pull request. The automation does not call a direct
+merge endpoint or enable native auto-merge.
 
 ## Activation order
 
@@ -44,8 +46,14 @@ Activate the functions in this order:
    evaluation** receives only the expected completion events and keeps its job
    disabled.
 5. Add `repository-automation/merge-policy` as a required branch-protection
-   check. Only then set `REPOSITORY_AUTOMATION_MERGE_ENABLED=true` to permit
-   merge evaluation to use GitHub native auto-merge.
+   check. Only then set `REPOSITORY_AUTOMATION_MERGE_ENABLED=true` to publish
+   policy checks and disarm unsafe native auto-merge requests. A maintainer
+   must enable native auto-merge for each eligible pull request and select
+   **Squash and merge**. For strict SQUASH-only operation, repository settings
+   must disable merge commits and rebase merges. The evaluator leaves an
+   eligible unarmed request and an eligible SQUASH request unchanged. It
+   disarms an unsafe method that it observes, but the method can change after
+   its final read.
 6. After every configured `release-*` target is protected and exists, set
    `REPOSITORY_AUTOMATION_BACKPORT_ENABLED=true`.
 7. After the external caller uses the documented UUID, source SHA, target
@@ -134,6 +142,6 @@ fails the job before any checkout.
 - Keep the scheduled evaluator because it repairs missed or delayed events.
 
 To stop repository writes, set the applicable activation variable to `false`.
-If merge evaluation is disabled, also disable native auto-merge on open pull
-requests that it previously armed. Do not remove the required merge check until
-maintainers select and document a replacement gate.
+Before merge evaluation is disabled, maintainers must disable native auto-merge
+on open pull requests. Do not remove the required merge check until maintainers
+select and document a replacement gate.

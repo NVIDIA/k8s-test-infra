@@ -1033,19 +1033,6 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
       }), false);
     },
 
-    async enableAutoMerge(nodeId, mergeMethod) {
-      nonEmptyString(nodeId, "pull request node ID");
-      if (mergeMethod !== "SQUASH") throw new TypeError("auto-merge method must be SQUASH");
-      await call("enableAutoMerge", () => octokit.graphql(`
-        mutation EnableAutoMerge($pullRequestId: ID!, $mergeMethod: PullRequestMergeMethod!) {
-          enablePullRequestAutoMerge(input: {
-            pullRequestId: $pullRequestId,
-            mergeMethod: $mergeMethod
-          }) { clientMutationId }
-        }
-      `, { pullRequestId: nodeId, mergeMethod }), false);
-    },
-
     async disableAutoMerge(nodeId) {
       nonEmptyString(nodeId, "pull request node ID");
       await call("disableAutoMerge", () => octokit.graphql(`

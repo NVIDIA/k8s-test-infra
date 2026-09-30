@@ -510,6 +510,7 @@ async function loadEvaluation({ github, config, repository, number }) {
     graph,
     authority,
     labels,
+    protectedBranch,
     merge: toMergeDecision({ config, pullRequest, graph, authority, protectedBranch }),
   };
 }
@@ -709,10 +710,22 @@ async function applyPermissive({ github, config, repository, evaluation, dryRun 
     !sameHeadIdentity(reread.pullRequest, finalPullRequest)
     || finalGraph.headOid !== reread.pullRequest.headOid
   ) return headChangedResult(reread);
-  if (finalGraph.autoMergeMethod === null) {
-    await github.enableAutoMerge(finalGraph.nodeId, config.policy.merge.method);
+  const finalEvaluation = {
+    ...reread,
+    pullRequest: finalPullRequest,
+    graph: finalGraph,
+    merge: toMergeDecision({
+      config,
+      pullRequest: finalPullRequest,
+      graph: finalGraph,
+      authority: reread.authority,
+      protectedBranch: reread.protectedBranch,
+    }),
+  };
+  if (finalEvaluation.merge.blockers.length > 0) {
+    return applyRestrictive({ github, repository, evaluation: finalEvaluation, dryRun });
   }
-  return resultFor(reread);
+  return resultFor(finalEvaluation);
 }
 
 async function reconcile({ github, config, repository, number, dryRun }) {
