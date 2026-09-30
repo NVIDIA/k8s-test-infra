@@ -156,7 +156,10 @@ the shared side of a staging lock, which the agent holds exclusively while it
 stages or tears down the driver tree, and asks the agent's `/stagedz` endpoint
 whether the tree is staged. `/stagedz` follows the agent's Stage wave only, so
 a failed Apply, such as a failed write of the NFD feature file, does not close
-it. While the agent is restarting, restaging or not yet staged, the plugin
+it. In `cdi` mode, Stage also withdraws the plugin's CDI spec until Apply
+republishes it, so a container created in between gets raw device nodes from
+the new tree rather than a spec naming nodes a smaller profile removed. While
+the agent is restarting, restaging or not yet staged, the plugin
 leaves the container unmodified, logs a warning naming its namespace, pod and
 container, and fails `/readyz` with the reason. Containers the plugin skips
 anyway, such as those in an excluded namespace, are not reported.

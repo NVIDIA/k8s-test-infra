@@ -176,9 +176,10 @@ func (a *Agent) reconcile(ctx context.Context, state *State) error {
 		return err
 	}
 	// Open the gate only after the lock is released, so NRI can always take its
-	// shared side once /stagedz passes. Apply publishes nothing NRI needs (the
-	// CDI spec it can reference is checked before use), and a failed Apply is
-	// not retried until the state changes, so it must not keep the gate shut.
+	// shared side once /stagedz passes. Apply publishes nothing NRI needs: the
+	// cdi simulator withdraws NRI's CDI spec during Stage, and NRI falls back to
+	// raw device nodes until Apply republishes it. A failed Apply is not retried
+	// until the state changes, so it must not keep the gate shut.
 	a.staged.Store(true)
 
 	// Supervisor wave sits on the barrier: a daemon starts against surfaces Stage
