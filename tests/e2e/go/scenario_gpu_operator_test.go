@@ -284,18 +284,25 @@ func verifyGPUOperatorNodeSetup(ctx context.Context, container string) {
 // in the gap where none is ready.
 func gfdPodRef(ctx SpecContext, h *harness.Harness, node string) kube.PodRef {
 	GinkgoHelper()
+	return operandPodRef(ctx, h, "gpu-feature-discovery", "gpu-feature-discovery", node)
+}
+
+// operandPodRef resolves container in the running pod, on node, of the operand
+// DaemonSet labelled app.
+func operandPodRef(ctx SpecContext, h *harness.Harness, app, container, node string) kube.PodRef {
+	GinkgoHelper()
 	var pod string
 	Eventually(func() (string, error) {
-		p, err := h.Kube.RunningPodOnNode(ctx, gpuOperatorNamespace, "app=gpu-feature-discovery", node)
+		p, err := h.Kube.RunningPodOnNode(ctx, gpuOperatorNamespace, "app="+app, node)
 		pod = p
 		return p, err
 	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
-		ShouldNot(BeEmpty(), "no running gpu-feature-discovery pod on node %s", node)
+		ShouldNot(BeEmpty(), "no running %s pod on node %s", app, node)
 
 	return kube.PodRef{
 		Namespace: gpuOperatorNamespace,
 		Pod:       pod,
-		Container: "gpu-feature-discovery",
+		Container: container,
 	}
 }
 

@@ -49,10 +49,12 @@ make e2e-gpu-operator     # GPU Operator
 make e2e-multi-node       # heterogeneous a100/t4 fleet
 make e2e-nri              # node-wide NRI injection
 make e2e-nfd              # NFD label provenance
+make e2e-mig              # MIG, upstream device plugin deployed by the suite
+make e2e-gpu-operator-mig # MIG, GPU Operator's own device plugin and GFD
 ```
 
 !!! warning "`make e2e` does not run everything"
-    It applies a default label filter that excludes the six scenarios above, so
+    It applies a default label filter that excludes the scenarios above, so
     a bare `make e2e` runs only the standalone scenario. Use the per-scenario
     targets for the rest.
 
