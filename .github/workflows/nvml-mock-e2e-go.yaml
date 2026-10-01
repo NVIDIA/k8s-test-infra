@@ -65,11 +65,6 @@ on:
 
 env:
   GO_VERSION: ${{ inputs.golang_version }}
-  KIND_VERSION: "v0.31.0"
-  KIND_AMD64_SHA256: "eb244cbafcc157dff60cf68693c14c9a75c4e6e6fedaf9cd71c58117cb93e3fa"
-  # Standalone `e2e` job only (pilot): pinned so Tilt version drift doesn't
-  # silently change rollout semantics between runs. Bump alongside local dev.
-  TILT_VERSION: "0.37.5"
   # Local ref of the pre-built nvml-mock image every leg loads from the
   # run-scoped artifact build-nvmlmock-image uploads. Deliberately identical to
   # the harness default in tests/e2e/go/framework/config/config.go, so CI and a
@@ -208,22 +203,11 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Install Helm
-        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
-
-      - name: Install Kind
-        run: |
-          curl -fsSLo ./kind "https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION }}/kind-linux-amd64"
-          echo "${{ env.KIND_AMD64_SHA256 }}  ./kind" | sha256sum --check
-          chmod +x ./kind
-          sudo mv ./kind /usr/local/bin/kind
-          kind version
-
-      - name: Install Tilt
-        run: |
-          curl -fsSL "https://github.com/tilt-dev/tilt/releases/download/v${TILT_VERSION}/tilt.${TILT_VERSION}.linux.x86_64.tar.gz" \
-            | sudo tar -xzC /usr/local/bin tilt
-          tilt version
+      - name: Download pre-built nvml-mock image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: nvml-mock-image
+          path: ${{ runner.temp }}
 
       - name: Download pre-built kind-node image
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -234,21 +218,10 @@ jobs:
       - name: Load pre-built kind-node image
         run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
 
-      - name: Create Kind cluster (make cluster-create)
-        # Uses local/kind/default.kind.yaml (1 CP + 2 workers, a100 / t4). Same
-        # command a laptop dev runs — cluster name is `mokka`, context is
-        # kind-mokka. KIND_NODE_IMAGE_PREBUILT tells the Makefile to skip
-        # the local `docker build` and trust the tag we just loaded from the
-        # kind-node-image artifact.
-        env:
-          KIND_NODE_IMAGE_PREBUILT: "1"
-        run: make cluster-create
-
-      - name: Download pre-built nvml-mock image
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: nvml-mock-image
-          path: ${{ runner.temp }}
+      - name: Install binaries and create Kind cluster
+        # Installs pinned Kind, Helm + Tilt, then runs the same `make cluster-create`
+        # a laptop dev runs (cluster `mokka`, context kind-mokka).
+        run: ./hack/e2e-ci-cluster.sh
 
       - name: Load pre-built nvml-mock image
         run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
@@ -323,28 +296,11 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Install Helm
-        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
-
       - name: Download pre-built nvml-mock image
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: nvml-mock-image
           path: ${{ runner.temp }}
-
-      - name: Install Kind
-        run: |
-          curl -fsSLo ./kind "https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION }}/kind-linux-amd64"
-          echo "${{ env.KIND_AMD64_SHA256 }}  ./kind" | sha256sum --check
-          chmod +x ./kind
-          sudo mv ./kind /usr/local/bin/kind
-          kind version
-
-      - name: Install Tilt
-        run: |
-          curl -fsSL "https://github.com/tilt-dev/tilt/releases/download/v${TILT_VERSION}/tilt.${TILT_VERSION}.linux.x86_64.tar.gz" \
-            | sudo tar -xzC /usr/local/bin tilt
-          tilt version
 
       - name: Download pre-built kind-node image
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -355,10 +311,8 @@ jobs:
       - name: Load pre-built kind-node image
         run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
 
-      - name: Create Kind cluster (make cluster-create)
-        env:
-          KIND_NODE_IMAGE_PREBUILT: "1"
-        run: make cluster-create
+      - name: Install binaries and create Kind cluster
+        run: ./hack/e2e-ci-cluster.sh
 
       - name: Load pre-built nvml-mock image
         run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
@@ -419,28 +373,11 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Install Helm
-        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
-
       - name: Download pre-built nvml-mock image
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: nvml-mock-image
           path: ${{ runner.temp }}
-
-      - name: Install Kind
-        run: |
-          curl -fsSLo ./kind "https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION }}/kind-linux-amd64"
-          echo "${{ env.KIND_AMD64_SHA256 }}  ./kind" | sha256sum --check
-          chmod +x ./kind
-          sudo mv ./kind /usr/local/bin/kind
-          kind version
-
-      - name: Install Tilt
-        run: |
-          curl -fsSL "https://github.com/tilt-dev/tilt/releases/download/v${TILT_VERSION}/tilt.${TILT_VERSION}.linux.x86_64.tar.gz" \
-            | sudo tar -xzC /usr/local/bin tilt
-          tilt version
 
       - name: Download pre-built kind-node image
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -451,10 +388,8 @@ jobs:
       - name: Load pre-built kind-node image
         run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
 
-      - name: Create Kind cluster (make cluster-create)
-        env:
-          KIND_NODE_IMAGE_PREBUILT: "1"
-        run: make cluster-create
+      - name: Install binaries and create Kind cluster
+        run: ./hack/e2e-ci-cluster.sh
 
       - name: Load pre-built nvml-mock image
         run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
@@ -511,28 +446,11 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Install Helm
-        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
-
       - name: Download pre-built nvml-mock image
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: nvml-mock-image
           path: ${{ runner.temp }}
-
-      - name: Install Kind
-        run: |
-          curl -fsSLo ./kind "https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION }}/kind-linux-amd64"
-          echo "${{ env.KIND_AMD64_SHA256 }}  ./kind" | sha256sum --check
-          chmod +x ./kind
-          sudo mv ./kind /usr/local/bin/kind
-          kind version
-
-      - name: Install Tilt
-        run: |
-          curl -fsSL "https://github.com/tilt-dev/tilt/releases/download/v${TILT_VERSION}/tilt.${TILT_VERSION}.linux.x86_64.tar.gz" \
-            | sudo tar -xzC /usr/local/bin tilt
-          tilt version
 
       - name: Download pre-built kind-node image
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -543,10 +461,8 @@ jobs:
       - name: Load pre-built kind-node image
         run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
 
-      - name: Create Kind cluster (make cluster-create)
-        env:
-          KIND_NODE_IMAGE_PREBUILT: "1"
-        run: make cluster-create
+      - name: Install binaries and create Kind cluster
+        run: ./hack/e2e-ci-cluster.sh
 
       - name: Load pre-built nvml-mock image
         run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
@@ -606,28 +522,11 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Install Helm
-        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
-
       - name: Download pre-built nvml-mock image
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: nvml-mock-image
           path: ${{ runner.temp }}
-
-      - name: Install Kind
-        run: |
-          curl -fsSLo ./kind "https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION }}/kind-linux-amd64"
-          echo "${{ env.KIND_AMD64_SHA256 }}  ./kind" | sha256sum --check
-          chmod +x ./kind
-          sudo mv ./kind /usr/local/bin/kind
-          kind version
-
-      - name: Install Tilt
-        run: |
-          curl -fsSL "https://github.com/tilt-dev/tilt/releases/download/v${TILT_VERSION}/tilt.${TILT_VERSION}.linux.x86_64.tar.gz" \
-            | sudo tar -xzC /usr/local/bin tilt
-          tilt version
 
       - name: Download pre-built kind-node image
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -638,10 +537,8 @@ jobs:
       - name: Load pre-built kind-node image
         run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
 
-      - name: Create Kind cluster (make cluster-create)
-        env:
-          KIND_NODE_IMAGE_PREBUILT: "1"
-        run: make cluster-create
+      - name: Install binaries and create Kind cluster
+        run: ./hack/e2e-ci-cluster.sh
 
       - name: Load pre-built nvml-mock image
         run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
@@ -712,28 +609,11 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Install Helm
-        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
-
       - name: Download pre-built nvml-mock image
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: nvml-mock-image
           path: ${{ runner.temp }}
-
-      - name: Install Kind
-        run: |
-          curl -fsSLo ./kind "https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION }}/kind-linux-amd64"
-          echo "${{ env.KIND_AMD64_SHA256 }}  ./kind" | sha256sum --check
-          chmod +x ./kind
-          sudo mv ./kind /usr/local/bin/kind
-          kind version
-
-      - name: Install Tilt
-        run: |
-          curl -fsSL "https://github.com/tilt-dev/tilt/releases/download/v${TILT_VERSION}/tilt.${TILT_VERSION}.linux.x86_64.tar.gz" \
-            | sudo tar -xzC /usr/local/bin tilt
-          tilt version
 
       - name: Download pre-built kind-node image
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -744,10 +624,8 @@ jobs:
       - name: Load pre-built kind-node image
         run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
 
-      - name: Create Kind cluster (make cluster-create)
-        env:
-          KIND_NODE_IMAGE_PREBUILT: "1"
-        run: make cluster-create
+      - name: Install binaries and create Kind cluster
+        run: ./hack/e2e-ci-cluster.sh
 
       - name: Load pre-built nvml-mock image
         run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
@@ -819,28 +697,11 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Install Helm
-        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
-
       - name: Download pre-built nvml-mock image
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: nvml-mock-image
           path: ${{ runner.temp }}
-
-      - name: Install Kind
-        run: |
-          curl -fsSLo ./kind "https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION }}/kind-linux-amd64"
-          echo "${{ env.KIND_AMD64_SHA256 }}  ./kind" | sha256sum --check
-          chmod +x ./kind
-          sudo mv ./kind /usr/local/bin/kind
-          kind version
-
-      - name: Install Tilt
-        run: |
-          curl -fsSL "https://github.com/tilt-dev/tilt/releases/download/v${TILT_VERSION}/tilt.${TILT_VERSION}.linux.x86_64.tar.gz" \
-            | sudo tar -xzC /usr/local/bin tilt
-          tilt version
 
       - name: Download pre-built kind-node image
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -851,10 +712,8 @@ jobs:
       - name: Load pre-built kind-node image
         run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
 
-      - name: Create Kind cluster (make cluster-create)
-        env:
-          KIND_NODE_IMAGE_PREBUILT: "1"
-        run: make cluster-create
+      - name: Install binaries and create Kind cluster
+        run: ./hack/e2e-ci-cluster.sh
 
       - name: Load pre-built nvml-mock image
         run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
