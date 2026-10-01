@@ -934,6 +934,110 @@ test("trusted command completion scans every bounded open pull request", async (
   assert.deepEqual(result.candidates, [42]);
 });
 
+function metadataScanRun(overrides = {}) {
+  return {
+    id: 904,
+    name: "PR metadata",
+    workflowPath: ".github/workflows/pr-metadata.yml",
+    workflowSourceRef: "refs/heads/main",
+    event: "workflow_dispatch",
+    status: "completed",
+    repository: REPOSITORY,
+    pullRequestNumbers: [],
+    ...overrides,
+  };
+}
+
+const METADATA_SCAN_EVENT = {
+  ...WORKFLOW_EVENT,
+  action: "completed",
+  workflow_run: { id: 904, status: "completed" },
+};
+
+test("dispatched metadata completion evaluates the bounded open PR scan", async () => {
+  const { github, result } = await run(evaluatorState({
+    evaluationWorkflowRuns: [metadataScanRun()],
+    openPullRequestNumbers: [42],
+  }), {
+    event: METADATA_SCAN_EVENT,
+    eventName: "workflow_run",
+    prNumber: "",
+  });
+
+  assert.deepEqual(github.calls.getEvaluationWorkflowRun, [{ runId: 904 }]);
+  assert.deepEqual(github.calls.listOpenPullRequestNumbers, [{}]);
+  assert.deepEqual(result.candidates, [42]);
+  assert.deepEqual(result.pullRequests[0].merge.blockers, []);
+  assert.equal(github.calls.setMergePolicyCheck.at(-1).conclusion, "success");
+  assert.deepEqual(github.calls.enableAutoMerge, []);
+});
+
+test("dispatched metadata completion rejects untrusted live workflow identity", async (t) => {
+  for (const [name, overrides] of [
+    ["unknown workflow", { name: "CI Pipeline" }],
+    ["different trusted workflow", { name: "Commands", workflowPath: ".github/workflows/commands.yml" }],
+    ["unsupported event", { event: "push" }],
+    ["wrong path", { workflowPath: ".github/workflows/spoof.yml" }],
+    ["wrong repository", { repository: "nvidia/other" }],
+    ["incomplete run", { status: "in_progress" }],
+  ]) await t.test(name, async () => {
+    const { github, result } = await run(evaluatorState({
+      evaluationWorkflowRuns: [metadataScanRun(overrides)],
+      openPullRequestNumbers: [42],
+    }), {
+      event: METADATA_SCAN_EVENT,
+      eventName: "workflow_run",
+      prNumber: "",
+    });
+
+    assert.deepEqual(result, { status: "complete", candidates: [], pullRequests: [] });
+    assert.deepEqual(github.calls.listOpenPullRequestNumbers, []);
+    assert.deepEqual(github.calls.getPullRequest, []);
+    assert.deepEqual(github.calls.setMergePolicyCheck, []);
+  });
+});
+
+test("dispatched metadata completion rejects a mismatched refetched run ID", async () => {
+  const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
+  const github = createFakeGitHub(evaluatorState({
+    evaluationWorkflowRuns: [metadataScanRun()],
+    openPullRequestNumbers: [42],
+  }));
+  const getRun = github.getEvaluationWorkflowRun.bind(github);
+  github.getEvaluationWorkflowRun = async (runId) => ({ ...await getRun(runId), id: 905 });
+
+  const result = await runMergeEvaluate({
+    event: METADATA_SCAN_EVENT,
+    eventName: "workflow_run",
+    github,
+    config,
+    dryRun: false,
+    prNumber: "",
+  });
+
+  assert.deepEqual(github.calls.getEvaluationWorkflowRun, [{ runId: 904 }]);
+  assert.deepEqual(result, { status: "complete", candidates: [], pullRequests: [] });
+  assert.deepEqual(github.calls.listOpenPullRequestNumbers, []);
+  assert.deepEqual(github.calls.setMergePolicyCheck, []);
+});
+
+test("dispatched metadata completion enforces open scan limits", async (t) => {
+  for (const [name, numbers, error] of [
+    ["more than 100 candidates", Array.from({ length: 101 }, (_, index) => index + 1), /scan exceeds limit/],
+    ["duplicate candidates", [42, 42], /candidate mapping is invalid/],
+    ["non-positive candidate", [42, 0], /candidate mapping is invalid/],
+  ]) await t.test(name, async () => {
+    await assert.rejects(() => run(evaluatorState({
+      evaluationWorkflowRuns: [metadataScanRun()],
+      openPullRequestNumbers: numbers,
+    }), {
+      event: METADATA_SCAN_EVENT,
+      eventName: "workflow_run",
+      prNumber: "",
+    }), error);
+  });
+});
+
 test("merge policy contains no direct merge endpoint", () => {
   const source = fs.readFileSync(
     path.join(__dirname, "..", "src", "modes", "merge-evaluate.js"),

@@ -674,7 +674,8 @@ async function httpClient(options = {}) {
         if (pathname === "/graphql") {
           data = { data: { repository: { pullRequest: {
             number: 42, id: "PR_node_42", state: "OPEN", isDraft: false,
-            headRefOid: HEAD, baseRefName: "main", baseRefOid: BASE,
+            headRefOid: HEAD, baseRefName: "main", baseRefOid: NEXT,
+            baseRef: { name: "main", target: { oid: BASE } },
             mergeable: "CONFLICTING", autoMergeRequest: null,
           } } } };
         } else if (pathname === "/repos/NVIDIA/k8s-test-infra/pulls/42") {
@@ -715,7 +716,7 @@ test("run constructs the real Octokit adapter, applies a label, and replay makes
   }
 });
 
-test("real Octokit HTTP transport maps GraphQL base commit and REST PR identity", async () => {
+test("real Octokit HTTP transport maps the live GraphQL base tip and REST PR identity", async () => {
   const { client, requests } = await httpClient();
   const pr = await client.getPullRequest(42);
   assert.equal(pr.headOid, HEAD);
@@ -725,7 +726,8 @@ test("real Octokit HTTP transport maps GraphQL base commit and REST PR identity"
   assert.deepEqual(await client.getBranch("main"), { name: "main", oid: BASE });
   assert.deepEqual(await client.listIssueLabels(42), ["needs-rebase"]);
   const graphRequest = requests.find((request) => request.pathname === "/graphql");
-  assert.match(graphRequest.body.query, /\bbaseRefOid\b/);
+  assert.match(graphRequest.body.query, /baseRef\s*\{\s*name\s+target\s*\{\s*oid\s*\}\s*\}/);
+  assert.doesNotMatch(graphRequest.body.query, /\bbaseRefOid\b/);
   assert.deepEqual(graphRequest.body.variables, { owner: "NVIDIA", repo: "k8s-test-infra", number: 42 });
 });
 

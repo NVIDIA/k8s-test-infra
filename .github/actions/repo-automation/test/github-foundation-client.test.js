@@ -44,6 +44,64 @@ function jsonResponse(data, headers = {}) {
   });
 }
 
+function conflictPullRequest(baseRef) {
+  return {
+    number: 42,
+    id: "PR_node_42",
+    state: "OPEN",
+    isDraft: false,
+    mergeable: "CONFLICTING",
+    headRefOid: "a".repeat(40),
+    baseRefName: "main",
+    baseRefOid: "c".repeat(40),
+    baseRef,
+  };
+}
+
+test("conflict client maps the current base branch tip instead of the PR's older base OID", async () => {
+  let graphRequest;
+  const octokit = await octokitWithWorkflowFetch(async (input, init) => {
+    graphRequest = JSON.parse(init.body);
+    return jsonResponse({ data: { repository: { pullRequest: conflictPullRequest({
+      name: "main", target: { oid: "b".repeat(40) },
+    }) } } });
+  });
+  const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+
+  assert.deepEqual(await client.getConflictState(42), {
+    number: 42,
+    nodeId: "PR_node_42",
+    repository: "nvidia/k8s-test-infra",
+    state: "OPEN",
+    draft: false,
+    headOid: "a".repeat(40),
+    baseBranch: "main",
+    baseOid: "b".repeat(40),
+    mergeability: "CONFLICTING",
+  });
+  assert.match(graphRequest.query, /baseRef\s*\{\s*name\s+target\s*\{\s*oid\s*\}\s*\}/);
+  assert.doesNotMatch(graphRequest.query, /\bbaseRefOid\b/);
+  assert.deepEqual(graphRequest.variables, { owner: "NVIDIA", repo: "k8s-test-infra", number: 42 });
+});
+
+for (const [name, baseRef] of [
+  ["missing ref", undefined],
+  ["null ref", null],
+  ["wrong branch", { name: "release-1.0", target: { oid: "b".repeat(40) } }],
+  ["missing branch name", { target: { oid: "b".repeat(40) } }],
+  ["missing target", { name: "main" }],
+  ["missing target OID", { name: "main", target: {} }],
+  ["empty target OID", { name: "main", target: { oid: "" } }],
+]) {
+  test(`conflict client rejects ${name} without falling back to the older PR base OID`, async () => {
+    const octokit = await octokitWithWorkflowFetch(async () => jsonResponse({
+      data: { repository: { pullRequest: conflictPullRequest(baseRef) } },
+    }));
+    const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+    await assert.rejects(() => client.getConflictState(42), /GraphQL live base (?:ref|OID)/);
+  });
+}
+
 function mockOctokit(overrides = {}) {
   const calls = [];
   const response = (name, data) => async (parameters) => {

@@ -102,9 +102,12 @@ function trustedRun(run, repository) {
   if (
     expected === undefined
     || run.workflowPath !== expected.path
-    || run.event !== expected.event
   ) return null;
-  return expected;
+  if (run.event === expected.event) return expected;
+  if (run.name === "PR metadata" && run.event === "workflow_dispatch") {
+    return { ...expected, allOpen: true };
+  }
+  return null;
 }
 
 async function candidatesFor({ event, eventName, github, repository, prNumber }) {

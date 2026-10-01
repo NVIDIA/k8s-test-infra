@@ -112,6 +112,11 @@ Approval labels remain part of the guarded merge evaluator. They require its
 activation gates and current validated human review or command evidence. A
 metadata backfill does not grant approval or enable auto-merge.
 
+Completion of a trusted **PR metadata** dispatch triggers the guarded merge
+evaluator for the bounded open pull request set. The evaluator reads current
+reviews, metadata, and required checks before it sets approval labels and the
+merge-policy check. Dispatch completion does not enable auto-merge.
+
 ### Dispatched label scan reports
 
 The **PR metadata** workflow also accepts a `workflow_dispatch` request on
