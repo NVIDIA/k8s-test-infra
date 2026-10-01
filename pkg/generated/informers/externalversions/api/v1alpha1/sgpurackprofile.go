@@ -9,7 +9,7 @@ import (
 	context "context"
 	time "time"
 
-	controlplaneapiv1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
+	k8stestinfraapiv1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	versioned "github.com/NVIDIA/k8s-test-infra/pkg/generated/clientset/versioned"
 	internalinterfaces "github.com/NVIDIA/k8s-test-infra/pkg/generated/informers/externalversions/internalinterfaces"
 	apiv1alpha1 "github.com/NVIDIA/k8s-test-infra/pkg/generated/listers/api/v1alpha1"
@@ -38,22 +38,22 @@ type TypedSGPURackProfileInformer interface {
 
 // SGPURackProfileIndexInformer is a wrapper around the underlying [cache.SharedIndexInformer]
 // with type-safe variants of several methods.
-type SGPURackProfileIndexInformer cache.TypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPURackProfile]
+type SGPURackProfileIndexInformer cache.TypedSharedIndexInformer[*k8stestinfraapiv1alpha1.SGPURackProfile]
 
 // SGPURackProfileHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerFuncs] for SGPURackProfile.
-type SGPURackProfileHandlerFuncs = cache.TypedResourceEventHandlerFuncs[*controlplaneapiv1alpha1.SGPURackProfile]
+type SGPURackProfileHandlerFuncs = cache.TypedResourceEventHandlerFuncs[*k8stestinfraapiv1alpha1.SGPURackProfile]
 
 // SGPURackProfileDetailedHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerDetailedFuncs] for SGPURackProfile.
-type SGPURackProfileDetailedHandlerFuncs = cache.TypedResourceEventHandlerDetailedFuncs[*controlplaneapiv1alpha1.SGPURackProfile]
+type SGPURackProfileDetailedHandlerFuncs = cache.TypedResourceEventHandlerDetailedFuncs[*k8stestinfraapiv1alpha1.SGPURackProfile]
 
 // SGPURackProfileFilteringHandler is a specialization of [cache.TypedFilteringResourceEventHandler] for SGPURackProfile.
-type SGPURackProfileFilteringHandler = cache.TypedFilteringResourceEventHandler[*controlplaneapiv1alpha1.SGPURackProfile]
+type SGPURackProfileFilteringHandler = cache.TypedFilteringResourceEventHandler[*k8stestinfraapiv1alpha1.SGPURackProfile]
 
 // SGPURackProfileIndexers is a specialization of [cache.TypedIndexers] for SGPURackProfile.
-type SGPURackProfileIndexers = cache.TypedIndexers[*controlplaneapiv1alpha1.SGPURackProfile]
+type SGPURackProfileIndexers = cache.TypedIndexers[*k8stestinfraapiv1alpha1.SGPURackProfile]
 
 // DeletedSGPURackProfile is a specialization of [cache.DeletedObject] for SGPURackProfile.
-type DeletedSGPURackProfile = cache.DeletedObject[*controlplaneapiv1alpha1.SGPURackProfile]
+type DeletedSGPURackProfile = cache.DeletedObject[*k8stestinfraapiv1alpha1.SGPURackProfile]
 
 type sGPURackProfileInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
@@ -105,7 +105,7 @@ func NewTypedSGPURackProfileInformerWithOptions(client versioned.Interface, opti
 	gvr := schema.GroupVersionResource{Group: "mokka.nvidia.com", Version: "v1alpha1", Resource: "sgpurackprofiles"}
 	identifier := options.InformerName.WithResource(gvr)
 	tweakListOptions := options.TweakListOptions
-	return cache.NewTypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPURackProfile](cache.NewSharedIndexInformerWithOptions(
+	return cache.NewTypedSharedIndexInformer[*k8stestinfraapiv1alpha1.SGPURackProfile](cache.NewSharedIndexInformerWithOptions(
 		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
 			ListFunc: func(opts v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
@@ -132,7 +132,7 @@ func NewTypedSGPURackProfileInformerWithOptions(client versioned.Interface, opti
 				return client.MokkaV1alpha1().SGPURackProfiles().Watch(ctx, opts)
 			},
 		}, client),
-		&controlplaneapiv1alpha1.SGPURackProfile{},
+		&k8stestinfraapiv1alpha1.SGPURackProfile{},
 		cache.SharedIndexInformerOptions{
 			ResyncPeriod: options.ResyncPeriod,
 			Indexers:     options.Indexers,
@@ -150,7 +150,7 @@ func (f *sGPURackProfileInformer) Informer() cache.SharedIndexInformer {
 }
 
 func (f *sGPURackProfileInformer) TypedInformer() SGPURackProfileIndexInformer {
-	return cache.NewTypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPURackProfile](f.factory.InformerFor(&controlplaneapiv1alpha1.SGPURackProfile{}, f.defaultInformer))
+	return cache.NewTypedSharedIndexInformer[*k8stestinfraapiv1alpha1.SGPURackProfile](f.factory.InformerFor(&k8stestinfraapiv1alpha1.SGPURackProfile{}, f.defaultInformer))
 }
 
 func (f *sGPURackProfileInformer) Lister() apiv1alpha1.SGPURackProfileLister {
@@ -176,7 +176,7 @@ type sGPURackProfileTypedInformerAdapter struct {
 }
 
 func (a *sGPURackProfileTypedInformerAdapter) TypedInformer() SGPURackProfileIndexInformer {
-	return cache.NewTypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPURackProfile](a.Informer())
+	return cache.NewTypedSharedIndexInformer[*k8stestinfraapiv1alpha1.SGPURackProfile](a.Informer())
 }
 
 // ToSGPURackProfileIndexInformer converts an untyped informer into a SGPURackProfileIndexInformer.
@@ -190,5 +190,5 @@ func ToSGPURackProfileIndexInformer(informer cache.SharedIndexInformer) SGPURack
 	if informer, ok := informer.(SGPURackProfileIndexInformer); ok {
 		return informer
 	}
-	return cache.NewTypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPURackProfile](informer)
+	return cache.NewTypedSharedIndexInformer[*k8stestinfraapiv1alpha1.SGPURackProfile](informer)
 }

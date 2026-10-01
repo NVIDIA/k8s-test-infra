@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/controlplane"
-	"github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller"
+	"github.com/NVIDIA/k8s-test-infra/internal/controlplane/controller"
 	"github.com/stretchr/testify/require"
 )
 
@@ -28,5 +28,5 @@ func TestDefaultConfig(t *testing.T) {
 		RenewDeadline: 10 * time.Second,
 		RetryPeriod:   2 * time.Second,
 	}, cfg.LeaderElection)
-	require.Equal(t, mokkacontroller.DefaultOptions(), cfg.Controller)
+	require.Equal(t, controller.DefaultOptions(), cfg.Controller)
 }

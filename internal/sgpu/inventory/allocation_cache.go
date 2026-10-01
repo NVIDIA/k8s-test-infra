@@ -4,18 +4,16 @@
 package inventory
 
 import (
-	"cmp"
 	"errors"
 	"fmt"
 	"slices"
 	"sync"
 	"sync/atomic"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
+	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
 )
 
 var errAllocationInputChanged = errors.New("allocation input changed during reconciliation")
@@ -145,7 +143,7 @@ func (c *AllocationCache) BindingDesiredRevision(binding allocate.Binding) (bool
 	if err != nil {
 		return false, AllocationRevision{}, err
 	}
-	index, found := slices.BinarySearchFunc(plan.Retained, binding, compareAllocationBindings)
+	index, found := slices.BinarySearchFunc(plan.Retained, binding, allocate.Binding.Compare)
 	return found && plan.Retained[index] == binding, AllocationRevision{revision: revision}, nil
 }
 
@@ -259,13 +257,11 @@ func allocationGroups(
 			continue
 		}
 		for _, group := range resolved {
-			var selector *metav1.LabelSelector
-			if group.group.Placement != nil {
-				selector = group.group.Placement.NodeSelector
-			}
 			groups = append(groups, allocate.RackGroup{
-				Key: group.key, Selector: selector,
-				Racks: group.group.Count, NodesPerRack: group.profile.Spec.Rack.NodesPerRack,
+				Key:          group.key,
+				Selector:     group.group.NodeSelector(),
+				Racks:        group.group.Count,
+				NodesPerRack: group.profile.Spec.Rack.NodesPerRack,
 			})
 		}
 	}
@@ -453,33 +449,10 @@ func conflictGroups(conflict allocate.Conflict) []allocate.RackGroupKey {
 	for _, binding := range conflict.Bindings {
 		keys = append(keys, binding.Coordinate.Group)
 	}
-	slices.SortFunc(keys, compareGroupKeys)
+	slices.SortFunc(keys, allocate.RackGroupKey.Compare)
 	return slices.Compact(keys)
 }
 
 func instanceForGroup(key allocate.RackGroupKey) inventoryInstance {
 	return inventoryInstance{name: key.InventoryName, uid: key.InventoryUID}
-}
-
-func compareGroupKeys(a, b allocate.RackGroupKey) int {
-	if order := cmp.Compare(a.InventoryName, b.InventoryName); order != 0 {
-		return order
-	}
-	if order := cmp.Compare(string(a.InventoryUID), string(b.InventoryUID)); order != 0 {
-		return order
-	}
-	return cmp.Compare(a.RackGroup, b.RackGroup)
-}
-
-func compareAllocationBindings(a, b allocate.Binding) int {
-	if order := compareGroupKeys(a.Coordinate.Group, b.Coordinate.Group); order != 0 {
-		return order
-	}
-	if order := cmp.Compare(a.Coordinate.RackIndex, b.Coordinate.RackIndex); order != 0 {
-		return order
-	}
-	if order := cmp.Compare(a.Coordinate.NodeIndex, b.Coordinate.NodeIndex); order != 0 {
-		return order
-	}
-	return cmp.Compare(string(a.Node.UID), string(b.Node.UID))
 }
