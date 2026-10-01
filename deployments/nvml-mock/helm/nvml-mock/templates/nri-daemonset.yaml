@@ -70,6 +70,9 @@ spec:
             - --health-addr=:{{ .Values.nri.healthPort }}
             - --log-level={{ .Values.nri.logging.level }}
             - --log-format={{ .Values.nri.logging.format }}
+            {{- if .Values.featureGates.nri }}
+            - --feature-gates={{ join "," .Values.featureGates.nri }}
+            {{- end }}
           env:
             - name: NODE_NAME
               valueFrom:

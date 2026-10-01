@@ -189,6 +189,22 @@ tests:
           path: spec.template.spec.containers[0].livenessProbe.httpGet.port
           value: http
 
+  - it: should pass feature gates to the control plane as one ordered argument
+    set:
+      controlPlane:
+        enabled: true
+        image:
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      featureGates:
+        controlPlane:
+          - mokka.alpha
+          - "-mokka.beta"
+    template: templates/controlplane/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --feature-gates=mokka.alpha,-mokka.beta
+
   # Readiness must interrogate /readyz, not /healthz. Same pattern as the NRI
   # suite: /healthz reports process liveness only, so a green /healthz on a
   # server with unmet dependencies would silently ship traffic.

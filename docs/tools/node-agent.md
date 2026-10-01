@@ -15,6 +15,7 @@ variable; the flag wins when both are set.
 
 | Flag | Environment variable | Default | Description |
 |------|----------------------|---------|-------------|
+| `--feature-gates` | `MOKKA_FEATURE_GATES` | empty | Comma-separated startup overrides. See [Feature Gates](../contributing/feature-gates.md) |
 | `--config` | `MOKKA_AGENT_CONFIG` | none | Path to the mock NVML YAML profile. Required — an unset value fails startup with `--config is required` |
 | `--topology` | `MOKKA_AGENT_TOPOLOGY` | empty | Path to the cluster ComputeDomain topology document |
 | `--host-root` | `MOKKA_AGENT_HOST_ROOT` | `/host` | Where the host filesystem is mounted in this process's namespace |
