@@ -1,0 +1,6 @@
+kind: Fixed
+body: |-
+  nvml-mock: `nvidia-smi mig -dgi` is refused with `NVML_ERROR_IN_USE` while the
+    GPU instance still holds compute instances, as on hardware, instead of
+    destroying them for the caller. Destroy the compute instances first.
+time: 2026-09-29T07:34:00Z

@@ -1,0 +1,8 @@
+kind: Added
+body: |-
+  nvml-mock: `nvidia-smi power-profiles` now works on `gb200` and `gb300`: `-l`
+    and `-ld` list the profiles from `power.workload_power_profiles`, `-gr` and
+    `-ge` report the requested and enforced sets, and `-sr` and `-cr` change the
+    request node-wide. `b200` stays unsupported, as its pre-570 driver lacks the
+    API.
+time: 2026-09-29T07:03:00Z

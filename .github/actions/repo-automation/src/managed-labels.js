@@ -21,4 +21,8 @@ function isManagedPolicyLabel(label) {
   return typeof label === "string" && MANAGED_POLICY_LABELS.has(label.toLowerCase());
 }
 
-module.exports = { isManagedMetadataLabel, isManagedPolicyLabel };
+function isManagedConflictLabel(label) {
+  return label === "needs-rebase";
+}
+
+module.exports = { isManagedMetadataLabel, isManagedPolicyLabel, isManagedConflictLabel };

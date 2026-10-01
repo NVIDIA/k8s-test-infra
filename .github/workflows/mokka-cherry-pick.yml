@@ -34,6 +34,10 @@ run-name: "Mokka cherry-pick: ${{ inputs.action_id }}"
         description: Canonical UUIDv4 action identifier
         required: true
         type: string
+      workflow_commit_sha:
+        description: Lowercase 40-character main commit SHA for this dispatch
+        required: true
+        type: string
 
 permissions: {}
 
@@ -43,13 +47,22 @@ concurrency:
 
 jobs:
   cherry-pick:
-    if: ${{ vars.REPOSITORY_AUTOMATION_MOKKA_ENABLED == 'true' && github.ref == 'refs/tags/mokka-cherry-pick-v0.11.0-r1' }}
+    if: ${{ vars.REPOSITORY_AUTOMATION_MOKKA_ENABLED == 'true' && github.ref == 'refs/heads/main' && github.sha == inputs.workflow_commit_sha }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
       pull-requests: write
     steps:
+      - name: Validate reviewed automation ref
+        shell: bash
+        env:
+          REVIEWED_SHA: ${{ vars.REPOSITORY_AUTOMATION_MOKKA_REVIEWED_SHA }}
+        run: |
+          if [[ ! "$REVIEWED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Reviewed automation SHA must be a lowercase 40-character SHA." >&2
+            exit 1
+          fi
       - name: Check out trusted automation
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -59,6 +72,28 @@ jobs:
           fetch-depth: 1
           submodules: false
           lfs: false
+      - name: Check out reviewed automation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ vars.REPOSITORY_AUTOMATION_MOKKA_REVIEWED_SHA }}
+          path: reviewed
+          persist-credentials: false
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+      - name: Verify reviewed automation
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in \
+            .github/workflows/mokka-cherry-pick.yml \
+            .github/actions/repo-automation/action.yml \
+            .github/actions/repo-automation/dist/index.js; do
+            if ! cmp -s -- "reviewed/$file" "control/$file"; then
+              echo "Mokka automation differs from reviewed baseline: $file" >&2
+              exit 1
+            fi
+          done
       - name: Check out validated target
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

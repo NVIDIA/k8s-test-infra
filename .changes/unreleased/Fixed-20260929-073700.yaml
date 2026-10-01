@@ -1,0 +1,8 @@
+kind: Fixed
+body: |-
+  nvml-mock: a power limit or workload power profile request set by one process
+    is now seen by every other process on the node, as on hardware, until a
+    reset. Persistence mode stays per-process.
+time: 2026-09-29T07:37:00Z
+custom:
+  Issue: "849"

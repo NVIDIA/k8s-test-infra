@@ -1,0 +1,7 @@
+kind: Fixed
+body: |-
+  nvml-mock: a MIG partition table that fails to read, for example mid-remount,
+    no longer removes the node's partitions and capability nodes. Only a missing
+    file means the board has no table; other errors are reported and the last
+    good state stays in place.
+time: 2026-09-29T07:31:00Z
