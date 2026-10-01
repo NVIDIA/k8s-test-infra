@@ -90,30 +90,48 @@ func TestAdjustSkipsOptOutExcludedNamespaceAndExistingMount(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.ExcludedNamespaces = []string{"kube-system", "nvml-mock"}
 
-	tests := map[string]Container{
+	tests := map[string]struct {
+		container Container
+		reason    string
+	}{
 		"opt out annotation": {
-			Namespace: "default",
-			PodAnnotations: map[string]string{
-				"nvml-mock.nvidia.com/inject": "false",
+			container: Container{
+				Namespace: "default",
+				PodAnnotations: map[string]string{
+					"nvml-mock.nvidia.com/devices": "true",
+					"nvml-mock.nvidia.com/inject":  "false",
+				},
 			},
+			reason: "opt-out annotation",
 		},
 		"excluded namespace": {
-			Namespace: "kube-system",
+			container: Container{
+				Namespace:      "kube-system",
+				PodAnnotations: map[string]string{"nvml-mock.nvidia.com/devices": "true"},
+			},
+			reason: "excluded namespace",
 		},
 		// A container already carrying the overlay has been through here
 		// before; injecting twice would stack duplicate LD_PRELOAD entries.
 		"existing overlay mount": {
-			Namespace:      "default",
-			PodAnnotations: map[string]string{"nvml-mock.nvidia.com/devices": "true"},
-			Mounts:         []Mount{{Destination: "/opt/nvml-mock"}},
+			container: Container{
+				Namespace:      "default",
+				PodAnnotations: map[string]string{"nvml-mock.nvidia.com/devices": "true"},
+				Mounts:         []Mount{{Destination: "/opt/nvml-mock"}},
+			},
+			reason: "overlay already mounted",
 		},
 	}
 
-	for name, container := range tests {
+	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			adjustment, ok := Adjust(cfg, container)
+			_, reason, skipped := decide(cfg, tc.container)
+			require.True(t, skipped)
+			require.Equal(t, tc.reason, reason)
+
+			adjustment, ok := Adjust(cfg, tc.container)
 			require.False(t, ok)
 			require.Empty(t, adjustment)
 		})
