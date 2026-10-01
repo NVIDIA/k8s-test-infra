@@ -127,7 +127,12 @@ async function candidatesFor({ event, eventName, github, repository, prNumber })
     const expected = trustedRun(run, repository);
     if (expected === null) return [];
     if (expected.allOpen) return boundedCandidates(await github.listOpenPullRequestNumbers());
-    return boundedCandidates(run.pullRequestNumbers);
+    const mapped = boundedCandidates(run.pullRequestNumbers);
+    // GitHub can omit PR links on review runs; live authority checks still apply to each PR.
+    if (run.name === "Review observer" && mapped.length === 0) {
+      return boundedCandidates(await github.listOpenPullRequestNumbers());
+    }
+    return mapped;
   }
   if (eventName === "schedule") {
     if (

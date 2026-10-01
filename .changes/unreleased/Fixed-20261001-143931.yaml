@@ -1,0 +1,5 @@
+kind: Fixed
+body: |-
+  repository-automation: current human approvals now update approval labels
+    when GitHub omits the pull request link from a completed review workflow.
+time: 2026-10-01T14:39:31Z

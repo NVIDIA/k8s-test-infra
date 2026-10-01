@@ -117,6 +117,12 @@ evaluator for the bounded open pull request set. The evaluator reads current
 reviews, metadata, and required checks before it sets approval labels and the
 merge-policy check. Dispatch completion does not enable auto-merge.
 
+A trusted **Review observer** completion normally evaluates its mapped pull
+requests. If GitHub returns a valid empty PR mapping, the evaluator reads the
+current open PR list, limited to 100 candidates. It checks each candidate's
+current review and head before it changes approval labels or the merge-policy
+check. Invalid workflow identity or malformed mappings do not start this scan.
+
 ### Dispatched label scan reports
 
 The **PR metadata** workflow also accepts a `workflow_dispatch` request on

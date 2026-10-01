@@ -934,6 +934,209 @@ test("trusted command completion scans every bounded open pull request", async (
   assert.deepEqual(result.candidates, [42]);
 });
 
+function reviewObserverRun(overrides = {}) {
+  return {
+    id: 906,
+    name: "Review observer",
+    workflowPath: ".github/workflows/review-observer.yml",
+    workflowSourceRef: "refs/heads/main",
+    event: "pull_request_review",
+    status: "completed",
+    repository: REPOSITORY,
+    pullRequestNumbers: [],
+    ...overrides,
+  };
+}
+
+const REVIEW_COMPLETION_EVENT = {
+  ...WORKFLOW_EVENT,
+  action: "completed",
+  workflow_run: { id: 906, status: "completed" },
+};
+
+async function evaluateReviewCompletion(github, event = REVIEW_COMPLETION_EVENT) {
+  const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
+  return runMergeEvaluate({
+    event,
+    eventName: "workflow_run",
+    github,
+    config,
+    dryRun: false,
+    prNumber: "",
+  });
+}
+
+test("empty trusted review mapping scans open PRs and applies current OWNERS approval", async () => {
+  const { github, result } = await run(evaluatorState({
+    evaluationWorkflowRuns: [reviewObserverRun()],
+    openPullRequestNumbers: [42],
+    labels: ["lgtm", "do-not-merge/needs-approval", "maintainer/custom"],
+    comments: [{ id: 77, body: policyBody({ approvals: [] }) }],
+    issueComments: [liveCommand(8000, "alice", "/lgtm")],
+    reviews: [submittedReview(9000, "bob")],
+  }), {
+    event: REVIEW_COMPLETION_EVENT,
+    eventName: "workflow_run",
+    prNumber: "",
+  });
+
+  assert.deepEqual(github.calls.listOpenPullRequestNumbers, [{}]);
+  assert.deepEqual(result.candidates, [42]);
+  assert.deepEqual(result.pullRequests[0].merge.blockers, []);
+  assert.deepEqual(github.calls.addPolicyLabel, [{ prNumber: 42, label: "approved" }]);
+  assert.deepEqual(github.calls.removePolicyLabel, [
+    { prNumber: 42, label: "do-not-merge/needs-approval" },
+  ]);
+  assert.deepEqual(github.calls.setMergePolicyCheck, [{
+    prNumber: 42,
+    headOid: HEAD,
+    conclusion: "success",
+    summary: "Repository merge policy passed.",
+  }]);
+  assert.ok(github.calls.getPullRequestReview.length > 0);
+  assert.deepEqual(github.calls.enableAutoMerge, []);
+});
+
+test("empty trusted review mapping keeps stale and dismissed approvals restrictive", async (t) => {
+  for (const [name, overrides] of [
+    ["stale reviewed head", { commitOid: NEXT_HEAD }],
+    ["dismissed approval", { state: "DISMISSED" }],
+  ]) await t.test(name, async () => {
+    const { github, result } = await run(evaluatorState({
+      evaluationWorkflowRuns: [reviewObserverRun()],
+      openPullRequestNumbers: [42],
+      comments: [{ id: 77, body: policyBody({ approvals: [] }) }],
+      issueComments: [liveCommand(8000, "alice", "/lgtm")],
+      reviews: [submittedReview(9000, "bob", overrides)],
+    }), {
+      event: REVIEW_COMPLETION_EVENT,
+      eventName: "workflow_run",
+      prNumber: "",
+    });
+
+    assert.deepEqual(result.candidates, [42]);
+    assert.ok(result.pullRequests[0].merge.blockers.includes("approval-coverage-incomplete"));
+    assert.ok(github.calls.addPolicyLabel.some(({ label }) => label === "do-not-merge/needs-approval"));
+    assert.ok(github.calls.removePolicyLabel.some(({ label }) => label === "approved"));
+    assert.equal(github.calls.setMergePolicyCheck.at(-1).conclusion, "action_required");
+    assert.equal(github.calls.setMergePolicyCheck.some(({ conclusion }) => conclusion === "success"), false);
+    assert.deepEqual(github.calls.enableAutoMerge, []);
+  });
+});
+
+test("nonempty trusted review mapping stays scoped to its mapped PRs", async () => {
+  const { github, result } = await run(evaluatorState({
+    evaluationWorkflowRuns: [reviewObserverRun({ pullRequestNumbers: [42] })],
+    openPullRequestNumbers: [99],
+  }), {
+    event: REVIEW_COMPLETION_EVENT,
+    eventName: "workflow_run",
+    prNumber: "",
+  });
+
+  assert.deepEqual(result.candidates, [42]);
+  assert.deepEqual(github.calls.listOpenPullRequestNumbers, []);
+  assert.ok(github.calls.getPullRequest.every(({ prNumber }) => prNumber === 42));
+  assert.equal(github.calls.setMergePolicyCheck.at(-1).conclusion, "success");
+  assert.deepEqual(github.calls.enableAutoMerge, []);
+});
+
+test("empty review completion rejects untrusted run identities without PR reads or writes", async (t) => {
+  for (const [name, overrides] of [
+    ["unknown workflow", { name: "CI Pipeline" }],
+    ["different trusted workflow", { name: "Commands", workflowPath: ".github/workflows/commands.yml" }],
+    ["wrong event", { event: "workflow_dispatch" }],
+    ["wrong path", { workflowPath: ".github/workflows/spoof.yml" }],
+    ["wrong repository", { repository: "nvidia/other" }],
+    ["incomplete run", { status: "in_progress" }],
+    ["empty metadata event mapping", {
+      name: "PR metadata", workflowPath: ".github/workflows/pr-metadata.yml", event: "pull_request_target",
+    }],
+  ]) await t.test(name, async () => {
+    const github = createFakeGitHub(evaluatorState({
+      evaluationWorkflowRuns: [reviewObserverRun(overrides)],
+      openPullRequestNumbers: [42],
+    }));
+    const result = await evaluateReviewCompletion(github);
+
+    assert.deepEqual(result, { status: "complete", candidates: [], pullRequests: [] });
+    assert.deepEqual(github.callOrder, [
+      { operation: "getEvaluationWorkflowRun", parameters: { runId: 906 } },
+    ]);
+  });
+});
+
+test("empty review completion rejects wrong run IDs before PR reads or writes", async (t) => {
+  await t.test("mismatched refetched ID", async () => {
+    const github = createFakeGitHub(evaluatorState({
+      evaluationWorkflowRuns: [reviewObserverRun()],
+      openPullRequestNumbers: [42],
+    }));
+    const getRun = github.getEvaluationWorkflowRun.bind(github);
+    github.getEvaluationWorkflowRun = async (runId) => ({ ...await getRun(runId), id: 907 });
+
+    assert.deepEqual(await evaluateReviewCompletion(github), {
+      status: "complete", candidates: [], pullRequests: [],
+    });
+    assert.deepEqual(github.callOrder, [
+      { operation: "getEvaluationWorkflowRun", parameters: { runId: 906 } },
+    ]);
+  });
+
+  await t.test("non-positive event ID", async () => {
+    const github = createFakeGitHub(evaluatorState({
+      evaluationWorkflowRuns: [reviewObserverRun()],
+      openPullRequestNumbers: [42],
+    }));
+
+    await assert.rejects(() => evaluateReviewCompletion(github, {
+      ...REVIEW_COMPLETION_EVENT,
+      workflow_run: { id: 0, status: "completed" },
+    }), /workflow completion event is invalid/);
+    assert.deepEqual(github.callOrder, []);
+  });
+});
+
+test("review completion rejects missing and malformed mappings without an open scan", async (t) => {
+  for (const [name, numbers, error] of [
+    ["missing mapping", undefined, /scan exceeds limit/],
+    ["null mapping", null, /scan exceeds limit/],
+    ["non-array mapping", {}, /scan exceeds limit/],
+    ["more than 100 mapped candidates", Array.from({ length: 101 }, (_, index) => index + 1), /scan exceeds limit/],
+    ["duplicate mapped candidates", [42, 42], /candidate mapping is invalid/],
+    ["non-positive mapped candidate", [42, 0], /candidate mapping is invalid/],
+  ]) await t.test(name, async () => {
+    const github = createFakeGitHub(evaluatorState({
+      evaluationWorkflowRuns: [reviewObserverRun({ pullRequestNumbers: numbers })],
+      openPullRequestNumbers: [42],
+    }));
+
+    await assert.rejects(() => evaluateReviewCompletion(github), error);
+    assert.deepEqual(github.callOrder, [
+      { operation: "getEvaluationWorkflowRun", parameters: { runId: 906 } },
+    ]);
+  });
+});
+
+test("empty trusted review mapping enforces bounded open scan candidates before PR reads or writes", async (t) => {
+  for (const [name, numbers, error] of [
+    ["more than 100 open candidates", Array.from({ length: 101 }, (_, index) => index + 1), /scan exceeds limit/],
+    ["duplicate open candidates", [42, 42], /candidate mapping is invalid/],
+    ["non-positive open candidate", [42, 0], /candidate mapping is invalid/],
+  ]) await t.test(name, async () => {
+    const github = createFakeGitHub(evaluatorState({
+      evaluationWorkflowRuns: [reviewObserverRun()],
+      openPullRequestNumbers: numbers,
+    }));
+
+    await assert.rejects(() => evaluateReviewCompletion(github), error);
+    assert.deepEqual(github.callOrder, [
+      { operation: "getEvaluationWorkflowRun", parameters: { runId: 906 } },
+      { operation: "listOpenPullRequestNumbers", parameters: {} },
+    ]);
+  });
+});
+
 function metadataScanRun(overrides = {}) {
   return {
     id: 904,
