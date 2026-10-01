@@ -93,7 +93,7 @@ Kubernetes: `>= 1.28.0-0`
 | nri.imexChannelAnnotation | string | `"nvml-mock.nvidia.com/imex-channels"` | Pod annotation enabling IMEX channel injection. |
 | nri.livenessProbe.failureThreshold | int | `3` | Consecutive failures before the plugin is restarted. |
 | nri.livenessProbe.httpGet.path | string | `"/healthz"` | Liveness endpoint path. |
-| nri.livenessProbe.httpGet.port | string | `"health"` | Liveness endpoint port name. |
+| nri.livenessProbe.httpGet.port | string | `"nri-health"` | Liveness endpoint port name. |
 | nri.livenessProbe.periodSeconds | int | `10` | Liveness probe interval. |
 | nri.livenessProbe.timeoutSeconds | int | `2` | Liveness probe timeout. |
 | nri.logging.format | string | `"json"` | Log encoding for the NRI plugin. |
@@ -105,7 +105,7 @@ Kubernetes: `>= 1.28.0-0`
 | nri.pluginName | string | `"nvml-mock"` | NRI plugin name. |
 | nri.readinessProbe.failureThreshold | int | `2` | Consecutive failures before the plugin is marked unready. |
 | nri.readinessProbe.httpGet.path | string | `"/readyz"` | Readiness endpoint path. |
-| nri.readinessProbe.httpGet.port | string | `"health"` | Readiness endpoint port name. |
+| nri.readinessProbe.httpGet.port | string | `"nri-health"` | Readiness endpoint port name. |
 | nri.readinessProbe.periodSeconds | int | `10` | Readiness probe interval. |
 | nri.readinessProbe.timeoutSeconds | int | `2` | Readiness probe timeout. |
 | nri.resources | object | `{}` | Additional NRI plugin resources. |

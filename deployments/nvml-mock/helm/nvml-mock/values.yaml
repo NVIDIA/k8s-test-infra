@@ -358,15 +358,21 @@ nri:
   # httpGet and tcpSocket probes. gRPC probes require the numeric healthPort.
   readinessProbe:
     httpGet:
+      # -- Readiness endpoint path.
       path: /readyz
+      # -- Readiness endpoint port name.
       port: nri-health
+    # -- Readiness probe interval.
     periodSeconds: 10
     timeoutSeconds: 2
     failureThreshold: 2
   livenessProbe:
     httpGet:
+      # -- Liveness endpoint path.
       path: /healthz
+      # -- Liveness endpoint port name.
       port: nri-health
+    # -- Liveness probe interval.
     periodSeconds: 10
     timeoutSeconds: 2
     failureThreshold: 3
