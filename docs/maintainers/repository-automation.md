@@ -111,7 +111,8 @@ not assumed. A large first backfill can require another run after an API
 failure. Check the per-PR results before retrying.
 
 Approval labels remain part of the guarded merge evaluator. They require its
-activation gates and current validated human review or command evidence. A
+activation gates and current validated human review, command evidence, or
+applicable approver-author authority from trusted OWNERS. A
 metadata backfill does not grant approval or enable auto-merge.
 
 Completion of a trusted **PR metadata** dispatch triggers the guarded merge
@@ -124,6 +125,24 @@ requests. If GitHub returns a valid empty PR mapping, the evaluator reads the
 current open PR list, limited to 100 candidates. It checks each candidate's
 current review and head before it changes approval labels or the merge-policy
 check. Invalid workflow identity or malformed mappings do not start this scan.
+
+### Automatic approval for approver authors
+
+A PR author who is a verified human approver in trusted base OWNERS implicitly
+approves the changed files within that approver's authority. The evaluator adds
+`approved` when those files and any independent approvals cover every changed
+file. OWNERS aliases and active nested OWNERS rules apply; `no_parent_owners`
+can exclude a root approver. The PR's proposed OWNERS changes cannot grant this
+authority. Metadata also accepts those author-owned paths without requesting
+a review from the author.
+
+An independent authorized human must still provide `/lgtm` for the current
+head. The author cannot give their own PR an LGTM. The evaluator reads author
+identity and trusted OWNERS again before success; removed authority revokes
+implicit approval. A new head invalidates old LGTM evidence and requires a
+fresh coverage check. Holds, required checks, and GitHub's native review
+requirements still apply. An `approved` label does not satisfy a required
+GitHub approval review or enable auto-merge.
 
 ### Dispatched label scan reports
 

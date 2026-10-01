@@ -327,7 +327,7 @@ test("invalid title, DCO, configuration, and ownership upsert diagnostics then f
       },
     })]] }), validConfig],
     ["ownership", metadataState({ contents: {
-      "/OWNERS": "reviewers: [pr-author]\napprovers: [pr-author]\n",
+      "/OWNERS": "reviewers: [pr-author]\napprovers: []\n",
       "/OWNERS_ALIASES": "aliases: {}\n",
     } }), validConfig],
     ["configuration", metadataState(), {
@@ -373,7 +373,7 @@ test("manual LGTM and approval labels never satisfy ownership evidence", async (
   const github = createFakeGitHub(metadataState({
     labels: ["lgtm", "approved"],
     contents: {
-      "/OWNERS": "reviewers: [pr-author]\napprovers: [pr-author]\n",
+      "/OWNERS": "reviewers: [pr-author]\napprovers: []\n",
       "/OWNERS_ALIASES": "aliases: {}\n",
     },
   }));
@@ -391,6 +391,76 @@ test("manual LGTM and approval labels never satisfy ownership evidence", async (
   assert.deepEqual(github.calls.addIssueLabel, []);
   assert.deepEqual(github.calls.removeIssueLabel, []);
   assert.deepEqual(github.metadataSnapshot().labels, ["lgtm", "approved"]);
+});
+
+function authorOnlyMetadataState(overrides = {}) {
+  return metadataState({
+    contents: {
+      "/OWNERS": "reviewers: []\napprovers: [pr-author]\n",
+      "/OWNERS_ALIASES": "aliases: {}\n",
+    },
+    ...overrides,
+  });
+}
+
+test("metadata accepts trusted approver-author ownership without requesting the author", async () => {
+  const { runMetadata } = require("../src/modes/metadata.js");
+  const github = createFakeGitHub(authorOnlyMetadataState());
+  const result = await runMetadata({ event, github, config: loadConfig(repositoryRoot), dryRun: false });
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.ownership, { valid: true, uncoveredPaths: [] });
+  assert.deepEqual(github.calls.requestReviewers, []);
+  assert.deepEqual(github.calls.getUserIdentity, [{ login: "pr-author" }, { login: "pr-author" }]);
+  assert.equal(github.calls.addIssueLabel.some(({ label }) => ["approved", "lgtm"].includes(label)), false);
+});
+
+test("metadata rejects approver authors without a verified human identity", async (t) => {
+  const { runMetadata } = require("../src/modes/metadata.js");
+  for (const user of [
+    { login: "pr-author", type: "Bot", resolved: true, deleted: false },
+    { login: "pr-author", type: "User", resolved: false, deleted: false },
+    { login: "pr-author", type: "User", resolved: true, deleted: true },
+    { login: "other", type: "User", resolved: true, deleted: false },
+  ]) {
+    await t.test(JSON.stringify(user), async () => {
+      const github = createFakeGitHub(authorOnlyMetadataState({ users: { "pr-author": user } }));
+      await assert.rejects(
+        () => runMetadata({ event, github, config: loadConfig(repositoryRoot), dryRun: false }),
+        /ownership/i,
+      );
+      assert.equal(mutations(github).every(({ operation }) => operation === "upsertPolicyComment"), true);
+    });
+  }
+});
+
+test("metadata refuses writes when author identity or trusted policy changes", async (t) => {
+  const { runMetadata } = require("../src/modes/metadata.js");
+  for (const changed of ["identity", "policy"]) {
+    await t.test(changed, async () => {
+      const github = createFakeGitHub(authorOnlyMetadataState());
+      let reads = 0;
+      if (changed === "identity") {
+        const original = github.getUserIdentity;
+        github.getUserIdentity = async (login) => {
+          const user = await original(login);
+          reads += 1;
+          return reads > 1 ? { ...user, resolved: false } : user;
+        };
+      } else {
+        const original = github.getDefaultBranchRevision;
+        github.getDefaultBranchRevision = async () => {
+          const revision = await original();
+          reads += 1;
+          return reads > 1 ? "changed-trusted-policy" : revision;
+        };
+      }
+      await assert.rejects(
+        () => runMetadata({ event, github, config: loadConfig(repositoryRoot), dryRun: false }),
+        /author ownership changed/i,
+      );
+      assert.deepEqual(mutations(github), []);
+    });
+  }
 });
 
 test("GitHub boundary paginates and normalizes every metadata list", async () => {

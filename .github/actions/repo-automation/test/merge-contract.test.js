@@ -164,6 +164,22 @@ function evaluatorState(overrides = {}) {
 async function run(state = evaluatorState(), options = {}) {
   const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
   const github = createFakeGitHub(state);
+  if (options.authorIdentity !== undefined) {
+    const getUser = github.getUserIdentity.bind(github);
+    let reads = 0;
+    github.getUserIdentity = async (login) => {
+      const identity = await getUser(login);
+      return login === "bob" ? options.authorIdentity(login, ++reads) : identity;
+    };
+  }
+  if (options.ownerSource !== undefined) {
+    const getContent = github.getContentAtRevision.bind(github);
+    let reads = 0;
+    github.getContentAtRevision = async (path, revision) => {
+      const source = await getContent(path, revision);
+      return path === "/OWNERS" ? options.ownerSource(path, ++reads) : source;
+    };
+  }
   if (options.reviewDetails !== undefined) {
     const getReview = github.getPullRequestReview.bind(github);
     github.getPullRequestReview = async (number, id) => {
@@ -202,6 +218,107 @@ async function run(state = evaluatorState(), options = {}) {
 function operationIndex(github, operation) {
   return github.callOrder.findIndex((entry) => entry.operation === operation);
 }
+
+function approverAuthorState(overrides = {}) {
+  return evaluatorState({
+    pullRequest: pullRequest({ author: "BoB" }),
+    labels: ["lgtm", "do-not-merge/needs-approval"],
+    comments: [{ id: 77, author: "github-actions[bot]", body: policyBody({ approvals: [] }) }],
+    ...overrides,
+  });
+}
+
+test("a trusted human approver author needs independent LGTM but no additional OWNERS approval", async () => {
+  const { github, result } = await run(approverAuthorState());
+  assert.deepEqual(result.pullRequests[0].merge.blockers, []);
+  assert.ok(github.calls.addPolicyLabel.some(({ label }) => label === "approved"));
+  assert.ok(github.calls.removePolicyLabel.some(({ label }) => label === "do-not-merge/needs-approval"));
+  assert.equal(github.calls.setMergePolicyCheck.at(-1).conclusion, "success");
+  assert.ok(github.calls.getUserIdentity.some(({ login }) => login === "bob"));
+  assert.equal(github.calls.enableAutoMerge.length, 0);
+});
+
+test("implicit author approval never grants LGTM or clears a hold", async () => {
+  for (const held of [false, true]) {
+    const { github, result } = await run(approverAuthorState({
+      comments: [{ id: 77, author: "github-actions[bot]", body: policyBody({
+        lgtms: [], approvals: [],
+        hold: held ? {
+          repository: REPOSITORY, pullRequest: 42, actor: "alice", actorRole: "owner",
+          sourceType: "comment", sourceId: 8000, createdAt: "2026-09-17T08:00:00.000Z",
+        } : null,
+      }) }],
+    }));
+    assert.ok(github.calls.addPolicyLabel.some(({ label }) => label === "approved"));
+    assert.ok(result.pullRequests[0].merge.blockers.includes("lgtm-missing"));
+    if (held) assert.ok(result.pullRequests[0].merge.blockers.includes("hold-active"));
+    assert.equal(github.calls.setMergePolicyCheck.some(({ conclusion }) => conclusion === "success"), false);
+  }
+});
+
+test("unresolved, deleted, bot, or mismatched author identities cannot grant approval", async (t) => {
+  for (const identity of [
+    { resolved: false }, { deleted: true }, { type: "Bot" }, { login: "mallory" },
+  ]) await t.test(JSON.stringify(identity), async () => {
+    const { github, result } = await run(approverAuthorState({ users: {
+      bob: { login: "bob", type: "User", resolved: true, deleted: false, ...identity },
+    } }));
+    assert.ok(result.pullRequests[0].merge.blockers.includes("approval-coverage-incomplete"));
+    assert.equal(github.calls.addPolicyLabel.some(({ label }) => label === "approved"), false);
+  });
+});
+
+test("an unavailable author identity cannot grant approval", async () => {
+  const { github, result } = await run(approverAuthorState(), {
+    authorIdentity: () => { throw new Error("identity unavailable"); },
+  });
+  assert.ok(result.pullRequests[0].merge.blockers.includes("approval-coverage-incomplete"));
+  assert.equal(github.calls.addPolicyLabel.some(({ label }) => label === "approved"), false);
+});
+
+test("author approval is revoked if identity changes during the final authority read", async () => {
+  const { github, result } = await run(approverAuthorState(), {
+    authorIdentity: (_login, call) => ({ login: "bob", type: "User", resolved: true, deleted: call > 1 }),
+  });
+  assert.ok(result.pullRequests[0].merge.blockers.includes("approval-coverage-incomplete"));
+  assert.equal(github.calls.setMergePolicyCheck.some(({ conclusion }) => conclusion === "success"), false);
+});
+
+test("OWNERS approval comes from the trusted base and is revoked when it removes the author", async () => {
+  const { github, result } = await run(approverAuthorState(), {
+    ownerSource: (_path, call) => call > 1 ? "reviewers: [alice]\napprovers: [carol]\n" : OWNER_SOURCE,
+  });
+  assert.ok(result.pullRequests[0].merge.blockers.includes("approval-coverage-incomplete"));
+  assert.equal(github.calls.setMergePolicyCheck.some(({ conclusion }) => conclusion === "success"), false);
+  assert.ok(github.calls.getContentAtRevision.every(({ revision }) => revision === REVISION));
+});
+
+test("a new head keeps applicable author approval but invalidates the old LGTM", async () => {
+  const { github, result } = await run(approverAuthorState({
+    pullRequest: pullRequest({ author: "bob", headOid: NEXT_HEAD }),
+    comments: [{ id: 77, author: "github-actions[bot]", body: policyBody({ approvals: [], metadataHeadOid: NEXT_HEAD }) }],
+    mergeStates: [mergeState({ headOid: NEXT_HEAD })],
+  }));
+  assert.ok(github.calls.addPolicyLabel.some(({ label }) => label === "approved"));
+  assert.ok(result.pullRequests[0].merge.blockers.includes("lgtm-missing"));
+  assert.equal(github.calls.setMergePolicyCheck.some(({ conclusion }) => conclusion === "success"), false);
+});
+
+test("implicit author approval cannot restore dismissed or negative review LGTM", async (t) => {
+  for (const state of ["CHANGES_REQUESTED", "DISMISSED"]) await t.test(state, async () => {
+    const { github, result } = await run(approverAuthorState({
+      comments: [{ id: 77, author: "github-actions[bot]", body: policyBody({ lgtms: [], approvals: [] }) }],
+      reviews: [
+        submittedReview(9001, "alice", { state, submittedAt: "2026-09-17T10:00:00.000Z" }),
+        submittedReview(),
+      ],
+    }), { reviewDetails: { 9000: { body: "/lgtm" }, 9001: { body: "/lgtm" } } });
+    assert.ok(github.calls.addPolicyLabel.some(({ label }) => label === "approved"));
+    assert.ok(result.pullRequests[0].merge.blockers.includes("lgtm-missing"));
+    assert.equal(github.calls.setMergePolicyCheck.some(({ conclusion }) => conclusion === "success"), false);
+    assert.equal(github.calls.addPolicyLabel.some(({ label }) => label === "lgtm"), false);
+  });
+});
 
 test("publishes success for the exact head without arming native auto-merge", async () => {
   const { github, result } = await run();

@@ -127,6 +127,72 @@ test("rejects author self-approval and never trusts a manual approval label", as
   }]);
 });
 
+test("independent LGTM preserves implicit approval for a trusted human approver author", async () => {
+  const initial = state();
+  initial.contents["/OWNERS"] = "reviewers: [alice]\napprovers: [pr-author]\n";
+  initial.labels = ["approved", "do-not-merge/needs-approval"];
+  const github = createFakeGitHub(initial);
+  const result = await run(github);
+  assert.deepEqual(result.policy, { lgtm: true, approved: true, hold: false, needsApproval: false });
+  assert.equal(github.calls.removePolicyLabel.some(({ label }) => label === "approved"), false);
+  assert.ok(github.calls.removePolicyLabel.some(({ label }) => label === "do-not-merge/needs-approval"));
+  assert.deepEqual(github.metadataSnapshot().comments[0].body.match(/"approvals":\[\]/)?.[0], '"approvals":[]');
+});
+
+test("author implicit approval cannot grant self-LGTM", async () => {
+  const initial = state();
+  initial.contents["/OWNERS"] = "reviewers: [alice]\napprovers: [pr-author]\n";
+  initial.issueComments[0].author = "pr-author";
+  const github = createFakeGitHub(initial);
+  const result = await run(github);
+  assert.equal(result.commands[0].code, "author-cannot-provide-evidence");
+  assert.equal(result.policy.approved, true);
+  assert.equal(result.policy.lgtm, false);
+  assert.equal(result.policy.needsApproval, true);
+});
+
+test("non-human or unresolved authors do not receive implicit approval from commands", async () => {
+  for (const override of [{ type: "Bot" }, { deleted: true }, { resolved: false }, { login: "mallory" }]) {
+    const initial = state();
+    initial.contents["/OWNERS"] = "reviewers: [alice]\napprovers: [pr-author]\n";
+    Object.assign(initial.users["pr-author"], override);
+    const github = createFakeGitHub(initial);
+    const result = await run(github);
+    assert.equal(result.policy.approved, false);
+    assert.equal(result.policy.needsApproval, true);
+  }
+});
+
+test("changed author identity stops implicit approval before command writes", async () => {
+  const initial = state();
+  initial.contents["/OWNERS"] = "reviewers: [alice]\napprovers: [pr-author]\n";
+  const github = createFakeGitHub(initial);
+  const getUser = github.getUserIdentity.bind(github);
+  let authorReads = 0;
+  github.getUserIdentity = async (login) => {
+    const identity = await getUser(login);
+    return login === "pr-author" ? { ...identity, deleted: ++authorReads > 1 } : identity;
+  };
+  await assert.rejects(() => run(github), /authority changed/);
+  assert.equal(github.calls.addPolicyLabel.length, 0);
+  assert.equal(github.calls.upsertPolicyComment.length, 0);
+});
+
+test("changed trusted OWNERS stops implicit approval before command writes", async () => {
+  const initial = state();
+  initial.contents["/OWNERS"] = "reviewers: [alice]\napprovers: [pr-author]\n";
+  const github = createFakeGitHub(initial);
+  const getContent = github.getContentAtRevision.bind(github);
+  let ownerReads = 0;
+  github.getContentAtRevision = async (path, revision) => {
+    const source = await getContent(path, revision);
+    return path === "/OWNERS" && ++ownerReads > 1 ? "reviewers: [alice]\napprovers: [bob]\n" : source;
+  };
+  await assert.rejects(() => run(github), /authority changed/);
+  assert.equal(github.calls.addPolicyLabel.length, 0);
+  assert.equal(github.calls.upsertPolicyComment.length, 0);
+});
+
 test("preserves metadata evidence in the single bot-owned policy comment", async () => {
   const metadata = [
     POLICY_COMMENT_MARKER,

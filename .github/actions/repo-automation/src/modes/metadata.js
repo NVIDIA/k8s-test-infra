@@ -1,6 +1,7 @@
 "use strict";
 
 const { deriveAreaLabels } = require("../areas.js");
+const { verifyApproverAuthor } = require("../author-approval.js");
 const { validateConfig } = require("../config.js");
 const { evaluateDco } = require("../dco.js");
 const { asciiLower, isManagedMetadataLabel } = require("../managed-labels.js");
@@ -257,10 +258,14 @@ async function runMetadata({ event, github, config, dryRun }) {
     reviewerCandidates: [],
     approverCandidates: [],
     uncoveredPaths: files.map((file) => file.path).sort(),
+    authorApprovalPaths: [],
   });
+  const authorIsHuman = await verifyApproverAuthor(github, ownershipResolution, pullRequest.author);
+  const authorPaths = new Set(authorIsHuman ? ownershipResolution.authorApprovalPaths : []);
+  const uncoveredPaths = ownershipResolution.uncoveredPaths.filter((path) => !authorPaths.has(path));
   const ownership = {
-    valid: ownershipResolution.uncoveredPaths.length === 0,
-    uncoveredPaths: ownershipResolution.uncoveredPaths,
+    valid: uncoveredPaths.length === 0,
+    uncoveredPaths,
   };
 
   const reviewerSelection = safeConfigurationComputation(configuration, () => selectReviewers({
@@ -310,6 +315,13 @@ async function runMetadata({ event, github, config, dryRun }) {
     validateLivePullRequest(currentPullRequest, identity);
     if (!samePullRequestFence(pullRequest, currentPullRequest)) {
       throw new Error("pull request state changed after planning; refusing stale writes");
+    }
+    if (authorIsHuman && ownershipResolution.uncoveredPaths.some((path) => authorPaths.has(path))) {
+      const latestRevision = await github.getDefaultBranchRevision();
+      const authorStillHuman = await verifyApproverAuthor(github, ownershipResolution, pullRequest.author);
+      if (latestRevision !== defaultBranchRevision || !authorStillHuman) {
+        throw new Error("author ownership changed after planning; refusing stale writes");
+      }
     }
 
     const apply = async (descriptor, mutation) => {

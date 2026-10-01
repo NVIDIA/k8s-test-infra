@@ -1,0 +1,3 @@
+kind: Added
+body: "Repository automation: automatically approve files covered by a verified human PR author's trusted OWNERS authority. Independent current-head LGTM, complete file coverage, and GitHub branch rules remain required."
+time: 2026-10-01T18:00:00.000000+02:00

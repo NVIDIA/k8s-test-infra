@@ -1,6 +1,7 @@
 "use strict";
 
 const { evaluateApprovalCoverage } = require("../approval-coverage.js");
+const { verifyApproverAuthor } = require("../author-approval.js");
 const { parseCommands } = require("../commands/parser.js");
 const {
   currentEvidence,
@@ -10,7 +11,7 @@ const {
 const { validateConfig } = require("../config.js");
 const { isManagedPolicyLabel } = require("../managed-labels.js");
 const { decideMergeAction } = require("../merge-state.js");
-const { parseAliases, parseOwnersFile, resolveOwners } = require("../owners.js");
+const { parseAliases, parseOwnersFile, resolveOwners, hasApprovalCoverage } = require("../owners.js");
 const {
   POLICY_COMMENT_MARKER,
   parseMetadataHeadEvidence,
@@ -383,11 +384,6 @@ async function validReviewLgtms({ github, reviews, ownership, pullRequest, conte
   return validated;
 }
 
-function approvalCoverage(ownership, approvers) {
-  return ownership.uncoveredPaths.length === 0
-    && ownership.files.every((file) => file.approvers.some((actor) => approvers.has(actor)));
-}
-
 function policyCommentState(comment, context) {
   if (
     typeof comment?.body !== "string"
@@ -485,7 +481,7 @@ async function loadAuthority({ github, config, repository, pullRequest }) {
     headOid: pullRequest.headOid,
     author: pullRequest.author,
   });
-  const [reviewApprovers, reviewLgtms] = await Promise.all([
+  const [reviewApprovers, reviewLgtms, authorIsHuman] = await Promise.all([
     validReviewApprovers({
       github,
       effectiveReviews: reviewResult.effectiveReviews,
@@ -493,6 +489,7 @@ async function loadAuthority({ github, config, repository, pullRequest }) {
       pullRequest,
     }),
     validReviewLgtms({ github, reviews, ownership, pullRequest, context }),
+    verifyApproverAuthor(github, ownership, pullRequest.author),
   ]);
   const approvers = new Set([...approvals.map((record) => record.actor), ...reviewApprovers]);
   const hold = parsed.state === null ? null : currentHold(parsed.state, context);
@@ -500,7 +497,7 @@ async function loadAuthority({ github, config, repository, pullRequest }) {
     labels,
     lgtm: lgtms[0] ?? reviewLgtms[0] ?? null,
     lgtmOwned: parsed.state !== null || reviewLgtms.length > 0,
-    approved: approvalCoverage(ownership, approvers),
+    approved: hasApprovalCoverage(ownership, approvers, authorIsHuman),
     holdActive: hold !== null,
     metadataHead: parsed.metadataHead,
   };

@@ -1,6 +1,7 @@
 "use strict";
 
 const { parseCommands } = require("../commands/parser.js");
+const { verifyApproverAuthor } = require("../author-approval.js");
 const {
   createEmptyState,
   parsePolicyState,
@@ -149,7 +150,10 @@ async function loadAuthority(github, config, identity, pullRequest, files) {
     aliases,
     { activeOwnerFiles: ownerPaths(config), pullRequestAuthor: pullRequest.author },
   );
-  if (ownership.uncoveredPaths.length > 0) {
+  const authorIsHuman = await verifyApproverAuthor(github, ownership, pullRequest.author);
+  if (ownership.uncoveredPaths.some((path) => (
+    !authorIsHuman || !ownership.authorApprovalPaths.includes(path)
+  ))) {
     throw new Error("command authority is unavailable for unowned paths");
   }
   return {
@@ -161,6 +165,7 @@ async function loadAuthority(github, config, identity, pullRequest, files) {
       aliasesSource,
     }),
     ownership,
+    authorIsHuman,
   };
 }
 
@@ -257,6 +262,8 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
     context,
     actor: actorIdentity(user, access, comment.author),
     author: pullRequest.author,
+    ownership: authority.ownership,
+    authorIsHuman: authority.authorIsHuman,
     reviewers: authority.ownership.reviewerCandidates,
     approvers: authority.ownership.approverCandidates,
     owners: [...new Set([
@@ -304,6 +311,13 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
     || !samePullRequest(pullRequest, latestPullRequest)
     || !samePolicyComment(policyComment, latestPolicyComment)
   ) throw new Error("live command inputs changed after planning; refusing stale writes");
+  if (authority.ownership.authorApprovalPaths.length > 0) {
+    const latestAuthority = await loadAuthority(github, config, identity, latestPullRequest, files);
+    if (
+      latestAuthority.digest !== authority.digest
+      || latestAuthority.authorIsHuman !== authority.authorIsHuman
+    ) throw new Error("command authority changed after planning; refusing stale writes");
+  }
 
   const apply = async (operation, mutation) => {
     result.apply.attempted.push(operation);

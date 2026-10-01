@@ -389,6 +389,7 @@ function resolveFile(changedPath, declarations, aliases, pullRequestAuthor) {
     path: changedPath,
     reviewers: uniqueSorted(reviewers).filter(excludeAuthor),
     approvers: uniqueSorted(approvers).filter(excludeAuthor),
+    authorIsApprover: approvers.some((login) => login.toLowerCase() === pullRequestAuthor),
   };
 }
 
@@ -406,7 +407,7 @@ function resolveOwners(paths, ownerFiles, aliases, policy) {
   const { activeOwnerFiles, pullRequestAuthor } = normalizePolicy(policy);
   const declarations = activeDeclarations(ownerFiles, activeOwnerFiles);
 
-  const files = paths
+  const resolvedFiles = paths
     .map((changedPath) => resolveFile(
       changedPath,
       declarations,
@@ -414,13 +415,23 @@ function resolveOwners(paths, ownerFiles, aliases, policy) {
       pullRequestAuthor,
     ))
     .sort((left, right) => compareCaseInsensitive(left.path, right.path));
+  const authorApprovalPaths = resolvedFiles.filter((file) => file.authorIsApprover)
+    .map((file) => file.path);
+  const files = resolvedFiles.map(({ path, reviewers, approvers }) => ({ path, reviewers, approvers }));
   const reviewerCandidates = uniqueSorted(files.flatMap((file) => file.reviewers));
   const approverCandidates = uniqueSorted(files.flatMap((file) => file.approvers));
   const uncoveredPaths = files
     .filter((file) => file.reviewers.length === 0 && file.approvers.length === 0)
     .map((file) => file.path);
 
-  return { files, reviewerCandidates, approverCandidates, uncoveredPaths };
+  return { files, reviewerCandidates, approverCandidates, uncoveredPaths, authorApprovalPaths };
 }
 
-module.exports = { parseAliases, parseOwnersFile, resolveOwners };
+function hasApprovalCoverage(ownership, approvers, authorIsHuman) {
+  const authorPaths = new Set(authorIsHuman === true ? ownership.authorApprovalPaths : []);
+  return ownership.files.length > 0 && ownership.files.every((file) => (
+    authorPaths.has(file.path) || file.approvers.some((actor) => approvers.has(actor.toLowerCase()))
+  ));
+}
+
+module.exports = { parseAliases, parseOwnersFile, resolveOwners, hasApprovalCoverage };
