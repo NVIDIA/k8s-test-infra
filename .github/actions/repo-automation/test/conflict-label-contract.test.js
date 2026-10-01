@@ -58,6 +58,8 @@ function prEvent(overrides = {}) {
     repository,
     action: "synchronize",
     number: 42,
+    before: NEXT,
+    after: HEAD,
     pull_request: { number: 42 },
     ...overrides,
   };

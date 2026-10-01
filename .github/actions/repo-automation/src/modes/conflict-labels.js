@@ -30,9 +30,11 @@ function route(event, eventName) {
   }
   const identity = { owner: owner.toLowerCase(), repo: repo.toLowerCase() };
   if (eventName === "pull_request_target") {
+    // synchronize payloads carry before/after head SHAs, so only ref marks a push payload here.
     if (!PR_ACTIONS.has(event.action) || !Number.isSafeInteger(event.number) || event.number <= 0
-      || event.pull_request?.number !== event.number || event.schedule !== undefined || event.ref !== undefined
-      || event.after !== undefined) throw new TypeError("conflict label event route is invalid");
+      || event.pull_request?.number !== event.number || event.schedule !== undefined || event.ref !== undefined) {
+      throw new TypeError("conflict label event route is invalid");
+    }
     return { ...identity, numbers: [event.number], branch: null };
   }
   if (event.pull_request !== undefined || event.number !== undefined || event.action !== undefined) {
