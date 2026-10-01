@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION -->
+
 # Node Feature Discovery
 
 Install [Node Feature Discovery (NFD)](https://kubernetes-sigs.github.io/node-feature-discovery/)
