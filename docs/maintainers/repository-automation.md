@@ -144,6 +144,14 @@ fresh coverage check. Holds, required checks, and GitHub's native review
 requirements still apply. An `approved` label does not satisfy a required
 GitHub approval review or enable auto-merge.
 
+Conversation commands use the same current native approval and review LGTM
+evidence as merge evaluation. Approval coverage can combine native reviews,
+`/approve` commands, and approver-author authority across separate OWNERS
+scopes. A `/hold` command preserves valid approval and LGTM labels. Commands
+read trusted OWNERS and validated review evidence again before any write;
+changed evidence stops the run. Native reviews remain live evidence and are
+not copied into command state.
+
 ### Dispatched label scan reports
 
 The **PR metadata** workflow also accepts a `workflow_dispatch` request on

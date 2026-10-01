@@ -95,10 +95,13 @@ function activeState(input) {
 }
 
 function policyResult(state, input) {
-  const lgtm = state.lgtms.length > 0;
+  const lgtm = state.lgtms.length > 0 || (input.nativeReviewEvidence?.lgtms.length ?? 0) > 0;
   const approved = hasApprovalCoverage(
     input.ownership,
-    new Set(state.approvals.map((record) => record.actor)),
+    new Set([
+      ...state.approvals.map((record) => record.actor),
+      ...(input.nativeReviewEvidence?.approvals ?? []).map((review) => review.user),
+    ]),
     input.authorIsHuman,
   );
   const hold = state.hold !== null;

@@ -71,16 +71,214 @@ function state(overrides = {}) {
   };
 }
 
-async function run(github, dryRun = false) {
+async function run(github, dryRun = false, config = loadConfig(repositoryRoot)) {
   const { runCommand } = require("../src/modes/command.js");
   return runCommand({
     event,
     github,
-    config: loadConfig(repositoryRoot),
+    config,
     dryRun,
     now: () => "2026-09-17T12:00:00.000Z",
   });
 }
+
+function nativeReview(overrides = {}) {
+  return {
+    id: 201,
+    user: "bob",
+    state: "APPROVED",
+    commitOid: HEAD,
+    submittedAt: "2026-09-17T11:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function assertNoWrites(github) {
+  for (const operation of ["addPolicyLabel", "removePolicyLabel", "rerunFailedJobs", "upsertPolicyComment"]) {
+    assert.equal(github.calls[operation].length, 0, operation);
+  }
+}
+
+test("command and native review approvals cover separate OWNERS scopes without forged state", async () => {
+  const initial = state({
+    files: [{ path: "README.md" }, { path: "pkg/agent.go" }],
+    reviews: [nativeReview()],
+    labels: ["approved"],
+  });
+  initial.contents["/OWNERS"] = "reviewers: [alice]\napprovers: [alice]\n";
+  initial.contents["/pkg/OWNERS"] = "approvers: [bob]\noptions:\n  no_parent_owners: true\n";
+  initial.issueComments[0].body = "/approve\n/lgtm";
+  const config = loadConfig(repositoryRoot);
+  config.policy.activeOwnerFiles = ["/OWNERS", "/pkg/OWNERS"];
+  const github = createFakeGitHub(initial);
+  const result = await run(github, false, config);
+  assert.deepEqual(result.policy, { lgtm: true, approved: true, hold: false, needsApproval: false });
+  assert.equal(github.calls.removePolicyLabel.some(({ label }) => label === "approved"), false);
+  const { parsePolicyState } = require("../src/commands/state.js");
+  const persisted = parsePolicyState(github.metadataSnapshot().comments[0].body);
+  assert.deepEqual(persisted.approvals.map(({ actor }) => actor), ["alice"]);
+  assert.ok(persisted.approvals.every(({ sourceType }) => sourceType === "comment"));
+});
+
+test("author and native review approvals cover separate OWNERS scopes", async () => {
+  const initial = state({ files: [{ path: "README.md" }, { path: "pkg/agent.go" }], reviews: [nativeReview()] });
+  initial.contents["/OWNERS"] = "reviewers: [alice]\napprovers: [pr-author]\n";
+  initial.contents["/pkg/OWNERS"] = "approvers: [bob]\noptions:\n  no_parent_owners: true\n";
+  const config = loadConfig(repositoryRoot);
+  config.policy.activeOwnerFiles = ["/OWNERS", "/pkg/OWNERS"];
+  const result = await run(createFakeGitHub(initial), false, config);
+  assert.equal(result.policy.approved, true);
+  assert.equal(result.policy.needsApproval, false);
+});
+
+test("hold preserves native approval and review-body LGTM without storing review evidence", async () => {
+  const initial = state({ reviews: [nativeReview()], labels: ["approved", "lgtm"] });
+  initial.issueComments[0].body = "/hold";
+  const github = createFakeGitHub(initial);
+  const getReview = github.getPullRequestReview.bind(github);
+  github.getPullRequestReview = async (...args) => ({ ...await getReview(...args), body: "/lgtm" });
+  const result = await run(github);
+  assert.deepEqual(result.policy, { lgtm: true, approved: true, hold: true, needsApproval: false });
+  assert.deepEqual(github.calls.removePolicyLabel, []);
+  assert.deepEqual(github.calls.addPolicyLabel.map(({ label }) => label), ["do-not-merge/hold"]);
+  const { parsePolicyState } = require("../src/commands/state.js");
+  const persisted = parsePolicyState(github.metadataSnapshot().comments[0].body);
+  assert.deepEqual(persisted.approvals, []);
+  assert.deepEqual(persisted.lgtms, []);
+});
+
+test("a newer COMMENTED review preserves native approval during command planning", async () => {
+  const github = createFakeGitHub(state({ reviews: [nativeReview(), nativeReview({
+    id: 202, state: "COMMENTED", submittedAt: "2026-09-17T11:30:00.000Z",
+  })] }));
+  assert.equal((await run(github)).policy.approved, true);
+});
+
+test("a newer review without LGTM revokes review LGTM while preserving native approval", async () => {
+  const initial = state({ reviews: [nativeReview(), nativeReview({
+    id: 202, state: "COMMENTED", submittedAt: "2026-09-17T11:30:00.000Z",
+  })], labels: ["approved", "lgtm"] });
+  initial.issueComments[0].body = "/hold";
+  const github = createFakeGitHub(initial);
+  const getReview = github.getPullRequestReview.bind(github);
+  github.getPullRequestReview = async (...args) => ({
+    ...await getReview(...args), body: args[1] === 201 ? "/lgtm" : "More review notes.",
+  });
+  const result = await run(github);
+  assert.equal(result.policy.approved, true);
+  assert.equal(result.policy.lgtm, false);
+  assert.deepEqual(github.calls.removePolicyLabel.map(({ label }) => label), ["lgtm"]);
+});
+
+test("invalid native evidence cannot grant approval or review LGTM through commands", async () => {
+  for (const override of [
+    { review: { commitOid: "3".repeat(40) } },
+    { review: { state: "DISMISSED" } },
+    { review: { state: "CHANGES_REQUESTED" } },
+    { review: { user: "mallory" } },
+    { review: { user: "pr-author" } },
+    { review: { user: "bob[bot]" } },
+    { identity: { type: "Bot" } },
+    { identity: { resolved: false } },
+    { identity: { deleted: true } },
+    { identity: { login: "mallory" } },
+  ]) {
+    const initial = state({ reviews: [nativeReview(override.review)], labels: ["approved", "lgtm"] });
+    initial.issueComments[0].body = "/hold";
+    initial.users.bob = { login: "bob", type: "User", resolved: true, deleted: false, ...override.identity };
+    const github = createFakeGitHub(initial);
+    const getReview = github.getPullRequestReview.bind(github);
+    github.getPullRequestReview = async (...args) => ({ ...await getReview(...args), body: "/lgtm" });
+    const result = await run(github);
+    assert.equal(result.policy.approved, false, JSON.stringify(override));
+    assert.equal(result.policy.lgtm, false, JSON.stringify(override));
+  }
+});
+
+test("a later dismissal or change request revokes native approval during command planning", async () => {
+  for (const reviewState of ["DISMISSED", "CHANGES_REQUESTED"]) {
+    const github = createFakeGitHub(state({ reviews: [nativeReview(), nativeReview({
+      id: 202, state: reviewState, submittedAt: "2026-09-17T11:30:00.000Z",
+    })] }));
+    assert.equal((await run(github)).policy.approved, false);
+  }
+});
+
+test("pending reviews cannot grant command-mode approval or LGTM", async () => {
+  const pending = nativeReview({ state: "PENDING", commitOid: null });
+  delete pending.submittedAt;
+  const initial = state({ reviews: [pending] });
+  initial.issueComments[0].body = "/hold";
+  const result = await run(createFakeGitHub(initial));
+  assert.equal(result.policy.approved, false);
+  assert.equal(result.policy.lgtm, false);
+});
+
+test("changed native reviews stop all command writes even without author approval paths", async () => {
+  const github = createFakeGitHub(state({ reviews: [nativeReview()] }));
+  const listReviews = github.listPullRequestReviews.bind(github);
+  github.listPullRequestReviews = async (...args) => (await listReviews(...args)).map((review) => ({
+    ...review, state: github.calls.listPullRequestReviews.length > 1 ? "DISMISSED" : "APPROVED",
+  }));
+  await assert.rejects(() => run(github), /review evidence changed/);
+  assertNoWrites(github);
+});
+
+test("changed native reviewer identity stops all command writes", async () => {
+  const github = createFakeGitHub(state({ reviews: [nativeReview()] }));
+  const getUser = github.getUserIdentity.bind(github);
+  github.getUserIdentity = async (login) => {
+    const identity = await getUser(login);
+    return login === "bob"
+      ? { ...identity, deleted: github.calls.listPullRequestReviews.length > 1 }
+      : identity;
+  };
+  await assert.rejects(() => run(github), /review evidence changed/);
+  assertNoWrites(github);
+});
+
+test("replacement native approval stops writes even when its actor and result are unchanged", async () => {
+  const github = createFakeGitHub(state({ reviews: [nativeReview()] }));
+  const listReviews = github.listPullRequestReviews.bind(github);
+  github.listPullRequestReviews = async (...args) => (await listReviews(...args)).map((review) => ({
+    ...review, id: github.calls.listPullRequestReviews.length > 1 ? 202 : 201,
+  }));
+  await assert.rejects(() => run(github), /review evidence changed/);
+  assertNoWrites(github);
+});
+
+test("changed PR head stops native review labels before any command writes", async () => {
+  const initial = state({ reviews: [nativeReview()] });
+  initial.pullRequests = [initial.pullRequest, { ...initial.pullRequest, headOid: "3".repeat(40) }];
+  const github = createFakeGitHub(initial);
+  await assert.rejects(() => run(github), /live command inputs changed/);
+  assertNoWrites(github);
+});
+
+test("changed review-body LGTM stops all command writes", async () => {
+  const initial = state({ reviews: [nativeReview()] });
+  initial.issueComments[0].body = "/hold";
+  const github = createFakeGitHub(initial);
+  const getReview = github.getPullRequestReview.bind(github);
+  github.getPullRequestReview = async (...args) => ({
+    ...await getReview(...args),
+    body: github.calls.listPullRequestReviews.length > 1 ? "LGTM removed." : "/lgtm",
+  });
+  await assert.rejects(() => run(github), /review evidence changed/);
+  assertNoWrites(github);
+});
+
+test("changed trusted OWNERS stops native approval before command writes", async () => {
+  const github = createFakeGitHub(state({ reviews: [nativeReview()] }));
+  const getContent = github.getContentAtRevision.bind(github);
+  let reads = 0;
+  github.getContentAtRevision = async (ownerPath, revision) => {
+    const source = await getContent(ownerPath, revision);
+    return ownerPath === "/OWNERS" && ++reads > 1 ? "reviewers: [alice]\napprovers: [carol]\n" : source;
+  };
+  await assert.rejects(() => run(github), /authority changed/);
+  assertNoWrites(github);
+});
 
 test("re-reads the live command and records current reviewer evidence", async () => {
   const github = createFakeGitHub(state());

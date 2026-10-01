@@ -11,6 +11,7 @@ const { planCommandExecution } = require("../commands/executor.js");
 const { validateConfig } = require("../config.js");
 const { parseAliases, parseOwnersFile, resolveOwners } = require("../owners.js");
 const { policyDigest } = require("../policy-digest.js");
+const { loadReviewEvidence } = require("../review-evidence.js");
 const {
   POLICY_COMMENT_MARKER,
   renderCommandPolicyComment,
@@ -244,6 +245,13 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
   };
   const policyComment = await github.getPolicyComment(identity.prNumber, POLICY_COMMENT_MARKER);
   const stored = loadState(policyComment, context);
+  const nativeReviewEvidence = await loadReviewEvidence({
+    github,
+    reviews: await github.listPullRequestReviews(identity.prNumber),
+    ownership: authority.ownership,
+    pullRequest,
+    context,
+  });
   const [user, access, currentLabels] = await Promise.all([
     github.getUserIdentity(comment.author.toLowerCase()),
     github.getCollaboratorAccess(comment.author.toLowerCase()),
@@ -264,6 +272,7 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
     author: pullRequest.author,
     ownership: authority.ownership,
     authorIsHuman: authority.authorIsHuman,
+    nativeReviewEvidence,
     reviewers: authority.ownership.reviewerCandidates,
     approvers: authority.ownership.approverCandidates,
     owners: [...new Set([
@@ -311,12 +320,20 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
     || !samePullRequest(pullRequest, latestPullRequest)
     || !samePolicyComment(policyComment, latestPolicyComment)
   ) throw new Error("live command inputs changed after planning; refusing stale writes");
-  if (authority.ownership.authorApprovalPaths.length > 0) {
-    const latestAuthority = await loadAuthority(github, config, identity, latestPullRequest, files);
-    if (
-      latestAuthority.digest !== authority.digest
-      || latestAuthority.authorIsHuman !== authority.authorIsHuman
-    ) throw new Error("command authority changed after planning; refusing stale writes");
+  const latestAuthority = await loadAuthority(github, config, identity, latestPullRequest, files);
+  if (
+    latestAuthority.digest !== authority.digest
+    || latestAuthority.authorIsHuman !== authority.authorIsHuman
+  ) throw new Error("command authority changed after planning; refusing stale writes");
+  const latestReviewEvidence = await loadReviewEvidence({
+    github,
+    reviews: await github.listPullRequestReviews(identity.prNumber),
+    ownership: latestAuthority.ownership,
+    pullRequest: latestPullRequest,
+    context,
+  });
+  if (JSON.stringify(latestReviewEvidence) !== JSON.stringify(nativeReviewEvidence)) {
+    throw new Error("command review evidence changed after planning; refusing stale writes");
   }
 
   const apply = async (operation, mutation) => {
