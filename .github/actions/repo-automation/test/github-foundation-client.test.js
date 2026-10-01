@@ -111,7 +111,11 @@ function mockOctokit(overrides = {}) {
     repos: {
       getCollaboratorPermissionLevel: response("getPermission", { permission: "write" }),
       getBranchProtection: response("getBranchProtection", { required_status_checks: {} }),
-      getBranch: response("getBranch", { name: "release-1.2", commit: { sha: "b".repeat(40) } }),
+      getBranch: response("getBranch", ({ branch }) => ({
+        name: branch,
+        commit: { sha: "b".repeat(40) },
+        protected: true,
+      })),
     },
     actions: {
       listWorkflowRunsForRepo: response("listWorkflowRuns", [{
@@ -249,6 +253,70 @@ test("maps merge, workflow, and pull-request state with exact heads", async () =
   assert.equal((await client.getWorkflowRun(701, "a".repeat(40), 42)).id, 701);
   await client.rerunFailedJobs(701);
 });
+
+for (const protectedBranch of [true, false]) {
+  test(`reads branch protection ${protectedBranch} with a Contents-read token`, async () => {
+    const requests = [];
+    const octokit = await octokitWithWorkflowFetch(async (url) => {
+      const request = new URL(url);
+      requests.push(request.pathname);
+      if (request.pathname !== "/repos/NVIDIA/k8s-test-infra/branches/main") {
+        return new globalThis.Response(JSON.stringify({ message: "Resource not accessible by integration" }), {
+          status: 403,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return jsonResponse({ name: "main", commit: { sha: "b".repeat(40) }, protected: protectedBranch });
+    });
+    const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+
+    assert.equal(await client.getBranchProtection("main"), protectedBranch);
+    assert.deepEqual(requests, ["/repos/NVIDIA/k8s-test-infra/branches/main"]);
+  });
+}
+
+for (const [name, data] of [
+  ["missing response", undefined],
+  ["null response", null],
+  ["missing protection flag", { name: "main" }],
+  ["null protection flag", { name: "main", protected: null }],
+  ["string protection flag", { name: "main", protected: "false" }],
+  ["numeric protection flag", { name: "main", protected: 0 }],
+  ["missing branch name", { protected: false }],
+  ["non-string branch name", { name: 1, protected: false }],
+  ["wrong branch name", { name: "release-1.2", protected: false }],
+  ["different branch name case", { name: "Main", protected: false }],
+]) {
+  test(`fails closed for branch protection with ${name}`, async () => {
+    const { octokit } = mockOctokit({
+      rest: { repos: { getBranch: async () => ({ data }) } },
+    });
+    const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+
+    await assert.rejects(() => client.getBranchProtection("main"), /branch/);
+  });
+}
+
+for (const status of [401, 403, 404, 503]) {
+  test(`fails closed when the branch endpoint returns ${status}`, async () => {
+    const requests = [];
+    const octokit = await octokitWithWorkflowFetch(async (url) => {
+      requests.push(new URL(url).pathname);
+      return new globalThis.Response(JSON.stringify({ message: "branch lookup failed" }), {
+        status,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+
+    await assert.rejects(() => client.getBranchProtection("main"), {
+      name: "GitHubClientError",
+      operation: "getBranchProtection",
+      status,
+    });
+    assert.deepEqual(requests, ["/repos/NVIDIA/k8s-test-infra/branches/main"]);
+  });
+}
 
 test("ignores unrelated workflow runs before mapping their pull request identity", async () => {
   const base = mockOctokit({
