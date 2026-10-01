@@ -44,6 +44,64 @@ function jsonResponse(data, headers = {}) {
   });
 }
 
+function conflictPullRequest(baseRef) {
+  return {
+    number: 42,
+    id: "PR_node_42",
+    state: "OPEN",
+    isDraft: false,
+    mergeable: "CONFLICTING",
+    headRefOid: "a".repeat(40),
+    baseRefName: "main",
+    baseRefOid: "c".repeat(40),
+    baseRef,
+  };
+}
+
+test("conflict client maps the current base branch tip instead of the PR's older base OID", async () => {
+  let graphRequest;
+  const octokit = await octokitWithWorkflowFetch(async (input, init) => {
+    graphRequest = JSON.parse(init.body);
+    return jsonResponse({ data: { repository: { pullRequest: conflictPullRequest({
+      name: "main", target: { oid: "b".repeat(40) },
+    }) } } });
+  });
+  const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+
+  assert.deepEqual(await client.getConflictState(42), {
+    number: 42,
+    nodeId: "PR_node_42",
+    repository: "nvidia/k8s-test-infra",
+    state: "OPEN",
+    draft: false,
+    headOid: "a".repeat(40),
+    baseBranch: "main",
+    baseOid: "b".repeat(40),
+    mergeability: "CONFLICTING",
+  });
+  assert.match(graphRequest.query, /baseRef\s*\{\s*name\s+target\s*\{\s*oid\s*\}\s*\}/);
+  assert.doesNotMatch(graphRequest.query, /\bbaseRefOid\b/);
+  assert.deepEqual(graphRequest.variables, { owner: "NVIDIA", repo: "k8s-test-infra", number: 42 });
+});
+
+for (const [name, baseRef] of [
+  ["missing ref", undefined],
+  ["null ref", null],
+  ["wrong branch", { name: "release-1.0", target: { oid: "b".repeat(40) } }],
+  ["missing branch name", { target: { oid: "b".repeat(40) } }],
+  ["missing target", { name: "main" }],
+  ["missing target OID", { name: "main", target: {} }],
+  ["empty target OID", { name: "main", target: { oid: "" } }],
+]) {
+  test(`conflict client rejects ${name} without falling back to the older PR base OID`, async () => {
+    const octokit = await octokitWithWorkflowFetch(async () => jsonResponse({
+      data: { repository: { pullRequest: conflictPullRequest(baseRef) } },
+    }));
+    const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+    await assert.rejects(() => client.getConflictState(42), /GraphQL live base (?:ref|OID)/);
+  });
+}
+
 function mockOctokit(overrides = {}) {
   const calls = [];
   const response = (name, data) => async (parameters) => {
@@ -98,6 +156,7 @@ function mockOctokit(overrides = {}) {
         state: "APPROVED",
         commit_id: "a".repeat(40),
         submitted_at: "2026-09-17T09:00:00Z",
+        body: "/lgtm\n\nReviewed the current changes.",
       }),
       list: response("listPullRequests", [{ number: 42 }, { number: 44 }]),
       create: response("createPullRequest", {
@@ -210,7 +269,25 @@ test("maps live command and approval provenance", async () => {
     state: "APPROVED",
     commitOid: "a".repeat(40),
     submittedAt: "2026-09-17T09:00:00Z",
+    body: "/lgtm\n\nReviewed the current changes.",
   });
+});
+
+test("keeps unavailable live review bodies unknown", async () => {
+  for (const body of [undefined, null, 42, {}]) {
+    const { octokit } = mockOctokit({ rest: { pulls: {
+      getReview: async () => ({ data: {
+        id: 501,
+        user: { login: "Alice" },
+        state: "APPROVED",
+        commit_id: "a".repeat(40),
+        submitted_at: "2026-09-17T09:00:00Z",
+        body,
+      } }),
+    } } });
+    const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+    assert.equal((await client.getPullRequestReview(42, 501)).body, null);
+  }
 });
 
 test("exposes only managed policy labels and native auto-merge disarm", async () => {
@@ -497,6 +574,43 @@ test("refetches only a bounded evaluator workflow identity", async () => {
 
   workflowPath = ".github/workflows/pr-metadata.yml@refs/heads/main@spoof";
   assert.equal(await client.getEvaluationWorkflowRun(702), null);
+});
+
+test("accepts exact evaluator workflow paths returned by the live REST API", async () => {
+  let workflowPath = ".github/workflows/review-observer.yml";
+  const { octokit } = mockOctokit({ rest: { actions: {
+    getWorkflowRun: async () => ({ data: {
+      id: 702,
+      name: "Review observer",
+      path: workflowPath,
+      event: "pull_request_review",
+      status: "completed",
+      pull_requests: [{ number: 42 }],
+      repository: { full_name: "NVIDIA/k8s-test-infra" },
+    } }),
+  } } });
+  const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+  assert.deepEqual(await client.getEvaluationWorkflowRun(702), {
+    id: 702,
+    name: "Review observer",
+    workflowPath: ".github/workflows/review-observer.yml",
+    workflowSourceRef: null,
+    event: "pull_request_review",
+    status: "completed",
+    repository: "nvidia/k8s-test-infra",
+    pullRequestNumbers: [42],
+  });
+  for (const path of [
+    ".github/workflows/untrusted.yml",
+    "../.github/workflows/review-observer.yml",
+    ".github/workflows/review-observer.yml@",
+    ".github/workflows/review-observer.yml@refs/heads/main@spoof",
+    ".github/workflows/review-observer.yml@refs/heads/../main",
+    ".github/workflows/review-observer.yml\n",
+  ]) {
+    workflowPath = path;
+    assert.equal(await client.getEvaluationWorkflowRun(702), null, path);
+  }
 });
 
 test("exposes bounded branch and backport pull-request operations", async () => {

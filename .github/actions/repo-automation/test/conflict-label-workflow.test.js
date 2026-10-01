@@ -27,7 +27,7 @@ test("conflict scans use the trusted checkout, metadata flag, and shared write q
   const workflow = metadataWorkflow();
   assert.deepEqual(workflow.permissions, {});
   const job = workflow.jobs.metadata;
-  assert.equal(job.if, "${{ vars.REPOSITORY_AUTOMATION_METADATA_ENABLED == 'true' }}");
+  assert.match(job.if, /vars\.REPOSITORY_AUTOMATION_METADATA_ENABLED == 'true'/);
   assert.deepEqual(job.concurrency, { group: "repository-automation-state", "cancel-in-progress": false });
   const resolver = job.steps.find((step) => step.id === "trusted");
   assert.ok(resolver);
@@ -52,15 +52,51 @@ test("conflict scans use the trusted checkout, metadata flag, and shared write q
     "base pushes and scheduled scans must not run ordinary metadata writes");
 });
 
-test("metadata label scan runs only for base pushes and scheduled events", () => {
+test("metadata label scan includes base pushes and schedules while ordinary metadata stays PR-only", () => {
   const job = metadataWorkflow().jobs.metadata;
   const scan = job.steps.find((step) => step.with?.mode === "metadata-labels");
   assert.ok(scan, "the workflow must reconcile metadata labels for older open PRs");
-  assert.equal(scan.if, "${{ github.event_name != 'pull_request_target' }}");
+  assert.match(scan.if, /success\(\) && github\.event_name != 'pull_request_target'/);
   assert.equal(scan.uses, "./control/.github/actions/repo-automation");
   assert.equal(scan.with["control-directory"], "control");
   assert.equal(scan.with["dry-run"], "false");
   assert.equal(scan.with["policy-revision"], "${{ steps.trusted.outputs.result }}");
   const metadata = job.steps.find((step) => step.with?.mode === "metadata");
   assert.equal(metadata.if, "${{ github.event_name == 'pull_request_target' }}");
+});
+
+test("dispatch attempts both scan modes and uploads exactly their fixed report paths", () => {
+  const workflow = metadataWorkflow();
+  assert.deepEqual(Object.keys(workflow.on.workflow_dispatch.inputs).sort(), ["request_id", "workflow_commit_sha"]);
+  const job = workflow.jobs.metadata;
+  assert.match(job.if, /REPOSITORY_AUTOMATION_METADATA_ENABLED/);
+  assert.match(job.if, /github\.ref == 'refs\/heads\/main'/);
+  assert.match(job.if, /github\.sha == inputs\.workflow_commit_sha/);
+  const conflict = job.steps.find((step) => step.with?.mode === "conflict-labels");
+  const metadata = job.steps.find((step) => step.with?.mode === "metadata-labels");
+  assert.equal(conflict.id, "conflict_labels");
+  assert.equal(metadata.id, "metadata_labels");
+  for (const step of [conflict, metadata]) {
+    assert.equal(step["continue-on-error"], "${{ github.event_name == 'workflow_dispatch' }}");
+    assert.equal(step.with["request-id"], "${{ inputs.request_id }}");
+    assert.equal(step.with["workflow-commit-sha"], "${{ inputs.workflow_commit_sha }}");
+  }
+  assert.match(metadata.if, /always\(\)/);
+  const upload = job.steps.find((step) => step.uses?.startsWith("actions/upload-artifact@"));
+  assert.ok(upload);
+  assert.match(upload.if, /always\(\)/);
+  assert.equal(upload.with.name, "mokka-label-scan-${{ inputs.request_id }}");
+  assert.equal(upload.with["if-no-files-found"], "error");
+  assert.equal(upload.with["include-hidden-files"], true);
+  assert.deepEqual(upload.with.path.trim().split("\n"), [
+    "${{ github.workspace }}/.mokka-label-scan/${{ inputs.request_id }}/conflict-labels.json",
+    "${{ github.workspace }}/.mokka-label-scan/${{ inputs.request_id }}/metadata-labels.json",
+  ]);
+  const gate = job.steps.find((step) => step.name === "Require both label scans to succeed");
+  assert.ok(gate);
+  assert.match(gate.if, /always\(\)/);
+  assert.match(gate.if, /steps\.conflict_labels\.outcome/);
+  assert.match(gate.if, /steps\.metadata_labels\.outcome/);
+  assert.match(gate.run, /exit 1/);
+  assert.ok(job.steps.indexOf(upload) < job.steps.indexOf(gate));
 });

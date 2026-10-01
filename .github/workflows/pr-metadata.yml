@@ -12,6 +12,7 @@
 # limitations under the License.
 
 name: PR metadata
+run-name: Mokka label scan ${{ inputs.request_id || github.event_name }}
 
 "on":
   pull_request_target:
@@ -21,12 +22,22 @@ name: PR metadata
     branches: [main, "release-*"]
   schedule:
     - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: Canonical UUID for the label scan request
+        type: string
+        required: true
+      workflow_commit_sha:
+        description: Exact trusted main workflow commit SHA
+        type: string
+        required: true
 
 permissions: {}
 
 jobs:
   metadata:
-    if: ${{ vars.REPOSITORY_AUTOMATION_METADATA_ENABLED == 'true' }}
+    if: ${{ vars.REPOSITORY_AUTOMATION_METADATA_ENABLED == 'true' && (github.event_name != 'workflow_dispatch' || (github.repository == 'NVIDIA/k8s-test-infra' && github.repository_id == '733665780' && github.ref == 'refs/heads/main' && github.sha == inputs.workflow_commit_sha && github.workflow_sha == inputs.workflow_commit_sha)) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -44,6 +55,20 @@ jobs:
           github-token: ${{ github.token }}
           result-encoding: string
           script: |
+            if (context.eventName === "workflow_dispatch") {
+              const inputs = context.payload.inputs;
+              if (Object.keys(inputs ?? {}).sort().join(",") !== "request_id,workflow_commit_sha"
+                  || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(inputs.request_id)
+                  || !/^[0-9a-f]{40}$/.test(inputs.workflow_commit_sha) || /^0+$/.test(inputs.workflow_commit_sha)
+                  || context.ref !== "refs/heads/main" || context.sha !== inputs.workflow_commit_sha
+                  || process.env.GITHUB_WORKFLOW_SHA !== inputs.workflow_commit_sha
+                  || context.payload.repository.id !== 733665780
+                  || context.payload.repository.node_id !== "R_kgDOK7rZ9A"
+                  || context.payload.repository.full_name !== "NVIDIA/k8s-test-infra") {
+                throw new Error("label scan dispatch identity is invalid");
+              }
+              return inputs.workflow_commit_sha;
+            }
             const branch = context.payload.repository.default_branch;
             const { data } = await github.rest.repos.getBranch({
               owner: context.repo.owner,
@@ -64,15 +89,21 @@ jobs:
           submodules: false
           lfs: false
       - name: Reconcile conflict labels for open pull requests
+        id: conflict_labels
+        continue-on-error: ${{ github.event_name == 'workflow_dispatch' }}
         uses: ./control/.github/actions/repo-automation
         env:
           GITHUB_TOKEN: ${{ github.token }}
         with:
           mode: conflict-labels
           control-directory: control
+          request-id: ${{ inputs.request_id }}
+          workflow-commit-sha: ${{ inputs.workflow_commit_sha }}
           dry-run: "false"
       - name: Reconcile metadata labels for all open pull requests
-        if: ${{ github.event_name != 'pull_request_target' }}
+        id: metadata_labels
+        if: ${{ (github.event_name == 'workflow_dispatch' && always()) || (success() && github.event_name != 'pull_request_target') }}
+        continue-on-error: ${{ github.event_name == 'workflow_dispatch' }}
         uses: ./control/.github/actions/repo-automation
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -80,6 +111,8 @@ jobs:
           mode: metadata-labels
           control-directory: control
           policy-revision: ${{ steps.trusted.outputs.result }}
+          request-id: ${{ inputs.request_id }}
+          workflow-commit-sha: ${{ inputs.workflow_commit_sha }}
           dry-run: "false"
       - name: Reconcile pull request metadata
         if: ${{ github.event_name == 'pull_request_target' }}
@@ -90,3 +123,16 @@ jobs:
           mode: metadata
           control-directory: control
           dry-run: "false"
+      - name: Upload label scan reports
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && steps.trusted.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: mokka-label-scan-${{ inputs.request_id }}
+          if-no-files-found: error
+          include-hidden-files: true
+          path: |
+            ${{ github.workspace }}/.mokka-label-scan/${{ inputs.request_id }}/conflict-labels.json
+            ${{ github.workspace }}/.mokka-label-scan/${{ inputs.request_id }}/metadata-labels.json
+      - name: Require both label scans to succeed
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && (steps.conflict_labels.outcome != 'success' || steps.metadata_labels.outcome != 'success') }}
+        run: exit 1

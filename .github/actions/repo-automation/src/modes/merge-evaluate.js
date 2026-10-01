@@ -1,6 +1,6 @@
 "use strict";
 
-const { evaluateApprovalCoverage } = require("../approval-coverage.js");
+const { verifyApproverAuthor } = require("../author-approval.js");
 const { parseCommands } = require("../commands/parser.js");
 const {
   currentEvidence,
@@ -10,12 +10,13 @@ const {
 const { validateConfig } = require("../config.js");
 const { isManagedPolicyLabel } = require("../managed-labels.js");
 const { decideMergeAction } = require("../merge-state.js");
-const { parseAliases, parseOwnersFile, resolveOwners } = require("../owners.js");
+const { parseAliases, parseOwnersFile, resolveOwners, hasApprovalCoverage } = require("../owners.js");
 const {
   POLICY_COMMENT_MARKER,
   parseMetadataHeadEvidence,
 } = require("../policy-comment.js");
 const { policyDigest } = require("../policy-digest.js");
+const { currentRoleAllows, loadReviewEvidence, validHumanIdentity } = require("../review-evidence.js");
 
 const LOGIN = /^(?!.*--)[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
 const REPOSITORY = /^[A-Za-z0-9_.-]{1,100}$/;
@@ -102,9 +103,12 @@ function trustedRun(run, repository) {
   if (
     expected === undefined
     || run.workflowPath !== expected.path
-    || run.event !== expected.event
   ) return null;
-  return expected;
+  if (run.event === expected.event) return expected;
+  if (run.name === "PR metadata" && run.event === "workflow_dispatch") {
+    return { ...expected, allOpen: true };
+  }
+  return null;
 }
 
 async function candidatesFor({ event, eventName, github, repository, prNumber }) {
@@ -124,7 +128,12 @@ async function candidatesFor({ event, eventName, github, repository, prNumber })
     const expected = trustedRun(run, repository);
     if (expected === null) return [];
     if (expected.allOpen) return boundedCandidates(await github.listOpenPullRequestNumbers());
-    return boundedCandidates(run.pullRequestNumbers);
+    const mapped = boundedCandidates(run.pullRequestNumbers);
+    // GitHub can omit PR links on review runs; live authority checks still apply to each PR.
+    if (run.name === "Review observer" && mapped.length === 0) {
+      return boundedCandidates(await github.listOpenPullRequestNumbers());
+    }
+    return mapped;
   }
   if (eventName === "schedule") {
     if (
@@ -155,7 +164,10 @@ function validatePullRequest(pullRequest, number, repository) {
     || pullRequest.number !== number
     || typeof pullRequest.draft !== "boolean"
     || typeof pullRequest.author !== "string"
-    || !LOGIN.test(pullRequest.author)
+    || !(
+      LOGIN.test(pullRequest.author)
+      || (pullRequest.author.endsWith("[bot]") && LOGIN.test(pullRequest.author.slice(0, -5)))
+    )
     || typeof pullRequest.headOid !== "string"
     || !OID.test(pullRequest.headOid)
     || typeof pullRequest.baseBranch !== "string"
@@ -215,14 +227,6 @@ function activeOwnerPaths(config) {
   return [...new Set(config.policy.activeOwnerFiles)].sort();
 }
 
-function validHumanIdentity(identity, expectedLogin) {
-  return identity?.resolved === true
-    && identity?.deleted === false
-    && identity?.type === "User"
-    && typeof identity.login === "string"
-    && identity.login.toLowerCase() === expectedLogin;
-}
-
 async function validateCommentEvidence({ github, evidence, command, pullRequest }) {
   if (evidence.sourceType !== "comment") return false;
   try {
@@ -243,18 +247,6 @@ async function validateCommentEvidence({ github, evidence, command, pullRequest 
   } catch {
     return false;
   }
-}
-
-function currentRoleAllows(evidence, kind, ownership) {
-  const reviewers = new Set(ownership.reviewerCandidates);
-  const approvers = new Set(ownership.approverCandidates);
-  if (kind === "approval") {
-    return evidence.actorRole === "approver" && approvers.has(evidence.actor);
-  }
-  return (
-    (evidence.actorRole === "reviewer" && reviewers.has(evidence.actor))
-    || (evidence.actorRole === "approver" && approvers.has(evidence.actor))
-  );
 }
 
 async function validStoredEvidence({ github, records, kind, ownership, pullRequest }) {
@@ -293,36 +285,14 @@ async function validateReviewEvidence({ github, evidence, pullRequest }) {
   }
 }
 
-async function validReviewApprovers({ github, effectiveReviews, ownership, pullRequest }) {
-  const eligible = new Set(ownership.approverCandidates);
-  const result = new Set();
-  for (const review of effectiveReviews) {
-    if (
-      review.state !== "APPROVED"
-      || review.commitOid !== pullRequest.headOid
-      || review.user === pullRequest.author.toLowerCase()
-      || !eligible.has(review.user)
-    ) continue;
-    try {
-      const identity = await github.getUserIdentity(review.user);
-      if (validHumanIdentity(identity, review.user)) result.add(review.user);
-    } catch {
-      // Identity resolution fails closed for this review.
-    }
-  }
-  return result;
-}
-
-function approvalCoverage(ownership, approvers) {
-  return ownership.uncoveredPaths.length === 0
-    && ownership.files.every((file) => file.approvers.some((actor) => approvers.has(actor)));
-}
-
 function policyCommentState(comment, context) {
   if (
     typeof comment?.body !== "string"
     || comment.body.split(POLICY_COMMENT_MARKER).length - 1 !== 1
   ) return { state: null, metadataHead: null };
+  if (comment.body.split("<!-- repo-automation-state:").length - 1 === 0) {
+    return { state: null, metadataHead: parseMetadataHeadEvidence(comment.body) };
+  }
   const state = parsePolicyState(comment.body);
   if (
     state === null
@@ -406,25 +376,20 @@ async function loadAuthority({ github, config, repository, pullRequest }) {
       pullRequest,
     }),
   ]);
-  const reviewResult = evaluateApprovalCoverage({
-    files: ownership.files.map((file) => ({ path: file.path, approvers: file.approvers })),
-    reviews,
-    headOid: pullRequest.headOid,
-    author: pullRequest.author,
-  });
-  const reviewApprovers = await validReviewApprovers({
-    github,
-    effectiveReviews: reviewResult.effectiveReviews,
-    ownership,
-    pullRequest,
-  });
-  const approvers = new Set([...approvals.map((record) => record.actor), ...reviewApprovers]);
+  const [reviewEvidence, authorIsHuman] = await Promise.all([
+    loadReviewEvidence({ github, reviews, ownership, pullRequest, context }),
+    verifyApproverAuthor(github, ownership, pullRequest.author),
+  ]);
+  const approvers = new Set([
+    ...approvals.map((record) => record.actor),
+    ...reviewEvidence.approvals.map((review) => review.user),
+  ]);
   const hold = parsed.state === null ? null : currentHold(parsed.state, context);
   return {
     labels,
-    lgtm: lgtms[0] ?? null,
-    lgtmOwned: parsed.state !== null,
-    approved: approvalCoverage(ownership, approvers),
+    lgtm: lgtms[0] ?? reviewEvidence.lgtms[0] ?? null,
+    lgtmOwned: parsed.state !== null || reviewEvidence.lgtms.length > 0,
+    approved: hasApprovalCoverage(ownership, approvers, authorIsHuman),
     holdActive: hold !== null,
     metadataHead: parsed.metadataHead,
   };
@@ -690,38 +655,39 @@ async function applyPermissive({ github, config, repository, evaluation, dryRun 
   if (dryRun) return resultFor(reread);
 
   await applyLabels(github, reread.pullRequest.number, reread.labels);
+  const beforeSuccess = await loadEvaluation({
+    github,
+    config,
+    repository,
+    number: reread.pullRequest.number,
+  });
+  if (
+    !sameHeadIdentity(reread.pullRequest, beforeSuccess.pullRequest)
+    || beforeSuccess.graph.headOid !== reread.pullRequest.headOid
+  ) {
+    return headChangedResult(reread);
+  }
+  if (beforeSuccess.merge.blockers.length > 0) {
+    return applyRestrictive({ github, repository, evaluation: beforeSuccess, dryRun });
+  }
   await github.setMergePolicyCheck(
-    reread.pullRequest.number,
-    reread.pullRequest.headOid,
+    beforeSuccess.pullRequest.number,
+    beforeSuccess.pullRequest.headOid,
     "success",
     SUCCESS_SUMMARY,
   );
-  const finalPullRequest = validatePullRequest(
-    await github.getPullRequest(reread.pullRequest.number),
-    reread.pullRequest.number,
+  const finalEvaluation = await loadEvaluation({
+    github,
+    config,
     repository,
-  );
-  const finalGraph = validateGraphState(
-    await github.getMergeState(reread.pullRequest.number),
-    finalPullRequest,
-    repository,
-  );
+    number: beforeSuccess.pullRequest.number,
+  });
   if (
-    !sameHeadIdentity(reread.pullRequest, finalPullRequest)
-    || finalGraph.headOid !== reread.pullRequest.headOid
-  ) return headChangedResult(reread);
-  const finalEvaluation = {
-    ...reread,
-    pullRequest: finalPullRequest,
-    graph: finalGraph,
-    merge: toMergeDecision({
-      config,
-      pullRequest: finalPullRequest,
-      graph: finalGraph,
-      authority: reread.authority,
-      protectedBranch: reread.protectedBranch,
-    }),
-  };
+    !sameHeadIdentity(beforeSuccess.pullRequest, finalEvaluation.pullRequest)
+    || finalEvaluation.graph.headOid !== beforeSuccess.pullRequest.headOid
+  ) {
+    return headChangedResult(beforeSuccess);
+  }
   if (finalEvaluation.merge.blockers.length > 0) {
     return applyRestrictive({ github, repository, evaluation: finalEvaluation, dryRun });
   }

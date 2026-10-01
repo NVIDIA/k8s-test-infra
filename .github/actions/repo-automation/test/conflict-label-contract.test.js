@@ -287,6 +287,75 @@ test("confirmed conflict adds only the exact needs-rebase label using live PR id
   }
 });
 
+test("synchronize payload with before and after reconciles fresh live mergeability", async () => {
+  const github = fakeGitHub({
+    labels: ["needs-rebase", "approved", "maintainer/custom"],
+    conflict: { mergeability: "MERGEABLE" },
+  });
+  await invoke(github, { event: prEvent({
+    before: NEXT,
+    after: HEAD,
+    sender: { login: "contributor", type: "User" },
+    pull_request: {
+      number: 42,
+      head: { sha: HEAD },
+      base: { ref: "main" },
+      mergeable: false,
+    },
+  }) });
+
+  assert.deepEqual(github.mutations, [
+    { operation: "removeIssueLabel", number: 42, label: "needs-rebase" },
+  ]);
+  assert.deepEqual([...github.labels.get(42)].sort(), ["approved", "maintainer/custom"]);
+  assertLiveReads(github, 2);
+  assert.equal(github.calls.some(({ operation }) => operation === "listOpenPullRequestNumbers"), false);
+});
+
+test("synchronize payload with stale SHAs uses live head base conflict and labels", async () => {
+  const github = fakeGitHub({ labels: ["approved", "maintainer/custom"] });
+  await invoke(github, { event: prEvent({
+    before: BASE,
+    after: NEXT,
+    sender: { login: "contributor", type: "User" },
+    pull_request: {
+      number: 42,
+      head: { sha: NEXT },
+      base: { ref: "release-1.2", sha: NEXT },
+      mergeable: true,
+      labels: [{ name: "needs-rebase" }],
+    },
+  }) });
+
+  assert.deepEqual(github.mutations, [
+    { operation: "addIssueLabel", number: 42, label: "needs-rebase" },
+  ]);
+  assert.deepEqual([...github.labels.get(42)].sort(), ["approved", "maintainer/custom", "needs-rebase"]);
+  assertLiveReads(github, 2);
+  assert.ok(github.calls.filter(({ operation }) => operation === "getBranch")
+    .every(({ key }) => key === "main"));
+});
+
+test("synchronize payload SHA cannot override a live head change at the fresh fence", async () => {
+  const initial = pullRequest();
+  const updated = pullRequest({ headOid: NEXT });
+  const github = fakeGitHub({ snapshots: {
+    getPullRequest: [initial, updated],
+    getConflictState: [conflictState(initial), conflictState(updated)],
+  } });
+  const summary = await invoke(github, { event: prEvent({
+    before: BASE,
+    after: HEAD,
+    sender: { login: "contributor", type: "User" },
+    pull_request: { number: 42, head: { sha: HEAD } },
+  }) });
+
+  assert.deepEqual(github.mutations, []);
+  assert.deepEqual([...github.labels.get(42)], ["maintainer/custom"]);
+  assert.ok(reportsOperation(summary, 42, /deferred|changed/i));
+  assertLiveReads(github, 2);
+});
+
 test("confirmed mergeable state removes needs-rebase and preserves other labels", async () => {
   const github = fakeGitHub({
     labels: ["needs-rebase", "approved", "maintainer/custom", "do-not-merge/hold"],
@@ -642,6 +711,7 @@ for (const [name, eventName, event] of [
   ["malformed PR number", "pull_request_target", prEvent({ number: "42", pull_request: { number: "42" } })],
   ["PR and schedule", "pull_request_target", prEvent({ schedule: "*/15 * * * *" })],
   ["PR and push", "pull_request_target", prEvent({ ref: "refs/heads/main", after: BASE })],
+  ["after on a non-synchronize PR event", "pull_request_target", prEvent({ action: "opened", after: HEAD })],
   ["schedule and PR", "schedule", { repository, schedule: "*/15 * * * *", pull_request: { number: 42 } }],
   ["missing schedule", "schedule", { repository }],
   ["push and PR", "push", pushEvent("main", { pull_request: { number: 42 } })],
@@ -654,7 +724,7 @@ for (const [name, eventName, event] of [
 ]) {
   test(`${name} cannot route to label mutations`, async () => {
     await assertNoWrite(fakeGitHub(), {
-      eventName, event, expectedFailure: /event|payload|action|number|repository|schedule|push|branch|ref|deleted|unsupported/i,
+      eventName, event, expectedFailure: /event|payload|action|number|repository|schedule|push|branch|ref|deleted|unsupported|label scan dispatch is invalid/i,
     });
   });
 }
@@ -674,7 +744,8 @@ async function httpClient(options = {}) {
         if (pathname === "/graphql") {
           data = { data: { repository: { pullRequest: {
             number: 42, id: "PR_node_42", state: "OPEN", isDraft: false,
-            headRefOid: HEAD, baseRefName: "main", baseRefOid: BASE,
+            headRefOid: HEAD, baseRefName: "main", baseRefOid: NEXT,
+            baseRef: { name: "main", target: { oid: BASE } },
             mergeable: "CONFLICTING", autoMergeRequest: null,
           } } } };
         } else if (pathname === "/repos/NVIDIA/k8s-test-infra/pulls/42") {
@@ -715,7 +786,7 @@ test("run constructs the real Octokit adapter, applies a label, and replay makes
   }
 });
 
-test("real Octokit HTTP transport maps GraphQL base commit and REST PR identity", async () => {
+test("real Octokit HTTP transport maps the live GraphQL base tip and REST PR identity", async () => {
   const { client, requests } = await httpClient();
   const pr = await client.getPullRequest(42);
   assert.equal(pr.headOid, HEAD);
@@ -725,7 +796,8 @@ test("real Octokit HTTP transport maps GraphQL base commit and REST PR identity"
   assert.deepEqual(await client.getBranch("main"), { name: "main", oid: BASE });
   assert.deepEqual(await client.listIssueLabels(42), ["needs-rebase"]);
   const graphRequest = requests.find((request) => request.pathname === "/graphql");
-  assert.match(graphRequest.body.query, /\bbaseRefOid\b/);
+  assert.match(graphRequest.body.query, /baseRef\s*\{\s*name\s+target\s*\{\s*oid\s*\}\s*\}/);
+  assert.doesNotMatch(graphRequest.body.query, /\bbaseRefOid\b/);
   assert.deepEqual(graphRequest.body.variables, { owner: "NVIDIA", repo: "k8s-test-infra", number: 42 });
 });
 

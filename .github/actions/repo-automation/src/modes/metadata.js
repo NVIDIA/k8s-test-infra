@@ -1,9 +1,10 @@
 "use strict";
 
 const { deriveAreaLabels } = require("../areas.js");
+const { verifyApproverAuthor } = require("../author-approval.js");
 const { validateConfig } = require("../config.js");
 const { evaluateDco } = require("../dco.js");
-const { isManagedMetadataLabel } = require("../managed-labels.js");
+const { asciiLower, isManagedMetadataLabel } = require("../managed-labels.js");
 const { parseAliases, parseOwnersFile, resolveOwners } = require("../owners.js");
 const { POLICY_COMMENT_MARKER, renderPolicyComment } = require("../policy-comment.js");
 const { selectReviewers } = require("../reviewer-selection.js");
@@ -75,11 +76,11 @@ function labelPlan(current, desired) {
   }
   const currentByName = new Map();
   for (const label of current) {
-    const normalized = label.toLowerCase();
+    const normalized = asciiLower(label);
     if (currentByName.has(normalized)) throw new TypeError("live issue labels must be unique");
     currentByName.set(normalized, label);
   }
-  const desiredByName = new Map(desired.map((label) => [label.toLowerCase(), label]));
+  const desiredByName = new Map(desired.map((label) => [asciiLower(label), label]));
   return {
     add: [...desiredByName]
       .filter(([name]) => !currentByName.has(name))
@@ -147,6 +148,11 @@ function policyFailureNames(result) {
   return failures;
 }
 
+function validAuthorContext(value) {
+  if (typeof value !== "string" || /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(value)) return false;
+  return GITHUB_LOGIN.test(value.endsWith("[bot]") ? value.slice(0, -5) : value);
+}
+
 function validateLivePullRequest(pullRequest, identity) {
   if (
     pullRequest === null
@@ -156,8 +162,7 @@ function validateLivePullRequest(pullRequest, identity) {
     || pullRequest.state !== "open"
     || typeof pullRequest.draft !== "boolean"
     || typeof pullRequest.title !== "string"
-    || typeof pullRequest.author !== "string"
-    || !GITHUB_LOGIN.test(pullRequest.author)
+    || !validAuthorContext(pullRequest.author)
     || typeof pullRequest.headOid !== "string"
     || pullRequest.headOid === ""
     || pullRequest.baseRepository?.owner?.toLowerCase() !== identity.owner
@@ -253,10 +258,14 @@ async function runMetadata({ event, github, config, dryRun }) {
     reviewerCandidates: [],
     approverCandidates: [],
     uncoveredPaths: files.map((file) => file.path).sort(),
+    authorApprovalPaths: [],
   });
+  const authorIsHuman = await verifyApproverAuthor(github, ownershipResolution, pullRequest.author);
+  const authorPaths = new Set(authorIsHuman ? ownershipResolution.authorApprovalPaths : []);
+  const uncoveredPaths = ownershipResolution.uncoveredPaths.filter((path) => !authorPaths.has(path));
   const ownership = {
-    valid: ownershipResolution.uncoveredPaths.length === 0,
-    uncoveredPaths: ownershipResolution.uncoveredPaths,
+    valid: uncoveredPaths.length === 0,
+    uncoveredPaths,
   };
 
   const reviewerSelection = safeConfigurationComputation(configuration, () => selectReviewers({
@@ -306,6 +315,13 @@ async function runMetadata({ event, github, config, dryRun }) {
     validateLivePullRequest(currentPullRequest, identity);
     if (!samePullRequestFence(pullRequest, currentPullRequest)) {
       throw new Error("pull request state changed after planning; refusing stale writes");
+    }
+    if (authorIsHuman && ownershipResolution.uncoveredPaths.some((path) => authorPaths.has(path))) {
+      const latestRevision = await github.getDefaultBranchRevision();
+      const authorStillHuman = await verifyApproverAuthor(github, ownershipResolution, pullRequest.author);
+      if (latestRevision !== defaultBranchRevision || !authorStillHuman) {
+        throw new Error("author ownership changed after planning; refusing stale writes");
+      }
     }
 
     const apply = async (descriptor, mutation) => {

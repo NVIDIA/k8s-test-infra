@@ -36,6 +36,11 @@ function input(overrides = {}) {
     reviewers: ["reviewer", "approver"],
     approvers: ["approver"],
     owners: ["reviewer", "approver"],
+    ownership: {
+      files: [{ path: "file.go", approvers: ["approver"] }],
+      authorApprovalPaths: [],
+    },
+    authorIsHuman: false,
     commentId: 100,
     now: "2026-09-17T10:00:00.000Z",
     historyLimit: 32,
@@ -82,6 +87,32 @@ test("keeps holds across heads and clears them only through authorized unhold", 
     commentId: 101,
   }));
   assert.equal(cleared.state.hold, null);
+});
+
+test("author approval and command approval must cover every changed file", () => {
+  const ownership = {
+    files: [
+      { path: "author.go", approvers: [] },
+      { path: "other.go", approvers: ["approver"] },
+    ],
+    authorApprovalPaths: ["author.go"],
+  };
+  const lgtmOnly = planCommandExecution(input({ ownership, authorIsHuman: true }));
+  assert.equal(lgtmOnly.policy.lgtm, true);
+  assert.equal(lgtmOnly.policy.approved, false);
+  const complete = planCommandExecution(input({
+    ownership,
+    authorIsHuman: true,
+    parsed: { commands: [command("lgtm", 1), command("approve", 2)], diagnostics: [] },
+  }));
+  assert.equal(complete.policy.approved, true);
+  assert.equal(complete.state.approvals.length, 1);
+  const unresolvedAuthor = planCommandExecution(input({
+    ownership,
+    authorIsHuman: false,
+    parsed: { commands: [command("approve", 1)], diagnostics: [] },
+  }));
+  assert.equal(unresolvedAuthor.policy.approved, false);
 });
 
 test("plans only policy-allowed backport requests and preserves the alias", () => {

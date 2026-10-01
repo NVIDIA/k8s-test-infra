@@ -4,6 +4,8 @@ const assert = require("node:assert/strict");
 const { Buffer } = require("node:buffer");
 const path = require("node:path");
 const test = require("node:test");
+const fs = require("node:fs");
+const YAML = require("yaml");
 
 const { createFakeGitHub } = require("./helpers/fake-github.js");
 
@@ -30,6 +32,15 @@ function coreFor(inputs) {
     },
   };
 }
+
+test("dispatch report action inputs are optional and describe their exact identity", () => {
+  const action = YAML.parse(fs.readFileSync(path.resolve(__dirname, "../action.yml"), "utf8"));
+  for (const name of ["request-id", "workflow-commit-sha"]) {
+    assert.equal(action.inputs[name].required, false);
+    assert.match(action.inputs[name].description, /dispatch/i);
+    assert.equal(action.inputs[name].default, undefined);
+  }
+});
 
 test("index dispatches command mode without treating event text as authority", async () => {
   const { run } = require("../src/index.js");
