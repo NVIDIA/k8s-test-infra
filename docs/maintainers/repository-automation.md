@@ -82,6 +82,8 @@ The conflict scan adds `needs-rebase` only when GitHub reports `CONFLICTING` for
 the current head and base tip. It removes that label only when GitHub reports
 `MERGEABLE`. Unknown mergeability, a missing base, inconsistent identity, or a
 changed head or base tip defers the request and preserves its labels.
+PR branch updates (`synchronize`) also trigger this scan. The event's `before`
+and `after` SHAs do not replace the live head, base tip, or mergeability checks.
 
 The label-only metadata scan repairs `kind/*`, `size/*`, `area/*`, and
 `do-not-merge/work-in-progress`. It uses the same classifiers as PR metadata.

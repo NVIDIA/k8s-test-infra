@@ -32,9 +32,12 @@ function route(event, eventName) {
   }
   const identity = { owner: owner.toLowerCase(), repo: repo.toLowerCase() };
   if (eventName === "pull_request_target") {
+    // Synchronize events include before/after SHAs; reconciliation still reads live state.
     if (!PR_ACTIONS.has(event.action) || !Number.isSafeInteger(event.number) || event.number <= 0
       || event.pull_request?.number !== event.number || event.schedule !== undefined || event.ref !== undefined
-      || event.after !== undefined) throw new TypeError("conflict label event route is invalid");
+      || (event.after !== undefined && event.action !== "synchronize")) {
+      throw new TypeError("conflict label event route is invalid");
+    }
     return { ...identity, numbers: [event.number], branch: null };
   }
   if (event.pull_request !== undefined || event.number !== undefined || event.action !== undefined) {
