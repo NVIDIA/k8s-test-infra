@@ -1,0 +1,5 @@
+kind: Fixed
+body: |-
+  Repository automation accepts valid PR synchronize events and reads the live
+    base ref target when it checks conflict labels for older open pull requests.
+time: 2026-10-01T07:18:12Z

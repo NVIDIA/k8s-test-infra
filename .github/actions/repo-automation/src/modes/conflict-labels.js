@@ -30,9 +30,12 @@ function route(event, eventName) {
   }
   const identity = { owner: owner.toLowerCase(), repo: repo.toLowerCase() };
   if (eventName === "pull_request_target") {
+    const validCommitMetadata = event.action === "synchronize"
+      ? [event.before, event.after].every((oid) => typeof oid === "string" && OID.test(oid) && !/^0+$/.test(oid))
+      : event.before === undefined && event.after === undefined;
     if (!PR_ACTIONS.has(event.action) || !Number.isSafeInteger(event.number) || event.number <= 0
       || event.pull_request?.number !== event.number || event.schedule !== undefined || event.ref !== undefined
-      || event.after !== undefined) throw new TypeError("conflict label event route is invalid");
+      || !validCommitMetadata) throw new TypeError("conflict label event route is invalid");
     return { ...identity, numbers: [event.number], branch: null };
   }
   if (event.pull_request !== undefined || event.number !== undefined || event.action !== undefined) {

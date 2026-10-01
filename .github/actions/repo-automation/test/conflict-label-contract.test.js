@@ -14,6 +14,7 @@ const repositoryRoot = path.resolve(__dirname, "../../../..");
 const HEAD = "a".repeat(40);
 const BASE = "b".repeat(40);
 const NEXT = "c".repeat(40);
+const ASSOCIATED_BASE = "1".repeat(40);
 const repository = {
   name: "k8s-test-infra",
   full_name: "NVIDIA/k8s-test-infra",
@@ -57,10 +58,28 @@ function prEvent(overrides = {}) {
   return {
     repository,
     action: "synchronize",
+    before: "2".repeat(40),
+    after: NEXT,
     number: 42,
     pull_request: { number: 42 },
     ...overrides,
   };
+}
+
+function synchronizeEvent(overrides = {}) {
+  return prEvent({
+    before: "2".repeat(40),
+    after: NEXT,
+    pull_request: {
+      number: 42,
+      node_id: "PR_node_42",
+      state: "open",
+      draft: false,
+      head: { sha: NEXT, ref: "feature/conflict-labels", repo: { full_name: "contributor/fork" } },
+      base: { sha: ASSOCIATED_BASE, ref: "main", repo: repository },
+    },
+    ...overrides,
+  });
 }
 
 function pushEvent(branch = "main", overrides = {}) {
@@ -285,6 +304,91 @@ test("confirmed conflict adds only the exact needs-rebase label using live PR id
     assert.ok(github.calls.filter((call) => call.operation === operation).length >= 2,
       `${operation} must be checked again before a write`);
   }
+});
+
+test("realistic synchronize before and after metadata are accepted while the live head controls the write", async () => {
+  const github = fakeGitHub({ labels: ["maintainer/custom"] });
+  const summary = await invoke(github, { event: synchronizeEvent() });
+  assert.deepEqual(github.mutations, [{ operation: "addIssueLabel", number: 42, label: "needs-rebase" }]);
+  assert.deepEqual([...github.labels.get(42)].sort(), ["maintainer/custom", "needs-rebase"]);
+  assert.ok(reportsOperation(summary, 42, /applied|added|updated/i));
+  assertLiveReads(github, 2);
+});
+
+test("synchronize webhook OIDs cannot hide a head change at the fresh read", async () => {
+  const github = fakeGitHub({ snapshots: {
+    getPullRequest: [pullRequest(), pullRequest({ headOid: NEXT })],
+    getConflictState: [conflictState(pullRequest()), conflictState(pullRequest({ headOid: NEXT }))],
+  } });
+  const summary = await invoke(github, { event: synchronizeEvent() });
+  assert.deepEqual(github.mutations, []);
+  assert.ok(reportsOperation(summary, 42, /deferred.*changed|changed.*fresh/i));
+  assertLiveReads(github, 2);
+});
+
+for (const [name, overrides] of [
+  ["push ref", { ref: "refs/heads/main" }],
+  ["schedule", { schedule: "*/15 * * * *" }],
+  ["conflicting PR identity", { number: 43 }],
+]) {
+  test(`synchronize metadata with ${name} still cannot route to label writes`, async () => {
+    const github = fakeGitHub();
+    await assertNoWrite(github, {
+      event: synchronizeEvent(overrides), expectedFailure: /event route.*invalid|ambiguous/i,
+    });
+    assert.deepEqual(github.calls, []);
+  });
+}
+
+for (const field of ["before", "after"]) {
+  for (const [name, value] of [
+    ["malformed", "not-an-oid"],
+    ["zero", "0".repeat(40)],
+    ["noncanonical uppercase", "A".repeat(40)],
+  ]) {
+    test(`synchronize rejects ${name} ${field} OID metadata before live reads`, async () => {
+      const github = fakeGitHub();
+      await assertNoWrite(github, {
+        event: synchronizeEvent({ [field]: value }), expectedFailure: /event route.*invalid|ambiguous/i,
+      });
+      assert.deepEqual(github.calls, []);
+    });
+  }
+}
+
+for (const [name, overrides] of [
+  ["before only", { after: undefined }],
+  ["after only", { before: undefined }],
+  ["neither field", { before: undefined, after: undefined }],
+]) {
+  test(`synchronize rejects ${name} OID metadata before live reads`, async () => {
+    const github = fakeGitHub();
+    await assertNoWrite(github, {
+      event: synchronizeEvent(overrides), expectedFailure: /event route.*invalid|ambiguous/i,
+    });
+    assert.deepEqual(github.calls, []);
+  });
+}
+
+for (const [name, overrides] of [
+  ["before only", { after: undefined }],
+  ["after only", { before: undefined }],
+  ["both fields", {}],
+]) {
+  test(`opened PR action rejects ${name} OID metadata before live reads`, async () => {
+    const github = fakeGitHub();
+    await assertNoWrite(github, {
+      event: synchronizeEvent({ action: "opened", ...overrides }), expectedFailure: /event route.*invalid|ambiguous/i,
+    });
+    assert.deepEqual(github.calls, []);
+  });
+}
+
+test("opened PR action without synchronize OID metadata still uses live conflict state", async () => {
+  const github = fakeGitHub();
+  await invoke(github, { event: prEvent({ action: "opened", before: undefined, after: undefined }) });
+  assert.deepEqual(github.mutations, [{ operation: "addIssueLabel", number: 42, label: "needs-rebase" }]);
+  assertLiveReads(github, 2);
 });
 
 test("confirmed mergeable state removes needs-rebase and preserves other labels", async () => {
@@ -659,10 +763,12 @@ for (const [name, eventName, event] of [
   });
 }
 
-async function httpClient(options = {}) {
+async function httpClient(fixtures = {}) {
   const { getOctokit } = await import("@actions/github");
   const requests = [];
-  const labels = new Set(options.labels ?? ["needs-rebase"]);
+  const labels = new Set(fixtures.labels ?? ["needs-rebase"]);
+  let graphReads = 0;
+  let branchReads = 0;
   const octokit = getOctokit("contract-test-token", {
     baseUrl: "https://github-api.example.test",
     request: {
@@ -672,10 +778,15 @@ async function httpClient(options = {}) {
         requests.push({ method: options.method, pathname, body });
         let data;
         if (pathname === "/graphql") {
+          const graphOverride = fixtures.graphSnapshots === undefined ? fixtures.graph
+            : fixtures.graphSnapshots[Math.min(graphReads, fixtures.graphSnapshots.length - 1)];
+          graphReads += 1;
           data = { data: { repository: { pullRequest: {
             number: 42, id: "PR_node_42", state: "OPEN", isDraft: false,
-            headRefOid: HEAD, baseRefName: "main", baseRefOid: BASE,
-            mergeable: "CONFLICTING", autoMergeRequest: null,
+            headRefOid: HEAD, baseRefName: "main", baseRefOid: fixtures.associatedBaseOid ?? ASSOCIATED_BASE,
+            baseRef: { name: "main", target: { oid: BASE } },
+            mergeable: fixtures.mergeability ?? "CONFLICTING", autoMergeRequest: null,
+            ...graphOverride,
           } } } };
         } else if (pathname === "/repos/NVIDIA/k8s-test-infra/pulls/42") {
           data = {
@@ -685,7 +796,10 @@ async function httpClient(options = {}) {
             base: { ref: "main", repo: { owner: { login: "NVIDIA" }, name: "k8s-test-infra" } },
           };
         } else if (pathname === "/repos/NVIDIA/k8s-test-infra/branches/main") {
-          data = { name: "main", commit: { sha: BASE } };
+          const oid = fixtures.branchSnapshots === undefined ? BASE
+            : fixtures.branchSnapshots[Math.min(branchReads, fixtures.branchSnapshots.length - 1)];
+          branchReads += 1;
+          data = { name: "main", commit: { sha: oid } };
         } else {
           assert.ok(pathname.startsWith("/repos/NVIDIA/k8s-test-infra/issues/42/labels"), pathname);
           if (options.method === "POST") body.labels.forEach((label) => labels.add(label));
@@ -715,7 +829,7 @@ test("run constructs the real Octokit adapter, applies a label, and replay makes
   }
 });
 
-test("real Octokit HTTP transport maps GraphQL base commit and REST PR identity", async () => {
+test("real Octokit HTTP transport maps the live base ref target despite an older PR-associated base commit", async () => {
   const { client, requests } = await httpClient();
   const pr = await client.getPullRequest(42);
   assert.equal(pr.headOid, HEAD);
@@ -725,9 +839,84 @@ test("real Octokit HTTP transport maps GraphQL base commit and REST PR identity"
   assert.deepEqual(await client.getBranch("main"), { name: "main", oid: BASE });
   assert.deepEqual(await client.listIssueLabels(42), ["needs-rebase"]);
   const graphRequest = requests.find((request) => request.pathname === "/graphql");
-  assert.match(graphRequest.body.query, /\bbaseRefOid\b/);
+  assert.match(graphRequest.body.query, /\bbaseRef\s*\{\s*name\s+target\s*\{\s*oid\s*\}/);
   assert.deepEqual(graphRequest.body.variables, { owner: "NVIDIA", repo: "k8s-test-infra", number: 42 });
 });
+
+for (const [mergeability, initial, expected, method, pathname, body] of [
+  ["CONFLICTING", ["maintainer/custom"], ["maintainer/custom", "needs-rebase"], "POST",
+    "/repos/NVIDIA/k8s-test-infra/issues/42/labels", { labels: ["needs-rebase"] }],
+  ["MERGEABLE", ["maintainer/custom", "needs-rebase"], ["maintainer/custom"], "DELETE",
+    "/repos/NVIDIA/k8s-test-infra/issues/42/labels/needs-rebase", null],
+]) {
+  test(`real action and Octokit ${mergeability} reconcile the label when the live target matches REST and the associated commit is old`, async () => {
+    const { octokit, requests, labels } = await httpClient({ labels: initial, mergeability });
+    const summary = await invoke(undefined, { octokit });
+    assert.deepEqual([...labels].sort(), expected);
+    assert.deepEqual(requests.filter((request) => ["POST", "DELETE"].includes(request.method)
+      && request.pathname.includes("/issues/")), [{ method, pathname, body }]);
+    assert.ok(reportsOperation(summary, 42, /applied|added|removed|updated/i));
+    assert.ok(requests.filter((request) => request.pathname === "/graphql").length >= 2);
+    assert.ok(requests.filter((request) => request.pathname.endsWith("/branches/main")).length >= 2);
+  });
+}
+
+for (const [name, baseRef] of [
+  ["missing base ref", null],
+  ["missing target", { name: "main", target: null }],
+  ["mismatched ref name", { name: "release-1.2", target: { oid: BASE } }],
+  ["malformed target OID", { name: "main", target: { oid: "not-an-oid" } }],
+]) {
+  test(`real action and Octokit ${name} never fall back to the associated base OID`, async () => {
+    const initial = ["maintainer/custom"];
+    const { octokit, requests, labels } = await httpClient({
+      labels: initial, associatedBaseOid: BASE, graph: { baseRef },
+    });
+    let summary;
+    try {
+      summary = await invoke(undefined, { octokit });
+    } catch (error) {
+      assert.match(error.message, /^conflict label initial read failed for PR 42$/);
+      assert.ok(error.summary);
+      summary = error.summary;
+    }
+    assert.deepEqual([...labels], initial);
+    assert.deepEqual(requests.filter((request) => ["POST", "DELETE"].includes(request.method)
+      && request.pathname.includes("/issues/")), []);
+    assert.ok(reportsOperation(summary, 42, /failed|deferred/i));
+    assert.ok(requests.some((request) => request.pathname === "/graphql"));
+  });
+}
+
+test("real action and Octokit defer when the live GraphQL and REST base tip both change before the write", async () => {
+  const { octokit, requests, labels } = await httpClient({
+    labels: ["maintainer/custom"], associatedBaseOid: BASE,
+    graphSnapshots: [
+      { baseRef: { name: "main", target: { oid: BASE } } },
+      { baseRef: { name: "main", target: { oid: NEXT } } },
+    ],
+    branchSnapshots: [BASE, NEXT],
+  });
+  const summary = await invoke(undefined, { octokit });
+  assert.deepEqual([...labels], ["maintainer/custom"]);
+  assert.deepEqual(requests.filter((request) => ["POST", "DELETE"].includes(request.method)
+    && request.pathname.includes("/issues/")), []);
+  assert.ok(reportsOperation(summary, 42, /deferred.*changed|changed.*fresh/i));
+  assert.equal(requests.filter((request) => request.pathname === "/graphql").length, 2);
+  assert.equal(requests.filter((request) => request.pathname.endsWith("/branches/main")).length, 2);
+});
+
+for (const present of [false, true]) {
+  test(`real action and Octokit UNKNOWN preserves needs-rebase ${present ? "present" : "absent"} with the live base target`, async () => {
+    const initial = present ? ["maintainer/custom", "needs-rebase"] : ["maintainer/custom"];
+    const { octokit, requests, labels } = await httpClient({ labels: initial, mergeability: "UNKNOWN" });
+    const summary = await invoke(undefined, { octokit });
+    assert.deepEqual([...labels], initial);
+    assert.deepEqual(requests.filter((request) => ["POST", "DELETE"].includes(request.method)
+      && request.pathname.includes("/issues/")), []);
+    assert.ok(reportsOperation(summary, 42, /unknown mergeability/i));
+  });
+}
 
 test("real Octokit HTTP transport admits only the exact conflict label", async () => {
   const { client, requests } = await httpClient();

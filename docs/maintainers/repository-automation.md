@@ -83,6 +83,12 @@ the current head and base tip. It removes that label only when GitHub reports
 `MERGEABLE`. Unknown mergeability, a missing base, inconsistent identity, or a
 changed head or base tip defers the request and preserves its labels.
 
+The conflict scan reads the current base ref target and checks it against the
+REST branch tip. A PR's associated base commit can be older than that tip and
+does not replace this live read. A `synchronize` event must contain valid
+`before` and `after` commit OIDs. These fields validate the event shape; the
+scan uses fresh PR and branch reads to decide whether to write a label.
+
 The label-only metadata scan repairs `kind/*`, `size/*`, `area/*`, and
 `do-not-merge/work-in-progress`. It uses the same classifiers as PR metadata.
 An invalid title preserves existing kind labels; size, area, and draft labels

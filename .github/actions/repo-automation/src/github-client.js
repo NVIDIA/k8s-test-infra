@@ -880,12 +880,17 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
         query RepositoryAutomationConflictState($owner: String!, $repo: String!, $number: Int!) {
           repository(owner: $owner, name: $repo) {
             pullRequest(number: $number) {
-              number id state isDraft mergeable headRefOid baseRefName baseRefOid
+              number id state isDraft mergeable headRefOid baseRefName
+              baseRef { name target { oid } }
             }
           }
         }
       `, { owner, repo, number: prNumber }), true);
       const pullRequest = response?.repository?.pullRequest;
+      const baseBranch = nonEmptyString(pullRequest?.baseRefName, "GraphQL base branch");
+      if (pullRequest?.baseRef?.name !== baseBranch) {
+        throw new TypeError("GraphQL live base ref does not match the PR base branch");
+      }
       return {
         number: positiveInteger(pullRequest?.number, "GraphQL PR number"),
         nodeId: nonEmptyString(pullRequest?.id, "GraphQL PR node ID"),
@@ -893,8 +898,8 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
         state: nonEmptyString(pullRequest?.state, "GraphQL PR state").toUpperCase(),
         draft: pullRequest?.isDraft,
         headOid: nonEmptyString(pullRequest?.headRefOid, "GraphQL head OID").toLowerCase(),
-        baseBranch: nonEmptyString(pullRequest?.baseRefName, "GraphQL base branch"),
-        baseOid: nonEmptyString(pullRequest?.baseRefOid, "GraphQL base OID").toLowerCase(),
+        baseBranch,
+        baseOid: nonEmptyString(pullRequest?.baseRef?.target?.oid, "GraphQL live base OID").toLowerCase(),
         mergeability: nonEmptyString(pullRequest?.mergeable, "GraphQL mergeability").toUpperCase(),
       };
     },
