@@ -34,9 +34,7 @@ jobs:
       name: Checkout code
 
     - name: Check license headers
-      uses: apache/skywalking-eyes/header@5c5b974209f0de5d905f37deb69369068ebfc15c # v0.7.0
-      with:
-        config: .licenserc.yaml
+      run: make license-header-check
 
     # A .greptile scope glob that matches nothing fails open: the rule stops
     # applying and nothing reports it. Placed ahead of the Go setup and the
