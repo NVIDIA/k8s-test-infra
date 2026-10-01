@@ -1,6 +1,7 @@
 # nri-plugin
 
-The binary behind the NRI DaemonSet. It registers with containerd over the
+The binary behind the optional NRI sidecar in Mokka's node DaemonSet. It
+registers with containerd over the
 [NRI](https://github.com/containerd/nri) socket, subscribes to
 `CreateContainer` only, and edits containers as they are created so an
 unmodified workload sees mock GPUs.
@@ -9,11 +10,11 @@ unmodified workload sees mock GPUs.
 two injection layers, when a container is left alone, how it composes with the
 NVIDIA device plugin, and why it fails open. This page is the command line.
 
-It is off by default: the chart renders the DaemonSet only when `nri.enabled`
-is `true`. That DaemonSet is separate from the main nvml-mock one. Its pod runs
-as root with `allowPrivilegeEscalation: false` and no service account token,
-and mounts three hostPaths — the NRI socket directory read-write, and the
-overlay and CDI spec directories read-only.
+It is off by default: the chart adds the sidecar only when `nri.enabled` is
+`true`. The sidecar runs as root with `allowPrivilegeEscalation: false` and no
+service account token. It mounts the NRI socket directory read-write and shares
+the node pod's overlay and CDI spec directories read-only. See [NRI pod
+lifecycle](../helm-chart.md#nri-pod-lifecycle) for how it shares the node pod.
 
 ## Probes
 

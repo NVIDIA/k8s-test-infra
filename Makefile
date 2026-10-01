@@ -102,13 +102,20 @@ kwok-scale-matrix:
 	done
 
 CONTROLLER_GEN_VERSION ?= v0.20.1
+# CI installs this exact version too (see .github/workflows/golang.yaml), so a
+# new golangci-lint release cannot fail the check job on code nobody changed.
+GOLANGCI_LINT_VERSION ?= v2.14.0
+
+.PHONY: print-golangci-lint-version
+print-golangci-lint-version:
+	@echo $(GOLANGCI_LINT_VERSION)
 
 .PHONY: tools
 tools: ## Install static checkers & other binaries
 	@echo "🚚 Downloading tools.."
 	@mkdir -p $(GOBIN)
 	@ \
-	test -x $(BIN_DIR)/golangci-lint || curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(BIN_DIR) v2.12.2 & \
+	$(BIN_DIR)/golangci-lint version 2>/dev/null | grep -q " $(GOLANGCI_LINT_VERSION:v%=%) " || curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(BIN_DIR) $(GOLANGCI_LINT_VERSION) & \
 	test -x $(BIN_DIR)/govulncheck || go install golang.org/x/vuln/cmd/govulncheck@latest & \
 	test -x $(BIN_DIR)/controller-gen || go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION) & \
 	wait
@@ -176,7 +183,7 @@ gen: tools ## Generate machine-controlled code
 	@go mod download $(GO_NVML_MOD)
 	@GO_NVML_DIR=$$(go list -m -f '{{.Dir}}' $(GO_NVML_MOD)) go generate ./pkg/gpu/mocknvml/bridge/...
 	@echo "Generating deepcopy for $(API_PKG_PATH).."
-	@$(BIN_DIR)/controller-gen object:headerFile=hack/boilerplate.go.txt paths="$(API_PKG_PATH)"
+	@$(BIN_DIR)/controller-gen object paths="$(API_PKG_PATH)"
 	@echo "Generating CRD manifests into $(CRDS_OUT).."
 	@mkdir -p $(CRDS_OUT)
 	@$(BIN_DIR)/controller-gen crd:allowDangerousTypes=true \
@@ -451,6 +458,23 @@ license-fmt: addlicense ## Add Apache-2.0 headers to tracked source files missin
 license-header-check: addlicense ## Verify tracked source files contain license headers.
 	@$(LICENSE_FILES) | xargs -r $(ADDLICENSE) -check -c "NVIDIA CORPORATION" -l apache
 
+# internal/fsutil and internal/agent/gpudriver skip their bind-mount, mknod
+# and Stage tests outside root on Linux (skipUnlessRootLinux) — the `test`
+# target above always runs as the invoking user, so those never execute
+# there. GOPROXY=off and the GOMODCACHE mount are what let this run offline:
+# `test` already downloaded and verified everything this needs on the same
+# runner, in the same job, moments earlier. The mount has to be writable —
+# Go's module cache takes a lock file even to read from it — which is fine
+# on a CI runner thrown away at the end of the job, less so reused locally.
+.PHONY: test-privileged
+test-privileged: ## Run internal/fsutil and internal/agent/gpudriver as root in a privileged container, for the tests `test` always skips
+	@docker run --rm --privileged \
+		-e GOPROXY=off \
+		-v "$(CURDIR)":/src -w /src \
+		-v "$(shell $(GO_CMD) env GOMODCACHE)":/go/pkg/mod \
+		golang:$(shell ./hack/golang-version.sh) \
+		go test -v ./internal/fsutil/... ./internal/agent/gpudriver/...
+
 HELM_CHART_DIR      := deployments/nvml-mock/helm/nvml-mock
 CRDS_HELM_CHART_DIR := deployments/mokka-crds/helm/mokka-crds
 
@@ -503,6 +527,65 @@ repository-automation-ci: ## Validate and package the repository automation acti
 .PHONY: helm-tests
 helm-tests: ## Run the nvml-mock chart unit test suite
 	helm unittest $(HELM_CHART_DIR)
+
+# ---------------------------------------------------------------------------
+# Changelog (changie)
+# Entries are recorded as fragments under .changes/unreleased/ instead of edits
+# to CHANGELOG.md, so concurrent PRs and backports never conflict. A maintainer
+# folds the pending fragments into CHANGELOG.md when cutting a release.
+# ---------------------------------------------------------------------------
+CHANGIE_VERSION ?= v1.26.0
+CHANGIE := $(BIN_DIR)/changie
+
+.PHONY: changie
+changie: $(CHANGIE) ## Install changie into tmp/bin if missing
+$(CHANGIE):
+	@mkdir -p $(BIN_DIR)
+	@echo "🚚 Downloading changie $(CHANGIE_VERSION).."
+	@GOBIN=$(BIN_DIR) $(GO_CMD) install github.com/miniscruff/changie@$(CHANGIE_VERSION)
+
+# `changie new --interactive=false` demands a value for every declared custom
+# key, including optional ones, so the scriptable path writes the fragment
+# directly — same layout and file name format as changie's own output.
+# KIND / BODY / ISSUE are read from the environment rather than interpolated:
+# make exports command-line variables, and entry bodies are full of backticks
+# and quotes that would otherwise be re-parsed by the shell.
+# File names have one-second resolution, so the name is claimed with noclobber
+# (an exclusive create) and a taken second waits for the next one; two calls
+# within the same second would otherwise leave a single fragment.
+.PHONY: changelog
+changelog: changie ## Add a changelog fragment: make changelog KIND=Fixed BODY="..." [ISSUE=636]
+	@if [ -n "$$KIND" ] && [ -n "$$BODY" ]; then \
+		grep -q "^  - label: $$KIND\$$" .changie.yaml || { echo "unknown KIND '$$KIND' — pick one of: $$(awk '/^  - label: /{print $$NF}' .changie.yaml | paste -sd'|' -)"; exit 1; }; \
+		n=0; until out=".changes/unreleased/$$KIND-$$(date '+%Y%m%d-%H%M%S').yaml"; (set -C; : > "$$out") 2>/dev/null; do \
+			n=$$((n + 1)); [ $$n -lt 5 ] || { echo "cannot create a fragment under .changes/unreleased/"; exit 1; }; sleep 1; \
+		done; \
+		{ \
+			printf 'kind: %s\nbody: |-\n' "$$KIND"; \
+			printf '%s\n' "$$BODY" | sed 's/^/  /'; \
+			printf 'time: %s\n' "$$(date -u '+%Y-%m-%dT%H:%M:%SZ')"; \
+			test -z "$$ISSUE" || printf 'custom:\n  Issue: "%s"\n' "$$ISSUE"; \
+		} > "$$out"; \
+		echo "Created $$out"; \
+	elif [ -n "$$KIND" ] || [ -n "$$BODY" ]; then \
+		echo "Both KIND and BODY must be set for non-interactive mode"; exit 1; \
+	else \
+		$(CHANGIE) new; \
+	fi
+
+# RELEASE_VERSION rather than VERSION: the latter is the image tag version and
+# already carries a default, which would silently fold a release as 0.0.1.
+.PHONY: changelog-preview
+changelog-preview: changie ## Preview the next release section without writing: make changelog-preview RELEASE_VERSION=0.5.0
+	@test -n "$(RELEASE_VERSION)" || { echo "RELEASE_VERSION is required, e.g. make changelog-preview RELEASE_VERSION=0.5.0"; exit 1; }
+	@CHANGIE=$(CHANGIE) bash hack/changelog-fold.sh --dry-run $(RELEASE_VERSION)
+
+# A prerelease (0.5.0-rc1) parks its fragments in .changes/0.5.0/; the final
+# 0.5.0 folds them back in and replaces every 0.5.0-* section with one.
+.PHONY: changelog-release
+changelog-release: changie ## Maintainers: fold unreleased fragments into CHANGELOG.md as RELEASE_VERSION
+	@test -n "$(RELEASE_VERSION)" || { echo "RELEASE_VERSION is required, e.g. make changelog-release RELEASE_VERSION=0.5.0"; exit 1; }
+	@CHANGIE=$(CHANGIE) bash hack/changelog-fold.sh $(RELEASE_VERSION)
 
 .PHONY: helm-crds-tests
 helm-crds-tests: ## Lint + template-render the mokka-crds chart
@@ -607,6 +690,7 @@ image-load:
 #   make e2e-multi-node            # heterogeneous A100/T4 multi-node scenario
 #   make e2e-nri                   # node-wide NRI ambient-injection scenario
 #   make e2e-nfd                   # NFD label-provenance scenario
+#   make e2e-mig                   # MIG scenario, device plugin in migStrategy=single
 # CI builds the image once per run. Every leg loads it into Kind and sets
 # E2E_IMAGE to that ref. The reshaping scenarios set the DaemonSet to this ref.
 #
@@ -619,10 +703,10 @@ image-load:
 # ---------------------------------------------------------------------------
 GINKGO ?= $(GO_CMD) run github.com/onsi/ginkgo/v2/ginkgo
 E2E_TIMEOUT ?= 90m
-E2E_DEFAULT_LABEL_FILTER ?= !validator && !dra && !gpu-operator && !multi-node && !nri && !nfd
+E2E_DEFAULT_LABEL_FILTER ?= !gfd && !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig
 E2E_GINKGO_FLAGS ?= --label-filter='$(E2E_DEFAULT_LABEL_FILTER)'
 
-.PHONY: e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd
+.PHONY: e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd e2e-mig
 
 # `set -o pipefail` is inline on purpose; do not drop it as redundant with
 # .SHELLFLAGS. GNU Make ignores .SHELLFLAGS before 3.82 and macOS ships 3.81,
@@ -650,6 +734,15 @@ e2e-nri: ## e2e — NRI ambient-injection scenario
 # log then reads exactly like one that did exercise gb200.
 e2e-nfd: ## e2e — NFD label-provenance scenario (pinned to a100)
 	$(MAKE) e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter=nfd'
+
+# E2E_PROFILES is the caller's, as for the sibling scenario targets. Pinning it
+# here would be a command-line assignment to the sub-make, which outranks the
+# environment: every CI matrix leg would run the pinned set rather than its own
+# profile. Pick profiles that declare a partitioning — the scenario skips the
+# boards that cannot partition, and the chart refuses a capable board with no
+# layout from either the profile or gpu.mig.gpuInstances.
+e2e-mig: ## e2e — MIG scenario with the device plugin in migStrategy=single
+	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=mig'
 
 ##@ Documentation
 

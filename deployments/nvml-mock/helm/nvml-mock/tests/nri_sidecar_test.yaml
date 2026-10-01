@@ -1,0 +1,551 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+suite: NRI sidecar
+templates:
+  - templates/daemonset.yaml
+# Render against a fixed chart version so releasing a new chart never
+# rewrites expectations or snapshots here.
+chart:
+  version: 0.0.0-dev
+  appVersion: 0.0.0-dev
+tests:
+  - it: should render only the node agent by default
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: node-agent
+      - notExists:
+          path: spec.template.spec.containers[1]
+
+  - it: should add the NRI plugin to the existing DaemonSet when enabled
+    set:
+      nri:
+        enabled: true
+    asserts:
+      - isKind:
+          of: DaemonSet
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-nvml-mock
+      - equal:
+          path: metadata.labels["app.kubernetes.io/name"]
+          value: nvml-mock
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/name"]
+          value: nvml-mock
+      - equal:
+          path: spec.template.metadata.labels["app.kubernetes.io/name"]
+          value: nvml-mock
+      - equal:
+          path: spec.template.metadata.labels["app.kubernetes.io/component"]
+          value: daemon
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+      - equal:
+          path: spec.template.metadata.annotations["kubectl.kubernetes.io/default-container"]
+          value: node-agent
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: node-agent
+      - equal:
+          path: spec.template.spec.containers[1].name
+          value: nvml-mock-nri
+      - equal:
+          path: spec.template.spec.containers[1].image
+          value: ghcr.io/nvidia/nvml-mock:latest
+      # Must match where the Dockerfile copies the binary; nothing else checks
+      # the two agree, and a mismatch is a CrashLoopBackOff on every node.
+      - equal:
+          path: spec.template.spec.containers[1].command
+          value:
+            - /usr/local/bin/nri-plugin
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --socket-path=/var/run/nri/nri.sock
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --log-level=info
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --log-format=json
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --excluded-namespaces=NAMESPACE,kube-system
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --node-name=$(NODE_NAME)
+      - contains:
+          path: spec.template.spec.containers[1].env
+          content:
+            name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.nodeName
+
+  - it: should pass custom logging values through to the plugin
+    set:
+      nri:
+        enabled: true
+        logging:
+          level: debug
+          format: plain
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --log-level=debug
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --log-format=plain
+
+  - it: should reject an unknown logging.level via the values schema
+    set:
+      nri:
+        enabled: true
+        logging:
+          level: trace
+    asserts:
+      - failedTemplate: {}
+
+  - it: should reject an unknown logging.format via the values schema
+    set:
+      nri:
+        enabled: true
+        logging:
+          format: text
+    asserts:
+      - failedTemplate: {}
+
+  - it: should mount the NRI socket directory and overlay host path
+    set:
+      nri:
+        enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: nri-socket-dir
+            hostPath:
+              path: /var/run/nri
+              type: DirectoryOrCreate
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: mokka-root
+            hostPath:
+              path: /var/lib/nvml-mock
+              type: DirectoryOrCreate
+      - contains:
+          path: spec.template.spec.containers[1].volumeMounts
+          content:
+            name: mokka-root
+            mountPath: /var/lib/nvml-mock
+            readOnly: true
+
+  - it: should keep scheduling settings at the shared pod level
+    set:
+      nri:
+        enabled: true
+      nodeSelector:
+        mokka.nvidia.com/type: sgpu
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+    asserts:
+      - equal:
+          path: spec.template.spec.nodeSelector["mokka.nvidia.com/type"]
+          value: sgpu
+      - contains:
+          path: spec.template.spec.tolerations
+          content:
+            key: nvidia.com/gpu
+            operator: Exists
+            effect: NoSchedule
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: node-agent
+      - equal:
+          path: spec.template.spec.containers[1].name
+          value: nvml-mock-nri
+
+  - it: should add the sidecar on an upgrade from disabled to enabled
+    release:
+      revision: 2
+      upgrade: true
+    set:
+      nri:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: node-agent
+      - equal:
+          path: spec.template.spec.containers[1].name
+          value: nvml-mock-nri
+
+  - it: should remove the sidecar on an upgrade from enabled to disabled
+    release:
+      revision: 3
+      upgrade: true
+    set:
+      nri:
+        enabled: false
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: node-agent
+      - notExists:
+          path: spec.template.spec.containers[1]
+
+  - it: should apply custom NRI image and resources
+    set:
+      nri:
+        enabled: true
+        image:
+          repository: custom/nvml-mock-nri
+          tag: v1
+          pullPolicy: Always
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[1].image
+          value: custom/nvml-mock-nri:v1
+      - equal:
+          path: spec.template.spec.containers[1].imagePullPolicy
+          value: Always
+      - equal:
+          path: spec.template.spec.containers[1].resources.requests.cpu
+          value: 10m
+      - equal:
+          path: spec.template.spec.containers[1].resources.requests.memory
+          value: 32Mi
+
+  - it: should pass custom overlay and namespace exclusions
+    set:
+      nri:
+        enabled: true
+        socketPath: /run/custom-nri/nri.sock
+        overlay:
+          hostPath: /custom/nvml-mock
+          mountPath: /mock
+        excludedNamespaces:
+          - monitoring
+          - gpu-system
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --socket-path=/run/custom-nri/nri.sock
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --overlay-host-path=/custom/nvml-mock
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --overlay-mount-path=/mock
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --excluded-namespaces=NAMESPACE,kube-system,monitoring,gpu-system
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: nri-overlay
+            hostPath:
+              path: /custom/nvml-mock
+              type: DirectoryOrCreate
+      - contains:
+          path: spec.template.spec.containers[1].volumeMounts
+          content:
+            name: nri-overlay
+            mountPath: /custom/nvml-mock
+            readOnly: true
+
+  # Mock IMEX channel delivery (#437). The channel nodes are staged by the main
+  # DaemonSet under imex.mockChannels; the plugin must read them from that one
+  # location. A host path that disagrees with where the imex simulator writes
+  # them makes the annotation a silent no-op, so pin it against the overlay
+  # root.
+  - it: should point IMEX channel injection at the staged channel directory
+    set:
+      nri:
+        enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --imex-channel-annotation=nvml-mock.nvidia.com/imex-channels
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --imex-channel-host-path=/var/lib/nvml-mock/driver/dev/nvidia-caps-imex-channels
+
+  - it: should track a relocated overlay root for IMEX channels
+    set:
+      nri:
+        enabled: true
+        overlay:
+          hostPath: /custom/nvml-mock
+        imexChannelAnnotation: example.com/channels
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --imex-channel-annotation=example.com/channels
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --imex-channel-host-path=/custom/nvml-mock/driver/dev/nvidia-caps-imex-channels
+      # The GPU device root and the channel root must stay siblings under the
+      # same relocated overlay; they are staged by the same node agent.
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --device-host-path=/custom/nvml-mock/driver/dev
+
+  # A probe that cannot reach the plugin is worse than no probe: the pod never
+  # goes Ready and the DaemonSet stalls. These pin the three values that have
+  # to agree -- the flag the plugin binds, the declared containerPort, and the
+  # port the probes name.
+  - it: should serve probes on a port the plugin actually binds
+    set:
+      nri:
+        enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --health-addr=:8080
+      - contains:
+          path: spec.template.spec.containers[1].ports
+          content:
+            name: nri-health
+            containerPort: 8080
+            protocol: TCP
+      - equal:
+          path: spec.template.spec.containers[1].readinessProbe.httpGet.path
+          value: /readyz
+      - equal:
+          path: spec.template.spec.containers[1].readinessProbe.httpGet.port
+          value: nri-health
+      - equal:
+          path: spec.template.spec.containers[1].livenessProbe.httpGet.path
+          value: /healthz
+      - equal:
+          path: spec.template.spec.containers[1].livenessProbe.httpGet.port
+          value: nri-health
+
+  # Readiness must interrogate /readyz, not /healthz. /healthz stays 200 while
+  # the plugin is unregistered -- pointing readiness at it would report a
+  # plugin that is injecting nothing as Ready, which is the exact silent
+  # failure these probes exist to surface.
+  - it: should not point readiness at the liveness endpoint
+    set:
+      nri:
+        enabled: true
+    asserts:
+      - notEqual:
+          path: spec.template.spec.containers[1].readinessProbe.httpGet.path
+          value: /healthz
+
+  - it: should move both the bind address and the container port together
+    set:
+      nri:
+        enabled: true
+        healthPort: 9310
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --health-addr=:9310
+      - contains:
+          path: spec.template.spec.containers[1].ports
+          content:
+            name: nri-health
+            containerPort: 9310
+            protocol: TCP
+
+  - it: should allow dropping either probe
+    set:
+      nri:
+        enabled: true
+        livenessProbe: null
+    asserts:
+      - isNull:
+          path: spec.template.spec.containers[1].livenessProbe
+      - isNotNull:
+          path: spec.template.spec.containers[1].readinessProbe
+
+  - it: should rewrite the legacy named TCP probe port in the shared pod
+    set:
+      nri:
+        enabled: true
+        readinessProbe:
+          httpGet: null
+          tcpSocket:
+            port: health
+        livenessProbe:
+          httpGet: null
+          tcpSocket:
+            port: health
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[1].readinessProbe.tcpSocket.port
+          value: nri-health
+      - equal:
+          path: spec.template.spec.containers[1].livenessProbe.tcpSocket.port
+          value: nri-health
+
+  # Only the legacy name is rewritten. A numeric port, valid since 0.4.0, must
+  # render unchanged instead of failing the name comparison.
+  - it: should keep numeric probe ports unchanged
+    set:
+      nri:
+        enabled: true
+        readinessProbe:
+          httpGet:
+            port: 8080
+        livenessProbe:
+          httpGet: null
+          tcpSocket:
+            port: 8080
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[1].readinessProbe.httpGet.port
+          value: 8080
+      - equal:
+          path: spec.template.spec.containers[1].livenessProbe.tcpSocket.port
+          value: 8080
+
+  - it: should apply custom probe tuning
+    set:
+      nri:
+        enabled: true
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: health
+          periodSeconds: 3
+          failureThreshold: 5
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[1].readinessProbe.periodSeconds
+          value: 3
+      - equal:
+          path: spec.template.spec.containers[1].readinessProbe.failureThreshold
+          value: 5
+      - equal:
+          path: spec.template.spec.containers[1].readinessProbe.httpGet.port
+          value: nri-health
+
+  - it: should default device injection to raw and stage the CDI spec dir
+    set:
+      nri:
+        enabled: true
+    asserts:
+      # raw is the default per MEP-0002. If this flips, every existing NRI
+      # deployment silently changes injection mechanism on upgrade.
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --device-injection-mode=raw
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --cdi-spec-host-path=/var/run/cdi/nvml-mock-nri.yaml
+      # The plugin cannot check whether its spec is staged unless the spec
+      # directory is actually mounted into it.
+      - contains:
+          path: spec.template.spec.containers[1].volumeMounts
+          content:
+            name: cdi-specs
+            mountPath: /var/run/cdi
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: cdi-specs
+            hostPath:
+              path: /var/run/cdi
+              type: DirectoryOrCreate
+
+  - it: should switch to CDI injection and follow a relocated CDI spec dir
+    set:
+      nri:
+        enabled: true
+        deviceInjectionMode: cdi
+        cdiSpecDir: /etc/cdi
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --device-injection-mode=cdi
+      # The flag and the mount must track the same directory; a spec path the
+      # plugin cannot stat makes it fall back to raw and look like cdi mode
+      # simply did not take effect.
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --cdi-spec-host-path=/etc/cdi/nvml-mock-nri.yaml
+      - contains:
+          path: spec.template.spec.containers[1].volumeMounts
+          content:
+            name: nri-cdi-specs
+            mountPath: /etc/cdi
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: nri-cdi-specs
+            hostPath:
+              path: /etc/cdi
+              type: DirectoryOrCreate
+
+  - it: should reject an invalid device injection mode at template time
+    set:
+      nri:
+        enabled: true
+        deviceInjectionMode: cdi-annotations
+    asserts:
+      # Without this the typo reaches the plugin, which exits on it — so the
+      # first sign of a bad value is a CrashLoopBackOff rather than a failed
+      # install. "cdi-annotations" specifically is a plausible typo: it is a real
+      # device-plugin --device-list-strategy value, and MEP-0002 forbids it here.
+      - failedTemplate: {}
+
+  - it: should reject a deleted device injection mode at template time
+    set:
+      nri:
+        enabled: true
+        deviceInjectionMode: null
+    asserts:
+      # Helm's --set treats null as "delete this key", which the schema lets
+      # through because it constrains values rather than requiring the key.
+      # The template guard is what covers that, so it stays reachable.
+      - failedTemplate:
+          errorMessage: 'nri.deviceInjectionMode must be "raw" or "cdi", got %!q(<nil>)'
+
+  - it: should reject the node-agent health port in the shared pod
+    set:
+      nri:
+        enabled: true
+        healthPort: 9091
+    asserts:
+      - failedTemplate:
+          errorMessage: "nri.healthPort (9091) conflicts with another listener in the shared pod; use a port other than node-agent health port 9091 or the enabled InfiniBand ping port 18515"
+
+  - it: should reject the enabled InfiniBand listener port in the shared pod
+    set:
+      nri:
+        enabled: true
+        healthPort: 18515
+    asserts:
+      - failedTemplate:
+          errorMessage: "nri.healthPort (18515) conflicts with another listener in the shared pod; use a port other than node-agent health port 9091 or the enabled InfiniBand ping port 18515"
+
+  - it: should allow the configured InfiniBand port when the profile has no listener
+    set:
+      gpu:
+        profile: t4
+      nri:
+        enabled: true
+        healthPort: 18515
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].ports
+          content:
+            name: nri-health
+            containerPort: 18515
+            protocol: TCP

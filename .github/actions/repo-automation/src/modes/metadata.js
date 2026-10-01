@@ -120,6 +120,15 @@ function changedLineTotals(files) {
   return { additions, deletions };
 }
 
+function desiredMetadataLabels({ title, size, areas, draft }) {
+  return [
+    ...(title.valid ? [title.label] : []),
+    ...(size === null ? [] : [size.label]),
+    ...areas,
+    ...(draft ? ["do-not-merge/work-in-progress"] : []),
+  ];
+}
+
 function safeConfigurationComputation(configuration, operation, fallback) {
   try {
     return operation();
@@ -271,12 +280,7 @@ async function runMetadata({ event, github, config, dryRun }) {
     preserved: reviewerSelection.preserved.sort(),
   };
 
-  const desiredLabels = [
-    ...(title.valid ? [title.label] : []),
-    ...(size === null ? [] : [size.label]),
-    ...areas,
-    ...(pullRequest.draft ? ["do-not-merge/work-in-progress"] : []),
-  ];
+  const desiredLabels = desiredMetadataLabels({ title, size, areas, draft: pullRequest.draft });
   const labels = labelPlan(issueLabels, desiredLabels);
   const resultBase = {
     headOid: pullRequest.headOid,
@@ -351,4 +355,4 @@ async function runMetadata({ event, github, config, dryRun }) {
   return result;
 }
 
-module.exports = { runMetadata };
+module.exports = { runMetadata, changedLineTotals, desiredMetadataLabels, labelPlan };

@@ -94,6 +94,7 @@ function metadataState(overrides = {}) {
       "area/ci",
       "lgtm",
       "approved",
+      "needs-rebase",
       "do-not-merge/hold",
       "maintainer/custom",
     ],
@@ -169,7 +170,7 @@ test("metadata re-fetches live PR state and applies only the complete safe plan"
   assert.equal(github.calls.requestReviewers.flatMap(({ reviewers }) => reviewers).includes("pr-author"), false);
 
   const snapshot = github.metadataSnapshot();
-  for (const preserved of ["lgtm", "approved", "do-not-merge/hold", "maintainer/custom"] ) {
+  for (const preserved of ["lgtm", "approved", "needs-rebase", "do-not-merge/hold", "maintainer/custom"] ) {
     assert.equal(snapshot.labels.includes(preserved), true, `${preserved} must be preserved`);
   }
   assert.equal(snapshot.comments.length, 1);

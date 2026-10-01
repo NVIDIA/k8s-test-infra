@@ -1,0 +1,6 @@
+kind: Fixed
+body: |-
+  nvml-mock: creating a GPU instance past its profile's instance count is
+    refused with `NVML_ERROR_INSUFFICIENT_RESOURCES`. The extra instance made
+    go-nvml's `nvmlDeviceGetGpuInstances` write past the caller's buffer.
+time: 2026-09-29T07:36:00Z

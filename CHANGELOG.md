@@ -5,126 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.0] - 2026-09-23
 
 ### Added
 
-- The CDI-enabled KIND node image is published at
-  `ghcr.io/nvidia/mokka-kind-node` for amd64 and arm64. Publication is gated by
-  an amd64 smoke test that boots a cluster, verifies the effective NVIDIA/CDI
-  runtime configuration, and starts a pod before any public tag is updated.
-- node-agent: containers now see the NVIDIA kernel modules as loaded.
-  `/sys/module/nvidia/refcnt` exists, and `lsmod` lists `nvidia`, `nvidia_uvm`,
-  `nvidia_modeset`, `gdrdrv` and `nvidia_fs`, plus `nvidia_peermem` and
-  `mlx5_core` where the profile's `infiniband.enabled` is set. That covers every
-  module the GPU Operator validator greps for. Enabling GDRCopy, GPUDirect
-  Storage or GPUDirect RDMA used to stop at a validator check for a module the
-  mock never served. The node's own modules stay visible beside all of them.
-  This simulates presence, not a working data path. See `docs/helm-chart.md` for
-  how the surface reaches a container and what the mirror does not cover.
-- nvml-mock: `nvidia-smi power-profiles` now works on the Blackwell profiles.
-  Both getters behind it were generated stubs, so the whole subcommand answered
-  "Workload Power Profiles feature is not supported on this device" on every
-  profile — a consumer could not discover a single profile the board offers, let
-  alone which of them conflict. `gb200` and `gb300` now advertise a profile set
-  through `power.workload_power_profiles`: `-l` lists it, `-ld` adds each
-  profile's priority and conflicts, and `-gr` / `-ge` report the requested and
-  enforced sets. Requested and enforced are separate because asking for mutually
-  exclusive profiles is allowed; enforced is what survives arbitration, dropping
-  any profile that conflicts with a higher-priority one. The shipped profiles
-  request nothing, matching every real GB200, GB300 and B200 capture, so
-  `nvidia-smi -q -x` keeps reporting `N/A` for both. Two axes still decline and
-  do so differently: a device declaring no profiles reports the feature
-  unsupported, while a pre-570 `driver_version` does not export the symbols at
-  all — which is why `b200` stays declined despite being Blackwell.
-  `-sr` and `-cr` write too: all three of NVML's requested-profile setters are
-  implemented, so a consumer can add to, remove from and overwrite the requested
-  set and read the result back. nvidia-smi 580 calls the two deprecated entry
-  points rather than `nvmlDeviceWorkloadPowerProfileUpdateProfiles_v1`, so
-  leaving those out would have left `-sr` and `-cr` failing; asking for a profile
-  the board does not advertise is refused rather than quietly dropped. A write
-  outranks the configured `requested` set and, like `nvidia-smi -pl`, is
-  recorded in the runtime override document rather than in the writing process,
-  so `nvidia-smi power-profiles -sr 2 -i 0` followed by a separate
-  `-gr` reports `2. Compute`. Within one invocation only `-ge` reflects a write,
-  because nvidia-smi evaluates `-sr` and `-cr` before `-ge` but after `-gr`:
-  `nvidia-smi power-profiles -sr 0,2 -cr 0 -ge -i 0` reports `2. Compute` as all
-  that survives the clear.
-- nvml-mock: the power management limit can now be set, not just read.
-  `nvidia-smi -pl` and any consumer calling
-  `nvmlDeviceSetPowerManagementLimit` (or its `_v2` form) previously got
-  NOT_SUPPORTED while the getters happily reported a cap, so a capping
-  controller's read-after-write saw its request silently ignored. A cap moves
-  the power management limit and the enforced limit — including DCGM's
-  `NVML_FI_DEV_POWER_CURRENT_LIMIT` — but not `default_limit_mw`, and is
-  refused outside the `min_limit_mw` / `max_limit_mw` constraints the device
-  advertises. The cap is recorded in the runtime override document, so it
-  outranks the profile's `enforced_limit_mw` node-wide the way a driver-level
-  write does: every process reads it back, including ones started afterwards,
-  and it holds until a reset clears it. A mock that cannot record the write
-  refuses the cap with NO_PERMISSION rather than reporting a success nothing
-  would observe. Only the GPU-wide budget is modelled, so the `_v2` module,
-  memory and base-GPU scopes decline rather than fold into the GPU limit.
-
-### Changed
-
-- nvml-mock: `device_defaults.architecture` now accepts `rubin`, which NVML
-  defines and the mock previously resolved to `NVML_DEVICE_ARCH_UNKNOWN`, so a
-  Rubin profile failed every architecture-gated feature. Spellings are also
-  matched case-insensitively and with surrounding whitespace trimmed. An exact
-  match was required before, and anything else degraded silently to `UNKNOWN`.
-- e2e: the end-to-end test harness now rejects a chart profile whose
-  `device_defaults.architecture` is missing or names no recognized generation.
-  It previously loaded with an architecture nothing recognized, leaving each
-  "this generation and newer" expectation to answer from a default rather than
-  from the profile. This is a test-suite check only; the chart and the mock
-  still accept such a profile and report `NVML_DEVICE_ARCH_UNKNOWN` for it.
-- The DRA driver is now installed from `nvidia/dra-driver-nvidia-gpu` pinned at
-  `0.5.0`, replacing the unpinned `nvidia/nvidia-dra-driver-gpu`. `0.5.0` is
-  published only under the new chart name, which follows the upstream rename to
-  `kubernetes-sigs/dra-driver-nvidia-gpu`. The `e2e-dra` job installs through
-  `local/dra/dra.tiltfile`, so it previously resolved whatever NGC had published
-  that morning and a red run could not be told apart from a regression here.
-  Every value in `local/dra/dra-driver.values.yaml` carries over unchanged. If
-  you select the driver's pods by label, note the chart renames
-  `app.kubernetes.io/name` to `dra-driver-nvidia-gpu` and replaces
-  `app.kubernetes.io/component=kubelet-plugin` with
-  `dra-driver-nvidia-gpu-component=kubelet-plugin`. The GPU Operator chart still
-  floats — see [#581](https://github.com/NVIDIA/k8s-test-infra/issues/581).
-- `libpcisysfs.so` is now `libmockfs.so`. The shim redirects kernel-module paths
-  as well as PCI sysfs, so its name no longer described what it does. The
-  `MOCK_PCI_ROOT` variable that points it at the fake tree is unchanged.
-
-### Removed
-
-- The `tests/e2e/validate-*.sh` and `tests/e2e/spike-*.sh` scripts, along with
-  `tests/redeploy.sh`. The Go suite under `tests/e2e/go` replaced them and is
-  what CI runs; the scripts were reachable from no target or workflow. The two
-  checks that had no Go equivalent — `ibnetdiscover` whole-fabric discovery and
-  the `sminfo` master-SM identity — are now specs in the standalone scenario
-  under the `ibfabric` label, so they run on every pipeline rather than by hand.
-
-### Fixed
-
-- nvml-mock: a consumer's read-after-write across two processes now sees the
-  write. NVML setter state lived on the device object inside whichever process
-  loaded `libnvidia-ml.so`, and every consumer loads its own copy, so
-  `nvidia-smi -pl 250000` followed by a separate `nvidia-smi` reported the old
-  cap — while on real hardware both are driver state the whole node observes.
-  The power management limit and the workload power profile request are now
-  recorded in the runtime override document, the one piece of state those
-  processes share, and are cleared by a reset like anything else injected
-  there. Persistence mode (`nvidia-smi -pm`) is unchanged and stays
-  per-process. See [#849](https://github.com/NVIDIA/k8s-test-infra/issues/849).
-- node-agent: the `/run/nvidia/driver` symlink is removed on shutdown only when
-  it is still the one the agent published. On a node where another component
-  owns that path, teardown used to delete it whatever it was; a foreign driver
-  root is now left alone, and displacing one at startup is logged.
-
-## [0.4.0-rc1] - 2026-09-14
-
-### Added
-
+- profiles: a cross-check holds every profile to its hardware capture, on both
+  PCI identity words and across both the chart and engine copies. It enumerates
+  the profile directories rather than a fixed list, so a profile added without a
+  matching capture fails the suite, as does a SKU present in one copy and not
+  the other. It is what found the `subsystem_id` drift and the retired default.
 - nvml-mock: the node agent announces an injected Xid on the node's kernel log,
   the way a driver's printk does, so agents that watch kernel messages see the
   fault instead of only NVML clients. It watches the runtime override document,
@@ -152,10 +41,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an SBOM attestation, on the same triggers as the nvml-mock image. It was
   previously buildable from `deployments/control-plane/Dockerfile` but never
   pushed anywhere, so it could only be run from a local build.
-- Mokka: add an opt-in informer-driven control plane that materializes
-  `SGPURackProfile` and `SGPUInventory` declarations into stable `SGPURack`
-  Node bindings and projects the required assignment metadata onto Kubernetes
-  Nodes. The controller rebuilds its derived state from Kubernetes after restart.
 - The node agent gains `pcibus`, `cdi` and `imex` simulators, each an
   `agent.Simulator` with the same stage/apply/discard lifecycle as the existing
   `gpudriver`. Together they subsume the device-surface construction that
@@ -303,6 +188,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The GPU Operator chart is now pinned at `v26.3.3` in
+  `local/gpu-operator/gpu_operator.tiltfile`, which drives both local Tilt runs
+  and the `e2e-gpu-operator` job, and in the `with-gpu-operator` guide script
+  (override with `GPU_OPERATOR_VERSION`). It floated before, so v26.7.1 reached
+  CI without a commit here. That release gates every operand's
+  `toolkit-validation` init container on an `nvidia` line in `/proc/modules`,
+  which the mock cannot serve to those containers, and GFD, the device plugin
+  and dcgm-exporter never start. Lifting the pin is tracked in
+  [#911](https://github.com/NVIDIA/k8s-test-infra/issues/911).
+- The chart's install notes and the GPU Operator guide now install the GPU
+  Operator chart with `--version v26.3.3`. Without it, `helm install` resolves
+  v26.7.1, whose operands never start on the mock
+  ([#911](https://github.com/NVIDIA/k8s-test-infra/issues/911)).
 - nvml-mock: `terminationGracePeriodSeconds` defaults to `10` and
   `nodeAgent.shutdownTimeout` to `5s`, so the agent's teardown finishes before
   SIGKILL instead of being cut short.
@@ -468,6 +366,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The nvml-mock chart now defaults `image.tag` and `controlPlane.image.tag` to
+  the image of its own release instead of `latest`. `latest` is republished
+  from `main` on every merge, so a released chart could run an image built for
+  a different version of the chart. See
+  [#919](https://github.com/NVIDIA/k8s-test-infra/issues/919).
+- profiles: every shipped profile now reports the PCI identity of the board it
+  models, in both the `device_id` and the `subsystem_id` word, matching the
+  real-hardware `nvidia-smi -q -x` capture it is modelled on. Previously four
+  SKUs named a different GPU through `device_id`: `gb300` reported `0x2941`,
+  which is the HGX GB200 ID, where the captured board reports `10de:31c2`;
+  `gb200` reported `0x2341` and `b200` reported `0x2340`, where the captures
+  report `10de:2941` and `10de:2901`; and `l40s` reported `0x26b5`, an L40,
+  rather than the captured `10de:26b9`. `subsystem_id` was wrong in six of the
+  seven profiles against the same captures. Both words reach consumers two ways,
+  so this was never cosmetic: `nvmlDeviceGetPciInfo` returns them directly, and
+  the rendered PCI tree exposes them where `lspci` resolves and names a board.
+  The engine's own profile copies carried the same errors and are corrected
+  alongside the chart's.
+- nvml-mock: a device configured without a `pci` block reported a retired
+  subsystem ID (`0x1347`) through `nvmlDeviceGetPciInfo`. The built-in default
+  is now the captured A100 identity in both words.
+- node-agent: fixed the GPU Operator validator getting stuck retrying driver
+  validation forever if its pod started before node-agent had finished, or
+  restarted while node-agent was mid-restart. `/run/nvidia/driver` is now a
+  bind mount of the staged driver root instead of a symlink to it, so a
+  consumer that already mounted the path keeps seeing it as content lands,
+  the way it would with a real driver. Teardown unmounts but never deletes
+  the directory, and never touches a path it did not mount.
+  **Breaking (security):** the node-agent container is now privileged on
+  every install, not only when `nodeAgent.kernelLog.enabled` is set —
+  Kubernetes rejects `mountPropagation: Bidirectional` (needed for that bind
+  mount to reach other containers) on anything less, regardless of
+  capabilities granted. A cluster whose PodSecurity admits no privileged pod
+  will refuse this release's DaemonSet on `helm upgrade`. See
+  [#857](https://github.com/NVIDIA/k8s-test-infra/issues/857).
 - agent: the InfiniBand simulator no longer reports ready before the mock-ib
   socket exists. It flipped its serving flag and only then called
   `ListenAndServe`, which creates the socket directory, clears a stale socket
@@ -1026,7 +959,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Rebranded from gpu-mock to nvml-mock (PRs #273, #274, #275, #281, #282)
 
-[Unreleased]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.3.0...HEAD
+[0.4.0]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.1.0...v0.2.0

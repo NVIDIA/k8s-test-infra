@@ -1,0 +1,8 @@
+kind: Added
+body: |-
+  node-agent: containers now see the NVIDIA kernel modules as loaded (`lsmod`,
+    `/sys/module/nvidia/refcnt`), plus `nvidia_peermem` and `mlx5_core` when
+    `infiniband.enabled` is set, so the GPU Operator validators for GDRCopy,
+    GPUDirect Storage and GPUDirect RDMA pass. This simulates presence, not a
+    working data path.
+time: 2026-09-29T07:02:00Z

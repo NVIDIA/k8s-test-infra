@@ -1,0 +1,7 @@
+kind: Fixed
+body: |-
+  node-agent: a profile the mock library would refuse is no longer staged. The
+    library silently falls back to eight A100s on such a profile, so a node
+    asked for two GB300s came up as eight A100s; the agent now reports the error
+    and keeps the last good state.
+time: 2026-09-29T07:26:00Z

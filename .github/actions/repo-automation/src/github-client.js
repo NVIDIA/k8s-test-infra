@@ -4,6 +4,7 @@ const { Buffer } = require("node:buffer");
 const { setTimeout: delay } = require("node:timers/promises");
 const { TextDecoder } = require("node:util");
 const {
+  isManagedConflictLabel,
   isManagedMetadataLabel,
   isManagedPolicyLabel,
 } = require("./managed-labels.js");
@@ -94,6 +95,13 @@ function positiveInteger(value, name) {
 function nonEmptyString(value, name) {
   if (typeof value !== "string" || value === "" || /[\0\r\n]/.test(value)) {
     throw new TypeError(`${name} must be a safe non-empty string`);
+  }
+  return value;
+}
+
+function commitMessage(value) {
+  if (typeof value !== "string" || value.trim() === "" || value.includes("\0")) {
+    throw new TypeError("invalid Mokka commit message");
   }
   return value;
 }
@@ -525,6 +533,68 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
       };
     },
 
+    async createMokkaCommit(commit) {
+      if (commit === null || typeof commit !== "object" || Array.isArray(commit)) {
+        throw new TypeError("Mokka commit must be an object");
+      }
+      const requested = {
+        message: commitMessage(commit.message),
+        tree: nonEmptyString(commit.tree, "Mokka tree OID"),
+        parents: commit.parents,
+      };
+      if (!Array.isArray(requested.parents) || requested.parents.length !== 1) {
+        throw new TypeError("Mokka commit must have one parent");
+      }
+      nonEmptyString(requested.parents[0], "Mokka parent OID");
+      const response = await call("createMokkaCommit", () => octokit.rest.git.createCommit({
+        owner, repo, ...requested,
+      }), false);
+      if (!Array.isArray(response.data?.parents)) throw new TypeError("Mokka commit parents are invalid");
+      return {
+        sha: nonEmptyString(response.data.sha, "Mokka created commit OID").toLowerCase(),
+        message: commitMessage(response.data.message),
+        tree: nonEmptyString(response.data.tree?.sha, "Mokka created tree OID").toLowerCase(),
+        parents: response.data.parents.map((parent) => nonEmptyString(parent?.sha, "Mokka created parent OID").toLowerCase()),
+        verification: {
+          verified: response.data.verification?.verified === true,
+          hasSignature: typeof response.data.verification?.signature === "string"
+            && response.data.verification.signature.length > 0,
+        },
+      };
+    },
+
+    async getMokkaCommit(sha) {
+      const requestedSha = nonEmptyString(sha, "Mokka commit OID").toLowerCase();
+      const response = await call("getMokkaCommit", () => octokit.rest.git.getCommit({
+        owner, repo, commit_sha: requestedSha,
+      }), true);
+      if (!Array.isArray(response.data?.parents)) throw new TypeError("Mokka commit parents are invalid");
+      return {
+        sha: nonEmptyString(response.data.sha, "Mokka commit OID").toLowerCase(),
+        message: commitMessage(response.data.message),
+        tree: nonEmptyString(response.data.tree?.sha, "Mokka tree OID").toLowerCase(),
+        parents: response.data.parents.map((parent) => nonEmptyString(parent?.sha, "Mokka commit parent OID").toLowerCase()),
+        verification: {
+          verified: response.data.verification?.verified === true,
+          hasSignature: typeof response.data.verification?.signature === "string"
+            && response.data.verification.signature.length > 0,
+        },
+      };
+    },
+
+    async createMokkaRef(branch, sha) {
+      nonEmptyString(branch, "Mokka branch");
+      nonEmptyString(sha, "Mokka commit OID");
+      const ref = `refs/heads/${branch}`;
+      const response = await call("createMokkaRef", () => octokit.rest.git.createRef({
+        owner, repo, ref, sha,
+      }), false);
+      if (response.data?.ref !== ref || response.data?.object?.sha !== sha) {
+        throw new Error("created Mokka ref response does not match the request");
+      }
+      return { name: branch, oid: sha };
+    },
+
     async listPullRequestFiles(prNumber) {
       positiveInteger(prNumber, "PR number");
       const files = await paginate("listPullRequestFiles", octokit.rest.pulls.listFiles, {
@@ -689,7 +759,7 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
 
     async addIssueLabel(prNumber, label) {
       positiveInteger(prNumber, "PR number");
-      if (!isManagedMetadataLabel(label)) throw new TypeError("label is not metadata-managed");
+      if (!isManagedMetadataLabel(label) && !isManagedConflictLabel(label)) throw new TypeError("label is not metadata/conflict-managed");
       await call("addIssueLabel", () => octokit.rest.issues.addLabels({
         owner, repo, issue_number: prNumber, labels: [label],
       }), true);
@@ -697,7 +767,7 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
 
     async removeIssueLabel(prNumber, label) {
       positiveInteger(prNumber, "PR number");
-      if (!isManagedMetadataLabel(label)) throw new TypeError("label is not metadata-managed");
+      if (!isManagedMetadataLabel(label) && !isManagedConflictLabel(label)) throw new TypeError("label is not metadata/conflict-managed");
       try {
         await call("removeIssueLabel", () => octokit.rest.issues.removeLabel({
           owner, repo, issue_number: prNumber, name: label,
@@ -734,7 +804,6 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
         "listWorkflowRunsForHead",
         octokit.rest.actions.listWorkflowRunsForRepo,
         { owner, repo, head_sha: headOid },
-        (response) => response.data.workflow_runs,
       );
       const expectedHead = headOid.toLowerCase();
       return runs.filter((run) => (
@@ -805,6 +874,31 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
       return pullRequests.map((pullRequest) => positiveInteger(pullRequest.number, "open PR number"));
     },
 
+    async getConflictState(prNumber) {
+      positiveInteger(prNumber, "PR number");
+      const response = await call("getConflictState", () => octokit.graphql(`
+        query RepositoryAutomationConflictState($owner: String!, $repo: String!, $number: Int!) {
+          repository(owner: $owner, name: $repo) {
+            pullRequest(number: $number) {
+              number id state isDraft mergeable headRefOid baseRefName baseRefOid
+            }
+          }
+        }
+      `, { owner, repo, number: prNumber }), true);
+      const pullRequest = response?.repository?.pullRequest;
+      return {
+        number: positiveInteger(pullRequest?.number, "GraphQL PR number"),
+        nodeId: nonEmptyString(pullRequest?.id, "GraphQL PR node ID"),
+        repository: `${owner}/${repo}`.toLowerCase(),
+        state: nonEmptyString(pullRequest?.state, "GraphQL PR state").toUpperCase(),
+        draft: pullRequest?.isDraft,
+        headOid: nonEmptyString(pullRequest?.headRefOid, "GraphQL head OID").toLowerCase(),
+        baseBranch: nonEmptyString(pullRequest?.baseRefName, "GraphQL base branch"),
+        baseOid: nonEmptyString(pullRequest?.baseRefOid, "GraphQL base OID").toLowerCase(),
+        mergeability: nonEmptyString(pullRequest?.mergeable, "GraphQL mergeability").toUpperCase(),
+      };
+    },
+
     async getMergeState(prNumber) {
       positiveInteger(prNumber, "PR number");
       const response = await call("getMergeState", () => octokit.graphql(`
@@ -835,15 +929,17 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
 
     async getBranchProtection(branch) {
       nonEmptyString(branch, "branch");
-      try {
-        await call("getBranchProtection", () => octokit.rest.repos.getBranchProtection({
-          owner, repo, branch,
-        }), true);
-        return true;
-      } catch (error) {
-        if (error.status === 404) return false;
-        throw error;
+      // The branch endpoint only requires the workflow's Contents-read permission.
+      const response = await call("getBranchProtection", () => octokit.rest.repos.getBranch({
+        owner, repo, branch,
+      }), true);
+      if (response.data?.name !== branch) {
+        throw new Error("branch identity changed");
       }
+      if (typeof response.data.protected !== "boolean") {
+        throw new TypeError("branch protection flag must be a boolean");
+      }
+      return response.data.protected;
     },
 
     async getBranch(branch) {
@@ -864,14 +960,14 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
 
     async findMokkaPullRequests(head, base) {
       nonEmptyString(head, "Mokka head branch");
-      nonEmptyString(base, "Mokka base branch");
-      const pullRequests = await paginate("findMokkaPullRequests", octokit.rest.pulls.list, {
+      const query = {
         owner,
         repo,
         state: "all",
         head: `${owner}:${head}`,
-        base,
-      });
+      };
+      if (base !== undefined) query.base = nonEmptyString(base, "Mokka base branch");
+      const pullRequests = await paginate("findMokkaPullRequests", octokit.rest.pulls.list, query);
       return pullRequests.map(mappedMokkaPullRequest);
     },
 
@@ -962,19 +1058,6 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
         conclusion,
         output: { title: MERGE_POLICY_CHECK, summary },
       }), false);
-    },
-
-    async enableAutoMerge(nodeId, mergeMethod) {
-      nonEmptyString(nodeId, "pull request node ID");
-      if (mergeMethod !== "SQUASH") throw new TypeError("auto-merge method must be SQUASH");
-      await call("enableAutoMerge", () => octokit.graphql(`
-        mutation EnableAutoMerge($pullRequestId: ID!, $mergeMethod: PullRequestMergeMethod!) {
-          enablePullRequestAutoMerge(input: {
-            pullRequestId: $pullRequestId,
-            mergeMethod: $mergeMethod
-          }) { clientMutationId }
-        }
-      `, { pullRequestId: nodeId, mergeMethod }), false);
     },
 
     async disableAutoMerge(nodeId) {

@@ -1,0 +1,7 @@
+kind: Changed
+body: |-
+  nvml-mock: `device_defaults.architecture` accepts `rubin` and matches
+    case-insensitively with surrounding whitespace trimmed. Such values used to
+    degrade silently to `NVML_DEVICE_ARCH_UNKNOWN`, failing every
+    architecture-gated feature.
+time: 2026-09-29T07:10:00Z

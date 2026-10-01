@@ -70,7 +70,7 @@ Testing device lookup by UUID / PCI Bus ID...
   PASS  errstr/SUCCESS
   PASS  boundary/uuid_invalid (correctly returned: ERROR_NOT_FOUND)
   ... (additional bridge cases)
-=== Bridge Tests: 29 passed, 0 failed ===
+=== Bridge Tests: 29 passed, 0 skipped, 0 failed ===
 
 ✓ checkProcessUtilization: pid=4242 smUtil=75 memUtil=40
 
@@ -95,3 +95,8 @@ The test uses a multi-stage Docker build:
 3. **runtime**: Debian slim image with the library and test binary
 
 This ensures the library is built for Linux (ELF format) even when running on macOS.
+
+Build the test binary through Docker rather than with a bare `go build` here: the
+MIG ABI tests include the library's own `nvml_types.h`, which the **test-builder**
+stage copies in from `pkg/gpu/mocknvml/bridge/` and which is not present in this
+directory.

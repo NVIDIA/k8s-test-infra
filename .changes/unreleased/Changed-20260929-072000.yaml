@@ -1,0 +1,6 @@
+kind: Changed
+body: |-
+  Helm charts are published by a dedicated `helm-publish` workflow on pushes to
+    `main` and on `v*` tags, so a release branch publishes its charts when it is
+    tagged. Every push to `main` re-publishes the current chart versions.
+time: 2026-09-29T07:20:00Z

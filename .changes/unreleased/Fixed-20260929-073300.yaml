@@ -1,0 +1,7 @@
+kind: Fixed
+body: |-
+  nvml-mock: a single GPU can again be partitioned through its `devices[]`
+    entry. A per-device `mig` block now merges with the board's field by field,
+    inheriting the partition table, instead of replacing it and leaving that GPU
+    without MIG.
+time: 2026-09-29T07:33:00Z

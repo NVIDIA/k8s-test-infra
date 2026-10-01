@@ -1,0 +1,7 @@
+kind: Fixed
+body: |-
+  helm: `gpu.mig.gpuInstances` refuses `count: 0`, which the engine read as one
+    and which could take the slices another entry needed. Drop the entry
+    instead. Both the values schema and the render check it, so
+    `--skip-schema-validation` does not bypass it.
+time: 2026-09-29T07:30:00Z

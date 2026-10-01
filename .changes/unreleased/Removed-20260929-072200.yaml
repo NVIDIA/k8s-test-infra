@@ -1,0 +1,6 @@
+kind: Removed
+body: |-
+  The `tests/e2e/validate-*.sh`, `tests/e2e/spike-*.sh` and `tests/redeploy.sh`
+    scripts, replaced by the Go suite under `tests/e2e/go`. Their fabric checks
+    now run as specs under the `ibfabric` label.
+time: 2026-09-29T07:22:00Z

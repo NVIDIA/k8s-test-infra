@@ -102,8 +102,9 @@ func TestRender_PCIAttributeFiles(t *testing.T) {
 		}},
 	}
 	ids := map[string]PCI{
-		// H100 SXM: device_id 0x233010DE, subsystem_id 0x165810DE.
-		"0000:1a:00.0": {BusID: "0000:1A:00.0", DeviceID: 0x233010DE, SubsystemID: 0x165810DE},
+		// H100 SXM, as qx-h100.xml reports it: device_id 0x233010DE,
+		// subsystem_id 0x16C110DE.
+		"0000:1a:00.0": {BusID: "0000:1A:00.0", DeviceID: 0x233010DE, SubsystemID: 0x16C110DE},
 	}
 	require.NoError(t, Render(Options{Topology: topo, Identities: ids, OverlayRoot: dir}), "Render")
 
@@ -117,7 +118,7 @@ func TestRender_PCIAttributeFiles(t *testing.T) {
 	mustRead("vendor", "0x10de\n")
 	mustRead("device", "0x2330\n")
 	mustRead("subsystem_vendor", "0x10de\n")
-	mustRead("subsystem_device", "0x1658\n")
+	mustRead("subsystem_device", "0x16c1\n")
 	mustRead("class", "0x030200\n")
 	mustRead("revision", "0x00\n")
 	mustRead("irq", "0\n")
@@ -141,7 +142,7 @@ func TestRender_PCIAttributeFiles(t *testing.T) {
 	require.Equal(t, byte(0x03), cfg[0x0b], "config class base")
 	require.Equal(t, byte(0x02), cfg[0x0a], "config subclass")
 	require.Equal(t, uint16(0x10de), binary.LittleEndian.Uint16(cfg[0x2c:]), "config subsystem vendor")
-	require.Equal(t, uint16(0x1658), binary.LittleEndian.Uint16(cfg[0x2e:]), "config subsystem device")
+	require.Equal(t, uint16(0x16c1), binary.LittleEndian.Uint16(cfg[0x2e:]), "config subsystem device")
 }
 
 // TestRender_PCIAttributeFilesDefaultVendor ensures a device present in the
@@ -164,6 +165,44 @@ func TestRender_PCIAttributeFilesDefaultVendor(t *testing.T) {
 	got, err = os.ReadFile(filepath.Join(devDir, "device"))
 	require.NoError(t, err, "read device")
 	require.Equal(t, "0x0000\n", string(got), "device without identity")
+	got, err = os.ReadFile(filepath.Join(devDir, "class"))
+	require.NoError(t, err, "read class")
+	require.Equal(t, "0x030200\n", string(got), "class should default to a GPU's")
+}
+
+// TestRender_BridgeClass covers the NVSwitches an HGX baseboard puts on the
+// node's PCIe bus: the text and binary class must both say bridge, which is
+// what makes `lspci` print "Bridge: NVIDIA Corporation GH100 [H100 NVSwitch]"
+// rather than filing the switch under the node's GPUs.
+func TestRender_BridgeClass(t *testing.T) {
+	dir := t.TempDir()
+	topo := &PCIeTopology{
+		RootComplexes: []RootComplex{{
+			ID: "pci0000:00", NUMANode: 0,
+			Devices: []string{"0000:05:00.0"},
+		}},
+	}
+	ids := map[string]PCI{
+		// H100 NVSwitch: 10de:22a3, no subsystem of its own.
+		"0000:05:00.0": {BusID: "0000:05:00.0", DeviceID: 0x22a310de, Class: PCIClassBridge},
+	}
+	require.NoError(t, Render(Options{Topology: topo, Identities: ids, OverlayRoot: dir}), "Render")
+
+	devDir := filepath.Join(dir, "sys/devices/pci0000:00/0000:05:00.0")
+	class, err := os.ReadFile(filepath.Join(devDir, "class"))
+	require.NoError(t, err, "read class")
+	require.Equal(t, "0x068000\n", string(class))
+
+	device, err := os.ReadFile(filepath.Join(devDir, "device"))
+	require.NoError(t, err, "read device")
+	require.Equal(t, "0x22a3\n", string(device))
+
+	cfg, err := os.ReadFile(filepath.Join(devDir, "config"))
+	require.NoError(t, err, "read config")
+	require.Equal(t, byte(0x06), cfg[0x0b], "config class base")
+	require.Equal(t, byte(0x80), cfg[0x0a], "config subclass")
+	require.Equal(t, byte(0x00), cfg[0x0e],
+		"an NVSwitch is a PCI endpoint despite the bridge class, so header type stays 0")
 }
 
 func TestRender_IdempotentRerender(t *testing.T) {
