@@ -147,6 +147,11 @@ function policyFailureNames(result) {
   return failures;
 }
 
+function validAuthorContext(value) {
+  if (typeof value !== "string" || /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(value)) return false;
+  return GITHUB_LOGIN.test(value.endsWith("[bot]") ? value.slice(0, -5) : value);
+}
+
 function validateLivePullRequest(pullRequest, identity) {
   if (
     pullRequest === null
@@ -156,8 +161,7 @@ function validateLivePullRequest(pullRequest, identity) {
     || pullRequest.state !== "open"
     || typeof pullRequest.draft !== "boolean"
     || typeof pullRequest.title !== "string"
-    || typeof pullRequest.author !== "string"
-    || !GITHUB_LOGIN.test(pullRequest.author)
+    || !validAuthorContext(pullRequest.author)
     || typeof pullRequest.headOid !== "string"
     || pullRequest.headOid === ""
     || pullRequest.baseRepository?.owner?.toLowerCase() !== identity.owner

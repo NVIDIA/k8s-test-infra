@@ -308,6 +308,12 @@ test("requires a valid invocation-only pull request author before resolving owne
     ["unsafe control", "alice\u001b[31m", true],
     ["malformed login", "alice--admin", true],
   ];
+  for (const author of [
+    "[bot]", "bad--login[bot]", "bad_login[bot]", "-bad[bot]", "bad-[bot]",
+    "a".repeat(40) + "[bot]", "alice[bot][bot]", "alice[bot]\n", "alice[BOT]",
+  ]) {
+    invalidAuthors.push([`malformed bot ${JSON.stringify(author)}`, author, true]);
+  }
   const ownerFiles = [parseOwnersFile(
     "reviewers: [pr-author]\napprovers: [PR-AUTHOR]\n",
     "/OWNERS",
@@ -336,6 +342,31 @@ test("requires a valid invocation-only pull request author before resolving owne
       );
     });
   }
+});
+
+test("a bot PR author is context and does not change human OWNERS candidates", () => {
+  const ownerFiles = [parseOwnersFile(
+    "reviewers: [dependabot, alice]\napprovers: [bob]\n",
+    "/OWNERS",
+  )];
+  assert.deepEqual(resolveOwners(
+    ["file.go"],
+    ownerFiles,
+    new Map(),
+    resolutionPolicy(["/OWNERS"], "Dependabot[bot]"),
+  ), {
+    files: [{ path: "file.go", reviewers: ["alice", "dependabot"], approvers: ["bob"] }],
+    reviewerCandidates: ["alice", "dependabot"],
+    approverCandidates: ["bob"],
+    uncoveredPaths: [],
+  });
+});
+
+test("bot author context does not permit bot OWNERS or alias authority", () => {
+  for (const field of ["reviewers", "approvers"]) {
+    assert.throws(() => parseOwnersFile(`${field}: ["dependabot[bot]"]\n`, "/OWNERS"), /GitHub login/i);
+  }
+  assert.throws(() => parseAliases('aliases: {bots: ["dependabot[bot]"]}\n'), /GitHub login/i);
 });
 
 test("excludes the PR author case-insensitively and reports author-only coverage missing", () => {

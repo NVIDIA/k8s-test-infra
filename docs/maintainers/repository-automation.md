@@ -112,6 +112,38 @@ Approval labels remain part of the guarded merge evaluator. They require its
 activation gates and current validated human review or command evidence. A
 metadata backfill does not grant approval or enable auto-merge.
 
+## LGTM in pull request reviews
+
+The merge evaluator accepts an explicit `/lgtm` line in the current body of an
+`APPROVED` or `COMMENTED` review. The reviewer must be a verified human, a current
+OWNERS reviewer or approver for the changed files, and not the pull request
+author. The review must refer to the current pull request head. Human reviews
+can grant evidence on a pull request authored by a bot.
+
+Review LGTM is separate from native approval coverage. An approving review
+without `/lgtm` does not grant LGTM. A `COMMENTED` review with `/lgtm` does not
+grant approval. Other commands in review bodies are not executed. Quoted or
+fenced commands do not count, and invalid command syntax does not grant review
+LGTM. `/lgtm cancel` is not a supported command.
+
+The latest submitted review from each actor replaces that actor's older review
+LGTM. Submission time determines the order; the higher review ID breaks a tie.
+A pending review does not replace submitted evidence. The evaluator reads the
+current review body, state, author, commit, and submission time again after
+label changes, before the success check, and after that check. Removing or
+replacing `/lgtm`, dismissing the review, or changing the pull request head
+removes that review evidence. Review commands are not stored as historical
+authority in the policy comment. Stored
+issue-comment LGTM remains separate and must pass its existing live checks.
+
+Bot-authored pull requests can receive metadata labels and human reviewer
+requests. Bot reviews are validated and then excluded from human approval
+evidence. A bot cannot provide OWNERS, reviewer, approver, or LGTM authority.
+
+Current metadata evidence does not require an earlier conversation command.
+A trusted metadata comment can have no command-state record. Unknown,
+malformed, duplicate, or wrong-context command-state records remain blocked.
+
 ## Mokka dispatch contract
 
 Start **Mokka cherry-pick** only from `main`. The caller supplies the `main`

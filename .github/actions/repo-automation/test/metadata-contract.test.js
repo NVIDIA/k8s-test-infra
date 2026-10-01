@@ -223,6 +223,83 @@ test("dry-run returns the complete plan and performs zero writes", async () => {
   assert.deepEqual(mutations(github), []);
 });
 
+test("metadata accepts the live Dependabot author and plans human reviewers", async (t) => {
+  const { runMetadata } = require("../src/modes/metadata.js");
+  const { parseMetadataHeadEvidence } = require("../src/policy-comment.js");
+  const headOid = "ca41accf117bd74cf30c9af86a06640a4be5944f";
+  const botEvent = {
+    ...event,
+    number: 973,
+    pull_request: { ...event.pull_request, number: 973 },
+  };
+  for (const dryRun of [true, false]) {
+    await t.test(dryRun ? "dry-run" : "apply", async () => {
+      const github = createFakeGitHub(metadataState({
+        pullRequest: {
+          ...metadataState().pullRequest,
+          number: 973,
+          author: "dependabot[bot]",
+          headOid,
+          draft: false,
+          title: "chore(deps): bump dependency",
+        },
+        commitPages: [[signedCommit({
+          sha: headOid,
+          commit: {
+            author: {
+              name: "dependabot[bot]",
+              email: "49699333+dependabot[bot]@users.noreply.github.com",
+            },
+            message: "chore(deps): bump dependency",
+          },
+          author: { login: "dependabot[bot]" },
+        })]],
+        requestedReviewers: ["alice"],
+        contents: {
+          "/OWNERS": "reviewers: [alice, bob]\napprovers: [alice, bob]\n",
+          "/OWNERS_ALIASES": "aliases: {}\n",
+        },
+      }));
+      const result = await runMetadata({
+        event: botEvent, github, config: loadConfig(repositoryRoot), dryRun,
+      });
+      assert.equal(result.valid, true);
+      assert.equal(result.headOid, headOid);
+      assert.deepEqual(result.dco, { valid: true, failures: [], exempted: [headOid] });
+      assert.deepEqual(result.reviewers, { request: ["bob"], preserved: ["alice"] });
+      assert.equal(parseMetadataHeadEvidence(result.comment.body), headOid);
+      assert.equal(result.labels.add.includes("kind/dependencies"), true);
+      assert.equal(result.apply.status, dryRun ? "planned" : "complete");
+      assert.equal(github.calls.upsertPolicyComment.length, dryRun ? 0 : 1);
+      assert.deepEqual(github.calls.requestReviewers, dryRun ? [] : [
+        { prNumber: 973, reviewers: ["bob"] },
+      ]);
+      if (dryRun) assert.deepEqual(mutations(github), []);
+    });
+  }
+});
+
+test("metadata rejects malformed bot authors before reads or writes", async () => {
+  const { runMetadata } = require("../src/modes/metadata.js");
+  const malformed = [
+    "[bot]", "bad--login[bot]", "bad_login[bot]", "-bad[bot]", "bad-[bot]",
+    "a".repeat(40) + "[bot]", "alice[bot][bot]", "alice[bot]\n", "alice\n[bot]",
+    "alice\u202e[bot]", "alice[BOT]",
+  ];
+  for (const author of malformed) {
+    const github = createFakeGitHub(metadataState({
+      pullRequest: { ...metadataState().pullRequest, author },
+    }));
+    await assert.rejects(() => runMetadata({
+      event, github, config: loadConfig(repositoryRoot), dryRun: true,
+    }), (error) => {
+      assert.equal(error.message, "live pull request state or base repository is invalid");
+      return true;
+    });
+    assert.deepEqual(github.callOrder.map(({ operation }) => operation), ["getPullRequest"]);
+  }
+});
+
 test("a read failure aborts before every mutation", async () => {
   const { runMetadata } = require("../src/modes/metadata.js");
   const failure = Object.assign(new Error("permanent files failure"), { status: 422 });

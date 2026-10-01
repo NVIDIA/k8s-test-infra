@@ -98,6 +98,7 @@ function mockOctokit(overrides = {}) {
         state: "APPROVED",
         commit_id: "a".repeat(40),
         submitted_at: "2026-09-17T09:00:00Z",
+        body: "/lgtm\n\nReviewed the current changes.",
       }),
       list: response("listPullRequests", [{ number: 42 }, { number: 44 }]),
       create: response("createPullRequest", {
@@ -210,7 +211,25 @@ test("maps live command and approval provenance", async () => {
     state: "APPROVED",
     commitOid: "a".repeat(40),
     submittedAt: "2026-09-17T09:00:00Z",
+    body: "/lgtm\n\nReviewed the current changes.",
   });
+});
+
+test("keeps unavailable live review bodies unknown", async () => {
+  for (const body of [undefined, null, 42, {}]) {
+    const { octokit } = mockOctokit({ rest: { pulls: {
+      getReview: async () => ({ data: {
+        id: 501,
+        user: { login: "Alice" },
+        state: "APPROVED",
+        commit_id: "a".repeat(40),
+        submitted_at: "2026-09-17T09:00:00Z",
+        body,
+      } }),
+    } } });
+    const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+    assert.equal((await client.getPullRequestReview(42, 501)).body, null);
+  }
 });
 
 test("exposes only managed policy labels and native auto-merge disarm", async () => {
@@ -497,6 +516,43 @@ test("refetches only a bounded evaluator workflow identity", async () => {
 
   workflowPath = ".github/workflows/pr-metadata.yml@refs/heads/main@spoof";
   assert.equal(await client.getEvaluationWorkflowRun(702), null);
+});
+
+test("accepts exact evaluator workflow paths returned by the live REST API", async () => {
+  let workflowPath = ".github/workflows/review-observer.yml";
+  const { octokit } = mockOctokit({ rest: { actions: {
+    getWorkflowRun: async () => ({ data: {
+      id: 702,
+      name: "Review observer",
+      path: workflowPath,
+      event: "pull_request_review",
+      status: "completed",
+      pull_requests: [{ number: 42 }],
+      repository: { full_name: "NVIDIA/k8s-test-infra" },
+    } }),
+  } } });
+  const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+  assert.deepEqual(await client.getEvaluationWorkflowRun(702), {
+    id: 702,
+    name: "Review observer",
+    workflowPath: ".github/workflows/review-observer.yml",
+    workflowSourceRef: null,
+    event: "pull_request_review",
+    status: "completed",
+    repository: "nvidia/k8s-test-infra",
+    pullRequestNumbers: [42],
+  });
+  for (const path of [
+    ".github/workflows/untrusted.yml",
+    "../.github/workflows/review-observer.yml",
+    ".github/workflows/review-observer.yml@",
+    ".github/workflows/review-observer.yml@refs/heads/main@spoof",
+    ".github/workflows/review-observer.yml@refs/heads/../main",
+    ".github/workflows/review-observer.yml\n",
+  ]) {
+    workflowPath = path;
+    assert.equal(await client.getEvaluationWorkflowRun(702), null, path);
+  }
 });
 
 test("exposes bounded branch and backport pull-request operations", async () => {

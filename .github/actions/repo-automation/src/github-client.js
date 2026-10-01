@@ -195,6 +195,11 @@ function safeWorkflowSourceRef(value) {
 function evaluatorWorkflowIdentity(value) {
   if (typeof value !== "string" || value.length > 512 || /[\0\r\n\\]/.test(value)) return null;
   const separator = value.indexOf("@");
+  if (separator === -1) {
+    return EVALUATOR_WORKFLOW_PATHS.has(value)
+      ? { workflowPath: value, workflowSourceRef: null }
+      : null;
+  }
   if (separator <= 0 || value.indexOf("@", separator + 1) !== -1) return null;
   const workflowPath = value.slice(0, separator);
   const workflowSourceRef = safeWorkflowSourceRef(value.slice(separator + 1));
@@ -637,7 +642,10 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
       const response = await call("getPullRequestReview", () => octokit.rest.pulls.getReview({
         owner, repo, pull_number: prNumber, review_id: reviewId,
       }), true);
-      return mappedReview(response.data);
+      return {
+        ...mappedReview(response.data),
+        body: typeof response.data?.body === "string" ? response.data.body : null,
+      };
     },
 
     async getIssueComment(commentId) {
