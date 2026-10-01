@@ -128,6 +128,40 @@ test("preserves only eligible non-author requests and counts them toward the tar
   assert.deepEqual(result.uncoveredPaths, []);
 });
 
+test("a bot PR author keeps human reviewer selection and existing requests", () => {
+  assert.deepEqual(selection({
+    author: "Dependabot[bot]",
+    candidates: ["dependabot", "alice", "bob"],
+    files: [
+      changedFile("one.go", ["alice", "bob"]),
+      changedFile("two.go", ["dependabot"]),
+    ],
+    requested: ["ALICE"],
+  }), {
+    selected: ["dependabot"],
+    preserved: ["alice"],
+    uncoveredPaths: [],
+  });
+});
+
+test("bot author context does not grant bot reviewer or seed authority", () => {
+  const bot = "dependabot[bot]";
+  assert.throws(() => selection({ candidates: [bot] }), /candidate.*login/i);
+  assert.throws(() => selection({ files: [changedFile("one.go", [bot])] }), /reviewer.*login/i);
+  assert.throws(() => selection({ requested: [bot] }), /requested.*login/i);
+  assert.throws(() => selection({ seed: { owner: bot, repo: "repo", pr: 973 } }), /seed owner.*login/i);
+});
+
+test("rejects malformed bot author context without echo", () => {
+  for (const author of [
+    "[bot]", "bad--login[bot]", "bad_login[bot]", "-bad[bot]", "bad-[bot]",
+    "a".repeat(40) + "[bot]", "alice[bot][bot]", "alice[bot]\n", "alice\n[bot]",
+    "alice\u202e[bot]", "alice[BOT]",
+  ]) {
+    assertSafeTypeError(() => selection({ author }), author);
+  }
+});
+
 test("breaks equal-coverage requested ties deterministically regardless of input order", () => {
   const variants = [
     {

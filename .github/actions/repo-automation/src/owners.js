@@ -297,7 +297,11 @@ function normalizePolicy(policy) {
     activeOwnerFiles.add(normalizeOwnerPath(ownerPath));
   }
 
-  if (!isSafeText(policy.pullRequestAuthor) || !GITHUB_LOGIN.test(policy.pullRequestAuthor)) {
+  const authorLogin = isSafeText(policy.pullRequestAuthor)
+    && policy.pullRequestAuthor.endsWith("[bot]")
+    ? policy.pullRequestAuthor.slice(0, -5)
+    : policy.pullRequestAuthor;
+  if (!isSafeText(policy.pullRequestAuthor) || !GITHUB_LOGIN.test(authorLogin)) {
     throw new TypeError("policy.pullRequestAuthor must be a GitHub login");
   }
   const pullRequestAuthor = policy.pullRequestAuthor.toLowerCase();

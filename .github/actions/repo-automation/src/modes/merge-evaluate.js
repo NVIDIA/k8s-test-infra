@@ -155,7 +155,10 @@ function validatePullRequest(pullRequest, number, repository) {
     || pullRequest.number !== number
     || typeof pullRequest.draft !== "boolean"
     || typeof pullRequest.author !== "string"
-    || !LOGIN.test(pullRequest.author)
+    || !(
+      LOGIN.test(pullRequest.author)
+      || (pullRequest.author.endsWith("[bot]") && LOGIN.test(pullRequest.author.slice(0, -5)))
+    )
     || typeof pullRequest.headOid !== "string"
     || !OID.test(pullRequest.headOid)
     || typeof pullRequest.baseBranch !== "string"
@@ -313,6 +316,65 @@ async function validReviewApprovers({ github, effectiveReviews, ownership, pullR
   return result;
 }
 
+// Native approval ignores COMMENTED after a decision. Explicit review LGTM uses
+// the latest submitted review body instead, so removal or replacement revokes it.
+function latestSubmittedReviews(reviews) {
+  const byActor = new Map();
+  for (const review of reviews
+    .filter((candidate) => candidate.state !== "PENDING")
+    .toSorted((left, right) => (
+      Date.parse(left.submittedAt) - Date.parse(right.submittedAt) || left.id - right.id
+    ))) {
+    byActor.set(review.user.toLowerCase(), { ...review, user: review.user.toLowerCase() });
+  }
+  return [...byActor.values()];
+}
+
+async function validReviewLgtms({ github, reviews, ownership, pullRequest, context }) {
+  const validated = [];
+  const approvers = new Set(ownership.approverCandidates);
+  for (const candidate of latestSubmittedReviews(reviews)) {
+    const actor = candidate.user;
+    const actorRole = approvers.has(actor) ? "approver" : "reviewer";
+    if (
+      !["APPROVED", "COMMENTED"].includes(candidate.state)
+      || candidate.commitOid !== pullRequest.headOid
+      || actor === pullRequest.author.toLowerCase()
+      || !currentRoleAllows({ actor, actorRole }, "lgtm", ownership)
+    ) continue;
+    try {
+      const [review, identity] = await Promise.all([
+        github.getPullRequestReview(pullRequest.number, candidate.id),
+        github.getUserIdentity(actor),
+      ]);
+      if (
+        review?.id !== candidate.id
+        || review.user !== actor
+        || review.state !== candidate.state
+        || review.commitOid !== pullRequest.headOid
+        || review.submittedAt !== candidate.submittedAt
+        || !validHumanIdentity(identity, actor)
+      ) continue;
+      const parsed = parseCommands(review.body);
+      if (
+        parsed.diagnostics.length !== 0
+        || !parsed.commands.some((command) => command.name === "lgtm")
+      ) continue;
+      validated.push({
+        ...context,
+        actor,
+        actorRole,
+        sourceType: "review",
+        sourceId: review.id,
+        createdAt: new Date(review.submittedAt).toISOString(),
+      });
+    } catch {
+      // Missing live review or human identity cannot grant LGTM.
+    }
+  }
+  return validated;
+}
+
 function approvalCoverage(ownership, approvers) {
   return ownership.uncoveredPaths.length === 0
     && ownership.files.every((file) => file.approvers.some((actor) => approvers.has(actor)));
@@ -323,6 +385,9 @@ function policyCommentState(comment, context) {
     typeof comment?.body !== "string"
     || comment.body.split(POLICY_COMMENT_MARKER).length - 1 !== 1
   ) return { state: null, metadataHead: null };
+  if (comment.body.split("<!-- repo-automation-state:").length - 1 === 0) {
+    return { state: null, metadataHead: parseMetadataHeadEvidence(comment.body) };
+  }
   const state = parsePolicyState(comment.body);
   if (
     state === null
@@ -412,18 +477,21 @@ async function loadAuthority({ github, config, repository, pullRequest }) {
     headOid: pullRequest.headOid,
     author: pullRequest.author,
   });
-  const reviewApprovers = await validReviewApprovers({
-    github,
-    effectiveReviews: reviewResult.effectiveReviews,
-    ownership,
-    pullRequest,
-  });
+  const [reviewApprovers, reviewLgtms] = await Promise.all([
+    validReviewApprovers({
+      github,
+      effectiveReviews: reviewResult.effectiveReviews,
+      ownership,
+      pullRequest,
+    }),
+    validReviewLgtms({ github, reviews, ownership, pullRequest, context }),
+  ]);
   const approvers = new Set([...approvals.map((record) => record.actor), ...reviewApprovers]);
   const hold = parsed.state === null ? null : currentHold(parsed.state, context);
   return {
     labels,
-    lgtm: lgtms[0] ?? null,
-    lgtmOwned: parsed.state !== null,
+    lgtm: lgtms[0] ?? reviewLgtms[0] ?? null,
+    lgtmOwned: parsed.state !== null || reviewLgtms.length > 0,
     approved: approvalCoverage(ownership, approvers),
     holdActive: hold !== null,
     metadataHead: parsed.metadataHead,
@@ -690,38 +758,39 @@ async function applyPermissive({ github, config, repository, evaluation, dryRun 
   if (dryRun) return resultFor(reread);
 
   await applyLabels(github, reread.pullRequest.number, reread.labels);
+  const beforeSuccess = await loadEvaluation({
+    github,
+    config,
+    repository,
+    number: reread.pullRequest.number,
+  });
+  if (
+    !sameHeadIdentity(reread.pullRequest, beforeSuccess.pullRequest)
+    || beforeSuccess.graph.headOid !== reread.pullRequest.headOid
+  ) {
+    return headChangedResult(reread);
+  }
+  if (beforeSuccess.merge.blockers.length > 0) {
+    return applyRestrictive({ github, repository, evaluation: beforeSuccess, dryRun });
+  }
   await github.setMergePolicyCheck(
-    reread.pullRequest.number,
-    reread.pullRequest.headOid,
+    beforeSuccess.pullRequest.number,
+    beforeSuccess.pullRequest.headOid,
     "success",
     SUCCESS_SUMMARY,
   );
-  const finalPullRequest = validatePullRequest(
-    await github.getPullRequest(reread.pullRequest.number),
-    reread.pullRequest.number,
+  const finalEvaluation = await loadEvaluation({
+    github,
+    config,
     repository,
-  );
-  const finalGraph = validateGraphState(
-    await github.getMergeState(reread.pullRequest.number),
-    finalPullRequest,
-    repository,
-  );
+    number: beforeSuccess.pullRequest.number,
+  });
   if (
-    !sameHeadIdentity(reread.pullRequest, finalPullRequest)
-    || finalGraph.headOid !== reread.pullRequest.headOid
-  ) return headChangedResult(reread);
-  const finalEvaluation = {
-    ...reread,
-    pullRequest: finalPullRequest,
-    graph: finalGraph,
-    merge: toMergeDecision({
-      config,
-      pullRequest: finalPullRequest,
-      graph: finalGraph,
-      authority: reread.authority,
-      protectedBranch: reread.protectedBranch,
-    }),
-  };
+    !sameHeadIdentity(beforeSuccess.pullRequest, finalEvaluation.pullRequest)
+    || finalEvaluation.graph.headOid !== beforeSuccess.pullRequest.headOid
+  ) {
+    return headChangedResult(beforeSuccess);
+  }
   if (finalEvaluation.merge.blockers.length > 0) {
     return applyRestrictive({ github, repository, evaluation: finalEvaluation, dryRun });
   }

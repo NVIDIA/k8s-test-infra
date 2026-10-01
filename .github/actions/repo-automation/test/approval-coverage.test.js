@@ -171,6 +171,107 @@ test("a later COMMENTED review preserves an approval but never creates one", () 
   assert.deepEqual(commentOnly.effectiveReviews.map(({ state }) => state), ["COMMENTED"]);
 });
 
+test("a live Greptile COMMENTED review does not reject a current human approval", () => {
+  const result = evaluation({
+    reviews: [
+      review(1, "alice", "APPROVED"),
+      review(
+        5376218549,
+        "greptile-apps[bot]",
+        "COMMENTED",
+        "e8dd3df74970534d36afc3bbcbcbb25453a02c37",
+        "2026-10-01T07:29:36Z",
+      ),
+    ],
+  });
+  assert.equal(result.approved, true);
+  assert.deepEqual(result.coveredPaths, ["src/main.go"]);
+  assert.deepEqual(result.effectiveReviews, [effectiveReview("alice")]);
+});
+
+test("bot reviews never provide human approval or effective review evidence", async (t) => {
+  for (const state of ["APPROVED", "COMMENTED", "CHANGES_REQUESTED", "DISMISSED", "PENDING"]) {
+    await t.test(state, () => {
+      const botReview = state === "PENDING"
+        ? pendingReview(1, "greptile-apps[bot]")
+        : review(1, "greptile-apps[bot]", state);
+      assert.deepEqual(evaluation({
+        files: [changedFile("src/main.go", ["greptile-apps"])],
+        reviews: [botReview],
+      }), {
+        approved: false,
+        effectiveReviews: [],
+        coveredPaths: [],
+        uncoveredPaths: ["src/main.go"],
+      });
+    });
+  }
+});
+
+test("bot review fields remain validated before excluding their authority", async (t) => {
+  const botReview = review(1, "greptile-apps[bot]", "COMMENTED");
+  const cases = [
+    ["unknown field", { ...botReview, body: "/approve" }, /review.*unknown/i],
+    ["zero id", { ...botReview, id: 0 }, /review id.*positive safe integer/i],
+    ["unsafe id", { ...botReview, id: Number.MAX_SAFE_INTEGER + 1 }, /review id.*positive safe integer/i],
+    ["invalid state", { ...botReview, state: "OUTDATED" }, /review state/i],
+    ["invalid OID", { ...botReview, commitOid: "main" }, /review commit OID/i],
+    ["missing OID", { ...botReview, commitOid: undefined }, /review commit OID/i],
+    ["invalid timestamp", { ...botReview, submittedAt: "2026-02-30T10:01:00Z" }, /review submitted time/i],
+    ["missing timestamp", { ...botReview, submittedAt: undefined }, /review submitted time/i],
+    ["submitted pending", { ...botReview, state: "PENDING" }, /pending review.*unsubmitted/i],
+  ];
+  for (const [name, item, expected] of cases) {
+    await t.test(name, () => {
+      assert.throws(() => evaluation({ reviews: [item] }), expected);
+    });
+  }
+  await t.test("duplicate bot and human review IDs", () => {
+    assert.throws(() => evaluation({
+      reviews: [botReview, review(1, "alice", "APPROVED")],
+    }), /review id.*unique/i);
+  });
+});
+
+test("accepts a bot PR author as context for human approval coverage", () => {
+  const result = evaluation({ author: "Dependabot[bot]" });
+  assert.equal(result.approved, true);
+});
+
+test("accepts a bot PR author as context for human approver selection", () => {
+  assert.deepEqual(selection({
+    author: "Dependabot[bot]",
+    effectiveReviews: [effectiveReview("alice")],
+  }), { selected: [], uncoveredPaths: [] });
+  assert.deepEqual(selection({
+    author: "Dependabot[bot]",
+    files: [changedFile("src/main.go", ["dependabot"])],
+  }), { selected: ["dependabot"], uncoveredPaths: [] });
+});
+
+test("rejects malformed bot identities in review and author context without echo", () => {
+  const malformed = [
+    "[bot]", "bad--login[bot]", "bad_login[bot]", "-bad[bot]",
+    "bad-[bot]", "a".repeat(40) + "[bot]", "alice[bot][bot]",
+    "alice[bot]\n", "alice\u202e[bot]", "alice[BOT]",
+  ];
+  for (const user of malformed) {
+    assertSafeTypeError(() => evaluation({ reviews: [review(1, user, "COMMENTED")] }), user);
+    assertSafeTypeError(() => evaluation({ author: user }), user);
+    assertSafeTypeError(() => selection({ author: user }), user);
+  }
+});
+
+test("bot actor support does not widen human approver or request authority", () => {
+  assert.throws(() => evaluation({
+    files: [changedFile("src/main.go", ["greptile-apps[bot]"])],
+  }), /approver.*login/i);
+  assert.throws(() => selection({ requested: ["greptile-apps[bot]"] }), /requested.*login/i);
+  assert.throws(() => selection({
+    effectiveReviews: [effectiveReview("greptile-apps[bot]")],
+  }), /effective review user.*login/i);
+});
+
 test("ignores REST-valid unsubmitted PENDING reviews before or after approval", () => {
   const variants = [
     [pendingReview(2, "ALICE"), review(1, "alice", "APPROVED")],

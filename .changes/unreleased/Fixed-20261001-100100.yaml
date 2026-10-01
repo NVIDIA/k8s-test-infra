@@ -1,0 +1,3 @@
+kind: Fixed
+body: Accept explicit LGTM in current human pull request reviews, reconcile bot-authored pull request metadata, accept current metadata without a prior command record, and recognize trusted workflow completion paths while keeping approval authority human and revoking stale review evidence.
+time: 2026-10-01T10:01:00.000000+02:00
