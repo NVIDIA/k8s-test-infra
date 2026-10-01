@@ -13,4 +13,4 @@
 - [ ] Linter passes (`make lint-fix`)
 - [ ] New code has SPDX license headers
 - [ ] Documentation updated (if applicable)
-- [ ] CHANGELOG.md updated (if user-facing change)
+- [ ] Changelog fragment added with `make changelog` (if user-facing change)

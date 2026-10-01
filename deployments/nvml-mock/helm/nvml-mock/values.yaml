@@ -121,10 +121,10 @@ nodeLabels:
   featuresDir: /etc/kubernetes/node-feature-discovery/features.d
 
 # Node-wide ambient injection via containerd NRI. When enabled, a lightweight
-# node-local plugin appends the nvml-mock overlay mount and environment to each
-# container at runtime without mutating pod specs. Opt-in (default false): it
-# injects into workloads cluster-wide, so enable it only for the
-# node-wide-injection demo/use case. See docs/guides/node-wide-injection.
+# sidecar in the node DaemonSet appends the nvml-mock overlay mount and
+# environment to each container at runtime without mutating pod specs. Opt-in
+# (default false): it injects into workloads cluster-wide, so enable it only for
+# the node-wide-injection demo/use case. See docs/guides/node-wide-injection.
 
 nodeAgent:
   # -- Node-agent logging settings and lifecycle behavior.
@@ -259,7 +259,7 @@ nri:
   excludedNamespaces: []
   # -- Additional NRI plugin resources.
   resources: {}
-  # Port serving the plugin's /healthz and /readyz endpoints. The NRI DaemonSet
+  # Port serving the plugin's /healthz and /readyz endpoints. The node DaemonSet
   # does not use host networking, so this port lives only inside the pod's own
   # network namespace: it is reachable by the kubelet on the pod IP and is not
   # bound on the node.
@@ -280,25 +280,28 @@ nri:
   #
   # Set either to null to drop that probe (an empty map merges with the
   # default rather than replacing it).
-  readinessProbe:
-    httpGet:
-      # -- Readiness endpoint path.
-      path: /readyz
-      # -- Readiness endpoint port name.
-      port: health
-    # -- Readiness probe interval.
+  #
+  # The chart rewrites the legacy `port: health` name to `nri-health` for
+  # httpGet and tcpSocket probes. gRPC probes require the numeric healthPort.
+    readinessProbe:
+      httpGet:
+        # -- Readiness endpoint path.
+        path: /readyz
+        # -- Readiness endpoint port name.
+        port: nri-health
+      # -- Readiness probe interval.
     periodSeconds: 10
     # -- Readiness probe timeout.
     timeoutSeconds: 2
     # -- Consecutive failures before the plugin is marked unready.
     failureThreshold: 2
-  livenessProbe:
-    httpGet:
-      # -- Liveness endpoint path.
-      path: /healthz
-      # -- Liveness endpoint port name.
-      port: health
-    # -- Liveness probe interval.
+    livenessProbe:
+      httpGet:
+        # -- Liveness endpoint path.
+        path: /healthz
+        # -- Liveness endpoint port name.
+        port: nri-health
+      # -- Liveness probe interval.
     periodSeconds: 10
     # -- Liveness probe timeout.
     timeoutSeconds: 2

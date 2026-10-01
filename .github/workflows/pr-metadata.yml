@@ -17,6 +17,10 @@ name: PR metadata
   pull_request_target:
     types: [opened, reopened, synchronize, edited, ready_for_review, converted_to_draft]
     branches: [main, "release-*"]
+  push:
+    branches: [main, "release-*"]
+  schedule:
+    - cron: "17 * * * *"
 
 permissions: {}
 
@@ -59,7 +63,26 @@ jobs:
           persist-credentials: false
           submodules: false
           lfs: false
+      - name: Reconcile conflict labels for open pull requests
+        uses: ./control/.github/actions/repo-automation
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          mode: conflict-labels
+          control-directory: control
+          dry-run: "false"
+      - name: Reconcile metadata labels for all open pull requests
+        if: ${{ github.event_name != 'pull_request_target' }}
+        uses: ./control/.github/actions/repo-automation
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          mode: metadata-labels
+          control-directory: control
+          policy-revision: ${{ steps.trusted.outputs.result }}
+          dry-run: "false"
       - name: Reconcile pull request metadata
+        if: ${{ github.event_name == 'pull_request_target' }}
         uses: ./control/.github/actions/repo-automation
         env:
           GITHUB_TOKEN: ${{ github.token }}

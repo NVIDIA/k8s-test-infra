@@ -35,6 +35,37 @@ so all consumers and applications up the stack work without modifications.
 - Add only meaningful tests
 - Use t.Parallel() where possible to speed up test execution
 
+## Changelog
+
+- Entries are [changie](https://changie.dev) fragments. Never edit `CHANGELOG.md` — it holds released versions only and is written at release time.
+- Add one with `make changelog KIND=<kind> BODY="..." [ISSUE=<number>]`. Valid kinds: `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`.
+- Add a fragment on every PR that changes behavior (feature, bug fix, API change, security bump). Skip refactors, docs, tests and CI, and apply the `skip-changelog` label instead — CI fails a PR with neither.
+- Commit the fragment with the code. Fragments never conflict between PRs, so no coordination is needed.
+
+### Writing the entry
+
+An entry tells a user what changed for them, not how or why it was built. The PR and the docs hold the detail; the entry points to it.
+
+- One or two sentences, at most ~300 characters. If it needs more, the extra belongs in the docs — link to the page instead.
+- Prefix the component the user touches: `nvml-mock:`, `node-agent:`, `helm:`, `profiles:`.
+- Lead with the observable behavior: what a user can now do, or what was broken and now works. For a fix, name the symptom a user would have hit.
+- Leave out the root cause, implementation, alternatives considered, and test coverage.
+- Put the issue or PR number in `ISSUE`, not in the body.
+- Mark an incompatible change with a leading `**Breaking:**` and state the action a user must take.
+- One entry per user-visible change. A PR with several unrelated changes gets several fragments.
+
+```yaml
+# Good: what changed for the user, then at most one clause of context
+body: |-
+  <component>: <what a user can now do, or the symptom that no longer occurs>;
+    <the one detail a user needs to act on it, or a link to the docs>.
+
+# Too long: reads like the PR description
+body: |-
+  <component>: <behavior>. <why it was broken>. <how the fix works>.
+    <alternatives considered>. <what the tests cover>.
+```
+
 ## CI/CD
 
 - Github Actions must be used for CI/CD

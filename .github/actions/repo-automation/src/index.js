@@ -7,9 +7,11 @@ const { createGitHubClient } = require("./github-client.js");
 const { runGit } = require("./git.js");
 const { runBackport } = require("./modes/backport.js");
 const { runCommand } = require("./modes/command.js");
+const { runConflictLabels } = require("./modes/conflict-labels.js");
 const { syncLabels } = require("./modes/label-sync.js");
 const { runMergeEvaluate } = require("./modes/merge-evaluate.js");
 const { runMetadata } = require("./modes/metadata.js");
+const { runMetadataLabels } = require("./modes/metadata-labels.js");
 const { runMokkaCherryPick } = require("./modes/mokka-cherry-pick.js");
 const { MAX_SUMMARY_BYTES } = require("./limits.js");
 
@@ -62,17 +64,21 @@ function serializeBackportRequests(summary) {
 }
 
 async function publishJobSummary(core, mode, summary) {
+  const serialized = serializeSummary(summary);
+  if (mode === "conflict-labels" || mode === "metadata-labels") {
+    core.info?.(`Repository automation ${mode}: ${serialized}`);
+  }
   if (core.summary?.addHeading === undefined) return;
   await core.summary
     .addHeading(`Repository automation: ${mode}`, 2)
-    .addCodeBlock(serializeSummary(summary), "json")
+    .addCodeBlock(serialized, "json")
     .write();
 }
 
 async function run(dependencies) {
   const { core } = dependencies;
   const mode = core.getInput("mode", { required: true });
-  if (!["label-sync", "metadata", "command", "merge-evaluate", "backport", "mokka-cherry-pick"].includes(mode)) {
+  if (!["label-sync", "metadata", "metadata-labels", "conflict-labels", "command", "merge-evaluate", "backport", "mokka-cherry-pick"].includes(mode)) {
     throw new Error(`Unsupported mode: ${mode}`);
   }
 
@@ -98,9 +104,9 @@ async function run(dependencies) {
   const controlDirectoryInput = core.getInput("control-directory");
   const trustedWorkspace = controlWorkspace(workspace, controlDirectoryInput);
   let config;
-  if (mode === "mokka-cherry-pick") {
+  if (mode === "mokka-cherry-pick" || mode === "conflict-labels") {
     config = undefined;
-  } else if (mode === "metadata") {
+  } else if (mode === "metadata" || mode === "metadata-labels") {
     try {
       config = loadConfig(trustedWorkspace);
     } catch {
@@ -112,6 +118,24 @@ async function run(dependencies) {
   let summary;
   try {
     switch (mode) {
+      case "metadata-labels":
+        summary = await runMetadataLabels({
+          event: dependencies.event,
+          eventName: dependencies.eventName,
+          github: client,
+          config,
+          dryRun,
+          policyRevision: core.getInput("policy-revision"),
+        });
+        break;
+      case "conflict-labels":
+        summary = await runConflictLabels({
+          event: dependencies.event,
+          eventName: dependencies.eventName,
+          github: client,
+          dryRun,
+        });
+        break;
       case "label-sync":
         summary = await syncLabels({
           github: client,
@@ -188,6 +212,7 @@ async function run(dependencies) {
   } catch (error) {
     if (error?.summary !== undefined) {
       core.setOutput("summary", serializeSummary(error.summary));
+      await publishJobSummary(core, mode, error.summary);
     }
     throw error;
   }

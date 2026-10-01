@@ -1,0 +1,8 @@
+kind: Added
+body: |-
+  nvml-mock: `nvidia-smi -pl` and `nvmlDeviceSetPowerManagementLimit` now set
+    the power cap instead of returning NOT_SUPPORTED. The cap applies node-wide
+    until a reset, and a value outside the device's
+    `min_limit_mw`/`max_limit_mw` is refused. Only the GPU-wide limit is
+    modelled.
+time: 2026-09-29T07:04:00Z

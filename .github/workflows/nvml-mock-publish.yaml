@@ -34,7 +34,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
@@ -67,14 +67,26 @@ jobs:
       - name: Assert the proxy is actually in front
         run: ./hack/check-goproxy.sh enforced
 
+      - name: Read chart appVersion
+        id: chart
+        run: |
+          app_version=$(grep '^appVersion:' deployments/nvml-mock/helm/nvml-mock/Chart.yaml | awk '{print $2}' | tr -d '"')
+
+          if [ -z "${app_version}" ]; then
+            echo "could not read appVersion from the nvml-mock Chart.yaml" >&2
+            exit 1
+          fi
+
+          echo "app_version=${app_version}" >> "$GITHUB_OUTPUT"
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            # On push to main: tag as "latest"
-            type=raw,value=latest,enable={{is_default_branch}}
+            # On push to main: tag with the chart's appVersion, overwriting it
+            type=raw,value=${{ steps.chart.outputs.app_version }},enable={{is_default_branch}}
             # On tag push: use the tag (e.g., v0.1.0)
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}

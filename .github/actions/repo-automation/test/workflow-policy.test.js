@@ -12,7 +12,7 @@ const workflowRoot = path.join(repositoryRoot, ".github", "workflows");
 const trustedRef = "${{ steps.trusted.outputs.result }}";
 const mokkaTrustedRef = "${{ github.sha }}";
 const mokkaActivationGate =
-  "${{ vars.REPOSITORY_AUTOMATION_MOKKA_ENABLED == 'true' && github.ref == 'refs/heads/main' }}";
+  "${{ vars.REPOSITORY_AUTOMATION_MOKKA_ENABLED == 'true' && github.ref == 'refs/heads/main' && github.sha == inputs.workflow_commit_sha }}";
 const managed = [
   "automation-ci.yml",
   "backport.yml",
@@ -71,6 +71,19 @@ test("privileged foundation workflows never execute pull-request code", () => {
       if (name === "mokka-cherry-pick.yml") {
         assert.equal(job.if, mokkaActivationGate);
         assert.equal(job.steps.some((step) => step.id === "trusted"), false);
+        const reviewedCheckout = job.steps.find((step) => step.with?.path === "reviewed");
+        assert.ok(reviewedCheckout, "reviewed baseline must be checked out");
+        assert.equal(reviewedCheckout.with.ref,
+          "${{ vars.REPOSITORY_AUTOMATION_MOKKA_REVIEWED_SHA }}");
+        assert.equal(reviewedCheckout.with["persist-credentials"], false);
+        assert.equal(reviewedCheckout.with.submodules, false);
+        assert.equal(reviewedCheckout.with.lfs, false);
+        const verification = job.steps.find((step) => step.name === "Verify reviewed automation");
+        assert.ok(verification, "reviewed automation must be verified");
+        const verificationIndex = job.steps.indexOf(verification);
+        const targetIndex = job.steps.findIndex((step) => step.with?.path === "target");
+        assert.ok(verificationIndex < targetIndex,
+          "reviewed automation must be verified before credentialed target checkout");
         continue;
       }
       const resolver = job.steps.find((step) => step.id === "trusted");

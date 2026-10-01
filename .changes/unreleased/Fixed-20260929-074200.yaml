@@ -1,0 +1,6 @@
+kind: Fixed
+body: |-
+  nvml-mock: `nvidia-smi mig -lgipp` reports placement sizes in memory units on
+    `h100`, `b200`, `gb200` and `gb300`, as `a100` and hardware do: a `7g` spans
+    eight units and a `3g` four.
+time: 2026-09-29T07:42:00Z

@@ -71,8 +71,9 @@ Missing, outdated, or incorrect documentation has its own
 1. Fork the repository
 2. Create a feature branch from `main`
 3. Make your changes with tests
-4. Ensure all checks pass (see Testing below)
-5. Submit a pull request
+4. Record a changelog entry with `make changelog` (see [Changelog](#changelog))
+5. Ensure all checks pass (see Testing below)
+6. Submit a pull request
 
 ## Pull Request Process
 
@@ -80,6 +81,14 @@ Missing, outdated, or incorrect documentation has its own
 2. **Tests required** — new features need tests; bug fixes need regression tests
 3. **CI must pass** — all checks (lint, unit tests, E2E) must be green
 4. **Review required** — at least one maintainer approval from [OWNERS](OWNERS)
+5. **Changes logged** — user-facing changes need a changelog fragment, or the
+   `skip-changelog` label
+
+## Changelog
+
+Do not edit `CHANGELOG.md`. Record the entry as a fragment with
+`make changelog` and commit it with your change; see
+[Changelog entries](https://nvidia.github.io/k8s-test-infra/contributing/pull-requests/#changelog-entries).
 
 ## Testing
 

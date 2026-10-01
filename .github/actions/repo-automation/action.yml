@@ -31,6 +31,9 @@ inputs:
   control-directory:
     description: Fixed trusted checkout containing repository automation policy
     required: false
+  policy-revision:
+    description: Exact trusted default branch commit used by metadata label scans
+    required: false
   dry-run:
     description: Plan supported modes without mutating GitHub; Mokka requires false
     required: false

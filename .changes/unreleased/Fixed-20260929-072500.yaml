@@ -1,0 +1,5 @@
+kind: Fixed
+body: |-
+  nvml-mock: throttle-counter field reads now honor simulated GPU loss and
+    delayed failure triggers, matching the dedicated violation-status API.
+time: 2026-09-29T07:25:00Z

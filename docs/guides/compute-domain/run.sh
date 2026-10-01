@@ -360,15 +360,13 @@ helm upgrade --install "${RELEASE_NAME}" "${REPO_ROOT}/${CHART_PATH}" \
 
 # Helm cannot detect that a same-tag local image was rebuilt, and changing the
 # topology ConfigMap does not restart the demo workload.
-# Always recycle in dependency order so reruns stage the current topology and
-# image, register the current NRI plugin, and discard any IMEX process left by a
-# failed run. A fresh cluster pays for one redundant rollout; keeping one path
+# Always recycle the shared node pod so reruns stage the current topology and
+# image, register the current NRI sidecar, and discard any IMEX process left by
+# a failed run. A fresh cluster pays for one redundant rollout; keeping one path
 # for fresh and reused clusters is the deliberate simplicity tradeoff.
-info "Refreshing staging and NRI DaemonSets"
+info "Refreshing the node DaemonSet and its NRI sidecar"
 kubectl_ctx -n "${MOCK_NAMESPACE}" rollout restart "daemonset/${RELEASE_NAME}" >/dev/null
 kubectl_ctx -n "${MOCK_NAMESPACE}" rollout status "daemonset/${RELEASE_NAME}" --timeout=180s >/dev/null
-kubectl_ctx -n "${MOCK_NAMESPACE}" rollout restart "daemonset/${RELEASE_NAME}-nri" >/dev/null
-kubectl_ctx -n "${MOCK_NAMESPACE}" rollout status "daemonset/${RELEASE_NAME}-nri" --timeout=180s >/dev/null
 
 info "Deploying real-IMEX demo workload with peer-only ingress (mock delivery is entirely NRI)"
 kubectl_ctx create namespace "${WORKLOAD_NAMESPACE}" --dry-run=client -o yaml | kubectl_ctx apply -f - >/dev/null

@@ -241,7 +241,7 @@ demo::announce_pull() {
 #
 # The selector pinning keeps each demo's KUBECTL calls on its own pods, but it
 # cannot keep them off each other's HOST state, and nothing in the chart can.
-# Both DaemonSets mount the same non-release-scoped hostPaths
+# Both releases' DaemonSets mount the same non-release-scoped hostPaths
 # (/var/lib/nvml-mock, /var/run/cdi, /run/nvidia, and the NFD features dir),
 # so co-locating them leaves one demo's config in those paths and the other's
 # overwritten. Measured on a live cluster: after a co-located run, the single
@@ -358,7 +358,7 @@ demo::image_ref() {
 #   repo@sha256:<hex>       -> rejected, see below
 #
 # The chart renders the image as "{{ .Values.image.repository }}:{{
-# .Values.image.tag }}" (templates/daemonset.yaml, nri-daemonset.yaml) and has
+# .Values.image.tag }}" (templates/daemonset.yaml) and has
 # no image.digest value, so a digest ref cannot be expressed through it at
 # all: splitting on its colon would yield the repo "...@sha256" and the tag
 # "<hex>", rendering an invalid reference that fails at pull time with a
