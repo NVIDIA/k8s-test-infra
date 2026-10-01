@@ -283,25 +283,25 @@ nri:
   #
   # The chart rewrites the legacy `port: health` name to `nri-health` for
   # httpGet and tcpSocket probes. gRPC probes require the numeric healthPort.
-    readinessProbe:
-      httpGet:
-        # -- Readiness endpoint path.
-        path: /readyz
-        # -- Readiness endpoint port name.
-        port: nri-health
-      # -- Readiness probe interval.
+  readinessProbe:
+    httpGet:
+      # -- Readiness endpoint path.
+      path: /readyz
+      # -- Readiness endpoint port name.
+      port: nri-health
+    # -- Readiness probe interval.
     periodSeconds: 10
     # -- Readiness probe timeout.
     timeoutSeconds: 2
     # -- Consecutive failures before the plugin is marked unready.
     failureThreshold: 2
-    livenessProbe:
-      httpGet:
-        # -- Liveness endpoint path.
-        path: /healthz
-        # -- Liveness endpoint port name.
-        port: nri-health
-      # -- Liveness probe interval.
+  livenessProbe:
+    httpGet:
+      # -- Liveness endpoint path.
+      path: /healthz
+      # -- Liveness endpoint port name.
+      port: nri-health
+    # -- Liveness probe interval.
     periodSeconds: 10
     # -- Liveness probe timeout.
     timeoutSeconds: 2
