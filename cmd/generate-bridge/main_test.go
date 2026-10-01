@@ -109,6 +109,16 @@ DEPRECATED(13.0) nvmlReturn_t DECLDIR nvmlDeviceGetHandleBySerial(const char *se
 	}
 }
 
+func TestParseOneParamKeepsPointerDepth(t *testing.T) {
+	require.Equal(t, CParam{CType: "int **", Name: "ptr"}, parseOneParam("int **ptr"))
+	require.Equal(t, CParam{CType: "const char **", Name: "names"}, parseOneParam("const char **names"))
+	require.Equal(t, "**C.int", cTypeToGo("int **"))
+	require.Equal(t, "**C.char", cTypeToGo("const char **"))
+	require.Equal(t, CParam{CType: "unsigned int *", Name: "temp"}, parseOneParam("unsigned int *temp"))
+	require.Equal(t, CParam{CType: "char *", Name: "name"}, parseOneParam("char* name"))
+	require.Equal(t, "*C.uint", cTypeToGo("unsigned int *"))
+}
+
 func TestCTypeToGo(t *testing.T) {
 	tests := []struct {
 		cType  string
