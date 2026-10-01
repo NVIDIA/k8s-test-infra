@@ -34,13 +34,14 @@ COPY go.mod go.sum ./
 RUN --mount=type=secret,id=goauth,mode=0500 \
     if [ -f /run/secrets/goauth ]; then export GOAUTH=/run/secrets/goauth; fi; \
     go mod download
+COPY api/ api/
 COPY pkg/ pkg/
 COPY cmd/ cmd/
 COPY internal/ internal/
 COPY shims/ shims/
 COPY Makefile ./
 RUN cd pkg/gpu/mocknvml && make clean && make
-RUN cd pkg/gpu/mockcuda && make clean && make
+RUN cd shims/libcuda && make clean && make
 RUN cd shims/libibmock && make clean && make
 RUN cd shims/libmockfs && make clean && make
 
@@ -49,7 +50,7 @@ RUN make build
 FROM debian:bookworm-slim
 ARG TARGETARCH
 COPY --from=builder /src/pkg/gpu/mocknvml/libnvidia-ml.so.* /usr/local/lib/
-COPY --from=builder /src/pkg/gpu/mockcuda/libcuda.so.* /usr/local/lib/
+COPY --from=builder /src/shims/libcuda/libcuda.so.* /usr/local/lib/
 COPY --from=builder /src/shims/libibmock/libibmocksys.so.* /usr/local/lib/
 COPY --from=builder /src/shims/libibmock/libibmockumad.so.* /usr/local/lib/
 COPY --from=builder /src/shims/libibmock/libibmockverbs.so.* /usr/local/lib/

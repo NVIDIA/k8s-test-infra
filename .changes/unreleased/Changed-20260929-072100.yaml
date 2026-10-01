@@ -1,0 +1,6 @@
+kind: Changed
+body: |-
+  Pushes to `main` tag the `ghcr.io/nvidia/nvml-mock` image with the chart's
+    `appVersion` instead of `latest`, which is no longer updated. Release tags
+    still publish semver tags, and every build keeps its `sha-` tag.
+time: 2026-09-29T07:21:00Z

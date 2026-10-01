@@ -1,0 +1,86 @@
+# Copyright 2026 NVIDIA CORPORATION
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Adapted from NVIDIA/nvidia-container-toolkit .github/workflows/cherrypick.yml.
+# The comment and label triggers are replaced by workflow_dispatch: the Mokka
+# agent decides when a merged pull request is cherry-picked and dispatches this
+# workflow from main. Like every write job here, it runs only after
+# REPOSITORY_AUTOMATION_CHERRY_PICK_ENABLED is set to true.
+
+name: Cherry-Pick
+run-name: Cherry-pick PR ${{ inputs.pr_number }} to ${{ inputs.target_branches }}
+
+"on":
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Merged pull request to cherry-pick
+        type: string
+        required: true
+      target_branches:
+        description: Comma-separated release branches, for example release-0.4
+        type: string
+        required: true
+
+permissions: {}
+
+jobs:
+  backport:
+    name: Backport PR
+    if: ${{ vars.REPOSITORY_AUTOMATION_CHERRY_PICK_ENABLED == 'true' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    # One pending run per group: keying on the pull request alone would cancel a
+    # pending dispatch for another branch set.
+    concurrency:
+      group: cherry-pick-${{ inputs.pr_number }}-${{ inputs.target_branches }}
+      cancel-in-progress: false
+    steps:
+      - name: Check out main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Validate inputs
+        id: inputs
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+          INPUT_TARGET_BRANCHES: ${{ inputs.target_branches }}
+        with:
+          script: |
+            const { parseInputs } = require('./.github/scripts/cherrypick/inputs.js');
+            const parsed = parseInputs(process.env.INPUT_PR_NUMBER, process.env.INPUT_TARGET_BRANCHES);
+            core.setOutput('pr_number', String(parsed.prNumber));
+            core.setOutput('branches', JSON.stringify(parsed.branches));
+
+      - name: Configure git
+        run: |
+          git config user.name "nvidia-backport-bot"
+          git config user.email "noreply@nvidia.com"
+
+      - name: Backport to release branches
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          PR_NUMBER: ${{ steps.inputs.outputs.pr_number }}
+          BRANCHES_JSON: ${{ steps.inputs.outputs.branches }}
+        with:
+          script: |
+            const run = require('./.github/scripts/cherrypick/backport.js');
+            return await run({ github, context, core });

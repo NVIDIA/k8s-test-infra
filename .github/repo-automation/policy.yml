@@ -7,9 +7,38 @@ commands:
   retestCooldownSeconds: 600
   historyLimit: 256
   retestWorkflows: [.github/workflows/automation-ci.yml]
-  backportBranches: ["release-*"]
 merge:
   method: SQUASH
+  # Source CI that must pass on the pull request head before a merge; merge-ci.js and the Mokka agent read this list.
+  # CI passes only for pull requests into main or release-*. A workflow is required when it has no files, or when
+  # a changed path, or the previous path of a rename, matches one of its files patterns. Patterns are a portable
+  # subset that config.js enforces: each "/"-separated segment is either "**" or letters, digits, ".", "_" and "-"
+  # with "*" matching any characters inside that segment, including a leading dot. "**" matches zero or more whole
+  # segments, except as the last segment, where it matches one or more: "docs/**" matches "docs/a.md" but not "docs".
+  # Matching is case-sensitive. A check entry requires the latest check run with that exact name from that app id.
+  requiredCI:
+    workflows:
+      - path: .github/workflows/basic-checks.yaml
+      - path: .github/workflows/validate-changelog.yaml
+      - path: .github/workflows/automation-ci.yml
+        files:
+          - ".github/actions/repo-automation/**"
+          - ".github/repo-automation/**"
+          - ".github/scripts/cherrypick/**"
+          - ".github/workflows/**"
+          - hack/actionlint.sh
+          - Makefile
+          - OWNERS
+          - OWNERS_ALIASES
+      - path: .github/workflows/helm.yaml
+        files: ["deployments/nvml-mock/helm/**", "deployments/mokka-crds/helm/**"]
+      - path: .github/workflows/dependency-integrity.yaml
+        files: [go.mod, go.sum, Makefile, .github/workflows/dependency-integrity.yaml]
+      - path: .github/workflows/deploy-pages.yaml
+        files: ["docs/**", mkdocs.yml, requirements-docs.txt, Makefile, .github/workflows/deploy-pages.yaml]
+    checks:
+      - name: DCO
+        appId: 1861
 bots:
   - login: dependabot[bot]
     emails: ["49699333+dependabot[bot]@users.noreply.github.com"]

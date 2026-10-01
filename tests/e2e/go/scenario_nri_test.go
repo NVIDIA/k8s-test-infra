@@ -33,8 +33,8 @@ const (
 	nriWorkloadNS     = "default"
 	nriAgentDaemonSet = "gpu-agent"
 	nriAgentSelector  = "app=gpu-agent"
-	nriNRIDaemonSet   = "nvml-mock-nri"
-	nriPluginSelector = "app.kubernetes.io/name=nvml-mock-nri"
+	nriDaemonSet      = "nvml-mock"
+	nriPluginSelector = "app.kubernetes.io/name=nvml-mock"
 	// Device-plugin composition (#440, MEP-0002). Not a smaller image: the
 	// overlay stages nvidia-smi without its glibc dependencies, so the image has
 	// to supply them. busybox:1.36-glibc resolves ld-linux but ships no
@@ -119,8 +119,7 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 				// profiles like a100 report "fabric NOT SUPPORTED".
 				computeDomain = p.HasFabric()
 				installNRIChart(ctx, h, p, topoValues, computeDomain)
-				assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", config.ReadyTimeout(), config.PollInterval())
-				assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriNRIDaemonSet, config.ReadyTimeout(), config.PollInterval())
+				assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
 				deployNRIAgent(ctx, h)
 			})
 
@@ -235,8 +234,7 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 				// by waiting; the engine's own override TTL still applies.
 				"allocationWatcher.interval": "500ms",
 			})
-			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", config.ReadyTimeout(), config.PollInterval())
-			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriNRIDaemonSet, config.ReadyTimeout(), config.PollInterval())
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
 			deployDevicePluginOnWorkers(ctx, h, workers, p.ExpectedGPUs())
 			gpuNode = workers[0].Name
 		})
@@ -455,15 +453,14 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 			Expect(selectedProfiles).NotTo(BeEmpty())
 			p = loadProfile(selectedProfiles[0])
 			installNRICDIChart(ctx, h, p)
-			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", config.ReadyTimeout(), config.PollInterval())
-			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriNRIDaemonSet, config.ReadyTimeout(), config.PollInterval())
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
 		})
 
 		AfterAll(func(ctx SpecContext) {
 			// Put the release back on the default mechanism so any spec ordered
 			// after this Context sees the shipped configuration.
 			installNRIChart(ctx, h, p, topoValues, p.HasFabric())
-			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriNRIDaemonSet, config.ReadyTimeout(), config.PollInterval())
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
 		})
 
 		It("delivers every GPU through the CDI spec", Label("nri-cdi-inject"), func(ctx SpecContext) {
@@ -536,8 +533,7 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 			Expect(selectedProfiles).NotTo(BeEmpty())
 			p := loadProfile(selectedProfiles[0])
 			installNRIChart(ctx, h, p, topoValues, p.HasFabric())
-			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", config.ReadyTimeout(), config.PollInterval())
-			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriNRIDaemonSet, config.ReadyTimeout(), config.PollInterval())
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
 			gpuNode = workers[0].Name
 		})
 
@@ -616,8 +612,7 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 			Expect(selectedProfiles).NotTo(BeEmpty())
 			p := loadProfile(selectedProfiles[0])
 			installNRIChart(ctx, h, p, topoValues, p.HasFabric())
-			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", config.ReadyTimeout(), config.PollInterval())
-			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriNRIDaemonSet, config.ReadyTimeout(), config.PollInterval())
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
 			deployNRIAgent(ctx, h)
 
 			victim = workers[0]
@@ -635,10 +630,10 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 		// the node silently injects nothing.
 		It("reports the wedged node as NotReady", Label("nri-failure-detect"), func(ctx SpecContext) {
 			Eventually(func() (bool, error) {
-				return h.Kube.DaemonSetReady(ctx, nvmlMockNamespace, nriNRIDaemonSet)
+				return h.Kube.DaemonSetReady(ctx, nvmlMockNamespace, nriDaemonSet)
 			}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(time.Second).
 				Should(BeFalse(), "daemonset %s/%s stayed Ready while the plugin on %s was wedged",
-					nvmlMockNamespace, nriNRIDaemonSet, victim.Name)
+					nvmlMockNamespace, nriDaemonSet, victim.Name)
 		})
 
 		// The liveness probe is the recovery half. A wedged plugin cannot exit
@@ -663,7 +658,7 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 		// correctly injected once the plugin recovers. This is the assertion
 		// the positive specs above structurally cannot make.
 		It("injects into a workload created after the wedge", Label("nri-failure-inject"), func(ctx SpecContext) {
-			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriNRIDaemonSet, config.ReadyTimeout(), config.PollInterval())
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
 
 			By("recreating gpu-agent so its containers are created after the wedge")
 			deployNRIAgent(ctx, h)
@@ -676,7 +671,7 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 	})
 })
 
-// nriPluginPodOnNode returns the nvml-mock-nri pod scheduled on node.
+// nriPluginPodOnNode returns the shared node pod scheduled on node.
 func nriPluginPodOnNode(ctx context.Context, h *harness.Harness, node string) kube.PodRef {
 	GinkgoHelper()
 	var name string
@@ -697,13 +692,13 @@ func nriPluginPodOnNode(ctx context.Context, h *harness.Harness, node string) ku
 		}
 		return "", nil
 	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
-		ShouldNot(BeEmpty(), "no running nvml-mock-nri pod on node %s", node)
+		ShouldNot(BeEmpty(), "no running nvml-mock pod with the NRI sidecar on node %s", node)
 	return kube.PodRef{Namespace: nvmlMockNamespace, Pod: name}
 }
 
 func nriRestartCount(ctx context.Context, h *harness.Harness, pod kube.PodRef) (int, error) {
 	out, err := h.Kube.KubectlCombined(ctx, "get", "pod", "-n", pod.Namespace, pod.Pod,
-		"-o", "jsonpath={.status.containerStatuses[0].restartCount}")
+		"-o", `jsonpath={.status.containerStatuses[?(@.name=="nvml-mock-nri")].restartCount}`)
 	if err != nil {
 		return 0, err
 	}
@@ -899,7 +894,7 @@ func assertNodeCliqueIdentities(ctx context.Context, h *harness.Harness, workers
 	}
 }
 
-// deployDevicePluginOnWorkers reuses the validator scenario's device-plugin
+// deployDevicePluginOnWorkers reuses the gfd scenario's device-plugin
 // deployment and extends the capacity wait to every worker, so the composition
 // specs can pin pods to a node knowing it advertises the full profile count.
 func deployDevicePluginOnWorkers(ctx SpecContext, h *harness.Harness, workers []cluster.Node, expectedGPUs int) {

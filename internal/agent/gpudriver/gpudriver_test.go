@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
@@ -16,6 +17,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 	"github.com/NVIDIA/k8s-test-infra/internal/kmod"
+	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
 
 // testState returns a minimal State for gpudriver tests with a real engine YAML.
@@ -72,6 +74,37 @@ func TestWriteProcFS_WritesVersionAndParams(t *testing.T) {
 	require.NoError(t, err, "params file must exist")
 }
 
+// The driver prints params from its registry table as "%s: %u\n" on the bare
+// key name; NVreg_ is the module-parameter spelling (modprobe nvidia
+// NVreg_...) and never appears in this file. Consumers match
+// whole lines: nvidia-cdi-hook's disable-device-node-modification rewrites
+// exactly "ModifyDeviceFiles: 1". An agent killed before Discard runs leaves
+// the staged tree on the host, so the test starts from the file it left behind.
+func TestWriteProcFS_ParamsUseDriverKeyNames(t *testing.T) {
+	t.Parallel()
+
+	h := testHost(t)
+	paramsPath := h.RootPath("driver/proc/driver/nvidia/params")
+	require.NoError(t, os.MkdirAll(filepath.Dir(paramsPath), 0o755))
+	require.NoError(t, os.WriteFile(paramsPath, []byte("EnableMSI: 1\nNVreg_ModifyDeviceFiles: 1\n"), 0o644))
+
+	require.NoError(t, writeProcFS(t.Context(), h, testState(t)))
+
+	content, err := os.ReadFile(paramsPath)
+	require.NoError(t, err)
+
+	lines := strings.Split(strings.TrimSuffix(string(content), "\n"), "\n")
+	for _, line := range lines {
+		require.False(t, strings.HasPrefix(line, "NVreg_"),
+			"params line %q uses the module-parameter spelling", line)
+		// The driver's two forms: "%s: %u" for table entries, "%s: \"%s\"" for strings.
+		require.Regexp(t, `^[A-Za-z][A-Za-z0-9]*: ([0-9]+|"[^"]*")$`, line,
+			"params line %q is not \"<Key>: <value>\"", line)
+	}
+	require.Contains(t, lines, "ModifyDeviceFiles: 1")
+	require.Contains(t, lines, `RegistryDwords: ""`)
+}
+
 func TestWriteProcFS_Idempotent(t *testing.T) {
 	h := testHost(t)
 	state := testState(t)
@@ -99,6 +132,61 @@ func TestWriteEngineConfig_EmptyConfigRawErrors(t *testing.T) {
 
 	err := writeEngineConfig(t.Context(), h, state)
 	require.Error(t, err)
+}
+
+// migProfileTable is the partition table shipped beside a board's config.
+func migProfileTable(t *testing.T, board string) []byte {
+	t.Helper()
+
+	data, err := os.ReadFile(filepath.Join("..", "..", "..", "pkg", "gpu", "mocknvml",
+		"configs", "mock-nvml-config-"+board+".mig.yaml"))
+	require.NoError(t, err)
+	return data
+}
+
+// A consumer process reads the config the agent stages with no environment of
+// its own to name the partition table, so the table has to be staged beside it.
+// Staging the config alone leaves that process seeing a board that cannot
+// partition — the device plugin then publishes whole GPUs while NVML inside the
+// mock reports partitions, and the two disagree with no error anywhere.
+func TestWriteEngineConfig_StagesThePartitionTableBesideTheConfig(t *testing.T) {
+	// The sibling rule is all a consumer has; an explicit path would mask it.
+	t.Setenv(engine.EnvMIGProfilesConfig, "")
+
+	h := testHost(t)
+	state := testState(t)
+	state.MIGProfilesRaw = migProfileTable(t, "a100")
+
+	require.NoError(t, writeEngineConfig(t.Context(), h, state))
+
+	for _, rel := range []string{"config/config.yaml", "driver/config/config.yaml"} {
+		staged, err := engine.LoadYAMLConfig(h.RootPath(rel))
+		require.NoError(t, err, "%s must load the way a consumer loads it", rel)
+		require.NotNil(t, staged.DeviceDefaults.MIG, "%s: board should be MIG-capable", rel)
+		require.NotEmpty(t, staged.DeviceDefaults.MIG.SupportedProfiles,
+			"a consumer loading %s must resolve the board's partition table", rel)
+	}
+}
+
+// Withdrawal matters as much as writing. A node reconfigured onto a board that
+// cannot partition keeps the previous board's table beside the new config
+// otherwise, and the sibling rule would then hand a board that has no
+// partitions at all someone else's.
+func TestWriteEngineConfig_WithdrawsAStalePartitionTable(t *testing.T) {
+	t.Setenv(engine.EnvMIGProfilesConfig, "")
+
+	h := testHost(t)
+	state := testState(t)
+	state.MIGProfilesRaw = migProfileTable(t, "a100")
+	require.NoError(t, writeEngineConfig(t.Context(), h, state))
+
+	state.MIGProfilesRaw = nil
+	require.NoError(t, writeEngineConfig(t.Context(), h, state))
+
+	for _, rel := range []string{"config/config.mig.yaml", "driver/config/config.mig.yaml"} {
+		require.NoFileExists(t, h.RootPath(rel),
+			"a board with no table must not keep the previous one")
+	}
 }
 
 // GFD reads its machine type from a file, so the mock has to serve one: under
@@ -240,67 +328,177 @@ func TestStageCharDevs_UsesConfiguredMinorNumber(t *testing.T) {
 
 // ─── Apply / Revoke ──────────────────────────────────────────────────────────
 
-func TestApply_CreatesSymlink(t *testing.T) {
+// bindMountCleanup unmounts h's driver root at test end: Apply's mount is a
+// real mount on the test machine, not sandboxed to h's t.TempDir().
+func bindMountCleanup(t *testing.T, h *host.Host) {
+	t.Helper()
+	t.Cleanup(func() { _ = fsutil.Unmount(h.RootPath("driver"), h.RunPath("nvidia/driver")) })
+}
+
+func TestApply_BindMountsTheDriverTreeOntoRunNvidiaDriver(t *testing.T) {
+	skipUnlessRootLinux(t)
+
 	h := testHost(t)
 	sim := New(h)
+	state := testState(t)
+	ctx := t.Context()
+	bindMountCleanup(t, h)
 
-	require.NoError(t, sim.Apply(t.Context(), testState(t)))
+	require.NoError(t, stageNvidiaSMI(ctx, h, state))
+	require.NoError(t, writeProcFS(ctx, h, state))
+	require.NoError(t, writeEngineConfig(ctx, h, state))
+
+	require.NoError(t, sim.Apply(ctx, state))
 	require.True(t, sim.Ready())
 
-	link := h.RunPath("nvidia/driver")
-	target, err := os.Readlink(link)
-	require.NoError(t, err)
-	require.Equal(t, "/var/lib/nvml-mock/driver", target)
+	_, err := os.Lstat(h.RunPath("nvidia/driver/usr/bin/nvidia-smi"))
+	require.NoError(t, err, "nvidia-smi must be visible through the bind mount at /run/nvidia/driver")
+	_, err = os.Stat(h.RunPath("nvidia/driver/proc/driver/nvidia/version"))
+	require.NoError(t, err, "procfs must be visible through the bind mount")
+	_, err = os.Stat(h.RunPath("nvidia/driver/config/config.yaml"))
+	require.NoError(t, err, "engine config must be visible through the bind mount")
 }
 
-func TestRevoke_RemovesSymlink(t *testing.T) {
+// Regression test: a consumer (e.g. the GPU Operator validator) can already
+// have /run/nvidia/driver bind-mounted before Apply runs; replacing that
+// directory entry would orphan its mount permanently.
+func TestApply_DoesNotReplaceAnExistingDirectoryEntry(t *testing.T) {
+	skipUnlessRootLinux(t)
+
 	h := testHost(t)
 	sim := New(h)
+	state := testState(t)
+	ctx := t.Context()
+	bindMountCleanup(t, h)
 
-	require.NoError(t, sim.Apply(t.Context(), testState(t)))
-	require.NoError(t, sim.Revoke(t.Context()))
+	require.NoError(t, stageNvidiaSMI(ctx, h, state))
+	require.NoError(t, writeProcFS(ctx, h, state))
+	require.NoError(t, writeEngineConfig(ctx, h, state))
 
-	link := h.RunPath("nvidia/driver")
-	_, err := os.Lstat(link)
-	require.ErrorIs(t, err, os.ErrNotExist)
+	preexisting := h.RunPath("nvidia/driver")
+	require.NoError(t, os.MkdirAll(preexisting, 0o755))
+	before, err := os.Stat(preexisting)
+	require.NoError(t, err)
+
+	require.NoError(t, sim.Apply(ctx, state))
+
+	_, err = os.Lstat(h.RunPath("nvidia/driver/usr/bin/nvidia-smi"))
+	require.NoError(t, err, "content must be visible inside the pre-existing directory")
+
+	// stat(preexisting) now resolves through the mount, to source's inode —
+	// that's what a bind mount is. The invariant that actually matters is
+	// that the pre-existing directory survives underneath it, unchanged:
+	// unmount and confirm the same directory entry is still there.
+	require.NoError(t, fsutil.Unmount(h.RootPath("driver"), preexisting))
+	after, err := os.Stat(preexisting)
+	require.NoError(t, err)
+	require.True(t, os.SameFile(before, after),
+		"Apply must not replace the /run/nvidia/driver directory entry")
 }
 
-func TestRevoke_IdempotentWhenLinkAbsent(t *testing.T) {
+func TestApply_IdempotentWhenAlreadyMounted(t *testing.T) {
+	skipUnlessRootLinux(t)
+
+	h := testHost(t)
+	sim := New(h)
+	state := testState(t)
+	ctx := t.Context()
+	bindMountCleanup(t, h)
+
+	require.NoError(t, stageNvidiaSMI(ctx, h, state))
+	require.NoError(t, writeProcFS(ctx, h, state))
+	require.NoError(t, writeEngineConfig(ctx, h, state))
+
+	require.NoError(t, sim.Apply(ctx, state))
+	require.NoError(t, sim.Apply(ctx, state), "a second Apply must not error or stack another mount")
+}
+
+// Regression test: Apply must not mistake a mount from another owner for
+// its own, or it would report Ready without ever publishing the driver tree.
+func TestApply_RefusesAForeignMount(t *testing.T) {
+	skipUnlessRootLinux(t)
+
+	h := testHost(t)
+	sim := New(h)
+	state := testState(t)
+	ctx := t.Context()
+	driverRoot := h.RunPath("nvidia/driver")
+
+	foreignSrc := t.TempDir()
+	require.NoError(t, fsutil.BindMount(foreignSrc, driverRoot))
+	t.Cleanup(func() { _ = fsutil.Unmount(foreignSrc, driverRoot) })
+
+	require.NoError(t, stageNvidiaSMI(ctx, h, state))
+	require.NoError(t, writeProcFS(ctx, h, state))
+	require.NoError(t, writeEngineConfig(ctx, h, state))
+
+	require.Error(t, sim.Apply(ctx, state))
+	require.False(t, sim.Ready())
+}
+
+func TestRevoke_UnmountsButKeepsTheDirectory(t *testing.T) {
+	skipUnlessRootLinux(t)
+
+	h := testHost(t)
+	sim := New(h)
+	state := testState(t)
+	ctx := t.Context()
+
+	require.NoError(t, stageNvidiaSMI(ctx, h, state))
+	require.NoError(t, writeProcFS(ctx, h, state))
+	require.NoError(t, writeEngineConfig(ctx, h, state))
+	require.NoError(t, sim.Apply(ctx, state))
+
+	require.NoError(t, sim.Revoke(ctx))
+
+	_, err := os.Lstat(h.RunPath("nvidia/driver/usr/bin/nvidia-smi"))
+	require.ErrorIs(t, err, os.ErrNotExist, "content must no longer be visible once unmounted")
+
+	// The directory entry itself must survive: removing it would reintroduce
+	// the same mount-orphaning risk Apply avoids.
+	_, err = os.Stat(h.RunPath("nvidia/driver"))
+	require.NoError(t, err, "the /run/nvidia/driver directory must survive Revoke")
+}
+
+func TestRevoke_IdempotentWhenNotMounted(t *testing.T) {
+	skipUnlessRootLinux(t)
+
 	sim := New(testHost(t))
 
-	require.NoError(t, sim.Revoke(t.Context()), "Revoke on absent symlink must not error")
+	require.NoError(t, sim.Revoke(t.Context()), "Revoke with nothing mounted must not error")
 }
 
-// TestRevoke_LeavesForeignPaths covers what Revoke must not delete: /run/nvidia
-// is shared with the GPU Operator, so only our own symlink is ours to remove.
-func TestRevoke_LeavesForeignPaths(t *testing.T) {
-	cases := []struct {
-		name  string
-		plant func(t *testing.T, link string)
-	}{
-		{"empty directory", func(t *testing.T, link string) {
-			require.NoError(t, os.MkdirAll(link, 0o755))
-		}},
-		{"regular file", func(t *testing.T, link string) {
-			require.NoError(t, fsutil.Write(link, []byte("driver"), 0o644))
-		}},
-		{"symlink to another driver root", func(t *testing.T, link string) {
-			require.NoError(t, fsutil.Symlink("/opt/real-driver", link))
-		}},
-	}
+// Revoke only ever unmounts; content it never mounted is left untouched.
+func TestRevoke_LeavesForeignDirectoryContentAlone(t *testing.T) {
+	skipUnlessRootLinux(t)
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			h := testHost(t)
-			link := h.RunPath(driverLinkRel)
-			c.plant(t, link)
+	h := testHost(t)
+	path := h.RunPath("nvidia/driver")
+	require.NoError(t, fsutil.Write(filepath.Join(path, "someone-elses-file"), []byte("driver"), 0o644))
 
-			require.NoError(t, New(h).Revoke(t.Context()))
+	require.NoError(t, New(h).Revoke(t.Context()))
 
-			_, err := os.Lstat(link)
-			require.NoError(t, err, "Revoke must leave a path it did not create")
-		})
-	}
+	_, err := os.Stat(filepath.Join(path, "someone-elses-file"))
+	require.NoError(t, err, "Revoke must not touch content it never mounted")
+}
+
+// Regression test: Revoke must not detach a mount another owner put at
+// /run/nvidia/driver.
+func TestRevoke_LeavesAForeignMountAlone(t *testing.T) {
+	skipUnlessRootLinux(t)
+
+	h := testHost(t)
+	driverRoot := h.RunPath("nvidia/driver")
+
+	foreignSrc := t.TempDir()
+	require.NoError(t, fsutil.BindMount(foreignSrc, driverRoot))
+	t.Cleanup(func() { _ = fsutil.Unmount(foreignSrc, driverRoot) })
+
+	require.NoError(t, New(h).Revoke(t.Context()))
+
+	mounted, err := fsutil.IsMounted(driverRoot)
+	require.NoError(t, err)
+	require.True(t, mounted, "a foreign mount must survive Revoke")
 }
 
 // ─── Discard ─────────────────────────────────────────────────────────────────
@@ -321,15 +519,20 @@ func TestStage_WritesAllSurfaces(t *testing.T) {
 	h := testHost(t)
 	sim := New(h)
 	state := testState(t)
+	bindMountCleanup(t, h)
 
 	require.NoError(t, sim.Stage(t.Context(), state))
-	require.False(t, sim.Ready(), "Stage does not publish the driver symlink")
+	require.False(t, sim.Ready(), "Stage does not bind-mount the driver tree onto /run/nvidia/driver")
 	require.NoError(t, sim.Apply(t.Context(), state))
 	require.True(t, sim.Ready())
 
 	// chardevs
 	devRoot := h.RootPath("driver/dev")
 	_, err := os.Stat(filepath.Join(devRoot, "nvidiactl"))
+	require.NoError(t, err)
+
+	// visible through the bind mount at /run/nvidia/driver
+	_, err = os.Lstat(h.RunPath("nvidia/driver/usr/bin/nvidia-smi"))
 	require.NoError(t, err)
 
 	// NVML shim

@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  node-agent: mock HCAs now expose their PCI vendor, address and NUMA node, mlx5 `hw_counters` and `port_xmit_wait`, and a `sys/class/net` netdev for RoCE, so sysfs-based NIC monitors and exporters can discover them.
+time: 2026-10-05T11:27:41Z
+custom:
+  Issue: "923"

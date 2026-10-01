@@ -1,0 +1,8 @@
+kind: Changed
+body: |-
+  nvml-mock: MIG profile table rows declare their `placements` and
+    `compute_instances` instead of having them derived; shipped boards are
+    unchanged. **Breaking** for externally-authored configs: add both to every
+    row, placements in memory units (eight on a 7-slice board), and drop the
+    removed `mig.profile_ids` key.
+time: 2026-09-29T07:18:00Z

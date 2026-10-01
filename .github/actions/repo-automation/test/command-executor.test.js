@@ -15,8 +15,8 @@ const CONTEXT = {
   headOid: HEAD,
 };
 
-function command(name, line, targetBranch = null) {
-  return { name, targetBranch, line, raw: targetBranch === null ? `/${name}` : `/${name} ${targetBranch}` };
+function command(name, line) {
+  return { name, line, raw: `/${name}` };
 }
 
 function input(overrides = {}) {
@@ -36,13 +36,17 @@ function input(overrides = {}) {
     reviewers: ["reviewer", "approver"],
     approvers: ["approver"],
     owners: ["reviewer", "approver"],
+    ownership: {
+      files: [{ path: "file.go", approvers: ["approver"] }],
+      authorApprovalPaths: [],
+    },
+    authorIsHuman: false,
     commentId: 100,
     now: "2026-09-17T10:00:00.000Z",
     historyLimit: 32,
     runs: [],
     cooldownSeconds: 600,
     retestWorkflowAllowlist: [".github/workflows/automation-ci.yml"],
-    allowedBackportBranches: ["release-*"],
     ...overrides,
   };
 }
@@ -84,22 +88,30 @@ test("keeps holds across heads and clears them only through authorized unhold", 
   assert.equal(cleared.state.hold, null);
 });
 
-test("plans only policy-allowed backport requests and preserves the alias", () => {
-  const result = planCommandExecution(input({
-    parsed: {
-      commands: [
-        command("backport", 1, "release-1.2"),
-        command("cherry-pick", 2, "release-1.3"),
-        command("backport", 3, "main"),
-      ],
-      diagnostics: [],
-    },
+test("author approval and command approval must cover every changed file", () => {
+  const ownership = {
+    files: [
+      { path: "author.go", approvers: [] },
+      { path: "other.go", approvers: ["approver"] },
+    ],
+    authorApprovalPaths: ["author.go"],
+  };
+  const lgtmOnly = planCommandExecution(input({ ownership, authorIsHuman: true }));
+  assert.equal(lgtmOnly.policy.lgtm, true);
+  assert.equal(lgtmOnly.policy.approved, false);
+  const complete = planCommandExecution(input({
+    ownership,
+    authorIsHuman: true,
+    parsed: { commands: [command("lgtm", 1), command("approve", 2)], diagnostics: [] },
   }));
-  assert.deepEqual(result.mutations.backportRequests, [
-    { command: "backport", prNumber: 42, targetBranch: "release-1.2", sourceCommentId: 100 },
-    { command: "cherry-pick", prNumber: 42, targetBranch: "release-1.3", sourceCommentId: 100 },
-  ]);
-  assert.equal(result.commands[2].code, "target-branch-not-allowed");
+  assert.equal(complete.policy.approved, true);
+  assert.equal(complete.state.approvals.length, 1);
+  const unresolvedAuthor = planCommandExecution(input({
+    ownership,
+    authorIsHuman: false,
+    parsed: { commands: [command("approve", 1)], diagnostics: [] },
+  }));
+  assert.equal(unresolvedAuthor.policy.approved, false);
 });
 
 test("uses the configured retest allowlist and records cooldown state only for reruns", () => {
@@ -145,7 +157,6 @@ test("makes a duplicate delivery an exact no-op", () => {
     addLabels: [],
     removeLabels: [],
     rerunRunIds: [],
-    backportRequests: [],
   });
   assert.deepEqual(duplicate.state, first.state);
 });

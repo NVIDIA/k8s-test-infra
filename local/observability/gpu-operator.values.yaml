@@ -14,18 +14,18 @@
 dcgmExporter:
   enabled: true
   env:
-    # The exporter loads the mock libnvidia-ml.so from the driver root the
-    # nvml-mock DaemonSet stages on each node.
-    - name: NVIDIA_DRIVER_ROOT
-      value: "/var/lib/nvml-mock/driver"
-    # 5s so an injected fault reaches the dashboard promptly; matches
+    # Matches serviceMonitor.interval below and
     # prometheus.prometheusSpec.scrapeInterval in
-    # kube-prometheus-stack.values.yaml.
+    # kube-prometheus-stack.values.yaml, so every scrape sees a fresh sample.
     - name: DCGM_EXPORTER_COLLECT_INTERVAL
-      value: "5000"
+      value: "10000"
   serviceMonitor:
     enabled: true
-    interval: 5s
+    # No shorter than the chart's scrapeTimeout. Charts from v26.7.0 default
+    # that to 10s, and the Prometheus Operator skips a ServiceMonitor whose
+    # timeout is longer than its interval, logging only a warning, so
+    # dcgm-exporter is never scraped.
+    interval: 10s
     additionalLabels:
       # THE most fragile coupling in this consumer. kube-prometheus-stack
       # defaults serviceMonitorSelectorNilUsesHelmValues=true, so Prometheus

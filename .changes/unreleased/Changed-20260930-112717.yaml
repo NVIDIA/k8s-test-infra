@@ -1,0 +1,6 @@
+kind: Changed
+body: |-
+  helm: nvml-mock chart images default to the chart `appVersion` instead of `latest`, so a released chart installs its own release; `appVersion` no longer names the mocked driver version.
+time: 2026-09-30T09:27:17Z
+custom:
+  Issue: "929"

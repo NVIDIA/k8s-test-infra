@@ -1,6 +1,18 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 
+global:
+  # Pulls every image the chart runs from this registry (e.g. a mirror),
+  # replacing the registry host of each image repository.
+  imageRegistry: ""
+  # Pull secrets added to every chart pod, ahead of imagePullSecrets below.
+  # Each entry is a Secret name or {name: <secret>}.
+  imagePullSecrets: []
+
+# Pull secrets added to every chart pod (nvml-mock, NRI and control plane).
+# Each entry is a Secret name or {name: <secret>}.
+imagePullSecrets: []
+
 gpu:
   profile: gb300          # any *.yaml basename under profiles/ (e.g. a100, h100, b200, gb200, gb300, l40s, t4)
   # Number of GPUs to expose. Empty (default) derives the count from the
@@ -55,9 +67,38 @@ gpu:
     xid:
       code: 0                            # 0 = no Xid surfaced; e.g. 79 = "GPU has fallen off the bus"
 
+  # MIG partitioning. Off by default: a partitioned board stops publishing
+  # nvidia.com/gpu under the device plugin's migStrategy=single, so enabling
+  # this changes what the node advertises.
+  #
+  # Enabling requires gpuInstances: no profile ships a layout, because how a
+  # board is carved is a deployment choice rather than a property of the
+  # silicon. Name the partitioning you want, in the names the board above
+  # publishes — for the gb300 default that is —
+  #
+  #   gpuInstances:
+  #     - profile: "3g.139gb"
+  #       count: 2
+  #
+  # — or fill the board with its smallest slice, which is the shape
+  # migStrategy=single publishes as one resource name: seven of 1g.5gb on
+  # a100, 1g.10gb on h100, 1g.23gb on b200 and gb200, 1g.35gb on gb300. A
+  # slice is named for the share of its own board it holds, so confirm a
+  # board's names with `nvidia-smi mig -lgip`.
+  #
+  # A board whose profile declares no mig.max_gpu_instances is refused, as is a
+  # capable board left with no layout: MIG on with nothing partitioned
+  # publishes no GPU resource at all under migStrategy=single.
+  #
+  # The instances stay mutable at runtime through NVML, as on real hardware.
+  mig:
+    enabled: false
+    gpuInstances: []
+
 image:
   repository: ghcr.io/nvidia/nvml-mock
-  tag: latest
+  digest: ""                       # sha256:...; pins the image and wins over tag
+  tag: ""                          # Defaults to the chart appVersion
   pullPolicy: IfNotPresent
 
 driverVersion: ""                  # Auto-derived from profile. Override: "550.163.01"
@@ -65,6 +106,16 @@ driverVersion: ""                  # Auto-derived from profile. Override: "550.1
 nodeSelector: {}
 tolerations:
   - operator: Exists
+
+# Scheduling and metadata shared by the node DaemonSet pods.
+# The node agent stands in for the GPU driver its node's workloads depend on,
+# so a priority such as system-node-critical keeps it from being starved or
+# evicted before them.
+priorityClassName: ""
+affinity: {}
+podAnnotations: {}
+# Must not set the selector labels app.kubernetes.io/{name,instance,component}.
+podLabels: {}
 
 # NFD derives pci-10de.present from the feature file the node agent writes here.
 # GPU labels under nvidia.com/ belong to NFD and GFD, exactly as on real hardware.
@@ -74,32 +125,21 @@ nodeLabels:
   featuresDir: /etc/kubernetes/node-feature-discovery/features.d
 
 # Node-wide ambient injection via containerd NRI. When enabled, a lightweight
-# node-local plugin appends the nvml-mock overlay mount and environment to each
-# container at runtime without mutating pod specs. Opt-in (default false): it
-# injects into workloads cluster-wide, so enable it only for the
-# node-wide-injection demo/use case. See docs/guides/node-wide-injection.
+# sidecar in the node DaemonSet appends the nvml-mock overlay mount and
+# environment to each container at runtime without mutating pod specs. Opt-in
+# (default false): it injects into workloads cluster-wide, so enable it only for
+# the node-wide-injection demo/use case. See docs/guides/node-wide-injection.
 
 nodeAgent:
   logging:
     level: info    # debug | info | warn | error
     format: json   # json | plain
-  # Let the agent announce an injected Xid on the node's kernel log, the way a
-  # real driver's printk does, so agents that read kernel logs (and journald
-  # consumers such as NVSentinel's syslog monitor) see it instead of only NVML
-  # clients. It watches the runtime override document, so an Xid raised through
-  # `nvml-mock-ctl fail --xid` or any other writer is announced alike.
-  #
-  # Off by default because turning it on makes the node-agent container
-  # PRIVILEGED: /dev/kmsg sits behind the device cgroup, which rejects the write
-  # from an unprivileged pod even with the device mounted, so there is no lesser
-  # grant that works. A default of true would widen an existing install's
-  # privileges on `helm upgrade` alone, which no value here should do.
-  #
-  # Turn it on to evaluate an agent that reads kernel logs; a cluster whose
-  # PodSecurity admits no privileged pod, or a node with no /dev/kmsg, cannot
-  # (the CharDevice hostPath fails the pod rather than inventing one). Left off,
-  # the announcement is skipped and the NVML injection is unaffected.
+  # Announces an injected Xid on the node's kernel log, the way a real
+  # driver's printk does, so journald/syslog consumers (e.g. NVSentinel) see
+  # it too, not just NVML clients. Watches the runtime override document, so
+  # any writer's Xid — `nvml-mock-ctl fail --xid` included — is announced.
   kernelLog:
+    # TODO: remove the flag and make it on by default
     enabled: false
   # Go duration string: 5s, 1m30s, etc. Teardown is a handful of parallel file
   # removals, and it has to finish inside terminationGracePeriodSeconds.
@@ -108,6 +148,17 @@ nodeAgent:
     requests:
       cpu: 10m
       memory: 32Mi
+  # /healthz fails while the last Stage wave failed; /readyz reports whether
+  # every simulator is serving. Set either to null to drop that probe (an empty map
+  # merges with the default rather than replacing it).
+  livenessProbe:
+    httpGet:
+      path: /healthz
+      port: health
+  readinessProbe:
+    httpGet:
+      path: /readyz
+      port: health
 
 # Allocation-aware GPU memory (#506). When enabled, a sidecar in the nvml-mock
 # DaemonSet polls the kubelet pod-resources API and mirrors each pod's
@@ -191,7 +242,7 @@ nri:
   imexChannelAnnotation: nvml-mock.nvidia.com/imex-channels
   excludedNamespaces: []
   resources: {}
-  # Port serving the plugin's /healthz and /readyz endpoints. The NRI DaemonSet
+  # Port serving the plugin's /healthz and /readyz endpoints. The node DaemonSet
   # does not use host networking, so this port lives only inside the pod's own
   # network namespace: it is reachable by the kubelet on the pod IP and is not
   # bound on the node.
@@ -211,17 +262,20 @@ nri:
   #
   # Set either to null to drop that probe (an empty map merges with the
   # default rather than replacing it).
+  #
+  # The chart rewrites the legacy `port: health` name to `nri-health` for
+  # httpGet and tcpSocket probes. gRPC probes require the numeric healthPort.
   readinessProbe:
     httpGet:
       path: /readyz
-      port: health
+      port: nri-health
     periodSeconds: 10
     timeoutSeconds: 2
     failureThreshold: 2
   livenessProbe:
     httpGet:
       path: /healthz
-      port: health
+      port: nri-health
     periodSeconds: 10
     timeoutSeconds: 2
     failureThreshold: 3
@@ -371,14 +425,10 @@ controlPlane:
   replicas: 1
   image:
     repository: ghcr.io/nvidia/mokka-control-plane
-    # Required when enabled outside Tilt's explicit local mutable-tag mode.
-    # Digest pinning prevents the cluster-privileged controller artifact from
-    # changing without a Helm values change.
+    # Pins the image and wins over tag. Recommended for the cluster-privileged
+    # controller, so its artifact cannot change without a Helm values change.
     digest: ""
-    # Tilt sets both fields for locally built images. Keep mutable tags disabled
-    # for normal installs so the cluster-privileged controller stays immutable.
-    tag: ""
-    allowMutableTag: false
+    tag: ""                        # Defaults to the chart appVersion
     pullPolicy: IfNotPresent
   logging:
     level: info    # debug | info | warn | error
@@ -411,3 +461,9 @@ controlPlane:
       memory: 1Gi
   nodeSelector: {}
   tolerations: []
+
+# Additional Kubernetes objects rendered with the release, each passed through
+# tpl so it can reference chart values (e.g. "{{ .Release.Name }}"). Either a
+# list, or a map keyed by name so layered values files can override or drop
+# ("") individual entries. Each entry is an object or a YAML string.
+extraObjects: []

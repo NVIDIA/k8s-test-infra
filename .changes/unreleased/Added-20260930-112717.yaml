@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  tilt: `--nvmlmock-image` accepts `repo@sha256:<hex>` and `repo:tag@sha256:<hex>` and pins the nvml-mock image by digest.
+time: 2026-09-30T09:27:17Z
+custom:
+  Issue: "929"

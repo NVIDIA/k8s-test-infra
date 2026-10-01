@@ -61,7 +61,7 @@ CI splits the suite into parallel jobs.
 entirely as exclusions:
 
 ```make
-E2E_DEFAULT_LABEL_FILTER ?= !validator && !dra && !gpu-operator && !multi-node && !nri && !nfd
+E2E_DEFAULT_LABEL_FILTER ?= !gfd && !dra && !gpu-operator && !multi-node && !nri && !nfd
 ```
 
 The filter is phrased that way because the standalone scenario has no scenario
@@ -139,7 +139,7 @@ tests that must not be scoped by `E2E_PROFILES`.
 | Multi-node fleet | `make e2e-multi-node` | `multi-node` | A heterogeneous fleet works: separate A100 and T4 releases on different workers, correct per-node mock files and IB behaviour, and a GPU workload scheduled across them |
 | Node-wide NRI injection | `make e2e-nri` | `nri`, `nri-*`, `compute-domain`, `imex-channels` | An ordinary pod that requests no GPU, mounts no hostPath and sets no `MOCK_*` env still sees GPUs, via Node Resource Interface (NRI) ambient injection |
 | NFD label provenance | `make e2e-nfd` | `nfd`, `nfd-provenance` | Node Feature Discovery (NFD) derives `feature.node.kubernetes.io/pci-10de.present` from the feature file the mock writes — and that the mock does not write the label itself. Pinned to `a100`, because the label is vendor-only and identical across profiles |
-| CUDA validator | opt-in | `validator` | The CUDA vectorAdd sample runs against the mock CUDA library. **Skipped by default** — see below |
+| Standalone GFD | opt-in | `gfd` | Standalone GPU Feature Discovery derives the required node labels from the mock GPU inventory. **Skipped by default** — see below |
 
 ### Node-wide NRI injection
 
@@ -177,21 +177,20 @@ on Hopper and later profiles.
 
 The Xid injection runs **last**, because it leaves the mock in a failed state.
 
-### CUDA validator
+### Standalone GFD
 
-Skipped by default: the GFD and CUDA validator images come from `nvcr.io`, and
-CI has no credential path for them yet
+Skipped by default: the standalone GFD image comes from `nvcr.io`, and CI has no
+credential path for it yet
 ([#446](https://github.com/NVIDIA/k8s-test-infra/issues/446)). Enable it locally
-once those images are reachable:
+once that image is reachable:
 
 ```bash
-make e2e E2E_RUN_NGC=true E2E_GINKGO_FLAGS='--label-filter="validator"'
+make e2e E2E_RUN_NGC=true E2E_GINKGO_FLAGS='--label-filter="gfd"'
 ```
 
 It applies [`device-plugin-mock.yaml`](go/assets/device-plugin-mock.yaml), waits
-for allocatable GPUs, applies [`gfd-mock.yaml`](go/assets/gfd-mock.yaml),
-verifies the required GFD labels, then runs
-[`validator-mock.yaml`](go/assets/validator-mock.yaml).
+for allocatable GPUs, then applies [`gfd-mock.yaml`](go/assets/gfd-mock.yaml) and
+verifies the required GFD labels.
 
 ### Reference Kind configs
 
@@ -279,7 +278,7 @@ Six scenario jobs run in parallel: `e2e`, `e2e-dra`, `e2e-gpu-operator`,
 `e2e-multi-node`, `e2e-nri` and `e2e-nfd`. Each runs one GPU profile per matrix
 entry, with `fail-fast: false` so one profile's failure does not cancel the
 others. `e2e-nfd` is pinned to `a100`; `e2e-multi-node` has no matrix and uses
-its own fixed A100/T4 topology. There is no validator job.
+its own fixed A100/T4 topology. There is no gfd job.
 
 Pull requests get the full matrix — `a100`, `h100`, `b200`, `gb200`, `gb300`,
 `t4`. Manual `workflow_dispatch` defaults to `gb200` alone for a fast run. The
@@ -299,7 +298,7 @@ The suite never deletes the cluster, so a failed run can be inspected directly.
 | Pods stuck in `ImagePullBackOff` after a reshaping spec | `E2E_IMAGE` names an image that is not on the nodes | Set `E2E_IMAGE` to the ref Tilt deployed, or `kind load` the ref you passed |
 | Attach fails or times out at startup | Cluster name or context does not match | Confirm `kind get clusters`; the defaults expect `mokka` and `kind-mokka` |
 | A scenario is silently absent from the run | The default label filter excludes it | Use the scenario's own target, or override `E2E_GINKGO_FLAGS` |
-| `validator` specs all skip | `E2E_RUN_NGC` is `false` | Set `E2E_RUN_NGC=true`, with `nvcr.io` images reachable |
+| `gfd` specs all skip | `E2E_RUN_NGC` is `false` | Set `E2E_RUN_NGC=true`, with `nvcr.io` images reachable |
 | GPU Operator waits time out | Operand replacement outlasts the readiness wait | Raise `E2E_OPERAND_SETTLE_TIMEOUT` rather than `E2E_READY_TIMEOUT` |
 | Assertions fail right after a DCGM run | Xid injection ran and left the mock failed | Expected; it is ordered last. Reinstall the release before re-running other specs |
 

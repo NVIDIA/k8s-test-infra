@@ -50,16 +50,18 @@ body:
         - label: "`git push upstream <base-sha>:refs/heads/<release-branch>`"
         - label: "Confirm it exists: `git ls-remote --heads upstream <release-branch>`"
         - label: "`main` is now free for the next minor. Feature work does not wait for this release."
+        - label: "PR against `main` bumping both charts' `version` and `appVersion` to the next minor's `-dev` version (for example `0.6.0-dev`). Main builds publish the nvml-mock image under that tag, so it must never be a released version."
   - type: checkboxes
     id: prep
     attributes:
       label: Release-prep PR (against the release branch)
       options:
-        - label: "Bump `deployments/nvml-mock/helm/nvml-mock/Chart.yaml` `version` to the release version. Leave `appVersion` alone: it names the mocked NVIDIA driver, not this project."
+        - label: "Bump `deployments/nvml-mock/helm/nvml-mock/Chart.yaml` `version` and `appVersion` to the release version without the `v` prefix. `appVersion` is the chart's default image tag, so a mismatch makes default installs pull an image that does not exist. Only the release branch carries the release version; `main` keeps the next `-dev` version."
         - label: "Bump `deployments/mokka-crds/helm/mokka-crds/Chart.yaml` if the CRDs changed."
-        - label: "Promote `[Unreleased]` in CHANGELOG.md to `## [VERSION] - YYYY-MM-DD`, merging any duplicated subheadings into one each in Keep-a-Changelog order, and add a fresh empty `[Unreleased]`."
-        - label: "Verify no changelog content was lost: the bullet count and the set of content lines must be unchanged. Paste both counts in the PR."
+        - label: "`make changelog-release RELEASE_VERSION=<version-without-v>` to fold the pending fragments into CHANGELOG.md. A candidate (`0.5.0-rc1`) lists only what is new since the previous candidate; the final `0.5.0` replaces every `0.5.0-*` section with a single one. Preview first with `make changelog-preview`."
+        - label: "Verify no changelog content was lost: the new section has one bullet per folded fragment plus every bullet of the candidate sections it replaced. Paste both counts in the PR."
         - label: "Add the compare link at the bottom of CHANGELOG.md following the existing pattern."
+        - label: "Apply the `skip-changelog` label: a release PR removes fragments rather than adding one."
         - label: "Gates: `make helm-tests`, `make helm-crds-tests`, `make lint`, `make build`, `make test`."
         - label: "PR reviewed and merged. `main` requires one approving review and dismisses stale reviews on push, so batch any review feedback into a single push."
   - type: checkboxes
@@ -78,10 +80,10 @@ body:
       options:
         - label: "`nvml-mock Publish` ran for the tag and succeeded."
         - label: "`control-plane Publish` ran for the tag and succeeded."
+        - label: "`helm-publish` ran for the tag and succeeded."
         - label: "Image resolves: `ghcr.io/nvidia/nvml-mock:<version-without-v>`. The image tag drops the `v`: tag `v0.4.0` publishes image `0.4.0`."
         - label: "Image resolves: `ghcr.io/nvidia/mokka-control-plane:<version-without-v>`"
         - label: "Chart resolves: `oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock:<version-without-v>`"
-        - label: "KNOWN GAP: the helm publish job is gated on `github.ref == 'refs/heads/main'`, so a chart bump made only on a release branch never publishes. Until that is fixed, confirm the chart actually resolves and land the bump on `main` too if it did not."
   - type: checkboxes
     id: after
     attributes:
@@ -90,6 +92,8 @@ body:
         - label: "Draft GitHub release notes from the changelog section and publish."
         - label: "Close the milestone for this release."
         - label: "Create the next milestone and retarget anything that slipped."
+        - label: "PR against `main` porting the release's changelog, or the next minor lists every entry again: copy the `## [VERSION]` section from the tag into CHANGELOG.md in place of any `VERSION-*` candidate sections, delete `.changes/<version-without-v>/` if present, and remove the fragments the release shipped: `git log --no-renames --diff-filter=D --name-only --format= $(git merge-base upstream/main <version>)..<version> -- .changes | xargs -n1 basename | sort -u | while read -r f; do git rm -q --ignore-unmatch \".changes/unreleased/$f\"; done`"
+        - label: "PR against `main` updating the status table in `docs/support-policy.md`: this line becomes Supported, the previous line Maintenance, every older line Deprecated. The docs site publishes from `main`, not from the release branch."
         - label: "Link the tag and the release notes in this issue, then close it."
   - type: textarea
     id: changelog

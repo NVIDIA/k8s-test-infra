@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+  Repository automation: a Commands run now applies /hold, /unhold and /retest from earlier comments of the last 24 hours whose runs a later run for the same pull request cancelled. Such a command waits for the next Commands run on that pull request. A caught-up /lgtm or /approve grants no approval, and the policy comment names its comment so the reviewer can repeat it. merge.requiredCI rejects workflows in subdirectories of .github/workflows, which GitHub never runs.
+time: 2026-10-03T09:36:35Z

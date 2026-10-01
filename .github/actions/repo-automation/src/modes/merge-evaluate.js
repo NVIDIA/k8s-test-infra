@@ -1,6 +1,6 @@
 "use strict";
 
-const { evaluateApprovalCoverage } = require("../approval-coverage.js");
+const { verifyApproverAuthor } = require("../author-approval.js");
 const { parseCommands } = require("../commands/parser.js");
 const {
   currentEvidence,
@@ -8,14 +8,18 @@ const {
   parsePolicyState,
 } = require("../commands/state.js");
 const { validateConfig } = require("../config.js");
+const { evaluateDco } = require("../dco.js");
+const { MAX_API_COLLECTION_ITEMS } = require("../limits.js");
 const { isManagedPolicyLabel } = require("../managed-labels.js");
 const { decideMergeAction } = require("../merge-state.js");
-const { parseAliases, parseOwnersFile, resolveOwners } = require("../owners.js");
+const { parseAliases, parseOwnersFile, resolveOwners, hasApprovalCoverage } = require("../owners.js");
 const {
   POLICY_COMMENT_MARKER,
   parseMetadataHeadEvidence,
 } = require("../policy-comment.js");
 const { policyDigest } = require("../policy-digest.js");
+const { currentRoleAllows, loadReviewEvidence, validHumanIdentity } = require("../review-evidence.js");
+const { classifyTitle } = require("../title.js");
 
 const LOGIN = /^(?!.*--)[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
 const REPOSITORY = /^[A-Za-z0-9_.-]{1,100}$/;
@@ -102,9 +106,12 @@ function trustedRun(run, repository) {
   if (
     expected === undefined
     || run.workflowPath !== expected.path
-    || run.event !== expected.event
   ) return null;
-  return expected;
+  if (run.event === expected.event) return expected;
+  if (run.name === "PR metadata" && run.event === "workflow_dispatch") {
+    return { ...expected, allOpen: true };
+  }
+  return null;
 }
 
 async function candidatesFor({ event, eventName, github, repository, prNumber }) {
@@ -124,7 +131,12 @@ async function candidatesFor({ event, eventName, github, repository, prNumber })
     const expected = trustedRun(run, repository);
     if (expected === null) return [];
     if (expected.allOpen) return boundedCandidates(await github.listOpenPullRequestNumbers());
-    return boundedCandidates(run.pullRequestNumbers);
+    const mapped = boundedCandidates(run.pullRequestNumbers);
+    // GitHub can omit PR links on review runs; live authority checks still apply to each PR.
+    if (run.name === "Review observer" && mapped.length === 0) {
+      return boundedCandidates(await github.listOpenPullRequestNumbers());
+    }
+    return mapped;
   }
   if (eventName === "schedule") {
     if (
@@ -155,7 +167,10 @@ function validatePullRequest(pullRequest, number, repository) {
     || pullRequest.number !== number
     || typeof pullRequest.draft !== "boolean"
     || typeof pullRequest.author !== "string"
-    || !LOGIN.test(pullRequest.author)
+    || !(
+      LOGIN.test(pullRequest.author)
+      || (pullRequest.author.endsWith("[bot]") && LOGIN.test(pullRequest.author.slice(0, -5)))
+    )
     || typeof pullRequest.headOid !== "string"
     || !OID.test(pullRequest.headOid)
     || typeof pullRequest.baseBranch !== "string"
@@ -166,7 +181,40 @@ function validatePullRequest(pullRequest, number, repository) {
     || pullRequest.baseRepository?.owner?.toLowerCase() !== repository.owner
     || pullRequest.baseRepository?.repo?.toLowerCase() !== repository.repo
   ) throw new Error("live pull request state or base repository is invalid");
+  sourceRepository(pullRequest);
+  if (pullRequest.headBranch != null && (
+    typeof pullRequest.headBranch !== "string"
+    || pullRequest.headBranch.length === 0
+    || pullRequest.headBranch.length > 255
+    || /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(pullRequest.headBranch)
+    || pullRequest.headBranch === "@"
+    || pullRequest.headBranch === "HEAD"
+    || pullRequest.headBranch.startsWith("-")
+    || pullRequest.headBranch.startsWith("/")
+    || pullRequest.headBranch.endsWith(".")
+    || pullRequest.headBranch.endsWith("/")
+    || pullRequest.headBranch.includes("..")
+    || pullRequest.headBranch.includes("@{")
+    || pullRequest.headBranch.includes("//")
+    || /(?:^|\/)\./.test(pullRequest.headBranch)
+    || /[ ~^:?*[\]\\]/.test(pullRequest.headBranch)
+    || pullRequest.headBranch.split("/").some((segment) => segment.endsWith(".lock"))
+  )) throw new TypeError("live pull request source branch is invalid");
   return pullRequest;
+}
+
+function sourceRepository(pullRequest) {
+  if (pullRequest.headRepository == null) return null;
+  const { owner, repo } = pullRequest.headRepository;
+  if (
+    typeof owner !== "string"
+    || !LOGIN.test(owner)
+    || typeof repo !== "string"
+    || !REPOSITORY.test(repo)
+    || repo === "."
+    || repo === ".."
+  ) throw new TypeError("live pull request source repository is invalid");
+  return `${owner}/${repo}`.toLowerCase();
 }
 
 function validateGraphState(state, pullRequest, repository) {
@@ -187,15 +235,21 @@ function validateGraphState(state, pullRequest, repository) {
   return state;
 }
 
-function sameHeadIdentity(left, right) {
+function samePullRequestHead(left, right) {
   return right !== null
     && left.number === right.number
-    && left.state === right.state
     && left.headOid === right.headOid
-    && left.baseBranch === right.baseBranch
     && left.nodeId === right.nodeId
     && left.baseRepository.owner.toLowerCase() === right.baseRepository.owner.toLowerCase()
     && left.baseRepository.repo.toLowerCase() === right.baseRepository.repo.toLowerCase();
+}
+
+function sameHeadIdentity(left, right) {
+  return samePullRequestHead(left, right)
+    && left.state === right.state
+    && left.baseBranch === right.baseBranch
+    && sourceRepository(left) === sourceRepository(right)
+    && (left.headBranch ?? null) === (right.headBranch ?? null);
 }
 
 function branchAllowed(branch, configured) {
@@ -213,14 +267,6 @@ function branchAllowed(branch, configured) {
 
 function activeOwnerPaths(config) {
   return [...new Set(config.policy.activeOwnerFiles)].sort();
-}
-
-function validHumanIdentity(identity, expectedLogin) {
-  return identity?.resolved === true
-    && identity?.deleted === false
-    && identity?.type === "User"
-    && typeof identity.login === "string"
-    && identity.login.toLowerCase() === expectedLogin;
 }
 
 async function validateCommentEvidence({ github, evidence, command, pullRequest }) {
@@ -243,18 +289,6 @@ async function validateCommentEvidence({ github, evidence, command, pullRequest 
   } catch {
     return false;
   }
-}
-
-function currentRoleAllows(evidence, kind, ownership) {
-  const reviewers = new Set(ownership.reviewerCandidates);
-  const approvers = new Set(ownership.approverCandidates);
-  if (kind === "approval") {
-    return evidence.actorRole === "approver" && approvers.has(evidence.actor);
-  }
-  return (
-    (evidence.actorRole === "reviewer" && reviewers.has(evidence.actor))
-    || (evidence.actorRole === "approver" && approvers.has(evidence.actor))
-  );
 }
 
 async function validStoredEvidence({ github, records, kind, ownership, pullRequest }) {
@@ -293,36 +327,14 @@ async function validateReviewEvidence({ github, evidence, pullRequest }) {
   }
 }
 
-async function validReviewApprovers({ github, effectiveReviews, ownership, pullRequest }) {
-  const eligible = new Set(ownership.approverCandidates);
-  const result = new Set();
-  for (const review of effectiveReviews) {
-    if (
-      review.state !== "APPROVED"
-      || review.commitOid !== pullRequest.headOid
-      || review.user === pullRequest.author.toLowerCase()
-      || !eligible.has(review.user)
-    ) continue;
-    try {
-      const identity = await github.getUserIdentity(review.user);
-      if (validHumanIdentity(identity, review.user)) result.add(review.user);
-    } catch {
-      // Identity resolution fails closed for this review.
-    }
-  }
-  return result;
-}
-
-function approvalCoverage(ownership, approvers) {
-  return ownership.uncoveredPaths.length === 0
-    && ownership.files.every((file) => file.approvers.some((actor) => approvers.has(actor)));
-}
-
 function policyCommentState(comment, context) {
   if (
     typeof comment?.body !== "string"
     || comment.body.split(POLICY_COMMENT_MARKER).length - 1 !== 1
   ) return { state: null, metadataHead: null };
+  if (comment.body.split("<!-- repo-automation-state:").length - 1 === 0) {
+    return { state: null, metadataHead: parseMetadataHeadEvidence(comment.body) };
+  }
   const state = parsePolicyState(comment.body);
   if (
     state === null
@@ -332,13 +344,14 @@ function policyCommentState(comment, context) {
   return { state, metadataHead: parseMetadataHeadEvidence(comment.body) };
 }
 
-async function loadAuthority({ github, config, repository, pullRequest }) {
-  const [files, reviews, labels, comment, revision] = await Promise.all([
+async function loadAuthority({ github, config, repository, pullRequest, policyRevision }) {
+  const [files, reviews, labels, comment, revision, commits] = await Promise.all([
     github.listPullRequestFiles(pullRequest.number),
     github.listPullRequestReviews(pullRequest.number),
     github.listIssueLabels(pullRequest.number),
     github.getPolicyComment(pullRequest.number, POLICY_COMMENT_MARKER),
     github.getDefaultBranchRevision(),
+    github.listPullRequestCommits(pullRequest.number),
   ]);
   if (!Array.isArray(files) || files.length === 0 || files.length > MAX_FILES) {
     throw new TypeError("pull request file scan exceeds limit");
@@ -349,7 +362,13 @@ async function loadAuthority({ github, config, repository, pullRequest }) {
     || !Array.isArray(labels)
     || typeof revision !== "string"
     || !OID.test(revision)
+    || revision !== policyRevision
   ) throw new TypeError("pull request authority input is invalid");
+  if (!Array.isArray(commits) || commits.length === 0
+    || commits.length > MAX_API_COLLECTION_ITEMS || commits.at(-1)?.sha !== pullRequest.headOid) {
+    throw new TypeError("commit snapshot does not end at the live pull request head");
+  }
+  const dcoValid = evaluateDco(commits, config.policy.bots).valid;
 
   const sources = [];
   const declarations = [];
@@ -372,7 +391,6 @@ async function loadAuthority({ github, config, repository, pullRequest }) {
   );
   const digest = policyDigest({
     repository: repository.fullName,
-    revision,
     policy: config.policy,
     ownerSources: sources,
     aliasesSource,
@@ -406,27 +424,24 @@ async function loadAuthority({ github, config, repository, pullRequest }) {
       pullRequest,
     }),
   ]);
-  const reviewResult = evaluateApprovalCoverage({
-    files: ownership.files.map((file) => ({ path: file.path, approvers: file.approvers })),
-    reviews,
-    headOid: pullRequest.headOid,
-    author: pullRequest.author,
-  });
-  const reviewApprovers = await validReviewApprovers({
-    github,
-    effectiveReviews: reviewResult.effectiveReviews,
-    ownership,
-    pullRequest,
-  });
-  const approvers = new Set([...approvals.map((record) => record.actor), ...reviewApprovers]);
+  const [reviewEvidence, authorIsHuman] = await Promise.all([
+    loadReviewEvidence({ github, reviews, ownership, pullRequest, context }),
+    verifyApproverAuthor(github, ownership, pullRequest.author),
+  ]);
+  const approvers = new Set([
+    ...approvals.map((record) => record.actor),
+    ...reviewEvidence.approvals.map((review) => review.user),
+  ]);
   const hold = parsed.state === null ? null : currentHold(parsed.state, context);
   return {
+    files,
     labels,
-    lgtm: lgtms[0] ?? null,
-    lgtmOwned: parsed.state !== null,
-    approved: approvalCoverage(ownership, approvers),
+    lgtm: lgtms[0] ?? reviewEvidence.lgtms[0] ?? null,
+    lgtmOwned: parsed.state !== null || reviewEvidence.lgtms.length > 0,
+    approved: hasApprovalCoverage(ownership, approvers, authorIsHuman),
     holdActive: hold !== null,
-    metadataHead: parsed.metadataHead,
+    metadataHead: classifyTitle(pullRequest.title).valid && dcoValid ? parsed.metadataHead : null,
+    comment,
   };
 }
 
@@ -458,7 +473,7 @@ function effectivePolicyLabels(labels, authority) {
   return unmanaged;
 }
 
-function toMergeDecision({ config, pullRequest, graph, authority, protectedBranch }) {
+function toMergeDecision({ config, pullRequest, graph, authority, protectedBranch, ciState }) {
   return decideMergeAction({
     pullRequestState: graph.state === "OPEN" ? "OPEN" : "CLOSED",
     draft: graph.draft,
@@ -481,12 +496,12 @@ function toMergeDecision({ config, pullRequest, graph, authority, protectedBranc
     mergeability: graph.mergeability,
     labels: effectivePolicyLabels(authority.labels, authority),
     loadError: false,
-    ciState: "PENDING",
+    ciState,
     autoMergeMethod: graph.autoMergeMethod,
   });
 }
 
-async function loadEvaluation({ github, config, repository, number }) {
+async function loadEvaluation({ github, config, repository, number, policyRevision, completedEvaluation = null }) {
   const pullRequest = validatePullRequest(
     await github.getPullRequest(number),
     number,
@@ -497,12 +512,39 @@ async function loadEvaluation({ github, config, repository, number }) {
     pullRequest,
     repository,
   );
+  // A confirmed merge advances the default branch and needs no further writes.
+  if (
+    completedEvaluation !== null
+    && pullRequest.state === "closed"
+    && pullRequest.merged === true
+    && graph.state === "MERGED"
+    && graph.headOid === completedEvaluation.pullRequest.headOid
+    && sameHeadIdentity(
+      { ...completedEvaluation.pullRequest, state: "closed" },
+      pullRequest,
+    )
+  ) return { ...completedEvaluation, pullRequest, graph };
   const [authority, protectedBranch] = await Promise.all([
-    loadAuthority({ github, config, repository, pullRequest }),
+    loadAuthority({ github, config, repository, pullRequest, policyRevision }),
     github.getBranchProtection(pullRequest.baseBranch),
   ]);
   if (typeof protectedBranch !== "boolean") {
     throw new TypeError("branch protection state is invalid");
+  }
+  const ciState = await github.getCIState({
+    prNumber: number,
+    headOid: pullRequest.headOid,
+    baseBranch: pullRequest.baseBranch,
+    files: authority.files,
+    requiredCI: config.policy.merge.requiredCI,
+    ...(pullRequest.headRepository == null ? {} : { headRepository: sourceRepository(pullRequest) }),
+    ...(pullRequest.headBranch == null ? {} : { headBranch: pullRequest.headBranch }),
+  });
+  if (!["SUCCESS", "PENDING", "FAILED"].includes(ciState)) {
+    throw new TypeError("source CI state is invalid");
+  }
+  if (await github.getDefaultBranchRevision() !== policyRevision) {
+    throw new TypeError("trusted policy revision changed during evaluation");
   }
   const labels = labelPlan(authority.labels, authority);
   return {
@@ -510,7 +552,8 @@ async function loadEvaluation({ github, config, repository, number }) {
     graph,
     authority,
     labels,
-    merge: toMergeDecision({ config, pullRequest, graph, authority, protectedBranch }),
+    protectedBranch,
+    merge: toMergeDecision({ config, pullRequest, graph, authority, protectedBranch, ciState }),
   };
 }
 
@@ -673,12 +716,13 @@ function headChangedResult(evaluation) {
   return resultFor(evaluation, { action: "NOOP", blockers: ["head-changed"] });
 }
 
-async function applyPermissive({ github, config, repository, evaluation, dryRun }) {
+async function applyPermissive({ github, config, repository, evaluation, dryRun, policyRevision }) {
   const reread = await loadEvaluation({
     github,
     config,
     repository,
     number: evaluation.pullRequest.number,
+    policyRevision,
   });
   if (!sameHeadIdentity(evaluation.pullRequest, reread.pullRequest)) {
     return headChangedResult(evaluation);
@@ -688,43 +732,193 @@ async function applyPermissive({ github, config, repository, evaluation, dryRun 
   }
   if (dryRun) return resultFor(reread);
 
-  await applyLabels(github, reread.pullRequest.number, reread.labels);
+  // GitHub requires a blocking requirement while native auto-merge is enabled.
   await github.setMergePolicyCheck(
     reread.pullRequest.number,
     reread.pullRequest.headOid,
+    "action_required",
+    "Repository merge policy is preparing native SQUASH auto-merge.",
+  );
+  await applyLabels(github, reread.pullRequest.number, reread.labels);
+  let beforeSuccess = await loadEvaluation({
+    github,
+    config,
+    repository,
+    number: reread.pullRequest.number,
+    policyRevision,
+  });
+  if (
+    !sameHeadIdentity(reread.pullRequest, beforeSuccess.pullRequest)
+    || beforeSuccess.graph.headOid !== reread.pullRequest.headOid
+  ) {
+    return headChangedResult(reread);
+  }
+  if (beforeSuccess.merge.blockers.length > 0) {
+    return applyRestrictive({ github, repository, evaluation: beforeSuccess, dryRun });
+  }
+  const enabled = beforeSuccess.merge.action === "ENABLE";
+  if (enabled) {
+    await github.enableAutoMerge(
+      beforeSuccess.graph.nodeId,
+      "SQUASH",
+      beforeSuccess.pullRequest.headOid,
+    );
+    const afterEnable = await loadEvaluation({
+      github,
+      config,
+      repository,
+      number: beforeSuccess.pullRequest.number,
+      policyRevision,
+    });
+    if (
+      !sameHeadIdentity(beforeSuccess.pullRequest, afterEnable.pullRequest)
+      || afterEnable.graph.headOid !== beforeSuccess.pullRequest.headOid
+    ) return headChangedResult(beforeSuccess);
+    if (afterEnable.merge.blockers.length > 0) {
+      return applyRestrictive({ github, repository, evaluation: afterEnable, dryRun });
+    }
+    if (afterEnable.graph.autoMergeMethod !== "SQUASH") {
+      throw new Error("native SQUASH auto-merge was not retained");
+    }
+    beforeSuccess = afterEnable;
+  }
+  await github.setMergePolicyCheck(
+    beforeSuccess.pullRequest.number,
+    beforeSuccess.pullRequest.headOid,
     "success",
     SUCCESS_SUMMARY,
   );
-  const finalPullRequest = validatePullRequest(
-    await github.getPullRequest(reread.pullRequest.number),
-    reread.pullRequest.number,
+  const finalEvaluation = await loadEvaluation({
+    github,
+    config,
     repository,
-  );
-  const finalGraph = validateGraphState(
-    await github.getMergeState(reread.pullRequest.number),
-    finalPullRequest,
-    repository,
-  );
+    number: beforeSuccess.pullRequest.number,
+    policyRevision,
+    completedEvaluation: beforeSuccess,
+  });
+  const completedDecision = enabled ? { action: "ENABLE", blockers: [] } : finalEvaluation.merge;
   if (
-    !sameHeadIdentity(reread.pullRequest, finalPullRequest)
-    || finalGraph.headOid !== reread.pullRequest.headOid
-  ) return headChangedResult(reread);
-  if (finalGraph.autoMergeMethod === null) {
-    await github.enableAutoMerge(finalGraph.nodeId, config.policy.merge.method);
+    finalEvaluation.pullRequest.state === "closed"
+    && finalEvaluation.pullRequest.merged === true
+    && finalEvaluation.graph.state === "MERGED"
+    && finalEvaluation.graph.headOid === beforeSuccess.pullRequest.headOid
+    && sameHeadIdentity(
+      { ...beforeSuccess.pullRequest, state: "closed" },
+      finalEvaluation.pullRequest,
+    )
+  ) return resultFor(finalEvaluation, { action: enabled ? "ENABLE" : "NOOP", blockers: [] });
+  if (
+    !sameHeadIdentity(beforeSuccess.pullRequest, finalEvaluation.pullRequest)
+    || finalEvaluation.graph.headOid !== beforeSuccess.pullRequest.headOid
+  ) {
+    if (
+      samePullRequestHead(beforeSuccess.pullRequest, finalEvaluation.pullRequest)
+      && finalEvaluation.graph.headOid === beforeSuccess.pullRequest.headOid
+    ) {
+      const changedEvaluation = {
+        ...finalEvaluation,
+        merge: {
+          action: finalEvaluation.graph.autoMergeMethod === null ? "NOOP" : "DISABLE",
+          blockers: [...new Set([...finalEvaluation.merge.blockers, "head-changed"])],
+        },
+      };
+      return applyRestrictive({ github, repository, evaluation: changedEvaluation, dryRun });
+    }
+    return headChangedResult(beforeSuccess);
   }
-  return resultFor(reread);
+  if (finalEvaluation.merge.blockers.length > 0) {
+    return applyRestrictive({ github, repository, evaluation: finalEvaluation, dryRun });
+  }
+  return resultFor(finalEvaluation, completedDecision);
 }
 
-async function reconcile({ github, config, repository, number, dryRun }) {
-  const evaluation = await loadEvaluation({ github, config, repository, number });
+function samePolicyComment(left, right) {
+  return left?.action === right?.action && left?.id === right?.id && left?.body === right?.body;
+}
+
+function sameLabels(left, right) {
+  return Array.isArray(right) && JSON.stringify([...left].sort()) === JSON.stringify([...right].sort());
+}
+
+async function loadLabelEvaluation({ github, config, repository, number, policyRevision }) {
+  const pullRequest = validatePullRequest(
+    await github.getPullRequest(number),
+    number,
+    repository,
+  );
+  const authority = await loadAuthority({ github, config, repository, pullRequest, policyRevision });
+  if (await github.getDefaultBranchRevision() !== policyRevision) {
+    throw new TypeError("trusted policy revision changed during evaluation");
+  }
+  // Only an /unhold clears a hold, and its Commands run removes the label itself. A hold
+  // label without hold state can be a /hold run between its label write and state write.
+  const plan = labelPlan(authority.labels, authority);
+  const labels = {
+    add: plan.add,
+    remove: plan.remove.filter((label) => label.toLowerCase() !== "do-not-merge/hold"),
+  };
+  return { pullRequest, authority, labels };
+}
+
+function labelsResult(evaluation, labelWrite) {
+  return {
+    number: evaluation.pullRequest.number,
+    headOid: evaluation.pullRequest.headOid,
+    lgtm: evaluation.authority.lgtm !== null,
+    approved: evaluation.authority.approved,
+    labels: evaluation.labels,
+    labelWrite,
+  };
+}
+
+// Labels-only mode never reads CI, branch protection or merge state, and never
+// writes the merge-policy check or changes native auto-merge.
+async function reconcileLabels({ github, config, repository, number, dryRun, policyRevision }) {
+  const evaluation = await loadLabelEvaluation({ github, config, repository, number, policyRevision });
+  if (dryRun) return labelsResult(evaluation, "planned");
+  if (evaluation.labels.add.length === 0 && evaluation.labels.remove.length === 0) {
+    return labelsResult(evaluation, "unchanged");
+  }
+  // A concurrent command can write a hold after the read above; skip the write and
+  // leave the change to the evaluation that its completion triggers.
+  const [comment, labels, current] = await Promise.all([
+    github.getPolicyComment(number, POLICY_COMMENT_MARKER),
+    github.listIssueLabels(number),
+    github.getPullRequest(number),
+  ]);
+  if (
+    !samePolicyComment(evaluation.authority.comment, comment)
+    || !sameLabels(evaluation.authority.labels, labels)
+    || !sameHeadIdentity(evaluation.pullRequest, validatePullRequest(current, number, repository))
+  ) return labelsResult(evaluation, "inputs-changed");
+  await applyLabels(github, number, evaluation.labels);
+  return labelsResult(evaluation, "applied");
+}
+
+async function reconcile({ github, config, repository, number, dryRun, policyRevision, labelsOnly }) {
+  if (labelsOnly) return reconcileLabels({ github, config, repository, number, dryRun, policyRevision });
+  const evaluation = await loadEvaluation({ github, config, repository, number, policyRevision });
   if (evaluation.merge.blockers.length > 0) {
     return applyRestrictive({ github, repository, evaluation, dryRun });
   }
-  return applyPermissive({ github, config, repository, evaluation, dryRun });
+  return applyPermissive({ github, config, repository, evaluation, dryRun, policyRevision });
 }
 
-async function runMergeEvaluate({ event, eventName, github, config, dryRun, prNumber = "" }) {
+async function runMergeEvaluate({
+  event,
+  eventName,
+  github,
+  config,
+  dryRun,
+  policyRevision,
+  prNumber = "",
+  labelsOnly = false,
+}) {
   if (typeof dryRun !== "boolean") throw new TypeError("dry-run must be a boolean");
+  if (typeof labelsOnly !== "boolean") throw new TypeError("labels-only must be a boolean");
+  if (typeof policyRevision !== "string" || !OID.test(policyRevision) || /^0+$/.test(policyRevision)) {
+    throw new TypeError("policy revision must be a nonzero canonical commit SHA");
+  }
   validateConfig(config);
   const repository = eventRepository(event);
   const candidates = await candidatesFor({ event, eventName, github, repository, prNumber });
@@ -732,10 +926,13 @@ async function runMergeEvaluate({ event, eventName, github, config, dryRun, prNu
   let failed = false;
   for (const number of candidates) {
     try {
-      pullRequests.push(await reconcile({ github, config, repository, number, dryRun }));
+      pullRequests.push(await reconcile({ github, config, repository, number, dryRun, policyRevision, labelsOnly }));
     } catch {
       failed = true;
-      pullRequests.push(await failClosed({ github, config, repository, number, dryRun }));
+      // The fail-closed plan assumes no hold and would remove do-not-merge/hold.
+      pullRequests.push(labelsOnly
+        ? { number, failClosed: false }
+        : await failClosed({ github, config, repository, number, dryRun }));
     }
   }
   const summary = {

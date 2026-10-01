@@ -103,7 +103,7 @@ func ClusterName() string { return env("E2E_CLUSTER_NAME", defaultClusterName) }
 // ArtifactsDir is where diagnostics are written.
 func ArtifactsDir() string { return env("E2E_ARTIFACTS", defaultArtifacts) }
 
-// RunNGCSpecs reports whether the NGC-auth standalone GFD/CUDA specs run
+// RunNGCSpecs reports whether the NGC-auth standalone GFD specs run
 // (default skipped). Set when an NGC pull secret/credentials are available.
 func RunNGCSpecs() bool { return envBool("E2E_RUN_NGC") }
 

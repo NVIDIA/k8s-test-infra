@@ -21,7 +21,7 @@ other's objects.
 > **Do not point `NAMESPACE=` at another Mokka release's namespace.** The demo
 > refuses to install if another Mokka release is already there, and exits
 > `4`. That refusal exists because **the two releases share per-node host state
-> whatever namespace they use.** Both DaemonSets mount the same hostPaths,
+> whatever namespace they use.** Both releases' DaemonSets mount the same hostPaths,
 > `/var/lib/nvml-mock`, `/var/run/cdi`, `/run/nvidia` and the NFD features
 > directory, and none of those is scoped by release or by namespace.
 >
@@ -42,7 +42,7 @@ other's objects.
 **Distinct names are bookkeeping, not isolation.** The chart's hostPath mounts are
 fixed and release-independent (`/var/lib/nvml-mock`, `/var/run/cdi`,
 `/run/nvidia`, and the NFD features directory), and it ships `nodeSelector: {}`
-with `tolerations: [{operator: Exists}]`, so both DaemonSets land on every node
+with `tolerations: [{operator: Exists}]`, so both releases' DaemonSets land on every node
 and write the same per-node host state whatever they are called. Do not run
 this demo alongside another Mokka release on the same cluster.
 
@@ -111,7 +111,7 @@ chart. Pin `NVML_MOCK_IMAGE` to a released tag if you need a fixed pairing.
    Exit codes: `2` no usable cluster, `3` missing or too-old tooling, `4`
    confirmation declined, impossible, refused because another nvml-mock demo is
    already installed anywhere on the cluster, or refused because helm could not
-   list releases to rule that out, `5` a configuration the chart cannot
+   list releases to rule that out, `5` a configuration the demo cannot
    express (a digest-pinned `NVML_MOCK_IMAGE`).
 
    Every subsequent `kubectl` and `helm` call is pinned to both the context

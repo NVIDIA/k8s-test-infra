@@ -82,7 +82,7 @@ func attachGPUs(cfg Config, container Container, adjustment *Adjustment) {
 // attachRawGPUNodes stages the mock /dev/nvidia* nodes directly.
 //
 // Both failure arms fail open. The device tree is staged by the node agent and
-// nothing orders this plugin's DaemonSet after it, so a fresh or unreadable
+// nothing orders this plugin's container after it, so a fresh or unreadable
 // node degrades to overlay-only injection rather than blocking the whole pod.
 func attachRawGPUNodes(cfg Config, adjustment *Adjustment) {
 	devices, err := discoverDevices(cfg.DeviceHostPath)

@@ -4,16 +4,14 @@ const { Buffer } = require("node:buffer");
 const path = require("node:path");
 const { loadConfig } = require("./config.js");
 const { createGitHubClient } = require("./github-client.js");
-const { runGit } = require("./git.js");
-const { runBackport } = require("./modes/backport.js");
+const { validateScanDispatch, createScanReportCollector } = require("./label-scan-report.js");
 const { runCommand } = require("./modes/command.js");
+const { runConflictLabels } = require("./modes/conflict-labels.js");
 const { syncLabels } = require("./modes/label-sync.js");
 const { runMergeEvaluate } = require("./modes/merge-evaluate.js");
 const { runMetadata } = require("./modes/metadata.js");
-const { runMokkaCherryPick } = require("./modes/mokka-cherry-pick.js");
+const { runMetadataLabels } = require("./modes/metadata-labels.js");
 const { MAX_SUMMARY_BYTES } = require("./limits.js");
-
-const MAX_BACKPORT_REQUESTS_BYTES = 4096;
 
 function serializeSummary(summary) {
   const serialized = JSON.stringify(summary);
@@ -21,14 +19,6 @@ function serializeSummary(summary) {
     throw new TypeError(`summary must not exceed ${MAX_SUMMARY_BYTES} bytes`);
   }
   return serialized;
-}
-
-function fixedWorkingDirectory(workspace, value, purpose) {
-  if (value !== "target") throw new TypeError(`invalid ${purpose} working directory`);
-  if (typeof workspace !== "string" || !path.isAbsolute(workspace)) {
-    throw new TypeError(`invalid ${purpose} workspace for working directory`);
-  }
-  return path.join(workspace, "target");
 }
 
 function controlWorkspace(workspace, value) {
@@ -40,39 +30,22 @@ function controlWorkspace(workspace, value) {
   return path.join(workspace, "control");
 }
 
-function serializeBackportRequests(summary) {
-  const requests = summary?.backportRequests ?? [];
-  if (!Array.isArray(requests)) throw new TypeError("backport requests must be an array");
-  const output = requests.map((request) => {
-    if (
-      request === null
-      || typeof request !== "object"
-      || !Number.isSafeInteger(request.prNumber)
-      || request.prNumber <= 0
-      || typeof request.targetBranch !== "string"
-      || request.targetBranch === ""
-    ) throw new TypeError("backport request output is invalid");
-    return { prNumber: request.prNumber, targetBranch: request.targetBranch };
-  });
-  const serialized = JSON.stringify(output);
-  if (Buffer.byteLength(serialized, "utf8") >= MAX_BACKPORT_REQUESTS_BYTES) {
-    throw new TypeError(`backport requests must be smaller than ${MAX_BACKPORT_REQUESTS_BYTES} bytes`);
-  }
-  return serialized;
-}
-
 async function publishJobSummary(core, mode, summary) {
+  const serialized = serializeSummary(summary);
+  if (mode === "conflict-labels" || mode === "metadata-labels") {
+    core.info?.(`Repository automation ${mode}: ${serialized}`);
+  }
   if (core.summary?.addHeading === undefined) return;
   await core.summary
     .addHeading(`Repository automation: ${mode}`, 2)
-    .addCodeBlock(serializeSummary(summary), "json")
+    .addCodeBlock(serialized, "json")
     .write();
 }
 
 async function run(dependencies) {
   const { core } = dependencies;
   const mode = core.getInput("mode", { required: true });
-  if (!["label-sync", "metadata", "command", "merge-evaluate", "backport", "mokka-cherry-pick"].includes(mode)) {
+  if (!["label-sync", "metadata", "metadata-labels", "conflict-labels", "command", "merge-evaluate", "policy-labels"].includes(mode)) {
     throw new Error(`Unsupported mode: ${mode}`);
   }
 
@@ -84,23 +57,22 @@ async function run(dependencies) {
   } = dependencies;
   const client = dependencies.githubClient ?? createGitHubClient(octokit, owner, repo);
   const dryRun = core.getBooleanInput("dry-run");
-  const prNumber = mode === "mokka-cherry-pick"
-    ? core.getInput("pull_request_number")
-    : core.getInput("pr-number");
-  const sourceSha = mode === "mokka-cherry-pick"
-    ? core.getInput("source_sha")
-    : core.getInput("source-sha");
-  const targetBranch = core.getInput("target-branch");
-  const actionId = mode === "mokka-cherry-pick"
-    ? core.getInput("action_id")
-    : core.getInput("action-id");
-  const workingDirectoryInput = core.getInput("working-directory");
+  let reportCollector;
+  if (mode === "conflict-labels" || mode === "metadata-labels") {
+    const requestId = core.getInput("request-id");
+    const workflowCommitSha = core.getInput("workflow-commit-sha");
+    if (dependencies.eventName === "workflow_dispatch" || requestId !== "" || workflowCommitSha !== "") {
+      const context = validateScanDispatch({ ...dependencies, requestId, workflowCommitSha });
+      reportCollector = createScanReportCollector(context, mode, dryRun, workspace);
+    }
+  }
+  const prNumber = core.getInput("pr-number");
   const controlDirectoryInput = core.getInput("control-directory");
   const trustedWorkspace = controlWorkspace(workspace, controlDirectoryInput);
   let config;
-  if (mode === "mokka-cherry-pick") {
+  if (mode === "conflict-labels") {
     config = undefined;
-  } else if (mode === "metadata") {
+  } else if (mode === "metadata" || mode === "metadata-labels") {
     try {
       config = loadConfig(trustedWorkspace);
     } catch {
@@ -112,6 +84,26 @@ async function run(dependencies) {
   let summary;
   try {
     switch (mode) {
+      case "metadata-labels":
+        summary = await runMetadataLabels({
+          event: dependencies.event,
+          eventName: dependencies.eventName,
+          github: client,
+          config,
+          dryRun,
+          policyRevision: core.getInput("policy-revision"),
+          reportCollector,
+        });
+        break;
+      case "conflict-labels":
+        summary = await runConflictLabels({
+          event: dependencies.event,
+          eventName: dependencies.eventName,
+          github: client,
+          dryRun,
+          reportCollector,
+        });
+        break;
       case "label-sync":
         summary = await syncLabels({
           github: client,
@@ -136,6 +128,7 @@ async function run(dependencies) {
         });
         break;
       case "merge-evaluate":
+      case "policy-labels":
         summary = await runMergeEvaluate({
           event: dependencies.event,
           eventName: dependencies.eventName,
@@ -143,57 +136,22 @@ async function run(dependencies) {
           config,
           dryRun,
           prNumber,
+          policyRevision: core.getInput("policy-revision"),
+          labelsOnly: mode === "policy-labels",
         });
         break;
-      case "backport": {
-        const workingDirectory = fixedWorkingDirectory(workspace, workingDirectoryInput, "backport");
-        const git = dependencies.git ?? runGit;
-        summary = await runBackport({
-          github: client,
-          git: (args, options) => git(args, {
-            ...options,
-            cwd: workingDirectory,
-          }),
-          config,
-          dryRun,
-          prNumber,
-          targetBranch,
-          repository: `${owner}/${repo}`,
-        });
-        break;
-      }
-      case "mokka-cherry-pick": {
-        const workingDirectory = fixedWorkingDirectory(workspace, workingDirectoryInput, "Mokka");
-        const git = dependencies.git ?? runGit;
-        summary = await runMokkaCherryPick({
-          github: client,
-          git: (args, options) => git(args, {
-            ...options,
-            cwd: workingDirectory,
-          }),
-          dryRun,
-          prNumber,
-          sourceSha,
-          targetBranch,
-          actionId,
-          repository: `${owner}/${repo}`,
-          repositoryId: dependencies.repositoryId,
-          workflowSha: dependencies.workflowSha,
-        });
-        break;
-      }
       default:
         throw new Error(`Unsupported mode: ${mode}`);
     }
   } catch (error) {
+    await reportCollector?.write();
     if (error?.summary !== undefined) {
       core.setOutput("summary", serializeSummary(error.summary));
+      await publishJobSummary(core, mode, error.summary);
     }
     throw error;
   }
-  if (mode === "command") {
-    core.setOutput("backport-requests", serializeBackportRequests(summary));
-  }
+  await reportCollector?.write();
   core.setOutput("summary", serializeSummary(summary));
   await publishJobSummary(core, mode, summary);
   return summary;
@@ -215,6 +173,7 @@ async function executeAction() {
       repo,
       event: github.context.payload,
       eventName: github.context.eventName,
+      ref: github.context.ref,
       repositoryId: process.env.GITHUB_REPOSITORY_ID,
       workflowSha: process.env.GITHUB_WORKFLOW_SHA,
     });

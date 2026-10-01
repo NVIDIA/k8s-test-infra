@@ -1,13 +1,10 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
 const test = require("node:test");
 
 const { decideMergeAction } = require("../src/merge-state.js");
 
-const sourcePath = path.join(__dirname, "..", "src", "merge-state.js");
 const HEAD = "a".repeat(40);
 const OTHER_HEAD = "b".repeat(40);
 const HEAD_64 = "c".repeat(64);
@@ -66,7 +63,7 @@ function assertBlocked(overrides, blocker) {
   }
 }
 
-test("converges eligible native auto-merge to squash in two idempotent steps", () => {
+test("arms eligible unarmed pull requests and preserves native SQUASH requests", () => {
   const expected = new Map([
     [null, { action: "ENABLE", blockers: [] }],
     ["SQUASH", { action: "NOOP", blockers: [] }],
@@ -138,14 +135,10 @@ test("requires metadata bound to the current head and no upstream load error", (
   assertBlocked({ loadError: true }, "load-error");
 });
 
-test("lets GitHub enforce required checks for success, pending, and failed CI", () => {
-  for (const ciState of ["SUCCESS", "PENDING", "FAILED"]) {
-    assert.deepEqual(decide({ ciState }), { action: "ENABLE", blockers: [] });
-    assert.deepEqual(decide({ ciState, autoMergeMethod: "SQUASH" }), {
-      action: "NOOP",
-      blockers: [],
-    });
-  }
+test("requires successful current source CI before arming or retaining auto-merge", () => {
+  assert.deepEqual(decide({ ciState: "SUCCESS" }), { action: "ENABLE", blockers: [] });
+  assertBlocked({ ciState: "PENDING" }, "ci-pending");
+  assertBlocked({ ciState: "FAILED" }, "ci-failed");
 });
 
 test("blocks an observed or final head mismatch immediately before mutation", () => {
@@ -628,25 +621,15 @@ test("never reflects unsafe attacker-controlled text in blockers", () => {
   }
 });
 
-test("source keeps CI diagnostic-only and all high-risk enable gates explicit", () => {
-  const source = fs.readFileSync(sourcePath, "utf8");
-  for (const fragment of [
-    "state.pullRequestState !== \"OPEN\"",
-    "state.draft",
-    "!state.baseBranchAllowed",
-    "!state.baseBranchProtected",
-    "state.lgtm === null",
-    "!state.lgtmStateOwnedByBot",
-    "state.lgtm.headOid !== state.headOid",
-    "!state.approvalCoverageComplete",
-    "state.approvalHeadOid !== state.headOid",
-    "state.metadataHeadOid !== state.headOid",
-    "state.mergeability === \"CONFLICTING\"",
-    "state.mergeability === \"UNKNOWN\"",
-    "state.finalHeadOid !== state.headOid",
-    "state.autoMergeMethod === \"SQUASH\" ? \"NOOP\" : \"ENABLE\"",
+test("retains CI blockers while an unsupported auto-merge method is disarmed", () => {
+  for (const [ciState, blockers] of [
+    ["SUCCESS", ["auto-merge-method-mismatch"]],
+    ["PENDING", ["ci-pending", "auto-merge-method-mismatch"]],
+    ["FAILED", ["ci-failed", "auto-merge-method-mismatch"]],
   ]) {
-    assert.equal(source.includes(fragment), true, `missing explicit gate: ${fragment}`);
+    assert.deepEqual(decide({ ciState, autoMergeMethod: "MERGE" }), {
+      action: "DISABLE",
+      blockers,
+    });
   }
-  assert.equal(source.includes("state.ciState ==="), false);
 });

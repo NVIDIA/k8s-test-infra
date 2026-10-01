@@ -1,14 +1,13 @@
 "use strict";
 
 const { deriveAreaLabels } = require("../areas.js");
-const { validateConfig } = require("../config.js");
-const { evaluateDco } = require("../dco.js");
-const { isManagedMetadataLabel } = require("../managed-labels.js");
-const { parseAliases, parseOwnersFile, resolveOwners } = require("../owners.js");
+const { verifyApproverAuthor } = require("../author-approval.js");
+const { configurationResult, safeConfigurationComputation, readMetadataEvidence } = require("../metadata-evidence.js");
+const { asciiLower, isManagedMetadataLabel } = require("../managed-labels.js");
 const { POLICY_COMMENT_MARKER, renderPolicyComment } = require("../policy-comment.js");
+const { validAuthorContext } = require("../pull-request-author.js");
 const { selectReviewers } = require("../reviewer-selection.js");
 const { classifySize } = require("../size.js");
-const { classifyTitle } = require("../title.js");
 
 const GITHUB_LOGIN = /^(?!.*--)[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
 const REPOSITORY_NAME = /^[A-Za-z0-9_.-]{1,100}$/;
@@ -50,22 +49,6 @@ function eventIdentity(event) {
   return { owner: owner.toLowerCase(), repo: repo.toLowerCase(), prNumber };
 }
 
-function activeOwnerPaths(config) {
-  const values = config?.policy?.activeOwnerFiles;
-  if (!Array.isArray(values)) return [];
-  const paths = [];
-  for (const value of values) {
-    if (
-      typeof value !== "string"
-      || !/^\/(?:[A-Za-z0-9_.-]+\/)*OWNERS$/.test(value)
-    ) {
-      continue;
-    }
-    if (!paths.includes(value)) paths.push(value);
-  }
-  return paths.sort();
-}
-
 function labelPlan(current, desired) {
   if (
     !Array.isArray(current)
@@ -75,11 +58,11 @@ function labelPlan(current, desired) {
   }
   const currentByName = new Map();
   for (const label of current) {
-    const normalized = label.toLowerCase();
+    const normalized = asciiLower(label);
     if (currentByName.has(normalized)) throw new TypeError("live issue labels must be unique");
     currentByName.set(normalized, label);
   }
-  const desiredByName = new Map(desired.map((label) => [label.toLowerCase(), label]));
+  const desiredByName = new Map(desired.map((label) => [asciiLower(label), label]));
   return {
     add: [...desiredByName]
       .filter(([name]) => !currentByName.has(name))
@@ -90,15 +73,6 @@ function labelPlan(current, desired) {
       .map(([, label]) => label)
       .sort(),
   };
-}
-
-function configurationResult(config) {
-  try {
-    validateConfig(config);
-    return { valid: true, error: null };
-  } catch {
-    return { valid: false, error: "repository automation configuration is invalid" };
-  }
 }
 
 function changedLineTotals(files) {
@@ -120,13 +94,13 @@ function changedLineTotals(files) {
   return { additions, deletions };
 }
 
-function safeConfigurationComputation(configuration, operation, fallback) {
-  try {
-    return operation();
-  } catch (error) {
-    if (configuration.valid) throw error;
-    return fallback;
-  }
+function desiredMetadataLabels({ title, size, areas, draft }) {
+  return [
+    ...(title.valid ? [title.label] : []),
+    ...(size === null ? [] : [size.label]),
+    ...areas,
+    ...(draft ? ["do-not-merge/work-in-progress"] : []),
+  ];
 }
 
 function policyFailureNames(result) {
@@ -147,8 +121,7 @@ function validateLivePullRequest(pullRequest, identity) {
     || pullRequest.state !== "open"
     || typeof pullRequest.draft !== "boolean"
     || typeof pullRequest.title !== "string"
-    || typeof pullRequest.author !== "string"
-    || !GITHUB_LOGIN.test(pullRequest.author)
+    || !validAuthorContext(pullRequest.author)
     || typeof pullRequest.headOid !== "string"
     || pullRequest.headOid === ""
     || pullRequest.baseRepository?.owner?.toLowerCase() !== identity.owner
@@ -177,7 +150,6 @@ async function runMetadata({ event, github, config, dryRun }) {
   if (typeof dryRun !== "boolean") throw new TypeError("dryRun must be a boolean");
   const identity = eventIdentity(event);
   const configuration = configurationResult(config);
-  const ownerPaths = activeOwnerPaths(config);
 
   const pullRequest = await github.getPullRequest(identity.prNumber);
   validateLivePullRequest(pullRequest, identity);
@@ -194,19 +166,9 @@ async function runMetadata({ event, github, config, dryRun }) {
   }
 
   const defaultBranchRevision = await github.getDefaultBranchRevision();
-  const ownerSources = [];
-  for (const path of ownerPaths) {
-    ownerSources.push({
-      path,
-      source: await github.getContentAtRevision(path, defaultBranchRevision),
-    });
-  }
-  const aliasSource = await github.getContentAtRevision(
-    "/OWNERS_ALIASES",
-    defaultBranchRevision,
-  );
-
-  const title = classifyTitle(pullRequest.title);
+  const { title, dco, ownership, ownershipResolution, authorIsHuman, authorPaths } = await readMetadataEvidence({
+    github, config, pullRequest, files, commits, configuration, policyRevision: defaultBranchRevision,
+  });
   const totals = changedLineTotals(files);
   const size = safeConfigurationComputation(
     configuration,
@@ -218,38 +180,6 @@ async function runMetadata({ event, github, config, dryRun }) {
     () => deriveAreaLabels(files.map((file) => file.path), config.areas),
     [],
   );
-  const evaluatedDco = safeConfigurationComputation(
-    configuration,
-    () => evaluateDco(commits, config.policy.bots),
-    { valid: false, failures: [], exempted: [] },
-  );
-  const dco = {
-    valid: evaluatedDco.valid,
-    failures: evaluatedDco.failures.map(({ sha }) => ({
-      sha,
-      reason: "missing or mismatched Signed-off-by trailer",
-    })),
-    exempted: [...evaluatedDco.exempted],
-  };
-
-  const ownershipResolution = safeConfigurationComputation(configuration, () => {
-    const aliases = parseAliases(aliasSource);
-    const declarations = ownerSources.map(({ path, source }) => parseOwnersFile(source, path));
-    return resolveOwners(files.map((file) => file.path), declarations, aliases, {
-      activeOwnerFiles: ownerPaths,
-      pullRequestAuthor: pullRequest.author,
-    });
-  }, {
-    files: files.map((file) => ({ path: file.path, reviewers: [], approvers: [] })),
-    reviewerCandidates: [],
-    approverCandidates: [],
-    uncoveredPaths: files.map((file) => file.path).sort(),
-  });
-  const ownership = {
-    valid: ownershipResolution.uncoveredPaths.length === 0,
-    uncoveredPaths: ownershipResolution.uncoveredPaths,
-  };
-
   const reviewerSelection = safeConfigurationComputation(configuration, () => selectReviewers({
     candidates: ownershipResolution.reviewerCandidates,
     files: files.map((file) => ({
@@ -271,12 +201,7 @@ async function runMetadata({ event, github, config, dryRun }) {
     preserved: reviewerSelection.preserved.sort(),
   };
 
-  const desiredLabels = [
-    ...(title.valid ? [title.label] : []),
-    ...(size === null ? [] : [size.label]),
-    ...areas,
-    ...(pullRequest.draft ? ["do-not-merge/work-in-progress"] : []),
-  ];
+  const desiredLabels = desiredMetadataLabels({ title, size, areas, draft: pullRequest.draft });
   const labels = labelPlan(issueLabels, desiredLabels);
   const resultBase = {
     headOid: pullRequest.headOid,
@@ -302,6 +227,13 @@ async function runMetadata({ event, github, config, dryRun }) {
     validateLivePullRequest(currentPullRequest, identity);
     if (!samePullRequestFence(pullRequest, currentPullRequest)) {
       throw new Error("pull request state changed after planning; refusing stale writes");
+    }
+    if (authorIsHuman && ownershipResolution.uncoveredPaths.some((path) => authorPaths.has(path))) {
+      const latestRevision = await github.getDefaultBranchRevision();
+      const authorStillHuman = await verifyApproverAuthor(github, ownershipResolution, pullRequest.author);
+      if (latestRevision !== defaultBranchRevision || !authorStillHuman) {
+        throw new Error("author ownership changed after planning; refusing stale writes");
+      }
     }
 
     const apply = async (descriptor, mutation) => {
@@ -351,4 +283,4 @@ async function runMetadata({ event, github, config, dryRun }) {
   return result;
 }
 
-module.exports = { runMetadata };
+module.exports = { runMetadata, changedLineTotals, desiredMetadataLabels, labelPlan };

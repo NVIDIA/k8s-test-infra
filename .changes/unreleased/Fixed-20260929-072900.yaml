@@ -1,0 +1,7 @@
+kind: Fixed
+body: |-
+  helm: a MIG layout the board cannot satisfy is refused at render, instead of
+    installing short of slices without a word. The check covers a profile name
+    or `profile_id` the board does not publish, more instances than a profile
+    allows, and a layout wider than the board.
+time: 2026-09-29T07:29:00Z

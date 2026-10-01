@@ -1,0 +1,6 @@
+kind: Fixed
+body: |-
+  Repository automation publishes merge policy checks without enabling
+  auto-merge. Maintainers must enable squash auto-merge for each pull request;
+  the workflow still disables unsafe auto-merge requests.
+time: 2026-09-30T15:26:20Z

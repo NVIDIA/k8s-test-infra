@@ -30,10 +30,6 @@ docs_dir: docs
 exclude_docs: |
   plans/
   superpowers/
-  # CUDA mocking is not usable yet: 14 of its 15 exports are runtime API and
-  # real workloads never enter the mock. The page stays in the repo for
-  # contributors. Delete this line to republish once the driver surface lands.
-  cuda-mock.md
 
 theme:
   name: material
@@ -120,12 +116,13 @@ nav:
           - Installation: helm-chart.md
       - Architecture:
           - Overview: architecture.md
-          - Mokka Control Plane: mokka-controller.md
+          - Mokka Control Plane: control-plane.md
           - Node Daemon: components/node-daemon.md
           - Libraries and Shims: components/libraries-and-shims.md
           - NRI Plugin: components/nri-plugin.md
       - Reference:
           - Configuration: configuration.md
+          - MIG: mig.md
           # The pages stay under docs/tools/ because hack/check-docs-tools-sync.sh
           # scans that directory to hold them in step with cmd/. The nav label is
           # what places them, not the path.
@@ -134,6 +131,7 @@ nav:
               - control-plane: tools/control-plane.md
               - node-agent: tools/node-agent.md
               - nri-plugin: tools/nri-plugin.md
+          - Support Policy: support-policy.md
       - Troubleshooting: troubleshooting.md
       - FAQ: faq.md
   - Guides:
@@ -148,6 +146,7 @@ nav:
           - Run.ai Fake GPU Operator: guides/runai-fgo/README.md
           - Node-Wide Injection: guides/node-wide-injection/README.md
       - Tasks:
+          - MIG Partitioning: guides/mig/README.md
           - Failure Injection: guides/failure-injection/README.md
           - Use in CI/CD: guides/ci-cd.md
           - Runtime Control: nvml-mock-ctl.md

@@ -4,6 +4,30 @@ apiVersion: apps/v1
 kind: DaemonSet
 {{- $ibEnabled := eq (include "nvml-mock.infinibandEnabled" .) "true" }}
 {{- $fmEnabled := eq (include "nvml-mock.fabricmanagerEnabled" .) "true" }}
+{{- $nriImageOverride := .Values.nri.image | default dict }}
+{{- $nriImage := mergeOverwrite (deepCopy .Values.image) $nriImageOverride }}
+{{- /* The chart digest names the nvml-mock image; it must not pin an NRI repository or tag override. */}}
+{{- if and (not $nriImageOverride.digest) (or $nriImageOverride.repository $nriImageOverride.tag) }}
+{{- $_ := unset $nriImage "digest" }}
+{{- end }}
+{{- $nriSocketDir := dir .Values.nri.socketPath }}
+{{- $nriOverlayVolume := "mokka-root" }}
+{{- if ne .Values.nri.overlay.hostPath "/var/lib/nvml-mock" }}
+{{- $nriOverlayVolume = "nri-overlay" }}
+{{- end }}
+{{- $nriCDIVolume := "cdi-specs" }}
+{{- if ne .Values.nri.cdiSpecDir "/var/run/cdi" }}
+{{- $nriCDIVolume = "nri-cdi-specs" }}
+{{- end }}
+{{- if and .Values.nri.enabled (not (has .Values.nri.deviceInjectionMode (list "raw" "cdi"))) }}
+{{- fail (printf "nri.deviceInjectionMode must be \"raw\" or \"cdi\", got %q" .Values.nri.deviceInjectionMode) }}
+{{- end }}
+{{- $nriHealthPort := int .Values.nri.healthPort }}
+{{- $nriPortConflict := or (eq $nriHealthPort 9091) (and $ibEnabled (eq $nriHealthPort (int .Values.infiniband.ping.port))) }}
+{{- if and .Values.nri.enabled $nriPortConflict }}
+{{- fail (printf "nri.healthPort (%v) conflicts with another listener in the shared pod; use a port other than node-agent health port 9091 or the enabled InfiniBand ping port %v" .Values.nri.healthPort .Values.infiniband.ping.port) }}
+{{- end }}
+{{- $migProfiles := include "nvml-mock.migProfiles" . }}
 metadata:
   name: {{ include "nvml-mock.fullname" . }}
   labels:
@@ -20,15 +44,38 @@ spec:
       labels:
         {{- include "nvml-mock.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: daemon
+        {{- with include "nvml-mock.podLabels" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
       annotations:
+        {{- with omit (.Values.podAnnotations | default dict) "checksum/config" "checksum/mig-profiles" "kubectl.kubernetes.io/default-container" }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
         # Roll the DaemonSet on any config.yaml change.
         checksum/config: {{ include "nvml-mock.gpuConfig" . | sha256sum }}
+        {{- if $migProfiles }}
+        # And on any change to the board's MIG table, which is a ConfigMap of
+        # its own and so does not move the checksum above.
+        checksum/mig-profiles: {{ $migProfiles | sha256sum }}
+        {{- end }}
+        # Keep kubectl exec/logs behavior stable when optional sidecars are on.
+        kubectl.kubernetes.io/default-container: node-agent
     spec:
       serviceAccountName: {{ include "nvml-mock.fullname" . }}
+      {{- with include "nvml-mock.imagePullSecrets" . }}
+      {{- . | nindent 6 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       {{- with .Values.tolerations }}
@@ -37,8 +84,8 @@ spec:
       {{- end }}
       containers:
         - name: node-agent
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          image: {{ include "nvml-mock.image" (dict "image" .Values.image "context" $) | quote }}
+          imagePullPolicy: {{ include "nvml-mock.imagePullPolicy" (dict "image" .Values.image "context" $) }}
           command:
             - /usr/local/bin/node-agent
             - start
@@ -124,6 +171,14 @@ spec:
             - name: MOCK_TOPOLOGY_CONFIG
               value: /etc/nvml-mock/topology/topology.yaml
             {{- end }}
+            {{- if $migProfiles }}
+            # Names the MIG table mount below. The engine's other way of
+            # finding a table is a sibling of MOCK_NVML_CONFIG, which a
+            # ConfigMap mounted at its own path is not, so leaving this unset
+            # is what leaves the board not MIG-capable.
+            - name: MOCK_MIG_PROFILES_CONFIG
+              value: /etc/nvml-mock/mig/mig-profiles.yaml
+            {{- end }}
             # The socket the UMAD/verbs shims dial. The agent serves it; exec'd
             # tools only need to find it.
             - name: MOCK_IB_PING_SOCKET
@@ -160,19 +215,9 @@ spec:
               protocol: TCP
             {{- end }}
           securityContext:
-            {{- if .Values.nodeAgent.kernelLog.enabled }}
-            # Writing /dev/kmsg needs no capability, but it does need past the
-            # device cgroup, which only privileged lifts -- mounting the device
-            # into an unprivileged container still fails with EPERM. Stated
-            # alone: a capability set is inert under privileged, so dropping ALL
-            # here would advertise a bound the container does not have.
+            # Kubernetes rejects mountPropagation: Bidirectional (below) on a
+            # non-privileged container regardless of capabilities granted.
             privileged: true
-            {{- else }}
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: [ALL]
-              add: [MKNOD]
-            {{- end }}
           volumeMounts:
             # Where the simulators write. Every path they stage is rooted here.
             - name: mokka-root
@@ -182,10 +227,11 @@ spec:
             # tool run via `kubectl exec` only resolve them through this mount.
             - name: mokka-root
               mountPath: /var/lib/nvml-mock
-            # gpudriver.Apply puts the /run/nvidia/driver symlink here, which is
-            # the driver root the GPU Operator and DRA driver look for.
+            # gpudriver.Apply bind-mounts the driver root here. Bidirectional
+            # so that mount propagates to our consumer workloads that mounted this path before we did (the workload started before Mokka node daemon).
             - name: driver-root-link
               mountPath: /host/run/nvidia
+              mountPropagation: Bidirectional
             # cdi.Apply writes both specs here; containerd scans the directory.
             - name: cdi-specs
               mountPath: /host/run/cdi
@@ -202,6 +248,14 @@ spec:
             # the overlay, where the NRI plugin points workloads at it.
             - name: cluster-topology
               mountPath: /etc/nvml-mock/topology
+              readOnly: true
+            {{- end }}
+            {{- if $migProfiles }}
+            # The board's MIG partition table, read at LoadConfig() time by the
+            # agent and by anything exec'd here. Its own mount rather than a
+            # key beside config.yaml, so a table change rolls only this.
+            - name: mig-profiles
+              mountPath: /etc/nvml-mock/mig
               readOnly: true
             {{- end }}
             {{- if $fmEnabled }}
@@ -221,24 +275,85 @@ spec:
             - name: kernel-log
               mountPath: /dev/kmsg
             {{- end }}
+          {{- with .Values.nodeAgent.livenessProbe }}
           livenessProbe:
-            httpGet:
-              path: /healthz
-              port: 9091
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.nodeAgent.readinessProbe }}
           readinessProbe:
-            httpGet:
-              path: /readyz
-              port: 9091
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           resources:
             {{- toYaml .Values.nodeAgent.resources | nindent 12 }}
+        {{- if .Values.nri.enabled }}
+        # The NRI plugin shares this pod with the node agent so staging and
+        # injection have one scheduling and rollout lifecycle per node.
+        - name: nvml-mock-nri
+          image: {{ include "nvml-mock.image" (dict "image" $nriImage "context" $) | quote }}
+          imagePullPolicy: {{ include "nvml-mock.imagePullPolicy" (dict "image" $nriImage "context" $) }}
+          command: ["/usr/local/bin/nri-plugin"]
+          args:
+            - --socket-path={{ .Values.nri.socketPath }}
+            - --plugin-name={{ .Values.nri.pluginName }}
+            - --plugin-index={{ .Values.nri.pluginIndex }}
+            - --overlay-host-path={{ .Values.nri.overlay.hostPath }}
+            - --overlay-mount-path={{ .Values.nri.overlay.mountPath }}
+            - --device-host-path={{ .Values.nri.overlay.hostPath }}/driver/dev
+            - --opt-out-annotation={{ .Values.nri.optOutAnnotation }}
+            - --device-annotation={{ .Values.nri.deviceAnnotation }}
+            - --device-injection-mode={{ .Values.nri.deviceInjectionMode }}
+            - --cdi-spec-host-path={{ .Values.nri.cdiSpecDir }}/nvml-mock-nri.yaml
+            # Mock IMEX channel delivery (#437). The nodes are staged by the
+            # node agent; the plugin only injects them into opted-in pods.
+            - --imex-channel-annotation={{ .Values.nri.imexChannelAnnotation }}
+            - --imex-channel-host-path={{ .Values.nri.overlay.hostPath }}/driver/dev/nvidia-caps-imex-channels
+            - --excluded-namespaces={{ .Release.Namespace }},kube-system{{- range .Values.nri.excludedNamespaces }},{{ . }}{{- end }}
+            - --node-name=$(NODE_NAME)
+            - --health-addr=:{{ .Values.nri.healthPort }}
+            - --log-level={{ .Values.nri.logging.level }}
+            - --log-format={{ .Values.nri.logging.format }}
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          ports:
+            - name: nri-health
+              containerPort: {{ .Values.nri.healthPort }}
+              protocol: TCP
+          {{- with .Values.nri.readinessProbe }}
+          readinessProbe:
+            {{- include "nvml-mock.nriProbe" . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.nri.livenessProbe }}
+          livenessProbe:
+            {{- include "nvml-mock.nriProbe" . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsUser: 0
+          {{- with .Values.nri.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: nri-socket-dir
+              mountPath: {{ $nriSocketDir }}
+            - name: {{ $nriOverlayVolume }}
+              mountPath: {{ .Values.nri.overlay.hostPath }}
+              readOnly: true
+            - name: {{ $nriCDIVolume }}
+              mountPath: {{ .Values.nri.cdiSpecDir }}
+              readOnly: true
+        {{- end }}
         {{- if .Values.allocationWatcher.enabled }}
         # #506: mirrors each pod's nvidia.com/gpu claim into the same runtime
         # override file nvml-mock-ctl writes, which the engine re-reads within
         # one TTL. A sidecar rather than its own DaemonSet so it shares the
         # driver-root hostPath the override file lives in.
         - name: allocation-watcher
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          image: {{ include "nvml-mock.image" (dict "image" .Values.image "context" $) | quote }}
+          imagePullPolicy: {{ include "nvml-mock.imagePullPolicy" (dict "image" .Values.image "context" $) }}
           command:
             - /usr/local/bin/nvml-mock-ctl
             - watch-allocations
@@ -288,6 +403,24 @@ spec:
           hostPath:
             path: /var/run/cdi
             type: DirectoryOrCreate
+        {{- if .Values.nri.enabled }}
+        - name: nri-socket-dir
+          hostPath:
+            path: {{ $nriSocketDir }}
+            type: DirectoryOrCreate
+        {{- if ne .Values.nri.overlay.hostPath "/var/lib/nvml-mock" }}
+        - name: nri-overlay
+          hostPath:
+            path: {{ .Values.nri.overlay.hostPath }}
+            type: DirectoryOrCreate
+        {{- end }}
+        {{- if ne .Values.nri.cdiSpecDir "/var/run/cdi" }}
+        - name: nri-cdi-specs
+          hostPath:
+            path: {{ .Values.nri.cdiSpecDir }}
+            type: DirectoryOrCreate
+        {{- end }}
+        {{- end }}
         - name: driver-root-link
           hostPath:
             path: /run/nvidia
@@ -314,6 +447,11 @@ spec:
         - name: cluster-topology
           configMap:
             name: {{ include "nvml-mock.fullname" . }}-topology
+        {{- end }}
+        {{- if $migProfiles }}
+        - name: mig-profiles
+          configMap:
+            name: {{ include "nvml-mock.fullname" . }}-mig-profiles
         {{- end }}
         {{- if $fmEnabled }}
         - name: fabric-state

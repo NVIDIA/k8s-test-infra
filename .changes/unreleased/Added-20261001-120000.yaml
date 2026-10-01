@@ -1,0 +1,5 @@
+kind: Added
+body: |-
+  repository-automation: accept pinned main label scan dispatches and publish two
+    bounded reports after live label and pull request fence checks.
+time: 2026-10-01T12:00:00Z

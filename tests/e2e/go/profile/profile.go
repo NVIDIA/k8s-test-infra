@@ -15,6 +15,7 @@
 //   - ExpectedHCAs  = infiniband.enabled ? GPUs*hcas_per_gpu : 0
 //   - ExpectedNV    = len(nvlink.switches) > 0 ? links_per_gpu : 0
 //   - FabricMgr     = len(nvlink.switches) > 0 || device_defaults.fabric.state == "auto"
+//   - ExpectedPCIBridges = nvlink.switches carrying a device_id
 //
 // NOTE on ExpectedNV: the signal is the PRESENCE of an NVSwitch list, NOT
 // links_per_gpu on its own. b200 ships links_per_gpu: 18 but switch_support:
@@ -86,25 +87,35 @@ type rawProfile struct {
 				Max int `json:"max"`
 			} `json:"availability_histogram"`
 		} `json:"remapped_rows"`
+		MIG *struct {
+			MaxGPUInstances int `json:"max_gpu_instances"`
+		} `json:"mig"`
 	} `json:"device_defaults"`
 	Devices []struct {
 		Index    int          `json:"index"`
 		Platform *rawPlatform `json:"platform"`
+		PCI      struct {
+			BusID string `json:"bus_id"`
+		} `json:"pci"`
 	} `json:"devices"`
 	NVLink struct {
 		LinksPerGPU int  `json:"links_per_gpu"`
 		C2CEnabled  bool `json:"c2c_enabled"`
 		Switches    []struct {
-			BDF string `json:"bdf"`
+			BDF      string `json:"bdf"`
+			DeviceID uint32 `json:"device_id"`
 		} `json:"switches"`
 	} `json:"nvlink"`
 	Infiniband struct {
-		Enabled    bool `json:"enabled"`
-		HCAsPerGPU int  `json:"hcas_per_gpu"`
+		Enabled    bool   `json:"enabled"`
+		HCAsPerGPU int    `json:"hcas_per_gpu"`
+		LinkLayer  string `json:"link_layer"`
 	} `json:"infiniband"`
 	PCIeTopology struct {
 		RootComplexes []struct {
-			ID string `json:"id"`
+			ID       string   `json:"id"`
+			NUMANode int      `json:"numa_node"`
+			Devices  []string `json:"devices"`
 		} `json:"root_complexes"`
 	} `json:"pcie_topology"`
 	System struct {
@@ -146,12 +157,16 @@ type Profile struct {
 	gpuCount    int
 	ibEnabled   bool
 	hcasPerGPU  int
+	roce        bool
 	linksPerGPU int
 	hasSwitches bool
+	pciBridges  int
 	c2cEnabled  bool
 	fabricAuto  bool
 	hasFabric   bool
 	pciRoots    int
+	pciAddrs    []string
+	gpuNUMA     []int
 	memoryBytes int64
 
 	arch               gpuarch.Arch
@@ -172,6 +187,8 @@ type Profile struct {
 	workloadProfiles          []WorkloadPowerProfile
 	workloadProfilesRequested []int
 	workloadProfilesDeclared  bool
+
+	migMaxInstances int
 }
 
 // WorkloadPowerProfile is one profile a board advertises through
@@ -235,8 +252,10 @@ func Load(profilesDir, name string) (Profile, error) {
 		gpuCount:    len(raw.Devices),
 		ibEnabled:   raw.Infiniband.Enabled,
 		hcasPerGPU:  raw.Infiniband.HCAsPerGPU,
+		roce:        strings.EqualFold(raw.Infiniband.LinkLayer, "Ethernet"),
 		linksPerGPU: raw.NVLink.LinksPerGPU,
 		hasSwitches: len(raw.NVLink.Switches) > 0,
+		pciBridges:  pcieVisibleSwitches(raw),
 		c2cEnabled:  raw.NVLink.C2CEnabled,
 		memoryBytes: raw.DeviceDefaults.Memory.TotalBytes,
 		arch:        parsedArch,
@@ -250,6 +269,7 @@ func Load(profilesDir, name string) (Profile, error) {
 	if p.pciRoots == 0 {
 		p.pciRoots = 1
 	}
+	p.pciAddrs, p.gpuNUMA = pciLocality(raw)
 	// An IB-enabled profile that forgot hcas_per_gpu would silently expect 0
 	// HCAs; the shipped profiles all set 1. Default to 1 when enabled but
 	// unset so a missing key does not weaken the assertion.
@@ -257,6 +277,46 @@ func Load(profilesDir, name string) (Profile, error) {
 		p.hcasPerGPU = 1
 	}
 	return p, nil
+}
+
+// pciLocality returns every PCI address pcie_topology declares, lowercased, and
+// the sorted NUMA nodes its GPUs sit on, as the node agent resolves them. A
+// profile without the block gets the single NUMA-0 root the pcibus simulator
+// synthesizes. A GPU no declared root lists, or a profile whose GPUs have no
+// address at all, has unknown locality (-1).
+func pciLocality(raw rawProfile) ([]string, []int) {
+	var addrs []string
+	rootNUMA := map[string]int{}
+	for _, rc := range raw.PCIeTopology.RootComplexes {
+		for _, addr := range rc.Devices {
+			addr = strings.ToLower(addr)
+			addrs = append(addrs, addr)
+			rootNUMA[addr] = rc.NUMANode
+		}
+	}
+
+	var numa []int
+	for _, d := range raw.Devices {
+		addr := strings.ToLower(d.PCI.BusID)
+		if addr == "" {
+			continue
+		}
+		n, declared := rootNUMA[addr]
+		switch {
+		case len(raw.PCIeTopology.RootComplexes) == 0:
+			n = 0
+		case !declared:
+			n = -1
+		}
+		if !slices.Contains(numa, n) {
+			numa = append(numa, n)
+		}
+	}
+	if len(numa) == 0 {
+		return addrs, []int{-1}
+	}
+	slices.Sort(numa)
+	return addrs, numa
 }
 
 // applyOptionalDeviceDefaults copies the device_defaults sub-blocks a profile
@@ -286,6 +346,9 @@ func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
 	if f := raw.DeviceDefaults.Fabric; f != nil {
 		p.hasFabric = true
 		p.fabricAuto = strings.EqualFold(strings.TrimSpace(f.State), "auto")
+	}
+	if mig := raw.DeviceDefaults.MIG; mig != nil {
+		p.migMaxInstances = mig.MaxGPUInstances
 	}
 	if pl := raw.DeviceDefaults.Platform; pl != nil {
 		p.hasPlatform = true
@@ -337,8 +400,58 @@ func All(profilesDir string) ([]Profile, error) {
 // ExpectedGPUs is the number of GPUs the profile exposes (len of devices).
 func (p Profile) ExpectedGPUs() int { return p.gpuCount }
 
+// pcieVisibleSwitches counts the NVSwitches that sit on the node's own PCIe
+// bus, which is the subset of nvlink.switches carrying a PCI identity. Mirrors
+// internal/agent/source compileSwitches.
+func pcieVisibleSwitches(raw rawProfile) int {
+	n := 0
+	for _, sw := range raw.NVLink.Switches {
+		if sw.DeviceID != 0 {
+			n++
+		}
+	}
+	return n
+}
+
+// ExpectedPCIBridges is the number of NVSwitches the rendered PCI tree should
+// carry as bridge-class devices: the HGX baseboard profiles (a100, h100) put
+// their switches on the node's PCIe bus, so `lspci` lists them beside the GPUs.
+//
+// Zero for every other profile, and two different reasons produce it. b200/l40s/
+// t4 declare no NVSwitches at all. gb200/gb300 declare them for NVLink topology
+// but give them no PCI identity, because on NVL72 the switches are in their own
+// trays and the compute tray never enumerates them — which makes those profiles
+// the negative control that keeps this from being satisfiable by "any switch".
+func (p Profile) ExpectedPCIBridges() int { return p.pciBridges }
+
+// ExpectedPCIFunctions is the total number of entries the rendered
+// /sys/bus/pci/devices should hold: the GPUs plus any PCIe-visible NVSwitch.
+func (p Profile) ExpectedPCIFunctions() int { return p.gpuCount + p.pciBridges }
+
 // IBEnabled reports whether the profile ships InfiniBand enabled.
 func (p Profile) IBEnabled() bool { return p.ibEnabled }
+
+// PCIAddresses lists every PCI function pcie_topology declares, GPUs and
+// NVSwitches alike, lowercased as sysfs names them.
+func (p Profile) PCIAddresses() []string { return p.pciAddrs }
+
+// GPUNUMANodes is the sorted set of NUMA nodes the profile's GPUs sit on.
+func (p Profile) GPUNUMANodes() []int { return p.gpuNUMA }
+
+// ExpectedNetdevs is the number of RoCE netdevs the IB tree renders under
+// sys/class/net: one per HCA on an Ethernet link layer, none on InfiniBand.
+func (p Profile) ExpectedNetdevs() int {
+	if !p.roce {
+		return 0
+	}
+	return p.ExpectedHCAs()
+}
+
+// MIGCapable reports whether the board can partition at all. That is a
+// property of the hardware, so it reads max_gpu_instances: no profile declares
+// a layout, since how a board is carved is a deployment choice supplied at
+// install through gpu.mig.gpuInstances.
+func (p Profile) MIGCapable() bool { return p.migMaxInstances > 0 }
 
 // ExpectedHCAs is the number of InfiniBand HCAs the profile should expose:
 // one per GPU when IB is enabled, otherwise 0 (l40s/t4 negative control).
