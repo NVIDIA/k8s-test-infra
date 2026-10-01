@@ -934,15 +934,17 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
 
     async getBranchProtection(branch) {
       nonEmptyString(branch, "branch");
-      try {
-        await call("getBranchProtection", () => octokit.rest.repos.getBranchProtection({
-          owner, repo, branch,
-        }), true);
-        return true;
-      } catch (error) {
-        if (error.status === 404) return false;
-        throw error;
+      // The branch endpoint only requires the workflow's Contents-read permission.
+      const response = await call("getBranchProtection", () => octokit.rest.repos.getBranch({
+        owner, repo, branch,
+      }), true);
+      if (response.data?.name !== branch) {
+        throw new Error("branch identity changed");
       }
+      if (typeof response.data.protected !== "boolean") {
+        throw new TypeError("branch protection flag must be a boolean");
+      }
+      return response.data.protected;
     },
 
     async getBranch(branch) {
