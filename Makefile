@@ -26,7 +26,7 @@ ADDLICENSE_VERSION ?= v1.2.0
 # Keep the check focused on source files. Generated manifests, documentation,
 # dependency metadata, and vendored code use their own licensing conventions.
 LICENSE_FILES = git ls-files -- '*.go' '*.sh' '*.tiltfile' 'Tiltfile' '*.real' \
-	'**/Makefile' 'Makefile' '*.Dockerfile' 'Dockerfile*' \
+	'**/Makefile' 'Makefile' '**/Dockerfile' '**/Dockerfile.*' '*.Dockerfile' 'Dockerfile*' \
 	| grep -vE '^(vendor|licenses|dist|tmp)/'
 
 VERSION := 0.0.1
