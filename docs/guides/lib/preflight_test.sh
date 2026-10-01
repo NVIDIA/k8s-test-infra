@@ -711,7 +711,7 @@ for _me in ${DEMO_RECORDS}; do
 done
 
 # Case 30: the co-location refusal. Selector pinning keeps each demo's kubectl
-# calls on its own pods, but nothing scopes the hostPaths both DaemonSets
+# calls on its own pods, but nothing scopes the hostPaths both releases' DaemonSets
 # mount, so a co-located run leaves the shared mock config failure-injected and
 # any real GPU workload on those nodes reads it. Both demos exited 0 while that
 # happened on a live cluster, which is why this refuses rather than warns.

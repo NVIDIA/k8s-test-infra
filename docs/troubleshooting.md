@@ -67,8 +67,8 @@ check the plugin's probes rather than whether the process is alive — a plugin
 containerd has unregistered stays running and simply stops injecting.
 
 ```bash
-kubectl get pods -n mokka -l app.kubernetes.io/name=nvml-mock-nri
-kubectl describe pod -n mokka -l app.kubernetes.io/name=nvml-mock-nri | grep -A3 Readiness
+kubectl get pods -n mokka -l app.kubernetes.io/name=nvml-mock
+kubectl describe pod -n mokka -l app.kubernetes.io/name=nvml-mock | grep -A3 Readiness
 ```
 
 Injection is also skipped by design when the container opts out, its namespace
