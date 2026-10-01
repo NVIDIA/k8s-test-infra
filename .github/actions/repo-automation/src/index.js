@@ -4,6 +4,7 @@ const { Buffer } = require("node:buffer");
 const path = require("node:path");
 const { loadConfig } = require("./config.js");
 const { createGitHubClient } = require("./github-client.js");
+const { validateScanDispatch, createScanReportCollector } = require("./label-scan-report.js");
 const { runGit } = require("./git.js");
 const { runBackport } = require("./modes/backport.js");
 const { runCommand } = require("./modes/command.js");
@@ -90,6 +91,15 @@ async function run(dependencies) {
   } = dependencies;
   const client = dependencies.githubClient ?? createGitHubClient(octokit, owner, repo);
   const dryRun = core.getBooleanInput("dry-run");
+  let reportCollector;
+  if (mode === "conflict-labels" || mode === "metadata-labels") {
+    const requestId = core.getInput("request-id");
+    const workflowCommitSha = core.getInput("workflow-commit-sha");
+    if (dependencies.eventName === "workflow_dispatch" || requestId !== "" || workflowCommitSha !== "") {
+      const context = validateScanDispatch({ ...dependencies, requestId, workflowCommitSha });
+      reportCollector = createScanReportCollector(context, mode, dryRun, workspace);
+    }
+  }
   const prNumber = mode === "mokka-cherry-pick"
     ? core.getInput("pull_request_number")
     : core.getInput("pr-number");
@@ -126,6 +136,7 @@ async function run(dependencies) {
           config,
           dryRun,
           policyRevision: core.getInput("policy-revision"),
+          reportCollector,
         });
         break;
       case "conflict-labels":
@@ -134,6 +145,7 @@ async function run(dependencies) {
           eventName: dependencies.eventName,
           github: client,
           dryRun,
+          reportCollector,
         });
         break;
       case "label-sync":
@@ -210,12 +222,14 @@ async function run(dependencies) {
         throw new Error(`Unsupported mode: ${mode}`);
     }
   } catch (error) {
+    await reportCollector?.write();
     if (error?.summary !== undefined) {
       core.setOutput("summary", serializeSummary(error.summary));
       await publishJobSummary(core, mode, error.summary);
     }
     throw error;
   }
+  await reportCollector?.write();
   if (mode === "command") {
     core.setOutput("backport-requests", serializeBackportRequests(summary));
   }
@@ -240,6 +254,7 @@ async function executeAction() {
       repo,
       event: github.context.payload,
       eventName: github.context.eventName,
+      ref: github.context.ref,
       repositoryId: process.env.GITHUB_REPOSITORY_ID,
       workflowSha: process.env.GITHUB_WORKFLOW_SHA,
     });

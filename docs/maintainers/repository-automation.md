@@ -101,7 +101,7 @@ the job-log API. A later API failure reports earlier writes; it does not claim
 that they were rolled back. Review both reports and the current open list before
 declaring a sweep complete. Investigate every deferred, failed, or missing request.
 
-An initially correct metadata label set needs no fresh write checks. If a
+On native events, an initially correct metadata label set needs no fresh write checks. If a
 successful label update is still absent at the next read, the scan stops and
 reports the partial result instead of repeating the same update. The hourly
 schedule limits routine API use; the workflow token's actual rate limit is
@@ -111,6 +111,40 @@ failure. Check the per-PR results before retrying.
 Approval labels remain part of the guarded merge evaluator. They require its
 activation gates and current validated human review or command evidence. A
 metadata backfill does not grant approval or enable auto-merge.
+
+### Dispatched label scan reports
+
+The **PR metadata** workflow also accepts a `workflow_dispatch` request on
+`main`, with exactly two string inputs: `request_id` (a canonical lowercase
+UUID) and `workflow_commit_sha` (the full lowercase main commit SHA). The
+metadata flag must be enabled. The selected workflow commit, run commit,
+and input commit must match in `NVIDIA/k8s-test-infra`. The workflow checks
+out that exact trusted commit in `control`; it accepts no checkout path or
+other caller input.
+
+Dispatch runs `conflict-labels` and `metadata-labels` as two separate action
+calls. The metadata scan runs even if the conflict scan fails. After both
+calls, the workflow uploads `mokka-label-scan-<request_id>` with the fixed
+members `conflict-labels.json` and `metadata-labels.json`, then fails the job
+if either scan failed. A failure before a complete candidate list is known
+cannot produce a report that claims an empty list.
+
+Each version 1 report contains the request and repository identities, the
+workflow commit, mode, dry-run state, complete sorted candidate numbers, and
+one result for each candidate. Results use `applied`, `unchanged`, `deferred`,
+or `failed`, with a fixed reason and SHA-256 hashes of the input fence and
+managed labels. An unprocessed request is `failed` with `not_processed`.
+Reports contain no raw titles, node IDs, branch names, or label names. Each
+report is limited to 70 KiB and 100 candidates.
+
+Dispatch success requires a fresh label read followed by a final PR fence,
+including requests with initially correct labels. An acknowledged update that is still
+absent at the next read fails the scan. Unknown mergeability, changed state,
+or an invalid policy leaves coverage unresolved and has no output label hash.
+The complete reports can thus be checked against a later live observation.
+Native PR, push, and scheduled runs keep their existing summary and behavior;
+they do not create these report files. Keep the hourly recovery schedule until
+the poll-driven dispatch path has passed its live activation checks.
 
 ## Mokka dispatch contract
 

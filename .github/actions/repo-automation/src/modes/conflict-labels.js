@@ -1,5 +1,7 @@
 "use strict";
 
+const { asciiLower } = require("../managed-labels.js");
+
 const LABEL = "needs-rebase";
 const MAX_CANDIDATES = 100;
 const OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
@@ -63,56 +65,69 @@ function validateCandidates(numbers) {
 function labelAction(labels, mergeability) {
   if (!Array.isArray(labels) || labels.some((label) => typeof label !== "string" || label === ""
     || /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(label))
-    || new Set(labels.map((label) => label.toLowerCase())).size !== labels.length) {
+    || new Set(labels.map(asciiLower)).size !== labels.length) {
     throw new TypeError("live conflict labels are invalid");
   }
-  const present = labels.some((label) => label.toLowerCase() === LABEL);
+  const present = labels.some((label) => asciiLower(label) === LABEL);
   if (mergeability === "CONFLICTING" && !present) return "add";
   if (mergeability === "MERGEABLE" && present) return "remove";
   return null;
 }
 
-async function snapshot(github, identity, prNumber) {
+async function snapshot(github, identity, prNumber, reportCollector, finalLabels) {
   const pr = await github.getPullRequest(prNumber);
   if (pr?.number !== prNumber || pr.state !== "open" || !validBaseBranch(pr.baseBranch)
     || (identity.branch !== null && pr.baseBranch !== identity.branch)
     || pr.baseRepository?.owner?.toLowerCase() !== identity.owner
     || pr.baseRepository?.repo?.toLowerCase() !== identity.repo) {
-    return { reason: "unsupported live PR identity or state" };
+    return { reason: "unsupported live PR identity or state", reportReason: "invalid_state" };
   }
   const graph = await github.getConflictState(prNumber);
   const branch = await github.getBranch(pr.baseBranch);
-  const labels = await github.listIssueLabels(prNumber);
+  const labels = finalLabels ?? await github.listIssueLabels(prNumber);
+  reportCollector?.validateLabels(labels);
   if (typeof pr.nodeId !== "string" || pr.nodeId === "" || typeof pr.draft !== "boolean"
     || !OID.test(pr.headOid) || graph?.number !== prNumber || graph.nodeId !== pr.nodeId
     || graph.repository !== `${identity.owner}/${identity.repo}` || graph.state !== "OPEN"
     || graph.draft !== pr.draft || graph.headOid !== pr.headOid || graph.baseBranch !== pr.baseBranch
     || !OID.test(graph.baseOid) || branch?.name !== pr.baseBranch || branch.oid !== graph.baseOid
     || !["CONFLICTING", "MERGEABLE", "UNKNOWN"].includes(graph.mergeability)) {
-    return { reason: "inconsistent live conflict identity or base tip" };
+    return { reason: "inconsistent live conflict identity or base tip", reportReason: "invalid_state" };
+  }
+  let policyRevision;
+  if (reportCollector !== undefined) {
+    policyRevision = await github.getDefaultBranchRevision();
+    if (policyRevision !== reportCollector.context.workflowCommitSha) {
+      return { reason: "trusted policy revision changed", reportReason: "invalid_policy" };
+    }
   }
   const action = labelAction(labels, graph.mergeability);
-  if (graph.mergeability === "UNKNOWN") return { reason: "unknown mergeability; defer" };
+  if (graph.mergeability === "UNKNOWN") return { reason: "unknown mergeability; defer", reportReason: "unknown_mergeability" };
   return {
     fence: { number: prNumber, nodeId: pr.nodeId, headOid: pr.headOid, baseBranch: pr.baseBranch,
-      baseOid: graph.baseOid, draft: pr.draft, mergeability: graph.mergeability },
+      baseOid: graph.baseOid, draft: pr.draft, mergeability: graph.mergeability,
+      ...(reportCollector === undefined ? {} : { title: pr.title, policyRevision }) },
     action,
+    currentLabels: labels,
   };
 }
 
-function failure(summary, record, phase) {
+function failure(summary, record, phase, reportCollector, cause) {
   record.status = "failed";
   record.reason = `${phase} failed`;
   summary.status = summary.results.some((result) => result.status === "applied") ? "partial" : "failed";
   const error = new Error(`conflict label ${phase} failed for PR ${record.prNumber}`);
   error.summary = summary;
+  reportCollector?.record(record.prNumber, "failed", cause?.reportReason
+    ?? (phase.includes("read") ? "read_failed" : "write_failed"));
   return error;
 }
 
-async function runConflictLabels({ event, eventName, github, dryRun }) {
+async function runConflictLabels({ event, eventName, github, dryRun, reportCollector }) {
   if (typeof dryRun !== "boolean") throw new TypeError("dryRun must be a boolean");
-  const identity = route(event, eventName);
+  const identity = reportCollector?.identity ?? route(event, eventName);
   const numbers = validateCandidates(identity.numbers ?? await github.listOpenPullRequestNumbers());
+  reportCollector?.setCandidates(numbers);
   const summary = { mode: "conflict-labels", dryRun, status: "planning", results: [] };
   const plans = [];
   // Finish the full initial read phase before the first mutation.
@@ -121,13 +136,15 @@ async function runConflictLabels({ event, eventName, github, dryRun }) {
     summary.results.push(record);
     let planned;
     try {
-      planned = await snapshot(github, identity, prNumber);
-    } catch {
-      throw failure(summary, record, "initial read");
+      planned = await snapshot(github, identity, prNumber, reportCollector);
+      if (planned.reason === undefined) reportCollector?.plan(prNumber, planned.fence);
+    } catch (cause) {
+      throw failure(summary, record, "initial read", reportCollector, cause);
     }
     if (planned.reason !== undefined) {
       record.status = "deferred";
       record.reason = planned.reason;
+      reportCollector?.record(prNumber, "deferred", planned.reportReason);
     } else {
       record.action = planned.action;
       record.status = planned.action === null ? "unchanged" : "planned";
@@ -136,30 +153,69 @@ async function runConflictLabels({ event, eventName, github, dryRun }) {
   }
   if (!dryRun) {
     for (const { record, planned } of plans) {
-      if (planned.action === null) continue;
+      if (planned.action === null && reportCollector === undefined) continue;
       let current;
       try {
-        current = await snapshot(github, identity, record.prNumber);
-      } catch {
-        throw failure(summary, record, "fresh read");
+        current = await snapshot(github, identity, record.prNumber, reportCollector);
+      } catch (cause) {
+        throw failure(summary, record, "fresh read", reportCollector, cause);
       }
       if (current.reason !== undefined || JSON.stringify(current.fence) !== JSON.stringify(planned.fence)) {
         record.status = "deferred";
         record.reason = "live conflict state changed at fresh check";
+        reportCollector?.record(record.prNumber, "deferred", "state_changed");
         continue;
       }
       if (current.action === null) {
+        if (reportCollector !== undefined) {
+          try {
+            // Bind the observed labels to an input fence read after their final fetch.
+            current = await snapshot(github, identity, record.prNumber, reportCollector, current.currentLabels);
+          } catch (cause) {
+            throw failure(summary, record, "final read", reportCollector, cause);
+          }
+          if (current.reason !== undefined || JSON.stringify(current.fence) !== JSON.stringify(planned.fence)) {
+            record.status = "deferred";
+            record.reason = "live conflict state changed at final check";
+            reportCollector.record(record.prNumber, "deferred", "state_changed");
+            continue;
+          }
+        }
         record.status = "unchanged";
+        reportCollector?.record(record.prNumber, "unchanged", "none", current.currentLabels);
         continue;
       }
       try {
         if (current.action === "add") await github.addIssueLabel(record.prNumber, LABEL);
         else await github.removeIssueLabel(record.prNumber, LABEL);
         record.status = "applied";
-      } catch {
-        throw failure(summary, record, "label mutation");
+      } catch (cause) {
+        throw failure(summary, record, "label mutation", reportCollector, cause);
+      }
+      if (reportCollector !== undefined) {
+        let final;
+        try {
+          final = await snapshot(github, identity, record.prNumber, reportCollector);
+          if (final.reason === undefined && JSON.stringify(final.fence) === JSON.stringify(planned.fence)) {
+            final = await snapshot(github, identity, record.prNumber, reportCollector, final.currentLabels);
+          }
+        } catch (cause) {
+          throw failure(summary, record, "final read", reportCollector, cause);
+        }
+        if (final.reason !== undefined || JSON.stringify(final.fence) !== JSON.stringify(planned.fence)) {
+          record.status = "deferred";
+          record.reason = "live conflict state changed at final check";
+          reportCollector.record(record.prNumber, "deferred", "state_changed");
+        } else if (final.action !== null) {
+          throw failure(summary, record, "stalled reconciliation", reportCollector);
+        } else {
+          reportCollector.record(record.prNumber, "applied", "none", final.currentLabels);
+        }
       }
     }
+  }
+  if (dryRun) {
+    for (const { record } of plans) reportCollector?.record(record.prNumber, "deferred", "invalid_state");
   }
   summary.status = dryRun ? "planned" : "complete";
   return summary;

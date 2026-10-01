@@ -654,7 +654,7 @@ for (const [name, eventName, event] of [
 ]) {
   test(`${name} cannot route to label mutations`, async () => {
     await assertNoWrite(fakeGitHub(), {
-      eventName, event, expectedFailure: /event|payload|action|number|repository|schedule|push|branch|ref|deleted|unsupported/i,
+      eventName, event, expectedFailure: /event|payload|action|number|repository|schedule|push|branch|ref|deleted|unsupported|label scan dispatch is invalid/i,
     });
   });
 }

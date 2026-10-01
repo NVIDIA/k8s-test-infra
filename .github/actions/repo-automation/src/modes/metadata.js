@@ -3,7 +3,7 @@
 const { deriveAreaLabels } = require("../areas.js");
 const { validateConfig } = require("../config.js");
 const { evaluateDco } = require("../dco.js");
-const { isManagedMetadataLabel } = require("../managed-labels.js");
+const { asciiLower, isManagedMetadataLabel } = require("../managed-labels.js");
 const { parseAliases, parseOwnersFile, resolveOwners } = require("../owners.js");
 const { POLICY_COMMENT_MARKER, renderPolicyComment } = require("../policy-comment.js");
 const { selectReviewers } = require("../reviewer-selection.js");
@@ -75,11 +75,11 @@ function labelPlan(current, desired) {
   }
   const currentByName = new Map();
   for (const label of current) {
-    const normalized = label.toLowerCase();
+    const normalized = asciiLower(label);
     if (currentByName.has(normalized)) throw new TypeError("live issue labels must be unique");
     currentByName.set(normalized, label);
   }
-  const desiredByName = new Map(desired.map((label) => [label.toLowerCase(), label]));
+  const desiredByName = new Map(desired.map((label) => [asciiLower(label), label]));
   return {
     add: [...desiredByName]
       .filter(([name]) => !currentByName.has(name))

@@ -18,7 +18,8 @@ const sharedConcurrency = {
   "cancel-in-progress": false,
 };
 const activationGates = {
-  metadata: "${{ vars.REPOSITORY_AUTOMATION_METADATA_ENABLED == 'true' }}",
+  metadata:
+    "${{ vars.REPOSITORY_AUTOMATION_METADATA_ENABLED == 'true' && (github.event_name != 'workflow_dispatch' || (github.repository == 'NVIDIA/k8s-test-infra' && github.repository_id == '733665780' && github.ref == 'refs/heads/main' && github.sha == inputs.workflow_commit_sha && github.workflow_sha == inputs.workflow_commit_sha)) }}",
   commands:
     "${{ vars.REPOSITORY_AUTOMATION_COMMANDS_ENABLED == 'true' && github.event.issue.pull_request != null && github.event.action == 'created' }}",
   backport:
