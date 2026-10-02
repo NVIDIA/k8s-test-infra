@@ -404,7 +404,9 @@ jobs:
         run: cp tests/e2e/ci/nvml-mock.values.yaml local/nvml-mock.values.local.yaml
 
       - name: Roll out nvml-mock + GPU Operator via Tilt (${{ matrix.gpu-profile }})
-        run: tilt ci -- --gpu-profile="${{ matrix.gpu-profile }}" --gpu-operator --nvmlmock-image="$E2E_IMAGE"
+        # --nri: a pod requesting nvidia.com/gpu from the Operator's CDI-mode
+        # device plugin must be injected, and the operands must not be.
+        run: tilt ci -- --gpu-profile="${{ matrix.gpu-profile }}" --gpu-operator --nri --nvmlmock-image="$E2E_IMAGE"
 
       - name: Configure the DGXC Go proxy
         uses: ./.github/actions/setup-dgxc-goproxy
@@ -416,6 +418,7 @@ jobs:
 
       - name: Run GPU Operator E2E (${{ matrix.gpu-profile }})
         env:
+          E2E_EXPECT_NRI: "true"
           E2E_PROFILES: ${{ matrix.gpu-profile }}
           E2E_KUBE_CONTEXT: kind-mokka
           E2E_CLUSTER_NAME: mokka
