@@ -99,9 +99,11 @@ approval, hold, and other labels outside its metadata ownership.
 
 The refresh preserves valid command state, including a hold, from the same
 trusted bot comment. Duplicate comments, invalid state, or a changed comment
-stop the refresh. The API has no atomic compare-and-swap for comments; the
-workflow concurrency group and the final comment read limit the remaining
-read-to-write race.
+stop the refresh. The API has no atomic compare-and-swap for comments.
+Commands and pull request metadata runs for the same pull request share one
+concurrency group, so they never rewrite its comment at the same time. Scans
+run in their own group, and only the final comment read limits their
+read-to-write race with a concurrent command.
 
 Both scans fully read their candidate list before the first mutation and
 reject a list above 100 requests instead of silently omitting requests. They

@@ -46,7 +46,7 @@ jobs:
       issues: write
       pull-requests: write
     concurrency:
-      group: repository-automation-state
+      group: repository-automation-merge-evaluate
       cancel-in-progress: false
     steps:
       - name: Resolve trusted default branch
