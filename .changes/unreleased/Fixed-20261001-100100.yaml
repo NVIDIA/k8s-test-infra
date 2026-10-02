@@ -1,0 +1,3 @@
+kind: Fixed
+body: "Repository automation: accept LGTM in current human reviews on bot-authored PRs, accept fresh metadata without a prior command record, and evaluate PRs after trusted metadata workflow dispatches. Human approval and branch rules remain required."
+time: 2026-10-01T10:01:00.000000+02:00

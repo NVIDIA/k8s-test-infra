@@ -36,9 +36,10 @@ Deploys a DaemonSet that creates on every node:
 Consumers (DRA driver, device plugin) point at `/var/lib/nvml-mock/driver`
 as the NVIDIA driver root and discover GPUs through standard NVML APIs.
 
-When `nri.enabled=true` (opt-in; default `false`), the chart also deploys
-`nvml-mock-nri`, a node-local containerd NRI plugin. It mounts the host overlay
-into newly created containers at `/opt/nvml-mock` and injects the mock
+When `nri.enabled=true` (opt-in; default `false`), the chart adds
+`nvml-mock-nri` as a sidecar in the node DaemonSet. This node-local containerd
+NRI plugin mounts the host overlay into newly created containers at
+`/opt/nvml-mock` and injects the mock
 environment at runtime, so plain pods can run `nvidia-smi` without GPU resource
 requests or pod-spec mutation. The overlay and environment are injected ambiently into
 containers in non-excluded namespaces, while host device nodes (`/dev/nvidia*`) remain opt-in
@@ -61,7 +62,7 @@ The plugin always excludes its own release namespace, so that the main
 nvml-mock DaemonSet is never self-injected. Install without `-n` and the
 release namespace is `default` — the plugin then renders
 `--excluded-namespaces=default,kube-system` and skips every pod a first-time
-user runs. Nothing reports this: the DaemonSet is Ready, `/readyz` returns 200
+user runs. Nothing reports this: the node DaemonSet is Ready, `/readyz` returns 200
 because the plugin *is* registered, and skipped containers produce no log line
 at any level. The pods simply start with no mock GPU.
 
@@ -518,6 +519,30 @@ Neither mode changes *whether* a container is served. A container the NVIDIA
 device plugin already served keeps exactly its allocation in both modes, per
 [MEP-0002](https://github.com/NVIDIA/k8s-test-infra/blob/main/enhancements/meps/0002-device-plugin-nri-composition/README.md).
 
+## NRI pod lifecycle
+
+Applies only when `nri.enabled=true`.
+
+The node agent and the NRI plugin run as separate containers in the same node
+DaemonSet pod. They are scheduled to the same nodes, use the same release, and
+roll together. Changing an `nri.*` value therefore rolls the node DaemonSet and
+briefly rebuilds the staged driver tree. The chart has no option to deploy the
+plugin separately, so this is the operational cost of enabling NRI.
+
+Readiness is shared as well. A plugin that is not Ready, including one on a
+node whose container runtime has NRI disabled, marks the whole node pod
+NotReady; see [NRI plugin failure modes](#nri-plugin-failure-modes).
+
+Kubernetes does not order containers in the same pod, so NRI can briefly fail
+open while the node agent stages files during startup.
+
+For InfiniBand-enabled profiles, the headless `-ibping` Service publishes pod
+addresses even when the shared pod is NotReady. The relay runs in the node
+agent, so an unready NRI container must not hide an otherwise healthy relay
+from peer discovery. Kubernetes readiness is pod-wide, so this also publishes
+an address while the node agent itself is unready; relay clients already retry
+unreachable peers.
+
 ## NRI plugin failure modes
 
 Applies only when `nri.enabled=true`.
@@ -631,17 +656,17 @@ Guidance:
 
 ```bash
 # Which nodes are actually injecting right now
-kubectl get pods -n mokka -l app.kubernetes.io/name=nvml-mock-nri -o wide
+kubectl get pods -n mokka -l app.kubernetes.io/name=nvml-mock -o wide
 
 # Why a given node is not
-kubectl describe pod -n mokka <nvml-mock-nri-pod>
+kubectl describe pod -n mokka <nvml-mock-pod>
 ```
 
 Both probe endpoints answer with the reason in the body, so a readiness failure
 in `kubectl describe` reads as `not registered with the container runtime; new
 containers are not being injected` rather than a bare status code.
 
-The port is not reachable from the node: this DaemonSet does not set
+The port is not reachable from the node: the node DaemonSet does not set
 `hostNetwork`, so `nri.healthPort` is bound only inside the pod's own network
 namespace, on the pod IP where the kubelet reaches it.
 
@@ -678,7 +703,7 @@ namespace, on the pod IP where the kubelet reaches it.
 | `infiniband.mockTier` | `""` (auto) | `MOCK_IB` tier: `off`, `sysfs`, or `full`. Empty auto-derives `full` for IB-enabled profiles and `sysfs` otherwise (keeps the `libibmocksys` redirect active so any real host IB is masked). `off` makes every shim a no-op and skips the daemon. An invalid value fails `helm template` |
 | `infiniband.ping.port` | `18515` | TCP port for fabric relay between nvml-mock pods (`mock-ib` / `ibping` always enabled) |
 | `infiniband.ping.networkPolicy.enabled` | `true` | Restrict inbound access to the fabric port to peer nvml-mock pods. No-op on CNIs that don't enforce NetworkPolicy (e.g. Kind's kindnet) |
-| `nri.enabled` | `false` | Deploy the `nvml-mock-nri` containerd NRI plugin DaemonSet. Injects mock overlay and environment cluster-wide into non-excluded namespaces. Always install into a dedicated namespace (`-n mokka`) to avoid excluding `default`. Device node injection remains opt-in (`nvidia.com/gpu` request or `nvml-mock.nvidia.com/devices: "true"` annotation). |
+| `nri.enabled` | `false` | Add the `nvml-mock-nri` containerd NRI plugin as a sidecar in the node DaemonSet. Injects mock overlay and environment cluster-wide into non-excluded namespaces. Always install into a dedicated namespace (`-n mokka`) to avoid excluding `default`. Device node injection remains opt-in (`nvidia.com/gpu` request or `nvml-mock.nvidia.com/devices: "true"` annotation). |
 | `nri.socketPath` | `/var/run/nri/nri.sock` | NRI socket on the host. Its directory is hostPath-mounted into the plugin |
 | `nri.pluginName` / `nri.pluginIndex` | `nvml-mock` / `"10"` | NRI registration identity. The index orders this plugin against others |
 | `nri.overlay.hostPath` / `nri.overlay.mountPath` | `/var/lib/nvml-mock` / `/opt/nvml-mock` | Host overlay staged by the main DaemonSet, and the path it is injected at inside workloads |

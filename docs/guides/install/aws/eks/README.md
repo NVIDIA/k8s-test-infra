@@ -148,10 +148,18 @@ done
 
 The workers, not the control plane, are in your VPC. The accelerated AL2023
 image already includes NVIDIA Container Toolkit and registers the NVIDIA
-runtime. After `nodeadm` writes containerd's base configuration, cloud-init
-changes the runtime from hardware-probing `auto` mode to CDI mode and restarts
-containerd. See [`terraform/main.tf`](terraform/main.tf) for the reference
-configuration.
+runtime. Before containerd starts, `nodeadm` merges the explicit NRI endpoint
+settings into the generated containerd configuration. A post-`nodeadm` step
+then uses `nvidia-ctk` to change the runtime from hardware-probing `auto` mode
+to CDI mode, verifies the resulting configuration, restarts containerd once,
+and waits for both the service and its NRI socket. See
+[`terraform/main.tf`](terraform/main.tf) for the reference configuration.
+
+!!! warning "Treat NRI access as node-level privilege"
+
+    The Node Resource Interface (NRI) socket lets external plugins modify
+    container configuration. Only trusted node software should be able to
+    access the socket or deploy NRI plugins.
 
 ### Authenticate and constrain access
 
@@ -224,9 +232,13 @@ with no external IP address. CoreDNS, `aws-node`, and `kube-proxy` should be
 Running.
 
 AWS's accelerated image supplies NVIDIA Container Toolkit and makes
-`nvidia-container-runtime` the containerd default. The bootstrap only forces
-CDI mode because the image's `auto` mode tries to initialize a physical GPU
-before Mokka's CDI specification can be used.
+`nvidia-container-runtime` the containerd default. The bootstrap declares the
+NRI endpoint through `nodeadm`, then only uses `nvidia-ctk` after `nodeadm` to
+force CDI mode. This is needed because the image's `auto` mode tries to
+initialize a physical GPU before Mokka's CDI specification can be used. The
+post-`nodeadm` step verifies CDI mode, restarts containerd once, and waits up to
+30 seconds for `/var/run/nri/nri.sock`. It fails node bootstrap and prints the
+recent containerd journal if the socket does not appear.
 
 ## 4. Install Mokka
 

@@ -1,0 +1,3 @@
+kind: Fixed
+body: 'repository-automation: commands preserve approved and lgtm labels backed by valid native reviews, including approval coverage shared with OWNERS authors and command approvals.'
+time: 2026-10-01T18:30:00.000000+02:00

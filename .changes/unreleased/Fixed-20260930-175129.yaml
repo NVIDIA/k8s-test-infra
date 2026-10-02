@@ -1,0 +1,5 @@
+kind: Fixed
+body: |-
+  repository-automation: workflow run lookup now accepts the normalized GitHub
+    Actions response when it checks a pull request head.
+time: 2026-09-30T17:51:29Z

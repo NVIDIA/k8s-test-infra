@@ -1,0 +1,6 @@
+kind: Changed
+body: |-
+  CI: the nvml-mock E2E jobs install Kind, Helm and Tilt and create the Kind
+    cluster through one script, `hack/e2e-ci-cluster.sh`, with retried
+    downloads. Helm is pinned to v4.3.0 instead of the latest release.
+time: 2026-09-30T11:54:00Z
