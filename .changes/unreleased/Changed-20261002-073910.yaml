@@ -1,0 +1,7 @@
+kind: Changed
+body: |-
+  NRI injects the mock GPU driver only into containers with a GPU allocation or
+    an explicit Mokka device opt-in, leaving unallocated containers untouched.
+time: 2026-10-02T14:39:10Z
+custom:
+  Issue: "814"
