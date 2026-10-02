@@ -178,6 +178,18 @@ malformed required evidence also blocks success. Incomplete or over-limit API
 collections fail closed. The merge-policy check and metadata/review workflows
 do not satisfy the source CI gate.
 
+The `files` patterns use a portable subset of glob syntax so that the agent can
+evaluate the same list without a minimatch implementation. Configuration
+validation rejects anything else, including braces, brackets, `?`, extglob
+groups, negation, and `**` inside a segment. Each `/`-separated segment is
+either `**` or a run of letters, digits, `.`, `_`, and `-` in which `*` matches
+any characters inside that segment, including a leading dot. `**` matches zero
+or more whole segments, except as the last segment, where it matches one or
+more: `docs/**` matches `docs/a.md` but not `docs`, and `**/OWNERS` matches
+`OWNERS`. Matching is case-sensitive and applies to each changed path and to the
+previous path of a rename. Source CI can pass only for pull requests into
+`main` or a `release-*` branch; any other base stays pending.
+
 For an eligible request, the evaluator first publishes an `action_required`
 policy check. It reads authority, metadata, PR identity, and CI again, then
 enables native SQUASH auto-merge with `expectedHeadOid` when no request is armed.

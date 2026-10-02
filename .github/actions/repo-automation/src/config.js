@@ -21,6 +21,8 @@ const {
 const CONFIG_DIRECTORY = path.join(".github", "repo-automation");
 const CONFIG_NAMES = ["policy", "labels", "areas"];
 const UNSAFE_TEXT = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
+// Portable glob subset shared with the Mokka agent: "**" as a whole segment, or [A-Za-z0-9._-] with single "*".
+const PORTABLE_SEGMENT = /^(?:\*\*|(?:[A-Za-z0-9._-]|\*(?!\*))+)$/;
 
 class ConfigError extends Error {
   constructor(errors) {
@@ -95,11 +97,9 @@ function safePathPattern(value) {
   return typeof value === "string"
     && value.length > 0
     && value.length <= 4096
-    && !UNSAFE_TEXT.test(value)
-    && !value.startsWith("!")
-    && !value.startsWith("#")
-    && !value.includes("\\")
-    && !value.split("/").some((segment) => segment === "" || segment === "." || segment === "..");
+    && value.split("/").every((segment) => (
+      PORTABLE_SEGMENT.test(segment) && segment !== "." && segment !== ".."
+    ));
 }
 
 function validateRequiredCI(requiredCI, errors) {

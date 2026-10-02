@@ -11,6 +11,12 @@ commands:
 merge:
   method: SQUASH
   # Source CI that must pass on the pull request head before a merge; merge-ci.js and the Mokka agent read this list.
+  # CI passes only for pull requests into main or release-*. A workflow is required when it has no files, or when
+  # a changed path, or the previous path of a rename, matches one of its files patterns. Patterns are a portable
+  # subset that config.js enforces: each "/"-separated segment is either "**" or letters, digits, ".", "_" and "-"
+  # with "*" matching any characters inside that segment, including a leading dot. "**" matches zero or more whole
+  # segments, except as the last segment, where it matches one or more: "docs/**" matches "docs/a.md" but not "docs".
+  # Matching is case-sensitive. A check entry requires the latest check run with that exact name from that app id.
   requiredCI:
     workflows:
       - path: .github/workflows/basic-checks.yaml
