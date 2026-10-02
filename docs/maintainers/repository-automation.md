@@ -13,8 +13,8 @@ The foundation provides these functions:
 3. Guarded `/lgtm`, `/approve`, `/hold`, `/unhold`, `/retest`, `/backport`, and
    `/cherry-pick` commands.
 4. Review-change observation.
-5. A stable `repository-automation/merge-policy` check and safe GitHub native
-   auto-merge disarm.
+5. A stable `repository-automation/merge-policy` check, guarded GitHub native
+   SQUASH auto-merge enablement, and unsafe auto-merge disarm.
 6. Generic backport pull requests for explicitly allowed target branches.
 7. Explicit Mokka cherry-pick dispatch for its validated contract.
 8. Conflict labels and metadata label repair for all open pull requests,
@@ -25,10 +25,9 @@ backport command. They create a backport pull request for an allowed
 `release-*` branch. They do not start the Mokka dispatch workflow.
 
 The foundation does not install Prow or Tide. GitHub branch protection remains
-the final merge authority. The automation publishes its policy check and
-disables an unsafe GitHub native auto-merge request. A maintainer enables
-native auto-merge for each pull request. The automation does not call a direct
-merge endpoint or enable native auto-merge.
+the final merge authority. The automation publishes its policy check, enables
+native SQUASH auto-merge for eligible pull requests, and disables unsafe native
+auto-merge requests. It does not call a direct merge endpoint.
 
 ## Activation order
 
@@ -49,13 +48,16 @@ Activate the functions in this order:
    disabled.
 5. Add `repository-automation/merge-policy` as a required branch-protection
    check. Only then set `REPOSITORY_AUTOMATION_MERGE_ENABLED=true` to publish
-   policy checks and disarm unsafe native auto-merge requests. A maintainer
-   must enable native auto-merge for each eligible pull request and select
-   **Squash and merge**. For strict SQUASH-only operation, repository settings
+   policy checks, enable native SQUASH auto-merge for eligible pull requests,
+   and disarm unsafe native auto-merge requests. This flag applies to all open
+   requests selected by events, trusted dispatch completion, and the scheduled
+   evaluator; it is not limited to a test PR. For strict SQUASH-only operation,
+   repository settings
    must disable merge commits and rebase merges. The evaluator leaves an
-   eligible unarmed request and an eligible SQUASH request unchanged. It
+   eligible SQUASH request armed and enables an eligible unarmed request. It
    disarms an unsafe method that it observes, but the method can change after
-   its final read.
+   its final read. If this flag is already enabled, installing this action
+   also activates native enablement.
 6. After every configured `release-*` target is protected and exists, set
    `REPOSITORY_AUTOMATION_BACKPORT_ENABLED=true`.
 7. After the external caller uses the documented UUID, source SHA, target
@@ -113,18 +115,64 @@ failure. Check the per-PR results before retrying.
 Approval labels remain part of the guarded merge evaluator. They require its
 activation gates and current validated human review, command evidence, or
 applicable approver-author authority from trusted OWNERS. A
-metadata backfill does not grant approval or enable auto-merge.
+metadata backfill does not directly grant approval or enable auto-merge.
 
 Completion of a trusted **PR metadata** dispatch triggers the guarded merge
 evaluator for the bounded open pull request set. The evaluator reads current
-reviews, metadata, and required checks before it sets approval labels and the
-merge-policy check. Dispatch completion does not enable auto-merge.
+reviews, metadata, and source CI before it sets approval labels and the
+merge-policy check. With the merge flag enabled, an eligible request can also
+receive native SQUASH auto-merge.
 
 A trusted **Review observer** completion normally evaluates its mapped pull
 requests. If GitHub returns a valid empty PR mapping, the evaluator reads the
 current open PR list, limited to 100 candidates. It checks each candidate's
 current review and head before it changes approval labels or the merge-policy
 check. Invalid workflow identity or malformed mappings do not start this scan.
+
+### Native SQUASH auto-merge and source CI
+
+The trusted evaluator job enables GitHub native auto-merge with SQUASH. Its
+token has `contents: write` and `pull-requests: write` permissions for this
+operation. It checks out only the trusted default-branch commit, with checkout
+credentials disabled.
+
+The evaluator requires successful current-head runs of **Basic checks** and
+**Validate changelog**, plus a successful `DCO` check from the DCO app. It also
+requires the action CI, Helm, dependency-integrity, and documentation workflows
+when their tracked PR path filters match a changed or renamed path. It uses the
+latest run number and current attempt for each required workflow. Runs must
+belong to this repository, use the `pull_request` event, and match the current
+head and expected workflow path. A populated PR mapping must identify this PR.
+An empty mapping can identify the PR through the exact
+`@refs/pull/<number>/merge` suffix. An empty mapping with a plain workflow path
+can instead match the live source repository, source branch, and head SHA;
+its normalized `prNumber` remains `null`. An explicit mapping to another PR
+or source ref cannot use this fallback.
+Missing or running evidence blocks success. Failed, cancelled, skipped, or
+malformed required evidence also blocks success. Incomplete or over-limit API
+collections fail closed. The merge-policy check and metadata/review workflows
+do not satisfy the source CI gate.
+
+For an eligible request, the evaluator first publishes an `action_required`
+policy check. It reads authority, metadata, PR identity, and CI again, then
+enables native SQUASH auto-merge with `expectedHeadOid` when no request is armed.
+It does not retry that mutation. It reads the same evidence again before it
+publishes policy success and once more after success. Before success, failed
+or revoked evidence keeps the check blocked. After success, the evaluator
+attempts to restore a blocking check and disarm the request when it can confirm
+the current PR and head identity. A base branch or source identity change for
+the same head also triggers this repair. Failed reads or writes can prevent that
+repair, and GitHub can already have completed the merge. An existing eligible
+SQUASH request is preserved.
+
+These reads and the success check are separate GitHub operations. Evidence can
+change between them. The head guard does not pin reviews, labels, CI, or the
+base revision. CI evidence is tied to the source head and can be reused across
+PRs or base retargets when GitHub omits PR mappings. It does not prove that the
+current base tip or a retargeted base branch was tested. With branch protection
+`strict=false`, GitHub can merge without an up-to-date base. Required native
+reviews and checks remain the final merge controls. A source CI gate in this
+action does not make a separately required native CI check redundant.
 
 ### Automatic approval for approver authors
 

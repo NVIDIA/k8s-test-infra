@@ -9,6 +9,7 @@ const {
   isManagedPolicyLabel,
 } = require("./managed-labels.js");
 const { MAX_API_COLLECTION_ITEMS } = require("./limits.js");
+const { evaluateCI } = require("./merge-ci.js");
 
 const MAX_CONTENT_BYTES = 1024 * 1024;
 const TRANSIENT_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
@@ -99,6 +100,13 @@ function nonEmptyString(value, name) {
   return value;
 }
 
+function commitOid(value, name) {
+  if (typeof value !== "string" || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(value)) {
+    throw new TypeError(`${name} must be a 40- or 64-digit hexadecimal OID`);
+  }
+  return value.toLowerCase();
+}
+
 function commitMessage(value) {
   if (typeof value !== "string" || value.trim() === "" || value.includes("\0")) {
     throw new TypeError("invalid Mokka commit message");
@@ -147,7 +155,7 @@ function issueNumberFromUrl(value) {
   return positiveInteger(Number(match[1]), "issue comment pull request number");
 }
 
-function mappedWorkflowRun(run) {
+function mappedWorkflowRunForPR(run, prNumber) {
   const rawPath = nonEmptyString(run?.path, "workflow path");
   const separator = rawPath.indexOf("@");
   const workflowPath = separator === -1 ? rawPath : rawPath.slice(0, separator);
@@ -155,10 +163,7 @@ function mappedWorkflowRun(run) {
   if (workflowPath === "" || (separator !== -1 && workflowSourceRef === "")) {
     throw new TypeError("workflow identity is invalid");
   }
-  if (!Array.isArray(run?.pull_requests) || run.pull_requests.length !== 1) {
-    throw new TypeError("workflow run must bind exactly one pull request");
-  }
-  return {
+  const mapped = {
     id: positiveInteger(run.id, "workflow run id"),
     headOid: nonEmptyString(run.head_sha, "workflow run head OID").toLowerCase(),
     status: nonEmptyString(run.status, "workflow run status"),
@@ -166,8 +171,78 @@ function mappedWorkflowRun(run) {
     workflowPath,
     workflowSourceRef,
     event: nonEmptyString(run.event, "workflow event"),
-    prNumber: positiveInteger(run.pull_requests[0]?.number, "workflow pull request number"),
+    prNumber,
     repository: nonEmptyString(run.repository?.full_name, "workflow repository").toLowerCase(),
+  };
+  if (run.run_number !== undefined) mapped.runNumber = run.run_number;
+  if (run.run_attempt !== undefined) mapped.runAttempt = run.run_attempt;
+  return mapped;
+}
+
+function mappedWorkflowRun(run) {
+  if (!Array.isArray(run?.pull_requests) || run.pull_requests.length !== 1) {
+    throw new TypeError("workflow run must bind exactly one pull request");
+  }
+  return mappedWorkflowRunForPR(run, positiveInteger(run.pull_requests[0]?.number, "workflow pull request number"));
+}
+
+function optionalHeadRepository(value) {
+  if (value === undefined || value === null) return null;
+  const repository = nonEmptyString(value, "CI head repository").toLowerCase();
+  if (!/^[a-z0-9][a-z0-9-]{0,38}\/[a-z0-9._-]{1,100}$/.test(repository)) {
+    throw new TypeError("CI head repository must identify an owner and repository");
+  }
+  return repository;
+}
+
+function optionalHeadBranch(value, label = "CI head branch") {
+  if (value === undefined || value === null) return null;
+  if (safeWorkflowSourceRef(value) === null || value.length > 255) {
+    throw new TypeError(`${label} is invalid`);
+  }
+  return value;
+}
+
+function mappedCIWorkflowRun(run, headOid, prNumber, headRepository, headBranch) {
+  const liveHead = commitOid(run?.head_sha, "CI workflow head OID");
+  if (liveHead !== headOid) return null;
+  if (!Array.isArray(run.pull_requests)) {
+    throw new TypeError("CI workflow pull request mapping must be an array");
+  }
+  let runPrNumber = prNumber;
+  let runHeadRepository;
+  let runHeadBranch;
+  if (run.pull_requests.length === 0) {
+    if (run.event !== "pull_request" || typeof run.path !== "string") return null;
+    if (!run.path.endsWith(`@refs/pull/${prNumber}/merge`)) {
+      if (run.path.includes("@")) return null;
+      runHeadRepository = optionalHeadRepository(run.head_repository?.full_name);
+      runHeadBranch = optionalHeadBranch(run.head_branch);
+      if (headRepository === null || headBranch === null
+        || runHeadRepository !== headRepository || runHeadBranch !== headBranch) return null;
+      runPrNumber = null;
+    }
+  } else if (run.pull_requests.length !== 1 || run.pull_requests[0]?.number !== prNumber) {
+    return null;
+  }
+  const mapped = mappedWorkflowRunForPR(run, runPrNumber);
+  if (runPrNumber === null) {
+    mapped.headRepository = runHeadRepository;
+    mapped.headBranch = runHeadBranch;
+  }
+  mapped.runNumber = positiveInteger(run.run_number, "workflow run number");
+  mapped.runAttempt = positiveInteger(run.run_attempt, "workflow run attempt");
+  return mapped;
+}
+
+function mappedCICheckRun(check) {
+  return {
+    id: positiveInteger(check?.id, "CI check run id"),
+    name: nonEmptyString(check?.name, "CI check run name"),
+    appId: positiveInteger(check?.app?.id, "CI check app ID"),
+    headOid: commitOid(check?.head_sha, "CI check head OID"),
+    status: nonEmptyString(check?.status, "CI check status"),
+    conclusion: check?.conclusion === null ? null : nonEmptyString(check?.conclusion, "CI check conclusion"),
   };
 }
 
@@ -343,6 +418,46 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
     return values;
   }
 
+  async function paginateCI(operation, endpoint, parameters) {
+    return call(operation, async () => {
+      let total;
+      let collected = 0;
+      let pages = 0;
+      const ids = new Set();
+      const values = await octokit.paginate(endpoint, { ...parameters, per_page: 100 }, (response) => {
+        const page = response.data;
+        if (
+          !Array.isArray(page)
+          || !Number.isSafeInteger(page.total_count)
+          || page.total_count < 0
+          || page.total_count > MAX_API_COLLECTION_ITEMS
+          || (page.incomplete_results !== undefined && page.incomplete_results !== false)
+          || (total !== undefined && page.total_count !== total)
+          || page.length > 100
+        ) throw new TypeError("CI collection is incomplete or malformed");
+        total = page.total_count;
+        collected += page.length;
+        pages += 1;
+        const hasNext = /<[^<>]+>;\s*rel="next"/.test(response.headers?.link ?? "");
+        if (
+          collected > total
+          || pages > Math.ceil(MAX_API_COLLECTION_ITEMS / 100)
+          || (hasNext && (page.length === 0 || collected === total || pages === Math.ceil(MAX_API_COLLECTION_ITEMS / 100)))
+        ) throw new TypeError("CI collection exceeds its complete pagination bound");
+        for (const item of page) {
+          const id = positiveInteger(item?.id, "CI collection item id");
+          if (ids.has(id)) throw new TypeError("CI collection contains duplicate identities");
+          ids.add(id);
+        }
+        return page;
+      });
+      if (!Array.isArray(values) || total === undefined || values.length !== total || collected !== total) {
+        throw new TypeError("CI collection does not contain all reported items");
+      }
+      return values;
+    }, true);
+  }
+
   const rootTreeByRevision = new Map();
   const entriesByTree = new Map();
 
@@ -510,6 +625,9 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
           repo: nonEmptyString(data.head.repo.name, "head repository name").toLowerCase(),
         };
       }
+      if (data.head?.ref !== undefined && data.head.ref !== null) {
+        pullRequest.headBranch = optionalHeadBranch(data.head.ref, "live PR head branch");
+      }
       if (typeof data.merged === "boolean") pullRequest.merged = data.merged;
       if (data.merge_commit_sha === null) {
         pullRequest.mergeCommitOid = null;
@@ -607,6 +725,9 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
       });
       return files.map((file) => ({
         path: nonEmptyString(file.filename, "changed path"),
+        ...(file.previous_filename === undefined ? {} : {
+          previousPath: nonEmptyString(file.previous_filename, "previous changed path"),
+        }),
         additions: file.additions,
         deletions: file.deletions,
         status: nonEmptyString(file.status, "file status"),
@@ -821,6 +942,33 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
         && run.pull_requests.length === 1
         && run.pull_requests[0]?.number === prNumber
       )).map(mappedWorkflowRun);
+    },
+
+    async getCIState({ headOid, prNumber, baseBranch, files, headRepository, headBranch }) {
+      const expectedHead = commitOid(headOid, "CI head OID");
+      positiveInteger(prNumber, "PR number");
+      nonEmptyString(baseBranch, "CI base branch");
+      const expectedHeadRepository = optionalHeadRepository(headRepository);
+      const expectedHeadBranch = optionalHeadBranch(headBranch);
+      const workflowRuns = await paginateCI("listCIWorkflowRuns", octokit.rest.actions.listWorkflowRunsForRepo, {
+        owner, repo, head_sha: expectedHead,
+      });
+      const checkRuns = await paginateCI("listCICheckRuns", octokit.rest.checks.listForRef, {
+        owner, repo, ref: expectedHead, filter: "all",
+      });
+      return evaluateCI({
+        repository: `${owner}/${repo}`.toLowerCase(),
+        prNumber,
+        headOid: expectedHead,
+        baseBranch,
+        files,
+        headRepository: expectedHeadRepository,
+        headBranch: expectedHeadBranch,
+        runs: workflowRuns.map((run) => mappedCIWorkflowRun(
+          run, expectedHead, prNumber, expectedHeadRepository, expectedHeadBranch,
+        )).filter((run) => run !== null),
+        checks: checkRuns.map(mappedCICheckRun),
+      });
     },
 
     async getWorkflowRun(runId, headOid, prNumber) {
@@ -1071,6 +1219,25 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
         conclusion,
         output: { title: MERGE_POLICY_CHECK, summary },
       }), false);
+    },
+
+    async enableAutoMerge(nodeId, mergeMethod, expectedHeadOid) {
+      nonEmptyString(nodeId, "pull request node ID");
+      if (mergeMethod !== "SQUASH") throw new TypeError("auto-merge method must be SQUASH");
+      const headOid = commitOid(expectedHeadOid, "expected head OID");
+      const response = await call("enableAutoMerge", () => octokit.graphql(`
+        mutation EnableAutoMerge($pullRequestId: ID!, $mergeMethod: PullRequestMergeMethod!, $expectedHeadOid: GitObjectID!) {
+          enablePullRequestAutoMerge(input: {
+            pullRequestId: $pullRequestId, mergeMethod: $mergeMethod, expectedHeadOid: $expectedHeadOid
+          }) {
+            clientMutationId
+          }
+        }
+      `, { pullRequestId: nodeId, mergeMethod, expectedHeadOid: headOid }), false);
+      const payload = response?.enablePullRequestAutoMerge;
+      if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+        throw new TypeError("native auto-merge mutation result is absent or malformed");
+      }
     },
 
     async disableAutoMerge(nodeId) {

@@ -42,7 +42,7 @@ jobs:
     permissions:
       actions: read
       checks: write
-      contents: read
+      contents: write
       issues: write
       pull-requests: write
     concurrency:

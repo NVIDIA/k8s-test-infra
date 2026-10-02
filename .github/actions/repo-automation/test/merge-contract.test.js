@@ -235,7 +235,7 @@ test("a trusted human approver author needs independent LGTM but no additional O
   assert.ok(github.calls.removePolicyLabel.some(({ label }) => label === "do-not-merge/needs-approval"));
   assert.equal(github.calls.setMergePolicyCheck.at(-1).conclusion, "success");
   assert.ok(github.calls.getUserIdentity.some(({ login }) => login === "bob"));
-  assert.equal(github.calls.enableAutoMerge.length, 0);
+  assert.equal(github.calls.enableAutoMerge.length, 1);
 });
 
 test("implicit author approval never grants LGTM or clears a hold", async () => {
@@ -320,21 +320,225 @@ test("implicit author approval cannot restore dismissed or negative review LGTM"
   });
 });
 
-test("publishes success for the exact head without arming native auto-merge", async () => {
+test("arms native SQUASH while policy blocks, then publishes success for the exact head", async () => {
   const { github, result } = await run();
 
   assert.equal(result.status, "complete");
   assert.deepEqual(github.calls.setMergePolicyCheck, [{
     prNumber: 42,
     headOid: HEAD,
+    conclusion: "action_required",
+    summary: "Repository merge policy is preparing native SQUASH auto-merge.",
+  }, {
+    prNumber: 42,
+    headOid: HEAD,
     conclusion: "success",
     summary: "Repository merge policy passed.",
   }]);
-  assert.deepEqual(github.calls.enableAutoMerge, []);
+  assert.deepEqual(github.calls.enableAutoMerge, [{
+    nodeId: "PR_node_42", mergeMethod: "SQUASH", expectedHeadOid: HEAD,
+  }]);
+  assert.equal(result.pullRequests[0].merge.action, "ENABLE");
   assert.deepEqual(github.calls.disableAutoMerge, []);
-  assert.ok(github.calls.getPolicyComment.length >= 2, "gate inputs must be re-read");
-  assert.ok(github.calls.getPullRequest.length >= 3, "head must be re-read after success");
-  assert.equal(operationIndex(github, "enableAutoMerge"), -1);
+  assert.equal(github.calls.getPolicyComment.length, 5);
+  assert.equal(github.calls.getPullRequest.length, 5);
+  assert.ok(operationIndex(github, "enableAutoMerge") > operationIndex(github, "setMergePolicyCheck"));
+  const successIndex = github.callOrder.findIndex(({ operation, parameters }) => (
+    operation === "setMergePolicyCheck" && parameters.conclusion === "success"
+  ));
+  assert.ok(operationIndex(github, "enableAutoMerge") < successIndex);
+  assert.equal(github.callOrder.slice(operationIndex(github, "enableAutoMerge"), successIndex)
+    .filter(({ operation }) => operation === "getCIState").length, 1);
+  assert.deepEqual(github.calls.getCIState.at(-1), {
+    prNumber: 42, headOid: HEAD, baseBranch: "main",
+    files: [{ path: "pkg/gpu.go", additions: 2, deletions: 1, status: "modified" }],
+  });
+});
+
+test("pending and failed source CI block policy success and native arming", async (t) => {
+  for (const [ciState, blocker] of [["PENDING", "ci-pending"], ["FAILED", "ci-failed"]]) {
+    await t.test(ciState, async () => {
+      const { github, result } = await run(evaluatorState({ ciStates: [ciState] }));
+      assert.ok(result.pullRequests[0].merge.blockers.includes(blocker));
+      assert.equal(github.calls.setMergePolicyCheck.at(-1).conclusion, "action_required");
+      assert.deepEqual(github.calls.enableAutoMerge, []);
+    });
+  }
+});
+
+test("each CI read receives the live source repository and branch", async () => {
+  const source = { headRepository: { owner: "ArangoGutierrez", repo: "k8s-test-infra" }, headBranch: "codex/fork" };
+  const { github } = await run(evaluatorState({ pullRequests: [pullRequest(source)] }));
+  assert.equal(github.calls.getCIState.length, 5);
+  for (const parameters of github.calls.getCIState) {
+    assert.equal(parameters.headRepository, "arangogutierrez/k8s-test-infra");
+    assert.equal(parameters.headBranch, "codex/fork");
+  }
+});
+
+test("a source repository or branch change prevents policy success", async (t) => {
+  const source = { headRepository: { owner: "fork-owner", repo: "k8s-test-infra" }, headBranch: "codex/fork" };
+  for (const changed of [
+    { ...source, headRepository: { owner: "other-owner", repo: "k8s-test-infra" } },
+    { ...source, headBranch: "codex/other" },
+    { ...source, headRepository: null },
+  ]) await t.test(JSON.stringify(changed), async () => {
+    const { github, result } = await run(evaluatorState({
+      pullRequests: [pullRequest(source), pullRequest(changed)],
+    }));
+    assert.ok(result.pullRequests[0].merge.blockers.includes("head-changed"));
+    assert.deepEqual(github.calls.enableAutoMerge, []);
+    assert.equal(github.calls.setMergePolicyCheck.some(({ conclusion }) => conclusion === "success"), false);
+  });
+});
+
+test("malformed live source identities fail closed before CI reads", async (t) => {
+  for (const source of [
+    { headRepository: { owner: "bad/owner", repo: "k8s-test-infra" } },
+    { headRepository: { owner: "fork-owner", repo: "." } },
+    { headBranch: "/invalid" },
+    { headBranch: {} },
+  ]) await t.test(JSON.stringify(source), async () => {
+    const github = createFakeGitHub(evaluatorState({ pullRequests: [pullRequest(source)] }));
+    const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
+    await assert.rejects(() => runMergeEvaluate({
+      event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github, config, dryRun: false, prNumber: "42",
+    }), /evaluation failed closed/);
+    assert.deepEqual(github.calls.getCIState, []);
+    assert.deepEqual(github.calls.enableAutoMerge, []);
+    assert.equal(github.calls.setMergePolicyCheck.some(({ conclusion }) => conclusion === "success"), false);
+  });
+});
+
+test("CI revocation before native arming prevents enable and policy success", async (t) => {
+  for (const revokedRead of [2, 3]) await t.test(`read ${revokedRead}`, async () => {
+    const states = Array.from({ length: 3 }, (_, index) => index + 1 < revokedRead ? "SUCCESS" : "FAILED");
+    const { github, result } = await run(evaluatorState({ ciStates: states }));
+    assert.ok(result.pullRequests[0].merge.blockers.includes("ci-failed"));
+    assert.deepEqual(github.calls.enableAutoMerge, []);
+    assert.equal(github.calls.setMergePolicyCheck.at(-1).conclusion, "action_required");
+    assert.equal(github.calls.setMergePolicyCheck.some(({ conclusion }) => conclusion === "success"), false);
+  });
+});
+
+test("CI revocation after native enable disarms the request", async (t) => {
+  for (const [name, states, conclusions] of [
+    ["before success", ["SUCCESS", "SUCCESS", "SUCCESS", "FAILED"], ["action_required", "action_required"]],
+    ["after success", ["SUCCESS", "SUCCESS", "SUCCESS", "SUCCESS", "FAILED"], ["action_required", "success", "action_required"]],
+  ]) await t.test(name, async () => {
+    const { github, result } = await run(evaluatorState({ ciStates: states }));
+    assert.ok(result.pullRequests[0].merge.blockers.includes("ci-failed"));
+    assert.deepEqual(github.calls.enableAutoMerge, [{
+      nodeId: "PR_node_42", mergeMethod: "SQUASH", expectedHeadOid: HEAD,
+    }]);
+    assert.deepEqual(github.calls.disableAutoMerge, [{ nodeId: "PR_node_42" }]);
+    assert.deepEqual(github.calls.setMergePolicyCheck.map(({ conclusion }) => conclusion), conclusions);
+  });
+});
+
+test("authority revoked after native enable cannot publish success", async () => {
+  const { github, result } = await run(reviewLgtmState(), {
+    reviewDetails: (_review, call) => ({ body: call < 4 ? "/lgtm" : "" }),
+  });
+  assert.ok(result.pullRequests[0].merge.blockers.includes("lgtm-missing"));
+  assert.equal(github.calls.setMergePolicyCheck.some(({ conclusion }) => conclusion === "success"), false);
+  assert.deepEqual(github.calls.enableAutoMerge, [{
+    nodeId: "PR_node_42", mergeMethod: "SQUASH", expectedHeadOid: HEAD,
+  }]);
+  assert.deepEqual(github.calls.disableAutoMerge, [{ nodeId: "PR_node_42" }]);
+});
+
+test("malformed or unavailable CI after native enable fails closed and disarms", async (t) => {
+  for (const name of ["malformed", "unavailable"]) await t.test(name, async () => {
+    const github = createFakeGitHub(evaluatorState({
+      ciStates: ["SUCCESS", "SUCCESS", "SUCCESS", name === "malformed" ? "UNKNOWN" : "SUCCESS"],
+      failures: name === "unavailable" ? { getCIState: [null, null, null, new Error("CI read failed")] } : {},
+    }));
+    const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
+    await assert.rejects(() => runMergeEvaluate({
+      event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github, config,
+      dryRun: false, prNumber: "42",
+    }), /evaluation failed closed/);
+    assert.deepEqual(github.calls.enableAutoMerge, [{
+      nodeId: "PR_node_42", mergeMethod: "SQUASH", expectedHeadOid: HEAD,
+    }]);
+    assert.equal(github.calls.setMergePolicyCheck.some(({ conclusion }) => conclusion === "success"), false);
+    assert.equal(github.calls.setMergePolicyCheck.at(-1).conclusion, "action_required");
+    assert.deepEqual(github.calls.disableAutoMerge, [{ nodeId: "PR_node_42" }]);
+  });
+});
+
+test("a second evaluation preserves the SQUASH request armed by the first", async () => {
+  const { github } = await run();
+  const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
+  const result = await runMergeEvaluate({
+    event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github, config,
+    dryRun: false, prNumber: "42",
+  });
+  assert.equal(result.pullRequests[0].merge.action, "NOOP");
+  assert.deepEqual(github.calls.enableAutoMerge, [{
+    nodeId: "PR_node_42", mergeMethod: "SQUASH", expectedHeadOid: HEAD,
+  }]);
+  assert.deepEqual(github.calls.disableAutoMerge, []);
+  assert.deepEqual(github.calls.setMergePolicyCheck.map(({ conclusion }) => conclusion), [
+    "action_required", "success", "action_required", "success",
+  ]);
+});
+
+test("CI revocation disarms an existing SQUASH request", async () => {
+  const { github, result } = await run(evaluatorState({
+    ciStates: ["PENDING"],
+    mergeStates: [mergeState({ autoMergeMethod: "SQUASH" })],
+  }));
+  assert.ok(result.pullRequests[0].merge.blockers.includes("ci-pending"));
+  assert.deepEqual(github.calls.disableAutoMerge, [{ nodeId: "PR_node_42" }]);
+  assert.deepEqual(github.calls.enableAutoMerge, []);
+});
+
+test("malformed or unavailable CI fails closed without arming", async (t) => {
+  for (const name of ["malformed", "unavailable"]) await t.test(name, async () => {
+    const github = createFakeGitHub(evaluatorState({
+      ciStates: ["UNKNOWN"],
+      failures: name === "unavailable" ? { getCIState: new Error("CI read failed") } : {},
+    }));
+    const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
+    await assert.rejects(() => runMergeEvaluate({
+      event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github, config,
+      dryRun: false, prNumber: "42",
+    }), /evaluation failed closed/);
+    assert.deepEqual(github.calls.enableAutoMerge, []);
+    assert.equal(github.calls.setMergePolicyCheck.at(-1).conclusion, "action_required");
+  });
+});
+
+test("native enable rejection is not retried and cannot publish policy success", async () => {
+  const github = createFakeGitHub(evaluatorState({
+    failures: { enableAutoMerge: new Error("head changed at GitHub") },
+  }));
+  const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
+  await assert.rejects(() => runMergeEvaluate({
+    event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github, config,
+    dryRun: false, prNumber: "42",
+  }), /evaluation failed closed/);
+  assert.equal(github.calls.enableAutoMerge.length, 1);
+  assert.equal(github.calls.setMergePolicyCheck.at(-1).conclusion, "action_required");
+  assert.equal(github.calls.setMergePolicyCheck.some(({ conclusion }) => conclusion === "success"), false);
+});
+
+test("an acknowledged enable without a retained SQUASH request cannot publish policy success", async () => {
+  const github = createFakeGitHub(evaluatorState());
+  const getMergeState = github.getMergeState.bind(github);
+  github.getMergeState = async (number) => ({
+    ...await getMergeState(number), autoMergeMethod: null,
+  });
+  const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
+  await assert.rejects(() => runMergeEvaluate({
+    event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github, config,
+    dryRun: false, prNumber: "42",
+  }), /evaluation failed closed/);
+  assert.equal(github.calls.enableAutoMerge.length, 1);
+  assert.equal(github.calls.setMergePolicyCheck.at(-1).conclusion, "action_required");
+  assert.equal(github.calls.setMergePolicyCheck.some(({ conclusion }) => conclusion === "success"), false);
 });
 
 test("leaves an eligible human SQUASH auto-merge request unchanged", async () => {
@@ -351,6 +555,11 @@ test("leaves an eligible human SQUASH auto-merge request unchanged", async () =>
   assert.deepEqual(github.calls.setMergePolicyCheck, [{
     prNumber: 42,
     headOid: HEAD,
+    conclusion: "action_required",
+    summary: "Repository merge policy is preparing native SQUASH auto-merge.",
+  }, {
+    prNumber: 42,
+    headOid: HEAD,
     conclusion: "success",
     summary: "Repository merge policy passed.",
   }]);
@@ -362,9 +571,9 @@ test("disarms an unsupported method armed after the permissive re-read", async (
   for (const method of ["MERGE", "REBASE"]) await t.test(method, async () => {
     const { github, result } = await run(evaluatorState({
       mergeStates: [
-        mergeState(),
-        mergeState(),
-        mergeState(),
+        mergeState({ autoMergeMethod: "SQUASH" }),
+        mergeState({ autoMergeMethod: "SQUASH" }),
+        mergeState({ autoMergeMethod: "SQUASH" }),
         mergeState({ autoMergeMethod: method }),
         mergeState({ autoMergeMethod: method }),
       ],
@@ -372,6 +581,12 @@ test("disarms an unsupported method armed after the permissive re-read", async (
 
     assert.equal(result.pullRequests[0].merge.action, "DISABLE");
     assert.deepEqual(github.calls.setMergePolicyCheck, [
+      {
+        prNumber: 42,
+        headOid: HEAD,
+        conclusion: "action_required",
+        summary: "Repository merge policy is preparing native SQUASH auto-merge.",
+      },
       {
         prNumber: 42,
         headOid: HEAD,
@@ -523,7 +738,9 @@ test("explicit current-head review LGTM accepts current OWNERS reviewers and app
         { prNumber: 42, label: "approved" },
         { prNumber: 42, label: "lgtm" },
       ]);
-      assert.deepEqual(github.calls.enableAutoMerge, []);
+      assert.deepEqual(github.calls.enableAutoMerge, [{
+        nodeId: "PR_node_42", mergeMethod: "SQUASH", expectedHeadOid: HEAD,
+      }]);
     });
   }
 });
@@ -553,7 +770,9 @@ test("metadata-only policy comment accepts current review LGTM and native approv
     { prNumber: 42, label: "lgtm" },
   ]);
   assert.deepEqual(github.calls.upsertPolicyComment, []);
-  assert.deepEqual(github.calls.enableAutoMerge, []);
+  assert.deepEqual(github.calls.enableAutoMerge, [{
+    nodeId: "PR_node_42", mergeMethod: "SQUASH", expectedHeadOid: HEAD,
+  }]);
 });
 
 test("metadata-only policy comment cannot replace missing or negative review authority", async (t) => {
@@ -783,7 +1002,9 @@ test("human review LGTM and approval can authorize a Dependabot-authored PR", as
 
   assert.deepEqual(result.pullRequests[0].merge.blockers, []);
   assert.equal(github.calls.setMergePolicyCheck.at(-1).conclusion, "success");
-  assert.deepEqual(github.calls.enableAutoMerge, []);
+  assert.deepEqual(github.calls.enableAutoMerge, [{
+    nodeId: "PR_node_42", mergeMethod: "SQUASH", expectedHeadOid: HEAD,
+  }]);
 });
 
 test("live body removal or replacement revokes review LGTM at the final read", async (t) => {
@@ -872,7 +1093,7 @@ test("review LGTM revoked during the success check receives a restrictive final 
 
   assert.ok(result.pullRequests[0].merge.blockers.includes("lgtm-missing"));
   assert.deepEqual(github.calls.setMergePolicyCheck.map(({ conclusion }) => conclusion), [
-    "success", "action_required",
+    "action_required", "success", "action_required",
   ]);
   assert.ok(github.calls.removePolicyLabel.some(({ label }) => label === "lgtm"));
   assert.deepEqual(github.calls.disableAutoMerge, [{ nodeId: "PR_node_42" }]);
@@ -929,7 +1150,7 @@ test("a head change after label writes cannot publish success", async () => {
   }));
 
   assert.ok(result.pullRequests[0].merge.blockers.includes("head-changed"));
-  assert.deepEqual(github.calls.setMergePolicyCheck, []);
+  assert.deepEqual(github.calls.setMergePolicyCheck.map(({ conclusion }) => conclusion), ["action_required"]);
   assert.deepEqual(github.calls.enableAutoMerge, []);
   assert.deepEqual(github.calls.disableAutoMerge, []);
 });
@@ -937,6 +1158,7 @@ test("a head change after label writes cannot publish success", async () => {
 test("a head change after the success check fails closed before policy completion", async () => {
   const { github, result } = await run(evaluatorState({
     pullRequests: [pullRequest(), pullRequest(), pullRequest(), pullRequest({ headOid: NEXT_HEAD })],
+    mergeStates: [mergeState({ autoMergeMethod: "SQUASH" })],
   }));
 
   assert.equal(result.pullRequests[0].merge.action, "NOOP");
@@ -944,10 +1166,74 @@ test("a head change after the success check fails closed before policy completio
   assert.deepEqual(github.calls.setMergePolicyCheck, [{
     prNumber: 42,
     headOid: HEAD,
+    conclusion: "action_required",
+    summary: "Repository merge policy is preparing native SQUASH auto-merge.",
+  }, {
+    prNumber: 42,
+    headOid: HEAD,
     conclusion: "success",
     summary: "Repository merge policy passed.",
   }]);
   assert.deepEqual(github.calls.enableAutoMerge, []);
+});
+
+test("native completion after policy success is reported without a head-change failure", async () => {
+  const { github, result } = await run(evaluatorState({
+    pullRequests: [pullRequest(), pullRequest(), pullRequest(), pullRequest(),
+      pullRequest({ state: "closed", merged: true })],
+    mergeStates: [mergeState(), mergeState(), mergeState(), mergeState(),
+      mergeState({ state: "MERGED", autoMergeMethod: null })],
+  }));
+  assert.equal(result.status, "complete");
+  assert.deepEqual(result.pullRequests[0].merge, { action: "ENABLE", blockers: [] });
+  assert.deepEqual(github.calls.setMergePolicyCheck.map(({ conclusion }) => conclusion), [
+    "action_required", "success",
+  ]);
+  assert.deepEqual(github.calls.disableAutoMerge, []);
+});
+
+test("same-head identity changes after policy success block and disarm native auto-merge", async (t) => {
+  const source = { headRepository: { owner: "fork-owner", repo: "k8s-test-infra" }, headBranch: "codex/fork" };
+  for (const armed of [false, true]) {
+    for (const change of [
+      { headBranch: "codex/other" },
+      { headRepository: { owner: "other-owner", repo: "k8s-test-infra" } },
+      { baseBranch: "release-test" },
+    ]) await t.test(`${armed ? "armed" : "new"} ${JSON.stringify(change)}`, async () => {
+      const priorReads = armed ? 3 : 4;
+      const changed = pullRequest({ ...source, ...change });
+      const { github, result } = await run(evaluatorState({
+        pullRequests: [...Array.from({ length: priorReads }, () => pullRequest(source)), changed],
+        mergeStates: [...Array.from({ length: priorReads }, () => mergeState({
+          autoMergeMethod: armed ? "SQUASH" : null,
+        })), mergeState({ autoMergeMethod: "SQUASH", baseBranch: changed.baseBranch })],
+        branchProtection: { main: true, "release-test": true },
+      }));
+      assert.ok(result.pullRequests[0].merge.blockers.includes("head-changed"));
+      assert.deepEqual(github.calls.setMergePolicyCheck.map(({ conclusion }) => conclusion), [
+        "action_required", "success", "action_required",
+      ]);
+      assert.equal(github.calls.setMergePolicyCheck.at(-1).headOid, HEAD);
+      assert.deepEqual(github.calls.disableAutoMerge, [{ nodeId: "PR_node_42" }]);
+      const lastBlock = github.callOrder.findLastIndex(({ operation, parameters }) => (
+        operation === "setMergePolicyCheck" && parameters.conclusion === "action_required"
+      ));
+      assert.ok(lastBlock < operationIndex(github, "disableAutoMerge"));
+    });
+  }
+});
+
+test("a staging-check write failure cannot arm native auto-merge", async () => {
+  const github = createFakeGitHub(evaluatorState({
+    failures: { setMergePolicyCheck: new Error("staging check failed") },
+  }));
+  const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
+  await assert.rejects(() => runMergeEvaluate({
+    event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github, config,
+    dryRun: false, prNumber: "42",
+  }), /evaluation failed closed/);
+  assert.deepEqual(github.calls.enableAutoMerge, []);
+  assert.equal(github.calls.setMergePolicyCheck.some(({ conclusion }) => conclusion === "success"), false);
 });
 
 test("dry-run calculates policy but performs no GitHub writes", async () => {
@@ -1107,11 +1393,18 @@ test("empty trusted review mapping scans open PRs and applies current OWNERS app
   assert.deepEqual(github.calls.setMergePolicyCheck, [{
     prNumber: 42,
     headOid: HEAD,
+    conclusion: "action_required",
+    summary: "Repository merge policy is preparing native SQUASH auto-merge.",
+  }, {
+    prNumber: 42,
+    headOid: HEAD,
     conclusion: "success",
     summary: "Repository merge policy passed.",
   }]);
   assert.ok(github.calls.getPullRequestReview.length > 0);
-  assert.deepEqual(github.calls.enableAutoMerge, []);
+  assert.deepEqual(github.calls.enableAutoMerge, [{
+    nodeId: "PR_node_42", mergeMethod: "SQUASH", expectedHeadOid: HEAD,
+  }]);
 });
 
 test("empty trusted review mapping keeps stale and dismissed approvals restrictive", async (t) => {
@@ -1155,7 +1448,9 @@ test("nonempty trusted review mapping stays scoped to its mapped PRs", async () 
   assert.deepEqual(github.calls.listOpenPullRequestNumbers, []);
   assert.ok(github.calls.getPullRequest.every(({ prNumber }) => prNumber === 42));
   assert.equal(github.calls.setMergePolicyCheck.at(-1).conclusion, "success");
-  assert.deepEqual(github.calls.enableAutoMerge, []);
+  assert.deepEqual(github.calls.enableAutoMerge, [{
+    nodeId: "PR_node_42", mergeMethod: "SQUASH", expectedHeadOid: HEAD,
+  }]);
 });
 
 test("empty review completion rejects untrusted run identities without PR reads or writes", async (t) => {
@@ -1289,7 +1584,9 @@ test("dispatched metadata completion evaluates the bounded open PR scan", async 
   assert.deepEqual(result.candidates, [42]);
   assert.deepEqual(result.pullRequests[0].merge.blockers, []);
   assert.equal(github.calls.setMergePolicyCheck.at(-1).conclusion, "success");
-  assert.deepEqual(github.calls.enableAutoMerge, []);
+  assert.deepEqual(github.calls.enableAutoMerge, [{
+    nodeId: "PR_node_42", mergeMethod: "SQUASH", expectedHeadOid: HEAD,
+  }]);
 });
 
 test("dispatched metadata completion rejects untrusted live workflow identity", async (t) => {
