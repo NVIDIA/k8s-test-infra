@@ -42,9 +42,10 @@ NRI plugin mounts the host overlay into newly created containers at
 `/opt/nvml-mock` and injects the mock environment at runtime, so a pod needs no
 Mokka-specific pod spec changes. It injects only containers that hold a GPU allocation from the
 device plugin or the NVIDIA DRA driver, or whose pod carries the
-`nvml-mock.nvidia.com/devices: "true"` or `nvml-mock.nvidia.com/imex-channels:
-"true"` annotation. A pod that requested no GPU and carries neither annotation
-is left untouched and sees no GPUs, as on a real GPU node. See
+`nvml-mock.nvidia.com/devices`, `nvml-mock.nvidia.com/infiniband` or
+`nvml-mock.nvidia.com/imex-channels` annotation set to `"true"`. A pod that
+requested no GPU and carries none of them is left untouched and sees no GPUs, as
+on a real GPU node. See
 [Which containers are injected](components/nri-plugin.md#which-containers-are-injected)
 for the full rules. Kind clusters must have containerd NRI enabled; see
 [`docs/guides/node-wide-injection`](guides/node-wide-injection/README.md).
@@ -712,7 +713,8 @@ namespace, on the pod IP where the kubelet reaches it.
 | `nri.deviceAnnotation` | `nvml-mock.nvidia.com/devices` | Pod annotation; value `true` gives a pod with no GPU allocation the overlay and every mock GPU on the node. Ignored for containers that hold an allocation. Pod-authored, so treat it as part of the demo trust boundary |
 | `nri.deviceInjectionMode` | `raw` | How `nri.deviceAnnotation` delivers GPUs: `raw` stages the device nodes directly, `cdi` emits a CDI device reference the runtime resolves. See [Device injection mode](#device-injection-mode) |
 | `nri.cdiSpecDir` | `/var/run/cdi` | Host directory holding CDI specs, mounted read-only into the plugin. Must be one of the runtime's configured `cdi_spec_dirs` |
-| `nri.imexChannelAnnotation` | `nvml-mock.nvidia.com/imex-channels` | Pod annotation; value `true` gives the pod the overlay and the mock `/dev/nvidia-caps-imex-channels/channelN` nodes staged by `imex.mockChannels` (no channels when that is disabled). Same trust boundary as `nri.deviceAnnotation` |
+| `nri.imexChannelAnnotation` | `nvml-mock.nvidia.com/imex-channels` | Pod annotation; value `true` gives the pod the mock `/dev/nvidia-caps-imex-channels/channelN` nodes staged by `imex.mockChannels` (no channels when that is disabled), and nothing else. Same trust boundary as `nri.deviceAnnotation` |
+| `nri.infinibandAnnotation` | `nvml-mock.nvidia.com/infiniband` | Pod annotation; value `true` gives the pod the overlay with the mock InfiniBand tools active (`MOCK_IB=full`). Without mock GPUs unless the pod also selects them. Same trust boundary as `nri.deviceAnnotation` |
 | `nri.excludedNamespaces` | `[]` | Extra namespaces to skip. The release namespace and `kube-system` are always excluded |
 | `nri.healthPort` | `8080` | Port serving `/healthz` and `/readyz`. Bound only in the pod's network namespace — this DaemonSet does not use `hostNetwork`, so nothing is exposed on the node |
 | `nri.readinessProbe` | `/readyz`, `periodSeconds: 10`, `failureThreshold: 2` | Detects that the node has stopped injecting. Set to `null` to drop. See [NRI plugin failure modes](#nri-plugin-failure-modes) |

@@ -61,13 +61,15 @@ kubectl logs -n mokka -l app.kubernetes.io/name=nvml-mock | grep -i cdi
 
 ### A pod gets no mock GPUs even though NRI is enabled
 
-First check that the pod is meant to be injected. The plugin injects only
-containers that hold a GPU allocation from the device plugin or the NVIDIA DRA
-driver, or whose pod carries the `nvml-mock.nvidia.com/devices: "true"` or
-`nvml-mock.nvidia.com/imex-channels: "true"` annotation. A pod that requested
-no GPU and has neither annotation is left untouched by design. A device plugin
-that runs without `--pass-device-specs=true` or the `cdi-cri` strategy leaves no
-allocation the plugin can recognise, so its pods also receive nothing.
+First check that the pod is meant to receive GPUs. The plugin gives mock GPUs
+only to containers that hold a GPU allocation from the device plugin or the
+NVIDIA DRA driver, or whose pod carries the `nvml-mock.nvidia.com/devices:
+"true"` annotation. The `nvml-mock.nvidia.com/infiniband` and
+`nvml-mock.nvidia.com/imex-channels` annotations add only their own surface,
+never GPUs. A pod that requested no GPU and has no annotation is left untouched
+by design. A device plugin that runs without `--pass-device-specs=true` or the
+`cdi-cri` strategy leaves no allocation the plugin can recognise, so its pods
+also receive nothing.
 
 The NRI plugin fails open: when it cannot inject, containers are created
 without the mock rather than failing. That makes a silent window possible, so
