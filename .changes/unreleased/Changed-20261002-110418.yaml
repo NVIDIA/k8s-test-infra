@@ -1,0 +1,9 @@
+kind: Changed
+body: |-
+  **Breaking:** nvml-mock: NRI injects mock InfiniBand only into pods annotated
+    `nvml-mock.nvidia.com/infiniband: "true"`, and an IMEX-only pod gets only its
+    channel devices; add that annotation, or `devices: "true"` for mock NVML, to
+    pods that relied on either.
+time: 2026-10-02T18:04:18Z
+custom:
+  Issue: "814"
