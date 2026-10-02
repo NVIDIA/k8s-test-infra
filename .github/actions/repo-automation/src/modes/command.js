@@ -160,7 +160,6 @@ async function loadAuthority(github, config, identity, pullRequest, files) {
   return {
     digest: policyDigest({
       repository: identity.repository,
-      revision,
       policy: config.policy,
       ownerSources: sources,
       aliasesSource,

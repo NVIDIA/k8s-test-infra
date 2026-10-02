@@ -391,7 +391,6 @@ async function loadAuthority({ github, config, repository, pullRequest, policyRe
   );
   const digest = policyDigest({
     repository: repository.fullName,
-    revision,
     policy: config.policy,
     ownerSources: sources,
     aliasesSource,
