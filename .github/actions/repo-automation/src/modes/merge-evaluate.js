@@ -8,6 +8,8 @@ const {
   parsePolicyState,
 } = require("../commands/state.js");
 const { validateConfig } = require("../config.js");
+const { evaluateDco } = require("../dco.js");
+const { MAX_API_COLLECTION_ITEMS } = require("../limits.js");
 const { isManagedPolicyLabel } = require("../managed-labels.js");
 const { decideMergeAction } = require("../merge-state.js");
 const { parseAliases, parseOwnersFile, resolveOwners, hasApprovalCoverage } = require("../owners.js");
@@ -17,6 +19,7 @@ const {
 } = require("../policy-comment.js");
 const { policyDigest } = require("../policy-digest.js");
 const { currentRoleAllows, loadReviewEvidence, validHumanIdentity } = require("../review-evidence.js");
+const { classifyTitle } = require("../title.js");
 
 const LOGIN = /^(?!.*--)[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
 const REPOSITORY = /^[A-Za-z0-9_.-]{1,100}$/;
@@ -341,13 +344,14 @@ function policyCommentState(comment, context) {
   return { state, metadataHead: parseMetadataHeadEvidence(comment.body) };
 }
 
-async function loadAuthority({ github, config, repository, pullRequest }) {
-  const [files, reviews, labels, comment, revision] = await Promise.all([
+async function loadAuthority({ github, config, repository, pullRequest, policyRevision }) {
+  const [files, reviews, labels, comment, revision, commits] = await Promise.all([
     github.listPullRequestFiles(pullRequest.number),
     github.listPullRequestReviews(pullRequest.number),
     github.listIssueLabels(pullRequest.number),
     github.getPolicyComment(pullRequest.number, POLICY_COMMENT_MARKER),
     github.getDefaultBranchRevision(),
+    github.listPullRequestCommits(pullRequest.number),
   ]);
   if (!Array.isArray(files) || files.length === 0 || files.length > MAX_FILES) {
     throw new TypeError("pull request file scan exceeds limit");
@@ -358,7 +362,13 @@ async function loadAuthority({ github, config, repository, pullRequest }) {
     || !Array.isArray(labels)
     || typeof revision !== "string"
     || !OID.test(revision)
+    || revision !== policyRevision
   ) throw new TypeError("pull request authority input is invalid");
+  if (!Array.isArray(commits) || commits.length === 0
+    || commits.length > MAX_API_COLLECTION_ITEMS || commits.at(-1)?.sha !== pullRequest.headOid) {
+    throw new TypeError("commit snapshot does not end at the live pull request head");
+  }
+  const dcoValid = evaluateDco(commits, config.policy.bots).valid;
 
   const sources = [];
   const declarations = [];
@@ -431,7 +441,7 @@ async function loadAuthority({ github, config, repository, pullRequest }) {
     lgtmOwned: parsed.state !== null || reviewEvidence.lgtms.length > 0,
     approved: hasApprovalCoverage(ownership, approvers, authorIsHuman),
     holdActive: hold !== null,
-    metadataHead: parsed.metadataHead,
+    metadataHead: classifyTitle(pullRequest.title).valid && dcoValid ? parsed.metadataHead : null,
   };
 }
 
@@ -491,7 +501,7 @@ function toMergeDecision({ config, pullRequest, graph, authority, protectedBranc
   });
 }
 
-async function loadEvaluation({ github, config, repository, number }) {
+async function loadEvaluation({ github, config, repository, number, policyRevision, completedEvaluation = null }) {
   const pullRequest = validatePullRequest(
     await github.getPullRequest(number),
     number,
@@ -502,8 +512,20 @@ async function loadEvaluation({ github, config, repository, number }) {
     pullRequest,
     repository,
   );
+  // A confirmed merge advances the default branch and needs no further writes.
+  if (
+    completedEvaluation !== null
+    && pullRequest.state === "closed"
+    && pullRequest.merged === true
+    && graph.state === "MERGED"
+    && graph.headOid === completedEvaluation.pullRequest.headOid
+    && sameHeadIdentity(
+      { ...completedEvaluation.pullRequest, state: "closed" },
+      pullRequest,
+    )
+  ) return { ...completedEvaluation, pullRequest, graph };
   const [authority, protectedBranch] = await Promise.all([
-    loadAuthority({ github, config, repository, pullRequest }),
+    loadAuthority({ github, config, repository, pullRequest, policyRevision }),
     github.getBranchProtection(pullRequest.baseBranch),
   ]);
   if (typeof protectedBranch !== "boolean") {
@@ -519,6 +541,9 @@ async function loadEvaluation({ github, config, repository, number }) {
   });
   if (!["SUCCESS", "PENDING", "FAILED"].includes(ciState)) {
     throw new TypeError("source CI state is invalid");
+  }
+  if (await github.getDefaultBranchRevision() !== policyRevision) {
+    throw new TypeError("trusted policy revision changed during evaluation");
   }
   const labels = labelPlan(authority.labels, authority);
   return {
@@ -690,12 +715,13 @@ function headChangedResult(evaluation) {
   return resultFor(evaluation, { action: "NOOP", blockers: ["head-changed"] });
 }
 
-async function applyPermissive({ github, config, repository, evaluation, dryRun }) {
+async function applyPermissive({ github, config, repository, evaluation, dryRun, policyRevision }) {
   const reread = await loadEvaluation({
     github,
     config,
     repository,
     number: evaluation.pullRequest.number,
+    policyRevision,
   });
   if (!sameHeadIdentity(evaluation.pullRequest, reread.pullRequest)) {
     return headChangedResult(evaluation);
@@ -718,6 +744,7 @@ async function applyPermissive({ github, config, repository, evaluation, dryRun 
     config,
     repository,
     number: reread.pullRequest.number,
+    policyRevision,
   });
   if (
     !sameHeadIdentity(reread.pullRequest, beforeSuccess.pullRequest)
@@ -740,6 +767,7 @@ async function applyPermissive({ github, config, repository, evaluation, dryRun 
       config,
       repository,
       number: beforeSuccess.pullRequest.number,
+      policyRevision,
     });
     if (
       !sameHeadIdentity(beforeSuccess.pullRequest, afterEnable.pullRequest)
@@ -764,6 +792,8 @@ async function applyPermissive({ github, config, repository, evaluation, dryRun 
     config,
     repository,
     number: beforeSuccess.pullRequest.number,
+    policyRevision,
+    completedEvaluation: beforeSuccess,
   });
   const completedDecision = enabled ? { action: "ENABLE", blockers: [] } : finalEvaluation.merge;
   if (
@@ -801,16 +831,19 @@ async function applyPermissive({ github, config, repository, evaluation, dryRun 
   return resultFor(finalEvaluation, completedDecision);
 }
 
-async function reconcile({ github, config, repository, number, dryRun }) {
-  const evaluation = await loadEvaluation({ github, config, repository, number });
+async function reconcile({ github, config, repository, number, dryRun, policyRevision }) {
+  const evaluation = await loadEvaluation({ github, config, repository, number, policyRevision });
   if (evaluation.merge.blockers.length > 0) {
     return applyRestrictive({ github, repository, evaluation, dryRun });
   }
-  return applyPermissive({ github, config, repository, evaluation, dryRun });
+  return applyPermissive({ github, config, repository, evaluation, dryRun, policyRevision });
 }
 
-async function runMergeEvaluate({ event, eventName, github, config, dryRun, prNumber = "" }) {
+async function runMergeEvaluate({ event, eventName, github, config, dryRun, policyRevision, prNumber = "" }) {
   if (typeof dryRun !== "boolean") throw new TypeError("dry-run must be a boolean");
+  if (typeof policyRevision !== "string" || !OID.test(policyRevision) || /^0+$/.test(policyRevision)) {
+    throw new TypeError("policy revision must be a nonzero canonical commit SHA");
+  }
   validateConfig(config);
   const repository = eventRepository(event);
   const candidates = await candidatesFor({ event, eventName, github, repository, prNumber });
@@ -818,7 +851,7 @@ async function runMergeEvaluate({ event, eventName, github, config, dryRun, prNu
   let failed = false;
   for (const number of candidates) {
     try {
-      pullRequests.push(await reconcile({ github, config, repository, number, dryRun }));
+      pullRequests.push(await reconcile({ github, config, repository, number, dryRun, policyRevision }));
     } catch {
       failed = true;
       pullRequests.push(await failClosed({ github, config, repository, number, dryRun }));

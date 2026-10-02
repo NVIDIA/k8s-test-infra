@@ -150,6 +150,7 @@ test("review observation and native merge evaluation use bounded events and trus
   ]);
   const evaluation = actionStep(evaluator.jobs.evaluate, "merge-evaluate");
   assert.equal(evaluation.with["control-directory"], "control");
+  assert.equal(evaluation.with["policy-revision"], "${{ steps.trusted.outputs.result }}");
   assert.deepEqual(evaluation.env, { GITHUB_TOKEN: "${{ github.token }}" });
 });
 

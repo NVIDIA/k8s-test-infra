@@ -67,10 +67,14 @@ test("index dispatches command mode without treating event text as authority", a
   ]);
 });
 
-test("index passes the event name and explicit PR input to merge evaluation", async () => {
+test("index passes the trusted policy revision to real merge evaluation", async () => {
   const { run } = require("../src/index.js");
-  const core = coreFor({ mode: "merge-evaluate" });
-  const githubClient = createFakeGitHub({ openPullRequestNumbers: [] });
+  const policyRevision = "2".repeat(40);
+  const core = coreFor({ mode: "merge-evaluate", "policy-revision": policyRevision });
+  const githubClient = createFakeGitHub({
+    openPullRequestNumbers: [],
+    defaultBranchRevision: policyRevision,
+  });
   const result = await run({
     core,
     workspace: repositoryRoot,
@@ -83,6 +87,34 @@ test("index passes the event name and explicit PR input to merge evaluation", as
   assert.deepEqual(githubClient.calls.listOpenPullRequestNumbers, [{}]);
   assert.deepEqual(core.outputs, [{ name: "summary", value: JSON.stringify(result) }]);
 });
+
+for (const [name, revision] of [
+  ["missing", undefined],
+  ["empty", ""],
+  ["short", "2".repeat(39)],
+  ["nonhex", "g".repeat(40)],
+  ["zero", "0".repeat(40)],
+  ["uppercase", "A".repeat(40)],
+  ["whitespace", ` ${"2".repeat(40)}`],
+]) {
+  test(`index rejects a ${name} merge policy revision before GitHub reads`, async () => {
+    const { run } = require("../src/index.js");
+    const core = coreFor({ mode: "merge-evaluate", "policy-revision": revision });
+    const githubClient = createFakeGitHub({ openPullRequestNumbers: [] });
+
+    await assert.rejects(run({
+      core,
+      workspace: repositoryRoot,
+      githubClient,
+      eventName: "workflow_dispatch",
+      event: { repository },
+    }), /policy revision/);
+
+    assert.deepEqual(githubClient.calls.listOpenPullRequestNumbers, []);
+    assert.deepEqual(githubClient.calls.getDefaultBranchRevision, []);
+    assert.deepEqual(core.outputs, []);
+  });
+}
 
 test("index passes explicit pull request and target inputs to backport mode", async () => {
   const { run } = require("../src/index.js");

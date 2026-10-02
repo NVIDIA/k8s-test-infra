@@ -391,10 +391,12 @@ test("changed trusted OWNERS stops implicit approval before command writes", asy
   assert.equal(github.calls.upsertPolicyComment.length, 0);
 });
 
-test("preserves metadata evidence in the single bot-owned policy comment", async () => {
+test("preserves validity-bound metadata evidence in the single bot-owned policy comment", async () => {
+  const { parseMetadataHeadEvidence } = require("../src/policy-comment.js");
+  const marker = `<!-- repo-automation-metadata-head:v2 {"headOid":"${HEAD}","valid":true} -->`;
   const metadata = [
     POLICY_COMMENT_MARKER,
-    `<!-- repo-automation-metadata-head:v1 {"headOid":"${HEAD}"} -->`,
+    marker,
     "## PR metadata policy",
     "",
     "Head is current.",
@@ -408,8 +410,31 @@ test("preserves metadata evidence in the single bot-owned policy comment", async
 
   const body = github.metadataSnapshot().comments[0].body;
   assert.match(body, /repo-automation-state:v2/);
-  assert.match(body, /repo-automation-metadata-head:v1/);
+  assert.equal(body.split(marker).length - 1, 1);
+  assert.equal(parseMetadataHeadEvidence(body), HEAD);
   assert.equal(body.split(POLICY_COMMENT_MARKER).length - 1, 1);
+});
+
+test("preserves legacy metadata bytes during a hold without trusting legacy evidence", async (t) => {
+  const { parseMetadataHeadEvidence } = require("../src/policy-comment.js");
+  const { parsePolicyState } = require("../src/commands/state.js");
+  for (const validationStatus of ["PASS", "FAIL"]) {
+    await t.test(validationStatus, async () => {
+      const marker = `<!-- repo-automation-metadata-head:v1 {"headOid":"${HEAD}"} -->`;
+      const metadata = `${POLICY_COMMENT_MARKER}\n${marker}\n- Title: **${validationStatus}**\n`;
+      const initial = state({ comments: [{ id: 7, author: "github-actions[bot]", body: metadata }] });
+      initial.issueComments[0].body = "/hold";
+      const github = createFakeGitHub(initial);
+
+      await run(github);
+
+      const body = github.metadataSnapshot().comments[0].body;
+      assert.equal(body.split(marker).length - 1, 1);
+      assert.equal(parseMetadataHeadEvidence(body), null);
+      assert.equal(parsePolicyState(body).hold.actor, "alice");
+      assert.equal(body.split(POLICY_COMMENT_MARKER).length - 1, 1);
+    });
+  }
 });
 
 test("duplicate delivery is a strict no-op", async () => {
