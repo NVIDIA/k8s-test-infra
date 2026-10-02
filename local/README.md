@@ -91,6 +91,7 @@ Deploys the DRA driver on top of nvml-mock. Composes with both homogeneous and h
 tilt up -- --dra
 tilt up -- --multi-gpu-profile --dra
 tilt up -- --gpu-operator --dra          # GPU Operator + DRA together
+tilt up -- --dra --nri                   # DRA claims injected by the NRI plugin
 ```
 
 ### With Run:ai Fake GPU Operator (FGO)
