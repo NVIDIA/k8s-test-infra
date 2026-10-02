@@ -199,18 +199,21 @@ def _install(release, profile, active_consumers, extra_set, nvmlmock_image='', c
             labels=['mokka-core'],
         )
 
-def install_single(profile, active_consumers, nvmlmock_image='', control_plane=False):
+def _nri_set(nri):
+    return ['nri.enabled=true'] if nri else []
+
+def install_single(profile, active_consumers, nvmlmock_image='', control_plane=False, nri=False):
     """Install one nvml-mock release named 'nvml-mock'."""
     _install(
         'nvml-mock', profile, active_consumers,
-        extra_set=[],
+        extra_set=_nri_set(nri),
         nvmlmock_image=nvmlmock_image,
         control_plane=control_plane,
     )
 
     return ['nvml-mock']
 
-def install_fleet(active_consumers, profiles = FLEET_PROFILES, nvmlmock_image='', control_plane=False):
+def install_fleet(active_consumers, profiles = FLEET_PROFILES, nvmlmock_image='', control_plane=False, nri=False):
     """Install one nvml-mock release per profile, the Nth pinned to worker-N.
 
     The chart's fullname template collapses to the release name when it already
@@ -228,7 +231,7 @@ def install_fleet(active_consumers, profiles = FLEET_PROFILES, nvmlmock_image=''
             active_consumers,
             # helm --set reads '.' as a path separator, so the dot in
             # kubernetes.io is escaped to keep the label key in one piece.
-            extra_set=['nodeSelector.kubernetes\\.io/hostname=worker-%d' % i],
+            extra_set=['nodeSelector.kubernetes\\.io/hostname=worker-%d' % i] + _nri_set(nri),
             nvmlmock_image=nvmlmock_image,
             control_plane=control_plane and i == 0,
         )
