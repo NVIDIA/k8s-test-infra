@@ -98,9 +98,14 @@ func attachRawGPUNodes(cfg Config, adjustment *Adjustment) {
 // hasGPUAllocation accepts only explicit NVIDIA GPU CDI identities or a
 // numbered character device with its own exact cgroup allow. Inherited host
 // devices and privileged wildcard rules do not prove scheduler allocation.
+//
+// The CDI identities are the ones the allocators themselves name: the device
+// plugin's cdi-cri strategy uses its fixed k8s.device-plugin.nvidia.com vendor
+// (its gdrcopy and mofed classes ride along with any allocation and identify
+// no GPU), and the DRA driver names one device per claim.
 func hasGPUAllocation(container Container) bool {
 	for _, name := range container.CDIDevices {
-		if validCDIIdentity(name, "nvidia.com/gpu=") || validCDIIdentity(name, "k8s.gpu.nvidia.com/claim=") {
+		if validCDIIdentity(name, "k8s.device-plugin.nvidia.com/gpu=") || validCDIIdentity(name, "k8s.gpu.nvidia.com/claim=") {
 			return true
 		}
 	}

@@ -131,7 +131,7 @@ func TestContainerFromNRI(t *testing.T) {
 					{Allow: true, Type: "c", Major: api.Int64(195), Minor: api.Int64(0), Access: "rwm"},
 				}},
 			},
-			CDIDevices: []*api.CDIDevice{{Name: "nvidia.com/gpu=0"}},
+			CDIDevices: []*api.CDIDevice{{Name: "k8s.device-plugin.nvidia.com/gpu=0"}},
 		}
 
 		result := containerFromNRI(nil, container)
@@ -143,7 +143,7 @@ func TestContainerFromNRI(t *testing.T) {
 		require.Len(t, result.DeviceRules, 1)
 		require.True(t, result.DeviceRules[0].Allow)
 		require.Equal(t, int64(195), *result.DeviceRules[0].Major)
-		require.Equal(t, []string{"nvidia.com/gpu=0"}, result.CDIDevices)
+		require.Equal(t, []string{"k8s.device-plugin.nvidia.com/gpu=0"}, result.CDIDevices)
 		adjustment, ok := inject.Adjust(inject.DefaultConfig(), result)
 		require.True(t, ok)
 		require.NotEmpty(t, adjustment.Mounts)
@@ -198,7 +198,7 @@ func TestContainerFromNRI(t *testing.T) {
 				Resources: &api.LinuxResources{Devices: []*api.LinuxDeviceCgroup{
 					{Allow: true, Type: "c", Major: api.Int64(195), Minor: api.Int64(0), Access: "rwm"},
 				}}},
-			CDIDevices: []*api.CDIDevice{{Name: "nvidia.com/gpu=0"}},
+			CDIDevices: []*api.CDIDevice{{Name: "k8s.device-plugin.nvidia.com/gpu=0"}},
 		}
 
 		result := containerFromNRI(nil, container)
@@ -214,7 +214,7 @@ func TestContainerFromNRI(t *testing.T) {
 		require.Equal(t, []string{"rbind"}, container.Mounts[0].Options)
 		require.Equal(t, "/dev/nvidia0", container.Linux.Devices[0].Path)
 		require.Equal(t, int64(195), container.Linux.Resources.Devices[0].Major.GetValue())
-		require.Equal(t, "nvidia.com/gpu=0", container.CDIDevices[0].Name)
+		require.Equal(t, "k8s.device-plugin.nvidia.com/gpu=0", container.CDIDevices[0].Name)
 	})
 
 	t.Run("tolerates nil pod and nil container", func(t *testing.T) {
