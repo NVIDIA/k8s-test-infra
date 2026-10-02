@@ -2,8 +2,11 @@
 
 const { deriveAreaLabels } = require("../areas.js");
 const { validateConfig } = require("../config.js");
+const { parsePolicyState } = require("../commands/state.js");
 const { MAX_API_COLLECTION_ITEMS, MAX_CHANGED_FILES } = require("../limits.js");
 const { asciiLower } = require("../managed-labels.js");
+const { readMetadataEvidence } = require("../metadata-evidence.js");
+const { POLICY_COMMENT_MARKER, renderPolicyComment } = require("../policy-comment.js");
 const { classifySize } = require("../size.js");
 const { classifyTitle } = require("../title.js");
 const { route, validateCandidates, validBaseBranch } = require("./conflict-labels.js");
@@ -58,11 +61,52 @@ async function snapshot(github, identity, prNumber, config, policyRevision, repo
     labels: labelPlan(labels, [...desired, ...preservedKinds]),
     currentLabels: labels,
     titleValid: title.valid,
+    pullRequest: pr,
+    files,
   };
 }
 
 function hasApplied(record) {
-  return record.applied.add + record.applied.remove > 0;
+  return record.applied.add + record.applied.remove + (record.applied.comment ?? 0) > 0;
+}
+
+function sameSnapshot(planned, current) {
+  return current.reason === undefined
+    && JSON.stringify(current.fence) === JSON.stringify(planned.fence)
+    && JSON.stringify(current.files) === JSON.stringify(planned.files);
+}
+
+function validateComment(comment, identity, prNumber) {
+  if (comment?.action === "create" && comment.id === null && comment.body === null) return comment;
+  if (comment?.action !== "update" || !Number.isSafeInteger(comment.id) || comment.id <= 0
+    || typeof comment.body !== "string" || comment.body.split(POLICY_COMMENT_MARKER).length !== 2) {
+    throw new Error("trusted policy comment identity is invalid");
+  }
+  if (comment.body.includes("<!-- repo-automation-state:")) {
+    const state = parsePolicyState(comment.body);
+    const repository = `${identity.owner}/${identity.repo}`;
+    const belongs = (value) => value.repository === repository && value.pullRequest === prNumber;
+    if (state === null || !belongs(state) || !state.lgtms.every(belongs) || !state.approvals.every(belongs)
+      || (state.hold !== null && !belongs(state.hold))) {
+      throw new Error("trusted policy command state is invalid");
+    }
+  }
+  return comment;
+}
+
+async function commentPlan(github, identity, prNumber, config, policyRevision, input) {
+  const evidence = await readMetadataEvidence({ github, config, policyRevision,
+    pullRequest: input.pullRequest, files: input.files });
+  const comment = validateComment(await github.getPolicyComment(prNumber, POLICY_COMMENT_MARKER), identity, prNumber);
+  const body = renderPolicyComment({ ...evidence, labels: input.labels,
+    reviewers: { request: [], preserved: [] } }, comment.body);
+  return { comment, body };
+}
+
+function deferChanged(record, reportCollector) {
+  record.status = "deferred";
+  record.reason = "live metadata state changed at fresh check";
+  reportCollector?.record(record.prNumber, "deferred", "state_changed");
 }
 
 function failure(summary, record, phase, reportCollector, cause) {
@@ -109,7 +153,10 @@ async function runMetadataLabels({ event, eventName, github, config, dryRun, pol
     let planned;
     try {
       planned = await snapshot(github, identity, prNumber, config, policyRevision, reportCollector);
-      if (planned.reason === undefined) reportCollector?.plan(prNumber, { ...planned.fence, mergeability: null });
+      if (planned.reason === undefined) {
+        planned.policy = await commentPlan(github, identity, prNumber, config, policyRevision, planned);
+        reportCollector?.plan(prNumber, { ...planned.fence, mergeability: null });
+      }
     } catch (cause) {
       throw failure(summary, record, "initial read", reportCollector, cause);
     }
@@ -126,7 +173,6 @@ async function runMetadataLabels({ event, eventName, github, config, dryRun, pol
   }
   if (!dryRun) {
     for (const { record, planned } of plans) {
-      if (record.planned.add + record.planned.remove === 0 && reportCollector === undefined) continue;
       const attempted = new Set();
       // Reconcile fresh labels too, including labels added after the initial read.
       for (let writes = 0; ; writes += 1) {
@@ -136,29 +182,65 @@ async function runMetadataLabels({ event, eventName, github, config, dryRun, pol
         } catch (cause) {
           throw failure(summary, record, "fresh read", reportCollector, cause);
         }
-        if (current.reason !== undefined || JSON.stringify(current.fence) !== JSON.stringify(planned.fence)) {
-          record.status = "deferred";
-          record.reason = "live metadata state changed at fresh check";
-          reportCollector?.record(record.prNumber, "deferred", "state_changed");
+        if (!sameSnapshot(planned, current)) {
+          deferChanged(record, reportCollector);
           break;
         }
         const action = current.labels.add.length > 0 ? "add" : "remove";
         const label = current.labels[action][0];
         if (label === undefined) {
-          if (reportCollector !== undefined) {
+          let freshPolicy;
+          try {
+            freshPolicy = await commentPlan(github, identity, record.prNumber, config, policyRevision, current);
+            // Bind the evidence and observed labels to a fence read immediately before the comment write.
+            current = await snapshot(github, identity, record.prNumber, config, policyRevision,
+              reportCollector, current.currentLabels);
+          } catch (cause) {
+            throw failure(summary, record, "comment read", reportCollector, cause);
+          }
+          if (!sameSnapshot(planned, current) || freshPolicy.body !== planned.policy.body
+            || JSON.stringify(freshPolicy.comment) !== JSON.stringify(planned.policy.comment)) {
+            deferChanged(record, reportCollector);
+            break;
+          }
+          let lastComment;
+          try {
+            lastComment = validateComment(await github.getPolicyComment(record.prNumber,
+              POLICY_COMMENT_MARKER), identity, record.prNumber);
+          } catch (cause) {
+            throw failure(summary, record, "comment read", reportCollector, cause);
+          }
+          if (JSON.stringify(lastComment) !== JSON.stringify(freshPolicy.comment)) {
+            deferChanged(record, reportCollector);
+            break;
+          }
+          if (freshPolicy.body !== freshPolicy.comment.body) {
             try {
-              // Bind the observed labels to an input fence read after their final fetch.
-              current = await snapshot(github, identity, record.prNumber, config, policyRevision,
-                reportCollector, current.currentLabels);
+              await github.upsertPolicyComment(record.prNumber, POLICY_COMMENT_MARKER,
+                freshPolicy.body, freshPolicy.comment);
+              record.applied.comment = 1;
             } catch (cause) {
-              throw failure(summary, record, "final read", reportCollector, cause);
+              throw failure(summary, record, "comment mutation", reportCollector, cause);
             }
-            if (current.reason !== undefined || JSON.stringify(current.fence) !== JSON.stringify(planned.fence)) {
-              record.status = "deferred";
-              record.reason = "live metadata state changed at final check";
-              reportCollector.record(record.prNumber, "deferred", "state_changed");
-              break;
-            }
+          }
+          let verifiedComment;
+          try {
+            const finalLabels = await github.listIssueLabels(record.prNumber);
+            verifiedComment = validateComment(await github.getPolicyComment(record.prNumber,
+              POLICY_COMMENT_MARKER), identity, record.prNumber);
+            current = await snapshot(github, identity, record.prNumber, config, policyRevision,
+              reportCollector, finalLabels);
+          } catch (cause) {
+            throw failure(summary, record, "final read", reportCollector, cause);
+          }
+          if (!sameSnapshot(planned, current)) {
+            deferChanged(record, reportCollector);
+            break;
+          }
+          if (verifiedComment.action !== "update" || verifiedComment.body !== freshPolicy.body
+            || (freshPolicy.comment.action === "update" && verifiedComment.id !== freshPolicy.comment.id)
+            || current.labels.add.length + current.labels.remove.length !== 0) {
+            throw failure(summary, record, "comment verification", reportCollector);
           }
           record.status = hasApplied(record) ? "applied" : "unchanged";
           reportCollector?.record(record.prNumber, record.status, "none", current.currentLabels);

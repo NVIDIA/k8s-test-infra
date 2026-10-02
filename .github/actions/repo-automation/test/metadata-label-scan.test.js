@@ -43,6 +43,8 @@ function fakeGitHub(options = {}) {
   const forbidden = [];
   const injected = [];
   const counts = new Map();
+  const comments = new Map();
+  const commentWrites = [];
   const copy = (value) => JSON.parse(JSON.stringify(value));
   function read(operation, key, fallback) {
     calls.push({ operation, key });
@@ -61,7 +63,7 @@ function fakeGitHub(options = {}) {
     return copy(snapshots?.[count - 1] ?? fallback);
   }
   const github = {
-    calls, order, mutations, labels, forbidden, injected,
+    calls, order, mutations, labels, forbidden, injected, comments, commentWrites,
     async listOpenPullRequestNumbers() {
       return read("listOpenPullRequestNumbers", "all", options.numbers ?? prs.map((pr) => pr.number));
     },
@@ -74,6 +76,28 @@ function fakeGitHub(options = {}) {
     async getDefaultBranchRevision() { return read("getDefaultBranchRevision", "policy", POLICY); },
     async listPullRequestFiles(number) { return read("listPullRequestFiles", number, options.files ?? files); },
     async listIssueLabels(number) { return read("listIssueLabels", number, [...labels.get(number)]); },
+    async listPullRequestCommits(number) {
+      return read("listPullRequestCommits", number, [{ sha: HEAD, author: { login: "contributor" },
+        parents: [{ sha: BASE }], commit: { author: { name: "Contributor", email: "contributor@example.com" },
+          message: "feat: test\n\nSigned-off-by: Contributor <contributor@example.com>" } }]);
+    },
+    async getContentAtRevision(filePath, revision) {
+      assert.equal(revision, POLICY);
+      return read("getContentAtRevision", filePath, filePath === "/OWNERS_ALIASES"
+        ? "aliases: {}\n" : "reviewers: [alice]\napprovers: [bob]\n");
+    },
+    async getPolicyComment(number) {
+      return read("getPolicyComment", number, comments.has(number)
+        ? { action: "update", ...comments.get(number) } : { action: "create", id: null, body: null });
+    },
+    async upsertPolicyComment(number, marker, body, plan) {
+      assert.ok(body.includes(marker));
+      const id = plan.id ?? number;
+      comments.set(number, { id, body });
+      commentWrites.push({ number, id });
+      order.push({ operation: "upsertPolicyComment", key: number });
+      return { action: plan.action === "create" ? "created" : "updated", id };
+    },
     async addIssueLabel(number, label) {
       mutations.push({ operation: "addIssueLabel", number, label });
       order.push({ operation: "addIssueLabel", key: number });
@@ -87,8 +111,7 @@ function fakeGitHub(options = {}) {
     },
   };
   for (const operation of [
-    "requestReviewers", "upsertPolicyComment", "getPolicyComment", "getContentAtRevision",
-    "listPullRequestCommits", "listPullRequestReviews", "listRequestedReviewers", "getConflictState",
+    "requestReviewers", "listPullRequestReviews", "listRequestedReviewers", "getConflictState",
     "addPolicyLabel", "removePolicyLabel", "setMergePolicyCheck", "disableAutoMerge",
     "enableAutoMerge", "mergePullRequest", "rerunFailedJobs", "createBackportPullRequest",
   ]) {
@@ -288,14 +311,15 @@ test("metadata scan apply followed by replay performs no additional label writes
   assert.deepEqual(github.mutations, firstWrites);
 });
 
-test("initially correct metadata labels need only one snapshot and no fresh reads or writes", async () => {
+test("initially correct metadata labels refresh trusted evidence after fresh input checks", async () => {
   const github = fakeGitHub({ labels: [...preserved, ...desired] });
   const summary = await invoke(github);
-  assert.ok(reports(summary, 42, /unchanged/i));
+  assert.ok(reports(summary, 42, /applied/i));
   assert.deepEqual(github.mutations, []);
+  assert.equal(github.commentWrites.length, 1);
   for (const operation of ["getPullRequest", "getBranch", "getDefaultBranchRevision", "listPullRequestFiles", "listIssueLabels"]) {
-    assert.equal(github.calls.filter((entry) => entry.operation === operation).length, 1,
-      `${operation} must not repeat when the initial labels are correct`);
+    assert.ok(github.calls.filter((entry) => entry.operation === operation).length >= 3,
+      `${operation} must verify the current evidence when labels are correct`);
   }
 });
 

@@ -19,6 +19,7 @@ function fake(options = {}) {
   const calls = [];
   const writes = [];
   const counts = new Map();
+  const comments = new Map();
   let liveTitle = "feat: private title";
   function read(op, number, value) {
     calls.push({ op, number });
@@ -55,6 +56,24 @@ function fake(options = {}) {
     async getDefaultBranchRevision() { return SHA; },
     async listPullRequestFiles(number) { return read("files", number, [{ path: "docs/guide.md", additions: 1, deletions: 0 }]); },
     async listIssueLabels(number) { return read("labels", number, [...labels.get(number)]); },
+    async listPullRequestCommits(number) { return read("commits", number, [{ sha: SHA,
+      author: { login: "contributor" }, parents: [{ sha: BASE }],
+      commit: { author: { name: "Contributor", email: "contributor@example.com" },
+        message: "feat: test\n\nSigned-off-by: Contributor <contributor@example.com>" } }]); },
+    async getContentAtRevision(filePath, revision) {
+      assert.equal(revision, SHA);
+      return read("content", filePath, filePath === "/OWNERS_ALIASES"
+        ? "aliases: {}\n" : "reviewers: [alice]\napprovers: [bob]\n");
+    },
+    async getPolicyComment(number) { return read("comment", number, comments.has(number)
+      ? { action: "update", ...comments.get(number) } : { action: "create", id: null, body: null }); },
+    async upsertPolicyComment(number, marker, body, plan) {
+      assert.ok(body.includes(marker));
+      const id = plan.id ?? number;
+      comments.set(number, { id, body });
+      calls.push({ op: "comment-write", number });
+      return { action: plan.action === "create" ? "created" : "updated", id };
+    },
     async addIssueLabel(number, label) {
       writes.push({ number, label, op: "add" });
       if (options.writeFailure === number) throw new Error("injected write failure");

@@ -32,7 +32,7 @@ inputs:
     description: Fixed trusted checkout containing repository automation policy
     required: false
   policy-revision:
-    description: Exact trusted default branch commit used by metadata label scans
+    description: Exact trusted default branch commit used by metadata label scans and merge evaluation
     required: false
   request-id:
     description: Canonical UUID for a dispatched label scan report
