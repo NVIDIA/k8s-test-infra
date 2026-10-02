@@ -2,6 +2,7 @@
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 
@@ -23,7 +24,7 @@ const OWNER_SOURCE = "reviewers: [alice]\napprovers: [bob]\n";
 const ALIASES_SOURCE = "aliases: {}\n";
 const POLICY_MARKER = "<!-- repo-automation-policy:v1 -->";
 const METADATA = (head = HEAD) => (
-  `<!-- repo-automation-metadata-head:v1 {"headOid":"${head}"} -->`
+  `<!-- repo-automation-metadata-head:v2 {"headOid":"${head}","valid":true} -->`
 );
 const WORKFLOW_EVENT = {
   repository: {
@@ -140,10 +141,17 @@ function liveCommand(id, author, body, overrides = {}) {
   };
 }
 
+function signedCommit(sha = HEAD) {
+  return { sha, author: { login: "contributor" }, parents: [{ sha: REVISION }],
+    commit: { author: { name: "Contributor", email: "contributor@example.com" },
+      message: "feat: test\n\nSigned-off-by: Contributor <contributor@example.com>" } };
+}
+
 function evaluatorState(overrides = {}) {
   return {
     pullRequest: pullRequest(),
     files: [{ path: "pkg/gpu.go", additions: 2, deletions: 1, status: "modified" }],
+    commits: [signedCommit(overrides.pullRequest?.headOid ?? HEAD)],
     labels: ["lgtm", "approved", "maintainer/custom"],
     comments: [{ id: 77, author: "github-actions[bot]", body: policyBody() }],
     issueComments: [
@@ -190,6 +198,13 @@ async function run(state = evaluatorState(), options = {}) {
       return { ...review, ...details };
     };
   }
+  if (options.commitSnapshot !== undefined) {
+    const listCommits = github.listPullRequestCommits.bind(github);
+    github.listPullRequestCommits = async (number) => {
+      const commits = await listCommits(number);
+      return options.commitSnapshot(commits, github.calls.getPullRequest.length);
+    };
+  }
   if (options.onPolicyLabelAdd !== undefined) {
     const addLabel = github.addPolicyLabel.bind(github);
     github.addPolicyLabel = async (number, label) => {
@@ -208,7 +223,8 @@ async function run(state = evaluatorState(), options = {}) {
     event: options.event ?? WORKFLOW_EVENT,
     eventName: options.eventName ?? "workflow_dispatch",
     github,
-    config,
+    config: options.config ?? config,
+    policyRevision: REVISION,
     dryRun: options.dryRun ?? false,
     prNumber: Object.hasOwn(options, "prNumber") ? options.prNumber : "42",
   });
@@ -218,6 +234,194 @@ async function run(state = evaluatorState(), options = {}) {
 function operationIndex(github, operation) {
   return github.callOrder.findIndex((entry) => entry.operation === operation);
 }
+
+test("an invalid live title cannot reuse valid same-head metadata evidence", async () => {
+  const { github, result } = await run(evaluatorState({ pullRequest: pullRequest({ title: "invalid" }) }));
+  assert.ok(result.pullRequests[0].merge.blockers.includes("metadata-stale"));
+  assert.deepEqual(github.calls.enableAutoMerge, []);
+  assert.equal(github.calls.setMergePolicyCheck.at(-1).conclusion, "action_required");
+});
+
+test("current policy removal of a bot DCO exemption blocks same-head metadata", async () => {
+  const currentConfig = { ...config, policy: { ...config.policy,
+    bots: config.policy.bots.filter(({ login }) => login !== "dependabot[bot]") } };
+  const unsignedBotCommit = { sha: HEAD, author: { login: "dependabot[bot]" },
+    commit: { author: { name: "Dependabot", email: "49699333+dependabot[bot]@users.noreply.github.com" },
+      message: "chore(deps): bump package" } };
+  const { github, result } = await run(evaluatorState({ commits: [unsignedBotCommit],
+    comments: [{ id: 77, body: `${POLICY_MARKER}\n${METADATA()}\n` }],
+    issueComments: [], reviews: [submittedReview(9000, "bob")] }),
+  { config: currentConfig, reviewDetails: { 9000: { body: "/lgtm" } } });
+  assert.ok(result.pullRequests[0].merge.blockers.includes("metadata-stale"));
+  assert.deepEqual(github.calls.enableAutoMerge, []);
+  assert.equal(github.calls.setMergePolicyCheck.at(-1).conclusion, "action_required");
+});
+
+for (const [name, overrides] of [
+  ["head-ending commit collection drift", { commits: [signedCommit(NEXT_HEAD)] }],
+  ["current commit collection read failure", { failures: { listPullRequestCommits: new Error("unavailable") } }],
+]) test(`${name} fails closed before native merge enable`, async () => {
+  const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
+  const github = createFakeGitHub(evaluatorState(overrides));
+  await assert.rejects(() => runMergeEvaluate({ event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github,
+    config, policyRevision: REVISION, dryRun: false, prNumber: "42" }), /failed closed/);
+  assert.deepEqual(github.calls.enableAutoMerge, []);
+  assert.equal(github.calls.setMergePolicyCheck.at(-1).conclusion, "action_required");
+});
+
+for (const changedRead of [1, 2]) {
+  test(`default policy revision drift on read ${changedRead} fails closed before native merge enable`, async () => {
+    const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
+    const github = createFakeGitHub(evaluatorState());
+    const getRevision = github.getDefaultBranchRevision.bind(github);
+    let reads = 0;
+    github.getDefaultBranchRevision = async () => {
+      const value = await getRevision();
+      return ++reads < changedRead ? value : NEXT_HEAD;
+    };
+    await assert.rejects(() => runMergeEvaluate({ event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github,
+      config, policyRevision: REVISION, dryRun: false, prNumber: "42" }), /failed closed/);
+    assert.deepEqual(github.calls.enableAutoMerge, []);
+    assert.equal(github.calls.setMergePolicyCheck.at(-1).conclusion, "action_required");
+  });
+}
+
+test("policy revision drift during CI after native enable fails closed and disarms", async () => {
+  const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
+  const github = createFakeGitHub(evaluatorState());
+  const getRevision = github.getDefaultBranchRevision.bind(github);
+  const getCIState = github.getCIState.bind(github);
+  let revisionChanged = false;
+  github.getDefaultBranchRevision = async () => {
+    const revision = await getRevision();
+    return revisionChanged ? NEXT_HEAD : revision;
+  };
+  github.getCIState = async (parameters) => {
+    const ci = await getCIState(parameters);
+    if (github.calls.enableAutoMerge.length > 0) revisionChanged = true;
+    return ci;
+  };
+  await assert.rejects(() => runMergeEvaluate({ event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github,
+    config, policyRevision: REVISION, dryRun: false, prNumber: "42" }), /failed closed/);
+  assert.deepEqual(github.calls.enableAutoMerge, [{
+    nodeId: "PR_node_42", mergeMethod: "SQUASH", expectedHeadOid: HEAD,
+  }]);
+  assert.deepEqual(github.calls.disableAutoMerge, [{ nodeId: "PR_node_42" }]);
+  assert.equal(github.calls.setMergePolicyCheck.some(({ conclusion }) => conclusion === "success"), false);
+  assert.equal(github.calls.setMergePolicyCheck.at(-1).conclusion, "action_required");
+});
+
+test("a commit read failure after native enable fails closed and disarms", async () => {
+  const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
+  const github = createFakeGitHub(evaluatorState({ failures: {
+    listPullRequestCommits: [null, null, null, new Error("post-enable commits unavailable")],
+  } }));
+  await assert.rejects(() => runMergeEvaluate({ event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github,
+    config, policyRevision: REVISION, dryRun: false, prNumber: "42" }), /failed closed/);
+  assert.deepEqual(github.calls.enableAutoMerge, [{
+    nodeId: "PR_node_42", mergeMethod: "SQUASH", expectedHeadOid: HEAD,
+  }]);
+  assert.deepEqual(github.calls.disableAutoMerge, [{ nodeId: "PR_node_42" }]);
+  assert.equal(github.calls.setMergePolicyCheck.some(({ conclusion }) => conclusion === "success"), false);
+  assert.equal(github.calls.setMergePolicyCheck.at(-1).conclusion, "action_required");
+});
+
+for (const [name, commits] of [
+  ["empty", []],
+  ["non-array", {}],
+  ["over-limit", Array.from({ length: 1001 }, () => signedCommit())],
+  ["malformed", [{ ...signedCommit(), commit: { ...signedCommit().commit, message: 42 } }]],
+]) test(`${name} current commit evidence fails closed without a SUCCESS check`, async () => {
+  const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
+  const github = createFakeGitHub(evaluatorState());
+  const listCommits = github.listPullRequestCommits.bind(github);
+  github.listPullRequestCommits = async (number) => {
+    await listCommits(number);
+    return commits;
+  };
+  await assert.rejects(() => runMergeEvaluate({ event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github,
+    config, policyRevision: REVISION, dryRun: false, prNumber: "42" }), /failed closed/);
+  assert.deepEqual(github.calls.enableAutoMerge, []);
+  assert.equal(github.calls.setMergePolicyCheck.some(({ conclusion }) => conclusion === "success"), false);
+});
+
+async function dispatchMetadataScan(github) {
+  const { run: runAction } = require("../src/index.js");
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "mokka-scan-merge-"));
+  fs.mkdirSync(path.join(workspace, "control"));
+  fs.cpSync(path.join(repositoryRoot, ".github/repo-automation"),
+    path.join(workspace, "control/.github/repo-automation"), { recursive: true });
+  const requestId = "12345678-1234-4234-8234-123456789abc";
+  const inputs = { mode: "metadata-labels", "control-directory": "control", "policy-revision": REVISION,
+    "request-id": requestId, "workflow-commit-sha": REVISION };
+  await runAction({ githubClient: github, workspace, owner: "NVIDIA", repo: "k8s-test-infra",
+    eventName: "workflow_dispatch", ref: "refs/heads/main", repositoryId: "733665780", workflowSha: REVISION,
+    event: { repository: { ...WORKFLOW_EVENT.repository, id: 733665780, node_id: "R_kgDOK7rZ9A" },
+      inputs: { request_id: requestId, workflow_commit_sha: REVISION } },
+    core: { getInput: (name) => inputs[name] ?? "", getBooleanInput: () => false, setOutput() {}, info() {} } });
+  return JSON.parse(fs.readFileSync(path.join(workspace, ".mokka-label-scan", requestId, "metadata-labels.json"), "utf8"));
+}
+
+function scanMergeState(overrides = {}) {
+  return evaluatorState({ comments: [], issueComments: [],
+    files: [{ path: "docs/guide.md", additions: 1, deletions: 0 }],
+    labels: ["area/docs", "kind/feature", "size/S"], branches: { main: REVISION },
+    commits: [signedCommit()],
+    reviews: [submittedReview(9000, "bob")], ...overrides });
+}
+
+function scanMergeGitHub(overrides = {}) {
+  const github = createFakeGitHub(scanMergeState(overrides));
+  const getReview = github.getPullRequestReview.bind(github);
+  github.getPullRequestReview = async (number, id) => ({ ...await getReview(number, id), body: "/lgtm" });
+  return github;
+}
+
+test("trusted dispatch creates real metadata evidence accepted by native merge evaluation", async () => {
+  const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
+  const github = scanMergeGitHub();
+  const report = await dispatchMetadataScan(github);
+  assert.equal(report.results[0].status, "applied", "the unchanged-label comment refresh is an applied scan");
+  assert.equal(report.results[0].reason, "none");
+  assert.equal(JSON.stringify(report).includes("Repository policy"), false);
+  assert.equal(github.calls.upsertPolicyComment.length, 1);
+  assert.deepEqual(github.calls.addIssueLabel, []);
+  assert.deepEqual(github.calls.requestReviewers, []);
+  const result = await runMergeEvaluate({ event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github,
+    config, policyRevision: REVISION, dryRun: false, prNumber: "42" });
+  assert.deepEqual(result.pullRequests[0].merge.blockers, []);
+  assert.equal(github.calls.enableAutoMerge.length, 1);
+  assert.equal(github.calls.setMergePolicyCheck[0].conclusion, "action_required");
+  assert.equal(github.calls.setMergePolicyCheck.at(-1).conclusion, "success");
+});
+
+for (const [name, overrides, blocker] of [
+  ["missing authority", { reviews: [] }, "lgtm-missing"],
+  ["negative review", { reviews: [submittedReview(9000, "bob", { state: "CHANGES_REQUESTED" })] }, "approval-coverage-incomplete"],
+  ["pending CI", { ciStates: ["PENDING"] }, "ci-pending"],
+  ["failed CI", { ciStates: ["FAILED"] }, "ci-failed"],
+]) test(`real scan evidence cannot override ${name}`, async () => {
+  const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
+  const github = scanMergeGitHub(overrides);
+  await dispatchMetadataScan(github);
+  const result = await runMergeEvaluate({ event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github,
+    config, policyRevision: REVISION, dryRun: false, prNumber: "42" });
+  assert.ok(result.pullRequests[0].merge.blockers.includes(blocker));
+  assert.deepEqual(github.calls.enableAutoMerge, []);
+  assert.equal(github.calls.setMergePolicyCheck.at(-1).conclusion, "action_required");
+});
+
+test("a real failed renderer cannot certify same-head metadata to the merge evaluator", async () => {
+  const { renderPolicyComment } = require("../src/policy-comment.js");
+  const body = renderPolicyComment({ headOid: HEAD, valid: false, configuration: { valid: true },
+    title: { valid: true, error: null }, dco: { valid: false, failures: [{ sha: HEAD }], exempted: [] },
+    ownership: { valid: true, uncoveredPaths: [] }, labels: { add: [], remove: [] },
+    reviewers: { request: [], preserved: [] } }, policyBody());
+  const { github, result } = await run(evaluatorState({ comments: [{ id: 77, body }] }));
+  assert.ok(result.pullRequests[0].merge.blockers.includes("metadata-stale"));
+  assert.deepEqual(github.calls.enableAutoMerge, []);
+  assert.equal(github.calls.setMergePolicyCheck.at(-1).conclusion, "action_required");
+});
 
 function approverAuthorState(overrides = {}) {
   return evaluatorState({
@@ -402,7 +606,8 @@ test("malformed live source identities fail closed before CI reads", async (t) =
     const github = createFakeGitHub(evaluatorState({ pullRequests: [pullRequest(source)] }));
     const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
     await assert.rejects(() => runMergeEvaluate({
-      event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github, config, dryRun: false, prNumber: "42",
+      event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github, config, policyRevision: REVISION,
+      dryRun: false, prNumber: "42",
     }), /evaluation failed closed/);
     assert.deepEqual(github.calls.getCIState, []);
     assert.deepEqual(github.calls.enableAutoMerge, []);
@@ -456,7 +661,7 @@ test("malformed or unavailable CI after native enable fails closed and disarms",
     }));
     const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
     await assert.rejects(() => runMergeEvaluate({
-      event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github, config,
+      event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github, config, policyRevision: REVISION,
       dryRun: false, prNumber: "42",
     }), /evaluation failed closed/);
     assert.deepEqual(github.calls.enableAutoMerge, [{
@@ -472,7 +677,7 @@ test("a second evaluation preserves the SQUASH request armed by the first", asyn
   const { github } = await run();
   const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
   const result = await runMergeEvaluate({
-    event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github, config,
+    event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github, config, policyRevision: REVISION,
     dryRun: false, prNumber: "42",
   });
   assert.equal(result.pullRequests[0].merge.action, "NOOP");
@@ -503,7 +708,7 @@ test("malformed or unavailable CI fails closed without arming", async (t) => {
     }));
     const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
     await assert.rejects(() => runMergeEvaluate({
-      event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github, config,
+      event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github, config, policyRevision: REVISION,
       dryRun: false, prNumber: "42",
     }), /evaluation failed closed/);
     assert.deepEqual(github.calls.enableAutoMerge, []);
@@ -517,7 +722,7 @@ test("native enable rejection is not retried and cannot publish policy success",
   }));
   const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
   await assert.rejects(() => runMergeEvaluate({
-    event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github, config,
+    event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github, config, policyRevision: REVISION,
     dryRun: false, prNumber: "42",
   }), /evaluation failed closed/);
   assert.equal(github.calls.enableAutoMerge.length, 1);
@@ -533,7 +738,7 @@ test("an acknowledged enable without a retained SQUASH request cannot publish po
   });
   const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
   await assert.rejects(() => runMergeEvaluate({
-    event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github, config,
+    event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github, config, policyRevision: REVISION,
     dryRun: false, prNumber: "42",
   }), /evaluation failed closed/);
   assert.equal(github.calls.enableAutoMerge.length, 1);
@@ -1128,6 +1333,7 @@ test("an evaluation load error fails the action and forces restrictive state", a
       eventName: "workflow_dispatch",
       github,
       config,
+      policyRevision: REVISION,
       dryRun: false,
       prNumber: "42",
     }),
@@ -1147,7 +1353,7 @@ test("an evaluation load error fails the action and forces restrictive state", a
 test("a head change after label writes cannot publish success", async () => {
   const { github, result } = await run(evaluatorState({
     pullRequests: [pullRequest(), pullRequest(), pullRequest({ headOid: NEXT_HEAD })],
-  }));
+  }), { commitSnapshot: (_commits, read) => [signedCommit(read < 3 ? HEAD : NEXT_HEAD)] });
 
   assert.ok(result.pullRequests[0].merge.blockers.includes("head-changed"));
   assert.deepEqual(github.calls.setMergePolicyCheck.map(({ conclusion }) => conclusion), ["action_required"]);
@@ -1159,7 +1365,7 @@ test("a head change after the success check fails closed before policy completio
   const { github, result } = await run(evaluatorState({
     pullRequests: [pullRequest(), pullRequest(), pullRequest(), pullRequest({ headOid: NEXT_HEAD })],
     mergeStates: [mergeState({ autoMergeMethod: "SQUASH" })],
-  }));
+  }), { commitSnapshot: (_commits, read) => [signedCommit(read < 4 ? HEAD : NEXT_HEAD)] });
 
   assert.equal(result.pullRequests[0].merge.action, "NOOP");
   assert.ok(result.pullRequests[0].merge.blockers.includes("head-changed"));
@@ -1190,6 +1396,66 @@ test("native completion after policy success is reported without a head-change f
     "action_required", "success",
   ]);
   assert.deepEqual(github.calls.disableAutoMerge, []);
+});
+
+function completedMergeGitHub({ armed = false, terminalOverrides = {} } = {}) {
+  const source = { headRepository: { owner: "fork-owner", repo: "k8s-test-infra" }, headBranch: "codex/fork" };
+  const priorReads = armed ? 3 : 4;
+  const completedPullRequest = pullRequest({ ...source, state: "closed", merged: true, ...terminalOverrides });
+  const github = createFakeGitHub(evaluatorState({
+    pullRequests: [...Array.from({ length: priorReads }, () => pullRequest(source)), completedPullRequest],
+    mergeStates: [...Array.from({ length: priorReads }, () => mergeState({ autoMergeMethod: armed ? "SQUASH" : null })),
+      mergeState({ state: "MERGED", autoMergeMethod: null, headOid: completedPullRequest.headOid,
+        baseBranch: completedPullRequest.baseBranch, nodeId: completedPullRequest.nodeId })],
+    branchProtection: { main: true, "release-test": true },
+  }));
+  const getRevision = github.getDefaultBranchRevision.bind(github);
+  const setCheck = github.setMergePolicyCheck.bind(github);
+  let completed = false;
+  github.getDefaultBranchRevision = async () => {
+    const revision = await getRevision();
+    return completed ? NEXT_HEAD : revision;
+  };
+  github.setMergePolicyCheck = async (...parameters) => {
+    await setCheck(...parameters);
+    if (parameters[2] === "success") completed = true;
+  };
+  return { github, priorReads };
+}
+
+test("completed exact-head native merge accepts the new default revision without another authority read", async (t) => {
+  const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
+  for (const armed of [false, true]) await t.test(armed ? "already armed" : "newly armed", async () => {
+    const { github, priorReads } = completedMergeGitHub({ armed });
+    const result = await runMergeEvaluate({ event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github,
+      config, policyRevision: REVISION, dryRun: false, prNumber: "42" });
+    assert.equal(result.status, "complete");
+    assert.deepEqual(result.pullRequests[0].merge, { action: armed ? "NOOP" : "ENABLE", blockers: [] });
+    assert.deepEqual(github.calls.setMergePolicyCheck.map(({ conclusion }) => conclusion), [
+      "action_required", "success",
+    ]);
+    assert.deepEqual(github.calls.disableAutoMerge, []);
+    assert.equal(github.calls.listPullRequestCommits.length, priorReads);
+  });
+});
+
+test("completed native merge with a changed identity cannot bypass the policy revision fence", async (t) => {
+  const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
+  for (const terminalOverrides of [
+    { headOid: NEXT_HEAD },
+    { nodeId: "PR_other_42" },
+    { baseBranch: "release-test" },
+    { headBranch: "codex/other" },
+    { headRepository: { owner: "other-owner", repo: "k8s-test-infra" } },
+  ]) await t.test(JSON.stringify(terminalOverrides), async () => {
+    const { github } = completedMergeGitHub({ terminalOverrides });
+    await assert.rejects(() => runMergeEvaluate({ event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github,
+      config, policyRevision: REVISION, dryRun: false, prNumber: "42" }), /failed closed/);
+    assert.equal(github.calls.setMergePolicyCheck.at(-1).conclusion, "action_required");
+    assert.deepEqual(github.calls.enableAutoMerge, [{
+      nodeId: "PR_node_42", mergeMethod: "SQUASH", expectedHeadOid: HEAD,
+    }]);
+  });
 });
 
 test("same-head identity changes after policy success block and disarm native auto-merge", async (t) => {
@@ -1229,7 +1495,7 @@ test("a staging-check write failure cannot arm native auto-merge", async () => {
   }));
   const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
   await assert.rejects(() => runMergeEvaluate({
-    event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github, config,
+    event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github, config, policyRevision: REVISION,
     dryRun: false, prNumber: "42",
   }), /evaluation failed closed/);
   assert.deepEqual(github.calls.enableAutoMerge, []);
@@ -1364,6 +1630,7 @@ async function evaluateReviewCompletion(github, event = REVIEW_COMPLETION_EVENT)
     eventName: "workflow_run",
     github,
     config,
+    policyRevision: REVISION,
     dryRun: false,
     prNumber: "",
   });
@@ -1628,6 +1895,7 @@ test("dispatched metadata completion rejects a mismatched refetched run ID", asy
     eventName: "workflow_run",
     github,
     config,
+    policyRevision: REVISION,
     dryRun: false,
     prNumber: "",
   });

@@ -179,6 +179,7 @@ async function run(dependencies) {
           config,
           dryRun,
           prNumber,
+          policyRevision: core.getInput("policy-revision"),
         });
         break;
       case "backport": {
