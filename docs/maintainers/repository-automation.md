@@ -157,7 +157,11 @@ token has `contents: write` and `pull-requests: write` permissions for this
 operation. It checks out only the trusted default-branch commit, with checkout
 credentials disabled.
 
-The evaluator requires successful current-head runs of **Basic checks** and
+The evaluator reads the required source CI from `merge.requiredCI` in
+`.github/repo-automation/policy.yml`. Each workflow entry names a workflow file
+and, optionally, the changed-path globs that make it required; each check entry
+names a check run and the GitHub App id that must publish it. The current list
+requires successful current-head runs of **Basic checks** and
 **Validate changelog**, plus a successful `DCO` check from the DCO app. It also
 requires the action CI, Helm, dependency-integrity, and documentation workflows
 when their tracked PR path filters match a changed or renamed path. It uses the

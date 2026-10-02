@@ -10,6 +10,29 @@ commands:
   backportBranches: ["release-*"]
 merge:
   method: SQUASH
+  # Source CI that must pass on the pull request head before a merge; merge-ci.js and the Mokka agent read this list.
+  requiredCI:
+    workflows:
+      - path: .github/workflows/basic-checks.yaml
+      - path: .github/workflows/validate-changelog.yaml
+      - path: .github/workflows/automation-ci.yml
+        files:
+          - ".github/actions/repo-automation/**"
+          - ".github/repo-automation/**"
+          - ".github/workflows/**"
+          - hack/actionlint.sh
+          - Makefile
+          - OWNERS
+          - OWNERS_ALIASES
+      - path: .github/workflows/helm.yaml
+        files: ["deployments/nvml-mock/helm/**", "deployments/mokka-crds/helm/**"]
+      - path: .github/workflows/dependency-integrity.yaml
+        files: [go.mod, go.sum, Makefile, .github/workflows/dependency-integrity.yaml]
+      - path: .github/workflows/deploy-pages.yaml
+        files: ["docs/**", mkdocs.yml, requirements-docs.txt, Makefile, .github/workflows/deploy-pages.yaml]
+    checks:
+      - name: DCO
+        appId: 1861
 bots:
   - login: dependabot[bot]
     emails: ["49699333+dependabot[bot]@users.noreply.github.com"]

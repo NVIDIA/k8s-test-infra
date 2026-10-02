@@ -535,6 +535,7 @@ async function loadEvaluation({ github, config, repository, number, policyRevisi
     headOid: pullRequest.headOid,
     baseBranch: pullRequest.baseBranch,
     files: authority.files,
+    requiredCI: config.policy.merge.requiredCI,
     ...(pullRequest.headRepository == null ? {} : { headRepository: sourceRepository(pullRequest) }),
     ...(pullRequest.headBranch == null ? {} : { headBranch: pullRequest.headBranch }),
   });
