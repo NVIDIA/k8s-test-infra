@@ -1,9 +1,10 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Kind node image with nvidia-container-toolkit + CDI pre-configured for mock GPU
-# E2E. Everything the cluster needs is baked in here, so the Kind cluster configs
-# need no containerdConfigPatches — just point kind-action at this node_image.
+# Kind node image with nvidia-container-toolkit and the CDI and NRI runtime
+# prerequisites pre-configured for mock GPU E2E. Everything the cluster needs is
+# baked in here, so the Kind cluster configs need no containerdConfigPatches —
+# just point kind-action at this node_image.
 # Base image must match helm/kind-action default (kind v0.31.0 → kindest/node:v1.35.0).
 #
 # Build:
@@ -21,7 +22,7 @@ FROM ${KIND_NODE_IMAGE}
 # top-level one leaves apt free to resolve the dependencies to another release.
 ARG NVIDIA_CONTAINER_TOOLKIT_VERSION=1.19.1-1
 
-# The full containerd config (CDI + nvidia runtime baked in). See the file for details.
+# The full containerd config (CDI, NRI endpoint, and NVIDIA runtime baked in).
 COPY containerd-config.toml /etc/containerd/config.toml
 
 RUN apt-get update -qq \

@@ -94,6 +94,7 @@ function metadataState(overrides = {}) {
       "area/ci",
       "lgtm",
       "approved",
+      "needs-rebase",
       "do-not-merge/hold",
       "maintainer/custom",
     ],
@@ -169,7 +170,7 @@ test("metadata re-fetches live PR state and applies only the complete safe plan"
   assert.equal(github.calls.requestReviewers.flatMap(({ reviewers }) => reviewers).includes("pr-author"), false);
 
   const snapshot = github.metadataSnapshot();
-  for (const preserved of ["lgtm", "approved", "do-not-merge/hold", "maintainer/custom"] ) {
+  for (const preserved of ["lgtm", "approved", "needs-rebase", "do-not-merge/hold", "maintainer/custom"] ) {
     assert.equal(snapshot.labels.includes(preserved), true, `${preserved} must be preserved`);
   }
   assert.equal(snapshot.comments.length, 1);
@@ -222,6 +223,83 @@ test("dry-run returns the complete plan and performs zero writes", async () => {
   assert.deepEqual(mutations(github), []);
 });
 
+test("metadata accepts the live Dependabot author and plans human reviewers", async (t) => {
+  const { runMetadata } = require("../src/modes/metadata.js");
+  const { parseMetadataHeadEvidence } = require("../src/policy-comment.js");
+  const headOid = "ca41accf117bd74cf30c9af86a06640a4be5944f";
+  const botEvent = {
+    ...event,
+    number: 973,
+    pull_request: { ...event.pull_request, number: 973 },
+  };
+  for (const dryRun of [true, false]) {
+    await t.test(dryRun ? "dry-run" : "apply", async () => {
+      const github = createFakeGitHub(metadataState({
+        pullRequest: {
+          ...metadataState().pullRequest,
+          number: 973,
+          author: "dependabot[bot]",
+          headOid,
+          draft: false,
+          title: "chore(deps): bump dependency",
+        },
+        commitPages: [[signedCommit({
+          sha: headOid,
+          commit: {
+            author: {
+              name: "dependabot[bot]",
+              email: "49699333+dependabot[bot]@users.noreply.github.com",
+            },
+            message: "chore(deps): bump dependency",
+          },
+          author: { login: "dependabot[bot]" },
+        })]],
+        requestedReviewers: ["alice"],
+        contents: {
+          "/OWNERS": "reviewers: [alice, bob]\napprovers: [alice, bob]\n",
+          "/OWNERS_ALIASES": "aliases: {}\n",
+        },
+      }));
+      const result = await runMetadata({
+        event: botEvent, github, config: loadConfig(repositoryRoot), dryRun,
+      });
+      assert.equal(result.valid, true);
+      assert.equal(result.headOid, headOid);
+      assert.deepEqual(result.dco, { valid: true, failures: [], exempted: [headOid] });
+      assert.deepEqual(result.reviewers, { request: ["bob"], preserved: ["alice"] });
+      assert.equal(parseMetadataHeadEvidence(result.comment.body), headOid);
+      assert.equal(result.labels.add.includes("kind/dependencies"), true);
+      assert.equal(result.apply.status, dryRun ? "planned" : "complete");
+      assert.equal(github.calls.upsertPolicyComment.length, dryRun ? 0 : 1);
+      assert.deepEqual(github.calls.requestReviewers, dryRun ? [] : [
+        { prNumber: 973, reviewers: ["bob"] },
+      ]);
+      if (dryRun) assert.deepEqual(mutations(github), []);
+    });
+  }
+});
+
+test("metadata rejects malformed bot authors before reads or writes", async () => {
+  const { runMetadata } = require("../src/modes/metadata.js");
+  const malformed = [
+    "[bot]", "bad--login[bot]", "bad_login[bot]", "-bad[bot]", "bad-[bot]",
+    "a".repeat(40) + "[bot]", "alice[bot][bot]", "alice[bot]\n", "alice\n[bot]",
+    "alice\u202e[bot]", "alice[BOT]",
+  ];
+  for (const author of malformed) {
+    const github = createFakeGitHub(metadataState({
+      pullRequest: { ...metadataState().pullRequest, author },
+    }));
+    await assert.rejects(() => runMetadata({
+      event, github, config: loadConfig(repositoryRoot), dryRun: true,
+    }), (error) => {
+      assert.equal(error.message, "live pull request state or base repository is invalid");
+      return true;
+    });
+    assert.deepEqual(github.callOrder.map(({ operation }) => operation), ["getPullRequest"]);
+  }
+});
+
 test("a read failure aborts before every mutation", async () => {
   const { runMetadata } = require("../src/modes/metadata.js");
   const failure = Object.assign(new Error("permanent files failure"), { status: 422 });
@@ -249,7 +327,7 @@ test("invalid title, DCO, configuration, and ownership upsert diagnostics then f
       },
     })]] }), validConfig],
     ["ownership", metadataState({ contents: {
-      "/OWNERS": "reviewers: [pr-author]\napprovers: [pr-author]\n",
+      "/OWNERS": "reviewers: [pr-author]\napprovers: []\n",
       "/OWNERS_ALIASES": "aliases: {}\n",
     } }), validConfig],
     ["configuration", metadataState(), {
@@ -295,7 +373,7 @@ test("manual LGTM and approval labels never satisfy ownership evidence", async (
   const github = createFakeGitHub(metadataState({
     labels: ["lgtm", "approved"],
     contents: {
-      "/OWNERS": "reviewers: [pr-author]\napprovers: [pr-author]\n",
+      "/OWNERS": "reviewers: [pr-author]\napprovers: []\n",
       "/OWNERS_ALIASES": "aliases: {}\n",
     },
   }));
@@ -313,6 +391,76 @@ test("manual LGTM and approval labels never satisfy ownership evidence", async (
   assert.deepEqual(github.calls.addIssueLabel, []);
   assert.deepEqual(github.calls.removeIssueLabel, []);
   assert.deepEqual(github.metadataSnapshot().labels, ["lgtm", "approved"]);
+});
+
+function authorOnlyMetadataState(overrides = {}) {
+  return metadataState({
+    contents: {
+      "/OWNERS": "reviewers: []\napprovers: [pr-author]\n",
+      "/OWNERS_ALIASES": "aliases: {}\n",
+    },
+    ...overrides,
+  });
+}
+
+test("metadata accepts trusted approver-author ownership without requesting the author", async () => {
+  const { runMetadata } = require("../src/modes/metadata.js");
+  const github = createFakeGitHub(authorOnlyMetadataState());
+  const result = await runMetadata({ event, github, config: loadConfig(repositoryRoot), dryRun: false });
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.ownership, { valid: true, uncoveredPaths: [] });
+  assert.deepEqual(github.calls.requestReviewers, []);
+  assert.deepEqual(github.calls.getUserIdentity, [{ login: "pr-author" }, { login: "pr-author" }]);
+  assert.equal(github.calls.addIssueLabel.some(({ label }) => ["approved", "lgtm"].includes(label)), false);
+});
+
+test("metadata rejects approver authors without a verified human identity", async (t) => {
+  const { runMetadata } = require("../src/modes/metadata.js");
+  for (const user of [
+    { login: "pr-author", type: "Bot", resolved: true, deleted: false },
+    { login: "pr-author", type: "User", resolved: false, deleted: false },
+    { login: "pr-author", type: "User", resolved: true, deleted: true },
+    { login: "other", type: "User", resolved: true, deleted: false },
+  ]) {
+    await t.test(JSON.stringify(user), async () => {
+      const github = createFakeGitHub(authorOnlyMetadataState({ users: { "pr-author": user } }));
+      await assert.rejects(
+        () => runMetadata({ event, github, config: loadConfig(repositoryRoot), dryRun: false }),
+        /ownership/i,
+      );
+      assert.equal(mutations(github).every(({ operation }) => operation === "upsertPolicyComment"), true);
+    });
+  }
+});
+
+test("metadata refuses writes when author identity or trusted policy changes", async (t) => {
+  const { runMetadata } = require("../src/modes/metadata.js");
+  for (const changed of ["identity", "policy"]) {
+    await t.test(changed, async () => {
+      const github = createFakeGitHub(authorOnlyMetadataState());
+      let reads = 0;
+      if (changed === "identity") {
+        const original = github.getUserIdentity;
+        github.getUserIdentity = async (login) => {
+          const user = await original(login);
+          reads += 1;
+          return reads > 1 ? { ...user, resolved: false } : user;
+        };
+      } else {
+        const original = github.getDefaultBranchRevision;
+        github.getDefaultBranchRevision = async () => {
+          const revision = await original();
+          reads += 1;
+          return reads > 1 ? "changed-trusted-policy" : revision;
+        };
+      }
+      await assert.rejects(
+        () => runMetadata({ event, github, config: loadConfig(repositoryRoot), dryRun: false }),
+        /author ownership changed/i,
+      );
+      assert.deepEqual(mutations(github), []);
+    });
+  }
 });
 
 test("GitHub boundary paginates and normalizes every metadata list", async () => {

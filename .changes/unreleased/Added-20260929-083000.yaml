@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  Changelog entries are now `changie` fragments under `.changes/unreleased/`,
+    added with `make changelog`, so pull requests no longer conflict over
+    `CHANGELOG.md`.
+time: 2026-09-29T08:30:00Z

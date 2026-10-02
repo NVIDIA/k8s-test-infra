@@ -1,0 +1,6 @@
+kind: Changed
+body: |-
+  nvml-mock: the `t4` and `l40s` profiles no longer carry a `mig` section, since
+    neither board supports MIG. `gpu.mig.enabled` still refuses them, now
+    because they declare no `mig.max_gpu_instances`.
+time: 2026-09-29T07:15:00Z

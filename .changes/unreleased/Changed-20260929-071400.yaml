@@ -1,0 +1,8 @@
+kind: Changed
+body: |-
+  The mock CUDA library moved from `pkg/gpu/mockcuda` to `shims/libcuda`; the
+    image still ships `libcuda.so`, so nodes are unchanged. Its e2e scenario is
+    now the standalone-GFD check under the Ginkgo label `gfd`.
+time: 2026-09-29T07:14:00Z
+custom:
+  Issue: "789"

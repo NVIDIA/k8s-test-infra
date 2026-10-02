@@ -1,0 +1,6 @@
+kind: Fixed
+body: |-
+  nvml-mock: `nvidia-smi mig -lgip` reports the decoder, JPEG, OFA and
+    copy-engine counts NVIDIA publishes for `h100`, `b200`, `gb200` and `gb300`,
+    instead of the A100's.
+time: 2026-09-29T07:39:00Z

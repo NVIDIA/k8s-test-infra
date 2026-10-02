@@ -2,12 +2,9 @@
 
 ## Supported Versions
 
-Fixes land on the current release line. Older lines receive no backports.
-
-| Version | Supported          |
-|---------|--------------------|
-| 0.3.x   | :white_check_mark: |
-| < 0.3   | :x:                |
+Security fixes ship as patch releases for every release line that the
+[support policy](docs/support-policy.md#support-status) marks Supported or
+Maintenance. That page holds the current status of each line.
 
 ## Reporting a Vulnerability
 
@@ -53,8 +50,9 @@ Mokka is a test double for CI and test clusters, not production.
 When enabled, the `control-plane` pod mounts a dedicated ServiceAccount token
 for Kubernetes API access. Its ClusterRole grants Node reads and patches and
 the Mokka resource permissions needed for reconciliation; its namespaced Role
-grants leader-election Lease access in the release namespace. The node-agent
-and NRI DaemonSets do not mount ServiceAccount tokens. See the
+grants leader-election Lease access in the release namespace. The node
+DaemonSet, including its optional NRI sidecar, does not mount a ServiceAccount
+token. See the
 [Mokka controller](docs/mokka-controller.md) for its reconciliation and
 single-writer lifecycle. The node agent runs privileged to use bidirectional
 mount propagation; the other chart containers are not privileged. No component

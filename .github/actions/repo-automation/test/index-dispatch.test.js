@@ -4,6 +4,8 @@ const assert = require("node:assert/strict");
 const { Buffer } = require("node:buffer");
 const path = require("node:path");
 const test = require("node:test");
+const fs = require("node:fs");
+const YAML = require("yaml");
 
 const { createFakeGitHub } = require("./helpers/fake-github.js");
 
@@ -30,6 +32,15 @@ function coreFor(inputs) {
     },
   };
 }
+
+test("dispatch report action inputs are optional and describe their exact identity", () => {
+  const action = YAML.parse(fs.readFileSync(path.resolve(__dirname, "../action.yml"), "utf8"));
+  for (const name of ["request-id", "workflow-commit-sha"]) {
+    assert.equal(action.inputs[name].required, false);
+    assert.match(action.inputs[name].description, /dispatch/i);
+    assert.equal(action.inputs[name].default, undefined);
+  }
+});
 
 test("index dispatches command mode without treating event text as authority", async () => {
   const { run } = require("../src/index.js");
@@ -253,6 +264,8 @@ test("index dispatches Mokka only to the fixed target checkout and identity", as
   const sourceSha = "2".repeat(40);
   const targetSha = "1".repeat(40);
   const producedSha = "4".repeat(40);
+  const signedSha = "6".repeat(40);
+  const treeSha = "7".repeat(40);
   const workflowSha = "5".repeat(40);
   const branch = `mokka/cherry-pick/${actionId}`;
   const core = coreFor({
@@ -279,17 +292,51 @@ test("index dispatches Mokka only to the fixed target checkout and identity", as
     },
     branches: { main: targetSha },
   });
+  githubClient.calls.createMokkaCommit = [];
+  githubClient.calls.createMokkaRef = [];
+  githubClient.createMokkaCommit = async (request) => {
+    githubClient.calls.createMokkaCommit.push(request);
+    assert.equal(request.tree, treeSha);
+    assert.deepEqual(request.parents, [targetSha]);
+    return {
+      sha: signedSha,
+      message: request.message.replace(/\n+$/u, ""),
+      tree: treeSha,
+      parents: [targetSha],
+      verification: { verified: true, hasSignature: true },
+    };
+  };
+  githubClient.createMokkaRef = async (name, sha) => {
+    githubClient.calls.createMokkaRef.push({ name, sha });
+    githubClient.setBranch(name, sha);
+    return { name, oid: sha };
+  };
   const gitCalls = [];
   let revParseCalls = 0;
+  let showCalls = 0;
   const git = async (args, options) => {
     gitCalls.push({ args: [...args], options: { ...options } });
+    if (args[0] === "rev-parse" && args[1] === "FETCH_HEAD") {
+      return { stdout: `${targetSha}\n`, stderr: "" };
+    }
+    if (args[0] === "rev-parse" && args[1] === "HEAD^{tree}") {
+      return { stdout: `${treeSha}\n`, stderr: "" };
+    }
     if (args[0] === "rev-parse") {
       revParseCalls += 1;
       return { stdout: `${revParseCalls === 1 ? targetSha : producedSha}\n`, stderr: "" };
     }
-    if (args[0] === "show") return { stdout: "feat: source\n", stderr: "" };
-    if (args[0] === "push" && args.at(-1) === `HEAD:refs/heads/${branch}`) {
-      githubClient.setBranch(branch, producedSha);
+    if (args[0] === "show") {
+      showCalls += 1;
+      return {
+        stdout: showCalls === 1
+          ? "feat: source\n"
+          : `feat: source\n\nMokka-Source-SHA: ${sourceSha}\nMokka-Action-ID: ${actionId}\n`,
+        stderr: "",
+      };
+    }
+    if (args[0] === "push" && args.at(-1) === `HEAD:refs/heads/mokka/cherry-pick-upload/${actionId}`) {
+      githubClient.setBranch(`mokka/cherry-pick-upload/${actionId}`, producedSha);
     }
     return { stdout: "", stderr: "" };
   };
@@ -308,6 +355,8 @@ test("index dispatches Mokka only to the fixed target checkout and identity", as
   assert.equal(result.outcome, "created");
   assert.equal(gitCalls.every(({ options }) => options.cwd === "/trusted/workspace/target"), true);
   assert.deepEqual(githubClient.calls.createMokkaPullRequest.length, 1);
+  assert.deepEqual(githubClient.calls.createMokkaCommit.length, 1);
+  assert.deepEqual(githubClient.calls.createMokkaRef, [{ name: branch, sha: signedSha }]);
   assert.deepEqual(githubClient.calls.updateMokkaPullRequestBody.length, 1);
 });
 

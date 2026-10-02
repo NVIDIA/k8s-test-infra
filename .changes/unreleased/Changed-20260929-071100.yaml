@@ -1,0 +1,6 @@
+kind: Changed
+body: |-
+  e2e: the test harness rejects a chart profile whose
+    `device_defaults.architecture` is missing or unrecognized. The chart and the
+    mock still accept such a profile and report `NVML_DEVICE_ARCH_UNKNOWN`.
+time: 2026-09-29T07:11:00Z

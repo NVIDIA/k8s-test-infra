@@ -4,6 +4,25 @@ apiVersion: apps/v1
 kind: DaemonSet
 {{- $ibEnabled := eq (include "nvml-mock.infinibandEnabled" .) "true" }}
 {{- $fmEnabled := eq (include "nvml-mock.fabricmanagerEnabled" .) "true" }}
+{{- $nriImage := mergeOverwrite (deepCopy .Values.image) (.Values.nri.image | default dict) }}
+{{- $nriSocketDir := dir .Values.nri.socketPath }}
+{{- $nriOverlayVolume := "mokka-root" }}
+{{- if ne .Values.nri.overlay.hostPath "/var/lib/nvml-mock" }}
+{{- $nriOverlayVolume = "nri-overlay" }}
+{{- end }}
+{{- $nriCDIVolume := "cdi-specs" }}
+{{- if ne .Values.nri.cdiSpecDir "/var/run/cdi" }}
+{{- $nriCDIVolume = "nri-cdi-specs" }}
+{{- end }}
+{{- if and .Values.nri.enabled (not (has .Values.nri.deviceInjectionMode (list "raw" "cdi"))) }}
+{{- fail (printf "nri.deviceInjectionMode must be \"raw\" or \"cdi\", got %q" .Values.nri.deviceInjectionMode) }}
+{{- end }}
+{{- $nriHealthPort := int .Values.nri.healthPort }}
+{{- $nriPortConflict := or (eq $nriHealthPort 9091) (and $ibEnabled (eq $nriHealthPort (int .Values.infiniband.ping.port))) }}
+{{- if and .Values.nri.enabled $nriPortConflict }}
+{{- fail (printf "nri.healthPort (%v) conflicts with another listener in the shared pod; use a port other than node-agent health port 9091 or the enabled InfiniBand ping port %v" .Values.nri.healthPort .Values.infiniband.ping.port) }}
+{{- end }}
+{{- $migProfiles := include "nvml-mock.migProfiles" . }}
 metadata:
   name: {{ include "nvml-mock.fullname" . }}
   labels:
@@ -23,6 +42,13 @@ spec:
       annotations:
         # Roll the DaemonSet on any config.yaml change.
         checksum/config: {{ include "nvml-mock.gpuConfig" . | sha256sum }}
+        {{- if $migProfiles }}
+        # And on any change to the board's MIG table, which is a ConfigMap of
+        # its own and so does not move the checksum above.
+        checksum/mig-profiles: {{ $migProfiles | sha256sum }}
+        {{- end }}
+        # Keep kubectl exec/logs behavior stable when optional sidecars are on.
+        kubectl.kubernetes.io/default-container: node-agent
     spec:
       serviceAccountName: {{ include "nvml-mock.fullname" . }}
       automountServiceAccountToken: false
@@ -124,6 +150,14 @@ spec:
             - name: MOCK_TOPOLOGY_CONFIG
               value: /etc/nvml-mock/topology/topology.yaml
             {{- end }}
+            {{- if $migProfiles }}
+            # Names the MIG table mount below. The engine's other way of
+            # finding a table is a sibling of MOCK_NVML_CONFIG, which a
+            # ConfigMap mounted at its own path is not, so leaving this unset
+            # is what leaves the board not MIG-capable.
+            - name: MOCK_MIG_PROFILES_CONFIG
+              value: /etc/nvml-mock/mig/mig-profiles.yaml
+            {{- end }}
             # The socket the UMAD/verbs shims dial. The agent serves it; exec'd
             # tools only need to find it.
             - name: MOCK_IB_PING_SOCKET
@@ -195,6 +229,14 @@ spec:
               mountPath: /etc/nvml-mock/topology
               readOnly: true
             {{- end }}
+            {{- if $migProfiles }}
+            # The board's MIG partition table, read at LoadConfig() time by the
+            # agent and by anything exec'd here. Its own mount rather than a
+            # key beside config.yaml, so a table change rolls only this.
+            - name: mig-profiles
+              mountPath: /etc/nvml-mock/mig
+              readOnly: true
+            {{- end }}
             {{- if $fmEnabled }}
             # The agent writes the readiness marker here; the mock NVML engine in
             # every consumer reads it to resolve fabric.state: auto.
@@ -222,6 +264,67 @@ spec:
               port: 9091
           resources:
             {{- toYaml .Values.nodeAgent.resources | nindent 12 }}
+        {{- if .Values.nri.enabled }}
+        # The NRI plugin shares this pod with the node agent so staging and
+        # injection have one scheduling and rollout lifecycle per node.
+        - name: nvml-mock-nri
+          image: "{{ $nriImage.repository }}:{{ $nriImage.tag }}"
+          imagePullPolicy: {{ $nriImage.pullPolicy }}
+          command: ["/usr/local/bin/nri-plugin"]
+          args:
+            - --socket-path={{ .Values.nri.socketPath }}
+            - --plugin-name={{ .Values.nri.pluginName }}
+            - --plugin-index={{ .Values.nri.pluginIndex }}
+            - --overlay-host-path={{ .Values.nri.overlay.hostPath }}
+            - --overlay-mount-path={{ .Values.nri.overlay.mountPath }}
+            - --device-host-path={{ .Values.nri.overlay.hostPath }}/driver/dev
+            - --opt-out-annotation={{ .Values.nri.optOutAnnotation }}
+            - --device-annotation={{ .Values.nri.deviceAnnotation }}
+            - --device-injection-mode={{ .Values.nri.deviceInjectionMode }}
+            - --cdi-spec-host-path={{ .Values.nri.cdiSpecDir }}/nvml-mock-nri.yaml
+            # Mock IMEX channel delivery (#437). The nodes are staged by the
+            # node agent; the plugin only injects them into opted-in pods.
+            - --imex-channel-annotation={{ .Values.nri.imexChannelAnnotation }}
+            - --imex-channel-host-path={{ .Values.nri.overlay.hostPath }}/driver/dev/nvidia-caps-imex-channels
+            - --excluded-namespaces={{ .Release.Namespace }},kube-system{{- range .Values.nri.excludedNamespaces }},{{ . }}{{- end }}
+            - --node-name=$(NODE_NAME)
+            - --health-addr=:{{ .Values.nri.healthPort }}
+            - --log-level={{ .Values.nri.logging.level }}
+            - --log-format={{ .Values.nri.logging.format }}
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          ports:
+            - name: nri-health
+              containerPort: {{ .Values.nri.healthPort }}
+              protocol: TCP
+          {{- with .Values.nri.readinessProbe }}
+          readinessProbe:
+            {{- include "nvml-mock.nriProbe" . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.nri.livenessProbe }}
+          livenessProbe:
+            {{- include "nvml-mock.nriProbe" . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsUser: 0
+          {{- with .Values.nri.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: nri-socket-dir
+              mountPath: {{ $nriSocketDir }}
+            - name: {{ $nriOverlayVolume }}
+              mountPath: {{ .Values.nri.overlay.hostPath }}
+              readOnly: true
+            - name: {{ $nriCDIVolume }}
+              mountPath: {{ .Values.nri.cdiSpecDir }}
+              readOnly: true
+        {{- end }}
         {{- if .Values.allocationWatcher.enabled }}
         # #506: mirrors each pod's nvidia.com/gpu claim into the same runtime
         # override file nvml-mock-ctl writes, which the engine re-reads within
@@ -279,6 +382,24 @@ spec:
           hostPath:
             path: /var/run/cdi
             type: DirectoryOrCreate
+        {{- if .Values.nri.enabled }}
+        - name: nri-socket-dir
+          hostPath:
+            path: {{ $nriSocketDir }}
+            type: DirectoryOrCreate
+        {{- if ne .Values.nri.overlay.hostPath "/var/lib/nvml-mock" }}
+        - name: nri-overlay
+          hostPath:
+            path: {{ .Values.nri.overlay.hostPath }}
+            type: DirectoryOrCreate
+        {{- end }}
+        {{- if ne .Values.nri.cdiSpecDir "/var/run/cdi" }}
+        - name: nri-cdi-specs
+          hostPath:
+            path: {{ .Values.nri.cdiSpecDir }}
+            type: DirectoryOrCreate
+        {{- end }}
+        {{- end }}
         - name: driver-root-link
           hostPath:
             path: /run/nvidia
@@ -305,6 +426,11 @@ spec:
         - name: cluster-topology
           configMap:
             name: {{ include "nvml-mock.fullname" . }}-topology
+        {{- end }}
+        {{- if $migProfiles }}
+        - name: mig-profiles
+          configMap:
+            name: {{ include "nvml-mock.fullname" . }}-mig-profiles
         {{- end }}
         {{- if $fmEnabled }}
         - name: fabric-state

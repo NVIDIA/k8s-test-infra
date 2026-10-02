@@ -1,0 +1,6 @@
+kind: Fixed
+body: |-
+  nvml-mock: cycling MIG off and on keeps each partition's GPU-instance ID, and
+    so its MIG UUID. IDs used to keep counting after a full teardown, so
+    consumers disagreed with each other and with the staged capability nodes.
+time: 2026-09-29T07:28:00Z

@@ -1,0 +1,7 @@
+kind: Fixed
+body: |-
+  nvml-mock: `nvidia-smi mig -lcip` lists only the compute instances the
+    hardware offers, now including the media-extension one-slice instance.
+    **Breaking:** `a100` no longer offers `6c.7g.40gb`, so a
+    `nvidia.com/mig-6c.7g.40gb` request can no longer be satisfied.
+time: 2026-09-29T07:40:00Z

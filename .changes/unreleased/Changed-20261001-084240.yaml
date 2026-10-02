@@ -1,0 +1,4 @@
+kind: Changed
+body: |-
+  helm: the opt-in NRI plugin now runs beside node-agent in the same pod instead of a separate DaemonSet; enabling NRI couples their scheduling, version, and rollouts.
+time: 2026-10-01T15:42:40Z

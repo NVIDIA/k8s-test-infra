@@ -172,10 +172,10 @@ func TestHandleTable_ConcurrentAccess(t *testing.T) {
 	ht := NewHandleTable()
 	var wg sync.WaitGroup
 	var successCount int32
-	numGoroutines := 100
+	numGoroutines := maxDeviceHandles + 20
 
-	// Concurrent registration - each goroutine tries to register one unique device
-	// Only MaxDevices will succeed due to handle table limit
+	// Concurrent registration - each goroutine tries to register one unique
+	// device. Only maxDeviceHandles will succeed due to the table limit.
 	wg.Add(numGoroutines)
 	for i := 0; i < numGoroutines; i++ {
 		go func(id int) {
@@ -189,10 +189,12 @@ func TestHandleTable_ConcurrentAccess(t *testing.T) {
 	}
 	wg.Wait()
 
-	// Due to MaxDevices limit, only MaxDevices registrations should succeed
-	require.Equal(t, int32(MaxDevices), successCount, "Expected %d successful registrations", MaxDevices)
+	// The table hands out at most maxDeviceHandles handles, however many
+	// callers race for them.
+	require.Equal(t, int32(maxDeviceHandles), successCount,
+		"Expected %d successful registrations", maxDeviceHandles)
 
-	require.Equal(t, MaxDevices, ht.Count(), "Expected count %d", MaxDevices)
+	require.Equal(t, maxDeviceHandles, ht.Count(), "Expected count %d", maxDeviceHandles)
 }
 
 func TestHandleTable_ConcurrentRegisterAndLookup(t *testing.T) {

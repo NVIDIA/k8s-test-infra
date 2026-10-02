@@ -1,0 +1,7 @@
+kind: Changed
+body: |-
+  docs: the MIG configuration reference moved from `docs/configuration.md` to
+    its own page, `docs/mig.md`, and its anchors, such as
+    `#where-the-table-lives`, moved with it. `docs/configuration.md` keeps the
+    three `device_defaults.mig` keys.
+time: 2026-09-29T07:09:00Z

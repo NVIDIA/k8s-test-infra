@@ -1,0 +1,7 @@
+kind: Fixed
+body: |-
+  nvml-mock: **Breaking:** every MIG profile name on `b200`, `gb200` and `gb300`
+    changes, so `nvidia.com/mig-*` requests against them need updating. The
+    boards now declare their real capacity (180, 186 and 278 GiB) and NVIDIA's
+    profiles for it; see `docs/guides/mig/README.md`.
+time: 2026-09-29T07:41:00Z

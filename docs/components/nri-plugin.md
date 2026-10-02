@@ -117,8 +117,8 @@ only visible in the OCI spec of an already-running pod.
 
 ## Failing open
 
-Every step degrades rather than blocks. Nothing orders this plugin's DaemonSet
-after the node daemon's, so on a fresh node the plugin may be asked to adjust a
+Every step degrades rather than blocks. Nothing orders this plugin's container
+after the node agent's, so on a fresh node the plugin may be asked to adjust a
 container before the GPU tree exists. When a surface is missing, injection is
 reduced — overlay-only instead of overlay-plus-devices — and container creation
 proceeds.

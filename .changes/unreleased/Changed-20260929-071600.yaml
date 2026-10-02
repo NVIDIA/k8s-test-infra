@@ -1,0 +1,7 @@
+kind: Changed
+body: |-
+  nvml-mock: a board's MIG profile table is declared in YAML under
+    `supported_profiles`, so supporting a new board is a YAML edit. **Breaking**
+    for externally-authored configs: one that sets `mig.max_gpu_instances`
+    without `supported_profiles` is no longer MIG-capable. See `docs/mig.md`.
+time: 2026-09-29T07:16:00Z

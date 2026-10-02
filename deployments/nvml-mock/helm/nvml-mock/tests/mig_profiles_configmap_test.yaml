@@ -1,0 +1,84 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# A board with no resolvable MIG table is not MIG-capable rather than broken,
+# so a table that fails to arrive costs a silent capability and no error. This
+# suite and the MIG blocks of daemonset_test.yaml are the only things that
+# notice; between them they pin the ConfigMap, the mount and the env var to the
+# same path.
+suite: MIG profiles ConfigMap
+templates:
+  - templates/mig-profiles-configmap.yaml
+chart:
+  version: 0.0.0-dev
+  appVersion: 0.0.0-dev
+tests:
+  - it: should carry the selected board's table
+    set:
+      gpu:
+        profile: a100
+        count: 8
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-nvml-mock-mig-profiles
+      # Verbatim, comments included: the data-source citation is how the next
+      # reader checks the numbers against NVIDIA's published tables.
+      - matchRegex:
+          path: data["mig-profiles.yaml"]
+          pattern: '# NVIDIA MIG user guide, Supported MIG Profiles, Table 12'
+      - matchRegex:
+          path: data["mig-profiles.yaml"]
+          pattern: '(?m)^supported_profiles:$'
+      # One row in full. A table that arrived truncated or re-indented would
+      # still match the key above.
+      - matchRegex:
+          path: data["mig-profiles.yaml"]
+          pattern: '(?m)^  - name: "7g.40gb"\n    nvml_profile: "7_SLICE"\n    slices: 7\n    profile_id: 0\n    instances: 1\n'
+
+  - it: should carry the table of whichever board is selected
+    set:
+      gpu:
+        profile: h100
+        count: 8
+    asserts:
+      - matchRegex:
+          path: data["mig-profiles.yaml"]
+          pattern: '(?m)^  - name: "7g.80gb"$'
+      - notMatchRegex:
+          path: data["mig-profiles.yaml"]
+          pattern: '7g.40gb'
+
+  # l40s and t4 are not MIG-capable silicon and ship no table. Rendering an
+  # empty ConfigMap would mount a directory the engine then reports as a
+  # missing table, which is the same outcome by a longer route.
+  - it: should not render for a board that ships no table
+    set:
+      gpu:
+        profile: t4
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render for l40s either
+    set:
+      gpu:
+        profile: l40s
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # A custom config is the user's, and so is any supported_profiles in it.
+  # Mounting a table beside an inline one makes the engine refuse the load.
+  - it: should not render alongside a custom config
+    set:
+      gpu:
+        customConfig: |
+          version: "1.0"
+          system:
+            driver_version: "550.163.01"
+    asserts:
+      - hasDocuments:
+          count: 0

@@ -45,10 +45,39 @@ See [Testing](testing.md) for the full list of gates and what each one checks.
 Also confirm:
 
 - **New files carry an SPDX header.** Match the surrounding files.
-- **The CHANGELOG is updated** if the change is user-facing. Documentation-only
-  changes do not get an entry.
+- **A changelog fragment is added** if the change is user-facing. See
+  [Changelog entries](#changelog-entries).
 - **Documentation is updated** alongside the behaviour it describes, not in a
   follow-up.
+
+## Changelog entries
+
+Each entry is a [changie](https://changie.dev) fragment: a small YAML file
+under `.changes/unreleased/`, one per change. Do not edit `CHANGELOG.md`. It
+holds released versions only and a maintainer writes it when cutting a release,
+so two pull requests never conflict over it.
+
+```bash
+make changelog                                    # prompts for each field
+make changelog KIND=Fixed BODY="..." ISSUE=637    # non-interactive
+```
+
+`KIND` is one of the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
+sections: `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed` or `Security`.
+`ISSUE` is optional and renders as a trailing link to that issue or pull
+request. Write the body the way it should read in `CHANGELOG.md`, without the
+leading `- `. For a long entry, open the generated file and wrap the `body:`
+block with continuation lines indented two spaces past the first, the way the
+released entries are wrapped. To see how your entry renders:
+
+```bash
+make changelog-preview RELEASE_VERSION=0.0.0
+```
+
+Refactors, tests, CI and documentation-only changes do not get an entry. A
+maintainer applies the `skip-changelog` label to those instead; CI fails a pull
+request that has neither a fragment nor the label. Dependabot pull requests are
+exempt through the `dependencies` label.
 
 ## Opening it
 

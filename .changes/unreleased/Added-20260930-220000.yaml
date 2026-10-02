@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  repository-automation: scheduled scans repair metadata and needs-rebase labels
+    on all open pull requests, including older and stacked requests, with live
+    state checks and per-request results.
+time: 2026-09-30T20:33:51Z

@@ -1,0 +1,6 @@
+kind: Fixed
+body: |-
+  nvml-mock: `nvidia-smi mig -lgip` no longer reports more free instances of a
+    profile than its total; an idle H100 showed `7/1` for `1g.10gb+me` and `7/4`
+    for `1g.20gb`.
+time: 2026-09-29T07:35:00Z

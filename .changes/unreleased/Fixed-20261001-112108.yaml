@@ -1,0 +1,5 @@
+kind: Fixed
+body: |-
+  repository-automation: merge evaluation no longer fails when it checks branch
+    protection with the standard GitHub Actions token.
+time: 2026-10-01T11:21:08Z

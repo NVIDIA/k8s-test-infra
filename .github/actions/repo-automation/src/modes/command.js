@@ -1,6 +1,7 @@
 "use strict";
 
 const { parseCommands } = require("../commands/parser.js");
+const { verifyApproverAuthor } = require("../author-approval.js");
 const {
   createEmptyState,
   parsePolicyState,
@@ -10,6 +11,7 @@ const { planCommandExecution } = require("../commands/executor.js");
 const { validateConfig } = require("../config.js");
 const { parseAliases, parseOwnersFile, resolveOwners } = require("../owners.js");
 const { policyDigest } = require("../policy-digest.js");
+const { loadReviewEvidence } = require("../review-evidence.js");
 const {
   POLICY_COMMENT_MARKER,
   renderCommandPolicyComment,
@@ -149,7 +151,10 @@ async function loadAuthority(github, config, identity, pullRequest, files) {
     aliases,
     { activeOwnerFiles: ownerPaths(config), pullRequestAuthor: pullRequest.author },
   );
-  if (ownership.uncoveredPaths.length > 0) {
+  const authorIsHuman = await verifyApproverAuthor(github, ownership, pullRequest.author);
+  if (ownership.uncoveredPaths.some((path) => (
+    !authorIsHuman || !ownership.authorApprovalPaths.includes(path)
+  ))) {
     throw new Error("command authority is unavailable for unowned paths");
   }
   return {
@@ -161,6 +166,7 @@ async function loadAuthority(github, config, identity, pullRequest, files) {
       aliasesSource,
     }),
     ownership,
+    authorIsHuman,
   };
 }
 
@@ -239,6 +245,13 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
   };
   const policyComment = await github.getPolicyComment(identity.prNumber, POLICY_COMMENT_MARKER);
   const stored = loadState(policyComment, context);
+  const nativeReviewEvidence = await loadReviewEvidence({
+    github,
+    reviews: await github.listPullRequestReviews(identity.prNumber),
+    ownership: authority.ownership,
+    pullRequest,
+    context,
+  });
   const [user, access, currentLabels] = await Promise.all([
     github.getUserIdentity(comment.author.toLowerCase()),
     github.getCollaboratorAccess(comment.author.toLowerCase()),
@@ -257,6 +270,9 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
     context,
     actor: actorIdentity(user, access, comment.author),
     author: pullRequest.author,
+    ownership: authority.ownership,
+    authorIsHuman: authority.authorIsHuman,
+    nativeReviewEvidence,
     reviewers: authority.ownership.reviewerCandidates,
     approvers: authority.ownership.approverCandidates,
     owners: [...new Set([
@@ -304,6 +320,21 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
     || !samePullRequest(pullRequest, latestPullRequest)
     || !samePolicyComment(policyComment, latestPolicyComment)
   ) throw new Error("live command inputs changed after planning; refusing stale writes");
+  const latestAuthority = await loadAuthority(github, config, identity, latestPullRequest, files);
+  if (
+    latestAuthority.digest !== authority.digest
+    || latestAuthority.authorIsHuman !== authority.authorIsHuman
+  ) throw new Error("command authority changed after planning; refusing stale writes");
+  const latestReviewEvidence = await loadReviewEvidence({
+    github,
+    reviews: await github.listPullRequestReviews(identity.prNumber),
+    ownership: latestAuthority.ownership,
+    pullRequest: latestPullRequest,
+    context,
+  });
+  if (JSON.stringify(latestReviewEvidence) !== JSON.stringify(nativeReviewEvidence)) {
+    throw new Error("command review evidence changed after planning; refusing stale writes");
+  }
 
   const apply = async (operation, mutation) => {
     result.apply.attempted.push(operation);
