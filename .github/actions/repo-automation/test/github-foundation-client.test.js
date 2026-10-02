@@ -1,9 +1,11 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const path = require("node:path");
 const test = require("node:test");
 const { URL } = require("node:url");
 
+const { loadConfig } = require("../src/config.js");
 const { createGitHubClient } = require("../src/github-client.js");
 
 const actionsGitHub = import("@actions/github");
@@ -677,6 +679,7 @@ function ciCheckRun(id, options = {}) {
 
 const CI_INPUT = {
   headOid: "a".repeat(40), prNumber: 42, baseBranch: "main", files: [{ path: "pkg/code.go" }],
+  requiredCI: loadConfig(path.resolve(__dirname, "../../../..")).policy.merge.requiredCI,
 };
 
 const FORK_CI_INPUT = {
@@ -743,6 +746,15 @@ test("CI reader joins complete exact-head workflow and check-run pages through O
   assert.equal(requests.every((request) => request.searchParams.get("per_page") === "100"), true);
   assert.equal(requests.slice(0, 2).every((request) => request.searchParams.get("head_sha") === "a".repeat(40)), true);
   assert.equal(requests.slice(2).every((request) => request.searchParams.get("filter") === "all"), true);
+});
+
+test("CI reader evaluates the required CI definition the caller passes", async () => {
+  const runs = [{ total_count: 1, workflow_runs: [ciWorkflowRun(701, ".github/workflows/basic-checks.yaml")] }];
+  const onlyBasic = {
+    workflows: [{ path: ".github/workflows/basic-checks.yaml" }], checks: [{ name: "DCO", appId: 1861 }],
+  };
+  assert.equal(await (await ciTransport(runs)).client.getCIState(CI_INPUT), "PENDING");
+  assert.equal(await (await ciTransport(runs)).client.getCIState({ ...CI_INPUT, requiredCI: onlyBasic }), "SUCCESS");
 });
 
 test("CI reader cannot treat its own successful policy check as source CI", async () => {

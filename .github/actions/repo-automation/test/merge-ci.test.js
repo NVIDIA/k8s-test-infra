@@ -6,13 +6,17 @@ const path = require("node:path");
 const test = require("node:test");
 const { minimatch } = require("minimatch");
 const YAML = require("yaml");
+const { loadConfig } = require("../src/config.js");
 const { evaluateCI } = require("../src/merge-ci.js");
 const { MAX_API_COLLECTION_ITEMS, MAX_CHANGED_FILES } = require("../src/limits.js");
+const { goldenCases, resultCode } = require("./helpers/merge-ci-golden.js");
+const golden = require("./fixtures/merge-ci/golden-809294d.json");
 
 const HEAD = "a".repeat(40);
 const OLD_HEAD = "b".repeat(40);
 const REPOSITORY = "nvidia/k8s-test-infra";
 const WORKFLOWS = ["basic-checks.yaml", "validate-changelog.yaml", "automation-ci.yml", "helm.yaml", "dependency-integrity.yaml", "deploy-pages.yaml"];
+const requiredCI = loadConfig(path.resolve(__dirname, "../../../..")).policy.merge.requiredCI;
 
 function run(workflow, overrides = {}) {
   return {
@@ -32,7 +36,7 @@ function evidence(overrides = {}) {
   return {
     repository: REPOSITORY, prNumber: 42, headOid: HEAD, baseBranch: "main",
     files: [{ path: "pkg/code.go" }],
-    runs: [run("basic-checks.yaml"), run("validate-changelog.yaml")], checks: [dco()],
+    runs: [run("basic-checks.yaml"), run("validate-changelog.yaml")], checks: [dco()], requiredCI,
     ...overrides,
   };
 }
@@ -47,6 +51,49 @@ function unmappedEvidence(overrides = {}) {
     ...overrides,
   });
 }
+
+test("policy requiredCI reproduces the 809294d hard-coded requirements for every golden case", () => {
+  const cases = goldenCases();
+  assert.deepEqual(cases.map(({ key }) => key), Object.keys(golden));
+  for (const { key, inputs } of cases) {
+    const actual = inputs.map((input) => resultCode(evaluateCI, { ...input, requiredCI })).join("");
+    assert.equal(actual, golden[key], key);
+  }
+});
+
+test("required workflows and checks come from the policy, not a built-in list", () => {
+  const basic = { path: ".github/workflows/basic-checks.yaml" };
+  const changelog = { path: ".github/workflows/validate-changelog.yaml" };
+  const dcoCheck = { name: "DCO", appId: 1861 };
+  assert.equal(evaluateCI(evidence({
+    runs: [run("basic-checks.yaml")], requiredCI: { workflows: [basic], checks: [dcoCheck] },
+  })), "SUCCESS");
+  assert.equal(evaluateCI(evidence({
+    requiredCI: { workflows: [basic, changelog, { path: ".github/workflows/ci.yaml" }], checks: [dcoCheck] },
+  })), "PENDING");
+  assert.equal(evaluateCI(evidence({
+    runs: [run("validate-changelog.yaml")],
+    requiredCI: { workflows: [{ ...basic, files: ["docs/**"] }, changelog], checks: [dcoCheck] },
+  })), "SUCCESS");
+  const withCla = { workflows: [basic, changelog], checks: [dcoCheck, { name: "license/cla", appId: 9 }] };
+  assert.equal(evaluateCI(evidence({ requiredCI: withCla })), "PENDING");
+  assert.equal(evaluateCI(evidence({
+    requiredCI: withCla, checks: [dco(), dco({ id: 101, name: "license/cla", appId: 9 })],
+  })), "SUCCESS");
+  assert.equal(evaluateCI(evidence({
+    requiredCI: withCla, checks: [dco(), dco({ id: 101, name: "license/cla", appId: 9, conclusion: "failure" })],
+  })), "FAILED");
+});
+
+test("evaluation fails closed without a well-formed required CI definition", () => {
+  for (const override of [
+    { requiredCI: undefined }, { requiredCI: null }, { requiredCI: [] },
+    { requiredCI: { workflows: requiredCI?.workflows } },
+    { requiredCI: { workflows: [{ files: ["docs/**"] }], checks: [{ name: "DCO", appId: 1861 }] } },
+    { requiredCI: { workflows: [{ path: ".github/workflows/basic-checks.yaml", files: "docs/**" }], checks: [] } },
+    { requiredCI: { workflows: [], checks: [{ name: "DCO", appId: "1861" }] } },
+  ]) assert.throws(() => evaluateCI(evidence(override)), TypeError, JSON.stringify(override));
+});
 
 test("requires both broad workflows and DCO instead of passing empty evidence", () => {
   assert.equal(evaluateCI(evidence()), "SUCCESS");

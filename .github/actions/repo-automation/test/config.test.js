@@ -153,6 +153,86 @@ test("loads exact authority, branch, review, command, bot, and size policy", () 
   assert.deepEqual(policy.sizeThresholds, { S: 0, M: 50, L: 250, XL: 1000 });
 });
 
+test("declares the required CI that merge-ci.js hard-coded at 809294d", () => {
+  const { policy } = loadConfig(repositoryRoot);
+
+  assert.deepEqual(policy.merge.requiredCI, {
+    workflows: [
+      { path: ".github/workflows/basic-checks.yaml" },
+      { path: ".github/workflows/validate-changelog.yaml" },
+      {
+        path: ".github/workflows/automation-ci.yml",
+        files: [
+          ".github/actions/repo-automation/**", ".github/repo-automation/**", ".github/workflows/**",
+          "hack/actionlint.sh", "Makefile", "OWNERS", "OWNERS_ALIASES",
+        ],
+      },
+      {
+        path: ".github/workflows/helm.yaml",
+        files: ["deployments/nvml-mock/helm/**", "deployments/mokka-crds/helm/**"],
+      },
+      {
+        path: ".github/workflows/dependency-integrity.yaml",
+        files: ["go.mod", "go.sum", "Makefile", ".github/workflows/dependency-integrity.yaml"],
+      },
+      {
+        path: ".github/workflows/deploy-pages.yaml",
+        files: ["docs/**", "mkdocs.yml", "requirements-docs.txt", "Makefile", ".github/workflows/deploy-pages.yaml"],
+      },
+    ],
+    checks: [{ name: "DCO", appId: 1861 }],
+  });
+});
+
+test("rejects an invalid required CI definition with an exact message", async (t) => {
+  const valid = loadConfig(repositoryRoot);
+  const workflow = (path, files) => (files === undefined ? { path } : { path, files });
+  const basic = ".github/workflows/basic-checks.yaml";
+  const cases = [
+    [undefined, "policy.merge.requiredCI: must be an object"],
+    [{ workflows: [workflow(basic)], checks: [{ name: "DCO", appId: 1861 }], extra: true },
+      "policy.merge.requiredCI.extra: unknown key"],
+    [{ workflows: [], checks: [{ name: "DCO", appId: 1861 }] },
+      "policy.merge.requiredCI.workflows: must be a non-empty array"],
+    [{ workflows: [workflow("../workflows/hostile.yml")], checks: [{ name: "DCO", appId: 1861 }] },
+      "policy.merge.requiredCI.workflows[0].path: must be a unique safe workflow path"],
+    [{ workflows: [workflow(basic), workflow(basic)], checks: [{ name: "DCO", appId: 1861 }] },
+      "policy.merge.requiredCI.workflows[1].path: must be a unique safe workflow path"],
+    [{ workflows: [{ path: basic, name: "basic" }], checks: [{ name: "DCO", appId: 1861 }] },
+      "policy.merge.requiredCI.workflows[0].name: unknown key"],
+    [{ workflows: [workflow(basic, [])], checks: [{ name: "DCO", appId: 1861 }] },
+      "policy.merge.requiredCI.workflows[0].files: must be a non-empty array"],
+    [{ workflows: [workflow(basic, ["/docs/**"])], checks: [{ name: "DCO", appId: 1861 }] },
+      "policy.merge.requiredCI.workflows[0].files[0]: must be a unique safe path pattern"],
+    [{ workflows: [workflow(basic, ["docs/../go.mod"])], checks: [{ name: "DCO", appId: 1861 }] },
+      "policy.merge.requiredCI.workflows[0].files[0]: must be a unique safe path pattern"],
+    [{ workflows: [workflow(basic, ["!docs/**"])], checks: [{ name: "DCO", appId: 1861 }] },
+      "policy.merge.requiredCI.workflows[0].files[0]: must be a unique safe path pattern"],
+    [{ workflows: [workflow(basic, ["go.mod", "go.mod"])], checks: [{ name: "DCO", appId: 1861 }] },
+      "policy.merge.requiredCI.workflows[0].files[1]: must be a unique safe path pattern"],
+    [{ workflows: [workflow(basic)], checks: [] },
+      "policy.merge.requiredCI.checks: must be a non-empty array"],
+    [{ workflows: [workflow(basic)], checks: [{ name: "DCO", appId: 0 }] },
+      "policy.merge.requiredCI.checks[0].appId: must be a positive integer"],
+    [{ workflows: [workflow(basic)], checks: [{ name: "", appId: 1861 }] },
+      "policy.merge.requiredCI.checks[0].name: must be a non-empty string"],
+    [{ workflows: [workflow(basic)], checks: [{ name: "DCO\n", appId: 1861 }] },
+      "policy.merge.requiredCI.checks[0].name: must be safe text of at most 255 characters"],
+    [{ workflows: [workflow(basic)], checks: [{ name: "DCO", appId: 1861 }, { name: "DCO", appId: 1861 }] },
+      "policy.merge.requiredCI.checks[1]: must be unique"],
+  ];
+  for (const [requiredCI, message] of cases) {
+    await t.test(message, () => {
+      const merge = { method: "SQUASH" };
+      if (requiredCI !== undefined) merge.requiredCI = requiredCI;
+      assert.throws(() => validateConfig({ ...valid, policy: { ...valid.policy, merge } }), {
+        name: "ConfigError",
+        message: `Invalid repository automation configuration:\n- ${message}`,
+      });
+    });
+  }
+});
+
 test("rejects invalid label metadata with path-specific errors instead of defaulting", () => {
   const config = {
     ...loadConfig(repositoryRoot),
