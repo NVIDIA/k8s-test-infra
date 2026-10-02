@@ -4,7 +4,7 @@ const POLICY_COMMENT_MARKER = "<!-- repo-automation-policy:v1 -->";
 const STATE_MARKER_INTRODUCTION = "<!-- repo-automation-state:";
 const STATE_MARKER_PATTERN = /<!-- repo-automation-state:v2 [^\r\n]* -->/g;
 const METADATA_HEAD_MARKER_INTRODUCTION = "<!-- repo-automation-metadata-head:";
-const METADATA_HEAD_MARKER_PATTERN = /<!-- repo-automation-metadata-head:v1 ([^\r\n]*) -->/g;
+const METADATA_HEAD_MARKER_PATTERN = /<!-- repo-automation-metadata-head:v2 ([^\r\n]*) -->/g;
 const COMMAND_SECTION_START = "<!-- repo-automation-command-summary:v1:start -->";
 const COMMAND_SECTION_END = "<!-- repo-automation-command-summary:v1:end -->";
 const SAFE_LOGIN = /^(?!.*--)[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
@@ -150,10 +150,18 @@ function preservedState(existingBody) {
 
 function renderPolicyComment(result, existingBody = null) {
   const value = validateResult(result);
+  // The display default for configuration is not evidence that it was checked.
+  const metadataValid = value.valid === true
+    && result.configuration?.valid === true
+    && value.title.valid === true
+    && value.dco.valid === true
+    && value.ownership.valid === true;
   const lines = [
     POLICY_COMMENT_MARKER,
     ...(preservedState(existingBody) === null ? [] : [preservedState(existingBody)]),
-    `<!-- repo-automation-metadata-head:v1 ${markerJson({ headOid: value.headOid })} -->`,
+    ...(metadataValid
+      ? [`<!-- repo-automation-metadata-head:v2 ${markerJson({ headOid: value.headOid, valid: true })} -->`]
+      : []),
     "## PR metadata policy",
     "",
     `Head: ${code(value.headOid)}`,
@@ -175,11 +183,12 @@ function parseMetadataHeadEvidence(commentBody) {
     const value = JSON.parse(matches[0][1]);
     if (
       !isRecord(value)
-      || Object.keys(value).length !== 1
+      || Object.keys(value).length !== 2
       || typeof value.headOid !== "string"
+      || value.valid !== true
     ) return null;
     const headOid = safeText(value.headOid, "metadata head OID", 160);
-    const canonical = `<!-- repo-automation-metadata-head:v1 ${markerJson({ headOid })} -->`;
+    const canonical = `<!-- repo-automation-metadata-head:v2 ${markerJson({ headOid, valid: true })} -->`;
     return canonical === matches[0][0] ? headOid : null;
   } catch {
     return null;

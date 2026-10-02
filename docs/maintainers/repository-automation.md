@@ -87,12 +87,21 @@ changed head or base tip defers the request and preserves its labels.
 PR branch updates (`synchronize`) also trigger this scan. The event's `before`
 and `after` SHAs do not replace the live head, base tip, or mergeability checks.
 
-The label-only metadata scan repairs `kind/*`, `size/*`, `area/*`, and
+The metadata scan repairs `kind/*`, `size/*`, `area/*`, and
 `do-not-merge/work-in-progress`. It uses the same classifiers as PR metadata.
 An invalid title preserves existing kind labels; size, area, and draft labels
 can still be repaired. Invalid configuration preserves all existing labels.
-The scan does not request reviewers or post comments. It preserves conflict,
+The scan refreshes the trusted policy comment even when labels already match.
+It validates configuration, title, DCO, and OWNERS before it emits current-head
+metadata evidence. Failed validation removes that evidence and records the
+diagnostics. It does not request reviewers. It preserves conflict,
 approval, hold, and other labels outside its metadata ownership.
+
+The refresh preserves valid command state, including a hold, from the same
+trusted bot comment. Duplicate comments, invalid state, or a changed comment
+stop the refresh. The API has no atomic compare-and-swap for comments; the
+workflow concurrency group and the final comment read limit the remaining
+read-to-write race.
 
 Both scans fully read their candidate list before the first mutation and
 reject a list above 100 requests instead of silently omitting requests. They
@@ -105,8 +114,9 @@ the job-log API. A later API failure reports earlier writes; it does not claim
 that they were rolled back. Review both reports and the current open list before
 declaring a sweep complete. Investigate every deferred, failed, or missing request.
 
-On native events, an initially correct metadata label set needs no fresh write checks. If a
-successful label update is still absent at the next read, the scan stops and
+An initially correct metadata label set still needs fresh evidence and input
+checks. The scan verifies the stored comment and final labels, then repeats its
+live input checks. If a successful label update is still absent at the next read, the scan stops and
 reports the partial result instead of repeating the same update. The hourly
 schedule limits routine API use; the workflow token's actual rate limit is
 not assumed. A large first backfill can require another run after an API
@@ -122,6 +132,15 @@ evaluator for the bounded open pull request set. The evaluator reads current
 reviews, metadata, and source CI before it sets approval labels and the
 merge-policy check. With the merge flag enabled, an eligible request can also
 receive native SQUASH auto-merge.
+
+The evaluator accepts only canonical v2 metadata evidence with an explicit
+successful validation result. It rejects legacy or ambiguous evidence and
+checks the live title and DCO against the checked-out policy. The exact trusted
+checkout revision must match the live default branch before and after each
+policy evaluation. A revision change blocks the merge policy and disarms native
+auto-merge on the same head when possible. The final read of a confirmed
+exact-head completed native merge needs no new policy evaluation and performs
+no further writes.
 
 A trusted **Review observer** completion normally evaluates its mapped pull
 requests. If GitHub returns a valid empty PR mapping, the evaluator reads the

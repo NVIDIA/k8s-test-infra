@@ -2,14 +2,11 @@
 
 const { deriveAreaLabels } = require("../areas.js");
 const { verifyApproverAuthor } = require("../author-approval.js");
-const { validateConfig } = require("../config.js");
-const { evaluateDco } = require("../dco.js");
+const { configurationResult, safeConfigurationComputation, readMetadataEvidence } = require("../metadata-evidence.js");
 const { asciiLower, isManagedMetadataLabel } = require("../managed-labels.js");
-const { parseAliases, parseOwnersFile, resolveOwners } = require("../owners.js");
 const { POLICY_COMMENT_MARKER, renderPolicyComment } = require("../policy-comment.js");
 const { selectReviewers } = require("../reviewer-selection.js");
 const { classifySize } = require("../size.js");
-const { classifyTitle } = require("../title.js");
 
 const GITHUB_LOGIN = /^(?!.*--)[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
 const REPOSITORY_NAME = /^[A-Za-z0-9_.-]{1,100}$/;
@@ -51,22 +48,6 @@ function eventIdentity(event) {
   return { owner: owner.toLowerCase(), repo: repo.toLowerCase(), prNumber };
 }
 
-function activeOwnerPaths(config) {
-  const values = config?.policy?.activeOwnerFiles;
-  if (!Array.isArray(values)) return [];
-  const paths = [];
-  for (const value of values) {
-    if (
-      typeof value !== "string"
-      || !/^\/(?:[A-Za-z0-9_.-]+\/)*OWNERS$/.test(value)
-    ) {
-      continue;
-    }
-    if (!paths.includes(value)) paths.push(value);
-  }
-  return paths.sort();
-}
-
 function labelPlan(current, desired) {
   if (
     !Array.isArray(current)
@@ -91,15 +72,6 @@ function labelPlan(current, desired) {
       .map(([, label]) => label)
       .sort(),
   };
-}
-
-function configurationResult(config) {
-  try {
-    validateConfig(config);
-    return { valid: true, error: null };
-  } catch {
-    return { valid: false, error: "repository automation configuration is invalid" };
-  }
 }
 
 function changedLineTotals(files) {
@@ -128,15 +100,6 @@ function desiredMetadataLabels({ title, size, areas, draft }) {
     ...areas,
     ...(draft ? ["do-not-merge/work-in-progress"] : []),
   ];
-}
-
-function safeConfigurationComputation(configuration, operation, fallback) {
-  try {
-    return operation();
-  } catch (error) {
-    if (configuration.valid) throw error;
-    return fallback;
-  }
 }
 
 function policyFailureNames(result) {
@@ -191,7 +154,6 @@ async function runMetadata({ event, github, config, dryRun }) {
   if (typeof dryRun !== "boolean") throw new TypeError("dryRun must be a boolean");
   const identity = eventIdentity(event);
   const configuration = configurationResult(config);
-  const ownerPaths = activeOwnerPaths(config);
 
   const pullRequest = await github.getPullRequest(identity.prNumber);
   validateLivePullRequest(pullRequest, identity);
@@ -208,19 +170,9 @@ async function runMetadata({ event, github, config, dryRun }) {
   }
 
   const defaultBranchRevision = await github.getDefaultBranchRevision();
-  const ownerSources = [];
-  for (const path of ownerPaths) {
-    ownerSources.push({
-      path,
-      source: await github.getContentAtRevision(path, defaultBranchRevision),
-    });
-  }
-  const aliasSource = await github.getContentAtRevision(
-    "/OWNERS_ALIASES",
-    defaultBranchRevision,
-  );
-
-  const title = classifyTitle(pullRequest.title);
+  const { title, dco, ownership, ownershipResolution, authorIsHuman, authorPaths } = await readMetadataEvidence({
+    github, config, pullRequest, files, commits, configuration, policyRevision: defaultBranchRevision,
+  });
   const totals = changedLineTotals(files);
   const size = safeConfigurationComputation(
     configuration,
@@ -232,42 +184,6 @@ async function runMetadata({ event, github, config, dryRun }) {
     () => deriveAreaLabels(files.map((file) => file.path), config.areas),
     [],
   );
-  const evaluatedDco = safeConfigurationComputation(
-    configuration,
-    () => evaluateDco(commits, config.policy.bots),
-    { valid: false, failures: [], exempted: [] },
-  );
-  const dco = {
-    valid: evaluatedDco.valid,
-    failures: evaluatedDco.failures.map(({ sha }) => ({
-      sha,
-      reason: "missing or mismatched Signed-off-by trailer",
-    })),
-    exempted: [...evaluatedDco.exempted],
-  };
-
-  const ownershipResolution = safeConfigurationComputation(configuration, () => {
-    const aliases = parseAliases(aliasSource);
-    const declarations = ownerSources.map(({ path, source }) => parseOwnersFile(source, path));
-    return resolveOwners(files.map((file) => file.path), declarations, aliases, {
-      activeOwnerFiles: ownerPaths,
-      pullRequestAuthor: pullRequest.author,
-    });
-  }, {
-    files: files.map((file) => ({ path: file.path, reviewers: [], approvers: [] })),
-    reviewerCandidates: [],
-    approverCandidates: [],
-    uncoveredPaths: files.map((file) => file.path).sort(),
-    authorApprovalPaths: [],
-  });
-  const authorIsHuman = await verifyApproverAuthor(github, ownershipResolution, pullRequest.author);
-  const authorPaths = new Set(authorIsHuman ? ownershipResolution.authorApprovalPaths : []);
-  const uncoveredPaths = ownershipResolution.uncoveredPaths.filter((path) => !authorPaths.has(path));
-  const ownership = {
-    valid: uncoveredPaths.length === 0,
-    uncoveredPaths,
-  };
-
   const reviewerSelection = safeConfigurationComputation(configuration, () => selectReviewers({
     candidates: ownershipResolution.reviewerCandidates,
     files: files.map((file) => ({
