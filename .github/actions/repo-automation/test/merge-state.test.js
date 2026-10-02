@@ -63,9 +63,9 @@ function assertBlocked(overrides, blocker) {
   }
 }
 
-test("leaves eligible pull requests for a human native auto-merge decision", () => {
+test("arms eligible unarmed pull requests and preserves native SQUASH requests", () => {
   const expected = new Map([
-    [null, { action: "NOOP", blockers: [] }],
+    [null, { action: "ENABLE", blockers: [] }],
     ["SQUASH", { action: "NOOP", blockers: [] }],
     ["MERGE", { action: "DISABLE", blockers: ["auto-merge-method-mismatch"] }],
     ["REBASE", { action: "DISABLE", blockers: ["auto-merge-method-mismatch"] }],
@@ -135,14 +135,10 @@ test("requires metadata bound to the current head and no upstream load error", (
   assertBlocked({ loadError: true }, "load-error");
 });
 
-test("lets GitHub enforce required checks for success, pending, and failed CI", () => {
-  for (const ciState of ["SUCCESS", "PENDING", "FAILED"]) {
-    assert.deepEqual(decide({ ciState }), { action: "NOOP", blockers: [] });
-    assert.deepEqual(decide({ ciState, autoMergeMethod: "SQUASH" }), {
-      action: "NOOP",
-      blockers: [],
-    });
-  }
+test("requires successful current source CI before arming or retaining auto-merge", () => {
+  assert.deepEqual(decide({ ciState: "SUCCESS" }), { action: "ENABLE", blockers: [] });
+  assertBlocked({ ciState: "PENDING" }, "ci-pending");
+  assertBlocked({ ciState: "FAILED" }, "ci-failed");
 });
 
 test("blocks an observed or final head mismatch immediately before mutation", () => {
@@ -151,7 +147,7 @@ test("blocks an observed or final head mismatch immediately before mutation", ()
 
 test("display labels cannot forge LGTM or approval authority", () => {
   assert.deepEqual(decide({ labels: ["lgtm", "approved"] }), {
-    action: "NOOP",
+    action: "ENABLE",
     blockers: [],
   });
 
@@ -210,7 +206,7 @@ test("normalizes hexadecimal OID case and supports exact 40- and 64-character he
     metadataHeadOid: HEAD.toUpperCase(),
     approvalHeadOid: HEAD,
     lgtm: lgtm(HEAD.toUpperCase()),
-  }), { action: "NOOP", blockers: [] });
+  }), { action: "ENABLE", blockers: [] });
 
   assert.deepEqual(decide({
     headOid: HEAD_64.toUpperCase(),
@@ -218,7 +214,7 @@ test("normalizes hexadecimal OID case and supports exact 40- and 64-character he
     metadataHeadOid: HEAD_64.toUpperCase(),
     approvalHeadOid: HEAD_64,
     lgtm: lgtm(HEAD_64.toUpperCase()),
-  }), { action: "NOOP", blockers: [] });
+  }), { action: "ENABLE", blockers: [] });
 
   assertBlocked({
     headOid: HEAD_64,
@@ -625,11 +621,15 @@ test("never reflects unsafe attacker-controlled text in blockers", () => {
   }
 });
 
-test("keeps CI diagnostic-only while an unsupported human auto-merge method is disarmed", () => {
-  for (const ciState of ["SUCCESS", "PENDING", "FAILED"]) {
+test("retains CI blockers while an unsupported auto-merge method is disarmed", () => {
+  for (const [ciState, blockers] of [
+    ["SUCCESS", ["auto-merge-method-mismatch"]],
+    ["PENDING", ["ci-pending", "auto-merge-method-mismatch"]],
+    ["FAILED", ["ci-failed", "auto-merge-method-mismatch"]],
+  ]) {
     assert.deepEqual(decide({ ciState, autoMergeMethod: "MERGE" }), {
       action: "DISABLE",
-      blockers: ["auto-merge-method-mismatch"],
+      blockers,
     });
   }
 });

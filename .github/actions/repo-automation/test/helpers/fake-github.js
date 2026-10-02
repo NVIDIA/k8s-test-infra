@@ -78,6 +78,7 @@ function createFakeGitHub(initialState = []) {
     rerunFailedJobs: [],
     listOpenPullRequestNumbers: [],
     getMergeState: [],
+    getCIState: [],
     getBranchProtection: [],
     getBranch: [],
     findMokkaPullRequests: [],
@@ -309,6 +310,13 @@ function createFakeGitHub(initialState = []) {
       return options.branchProtection?.[branch] ?? false;
     },
 
+    async getCIState(parameters) {
+      record("getCIState", parameters);
+      const states = options.ciStates ?? ["SUCCESS"];
+      const index = Math.min(calls.getCIState.length - 1, states.length - 1);
+      return clone(states[index]);
+    },
+
     async getBranch(branch) {
       record("getBranch", { branch });
       if (!Object.hasOwn(branches, branch)) return null;
@@ -370,8 +378,16 @@ function createFakeGitHub(initialState = []) {
       record("setMergePolicyCheck", { prNumber, headOid, conclusion, summary });
     },
 
-    async enableAutoMerge(nodeId, mergeMethod) {
-      record("enableAutoMerge", { nodeId, mergeMethod });
+    async enableAutoMerge(nodeId, mergeMethod, expectedHeadOid) {
+      record("enableAutoMerge", { nodeId, mergeMethod, expectedHeadOid });
+      if (calls.setMergePolicyCheck.at(-1)?.conclusion !== "action_required") {
+        throw new Error("native enable requires a blocking policy check");
+      }
+      for (const state of mergeStates) {
+        if (state.nodeId === nodeId && state.headOid === expectedHeadOid && state.autoMergeMethod === null) {
+          state.autoMergeMethod = mergeMethod;
+        }
+      }
     },
 
     async disableAutoMerge(nodeId) {

@@ -178,7 +178,40 @@ function validatePullRequest(pullRequest, number, repository) {
     || pullRequest.baseRepository?.owner?.toLowerCase() !== repository.owner
     || pullRequest.baseRepository?.repo?.toLowerCase() !== repository.repo
   ) throw new Error("live pull request state or base repository is invalid");
+  sourceRepository(pullRequest);
+  if (pullRequest.headBranch != null && (
+    typeof pullRequest.headBranch !== "string"
+    || pullRequest.headBranch.length === 0
+    || pullRequest.headBranch.length > 255
+    || /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(pullRequest.headBranch)
+    || pullRequest.headBranch === "@"
+    || pullRequest.headBranch === "HEAD"
+    || pullRequest.headBranch.startsWith("-")
+    || pullRequest.headBranch.startsWith("/")
+    || pullRequest.headBranch.endsWith(".")
+    || pullRequest.headBranch.endsWith("/")
+    || pullRequest.headBranch.includes("..")
+    || pullRequest.headBranch.includes("@{")
+    || pullRequest.headBranch.includes("//")
+    || /(?:^|\/)\./.test(pullRequest.headBranch)
+    || /[ ~^:?*[\]\\]/.test(pullRequest.headBranch)
+    || pullRequest.headBranch.split("/").some((segment) => segment.endsWith(".lock"))
+  )) throw new TypeError("live pull request source branch is invalid");
   return pullRequest;
+}
+
+function sourceRepository(pullRequest) {
+  if (pullRequest.headRepository == null) return null;
+  const { owner, repo } = pullRequest.headRepository;
+  if (
+    typeof owner !== "string"
+    || !LOGIN.test(owner)
+    || typeof repo !== "string"
+    || !REPOSITORY.test(repo)
+    || repo === "."
+    || repo === ".."
+  ) throw new TypeError("live pull request source repository is invalid");
+  return `${owner}/${repo}`.toLowerCase();
 }
 
 function validateGraphState(state, pullRequest, repository) {
@@ -199,15 +232,21 @@ function validateGraphState(state, pullRequest, repository) {
   return state;
 }
 
-function sameHeadIdentity(left, right) {
+function samePullRequestHead(left, right) {
   return right !== null
     && left.number === right.number
-    && left.state === right.state
     && left.headOid === right.headOid
-    && left.baseBranch === right.baseBranch
     && left.nodeId === right.nodeId
     && left.baseRepository.owner.toLowerCase() === right.baseRepository.owner.toLowerCase()
     && left.baseRepository.repo.toLowerCase() === right.baseRepository.repo.toLowerCase();
+}
+
+function sameHeadIdentity(left, right) {
+  return samePullRequestHead(left, right)
+    && left.state === right.state
+    && left.baseBranch === right.baseBranch
+    && sourceRepository(left) === sourceRepository(right)
+    && (left.headBranch ?? null) === (right.headBranch ?? null);
 }
 
 function branchAllowed(branch, configured) {
@@ -386,6 +425,7 @@ async function loadAuthority({ github, config, repository, pullRequest }) {
   ]);
   const hold = parsed.state === null ? null : currentHold(parsed.state, context);
   return {
+    files,
     labels,
     lgtm: lgtms[0] ?? reviewEvidence.lgtms[0] ?? null,
     lgtmOwned: parsed.state !== null || reviewEvidence.lgtms.length > 0,
@@ -423,7 +463,7 @@ function effectivePolicyLabels(labels, authority) {
   return unmanaged;
 }
 
-function toMergeDecision({ config, pullRequest, graph, authority, protectedBranch }) {
+function toMergeDecision({ config, pullRequest, graph, authority, protectedBranch, ciState }) {
   return decideMergeAction({
     pullRequestState: graph.state === "OPEN" ? "OPEN" : "CLOSED",
     draft: graph.draft,
@@ -446,7 +486,7 @@ function toMergeDecision({ config, pullRequest, graph, authority, protectedBranc
     mergeability: graph.mergeability,
     labels: effectivePolicyLabels(authority.labels, authority),
     loadError: false,
-    ciState: "PENDING",
+    ciState,
     autoMergeMethod: graph.autoMergeMethod,
   });
 }
@@ -469,6 +509,17 @@ async function loadEvaluation({ github, config, repository, number }) {
   if (typeof protectedBranch !== "boolean") {
     throw new TypeError("branch protection state is invalid");
   }
+  const ciState = await github.getCIState({
+    prNumber: number,
+    headOid: pullRequest.headOid,
+    baseBranch: pullRequest.baseBranch,
+    files: authority.files,
+    ...(pullRequest.headRepository == null ? {} : { headRepository: sourceRepository(pullRequest) }),
+    ...(pullRequest.headBranch == null ? {} : { headBranch: pullRequest.headBranch }),
+  });
+  if (!["SUCCESS", "PENDING", "FAILED"].includes(ciState)) {
+    throw new TypeError("source CI state is invalid");
+  }
   const labels = labelPlan(authority.labels, authority);
   return {
     pullRequest,
@@ -476,7 +527,7 @@ async function loadEvaluation({ github, config, repository, number }) {
     authority,
     labels,
     protectedBranch,
-    merge: toMergeDecision({ config, pullRequest, graph, authority, protectedBranch }),
+    merge: toMergeDecision({ config, pullRequest, graph, authority, protectedBranch, ciState }),
   };
 }
 
@@ -654,8 +705,15 @@ async function applyPermissive({ github, config, repository, evaluation, dryRun 
   }
   if (dryRun) return resultFor(reread);
 
+  // GitHub requires a blocking requirement while native auto-merge is enabled.
+  await github.setMergePolicyCheck(
+    reread.pullRequest.number,
+    reread.pullRequest.headOid,
+    "action_required",
+    "Repository merge policy is preparing native SQUASH auto-merge.",
+  );
   await applyLabels(github, reread.pullRequest.number, reread.labels);
-  const beforeSuccess = await loadEvaluation({
+  let beforeSuccess = await loadEvaluation({
     github,
     config,
     repository,
@@ -670,6 +728,31 @@ async function applyPermissive({ github, config, repository, evaluation, dryRun 
   if (beforeSuccess.merge.blockers.length > 0) {
     return applyRestrictive({ github, repository, evaluation: beforeSuccess, dryRun });
   }
+  const enabled = beforeSuccess.merge.action === "ENABLE";
+  if (enabled) {
+    await github.enableAutoMerge(
+      beforeSuccess.graph.nodeId,
+      "SQUASH",
+      beforeSuccess.pullRequest.headOid,
+    );
+    const afterEnable = await loadEvaluation({
+      github,
+      config,
+      repository,
+      number: beforeSuccess.pullRequest.number,
+    });
+    if (
+      !sameHeadIdentity(beforeSuccess.pullRequest, afterEnable.pullRequest)
+      || afterEnable.graph.headOid !== beforeSuccess.pullRequest.headOid
+    ) return headChangedResult(beforeSuccess);
+    if (afterEnable.merge.blockers.length > 0) {
+      return applyRestrictive({ github, repository, evaluation: afterEnable, dryRun });
+    }
+    if (afterEnable.graph.autoMergeMethod !== "SQUASH") {
+      throw new Error("native SQUASH auto-merge was not retained");
+    }
+    beforeSuccess = afterEnable;
+  }
   await github.setMergePolicyCheck(
     beforeSuccess.pullRequest.number,
     beforeSuccess.pullRequest.headOid,
@@ -682,16 +765,40 @@ async function applyPermissive({ github, config, repository, evaluation, dryRun 
     repository,
     number: beforeSuccess.pullRequest.number,
   });
+  const completedDecision = enabled ? { action: "ENABLE", blockers: [] } : finalEvaluation.merge;
+  if (
+    finalEvaluation.pullRequest.state === "closed"
+    && finalEvaluation.pullRequest.merged === true
+    && finalEvaluation.graph.state === "MERGED"
+    && finalEvaluation.graph.headOid === beforeSuccess.pullRequest.headOid
+    && sameHeadIdentity(
+      { ...beforeSuccess.pullRequest, state: "closed" },
+      finalEvaluation.pullRequest,
+    )
+  ) return resultFor(finalEvaluation, { action: enabled ? "ENABLE" : "NOOP", blockers: [] });
   if (
     !sameHeadIdentity(beforeSuccess.pullRequest, finalEvaluation.pullRequest)
     || finalEvaluation.graph.headOid !== beforeSuccess.pullRequest.headOid
   ) {
+    if (
+      samePullRequestHead(beforeSuccess.pullRequest, finalEvaluation.pullRequest)
+      && finalEvaluation.graph.headOid === beforeSuccess.pullRequest.headOid
+    ) {
+      const changedEvaluation = {
+        ...finalEvaluation,
+        merge: {
+          action: finalEvaluation.graph.autoMergeMethod === null ? "NOOP" : "DISABLE",
+          blockers: [...new Set([...finalEvaluation.merge.blockers, "head-changed"])],
+        },
+      };
+      return applyRestrictive({ github, repository, evaluation: changedEvaluation, dryRun });
+    }
     return headChangedResult(beforeSuccess);
   }
   if (finalEvaluation.merge.blockers.length > 0) {
     return applyRestrictive({ github, repository, evaluation: finalEvaluation, dryRun });
   }
-  return resultFor(finalEvaluation);
+  return resultFor(finalEvaluation, completedDecision);
 }
 
 async function reconcile({ github, config, repository, number, dryRun }) {

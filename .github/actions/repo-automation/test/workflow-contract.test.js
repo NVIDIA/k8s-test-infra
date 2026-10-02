@@ -122,7 +122,7 @@ test("metadata and command workflows use exact trusted code", () => {
   assert.equal(commands.jobs.backport.strategy.matrix.request, "${{ fromJSON(needs.command.outputs.backport-requests) }}");
 });
 
-test("review observation and merge evaluation use bounded events", () => {
+test("review observation and native merge evaluation use bounded events and trusted code", () => {
   const observer = readWorkflow("review-observer.yml").workflow;
   assert.deepEqual(observer.on, {
     pull_request_review: { types: ["submitted", "edited", "dismissed"] },
@@ -141,11 +141,16 @@ test("review observation and merge evaluation use bounded events", () => {
   assert.deepEqual(evaluator.permissions, {});
   assert.equal(evaluator.jobs.evaluate.if, activationGates.merge);
   assert.deepEqual(evaluator.jobs.evaluate.permissions, {
-    actions: "read", checks: "write", contents: "read", issues: "write", "pull-requests": "write",
+    actions: "read", checks: "write", contents: "write", issues: "write", "pull-requests": "write",
   });
   assert.deepEqual(evaluator.jobs.evaluate.concurrency, sharedConcurrency);
   assertTrustedCheckout(evaluator.jobs.evaluate);
-  assert.equal(actionStep(evaluator.jobs.evaluate, "merge-evaluate").with["control-directory"], "control");
+  assert.deepEqual(evaluator.jobs.evaluate.steps.map((step) => step.uses), [
+    githubScript, checkout, "./control/.github/actions/repo-automation",
+  ]);
+  const evaluation = actionStep(evaluator.jobs.evaluate, "merge-evaluate");
+  assert.equal(evaluation.with["control-directory"], "control");
+  assert.deepEqual(evaluation.env, { GITHUB_TOKEN: "${{ github.token }}" });
 });
 
 test("generic backport is reusable only and isolates its target checkout", () => {
