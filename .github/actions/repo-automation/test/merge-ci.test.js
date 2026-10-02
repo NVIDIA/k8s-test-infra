@@ -95,6 +95,37 @@ test("evaluation fails closed without a well-formed required CI definition", () 
   ]) assert.throws(() => evaluateCI(evidence(override)), TypeError, JSON.stringify(override));
 });
 
+test("evaluation rejects an empty workflow or check requirement list", () => {
+  for (const requirements of [
+    { workflows: [], checks: [{ name: "DCO", appId: 1861 }] },
+    { workflows: [{ path: ".github/workflows/basic-checks.yaml" }], checks: [] },
+  ]) {
+    assert.throws(() => evaluateCI(evidence({ requiredCI: requirements })), {
+      name: "TypeError",
+      message: "CI requirements must name at least one workflow and one check",
+    }, JSON.stringify(requirements));
+  }
+});
+
+test("portable requiredCI path patterns match as documented in policy.yml", () => {
+  const vectors = [
+    ["docs/**", "docs/a.md", true], ["docs/**", "docs/a/b.md", true], ["docs/**", "docs", false],
+    ["docs/**", "docsx/a.md", false], ["**/OWNERS", "OWNERS", true], ["**/OWNERS", "x/y/OWNERS", true],
+    ["a/**/b", "a/b", true], ["a/**/b", "a/x/y/b", true], ["a/**/b", "a/x/y/c", false],
+    ["*.yml", "mkdocs.yml", true], ["*.yml", "docs/mkdocs.yml", false], ["*", ".hidden", true],
+    ["*.test.*", "x.test.js", true], ["deployments/*/helm/**", "deployments/nvml-mock/helm/Chart.yaml", true],
+    ["deployments/*/helm/**", "deployments/a/b/helm/x", false], ["Makefile", "makefile", false],
+  ];
+  for (const [pattern, changedPath, matches] of vectors) {
+    const requirements = {
+      workflows: [{ path: ".github/workflows/basic-checks.yaml" }, { path: ".github/workflows/helm.yaml", files: [pattern] }],
+      checks: [{ name: "DCO", appId: 1861 }],
+    };
+    assert.equal(evaluateCI(evidence({ files: [{ path: changedPath }], requiredCI: requirements })),
+      matches ? "PENDING" : "SUCCESS", `${pattern} ${changedPath}`);
+  }
+});
+
 test("requires both broad workflows and DCO instead of passing empty evidence", () => {
   assert.equal(evaluateCI(evidence()), "SUCCESS");
   for (const override of [

@@ -210,6 +210,20 @@ test("rejects an invalid required CI definition with an exact message", async (t
       "policy.merge.requiredCI.workflows[0].files[0]: must be a unique safe path pattern"],
     [{ workflows: [workflow(basic, ["go.mod", "go.mod"])], checks: [{ name: "DCO", appId: 1861 }] },
       "policy.merge.requiredCI.workflows[0].files[1]: must be a unique safe path pattern"],
+    ...[
+      ["brace", "docs/{a,b}/**"],
+      ["extglob +()", "+(docs|site)/**"],
+      ["extglob @()", "@(docs)/guide.md"],
+      ["character class", "[d]ocs/**"],
+      ["question mark", "docs/?.md"],
+      ["** inside a segment", "docs/**.md"],
+      ["** prefixing a segment", "**docs/guide.md"],
+      ["literal outside the portable set", "docs/a b.md"],
+    ].map(([form, pattern]) => [
+      { workflows: [workflow(basic, ["go.mod", pattern])], checks: [{ name: "DCO", appId: 1861 }] },
+      "policy.merge.requiredCI.workflows[0].files[1]: must be a unique safe path pattern",
+      form,
+    ]),
     [{ workflows: [workflow(basic)], checks: [] },
       "policy.merge.requiredCI.checks: must be a non-empty array"],
     [{ workflows: [workflow(basic)], checks: [{ name: "DCO", appId: 0 }] },
@@ -221,8 +235,8 @@ test("rejects an invalid required CI definition with an exact message", async (t
     [{ workflows: [workflow(basic)], checks: [{ name: "DCO", appId: 1861 }, { name: "DCO", appId: 1861 }] },
       "policy.merge.requiredCI.checks[1]: must be unique"],
   ];
-  for (const [requiredCI, message] of cases) {
-    await t.test(message, () => {
+  for (const [requiredCI, message, form] of cases) {
+    await t.test(form === undefined ? message : `${form}: ${message}`, () => {
       const merge = { method: "SQUASH" };
       if (requiredCI !== undefined) merge.requiredCI = requiredCI;
       assert.throws(() => validateConfig({ ...valid, policy: { ...valid.policy, merge } }), {
@@ -231,6 +245,19 @@ test("rejects an invalid required CI definition with an exact message", async (t
       });
     });
   }
+});
+
+test("accepts portable required CI path patterns", () => {
+  const valid = loadConfig(repositoryRoot);
+  const files = ["**/OWNERS", "a/**/b", "*.test.*", ".github/**", "deployments/*/helm/**", "go.mod", "**"];
+  const merge = {
+    method: "SQUASH",
+    requiredCI: {
+      workflows: [{ path: ".github/workflows/basic-checks.yaml", files }],
+      checks: [{ name: "DCO", appId: 1861 }],
+    },
+  };
+  assert.deepEqual(validateConfig({ ...valid, policy: { ...valid.policy, merge } }).policy.merge.requiredCI.workflows[0].files, files);
 });
 
 test("rejects invalid label metadata with path-specific errors instead of defaulting", () => {
