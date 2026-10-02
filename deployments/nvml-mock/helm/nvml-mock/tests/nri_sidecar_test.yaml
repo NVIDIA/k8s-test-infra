@@ -338,6 +338,16 @@ tests:
   # location. A host path that disagrees with where the imex simulator writes
   # them makes the annotation a silent no-op, so pin it against the overlay
   # root.
+  - it: should pass the InfiniBand annotation to the plugin
+    set:
+      nri:
+        enabled: true
+        infinibandAnnotation: example.com/rdma
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --infiniband-annotation=example.com/rdma
+
   - it: should point IMEX channel injection at the staged channel directory
     set:
       nri:

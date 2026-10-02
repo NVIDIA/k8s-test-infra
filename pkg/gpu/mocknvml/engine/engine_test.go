@@ -509,6 +509,22 @@ func TestEngine_DeviceGetHandleByPciBusIdInvalid(t *testing.T) {
 
 // --- Visibility filtering tests ---
 
+// TestVisibility_ExplicitNoneHidesEveryDevice covers a container that loads the
+// mock only for its InfiniBand tools. With no /dev/nvidiaN present the engine
+// would otherwise show every configured GPU.
+func TestVisibility_ExplicitNoneHidesEveryDevice(t *testing.T) {
+	t.Setenv("MOCK_NVML_VISIBLE_DEVICES", " None ")
+	e := NewEngine(&Config{NumDevices: 4, DriverVersion: "550.54.15"})
+	require.Equal(t, nvml.SUCCESS, e.Init())
+	defer func() { _ = e.Shutdown() }()
+
+	count, ret := e.DeviceGetCount()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Zero(t, count)
+	_, ret = e.DeviceGetHandleByIndex(0)
+	require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret)
+}
+
 // TestDetectVisibleDevices_NonePresent verifies nil is returned when no device
 // nodes exist (typical host/driver-plugin context).
 func TestDetectVisibleDevices_NonePresent(t *testing.T) {

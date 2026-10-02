@@ -76,6 +76,9 @@ type Spec struct {
 	NodeSelector map[string]string
 	// GPUs, when positive, is requested as a GPU resource limit.
 	GPUs int
+	// Privileged runs the container privileged, so the runtime hands it every
+	// device on the node under a wildcard cgroup rule.
+	Privileged bool
 	// RestartPolicy defaults to DefaultRestartPolicy.
 	RestartPolicy string
 	// GracePeriodSeconds defaults to DefaultGracePeriodSeconds. Raise it only for

@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"unsafe"
 
@@ -716,8 +717,12 @@ func ResetForTesting() {
 //
 // Returns nil if ALL device nodes exist (no filtering needed) or if none
 // exist (host context where /dev/nvidia* may not be present but NVML should
-// still work).
+// still work). MOCK_NVML_VISIBLE_DEVICES=none hides every device instead, for a
+// container that loads the mock without being given GPUs.
 func detectVisibleDevices(config *Config) []int {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("MOCK_NVML_VISIBLE_DEVICES")), "none") {
+		return []int{}
+	}
 	return detectVisibleDevicesAt("/dev/nvidia%d", config)
 }
 
