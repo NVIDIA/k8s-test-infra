@@ -97,7 +97,7 @@ func TestAdjustSuppressesDeviceInjectionWhenDevicePluginServedContainer(t *testi
 			wantSuppression: true,
 		},
 		"device plugin already supplied an nvidia cdi device": {
-			container:       Container{CDIDevices: []string{"nvidia.com/gpu=0"}},
+			container:       Container{CDIDevices: []string{"k8s.device-plugin.nvidia.com/gpu=0"}},
 			wantSuppression: true,
 		},
 		// Discrimination: a container carrying an unrelated device must still get
@@ -288,7 +288,7 @@ func TestAdjustCDIModeStillSuppressesWhenDevicePluginServedContainer(t *testing.
 			IncomingDevices: []RuntimeDevice{{Path: "/dev/nvidia0", Type: "c", Major: 195, Minor: 0}},
 			DeviceRules:     []DeviceRule{{Allow: true, Type: "c", Major: int64Ptr(195), Minor: int64Ptr(0), Access: "rwm"}},
 		},
-		"cdi device from the device plugin": {CDIDevices: []string{"nvidia.com/gpu=0"}},
+		"cdi device from the device plugin": {CDIDevices: []string{"k8s.device-plugin.nvidia.com/gpu=0"}},
 	}
 
 	for name, container := range tests {

@@ -89,7 +89,7 @@ in the incoming container spec. Only these count as evidence:
 | Evidence | Produced by |
 |---|---|
 | A numbered `/dev/nvidiaN` character device **and** a cgroup rule allowing exactly that device | device plugin with `--pass-device-specs=true` |
-| A CDI device `nvidia.com/gpu=<id>` | device plugin with the `cdi-cri` device list strategy |
+| A CDI device `k8s.device-plugin.nvidia.com/gpu=<id>` | device plugin with the `cdi-cri` device list strategy; `<id>` is the GPU UUID, or its index with `--device-id-strategy=index` |
 | A CDI device `k8s.gpu.nvidia.com/claim=<id>` | NVIDIA DRA driver |
 
 The rules are strict so that a container is never mistaken for an allocated
@@ -99,8 +99,10 @@ one:
   rule. Its `/dev/nvidiaN` nodes were not allocated, so they do not count.
 - Control devices such as `/dev/nvidiactl` or `/dev/nvidia-uvm` accompany an
   allocation but do not identify a GPU.
-- Other CDI kinds, including Mokka's own `nvml-mock.nvidia.com/gpu=all`, do not
-  count.
+- Other CDI kinds do not count. That includes the device plugin's
+  `k8s.device-plugin.nvidia.com/gdrcopy=all` and `…/mofed=all`, which come with
+  every allocation, the container toolkit's `nvidia.com/gpu`, and Mokka's own
+  `nvml-mock.nvidia.com/gpu=all`.
 
 An allocation always wins over the `devices` annotation: the container keeps
 exactly the GPUs it was allocated, and `nvidia-smi` reports that subset, not
