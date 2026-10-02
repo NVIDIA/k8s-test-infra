@@ -55,6 +55,9 @@ const (
 	// pod names them by absolute path because a shell-less image has no PATH
 	// lookup to fall back on.
 	nriOverlayBinDir = "/opt/nvml-mock/driver/usr/bin"
+	// nriOverlayHostPath is the node directory the plugin binds into containers
+	// (the chart's nri.overlay.hostPath default).
+	nriOverlayHostPath = "/var/lib/nvml-mock"
 
 	// nriDomainName / nriDomainUUID identify the single ComputeDomain the
 	// generated topology overlay declares. The UUID is arbitrary but must match
@@ -513,6 +516,43 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 
 			Expect(nriDeviceSource(ctx, h, pod)).To(BeEmpty(),
 				"a pod that did not opt in must not have the CDI spec applied")
+		})
+	})
+
+	// Mount propagation. The plugin layers a writable bind of the config
+	// directory over its read-only bind of the overlay. A container with a
+	// Bidirectional volume, such as a DRA kubelet plugin, has an rshared root,
+	// and while those binds named no propagation the config bind was copied onto
+	// the node at /var/lib/nvml-mock/driver/config. The copies outlived the pod
+	// and doubled with each such container.
+	//
+	// Every other spec here asserts what a container sees. This leak is visible
+	// only from the node, so none of them could catch it.
+	Context("when an injected container has a Bidirectional volume", Label("nri-mount-propagation"), Ordered, func() {
+		var node cluster.Node
+
+		BeforeAll(func(ctx SpecContext) {
+			Expect(selectedProfiles).NotTo(BeEmpty())
+			p := loadProfile(selectedProfiles[0])
+			installNRIChart(ctx, h, p, topoValues, p.HasFabric())
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
+			node = workers[0]
+		})
+
+		It("mounts nothing onto the node's overlay tree", func(ctx SpecContext) {
+			before := nriOverlayMountsOnNode(ctx, node.Container)
+
+			const name = "nri-bidirectional"
+			pod := applyNRIWorkload(ctx, h, nriBidirectionalPodManifest(name, node.Name), name)
+
+			// Without the config bind there is nothing to leak, and the spec
+			// would pass against a plugin that skipped the pod.
+			res, err := h.Kube.ExecSh(ctx, pod,
+				`awk '$5 == "/opt/nvml-mock/driver/config" { found = 1 } END { exit !found }' /proc/self/mountinfo`)
+			Expect(err).NotTo(HaveOccurred(), "%s carries no config bind\n%s", name, res.Combined())
+
+			Expect(nriOverlayMountsOnNode(ctx, node.Container)).To(Equal(before),
+				"a container with a Bidirectional volume left mounts under %s on %s", nriOverlayHostPath, node.Name)
 		})
 	})
 
@@ -1065,6 +1105,62 @@ func installNRICDIChart(ctx context.Context, h *harness.Harness, p profile.Profi
 	}
 	By("helm upgrade --install nvml-mock with NRI device injection mode=cdi (profile=" + p.Name + ")")
 	Expect(h.Helm.UpgradeInstall(ctx, rel)).To(Succeed(), "helm upgrade --install nvml-mock with CDI injection (profile=%s)", p.Name)
+}
+
+// nriBidirectionalPodManifest renders a pod pinned to node with a Bidirectional
+// hostPath volume, as a DRA kubelet plugin has. The volume's contents are
+// irrelevant: it is there because it gives the container an rshared root.
+// Kubernetes allows Bidirectional only in a privileged container, and the pod
+// framework renders neither field. The device annotation opts the pod in, as it
+// does nriAnnotatedPodManifest's pods.
+func nriBidirectionalPodManifest(name, node string) []byte {
+	return []byte(fmt.Sprintf(`apiVersion: v1
+kind: Pod
+metadata:
+  name: %[1]s
+  namespace: %[2]s
+  annotations:
+    %[3]s: "true"
+spec:
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 1
+  nodeName: %[4]s
+  containers:
+    - name: app
+      image: %[5]s
+      command: ["/bin/sh", "-c"]
+      args: ["trap 'exit 0' TERM; sleep 3600 & wait"]
+      securityContext:
+        privileged: true
+      volumeMounts:
+        - name: shared
+          mountPath: /shared
+          mountPropagation: Bidirectional
+  volumes:
+    - name: shared
+      hostPath:
+        path: /var/lib/%[1]s
+        type: DirectoryOrCreate
+`, name, nriWorkloadNS, nriDeviceAnnotation, node, nriWorkloadImage))
+}
+
+// nriOverlayMountsOnNode lists the mounts at or below the overlay's host path in
+// the Kind node's own mount namespace, one entry per mount, so a stack shows up
+// as repeats.
+func nriOverlayMountsOnNode(ctx context.Context, container string) []string {
+	GinkgoHelper()
+	res, err := runner.RunQuiet(ctx, "docker", "exec", container, "cat", "/proc/self/mountinfo")
+	Expect(err).NotTo(HaveOccurred(), "read the mount table of %s", container)
+
+	var mounts []string
+	for _, line := range strings.Split(res.Stdout, "\n") {
+		// The fifth field is the mount point.
+		fields := strings.Fields(line)
+		if len(fields) > 4 && (fields[4] == nriOverlayHostPath || strings.HasPrefix(fields[4], nriOverlayHostPath+"/")) {
+			mounts = append(mounts, fields[4])
+		}
+	}
+	return mounts
 }
 
 // nriImexPodManifest renders a pod pinned to one node that optionally opts into
