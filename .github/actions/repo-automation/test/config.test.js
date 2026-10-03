@@ -163,8 +163,8 @@ test("declares the required CI that merge-ci.js hard-coded at 809294d", () => {
       {
         path: ".github/workflows/automation-ci.yml",
         files: [
-          ".github/actions/repo-automation/**", ".github/repo-automation/**", ".github/workflows/**",
-          "hack/actionlint.sh", "Makefile", "OWNERS", "OWNERS_ALIASES",
+          ".github/actions/repo-automation/**", ".github/repo-automation/**", ".github/scripts/cherrypick/**",
+          ".github/workflows/**", "hack/actionlint.sh", "Makefile", "OWNERS", "OWNERS_ALIASES",
         ],
       },
       {
@@ -436,4 +436,21 @@ test("repository automation CI contains every Task 1 gate", () => {
   assert.doesNotMatch(workflow, /run:\s+npm (?:ci|test|run)/);
   assert.doesNotMatch(workflow, /SPDX-License-Identifier/);
   assert.doesNotMatch(workflow, /uses:\s+[^\s]+@(?![0-9a-f]{40}(?:\s|$))/);
+});
+
+test("repository automation CI sets up Go only when its make target runs Go", () => {
+  const workflow = YAML.parse(fs.readFileSync(
+    path.join(repositoryRoot, ".github", "workflows", "automation-ci.yml"),
+    "utf8",
+  ));
+  const makefile = fs.readFileSync(path.join(repositoryRoot, "Makefile"), "utf8");
+  const recipe = /^repository-automation-ci:.*\n((?:\t.*\n)+)/m.exec(makefile);
+  assert.ok(recipe, "repository-automation-ci recipe must exist");
+  assert.match(recipe[1], /^\tmake actionlint$/m);
+  const actionlint = fs.readFileSync(path.join(repositoryRoot, "hack", "actionlint.sh"), "utf8");
+  const goCommand = /(?:^|[\s;&|(])go\s+(?:test|run|build|install|vet|generate|env)\b/m;
+  const runsGo = goCommand.test(recipe[1]) || goCommand.test(actionlint);
+  const setsUpGo = workflow.jobs["automation-ci"].steps.some((step) => step.uses?.startsWith("actions/setup-go@"));
+
+  assert.equal(setsUpGo, runsGo);
 });
