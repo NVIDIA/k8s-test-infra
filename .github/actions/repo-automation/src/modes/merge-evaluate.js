@@ -441,6 +441,7 @@ async function loadAuthority({ github, config, repository, pullRequest, policyRe
     approved: hasApprovalCoverage(ownership, approvers, authorIsHuman),
     holdActive: hold !== null,
     metadataHead: classifyTitle(pullRequest.title).valid && dcoValid ? parsed.metadataHead : null,
+    comment,
   };
 }
 
@@ -831,7 +832,64 @@ async function applyPermissive({ github, config, repository, evaluation, dryRun,
   return resultFor(finalEvaluation, completedDecision);
 }
 
-async function reconcile({ github, config, repository, number, dryRun, policyRevision }) {
+function samePolicyComment(left, right) {
+  return left?.action === right?.action && left?.id === right?.id && left?.body === right?.body;
+}
+
+function sameLabels(left, right) {
+  return Array.isArray(right) && JSON.stringify([...left].sort()) === JSON.stringify([...right].sort());
+}
+
+async function loadLabelEvaluation({ github, config, repository, number, policyRevision }) {
+  const pullRequest = validatePullRequest(
+    await github.getPullRequest(number),
+    number,
+    repository,
+  );
+  const authority = await loadAuthority({ github, config, repository, pullRequest, policyRevision });
+  if (await github.getDefaultBranchRevision() !== policyRevision) {
+    throw new TypeError("trusted policy revision changed during evaluation");
+  }
+  return { pullRequest, authority, labels: labelPlan(authority.labels, authority) };
+}
+
+function labelsResult(evaluation, labelWrite) {
+  return {
+    number: evaluation.pullRequest.number,
+    headOid: evaluation.pullRequest.headOid,
+    lgtm: evaluation.authority.lgtm !== null,
+    approved: evaluation.authority.approved,
+    labels: evaluation.labels,
+    labelWrite,
+  };
+}
+
+// Labels-only mode never reads CI, branch protection or merge state, and never
+// writes the merge-policy check or changes native auto-merge.
+async function reconcileLabels({ github, config, repository, number, dryRun, policyRevision }) {
+  const evaluation = await loadLabelEvaluation({ github, config, repository, number, policyRevision });
+  if (dryRun) return labelsResult(evaluation, "planned");
+  if (evaluation.labels.add.length === 0 && evaluation.labels.remove.length === 0) {
+    return labelsResult(evaluation, "unchanged");
+  }
+  // A concurrent command can write a hold after the read above; skip the write and
+  // leave the change to the evaluation that its completion triggers.
+  const [comment, labels, current] = await Promise.all([
+    github.getPolicyComment(number, POLICY_COMMENT_MARKER),
+    github.listIssueLabels(number),
+    github.getPullRequest(number),
+  ]);
+  if (
+    !samePolicyComment(evaluation.authority.comment, comment)
+    || !sameLabels(evaluation.authority.labels, labels)
+    || !sameHeadIdentity(evaluation.pullRequest, validatePullRequest(current, number, repository))
+  ) return labelsResult(evaluation, "inputs-changed");
+  await applyLabels(github, number, evaluation.labels);
+  return labelsResult(evaluation, "applied");
+}
+
+async function reconcile({ github, config, repository, number, dryRun, policyRevision, labelsOnly }) {
+  if (labelsOnly) return reconcileLabels({ github, config, repository, number, dryRun, policyRevision });
   const evaluation = await loadEvaluation({ github, config, repository, number, policyRevision });
   if (evaluation.merge.blockers.length > 0) {
     return applyRestrictive({ github, repository, evaluation, dryRun });
@@ -839,8 +897,18 @@ async function reconcile({ github, config, repository, number, dryRun, policyRev
   return applyPermissive({ github, config, repository, evaluation, dryRun, policyRevision });
 }
 
-async function runMergeEvaluate({ event, eventName, github, config, dryRun, policyRevision, prNumber = "" }) {
+async function runMergeEvaluate({
+  event,
+  eventName,
+  github,
+  config,
+  dryRun,
+  policyRevision,
+  prNumber = "",
+  labelsOnly = false,
+}) {
   if (typeof dryRun !== "boolean") throw new TypeError("dry-run must be a boolean");
+  if (typeof labelsOnly !== "boolean") throw new TypeError("labels-only must be a boolean");
   if (typeof policyRevision !== "string" || !OID.test(policyRevision) || /^0+$/.test(policyRevision)) {
     throw new TypeError("policy revision must be a nonzero canonical commit SHA");
   }
@@ -851,10 +919,13 @@ async function runMergeEvaluate({ event, eventName, github, config, dryRun, poli
   let failed = false;
   for (const number of candidates) {
     try {
-      pullRequests.push(await reconcile({ github, config, repository, number, dryRun, policyRevision }));
+      pullRequests.push(await reconcile({ github, config, repository, number, dryRun, policyRevision, labelsOnly }));
     } catch {
       failed = true;
-      pullRequests.push(await failClosed({ github, config, repository, number, dryRun }));
+      // The fail-closed plan assumes no hold and would remove do-not-merge/hold.
+      pullRequests.push(labelsOnly
+        ? { number, failClosed: false }
+        : await failClosed({ github, config, repository, number, dryRun }));
     }
   }
   const summary = {
