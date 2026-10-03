@@ -196,10 +196,18 @@ nri:
   # can confirm its spec is staged before emitting a reference. Must be one of
   # the runtime's configured cdi_spec_dirs.
   cdiSpecDir: /var/run/cdi
-  # Workloads that set this pod annotation to "true" additionally get the mock
-  # IMEX channel nodes at /dev/nvidia-caps-imex-channels/channelN — the fabric
-  # surface a ComputeDomain workload expects. Same trust boundary as
-  # deviceAnnotation above.
+  # Workloads that set this pod annotation to "true" get the mock InfiniBand
+  # tools, shims and sysfs tree with MOCK_IB=full. It is independent of GPU
+  # access: an IB-only pod sees no mock GPUs, and a GPU pod without it runs with
+  # MOCK_IB=off. Inherited /dev/infiniband nodes never select it. On a profile
+  # without infiniband.enabled the pod still starts, finds no HCA, and the
+  # plugin logs a warning. Same trust boundary as deviceAnnotation above.
+  infinibandAnnotation: nvml-mock.nvidia.com/infiniband
+  # Workloads that set this pod annotation to "true" get the mock IMEX channel
+  # nodes at /dev/nvidia-caps-imex-channels/channelN — the fabric surface a
+  # ComputeDomain workload expects. Channels alone bring no overlay, mock NVML
+  # or InfiniBand; add deviceAnnotation or hold a GPU allocation for those.
+  # Same trust boundary as deviceAnnotation above.
   #
   # The channels themselves come from imex.mockChannels; this plugin only
   # delivers what that already staged, so enable imex.mockChannels too or the
