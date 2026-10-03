@@ -484,13 +484,35 @@ test("plans only allowlisted failed workflow reruns and re-reads each run", asyn
   assert.deepEqual(github.calls.rerunFailedJobs, [{ runId: 501 }]);
 });
 
-test("returns bounded backport requests without dispatching remote work", async () => {
+test("an agent-owned /cherry-pick comment is ignored without any write", async () => {
+  const stored = storedPolicyComment({ processedCommandIds: [97] });
   const github = createFakeGitHub(state({
     issueComments: [{
       id: 99,
       issueNumber: 42,
-      body: "/backport release-0.11\n/cherry-pick release-0.12",
+      body: "/cherry-pick release-1.2",
       author: "pr-author",
+      authorType: "User",
+      edited: false,
+    }],
+    comments: [stored],
+  }));
+
+  const result = await run(github);
+
+  assert.deepEqual(result, { status: "ignored", reason: "no-command" });
+  assertNoWrites(github);
+  assert.equal(github.callOrder.some(({ operation }) => /dispatch/i.test(operation)), false);
+  assert.equal(github.metadataSnapshot().comments[0].body, stored.body);
+});
+
+test("a /cherry-pick line mixed with /lgtm applies exactly the /lgtm command", async () => {
+  const github = createFakeGitHub(state({
+    issueComments: [{
+      id: 99,
+      issueNumber: 42,
+      body: "/cherry-pick release-1.2\n/lgtm",
+      author: "alice",
       authorType: "User",
       edited: false,
     }],
@@ -498,11 +520,33 @@ test("returns bounded backport requests without dispatching remote work", async 
 
   const result = await run(github);
 
-  assert.deepEqual(result.backportRequests, [
-    { command: "backport", prNumber: 42, targetBranch: "release-0.11", sourceCommentId: 99 },
-    { command: "cherry-pick", prNumber: 42, targetBranch: "release-0.12", sourceCommentId: 99 },
-  ]);
-  assert.equal(github.callOrder.some(({ operation }) => /dispatch/i.test(operation)), false);
+  assert.equal(result.status, "complete");
+  assert.deepEqual(result.commands, [{ line: 2, name: "lgtm", status: "applied", code: "lgtm-recorded" }]);
+  assert.deepEqual(result.diagnostics, []);
+  assert.doesNotMatch(github.metadataSnapshot().comments[0].body, /cherry-pick/);
+});
+
+test("/backport is rejected exactly like any unsupported command", async () => {
+  const results = [];
+  for (const body of ["/backport release-1.2", "/foo release-1.2"]) {
+    const github = createFakeGitHub(state({
+      issueComments: [{
+        id: 99,
+        issueNumber: 42,
+        body,
+        author: "pr-author",
+        authorType: "User",
+        edited: false,
+      }],
+    }));
+    const result = await run(github);
+    assert.deepEqual(result.commands, [], body);
+    assert.deepEqual(result.diagnostics, [
+      { line: 1, name: "diagnostic", status: "rejected", code: "unsupported-command" },
+    ], body);
+    results.push({ result, policyComment: github.metadataSnapshot().comments[0].body });
+  }
+  assert.deepEqual(results[0], results[1]);
 });
 
 test("edited or non-human source comments fail closed before mutation", async (t) => {
@@ -935,7 +979,7 @@ test("a comment without commands whose catch-up changes nothing writes nothing",
   assertNoWrites(github);
 });
 
-test("caught-up /backport and /cherry-pick are not replayed", async () => {
+test("caught-up /cherry-pick is skipped and caught-up /backport is not replayed", async () => {
   const github = createFakeGitHub(state({
     issueComments: [
       command(97, "/cherry-pick release-0.11", { author: "pr-author" }),
@@ -948,8 +992,9 @@ test("caught-up /backport and /cherry-pick are not replayed", async () => {
 
   assert.deepEqual(result.processedCommentIds, [98, 99]);
   assert.equal(result.policy.hold, true);
-  assert.deepEqual(result.backportRequests, [
-    { command: "backport", prNumber: 42, targetBranch: "release-0.12", sourceCommentId: 99 },
+  assert.deepEqual(result.commands, []);
+  assert.deepEqual(result.diagnostics, [
+    { line: 1, name: "diagnostic", status: "rejected", code: "unsupported-command" },
   ]);
 });
 

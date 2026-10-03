@@ -1,7 +1,6 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const { Buffer } = require("node:buffer");
 const path = require("node:path");
 const test = require("node:test");
 const fs = require("node:fs");
@@ -221,51 +220,6 @@ test("index dispatches generic backport Git only in the fixed target checkout", 
 
   assert.ok(gitCalls.length > 0);
   assert.equal(gitCalls.every(({ options }) => options.cwd === path.join(repositoryRoot, "target")), true);
-});
-
-test("index publishes bounded backport requests for the workflow matrix", async () => {
-  const { run } = require("../src/index.js");
-  const core = coreFor({ mode: "command", "dry-run": "true" });
-  const githubClient = createFakeGitHub({
-    pullRequest: {
-      number: 42,
-      nodeId: "PR_42",
-      title: "feat: request backport",
-      body: "",
-      draft: false,
-      author: "author",
-      headOid: "1".repeat(40),
-      state: "open",
-      baseBranch: "main",
-      baseRepository: { owner: "nvidia", repo: "k8s-test-infra" },
-    },
-    files: [{ path: "pkg/gpu.go", additions: 1, deletions: 0, status: "modified" }],
-    issueComments: [{
-      id: 99,
-      issueNumber: 42,
-      body: "/backport release-0.11",
-      author: "author",
-      authorType: "User",
-      edited: false,
-    }],
-    contents: {
-      "/OWNERS": "reviewers: [alice]\napprovers: [bob]\n",
-      "/OWNERS_ALIASES": "aliases: {}\n",
-    },
-    defaultBranchRevision: "2".repeat(40),
-  });
-  const event = {
-    action: "created",
-    repository,
-    issue: { number: 42, pull_request: {} },
-    comment: { id: 99 },
-  };
-
-  await run({ core, workspace: repositoryRoot, githubClient, event });
-
-  const output = core.outputs.find(({ name }) => name === "backport-requests");
-  assert.deepEqual(JSON.parse(output.value), [{ prNumber: 42, targetBranch: "release-0.11" }]);
-  assert.ok(Buffer.byteLength(output.value, "utf8") < 4096);
 });
 
 test("index accepts only the approved v0.11 mode set", async () => {
