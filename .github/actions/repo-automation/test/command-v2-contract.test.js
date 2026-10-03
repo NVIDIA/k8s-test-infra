@@ -998,3 +998,17 @@ test("only a caught-up /lgtm its author may give is rejected as stale and shown"
   assert.deepEqual(lines, ["- Comment 98: <code>/lgtm</code> rejected (<code>stale-backlog-evidence</code>); "
     + "its own run was skipped, so re-issue it on the current head."]);
 });
+
+test("a caught-up self-/lgtm by an approver author is neither recorded nor shown", async () => {
+  const initial = state({
+    issueComments: [command(98, "/lgtm", { author: "pr-author" }), command(99, "/hold")],
+  });
+  initial.contents["/OWNERS"] = "reviewers: [alice]\napprovers: [bob, pr-author]\n";
+  const github = createFakeGitHub(initial);
+
+  const result = await run(github);
+
+  assert.deepEqual(result.processedCommentIds, [99]);
+  assert.deepEqual(result.rejectedBacklogEvidence, []);
+  assert.equal(github.metadataSnapshot().comments[0].body.includes("stale-backlog-evidence"), false);
+});
