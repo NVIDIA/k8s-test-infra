@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  Repository automation: a policy-labels mode and Merge evaluation job, gated by REPOSITORY_AUTOMATION_POLICY_LABELS_ENABLED, that keeps the lgtm, approved and do-not-merge labels current without the merge-policy check or native auto-merge, and never removes do-not-merge/hold, so another controller can own the merge.
+time: 2026-10-03T09:36:34Z

@@ -537,3 +537,478 @@ test("dry-run returns a complete plan and performs no mutations", async () => {
   assert.equal(github.calls.removePolicyLabel.length, 0);
   assert.equal(github.calls.rerunFailedJobs.length, 0);
 });
+
+// Created an hour before the fixed run time, inside the 24-hour catch-up window.
+function command(id, body, overrides = {}) {
+  return {
+    id,
+    issueNumber: 42,
+    body,
+    author: "alice",
+    authorType: "User",
+    edited: false,
+    createdAt: "2026-09-17T11:00:00Z",
+    ...overrides,
+  };
+}
+
+async function runEvent(github, commentId) {
+  const { runCommand } = require("../src/modes/command.js");
+  return runCommand({
+    event: { ...event, comment: { ...event.comment, id: commentId } },
+    github,
+    config: loadConfig(repositoryRoot),
+    dryRun: false,
+    now: () => "2026-09-17T12:00:00.000Z",
+  });
+}
+
+function persistedState(github) {
+  const { parsePolicyState } = require("../src/commands/state.js");
+  return parsePolicyState(github.metadataSnapshot().comments[0].body);
+}
+
+function storedPolicyComment({ processedCommandIds, hold = null }) {
+  const { createEmptyState, serializePolicyState } = require("../src/commands/state.js");
+  const stored = createEmptyState({
+    repository: "nvidia/k8s-test-infra",
+    pullRequest: 42,
+    policyDigest: "a".repeat(64),
+    headOid: HEAD,
+  });
+  stored.hold = hold;
+  stored.processedCommandIds = processedCommandIds;
+  return { id: 7, author: "github-actions[bot]", body: `${POLICY_COMMENT_MARKER}\n${serializePolicyState(stored)}\n` };
+}
+
+test("a command run applies an evicted older command comment before its own", async () => {
+  const github = createFakeGitHub(state({
+    issueComments: [command(98, "/hold"), command(99, "/lgtm")],
+  }));
+
+  const result = await run(github);
+
+  assert.equal(result.status, "complete");
+  assert.deepEqual(result.processedCommentIds, [98, 99]);
+  assert.deepEqual(result.policy, { lgtm: true, approved: false, hold: true, needsApproval: true });
+  assert.deepEqual(github.calls.addPolicyLabel.map(({ label }) => label),
+    ["lgtm", "do-not-merge/hold", "do-not-merge/needs-approval"]);
+  const persisted = persistedState(github);
+  assert.deepEqual(persisted.processedCommandIds, [98, 99]);
+  assert.equal(persisted.hold.sourceId, 98);
+});
+
+test("caught-up commands apply in comment id order", async (t) => {
+  // An /unhold with no hold changes nothing, so the caught-up comment is not recorded.
+  for (const [name, older, newer, held, processed] of [
+    ["hold then unhold ends unheld", "/hold", "/unhold", false, [98, 99]],
+    ["unhold then hold ends held", "/unhold", "/hold", true, [99]],
+  ]) await t.test(name, async () => {
+    const github = createFakeGitHub(state({
+      issueComments: [command(98, older), command(99, newer)],
+    }));
+
+    const result = await run(github);
+
+    assert.deepEqual(result.processedCommentIds, processed);
+    assert.equal(result.policy.hold, held);
+    assert.equal(github.calls.addPolicyLabel.some(({ label }) => label === "do-not-merge/hold"), held);
+    assert.equal(persistedState(github).hold?.sourceId ?? null, held ? 99 : null);
+  });
+});
+
+test("several caught-up comments apply in id order even when listed out of order", async (t) => {
+  for (const [name, first, second, held, processed] of [
+    ["hold then unhold ends unheld", "/hold", "/unhold", false, [97, 98, 99]],
+    ["unhold then hold ends held", "/unhold", "/hold", true, [98, 99]],
+  ]) await t.test(name, async () => {
+    const github = createFakeGitHub(state({
+      issueComments: [command(97, first), command(98, second), command(99, "/lgtm")],
+    }));
+    const listComments = github.listIssueComments.bind(github);
+    github.listIssueComments = async (...args) => (await listComments(...args)).reverse();
+
+    const result = await run(github);
+
+    assert.deepEqual(result.processedCommentIds, processed);
+    assert.equal(result.policy.hold, held);
+    assert.equal(persistedState(github).hold?.sourceId ?? null, held ? 98 : null);
+  });
+});
+
+test("command catch-up replay is idempotent", async () => {
+  const github = createFakeGitHub(state({
+    issueComments: [command(98, "/hold"), command(99, "/unhold")],
+  }));
+  await run(github);
+  const writes = github.callOrder.length;
+
+  const replay = await run(github);
+
+  assert.equal(replay.status, "duplicate");
+  assert.equal(github.callOrder.slice(writes).some(({ operation }) => (
+    ["addPolicyLabel", "removePolicyLabel", "upsertPolicyComment", "rerunFailedJobs"].includes(operation)
+  )), false);
+  assert.deepEqual(persistedState(github).processedCommandIds, [98, 99]);
+});
+
+test("a caught-up comment is authorized as its own live author", async () => {
+  const github = createFakeGitHub(state({
+    issueComments: [command(98, "/hold", { author: "mallory" }), command(99, "/lgtm")],
+  }));
+
+  const result = await run(github);
+
+  assert.deepEqual(result.processedCommentIds, [99]);
+  assert.equal(result.policy.hold, false);
+  assert.equal(persistedState(github).hold, null);
+  assert.deepEqual(github.calls.getCollaboratorAccess.map(({ login }) => login).sort(), ["alice", "mallory"]);
+});
+
+test("catch-up skips edited and non-human comments without recording them", async (t) => {
+  for (const [name, override] of [
+    ["edited", { edited: true }],
+    ["bot", { authorType: "Bot", author: "helper" }],
+  ]) await t.test(name, async () => {
+    const github = createFakeGitHub(state({
+      issueComments: [command(98, "/hold", override), command(99, "/lgtm")],
+    }));
+
+    const result = await run(github);
+
+    assert.deepEqual(result.processedCommentIds, [99]);
+    assert.equal(result.policy.hold, false);
+    assert.deepEqual(persistedState(github).processedCommandIds, [99]);
+  });
+});
+
+test("caught-up /lgtm and /approve are recorded as processed but grant no evidence", async () => {
+  const initial = state({
+    issueComments: [command(97, "/approve", { author: "bob" }), command(98, "/lgtm"), command(99, "/hold")],
+  });
+  const github = createFakeGitHub(initial);
+
+  const result = await run(github);
+
+  assert.deepEqual(result.processedCommentIds, [97, 98, 99]);
+  assert.deepEqual(result.policy, { lgtm: false, approved: false, hold: true, needsApproval: true });
+  const persisted = persistedState(github);
+  assert.deepEqual(persisted.lgtms, []);
+  assert.deepEqual(persisted.approvals, []);
+  assert.deepEqual(persisted.processedCommandIds, [97, 98, 99]);
+  assert.equal(github.calls.addPolicyLabel.some(({ label }) => label === "lgtm" || label === "approved"), false);
+});
+
+test("comments newer than the event comment are left to their own run", async () => {
+  const github = createFakeGitHub(state({
+    issueComments: [command(99, "/hold"), command(100, "/lgtm")],
+  }));
+
+  const first = await run(github);
+  assert.deepEqual(first.processedCommentIds, [99]);
+  assert.equal(first.policy.lgtm, false);
+
+  const second = await runEvent(github, 100);
+  assert.deepEqual(second.processedCommentIds, [100]);
+  assert.deepEqual(second.policy, { lgtm: true, approved: false, hold: true, needsApproval: true });
+  assert.deepEqual(persistedState(github).processedCommandIds, [99, 100]);
+});
+
+test("unprocessed comments older than a processed command are never replayed", async () => {
+  const github = createFakeGitHub(state({
+    issueComments: [command(96, "/unhold"), command(97, "/hold"), command(99, "/lgtm")],
+    comments: [storedPolicyComment({
+      processedCommandIds: [97],
+      hold: {
+        repository: "nvidia/k8s-test-infra",
+        pullRequest: 42,
+        actor: "alice",
+        actorRole: "owner",
+        sourceType: "comment",
+        sourceId: 97,
+        createdAt: "2026-09-17T11:00:00.000Z",
+      },
+    })],
+  }));
+
+  const result = await run(github);
+
+  assert.deepEqual(result.processedCommentIds, [99]);
+  assert.equal(result.policy.hold, true);
+  assert.deepEqual(persistedState(github).processedCommandIds, [97, 99]);
+});
+
+test("a comment without commands still catches up an evicted command", async () => {
+  const github = createFakeGitHub(state({
+    issueComments: [command(98, "/hold"), command(99, "see https://example.com/a/b")],
+  }));
+
+  const result = await run(github);
+
+  assert.deepEqual(result.processedCommentIds, [98]);
+  assert.equal(result.policy.hold, true);
+  assert.deepEqual(persistedState(github).processedCommandIds, [98]);
+});
+
+test("a comment without commands and nothing to catch up is ignored before pull request reads", async () => {
+  const github = createFakeGitHub(state({
+    issueComments: [command(99, "see https://example.com/a/b")],
+  }));
+
+  const result = await run(github);
+
+  assert.deepEqual(result, { status: "ignored", reason: "no-command" });
+  assert.deepEqual(github.calls.getPullRequest, []);
+  assertNoWrites(github);
+});
+
+test("a caught-up comment edited after planning stops all command writes", async () => {
+  const github = createFakeGitHub(state({
+    issueComments: [command(98, "/hold"), command(99, "/lgtm")],
+  }));
+  const listComments = github.listIssueComments.bind(github);
+  github.listIssueComments = async (...args) => (await listComments(...args)).map((comment) => (
+    comment.id === 98 && github.calls.listIssueComments.length > 1 ? { ...comment, edited: true } : comment
+  ));
+
+  await assert.rejects(() => run(github), /changed after planning/);
+  assertNoWrites(github);
+});
+
+test("a caught-up /lgtm rejection names its comment in the policy comment", async () => {
+  const github = createFakeGitHub(state({
+    issueComments: [command(97, "/approve\n/lgtm", { author: "bob" }), command(98, "/lgtm"), command(99, "/hold")],
+  }));
+
+  const result = await run(github);
+
+  assert.deepEqual(result.rejectedBacklogEvidence, [
+    { commentId: 97, commands: ["approve", "lgtm"], status: "rejected", code: "stale-backlog-evidence" },
+    { commentId: 98, commands: ["lgtm"], status: "rejected", code: "stale-backlog-evidence" },
+  ]);
+  const lines = github.metadataSnapshot().comments[0].body.split("\n");
+  assert.ok(lines.includes("- Comment 97: <code>/approve</code> and <code>/lgtm</code> rejected "
+    + "(<code>stale-backlog-evidence</code>); its own run was skipped, so re-issue them on the current head."));
+  assert.ok(lines.includes("- Comment 98: <code>/lgtm</code> rejected (<code>stale-backlog-evidence</code>); "
+    + "its own run was skipped, so re-issue it on the current head."));
+});
+
+function failedRun() {
+  return {
+    id: 501,
+    headOid: HEAD,
+    status: "completed",
+    conclusion: "failure",
+    workflowPath: ".github/workflows/automation-ci.yml",
+    workflowSourceRef: null,
+    event: "pull_request",
+    prNumber: 42,
+    repository: "nvidia/k8s-test-infra",
+  };
+}
+
+test("several caught-up /retest comments rerun failed jobs at most once", async () => {
+  const github = createFakeGitHub(state({
+    issueComments: [
+      command(97, "/retest", { author: "pr-author" }),
+      command(98, "/retest", { author: "pr-author" }),
+      command(99, "/retest", { author: "pr-author" }),
+    ],
+    workflowRuns: [failedRun()],
+  }));
+
+  const result = await run(github);
+
+  assert.deepEqual(result.processedCommentIds, [97, 99]);
+  assert.deepEqual(github.calls.rerunFailedJobs, [{ runId: 501 }]);
+  assert.deepEqual(result.commands, [{ line: 1, name: "retest", status: "noop", code: "cooldown" }]);
+  assert.equal(persistedState(github).lastRetest.commentId, 97);
+});
+
+test("a caught-up /retest inside the stored cooldown reruns nothing", async () => {
+  const { createEmptyState, serializePolicyState } = require("../src/commands/state.js");
+  const stored = createEmptyState({
+    repository: "nvidia/k8s-test-infra",
+    pullRequest: 42,
+    policyDigest: "a".repeat(64),
+    headOid: HEAD,
+  });
+  stored.processedCommandIds = [90];
+  stored.lastRetest = { commentId: 90, headOid: HEAD, createdAt: "2026-09-17T11:55:00.000Z" };
+  const github = createFakeGitHub(state({
+    issueComments: [command(98, "/retest", { author: "pr-author" }), command(99, "/hold")],
+    workflowRuns: [failedRun()],
+    comments: [{ id: 7, author: "github-actions[bot]", body: `${POLICY_COMMENT_MARKER}\n${serializePolicyState(stored)}\n` }],
+  }));
+
+  const result = await run(github);
+
+  assert.deepEqual(result.processedCommentIds, [99]);
+  assert.deepEqual(github.calls.rerunFailedJobs, []);
+  assert.deepEqual(result.rerunRunIds, []);
+  assert.equal(persistedState(github).lastRetest.commentId, 90);
+});
+
+test("a first run replays only command comments from the last 24 hours, in id order", async () => {
+  const github = createFakeGitHub(state({
+    issueComments: [
+      command(95, "/hold", { createdAt: "2026-09-15T11:00:00Z" }),
+      command(96, "/retest", { author: "pr-author", createdAt: "2026-09-16T08:00:00Z" }),
+      command(97, "/unhold", { createdAt: "2026-09-17T09:00:00Z" }),
+      command(98, "/hold", { createdAt: "2026-09-17T10:00:00Z" }),
+      command(99, "/lgtm"),
+    ],
+    workflowRuns: [failedRun()],
+  }));
+
+  const result = await run(github);
+
+  assert.deepEqual(result.processedCommentIds, [98, 99]);
+  assert.equal(result.policy.hold, true);
+  assert.deepEqual(github.calls.rerunFailedJobs, []);
+  const persisted = persistedState(github);
+  assert.deepEqual(persisted.processedCommandIds, [98, 99]);
+  assert.equal(persisted.hold.sourceId, 98);
+  assert.equal(persisted.lastRetest, null);
+});
+
+test("the catch-up window is 24 hours of comment creation time", async (t) => {
+  for (const [name, createdAt, replayed] of [
+    ["exactly 24 hours old", "2026-09-16T12:00:00Z", true],
+    ["one second older", "2026-09-16T11:59:59Z", false],
+    ["missing creation time", null, false],
+    ["unparseable creation time", "yesterday", false],
+  ]) await t.test(name, async () => {
+    const github = createFakeGitHub(state({
+      issueComments: [command(98, "/hold", { createdAt }), command(99, "/lgtm")],
+    }));
+
+    const result = await run(github);
+
+    assert.deepEqual(result.processedCommentIds, replayed ? [98, 99] : [99]);
+    assert.equal(result.policy.hold, replayed);
+  });
+});
+
+test("an old comment is not replayed even when it is newer than the newest processed command", async () => {
+  const github = createFakeGitHub(state({
+    issueComments: [command(98, "/hold", { createdAt: "2026-09-10T12:00:00Z" }), command(99, "/lgtm")],
+    comments: [storedPolicyComment({ processedCommandIds: [97] })],
+  }));
+
+  const result = await run(github);
+
+  assert.deepEqual(result.processedCommentIds, [99]);
+  assert.equal(result.policy.hold, false);
+  assert.deepEqual(persistedState(github).processedCommandIds, [97, 99]);
+});
+
+test("caught-up comments that change nothing cannot fill the command history", async () => {
+  const config = loadConfig(repositoryRoot);
+  config.policy.commands.historyLimit = 3;
+  const github = createFakeGitHub(state({
+    issueComments: [
+      command(95, "/foo", { author: "stranger" }),
+      command(96, "/foo", { author: "stranger" }),
+      command(97, "/foo", { author: "stranger" }),
+      command(98, "/foo", { author: "stranger" }),
+      command(99, "/hold"),
+    ],
+  }));
+
+  const result = await run(github, false, config);
+
+  assert.equal(result.status, "complete");
+  assert.deepEqual(result.processedCommentIds, [99]);
+  assert.equal(result.policy.hold, true);
+  assert.deepEqual(persistedState(github).processedCommandIds, [99]);
+});
+
+test("a comment without commands whose catch-up changes nothing writes nothing", async () => {
+  const github = createFakeGitHub(state({
+    issueComments: [command(98, "/foo", { author: "stranger" }), command(99, "see https://example.com/a/b")],
+  }));
+
+  const result = await run(github);
+
+  assert.deepEqual(result, { status: "ignored", reason: "no-command" });
+  assertNoWrites(github);
+});
+
+test("caught-up /backport and /cherry-pick are not replayed", async () => {
+  const github = createFakeGitHub(state({
+    issueComments: [
+      command(97, "/cherry-pick release-0.11", { author: "pr-author" }),
+      command(98, "/backport release-0.13\n/hold"),
+      command(99, "/backport release-0.12", { author: "pr-author" }),
+    ],
+  }));
+
+  const result = await run(github);
+
+  assert.deepEqual(result.processedCommentIds, [98, 99]);
+  assert.equal(result.policy.hold, true);
+  assert.deepEqual(result.backportRequests, [
+    { command: "backport", prNumber: 42, targetBranch: "release-0.12", sourceCommentId: 99 },
+  ]);
+});
+
+test("caught-up /lgtm or /approve from someone not allowed to give it cannot fill the history", async (t) => {
+  for (const evidenceCommand of ["/lgtm", "/approve"]) await t.test(evidenceCommand, async () => {
+    const config = loadConfig(repositoryRoot);
+    config.policy.commands.historyLimit = 3;
+    const github = createFakeGitHub(state({
+      issueComments: [
+        command(95, evidenceCommand, { author: "stranger" }),
+        command(96, evidenceCommand, { author: "stranger" }),
+        command(97, evidenceCommand, { author: "stranger" }),
+        command(98, evidenceCommand, { author: "stranger" }),
+        command(99, "/hold"),
+      ],
+    }));
+
+    const result = await run(github, false, config);
+
+    assert.equal(result.status, "complete");
+    assert.deepEqual(result.processedCommentIds, [99]);
+    assert.deepEqual(result.rejectedBacklogEvidence, []);
+    assert.equal(result.policy.hold, true);
+    assert.equal(github.metadataSnapshot().comments[0].body.includes("stale-backlog-evidence"), false);
+  });
+});
+
+test("only a caught-up /lgtm its author may give is rejected as stale and shown", async () => {
+  const github = createFakeGitHub(state({
+    issueComments: [
+      command(96, "/lgtm", { author: "pr-author" }),
+      command(97, "/lgtm", { author: "stranger" }),
+      command(98, "/lgtm"),
+      command(99, "/hold"),
+    ],
+  }));
+
+  const result = await run(github);
+
+  assert.deepEqual(result.processedCommentIds, [98, 99]);
+  assert.deepEqual(result.rejectedBacklogEvidence, [
+    { commentId: 98, commands: ["lgtm"], status: "rejected", code: "stale-backlog-evidence" },
+  ]);
+  const lines = github.metadataSnapshot().comments[0].body.split("\n")
+    .filter((line) => line.includes("stale-backlog-evidence"));
+  assert.deepEqual(lines, ["- Comment 98: <code>/lgtm</code> rejected (<code>stale-backlog-evidence</code>); "
+    + "its own run was skipped, so re-issue it on the current head."]);
+});
+
+test("a caught-up self-/lgtm by an approver author is neither recorded nor shown", async () => {
+  const initial = state({
+    issueComments: [command(98, "/lgtm", { author: "pr-author" }), command(99, "/hold")],
+  });
+  initial.contents["/OWNERS"] = "reviewers: [alice]\napprovers: [bob, pr-author]\n";
+  const github = createFakeGitHub(initial);
+
+  const result = await run(github);
+
+  assert.deepEqual(result.processedCommentIds, [99]);
+  assert.deepEqual(result.rejectedBacklogEvidence, []);
+  assert.equal(github.metadataSnapshot().comments[0].body.includes("stale-backlog-evidence"), false);
+});

@@ -235,3 +235,71 @@ test("renders bounded command results without reflecting raw command text", () =
   assert.match(body, /lgtm-recorded/);
   assert.equal(body.includes(secret), false);
 });
+
+function renderWithRejections(rejectedBacklogEvidence) {
+  const { renderCommandPolicyComment } = require("../src/policy-comment.js");
+  return renderCommandPolicyComment({
+    existingBody: null,
+    serializedState: "<!-- repo-automation-state:v2 {\"safe\":true} -->",
+    commands: [{ line: 1, name: "hold", status: "applied", code: "hold-recorded" }],
+    diagnostics: [],
+    policy: { lgtm: false, approved: false, hold: true, needsApproval: true },
+    rejectedBacklogEvidence,
+  });
+}
+
+function rejection(commentId, commands) {
+  return { commentId, commands, status: "rejected", code: "stale-backlog-evidence" };
+}
+
+test("names each caught-up evidence rejection by comment and asks for a re-issue on the current head", () => {
+  const body = renderWithRejections([rejection(97, ["approve", "lgtm"]), rejection(98, ["lgtm"])]);
+  const lines = body.split("\n");
+  const end = lines.indexOf("<!-- repo-automation-command-summary:v1:end -->");
+
+  assert.deepEqual(lines.slice(end - 2, end), [
+    "- Comment 97: <code>/approve</code> and <code>/lgtm</code> rejected (<code>stale-backlog-evidence</code>); "
+      + "its own run was skipped, so re-issue them on the current head.",
+    "- Comment 98: <code>/lgtm</code> rejected (<code>stale-backlog-evidence</code>); "
+      + "its own run was skipped, so re-issue it on the current head.",
+  ]);
+});
+
+test("bounds caught-up evidence rejections in the policy comment", () => {
+  const body = renderWithRejections(Array.from({ length: 23 }, (_, index) => rejection(100 + index, ["lgtm"])));
+  const lines = body.split("\n").filter((line) => line.includes("stale-backlog-evidence"));
+
+  assert.equal(lines.length, 21);
+  assert.equal(lines[19], "- Comment 119: <code>/lgtm</code> rejected (<code>stale-backlog-evidence</code>); "
+    + "its own run was skipped, so re-issue it on the current head.");
+  assert.equal(lines[20], "- 3 more comments: <code>/lgtm</code> or <code>/approve</code> rejected "
+    + "(<code>stale-backlog-evidence</code>); re-issue them on the current head.");
+});
+
+test("rejects malformed caught-up evidence rejections", async (t) => {
+  for (const [name, value] of [
+    ["not an array", {}],
+    ["zero comment", [rejection(0, ["lgtm"])]],
+    ["no commands", [rejection(98, [])]],
+    ["non-evidence command", [rejection(98, ["hold"])]],
+    ["duplicate command", [rejection(98, ["lgtm", "lgtm"])]],
+    ["markup in command", [rejection(98, ["<b>lgtm</b>"])]],
+  ]) await t.test(name, () => {
+    assert.throws(() => renderWithRejections(value), {
+      name: "TypeError",
+      message: "caught-up evidence rejections are invalid",
+    });
+  });
+});
+
+test("rejects caught-up evidence rejections with another status or code", async (t) => {
+  for (const [name, value] of [
+    ["applied status", [{ ...rejection(98, ["lgtm"]), status: "applied" }]],
+    ["other code", [{ ...rejection(98, ["lgtm"]), code: "not-authorized" }]],
+  ]) await t.test(name, () => {
+    assert.throws(() => renderWithRejections(value), {
+      name: "TypeError",
+      message: "caught-up evidence rejections are invalid",
+    });
+  });
+});

@@ -196,6 +196,9 @@ test("rejects an invalid required CI definition with an exact message", async (t
       "policy.merge.requiredCI.workflows: must be a non-empty array"],
     [{ workflows: [workflow("../workflows/hostile.yml")], checks: [{ name: "DCO", appId: 1861 }] },
       "policy.merge.requiredCI.workflows[0].path: must be a unique safe workflow path"],
+    // GitHub never runs a workflow file below .github/workflows, so it would stay pending forever.
+    [{ workflows: [workflow(".github/workflows/sub/basic-checks.yaml")], checks: [{ name: "DCO", appId: 1861 }] },
+      "policy.merge.requiredCI.workflows[0].path: must be a unique safe workflow path", "workflow subdirectory"],
     [{ workflows: [workflow(basic), workflow(basic)], checks: [{ name: "DCO", appId: 1861 }] },
       "policy.merge.requiredCI.workflows[1].path: must be a unique safe workflow path"],
     [{ workflows: [{ path: basic, name: "basic" }], checks: [{ name: "DCO", appId: 1861 }] },

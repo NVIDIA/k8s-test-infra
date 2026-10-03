@@ -86,11 +86,10 @@ function requireStringArray(value, configPath, errors, maximumItems) {
   return true;
 }
 
+// GitHub runs only workflow files directly inside .github/workflows, never in a subdirectory.
 function safeWorkflowPath(value) {
   return typeof value === "string"
-    && /^\.github\/workflows\/[A-Za-z0-9][A-Za-z0-9._/-]{0,471}\.ya?ml$/.test(value)
-    && !value.includes("//")
-    && !value.split("/").some((segment) => segment === "." || segment === "..");
+    && /^\.github\/workflows\/[A-Za-z0-9][A-Za-z0-9._-]{0,471}\.ya?ml$/.test(value);
 }
 
 function safePathPattern(value) {

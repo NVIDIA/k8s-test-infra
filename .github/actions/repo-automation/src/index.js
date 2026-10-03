@@ -79,7 +79,7 @@ async function publishJobSummary(core, mode, summary) {
 async function run(dependencies) {
   const { core } = dependencies;
   const mode = core.getInput("mode", { required: true });
-  if (!["label-sync", "metadata", "metadata-labels", "conflict-labels", "command", "merge-evaluate", "backport", "mokka-cherry-pick"].includes(mode)) {
+  if (!["label-sync", "metadata", "metadata-labels", "conflict-labels", "command", "merge-evaluate", "policy-labels", "backport", "mokka-cherry-pick"].includes(mode)) {
     throw new Error(`Unsupported mode: ${mode}`);
   }
 
@@ -172,6 +172,7 @@ async function run(dependencies) {
         });
         break;
       case "merge-evaluate":
+      case "policy-labels":
         summary = await runMergeEvaluate({
           event: dependencies.event,
           eventName: dependencies.eventName,
@@ -180,6 +181,7 @@ async function run(dependencies) {
           dryRun,
           prNumber,
           policyRevision: core.getInput("policy-revision"),
+          labelsOnly: mode === "policy-labels",
         });
         break;
       case "backport": {
