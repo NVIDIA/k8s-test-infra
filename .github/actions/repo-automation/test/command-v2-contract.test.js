@@ -952,3 +952,49 @@ test("caught-up /backport and /cherry-pick are not replayed", async () => {
     { command: "backport", prNumber: 42, targetBranch: "release-0.12", sourceCommentId: 99 },
   ]);
 });
+
+test("caught-up /lgtm or /approve from someone not allowed to give it cannot fill the history", async (t) => {
+  for (const evidenceCommand of ["/lgtm", "/approve"]) await t.test(evidenceCommand, async () => {
+    const config = loadConfig(repositoryRoot);
+    config.policy.commands.historyLimit = 3;
+    const github = createFakeGitHub(state({
+      issueComments: [
+        command(95, evidenceCommand, { author: "stranger" }),
+        command(96, evidenceCommand, { author: "stranger" }),
+        command(97, evidenceCommand, { author: "stranger" }),
+        command(98, evidenceCommand, { author: "stranger" }),
+        command(99, "/hold"),
+      ],
+    }));
+
+    const result = await run(github, false, config);
+
+    assert.equal(result.status, "complete");
+    assert.deepEqual(result.processedCommentIds, [99]);
+    assert.deepEqual(result.rejectedBacklogEvidence, []);
+    assert.equal(result.policy.hold, true);
+    assert.equal(github.metadataSnapshot().comments[0].body.includes("stale-backlog-evidence"), false);
+  });
+});
+
+test("only a caught-up /lgtm its author may give is rejected as stale and shown", async () => {
+  const github = createFakeGitHub(state({
+    issueComments: [
+      command(96, "/lgtm", { author: "pr-author" }),
+      command(97, "/lgtm", { author: "stranger" }),
+      command(98, "/lgtm"),
+      command(99, "/hold"),
+    ],
+  }));
+
+  const result = await run(github);
+
+  assert.deepEqual(result.processedCommentIds, [98, 99]);
+  assert.deepEqual(result.rejectedBacklogEvidence, [
+    { commentId: 98, commands: ["lgtm"], status: "rejected", code: "stale-backlog-evidence" },
+  ]);
+  const lines = github.metadataSnapshot().comments[0].body.split("\n")
+    .filter((line) => line.includes("stale-backlog-evidence"));
+  assert.deepEqual(lines, ["- Comment 98: <code>/lgtm</code> rejected (<code>stale-backlog-evidence</code>); "
+    + "its own run was skipped, so re-issue it on the current head."]);
+});
