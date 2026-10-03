@@ -1,0 +1,80 @@
+# Evidence: DRA driver v0.5.0 + altProcDevices closes the first run's cause-U block
+# Captured 2026-08-26, cell targeted-dra-installed, Mokka sha-57ef016.
+
+## What the first run said
+
+D-009 blocked axis-compute-domain-fabric as cause U: the DRA driver reads the
+nvidia-caps-imex-channels major out of /proc/devices, needs --set altProcDevices
+to look elsewhere, and that flag "is on the DRA driver's main branch and is in no
+release, including v25.12.0". True when written. No longer true.
+
+## What changed upstream
+
+k8s-dra-driver-gpu v0.5.0, released 2026-08-19, ships altProcDevices. Verified by
+reading the released chart, not the main branch:
+
+  deployments/helm/dra-driver-nvidia-gpu/values.yaml line 34:
+    altProcDevices: ""
+  with the doc comment "Used with mock NVML to inject fake
+  nvidia-caps-imex-channels entries so the compute-domain-kubelet-plugin can
+  initialize without a real kernel driver."
+
+Confirmed absent from v25.12.0's values.yaml (which has no proc or imex mention
+at all), so the first run's claim was correct for its pin.
+
+## Measured end to end
+
+Mokka rendered the substitute:
+
+  /var/lib/nvml-mock/imex/proc-devices
+    235 nvidia-caps-imex-channels
+    236 nvidia-caps
+
+DRA v0.5.0 consumed it. Both kubelet-plugin pods run BOTH containers:
+
+  nvidia-dra-driver-gpu-kubelet-plugin-77dsw -> compute-domains gpus
+  nvidia-dra-driver-gpu-kubelet-plugin-f8j7h -> compute-domains gpus
+  nvidia-dra-driver-gpu-controller-...       -> compute-domain
+
+12 ResourceSlice devices published. The first run's abort
+
+  error creating driver: failed to create device library: error getting nvcap
+  for IMEX channel '0': error getting device major: error parsing '/proc/devices'
+
+occurs ZERO times in 400 lines of driver logs. The only errors are an
+Unimplemented optional health-reporting API, which is benign.
+
+## Verdict flip
+
+  dra-support   v0.3.0 + DRA v25.12.0   FAILED
+                57ef016 + DRA v0.5.0    PASSED
+
+This is the ONLY verdict that moved in the whole re-run, and it moved for an
+upstream reason, not a Mokka one. Mokka's IMEX rendering already worked at
+v0.3.0; what was missing was a released consumer.
+
+## Caveat that must travel with this result
+
+The v0.5.0 chart was RENAMED: nvidia-dra-driver-gpu -> dra-driver-nvidia-gpu. Its
+default resource names are dra-driver-nvidia-gpu-controller, while AICR at
+0752ea14 looks for nvidia-dra-driver-gpu-controller (pkg/validator/v1/
+allocation_policy.go: draDriverGPUComponentName = "nvidia-dra-driver-gpu").
+Installed with chart defaults, dra-support fails NOT_FOUND on the name alone,
+whatever the driver is doing.
+
+This run therefore passed --set nameOverride=nvidia-dra-driver-gpu to restore the
+name AICR expects. That is an accommodation on the DRA side; AICR itself was not
+modified. Read the pass as "the mechanism works, and AICR can see it once the
+release is named the way AICR still expects", not as "v0.5.0 works with AICR out
+of the box". The rename is real drift and is worth raising on the AICR side.
+
+## Doc drift this creates in k8s-test-infra
+
+deployments/nvml-mock/helm/nvml-mock/values.yaml still says, in the imex section:
+
+  # NOTE: as of 2026-07-25 altProcDevices is on the DRA driver's main branch
+  # but is NOT in any release (absent at v25.12.0), so enabling this alone does
+  # not yet make ComputeDomains work with released artifacts. See
+  # NVIDIA/k8s-test-infra#498.
+
+That note is now stale and understates what Mokka can do. Issue #498 can close.

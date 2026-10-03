@@ -1,0 +1,13 @@
+%% AICR's 21 validator checks, split by bucket. Counts match tests/aicr-sweep/catalog.yaml.
+%% The final-gate boundary is drawn between what preflight can reach and what it cannot.
+flowchart TB
+    T["AICR validator suite: 21 checks"]
+    T --> A["A meaningful: 16<br/>(10 GPU-dependent, 6 run on any cluster)"]
+    T --> B["B trivial: 1<br/>pod-autoscaling"]
+    T --> C["C hardware-dependent: 4<br/>nccl-all-reduce-bw, -net, -nvls, inference-perf"]
+    T --> G["G closable Mokka gap: 0"]
+    A --> M["Reachable pre-silicon on Mokka"]
+    B --> M
+    G --> M
+    C --> S["FINAL GATE: requires real silicon"]
+    M -.->|"preflight ends here"| S
