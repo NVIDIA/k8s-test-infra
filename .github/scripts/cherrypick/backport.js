@@ -18,7 +18,12 @@
 // Changes: the pull request number comes from the validated workflow_dispatch
 // input, an unmerged pull request is refused, the backport title keeps the
 // conventional-commit prefix ("<title> [release-X.Y]"), and messages are plain
-// text.
+// text. This repository squash-merges pull requests from forks, so the PR head
+// commits are on no branch of origin: the merge commit GitHub recorded for the
+// PR is cherry-picked instead. The verified chain is built on the target commit
+// the cherry-pick used, a backport branch that carries commits not authored by
+// github-actions[bot] is never overwritten, and the run fails when any target
+// branch fails.
 
 module.exports = async ({ github, context, core }) => {
 const branches = JSON.parse(process.env.BRANCHES_JSON || '[]');
@@ -40,28 +45,29 @@ if (pullRequest.merged !== true) {
   throw new Error(`PR #${prNumber} is not merged; only merged pull requests are cherry-picked`);
 }
 
+const sourceSha = pullRequest.merge_commit_sha;
+if (typeof sourceSha !== 'string' || !/^[0-9a-f]{40}$/.test(sourceSha)) {
+  throw new Error(`PR #${prNumber} has no merge commit to cherry-pick`);
+}
+
 const prTitle = pullRequest.title;
 const prAuthor = pullRequest.user.login;
 
-// Get all commits from the PR
-const { data: commits } = await github.rest.pulls.listCommits({
-  owner: context.repo.owner,
-  repo: context.repo.repo,
-  pull_number: prNumber
-});
+const { execSync } = require('child_process');
 
-if (commits.length === 0) {
-  core.warning('No commits found in PR - skipping backport');
-  return [];
-}
+// A squash commit has one parent. A two-parent merge commit is picked against
+// its first parent, the branch the PR merged into.
+const sourceParents = execSync(`git rev-list --parents -n 1 ${sourceSha}`, { encoding: 'utf-8' })
+  .trim().split(' ').length - 1;
+const sourceSubject = execSync(`git log -1 --format=%s ${sourceSha}`, { encoding: 'utf-8' }).trim();
+const cherryPick = sourceParents > 1
+  ? `git cherry-pick -m 1 -x ${sourceSha}`
+  : `git cherry-pick -x ${sourceSha}`;
 
 core.info(`Backporting PR #${prNumber}: "${prTitle}"`);
-core.info(`Commits to cherry-pick: ${commits.length}`);
-commits.forEach((commit, index) => {
-  core.info(`  ${index + 1}. ${commit.sha.substring(0, 7)} - ${commit.commit.message.split('\n')[0]}`);
-});
+core.info(`Commit to cherry-pick: ${sourceSha.substring(0, 7)} - ${sourceSubject}`);
 
-const { execSync } = require('child_process');
+const BOT_AUTHOR = 'github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>';
 
 const results = [];
 
@@ -74,40 +80,48 @@ for (const targetBranch of branches) {
     // Create/reset backport branch from target release branch
     core.info(`Creating/resetting branch ${backportBranch} from ${targetBranch}`);
     execSync(`git fetch origin ${targetBranch}:${targetBranch}`, { stdio: 'inherit' });
-    execSync(`git checkout -B ${backportBranch} ${targetBranch}`, { stdio: 'inherit' });
-    // Cherry-pick each commit from the PR
+    // The cherry-pick and the verified chain below both use this exact commit.
+    const targetSha = execSync(`git rev-parse ${targetBranch}`, { encoding: 'utf-8' }).trim();
+
+    // A backport branch may carry a human conflict resolution: never overwrite it.
+    const remoteRef = `refs/remotes/origin/${backportBranch}`;
+    if (execSync(`git ls-remote origin refs/heads/${backportBranch}`, { encoding: 'utf-8' }).trim() !== '') {
+      execSync(`git fetch origin +refs/heads/${backportBranch}:${remoteRef}`, { stdio: 'inherit' });
+      const authors = execSync(`git log --format='%an <%ae>' ${targetSha}..${remoteRef}`, { encoding: 'utf-8' })
+        .split('\n').filter(Boolean);
+      if (authors.some((author) => author !== BOT_AUTHOR)) {
+        throw new Error(`${backportBranch} has commits not authored by github-actions[bot]; merge or delete it before cherry-picking again`);
+      }
+    }
+
+    execSync(`git checkout -B ${backportBranch} ${targetSha}`, { stdio: 'inherit' });
     let hasConflicts = false;
-    for (let i = 0; i < commits.length; i++) {
-      const commit = commits[i];
-      const commitSha = commit.sha;
-      const commitMessage = commit.commit.message.split('\n')[0];
-      core.info(`Cherry-picking commit ${i + 1}/${commits.length}: ${commitSha.substring(0, 7)} - ${commitMessage}`);
-      try {
-        execSync(`git cherry-pick -m 1 -x ${commitSha}`, { 
-          encoding: 'utf-8',
-          stdio: 'pipe'
-        });
-      } catch (error) {
-        // Check if it's a conflict
-        const status = execSync('git status', { encoding: 'utf-8' });
-        if (status.includes('Unmerged paths') || status.includes('both modified')) {
-          hasConflicts = true;
-          core.warning(`Cherry-pick has conflicts for commit ${commitSha.substring(0, 7)}.`);
-          // Add all files (including conflicted ones) and commit
-          execSync('git add .', { stdio: 'inherit' });
-          try {
-            execSync(`git -c core.editor=true cherry-pick --continue`, { stdio: 'inherit' });
-          } catch (e) {
-            // If continue fails, make a simple commit
-            execSync(`git commit --no-edit --allow-empty-message || git commit -m "Cherry-pick ${commitSha} (with conflicts)"`, { stdio: 'inherit' });
-          }
-        } else if (error.message && error.message.includes('previous cherry-pick is now empty')) {
-          // Handle empty commits (changes already exist in target branch)
-          core.info(`Commit ${commitSha.substring(0, 7)} is empty (changes already in target branch), skipping`);
-          execSync('git cherry-pick --skip', { stdio: 'inherit' });
-        } else {
-          throw error;
+    core.info(`Cherry-picking ${sourceSha.substring(0, 7)} - ${sourceSubject}`);
+    try {
+      execSync(cherryPick, {
+        encoding: 'utf-8',
+        stdio: 'pipe'
+      });
+    } catch (error) {
+      // Check if it's a conflict
+      const status = execSync('git status', { encoding: 'utf-8' });
+      if (status.includes('Unmerged paths') || status.includes('both modified')) {
+        hasConflicts = true;
+        core.warning(`Cherry-pick has conflicts for commit ${sourceSha.substring(0, 7)}.`);
+        // Add all files (including conflicted ones) and commit
+        execSync('git add .', { stdio: 'inherit' });
+        try {
+          execSync(`git -c core.editor=true cherry-pick --continue`, { stdio: 'inherit' });
+        } catch (e) {
+          // If continue fails, make a simple commit
+          execSync(`git commit --no-edit --allow-empty-message || git commit -m "Cherry-pick ${sourceSha} (with conflicts)"`, { stdio: 'inherit' });
         }
+      } else if (error.message && error.message.includes('previous cherry-pick is now empty')) {
+        // Handle empty commits (changes already exist in target branch)
+        core.info(`Commit ${sourceSha.substring(0, 7)} is empty (changes already in target branch), skipping`);
+        execSync('git cherry-pick --skip', { stdio: 'inherit' });
+      } else {
+        throw error;
       }
     }
     // Push the backport branch (force to handle updates)
@@ -116,15 +130,12 @@ for (const targetBranch of branches) {
 
     // Re-create each new commit through the Git Data API so the resulting chain shows as "Verified"
     core.info(`Re-creating commits via the Git Data API to get verified signatures`);
-    const newCommitShas = execSync(`git log --format=%H ${targetBranch}..${backportBranch}`, { encoding: 'utf-8' })
+    const newCommitShas = execSync(`git log --format=%H ${targetSha}..${backportBranch}`, { encoding: 'utf-8' })
       .trim().split('\n').filter(Boolean).reverse(); // oldest -> newest
 
-    const { data: baseRef } = await github.rest.git.getRef({
-      owner: context.repo.owner,
-      repo: context.repo.repo,
-      ref: `heads/${targetBranch}`
-    });
-    let parentSha = baseRef.object.sha;
+    // Parent the chain on the commit the trees were built on, not a re-read of
+    // the target branch, which may have advanced since the fetch.
+    let parentSha = targetSha;
 
     for (const sha of newCommitShas) {
       const treeSha = execSync(`git rev-parse ${sha}^{tree}`, { encoding: 'utf-8' }).trim();
@@ -160,7 +171,7 @@ for (const targetBranch of branches) {
     const existingPR = existingPRs.length > 0 ? existingPRs[0] : null;
     
     // Create pull request
-    const commitList = commits.map(c => `- \`${c.sha.substring(0, 7)}\` ${c.commit.message.split('\n')[0]}`).join('\n');
+    const commitList = `- \`${sourceSha.substring(0, 7)}\` ${sourceSubject}`;
     
     // Build PR body based on conflict status
     let prBody = `**Automated backport of #${prNumber} to \`${targetBranch}\`**\n\n`;
@@ -171,7 +182,7 @@ for (const targetBranch of branches) {
 Original PR: #${prNumber}
 Original Author: @${prAuthor}
 
-**Cherry-picked commits (${commits.length}):**
+**Cherry-picked commit:**
 ${commitList}
 
 **Next Steps:**
@@ -199,7 +210,7 @@ git push --force-with-lease origin ${backportBranch}
 Original PR: #${prNumber}
 Original Author: @${prAuthor}
 
-**Cherry-picked commits (${commits.length}):**
+**Cherry-picked commit:**
 ${commitList}
 
 This backport was automatically created by the backport bot.`;
@@ -333,6 +344,11 @@ for (const result of results) {
   } else {
     core.error(`${result.branch}: ${result.error}`);
   }
+}
+// Every branch is attempted and commented first; any failure fails the run.
+const failedBranches = results.filter((result) => !result.success).map((result) => result.branch);
+if (failedBranches.length > 0) {
+  core.setFailed(`Cherry-pick failed for: ${failedBranches.join(', ')}`);
 }
 return results;
 };
