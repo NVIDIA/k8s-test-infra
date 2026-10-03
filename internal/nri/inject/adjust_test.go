@@ -16,7 +16,7 @@ func overlayMount() Mount {
 		Source:      "/var/lib/nvml-mock",
 		Destination: "/opt/nvml-mock",
 		Type:        "bind",
-		Options:     []string{"rbind", "ro", "nosuid", "nodev"},
+		Options:     []string{"rbind", "rprivate", "ro", "nosuid", "nodev"},
 	}
 }
 
@@ -26,7 +26,7 @@ func configMount() Mount {
 		Source:      "/var/lib/nvml-mock/driver/config",
 		Destination: "/opt/nvml-mock/driver/config",
 		Type:        "bind",
-		Options:     []string{"rbind", "rw", "nosuid", "nodev"},
+		Options:     []string{"rbind", "rprivate", "rw", "nosuid", "nodev"},
 	}
 }
 
@@ -122,4 +122,20 @@ func TestEmptyExclusionListExcludesNothing(t *testing.T) {
 
 	_, ok := Adjust(cfg, Container{Namespace: "kube-system"})
 	require.True(t, ok)
+}
+
+// A container with a Bidirectional volume has an rshared root. While the
+// overlay binds named no propagation, the writable config bind of every such
+// container was copied onto the node at /var/lib/nvml-mock/driver/config, and
+// the copies doubled with each one and outlived it. The e2e suite reproduces
+// that on a Kind node; this pins the option that prevents it.
+func TestOverlayMountsArePrivate(t *testing.T) {
+	t.Parallel()
+
+	var adjustment Adjustment
+	mountOverlay(DefaultConfig(), &adjustment)
+	require.Len(t, adjustment.Mounts, 2)
+	for _, m := range adjustment.Mounts {
+		require.Contains(t, m.Options, "rprivate", "%s must not share mount events with the node", m.Destination)
+	}
 }

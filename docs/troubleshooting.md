@@ -85,6 +85,39 @@ If it never applies, confirm you targeted the right node: overrides are
 per-node files, so changing state on one node has no effect on a consumer
 running on another. See [Runtime Control](nvml-mock-ctl.md).
 
+### Mounts pile up on a node with NRI enabled
+
+Up to and including 0.4.0, an injected container that also had a
+`Bidirectional` volume, such as a DRA kubelet plugin, copied the overlay's
+writable config bind onto the node. Each such container doubled the copies at
+`/var/lib/nvml-mock/driver/config`, and they stay after the pods are gone. A
+large stack slows container starts and anything else that reads the node's
+mount table. See [Mount propagation](components/nri-plugin.md#mount-propagation).
+
+On a Kind cluster, count them in each node container. Kubernetes node names
+can differ from the container names, so list the containers with `kind`. A
+healthy node prints 0:
+
+```bash
+for NODE in $(kind get nodes --name mokka); do
+  echo "${NODE}: $(docker exec "${NODE}" awk '$5 == "/var/lib/nvml-mock/driver/config" { n++ } END { print n + 0 }' /proc/self/mountinfo)"
+done
+```
+
+Upgrading stops the growth but leaves the copies in place. Rebooting the node
+clears them; on Kind, recreate the cluster. To clear them in place, first make
+sure no container injected before the upgrade still runs on the node:
+unmounting the copies takes its writable config directory with it, and its
+writes then fail as read-only. Then unmount them until none is left. A node
+without copies is left as it is, and a node whose unmount fails is named:
+
+```bash
+for NODE in $(kind get nodes --name mokka); do
+  docker exec "${NODE}" sh -c 'while mountpoint -q /var/lib/nvml-mock/driver/config; do umount /var/lib/nvml-mock/driver/config || exit 1; done' \
+    || echo "${NODE}: unmount failed"
+done
+```
+
 ### `kind load docker-image` fails with "content digest not found"
 
 ```text

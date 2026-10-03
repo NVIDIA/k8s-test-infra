@@ -1,0 +1,7 @@
+kind: Fixed
+body: |-
+  nri-plugin: an injected container with a `Bidirectional` volume, such as a
+    DRA kubelet plugin, no longer copies the overlay's writable config bind onto
+    the node. The copies doubled with each such container and stayed after the
+    pods were gone; both overlay binds are now `rprivate`.
+time: 2026-10-02T20:40:10Z
