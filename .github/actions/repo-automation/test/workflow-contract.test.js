@@ -24,6 +24,7 @@ const concurrency = {
     "cancel-in-progress": false,
   },
   merge: { group: "repository-automation-merge-evaluate", "cancel-in-progress": false },
+  policyLabels: { group: "repository-automation-policy-labels", "cancel-in-progress": false },
   labelSync: { group: "repository-automation-label-sync", "cancel-in-progress": false },
 };
 const activationGates = {
@@ -36,6 +37,8 @@ const activationGates = {
   reviews: "${{ vars.REPOSITORY_AUTOMATION_REVIEWS_ENABLED == 'true' }}",
   merge:
     "${{ vars.REPOSITORY_AUTOMATION_MERGE_ENABLED == 'true' && (github.event_name != 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch) }}",
+  policyLabels:
+    "${{ vars.REPOSITORY_AUTOMATION_POLICY_LABELS_ENABLED == 'true' && (github.event_name != 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch) }}",
   reusableBackport: "${{ vars.REPOSITORY_AUTOMATION_BACKPORT_ENABLED == 'true' }}",
   mokka:
     "${{ vars.REPOSITORY_AUTOMATION_MOKKA_ENABLED == 'true' && github.ref == 'refs/heads/main' && github.sha == inputs.workflow_commit_sha }}",
@@ -162,6 +165,32 @@ test("review observation and native merge evaluation use bounded events and trus
   assert.equal(evaluation.with["control-directory"], "control");
   assert.equal(evaluation.with["policy-revision"], "${{ steps.trusted.outputs.result }}");
   assert.deepEqual(evaluation.env, { GITHUB_TOKEN: "${{ github.token }}" });
+});
+
+test("labels-only policy evaluation is a separate job with label permissions and its own gate", () => {
+  const evaluator = readWorkflow("merge-evaluate.yml").workflow;
+  assert.deepEqual(Object.keys(evaluator.jobs), ["evaluate", "policy-labels"]);
+  const job = evaluator.jobs["policy-labels"];
+  assert.equal(job.if, activationGates.policyLabels);
+  assert.deepEqual(job.permissions, {
+    actions: "read", contents: "read", issues: "write", "pull-requests": "write",
+  });
+  assert.deepEqual(job.concurrency, concurrency.policyLabels);
+  assert.equal(job["timeout-minutes"], 15);
+  assertTrustedCheckout(job);
+  assert.deepEqual(job.steps.map((step) => step.uses), [
+    githubScript, checkout, "./control/.github/actions/repo-automation",
+  ]);
+  const labels = actionStep(job, "policy-labels");
+  assert.deepEqual(labels.with, {
+    mode: "policy-labels",
+    "pr-number": "${{ inputs.pr_number || '' }}",
+    "control-directory": "control",
+    "policy-revision": "${{ steps.trusted.outputs.result }}",
+    "dry-run": "${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}",
+  });
+  assert.deepEqual(labels.env, { GITHUB_TOKEN: "${{ github.token }}" });
+  assert.equal(evaluator.jobs.evaluate.if, activationGates.merge);
 });
 
 test("no workflow queues behind the old repository-wide automation group", () => {
