@@ -124,6 +124,29 @@ func TestNegativeControlsAreIndependent(t *testing.T) {
 	}
 }
 
+func TestHostMaxPCIeLinkGenUsesProfileSpecificValues(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		want        int
+		unsupported bool
+	}{
+		{"a100 fallback", 4, false},
+		{"gb200 grace host", 4, false},
+		{"gb300 grace host", 4, false},
+		{"b200 unsupported", 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, err := Load(profilesDir, map[string]string{
+				"a100 fallback": "a100", "gb200 grace host": "gb200",
+				"gb300 grace host": "gb300", "b200 unsupported": "b200",
+			}[tc.name])
+			require.NoError(t, err)
+			require.Equal(t, tc.want, p.HostMaxPCIeLinkGen())
+			require.Equal(t, tc.unsupported, p.HostMaxPCIeLinkGenUnsupported())
+		})
+	}
+}
+
 // TestSwitchesAndPCIBridgesAreIndependent pins the third axis the table above
 // covers only by value: having NVSwitches and enumerating them over PCIe are
 // separate facts. gb200 has the switches and no bridges because NVL72 keeps

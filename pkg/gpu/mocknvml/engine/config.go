@@ -780,6 +780,10 @@ func (c *Config) GetDeviceConfig(index int) *DeviceConfig {
 		pci := *merged.PCI
 		merged.PCI = &pci
 	}
+	if merged.PCIe != nil {
+		pcie := *merged.PCIe
+		merged.PCIe = &pcie
+	}
 
 	// Find and apply per-device overrides
 	for _, override := range c.YAMLConfig.Devices {
@@ -1051,6 +1055,41 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 		}
 		if override.PCI.SubsystemID != 0 {
 			base.PCI.SubsystemID = override.PCI.SubsystemID
+		}
+	}
+	if override.PCIe != nil {
+		if base.PCIe == nil {
+			base.PCIe = &PCIeConfig{}
+		}
+		if override.PCIe.MaxLinkGen != 0 {
+			base.PCIe.MaxLinkGen = override.PCIe.MaxLinkGen
+		}
+		if override.PCIe.HostMaxLinkGen != 0 {
+			base.PCIe.HostMaxLinkGen = override.PCIe.HostMaxLinkGen
+			// A numeric per-device value supersedes an inherited unsupported
+			// marker from the defaults.
+			base.PCIe.HostMaxUnsupported = false
+		}
+		if override.PCIe.HostMaxUnsupported && override.PCIe.HostMaxLinkGen == 0 {
+			base.PCIe.HostMaxUnsupported = true
+		}
+		if override.PCIe.CurrentLinkGen != 0 {
+			base.PCIe.CurrentLinkGen = override.PCIe.CurrentLinkGen
+		}
+		if override.PCIe.MaxLinkWidth != 0 {
+			base.PCIe.MaxLinkWidth = override.PCIe.MaxLinkWidth
+		}
+		if override.PCIe.CurrentLinkWidth != 0 {
+			base.PCIe.CurrentLinkWidth = override.PCIe.CurrentLinkWidth
+		}
+		if override.PCIe.ReplayCounter != 0 {
+			base.PCIe.ReplayCounter = override.PCIe.ReplayCounter
+		}
+		if override.PCIe.TxThroughputKBPS != 0 {
+			base.PCIe.TxThroughputKBPS = override.PCIe.TxThroughputKBPS
+		}
+		if override.PCIe.RxThroughputKBPS != 0 {
+			base.PCIe.RxThroughputKBPS = override.PCIe.RxThroughputKBPS
 		}
 	}
 	if override.Memory != nil {
