@@ -48,12 +48,17 @@ func (s *Simulator) Name() string { return name }
 // Ready reports whether both CDI specs are published.
 func (s *Simulator) Ready() bool { return s.ready.Load() }
 
-// Stage is a no-op. Writing a CDI spec before the Stage barrier means the spec's
+// Stage writes no spec. Writing one before the Stage barrier means the spec's
 // hostPaths (chardevs, shims) may not exist yet; containerd fails every container
 // creation that references an unresolvable spec. The write is deferred to Apply.
+//
+// Stage does withdraw the NRI spec, for the same reason: gpudriver prunes the
+// nodes of GPUs a smaller profile dropped, and the NRI plugin may run between
+// Stage and Apply. Without a spec it falls back to raw nodes from the new tree.
+// The nvidia spec stays because its consumers have no such fallback.
 func (s *Simulator) Stage(_ context.Context, _ *agent.State) error {
 	s.ready.Store(false)
-	return nil
+	return fsutil.Remove(s.host.RunPath(nriSpecFile))
 }
 
 // Discard is a no-op. Stage wrote nothing, so there is nothing to undo here.

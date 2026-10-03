@@ -14,7 +14,8 @@ It is off by default: the chart adds the sidecar only when `nri.enabled` is
 `true`. The sidecar runs as root with `allowPrivilegeEscalation: false` and no
 service account token. It mounts the NRI socket directory read-write and shares
 the node pod's overlay and CDI spec directories read-only. See [NRI pod
-lifecycle](../helm-chart.md#nri-pod-lifecycle) for how it shares the node pod.
+lifecycle](../helm-chart.md#nri-pod-lifecycle) for startup, shutdown, and
+Kubernetes 1.28 compatibility behavior.
 
 ## Probes
 
@@ -45,6 +46,8 @@ Every flag also reads an environment variable; the flag wins when both are set.
 | `--log-level` | `MOKKA_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. `warning` is an alias of `warn`; empty falls back to `info` |
 | `--log-format` | `MOKKA_LOG_FORMAT` | `json` | `json` or `plain`; empty falls back to `json` |
 | `--health-addr` | `MOKKA_NRI_HEALTH_ADDR` | `:8080` | Address for `/healthz` and `/readyz`; empty disables them |
+| `--agent-staged-url` | `MOKKA_NRI_AGENT_STAGED_URL` | empty | Node agent's `/stagedz` URL. When set, containers are adjusted only while the agent reports its tree staged; otherwise they are left unmodified and each is logged as a warning. Set together with `--staging-lock-path` |
+| `--staging-lock-path` | `MOKKA_NRI_STAGING_LOCK_PATH` | empty | Node agent's staging lock, held shared while each adjustment is decided. Must be outside the injected overlay. Set together with `--agent-staged-url` |
 | `--socket-path` | `MOKKA_NRI_SOCKET_PATH` | `/var/run/nri/nri.sock` | NRI socket path |
 | `--plugin-name` | `MOKKA_NRI_PLUGIN_NAME` | `mokka-nri-plugin` | Name this plugin registers with the runtime under |
 | `--plugin-index` | `MOKKA_NRI_PLUGIN_INDEX` | `10` | Order against other registered plugins; later indices adjust a container after earlier ones |

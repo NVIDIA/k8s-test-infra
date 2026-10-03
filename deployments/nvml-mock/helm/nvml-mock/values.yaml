@@ -106,12 +106,18 @@ nodeLabels:
 # runtime, without mutating pod specs, to containers that hold a device-plugin
 # or NVIDIA DRA GPU allocation or whose pod carries the devices or IMEX
 # annotation below. Every other container is left untouched. Opt-in (default
-# false). See docs/helm-chart.
+# false). On Kubernetes 1.29+, the node agent is a restartable init sidecar so
+# staging gates NRI startup. See docs/helm-chart.
 
 nodeAgent:
   logging:
     level: info    # debug | info | warn | error
     format: json   # json | plain
+  # On Kubernetes 1.29+, enabling NRI gates plugin startup on the node agent's
+  # /stagedz endpoint until its first Stage wave completes. Kubernetes runs no
+  # liveness probe until then, so this is also how long a node agent whose
+  # first staging failed waits before it is restarted.
+  nriStartupTimeoutSeconds: 120
   # Announces an injected Xid on the node's kernel log, the way a real
   # driver's printk does, so journald/syslog consumers (e.g. NVSentinel) see
   # it too, not just NVML clients. Watches the runtime override document, so
@@ -160,6 +166,10 @@ allocationWatcher:
 
 nri:
   enabled: false
+  # Kubernetes 1.29+ enables SidecarContainers by default. Set this to false
+  # if the cluster explicitly disables that feature gate; the chart then uses
+  # the unordered regular-container layout also used on Kubernetes 1.28.
+  nativeSidecar: true
   logging:
     level: info    # debug | info | warn | error
     format: json   # json | plain
