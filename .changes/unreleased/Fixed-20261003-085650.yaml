@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+  Repository automation: keep /lgtm and /approve evidence across unrelated main pushes, accept commands on bot-authored pull requests, stop dropping pending command runs by giving each automation concern its own concurrency group, and read required CI from merge.requiredCI in policy.yml.
+time: 2026-10-03T06:56:50Z
