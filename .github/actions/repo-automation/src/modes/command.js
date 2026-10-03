@@ -23,6 +23,7 @@ const REPOSITORY = /^[A-Za-z0-9_.-]{1,100}$/;
 const OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const STATE_MARKER = "<!-- repo-automation-state:";
 const EVIDENCE_COMMANDS = new Set(["lgtm", "approve"]);
+const MAX_BACKLOG_AGE_MS = 24 * 60 * 60 * 1000;
 
 function eventIdentity(event) {
   const owner = event?.repository?.owner?.login;
@@ -224,17 +225,25 @@ function storedProcessedIds(policyComment) {
   return parsePolicyState(policyComment.body)?.processedCommandIds ?? [];
 }
 
+// Comment creation time is GitHub server time. The window keeps a first run from
+// replaying commands left over from before catch-up existed. Date.parse gives NaN for
+// a missing or malformed time, and a NaN age never passes the comparison.
+function recentComment(value, nowMilliseconds) {
+  return nowMilliseconds - Date.parse(value.createdAt) <= MAX_BACKLOG_AGE_MS;
+}
+
 // A later run in the same concurrency group cancels a pending one, so each run first
 // applies the unprocessed command comments older than its own, in id order. Comments
 // older than the newest processed one were skipped earlier and are never replayed out
 // of order; newer comments are left to their own run.
-function backlogComments(listed, identity, processedIds) {
+function backlogComments(listed, identity, processedIds, nowMilliseconds) {
   const newestProcessed = Math.max(0, ...processedIds);
   return listed
     .filter((value) => (
       pendingComment(value, identity)
       && value.id < identity.commentId
       && value.id > newestProcessed
+      && recentComment(value, nowMilliseconds)
     ))
     .map((value) => ({ comment: value, parsed: boundedParsed(parseCommands(value.body)) }))
     .filter((item) => hasCommands(item.parsed))
@@ -286,10 +295,11 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
   validateConfig(config);
   const comment = liveComment(await github.getIssueComment(identity.commentId), identity);
   const parsed = boundedParsed(parseCommands(comment.body));
+  const timestamp = now();
   const listed = await github.listIssueComments(identity.prNumber);
   if (!Array.isArray(listed)) throw new Error("live comment list is invalid");
   const policyComment = await github.getPolicyComment(identity.prNumber, POLICY_COMMENT_MARKER);
-  const backlog = backlogComments(listed, identity, storedProcessedIds(policyComment));
+  const backlog = backlogComments(listed, identity, storedProcessedIds(policyComment), Date.parse(timestamp));
   const items = hasCommands(parsed) ? [...backlog, { comment, parsed }] : backlog;
   if (items.length === 0) return { status: "ignored", reason: "no-command" };
   const pullRequest = openPullRequest(await github.getPullRequest(identity.prNumber), identity);
@@ -332,7 +342,6 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
     : [];
   if (!Array.isArray(runs)) throw new Error("live workflow run state is invalid");
 
-  const timestamp = now();
   let state = stored.state;
   let plan;
   const processedCommentIds = [];

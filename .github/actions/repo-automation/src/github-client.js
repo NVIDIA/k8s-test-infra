@@ -798,6 +798,7 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
         author: typeof data?.user?.login === "string" ? data.user.login.toLowerCase() : null,
         authorType: typeof data?.user?.type === "string" ? data.user.type : null,
         edited: data?.updated_at !== data?.created_at,
+        createdAt: typeof data?.created_at === "string" ? data.created_at : null,
       }));
     },
 
