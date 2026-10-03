@@ -20,6 +20,14 @@ GO_SRC := $(shell find . -type f -name '*.go')
 GO_PKG_DIRS := cmd pkg tests
 
 BIN_DIR=$(PWD)/tmp/bin
+ADDLICENSE ?= $(BIN_DIR)/addlicense
+ADDLICENSE_VERSION ?= v1.2.0
+
+# Keep the check focused on source files. Generated manifests, documentation,
+# dependency metadata, and vendored code use their own licensing conventions.
+LICENSE_FILES = git ls-files -- '*.go' '*.sh' '*.tiltfile' 'Tiltfile' '*.real' \
+	'**/Makefile' 'Makefile' '**/Dockerfile' '**/Dockerfile.*' '*.Dockerfile' 'Dockerfile*' \
+	| grep -vE '^(vendor|licenses|dist|tmp)/'
 
 VERSION := 0.0.1
 
@@ -442,6 +450,14 @@ mokka-control-plane-image-attest: ## Attest each Mokka control-plane child manif
 test: ## Run unit tests with race detection and coverage
 	@$(GO_CMD) test -v -race -coverprofile=coverage.out -covermode=atomic ./...
 
+.PHONY: license-fmt
+license-fmt: addlicense ## Add Apache-2.0 headers to tracked source files missing them.
+	@$(LICENSE_FILES) | xargs -r $(ADDLICENSE) -c "NVIDIA CORPORATION" -l apache -y 2026
+
+.PHONY: license-header-check
+license-header-check: addlicense ## Verify tracked source files contain license headers.
+	@$(LICENSE_FILES) | xargs -r $(ADDLICENSE) -check -c "NVIDIA CORPORATION" -l apache
+
 # internal/fsutil and internal/agent/gpudriver skip their bind-mount, mknod
 # and Stage tests outside root on Linux (skipUnlessRootLinux) — the `test`
 # target above always runs as the invoking user, so those never execute
@@ -487,6 +503,13 @@ verify-greptile: ## Validate the .greptile review configuration
 .PHONY: actionlint
 actionlint: ## Validate GitHub Actions workflows
 	@./hack/actionlint.sh
+
+.PHONY: addlicense
+addlicense: $(ADDLICENSE) ## Download addlicense locally if necessary.
+
+$(ADDLICENSE):
+	@mkdir -p "$(BIN_DIR)"
+	@GOBIN="$(abspath $(BIN_DIR))" $(GO_CMD) install github.com/google/addlicense@$(ADDLICENSE_VERSION)
 
 REPOSITORY_AUTOMATION_DIR := .github/actions/repo-automation
 

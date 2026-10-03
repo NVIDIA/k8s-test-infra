@@ -1,4 +1,7 @@
 #!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
+
 printf '%s\n' "$@"
 printf 'ENV_PROBE=%s\n' "$ENV_PROBE"
 exit 7
