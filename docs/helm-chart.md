@@ -78,9 +78,13 @@ at any level. The pods simply start with no mock GPU.
 | [jq](https://jqlang.github.io/jq/) | any | DRA verification only |
 
 **Published image:** The nvml-mock container image is published at
-`ghcr.io/nvidia/nvml-mock:latest` and is built automatically on pushes to
-`main`. If the image is not yet available (e.g., before the first release),
-use "Option B: Build from source" in the quick start sections below.
+`ghcr.io/nvidia/nvml-mock`, tagged with the release version on every release,
+and with the chart `appVersion` (the next `-dev` version, such as `0.5.0-dev`)
+on pushes to `main`. The chart installs the image tagged with
+its `appVersion` by default, so a released chart pulls its own release and the
+chart on `main` pulls the latest `main` build. If the
+image is not yet available, use "Option B: Build from source" in the quick
+start sections below.
 
 **Cluster requirements:**
 - Privileged pods must be allowed (nvml-mock DaemonSet uses `privileged: true` for `mknod`)
@@ -690,12 +694,23 @@ namespace, on the pod IP where the kubelet reaches it.
 | `gpu.failureInjection.after_calls` | `0` | Activate failure deterministically after N guarded NVML calls (0 = disabled). |
 | `gpu.failureInjection.seed` | `0` | RNG seed for probability rolls; `0` uses a time-based seed. |
 | `gpu.failureInjection.xid.code` | `0` | Xid error code delivered via the NVML event set (`NVML_EVENT_TYPE_XID_CRITICAL_ERROR`) once tripped. `0` = no Xid. |
+| `global.imageRegistry` | `""` | Registry every chart image is pulled from, such as a mirror. Replaces the registry host of `image.repository`, `nri.image.repository` and `controlPlane.image.repository`, so `ghcr.io/nvidia/nvml-mock` becomes `<registry>/nvidia/nvml-mock`. |
+| `global.imagePullSecrets` | `[]` | Pull secrets added to every chart pod (nvml-mock, NRI and control plane), ahead of `imagePullSecrets`. Each entry is a Secret name or `{name: <secret>}`. |
+| `imagePullSecrets` | `[]` | Pull secrets added to every chart pod, after `global.imagePullSecrets`; duplicates are dropped. Same entry forms. |
+| `extraObjects` | `[]` | Additional Kubernetes objects rendered with the release, each passed through `tpl` so it can use chart values such as `{{ .Release.Name }}`. A list, or a map keyed by name so layered values files can override an entry or drop it with `""`. Each entry is an object or a YAML string. |
 | `image.repository` | `ghcr.io/nvidia/nvml-mock` | Container image repository |
-| `image.tag` | `latest` | Container image tag |
-| `image.pullPolicy` | `IfNotPresent` | Image pull policy |
+| `image.digest` | `""` | Immutable `sha256:...` digest. When set, pins the image and takes precedence over `image.tag`. |
+| `image.tag` | `""` (chart `appVersion`) | Container image tag. When empty, the chart `appVersion`: the release version in a released chart, the next `-dev` version on `main`. |
+| `image.pullPolicy` | `IfNotPresent` | Image pull policy. When empty, the Kubernetes default for the rendered image: `Always` for the `latest` tag, `IfNotPresent` otherwise. |
 | `driverVersion` | `""` (auto) | NVIDIA driver version to mock. When empty, read from `system.driver_version` of the resolved GPU config (the selected `gpu.profile` file, or `gpu.customConfig` if set), so the profile is the single source of truth (e.g. GB200 → `580.65.06`, B200 → `560.35.03`, GB300 → `570.124.06`, others → `550.163.01`). Set explicitly only to override the profile. |
 | `nodeSelector` | `{}` | Node selector for DaemonSet |
 | `tolerations` | `[{operator: Exists}]` | Pod tolerations (default: tolerate all) |
+| `priorityClassName` | `""` | PriorityClass for the node DaemonSet pods. The node agent stands in for its node's GPU driver, so `system-node-critical` keeps it from being starved or evicted before the workloads that depend on it. |
+| `affinity` | `{}` | Pod affinity for the node DaemonSet pods |
+| `podAnnotations` | `{}` | Annotations added to the node DaemonSet pods. The chart's own annotations (`checksum/config`, `checksum/mig-profiles`, `kubectl.kubernetes.io/default-container`) always win. |
+| `podLabels` | `{}` | Labels added to the node DaemonSet pods. Setting a selector label (`app.kubernetes.io/name`, `instance` or `component`) fails the render. |
+| `nodeAgent.livenessProbe` | `httpGet /healthz` on `health` | Node agent liveness probe. Set to `null` to drop it. |
+| `nodeAgent.readinessProbe` | `httpGet /readyz` on `health` | Node agent readiness probe. Set to `null` to drop it. |
 | `nodeLabels.featuresDir` | `/etc/kubernetes/node-feature-discovery/features.d` | Host directory NFD's local source reads feature files from. Override only if NFD runs with a non-default `featureFilesDir` |
 | `integrations.fakeGpuOperator.enabled` | `false` | Create per-profile ConfigMaps named `gpu-profile-<profile>`, keyed `profile.yaml`, in the shape fake-gpu-operator's loader reads |
 | `integrations.fakeGpuOperator.targetNamespace` | `""` (release namespace) | Namespace for the profile ConfigMaps. Set to FGO's release namespace for FGO to find them; requires FGO's `builtinProfiles.enabled=false` to avoid a Helm ownership collision on the same seven names |
@@ -1150,7 +1165,7 @@ path rather than redirected elsewhere.
 
 ## Troubleshooting
 
-**ImagePullBackOff**: Verify the image is accessible. The published image is at `ghcr.io/nvidia/nvml-mock:latest`. For local builds, ensure the image is loaded into your cluster (see Quick Start).
+**ImagePullBackOff**: Verify the image is accessible. By default the chart pulls `ghcr.io/nvidia/nvml-mock:<chart appVersion>`; check that tag exists or set `image.tag`. For local builds, ensure the image is loaded into your cluster (see Quick Start).
 
 **DaemonSet not ready**: Check pod logs: `kubectl logs -l app.kubernetes.io/name=nvml-mock`
 

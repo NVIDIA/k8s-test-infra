@@ -50,12 +50,13 @@ body:
         - label: "`git push upstream <base-sha>:refs/heads/<release-branch>`"
         - label: "Confirm it exists: `git ls-remote --heads upstream <release-branch>`"
         - label: "`main` is now free for the next minor. Feature work does not wait for this release."
+        - label: "PR against `main` bumping both charts' `version` and `appVersion` to the next minor's `-dev` version (for example `0.6.0-dev`). Main builds publish the nvml-mock image under that tag, so it must never be a released version."
   - type: checkboxes
     id: prep
     attributes:
       label: Release-prep PR (against the release branch)
       options:
-        - label: "Bump `deployments/nvml-mock/helm/nvml-mock/Chart.yaml` `version` to the release version. Leave `appVersion` alone: it names the mocked NVIDIA driver, not this project."
+        - label: "Bump `deployments/nvml-mock/helm/nvml-mock/Chart.yaml` `version` and `appVersion` to the release version without the `v` prefix. `appVersion` is the chart's default image tag, so a mismatch makes default installs pull an image that does not exist. Only the release branch carries the release version; `main` keeps the next `-dev` version."
         - label: "Bump `deployments/mokka-crds/helm/mokka-crds/Chart.yaml` if the CRDs changed."
         - label: "`make changelog-release RELEASE_VERSION=<version-without-v>` to fold the pending fragments into CHANGELOG.md. A candidate (`0.5.0-rc1`) lists only what is new since the previous candidate; the final `0.5.0` replaces every `0.5.0-*` section with a single one. Preview first with `make changelog-preview`."
         - label: "Verify no changelog content was lost: the new section has one bullet per folded fragment plus every bullet of the candidate sections it replaced. Paste both counts in the PR."

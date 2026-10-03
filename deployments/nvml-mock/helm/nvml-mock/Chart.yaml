@@ -5,6 +5,11 @@ name: nvml-mock
 description: Mock NVIDIA driver infrastructure for Kubernetes testing
 type: application
 version: 0.5.0-dev
+# The default image tag, not the mocked NVIDIA driver version. On main it is
+# the next -dev version, which nvml-mock-publish tags every main nvml-mock build
+# with, so the templates and the binary they launch stay in step. The
+# release-prep PR sets it to the release version so a released chart pulls the
+# images from its release.
 appVersion: "0.5.0-dev"
 # Minimum kubernetes version. Mounting the same hostPath volume at two
 # different mountPaths in one container (used by daemonset.yaml for the

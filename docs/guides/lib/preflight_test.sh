@@ -373,10 +373,10 @@ rm -f "${SHIMDIR}/kind"
 check "BUILD_LOCAL without kind exits 3" 3 "$(run_preflight BUILD_LOCAL=true)"
 check_stderr "missing kind names the tool" "kind not found on PATH"
 
-# Case 19: a digest-pinned image is rejected. The chart renders
-# "{{ repository }}:{{ tag }}" and has no image.digest, so splitting on the
-# digest's colon would render an invalid reference that only fails at pull
-# time. Exit 5 is the documented code for config the chart cannot express.
+# Case 19: a digest-pinned image is rejected. Demos pass only image.repository
+# and image.tag, so splitting on the digest's colon would render an invalid
+# reference that only fails at pull time. Exit 5 is the documented code for
+# config the demo cannot express.
 make_shims
 check "digest ref is rejected with 5" 5 "$(run_image_parts 'ghcr.io/nvidia/nvml-mock@sha256:abc123')"
 check_stderr "digest rejection explains why" "cannot express"

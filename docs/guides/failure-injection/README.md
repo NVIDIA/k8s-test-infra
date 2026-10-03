@@ -111,7 +111,7 @@ chart. Pin `NVML_MOCK_IMAGE` to a released tag if you need a fixed pairing.
    Exit codes: `2` no usable cluster, `3` missing or too-old tooling, `4`
    confirmation declined, impossible, refused because another nvml-mock demo is
    already installed anywhere on the cluster, or refused because helm could not
-   list releases to rule that out, `5` a configuration the chart cannot
+   list releases to rule that out, `5` a configuration the demo cannot
    express (a digest-pinned `NVML_MOCK_IMAGE`).
 
    Every subsequent `kubectl` and `helm` call is pinned to both the context

@@ -65,9 +65,6 @@ so a mistyped key fails fast rather than deploying a broken DaemonSet.
 - Kubernetes >= 1.28.0
 - `controlPlane.enabled` requires Kubernetes >= 1.30.0 for its
   `ValidatingAdmissionPolicy`
-- `controlPlane.enabled` requires an immutable image digest in
-  `controlPlane.image.digest` for normal installs. Tilt explicitly enables
-  `controlPlane.image.allowMutableTag` only to inject locally built images.
 - Chart version: see `Chart.yaml`
 
 Before disabling the control plane or uninstalling its release, follow the
