@@ -234,14 +234,33 @@ next evaluation. If the evaluation fails, the job writes nothing and the run
 fails. Unlike the merge job, it does not apply a fail-closed label plan, because
 that plan would remove an active `do-not-merge/hold`.
 
-Use this job when another controller merges on these labels:
+The job never removes `do-not-merge/hold`. Only an `/unhold` clears a hold, and
+the **Commands** run that applies it removes the label. A hold label without hold
+state stays, for example one that a maintainer added by hand or one that a
+`/hold` run wrote before its state.
+
+Use this job when another controller merges on these labels. Follow this order,
+because the merge job enables native auto-merge again on eligible pull requests
+for as long as it is enabled:
 
 1. Set `REPOSITORY_AUTOMATION_POLICY_LABELS_ENABLED=true` and confirm that a
    **Merge evaluation** run applies labels from its `policy-labels` job.
-2. Disable native auto-merge on open pull requests, and replace the required
-   `repository-automation/merge-policy` check in branch protection with the
-   gate of the new controller.
-3. Set `REPOSITORY_AUTOMATION_MERGE_ENABLED=false`.
+2. Set `REPOSITORY_AUTOMATION_MERGE_ENABLED=false`. Wait until no **Merge
+   evaluation** `evaluate` job is queued or running.
+3. Disable native auto-merge on every open pull request that has it, into
+   `main` and into every `release-*` branch. This command lists them:
+
+   ```shell
+   gh pr list --repo NVIDIA/k8s-test-infra --state open --limit 200 \
+     --json number,baseRefName,autoMergeRequest \
+     --jq '.[] | select(.autoMergeRequest != null) | "\(.number) \(.baseRefName)"'
+   ```
+
+   Run `gh pr merge <number> --repo NVIDIA/k8s-test-infra --disable-auto` for
+   each listed pull request. Repeat the list command until it prints nothing.
+4. In branch protection for `main` and for every `release-*` rule, replace the
+   required `repository-automation/merge-policy` check with the gate of the new
+   controller.
 
 While both variables are `true`, both jobs write the same labels from separate
 concurrency groups. Keep that overlap short.
@@ -277,12 +296,16 @@ not copied into command state.
 GitHub keeps at most one pending run in a concurrency group, so a newer
 **Commands** or **PR metadata** run for the same pull request cancels a pending
 **Commands** run. Each **Commands** run therefore lists the pull request comments
-and first applies the unprocessed command comments that are older than its own
-comment, in comment ID order, then its own. A run started by a comment without
-commands also does this. Each comment must come from a human account and must not
-be edited, and its author's live identity and repository access are checked as
-for the comment that started the run. Processed comment IDs are stored in the
-policy comment, so a repeated delivery changes nothing.
+and first applies the `/hold`, `/unhold`, and `/retest` commands from unprocessed
+comments that are older than its own comment, in comment ID order, then its own.
+A caught-up `/backport` or `/cherry-pick` is not replayed. A run started by a
+comment without commands also does this. Each comment must come from a human
+account and must not be edited, and its author's live identity and repository
+access are checked as for the comment that started the run. A caught-up comment
+is recorded as processed only when it changed something or had an `/lgtm` or
+`/approve` rejected, so comments that change nothing cannot fill the command
+history. Processed comment IDs are stored in the policy comment, so a repeated
+delivery changes nothing.
 
 Only comments created in the last 24 hours, by GitHub's comment creation time,
 are caught up, so a first run does not replay old history. Comments older than
@@ -439,6 +462,7 @@ fails the job before any checkout.
 - Keep the scheduled evaluator because it repairs missed or delayed events.
 
 To stop repository writes, set the applicable activation variable to `false`.
-Before merge evaluation is disabled, maintainers must disable native auto-merge
-on open pull requests. Do not remove the required merge check until maintainers
-select and document a replacement gate.
+After merge evaluation is disabled, maintainers must disable native auto-merge
+on every open pull request and confirm that none is still armed, because the
+evaluator enables it again while it runs. Do not remove the required merge check
+until maintainers select and document a replacement gate.
