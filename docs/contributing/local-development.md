@@ -56,6 +56,7 @@ the `a100` profile. Everything else is a flag.
 | `--gpu-profile <name>` | Which GPU profile the release uses. One of `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`, `t4` |
 | `--multi-gpu-profile` | One release per worker instead of one for the fleet: `a100` on `worker-0`, `t4` on `worker-1`. Ignores `--gpu-profile` |
 | `--compute-domain` | GB200 profile with an NVLink topology overlay. Needs the `compute-domain` cluster |
+| `--nri` | Turns on the [NRI plugin](../components/nri-plugin.md) (`nri.enabled=true`), so containers that hold a GPU allocation get the mock injected. The default cluster already has containerd NRI enabled |
 
 ### Adding consumers
 
@@ -77,6 +78,7 @@ Most flags stack. These do not:
 | `--fgo` with `--gpu-operator` | FGO replaces the GPU Operator |
 | `--fgo` with `--compute-domain` | Different fleet shapes |
 | `--compute-domain` with `--multi-gpu-profile` or `--gpu-profile` | The compute-domain scenario fixes both |
+| `--nri` with `--compute-domain` | The compute-domain scenario installs Mokka with its own values |
 
 Two flags imply others: `--topograph` implies `--compute-domain`, because
 cliques only exist there; `--observability` implies `--gpu-operator`, because
@@ -86,6 +88,7 @@ cliques only exist there; `--observability` implies `--gpu-operator`, because
 tilt up -- --gpu-profile gb200
 tilt up -- --multi-gpu-profile --gpu-operator
 tilt up -- --gpu-operator --dra
+tilt up -- --dra --nri
 tilt up -- --observability
 
 make cluster-create PROFILE=compute-domain
