@@ -251,3 +251,59 @@ func TestBaseTargetsContext(t *testing.T) {
 	args := c.base()
 	require.Equal(t, []string{"--context", "kind-nvml-mock-e2e"}, args, "kubectl context args")
 }
+
+// draObjects answers the three reads DRAAllocatedGPUUUIDs makes: the pod, its
+// claim and the published slices. The second slice repeats the device name in
+// another pool, so a lookup that ignores the pool resolves the wrong UUID.
+const draObjects = `
+case "$*" in
+  *"get -o json pod -n default gpu-test-pod"*)
+    echo '{"status":{"resourceClaimStatuses":[{"name":"gpu","resourceClaimName":"gpu-test-pod-gpu-x"}]}}' ;;
+  *"resourceclaims.resource.k8s.io -n default gpu-test-pod-gpu-x"*)
+    echo '{"status":{"allocation":{"devices":{"results":[{"request":"gpu","driver":"gpu.nvidia.com","pool":"worker-1","device":"gpu-1"}]}}}}' ;;
+  *"resourceslices.resource.k8s.io"*)
+    echo '{"items":[
+      {"spec":{"driver":"gpu.nvidia.com","pool":{"name":"worker-1"},"devices":[
+        {"name":"gpu-0","basic":{"attributes":{"uuid":{"string":"GPU-other"}}}},
+        {"name":"gpu-1","basic":{"attributes":{"uuid":{"string":"GPU-allocated"}}}}]}},
+      {"spec":{"driver":"gpu.nvidia.com","pool":{"name":"worker-0"},"devices":[{"name":"gpu-1","basic":{"attributes":{"uuid":{"string":"GPU-wrong"}}}}]}}]}' ;;
+  *) echo "unexpected: $*" >&2; exit 1 ;;
+esac
+`
+
+func TestDRAAllocatedGPUUUIDsResolvesTheClaimedDeviceInItsPool(t *testing.T) {
+	installFakeKubectl(t, draObjects)
+
+	uuids, err := (&Client{}).DRAAllocatedGPUUUIDs(context.Background(), "default", "gpu-test-pod")
+	require.NoError(t, err)
+	require.Equal(t, []string{"GPU-allocated"}, uuids)
+}
+
+func TestDRAAllocatedGPUUUIDsRejectsAnUnallocatedClaim(t *testing.T) {
+	installFakeKubectl(t, `
+case "$*" in
+  *" pod "*) echo '{"status":{"resourceClaimStatuses":[{"resourceClaimName":"c"}]}}' ;;
+  *) echo '{"status":{}}' ;;
+esac
+`)
+
+	_, err := (&Client{}).DRAAllocatedGPUUUIDs(context.Background(), "default", "p")
+	require.ErrorContains(t, err, "not allocated")
+}
+
+// The v1 API moved device attributes out of basic and onto the device.
+func TestDRAAllocatedGPUUUIDsReadsTheV1DeviceShape(t *testing.T) {
+	installFakeKubectl(t, `
+case "$*" in
+  *" pod "*) echo '{"status":{"resourceClaimStatuses":[{"resourceClaimName":"c"}]}}' ;;
+  *resourceclaims*) echo '{"status":{"allocation":{"devices":{"results":[{"driver":"gpu.nvidia.com","pool":"n","device":"gpu-1"}]}}}}' ;;
+  *resourceslices*) echo '{"items":[{"spec":{"driver":"gpu.nvidia.com","pool":{"name":"n"},"devices":[
+    {"name":"gpu-0","attributes":{"uuid":{"string":"GPU-0"}}},
+    {"name":"gpu-1","attributes":{"uuid":{"string":"GPU-1"}}}]}}]}' ;;
+esac
+`)
+
+	uuids, err := (&Client{}).DRAAllocatedGPUUUIDs(context.Background(), "default", "p")
+	require.NoError(t, err)
+	require.Equal(t, []string{"GPU-1"}, uuids)
+}
