@@ -23,6 +23,7 @@ const REPOSITORY = /^[A-Za-z0-9_.-]{1,100}$/;
 const OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const STATE_MARKER = "<!-- repo-automation-state:";
 const EVIDENCE_COMMANDS = new Set(["lgtm", "approve"]);
+const CATCH_UP_COMMANDS = new Set(["hold", "unhold", "retest"]);
 const MAX_BACKLOG_AGE_MS = 24 * 60 * 60 * 1000;
 
 function eventIdentity(event) {
@@ -250,14 +251,15 @@ function backlogComments(listed, identity, processedIds, nowMilliseconds) {
     .sort((left, right) => left.comment.id - right.comment.id);
 }
 
-// A caught-up /lgtm or /approve can predate a push to the head, so it is recorded as
-// processed without evidence and the policy comment asks the reviewer to repeat it.
-function withoutEvidence(parsed) {
+// Catch-up replays only /hold, /unhold and /retest. A caught-up /lgtm or /approve can
+// predate a push to the head, so it grants no evidence and the policy comment asks the
+// reviewer to repeat it. A caught-up /backport or /cherry-pick is not replayed.
+function caughtUpCommands(parsed) {
   const rejected = [...new Set(parsed.commands
     .filter((command) => EVIDENCE_COMMANDS.has(command.name))
     .map((command) => command.name))].sort();
   return {
-    parsed: { ...parsed, commands: parsed.commands.filter((command) => !EVIDENCE_COMMANDS.has(command.name)) },
+    parsed: { ...parsed, commands: parsed.commands.filter((command) => CATCH_UP_COMMANDS.has(command.name)) },
     rejected,
   };
 }
@@ -346,13 +348,11 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
   let plan;
   const processedCommentIds = [];
   const rejectedBacklogEvidence = [];
-  const backportRequests = [];
   const rerunRunIds = [];
   for (const item of items) {
-    const checked = item.comment.id === identity.commentId
-      ? { parsed: item.parsed, rejected: [] }
-      : withoutEvidence(item.parsed);
-    plan = planCommandExecution({
+    const event = item.comment.id === identity.commentId;
+    const checked = event ? { parsed: item.parsed, rejected: [] } : caughtUpCommands(item.parsed);
+    const candidate = planCommandExecution({
       parsed: checked.parsed,
       state,
       context,
@@ -377,6 +377,14 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
       // Every plan diffs against the live labels, so the last plan carries the net change.
       currentLabels,
     });
+    // A caught-up comment is recorded only when it changed something or had evidence
+    // rejected, so comments from anyone cannot fill the processed history.
+    if (
+      !event
+      && checked.rejected.length === 0
+      && !candidate.commands.some((result) => result.status === "applied")
+    ) continue;
+    plan = candidate;
     if (plan.duplicate) break;
     state = plan.state;
     processedCommentIds.push(item.comment.id);
@@ -388,11 +396,11 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
         code: "stale-backlog-evidence",
       });
     }
-    backportRequests.push(...plan.mutations.backportRequests);
     for (const runId of plan.mutations.rerunRunIds) {
       if (!rerunRunIds.includes(runId)) rerunRunIds.push(runId);
     }
   }
+  if (plan === undefined) return { status: "ignored", reason: "no-command" };
   const result = {
     status: plan.duplicate ? "duplicate" : (dryRun ? "planned" : "pending"),
     headOid: pullRequest.headOid,
@@ -406,7 +414,8 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
       add: plan.mutations.addLabels,
       remove: plan.mutations.removeLabels,
     },
-    backportRequests,
+    // Only the event comment can request a backport, and its plan is the last one.
+    backportRequests: plan.mutations.backportRequests,
     rerunRunIds,
     apply: { attempted: [], applied: [], failed: null },
   };
