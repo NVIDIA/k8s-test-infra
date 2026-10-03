@@ -17,6 +17,7 @@ ask of you — start at the top if you are new.
 | Guide | What it shows | Time |
 |---|---|---|
 | [NVIDIA Device Plugin](device-plugin.md) | Mock GPUs advertised as `nvidia.com/gpu`, and a workload scheduled against them | ~5 min |
+| [Node Feature Discovery](nfd.md) | NFD turns Mokka's feature file into a GPU-presence node label | ~10 min |
 | [Amazon EKS](install/aws/eks/README.md) | The device-plugin path on private, CPU-only managed workers, including the required runtime bootstrap | 20–30 min |
 | [NVIDIA GPU Operator](gpu-operator.md) | The real operator stack — device plugin, GFD, DCGM and the validator — against mock GPUs | ~15 min |
 | [NVIDIA DRA Driver](dra.md) | Mock GPUs published as ResourceSlices, and a pod scheduled through a ResourceClaim | ~10 min |
