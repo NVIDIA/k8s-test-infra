@@ -1,6 +1,7 @@
 "use strict";
 
 const { planRetest } = require("../retest.js");
+const { hasApprovalCoverage } = require("../owners.js");
 const { authorizeCommand } = require("./authorization.js");
 const {
   appendProcessedCommand,
@@ -93,9 +94,16 @@ function activeState(input) {
   return state;
 }
 
-function policyResult(state) {
-  const lgtm = state.lgtms.length > 0;
-  const approved = state.approvals.length > 0;
+function policyResult(state, input) {
+  const lgtm = state.lgtms.length > 0 || (input.nativeReviewEvidence?.lgtms.length ?? 0) > 0;
+  const approved = hasApprovalCoverage(
+    input.ownership,
+    new Set([
+      ...state.approvals.map((record) => record.actor),
+      ...(input.nativeReviewEvidence?.approvals ?? []).map((review) => review.user),
+    ]),
+    input.authorIsHuman,
+  );
   const hold = state.hold !== null;
   return { lgtm, approved, hold, needsApproval: !(lgtm && approved) };
 }
@@ -106,7 +114,7 @@ function duplicateResult(input) {
     state: input.state,
     commands: [],
     diagnostics: [],
-    policy: policyResult(activeState(input)),
+    policy: policyResult(activeState(input), input),
     mutations: emptyMutations(),
   };
 }
@@ -225,7 +233,7 @@ function planCommandExecution(input) {
   }
 
   const processedState = appendProcessedCommand(state, input.commentId, input.historyLimit);
-  const policy = policyResult(processedState);
+  const policy = policyResult(processedState, input);
   const labels = policyLabelPlan(input.currentLabels ?? [], [
     ...(policy.lgtm ? ["lgtm"] : []),
     ...(policy.approved ? ["approved"] : []),

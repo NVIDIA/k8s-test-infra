@@ -1,0 +1,7 @@
+kind: Added
+body: |-
+  The CDI-enabled KIND node image is published at
+    `ghcr.io/nvidia/mokka-kind-node` for amd64 and arm64, gated by an amd64
+    smoke test that boots a cluster and starts a pod before any public tag
+    moves.
+time: 2026-09-29T07:00:00Z

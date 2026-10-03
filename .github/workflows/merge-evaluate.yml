@@ -42,7 +42,7 @@ jobs:
     permissions:
       actions: read
       checks: write
-      contents: read
+      contents: write
       issues: write
       pull-requests: write
     concurrency:
@@ -83,4 +83,5 @@ jobs:
           mode: merge-evaluate
           pr-number: ${{ inputs.pr_number || '' }}
           control-directory: control
+          policy-revision: ${{ steps.trusted.outputs.result }}
           dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}

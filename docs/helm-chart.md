@@ -36,9 +36,10 @@ Deploys a DaemonSet that creates on every node:
 Consumers (DRA driver, device plugin) point at `/var/lib/nvml-mock/driver`
 as the NVIDIA driver root and discover GPUs through standard NVML APIs.
 
-When `nri.enabled=true` (opt-in; default `false`), the chart also deploys
-`nvml-mock-nri`, a node-local containerd NRI plugin. It mounts the host overlay
-into newly created containers at `/opt/nvml-mock` and injects the mock
+When `nri.enabled=true` (opt-in; default `false`), the chart adds
+`nvml-mock-nri` as a sidecar in the node DaemonSet. This node-local containerd
+NRI plugin mounts the host overlay into newly created containers at
+`/opt/nvml-mock` and injects the mock
 environment at runtime, so plain pods can run `nvidia-smi` without GPU resource
 requests or pod-spec mutation. The overlay and environment are injected ambiently into
 containers in non-excluded namespaces, while host device nodes (`/dev/nvidia*`) remain opt-in
@@ -61,7 +62,7 @@ The plugin always excludes its own release namespace, so that the main
 nvml-mock DaemonSet is never self-injected. Install without `-n` and the
 release namespace is `default` — the plugin then renders
 `--excluded-namespaces=default,kube-system` and skips every pod a first-time
-user runs. Nothing reports this: the DaemonSet is Ready, `/readyz` returns 200
+user runs. Nothing reports this: the node DaemonSet is Ready, `/readyz` returns 200
 because the plugin *is* registered, and skipped containers produce no log line
 at any level. The pods simply start with no mock GPU.
 
@@ -281,15 +282,19 @@ $ cat /var/lib/nvml-mock/sys/devices/pci0000:00/0000:07:00.0/numa_node
 
 ### Defaults per profile
 
-| Profile | Root complexes | NUMA nodes | Devices per root |
-|---|---|---|---|
-| `a100`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual EPYC) | 4 |
-| `h100`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 |
-| `b200`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 |
-| `gb200` | 2 (`pci0000:00`, `pci0000:40`) | 2 (one per Grace CPU) | 2 |
-| `gb300` | 2 (`pci0000:00`, `pci0000:40`) | 2 (one per Grace CPU) | 2 |
-| `l40s`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 |
-| `t4`    | 1 (`pci0000:00`) | 1 | 4 |
+| Profile | Root complexes | NUMA nodes | GPUs per root | NVSwitch bridges |
+|---|---|---|---|---|
+| `a100`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual EPYC) | 4 | 6 |
+| `h100`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 | 4 |
+| `b200`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 | 0 |
+| `gb200` | 2 (`pci0000:00`, `pci0000:40`) | 2 (one per Grace CPU) | 2 | 0 |
+| `gb300` | 2 (`pci0000:00`, `pci0000:40`) | 2 (one per Grace CPU) | 2 | 0 |
+| `l40s`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 | 0 |
+| `t4`    | 1 (`pci0000:00`) | 1 | 4 | 0 |
+
+The bridges sit on the first root complex, which is where a baseboard's
+switches are attached on real hardware. See
+[NVSwitches on the PCI bus](#nvswitches-on-the-pci-bus).
 
 ### `pcie_topology:` block schema
 
@@ -332,6 +337,37 @@ If a profile omits `pcie_topology:` entirely the renderer falls back to
 a flat single-root layout (every device under `pci0000:00`, NUMA 0). A profile
 whose devices declare no `bus_id` at all renders nothing, and the simulator
 empties any tree a previous profile left behind.
+
+### NVSwitches on the PCI bus
+
+A GPU is not the only NVIDIA device on an HGX node. The baseboard's NVSwitches
+are PCIe endpoints too, and `lspci` lists them as bridges beside the GPUs:
+
+```console
+$ lspci | grep NVIDIA
+05:00.0 Bridge: NVIDIA Corporation GH100 [H100 NVSwitch]
+...
+1a:00.0 3D controller: NVIDIA Corporation GH100 [H100 SXM5 80GB]
+```
+
+A switch reaches the tree by declaring a `device_id` in the profile's
+[`nvlink.switches`](configuration.md#nvswitches) list. List the same BDF under a
+`pcie_topology:` root complex to give the switch that root's `numa_node`;
+otherwise it lands under the root its address implies with `numa_node` `-1`,
+exactly as an unplaced GPU does.
+
+The switch renders with PCI class `0x068000` (base class `0x06` bridge, subclass
+`0x80`), while a GPU renders `0x030200` (3D controller). The distinction is not
+cosmetic: GPU Feature Discovery derives `nvidia.com/gpu.mode` from this class, so
+a switch enumerating as a 3D controller would read as an extra GPU.
+
+!!! note "Rack-scale platforms have no PCIe-visible switches"
+
+    `gb200` and `gb300` declare NVSwitches without a `device_id`. On NVL72 the
+    switches live in their own switch trays, reached over the NVLink cable
+    cartridge, so a compute tray's `lspci` shows its GPUs and no bridges. Those
+    switches still act as NVLink remote endpoints, which is what produces the
+    `NV18` all-to-all in `nvidia-smi topo -m`.
 
 ### PCI sysfs in containers
 
@@ -483,6 +519,30 @@ Neither mode changes *whether* a container is served. A container the NVIDIA
 device plugin already served keeps exactly its allocation in both modes, per
 [MEP-0002](https://github.com/NVIDIA/k8s-test-infra/blob/main/enhancements/meps/0002-device-plugin-nri-composition/README.md).
 
+## NRI pod lifecycle
+
+Applies only when `nri.enabled=true`.
+
+The node agent and the NRI plugin run as separate containers in the same node
+DaemonSet pod. They are scheduled to the same nodes, use the same release, and
+roll together. Changing an `nri.*` value therefore rolls the node DaemonSet and
+briefly rebuilds the staged driver tree. The chart has no option to deploy the
+plugin separately, so this is the operational cost of enabling NRI.
+
+Readiness is shared as well. A plugin that is not Ready, including one on a
+node whose container runtime has NRI disabled, marks the whole node pod
+NotReady; see [NRI plugin failure modes](#nri-plugin-failure-modes).
+
+Kubernetes does not order containers in the same pod, so NRI can briefly fail
+open while the node agent stages files during startup.
+
+For InfiniBand-enabled profiles, the headless `-ibping` Service publishes pod
+addresses even when the shared pod is NotReady. The relay runs in the node
+agent, so an unready NRI container must not hide an otherwise healthy relay
+from peer discovery. Kubernetes readiness is pod-wide, so this also publishes
+an address while the node agent itself is unready; relay clients already retry
+unreachable peers.
+
 ## NRI plugin failure modes
 
 Applies only when `nri.enabled=true`.
@@ -596,17 +656,17 @@ Guidance:
 
 ```bash
 # Which nodes are actually injecting right now
-kubectl get pods -n mokka -l app.kubernetes.io/name=nvml-mock-nri -o wide
+kubectl get pods -n mokka -l app.kubernetes.io/name=nvml-mock -o wide
 
 # Why a given node is not
-kubectl describe pod -n mokka <nvml-mock-nri-pod>
+kubectl describe pod -n mokka <nvml-mock-pod>
 ```
 
 Both probe endpoints answer with the reason in the body, so a readiness failure
 in `kubectl describe` reads as `not registered with the container runtime; new
 containers are not being injected` rather than a bare status code.
 
-The port is not reachable from the node: this DaemonSet does not set
+The port is not reachable from the node: the node DaemonSet does not set
 `hostNetwork`, so `nri.healthPort` is bound only inside the pod's own network
 namespace, on the pod IP where the kubelet reaches it.
 
@@ -645,7 +705,7 @@ namespace, on the pod IP where the kubelet reaches it.
 | `infiniband.ping.networkPolicy.enabled` | `true` | Restrict inbound access to the fabric port to peer nvml-mock pods. No-op on CNIs that don't enforce NetworkPolicy (e.g. Kind's kindnet) |
 | `imex.mockChannels.enabled` | `false` | Stage the channel devices, substitute `/proc/devices`, and fabric capability file consumed by DRA ComputeDomain support |
 | `imex.nodeSoftware.enabled` | `false` | Download the architecture-specific IMEX archive pinned by version and SHA-256, cache it on the node, and stage its daemon, CLI, config, and Mokka shim in the driver tree. Requires outbound HTTPS from the node-agent pod on the first successful stage |
-| `nri.enabled` | `false` | Deploy the `nvml-mock-nri` containerd NRI plugin DaemonSet. Injects mock overlay and environment cluster-wide into non-excluded namespaces. Always install into a dedicated namespace (`-n mokka`) to avoid excluding `default`. Device node injection remains opt-in (`nvidia.com/gpu` request or `nvml-mock.nvidia.com/devices: "true"` annotation). |
+| `nri.enabled` | `false` | Add the `nvml-mock-nri` containerd NRI plugin as a sidecar in the node DaemonSet. Injects mock overlay and environment cluster-wide into non-excluded namespaces. Always install into a dedicated namespace (`-n mokka`) to avoid excluding `default`. Device node injection remains opt-in (`nvidia.com/gpu` request or `nvml-mock.nvidia.com/devices: "true"` annotation). |
 | `nri.socketPath` | `/var/run/nri/nri.sock` | NRI socket on the host. Its directory is hostPath-mounted into the plugin |
 | `nri.pluginName` / `nri.pluginIndex` | `nvml-mock` / `"10"` | NRI registration identity. The index orders this plugin against others |
 | `nri.overlay.hostPath` / `nri.overlay.mountPath` | `/var/lib/nvml-mock` / `/opt/nvml-mock` | Host overlay staged by the main DaemonSet, and the path it is injected at inside workloads |
@@ -730,7 +790,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 | **Architecture** | Ampere | Hopper | Blackwell | Blackwell | Blackwell Ultra | Ada Lovelace | Turing |
 | **Compute capability** | 8.0 | 9.0 | 10.0 | 10.0 | 10.0 | 8.9 | 7.5 |
 | **CUDA cores** | 6,912 | 16,896 | 18,432 | 18,432 | 21,632 | 18,176 | 2,560 |
-| **Memory** | 40 GiB HBM2e | 80 GiB HBM3 | 192 GiB HBM3e | 192 GiB HBM3e | 288 GiB HBM3e | 48 GiB GDDR6 | 16 GiB GDDR6 |
+| **Memory** | 40 GiB HBM2e | 80 GiB HBM3 | 180 GiB HBM3e | 186 GiB HBM3e | 278 GiB HBM3e | 48 GiB GDDR6 | 16 GiB GDDR6 |
 | **NVLink** | v3, 12 links | v4, 18 links | v5, 18 links | v5, 18 links | v5, 18 links | — | — |
 | **NVLink BW** | 600 GB/s | 900 GB/s | 1.8 TB/s | 1.8 TB/s | 1.8 TB/s | — | — |
 | **TDP** | 400W | 700W | 1,000W | 1,000W | 1,400W | 350W | 70W |
@@ -748,7 +808,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 - **`h100`** — testing Hopper-specific features: FP8, Transformer Engine, PCIe Gen5, or NVLink v4 topology.
 - **`b200`** — testing next-gen Blackwell features: FP4, NVLink v5, PCIe Gen6. Standalone GPU (no Grace CPU).
 - **`gb200`** — testing Grace-Blackwell Superchip: NVLink-C2C to Grace CPU, unified memory, and Blackwell features.
-- **`gb300`** (default) — testing Grace-Blackwell Ultra Superchip: 288 GiB HBM3e per GPU, 1.4 kW TDP, FP6 in addition to FP4/FP8, and Blackwell Ultra driver line (570.124.06).
+- **`gb300`** (default) — testing Grace-Blackwell Ultra Superchip: 278 GiB HBM3e per GPU, 1.4 kW TDP, FP6 in addition to FP4/FP8, and Blackwell Ultra driver line (570.124.06).
 - **`l40s`** — testing Ada Lovelace inference workloads: FP8, PCIe Gen4, no NVLink (PCIe-only topology).
 - **`t4`** — testing Turing inference GPUs: low power (70W), small memory (16 GiB), 4 GPUs per node.
 
@@ -1036,6 +1096,11 @@ The chart deploys:
      `feature.node.kubernetes.io/pci-10de.present=true` appear — see
      [Node Labels](#node-labels)
 2. **ConfigMap** — GPU configuration from the selected profile
+3. **ConfigMap** (`<fullname>-mig-profiles`) — the selected board's MIG
+   partition table, mounted at `/etc/nvml-mock/mig` and pointed at by
+   `MOCK_MIG_PROFILES_CONFIG`. Rendered only for the five MIG-capable
+   profiles, and never with `gpu.customConfig`, whose table is the user's —
+   see [where the table lives](mig.md#where-the-table-lives)
 3. **ServiceAccount** — no cluster RBAC; nothing in the pod calls the API
 
 Consumer components (DRA driver, device plugin) mount `/var/lib/nvml-mock`

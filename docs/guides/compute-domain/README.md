@@ -87,7 +87,8 @@ simulated GPUs before running this demo.
    this is actually *stronger* evidence: every GPU on each node must
    report the same `cliqueId` / `clusterUuid`, exercising the
    topology overlay over the full device list rather than a subset.
-4. Recycles the staging and NRI DaemonSets in order, then creates a separate
+4. Recycles the shared node DaemonSet so staging and the NRI sidecar restart
+   together, then creates a separate
    `compute-domain-workload` namespace and deploys the freshly restarted
    `compute-domain-demo-workload` DaemonSet. Its only mock-related configuration
    is the `nvml-mock.nvidia.com/imex-channels: "true"` annotation. NRI supplies
@@ -144,10 +145,11 @@ them from the repository root**.
 
 Expect roughly 10–20 minutes on a first run (Kind cluster creation
 and the image build dominate; Scenario 2's domain convergence alone
-may legitimately take up to 4 minutes — see Troubleshooting). Reruns
-reuse the existing cluster and build caches, but deliberately recycle the
-staging, NRI, and demo workload DaemonSets so same-tag image rebuilds, restored
-topology, and cleanup after a failed run are deterministic.
+may legitimately take up to 4 minutes — see Troubleshooting). Reruns reuse the
+existing cluster and build caches, but deliberately recycle the shared node
+DaemonSet, including its NRI sidecar, and the demo workload DaemonSet so
+same-tag image rebuilds, restored topology, and cleanup after a failed run are
+deterministic.
 
 > **One runner per host.** The cluster name, Helm release, and image
 > tags are fixed, so two concurrent runs of this demo on the same
@@ -232,16 +234,12 @@ helm upgrade --install nvml-mock deployments/nvml-mock/helm/nvml-mock \
     --set terminationGracePeriodSeconds=1 \
     --wait --timeout 180s
 
-# 6. Refresh staging first and NRI second so the plugin registers the current
-#    files and topology before any demo workload container is created.
+# 6. Refresh the shared node pod so the sidecar registers after the node agent
+#    stages the current files and topology.
 kubectl --context kind-nvml-mock-compute-domain -n mokka \
     rollout restart daemonset/nvml-mock
 kubectl --context kind-nvml-mock-compute-domain -n mokka \
     rollout status daemonset/nvml-mock --timeout=180s
-kubectl --context kind-nvml-mock-compute-domain -n mokka \
-    rollout restart daemonset/nvml-mock-nri
-kubectl --context kind-nvml-mock-compute-domain -n mokka \
-    rollout status daemonset/nvml-mock-nri --timeout=180s
 
 # 7. Idempotently create the workload namespace, apply the demo workload
 #    and its namespace-local peer ingress policy, then restart the DaemonSet so

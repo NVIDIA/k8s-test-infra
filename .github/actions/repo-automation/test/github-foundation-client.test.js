@@ -2,8 +2,105 @@
 
 const assert = require("node:assert/strict");
 const test = require("node:test");
+const { URL } = require("node:url");
 
 const { createGitHubClient } = require("../src/github-client.js");
+
+const actionsGitHub = import("@actions/github");
+
+function workflowRun(id, options = {}) {
+  return {
+    id,
+    head_sha: options.headSha ?? "a".repeat(40),
+    status: "completed",
+    conclusion: "failure",
+    path: ".github/workflows/automation-ci.yml@refs/heads/main",
+    event: "pull_request",
+    pull_requests: options.pullRequests ?? [{ number: 42 }],
+    repository: { full_name: "NVIDIA/k8s-test-infra" },
+  };
+}
+
+async function octokitWithWorkflowFetch(fetch) {
+  const { getOctokit } = await actionsGitHub;
+  return getOctokit("test-token", {
+    baseUrl: "https://api.github.com",
+    request: {
+      fetch: async (input, init) => {
+        const response = await fetch(input, init);
+        Object.defineProperty(response, "url", {
+          value: typeof input === "string" ? input : input.url,
+        });
+        return response;
+      },
+    },
+  });
+}
+
+function jsonResponse(data, headers = {}) {
+  return new globalThis.Response(JSON.stringify(data), {
+    status: 200,
+    headers: { "content-type": "application/json", ...headers },
+  });
+}
+
+function conflictPullRequest(baseRef) {
+  return {
+    number: 42,
+    id: "PR_node_42",
+    state: "OPEN",
+    isDraft: false,
+    mergeable: "CONFLICTING",
+    headRefOid: "a".repeat(40),
+    baseRefName: "main",
+    baseRefOid: "c".repeat(40),
+    baseRef,
+  };
+}
+
+test("conflict client maps the current base branch tip instead of the PR's older base OID", async () => {
+  let graphRequest;
+  const octokit = await octokitWithWorkflowFetch(async (input, init) => {
+    graphRequest = JSON.parse(init.body);
+    return jsonResponse({ data: { repository: { pullRequest: conflictPullRequest({
+      name: "main", target: { oid: "b".repeat(40) },
+    }) } } });
+  });
+  const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+
+  assert.deepEqual(await client.getConflictState(42), {
+    number: 42,
+    nodeId: "PR_node_42",
+    repository: "nvidia/k8s-test-infra",
+    state: "OPEN",
+    draft: false,
+    headOid: "a".repeat(40),
+    baseBranch: "main",
+    baseOid: "b".repeat(40),
+    mergeability: "CONFLICTING",
+  });
+  assert.match(graphRequest.query, /baseRef\s*\{\s*name\s+target\s*\{\s*oid\s*\}\s*\}/);
+  assert.doesNotMatch(graphRequest.query, /\bbaseRefOid\b/);
+  assert.deepEqual(graphRequest.variables, { owner: "NVIDIA", repo: "k8s-test-infra", number: 42 });
+});
+
+for (const [name, baseRef] of [
+  ["missing ref", undefined],
+  ["null ref", null],
+  ["wrong branch", { name: "release-1.0", target: { oid: "b".repeat(40) } }],
+  ["missing branch name", { target: { oid: "b".repeat(40) } }],
+  ["missing target", { name: "main" }],
+  ["missing target OID", { name: "main", target: {} }],
+  ["empty target OID", { name: "main", target: { oid: "" } }],
+]) {
+  test(`conflict client rejects ${name} without falling back to the older PR base OID`, async () => {
+    const octokit = await octokitWithWorkflowFetch(async () => jsonResponse({
+      data: { repository: { pullRequest: conflictPullRequest(baseRef) } },
+    }));
+    const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+    await assert.rejects(() => client.getConflictState(42), /GraphQL live base (?:ref|OID)/);
+  });
+}
 
 function mockOctokit(overrides = {}) {
   const calls = [];
@@ -59,6 +156,7 @@ function mockOctokit(overrides = {}) {
         state: "APPROVED",
         commit_id: "a".repeat(40),
         submitted_at: "2026-09-17T09:00:00Z",
+        body: "/lgtm\n\nReviewed the current changes.",
       }),
       list: response("listPullRequests", [{ number: 42 }, { number: 44 }]),
       create: response("createPullRequest", {
@@ -72,10 +170,14 @@ function mockOctokit(overrides = {}) {
     repos: {
       getCollaboratorPermissionLevel: response("getPermission", { permission: "write" }),
       getBranchProtection: response("getBranchProtection", { required_status_checks: {} }),
-      getBranch: response("getBranch", { name: "release-1.2", commit: { sha: "b".repeat(40) } }),
+      getBranch: response("getBranch", ({ branch }) => ({
+        name: branch,
+        commit: { sha: "b".repeat(40) },
+        protected: true,
+      })),
     },
     actions: {
-      listWorkflowRunsForRepo: response("listWorkflowRuns", { workflow_runs: [{
+      listWorkflowRunsForRepo: response("listWorkflowRuns", [{
         id: 701,
         head_sha: "a".repeat(40),
         status: "completed",
@@ -84,7 +186,7 @@ function mockOctokit(overrides = {}) {
         event: "pull_request",
         pull_requests: [{ number: 42 }],
         repository: { full_name: "NVIDIA/k8s-test-infra" },
-      }] }),
+      }]),
       getWorkflowRun: response("getWorkflowRun", {
         id: 701,
         head_sha: "a".repeat(40),
@@ -167,10 +269,28 @@ test("maps live command and approval provenance", async () => {
     state: "APPROVED",
     commitOid: "a".repeat(40),
     submittedAt: "2026-09-17T09:00:00Z",
+    body: "/lgtm\n\nReviewed the current changes.",
   });
 });
 
-test("exposes only managed policy labels and native auto-merge mutations", async () => {
+test("keeps unavailable live review bodies unknown", async () => {
+  for (const body of [undefined, null, 42, {}]) {
+    const { octokit } = mockOctokit({ rest: { pulls: {
+      getReview: async () => ({ data: {
+        id: 501,
+        user: { login: "Alice" },
+        state: "APPROVED",
+        commit_id: "a".repeat(40),
+        submitted_at: "2026-09-17T09:00:00Z",
+        body,
+      } }),
+    } } });
+    const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+    assert.equal((await client.getPullRequestReview(42, 501)).body, null);
+  }
+});
+
+test("exposes only managed policy labels and native auto-merge disarm", async () => {
   const { octokit, calls } = mockOctokit();
   const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
 
@@ -178,13 +298,104 @@ test("exposes only managed policy labels and native auto-merge mutations", async
   await client.removePolicyLabel(42, "do-not-merge/hold");
   await assert.rejects(() => client.addPolicyLabel(42, "kind/feature"), /policy-managed/);
   await client.setMergePolicyCheck(42, "a".repeat(40), "success", "all gates passed");
-  await client.enableAutoMerge("PR_node_42", "SQUASH");
   await client.disableAutoMerge("PR_node_42");
 
   assert.equal(typeof client.mergePullRequest, "undefined");
+  assert.equal(typeof client.enableAutoMerge, "function");
   assert.equal(calls.some(({ name }) => name === "createCheck"), true);
-  assert.equal(calls.filter(({ name }) => name === "graphql").length, 2);
+  assert.equal(calls.filter(({ name }) => name === "graphql").length, 1);
 });
+
+for (const headOid of ["a".repeat(40), "b".repeat(64)]) {
+  test(`native auto-merge pins the expected ${headOid.length}-digit head and SQUASH method in the GraphQL request`, async () => {
+    const requests = [];
+    const octokit = await octokitWithWorkflowFetch(async (input, init) => {
+      requests.push({ url: new URL(input), method: init.method, body: JSON.parse(init.body) });
+      return jsonResponse({ data: { enablePullRequestAutoMerge: { clientMutationId: null } } });
+    });
+    const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra");
+
+    await client.enableAutoMerge("PR_node_42", "SQUASH", headOid);
+
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url.pathname, "/graphql");
+    assert.equal(requests[0].method, "POST");
+    assert.deepEqual(requests[0].body.variables, {
+      pullRequestId: "PR_node_42", mergeMethod: "SQUASH", expectedHeadOid: headOid,
+    });
+    assert.match(requests[0].body.query, /enablePullRequestAutoMerge\s*\(input:\s*\{/);
+    assert.match(requests[0].body.query, /pullRequestId:\s*\$pullRequestId/);
+    assert.match(requests[0].body.query, /mergeMethod:\s*\$mergeMethod/);
+    assert.match(requests[0].body.query, /expectedHeadOid:\s*\$expectedHeadOid/);
+    assert.match(requests[0].body.query, /\$expectedHeadOid:\s*GitObjectID!/);
+    assert.doesNotMatch(requests[0].body.query, /\bmergePullRequest\s*\(/);
+  });
+}
+
+for (const [name, status, data] of [
+  ["transient service rejection", 503, { message: "unavailable" }],
+  ["GraphQL head mismatch", 200, { errors: [{ type: "UNPROCESSABLE", message: "Head changed" }] }],
+]) {
+  test(`native auto-merge does not retry a ${name}`, async () => {
+    let attempts = 0;
+    const waits = [];
+    const octokit = await octokitWithWorkflowFetch(async () => {
+      attempts += 1;
+      return new globalThis.Response(JSON.stringify(data), {
+        status, headers: { "content-type": "application/json" },
+      });
+    });
+    const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", {
+      maxAttempts: 3, sleep: async (milliseconds) => waits.push(milliseconds),
+    });
+
+    await assert.rejects(() => client.enableAutoMerge("PR_node_42", "SQUASH", "a".repeat(40)), {
+      name: "GitHubClientError", operation: "enableAutoMerge",
+    });
+    assert.equal(attempts, 1);
+    assert.deepEqual(waits, []);
+  });
+}
+
+for (const payload of [{}, { enablePullRequestAutoMerge: null }]) {
+  test("native auto-merge rejects an absent mutation result without retry", async () => {
+    let attempts = 0;
+    const waits = [];
+    const octokit = await octokitWithWorkflowFetch(async () => {
+      attempts += 1;
+      return jsonResponse({ data: payload });
+    });
+    const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", {
+      maxAttempts: 3, sleep: async (milliseconds) => waits.push(milliseconds),
+    });
+    await assert.rejects(() => client.enableAutoMerge("PR_node_42", "SQUASH", "a".repeat(40)),
+      /native auto-merge mutation result/);
+    assert.equal(attempts, 1);
+    assert.deepEqual(waits, []);
+  });
+}
+
+for (const [name, nodeId, method, headOid] of [
+  ["missing node ID", "", "SQUASH", "a".repeat(40)],
+  ["merge method", "PR_node_42", "MERGE", "a".repeat(40)],
+  ["rebase method", "PR_node_42", "REBASE", "a".repeat(40)],
+  ["lowercase method", "PR_node_42", "squash", "a".repeat(40)],
+  ["missing head", "PR_node_42", "SQUASH", undefined],
+  ["short head", "PR_node_42", "SQUASH", "abc"],
+  ["non-hex head", "PR_node_42", "SQUASH", "g".repeat(40)],
+]) {
+  test(`native auto-merge rejects ${name} before an API request`, async () => {
+    let requests = 0;
+    const octokit = await octokitWithWorkflowFetch(async () => {
+      requests += 1;
+      return jsonResponse({ data: { enablePullRequestAutoMerge: { clientMutationId: null } } });
+    });
+    const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra");
+
+    await assert.rejects(() => client.enableAutoMerge(nodeId, method, headOid), TypeError);
+    assert.equal(requests, 0);
+  });
+}
 
 test("maps merge, workflow, and pull-request state with exact heads", async () => {
   const { octokit } = mockOctokit();
@@ -193,6 +404,7 @@ test("maps merge, workflow, and pull-request state with exact heads", async () =
   const pullRequest = await client.getPullRequest(42);
   assert.equal(pullRequest.nodeId, "PR_node_42");
   assert.equal(pullRequest.baseBranch, "main");
+  assert.equal(pullRequest.headBranch, "feature");
   assert.deepEqual(await client.listOpenPullRequestNumbers(), [42, 44]);
   assert.deepEqual(await client.getMergeState(42), {
     number: 42,
@@ -211,13 +423,99 @@ test("maps merge, workflow, and pull-request state with exact heads", async () =
   await client.rerunFailedJobs(701);
 });
 
+for (const branch of ["bad branch", "feature/../other", 42]) {
+  test(`live PR reader rejects invalid head branch ${JSON.stringify(branch)}`, async () => {
+    const base = mockOctokit();
+    const { data } = await base.octokit.rest.pulls.get({});
+    data.head.ref = branch;
+    const { octokit } = mockOctokit({ rest: { pulls: { get: async () => ({ data }) } } });
+    const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+
+    await assert.rejects(() => client.getPullRequest(42), /live PR head branch/);
+  });
+}
+
+test("live PR reader keeps an unavailable head branch absent", async () => {
+  const base = mockOctokit();
+  const { data } = await base.octokit.rest.pulls.get({});
+  delete data.head.ref;
+  const { octokit } = mockOctokit({ rest: { pulls: { get: async () => ({ data }) } } });
+  const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+
+  assert.equal(Object.hasOwn(await client.getPullRequest(42), "headBranch"), false);
+});
+
+for (const protectedBranch of [true, false]) {
+  test(`reads branch protection ${protectedBranch} with a Contents-read token`, async () => {
+    const requests = [];
+    const octokit = await octokitWithWorkflowFetch(async (url) => {
+      const request = new URL(url);
+      requests.push(request.pathname);
+      if (request.pathname !== "/repos/NVIDIA/k8s-test-infra/branches/main") {
+        return new globalThis.Response(JSON.stringify({ message: "Resource not accessible by integration" }), {
+          status: 403,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return jsonResponse({ name: "main", commit: { sha: "b".repeat(40) }, protected: protectedBranch });
+    });
+    const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+
+    assert.equal(await client.getBranchProtection("main"), protectedBranch);
+    assert.deepEqual(requests, ["/repos/NVIDIA/k8s-test-infra/branches/main"]);
+  });
+}
+
+for (const [name, data] of [
+  ["missing response", undefined],
+  ["null response", null],
+  ["missing protection flag", { name: "main" }],
+  ["null protection flag", { name: "main", protected: null }],
+  ["string protection flag", { name: "main", protected: "false" }],
+  ["numeric protection flag", { name: "main", protected: 0 }],
+  ["missing branch name", { protected: false }],
+  ["non-string branch name", { name: 1, protected: false }],
+  ["wrong branch name", { name: "release-1.2", protected: false }],
+  ["different branch name case", { name: "Main", protected: false }],
+]) {
+  test(`fails closed for branch protection with ${name}`, async () => {
+    const { octokit } = mockOctokit({
+      rest: { repos: { getBranch: async () => ({ data }) } },
+    });
+    const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+
+    await assert.rejects(() => client.getBranchProtection("main"), /branch/);
+  });
+}
+
+for (const status of [401, 403, 404, 503]) {
+  test(`fails closed when the branch endpoint returns ${status}`, async () => {
+    const requests = [];
+    const octokit = await octokitWithWorkflowFetch(async (url) => {
+      requests.push(new URL(url).pathname);
+      return new globalThis.Response(JSON.stringify({ message: "branch lookup failed" }), {
+        status,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+
+    await assert.rejects(() => client.getBranchProtection("main"), {
+      name: "GitHubClientError",
+      operation: "getBranchProtection",
+      status,
+    });
+    assert.deepEqual(requests, ["/repos/NVIDIA/k8s-test-infra/branches/main"]);
+  });
+}
+
 test("ignores unrelated workflow runs before mapping their pull request identity", async () => {
   const base = mockOctokit({
     rest: {
       actions: {
         listWorkflowRunsForRepo: async (parameters) => {
           base.calls.push({ name: "listWorkflowRuns", parameters });
-          return { data: { workflow_runs: [
+          return { data: [
             {
               id: 701,
               head_sha: "a".repeat(40),
@@ -238,7 +536,7 @@ test("ignores unrelated workflow runs before mapping their pull request identity
               pull_requests: [],
               repository: { full_name: "NVIDIA/k8s-test-infra" },
             },
-          ] } };
+          ] };
         },
       },
     },
@@ -246,6 +544,415 @@ test("ignores unrelated workflow runs before mapping their pull request identity
   const client = createGitHubClient(base.octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
 
   assert.equal((await client.listWorkflowRunsForHead("a".repeat(40), 42)).length, 1);
+});
+
+test("maps Octokit-normalized workflow pages for the exact head and pull request", async () => {
+  const headOid = "a".repeat(40);
+  const requests = [];
+  const octokit = await octokitWithWorkflowFetch(async (url) => {
+    const request = new URL(url);
+    requests.push(request);
+    return jsonResponse({
+      total_count: 5,
+      workflow_runs: [
+        workflowRun(701),
+        workflowRun(702, { headSha: "b".repeat(40) }),
+        workflowRun(703, { pullRequests: [{ number: 43 }] }),
+        workflowRun(704, { pullRequests: [] }),
+        workflowRun(705, { pullRequests: [{ number: 42 }, { number: 44 }] }),
+      ],
+    });
+  });
+  const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+
+  assert.deepEqual(await client.listWorkflowRunsForHead(headOid, 42), [{
+    id: 701,
+    headOid,
+    status: "completed",
+    conclusion: "failure",
+    workflowPath: ".github/workflows/automation-ci.yml",
+    workflowSourceRef: "refs/heads/main",
+    event: "pull_request",
+    prNumber: 42,
+    repository: "nvidia/k8s-test-infra",
+  }]);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].pathname, "/repos/NVIDIA/k8s-test-infra/actions/runs");
+  assert.equal(requests[0].searchParams.get("head_sha"), headOid);
+  assert.equal(requests[0].searchParams.get("per_page"), "100");
+});
+
+test("returns an empty Octokit-normalized workflow collection", async () => {
+  const octokit = await octokitWithWorkflowFetch(async () => jsonResponse({
+    total_count: 0,
+    workflow_runs: [],
+  }));
+  const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+
+  assert.deepEqual(await client.listWorkflowRunsForHead("a".repeat(40), 42), []);
+});
+
+test("maps linked Octokit workflow pages", async () => {
+  const headOid = "a".repeat(40);
+  const requests = [];
+  const octokit = await octokitWithWorkflowFetch(async (url) => {
+    const request = new URL(url);
+    requests.push(request);
+    const page = request.searchParams.get("page") ?? "1";
+    if (page === "1") {
+      return jsonResponse({ total_count: 2, workflow_runs: [workflowRun(711)] }, {
+        link: `<https://api.github.com/repos/NVIDIA/k8s-test-infra/actions/runs?head_sha=${headOid}&per_page=100&page=2>; rel="next"`,
+      });
+    }
+    return jsonResponse({ total_count: 2, workflow_runs: [workflowRun(712)] });
+  });
+  const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+
+  const runs = await client.listWorkflowRunsForHead(headOid, 42);
+
+  assert.deepEqual(runs.map(({ id }) => id), [711, 712]);
+  assert.deepEqual(requests.map((request) => request.searchParams.get("page")), [null, "2"]);
+});
+
+test("fails closed for a malformed Octokit workflow collection", async () => {
+  const octokit = await octokitWithWorkflowFetch(async () => jsonResponse({
+    total_count: 1,
+    workflow_runs: {},
+  }));
+  const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+
+  await assert.rejects(
+    () => client.listWorkflowRunsForHead("a".repeat(40), 42),
+    /listWorkflowRunsForHead failed: GitHub API request failed/,
+  );
+});
+
+test("keeps the default 1000-item workflow collection bound", async () => {
+  const requests = [];
+  const octokit = await octokitWithWorkflowFetch(async (url) => {
+    const request = new URL(url);
+    requests.push(request);
+    const page = Number(request.searchParams.get("page") ?? "1");
+    const firstId = ((page - 1) * 100) + 1;
+    const count = page === 11 ? 1 : 100;
+    const headers = page < 11 ? {
+      link: `<https://api.github.com/repos/NVIDIA/k8s-test-infra/actions/runs?head_sha=${"a".repeat(40)}&per_page=100&page=${page + 1}>; rel="next"`,
+    } : {};
+    return jsonResponse({
+      total_count: 1001,
+      workflow_runs: Array.from({ length: count }, (_, offset) => workflowRun(firstId + offset)),
+    }, headers);
+  });
+  const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+
+  await assert.rejects(
+    () => client.listWorkflowRunsForHead("a".repeat(40), 42),
+    /listWorkflowRunsForHead result must not exceed 1000 items/,
+  );
+  assert.equal(requests.length, 11);
+  assert.equal(requests.every((request) => request.searchParams.get("per_page") === "100"), true);
+});
+
+function ciWorkflowRun(id, path, options = {}) {
+  return {
+    ...workflowRun(id, options),
+    path: `${path}@${options.sourceRef ?? "refs/pull/42/merge"}`,
+    status: options.status ?? "completed",
+    conclusion: options.conclusion === undefined ? "success" : options.conclusion,
+    run_number: options.runNumber ?? id,
+    run_attempt: options.runAttempt ?? 1,
+  };
+}
+
+function ciCheckRun(id, options = {}) {
+  return {
+    id,
+    name: options.name ?? "DCO",
+    app: { id: options.appId ?? 1861 },
+    head_sha: options.headSha ?? "a".repeat(40),
+    status: options.status ?? "completed",
+    conclusion: options.conclusion === undefined ? "success" : options.conclusion,
+  };
+}
+
+const CI_INPUT = {
+  headOid: "a".repeat(40), prNumber: 42, baseBranch: "main", files: [{ path: "pkg/code.go" }],
+};
+
+const FORK_CI_INPUT = {
+  ...CI_INPUT, headRepository: "ArangoGutierrez/k8s-test-infra", headBranch: "codex/v016-label-scan-dispatch",
+};
+
+function forkCIWorkflowRun(id, path) {
+  return {
+    id,
+    head_sha: "a".repeat(40),
+    head_branch: "codex/v016-label-scan-dispatch",
+    head_repository: { full_name: "ArangoGutierrez/k8s-test-infra" },
+    repository: { full_name: "NVIDIA/k8s-test-infra" },
+    event: "pull_request",
+    path,
+    pull_requests: [],
+    status: "completed",
+    conclusion: "success",
+    run_number: id,
+    run_attempt: 1,
+  };
+}
+
+async function ciTransport(runPages, checkPages = [{ total_count: 1, check_runs: [ciCheckRun(801)] }]) {
+  const requests = [];
+  const octokit = await octokitWithWorkflowFetch(async (url) => {
+    const request = new URL(url);
+    requests.push(request);
+    const page = Number(request.searchParams.get("page") ?? "1");
+    const pages = request.pathname.endsWith("/actions/runs") ? runPages
+      : request.pathname === `/repos/NVIDIA/k8s-test-infra/commits/${"a".repeat(40)}/check-runs`
+        ? checkPages : null;
+    assert.notEqual(pages, null, "CI must use workflow and check-run APIs");
+    assert.ok(pages[page - 1], "unexpected extra page request");
+    const headers = page < pages.length ? {
+      link: `<${request.origin}${request.pathname}?${new globalThis.URLSearchParams({
+        ...Object.fromEntries(request.searchParams), page: String(page + 1),
+      })}>; rel="next"`,
+    } : {};
+    return jsonResponse(pages[page - 1], headers);
+  });
+  return { requests, client: createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 }) };
+}
+
+test("CI reader joins complete exact-head workflow and check-run pages through Octokit", async () => {
+  const { client, requests } = await ciTransport([
+    { total_count: 2, workflow_runs: [ciWorkflowRun(701, ".github/workflows/basic-checks.yaml")] },
+    { total_count: 2, workflow_runs: [ciWorkflowRun(702, ".github/workflows/validate-changelog.yaml")] },
+  ], [
+    { total_count: 2, check_runs: [ciCheckRun(800, {
+      name: "repository-automation/merge-policy", appId: 15368, conclusion: "action_required",
+    })] },
+    { total_count: 2, check_runs: [ciCheckRun(801)] },
+  ]);
+
+  assert.equal(await client.getCIState(CI_INPUT), "SUCCESS");
+  assert.deepEqual(requests.map(({ pathname }) => pathname), [
+    "/repos/NVIDIA/k8s-test-infra/actions/runs",
+    "/repos/NVIDIA/k8s-test-infra/actions/runs",
+    `/repos/NVIDIA/k8s-test-infra/commits/${"a".repeat(40)}/check-runs`,
+    `/repos/NVIDIA/k8s-test-infra/commits/${"a".repeat(40)}/check-runs`,
+  ]);
+  assert.deepEqual(requests.map((request) => request.searchParams.get("page")), [null, "2", null, "2"]);
+  assert.equal(requests.every((request) => request.searchParams.get("per_page") === "100"), true);
+  assert.equal(requests.slice(0, 2).every((request) => request.searchParams.get("head_sha") === "a".repeat(40)), true);
+  assert.equal(requests.slice(2).every((request) => request.searchParams.get("filter") === "all"), true);
+});
+
+test("CI reader cannot treat its own successful policy check as source CI", async () => {
+  const { client } = await ciTransport([{ total_count: 0, workflow_runs: [] }], [{
+    total_count: 1, check_runs: [ciCheckRun(800, { name: "repository-automation/merge-policy", appId: 15368 })],
+  }]);
+  assert.equal(await client.getCIState(CI_INPUT), "PENDING");
+});
+
+test("CI reader observes a later-page DCO failure", async () => {
+  const { client } = await ciTransport([{ total_count: 2, workflow_runs: [
+    ciWorkflowRun(701, ".github/workflows/basic-checks.yaml"),
+    ciWorkflowRun(702, ".github/workflows/validate-changelog.yaml"),
+  ] }], [
+    { total_count: 2, check_runs: [ciCheckRun(801)] },
+    { total_count: 2, check_runs: [ciCheckRun(802, { conclusion: "failure" })] },
+  ]);
+  assert.equal(await client.getCIState(CI_INPUT), "FAILED");
+});
+
+test("CI reader selects the latest workflow run number before the run ID", async () => {
+  const { client } = await ciTransport([{ total_count: 3, workflow_runs: [
+    ciWorkflowRun(701, ".github/workflows/basic-checks.yaml", { runNumber: 2, conclusion: "failure" }),
+    ciWorkflowRun(999, ".github/workflows/basic-checks.yaml", { runNumber: 1 }),
+    ciWorkflowRun(702, ".github/workflows/validate-changelog.yaml"),
+  ] }]);
+  assert.equal(await client.getCIState(CI_INPUT), "FAILED");
+});
+
+test("CI reader maps the current rerun attempt as pending", async () => {
+  const { client } = await ciTransport([{ total_count: 2, workflow_runs: [
+    ciWorkflowRun(701, ".github/workflows/basic-checks.yaml", { runAttempt: 2, status: "in_progress", conclusion: null }),
+    ciWorkflowRun(702, ".github/workflows/validate-changelog.yaml"),
+  ] }]);
+  assert.equal(await client.getCIState(CI_INPUT), "PENDING");
+});
+
+for (const [name, options] of [
+  ["old head", { headSha: "b".repeat(40) }],
+  ["other PR", { pullRequests: [{ number: 43 }], sourceRef: "refs/pull/43/merge" }],
+  ["wrong PR ref with an empty fork mapping", { pullRequests: [], sourceRef: "refs/pull/43/merge" }],
+  ["uncertain empty PR mapping", { pullRequests: [], sourceRef: "refs/heads/feature" }],
+]) {
+  test(`CI reader keeps source evidence for ${name} pending`, async () => {
+    const { client } = await ciTransport([{ total_count: 2, workflow_runs: [
+      ciWorkflowRun(701, ".github/workflows/basic-checks.yaml", options),
+      ciWorkflowRun(702, ".github/workflows/validate-changelog.yaml"),
+    ] }]);
+    assert.equal(await client.getCIState(CI_INPUT), "PENDING");
+  });
+}
+
+test("CI reader binds an exact-head fork run by its exact pull-request merge ref", async () => {
+  const { client } = await ciTransport([{ total_count: 2, workflow_runs: [
+    ciWorkflowRun(701, ".github/workflows/basic-checks.yaml", { pullRequests: [] }),
+    ciWorkflowRun(702, ".github/workflows/validate-changelog.yaml", { pullRequests: [] }),
+  ] }]);
+  assert.equal(await client.getCIState(CI_INPUT), "SUCCESS");
+});
+
+test("CI reader accepts plain-path fork source runs from the exact current head repository and branch", async () => {
+  const { client, requests } = await ciTransport([{ total_count: 2, workflow_runs: [
+    forkCIWorkflowRun(701, ".github/workflows/basic-checks.yaml"),
+    forkCIWorkflowRun(702, ".github/workflows/validate-changelog.yaml"),
+  ] }]);
+
+  assert.equal(await client.getCIState(FORK_CI_INPUT), "SUCCESS");
+  assert.equal(requests[0].searchParams.get("head_sha"), FORK_CI_INPUT.headOid);
+});
+
+test("CI reader observes failure in current-head plain-path fork source evidence", async () => {
+  const basic = forkCIWorkflowRun(701, ".github/workflows/basic-checks.yaml");
+  basic.conclusion = "failure";
+  const { client } = await ciTransport([{ total_count: 2, workflow_runs: [
+    basic, forkCIWorkflowRun(702, ".github/workflows/validate-changelog.yaml"),
+  ] }]);
+
+  assert.equal(await client.getCIState(FORK_CI_INPUT), "FAILED");
+});
+
+for (const [name, changes] of [
+  ["wrong head repository", { head_repository: { full_name: "Other/k8s-test-infra" } }],
+  ["wrong head branch", { head_branch: "other-feature" }],
+  ["missing head repository", { head_repository: undefined }],
+  ["missing head branch", { head_branch: undefined }],
+  ["wrong event", { event: "push" }],
+  ["old head", { head_sha: "b".repeat(40) }],
+  ["wrong target repository", { repository: { full_name: "Other/k8s-test-infra" } }],
+  ["explicit wrong PR", { pull_requests: [{ number: 43 }] }],
+  ["explicit wrong merge ref", { path: ".github/workflows/basic-checks.yaml@refs/pull/43/merge" }],
+]) {
+  test(`CI reader keeps a plain-path fork with ${name} pending`, async () => {
+    const { client } = await ciTransport([{ total_count: 2, workflow_runs: [
+      { ...forkCIWorkflowRun(701, ".github/workflows/basic-checks.yaml"), ...changes },
+      forkCIWorkflowRun(702, ".github/workflows/validate-changelog.yaml"),
+    ] }]);
+
+    assert.equal(await client.getCIState(FORK_CI_INPUT), "PENDING");
+  });
+}
+
+for (const field of ["headRepository", "headBranch"]) {
+  test(`CI reader keeps a plain-path fork pending when current ${field} is unavailable`, async () => {
+    const { client } = await ciTransport([{ total_count: 2, workflow_runs: [
+      forkCIWorkflowRun(701, ".github/workflows/basic-checks.yaml"),
+      forkCIWorkflowRun(702, ".github/workflows/validate-changelog.yaml"),
+    ] }]);
+
+    assert.equal(await client.getCIState({ ...FORK_CI_INPUT, [field]: undefined }), "PENDING");
+  });
+}
+
+for (const [name, changes] of [
+  ["malformed head repository", { head_repository: { full_name: "invalid repository" } }],
+  ["malformed head branch", { head_branch: "bad branch" }],
+]) {
+  test(`CI reader rejects a plain-path fork with ${name}`, async () => {
+    const { client } = await ciTransport([{ total_count: 2, workflow_runs: [
+      { ...forkCIWorkflowRun(701, ".github/workflows/basic-checks.yaml"), ...changes },
+      forkCIWorkflowRun(702, ".github/workflows/validate-changelog.yaml"),
+    ] }]);
+
+    await assert.rejects(() => client.getCIState(FORK_CI_INPUT), /CI (?:head repository|head branch)/);
+  });
+}
+
+for (const collection of ["workflows", "checks"]) {
+  for (const [name, total, metadata] of [
+    ["missing total", undefined, {}],
+    ["missing final page", 3, {}],
+    ["count above the collection bound", 1001, {}],
+    ["incomplete API results", 2, { incomplete_results: true }],
+  ]) {
+    test(`CI reader rejects ${collection} with ${name} instead of accepting partial success`, async () => {
+      const workflowPage = { total_count: 2, workflow_runs: [
+        ciWorkflowRun(701, ".github/workflows/basic-checks.yaml"),
+        ciWorkflowRun(702, ".github/workflows/validate-changelog.yaml"),
+      ] };
+      const checkPage = { total_count: 2, check_runs: [ciCheckRun(801), ciCheckRun(800, {
+        name: "repository-automation/merge-policy", appId: 15368,
+      })] };
+      Object.assign(collection === "workflows" ? workflowPage : checkPage, { total_count: total, ...metadata });
+      const { client } = await ciTransport([workflowPage], [checkPage]);
+      await assert.rejects(() => client.getCIState(CI_INPUT), /(?:CI|collection|listCI)/);
+    });
+  }
+}
+
+for (const [name, field, value] of [
+  ["missing workflow run number", "run_number", undefined],
+  ["invalid workflow run number", "run_number", 0],
+  ["missing current attempt", "run_attempt", undefined],
+  ["invalid current attempt", "run_attempt", "2"],
+]) {
+  test(`CI reader rejects ${name} without weakening existing retest mapping`, async () => {
+    const basic = ciWorkflowRun(701, ".github/workflows/basic-checks.yaml");
+    basic[field] = value;
+    const { client } = await ciTransport([{ total_count: 2, workflow_runs: [
+      basic, ciWorkflowRun(702, ".github/workflows/validate-changelog.yaml"),
+    ] }]);
+    await assert.rejects(() => client.getCIState(CI_INPUT), /workflow (?:run number|run attempt)/);
+  });
+}
+
+test("CI reader rejects duplicate workflow identities across complete pages", async () => {
+  const { client } = await ciTransport([
+    { total_count: 3, workflow_runs: [ciWorkflowRun(701, ".github/workflows/basic-checks.yaml")] },
+    { total_count: 3, workflow_runs: [
+      ciWorkflowRun(701, ".github/workflows/basic-checks.yaml"),
+      ciWorkflowRun(702, ".github/workflows/validate-changelog.yaml"),
+    ] },
+  ]);
+  await assert.rejects(() => client.getCIState(CI_INPUT), /(?:CI|duplicate|listCI)/);
+});
+
+test("CI reader rejects a changing collection count", async () => {
+  const { client } = await ciTransport([
+    { total_count: 2, workflow_runs: [ciWorkflowRun(701, ".github/workflows/basic-checks.yaml")] },
+    { total_count: 3, workflow_runs: [ciWorkflowRun(702, ".github/workflows/validate-changelog.yaml")] },
+  ]);
+  await assert.rejects(() => client.getCIState(CI_INPUT), /(?:CI|collection|listCI)/);
+});
+
+test("CI reader rejects a duplicate check run instead of counting it twice", async () => {
+  const { client } = await ciTransport([{ total_count: 2, workflow_runs: [
+    ciWorkflowRun(701, ".github/workflows/basic-checks.yaml"),
+    ciWorkflowRun(702, ".github/workflows/validate-changelog.yaml"),
+  ] }], [{ total_count: 2, check_runs: [ciCheckRun(801), ciCheckRun(801)] }]);
+  await assert.rejects(() => client.getCIState(CI_INPUT), /(?:CI|duplicate|listCI)/);
+});
+
+test("CI reader stops a pagination chain at the bounded tenth page", async () => {
+  const { client, requests } = await ciTransport(Array.from({ length: 11 }, (_, index) => ({
+    total_count: 11,
+    workflow_runs: [ciWorkflowRun(701 + index, ".github/workflows/basic-checks.yaml")],
+  })));
+  await assert.rejects(() => client.getCIState(CI_INPUT), /(?:CI|collection|listCI)/);
+  assert.equal(requests.length, 10);
+});
+
+test("CI file mapping preserves the old path of a renamed automation file", async () => {
+  const { octokit } = mockOctokit({ rest: { pulls: { listFiles: async () => ({ data: [{
+    filename: "pkg/new.js", previous_filename: ".github/actions/repo-automation/src/old.js",
+    additions: 1, deletions: 1, status: "renamed",
+  }, { filename: "pkg/code.go", additions: 2, deletions: 0, status: "modified" }] }) } } });
+  const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+  assert.deepEqual(await client.listPullRequestFiles(42), [{
+    path: "pkg/new.js", previousPath: ".github/actions/repo-automation/src/old.js",
+    additions: 1, deletions: 1, status: "renamed",
+  }, { path: "pkg/code.go", additions: 2, deletions: 0, status: "modified" }]);
 });
 
 test("refetches only a bounded evaluator workflow identity", async () => {
@@ -283,6 +990,43 @@ test("refetches only a bounded evaluator workflow identity", async () => {
 
   workflowPath = ".github/workflows/pr-metadata.yml@refs/heads/main@spoof";
   assert.equal(await client.getEvaluationWorkflowRun(702), null);
+});
+
+test("accepts exact evaluator workflow paths returned by the live REST API", async () => {
+  let workflowPath = ".github/workflows/review-observer.yml";
+  const { octokit } = mockOctokit({ rest: { actions: {
+    getWorkflowRun: async () => ({ data: {
+      id: 702,
+      name: "Review observer",
+      path: workflowPath,
+      event: "pull_request_review",
+      status: "completed",
+      pull_requests: [{ number: 42 }],
+      repository: { full_name: "NVIDIA/k8s-test-infra" },
+    } }),
+  } } });
+  const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+  assert.deepEqual(await client.getEvaluationWorkflowRun(702), {
+    id: 702,
+    name: "Review observer",
+    workflowPath: ".github/workflows/review-observer.yml",
+    workflowSourceRef: null,
+    event: "pull_request_review",
+    status: "completed",
+    repository: "nvidia/k8s-test-infra",
+    pullRequestNumbers: [42],
+  });
+  for (const path of [
+    ".github/workflows/untrusted.yml",
+    "../.github/workflows/review-observer.yml",
+    ".github/workflows/review-observer.yml@",
+    ".github/workflows/review-observer.yml@refs/heads/main@spoof",
+    ".github/workflows/review-observer.yml@refs/heads/../main",
+    ".github/workflows/review-observer.yml\n",
+  ]) {
+    workflowPath = path;
+    assert.equal(await client.getEvaluationWorkflowRun(702), null, path);
+  }
 });
 
 test("exposes bounded branch and backport pull-request operations", async () => {
@@ -340,6 +1084,8 @@ test("exposes bounded branch and backport pull-request operations", async () => 
 test("maps bounded Mokka commit and draft pull-request operations", async () => {
   const branch = "mokka/cherry-pick/123e4567-e89b-42d3-a456-426614174000";
   const headOid = "c".repeat(40);
+  const treeOid = "d".repeat(40);
+  const parentOid = "e".repeat(40);
   const pullRequest = {
     number: 901,
     html_url: "https://github.com/NVIDIA/k8s-test-infra/pull/901",
@@ -350,8 +1096,35 @@ test("maps bounded Mokka commit and draft pull-request operations", async () => 
     title: "Mokka: cherry-pick #42 to main",
     body: "bound evidence",
   };
+  const mokkaMessage = "cherry pick with evidence\n\nMokka-Source-SHA: " + "a".repeat(40) + "\n";
   const base = mockOctokit({
     rest: {
+      git: {
+        getCommit: async (parameters) => {
+          base.calls.push({ name: "getMokkaCommit", parameters });
+          return { data: {
+            sha: headOid,
+            message: mokkaMessage,
+            tree: { sha: treeOid },
+            parents: [{ sha: parentOid }],
+            verification: { verified: true, signature: "signed-payload" },
+          } };
+        },
+        createCommit: async (parameters) => {
+          base.calls.push({ name: "createMokkaCommit", parameters });
+          return { data: {
+            sha: headOid,
+            message: parameters.message,
+            tree: { sha: treeOid },
+            parents: [{ sha: parentOid }],
+            verification: { verified: true, reason: "valid", signature: "signed-payload" },
+          } };
+        },
+        createRef: async (parameters) => {
+          base.calls.push({ name: "createMokkaRef", parameters });
+          return { data: { ref: parameters.ref, object: { sha: parameters.sha } } };
+        },
+      },
       repos: {
         getCommit: async (parameters) => {
           base.calls.push({ name: "getCommit", parameters });
@@ -380,6 +1153,25 @@ test("maps bounded Mokka commit and draft pull-request operations", async () => 
     sha: "a".repeat(40),
     parents: ["b".repeat(40)],
   });
+  assert.deepEqual(await client.getMokkaCommit(headOid), {
+    sha: headOid,
+    message: mokkaMessage,
+    tree: treeOid,
+    parents: [parentOid],
+    verification: { verified: true, hasSignature: true },
+  });
+  assert.deepEqual(await client.createMokkaCommit({
+    message: "cherry pick with evidence",
+    tree: treeOid,
+    parents: [parentOid],
+  }), {
+    sha: headOid,
+    message: "cherry pick with evidence",
+    tree: treeOid,
+    parents: [parentOid],
+    verification: { verified: true, hasSignature: true },
+  });
+  assert.deepEqual(await client.createMokkaRef(branch, headOid), { name: branch, oid: headOid });
   assert.deepEqual(await client.findMokkaPullRequests(branch, "main"), [{
     number: 901,
     url: pullRequest.html_url,
@@ -391,6 +1183,7 @@ test("maps bounded Mokka commit and draft pull-request operations", async () => 
     title: pullRequest.title,
     body: pullRequest.body,
   }]);
+  assert.equal((await client.findMokkaPullRequests(branch)).length, 1);
   assert.deepEqual(await client.createMokkaPullRequest({
     base: "main",
     head: branch,
@@ -411,6 +1204,20 @@ test("maps bounded Mokka commit and draft pull-request operations", async () => 
   await client.updateMokkaPullRequestBody(901, "new evidence");
 
   assert.deepEqual(
+    base.calls.find(({ name }) => name === "createMokkaCommit").parameters,
+    {
+      owner: "NVIDIA",
+      repo: "k8s-test-infra",
+      message: "cherry pick with evidence",
+      tree: treeOid,
+      parents: [parentOid],
+    },
+  );
+  assert.deepEqual(
+    base.calls.find(({ name }) => name === "createMokkaRef").parameters,
+    { owner: "NVIDIA", repo: "k8s-test-infra", ref: `refs/heads/${branch}`, sha: headOid },
+  );
+  assert.deepEqual(
     base.calls.find(({ name }) => name === "findMokkaPullRequests").parameters,
     {
       owner: "NVIDIA",
@@ -418,6 +1225,16 @@ test("maps bounded Mokka commit and draft pull-request operations", async () => 
       state: "all",
       head: `NVIDIA:${branch}`,
       base: "main",
+      per_page: 100,
+    },
+  );
+  assert.deepEqual(
+    base.calls.filter(({ name }) => name === "findMokkaPullRequests")[1].parameters,
+    {
+      owner: "NVIDIA",
+      repo: "k8s-test-infra",
+      state: "all",
+      head: `NVIDIA:${branch}`,
       per_page: 100,
     },
   );

@@ -110,6 +110,38 @@
               }
             }
           }
+        },
+        "mig": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "MIG partitioning. Boots the board partitioned as gpuInstances describes; no profile declares a layout of its own, so enabling this without one is rejected, because MIG on with nothing partitioned publishes no GPU resource at all under migStrategy=single.",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "gpuInstances": {
+              "type": "array",
+              "description": "The partitioning to apply. Required when enabled is true; fill a board with its smallest slice to keep every partition on one profile name, which is what migStrategy=single requires.",
+              "items": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "profile": {
+                    "type": "string",
+                    "description": "Canonical MIG profile name, e.g. \"1g.5gb\". Mutually exclusive with profile_id."
+                  },
+                  "profile_id": {
+                    "type": "integer",
+                    "description": "The ID the board publishes the profile under, as printed in the ID column of \"nvidia-smi mig -lgip\" — not NVML's profile enum, which numbers the same profiles in the opposite order. The two overlap, so the difference is silent: ID 0 is the whole board on an A100, where NVML's enum 0 is a seventh of it. Mutually exclusive with profile.",
+                    "minimum": 0
+                  },
+                  "count": {
+                    "type": "integer",
+                    "description": "How many identical instances to create. Omit it for one. Zero is rejected rather than treated as none: the engine cannot tell an explicit zero from an omitted count, so a zeroed entry would come back as the single instance it asked not to be. Drop the entry instead.",
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },

@@ -1,0 +1,5 @@
+kind: Changed
+body: |-
+  `libpcisysfs.so` is renamed `libmockfs.so`, since the shim now redirects
+    kernel-module paths as well as PCI sysfs. `MOCK_PCI_ROOT` is unchanged.
+time: 2026-09-29T07:13:00Z

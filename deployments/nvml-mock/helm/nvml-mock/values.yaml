@@ -55,6 +55,34 @@ gpu:
     xid:
       code: 0                            # 0 = no Xid surfaced; e.g. 79 = "GPU has fallen off the bus"
 
+  # MIG partitioning. Off by default: a partitioned board stops publishing
+  # nvidia.com/gpu under the device plugin's migStrategy=single, so enabling
+  # this changes what the node advertises.
+  #
+  # Enabling requires gpuInstances: no profile ships a layout, because how a
+  # board is carved is a deployment choice rather than a property of the
+  # silicon. Name the partitioning you want, in the names the board above
+  # publishes — for the gb300 default that is —
+  #
+  #   gpuInstances:
+  #     - profile: "3g.139gb"
+  #       count: 2
+  #
+  # — or fill the board with its smallest slice, which is the shape
+  # migStrategy=single publishes as one resource name: seven of 1g.5gb on
+  # a100, 1g.10gb on h100, 1g.23gb on b200 and gb200, 1g.35gb on gb300. A
+  # slice is named for the share of its own board it holds, so confirm a
+  # board's names with `nvidia-smi mig -lgip`.
+  #
+  # A board whose profile declares no mig.max_gpu_instances is refused, as is a
+  # capable board left with no layout: MIG on with nothing partitioned
+  # publishes no GPU resource at all under migStrategy=single.
+  #
+  # The instances stay mutable at runtime through NVML, as on real hardware.
+  mig:
+    enabled: false
+    gpuInstances: []
+
 image:
   repository: ghcr.io/nvidia/nvml-mock
   tag: latest
@@ -74,10 +102,10 @@ nodeLabels:
   featuresDir: /etc/kubernetes/node-feature-discovery/features.d
 
 # Node-wide ambient injection via containerd NRI. When enabled, a lightweight
-# node-local plugin appends the nvml-mock overlay mount and environment to each
-# container at runtime without mutating pod specs. Opt-in (default false): it
-# injects into workloads cluster-wide, so enable it only for the
-# node-wide-injection demo/use case. See docs/guides/node-wide-injection.
+# sidecar in the node DaemonSet appends the nvml-mock overlay mount and
+# environment to each container at runtime without mutating pod specs. Opt-in
+# (default false): it injects into workloads cluster-wide, so enable it only for
+# the node-wide-injection demo/use case. See docs/guides/node-wide-injection.
 
 nodeAgent:
   logging:
@@ -180,7 +208,7 @@ nri:
   imexChannelAnnotation: nvml-mock.nvidia.com/imex-channels
   excludedNamespaces: []
   resources: {}
-  # Port serving the plugin's /healthz and /readyz endpoints. The NRI DaemonSet
+  # Port serving the plugin's /healthz and /readyz endpoints. The node DaemonSet
   # does not use host networking, so this port lives only inside the pod's own
   # network namespace: it is reachable by the kubelet on the pod IP and is not
   # bound on the node.
@@ -200,17 +228,20 @@ nri:
   #
   # Set either to null to drop that probe (an empty map merges with the
   # default rather than replacing it).
+  #
+  # The chart rewrites the legacy `port: health` name to `nri-health` for
+  # httpGet and tcpSocket probes. gRPC probes require the numeric healthPort.
   readinessProbe:
     httpGet:
       path: /readyz
-      port: health
+      port: nri-health
     periodSeconds: 10
     timeoutSeconds: 2
     failureThreshold: 2
   livenessProbe:
     httpGet:
       path: /healthz
-      port: health
+      port: nri-health
     periodSeconds: 10
     timeoutSeconds: 2
     failureThreshold: 3

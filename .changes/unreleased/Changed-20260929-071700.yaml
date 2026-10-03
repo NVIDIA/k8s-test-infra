@@ -1,0 +1,7 @@
+kind: Changed
+body: |-
+  nvml-mock: each MIG profile table row declares the ID the board publishes,
+    under `profile_id`; `b200` had borrowed Hopper's IDs, so `mig -cgi 0` carved
+    the whole board. **Breaking** for externally-authored configs: a row without
+    `profile_id` publishes `0`, and two such rows on one board are refused.
+time: 2026-09-29T07:17:00Z

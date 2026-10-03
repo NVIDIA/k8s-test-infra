@@ -18,6 +18,7 @@ YAML configuration takes precedence when `MOCK_NVML_CONFIG` is set.
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `MOCK_NVML_CONFIG` | Path to YAML configuration file | (none) |
+| `MOCK_MIG_PROFILES_CONFIG` | Path to the board's [MIG profile table](mig.md#declaring-the-profile-table), which lives in a document of its own | (none) — a sibling of `MOCK_NVML_CONFIG` is tried instead |
 | `MOCK_NVML_NUM_DEVICES` | Number of GPUs to simulate | 8 |
 | `MOCK_NVML_DRIVER_VERSION` | NVIDIA driver version string | 550.163.01 |
 | `MOCK_NVML_DEBUG` | Enable debug logging (any value) | (disabled) |
@@ -115,7 +116,7 @@ device_defaults:
 device_defaults:
   pci:
     device_id: 0x20B010DE             # A100 device ID
-    subsystem_id: 0x134710DE
+    subsystem_id: 0x134F10DE
     bus_id: "0000:07:00.0"        # Usually per-device
 
   pcie:
@@ -127,6 +128,16 @@ device_defaults:
     tx_throughput_kbps: 0
     rx_throughput_kbps: 0
 ```
+
+`lspci` sees these through the rendered sysfs tree and enumerates every GPU, but
+two of its lines are missing next to real hardware. `Kernel driver in use:
+nvidia` needs a `driver` symlink, which the tree does not render and the
+`libmockfs.so` shim could not surface anyway — it intercepts `open`/`stat`, not
+`readlink`. `Kernel modules:` needs libkmod, which fails to initialise in a
+container with no `/lib/modules`; that is where the `Unable to load libkmod
+resources: error -2` on `lspci -v` comes from, and a container on real hardware
+prints it too. Both are display-only: `lspci` still exits 0, and a consumer
+reading identity out of sysfs gets the full picture.
 
 ### Platform identity (rack location)
 
@@ -442,6 +453,11 @@ device_defaults:
     max_gpu_instances: 7
 ```
 
+Those three keys are the whole of `device_defaults.mig`, and they are all a
+profile needs to describe what the silicon can do. The board's partition
+table, where that table lives, and the two ways to declare a layout have a
+page of their own: [MIG](mig.md).
+
 ### InfoROM
 
 ```yaml
@@ -554,6 +570,10 @@ nvlink:
       state: "active"
       remote_device_type: "GPU"
       remote_pci_bus_id: "0000:0F:00.0"
+  switches:                          # see NVSwitches below
+    - bdf: "0000:05:00.0"
+      uuid: "NVSwitch-H100-0000-0000-0000-000000000000"
+      device_id: 0x22A310DE
 ```
 
 `c2c_enabled` is node-level and drives the `GPU C2C Mode` row of `nvidia-smi -q`
@@ -563,6 +583,32 @@ reports `N/A` — never `Disabled`, because NVML answers
 link to a host CPU. Only `gb200` and `gb300` enable it. This is the only key that
 drives the row: `device_defaults.features.nvlink_c2c` is descriptive metadata and
 is not read.
+
+### NVSwitches
+
+`switches:` lists the NVSwitches on the node. They are modelled as NVLink remote
+endpoints: declaring them (with `links_per_gpu > 0` and no explicit per-device
+`links:`) is what makes the engine fan each GPU's links across them, which is
+what `nvidia-smi topo -m` renders as `NV<links_per_gpu>` between every GPU pair.
+NVML offers no per-switch API, so the `nvmlUnit*` chassis calls stay stubbed, as
+they are on real DGX/HGX nodes.
+
+```yaml
+nvlink:
+  switches:
+    - bdf: "0000:05:00.0"
+      uuid: "NVSwitch-H100-0000-0000-0000-000000000000"
+      device_id: 0x22A310DE         # 10de:22a3 GH100 [H100 NVSwitch]
+```
+
+`device_id` is the packed `(device << 16) | vendor` word, the same form
+`device_defaults.pci.device_id` takes for a GPU. It is optional, and it decides
+whether the node can see the switch over PCIe at all:
+
+| `device_id` | Meaning | Profiles |
+|---|---|---|
+| set | Baseboard switch on the node's PCIe bus. Rendered into the PCI tree as a bridge, so `lspci` lists it beside the GPUs — see [NVSwitches on the PCI bus](helm-chart.md#nvswitches-on-the-pci-bus). | `a100`, `h100` |
+| unset | NVLink endpoint only. The node never enumerates it, which is how a rack-scale switch tray presents. | `gb200`, `gb300` |
 
 ### NVLink error injection (per device)
 
@@ -671,9 +717,9 @@ Standalone configuration files are provided for each supported GPU model:
 
 | File | GPU Model | Memory | Architecture |
 |------|-----------|--------|--------------|
-| `pkg/gpu/mocknvml/configs/mock-nvml-config-gb300.yaml` | NVIDIA GB300 NVL | 288 GiB | Blackwell Ultra |
-| `pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml` | NVIDIA GB200 NVL | 192 GiB | Blackwell |
-| `pkg/gpu/mocknvml/configs/mock-nvml-config-b200.yaml` | NVIDIA B200 | 192 GiB | Blackwell |
+| `pkg/gpu/mocknvml/configs/mock-nvml-config-gb300.yaml` | NVIDIA GB300 NVL | 278 GiB | Blackwell Ultra |
+| `pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml` | NVIDIA GB200 NVL | 186 GiB | Blackwell |
+| `pkg/gpu/mocknvml/configs/mock-nvml-config-b200.yaml` | NVIDIA B200 | 180 GiB | Blackwell |
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-h100.yaml` | NVIDIA H100 80GB HBM3 | 80 GiB | Hopper |
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-a100.yaml` | NVIDIA A100-SXM4-40GB | 40 GiB | Ampere |
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-l40s.yaml` | NVIDIA L40S | 48 GiB | Ada Lovelace |

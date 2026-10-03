@@ -8,10 +8,15 @@ metadata:
   labels:
     {{- include "nvml-mock.labels" . | nindent 4 }}
 spec:
-  # Headless: DNS returns fabric daemon pod IPs for peer discovery. Scoped to
-  # the daemon component so the sidecar NRI DaemonSet (which shares the app
-  # name but does not listen on the fabric port) is never returned as a peer.
+  # Headless: DNS returns node DaemonSet pod IPs for peer discovery. The NRI
+  # sidecar shares those pods, while targetPort still resolves only the named
+  # ibping port exposed by the node-agent container.
   clusterIP: None
+  {{- if .Values.nri.enabled }}
+  # NRI contributes pod readiness but does not serve the relay. Keep a healthy
+  # node-agent discoverable when only its NRI peer is unready.
+  publishNotReadyAddresses: true
+  {{- end }}
   selector:
     app.kubernetes.io/name: {{ include "nvml-mock.name" . }}
     app.kubernetes.io/component: daemon

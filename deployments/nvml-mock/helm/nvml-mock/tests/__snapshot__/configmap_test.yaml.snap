@@ -70,7 +70,7 @@ should match snapshot with a100 profile:
           # ---------------------------------------------------------------------------
           pci:
             device_id: 0x20B010DE           # A100 SXM4 40GB
-            subsystem_id: 0x134710DE
+            subsystem_id: 0x134F10DE
             # bus_id is auto-generated per device if not specified
 
           pcie:
@@ -294,11 +294,15 @@ should match snapshot with a100 profile:
           # ---------------------------------------------------------------------------
           # MIG configuration
           # ---------------------------------------------------------------------------
+          # MIG ships off because a partitioned board stops publishing nvidia.com/gpu
+          # under migStrategy=single. How a board is carved is a deployment choice
+          # rather than a property of the silicon, so no layout is declared here:
+          # --set gpu.mig.enabled=true needs gpu.mig.gpuInstances to supply one. Seven
+          # 1g.5gb instances is what nvidia-mig-parted's all-1g.5gb config produces.
           mig:
             mode_current: "disabled"
             mode_pending: "disabled"
             max_gpu_instances: 7            # A100 supports up to 7 MIG instances
-            # GPU instances would be defined here if MIG enabled
 
           # ---------------------------------------------------------------------------
           # GPU operation mode (GOM)
@@ -416,19 +420,30 @@ should match snapshot with a100 profile:
           # GPU pair. No fabricmanager coupling: A100 predates the GpuFabricInfo NVML
           # API (Hopper+), so there is deliberately no device_defaults.fabric block and
           # nvmlDeviceGetGpuFabricInfo returns NOT_SUPPORTED.
+          #
+          # device_id is what puts a switch on the node's PCI bus as well as its NVLink
+          # fabric: a DGX A100 baseboard's NVSwitches are PCIe endpoints, so `lspci`
+          # lists them as "Bridge: NVIDIA Corporation GA100 [A100 NVSwitch]" beside the
+          # GPUs. They must also appear under pcie_topology below to inherit a NUMA node.
           switches:
             - bdf: "0000:01:00.0"
               uuid: "NVSwitch-A100-0000-0000-0000-000000000000"
+              device_id: 0x1AF110DE         # 10de:1af1 GA100 [A100 NVSwitch]
             - bdf: "0000:02:00.0"
               uuid: "NVSwitch-A100-0000-0000-0000-000000000001"
+              device_id: 0x1AF110DE
             - bdf: "0000:03:00.0"
               uuid: "NVSwitch-A100-0000-0000-0000-000000000002"
+              device_id: 0x1AF110DE
             - bdf: "0000:04:00.0"
               uuid: "NVSwitch-A100-0000-0000-0000-000000000003"
+              device_id: 0x1AF110DE
             - bdf: "0000:05:00.0"
               uuid: "NVSwitch-A100-0000-0000-0000-000000000004"
+              device_id: 0x1AF110DE
             - bdf: "0000:06:00.0"
               uuid: "NVSwitch-A100-0000-0000-0000-000000000005"
+              device_id: 0x1AF110DE
 
         # =============================================================================
         # InfiniBand topology - 1 ConnectX-6 HDR HCA per GPU (typical DGX A100)
@@ -465,6 +480,15 @@ should match snapshot with a100 profile:
                 - "0000:0F:00.0"
                 - "0000:47:00.0"
                 - "0000:4E:00.0"
+                # The baseboard's six NVSwitches, PCIe-attached to socket 0 as on a real
+                # DGX A100. Listed here so they inherit this root's NUMA node; the
+                # switches themselves are declared under nvlink.switches.
+                - "0000:01:00.0"
+                - "0000:02:00.0"
+                - "0000:03:00.0"
+                - "0000:04:00.0"
+                - "0000:05:00.0"
+                - "0000:06:00.0"
             - id: "pci0000:80"
               numa_node: 1
               devices:
@@ -541,12 +565,12 @@ should match snapshot with b200 profile:
             pwr_object: "1.0"
 
           # ---------------------------------------------------------------------------
-          # Memory configuration - 192 GiB HBM3e
+          # Memory configuration - 180 GiB HBM3e
           # ---------------------------------------------------------------------------
           memory:
-            total_bytes: 206158430208       # 192 GiB HBM3e
+            total_bytes: 193273528320       # 180 GiB HBM3e
             reserved_bytes: 1073741824      # ~1 GiB reserved
-            free_bytes: 205084688384        # total - reserved at idle
+            free_bytes: 192199786496        # total - reserved at idle
             used_bytes: 0
             memory_bus_width: 8192
 
@@ -559,8 +583,8 @@ should match snapshot with b200 profile:
           # PCI configuration
           # ---------------------------------------------------------------------------
           pci:
-            device_id: 0x234010DE           # B200 standalone
-            subsystem_id: 0x181810DE
+            device_id: 0x290110DE           # B200 standalone (10de:2901 GB100 [B200])
+            subsystem_id: 0x199910DE
 
           pcie:
             max_link_gen: 6                 # PCIe Gen6
@@ -782,6 +806,12 @@ should match snapshot with b200 profile:
           # ---------------------------------------------------------------------------
           # MIG configuration
           # ---------------------------------------------------------------------------
+          # MIG ships off because a partitioned board stops publishing nvidia.com/gpu
+          # under migStrategy=single. How a board is carved is a deployment choice
+          # rather than a property of the silicon, so no layout is declared here:
+          # --set gpu.mig.enabled=true needs gpu.mig.gpuInstances to supply one.
+          # This is the 180 GB B200 NVIDIA publishes profiles for, so its smallest
+          # slice is 1g.23gb and seven of them fills it.
           mig:
             mode_current: "disabled"
             mode_pending: "disabled"
@@ -1058,12 +1088,12 @@ should match snapshot with default gb300 profile:
             pwr_object: "1.0"
 
           # ---------------------------------------------------------------------------
-          # Memory configuration - 288 GiB HBM3e per GPU (1.5x GB200's 192 GiB)
+          # Memory configuration - 278 GiB HBM3e per GPU (1.5x GB200's 186 GiB)
           # ---------------------------------------------------------------------------
           memory:
-            total_bytes: 309237645312       # 288 GiB HBM3e
+            total_bytes: 298500227072       # 278 GiB HBM3e
             reserved_bytes: 1610612736      # ~1.5 GiB reserved
-            free_bytes: 307627032576        # total - reserved at idle
+            free_bytes: 296889614336        # total - reserved at idle
             used_bytes: 0
             memory_bus_width: 8192
 
@@ -1076,8 +1106,8 @@ should match snapshot with default gb300 profile:
           # PCI configuration
           # ---------------------------------------------------------------------------
           pci:
-            device_id: 0x294110DE           # GB300 NVL (mock placeholder, Blackwell Ultra)
-            subsystem_id: 0x183010DE
+            device_id: 0x31C210DE           # GB300 NVL (10de:31c2 GB110 [GB300])
+            subsystem_id: 0x21F110DE
 
           pcie:
             max_link_gen: 6                 # PCIe Gen6 (or NVLink-C2C to Grace)
@@ -1460,6 +1490,11 @@ should match snapshot with default gb300 profile:
           # NVSwitches. Every switch-attached link reaches all peers through the
           # shared fabric, so `nvidia-smi topo -m` shows NV18 between every GPU pair.
           # Fabric-manager readiness is coupled via device_defaults.fabric.state: auto.
+          #
+          # No device_id on any of them: on NVL72 the NVSwitches are in their own switch
+          # trays, reached over the NVLink cable cartridge, so the compute tray's PCIe
+          # bus never sees them and `lspci` shows the GPUs alone. Contrast HGX A100 /
+          # H100, whose baseboard switches are PCIe endpoints the node enumerates.
           switches:
             - bdf: "0000:01:00.0"
               uuid: "NVSwitch-GB300-0000-0000-0000-000000000000"
@@ -1611,12 +1646,12 @@ should match snapshot with gb200 profile:
             pwr_object: "1.0"
 
           # ---------------------------------------------------------------------------
-          # Memory configuration - 192 GiB HBM3e per GPU
+          # Memory configuration - 186 GiB HBM3e per GPU
           # ---------------------------------------------------------------------------
           memory:
-            total_bytes: 206158430208       # 192 GiB HBM3e
+            total_bytes: 199715979264       # 186 GiB HBM3e
             reserved_bytes: 1073741824      # ~1 GiB reserved
-            free_bytes: 205084688384        # total - reserved at idle
+            free_bytes: 198642237440        # total - reserved at idle
             used_bytes: 0
             memory_bus_width: 8192
 
@@ -1629,8 +1664,8 @@ should match snapshot with gb200 profile:
           # PCI configuration
           # ---------------------------------------------------------------------------
           pci:
-            device_id: 0x234110DE
-            subsystem_id: 0x181710DE
+            device_id: 0x294110DE           # GB200 NVL (10de:2941 GB100 [HGX GB200])
+            subsystem_id: 0x204610DE
 
           pcie:
             max_link_gen: 6                 # PCIe Gen6 (or NVLink-C2C to Grace)
@@ -2016,6 +2051,11 @@ should match snapshot with gb200 profile:
           # NVSwitches. Every switch-attached link reaches all peers through the
           # shared fabric, so `nvidia-smi topo -m` shows NV18 between every GPU pair.
           # Fabric-manager readiness is coupled via device_defaults.fabric.state: auto.
+          #
+          # No device_id on any of them: on NVL72 the NVSwitches are in their own switch
+          # trays, reached over the NVLink cable cartridge, so the compute tray's PCIe
+          # bus never sees them and `lspci` shows the GPUs alone. Contrast HGX A100 /
+          # H100, whose baseboard switches are PCIe endpoints the node enumerates.
           switches:
             - bdf: "0000:01:00.0"
               uuid: "NVSwitch-GB200-0000-0000-0000-000000000000"
@@ -2160,7 +2200,7 @@ should match snapshot with h100 profile:
           # ---------------------------------------------------------------------------
           pci:
             device_id: 0x233010DE           # H100 SXM 80GB
-            subsystem_id: 0x165810DE
+            subsystem_id: 0x16C110DE
 
           pcie:
             max_link_gen: 5                 # PCIe Gen5
@@ -2382,6 +2422,11 @@ should match snapshot with h100 profile:
           # ---------------------------------------------------------------------------
           # MIG configuration
           # ---------------------------------------------------------------------------
+          # MIG ships off because a partitioned board stops publishing nvidia.com/gpu
+          # under migStrategy=single. How a board is carved is a deployment choice
+          # rather than a property of the silicon, so no layout is declared here:
+          # --set gpu.mig.enabled=true needs gpu.mig.gpuInstances to supply one. Seven
+          # 1g.10gb instances is what nvidia-mig-parted's all-1g.10gb config produces.
           mig:
             mode_current: "disabled"
             mode_pending: "disabled"
@@ -2507,15 +2552,24 @@ should match snapshot with h100 profile:
           # GPU fanned round-robin across these NVSwitches, yielding NV18 all-to-all in
           # `nvidia-smi topo -m`. HGX H100 couples fabric-manager readiness via
           # device_defaults.fabric.state: auto.
+          #
+          # device_id is what puts a switch on the node's PCI bus as well as its NVLink
+          # fabric: an HGX baseboard's NVSwitches are PCIe endpoints, so `lspci` lists
+          # them as "Bridge: NVIDIA Corporation GH100 [H100 NVSwitch]" beside the GPUs.
+          # They must also appear under pcie_topology below to inherit a NUMA node.
           switches:
             - bdf: "0000:05:00.0"
               uuid: "NVSwitch-H100-0000-0000-0000-000000000000"
+              device_id: 0x22A310DE         # 10de:22a3 GH100 [H100 NVSwitch]
             - bdf: "0000:06:00.0"
               uuid: "NVSwitch-H100-0000-0000-0000-000000000001"
+              device_id: 0x22A310DE
             - bdf: "0000:07:00.0"
               uuid: "NVSwitch-H100-0000-0000-0000-000000000002"
+              device_id: 0x22A310DE
             - bdf: "0000:08:00.0"
               uuid: "NVSwitch-H100-0000-0000-0000-000000000003"
+              device_id: 0x22A310DE
 
         # =============================================================================
         # InfiniBand topology - 1 ConnectX-7 NDR HCA per GPU (typical HGX H100)
@@ -2552,6 +2606,13 @@ should match snapshot with h100 profile:
                 - "0000:1B:00.0"
                 - "0000:4A:00.0"
                 - "0000:4B:00.0"
+                # The baseboard's four NVSwitches, PCIe-attached to socket 0 as on real
+                # HGX H100. Listed here so they inherit this root's NUMA node; the
+                # switches themselves are declared under nvlink.switches.
+                - "0000:05:00.0"
+                - "0000:06:00.0"
+                - "0000:07:00.0"
+                - "0000:08:00.0"
             - id: "pci0000:80"
               numa_node: 1
               devices:
@@ -2639,8 +2700,8 @@ should match snapshot with l40s profile:
           # PCI configuration
           # ---------------------------------------------------------------------------
           pci:
-            device_id: 0x26B510DE            # L40S
-            subsystem_id: 0x169710DE
+            device_id: 0x26B910DE           # L40S (10de:26b9 AD102GL [L40S])
+            subsystem_id: 0x185110DE
 
           pcie:
             max_link_gen: 4                  # PCIe Gen4
@@ -2859,13 +2920,9 @@ should match snapshot with l40s profile:
           # ---------------------------------------------------------------------------
           compute_mode: "default"
 
-          # ---------------------------------------------------------------------------
-          # MIG configuration (L40S does not support MIG)
-          # ---------------------------------------------------------------------------
-          mig:
-            mode_current: "disabled"
-            mode_pending: "disabled"
-            max_gpu_instances: 0
+          # No mig section: the L40S is not a MIG-capable board, and the mock derives
+          # that from the board name, so NVML answers NVML_ERROR_NOT_SUPPORTED without
+          # the profile having to declare a disabled mode it can never leave.
 
           # ---------------------------------------------------------------------------
           # GPU operation mode (GOM)
@@ -3086,7 +3143,7 @@ should match snapshot with t4 profile:
           # PCI configuration
           # ---------------------------------------------------------------------------
           pci:
-            device_id: 0x1EB810DE            # T4
+            device_id: 0x1EB810DE           # T4
             subsystem_id: 0x12A210DE
 
           pcie:
@@ -3296,13 +3353,9 @@ should match snapshot with t4 profile:
           # ---------------------------------------------------------------------------
           compute_mode: "default"
 
-          # ---------------------------------------------------------------------------
-          # MIG configuration (T4 does not support MIG)
-          # ---------------------------------------------------------------------------
-          mig:
-            mode_current: "disabled"
-            mode_pending: "disabled"
-            max_gpu_instances: 0
+          # No mig section: the T4 is not a MIG-capable board, and the mock derives
+          # that from the board name, so NVML answers NVML_ERROR_NOT_SUPPORTED without
+          # the profile having to declare a disabled mode it can never leave.
 
           # ---------------------------------------------------------------------------
           # GPU operation mode (GOM)

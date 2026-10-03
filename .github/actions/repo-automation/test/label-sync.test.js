@@ -305,16 +305,19 @@ test("action metadata pins the Node 24 entry point and stable input/output contr
     "control-directory",
     "dry-run",
     "mode",
+    "policy-revision",
     "pr-number",
     "pull_request_number",
+    "request-id",
     "source-sha",
     "source_sha",
     "target-branch",
+    "workflow-commit-sha",
     "working-directory",
   ]);
   for (const input of [
     "mode", "pr-number", "pull_request_number", "source-sha", "source_sha", "target-branch",
-    "action-id", "action_id", "working-directory", "control-directory", "dry-run",
+    "action-id", "action_id", "working-directory", "control-directory", "policy-revision", "dry-run", "request-id", "workflow-commit-sha",
   ]) {
     assert.equal(typeof action.inputs[input].description, "string");
     assert.notEqual(action.inputs[input].description.trim(), "");
@@ -329,6 +332,10 @@ test("action metadata pins the Node 24 entry point and stable input/output contr
   assert.equal(action.inputs.action_id.required, false);
   assert.equal(action.inputs["working-directory"].required, false);
   assert.equal(action.inputs["control-directory"].required, false);
+  assert.equal(action.inputs["policy-revision"].required, false);
+  assert.equal(action.inputs["request-id"].required, false);
+  assert.equal(action.inputs["workflow-commit-sha"].required, false);
+  assert.match(action.inputs["policy-revision"].description, /trusted.*default branch.*commit.*metadata label scans/i);
   assert.equal(action.inputs["dry-run"].required, false);
   assert.equal(action.inputs["dry-run"].default, "true");
   assert.match(action.inputs["dry-run"].description, /Mokka.*false/i);

@@ -1,0 +1,3 @@
+kind: Fixed
+body: "Repository automation: refresh current-head metadata during label scans and block auto-merge when metadata checks fail or evidence is stale."
+time: 2026-10-02T07:15:19Z

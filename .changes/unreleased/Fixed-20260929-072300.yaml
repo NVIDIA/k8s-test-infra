@@ -1,0 +1,7 @@
+kind: Fixed
+body: |-
+  nvml-mock: a container served through mokka's `nvidia.com/gpu` CDI spec now
+    sees the node's profile instead of the built-in eight-A100 default. When
+    `MOCK_NVML_CONFIG` is unset, the library falls back to
+    `/etc/nvml-mock/config.yaml`, where the CDI mount puts it.
+time: 2026-09-29T07:23:00Z

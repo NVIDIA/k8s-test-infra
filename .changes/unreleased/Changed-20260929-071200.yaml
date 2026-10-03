@@ -1,0 +1,9 @@
+kind: Changed
+body: |-
+  Local runs and the `e2e-dra` job install the DRA driver from
+    `nvidia/dra-driver-nvidia-gpu` `0.5.0` instead of the unpinned
+    `nvidia/nvidia-dra-driver-gpu`. Pod labels change:
+    `app.kubernetes.io/name=dra-driver-nvidia-gpu`, and
+    `dra-driver-nvidia-gpu-component=kubelet-plugin` replaces
+    `app.kubernetes.io/component=kubelet-plugin`.
+time: 2026-09-29T07:12:00Z
