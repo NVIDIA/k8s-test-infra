@@ -556,6 +556,7 @@ test("arms native SQUASH while policy blocks, then publishes success for the exa
   assert.deepEqual(github.calls.getCIState.at(-1), {
     prNumber: 42, headOid: HEAD, baseBranch: "main",
     files: [{ path: "pkg/gpu.go", additions: 2, deletions: 1, status: "modified" }],
+    requiredCI: config.policy.merge.requiredCI,
   });
 });
 

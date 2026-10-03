@@ -11,6 +11,7 @@ const { planCommandExecution } = require("../commands/executor.js");
 const { validateConfig } = require("../config.js");
 const { parseAliases, parseOwnersFile, resolveOwners } = require("../owners.js");
 const { policyDigest } = require("../policy-digest.js");
+const { validAuthorContext } = require("../pull-request-author.js");
 const { loadReviewEvidence } = require("../review-evidence.js");
 const {
   POLICY_COMMENT_MARKER,
@@ -81,8 +82,7 @@ function openPullRequest(value, identity) {
     || value.nodeId === ""
     || typeof value.draft !== "boolean"
     || typeof value.title !== "string"
-    || typeof value.author !== "string"
-    || !LOGIN.test(value.author)
+    || !validAuthorContext(value.author)
     || typeof value.headOid !== "string"
     || !OID.test(value.headOid)
     || typeof value.baseBranch !== "string"
@@ -160,7 +160,6 @@ async function loadAuthority(github, config, identity, pullRequest, files) {
   return {
     digest: policyDigest({
       repository: identity.repository,
-      revision,
       policy: config.policy,
       ownerSources: sources,
       aliasesSource,

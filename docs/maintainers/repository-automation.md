@@ -99,9 +99,11 @@ approval, hold, and other labels outside its metadata ownership.
 
 The refresh preserves valid command state, including a hold, from the same
 trusted bot comment. Duplicate comments, invalid state, or a changed comment
-stop the refresh. The API has no atomic compare-and-swap for comments; the
-workflow concurrency group and the final comment read limit the remaining
-read-to-write race.
+stop the refresh. The API has no atomic compare-and-swap for comments.
+Commands and pull request metadata runs for the same pull request share one
+concurrency group, so they never rewrite its comment at the same time. Scans
+run in their own group, and only the final comment read limits their
+read-to-write race with a concurrent command.
 
 Both scans fully read their candidate list before the first mutation and
 reject a list above 100 requests instead of silently omitting requests. They
@@ -155,7 +157,11 @@ token has `contents: write` and `pull-requests: write` permissions for this
 operation. It checks out only the trusted default-branch commit, with checkout
 credentials disabled.
 
-The evaluator requires successful current-head runs of **Basic checks** and
+The evaluator reads the required source CI from `merge.requiredCI` in
+`.github/repo-automation/policy.yml`. Each workflow entry names a workflow file
+and, optionally, the changed-path globs that make it required; each check entry
+names a check run and the GitHub App id that must publish it. The current list
+requires successful current-head runs of **Basic checks** and
 **Validate changelog**, plus a successful `DCO` check from the DCO app. It also
 requires the action CI, Helm, dependency-integrity, and documentation workflows
 when their tracked PR path filters match a changed or renamed path. It uses the
@@ -171,6 +177,18 @@ Missing or running evidence blocks success. Failed, cancelled, skipped, or
 malformed required evidence also blocks success. Incomplete or over-limit API
 collections fail closed. The merge-policy check and metadata/review workflows
 do not satisfy the source CI gate.
+
+The `files` patterns use a portable subset of glob syntax so that the agent can
+evaluate the same list without a minimatch implementation. Configuration
+validation rejects anything else, including braces, brackets, `?`, extglob
+groups, negation, and `**` inside a segment. Each `/`-separated segment is
+either `**` or a run of letters, digits, `.`, `_`, and `-` in which `*` matches
+any characters inside that segment, including a leading dot. `**` matches zero
+or more whole segments, except as the last segment, where it matches one or
+more: `docs/**` matches `docs/a.md` but not `docs`, and `**/OWNERS` matches
+`OWNERS`. Matching is case-sensitive and applies to each changed path and to the
+previous path of a rename. Source CI can pass only for pull requests into
+`main` or a `release-*` branch; any other base stays pending.
 
 For an eligible request, the evaluator first publishes an `action_required`
 policy check. It reads authority, metadata, PR identity, and CI again, then

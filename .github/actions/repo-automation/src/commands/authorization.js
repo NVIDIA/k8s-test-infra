@@ -1,5 +1,7 @@
 "use strict";
 
+const { validAuthorContext } = require("../pull-request-author.js");
+
 const CONTROL_CHARACTERS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 const GITHUB_LOGIN = /^(?!.*--)[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
 const PERMISSION_LEVELS = new Map([
@@ -105,7 +107,7 @@ function authorizeCommand(commandValue, context) {
   if (actor.status === "unavailable") return denied("actor-unavailable");
   if (actor.status !== "human") return denied("actor-not-human");
 
-  const author = normalizeLogin(context.author);
+  const author = validAuthorContext(context.author) ? context.author.toLowerCase() : null;
   const reviewers = normalizeLoginSet(context.reviewers);
   const approvers = normalizeLoginSet(context.approvers);
   const owners = normalizeLoginSet(context.owners);

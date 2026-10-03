@@ -20,6 +20,9 @@ const {
 
 const CONFIG_DIRECTORY = path.join(".github", "repo-automation");
 const CONFIG_NAMES = ["policy", "labels", "areas"];
+const UNSAFE_TEXT = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
+// Portable glob subset shared with the Mokka agent: "**" as a whole segment, or [A-Za-z0-9._-] with single "*".
+const PORTABLE_SEGMENT = /^(?:\*\*|(?:[A-Za-z0-9._-]|\*(?!\*))+)$/;
 
 class ConfigError extends Error {
   constructor(errors) {
@@ -81,6 +84,99 @@ function requireStringArray(value, configPath, errors, maximumItems) {
     requireNonEmptyString(value[index], `${configPath}[${index}]`, errors);
   }
   return true;
+}
+
+function safeWorkflowPath(value) {
+  return typeof value === "string"
+    && /^\.github\/workflows\/[A-Za-z0-9][A-Za-z0-9._/-]{0,471}\.ya?ml$/.test(value)
+    && !value.includes("//")
+    && !value.split("/").some((segment) => segment === "." || segment === "..");
+}
+
+function safePathPattern(value) {
+  return typeof value === "string"
+    && value.length > 0
+    && value.length <= 4096
+    && value.split("/").every((segment) => (
+      PORTABLE_SEGMENT.test(segment) && segment !== "." && segment !== ".."
+    ));
+}
+
+function validateRequiredCI(requiredCI, errors) {
+  const configPath = "policy.merge.requiredCI";
+  if (!requireRecord(requiredCI, configPath, errors)) {
+    return;
+  }
+  rejectUnknownKeys(requiredCI, ["workflows", "checks"], configPath, errors);
+
+  if (!Array.isArray(requiredCI.workflows) || requiredCI.workflows.length === 0) {
+    addError(errors, `${configPath}.workflows`, "must be a non-empty array");
+  } else {
+    if (requiredCI.workflows.length > 32) {
+      addError(errors, `${configPath}.workflows`, "must not exceed 32 items");
+    }
+    const paths = new Set();
+    for (let index = 0; index < requiredCI.workflows.length; index += 1) {
+      const workflowPath = `${configPath}.workflows[${index}]`;
+      const workflow = requiredCI.workflows[index];
+      if (!requireRecord(workflow, workflowPath, errors)) {
+        continue;
+      }
+      rejectUnknownKeys(workflow, ["path", "files"], workflowPath, errors);
+      if (!safeWorkflowPath(workflow.path) || paths.has(workflow.path)) {
+        addError(errors, `${workflowPath}.path`, "must be a unique safe workflow path");
+      }
+      paths.add(workflow.path);
+      if (workflow.files === undefined) {
+        continue;
+      }
+      if (!Array.isArray(workflow.files) || workflow.files.length === 0) {
+        addError(errors, `${workflowPath}.files`, "must be a non-empty array");
+        continue;
+      }
+      if (workflow.files.length > 100) {
+        addError(errors, `${workflowPath}.files`, "must not exceed 100 items");
+      }
+      const patterns = new Set();
+      for (let patternIndex = 0; patternIndex < workflow.files.length; patternIndex += 1) {
+        const pattern = workflow.files[patternIndex];
+        if (!safePathPattern(pattern) || patterns.has(pattern)) {
+          addError(errors, `${workflowPath}.files[${patternIndex}]`, "must be a unique safe path pattern");
+        }
+        patterns.add(pattern);
+      }
+    }
+  }
+
+  if (!Array.isArray(requiredCI.checks) || requiredCI.checks.length === 0) {
+    addError(errors, `${configPath}.checks`, "must be a non-empty array");
+    return;
+  }
+  if (requiredCI.checks.length > 32) {
+    addError(errors, `${configPath}.checks`, "must not exceed 32 items");
+  }
+  const checks = new Set();
+  for (let index = 0; index < requiredCI.checks.length; index += 1) {
+    const checkPath = `${configPath}.checks[${index}]`;
+    const check = requiredCI.checks[index];
+    if (!requireRecord(check, checkPath, errors)) {
+      continue;
+    }
+    rejectUnknownKeys(check, ["name", "appId"], checkPath, errors);
+    if (typeof check.name !== "string" || check.name.trim() === "") {
+      addError(errors, `${checkPath}.name`, "must be a non-empty string");
+    } else if (check.name.length > 255 || UNSAFE_TEXT.test(check.name)) {
+      addError(errors, `${checkPath}.name`, "must be safe text of at most 255 characters");
+    }
+    if (!Number.isSafeInteger(check.appId) || check.appId <= 0) {
+      addError(errors, `${checkPath}.appId`, "must be a positive integer");
+    }
+    const key = `${check.name}\0${check.appId}`;
+    if (checks.has(key)) {
+      addError(errors, checkPath, "must be unique");
+    }
+    checks.add(key);
+  }
 }
 
 function validateSchemaVersion(value, configPath, errors) {
@@ -204,10 +300,11 @@ function validatePolicy(policy, errors) {
   }
 
   if (requireRecord(policy.merge, "policy.merge", errors)) {
-    rejectUnknownKeys(policy.merge, ["method"], "policy.merge", errors);
+    rejectUnknownKeys(policy.merge, ["method", "requiredCI"], "policy.merge", errors);
     if (policy.merge.method !== "SQUASH") {
       addError(errors, "policy.merge.method", "must be SQUASH");
     }
+    validateRequiredCI(policy.merge.requiredCI, errors);
   }
 
   if (!Array.isArray(policy.bots) || policy.bots.length === 0) {

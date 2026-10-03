@@ -4,12 +4,12 @@ const { createHash } = require("node:crypto");
 
 const { validateConfig } = require("../config.js");
 const { gitIsAncestor } = require("../git.js");
+const { validAuthorContext } = require("../pull-request-author.js");
 
 const BACKPORT_EVIDENCE_MARKER = "<!-- repo-automation-backport:v1 -->";
 const GIT_OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const SAFE_REPOSITORY = /^[a-z0-9](?:[a-z0-9._-]{0,99})\/[a-z0-9](?:[a-z0-9._-]{0,99})$/;
 const SAFE_BRANCH = /^(?!-)(?!.*(?:\.\.|@\{|\/\/|\\|[\x00-\x20\x7f~^:?*\[]))[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/;
-const SAFE_LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
 
 function positiveIntegerInput(value) {
   if (typeof value !== "string" || !/^[1-9][0-9]*$/.test(value)) {
@@ -95,8 +95,7 @@ function liveMergedPullRequest(value, prNumber, repository) {
   if (
     typeof value.title !== "string"
     || value.title === ""
-    || typeof value.author !== "string"
-    || !SAFE_LOGIN.test(value.author)
+    || !validAuthorContext(value.author)
     || typeof value.headOid !== "string"
     || typeof value.baseBranch !== "string"
     || value.baseBranch === ""

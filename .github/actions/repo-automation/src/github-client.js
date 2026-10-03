@@ -944,7 +944,7 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
       )).map(mappedWorkflowRun);
     },
 
-    async getCIState({ headOid, prNumber, baseBranch, files, headRepository, headBranch }) {
+    async getCIState({ headOid, prNumber, baseBranch, files, headRepository, headBranch, requiredCI }) {
       const expectedHead = commitOid(headOid, "CI head OID");
       positiveInteger(prNumber, "PR number");
       nonEmptyString(baseBranch, "CI base branch");
@@ -968,6 +968,7 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
           run, expectedHead, prNumber, expectedHeadRepository, expectedHeadBranch,
         )).filter((run) => run !== null),
         checks: checkRuns.map(mappedCICheckRun),
+        requiredCI,
       });
     },
 

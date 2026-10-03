@@ -44,8 +44,9 @@ jobs:
       contents: read
       issues: write
       pull-requests: write
+    # Pull request events share the per-PR group with Commands; each label scan dispatch gets its own group.
     concurrency:
-      group: repository-automation-state
+      group: ${{ github.event_name == 'pull_request_target' && format('repository-automation-pr-{0}', github.event.pull_request.number) || github.event_name == 'workflow_dispatch' && format('repository-automation-label-scan-{0}', inputs.request_id) || 'repository-automation-scan' }}
       cancel-in-progress: false
     steps:
       - name: Resolve trusted default branch

@@ -33,7 +33,7 @@ jobs:
       contents: read
       issues: write
     concurrency:
-      group: repository-automation-state
+      group: repository-automation-label-sync
       cancel-in-progress: false
     steps:
       - name: Resolve trusted default branch

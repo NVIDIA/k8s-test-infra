@@ -100,6 +100,18 @@ test("fails closed for stale, deleted, malformed, and unknown identities", () =>
   }
 });
 
+test("accepts app bot pull request authors and rejects unsafe author context", () => {
+  assert.deepEqual(authorizeCommand(command("lgtm"), context({ author: "dependabot[bot]" })), {
+    allowed: true,
+    reason: "authorized",
+    actor: "reviewer",
+    actorRole: "reviewer",
+  });
+  for (const author of ["alice​", "alice\n", "[bot]", "bad--login", "dependabot[bot][bot]", 42, null]) {
+    assert.equal(authorizeCommand(command("lgtm"), context({ author })).reason, "invalid-context", String(author));
+  }
+});
+
 test("rejects unapproved command shapes and invalid authority context", () => {
   const invalidCommands = [
     null,

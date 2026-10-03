@@ -21,7 +21,7 @@ permissions: {}
 
 jobs:
   command:
-    if: ${{ vars.REPOSITORY_AUTOMATION_COMMANDS_ENABLED == 'true' && github.event.issue.pull_request != null && github.event.action == 'created' }}
+    if: ${{ vars.REPOSITORY_AUTOMATION_COMMANDS_ENABLED == 'true' && github.event.issue.pull_request != null && github.event.action == 'created' && github.event.comment.user.type == 'User' && contains(github.event.comment.body, '/') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -29,8 +29,9 @@ jobs:
       contents: read
       issues: write
       pull-requests: write
+    # Shared with PR metadata for the same pull request: both rewrite its policy comment.
     concurrency:
-      group: repository-automation-state
+      group: repository-automation-pr-${{ github.event.issue.number }}
       cancel-in-progress: false
     outputs:
       backport-requests: ${{ steps.command.outputs.backport-requests }}
