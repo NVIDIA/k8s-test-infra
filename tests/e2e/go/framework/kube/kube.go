@@ -483,6 +483,124 @@ func (c *Client) ResourceSliceDeviceCounts(ctx context.Context) ([]int, error) {
 	return counts, nil
 }
 
+// DRAAllocatedGPUUUIDs returns the UUIDs of the devices the scheduler
+// allocated to a pod's ResourceClaims, resolved through the ResourceSlices the
+// driver published. It is the DRA counterpart of reading NVIDIA_VISIBLE_DEVICES
+// for a device plugin allocation: the source of truth for which GPUs the pod
+// was given, independent of what the container then sees. It reads the API
+// server's preferred resource.k8s.io version and accepts both the v1beta1 and
+// v1 device shapes, so it keeps working once v1beta1 is no longer served.
+func (c *Client) DRAAllocatedGPUUUIDs(ctx context.Context, ns, pod string) ([]string, error) {
+	refs, err := c.draAllocatedDevices(ctx, ns, pod)
+	if err != nil {
+		return nil, err
+	}
+	published, err := c.draDeviceUUIDs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	uuids := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		uuid, ok := published[ref]
+		if !ok {
+			return nil, fmt.Errorf("no uuid attribute for device %s in pool %s of driver %s", ref.device, ref.pool, ref.driver)
+		}
+		uuids = append(uuids, uuid)
+	}
+	return uuids, nil
+}
+
+// draDeviceRef names one device the way a ResourceClaim allocation does.
+type draDeviceRef struct{ driver, pool, device string }
+
+func (c *Client) draAllocatedDevices(ctx context.Context, ns, pod string) ([]draDeviceRef, error) {
+	var p struct {
+		Status struct {
+			ResourceClaimStatuses []struct {
+				ResourceClaimName string `json:"resourceClaimName"`
+			} `json:"resourceClaimStatuses"`
+		} `json:"status"`
+	}
+	if err := c.getJSON(ctx, &p, "pod", "-n", ns, pod); err != nil {
+		return nil, err
+	}
+	var refs []draDeviceRef
+	for _, st := range p.Status.ResourceClaimStatuses {
+		var claim struct {
+			Status struct {
+				Allocation *struct {
+					Devices struct {
+						Results []struct {
+							Driver string `json:"driver"`
+							Pool   string `json:"pool"`
+							Device string `json:"device"`
+						} `json:"results"`
+					} `json:"devices"`
+				} `json:"allocation"`
+			} `json:"status"`
+		}
+		if err := c.getJSON(ctx, &claim, "resourceclaims.resource.k8s.io", "-n", ns, st.ResourceClaimName); err != nil {
+			return nil, err
+		}
+		if claim.Status.Allocation == nil {
+			return nil, fmt.Errorf("ResourceClaim %s/%s is not allocated", ns, st.ResourceClaimName)
+		}
+		for _, r := range claim.Status.Allocation.Devices.Results {
+			refs = append(refs, draDeviceRef{r.Driver, r.Pool, r.Device})
+		}
+	}
+	if len(refs) == 0 {
+		return nil, fmt.Errorf("pod %s/%s holds no allocated ResourceClaim device", ns, pod)
+	}
+	return refs, nil
+}
+
+// draDeviceUUIDs maps every published device that carries a uuid attribute to
+// that UUID. Device names repeat across pools, so the key includes the pool.
+func (c *Client) draDeviceUUIDs(ctx context.Context) (map[draDeviceRef]string, error) {
+	var slices struct {
+		Items []struct {
+			Spec struct {
+				Driver string `json:"driver"`
+				Pool   struct {
+					Name string `json:"name"`
+				} `json:"pool"`
+				Devices []struct {
+					Name string `json:"name"`
+					// v1beta1 nests attributes under basic; v1 has them on the
+					// device itself.
+					Basic struct {
+						Attributes draAttributes `json:"attributes"`
+					} `json:"basic"`
+					Attributes draAttributes `json:"attributes"`
+				} `json:"devices"`
+			} `json:"spec"`
+		} `json:"items"`
+	}
+	if err := c.getJSON(ctx, &slices, "resourceslices.resource.k8s.io"); err != nil {
+		return nil, err
+	}
+	uuids := map[draDeviceRef]string{}
+	for _, it := range slices.Items {
+		for _, d := range it.Spec.Devices {
+			attrs := d.Attributes
+			if attrs == nil {
+				attrs = d.Basic.Attributes
+			}
+			if a, ok := attrs["uuid"]; ok && a.String != nil {
+				uuids[draDeviceRef{it.Spec.Driver, it.Spec.Pool.Name, d.Name}] = *a.String
+			}
+		}
+	}
+	return uuids, nil
+}
+
+// draAttributes is a ResourceSlice device's attribute map; only string values
+// are read.
+type draAttributes map[string]struct {
+	String *string `json:"string"`
+}
+
 // DescribePod returns `kubectl describe pod` output (failure classification,
 // e.g. the DRA "empty device edits" string).
 func (c *Client) DescribePod(ctx context.Context, ns, name string) (string, error) {
