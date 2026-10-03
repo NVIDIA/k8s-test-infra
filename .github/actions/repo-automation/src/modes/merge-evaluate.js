@@ -850,7 +850,14 @@ async function loadLabelEvaluation({ github, config, repository, number, policyR
   if (await github.getDefaultBranchRevision() !== policyRevision) {
     throw new TypeError("trusted policy revision changed during evaluation");
   }
-  return { pullRequest, authority, labels: labelPlan(authority.labels, authority) };
+  // Only an /unhold clears a hold, and its Commands run removes the label itself. A hold
+  // label without hold state can be a /hold run between its label write and state write.
+  const plan = labelPlan(authority.labels, authority);
+  const labels = {
+    add: plan.add,
+    remove: plan.remove.filter((label) => label.toLowerCase() !== "do-not-merge/hold"),
+  };
+  return { pullRequest, authority, labels };
 }
 
 function labelsResult(evaluation, labelWrite) {
