@@ -66,6 +66,21 @@ test("skips the agent-owned /cherry-pick command without a command or diagnostic
   }
 });
 
+test("the parser's line guards run before the agent-owned skip", () => {
+  const parsed = parseCommands([
+    "/cherry-pick release-1.2\u200b",
+    `/cherry-pick ${"a".repeat(4_096)}`,
+    "/cherry-pick\u00a0release-1.2",
+  ].join("\n"));
+
+  assert.deepEqual(parsed.commands, []);
+  assert.deepEqual(parsed.diagnostics.map(({ line, code }) => ({ line, code })), [
+    { line: 1, code: "unsafe-command" },
+    { line: 2, code: "line-too-large" },
+    { line: 3, code: "unsupported-command" },
+  ]);
+});
+
 test("a /cherry-pick line mixed with /lgtm yields exactly the /lgtm command", () => {
   const parsed = parseCommands("/cherry-pick release-1.2\n/lgtm");
 

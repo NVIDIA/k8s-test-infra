@@ -979,7 +979,7 @@ test("a comment without commands whose catch-up changes nothing writes nothing",
   assertNoWrites(github);
 });
 
-test("caught-up /cherry-pick is skipped and caught-up /backport is not replayed", async () => {
+test("caught-up /backport and /cherry-pick comments are not replayed", async () => {
   const github = createFakeGitHub(state({
     issueComments: [
       command(97, "/cherry-pick release-0.11", { author: "pr-author" }),
