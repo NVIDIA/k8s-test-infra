@@ -538,8 +538,18 @@ test("dry-run returns a complete plan and performs no mutations", async () => {
   assert.equal(github.calls.rerunFailedJobs.length, 0);
 });
 
+// Created an hour before the fixed run time, inside the 24-hour catch-up window.
 function command(id, body, overrides = {}) {
-  return { id, issueNumber: 42, body, author: "alice", authorType: "User", edited: false, ...overrides };
+  return {
+    id,
+    issueNumber: 42,
+    body,
+    author: "alice",
+    authorType: "User",
+    edited: false,
+    createdAt: "2026-09-17T11:00:00Z",
+    ...overrides,
+  };
 }
 
 async function runEvent(github, commentId) {
@@ -836,4 +846,58 @@ test("a caught-up /retest inside the stored cooldown reruns nothing", async () =
   assert.deepEqual(github.calls.rerunFailedJobs, []);
   assert.deepEqual(result.rerunRunIds, []);
   assert.equal(persistedState(github).lastRetest.commentId, 90);
+});
+
+test("a first run replays only command comments from the last 24 hours, in id order", async () => {
+  const github = createFakeGitHub(state({
+    issueComments: [
+      command(95, "/hold", { createdAt: "2026-09-15T11:00:00Z" }),
+      command(96, "/retest", { author: "pr-author", createdAt: "2026-09-16T08:00:00Z" }),
+      command(97, "/unhold", { createdAt: "2026-09-17T09:00:00Z" }),
+      command(98, "/hold", { createdAt: "2026-09-17T10:00:00Z" }),
+      command(99, "/lgtm"),
+    ],
+    workflowRuns: [failedRun()],
+  }));
+
+  const result = await run(github);
+
+  assert.deepEqual(result.processedCommentIds, [97, 98, 99]);
+  assert.equal(result.policy.hold, true);
+  assert.deepEqual(github.calls.rerunFailedJobs, []);
+  const persisted = persistedState(github);
+  assert.deepEqual(persisted.processedCommandIds, [97, 98, 99]);
+  assert.equal(persisted.hold.sourceId, 98);
+  assert.equal(persisted.lastRetest, null);
+});
+
+test("the catch-up window is 24 hours of comment creation time", async (t) => {
+  for (const [name, createdAt, replayed] of [
+    ["exactly 24 hours old", "2026-09-16T12:00:00Z", true],
+    ["one second older", "2026-09-16T11:59:59Z", false],
+    ["missing creation time", null, false],
+    ["unparseable creation time", "yesterday", false],
+  ]) await t.test(name, async () => {
+    const github = createFakeGitHub(state({
+      issueComments: [command(98, "/hold", { createdAt }), command(99, "/lgtm")],
+    }));
+
+    const result = await run(github);
+
+    assert.deepEqual(result.processedCommentIds, replayed ? [98, 99] : [99]);
+    assert.equal(result.policy.hold, replayed);
+  });
+});
+
+test("an old comment is not replayed even when it is newer than the newest processed command", async () => {
+  const github = createFakeGitHub(state({
+    issueComments: [command(98, "/hold", { createdAt: "2026-09-10T12:00:00Z" }), command(99, "/lgtm")],
+    comments: [storedPolicyComment({ processedCommandIds: [97] })],
+  }));
+
+  const result = await run(github);
+
+  assert.deepEqual(result.processedCommentIds, [99]);
+  assert.equal(result.policy.hold, false);
+  assert.deepEqual(persistedState(github).processedCommandIds, [97, 99]);
 });

@@ -195,6 +195,7 @@ function createFakeGitHub(initialState = []) {
         author: comment.author,
         authorType: "Bot",
         edited: false,
+        createdAt: null,
       }));
       return clone([...human, ...bot].sort((left, right) => left.id - right.id));
     },

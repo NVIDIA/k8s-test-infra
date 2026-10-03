@@ -256,9 +256,12 @@ test("lists every pull request comment with live command provenance", async () =
   const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
 
   assert.deepEqual(await client.listIssueComments(42), [
-    { id: 90, issueNumber: 42, body: "/hold", author: "alice", authorType: "User", edited: false },
-    { id: 91, issueNumber: 42, body: "", author: "github-actions[bot]", authorType: "Bot", edited: true },
-    { id: 92, issueNumber: 42, body: "/unhold", author: null, authorType: null, edited: false },
+    { id: 90, issueNumber: 42, body: "/hold", author: "alice", authorType: "User", edited: false,
+      createdAt: "2026-09-17T10:00:00Z" },
+    { id: 91, issueNumber: 42, body: "", author: "github-actions[bot]", authorType: "Bot", edited: true,
+      createdAt: "2026-09-17T10:00:00Z" },
+    { id: 92, issueNumber: 42, body: "/unhold", author: null, authorType: null, edited: false,
+      createdAt: "2026-09-17T10:00:00Z" },
   ]);
   assert.deepEqual(calls.filter(({ name }) => name === "listComments").map(({ parameters }) => parameters), [
     { owner: "NVIDIA", repo: "k8s-test-infra", issue_number: 42, per_page: 100 },
