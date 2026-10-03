@@ -284,16 +284,19 @@ be edited, and its author's live identity and repository access are checked as
 for the comment that started the run. Processed comment IDs are stored in the
 policy comment, so a repeated delivery changes nothing.
 
-Comments older than the newest processed command are not applied later, because
-that would reorder them after newer commands. Comments newer than the run's own
-comment are left to their own run. A caught-up `/lgtm` or `/approve` is recorded
+Only comments created in the last 24 hours, by GitHub's comment creation time,
+are caught up, so a first run does not replay old history. Comments older than
+the newest processed command are not applied later, because that would reorder
+them after newer commands. Comments newer than the run's own comment are left to
+their own run. A caught-up `/lgtm` or `/approve` is recorded
 as processed but grants no evidence, because it may have been written before a
 push to the head; the reviewer must comment again. The command summary in the
 policy comment names each such comment ID and asks for a re-issue on the
 current head, for up to 20 comments plus a count of the rest. It also shows the
 line results of the last processed comment, and the job summary lists every
 processed comment ID. A comment whose run was cancelled stays unapplied until the next
-**Commands** run for that pull request.
+**Commands** run for that pull request, and is dropped if that run starts more
+than 24 hours later.
 
 ### Dispatched label scan reports
 
