@@ -632,8 +632,7 @@ test("a caught-up comment is authorized as its own live author", async () => {
   assert.deepEqual(result.processedCommentIds, [98, 99]);
   assert.equal(result.policy.hold, false);
   assert.equal(persistedState(github).hold, null);
-  assert.deepEqual(github.calls.getUserIdentity.map(({ login }) => login).filter((login) => login !== "bob").sort(),
-    ["alice", "mallory", "pr-author"]);
+  assert.deepEqual(github.calls.getCollaboratorAccess.map(({ login }) => login).sort(), ["alice", "mallory"]);
 });
 
 test("catch-up skips edited and non-human comments without recording them", async (t) => {
