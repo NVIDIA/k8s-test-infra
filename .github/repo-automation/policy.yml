@@ -24,6 +24,7 @@ merge:
         files:
           - ".github/actions/repo-automation/**"
           - ".github/repo-automation/**"
+          - ".github/scripts/cherrypick/**"
           - ".github/workflows/**"
           - hack/actionlint.sh
           - Makefile
