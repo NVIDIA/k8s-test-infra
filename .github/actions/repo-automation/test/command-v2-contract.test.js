@@ -606,6 +606,25 @@ test("caught-up commands apply in comment id order", async (t) => {
   });
 });
 
+test("several caught-up comments apply in id order even when listed out of order", async (t) => {
+  for (const [name, first, second, held] of [
+    ["hold then unhold ends unheld", "/hold", "/unhold", false],
+    ["unhold then hold ends held", "/unhold", "/hold", true],
+  ]) await t.test(name, async () => {
+    const github = createFakeGitHub(state({
+      issueComments: [command(97, first), command(98, second), command(99, "/lgtm")],
+    }));
+    const listComments = github.listIssueComments.bind(github);
+    github.listIssueComments = async (...args) => (await listComments(...args)).reverse();
+
+    const result = await run(github);
+
+    assert.deepEqual(result.processedCommentIds, [97, 98, 99]);
+    assert.equal(result.policy.hold, held);
+    assert.equal(persistedState(github).hold?.sourceId ?? null, held ? 98 : null);
+  });
+});
+
 test("command catch-up replay is idempotent", async () => {
   const github = createFakeGitHub(state({
     issueComments: [command(98, "/hold"), command(99, "/unhold")],
