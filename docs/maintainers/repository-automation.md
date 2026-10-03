@@ -302,18 +302,20 @@ A caught-up `/backport` or `/cherry-pick` is not replayed. A run started by a
 comment without commands also does this. Each comment must come from a human
 account and must not be edited, and its author's live identity and repository
 access are checked as for the comment that started the run. A caught-up comment
-is recorded as processed only when it changed something or had an `/lgtm` or
-`/approve` rejected, so comments that change nothing cannot fill the command
-history. Processed comment IDs are stored in the policy comment, so a repeated
+is recorded as processed only when it changed something, or when it had an
+`/lgtm` or `/approve` rejected that its author is allowed to give. Comments from
+other commenters that change nothing therefore cannot fill the command history. Processed comment IDs are stored in the policy comment, so a repeated
 delivery changes nothing.
 
 Only comments created in the last 24 hours, by GitHub's comment creation time,
 are caught up, so a first run does not replay old history. Comments older than
 the newest processed command are not applied later, because that would reorder
 them after newer commands. Comments newer than the run's own comment are left to
-their own run. A caught-up `/lgtm` or `/approve` is recorded
-as processed but grants no evidence, because it may have been written before a
-push to the head; the reviewer must comment again. The command summary in the
+their own run. A caught-up `/lgtm` or `/approve` from a reviewer or approver who
+may give it is recorded as processed but grants no evidence, because it may have
+been written before a push to the head; the reviewer must comment again. A
+caught-up `/lgtm` or `/approve` from anyone else, including the pull request
+author, is ignored and not shown. The command summary in the
 policy comment names each such comment ID and asks for a re-issue on the
 current head, for up to 20 comments plus a count of the rest. It also shows the
 line results of the last processed comment, and the job summary lists every
