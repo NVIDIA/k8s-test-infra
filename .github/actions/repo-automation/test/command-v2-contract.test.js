@@ -763,3 +763,77 @@ test("a caught-up comment edited after planning stops all command writes", async
   await assert.rejects(() => run(github), /changed after planning/);
   assertNoWrites(github);
 });
+
+test("a caught-up /lgtm rejection names its comment in the policy comment", async () => {
+  const github = createFakeGitHub(state({
+    issueComments: [command(97, "/approve\n/lgtm", { author: "bob" }), command(98, "/lgtm"), command(99, "/hold")],
+  }));
+
+  const result = await run(github);
+
+  assert.deepEqual(result.rejectedBacklogEvidence, [
+    { commentId: 97, commands: ["approve", "lgtm"], status: "rejected", code: "stale-backlog-evidence" },
+    { commentId: 98, commands: ["lgtm"], status: "rejected", code: "stale-backlog-evidence" },
+  ]);
+  const lines = github.metadataSnapshot().comments[0].body.split("\n");
+  assert.ok(lines.includes("- Comment 97: <code>/approve</code> and <code>/lgtm</code> rejected "
+    + "(<code>stale-backlog-evidence</code>); its own run was skipped, so re-issue them on the current head."));
+  assert.ok(lines.includes("- Comment 98: <code>/lgtm</code> rejected (<code>stale-backlog-evidence</code>); "
+    + "its own run was skipped, so re-issue it on the current head."));
+});
+
+function failedRun() {
+  return {
+    id: 501,
+    headOid: HEAD,
+    status: "completed",
+    conclusion: "failure",
+    workflowPath: ".github/workflows/automation-ci.yml",
+    workflowSourceRef: null,
+    event: "pull_request",
+    prNumber: 42,
+    repository: "nvidia/k8s-test-infra",
+  };
+}
+
+test("several caught-up /retest comments rerun failed jobs at most once", async () => {
+  const github = createFakeGitHub(state({
+    issueComments: [
+      command(97, "/retest", { author: "pr-author" }),
+      command(98, "/retest", { author: "pr-author" }),
+      command(99, "/retest", { author: "pr-author" }),
+    ],
+    workflowRuns: [failedRun()],
+  }));
+
+  const result = await run(github);
+
+  assert.deepEqual(result.processedCommentIds, [97, 98, 99]);
+  assert.deepEqual(github.calls.rerunFailedJobs, [{ runId: 501 }]);
+  assert.deepEqual(result.commands, [{ line: 1, name: "retest", status: "noop", code: "cooldown" }]);
+  assert.equal(persistedState(github).lastRetest.commentId, 97);
+});
+
+test("a caught-up /retest inside the stored cooldown reruns nothing", async () => {
+  const { createEmptyState, serializePolicyState } = require("../src/commands/state.js");
+  const stored = createEmptyState({
+    repository: "nvidia/k8s-test-infra",
+    pullRequest: 42,
+    policyDigest: "a".repeat(64),
+    headOid: HEAD,
+  });
+  stored.processedCommandIds = [90];
+  stored.lastRetest = { commentId: 90, headOid: HEAD, createdAt: "2026-09-17T11:55:00.000Z" };
+  const github = createFakeGitHub(state({
+    issueComments: [command(98, "/retest", { author: "pr-author" }), command(99, "/hold")],
+    workflowRuns: [failedRun()],
+    comments: [{ id: 7, author: "github-actions[bot]", body: `${POLICY_COMMENT_MARKER}\n${serializePolicyState(stored)}\n` }],
+  }));
+
+  const result = await run(github);
+
+  assert.deepEqual(result.processedCommentIds, [98, 99]);
+  assert.deepEqual(github.calls.rerunFailedJobs, []);
+  assert.deepEqual(result.rerunRunIds, []);
+  assert.equal(persistedState(github).lastRetest.commentId, 90);
+});
