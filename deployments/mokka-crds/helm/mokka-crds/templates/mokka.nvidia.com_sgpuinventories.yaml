@@ -56,22 +56,25 @@ spec:
           metadata:
             type: object
           spec:
-            description: SGPUInventorySpec is the desired rack composition.
+            description: Spec describes the desired rack composition.
             properties:
               rackGroups:
                 description: |-
                   RackGroups declares homogeneous sets of racks. One group can expand to
                   many racks; the controller admits at most 64 groups across all Inventories.
+                  RackGroups declares the homogeneous rack groups in the inventory.
                 items:
                   description: RackGroup is a homogeneous group of racks sharing a
                     profile.
                   properties:
                     count:
+                      description: Count is the number of racks to materialize.
                       format: int32
                       maximum: 100000
                       minimum: 1
                       type: integer
                     id:
+                      description: ID is the stable identifier for this rack group.
                       maxLength: 63
                       minLength: 1
                       type: string
@@ -80,10 +83,8 @@ spec:
                         may materialize on.
                       properties:
                         nodeSelector:
-                          description: |-
-                            A label selector is a label query over a set of resources. The result of matchLabels and
-                            matchExpressions are ANDed. An empty label selector matches all objects. A null
-                            label selector matches no objects.
+                          description: NodeSelector limits placement to matching Kubernetes
+                            nodes.
                           properties:
                             matchExpressions:
                               description: matchExpressions is a list of label selector
@@ -130,10 +131,11 @@ spec:
                           x-kubernetes-map-type: atomic
                       type: object
                     profileRef:
-                      description: ProfileReference targets an SGPURackProfile by
-                        name.
+                      description: ProfileRef selects the rack profile used for this
+                        group.
                       properties:
                         name:
+                          description: Name is the SGPURackProfile resource name.
                           minLength: 1
                           type: string
                       required:
@@ -154,19 +156,21 @@ spec:
             - rackGroups
             type: object
           status:
-            description: SGPUInventoryStatus is the Control Plane view of realized
-              capacity and usage.
+            description: Status reports realized capacity and allocation state.
             properties:
               capacity:
-                description: InventoryCapacity is realized rack/node/GPU counts.
+                description: Capacity reports the realized rack, node, and GPU counts.
                 properties:
                   gpus:
+                    description: GPUs is the number of realized GPUs.
                     format: int32
                     type: integer
                   nodes:
+                    description: Nodes is the number of realized logical nodes.
                     format: int32
                     type: integer
                   racks:
+                    description: Racks is the number of realized racks.
                     format: int32
                     type: integer
                 required:
@@ -175,6 +179,8 @@ spec:
                 - racks
                 type: object
               conditions:
+                description: Conditions report inventory acceptance and programming
+                  state.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -234,19 +240,23 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               rackGroups:
+                description: RackGroups is the current per-group status projection.
                 items:
                   description: RackGroupStatus is the per-group Capacity + Usage projection.
                   properties:
                     capacity:
-                      description: InventoryCapacity is realized rack/node/GPU counts.
+                      description: Capacity is the realized capacity for the group.
                       properties:
                         gpus:
+                          description: GPUs is the number of realized GPUs.
                           format: int32
                           type: integer
                         nodes:
+                          description: Nodes is the number of realized logical nodes.
                           format: int32
                           type: integer
                         racks:
+                          description: Racks is the number of realized racks.
                           format: int32
                           type: integer
                       required:
@@ -255,23 +265,32 @@ spec:
                       - racks
                       type: object
                     id:
+                      description: ID identifies the rack group.
                       type: string
                     profileName:
+                      description: ProfileName is the profile used by the group.
                       type: string
                     usage:
-                      description: InventoryUsage is node-level request/allocation
-                        counts.
+                      description: Usage is the current allocation state for the group.
                       properties:
                         allocatedNodes:
+                          description: AllocatedNodes is the number of nodes assigned
+                            to consumers.
                           format: int32
                           type: integer
                         availableNodes:
+                          description: AvailableNodes is the number of currently available
+                            nodes.
                           format: int32
                           type: integer
                         pendingNodes:
+                          description: PendingNodes is the number of requests awaiting
+                            allocation.
                           format: int32
                           type: integer
                         requestedNodes:
+                          description: RequestedNodes is the number of nodes requested
+                            by consumers.
                           format: int32
                           type: integer
                       required:
@@ -295,18 +314,26 @@ spec:
                   IDs.
                 type: string
               usage:
-                description: InventoryUsage is node-level request/allocation counts.
+                description: Usage reports requested, allocated, available, and pending
+                  nodes.
                 properties:
                   allocatedNodes:
+                    description: AllocatedNodes is the number of nodes assigned to
+                      consumers.
                     format: int32
                     type: integer
                   availableNodes:
+                    description: AvailableNodes is the number of currently available
+                      nodes.
                     format: int32
                     type: integer
                   pendingNodes:
+                    description: PendingNodes is the number of requests awaiting allocation.
                     format: int32
                     type: integer
                   requestedNodes:
+                    description: RequestedNodes is the number of nodes requested by
+                      consumers.
                     format: int32
                     type: integer
                 required:
