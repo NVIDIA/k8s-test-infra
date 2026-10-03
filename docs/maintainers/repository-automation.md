@@ -19,6 +19,7 @@ The foundation provides these functions:
 7. Explicit Mokka cherry-pick dispatch for its validated contract.
 8. Conflict labels and metadata label repair for all open pull requests,
    including older requests and requests based on another feature branch.
+9. Labels-only policy evaluation for a merge controller outside this action.
 
 `/backport <branch>` and `/cherry-pick <branch>` are aliases for the generic
 backport command. They create a backport pull request for an allowed
@@ -70,6 +71,9 @@ Activate the functions in this order:
 
 Keep each earlier step active while you validate the next step. Do not enable a
 later write path when an earlier validation fails.
+
+To hand the merge to another controller, follow the cutover in
+[Labels-only policy evaluation](#labels-only-policy-evaluation).
 
 ## Labels for all open pull requests
 
@@ -211,6 +215,37 @@ current base tip or a retargeted base branch was tested. With branch protection
 reviews and checks remain the final merge controls. A source CI gate in this
 action does not make a separately required native CI check redundant.
 
+### Labels-only policy evaluation
+
+The **Merge evaluation** workflow has a second job, `policy-labels`, gated by
+`REPOSITORY_AUTOMATION_POLICY_LABELS_ENABLED`. It runs on the same events as the
+merge job and reads the same review, command, and approver-author authority from
+the trusted default branch. It writes only the `lgtm`, `approved`,
+`do-not-merge/hold`, and `do-not-merge/needs-approval` labels. It does not read
+source CI, branch protection, or merge state, never publishes the merge-policy
+check, and never enables or disables native auto-merge. Its token has
+`actions: read`, `contents: read`, `issues: write`, and `pull-requests: write`,
+and the job has its own concurrency group.
+
+Before it writes, the job reads the policy comment, the labels, and the pull
+request head again. If any of them changed since its evaluation read, it skips
+the write and reports `inputs-changed`; the run that made the change triggers the
+next evaluation. If the evaluation fails, the job writes nothing and the run
+fails. Unlike the merge job, it does not apply a fail-closed label plan, because
+that plan would remove an active `do-not-merge/hold`.
+
+Use this job when another controller merges on these labels:
+
+1. Set `REPOSITORY_AUTOMATION_POLICY_LABELS_ENABLED=true` and confirm that a
+   **Merge evaluation** run applies labels from its `policy-labels` job.
+2. Disable native auto-merge on open pull requests, and replace the required
+   `repository-automation/merge-policy` check in branch protection with the
+   gate of the new controller.
+3. Set `REPOSITORY_AUTOMATION_MERGE_ENABLED=false`.
+
+While both variables are `true`, both jobs write the same labels from separate
+concurrency groups. Keep that overlap short.
+
 ### Automatic approval for approver authors
 
 A PR author who is a verified human approver in trusted base OWNERS implicitly
@@ -236,6 +271,27 @@ scopes. A `/hold` command preserves valid approval and LGTM labels. Commands
 read trusted OWNERS and validated review evidence again before any write;
 changed evidence stops the run. Native reviews remain live evidence and are
 not copied into command state.
+
+### Queued commands
+
+GitHub keeps at most one pending run in a concurrency group, so a newer
+**Commands** or **PR metadata** run for the same pull request cancels a pending
+**Commands** run. Each **Commands** run therefore lists the pull request comments
+and first applies the unprocessed command comments that are older than its own
+comment, in comment ID order, then its own. A run started by a comment without
+commands also does this. Each comment must come from a human account and must not
+be edited, and its author's live identity and repository access are checked as
+for the comment that started the run. Processed comment IDs are stored in the
+policy comment, so a repeated delivery changes nothing.
+
+Comments older than the newest processed command are not applied later, because
+that would reorder them after newer commands. Comments newer than the run's own
+comment are left to their own run. A caught-up `/lgtm` or `/approve` is recorded
+as processed but grants no evidence, because it may have been written before a
+push to the head; the reviewer must comment again. The policy comment summary
+shows the last processed comment, and the job summary lists every processed
+comment ID. A comment whose run was cancelled stays unapplied until the next
+**Commands** run for that pull request.
 
 ### Dispatched label scan reports
 
