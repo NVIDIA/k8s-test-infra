@@ -324,7 +324,9 @@ jobs:
         run: cp tests/e2e/ci/nvml-mock.values.yaml local/nvml-mock.values.local.yaml
 
       - name: Roll out nvml-mock + DRA driver via Tilt (${{ matrix.gpu-profile }})
-        run: tilt ci -- --gpu-profile="${{ matrix.gpu-profile }}" --dra --nvmlmock-image="$E2E_IMAGE"
+        # --nri: the ResourceClaim pod is created with the NRI plugin on, so
+        # the leg checks that NRI gives a claim exactly its allocated GPU.
+        run: tilt ci -- --gpu-profile="${{ matrix.gpu-profile }}" --dra --nri --nvmlmock-image="$E2E_IMAGE"
 
       - name: Configure the DGXC Go proxy
         uses: ./.github/actions/setup-dgxc-goproxy
@@ -336,6 +338,7 @@ jobs:
 
       - name: Run DRA E2E (${{ matrix.gpu-profile }})
         env:
+          E2E_EXPECT_NRI: "true"
           E2E_PROFILES: ${{ matrix.gpu-profile }}
           E2E_KUBE_CONTEXT: kind-mokka
           E2E_CLUSTER_NAME: mokka

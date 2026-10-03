@@ -107,6 +107,11 @@ func ArtifactsDir() string { return env("E2E_ARTIFACTS", defaultArtifacts) }
 // (default skipped). Set when an NGC pull secret/credentials are available.
 func RunNGCSpecs() bool { return envBool("E2E_RUN_NGC") }
 
+// ExpectNRI reports whether the cluster is meant to run the nvml-mock NRI
+// plugin. NRI-only specs skip when the plugin is absent; with this set they fail
+// instead, so a CI job that stops enabling NRI cannot go green on skips.
+func ExpectNRI() bool { return envBool("E2E_EXPECT_NRI") }
+
 // Timeouts (overridable; conservative defaults matching the bash waits).
 
 // ClusterTimeout bounds the Kind cluster-create/attach wait.
