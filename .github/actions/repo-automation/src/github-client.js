@@ -107,13 +107,6 @@ function commitOid(value, name) {
   return value.toLowerCase();
 }
 
-function commitMessage(value) {
-  if (typeof value !== "string" || value.trim() === "" || value.includes("\0")) {
-    throw new TypeError("invalid Mokka commit message");
-  }
-  return value;
-}
-
 function repositoryPath(value) {
   nonEmptyString(value, "content path");
   const withoutSlash = value.startsWith("/") ? value.slice(1) : value;
@@ -281,23 +274,6 @@ function evaluatorWorkflowIdentity(value) {
   return EVALUATOR_WORKFLOW_PATHS.has(workflowPath) && workflowSourceRef !== null
     ? { workflowPath, workflowSourceRef }
     : null;
-}
-
-function mappedMokkaPullRequest(pullRequest) {
-  if (typeof pullRequest?.draft !== "boolean") {
-    throw new TypeError("Mokka pull request draft state must be a boolean");
-  }
-  return {
-    number: positiveInteger(pullRequest?.number, "Mokka PR number"),
-    url: nonEmptyString(pullRequest?.html_url, "Mokka PR URL"),
-    state: nonEmptyString(pullRequest?.state, "Mokka PR state").toLowerCase(),
-    draft: pullRequest.draft,
-    base: nonEmptyString(pullRequest?.base?.ref, "Mokka PR base branch"),
-    head: nonEmptyString(pullRequest?.head?.ref, "Mokka PR head branch"),
-    headOid: nonEmptyString(pullRequest?.head?.sha, "Mokka PR head OID").toLowerCase(),
-    title: nonEmptyString(pullRequest?.title, "Mokka PR title"),
-    body: typeof pullRequest?.body === "string" ? pullRequest.body : "",
-  };
 }
 
 function headersFor(error) {
@@ -629,93 +605,7 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
         pullRequest.headBranch = optionalHeadBranch(data.head.ref, "live PR head branch");
       }
       if (typeof data.merged === "boolean") pullRequest.merged = data.merged;
-      if (data.merge_commit_sha === null) {
-        pullRequest.mergeCommitOid = null;
-      } else if (data.merge_commit_sha !== undefined) {
-        pullRequest.mergeCommitOid = nonEmptyString(
-          data.merge_commit_sha,
-          "live PR merge commit OID",
-        ).toLowerCase();
-      }
       return pullRequest;
-    },
-
-    async getCommit(sha) {
-      const requestedSha = nonEmptyString(sha, "commit OID").toLowerCase();
-      const response = await call("getCommit", () => octokit.rest.repos.getCommit({
-        owner, repo, ref: requestedSha,
-      }), true);
-      if (!Array.isArray(response.data?.parents)) {
-        throw new TypeError("commit parents must be an array");
-      }
-      return {
-        sha: nonEmptyString(response.data?.sha, "commit OID").toLowerCase(),
-        parents: response.data.parents.map((parent) => (
-          nonEmptyString(parent?.sha, "commit parent OID").toLowerCase()
-        )),
-      };
-    },
-
-    async createMokkaCommit(commit) {
-      if (commit === null || typeof commit !== "object" || Array.isArray(commit)) {
-        throw new TypeError("Mokka commit must be an object");
-      }
-      const requested = {
-        message: commitMessage(commit.message),
-        tree: nonEmptyString(commit.tree, "Mokka tree OID"),
-        parents: commit.parents,
-      };
-      if (!Array.isArray(requested.parents) || requested.parents.length !== 1) {
-        throw new TypeError("Mokka commit must have one parent");
-      }
-      nonEmptyString(requested.parents[0], "Mokka parent OID");
-      const response = await call("createMokkaCommit", () => octokit.rest.git.createCommit({
-        owner, repo, ...requested,
-      }), false);
-      if (!Array.isArray(response.data?.parents)) throw new TypeError("Mokka commit parents are invalid");
-      return {
-        sha: nonEmptyString(response.data.sha, "Mokka created commit OID").toLowerCase(),
-        message: commitMessage(response.data.message),
-        tree: nonEmptyString(response.data.tree?.sha, "Mokka created tree OID").toLowerCase(),
-        parents: response.data.parents.map((parent) => nonEmptyString(parent?.sha, "Mokka created parent OID").toLowerCase()),
-        verification: {
-          verified: response.data.verification?.verified === true,
-          hasSignature: typeof response.data.verification?.signature === "string"
-            && response.data.verification.signature.length > 0,
-        },
-      };
-    },
-
-    async getMokkaCommit(sha) {
-      const requestedSha = nonEmptyString(sha, "Mokka commit OID").toLowerCase();
-      const response = await call("getMokkaCommit", () => octokit.rest.git.getCommit({
-        owner, repo, commit_sha: requestedSha,
-      }), true);
-      if (!Array.isArray(response.data?.parents)) throw new TypeError("Mokka commit parents are invalid");
-      return {
-        sha: nonEmptyString(response.data.sha, "Mokka commit OID").toLowerCase(),
-        message: commitMessage(response.data.message),
-        tree: nonEmptyString(response.data.tree?.sha, "Mokka tree OID").toLowerCase(),
-        parents: response.data.parents.map((parent) => nonEmptyString(parent?.sha, "Mokka commit parent OID").toLowerCase()),
-        verification: {
-          verified: response.data.verification?.verified === true,
-          hasSignature: typeof response.data.verification?.signature === "string"
-            && response.data.verification.signature.length > 0,
-        },
-      };
-    },
-
-    async createMokkaRef(branch, sha) {
-      nonEmptyString(branch, "Mokka branch");
-      nonEmptyString(sha, "Mokka commit OID");
-      const ref = `refs/heads/${branch}`;
-      const response = await call("createMokkaRef", () => octokit.rest.git.createRef({
-        owner, repo, ref, sha,
-      }), false);
-      if (response.data?.ref !== ref || response.data?.object?.sha !== sha) {
-        throw new Error("created Mokka ref response does not match the request");
-      }
-      return { name: branch, oid: sha };
     },
 
     async listPullRequestFiles(prNumber) {
@@ -1135,49 +1025,6 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
         if (error.status === 404) return null;
         throw error;
       }
-    },
-
-    async findMokkaPullRequests(head, base) {
-      nonEmptyString(head, "Mokka head branch");
-      const query = {
-        owner,
-        repo,
-        state: "all",
-        head: `${owner}:${head}`,
-      };
-      if (base !== undefined) query.base = nonEmptyString(base, "Mokka base branch");
-      const pullRequests = await paginate("findMokkaPullRequests", octokit.rest.pulls.list, query);
-      return pullRequests.map(mappedMokkaPullRequest);
-    },
-
-    async createMokkaPullRequest(pullRequest) {
-      if (pullRequest === null || typeof pullRequest !== "object" || Array.isArray(pullRequest)) {
-        throw new TypeError("Mokka pull request must be an object");
-      }
-      const requested = {
-        base: nonEmptyString(pullRequest.base, "Mokka base branch"),
-        head: nonEmptyString(pullRequest.head, "Mokka head branch"),
-        title: nonEmptyString(pullRequest.title, "Mokka PR title"),
-        body: nonEmptyString(pullRequest.body, "Mokka PR body"),
-        draft: pullRequest.draft,
-      };
-      if (requested.draft !== true) throw new TypeError("Mokka pull request must be a draft");
-      const response = await call("createMokkaPullRequest", () => octokit.rest.pulls.create({
-        owner, repo, ...requested,
-      }), false);
-      return mappedMokkaPullRequest(response.data);
-    },
-
-    async updateMokkaPullRequestBody(prNumber, body) {
-      positiveInteger(prNumber, "Mokka PR number");
-      nonEmptyString(body, "Mokka PR body");
-      const response = await call("updateMokkaPullRequestBody", () => octokit.rest.pulls.update({
-        owner, repo, pull_number: prNumber, body,
-      }), false);
-      if (
-        positiveInteger(response.data?.number, "updated Mokka PR number") !== prNumber
-        || response.data?.body !== body
-      ) throw new Error("updated Mokka pull request response does not match the request");
     },
 
     async setMergePolicyCheck(prNumber, headOid, conclusion, summary) {

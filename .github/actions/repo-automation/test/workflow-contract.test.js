@@ -2,9 +2,7 @@
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
-const os = require("node:os");
 const path = require("node:path");
-const { spawnSync } = require("node:child_process");
 const test = require("node:test");
 
 const YAML = require("yaml");
@@ -37,15 +35,7 @@ const activationGates = {
     "${{ vars.REPOSITORY_AUTOMATION_MERGE_ENABLED == 'true' && (github.event_name != 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch) }}",
   policyLabels:
     "${{ vars.REPOSITORY_AUTOMATION_POLICY_LABELS_ENABLED == 'true' && (github.event_name != 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch) }}",
-  mokka:
-    "${{ vars.REPOSITORY_AUTOMATION_MOKKA_ENABLED == 'true' && github.ref == 'refs/heads/main' && github.sha == inputs.workflow_commit_sha }}",
 };
-
-const reviewedAutomationFiles = [
-  ".github/workflows/mokka-cherry-pick.yml",
-  ".github/actions/repo-automation/action.yml",
-  ".github/actions/repo-automation/dist/index.js",
-];
 
 function readWorkflow(name) {
   const source = fs.readFileSync(path.join(workflowRoot, name), "utf8");
@@ -192,110 +182,4 @@ test("no workflow queues behind the old repository-wide automation group", () =>
   const sharing = fs.readdirSync(workflowRoot)
     .filter((name) => readWorkflow(name).source.includes("repository-automation-state"));
   assert.deepEqual(sharing, []);
-});
-
-test("Mokka dispatch checks reviewed automation before it checks out the target", () => {
-  const workflow = readWorkflow("mokka-cherry-pick.yml").workflow;
-  assert.deepEqual(Object.keys(workflow.on), ["workflow_dispatch"]);
-  const inputs = workflow.on.workflow_dispatch.inputs;
-  assert.deepEqual(Object.keys(inputs).sort(), [
-    "action_id", "pull_request_number", "source_sha", "target_branch", "workflow_commit_sha",
-  ]);
-  for (const input of Object.values(inputs)) {
-    assert.equal(input.required, true);
-    assert.equal(input.type, "string");
-  }
-  const job = workflow.jobs["cherry-pick"];
-  assert.equal(job.if, activationGates.mokka);
-  assert.deepEqual(job.steps.map((step) => step.name), [
-    "Validate reviewed automation ref",
-    "Check out trusted automation",
-    "Check out reviewed automation",
-    "Verify reviewed automation",
-    "Check out validated target",
-    "Cherry-pick merged source pull request",
-  ]);
-  const validateRef = job.steps[0];
-  assert.equal(validateRef.shell, "bash");
-  assert.deepEqual(validateRef.env, {
-    REVIEWED_SHA: "${{ vars.REPOSITORY_AUTOMATION_MOKKA_REVIEWED_SHA }}",
-  });
-  assert.match(validateRef.run, /\^\[0-9a-f\]\{40\}\$/);
-  const trustedCheckout = job.steps.find((candidate) => candidate.name === "Check out trusted automation");
-  assert.ok(trustedCheckout, "trusted default-branch automation checkout is required");
-  assert.equal(trustedCheckout.uses, checkout);
-  assert.deepEqual(trustedCheckout.with, {
-    ref: "${{ github.sha }}",
-    path: "control",
-    "persist-credentials": false,
-    "fetch-depth": 1,
-    submodules: false,
-    lfs: false,
-  });
-  const reviewedCheckout = job.steps[2];
-  assert.equal(reviewedCheckout.uses, checkout);
-  assert.deepEqual(reviewedCheckout.with, {
-    ref: "${{ vars.REPOSITORY_AUTOMATION_MOKKA_REVIEWED_SHA }}",
-    path: "reviewed",
-    "persist-credentials": false,
-    "fetch-depth": 1,
-    submodules: false,
-    lfs: false,
-  });
-  assert.equal(job.steps[3].shell, "bash");
-  assert.equal(job.steps.some((candidate) => candidate.id === "trusted"), false);
-  assert.deepEqual(actionStep(job, "mokka-cherry-pick").with, {
-    mode: "mokka-cherry-pick",
-    pull_request_number: "${{ inputs.pull_request_number }}",
-    source_sha: "${{ inputs.source_sha }}",
-    "target-branch": "${{ inputs.target_branch }}",
-    action_id: "${{ inputs.action_id }}",
-    "working-directory": "target",
-    "dry-run": "false",
-  });
-});
-
-test("Mokka accepts a later main commit only when reviewed automation bytes match", (t) => {
-  const workflow = readWorkflow("mokka-cherry-pick.yml").workflow;
-  const verify = workflow.jobs["cherry-pick"].steps.find(
-    (step) => step.name === "Verify reviewed automation",
-  );
-  assert.ok(verify);
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "mokka-reviewed-automation-"));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  for (const file of reviewedAutomationFiles) {
-    for (const checkoutPath of ["control", "reviewed"]) {
-      const filename = path.join(root, checkoutPath, file);
-      fs.mkdirSync(path.dirname(filename), { recursive: true });
-      fs.writeFileSync(filename, `approved ${file}\n`);
-    }
-  }
-  fs.writeFileSync(path.join(root, "control", "README.md"), "a later main commit\n");
-  const execute = () => spawnSync("bash", ["-c", verify.run], { cwd: root, encoding: "utf8" });
-  assert.equal(execute().status, 0, "an unrelated main change must not block dispatch");
-  for (const file of reviewedAutomationFiles) {
-    const filename = path.join(root, "control", file);
-    fs.writeFileSync(filename, `changed ${file}\n`);
-    const result = execute();
-    assert.notEqual(result.status, 0, `${file}: changed automation must block dispatch`);
-    fs.writeFileSync(filename, `approved ${file}\n`);
-  }
-  fs.rmSync(path.join(root, "reviewed", reviewedAutomationFiles[0]));
-  assert.notEqual(execute().status, 0, "missing reviewed automation must block dispatch");
-});
-
-test("Mokka rejects malformed reviewed SHAs before checkout", () => {
-  const workflow = readWorkflow("mokka-cherry-pick.yml").workflow;
-  const validate = workflow.jobs["cherry-pick"].steps.find(
-    (step) => step.name === "Validate reviewed automation ref",
-  );
-  assert.ok(validate);
-  const execute = (sha) => spawnSync("bash", ["-c", validate.run], {
-    env: { ...process.env, REVIEWED_SHA: sha },
-    encoding: "utf8",
-  });
-  assert.equal(execute("a".repeat(40)).status, 0);
-  for (const sha of ["", "a".repeat(39), "A".repeat(40), "a".repeat(39) + "!", "$(echo bad)"]) {
-    assert.notEqual(execute(sha).status, 0, `${sha}: malformed SHA must block dispatch`);
-  }
 });

@@ -426,12 +426,13 @@ test("repository automation CI contains every Task 1 gate", () => {
     "npm audit --audit-level=high",
     "npm run package",
     "git diff --exit-code -- dist",
-    "go test ./tests/hack -run TestMokkaCherryPick -count=1",
+    "node --test .github/scripts/cherrypick/",
     "make actionlint",
   ]) {
     assert.equal(makefile.includes(command), true, `Make target must run ${command}`);
   }
   assert.match(makefile, /\.PHONY:\s+repository-automation-ci/);
+  assert.doesNotMatch(makefile, /TestMokkaCherryPick/);
   assert.doesNotMatch(workflow, /run:\s+npm (?:ci|test|run)/);
   assert.doesNotMatch(workflow, /SPDX-License-Identifier/);
   assert.doesNotMatch(workflow, /uses:\s+[^\s]+@(?![0-9a-f]{40}(?:\s|$))/);
