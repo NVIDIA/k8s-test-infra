@@ -15,7 +15,8 @@
 # Adapted from NVIDIA/nvidia-container-toolkit .github/workflows/cherrypick.yml.
 # The comment and label triggers are replaced by workflow_dispatch: the Mokka
 # agent decides when a merged pull request is cherry-picked and dispatches this
-# workflow from main.
+# workflow from main. Like every write job here, it runs only after
+# REPOSITORY_AUTOMATION_CHERRY_PICK_ENABLED is set to true.
 
 name: Cherry-Pick
 run-name: Cherry-pick PR ${{ inputs.pr_number }} to ${{ inputs.target_branches }}
@@ -37,15 +38,17 @@ permissions: {}
 jobs:
   backport:
     name: Backport PR
-    if: ${{ github.ref == 'refs/heads/main' }}
+    if: ${{ vars.REPOSITORY_AUTOMATION_CHERRY_PICK_ENABLED == 'true' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: write
       pull-requests: write
       issues: write
+    # One pending run per group: keying on the pull request alone would cancel a
+    # pending dispatch for another branch set.
     concurrency:
-      group: cherry-pick-${{ inputs.pr_number }}
+      group: cherry-pick-${{ inputs.pr_number }}-${{ inputs.target_branches }}
       cancel-in-progress: false
     steps:
       - name: Check out main
