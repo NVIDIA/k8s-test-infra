@@ -304,8 +304,9 @@ account and must not be edited, and its author's live identity and repository
 access are checked as for the comment that started the run. A caught-up comment
 is recorded as processed only when it changed something, or when it had an
 `/lgtm` or `/approve` rejected that its author is allowed to give. Comments from
-other commenters that change nothing therefore cannot fill the command history. Processed comment IDs are stored in the policy comment, so a repeated
-delivery changes nothing.
+other commenters that change nothing therefore cannot fill the command history.
+Processed comment IDs are stored in the policy comment, so a repeated delivery
+changes nothing.
 
 Only comments created in the last 24 hours, by GitHub's comment creation time,
 are caught up, so a first run does not replay old history. Comments older than
