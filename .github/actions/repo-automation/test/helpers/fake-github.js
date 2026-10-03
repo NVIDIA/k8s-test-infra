@@ -34,7 +34,6 @@ function createFakeGitHub(initialState = []) {
   const evaluationWorkflowRuns = clone(options.evaluationWorkflowRuns ?? []);
   const mergeStates = clone(options.mergeStates ?? []);
   const branches = clone(options.branches ?? {});
-  const backportPullRequests = clone(options.backportPullRequests ?? []);
   const mokkaPullRequests = clone(options.mokkaPullRequests ?? []);
   const commits = clone(options.commitsBySha ?? {});
   const automationLogin = options.automationLogin ?? "github-actions[bot]";
@@ -85,8 +84,6 @@ function createFakeGitHub(initialState = []) {
     findMokkaPullRequests: [],
     createMokkaPullRequest: [],
     updateMokkaPullRequestBody: [],
-    findOpenBackportPullRequest: [],
-    createBackportPullRequest: [],
     setMergePolicyCheck: [],
     enableAutoMerge: [],
     disableAutoMerge: [],
@@ -365,29 +362,6 @@ function createFakeGitHub(initialState = []) {
       const pullRequest = mokkaPullRequests.find((candidate) => candidate.number === prNumber);
       if (pullRequest === undefined) throw new Error(`missing Mokka pull request: ${prNumber}`);
       pullRequest.body = body;
-    },
-
-    async findOpenBackportPullRequest(head, base) {
-      record("findOpenBackportPullRequest", { head, base });
-      const matches = backportPullRequests.filter((pullRequest) => (
-        pullRequest.state === "open"
-        && pullRequest.head === head
-        && pullRequest.base === base
-      ));
-      if (matches.length > 1) throw new Error("duplicate open backport pull requests");
-      return clone(matches[0] ?? null);
-    },
-
-    async createBackportPullRequest(pullRequest) {
-      record("createBackportPullRequest", pullRequest);
-      const created = {
-        ...clone(pullRequest),
-        number: 1000 + backportPullRequests.length,
-        url: `https://github.com/NVIDIA/k8s-test-infra/pull/${1000 + backportPullRequests.length}`,
-        state: "open",
-      };
-      backportPullRequests.push(created);
-      return clone(created);
     },
 
     async setMergePolicyCheck(prNumber, headOid, conclusion, summary) {

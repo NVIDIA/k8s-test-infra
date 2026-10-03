@@ -33,8 +33,6 @@ jobs:
     concurrency:
       group: repository-automation-pr-${{ github.event.issue.number }}
       cancel-in-progress: false
-    outputs:
-      backport-requests: ${{ steps.command.outputs.backport-requests }}
     steps:
       - name: Resolve trusted default branch
         id: trusted
@@ -71,18 +69,3 @@ jobs:
           mode: command
           control-directory: control
           dry-run: "false"
-
-  backport:
-    needs: command
-    if: ${{ vars.REPOSITORY_AUTOMATION_BACKPORT_ENABLED == 'true' && needs.command.outputs.backport-requests != '[]' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        request: ${{ fromJSON(needs.command.outputs.backport-requests) }}
-    permissions:
-      contents: write
-      pull-requests: write
-    uses: ./.github/workflows/backport.yml
-    with:
-      pr-number: ${{ matrix.request.prNumber }}
-      target-branch: ${{ matrix.request.targetBranch }}

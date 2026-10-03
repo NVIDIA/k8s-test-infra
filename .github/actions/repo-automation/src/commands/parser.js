@@ -51,7 +51,7 @@ function parseCommandLine(raw, line) {
   }
 
   return {
-    command: { name, targetBranch: null, line, raw },
+    command: { name, line, raw },
     diagnostic: null,
   };
 }

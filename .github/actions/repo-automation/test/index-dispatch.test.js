@@ -60,10 +60,7 @@ test("index dispatches command mode without treating event text as authority", a
 
   assert.deepEqual(result, { status: "ignored", reason: "not-pull-request" });
   assert.deepEqual(githubClient.calls.getIssueComment, []);
-  assert.deepEqual(core.outputs, [
-    { name: "backport-requests", value: "[]" },
-    { name: "summary", value: JSON.stringify(result) },
-  ]);
+  assert.deepEqual(core.outputs, [{ name: "summary", value: JSON.stringify(result) }]);
 });
 
 test("index passes the trusted policy revision to real merge evaluation", async () => {
@@ -115,120 +112,15 @@ for (const [name, revision] of [
   });
 }
 
-test("index passes explicit pull request and target inputs to backport mode", async () => {
-  const { run } = require("../src/index.js");
-  const core = coreFor({
-    mode: "backport",
-    "pr-number": "42",
-    "target-branch": "release-1.2",
-    "working-directory": "target",
-  });
-  const mergeOid = "2".repeat(40);
-  const githubClient = createFakeGitHub({
-    pullRequests: [{
-      number: 42,
-      nodeId: "PR_node_42",
-      title: "feat: add gpu probe",
-      body: "",
-      draft: false,
-      author: "orig-author",
-      headOid: "7".repeat(40),
-      state: "closed",
-      merged: true,
-      mergeCommitOid: mergeOid,
-      baseBranch: "main",
-      baseRepository: { owner: "nvidia", repo: "k8s-test-infra" },
-    }],
-    branches: { "release-1.2": "1".repeat(40) },
-  });
-  const gitCalls = [];
-  const result = await run({
-    core,
-    workspace: repositoryRoot,
-    githubClient,
-    owner: "NVIDIA",
-    repo: "k8s-test-infra",
-    git: async (args, options) => {
-      gitCalls.push({ args, options });
-      return { stdout: "", stderr: "" };
-    },
-  });
-
-  assert.deepEqual(result, {
-    status: "planned",
-    outcome: "create",
-    sourcePullRequest: 42,
-    sourceCommit: mergeOid,
-    targetBranch: "release-1.2",
-    backportBranch: "backport/42-to-release-1.2-61744f7f6745",
-  });
-  assert.deepEqual(githubClient.calls.getPullRequest, [{ prNumber: 42 }]);
-  assert.deepEqual(core.outputs, [{ name: "summary", value: JSON.stringify(result) }]);
-  assert.equal(gitCalls.length, 0, "dry-run must not invoke Git");
-});
-
-test("index dispatches generic backport Git only in the fixed target checkout", async () => {
-  const { run } = require("../src/index.js");
-  const core = coreFor({
-    mode: "backport",
-    "pr-number": "42",
-    "target-branch": "release-1.2",
-    "working-directory": "target",
-    "dry-run": "false",
-  });
-  const mergeOid = "2".repeat(40);
-  const targetOid = "1".repeat(40);
-  const producedOid = "4".repeat(40);
-  const githubClient = createFakeGitHub({
-    pullRequest: {
-      number: 42,
-      nodeId: "PR_node_42",
-      title: "feat: add gpu probe",
-      body: "",
-      draft: false,
-      author: "orig-author",
-      headOid: "7".repeat(40),
-      state: "closed",
-      merged: true,
-      mergeCommitOid: mergeOid,
-      baseBranch: "main",
-      baseRepository: { owner: "nvidia", repo: "k8s-test-infra" },
-    },
-    branches: { "release-1.2": targetOid },
-  });
-  const gitCalls = [];
-  const git = async (args, options) => {
-    gitCalls.push({ args: [...args], options: { ...options } });
-    if (args[0] === "rev-list") {
-      return { stdout: `${mergeOid} ${"3".repeat(40)}\n`, stderr: "" };
-    }
-    if (args[0] === "rev-parse") {
-      return { stdout: `${producedOid}\n`, stderr: "" };
-    }
-    if (args[0] === "push") githubClient.setBranch("backport/42-to-release-1.2-61744f7f6745", producedOid);
-    return { stdout: "", stderr: "" };
-  };
-
-  await run({
-    core,
-    workspace: repositoryRoot,
-    githubClient,
-    git,
-    owner: "NVIDIA",
-    repo: "k8s-test-infra",
-  });
-
-  assert.ok(gitCalls.length > 0);
-  assert.equal(gitCalls.every(({ options }) => options.cwd === path.join(repositoryRoot, "target")), true);
-});
-
 test("index accepts only the approved v0.11 mode set", async () => {
   const { run } = require("../src/index.js");
-  const core = coreFor({ mode: "release" });
-  await assert.rejects(
-    () => run({ core, workspace: repositoryRoot, githubClient: createFakeGitHub() }),
-    /Unsupported mode: release/,
-  );
+  for (const mode of ["release", "backport"]) {
+    const core = coreFor({ mode });
+    await assert.rejects(
+      () => run({ core, workspace: repositoryRoot, githubClient: createFakeGitHub() }),
+      { message: `Unsupported mode: ${mode}` },
+    );
+  }
 });
 
 test("index rejects a control checkout path that is not the fixed trusted directory", async () => {

@@ -15,7 +15,6 @@ const mokkaActivationGate =
   "${{ vars.REPOSITORY_AUTOMATION_MOKKA_ENABLED == 'true' && github.ref == 'refs/heads/main' && github.sha == inputs.workflow_commit_sha }}";
 const managed = [
   "automation-ci.yml",
-  "backport.yml",
   "commands.yml",
   "label-sync.yml",
   "merge-evaluate.yml",
@@ -53,7 +52,7 @@ test("foundation workflows have explicit permissions and immutable actions", () 
 
 test("privileged foundation workflows never execute pull-request code", () => {
   for (const name of [
-    "backport.yml", "commands.yml", "label-sync.yml", "merge-evaluate.yml",
+    "commands.yml", "label-sync.yml", "merge-evaluate.yml",
     "mokka-cherry-pick.yml", "pr-metadata.yml",
   ]) {
     const { source, workflow } = read(name);

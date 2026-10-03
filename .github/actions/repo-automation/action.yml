@@ -45,8 +45,6 @@ inputs:
     required: false
     default: "true"
 outputs:
-  backport-requests:
-    description: Bounded JSON array of validated generic backport requests
   summary:
     description: JSON summary of the idempotent operation
 runs:

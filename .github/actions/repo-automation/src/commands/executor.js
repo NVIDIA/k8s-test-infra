@@ -16,7 +16,6 @@ const POLICY_LABELS = [
   "do-not-merge/hold",
   "do-not-merge/needs-approval",
 ];
-const SAFE_BRANCH = /^(?!-)(?!.*(?:\.\.|@\{|\/\/|\\|[\x00-\x20\x7f~^:?*\[]))[A-Za-z0-9][A-Za-z0-9._\/-]{0,254}$/;
 
 function orderedItems(parsed) {
   return [
@@ -43,23 +42,7 @@ function emptyMutations() {
     addLabels: [],
     removeLabels: [],
     rerunRunIds: [],
-    backportRequests: [],
   };
-}
-
-function matchesBranchPattern(branch, pattern) {
-  if (typeof pattern !== "string" || pattern === "") return false;
-  const wildcard = pattern.endsWith("*");
-  const prefix = wildcard ? pattern.slice(0, -1) : pattern;
-  if (prefix === "" || prefix.includes("*") || !SAFE_BRANCH.test(prefix)) return false;
-  return wildcard ? branch.startsWith(prefix) : branch === prefix;
-}
-
-function allowedBackportBranch(branch, patterns) {
-  return Array.isArray(patterns)
-    && patterns.length > 0
-    && patterns.length <= 64
-    && patterns.some((pattern) => matchesBranchPattern(branch, pattern));
 }
 
 function evidence(context, authorization, sourceId, now) {
@@ -216,20 +199,7 @@ function planCommandExecution(input) {
         retest.rerunRunIds.length > 0 ? "applied" : "noop",
         retest.rerunRunIds.length > 0 ? "retest-planned" : retest.reason,
       ));
-      continue;
     }
-
-    if (!allowedBackportBranch(command.targetBranch, input.allowedBackportBranches)) {
-      commands.push(commandResult(command, "rejected", "target-branch-not-allowed"));
-      continue;
-    }
-    mutations.backportRequests.push({
-      command: command.name,
-      prNumber: input.context.pullRequest,
-      targetBranch: command.targetBranch,
-      sourceCommentId: input.commentId,
-    });
-    commands.push(commandResult(command, "applied", "backport-planned"));
   }
 
   const processedState = appendProcessedCommand(state, input.commentId, input.historyLimit);

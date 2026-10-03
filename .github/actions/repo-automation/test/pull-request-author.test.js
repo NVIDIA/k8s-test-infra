@@ -5,14 +5,11 @@ const path = require("node:path");
 const test = require("node:test");
 
 const { loadConfig } = require("../src/config.js");
-const { runBackport } = require("../src/modes/backport.js");
 const { runCommand } = require("../src/modes/command.js");
 const { createFakeGitHub } = require("./helpers/fake-github.js");
 
 const repositoryRoot = path.resolve(__dirname, "../../../..");
 const HEAD = "6".repeat(40);
-const MERGE_OID = "2".repeat(40);
-const TARGET_BRANCH = "release-1.2";
 const BOT_AUTHORS = ["dependabot[bot]", "renovate[bot]"];
 const UNSAFE_AUTHORS = ["dependabot\u200b[bot]", "bad--login[bot]", "[bot]", "alice\n"];
 
@@ -68,57 +65,6 @@ function command(github, commentId) {
   });
 }
 
-function mergedPullRequest(author) {
-  return {
-    number: 42,
-    nodeId: "PR_node_42",
-    title: "chore(deps): bump yaml",
-    body: "",
-    draft: false,
-    author,
-    headOid: "7".repeat(40),
-    state: "closed",
-    merged: true,
-    mergeCommitOid: MERGE_OID,
-    baseBranch: "main",
-    baseRepository: { owner: "nvidia", repo: "k8s-test-infra" },
-  };
-}
-
-async function git(args) {
-  const command = args.join(" ");
-  if (command === `rev-list --parents --max-count=1 ${MERGE_OID}`) {
-    return { stdout: `${MERGE_OID} ${"3".repeat(40)}\n`, stderr: "" };
-  }
-  if (command === "rev-parse HEAD") return { stdout: `${"4".repeat(40)}\n`, stderr: "" };
-  if (args[0] === "merge-base") {
-    const error = new Error("not ancestor");
-    error.exitCode = 1;
-    throw error;
-  }
-  return { stdout: "", stderr: "" };
-}
-
-function backport(author) {
-  const github = createFakeGitHub({
-    pullRequests: [mergedPullRequest(author), mergedPullRequest(author)],
-    branches: { [TARGET_BRANCH]: "1".repeat(40) },
-    backportPullRequests: [],
-  });
-  return {
-    github,
-    run: () => runBackport({
-      github,
-      git,
-      config: loadConfig(repositoryRoot),
-      dryRun: false,
-      prNumber: "42",
-      targetBranch: TARGET_BRANCH,
-      repository: "nvidia/k8s-test-infra",
-    }),
-  };
-}
-
 test("pull request author context accepts human and app bot logins only", () => {
   const { validAuthorContext } = require("../src/pull-request-author.js");
   for (const login of ["alice", "Pr-Author", "a".repeat(39), ...BOT_AUTHORS, "Dependabot[bot]"]) {
@@ -145,29 +91,14 @@ for (const author of BOT_AUTHORS) {
       "do-not-merge/hold", "do-not-merge/needs-approval", "lgtm",
     ]);
   });
-
-  test(`backport accepts a merged pull request authored by ${author}`, async () => {
-    const { github, run } = backport(author);
-
-    const result = await run();
-
-    assert.equal(result.status, "complete");
-    assert.equal(result.outcome, "created");
-    assert.equal(github.calls.createBackportPullRequest.length, 1);
-    assert.match(github.calls.createBackportPullRequest[0].body, new RegExp(`Original author: @${author.replace(/[[\]]/g, "\\$&")}\n`));
-  });
 }
 
 for (const author of UNSAFE_AUTHORS) {
-  test(`commands and backports reject the unsafe author ${JSON.stringify(author)}`, async () => {
+  test(`commands reject the unsafe author ${JSON.stringify(author)}`, async () => {
     const github = createFakeGitHub(commandState(author));
     await assert.rejects(() => command(github, 9001), {
       message: "live pull request state or base repository is invalid",
     });
     assert.deepEqual(github.calls.addPolicyLabel, []);
-
-    const source = backport(author);
-    await assert.rejects(source.run, { message: "source pull request state is invalid" });
-    assert.deepEqual(source.github.calls.createBackportPullRequest, []);
   });
 }

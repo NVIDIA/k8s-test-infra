@@ -32,14 +32,11 @@ const activationGates = {
     "${{ vars.REPOSITORY_AUTOMATION_METADATA_ENABLED == 'true' && (github.event_name != 'workflow_dispatch' || (github.repository == 'NVIDIA/k8s-test-infra' && github.repository_id == '733665780' && github.ref == 'refs/heads/main' && github.sha == inputs.workflow_commit_sha && github.workflow_sha == inputs.workflow_commit_sha)) }}",
   commands:
     "${{ vars.REPOSITORY_AUTOMATION_COMMANDS_ENABLED == 'true' && github.event.issue.pull_request != null && github.event.action == 'created' && github.event.comment.user.type == 'User' && contains(github.event.comment.body, '/') }}",
-  backport:
-    "${{ vars.REPOSITORY_AUTOMATION_BACKPORT_ENABLED == 'true' && needs.command.outputs.backport-requests != '[]' }}",
   reviews: "${{ vars.REPOSITORY_AUTOMATION_REVIEWS_ENABLED == 'true' }}",
   merge:
     "${{ vars.REPOSITORY_AUTOMATION_MERGE_ENABLED == 'true' && (github.event_name != 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch) }}",
   policyLabels:
     "${{ vars.REPOSITORY_AUTOMATION_POLICY_LABELS_ENABLED == 'true' && (github.event_name != 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch) }}",
-  reusableBackport: "${{ vars.REPOSITORY_AUTOMATION_BACKPORT_ENABLED == 'true' }}",
   mokka:
     "${{ vars.REPOSITORY_AUTOMATION_MOKKA_ENABLED == 'true' && github.ref == 'refs/heads/main' && github.sha == inputs.workflow_commit_sha }}",
 };
@@ -128,11 +125,9 @@ test("metadata and command workflows use exact trusted code", () => {
   assert.deepEqual(commands.jobs.command.concurrency, concurrency.commands);
   assertTrustedCheckout(commands.jobs.command);
   assert.equal(actionStep(commands.jobs.command, "command").with["control-directory"], "control");
-  assert.equal(commands.jobs.command.outputs["backport-requests"], "${{ steps.command.outputs.backport-requests }}");
-  assert.deepEqual(commands.jobs.backport.permissions, { contents: "write", "pull-requests": "write" });
-  assert.equal(commands.jobs.backport.if, activationGates.backport);
-  assert.equal(commands.jobs.backport.uses, "./.github/workflows/backport.yml");
-  assert.equal(commands.jobs.backport.strategy.matrix.request, "${{ fromJSON(needs.command.outputs.backport-requests) }}");
+  // The command job is the only job: nothing in this workflow writes repository contents.
+  assert.deepEqual(Object.keys(commands.jobs), ["command"]);
+  assert.equal(commands.jobs.command.outputs, undefined);
 });
 
 test("review observation and native merge evaluation use bounded events and trusted code", () => {
@@ -197,24 +192,6 @@ test("no workflow queues behind the old repository-wide automation group", () =>
   const sharing = fs.readdirSync(workflowRoot)
     .filter((name) => readWorkflow(name).source.includes("repository-automation-state"));
   assert.deepEqual(sharing, []);
-});
-
-test("generic backport is reusable only and isolates its target checkout", () => {
-  const workflow = readWorkflow("backport.yml").workflow;
-  assert.deepEqual(Object.keys(workflow.on), ["workflow_call"]);
-  assert.deepEqual(workflow.permissions, {});
-  const job = workflow.jobs.backport;
-  assert.equal(job.if, activationGates.reusableBackport);
-  assert.deepEqual(job.permissions, { contents: "write", "pull-requests": "write" });
-  assertTrustedCheckout(job);
-  const target = job.steps.filter((step) => step.uses === checkout)[1];
-  assert.equal(target.with.ref, "${{ inputs.target-branch }}");
-  assert.equal(target.with.path, "target");
-  assert.equal(target.with["persist-credentials"], true);
-  assert.equal(target.with.submodules, false);
-  assert.equal(target.with.lfs, false);
-  assert.equal(actionStep(job, "backport").with["control-directory"], "control");
-  assert.equal(actionStep(job, "backport").with["working-directory"], "target");
 });
 
 test("Mokka dispatch checks reviewed automation before it checks out the target", () => {

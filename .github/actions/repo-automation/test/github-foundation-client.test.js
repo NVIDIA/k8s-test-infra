@@ -1069,56 +1069,14 @@ test("accepts exact evaluator workflow paths returned by the live REST API", asy
   }
 });
 
-test("exposes bounded branch and backport pull-request operations", async () => {
-  const existingPullRequest = {
-    number: 900,
-    html_url: "https://github.com/NVIDIA/k8s-test-infra/pull/900",
-    state: "open",
-    base: { ref: "release-1.2" },
-    head: { ref: "backport/42" },
-    title: "[release-1.2] feat: foundation",
-    body: "bound evidence",
-  };
+test("exposes the bounded branch operation", async () => {
   const base = mockOctokit();
-  base.octokit.rest.pulls.list = async (parameters) => {
-    base.calls.push({ name: "listBackportPullRequests", parameters });
-    return { data: [existingPullRequest] };
-  };
   const client = createGitHubClient(base.octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
 
   assert.deepEqual(await client.getBranch("release-1.2"), {
     name: "release-1.2",
     oid: "b".repeat(40),
   });
-  assert.deepEqual(await client.findOpenBackportPullRequest("backport/42", "release-1.2"), {
-    number: 900,
-    url: existingPullRequest.html_url,
-    state: "open",
-    base: "release-1.2",
-    head: "backport/42",
-    title: existingPullRequest.title,
-    body: existingPullRequest.body,
-  });
-  assert.deepEqual(await client.createBackportPullRequest({
-    base: "release-1.2",
-    head: "backport/42",
-    title: existingPullRequest.title,
-    body: existingPullRequest.body,
-  }), {
-    number: 900,
-    url: existingPullRequest.html_url,
-  });
-  assert.deepEqual(
-    base.calls.find(({ name }) => name === "listBackportPullRequests").parameters,
-    {
-      owner: "NVIDIA",
-      repo: "k8s-test-infra",
-      state: "open",
-      head: "NVIDIA:backport/42",
-      base: "release-1.2",
-      per_page: 100,
-    },
-  );
 });
 
 test("maps bounded Mokka commit and draft pull-request operations", async () => {

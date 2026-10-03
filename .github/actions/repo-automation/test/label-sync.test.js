@@ -340,9 +340,6 @@ test("action metadata pins the Node 24 entry point and stable input/output contr
   assert.equal(action.inputs["dry-run"].default, "true");
   assert.match(action.inputs["dry-run"].description, /Mokka.*false/i);
   assert.deepEqual(action.outputs, {
-    "backport-requests": {
-      description: "Bounded JSON array of validated generic backport requests",
-    },
     summary: { description: "JSON summary of the idempotent operation" },
   });
 });

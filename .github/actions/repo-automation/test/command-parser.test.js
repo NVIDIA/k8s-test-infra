@@ -15,16 +15,13 @@ test("parses only the approved command grammar", () => {
   ].join("\n"));
 
   assert.deepEqual(parsed.diagnostics, []);
-  assert.deepEqual(
-    parsed.commands.map(({ name, targetBranch }) => ({ name, targetBranch })),
-    [
-      { name: "lgtm", targetBranch: null },
-      { name: "approve", targetBranch: null },
-      { name: "hold", targetBranch: null },
-      { name: "unhold", targetBranch: null },
-      { name: "retest", targetBranch: null },
-    ],
-  );
+  assert.deepEqual(parsed.commands, [
+    { name: "lgtm", line: 1, raw: "/lgtm" },
+    { name: "approve", line: 2, raw: "/approve" },
+    { name: "hold", line: 3, raw: "/hold" },
+    { name: "unhold", line: 4, raw: "/unhold" },
+    { name: "retest", line: 5, raw: "/retest" },
+  ]);
 });
 
 test("rejects commands outside the approved set and non-exact command names", () => {
