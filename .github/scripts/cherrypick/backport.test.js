@@ -42,6 +42,9 @@ const HUMAN_ENV = {
   GIT_COMMITTER_NAME: "Maintainer",
   GIT_COMMITTER_EMAIL: "maintainer@example.com",
 };
+// A bot commit amended by a human, and a file edited in the GitHub web UI.
+const AMENDED_ENV = { ...BOT_ENV, GIT_COMMITTER_NAME: "Maintainer", GIT_COMMITTER_EMAIL: "maintainer@example.com" };
+const WEB_EDIT_ENV = { ...HUMAN_ENV, GIT_COMMITTER_NAME: "GitHub", GIT_COMMITTER_EMAIL: "noreply@github.com" };
 const CONTEXT = { repo: { owner: "NVIDIA", repo: "k8s-test-infra" } };
 const BACKPORT_BRANCH = "backport-42-to-release-0.4";
 const PICKED = "ONE\ntwo\nthree\nfour\n";
@@ -62,7 +65,7 @@ function reachable(cwd, sha) {
 // A squash-only repository with a fork pull request: the PR head commits never
 // reach origin, only the squash commit on main does. With merge: true, main
 // gets a two-parent merge commit instead.
-function repository(t, { merge = false, releaseLine = null } = {}) {
+function repository(t, { merge = false, releaseLine = null, releaseHasChange = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "cherrypick-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const work = path.join(root, "work");
@@ -80,6 +83,12 @@ function repository(t, { merge = false, releaseLine = null } = {}) {
     git(work, ["checkout", "-q", "release-0.4"]);
     fs.writeFileSync(path.join(work, "app.txt"), `${releaseLine}\ntwo\nthree\n`);
     git(work, ["commit", "-q", "-am", "fix: release-only change"]);
+    git(work, ["checkout", "-q", "main"]);
+  }
+  if (releaseHasChange) {
+    git(work, ["checkout", "-q", "release-0.4"]);
+    fs.writeFileSync(path.join(work, "app.txt"), PICKED);
+    git(work, ["commit", "-q", "-am", "feat: change app on the release"]);
     git(work, ["checkout", "-q", "main"]);
   }
 
@@ -127,7 +136,7 @@ function pullRequest(fixture, overrides = {}) {
 
 // GitHub one layer deep: the Git Data API acts on the bare origin, and a
 // commit it creates is authored by github-actions[bot] like a GITHUB_TOKEN one.
-function fakeGitHub(fixture, { pull = pullRequest(fixture), openPulls = [] } = {}) {
+function fakeGitHub(fixture, { pull = pullRequest(fixture), openPulls = [], failCreateCommit = false } = {}) {
   const calls = [];
   const record = (name, params) => calls.push({ name, params });
   let nextNumber = 100;
@@ -154,6 +163,7 @@ function fakeGitHub(fixture, { pull = pullRequest(fixture), openPulls = [] } = {
         },
         createCommit: async (params) => {
           record("git.createCommit", params);
+          if (failCreateCommit) throw new Error("Server Error");
           const parents = params.parents.flatMap((parent) => ["-p", parent]);
           const sha = git(fixture.origin, ["commit-tree", params.tree, ...parents, "-m", params.message], BOT_ENV);
           return { data: { sha } };
@@ -314,24 +324,62 @@ test("the verified chain is built on the target commit the cherry-pick used", as
   assert.equal(git(fixture.origin, ["rev-parse", `refs/heads/${BACKPORT_BRANCH}^`]), fixture.releaseTip);
 });
 
-test("refuses to overwrite a backport branch with a commit not authored by github-actions[bot]", async (t) => {
+test("refuses to overwrite a backport branch with a commit this workflow did not create", async (t) => {
+  for (const [name, env] of [["human", HUMAN_ENV], ["amended bot commit", AMENDED_ENV], ["web edit", WEB_EDIT_ENV]]) {
+    await t.test(name, async (t) => {
+      const fixture = repository(t);
+      const foreign = pushBranch(fixture, env);
+      const { github, calls } = fakeGitHub(fixture);
+
+      const { results, core } = await backport(fixture, github, ["release-0.4"]);
+
+      assert.deepEqual(results, [{
+        branch: "release-0.4",
+        success: false,
+        error: `${BACKPORT_BRANCH} has commits this workflow did not create; `
+          + "merge or delete it before cherry-picking again",
+      }]);
+      assert.equal(git(fixture.origin, ["rev-parse", `refs/heads/${BACKPORT_BRANCH}`]), foreign);
+      assert.deepEqual(named(calls, "git.createCommit"), []);
+      assert.deepEqual(named(calls, "pulls.create"), []);
+      assert.match(named(calls, "issues.createComment")[0].body, /^Failed to create backport PR for `release-0\.4`/);
+      assert.deepEqual(core.failed, ["Cherry-pick failed for: release-0.4"]);
+    });
+  }
+});
+
+test("a retry replaces the unverified branch left by a run that stopped before re-creating it", async (t) => {
   const fixture = repository(t);
-  const human = pushBranch(fixture, HUMAN_ENV);
+  const first = fakeGitHub(fixture, { failCreateCommit: true });
+  const stopped = await backport(fixture, first.github, ["release-0.4"]);
+  assert.equal(stopped.results[0].success, false);
+  assert.equal(git(fixture.origin, ["log", "-1", "--format=%cn", `refs/heads/${BACKPORT_BRANCH}`]), "nvidia-backport-bot");
   const { github, calls } = fakeGitHub(fixture);
 
   const { results, core } = await backport(fixture, github, ["release-0.4"]);
 
-  assert.deepEqual(results, [{
-    branch: "release-0.4",
-    success: false,
-    error: `${BACKPORT_BRANCH} has commits not authored by github-actions[bot]; `
-      + "merge or delete it before cherry-picking again",
-  }]);
-  assert.equal(git(fixture.origin, ["rev-parse", `refs/heads/${BACKPORT_BRANCH}`]), human);
-  assert.deepEqual(named(calls, "git.createCommit"), []);
+  assert.equal(results[0].success, true, results[0].error);
+  assert.deepEqual(core.failed, []);
+  assert.equal(named(calls, "git.createCommit").length, 1);
+  assert.equal(git(fixture.origin, ["log", "-1", "--format=%an", `refs/heads/${BACKPORT_BRANCH}`]), "github-actions[bot]");
+  assert.equal(git(fixture.origin, ["show", `refs/heads/${BACKPORT_BRANCH}:app.txt`]) + "\n", PICKED);
+});
+
+test("a change already on the target is reported without a backport PR", async (t) => {
+  const fixture = repository(t, { releaseHasChange: true });
+  const { github, calls } = fakeGitHub(fixture);
+
+  const { results, core } = await backport(fixture, github, ["release-0.4"]);
+
+  assert.deepEqual(results, [{ branch: "release-0.4", success: true, alreadyOnTarget: true }]);
+  assert.deepEqual(core.failed, []);
+  assert.deepEqual(named(calls, "issues.createComment").map(({ body }) => body), [
+    "The change from #42 is already on `release-0.4`; no backport PR is needed.",
+  ]);
   assert.deepEqual(named(calls, "pulls.create"), []);
-  assert.match(named(calls, "issues.createComment")[0].body, /^Failed to create backport PR for `release-0\.4`/);
-  assert.deepEqual(core.failed, ["Cherry-pick failed for: release-0.4"]);
+  assert.deepEqual(named(calls, "git.createCommit"), []);
+  assert.deepEqual(named(calls, "git.updateRef"), []);
+  assert.equal(git(fixture.origin, ["for-each-ref", `refs/heads/${BACKPORT_BRANCH}`]), "");
 });
 
 test("replaces a backport branch that holds only github-actions[bot] commits", async (t) => {
