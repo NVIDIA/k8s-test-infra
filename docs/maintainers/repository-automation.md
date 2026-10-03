@@ -10,25 +10,31 @@ The foundation provides these functions:
 
 1. Additive label synchronization from `.github/repo-automation/labels.yml`.
 2. Pull request metadata and reviewer reconciliation.
-3. Guarded `/lgtm`, `/approve`, `/hold`, `/unhold`, `/retest`, `/backport`, and
-   `/cherry-pick` commands.
+3. Guarded `/lgtm`, `/approve`, `/hold`, `/unhold`, and `/retest` commands.
 4. Review-change observation.
 5. A stable `repository-automation/merge-policy` check, guarded GitHub native
    SQUASH auto-merge enablement, and unsafe auto-merge disarm.
-6. Generic backport pull requests for explicitly allowed target branches.
-7. Explicit Mokka cherry-pick dispatch for its validated contract.
-8. Conflict labels and metadata label repair for all open pull requests,
+6. Conflict labels and metadata label repair for all open pull requests,
    including older requests and requests based on another feature branch.
-9. Labels-only policy evaluation for a merge controller outside this action.
-
-`/backport <branch>` and `/cherry-pick <branch>` are aliases for the generic
-backport command. They create a backport pull request for an allowed
-`release-*` branch. They do not start the Mokka dispatch workflow.
+7. Labels-only policy evaluation for a merge controller outside this action.
 
 The foundation does not install Prow or Tide. GitHub branch protection remains
 the final merge authority. The automation publishes its policy check, enables
 native SQUASH auto-merge for eligible pull requests, and disables unsafe native
 auto-merge requests. It does not call a direct merge endpoint.
+
+## Cherry-pick
+
+`/cherry-pick <branch>` belongs to the Mokka agent, not to this action. The
+action skips a `/cherry-pick` line whatever its arguments: it records no
+command, reports no diagnostic, and makes no write for it. A review body with
+that line is evaluated as if the line were absent. The agent dispatches
+`.github/workflows/cherrypick.yml` from `main` with two inputs: `pr_number`,
+the merged pull request, and `target_branches`, a comma-separated list of
+release branches.
+
+`/backport` is not a command. The action reports it as unsupported, like any
+other unknown command.
 
 ## Activation order
 
@@ -59,15 +65,6 @@ Activate the functions in this order:
    disarms an unsafe method that it observes, but the method can change after
    its final read. If this flag is already enabled, installing this action
    also activates native enablement.
-6. After every configured `release-*` target is protected and exists, set
-   `REPOSITORY_AUTOMATION_BACKPORT_ENABLED=true`.
-7. After the external caller uses the documented UUID, source SHA, target
-   branch, workflow commit SHA, and repository identity contract, review the
-   Mokka workflow and packaged action on `main`. Confirm that the `main` branch
-   rule rejects force pushes and applies the required merge checks to Mokka
-   draft pull requests. Set
-   `REPOSITORY_AUTOMATION_MOKKA_REVIEWED_SHA` to the full commit SHA of that
-   reviewed version, then set `REPOSITORY_AUTOMATION_MOKKA_ENABLED=true`.
 
 Keep each earlier step active while you validate the next step. Do not enable a
 later write path when an earlier validation fails.
@@ -298,8 +295,7 @@ GitHub keeps at most one pending run in a concurrency group, so a newer
 **Commands** run. Each **Commands** run therefore lists the pull request comments
 and first applies the `/hold`, `/unhold`, and `/retest` commands from unprocessed
 comments that are older than its own comment, in comment ID order, then its own.
-A caught-up `/backport` or `/cherry-pick` is not replayed. A run started by a
-comment without commands also does this. Each comment must come from a human
+A run started by a comment without commands also does this. Each comment must come from a human
 account and must not be edited, and its author's live identity and repository
 access are checked as for the comment that started the run. A caught-up comment
 is recorded as processed only when it changed something, or when it had an
@@ -389,68 +385,6 @@ evidence. A bot cannot provide OWNERS, reviewer, approver, or LGTM authority.
 Current metadata evidence does not require an earlier conversation command.
 A trusted metadata comment can have no command-state record. Unknown,
 malformed, duplicate, or wrong-context command-state records remain blocked.
-
-## Mokka dispatch contract
-
-Start **Mokka cherry-pick** only from `main`. The caller supplies the `main`
-commit SHA it checked. The job runs only when GitHub resolves the selected
-`main` ref to that SHA. The caller stops if its preflight sees a different SHA.
-If GitHub selects a different SHA, the job skips. A later `main` move does not
-change the selected commit for that run. The caller must check the new commit
-before it retries.
-
-The job loads automation from the selected `main` commit and compares the Mokka
-workflow, action metadata, and packaged action byte for byte with the commit
-in `REPOSITORY_AUTOMATION_MOKKA_REVIEWED_SHA`. It does this before it checks
-out the target with credentials. Unrelated changes to `main` do not require a
-new reviewed SHA. With this workflow version, a change to any compared file
-stops the job until a reviewer approves that automation and updates the
-reviewed SHA. GitHub branch protection remains the authority for later
-workflow changes, including edits to this guard.
-
-The dispatch accepts exactly five required string inputs:
-
-- `pull_request_number`: the number of a merged pull request in
-  `NVIDIA/k8s-test-infra`.
-- `source_sha`: the lowercase, 40-character merge commit SHA for that pull
-  request.
-- `target_branch`: the exact value `main`.
-- `action_id`: a canonical lowercase UUIDv4 that makes the request
-  idempotent.
-- `workflow_commit_sha`: the lowercase, 40-character `main` commit SHA that
-  the caller checked for this dispatch.
-
-The action also verifies GitHub repository ID `733665780`, validates that the
-source pull request belongs to this repository, and rejects a source pull
-request that was based on the target branch. The source SHA must be the merged
-pull request commit and must have one parent. The action creates or reuses a
-`mokka/cherry-pick/<action_id>` branch and opens a draft pull request. It does
-not merge the pull request.
-
-Before each cherry-pick attempt, the action fetches the current target branch
-and starts from that commit. If `main` advances before the upload, the action
-fetches it and retries the cherry-pick, up to three attempts. It rejects a
-target history rewrite, a source pull request change, or a cherry-pick
-conflict. The action uploads the result tree on a temporary branch, then asks
-GitHub to create a signed commit with the checked target commit as its parent.
-It requires GitHub to report a valid signature before it creates the final
-`mokka/cherry-pick/<action_id>` branch. The temporary branch is removed with
-an exact lease before the draft pull request is opened. The result records the
-target commit used for the signed commit. If the action detects that `main`
-moved before final branch creation, it stops after it removes the temporary
-branch; review the failure before retrying the dispatch. A failed cleanup
-requires manual investigation.
-If GitHub reports an error while creating the draft pull request, the action
-keeps the final branch for manual investigation because the request may have
-succeeded without a response.
-
-If `main` advances after the action creates the final branch, GitHub branch
-protection controls whether the draft pull request can merge.
-
-Mokka dispatch does not support dry-run mode. Its action input must be the
-exact string `false`. Keep `REPOSITORY_AUTOMATION_MOKKA_ENABLED` unset until
-the external caller meets this contract. A missing or malformed reviewed SHA
-fails the job before any checkout.
 
 ## Security and operations
 
