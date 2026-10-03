@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+  Repository automation: a Commands run now applies earlier command comments whose runs were cancelled by a later run for the same pull request, so a queued /hold is no longer lost (a caught-up /lgtm or /approve must be repeated), and merge.requiredCI rejects workflows in subdirectories of .github/workflows, which GitHub never runs.
+time: 2026-10-03T09:36:35Z
