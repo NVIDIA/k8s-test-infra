@@ -76,20 +76,16 @@ type Spec struct {
 	NodeSelector map[string]string
 	// GPUs, when positive, is requested as a GPU resource limit.
 	GPUs int
+	// GPUResource names the resource GPUs requests, defaulting to
+	// nvidia.com/gpu. MIG's mixed strategy publishes one resource per slice
+	// profile instead, e.g. nvidia.com/mig-1g.10gb.
+	GPUResource string
 	// RestartPolicy defaults to DefaultRestartPolicy.
 	RestartPolicy string
 	// GracePeriodSeconds defaults to DefaultGracePeriodSeconds. Raise it only for
 	// a pod that genuinely needs time to shut down, and read the package doc
 	// first: the default is what keeps teardown off the suite's critical path.
 	GracePeriodSeconds int
-}
-
-// view is what the template sees: the caller's spec with defaults resolved and
-// the GPU resource name injected, so the manifest need not restate a constant
-// the framework already owns.
-type view struct {
-	Spec
-	GPUResourceName string
 }
 
 var funcs = template.FuncMap{
@@ -127,12 +123,14 @@ func (s Spec) Render() []byte {
 	if s.GracePeriodSeconds == 0 {
 		s.GracePeriodSeconds = DefaultGracePeriodSeconds
 	}
+	// Defaulted here rather than in the manifest, which need not restate a
+	// constant the framework already owns.
+	if s.GPUResource == "" {
+		s.GPUResource = kube.GPUResourceName
+	}
 
 	var rendered bytes.Buffer
-	if err := tmpl.Execute(&rendered, view{
-		Spec:            s,
-		GPUResourceName: string(kube.GPUResourceName),
-	}); err != nil {
+	if err := tmpl.Execute(&rendered, s); err != nil {
 		panic(fmt.Sprintf("render pod %s: %v", s.Name, err))
 	}
 	return rendered.Bytes()

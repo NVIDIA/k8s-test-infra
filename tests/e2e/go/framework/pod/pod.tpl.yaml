@@ -62,5 +62,5 @@ spec:
       {{- if .GPUs }}
       resources:
         limits:
-          {{ .GPUResourceName | quote }}: {{ .GPUs }}
+          {{ .GPUResource | quote }}: {{ .GPUs }}
       {{- end }}

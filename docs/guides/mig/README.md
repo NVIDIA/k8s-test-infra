@@ -167,6 +167,36 @@ Getting there needs the NVIDIA device plugin deployed as in
 A working DaemonSet doing both, including the wait for the node agent to finish
 staging, is kept under test at `tests/e2e/go/assets/device-plugin-mock-mig.yaml`.
 
+### Under the GPU Operator
+
+The Operator's own device plugin needs no changes beyond the strategy. Install
+the Operator as in [GPU Operator](../gpu-operator.md) and set `mig.strategy`
+to match the layout nvml-mock was installed with:
+
+```bash
+helm install gpu-operator nvidia/gpu-operator \
+  --namespace gpu-operator --create-namespace \
+  -f gpu-operator-values.yaml \
+  --set mig.strategy=single \
+  --wait --timeout 600s
+```
+
+The capability table reaches the plugin without a self-mount. The Operator runs
+its operands under the `nvidia` runtime with `NVIDIA_VISIBLE_DEVICES=all`, so
+each one receives Mokka's `nvidia.com/gpu` CDI spec — and on a partitioned node
+that spec carries a `createContainer` hook binding the staged `/proc/driver`
+over the container's own, read-only. A hook reaches where a mount cannot: it
+runs in the container's mount namespace before `pivot_root`, outside runc's
+check on mount targets. The device plugin, GFD and `dcgm-exporter` all see
+`/proc/driver/nvidia-caps` as they would on a MIG node.
+
+`mig.strategy=mixed` works too, on a layout whose partitions differ: each
+profile is then published under a resource name of its own, such as
+`nvidia.com/mig-1g.5gb`, and GFD labels the node per profile
+(`nvidia.com/mig-1g.5gb.count`, `.memory`, `.multiprocessors`, …). Leave
+`migManager` disabled, as the Operator values already do; it repartitions at
+runtime, which [does not change what is allocatable](#limits).
+
 ## How slices are named
 
 A slice is named for the share of *its own* board it holds, and every shipped

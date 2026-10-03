@@ -4,6 +4,7 @@
 package cdi
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -350,6 +351,49 @@ func TestNvidiaSpecMigDoesNotDisturbWholeGPUEntries(t *testing.T) {
 		require.True(t, ok, "partitioning dropped the %q entry", name)
 		require.Equal(t, want, got, "partitioning changed the %q entry", name)
 	}
+}
+
+// The device plugin reads /proc/driver/nvidia-caps/mig-minors at a hardcoded
+// path and advertises nothing on a partitioned node that lacks it. A spec
+// mount cannot place it there, because runc refuses mount targets inside
+// /proc, so a partitioned node serves it through a createContainer hook
+// binding the staged surface.
+func TestNvidiaSpecMigServesProcDriverThroughAHook(t *testing.T) {
+	t.Parallel()
+
+	spec := buildNvidiaSpec(migState())
+	require.NotNil(t, spec.ContainerEdits)
+
+	hook, ok := hookWithArg(spec, overlayHostRoot+"/driver/proc/driver")
+	require.True(t, ok, "no hook serves the staged /proc/driver surface")
+	require.Equal(t, "createContainer", hook.HookName,
+		"only createContainer hooks run in the container's mount namespace before pivot_root")
+
+	for _, m := range spec.ContainerEdits.Mounts {
+		require.NotContains(t, m.ContainerPath, "/proc/",
+			"runc refuses mount targets inside /proc and fails container creation")
+	}
+}
+
+// With MIG off nothing is staged under proc/driver, and a hook binding a
+// missing source would fail creation of every GPU container on the node.
+func TestNvidiaSpecNoProcDriverHookWhenUnpartitioned(t *testing.T) {
+	t.Parallel()
+
+	spec := buildNvidiaSpec(twoGPUState())
+	require.NotNil(t, spec.ContainerEdits)
+
+	_, ok := hookWithArg(spec, overlayHostRoot+"/driver/proc/driver")
+	require.False(t, ok)
+}
+
+func hookWithArg(spec cdiSpec, arg string) (cdiHook, bool) {
+	for _, h := range spec.ContainerEdits.Hooks {
+		if slices.Contains(h.Args, arg) {
+			return h, true
+		}
+	}
+	return cdiHook{}, false
 }
 
 // A node with MIG off must not gain a nvidia-caps node anywhere: the chardevs

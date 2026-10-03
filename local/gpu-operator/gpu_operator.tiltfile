@@ -4,13 +4,16 @@
 # Loadable Tiltfile: NVIDIA GPU Operator consumer.
 #
 # Exports:
-#   install(nvml_mock_releases, extra_values=[], extra_resource_deps=[])
+#   install(nvml_mock_releases, extra_values=[], extra_resource_deps=[], mig_strategy='')
 #     — install the Operator on top of nvml-mock. extra_values is a list of
 #     additional --values paths layered on top of gpu-operator.values.yaml
 #     (later paths win on key conflicts); extra_resource_deps adds Tilt
 #     resources the Operator must wait for. Both are used by the
 #     --observability consumer, which re-enables dcgm-exporter and needs
 #     kube-prometheus-stack's ServiceMonitor CRD to exist first.
+#     mig_strategy (single | mixed) sets the Operator's mig.strategy for a node
+#     nvml-mock boots MIG-partitioned, and has to agree with the layout it was
+#     booted with. Empty leaves the values file's `none`.
 #
 # Requires the shared 'nvidia' helm_repo, registered by the main Tiltfile and
 # waited on through resource_deps.
@@ -27,13 +30,15 @@ _REPO_RESOURCE = 'nvidia'
 _CHART = 'nvidia/gpu-operator'
 _CHART_VERSION = 'v26.3.3'
 
-def install(nvml_mock_releases, extra_values=[], extra_resource_deps=[]):
+def install(nvml_mock_releases, extra_values=[], extra_resource_deps=[], mig_strategy=''):
     # local/gpu-operator/gpu-operator.values.yaml disables driver/toolkit/DCGM
     # (not needed with nvml-mock) and enables CDI mode so the Operator reads
     # /var/run/cdi/nvidia.yaml written by the nvml-mock DaemonSet.
     values_flags = ['--values', 'local/gpu-operator/gpu-operator.values.yaml']
     for v in extra_values:
         values_flags += ['--values', v]
+    if mig_strategy:
+        values_flags += ['--set', 'mig.strategy=' + mig_strategy]
 
     helm_resource(
         'gpu-operator',
