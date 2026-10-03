@@ -64,24 +64,24 @@ var _ = Describe("nvml-mock DRA", Label("dra"), Ordered, func() {
 				waitDRAPodsReady(ctx, h)
 			})
 
-			It("lays out the mock driver files for DRA", func(ctx SpecContext) {
+			It("lays out the mock driver files for DRA", Label("mockfiles"), func(ctx SpecContext) {
 				assertions.DRAMockFiles(ctx, h.Kube, pod, p.ExpectedGPUs())
 			})
 
-			It("reports the profile GPUs via nvidia-smi", func(ctx SpecContext) {
+			It("reports the profile GPUs via nvidia-smi", Label("nvidia-smi"), func(ctx SpecContext) {
 				nvidiasmi.Inventory(ctx, h.Kube, pod, p)
 			})
 
-			It("exposes the NVLink topology (gated on fabricmanager)", func(ctx SpecContext) {
+			It("exposes the NVLink topology (gated on fabricmanager)", Label("nvlink"), func(ctx SpecContext) {
 				assertions.FabricManagerGate(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", pod, config.ReadyTimeout(), config.PollInterval())
 				assertions.NVLink(ctx, h.Kube, pod, p)
 			})
 
-			It("publishes DRA ResourceSlices for the profile GPUs", func(ctx SpecContext) {
+			It("publishes DRA ResourceSlices for the profile GPUs", Label("dra-resourceslices"), func(ctx SpecContext) {
 				assertions.WaitResourceSlicePerNode(ctx, h.Kube, p.ExpectedGPUs(), config.ReadyTimeout(), config.PollInterval())
 			})
 
-			It("schedules a pod with a DRA ResourceClaim", func(ctx SpecContext) {
+			It("schedules a pod with a DRA ResourceClaim", Label("dra-scheduling"), func(ctx SpecContext) {
 				scheduleDRAResourceClaimPod(ctx, h)
 				waitDRATestPodRunning(ctx, h)
 			})
