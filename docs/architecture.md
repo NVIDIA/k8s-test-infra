@@ -54,7 +54,7 @@ Most of the Kubernetes control plane is Go, so file surfaces need to be mounted 
 | Simulators | Packages inside the node daemon | One per surface: GPU driver, PCI bus, CDI, IMEX, NVLink, fabricmanager, InfiniBand |
 | Mock NVML library | Shared object loaded by each consumer process | Answers NVML calls from the profile instead of a driver |
 | Shims | `LD_PRELOAD` libraries and an `execve` wrapper | Make C tools read the staged tree at the real paths |
-| NRI plugin | Optional sidecar next to the node daemon | Injects the mock into containers that never requested a GPU |
+| NRI plugin | Container next to the node daemon | Injects the mock into containers that hold a GPU allocation or opt in by annotation |
 | Allocation watcher | Sidecar next to the node daemon | Reads the kubelet pod-resources socket to see which GPUs are claimed |
 | `nvml-mock-ctl` | CLI, run against a node | Changes simulated state at runtime without a redeploy |
 | Control plane | Deployment, disabled by default | Health probes only today; see MEP-0001 for the intent |
@@ -100,7 +100,7 @@ three delivery paths and uses whichever the consumer's runtime allows:
 |---|---|---|
 | hostPath mounts | anything, including Go binaries | the only approach that survives direct syscalls |
 | `LD_PRELOAD` shims | C tools — `lspci`, `ibv_devinfo` | rewrites libc path calls, so tools read the mock tree at real paths |
-| NRI injection | pods with no GPU request | adds devices and mounts at container-create time, with no pod spec change |
+| NRI injection | pods allocated GPUs by the device plugin or DRA driver, and pods that opt in | adds mounts, environment and, for opted-in pods, devices at container-create time, with no pod spec change |
 
 ## How the system behaves
 
