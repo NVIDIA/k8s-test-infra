@@ -565,6 +565,8 @@ nvlink:
   links_per_gpu: 18
   bandwidth_per_link_mbps: 26562
   c2c_enabled: false
+  nvle_enabled: false                # see bandwidth mode, low power and NVLE
+  bw_mode: {}                        # see bandwidth mode, low power and NVLE
   links:
     - link: 0
       state: "active"
@@ -583,6 +585,70 @@ reports `N/A` — never `Disabled`, because NVML answers
 link to a host CPU. Only `gb200` and `gb300` enable it. This is the only key that
 drives the row: `device_defaults.features.nvlink_c2c` is descriptive metadata and
 is not read.
+
+### Bandwidth mode, low power and NVLE
+
+Two optional node-level keys sit here. No shipped profile sets either, so the
+defaults below are what every profile reports:
+
+```yaml
+nvlink:
+  nvle_enabled: true                 # default false; the NVLE: row of `nvidia-smi nvlink --info`
+  bw_mode:                           # default: the architecture's own, as if absent
+    supported: [0, 1, 2, 3, 4]
+    mode: 0
+```
+
+NVLink Reduced Bandwidth Mode comes as two independent NVML pairs, and which
+one a caller reaches decides whether `bw_mode` is read at all.
+
+| | Node-wide pair | Per-device pair |
+|---|---|---|
+| NVML | `nvmlSystemGetNvlinkBwMode`, `nvmlSystemSetNvlinkBwMode` | `nvmlDeviceGetNvlinkBwMode`, `nvmlDeviceSetNvlinkBwMode`, `nvmlDeviceGetNvlinkSupportedBwModes` |
+| `nvidia-smi` | `nvlink -gBwMode`, `nvlink -sBwMode` | no flag reaches it — NVML callers only |
+| Architecture | Hopper or newer | Blackwell or newer |
+| Supported modes | always `0`-`4`, whatever `bw_mode.supported` says | `bw_mode.supported`, or `0`-`4` when omitted |
+| Reported mode | the node-wide setter's last value, else the best of `0`-`4` | `bw_mode.mode`, overridden by either setter's last value |
+
+!!! warning "`bw_mode` does not change what `nvidia-smi` reports"
+    `nvidia-smi nvlink -gBwMode` and `-sBwMode` call the node-wide pair, which
+    never reads the profile. Setting `mode: 3` therefore leaves `-gBwMode`
+    reporting `FULL`, and trimming `supported` does not stop `-sBwMode`
+    accepting a mode left out of it. Both keys shape the per-device pair only,
+    which today means an NVML caller rather than a `nvidia-smi` flag.
+
+Mode values are opaque driver indices: neither `nvml.h` nor the NVML reference
+enumerates them. The bundled `nvidia-smi` has names for five, which is why the
+default set stops at four.
+
+| Value | Name |
+|---|---|
+| 0 | `FULL` |
+| 1 | `OFF` |
+| 2 | `MIN` |
+| 3 | `HALF` |
+| 4 | `3QUARTER` |
+
+A `supported` value above 4 is accepted, since the indices are the driver's and
+a later one may define more, but it has no name to print and the profile is
+warned about it. A `mode` outside the effective `supported` set is ignored with
+a warning and the best supported mode is reported instead —
+`nvmlDeviceSetNvlinkBwMode` answers `NVML_ERROR_INVALID_ARGUMENT` for that very
+value, so honouring it would have the getter hand out a mode the setter refuses.
+
+`mode` is an initial value only. Both setters record into the config override
+document rather than into process memory, so a mode set by one process is read
+by every other process on the node and outlives the writer. A node-wide write
+also clears the per-device records, which would otherwise outrank it. Inspect
+either with [`nvml-mock-ctl status`](nvml-mock-ctl.md#status--inspect-active-overrides).
+
+The two remaining surfaces are gated where the driver gates them, so a profile
+too old for one declines instead of answering:
+
+| Surface | Requirement |
+|---|---|
+| `nvlink -gLowPwrInfo`, `-sLowPwrThres` | Hopper or newer; the threshold is `1`-`1023`, or `0xFFFFFFFF` to restore the driver default |
+| the `NVLE:` row of `nvlink --info` | Blackwell or newer **and** driver 580 or newer. Below 580 the function itself is absent, so `nvidia-smi` reports `Function Not Found` rather than an unsupported device |
 
 ### NVSwitches
 
