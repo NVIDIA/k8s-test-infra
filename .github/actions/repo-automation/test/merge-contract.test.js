@@ -2120,3 +2120,97 @@ test("policy-labels mode runs labels-only evaluation through the action entry po
   assertNoMergeOperations(github);
   assert.deepEqual(outputs, [{ name: "summary", value: JSON.stringify(summary) }]);
 });
+
+test("labels-only never removes do-not-merge/hold, even without hold state", async () => {
+  const { github, result } = await run(evaluatorState({
+    labels: ["lgtm", "approved", "do-not-merge/hold"],
+  }), { labelsOnly: true });
+
+  assert.equal(result.pullRequests[0].labelWrite, "unchanged");
+  assert.deepEqual(result.pullRequests[0].labels, { add: [], remove: [] });
+  assert.deepEqual(github.calls.removePolicyLabel, []);
+  assert.deepEqual(github.snapshot().map(({ name }) => name), ["lgtm", "approved", "do-not-merge/hold"]);
+});
+
+test("a labels-only run between a /hold label write and its state write keeps the hold", async () => {
+  const { runCommand } = require("../src/modes/command.js");
+  const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
+  const github = createFakeGitHub(evaluatorState({
+    labels: ["lgtm", "approved"],
+    issueComments: [
+      liveCommand(8000, "alice", "/lgtm"),
+      liveCommand(8001, "bob", "/approve"),
+      liveCommand(8100, "bob", "/hold"),
+    ],
+  }));
+  const upsert = github.upsertPolicyComment.bind(github);
+  let labelsOnly;
+  github.upsertPolicyComment = async (...args) => {
+    // Commands has written its labels but not yet the hold state.
+    labelsOnly = await runMergeEvaluate({ event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github,
+      config, policyRevision: REVISION, dryRun: false, prNumber: "42", labelsOnly: true });
+    return upsert(...args);
+  };
+
+  const command = await runCommand({
+    event: { action: "created", repository: WORKFLOW_EVENT.repository,
+      issue: { number: 42, pull_request: { url: "event-url" } }, comment: { id: 8100 } },
+    github,
+    config,
+    dryRun: false,
+    now: () => "2026-09-17T12:00:00.000Z",
+  });
+
+  assert.equal(command.status, "complete");
+  assert.equal(labelsOnly.pullRequests[0].labelWrite, "unchanged");
+  assert.ok(github.snapshot().some(({ name }) => name === "do-not-merge/hold"));
+  assert.deepEqual(github.calls.removePolicyLabel, []);
+});
+
+test("labels-only skips an add-only write when the head moves after the read", async () => {
+  const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
+  const github = createFakeGitHub(reviewLgtmState({
+    comments: [{ id: 77, author: "github-actions[bot]", body: `${POLICY_MARKER}\n${METADATA()}\n` }],
+    issueComments: [],
+    reviews: [submittedReview(9000, "bob")],
+  }));
+  const getReview = github.getPullRequestReview.bind(github);
+  github.getPullRequestReview = async (...args) => ({ ...await getReview(...args), body: "/lgtm" });
+  const getPullRequest = github.getPullRequest.bind(github);
+  github.getPullRequest = async (...args) => {
+    const live = await getPullRequest(...args);
+    return github.calls.getPullRequest.length > 1 ? { ...live, headOid: NEXT_HEAD } : live;
+  };
+
+  const result = await runMergeEvaluate({ event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github,
+    config, policyRevision: REVISION, dryRun: false, prNumber: "42", labelsOnly: true });
+
+  assert.deepEqual(result.pullRequests[0].labels, { add: ["approved", "lgtm"], remove: [] });
+  assert.equal(result.pullRequests[0].labelWrite, "inputs-changed");
+  assert.deepEqual(github.calls.addPolicyLabel, []);
+});
+
+test("labels-only fails and writes nothing when the trusted revision moves during the evaluation", async () => {
+  const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
+  const github = createFakeGitHub(heldState());
+  const getRevision = github.getDefaultBranchRevision.bind(github);
+  github.getDefaultBranchRevision = async () => {
+    const revision = await getRevision();
+    return github.calls.getDefaultBranchRevision.length > 1 ? NEXT_HEAD : revision;
+  };
+
+  await assert.rejects(() => runMergeEvaluate({ event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github,
+    config, policyRevision: REVISION, dryRun: false, prNumber: "42", labelsOnly: true }), /evaluation failed closed/);
+  assert.deepEqual(github.calls.addPolicyLabel, []);
+  assert.deepEqual(github.calls.removePolicyLabel, []);
+});
+
+test("labels-only reports a missing LGTM and removes its label", async () => {
+  const { github, result } = await run(evaluatorState({
+    comments: [{ id: 77, author: "github-actions[bot]", body: policyBody({ lgtms: [] }) }],
+  }), { labelsOnly: true });
+
+  assert.equal(result.pullRequests[0].lgtm, false);
+  assert.equal(result.pullRequests[0].approved, true);
+  assert.deepEqual(github.calls.removePolicyLabel.map(({ label }) => label), ["lgtm"]);
+});

@@ -291,3 +291,15 @@ test("rejects malformed caught-up evidence rejections", async (t) => {
     });
   });
 });
+
+test("rejects caught-up evidence rejections with another status or code", async (t) => {
+  for (const [name, value] of [
+    ["applied status", [{ ...rejection(98, ["lgtm"]), status: "applied" }]],
+    ["other code", [{ ...rejection(98, ["lgtm"]), code: "not-authorized" }]],
+  ]) await t.test(name, () => {
+    assert.throws(() => renderWithRejections(value), {
+      name: "TypeError",
+      message: "caught-up evidence rejections are invalid",
+    });
+  });
+});
