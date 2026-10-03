@@ -35,6 +35,7 @@ const activationGates = {
     "${{ vars.REPOSITORY_AUTOMATION_MERGE_ENABLED == 'true' && (github.event_name != 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch) }}",
   policyLabels:
     "${{ vars.REPOSITORY_AUTOMATION_POLICY_LABELS_ENABLED == 'true' && (github.event_name != 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch) }}",
+  cherryPick: "${{ vars.REPOSITORY_AUTOMATION_CHERRY_PICK_ENABLED == 'true' && github.ref == 'refs/heads/main' }}",
 };
 
 function readWorkflow(name) {
@@ -182,4 +183,31 @@ test("no workflow queues behind the old repository-wide automation group", () =>
   const sharing = fs.readdirSync(workflowRoot)
     .filter((name) => readWorkflow(name).source.includes("repository-automation-state"));
   assert.deepEqual(sharing, []);
+});
+
+test("cherry-pick runs only when enabled from main, one run per pull request and branch set", () => {
+  const { workflow } = readWorkflow("cherrypick.yml");
+  assert.deepEqual(Object.keys(workflow.on), ["workflow_dispatch"]);
+  assert.deepEqual(Object.keys(workflow.on.workflow_dispatch.inputs), ["pr_number", "target_branches"]);
+  assert.deepEqual(workflow.permissions, {});
+  assert.deepEqual(Object.keys(workflow.jobs), ["backport"]);
+  const job = workflow.jobs.backport;
+  assert.equal(job.if, activationGates.cherryPick);
+  assert.deepEqual(job.permissions, { contents: "write", "pull-requests": "write", issues: "write" });
+  // GitHub keeps one pending run per group: a PR-only key would cancel a pending
+  // dispatch for a different branch set.
+  assert.deepEqual(job.concurrency, {
+    group: "cherry-pick-${{ inputs.pr_number }}-${{ inputs.target_branches }}",
+    "cancel-in-progress": false,
+  });
+  const checkoutStep = job.steps.find((step) => step.uses?.startsWith("actions/checkout@"));
+  assert.equal(checkoutStep.uses, checkout);
+  assert.equal(checkoutStep.with["fetch-depth"], 0);
+  const validate = job.steps.findIndex((step) => step.id === "inputs");
+  const backport = job.steps.findIndex((step) => step.name === "Backport to release branches");
+  assert.ok(validate >= 0 && validate < backport, "inputs are validated before the backport step");
+  assert.deepEqual(job.steps[backport].env, {
+    PR_NUMBER: "${{ steps.inputs.outputs.pr_number }}",
+    BRANCHES_JSON: "${{ steps.inputs.outputs.branches }}",
+  });
 });
