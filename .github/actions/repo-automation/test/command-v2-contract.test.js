@@ -599,9 +599,10 @@ test("a command run applies an evicted older command comment before its own", as
 });
 
 test("caught-up commands apply in comment id order", async (t) => {
-  for (const [name, older, newer, held] of [
-    ["hold then unhold ends unheld", "/hold", "/unhold", false],
-    ["unhold then hold ends held", "/unhold", "/hold", true],
+  // An /unhold with no hold changes nothing, so the caught-up comment is not recorded.
+  for (const [name, older, newer, held, processed] of [
+    ["hold then unhold ends unheld", "/hold", "/unhold", false, [98, 99]],
+    ["unhold then hold ends held", "/unhold", "/hold", true, [99]],
   ]) await t.test(name, async () => {
     const github = createFakeGitHub(state({
       issueComments: [command(98, older), command(99, newer)],
@@ -609,7 +610,7 @@ test("caught-up commands apply in comment id order", async (t) => {
 
     const result = await run(github);
 
-    assert.deepEqual(result.processedCommentIds, [98, 99]);
+    assert.deepEqual(result.processedCommentIds, processed);
     assert.equal(result.policy.hold, held);
     assert.equal(github.calls.addPolicyLabel.some(({ label }) => label === "do-not-merge/hold"), held);
     assert.equal(persistedState(github).hold?.sourceId ?? null, held ? 99 : null);
@@ -617,9 +618,9 @@ test("caught-up commands apply in comment id order", async (t) => {
 });
 
 test("several caught-up comments apply in id order even when listed out of order", async (t) => {
-  for (const [name, first, second, held] of [
-    ["hold then unhold ends unheld", "/hold", "/unhold", false],
-    ["unhold then hold ends held", "/unhold", "/hold", true],
+  for (const [name, first, second, held, processed] of [
+    ["hold then unhold ends unheld", "/hold", "/unhold", false, [97, 98, 99]],
+    ["unhold then hold ends held", "/unhold", "/hold", true, [98, 99]],
   ]) await t.test(name, async () => {
     const github = createFakeGitHub(state({
       issueComments: [command(97, first), command(98, second), command(99, "/lgtm")],
@@ -629,7 +630,7 @@ test("several caught-up comments apply in id order even when listed out of order
 
     const result = await run(github);
 
-    assert.deepEqual(result.processedCommentIds, [97, 98, 99]);
+    assert.deepEqual(result.processedCommentIds, processed);
     assert.equal(result.policy.hold, held);
     assert.equal(persistedState(github).hold?.sourceId ?? null, held ? 98 : null);
   });
@@ -658,7 +659,7 @@ test("a caught-up comment is authorized as its own live author", async () => {
 
   const result = await run(github);
 
-  assert.deepEqual(result.processedCommentIds, [98, 99]);
+  assert.deepEqual(result.processedCommentIds, [99]);
   assert.equal(result.policy.hold, false);
   assert.equal(persistedState(github).hold, null);
   assert.deepEqual(github.calls.getCollaboratorAccess.map(({ login }) => login).sort(), ["alice", "mallory"]);
@@ -818,7 +819,7 @@ test("several caught-up /retest comments rerun failed jobs at most once", async 
 
   const result = await run(github);
 
-  assert.deepEqual(result.processedCommentIds, [97, 98, 99]);
+  assert.deepEqual(result.processedCommentIds, [97, 99]);
   assert.deepEqual(github.calls.rerunFailedJobs, [{ runId: 501 }]);
   assert.deepEqual(result.commands, [{ line: 1, name: "retest", status: "noop", code: "cooldown" }]);
   assert.equal(persistedState(github).lastRetest.commentId, 97);
@@ -842,7 +843,7 @@ test("a caught-up /retest inside the stored cooldown reruns nothing", async () =
 
   const result = await run(github);
 
-  assert.deepEqual(result.processedCommentIds, [98, 99]);
+  assert.deepEqual(result.processedCommentIds, [99]);
   assert.deepEqual(github.calls.rerunFailedJobs, []);
   assert.deepEqual(result.rerunRunIds, []);
   assert.equal(persistedState(github).lastRetest.commentId, 90);
@@ -862,11 +863,11 @@ test("a first run replays only command comments from the last 24 hours, in id or
 
   const result = await run(github);
 
-  assert.deepEqual(result.processedCommentIds, [97, 98, 99]);
+  assert.deepEqual(result.processedCommentIds, [98, 99]);
   assert.equal(result.policy.hold, true);
   assert.deepEqual(github.calls.rerunFailedJobs, []);
   const persisted = persistedState(github);
-  assert.deepEqual(persisted.processedCommandIds, [97, 98, 99]);
+  assert.deepEqual(persisted.processedCommandIds, [98, 99]);
   assert.equal(persisted.hold.sourceId, 98);
   assert.equal(persisted.lastRetest, null);
 });
@@ -900,4 +901,54 @@ test("an old comment is not replayed even when it is newer than the newest proce
   assert.deepEqual(result.processedCommentIds, [99]);
   assert.equal(result.policy.hold, false);
   assert.deepEqual(persistedState(github).processedCommandIds, [97, 99]);
+});
+
+test("caught-up comments that change nothing cannot fill the command history", async () => {
+  const config = loadConfig(repositoryRoot);
+  config.policy.commands.historyLimit = 3;
+  const github = createFakeGitHub(state({
+    issueComments: [
+      command(95, "/foo", { author: "stranger" }),
+      command(96, "/foo", { author: "stranger" }),
+      command(97, "/foo", { author: "stranger" }),
+      command(98, "/foo", { author: "stranger" }),
+      command(99, "/hold"),
+    ],
+  }));
+
+  const result = await run(github, false, config);
+
+  assert.equal(result.status, "complete");
+  assert.deepEqual(result.processedCommentIds, [99]);
+  assert.equal(result.policy.hold, true);
+  assert.deepEqual(persistedState(github).processedCommandIds, [99]);
+});
+
+test("a comment without commands whose catch-up changes nothing writes nothing", async () => {
+  const github = createFakeGitHub(state({
+    issueComments: [command(98, "/foo", { author: "stranger" }), command(99, "see https://example.com/a/b")],
+  }));
+
+  const result = await run(github);
+
+  assert.deepEqual(result, { status: "ignored", reason: "no-command" });
+  assertNoWrites(github);
+});
+
+test("caught-up /backport and /cherry-pick are not replayed", async () => {
+  const github = createFakeGitHub(state({
+    issueComments: [
+      command(97, "/cherry-pick release-0.11", { author: "pr-author" }),
+      command(98, "/backport release-0.13\n/hold"),
+      command(99, "/backport release-0.12", { author: "pr-author" }),
+    ],
+  }));
+
+  const result = await run(github);
+
+  assert.deepEqual(result.processedCommentIds, [98, 99]);
+  assert.equal(result.policy.hold, true);
+  assert.deepEqual(result.backportRequests, [
+    { command: "backport", prNumber: 42, targetBranch: "release-0.12", sourceCommentId: 99 },
+  ]);
 });
