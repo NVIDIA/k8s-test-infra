@@ -134,7 +134,7 @@ tests that must not be scoped by `E2E_PROFILES`.
 | Scenario | Target | Primary labels | What it proves |
 |---|---|---|---|
 | Standalone | `make e2e` | `labels`, `fgo`, `mockfiles`, `nvidia-smi`, `nvlink`, `ib`, `pcisysfs`, `ibping`, `ibfabric`, `failure-injection`, `runtime-control` | The mock renders a complete GPU node: driver files, device nodes, `nvidia-smi` inventory, NVLink topology, IB devices, PCI sysfs tree, cross-node `ibping` and fabric discovery, and the four failure modes |
-| DRA driver | `make e2e-dra` | `dra` | Dynamic Resource Allocation (DRA) scheduling works end to end: ResourceSlices report the profile's GPU count, and a pod using a `ResourceClaimTemplate` reaches `Running`, which requires `NodePrepareResources` to have succeeded |
+| DRA driver | `make e2e-dra` | `dra` | Dynamic Resource Allocation (DRA) scheduling works end to end: ResourceSlices report the profile's GPU count, and a pod using a `ResourceClaimTemplate` reaches `Running`, which requires `NodePrepareResources` to have succeeded. With the NRI plugin on (`tilt up -- --dra --nri`, as CI runs it), `dra-nri` runs two claim pods and checks that NRI injects each and `nvidia-smi` lists exactly its claimed GPU; without NRI it is skipped, or fails when `E2E_EXPECT_NRI` is set |
 | GPU Operator | `make e2e-gpu-operator` | `gpu-operator`, `device-plugin`, `dcgm`, `xid`, `pcisysfs`, `runtime-control` | The full operator stack accepts the mock: the validator pod starts, GPU Feature Discovery (GFD) labels appear, allocatable `nvidia.com/gpu` matches the profile, and DCGM telemetry is answered |
 | Multi-node fleet | `make e2e-multi-node` | `multi-node` | A heterogeneous fleet works: separate A100 and T4 releases on different workers, correct per-node mock files and IB behaviour, and a GPU workload scheduled across them |
 | Node-wide NRI injection | `make e2e-nri` | `nri`, `nri-*`, `compute-domain`, `imex-channels` | Node Resource Interface (NRI) injection follows the allocation rules: a pod with no Mokka-specific spec sees exactly its device-plugin allocation, a `devices`-annotated pod with no GPU request sees every GPU, and a pod that asks for neither is left untouched |
@@ -218,6 +218,7 @@ Read by the suite:
 | `E2E_KUBE_CONTEXT` | `kind-mokka` | Kubeconfig context, passed explicitly to helm and kubectl. Node discovery goes through this, not the cluster name |
 | `E2E_ARTIFACTS` | `artifacts/e2e/go` | Where failure diagnostics are written |
 | `E2E_RUN_NGC` | `false` | Run scenarios needing `nvcr.io` images. Truthy: `1`, `true`, `yes`, `on` |
+| `E2E_EXPECT_NRI` | `false` | Fail, instead of skip, NRI-only specs when the nvml-mock NRI plugin is not running. CI sets it on jobs that roll out with `--nri` |
 | `E2E_REPO_ROOT` | walks up for `go.mod` | Overrides repo-root discovery for chart and profile paths |
 | `E2E_HELM_TIMEOUT` | `5m` | `helm upgrade --install --wait` |
 | `E2E_READY_TIMEOUT` | `2m` | DaemonSet, pod and label readiness waits |
