@@ -110,13 +110,14 @@ the whole node. This is the rule from
 [MEP-0002](https://github.com/NVIDIA/k8s-test-infra/tree/main/enhancements/meps/0002-device-plugin-nri-composition):
 whatever the scheduler allocated is never widened.
 
-!!! warning "The device plugin must pass device specs"
+!!! warning "The device plugin must leave evidence of the allocation"
     A device plugin that only sets `NVIDIA_VISIBLE_DEVICES` (the default
-    `envvar` strategy) or delivers CDI devices through pod annotations
+    `envvar` strategy) or delivers CDI devices only through pod annotations
     (`cdi-annotations`) leaves no evidence in the container spec. Its pods are
     treated as unallocated and receive nothing. Run the device plugin with
     `--pass-device-specs=true`, as the
-    [device plugin guide](../guides/device-plugin.md) does.
+    [device plugin guide](../guides/device-plugin.md) does, or with the
+    `cdi-cri` strategy, as the GPU Operator does when CDI is enabled.
 
 !!! note "IMEX sits outside this rule"
     IMEX channels are requested by their own annotation and never suppressed.
