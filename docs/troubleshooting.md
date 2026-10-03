@@ -66,8 +66,8 @@ containers that hold a GPU allocation from the device plugin or the NVIDIA DRA
 driver, or whose pod carries the `nvml-mock.nvidia.com/devices: "true"` or
 `nvml-mock.nvidia.com/imex-channels: "true"` annotation. A pod that requested
 no GPU and has neither annotation is left untouched by design. A device plugin
-that runs without `--pass-device-specs=true` leaves no allocation the plugin can
-recognise, so its pods also receive nothing.
+that runs without `--pass-device-specs=true` or the `cdi-cri` strategy leaves no
+allocation the plugin can recognise, so its pods also receive nothing.
 
 The NRI plugin fails open: when it cannot inject, containers are created
 without the mock rather than failing. That makes a silent window possible, so
