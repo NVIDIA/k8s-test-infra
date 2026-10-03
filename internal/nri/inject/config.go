@@ -73,6 +73,11 @@ type Config struct {
 	NodeName              string
 	TopologyHostPath      string
 	TopologyContainerPath string
+	// ComputeDomainStaging reports that the node agent stages what the DRA
+	// ComputeDomain daemon needs: the IMEX node software and the topology.
+	// Only then does the daemon's creation fail until both are staged, since
+	// only then will they appear. Otherwise the daemon is left unmodified.
+	ComputeDomainStaging bool
 }
 
 // DefaultConfig returns the overlay contract described by the NRI design.

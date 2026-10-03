@@ -39,7 +39,7 @@ nri:
   enabled: true
 
 imex:
-  nodeSoftware:
-    enabled: true
+  # mockChannels also turns on imex.nodeSoftware, which downloads and stages
+  # IMEX for the upstream DRA daemon.
   mockChannels:
     enabled: true

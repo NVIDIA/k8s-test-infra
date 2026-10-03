@@ -20,6 +20,7 @@ variable; the flag wins when both are set.
 | `--host-root` | `MOKKA_AGENT_HOST_ROOT` | `/host` | Where the host filesystem is mounted in this process's namespace |
 | `--health-addr` | `MOKKA_AGENT_HEALTH_ADDR` | `:9090` | Address for `/healthz` and `/readyz`; empty disables both |
 | `--shutdown-timeout` | `MOKKA_AGENT_SHUTDOWN_TIMEOUT` | `30s` | Budget for teardown on SIGINT/SIGTERM |
+| `--imex-download-timeout` | `MOKKA_IMEX_DOWNLOAD_TIMEOUT` | `1m` | Bound on one attempt to download the IMEX archive when IMEX node software is enabled. A failed attempt is retried in the background, from 5 s up to every 5 min, and only the `imex` simulator reports not ready meanwhile |
 | `--log-level` | `MOKKA_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. `warning` is an alias of `warn`; empty falls back to `info` |
 | `--log-format` | `MOKKA_LOG_FORMAT` | `json` | `json` or `plain`; empty falls back to `json` |
 | `--ib-mode` | `MOCK_IB` | `off` | InfiniBand tier: `off`, `sysfs` (render only) or `full` (adds the mock-ib daemon). Empty reads as `off` |
@@ -46,9 +47,10 @@ simulator, so no flag shadows them. The chart sets them — see
 `IMEX_NODE_SOFTWARE_ENABLED=true` makes the IMEX simulator download the
 architecture-specific archive pinned in the repository lock, verify its
 SHA-256 checksum, cache it under the node root, and stage the daemon, control
-tool, config, and Mokka shim in the driver tree. The chart stages it only when
-explicitly enabled, so ordinary installations do not depend on an external
-download. Set `imex.nodeSoftware.enabled=true` to enable staging.
+tool, config, and Mokka shim in the driver tree. The chart sets it when
+`imex.mockChannels.enabled` is on, so only installations that simulate IMEX
+depend on the download. `imex.nodeSoftware.enabled` overrides that: `false`
+opts out on nodes without egress to NVIDIA.
 
 ## Behaviour the flag list does not show
 

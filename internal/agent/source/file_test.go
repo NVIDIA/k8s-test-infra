@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -18,16 +19,14 @@ import (
 )
 
 func TestCompileState_AllSKUs(t *testing.T) {
-	configs, err := filepath.Glob("../../../pkg/gpu/mocknvml/configs/mock-nvml-config-*.yaml")
-	require.NoError(t, err)
-	require.NotEmpty(t, configs, "no config YAMLs found")
+	configs := shippedConfigs(t)
 
 	for _, path := range configs {
 		t.Run(filepath.Base(path), func(t *testing.T) {
 			data, err := os.ReadFile(path)
 			require.NoError(t, err)
 
-			state, err := compileState(data)
+			state, err := compileState(data, path)
 			require.NoError(t, err)
 
 			require.NotEmpty(t, state.Software.DriverVersion, "empty DriverVersion")
@@ -46,7 +45,7 @@ func TestCompileState_FabricState(t *testing.T) {
 	data, err := os.ReadFile("../../../pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml")
 	require.NoError(t, err)
 
-	state, err := compileState(data)
+	state, err := compileState(data, "../../../pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml")
 	require.NoError(t, err)
 
 	require.True(t, state.Fabric.Enabled, "gb200 fabric should be enabled")
@@ -54,17 +53,18 @@ func TestCompileState_FabricState(t *testing.T) {
 }
 
 func TestCompileState_IMEXNodeSoftwareIsIndependentFromMockChannels(t *testing.T) {
-	data, err := os.ReadFile("../../../pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml")
+	path := "../../../pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml"
+	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 
 	t.Setenv("IMEX_NODE_SOFTWARE_ENABLED", "true")
-	state, err := compileState(data)
+	state, err := compileState(data, path)
 	require.NoError(t, err)
 	require.True(t, state.IMEX.NodeSoftwareEnabled)
 	require.False(t, state.IMEX.Enabled)
 
 	t.Setenv("IMEX_MOCK_CHANNELS", "true")
-	state, err = compileState(data)
+	state, err = compileState(data, path)
 	require.NoError(t, err)
 	require.True(t, state.IMEX.NodeSoftwareEnabled)
 	require.True(t, state.IMEX.Enabled)
@@ -76,18 +76,18 @@ func TestCompileState_ManagerStateDir(t *testing.T) {
 	data, err := os.ReadFile("../../../pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml")
 	require.NoError(t, err)
 
-	state, err := compileState(data)
+	state, err := compileState(data, "../../../pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml")
 	require.NoError(t, err)
 	require.Empty(t, state.Fabric.ManagerStateDir)
 
 	t.Setenv(engine.EnvFabricStateDir, " /var/lib/nvml-mock/fabric-state ")
-	state, err = compileState(data)
+	state, err = compileState(data, "../../../pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml")
 	require.NoError(t, err)
 	require.Equal(t, "/var/lib/nvml-mock/fabric-state", state.Fabric.ManagerStateDir)
 }
 
 func TestFileSource_EmitsInitialState(t *testing.T) {
-	configs, _ := filepath.Glob("../../../pkg/gpu/mocknvml/configs/mock-nvml-config-*.yaml")
+	configs := shippedConfigs(t)
 	require.NotEmpty(t, configs, "no configs found")
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -101,15 +101,15 @@ func TestFileSource_EmitsInitialState(t *testing.T) {
 	require.NotNil(t, u.State)
 
 	cancel()
-	for range ch { //nolint:revive // drain closed channel
-	}
+	_, open := <-ch
+	require.False(t, open, "Watch must close the channel once the context is cancelled")
 }
 
 func TestCompileState_PCIIdentityFromDefaults(t *testing.T) {
 	data, err := os.ReadFile("../../../pkg/gpu/mocknvml/configs/mock-nvml-config-h100.yaml")
 	require.NoError(t, err)
 
-	state, err := compileState(data)
+	state, err := compileState(data, "../../../pkg/gpu/mocknvml/configs/mock-nvml-config-h100.yaml")
 	require.NoError(t, err)
 	require.NotEmpty(t, state.Devices)
 
@@ -118,21 +118,19 @@ func TestCompileState_PCIIdentityFromDefaults(t *testing.T) {
 	// attribute files lspci reads.
 	for i, d := range state.Devices {
 		require.Equal(t, uint32(0x233010DE), d.PCIDeviceID, "device %d device_id", i)
-		require.Equal(t, uint32(0x165810DE), d.PCISubsystemID, "device %d subsystem_id", i)
+		require.Equal(t, uint32(0x16C110DE), d.PCISubsystemID, "device %d subsystem_id", i)
 	}
 }
 
 func TestCompileState_EverySKUCarriesPCIIdentity(t *testing.T) {
-	configs, err := filepath.Glob("../../../pkg/gpu/mocknvml/configs/mock-nvml-config-*.yaml")
-	require.NoError(t, err)
-	require.NotEmpty(t, configs, "no config YAMLs found")
+	configs := shippedConfigs(t)
 
 	for _, path := range configs {
 		t.Run(filepath.Base(path), func(t *testing.T) {
 			data, err := os.ReadFile(path)
 			require.NoError(t, err)
 
-			state, err := compileState(data)
+			state, err := compileState(data, path)
 			require.NoError(t, err)
 
 			for i, d := range state.Devices {
@@ -143,17 +141,51 @@ func TestCompileState_EverySKUCarriesPCIIdentity(t *testing.T) {
 	}
 }
 
+// An HGX baseboard's NVSwitches are on the node's PCIe bus, so the profile
+// gives them a PCI identity and they reach the rendered tree as bridges.
+func TestCompileState_CompilesBaseboardSwitches(t *testing.T) {
+	path := "../../../pkg/gpu/mocknvml/configs/mock-nvml-config-h100.yaml"
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	state, err := compileState(data, path)
+	require.NoError(t, err)
+
+	require.Len(t, state.Switches, 4, "HGX H100 carries four NVSwitches")
+	for i, sw := range state.Switches {
+		require.True(t, agent.ValidBDF(sw.PCIBusID), "switch %d bus_id %q", i, sw.PCIBusID)
+		require.Equal(t, uint32(0x22a310de), sw.PCIDeviceID, "switch %d device_id", i)
+	}
+}
+
+// The mirror case, and the reason the identity is what gates compilation: on
+// GB200 NVL the switches live in their own trays, so the compute tray's lspci
+// shows its GPUs and no bridges, even though the profile declares the switches
+// as NVLink endpoints for `nvidia-smi topo -m`.
+func TestCompileState_SkipsSwitchesOffTheNodesBus(t *testing.T) {
+	path := "../../../pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml"
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	state, err := compileState(data, path)
+	require.NoError(t, err)
+
+	require.True(t, state.Fabric.Enabled, "the switches are still NVLink endpoints")
+	require.Empty(t, state.Switches)
+}
+
 // GPU_COUNT truncates the device list while pcie_topology is compiled from the
 // profile whole, so the two disagree on any capped node. The rendered tree is
 // served at the kernel paths now, so a BDF left over from the profile would
 // show a consumer an NVIDIA 3D controller that NVML denies exists.
 func TestCompileState_TopologyTracksACappedDeviceCount(t *testing.T) {
 	t.Setenv("GPU_COUNT", "2")
-	data, err := os.ReadFile(filepath.Join("..", "..", "..", "pkg", "gpu", "mocknvml",
-		"configs", "mock-nvml-config-gb300.yaml"))
+	path := filepath.Join("..", "..", "..", "pkg", "gpu", "mocknvml",
+		"configs", "mock-nvml-config-gb300.yaml")
+	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 
-	state, err := compileState(data)
+	state, err := compileState(data, path)
 	require.NoError(t, err)
 	require.Len(t, state.Devices, 2, "GPU_COUNT caps the devices NVML reports")
 	require.Len(t, state.NodeShape.Topology.RootComplexes, 2,
@@ -177,7 +209,7 @@ device_defaults:
   name: "Mock GPU"
   pci:
     device_id: 0x233010DE
-    subsystem_id: 0x165810DE
+    subsystem_id: 0x16C110DE
 devices:
   - index: 0
     pci:
@@ -185,25 +217,44 @@ devices:
   - index: 1
     pci:
       bus_id: "0000:1B:00.0"
-      device_id: 0x234010DE
-      subsystem_id: 0x181810DE
+      device_id: 0x290110DE
+      subsystem_id: 0x199910DE
 `
-	state, err := compileState([]byte(cfg))
+	state, err := compileState([]byte(cfg), "")
 	require.NoError(t, err)
 	require.Len(t, state.Devices, 2)
 
 	// Device 0 sets only bus_id, so it keeps both profile defaults.
 	require.Equal(t, "0000:1A:00.0", state.Devices[0].PCIBusID)
 	require.Equal(t, uint32(0x233010DE), state.Devices[0].PCIDeviceID)
-	require.Equal(t, uint32(0x165810DE), state.Devices[0].PCISubsystemID)
+	require.Equal(t, uint32(0x16C110DE), state.Devices[0].PCISubsystemID)
 
 	// Device 1 overrides each word independently of bus_id.
 	require.Equal(t, "0000:1B:00.0", state.Devices[1].PCIBusID)
-	require.Equal(t, uint32(0x234010DE), state.Devices[1].PCIDeviceID)
-	require.Equal(t, uint32(0x181810DE), state.Devices[1].PCISubsystemID)
+	require.Equal(t, uint32(0x290110DE), state.Devices[1].PCIDeviceID)
+	require.Equal(t, uint32(0x199910DE), state.Devices[1].PCISubsystemID)
 }
 
 const helmProfileGlob = "../../../deployments/nvml-mock/helm/nvml-mock/profiles/*.yaml"
+
+// shippedConfigs lists the standalone board configs, without the MIG tables
+// that sit beside them. A mock-nvml-config-<board>.mig.yaml is one board's
+// partition table, not a config, and compiles to no node state at all.
+func shippedConfigs(t *testing.T) []string {
+	t.Helper()
+
+	matched, err := filepath.Glob("../../../pkg/gpu/mocknvml/configs/mock-nvml-config-*.yaml")
+	require.NoError(t, err)
+
+	configs := make([]string, 0, len(matched))
+	for _, path := range matched {
+		if !strings.HasSuffix(path, ".mig.yaml") {
+			configs = append(configs, path)
+		}
+	}
+	require.NotEmpty(t, configs, "no config YAMLs found")
+	return configs
+}
 
 // The runtime ConfigMap is rendered from the Helm profiles (see
 // nvml-mock.gpuConfigBase in _helpers.tpl), and only those carry an
@@ -218,7 +269,7 @@ func TestCompileState_NetworkResolvedForEveryProfile(t *testing.T) {
 			data, err := os.ReadFile(path)
 			require.NoError(t, err)
 
-			state, err := compileState(data)
+			state, err := compileState(data, path)
 			require.NoError(t, err)
 
 			net := state.NodeShape.Network
@@ -244,7 +295,7 @@ func TestCompileState_NetworkFromProfile(t *testing.T) {
 	data, err := os.ReadFile("../../../deployments/nvml-mock/helm/nvml-mock/profiles/gb200.yaml")
 	require.NoError(t, err)
 
-	state, err := compileState(data)
+	state, err := compileState(data, "../../../deployments/nvml-mock/helm/nvml-mock/profiles/gb200.yaml")
 	require.NoError(t, err)
 
 	net := state.NodeShape.Network
@@ -273,7 +324,7 @@ func TestCompileState_NetworkDisabled(t *testing.T) {
 			data, err := os.ReadFile(c.path)
 			require.NoError(t, err)
 
-			state, err := compileState(data)
+			state, err := compileState(data, c.path)
 			require.NoError(t, err)
 			require.False(t, state.NodeShape.Network.IBEnabled)
 			require.Equal(t, agent.NetworkShape{}, state.NodeShape.Network)
@@ -468,7 +519,7 @@ devices:
   - index: 1
     uuid: "GPU-bbb"
 `
-	state, err := compileState([]byte(cfg))
+	state, err := compileState([]byte(cfg), "")
 	require.NoError(t, err)
 	require.Len(t, state.Devices, 4)
 	for i, d := range state.Devices {
@@ -488,7 +539,7 @@ devices:
   - index: 1
     minor_number: 0
 `
-	state, err := compileState([]byte(cfg))
+	state, err := compileState([]byte(cfg), "")
 	require.NoError(t, err)
 	require.Equal(t, 1, state.Devices[0].MinorNumber)
 	require.Equal(t, 0, state.Devices[1].MinorNumber, "minor 0 on a device that is not index 0")
@@ -508,7 +559,7 @@ devices:
     minor_number: 1
   - index: 1
 `
-	_, err := compileState([]byte(cfg))
+	_, err := compileState([]byte(cfg), "")
 	require.ErrorContains(t, err, "duplicate device minor number: 1")
 }
 
@@ -527,7 +578,7 @@ devices:
   - index: 3
     minor_number: 1
 `
-	state, err := compileState([]byte(cfg))
+	state, err := compileState([]byte(cfg), "")
 	require.NoError(t, err)
 
 	var yc engine.YAMLConfig
@@ -537,4 +588,451 @@ devices:
 	for _, d := range state.Devices {
 		require.Equal(t, ec.GetDeviceMinorNumber(d.Index), d.MinorNumber, "device %d", d.Index)
 	}
+}
+
+// The agent renders the PCI tree itself, so a BDF two functions claim has to
+// fail here rather than reach buildIdentities, where the second claim would
+// silently take over the first's node and change its class.
+func TestCompileState_RejectsBDFClaimedTwice(t *testing.T) {
+	t.Parallel()
+
+	profile := []byte(`
+version: "1.0"
+system:
+  driver_version: "580.105.08"
+devices:
+  - index: 0
+    pci:
+      bus_id: "0000:1A:00.0"
+nvlink:
+  switches:
+    - bdf: "0000:1a:00.0"
+      device_id: 0x22A310DE
+`)
+
+	_, err := compileState(profile, "")
+	require.ErrorContains(t, err, "duplicate pci bus id: 0000:1a:00.0 (device 0 and nvlink.switches[0])")
+}
+
+func TestCompileState_MIGFromProfile(t *testing.T) {
+	data := []byte(`
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+  num_devices: 2
+device_defaults:
+  name: "NVIDIA A100-SXM4-40GB"
+  memory:
+    total_bytes: 42949672960
+  mig:
+    mode_current: "enabled"
+    mode_pending: "enabled"
+    max_gpu_instances: 7
+    # A board is MIG-capable by declaring its profile table, so the row this
+    # layout partitions with has to be in it.
+    supported_profiles:
+      - name: "1g.5gb"
+        nvml_profile: "1_SLICE"
+        profile_id: 19
+        instances: 7
+        memory_mb: 4864
+        multiprocessors: 14
+        copy_engines: 1
+        placements:
+          - {start: 0, size: 1}
+          - {start: 1, size: 1}
+          - {start: 2, size: 1}
+          - {start: 3, size: 1}
+          - {start: 4, size: 1}
+          - {start: 5, size: 1}
+          - {start: 6, size: 1}
+        compute_instances:
+          - nvml_profile: "1_SLICE"
+            slices: 1
+            instances: 1
+            multiprocessors: 14
+            shared_copy_engines: 1
+    gpu_instances:
+      - profile: "1g.5gb"
+        count: 3
+`)
+
+	state, err := compileState(data, "")
+	require.NoError(t, err)
+
+	require.True(t, state.MIG.Partitioned())
+	require.Equal(t, 236, state.MIG.CapsMajor)
+	require.Len(t, state.MIG.GPUs, 2)
+	for i, gpu := range state.MIG.GPUs {
+		// The capability names key on the GPU's device-node minor, which this
+		// profile leaves implicit, so it follows the index.
+		require.Equal(t, i, gpu.Minor)
+		require.Len(t, gpu.GPUInstances, 3)
+		for _, gi := range gpu.GPUInstances {
+			require.Len(t, gi.ComputeInstances, 1)
+			require.Equal(t, uint32(0), gi.ComputeInstances[0].ID)
+			require.NotEmpty(t, gi.ComputeInstances[0].UUID)
+		}
+	}
+}
+
+// migLayoutWithoutTable is a MIG-capable board that declares a layout and no
+// partition table, which is what the chart renders now that the table is a
+// document of its own. The name it partitions with is a row of the shipped
+// gb200 table, so the two files only compile together.
+const migLayoutWithoutTable = `
+version: "1.0"
+system:
+  driver_version: "580.65.06"
+  num_devices: 1
+device_defaults:
+  name: "NVIDIA GB200"
+  memory:
+    total_bytes: 193273528320
+  mig:
+    mode_current: "enabled"
+    mode_pending: "enabled"
+    max_gpu_instances: 7
+    gpu_instances:
+      - profile: "1g.23gb"
+        count: 7
+`
+
+// migSiblingLayout writes that config and the shipped gb200 table into a
+// directory as the sibling pair, and returns the config path.
+func migSiblingLayout(t *testing.T) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(migLayoutWithoutTable), 0o600))
+
+	return configPath
+}
+
+// migWriteSiblingTable puts the shipped gb200 partition table beside configPath.
+func migWriteSiblingTable(t *testing.T, configPath string) {
+	t.Helper()
+
+	table, err := os.ReadFile("../../../pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.mig.yaml")
+	require.NoError(t, err)
+
+	sibling := strings.TrimSuffix(configPath, filepath.Ext(configPath)) + ".mig.yaml"
+	require.NoError(t, os.WriteFile(sibling, table, 0o600))
+}
+
+// The agent has to resolve the partition table the same way the engine does.
+// Compiling the profile alone leaves a MIG-capable board looking unpartitionable,
+// and the symptom is remote from the cause: NVML enumerates the partitions
+// correctly while the node stages no capability table at all, so a consumer
+// finds a MIG device it has no cap node to reach.
+func TestCompileState_MIGTableFromASiblingDocument(t *testing.T) {
+	t.Parallel()
+
+	configPath := migSiblingLayout(t)
+	migWriteSiblingTable(t, configPath)
+
+	state, err := compileState([]byte(migLayoutWithoutTable), configPath)
+	require.NoError(t, err)
+
+	require.True(t, state.MIG.Partitioned(),
+		"a board whose table sits in a sibling document must still partition")
+	require.Len(t, state.MIG.GPUs, 1)
+	require.Len(t, state.MIG.GPUs[0].GPUInstances, 7,
+		"every partition the layout asks for must resolve against the sibling table")
+}
+
+// The table is a second mount, so it can arrive after the first poll. Hashing
+// the config alone would latch the unpartitioned compile: the config never
+// changes afterwards, so no later poll would reconcile and the node would stage
+// no capability table for the rest of the pod's life.
+func TestFileSource_MIGTableArrivingLateTriggersAReconcile(t *testing.T) {
+	t.Parallel()
+
+	configPath := migSiblingLayout(t)
+	f := NewFileSource(configPath, filepath.Join(filepath.Dir(configPath), "topology.yaml"), zap.NewNop())
+
+	var hash [32]byte
+	u := pollOnce(t, f, &hash)
+	require.NotNil(t, u, "initial poll emits")
+	require.NoError(t, u.Err)
+	require.False(t, u.State.MIG.Partitioned(), "no table is mounted yet")
+
+	migWriteSiblingTable(t, configPath)
+
+	u = pollOnce(t, f, &hash)
+	require.NotNil(t, u, "a table that arrives late must emit an update")
+	require.NoError(t, u.Err)
+	require.True(t, u.State.MIG.Partitioned())
+}
+
+// A table that cannot be read is not a board without one. The distinction
+// matters here rather than in the engine because this is where it turns
+// destructive: gpudriver withdraws the staged table whenever the state it is
+// given carries none, so compiling an unreadable mount as "unpartitioned"
+// would take the partition table and the capability nodes away from a node
+// that is serving partitions. An error leaves the last good state in place.
+func TestFileSource_AnUnreadableMIGTableDoesNotWithdrawThePartitions(t *testing.T) {
+	t.Parallel()
+
+	configPath := migSiblingLayout(t)
+	migWriteSiblingTable(t, configPath)
+
+	f := NewFileSource(configPath, filepath.Join(filepath.Dir(configPath), "topology.yaml"), zap.NewNop())
+
+	var hash [32]byte
+	u := pollOnce(t, f, &hash)
+	require.NotNil(t, u)
+	require.NoError(t, u.Err)
+	require.True(t, u.State.MIG.Partitioned(), "the board starts out partitioned")
+
+	// A symlink loop in place of the table: the name still resolves as
+	// present, so this is not absence, and the lookup fails with ELOOP rather
+	// than "not found". Deterministic, and unlike an unreadable directory it
+	// does not depend on the uid the tests run as.
+	sibling := strings.TrimSuffix(configPath, filepath.Ext(configPath)) + ".mig.yaml"
+	require.NoError(t, os.Remove(sibling))
+	require.NoError(t, os.Symlink(sibling, sibling))
+
+	u = pollOnce(t, f, &hash)
+	require.NotNil(t, u, "an unreadable table must emit rather than go quiet")
+	require.Error(t, u.Err, "an unreadable table must fail the compile, not partition the board away")
+	require.Nil(t, u.State, "no state means gpudriver stages nothing and withdraws nothing")
+}
+
+// The same rule as the unreadable table, one step further in: a profile that
+// reads back fine and does not validate is still not a board to reconfigure
+// the node onto. gpudriver stages whatever state it is handed, so emitting a
+// nil state with the error is what keeps the partitions, the capability nodes
+// and the CDI entries of the last good profile in place.
+func TestFileSource_AProfileTheLibraryWouldRefuseDoesNotReplaceTheLastGoodOne(t *testing.T) {
+	t.Parallel()
+
+	configPath := migSiblingLayout(t)
+	migWriteSiblingTable(t, configPath)
+
+	f := NewFileSource(configPath, filepath.Join(filepath.Dir(configPath), "topology.yaml"), zap.NewNop())
+
+	var hash [32]byte
+	u := pollOnce(t, f, &hash)
+	require.NotNil(t, u)
+	require.NoError(t, u.Err)
+	require.True(t, u.State.MIG.Partitioned(), "the board starts out partitioned")
+
+	refused := strings.Replace(migLayoutWithoutTable, "  driver_version: \"580.65.06\"\n", "", 1)
+	require.NoError(t, os.WriteFile(configPath, []byte(refused), 0o600))
+
+	u = pollOnce(t, f, &hash)
+	require.NotNil(t, u, "a profile that cannot be staged must emit rather than go quiet")
+	require.Error(t, u.Err, "the library would refuse this profile and fall back to its defaults")
+	require.Nil(t, u.State, "no state means gpudriver stages nothing and withdraws nothing")
+}
+
+// The agent stages the very document the mock library later loads, and the
+// library answers a profile it cannot validate by falling back to its built-in
+// eight-A100 default. A profile the agent accepts and the library refuses
+// therefore does not surface as an error anywhere: the node simulates hardware
+// that the character devices, capability nodes and CDI entries staged beside it
+// do not describe. The two verdicts have to be the same verdict.
+func TestCompileState_AcceptsExactlyWhatTheLibraryAccepts(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		doc  string
+	}{
+		{
+			name: "the layout the chart renders",
+			doc:  migLayoutWithoutTable,
+		},
+		{
+			// Naming a row twice leaves no single row selected.
+			name: "an entry carrying both profile selectors",
+			doc: strings.Replace(migLayoutWithoutTable,
+				`      - profile: "1g.23gb"`,
+				"      - profile: \"1g.23gb\"\n        profile_id: 19", 1),
+		},
+		{
+			name: "no driver version",
+			doc:  strings.Replace(migLayoutWithoutTable, "  driver_version: \"580.65.06\"\n", "", 1),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			configPath := filepath.Join(t.TempDir(), "config.yaml")
+			require.NoError(t, os.WriteFile(configPath, []byte(tt.doc), 0o600))
+			migWriteSiblingTable(t, configPath)
+
+			_, libErr := engine.LoadYAMLConfig(configPath)
+			_, agentErr := compileState([]byte(tt.doc), configPath)
+
+			if libErr == nil {
+				require.NoError(t, agentErr, "the library loads this profile, so the agent must compile it")
+
+				return
+			}
+			require.Error(t, agentErr,
+				"the library refuses this profile (%v) and would fall back to its defaults, so the agent must not stage it", libErr)
+		})
+	}
+}
+
+// TestCompileState_MIGDisabledInEveryShippedProfile pins the deliberate default:
+// a MIG-capable profile declares what it could be partitioned into but boots
+// with MIG off, because migStrategy=single stops publishing nvidia.com/gpu the
+// moment a board is partitioned, which would change every existing e2e leg.
+func TestCompileState_MIGDisabledInEveryShippedProfile(t *testing.T) {
+	profiles, err := filepath.Glob(helmProfileGlob)
+	require.NoError(t, err)
+	require.NotEmpty(t, profiles)
+
+	for _, path := range profiles {
+		if strings.Contains(filepath.Base(path), "-mig") {
+			continue // the MIG profiles exist precisely to boot partitioned
+		}
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+
+			state, err := compileState(data, path)
+			require.NoError(t, err)
+			require.False(t, state.MIG.Partitioned(),
+				"%s must boot unpartitioned", filepath.Base(path))
+		})
+	}
+}
+
+// chartMIGLayouts is the partitioning gpu.mig.gpuInstances documents for each
+// MIG-capable board: the board filled with its smallest slice. No profile
+// declares a layout of its own, so these are what an install actually asks
+// for, and what the test below drives.
+var chartMIGLayouts = map[string]engine.MIGGPUInstanceConfig{
+	"a100":  {Profile: "1g.5gb", Count: 7},
+	"h100":  {Profile: "1g.10gb", Count: 7},
+	"b200":  {Profile: "1g.23gb", Count: 7},
+	"gb200": {Profile: "1g.23gb", Count: 7},
+	"gb300": {Profile: "1g.35gb", Count: 7},
+}
+
+// TestCompileState_ChartMIGLayoutsAllResolve guards the documented layouts
+// against a partition name the board's MIG table does not know. An
+// unresolvable name is only warned about and skipped, so without this an
+// install would quietly get fewer partitions than it asked for — visible only
+// as a smaller allocatable count in a cluster.
+//
+// It drives compileState, and mounts the table the way the chart does, so the
+// agent's own resolution is what is under test. Attaching the table here
+// instead would prove the two documents agree while saying nothing about
+// whether the agent ever joins them.
+func TestCompileState_ChartMIGLayoutsAllResolve(t *testing.T) {
+	profiles, err := filepath.Glob(helmProfileGlob)
+	require.NoError(t, err)
+	require.NotEmpty(t, profiles)
+
+	covered := 0
+	for _, path := range profiles {
+		name := strings.TrimSuffix(filepath.Base(path), ".yaml")
+		want, capable := chartMIGLayouts[name]
+		if !capable {
+			continue
+		}
+		covered++
+
+		t.Run(name, func(t *testing.T) {
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+
+			var cfg engine.YAMLConfig
+			require.NoError(t, yaml.Unmarshal(data, &cfg))
+			require.NotNil(t, cfg.DeviceDefaults.MIG, "%s should be a MIG-capable board", name)
+
+			// What the chart renders for gpu.mig.enabled=true with
+			// gpu.mig.gpuInstances: the mode on, the layout supplied.
+			cfg.DeviceDefaults.MIG.ModeCurrent = "enabled"
+			cfg.DeviceDefaults.MIG.GPUInstances = []engine.MIGGPUInstanceConfig{want}
+			enabled, err := yaml.Marshal(&cfg)
+			require.NoError(t, err)
+
+			table := filepath.Join(filepath.Dir(path), "mig", name+".yaml")
+			require.FileExists(t, table, "%s declares a mig block but ships no table", name)
+			t.Setenv(engine.EnvMIGProfilesConfig, table)
+
+			state, err := compileState(enabled, path)
+			require.NoError(t, err)
+
+			require.NotEmpty(t, state.MIG.GPUs)
+			for _, gpu := range state.MIG.GPUs {
+				require.Len(t, gpu.GPUInstances, want.Count,
+					"every partition asked for must resolve and fit")
+				for _, gi := range gpu.GPUInstances {
+					require.NotEmpty(t, gi.ComputeInstances)
+				}
+			}
+		})
+	}
+	require.Equal(t, len(chartMIGLayouts), covered,
+		"a board in chartMIGLayouts has no chart profile of that name")
+}
+
+// A profile is free to number the device nodes independently of the NVML
+// index, and the MIG capability names have to follow the nodes gpudriver
+// actually creates. Keying them on the index instead would point a consumer
+// at another GPU's cap devices on exactly the profiles that renumber.
+func TestCompileState_MIGCapsFollowTheDeviceMinor(t *testing.T) {
+	data := []byte(`
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+  num_devices: 2
+device_defaults:
+  name: "NVIDIA A100-SXM4-40GB"
+  memory:
+    total_bytes: 42949672960
+  mig:
+    mode_current: "enabled"
+    mode_pending: "enabled"
+    max_gpu_instances: 7
+    supported_profiles:
+      - name: "1g.5gb"
+        nvml_profile: "1_SLICE"
+        profile_id: 19
+        instances: 7
+        memory_mb: 4864
+        multiprocessors: 14
+        copy_engines: 1
+        placements:
+          - {start: 0, size: 1}
+          - {start: 1, size: 1}
+          - {start: 2, size: 1}
+          - {start: 3, size: 1}
+          - {start: 4, size: 1}
+          - {start: 5, size: 1}
+          - {start: 6, size: 1}
+        compute_instances:
+          - nvml_profile: "1_SLICE"
+            slices: 1
+            instances: 1
+            multiprocessors: 14
+            shared_copy_engines: 1
+    gpu_instances:
+      - profile: "1g.5gb"
+        count: 1
+devices:
+  - index: 0
+    minor_number: 5
+  - index: 1
+    minor_number: 4
+`)
+
+	state, err := compileState(data, "")
+	require.NoError(t, err)
+	require.True(t, state.MIG.Partitioned())
+	require.Len(t, state.MIG.GPUs, 2)
+
+	minors := []int{state.MIG.GPUs[0].Minor, state.MIG.GPUs[1].Minor}
+	require.Equal(t, []int{5, 4}, minors,
+		"cap names must use the profile's minor numbers, not the NVML indices")
 }

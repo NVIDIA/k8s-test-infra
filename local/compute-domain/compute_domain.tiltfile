@@ -45,7 +45,7 @@ def build_images(nvmlmock_image=''):
         return
     # Locally tagged rather than the ghcr.io ref used by
     # local/nvml_mock.tiltfile so the scenario is isolated from other Tilt
-    # sessions. IMEX userspace is acquired on the node at runtime; neither
+    # sessions. IMEX node software is acquired on the node at runtime; neither
     # Mokka nor the upstream DRA image needs a capability-specific variant.
     # Same Dockerfile as local/nvml_mock.tiltfile, so this list has to carry
     # the same trees.

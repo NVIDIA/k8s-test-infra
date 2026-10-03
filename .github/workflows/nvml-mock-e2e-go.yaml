@@ -65,12 +65,6 @@ on:
 
 env:
   GO_VERSION: ${{ inputs.golang_version }}
-  KIND_VERSION: "v0.31.0"
-  KIND_AMD64_SHA256: "eb244cbafcc157dff60cf68693c14c9a75c4e6e6fedaf9cd71c58117cb93e3fa"
-  # Standalone `e2e` job only (pilot): pinned so Tilt version drift doesn't
-  # silently change rollout semantics between runs. Bump alongside local dev.
-  TILT_VERSION: "0.37.5"
-  TILT_LINUX_X86_64_SHA256: "9efb56969c48ddea4adfb56a604b9ca5ed254924ddf140fc3e068a305cacf558"
   # Local ref of the pre-built nvml-mock image every leg loads from the
   # run-scoped artifact build-nvmlmock-image uploads. Deliberately identical to
   # the harness default in tests/e2e/go/framework/config/config.go, so CI and a
@@ -364,7 +358,7 @@ jobs:
         run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
 
   # Exercise ComputeDomain against the unmodified upstream DRA image. This is
-  # the path that depends on the node agent's downloaded IMEX userspace,
+  # the path that depends on the node agent's downloaded IMEX node software,
   # substitute proc/devices, and NRI injection working together.
   e2e-compute-domain-dra:
     needs: [build-nvmlmock-image, build-kind-node-image]
@@ -372,26 +366,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
-
-      - name: Install Helm
-        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
-
-      - name: Install Kind
-        run: |
-          curl -fsSLo ./kind "https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION }}/kind-linux-amd64"
-          echo "${{ env.KIND_AMD64_SHA256 }}  ./kind" | sha256sum --check
-          chmod +x ./kind
-          sudo mv ./kind /usr/local/bin/kind
-          kind version
-
-      - name: Install Tilt
-        run: |
-          archive="${RUNNER_TEMP}/tilt.${TILT_VERSION}.linux.x86_64.tar.gz"
-          curl -fsSLo "${archive}" \
-            "https://github.com/tilt-dev/tilt/releases/download/v${TILT_VERSION}/tilt.${TILT_VERSION}.linux.x86_64.tar.gz"
-          echo "${TILT_LINUX_X86_64_SHA256}  ${archive}" | sha256sum --check
-          sudo tar -xzf "${archive}" -C /usr/local/bin tilt
-          tilt version
 
       - name: Download pre-built images
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -405,10 +379,10 @@ jobs:
           make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
           make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
 
-      - name: Create ComputeDomain Kind cluster
+      - name: Install binaries and create ComputeDomain Kind cluster
         env:
-          KIND_NODE_IMAGE_PREBUILT: "1"
-        run: make cluster-create PROFILE=compute-domain
+          PROFILE: compute-domain
+        run: ./hack/e2e-ci-cluster.sh
 
       - name: Load nvml-mock image into Kind
         run: kind load docker-image "$E2E_IMAGE" --name mokka-compute-domain

@@ -39,24 +39,32 @@ type Simulator struct {
 	host            *host.Host
 	ready           atomic.Bool
 	procDevicesPath string // /proc/devices in production; overridden in tests
-	userspace       *userspaceInstaller
+	installer       *installer
+	nodeSoftware    nodeSoftware
 }
 
-// Options supplies the node-local inputs used to stage IMEX userspace.
+// Options supplies the node-local inputs used to stage IMEX node software.
 type Options struct {
 	Architecture string
 	ShimPath     string
 	Lock         Lock
-	HTTPClient   *http.Client
+	// DownloadTimeout bounds each download attempt; failed attempts are
+	// retried in the background. Ignored when HTTPClient is set.
+	DownloadTimeout time.Duration
+	HTTPClient      *http.Client
 }
+
+// DefaultDownloadTimeout bounds one download attempt of the pinned archive,
+// which is under 8 MiB.
+const DefaultDownloadTimeout = time.Minute
 
 // New returns an imex Simulator.
 func New(h *host.Host, options ...Options) *Simulator {
 	opt := Options{
-		Architecture: runtime.GOARCH,
-		ShimPath:     "/usr/local/bin/nvidia-imex-shim",
-		Lock:         mustDefaultLock(),
-		HTTPClient:   &http.Client{Timeout: 5 * time.Minute},
+		Architecture:    runtime.GOARCH,
+		ShimPath:        "/usr/local/bin/nvidia-imex-shim",
+		Lock:            mustDefaultLock(),
+		DownloadTimeout: DefaultDownloadTimeout,
 	}
 	if len(options) > 0 {
 		provided := options[0]
@@ -69,19 +77,27 @@ func New(h *host.Host, options ...Options) *Simulator {
 		if provided.Lock.Version != "" {
 			opt.Lock = provided.Lock
 		}
-		if provided.HTTPClient != nil {
-			opt.HTTPClient = provided.HTTPClient
+		if provided.DownloadTimeout > 0 {
+			opt.DownloadTimeout = provided.DownloadTimeout
 		}
+		opt.HTTPClient = provided.HTTPClient
+	}
+	if opt.HTTPClient == nil {
+		opt.HTTPClient = &http.Client{Timeout: opt.DownloadTimeout}
 	}
 	return &Simulator{
 		host:            h,
 		procDevicesPath: "/proc/devices",
-		userspace: &userspaceInstaller{
+		installer: &installer{
 			root:       h.Root,
 			shimPath:   opt.ShimPath,
 			arch:       opt.Architecture,
 			lock:       opt.Lock,
 			httpClient: opt.HTTPClient,
+		},
+		nodeSoftware: nodeSoftware{
+			retryInitial: defaultRetryInitial,
+			retryMax:     defaultRetryMax,
 		},
 	}
 }
@@ -89,52 +105,30 @@ func New(h *host.Host, options ...Options) *Simulator {
 // Name returns the simulator's stable identifier.
 func (s *Simulator) Name() string { return name }
 
-// Ready reports whether the last Stage call completed without error.
-func (s *Simulator) Ready() bool { return s.ready.Load() }
+// Ready reports whether the last Stage call completed without error and, when
+// enabled, the IMEX node software is published.
+func (s *Simulator) Ready() bool { return s.ready.Load() && s.nodeSoftware.published.Load() }
 
 // Stage materializes the IMEX capability surface under host.Root.
-// It is a no-op (but marks ready) when state.IMEX.Enabled is false.
+//
+// The kernel surface is local and fails Stage like any other simulator. The
+// node software never does: see reconcileNodeSoftware.
 func (s *Simulator) Stage(ctx context.Context, state *agent.State) error {
 	s.ready.Store(false)
 	zap.L().Info("staging simulator", zap.String("simulator", name))
-	if !state.IMEX.NodeSoftwareEnabled {
-		if err := s.reconcileUserspace(ctx, false); err != nil {
-			return err
-		}
-	}
-
-	if !state.IMEX.Enabled && !state.IMEX.NodeSoftwareEnabled {
-		s.ready.Store(true)
-		zap.L().Info("simulator staged; imex disabled", zap.String("simulator", name))
-		return nil
-	}
 
 	if state.IMEX.Enabled {
 		if err := s.stageKernelSurface(state); err != nil {
 			return err
 		}
 	}
-	if state.IMEX.NodeSoftwareEnabled {
-		if err := s.reconcileUserspace(ctx, true); err != nil {
-			return err
-		}
+	if err := s.reconcileNodeSoftware(ctx, state.IMEX.NodeSoftwareEnabled); err != nil {
+		return err
 	}
 
 	s.ready.Store(true)
-	zap.L().Info("simulator staged", zap.String("simulator", name))
-	return nil
-}
-
-func (s *Simulator) reconcileUserspace(ctx context.Context, enabled bool) error {
-	if enabled {
-		if err := s.userspace.stage(ctx); err != nil {
-			return fmt.Errorf("imex userspace: %w", err)
-		}
-		return nil
-	}
-	if err := s.userspace.discard(); err != nil {
-		return fmt.Errorf("remove disabled imex userspace: %w", err)
-	}
+	zap.L().Info("simulator staged", zap.String("simulator", name),
+		zap.Bool("kernelSurface", state.IMEX.Enabled), zap.Bool("nodeSoftware", state.IMEX.NodeSoftwareEnabled))
 	return nil
 }
 
@@ -173,7 +167,8 @@ func (s *Simulator) Discard(_ context.Context) error {
 			errs = append(errs, err)
 		}
 	}
-	if err := s.userspace.discard(); err != nil {
+	s.stopFetch()
+	if err := s.installer.discard(); err != nil {
 		errs = append(errs, err)
 	}
 

@@ -349,11 +349,16 @@ imex:
   # recovery. NRI recognizes the upstream
   # DRA compute-domain-daemon by its pod label and container name and adds only
   # the staged real executable and mock topology absent from the CDI edits,
-  # without changing its image. Disabled by default so ordinary installations
-  # do not depend on an external download. The first successful stage requires
-  # outbound HTTPS.
+  # without changing its image. The first successful stage requires outbound
+  # HTTPS; until it succeeds, only the agent's imex simulator reports not
+  # ready, and the download is retried in the background.
   nodeSoftware:
-    enabled: false
+    # Tri-state: empty follows imex.mockChannels.enabled, so only installs that
+    # simulate IMEX download it. Set false to opt out on a node without egress
+    # to NVIDIA, or true to stage it without the mock channels.
+    enabled: ""
+    # Bound on one download attempt (Go duration).
+    downloadTimeout: 1m
 
 # Fake nvidia-fabricmanager. NVSwitch platforms (HGX H100 / GB200 / GB300)
 # run nvidia-fabricmanager to register GPUs with the NVSwitch fabric. When

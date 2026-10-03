@@ -14,7 +14,8 @@
 # limitations under the License.
 #
 # Prepares a GitHub Actions runner for an nvml-mock E2E leg: installs pinned
-# Kind, Helm and Tilt, then creates the `mokka` Kind cluster.
+# Kind, Helm and Tilt, then creates the Kind cluster for PROFILE (`default`
+# creates `mokka`, `compute-domain` creates `mokka-compute-domain`).
 #
 # Expects the pre-built kind-node image (kind-node-nv:latest) already in the
 # local docker daemon; the workflow stages it from its artifact beforehand.
@@ -31,7 +32,7 @@ readonly HELM_VERSION=v4.3.0
 # Pinned so Tilt version drift doesn't silently change rollout semantics
 # between runs. Bump alongside local dev.
 readonly TILT_VERSION=0.37.5
-readonly CLUSTER_NAME=mokka
+readonly PROFILE="${PROFILE:-default}"
 
 # Checksums are per release asset, so bumping a version above means updating
 # its checksum for both architectures. Tilt names its x86 assets `x86_64`
@@ -82,9 +83,9 @@ rm -f "${RUNNER_TEMP}/tilt.tar.gz"
 tilt version
 echo "::endgroup::"
 
-echo "::group::Create Kind cluster ${CLUSTER_NAME}"
+echo "::group::Create Kind cluster (profile ${PROFILE})"
 # Same command a laptop dev runs (local/kind/default.kind.yaml, context
 # kind-mokka). KIND_NODE_IMAGE_PREBUILT makes the Makefile trust the staged
 # image instead of rebuilding it.
-KIND_NODE_IMAGE_PREBUILT=1 make cluster-create
+KIND_NODE_IMAGE_PREBUILT=1 make cluster-create PROFILE="${PROFILE}"
 echo "::endgroup::"

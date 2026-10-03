@@ -88,7 +88,7 @@ jobs:
     # an upstream archive replacement, a stale checksum, or layout drift for
     # either supported architecture before the node agent reaches a cluster.
     - name: Validate pinned NVIDIA IMEX archives
-      run: make test-imex-userspace-download
+      run: make test-imex-archives
 
     - name: Run mockfs integration tests
       run: make test-mockfs

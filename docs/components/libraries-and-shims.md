@@ -206,7 +206,7 @@ that make the C tools agree with them.
 make mockfs-shim     # build libmockfs.so
 make test-mockfs     # integration tests against real C test binaries
 make test-nvidia-imex-shim
-make test-imex-userspace-download # opt-in official archive validation
+make test-imex-archives # opt-in official archive validation
 ```
 
 `libmockfs` ships test binaries under `testbin/` that exercise the fortified

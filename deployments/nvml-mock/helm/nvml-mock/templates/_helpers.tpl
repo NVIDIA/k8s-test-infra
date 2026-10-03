@@ -469,3 +469,23 @@ driver_version the engine reports via NVML. Fails if neither is set.
 {{- end -}}
 {{- end -}}
 {{- end }}
+
+{{/*
+nvml-mock.imexNodeSoftware renders "true" when the node agent stages IMEX node
+software. imex.nodeSoftware.enabled is a tri-state override: empty follows
+imex.mockChannels.enabled, the setting that simulates IMEX on the node, so only
+installs that simulate IMEX download it; true or false forces it, and false is
+the opt-out for installs without egress to NVIDIA.
+*/}}
+{{- define "nvml-mock.imexNodeSoftware" -}}
+{{- $override := get (.Values.imex.nodeSoftware | default dict) "enabled" -}}
+{{- if and (not (kindIs "invalid" $override)) (ne (toString $override) "") -}}
+{{- $s := toString $override -}}
+{{- if not (has $s (list "true" "false")) -}}
+{{- fail (printf "imex.nodeSoftware.enabled must be true, false or empty (got %q)" $s) -}}
+{{- end -}}
+{{- ternary "true" "false" (eq $s "true") -}}
+{{- else -}}
+{{- ternary "true" "false" (eq (toString .Values.imex.mockChannels.enabled) "true") -}}
+{{- end -}}
+{{- end }}

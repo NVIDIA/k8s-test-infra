@@ -108,5 +108,5 @@ RUN set -eux; \
     rm -rf /tmp/nvidia-utils /tmp/nvidia-utils-580*.deb \
            /usr/share/keyrings/nvidia.gpg /etc/apt/sources.list.d/nvidia.list; \
     # The node daemon uses the system trust store when explicitly configured
-    # to acquire IMEX userspace from the pinned NVIDIA HTTPS endpoint. \
+    # to acquire IMEX node software from the pinned NVIDIA HTTPS endpoint. \
     apt-get purge -y --auto-remove curl gnupg2 patchelf

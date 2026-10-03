@@ -791,6 +791,9 @@ func installNRIChart(ctx context.Context, h *harness.Harness, p profile.Profile,
 			// creates them; the NRI plugin consumes what this stages.
 			"imex.mockChannels.enabled":      "true",
 			"imex.mockChannels.channelCount": strconv.Itoa(nriImexChannelCount),
+			// The channels alone would also download IMEX node software. Only
+			// the specs that need it opt back in.
+			"imex.nodeSoftware.enabled": "false",
 		},
 		Wait:    true,
 		Timeout: config.HelmTimeout(),

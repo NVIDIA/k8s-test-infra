@@ -549,3 +549,41 @@ tests:
             name: nri-health
             containerPort: 18515
             protocol: TCP
+
+  # The DRA ComputeDomain daemon is held back only while the agent is going to
+  # stage what it needs. Under chart defaults nothing stages it, and holding the
+  # daemon back would block it forever.
+  - it: should not hold the ComputeDomain daemon back by default
+    set:
+      nri:
+        enabled: true
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[1].args
+          content: --compute-domain-staging
+
+  - it: should not hold the ComputeDomain daemon back without the topology
+    set:
+      nri:
+        enabled: true
+      imex:
+        nodeSoftware:
+          enabled: true
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[1].args
+          content: --compute-domain-staging
+
+  - it: should hold the ComputeDomain daemon back while the agent stages IMEX and the topology
+    set:
+      nri:
+        enabled: true
+      imex:
+        nodeSoftware:
+          enabled: true
+      topology:
+        enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --compute-domain-staging

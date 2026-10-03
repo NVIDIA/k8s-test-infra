@@ -142,10 +142,13 @@ proceeds.
 
 The DRA ComputeDomain daemon is the exception. Its Mokka-specific adjustment is
 useful only when both the real IMEX executable and the node topology are staged.
-The plugin rejects that container's creation while either prerequisite is
-missing, so kubelet retries after the node agent converges. This gate applies
-only to a container named `compute-domain-daemon` in a pod carrying the DRA
-ComputeDomain label; it cannot block the node agent or unrelated workloads.
+When the node agent stages them (`imex.nodeSoftware.enabled` and
+`topology.enabled`), the plugin rejects that container's creation while either
+is missing, so kubelet retries until the agent has staged them. Otherwise they
+would never appear, so the plugin leaves the daemon unmodified and logs a
+warning. This gate applies only to a container named `compute-domain-daemon` in
+a pod carrying the DRA ComputeDomain label; it cannot block the node agent or
+unrelated workloads.
 
 That choice has a consequence worth knowing about. **A plugin containerd has
 unregistered stays alive and silently stops injecting** — nothing crashes, pods

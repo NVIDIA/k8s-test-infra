@@ -480,8 +480,8 @@ test-mockfs: mockfs-shim ## Run mockfs integration tests
 test-nvidia-imex-shim: build ## Run nvidia-imex-shim integration tests
 	@$(GO_CMD) test -v ./shims/nvidia-imex-shim/...
 
-.PHONY: test-imex-userspace-download
-test-imex-userspace-download: ## Download, verify, and extract every architecture in the IMEX lock
+.PHONY: test-imex-archives
+test-imex-archives: ## Download, verify, and extract every architecture in the IMEX lock
 	@MOKKA_IMEX_DOWNLOAD_TEST=1 $(GO_CMD) test -run '^TestPinnedOfficialArchives$$' -v ./internal/agent/imex
 
 .PHONY: verify-greptile

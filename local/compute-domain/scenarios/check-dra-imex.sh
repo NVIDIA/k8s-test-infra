@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Prove that the unmodified upstream DRA controller can create and recover its
-# real compute-domain-daemon fleet using IMEX userspace staged by Mokka.
+# real compute-domain-daemon fleet using IMEX node software staged by Mokka.
 
 set -euo pipefail
 
@@ -98,6 +98,28 @@ minimal_nri_adjustment() {
   done <<< "${pods}"
 }
 
+pod_uids() {
+  local namespace=$1 selector=$2
+  k -n "${namespace}" get pods -l "${selector}" \
+    -o jsonpath='{range .items[*]}{.metadata.uid}{"\n"}{end}' | sort
+}
+
+# True once none of the pods listed in old_uids exists any more. A DaemonSet's
+# status can still describe deleted pods, so rollout status alone does not prove
+# a restart happened.
+pods_replaced() {
+  local namespace=$1 selector=$2 old_uids=$3 current
+  current=$(pod_uids "${namespace}" "${selector}" 2>/dev/null) || return 1
+  [[ -z "$(comm -12 <(printf '%s\n' "${old_uids}") <(printf '%s\n' "${current}") | sed '/^$/d')" ]]
+}
+
+pods_ready() {
+  local namespace=$1 selector=$2 expected=$3 ready
+  ready=$(k -n "${namespace}" get pods -l "${selector}" \
+    -o jsonpath='{range .items[*]}{.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' 2>/dev/null) || return 1
+  [[ "$(grep -c . <<< "${ready}")" -eq "${expected}" && "$(grep -c '^True$' <<< "${ready}")" -eq "${expected}" ]]
+}
+
 printf 'Applying ComputeDomain %s\n' "${DOMAIN}"
 k apply -f "${MANIFEST}" >/dev/null
 
@@ -117,14 +139,19 @@ printf 'ComputeDomain ready with %s/%s real IMEX daemons\n' "${READY}" "${DESIRE
 # Kubernetes must converge after Mokka restores the stable driver tree; no
 # custom DRA image or manual node preparation participates in the recovery.
 printf 'Restarting Mokka and the per-domain daemon fleet together\n'
-k -n "${MOKKA_NAMESPACE}" delete pod \
-  -l app.kubernetes.io/name=nvml-mock --wait=false >/dev/null
-k -n "${DRIVER_NAMESPACE}" delete pod \
-  -l "resource.nvidia.com/computeDomain=$(k get computedomain "${DOMAIN}" -o jsonpath='{.metadata.uid}')" \
-  --wait=false >/dev/null
+MOKKA_SELECTOR=app.kubernetes.io/name=nvml-mock
+DAEMON_SELECTOR="resource.nvidia.com/computeDomain=$(k get computedomain "${DOMAIN}" -o jsonpath='{.metadata.uid}')"
+OLD_MOKKA_PODS=$(pod_uids "${MOKKA_NAMESPACE}" "${MOKKA_SELECTOR}")
+OLD_DAEMON_PODS=$(pod_uids "${DRIVER_NAMESPACE}" "${DAEMON_SELECTOR}")
+MOKKA_PODS=$(grep -c . <<< "${OLD_MOKKA_PODS}")
+DAEMON_PODS=$(grep -c . <<< "${OLD_DAEMON_PODS}")
+k -n "${MOKKA_NAMESPACE}" delete pod -l "${MOKKA_SELECTOR}" --wait=false >/dev/null
+k -n "${DRIVER_NAMESPACE}" delete pod -l "${DAEMON_SELECTOR}" --wait=false >/dev/null
 
-k -n "${MOKKA_NAMESPACE}" rollout status daemonset/nvml-mock --timeout="${TIMEOUT_SECONDS}s"
-k -n "${DRIVER_NAMESPACE}" rollout status "daemonset/${DAEMONSET}" --timeout="${TIMEOUT_SECONDS}s"
+wait_for "the old Mokka pods to be gone" pods_replaced "${MOKKA_NAMESPACE}" "${MOKKA_SELECTOR}" "${OLD_MOKKA_PODS}"
+wait_for "the old DRA daemon pods to be gone" pods_replaced "${DRIVER_NAMESPACE}" "${DAEMON_SELECTOR}" "${OLD_DAEMON_PODS}"
+wait_for "${MOKKA_PODS} replacement Mokka pods to be ready" pods_ready "${MOKKA_NAMESPACE}" "${MOKKA_SELECTOR}" "${MOKKA_PODS}"
+wait_for "${DAEMON_PODS} replacement DRA daemon pods to be ready" pods_ready "${DRIVER_NAMESPACE}" "${DAEMON_SELECTOR}" "${DAEMON_PODS}"
 wait_for "ComputeDomain recovery" domain_ready
 wait_for "minimal NRI adjustment after recovery" minimal_nri_adjustment
 

@@ -47,6 +47,7 @@ func TestLockRejectsInvalidInput(t *testing.T) {
 		{name: "missing version", data: strings.Replace(valid, `"version":"1"`, `"version":""`, 1)},
 		{name: "traversing version", data: strings.Replace(valid, `"version":"1"`, `"version":"../1"`, 1)},
 		{name: "relative base URL", data: strings.Replace(valid, "https://example.test/redist", "/redist", 1)},
+		{name: "cleartext base URL", data: strings.Replace(valid, "https://example.test/redist", "http://example.test/redist", 1)},
 		{name: "traversing path", data: strings.Replace(valid, "imex/amd64.tar.xz", "../amd64.tar.xz", 1)},
 		{name: "uppercase digest", data: strings.Replace(valid, strings.Repeat("a", 64), strings.Repeat("A", 64), 1)},
 		{name: "missing arm64", data: strings.Replace(valid, `,

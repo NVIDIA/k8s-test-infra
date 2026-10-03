@@ -29,25 +29,31 @@ const (
 	maxMemberBytes  = 64 << 20
 )
 
-type userspaceFile struct {
+type archiveFile struct {
 	destination string
 	mode        os.FileMode
 }
 
-var userspaceFiles = map[string]userspaceFile{
-	"usr/bin/nvidia-imex":        {destination: "driver/usr/bin/nvidia-imex.real", mode: 0o755},
-	"usr/bin/nvidia-imex-ctl":    {destination: "driver/usr/bin/nvidia-imex-ctl", mode: 0o755},
-	"etc/nvidia-imex/config.cfg": {destination: "driver/etc/nvidia-imex/config.cfg", mode: 0o644},
+// archiveFiles is the extraction allowlist. The license and third-party
+// notices travel with the binaries they cover.
+var archiveFiles = map[string]archiveFile{
+	"usr/bin/nvidia-imex":                   {destination: "driver/usr/bin/nvidia-imex.real", mode: 0o755},
+	"usr/bin/nvidia-imex-ctl":               {destination: "driver/usr/bin/nvidia-imex-ctl", mode: 0o755},
+	"etc/nvidia-imex/config.cfg":            {destination: "driver/etc/nvidia-imex/config.cfg", mode: 0o644},
+	"LICENSE":                               {destination: "driver/usr/share/doc/nvidia-imex/LICENSE", mode: 0o644},
+	"usr/share/doc/third-party-notices.txt": {destination: "driver/usr/share/doc/nvidia-imex/third-party-notices.txt", mode: 0o644},
 }
 
-var publishedUserspacePaths = []string{
+var stagedPaths = []string{
 	"driver/usr/bin/nvidia-imex",
 	"driver/usr/bin/nvidia-imex.real",
 	"driver/usr/bin/nvidia-imex-ctl",
 	"driver/etc/nvidia-imex/config.cfg",
+	"driver/usr/share/doc/nvidia-imex/LICENSE",
+	"driver/usr/share/doc/nvidia-imex/third-party-notices.txt",
 }
 
-type userspaceInstaller struct {
+type installer struct {
 	root       string
 	shimPath   string
 	arch       string
@@ -55,56 +61,89 @@ type userspaceInstaller struct {
 	httpClient *http.Client
 }
 
-func (i *userspaceInstaller) stage(ctx context.Context) error {
-	if err := i.lock.validate(); err != nil {
-		return i.fail(fmt.Errorf("validate lock: %w", err))
-	}
-	artifact, err := i.lock.artifact(i.arch)
+// publishCached publishes the node software from the verified node cache and
+// reports false, without touching the network, when the cache holds no
+// verified archive.
+func (i *installer) publishCached() (bool, error) {
+	artifact, err := i.artifact()
 	if err != nil {
-		return i.fail(err)
+		return false, err
+	}
+	archive := i.archivePath()
+	valid, err := fileHasDigest(archive, artifact.SHA256)
+	if err != nil || !valid {
+		return false, err
 	}
 
-	archive, err := i.ensureArchive(ctx, artifact)
+	extracted, cleanup, err := extractArchive(archive)
 	if err != nil {
-		return i.fail(err)
-	}
-
-	extracted, cleanup, err := extractUserspace(archive)
-	if err != nil {
-		return i.fail(err)
+		return false, i.fail(err)
 	}
 	defer cleanup()
 
 	// The shim is the activation point: publish the real executable, control
 	// tool and configuration first so a concurrent consumer can never discover
 	// nvidia-imex before everything it needs is present.
-	keys := make([]string, 0, len(userspaceFiles))
-	for key := range userspaceFiles {
+	keys := make([]string, 0, len(archiveFiles))
+	for key := range archiveFiles {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
-		file := userspaceFiles[key]
+		file := archiveFiles[key]
 		if err := fsutil.Copy(extracted[key], filepath.Join(i.root, file.destination), file.mode); err != nil {
-			return i.fail(fmt.Errorf("publish %s: %w", key, err))
+			return false, i.fail(fmt.Errorf("publish %s: %w", key, err))
 		}
 	}
 	if err := fsutil.Copy(i.shimPath, filepath.Join(i.root, "driver/usr/bin/nvidia-imex"), 0o755); err != nil {
-		return i.fail(fmt.Errorf("publish nvidia-imex shim: %w", err))
+		return false, i.fail(fmt.Errorf("publish nvidia-imex shim: %w", err))
 	}
-	return nil
+	return true, nil
 }
 
-func (i *userspaceInstaller) fail(stageErr error) error {
+// download fills the node cache with the verified archive. It is a no-op when
+// the cache already holds it.
+func (i *installer) download(ctx context.Context) error {
+	artifact, err := i.artifact()
+	if err != nil {
+		return err
+	}
+	archive := i.archivePath()
+	valid, err := fileHasDigest(archive, artifact.SHA256)
+	if err != nil || valid {
+		return err
+	}
+	if err := os.Remove(archive); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove invalid cached archive: %w", err)
+	}
+	cacheDir := filepath.Dir(archive)
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		return fmt.Errorf("create IMEX cache: %w", err)
+	}
+	return i.downloadArchive(ctx, artifact, cacheDir, archive)
+}
+
+func (i *installer) artifact() (Artifact, error) {
+	if err := i.lock.validate(); err != nil {
+		return Artifact{}, fmt.Errorf("validate lock: %w", err)
+	}
+	return i.lock.artifact(i.arch)
+}
+
+func (i *installer) archivePath() string {
+	return filepath.Join(i.root, "cache/imex", i.lock.Version, i.arch, "archive.tar.xz")
+}
+
+func (i *installer) fail(stageErr error) error {
 	if discardErr := i.discard(); discardErr != nil {
-		return errors.Join(stageErr, fmt.Errorf("discard incomplete IMEX userspace: %w", discardErr))
+		return errors.Join(stageErr, fmt.Errorf("discard incomplete IMEX node software: %w", discardErr))
 	}
 	return stageErr
 }
 
-func (i *userspaceInstaller) discard() error {
+func (i *installer) discard() error {
 	var errs []error
-	for _, rel := range publishedUserspacePaths {
+	for _, rel := range stagedPaths {
 		if err := fsutil.Remove(filepath.Join(i.root, rel)); err != nil {
 			errs = append(errs, err)
 		}
@@ -112,49 +151,27 @@ func (i *userspaceInstaller) discard() error {
 	return errors.Join(errs...)
 }
 
-func (i *userspaceInstaller) ensureArchive(ctx context.Context, artifact Artifact) (string, error) {
-	cacheDir := filepath.Join(i.root, "cache/imex", i.lock.Version, i.arch)
-	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
-		return "", fmt.Errorf("create IMEX cache: %w", err)
-	}
-	archive := filepath.Join(cacheDir, "archive.tar.xz")
-
-	valid, err := fileHasDigest(archive, artifact.SHA256)
-	if err != nil {
-		return "", err
-	}
-	if valid {
-		return archive, nil
-	}
-	if err := os.Remove(archive); err != nil && !os.IsNotExist(err) {
-		return "", fmt.Errorf("remove invalid cached archive: %w", err)
-	}
-	return i.downloadArchive(ctx, artifact, cacheDir, archive)
-}
-
-func (i *userspaceInstaller) downloadArchive(
-	ctx context.Context, artifact Artifact, cacheDir, archive string,
-) (string, error) {
+func (i *installer) downloadArchive(ctx context.Context, artifact Artifact, cacheDir, archive string) error {
 	downloadURL, err := url.JoinPath(i.lock.BaseURL, artifact.Path)
 	if err != nil {
-		return "", fmt.Errorf("build download URL: %w", err)
+		return fmt.Errorf("build download URL: %w", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
 	if err != nil {
-		return "", fmt.Errorf("create download request: %w", err)
+		return fmt.Errorf("create download request: %w", err)
 	}
 	resp, err := i.httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("download IMEX %s: %w", i.lock.Version, err)
+		return fmt.Errorf("download IMEX %s: %w", i.lock.Version, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if err := i.validateDownloadResponse(resp); err != nil {
-		return "", err
+		return err
 	}
 	return i.saveArchive(resp.Body, artifact, cacheDir, archive)
 }
 
-func (i *userspaceInstaller) validateDownloadResponse(resp *http.Response) error {
+func (i *installer) validateDownloadResponse(resp *http.Response) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("download IMEX %s: unexpected HTTP status %s", i.lock.Version, resp.Status)
 	}
@@ -164,12 +181,10 @@ func (i *userspaceInstaller) validateDownloadResponse(resp *http.Response) error
 	return nil
 }
 
-func (i *userspaceInstaller) saveArchive(
-	reader io.Reader, artifact Artifact, cacheDir, archive string,
-) (string, error) {
+func (i *installer) saveArchive(reader io.Reader, artifact Artifact, cacheDir, archive string) error {
 	tmp, err := os.CreateTemp(cacheDir, ".archive-*.tmp")
 	if err != nil {
-		return "", fmt.Errorf("create archive temp file: %w", err)
+		return fmt.Errorf("create archive temp file: %w", err)
 	}
 	tmpPath := tmp.Name()
 	defer func() { _ = os.Remove(tmpPath) }()
@@ -178,25 +193,25 @@ func (i *userspaceInstaller) saveArchive(
 	written, copyErr := io.Copy(io.MultiWriter(tmp, hash), io.LimitReader(reader, maxArchiveBytes+1))
 	closeErr := tmp.Close()
 	if copyErr != nil {
-		return "", fmt.Errorf("download IMEX %s: %w", i.lock.Version, copyErr)
+		return fmt.Errorf("download IMEX %s: %w", i.lock.Version, copyErr)
 	}
 	if closeErr != nil {
-		return "", fmt.Errorf("close downloaded archive: %w", closeErr)
+		return fmt.Errorf("close downloaded archive: %w", closeErr)
 	}
 	if written > maxArchiveBytes {
-		return "", fmt.Errorf("download IMEX %s: archive is larger than %d bytes", i.lock.Version, maxArchiveBytes)
+		return fmt.Errorf("download IMEX %s: archive is larger than %d bytes", i.lock.Version, maxArchiveBytes)
 	}
 	actual := hex.EncodeToString(hash.Sum(nil))
 	if actual != artifact.SHA256 {
-		return "", fmt.Errorf("verify IMEX %s archive: SHA-256 mismatch: got %s", i.lock.Version, actual)
+		return fmt.Errorf("verify IMEX %s archive: SHA-256 mismatch: got %s", i.lock.Version, actual)
 	}
 	if err := os.Chmod(tmpPath, 0o644); err != nil {
-		return "", fmt.Errorf("chmod downloaded archive: %w", err)
+		return fmt.Errorf("chmod downloaded archive: %w", err)
 	}
 	if err := os.Rename(tmpPath, archive); err != nil {
-		return "", fmt.Errorf("publish downloaded archive: %w", err)
+		return fmt.Errorf("publish downloaded archive: %w", err)
 	}
-	return archive, nil
+	return nil
 }
 
 func fileHasDigest(filename, expected string) (bool, error) {
@@ -220,16 +235,16 @@ func fileHasDigest(filename, expected string) (bool, error) {
 	return hex.EncodeToString(hash.Sum(nil)) == expected, nil
 }
 
-func extractUserspace(archive string) (map[string]string, func(), error) {
+func extractArchive(archive string) (map[string]string, func(), error) {
 	f, err := os.Open(archive)
 	if err != nil {
 		return nil, func() {}, fmt.Errorf("open IMEX archive: %w", err)
 	}
 	defer func() { _ = f.Close() }()
-	return extractUserspaceFrom(f)
+	return extractArchiveFrom(f)
 }
 
-func extractUserspaceFrom(reader io.Reader) (map[string]string, func(), error) {
+func extractArchiveFrom(reader io.Reader) (map[string]string, func(), error) {
 	xzr, err := xz.NewReader(reader)
 	if err != nil {
 		return nil, func() {}, fmt.Errorf("read IMEX xz stream: %w", err)
@@ -244,7 +259,7 @@ func extractUserspaceFrom(reader io.Reader) (map[string]string, func(), error) {
 		cleanup()
 		return nil, func() {}, err
 	}
-	if err := requireAllUserspaceFiles(found); err != nil {
+	if err := requireAllArchiveFiles(found); err != nil {
 		cleanup()
 		return nil, func() {}, err
 	}
@@ -252,7 +267,7 @@ func extractUserspaceFrom(reader io.Reader) (map[string]string, func(), error) {
 }
 
 func extractRequiredMembers(tr *tar.Reader, tmp string) (map[string]string, error) {
-	found := make(map[string]string, len(userspaceFiles))
+	found := make(map[string]string, len(archiveFiles))
 	for {
 		header, err := tr.Next()
 		if errors.Is(err, io.EOF) {
@@ -277,8 +292,8 @@ func extractRequiredMembers(tr *tar.Reader, tmp string) (map[string]string, erro
 	return found, nil
 }
 
-func requireAllUserspaceFiles(found map[string]string) error {
-	for required := range userspaceFiles {
+func requireAllArchiveFiles(found map[string]string) error {
+	for required := range archiveFiles {
 		if _, ok := found[required]; !ok {
 			return fmt.Errorf("IMEX archive is missing %s", required)
 		}
@@ -286,17 +301,17 @@ func requireAllUserspaceFiles(found map[string]string) error {
 	return nil
 }
 
-func requiredArchiveMember(header *tar.Header) (string, userspaceFile, bool, error) {
+func requiredArchiveMember(header *tar.Header) (string, archiveFile, bool, error) {
 	memberName := strings.TrimSuffix(header.Name, "/")
 	clean := path.Clean(memberName)
 	if path.IsAbs(header.Name) || clean != memberName || strings.HasPrefix(clean, "../") {
-		return "", userspaceFile{}, false, fmt.Errorf("unsafe IMEX archive member %q", header.Name)
+		return "", archiveFile{}, false, fmt.Errorf("unsafe IMEX archive member %q", header.Name)
 	}
 	_, relative, ok := strings.Cut(clean, "/")
 	if !ok {
-		return "", userspaceFile{}, false, nil
+		return "", archiveFile{}, false, nil
 	}
-	file, required := userspaceFiles[relative]
+	file, required := archiveFiles[relative]
 	if required && (header.Typeflag != tar.TypeReg || header.Size < 0 || header.Size > maxMemberBytes) {
 		return "", file, false, fmt.Errorf("invalid IMEX archive member %q", header.Name)
 	}
@@ -304,9 +319,11 @@ func requiredArchiveMember(header *tar.Header) (string, userspaceFile, bool, err
 }
 
 func extractArchiveMember(
-	tr io.Reader, header *tar.Header, tmp, relative string, file userspaceFile,
+	tr io.Reader, header *tar.Header, tmp, relative string, file archiveFile,
 ) (string, error) {
-	dst := filepath.Join(tmp, filepath.Base(relative))
+	// Named from the allowlist, never from the archive entry, so no name the
+	// archive controls reaches the filesystem.
+	dst := filepath.Join(tmp, filepath.Base(file.destination))
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, file.mode)
 	if err != nil {
 		return "", fmt.Errorf("create extracted %s: %w", relative, err)

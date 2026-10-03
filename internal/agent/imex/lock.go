@@ -72,11 +72,10 @@ func (l Lock) validate() error {
 
 func validateBaseURL(raw string) error {
 	base, err := url.Parse(raw)
-	if err != nil || base.Host == "" {
-		return errors.New("baseURL must be an absolute HTTP(S) URL")
-	}
-	if base.Scheme != "https" && base.Scheme != "http" {
-		return errors.New("baseURL must be an absolute HTTP(S) URL")
+	// The download becomes a binary the node executes, so it is never
+	// fetched in cleartext even though the digest is pinned.
+	if err != nil || base.Host == "" || base.Scheme != "https" {
+		return errors.New("baseURL must be an absolute HTTPS URL")
 	}
 	return nil
 }

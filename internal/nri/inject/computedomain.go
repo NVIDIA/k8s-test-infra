@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"go.uber.org/zap"
 )
 
 const (
@@ -28,22 +30,33 @@ func computeDomainDaemon(container Container) bool {
 // adjustComputeDomain adds only the mock-specific files absent from the
 // upstream DRA CDI edits. This avoids applying Mokka's ambient driver overlay a
 // second time to a container whose driver footprint is already CDI-managed.
-func adjustComputeDomain(cfg Config, container Container, adjustment *Adjustment) error {
+//
+// While the node agent is still staging those files, the daemon's creation
+// fails and kubelet retries. When the agent is not configured to stage them,
+// they would never appear, so the daemon is left unmodified instead.
+func adjustComputeDomain(cfg Config, container Container) (Adjustment, bool, error) {
+	if !cfg.ComputeDomainStaging {
+		zap.L().Warn("leaving the ComputeDomain daemon unmodified: the node agent does not stage IMEX node software and the topology",
+			zap.String("namespace", container.Namespace), zap.String("container", container.Name))
+		return Adjustment{}, false, nil
+	}
 	realIMEX := filepath.Join(cfg.HostOverlayPath, realIMEXRelPath)
 	if !regularFile(realIMEX) {
-		return fmt.Errorf("compute domain prerequisite %s is not staged", realIMEX)
+		return Adjustment{}, false, fmt.Errorf("compute domain prerequisite %s is not staged", realIMEX)
 	}
 	if !topologyInjectable(cfg) {
-		return fmt.Errorf("compute domain topology %s is not staged for node %q", cfg.TopologyHostPath, cfg.NodeName)
+		return Adjustment{}, false, fmt.Errorf("compute domain topology %s is not staged for node %q", cfg.TopologyHostPath, cfg.NodeName)
 	}
 
-	adjustment.Mounts = append(adjustment.Mounts,
-		readOnlyFileMount(realIMEX, realIMEXContainerPath),
-		readOnlyFileMount(cfg.TopologyHostPath, cfg.TopologyContainerPath))
 	env := newEnvSet(container.Env)
 	env.setDefault("MOCK_TOPOLOGY_CONFIG", cfg.TopologyContainerPath)
-	adjustment.Env = append(adjustment.Env, env.changed()...)
-	return nil
+	return Adjustment{
+		Mounts: []Mount{
+			readOnlyFileMount(realIMEX, realIMEXContainerPath),
+			readOnlyFileMount(cfg.TopologyHostPath, cfg.TopologyContainerPath),
+		},
+		Env: env.changed(),
+	}, true, nil
 }
 
 func regularFile(path string) bool {

@@ -72,8 +72,10 @@ simulated GPUs before running this demo.
    topology.domains=<demo topology>
    nri.enabled=true
    imex.mockChannels.enabled=true
-   imex.nodeSoftware.enabled=true
    ```
+
+   `imex.mockChannels.enabled` also makes the node agent download and stage
+   the IMEX node software (`imex.nodeSoftware.enabled` follows it unless set).
 
    This renders both ConfigMaps (`nvml-mock-config` and
    `nvml-mock-topology`).
@@ -170,7 +172,7 @@ kind create cluster --name nvml-mock-compute-domain \
     --config tests/e2e/kind-compute-domain-config.yaml
 
 # 2. Build the standard Mokka image. The node agent downloads and stages IMEX
-#    at runtime when the chart enables imex.nodeSoftware.
+#    at runtime, because imex.mockChannels is enabled.
 docker build -t nvml-mock:compute-domain -f deployments/nvml-mock/Dockerfile .
 
 # 3. Load the image into the Kind cluster.
@@ -216,7 +218,7 @@ printf 'Using IMEX device majors: channels=%s, caps=%s\n' \
     "${IMEX_CHANNEL_MAJOR}" "${IMEX_CAPS_MAJOR}"
 
 # 5. Install mock staging + the node-local NRI plugin. The chart's
-#    DaemonSet uses the standard Mokka image and stages the IMEX userspace
+#    DaemonSet uses the standard Mokka image and stages the IMEX node software
 #    files in the node-local driver tree.
 helm upgrade --install nvml-mock deployments/nvml-mock/helm/nvml-mock \
     --kube-context kind-nvml-mock-compute-domain \
@@ -227,7 +229,6 @@ helm upgrade --install nvml-mock deployments/nvml-mock/helm/nvml-mock \
     --set gpu.profile=gb200 \
     --set nri.enabled=true \
     --set imex.mockChannels.enabled=true \
-    --set imex.nodeSoftware.enabled=true \
     --set imex.mockChannels.channelMajor="${IMEX_CHANNEL_MAJOR}" \
     --set imex.mockChannels.capsMajor="${IMEX_CAPS_MAJOR}" \
     --set-string updateStrategy.rollingUpdate.maxUnavailable=100% \
@@ -297,7 +298,8 @@ faithful to what's checked in.
 The upstream daemon spawns `nvidia-imex` as a subprocess and probes readiness
 with `nvidia-imex-ctl`. The Mokka node agent stages `nvidia-imex.real`,
 `nvidia-imex-ctl`, the default config, and a sibling `nvidia-imex` shim under
-`/var/lib/nvml-mock/driver`. The DRA-generated CDI edits already supply the
+`/var/lib/nvml-mock/driver`, with the archive's license and third-party notices
+under `usr/share/doc/nvidia-imex/`. The DRA-generated CDI edits already supply the
 shim, CLI, generated domain config, driver files, and device nodes to the
 `compute-domain-daemon` container. Because containerd resolves the resource
 claim's CDI devices after the NRI callback, Mokka recognizes the daemon by its

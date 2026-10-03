@@ -329,9 +329,9 @@ Legend: **✓** covered, **~** partial, **✗** gap, **N/A** intentionally out o
 | Real `nvidia-imex --nogpu` daemon process                                        | ComputeDomain workload's cross-node peer coordination | ✓ `imex` downloads the pinned archive, verifies its checksum, and stages it beside the `nvidia-imex-shim` wrapper in the driver tree |
 | Legacy IMEX peer marker files `/var/lib/nvml-mock/imex-state/*` (fake-imex path) | none currently                                        | ✗ **deprecated** — `cmd/fake-imex` will retire; superseded by real `--nogpu` daemon                              |
 
-**Delivery**: chardevs + `/proc/devices` overlay materialized on host; when enabled, the node agent stages checksum-verified IMEX userspace in the same driver tree and NRI injects it into the upstream daemon container.
+**Delivery**: chardevs + `/proc/devices` overlay materialized on host; when enabled, the node agent stages checksum-verified IMEX node software in the same driver tree and NRI injects it into the upstream daemon container.
 
-**Restage trigger**: IMEX channel or userspace toggle, or device count change.
+**Restage trigger**: IMEX channel or node software toggle, or device count change.
 
 #### InfiniBand HCA
 

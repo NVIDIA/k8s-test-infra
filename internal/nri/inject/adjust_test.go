@@ -89,6 +89,7 @@ func TestAdjustComputeDomainCDIMountsOnlyMissingFiles(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.HostOverlayPath = t.TempDir()
 	cfg.NodeName = "worker-1"
+	cfg.ComputeDomainStaging = true
 	realIMEX := cfg.HostOverlayPath + "/driver/usr/bin/nvidia-imex.real"
 	require.NoError(t, os.MkdirAll(cfg.HostOverlayPath+"/driver/usr/bin", 0o755))
 	require.NoError(t, os.WriteFile(realIMEX, []byte("imex"), 0o755))
@@ -175,6 +176,7 @@ func TestAdjustComputeDomainRejectsPartialNodeStaging(t *testing.T) {
 			cfg := DefaultConfig()
 			cfg.HostOverlayPath = t.TempDir()
 			cfg.NodeName = "worker-1"
+			cfg.ComputeDomainStaging = true
 			cfg.TopologyHostPath = cfg.HostOverlayPath + "/topology/topology.yaml"
 			if staged.realIMEX {
 				require.NoError(t, os.MkdirAll(cfg.HostOverlayPath+"/driver/usr/bin", 0o755))
@@ -196,6 +198,26 @@ func TestAdjustComputeDomainRejectsPartialNodeStaging(t *testing.T) {
 			require.Empty(t, adjustment)
 		})
 	}
+}
+
+// With chart defaults the node agent stages neither prerequisite, so they
+// would never appear: rejecting the daemon would block it forever.
+func TestAdjustComputeDomainLeftUnmodifiedWhenNotStaged(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+	cfg.HostOverlayPath = t.TempDir()
+	cfg.NodeName = "worker-1"
+
+	adjustment, ok, err := Adjust(cfg, Container{
+		Name:      computeDomainContainerName,
+		Namespace: "nvidia",
+		PodLabels: map[string]string{computeDomainLabel: "domain-uid"},
+	})
+
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.Empty(t, adjustment)
 }
 
 func TestAdjustSkipsOptOutExcludedNamespaceAndExistingMount(t *testing.T) {
