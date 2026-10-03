@@ -60,6 +60,7 @@ function createFakeGitHub(initialState = []) {
     listPullRequestReviews: [],
     getPullRequestReview: [],
     getIssueComment: [],
+    listIssueComments: [],
     getUserIdentity: [],
     getCollaboratorAccess: [],
     listRequestedReviewers: [],
@@ -182,6 +183,20 @@ function createFakeGitHub(initialState = []) {
       const comment = issueComments.get(commentId);
       if (comment === undefined) throw new Error(`missing issue comment: ${commentId}`);
       return clone(comment);
+    },
+
+    async listIssueComments(prNumber) {
+      record("listIssueComments", { prNumber });
+      const human = [...issueComments.values()].filter((comment) => comment.issueNumber === prNumber);
+      const bot = comments.map((comment) => ({
+        id: comment.id,
+        issueNumber: prNumber,
+        body: comment.body,
+        author: comment.author,
+        authorType: "Bot",
+        edited: false,
+      }));
+      return clone([...human, ...bot].sort((left, right) => left.id - right.id));
     },
 
     async getUserIdentity(login) {

@@ -240,6 +240,31 @@ function mockOctokit(overrides = {}) {
   };
 }
 
+test("lists every pull request comment with live command provenance", async () => {
+  const issueUrl = "https://api.github.com/repos/NVIDIA/k8s-test-infra/issues/42";
+  const { octokit, calls } = mockOctokit({ rest: { issues: { listComments: async (parameters) => {
+    calls.push({ name: "listComments", parameters });
+    return { data: [
+      { id: 90, body: "/hold", issue_url: issueUrl, user: { login: "Alice", type: "User" },
+        created_at: "2026-09-17T10:00:00Z", updated_at: "2026-09-17T10:00:00Z" },
+      { id: 91, body: null, issue_url: issueUrl, user: { login: "github-actions[bot]", type: "Bot" },
+        created_at: "2026-09-17T10:00:00Z", updated_at: "2026-09-17T10:05:00Z" },
+      { id: 92, body: "/unhold", issue_url: issueUrl, user: null,
+        created_at: "2026-09-17T10:00:00Z", updated_at: "2026-09-17T10:00:00Z" },
+    ] };
+  } } } });
+  const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+
+  assert.deepEqual(await client.listIssueComments(42), [
+    { id: 90, issueNumber: 42, body: "/hold", author: "alice", authorType: "User", edited: false },
+    { id: 91, issueNumber: 42, body: "", author: "github-actions[bot]", authorType: "Bot", edited: true },
+    { id: 92, issueNumber: 42, body: "/unhold", author: null, authorType: null, edited: false },
+  ]);
+  assert.deepEqual(calls.filter(({ name }) => name === "listComments").map(({ parameters }) => parameters), [
+    { owner: "NVIDIA", repo: "k8s-test-infra", issue_number: 42, per_page: 100 },
+  ]);
+});
+
 test("maps live command and approval provenance", async () => {
   const { octokit } = mockOctokit();
   const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
