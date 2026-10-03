@@ -7,6 +7,7 @@ const {
   parsePolicyState,
   serializePolicyState,
 } = require("../commands/state.js");
+const { authorizeCommand } = require("../commands/authorization.js");
 const { planCommandExecution } = require("../commands/executor.js");
 const { validateConfig } = require("../config.js");
 const { parseAliases, parseOwnersFile, resolveOwners } = require("../owners.js");
@@ -252,11 +253,14 @@ function backlogComments(listed, identity, processedIds, nowMilliseconds) {
 }
 
 // Catch-up replays only /hold, /unhold and /retest. A caught-up /lgtm or /approve can
-// predate a push to the head, so it grants no evidence and the policy comment asks the
-// reviewer to repeat it. A caught-up /backport or /cherry-pick is not replayed.
-function caughtUpCommands(parsed) {
+// predate a push to the head, so it grants no evidence; when its author may give it, the
+// policy comment asks them to repeat it. A caught-up /backport or /cherry-pick is not
+// replayed.
+function caughtUpCommands(parsed, authorization) {
   const rejected = [...new Set(parsed.commands
-    .filter((command) => EVIDENCE_COMMANDS.has(command.name))
+    .filter((command) => (
+      EVIDENCE_COMMANDS.has(command.name) && authorizeCommand(command, authorization).allowed
+    ))
     .map((command) => command.name))].sort();
   return {
     parsed: { ...parsed, commands: parsed.commands.filter((command) => CATCH_UP_COMMANDS.has(command.name)) },
@@ -349,24 +353,30 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
   const processedCommentIds = [];
   const rejectedBacklogEvidence = [];
   const rerunRunIds = [];
+  const owners = [...new Set([
+    ...authority.ownership.reviewerCandidates,
+    ...authority.ownership.approverCandidates,
+  ])];
   for (const item of items) {
     const event = item.comment.id === identity.commentId;
-    const checked = event ? { parsed: item.parsed, rejected: [] } : caughtUpCommands(item.parsed);
+    const authorization = {
+      actor: actors.get(item.comment.author.toLowerCase()),
+      author: pullRequest.author,
+      reviewers: authority.ownership.reviewerCandidates,
+      approvers: authority.ownership.approverCandidates,
+      owners,
+    };
+    const checked = event
+      ? { parsed: item.parsed, rejected: [] }
+      : caughtUpCommands(item.parsed, authorization);
     const candidate = planCommandExecution({
       parsed: checked.parsed,
       state,
       context,
-      actor: actors.get(item.comment.author.toLowerCase()),
-      author: pullRequest.author,
+      ...authorization,
       ownership: authority.ownership,
       authorIsHuman: authority.authorIsHuman,
       nativeReviewEvidence,
-      reviewers: authority.ownership.reviewerCandidates,
-      approvers: authority.ownership.approverCandidates,
-      owners: [...new Set([
-        ...authority.ownership.reviewerCandidates,
-        ...authority.ownership.approverCandidates,
-      ])],
       commentId: item.comment.id,
       now: timestamp,
       historyLimit: config.policy.commands.historyLimit,
@@ -377,8 +387,9 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
       // Every plan diffs against the live labels, so the last plan carries the net change.
       currentLabels,
     });
-    // A caught-up comment is recorded only when it changed something or had evidence
-    // rejected, so comments from anyone cannot fill the processed history.
+    // A caught-up comment is recorded only when it changed something or had a /lgtm or
+    // /approve rejected that its author may give, so other commenters cannot fill the
+    // processed history.
     if (
       !event
       && checked.rejected.length === 0
