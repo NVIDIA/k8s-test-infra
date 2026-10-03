@@ -242,20 +242,14 @@ function backlogComments(listed, identity, processedIds) {
 }
 
 // A caught-up /lgtm or /approve can predate a push to the head, so it is recorded as
-// processed without evidence and the reviewer repeats it.
+// processed without evidence and the policy comment asks the reviewer to repeat it.
 function withoutEvidence(parsed) {
+  const rejected = [...new Set(parsed.commands
+    .filter((command) => EVIDENCE_COMMANDS.has(command.name))
+    .map((command) => command.name))].sort();
   return {
-    commands: parsed.commands.filter((command) => !EVIDENCE_COMMANDS.has(command.name)),
-    diagnostics: [
-      ...parsed.diagnostics,
-      ...parsed.commands
-        .filter((command) => EVIDENCE_COMMANDS.has(command.name))
-        .map((command) => ({
-          line: command.line,
-          code: "stale-backlog-evidence",
-          message: "a caught-up evidence command must be repeated",
-        })),
-    ],
+    parsed: { ...parsed, commands: parsed.commands.filter((command) => !EVIDENCE_COMMANDS.has(command.name)) },
+    rejected,
   };
 }
 
@@ -342,11 +336,15 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
   let state = stored.state;
   let plan;
   const processedCommentIds = [];
+  const rejectedBacklogEvidence = [];
   const backportRequests = [];
   const rerunRunIds = [];
   for (const item of items) {
+    const checked = item.comment.id === identity.commentId
+      ? { parsed: item.parsed, rejected: [] }
+      : withoutEvidence(item.parsed);
     plan = planCommandExecution({
-      parsed: item.comment.id === identity.commentId ? item.parsed : withoutEvidence(item.parsed),
+      parsed: checked.parsed,
       state,
       context,
       actor: actors.get(item.comment.author.toLowerCase()),
@@ -373,6 +371,14 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
     if (plan.duplicate) break;
     state = plan.state;
     processedCommentIds.push(item.comment.id);
+    if (checked.rejected.length > 0) {
+      rejectedBacklogEvidence.push({
+        commentId: item.comment.id,
+        commands: checked.rejected,
+        status: "rejected",
+        code: "stale-backlog-evidence",
+      });
+    }
     backportRequests.push(...plan.mutations.backportRequests);
     for (const runId of plan.mutations.rerunRunIds) {
       if (!rerunRunIds.includes(runId)) rerunRunIds.push(runId);
@@ -383,6 +389,7 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
     headOid: pullRequest.headOid,
     commentId: identity.commentId,
     processedCommentIds,
+    rejectedBacklogEvidence,
     commands: plan.commands,
     diagnostics: plan.diagnostics,
     policy: plan.policy,
@@ -402,6 +409,7 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
     commands: plan.commands,
     diagnostics: plan.diagnostics,
     policy: plan.policy,
+    rejectedBacklogEvidence,
   });
   const caughtUp = backlog.filter((item) => processedCommentIds.includes(item.comment.id));
   const latestComment = liveComment(await github.getIssueComment(identity.commentId), identity);
