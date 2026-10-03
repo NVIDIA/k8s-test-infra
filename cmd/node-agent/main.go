@@ -117,6 +117,12 @@ func startCommand() *cli.Command {
 				Sources: cli.EnvVars("MOCK_FABRICMANAGER_INIT_DELAY"),
 			},
 			&cli.DurationFlag{
+				Name:    "imex-download-timeout",
+				Value:   imex.DefaultDownloadTimeout,
+				Usage:   "bound on one attempt to download the IMEX archive; failed attempts are retried in the background",
+				Sources: cli.EnvVars("MOKKA_IMEX_DOWNLOAD_TIMEOUT"),
+			},
+			&cli.DurationFlag{
 				Name:    "shutdown-timeout",
 				Value:   30 * time.Second,
 				Sources: cli.EnvVars("MOKKA_AGENT_SHUTDOWN_TIMEOUT"),
@@ -179,7 +185,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 			gpudriver.New(h),
 			pcibus.New(h),
 			cdi.New(h),
-			imex.New(h),
+			imex.New(h, imex.Options{DownloadTimeout: cmd.Duration("imex-download-timeout")}),
 			migcaps.New(h),
 			nvlink.New(h),
 			kernellog.New(h, kernellog.Options{Path: cmd.String("kernel-log")}),

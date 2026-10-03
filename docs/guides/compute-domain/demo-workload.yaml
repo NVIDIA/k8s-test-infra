@@ -28,7 +28,7 @@ spec:
         mokka.nvidia.com/type: sgpu
       containers:
         - name: demo-workload
-          image: nvml-mock:compute-domain-workload
+          image: nvml-mock:compute-domain
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "-c", "trap : TERM INT; sleep infinity & wait"]
           resources:

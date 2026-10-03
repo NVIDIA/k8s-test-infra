@@ -45,7 +45,7 @@ func TestAdjustDeviceOptInAddsNvidiaDeviceEntries(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.DeviceHostPath = deviceRoot
 
-	adjustment, ok := Adjust(cfg, deviceOptIn())
+	adjustment, ok := requireAdjust(t, cfg, deviceOptIn())
 	require.True(t, ok)
 
 	require.ElementsMatch(t, []Device{
@@ -64,7 +64,7 @@ func TestAdjustDeviceOptInFailsOpenWhenTreeMissing(t *testing.T) {
 
 	// Degrade to overlay-only injection: no devices, but the overlay mount is
 	// still applied so the pod isn't blocked from starting.
-	adjustment, ok := Adjust(cfg, deviceOptIn())
+	adjustment, ok := requireAdjust(t, cfg, deviceOptIn())
 	require.True(t, ok)
 	require.Empty(t, adjustment.Devices)
 	require.Contains(t, adjustment.Mounts, overlayMount())
@@ -123,7 +123,7 @@ func TestAdjustSuppressesDeviceInjectionWhenDevicePluginServedContainer(t *testi
 			container.Namespace = "default"
 			container.PodAnnotations = map[string]string{"nvml-mock.nvidia.com/devices": "true"}
 
-			adjustment, ok := Adjust(cfg, container)
+			adjustment, ok := requireAdjust(t, cfg, container)
 			require.True(t, ok, "the container must still be adjusted; only the device list is suppressed")
 
 			if test.wantSuppression {
@@ -178,7 +178,7 @@ func TestAdjustDeviceOptInWarnsWhenTreeIsEmpty(t *testing.T) {
 
 			// Fail open either way: the overlay mount still lands and the pod
 			// is never blocked from starting. Only the diagnostic changes.
-			adjustment, ok := Adjust(cfg, deviceOptIn())
+			adjustment, ok := requireAdjust(t, cfg, deviceOptIn())
 			require.True(t, ok)
 			require.Len(t, adjustment.Devices, test.wantDevices)
 			require.Contains(t, adjustment.Mounts, overlayMount())
@@ -212,7 +212,7 @@ func TestAdjustCDIModeEmitsCDIReferenceInsteadOfRawNodes(t *testing.T) {
 	cfg.DeviceInjectionMode = DeviceInjectionModeCDI
 	cfg.CDISpecHostPath = stageCDISpec(t)
 
-	adjustment, ok := Adjust(cfg, deviceOptIn())
+	adjustment, ok := requireAdjust(t, cfg, deviceOptIn())
 	require.True(t, ok)
 
 	require.Equal(t, []string{"nvml-mock.nvidia.com/gpu=all"}, adjustment.CDIDevices)
@@ -234,7 +234,7 @@ func TestAdjustCDIModeFallsBackToRawWhenSpecMissing(t *testing.T) {
 	cfg.DeviceInjectionMode = DeviceInjectionModeCDI
 	cfg.CDISpecHostPath = filepath.Join(t.TempDir(), "absent.yaml")
 
-	adjustment, ok := Adjust(cfg, deviceOptIn())
+	adjustment, ok := requireAdjust(t, cfg, deviceOptIn())
 	require.True(t, ok)
 
 	require.Empty(t, adjustment.CDIDevices, "no staged spec means no CDI reference the runtime could resolve")
@@ -259,7 +259,7 @@ func TestAdjustRawModeEmitsNoCDIReference(t *testing.T) {
 	require.Equal(t, DeviceInjectionModeRaw, DefaultConfig().DeviceInjectionMode,
 		"raw stays the default per MEP-0002; CDI is the opt-in path")
 
-	adjustment, ok := Adjust(cfg, deviceOptIn())
+	adjustment, ok := requireAdjust(t, cfg, deviceOptIn())
 	require.True(t, ok)
 
 	require.Empty(t, adjustment.CDIDevices)
@@ -294,7 +294,7 @@ func TestAdjustCDIModeStillSuppressesWhenDevicePluginServedContainer(t *testing.
 			container.Namespace = "default"
 			container.PodAnnotations = map[string]string{"nvml-mock.nvidia.com/devices": "true"}
 
-			adjustment, ok := Adjust(cfg, container)
+			adjustment, ok := requireAdjust(t, cfg, container)
 			require.True(t, ok)
 
 			require.Empty(t, adjustment.CDIDevices, "suppression must hold in CDI mode too")

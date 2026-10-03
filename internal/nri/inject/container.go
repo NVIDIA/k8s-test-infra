@@ -7,7 +7,9 @@ import "strings"
 
 // Container is the subset of container and pod state the steps read.
 type Container struct {
+	Name           string
 	Namespace      string
+	PodLabels      map[string]string
 	PodAnnotations map[string]string
 	Env            []string
 	Mounts         []Mount

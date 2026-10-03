@@ -357,6 +357,42 @@ jobs:
         if: always()
         run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
 
+  # Exercise ComputeDomain against the unmodified upstream DRA image. This is
+  # the path that depends on the node agent's downloaded IMEX node software,
+  # substitute proc/devices, and NRI injection working together.
+  e2e-compute-domain-dra:
+    needs: [build-nvmlmock-image, build-kind-node-image]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+      - name: Download pre-built images
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: '*-image'
+          path: ${{ runner.temp }}
+          merge-multiple: true
+
+      - name: Load pre-built images
+        run: |
+          make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
+          make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
+
+      - name: Install binaries and create ComputeDomain Kind cluster
+        env:
+          PROFILE: compute-domain
+        run: ./hack/e2e-ci-cluster.sh
+
+      - name: Load nvml-mock image into Kind
+        run: kind load docker-image "$E2E_IMAGE" --name mokka-compute-domain
+
+      - name: Roll out ComputeDomain with NVIDIA DRA
+        run: tilt ci -- --compute-domain --dra --nvmlmock-image="$E2E_IMAGE"
+
+      - name: Verify upstream ComputeDomain daemon rollout
+        run: bash local/compute-domain/scenarios/check-dra-imex.sh
+
   e2e-gpu-operator:
     needs: [build-nvmlmock-image, build-kind-node-image]
     runs-on: ubuntu-latest

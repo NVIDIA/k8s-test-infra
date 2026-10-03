@@ -327,6 +327,25 @@
               "description": "Character-device major advertised for nvidia-caps. Must differ from channelMajor."
             }
           }
+        },
+        "nodeSoftware": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Downloads a pinned architecture-specific IMEX archive from NVIDIA and stages its node software under Mokka's driver root.",
+          "properties": {
+            "enabled": {
+              "description": "Tri-state: empty follows imex.mockChannels.enabled; true or false forces checksum-verified node-local IMEX software staging on or off.",
+              "oneOf": [
+                { "type": "boolean" },
+                { "type": "string", "enum": ["", "true", "false"] }
+              ]
+            },
+            "downloadTimeout": {
+              "type": "string",
+              "pattern": "^[0-9]+(ns|us|ms|s|m|h)$",
+              "description": "Bound on one attempt to download the IMEX archive, as a Go duration. Failed attempts are retried in the background."
+            }
+          }
         }
       }
     },

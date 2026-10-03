@@ -5,9 +5,10 @@
 // the runtime-neutral half of the NRI plugin: no containerd types cross this
 // boundary, so the decision is exercisable as a plain table test.
 //
-// Every step fails open. A surface the node agent has not staged yet degrades
-// the injection instead of failing container creation, because nothing orders
-// the plugin's container after the agent's.
+// The generic overlay fails open: a surface the node agent has not staged yet
+// degrades the injection instead of failing container creation, because
+// nothing orders the plugin's container after the agent's. A specialized
+// workload states its own policy.
 package inject
 
 import (
@@ -17,17 +18,43 @@ import (
 )
 
 // Adjust returns what to add to a container, or ok=false when the container
-// should be left exactly as authored.
-//
-// The steps run in a fixed order, each contributing to the same adjustment.
-// None of them can fail, which is why there is no error to return.
-func Adjust(cfg Config, container Container) (Adjustment, bool) {
+// should be left exactly as authored. The NRI CreateContainer hook calls it for
+// every container; it routes the container to the specialized workload that
+// recognizes it, or else to the generic overlay. An error comes only from a
+// specialized workload and fails the container's creation, so kubelet retries.
+func Adjust(cfg Config, container Container) (Adjustment, bool, error) {
 	cfg = withDefaults(cfg)
 	if reason, skipped := skip(cfg, container); skipped {
 		zap.L().Debug("skipping container injection", zap.String("namespace", container.Namespace), zap.String("reason", reason))
-		return Adjustment{}, false
+		return Adjustment{}, false, nil
 	}
+	for _, workload := range specializedWorkloads {
+		if workload.matches(container) {
+			zap.L().Debug("adjusting specialized workload",
+				zap.String("namespace", container.Namespace), zap.String("workload", workload.name))
+			return workload.adjust(cfg, container)
+		}
+	}
+	return adjustWorkload(cfg, container), true, nil
+}
 
+// specializedWorkload replaces the generic overlay for a container that gets
+// its driver footprint from elsewhere, such as DRA's CDI edits.
+type specializedWorkload struct {
+	name    string
+	matches func(Container) bool
+	// adjust returns ok=false to leave the container unmodified, or an error
+	// to fail its creation.
+	adjust func(Config, Container) (Adjustment, bool, error)
+}
+
+var specializedWorkloads = []specializedWorkload{
+	{name: computeDomainContainerName, matches: computeDomainDaemon, adjust: adjustComputeDomain},
+}
+
+// adjustWorkload composes the generic overlay. The steps run in a fixed order,
+// each contributing to the same adjustment, and none of them can fail.
+func adjustWorkload(cfg Config, container Container) Adjustment {
 	var adjustment Adjustment
 	mountOverlay(cfg, &adjustment)
 	setEnvironment(cfg, container, &adjustment)
@@ -38,8 +65,7 @@ func Adjust(cfg Config, container Container) (Adjustment, bool) {
 		zap.String("namespace", container.Namespace),
 		zap.Int("mounts", len(adjustment.Mounts)),
 		zap.Int("devices", len(adjustment.Devices)))
-
-	return adjustment, true
+	return adjustment
 }
 
 // skip reports whether the container must be left exactly as authored, and why.
@@ -81,13 +107,8 @@ func skip(cfg Config, container Container) (reason string, ok bool) {
 // below it immutable; the order matters, since the overlay would cover this
 // mount if it came second.
 func mountOverlay(cfg Config, adjustment *Adjustment) {
+	mountReadOnlyOverlay(cfg, adjustment)
 	adjustment.Mounts = append(adjustment.Mounts,
-		Mount{
-			Source:      cfg.HostOverlayPath,
-			Destination: cfg.ContainerOverlayPath,
-			Type:        "bind",
-			Options:     []string{"rbind", "ro", "nosuid", "nodev"},
-		},
 		Mount{
 			Source:      filepath.Join(cfg.HostOverlayPath, configRelPath),
 			Destination: filepath.Join(cfg.ContainerOverlayPath, configRelPath),
@@ -95,4 +116,13 @@ func mountOverlay(cfg Config, adjustment *Adjustment) {
 			Options:     []string{"rbind", "rw", "nosuid", "nodev"},
 		},
 	)
+}
+
+func mountReadOnlyOverlay(cfg Config, adjustment *Adjustment) {
+	adjustment.Mounts = append(adjustment.Mounts, Mount{
+		Source:      cfg.HostOverlayPath,
+		Destination: cfg.ContainerOverlayPath,
+		Type:        "bind",
+		Options:     []string{"rbind", "ro", "nosuid", "nodev"},
+	})
 }

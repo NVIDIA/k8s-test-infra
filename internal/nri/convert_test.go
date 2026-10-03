@@ -90,10 +90,12 @@ func TestContainerFromNRI(t *testing.T) {
 		t.Parallel()
 		pod := &api.PodSandbox{
 			Namespace:   "gpu-tests",
+			Labels:      map[string]string{"resource.nvidia.com/computeDomain": "domain-uid"},
 			Annotations: map[string]string{"nvml-mock.nvidia.com/inject": "true"},
 		}
 		container := &api.Container{
-			Env: []string{"PATH=/usr/bin", "MOCK_IB=off"},
+			Name: "compute-domain-daemon",
+			Env:  []string{"PATH=/usr/bin", "MOCK_IB=off"},
 			Mounts: []*api.Mount{{
 				Source:      "/var/lib/nvml-mock",
 				Destination: "/opt/nvml-mock",
@@ -104,7 +106,9 @@ func TestContainerFromNRI(t *testing.T) {
 
 		result := containerFromNRI(pod, container)
 
+		require.Equal(t, "compute-domain-daemon", result.Name)
 		require.Equal(t, "gpu-tests", result.Namespace)
+		require.Equal(t, map[string]string{"resource.nvidia.com/computeDomain": "domain-uid"}, result.PodLabels)
 		require.Equal(t, map[string]string{"nvml-mock.nvidia.com/inject": "true"}, result.PodAnnotations)
 		require.Equal(t, []string{"PATH=/usr/bin", "MOCK_IB=off"}, result.Env)
 		require.Equal(t, []inject.Mount{{

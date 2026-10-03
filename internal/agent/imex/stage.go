@@ -51,7 +51,7 @@ func stageProcDevices(h *host.Host, state *agent.State, procDevicesPath string) 
 		return fmt.Errorf("render proc-devices: %w", err)
 	}
 
-	return fsutil.Write(h.RootPath("imex/proc-devices"), []byte(rendered), 0o644)
+	return fsutil.Write(h.RootPath("driver/proc/devices"), []byte(rendered), 0o644)
 }
 
 // stageFabricImexMgmt writes the capability file the DRA plugin reads alongside

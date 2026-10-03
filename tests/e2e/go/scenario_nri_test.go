@@ -527,12 +527,19 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 	// surfaced as an unrelated-looking failure on whichever profile happened to
 	// be running when the disk filled.
 	Context("when a pod opts into mock IMEX channels", Label("nri-imex"), Ordered, func() {
-		var gpuNode string
+		var (
+			gpuNode string
+			p       profile.Profile
+		)
 
 		BeforeAll(func(ctx SpecContext) {
 			Expect(selectedProfiles).NotTo(BeEmpty())
-			p := loadProfile(selectedProfiles[0])
-			installNRIChart(ctx, h, p, topoValues, p.HasFabric())
+			p = loadProfile(selectedProfiles[0])
+			var overrides map[string]string
+			if p.HasFabric() {
+				overrides = map[string]string{"imex.nodeSoftware.enabled": "true"}
+			}
+			installNRIChart(ctx, h, p, topoValues, p.HasFabric(), overrides)
 			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
 			gpuNode = workers[0].Name
 		})
@@ -584,6 +591,13 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 					"%s carries major %d but proc-devices advertises %d; the node has more than one channel provisioner",
 					name, major, advertised)
 			}
+		})
+
+		It("tracks an IMEX domain as a peer joins and drops", Label("imex-lifecycle"), func(ctx SpecContext) {
+			if !p.HasFabric() {
+				Skip("profile " + p.Name + " has no ComputeDomain fabric identity")
+			}
+			assertIMEXLifecycle(ctx, h, workers)
 		})
 	})
 
@@ -777,6 +791,9 @@ func installNRIChart(ctx context.Context, h *harness.Harness, p profile.Profile,
 			// creates them; the NRI plugin consumes what this stages.
 			"imex.mockChannels.enabled":      "true",
 			"imex.mockChannels.channelCount": strconv.Itoa(nriImexChannelCount),
+			// The channels alone would also download IMEX node software. Only
+			// the specs that need it opt back in.
+			"imex.nodeSoftware.enabled": "false",
 		},
 		Wait:    true,
 		Timeout: config.HelmTimeout(),
@@ -1099,7 +1116,7 @@ func imexChannelNames(ctx context.Context, h *harness.Harness, pod kube.PodRef) 
 func advertisedImexMajor(ctx context.Context, h *harness.Harness, node string) int {
 	GinkgoHelper()
 	pod := nriMockPodOnNode(ctx, h, node)
-	res, err := h.Kube.ExecSh(ctx, pod, `cat /host/var/lib/nvml-mock/imex/proc-devices`)
+	res, err := h.Kube.ExecSh(ctx, pod, `cat /host/var/lib/nvml-mock/driver/proc/devices`)
 	Expect(err).NotTo(HaveOccurred(), "read rendered proc-devices on %s: %s", node, res.Combined())
 
 	for _, line := range strings.Split(res.Combined(), "\n") {

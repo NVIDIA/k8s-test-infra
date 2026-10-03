@@ -1,0 +1,12 @@
+kind: Added
+body: |-
+  node-agent: when `imex.mockChannels.enabled` is on, the node agent downloads
+    the IMEX archive pinned by version and SHA-256, caches it on the node and
+    stages the IMEX daemon, CLI and config in the driver tree.
+    `imex.nodeSoftware.enabled=false` opts out on nodes without egress to
+    NVIDIA. The upstream DRA `compute-domain-daemon` image now runs unmodified:
+    NRI adds only the real IMEX binary and the node topology to it. The
+    ComputeDomain-specific Mokka images are removed.
+time: 2026-10-02T12:00:00Z
+custom:
+  Issue: "821"
