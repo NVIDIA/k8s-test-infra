@@ -26,12 +26,29 @@ auto-merge requests. It does not call a direct merge endpoint.
 ## Cherry-pick
 
 `/cherry-pick <branch>` belongs to the Mokka agent, not to this action. The
-action skips a `/cherry-pick` line whatever its arguments: it records no
+action skips a line whose command name is exactly `cherry-pick`, followed by a
+space, a tab, or the end of the line, whatever its arguments: it records no
 command, reports no diagnostic, and makes no write for it. A review body with
-that line is evaluated as if the line were absent. The agent dispatches
-`.github/workflows/cherrypick.yml` from `main` with two inputs: `pr_number`,
-the merged pull request, and `target_branches`, a comma-separated list of
-release branches.
+that line is evaluated as if the line were absent. The parser's line checks run
+first, so a `/cherry-pick` line longer than 4096 characters or with a control,
+format, or line or paragraph separator character is still reported, and like
+any diagnostic it keeps a review `/lgtm` beside it from counting.
+
+The agent dispatches `.github/workflows/cherrypick.yml` from `main` with two
+inputs: `pr_number`, the merged pull request, and `target_branches`, a
+comma-separated list of release branches. The job runs only when
+`REPOSITORY_AUTOMATION_CHERRY_PICK_ENABLED` is `true`. Dispatches share a
+concurrency group only when they name the same pull request and the same branch
+list, so a pending dispatch is never replaced by one for other branches.
+
+For each branch, the workflow cherry-picks the merge commit GitHub recorded for
+the pull request (the squash commit in this repository), recreates the result
+as verified commits on the exact target commit it used, and opens or updates
+the `backport-<pr>-to-<branch>` pull request. It does not overwrite a backport
+branch with commits not authored by `github-actions[bot]`, such as a pushed
+conflict resolution: that branch fails until its pull request is merged or the
+branch is deleted. After every branch has been attempted and commented on, the
+run fails if any branch failed.
 
 `/backport` is not a command. The action reports it as unsupported, like any
 other unknown command.
@@ -65,6 +82,9 @@ Activate the functions in this order:
    disarms an unsafe method that it observes, but the method can change after
    its final read. If this flag is already enabled, installing this action
    also activates native enablement.
+6. Set `REPOSITORY_AUTOMATION_CHERRY_PICK_ENABLED=true` once the Mokka agent
+   dispatches **Cherry-Pick**. Confirm the first backport pull request on a
+   release branch.
 
 Keep each earlier step active while you validate the next step. Do not enable a
 later write path when an earlier validation fails.
@@ -295,9 +315,10 @@ GitHub keeps at most one pending run in a concurrency group, so a newer
 **Commands** run. Each **Commands** run therefore lists the pull request comments
 and first applies the `/hold`, `/unhold`, and `/retest` commands from unprocessed
 comments that are older than its own comment, in comment ID order, then its own.
-A run started by a comment without commands also does this. Each comment must come from a human
-account and must not be edited, and its author's live identity and repository
-access are checked as for the comment that started the run. A caught-up comment
+A run started by a comment without commands also does this. Each comment must
+come from a human account and must not be edited, and its author's live
+identity and repository access are checked as for the comment that started the
+run. A caught-up comment
 is recorded as processed only when it changed something, or when it had an
 `/lgtm` or `/approve` rejected that its author is allowed to give. Comments from
 other commenters that change nothing therefore cannot fill the command history.
