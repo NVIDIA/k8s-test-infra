@@ -1,15 +1,18 @@
 # Node-Wide nvml-mock Injection Demo
 
-This demo shows the NRI-based node-wide injection path: ordinary pods can run
-`nvidia-smi` without requesting `nvidia.com/gpu`, adding annotations, or having
-their pod specs mutated by an admission webhook.
+This demo shows the NRI-based injection path for node-wide agents: a pod can
+run `nvidia-smi` against every mock GPU on its node without requesting
+`nvidia.com/gpu`, mounting volumes, or having its pod spec mutated by an
+admission webhook. The one thing it adds is the
+`nvml-mock.nvidia.com/devices: "true"` annotation, which asks the NRI plugin
+for the whole node.
 
 It also demonstrates that node-wide injection carries **ComputeDomain fabric
 identity**: on a multi-node cluster with a topology overlay, each NRI-injected
 pod reports the NVLink clique / cluster UUID assigned to *its* node — with no
 `nvidia.com/gpu` request and no `MOCK_*` env in the pod spec. This reuses the
 same topology mechanism as the [compute-domain demo](../compute-domain/README.md), but
-delivered ambiently through NRI instead of the nvml-mock DaemonSet pod.
+delivered through NRI instead of the nvml-mock DaemonSet pod.
 
 ## Prerequisites
 
@@ -53,15 +56,23 @@ Takes about 10 minutes on a warm image cache.
 4. Uses `default` as the workload namespace. The NRI plugin excludes its own
    Helm release namespace and `kube-system`, so keeping workloads in `default`
    demonstrates injection into ordinary application pods.
-5. Starts an ordinary `gpu-agent` DaemonSet in the workload namespace:
+5. Starts a `gpu-agent` DaemonSet in the workload namespace:
+   - the `nvml-mock.nvidia.com/devices: "true"` pod annotation;
    - no `nvidia.com/gpu` request;
    - no hostPath or mock-library volumes;
    - no `LD_PRELOAD`, `MOCK_*`, or `PATH` env.
-   Its self-test asserts the ambient overlay (`/opt/nvml-mock`) and `nvidia-smi`
-   are present, then runs `check-fabric`; the script asserts every node reports
-   its assigned clique / cluster UUID (skip with `WITH_COMPUTE_DOMAIN=false`).
+   Its self-test asserts the injected overlay (`/opt/nvml-mock`) and
+   `nvidia-smi` are present, then runs `check-fabric`; the script asserts every
+   node reports its assigned clique / cluster UUID (skip with
+   `WITH_COMPUTE_DOMAIN=false`).
 
-The demo installs no device plugin, so no component allocates GPUs. The NRI overlay and environment are injected ambiently into containers in non-excluded namespaces. Host device node injection remains opt-in (via `nvidia.com/gpu` requests or the `nvml-mock.nvidia.com/devices: "true"` annotation). Unannotated pods without GPU requests will still report GPUs if `nvidia-smi` is run inside them. Where the NVIDIA device plugin is installed and allocates GPUs, the NRI plugin leaves that allocation intact (MEP-0002). Tests expecting non-GPU pods to see zero GPUs should keep NRI disabled or run in an excluded namespace. See [Device injection mode](../../helm-chart.md#device-injection-mode).
+The demo installs no device plugin, so no component allocates GPUs; the
+annotation is what selects `gpu-agent`. A pod in the same namespace that neither
+requests a GPU nor carries the annotation is left untouched and sees no GPUs.
+Where the NVIDIA device plugin or DRA driver allocates GPUs, an allocated pod
+gets the mock driver without any annotation and keeps exactly its allocation
+(MEP-0002). See
+[Which containers are injected](../../components/nri-plugin.md#which-containers-are-injected).
 
 ## Quick Start
 
@@ -92,10 +103,10 @@ be `kube-system`, because those namespaces are excluded from NRI injection.
 ## Trust Boundary
 
 The NRI plugin treats the configured device annotation
-(`nvml-mock.nvidia.com/devices=true` by default) as pod-authored opt-in for
-mounting host GPU device nodes from the staged mock overlay. Run the demo only
-in trusted workload namespaces, or add namespaces to `nri.excludedNamespaces`
-when pod authors should not control that device opt-in.
+(`nvml-mock.nvidia.com/devices=true` by default) as a pod-authored request for
+every mock GPU on the node, outside scheduler accounting. Run the demo only in
+trusted workload namespaces, or add namespaces to `nri.excludedNamespaces` when
+pod authors should not control that opt-in.
 
 The boundary is the same whichever mechanism delivers the devices. Setting
 `nri.deviceInjectionMode=cdi` makes the runtime resolve them from a CDI spec
@@ -169,8 +180,8 @@ Substitute the namespaces if you set `NVML_MOCK_NAMESPACE` or
 well, so it reports one more pod than `gpu-agent`, which is pinned to the four
 workers.
 
-The `gpu-agent` pod spec stays plain; the mock GPU stack is injected by
-containerd NRI when each container is created.
+The `gpu-agent` pod spec carries only the annotation; the mock GPU stack is
+injected by containerd NRI when each container is created.
 
 ## Clean Up
 

@@ -19,6 +19,25 @@ tests:
       - notExists:
           path: spec.template.spec.containers[1]
 
+  - it: should pass the default management annotation when NRI is enabled
+    set:
+      nri:
+        enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --device-annotation=nvml-mock.nvidia.com/devices
+
+  - it: should pass a custom management annotation unchanged
+    set:
+      nri:
+        enabled: true
+        deviceAnnotation: example.com/manage-gpus
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --device-annotation=example.com/manage-gpus
+
   - it: should add the NRI plugin to the existing DaemonSet when enabled
     set:
       nri:

@@ -50,7 +50,7 @@ type Config struct {
 	ExcludedNamespaces []string
 	OptOutAnnotation   string
 
-	// GPUs — the annotation-gated opt-in and the mechanism that delivers it.
+	// GPUs — the management opt-in and the mechanism that delivers all GPUs.
 	// A missing CDI spec degrades to raw injection rather than failing
 	// container creation.
 	DeviceAnnotation    string
@@ -93,9 +93,8 @@ func DefaultConfig() Config {
 		// The vendor is deliberately NOT nvidia.com: that namespace belongs to
 		// the device plugin and the container toolkit. Keeping ours distinct is
 		// what makes MEP-0002's "exactly one component emits CDI device
-		// references for a container" invariant observable rather than merely
-		// asserted, and it keeps alreadyHasGPUDevices' nvidia.com/ test
-		// meaningful. The "all" device aggregates every mock GPU, which is what
+		// references for a container" invariant observable. The "all" device
+		// aggregates every mock GPU, which is what
 		// the annotation has always meant.
 		CDIDeviceName: "nvml-mock.nvidia.com/gpu=all",
 		// Written by the node agent's cdi simulator. containerd resolves an
