@@ -1109,7 +1109,7 @@ exact-UID check.
 ## CRD Packaging
 
 The `mokka-crds` Helm chart packages the CRDs in
-[`deployments/mokka-crds/helm/mokka-crds`](../../../deployments/mokka-crds/helm/mokka-crds).
+[`deployments/mokka-crds/helm/mokka-crds`](https://github.com/NVIDIA/k8s-test-infra/tree/main/deployments/mokka-crds/helm/mokka-crds).
 The chart is intended to be installed by a privileged admin user before the main chart.
 This approach is also used by [Envoy Gateway](https://github.com/envoyproxy/gateway/tree/main/charts), for example.
 
