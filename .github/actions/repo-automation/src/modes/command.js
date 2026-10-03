@@ -22,6 +22,7 @@ const LOGIN = /^(?!.*--)[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
 const REPOSITORY = /^[A-Za-z0-9_.-]{1,100}$/;
 const OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const STATE_MARKER = "<!-- repo-automation-state:";
+const EVIDENCE_COMMANDS = new Set(["lgtm", "approve"]);
 
 function eventIdentity(event) {
   const owner = event?.repository?.owner?.login;
@@ -70,6 +71,21 @@ function liveComment(value, identity) {
     || value.edited !== false
   ) throw new Error("live command comment is invalid");
   return value;
+}
+
+// The same checks as liveComment, but a failing listed comment is skipped instead of fatal.
+function pendingComment(value, identity) {
+  return value !== null
+    && typeof value === "object"
+    && !Array.isArray(value)
+    && Number.isSafeInteger(value.id)
+    && value.id > 0
+    && value.issueNumber === identity.prNumber
+    && typeof value.body === "string"
+    && typeof value.author === "string"
+    && LOGIN.test(value.author)
+    && value.authorType === "User"
+    && value.edited === false;
 }
 
 function openPullRequest(value, identity) {
@@ -199,6 +215,57 @@ function boundedParsed(parsed) {
   };
 }
 
+function hasCommands(parsed) {
+  return parsed.commands.length > 0 || parsed.diagnostics.length > 0;
+}
+
+function storedProcessedIds(policyComment) {
+  if (typeof policyComment?.body !== "string") return [];
+  return parsePolicyState(policyComment.body)?.processedCommandIds ?? [];
+}
+
+// A later run in the same concurrency group cancels a pending one, so each run first
+// applies the unprocessed command comments older than its own, in id order. Comments
+// older than the newest processed one were skipped earlier and are never replayed out
+// of order; newer comments are left to their own run.
+function backlogComments(listed, identity, processedIds) {
+  const newestProcessed = Math.max(0, ...processedIds);
+  return listed
+    .filter((value) => (
+      pendingComment(value, identity)
+      && value.id < identity.commentId
+      && value.id > newestProcessed
+    ))
+    .map((value) => ({ comment: value, parsed: boundedParsed(parseCommands(value.body)) }))
+    .filter((item) => hasCommands(item.parsed))
+    .sort((left, right) => left.comment.id - right.comment.id);
+}
+
+// A caught-up /lgtm or /approve can predate a push to the head, so it is recorded as
+// processed without evidence and the reviewer repeats it.
+function withoutEvidence(parsed) {
+  return {
+    commands: parsed.commands.filter((command) => !EVIDENCE_COMMANDS.has(command.name)),
+    diagnostics: [
+      ...parsed.diagnostics,
+      ...parsed.commands
+        .filter((command) => EVIDENCE_COMMANDS.has(command.name))
+        .map((command) => ({
+          line: command.line,
+          code: "stale-backlog-evidence",
+          message: "a caught-up evidence command must be repeated",
+        })),
+    ],
+  };
+}
+
+function sameBacklog(items, latest, identity) {
+  return Array.isArray(latest) && items.every(({ comment }) => {
+    const current = latest.find((candidate) => candidate?.id === comment.id);
+    return current !== undefined && pendingComment(current, identity) && sameComment(comment, current);
+  });
+}
+
 function samePolicyComment(left, right) {
   return left?.action === right?.action && left?.id === right?.id && left?.body === right?.body;
 }
@@ -225,9 +292,12 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
   validateConfig(config);
   const comment = liveComment(await github.getIssueComment(identity.commentId), identity);
   const parsed = boundedParsed(parseCommands(comment.body));
-  if (parsed.commands.length === 0 && parsed.diagnostics.length === 0) {
-    return { status: "ignored", reason: "no-command" };
-  }
+  const listed = await github.listIssueComments(identity.prNumber);
+  if (!Array.isArray(listed)) throw new Error("live comment list is invalid");
+  const policyComment = await github.getPolicyComment(identity.prNumber, POLICY_COMMENT_MARKER);
+  const backlog = backlogComments(listed, identity, storedProcessedIds(policyComment));
+  const items = hasCommands(parsed) ? [...backlog, { comment, parsed }] : backlog;
+  if (items.length === 0) return { status: "ignored", reason: "no-command" };
   const pullRequest = openPullRequest(await github.getPullRequest(identity.prNumber), identity);
   if (pullRequest === null) return { status: "ignored", reason: "not-open-pull-request" };
 
@@ -242,7 +312,6 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
     policyDigest: authority.digest,
     headOid: pullRequest.headOid,
   };
-  const policyComment = await github.getPolicyComment(identity.prNumber, POLICY_COMMENT_MARKER);
   const stored = loadState(policyComment, context);
   const nativeReviewEvidence = await loadReviewEvidence({
     github,
@@ -251,46 +320,69 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
     pullRequest,
     context,
   });
-  const [user, access, currentLabels] = await Promise.all([
-    github.getUserIdentity(comment.author.toLowerCase()),
-    github.getCollaboratorAccess(comment.author.toLowerCase()),
+  const authors = [...new Set(items.map((item) => item.comment.author.toLowerCase()))];
+  const [actors, currentLabels] = await Promise.all([
+    Promise.all(authors.map(async (author) => {
+      const [user, access] = await Promise.all([
+        github.getUserIdentity(author),
+        github.getCollaboratorAccess(author),
+      ]);
+      return [author, actorIdentity(user, access, author)];
+    })).then((entries) => new Map(entries)),
     github.listIssueLabels(identity.prNumber),
   ]);
   if (!Array.isArray(currentLabels)) throw new Error("live label state is invalid");
-  const needsRuns = parsed.commands.some((command) => command.name === "retest");
+  const needsRuns = items.some((item) => item.parsed.commands.some((command) => command.name === "retest"));
   const runs = needsRuns
     ? await github.listWorkflowRunsForHead(pullRequest.headOid, identity.prNumber)
     : [];
   if (!Array.isArray(runs)) throw new Error("live workflow run state is invalid");
 
-  const plan = planCommandExecution({
-    parsed,
-    state: stored.state,
-    context,
-    actor: actorIdentity(user, access, comment.author),
-    author: pullRequest.author,
-    ownership: authority.ownership,
-    authorIsHuman: authority.authorIsHuman,
-    nativeReviewEvidence,
-    reviewers: authority.ownership.reviewerCandidates,
-    approvers: authority.ownership.approverCandidates,
-    owners: [...new Set([
-      ...authority.ownership.reviewerCandidates,
-      ...authority.ownership.approverCandidates,
-    ])],
-    commentId: identity.commentId,
-    now: now(),
-    historyLimit: config.policy.commands.historyLimit,
-    runs,
-    cooldownSeconds: config.policy.commands.retestCooldownSeconds,
-    retestWorkflowAllowlist: config.policy.commands.retestWorkflows,
-    allowedBackportBranches: config.policy.commands.backportBranches,
-    currentLabels,
-  });
+  const timestamp = now();
+  let state = stored.state;
+  let plan;
+  const processedCommentIds = [];
+  const backportRequests = [];
+  const rerunRunIds = [];
+  for (const item of items) {
+    plan = planCommandExecution({
+      parsed: item.comment.id === identity.commentId ? item.parsed : withoutEvidence(item.parsed),
+      state,
+      context,
+      actor: actors.get(item.comment.author.toLowerCase()),
+      author: pullRequest.author,
+      ownership: authority.ownership,
+      authorIsHuman: authority.authorIsHuman,
+      nativeReviewEvidence,
+      reviewers: authority.ownership.reviewerCandidates,
+      approvers: authority.ownership.approverCandidates,
+      owners: [...new Set([
+        ...authority.ownership.reviewerCandidates,
+        ...authority.ownership.approverCandidates,
+      ])],
+      commentId: item.comment.id,
+      now: timestamp,
+      historyLimit: config.policy.commands.historyLimit,
+      runs,
+      cooldownSeconds: config.policy.commands.retestCooldownSeconds,
+      retestWorkflowAllowlist: config.policy.commands.retestWorkflows,
+      allowedBackportBranches: config.policy.commands.backportBranches,
+      // Every plan diffs against the live labels, so the last plan carries the net change.
+      currentLabels,
+    });
+    if (plan.duplicate) break;
+    state = plan.state;
+    processedCommentIds.push(item.comment.id);
+    backportRequests.push(...plan.mutations.backportRequests);
+    for (const runId of plan.mutations.rerunRunIds) {
+      if (!rerunRunIds.includes(runId)) rerunRunIds.push(runId);
+    }
+  }
   const result = {
     status: plan.duplicate ? "duplicate" : (dryRun ? "planned" : "pending"),
     headOid: pullRequest.headOid,
     commentId: identity.commentId,
+    processedCommentIds,
     commands: plan.commands,
     diagnostics: plan.diagnostics,
     policy: plan.policy,
@@ -298,24 +390,27 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
       add: plan.mutations.addLabels,
       remove: plan.mutations.removeLabels,
     },
-    backportRequests: plan.mutations.backportRequests,
-    rerunRunIds: plan.mutations.rerunRunIds,
+    backportRequests,
+    rerunRunIds,
     apply: { attempted: [], applied: [], failed: null },
   };
   if (plan.duplicate || dryRun) return result;
 
   const commentBody = renderCommandPolicyComment({
     existingBody: stored.renderBody,
-    serializedState: serializePolicyState(plan.state),
+    serializedState: serializePolicyState(state),
     commands: plan.commands,
     diagnostics: plan.diagnostics,
     policy: plan.policy,
   });
+  const caughtUp = backlog.filter((item) => processedCommentIds.includes(item.comment.id));
   const latestComment = liveComment(await github.getIssueComment(identity.commentId), identity);
+  const latestListed = caughtUp.length === 0 ? [] : await github.listIssueComments(identity.prNumber);
   const latestPullRequest = openPullRequest(await github.getPullRequest(identity.prNumber), identity);
   const latestPolicyComment = await github.getPolicyComment(identity.prNumber, POLICY_COMMENT_MARKER);
   if (
     !sameComment(comment, latestComment)
+    || !sameBacklog(caughtUp, latestListed, identity)
     || !samePullRequest(pullRequest, latestPullRequest)
     || !samePolicyComment(policyComment, latestPolicyComment)
   ) throw new Error("live command inputs changed after planning; refusing stale writes");
@@ -355,7 +450,7 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
   for (const label of plan.mutations.removeLabels) {
     await apply(`removePolicyLabel:${label}`, () => github.removePolicyLabel(identity.prNumber, label));
   }
-  for (const runId of plan.mutations.rerunRunIds) {
+  for (const runId of rerunRunIds) {
     const plannedRun = runs.find((candidate) => candidate.id === runId);
     if (plannedRun === undefined) throw new Error("planned workflow run is missing");
     const liveRun = await github.getWorkflowRun(runId, pullRequest.headOid, identity.prNumber);

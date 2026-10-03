@@ -785,6 +785,22 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
       };
     },
 
+    async listIssueComments(prNumber) {
+      positiveInteger(prNumber, "PR number");
+      const comments = await paginate("listIssueComments", octokit.rest.issues.listComments, {
+        owner, repo, issue_number: prNumber,
+      });
+      // Authors stay unvalidated here: command mode skips any comment that is not from a human login.
+      return comments.map((data) => ({
+        id: positiveInteger(data?.id, "listed comment id"),
+        issueNumber: issueNumberFromUrl(data?.issue_url),
+        body: typeof data?.body === "string" ? data.body : "",
+        author: typeof data?.user?.login === "string" ? data.user.login.toLowerCase() : null,
+        authorType: typeof data?.user?.type === "string" ? data.user.type : null,
+        edited: data?.updated_at !== data?.created_at,
+      }));
+    },
+
     async getUserIdentity(login) {
       const normalized = normalizedLogin(login, "user login");
       try {
