@@ -84,6 +84,7 @@ body: |-
 ## Docs
 
 - Write high-quality technical documentation for this project using **MkDocs with the Material theme**.
+- Add a concise source comment for every new Helm value, and update that comment whenever a value's behavior changes substantially. Regenerate the published values reference with `make helm-docs`; do not hand-edit generated output.
 - First, inspect the project structure, source code, configuration, existing documentation, examples, and tests. Build an accurate mental model before writing. 
 - Do not invent behavior or capabilities that are not supported by the repository.
 
