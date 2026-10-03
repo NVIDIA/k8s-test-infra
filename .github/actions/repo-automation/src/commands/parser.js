@@ -3,10 +3,10 @@
 const MAX_BODY_LENGTH = 65_536;
 const MAX_LINE_LENGTH = 4_096;
 const CONTROL_CHARACTERS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
-const NO_ARGUMENT_COMMANDS = new Set(["lgtm", "approve", "hold", "unhold", "retest"]);
-const TARGET_COMMANDS = new Set(["backport", "cherry-pick"]);
-const SUPPORTED_COMMANDS = new Set([...NO_ARGUMENT_COMMANDS, ...TARGET_COMMANDS]);
-const SAFE_BRANCH = /^(?!-)(?!.*(?:\.\.|@\{|\/\/|\\|[\x00-\x20\x7f~^:?*\[]))[A-Za-z0-9][A-Za-z0-9._\/-]{0,254}$/;
+const SUPPORTED_COMMANDS = new Set(["lgtm", "approve", "hold", "unhold", "retest"]);
+// The Mokka agent owns these commands. Like a Prow plugin meeting another plugin's
+// command, the parser skips them whatever their arguments: no command, no diagnostic.
+const AGENT_COMMANDS = new Set(["cherry-pick"]);
 
 function diagnostic(line, code, message) {
   return { line, code, message };
@@ -42,26 +42,16 @@ function parseCommandLine(raw, line) {
   const text = raw.replace(/^[ \t]+|[ \t]+$/g, "");
   const separator = text.search(/[ \t]/);
   const name = separator === -1 ? text.slice(1) : text.slice(1, separator);
+  if (AGENT_COMMANDS.has(name)) return null;
   if (!SUPPORTED_COMMANDS.has(name)) {
     return { command: null, diagnostic: diagnostic(line, "unsupported-command", "command is not supported") };
   }
-
-  const argumentsText = separator === -1
-    ? ""
-    : text.slice(separator).replace(/^[ \t]+|[ \t]+$/g, "");
-  let targetBranch = null;
-  if (NO_ARGUMENT_COMMANDS.has(name)) {
-    if (argumentsText !== "") {
-      return { command: null, diagnostic: diagnostic(line, "invalid-command", "command arguments do not match the supported syntax") };
-    }
-  } else if (!SAFE_BRANCH.test(argumentsText)) {
+  if (separator !== -1) {
     return { command: null, diagnostic: diagnostic(line, "invalid-command", "command arguments do not match the supported syntax") };
-  } else {
-    targetBranch = argumentsText;
   }
 
   return {
-    command: { name, targetBranch, line, raw },
+    command: { name, targetBranch: null, line, raw },
     diagnostic: null,
   };
 }
@@ -87,6 +77,7 @@ function parseCommands(body) {
     fence = openingFence(raw);
     if (fence !== null || /^[ \t]*>/.test(raw) || !commandLike(raw)) continue;
     const parsed = parseCommandLine(raw, index + 1);
+    if (parsed === null) continue;
     if (parsed.command === null) diagnostics.push(parsed.diagnostic);
     else commands.push(parsed.command);
   }
