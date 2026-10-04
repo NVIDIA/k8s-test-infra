@@ -21,9 +21,9 @@
 // text. This repository squash-merges pull requests from forks, so the PR head
 // commits are on no branch of origin: the merge commit GitHub recorded for the
 // PR is cherry-picked instead. The verified chain is built on the target commit
-// the cherry-pick used, a backport branch that carries commits not authored by
-// github-actions[bot] is never overwritten, and the run fails when any target
-// branch fails.
+// the cherry-pick used, a backport branch that carries commits this workflow
+// did not create is never overwritten, a change already on the target is
+// reported without a PR, and the run fails when any target branch fails.
 
 module.exports = async ({ github, context, core }) => {
 const branches = JSON.parse(process.env.BRANCHES_JSON || '[]');
@@ -67,7 +67,17 @@ const cherryPick = sourceParents > 1
 core.info(`Backporting PR #${prNumber}: "${prTitle}"`);
 core.info(`Commit to cherry-pick: ${sourceSha.substring(0, 7)} - ${sourceSubject}`);
 
+// A backport branch holds only commits this workflow created: the verified
+// chain from the Git Data API (bot author, GitHub committer), or the local
+// cherry-pick a stopped run pushed before re-creating it (this runner's
+// committer). Anything else, such as a pushed conflict resolution, an amend or
+// a web edit, belongs to a human.
 const BOT_AUTHOR = 'github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>';
+const API_COMMITTER = 'GitHub <noreply@github.com>';
+const LOCAL_COMMITTER = execSync('git var GIT_COMMITTER_IDENT', { encoding: 'utf-8' })
+  .trim().replace(/ \d+ [+-]\d{4}$/, '');
+const createdHere = ([author, committer]) =>
+  (author === BOT_AUTHOR && committer === API_COMMITTER) || committer === LOCAL_COMMITTER;
 
 const results = [];
 
@@ -87,10 +97,10 @@ for (const targetBranch of branches) {
     const remoteRef = `refs/remotes/origin/${backportBranch}`;
     if (execSync(`git ls-remote origin refs/heads/${backportBranch}`, { encoding: 'utf-8' }).trim() !== '') {
       execSync(`git fetch origin +refs/heads/${backportBranch}:${remoteRef}`, { stdio: 'inherit' });
-      const authors = execSync(`git log --format='%an <%ae>' ${targetSha}..${remoteRef}`, { encoding: 'utf-8' })
-        .split('\n').filter(Boolean);
-      if (authors.some((author) => author !== BOT_AUTHOR)) {
-        throw new Error(`${backportBranch} has commits not authored by github-actions[bot]; merge or delete it before cherry-picking again`);
+      const identities = execSync(`git log --format='%an <%ae>%x00%cn <%ce>' ${targetSha}..${remoteRef}`, { encoding: 'utf-8' })
+        .split('\n').filter(Boolean).map((line) => line.split('\0'));
+      if (!identities.every(createdHere)) {
+        throw new Error(`${backportBranch} has commits this workflow did not create; merge or delete it before cherry-picking again`);
       }
     }
 
@@ -124,6 +134,21 @@ for (const targetBranch of branches) {
         throw error;
       }
     }
+
+    // The change is already on the target: there is nothing to backport, and a
+    // PR whose head equals its base would be rejected.
+    if (execSync(`git rev-list --count ${targetSha}..HEAD`, { encoding: 'utf-8' }).trim() === '0') {
+      await github.rest.issues.createComment({
+        owner: context.repo.owner,
+        repo: context.repo.repo,
+        issue_number: prNumber,
+        body: `The change from #${prNumber} is already on \`${targetBranch}\`; no backport PR is needed.`
+      });
+      results.push({ branch: targetBranch, success: true, alreadyOnTarget: true });
+      core.info(`${targetBranch} already has the change; no backport PR`);
+      continue;
+    }
+
     // Push the backport branch (force to handle updates)
     core.info(`Pushing ${backportBranch} to origin`);
     execSync(`git push --force-with-lease origin ${backportBranch}`, { stdio: 'inherit' });
@@ -338,7 +363,9 @@ core.info('\n========================================');
 core.info('Backport Summary');
 core.info('========================================');
 for (const result of results) {
-  if (result.success) {
+  if (result.alreadyOnTarget) {
+    core.info(`${result.branch}: already has the change`);
+  } else if (result.success) {
     const action = result.updated ? 'Updated' : 'Created';
     core.info(`${result.branch}: ${action} PR #${result.prNumber} ${result.hasConflicts ? '(has conflicts)' : ''}`);
   } else {
