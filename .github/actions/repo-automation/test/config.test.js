@@ -164,7 +164,7 @@ test("declares the required CI that merge-ci.js hard-coded at 809294d", () => {
         path: ".github/workflows/automation-ci.yml",
         files: [
           ".github/actions/repo-automation/**", ".github/repo-automation/**", ".github/scripts/cherrypick/**",
-          ".github/workflows/**", "hack/actionlint.sh", "Makefile", "OWNERS", "OWNERS_ALIASES",
+          ".github/scripts/issue-commands/**", ".github/workflows/**", "hack/actionlint.sh", "Makefile", "OWNERS", "OWNERS_ALIASES",
         ],
       },
       {
@@ -427,6 +427,7 @@ test("repository automation CI contains every Task 1 gate", () => {
     "npm run package",
     "git diff --exit-code -- dist",
     "node --test '.github/scripts/cherrypick/*.test.js'",
+    "node --test '.github/scripts/issue-commands/*.test.js'",
     "make actionlint",
   ]) {
     assert.equal(makefile.includes(command), true, `Make target must run ${command}`);

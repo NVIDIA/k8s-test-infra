@@ -36,6 +36,7 @@ const activationGates = {
   policyLabels:
     "${{ vars.REPOSITORY_AUTOMATION_POLICY_LABELS_ENABLED == 'true' && (github.event_name != 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch) }}",
   cherryPick: "${{ vars.REPOSITORY_AUTOMATION_CHERRY_PICK_ENABLED == 'true' && github.ref == 'refs/heads/main' }}",
+  issueCommands: "${{ vars.REPOSITORY_AUTOMATION_ISSUE_COMMANDS_ENABLED == 'true' && github.ref == 'refs/heads/main' }}",
 };
 
 function readWorkflow(name) {
@@ -210,4 +211,52 @@ test("cherry-pick runs only when enabled from main, one run per pull request and
     PR_NUMBER: "${{ steps.inputs.outputs.pr_number }}",
     BRANCHES_JSON: "${{ steps.inputs.outputs.branches }}",
   });
+});
+
+test("issue commands run only when enabled from main, and no dispatch waits behind another", () => {
+  const { workflow } = readWorkflow("issue-commands.yml");
+  assert.equal(workflow.name, "Issue commands");
+  assert.equal(workflow["run-name"], "Issue command ${{ inputs.command }} #${{ inputs.number }} by ${{ inputs.requester }}");
+  assert.deepEqual(Object.keys(workflow.on), ["workflow_dispatch"]);
+  assert.deepEqual(workflow.on.workflow_dispatch.inputs, {
+    command: {
+      description: "Command to apply",
+      type: "choice",
+      required: true,
+      options: ["assign", "unassign", "cc", "uncc", "close", "reopen", "retitle"],
+    },
+    number: { description: "Issue or pull request number", type: "string", required: true },
+    users: {
+      description: "Comma-separated GitHub logins, for assign, unassign, cc and uncc",
+      type: "string",
+      required: false,
+      default: "",
+    },
+    title: { description: "New title, for retitle", type: "string", required: false, default: "" },
+    requester: { description: "Login of the user whose comment asked for the command", type: "string", required: true },
+  });
+  assert.deepEqual(workflow.permissions, {});
+  assert.deepEqual(Object.keys(workflow.jobs), ["issue-command"]);
+  const job = workflow.jobs["issue-command"];
+  assert.equal(job.if, activationGates.issueCommands);
+  assert.deepEqual(job.permissions, { contents: "read", issues: "write", "pull-requests": "write" });
+  // GitHub keeps one pending run per group and cancels the older one, so any
+  // group two dispatches can share would drop a command: each run is its own group.
+  assert.deepEqual(job.concurrency, { group: "issue-commands-${{ github.run_id }}", "cancel-in-progress": false });
+  assert.deepEqual(job.steps.map((step) => step.uses), [checkout, githubScript, githubScript]);
+  assert.deepEqual(job.steps[0].with, { "persist-credentials": false });
+  const [, validate, apply] = job.steps;
+  assert.equal(validate.id, "inputs");
+  assert.deepEqual(validate.env, {
+    INPUT_COMMAND: "${{ inputs.command }}",
+    INPUT_NUMBER: "${{ inputs.number }}",
+    INPUT_USERS: "${{ inputs.users }}",
+    INPUT_TITLE: "${{ inputs.title }}",
+    INPUT_REQUESTER: "${{ inputs.requester }}",
+  });
+  assert.match(validate.with.script, /require\('\.\/\.github\/scripts\/issue-commands\/inputs\.js'\)/);
+  assert.deepEqual(apply.env, { REQUEST_JSON: "${{ steps.inputs.outputs.request }}" });
+  assert.match(apply.with.script, /require\('\.\/\.github\/scripts\/issue-commands\/run\.js'\)/);
+  // Inputs reach the scripts only through the environment, never as script text.
+  for (const step of [validate, apply]) assert.doesNotMatch(step.with.script, /\$\{\{/);
 });

@@ -506,6 +506,24 @@ test("an agent-owned /cherry-pick comment is ignored without any write", async (
   assert.equal(github.metadataSnapshot().comments[0].body, stored.body);
 });
 
+test("agent-owned Prow command comments are ignored without any write", async (t) => {
+  for (const body of [
+    "/assign @octocat", "/unassign", "/cc @octocat", "/uncc @octocat", "/close", "/reopen", "/retitle fix: a new title",
+  ]) await t.test(body, async () => {
+    const stored = storedPolicyComment({ processedCommandIds: [97] });
+    const github = createFakeGitHub(state({
+      issueComments: [{ id: 99, issueNumber: 42, body, author: "pr-author", authorType: "User", edited: false }],
+      comments: [stored],
+    }));
+
+    const result = await run(github);
+
+    assert.deepEqual(result, { status: "ignored", reason: "no-command" });
+    assertNoWrites(github);
+    assert.equal(github.metadataSnapshot().comments[0].body, stored.body);
+  });
+});
+
 test("a /cherry-pick line mixed with /lgtm applies exactly the /lgtm command", async () => {
   const github = createFakeGitHub(state({
     issueComments: [{
