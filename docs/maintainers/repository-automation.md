@@ -69,7 +69,9 @@ the line were absent. The parser's line checks still run first.
 
 The agent reads these comments on issues and pull requests, applies Prow's
 rules for who may use each command, and dispatches
-`.github/workflows/issue-commands.yml` from `main` with these inputs:
+`.github/workflows/issue-commands.yml` from `main` with these five string
+inputs, always all five, with an empty string for the ones a command does not
+use:
 
 | Input | Value |
 |---|---|
@@ -88,12 +90,13 @@ change with the calls Prow's GitHub client makes:
 - `cc` and `uncc` request or remove pull request reviews. GitHub refuses a
   whole review request for one reviewer it cannot request, so the workflow then
   requests each reviewer alone. Both are refused on an issue.
-- `close` closes an issue as completed, or closes a pull request. `reopen`
-  reopens either, except a merged pull request.
+- `close` closes an issue as completed, or closes a pull request, and is
+  refused on an item that is already closed. `reopen` reopens either, except a
+  merged pull request.
 - `retitle` sets the title.
 
-When GitHub refuses the change, with HTTP 403, 404, 410, or 422 or by leaving
-a user out, the workflow posts one comment on the issue or pull request that
+When the change is refused, by the workflow as above or by GitHub with HTTP
+403, 404, 410, or 422 or by leaving a user out, the workflow posts one comment on the issue or pull request that
 names the command and the reason, and fails the run. Any other error fails the
 run without a comment. The job runs only when
 `REPOSITORY_AUTOMATION_ISSUE_COMMANDS_ENABLED` is `true`; until the agent
