@@ -30,9 +30,10 @@ action skips a line whose command name is exactly `cherry-pick`, followed by a
 space, a tab, or the end of the line, whatever its arguments: it records no
 command, reports no diagnostic, and makes no write for it. A review body with
 that line is evaluated as if the line were absent. The parser's line checks run
-first, so a `/cherry-pick` line longer than 4096 characters or with a control,
-format, or line or paragraph separator character is still reported, and like
-any diagnostic it keeps a review `/lgtm` beside it from counting.
+first, so a `/cherry-pick` line longer than 4096 characters, or with a control
+character other than tab, a format character, or a line or paragraph separator,
+is still reported, and like any diagnostic it keeps a review `/lgtm` beside it
+from counting.
 
 The agent dispatches `.github/workflows/cherrypick.yml` from `main` with two
 inputs: `pr_number`, the merged pull request, and `target_branches`, a
@@ -44,11 +45,16 @@ list, so a pending dispatch is never replaced by one for other branches.
 For each branch, the workflow cherry-picks the merge commit GitHub recorded for
 the pull request (the squash commit in this repository), recreates the result
 as verified commits on the exact target commit it used, and opens or updates
-the `backport-<pr>-to-<branch>` pull request. It does not overwrite a backport
-branch with commits not authored by `github-actions[bot]`, such as a pushed
-conflict resolution: that branch fails until its pull request is merged or the
-branch is deleted. After every branch has been attempted and commented on, the
-run fails if any branch failed.
+the `backport-<pr>-to-<branch>` pull request. When the change is already on the
+target branch, it comments that on the pull request, opens no backport pull
+request, and counts the branch as done. It does not overwrite a backport branch
+holding a commit the workflow did not create, such as a pushed conflict
+resolution, an amended commit, or a web edit: that branch fails until its pull
+request is merged or the branch is deleted. The workflow's own commits are the
+verified ones, with author `github-actions[bot]` and committer GitHub, and the
+unverified cherry-pick a stopped run pushed, so a retry after a failed run
+replaces them. After every branch has been attempted and commented on, the run
+fails if any branch failed.
 
 `/backport` is not a command. The action reports it as unsupported, like any
 other unknown command.
