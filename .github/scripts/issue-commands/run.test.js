@@ -167,6 +167,25 @@ test("/cc fails without a comment when a single-reviewer retry fails for another
   assert.equal(github.calls.some(({ name }) => name === "issues.createComment"), false);
 });
 
+test("/cc retries one reviewer at a time only after a 422 on the batch", async () => {
+  const requested = { name: "pulls.requestReviewers", params: { ...REPO, pull_number: 42, reviewers: ["bob", "carol"] } };
+  const refused = await execute("cc", { users: "bob,carol" }, {
+    issue: PULL,
+    handlers: { "pulls.requestReviewers": () => { throw httpError(403, "Resource not accessible by integration"); } },
+  });
+  const reason = "GitHub refused the request with HTTP 403 (`Resource not accessible by integration`)";
+  assert.deepEqual(refused.github.calls, [GET, requested, comment(`The \`/cc\` command did not complete: ${reason}.`)]);
+  assert.deepEqual(refused.core.failed, [`/cc on #42 did not complete: ${reason}`]);
+
+  const github = fakeGitHub({
+    issue: PULL,
+    handlers: { "pulls.requestReviewers": () => { throw httpError(502, "Bad Gateway"); } },
+  });
+  await assert.rejects(run({ github, context: CONTEXT, core: fakeCore(), request: request("cc", { users: "bob,carol" }) }),
+    { status: 502 });
+  assert.deepEqual(github.calls, [GET, requested]);
+});
+
 test("/uncc removes review requests and reports any GitHub left in place", async () => {
   const applied = await execute("uncc", { users: "bob" }, {
     issue: PULL,
