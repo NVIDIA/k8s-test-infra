@@ -97,7 +97,8 @@ func TestWriteProcFS_ParamsUseDriverKeyNames(t *testing.T) {
 	for _, line := range lines {
 		require.False(t, strings.HasPrefix(line, "NVreg_"),
 			"params line %q uses the module-parameter spelling", line)
-		require.Regexp(t, `^[A-Za-z][A-Za-z0-9]*: `, line,
+		// The driver's two forms: "%s: %u" for table entries, "%s: \"%s\"" for strings.
+		require.Regexp(t, `^[A-Za-z][A-Za-z0-9]*: ([0-9]+|"[^"]*")$`, line,
 			"params line %q is not \"<Key>: <value>\"", line)
 	}
 	require.Contains(t, lines, "ModifyDeviceFiles: 1")
