@@ -300,37 +300,22 @@ test("action metadata pins the Node 24 entry point and stable input/output contr
 
   assert.deepEqual(action.runs, { using: "node24", main: "dist/index.js" });
   assert.deepEqual(Object.keys(action.inputs).sort(), [
-    "action-id",
-    "action_id",
     "control-directory",
     "dry-run",
     "mode",
     "policy-revision",
     "pr-number",
-    "pull_request_number",
     "request-id",
-    "source-sha",
-    "source_sha",
-    "target-branch",
     "workflow-commit-sha",
-    "working-directory",
   ]);
   for (const input of [
-    "mode", "pr-number", "pull_request_number", "source-sha", "source_sha", "target-branch",
-    "action-id", "action_id", "working-directory", "control-directory", "policy-revision", "dry-run", "request-id", "workflow-commit-sha",
+    "mode", "pr-number", "control-directory", "policy-revision", "dry-run", "request-id", "workflow-commit-sha",
   ]) {
     assert.equal(typeof action.inputs[input].description, "string");
     assert.notEqual(action.inputs[input].description.trim(), "");
   }
   assert.equal(action.inputs.mode.required, true);
   assert.equal(action.inputs["pr-number"].required, false);
-  assert.equal(action.inputs.pull_request_number.required, false);
-  assert.equal(action.inputs["target-branch"].required, false);
-  assert.equal(action.inputs["source-sha"].required, false);
-  assert.equal(action.inputs.source_sha.required, false);
-  assert.equal(action.inputs["action-id"].required, false);
-  assert.equal(action.inputs.action_id.required, false);
-  assert.equal(action.inputs["working-directory"].required, false);
   assert.equal(action.inputs["control-directory"].required, false);
   assert.equal(action.inputs["policy-revision"].required, false);
   assert.equal(action.inputs["request-id"].required, false);
@@ -338,11 +323,8 @@ test("action metadata pins the Node 24 entry point and stable input/output contr
   assert.match(action.inputs["policy-revision"].description, /trusted.*default branch.*commit.*metadata label scans/i);
   assert.equal(action.inputs["dry-run"].required, false);
   assert.equal(action.inputs["dry-run"].default, "true");
-  assert.match(action.inputs["dry-run"].description, /Mokka.*false/i);
+  assert.equal(action.inputs["dry-run"].description, "Plan supported modes without mutating GitHub");
   assert.deepEqual(action.outputs, {
-    "backport-requests": {
-      description: "Bounded JSON array of validated generic backport requests",
-    },
     summary: { description: "JSON summary of the idempotent operation" },
   });
 });

@@ -1,7 +1,6 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const { Buffer } = require("node:buffer");
 const path = require("node:path");
 const test = require("node:test");
 const fs = require("node:fs");
@@ -61,10 +60,7 @@ test("index dispatches command mode without treating event text as authority", a
 
   assert.deepEqual(result, { status: "ignored", reason: "not-pull-request" });
   assert.deepEqual(githubClient.calls.getIssueComment, []);
-  assert.deepEqual(core.outputs, [
-    { name: "backport-requests", value: "[]" },
-    { name: "summary", value: JSON.stringify(result) },
-  ]);
+  assert.deepEqual(core.outputs, [{ name: "summary", value: JSON.stringify(result) }]);
 });
 
 test("index passes the trusted policy revision to real merge evaluation", async () => {
@@ -116,165 +112,15 @@ for (const [name, revision] of [
   });
 }
 
-test("index passes explicit pull request and target inputs to backport mode", async () => {
-  const { run } = require("../src/index.js");
-  const core = coreFor({
-    mode: "backport",
-    "pr-number": "42",
-    "target-branch": "release-1.2",
-    "working-directory": "target",
-  });
-  const mergeOid = "2".repeat(40);
-  const githubClient = createFakeGitHub({
-    pullRequests: [{
-      number: 42,
-      nodeId: "PR_node_42",
-      title: "feat: add gpu probe",
-      body: "",
-      draft: false,
-      author: "orig-author",
-      headOid: "7".repeat(40),
-      state: "closed",
-      merged: true,
-      mergeCommitOid: mergeOid,
-      baseBranch: "main",
-      baseRepository: { owner: "nvidia", repo: "k8s-test-infra" },
-    }],
-    branches: { "release-1.2": "1".repeat(40) },
-  });
-  const gitCalls = [];
-  const result = await run({
-    core,
-    workspace: repositoryRoot,
-    githubClient,
-    owner: "NVIDIA",
-    repo: "k8s-test-infra",
-    git: async (args, options) => {
-      gitCalls.push({ args, options });
-      return { stdout: "", stderr: "" };
-    },
-  });
-
-  assert.deepEqual(result, {
-    status: "planned",
-    outcome: "create",
-    sourcePullRequest: 42,
-    sourceCommit: mergeOid,
-    targetBranch: "release-1.2",
-    backportBranch: "backport/42-to-release-1.2-61744f7f6745",
-  });
-  assert.deepEqual(githubClient.calls.getPullRequest, [{ prNumber: 42 }]);
-  assert.deepEqual(core.outputs, [{ name: "summary", value: JSON.stringify(result) }]);
-  assert.equal(gitCalls.length, 0, "dry-run must not invoke Git");
-});
-
-test("index dispatches generic backport Git only in the fixed target checkout", async () => {
-  const { run } = require("../src/index.js");
-  const core = coreFor({
-    mode: "backport",
-    "pr-number": "42",
-    "target-branch": "release-1.2",
-    "working-directory": "target",
-    "dry-run": "false",
-  });
-  const mergeOid = "2".repeat(40);
-  const targetOid = "1".repeat(40);
-  const producedOid = "4".repeat(40);
-  const githubClient = createFakeGitHub({
-    pullRequest: {
-      number: 42,
-      nodeId: "PR_node_42",
-      title: "feat: add gpu probe",
-      body: "",
-      draft: false,
-      author: "orig-author",
-      headOid: "7".repeat(40),
-      state: "closed",
-      merged: true,
-      mergeCommitOid: mergeOid,
-      baseBranch: "main",
-      baseRepository: { owner: "nvidia", repo: "k8s-test-infra" },
-    },
-    branches: { "release-1.2": targetOid },
-  });
-  const gitCalls = [];
-  const git = async (args, options) => {
-    gitCalls.push({ args: [...args], options: { ...options } });
-    if (args[0] === "rev-list") {
-      return { stdout: `${mergeOid} ${"3".repeat(40)}\n`, stderr: "" };
-    }
-    if (args[0] === "rev-parse") {
-      return { stdout: `${producedOid}\n`, stderr: "" };
-    }
-    if (args[0] === "push") githubClient.setBranch("backport/42-to-release-1.2-61744f7f6745", producedOid);
-    return { stdout: "", stderr: "" };
-  };
-
-  await run({
-    core,
-    workspace: repositoryRoot,
-    githubClient,
-    git,
-    owner: "NVIDIA",
-    repo: "k8s-test-infra",
-  });
-
-  assert.ok(gitCalls.length > 0);
-  assert.equal(gitCalls.every(({ options }) => options.cwd === path.join(repositoryRoot, "target")), true);
-});
-
-test("index publishes bounded backport requests for the workflow matrix", async () => {
-  const { run } = require("../src/index.js");
-  const core = coreFor({ mode: "command", "dry-run": "true" });
-  const githubClient = createFakeGitHub({
-    pullRequest: {
-      number: 42,
-      nodeId: "PR_42",
-      title: "feat: request backport",
-      body: "",
-      draft: false,
-      author: "author",
-      headOid: "1".repeat(40),
-      state: "open",
-      baseBranch: "main",
-      baseRepository: { owner: "nvidia", repo: "k8s-test-infra" },
-    },
-    files: [{ path: "pkg/gpu.go", additions: 1, deletions: 0, status: "modified" }],
-    issueComments: [{
-      id: 99,
-      issueNumber: 42,
-      body: "/backport release-0.11",
-      author: "author",
-      authorType: "User",
-      edited: false,
-    }],
-    contents: {
-      "/OWNERS": "reviewers: [alice]\napprovers: [bob]\n",
-      "/OWNERS_ALIASES": "aliases: {}\n",
-    },
-    defaultBranchRevision: "2".repeat(40),
-  });
-  const event = {
-    action: "created",
-    repository,
-    issue: { number: 42, pull_request: {} },
-    comment: { id: 99 },
-  };
-
-  await run({ core, workspace: repositoryRoot, githubClient, event });
-
-  const output = core.outputs.find(({ name }) => name === "backport-requests");
-  assert.deepEqual(JSON.parse(output.value), [{ prNumber: 42, targetBranch: "release-0.11" }]);
-  assert.ok(Buffer.byteLength(output.value, "utf8") < 4096);
-});
-
 test("index accepts only the approved v0.11 mode set", async () => {
   const { run } = require("../src/index.js");
-  const core = coreFor({ mode: "release" });
-  await assert.rejects(
-    () => run({ core, workspace: repositoryRoot, githubClient: createFakeGitHub() }),
-    /Unsupported mode: release/,
-  );
+  for (const mode of ["release", "backport", "mokka-cherry-pick"]) {
+    const core = coreFor({ mode });
+    await assert.rejects(
+      () => run({ core, workspace: repositoryRoot, githubClient: createFakeGitHub() }),
+      { message: `Unsupported mode: ${mode}` },
+    );
+  }
 });
 
 test("index rejects a control checkout path that is not the fixed trusted directory", async () => {
@@ -287,126 +133,5 @@ test("index rejects a control checkout path that is not the fixed trusted direct
   await assert.rejects(
     () => run({ core, workspace: repositoryRoot, githubClient: createFakeGitHub() }),
     /invalid trusted control directory/,
-  );
-});
-
-test("index dispatches Mokka only to the fixed target checkout and identity", async () => {
-  const { run } = require("../src/index.js");
-  const actionId = "123e4567-e89b-42d3-a456-426614174000";
-  const sourceSha = "2".repeat(40);
-  const targetSha = "1".repeat(40);
-  const producedSha = "4".repeat(40);
-  const signedSha = "6".repeat(40);
-  const treeSha = "7".repeat(40);
-  const workflowSha = "5".repeat(40);
-  const branch = `mokka/cherry-pick/${actionId}`;
-  const core = coreFor({
-    mode: "mokka-cherry-pick",
-    pull_request_number: "42",
-    source_sha: sourceSha,
-    "target-branch": "main",
-    action_id: actionId,
-    "working-directory": "target",
-    "dry-run": "false",
-  });
-  const githubClient = createFakeGitHub({
-    pullRequest: {
-      number: 42,
-      state: "closed",
-      merged: true,
-      mergeCommitOid: sourceSha,
-      baseBranch: "source-base",
-      baseRepository: { owner: "nvidia", repo: "k8s-test-infra" },
-      headRepository: { owner: "nvidia", repo: "k8s-test-infra" },
-    },
-    commitsBySha: {
-      [sourceSha]: { sha: sourceSha, parents: ["3".repeat(40)] },
-    },
-    branches: { main: targetSha },
-  });
-  githubClient.calls.createMokkaCommit = [];
-  githubClient.calls.createMokkaRef = [];
-  githubClient.createMokkaCommit = async (request) => {
-    githubClient.calls.createMokkaCommit.push(request);
-    assert.equal(request.tree, treeSha);
-    assert.deepEqual(request.parents, [targetSha]);
-    return {
-      sha: signedSha,
-      message: request.message.replace(/\n+$/u, ""),
-      tree: treeSha,
-      parents: [targetSha],
-      verification: { verified: true, hasSignature: true },
-    };
-  };
-  githubClient.createMokkaRef = async (name, sha) => {
-    githubClient.calls.createMokkaRef.push({ name, sha });
-    githubClient.setBranch(name, sha);
-    return { name, oid: sha };
-  };
-  const gitCalls = [];
-  let revParseCalls = 0;
-  let showCalls = 0;
-  const git = async (args, options) => {
-    gitCalls.push({ args: [...args], options: { ...options } });
-    if (args[0] === "rev-parse" && args[1] === "FETCH_HEAD") {
-      return { stdout: `${targetSha}\n`, stderr: "" };
-    }
-    if (args[0] === "rev-parse" && args[1] === "HEAD^{tree}") {
-      return { stdout: `${treeSha}\n`, stderr: "" };
-    }
-    if (args[0] === "rev-parse") {
-      revParseCalls += 1;
-      return { stdout: `${revParseCalls === 1 ? targetSha : producedSha}\n`, stderr: "" };
-    }
-    if (args[0] === "show") {
-      showCalls += 1;
-      return {
-        stdout: showCalls === 1
-          ? "feat: source\n"
-          : `feat: source\n\nMokka-Source-SHA: ${sourceSha}\nMokka-Action-ID: ${actionId}\n`,
-        stderr: "",
-      };
-    }
-    if (args[0] === "push" && args.at(-1) === `HEAD:refs/heads/mokka/cherry-pick-upload/${actionId}`) {
-      githubClient.setBranch(`mokka/cherry-pick-upload/${actionId}`, producedSha);
-    }
-    return { stdout: "", stderr: "" };
-  };
-
-  const result = await run({
-    core,
-    workspace: "/trusted/workspace",
-    githubClient,
-    git,
-    owner: "NVIDIA",
-    repo: "k8s-test-infra",
-    repositoryId: "733665780",
-    workflowSha,
-  });
-
-  assert.equal(result.outcome, "created");
-  assert.equal(gitCalls.every(({ options }) => options.cwd === "/trusted/workspace/target"), true);
-  assert.deepEqual(githubClient.calls.createMokkaPullRequest.length, 1);
-  assert.deepEqual(githubClient.calls.createMokkaCommit.length, 1);
-  assert.deepEqual(githubClient.calls.createMokkaRef, [{ name: branch, sha: signedSha }]);
-  assert.deepEqual(githubClient.calls.updateMokkaPullRequestBody.length, 1);
-});
-
-test("index rejects every Mokka working directory except target", async () => {
-  const { run } = require("../src/index.js");
-  const core = coreFor({
-    mode: "mokka-cherry-pick",
-    "working-directory": "control",
-    "dry-run": "false",
-  });
-  await assert.rejects(
-    () => run({
-      core,
-      workspace: "/trusted/workspace",
-      githubClient: createFakeGitHub(),
-      owner: "NVIDIA",
-      repo: "k8s-test-infra",
-    }),
-    /working directory/,
   );
 });

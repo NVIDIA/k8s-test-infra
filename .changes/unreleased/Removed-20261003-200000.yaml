@@ -1,0 +1,4 @@
+kind: Removed
+body: |-
+  The `/backport` command alias, the generic backport workflow (`backport.yml`) and the Mokka cherry-pick workflow (`mokka-cherry-pick.yml`). `/cherry-pick <branch>` now belongs to the Mokka agent, which dispatches `cherrypick.yml`; repository automation reports `/backport` as an unsupported command.
+time: 2026-10-03T20:00:00Z

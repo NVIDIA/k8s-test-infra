@@ -34,9 +34,6 @@ function createFakeGitHub(initialState = []) {
   const evaluationWorkflowRuns = clone(options.evaluationWorkflowRuns ?? []);
   const mergeStates = clone(options.mergeStates ?? []);
   const branches = clone(options.branches ?? {});
-  const backportPullRequests = clone(options.backportPullRequests ?? []);
-  const mokkaPullRequests = clone(options.mokkaPullRequests ?? []);
-  const commits = clone(options.commitsBySha ?? {});
   const automationLogin = options.automationLogin ?? "github-actions[bot]";
   for (const comment of comments) {
     if (comment.author === undefined) comment.author = automationLogin;
@@ -54,7 +51,6 @@ function createFakeGitHub(initialState = []) {
     createLabel: [],
     updateLabel: [],
     getPullRequest: [],
-    getCommit: [],
     listPullRequestFiles: [],
     listPullRequestCommits: [],
     listPullRequestReviews: [],
@@ -82,11 +78,6 @@ function createFakeGitHub(initialState = []) {
     getCIState: [],
     getBranchProtection: [],
     getBranch: [],
-    findMokkaPullRequests: [],
-    createMokkaPullRequest: [],
-    updateMokkaPullRequestBody: [],
-    findOpenBackportPullRequest: [],
-    createBackportPullRequest: [],
     setMergePolicyCheck: [],
     enableAutoMerge: [],
     disableAutoMerge: [],
@@ -146,12 +137,6 @@ function createFakeGitHub(initialState = []) {
       record("getPullRequest", { prNumber });
       const index = Math.min(calls.getPullRequest.length - 1, pullRequests.length - 1);
       return clone(pullRequests[index]);
-    },
-
-    async getCommit(sha) {
-      record("getCommit", { sha });
-      if (!Object.hasOwn(commits, sha)) throw new Error(`missing commit: ${sha}`);
-      return clone(commits[sha]);
     },
 
     async listPullRequestFiles(prNumber) {
@@ -339,57 +324,6 @@ function createFakeGitHub(initialState = []) {
       return { name: branch, oid: branches[branch] };
     },
 
-    async findMokkaPullRequests(head, base) {
-      record("findMokkaPullRequests", { head, base });
-      return clone(mokkaPullRequests.filter((pullRequest) => (
-        pullRequest.head === head && pullRequest.base === base
-      )));
-    },
-
-    async createMokkaPullRequest(pullRequest) {
-      record("createMokkaPullRequest", pullRequest);
-      const number = 1000 + mokkaPullRequests.length;
-      const created = clone(options.mokkaCreatedPullRequest ?? {
-        ...pullRequest,
-        number,
-        url: `https://github.com/NVIDIA/k8s-test-infra/pull/${number}`,
-        state: "open",
-        headOid: branches[pullRequest.head],
-      });
-      mokkaPullRequests.push(created);
-      return clone(created);
-    },
-
-    async updateMokkaPullRequestBody(prNumber, body) {
-      record("updateMokkaPullRequestBody", { prNumber, body });
-      const pullRequest = mokkaPullRequests.find((candidate) => candidate.number === prNumber);
-      if (pullRequest === undefined) throw new Error(`missing Mokka pull request: ${prNumber}`);
-      pullRequest.body = body;
-    },
-
-    async findOpenBackportPullRequest(head, base) {
-      record("findOpenBackportPullRequest", { head, base });
-      const matches = backportPullRequests.filter((pullRequest) => (
-        pullRequest.state === "open"
-        && pullRequest.head === head
-        && pullRequest.base === base
-      ));
-      if (matches.length > 1) throw new Error("duplicate open backport pull requests");
-      return clone(matches[0] ?? null);
-    },
-
-    async createBackportPullRequest(pullRequest) {
-      record("createBackportPullRequest", pullRequest);
-      const created = {
-        ...clone(pullRequest),
-        number: 1000 + backportPullRequests.length,
-        url: `https://github.com/NVIDIA/k8s-test-infra/pull/${1000 + backportPullRequests.length}`,
-        state: "open",
-      };
-      backportPullRequests.push(created);
-      return clone(created);
-    },
-
     async setMergePolicyCheck(prNumber, headOid, conclusion, summary) {
       record("setMergePolicyCheck", { prNumber, headOid, conclusion, summary });
     },
@@ -470,10 +404,6 @@ function createFakeGitHub(initialState = []) {
         requestedReviewers: [...requestedReviewers],
         comments: clone(comments),
       };
-    },
-
-    setBranch(name, oid) {
-      branches[name] = oid;
     },
   };
 }

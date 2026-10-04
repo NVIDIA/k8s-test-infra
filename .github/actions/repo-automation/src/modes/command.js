@@ -254,8 +254,7 @@ function backlogComments(listed, identity, processedIds, nowMilliseconds) {
 
 // Catch-up replays only /hold, /unhold and /retest. A caught-up /lgtm or /approve can
 // predate a push to the head, so it grants no evidence; when its author may give it, the
-// policy comment asks them to repeat it. A caught-up /backport or /cherry-pick is not
-// replayed.
+// policy comment asks them to repeat it.
 function caughtUpCommands(parsed, authorization) {
   const rejected = [...new Set(parsed.commands
     .filter((command) => (
@@ -383,7 +382,6 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
       runs,
       cooldownSeconds: config.policy.commands.retestCooldownSeconds,
       retestWorkflowAllowlist: config.policy.commands.retestWorkflows,
-      allowedBackportBranches: config.policy.commands.backportBranches,
       // Every plan diffs against the live labels, so the last plan carries the net change.
       currentLabels,
     });
@@ -425,8 +423,6 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
       add: plan.mutations.addLabels,
       remove: plan.mutations.removeLabels,
     },
-    // Only the event comment can request a backport, and its plan is the last one.
-    backportRequests: plan.mutations.backportRequests,
     rerunRunIds,
     apply: { attempted: [], applied: [], failed: null },
   };

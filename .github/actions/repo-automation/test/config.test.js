@@ -138,7 +138,7 @@ test("loads exact authority, branch, review, command, bot, and size policy", () 
   assert.deepEqual(policy.commands.retestWorkflows, [
     ".github/workflows/automation-ci.yml",
   ]);
-  assert.deepEqual(policy.commands.backportBranches, ["release-*"]);
+  assert.deepEqual(Object.keys(policy.commands).sort(), ["historyLimit", "retestCooldownSeconds", "retestWorkflows"]);
   assert.equal(policy.merge.method, "SQUASH");
   assert.deepEqual(policy.bots, [
     {
@@ -163,8 +163,8 @@ test("declares the required CI that merge-ci.js hard-coded at 809294d", () => {
       {
         path: ".github/workflows/automation-ci.yml",
         files: [
-          ".github/actions/repo-automation/**", ".github/repo-automation/**", ".github/workflows/**",
-          "hack/actionlint.sh", "Makefile", "OWNERS", "OWNERS_ALIASES",
+          ".github/actions/repo-automation/**", ".github/repo-automation/**", ".github/scripts/cherrypick/**",
+          ".github/workflows/**", "hack/actionlint.sh", "Makefile", "OWNERS", "OWNERS_ALIASES",
         ],
       },
       {
@@ -294,7 +294,7 @@ test("rejects invalid policy values with path-specific errors instead of default
   ]);
 });
 
-test("rejects unsafe command bounds, workflow paths, and backport patterns", () => {
+test("rejects unsafe command bounds, workflow paths, and the removed backport key", () => {
   const valid = loadConfig(repositoryRoot);
   const policy = {
     ...valid.policy,
@@ -302,7 +302,7 @@ test("rejects unsafe command bounds, workflow paths, and backport patterns", () 
       retestCooldownSeconds: 599,
       historyLimit: 257,
       retestWorkflows: ["../workflows/hostile.yml"],
-      backportBranches: ["refs/heads/*/nested*"],
+      backportBranches: ["release-*"],
     },
   };
 
@@ -310,7 +310,7 @@ test("rejects unsafe command bounds, workflow paths, and backport patterns", () 
     "policy.commands.retestCooldownSeconds",
     "policy.commands.historyLimit",
     "policy.commands.retestWorkflows[0]",
-    "policy.commands.backportBranches[0]",
+    "policy.commands.backportBranches: unknown key",
   ]);
 });
 
@@ -426,13 +426,35 @@ test("repository automation CI contains every Task 1 gate", () => {
     "npm audit --audit-level=high",
     "npm run package",
     "git diff --exit-code -- dist",
-    "go test ./tests/hack -run TestMokkaCherryPick -count=1",
+    "node --test '.github/scripts/cherrypick/*.test.js'",
     "make actionlint",
   ]) {
     assert.equal(makefile.includes(command), true, `Make target must run ${command}`);
   }
+  // Node 24, the CI runtime, loads a directory argument to `node --test` as a
+  // module and fails with MODULE_NOT_FOUND; Node 26 searches it. Name the
+  // test files with a quoted glob that node itself expands.
+  assert.doesNotMatch(makefile, /^\tnode --test [^'\n]*\/\s*$/m);
   assert.match(makefile, /\.PHONY:\s+repository-automation-ci/);
+  assert.doesNotMatch(makefile, /TestMokkaCherryPick/);
   assert.doesNotMatch(workflow, /run:\s+npm (?:ci|test|run)/);
   assert.doesNotMatch(workflow, /SPDX-License-Identifier/);
   assert.doesNotMatch(workflow, /uses:\s+[^\s]+@(?![0-9a-f]{40}(?:\s|$))/);
+});
+
+test("repository automation CI sets up Go only when its make target runs Go", () => {
+  const workflow = YAML.parse(fs.readFileSync(
+    path.join(repositoryRoot, ".github", "workflows", "automation-ci.yml"),
+    "utf8",
+  ));
+  const makefile = fs.readFileSync(path.join(repositoryRoot, "Makefile"), "utf8");
+  const recipe = /^repository-automation-ci:.*\n((?:\t.*\n)+)/m.exec(makefile);
+  assert.ok(recipe, "repository-automation-ci recipe must exist");
+  assert.match(recipe[1], /^\tmake actionlint$/m);
+  const actionlint = fs.readFileSync(path.join(repositoryRoot, "hack", "actionlint.sh"), "utf8");
+  const goCommand = /(?:^|[\s;&|(])go\s+(?:test|run|build|install|vet|generate|env)\b/m;
+  const runsGo = goCommand.test(recipe[1]) || goCommand.test(actionlint);
+  const setsUpGo = workflow.jobs["automation-ci"].steps.some((step) => step.uses?.startsWith("actions/setup-go@"));
+
+  assert.equal(setsUpGo, runsGo);
 });

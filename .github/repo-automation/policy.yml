@@ -7,7 +7,6 @@ commands:
   retestCooldownSeconds: 600
   historyLimit: 256
   retestWorkflows: [.github/workflows/automation-ci.yml]
-  backportBranches: ["release-*"]
 merge:
   method: SQUASH
   # Source CI that must pass on the pull request head before a merge; merge-ci.js and the Mokka agent read this list.
@@ -25,6 +24,7 @@ merge:
         files:
           - ".github/actions/repo-automation/**"
           - ".github/repo-automation/**"
+          - ".github/scripts/cherrypick/**"
           - ".github/workflows/**"
           - hack/actionlint.sh
           - Makefile

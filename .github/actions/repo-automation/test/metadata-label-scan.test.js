@@ -113,7 +113,7 @@ function fakeGitHub(options = {}) {
   for (const operation of [
     "requestReviewers", "listPullRequestReviews", "listRequestedReviewers", "getConflictState",
     "addPolicyLabel", "removePolicyLabel", "setMergePolicyCheck", "disableAutoMerge",
-    "enableAutoMerge", "mergePullRequest", "rerunFailedJobs", "createBackportPullRequest",
+    "enableAutoMerge", "mergePullRequest", "rerunFailedJobs",
   ]) {
     github[operation] = async () => {
       forbidden.push(operation);

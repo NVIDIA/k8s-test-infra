@@ -2,9 +2,7 @@
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
-const os = require("node:os");
 const path = require("node:path");
-const { spawnSync } = require("node:child_process");
 const test = require("node:test");
 
 const YAML = require("yaml");
@@ -32,23 +30,13 @@ const activationGates = {
     "${{ vars.REPOSITORY_AUTOMATION_METADATA_ENABLED == 'true' && (github.event_name != 'workflow_dispatch' || (github.repository == 'NVIDIA/k8s-test-infra' && github.repository_id == '733665780' && github.ref == 'refs/heads/main' && github.sha == inputs.workflow_commit_sha && github.workflow_sha == inputs.workflow_commit_sha)) }}",
   commands:
     "${{ vars.REPOSITORY_AUTOMATION_COMMANDS_ENABLED == 'true' && github.event.issue.pull_request != null && github.event.action == 'created' && github.event.comment.user.type == 'User' && contains(github.event.comment.body, '/') }}",
-  backport:
-    "${{ vars.REPOSITORY_AUTOMATION_BACKPORT_ENABLED == 'true' && needs.command.outputs.backport-requests != '[]' }}",
   reviews: "${{ vars.REPOSITORY_AUTOMATION_REVIEWS_ENABLED == 'true' }}",
   merge:
     "${{ vars.REPOSITORY_AUTOMATION_MERGE_ENABLED == 'true' && (github.event_name != 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch) }}",
   policyLabels:
     "${{ vars.REPOSITORY_AUTOMATION_POLICY_LABELS_ENABLED == 'true' && (github.event_name != 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch) }}",
-  reusableBackport: "${{ vars.REPOSITORY_AUTOMATION_BACKPORT_ENABLED == 'true' }}",
-  mokka:
-    "${{ vars.REPOSITORY_AUTOMATION_MOKKA_ENABLED == 'true' && github.ref == 'refs/heads/main' && github.sha == inputs.workflow_commit_sha }}",
+  cherryPick: "${{ vars.REPOSITORY_AUTOMATION_CHERRY_PICK_ENABLED == 'true' && github.ref == 'refs/heads/main' }}",
 };
-
-const reviewedAutomationFiles = [
-  ".github/workflows/mokka-cherry-pick.yml",
-  ".github/actions/repo-automation/action.yml",
-  ".github/actions/repo-automation/dist/index.js",
-];
 
 function readWorkflow(name) {
   const source = fs.readFileSync(path.join(workflowRoot, name), "utf8");
@@ -128,11 +116,9 @@ test("metadata and command workflows use exact trusted code", () => {
   assert.deepEqual(commands.jobs.command.concurrency, concurrency.commands);
   assertTrustedCheckout(commands.jobs.command);
   assert.equal(actionStep(commands.jobs.command, "command").with["control-directory"], "control");
-  assert.equal(commands.jobs.command.outputs["backport-requests"], "${{ steps.command.outputs.backport-requests }}");
-  assert.deepEqual(commands.jobs.backport.permissions, { contents: "write", "pull-requests": "write" });
-  assert.equal(commands.jobs.backport.if, activationGates.backport);
-  assert.equal(commands.jobs.backport.uses, "./.github/workflows/backport.yml");
-  assert.equal(commands.jobs.backport.strategy.matrix.request, "${{ fromJSON(needs.command.outputs.backport-requests) }}");
+  // The command job is the only job: nothing in this workflow writes repository contents.
+  assert.deepEqual(Object.keys(commands.jobs), ["command"]);
+  assert.equal(commands.jobs.command.outputs, undefined);
 });
 
 test("review observation and native merge evaluation use bounded events and trusted code", () => {
@@ -199,126 +185,29 @@ test("no workflow queues behind the old repository-wide automation group", () =>
   assert.deepEqual(sharing, []);
 });
 
-test("generic backport is reusable only and isolates its target checkout", () => {
-  const workflow = readWorkflow("backport.yml").workflow;
-  assert.deepEqual(Object.keys(workflow.on), ["workflow_call"]);
-  assert.deepEqual(workflow.permissions, {});
-  const job = workflow.jobs.backport;
-  assert.equal(job.if, activationGates.reusableBackport);
-  assert.deepEqual(job.permissions, { contents: "write", "pull-requests": "write" });
-  assertTrustedCheckout(job);
-  const target = job.steps.filter((step) => step.uses === checkout)[1];
-  assert.equal(target.with.ref, "${{ inputs.target-branch }}");
-  assert.equal(target.with.path, "target");
-  assert.equal(target.with["persist-credentials"], true);
-  assert.equal(target.with.submodules, false);
-  assert.equal(target.with.lfs, false);
-  assert.equal(actionStep(job, "backport").with["control-directory"], "control");
-  assert.equal(actionStep(job, "backport").with["working-directory"], "target");
-});
-
-test("Mokka dispatch checks reviewed automation before it checks out the target", () => {
-  const workflow = readWorkflow("mokka-cherry-pick.yml").workflow;
+test("cherry-pick runs only when enabled from main, one run per pull request and branch set", () => {
+  const { workflow } = readWorkflow("cherrypick.yml");
   assert.deepEqual(Object.keys(workflow.on), ["workflow_dispatch"]);
-  const inputs = workflow.on.workflow_dispatch.inputs;
-  assert.deepEqual(Object.keys(inputs).sort(), [
-    "action_id", "pull_request_number", "source_sha", "target_branch", "workflow_commit_sha",
-  ]);
-  for (const input of Object.values(inputs)) {
-    assert.equal(input.required, true);
-    assert.equal(input.type, "string");
-  }
-  const job = workflow.jobs["cherry-pick"];
-  assert.equal(job.if, activationGates.mokka);
-  assert.deepEqual(job.steps.map((step) => step.name), [
-    "Validate reviewed automation ref",
-    "Check out trusted automation",
-    "Check out reviewed automation",
-    "Verify reviewed automation",
-    "Check out validated target",
-    "Cherry-pick merged source pull request",
-  ]);
-  const validateRef = job.steps[0];
-  assert.equal(validateRef.shell, "bash");
-  assert.deepEqual(validateRef.env, {
-    REVIEWED_SHA: "${{ vars.REPOSITORY_AUTOMATION_MOKKA_REVIEWED_SHA }}",
+  assert.deepEqual(Object.keys(workflow.on.workflow_dispatch.inputs), ["pr_number", "target_branches"]);
+  assert.deepEqual(workflow.permissions, {});
+  assert.deepEqual(Object.keys(workflow.jobs), ["backport"]);
+  const job = workflow.jobs.backport;
+  assert.equal(job.if, activationGates.cherryPick);
+  assert.deepEqual(job.permissions, { contents: "write", "pull-requests": "write", issues: "write" });
+  // GitHub keeps one pending run per group: a PR-only key would cancel a pending
+  // dispatch for a different branch set.
+  assert.deepEqual(job.concurrency, {
+    group: "cherry-pick-${{ inputs.pr_number }}-${{ inputs.target_branches }}",
+    "cancel-in-progress": false,
   });
-  assert.match(validateRef.run, /\^\[0-9a-f\]\{40\}\$/);
-  const trustedCheckout = job.steps.find((candidate) => candidate.name === "Check out trusted automation");
-  assert.ok(trustedCheckout, "trusted default-branch automation checkout is required");
-  assert.equal(trustedCheckout.uses, checkout);
-  assert.deepEqual(trustedCheckout.with, {
-    ref: "${{ github.sha }}",
-    path: "control",
-    "persist-credentials": false,
-    "fetch-depth": 1,
-    submodules: false,
-    lfs: false,
+  const checkoutStep = job.steps.find((step) => step.uses?.startsWith("actions/checkout@"));
+  assert.equal(checkoutStep.uses, checkout);
+  assert.equal(checkoutStep.with["fetch-depth"], 0);
+  const validate = job.steps.findIndex((step) => step.id === "inputs");
+  const backport = job.steps.findIndex((step) => step.name === "Backport to release branches");
+  assert.ok(validate >= 0 && validate < backport, "inputs are validated before the backport step");
+  assert.deepEqual(job.steps[backport].env, {
+    PR_NUMBER: "${{ steps.inputs.outputs.pr_number }}",
+    BRANCHES_JSON: "${{ steps.inputs.outputs.branches }}",
   });
-  const reviewedCheckout = job.steps[2];
-  assert.equal(reviewedCheckout.uses, checkout);
-  assert.deepEqual(reviewedCheckout.with, {
-    ref: "${{ vars.REPOSITORY_AUTOMATION_MOKKA_REVIEWED_SHA }}",
-    path: "reviewed",
-    "persist-credentials": false,
-    "fetch-depth": 1,
-    submodules: false,
-    lfs: false,
-  });
-  assert.equal(job.steps[3].shell, "bash");
-  assert.equal(job.steps.some((candidate) => candidate.id === "trusted"), false);
-  assert.deepEqual(actionStep(job, "mokka-cherry-pick").with, {
-    mode: "mokka-cherry-pick",
-    pull_request_number: "${{ inputs.pull_request_number }}",
-    source_sha: "${{ inputs.source_sha }}",
-    "target-branch": "${{ inputs.target_branch }}",
-    action_id: "${{ inputs.action_id }}",
-    "working-directory": "target",
-    "dry-run": "false",
-  });
-});
-
-test("Mokka accepts a later main commit only when reviewed automation bytes match", (t) => {
-  const workflow = readWorkflow("mokka-cherry-pick.yml").workflow;
-  const verify = workflow.jobs["cherry-pick"].steps.find(
-    (step) => step.name === "Verify reviewed automation",
-  );
-  assert.ok(verify);
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "mokka-reviewed-automation-"));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  for (const file of reviewedAutomationFiles) {
-    for (const checkoutPath of ["control", "reviewed"]) {
-      const filename = path.join(root, checkoutPath, file);
-      fs.mkdirSync(path.dirname(filename), { recursive: true });
-      fs.writeFileSync(filename, `approved ${file}\n`);
-    }
-  }
-  fs.writeFileSync(path.join(root, "control", "README.md"), "a later main commit\n");
-  const execute = () => spawnSync("bash", ["-c", verify.run], { cwd: root, encoding: "utf8" });
-  assert.equal(execute().status, 0, "an unrelated main change must not block dispatch");
-  for (const file of reviewedAutomationFiles) {
-    const filename = path.join(root, "control", file);
-    fs.writeFileSync(filename, `changed ${file}\n`);
-    const result = execute();
-    assert.notEqual(result.status, 0, `${file}: changed automation must block dispatch`);
-    fs.writeFileSync(filename, `approved ${file}\n`);
-  }
-  fs.rmSync(path.join(root, "reviewed", reviewedAutomationFiles[0]));
-  assert.notEqual(execute().status, 0, "missing reviewed automation must block dispatch");
-});
-
-test("Mokka rejects malformed reviewed SHAs before checkout", () => {
-  const workflow = readWorkflow("mokka-cherry-pick.yml").workflow;
-  const validate = workflow.jobs["cherry-pick"].steps.find(
-    (step) => step.name === "Validate reviewed automation ref",
-  );
-  assert.ok(validate);
-  const execute = (sha) => spawnSync("bash", ["-c", validate.run], {
-    env: { ...process.env, REVIEWED_SHA: sha },
-    encoding: "utf8",
-  });
-  assert.equal(execute("a".repeat(40)).status, 0);
-  for (const sha of ["", "a".repeat(39), "A".repeat(40), "a".repeat(39) + "!", "$(echo bad)"]) {
-    assert.notEqual(execute(sha).status, 0, `${sha}: malformed SHA must block dispatch`);
-  }
 });

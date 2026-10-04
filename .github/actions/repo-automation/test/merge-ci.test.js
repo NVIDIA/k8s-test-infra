@@ -299,6 +299,7 @@ test("uses the latest exact-head DCO check ID and ignores old failures", () => {
 test("requires conditional workflows for changed paths and both sides of renames", () => {
   const cases = [
     [".github/actions/repo-automation/src/index.js", ["automation-ci.yml"]],
+    [".github/scripts/cherrypick/backport.js", ["automation-ci.yml"]],
     [".github/repo-automation/policy.yml", ["automation-ci.yml"]], [".github/workflows/new.yml", ["automation-ci.yml"]],
     ["hack/actionlint.sh", ["automation-ci.yml"]], ["OWNERS", ["automation-ci.yml"]], ["OWNERS_ALIASES", ["automation-ci.yml"]],
     ["deployments/nvml-mock/helm/Chart.yaml", ["helm.yaml"]], ["deployments/mokka-crds/helm/templates/crd.yaml", ["helm.yaml"]],
@@ -335,9 +336,12 @@ test("required workflow behavior follows tracked pull_request triggers", () => {
   const definitions = WORKFLOWS.map((workflow) => ({
     workflow, trigger: YAML.parse(fs.readFileSync(path.join(workflowRoot, workflow), "utf8")).on.pull_request,
   }));
-  for (const { trigger } of definitions) {
-    for (const pattern of trigger.paths || []) probes.push(pattern.replaceAll("**", "nested/changed.txt").replaceAll("*", "change"));
-  }
+  // Probe both sides, so a path added to only the trigger or only the policy fails.
+  const patterns = [
+    ...definitions.flatMap(({ trigger }) => trigger.paths || []),
+    ...requiredCI.workflows.flatMap(({ files }) => files || []),
+  ];
+  for (const pattern of patterns) probes.push(pattern.replaceAll("**", "nested/changed.txt").replaceAll("*", "change"));
   const options = { dot: true, nocomment: true, nonegate: true };
   for (const baseBranch of ["main", "release-0.16"]) {
     for (const changedPath of new Set(probes)) {
