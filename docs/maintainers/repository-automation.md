@@ -59,6 +59,48 @@ fails if any branch failed.
 `/backport` is not a command. The action reports it as unsupported, like any
 other unknown command.
 
+## Assignment, review request, state, and title commands
+
+`/assign`, `/unassign`, `/cc`, `/uncc`, `/close`, `/reopen`, and `/retitle`
+also belong to the Mokka agent. The action skips them exactly as it skips
+`/cherry-pick`: a line whose command name is one of these records no command,
+reports no diagnostic, and makes no write, and a review body is evaluated as if
+the line were absent. The parser's line checks still run first.
+
+The agent reads these comments on issues and pull requests, applies Prow's
+rules for who may use each command, and dispatches
+`.github/workflows/issue-commands.yml` from `main` with these inputs:
+
+| Input | Value |
+|---|---|
+| `command` | `assign`, `unassign`, `cc`, `uncc`, `close`, `reopen`, or `retitle` |
+| `number` | The issue or pull request number |
+| `users` | Comma-separated GitHub logins without `@`, at most 10. Required for `assign`, `unassign`, `cc`, and `uncc`; refused for the other commands |
+| `title` | The new title, for `retitle` only: at most 256 characters, no control or format characters, and no keyword that closes an issue, such as `fixes #12` |
+| `requester` | The commenter's login, shown in the run name |
+
+The workflow decides nothing about who may use a command: anyone who can
+dispatch it already has write access. It checks the inputs, then makes the
+change with the calls Prow's GitHub client makes:
+
+- `assign` and `unassign` add or remove assignees. GitHub silently skips a
+  user it cannot assign, so the workflow compares the assignees GitHub returns.
+- `cc` and `uncc` request or remove pull request reviews. GitHub refuses a
+  whole review request for one reviewer it cannot request, so the workflow then
+  requests each reviewer alone. Both are refused on an issue.
+- `close` closes an issue as completed, or closes a pull request. `reopen`
+  reopens either, except a merged pull request.
+- `retitle` sets the title.
+
+When GitHub refuses the change, with HTTP 403, 404, 410, or 422 or by leaving
+a user out, the workflow posts one comment on the issue or pull request that
+names the command and the reason, and fails the run. Any other error fails the
+run without a comment. The job runs only when
+`REPOSITORY_AUTOMATION_ISSUE_COMMANDS_ENABLED` is `true`; until the agent
+dispatches the workflow, it does nothing. Each run is its own concurrency
+group, because GitHub keeps one pending run per group and a shared group would
+drop a dispatched command.
+
 ## Activation order
 
 Write-capable jobs are disabled when they first land. Enable a stage by setting
@@ -91,6 +133,9 @@ Activate the functions in this order:
 6. Set `REPOSITORY_AUTOMATION_CHERRY_PICK_ENABLED=true` once the Mokka agent
    dispatches **Cherry-Pick**. Confirm the first backport pull request on a
    release branch.
+7. Set `REPOSITORY_AUTOMATION_ISSUE_COMMANDS_ENABLED=true` once the Mokka
+   agent dispatches **Issue commands**. Confirm an `/assign` and a `/retitle`
+   on a test issue or pull request.
 
 Keep each earlier step active while you validate the next step. Do not enable a
 later write path when an earlier validation fails.
