@@ -151,6 +151,24 @@ test("/cc retries one reviewer at a time when GitHub refuses the batch, as Prow 
   assert.deepEqual(core.failed, [`/cc on #42 did not complete: ${reason}`]);
 });
 
+test("/cc reports a review request on the pull request author", async () => {
+  const { github, core } = await execute("cc", { users: "pr-author,bob" }, {
+    issue: PULL,
+    handlers: {
+      "pulls.requestReviewers": ({ reviewers }) => {
+        if (reviewers.includes("pr-author")) throw httpError(422, "Review cannot be requested from pull request author.");
+        return {};
+      },
+    },
+  });
+
+  const reason = "GitHub refused a review request for `pr-author`";
+  assert.deepEqual(github.calls.at(-1), comment(`The \`/cc\` command did not complete: ${reason}.`));
+  assert.deepEqual(github.calls.filter(({ name }) => name === "pulls.requestReviewers").map(({ params }) => params.reviewers),
+    [["pr-author", "bob"], ["pr-author"], ["bob"]]);
+  assert.deepEqual(core.failed, [`/cc on #42 did not complete: ${reason}`]);
+});
+
 test("/cc fails without a comment when a single-reviewer retry fails for another reason", async () => {
   const github = fakeGitHub({
     issue: PULL,
@@ -225,6 +243,16 @@ test("/close closes an issue as completed and a pull request through the pulls A
   const pull = await execute("close", {}, { issue: PULL });
   assert.deepEqual(pull.github.calls, [GET, { name: "pulls.update", params: { ...REPO, pull_number: 42, state: "closed" } }]);
   assert.deepEqual(pull.core.failed, []);
+});
+
+test("/close refuses an item that is already closed without a state write", async () => {
+  for (const issue of [{ ...ISSUE, state: "closed" }, { ...PULL, state: "closed" }, MERGED_PULL]) {
+    const { github, core, result } = await execute("close", {}, { issue });
+    const reason = "#42 is already closed";
+    assert.deepEqual(github.calls, [GET, comment(`The \`/close\` command did not complete: ${reason}.`)]);
+    assert.deepEqual(core.failed, [`/close on #42 did not complete: ${reason}`]);
+    assert.deepEqual(result, { status: "refused", reason });
+  }
 });
 
 test("/reopen reopens an issue and an unmerged pull request", async () => {

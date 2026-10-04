@@ -218,21 +218,21 @@ test("issue commands run only when enabled from main, and no dispatch waits behi
   assert.equal(workflow.name, "Issue commands");
   assert.equal(workflow["run-name"], "Issue command ${{ inputs.command }} #${{ inputs.number }} by ${{ inputs.requester }}");
   assert.deepEqual(Object.keys(workflow.on), ["workflow_dispatch"]);
+  // The Mokka agent checks this interface: five string inputs, and it always
+  // sends all five, with "" for the ones a command does not use.
   assert.deepEqual(workflow.on.workflow_dispatch.inputs, {
     command: {
-      description: "Command to apply",
-      type: "choice",
+      description: "Command to apply: assign, unassign, cc, uncc, close, reopen or retitle",
+      type: "string",
       required: true,
-      options: ["assign", "unassign", "cc", "uncc", "close", "reopen", "retitle"],
     },
     number: { description: "Issue or pull request number", type: "string", required: true },
     users: {
       description: "Comma-separated GitHub logins, for assign, unassign, cc and uncc",
       type: "string",
       required: false,
-      default: "",
     },
-    title: { description: "New title, for retitle", type: "string", required: false, default: "" },
+    title: { description: "New title, for retitle", type: "string", required: false },
     requester: { description: "Login of the user whose comment asked for the command", type: "string", required: true },
   });
   assert.deepEqual(workflow.permissions, {});
