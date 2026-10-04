@@ -16,7 +16,8 @@
 # and /retitle commands: it reads the comment, applies Prow's rules for who may
 # use the command, and dispatches this workflow from main. The workflow only
 # executes the command. Like every write job here, it runs only after
-# REPOSITORY_AUTOMATION_ISSUE_COMMANDS_ENABLED is set to true.
+# REPOSITORY_AUTOMATION_ISSUE_COMMANDS_ENABLED is set to true. The agent checks
+# this interface: five string inputs, all sent, with "" for unused ones.
 
 name: Issue commands
 run-name: "Issue command ${{ inputs.command }} #${{ inputs.number }} by ${{ inputs.requester }}"
@@ -25,17 +26,9 @@ run-name: "Issue command ${{ inputs.command }} #${{ inputs.number }} by ${{ inpu
   workflow_dispatch:
     inputs:
       command:
-        description: Command to apply
-        type: choice
+        description: "Command to apply: assign, unassign, cc, uncc, close, reopen or retitle"
+        type: string
         required: true
-        options:
-          - assign
-          - unassign
-          - cc
-          - uncc
-          - close
-          - reopen
-          - retitle
       number:
         description: Issue or pull request number
         type: string
@@ -44,12 +37,10 @@ run-name: "Issue command ${{ inputs.command }} #${{ inputs.number }} by ${{ inpu
         description: Comma-separated GitHub logins, for assign, unassign, cc and uncc
         type: string
         required: false
-        default: ""
       title:
         description: New title, for retitle
         type: string
         required: false
-        default: ""
       requester:
         description: Login of the user whose comment asked for the command
         type: string

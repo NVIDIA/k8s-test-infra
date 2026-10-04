@@ -108,6 +108,8 @@ async function apply(github, repo, request, item) {
       return;
     }
     case "close":
+      // Prow ignores /close on a closed item; the agent wants it answered.
+      if (item.state === "closed") throw new Refusal(`#${request.number} is already closed`);
       if (isPull) await github.rest.pulls.update({ ...pull, state: "closed" });
       else await github.rest.issues.update({ ...issue, state: "closed", state_reason: "completed" });
       return;
