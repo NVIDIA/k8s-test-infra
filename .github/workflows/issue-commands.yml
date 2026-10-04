@@ -1,0 +1,110 @@
+# Copyright 2026 NVIDIA CORPORATION
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# The Mokka agent owns the Prow /assign, /unassign, /cc, /uncc, /close, /reopen
+# and /retitle commands: it reads the comment, applies Prow's rules for who may
+# use the command, and dispatches this workflow from main. The workflow only
+# executes the command. Like every write job here, it runs only after
+# REPOSITORY_AUTOMATION_ISSUE_COMMANDS_ENABLED is set to true.
+
+name: Issue commands
+run-name: "Issue command ${{ inputs.command }} #${{ inputs.number }} by ${{ inputs.requester }}"
+
+"on":
+  workflow_dispatch:
+    inputs:
+      command:
+        description: Command to apply
+        type: choice
+        required: true
+        options:
+          - assign
+          - unassign
+          - cc
+          - uncc
+          - close
+          - reopen
+          - retitle
+      number:
+        description: Issue or pull request number
+        type: string
+        required: true
+      users:
+        description: Comma-separated GitHub logins, for assign, unassign, cc and uncc
+        type: string
+        required: false
+        default: ""
+      title:
+        description: New title, for retitle
+        type: string
+        required: false
+        default: ""
+      requester:
+        description: Login of the user whose comment asked for the command
+        type: string
+        required: true
+
+permissions: {}
+
+jobs:
+  issue-command:
+    name: Apply issue command
+    if: ${{ vars.REPOSITORY_AUTOMATION_ISSUE_COMMANDS_ENABLED == 'true' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    # GitHub keeps one pending run per group and cancels the older one, so a
+    # group two dispatches could share would drop a command, even an identical
+    # one whose requester the audit trail needs. Every run is its own group.
+    concurrency:
+      group: issue-commands-${{ github.run_id }}
+      cancel-in-progress: false
+    steps:
+      - name: Check out main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validate inputs
+        id: inputs
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          INPUT_COMMAND: ${{ inputs.command }}
+          INPUT_NUMBER: ${{ inputs.number }}
+          INPUT_USERS: ${{ inputs.users }}
+          INPUT_TITLE: ${{ inputs.title }}
+          INPUT_REQUESTER: ${{ inputs.requester }}
+        with:
+          script: |
+            const { parseInputs } = require('./.github/scripts/issue-commands/inputs.js');
+            const request = parseInputs({
+              command: process.env.INPUT_COMMAND,
+              number: process.env.INPUT_NUMBER,
+              users: process.env.INPUT_USERS,
+              title: process.env.INPUT_TITLE,
+              requester: process.env.INPUT_REQUESTER,
+            });
+            core.setOutput('request', JSON.stringify(request));
+
+      - name: Apply command
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          REQUEST_JSON: ${{ steps.inputs.outputs.request }}
+        with:
+          script: |
+            const run = require('./.github/scripts/issue-commands/run.js');
+            return await run({ github, context, core, request: JSON.parse(process.env.REQUEST_JSON) });

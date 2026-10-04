@@ -497,6 +497,7 @@ repository-automation-ci: ## Validate and package the repository automation acti
 	cd $(REPOSITORY_AUTOMATION_DIR) && npm run lint
 	cd $(REPOSITORY_AUTOMATION_DIR) && npm audit --audit-level=high
 	node --test '.github/scripts/cherrypick/*.test.js'
+	node --test '.github/scripts/issue-commands/*.test.js'
 	make actionlint
 	cd $(REPOSITORY_AUTOMATION_DIR) && npm run package
 	cd $(REPOSITORY_AUTOMATION_DIR) && git diff --exit-code -- dist
