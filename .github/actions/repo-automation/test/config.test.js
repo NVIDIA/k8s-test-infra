@@ -426,11 +426,15 @@ test("repository automation CI contains every Task 1 gate", () => {
     "npm audit --audit-level=high",
     "npm run package",
     "git diff --exit-code -- dist",
-    "node --test .github/scripts/cherrypick/",
+    "node --test '.github/scripts/cherrypick/*.test.js'",
     "make actionlint",
   ]) {
     assert.equal(makefile.includes(command), true, `Make target must run ${command}`);
   }
+  // Node 24, the CI runtime, loads a directory argument to `node --test` as a
+  // module and fails with MODULE_NOT_FOUND; Node 26 searches it. Name the
+  // test files with a quoted glob that node itself expands.
+  assert.doesNotMatch(makefile, /^\tnode --test [^'\n]*\/\s*$/m);
   assert.match(makefile, /\.PHONY:\s+repository-automation-ci/);
   assert.doesNotMatch(makefile, /TestMokkaCherryPick/);
   assert.doesNotMatch(workflow, /run:\s+npm (?:ci|test|run)/);
