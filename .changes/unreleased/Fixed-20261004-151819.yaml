@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+  node-agent: tools that read the staged /proc/driver/nvidia/params, such as nvidia-cdi-hook, now find their keys; the file uses the driver's bare names (ModifyDeviceFiles: 1) instead of NVreg_-prefixed ones.
+time: 2026-10-04T13:18:19Z
