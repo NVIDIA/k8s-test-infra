@@ -6,15 +6,14 @@ package inject
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"go.uber.org/zap"
 )
 
-// DeviceInjectionMode selects the mechanism the device opt-in uses to deliver
-// mock GPUs. It changes the mechanism only: whether a container is served at
-// all is decided before this is consulted, so neither mode can inject into a
-// container the device plugin already served (MEP-0002).
+// DeviceInjectionMode selects how unallocated management containers receive
+// mock GPUs. Existing scheduler-backed allocations are never widened.
 type DeviceInjectionMode string
 
 const (
@@ -46,21 +45,10 @@ func ParseDeviceInjectionMode(s string) (DeviceInjectionMode, error) {
 	}
 }
 
-// attachGPUs delivers the mock GPU tree to a container that opted in.
-func attachGPUs(cfg Config, container Container, adjustment *Adjustment) {
-	if !container.annotated(cfg.DeviceAnnotation, "true") {
-		return
-	}
-
+// attachGPUs adds all mock GPUs only for unallocated management containers.
+// An allocation already carries its exact device set in the incoming spec.
+func attachGPUs(cfg Config, adjustment *Adjustment) {
 	switch {
-	case alreadyHasGPUDevices(container):
-		// MEP-0002: the device plugin allocated a specific GPU and the kubelet
-		// already applied it. Adding the whole device tree on top would widen
-		// the container past its allocation, and would defeat the mock engine's
-		// visibility filter, which derives the visible GPU set from which
-		// /dev/nvidiaN nodes are present.
-		zap.L().Warn("device injection requested but the device plugin already served this container; leaving its allocation intact")
-
 	case cfg.DeviceInjectionMode == DeviceInjectionModeCDI && cdiSpecStaged(cfg):
 		// The runtime resolves the device nodes from the staged spec. Nothing is
 		// added to adjustment.Devices: the CDI reference and the raw nodes
@@ -107,24 +95,57 @@ func attachRawGPUNodes(cfg Config, adjustment *Adjustment) {
 	}
 }
 
-// alreadyHasGPUDevices reports whether the container arrived carrying GPU
-// devices that something else put there — in practice the NVIDIA device plugin,
-// whose Allocate response the kubelet applies before the runtime asks this
-// plugin to adjust anything. It recognises both delivery mechanisms that plugin
-// supports: raw device nodes (--pass-device-specs) and CDI device references
-// (--device-list-strategy=cdi-*).
-func alreadyHasGPUDevices(container Container) bool {
-	for _, device := range container.Devices {
-		if strings.HasPrefix(device.Path, "/dev/nvidia") {
+// hasGPUAllocation accepts only explicit NVIDIA GPU CDI identities or a
+// numbered character device with its own exact cgroup allow. Inherited host
+// devices and privileged wildcard rules do not prove scheduler allocation.
+//
+// The CDI identities are the ones the allocators themselves name: the device
+// plugin's cdi-cri strategy uses its fixed k8s.device-plugin.nvidia.com vendor
+// (its gdrcopy and mofed classes ride along with any allocation and identify
+// no GPU), and the DRA driver names one device per claim.
+func hasGPUAllocation(container Container) bool {
+	for _, name := range container.CDIDevices {
+		if validCDIIdentity(name, "k8s.device-plugin.nvidia.com/gpu=") || validCDIIdentity(name, "k8s.gpu.nvidia.com/claim=") {
 			return true
 		}
 	}
-	for _, device := range container.CDIDevices {
-		if strings.HasPrefix(device, "nvidia.com/") {
+	return hasRawGPUAllocation(container)
+}
+
+func hasRawGPUAllocation(container Container) bool {
+	for _, device := range container.IncomingDevices {
+		if !numberedGPUPath(device.Path) || device.Type != "c" {
+			continue
+		}
+		if hasExactDeviceGrant(device, container.DeviceRules) {
 			return true
 		}
 	}
 	return false
+}
+
+func hasExactDeviceGrant(device RuntimeDevice, rules []DeviceRule) bool {
+	for _, rule := range rules {
+		if rule.Allow && rule.Type == device.Type && rule.Major != nil && rule.Minor != nil &&
+			*rule.Major == device.Major && *rule.Minor == device.Minor && strings.ContainsAny(rule.Access, "rw") {
+			return true
+		}
+	}
+	return false
+}
+
+func validCDIIdentity(name, prefix string) bool {
+	value, ok := strings.CutPrefix(name, prefix)
+	return ok && value != "" && !strings.ContainsAny(value, "/= ")
+}
+
+func numberedGPUPath(path string) bool {
+	index, ok := strings.CutPrefix(path, "/dev/nvidia")
+	if !ok || index == "" {
+		return false
+	}
+	n, err := strconv.ParseUint(index, 10, 32)
+	return err == nil && strconv.FormatUint(n, 10) == index
 }
 
 // cdiSpecStaged reports whether the CDI spec backing cfg.CDIDeviceName is

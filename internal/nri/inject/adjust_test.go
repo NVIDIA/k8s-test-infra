@@ -9,8 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// overlayMount is the one mount every adjusted container gets, whatever the
-// opt-ins say.
+// overlayMount is the mount selected GPU and IMEX containers receive.
 func overlayMount() Mount {
 	return Mount{
 		Source:      "/var/lib/nvml-mock",
@@ -30,10 +29,10 @@ func configMount() Mount {
 	}
 }
 
-func TestAdjustMountsTheOverlayForAPlainContainer(t *testing.T) {
+func TestAdjustMountsTheOverlayForAManagementContainer(t *testing.T) {
 	t.Parallel()
 
-	adjustment, ok := Adjust(DefaultConfig(), Container{Namespace: "default"})
+	adjustment, ok := Adjust(DefaultConfig(), deviceOptIn())
 	require.True(t, ok)
 	require.Contains(t, adjustment.Mounts, overlayMount())
 }
@@ -46,7 +45,7 @@ func TestAdjustMountsTheOverlayForAPlainContainer(t *testing.T) {
 func TestAdjustMountsConfigDirWritableOverReadOnlyOverlay(t *testing.T) {
 	t.Parallel()
 
-	adjustment, ok := Adjust(DefaultConfig(), Container{Namespace: "default"})
+	adjustment, ok := Adjust(DefaultConfig(), deviceOptIn())
 	require.True(t, ok)
 	require.Contains(t, adjustment.Mounts, configMount())
 
@@ -65,16 +64,24 @@ func TestAdjustMountsConfigDirWritableOverReadOnlyOverlay(t *testing.T) {
 	require.Less(t, overlay, config, "the writable config bind must be applied after the overlay it sits inside")
 }
 
-// An unannotated container gets the overlay and the environment but nothing
-// else: both device paths are opt-in, so the default must stay empty.
-func TestAdjustWithoutOptInsDeliversNoDevices(t *testing.T) {
+// An unallocated, unannotated container receives no GPU-tier edits.
+func TestAdjustWithoutOptInsIsUnmodified(t *testing.T) {
 	t.Parallel()
 
 	adjustment, ok := Adjust(DefaultConfig(), Container{Namespace: "default"})
-	require.True(t, ok)
+	require.False(t, ok)
+	require.Empty(t, adjustment.Mounts)
 	require.Empty(t, adjustment.Devices)
 	require.Empty(t, adjustment.CDIDevices)
-	require.NotEmpty(t, adjustment.Env)
+	require.Empty(t, adjustment.Env)
+}
+
+func TestNoGPUSelectionDoesNotWarn(t *testing.T) {
+	warnings := captureWarnings(t)
+	adjustment, ok := Adjust(DefaultConfig(), Container{Namespace: "default"})
+	require.False(t, ok)
+	require.Empty(t, adjustment)
+	require.Empty(t, warnings.captured())
 }
 
 func TestAdjustSkipsOptOutExcludedNamespaceAndExistingMount(t *testing.T) {
@@ -83,29 +90,48 @@ func TestAdjustSkipsOptOutExcludedNamespaceAndExistingMount(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.ExcludedNamespaces = []string{"kube-system", "nvml-mock"}
 
-	tests := map[string]Container{
+	tests := map[string]struct {
+		container Container
+		reason    string
+	}{
 		"opt out annotation": {
-			Namespace: "default",
-			PodAnnotations: map[string]string{
-				"nvml-mock.nvidia.com/inject": "false",
+			container: Container{
+				Namespace: "default",
+				PodAnnotations: map[string]string{
+					"nvml-mock.nvidia.com/devices": "true",
+					"nvml-mock.nvidia.com/inject":  "false",
+				},
 			},
+			reason: "opt-out annotation",
 		},
 		"excluded namespace": {
-			Namespace: "kube-system",
+			container: Container{
+				Namespace:      "kube-system",
+				PodAnnotations: map[string]string{"nvml-mock.nvidia.com/devices": "true"},
+			},
+			reason: "excluded namespace",
 		},
 		// A container already carrying the overlay has been through here
 		// before; injecting twice would stack duplicate LD_PRELOAD entries.
 		"existing overlay mount": {
-			Namespace: "default",
-			Mounts:    []Mount{{Destination: "/opt/nvml-mock"}},
+			container: Container{
+				Namespace:      "default",
+				PodAnnotations: map[string]string{"nvml-mock.nvidia.com/devices": "true"},
+				Mounts:         []Mount{{Destination: "/opt/nvml-mock"}},
+			},
+			reason: "overlay already mounted",
 		},
 	}
 
-	for name, container := range tests {
+	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			adjustment, ok := Adjust(cfg, container)
+			_, reason, skipped := decide(cfg, tc.container)
+			require.True(t, skipped)
+			require.Equal(t, tc.reason, reason)
+
+			adjustment, ok := Adjust(cfg, tc.container)
 			require.False(t, ok)
 			require.Empty(t, adjustment)
 		})
@@ -120,6 +146,6 @@ func TestEmptyExclusionListExcludesNothing(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.ExcludedNamespaces = nil
 
-	_, ok := Adjust(cfg, Container{Namespace: "kube-system"})
+	_, ok := Adjust(cfg, Container{Namespace: "kube-system", PodAnnotations: map[string]string{cfg.DeviceAnnotation: "true"}})
 	require.True(t, ok)
 }

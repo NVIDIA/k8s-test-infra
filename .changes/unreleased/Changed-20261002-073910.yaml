@@ -1,0 +1,9 @@
+kind: Changed
+body: |-
+  **Breaking:** nvml-mock: the NRI plugin injects the mock GPU driver only into
+    containers that hold a GPU allocation or whose pod is annotated
+    `nvml-mock.nvidia.com/devices: "true"`; annotate pods that relied on every
+    container being injected.
+time: 2026-10-02T14:39:10Z
+custom:
+  Issue: "814"
