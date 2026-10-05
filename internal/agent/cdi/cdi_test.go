@@ -188,6 +188,28 @@ func TestRevoke(t *testing.T) {
 	require.ErrorIs(t, err, os.ErrNotExist)
 }
 
+// TestStageWithdrawsNRISpec pins that a restage never leaves NRI a spec naming
+// device nodes it has pruned. A shrinking profile removes /dev/nvidiaN during
+// Stage, and a spec still naming the node fails every container referencing it.
+func TestStageWithdrawsNRISpec(t *testing.T) {
+	h := host.New(t.TempDir())
+	s := New(h)
+	ctx := t.Context()
+
+	require.NoError(t, s.Stage(ctx, testState()))
+	require.NoError(t, s.Apply(ctx, testState()))
+
+	shrunk := testState()
+	shrunk.Devices = shrunk.Devices[:1]
+	require.NoError(t, s.Stage(ctx, shrunk))
+	_, err := os.Stat(h.RunPath(nriSpecFile))
+	require.ErrorIs(t, err, os.ErrNotExist, "NRI must fall back to raw nodes until Apply republishes its spec")
+	require.FileExists(t, h.RunPath(nvidiaSpecFile), "the nvidia spec serves other consumers and stays")
+
+	require.NoError(t, s.Apply(ctx, shrunk))
+	require.FileExists(t, h.RunPath(nriSpecFile))
+}
+
 func TestRevokeBeforeApplyIsNoop(t *testing.T) {
 	s := New(host.New(t.TempDir()))
 	require.NoError(t, s.Revoke(t.Context()))

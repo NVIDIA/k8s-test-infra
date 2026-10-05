@@ -26,8 +26,8 @@ tests:
       - equal:
           path: spec.selector["app.kubernetes.io/name"]
           value: nvml-mock
-      # The NRI plugin shares these pods; targetPort still resolves the
-      # node-agent container's named fabric listener.
+      # The NRI plugin shares these pods; the numeric target also works when
+      # node-agent is a restartable init container on Kubernetes 1.29-1.31.
       - equal:
           path: spec.selector["app.kubernetes.io/component"]
           value: daemon
@@ -41,12 +41,15 @@ tests:
           value: 18515
       - equal:
           path: spec.ports[0].targetPort
-          value: ibping
+          value: 18515
       - equal:
           path: spec.ports[0].protocol
           value: TCP
 
   - it: should keep the relay discoverable when only the NRI sidecar is unready
+    capabilities:
+      majorVersion: 1
+      minorVersion: 29
     set:
       nri:
         enabled: true
@@ -54,6 +57,9 @@ tests:
       - equal:
           path: spec.publishNotReadyAddresses
           value: true
+      - equal:
+          path: spec.ports[0].targetPort
+          value: 18515
 
   - it: should use a custom ping port
     set:
@@ -63,6 +69,9 @@ tests:
     asserts:
       - equal:
           path: spec.ports[0].port
+          value: 19000
+      - equal:
+          path: spec.ports[0].targetPort
           value: 19000
 
   - it: should not render for profiles without InfiniBand

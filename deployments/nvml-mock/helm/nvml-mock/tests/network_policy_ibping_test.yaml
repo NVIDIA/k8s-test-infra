@@ -40,7 +40,7 @@ tests:
           path: spec.ingress[0].from[0].namespaceSelector
       - equal:
           path: spec.ingress[0].ports[0].port
-          value: ibping
+          value: 18515
       - equal:
           path: spec.ingress[0].ports[0].protocol
           value: TCP
@@ -48,6 +48,28 @@ tests:
       # own policy, and nothing in this pod ever bound 50000/50005.
       - notExists:
           path: spec.ingress[0].ports[1]
+
+  - it: should use a numeric port with the Kubernetes 1.29 native-sidecar layout
+    capabilities:
+      majorVersion: 1
+      minorVersion: 29
+    set:
+      nri:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: 18515
+
+  - it: should follow a custom numeric relay port
+    set:
+      infiniband:
+        ping:
+          port: 19000
+    asserts:
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: 19000
 
   - it: should not render when disabled
     set:

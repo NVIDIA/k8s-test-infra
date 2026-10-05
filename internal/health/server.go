@@ -20,12 +20,13 @@ import (
 const DefaultShutdownTimeout = 5 * time.Second
 
 // Server is the probe listener for a binary that serves no other HTTP traffic.
-// Both probes pass until SetLiveness and SetReadiness supply the real checks.
+// Probes pass until their setters supply the real checks.
 type Server struct {
 	addr            string
 	shutdownTimeout time.Duration
 	liveness        Checker
 	readiness       Checker
+	staged          Checker
 }
 
 // NewServer returns a Server that will listen on addr. An empty addr disables
@@ -39,6 +40,7 @@ func NewServer(addr string, shutdownTimeout time.Duration) *Server {
 		shutdownTimeout: shutdownTimeout,
 		liveness:        OK,
 		readiness:       OK,
+		staged:          OK,
 	}
 }
 
@@ -50,15 +52,21 @@ func (s *Server) SetLiveness(check Checker) { s.liveness = check }
 // SetReadiness replaces the /readyz check.
 func (s *Server) SetReadiness(check Checker) { s.readiness = check }
 
+// SetStaged replaces the /stagedz check: whether the binary's staged output is
+// usable right now. It gates dependents such as a startup probe; it is not
+// ongoing service readiness.
+func (s *Server) SetStaged(check Checker) { s.staged = check }
+
 // Handler returns the routes, letting tests drive them without binding a port.
-// The checks are read per request, so SetLiveness and SetReadiness still take
-// effect after this is called.
+// The checks are read per request, so probe setters still take effect after
+// this is called.
 func (s *Server) Handler() http.Handler {
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
 	router.Use(middleware.Recoverer)
 	router.Get("/healthz", Handler(func() Probe { return s.liveness() }))
 	router.Get("/readyz", Handler(func() Probe { return s.readiness() }))
+	router.Get("/stagedz", Handler(func() Probe { return s.staged() }))
 	return router
 }
 

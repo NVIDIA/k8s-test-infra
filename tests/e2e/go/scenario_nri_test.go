@@ -644,6 +644,70 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 		})
 	})
 
+	Context("when the node agent restarts after NRI registers", Label("nri-agent-restart"), func() {
+		It("withholds stale adjustments and resumes after restaging", func(ctx SpecContext) {
+			Expect(selectedProfiles).NotTo(BeEmpty())
+			p := loadProfile(selectedProfiles[0])
+			installNRIChart(ctx, h, p, topoValues, p.HasFabric())
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
+
+			victim := workers[0]
+			pluginPID := nriPluginHostPID(ctx, victim.Container)
+			agentPID := nriProcessHostPID(ctx, victim.Container, "node-agent")
+			By("freezing the already-running agent while NRI remains registered")
+			_, err := runner.Run(ctx, "docker", "exec", victim.Container, "kill", "-STOP", agentPID)
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func(ctx SpecContext) {
+				_, _ = runner.Run(ctx, "docker", "exec", victim.Container, "kill", "-CONT", agentPID) // process may already have been killed below
+			})
+
+			// The agent's probe port no longer answers, although its staged tree
+			// and NRI's runtime connection still exist. A new pod must be plain.
+			// The test image is already loaded on every Kind node. Pulling a
+			// separate workload image could outlast the kubelet's liveness budget
+			// and restart the frozen agent before this negative control starts.
+			downSpec := nriAnyGPUNode(nriWorkload("nri-agent-down"), victim.Name)
+			downSpec.Image = config.Image()
+			downSpec.Annotations = map[string]string{nriDeviceAnnotation: "true"}
+			plain := applyNRIWorkload(ctx, h, downSpec.Render(), "nri-agent-down")
+			// The negative control only holds if the agent was still frozen when
+			// the workload's container was created. A kubelet that had already
+			// restarted it would have reopened the gate, so report that instead
+			// of blaming NRI.
+			Expect(nriProcessHostPID(ctx, victim.Container, "node-agent")).To(Equal(agentPID),
+				"kubelet restarted the frozen agent before the workload started; the check needs it frozen throughout")
+			res, err := h.Kube.ExecSh(ctx, plain, "test ! -e /opt/nvml-mock/driver")
+			Expect(err).NotTo(HaveOccurred(), "NRI injected while the agent was unavailable: %s", res.Combined())
+			Expect(nriPluginHostPID(ctx, victim.Container)).To(Equal(pluginPID),
+				"the NRI process should remain registered while the agent is unavailable")
+			// Failing open must not be silent: the plugin names the container it
+			// left unmocked.
+			nriPod := nriPluginPodOnNode(ctx, h, victim.Name)
+			pluginLog, err := h.Kube.KubectlCombined(ctx, "logs", "-n", nriPod.Namespace, nriPod.Pod, "-c", "nvml-mock-nri")
+			Expect(err).NotTo(HaveOccurred(), "read NRI plugin log: %s", pluginLog)
+			Expect(strings.Split(pluginLog, "\n")).To(ContainElement(
+				And(ContainSubstring("leaving container unmodified"), ContainSubstring(plain.Pod))),
+				"NRI left %s unmocked without a warning naming it", plain.Pod)
+
+			By("killing the agent so kubelet restarts and restages it")
+			_, err = runner.Run(ctx, "docker", "exec", victim.Container, "kill", "-KILL", agentPID)
+			Expect(err).NotTo(HaveOccurred())
+			waitNRIGateOpen(ctx, h, victim)
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
+			recoveredSpec := nriAnyGPUNode(nriWorkload("nri-agent-restaged"), victim.Name)
+			recoveredSpec.Image = config.Image()
+			recoveredSpec.Annotations = map[string]string{nriDeviceAnnotation: "true"}
+			recovered := applyNRIWorkload(ctx, h, recoveredSpec.Render(), "nri-agent-restaged")
+			// Assert injection before counting. The test image ships its own
+			// nvidia-smi and mock library, which report a built-in eight-GPU
+			// node when nothing is injected, so a count alone cannot tell an
+			// uninjected pod from an injected one on eight-GPU profiles.
+			res, err = h.Kube.ExecSh(ctx, recovered, "test -d /opt/nvml-mock/driver")
+			Expect(err).NotTo(HaveOccurred(), "NRI did not inject after the agent restaged: %s", res.Combined())
+			Expect(visibleGPUCount(ctx, h, recovered)).To(Equal(p.ExpectedGPUs()))
+		})
+	})
+
 	// Failure-mode hardening (#434). Everything above asserts that injection
 	// works. This asserts what happens when it stops working mid-run.
 	//
@@ -728,6 +792,26 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 	})
 })
 
+// waitNRIGateOpen polls the plugin's own /readyz from the Kind node until it
+// passes. Right after an agent restart the DaemonSet can still report the
+// Ready status it had before, while /readyz passes only once the restarted
+// agent has restaged and released the staging lock.
+func waitNRIGateOpen(ctx context.Context, h *harness.Harness, node cluster.Node) {
+	GinkgoHelper()
+	pod := nriPluginPodOnNode(ctx, h, node.Name)
+	ip, err := h.Kube.PodIP(ctx, pod.Namespace, pod.Pod)
+	Expect(err).NotTo(HaveOccurred(), "read IP of %s", pod.Pod)
+	port, err := h.Kube.KubectlCombined(ctx, "get", "pod", "-n", pod.Namespace, pod.Pod, "-o",
+		`jsonpath={.spec.containers[?(@.name=="nvml-mock-nri")].ports[?(@.name=="nri-health")].containerPort}`)
+	Expect(err).NotTo(HaveOccurred(), "read NRI health port: %s", port)
+	url := fmt.Sprintf("http://%s:%s/readyz", ip, strings.TrimSpace(port))
+	Eventually(func() error {
+		_, err := runner.Run(ctx, "docker", "exec", node.Container, "curl", "-sf", "-o", "/dev/null", url)
+		return err
+	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
+		Should(Succeed(), "NRI on %s never reported the restarted agent's tree staged", node.Name)
+}
+
 // nriPluginPodOnNode returns the shared node pod scheduled on node.
 func nriPluginPodOnNode(ctx context.Context, h *harness.Harness, node string) kube.PodRef {
 	GinkgoHelper()
@@ -798,13 +882,17 @@ func wedgeNRIPlugin(ctx context.Context, container string) {
 // guaranteed in the node image, and matching on a command line would also match
 // the matching process itself.
 func nriPluginHostPID(ctx context.Context, container string) string {
+	return nriProcessHostPID(ctx, container, "nri-plugin")
+}
+
+func nriProcessHostPID(ctx context.Context, container, binary string) string {
 	GinkgoHelper()
-	const script = `for p in /proc/[0-9]*; do case "$(readlink "$p/exe" 2>/dev/null)" in */nri-plugin) echo "${p##*/}";; esac; done`
+	script := `for p in /proc/[0-9]*; do case "$(readlink "$p/exe" 2>/dev/null)" in */` + binary + `) echo "${p##*/}";; esac; done`
 	res, err := runner.Run(ctx, "docker", "exec", container, "sh", "-c", script)
-	Expect(err).NotTo(HaveOccurred(), "locate nri-plugin on %s: %s", container, res.Combined())
+	Expect(err).NotTo(HaveOccurred(), "locate %s on %s: %s", binary, container, res.Combined())
 
 	pids := strings.Fields(res.Stdout)
-	Expect(pids).NotTo(BeEmpty(), "no nri-plugin process found on %s", container)
+	Expect(pids).NotTo(BeEmpty(), "no %s process found on %s", binary, container)
 	return pids[0]
 }
 
