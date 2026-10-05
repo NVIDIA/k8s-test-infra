@@ -69,6 +69,18 @@ func TestConfigureIsAtomic(t *testing.T) {
 	require.False(t, alpha.IsEnabled())
 }
 
+func TestConfigureRejectsRepeatedGates(t *testing.T) {
+	t.Parallel()
+
+	registry := NewRegistry()
+	alpha := registry.MustRegister(definition("mokka.alpha", StageAlpha))
+
+	for _, value := range []string{"mokka.alpha,-mokka.alpha", "mokka.alpha,+mokka.alpha"} {
+		require.ErrorContains(t, registry.Configure(value), `feature gate "mokka.alpha" is set more than once`)
+		require.False(t, alpha.IsEnabled())
+	}
+}
+
 func TestConfigureRejectsInvalidLifecycleOverrides(t *testing.T) {
 	t.Parallel()
 
@@ -112,18 +124,29 @@ func TestDefinitionsAreSorted(t *testing.T) {
 	require.Equal(t, []string{"mokka.alpha", "mokka.zeta"}, []string{definitions[0].ID, definitions[1].ID})
 }
 
-func TestCLIFlagReadsEnvironmentAndCLIWins(t *testing.T) {
-	t.Setenv(EnvName, "mokka.fromEnvironment")
+func TestCLIFlagSources(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "environment only", args: []string{"test"}, want: "mokka.fromEnvironment"},
+		{name: "CLI wins over environment", args: []string{"test", "--feature-gates=mokka.fromCLI"}, want: "mokka.fromCLI"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(EnvName, "mokka.fromEnvironment")
 
-	var got string
-	command := &cli.Command{
-		Flags: []cli.Flag{CLIFlag()},
-		Action: func(_ context.Context, cmd *cli.Command) error {
-			got = cmd.String(FlagName)
-			return nil
-		},
+			var got string
+			command := &cli.Command{
+				Flags: []cli.Flag{CLIFlag()},
+				Action: func(_ context.Context, cmd *cli.Command) error {
+					got = cmd.String(FlagName)
+					return nil
+				},
+			}
+
+			require.NoError(t, command.Run(context.Background(), tc.args))
+			require.Equal(t, tc.want, got)
+		})
 	}
-
-	require.NoError(t, command.Run(context.Background(), []string{"test", "--feature-gates=mokka.fromCLI"}))
-	require.Equal(t, "mokka.fromCLI", got)
 }

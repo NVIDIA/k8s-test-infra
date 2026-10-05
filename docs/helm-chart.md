@@ -752,7 +752,7 @@ namespace, on the pod IP where the kubelet reaches it.
 | `image.digest` | `""` | Immutable `sha256:...` digest. When set, pins the image and takes precedence over `image.tag`. |
 | `image.tag` | `""` (chart `appVersion`) | Container image tag. When empty, the chart `appVersion`: the release version in a released chart, the next `-dev` version on `main`. |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy. When empty, the Kubernetes default for the rendered image: `Always` for the `latest` tag, `IfNotPresent` otherwise. |
-| `featureGates.nodeAgent`, `featureGates.nri`, `featureGates.controlPlane` | `[]` | Process-wide gate overrides for each Mokka service. See [Feature Gates](contributing/feature-gates.md) for syntax and lifecycle. |
+| `featureGates.nodeAgent`, `featureGates.nri`, `featureGates.controlPlane` | `[]` | Process-wide gate overrides for each Mokka service. See [Feature Gates](feature-gates.md) for syntax and lifecycle. |
 | `driverVersion` | `""` (auto) | NVIDIA driver version to mock. When empty, read from `system.driver_version` of the resolved GPU config (the selected `gpu.profile` file, or `gpu.customConfig` if set), so the profile is the single source of truth (e.g. GB200 → `580.65.06`, B200 → `560.35.03`, GB300 → `570.124.06`, others → `550.163.01`). Set explicitly only to override the profile. |
 | `nodeSelector` | `{}` | Node selector for DaemonSet |
 | `tolerations` | `[{operator: Exists}]` | Pod tolerations (default: tolerate all) |

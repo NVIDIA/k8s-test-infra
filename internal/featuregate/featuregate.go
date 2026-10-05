@@ -132,11 +132,18 @@ func (r *Registry) parse(value string) ([]setting, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	settings := make([]setting, 0, strings.Count(value, ",")+1)
+	seen := make(map[string]struct{}, cap(settings))
 	for _, raw := range strings.Split(value, ",") {
 		parsed, err := r.parseSetting(raw)
 		if err != nil {
 			return nil, err
 		}
+		// A repeated gate has no single intended state; letting the last entry
+		// win would hide a conflicting override such as "x,-x".
+		if _, dup := seen[parsed.id]; dup {
+			return nil, fmt.Errorf("feature gate %q is set more than once", parsed.id)
+		}
+		seen[parsed.id] = struct{}{}
 		settings = append(settings, parsed)
 	}
 	return settings, nil
