@@ -1,0 +1,7 @@
+kind: Added
+body: |-
+  nvml-mock: the NRI plugin no longer injects containers while node-agent
+    restarts or restages the driver tree; it leaves them unmodified and reports
+    why on `/readyz`. Set `nri.nativeSidecar=false` where the
+    `SidecarContainers` feature gate is disabled.
+time: 2026-10-01T19:34:44Z

@@ -37,6 +37,8 @@ func deviceOptIn() Container {
 	}
 }
 
+func int64Ptr(value int64) *int64 { return &value }
+
 func TestAdjustDeviceOptInAddsNvidiaDeviceEntries(t *testing.T) {
 	t.Parallel()
 
@@ -89,19 +91,20 @@ func TestAdjustSuppressesDeviceInjectionWhenDevicePluginServedContainer(t *testi
 	}{
 		"device plugin already supplied a gpu device node": {
 			container: Container{
-				Devices: []Device{{HostPath: "/var/lib/nvml-mock/driver/dev/nvidia0", Path: "/dev/nvidia0"}},
+				IncomingDevices: []RuntimeDevice{{Path: "/dev/nvidia0", Type: "c", Major: 195, Minor: 0}},
+				DeviceRules:     []DeviceRule{{Allow: true, Type: "c", Major: int64Ptr(195), Minor: int64Ptr(0), Access: "rwm"}},
 			},
 			wantSuppression: true,
 		},
 		"device plugin already supplied an nvidia cdi device": {
-			container:       Container{CDIDevices: []string{"nvidia.com/gpu=0"}},
+			container:       Container{CDIDevices: []string{"k8s.device-plugin.nvidia.com/gpu=0"}},
 			wantSuppression: true,
 		},
 		// Discrimination: a container carrying an unrelated device must still get
 		// the full opt-in injection, otherwise the guard is a constant.
 		"unrelated device node does not suppress": {
 			container: Container{
-				Devices: []Device{{HostPath: "/dev/fuse", Path: "/dev/fuse"}},
+				IncomingDevices: []RuntimeDevice{{Path: "/dev/fuse", Type: "c", Major: 10, Minor: 229}},
 			},
 			wantSuppression: false,
 		},
@@ -282,9 +285,10 @@ func TestAdjustCDIModeStillSuppressesWhenDevicePluginServedContainer(t *testing.
 
 	tests := map[string]Container{
 		"raw device node from the device plugin": {
-			Devices: []Device{{HostPath: "/var/lib/nvml-mock/driver/dev/nvidia0", Path: "/dev/nvidia0"}},
+			IncomingDevices: []RuntimeDevice{{Path: "/dev/nvidia0", Type: "c", Major: 195, Minor: 0}},
+			DeviceRules:     []DeviceRule{{Allow: true, Type: "c", Major: int64Ptr(195), Minor: int64Ptr(0), Access: "rwm"}},
 		},
-		"cdi device from the device plugin": {CDIDevices: []string{"nvidia.com/gpu=0"}},
+		"cdi device from the device plugin": {CDIDevices: []string{"k8s.device-plugin.nvidia.com/gpu=0"}},
 	}
 
 	for name, container := range tests {

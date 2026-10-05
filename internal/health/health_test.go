@@ -50,12 +50,22 @@ func TestProbesPassBeforeChecksAreSet(t *testing.T) {
 	t.Parallel()
 
 	srv := health.NewServer(":0", time.Second)
-	for _, path := range []string{"/healthz", "/readyz"} {
+	for _, path := range []string{"/healthz", "/readyz", "/stagedz"} {
 		t.Run(path, func(t *testing.T) {
 			t.Parallel()
 			require.Equal(t, http.StatusOK, get(t, srv.Handler(), path).Code)
 		})
 	}
+}
+
+func TestStagedzUsesIndependentCheck(t *testing.T) {
+	t.Parallel()
+
+	srv := health.NewServer(":0", time.Second)
+	srv.SetStaged(func() health.Probe { return health.Unhealthy("initial staging incomplete") })
+
+	require.Equal(t, http.StatusServiceUnavailable, get(t, srv.Handler(), "/stagedz").Code)
+	require.Equal(t, http.StatusOK, get(t, srv.Handler(), "/readyz").Code)
 }
 
 func TestChecksSetAfterHandlerStillTakeEffect(t *testing.T) {

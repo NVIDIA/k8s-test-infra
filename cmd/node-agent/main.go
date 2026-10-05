@@ -116,6 +116,14 @@ func startCommand() *cli.Command {
 				Usage:   "withhold fabric readiness for this long, simulating NVSwitch registration latency",
 				Sources: cli.EnvVars("MOCK_FABRICMANAGER_INIT_DELAY"),
 			},
+			// Empty disables the gate; the chart sets it when NRI is enabled.
+			// It must sit outside the injected overlay, or any workload could
+			// hold the lock and stall staging.
+			&cli.StringFlag{
+				Name:    "staging-lock-path",
+				Sources: cli.EnvVars("MOKKA_AGENT_STAGING_LOCK_PATH"),
+				Usage:   "lock file NRI shares while deciding adjustments; staging and teardown take it exclusively ('' disables)",
+			},
 			&cli.DurationFlag{
 				Name:    "imex-download-timeout",
 				Value:   imex.DefaultDownloadTimeout,
@@ -209,10 +217,12 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 		Source:          source.NewFileSource(configPath, cmd.String("topology"), resyncInterval, log),
 		Log:             log,
 		ShutdownTimeout: shutdownTimeout,
+		StagingLockPath: cmd.String("staging-lock-path"),
 	})
 
 	healthSrv.SetLiveness(a.Liveness)
 	healthSrv.SetReadiness(a.Readiness)
+	healthSrv.SetStaged(a.Staged)
 
 	g, gctx := errgroup.WithContext(signalCtx)
 	g.Go(func() error { return healthSrv.Run(gctx) })

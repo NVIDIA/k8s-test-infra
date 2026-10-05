@@ -13,6 +13,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/staginggate"
 )
 
 // mockSimApplier implements Simulator and Applier.
@@ -22,6 +24,14 @@ type mockSimApplier struct {
 	stageFailN atomic.Int32 // decremented per call; negative = always succeed
 	stageCalls atomic.Int32
 	applyCalls atomic.Int32
+	discards   atomic.Int32
+	applyErr   error
+	// discardExpired records whether Discard ran on an already-expired context,
+	// which is how a teardown with no budget left shows up.
+	discardExpired atomic.Bool
+	// duringTeardown, when set, runs from Revoke and Discard so a test can
+	// inspect the agent while it tears down.
+	duringTeardown func()
 }
 
 func (m *mockSimApplier) Name() string { return m.name }
@@ -32,13 +42,25 @@ func (m *mockSimApplier) Stage(_ context.Context, _ *State) error {
 	}
 	return nil
 }
-func (m *mockSimApplier) Discard(_ context.Context) error { return nil }
-func (m *mockSimApplier) Ready() bool                     { return m.stageFailN.Load() < 0 }
-func (m *mockSimApplier) Apply(_ context.Context, _ *State) error {
-	m.applyCalls.Add(1)
+func (m *mockSimApplier) Discard(ctx context.Context) error {
+	m.discards.Add(1)
+	m.discardExpired.Store(ctx.Err() != nil)
+	if m.duringTeardown != nil {
+		m.duringTeardown()
+	}
 	return nil
 }
-func (m *mockSimApplier) Revoke(_ context.Context) error { return nil }
+func (m *mockSimApplier) Ready() bool { return m.stageFailN.Load() < 0 }
+func (m *mockSimApplier) Apply(_ context.Context, _ *State) error {
+	m.applyCalls.Add(1)
+	return m.applyErr
+}
+func (m *mockSimApplier) Revoke(_ context.Context) error {
+	if m.duringTeardown != nil {
+		m.duringTeardown()
+	}
+	return nil
+}
 
 // mockDaemon implements Simulator, Applier and Daemon, logging each synchronous
 // lifecycle call so tests can pin the wave ordering. Run is counted rather than
@@ -154,6 +176,7 @@ func TestReconcile_StageFailurePreventsApply(t *testing.T) {
 	live := a.Liveness()
 	require.False(t, live.OK)
 	require.Equal(t, "stage failed: test", live.Reason, "/healthz must name the simulator that failed")
+	require.False(t, a.Staged().OK, "/stagedz must remain closed when initial staging fails")
 }
 
 // TestReconcile_StageSuccessRunsApply verifies Apply is called after Stage succeeds.
@@ -165,6 +188,132 @@ func TestReconcile_StageSuccessRunsApply(t *testing.T) {
 	require.Equal(t, int32(1), sim.stageCalls.Load())
 	require.Equal(t, int32(1), sim.applyCalls.Load())
 	require.True(t, a.Liveness().OK)
+	require.False(t, a.Staged().OK, "a stopped agent must not advertise staged files")
+}
+
+func TestStagedIgnoresSimulatorServiceReadiness(t *testing.T) {
+	t.Parallel()
+
+	updates := make(chan Update, 1)
+	updates <- Update{State: &State{}, At: time.Now()}
+	a := New(Config{
+		Simulators: []Simulator{readySim{name: "delayed", ready: false}},
+		Source:     &chanSource{ch: updates},
+		Log:        zap.NewNop(),
+	})
+	require.False(t, a.Staged().OK)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- a.Run(ctx) }()
+
+	require.Eventually(t, func() bool { return a.Staged().OK }, time.Second, time.Millisecond,
+		"a staged tree must open the gate while a simulator is still not ready")
+	require.False(t, a.Readiness().OK, "ongoing simulator readiness remains independent")
+
+	cancel()
+	require.NoError(t, <-done)
+	require.False(t, a.Staged().OK, "a stopped agent must close the staged gate")
+}
+
+func TestAgentClosesStagedGateBeforeTeardown(t *testing.T) {
+	t.Parallel()
+
+	lockPath := t.TempDir() + "/" + staginggate.FileName
+	sim := &mockSimApplier{name: "test"}
+	updates := make(chan Update, 1)
+	updates <- Update{State: &State{}, At: time.Now()}
+	a := New(Config{
+		Simulators:      []Simulator{sim},
+		Source:          &chanSource{ch: updates},
+		Log:             zap.NewNop(),
+		StagingLockPath: lockPath,
+	})
+	// Teardown may proceed without the lock, which is safe only because
+	// /stagedz already reports unstaged by then.
+	var stagedDuringTeardown atomic.Bool
+	sim.duringTeardown = func() {
+		if a.Staged().OK {
+			stagedDuringTeardown.Store(true)
+		}
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- a.Run(ctx) }()
+	require.Eventually(t, func() bool { return a.Staged().OK }, time.Second, time.Millisecond)
+	lock, acquired, err := staginggate.Shared(lockPath)
+	require.NoError(t, err)
+	require.True(t, acquired, "a staged agent must release its exclusive staging lock")
+	require.NoError(t, lock.Close())
+
+	cancel()
+	require.NoError(t, <-done)
+	require.Equal(t, int32(1), sim.discards.Load())
+	require.False(t, stagedDuringTeardown.Load(), "/stagedz must report unstaged before teardown starts")
+	require.False(t, a.Staged().OK, "a stopped agent must not advertise staged files")
+}
+
+func TestTeardownProceedsWhenStagingLockIsHeld(t *testing.T) {
+	t.Parallel()
+
+	lockPath := t.TempDir() + "/" + staginggate.FileName
+	sim := &mockSimApplier{name: "test"}
+	updates := make(chan Update, 1)
+	updates <- Update{State: &State{}, At: time.Now()}
+	a := New(Config{
+		Simulators:      []Simulator{sim},
+		Source:          &chanSource{ch: updates},
+		Log:             zap.NewNop(),
+		ShutdownTimeout: 200 * time.Millisecond,
+		StagingLockPath: lockPath,
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- a.Run(ctx) }()
+	require.Eventually(t, func() bool { return a.Staged().OK }, time.Second, time.Millisecond)
+
+	holder, acquired, err := staginggate.Shared(lockPath)
+	require.NoError(t, err)
+	require.True(t, acquired)
+	t.Cleanup(func() { require.NoError(t, holder.Close()) })
+
+	cancel()
+	select {
+	case err := <-done:
+		require.NoError(t, err, "a lock that outlives the grace period must not fail shutdown")
+	case <-time.After(2 * time.Second):
+		t.Fatal("a held staging lock hung agent shutdown")
+	}
+	require.Equal(t, int32(1), sim.discards.Load(), "teardown must still run without the lock")
+	require.False(t, sim.discardExpired.Load(), "waiting for the lock must leave teardown part of its budget")
+}
+
+// TestApplyFailureKeepsStagedGateOpen pins /stagedz to Stage alone. Nothing
+// retries a failed Apply until the state changes again, so an Apply failure
+// that closed the gate would stop injection on the node until then.
+func TestApplyFailureKeepsStagedGateOpen(t *testing.T) {
+	t.Parallel()
+
+	sim := &mockSimApplier{name: "test", applyErr: errors.New("apply error")}
+	updates := make(chan Update, 2)
+	a := New(Config{
+		Simulators: []Simulator{sim},
+		Source:     &chanSource{ch: updates},
+		Log:        zap.NewNop(),
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- a.Run(ctx) }()
+
+	updates <- Update{State: &State{Generation: 1}, At: time.Now()}
+	require.Eventually(t, func() bool { return sim.applyCalls.Load() == 1 }, time.Second, time.Millisecond)
+	require.True(t, a.Staged().OK, "an initial Apply failure must not hold NRI back")
+
+	updates <- Update{State: &State{Generation: 2}, At: time.Now()}
+	require.Eventually(t, func() bool { return sim.applyCalls.Load() == 2 }, time.Second, time.Millisecond)
+	require.True(t, a.Staged().OK, "a restage whose Apply fails must reopen the gate")
+
+	cancel()
+	require.NoError(t, <-done)
 }
 
 // TestSupervise_ReloadRunsBetweenStageAndApply pins the supervisor wave to the

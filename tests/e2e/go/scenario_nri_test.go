@@ -81,9 +81,9 @@ const (
 // with containerd NRI enabled is created once; the nvml-mock chart is installed
 // per selected GPU profile with `nri.enabled=true` (plus a per-node
 // ComputeDomain overlay for fabric-attached profiles). The scenario then proves
-// that an ordinary `gpu-agent` DaemonSet — no `nvidia.com/gpu` request, no
-// hostPath/mock volumes, no `MOCK_*` env — sees the full mock GPU stack purely
-// through NRI ambient injection, and that each node carries its assigned
+// that a `gpu-agent` DaemonSet — no `nvidia.com/gpu` request, no hostPath/mock
+// volumes, no `MOCK_*` env, only the devices annotation — sees the full mock GPU
+// stack purely through NRI injection, and that each node carries its assigned
 // ComputeDomain clique / cluster UUID.
 var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, func() {
 	var (
@@ -124,8 +124,8 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 			})
 
 			// gpu-agent readiness alone already proves injection (its `set -eu`
-			// self-test fails otherwise); this asserts the pod spec stayed plain.
-			It("keeps the workload pod plain (no nvidia.com/gpu request)", Label("nri-inject"), func(ctx SpecContext) {
+			// self-test fails otherwise); this asserts the pod spec requests no GPU.
+			It("injects without an nvidia.com/gpu request", Label("nri-inject"), func(ctx SpecContext) {
 				assertAgentHasNoGPURequest(ctx, h)
 			})
 
@@ -286,8 +286,9 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 		// pushing the engine's visibility filter back to "all present" and
 		// exposing every GPU to a pod allocated one.
 		//
-		// Mutation-checked: reverting alreadyHasGPUDevices turns this red with
-		// nvidia-smi reporting every GPU instead of one.
+		// Mutation-checked: letting the devices annotation win over
+		// hasGPUAllocation turns this red with nvidia-smi reporting every GPU
+		// instead of one.
 		It("keeps an annotated pod's allocation intact", Label("nri-dp-suppression"), func(ctx SpecContext) {
 			pod := applyNRIWorkload(ctx, h,
 				nriRequestPodManifest("nri-dp-annotated-request", gpuNode, 1,
@@ -386,18 +387,19 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 				"default deviceInjectionMode is raw, so the CDI spec must not have been applied")
 		})
 
-		It("handles a plain unannotated pod with no GPU request", Label("nri-dp-plain"), func(ctx SpecContext) {
+		// The negative half of the allocation rule: on a node where the device
+		// plugin is serving, a pod that requested no GPU and carries no
+		// annotation must look exactly as it would on a real GPU node — no mock
+		// driver, no mock environment, no GPU device nodes.
+		It("leaves a pod with no GPU request and no annotation untouched", Label("nri-dp-plain"), func(ctx SpecContext) {
 			pod := applyNRIWorkload(ctx, h, nriPlainPodManifest("nri-dp-plain"), "nri-dp-plain")
 
-			// Verify ambient overlay injection is present.
-			res, err := h.Kube.ExecSh(ctx, pod, "test -d /opt/nvml-mock/driver")
-			Expect(err).NotTo(HaveOccurred(), "check overlay mount in nri-dp-plain: %s", res.Combined())
-
-			// Verify GPU visibility reported via nvidia-smi -L.
-			visible := visibleGPUUUIDs(ctx, h, pod)
-			Expect(visible).To(HaveLen(p.ExpectedGPUs()),
-				"plain unannotated pod on DP node receives ambient overlay and reports all %d profile GPUs",
-				p.ExpectedGPUs())
+			res, err := h.Kube.ExecSh(ctx, pod,
+				`test ! -e /opt/nvml-mock && test -z "${MOCK_NVML_CONFIG:-}" && `+
+					`! command -v nvidia-smi && ! ls /dev/nvidia[0-9]* 2>/dev/null`)
+			Expect(err).NotTo(HaveOccurred(),
+				"a pod with no GPU request and no annotation must receive no overlay, mock env or GPU nodes:\n%s",
+				res.Combined())
 		})
 
 		It("leaves the scheduler gate intact once the node is saturated", Label("nri-dp-scheduling"), func(ctx SpecContext) {
@@ -601,6 +603,70 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 		})
 	})
 
+	Context("when the node agent restarts after NRI registers", Label("nri-agent-restart"), func() {
+		It("withholds stale adjustments and resumes after restaging", func(ctx SpecContext) {
+			Expect(selectedProfiles).NotTo(BeEmpty())
+			p := loadProfile(selectedProfiles[0])
+			installNRIChart(ctx, h, p, topoValues, p.HasFabric())
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
+
+			victim := workers[0]
+			pluginPID := nriPluginHostPID(ctx, victim.Container)
+			agentPID := nriProcessHostPID(ctx, victim.Container, "node-agent")
+			By("freezing the already-running agent while NRI remains registered")
+			_, err := runner.Run(ctx, "docker", "exec", victim.Container, "kill", "-STOP", agentPID)
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func(ctx SpecContext) {
+				_, _ = runner.Run(ctx, "docker", "exec", victim.Container, "kill", "-CONT", agentPID) // process may already have been killed below
+			})
+
+			// The agent's probe port no longer answers, although its staged tree
+			// and NRI's runtime connection still exist. A new pod must be plain.
+			// The test image is already loaded on every Kind node. Pulling a
+			// separate workload image could outlast the kubelet's liveness budget
+			// and restart the frozen agent before this negative control starts.
+			downSpec := nriAnyGPUNode(nriWorkload("nri-agent-down"), victim.Name)
+			downSpec.Image = config.Image()
+			downSpec.Annotations = map[string]string{nriDeviceAnnotation: "true"}
+			plain := applyNRIWorkload(ctx, h, downSpec.Render(), "nri-agent-down")
+			// The negative control only holds if the agent was still frozen when
+			// the workload's container was created. A kubelet that had already
+			// restarted it would have reopened the gate, so report that instead
+			// of blaming NRI.
+			Expect(nriProcessHostPID(ctx, victim.Container, "node-agent")).To(Equal(agentPID),
+				"kubelet restarted the frozen agent before the workload started; the check needs it frozen throughout")
+			res, err := h.Kube.ExecSh(ctx, plain, "test ! -e /opt/nvml-mock/driver")
+			Expect(err).NotTo(HaveOccurred(), "NRI injected while the agent was unavailable: %s", res.Combined())
+			Expect(nriPluginHostPID(ctx, victim.Container)).To(Equal(pluginPID),
+				"the NRI process should remain registered while the agent is unavailable")
+			// Failing open must not be silent: the plugin names the container it
+			// left unmocked.
+			nriPod := nriPluginPodOnNode(ctx, h, victim.Name)
+			pluginLog, err := h.Kube.KubectlCombined(ctx, "logs", "-n", nriPod.Namespace, nriPod.Pod, "-c", "nvml-mock-nri")
+			Expect(err).NotTo(HaveOccurred(), "read NRI plugin log: %s", pluginLog)
+			Expect(strings.Split(pluginLog, "\n")).To(ContainElement(
+				And(ContainSubstring("leaving container unmodified"), ContainSubstring(plain.Pod))),
+				"NRI left %s unmocked without a warning naming it", plain.Pod)
+
+			By("killing the agent so kubelet restarts and restages it")
+			_, err = runner.Run(ctx, "docker", "exec", victim.Container, "kill", "-KILL", agentPID)
+			Expect(err).NotTo(HaveOccurred())
+			waitNRIGateOpen(ctx, h, victim)
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
+			recoveredSpec := nriAnyGPUNode(nriWorkload("nri-agent-restaged"), victim.Name)
+			recoveredSpec.Image = config.Image()
+			recoveredSpec.Annotations = map[string]string{nriDeviceAnnotation: "true"}
+			recovered := applyNRIWorkload(ctx, h, recoveredSpec.Render(), "nri-agent-restaged")
+			// Assert injection before counting. The test image ships its own
+			// nvidia-smi and mock library, which report a built-in eight-GPU
+			// node when nothing is injected, so a count alone cannot tell an
+			// uninjected pod from an injected one on eight-GPU profiles.
+			res, err = h.Kube.ExecSh(ctx, recovered, "test -d /opt/nvml-mock/driver")
+			Expect(err).NotTo(HaveOccurred(), "NRI did not inject after the agent restaged: %s", res.Combined())
+			Expect(visibleGPUCount(ctx, h, recovered)).To(Equal(p.ExpectedGPUs()))
+		})
+	})
+
 	// Failure-mode hardening (#434). Everything above asserts that injection
 	// works. This asserts what happens when it stops working mid-run.
 	//
@@ -685,6 +751,26 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 	})
 })
 
+// waitNRIGateOpen polls the plugin's own /readyz from the Kind node until it
+// passes. Right after an agent restart the DaemonSet can still report the
+// Ready status it had before, while /readyz passes only once the restarted
+// agent has restaged and released the staging lock.
+func waitNRIGateOpen(ctx context.Context, h *harness.Harness, node cluster.Node) {
+	GinkgoHelper()
+	pod := nriPluginPodOnNode(ctx, h, node.Name)
+	ip, err := h.Kube.PodIP(ctx, pod.Namespace, pod.Pod)
+	Expect(err).NotTo(HaveOccurred(), "read IP of %s", pod.Pod)
+	port, err := h.Kube.KubectlCombined(ctx, "get", "pod", "-n", pod.Namespace, pod.Pod, "-o",
+		`jsonpath={.spec.containers[?(@.name=="nvml-mock-nri")].ports[?(@.name=="nri-health")].containerPort}`)
+	Expect(err).NotTo(HaveOccurred(), "read NRI health port: %s", port)
+	url := fmt.Sprintf("http://%s:%s/readyz", ip, strings.TrimSpace(port))
+	Eventually(func() error {
+		_, err := runner.Run(ctx, "docker", "exec", node.Container, "curl", "-sf", "-o", "/dev/null", url)
+		return err
+	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
+		Should(Succeed(), "NRI on %s never reported the restarted agent's tree staged", node.Name)
+}
+
 // nriPluginPodOnNode returns the shared node pod scheduled on node.
 func nriPluginPodOnNode(ctx context.Context, h *harness.Harness, node string) kube.PodRef {
 	GinkgoHelper()
@@ -755,13 +841,17 @@ func wedgeNRIPlugin(ctx context.Context, container string) {
 // guaranteed in the node image, and matching on a command line would also match
 // the matching process itself.
 func nriPluginHostPID(ctx context.Context, container string) string {
+	return nriProcessHostPID(ctx, container, "nri-plugin")
+}
+
+func nriProcessHostPID(ctx context.Context, container, binary string) string {
 	GinkgoHelper()
-	const script = `for p in /proc/[0-9]*; do case "$(readlink "$p/exe" 2>/dev/null)" in */nri-plugin) echo "${p##*/}";; esac; done`
+	script := `for p in /proc/[0-9]*; do case "$(readlink "$p/exe" 2>/dev/null)" in */` + binary + `) echo "${p##*/}";; esac; done`
 	res, err := runner.Run(ctx, "docker", "exec", container, "sh", "-c", script)
-	Expect(err).NotTo(HaveOccurred(), "locate nri-plugin on %s: %s", container, res.Combined())
+	Expect(err).NotTo(HaveOccurred(), "locate %s on %s: %s", binary, container, res.Combined())
 
 	pids := strings.Fields(res.Stdout)
-	Expect(pids).NotTo(BeEmpty(), "no nri-plugin process found on %s", container)
+	Expect(pids).NotTo(BeEmpty(), "no %s process found on %s", binary, container)
 	return pids[0]
 }
 
@@ -813,7 +903,7 @@ func installNRIChart(ctx context.Context, h *harness.Harness, p profile.Profile,
 // deployNRIAgent (re)creates the plain gpu-agent DaemonSet. It deletes any
 // prior instance first so containers are created AFTER the nvml-mock daemon
 // staged the overlay — NRI only injects at container-creation time — then waits
-// for readiness, which fails unless every pod's ambient self-test passed.
+// for readiness, which fails unless every pod's injection self-test passed.
 func deployNRIAgent(ctx context.Context, h *harness.Harness) {
 	GinkgoHelper()
 	Expect(h.Kube.Delete(ctx, assets.NRIGpuAgentManifest)).To(Succeed(), "delete previous gpu-agent DaemonSet")
@@ -822,15 +912,15 @@ func deployNRIAgent(ctx context.Context, h *harness.Harness) {
 }
 
 // assertAgentHasNoGPURequest mirrors run.sh's "gpu-agent has no nvidia.com/gpu
-// resource request" guard: node-wide injection must not depend on the extended
-// resource being requested.
+// resource request" guard: the devices annotation alone must be enough to
+// receive every mock GPU.
 func assertAgentHasNoGPURequest(ctx context.Context, h *harness.Harness) {
 	GinkgoHelper()
 	out, err := h.Kube.KubectlCombined(ctx, "get", "daemonset", "-n", nriWorkloadNS, nriAgentDaemonSet,
 		"-o", "jsonpath={.spec.template.spec.containers[0].resources}")
 	Expect(err).NotTo(HaveOccurred(), "read gpu-agent container resources")
 	Expect(out).NotTo(ContainSubstring(kube.GPUResourceName),
-		"gpu-agent must not request %s; node-wide injection is ambient (resources=%s)", kube.GPUResourceName, out)
+		"gpu-agent must not request %s; the devices annotation alone selects it (resources=%s)", kube.GPUResourceName, out)
 }
 
 // assertAgentSeesGPUs reads `nvidia-smi -q -x` in a gpu-agent pod and asserts
@@ -998,8 +1088,7 @@ func nriAnnotatedPodManifest(name string, node ...string) []byte {
 }
 
 // nriPlainPodManifest renders a pod that opts into nothing: no GPU request and
-// no device annotation. It still receives the overlay and the environment,
-// which is the node-wide NRI contract.
+// no annotation. The NRI plugin leaves it exactly as authored.
 func nriPlainPodManifest(name string) []byte {
 	return nriAnyGPUNode(nriWorkload(name), "").Render()
 }
@@ -1009,9 +1098,14 @@ func nriPlainPodManifest(name string) []byte {
 // `sleep` wrapper and no `sh -c`: the image has no shell, which is the whole
 // point of using it. The label is what the spec selects on to read the pod's
 // logs, since it has already exited by the time they are collected.
+//
+// The IB tools and their libraries ship in the GPU overlay, so the pod opts
+// into it with the devices annotation; without it the tool path would not
+// exist.
 func nriMinimalIBPodManifest(name, tool string, args ...string) []byte {
 	spec := nriAnyGPUNode(nriWorkload(name), "")
 	spec.Image = nriMinimalImage
+	spec.Annotations = map[string]string{nriDeviceAnnotation: "true"}
 	// Replaces the keepalive shell wholesale; this image has none, so the trap
 	// script would reach the tool as arguments.
 	spec.Command = append([]string{nriOverlayBinDir + "/" + tool}, args...)

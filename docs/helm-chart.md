@@ -37,17 +37,16 @@ Consumers (DRA driver, device plugin) point at `/var/lib/nvml-mock/driver`
 as the NVIDIA driver root and discover GPUs through standard NVML APIs.
 
 When `nri.enabled=true` (opt-in; default `false`), the chart adds
-`nvml-mock-nri` as a sidecar in the node DaemonSet. This node-local containerd
+`nvml-mock-nri` to the node DaemonSet. This node-local containerd
 NRI plugin mounts the host overlay into newly created containers at
-`/opt/nvml-mock` and injects the mock
-environment at runtime, so plain pods can run `nvidia-smi` without GPU resource
-requests or pod-spec mutation. The overlay and environment are injected ambiently into
-containers in non-excluded namespaces, while host device nodes (`/dev/nvidia*`) remain opt-in
-(via `nvidia.com/gpu` requests or the `nvml-mock.nvidia.com/devices: "true"` annotation).
-Unannotated pods without GPU requests will still report GPUs if `nvidia-smi` is run inside them.
-Test suites that rely on non-GPU pods seeing zero GPUs should either keep NRI disabled (`nri.enabled=false`)
-or run within an excluded namespace (`nri.excludedNamespaces`). Because it injects cluster-wide, it is off by
-default. Kind clusters must have containerd NRI enabled; see
+`/opt/nvml-mock` and injects the mock environment at runtime, so a pod needs no
+Mokka-specific pod spec changes. It injects only containers that hold a GPU allocation from the
+device plugin or the NVIDIA DRA driver, or whose pod carries the
+`nvml-mock.nvidia.com/devices: "true"` or `nvml-mock.nvidia.com/imex-channels:
+"true"` annotation. A pod that requested no GPU and carries neither annotation
+is left untouched and sees no GPUs, as on a real GPU node. See
+[Which containers are injected](components/nri-plugin.md#which-containers-are-injected)
+for the full rules. Kind clusters must have containerd NRI enabled; see
 [`docs/guides/node-wide-injection`](guides/node-wide-injection/README.md).
 
 **Install it into its own namespace, and pass `-n`:**
@@ -523,7 +522,8 @@ Applies only when `nri.enabled=true`, and only to the `nri.deviceAnnotation`
 opt-in path.
 
 `nri.deviceInjectionMode` selects how the plugin delivers mock GPU device nodes
-to a container that carries `nvml-mock.nvidia.com/devices: "true"`:
+to a container that carries `nvml-mock.nvidia.com/devices: "true"` and holds no
+GPU allocation:
 
 | Mode | Mechanism | Needs |
 | --- | --- | --- |
@@ -544,8 +544,9 @@ If `cdi` is selected and no spec is staged, the plugin logs a warning and falls
 back to `raw`. It does not fail the pod: an unresolvable CDI device makes
 containerd reject container creation outright.
 
-Neither mode changes *whether* a container is served. A container the NVIDIA
-device plugin already served keeps exactly its allocation in both modes, per
+Neither mode changes *which* GPUs an allocated container gets. A container
+that holds a device-plugin or NVIDIA DRA allocation keeps exactly that
+allocation in both modes, even with the annotation, per
 [MEP-0002](https://github.com/NVIDIA/k8s-test-infra/blob/main/enhancements/meps/0002-device-plugin-nri-composition/README.md).
 
 ## NRI pod lifecycle
@@ -553,17 +554,41 @@ device plugin already served keeps exactly its allocation in both modes, per
 Applies only when `nri.enabled=true`.
 
 The node agent and the NRI plugin run as separate containers in the same node
-DaemonSet pod. They are scheduled to the same nodes, use the same release, and
-roll together. Changing an `nri.*` value therefore rolls the node DaemonSet and
-briefly rebuilds the staged driver tree. The chart has no option to deploy the
-plugin separately, so this is the operational cost of enabling NRI.
+DaemonSet pod. On Kubernetes 1.29 and later, the node agent is a [restartable
+init container](https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/)
+and NRI a regular container, which orders them:
+
+- **Startup.** The node agent's startup probe reads `/stagedz`, which opens once
+  its first Stage wave has written the driver tree, so Kubernetes starts NRI
+  only after that. `/stagedz` does not wait for an intentional
+  `fabricmanager.initDelay`, so new workloads can still observe the simulated
+  `IN_PROGRESS` fabric state. Kubernetes runs no liveness probe until the
+  startup probe passes, so `nodeAgent.nriStartupTimeoutSeconds` (120 by
+  default) is also how long a node agent whose first staging failed waits
+  before it is restarted.
+- **Termination.** Kubernetes stops NRI before the node agent, so the plugin
+  disconnects before the agent removes the staged driver tree.
+
+While both run, NRI checks the node agent before each adjustment and leaves new
+containers unmodified while the agent is restarting or restaging; see
+[Failing open](components/nri-plugin.md#failing-open).
+
+If a cluster administrator has explicitly disabled the `SidecarContainers`
+feature gate, set `nri.nativeSidecar=false`. That setting, and Kubernetes 1.28,
+render both as regular containers, which Kubernetes does not order, so NRI
+leaves containers unmodified while the node agent stages files at startup. The
+chart picks the layout from Helm's `.Capabilities.KubeVersion`: pass
+`--kube-version` to `helm template`, or the equivalent setting in a GitOps
+renderer, when rendering offline. An upgrade across Kubernetes 1.29 switches
+the layout on the next Helm upgrade and rolls every node pod.
+
+Changing an `nri.*` value rolls the node DaemonSet and briefly rebuilds the
+staged driver tree. The chart has no option to deploy the plugin separately, so
+this is the operational cost of enabling NRI.
 
 Readiness is shared as well. A plugin that is not Ready, including one on a
 node whose container runtime has NRI disabled, marks the whole node pod
 NotReady; see [NRI plugin failure modes](#nri-plugin-failure-modes).
-
-Kubernetes does not order containers in the same pod, so NRI can briefly fail
-open while the node agent stages files during startup.
 
 For InfiniBand-enabled profiles, the headless `-ibping` Service publishes pod
 addresses even when the shared pod is NotReady. The relay runs in the node
@@ -737,6 +762,7 @@ namespace, on the pod IP where the kubelet reaches it.
 | `nodeAgent.livenessProbe` | `httpGet /healthz` on `health` | Node agent liveness probe. Set to `null` to drop it. |
 | `nodeAgent.readinessProbe` | `httpGet /readyz` on `health` | Node agent readiness probe. Set to `null` to drop it. |
 | `nodeLabels.featuresDir` | `/etc/kubernetes/node-feature-discovery/features.d` | Host directory NFD's local source reads feature files from. Override only if NFD runs with a non-default `featureFilesDir` |
+| `nodeAgent.nriStartupTimeoutSeconds` | `120` | On Kubernetes 1.29+, maximum time the node-agent `/stagedz` gate may wait for its first staging and apply cycle before Kubernetes restarts it when NRI uses native sidecars |
 | `integrations.fakeGpuOperator.enabled` | `false` | Create per-profile ConfigMaps named `gpu-profile-<profile>`, keyed `profile.yaml`, in the shape fake-gpu-operator's loader reads |
 | `integrations.fakeGpuOperator.targetNamespace` | `""` (release namespace) | Namespace for the profile ConfigMaps. Set to FGO's release namespace for FGO to find them; requires FGO's `builtinProfiles.enabled=false` to avoid a Helm ownership collision on the same seven names |
 | `integrations.fakeGpuOperator.profileLabels` | `{"run.ai/gpu-profile": "true"}` | Extra labels on profile ConfigMaps. The contract labels `fake-gpu-operator/gpu-profile` and `nvml-mock/profile-name` are always emitted and cannot be removed here |
@@ -747,14 +773,15 @@ namespace, on the pod IP where the kubelet reaches it.
 | `imex.nodeSoftware.enabled` | `""` | Tri-state; empty follows `imex.mockChannels.enabled`, and `false` opts out on nodes without egress to NVIDIA. Download the architecture-specific IMEX archive pinned by version and SHA-256, cache it on the node, and stage its daemon, CLI, config, and Mokka shim in the driver tree. Requires outbound HTTPS from the node-agent pod on the first successful stage; until then the download is retried in the background and only the agent's `imex` simulator reports not ready |
 | `imex.nodeSoftware.downloadTimeout` | `1m` | Bound on one IMEX archive download attempt |
 | `nri.enabled` | `false` | Add the `nvml-mock-nri` containerd NRI plugin as a sidecar in the node DaemonSet. Injects mock overlay and environment cluster-wide into non-excluded namespaces. Always install into a dedicated namespace (`-n mokka`) to avoid excluding `default`. Device node injection remains opt-in (`nvidia.com/gpu` request or `nvml-mock.nvidia.com/devices: "true"` annotation). |
+| `nri.nativeSidecar` | `true` | On Kubernetes 1.29+, use the ordered `SidecarContainers` layout. Set to `false` when that feature gate is explicitly disabled; the chart falls back to unordered regular containers |
 | `nri.socketPath` | `/var/run/nri/nri.sock` | NRI socket on the host. Its directory is hostPath-mounted into the plugin |
 | `nri.pluginName` / `nri.pluginIndex` | `nvml-mock` / `"10"` | NRI registration identity. The index orders this plugin against others |
 | `nri.overlay.hostPath` / `nri.overlay.mountPath` | `/var/lib/nvml-mock` / `/opt/nvml-mock` | Host overlay staged by the main DaemonSet, and the path it is injected at inside workloads |
 | `nri.optOutAnnotation` | `nvml-mock.nvidia.com/inject` | Pod annotation; value `false` disables injection for that pod |
-| `nri.deviceAnnotation` | `nvml-mock.nvidia.com/devices` | Pod annotation; value `true` adds mock `/dev/nvidia*` device nodes. Pod-authored, so treat it as part of the demo trust boundary |
+| `nri.deviceAnnotation` | `nvml-mock.nvidia.com/devices` | Pod annotation; value `true` gives a pod with no GPU allocation the overlay and every mock GPU on the node. Ignored for containers that hold an allocation. Pod-authored, so treat it as part of the demo trust boundary |
 | `nri.deviceInjectionMode` | `raw` | How `nri.deviceAnnotation` delivers GPUs: `raw` stages the device nodes directly, `cdi` emits a CDI device reference the runtime resolves. See [Device injection mode](#device-injection-mode) |
 | `nri.cdiSpecDir` | `/var/run/cdi` | Host directory holding CDI specs, mounted read-only into the plugin. Must be one of the runtime's configured `cdi_spec_dirs` |
-| `nri.imexChannelAnnotation` | `nvml-mock.nvidia.com/imex-channels` | Pod annotation; value `true` adds the mock `/dev/nvidia-caps-imex-channels/channelN` nodes staged by `imex.mockChannels`. A no-op when that is disabled. Same trust boundary as `nri.deviceAnnotation` |
+| `nri.imexChannelAnnotation` | `nvml-mock.nvidia.com/imex-channels` | Pod annotation; value `true` gives the pod the overlay and the mock `/dev/nvidia-caps-imex-channels/channelN` nodes staged by `imex.mockChannels` (no channels when that is disabled). Same trust boundary as `nri.deviceAnnotation` |
 | `nri.excludedNamespaces` | `[]` | Extra namespaces to skip. The release namespace and `kube-system` are always excluded |
 | `nri.healthPort` | `8080` | Port serving `/healthz` and `/readyz`. Bound only in the pod's network namespace — this DaemonSet does not use `hostNetwork`, so nothing is exposed on the node |
 | `nri.readinessProbe` | `/readyz`, `periodSeconds: 10`, `failureThreshold: 2` | Detects that the node has stopped injecting. Set to `null` to drop. See [NRI plugin failure modes](#nri-plugin-failure-modes) |

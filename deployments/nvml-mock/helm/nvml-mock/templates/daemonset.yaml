@@ -4,6 +4,12 @@ apiVersion: apps/v1
 kind: DaemonSet
 {{- $ibEnabled := eq (include "nvml-mock.infinibandEnabled" .) "true" }}
 {{- $fmEnabled := eq (include "nvml-mock.fabricmanagerEnabled" .) "true" }}
+{{- $nativeSidecar := and .Values.nri.enabled .Values.nri.nativeSidecar (semverCompare ">=1.29.0-0" .Capabilities.KubeVersion.Version) }}
+{{- /* NRI shares a lock here with the node agent. It lives in a pod-local
+emptyDir mounted into only those two containers: a workload that could open it
+could hold the lock and stall staging. */}}
+{{- $stagingGateDir := "/run/nvml-mock" }}
+{{- $stagingLock := printf "%s/nri-staging.lock" $stagingGateDir }}
 {{- $nriImageOverride := .Values.nri.image | default dict }}
 {{- $nriImage := mergeOverwrite (deepCopy .Values.image) $nriImageOverride }}
 {{- /* The chart digest names the nvml-mock image; it must not pin an NRI repository or tag override. */}}
@@ -82,8 +88,18 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- if $nativeSidecar }}
+      initContainers:
+      {{- else }}
       containers:
+      {{- end }}
         - name: node-agent
+          {{- if $nativeSidecar }}
+          # Kubernetes 1.29+ guarantees restartable init containers start in
+          # order and stop after regular containers. That keeps NRI behind
+          # staging during startup and lets it disconnect before teardown.
+          restartPolicy: Always
+          {{- end }}
           image: {{ include "nvml-mock.image" (dict "image" .Values.image "context" $) | quote }}
           imagePullPolicy: {{ include "nvml-mock.imagePullPolicy" (dict "image" .Values.image "context" $) }}
           command:
@@ -105,6 +121,9 @@ spec:
             # --reuse-values renders: the flag would arrive empty and the agent
             # would refuse to start. Unset falls through to the binary default.
             - --resync-interval={{ . }}
+            {{- end }}
+            {{- if .Values.nri.enabled }}
+            - --staging-lock-path={{ $stagingLock }}
             {{- end }}
           env:
             - name: NODE_NAME
@@ -256,6 +275,11 @@ spec:
             # a node label.
             - name: nfd-features
               mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
+            {{- if .Values.nri.enabled }}
+            # Staging and teardown take the NRI gate's lock exclusively.
+            - name: staging-gate
+              mountPath: {{ $stagingGateDir }}
+            {{- end }}
             {{- if .Values.topology.enabled }}
             # Source for the topology document the nvlink simulator stages into
             # the overlay, where the NRI plugin points workloads at it.
@@ -296,8 +320,22 @@ spec:
           readinessProbe:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- if $nativeSidecar }}
+          # A restartable init container is considered started after this
+          # succeeds; regular containers, including NRI, are held until then.
+          startupProbe:
+            httpGet:
+              path: /stagedz
+              port: health
+            periodSeconds: 1
+            timeoutSeconds: 1
+            failureThreshold: {{ .Values.nodeAgent.nriStartupTimeoutSeconds }}
+          {{- end }}
           resources:
             {{- toYaml .Values.nodeAgent.resources | nindent 12 }}
+        {{- if $nativeSidecar }}
+      containers:
+        {{- end }}
         {{- if .Values.nri.enabled }}
         # The NRI plugin shares this pod with the node agent so staging and
         # injection have one scheduling and rollout lifecycle per node.
@@ -328,6 +366,8 @@ spec:
             - --compute-domain-staging
             {{- end }}
             - --health-addr=:{{ .Values.nri.healthPort }}
+            - --agent-staged-url=http://127.0.0.1:9091/stagedz
+            - --staging-lock-path={{ $stagingLock }}
             - --log-level={{ .Values.nri.logging.level }}
             - --log-format={{ .Values.nri.logging.format }}
           env:
@@ -357,6 +397,10 @@ spec:
           volumeMounts:
             - name: nri-socket-dir
               mountPath: {{ $nriSocketDir }}
+            # Read-only is enough to take the shared side of the lock.
+            - name: staging-gate
+              mountPath: {{ $stagingGateDir }}
+              readOnly: true
             - name: {{ $nriOverlayVolume }}
               mountPath: {{ .Values.nri.overlay.hostPath }}
               readOnly: true
@@ -426,6 +470,10 @@ spec:
           hostPath:
             path: {{ $nriSocketDir }}
             type: DirectoryOrCreate
+        - name: staging-gate
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
         {{- if ne .Values.nri.overlay.hostPath "/var/lib/nvml-mock" }}
         - name: nri-overlay
           hostPath:

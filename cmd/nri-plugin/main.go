@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -70,6 +71,16 @@ func processFlags() []cli.Flag {
 			Value:   ":8080",
 			Sources: cli.EnvVars("MOKKA_NRI_HEALTH_ADDR"),
 			Usage:   "address for the /healthz and /readyz probe endpoints; empty disables them",
+		},
+		&cli.StringFlag{
+			Name:    "agent-staged-url",
+			Sources: cli.EnvVars("MOKKA_NRI_AGENT_STAGED_URL"),
+			Usage:   "node-agent /stagedz URL; when set, only adjust containers while the agent reports its tree staged",
+		},
+		&cli.StringFlag{
+			Name:    "staging-lock-path",
+			Sources: cli.EnvVars("MOKKA_NRI_STAGING_LOCK_PATH"),
+			Usage:   "node-agent staging lock file, shared while deciding each adjustment; must not be inside the injected overlay",
 		},
 	}
 }
@@ -229,15 +240,20 @@ func imexChannelFlags(defaults nri.Config) []cli.Flag {
 // overlay roots by inject.Config's own defaulting, so the CLI does not have to
 // repeat that arithmetic.
 func configFrom(cmd *cli.Command) (nri.Config, error) {
+	if (cmd.String("agent-staged-url") == "") != (cmd.String("staging-lock-path") == "") {
+		return nri.Config{}, errors.New("--agent-staged-url and --staging-lock-path must be set together")
+	}
 	mode, err := inject.ParseDeviceInjectionMode(cmd.String("device-injection-mode"))
 	if err != nil {
 		return nri.Config{}, err
 	}
 
 	return nri.Config{
-		SocketPath:  cmd.String("socket-path"),
-		PluginName:  cmd.String("plugin-name"),
-		PluginIndex: cmd.String("plugin-index"),
+		SocketPath:      cmd.String("socket-path"),
+		PluginName:      cmd.String("plugin-name"),
+		PluginIndex:     cmd.String("plugin-index"),
+		AgentStagedURL:  cmd.String("agent-staged-url"),
+		StagingLockPath: cmd.String("staging-lock-path"),
 		Inject: inject.Config{
 			HostOverlayPath:       cmd.String("overlay-host-path"),
 			ContainerOverlayPath:  cmd.String("overlay-mount-path"),

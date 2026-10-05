@@ -4,11 +4,11 @@ The component that puts mock GPUs inside a container the pod author never
 changed.
 
 The [node daemon](node-daemon.md) stages a GPU tree on the host, but a container
-sees only what its runtime gives it. The usual way in is a pod spec change — a
-resource request, a `hostPath` mount, some `MOCK_*` environment. The NRI plugin
-removes that step: it registers with containerd's Node Resource Interface and
-edits containers as they are created, so an unmodified workload comes up
-believing it has GPUs.
+sees only what its runtime gives it. Without help, a workload would need
+Mokka-specific pod spec changes — a `hostPath` mount, some `MOCK_*`
+environment. The NRI plugin removes that step: it registers with containerd's
+Node Resource Interface and edits containers as they are created, so a workload
+that was allocated GPUs the usual way comes up with the mock driver, unchanged.
 
 !!! note "What NRI is"
     The **Node Resource Interface** is a framework for plugging extensions into
@@ -26,45 +26,58 @@ believing it has GPUs.
 For where it sits in the wider system, see the
 [architecture overview](../architecture.md).
 
-## Two layers of injection
+## Which containers are injected
 
-The plugin does two separable things, and conflating them is the usual source
-of confusion.
+The plugin injects only containers that were given GPUs or explicitly asked for
+the mock. Everything else on the node is left exactly as authored, just as a
+real GPU node gives nothing to a pod that requested no GPU.
 
-| Layer | Applies to | Delivers |
-|---|---|---|
-| **Overlay** | every container unless skipped or identified as the DRA ComputeDomain daemon | The mock driver tree and environment — enough for `nvidia-smi` to run and report the node's profile |
-| **Devices** | only containers that opt in | Actual `/dev/nvidia*` nodes, or a CDI reference the runtime resolves |
+| Container | Receives |
+|---|---|
+| Holds a GPU allocation from the device plugin or the NVIDIA DRA driver | The overlay. The allocated GPUs stay exactly as the scheduler assigned them |
+| Pod annotated `nvml-mock.nvidia.com/devices: "true"`, no allocation | The overlay and every mock GPU on the node |
+| Pod annotated `nvml-mock.nvidia.com/imex-channels: "true"` | The overlay and the mock IMEX channels, without GPUs |
+| The DRA ComputeDomain daemon: container `compute-domain-daemon` in a pod with the `resource.nvidia.com/computeDomain` label | Only the real IMEX binary and the node topology; see [ComputeDomain CDI composition](#computedomain-cdi-composition) |
+| Anything else | Nothing |
 
-The overlay is **ambient**: a plain pod that requests nothing gets it. Devices
-are **opt-in**, because handing every container real device nodes would be both
-surprising and wrong.
+The **overlay** is the mock driver tree plus the environment that points at it
+(`LD_LIBRARY_PATH`, the `LD_PRELOAD` shims and the `MOCK_*` variables) —
+enough for `nvidia-smi` and NVML clients to run.
+
+The `devices` annotation is the management path: it gives a pod the whole node,
+such as a monitoring agent, without scheduler accounting. It is a pod
+annotation, so it applies to every container in that pod.
 
 ## What happens to a container
 
-Adjustment runs as a fixed sequence, and no step can fail:
+Adjustment runs as a fixed sequence. Only the ComputeDomain daemon's step can fail; see [Startup ordering and recovery](#startup-ordering-and-recovery):
 
 ```mermaid
 flowchart TB
-    create[containerd: CreateContainer] --> skip{Skip?}
-    skip -->|opt-out annotation<br/>excluded namespace<br/>overlay already mounted| asis[Leave exactly as authored]
+    create[containerd: CreateContainer] --> skip{Opt-out annotation or<br/>excluded namespace?}
+    skip -->|yes| asis[Leave exactly as authored]
     skip -->|no| domain{DRA ComputeDomain<br/>daemon?}
-    domain -->|yes| missing[Mount only real IMEX<br/>and mock topology] --> done[Return adjustment]
-    domain -->|no| overlay[Mount overlay]
-    overlay --> env[Set environment]
-    env --> gpus{Device annotation?}
-    gpus -->|no| imex
-    gpus -->|yes| served{Already has<br/>GPU devices?}
-    served -->|yes — device plugin served it| imex[Attach IMEX channels]
-    served -->|no| attach[Attach devices<br/>raw nodes or CDI ref] --> imex
+    domain -->|yes| missing[Real IMEX binary<br/>and mock topology only]
+    domain -->|no| alloc{Holds a GPU<br/>allocation?}
+    alloc -->|yes| keep[Overlay; keep the<br/>allocated GPUs]
+    alloc -->|no| mgmt{devices annotation?}
+    mgmt -->|yes| all[Overlay + every mock GPU<br/>raw nodes or CDI ref]
+    mgmt -->|no| imexq{imex-channels<br/>annotation?}
+    imexq -->|yes| imexonly[Overlay]
+    imexq -->|no| asis
+    keep --> imex[Attach IMEX channels<br/>if annotated]
+    all --> imex
+    imexonly --> imex
 ```
 
 ### When a container is left alone
 
-Three conditions, any of which skips adjustment entirely:
+Any of these leaves the container exactly as authored:
 
-- the container carries `nvml-mock.nvidia.com/inject: "false"`;
+- the pod carries `nvml-mock.nvidia.com/inject: "false"`;
 - its namespace is in the excluded list;
+- it holds no GPU allocation and carries neither the `devices` nor the
+  `imex-channels` annotation, and is not the DRA ComputeDomain daemon;
 - it already mounts the overlay at the destination path.
 
 That last check is what makes re-adjustment safe. A container that already has
@@ -85,35 +98,55 @@ pointer to that topology. It does not mount the ambient overlay, rewrite
 The two-part match keeps the exception limited to the intended container;
 matching only the `nvidia` namespace would also affect unrelated containers.
 
-## Composing with the NVIDIA device plugin
+## Recognising a GPU allocation
 
-Both this plugin and the real `k8s-device-plugin` can put GPU devices into a
-container. Left alone they would both do it, and a pod asking for one GPU would
-see every mock GPU on the node.
-
-The rule, from [MEP-0002](https://github.com/NVIDIA/k8s-test-infra/tree/main/enhancements/meps/0002-device-plugin-nri-composition):
-**whatever the device plugin already served wins.** Before injecting devices,
-the plugin checks whether the container arrived carrying GPUs that something
-else put there, recognising both delivery mechanisms the device plugin supports:
+The kubelet applies a device plugin's or DRA driver's allocation before the
+runtime asks this plugin to adjust the container, so the allocation is visible
+in the incoming container spec. Only these count as evidence:
 
 | Evidence | Produced by |
 |---|---|
-| A device path under `/dev/nvidia` | device plugin with `--pass-device-specs` |
-| A CDI device named `nvidia.com/…` | device plugin with `--device-list-strategy=cdi-*` |
+| A numbered `/dev/nvidiaN` character device **and** a cgroup rule allowing exactly that device | device plugin with `--pass-device-specs=true` |
+| A CDI device `k8s.device-plugin.nvidia.com/gpu=<id>` | device plugin with the `cdi-cri` device list strategy; `<id>` is the GPU UUID, or its index with `--device-id-strategy=index` |
+| A CDI device `k8s.gpu.nvidia.com/claim=<id>` | NVIDIA DRA driver |
 
-If either is present, device injection is suppressed and the container keeps
-exactly the GPUs it was allocated. The overlay still applies, so `nvidia-smi`
-works — it just reports the allocated subset rather than the whole node.
+The rules are strict so that a container is never mistaken for an allocated
+one:
+
+- A privileged container inherits every host device under a wildcard cgroup
+  rule. Its `/dev/nvidiaN` nodes were not allocated, so they do not count.
+- Control devices such as `/dev/nvidiactl` or `/dev/nvidia-uvm` accompany an
+  allocation but do not identify a GPU.
+- Other CDI kinds do not count. That includes the device plugin's
+  `k8s.device-plugin.nvidia.com/gdrcopy=all` and `…/mofed=all`, which come with
+  every allocation, the container toolkit's `nvidia.com/gpu`, and Mokka's own
+  `nvml-mock.nvidia.com/gpu=all`.
+
+An allocation always wins over the `devices` annotation: the container keeps
+exactly the GPUs it was allocated, and `nvidia-smi` reports that subset, not
+the whole node. This is the rule from
+[MEP-0002](https://github.com/NVIDIA/k8s-test-infra/tree/main/enhancements/meps/0002-device-plugin-nri-composition):
+whatever the scheduler allocated is never widened.
+
+!!! warning "The device plugin must leave evidence of the allocation"
+    A device plugin that only sets `NVIDIA_VISIBLE_DEVICES` (the default
+    `envvar` strategy) or delivers CDI devices only through pod annotations
+    (`cdi-annotations`) leaves no evidence in the container spec. Its pods are
+    treated as unallocated and receive nothing. Run the device plugin with
+    `--pass-device-specs=true`, as the
+    [device plugin guide](../guides/device-plugin.md) does, or with the
+    `cdi-cri` strategy, as the GPU Operator does when CDI is enabled.
 
 !!! note "IMEX sits outside this rule"
-    IMEX channel injection is deliberately not suppressed. The device plugin
-    never delivers IMEX channels, so there is nothing to defer to.
+    IMEX channels are requested by their own annotation and never suppressed.
+    Neither the device plugin nor the DRA driver delivers mock IMEX channels, so
+    there is nothing to defer to.
 
 ## Device injection modes
 
-When the plugin does deliver devices, `deviceInjectionMode` picks the mechanism.
-It changes *how*, never *whether* — suppression is decided before this is
-consulted.
+When the plugin delivers GPUs to a `devices`-annotated pod with no allocation,
+`deviceInjectionMode` picks the mechanism. It changes *how*, never *whether*,
+and never touches an allocated container.
 
 | Mode | Delivers | Use when |
 |---|---|---|
@@ -129,16 +162,35 @@ only visible in the OCI spec of an already-running pod.
 | Annotation | Effect |
 |---|---|
 | `nvml-mock.nvidia.com/inject: "false"` | Opt out of adjustment entirely |
-| `nvml-mock.nvidia.com/devices: "true"` | Opt in to GPU device injection |
-| `nvml-mock.nvidia.com/imex-channels` | Request IMEX channels |
+| `nvml-mock.nvidia.com/devices: "true"` | Without an allocation: receive the overlay and every mock GPU. With an allocation: no effect |
+| `nvml-mock.nvidia.com/imex-channels: "true"` | Receive the overlay and the mock IMEX channels |
 
 ## Startup ordering and recovery
 
-Ordinary container adjustment fails open. Nothing orders this plugin's container
-after the node agent's, so on a fresh node the plugin may be asked to adjust a
-container before the GPU tree exists. When a surface is missing, injection is
-reduced — overlay-only instead of overlay-plus-devices — and container creation
-proceeds.
+Every step of the generic overlay degrades rather than blocks.
+
+Before each adjustment, the plugin checks the node agent in its pod. It takes
+the shared side of a staging lock, which the agent holds exclusively while it
+stages or tears down the driver tree, and asks the agent's `/stagedz` endpoint
+whether the tree is staged. `/stagedz` follows the agent's Stage wave only, so
+a failed Apply, such as a failed write of the NFD feature file, does not close
+it. In `cdi` mode, Stage also withdraws the plugin's CDI spec until Apply
+republishes it, so a container created in between gets raw device nodes from
+the new tree rather than a spec naming nodes a smaller profile removed. While
+the agent is restarting, restaging or not yet staged, the plugin
+leaves the container unmodified, logs a warning naming its namespace, pod and
+container, and fails `/readyz` with the reason. Containers the plugin skips
+anyway, such as those in an excluded namespace, are not reported.
+
+The lock file lives in a memory-backed `emptyDir` mounted only into the node
+agent and the plugin, so no workload can hold it and stall staging. It covers
+the plugin's decision, not the runtime applying it, so a teardown that starts
+in between can still race one container. During pod termination the agent
+waits at most half of its shutdown timeout for the lock, then tears down
+without it.
+
+Once the agent is serving, individual missing device surfaces can still reduce
+injection to overlay-only instead of blocking container creation.
 
 The DRA ComputeDomain daemon is the exception. Its Mokka-specific adjustment is
 useful only when both the real IMEX executable and the node topology are staged.

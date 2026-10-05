@@ -124,16 +124,23 @@ nodeLabels:
   # featureFilesDir the deployed NFD actually reads.
   featuresDir: /etc/kubernetes/node-feature-discovery/features.d
 
-# Node-wide ambient injection via containerd NRI. When enabled, a lightweight
-# sidecar in the node DaemonSet appends the nvml-mock overlay mount and
-# environment to each container at runtime without mutating pod specs. Opt-in
-# (default false): it injects into workloads cluster-wide, so enable it only for
-# the node-wide-injection demo/use case. See docs/guides/node-wide-injection.
+# Workload injection via containerd NRI. When enabled, a lightweight sidecar in
+# the node DaemonSet appends the nvml-mock overlay mount and environment at
+# runtime, without mutating pod specs, to containers that hold a device-plugin
+# or NVIDIA DRA GPU allocation or whose pod carries the devices or IMEX
+# annotation below. Every other container is left untouched. Opt-in (default
+# false). On Kubernetes 1.29+, the node agent is a restartable init sidecar so
+# staging gates NRI startup. See docs/helm-chart.
 
 nodeAgent:
   logging:
     level: info    # debug | info | warn | error
     format: json   # json | plain
+  # On Kubernetes 1.29+, enabling NRI gates plugin startup on the node agent's
+  # /stagedz endpoint until its first Stage wave completes. Kubernetes runs no
+  # liveness probe until then, so this is also how long a node agent whose
+  # first staging failed waits before it is restarted.
+  nriStartupTimeoutSeconds: 120
   # Announces an injected Xid on the node's kernel log, the way a real
   # driver's printk does, so journald/syslog consumers (e.g. NVSentinel) see
   # it too, not just NVML clients. Watches the runtime override document, so
@@ -198,6 +205,10 @@ allocationWatcher:
 
 nri:
   enabled: false
+  # Kubernetes 1.29+ enables SidecarContainers by default. Set this to false
+  # if the cluster explicitly disables that feature gate; the chart then uses
+  # the unordered regular-container layout also used on Kubernetes 1.28.
+  nativeSidecar: true
   logging:
     level: info    # debug | info | warn | error
     format: json   # json | plain
@@ -209,8 +220,9 @@ nri:
     hostPath: /var/lib/nvml-mock
     mountPath: /opt/nvml-mock
   optOutAnnotation: nvml-mock.nvidia.com/inject
-  # Workloads that can set this pod annotation to "true" can opt into host GPU
-  # device-node mounts from the staged mock overlay. Treat that pod-authored
+  # Workloads that set this pod annotation to "true" request all staged mock
+  # GPUs for node-wide management. A scheduler-backed allocation takes
+  # precedence and remains exact. Treat this pod-authored
   # control as part of the demo trust boundary and exclude namespaces as needed.
   deviceAnnotation: nvml-mock.nvidia.com/devices
   # How the deviceAnnotation opt-in delivers mock GPUs to a container:
@@ -223,8 +235,8 @@ nri:
   # enables CDI by default, so cdi mode needs no container toolkit on the node;
   # containerd 1.x gates it behind enable_cdi.
   #
-  # Neither mode changes WHETHER a container is served. A container the device
-  # plugin already served is left alone in both.
+  # Neither mode changes WHICH GPUs an allocated container gets. Device-plugin
+  # and NVIDIA DRA allocations keep their incoming GPU set in both modes.
   #
   # If cdi is selected and no spec is staged, the plugin logs a warning and
   # falls back to raw rather than failing container creation.

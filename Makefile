@@ -706,7 +706,7 @@ e2e-gpu-operator: ## e2e — GPU Operator scenario
 e2e-multi-node: ## e2e — heterogeneous a100/t4 cluster
 	$(MAKE) e2e E2E_PROFILES=a100,t4 E2E_GINKGO_FLAGS='--label-filter=multi-node'
 
-e2e-nri: ## e2e — NRI ambient-injection scenario
+e2e-nri: ## e2e — NRI injection scenario
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=nri'
 
 # E2E_PROFILES is pinned rather than inherited from DefaultProfiles. The nfd

@@ -33,6 +33,8 @@ func TestAdjustImexChannelOptInAddsChannelDevices(t *testing.T) {
 		{HostPath: filepath.Join(channelRoot, "channel1"), Path: "/dev/nvidia-caps-imex-channels/channel1"},
 		{HostPath: filepath.Join(channelRoot, "channel2"), Path: "/dev/nvidia-caps-imex-channels/channel2"},
 	}, adjustment.Devices)
+	require.Contains(t, adjustment.Mounts, overlayMount(), "IMEX-only keeps its existing overlay contract until the IB/IMEX PR")
+	require.Contains(t, adjustment.Env, "MOCK_NVML_CONFIG=/opt/nvml-mock/driver/config/config.yaml")
 }
 
 // TestAdjustWithoutImexAnnotationInjectsNoChannels proves the opt-in gate is a
@@ -57,7 +59,7 @@ func TestAdjustWithoutImexAnnotationInjectsNoChannels(t *testing.T) {
 			cfg.DeviceHostPath = t.TempDir()
 
 			adjustment, ok := requireAdjust(t, cfg, Container{Namespace: "default", PodAnnotations: annotations})
-			require.True(t, ok)
+			require.Equal(t, annotations["nvml-mock.nvidia.com/devices"] == "true", ok)
 			require.Empty(t, adjustment.Devices)
 		})
 	}
@@ -103,7 +105,8 @@ func TestAdjustImexChannelsSurviveDevicePluginAllocation(t *testing.T) {
 			"nvml-mock.nvidia.com/imex-channels": "true",
 		},
 		// The kubelet already applied the device plugin's Allocate response.
-		Devices: []Device{{HostPath: filepath.Join(deviceRoot, "nvidia0"), Path: "/dev/nvidia0"}},
+		IncomingDevices: []RuntimeDevice{{Path: "/dev/nvidia0", Type: "c", Major: 195, Minor: 0}},
+		DeviceRules:     []DeviceRule{{Allow: true, Type: "c", Major: int64Ptr(195), Minor: int64Ptr(0), Access: "rwm"}},
 	})
 	require.True(t, ok)
 
