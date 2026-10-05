@@ -298,8 +298,9 @@ spec:
                           format: int32
                           type: integer
                         requestedNodes:
-                          description: RequestedNodes counts eligible Nodes matching
-                            placement selectors, once across groups.
+                          description: |-
+                            RequestedNodes counts eligible Nodes matching placement selectors. Inventory totals
+                            deduplicate matches across groups; per-group values count each group's matches.
                           format: int32
                           type: integer
                       required:
@@ -342,8 +343,9 @@ spec:
                     format: int32
                     type: integer
                   requestedNodes:
-                    description: RequestedNodes counts eligible Nodes matching placement
-                      selectors, once across groups.
+                    description: |-
+                      RequestedNodes counts eligible Nodes matching placement selectors. Inventory totals
+                      deduplicate matches across groups; per-group values count each group's matches.
                     format: int32
                     type: integer
                 required:
