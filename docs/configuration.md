@@ -455,8 +455,9 @@ returns `NVML_ERROR_INVALID_ARGUMENT`.
 listing it in the kernel module's `NVreg_ExcludedGpus`, is never enumerated:
 the remaining GPUs are numbered as if it were absent. It is reported only by
 `nvmlGetExcludedDeviceCount` and `nvmlGetExcludedDeviceInfoByIndex`, with its
-PCI address and UUID. Set it per device, typically in a
-[per-device override](#per-device-overrides):
+PCI address and UUID, which is what `nvidia-smi -B` lists. Set it per device,
+typically in a [per-device override](#per-device-overrides), or at runtime with
+`nvml-mock-ctl set --gpu 3 excluded=true`:
 
 ```yaml
 devices:
@@ -464,11 +465,13 @@ devices:
     excluded: true
 ```
 
-**Drain and removal** are runtime state, set by a consumer through NVML —
-`nvidia-smi drain` among them — and recorded in the
-[runtime override document](nvml-mock-ctl.md) as the `draining` and `removed`
-fields. Like a power cap, they are visible to every process on the node and
-hold until a reset clears them (`nvml-mock-ctl reset`).
+**Drain and removal** are runtime state, set by a consumer through NVML and
+recorded in the [runtime override document](nvml-mock-ctl.md) as the
+`draining` and `removed` fields. Like a power cap, they are visible to every
+process on the node and hold until a reset clears them (`nvml-mock-ctl reset`).
+The bundled `nvidia-smi` has no drain subcommand, so to drain a GPU without
+writing an NVML client, set the field directly:
+`nvml-mock-ctl set --gpu 1 draining=true`.
 
 | Call | Effect | Refused with `NVML_ERROR_IN_USE` when |
 |------|--------|---------------------------------------|
