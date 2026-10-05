@@ -206,14 +206,17 @@ func writeProcFS(ctx context.Context, h *host.Host, state *agent.State) error {
 	if err := fsutil.Write(filepath.Join(procDir, "version"), []byte(version), 0o644); err != nil {
 		return err
 	}
-	const params = "EnableMSI: 1\n" +
-		"NVreg_RegistryDwords:\n" +
-		"NVreg_DeviceFileGID: 0\n" +
-		"NVreg_DeviceFileMode: 438\n" +
-		"NVreg_DeviceFileUID: 0\n" +
-		"NVreg_ModifyDeviceFiles: 1\n" +
-		"NVreg_PreserveVideoMemoryAllocations: 0\n" +
-		"NVreg_EnableResizableBar: 0\n"
+	// The driver prints its registry table as "<Key>: <value>" on the bare key
+	// name, in table order, then each string key with its value quoted.
+	// NVreg_ is only the module-parameter spelling (modprobe nvidia NVreg_...).
+	const params = "ModifyDeviceFiles: 1\n" +
+		"DeviceFileUID: 0\n" +
+		"DeviceFileGID: 0\n" +
+		"DeviceFileMode: 438\n" +
+		"EnableMSI: 1\n" +
+		"PreserveVideoMemoryAllocations: 0\n" +
+		"EnableResizableBar: 0\n" +
+		"RegistryDwords: \"\"\n"
 	return fsutil.Write(filepath.Join(procDir, "params"), []byte(params), 0o644)
 }
 

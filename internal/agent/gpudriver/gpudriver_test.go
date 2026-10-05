@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
@@ -71,6 +72,37 @@ func TestWriteProcFS_WritesVersionAndParams(t *testing.T) {
 	paramsPath := h.RootPath("driver/proc/driver/nvidia/params")
 	_, err = os.Stat(paramsPath)
 	require.NoError(t, err, "params file must exist")
+}
+
+// The driver prints params from its registry table as "%s: %u\n" on the bare
+// key name; NVreg_ is the module-parameter spelling (modprobe nvidia
+// NVreg_...) and never appears in this file. Consumers match
+// whole lines: nvidia-cdi-hook's disable-device-node-modification rewrites
+// exactly "ModifyDeviceFiles: 1". An agent killed before Discard runs leaves
+// the staged tree on the host, so the test starts from the file it left behind.
+func TestWriteProcFS_ParamsUseDriverKeyNames(t *testing.T) {
+	t.Parallel()
+
+	h := testHost(t)
+	paramsPath := h.RootPath("driver/proc/driver/nvidia/params")
+	require.NoError(t, os.MkdirAll(filepath.Dir(paramsPath), 0o755))
+	require.NoError(t, os.WriteFile(paramsPath, []byte("EnableMSI: 1\nNVreg_ModifyDeviceFiles: 1\n"), 0o644))
+
+	require.NoError(t, writeProcFS(t.Context(), h, testState(t)))
+
+	content, err := os.ReadFile(paramsPath)
+	require.NoError(t, err)
+
+	lines := strings.Split(strings.TrimSuffix(string(content), "\n"), "\n")
+	for _, line := range lines {
+		require.False(t, strings.HasPrefix(line, "NVreg_"),
+			"params line %q uses the module-parameter spelling", line)
+		// The driver's two forms: "%s: %u" for table entries, "%s: \"%s\"" for strings.
+		require.Regexp(t, `^[A-Za-z][A-Za-z0-9]*: ([0-9]+|"[^"]*")$`, line,
+			"params line %q is not \"<Key>: <value>\"", line)
+	}
+	require.Contains(t, lines, "ModifyDeviceFiles: 1")
+	require.Contains(t, lines, `RegistryDwords: ""`)
 }
 
 func TestWriteProcFS_Idempotent(t *testing.T) {
