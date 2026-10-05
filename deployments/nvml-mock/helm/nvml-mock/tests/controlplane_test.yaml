@@ -479,3 +479,17 @@ tests:
           format: text
     asserts:
       - failedTemplate: {}
+
+  - it: should pass feature gates to the control plane
+    set:
+      controlPlane:
+        enabled: true
+        image:
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      featureGates:
+        AllAlpha: true
+    template: templates/controlplane/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --feature-gates=AllAlpha=true

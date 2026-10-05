@@ -593,3 +593,16 @@ re-encoded, which keeps their types and --set int64 values exact.
 {{- $_ := set $map $renderedKey $item -}}
 {{- end -}}
 {{- end }}
+
+{{/*
+Feature gate overrides as the comma-separated Name=true|false value of
+--feature-gates, sorted by name. Empty when no gate is set, so callers can
+omit the flag and let every gate keep its default.
+*/}}
+{{- define "nvml-mock.featureGates" -}}
+{{- $pairs := list -}}
+{{- range $name, $enabled := .Values.featureGates -}}
+{{- $pairs = append $pairs (printf "%s=%t" $name $enabled) -}}
+{{- end -}}
+{{- join "," $pairs -}}
+{{- end }}

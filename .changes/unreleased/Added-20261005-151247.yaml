@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  node-agent, nri-plugin, control-plane, helm: Kubernetes-style feature gates, set with `--feature-gates`, `MOKKA_FEATURE_GATES` or the chart's `featureGates` map. No gates are registered yet.
+time: 2026-10-05T22:12:47Z
+custom:
+  Issue: "859"
