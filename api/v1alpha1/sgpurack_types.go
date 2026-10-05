@@ -28,9 +28,11 @@ type SGPURack struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
+	// Spec is the rendered rack definition and its logical Node bindings.
 	Spec SGPURackSpec `json:"spec"`
 
 	// +optional
+	// Status summarizes the rack's durable Node assignments.
 	Status SGPURackStatus `json:"status,omitempty"`
 }
 
@@ -57,7 +59,8 @@ func (r *SGPURack) OwnerMatchesInventoryRef() bool {
 type SGPURackList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []SGPURack `json:"items"`
+	// Items contains the racks in this list.
+	Items []SGPURack `json:"items"`
 }
 
 // SGPURackSpec is a rendered rack with durable logical Node bindings.
@@ -119,8 +122,10 @@ func (s *SGPURackSpec) GPUCount() int {
 // +kubebuilder:validation:XValidation:rule="size(self.uid) > 0",message="uid must not be empty"
 type SGPURackInventoryReference struct {
 	// +kubebuilder:validation:MinLength=1
+	// Name is the inventory name.
 	Name string `json:"name"`
 
+	// UID pins the reference to the exact inventory instance.
 	UID types.UID `json:"uid"`
 }
 
@@ -128,11 +133,14 @@ type SGPURackInventoryReference struct {
 // +kubebuilder:validation:XValidation:rule="size(self.uid) > 0",message="uid must not be empty"
 type SGPURackProfileReference struct {
 	// +kubebuilder:validation:MinLength=1
+	// Name is the profile name.
 	Name string `json:"name"`
 
+	// UID pins the reference to the exact profile instance.
 	UID types.UID `json:"uid"`
 
 	// +kubebuilder:validation:Minimum=1
+	// Generation records the profile generation used for rendering.
 	Generation int64 `json:"generation"`
 
 	// Revision identifies the rendered profile content, independent of its name.
@@ -145,15 +153,18 @@ type SGPURackIdentity struct {
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:Format=dns1123Label
+	// RackGroup is the rack-group identifier within the source inventory.
 	RackGroup string `json:"rackGroup"`
 
 	// +kubebuilder:validation:Minimum=0
+	// RackIndex is the zero-based rack index within its group.
 	RackIndex int32 `json:"rackIndex"`
 
 	// +kubebuilder:validation:Format=uuid
+	// FabricUUID identifies the fabric domain associated with the rack.
 	FabricUUID string `json:"fabricUUID"`
 
-	// CliqueID remains zero while each rack represents one fabric clique.
+	// CliqueID is reserved for future multi-clique layouts and remains zero.
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=0
 	CliqueID int32 `json:"cliqueID"`
@@ -163,6 +174,7 @@ type SGPURackIdentity struct {
 type SGPURackNode struct {
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=1023
+	// Index is the zero-based logical Node index within the rack.
 	Index int32 `json:"index"`
 
 	// NodeRef is absent while the logical Node is unbound. Its UID distinguishes
@@ -188,8 +200,10 @@ func (n *SGPURackNode) BoundTo(name string, uid types.UID) bool {
 // +kubebuilder:validation:XValidation:rule="size(self.uid) > 0",message="uid must not be empty"
 type SGPUNodeReference struct {
 	// +kubebuilder:validation:MinLength=1
+	// Name is the Kubernetes Node name.
 	Name string `json:"name"`
 
+	// UID distinguishes this Node instance from a replacement with the same name.
 	UID types.UID `json:"uid"`
 }
 
@@ -197,27 +211,35 @@ type SGPUNodeReference struct {
 type SGPURackGPU struct {
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=63
+	// Index is the zero-based GPU index within the logical Node.
 	Index int32 `json:"index"`
 
 	// +kubebuilder:validation:Pattern=`^GPU-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`
+	// UUID is the stable GPU identifier.
 	UUID string `json:"uuid"`
 
 	// +kubebuilder:validation:MinLength=1
+	// Serial is the GPU serial number.
 	Serial string `json:"serial"`
 
 	// +kubebuilder:validation:Minimum=0
+	// MinorNumber is the device minor number exposed to workloads.
 	MinorNumber int32 `json:"minorNumber"`
 
 	// +kubebuilder:validation:Pattern=`^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$`
+	// PCIAddress is the GPU's PCI bus address.
 	PCIAddress string `json:"pciAddress"`
 
 	// +kubebuilder:validation:Pattern=`^pci[0-9a-f]{4}:[0-9a-f]{2}$`
+	// RootComplex identifies the PCI root complex connected to the GPU.
 	RootComplex string `json:"rootComplex"`
 
 	// +kubebuilder:validation:Minimum=0
+	// NUMANode is the host NUMA node associated with the GPU.
 	NUMANode int32 `json:"numaNode"`
 
 	// +kubebuilder:validation:Minimum=0
+	// HostProcessorIndex is the host CPU index associated with the GPU.
 	HostProcessorIndex int32 `json:"hostProcessorIndex"`
 }
 

@@ -52,18 +52,20 @@ spec:
           metadata:
             type: object
           spec:
-            description: Spec describes the static rack shape and GPU defaults.
+            description: Spec defines the hardware shape and default software/runtime
+              metadata.
             properties:
               defaults:
-                description: Defaults contains initial runtime values for newly created
-                  GPUs.
+                description: Defaults provides initial runtime settings for newly
+                  materialized GPUs.
                 properties:
                   runtime:
-                    description: Runtime contains initial runtime state for newly
-                      created GPUs.
+                    description: Runtime provides initial sparse runtime settings
+                      for newly materialized GPUs.
                     properties:
                       deviceState:
-                        description: DeviceState is the simulated GPU health state.
+                        description: DeviceState is the simulated health state of
+                          the GPU.
                         enum:
                         - Healthy
                         - Degraded
@@ -73,137 +75,146 @@ spec:
                         description: Modes contains persistent NVML/CUDA mode settings.
                         properties:
                           accounting:
-                            description: Accounting controls accounting mode.
+                            description: Accounting controls whether GPU accounting
+                              mode is enabled.
                             enum:
                             - Enabled
                             - Disabled
                             type: string
                           compute:
-                            description: Compute controls compute mode.
+                            description: Compute selects the simulated compute mode.
                             enum:
                             - Default
                             - Exclusive
                             - Prohibited
                             type: string
                           ecc:
-                            description: ECC controls ECC mode.
+                            description: ECC controls whether error-correcting code
+                              is enabled.
                             enum:
                             - Enabled
                             - Disabled
                             type: string
                           mig:
-                            description: MIG controls MIG mode.
+                            description: MIG controls whether Multi-Instance GPU mode
+                              is enabled.
                             enum:
                             - Enabled
                             - Disabled
                             type: string
                           persistence:
-                            description: Persistence controls persistence mode.
+                            description: Persistence controls the simulated persistence
+                              mode.
                             enum:
                             - Enabled
                             - Disabled
                             type: string
                         type: object
                       telemetry:
-                        description: Telemetry contains synthetic NVML telemetry values.
+                        description: Telemetry contains synthetic utilization, power,
+                          temperature, and clock values.
                         properties:
                           clocks:
-                            description: ClocksTelemetry reports current clock rates.
+                            description: Clocks defines the current simulated clock
+                              rates.
                             properties:
                               graphicsMHz:
-                                description: GraphicsMHz is the graphics clock in
-                                  MHz.
+                                description: GraphicsMHz is the simulated graphics
+                                  clock rate in MHz.
                                 format: int32
                                 minimum: 0
                                 type: integer
                               memoryMHz:
-                                description: MemoryMHz is the memory clock in MHz.
+                                description: MemoryMHz is the simulated memory clock
+                                  rate in MHz.
                                 format: int32
                                 minimum: 0
                                 type: integer
                               smMHz:
-                                description: SMMHz is the SM clock in MHz.
+                                description: SMMHz is the simulated streaming-multiprocessor
+                                  clock rate in MHz.
                                 format: int32
                                 minimum: 0
                                 type: integer
                               videoMHz:
-                                description: VideoMHz is the video clock in MHz.
+                                description: VideoMHz is the simulated video clock
+                                  rate in MHz.
                                 format: int32
                                 minimum: 0
                                 type: integer
                             type: object
                           performanceState:
-                            description: |-
-                              NVML P-state, e.g. "P0".
-                              PerformanceState is the NVML performance state, such as P0.
+                            description: NVML P-state, e.g. "P0".
                             pattern: ^P[0-9]+$
                             type: string
                           power:
-                            description: PowerTelemetry drives synthetic power draw.
+                            description: Power defines synthetic power draw values.
                             properties:
                               drawMilliWatts:
-                                description: DrawMilliWatts is the synthetic power
+                                description: DrawMilliWatts is the simulated GPU power
                                   draw in milliwatts.
                                 format: int64
                                 minimum: 0
                                 type: integer
                               mode:
-                                description: Mode selects fixed or patterned power
-                                  draw.
+                                description: Mode selects a constant or generated
+                                  power draw.
                                 enum:
                                 - Fixed
                                 - Pattern
                                 type: string
                             type: object
                           temperature:
-                            description: TemperatureTelemetry drives synthetic GPU/memory
-                              temperature.
+                            description: Temperature defines synthetic GPU and memory
+                              temperature values.
                             properties:
                               gpuCelsius:
-                                description: GPUCelsius is the GPU temperature in
-                                  Celsius.
+                                description: GPUCelsius is the simulated GPU temperature
+                                  in degrees Celsius.
                                 format: int32
                                 type: integer
                               memoryCelsius:
-                                description: MemoryCelsius is the memory temperature
-                                  in Celsius.
+                                description: MemoryCelsius is the simulated memory
+                                  temperature in degrees Celsius.
                                 format: int32
                                 type: integer
                               mode:
-                                description: Mode selects fixed or patterned temperature.
+                                description: Mode selects constant or generated temperature
+                                  values.
                                 enum:
                                 - Fixed
                                 - Pattern
                                 type: string
                             type: object
                           utilization:
-                            description: UtilizationTelemetry drives synthetic GPU/memory
-                              utilization.
+                            description: Utilization defines synthetic GPU and memory
+                              utilization values.
                             properties:
                               mode:
-                                description: Mode selects fixed or patterned utilization.
+                                description: Mode selects pattern-generated or fixed
+                                  utilization values.
                                 enum:
                                 - Pattern
                                 - Fixed
                                 type: string
                               pattern:
-                                description: Pattern describes the utilization curve
-                                  when Mode is Pattern.
+                                description: Pattern defines the utilization values
+                                  generated over time.
                                 properties:
                                   gpuPercent:
-                                    description: GPUPercent is the GPU utilization
-                                      range.
+                                    description: GPUPercent sets the minimum and maximum
+                                      GPU utilization percentages.
                                     properties:
                                       maximum:
-                                        description: Maximum is the upper percentage
-                                          bound.
+                                        description: Maximum is the upper utilization
+                                          percentage bound.
                                         format: int32
                                         maximum: 100
                                         minimum: 0
                                         type: integer
                                       minimum:
-                                        description: Minimum is the lower percentage
-                                          bound.
+                                        description: Minimum is the lower utilization
+                                          percentage bound.
                                         format: int32
                                         maximum: 100
                                         minimum: 0
@@ -213,19 +224,19 @@ spec:
                                     - minimum
                                     type: object
                                   memoryPercent:
-                                    description: MemoryPercent is the memory utilization
-                                      range.
+                                    description: MemoryPercent sets the minimum and
+                                      maximum memory utilization percentages.
                                     properties:
                                       maximum:
-                                        description: Maximum is the upper percentage
-                                          bound.
+                                        description: Maximum is the upper utilization
+                                          percentage bound.
                                         format: int32
                                         maximum: 100
                                         minimum: 0
                                         type: integer
                                       minimum:
-                                        description: Minimum is the lower percentage
-                                          bound.
+                                        description: Minimum is the lower utilization
+                                          percentage bound.
                                         format: int32
                                         maximum: 100
                                         minimum: 0
@@ -235,8 +246,8 @@ spec:
                                     - minimum
                                     type: object
                                   type:
-                                    description: Type selects the utilization curve
-                                      shape.
+                                    description: Type selects the shape of the generated
+                                      utilization curve.
                                     enum:
                                     - Steady
                                     - Bursty
@@ -248,15 +259,16 @@ spec:
                     type: object
                 type: object
               node:
-                description: Node is the homogeneous node template for the rack.
+                description: Node describes the shared simulated hardware for each
+                  rack Node.
                 properties:
                   gpus:
-                    description: GPUs describes the GPU template repeated on each
-                      node.
+                    description: GPUs defines the homogeneous simulated GPU set on
+                      each Node.
                     properties:
                       capabilities:
-                        description: GPUCapabilities is GPU feature toggles and extensible
-                          attributes.
+                        description: Capabilities describes MIG support and additional
+                          named capabilities.
                         properties:
                           attributes:
                             additionalProperties:
@@ -264,21 +276,18 @@ spec:
                                 set exactly one field.
                               properties:
                                 bool:
-                                  description: Bool is the boolean value when this
-                                    attribute is boolean-valued.
+                                  description: Bool stores a boolean capability value.
                                   type: boolean
                                 int:
-                                  description: Int is the integer value when this
-                                    attribute is integer-valued.
+                                  description: Int stores an integer capability value.
                                   format: int64
                                   type: integer
                                 string:
-                                  description: String is the string value when this
-                                    attribute is string-valued.
+                                  description: String stores a string capability value.
                                   type: string
                                 strings:
-                                  description: Strings contains the string values
-                                    when this attribute is a set.
+                                  description: Strings stores a set of string capability
+                                    values.
                                   items:
                                     type: string
                                   type: array
@@ -292,58 +301,60 @@ spec:
                             properties:
                               maxGPUInstances:
                                 description: MaxGPUInstances is the maximum number
-                                  of GPU instances.
+                                  of GPU instances supported.
                                 format: int32
                                 type: integer
                               supported:
-                                description: Supported indicates whether MIG is available.
+                                description: Supported indicates whether MIG is available
+                                  on the GPU.
                                 type: boolean
                             type: object
                         type: object
                       clocks:
-                        description: GPUClocks is clock ceilings and per-memory-clock
-                          schedules.
+                        description: Clocks describes maximum and supported device
+                          clock rates.
                         properties:
                           maximumMHz:
-                            description: MaximumMHz is the maximum clock tuple.
+                            description: MaximumMHz gives the maximum graphics, SM,
+                              memory, and video clock rates.
                             properties:
                               graphics:
-                                description: Graphics is the maximum graphics clock
-                                  in MHz.
-                                format: int32
-                                type: integer
-                              memory:
-                                description: Memory is the maximum memory clock in
+                                description: Graphics is the graphics clock rate in
                                   MHz.
                                 format: int32
                                 type: integer
+                              memory:
+                                description: Memory is the memory clock rate in MHz.
+                                format: int32
+                                type: integer
                               sm:
-                                description: SM is the maximum SM clock in MHz.
+                                description: SM is the streaming-multiprocessor clock
+                                  rate in MHz.
                                 format: int32
                                 type: integer
                               video:
-                                description: Video is the maximum video clock in MHz.
+                                description: Video is the video clock rate in MHz.
                                 format: int32
                                 type: integer
                             type: object
                           supported:
-                            description: Supported lists supported graphics clocks
-                              by memory clock.
+                            description: Supported lists graphics clock rates available
+                              at each memory clock rate.
                             items:
                               description: SupportedClocks pairs a memory clock with
                                 supported graphics clocks.
                               properties:
                                 graphicsMHz:
-                                  description: GraphicsMHz lists supported graphics
-                                    clocks for MemoryMHz.
+                                  description: GraphicsMHz lists graphics clock rates
+                                    supported at MemoryMHz.
                                   items:
                                     format: int32
                                     type: integer
                                   type: array
                                   x-kubernetes-list-type: set
                                 memoryMHz:
-                                  description: MemoryMHz is the memory clock for this
-                                    supported set.
+                                  description: MemoryMHz is a memory clock rate paired
+                                    with GraphicsMHz values.
                                   format: int32
                                   type: integer
                               required:
@@ -353,19 +364,21 @@ spec:
                             type: array
                         type: object
                       count:
-                        description: Count is the number of GPUs on each node.
+                        description: Count is the number of GPUs exposed on each Node.
                         format: int32
                         maximum: 64
                         minimum: 1
                         type: integer
                       memory:
-                        description: Memory describes capacity and bus characteristics.
+                        description: Memory describes device memory capacity and bus
+                          width.
                         properties:
                           bar1Capacity:
                             anyOf:
                             - type: integer
                             - type: string
-                            description: Bar1Capacity is the BAR1 aperture capacity.
+                            description: Bar1Capacity is the device BAR1 aperture
+                              size.
                             pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                             x-kubernetes-int-or-string: true
                           busWidthBits:
@@ -376,21 +389,23 @@ spec:
                             anyOf:
                             - type: integer
                             - type: string
-                            description: Capacity is the total on-device memory capacity.
+                            description: Capacity is the total device memory capacity.
                             pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                             x-kubernetes-int-or-string: true
                           reserved:
                             anyOf:
                             - type: integer
                             - type: string
-                            description: Reserved is memory reserved for system use.
+                            description: Reserved is the amount of memory reserved
+                              from workloads.
                             pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                             x-kubernetes-int-or-string: true
                         required:
                         - capacity
                         type: object
                       model:
-                        description: Model describes the vendor and product identity.
+                        description: Model describes the GPU vendor, product, and
+                          architecture.
                         properties:
                           architecture:
                             description: Architecture is the GPU architecture name.
@@ -399,20 +414,22 @@ spec:
                             description: Board contains board-level identity.
                             properties:
                               partNumber:
-                                description: PartNumber is the board part number.
+                                description: PartNumber is the board part number reported
+                                  for the GPU.
                                 type: string
                             type: object
                           computeCapability:
-                            description: ComputeCapability is the CUDA compute capability.
+                            description: ComputeCapability is the CUDA compute capability
+                              version.
                             properties:
                               major:
-                                description: Major is the CUDA compute capability
-                                  major version.
+                                description: Major is the major CUDA compute capability
+                                  version.
                                 format: int32
                                 type: integer
                               minor:
-                                description: Minor is the CUDA compute capability
-                                  minor version.
+                                description: Minor is the minor CUDA compute capability
+                                  version.
                                 format: int32
                                 type: integer
                             required:
@@ -423,69 +440,74 @@ spec:
                             description: Cores contains programmable core counts.
                             properties:
                               cuda:
-                                description: CUDA is the number of programmable CUDA
-                                  cores.
+                                description: CUDA is the number of CUDA cores per
+                                  GPU.
                                 format: int32
                                 type: integer
                             type: object
                           firmware:
-                            description: Firmware contains firmware and InfoROM versions.
+                            description: Firmware contains firmware and information-ROM
+                              versions.
                             properties:
                               gspVersion:
                                 description: GSPVersion is the GPU System Processor
                                   firmware version.
                                 type: string
                               infoROM:
-                                description: InfoROM contains InfoROM sub-object versions.
+                                description: InfoROM contains versions of the GPU
+                                  information-ROM objects.
                                 properties:
                                   eccObjectVersion:
-                                    description: ECCObjectVersion is the InfoROM ECC
+                                    description: ECCObjectVersion is the ECC information-ROM
                                       object version.
                                     type: string
                                   imageVersion:
-                                    description: ImageVersion is the InfoROM image
-                                      version.
+                                    description: ImageVersion is the information-ROM
+                                      image version.
                                     type: string
                                   oemObjectVersion:
-                                    description: OEMObjectVersion is the InfoROM OEM
+                                    description: OEMObjectVersion is the OEM information-ROM
                                       object version.
                                     type: string
                                   powerObjectVersion:
-                                    description: PowerObjectVersion is the InfoROM
-                                      power object version.
+                                    description: PowerObjectVersion is the power information-ROM
+                                      object version.
                                     type: string
                                 type: object
                               vbiosVersion:
-                                description: VBIOSVersion is the GPU VBIOS version.
+                                description: VBIOSVersion is the video BIOS version.
                                 type: string
                             type: object
                           product:
-                            description: Product is the short GPU product identifier.
+                            description: Product is the vendor's product identifier.
                             type: string
                           productName:
-                            description: ProductName is the human-readable GPU product
+                            description: ProductName is the human-readable product
                               name.
                             type: string
                           vendor:
-                            description: Vendor is the GPU vendor name.
+                            description: Vendor is the GPU manufacturer name.
                             type: string
                         type: object
                       pci:
-                        description: PCI describes the simulated PCI identity and
-                          link.
+                        description: PCI describes device identifiers and maximum
+                          link properties.
                         properties:
                           deviceID:
-                            description: DeviceID is the PCI device identifier.
+                            description: DeviceID is the PCI device identifier in
+                              hexadecimal.
                             type: string
                           maxLink:
-                            description: MaxLink is the maximum PCIe link configuration.
+                            description: MaxLink is the maximum supported PCIe generation
+                              and width.
                             properties:
                               generation:
                                 description: Generation is the maximum PCIe generation.
                                 format: int32
                                 type: integer
                               width:
-                                description: Width is the maximum PCIe link width.
+                                description: Width is the maximum PCIe link width
+                                  in lanes.
                                 format: int32
                                 type: integer
                             type: object
@@ -498,15 +520,17 @@ spec:
                               identifier.
                             type: string
                           vendorID:
-                            description: VendorID is the PCI vendor identifier.
+                            description: VendorID is the PCI vendor identifier in
+                              hexadecimal.
                             type: string
                         type: object
                       power:
-                        description: GPUPower is the power envelope.
+                        description: Power describes power-management support and
+                          device limits.
                         properties:
                           limitsMilliWatts:
-                            description: LimitsMilliWatts contains the power cap range
-                              in milliwatts.
+                            description: LimitsMilliWatts gives the minimum, default,
+                              and maximum power limits.
                             properties:
                               default:
                                 description: Default is the default power limit in
@@ -530,25 +554,26 @@ spec:
                             type: boolean
                         type: object
                       thermal:
-                        description: GPUThermal is thermal thresholds.
+                        description: Thermal describes device temperature thresholds.
                         properties:
                           maxOperatingCelsius:
-                            description: MaxOperatingCelsius is the maximum operating
-                              temperature.
+                            description: MaxOperatingCelsius is the maximum rated
+                              operating temperature.
                             format: int32
                             type: integer
                           shutdownThresholdCelsius:
-                            description: ShutdownThresholdCelsius is the thermal shutdown
-                              threshold.
+                            description: ShutdownThresholdCelsius is the temperature
+                              at which shutdown is triggered.
                             format: int32
                             type: integer
                           slowdownThresholdCelsius:
-                            description: SlowdownThresholdCelsius is the thermal slowdown
-                              threshold.
+                            description: SlowdownThresholdCelsius is the temperature
+                              at which thermal slowdown begins.
                             format: int32
                             type: integer
                           targetCelsius:
-                            description: TargetCelsius is the target operating temperature.
+                            description: TargetCelsius is the target GPU temperature
+                              in degrees Celsius.
                             format: int32
                             type: integer
                         type: object
@@ -559,27 +584,30 @@ spec:
                     - pci
                     type: object
                   host:
-                    description: Host describes the simulated host CPU and memory.
+                    description: Host describes the CPU and memory presented by each
+                      Node.
                     properties:
                       cpu:
-                        description: CPU describes host processor identity and capacity.
+                        description: CPU describes the host processor presented by
+                          the simulated Node.
                         properties:
                           architecture:
-                            description: Architecture is the host CPU architecture.
+                            description: Architecture is the host processor architecture.
                             type: string
                           cores:
                             description: Cores is the number of host CPU cores.
                             format: int32
                             type: integer
                           product:
-                            description: Product is the host CPU product name.
+                            description: Product is the processor product identifier.
                             type: string
                           vendor:
-                            description: Vendor is the host CPU vendor.
+                            description: Vendor is the processor manufacturer.
                             type: string
                         type: object
                       memory:
-                        description: Memory describes host memory capacity and coherence.
+                        description: Memory describes host memory presented by the
+                          simulated Node.
                         properties:
                           capacity:
                             anyOf:
@@ -589,40 +617,42 @@ spec:
                             pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                             x-kubernetes-int-or-string: true
                           coherentWithGPU:
-                            description: CoherentWithGPU indicates whether host memory
-                              is coherent with GPU memory.
+                            description: CoherentWithGPU indicates whether host and
+                              GPU memory are coherent.
                             type: boolean
                         required:
                         - capacity
                         type: object
                     type: object
                   topology:
-                    description: Topology describes PCIe, fabric, and network placement.
+                    description: Topology describes PCIe slots and optional GPU/network
+                      fabrics.
                     properties:
                       gpuFabric:
-                        description: GPUFabric describes the node's simulated GPU
-                          fabric.
+                        description: GPUFabric describes optional NVLink/NVSwitch
+                          connectivity.
                         properties:
                           bandwidthPerLinkMBps:
                             description: BandwidthPerLinkMBps is the bandwidth of
-                              each fabric link.
+                              each link in megabytes per second.
                             format: int32
                             type: integer
                           c2cSupported:
-                            description: C2CSupported indicates whether chip-to-chip
-                              links are available.
+                            description: C2CSupported indicates whether coherent CPU-to-GPU
+                              links are supported.
                             type: boolean
                           domain:
-                            description: Domain identifies the fabric compute domain.
+                            description: Domain describes the scope and size of the
+                              GPU fabric domain.
                             properties:
                               gpuCount:
                                 description: GPUCount is the number of GPUs in the
-                                  fabric domain.
+                                  domain.
                                 format: int32
                                 type: integer
                               scope:
-                                description: Scope is the domain over which the fabric
-                                  is shared.
+                                description: Scope is the level at which GPUs share
+                                  a fabric domain.
                                 enum:
                                 - Node
                                 - Rack
@@ -635,52 +665,55 @@ spec:
                             type: integer
                           linksPerGPU:
                             description: LinksPerGPU is the number of fabric links
-                              per GPU.
+                              available per GPU.
                             format: int32
                             type: integer
                           switches:
-                            description: Switches describes fabric switches visible
-                              to the node.
+                            description: Switches describes the fabric switches visible
+                              to each Node.
                             properties:
                               visiblePerNode:
                                 description: VisiblePerNode is the number of fabric
-                                  switches visible per node.
+                                  switches visible from each Node.
                                 format: int32
                                 type: integer
                             type: object
                           type:
-                            description: Type identifies the fabric implementation.
+                            description: Type names the GPU interconnect fabric.
                             type: string
                         type: object
                       gpuSlots:
-                        description: GPUSlots maps logical GPUs to PCI addresses on
-                          the node.
+                        description: GPUSlots maps each GPU index to its PCI and host
+                          topology coordinates.
                         items:
                           description: GPUSlot pins one GPU to a PCI address + NUMA/root-complex/host
                             CPU.
                           properties:
                             hostProcessorIndex:
-                              description: HostProcessorIndex is the host processor
-                                associated with the slot.
+                              description: HostProcessorIndex is the host CPU index
+                                associated with this GPU.
                               format: int32
                               type: integer
                             index:
-                              description: Index is the logical GPU index for this
-                                slot.
+                              description: Index is the zero-based GPU index on the
+                                Node.
                               format: int32
                               maximum: 63
                               minimum: 0
                               type: integer
                             numaNode:
-                              description: NumaNode is the NUMA node associated with
-                                the slot.
+                              description: NumaNode is the host NUMA node associated
+                                with this GPU.
                               format: int32
                               type: integer
                             pciAddress:
-                              description: PCIAddress is the GPU PCI address.
+                              description: PCIAddress is the PCI bus address of this
+                                GPU.
                               pattern: ^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$
                               type: string
                             rootComplex:
+                              description: RootComplex identifies the PCI root complex
+                                connected to this GPU.
                               pattern: ^pci[0-9a-f]{4}:[0-9a-f]{2}$
                               type: string
                           required:
@@ -695,28 +728,28 @@ spec:
                         - index
                         x-kubernetes-list-type: map
                       network:
-                        description: Network describes the node's simulated network
-                          topology.
+                        description: Network describes optional out-of-band network
+                          adapters.
                         properties:
                           adapterModel:
-                            description: AdapterModel is the network adapter model.
+                            description: AdapterModel is the adapter model name.
                             type: string
                           adaptersPerGPU:
-                            description: AdaptersPerGPU is the number of adapters
+                            description: AdaptersPerGPU is the number of network adapters
                               associated with each GPU.
                             format: int32
                             type: integer
                           firmwareVersion:
-                            description: FirmwareVersion is the network adapter firmware
-                              version.
+                            description: FirmwareVersion is the adapter firmware version.
                             type: string
                           linkSpeedGbps:
-                            description: LinkSpeedGbps is the network link speed in
+                            description: LinkSpeedGbps is the adapter link speed in
                               gigabits per second.
                             format: int32
                             type: integer
                           type:
-                            description: Type identifies the network fabric.
+                            description: Type names the out-of-band network adapter
+                              type.
                             type: string
                         type: object
                     required:
@@ -735,7 +768,7 @@ spec:
                 description: Rack is the logical rack shape described by this profile.
                 properties:
                   nodesPerRack:
-                    description: NodesPerRack is the number of logical nodes in each
+                    description: NodesPerRack is the number of logical Nodes in each
                       rack.
                     format: int32
                     maximum: 1024
@@ -745,16 +778,16 @@ spec:
                 - nodesPerRack
                 type: object
               software:
-                description: Software contains simulated driver and accelerator versions.
+                description: Software records optional driver, NVML, and CUDA versions.
                 properties:
                   cudaVersion:
-                    description: CUDAVersion is the simulated CUDA version.
+                    description: CUDAVersion is the CUDA version.
                     type: string
                   driverVersion:
-                    description: DriverVersion is the simulated NVIDIA driver version.
+                    description: DriverVersion is the NVIDIA driver version.
                     type: string
                   nvmlVersion:
-                    description: NVMLVersion is the simulated NVML version.
+                    description: NVMLVersion is the NVIDIA Management Library version.
                     type: string
                 type: object
             required:
