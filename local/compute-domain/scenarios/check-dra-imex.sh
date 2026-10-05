@@ -29,6 +29,23 @@ diagnostics() {
   k -n "${DRIVER_NAMESPACE}" get pods,daemonsets \
     -l resource.nvidia.com/computeDomain -o wide >&2 || true
   k -n "${DRIVER_NAMESPACE}" get events --sort-by=.lastTimestamp >&2 || true
+
+  # The daemons' own output says why one is not ready or keeps restarting.
+  local pod
+  for pod in $(k -n "${DRIVER_NAMESPACE}" get pods -l resource.nvidia.com/computeDomain \
+    -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+    printf '\n--- %s (current, then previous)\n' "${pod}" >&2
+    k -n "${DRIVER_NAMESPACE}" logs "${pod}" --tail=40 >&2 || true
+    k -n "${DRIVER_NAMESPACE}" logs "${pod}" --previous --tail=40 >&2 || true
+  done
+  # What Mokka staged and decided for those daemons, per node.
+  for pod in $(k -n "${MOKKA_NAMESPACE}" get pods -l app.kubernetes.io/name=nvml-mock \
+    -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+    printf '\n--- %s node agent (imex) and NRI (compute-domain)\n' "${pod}" >&2
+    k -n "${MOKKA_NAMESPACE}" logs "${pod}" -c node-agent 2>/dev/null | grep -i imex | tail -10 >&2 || true
+    k -n "${MOKKA_NAMESPACE}" logs "${pod}" -c nvml-mock-nri 2>/dev/null \
+      | grep -iE 'compute|hold|unavailable|error' | tail -10 >&2 || true
+  done
 }
 
 finish() {
