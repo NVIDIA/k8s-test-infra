@@ -94,6 +94,9 @@ type rawProfile struct {
 	Devices []struct {
 		Index    int          `json:"index"`
 		Platform *rawPlatform `json:"platform"`
+		PCI      struct {
+			BusID string `json:"bus_id"`
+		} `json:"pci"`
 	} `json:"devices"`
 	NVLink struct {
 		LinksPerGPU int  `json:"links_per_gpu"`
@@ -104,12 +107,15 @@ type rawProfile struct {
 		} `json:"switches"`
 	} `json:"nvlink"`
 	Infiniband struct {
-		Enabled    bool `json:"enabled"`
-		HCAsPerGPU int  `json:"hcas_per_gpu"`
+		Enabled    bool   `json:"enabled"`
+		HCAsPerGPU int    `json:"hcas_per_gpu"`
+		LinkLayer  string `json:"link_layer"`
 	} `json:"infiniband"`
 	PCIeTopology struct {
 		RootComplexes []struct {
-			ID string `json:"id"`
+			ID       string   `json:"id"`
+			NUMANode int      `json:"numa_node"`
+			Devices  []string `json:"devices"`
 		} `json:"root_complexes"`
 	} `json:"pcie_topology"`
 	System struct {
@@ -151,6 +157,7 @@ type Profile struct {
 	gpuCount    int
 	ibEnabled   bool
 	hcasPerGPU  int
+	roce        bool
 	linksPerGPU int
 	hasSwitches bool
 	pciBridges  int
@@ -158,6 +165,8 @@ type Profile struct {
 	fabricAuto  bool
 	hasFabric   bool
 	pciRoots    int
+	pciAddrs    []string
+	gpuNUMA     []int
 	memoryBytes int64
 
 	arch               gpuarch.Arch
@@ -243,6 +252,7 @@ func Load(profilesDir, name string) (Profile, error) {
 		gpuCount:    len(raw.Devices),
 		ibEnabled:   raw.Infiniband.Enabled,
 		hcasPerGPU:  raw.Infiniband.HCAsPerGPU,
+		roce:        strings.EqualFold(raw.Infiniband.LinkLayer, "Ethernet"),
 		linksPerGPU: raw.NVLink.LinksPerGPU,
 		hasSwitches: len(raw.NVLink.Switches) > 0,
 		pciBridges:  pcieVisibleSwitches(raw),
@@ -259,6 +269,7 @@ func Load(profilesDir, name string) (Profile, error) {
 	if p.pciRoots == 0 {
 		p.pciRoots = 1
 	}
+	p.pciAddrs, p.gpuNUMA = pciLocality(raw)
 	// An IB-enabled profile that forgot hcas_per_gpu would silently expect 0
 	// HCAs; the shipped profiles all set 1. Default to 1 when enabled but
 	// unset so a missing key does not weaken the assertion.
@@ -266,6 +277,46 @@ func Load(profilesDir, name string) (Profile, error) {
 		p.hcasPerGPU = 1
 	}
 	return p, nil
+}
+
+// pciLocality returns every PCI address pcie_topology declares, lowercased, and
+// the sorted NUMA nodes its GPUs sit on, as the node agent resolves them. A
+// profile without the block gets the single NUMA-0 root the pcibus simulator
+// synthesizes. A GPU no declared root lists, or a profile whose GPUs have no
+// address at all, has unknown locality (-1).
+func pciLocality(raw rawProfile) ([]string, []int) {
+	var addrs []string
+	rootNUMA := map[string]int{}
+	for _, rc := range raw.PCIeTopology.RootComplexes {
+		for _, addr := range rc.Devices {
+			addr = strings.ToLower(addr)
+			addrs = append(addrs, addr)
+			rootNUMA[addr] = rc.NUMANode
+		}
+	}
+
+	var numa []int
+	for _, d := range raw.Devices {
+		addr := strings.ToLower(d.PCI.BusID)
+		if addr == "" {
+			continue
+		}
+		n, declared := rootNUMA[addr]
+		switch {
+		case len(raw.PCIeTopology.RootComplexes) == 0:
+			n = 0
+		case !declared:
+			n = -1
+		}
+		if !slices.Contains(numa, n) {
+			numa = append(numa, n)
+		}
+	}
+	if len(numa) == 0 {
+		return addrs, []int{-1}
+	}
+	slices.Sort(numa)
+	return addrs, numa
 }
 
 // applyOptionalDeviceDefaults copies the device_defaults sub-blocks a profile
@@ -379,6 +430,22 @@ func (p Profile) ExpectedPCIFunctions() int { return p.gpuCount + p.pciBridges }
 
 // IBEnabled reports whether the profile ships InfiniBand enabled.
 func (p Profile) IBEnabled() bool { return p.ibEnabled }
+
+// PCIAddresses lists every PCI function pcie_topology declares, GPUs and
+// NVSwitches alike, lowercased as sysfs names them.
+func (p Profile) PCIAddresses() []string { return p.pciAddrs }
+
+// GPUNUMANodes is the sorted set of NUMA nodes the profile's GPUs sit on.
+func (p Profile) GPUNUMANodes() []int { return p.gpuNUMA }
+
+// ExpectedNetdevs is the number of RoCE netdevs the IB tree renders under
+// sys/class/net: one per HCA on an Ethernet link layer, none on InfiniBand.
+func (p Profile) ExpectedNetdevs() int {
+	if !p.roce {
+		return 0
+	}
+	return p.ExpectedHCAs()
+}
 
 // MIGCapable reports whether the board can partition at all. That is a
 // property of the hardware, so it reads max_gpu_instances: no profile declares
