@@ -460,7 +460,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `requestedNodes` _integer_ | RequestedNodes counts eligible Nodes matching placement selectors, once across groups. |  |  |
+| `requestedNodes` _integer_ | RequestedNodes counts eligible Nodes matching placement selectors. Inventory totals<br />deduplicate matches across groups; per-group values count each group's matches. |  |  |
 | `allocatedNodes` _integer_ | AllocatedNodes counts rack Node slots with a live matching Kubernetes Node binding. |  |  |
 | `availableNodes` _integer_ | AvailableNodes is remaining capacity after bound rack slots, never below zero. |  |  |
 | `pendingNodes` _integer_ | PendingNodes counts eligible placement requests awaiting capacity in one matching group. |  |  |

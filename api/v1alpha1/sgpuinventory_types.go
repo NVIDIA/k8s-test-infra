@@ -133,7 +133,8 @@ type InventoryCapacity struct {
 
 // InventoryUsage summarizes eligible placement Nodes, bound rack slots, and pending allocations.
 type InventoryUsage struct {
-	// RequestedNodes counts eligible Nodes matching placement selectors, once across groups.
+	// RequestedNodes counts eligible Nodes matching placement selectors. Inventory totals
+	// deduplicate matches across groups; per-group values count each group's matches.
 	RequestedNodes int32 `json:"requestedNodes"`
 	// AllocatedNodes counts rack Node slots with a live matching Kubernetes Node binding.
 	AllocatedNodes int32 `json:"allocatedNodes"`
