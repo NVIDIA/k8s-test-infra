@@ -207,8 +207,8 @@ func writeProcFS(ctx context.Context, h *host.Host, state *agent.State) error {
 		return err
 	}
 	// The driver prints its registry table as "<Key>: <value>" on the bare key
-	// name, in table order, then quotes each string-valued key. NVreg_ is the
-	// module-parameter spelling (modprobe nvidia NVreg_...), not this file's.
+	// name, in table order, then each string key with its value quoted.
+	// NVreg_ is only the module-parameter spelling (modprobe nvidia NVreg_...).
 	const params = "ModifyDeviceFiles: 1\n" +
 		"DeviceFileUID: 0\n" +
 		"DeviceFileGID: 0\n" +
