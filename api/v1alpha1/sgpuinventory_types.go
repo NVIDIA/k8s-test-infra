@@ -131,15 +131,15 @@ type InventoryCapacity struct {
 	GPUs int32 `json:"gpus"`
 }
 
-// InventoryUsage is node-level request/allocation counts.
+// InventoryUsage summarizes eligible placement Nodes, bound rack slots, and pending allocations.
 type InventoryUsage struct {
-	// RequestedNodes is the number of Nodes requested by scheduled workloads.
+	// RequestedNodes counts eligible Nodes matching placement selectors, once across groups.
 	RequestedNodes int32 `json:"requestedNodes"`
-	// AllocatedNodes is the number of Nodes currently allocated to workloads.
+	// AllocatedNodes counts rack Node slots with a live matching Kubernetes Node binding.
 	AllocatedNodes int32 `json:"allocatedNodes"`
-	// AvailableNodes is the number of Nodes available for allocation.
+	// AvailableNodes is remaining capacity after bound rack slots, never below zero.
 	AvailableNodes int32 `json:"availableNodes"`
-	// PendingNodes is the number of requested Nodes not yet allocated.
+	// PendingNodes counts eligible placement requests awaiting capacity in one matching group.
 	PendingNodes int32 `json:"pendingNodes"`
 }
 

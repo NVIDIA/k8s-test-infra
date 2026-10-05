@@ -283,23 +283,23 @@ spec:
                       description: Usage summarizes Node allocation for this group.
                       properties:
                         allocatedNodes:
-                          description: AllocatedNodes is the number of Nodes currently
-                            allocated to workloads.
+                          description: AllocatedNodes counts rack Node slots with
+                            a live matching Kubernetes Node binding.
                           format: int32
                           type: integer
                         availableNodes:
-                          description: AvailableNodes is the number of Nodes available
-                            for allocation.
+                          description: AvailableNodes is remaining capacity after
+                            bound rack slots, never below zero.
                           format: int32
                           type: integer
                         pendingNodes:
-                          description: PendingNodes is the number of requested Nodes
-                            not yet allocated.
+                          description: PendingNodes counts eligible placement requests
+                            awaiting capacity in one matching group.
                           format: int32
                           type: integer
                         requestedNodes:
-                          description: RequestedNodes is the number of Nodes requested
-                            by scheduled workloads.
+                          description: RequestedNodes counts eligible Nodes matching
+                            placement selectors, once across groups.
                           format: int32
                           type: integer
                       required:
@@ -327,23 +327,23 @@ spec:
                   the inventory.
                 properties:
                   allocatedNodes:
-                    description: AllocatedNodes is the number of Nodes currently allocated
-                      to workloads.
+                    description: AllocatedNodes counts rack Node slots with a live
+                      matching Kubernetes Node binding.
                     format: int32
                     type: integer
                   availableNodes:
-                    description: AvailableNodes is the number of Nodes available for
-                      allocation.
+                    description: AvailableNodes is remaining capacity after bound
+                      rack slots, never below zero.
                     format: int32
                     type: integer
                   pendingNodes:
-                    description: PendingNodes is the number of requested Nodes not
-                      yet allocated.
+                    description: PendingNodes counts eligible placement requests awaiting
+                      capacity in one matching group.
                     format: int32
                     type: integer
                   requestedNodes:
-                    description: RequestedNodes is the number of Nodes requested by
-                      scheduled workloads.
+                    description: RequestedNodes counts eligible Nodes matching placement
+                      selectors, once across groups.
                     format: int32
                     type: integer
                 required:
