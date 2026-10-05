@@ -450,7 +450,7 @@ _Appears in:_
 
 
 
-InventoryUsage is node-level request/allocation counts.
+InventoryUsage summarizes eligible placement Nodes, bound rack slots, and pending allocations.
 
 
 
@@ -460,10 +460,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `requestedNodes` _integer_ | RequestedNodes is the number of Nodes requested by scheduled workloads. |  |  |
-| `allocatedNodes` _integer_ | AllocatedNodes is the number of Nodes currently allocated to workloads. |  |  |
-| `availableNodes` _integer_ | AvailableNodes is the number of Nodes available for allocation. |  |  |
-| `pendingNodes` _integer_ | PendingNodes is the number of requested Nodes not yet allocated. |  |  |
+| `requestedNodes` _integer_ | RequestedNodes counts eligible Nodes matching placement selectors, once across groups. |  |  |
+| `allocatedNodes` _integer_ | AllocatedNodes counts rack Node slots with a live matching Kubernetes Node binding. |  |  |
+| `availableNodes` _integer_ | AvailableNodes is remaining capacity after bound rack slots, never below zero. |  |  |
+| `pendingNodes` _integer_ | PendingNodes counts eligible placement requests awaiting capacity in one matching group. |  |  |
 
 
 #### MIGCapability
