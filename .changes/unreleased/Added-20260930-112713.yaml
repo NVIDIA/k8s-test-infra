@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  helm: an empty `pullPolicy` resolves to the Kubernetes default for the rendered image: `Always` for `latest`, `IfNotPresent` otherwise.
+time: 2026-09-30T09:27:13Z
+custom:
+  Issue: "929"
