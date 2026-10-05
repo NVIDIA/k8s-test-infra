@@ -65,9 +65,6 @@ type ConfigurableDevice struct {
 	pciInfo    nvml.PciInfo
 	boardID    uint32
 
-	// Mutable in-memory state (not persisted across restarts)
-	persistenceModeOverride *nvml.EnableState
-
 	// migState is the device's MIG partitioning. Non-nil on every physical
 	// GPU (it also records that a board is not MIG-capable); nil on MIG
 	// devices, which cannot themselves be partitioned.
@@ -1163,23 +1160,37 @@ func (d *ConfigurableDevice) GetPerformanceState() (nvml.Pstates, nvml.Return) {
 
 // GetPersistenceMode returns persistence mode status
 func (d *ConfigurableDevice) GetPersistenceMode() (nvml.EnableState, nvml.Return) {
-	// Check in-memory override first (set by SetPersistenceMode)
-	if d.persistenceModeOverride != nil {
-		debugLog("[NVML] nvmlDeviceGetPersistenceMode -> %d (override)\n", *d.persistenceModeOverride)
-		return *d.persistenceModeOverride, nvml.SUCCESS
-	}
 	enabled := nvml.FEATURE_DISABLED
-	if c := d.cfg(); c.PersistenceMode == "enabled" {
+	if d.persistenceEnabled() {
 		enabled = nvml.FEATURE_ENABLED
 	}
 	debugLog("[NVML] nvmlDeviceGetPersistenceMode -> %d\n", enabled)
 	return enabled, nvml.SUCCESS
 }
 
-// SetPersistenceMode sets persistence mode in-memory (not persisted across restarts)
+func (d *ConfigurableDevice) persistenceEnabled() bool {
+	return d.cfg().PersistenceMode == "enabled"
+}
+
+// SetPersistenceMode records the mode in the override document, so a separate
+// process sees it: `nvidia-smi -pm 0` is how an operator clears the way for a
+// drain, which runs as its own invocation and refuses a persistent GPU.
 func (d *ConfigurableDevice) SetPersistenceMode(mode nvml.EnableState) nvml.Return {
+	if mode != nvml.FEATURE_ENABLED && mode != nvml.FEATURE_DISABLED {
+		debugLog("[NVML] nvmlDeviceSetPersistenceMode(%d) -> INVALID_ARGUMENT\n", mode)
+		return nvml.ERROR_INVALID_ARGUMENT
+	}
+	w := overrideWriter()
+	if w == nil {
+		warnLog("[NVML] nvmlDeviceSetPersistenceMode(%d) -> NO_PERMISSION (no override writer)\n", mode)
+		return nvml.ERROR_NO_PERMISSION
+	}
+	if err := w.SetPersistenceMode(d.PhysicalIndex(), mode == nvml.FEATURE_ENABLED); err != nil {
+		warnLog("[NVML] nvmlDeviceSetPersistenceMode(%d) -> NO_PERMISSION: %v\n", mode, err)
+		return nvml.ERROR_NO_PERMISSION
+	}
+	configOverrides.invalidateAfterLocalWrite()
 	debugLog("[NVML] nvmlDeviceSetPersistenceMode(%d)\n", mode)
-	d.persistenceModeOverride = &mode
 	return nvml.SUCCESS
 }
 

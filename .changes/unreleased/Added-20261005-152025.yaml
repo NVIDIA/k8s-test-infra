@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  nvml-mock: GPUs can be drained, removed and rediscovered through NVML, as `nvidia-smi drain` and the GPU Operator driver upgrade do; a device marked `excluded: true` is hidden from enumeration and reported as an excluded GPU.
+time: 2026-10-05T13:20:25Z
+custom:
+  Issue: "778"

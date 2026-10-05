@@ -443,6 +443,45 @@ device_defaults:
                                       # prohibited, exclusive_process
 ```
 
+### Drain, removal and exclusion
+
+These model what the driver does with a GPU rather than the GPU itself: the
+steps a driver upgrade takes to take a GPU out of service, and a GPU the driver
+was told never to manage. NVML addresses all of them by PCI address
+(domain, bus and device; the function is ignored), and a GPU that matches none
+returns `NVML_ERROR_INVALID_ARGUMENT`.
+
+**Exclusion** is configuration. A device marked `excluded`, the equivalent of
+listing it in the kernel module's `NVreg_ExcludedGpus`, is never enumerated:
+the remaining GPUs are numbered as if it were absent. It is reported only by
+`nvmlGetExcludedDeviceCount` and `nvmlGetExcludedDeviceInfoByIndex`, with its
+PCI address and UUID. Set it per device, typically in a
+[per-device override](#per-device-overrides):
+
+```yaml
+devices:
+  - index: 3
+    excluded: true
+```
+
+**Drain and removal** are runtime state, set by a consumer through NVML —
+`nvidia-smi drain` among them — and recorded in the
+[runtime override document](nvml-mock-ctl.md) as the `draining` and `removed`
+fields. Like a power cap, they are visible to every process on the node and
+hold until a reset clears them (`nvml-mock-ctl reset`).
+
+| Call | Effect | Refused with `NVML_ERROR_IN_USE` when |
+|------|--------|---------------------------------------|
+| `nvmlDeviceModifyDrainState` | Marks the GPU draining, or clears the mark. A process that initialises afterwards does not enumerate a draining GPU; processes that already see it keep it. | Draining a GPU in persistence mode — run `nvidia-smi -pm 0` first |
+| `nvmlDeviceQueryDrainState` | Reports whether the GPU is draining. | — |
+| `nvmlDeviceRemoveGpu` | Detaches the GPU from the driver. Every process stops enumerating it, the calling one included, and the rest are renumbered. | The GPU is in persistence mode, or the device has configured `processes` |
+| `nvmlDeviceDiscoverGpus` | Re-attaches removed GPUs: all of them for an all-zero address, otherwise the one at that address. A rediscovered GPU is no longer draining. | — |
+
+!!! note
+    A process that is already running sees a removal or rediscovery made by
+    another process only once it next calls `nvmlInit`. The process that made
+    the change sees it immediately.
+
 ### MIG
 
 ```yaml
@@ -887,8 +926,8 @@ and failure injection. Each holds its configured value until the profile changes
 or `nvml-mock-ctl` writes a runtime override, which takes effect within one
 override TTL — see [nvml-mock-ctl](nvml-mock-ctl.md).
 
-Two of these also accept writes from the consumer, and they differ in how far
-the write reaches.
+Two of these also accept writes from the consumer: the power management limit
+and persistence mode.
 
 The power management limit (`nvidia-smi -pl`, in milliwatts and inclusive of
 `min_limit_mw` / `max_limit_mw`; a cap outside those bounds is refused) is
@@ -901,8 +940,10 @@ write — no config, or an overrides file it cannot write — refuses the cap wi
 `NVML_ERROR_NO_PERMISSION` rather than reporting a success that nothing would
 observe.
 
-Persistence mode (`nvidia-smi -pm`) is the exception: it is still held in the
-process that loaded the mock, so a second process reads the configured value.
+Persistence mode (`nvidia-smi -pm`) is recorded the same way, under the same
+reset and the same `NVML_ERROR_NO_PERMISSION` refusal. It matters beyond its own
+query: a GPU in persistence mode refuses to drain — see
+[Drain, removal and exclusion](#drain-removal-and-exclusion).
 
 ### Workload power profiles
 
