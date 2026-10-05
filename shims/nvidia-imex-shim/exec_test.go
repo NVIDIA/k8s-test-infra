@@ -58,15 +58,15 @@ func copyExecutable(t *testing.T, source, destination string) {
 	t.Helper()
 	content, err := os.ReadFile(source)
 	require.NoError(t, err)
-	// Publish the copy atomically so Linux never executes an inode that is still
-	// being populated by the test process.
-	temporary := destination + ".tmp"
-	require.NoError(t, os.WriteFile(temporary, content, 0o755))
-	require.NoError(t, os.Rename(temporary, destination))
+	require.NoError(t, os.WriteFile(destination, content, 0o755))
 }
 
+// The tests below write an executable and then run it, so they are not
+// parallel. A parallel test that forks while the file is still open for writing
+// leaves the child holding that descriptor, and exec then fails with "text file
+// busy" (golang/go#22315). Go runs non-parallel tests one at a time.
+
 func TestShimExecsRealWithNogpu(t *testing.T) {
-	t.Parallel()
 	tmp := t.TempDir()
 	shim := prebuiltShim(t)
 	stub := writeStub(t, tmp)
@@ -82,7 +82,6 @@ func TestShimExecsRealWithNogpu(t *testing.T) {
 }
 
 func TestShimExecsSiblingRealBinary(t *testing.T) {
-	t.Parallel()
 	tmp := t.TempDir()
 	shimSource := prebuiltShim(t)
 	shim := filepath.Join(tmp, "nvidia-imex")
