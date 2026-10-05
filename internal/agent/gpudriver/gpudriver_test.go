@@ -78,8 +78,8 @@ func TestWriteProcFS_WritesVersionAndParams(t *testing.T) {
 // key name; NVreg_ is the module-parameter spelling (modprobe nvidia
 // NVreg_...) and never appears in this file. Consumers match
 // whole lines: nvidia-cdi-hook's disable-device-node-modification rewrites
-// exactly "ModifyDeviceFiles: 1". The host keeps the staged tree across agent
-// restarts, so the test starts from the file an earlier agent left behind.
+// exactly "ModifyDeviceFiles: 1". An agent killed before Discard runs leaves
+// the staged tree on the host, so the test starts from the file it left behind.
 func TestWriteProcFS_ParamsUseDriverKeyNames(t *testing.T) {
 	t.Parallel()
 
