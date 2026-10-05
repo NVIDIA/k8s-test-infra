@@ -97,8 +97,10 @@ change with the calls Prow's GitHub client makes:
 
 When the change is refused, by the workflow as above or by GitHub with HTTP
 403, 404, 410, or 422 or by leaving a user out, the workflow posts one comment on the issue or pull request that
-names the command and the reason, and fails the run. Any other error fails the
-run without a comment. The job runs only when
+names the command and the reason, and fails the run. Inputs that fail these
+checks get the same comment when `number` is valid: it names the rule, never
+repeats a title, and shows a rejected login in a code span. An invalid
+`number`, or any other error, fails the run without a comment. The job runs only when
 `REPOSITORY_AUTOMATION_ISSUE_COMMANDS_ENABLED` is `true`; until the agent
 dispatches the workflow, it does nothing. Each run is its own concurrency
 group, because GitHub keeps one pending run per group and a shared group would
