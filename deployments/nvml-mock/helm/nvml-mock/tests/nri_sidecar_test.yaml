@@ -8,6 +8,9 @@ templates:
 chart:
   version: 0.0.0-dev
   appVersion: 0.0.0-dev
+capabilities:
+  majorVersion: 1
+  minorVersion: 29
 tests:
   - it: should render only the node agent by default
     asserts:
@@ -18,6 +21,8 @@ tests:
           value: node-agent
       - notExists:
           path: spec.template.spec.containers[1]
+      - notExists:
+          path: spec.template.spec.initContainers
 
   - it: should pass the default management annotation when NRI is enabled
     set:
@@ -25,7 +30,7 @@ tests:
         enabled: true
     asserts:
       - contains:
-          path: spec.template.spec.containers[1].args
+          path: spec.template.spec.containers[0].args
           content: --device-annotation=nvml-mock.nvidia.com/devices
 
   - it: should pass a custom management annotation unchanged
@@ -35,7 +40,7 @@ tests:
         deviceAnnotation: example.com/manage-gpus
     asserts:
       - contains:
-          path: spec.template.spec.containers[1].args
+          path: spec.template.spec.containers[0].args
           content: --device-annotation=example.com/manage-gpus
 
   - it: should add the NRI plugin to the existing DaemonSet when enabled
@@ -67,37 +72,54 @@ tests:
           path: spec.template.metadata.annotations["kubectl.kubernetes.io/default-container"]
           value: node-agent
       - equal:
-          path: spec.template.spec.containers[0].name
+          path: spec.template.spec.initContainers[0].name
           value: node-agent
       - equal:
-          path: spec.template.spec.containers[1].name
+          path: spec.template.spec.initContainers[0].restartPolicy
+          value: Always
+      - equal:
+          path: spec.template.spec.initContainers[0].startupProbe.httpGet.path
+          value: /stagedz
+      # Liveness is off until the startup probe passes, so this bounds how long
+      # a node agent whose first staging failed waits for its restart.
+      - equal:
+          path: spec.template.spec.initContainers[0].startupProbe.failureThreshold
+          value: 120
+      - equal:
+          path: spec.template.spec.containers[0].name
           value: nvml-mock-nri
       - equal:
-          path: spec.template.spec.containers[1].image
+          path: spec.template.spec.containers[0].image
           value: ghcr.io/nvidia/nvml-mock:0.0.0-dev
       # Must match where the Dockerfile copies the binary; nothing else checks
       # the two agree, and a mismatch is a CrashLoopBackOff on every node.
       - equal:
-          path: spec.template.spec.containers[1].command
+          path: spec.template.spec.containers[0].command
           value:
             - /usr/local/bin/nri-plugin
       - contains:
-          path: spec.template.spec.containers[1].args
+          path: spec.template.spec.containers[0].args
           content: --socket-path=/var/run/nri/nri.sock
       - contains:
-          path: spec.template.spec.containers[1].args
+          path: spec.template.spec.containers[0].args
+          content: --agent-staged-url=http://127.0.0.1:9091/stagedz
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --staging-lock-path=/run/nvml-mock/nri-staging.lock
+      - contains:
+          path: spec.template.spec.containers[0].args
           content: --log-level=info
       - contains:
-          path: spec.template.spec.containers[1].args
+          path: spec.template.spec.containers[0].args
           content: --log-format=json
       - contains:
-          path: spec.template.spec.containers[1].args
+          path: spec.template.spec.containers[0].args
           content: --excluded-namespaces=NAMESPACE,kube-system
       - contains:
-          path: spec.template.spec.containers[1].args
+          path: spec.template.spec.containers[0].args
           content: --node-name=$(NODE_NAME)
       - contains:
-          path: spec.template.spec.containers[1].env
+          path: spec.template.spec.containers[0].env
           content:
             name: NODE_NAME
             valueFrom:
@@ -113,11 +135,31 @@ tests:
           format: plain
     asserts:
       - contains:
-          path: spec.template.spec.containers[1].args
+          path: spec.template.spec.containers[0].args
           content: --log-level=debug
       - contains:
-          path: spec.template.spec.containers[1].args
+          path: spec.template.spec.containers[0].args
           content: --log-format=plain
+
+  - it: should allow enough startup time for intentional staging delays
+    set:
+      nri:
+        enabled: true
+      nodeAgent:
+        nriStartupTimeoutSeconds: 900
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].startupProbe.failureThreshold
+          value: 900
+
+  - it: should reject a zero node-agent startup budget
+    set:
+      nri:
+        enabled: true
+      nodeAgent:
+        nriStartupTimeoutSeconds: 0
+    asserts:
+      - failedTemplate: {}
 
   - it: should reject an unknown logging.level via the values schema
     set:
@@ -157,11 +199,53 @@ tests:
               path: /var/lib/nvml-mock
               type: DirectoryOrCreate
       - contains:
-          path: spec.template.spec.containers[1].volumeMounts
+          path: spec.template.spec.containers[0].volumeMounts
           content:
             name: mokka-root
             mountPath: /var/lib/nvml-mock
             readOnly: true
+
+  # The staging lock must be reachable only by the node agent and NRI: any
+  # workload that can open it could hold the lock and stall node-agent staging.
+  - it: should share the staging lock only between the node agent and NRI
+    set:
+      nri:
+        enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: staging-gate
+            emptyDir:
+              medium: Memory
+              sizeLimit: 1Mi
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --staging-lock-path=/run/nvml-mock/nri-staging.lock
+      - contains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: staging-gate
+            mountPath: /run/nvml-mock
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: staging-gate
+            mountPath: /run/nvml-mock
+            readOnly: true
+
+  - it: should not gate staging when NRI is disabled
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].command
+          content: --staging-lock-path=/run/nvml-mock/nri-staging.lock
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: staging-gate
+            emptyDir:
+              medium: Memory
+              sizeLimit: 1Mi
 
   - it: should keep scheduling settings at the shared pod level
     set:
@@ -184,10 +268,10 @@ tests:
             operator: Exists
             effect: NoSchedule
       - equal:
-          path: spec.template.spec.containers[0].name
+          path: spec.template.spec.initContainers[0].name
           value: node-agent
       - equal:
-          path: spec.template.spec.containers[1].name
+          path: spec.template.spec.containers[0].name
           value: nvml-mock-nri
 
   - it: should add the sidecar on an upgrade from disabled to enabled
@@ -199,10 +283,10 @@ tests:
         enabled: true
     asserts:
       - equal:
-          path: spec.template.spec.containers[0].name
+          path: spec.template.spec.initContainers[0].name
           value: node-agent
       - equal:
-          path: spec.template.spec.containers[1].name
+          path: spec.template.spec.containers[0].name
           value: nvml-mock-nri
 
   - it: should remove the sidecar on an upgrade from enabled to disabled
@@ -218,6 +302,8 @@ tests:
           value: node-agent
       - notExists:
           path: spec.template.spec.containers[1]
+      - notExists:
+          path: spec.template.spec.initContainers
 
   - it: should apply custom NRI image and resources
     set:
@@ -233,16 +319,16 @@ tests:
             memory: 32Mi
     asserts:
       - equal:
-          path: spec.template.spec.containers[1].image
+          path: spec.template.spec.containers[0].image
           value: custom/nvml-mock-nri:v1
       - equal:
-          path: spec.template.spec.containers[1].imagePullPolicy
+          path: spec.template.spec.containers[0].imagePullPolicy
           value: Always
       - equal:
-          path: spec.template.spec.containers[1].resources.requests.cpu
+          path: spec.template.spec.containers[0].resources.requests.cpu
           value: 10m
       - equal:
-          path: spec.template.spec.containers[1].resources.requests.memory
+          path: spec.template.spec.containers[0].resources.requests.memory
           value: 32Mi
 
   - it: should inherit the chart image digest when the NRI image is not overridden
@@ -253,7 +339,7 @@ tests:
         enabled: true
     asserts:
       - equal:
-          path: spec.template.spec.containers[1].image
+          path: spec.template.spec.containers[0].image
           value: ghcr.io/nvidia/nvml-mock@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
   # The chart digest names an nvml-mock image, so pinning it onto another
@@ -269,7 +355,7 @@ tests:
           tag: v1
     asserts:
       - equal:
-          path: spec.template.spec.containers[1].image
+          path: spec.template.spec.containers[0].image
           value: custom/nvml-mock-nri:v1
 
   - it: should pull the NRI image from global.imageRegistry
@@ -280,7 +366,7 @@ tests:
         enabled: true
     asserts:
       - equal:
-          path: spec.template.spec.containers[1].image
+          path: spec.template.spec.containers[0].image
           value: mirror.example.com/nvidia/nvml-mock:0.0.0-dev
 
   - it: should pin the NRI image by its own digest
@@ -292,7 +378,7 @@ tests:
           digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
     asserts:
       - equal:
-          path: spec.template.spec.containers[1].image
+          path: spec.template.spec.containers[0].image
           value: custom/nvml-mock-nri@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 
   - it: should pass custom overlay and namespace exclusions
@@ -308,16 +394,16 @@ tests:
           - gpu-system
     asserts:
       - contains:
-          path: spec.template.spec.containers[1].args
+          path: spec.template.spec.containers[0].args
           content: --socket-path=/run/custom-nri/nri.sock
       - contains:
-          path: spec.template.spec.containers[1].args
+          path: spec.template.spec.containers[0].args
           content: --overlay-host-path=/custom/nvml-mock
       - contains:
-          path: spec.template.spec.containers[1].args
+          path: spec.template.spec.containers[0].args
           content: --overlay-mount-path=/mock
       - contains:
-          path: spec.template.spec.containers[1].args
+          path: spec.template.spec.containers[0].args
           content: --excluded-namespaces=NAMESPACE,kube-system,monitoring,gpu-system
       - contains:
           path: spec.template.spec.volumes
@@ -327,10 +413,16 @@ tests:
               path: /custom/nvml-mock
               type: DirectoryOrCreate
       - contains:
-          path: spec.template.spec.containers[1].volumeMounts
+          path: spec.template.spec.containers[0].volumeMounts
           content:
             name: nri-overlay
             mountPath: /custom/nvml-mock
+            readOnly: true
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: mokka-root
+            mountPath: /var/lib/nvml-mock
             readOnly: true
 
   # Mock IMEX channel delivery (#437). The channel nodes are staged by the main
@@ -344,10 +436,10 @@ tests:
         enabled: true
     asserts:
       - contains:
-          path: spec.template.spec.containers[1].args
+          path: spec.template.spec.containers[0].args
           content: --imex-channel-annotation=nvml-mock.nvidia.com/imex-channels
       - contains:
-          path: spec.template.spec.containers[1].args
+          path: spec.template.spec.containers[0].args
           content: --imex-channel-host-path=/var/lib/nvml-mock/driver/dev/nvidia-caps-imex-channels
 
   - it: should track a relocated overlay root for IMEX channels
@@ -359,15 +451,15 @@ tests:
         imexChannelAnnotation: example.com/channels
     asserts:
       - contains:
-          path: spec.template.spec.containers[1].args
+          path: spec.template.spec.containers[0].args
           content: --imex-channel-annotation=example.com/channels
       - contains:
-          path: spec.template.spec.containers[1].args
+          path: spec.template.spec.containers[0].args
           content: --imex-channel-host-path=/custom/nvml-mock/driver/dev/nvidia-caps-imex-channels
       # The GPU device root and the channel root must stay siblings under the
       # same relocated overlay; they are staged by the same node agent.
       - contains:
-          path: spec.template.spec.containers[1].args
+          path: spec.template.spec.containers[0].args
           content: --device-host-path=/custom/nvml-mock/driver/dev
 
   # A probe that cannot reach the plugin is worse than no probe: the pod never
@@ -380,25 +472,25 @@ tests:
         enabled: true
     asserts:
       - contains:
-          path: spec.template.spec.containers[1].args
+          path: spec.template.spec.containers[0].args
           content: --health-addr=:8080
       - contains:
-          path: spec.template.spec.containers[1].ports
+          path: spec.template.spec.containers[0].ports
           content:
             name: nri-health
             containerPort: 8080
             protocol: TCP
       - equal:
-          path: spec.template.spec.containers[1].readinessProbe.httpGet.path
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
           value: /readyz
       - equal:
-          path: spec.template.spec.containers[1].readinessProbe.httpGet.port
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.port
           value: nri-health
       - equal:
-          path: spec.template.spec.containers[1].livenessProbe.httpGet.path
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
           value: /healthz
       - equal:
-          path: spec.template.spec.containers[1].livenessProbe.httpGet.port
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.port
           value: nri-health
 
   # Readiness must interrogate /readyz, not /healthz. /healthz stays 200 while
@@ -411,7 +503,7 @@ tests:
         enabled: true
     asserts:
       - notEqual:
-          path: spec.template.spec.containers[1].readinessProbe.httpGet.path
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
           value: /healthz
 
   - it: should move both the bind address and the container port together
@@ -421,25 +513,14 @@ tests:
         healthPort: 9310
     asserts:
       - contains:
-          path: spec.template.spec.containers[1].args
+          path: spec.template.spec.containers[0].args
           content: --health-addr=:9310
       - contains:
-          path: spec.template.spec.containers[1].ports
+          path: spec.template.spec.containers[0].ports
           content:
             name: nri-health
             containerPort: 9310
             protocol: TCP
-
-  - it: should allow dropping either probe
-    set:
-      nri:
-        enabled: true
-        livenessProbe: null
-    asserts:
-      - isNull:
-          path: spec.template.spec.containers[1].livenessProbe
-      - isNotNull:
-          path: spec.template.spec.containers[1].readinessProbe
 
   - it: should rewrite the legacy named TCP probe port in the shared pod
     set:
@@ -455,10 +536,10 @@ tests:
             port: health
     asserts:
       - equal:
-          path: spec.template.spec.containers[1].readinessProbe.tcpSocket.port
+          path: spec.template.spec.containers[0].readinessProbe.tcpSocket.port
           value: nri-health
       - equal:
-          path: spec.template.spec.containers[1].livenessProbe.tcpSocket.port
+          path: spec.template.spec.containers[0].livenessProbe.tcpSocket.port
           value: nri-health
 
   # Only the legacy name is rewritten. A numeric port, valid since 0.4.0, must
@@ -476,11 +557,22 @@ tests:
             port: 8080
     asserts:
       - equal:
-          path: spec.template.spec.containers[1].readinessProbe.httpGet.port
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.port
           value: 8080
       - equal:
-          path: spec.template.spec.containers[1].livenessProbe.tcpSocket.port
+          path: spec.template.spec.containers[0].livenessProbe.tcpSocket.port
           value: 8080
+
+  - it: should allow dropping either probe
+    set:
+      nri:
+        enabled: true
+        livenessProbe: null
+    asserts:
+      - isNull:
+          path: spec.template.spec.containers[0].livenessProbe
+      - isNotNull:
+          path: spec.template.spec.containers[0].readinessProbe
 
   - it: should apply custom probe tuning
     set:
@@ -494,13 +586,13 @@ tests:
           failureThreshold: 5
     asserts:
       - equal:
-          path: spec.template.spec.containers[1].readinessProbe.periodSeconds
+          path: spec.template.spec.containers[0].readinessProbe.periodSeconds
           value: 3
       - equal:
-          path: spec.template.spec.containers[1].readinessProbe.failureThreshold
+          path: spec.template.spec.containers[0].readinessProbe.failureThreshold
           value: 5
       - equal:
-          path: spec.template.spec.containers[1].readinessProbe.httpGet.port
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.port
           value: nri-health
 
   - it: should default device injection to raw and stage the CDI spec dir
@@ -511,15 +603,15 @@ tests:
       # raw is the default per MEP-0002. If this flips, every existing NRI
       # deployment silently changes injection mechanism on upgrade.
       - contains:
-          path: spec.template.spec.containers[1].args
+          path: spec.template.spec.containers[0].args
           content: --device-injection-mode=raw
       - contains:
-          path: spec.template.spec.containers[1].args
+          path: spec.template.spec.containers[0].args
           content: --cdi-spec-host-path=/var/run/cdi/nvml-mock-nri.yaml
       # The plugin cannot check whether its spec is staged unless the spec
       # directory is actually mounted into it.
       - contains:
-          path: spec.template.spec.containers[1].volumeMounts
+          path: spec.template.spec.containers[0].volumeMounts
           content:
             name: cdi-specs
             mountPath: /var/run/cdi
@@ -540,16 +632,16 @@ tests:
         cdiSpecDir: /etc/cdi
     asserts:
       - contains:
-          path: spec.template.spec.containers[1].args
+          path: spec.template.spec.containers[0].args
           content: --device-injection-mode=cdi
       # The flag and the mount must track the same directory; a spec path the
       # plugin cannot stat makes it fall back to raw and look like cdi mode
       # simply did not take effect.
       - contains:
-          path: spec.template.spec.containers[1].args
+          path: spec.template.spec.containers[0].args
           content: --cdi-spec-host-path=/etc/cdi/nvml-mock-nri.yaml
       - contains:
-          path: spec.template.spec.containers[1].volumeMounts
+          path: spec.template.spec.containers[0].volumeMounts
           content:
             name: nri-cdi-specs
             mountPath: /etc/cdi
@@ -613,8 +705,47 @@ tests:
         healthPort: 18515
     asserts:
       - contains:
-          path: spec.template.spec.containers[1].ports
+          path: spec.template.spec.containers[0].ports
           content:
             name: nri-health
             containerPort: 18515
             protocol: TCP
+
+  # Kubernetes 1.28 supports the chart but not stable native sidecars. Keep
+  # both processes as regular containers there instead of emitting a gated
+  # field that a conforming 1.28 API server may reject.
+  - it: should retain the compatible regular-container layout on Kubernetes 1.28
+    capabilities:
+      majorVersion: 1
+      minorVersion: 28
+    set:
+      nri:
+        enabled: true
+    asserts:
+      - notExists:
+          path: spec.template.spec.initContainers
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: node-agent
+      - notExists:
+          path: spec.template.spec.containers[0].restartPolicy
+      - equal:
+          path: spec.template.spec.containers[1].name
+          value: nvml-mock-nri
+
+  - it: should retain the regular-container layout when native sidecars are disabled
+    set:
+      nri:
+        enabled: true
+        nativeSidecar: false
+    asserts:
+      - notExists:
+          path: spec.template.spec.initContainers
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: node-agent
+      - notExists:
+          path: spec.template.spec.containers[0].restartPolicy
+      - equal:
+          path: spec.template.spec.containers[1].name
+          value: nvml-mock-nri

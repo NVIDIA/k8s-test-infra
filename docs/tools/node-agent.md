@@ -18,9 +18,10 @@ variable; the flag wins when both are set.
 | `--config` | `MOKKA_AGENT_CONFIG` | none | Path to the mock NVML YAML profile. Required — an unset value fails startup with `--config is required` |
 | `--topology` | `MOKKA_AGENT_TOPOLOGY` | empty | Path to the cluster ComputeDomain topology document |
 | `--host-root` | `MOKKA_AGENT_HOST_ROOT` | `/host` | Where the host filesystem is mounted in this process's namespace |
-| `--health-addr` | `MOKKA_AGENT_HEALTH_ADDR` | `:9090` | Address for `/healthz` and `/readyz`; empty disables both |
+| `--health-addr` | `MOKKA_AGENT_HEALTH_ADDR` | `:9090` | Address for `/healthz`, `/readyz` and `/stagedz`; empty disables all three. `/stagedz` passes once the latest Stage wave has written the driver tree; the NRI plugin gates on it |
 | `--shutdown-timeout` | `MOKKA_AGENT_SHUTDOWN_TIMEOUT` | `30s` | Budget for teardown on SIGINT/SIGTERM |
 | `--resync-interval` | `MOKKA_AGENT_RESYNC_INTERVAL` | `1m` | Re-read `--config` and `--topology` this often regardless of filesystem events; `0` relies on events alone |
+| `--staging-lock-path` | `MOKKA_AGENT_STAGING_LOCK_PATH` | empty | Lock file taken exclusively while staging or tearing down, which the NRI plugin shares while deciding each adjustment. Must be outside the injected overlay. At shutdown the agent waits at most half of `--shutdown-timeout` for it. Empty disables the gate; the chart sets it when `nri.enabled` |
 | `--log-level` | `MOKKA_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. `warning` is an alias of `warn`; empty falls back to `info` |
 | `--log-format` | `MOKKA_LOG_FORMAT` | `json` | `json` or `plain`; empty falls back to `json` |
 | `--ib-mode` | `MOCK_IB` | `off` | InfiniBand tier: `off`, `sysfs` (render only) or `full` (adds the mock-ib daemon). Empty reads as `off` |

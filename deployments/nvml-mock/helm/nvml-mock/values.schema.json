@@ -243,7 +243,7 @@
     "nodeAgent": {
       "type": "object",
       "additionalProperties": true,
-      "description": "Mokka Node Agent sidecar.",
+      "description": "Mokka node agent.",
       "properties": {
         "livenessProbe": { "type": ["object", "null"] },
         "readinessProbe": { "type": ["object", "null"] },
@@ -266,6 +266,11 @@
           "type": "string",
           "pattern": "^[0-9]+(ns|us|ms|s|m|h)$",
           "description": "Go duration string passed to --shutdown-timeout."
+        },
+        "nriStartupTimeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum seconds the node-agent /stagedz startup probe may fail while its first Stage wave completes before Kubernetes restarts it, when NRI uses native sidecars."
         },
         "kernelLog": {
           "type": "object",
@@ -295,6 +300,10 @@
       "description": "Node-wide ambient injection via containerd NRI.",
       "properties": {
         "enabled": { "type": "boolean" },
+        "nativeSidecar": {
+          "type": "boolean",
+          "description": "Use the Kubernetes SidecarContainers layout on Kubernetes 1.29 and later. Disable when that feature gate is explicitly off."
+        },
         "logging": {
           "type": "object",
           "additionalProperties": false,
