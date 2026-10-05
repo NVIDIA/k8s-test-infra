@@ -99,7 +99,9 @@ gpu:
   #
   # The instances stay mutable at runtime through NVML, as on real hardware.
   mig:
+    # -- Enable MIG partitioning for profiles that support it.
     enabled: false
+    # -- GPU instance layout to create on each simulated device.
     gpuInstances: []
 
 image:
@@ -123,7 +125,7 @@ driverVersion: ""                  # Auto-derived from profile. Override: "550.1
 
 # -- Existing node labels required to schedule the mock DaemonSet.
 nodeSelector: {}
- # -- Pod tolerations for the mock DaemonSet.
+# -- Pod tolerations for the mock DaemonSet.
 tolerations:
   - operator: Exists
 
@@ -174,6 +176,7 @@ nodeAgent:
     enabled: false
   # Go duration string: 5s, 1m30s, etc. Teardown is a handful of parallel file
   # removals, and it has to finish inside terminationGracePeriodSeconds.
+  # -- Graceful shutdown timeout for the node agent.
   shutdownTimeout: 5s
   # How often the agent re-reads its profile and topology regardless of
   # filesystem events. An event carries a ConfigMap update within
@@ -363,7 +366,9 @@ nri:
       port: nri-health
     # -- Readiness probe interval.
     periodSeconds: 10
+    # -- Readiness probe timeout.
     timeoutSeconds: 2
+    # -- Consecutive failures before the plugin is marked unready.
     failureThreshold: 2
   livenessProbe:
     httpGet:
@@ -373,7 +378,9 @@ nri:
       port: nri-health
     # -- Liveness probe interval.
     periodSeconds: 10
+    # -- Liveness probe timeout.
     timeoutSeconds: 2
+    # -- Consecutive failures before the plugin is restarted.
     failureThreshold: 3
 
 # DaemonSet rolling update strategy.
@@ -542,17 +549,12 @@ controlPlane:
   image:
     # -- Control-plane image repository.
     repository: ghcr.io/nvidia/mokka-control-plane
-    # Required when enabled outside Tilt's explicit local mutable-tag mode.
-    # Digest pinning prevents the cluster-privileged controller artifact from
-    # changing without a Helm values change.
-    # -- Immutable digest for the control-plane image.
+    # Pins the image and wins over tag. Recommended for the cluster-privileged
+    # controller, so its artifact cannot change without a Helm values change.
+    # -- Immutable digest; when set, it takes precedence over the tag.
     digest: ""
-    # Tilt sets both fields for locally built images. Keep mutable tags disabled
-    # for normal installs so the cluster-privileged controller stays immutable.
-    # -- Control-plane image tag for local development.
-    tag: ""
-    # -- Allow a mutable control-plane image tag.
-    allowMutableTag: false
+    # -- Control-plane image tag; defaults to the chart appVersion.
+    tag: ""                        # Defaults to the chart appVersion
     # -- Kubernetes image pull policy for the control plane.
     pullPolicy: IfNotPresent
   logging:

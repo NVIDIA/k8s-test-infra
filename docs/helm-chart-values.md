@@ -63,10 +63,10 @@ Kubernetes: `>= 1.28.0-0`
 | gpu.mig.enabled | bool | `false` | Enable MIG partitioning for profiles that support it. |
 | gpu.mig.gpuInstances | list | `[]` | GPU instance layout to create on each simulated device. |
 | gpu.profile | string | `"gb300"` | GPU profile and per-device simulation settings. |
-| image.digest | string | `""` | Immutable digest; when set, it takes precedence over the tag. |
+| image.digest | string | `""` | Immutable image digest; when set, it takes precedence over the tag. |
 | image.pullPolicy | string | `"IfNotPresent"` | Kubernetes image pull policy. |
 | image.repository | string | `"ghcr.io/nvidia/nvml-mock"` | Container image repository for the node agent. |
-| image.tag | string | `""` | Container image tag; defaults to the chart appVersion. |
+| image.tag | string | `""` | Image tag; defaults to the chart appVersion. |
 | imagePullSecrets | list | `[]` | Pull secrets for nvml-mock, NRI, and control-plane pods. |
 | imex.mockChannels.capsMajor | int | `236` | Major number used for IMEX capability devices. |
 | imex.mockChannels.channelCount | int | `2048` | Number of IMEX channel device nodes to create per node. |
@@ -78,7 +78,7 @@ Kubernetes: `>= 1.28.0-0`
 | integrations.fakeGpuOperator.enabled | bool | `false` | Enable fake-gpu-operator profile integration. |
 | integrations.fakeGpuOperator.profileLabels."run.ai/gpu-profile" | string | `"true"` | Additional label applied to generated fake-gpu-operator profiles. |
 | integrations.fakeGpuOperator.targetNamespace | string | `""` | Namespace where fake-gpu-operator reads profile ConfigMaps. |
-| nodeAgent.kernelLog.enabled | bool | `false` | Announce injected Xids through the host kernel log. TODO: remove the flag and make it on by default. |
+| nodeAgent.kernelLog.enabled | bool | `false` | Announce injected Xids through the host kernel log. |
 | nodeAgent.livenessProbe | object | `{"httpGet":{"path":"/healthz","port":"health"}}` | Liveness probe; /healthz fails when the last Stage wave failed. Set to null to disable. |
 | nodeAgent.livenessProbe.httpGet.path | string | `"/healthz"` | Liveness probe endpoint path. |
 | nodeAgent.livenessProbe.httpGet.port | string | `"health"` | Liveness probe endpoint port name or number. |
@@ -91,6 +91,7 @@ Kubernetes: `>= 1.28.0-0`
 | nodeAgent.resources | object | `{"requests":{"cpu":"10m","memory":"32Mi"}}` | Resource requests for the node agent. |
 | nodeAgent.resources.requests.cpu | string | `"10m"` | CPU requested by the node agent. |
 | nodeAgent.resources.requests.memory | string | `"32Mi"` | Memory requested by the node agent. |
+| nodeAgent.resyncInterval | string | `"1m"` | Node-agent profile and topology resync period. |
 | nodeAgent.shutdownTimeout | string | `"5s"` | Graceful shutdown timeout for the node agent. |
 | nodeLabels.featuresDir | string | `"/etc/kubernetes/node-feature-discovery/features.d"` | Host directory from which NFD reads generated feature files. |
 | nodeSelector | object | `{}` | Existing node labels required to schedule the mock DaemonSet. |
