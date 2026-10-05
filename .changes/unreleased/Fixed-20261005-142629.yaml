@@ -1,0 +1,6 @@
+kind: Fixed
+body: |-
+  control-plane: the Mokka API types moved out of `internal/` to `github.com/NVIDIA/k8s-test-infra/api/v1alpha1`, so other Go modules can now use the `pkg/generated` clientset, informers and listers.
+time: 2026-10-05T12:26:29Z
+custom:
+  Issue: "920"
