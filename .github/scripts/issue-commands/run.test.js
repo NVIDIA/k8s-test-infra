@@ -377,6 +377,13 @@ test("a rejected login is shown in a code span with hidden characters made visib
     "The `/cc` command did not complete: user `bob\ufffd\ufffd/close\ufffd @team` is not a GitHub login.");
 });
 
+test("a rejected login in the comment is cut to 40 characters", async () => {
+  const { github } = await validateInputs({ command: "assign", users: `${"a".repeat(40)}-${"b".repeat(60)}` });
+
+  assert.equal(github.calls[0].params.body,
+    `The \`/assign\` command did not complete: user \`${"a".repeat(40)}\` is not a GitHub login.`);
+});
+
 test("an invalid command on a valid number is answered without echoing the command", async () => {
   const { github, core } = await validateInputs({ command: "lgtm\n/close" });
 
