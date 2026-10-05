@@ -53,7 +53,7 @@ the Mokka resource permissions needed for reconciliation; its namespaced Role
 grants leader-election Lease access in the release namespace. The node
 DaemonSet, including its optional NRI sidecar, does not mount a ServiceAccount
 token. See the
-[Mokka controller](docs/mokka-controller.md) for its reconciliation and
+[Mokka Control Plane](docs/control-plane.md) for its reconciliation and
 single-writer lifecycle. No component runs privileged or in a host namespace.
 
 Privilege is scoped per container:
