@@ -2,15 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 global:
-  # Pulls every image the chart runs from this registry (e.g. a mirror),
-  # replacing the registry host of each image repository.
+  # -- Registry host override applied to every image, such as an internal mirror.
   imageRegistry: ""
-  # Pull secrets added to every chart pod, ahead of imagePullSecrets below.
-  # Each entry is a Secret name or {name: <secret>}.
+  # -- Pull secrets added to every pod created by this chart.
   imagePullSecrets: []
 
-# Pull secrets added to every chart pod (nvml-mock, NRI and control plane).
-# Each entry is a Secret name or {name: <secret>}.
+# -- Pull secrets for nvml-mock, NRI, and control-plane pods.
 imagePullSecrets: []
 
 gpu:
@@ -130,14 +127,13 @@ nodeSelector: {}
 tolerations:
   - operator: Exists
 
-# Scheduling and metadata shared by the node DaemonSet pods.
-# The node agent stands in for the GPU driver its node's workloads depend on,
-# so a priority such as system-node-critical keeps it from being starved or
-# evicted before them.
+# -- Priority class for node-agent DaemonSet pods.
 priorityClassName: ""
+# -- Affinity rules for scheduling node-agent pods.
 affinity: {}
+# -- Additional annotations applied to node-agent pods.
 podAnnotations: {}
-# Must not set the selector labels app.kubernetes.io/{name,instance,component}.
+# -- Additional labels for node-agent pods; do not set app.kubernetes.io selector labels.
 podLabels: {}
 
 # NFD derives pci-10de.present from the feature file the node agent writes here.
@@ -192,16 +188,19 @@ nodeAgent:
       cpu: 10m
       # -- Memory requested by the node agent.
       memory: 32Mi
-  # /healthz fails while the last Stage wave failed; /readyz reports whether
-  # every simulator is serving. Set either to null to drop that probe (an empty map
-  # merges with the default rather than replacing it).
+  # -- Liveness probe; /healthz fails when the last Stage wave failed. Set to null to disable.
   livenessProbe:
     httpGet:
+      # -- Liveness probe endpoint path.
       path: /healthz
+      # -- Liveness probe endpoint port name or number.
       port: health
+  # -- Readiness probe; /readyz reports whether every simulator is serving. Set to null to disable.
   readinessProbe:
     httpGet:
+      # -- Readiness probe endpoint path.
       path: /readyz
+      # -- Readiness probe endpoint port name or number.
       port: health
 
 # Allocation-aware GPU memory (#506). When enabled, a sidecar in the nvml-mock
@@ -622,8 +621,5 @@ controlPlane:
     # minAvailable: 1
     # maxUnavailable: 1
 
-# Additional Kubernetes objects rendered with the release, each passed through
-# tpl so it can reference chart values (e.g. "{{ .Release.Name }}"). Either a
-# list, or a map keyed by name so layered values files can override or drop
-# ("") individual entries. Each entry is an object or a YAML string.
+# -- Additional Kubernetes objects rendered with the release after tpl evaluation.
 extraObjects: []

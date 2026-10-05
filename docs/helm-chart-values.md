@@ -13,6 +13,7 @@ Kubernetes: `>= 1.28.0-0`
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
+| affinity | object | `{}` | Affinity rules for scheduling node-agent pods. |
 | allocationWatcher.enabled | bool | `false` | Enable allocation-based synthetic memory metrics. |
 | allocationWatcher.interval | string | `"2s"` | Poll period for the kubelet pod-resources socket. |
 | allocationWatcher.podResourcesSocket | string | `"/var/lib/kubelet/pod-resources/kubelet.sock"` | Kubelet pod-resources socket path. |
@@ -22,11 +23,10 @@ Kubernetes: `>= 1.28.0-0`
 | allocationWatcher.resources.requests.memory | string | `"32Mi"` | Memory request for the allocation watcher. |
 | allocationWatcher.usedFractionPerClaim | float | `0.5` | Fraction of usable GPU memory attributed to each claim. |
 | controlPlane.enabled | bool | `false` | Enable the Mokka control-plane service. |
-| controlPlane.image.allowMutableTag | bool | `false` | Allow a mutable control-plane image tag. |
-| controlPlane.image.digest | string | `""` | Immutable digest for the control-plane image. |
+| controlPlane.image.digest | string | `""` | Immutable digest; when set, it takes precedence over the tag. |
 | controlPlane.image.pullPolicy | string | `"IfNotPresent"` | Kubernetes image pull policy for the control plane. |
 | controlPlane.image.repository | string | `"ghcr.io/nvidia/mokka-control-plane"` | Control-plane image repository. |
-| controlPlane.image.tag | string | `""` | Control-plane image tag for local development. |
+| controlPlane.image.tag | string | `""` | Control-plane image tag; defaults to the chart appVersion. |
 | controlPlane.kubeAPIBurst | int | `100` | Kubernetes API burst allowance for the control plane. |
 | controlPlane.kubeAPIQPS | int | `50` | Kubernetes API request rate for the control plane. |
 | controlPlane.leaderElection.name | string | `"control-plane.mokka.nvidia.com"` | Lease name used for control-plane leader election. |
@@ -45,9 +45,12 @@ Kubernetes: `>= 1.28.0-0`
 | controlPlane.tolerations | list | `[]` | Tolerations for control-plane pods. |
 | controlPlane.workers | int | `2` | Number of control-plane worker goroutines. |
 | driverVersion | string | `""` | Driver version reported by the simulated driver; empty derives it from the profile. |
+| extraObjects | list | `[]` | Additional Kubernetes objects rendered with the release after tpl evaluation. |
 | fabricmanager.enabled | string | `""` | Enable or disable the fake fabric manager; empty derives it from the profile. |
 | fabricmanager.initDelay | string | `""` | Delay before publishing fabric readiness. |
 | fabricmanager.stateDir | string | `"/var/lib/nvml-mock/fabric-state"` | Host directory for fabric-manager readiness state. |
+| global.imagePullSecrets | list | `[]` | Pull secrets added to every pod created by this chart. |
+| global.imageRegistry | string | `""` | Registry host override applied to every image, such as an internal mirror. |
 | gpu.count | string | `""` | Number of simulated GPUs; empty derives the count from the selected profile. |
 | gpu.customConfig | string | `""` | Complete YAML configuration that replaces the selected GPU profile. |
 | gpu.dynamicMetrics.enabled | bool | `false` | Enable time-varying synthetic temperature, power, and utilization values. |
@@ -60,9 +63,11 @@ Kubernetes: `>= 1.28.0-0`
 | gpu.mig.enabled | bool | `false` | Enable MIG partitioning for profiles that support it. |
 | gpu.mig.gpuInstances | list | `[]` | GPU instance layout to create on each simulated device. |
 | gpu.profile | string | `"gb300"` | GPU profile and per-device simulation settings. |
+| image.digest | string | `""` | Immutable digest; when set, it takes precedence over the tag. |
 | image.pullPolicy | string | `"IfNotPresent"` | Kubernetes image pull policy. |
 | image.repository | string | `"ghcr.io/nvidia/nvml-mock"` | Container image repository for the node agent. |
-| image.tag | string | `"latest"` | Container image tag. |
+| image.tag | string | `""` | Container image tag; defaults to the chart appVersion. |
+| imagePullSecrets | list | `[]` | Pull secrets for nvml-mock, NRI, and control-plane pods. |
 | imex.mockChannels.capsMajor | int | `236` | Major number used for IMEX capability devices. |
 | imex.mockChannels.channelCount | int | `2048` | Number of IMEX channel device nodes to create per node. |
 | imex.mockChannels.channelMajor | int | `235` | Major number used for IMEX channel devices. |
@@ -74,9 +79,15 @@ Kubernetes: `>= 1.28.0-0`
 | integrations.fakeGpuOperator.profileLabels."run.ai/gpu-profile" | string | `"true"` | Additional label applied to generated fake-gpu-operator profiles. |
 | integrations.fakeGpuOperator.targetNamespace | string | `""` | Namespace where fake-gpu-operator reads profile ConfigMaps. |
 | nodeAgent.kernelLog.enabled | bool | `false` | Announce injected Xids through the host kernel log. TODO: remove the flag and make it on by default. |
+| nodeAgent.livenessProbe | object | `{"httpGet":{"path":"/healthz","port":"health"}}` | Liveness probe; /healthz fails when the last Stage wave failed. Set to null to disable. |
+| nodeAgent.livenessProbe.httpGet.path | string | `"/healthz"` | Liveness probe endpoint path. |
+| nodeAgent.livenessProbe.httpGet.port | string | `"health"` | Liveness probe endpoint port name or number. |
 | nodeAgent.logging | object | `{"format":"json","level":"info"}` | Node-agent logging settings and lifecycle behavior. |
 | nodeAgent.logging.format | string | `"json"` | Log encoding for the node agent. |
 | nodeAgent.logging.level | string | `"info"` | Log level for the node agent. |
+| nodeAgent.readinessProbe | object | `{"httpGet":{"path":"/readyz","port":"health"}}` | Readiness probe; /readyz reports whether every simulator is serving. Set to null to disable. |
+| nodeAgent.readinessProbe.httpGet.path | string | `"/readyz"` | Readiness probe endpoint path. |
+| nodeAgent.readinessProbe.httpGet.port | string | `"health"` | Readiness probe endpoint port name or number. |
 | nodeAgent.resources | object | `{"requests":{"cpu":"10m","memory":"32Mi"}}` | Resource requests for the node agent. |
 | nodeAgent.resources.requests.cpu | string | `"10m"` | CPU requested by the node agent. |
 | nodeAgent.resources.requests.memory | string | `"32Mi"` | Memory requested by the node agent. |
@@ -110,6 +121,9 @@ Kubernetes: `>= 1.28.0-0`
 | nri.readinessProbe.timeoutSeconds | int | `2` | Readiness probe timeout. |
 | nri.resources | object | `{}` | Additional NRI plugin resources. |
 | nri.socketPath | string | `"/var/run/nri/nri.sock"` | Runtime NRI socket path. |
+| podAnnotations | object | `{}` | Additional annotations applied to node-agent pods. |
+| podLabels | object | `{}` | Additional labels for node-agent pods; do not set app.kubernetes.io selector labels. |
+| priorityClassName | string | `""` | Priority class for node-agent DaemonSet pods. |
 | terminationGracePeriodSeconds | int | `10` | Pod termination grace period for the node-agent DaemonSet. |
 | tolerations | list | `[{"operator":"Exists"}]` | Pod tolerations for the mock DaemonSet. |
 | topology.domains | list | `[]` | Synthetic topology domains and clique membership. |
