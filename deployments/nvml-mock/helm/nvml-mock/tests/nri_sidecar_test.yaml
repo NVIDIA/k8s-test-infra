@@ -437,7 +437,7 @@ tests:
         infinibandAnnotation: example.com/rdma
     asserts:
       - contains:
-          path: spec.template.spec.containers[1].args
+          path: spec.template.spec.containers[0].args
           content: --infiniband-annotation=example.com/rdma
 
   - it: should point IMEX channel injection at the staged channel directory
