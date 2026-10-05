@@ -233,15 +233,21 @@ test("/cc and /uncc on an issue are refused before any write", async () => {
   }
 });
 
-test("/close closes an issue as completed and a pull request through the pulls API", async () => {
+// Prow's lifecycle plugin leaves an audit trail of who asked, with its
+// FormatResponse "@<login>: <reply>" (close.go:117,132, reopen.go:91,114).
+test("/close closes an issue as completed and a pull request through the pulls API, naming the requester", async () => {
   const issue = await execute("close");
   assert.deepEqual(issue.github.calls, [
     GET, { name: "issues.update", params: { ...REPO, issue_number: 42, state: "closed", state_reason: "completed" } },
+    comment("@alice: Closing this issue."),
   ]);
   assert.deepEqual(issue.core.failed, []);
+  assert.deepEqual(issue.result, { status: "applied" });
 
   const pull = await execute("close", {}, { issue: PULL });
-  assert.deepEqual(pull.github.calls, [GET, { name: "pulls.update", params: { ...REPO, pull_number: 42, state: "closed" } }]);
+  assert.deepEqual(pull.github.calls, [
+    GET, { name: "pulls.update", params: { ...REPO, pull_number: 42, state: "closed" } }, comment("@alice: Closed this PR."),
+  ]);
   assert.deepEqual(pull.core.failed, []);
 });
 
@@ -255,14 +261,29 @@ test("/close refuses an item that is already closed without a state write", asyn
   }
 });
 
-test("/reopen reopens an issue and an unmerged pull request", async () => {
+test("/reopen reopens an issue and an unmerged pull request, naming the requester", async () => {
   const issue = await execute("reopen", {}, { issue: { ...ISSUE, state: "closed" } });
-  assert.deepEqual(issue.github.calls, [GET, { name: "issues.update", params: { ...REPO, issue_number: 42, state: "open" } }]);
+  assert.deepEqual(issue.github.calls, [
+    GET, { name: "issues.update", params: { ...REPO, issue_number: 42, state: "open" } }, comment("@alice: Reopened this issue."),
+  ]);
   assert.deepEqual(issue.core.failed, []);
+  assert.deepEqual(issue.result, { status: "applied" });
 
   const pull = await execute("reopen", {}, { issue: { ...PULL, state: "closed" } });
-  assert.deepEqual(pull.github.calls, [GET, { name: "pulls.update", params: { ...REPO, pull_number: 42, state: "open" } }]);
+  assert.deepEqual(pull.github.calls, [
+    GET, { name: "pulls.update", params: { ...REPO, pull_number: 42, state: "open" } }, comment("@alice: Reopened this PR."),
+  ]);
   assert.deepEqual(pull.core.failed, []);
+});
+
+test("/reopen on an open item is a silent no-op, as in Prow", async () => {
+  // Prow's reopen handler returns early unless the item is closed (reopen.go:40-42).
+  for (const issue of [ISSUE, PULL]) {
+    const { github, core, result } = await execute("reopen", {}, { issue });
+    assert.deepEqual(github.calls, [GET]);
+    assert.deepEqual(core.failed, []);
+    assert.deepEqual(result, { status: "unchanged" });
+  }
 });
 
 test("/reopen refuses a merged pull request without a state write", async () => {
