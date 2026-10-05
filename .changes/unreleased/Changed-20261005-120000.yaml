@@ -1,0 +1,12 @@
+kind: Changed
+body: |-
+  node-agent: **Breaking:** the substitute `/proc/devices` for the DRA
+    ComputeDomain plugin moved from `<hostPath>/imex/proc-devices` to
+    `<hostPath>/driver/proc/devices`, inside the driver tree the DRA driver
+    already mounts. A DRA release set up with
+    `altProcDevices=/var/lib/nvml-mock/imex/proc-devices` cannot start its
+    kubelet plugin after upgrading; set
+    `altProcDevices=/var/lib/nvml-mock/driver/proc/devices` instead.
+time: 2026-10-05T12:00:00Z
+custom:
+  Issue: "821"
