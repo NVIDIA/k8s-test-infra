@@ -26,8 +26,8 @@ test("parses only the approved command grammar", () => {
 
 test("rejects commands outside the approved set and non-exact command names", () => {
   const parsed = parseCommands([
-    "/assign @octocat",
-    "/unassign @octocat",
+    "/label bug",
+    "/meow",
     "/help",
     "/LGTM",
     "/appro\u0432e",
@@ -104,6 +104,69 @@ test("only the exact agent-owned command name is skipped", () => {
     parsed.diagnostics.map(({ line, code }) => ({ line, code })),
     [1, 2, 3, 4].map((line) => ({ line, code: "unsupported-command" })),
   );
+});
+
+test("skips the agent-owned Prow commands without a command or diagnostic", () => {
+  for (const body of [
+    "/assign",
+    "/assign @octocat",
+    "/assign octocat hubot",
+    "/unassign @octocat",
+    "/cc @octocat",
+    "/cc nvidia/maintainers",
+    "/uncc @octocat",
+    "/close",
+    "/close not-planned",
+    "/reopen",
+    "/retitle fix: a new title",
+    "/retitle",
+    "  /retitle\tfix: tabbed\t",
+  ]) {
+    assert.deepEqual(parseCommands(body), { commands: [], diagnostics: [] }, body);
+  }
+});
+
+test("a Prow command line mixed with /hold yields exactly the /hold command", () => {
+  const parsed = parseCommands("/assign @octocat\n/cc @hubot\n/hold\n/close\n/retitle fix: x");
+
+  assert.deepEqual(parsed.diagnostics, []);
+  assert.deepEqual(
+    parsed.commands.map(({ name, line, raw }) => ({ name, line, raw })),
+    [{ name: "hold", line: 3, raw: "/hold" }],
+  );
+});
+
+test("only the exact agent-owned Prow command names are skipped", () => {
+  const parsed = parseCommands([
+    "/assigns @octocat",
+    "/ASSIGN @octocat",
+    "/Close",
+    "/cc-me",
+    "/un-cc @octocat",
+    "/re-open",
+    "/retitles fix: x",
+  ].join("\n"));
+
+  assert.deepEqual(parsed.commands, []);
+  assert.deepEqual(
+    parsed.diagnostics.map(({ line, code }) => ({ line, code })),
+    [1, 2, 3, 4, 5, 6, 7].map((line) => ({ line, code: "unsupported-command" })),
+  );
+});
+
+test("the parser's line guards run before the Prow command skip", () => {
+  const parsed = parseCommands([
+    "/assign @octocat\u200b",
+    `/retitle ${"a".repeat(4_096)}`,
+    "/close\u00a0now",
+  ].join("\n"));
+
+  assert.deepEqual(parsed.commands, []);
+  assert.deepEqual(parsed.diagnostics.map(({ line, code }) => ({ line, code })), [
+    { line: 1, code: "unsafe-command" },
+    { line: 2, code: "line-too-large" },
+    { line: 3, code: "unsupported-command" },
+  ]);
 });
 
 test("/backport is an ordinary unsupported command", () => {

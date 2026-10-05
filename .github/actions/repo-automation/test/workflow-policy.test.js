@@ -14,6 +14,7 @@ const managed = [
   "automation-ci.yml",
   "cherrypick.yml",
   "commands.yml",
+  "issue-commands.yml",
   "label-sync.yml",
   "merge-evaluate.yml",
   "pr-metadata.yml",

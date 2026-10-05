@@ -4,9 +4,12 @@ const MAX_BODY_LENGTH = 65_536;
 const MAX_LINE_LENGTH = 4_096;
 const CONTROL_CHARACTERS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 const SUPPORTED_COMMANDS = new Set(["lgtm", "approve", "hold", "unhold", "retest"]);
-// The Mokka agent owns these commands. Like a Prow plugin meeting another plugin's
+// The Mokka agent owns these commands and dispatches the cherrypick.yml and
+// issue-commands.yml workflows for them. Like a Prow plugin meeting another plugin's
 // command, the parser skips them whatever their arguments: no command, no diagnostic.
-const AGENT_COMMANDS = new Set(["cherry-pick"]);
+const AGENT_COMMANDS = new Set([
+  "cherry-pick", "assign", "unassign", "cc", "uncc", "close", "reopen", "retitle",
+]);
 
 function diagnostic(line, code, message) {
   return { line, code, message };
