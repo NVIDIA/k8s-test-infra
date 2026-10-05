@@ -81,15 +81,20 @@ jobs:
           INPUT_REQUESTER: ${{ inputs.requester }}
         with:
           script: |
-            const { parseInputs } = require('./.github/scripts/issue-commands/inputs.js');
-            const request = parseInputs({
-              command: process.env.INPUT_COMMAND,
-              number: process.env.INPUT_NUMBER,
-              users: process.env.INPUT_USERS,
-              title: process.env.INPUT_TITLE,
-              requester: process.env.INPUT_REQUESTER,
+            const { validate } = require('./.github/scripts/issue-commands/run.js');
+            const request = await validate({
+              github,
+              context,
+              core,
+              inputs: {
+                command: process.env.INPUT_COMMAND,
+                number: process.env.INPUT_NUMBER,
+                users: process.env.INPUT_USERS,
+                title: process.env.INPUT_TITLE,
+                requester: process.env.INPUT_REQUESTER,
+              },
             });
-            core.setOutput('request', JSON.stringify(request));
+            if (request !== null) core.setOutput('request', JSON.stringify(request));
 
       - name: Apply command
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8

@@ -16,6 +16,8 @@
 
 "use strict";
 
+const { COMMANDS, InputError, parseInputs, parseNumber } = require("./inputs.js");
+
 // Applies one Prow command that the Mokka agent dispatched, with the GitHub
 // calls Prow's client makes (kubernetes-sigs/prow pkg/github/client.go):
 // AssignIssue and UnassignIssue compare the returned assignees, RequestReview
@@ -129,6 +131,30 @@ async function apply(github, repo, request, item) {
   }
 }
 
+// Parses the dispatch inputs. The agent reads no run back, so an invalid
+// dispatch on a valid number is answered there with the rule it broke.
+async function validate({ github, context, core, inputs }) {
+  try {
+    return parseInputs(inputs);
+  } catch (error) {
+    if (!(error instanceof InputError)) throw error;
+    const number = parseNumber(inputs.number);
+    if (number === null) {
+      core.setFailed(error.message);
+      return null;
+    }
+    const known = COMMANDS.includes(inputs.command);
+    await github.rest.issues.createComment({
+      owner: context.repo.owner,
+      repo: context.repo.repo,
+      issue_number: number,
+      body: `The ${known ? `\`/${inputs.command}\`` : "dispatched"} command did not complete: ${error.detail}.`,
+    });
+    core.setFailed(`${known ? `/${inputs.command}` : "the dispatched command"} on #${number} did not complete: ${error.message}`);
+    return null;
+  }
+}
+
 module.exports = async ({ github, context, core, request }) => {
   const repo = { owner: context.repo.owner, repo: context.repo.repo };
   // A missing issue cannot take a comment, so this read is not a refusal.
@@ -149,3 +175,5 @@ module.exports = async ({ github, context, core, request }) => {
   core.info(`/${request.command} on #${request.number} applied for ${request.requester}`);
   return { status: "applied" };
 };
+
+module.exports.validate = validate;
