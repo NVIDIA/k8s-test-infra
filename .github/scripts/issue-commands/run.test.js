@@ -326,3 +326,70 @@ test("errors that are not refusals fail the run without a comment", async () => 
     assert.deepEqual(core.failed, []);
   }
 });
+
+async function validateInputs(overrides) {
+  const github = fakeGitHub();
+  const core = fakeCore();
+  const inputs = { command: "close", number: "42", users: "", title: "", requester: "alice", ...overrides };
+  const request = await run.validate({ github, context: CONTEXT, core, inputs });
+  return { github, core, request };
+}
+
+test("validate returns the parsed request without any call for valid inputs", async () => {
+  const { github, core, request } = await validateInputs({ command: "assign", users: "bob" });
+
+  assert.deepEqual(request, { command: "assign", number: 42, users: ["bob"], title: null, requester: "alice" });
+  assert.deepEqual(github.calls, []);
+  assert.deepEqual(core.failed, []);
+});
+
+test("an invalid dispatch on a valid number gets one comment naming the command and the rule", async () => {
+  const cases = [
+    [{ command: "retitle", title: "fixes NVIDIA/k8s-test-infra#11 docs" },
+      "/retitle", "title must not contain a keyword that closes an issue",
+      "title must not contain a keyword that closes an issue"],
+    [{ command: "assign", users: "@alice-" },
+      "/assign", "user `@alice-` is not a GitHub login", 'user "@alice-" is not a GitHub login'],
+    [{ command: "cc", users: "bad--login" },
+      "/cc", "user `bad--login` is not a GitHub login", 'user "bad--login" is not a GitHub login'],
+  ];
+  for (const [overrides, command, detail, message] of cases) {
+    const { github, core, request } = await validateInputs(overrides);
+    assert.equal(request, null, command);
+    assert.deepEqual(github.calls, [comment(`The \`${command}\` command did not complete: ${detail}.`)], command);
+    assert.deepEqual(core.failed, [`${command} on #42 did not complete: ${message}`], command);
+  }
+});
+
+test("the refusal comment names the title rule and never echoes the title", async () => {
+  for (const title of ["fix: @nvidia/maintainers fixes #3", "fix: \u0000 /close", "x".repeat(257)]) {
+    const { github } = await validateInputs({ command: "retitle", title });
+    const body = github.calls[0].params.body;
+    assert.doesNotMatch(body, /@nvidia|\/close|xxx|\u0000/, JSON.stringify(title));
+    assert.match(body, /^The `\/retitle` command did not complete: title (?:must not|contains|is longer)/);
+  }
+});
+
+test("a rejected login is shown in a code span with hidden characters made visible", async () => {
+  const { github } = await validateInputs({ command: "cc", users: "bob`\n/close\u200b @team" });
+
+  assert.equal(github.calls[0].params.body,
+    "The `/cc` command did not complete: user `bob\ufffd\ufffd/close\ufffd @team` is not a GitHub login.");
+});
+
+test("an invalid command on a valid number is answered without echoing the command", async () => {
+  const { github, core } = await validateInputs({ command: "lgtm\n/close" });
+
+  const message = "command must be one of assign, unassign, cc, uncc, close, reopen, retitle";
+  assert.deepEqual(github.calls, [comment(`The dispatched command did not complete: ${message}.`)]);
+  assert.deepEqual(core.failed, [`the dispatched command on #42 did not complete: ${message}`]);
+});
+
+test("an invalid number fails the run without any call", async () => {
+  for (const number of ["0", "#42", "", "42; rm"]) {
+    const { github, core, request } = await validateInputs({ number, title: "fix: x" });
+    assert.equal(request, null, number);
+    assert.deepEqual(github.calls, [], number);
+    assert.deepEqual(core.failed, ["number must be a positive integer"], number);
+  }
+});

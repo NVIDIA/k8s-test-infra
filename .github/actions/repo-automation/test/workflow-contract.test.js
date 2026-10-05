@@ -240,6 +240,7 @@ test("issue commands run only when enabled from main, and no dispatch waits behi
   const job = workflow.jobs["issue-command"];
   assert.equal(job.if, activationGates.issueCommands);
   assert.deepEqual(job.permissions, { contents: "read", issues: "write", "pull-requests": "write" });
+  assert.equal(job["timeout-minutes"], 5);
   // GitHub keeps one pending run per group and cancels the older one, so any
   // group two dispatches can share would drop a command: each run is its own group.
   assert.deepEqual(job.concurrency, { group: "issue-commands-${{ github.run_id }}", "cancel-in-progress": false });
@@ -254,9 +255,31 @@ test("issue commands run only when enabled from main, and no dispatch waits behi
     INPUT_TITLE: "${{ inputs.title }}",
     INPUT_REQUESTER: "${{ inputs.requester }}",
   });
-  assert.match(validate.with.script, /require\('\.\/\.github\/scripts\/issue-commands\/inputs\.js'\)/);
+  // The glue is pinned whole: the request run.js acts on comes only from
+  // validate(), which calls parseInputs and answers an invalid dispatch.
+  assert.equal(validate.with.script, [
+    "const { validate } = require('./.github/scripts/issue-commands/run.js');",
+    "const request = await validate({",
+    "  github,",
+    "  context,",
+    "  core,",
+    "  inputs: {",
+    "    command: process.env.INPUT_COMMAND,",
+    "    number: process.env.INPUT_NUMBER,",
+    "    users: process.env.INPUT_USERS,",
+    "    title: process.env.INPUT_TITLE,",
+    "    requester: process.env.INPUT_REQUESTER,",
+    "  },",
+    "});",
+    "if (request !== null) core.setOutput('request', JSON.stringify(request));",
+    "",
+  ].join("\n"));
   assert.deepEqual(apply.env, { REQUEST_JSON: "${{ steps.inputs.outputs.request }}" });
-  assert.match(apply.with.script, /require\('\.\/\.github\/scripts\/issue-commands\/run\.js'\)/);
+  assert.equal(apply.with.script, [
+    "const run = require('./.github/scripts/issue-commands/run.js');",
+    "return await run({ github, context, core, request: JSON.parse(process.env.REQUEST_JSON) });",
+    "",
+  ].join("\n"));
   // Inputs reach the scripts only through the environment, never as script text.
   for (const step of [validate, apply]) assert.doesNotMatch(step.with.script, /\$\{\{/);
 });
