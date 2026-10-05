@@ -209,6 +209,38 @@ func TestAdjustComputeDomainRejectsPartialNodeStaging(t *testing.T) {
 
 // With chart defaults the node agent stages neither prerequisite, so they
 // would never appear: rejecting the daemon would block it forever.
+// The DRA ComputeDomain daemon carries no GPU allocation or opt-in annotation
+// at CreateContainer, so it must be routed before those checks, and it is held
+// back only while the node agent is expected to stage its prerequisites.
+func TestComputeDomainDaemonIsRoutedAndWaitsForStagingOnlyWhenExpected(t *testing.T) {
+	t.Parallel()
+
+	daemon := Container{
+		Name:      computeDomainContainerName,
+		Namespace: "nvidia",
+		PodLabels: map[string]string{computeDomainLabel: "domain-uid"},
+	}
+	cfg := DefaultConfig()
+
+	_, skipped := Skip(cfg, daemon)
+	require.False(t, skipped, "the daemon reaches the plugin's gate")
+	require.False(t, WaitsForStaging(cfg, daemon))
+
+	cfg.ComputeDomainStaging = true
+	require.True(t, WaitsForStaging(cfg, daemon))
+
+	optedOut := daemon
+	optedOut.PodAnnotations = map[string]string{cfg.OptOutAnnotation: "false"}
+	require.False(t, WaitsForStaging(cfg, optedOut), "the opt-out still wins")
+
+	excluded := daemon
+	excluded.Namespace = "kube-system"
+	require.False(t, WaitsForStaging(cfg, excluded), "an excluded namespace still wins")
+
+	plain := Container{Name: "main", Namespace: "nvidia"}
+	require.False(t, WaitsForStaging(cfg, plain))
+}
+
 func TestAdjustComputeDomainLeftUnmodifiedWhenNotStaged(t *testing.T) {
 	t.Parallel()
 

@@ -198,8 +198,10 @@ When the node agent stages them (`imex.nodeSoftware.enabled` and
 `topology.enabled`), the plugin rejects that container's creation while either
 is missing, so kubelet retries until the agent has staged them. Otherwise they
 would never appear, so the plugin leaves the daemon unmodified and logs a
-warning. This gate applies only to a container named `compute-domain-daemon` in
-a pod carrying the DRA ComputeDomain label; it cannot block the node agent or
+warning. The same applies while the node agent is staging or unavailable: with
+staging expected, the plugin fails the daemon's creation instead of leaving it
+unmodified. This gate applies only to a container named `compute-domain-daemon`
+in a pod carrying the DRA ComputeDomain label; it cannot block the node agent or
 unrelated workloads.
 
 That choice has a consequence worth knowing about. **A plugin containerd has

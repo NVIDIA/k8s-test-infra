@@ -125,3 +125,43 @@ func TestAgentRestartSuspendsAdjustments(t *testing.T) {
 	agentReady.Store(true)
 	require.NotNil(t, adjust(), "adjustments resume only after restaging")
 }
+
+// TestClosedGateHoldsBackComputeDomainDaemonWhileStagingIsExpected pins the one
+// exception to failing open. The DRA ComputeDomain daemon cannot run without
+// the IMEX node software, so while staging is expected a closed gate fails its
+// creation and kubelet retries. Without staging it fails open like any other
+// container.
+func TestClosedGateHoldsBackComputeDomainDaemonWhileStagingIsExpected(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(server.Close)
+	lockPath := filepath.Join(t.TempDir(), staginggate.FileName)
+	lock, err := staginggate.Exclusive(context.Background(), lockPath)
+	require.NoError(t, err)
+	require.NoError(t, lock.Close())
+
+	daemonPod := &api.PodSandbox{
+		Name:      "computedomain-daemon",
+		Namespace: "nvidia",
+		Labels:    map[string]string{"resource.nvidia.com/computeDomain": "domain-uid"},
+	}
+	daemon := &api.Container{Name: "compute-domain-daemon"}
+
+	for _, staging := range []bool{false, true} {
+		cfg := DefaultConfig()
+		cfg.AgentStagedURL = server.URL + "/stagedz"
+		cfg.StagingLockPath = lockPath
+		cfg.Inject.ComputeDomainStaging = staging
+
+		adjustment, _, err := NewPlugin(cfg).CreateContainer(context.Background(), daemonPod, daemon)
+		require.Nil(t, adjustment)
+		if staging {
+			require.ErrorContains(t, err, "node agent has not staged the driver tree")
+		} else {
+			require.NoError(t, err, "without expected staging the daemon fails open")
+		}
+	}
+}

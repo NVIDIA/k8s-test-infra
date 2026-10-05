@@ -37,6 +37,16 @@ func Adjust(cfg Config, container Container) (Adjustment, bool, error) {
 	return adjustWorkload(cfg, container, sel), true, nil
 }
 
+// WaitsForStaging reports whether the container is a specialized workload that
+// must not run until the node agent has staged what it needs. While the agent
+// is staging or unavailable, the plugin fails such a container's creation so
+// kubelet retries, instead of leaving it unmodified.
+func WaitsForStaging(cfg Config, container Container) bool {
+	cfg = withDefaults(cfg)
+	sel, _, skipped := decide(cfg, container)
+	return !skipped && sel.workload != nil && sel.workload.waitsForStaging(cfg)
+}
+
 // specializedWorkload replaces the generic overlay for a container that gets
 // its driver footprint from elsewhere, such as DRA's CDI edits.
 type specializedWorkload struct {
@@ -45,10 +55,18 @@ type specializedWorkload struct {
 	// adjust returns ok=false to leave the container unmodified, or an error
 	// to fail its creation.
 	adjust func(Config, Container) (Adjustment, bool, error)
+	// waitsForStaging reports whether the workload needs node agent staging
+	// before it can run.
+	waitsForStaging func(Config) bool
 }
 
 var specializedWorkloads = []specializedWorkload{
-	{name: computeDomainContainerName, matches: computeDomainDaemon, adjust: adjustComputeDomain},
+	{
+		name:            computeDomainContainerName,
+		matches:         computeDomainDaemon,
+		adjust:          adjustComputeDomain,
+		waitsForStaging: func(cfg Config) bool { return cfg.ComputeDomainStaging },
+	},
 }
 
 // adjustWorkload composes the generic overlay. The steps run in a fixed order,
