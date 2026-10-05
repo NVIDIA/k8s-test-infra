@@ -92,19 +92,26 @@ change with the calls Prow's GitHub client makes:
   requests each reviewer alone. Both are refused on an issue.
 - `close` closes an issue as completed, or closes a pull request, and is
   refused on an item that is already closed. `reopen` reopens either, except a
-  merged pull request.
+  merged pull request, and does nothing on an item that is not closed.
 - `retitle` sets the title.
 
-When the change is refused, by the workflow as above or by GitHub with HTTP
-403, 404, 410, or 422 or by leaving a user out, the workflow posts one comment on the issue or pull request that
-names the command and the reason, and fails the run. Inputs that fail these
-checks get the same comment when `number` is valid: it names the rule, never
-repeats a title, and shows a rejected login in a code span. An invalid
-`number`, or any other error, fails the run without a comment. The job runs only when
-`REPOSITORY_AUTOMATION_ISSUE_COMMANDS_ENABLED` is `true`; until the agent
-dispatches the workflow, it does nothing. Each run is its own concurrency
-group, because GitHub keeps one pending run per group and a shared group would
-drop a dispatched command.
+After a successful `close` or `reopen`, the workflow posts the reply Prow's
+lifecycle plugin posts, naming the requester, for example
+`@alice: Closing this issue.` The other commands post nothing on success, as
+in Prow.
+
+When a command is refused, by one of the rules above or by GitHub with HTTP
+403, 404, 410, or 422 or by leaving a user out, the workflow posts one comment
+on the issue or pull request that names the command and the reason, and fails
+the run. Inputs that fail validation get the same comment whenever `number` is
+a positive integer: it names the rule, never repeats a title, and shows a
+rejected login in a code span. An invalid `number`, or any other error, fails
+the run without a comment.
+
+The job runs only when `REPOSITORY_AUTOMATION_ISSUE_COMMANDS_ENABLED` is
+`true`; until the agent dispatches the workflow, it does nothing. Each run is
+its own concurrency group, because GitHub keeps one pending run per group and
+a shared group would drop a dispatched command.
 
 ## Activation order
 
