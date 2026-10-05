@@ -1240,5 +1240,3 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `mode` _string_ |  |  | Enum: [Pattern Fixed] <br />Optional: \{\} <br /> |
 | `pattern` _[UtilizationPattern](#utilizationpattern)_ |  |  | Optional: \{\} <br /> |
-
-

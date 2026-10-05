@@ -476,12 +476,13 @@ helm-docs: ## Generate the published nvml-mock Helm values reference
 crd-docs: ## Generate the Control Plane API reference documentation
 	$(GO_CMD) run github.com/elastic/crd-ref-docs@$(CRD_REF_DOCS_VERSION) \
 		--config hack/crd-ref-docs-config.yaml \
-		--source-path internal/controlplane/api/v1alpha1 \
+		--source-path api/v1alpha1 \
 		--output-path docs \
 		--renderer markdown \
 		--output-mode single \
 		--max-depth 20
 	awk 'BEGIN { print "<!--"; print "SPDX-License-Identifier: Apache-2.0"; print "SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION"; print "-->"; print "" } { print }' docs/out.md > docs/crd-reference.md.tmp
+	perl -0pi -e 's/\n+\z/\n/' docs/crd-reference.md.tmp
 	mv docs/crd-reference.md.tmp docs/crd-reference.md
 	unlink docs/out.md
 
