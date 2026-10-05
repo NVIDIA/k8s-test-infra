@@ -1183,6 +1183,22 @@ func TestFileSource_EmitsOnTopologyEdit(t *testing.T) {
 	require.Equal(t, updated, string(u.State.TopologyRaw))
 }
 
+// The board's MIG table is a document of its own, so it can arrive while the
+// profile stays untouched. Unwatched, a late table would latch the unpartitioned
+// compile until the resync, and for good where the resync is disabled.
+func TestFileSource_EmitsWhenTheMIGTableArrives(t *testing.T) {
+	t.Parallel()
+
+	configPath := migSiblingLayout(t)
+	ch := watchedSource(t, configPath, "")
+
+	migWriteSiblingTable(t, configPath)
+
+	u := nextUpdate(t, ch)
+	require.NoError(t, u.Err)
+	require.True(t, u.State.MIG.Partitioned(), "the table that arrived must partition the board")
+}
+
 // Repointing the symlink is how a host switches profiles, and it moves the
 // directory later edits arrive in, so the watch has to move with it. Only
 // inotify reports a symlink being replaced in a watched directory; kqueue

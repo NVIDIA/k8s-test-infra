@@ -151,8 +151,12 @@ func (w watched) carries(e fsnotify.Event) bool {
 // retarget a symlink, and a directory that was missing — an unmounted topology
 // ConfigMap — may have appeared since.
 func (f *FileSource) rewatch(w *fsnotify.Watcher) watched {
+	// reload hashes the board's MIG table as well, and the chart mounts it in a
+	// directory of its own rather than beside the profile.
+	paths := []string{f.configPath, f.topologyPath, engine.MIGProfilesPathFor(f.configPath)}
+
 	names := watched{}
-	for _, path := range []string{f.configPath, f.topologyPath} {
+	for _, path := range paths {
 		if path == "" {
 			continue // --topology is unset where the cluster declares none
 		}
