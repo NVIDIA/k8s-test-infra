@@ -64,33 +64,35 @@ spec:
           metadata:
             type: object
           spec:
-            description: Spec is the controller-owned rendered rack specification.
+            description: Spec is the rendered rack definition and its logical Node
+              bindings.
             properties:
               identity:
                 description: Identity is the stable coordinate used by agents and
                   topology consumers.
                 properties:
                   cliqueID:
-                    description: |-
-                      CliqueID remains zero while each rack represents one fabric clique.
-                      CliqueID is reserved for future multi-clique racks and is currently zero.
+                    description: CliqueID is reserved for future multi-clique layouts
+                      and remains zero.
                     format: int32
                     maximum: 0
                     minimum: 0
                     type: integer
                   fabricUUID:
-                    description: FabricUUID identifies the fabric clique represented
-                      by this rack.
+                    description: FabricUUID identifies the fabric domain associated
+                      with the rack.
                     format: uuid
                     type: string
                   rackGroup:
-                    description: RackGroup is the stable group identifier.
+                    description: RackGroup is the rack-group identifier within the
+                      source inventory.
                     format: dns1123Label
                     maxLength: 63
                     minLength: 1
                     type: string
                   rackIndex:
-                    description: RackIndex is the zero-based index within the group.
+                    description: RackIndex is the zero-based rack index within its
+                      group.
                     format: int32
                     minimum: 0
                     type: integer
@@ -106,11 +108,11 @@ spec:
                   same-name replacement cannot inherit this rack.
                 properties:
                   name:
-                    description: Name is the inventory resource name.
+                    description: Name is the inventory name.
                     minLength: 1
                     type: string
                   uid:
-                    description: UID identifies the exact inventory instance.
+                    description: UID pins the reference to the exact inventory instance.
                     type: string
                 required:
                 - name
@@ -135,39 +137,41 @@ spec:
                           structural placement.
                         properties:
                           hostProcessorIndex:
-                            description: HostProcessorIndex is the host processor
-                              index associated with the GPU.
+                            description: HostProcessorIndex is the host CPU index
+                              associated with the GPU.
                             format: int32
                             minimum: 0
                             type: integer
                           index:
-                            description: Index is the logical GPU index within the
-                              node.
+                            description: Index is the zero-based GPU index within
+                              the logical Node.
                             format: int32
                             maximum: 63
                             minimum: 0
                             type: integer
                           minorNumber:
-                            description: MinorNumber is the simulated device minor
-                              number.
+                            description: MinorNumber is the device minor number exposed
+                              to workloads.
                             format: int32
                             minimum: 0
                             type: integer
                           numaNode:
-                            description: NUMANode is the host NUMA node containing
-                              the GPU.
+                            description: NUMANode is the host NUMA node associated
+                              with the GPU.
                             format: int32
                             minimum: 0
                             type: integer
                           pciAddress:
+                            description: PCIAddress is the GPU's PCI bus address.
                             pattern: ^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$
                             type: string
                           rootComplex:
-                            description: RootComplex identifies the PCI root complex.
+                            description: RootComplex identifies the PCI root complex
+                              connected to the GPU.
                             pattern: ^pci[0-9a-f]{4}:[0-9a-f]{2}$
                             type: string
                           serial:
-                            description: Serial is the simulated GPU serial number.
+                            description: Serial is the GPU serial number.
                             minLength: 1
                             type: string
                           uuid:
@@ -191,7 +195,8 @@ spec:
                       - index
                       x-kubernetes-list-type: map
                     index:
-                      description: Index is the logical node index within the rack.
+                      description: Index is the zero-based logical Node index within
+                        the rack.
                       format: int32
                       maximum: 1023
                       minimum: 0
@@ -206,7 +211,8 @@ spec:
                           minLength: 1
                           type: string
                         uid:
-                          description: UID identifies the exact Kubernetes Node instance.
+                          description: UID distinguishes this Node instance from a
+                            replacement with the same name.
                           type: string
                       required:
                       - name
@@ -230,13 +236,13 @@ spec:
                   render the rack.
                 properties:
                   generation:
-                    description: Generation is the profile resource generation used
-                      to render the rack.
+                    description: Generation records the profile generation used for
+                      rendering.
                     format: int64
                     minimum: 1
                     type: integer
                   name:
-                    description: Name is the profile resource name.
+                    description: Name is the profile name.
                     minLength: 1
                     type: string
                   revision:
@@ -245,7 +251,7 @@ spec:
                     pattern: ^[0-9a-f]{64}$
                     type: string
                   uid:
-                    description: UID identifies the exact profile instance.
+                    description: UID pins the reference to the exact profile instance.
                     type: string
                 required:
                 - generation
@@ -263,7 +269,7 @@ spec:
             - profileRef
             type: object
           status:
-            description: Status reports node binding and readiness state.
+            description: Status summarizes the rack's durable Node assignments.
             properties:
               assignedNodes:
                 description: |-
@@ -273,9 +279,8 @@ spec:
                 minimum: 0
                 type: integer
               conditions:
-                description: |-
-                  Conditions report whether the rendered assignment is ready for agents.
-                  Conditions report whether the rack assignment is ready.
+                description: Conditions report whether the rendered assignment is
+                  ready for agents.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.

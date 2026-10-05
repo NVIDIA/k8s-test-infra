@@ -152,9 +152,11 @@ type RuntimeTelemetry struct {
 type UtilizationTelemetry struct {
 	// +optional
 	// +kubebuilder:validation:Enum=Pattern;Fixed
+	// Mode selects pattern-generated or fixed utilization values.
 	Mode string `json:"mode,omitempty"`
 
 	// +optional
+	// Pattern defines the utilization values generated over time.
 	Pattern *UtilizationPattern `json:"pattern,omitempty"`
 }
 
@@ -162,22 +164,27 @@ type UtilizationTelemetry struct {
 type UtilizationPattern struct {
 	// +optional
 	// +kubebuilder:validation:Enum=Steady;Bursty;Wave
+	// Type selects the shape of the generated utilization curve.
 	Type string `json:"type,omitempty"`
 
 	// +optional
+	// GPUPercent sets the minimum and maximum GPU utilization percentages.
 	GPUPercent *PercentRange `json:"gpuPercent,omitempty"`
 
 	// +optional
+	// MemoryPercent sets the minimum and maximum memory utilization percentages.
 	MemoryPercent *PercentRange `json:"memoryPercent,omitempty"`
 }
 
 // PercentRange is a min/max percentage bound. Both bounds are required, so an
 // override replaces an inherited range whole.
 type PercentRange struct {
+	// Minimum is the lower utilization percentage bound.
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=100
 	Minimum int32 `json:"minimum"`
 
+	// Maximum is the upper utilization percentage bound.
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=100
 	Maximum int32 `json:"maximum"`
@@ -187,10 +194,12 @@ type PercentRange struct {
 type PowerTelemetry struct {
 	// +optional
 	// +kubebuilder:validation:Enum=Fixed;Pattern
+	// Mode selects a constant or generated power draw.
 	Mode string `json:"mode,omitempty"`
 
 	// +optional
 	// +kubebuilder:validation:Minimum=0
+	// DrawMilliWatts is the simulated GPU power draw in milliwatts.
 	DrawMilliWatts *int64 `json:"drawMilliWatts,omitempty"`
 }
 
@@ -198,12 +207,15 @@ type PowerTelemetry struct {
 type TemperatureTelemetry struct {
 	// +optional
 	// +kubebuilder:validation:Enum=Fixed;Pattern
+	// Mode selects constant or generated temperature values.
 	Mode string `json:"mode,omitempty"`
 
 	// +optional
+	// GPUCelsius is the simulated GPU temperature in degrees Celsius.
 	GPUCelsius *int32 `json:"gpuCelsius,omitempty"`
 
 	// +optional
+	// MemoryCelsius is the simulated memory temperature in degrees Celsius.
 	MemoryCelsius *int32 `json:"memoryCelsius,omitempty"`
 }
 
@@ -211,18 +223,22 @@ type TemperatureTelemetry struct {
 type ClocksTelemetry struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=0
+	// GraphicsMHz is the simulated graphics clock rate in MHz.
 	GraphicsMHz *int32 `json:"graphicsMHz,omitempty"`
 
 	// +optional
 	// +kubebuilder:validation:Minimum=0
+	// SMMHz is the simulated streaming-multiprocessor clock rate in MHz.
 	SMMHz *int32 `json:"smMHz,omitempty"`
 
 	// +optional
 	// +kubebuilder:validation:Minimum=0
+	// MemoryMHz is the simulated memory clock rate in MHz.
 	MemoryMHz *int32 `json:"memoryMHz,omitempty"`
 
 	// +optional
 	// +kubebuilder:validation:Minimum=0
+	// VideoMHz is the simulated video clock rate in MHz.
 	VideoMHz *int32 `json:"videoMHz,omitempty"`
 }
 

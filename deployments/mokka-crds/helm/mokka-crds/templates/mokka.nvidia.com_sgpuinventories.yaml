@@ -56,35 +56,35 @@ spec:
           metadata:
             type: object
           spec:
-            description: Spec describes the desired rack composition.
+            description: Spec defines the simulated rack groups managed by this inventory.
             properties:
               rackGroups:
                 description: |-
                   RackGroups declares homogeneous sets of racks. One group can expand to
                   many racks; the controller admits at most 64 groups across all Inventories.
-                  RackGroups declares the homogeneous rack groups in the inventory.
                 items:
                   description: RackGroup is a homogeneous group of racks sharing a
                     profile.
                   properties:
                     count:
-                      description: Count is the number of racks to materialize.
+                      description: Count is the number of racks to materialize from
+                        this group.
                       format: int32
                       maximum: 100000
                       minimum: 1
                       type: integer
                     id:
-                      description: ID is the stable identifier for this rack group.
+                      description: ID uniquely identifies this group within its inventory.
                       maxLength: 63
                       minLength: 1
                       type: string
                     placement:
-                      description: RackPlacement constrains which nodes a rack group
-                        may materialize on.
+                      description: Placement optionally restricts the Nodes eligible
+                        for this rack group.
                       properties:
                         nodeSelector:
-                          description: NodeSelector limits placement to matching Kubernetes
-                            nodes.
+                          description: NodeSelector restricts placement to Nodes matching
+                            these labels.
                           properties:
                             matchExpressions:
                               description: matchExpressions is a list of label selector
@@ -131,11 +131,12 @@ spec:
                           x-kubernetes-map-type: atomic
                       type: object
                     profileRef:
-                      description: ProfileRef selects the rack profile used for this
-                        group.
+                      description: ProfileRef names the rack profile used to materialize
+                        each rack.
                       properties:
                         name:
-                          description: Name is the SGPURackProfile resource name.
+                          description: Name is the name of the SGPURackProfile to
+                            use.
                           minLength: 1
                           type: string
                       required:
@@ -156,21 +157,25 @@ spec:
             - rackGroups
             type: object
           status:
-            description: Status reports realized capacity and allocation state.
+            description: Status reports the capacity and usage currently realized
+              by the controller.
             properties:
               capacity:
-                description: Capacity reports the realized rack, node, and GPU counts.
+                description: Capacity is the total rack, Node, and GPU capacity realized
+                  by this inventory.
                 properties:
                   gpus:
-                    description: GPUs is the number of realized GPUs.
+                    description: GPUs is the number of simulated GPUs across those
+                      Nodes.
                     format: int32
                     type: integer
                   nodes:
-                    description: Nodes is the number of realized logical nodes.
+                    description: Nodes is the number of logical Nodes across those
+                      racks.
                     format: int32
                     type: integer
                   racks:
-                    description: Racks is the number of realized racks.
+                    description: Racks is the number of materialized racks.
                     format: int32
                     type: integer
                 required:
@@ -179,8 +184,8 @@ spec:
                 - racks
                 type: object
               conditions:
-                description: Conditions report inventory acceptance and programming
-                  state.
+                description: Conditions report the latest inventory acceptance and
+                  programming results.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -240,23 +245,25 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               rackGroups:
-                description: RackGroups is the current per-group status projection.
+                description: RackGroups contains per-group capacity and usage summaries.
                 items:
                   description: RackGroupStatus is the per-group Capacity + Usage projection.
                   properties:
                     capacity:
-                      description: Capacity is the realized capacity for the group.
+                      description: Capacity is the realized capacity for this group.
                       properties:
                         gpus:
-                          description: GPUs is the number of realized GPUs.
+                          description: GPUs is the number of simulated GPUs across
+                            those Nodes.
                           format: int32
                           type: integer
                         nodes:
-                          description: Nodes is the number of realized logical nodes.
+                          description: Nodes is the number of logical Nodes across
+                            those racks.
                           format: int32
                           type: integer
                         racks:
-                          description: Racks is the number of realized racks.
+                          description: Racks is the number of materialized racks.
                           format: int32
                           type: integer
                       required:
@@ -265,32 +272,34 @@ spec:
                       - racks
                       type: object
                     id:
-                      description: ID identifies the rack group.
+                      description: ID identifies the rack group summarized by this
+                        status.
                       type: string
                     profileName:
-                      description: ProfileName is the profile used by the group.
+                      description: ProfileName is the name of the profile used to
+                        materialize the group.
                       type: string
                     usage:
-                      description: Usage is the current allocation state for the group.
+                      description: Usage summarizes Node allocation for this group.
                       properties:
                         allocatedNodes:
-                          description: AllocatedNodes is the number of nodes assigned
-                            to consumers.
+                          description: AllocatedNodes is the number of Nodes currently
+                            allocated to workloads.
                           format: int32
                           type: integer
                         availableNodes:
-                          description: AvailableNodes is the number of currently available
-                            nodes.
+                          description: AvailableNodes is the number of Nodes available
+                            for allocation.
                           format: int32
                           type: integer
                         pendingNodes:
-                          description: PendingNodes is the number of requests awaiting
-                            allocation.
+                          description: PendingNodes is the number of requested Nodes
+                            not yet allocated.
                           format: int32
                           type: integer
                         requestedNodes:
-                          description: RequestedNodes is the number of nodes requested
-                            by consumers.
+                          description: RequestedNodes is the number of Nodes requested
+                            by scheduled workloads.
                           format: int32
                           type: integer
                       required:
@@ -314,26 +323,27 @@ spec:
                   IDs.
                 type: string
               usage:
-                description: Usage reports requested, allocated, available, and pending
-                  nodes.
+                description: Usage summarizes requested and allocated Nodes across
+                  the inventory.
                 properties:
                   allocatedNodes:
-                    description: AllocatedNodes is the number of nodes assigned to
-                      consumers.
+                    description: AllocatedNodes is the number of Nodes currently allocated
+                      to workloads.
                     format: int32
                     type: integer
                   availableNodes:
-                    description: AvailableNodes is the number of currently available
-                      nodes.
+                    description: AvailableNodes is the number of Nodes available for
+                      allocation.
                     format: int32
                     type: integer
                   pendingNodes:
-                    description: PendingNodes is the number of requests awaiting allocation.
+                    description: PendingNodes is the number of requested Nodes not
+                      yet allocated.
                     format: int32
                     type: integer
                   requestedNodes:
-                    description: RequestedNodes is the number of nodes requested by
-                      consumers.
+                    description: RequestedNodes is the number of Nodes requested by
+                      scheduled workloads.
                     format: int32
                     type: integer
                 required:
