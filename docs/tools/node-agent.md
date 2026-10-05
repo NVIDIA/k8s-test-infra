@@ -21,6 +21,7 @@ variable; the flag wins when both are set.
 | `--health-addr` | `MOKKA_AGENT_HEALTH_ADDR` | `:9090` | Address for `/healthz` and `/readyz`; empty disables both |
 | `--shutdown-timeout` | `MOKKA_AGENT_SHUTDOWN_TIMEOUT` | `30s` | Budget for teardown on SIGINT/SIGTERM |
 | `--imex-download-timeout` | `MOKKA_IMEX_DOWNLOAD_TIMEOUT` | `1m` | Bound on one attempt to download the IMEX archive when IMEX node software is enabled. A failed attempt is retried in the background, from 5 s up to every 5 min, and only the `imex` simulator reports not ready meanwhile |
+| `--resync-interval` | `MOKKA_AGENT_RESYNC_INTERVAL` | `1m` | Re-read `--config` and `--topology` this often regardless of filesystem events; `0` relies on events alone |
 | `--log-level` | `MOKKA_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. `warning` is an alias of `warn`; empty falls back to `info` |
 | `--log-format` | `MOKKA_LOG_FORMAT` | `json` | `json` or `plain`; empty falls back to `json` |
 | `--ib-mode` | `MOCK_IB` | `off` | InfiniBand tier: `off`, `sysfs` (render only) or `full` (adds the mock-ib daemon). Empty reads as `off` |
@@ -89,7 +90,8 @@ The chart renders this command line into the nvml-mock DaemonSet, dropping
   --health-addr=:9091 \
   --log-level=info \
   --log-format=json \
-  --shutdown-timeout=5s
+  --shutdown-timeout=5s \
+  --resync-interval=1m
 ```
 
 Two of those differ from the binary's own defaults, so a chart install does not

@@ -46,7 +46,7 @@ jobs:
       issues: write
       pull-requests: write
     concurrency:
-      group: repository-automation-state
+      group: repository-automation-merge-evaluate
       cancel-in-progress: false
     steps:
       - name: Resolve trusted default branch
@@ -81,6 +81,58 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         with:
           mode: merge-evaluate
+          pr-number: ${{ inputs.pr_number || '' }}
+          control-directory: control
+          policy-revision: ${{ steps.trusted.outputs.result }}
+          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+
+  # Keeps lgtm, approved and do-not-merge labels current without the merge-policy check or
+  # auto-merge, so labels keep flowing when another controller owns the merge.
+  policy-labels:
+    if: ${{ vars.REPOSITORY_AUTOMATION_POLICY_LABELS_ENABLED == 'true' && (github.event_name != 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: write
+    concurrency:
+      group: repository-automation-policy-labels
+      cancel-in-progress: false
+    steps:
+      - name: Resolve trusted default branch
+        id: trusted
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          github-token: ${{ github.token }}
+          result-encoding: string
+          script: |
+            const branch = context.payload.repository.default_branch;
+            const { data } = await github.rest.repos.getBranch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch,
+            });
+            const sha = data.commit.sha;
+            if (!/^[0-9a-f]{40}$/.test(sha)) {
+              throw new Error("default branch did not resolve to a canonical commit SHA");
+            }
+            return sha;
+      - name: Check out trusted automation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.trusted.outputs.result }}
+          path: control
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - name: Reconcile policy labels
+        uses: ./control/.github/actions/repo-automation
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          mode: policy-labels
           pr-number: ${{ inputs.pr_number || '' }}
           control-directory: control
           policy-revision: ${{ steps.trusted.outputs.result }}

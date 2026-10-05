@@ -1,0 +1,6 @@
+kind: Changed
+body: |-
+  helm: an enabled control plane no longer requires `controlPlane.image.digest` and runs the chart `appVersion` tag without one; `controlPlane.image.allowMutableTag` is removed and ignored if set.
+time: 2026-09-30T09:27:18Z
+custom:
+  Issue: "929"

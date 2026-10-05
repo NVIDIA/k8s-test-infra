@@ -5,6 +5,7 @@ const { verifyApproverAuthor } = require("../author-approval.js");
 const { configurationResult, safeConfigurationComputation, readMetadataEvidence } = require("../metadata-evidence.js");
 const { asciiLower, isManagedMetadataLabel } = require("../managed-labels.js");
 const { POLICY_COMMENT_MARKER, renderPolicyComment } = require("../policy-comment.js");
+const { validAuthorContext } = require("../pull-request-author.js");
 const { selectReviewers } = require("../reviewer-selection.js");
 const { classifySize } = require("../size.js");
 
@@ -109,11 +110,6 @@ function policyFailureNames(result) {
   if (!result.dco.valid) failures.push("DCO");
   if (!result.ownership.valid) failures.push("ownership");
   return failures;
-}
-
-function validAuthorContext(value) {
-  if (typeof value !== "string" || /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(value)) return false;
-  return GITHUB_LOGIN.test(value.endsWith("[bot]") ? value.slice(0, -5) : value);
 }
 
 function validateLivePullRequest(pullRequest, identity) {

@@ -16,9 +16,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	clienttesting "k8s.io/client-go/testing"
 
-	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
-	inventorycleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/cleanup"
+	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
+	sgpurelease "github.com/NVIDIA/k8s-test-infra/internal/sgpu/release"
 )
 
 func TestCapacityAdmissionIsDeterministicAndRecoversCapacity(t *testing.T) {
@@ -336,7 +336,7 @@ func TestCapacityRejectedReconcileRetiresMaterializedRacks(t *testing.T) {
 	require.False(t, result.Accepted)
 	require.Equal(t, ReasonCapacityExceeded, result.ValidationReason)
 	require.Len(t, result.CleanupNeeded, 1)
-	require.Equal(t, inventorycleanup.CleanupCapacityRejected, result.CleanupNeeded[0].Reason)
+	require.Equal(t, sgpurelease.CapacityRejected, result.CleanupNeeded[0].Reason)
 	stored, err := h.mokka.MokkaV1alpha1().SGPURacks().Get(ctx, rack.Name, metav1.GetOptions{})
 	require.NoError(t, err)
 	require.Equal(t, types.UID("node-uid"), stored.Spec.Nodes[0].NodeRef.UID,
@@ -361,7 +361,7 @@ func TestRackGroupCapacityRejectedReconcileRetiresWhollyUnresolvedLastGoodRack(t
 	require.False(t, result.Accepted)
 	require.Equal(t, ReasonCapacityExceeded, result.ValidationReason)
 	require.Len(t, result.CleanupNeeded, 1)
-	require.Equal(t, inventorycleanup.CleanupCapacityRejected, result.CleanupNeeded[0].Reason)
+	require.Equal(t, sgpurelease.CapacityRejected, result.CleanupNeeded[0].Reason)
 }
 
 func TestRackGroupAdmissionAcceptsWhollyUnresolvedInventoryWithinBudget(t *testing.T) {
@@ -495,22 +495,6 @@ func TestCapacityAdmissionCoalescesConcurrentWorkers(t *testing.T) {
 	require.EqualValues(t, 1, admission.computations.Load())
 }
 
-func TestCapacityAdmission100KBoundUsesLinearBoundedState(t *testing.T) {
-	const declarationCount = MaxInventoryNodes + 1
-	candidates := make([]admissionInventory, declarationCount)
-	for index := range candidates {
-		candidates[index] = admissionInventory{
-			instance:       inventoryInstance{name: fmt.Sprintf("inventory-%06d", index)},
-			targetCapacity: DeclaredCapacity{Racks: 1, Nodes: 1, GPUs: 1},
-		}
-	}
-
-	admitted := admitCapacityCandidates(DeclaredCapacity{}, candidates)
-
-	require.Len(t, admitted, int(MaxInventoryNodes))
-	require.Equal(t, "inventory-099999", admitted[len(admitted)-1].instance.name)
-}
-
 func TestReconcileRejectsAggregateCrossInventoryCapacityBeforeAllocationOrWrites(t *testing.T) {
 	ctx := context.Background()
 	profile := testProfile("profile", "profile-uid", 1, 1, 1)
@@ -528,7 +512,7 @@ func TestReconcileRejectsAggregateCrossInventoryCapacityBeforeAllocationOrWrites
 		h.cache,
 		h.mokka.MokkaV1alpha1().SGPUInventories(),
 		h.mokka.MokkaV1alpha1().SGPURacks(),
-		inventorycleanup.CleanupGateFunc(func(inventorycleanup.CleanupNeeded) bool { return false }),
+		sgpurelease.GateFunc(func(sgpurelease.Cleanup) bool { return false }),
 		allocation,
 	)
 	h.mokka.Fake.ClearActions()
@@ -571,7 +555,7 @@ func TestReconcileStopsStaleMaterializationAfterAdmissionChanges(t *testing.T) {
 		h.cache,
 		h.mokka.MokkaV1alpha1().SGPUInventories(),
 		h.mokka.MokkaV1alpha1().SGPURacks(),
-		inventorycleanup.CleanupGateFunc(func(inventorycleanup.CleanupNeeded) bool { return false }),
+		sgpurelease.GateFunc(func(sgpurelease.Cleanup) bool { return false }),
 		allocation,
 	)
 	created := 0

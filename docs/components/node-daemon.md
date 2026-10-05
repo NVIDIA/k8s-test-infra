@@ -95,9 +95,16 @@ A **state source** feeds the daemon. Today one implementation ships: a file
 source that watches the profile and the topology document, emitting an update
 whenever either changes.
 
-It polls the containing *directories* rather than the files. A ConfigMap update
-is an atomic symlink swap, so watching a file directly would pin the replaced
-inode and the daemon would never see the change.
+It watches the containing *directories* rather than the files, through
+filesystem events. A ConfigMap update and an editor's save both replace the
+file's inode — the kubelet by renaming the atomic `..data` symlink — so a watch
+on the file itself would hold the one just replaced. A path reached through a
+symlink is watched at both ends, so an edit behind `/etc/mokka/config.yaml`
+arrives too.
+
+`--resync-interval` re-reads both documents regardless of events, covering a
+node whose kernel reports none: a profile on NFS, or a host at its inotify
+watch limit.
 
 A control-plane source is stubbed for [MEP-0001](https://github.com/NVIDIA/k8s-test-infra/tree/main/enhancements/meps/0001-mokka-control-plane),
 which would let a cluster-wide component drive node state instead of a

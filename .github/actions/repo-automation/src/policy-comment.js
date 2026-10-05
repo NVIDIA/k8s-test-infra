@@ -9,6 +9,8 @@ const COMMAND_SECTION_START = "<!-- repo-automation-command-summary:v1:start -->
 const COMMAND_SECTION_END = "<!-- repo-automation-command-summary:v1:end -->";
 const SAFE_LOGIN = /^(?!.*--)[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
 const CONTROL_CHARACTERS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
+const EVIDENCE_COMMANDS = ["approve", "lgtm"];
+const MAX_RENDERED_REJECTIONS = 20;
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -208,6 +210,38 @@ function safeCommandItem(value) {
   };
 }
 
+function rejectedEvidence(value) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.some((entry) => (
+    !isRecord(entry)
+    || !Number.isSafeInteger(entry.commentId)
+    || entry.commentId <= 0
+    || !Array.isArray(entry.commands)
+    || entry.commands.length === 0
+    || new Set(entry.commands).size !== entry.commands.length
+    || entry.commands.some((name) => !EVIDENCE_COMMANDS.includes(name))
+    || entry.status !== "rejected"
+    || entry.code !== "stale-backlog-evidence"
+  ))) throw new TypeError("caught-up evidence rejections are invalid");
+  return value;
+}
+
+// One line per caught-up comment whose /lgtm or /approve was not recorded, so the
+// reviewer sees which comment to repeat.
+function rejectionLines(rejections) {
+  const lines = rejections.slice(0, MAX_RENDERED_REJECTIONS).map(({ commentId, commands }) => (
+    `- Comment ${commentId}: ${commands.map((name) => code(`/${name}`)).join(" and ")} rejected `
+    + `(${code("stale-backlog-evidence")}); its own run was skipped, `
+    + `so re-issue ${commands.length === 1 ? "it" : "them"} on the current head.`
+  ));
+  const hidden = rejections.length - MAX_RENDERED_REJECTIONS;
+  if (hidden > 0) {
+    lines.push(`- ${hidden} more ${hidden === 1 ? "comment" : "comments"}: ${code("/lgtm")} or `
+      + `${code("/approve")} rejected (${code("stale-backlog-evidence")}); re-issue them on the current head.`);
+  }
+  return lines;
+}
+
 function metadataSection(existingBody) {
   if (typeof existingBody !== "string") return "";
   if (existingBody.split(POLICY_COMMENT_MARKER).length - 1 !== 1) {
@@ -243,6 +277,7 @@ function renderCommandPolicyComment(input) {
     !isRecord(policy)
     || ["lgtm", "approved", "hold", "needsApproval"].some((key) => typeof policy[key] !== "boolean")
   ) throw new TypeError("command policy flags are invalid");
+  const rejections = rejectedEvidence(input.rejectedBacklogEvidence);
 
   const metadata = metadataSection(input.existingBody);
   const lines = [
@@ -259,6 +294,7 @@ function renderCommandPolicyComment(input) {
     ...(items.length === 0
       ? ["- Commands: none"]
       : items.map((item) => `- Line ${item.line}: ${code(item.name)} — ${code(item.code)} (${escaped(item.status)})`)),
+    ...rejectionLines(rejections),
     COMMAND_SECTION_END,
   ];
   return `${lines.join("\n")}\n`;

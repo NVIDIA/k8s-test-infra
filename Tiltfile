@@ -69,10 +69,11 @@ config.define_bool('control-plane', args=False,
     usage='Also deploy the Mokka Control Plane (MEP-0001) alongside nvml-mock. Off by default. Composes with --multi-gpu-profile (the first profile release owns the single CP), --compute-domain, and --nvmlmock-image.')
 # CI hook: hand Tilt a pre-built image (in CI, loaded from the workflow's image
 # artifact) instead of running docker_build. When set, docker_build is skipped
-# and the nvml-mock chart's image.repository / image.tag are pinned via --set
-# to the parsed <repo>/<tag>. Ref must be in `repo:tag` or `repo@digest` form.
+# and the nvml-mock chart's image.repository, image.tag and image.digest are
+# pinned via --set from the parsed ref: `repo:tag`, `repo@sha256:<hex>` or
+# `repo:tag@sha256:<hex>`.
 config.define_string('nvmlmock-image', args=False,
-    usage='Pre-built nvml-mock image ref (repo:tag). Skips docker_build and pins the chart image.repository/image.tag via --set. Used by CI to consume the image the build-nvmlmock-image job uploads as an artifact.')
+    usage='Pre-built nvml-mock image ref (repo:tag, repo@sha256:<hex> or repo:tag@sha256:<hex>). Skips docker_build and pins the chart image.repository/image.tag/image.digest via --set. Used by CI to consume the image the build-nvmlmock-image job uploads as an artifact.')
 
 cfg = config.parse()
 

@@ -97,11 +97,11 @@ tests:
           path: spec.template.spec.serviceAccountName
           value: RELEASE-NAME-nvml-mock
 
-  - it: should render the default image
+  - it: should default the image tag to the chart appVersion
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: "ghcr.io/nvidia/nvml-mock:latest"
+          value: "ghcr.io/nvidia/nvml-mock:0.0.0-dev"
       - equal:
           path: spec.template.spec.containers[0].imagePullPolicy
           value: IfNotPresent
@@ -517,6 +517,123 @@ tests:
           path: spec.template.spec.containers[0].imagePullPolicy
           value: Always
 
+  - it: should pin the image by digest over the tag
+    set:
+      allocationWatcher:
+        enabled: true
+      image:
+        tag: v1.2.3
+        digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/nvidia/nvml-mock@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      - equal:
+          path: spec.template.spec.containers[1].image
+          value: ghcr.io/nvidia/nvml-mock@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+  - it: should replace the image registry with global.imageRegistry
+    set:
+      allocationWatcher:
+        enabled: true
+      global:
+        imageRegistry: mirror.example.com
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: mirror.example.com/nvidia/nvml-mock:0.0.0-dev
+      - equal:
+          path: spec.template.spec.containers[1].image
+          value: mirror.example.com/nvidia/nvml-mock:0.0.0-dev
+
+  - it: should replace a registry with a port and keep a pinned digest
+    set:
+      global:
+        imageRegistry: mirror.example.com:5000/
+      image:
+        repository: localhost:5000/team/nvml-mock
+        digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: mirror.example.com:5000/team/nvml-mock@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+  # A first path component without a dot, colon or "localhost" is a Docker Hub
+  # namespace, not a registry host, so it must be kept.
+  - it: should prefix a registry-less repository with global.imageRegistry
+    set:
+      global:
+        imageRegistry: mirror.example.com
+      image:
+        repository: team/nvml-mock
+        tag: v1
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: mirror.example.com/team/nvml-mock:v1
+
+  # An empty pullPolicy follows the Kubernetes default for the rendered tag,
+  # so a floating "latest" is re-pulled instead of served stale from the node.
+  - it: should always pull a latest tag when the pull policy is empty
+    set:
+      allocationWatcher:
+        enabled: true
+      image:
+        tag: latest
+        pullPolicy: ""
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].imagePullPolicy
+          value: Always
+      - equal:
+          path: spec.template.spec.containers[1].imagePullPolicy
+          value: Always
+
+  - it: should pull a release tag if not present when the pull policy is empty
+    set:
+      image:
+        pullPolicy: ""
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].imagePullPolicy
+          value: IfNotPresent
+
+  - it: should not set image pull secrets by default
+    asserts:
+      - notExists:
+          path: spec.template.spec.imagePullSecrets
+
+  - it: should merge global and chart image pull secrets without duplicates
+    set:
+      global:
+        imagePullSecrets:
+          - mirror-creds
+          - name: shared-creds
+      imagePullSecrets:
+        - name: mirror-creds
+        - ghcr-creds
+    asserts:
+      - equal:
+          path: spec.template.spec.imagePullSecrets
+          value:
+            - name: mirror-creds
+            - name: shared-creds
+            - name: ghcr-creds
+
+  - it: should reject an image pull secret without a name via the values schema
+    set:
+      imagePullSecrets:
+        - namespace: other
+    asserts:
+      - failedTemplate: {}
+
+  - it: should reject a malformed image digest via the values schema
+    set:
+      image:
+        digest: sha256:not-a-digest
+    asserts:
+      - failedTemplate: {}
+
   - it: should respect nameOverride
     release:
       name: my-release
@@ -553,6 +670,111 @@ tests:
       - matchRegex:
           path: spec.template.metadata.annotations["checksum/config"]
           pattern: ^[0-9a-f]{64}$
+
+  # ── Pod scheduling and metadata ─────────────────────────────────────
+  - it: should leave priority and affinity unset by default
+    asserts:
+      - notExists:
+          path: spec.template.spec.priorityClassName
+      - notExists:
+          path: spec.template.spec.affinity
+
+  - it: should apply priorityClassName and affinity
+    set:
+      priorityClassName: system-node-critical
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+    asserts:
+      - equal:
+          path: spec.template.spec.priorityClassName
+          value: system-node-critical
+      - equal:
+          path: spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0].key
+          value: node-role.kubernetes.io/control-plane
+
+  - it: should add podAnnotations without displacing the chart's annotations
+    set:
+      podAnnotations:
+        prometheus.io/scrape: "true"
+        checksum/config: user-value
+        kubectl.kubernetes.io/default-container: user-value
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["prometheus.io/scrape"]
+          value: "true"
+      - matchRegex:
+          path: spec.template.metadata.annotations["checksum/config"]
+          pattern: ^[0-9a-f]{64}$
+      - equal:
+          path: spec.template.metadata.annotations["kubectl.kubernetes.io/default-container"]
+          value: node-agent
+
+  - it: should add podLabels alongside the selector labels
+    set:
+      podLabels:
+        team: gpu-infra
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels.team
+          value: gpu-infra
+      - equal:
+          path: spec.template.metadata.labels["app.kubernetes.io/name"]
+          value: nvml-mock
+      - equal:
+          path: spec.template.metadata.labels["app.kubernetes.io/component"]
+          value: daemon
+
+  # The DaemonSet selector matches these labels; letting podLabels override
+  # one would orphan the running pods on the next upgrade.
+  - it: should reject podLabels that override a selector label
+    set:
+      podLabels:
+        app.kubernetes.io/name: other
+    asserts:
+      - failedTemplate:
+          errorMessage: "podLabels must not set app.kubernetes.io/name: the chart's DaemonSet selectors own it"
+
+  # ── node-agent probes ───────────────────────────────────────────────
+  - it: should probe the node agent health endpoints by default
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /healthz
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.port
+          value: health
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /readyz
+
+  - it: should apply custom node agent probe settings
+    set:
+      nodeAgent:
+        livenessProbe:
+          periodSeconds: 30
+          failureThreshold: 5
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.periodSeconds
+          value: 30
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /healthz
+
+  - it: should drop a node agent probe set to null
+    set:
+      nodeAgent:
+        livenessProbe: null
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].livenessProbe
+      - exists:
+          path: spec.template.spec.containers[0].readinessProbe
 
   - it: should keep the checksum well-formed when failureInjection is enabled
     set:
@@ -1009,6 +1231,9 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].command
           content: --shutdown-timeout=5s
+      - contains:
+          path: spec.template.spec.containers[0].command
+          content: --resync-interval=1m
 
   # nodeAgent.resources is the only resources knob left: the container it used
   # to sit beside is gone.
@@ -1077,6 +1302,21 @@ tests:
               path: /sys
               type: Directory
 
+  # helm upgrade --reuse-values renders a value added after the release was
+  # installed as absent, and an empty duration flag stops the agent from
+  # starting. Unset must omit the flag so the binary's own default applies.
+  - it: should omit the resync interval when the value is unset
+    set:
+      nodeAgent:
+        resyncInterval: null
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].command
+          content: --resync-interval=
+      - lengthEqual:
+          path: spec.template.spec.containers[0].command
+          count: 8
+
   - it: should honour node-agent logging and timeout overrides
     set:
       nodeAgent:
@@ -1084,6 +1324,7 @@ tests:
           level: debug
           format: plain
         shutdownTimeout: 60s
+        resyncInterval: 30s
     asserts:
       - contains:
           path: spec.template.spec.containers[0].command
@@ -1094,6 +1335,9 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].command
           content: --shutdown-timeout=60s
+      - contains:
+          path: spec.template.spec.containers[0].command
+          content: --resync-interval=30s
 
   # ── Allocation watcher (#506) ───────────────────────────────────────
   - it: should not run the allocation watcher by default
@@ -1108,6 +1352,22 @@ tests:
             hostPath:
               path: /var/lib/kubelet/pod-resources
               type: Directory
+
+  - it: should run the allocation watcher sidecar from the chart image
+    set:
+      allocationWatcher:
+        enabled: true
+      image:
+        repository: custom-registry/nvml-mock
+        tag: v1.2.3
+        pullPolicy: Always
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[1].image
+          value: custom-registry/nvml-mock:v1.2.3
+      - equal:
+          path: spec.template.spec.containers[1].imagePullPolicy
+          value: Always
 
   - it: should add the allocation watcher sidecar and its socket mount when enabled
     set:

@@ -94,10 +94,7 @@ def install(active_consumers, nvmlmock_image='', control_plane=False):
     image_deps = [] if nvmlmock_image else [_BASE_IMAGE]
     image_keys = [] if nvmlmock_image else [('image.repository', 'image.tag')]
     if control_plane:
-        flags += [
-            '--set', 'controlPlane.enabled=true',
-            '--set', 'controlPlane.image.allowMutableTag=true',
-        ]
+        flags += ['--set', 'controlPlane.enabled=true']
         image_deps.append('ghcr.io/nvidia/mokka-control-plane')
         image_keys.append(('controlPlane.image.repository', 'controlPlane.image.tag'))
 

@@ -28,6 +28,21 @@ type Options struct {
 	GPUCount int    // used when IB.HCACountOverride == 0
 	NodeName string // expanded into NodeDescTemplate
 	RootDir  string // fake-root directory; subtree rooted at <RootDir>/sys/class/...
+
+	// GPUs are the node's GPUs in index order. Each HCA is paired with one and
+	// takes the next free PCI bus after it and its NUMA node, the way DGX/HGX
+	// boards put a NIC under the PCIe switch of the GPU it serves. Without
+	// GPUs the HCAs still get distinct addresses, on an unknown NUMA node.
+	GPUs []PCIFunction
+	// Occupied lists the addresses of every other PCI function on the node,
+	// NVSwitches for instance, whose buses no HCA may take.
+	Occupied []string
+}
+
+// PCIFunction is one PCI function and the NUMA node it is attached to.
+type PCIFunction struct {
+	Address  string // DDDD:BB:DD.F, lowercase hex
+	NUMANode int
 }
 
 // Render brings the tree at o.RootDir onto the given spec, writing what the spec
@@ -35,17 +50,24 @@ type Options struct {
 // directory this package owns outright, since anything else under it is treated
 // as garbage. A spec with InfiniBand disabled retracts the tree entirely.
 //
-// What it produces, one HCA costing ~50 files:
+// What it produces, one HCA costing ~60 files:
 //
 //	sys/class/infiniband/mlx5_N/
 //	    node_type node_guid sys_image_guid fw_ver hw_rev board_id hca_type node_desc
-//	    device/modalias                  libibverbs fnmatches this to claim the device
+//	    device/                          the PCI function, see renderPCIFunction
+//	        modalias vendor device numa_node uevent
+//	        infiniband/mlx5_N -> ../..
+//	        net/<netdev> -> sys/class/net/<netdev>    RoCE only
 //	    ports/1/
 //	        state phys_state rate lid port_guid sm_lid sm_sl cap_mask lid_mask_count link_layer
-//	        gids/0 pkeys/0 counters/* gid_attrs/{types,ndevs}/0
+//	        gids/0 pkeys/0 counters/* hw_counters/* gid_attrs/{types,ndevs}/0
+//	sys/class/net/<netdev>/      RoCE only: operstate carrier carrier_changes statistics/*
+//	                             device -> sys/class/infiniband/mlx5_N/device
 //	sys/class/infiniband_mad/    abi_version {umad,issm}N/{ibdev,port}
 //	sys/class/infiniband_verbs/  abi_version uverbsN/{ibdev,abi_version,dev}
 //	dev/infiniband/              {umad,issm,uverbs}N, empty: real char devices need CAP_MKNOD
+//
+// Links are relative, so they resolve wherever the tree is mounted.
 func Render(o Options) error {
 	t, err := render(o)
 
@@ -90,7 +112,16 @@ func render(o Options) (*tree, error) {
 		return nil, fmt.Errorf("infiniband: hca_count=%d exceeds mock GUID capacity %d", hcaCount, maxGUIDHCAs)
 	}
 
+	placements, err := placeHCAs(hcaCount, o.GPUs, o.Occupied)
+	if err != nil {
+		return nil, fmt.Errorf("infiniband: placing HCAs on the PCI bus: %w", err)
+	}
+
 	if err := t.mkdir("sys/class/infiniband"); err != nil {
+		return nil, err
+	}
+	// Every Linux node has a net class, RoCE or not; consumers list it.
+	if err := t.mkdir("sys/class/net"); err != nil {
 		return nil, err
 	}
 	if err := t.mkdir("sys/class/infiniband_mad"); err != nil {
@@ -114,10 +145,14 @@ func render(o Options) (*tree, error) {
 		if err := renderHCA(t, ib, guidPrefix, i, hcaCount, o.NodeName); err != nil {
 			return nil, fmt.Errorf("rendering mlx5_%d: %w", i, err)
 		}
+		if err := renderPCIFunction(t, ib, i, placements[i]); err != nil {
+			return nil, fmt.Errorf("rendering mlx5_%d PCI function: %w", i, err)
+		}
 	}
 
 	zap.L().Debug("rendered infiniband sysfs tree",
-		zap.Int("hca_count", hcaCount), zap.String("guid_prefix", guidPrefix))
+		zap.Int("hca_count", hcaCount), zap.String("guid_prefix", guidPrefix),
+		zap.String("link_layer", ib.LinkLayer), zap.Int("gpus", len(o.GPUs)))
 
 	return t, nil
 }
@@ -216,9 +251,22 @@ func renderHCA(t *tree, ib config.Infiniband, guidPrefix string, idx, hcaCount i
 		"link_downed", "port_rcv_remote_physical_errors", "port_rcv_switch_relay_errors",
 		"local_link_integrity_errors", "excessive_buffer_overrun_errors",
 		"VL15_dropped", "port_xmit_constraint_errors", "port_rcv_constraint_errors",
+		"port_xmit_wait",
 	}
 	for _, c := range zeroCounters {
 		if err := t.write(filepath.Join(portDir, "counters", c), "0\n"); err != nil {
+			return err
+		}
+	}
+
+	// The mlx5 driver's own transport counters, which NIC health monitors
+	// alert on alongside the standard ones above.
+	hwCounters := []string{
+		"implied_nak_seq_err", "local_ack_timeout_err", "out_of_sequence",
+		"packet_seq_err", "rnr_nak_retry_err", "roce_slow_restart",
+	}
+	for _, c := range hwCounters {
+		if err := t.write(filepath.Join(portDir, "hw_counters", c), "0\n"); err != nil {
 			return err
 		}
 	}
@@ -261,18 +309,6 @@ func renderHCA(t *tree, ib config.Infiniband, guidPrefix string, idx, hcaCount i
 		return err
 	}
 
-	// libibverbs fnmatches this against each provider's modalias table, so the
-	// grammar is exact: "pci:v<8H>d<8H>sv<8H>sd<8H>bc<2H>sc<2H>i<2H>",
-	// upper-case and zero-padded. Any deviation and libmlx5 never claims the
-	// device, leaving ibv_devinfo to report "0 HCAs found". The IDs below are a
-	// ConnectX-5: Mellanox 0x15B3, device 0x1017, class 0x028000 (IB controller).
-	if err := t.mkdir(filepath.Join(caDir, "device")); err != nil {
-		return err
-	}
-	const modalias = "pci:v000015B3d00001017sv000015B3sd00000008bc02sc00i00\n"
-	if err := t.write(filepath.Join(caDir, "device/modalias"), modalias); err != nil {
-		return err
-	}
 	if err := t.mkdir(filepath.Join(portDir, "gid_attrs/types")); err != nil {
 		return err
 	}
@@ -300,6 +336,104 @@ func renderHCA(t *tree, ib config.Infiniband, guidPrefix string, idx, hcaCount i
 		}
 	}
 	return nil
+}
+
+// The PCI identity every HCA carries, a ConnectX-5: Mellanox 0x15B3, device
+// 0x1017, subsystem 15B3:0008, class 0x020000 (Ethernet controller).
+//
+// libibverbs fnmatches modalias against each provider's modalias table, so the
+// grammar is exact: "pci:v<8H>d<8H>sv<8H>sd<8H>bc<2H>sc<2H>i<2H>", upper-case
+// and zero-padded. Any deviation and libmlx5 never claims the device, leaving
+// ibv_devinfo to report "0 HCAs found".
+const (
+	pciVendor   = "0x15b3"
+	pciDevice   = "0x1017"
+	pciModalias = "pci:v000015B3d00001017sv000015B3sd00000008bc02sc00i00"
+)
+
+// renderPCIFunction writes the HCA's device/ directory as the PCI function the
+// kernel links it to: identity, address and NUMA node, and the class devices
+// it backs. A RoCE HCA also gets its Ethernet netdev.
+//
+// No physfn link is written: its presence marks an SR-IOV virtual function,
+// and every rendered HCA is a physical one.
+func renderPCIFunction(t *tree, ib config.Infiniband, idx int, pf PCIFunction) error {
+	caName := fmt.Sprintf("mlx5_%d", idx)
+	devDir := filepath.Join("sys/class/infiniband", caName, "device")
+
+	uevent := strings.Join([]string{
+		"DRIVER=mlx5_core",
+		"PCI_CLASS=20000",
+		"PCI_ID=15B3:1017",
+		"PCI_SUBSYS_ID=15B3:0008",
+		"PCI_SLOT_NAME=" + pf.Address,
+		"MODALIAS=" + pciModalias,
+	}, "\n") + "\n"
+
+	files := []nameValue{
+		{"modalias", pciModalias + "\n"},
+		{"vendor", pciVendor + "\n"},
+		{"device", pciDevice + "\n"},
+		{"numa_node", strconv.Itoa(pf.NUMANode) + "\n"},
+		{"uevent", uevent},
+	}
+	for _, f := range files {
+		if err := t.write(filepath.Join(devDir, f.name), f.value); err != nil {
+			return err
+		}
+	}
+
+	if err := t.symlink(filepath.Join(devDir, "infiniband", caName), "../.."); err != nil {
+		return err
+	}
+
+	if !strings.EqualFold(ib.LinkLayer, "Ethernet") {
+		return nil
+	}
+
+	bus, err := parsePCIBus(pf.Address)
+	if err != nil {
+		return err
+	}
+	netdev := bus.netdevName()
+
+	if err := t.symlink(filepath.Join(devDir, "net", netdev), "../../../../net/"+netdev); err != nil {
+		return err
+	}
+	return renderNetdev(t, ib, caName, netdev)
+}
+
+// renderNetdev writes the RoCE port's netdev under sys/class/net. Its link
+// state follows the IB port's, as a RoCE port's state follows its netdev's.
+func renderNetdev(t *tree, ib config.Infiniband, caName, netdev string) error {
+	netDir := filepath.Join("sys/class/net", netdev)
+
+	operstate, carrier := "down", "0"
+	if formatPortState(ib.PortState) == formatPortState("ACTIVE") {
+		operstate, carrier = "up", "1"
+	}
+
+	files := []nameValue{
+		{"operstate", operstate + "\n"},
+		{"carrier", carrier + "\n"},
+		{"carrier_changes", "0\n"},
+	}
+	for _, f := range files {
+		if err := t.write(filepath.Join(netDir, f.name), f.value); err != nil {
+			return err
+		}
+	}
+
+	for _, c := range []string{
+		"rx_bytes", "rx_packets", "rx_errors", "rx_dropped", "rx_crc_errors", "rx_missed_errors",
+		"tx_bytes", "tx_packets", "tx_errors", "tx_dropped", "tx_carrier_errors",
+	} {
+		if err := t.write(filepath.Join(netDir, "statistics", c), "0\n"); err != nil {
+			return err
+		}
+	}
+
+	return t.symlink(filepath.Join(netDir, "device"), "../../infiniband/"+caName+"/device")
 }
 
 // nameValue is a (filename, contents) pair used to keep file creation

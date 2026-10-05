@@ -10,24 +10,108 @@ The foundation provides these functions:
 
 1. Additive label synchronization from `.github/repo-automation/labels.yml`.
 2. Pull request metadata and reviewer reconciliation.
-3. Guarded `/lgtm`, `/approve`, `/hold`, `/unhold`, `/retest`, `/backport`, and
-   `/cherry-pick` commands.
+3. Guarded `/lgtm`, `/approve`, `/hold`, `/unhold`, and `/retest` commands.
 4. Review-change observation.
 5. A stable `repository-automation/merge-policy` check, guarded GitHub native
    SQUASH auto-merge enablement, and unsafe auto-merge disarm.
-6. Generic backport pull requests for explicitly allowed target branches.
-7. Explicit Mokka cherry-pick dispatch for its validated contract.
-8. Conflict labels and metadata label repair for all open pull requests,
+6. Conflict labels and metadata label repair for all open pull requests,
    including older requests and requests based on another feature branch.
-
-`/backport <branch>` and `/cherry-pick <branch>` are aliases for the generic
-backport command. They create a backport pull request for an allowed
-`release-*` branch. They do not start the Mokka dispatch workflow.
+7. Labels-only policy evaluation for a merge controller outside this action.
 
 The foundation does not install Prow or Tide. GitHub branch protection remains
 the final merge authority. The automation publishes its policy check, enables
 native SQUASH auto-merge for eligible pull requests, and disables unsafe native
 auto-merge requests. It does not call a direct merge endpoint.
+
+## Cherry-pick
+
+`/cherry-pick <branch>` belongs to the Mokka agent, not to this action. The
+action skips a line whose command name is exactly `cherry-pick`, followed by a
+space, a tab, or the end of the line, whatever its arguments: it records no
+command, reports no diagnostic, and makes no write for it. A review body with
+that line is evaluated as if the line were absent. The parser's line checks run
+first, so a `/cherry-pick` line longer than 4096 characters, or with a control
+character other than tab, a format character, or a line or paragraph separator,
+is still reported, and like any diagnostic it keeps a review `/lgtm` beside it
+from counting.
+
+The agent dispatches `.github/workflows/cherrypick.yml` from `main` with two
+inputs: `pr_number`, the merged pull request, and `target_branches`, a
+comma-separated list of release branches. The job runs only when
+`REPOSITORY_AUTOMATION_CHERRY_PICK_ENABLED` is `true`. Dispatches share a
+concurrency group only when they name the same pull request and the same branch
+list, so a pending dispatch is never replaced by one for other branches.
+
+For each branch, the workflow cherry-picks the merge commit GitHub recorded for
+the pull request (the squash commit in this repository), recreates the result
+as verified commits on the exact target commit it used, and opens or updates
+the `backport-<pr>-to-<branch>` pull request. When the change is already on the
+target branch, it comments that on the pull request, opens no backport pull
+request, and counts the branch as done. It does not overwrite a backport branch
+holding a commit the workflow did not create, such as a pushed conflict
+resolution, an amended commit, or a web edit: that branch fails until its pull
+request is merged or the branch is deleted. The workflow's own commits are the
+verified ones, with author `github-actions[bot]` and committer GitHub, and the
+unverified cherry-pick a stopped run pushed, so a retry after a failed run
+replaces them. After every branch has been attempted and commented on, the run
+fails if any branch failed.
+
+`/backport` is not a command. The action reports it as unsupported, like any
+other unknown command.
+
+## Assignment, review request, state, and title commands
+
+`/assign`, `/unassign`, `/cc`, `/uncc`, `/close`, `/reopen`, and `/retitle`
+also belong to the Mokka agent. The action skips them exactly as it skips
+`/cherry-pick`: a line whose command name is one of these records no command,
+reports no diagnostic, and makes no write, and a review body is evaluated as if
+the line were absent. The parser's line checks still run first.
+
+The agent reads these comments on issues and pull requests, applies Prow's
+rules for who may use each command, and dispatches
+`.github/workflows/issue-commands.yml` from `main` with these five string
+inputs, always all five, with an empty string for the ones a command does not
+use:
+
+| Input | Value |
+|---|---|
+| `command` | `assign`, `unassign`, `cc`, `uncc`, `close`, `reopen`, or `retitle` |
+| `number` | The issue or pull request number |
+| `users` | Comma-separated GitHub logins without `@`, at most 10. Required for `assign`, `unassign`, `cc`, and `uncc`; refused for the other commands |
+| `title` | The new title, for `retitle` only: at most 256 characters, no control or format characters, and no keyword that closes an issue, such as `fixes #12` |
+| `requester` | The commenter's login, shown in the run name |
+
+The workflow decides nothing about who may use a command: anyone who can
+dispatch it already has write access. It checks the inputs, then makes the
+change with the calls Prow's GitHub client makes:
+
+- `assign` and `unassign` add or remove assignees. GitHub silently skips a
+  user it cannot assign, so the workflow compares the assignees GitHub returns.
+- `cc` and `uncc` request or remove pull request reviews. GitHub refuses a
+  whole review request for one reviewer it cannot request, so the workflow then
+  requests each reviewer alone. Both are refused on an issue.
+- `close` closes an issue as completed, or closes a pull request, and is
+  refused on an item that is already closed. `reopen` reopens either, except a
+  merged pull request, and does nothing on an item that is not closed.
+- `retitle` sets the title.
+
+After a successful `close` or `reopen`, the workflow posts the reply Prow's
+lifecycle plugin posts, naming the requester, for example
+`@alice: Closing this issue.` The other commands post nothing on success, as
+in Prow.
+
+When a command is refused, by one of the rules above or by GitHub with HTTP
+403, 404, 410, or 422 or by leaving a user out, the workflow posts one comment
+on the issue or pull request that names the command and the reason, and fails
+the run. Inputs that fail validation get the same comment whenever `number` is
+a positive integer: it names the rule, never repeats a title, and shows a
+rejected login in a code span. An invalid `number`, or any other error, fails
+the run without a comment.
+
+The job runs only when `REPOSITORY_AUTOMATION_ISSUE_COMMANDS_ENABLED` is
+`true`; until the agent dispatches the workflow, it does nothing. Each run is
+its own concurrency group, because GitHub keeps one pending run per group and
+a shared group would drop a dispatched command.
 
 ## Activation order
 
@@ -58,18 +142,18 @@ Activate the functions in this order:
    disarms an unsafe method that it observes, but the method can change after
    its final read. If this flag is already enabled, installing this action
    also activates native enablement.
-6. After every configured `release-*` target is protected and exists, set
-   `REPOSITORY_AUTOMATION_BACKPORT_ENABLED=true`.
-7. After the external caller uses the documented UUID, source SHA, target
-   branch, workflow commit SHA, and repository identity contract, review the
-   Mokka workflow and packaged action on `main`. Confirm that the `main` branch
-   rule rejects force pushes and applies the required merge checks to Mokka
-   draft pull requests. Set
-   `REPOSITORY_AUTOMATION_MOKKA_REVIEWED_SHA` to the full commit SHA of that
-   reviewed version, then set `REPOSITORY_AUTOMATION_MOKKA_ENABLED=true`.
+6. Set `REPOSITORY_AUTOMATION_CHERRY_PICK_ENABLED=true` once the Mokka agent
+   dispatches **Cherry-Pick**. Confirm the first backport pull request on a
+   release branch.
+7. Set `REPOSITORY_AUTOMATION_ISSUE_COMMANDS_ENABLED=true` once the Mokka
+   agent dispatches **Issue commands**. Confirm an `/assign` and a `/retitle`
+   on a test issue or pull request.
 
 Keep each earlier step active while you validate the next step. Do not enable a
 later write path when an earlier validation fails.
+
+To hand the merge to another controller, follow the cutover in
+[Labels-only policy evaluation](#labels-only-policy-evaluation).
 
 ## Labels for all open pull requests
 
@@ -99,9 +183,11 @@ approval, hold, and other labels outside its metadata ownership.
 
 The refresh preserves valid command state, including a hold, from the same
 trusted bot comment. Duplicate comments, invalid state, or a changed comment
-stop the refresh. The API has no atomic compare-and-swap for comments; the
-workflow concurrency group and the final comment read limit the remaining
-read-to-write race.
+stop the refresh. The API has no atomic compare-and-swap for comments.
+Commands and pull request metadata runs for the same pull request share one
+concurrency group, so they never rewrite its comment at the same time. Scans
+run in their own group, and only the final comment read limits their
+read-to-write race with a concurrent command.
 
 Both scans fully read their candidate list before the first mutation and
 reject a list above 100 requests instead of silently omitting requests. They
@@ -155,7 +241,11 @@ token has `contents: write` and `pull-requests: write` permissions for this
 operation. It checks out only the trusted default-branch commit, with checkout
 credentials disabled.
 
-The evaluator requires successful current-head runs of **Basic checks** and
+The evaluator reads the required source CI from `merge.requiredCI` in
+`.github/repo-automation/policy.yml`. Each workflow entry names a workflow file
+and, optionally, the changed-path globs that make it required; each check entry
+names a check run and the GitHub App id that must publish it. The current list
+requires successful current-head runs of **Basic checks** and
 **Validate changelog**, plus a successful `DCO` check from the DCO app. It also
 requires the action CI, Helm, dependency-integrity, and documentation workflows
 when their tracked PR path filters match a changed or renamed path. It uses the
@@ -171,6 +261,18 @@ Missing or running evidence blocks success. Failed, cancelled, skipped, or
 malformed required evidence also blocks success. Incomplete or over-limit API
 collections fail closed. The merge-policy check and metadata/review workflows
 do not satisfy the source CI gate.
+
+The `files` patterns use a portable subset of glob syntax so that the agent can
+evaluate the same list without a minimatch implementation. Configuration
+validation rejects anything else, including braces, brackets, `?`, extglob
+groups, negation, and `**` inside a segment. Each `/`-separated segment is
+either `**` or a run of letters, digits, `.`, `_`, and `-` in which `*` matches
+any characters inside that segment, including a leading dot. `**` matches zero
+or more whole segments, except as the last segment, where it matches one or
+more: `docs/**` matches `docs/a.md` but not `docs`, and `**/OWNERS` matches
+`OWNERS`. Matching is case-sensitive and applies to each changed path and to the
+previous path of a rename. Source CI can pass only for pull requests into
+`main` or a `release-*` branch; any other base stays pending.
 
 For an eligible request, the evaluator first publishes an `action_required`
 policy check. It reads authority, metadata, PR identity, and CI again, then
@@ -192,6 +294,56 @@ current base tip or a retargeted base branch was tested. With branch protection
 `strict=false`, GitHub can merge without an up-to-date base. Required native
 reviews and checks remain the final merge controls. A source CI gate in this
 action does not make a separately required native CI check redundant.
+
+### Labels-only policy evaluation
+
+The **Merge evaluation** workflow has a second job, `policy-labels`, gated by
+`REPOSITORY_AUTOMATION_POLICY_LABELS_ENABLED`. It runs on the same events as the
+merge job and reads the same review, command, and approver-author authority from
+the trusted default branch. It writes only the `lgtm`, `approved`,
+`do-not-merge/hold`, and `do-not-merge/needs-approval` labels. It does not read
+source CI, branch protection, or merge state, never publishes the merge-policy
+check, and never enables or disables native auto-merge. Its token has
+`actions: read`, `contents: read`, `issues: write`, and `pull-requests: write`,
+and the job has its own concurrency group.
+
+Before it writes, the job reads the policy comment, the labels, and the pull
+request head again. If any of them changed since its evaluation read, it skips
+the write and reports `inputs-changed`; the run that made the change triggers the
+next evaluation. If the evaluation fails, the job writes nothing and the run
+fails. Unlike the merge job, it does not apply a fail-closed label plan, because
+that plan would remove an active `do-not-merge/hold`.
+
+The job never removes `do-not-merge/hold`. Only an `/unhold` clears a hold, and
+the **Commands** run that applies it removes the label. A hold label without hold
+state stays, for example one that a maintainer added by hand or one that a
+`/hold` run wrote before its state.
+
+Use this job when another controller merges on these labels. Follow this order,
+because the merge job enables native auto-merge again on eligible pull requests
+for as long as it is enabled:
+
+1. Set `REPOSITORY_AUTOMATION_POLICY_LABELS_ENABLED=true` and confirm that a
+   **Merge evaluation** run applies labels from its `policy-labels` job.
+2. Set `REPOSITORY_AUTOMATION_MERGE_ENABLED=false`. Wait until no **Merge
+   evaluation** `evaluate` job is queued or running.
+3. Disable native auto-merge on every open pull request that has it, into
+   `main` and into every `release-*` branch. This command lists them:
+
+   ```shell
+   gh pr list --repo NVIDIA/k8s-test-infra --state open --limit 200 \
+     --json number,baseRefName,autoMergeRequest \
+     --jq '.[] | select(.autoMergeRequest != null) | "\(.number) \(.baseRefName)"'
+   ```
+
+   Run `gh pr merge <number> --repo NVIDIA/k8s-test-infra --disable-auto` for
+   each listed pull request. Repeat the list command until it prints nothing.
+4. In branch protection for `main` and for every `release-*` rule, replace the
+   required `repository-automation/merge-policy` check with the gate of the new
+   controller.
+
+While both variables are `true`, both jobs write the same labels from separate
+concurrency groups. Keep that overlap short.
 
 ### Automatic approval for approver authors
 
@@ -218,6 +370,39 @@ scopes. A `/hold` command preserves valid approval and LGTM labels. Commands
 read trusted OWNERS and validated review evidence again before any write;
 changed evidence stops the run. Native reviews remain live evidence and are
 not copied into command state.
+
+### Queued commands
+
+GitHub keeps at most one pending run in a concurrency group, so a newer
+**Commands** or **PR metadata** run for the same pull request cancels a pending
+**Commands** run. Each **Commands** run therefore lists the pull request comments
+and first applies the `/hold`, `/unhold`, and `/retest` commands from unprocessed
+comments that are older than its own comment, in comment ID order, then its own.
+A run started by a comment without commands also does this. Each comment must
+come from a human account and must not be edited, and its author's live
+identity and repository access are checked as for the comment that started the
+run. A caught-up comment
+is recorded as processed only when it changed something, or when it had an
+`/lgtm` or `/approve` rejected that its author is allowed to give. Comments from
+other commenters that change nothing therefore cannot fill the command history.
+Processed comment IDs are stored in the policy comment, so a repeated delivery
+changes nothing.
+
+Only comments created in the last 24 hours, by GitHub's comment creation time,
+are caught up, so a first run does not replay old history. Comments older than
+the newest processed command are not applied later, because that would reorder
+them after newer commands. Comments newer than the run's own comment are left to
+their own run. A caught-up `/lgtm` or `/approve` from a reviewer or approver who
+may give it is recorded as processed but grants no evidence, because it may have
+been written before a push to the head; the reviewer must comment again. A
+caught-up `/lgtm` or `/approve` from anyone else, including the pull request
+author, is ignored and not shown. The command summary in the
+policy comment names each such comment ID and asks for a re-issue on the
+current head, for up to 20 comments plus a count of the rest. It also shows the
+line results of the last processed comment, and the job summary lists every
+processed comment ID. A comment whose run was cancelled stays unapplied until the next
+**Commands** run for that pull request, and is dropped if that run starts more
+than 24 hours later.
 
 ### Dispatched label scan reports
 
@@ -285,68 +470,6 @@ Current metadata evidence does not require an earlier conversation command.
 A trusted metadata comment can have no command-state record. Unknown,
 malformed, duplicate, or wrong-context command-state records remain blocked.
 
-## Mokka dispatch contract
-
-Start **Mokka cherry-pick** only from `main`. The caller supplies the `main`
-commit SHA it checked. The job runs only when GitHub resolves the selected
-`main` ref to that SHA. The caller stops if its preflight sees a different SHA.
-If GitHub selects a different SHA, the job skips. A later `main` move does not
-change the selected commit for that run. The caller must check the new commit
-before it retries.
-
-The job loads automation from the selected `main` commit and compares the Mokka
-workflow, action metadata, and packaged action byte for byte with the commit
-in `REPOSITORY_AUTOMATION_MOKKA_REVIEWED_SHA`. It does this before it checks
-out the target with credentials. Unrelated changes to `main` do not require a
-new reviewed SHA. With this workflow version, a change to any compared file
-stops the job until a reviewer approves that automation and updates the
-reviewed SHA. GitHub branch protection remains the authority for later
-workflow changes, including edits to this guard.
-
-The dispatch accepts exactly five required string inputs:
-
-- `pull_request_number`: the number of a merged pull request in
-  `NVIDIA/k8s-test-infra`.
-- `source_sha`: the lowercase, 40-character merge commit SHA for that pull
-  request.
-- `target_branch`: the exact value `main`.
-- `action_id`: a canonical lowercase UUIDv4 that makes the request
-  idempotent.
-- `workflow_commit_sha`: the lowercase, 40-character `main` commit SHA that
-  the caller checked for this dispatch.
-
-The action also verifies GitHub repository ID `733665780`, validates that the
-source pull request belongs to this repository, and rejects a source pull
-request that was based on the target branch. The source SHA must be the merged
-pull request commit and must have one parent. The action creates or reuses a
-`mokka/cherry-pick/<action_id>` branch and opens a draft pull request. It does
-not merge the pull request.
-
-Before each cherry-pick attempt, the action fetches the current target branch
-and starts from that commit. If `main` advances before the upload, the action
-fetches it and retries the cherry-pick, up to three attempts. It rejects a
-target history rewrite, a source pull request change, or a cherry-pick
-conflict. The action uploads the result tree on a temporary branch, then asks
-GitHub to create a signed commit with the checked target commit as its parent.
-It requires GitHub to report a valid signature before it creates the final
-`mokka/cherry-pick/<action_id>` branch. The temporary branch is removed with
-an exact lease before the draft pull request is opened. The result records the
-target commit used for the signed commit. If the action detects that `main`
-moved before final branch creation, it stops after it removes the temporary
-branch; review the failure before retrying the dispatch. A failed cleanup
-requires manual investigation.
-If GitHub reports an error while creating the draft pull request, the action
-keeps the final branch for manual investigation because the request may have
-succeeded without a response.
-
-If `main` advances after the action creates the final branch, GitHub branch
-protection controls whether the draft pull request can merge.
-
-Mokka dispatch does not support dry-run mode. Its action input must be the
-exact string `false`. Keep `REPOSITORY_AUTOMATION_MOKKA_ENABLED` unset until
-the external caller meets this contract. A missing or malformed reviewed SHA
-fails the job before any checkout.
-
 ## Security and operations
 
 - Keep top-level workflow permissions empty. Grant permissions per job.
@@ -360,6 +483,7 @@ fails the job before any checkout.
 - Keep the scheduled evaluator because it repairs missed or delayed events.
 
 To stop repository writes, set the applicable activation variable to `false`.
-Before merge evaluation is disabled, maintainers must disable native auto-merge
-on open pull requests. Do not remove the required merge check until maintainers
-select and document a replacement gate.
+After merge evaluation is disabled, maintainers must disable native auto-merge
+on every open pull request and confirm that none is still armed, because the
+evaluator enables it again while it runs. Do not remove the required merge check
+until maintainers select and document a replacement gate.

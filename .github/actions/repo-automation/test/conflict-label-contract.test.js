@@ -140,7 +140,7 @@ function fakeGitHub(options = {}) {
   for (const operation of [
     "requestReviewers", "upsertPolicyComment", "addPolicyLabel", "removePolicyLabel",
     "setMergePolicyCheck", "disableAutoMerge", "enableAutoMerge", "mergePullRequest",
-    "rerunFailedJobs", "createBackportPullRequest",
+    "rerunFailedJobs",
   ]) {
     github[operation] = async (...args) => {
       mutations.push({ operation, args });

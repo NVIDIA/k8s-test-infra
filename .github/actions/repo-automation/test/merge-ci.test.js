@@ -6,13 +6,17 @@ const path = require("node:path");
 const test = require("node:test");
 const { minimatch } = require("minimatch");
 const YAML = require("yaml");
+const { loadConfig } = require("../src/config.js");
 const { evaluateCI } = require("../src/merge-ci.js");
 const { MAX_API_COLLECTION_ITEMS, MAX_CHANGED_FILES } = require("../src/limits.js");
+const { goldenCases, resultCode } = require("./helpers/merge-ci-golden.js");
+const golden = require("./fixtures/merge-ci/golden-809294d.json");
 
 const HEAD = "a".repeat(40);
 const OLD_HEAD = "b".repeat(40);
 const REPOSITORY = "nvidia/k8s-test-infra";
 const WORKFLOWS = ["basic-checks.yaml", "validate-changelog.yaml", "automation-ci.yml", "helm.yaml", "dependency-integrity.yaml", "deploy-pages.yaml"];
+const requiredCI = loadConfig(path.resolve(__dirname, "../../../..")).policy.merge.requiredCI;
 
 function run(workflow, overrides = {}) {
   return {
@@ -32,7 +36,7 @@ function evidence(overrides = {}) {
   return {
     repository: REPOSITORY, prNumber: 42, headOid: HEAD, baseBranch: "main",
     files: [{ path: "pkg/code.go" }],
-    runs: [run("basic-checks.yaml"), run("validate-changelog.yaml")], checks: [dco()],
+    runs: [run("basic-checks.yaml"), run("validate-changelog.yaml")], checks: [dco()], requiredCI,
     ...overrides,
   };
 }
@@ -47,6 +51,80 @@ function unmappedEvidence(overrides = {}) {
     ...overrides,
   });
 }
+
+test("policy requiredCI reproduces the 809294d hard-coded requirements for every golden case", () => {
+  const cases = goldenCases();
+  assert.deepEqual(cases.map(({ key }) => key), Object.keys(golden));
+  for (const { key, inputs } of cases) {
+    const actual = inputs.map((input) => resultCode(evaluateCI, { ...input, requiredCI })).join("");
+    assert.equal(actual, golden[key], key);
+  }
+});
+
+test("required workflows and checks come from the policy, not a built-in list", () => {
+  const basic = { path: ".github/workflows/basic-checks.yaml" };
+  const changelog = { path: ".github/workflows/validate-changelog.yaml" };
+  const dcoCheck = { name: "DCO", appId: 1861 };
+  assert.equal(evaluateCI(evidence({
+    runs: [run("basic-checks.yaml")], requiredCI: { workflows: [basic], checks: [dcoCheck] },
+  })), "SUCCESS");
+  assert.equal(evaluateCI(evidence({
+    requiredCI: { workflows: [basic, changelog, { path: ".github/workflows/ci.yaml" }], checks: [dcoCheck] },
+  })), "PENDING");
+  assert.equal(evaluateCI(evidence({
+    runs: [run("validate-changelog.yaml")],
+    requiredCI: { workflows: [{ ...basic, files: ["docs/**"] }, changelog], checks: [dcoCheck] },
+  })), "SUCCESS");
+  const withCla = { workflows: [basic, changelog], checks: [dcoCheck, { name: "license/cla", appId: 9 }] };
+  assert.equal(evaluateCI(evidence({ requiredCI: withCla })), "PENDING");
+  assert.equal(evaluateCI(evidence({
+    requiredCI: withCla, checks: [dco(), dco({ id: 101, name: "license/cla", appId: 9 })],
+  })), "SUCCESS");
+  assert.equal(evaluateCI(evidence({
+    requiredCI: withCla, checks: [dco(), dco({ id: 101, name: "license/cla", appId: 9, conclusion: "failure" })],
+  })), "FAILED");
+});
+
+test("evaluation fails closed without a well-formed required CI definition", () => {
+  for (const override of [
+    { requiredCI: undefined }, { requiredCI: null }, { requiredCI: [] },
+    { requiredCI: { workflows: requiredCI?.workflows } },
+    { requiredCI: { workflows: [{ files: ["docs/**"] }], checks: [{ name: "DCO", appId: 1861 }] } },
+    { requiredCI: { workflows: [{ path: ".github/workflows/basic-checks.yaml", files: "docs/**" }], checks: [] } },
+    { requiredCI: { workflows: [], checks: [{ name: "DCO", appId: "1861" }] } },
+  ]) assert.throws(() => evaluateCI(evidence(override)), TypeError, JSON.stringify(override));
+});
+
+test("evaluation rejects an empty workflow or check requirement list", () => {
+  for (const requirements of [
+    { workflows: [], checks: [{ name: "DCO", appId: 1861 }] },
+    { workflows: [{ path: ".github/workflows/basic-checks.yaml" }], checks: [] },
+  ]) {
+    assert.throws(() => evaluateCI(evidence({ requiredCI: requirements })), {
+      name: "TypeError",
+      message: "CI requirements must name at least one workflow and one check",
+    }, JSON.stringify(requirements));
+  }
+});
+
+test("portable requiredCI path patterns match as documented in policy.yml", () => {
+  const vectors = [
+    ["docs/**", "docs/a.md", true], ["docs/**", "docs/a/b.md", true], ["docs/**", "docs", false],
+    ["docs/**", "docsx/a.md", false], ["**/OWNERS", "OWNERS", true], ["**/OWNERS", "x/y/OWNERS", true],
+    ["a/**/b", "a/b", true], ["a/**/b", "a/x/y/b", true], ["a/**/b", "a/x/y/c", false],
+    ["*.yml", "mkdocs.yml", true], ["*.yml", "docs/mkdocs.yml", false], ["*", ".hidden", true],
+    ["*.test.*", "x.test.js", true], ["deployments/*/helm/**", "deployments/nvml-mock/helm/Chart.yaml", true],
+    ["deployments/*/helm/**", "deployments/a/b/helm/x", false], ["Makefile", "makefile", false],
+  ];
+  for (const [pattern, changedPath, matches] of vectors) {
+    const requirements = {
+      workflows: [{ path: ".github/workflows/basic-checks.yaml" }, { path: ".github/workflows/helm.yaml", files: [pattern] }],
+      checks: [{ name: "DCO", appId: 1861 }],
+    };
+    assert.equal(evaluateCI(evidence({ files: [{ path: changedPath }], requiredCI: requirements })),
+      matches ? "PENDING" : "SUCCESS", `${pattern} ${changedPath}`);
+  }
+});
 
 test("requires both broad workflows and DCO instead of passing empty evidence", () => {
   assert.equal(evaluateCI(evidence()), "SUCCESS");
@@ -221,6 +299,8 @@ test("uses the latest exact-head DCO check ID and ignores old failures", () => {
 test("requires conditional workflows for changed paths and both sides of renames", () => {
   const cases = [
     [".github/actions/repo-automation/src/index.js", ["automation-ci.yml"]],
+    [".github/scripts/cherrypick/backport.js", ["automation-ci.yml"]],
+    [".github/scripts/issue-commands/run.js", ["automation-ci.yml"]],
     [".github/repo-automation/policy.yml", ["automation-ci.yml"]], [".github/workflows/new.yml", ["automation-ci.yml"]],
     ["hack/actionlint.sh", ["automation-ci.yml"]], ["OWNERS", ["automation-ci.yml"]], ["OWNERS_ALIASES", ["automation-ci.yml"]],
     ["deployments/nvml-mock/helm/Chart.yaml", ["helm.yaml"]], ["deployments/mokka-crds/helm/templates/crd.yaml", ["helm.yaml"]],
@@ -257,9 +337,12 @@ test("required workflow behavior follows tracked pull_request triggers", () => {
   const definitions = WORKFLOWS.map((workflow) => ({
     workflow, trigger: YAML.parse(fs.readFileSync(path.join(workflowRoot, workflow), "utf8")).on.pull_request,
   }));
-  for (const { trigger } of definitions) {
-    for (const pattern of trigger.paths || []) probes.push(pattern.replaceAll("**", "nested/changed.txt").replaceAll("*", "change"));
-  }
+  // Probe both sides, so a path added to only the trigger or only the policy fails.
+  const patterns = [
+    ...definitions.flatMap(({ trigger }) => trigger.paths || []),
+    ...requiredCI.workflows.flatMap(({ files }) => files || []),
+  ];
+  for (const pattern of patterns) probes.push(pattern.replaceAll("**", "nested/changed.txt").replaceAll("*", "change"));
   const options = { dot: true, nocomment: true, nonegate: true };
   for (const baseBranch of ["main", "release-0.16"]) {
     for (const changedPath of new Set(probes)) {

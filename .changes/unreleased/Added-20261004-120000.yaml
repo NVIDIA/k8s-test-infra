@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  Issue commands workflow (`issue-commands.yml`) that the Mokka agent dispatches with workflow_dispatch to apply `/assign`, `/unassign`, `/cc`, `/uncc`, `/close`, `/reopen` and `/retitle` on an issue or pull request after it applies Prow's rules for who may use them. The comment handler now skips these commands like `/cherry-pick` instead of reporting them as unsupported. The workflow runs only when `REPOSITORY_AUTOMATION_ISSUE_COMMANDS_ENABLED` is `true`.
+time: 2026-10-04T12:00:00Z

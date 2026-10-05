@@ -9,13 +9,12 @@ import (
 	"fmt"
 	"math"
 	"slices"
-	"sync"
-	"sync/atomic"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
+	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
+	sgpurelease "github.com/NVIDIA/k8s-test-infra/internal/sgpu/release"
 )
 
 const (
@@ -27,16 +26,6 @@ const (
 	ReasonCapacityExceeded = "CapacityExceeded"
 )
 
-type capacityRevision uint64
-
-type capacityDecision uint8
-
-const (
-	capacityAdmissionRejected capacityDecision = iota
-	capacityAdmissionPending
-	capacityAdmissionAccepted
-)
-
 type admissionInventory struct {
 	instance       inventoryInstance
 	created        metav1.Time
@@ -44,317 +33,6 @@ type admissionInventory struct {
 	targetCapacity DeclaredCapacity
 	growth         DeclaredCapacity
 	ready          bool
-}
-
-type capacityAdmissionSnapshot struct {
-	revision            capacityRevision
-	admitted            []admissionInventory
-	rackGroupAdmissions map[types.UID]admissionInventory
-	trigger             admissionInventory
-	err                 error
-}
-
-// CapacityAdmission coalesces deterministic admission across concurrent
-// workers. Its published slice contains one entry per positive-capacity
-// admitted Inventory, bounded by the rack limit. One deterministic candidate
-// is retained as a recomputation trigger without retaining the rejected set.
-// Candidates are considered by creation timestamp, name, and UID; each valid
-// materializable Inventory is admitted whole when its eventual topology fits.
-// Existing racks remain charged until informer deletion or shrink observes
-// that the durable topology has actually released their capacity.
-type CapacityAdmission struct {
-	cache Cache
-
-	revision     atomic.Uint64
-	computations atomic.Uint64
-	mu           sync.Mutex
-	snapshot     *capacityAdmissionSnapshot
-	transitions  map[inventoryInstance]admissionInventory
-}
-
-// NewCapacityAdmission constructs aggregate admission over informer state.
-func NewCapacityAdmission(cache Cache) *CapacityAdmission {
-	return &CapacityAdmission{cache: cache}
-}
-
-// Invalidate prevents workers using the previous Inventory/Profile snapshot
-// from continuing rack-proportional work.
-func (a *CapacityAdmission) Invalidate() {
-	a.revision.Add(1)
-}
-
-func (a *CapacityAdmission) currentRevision() capacityRevision {
-	return capacityRevision(a.revision.Load())
-}
-
-func (a *CapacityAdmission) current(revision capacityRevision) bool {
-	return revision == a.currentRevision()
-}
-
-func (a *CapacityAdmission) admits(
-	revision capacityRevision,
-	inventory *mokkav1alpha1.SGPUInventory,
-	capacity DeclaredCapacity,
-) (bool, error) {
-	decision, err := a.decision(revision, inventory, capacity)
-	return decision == capacityAdmissionAccepted, err
-}
-
-func (a *CapacityAdmission) decision(
-	revision capacityRevision,
-	inventory *mokkav1alpha1.SGPUInventory,
-	capacity DeclaredCapacity,
-) (capacityDecision, error) {
-	if !a.current(revision) {
-		return capacityAdmissionRejected, errAllocationInputChanged
-	}
-	snapshot := a.snapshotFor(revision)
-	if snapshot.err != nil {
-		return capacityAdmissionRejected, snapshot.err
-	}
-	if !a.current(revision) {
-		return capacityAdmissionRejected, errAllocationInputChanged
-	}
-	if capacity.Racks == 0 {
-		if _, admitted := snapshot.rackGroupAdmissions[inventory.UID]; !admitted {
-			return capacityAdmissionRejected, nil
-		}
-		return capacityAdmissionAccepted, nil
-	}
-	candidate := admissionInventory{
-		instance: inventoryInstance{name: inventory.Name, uid: inventory.UID},
-		created:  inventory.CreationTimestamp,
-		capacity: capacity,
-	}
-	index, found := slices.BinarySearchFunc(snapshot.admitted, candidate, compareAdmissionInventories)
-	if !found {
-		return capacityAdmissionRejected, nil
-	}
-	admitted := snapshot.admitted[index]
-	if admitted.capacity != candidate.capacity {
-		return capacityAdmissionRejected, errAllocationInputChanged
-	}
-	if !admitted.ready {
-		return capacityAdmissionPending, nil
-	}
-	return capacityAdmissionAccepted, nil
-}
-
-func (a *CapacityAdmission) waiters() []inventoryInstance {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.snapshot == nil {
-		return nil
-	}
-	waiters := make([]inventoryInstance, 0, len(a.snapshot.admitted))
-	for _, candidate := range a.snapshot.admitted {
-		if !candidate.ready {
-			waiters = append(waiters, candidate.instance)
-		}
-	}
-	return waiters
-}
-
-func (a *CapacityAdmission) wakeup() inventoryInstance {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.snapshot == nil {
-		return inventoryInstance{}
-	}
-	return a.snapshot.trigger.instance
-}
-
-func (a *CapacityAdmission) takeTransitions() []inventoryInstance {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if len(a.transitions) == 0 {
-		return nil
-	}
-	candidates := make([]admissionInventory, 0, len(a.transitions))
-	for _, candidate := range a.transitions {
-		candidates = append(candidates, candidate)
-	}
-	slices.SortFunc(candidates, compareAdmissionInventories)
-	transitions := make([]inventoryInstance, len(candidates))
-	for index := range candidates {
-		transitions[index] = candidates[index].instance
-	}
-	clear(a.transitions)
-	return transitions
-}
-
-func (a *CapacityAdmission) snapshotFor(revision capacityRevision) *capacityAdmissionSnapshot {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.snapshot != nil && a.snapshot.revision == revision {
-		return a.snapshot
-	}
-	if !a.current(revision) {
-		return &capacityAdmissionSnapshot{revision: revision, err: errAllocationInputChanged}
-	}
-	snapshot := a.computeSnapshot(revision)
-	if !a.current(revision) {
-		return &capacityAdmissionSnapshot{revision: revision, err: errAllocationInputChanged}
-	}
-	if snapshot.err == nil {
-		a.computations.Add(1)
-		if a.snapshot != nil && a.snapshot.err == nil {
-			a.recordTransitions(a.snapshot, snapshot)
-		}
-	}
-	a.snapshot = snapshot
-	return snapshot
-}
-
-//nolint:cyclop // The linear merge must distinguish additions, removals, and readiness changes.
-func (a *CapacityAdmission) recordTransitions(previous, current *capacityAdmissionSnapshot) {
-	for uid, candidate := range previous.rackGroupAdmissions {
-		if _, admitted := current.rackGroupAdmissions[uid]; !admitted {
-			a.addTransition(candidate)
-		}
-	}
-	for uid, candidate := range current.rackGroupAdmissions {
-		if _, admitted := previous.rackGroupAdmissions[uid]; !admitted {
-			a.addTransition(candidate)
-		}
-	}
-
-	oldIndex, newIndex := 0, 0
-	for oldIndex < len(previous.admitted) && newIndex < len(current.admitted) {
-		old, next := previous.admitted[oldIndex], current.admitted[newIndex]
-		switch order := compareAdmissionInventories(old, next); {
-		case order < 0:
-			a.addTransition(old)
-			oldIndex++
-		case order > 0:
-			a.addTransition(next)
-			newIndex++
-		default:
-			if old.ready != next.ready {
-				a.addTransition(next)
-			}
-			oldIndex++
-			newIndex++
-		}
-	}
-	for ; oldIndex < len(previous.admitted); oldIndex++ {
-		a.addTransition(previous.admitted[oldIndex])
-	}
-	for ; newIndex < len(current.admitted); newIndex++ {
-		a.addTransition(current.admitted[newIndex])
-	}
-}
-
-func (a *CapacityAdmission) addTransition(candidate admissionInventory) {
-	if a.transitions == nil {
-		a.transitions = make(map[inventoryInstance]admissionInventory)
-	}
-	a.transitions[candidate.instance] = candidate
-}
-
-func (a *CapacityAdmission) computeSnapshot(revision capacityRevision) *capacityAdmissionSnapshot {
-	inventories, err := a.cache.Inventories()
-	if err != nil {
-		return &capacityAdmissionSnapshot{
-			revision: revision,
-			err:      fmt.Errorf("list inventories for capacity admission: %w", err),
-		}
-	}
-	racks, err := a.cache.Racks()
-	if err != nil {
-		return &capacityAdmissionSnapshot{
-			revision: revision,
-			err:      fmt.Errorf("list racks for capacity admission: %w", err),
-		}
-	}
-	durable, liveCapacity, err := durableRackCapacities(racks)
-	if err != nil {
-		return &capacityAdmissionSnapshot{revision: revision, err: err}
-	}
-
-	slices.SortFunc(inventories, compareInventoryAdmissionOrder)
-	rackGroupInventories := AdmittedRackGroupInventoryUIDs(inventories)
-	rackGroupAdmissions := make(map[types.UID]admissionInventory, len(rackGroupInventories))
-	for _, inventory := range inventories {
-		if _, admitted := rackGroupInventories[inventory.UID]; admitted {
-			rackGroupAdmissions[inventory.UID] = admissionInventory{
-				instance: inventoryInstance{name: inventory.Name, uid: inventory.UID},
-				created:  inventory.CreationTimestamp,
-			}
-		}
-	}
-	candidates, fixedCapacity, err := a.admissionCandidates(
-		inventories,
-		rackGroupInventories,
-		durable,
-		liveCapacity,
-	)
-	if err != nil {
-		return &capacityAdmissionSnapshot{revision: revision, err: err}
-	}
-	admitted := admitCapacityCandidates(fixedCapacity, candidates)
-	prepareCapacityCandidates(liveCapacity, admitted)
-	snapshot := &capacityAdmissionSnapshot{
-		revision:            revision,
-		admitted:            admitted,
-		rackGroupAdmissions: rackGroupAdmissions,
-	}
-	if len(candidates) > 0 {
-		snapshot.trigger = candidates[0]
-	}
-	return snapshot
-}
-
-func (a *CapacityAdmission) admissionCandidates(
-	inventories []*mokkav1alpha1.SGPUInventory,
-	rackGroupInventories map[types.UID]struct{},
-	durable map[inventoryInstance]durableInventoryCapacity,
-	liveCapacity DeclaredCapacity,
-) ([]admissionInventory, DeclaredCapacity, error) {
-	candidates := make([]admissionInventory, 0, min(len(inventories), int(MaxInventoryNodes)))
-	fixedCapacity := liveCapacity
-	for _, inventory := range inventories {
-		if _, admitted := rackGroupInventories[inventory.UID]; !admitted {
-			continue
-		}
-		instance := inventoryInstance{name: inventory.Name, uid: inventory.UID}
-		candidate, materializes, err := a.admissionCandidate(inventory, durable[instance])
-		if err != nil {
-			return nil, DeclaredCapacity{}, err
-		}
-		if !materializes {
-			continue
-		}
-		fixedCapacity, err = subtractCapacity(fixedCapacity, durable[instance].total)
-		if err != nil {
-			return nil, DeclaredCapacity{}, err
-		}
-		candidates = append(candidates, candidate)
-	}
-	return candidates, fixedCapacity, nil
-}
-
-func (a *CapacityAdmission) admissionCandidate(
-	inventory *mokkav1alpha1.SGPUInventory,
-	actual durableInventoryCapacity,
-) (admissionInventory, bool, error) {
-	resolved, issues, err := inventoryMaterialization(a.cache, inventory)
-	if err != nil || len(resolved) == 0 {
-		return admissionInventory{}, false, err
-	}
-	desired, err := capacityForResolvedGroups(resolved)
-	if err != nil {
-		return admissionInventory{}, false, err
-	}
-	target, err := capacityWithPreservedGroups(desired, issues, actual.groups)
-	if err != nil {
-		return admissionInventory{}, false, err
-	}
-	return admissionInventory{
-		instance: inventoryInstance{name: inventory.Name, uid: inventory.UID},
-		created:  inventory.CreationTimestamp, capacity: desired, targetCapacity: target,
-		growth: positiveCapacityDifference(target, actual.total),
-	}, true, nil
 }
 
 func capacityWithPreservedGroups(
@@ -378,12 +56,15 @@ func capacityWithPreservedGroups(
 	return target, nil
 }
 
-func admitCapacityCandidates(
-	fixedCapacity DeclaredCapacity,
-	candidates []admissionInventory,
-) []admissionInventory {
+// admitInventories applies the aggregate capacity rule to candidates ordered
+// oldest first. Each candidate is admitted whole when its eventual topology
+// fits beside the fixed capacity and every candidate admitted before it.
+// Growth then proceeds in the same order: the first growth that does not fit
+// the live topology holds back every later one, so readiness never overtakes
+// admission order.
+func admitInventories(candidates []admissionInventory, fixed, live DeclaredCapacity) []admissionInventory {
 	admitted := make([]admissionInventory, 0, min(len(candidates), int(MaxInventoryNodes)))
-	targetTotal := fixedCapacity
+	targetTotal := fixed
 	for _, candidate := range candidates {
 		next, err := AddCapacity(targetTotal, candidate.targetCapacity)
 		if err != nil || ValidateSupportedCapacity(next) != nil {
@@ -392,14 +73,7 @@ func admitCapacityCandidates(
 		admitted = append(admitted, candidate)
 		targetTotal = next
 	}
-	return admitted
-}
-
-func prepareCapacityCandidates(
-	liveCapacity DeclaredCapacity,
-	admitted []admissionInventory,
-) {
-	livePeak := liveCapacity
+	livePeak := live
 	growthBlocked := false
 	for index := range admitted {
 		candidate := &admitted[index]
@@ -417,45 +91,70 @@ func prepareCapacityCandidates(
 			growthBlocked = true
 		}
 	}
+	return admitted
 }
 
-func materializedInventoryCapacity(
-	cache Cache,
-	inventory *mokkav1alpha1.SGPUInventory,
-) (DeclaredCapacity, bool, error) {
-	resolved, err := materializedInventoryGroups(cache, inventory)
-	if err != nil {
-		return DeclaredCapacity{}, false, err
+// orderGroupsForCapacityRelease orders groups that grow after those that do
+// not, and marks the groups that grow. An Inventory releases capacity before
+// it claims more, because admission charges existing racks until they are
+// released: while a cleanup that frees capacity is pending, reconciliation
+// stops before a growing group or a rack that would grow. Reconciling the
+// other groups first makes every release in a pass known before any growth is
+// considered.
+func orderGroupsForCapacityRelease(
+	groups []resolvedGroup,
+	racks []*mokkav1alpha1.SGPURack,
+) ([]resolvedGroup, map[string]bool, error) {
+	actual := make(map[string]DeclaredCapacity)
+	for _, rack := range racks {
+		group := rack.Spec.Identity.RackGroup
+		var err error
+		actual[group], err = AddCapacity(actual[group], capacityForRackSpec(&rack.Spec))
+		if err != nil {
+			return nil, nil, err
+		}
 	}
-	total, err := capacityForResolvedGroups(resolved)
-	return total, len(resolved) > 0, err
+	ordered := slices.Clone(groups)
+	growing := make(map[string]bool, len(groups))
+	for _, group := range groups {
+		desired, err := CapacityForGroup(group.group, group.profile)
+		if err != nil {
+			return nil, nil, err
+		}
+		growing[group.group.ID] = !capacityIsZero(positiveCapacityDifference(desired, actual[group.group.ID]))
+	}
+	slices.SortStableFunc(ordered, func(a, b resolvedGroup) int {
+		aGrowing := growing[a.group.ID]
+		bGrowing := growing[b.group.ID]
+		switch {
+		case aGrowing == bGrowing:
+			return 0
+		case aGrowing:
+			return 1
+		default:
+			return -1
+		}
+	})
+	return ordered, growing, nil
 }
 
-func materializedInventoryGroups(
-	cache Cache,
-	inventory *mokkav1alpha1.SGPUInventory,
-) ([]resolvedGroup, error) {
-	resolved, _, err := inventoryMaterialization(cache, inventory)
-	return resolved, err
+// durableCapacityCleanupPending reports whether any cleanup frees capacity,
+// which holds back growth until it completes.
+func durableCapacityCleanupPending(cleanup []sgpurelease.Cleanup) bool {
+	return slices.ContainsFunc(cleanup, func(needed sgpurelease.Cleanup) bool {
+		return needed.Reason.FreesCapacity()
+	})
 }
 
-func inventoryMaterialization(
-	cache Cache,
-	inventory *mokkav1alpha1.SGPUInventory,
-) ([]resolvedGroup, []ProfileIssue, error) {
-	if inventory == nil || inventory.DeletionTimestamp != nil || validateInventory(inventory) != nil ||
-		validateInventoryRackCapacity(inventory) != nil {
-		return nil, nil, nil
+func rackCapacityGrows(
+	existing *mokkav1alpha1.SGPURack,
+	target *mokkav1alpha1.SGPURackSpec,
+) bool {
+	currentCapacity := DeclaredCapacity{}
+	if existing != nil {
+		currentCapacity = capacityForRackSpec(&existing.Spec)
 	}
-	resolved, issues, err := (&Reconciler{cache: cache}).resolveGroups(inventory)
-	if err != nil {
-		return nil, nil, err
-	}
-	if validateResolvedCapacity(resolved) != nil {
-		return nil, nil, nil
-	}
-	resolved, materializationIssues := validateGroupMaterialization(inventory, resolved)
-	return resolved, append(issues, materializationIssues...), nil
+	return !capacityIsZero(positiveCapacityDifference(capacityForRackSpec(target), currentCapacity))
 }
 
 type durableInventoryCapacity struct {
@@ -463,6 +162,9 @@ type durableInventoryCapacity struct {
 	groups map[string]DeclaredCapacity
 }
 
+// durableRackCapacities charges every existing rack to its Inventory. A rack
+// stays charged until informer deletion or shrink observes that the durable
+// topology has actually released its capacity.
 func durableRackCapacities(
 	racks []*mokkav1alpha1.SGPURack,
 ) (map[inventoryInstance]durableInventoryCapacity, DeclaredCapacity, error) {
@@ -473,10 +175,8 @@ func durableRackCapacities(
 		if !owned {
 			continue
 		}
-		capacity, err := capacityForRack(rack)
-		if err != nil {
-			return nil, DeclaredCapacity{}, err
-		}
+		capacity := capacityForRackSpec(&rack.Spec)
+		var err error
 		total, err = AddCapacity(total, capacity)
 		if err != nil {
 			return nil, DeclaredCapacity{}, err
@@ -500,34 +200,20 @@ func durableRackCapacities(
 }
 
 func durableRackOwner(rack *mokkav1alpha1.SGPURack) (inventoryInstance, bool) {
-	if rack == nil {
+	if rack == nil || !rack.OwnerMatchesInventoryRef() {
 		return inventoryInstance{}, false
 	}
-	owner := controllerInventoryOwner(rack)
-	if owner == nil || owner.Name != rack.Spec.InventoryRef.Name || owner.UID != rack.Spec.InventoryRef.UID {
-		return inventoryInstance{}, false
-	}
-	return inventoryInstance{name: owner.Name, uid: owner.UID}, true
+	return inventoryInstance{name: rack.Spec.InventoryRef.Name, uid: rack.Spec.InventoryRef.UID}, true
 }
 
-func capacityForRack(rack *mokkav1alpha1.SGPURack) (DeclaredCapacity, error) {
-	capacity, err := capacityForRackSpec(&rack.Spec)
-	if err != nil {
-		return DeclaredCapacity{}, fmt.Errorf("rack %q: %w", rack.Name, err)
+// capacityForRackSpec counts what a rack has already rendered. Unlike declared
+// capacity, these counts are bounded by in-memory slices and cannot overflow.
+func capacityForRackSpec(spec *mokkav1alpha1.SGPURackSpec) DeclaredCapacity {
+	return DeclaredCapacity{
+		Racks: 1,
+		Nodes: int64(len(spec.Nodes)),
+		GPUs:  int64(spec.GPUCount()),
 	}
-	return capacity, nil
-}
-
-func capacityForRackSpec(spec *mokkav1alpha1.SGPURackSpec) (DeclaredCapacity, error) {
-	capacity := DeclaredCapacity{Racks: 1, Nodes: int64(len(spec.Nodes))}
-	for _, node := range spec.Nodes {
-		gpus, ok := checkedAdd(capacity.GPUs, int64(len(node.GPUs)))
-		if !ok {
-			return DeclaredCapacity{}, errors.New("GPU capacity overflows int64")
-		}
-		capacity.GPUs = gpus
-	}
-	return capacity, nil
 }
 
 func subtractCapacity(total, remove DeclaredCapacity) (DeclaredCapacity, error) {
@@ -590,6 +276,8 @@ func AdmittedRackGroupInventoryUIDs(
 	return admitted
 }
 
+// compareAdmissionInventories orders candidates oldest first by creation
+// timestamp, then name, then UID, so every worker admits in the same order.
 func compareAdmissionInventories(a, b admissionInventory) int {
 	if order := a.created.Time.Compare(b.created.Time); order != 0 {
 		return order

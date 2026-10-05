@@ -9,11 +9,11 @@ package inventory
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
 	"strconv"
-	"time"
 
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -21,13 +21,13 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
-	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
 
-	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
-	inventorycleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/cleanup"
-	rackrender "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/rack"
+	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/rackrender"
+	sgpurelease "github.com/NVIDIA/k8s-test-infra/internal/sgpu/release"
 )
 
 //nolint:revive // These constants define one rack ownership metadata protocol.
@@ -111,7 +111,7 @@ type Result struct {
 	ValidationError    string
 	ProfileIssues      []ProfileIssue
 	OwnershipConflicts []OwnershipConflict
-	CleanupNeeded      []inventorycleanup.CleanupNeeded
+	CleanupNeeded      []sgpurelease.Cleanup
 	Allocation         allocate.Plan
 	// InventoryAllocation carries the inventory status view when Allocation is
 	// deliberately restricted to one reconciled group.
@@ -137,7 +137,7 @@ type Reconciler struct {
 	cache                     Cache
 	inventories               InventoryMutations
 	racks                     Mutations
-	cleanup                   inventorycleanup.CleanupGate
+	cleanup                   sgpurelease.Gate
 	allocation                *AllocationCache
 	precomputeProfileRevision profileRevisionPrecomputer
 	// refreshAllocation preserves the standalone reconciler contract for
@@ -150,7 +150,7 @@ func NewReconciler(
 	cache Cache,
 	inventories InventoryMutations,
 	racks Mutations,
-	cleanup inventorycleanup.CleanupGate,
+	cleanup sgpurelease.Gate,
 ) *Reconciler {
 	reconciler := NewReconcilerWithAllocationCache(
 		cache, inventories, racks, cleanup, NewAllocationCache(cache),
@@ -165,7 +165,7 @@ func NewReconcilerWithAllocationCache(
 	cache Cache,
 	inventories InventoryMutations,
 	racks Mutations,
-	cleanup inventorycleanup.CleanupGate,
+	cleanup sgpurelease.Gate,
 	allocation *AllocationCache,
 ) *Reconciler {
 	return &Reconciler{
@@ -351,18 +351,21 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 	blockedNames := make(map[string]struct{})
 	existingByName := make(map[string]*mokkav1alpha1.SGPURack, len(ownedRacks))
 	for _, existing := range ownedRacks {
+		existingByName[existing.Name] = existing
+		if existing.DeletionTimestamp != nil {
+			blockedNames[existing.Name] = struct{}{}
+		}
+	}
+	// Only full reconciliation lists owned racks, so only it retires them.
+	for _, existing := range ownedRacks {
 		if err := admissionCurrent(); err != nil {
 			return result, err
 		}
-		existingByName[existing.Name] = existing
-		if existing.DeletionTimestamp == nil {
+		reason, retire := retirementReason(inventory, existing, resolvedByID, unresolved)
+		if !retire {
 			continue
 		}
-		blockedNames[existing.Name] = struct{}{}
-		if requestedGroup != nil {
-			continue
-		}
-		changed, cleanup, err := r.retireRack(ctx, inventory, existing, inventorycleanup.CleanupRackDeleting)
+		changed, cleanup, err := r.retireRack(ctx, inventory, existing, reason)
 		if err != nil {
 			appendOwnershipConflict(&result, err)
 			sortResult(&result)
@@ -370,44 +373,6 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 		}
 		result.Changed = result.Changed || changed
 		result.CleanupNeeded = append(result.CleanupNeeded, cleanup...)
-	}
-
-	if requestedGroup == nil { //nolint:nestif // Full inventory reconciliation also owns rack retirement.
-		for _, existing := range ownedRacks {
-			if err := admissionCurrent(); err != nil {
-				return result, err
-			}
-			if existing.DeletionTimestamp != nil {
-				continue
-			}
-			if _, keepLastGood := unresolved[existing.Spec.Identity.RackGroup]; keepLastGood {
-				continue
-			}
-			group, declared := resolvedByID[existing.Spec.Identity.RackGroup]
-			if declared && existing.Spec.Identity.RackIndex >= 0 &&
-				existing.Spec.Identity.RackIndex < group.group.Count &&
-				existing.Name == rackrender.RackName(
-					inventory.Name,
-					inventory.UID,
-					group.group.ID,
-					existing.Spec.Identity.RackIndex,
-				) {
-				continue
-			}
-			reason := inventorycleanup.CleanupGroupRemoved
-			if group, exists := resolvedByID[existing.Spec.Identity.RackGroup]; exists &&
-				existing.Spec.Identity.RackIndex >= group.group.Count {
-				reason = inventorycleanup.CleanupCapacityShrink
-			}
-			changed, cleanup, err := r.retireRack(ctx, inventory, existing, reason)
-			if err != nil {
-				appendOwnershipConflict(&result, err)
-				sortResult(&result)
-				return result, err
-			}
-			result.Changed = result.Changed || changed
-			result.CleanupNeeded = append(result.CleanupNeeded, cleanup...)
-		}
 	}
 
 	var allocations allocationIndex
@@ -487,15 +452,9 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 				groupMaterializationFailed = true
 				return nil
 			}
-			if durableCapacityCleanupPending(result.CleanupNeeded) {
-				grows, err := rackCapacityGrows(existing, &targetSpec)
-				if err != nil {
-					return fmt.Errorf("compute target capacity for rack %q: %w", rendered.Name, err)
-				}
-				if grows {
-					capacityGrowthBlocked = true
-					return nil
-				}
+			if durableCapacityCleanupPending(result.CleanupNeeded) && rackCapacityGrows(existing, &targetSpec) {
+				capacityGrowthBlocked = true
+				return nil
 			}
 
 			if err := admissionCurrent(); err != nil {
@@ -506,8 +465,7 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 				result.OwnershipConflicts = append(result.OwnershipConflicts, *conflict)
 			}
 			if err != nil {
-				var materializationErr *profileMaterializationError
-				if errors.As(err, &materializationErr) {
+				if materializationErr, ok := errors.AsType[*profileMaterializationError](err); ok {
 					result.ProfileIssues = append(result.ProfileIssues, ProfileIssue{
 						RackGroup: group.group.ID, ProfileName: group.profile.Name, Reason: materializationErr.Error(),
 					})
@@ -656,76 +614,6 @@ func capacityForResolvedGroups(groups []resolvedGroup) (DeclaredCapacity, error)
 	return total, nil
 }
 
-func orderGroupsForCapacityRelease(
-	groups []resolvedGroup,
-	racks []*mokkav1alpha1.SGPURack,
-) ([]resolvedGroup, map[string]bool, error) {
-	actual := make(map[string]DeclaredCapacity)
-	for _, rack := range racks {
-		capacity, err := capacityForRack(rack)
-		if err != nil {
-			return nil, nil, err
-		}
-		group := rack.Spec.Identity.RackGroup
-		actual[group], err = AddCapacity(actual[group], capacity)
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-	ordered := slices.Clone(groups)
-	growing := make(map[string]bool, len(groups))
-	for _, group := range groups {
-		desired, err := CapacityForGroup(group.group, group.profile)
-		if err != nil {
-			return nil, nil, err
-		}
-		growing[group.group.ID] = !capacityIsZero(positiveCapacityDifference(desired, actual[group.group.ID]))
-	}
-	slices.SortStableFunc(ordered, func(a, b resolvedGroup) int {
-		aGrowing := growing[a.group.ID]
-		bGrowing := growing[b.group.ID]
-		switch {
-		case aGrowing == bGrowing:
-			return 0
-		case aGrowing:
-			return 1
-		default:
-			return -1
-		}
-	})
-	return ordered, growing, nil
-}
-
-func durableCapacityCleanupPending(cleanup []inventorycleanup.CleanupNeeded) bool {
-	for _, needed := range cleanup {
-		switch needed.Reason {
-		case inventorycleanup.CleanupCapacityShrink, inventorycleanup.CleanupGroupRemoved, inventorycleanup.CleanupRackDeleting:
-			return true
-		case inventorycleanup.CleanupCapacityRejected, inventorycleanup.CleanupNodeIneligible, inventorycleanup.CleanupSelectorMismatch, inventorycleanup.CleanupInventoryDeleting:
-		}
-	}
-	return false
-}
-
-func rackCapacityGrows(
-	existing *mokkav1alpha1.SGPURack,
-	target *mokkav1alpha1.SGPURackSpec,
-) (bool, error) {
-	currentCapacity := DeclaredCapacity{}
-	if existing != nil {
-		var err error
-		currentCapacity, err = capacityForRack(existing)
-		if err != nil {
-			return false, err
-		}
-	}
-	targetCapacity, err := capacityForRackSpec(target)
-	if err != nil {
-		return false, err
-	}
-	return !capacityIsZero(positiveCapacityDifference(targetCapacity, currentCapacity)), nil
-}
-
 func validateGroupMaterialization(
 	inventory *mokkav1alpha1.SGPUInventory,
 	groups []resolvedGroup,
@@ -755,8 +643,8 @@ func (r *Reconciler) preservePendingReleases(
 	existing *mokkav1alpha1.SGPURack,
 	target *mokkav1alpha1.SGPURackSpec,
 	releases map[allocate.Coordinate]allocate.Release,
-) []inventorycleanup.CleanupNeeded {
-	cleanup := make([]inventorycleanup.CleanupNeeded, 0)
+) []sgpurelease.Cleanup {
+	cleanup := make([]sgpurelease.Cleanup, 0)
 	targetSlots := make(map[int32]*mokkav1alpha1.SGPURackNode, len(target.Nodes))
 	for i := range target.Nodes {
 		targetSlots[target.Nodes[i].Index] = &target.Nodes[i]
@@ -777,7 +665,7 @@ func (r *Reconciler) preservePendingReleases(
 		if !found {
 			continue
 		}
-		needed := inventorycleanup.CleanupNeeded{RackName: existing.Name, RackUID: existing.UID, Binding: release.Binding, Reason: cleanupReason(release.Reason)}
+		needed := sgpurelease.Cleanup{RackName: existing.Name, RackUID: existing.UID, Binding: release.Binding, Reason: sgpurelease.ReasonFor(release.Reason)}
 		if r.cleanup != nil && r.cleanup.Ready(needed) {
 			continue
 		}
@@ -797,10 +685,10 @@ func (r *Reconciler) retireRack(
 	ctx context.Context,
 	inventory *mokkav1alpha1.SGPUInventory,
 	rack *mokkav1alpha1.SGPURack,
-	reason inventorycleanup.CleanupReason,
-) (bool, []inventorycleanup.CleanupNeeded, error) {
+	reason sgpurelease.Reason,
+) (bool, []sgpurelease.Cleanup, error) {
 	clearSlots := make(map[int32]types.UID)
-	cleanup := make([]inventorycleanup.CleanupNeeded, 0)
+	cleanup := make([]sgpurelease.Cleanup, 0)
 	for _, slot := range rack.Spec.Nodes {
 		if slot.NodeRef == nil {
 			continue
@@ -812,7 +700,7 @@ func (r *Reconciler) retireRack(
 			},
 			Node: allocate.NodeReference{Name: slot.NodeRef.Name, UID: slot.NodeRef.UID},
 		}
-		needed := inventorycleanup.CleanupNeeded{RackName: rack.Name, RackUID: rack.UID, Binding: binding, Reason: reason}
+		needed := sgpurelease.Cleanup{RackName: rack.Name, RackUID: rack.UID, Binding: binding, Reason: reason}
 		if r.cleanup != nil && r.cleanup.Ready(needed) {
 			clearSlots[slot.Index] = slot.NodeRef.UID
 			continue
@@ -875,7 +763,7 @@ func (r *Reconciler) retireCapacityRejectedInventory(
 		if err := admissionCurrent(); err != nil {
 			return result, err
 		}
-		changed, cleanup, err := r.retireRack(ctx, inventory, rack, inventorycleanup.CleanupCapacityRejected)
+		changed, cleanup, err := r.retireRack(ctx, inventory, rack, sgpurelease.CapacityRejected)
 		if err != nil {
 			appendOwnershipConflict(&result, err)
 			sortResult(&result)
@@ -896,7 +784,7 @@ func (r *Reconciler) reconcileInventoryDeletion(
 ) (Result, error) {
 	allGone := true
 	for _, rack := range racks {
-		changed, cleanup, err := r.retireRack(ctx, inventory, rack, inventorycleanup.CleanupInventoryDeleting)
+		changed, cleanup, err := r.retireRack(ctx, inventory, rack, sgpurelease.InventoryDeleting)
 		if err != nil {
 			appendOwnershipConflict(&result, err)
 			sortResult(&result)
@@ -951,7 +839,7 @@ func (r *Reconciler) retireLiveOwnedRacks(
 	result Result,
 ) (Result, error) {
 	for _, rack := range racks {
-		changed, cleanup, err := r.retireRack(ctx, inventory, rack, inventorycleanup.CleanupInventoryDeleting)
+		changed, cleanup, err := r.retireRack(ctx, inventory, rack, sgpurelease.InventoryDeleting)
 		if err != nil {
 			appendOwnershipConflict(&result, err)
 			return result, err
@@ -1208,10 +1096,8 @@ func validateInventory(inventory *mokkav1alpha1.SGPUInventory) error {
 		if group.ProfileRef.Name == "" {
 			return fmt.Errorf("rack group %q profileRef.name must not be empty", group.ID)
 		}
-		if group.Placement != nil && group.Placement.NodeSelector != nil {
-			if err := allocate.ValidatePlacementSelector(group.Placement.NodeSelector); err != nil {
-				return fmt.Errorf("rack group %q selector: %w", group.ID, err)
-			}
+		if err := allocate.ValidatePlacementSelector(group.NodeSelector()); err != nil {
+			return fmt.Errorf("rack group %q selector: %w", group.ID, err)
 		}
 	}
 	return nil
@@ -1253,17 +1139,8 @@ func ensureRackMetadata(rack *mokkav1alpha1.SGPURack, inventory *mokkav1alpha1.S
 }
 
 func controlledByInventory(rack *mokkav1alpha1.SGPURack, inventory *mokkav1alpha1.SGPUInventory) bool {
-	owner := metav1.GetControllerOf(rack)
-	return owner != nil && owner.APIVersion == mokkav1alpha1.SchemeGroupVersion.String() &&
-		owner.Kind == "SGPUInventory" && owner.Name == inventory.Name && owner.UID == inventory.UID
-}
-
-func controllerInventoryOwner(rack *mokkav1alpha1.SGPURack) *metav1.OwnerReference {
-	owner := metav1.GetControllerOf(rack)
-	if owner == nil || owner.APIVersion != mokkav1alpha1.SchemeGroupVersion.String() || owner.Kind != "SGPUInventory" {
-		return nil
-	}
-	return owner
+	owner := rack.InventoryOwner()
+	return owner != nil && owner.Name == inventory.Name && owner.UID == inventory.UID
 }
 
 func filterOwnedRacks(racks []*mokkav1alpha1.SGPURack, inventory *mokkav1alpha1.SGPUInventory) []*mokkav1alpha1.SGPURack {
@@ -1275,6 +1152,57 @@ func filterOwnedRacks(racks []*mokkav1alpha1.SGPURack, inventory *mokkav1alpha1.
 	}
 	slices.SortFunc(filtered, func(a, b *mokkav1alpha1.SGPURack) int { return cmp.Compare(a.Name, b.Name) })
 	return filtered
+}
+
+func controllerOwnsRackSpec(rack *mokkav1alpha1.SGPURack) bool {
+	owned := false
+	for _, entry := range rack.ManagedFields {
+		if !rackSpecManagedFieldsEntry(entry) {
+			continue
+		}
+		ownsSpec, valid := fieldsV1OwnsTopLevel(entry.FieldsV1, "f:spec")
+		if !valid {
+			return false
+		}
+		if !ownsSpec {
+			continue
+		}
+		if entry.Manager != RackFieldManager {
+			return false
+		}
+		owned = owned || entry.Operation == metav1.ManagedFieldsOperationApply ||
+			entry.Operation == metav1.ManagedFieldsOperationUpdate
+	}
+	return owned
+}
+
+func rackSpecManagedFieldsEntry(entry metav1.ManagedFieldsEntry) bool {
+	return entry.Subresource == "" && entry.FieldsType == "FieldsV1" && entry.FieldsV1 != nil &&
+		entry.APIVersion == mokkav1alpha1.SchemeGroupVersion.String()
+}
+
+func fieldsV1OwnsTopLevel(fields *metav1.FieldsV1, key string) (bool, bool) {
+	decoder := json.NewDecoder(fields.GetRawReader())
+	token, err := decoder.Token()
+	if err != nil || token != json.Delim('{') {
+		return false, false
+	}
+	for decoder.More() {
+		token, err = decoder.Token()
+		name, stringKey := token.(string)
+		if err != nil || !stringKey {
+			return false, false
+		}
+		if name == key {
+			return true, true
+		}
+		var value json.RawMessage
+		if err = decoder.Decode(&value); err != nil {
+			return false, false
+		}
+	}
+	token, err = decoder.Token()
+	return false, err == nil && token == json.Delim('}')
 }
 
 type allocationRackKey struct {
@@ -1425,7 +1353,7 @@ func allocationReleasesForRack(releases []allocate.Release, key allocationRackKe
 }
 
 func compareAllocationRackKey(a, b allocationRackKey) int {
-	if order := compareGroupKeys(a.group, b.group); order != 0 {
+	if order := a.group.Compare(b.group); order != 0 {
 		return order
 	}
 	return cmp.Compare(a.rackIndex, b.rackIndex)
@@ -1443,21 +1371,6 @@ func applyBindings(spec *mokkav1alpha1.SGPURackSpec, bindings []allocate.Binding
 		applied++
 	}
 	return applied
-}
-
-func cleanupReason(reason allocate.ReleaseReason) inventorycleanup.CleanupReason {
-	switch reason {
-	case allocate.ReleaseCapacityShrink:
-		return inventorycleanup.CleanupCapacityShrink
-	case allocate.ReleaseNodeIneligible:
-		return inventorycleanup.CleanupNodeIneligible
-	case allocate.ReleaseSelectorMismatch:
-		return inventorycleanup.CleanupSelectorMismatch
-	case allocate.ReleaseGroupRemoved:
-		return inventorycleanup.CleanupGroupRemoved
-	default:
-		return inventorycleanup.CleanupReason(reason)
-	}
 }
 
 func ownershipConflict(rack *mokkav1alpha1.SGPURack, rackGroup string) OwnershipConflict {
@@ -1490,8 +1403,7 @@ func removeString(values []string, remove string) []string {
 }
 
 func appendOwnershipConflict(result *Result, err error) {
-	var ownershipErr *OwnershipConflictError
-	if errors.As(err, &ownershipErr) {
+	if ownershipErr, ok := errors.AsType[*OwnershipConflictError](err); ok {
 		result.OwnershipConflicts = append(result.OwnershipConflicts, ownershipErr.Conflict)
 	}
 }
@@ -1504,7 +1416,7 @@ func sortResult(result *Result) {
 		return cmp.Compare(a.ProfileName, b.ProfileName)
 	})
 	slices.SortFunc(result.OwnershipConflicts, func(a, b OwnershipConflict) int { return cmp.Compare(a.RackName, b.RackName) })
-	slices.SortFunc(result.CleanupNeeded, func(a, b inventorycleanup.CleanupNeeded) int {
+	slices.SortFunc(result.CleanupNeeded, func(a, b sgpurelease.Cleanup) int {
 		if order := cmp.Compare(a.RackName, b.RackName); order != 0 {
 			return order
 		}
@@ -1512,27 +1424,11 @@ func sortResult(result *Result) {
 	})
 }
 
+// retryOnConflict retries API conflicts. Ownership conflicts also wrap an API
+// conflict, but they return at once so status can report them.
 func retryOnConflict(operation func() error) error {
-	var lastErr error
-	err := wait.ExponentialBackoff(wait.Backoff{
-		Steps: 5, Duration: 10 * time.Millisecond, Factor: 1, Jitter: 0.1,
-	}, func() (bool, error) {
-		err := operation()
-		if err == nil {
-			return true, nil
-		}
-		var ownershipErr *OwnershipConflictError
-		if errors.As(err, &ownershipErr) {
-			return false, err
-		}
-		if !apierrors.IsConflict(err) {
-			return false, err
-		}
-		lastErr = err
-		return false, nil
-	})
-	if wait.Interrupted(err) {
-		return lastErr
-	}
-	return err
+	return retry.OnError(retry.DefaultRetry, func(err error) bool {
+		_, ownership := errors.AsType[*OwnershipConflictError](err)
+		return !ownership && apierrors.IsConflict(err)
+	}, operation)
 }

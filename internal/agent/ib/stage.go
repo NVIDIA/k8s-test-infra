@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"go.uber.org/zap"
 
@@ -46,12 +47,40 @@ func ibRoot(h *host.Host) string { return h.RootPath("ib") }
 func stageSysfs(h *host.Host, state *agent.State, simulating bool) error {
 	ib := buildIB(state.NodeShape.Network)
 	ib.Enabled = ib.Enabled && simulating
+	gpus, occupied := hostPCI(state)
 
 	return sysfs.Render(sysfs.Options{
 		IB:       ib,
 		NodeName: state.Node.NodeName,
 		RootDir:  ibRoot(h),
+		GPUs:     gpus,
+		Occupied: occupied,
 	})
+}
+
+// hostPCI returns the GPUs to place HCAs beside, in index order with the NUMA
+// node of their root complex, and the address of every function already on the
+// bus. Both come from the reconciled PCI topology, so an HCA reports the NUMA
+// node the PCI tree gives its GPU. A GPU absent from that topology has no
+// usable address and pairs with no HCA.
+func hostPCI(state *agent.State) ([]sysfs.PCIFunction, []string) {
+	numa := map[string]int{}
+	var occupied []string
+	for _, rc := range state.PCITopology() {
+		for _, bdf := range rc.DeviceBDFs {
+			numa[bdf] = rc.NUMANode
+			occupied = append(occupied, bdf)
+		}
+	}
+
+	gpus := make([]sysfs.PCIFunction, 0, len(state.Devices))
+	for _, d := range state.Devices {
+		bdf := strings.ToLower(d.PCIBusID)
+		if n, ok := numa[bdf]; ok {
+			gpus = append(gpus, sysfs.PCIFunction{Address: bdf, NUMANode: n})
+		}
+	}
+	return gpus, occupied
 }
 
 // buildIB maps the compiled NetworkShape back onto the renderer's schema.

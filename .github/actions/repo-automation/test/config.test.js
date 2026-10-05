@@ -138,7 +138,7 @@ test("loads exact authority, branch, review, command, bot, and size policy", () 
   assert.deepEqual(policy.commands.retestWorkflows, [
     ".github/workflows/automation-ci.yml",
   ]);
-  assert.deepEqual(policy.commands.backportBranches, ["release-*"]);
+  assert.deepEqual(Object.keys(policy.commands).sort(), ["historyLimit", "retestCooldownSeconds", "retestWorkflows"]);
   assert.equal(policy.merge.method, "SQUASH");
   assert.deepEqual(policy.bots, [
     {
@@ -151,6 +151,116 @@ test("loads exact authority, branch, review, command, bot, and size policy", () 
     },
   ]);
   assert.deepEqual(policy.sizeThresholds, { S: 0, M: 50, L: 250, XL: 1000 });
+});
+
+test("declares the required CI that merge-ci.js hard-coded at 809294d", () => {
+  const { policy } = loadConfig(repositoryRoot);
+
+  assert.deepEqual(policy.merge.requiredCI, {
+    workflows: [
+      { path: ".github/workflows/basic-checks.yaml" },
+      { path: ".github/workflows/validate-changelog.yaml" },
+      {
+        path: ".github/workflows/automation-ci.yml",
+        files: [
+          ".github/actions/repo-automation/**", ".github/repo-automation/**", ".github/scripts/cherrypick/**",
+          ".github/scripts/issue-commands/**", ".github/workflows/**", "hack/actionlint.sh", "Makefile", "OWNERS", "OWNERS_ALIASES",
+        ],
+      },
+      {
+        path: ".github/workflows/helm.yaml",
+        files: ["deployments/nvml-mock/helm/**", "deployments/mokka-crds/helm/**"],
+      },
+      {
+        path: ".github/workflows/dependency-integrity.yaml",
+        files: ["go.mod", "go.sum", "Makefile", ".github/workflows/dependency-integrity.yaml"],
+      },
+      {
+        path: ".github/workflows/deploy-pages.yaml",
+        files: ["docs/**", "mkdocs.yml", "requirements-docs.txt", "Makefile", ".github/workflows/deploy-pages.yaml"],
+      },
+    ],
+    checks: [{ name: "DCO", appId: 1861 }],
+  });
+});
+
+test("rejects an invalid required CI definition with an exact message", async (t) => {
+  const valid = loadConfig(repositoryRoot);
+  const workflow = (path, files) => (files === undefined ? { path } : { path, files });
+  const basic = ".github/workflows/basic-checks.yaml";
+  const cases = [
+    [undefined, "policy.merge.requiredCI: must be an object"],
+    [{ workflows: [workflow(basic)], checks: [{ name: "DCO", appId: 1861 }], extra: true },
+      "policy.merge.requiredCI.extra: unknown key"],
+    [{ workflows: [], checks: [{ name: "DCO", appId: 1861 }] },
+      "policy.merge.requiredCI.workflows: must be a non-empty array"],
+    [{ workflows: [workflow("../workflows/hostile.yml")], checks: [{ name: "DCO", appId: 1861 }] },
+      "policy.merge.requiredCI.workflows[0].path: must be a unique safe workflow path"],
+    // GitHub never runs a workflow file below .github/workflows, so it would stay pending forever.
+    [{ workflows: [workflow(".github/workflows/sub/basic-checks.yaml")], checks: [{ name: "DCO", appId: 1861 }] },
+      "policy.merge.requiredCI.workflows[0].path: must be a unique safe workflow path", "workflow subdirectory"],
+    [{ workflows: [workflow(basic), workflow(basic)], checks: [{ name: "DCO", appId: 1861 }] },
+      "policy.merge.requiredCI.workflows[1].path: must be a unique safe workflow path"],
+    [{ workflows: [{ path: basic, name: "basic" }], checks: [{ name: "DCO", appId: 1861 }] },
+      "policy.merge.requiredCI.workflows[0].name: unknown key"],
+    [{ workflows: [workflow(basic, [])], checks: [{ name: "DCO", appId: 1861 }] },
+      "policy.merge.requiredCI.workflows[0].files: must be a non-empty array"],
+    [{ workflows: [workflow(basic, ["/docs/**"])], checks: [{ name: "DCO", appId: 1861 }] },
+      "policy.merge.requiredCI.workflows[0].files[0]: must be a unique safe path pattern"],
+    [{ workflows: [workflow(basic, ["docs/../go.mod"])], checks: [{ name: "DCO", appId: 1861 }] },
+      "policy.merge.requiredCI.workflows[0].files[0]: must be a unique safe path pattern"],
+    [{ workflows: [workflow(basic, ["!docs/**"])], checks: [{ name: "DCO", appId: 1861 }] },
+      "policy.merge.requiredCI.workflows[0].files[0]: must be a unique safe path pattern"],
+    [{ workflows: [workflow(basic, ["go.mod", "go.mod"])], checks: [{ name: "DCO", appId: 1861 }] },
+      "policy.merge.requiredCI.workflows[0].files[1]: must be a unique safe path pattern"],
+    ...[
+      ["brace", "docs/{a,b}/**"],
+      ["extglob +()", "+(docs|site)/**"],
+      ["extglob @()", "@(docs)/guide.md"],
+      ["character class", "[d]ocs/**"],
+      ["question mark", "docs/?.md"],
+      ["** inside a segment", "docs/**.md"],
+      ["** prefixing a segment", "**docs/guide.md"],
+      ["literal outside the portable set", "docs/a b.md"],
+    ].map(([form, pattern]) => [
+      { workflows: [workflow(basic, ["go.mod", pattern])], checks: [{ name: "DCO", appId: 1861 }] },
+      "policy.merge.requiredCI.workflows[0].files[1]: must be a unique safe path pattern",
+      form,
+    ]),
+    [{ workflows: [workflow(basic)], checks: [] },
+      "policy.merge.requiredCI.checks: must be a non-empty array"],
+    [{ workflows: [workflow(basic)], checks: [{ name: "DCO", appId: 0 }] },
+      "policy.merge.requiredCI.checks[0].appId: must be a positive integer"],
+    [{ workflows: [workflow(basic)], checks: [{ name: "", appId: 1861 }] },
+      "policy.merge.requiredCI.checks[0].name: must be a non-empty string"],
+    [{ workflows: [workflow(basic)], checks: [{ name: "DCO\n", appId: 1861 }] },
+      "policy.merge.requiredCI.checks[0].name: must be safe text of at most 255 characters"],
+    [{ workflows: [workflow(basic)], checks: [{ name: "DCO", appId: 1861 }, { name: "DCO", appId: 1861 }] },
+      "policy.merge.requiredCI.checks[1]: must be unique"],
+  ];
+  for (const [requiredCI, message, form] of cases) {
+    await t.test(form === undefined ? message : `${form}: ${message}`, () => {
+      const merge = { method: "SQUASH" };
+      if (requiredCI !== undefined) merge.requiredCI = requiredCI;
+      assert.throws(() => validateConfig({ ...valid, policy: { ...valid.policy, merge } }), {
+        name: "ConfigError",
+        message: `Invalid repository automation configuration:\n- ${message}`,
+      });
+    });
+  }
+});
+
+test("accepts portable required CI path patterns", () => {
+  const valid = loadConfig(repositoryRoot);
+  const files = ["**/OWNERS", "a/**/b", "*.test.*", ".github/**", "deployments/*/helm/**", "go.mod", "**"];
+  const merge = {
+    method: "SQUASH",
+    requiredCI: {
+      workflows: [{ path: ".github/workflows/basic-checks.yaml", files }],
+      checks: [{ name: "DCO", appId: 1861 }],
+    },
+  };
+  assert.deepEqual(validateConfig({ ...valid, policy: { ...valid.policy, merge } }).policy.merge.requiredCI.workflows[0].files, files);
 });
 
 test("rejects invalid label metadata with path-specific errors instead of defaulting", () => {
@@ -184,7 +294,7 @@ test("rejects invalid policy values with path-specific errors instead of default
   ]);
 });
 
-test("rejects unsafe command bounds, workflow paths, and backport patterns", () => {
+test("rejects unsafe command bounds, workflow paths, and the removed backport key", () => {
   const valid = loadConfig(repositoryRoot);
   const policy = {
     ...valid.policy,
@@ -192,7 +302,7 @@ test("rejects unsafe command bounds, workflow paths, and backport patterns", () 
       retestCooldownSeconds: 599,
       historyLimit: 257,
       retestWorkflows: ["../workflows/hostile.yml"],
-      backportBranches: ["refs/heads/*/nested*"],
+      backportBranches: ["release-*"],
     },
   };
 
@@ -200,7 +310,7 @@ test("rejects unsafe command bounds, workflow paths, and backport patterns", () 
     "policy.commands.retestCooldownSeconds",
     "policy.commands.historyLimit",
     "policy.commands.retestWorkflows[0]",
-    "policy.commands.backportBranches[0]",
+    "policy.commands.backportBranches: unknown key",
   ]);
 });
 
@@ -316,13 +426,36 @@ test("repository automation CI contains every Task 1 gate", () => {
     "npm audit --audit-level=high",
     "npm run package",
     "git diff --exit-code -- dist",
-    "go test ./tests/hack -run TestMokkaCherryPick -count=1",
+    "node --test '.github/scripts/cherrypick/*.test.js'",
+    "node --test '.github/scripts/issue-commands/*.test.js'",
     "make actionlint",
   ]) {
     assert.equal(makefile.includes(command), true, `Make target must run ${command}`);
   }
+  // Node 24, the CI runtime, loads a directory argument to `node --test` as a
+  // module and fails with MODULE_NOT_FOUND; Node 26 searches it. Name the
+  // test files with a quoted glob that node itself expands.
+  assert.doesNotMatch(makefile, /^\tnode --test [^'\n]*\/\s*$/m);
   assert.match(makefile, /\.PHONY:\s+repository-automation-ci/);
+  assert.doesNotMatch(makefile, /TestMokkaCherryPick/);
   assert.doesNotMatch(workflow, /run:\s+npm (?:ci|test|run)/);
   assert.doesNotMatch(workflow, /SPDX-License-Identifier/);
   assert.doesNotMatch(workflow, /uses:\s+[^\s]+@(?![0-9a-f]{40}(?:\s|$))/);
+});
+
+test("repository automation CI sets up Go only when its make target runs Go", () => {
+  const workflow = YAML.parse(fs.readFileSync(
+    path.join(repositoryRoot, ".github", "workflows", "automation-ci.yml"),
+    "utf8",
+  ));
+  const makefile = fs.readFileSync(path.join(repositoryRoot, "Makefile"), "utf8");
+  const recipe = /^repository-automation-ci:.*\n((?:\t.*\n)+)/m.exec(makefile);
+  assert.ok(recipe, "repository-automation-ci recipe must exist");
+  assert.match(recipe[1], /^\tmake actionlint$/m);
+  const actionlint = fs.readFileSync(path.join(repositoryRoot, "hack", "actionlint.sh"), "utf8");
+  const goCommand = /(?:^|[\s;&|(])go\s+(?:test|run|build|install|vet|generate|env)\b/m;
+  const runsGo = goCommand.test(recipe[1]) || goCommand.test(actionlint);
+  const setsUpGo = workflow.jobs["automation-ci"].steps.some((step) => step.uses?.startsWith("actions/setup-go@"));
+
+  assert.equal(setsUpGo, runsGo);
 });

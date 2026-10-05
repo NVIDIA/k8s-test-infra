@@ -23,12 +23,15 @@ test("PR metadata repairs conflicts after PR changes, supported base pushes, and
   assert.equal(workflow.on.pull_request, undefined);
 });
 
-test("conflict scans use the trusted checkout, metadata flag, and shared write queue", () => {
+test("conflict scans use the trusted checkout, metadata flag, and per-concern write queue", () => {
   const workflow = metadataWorkflow();
   assert.deepEqual(workflow.permissions, {});
   const job = workflow.jobs.metadata;
   assert.match(job.if, /vars\.REPOSITORY_AUTOMATION_METADATA_ENABLED == 'true'/);
-  assert.deepEqual(job.concurrency, { group: "repository-automation-state", "cancel-in-progress": false });
+  assert.deepEqual(job.concurrency, {
+    group: "${{ github.event_name == 'pull_request_target' && format('repository-automation-pr-{0}', github.event.pull_request.number) || github.event_name == 'workflow_dispatch' && format('repository-automation-label-scan-{0}', inputs.request_id) || 'repository-automation-scan' }}",
+    "cancel-in-progress": false,
+  });
   const resolver = job.steps.find((step) => step.id === "trusted");
   assert.ok(resolver);
   assert.match(resolver.uses, /^actions\/github-script@[0-9a-f]{40}$/);

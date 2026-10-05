@@ -15,8 +15,8 @@ const CONTEXT = {
   headOid: HEAD,
 };
 
-function command(name, line, targetBranch = null) {
-  return { name, targetBranch, line, raw: targetBranch === null ? `/${name}` : `/${name} ${targetBranch}` };
+function command(name, line) {
+  return { name, line, raw: `/${name}` };
 }
 
 function input(overrides = {}) {
@@ -47,7 +47,6 @@ function input(overrides = {}) {
     runs: [],
     cooldownSeconds: 600,
     retestWorkflowAllowlist: [".github/workflows/automation-ci.yml"],
-    allowedBackportBranches: ["release-*"],
     ...overrides,
   };
 }
@@ -115,24 +114,6 @@ test("author approval and command approval must cover every changed file", () =>
   assert.equal(unresolvedAuthor.policy.approved, false);
 });
 
-test("plans only policy-allowed backport requests and preserves the alias", () => {
-  const result = planCommandExecution(input({
-    parsed: {
-      commands: [
-        command("backport", 1, "release-1.2"),
-        command("cherry-pick", 2, "release-1.3"),
-        command("backport", 3, "main"),
-      ],
-      diagnostics: [],
-    },
-  }));
-  assert.deepEqual(result.mutations.backportRequests, [
-    { command: "backport", prNumber: 42, targetBranch: "release-1.2", sourceCommentId: 100 },
-    { command: "cherry-pick", prNumber: 42, targetBranch: "release-1.3", sourceCommentId: 100 },
-  ]);
-  assert.equal(result.commands[2].code, "target-branch-not-allowed");
-});
-
 test("uses the configured retest allowlist and records cooldown state only for reruns", () => {
   const run = {
     id: 9,
@@ -176,7 +157,6 @@ test("makes a duplicate delivery an exact no-op", () => {
     addLabels: [],
     removeLabels: [],
     rerunRunIds: [],
-    backportRequests: [],
   });
   assert.deepEqual(duplicate.state, first.state);
 });

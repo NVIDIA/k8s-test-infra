@@ -38,6 +38,7 @@ should match snapshot with all overrides:
                 - --log-level=info
                 - --log-format=json
                 - --shutdown-timeout=5s
+                - --resync-interval=1m
               env:
                 - name: NODE_NAME
                   valueFrom:
@@ -82,7 +83,7 @@ should match snapshot with all overrides:
               livenessProbe:
                 httpGet:
                   path: /healthz
-                  port: 9091
+                  port: health
               name: node-agent
               ports:
                 - containerPort: 9091
@@ -94,7 +95,7 @@ should match snapshot with all overrides:
               readinessProbe:
                 httpGet:
                   path: /readyz
-                  port: 9091
+                  port: health
               resources:
                 requests:
                   cpu: 10m
@@ -207,6 +208,7 @@ should match snapshot with b200 profile:
                 - --log-level=info
                 - --log-format=json
                 - --shutdown-timeout=5s
+                - --resync-interval=1m
               env:
                 - name: NODE_NAME
                   valueFrom:
@@ -244,12 +246,12 @@ should match snapshot with b200 profile:
                   value: /var/lib/nvml-mock/ib
                 - name: MOCK_PCI_ROOT
                   value: /var/lib/nvml-mock
-              image: ghcr.io/nvidia/nvml-mock:latest
+              image: ghcr.io/nvidia/nvml-mock:0.0.0-dev
               imagePullPolicy: IfNotPresent
               livenessProbe:
                 httpGet:
                   path: /healthz
-                  port: 9091
+                  port: health
               name: node-agent
               ports:
                 - containerPort: 9091
@@ -261,7 +263,7 @@ should match snapshot with b200 profile:
               readinessProbe:
                 httpGet:
                   path: /readyz
-                  port: 9091
+                  port: health
               resources:
                 requests:
                   cpu: 10m
@@ -364,6 +366,7 @@ should match snapshot with default values:
                 - --log-level=info
                 - --log-format=json
                 - --shutdown-timeout=5s
+                - --resync-interval=1m
               env:
                 - name: NODE_NAME
                   valueFrom:
@@ -403,12 +406,12 @@ should match snapshot with default values:
                   value: /var/lib/nvml-mock/ib
                 - name: MOCK_PCI_ROOT
                   value: /var/lib/nvml-mock
-              image: ghcr.io/nvidia/nvml-mock:latest
+              image: ghcr.io/nvidia/nvml-mock:0.0.0-dev
               imagePullPolicy: IfNotPresent
               livenessProbe:
                 httpGet:
                   path: /healthz
-                  port: 9091
+                  port: health
               name: node-agent
               ports:
                 - containerPort: 9091
@@ -420,7 +423,7 @@ should match snapshot with default values:
               readinessProbe:
                 httpGet:
                   path: /readyz
-                  port: 9091
+                  port: health
               resources:
                 requests:
                   cpu: 10m

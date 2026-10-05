@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/controlplane"
+	"github.com/NVIDIA/k8s-test-infra/internal/controlplane/controller"
 	"github.com/NVIDIA/k8s-test-infra/internal/logging"
-	"github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller"
 	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli/v3"
 )
@@ -64,7 +64,7 @@ func TestConfigFromFlags(t *testing.T) {
 					RenewDeadline: 29 * time.Second,
 					RetryPeriod:   17 * time.Second,
 				},
-				Controller: mokkacontroller.Options{
+				Controller: controller.Options{
 					Workers:                19,
 					StatusDebounce:         23 * time.Millisecond,
 					StatusProgressInterval: 31 * time.Second,

@@ -13,31 +13,6 @@ const CONCLUSIONS = new Set([
 ]);
 const MATCH_OPTIONS = Object.freeze({ dot: true, nocomment: true, nonegate: true });
 
-// Behavioral contract tests compare these expectations with the tracked PR triggers.
-const WORKFLOWS = [
-  { path: ".github/workflows/basic-checks.yaml" },
-  { path: ".github/workflows/validate-changelog.yaml" },
-  {
-    path: ".github/workflows/automation-ci.yml",
-    files: [
-      ".github/actions/repo-automation/**", ".github/repo-automation/**", ".github/workflows/**",
-      "hack/actionlint.sh", "Makefile", "OWNERS", "OWNERS_ALIASES",
-    ],
-  },
-  {
-    path: ".github/workflows/helm.yaml",
-    files: ["deployments/nvml-mock/helm/**", "deployments/mokka-crds/helm/**"],
-  },
-  {
-    path: ".github/workflows/dependency-integrity.yaml",
-    files: ["go.mod", "go.sum", "Makefile", ".github/workflows/dependency-integrity.yaml"],
-  },
-  {
-    path: ".github/workflows/deploy-pages.yaml",
-    files: ["docs/**", "mkdocs.yml", "requirements-docs.txt", "Makefile", ".github/workflows/deploy-pages.yaml"],
-  },
-];
-
 function captureRecord(value, field) {
   if (value === null || typeof value !== "object" || Object.getPrototypeOf(value) !== Object.prototype) {
     throw new TypeError(`${field} must be a plain record`);
@@ -121,6 +96,32 @@ function repositoryPath(value) {
   return value;
 }
 
+// Required workflows and checks are policy data: merge.requiredCI in .github/repo-automation/policy.yml.
+function requirements(value) {
+  const requiredCI = captureRecord(value, "CI requirements");
+  const workflows = captureCollection(requiredCI.workflows, 32, "CI required workflows").map((workflow) => {
+    const path = repositoryPath(workflow.path);
+    if (workflow.files === undefined) return { path };
+    if (!Array.isArray(workflow.files) || workflow.files.length === 0 || workflow.files.length > 100
+      || workflow.files.some((pattern) => typeof pattern !== "string" || pattern === "")) {
+      throw new TypeError("CI required workflow files must be a bounded list of patterns");
+    }
+    return { path, files: [...workflow.files] };
+  });
+  const checks = captureCollection(requiredCI.checks, 32, "CI required checks").map((check) => ({
+    name: safeText(check.name, 255, "CI required check name"),
+    appId: positiveInteger(check.appId, "CI required check app ID"),
+  }));
+  if (workflows.length === 0 || checks.length === 0) {
+    throw new TypeError("CI requirements must name at least one workflow and one check");
+  }
+  return { workflows, checks };
+}
+
+function checkKey(check) {
+  return `${check.name}\0${check.appId}`;
+}
+
 function uniqueId(record, seen) {
   positiveInteger(record.id, "CI evidence ID");
   if (seen.has(record.id)) throw new TypeError("CI evidence IDs must be unique");
@@ -148,13 +149,14 @@ function evaluateCI(input) {
   const files = captureCollection(state.files, MAX_CHANGED_FILES, "CI files");
   const runs = captureCollection(state.runs, MAX_API_COLLECTION_ITEMS, "CI runs");
   const checks = captureCollection(state.checks, MAX_API_COLLECTION_ITEMS, "CI checks");
+  const ci = requirements(state.requiredCI);
   const paths = [];
   for (const file of files) {
     paths.push(repositoryPath(file.path));
     if (file.previousPath !== undefined) paths.push(repositoryPath(file.previousPath));
   }
   const supportedBranch = baseBranch === "main" || minimatch(baseBranch, "release-*", MATCH_OPTIONS);
-  const required = new Map(WORKFLOWS.filter((workflow) => supportedBranch && (
+  const required = new Map(ci.workflows.filter((workflow) => supportedBranch && (
     workflow.files === undefined
     || paths.some((path) => workflow.files.some((pattern) => minimatch(path, pattern, MATCH_OPTIONS)))
   )).map((workflow) => [workflow.path, null]));
@@ -190,19 +192,21 @@ function evaluateCI(input) {
       || (run.runNumber === latest.runNumber && run.id > latest.id)) required.set(workflowPath, run);
   }
 
-  let latestDco = null;
+  const requiredChecks = new Map(ci.checks.map((check) => [checkKey(check), null]));
   const checkIds = new Set();
   for (const check of checks) {
     uniqueId(check, checkIds);
     const checkHead = headOid(check.headOid);
     safeText(check.name, 255, "CI check name");
     positiveInteger(check.appId, "CI check app ID");
-    if (checkHead !== head || check.name !== "DCO" || check.appId !== 1861) continue;
+    if (checkHead !== head || !requiredChecks.has(checkKey(check))) continue;
     evidenceState(check);
-    if (latestDco === null || check.id > latestDco.id) latestDco = check;
+    const latest = requiredChecks.get(checkKey(check));
+    if (latest === null || check.id > latest.id) requiredChecks.set(checkKey(check), check);
   }
   if (!supportedBranch) return "PENDING";
-  const states = [...required.values(), latestDco].map((record) => record === null ? "PENDING" : evidenceState(record));
+  const states = [...required.values(), ...requiredChecks.values()]
+    .map((record) => record === null ? "PENDING" : evidenceState(record));
   if (states.includes("FAILED")) return "FAILED";
   return states.every((result) => result === "SUCCESS") ? "SUCCESS" : "PENDING";
 }

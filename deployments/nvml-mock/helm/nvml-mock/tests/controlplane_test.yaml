@@ -95,39 +95,83 @@ tests:
           path: spec.template.spec.containers[0].env[0].valueFrom.fieldRef.fieldPath
           value: metadata.namespace
 
-  - it: should reject an enabled control plane without an immutable image digest
+  - it: should default the control-plane image tag to the chart appVersion
     set:
       controlPlane:
         enabled: true
     template: templates/controlplane/deployment.yaml
     asserts:
-      - failedTemplate:
-          errorMessage: controlPlane.image.digest is required when controlPlane.enabled is true
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/nvidia/mokka-control-plane:0.0.0-dev
 
-  - it: should render Tilt's local mutable image tag
+  - it: should render an explicit control-plane image tag
     set:
       controlPlane:
         enabled: true
         image:
           repository: registry.example.com/mokka-control-plane
           tag: tilt-build-123
-          allowMutableTag: true
     template: templates/controlplane/deployment.yaml
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
           value: registry.example.com/mokka-control-plane:tilt-build-123
 
-  - it: should reject local mutable image mode without a tag
+  - it: should pull the control-plane image from global.imageRegistry
+    set:
+      global:
+        imageRegistry: mirror.example.com
+      controlPlane:
+        enabled: true
+    template: templates/controlplane/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: mirror.example.com/nvidia/mokka-control-plane:0.0.0-dev
+
+  - it: should use the chart image pull secrets
+    set:
+      global:
+        imagePullSecrets:
+          - mirror-creds
+      imagePullSecrets:
+        - ghcr-creds
+      controlPlane:
+        enabled: true
+    template: templates/controlplane/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.imagePullSecrets
+          value:
+            - name: mirror-creds
+            - name: ghcr-creds
+
+  - it: should render an explicit control-plane image pull policy
     set:
       controlPlane:
         enabled: true
         image:
-          allowMutableTag: true
+          tag: latest
+          pullPolicy: Never
     template: templates/controlplane/deployment.yaml
     asserts:
-      - failedTemplate:
-          errorMessage: controlPlane.image.tag is required when controlPlane.image.allowMutableTag is true
+      - equal:
+          path: spec.template.spec.containers[0].imagePullPolicy
+          value: Never
+
+  - it: should prefer the control-plane image digest over a tag
+    set:
+      controlPlane:
+        enabled: true
+        image:
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          tag: tilt-build-123
+    template: templates/controlplane/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/nvidia/mokka-control-plane@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
   - it: should reject a malformed controller image digest via the values schema
     set:
