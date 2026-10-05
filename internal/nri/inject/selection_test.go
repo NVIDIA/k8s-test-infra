@@ -17,9 +17,13 @@ import (
 // GPU, InfiniBand and IMEX selections each control.
 type surfaces struct {
 	overlay bool
-	// nvml is "config" when the GPU environment is set, "none" when mock GPUs
-	// are hidden, and empty when neither is.
-	nvml string
+	// config reports whether MOCK_NVML_CONFIG was injected, which is what
+	// turns the mock GPUs on.
+	config bool
+	// visible is the injected MOCK_NVML_VISIBLE_DEVICES value, empty when none
+	// was injected. It is kept apart from config because "none" hides every
+	// mock GPU, and a container that gets both must show both.
+	visible string
 	// ib is the injected MOCK_IB value, empty when none was injected.
 	ib       string
 	gpus     int
@@ -36,13 +40,9 @@ func observe(adjustment Adjustment) surfaces {
 		overlay: slices.ContainsFunc(adjustment.Mounts, func(m Mount) bool {
 			return m.Destination == overlayMount().Destination
 		}),
-		ib: env["MOCK_IB"],
-	}
-	switch {
-	case env["MOCK_NVML_CONFIG"] != "":
-		got.nvml = "config"
-	case env["MOCK_NVML_VISIBLE_DEVICES"] != "":
-		got.nvml = env["MOCK_NVML_VISIBLE_DEVICES"]
+		config:  env["MOCK_NVML_CONFIG"] != "",
+		visible: env["MOCK_NVML_VISIBLE_DEVICES"],
+		ib:      env["MOCK_IB"],
 	}
 	for _, device := range adjustment.Devices {
 		if filepath.Dir(device.Path) == imexChannelContainerDir {
@@ -79,13 +79,13 @@ func TestAdjustComposesIndependentSelections(t *testing.T) {
 		want          surfaces
 	}{
 		{want: surfaces{}},
-		{gpu: true, want: surfaces{overlay: true, nvml: "config", ib: "off", gpus: 2}},
-		{ib: true, want: surfaces{overlay: true, nvml: "none", ib: "full"}},
+		{gpu: true, want: surfaces{overlay: true, config: true, ib: "off", gpus: 2}},
+		{ib: true, want: surfaces{overlay: true, visible: "none", ib: "full"}},
 		{imex: true, want: surfaces{channels: 1}},
-		{gpu: true, ib: true, want: surfaces{overlay: true, nvml: "config", ib: "full", gpus: 2}},
-		{gpu: true, imex: true, want: surfaces{overlay: true, nvml: "config", ib: "off", gpus: 2, channels: 1}},
-		{ib: true, imex: true, want: surfaces{overlay: true, nvml: "none", ib: "full", channels: 1}},
-		{gpu: true, ib: true, imex: true, want: surfaces{overlay: true, nvml: "config", ib: "full", gpus: 2, channels: 1}},
+		{gpu: true, ib: true, want: surfaces{overlay: true, config: true, ib: "full", gpus: 2}},
+		{gpu: true, imex: true, want: surfaces{overlay: true, config: true, ib: "off", gpus: 2, channels: 1}},
+		{ib: true, imex: true, want: surfaces{overlay: true, visible: "none", ib: "full", channels: 1}},
+		{gpu: true, ib: true, imex: true, want: surfaces{overlay: true, config: true, ib: "full", gpus: 2, channels: 1}},
 	}
 	for _, test := range tests {
 		annotations := map[string]string{}
@@ -176,8 +176,7 @@ func TestAdjustDoesNotSelectFromInheritedDevices(t *testing.T) {
 			DeviceRules:     wildcard,
 		})
 		require.True(t, ok)
-		require.Equal(t, surfaces{overlay: true, nvml: "config", ib: "off", gpus: 2}, observe(adjustment))
-		require.NotContains(t, adjustment.Env, "MOCK_NVML_VISIBLE_DEVICES=none")
+		require.Equal(t, surfaces{overlay: true, config: true, ib: "off", gpus: 2}, observe(adjustment))
 	})
 }
 
@@ -196,7 +195,7 @@ func TestAdjustKeepsAnAllocationWhenInfiniBandIsSelected(t *testing.T) {
 		DeviceRules:     []DeviceRule{{Allow: true, Type: "c", Major: int64Ptr(195), Minor: int64Ptr(1), Access: "rwm"}},
 	})
 	require.True(t, ok)
-	require.Equal(t, surfaces{overlay: true, nvml: "config", ib: "full"}, observe(adjustment),
+	require.Equal(t, surfaces{overlay: true, config: true, ib: "full"}, observe(adjustment),
 		"the allocated GPU stays the only one; the engine filters on it")
 	require.Empty(t, adjustment.CDIDevices)
 }
@@ -257,7 +256,7 @@ func TestAdjustWarnsWhenInfiniBandIsSelectedWithoutStagedHCAs(t *testing.T) {
 		PodAnnotations: map[string]string{cfg.InfiniBandAnnotation: "true"},
 	})
 	require.True(t, ok)
-	require.Equal(t, surfaces{overlay: true, nvml: "none", ib: "full"}, observe(adjustment))
+	require.Equal(t, surfaces{overlay: true, visible: "none", ib: "full"}, observe(adjustment))
 	require.Len(t, warnings.captured(), 1)
 	require.Contains(t, warnings.captured()[0].Message, "no HCA is staged")
 }
