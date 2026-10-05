@@ -238,6 +238,31 @@ RPATH can redirect that.
 | `guid_prefix` | `a088c20300ab` | Hex prefix for node/port GUIDs. The renderer keeps the first 8 hex digits fixed and uses the lower 32 bits for node/HCA identity |
 | `node_desc_template` | `{node_name} mlx5_{idx}` | `{node_name}` and `{idx}` are interpolated |
 
+### NIC identity, locality and counters
+
+Beyond what `ibstat` reads, the tree carries the files NIC health monitors and
+exporters use to discover a NIC, place it, and watch it:
+
+- `mlx5_N/device/` is the HCA's PCI function: `vendor` (`0x15b3`), `device`,
+  `numa_node`, and a `uevent` carrying `PCI_SLOT_NAME`. Each HCA is paired with
+  a GPU, takes the first free PCI bus after that GPU's, and reports the GPU's
+  NUMA node. On the `a100` profile, `mlx5_0` sits at `0000:08:00.0` beside the
+  GPU at `0000:07:00.0`. Without a GPU address to pair with, `numa_node` is
+  `-1`.
+- `mlx5_N/ports/1/counters/*` and `hw_counters/*` hold the standard IB counters
+  and the mlx5 transport counters (`rnr_nak_retry_err`,
+  `local_ack_timeout_err`, `roce_slow_restart`, ...).
+- With `link_layer: Ethernet`, each HCA also gets a RoCE netdev under
+  `sys/class/net/`, named the way systemd names it (`enp8s0np0` for
+  `0000:08:00.0`). Its `operstate` is `up` when `port_state` is `ACTIVE` and
+  `down` otherwise, and it carries `carrier_changes` and `statistics/*`.
+  `mlx5_N/device/net/<netdev>` and `<netdev>/device/infiniband/mlx5_N` link the
+  two, as the kernel's device links do.
+
+Every HCA is a physical function, so none has a `device/physfn` link. Counters
+read `0`, and `link_layer`, `port_state` and `phys_state` apply to every HCA on
+the node.
+
 ### Disable IB on a profile
 
 Two options, depending on intent:

@@ -105,6 +105,32 @@ func TestStage_ProfileValuesReachSysfs(t *testing.T) {
 	require.Contains(t, read("ports/1/phys_state"), "LinkUp")
 }
 
+func TestStage_PlacesHCAsBesideTheirGPUs(t *testing.T) {
+	isolateSources(t)
+	h := newTestHost(t)
+	s := New(h, Options{Mode: ModeSysfs})
+
+	state := testState(testNetwork())
+	state.Devices = []agent.DeviceSpec{{PCIBusID: "0000:07:00.0"}, {PCIBusID: "0000:87:00.0"}}
+	state.Switches = []agent.SwitchSpec{{PCIBusID: "0000:08:00.0"}}
+	state.NodeShape.Topology.RootComplexes = []agent.RootComplex{
+		{ID: "pci0000:00", NUMANode: 0, DeviceBDFs: []string{"0000:07:00.0", "0000:08:00.0"}},
+		{ID: "pci0000:80", NUMANode: 1, DeviceBDFs: []string{"0000:87:00.0"}},
+	}
+	require.NoError(t, s.Stage(t.Context(), state))
+
+	read := func(rel string) string {
+		b, err := os.ReadFile(h.RootPath("ib/sys/class/infiniband", rel))
+		require.NoError(t, err)
+		return string(b)
+	}
+	// The switch holds the bus after GPU 0, so its HCA takes the next one.
+	require.Contains(t, read("mlx5_0/device/uevent"), "PCI_SLOT_NAME=0000:09:00.0\n")
+	require.Equal(t, "0\n", read("mlx5_0/device/numa_node"))
+	require.Contains(t, read("mlx5_1/device/uevent"), "PCI_SLOT_NAME=0000:88:00.0\n")
+	require.Equal(t, "1\n", read("mlx5_1/device/numa_node"))
+}
+
 func TestStage_IsIdempotent(t *testing.T) {
 	isolateSources(t)
 	h := newTestHost(t)
@@ -191,8 +217,8 @@ func seedImageSources(t *testing.T) {
 	write(checkFabric)
 }
 
-// snapshotTree maps every file under root to its contents, so an idempotency
-// check compares bytes rather than mtimes.
+// snapshotTree maps every file under root to its contents and every link to its
+// target, so an idempotency check compares bytes rather than mtimes.
 func snapshotTree(t *testing.T, root string) map[string]string {
 	t.Helper()
 	out := map[string]string{}
@@ -200,13 +226,18 @@ func snapshotTree(t *testing.T, root string) map[string]string {
 		if err != nil || info.IsDir() {
 			return err
 		}
-		b, readErr := os.ReadFile(p)
-		if readErr != nil {
-			return readErr
-		}
 		rel, relErr := filepath.Rel(root, p)
 		if relErr != nil {
 			return relErr
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			target, linkErr := os.Readlink(p)
+			out[rel] = "-> " + target
+			return linkErr
+		}
+		b, readErr := os.ReadFile(p)
+		if readErr != nil {
+			return readErr
 		}
 		out[rel] = string(b)
 		return nil

@@ -414,6 +414,99 @@ devices:
 	require.NoError(t, err)
 	require.Equal(t, 1, p.ExpectedPCIRoots(), "topology-less profile spans one synthesized root")
 	require.Equal(t, 2, p.ExpectedGPUs())
+	require.Equal(t, []int{0}, p.GPUNUMANodes(), "the synthesized root is NUMA node 0")
+}
+
+// A NIC is placed by the NUMA node of the GPU it pairs with and must avoid
+// every PCI address the profile already declares, switches included.
+func TestPCILocalityComesFromTheTopology(t *testing.T) {
+	t.Parallel()
+	a100, err := Load(profilesDir, "a100")
+	require.NoError(t, err)
+
+	require.Equal(t, []int{0, 1}, a100.GPUNUMANodes())
+	require.Contains(t, a100.PCIAddresses(), "0000:0f:00.0", "GPU, lowercased")
+	require.Contains(t, a100.PCIAddresses(), "0000:01:00.0", "NVSwitch")
+}
+
+// The agent cannot place a GPU it has no address for, and gives a GPU no
+// declared root lists a root of unknown locality, so the NICs beside them
+// report numa_node -1. No shipped profile hits either case.
+func TestGPUNUMANodesAreUnknownWhereTheAgentCannotPlaceAGPU(t *testing.T) {
+	t.Parallel()
+	const header = `
+device_defaults:
+  name: "NVIDIA Mock GPU"
+  architecture: "hopper"
+`
+	for name, tc := range map[string]struct {
+		devices string
+		want    []int
+	}{
+		"no bus IDs": {
+			devices: `
+devices:
+  - index: 0
+  - index: 1
+`,
+			want: []int{-1},
+		},
+		"a GPU outside the declared roots": {
+			devices: `
+devices:
+  - index: 0
+    pci:
+      bus_id: "0000:1A:00.0"
+  - index: 1
+    pci:
+      bus_id: "0000:9A:00.0"
+pcie_topology:
+  root_complexes:
+    - numa_node: 1
+      devices: ["0000:1a:00.0"]
+`,
+			want: []int{-1, 1},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "p.yaml"), []byte(header+tc.devices), 0o600))
+
+			p, err := Load(dir, "p")
+			require.NoError(t, err)
+			require.Equal(t, tc.want, p.GPUNUMANodes())
+		})
+	}
+}
+
+// A RoCE profile renders one netdev per HCA under sys/class/net; an InfiniBand
+// one renders none. Every shipped profile is InfiniBand, so the RoCE branch is
+// only reachable through a hand-written profile.
+func TestExpectedNetdevsFollowLinkLayer(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	const raw = `
+device_defaults:
+  name: "NVIDIA Mock GPU"
+  architecture: "hopper"
+devices:
+  - index: 0
+  - index: 1
+infiniband:
+  enabled: true
+  link_layer: "Ethernet"
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "roce.yaml"), []byte(raw), 0o600))
+
+	roce, err := Load(dir, "roce")
+	require.NoError(t, err)
+	require.Equal(t, 2, roce.ExpectedNetdevs())
+
+	a100, err := Load(profilesDir, "a100")
+	require.NoError(t, err)
+	require.NotZero(t, a100.ExpectedHCAs())
+	require.Zero(t, a100.ExpectedNetdevs(), "an InfiniBand profile renders no netdevs")
 }
 
 // TestProfileArchitectures pins each shipped profile to its generation. Every

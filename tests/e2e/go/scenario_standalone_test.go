@@ -231,6 +231,13 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				}
 			})
 
+			It("renders the NIC sysfs files health monitors read", Label("ib", "nic-sysfs"), func(ctx SpecContext) {
+				if !p.IBEnabled() {
+					Skip("InfiniBand disabled for profile " + name)
+				}
+				assertions.NICSysfs(ctx, h.Kube, pod, p)
+			})
+
 			It("renders the PCI sysfs topology", Label("pcisysfs"), func(ctx SpecContext) {
 				assertions.PCISysfs(ctx, h.Kube, pod,
 					p.ExpectedGPUs(), p.ExpectedPCIBridges(), p.ExpectedPCIRoots())
