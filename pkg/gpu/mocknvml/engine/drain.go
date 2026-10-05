@@ -216,18 +216,19 @@ func (e *Engine) ExcludedDevices() ([]nvml.ExcludedDeviceInfo, nvml.Return) {
 
 // enumerable narrows present — the GPUs whose device nodes this process can
 // open, nil for all of them — to the ones NVML enumerates: those the driver
-// manages and that are not draining, unless seen reports the process already
-// enumerated them. A drain only keeps a GPU out of processes that look for it
-// afterwards. It keeps nil when nothing is hidden, so an unfiltered node stays
-// unfiltered.
-func (s *MockServer) enumerable(present []int, seen func(index int) bool) []int {
+// manages and that are not draining. A drain only keeps a GPU out of processes
+// that look for it afterwards, so keepVisible keeps a draining GPU this
+// process already enumerates. It keeps nil when nothing is hidden, so an
+// unfiltered node stays unfiltered.
+func (s *MockServer) enumerable(present []int, keepVisible bool) []int {
 	out := []int{}
 	hidden := false
 	for index, d := range s.configurableDevices {
 		if d == nil || (present != nil && !slices.Contains(present, index)) {
 			continue
 		}
-		if !d.managed() || (d.cfg().Draining && !seen(index)) {
+		draining := d.cfg().Draining && !(keepVisible && s.isDeviceVisible(index))
+		if !d.managed() || draining {
 			hidden = true
 			continue
 		}

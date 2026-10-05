@@ -190,14 +190,13 @@ func TestEnumerable_ComposesWithDeviceNodeFiltering(t *testing.T) {
 	persistSetterWrites(t)
 	cfg := drainNodeConfig(DeviceConfig{}, nil)
 	e := startProcess(t, cfg)
-	unseen := func(int) bool { return false }
-	require.Nil(t, e.server.enumerable(nil, unseen), "nothing hidden leaves enumeration unfiltered")
+	require.Nil(t, e.server.enumerable(nil, false), "nothing hidden leaves enumeration unfiltered")
 
 	require.Equal(t, nvml.SUCCESS, e.ModifyDrainState(pciAt(t, "0000:0A:00.0"), nvml.FEATURE_ENABLED))
 
-	require.Equal(t, []int{2}, e.server.enumerable([]int{0, 2}, unseen))
-	require.Equal(t, []int{1, 2}, e.server.enumerable(nil, unseen))
-	require.Equal(t, []int{}, e.server.enumerable([]int{0}, unseen),
+	require.Equal(t, []int{2}, e.server.enumerable([]int{0, 2}, false))
+	require.Equal(t, []int{1, 2}, e.server.enumerable(nil, false))
+	require.Equal(t, []int{}, e.server.enumerable([]int{0}, false),
 		"an empty set hides every GPU, unlike nil which hides none")
 }
 

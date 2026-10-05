@@ -691,12 +691,7 @@ func (e *Engine) AnyDeviceLost() bool {
 // permissions limit GPU visibility on real NVML. The driver's own view then
 // narrows it further — see MockServer.enumerable.
 func (e *Engine) refreshEnumeration(keepVisible bool) {
-	seen := func(int) bool { return false }
-	if keepVisible {
-		visible := e.server.visibleDevices
-		seen = func(index int) bool { return visible == nil || slices.Contains(visible, index) }
-	}
-	e.server.setVisibleDevices(e.server.enumerable(detectVisibleDevices(e.config), seen))
+	e.server.setVisibleDevices(e.server.enumerable(detectVisibleDevices(e.config), keepVisible))
 }
 
 // SetVisibleDevicesForTesting sets the visible device mapping on an initialized
