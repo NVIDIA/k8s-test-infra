@@ -97,8 +97,13 @@ once the plugin has registered with containerd:
 
 ```bash
 kubectl -n mokka get pods -l app.kubernetes.io/name=nvml-mock \
-  -o custom-columns='POD:.metadata.name,NODE:.spec.nodeName,READY:.status.containerStatuses[*].ready,CONTAINERS:.spec.containers[*].name'
+  -o custom-columns='POD:.metadata.name,NODE:.spec.nodeName,READY:.status.conditions[?(@.type=="Ready")].status,INIT:.spec.initContainers[*].name,CONTAINERS:.spec.containers[*].name'
 ```
+
+On Kubernetes 1.29 and later the node agent is listed under `INIT`, as a
+restartable init container, and `nvml-mock-nri` under `CONTAINERS`; see
+[NRI pod lifecycle](../helm-chart.md#nri-pod-lifecycle). On older clusters,
+or with `nri.nativeSidecar=false`, both are under `CONTAINERS`.
 
 ## Verify injection
 
