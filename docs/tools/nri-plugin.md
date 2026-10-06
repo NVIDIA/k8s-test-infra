@@ -4,7 +4,8 @@ The binary behind the optional NRI sidecar in Mokka's node DaemonSet. It
 registers with containerd over the
 [NRI](https://github.com/containerd/nri) socket, subscribes to
 `CreateContainer` only, and edits containers as they are created so a workload
-given GPUs the usual way, or opted in by annotation, sees mock GPUs.
+given GPUs the usual way, or opted in with the `nvml-mock.nvidia.com/devices`
+annotation, sees mock GPUs.
 
 [NRI Plugin](../components/nri-plugin.md) covers what it decides and why —
 which containers are injected, how it recognises a device plugin or DRA
