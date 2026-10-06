@@ -39,7 +39,7 @@ jobs:
         run: |
           helm install nvml-mock \
             oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
-            --version 0.3.0 \
+            --version 0.4.0 \
             --namespace mokka --create-namespace \
             --set gpu.profile=gb300 \
             --wait --timeout 5m
@@ -54,7 +54,7 @@ yet.
 
 ## Pin the chart version
 
-`--version 0.3.0` rather than floating. An unpinned chart means an upstream
+`--version 0.4.0` rather than floating. An unpinned chart means an upstream
 release can change what your CI sees on a day you changed nothing, and the
 failure will not look like a version change.
 
