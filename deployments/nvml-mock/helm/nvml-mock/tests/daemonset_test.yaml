@@ -61,6 +61,32 @@ tests:
           path: metadata.name
           value: RELEASE-NAME-nvml-mock
 
+  - it: should pass feature gates to the node agent sorted by name
+    set:
+      featureGates:
+        AllBeta: false
+        AllAlpha: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].command
+          content: --feature-gates=AllAlpha=true,AllBeta=false
+
+  - it: should reject a feature gate the services do not register
+    set:
+      featureGates:
+        AlternatePlanner: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'AlternatePlanner' not allowed"
+
+  - it: should reject a non-boolean feature gate value
+    set:
+      featureGates:
+        AllAlpha: "yes"
+    asserts:
+      - failedTemplate:
+          errorPattern: "/featureGates/AllAlpha': got string, want boolean"
+
   - it: should include standard labels
     asserts:
       - equal:

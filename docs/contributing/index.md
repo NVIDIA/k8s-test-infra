@@ -98,5 +98,6 @@ MOCK_NVML_DEBUG=1 nvidia-smi     # trace every NVML call the mock answers
 | Running the gates | [Testing](testing.md) |
 | Reading NVLink fabric state off a node | [check-fabric](../tools/check-fabric.md) |
 | Regenerating the NVML bridge stubs | [generate-bridge](../tools/generate-bridge.md) |
+| Putting a behavior behind a feature gate | [Gating New Behavior](feature-gates.md) |
 | Proposing a design | [Enhancement Proposals](enhancements.md) |
 | Submitting the change | [Pull Requests](pull-requests.md) |
