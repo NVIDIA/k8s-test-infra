@@ -116,16 +116,19 @@ func TestAdjustComputeDomainCDIMountsOnlyMissingFiles(t *testing.T) {
 			Source:      realIMEX,
 			Destination: "/usr/bin/nvidia-imex.real",
 			Type:        "bind",
-			Options:     []string{"rbind", "ro", "nosuid", "nodev"},
+			Options:     []string{"rbind", "rprivate", "ro", "nosuid", "nodev"},
 		},
 		{
 			Source:      cfg.TopologyHostPath,
 			Destination: cfg.TopologyContainerPath,
 			Type:        "bind",
-			Options:     []string{"rbind", "ro", "nosuid", "nodev"},
+			Options:     []string{"rbind", "rprivate", "ro", "nosuid", "nodev"},
 		},
 	}, adjustment.Mounts)
 	require.Equal(t, []string{"MOCK_TOPOLOGY_CONFIG=/etc/nvml-mock/topology.yaml"}, adjustment.Env)
+	for _, m := range adjustment.Mounts {
+		require.Contains(t, m.Options, "rprivate", "%s must not share mount events with the node", m.Destination)
+	}
 	require.Empty(t, adjustment.Devices)
 	require.Empty(t, adjustment.CDIDevices)
 }

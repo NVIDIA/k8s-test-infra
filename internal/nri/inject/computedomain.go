@@ -64,11 +64,14 @@ func regularFile(path string) bool {
 	return err == nil && info.Mode().IsRegular()
 }
 
+// readOnlyFileMount binds one staged file read-only. It is rprivate for the
+// same reason as the overlay binds: without it, a container with an rshared
+// root would share the bind's mount events with the node.
 func readOnlyFileMount(source, destination string) Mount {
 	return Mount{
 		Source:      source,
 		Destination: destination,
 		Type:        "bind",
-		Options:     []string{"rbind", "ro", "nosuid", "nodev"},
+		Options:     []string{"rbind", "rprivate", "ro", "nosuid", "nodev"},
 	}
 }
