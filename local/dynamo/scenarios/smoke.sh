@@ -4,14 +4,15 @@
 #
 # Smoke check: the Dynamo mocker graph runs on a mock GPU and serves a request.
 #
-# Asserts three things, each of which can fail while every pod reads Running:
+# Asserts four things, each of which can fail while every pod reads Running:
 #   1. The decode worker sits on a node that still advertises nvidia.com/gpu.
 #      If nvml-mock goes away, the GPU Operator scales its operands to zero and
 #      the node's allocatable drops to 0, but the worker keeps running.
 #   2. nvidia-smi inside the worker sees exactly the one GPU it requested. More
 #      means the device plugin did not scope the CDI injection; none means the
 #      mock driver never reached the container.
-#   3. A chat completion round-trips frontend -> router -> mocker and returns
+#   3. That GPU is the node's profile, not the mock library's built-in default.
+#   4. A chat completion round-trips frontend -> router -> mocker and returns
 #      exactly max_tokens tokens. The mocker emits random token ids, so the
 #      content itself is meaningless; the token count is what proves the
 #      worker, not the frontend, produced it.
@@ -55,6 +56,17 @@ gpu_count=$(grep -c '^GPU ' <<<"${gpus}" || true)
 [[ "${gpu_count}" -eq 1 ]] \
   || fail "worker requested 1 GPU but nvidia-smi lists ${gpu_count}:"$'\n'"${gpus}"
 printf 'OK: worker sees its one GPU: %s\n' "${gpus}"
+
+# GFD derives gpu.product from the profile nvml-mock serves on the node, with
+# spaces turned into dashes. A worker whose mock library never found that
+# profile falls back to the engine's built-in default device, which can carry
+# the same GPU model under a different name, so only an exact match proves the
+# worker reads the node's profile.
+worker_gpu=$(kubectl -n "${NAMESPACE}" exec "${worker}" -- \
+  nvidia-smi --query-gpu=name --format=csv,noheader)
+[[ "${worker_gpu// /-}" == "${product}" ]] \
+  || fail "worker reports GPU '${worker_gpu}' but ${node} is labelled '${product}'; the mock library inside the worker did not load the node's profile (is nri.enabled set for nvml-mock?)"
+printf 'OK: worker GPU matches the node profile: %s\n' "${worker_gpu}"
 
 # Sent from inside the frontend pod: the API server's service proxy rejects a
 # JSON POST from `kubectl create --raw`, and this keeps the check independent of
