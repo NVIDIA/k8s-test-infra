@@ -440,16 +440,16 @@ image writes `kind` there and re-binds it into every container after the
 container's own mounts are set up, and on hosts without DMI (Docker Desktop) it
 does not exist at all.
 
-The daemon therefore writes the machine type to `driver/config/machine-type`. The
-NRI plugin points `GFD_MACHINE_TYPE_FILE` at it, so with `nri.enabled` the label
-needs nothing from the operator's own configuration. A value authored on the
-container wins, for a cluster pinning a file of its own.
-
-Without NRI the file is still served, at `/etc/nvml-mock/machine-type` by the
-CDI mount that carries `config.yaml`, but the value has to be set by hand — the
-toolkit resolving `nvidia.com/gpu` applies the spec's mounts and drops its env
-([#747](https://github.com/NVIDIA/k8s-test-infra/issues/747)), so the plugin's
-channel is the only automatic one:
+The daemon therefore writes the machine type to `driver/config/machine-type`, and
+the CDI mount that carries `config.yaml` serves it at
+`/etc/nvml-mock/machine-type`. GFD has to be pointed at it by hand, with or
+without `nri.enabled`. The toolkit resolving `nvidia.com/gpu` applies the spec's
+mounts and drops its env
+([#747](https://github.com/NVIDIA/k8s-test-infra/issues/747)). The NRI plugin
+sets `GFD_MACHINE_TYPE_FILE` only in the containers it injects, which hold a GPU
+allocation or opt in by annotation (see
+[Which containers are injected](components/nri-plugin.md#which-containers-are-injected)),
+and GFD does neither:
 
 ```yaml
 gfd:
