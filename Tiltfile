@@ -43,6 +43,7 @@ load('./local/topograph/topograph.tiltfile', topograph_install='install')
 load('./local/observability/observability.tiltfile',
      observability_install='install',
      observability_gpu_operator_values='GPU_OPERATOR_VALUES')
+load('./local/dynamo/dynamo.tiltfile', dynamo_install='install')
 
 # --- Flags ---------------------------------------------------------------
 config.define_string('gpu-profile', args=False,
@@ -66,6 +67,8 @@ config.define_bool('topograph', args=False,
     usage='Also deploy NVIDIA topograph. Implies --compute-domain (topograph reads the static nvidia.com/gpu.clique labels). Still requires the compute-domain Kind cluster: make cluster-create PROFILE=compute-domain.')
 config.define_bool('observability', args=False,
     usage='Also deploy kube-prometheus-stack + a Grafana dashboard over the mock GPUs, and expose two manual fault-injection triggers (inject-thermal, inject-xid) that assert the fault lands in Prometheus. Implies --gpu-operator (dcgm-exporter is the Operator\'s operand). Grafana on http://localhost:3000/d/mokka-gpu (admin/mokka).')
+config.define_bool('dynamo', args=False,
+    usage='Also deploy NVIDIA Dynamo (operator only) and an aggregated DynamoGraphDeployment whose worker runs the mocker engine on a mock GPU, plus a manual dynamo-smoke trigger. Implies --gpu-operator (the worker requests nvidia.com/gpu). OpenAI API on http://localhost:8000.')
 config.define_bool('control-plane', args=False,
     usage='Also deploy the Mokka Control Plane (MEP-0001) alongside nvml-mock. Off by default. Composes with --multi-gpu-profile (the first profile release owns the single CP), --compute-domain, and --nvmlmock-image.')
 # CI hook: hand Tilt a pre-built image (in CI, loaded from the workflow's image
@@ -87,6 +90,7 @@ with_dra            = cfg.get('dra', False)
 with_fgo            = cfg.get('fgo', False)
 with_topograph      = cfg.get('topograph', False)
 with_observability  = cfg.get('observability', False)
+with_dynamo         = cfg.get('dynamo', False)
 with_control_plane  = cfg.get('control-plane', False)
 
 # --- Implicit flags ------------------------------------------------------
@@ -103,6 +107,12 @@ if with_topograph:
 # stack installs cleanly and every GPU panel stays empty, so implying the
 # flag is friendlier than failing on it.
 if with_observability:
+    with_gpu_operator = True
+
+# --dynamo implies --gpu-operator: the mocker worker requests nvidia.com/gpu,
+# which only the Operator's device plugin advertises. Without it the graph
+# installs and the worker sits Pending forever.
+if with_dynamo:
     with_gpu_operator = True
 
 # --- Guardrails ----------------------------------------------------------
@@ -162,6 +172,9 @@ if with_topograph:
 # dashboard panel is a flat line of profile constants.
 if with_observability:
     active_consumers.append('observability')
+
+if with_dynamo:
+    active_consumers.append('dynamo')
 
 # --- Safety guard --------------------------------------------------------
 allow_k8s_contexts(k8s_context)
@@ -259,6 +272,9 @@ if with_fgo:
 
 if with_topograph:
     topograph_install(nvml_mock_releases)
+
+if with_dynamo:
+    dynamo_install(nvml_mock_releases)
 
 # --- Test workload -------------------------------------------------------
 # GPU validator pod, disabled by default (enable from the Tilt UI). Requests

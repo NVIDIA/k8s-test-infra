@@ -1,0 +1,97 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Loadable Tiltfile: NVIDIA Dynamo consumer.
+#
+# Exports:
+#   install(nvml_mock_releases) — install the Dynamo platform (operator only)
+#     and an aggregated DynamoGraphDeployment whose worker runs Dynamo's mocker
+#     engine on a mock GPU, plus a manual trigger that asserts the whole path.
+#
+# What this consumer demonstrates: the unmodified Dynamo operator schedules an
+# inference graph onto nodes whose nvidia.com/gpu capacity, GFD labels and
+# driver come from nvml-mock through the real GPU Operator. The mocker stands
+# in for the inference engine, the one layer that needs real CUDA, so the
+# operator, frontend, router and worker lifecycle all run as they would on a
+# GPU cluster.
+#
+# Assumes --gpu-operator: the worker requests nvidia.com/gpu, which only the
+# Operator's device plugin advertises. The root Tiltfile implies the flag.
+#
+# All side effects inside functions so load()ing this file is a pure import.
+
+load('ext://helm_resource', 'helm_resource')
+
+RELEASE = 'dynamo-platform'
+
+_NAMESPACE = 'dynamo-system'
+# Pinned rather than floating, like the other consumers: the DGD below uses the
+# v1beta1 API and the mocker image tag, both of which move with the platform.
+# Bump all three together.
+_VERSION = '1.5.0'
+# The chart is published as a plain tarball on NGC; the OCI reference the
+# Dynamo docs mention does not resolve for 1.5.0.
+_CHART = 'https://helm.ngc.nvidia.com/nvidia/ai-dynamo/charts/dynamo-platform-%s.tgz' % _VERSION
+_HELM_TIMEOUT_S = 300
+_DGD = 'local/dynamo/qwen3.yaml'
+_DGD_NAME = 'qwen3'
+# The Dynamo frontend's default HTTP port, which the operator also uses for the
+# <dgd>-frontend Service it generates.
+_FRONTEND_PORT = 8000
+
+
+def install(nvml_mock_releases):
+    """Install the Dynamo platform, the mocker graph and its smoke trigger."""
+    # Tilt caps a k8s apply at 30s by default, which the --wait below exceeds.
+    update_settings(k8s_upsert_timeout_secs=_HELM_TIMEOUT_S + 60)
+
+    helm_resource(
+        RELEASE,
+        _CHART,
+        namespace=_NAMESPACE,
+        flags=[
+            '--create-namespace',
+            # --wait is load-bearing: the operator's crd-apply init container
+            # installs the DynamoGraphDeployment CRD and the manager serves the
+            # validating webhook. Without it Tilt applies the DGD the moment
+            # `helm upgrade` returns and the apply fails on an unknown kind.
+            '--wait', '--timeout', '%ds' % _HELM_TIMEOUT_S,
+        ],
+        resource_deps=nvml_mock_releases,
+        labels=['dynamo'],
+    )
+
+    k8s_yaml(_DGD)
+    # Tilt does not know the DGD kind; the operator owns its pods through a
+    # Deployment, so let Tilt follow the ownership chain for logs and status.
+    k8s_kind('DynamoGraphDeployment', pod_readiness='wait')
+    k8s_resource(
+        _DGD_NAME,
+        # The GPU Operator is a hard dependency, not UI ordering: the worker
+        # stays Pending until the device plugin advertises nvidia.com/gpu.
+        resource_deps=[RELEASE, 'gpu-operator'] + nvml_mock_releases,
+        labels=['dynamo'],
+    )
+
+    # Forward the frontend Service by name: a port_forwards on the resource
+    # above would pick whichever of its frontend or worker pods Tilt saw first.
+    local_resource(
+        'dynamo-frontend',
+        serve_cmd='kubectl -n %s port-forward svc/%s-frontend %d:%d' % (
+            _NAMESPACE, _DGD_NAME, _FRONTEND_PORT, _FRONTEND_PORT),
+        resource_deps=[_DGD_NAME],
+        readiness_probe=probe(
+            period_secs=5,
+            http_get=http_get_action(port=_FRONTEND_PORT, path='/v1/models'),
+        ),
+        links=[link('http://localhost:%d/v1/models' % _FRONTEND_PORT, 'Dynamo — OpenAI API')],
+        labels=['dynamo'],
+    )
+
+    local_resource(
+        'dynamo-smoke',
+        cmd='bash local/dynamo/scenarios/smoke.sh',
+        resource_deps=[_DGD_NAME],
+        auto_init=False,
+        labels=['dynamo-tests'],
+    )

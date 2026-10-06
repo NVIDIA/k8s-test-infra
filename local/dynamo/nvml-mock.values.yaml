@@ -1,0 +1,15 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# nvml-mock values overlay for the Dynamo consumer, layered by
+# local/nvml_mock.tiltfile because 'dynamo' is an active consumer.
+#
+# The Dynamo worker gets its GPU from the GPU Operator's device plugin, whose
+# own CDI spec carries only the driver files it discovered: libnvidia-ml.so,
+# nvidia-smi and the control devices. It does not carry the mock's profile
+# (/etc/nvml-mock and MOCK_NVML_CONFIG), so without NRI the library inside the
+# worker falls back to its built-in default device and reports a GPU that is
+# not the node's profile. The NRI plugin adds that overlay to every container
+# holding a device-plugin allocation, leaving the allocation itself untouched.
+nri:
+  enabled: true
