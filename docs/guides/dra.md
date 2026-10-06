@@ -126,7 +126,7 @@ spec:
   containers:
     - name: app
       image: debian:bookworm-slim
-      command: ["sleep", "300"]
+      command: ["sleep", "infinity"]
       resources:
         claims:
           - name: gpu
@@ -141,7 +141,9 @@ kubectl wait --for=condition=ready pod/gpu-test-pod --timeout=120s
 The pod reaching `Running` means the scheduler matched the claim to a
 published device *and* the kubelet plugin's `NodePrepareResources` succeeded —
 the step that would touch real hardware. The image is debian because the
-injected `nvidia-smi` is a glibc binary, which `busybox` cannot run.
+injected `nvidia-smi` is a glibc binary, which `busybox` cannot run. The pod
+sleeps until you delete it: once it exits, the claim generated for it is
+deleted too, and Step 6 has nothing to read.
 
 ## Step 6 — Check the pod sees exactly its claimed GPU
 
@@ -187,6 +189,8 @@ kubectl get deviceclasses
 Check that the nvml-mock pods run an `nvml-mock-nri` container and are Ready,
 and that containerd has NRI enabled. See
 [A pod gets no mock GPUs even though NRI is enabled](../troubleshooting.md#a-pod-gets-no-mock-gpus-even-though-nri-is-enabled).
+The plugin only injects a container as it is created, so delete and recreate
+the pod after fixing it.
 
 **The API rejects the manifest.** `resource.k8s.io/v1beta1` is not served. The
 `runtime-config` line in the cluster config is what enables it, and it only

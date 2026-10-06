@@ -104,7 +104,8 @@ tilt up -- --nvmlmock-image=nvml-mock:e2e     # or `tilt ci` for a headless run
 [`local/kind/default.kind.yaml`](../../local/kind/default.kind.yaml) gives one
 control-plane and two workers named `worker-0` and `worker-1`, turns on the
 `DynamicResourceAllocation` feature gate, and enables the containerd NRI socket
-that the node-wide injection scenario requires.
+that the node-wide injection scenario and the NRI specs of the DRA and GPU
+Operator scenarios require.
 
 ### Run
 

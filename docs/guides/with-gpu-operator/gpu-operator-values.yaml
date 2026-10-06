@@ -8,13 +8,16 @@
 #   - This file was copied from tests/e2e/gpu-operator-values.yaml. Strip the
 #     comments from both and they are identical.
 #   - CI does NOT install either of them. The e2e-gpu-operator job runs
-#     `tilt ci -- --gpu-operator`, and local/gpu-operator/gpu_operator.tiltfile
+#     `tilt ci -- --gpu-operator --nri`, and local/gpu-operator/gpu_operator.tiltfile
 #     passes local/gpu-operator/gpu-operator.values.yaml. That is a third copy.
 #   - Strip the comments from that third copy too and it is identical to this
 #     one, so the configuration below is the configuration CI exercises, but
 #     the FILE below is not the file CI reads, and no test, lint or hook keeps
 #     the three in step. If you change a value here, change it in the other
 #     two as well.
+#   - CI also runs nvml-mock with its NRI plugin, which this demo does not
+#     install. The plugin leaves the operands alone (the job checks GFD is not
+#     injected), so the Operator sees the same node either way.
 #
 # Prerequisites:
 #   - the nvml-mock chart already installed (it stages the mock NVML library
