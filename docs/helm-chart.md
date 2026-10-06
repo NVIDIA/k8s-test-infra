@@ -47,8 +47,8 @@ device plugin or the NVIDIA DRA driver, or whose pod carries the
 requested no GPU and carries none of them is left untouched and sees no GPUs, as
 on a real GPU node. See
 [Which containers are injected](components/nri-plugin.md#which-containers-are-injected)
-for the full rules. Kind clusters must have containerd NRI enabled; see
-[`docs/guides/node-wide-injection`](guides/node-wide-injection/README.md).
+for the full rules. [Set up NRI injection](guides/nri-injection.md) covers the
+containerd prerequisite, including on Kind, and how to verify the plugin.
 
 **Install it into its own namespace, and pass `-n`:**
 
@@ -603,10 +603,10 @@ unreachable peers.
 Applies only when `nri.enabled=true`.
 
 The NRI plugin injects the mock GPU stack at container-creation time, which is
-what lets ordinary pods see mock GPUs without a pod-spec change. It also means
-the injection is written into the container's OCI spec once, at creation. A pod
-that is already running keeps everything it was given, whatever happens to the
-plugin afterwards. **Only pods created after a failure are affected**, and they
+what lets a pod given GPUs the usual way see mock GPUs without a pod-spec
+change. It also means the injection is written into the container's OCI spec
+once, at creation. A pod that is already running keeps everything it was given,
+whatever happens to the plugin afterwards. **Only pods created after a failure are affected**, and they
 are affected silently.
 
 That is the property that makes this worth hardening: a test suite that creates
@@ -774,7 +774,7 @@ namespace, on the pod IP where the kubelet reaches it.
 | `imex.mockChannels.enabled` | `false` | Stage the channel devices, substitute `/proc/devices`, and fabric capability file consumed by DRA ComputeDomain support |
 | `imex.nodeSoftware.enabled` | `""` | Tri-state; empty follows `imex.mockChannels.enabled`, and `false` opts out on nodes without egress to NVIDIA. Download the architecture-specific IMEX archive pinned by version and SHA-256, cache it on the node, and stage its daemon, CLI, config, and Mokka shim in the driver tree. Requires outbound HTTPS from the node-agent pod on the first successful stage; until then the download is retried in the background and only the agent's `imex` simulator reports not ready |
 | `imex.nodeSoftware.downloadTimeout` | `1m` | Bound on one IMEX archive download attempt |
-| `nri.enabled` | `false` | Add the `nvml-mock-nri` containerd NRI plugin as a sidecar in the node DaemonSet. Injects mock overlay and environment cluster-wide into non-excluded namespaces. Always install into a dedicated namespace (`-n mokka`) to avoid excluding `default`. Device node injection remains opt-in (`nvidia.com/gpu` request or `nvml-mock.nvidia.com/devices: "true"` annotation). |
+| `nri.enabled` | `false` | Add the `nvml-mock-nri` containerd NRI plugin as a sidecar in the node DaemonSet. In non-excluded namespaces it injects containers that hold a GPU allocation or whose pod opts in by annotation; see [Set up NRI injection](guides/nri-injection.md). Always install into a dedicated namespace (`-n mokka`) to avoid excluding `default` |
 | `nri.nativeSidecar` | `true` | On Kubernetes 1.29+, use the ordered `SidecarContainers` layout. Set to `false` when that feature gate is explicitly disabled; the chart falls back to unordered regular containers |
 | `nri.socketPath` | `/var/run/nri/nri.sock` | NRI socket on the host. Its directory is hostPath-mounted into the plugin |
 | `nri.pluginName` / `nri.pluginIndex` | `nvml-mock` / `"10"` | NRI registration identity. The index orders this plugin against others |

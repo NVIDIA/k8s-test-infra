@@ -164,6 +164,21 @@ The Tilt UI exposes two manual triggers under the `observability-tests` label. E
 
 See [observability/README.md](observability/README.md) for the dashboard panels, the scenario tunables, the two couplings that fail silently, and the behaviours that look like bugs and are not — chiefly that the Xid panel is empty until a fault fires, and that the injected Xid code alternates between runs by design.
 
+### With NVIDIA Dynamo
+
+Deploys the [Dynamo](https://github.com/ai-dynamo/dynamo) platform (operator only) and an aggregated `DynamoGraphDeployment` named `qwen3`: a frontend plus one decode worker running Dynamo's mocker engine, a simulated backend that registers with the router and streams responses without CUDA. The worker requests `nvidia.com/gpu: 1`, so it schedules only onto a mock-GPU node and gets the mock driver injected, the same way a real vLLM or TensorRT-LLM worker would.
+
+`--dynamo` implies `--gpu-operator`, since only the Operator's device plugin advertises `nvidia.com/gpu`. It also turns on the nvml-mock NRI plugin (`local/dynamo/nvml-mock.values.yaml`) so the worker sees the GPU profile `--gpu-profile` selected; the [NVIDIA Dynamo guide](../docs/guides/dynamo/README.md) explains why.
+
+```bash
+make cluster-create
+tilt up -- --dynamo
+curl -s localhost:8000/v1/chat/completions -H 'Content-Type: application/json' \
+  -d '{"model":"Qwen/Qwen3-0.6B","messages":[{"role":"user","content":"hi"}],"max_tokens":16}'
+```
+
+The frontend is port-forwarded to <http://localhost:8000> once the `dynamo-frontend` resource is ready. The manual **dynamo-smoke** trigger under the `dynamo-tests` label asserts that the worker landed on a mock-GPU node, that `nvidia-smi` inside it lists exactly one GPU and that GPU is the node's profile, and that a chat completion round-trips through the frontend.
+
 ## Helm value overrides for nvml-mock
 
 Values are layered in this order (last wins):
