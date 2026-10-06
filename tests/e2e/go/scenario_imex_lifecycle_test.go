@@ -103,9 +103,10 @@ func applyIMEXLifecyclePod(ctx context.Context, h *harness.Harness, name, node s
 		Name:      name,
 		Namespace: nriWorkloadNS,
 		Labels:    map[string]string{"app": name},
-		// The channels alone come without the overlay, which carries the
-		// staged IMEX config and binaries the peer runs; the devices opt-in
-		// mounts it, as the node's GPUs would for a real IMEX daemon.
+		// Like the compute-domain guide's demo workload, each peer asks for the
+		// IMEX channels and, separately, for the overlay that carries the
+		// staged IMEX config and binaries it runs; the channels alone do not
+		// mount the overlay.
 		Annotations: map[string]string{nriImexAnnotation: "true", nriDeviceAnnotation: "true"},
 		Image:       config.Image(),
 		Node:        node,
