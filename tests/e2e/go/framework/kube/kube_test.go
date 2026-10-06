@@ -291,28 +291,88 @@ func TestBaseTargetsContext(t *testing.T) {
 	require.Equal(t, []string{"--context", "kind-nvml-mock-e2e"}, args, "kubectl context args")
 }
 
+// draPod has two containers on three pod claims: app uses a template claim the
+// status maps to its generated name, and one request of a claim named
+// directly, which never appears in the status; sidecar uses a third claim.
+const draPod = `{
+  "spec": {
+    "containers": [
+      {"name": "app", "resources": {"claims": [{"name": "gpu"}, {"name": "shared", "request": "big"}]}},
+      {"name": "sidecar", "resources": {"claims": [{"name": "other"}]}}],
+    "resourceClaims": [
+      {"name": "gpu", "resourceClaimTemplateName": "gpu-claim"},
+      {"name": "shared", "resourceClaimName": "shared-gpus"},
+      {"name": "other", "resourceClaimTemplateName": "gpu-claim"}]},
+  "status": {"resourceClaimStatuses": [
+    {"name": "gpu", "resourceClaimName": "p-gpu-x7"},
+    {"name": "other", "resourceClaimName": "p-other-k2"}]}}`
+
+func TestDRAPodClaimUsesResolveOneContainersClaims(t *testing.T) {
+	t.Parallel()
+	var p draPodObj
+	require.NoError(t, json.Unmarshal([]byte(draPod), &p), "unmarshal pod")
+
+	for container, want := range map[string][]draClaimUse{
+		"":        {{"p-gpu-x7", ""}, {"shared-gpus", "big"}},
+		"app":     {{"p-gpu-x7", ""}, {"shared-gpus", "big"}},
+		"sidecar": {{"p-other-k2", ""}},
+	} {
+		uses, err := p.claimUses(container)
+		require.NoError(t, err, "container %q", container)
+		require.Equal(t, want, uses, "claims of container %q", container)
+	}
+
+	_, err := p.claimUses("missing")
+	require.ErrorContains(t, err, `no container "missing"`)
+}
+
+// A template claim the controller has not generated yet has no name to read.
+func TestDRAPodClaimUsesRejectAnUngeneratedClaim(t *testing.T) {
+	t.Parallel()
+	var p draPodObj
+	require.NoError(t, json.Unmarshal([]byte(`{"spec": {
+	  "containers": [{"name": "app", "resources": {"claims": [{"name": "gpu"}]}}],
+	  "resourceClaims": [{"name": "gpu", "resourceClaimTemplateName": "gpu-claim"}]}}`), &p),
+		"unmarshal pod")
+
+	_, err := p.claimUses("app")
+	require.ErrorContains(t, err, `pod claim "gpu" has no generated ResourceClaim yet`)
+}
+
 func TestDRAClaimAllocatedDevices(t *testing.T) {
+	t.Parallel()
 	var claim draClaimObj
 	require.NoError(t, json.Unmarshal([]byte(`{"status":{"allocation":{"devices":{"results":[
-	  {"request":"gpu","driver":"gpu.nvidia.com","pool":"worker-1","device":"gpu-1"}]}}}}`), &claim),
+	  {"request":"small","driver":"gpu.nvidia.com","pool":"worker-1","device":"gpu-0"},
+	  {"request":"big/a100","driver":"gpu.nvidia.com","pool":"worker-1","device":"gpu-1"},
+	  {"request":"bigger","driver":"gpu.nvidia.com","pool":"worker-1","device":"gpu-2"}]}}}}`), &claim),
 		"unmarshal claim")
 
-	refs, ok := claim.allocatedDevices()
-	require.True(t, ok, "claim with an allocation")
-	require.Equal(t, []draDeviceRef{{"gpu.nvidia.com", "worker-1", "gpu-1"}}, refs)
+	for request, want := range map[string][]draDeviceRef{
+		"":      {{"gpu.nvidia.com", "worker-1", "gpu-0"}, {"gpu.nvidia.com", "worker-1", "gpu-1"}, {"gpu.nvidia.com", "worker-1", "gpu-2"}},
+		"small": {{"gpu.nvidia.com", "worker-1", "gpu-0"}},
+		// A subrequest counts for its request; a request sharing the prefix does not.
+		"big": {{"gpu.nvidia.com", "worker-1", "gpu-1"}},
+	} {
+		refs, ok := claim.allocatedDevices(request)
+		require.True(t, ok, "claim with an allocation")
+		require.Equal(t, want, refs, "devices of request %q", request)
+	}
 }
 
 func TestDRAClaimWithoutAllocationIsNotAllocated(t *testing.T) {
+	t.Parallel()
 	var claim draClaimObj
 	require.NoError(t, json.Unmarshal([]byte(`{"status":{}}`), &claim), "unmarshal claim")
 
-	_, ok := claim.allocatedDevices()
+	_, ok := claim.allocatedDevices("")
 	require.False(t, ok, "claim without an allocation")
 }
 
 // Every pool publishes the same device names, so a lookup that ignores the
 // pool resolves the wrong UUID.
 func TestDRASliceUUIDsResolveTheDeviceInItsPool(t *testing.T) {
+	t.Parallel()
 	var slices draSliceList
 	require.NoError(t, json.Unmarshal([]byte(`{"items":[
 	  {"spec":{"driver":"gpu.nvidia.com","pool":{"name":"worker-1"},"devices":[
@@ -332,6 +392,7 @@ func TestDRASliceUUIDsResolveTheDeviceInItsPool(t *testing.T) {
 
 // The v1 API moved device attributes out of basic and onto the device.
 func TestDRASliceUUIDsReadTheV1DeviceShape(t *testing.T) {
+	t.Parallel()
 	var slices draSliceList
 	require.NoError(t, json.Unmarshal([]byte(`{"items":[
 	  {"spec":{"driver":"gpu.nvidia.com","pool":{"name":"n"},"devices":[
