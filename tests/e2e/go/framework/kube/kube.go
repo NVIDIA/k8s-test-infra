@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/runner"
@@ -148,6 +149,11 @@ type envVar struct {
 	Value string `json:"value"`
 }
 
+type templateContainer struct {
+	Name string   `json:"name"`
+	Env  []envVar `json:"env"`
+}
+
 type daemonSetObj struct {
 	Metadata struct {
 		Generation int64 `json:"generation"`
@@ -155,9 +161,8 @@ type daemonSetObj struct {
 	Spec struct {
 		Template struct {
 			Spec struct {
-				Containers []struct {
-					Env []envVar `json:"env"`
-				} `json:"containers"`
+				InitContainers []templateContainer `json:"initContainers"`
+				Containers     []templateContainer `json:"containers"`
 			} `json:"spec"`
 		} `json:"template"`
 	} `json:"spec"`
@@ -371,23 +376,39 @@ func (c *Client) DaemonSetReady(ctx context.Context, ns, name string) (bool, err
 	return ds.rolledOutAndReady(), nil
 }
 
-// DaemonSetContainerEnv returns the value of an env var on the DaemonSet's
-// first container (parity with reading MOCK_FABRICMANAGER off the deployed
+// DaemonSetContainerEnv returns the value of an env var on the named container
+// of the DaemonSet (parity with reading MOCK_FABRICMANAGER off the deployed
 // daemonset). Returns ("", false, nil) when unset.
-func (c *Client) DaemonSetContainerEnv(ctx context.Context, ns, name, envName string) (string, bool, error) {
+func (c *Client) DaemonSetContainerEnv(ctx context.Context, ns, name, container, envName string) (string, bool, error) {
 	var ds daemonSetObj
 	if err := c.getJSON(ctx, &ds, "daemonset", "-n", ns, name); err != nil {
 		return "", false, err
 	}
-	if len(ds.Spec.Template.Spec.Containers) == 0 {
-		return "", false, fmt.Errorf("daemonset %s/%s has no containers", ns, name)
+	value, found, err := ds.containerEnv(container, envName)
+	if err != nil {
+		return "", false, fmt.Errorf("daemonset %s/%s: %w", ns, name, err)
 	}
-	for _, e := range ds.Spec.Template.Spec.Containers[0].Env {
-		if e.Name == envName {
-			return e.Value, true, nil
+	return value, found, nil
+}
+
+// containerEnv looks the container up by name, among init containers too: with
+// the NRI plugin on, the chart runs the node agent as a native sidecar, which
+// is a restartable init container. A missing container is an error, so a
+// layout change cannot read as the variable being unset.
+func (ds daemonSetObj) containerEnv(container, envName string) (string, bool, error) {
+	spec := ds.Spec.Template.Spec
+	for _, ctr := range slices.Concat(spec.InitContainers, spec.Containers) {
+		if ctr.Name != container {
+			continue
 		}
+		for _, e := range ctr.Env {
+			if e.Name == envName {
+				return e.Value, true, nil
+			}
+		}
+		return "", false, nil
 	}
-	return "", false, nil
+	return "", false, fmt.Errorf("no container %q", container)
 }
 
 // ---------------------------------------------------------------------------
