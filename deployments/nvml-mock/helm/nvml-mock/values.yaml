@@ -101,6 +101,12 @@ image:
   tag: ""                          # Defaults to the chart appVersion
   pullPolicy: IfNotPresent
 
+# Feature gate overrides passed to the node agent, NRI plugin and control plane
+# as --feature-gates, for example {AllAlpha: true}. The values schema lists the
+# gates this chart version accepts, so an unknown or locked gate fails the Helm
+# command before any pod changes. See docs/feature-gates.md.
+featureGates: {}
+
 driverVersion: ""                  # Auto-derived from profile. Override: "550.163.01"
 
 nodeSelector: {}
