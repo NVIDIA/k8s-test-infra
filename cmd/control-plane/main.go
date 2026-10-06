@@ -13,7 +13,6 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/controlplane"
 	"github.com/NVIDIA/k8s-test-infra/internal/controlplane/controller"
-	"github.com/NVIDIA/k8s-test-infra/internal/featuregate"
 	"github.com/NVIDIA/k8s-test-infra/internal/logging"
 	"github.com/urfave/cli/v3"
 	"golang.org/x/sync/errgroup"
@@ -32,7 +31,6 @@ func newCLI() *cli.Command {
 		Name:  "control-plane",
 		Usage: "Mokka Control Plane",
 		Flags: []cli.Flag{
-			featuregate.CLIFlag(),
 			&cli.StringFlag{
 				Name:    "listen-addr",
 				Value:   defaults.Server.ListenAddr,
@@ -132,10 +130,6 @@ func configFrom(cmd *cli.Command) controlplane.Config {
 }
 
 func run(ctx context.Context, cmd *cli.Command) error {
-	if err := featuregate.ConfigureFromCLI(cmd); err != nil {
-		return fmt.Errorf("configure feature gates: %w", err)
-	}
-
 	level, err := logging.ParseLevel(cmd.String("log-level"))
 	if err != nil {
 		return err

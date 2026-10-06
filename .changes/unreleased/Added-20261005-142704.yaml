@@ -1,6 +1,0 @@
-kind: Added
-body: |-
-  node-agent, nri-plugin, control-plane, helm: `--feature-gates` flag and `MOKKA_FEATURE_GATES` variable for startup feature gate overrides, set per component through the chart's `featureGates` values. No gates are registered yet.
-time: 2026-10-05T21:27:04Z
-custom:
-  Issue: "859"

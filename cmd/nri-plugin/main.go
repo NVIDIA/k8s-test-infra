@@ -18,7 +18,6 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/NVIDIA/k8s-test-infra/internal/featuregate"
 	"github.com/NVIDIA/k8s-test-infra/internal/health"
 	"github.com/NVIDIA/k8s-test-infra/internal/logging"
 	"github.com/NVIDIA/k8s-test-infra/internal/nri"
@@ -55,7 +54,6 @@ func newCLI() *cli.Command {
 // processFlags shape the binary itself rather than any injection.
 func processFlags() []cli.Flag {
 	return []cli.Flag{
-		featuregate.CLIFlag(),
 		&cli.StringFlag{
 			Name:    "log-level",
 			Value:   string(logging.LevelInfo),
@@ -272,10 +270,6 @@ func configFrom(cmd *cli.Command) (nri.Config, error) {
 }
 
 func run(ctx context.Context, cmd *cli.Command) error {
-	if err := featuregate.ConfigureFromCLI(cmd); err != nil {
-		return fmt.Errorf("configure feature gates: %w", err)
-	}
-
 	level, err := logging.ParseLevel(cmd.String("log-level"))
 	if err != nil {
 		return err
