@@ -112,7 +112,7 @@ var _ = Describe("nvml-mock DRA", Label("dra"), Ordered, func() {
 					Expect(err).NotTo(HaveOccurred(),
 						"%s was not injected by NRI: no /opt/nvml-mock overlay or MOCK_NVML_CONFIG\n%s", name, res.Combined())
 
-					allocated, err := h.Kube.DRAAllocatedGPUUUIDs(ctx, draTestNamespace, name)
+					allocated, err := h.Kube.DRAAllocatedGPUUUIDs(ctx, ref)
 					Expect(err).NotTo(HaveOccurred(), "resolve the GPU the scheduler allocated to %s", name)
 					snap, err := nvidiasmi.SnapshotFromPod(ctx, h.Kube, ref)
 					Expect(err).NotTo(HaveOccurred(), "read nvidia-smi -q -x in %s", name)
