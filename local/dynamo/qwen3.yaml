@@ -10,7 +10,7 @@
 #     only places it on a node the device plugin advertises, and the CDI spec
 #     nvml-mock writes injects the mock driver into it.
 #   - Qwen/Qwen3-0.6B instead of a gated Llama, so no Hugging Face token secret
-#     is needed. The mocker only loads the tokenizer and config.
+#     is needed.
 #
 # There is no dedicated mocker image; dynamo-planner ships the ai-dynamo wheel
 # the mocker runs from. Keep its tag in step with _VERSION in dynamo.tiltfile.

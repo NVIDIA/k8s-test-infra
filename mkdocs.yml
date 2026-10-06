@@ -141,6 +141,7 @@ nav:
           - Amazon EKS: guides/install/aws/eks/README.md
           - NVIDIA DRA Driver: guides/dra.md
           - NVIDIA GPU Operator: guides/gpu-operator.md
+          - NVIDIA Dynamo: guides/dynamo/README.md
           - Compute Domain: guides/compute-domain/README.md
           - NVSentinel: guides/nv-sentinel/README.md
           - Run.ai Fake GPU Operator: guides/runai-fgo/README.md

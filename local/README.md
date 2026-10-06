@@ -168,7 +168,7 @@ See [observability/README.md](observability/README.md) for the dashboard panels,
 
 Deploys the [Dynamo](https://github.com/ai-dynamo/dynamo) platform (operator only) and an aggregated `DynamoGraphDeployment` named `qwen3`: a frontend plus one decode worker running Dynamo's mocker engine, a simulated backend that registers with the router and streams responses without CUDA. The worker requests `nvidia.com/gpu: 1`, so it schedules only onto a mock-GPU node and gets the mock driver injected, the same way a real vLLM or TensorRT-LLM worker would.
 
-`--dynamo` implies `--gpu-operator`, since only the Operator's device plugin advertises `nvidia.com/gpu`. It also turns on the nvml-mock NRI plugin (`local/dynamo/nvml-mock.values.yaml`): the device plugin's CDI spec delivers the mock library but not the node's GPU profile, so without NRI the worker reports the library's built-in default GPU instead of the one `--gpu-profile` selected. Both pods use the `dynamo-planner` image (about 0.65 GB) and the ungated `Qwen/Qwen3-0.6B` tokenizer, so no Hugging Face token is needed.
+`--dynamo` implies `--gpu-operator`, since only the Operator's device plugin advertises `nvidia.com/gpu`. It also turns on the nvml-mock NRI plugin (`local/dynamo/nvml-mock.values.yaml`) so the worker sees the GPU profile `--gpu-profile` selected; the [NVIDIA Dynamo guide](../docs/guides/dynamo/README.md) explains why.
 
 ```bash
 make cluster-create
