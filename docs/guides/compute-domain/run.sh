@@ -389,10 +389,11 @@ assert_clique "${WORKER4}" 1 "${EXPECTED_DOMAIN_UUID}"
 ###############################################################################
 # Scenario 2 — Real IMEX domain (NO GPU mode) over the pod network
 ###############################################################################
-# The node agent stages IMEX under the mock driver root; NRI supplies the
-# binaries, mock NVML overlay, topology environment, and IMEX channels.
-# nvidia-imex resolves to the shim, which execs its sibling
-# nvidia-imex.real with --nogpu. The
+# The node agent stages IMEX under the mock driver root. The workload's
+# devices annotation asks NRI for the mock driver overlay, which carries the
+# IMEX binaries, mock NVML and the topology environment; its separate
+# imex-channels annotation asks for the IMEX channels. nvidia-imex resolves to
+# the shim, which execs its sibling nvidia-imex.real with --nogpu. The
 # daemons below speak the real gRPC peer protocol (port 50000) and exchange
 # command/status data (port 50005) across pods. The demo workload's NetworkPolicy
 # admits those ports only from its peer pods in the same namespace and leaves

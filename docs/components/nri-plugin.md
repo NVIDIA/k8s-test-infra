@@ -29,24 +29,43 @@ For where it sits in the wider system, see the
 ## Which containers are injected
 
 The plugin injects only containers that were given GPUs or explicitly asked for
-the mock. Everything else on the node is left exactly as authored, just as a
-real GPU node gives nothing to a pod that requested no GPU.
+a mock surface. Everything else on the node is left exactly as authored, just as
+a real GPU node gives nothing to a pod that requested no GPU.
+
+It makes three independent selections — GPU, InfiniBand and IMEX — and adds only
+the surfaces that were selected. None of them brings another along.
 
 | Container | Receives |
 |---|---|
-| Holds a GPU allocation from the device plugin or the NVIDIA DRA driver | The overlay. The allocated GPUs stay exactly as the scheduler assigned them |
-| Pod annotated `nvml-mock.nvidia.com/devices: "true"`, no allocation | The overlay and every mock GPU on the node |
-| Pod annotated `nvml-mock.nvidia.com/imex-channels: "true"` | The overlay and the mock IMEX channels, without GPUs |
+| Holds a GPU allocation from the device plugin or the NVIDIA DRA driver | The overlay with mock NVML active. The allocated GPUs stay exactly as the scheduler assigned them |
+| Pod annotated `nvml-mock.nvidia.com/devices: "true"`, no allocation | The overlay with mock NVML active, and every mock GPU on the node |
+| Pod annotated `nvml-mock.nvidia.com/infiniband: "true"` | The overlay with the mock InfiniBand tools active |
+| Pod annotated `nvml-mock.nvidia.com/imex-channels: "true"` | The mock IMEX channel nodes, and nothing else |
 | The DRA ComputeDomain daemon: container `compute-domain-daemon` in a pod with the `resource.nvidia.com/computeDomain` label | Only the real IMEX binary and the node topology; see [ComputeDomain CDI composition](#computedomain-cdi-composition) |
 | Anything else | Nothing |
 
-The **overlay** is the mock driver tree plus the environment that points at it
-(`LD_LIBRARY_PATH`, the `LD_PRELOAD` shims and the `MOCK_*` variables) —
-enough for `nvidia-smi` and NVML clients to run.
+A container that matches several rows gets each of their surfaces.
+
+The **overlay** is the mock driver tree mounted at `/opt/nvml-mock`, plus the
+`PATH`, `LD_LIBRARY_PATH` and `LD_PRELOAD` shims that point at it. The GPU and
+InfiniBand selections share it, because the InfiniBand tools and shims are
+staged beside the mock driver. The environment turns on only what was selected:
+
+| Selected | Environment |
+|---|---|
+| GPU | `MOCK_NVML_CONFIG`, `MOCK_PCI_ROOT`, `GFD_MACHINE_TYPE_FILE` and, when staged, the ComputeDomain topology |
+| GPU, not InfiniBand | `MOCK_IB=off`, so the preloaded InfiniBand shims do nothing |
+| InfiniBand | `MOCK_IB=full`, `MOCK_IB_ROOT` and `MOCK_IB_PING_SOCKET` |
+| InfiniBand, not GPU | `MOCK_NVML_VISIBLE_DEVICES=none`, so the staged `nvidia-smi` reports no GPUs |
+
+When the container already sets one of these variables, its own value wins,
+except against `MOCK_IB=off` and `MOCK_NVML_VISIBLE_DEVICES=none`: the
+annotations decide what a container gets, not an environment baked into its
+image.
 
 The `devices` annotation is the management path: it gives a pod the whole node,
-such as a monitoring agent, without scheduler accounting. It is a pod
-annotation, so it applies to every container in that pod.
+such as a monitoring agent, without scheduler accounting. Like the other
+annotations, it applies to every container in the pod.
 
 ## What happens to a container
 
@@ -58,17 +77,16 @@ flowchart TB
     skip -->|yes| asis[Leave exactly as authored]
     skip -->|no| domain{DRA ComputeDomain<br/>daemon?}
     domain -->|yes| missing[Real IMEX binary<br/>and mock topology only]
-    domain -->|no| alloc{Holds a GPU<br/>allocation?}
-    alloc -->|yes| keep[Overlay; keep the<br/>allocated GPUs]
-    alloc -->|no| mgmt{devices annotation?}
-    mgmt -->|yes| all[Overlay + every mock GPU<br/>raw nodes or CDI ref]
-    mgmt -->|no| imexq{imex-channels<br/>annotation?}
-    imexq -->|yes| imexonly[Overlay]
-    imexq -->|no| asis
-    keep --> imex[Attach IMEX channels<br/>if annotated]
-    all --> imex
-    imexonly --> imex
+    domain -->|no| gpu{GPU?}
+    domain -->|no| ib{infiniband<br/>annotation?}
+    domain -->|no| imex{imex-channels<br/>annotation?}
+    gpu -->|allocation| keep[Overlay, mock NVML;<br/>keep the allocated GPUs]
+    gpu -->|devices annotation,<br/>no allocation| all[Overlay, mock NVML +<br/>every mock GPU, raw or CDI]
+    ib -->|yes| fabric[Overlay, mock InfiniBand]
+    imex -->|yes| channels[IMEX channel nodes]
 ```
+
+When no branch selects anything, the container is left exactly as authored.
 
 ### When a container is left alone
 
@@ -76,8 +94,8 @@ Any of these leaves the container exactly as authored:
 
 - the pod carries `nvml-mock.nvidia.com/inject: "false"`;
 - its namespace is in the excluded list;
-- it holds no GPU allocation and carries neither the `devices` nor the
-  `imex-channels` annotation, and is not the DRA ComputeDomain daemon;
+- it holds no GPU allocation and carries none of the `devices`, `infiniband`
+  and `imex-channels` annotations, and is not the DRA ComputeDomain daemon;
 - it already mounts the overlay at the destination path.
 
 That last check is what makes re-adjustment safe. A container that already has
@@ -142,6 +160,19 @@ whatever the scheduler allocated is never widened.
     Neither the device plugin nor the DRA driver delivers mock IMEX channels, so
     there is nothing to defer to.
 
+## Selecting InfiniBand
+
+Only the `infiniband` annotation selects InfiniBand. A privileged container
+inherits every host `/dev/infiniband/*` node under a wildcard cgroup rule
+without asking for RDMA, so device paths are not evidence. The plugin does not
+yet recognise an allocation from an RDMA device plugin or DRA driver; that needs
+a signal that inherited nodes cannot produce, and none has been validated.
+
+The annotation never adds or removes real `/dev/infiniband/*` nodes. It points
+the InfiniBand tools at the mock sysfs tree the node agent renders. On a profile
+without InfiniBand that tree holds no HCA: the pod still starts, its tools find
+nothing, and the plugin logs a warning.
+
 ## Device injection modes
 
 When the plugin delivers GPUs to a `devices`-annotated pod with no allocation,
@@ -163,7 +194,8 @@ only visible in the OCI spec of an already-running pod.
 |---|---|
 | `nvml-mock.nvidia.com/inject: "false"` | Opt out of adjustment entirely |
 | `nvml-mock.nvidia.com/devices: "true"` | Without an allocation: receive the overlay and every mock GPU. With an allocation: no effect |
-| `nvml-mock.nvidia.com/imex-channels: "true"` | Receive the overlay and the mock IMEX channels |
+| `nvml-mock.nvidia.com/infiniband: "true"` | Receive the overlay with the mock InfiniBand tools active. Adds no GPUs |
+| `nvml-mock.nvidia.com/imex-channels: "true"` | Receive the mock IMEX channels. Adds no overlay and no GPUs |
 
 ## Startup ordering and recovery
 

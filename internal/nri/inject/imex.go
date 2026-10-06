@@ -14,11 +14,7 @@ import "go.uber.org/zap"
 // allocation. The device plugin has no concept of an IMEX channel and never
 // delivers one, so there is no allocation to widen — suppressing channels here
 // would instead deny a ComputeDomain workload the fabric it explicitly asked for.
-func attachIMEXChannels(cfg Config, container Container, adjustment *Adjustment) {
-	if !container.annotated(cfg.ImexChannelAnnotation, "true") {
-		return
-	}
-
+func attachIMEXChannels(cfg Config, adjustment *Adjustment) {
 	// Fail open like the GPU path: channels are staged by the node agent
 	// (imex.mockChannels.enabled) and are off by default, so an annotation on a
 	// node without them must not block the pod.

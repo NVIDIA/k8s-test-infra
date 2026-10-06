@@ -9,18 +9,41 @@ import (
 	"strings"
 )
 
-// setEnvironment points the container's loader and the mock libraries at the
-// overlay.
-func setEnvironment(cfg Config, container Container, adjustment *Adjustment) {
+// setEnvironment points the container's loader at the overlay and activates
+// only the selected surfaces.
+//
+// The overlay puts both the mock NVML and the preloaded IB shims in reach, so
+// the unselected one is switched off explicitly, overriding anything authored.
+// Mokka's values for a selected surface stay defaults a workload may override.
+func setEnvironment(cfg Config, container Container, sel selection, adjustment *Adjustment) {
 	env := newEnvSet(container.Env)
 
 	env.prepend("PATH", filepath.Join(cfg.ContainerOverlayPath, "driver/usr/bin"))
 	env.prepend("LD_LIBRARY_PATH", filepath.Join(cfg.ContainerOverlayPath, "driver/usr/lib64"))
 	env.appendList("LD_PRELOAD", shimPaths(cfg))
+	if sel.gpu() {
+		setGPUEnvironment(cfg, env)
+	} else {
+		// With no /dev/nvidiaN in the container the engine would otherwise
+		// show every GPU on the node to the staged nvidia-smi.
+		env.set("MOCK_NVML_VISIBLE_DEVICES", "none")
+	}
+	if sel.infiniband {
+		env.setDefault("MOCK_IB", "full")
+		env.setDefault("MOCK_IB_ROOT", filepath.Join(cfg.ContainerOverlayPath, ibRelPath))
+		env.setDefault("MOCK_IB_PING_SOCKET", filepath.Join(cfg.ContainerOverlayPath, "run/mock-ib.sock"))
+	} else {
+		// The IB shims are preloaded for GPU containers too; off makes them
+		// no-ops, so a GPU selection does not imply fabric access.
+		env.set("MOCK_IB", "off")
+	}
+
+	adjustment.Env = append(adjustment.Env, env.changed()...)
+}
+
+// setGPUEnvironment points the mock NVML engine and the PCI shim at the overlay.
+func setGPUEnvironment(cfg Config, env *envSet) {
 	env.setDefault("MOCK_NVML_CONFIG", filepath.Join(cfg.ContainerOverlayPath, configRelPath, "config.yaml"))
-	env.setDefault("MOCK_IB", "full")
-	env.setDefault("MOCK_IB_ROOT", filepath.Join(cfg.ContainerOverlayPath, "ib"))
-	env.setDefault("MOCK_IB_PING_SOCKET", filepath.Join(cfg.ContainerOverlayPath, "run/mock-ib.sock"))
 	env.setDefault("MOCK_PCI_ROOT", cfg.ContainerOverlayPath)
 	// GFD derives nvidia.com/gpu.machine from this file. Its own default,
 	// /sys/class/dmi/id/product_name, is a path no mock can own: kind's node
@@ -38,8 +61,6 @@ func setEnvironment(cfg Config, container Container, adjustment *Adjustment) {
 		env.setDefault("NODE_NAME", cfg.NodeName)
 		env.setDefault("MOCK_TOPOLOGY_CONFIG", cfg.TopologyContainerPath)
 	}
-
-	adjustment.Env = append(adjustment.Env, env.changed()...)
 }
 
 // envSet is the container's environment plus the edits this package makes to
@@ -78,6 +99,15 @@ func (e *envSet) setDefault(key, value string) {
 		return
 	}
 	e.order = append(e.order, key)
+	e.values[key] = value
+}
+
+// set overrides an authored value, for the switches that keep an unselected
+// surface off whatever the image sets.
+func (e *envSet) set(key, value string) {
+	if _, ok := e.values[key]; !ok {
+		e.order = append(e.order, key)
+	}
 	e.values[key] = value
 }
 

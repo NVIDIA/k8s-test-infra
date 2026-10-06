@@ -53,14 +53,40 @@ func TestAdjustPointsTheLoaderAtTheOverlay(t *testing.T) {
 	require.Contains(t, adjustment.Env, "LD_LIBRARY_PATH=/opt/nvml-mock/driver/usr/lib64:/app/lib")
 	require.Contains(t, adjustment.Env, "LD_PRELOAD=/app/libexisting.so:/opt/nvml-mock/driver/usr/local/lib/libibmockumad.so.1:/opt/nvml-mock/driver/usr/local/lib/libibmockverbs.so.1:/opt/nvml-mock/driver/usr/local/lib/libibmocksys.so.1:/opt/nvml-mock/driver/usr/local/lib/libmockfs.so.1")
 	require.Contains(t, adjustment.Env, "MOCK_NVML_CONFIG=/opt/nvml-mock/driver/config/config.yaml")
-	require.Contains(t, adjustment.Env, "MOCK_IB_ROOT=/opt/nvml-mock/ib")
-	require.Contains(t, adjustment.Env, "MOCK_IB_PING_SOCKET=/opt/nvml-mock/run/mock-ib.sock")
 	require.Contains(t, adjustment.Env, "MOCK_PCI_ROOT=/opt/nvml-mock")
 	require.Contains(t, adjustment.Env, "GFD_MACHINE_TYPE_FILE=/opt/nvml-mock/driver/config/machine-type")
 	// MOCK_IB=off is authored by the container and left unchanged, so the
 	// plugin must NOT re-emit it — emitting untouched vars would claim NRI
 	// ownership and conflict with other plugins.
 	requireNoEnvKey(t, adjustment.Env, "MOCK_IB")
+	requireNoEnvKey(t, adjustment.Env, "MOCK_IB_ROOT")
+	requireNoEnvKey(t, adjustment.Env, "MOCK_IB_PING_SOCKET")
+}
+
+func TestAdjustPointsInfiniBandToolsAtTheOverlay(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+	cfg.HostOverlayPath = stageTopology(t)
+	cfg.NodeName = "kind-worker3"
+
+	adjustment, ok := requireAdjust(t, cfg, Container{
+		Namespace:      "default",
+		PodAnnotations: map[string]string{"nvml-mock.nvidia.com/infiniband": "true"},
+	})
+	require.True(t, ok)
+
+	// The IB tools and their libraries are staged beside the mock driver.
+	require.Contains(t, adjustment.Env, "PATH=/opt/nvml-mock/driver/usr/bin")
+	require.Contains(t, adjustment.Env, "LD_LIBRARY_PATH=/opt/nvml-mock/driver/usr/lib64")
+	require.Contains(t, adjustment.Env, "MOCK_IB=full")
+	require.Contains(t, adjustment.Env, "MOCK_IB_ROOT=/opt/nvml-mock/ib")
+	require.Contains(t, adjustment.Env, "MOCK_IB_PING_SOCKET=/opt/nvml-mock/run/mock-ib.sock")
+	require.Contains(t, adjustment.Env, "MOCK_NVML_VISIBLE_DEVICES=none")
+	// ComputeDomain topology describes GPUs, so it stays with the GPU selection.
+	for _, key := range []string{"MOCK_NVML_CONFIG", "MOCK_PCI_ROOT", "GFD_MACHINE_TYPE_FILE", "NODE_NAME", "MOCK_TOPOLOGY_CONFIG"} {
+		requireNoEnvKey(t, adjustment.Env, key)
+	}
 }
 
 // The machine type reaches GFD as a default, so a cluster that pins its own
@@ -110,7 +136,7 @@ func TestAdjustPrependsDefaultsWhenEnvIsUnset(t *testing.T) {
 	require.Contains(t, adjustment.Env, "PATH=/opt/nvml-mock/driver/usr/bin")
 	require.Contains(t, adjustment.Env, "LD_LIBRARY_PATH=/opt/nvml-mock/driver/usr/lib64")
 	require.Contains(t, adjustment.Env, "LD_PRELOAD=/opt/nvml-mock/driver/usr/local/lib/libibmockumad.so.1:/opt/nvml-mock/driver/usr/local/lib/libibmockverbs.so.1:/opt/nvml-mock/driver/usr/local/lib/libibmocksys.so.1:/opt/nvml-mock/driver/usr/local/lib/libmockfs.so.1")
-	require.Contains(t, adjustment.Env, "MOCK_IB=full")
+	require.Contains(t, adjustment.Env, "MOCK_IB=off")
 }
 
 func TestAdjustInjectsTopologyEnvWhenStaged(t *testing.T) {

@@ -92,9 +92,11 @@ simulated GPUs before running this demo.
 4. Recycles the shared node DaemonSet so staging and the NRI sidecar restart
    together, then creates a separate
    `compute-domain-workload` namespace and deploys the freshly restarted
-   `compute-domain-demo-workload` DaemonSet. Its only mock-related configuration
-   is the `nvml-mock.nvidia.com/imex-channels: "true"` annotation. NRI supplies
-   the mock NVML overlay and per-node topology identity at container creation.
+   `compute-domain-demo-workload` DaemonSet. Its only mock-related
+   configuration is two annotations. `nvml-mock.nvidia.com/devices: "true"`
+   asks NRI for the node-wide mock GPU view, including the mock NVML overlay
+   and per-node topology identity. The independent
+   `nvml-mock.nvidia.com/imex-channels: "true"` asks for the IMEX channel nodes.
    The demo workload manifest also installs its own ingress NetworkPolicy,
    allowing TCP 50000 and 50005 only from peer
    `app.kubernetes.io/name=compute-domain-demo-workload` pods in that same

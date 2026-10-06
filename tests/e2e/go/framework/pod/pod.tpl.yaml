@@ -64,3 +64,7 @@ spec:
         limits:
           {{ .GPUResourceName | quote }}: {{ .GPUs }}
       {{- end }}
+      {{- if .Privileged }}
+      securityContext:
+        privileged: true
+      {{- end }}

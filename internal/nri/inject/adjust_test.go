@@ -289,6 +289,42 @@ func TestAdjustSkipsOptOutExcludedNamespaceAndExistingMount(t *testing.T) {
 			},
 			reason: "excluded namespace",
 		},
+		// The InfiniBand and IMEX opt-ins select independently of the GPU one,
+		// so each must lose to the exclusions on its own as well.
+		"opt out annotation with only the InfiniBand opt-in": {
+			container: Container{
+				Namespace: "default",
+				PodAnnotations: map[string]string{
+					"nvml-mock.nvidia.com/infiniband": "true",
+					"nvml-mock.nvidia.com/inject":     "false",
+				},
+			},
+			reason: "opt-out annotation",
+		},
+		"opt out annotation with only the IMEX opt-in": {
+			container: Container{
+				Namespace: "default",
+				PodAnnotations: map[string]string{
+					"nvml-mock.nvidia.com/imex-channels": "true",
+					"nvml-mock.nvidia.com/inject":        "false",
+				},
+			},
+			reason: "opt-out annotation",
+		},
+		"excluded namespace with only the InfiniBand opt-in": {
+			container: Container{
+				Namespace:      "kube-system",
+				PodAnnotations: map[string]string{"nvml-mock.nvidia.com/infiniband": "true"},
+			},
+			reason: "excluded namespace",
+		},
+		"excluded namespace with only the IMEX opt-in": {
+			container: Container{
+				Namespace:      "kube-system",
+				PodAnnotations: map[string]string{"nvml-mock.nvidia.com/imex-channels": "true"},
+			},
+			reason: "excluded namespace",
+		},
 		// A container already carrying the overlay has been through here
 		// before; injecting twice would stack duplicate LD_PRELOAD entries.
 		"existing overlay mount": {

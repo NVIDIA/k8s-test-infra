@@ -22,6 +22,10 @@ const (
 	// resolves against the host overlay path for the existence check and against
 	// the container overlay path for the injected MOCK_TOPOLOGY_CONFIG.
 	topologyRelPath = "topology/topology.yaml"
+	// ibRelPath is the node agent's rendered IB sysfs tree. It resolves against
+	// the host overlay path to check for staged HCAs and against the container
+	// overlay path for the injected MOCK_IB_ROOT.
+	ibRelPath = "ib"
 	// configRelPath holds the mock NVML config and, beside it, the overrides
 	// file runtime state is injected into. It is named once because the mount
 	// and the injected MOCK_NVML_CONFIG have to agree: the overrides the
@@ -67,6 +71,11 @@ type Config struct {
 	ImexChannelAnnotation string
 	ImexChannelHostPath   string
 
+	// InfiniBand — a separate opt-in from the GPU one, because real clusters
+	// allocate RDMA independently of GPUs. Neither a GPU nor an IMEX selection
+	// brings the fabric along.
+	InfiniBandAnnotation string
+
 	// ComputeDomain topology — NodeName gives the mock NVML engine's per-node
 	// overlay its lookup key, so every mock GPU reports the node's clique and
 	// cluster UUID. Empty disables topology injection.
@@ -110,6 +119,8 @@ func DefaultConfig() Config {
 
 		ImexChannelAnnotation: "nvml-mock.nvidia.com/imex-channels",
 		ImexChannelHostPath:   filepath.Join(hostOverlay, imexChannelRelPath),
+
+		InfiniBandAnnotation: "nvml-mock.nvidia.com/infiniband",
 	}
 }
 
@@ -125,6 +136,7 @@ func withDefaults(cfg Config) Config {
 	cfg.CDIDeviceName = orDefault(cfg.CDIDeviceName, defaults.CDIDeviceName)
 	cfg.CDISpecHostPath = orDefault(cfg.CDISpecHostPath, defaults.CDISpecHostPath)
 	cfg.ImexChannelAnnotation = orDefault(cfg.ImexChannelAnnotation, defaults.ImexChannelAnnotation)
+	cfg.InfiniBandAnnotation = orDefault(cfg.InfiniBandAnnotation, defaults.InfiniBandAnnotation)
 
 	// Derived from the overlay roots, so they resolve against whatever those
 	// ended up being rather than against the packaged defaults.

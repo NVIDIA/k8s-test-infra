@@ -165,8 +165,8 @@ labels select individual behaviours — device-plugin interaction
 `nri-dp-scheduling`), Container Device Interface handling (`nri-cdi`,
 `nri-cdi-inject`, `nri-cdi-suppression`), failure propagation (`nri-failure`,
 `nri-failure-detect`, `nri-failure-inject`, `nri-failure-recover`), and
-`nri-imex`, `nri-ib-minimal`, `nri-alloc-memory`, `nri-device-plugin`,
-`nri-inject`.
+`nri-imex`, `nri-ib-minimal`, `nri-ib-only`, `nri-alloc-memory`,
+`nri-device-plugin`, `nri-inject`.
 
 ### GPU Operator and DCGM
 

@@ -4,8 +4,9 @@
 # DaemonSet placement is intentional: scenarios 1 and 3 select pods by node and
 # require exactly one NRI-injected demo workload pod on every GPU worker.
 # The demo workload has no mock volume, mock environment variables, GPU request,
-# or RuntimeClass. containerd's NRI plugin supplies the mock overlay, topology
-# identity, and the annotated IMEX channel device nodes.
+# or RuntimeClass. Its two annotations ask containerd's NRI plugin for the
+# node-wide mock GPU view, with topology identity, and for the IMEX channel
+# device nodes. Each surface is selected independently.
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -21,6 +22,7 @@ spec:
       labels:
         app.kubernetes.io/name: compute-domain-demo-workload
       annotations:
+        nvml-mock.nvidia.com/devices: "true"
         nvml-mock.nvidia.com/imex-channels: "true"
     spec:
       automountServiceAccountToken: false
