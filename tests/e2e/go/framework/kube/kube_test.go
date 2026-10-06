@@ -237,6 +237,45 @@ func TestDaemonSetObjDecodesRolloutFields(t *testing.T) {
 		"decoded [generation observedGeneration desired updated ready]")
 }
 
+// With nri.enabled the chart runs the node agent as a native sidecar, so its
+// env lives under initContainers and containers[0] is the NRI plugin.
+func TestDaemonSetContainerEnvFindsTheNamedContainer(t *testing.T) {
+	t.Parallel()
+	const agentEnv = `{"name": "node-agent", "env": [{"name": "MOCK_FABRICMANAGER_STATE_DIR", "value": "/var/lib/nvml-mock/fabric-state"}]}`
+	const nriPlugin = `{"name": "nvml-mock-nri", "env": [{"name": "NODE_NAME"}]}`
+	for name, podSpec := range map[string]string{
+		"regular container": `{"containers": [` + agentEnv + `, ` + nriPlugin + `]}`,
+		"native sidecar":    `{"initContainers": [` + agentEnv + `], "containers": [` + nriPlugin + `]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var ds daemonSetObj
+			require.NoError(t, json.Unmarshal([]byte(`{"spec": {"template": {"spec": `+podSpec+`}}}`), &ds), "unmarshal daemonset")
+
+			value, found, err := ds.containerEnv("node-agent", "MOCK_FABRICMANAGER_STATE_DIR")
+			require.NoError(t, err)
+			require.True(t, found, "MOCK_FABRICMANAGER_STATE_DIR on node-agent")
+			require.Equal(t, "/var/lib/nvml-mock/fabric-state", value)
+
+			_, found, err = ds.containerEnv("nvml-mock-nri", "MOCK_FABRICMANAGER_STATE_DIR")
+			require.NoError(t, err)
+			require.False(t, found, "variable read off the wrong container")
+		})
+	}
+}
+
+// A renamed container must not read as the variable being unset: the
+// fabricmanager gate treats unset as "fabricmanager not deployed" and skips.
+func TestDaemonSetContainerEnvRejectsAMissingContainer(t *testing.T) {
+	t.Parallel()
+	var ds daemonSetObj
+	require.NoError(t, json.Unmarshal([]byte(`{"spec": {"template": {"spec": {"containers": [{"name": "nvml-mock-nri"}]}}}}`), &ds),
+		"unmarshal daemonset")
+
+	_, _, err := ds.containerEnv("node-agent", "MOCK_FABRICMANAGER_STATE_DIR")
+	require.ErrorContains(t, err, `no container "node-agent"`)
+}
+
 func TestBaseUsesDefaultKubeconfigWhenUnset(t *testing.T) {
 	c, err := New("kind-nvml-mock-e2e")
 	require.NoError(t, err, "New default kubeconfig client")
