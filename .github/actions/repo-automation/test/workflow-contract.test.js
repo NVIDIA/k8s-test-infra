@@ -10,7 +10,7 @@ const YAML = require("yaml");
 const repositoryRoot = path.resolve(__dirname, "../../../..");
 const workflowRoot = path.join(repositoryRoot, ".github", "workflows");
 const checkout = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
-const githubScript = "actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd";
+const githubScript = "actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3";
 // GitHub keeps one pending run per concurrency group, so each concern gets its own group.
 const concurrency = {
   commands: {
