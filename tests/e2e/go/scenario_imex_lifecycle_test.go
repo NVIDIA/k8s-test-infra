@@ -100,10 +100,13 @@ func assertIMEXLifecycle(ctx SpecContext, h *harness.Harness, workers []cluster.
 func applyIMEXLifecyclePod(ctx context.Context, h *harness.Harness, name, node string) kube.PodRef {
 	GinkgoHelper()
 	spec := pod.Spec{
-		Name:        name,
-		Namespace:   nriWorkloadNS,
-		Labels:      map[string]string{"app": name},
-		Annotations: map[string]string{nriImexAnnotation: "true"},
+		Name:      name,
+		Namespace: nriWorkloadNS,
+		Labels:    map[string]string{"app": name},
+		// The channels alone come without the overlay, which carries the
+		// staged IMEX config and binaries the peer runs; the devices opt-in
+		// mounts it, as the node's GPUs would for a real IMEX daemon.
+		Annotations: map[string]string{nriImexAnnotation: "true", nriDeviceAnnotation: "true"},
 		Image:       config.Image(),
 		Node:        node,
 		Command:     []string{"/bin/sh", "-c"},
