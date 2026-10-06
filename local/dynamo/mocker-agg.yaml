@@ -1,0 +1,51 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Aggregated Dynamo inference graph backed by the mocker engine, adapted from
+# ai-dynamo/dynamo examples/backends/mocker/deploy/agg.yaml at v1.5.0.
+#
+# Two deltas from upstream, both deliberate:
+#   - The decode worker requests nvidia.com/gpu. Upstream's mocker needs no GPU,
+#     but requesting one is what puts the graph on the mock fleet: the scheduler
+#     only places it on a node the device plugin advertises, and the CDI spec
+#     nvml-mock writes injects the mock driver into it.
+#   - Qwen/Qwen3-0.6B instead of a gated Llama, so no Hugging Face token secret
+#     is needed. The mocker only loads the tokenizer and config.
+#
+# There is no dedicated mocker image; dynamo-planner ships the ai-dynamo wheel
+# the mocker runs from. Keep its tag in step with _VERSION in dynamo.tiltfile.
+apiVersion: nvidia.com/v1beta1
+kind: DynamoGraphDeployment
+metadata:
+  name: mocker-agg
+  namespace: dynamo-system
+spec:
+  components:
+    - name: Frontend
+      type: frontend
+      replicas: 1
+      podTemplate:
+        spec:
+          containers:
+            - name: main
+              image: nvcr.io/nvidia/ai-dynamo/dynamo-planner:1.5.0
+    - name: decode
+      type: decode
+      replicas: 1
+      podTemplate:
+        spec:
+          containers:
+            - name: main
+              image: nvcr.io/nvidia/ai-dynamo/dynamo-planner:1.5.0
+              workingDir: /workspace
+              command: [python3, -m, dynamo.mocker]
+              args:
+                - --model-path
+                - Qwen/Qwen3-0.6B
+                - --model-name
+                - Qwen/Qwen3-0.6B
+                - --speedup-ratio
+                - "1.0"
+              resources:
+                limits:
+                  nvidia.com/gpu: "1"
