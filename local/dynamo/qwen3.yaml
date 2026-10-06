@@ -17,7 +17,7 @@
 apiVersion: nvidia.com/v1beta1
 kind: DynamoGraphDeployment
 metadata:
-  name: mocker-agg
+  name: qwen3
   namespace: dynamo-system
 spec:
   components:

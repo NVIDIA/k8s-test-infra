@@ -33,8 +33,8 @@ _VERSION = '1.5.0'
 # Dynamo docs mention does not resolve for 1.5.0.
 _CHART = 'https://helm.ngc.nvidia.com/nvidia/ai-dynamo/charts/dynamo-platform-%s.tgz' % _VERSION
 _HELM_TIMEOUT_S = 300
-_DGD = 'local/dynamo/mocker-agg.yaml'
-_DGD_NAME = 'mocker-agg'
+_DGD = 'local/dynamo/qwen3.yaml'
+_DGD_NAME = 'qwen3'
 # The Dynamo frontend's default HTTP port, which the operator also uses for the
 # <dgd>-frontend Service it generates.
 _FRONTEND_PORT = 8000

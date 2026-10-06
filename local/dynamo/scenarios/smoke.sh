@@ -21,7 +21,7 @@ set -euo pipefail
 
 # _NAMESPACE and _DGD_NAME in local/dynamo/dynamo.tiltfile.
 NAMESPACE="dynamo-system"
-DGD="mocker-agg"
+DGD="qwen3"
 MODEL="Qwen/Qwen3-0.6B"
 MAX_TOKENS="${MAX_TOKENS:-8}"
 
