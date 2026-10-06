@@ -85,7 +85,7 @@ var _ = Describe("nvml-mock DRA", Label("dra"), Ordered, func() {
 
 			It("schedules a pod with a DRA ResourceClaim", func(ctx SpecContext) {
 				scheduleDRAResourceClaimPod(ctx, h)
-				waitDRATestPodRunning(ctx, h)
+				waitDRATestPodRunning(ctx, h, draTestPodName)
 			})
 
 			// The claim's container holds a CDI device the DRA driver named
@@ -108,6 +108,7 @@ var _ = Describe("nvml-mock DRA", Label("dra"), Ordered, func() {
 				claimed := map[string]string{}
 				for _, name := range pods {
 					ref := kube.PodRef{Namespace: draTestNamespace, Pod: name}
+					collectPodOnFailure(h, "dra", ref)
 					res, err := h.Kube.ExecSh(ctx, ref, `test -d /opt/nvml-mock && test -n "${MOCK_NVML_CONFIG:-}"`)
 					Expect(err).NotTo(HaveOccurred(),
 						"%s was not injected by NRI: no /opt/nvml-mock overlay or MOCK_NVML_CONFIG\n%s", name, res.Combined())
@@ -163,7 +164,7 @@ func scheduleDRAResourceClaimPod(ctx SpecContext, h *harness.Harness) {
 }
 
 func draResourceClaimManifest() []byte {
-	return []byte(`apiVersion: resource.k8s.io/v1beta1
+	return append([]byte(`apiVersion: resource.k8s.io/v1beta1
 kind: ResourceClaimTemplate
 metadata:
   name: gpu-claim
@@ -174,24 +175,49 @@ spec:
         - name: gpu
           deviceClassName: gpu.nvidia.com
 ---
-apiVersion: v1
+`), draClaimPodManifest(draTestPodName, "")...)
+}
+
+// draClaimPodManifest renders a pod with its own claim from the gpu-claim
+// template, pinned to node when one is given. The pin is node affinity, not
+// nodeName: nodeName bypasses the scheduler, which is what allocates the claim.
+func draClaimPodManifest(name, node string) []byte {
+	affinity := ""
+	if node != "" {
+		affinity = fmt.Sprintf(`
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchFields:
+              - key: metadata.name
+                operator: In
+                values: [%q]`, node)
+	}
+	return []byte(fmt.Sprintf(`apiVersion: v1
 kind: Pod
 metadata:
-  name: gpu-test-pod
+  name: %s
+  namespace: %s
 spec:
   restartPolicy: Never
+  # With the TERM trap below, deleting the pod takes a second instead of
+  # waiting out the 30s default grace: sleep as PID 1 installs no handler, so
+  # the kernel discards the signal (see framework/pod).
+  terminationGracePeriodSeconds: 1%s
   containers:
     - name: app
       # glibc, so the injected nvidia-smi runs when the NRI plugin is enabled.
       image: debian:bookworm-slim
-      command: ["sleep", "300"]
+      command: ["/bin/sh", "-c"]
+      args: ["trap 'exit 0' TERM; sleep 300 & wait"]
       resources:
         claims:
           - name: gpu
   resourceClaims:
     - name: gpu
       resourceClaimTemplateName: gpu-claim
-`)
+`, name, draTestNamespace, affinity))
 }
 
 // ensureDRATestPodRunning reuses the pod the scheduling spec created, and
@@ -203,7 +229,7 @@ func ensureDRATestPodRunning(ctx context.Context, h *harness.Harness) {
 	}
 	Expect(h.Kube.Delete(ctx, draResourceClaimManifest())).To(Succeed(), "delete previous DRA ResourceClaim test objects")
 	Expect(h.Kube.Apply(ctx, draResourceClaimManifest())).To(Succeed(), "apply DRA ResourceClaim test pod")
-	waitDRATestPodRunning(ctx, h)
+	waitDRATestPodRunning(ctx, h, draTestPodName)
 }
 
 // runSecondDRAClaimPod starts a second pod with its own claim from the same
@@ -213,41 +239,31 @@ func runSecondDRAClaimPod(ctx SpecContext, h *harness.Harness) {
 	GinkgoHelper()
 	node, err := h.Kube.PodNode(ctx, draTestNamespace, draTestPodName)
 	Expect(err).NotTo(HaveOccurred(), "read the node of %s", draTestPodName)
-	manifest := []byte(fmt.Sprintf(`apiVersion: v1
-kind: Pod
-metadata:
-  name: %s
-  namespace: %s
-spec:
-  restartPolicy: Never
-  affinity:
-    nodeAffinity:
-      requiredDuringSchedulingIgnoredDuringExecution:
-        nodeSelectorTerms:
-          - matchFields:
-              - key: metadata.name
-                operator: In
-                values: ["%s"]
-  containers:
-    - name: app
-      image: debian:bookworm-slim
-      command: ["sleep", "300"]
-      resources:
-        claims:
-          - name: gpu
-  resourceClaims:
-    - name: gpu
-      resourceClaimTemplateName: gpu-claim
-`, draSecondPodName, draTestNamespace, node))
+	manifest := draClaimPodManifest(draSecondPodName, node)
 	Expect(h.Kube.Delete(ctx, manifest)).To(Succeed(), "delete previous second DRA claim pod")
 	Expect(h.Kube.Apply(ctx, manifest)).To(Succeed(), "apply second DRA claim pod")
 	DeferCleanup(func(ctx SpecContext) {
 		Expect(h.Kube.Delete(ctx, manifest)).To(Succeed(), "delete second DRA claim pod")
 	})
-	Eventually(func() (string, error) {
-		return h.Kube.PodPhase(ctx, draTestNamespace, draSecondPodName)
-	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
-		Should(Equal("Running"), "second DRA claim pod did not reach Running")
+	waitDRATestPodRunning(ctx, h, draSecondPodName)
+}
+
+// collectPodOnFailure saves a failed spec's evidence about a pod: its
+// description, what NRI injected into it, and the ResourceClaims in its
+// namespace. Register it after the pod's own cleanup. DeferCleanup runs last
+// in, first out, so this runs while the pod and any claim generated for it
+// still exist; the suite-level collectors run after the pod is deleted.
+func collectPodOnFailure(h *harness.Harness, diagSub string, ref kube.PodRef) {
+	DeferCleanup(func(ctx SpecContext) {
+		if !CurrentSpecReport().Failed() {
+			return
+		}
+		c := diagnostics.New(config.ArtifactsDir(), h.Kube, h.Cluster, diagSub)
+		c.Kubectl(ctx, ref.Pod+"-describe.txt", "describe", "pod", "-n", ref.Namespace, ref.Pod)
+		c.Kubectl(ctx, ref.Pod+"-injection.txt", "exec", "-n", ref.Namespace, ref.Pod, "--",
+			"sh", "-c", "env | sort; ls -la /opt/nvml-mock /dev/nvidia* 2>&1")
+		c.Kubectl(ctx, ref.Pod+"-resourceclaims.yaml", "get", "resourceclaims", "-n", ref.Namespace, "-o", "yaml")
+	})
 }
 
 // requireNRIPlugin skips an NRI-only spec on a cluster without the plugin. With
@@ -274,13 +290,13 @@ func nriPluginEnabled(ctx context.Context, h *harness.Harness) bool {
 	return strings.Contains(out, "nvml-mock-nri")
 }
 
-func waitDRATestPodRunning(ctx context.Context, h *harness.Harness) {
+func waitDRATestPodRunning(ctx context.Context, h *harness.Harness, name string) {
 	GinkgoHelper()
 	deadline := time.Now().Add(config.ReadyTimeout())
 	var lastPhase string
 	var lastErr error
 	for {
-		lastPhase, lastErr = h.Kube.PodPhase(ctx, draTestNamespace, draTestPodName)
+		lastPhase, lastErr = h.Kube.PodPhase(ctx, draTestNamespace, name)
 		if lastErr == nil && lastPhase == "Running" {
 			return
 		}
@@ -289,14 +305,14 @@ func waitDRATestPodRunning(ctx context.Context, h *harness.Harness) {
 		}
 		select {
 		case <-ctx.Done():
-			Fail(fmt.Sprintf("context canceled waiting for DRA test pod: %v", ctx.Err()))
+			Fail(fmt.Sprintf("context canceled waiting for DRA test pod %s: %v", name, ctx.Err()))
 		case <-time.After(config.PollInterval()):
 		}
 	}
 
-	describe, _ := h.Kube.DescribePod(ctx, draTestNamespace, draTestPodName)
-	if assertions.DRAEmptyDeviceEdits(ctx, h.Kube, draTestNamespace, draTestPodName) {
+	describe, _ := h.Kube.DescribePod(ctx, draTestNamespace, name)
+	if assertions.DRAEmptyDeviceEdits(ctx, h.Kube, draTestNamespace, name) {
 		Fail("nvml-mock DRA dev-node layout regression: pod events contain 'empty device edits'\n" + describe)
 	}
-	Fail(fmt.Sprintf("DRA test pod did not reach Running (last phase=%q, err=%v)\n%s", lastPhase, lastErr, describe))
+	Fail(fmt.Sprintf("DRA test pod %s did not reach Running (last phase=%q, err=%v)\n%s", name, lastPhase, lastErr, describe))
 }

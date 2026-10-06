@@ -27,7 +27,10 @@ import (
 
 const gpuOperatorNamespace = "gpu-operator"
 
-var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func() {
+// ContinueOnFailure because the specs report independent facts about the
+// operands, and a plain Ordered container stops at the first failure: an NRI
+// failure would hide the DCGM, runtime-control and Xid results behind it.
+var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, ContinueOnFailure, func() {
 	var h *harness.Harness
 	selectedProfiles := config.SelectedProfileNames()
 
@@ -107,6 +110,7 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func(
 			It("gives a GPU-requesting pod exactly one GPU through NRI and leaves operands alone", Label("gpu-operator-nri"), func(ctx SpecContext) {
 				requireNRIPlugin(ctx, h, "tilt up -- --gpu-operator --nri")
 				ref := runGPUOperatorWorkload(ctx, h, node)
+				collectPodOnFailure(h, "gpu-operator", ref)
 
 				res, err := h.Kube.ExecSh(ctx, ref, `test -d /opt/nvml-mock && test -n "${MOCK_NVML_CONFIG:-}"`)
 				Expect(err).NotTo(HaveOccurred(),
@@ -302,39 +306,18 @@ func verifyGPUOperatorNodeSetup(ctx context.Context, container string) {
 
 const gpuOperatorWorkloadPod = "gpu-operator-nri-workload"
 
-// runGPUOperatorWorkload starts a pod that requests one nvidia.com/gpu from the
-// Operator's device plugin on node and waits for it to run. debian, not
-// busybox: the injected nvidia-smi needs glibc.
+// runGPUOperatorWorkload starts the NRI scenario's workload shape, requesting
+// one nvidia.com/gpu from the Operator's device plugin on node, and waits for
+// it to run. It is placed by node selector, not nodeName, so the scheduler and
+// the device plugin's allocation stay in the path.
 func runGPUOperatorWorkload(ctx SpecContext, h *harness.Harness, node string) kube.PodRef {
 	GinkgoHelper()
-	manifest := []byte(fmt.Sprintf(`apiVersion: v1
-kind: Pod
-metadata:
-  name: %s
-  namespace: default
-spec:
-  restartPolicy: Never
-  nodeSelector:
-    kubernetes.io/hostname: %s
-  containers:
-    - name: app
-      image: debian:bookworm-slim
-      command: ["sleep", "600"]
-      resources:
-        limits:
-          nvidia.com/gpu: 1
-`, gpuOperatorWorkloadPod, node))
+	spec := nriWorkload(gpuOperatorWorkloadPod)
+	spec.NodeSelector = map[string]string{"kubernetes.io/hostname": node}
+	spec.GPUs = 1
+	manifest := spec.Render()
 	Expect(h.Kube.Delete(ctx, manifest)).To(Succeed(), "delete previous GPU Operator workload pod")
-	Expect(h.Kube.Apply(ctx, manifest)).To(Succeed(), "apply GPU Operator workload pod")
-	DeferCleanup(func(ctx SpecContext) {
-		Expect(h.Kube.Delete(ctx, manifest)).To(Succeed(), "delete GPU Operator workload pod")
-	})
-
-	Eventually(func() (string, error) {
-		return h.Kube.PodPhase(ctx, "default", gpuOperatorWorkloadPod)
-	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
-		Should(Equal("Running"), "GPU Operator workload pod did not reach Running")
-	return kube.PodRef{Namespace: "default", Pod: gpuOperatorWorkloadPod}
+	return applyNRIWorkload(ctx, h, manifest, gpuOperatorWorkloadPod)
 }
 
 // gfdPodRef resolves the GPU Feature Discovery pod on node, polling for the
