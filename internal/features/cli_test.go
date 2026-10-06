@@ -113,16 +113,15 @@ func TestConfigure(t *testing.T) {
 	}
 }
 
-// Until a gate is registered, the services must start without logging gates,
-// even when the built-in toggles are set.
+// A gate without Mokka gates must not log, even when the built-in toggles are
+// set. The gate is built fresh rather than copied from the process-wide one, so
+// this keeps covering the toggles-only case after Mokka registers gates.
 func TestConfigureWithoutGates(t *testing.T) {
 	t.Parallel()
 
-	g, ok := gate.DeepCopy().(mutableGate)
-	require.True(t, ok)
 	core, logs := observer.New(zapcore.InfoLevel)
 
-	require.NoError(t, configure(g, "AllAlpha=true,AllBeta=false", zap.New(core)))
+	require.NoError(t, configure(featuregate.NewFeatureGate(), "AllAlpha=true,AllBeta=false", zap.New(core)))
 	require.Zero(t, logs.Len())
 }
 
