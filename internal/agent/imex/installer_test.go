@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -251,15 +252,28 @@ func TestNodeSoftwareRetriesUntilTheDownloadSucceeds(t *testing.T) {
 func TestNodeSoftwareDiscardStopsThePendingDownload(t *testing.T) {
 	t.Parallel()
 
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusServiceUnavailable)
+	// The server holds the download open, so the fetch is still in flight
+	// when Discard runs and only cancellation can end it.
+	inFlight := make(chan struct{})
+	var once sync.Once
+	server := httptest.NewTLSServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		once.Do(func() { close(inFlight) })
+		<-r.Context().Done()
 	}))
 	defer server.Close()
 
 	sim, h := testInstallerSimulator(t, testLock(server.URL, testArchive(t, "")), server.Client())
 	require.NoError(t, sim.Stage(t.Context(), nodeSoftwareState()))
+	<-inFlight
+	done := sim.nodeSoftware.done
+	require.NotNil(t, done)
+
 	require.NoError(t, sim.Discard(t.Context()))
-	require.Nil(t, sim.nodeSoftware.cancel, "Discard waits for the fetch to stop")
+	select {
+	case <-done:
+	default:
+		t.Fatal("Discard returned while the fetch was still running")
+	}
 	for _, rel := range stagedPaths {
 		require.NoFileExists(t, h.RootPath(rel))
 	}
