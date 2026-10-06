@@ -225,6 +225,15 @@
         }
       }
     },
+    "featureGates": {
+      "type": "object",
+      "description": "Feature gate overrides passed to the node agent, NRI plugin and control plane as --feature-gates. Lists exactly the gates this chart version's services accept, so a stale or locked gate fails the Helm upgrade instead of the rollout.",
+      "additionalProperties": false,
+      "properties": {
+        "AllAlpha": { "type": "boolean" },
+        "AllBeta": { "type": "boolean" }
+      }
+    },
     "driverVersion": { "type": "string" },
     "nodeSelector": { "type": "object" },
     "tolerations": { "type": "array" },

@@ -29,6 +29,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/ib"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/kernellog"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/source"
+	"github.com/NVIDIA/k8s-test-infra/internal/features"
 	"github.com/NVIDIA/k8s-test-infra/internal/health"
 	"github.com/NVIDIA/k8s-test-infra/internal/logging"
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mockctl"
@@ -56,6 +57,7 @@ func startCommand() *cli.Command {
 		Name:  "start",
 		Usage: "start the node agent",
 		Flags: []cli.Flag{
+			features.CLIFlag(),
 			&cli.StringFlag{
 				Name:    "log-level",
 				Value:   "info",
@@ -159,6 +161,10 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 
 	log := logging.NewLogger(logging.Config{Level: level, Format: format})
 	defer func() { _ = log.Sync() }()
+
+	if err := features.ConfigureFromCLI(cmd, log); err != nil {
+		return err
+	}
 
 	configPath := cmd.String("config")
 	if configPath == "" {

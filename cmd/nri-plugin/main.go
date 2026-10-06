@@ -18,6 +18,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/features"
 	"github.com/NVIDIA/k8s-test-infra/internal/health"
 	"github.com/NVIDIA/k8s-test-infra/internal/logging"
 	"github.com/NVIDIA/k8s-test-infra/internal/nri"
@@ -55,6 +56,7 @@ func newCLI() *cli.Command {
 // processFlags shape the binary itself rather than any injection.
 func processFlags() []cli.Flag {
 	return []cli.Flag{
+		features.CLIFlag(),
 		&cli.StringFlag{
 			Name:    "log-level",
 			Value:   string(logging.LevelInfo),
@@ -303,6 +305,10 @@ func run(ctx context.Context, cmd *cli.Command) error {
 
 	logger := logging.NewLogger(logging.Config{Level: level, Format: format})
 	defer func() { _ = logger.Sync() }()
+
+	if err := features.ConfigureFromCLI(cmd, logger); err != nil {
+		return err
+	}
 
 	cfg, err := configFrom(cmd)
 

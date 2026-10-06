@@ -53,6 +53,9 @@ spec:
             - --workers={{ .Values.controlPlane.workers }}
             - --kube-api-qps={{ .Values.controlPlane.kubeAPIQPS }}
             - --kube-api-burst={{ .Values.controlPlane.kubeAPIBurst }}
+            {{- with include "nvml-mock.featureGates" . }}
+            - --feature-gates={{ . }}
+            {{- end }}
           env:
             - name: POD_NAMESPACE
               valueFrom:

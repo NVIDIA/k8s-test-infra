@@ -161,6 +161,20 @@ tests:
     asserts:
       - failedTemplate: {}
 
+  - it: should pass the same feature gates to the NRI plugin and the node agent
+    set:
+      nri:
+        enabled: true
+      featureGates:
+        AllAlpha: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --feature-gates=AllAlpha=true
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --feature-gates=AllAlpha=true
+
   - it: should reject an unknown logging.level via the values schema
     set:
       nri:

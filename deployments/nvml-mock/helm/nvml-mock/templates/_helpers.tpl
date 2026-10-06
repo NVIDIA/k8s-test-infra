@@ -613,3 +613,16 @@ the opt-out for installs without egress to NVIDIA.
 {{- ternary "true" "false" (eq (toString .Values.imex.mockChannels.enabled) "true") -}}
 {{- end -}}
 {{- end }}
+
+{{/*
+Feature gate overrides as the comma-separated Name=true|false value of
+--feature-gates, sorted by name. Empty when no gate is set, so callers can
+omit the flag and let every gate keep its default.
+*/}}
+{{- define "nvml-mock.featureGates" -}}
+{{- $pairs := list -}}
+{{- range $name, $enabled := .Values.featureGates -}}
+{{- $pairs = append $pairs (printf "%s=%t" $name $enabled) -}}
+{{- end -}}
+{{- join "," $pairs -}}
+{{- end }}
