@@ -64,6 +64,7 @@ Every flag also reads an environment variable; the flag wins when both are set.
 | `--device-injection-mode` | `MOKKA_NRI_DEVICE_INJECTION_MODE` | `raw` | `raw` (device nodes) or `cdi` (CDI reference). Any other value is rejected at startup |
 | `--cdi-device-name` | `MOKKA_NRI_CDI_DEVICE_NAME` | `nvml-mock.nvidia.com/gpu=all` | Fully qualified CDI device injected in `cdi` mode |
 | `--cdi-spec-host-path` | `MOKKA_NRI_CDI_SPEC_HOST_PATH` | `/var/run/cdi/nvml-mock-nri.yaml` | Spec checked before a CDI reference is emitted; a missing spec falls back to raw injection |
+| `--infiniband-annotation` | `MOKKA_NRI_INFINIBAND_ANNOTATION` | `nvml-mock.nvidia.com/infiniband` | Pod annotation key; value `true` enables the mock InfiniBand tools and shims, independently of GPU access |
 | `--imex-channel-annotation` | `MOKKA_NRI_IMEX_CHANNEL_ANNOTATION` | `nvml-mock.nvidia.com/imex-channels` | Pod annotation key; value `true` adds `/dev/nvidia-caps-imex-channels/*` nodes |
 | `--imex-channel-host-path` | `MOKKA_NRI_IMEX_CHANNEL_HOST_PATH` | `<overlay-host-path>/driver/dev/nvidia-caps-imex-channels` | Host path containing the mock IMEX channel nodes staged by `imex.mockChannels` |
 
@@ -103,6 +104,7 @@ excluded namespaces and supplying `NODE_NAME` through the downward API:
   --cdi-spec-host-path=/var/run/cdi/nvml-mock-nri.yaml \
   --imex-channel-annotation=nvml-mock.nvidia.com/imex-channels \
   --imex-channel-host-path=/var/lib/nvml-mock/driver/dev/nvidia-caps-imex-channels \
+  --infiniband-annotation=nvml-mock.nvidia.com/infiniband \
   --excluded-namespaces=<release-namespace>,kube-system \
   --node-name=$(NODE_NAME) \
   --health-addr=:8080 \
@@ -113,12 +115,13 @@ excluded namespaces and supplying `NODE_NAME` through the downward API:
 `--cdi-device-name`, the two topology flags and `--ld-preload-shims` are not
 templated, so a deployed plugin runs them at their compiled-in defaults.
 
-The opt-in a workload author writes:
+The opt-ins a workload author writes, each independent of the others:
 
 ```yaml
 metadata:
   annotations:
     nvml-mock.nvidia.com/devices: "true"
+    nvml-mock.nvidia.com/infiniband: "true"
     nvml-mock.nvidia.com/imex-channels: "true"
 ```
 

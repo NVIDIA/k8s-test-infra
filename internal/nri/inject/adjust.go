@@ -33,14 +33,22 @@ func Adjust(cfg Config, container Container) (Adjustment, bool) {
 			zap.String("namespace", container.Namespace))
 	}
 
-	// GPU and IMEX containers receive the same shared overlay and environment.
+	// IMEX channels are plain device nodes. Mounting the overlay for them alone
+	// would let mock NVML enumerate every GPU on the node.
 	var adjustment Adjustment
-	mountOverlay(cfg, &adjustment)
-	setEnvironment(cfg, container, &adjustment)
+	if sel.gpu() || sel.infiniband {
+		mountOverlay(cfg, &adjustment)
+		setEnvironment(cfg, container, sel, &adjustment)
+	}
 	if sel.management {
 		attachGPUs(cfg, &adjustment)
 	}
-	attachIMEXChannels(cfg, container, &adjustment)
+	if sel.infiniband {
+		warnUnlessHCAsStaged(cfg)
+	}
+	if sel.imex {
+		attachIMEXChannels(cfg, &adjustment)
+	}
 
 	zap.L().Debug("injecting container",
 		zap.String("namespace", container.Namespace),
@@ -59,7 +67,8 @@ func Skip(cfg Config, container Container) (reason string, skipped bool) {
 }
 
 // selection records which surfaces a container asked for. It is derived from
-// the container alone, never from the node's staged tree.
+// the container alone, never from the node's staged tree. GPU, InfiniBand and
+// IMEX are chosen independently; none of them implies another.
 type selection struct {
 	// allocated: the container holds a device-plugin or DRA GPU allocation,
 	// which it keeps exactly.
@@ -67,6 +76,10 @@ type selection struct {
 	// management: the devices annotation without an allocation, which
 	// delivers every staged GPU.
 	management bool
+	// infiniband: the InfiniBand annotation only. A privileged container
+	// inherits every /dev/infiniband node under a wildcard rule without asking
+	// for RDMA, so device paths are not evidence of a request.
+	infiniband bool
 	imex       bool
 }
 
@@ -83,9 +96,10 @@ func decide(cfg Config, container Container) (sel selection, reason string, skip
 	sel = selection{
 		allocated:  allocated,
 		management: container.annotated(cfg.DeviceAnnotation, "true") && !allocated,
+		infiniband: container.annotated(cfg.InfiniBandAnnotation, "true"),
 		imex:       container.annotated(cfg.ImexChannelAnnotation, "true"),
 	}
-	if !sel.allocated && !sel.management && !sel.imex {
+	if !sel.gpu() && !sel.infiniband && !sel.imex {
 		return sel, "no GPU allocation and no opt-in annotation", true
 	}
 	if hasOverlay(cfg, container) {
@@ -93,6 +107,8 @@ func decide(cfg Config, container Container) (sel selection, reason string, skip
 	}
 	return sel, "", false
 }
+
+func (s selection) gpu() bool { return s.allocated || s.management }
 
 // skip applies the explicit exclusions: the opt-out annotation and excluded
 // namespaces.
@@ -120,7 +136,9 @@ func hasOverlay(cfg Config, container Container) bool {
 // mountOverlay binds the staged mock driver tree into the container, read-only
 // except for the config directory.
 //
-// Selected GPU and IMEX containers receive this whole shared tree.
+// GPU and InfiniBand selections share this tree: the IB tools and shims are
+// staged beside the mock driver. The environment decides which of the two is
+// active.
 //
 // The config directory is writable because the container writes back through
 // it: the mock serves `nvidia-smi --gpu-reset` by clearing the device's bucket
