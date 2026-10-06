@@ -252,58 +252,55 @@ func TestBaseTargetsContext(t *testing.T) {
 	require.Equal(t, []string{"--context", "kind-nvml-mock-e2e"}, args, "kubectl context args")
 }
 
-// draObjects answers the three reads DRAAllocatedGPUUUIDs makes: the pod, its
-// claim and the published slices. The second slice repeats the device name in
-// another pool, so a lookup that ignores the pool resolves the wrong UUID.
-const draObjects = `
-case "$*" in
-  *"get -o json pod -n default gpu-test-pod"*)
-    echo '{"status":{"resourceClaimStatuses":[{"name":"gpu","resourceClaimName":"gpu-test-pod-gpu-x"}]}}' ;;
-  *"resourceclaims.resource.k8s.io -n default gpu-test-pod-gpu-x"*)
-    echo '{"status":{"allocation":{"devices":{"results":[{"request":"gpu","driver":"gpu.nvidia.com","pool":"worker-1","device":"gpu-1"}]}}}}' ;;
-  *"resourceslices.resource.k8s.io"*)
-    echo '{"items":[
-      {"spec":{"driver":"gpu.nvidia.com","pool":{"name":"worker-1"},"devices":[
-        {"name":"gpu-0","basic":{"attributes":{"uuid":{"string":"GPU-other"}}}},
-        {"name":"gpu-1","basic":{"attributes":{"uuid":{"string":"GPU-allocated"}}}}]}},
-      {"spec":{"driver":"gpu.nvidia.com","pool":{"name":"worker-0"},"devices":[{"name":"gpu-1","basic":{"attributes":{"uuid":{"string":"GPU-wrong"}}}}]}}]}' ;;
-  *) echo "unexpected: $*" >&2; exit 1 ;;
-esac
-`
+func TestDRAClaimAllocatedDevices(t *testing.T) {
+	var claim draClaimObj
+	require.NoError(t, json.Unmarshal([]byte(`{"status":{"allocation":{"devices":{"results":[
+	  {"request":"gpu","driver":"gpu.nvidia.com","pool":"worker-1","device":"gpu-1"}]}}}}`), &claim),
+		"unmarshal claim")
 
-func TestDRAAllocatedGPUUUIDsResolvesTheClaimedDeviceInItsPool(t *testing.T) {
-	installFakeKubectl(t, draObjects)
-
-	uuids, err := (&Client{}).DRAAllocatedGPUUUIDs(context.Background(), "default", "gpu-test-pod")
-	require.NoError(t, err)
-	require.Equal(t, []string{"GPU-allocated"}, uuids)
+	refs, ok := claim.allocatedDevices()
+	require.True(t, ok, "claim with an allocation")
+	require.Equal(t, []draDeviceRef{{"gpu.nvidia.com", "worker-1", "gpu-1"}}, refs)
 }
 
-func TestDRAAllocatedGPUUUIDsRejectsAnUnallocatedClaim(t *testing.T) {
-	installFakeKubectl(t, `
-case "$*" in
-  *" pod "*) echo '{"status":{"resourceClaimStatuses":[{"resourceClaimName":"c"}]}}' ;;
-  *) echo '{"status":{}}' ;;
-esac
-`)
+func TestDRAClaimWithoutAllocationIsNotAllocated(t *testing.T) {
+	var claim draClaimObj
+	require.NoError(t, json.Unmarshal([]byte(`{"status":{}}`), &claim), "unmarshal claim")
 
-	_, err := (&Client{}).DRAAllocatedGPUUUIDs(context.Background(), "default", "p")
-	require.ErrorContains(t, err, "not allocated")
+	_, ok := claim.allocatedDevices()
+	require.False(t, ok, "claim without an allocation")
+}
+
+// Every pool publishes the same device names, so a lookup that ignores the
+// pool resolves the wrong UUID.
+func TestDRASliceUUIDsResolveTheDeviceInItsPool(t *testing.T) {
+	var slices draSliceList
+	require.NoError(t, json.Unmarshal([]byte(`{"items":[
+	  {"spec":{"driver":"gpu.nvidia.com","pool":{"name":"worker-1"},"devices":[
+	    {"name":"gpu-0","basic":{"attributes":{"uuid":{"string":"GPU-other"}}}},
+	    {"name":"gpu-1","basic":{"attributes":{"uuid":{"string":"GPU-allocated"}}}}]}},
+	  {"spec":{"driver":"gpu.nvidia.com","pool":{"name":"worker-0"},"devices":[
+	    {"name":"gpu-1","basic":{"attributes":{"uuid":{"string":"GPU-wrong"}}}}]}}]}`), &slices),
+		"unmarshal slices")
+
+	uuids, err := slices.uuidsOf([]draDeviceRef{{"gpu.nvidia.com", "worker-1", "gpu-1"}})
+	require.NoError(t, err)
+	require.Equal(t, []string{"GPU-allocated"}, uuids)
+
+	_, err = slices.uuidsOf([]draDeviceRef{{"gpu.nvidia.com", "worker-2", "gpu-1"}})
+	require.ErrorContains(t, err, "no uuid attribute", "device in an unpublished pool")
 }
 
 // The v1 API moved device attributes out of basic and onto the device.
-func TestDRAAllocatedGPUUUIDsReadsTheV1DeviceShape(t *testing.T) {
-	installFakeKubectl(t, `
-case "$*" in
-  *" pod "*) echo '{"status":{"resourceClaimStatuses":[{"resourceClaimName":"c"}]}}' ;;
-  *resourceclaims*) echo '{"status":{"allocation":{"devices":{"results":[{"driver":"gpu.nvidia.com","pool":"n","device":"gpu-1"}]}}}}' ;;
-  *resourceslices*) echo '{"items":[{"spec":{"driver":"gpu.nvidia.com","pool":{"name":"n"},"devices":[
-    {"name":"gpu-0","attributes":{"uuid":{"string":"GPU-0"}}},
-    {"name":"gpu-1","attributes":{"uuid":{"string":"GPU-1"}}}]}}]}' ;;
-esac
-`)
+func TestDRASliceUUIDsReadTheV1DeviceShape(t *testing.T) {
+	var slices draSliceList
+	require.NoError(t, json.Unmarshal([]byte(`{"items":[
+	  {"spec":{"driver":"gpu.nvidia.com","pool":{"name":"n"},"devices":[
+	    {"name":"gpu-0","attributes":{"uuid":{"string":"GPU-0"}}},
+	    {"name":"gpu-1","attributes":{"uuid":{"string":"GPU-1"}}}]}}]}`), &slices),
+		"unmarshal slices")
 
-	uuids, err := (&Client{}).DRAAllocatedGPUUUIDs(context.Background(), "default", "p")
+	uuids, err := slices.uuidsOf([]draDeviceRef{{"gpu.nvidia.com", "n", "gpu-1"}})
 	require.NoError(t, err)
 	require.Equal(t, []string{"GPU-1"}, uuids)
 }
