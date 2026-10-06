@@ -3,12 +3,13 @@
 The binary behind the optional NRI sidecar in Mokka's node DaemonSet. It
 registers with containerd over the
 [NRI](https://github.com/containerd/nri) socket, subscribes to
-`CreateContainer` only, and edits containers as they are created so an
-unmodified workload sees mock GPUs.
+`CreateContainer` only, and edits containers as they are created so a workload
+given GPUs the usual way, or opted in by annotation, sees mock GPUs.
 
-[NRI Plugin](../components/nri-plugin.md) covers what it decides and why — the
-two injection layers, when a container is left alone, how it composes with the
-NVIDIA device plugin, and why it fails open. This page is the command line.
+[NRI Plugin](../components/nri-plugin.md) covers what it decides and why —
+which containers are injected, how it recognises a device plugin or DRA
+allocation, when a container is left alone, and why it fails open. This page is
+the command line.
 
 It is off by default: the chart adds the sidecar only when `nri.enabled` is
 `true`. The sidecar runs as root with `allowPrivilegeEscalation: false` and no

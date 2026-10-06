@@ -603,10 +603,10 @@ unreachable peers.
 Applies only when `nri.enabled=true`.
 
 The NRI plugin injects the mock GPU stack at container-creation time, which is
-what lets ordinary pods see mock GPUs without a pod-spec change. It also means
-the injection is written into the container's OCI spec once, at creation. A pod
-that is already running keeps everything it was given, whatever happens to the
-plugin afterwards. **Only pods created after a failure are affected**, and they
+what lets a pod given GPUs the usual way see mock GPUs without a pod-spec
+change. It also means the injection is written into the container's OCI spec
+once, at creation. A pod that is already running keeps everything it was given,
+whatever happens to the plugin afterwards. **Only pods created after a failure are affected**, and they
 are affected silently.
 
 That is the property that makes this worth hardening: a test suite that creates
