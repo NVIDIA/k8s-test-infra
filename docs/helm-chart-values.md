@@ -49,6 +49,7 @@ Kubernetes: `>= 1.28.0-0`
 | fabricmanager.enabled | string | `""` | Enable or disable the fake fabric manager; empty derives it from the profile. |
 | fabricmanager.initDelay | string | `""` | Delay before publishing fabric readiness. |
 | fabricmanager.stateDir | string | `"/var/lib/nvml-mock/fabric-state"` | Host directory for fabric-manager readiness state. |
+| featureGates | object | `{}` |  |
 | global.imagePullSecrets | list | `[]` | Pull secrets added to every pod created by this chart. |
 | global.imageRegistry | string | `""` | Registry host override applied to every image, such as an internal mirror. |
 | gpu.count | string | `""` | Number of simulated GPUs; empty derives the count from the selected profile. |
@@ -85,6 +86,7 @@ Kubernetes: `>= 1.28.0-0`
 | nodeAgent.logging | object | `{"format":"json","level":"info"}` | Node-agent logging settings and lifecycle behavior. |
 | nodeAgent.logging.format | string | `"json"` | Log encoding for the node agent. |
 | nodeAgent.logging.level | string | `"info"` | Log level for the node agent. |
+| nodeAgent.nriStartupTimeoutSeconds | int | `120` |  |
 | nodeAgent.readinessProbe | object | `{"httpGet":{"path":"/readyz","port":"health"}}` | Readiness probe; /readyz reports whether every simulator is serving. Set to null to disable. |
 | nodeAgent.readinessProbe.httpGet.path | string | `"/readyz"` | Readiness probe endpoint path. |
 | nodeAgent.readinessProbe.httpGet.port | string | `"health"` | Readiness probe endpoint port name or number. |
@@ -103,6 +105,7 @@ Kubernetes: `>= 1.28.0-0`
 | nri.healthPort | int | `8080` | NRI plugin health and readiness port. |
 | nri.image | object | `{}` | Optional container image overrides for the NRI plugin. |
 | nri.imexChannelAnnotation | string | `"nvml-mock.nvidia.com/imex-channels"` | Pod annotation enabling IMEX channel injection. |
+| nri.infinibandAnnotation | string | `"nvml-mock.nvidia.com/infiniband"` |  |
 | nri.livenessProbe.failureThreshold | int | `3` | Consecutive failures before the plugin is restarted. |
 | nri.livenessProbe.httpGet.path | string | `"/healthz"` | Liveness endpoint path. |
 | nri.livenessProbe.httpGet.port | string | `"nri-health"` | Liveness endpoint port name. |
@@ -110,6 +113,7 @@ Kubernetes: `>= 1.28.0-0`
 | nri.livenessProbe.timeoutSeconds | int | `2` | Liveness probe timeout. |
 | nri.logging.format | string | `"json"` | Log encoding for the NRI plugin. |
 | nri.logging.level | string | `"info"` | Log level for the NRI plugin. |
+| nri.nativeSidecar | bool | `true` |  |
 | nri.optOutAnnotation | string | `"nvml-mock.nvidia.com/inject"` | Pod annotation that disables ambient mock injection when set to "false". |
 | nri.overlay.hostPath | string | `"/var/lib/nvml-mock"` | Host path containing the staged mock driver overlay. |
 | nri.overlay.mountPath | string | `"/opt/nvml-mock"` | Container mount path for the mock driver overlay. |
