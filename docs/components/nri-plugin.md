@@ -190,6 +190,22 @@ abandoned that request and the container was created without injection. The
 threshold is a multiple of the runtime's own timeout, so a single slow request
 cannot trigger a restart, but a genuinely stuck plugin gets replaced.
 
+## Mount propagation
+
+The overlay arrives as two bind mounts: the driver tree read-only, and its
+`config` directory writable on top of it, because `nvidia-smi --gpu-reset`
+writes there. Both are `rprivate`, the propagation a `hostPath` volume without
+`mountPropagation` gets.
+
+A container with a `Bidirectional` volume, such as a DRA kubelet plugin, has a
+shared root. Without the option, the writable bind was copied onto the node at
+`/var/lib/nvml-mock/driver/config`, doubling there with every such container
+and staying after the pod was gone. `rslave` would also stop that, but
+containerd accepts it only when the node mount holding the overlay is shared or
+slave, and otherwise fails container creation. For nodes that already have the
+copies, see
+[troubleshooting](../troubleshooting.md#mounts-pile-up-on-a-node-with-nri-enabled).
+
 ## How the code is split
 
 | Package | Role |

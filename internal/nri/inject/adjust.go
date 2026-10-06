@@ -131,19 +131,28 @@ func hasOverlay(cfg Config, container Container) bool {
 // writable bind over the read-only tree keeps the mock library and nvidia-smi
 // below it immutable; the order matters, since the overlay would cover this
 // mount if it came second.
+//
+// Both binds are rprivate, the propagation a hostPath volume without
+// mountPropagation gets. A container with a Bidirectional volume has an rshared
+// root, and while these binds named no propagation the overlay joined the peer
+// group of the node mount it came from. The config bind layered on it was then
+// copied onto the node, where the copies outlived the pod and doubled with each
+// such container. rslave would stop that too, but the runtime accepts it only
+// when the node mount holding the overlay is shared or slave, and fails
+// container creation otherwise.
 func mountOverlay(cfg Config, adjustment *Adjustment) {
 	adjustment.Mounts = append(adjustment.Mounts,
 		Mount{
 			Source:      cfg.HostOverlayPath,
 			Destination: cfg.ContainerOverlayPath,
 			Type:        "bind",
-			Options:     []string{"rbind", "ro", "nosuid", "nodev"},
+			Options:     []string{"rbind", "rprivate", "ro", "nosuid", "nodev"},
 		},
 		Mount{
 			Source:      filepath.Join(cfg.HostOverlayPath, configRelPath),
 			Destination: filepath.Join(cfg.ContainerOverlayPath, configRelPath),
 			Type:        "bind",
-			Options:     []string{"rbind", "rw", "nosuid", "nodev"},
+			Options:     []string{"rbind", "rprivate", "rw", "nosuid", "nodev"},
 		},
 	)
 }
