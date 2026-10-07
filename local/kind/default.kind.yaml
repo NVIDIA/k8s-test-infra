@@ -37,12 +37,9 @@
 #      ResourceSlices. If no ResourceClaim exists, the scheduler paths never
 #      fire, so leaving this on for non-DRA scenarios costs nothing at runtime.
 #
-#   2. NRI plugin socket enabled — required for the nvml-mock NRI plugin
-#      (nri.enabled=true) to attach to containerd and inject the mock GPU
-#      overlay at container-creation time. Inert until a workload registers
-#      as an NRI plugin, which nvml-mock does with nri.enabled: the node-wide
-#      NRI scenario, `tilt up -- --nri` (as the DRA and GPU Operator CI jobs
-#      run) and `--dynamo` all set it.
+#   2. NRI plugin socket enabled — required for the nvml-mock NRI plugin,
+#      which the chart runs by default, to attach to containerd and inject the
+#      mock GPU overlay at container-creation time.
 #
 # Every node also mounts journald-node-syslog.conf, which is what makes the Xid
 # the node agent writes to /dev/kmsg for an injection readable from the node

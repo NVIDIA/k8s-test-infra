@@ -108,7 +108,7 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, Conti
 			// runtime also resolves through CDI. The operands themselves hold no
 			// allocation and carry no opt-in, so NRI must leave them alone.
 			It("gives a GPU-requesting pod exactly one GPU through NRI and leaves operands alone", Label("gpu-operator-nri"), func(ctx SpecContext) {
-				requireNRIPlugin(ctx, h, "tilt up -- --gpu-operator --nri")
+				requireNRIPlugin(ctx, h, "tilt up -- --gpu-operator")
 				ref := runGPUOperatorWorkload(ctx, h, node)
 				collectPodOnFailure(h, "gpu-operator", ref)
 

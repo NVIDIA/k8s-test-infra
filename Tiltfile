@@ -69,8 +69,6 @@ config.define_bool('observability', args=False,
     usage='Also deploy kube-prometheus-stack + a Grafana dashboard over the mock GPUs, and expose two manual fault-injection triggers (inject-thermal, inject-xid) that assert the fault lands in Prometheus. Implies --gpu-operator (dcgm-exporter is the Operator\'s operand). Grafana on http://localhost:3000/d/mokka-gpu (admin/mokka).')
 config.define_bool('dynamo', args=False,
     usage='Also deploy NVIDIA Dynamo (operator only) and an aggregated DynamoGraphDeployment whose worker runs the mocker engine on a mock GPU, plus a manual dynamo-smoke trigger. Implies --gpu-operator (the worker requests nvidia.com/gpu). OpenAI API on http://localhost:8000.')
-config.define_bool('nri', args=False,
-    usage='Enable the nvml-mock NRI plugin (nri.enabled=true), so containers holding a GPU allocation get the mock driver injected. The Kind cluster must have containerd NRI enabled, as local/kind/default.kind.yaml does.')
 config.define_bool('control-plane', args=False,
     usage='Also deploy the Mokka Control Plane (MEP-0001) alongside nvml-mock. Off by default. Composes with --multi-gpu-profile (the first profile release owns the single CP), --compute-domain, and --nvmlmock-image.')
 # CI hook: hand Tilt a pre-built image (in CI, loaded from the workflow's image
@@ -94,7 +92,6 @@ with_topograph      = cfg.get('topograph', False)
 with_observability  = cfg.get('observability', False)
 with_dynamo         = cfg.get('dynamo', False)
 with_control_plane  = cfg.get('control-plane', False)
-with_nri            = cfg.get('nri', False)
 
 # --- Implicit flags ------------------------------------------------------
 # --topograph implies --compute-domain: cliques only exist in the
@@ -144,11 +141,6 @@ gpu_profile_raw = cfg.get('gpu-profile', None)
 
 if with_compute_domain and gpu_profile_raw != None:
     fail('--compute-domain forces gpu.profile=gb200; do not pass --gpu-profile explicitly')
-
-# The compute-domain scenario installs nvml-mock with its own values and does
-# not take the shared install path that --nri sets the value on.
-if with_nri and with_compute_domain:
-    fail('--nri is not supported with --compute-domain')
 
 gpu_profile = gpu_profile_raw or 'a100'
 
@@ -204,7 +196,6 @@ elif multi_gpu_profile:
         active_consumers,
         nvmlmock_image=nvmlmock_image,
         control_plane=with_control_plane,
-        nri=with_nri,
     )
 else:
     build_nvml_mock_image(nvmlmock_image=nvmlmock_image)
@@ -213,7 +204,6 @@ else:
         active_consumers,
         nvmlmock_image=nvmlmock_image,
         control_plane=with_control_plane,
-        nri=with_nri,
     )
 
 # --- Shared NVIDIA Helm repo --------------------------------------------

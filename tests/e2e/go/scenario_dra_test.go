@@ -93,7 +93,7 @@ var _ = Describe("nvml-mock DRA", Label("dra"), Ordered, func() {
 			// accepts as a DRA allocation. Injection must then keep the
 			// container to exactly the claimed GPU, as on real hardware.
 			It("gives each ResourceClaim pod exactly its claimed GPU through NRI", Label("dra-nri"), func(ctx SpecContext) {
-				requireNRIPlugin(ctx, h, "tilt up -- --dra --nri")
+				requireNRIPlugin(ctx, h, "tilt up -- --dra")
 				ensureDRATestPodRunning(ctx, h)
 				pods := []string{draTestPodName}
 				// A second claim on the same node is allocated a different GPU,
