@@ -50,7 +50,7 @@ spec:
       labels:
         {{- include "nvml-mock.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: daemon
-        {{- with include "nvml-mock.podLabels" (dict "labels" .Values.podLabels "field" "podLabels" "kind" "DaemonSet") }}
+        {{- with include "nvml-mock.podLabels" (dict "labels" .Values.podLabels "field" "podLabels") }}
         {{- . | nindent 8 }}
         {{- end }}
       annotations:

@@ -129,15 +129,15 @@ imagePullSecrets:
 
 {{/*
 User pod labels for a workload's pod template. Takes a dict of labels (the
-user map), field (its values path) and kind (the workload, for the error). The
-selector labels are refused rather than dropped: the selector matches them, so
-an override would orphan running pods on upgrade and should fail at render time.
+user map) and field (its values path, for the error). The selector labels are
+refused rather than dropped: the selector matches them, so an override would
+orphan running pods on upgrade and should fail at render time.
 */}}
 {{- define "nvml-mock.podLabels" -}}
 {{- $labels := .labels | default dict }}
 {{- range $key := list "app.kubernetes.io/name" "app.kubernetes.io/instance" "app.kubernetes.io/component" }}
 {{- if hasKey $labels $key }}
-{{- fail (printf "%s must not set %s: the chart's %s selectors own it" $.field $key $.kind) }}
+{{- fail (printf "%s must not set %s: the chart's selector owns it" $.field $key) }}
 {{- end }}
 {{- end }}
 {{- with $labels }}

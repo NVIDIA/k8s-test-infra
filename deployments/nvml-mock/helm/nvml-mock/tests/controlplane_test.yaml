@@ -421,7 +421,7 @@ tests:
     template: templates/controlplane/deployment.yaml
     asserts:
       - failedTemplate:
-          errorMessage: "controlPlane.podLabels must not set app.kubernetes.io/component: the chart's Deployment selectors own it"
+          errorMessage: "controlPlane.podLabels must not set app.kubernetes.io/component: the chart's selector owns it"
 
   - it: should honour ready active-passive replicas, a custom image, and logging knobs
     set:

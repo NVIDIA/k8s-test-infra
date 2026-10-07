@@ -691,7 +691,7 @@ tests:
         app.kubernetes.io/name: other
     asserts:
       - failedTemplate:
-          errorMessage: "podLabels must not set app.kubernetes.io/name: the chart's DaemonSet selectors own it"
+          errorMessage: "podLabels must not set app.kubernetes.io/name: the chart's selector owns it"
 
   # ── node-agent probes ───────────────────────────────────────────────
   - it: should probe the node agent health endpoints by default
