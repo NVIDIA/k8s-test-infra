@@ -579,7 +579,7 @@
         "pdb": {
           "type": "object",
           "additionalProperties": false,
-          "description": "PodDisruptionBudget for the control-plane pods, rendered only with replicas > 1. Set one of minAvailable or maxUnavailable; with neither, maxUnavailable is 1.",
+          "description": "PodDisruptionBudget for the control-plane pods, rendered only with replicas > 1. maxUnavailable wins if both bounds are set; with neither, minAvailable is 1.",
           "properties": {
             "enabled": { "type": "boolean" },
             "minAvailable": { "$ref": "#/$defs/disruptionBound" },
@@ -596,10 +596,10 @@
   },
   "$defs": {
     "disruptionBound": {
-      "description": "A pod count, a percentage such as \"50%\", or \"\" for unset.",
+      "description": "A pod count or a percentage such as \"50%\".",
       "oneOf": [
         { "type": "integer", "minimum": 0 },
-        { "type": "string", "pattern": "^([0-9]+%)?$" }
+        { "type": "string", "pattern": "^[0-9]+%$" }
       ]
     }
   }

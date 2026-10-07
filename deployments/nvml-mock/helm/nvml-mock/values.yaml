@@ -502,14 +502,14 @@ controlPlane:
   podLabels: {}
   # PodDisruptionBudget bounding voluntary disruptions of the replicas, such as
   # node drains. Rendered only with replicas > 1: over a single replica it
-  # either blocks every drain or protects nothing. Set one of minAvailable or
-  # maxUnavailable, as a count or a percentage; with neither, maxUnavailable is
-  # 1. A minAvailable equal to replicas blocks every drain of a node running a
-  # replica.
+  # either blocks every drain or protects nothing. Bounds are a count or a
+  # percentage; maxUnavailable wins if both are set, and with neither
+  # minAvailable is 1. A minAvailable equal to replicas blocks every drain of a
+  # node running a replica.
   pdb:
     enabled: false
-    minAvailable: ""
-    maxUnavailable: ""
+    # minAvailable: 1
+    # maxUnavailable: 1
 
 # Additional Kubernetes objects rendered with the release, each passed through
 # tpl so it can reference chart values (e.g. "{{ .Release.Name }}"). Either a

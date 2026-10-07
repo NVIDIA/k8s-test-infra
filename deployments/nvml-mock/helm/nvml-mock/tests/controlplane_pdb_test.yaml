@@ -38,7 +38,7 @@ tests:
       - hasDocuments:
           count: 0
 
-  - it: should allow one disruption when no bound is set
+  - it: should keep one replica available when no bound is set
     set:
       controlPlane:
         enabled: true
@@ -52,10 +52,10 @@ tests:
           path: metadata.name
           value: RELEASE-NAME-nvml-mock-control-plane
       - equal:
-          path: spec.maxUnavailable
+          path: spec.minAvailable
           value: 1
       - notExists:
-          path: spec.minAvailable
+          path: spec.maxUnavailable
 
   - it: should select exactly the control-plane Deployment's pods
     set:
@@ -87,7 +87,23 @@ tests:
       - notExists:
           path: spec.maxUnavailable
 
-  # Zero is falsy in templates; it must still render, not fall back to 1.
+  - it: should prefer maxUnavailable when both bounds are set
+    set:
+      controlPlane:
+        enabled: true
+        replicas: 3
+        pdb:
+          enabled: true
+          minAvailable: 2
+          maxUnavailable: 1
+    asserts:
+      - equal:
+          path: spec.maxUnavailable
+          value: 1
+      - notExists:
+          path: spec.minAvailable
+
+  # Zero is falsy in templates; it must still render, not fall back.
   - it: should render maxUnavailable 0
     set:
       controlPlane:
@@ -100,21 +116,6 @@ tests:
       - equal:
           path: spec.maxUnavailable
           value: 0
-
-  - it: should treat a null bound as unset
-    set:
-      controlPlane:
-        enabled: true
-        replicas: 2
-        pdb:
-          enabled: true
-          minAvailable: null
-    asserts:
-      - notExists:
-          path: spec.minAvailable
-      - equal:
-          path: spec.maxUnavailable
-          value: 1
 
   - it: should accept a percentage
     set:
