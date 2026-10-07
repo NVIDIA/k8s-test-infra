@@ -151,6 +151,16 @@ test("the latest run is the newest one, so a second run after a neutral write wr
   assert.deepEqual(result, { status: "written", superseded: [] });
 });
 
+test("the latest run is the newest one when the API lists runs newest first", async () => {
+  const { github, core, result } = await execute({
+    runs: () => [checkRun(112300000000, { conclusion: "neutral" }), checkRun(112245042964)],
+  });
+
+  assert.deepEqual(writes(github), []);
+  assert.ok(core.lines.includes(`#889: the latest ${NAME} check run 112300000000 concluded neutral; nothing to supersede`));
+  assert.deepEqual(result, { status: "written", superseded: [] });
+});
+
 test("a run that concluded success or skipped is left alone", async () => {
   for (const conclusion of ["success", "skipped"]) {
     const { github, result } = await execute({ runs: () => [checkRun(7, { conclusion })] });
