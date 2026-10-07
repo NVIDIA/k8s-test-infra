@@ -984,12 +984,12 @@ func TestProcessNextRateLimitsErrorsAndForgetsSuccess(t *testing.T) {
 	t.Cleanup(queue.ShutDown)
 	queue.Add("key")
 
-	require.True(t, processNext(context.Background(), queue, func(context.Context, string) error {
+	require.True(t, processNext(t.Context(), queue, func(context.Context, string) error {
 		return errors.New("retry")
 	}))
 	require.Equal(t, 1, queue.NumRequeues("key"))
 	require.Eventually(t, func() bool { return queue.Len() == 1 }, time.Second, time.Millisecond)
-	require.True(t, processNext(context.Background(), queue, func(context.Context, string) error { return nil }))
+	require.True(t, processNext(t.Context(), queue, func(context.Context, string) error { return nil }))
 	require.Zero(t, queue.NumRequeues("key"))
 }
 
@@ -997,7 +997,7 @@ func TestProjectionCleanupRevisionRetryPolicy(t *testing.T) {
 	t.Parallel()
 
 	t.Run("cancellation stops a pre-cleanup stale retry", func(t *testing.T) {
-		ctx, cancel := context.WithCancelCause(context.Background())
+		ctx, cancel := context.WithCancelCause(t.Context())
 		cause := errors.New("shutdown")
 		attempts := 0
 
@@ -1028,7 +1028,7 @@ func TestProjectionCleanupRevisionRetryPolicy(t *testing.T) {
 			require.ErrorIs(t, err, errProjectionCleanupRevisionChanged)
 			return err
 		}
-		require.True(t, processNext(context.Background(), queue, reconcile))
+		require.True(t, processNext(t.Context(), queue, reconcile))
 		require.Equal(t, projectionCleanupRevisionAttempts, attempts)
 		require.Equal(t, 1, queue.NumRequeues(key))
 		require.Eventually(t, func() bool { return queue.Len() == 1 }, time.Second, time.Millisecond)
@@ -1054,11 +1054,11 @@ func TestProjectionConflictWorkerRetryPolicy(t *testing.T) {
 			}
 			return nil
 		}
-		require.True(t, processNext(context.Background(), queue, reconcile))
+		require.True(t, processNext(t.Context(), queue, reconcile))
 		require.Equal(t, 1, queue.NumRequeues(key))
 		require.Eventually(t, func() bool { return queue.Len() == 1 }, time.Second, time.Millisecond)
 
-		require.True(t, processNext(context.Background(), queue, reconcile))
+		require.True(t, processNext(t.Context(), queue, reconcile))
 		require.Equal(t, 2, attempts, "the workqueue retry is the only second trigger")
 		require.Zero(t, queue.NumRequeues(key))
 	})
@@ -1071,7 +1071,7 @@ func TestProjectionConflictWorkerRetryPolicy(t *testing.T) {
 		key := projectionKey{mode: projectionApply}
 		queue.Add(key)
 
-		require.True(t, processNext(context.Background(), queue, func(context.Context, projectionKey) error {
+		require.True(t, processNext(t.Context(), queue, func(context.Context, projectionKey) error {
 			return projectionRetryError(key.mode, conflict)
 		}))
 		require.Zero(t, queue.NumRequeues(key))
@@ -1089,7 +1089,7 @@ func TestProcessNextLogsReconciliationFailureToGlobalLogger(t *testing.T) {
 	queue.Add(key)
 	err := errors.New("projection failed")
 
-	require.True(t, processNext(context.Background(), queue, func(context.Context, projectionKey) error {
+	require.True(t, processNext(t.Context(), queue, func(context.Context, projectionKey) error {
 		return err
 	}))
 
@@ -1118,7 +1118,7 @@ func TestProcessNextStatusLogsReconciliationFailureToGlobalLogger(t *testing.T) 
 	key := testInventoryStatusKey()
 	queues.addStatus(key)
 
-	require.True(t, controller.processNextStatus(context.Background()))
+	require.True(t, controller.processNextStatus(t.Context()))
 
 	entries := logs.All()
 	require.Len(t, entries, 1)
@@ -1138,7 +1138,7 @@ func TestProcessNextDistinguishesRequestTimeoutFromCallerShutdown(t *testing.T) 
 		t.Cleanup(queue.ShutDown)
 		queue.Add("key")
 
-		require.True(t, processNext(context.Background(), queue, func(context.Context, string) error {
+		require.True(t, processNext(t.Context(), queue, func(context.Context, string) error {
 			return context.DeadlineExceeded
 		}))
 		require.Equal(t, 1, queue.NumRequeues("key"))
@@ -1150,7 +1150,7 @@ func TestProcessNextDistinguishesRequestTimeoutFromCallerShutdown(t *testing.T) 
 		)
 		t.Cleanup(queue.ShutDown)
 		queue.Add("key")
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(t.Context())
 
 		require.True(t, processNext(ctx, queue, func(context.Context, string) error {
 			cancel()
@@ -1169,7 +1169,7 @@ func TestProcessNextStopsBeforeReconcilingCanceledBacklog(t *testing.T) {
 	queue.AddRateLimited("key")
 	require.Eventually(t, func() bool { return queue.Len() == 1 }, time.Second, time.Millisecond)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	reconciled := false
 	require.False(t, processNext(ctx, queue, func(context.Context, string) error {
@@ -1209,12 +1209,12 @@ func TestProcessNextStatusKeepsExistingRateLimitedRetry(t *testing.T) {
 	key := testInventoryStatusKey()
 	statuses.dirty(key)
 
-	require.True(t, controller.processNextStatus(context.Background()))
+	require.True(t, controller.processNextStatus(t.Context()))
 	require.Equal(t, 1, queue.NumRequeues(key))
 	require.Equal(t, 1, queue.Len())
 
 	controller.reconcileStatus = func(context.Context, statusKey) error { return nil }
-	require.True(t, controller.processNextStatus(context.Background()))
+	require.True(t, controller.processNextStatus(t.Context()))
 	require.Zero(t, queue.NumRequeues(key))
 }
 
@@ -1234,7 +1234,7 @@ func TestProcessNextStatusStopsBeforeReconcilingCanceledBacklog(t *testing.T) {
 	queue.AddRateLimited(key)
 	require.Eventually(t, func() bool { return queue.Len() == 1 }, time.Second, time.Millisecond)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	reconciled := false
 	controller.reconcileStatus = func(context.Context, statusKey) error {
@@ -1282,7 +1282,7 @@ func TestHandlerRegistrationTracksInitialEventDelivery(t *testing.T) {
 	}})
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -1308,7 +1308,7 @@ func TestHandlerRegistrationTracksInitialEventDelivery(t *testing.T) {
 
 func TestRunCachesPublishesReadinessUntilCancellation(t *testing.T) {
 	controller := newTestController()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- controller.RunCaches(ctx) }()
 
@@ -1326,14 +1326,14 @@ func TestRunCachesPublishesReadinessUntilCancellation(t *testing.T) {
 func TestRunCachesFailsClosedWhenCacheSyncFails(t *testing.T) {
 	controller := newTestController()
 	controller.waitForCacheSync = func(context.Context) bool { return false }
-	err := controller.RunCaches(context.Background())
+	err := controller.RunCaches(t.Context())
 	require.ErrorContains(t, err, "cache sync")
 	require.False(t, controller.CacheReady())
 }
 
 func TestRunLeaderRequiresSynchronizedCaches(t *testing.T) {
 	controller := newTestController()
-	err := controller.RunLeader(context.Background())
+	err := controller.RunLeader(t.Context())
 	require.ErrorIs(t, err, ErrCacheNotReady)
 	require.False(t, controller.LeaderReady())
 }
@@ -1384,7 +1384,7 @@ func TestRunLeaderCancellationDuringHandlerReplayStopsWithoutWorkers(t *testing.
 		},
 	}, &corev1.Node{}, 0, cache.Indexers{})
 
-	informerCtx, cancelInformer := context.WithCancel(context.Background())
+	informerCtx, cancelInformer := context.WithCancel(t.Context())
 	informerDone := make(chan struct{})
 	go func() {
 		defer close(informerDone)
@@ -1423,7 +1423,7 @@ func TestRunLeaderCancellationDuringHandlerReplayStopsWithoutWorkers(t *testing.
 		started:                    workerStarted,
 	}
 
-	leaderCtx, cancelLeader := context.WithCancel(context.Background())
+	leaderCtx, cancelLeader := context.WithCancel(t.Context())
 	leaderStopped := make(chan struct{})
 	var leaderErr error
 	go func() {
@@ -1493,7 +1493,7 @@ func TestRunLeaderCancelsAndWaitsForWorkers(t *testing.T) {
 		return context.Cause(ctx)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- controller.RunLeader(ctx) }()
 	require.Eventually(t, controller.LeaderReady, time.Second, time.Millisecond)
@@ -1520,9 +1520,9 @@ func TestRunLeaderCancelsAndWaitsForWorkers(t *testing.T) {
 func TestFilteredNodeListWatchUsesServerSideSelector(t *testing.T) {
 	nodes := &recordingNodeAPI{watcher: watch.NewFake()}
 	listWatch := newFilteredNodeListWatch(nodes)
-	_, err := listWatch.ListWithContext(context.Background(), metav1.ListOptions{})
+	_, err := listWatch.ListWithContext(t.Context(), metav1.ListOptions{})
 	require.NoError(t, err)
-	watcher, err := listWatch.WatchWithContext(context.Background(), metav1.ListOptions{})
+	watcher, err := listWatch.WatchWithContext(t.Context(), metav1.ListOptions{})
 	require.NoError(t, err)
 	watcher.Stop()
 	require.Equal(t, []string{

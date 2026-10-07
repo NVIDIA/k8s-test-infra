@@ -4,7 +4,7 @@
 package controller
 
 import (
-	"sort"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -329,7 +329,7 @@ func (f *fakeStatusScheduler) Step(duration time.Duration) {
 			due = append(due, id)
 		}
 	}
-	sort.Ints(due)
+	slices.Sort(due)
 	callbacks := make([]func(), 0, len(due))
 	for _, id := range due {
 		callbacks = append(callbacks, f.timers[id].fn)

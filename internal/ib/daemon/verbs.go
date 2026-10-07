@@ -204,7 +204,7 @@ func gidBytesFromSysfs(s string) []byte {
 	var out [16]byte
 	if strings.Contains(s, ":") {
 		parts := strings.Split(s, ":")
-		for i := 0; i < len(parts) && i < 8; i++ {
+		for i := range min(len(parts), 8) {
 			var b uint64
 			if _, err := fmt.Sscanf(parts[i], "%x", &b); err != nil {
 				continue

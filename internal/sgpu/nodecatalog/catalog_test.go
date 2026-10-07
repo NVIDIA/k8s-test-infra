@@ -159,8 +159,7 @@ func BenchmarkCatalogSteadySnapshot100K(b *testing.B) {
 	require.Len(b, catalog.Snapshot().AllocationNodes(), 100_000)
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		_ = catalog.Snapshot().AllocationNodes()
 	}
 }

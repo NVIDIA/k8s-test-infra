@@ -65,7 +65,7 @@ type Server struct {
 	registry   *registry.Registry
 	podIP      string
 	nodeName   string
-	nextSeq    uint32
+	nextSeq    atomic.Uint32
 
 	nextHandleID int
 	handles      map[int]*portHandle

@@ -145,7 +145,7 @@ func TestAdjustDoesNotSelectFromInheritedDevices(t *testing.T) {
 		},
 		"IB node with an exact rule": {
 			IncomingDevices: []RuntimeDevice{device("/dev/infiniband/uverbs0", 231, 192)},
-			DeviceRules:     []DeviceRule{{Allow: true, Type: "c", Major: int64Ptr(231), Minor: int64Ptr(192), Access: "rwm"}},
+			DeviceRules:     []DeviceRule{{Allow: true, Type: "c", Major: new(int64(231)), Minor: new(int64(192)), Access: "rwm"}},
 		},
 	}
 	for name, container := range tests {
@@ -192,7 +192,7 @@ func TestAdjustKeepsAnAllocationWhenInfiniBandIsSelected(t *testing.T) {
 		Namespace:       "default",
 		PodAnnotations:  map[string]string{cfg.InfiniBandAnnotation: "true"},
 		IncomingDevices: []RuntimeDevice{{Path: "/dev/nvidia1", Type: "c", Major: 195, Minor: 1}},
-		DeviceRules:     []DeviceRule{{Allow: true, Type: "c", Major: int64Ptr(195), Minor: int64Ptr(1), Access: "rwm"}},
+		DeviceRules:     []DeviceRule{{Allow: true, Type: "c", Major: new(int64(195)), Minor: new(int64(1)), Access: "rwm"}},
 	})
 	require.True(t, ok)
 	require.Equal(t, surfaces{overlay: true, config: true, ib: "full"}, observe(adjustment),

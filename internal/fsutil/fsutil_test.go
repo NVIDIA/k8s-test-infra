@@ -120,13 +120,9 @@ func TestWrite_ConcurrentWritersOfOnePath(t *testing.T) {
 	errs := make([]error, 8)
 
 	for i := range errs {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
 			errs[i] = fsutil.Write(path, fmt.Appendf(nil, "writer-%d", i), 0o644)
-		}()
+		})
 	}
 
 	wg.Wait()

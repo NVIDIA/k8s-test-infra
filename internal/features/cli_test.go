@@ -147,7 +147,7 @@ func TestCLIFlagEnvironment(t *testing.T) {
 					return nil
 				},
 			}
-			require.NoError(t, command.Run(context.Background(), append([]string{"test"}, tc.args...)))
+			require.NoError(t, command.Run(t.Context(), append([]string{"test"}, tc.args...)))
 			require.Equal(t, tc.want, got)
 		})
 	}

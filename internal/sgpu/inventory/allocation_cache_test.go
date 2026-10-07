@@ -356,8 +356,7 @@ func BenchmarkAllocationCache100KNodes64Groups(b *testing.B) {
 	require.LessOrEqual(b, declaredSlots, MaxInventoryNodes)
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		planner.Invalidate()
 		for index := range groupCount {
 			view, err := planner.plan(&keys[index], instanceForGroup(keys[index]))
@@ -384,7 +383,6 @@ func BenchmarkAllocationCache100KNodes64Groups(b *testing.B) {
 			b.Fatalf("got %d pending Nodes, want %d", len(view.Pending), nodeCount-expectedBindings)
 		}
 	}
-	b.StopTimer()
 	require.EqualValues(b, b.N, planner.Stats().Computations)
 	b.ReportMetric(float64(planner.Stats().Computations)/float64(b.N), "global-plans/op")
 }

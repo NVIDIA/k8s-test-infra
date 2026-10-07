@@ -107,7 +107,7 @@ func TestAdjustImexChannelsSurviveDevicePluginAllocation(t *testing.T) {
 		},
 		// The kubelet already applied the device plugin's Allocate response.
 		IncomingDevices: []RuntimeDevice{{Path: "/dev/nvidia0", Type: "c", Major: 195, Minor: 0}},
-		DeviceRules:     []DeviceRule{{Allow: true, Type: "c", Major: int64Ptr(195), Minor: int64Ptr(0), Access: "rwm"}},
+		DeviceRules:     []DeviceRule{{Allow: true, Type: "c", Major: new(int64(195)), Minor: new(int64(0)), Access: "rwm"}},
 	})
 	require.True(t, ok)
 

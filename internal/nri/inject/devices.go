@@ -4,9 +4,10 @@
 package inject
 
 import (
+	"cmp"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -50,8 +51,8 @@ func scanDeviceDir(hostDir, prefix, containerDir string) ([]Device, error) {
 			Path:     filepath.Join(containerDir, name),
 		})
 	}
-	sort.Slice(devices, func(i, j int) bool {
-		return devices[i].Path < devices[j].Path
+	slices.SortFunc(devices, func(a, b Device) int {
+		return cmp.Compare(a.Path, b.Path)
 	})
 	return devices, nil
 }
