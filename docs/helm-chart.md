@@ -117,13 +117,14 @@ fake-gpu-operator handles KWOK virtual nodes.
 
 ```bash
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  --namespace mokka --create-namespace \
   --set integrations.fakeGpuOperator.enabled=true
 ```
 
 This creates per-profile ConfigMaps in the shape fake-gpu-operator's loader reads:
 
 ```bash
-kubectl get cm -l fake-gpu-operator/gpu-profile=true
+kubectl -n mokka get cm -l fake-gpu-operator/gpu-profile=true
 ```
 
 ```
@@ -143,6 +144,7 @@ FGO loads these by name from its own namespace, so set `integrations.fakeGpuOper
 
 ```bash
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  --namespace mokka --create-namespace \
   --set integrations.fakeGpuOperator.enabled=true \
   --set 'integrations.fakeGpuOperator.profileLabels.my-org/gpu-profile=true'
 ```
@@ -165,18 +167,18 @@ LD_PRELOAD shims cooperate (preload order
   so `libibverbs` consumers can enumerate HCAs.
 
 ```bash
-POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock -o jsonpath='{.items[0].metadata.name}')
+POD=$(kubectl -n mokka get pods -l app.kubernetes.io/name=nvml-mock -o jsonpath='{.items[0].metadata.name}')
 
 # sysfs / libibumad (always works):
-kubectl exec "$POD" -- ibstat
-kubectl exec "$POD" -- ibstatus
+kubectl -n mokka exec "$POD" -- ibstat
+kubectl -n mokka exec "$POD" -- ibstatus
 
 # libibverbs enumeration (modalias matches libmlx5's match table):
-kubectl exec "$POD" -- ibv_devinfo -l
-kubectl exec "$POD" -- ibv_devices
+kubectl -n mokka exec "$POD" -- ibv_devinfo -l
+kubectl -n mokka exec "$POD" -- ibv_devices
 
 # Subnet management direct-route walk (cross-node fabric scan):
-kubectl exec "$POD" -- iblinkinfo
+kubectl -n mokka exec "$POD" -- iblinkinfo
 ```
 
 Full per-device `ibv_devinfo` (without `-l`) intentionally is not supported:
@@ -274,6 +276,7 @@ Two options, depending on intent:
 
   ```bash
   helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+    --namespace mokka --create-namespace \
     --set gpu.profile=h100 \
     --set infiniband.mockTier=off
   ```
@@ -291,6 +294,7 @@ Two options, depending on intent:
 
   ```bash
   helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+    --namespace mokka --create-namespace \
     --set-file gpu.customConfig=my-h100-no-ib.yaml
   ```
 
@@ -482,6 +486,7 @@ test fixture — don't deploy it to a shared or production cluster.
 
 ```bash
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  --namespace mokka --create-namespace \
   --set gpu.profile=a100 \
   --set gpu.count=2 \
   --wait --timeout 120s
@@ -491,15 +496,15 @@ On a multi-node cluster, pick two nvml-mock pods on different nodes. Read
 the server LID from sysfs and ping that LID from the client:
 
 ```bash
-SERVER_POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
+SERVER_POD=$(kubectl -n mokka get pods -l app.kubernetes.io/name=nvml-mock \
   -o jsonpath='{.items[0].metadata.name}')
-CLIENT_POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
+CLIENT_POD=$(kubectl -n mokka get pods -l app.kubernetes.io/name=nvml-mock \
   -o jsonpath='{.items[1].metadata.name}')
 
-LID=$(kubectl exec "$SERVER_POD" -- sh -c \
+LID=$(kubectl -n mokka exec "$SERVER_POD" -- sh -c \
   "tr -d '[:space:]' < /var/lib/nvml-mock/ib/sys/class/infiniband/mlx5_0/ports/1/lid")
 
-kubectl exec "$CLIENT_POD" -- ibping -c 3 "$LID"
+kubectl -n mokka exec "$CLIENT_POD" -- ibping -c 3 "$LID"
 ```
 
 For automated cross-node validation (including peer restart and retries), run
@@ -841,12 +846,14 @@ Select a profile with `--set gpu.profile=<name>`:
 ```bash
 # Deploy as an 8-GPU H100 node
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  --namespace mokka --create-namespace \
   --set image.repository=nvml-mock \
   --set image.tag=local \
   --set gpu.profile=h100
 
 # Deploy as a 4-GPU B200 node
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  --namespace mokka --create-namespace \
   --set image.repository=nvml-mock \
   --set image.tag=local \
   --set gpu.profile=b200 \
@@ -894,6 +901,7 @@ Create a YAML file following the profile format, then pass it at install time:
 
 ```bash
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  --namespace mokka --create-namespace \
   --set image.repository=nvml-mock \
   --set image.tag=local \
   --set-file gpu.customConfig=my-custom-gpus.yaml
@@ -935,6 +943,7 @@ gpu:
 
 ```bash
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  --namespace mokka --create-namespace \
   --set image.repository=nvml-mock \
   --set image.tag=local \
   -f custom-values.yaml
@@ -991,6 +1000,7 @@ it only takes effect once `enabled: true` folds it into `dynamic_metrics`.
 
 ```bash
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  --namespace mokka --create-namespace \
   --set image.repository=nvml-mock \
   --set image.tag=local \
   --set gpu.profile=h100 \
@@ -1046,6 +1056,7 @@ configured failure mode based on the trigger you choose:
 ```bash
 # Deterministic: device goes "lost" after the 200th NVML call
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  --namespace mokka --create-namespace \
   --set gpu.profile=h100 \
   --set gpu.failureInjection.enabled=true \
   --set gpu.failureInjection.mode=lost \
@@ -1128,26 +1139,26 @@ so the trigger fires within one process.
 # mode: lost / fallen_off_bus  ─  handle lookup itself fails once tripped.
 # nvidia-smi prints "Unable to determine the device handle for GPU ..."
 # and exits non-zero.
-kubectl exec ds/nvml-mock -- nvidia-smi -L
-kubectl exec ds/nvml-mock -- nvidia-smi --query-gpu=name,uuid --format=csv
-kubectl exec ds/nvml-mock -- nvidia-smi -q                # "GPU is lost"
+kubectl -n mokka exec ds/nvml-mock -- nvidia-smi -L
+kubectl -n mokka exec ds/nvml-mock -- nvidia-smi --query-gpu=name,uuid --format=csv
+kubectl -n mokka exec ds/nvml-mock -- nvidia-smi -q                # "GPU is lost"
 
 # mode: ecc_uncorrectable  ─  device stays addressable; counters grow and
 # nvmlEventSetWait_v1/_v2 delivers the configured Xid once per trip.
-kubectl exec ds/nvml-mock -- nvidia-smi -q -d ECC
-kubectl exec ds/nvml-mock -- nvidia-smi \
+kubectl -n mokka exec ds/nvml-mock -- nvidia-smi -q -d ECC
+kubectl -n mokka exec ds/nvml-mock -- nvidia-smi \
   --query-gpu=ecc.errors.uncorrected.aggregate.total --format=csv
-kubectl exec ds/nvml-mock -- nvidia-smi \
+kubectl -n mokka exec ds/nvml-mock -- nvidia-smi \
   --query-gpu=ecc.errors.uncorrected.aggregate.dram  --format=csv
 
 # Any mode  ─  watch the engine trip in real time.
-kubectl exec ds/nvml-mock -- env MOCK_NVML_DEBUG=1 \
+kubectl -n mokka exec ds/nvml-mock -- env MOCK_NVML_DEBUG=1 \
   nvidia-smi -q -d ECC 2>&1 | grep -E 'failure|GPU_IS_LOST|Xid'
 
 # One long-running process so the per-process call counter accumulates
 # (useful when after_calls > 1 and you want to see a deterministic trip
 # without restarting the daemonset).
-kubectl exec ds/nvml-mock -- nvidia-smi \
+kubectl -n mokka exec ds/nvml-mock -- nvidia-smi \
   --query-gpu=ecc.errors.uncorrected.aggregate.total --format=csv -l 1
 ```
 
@@ -1226,7 +1237,7 @@ path rather than redirected elsewhere.
 
 **ImagePullBackOff**: Verify the image is accessible. By default the chart pulls `ghcr.io/nvidia/nvml-mock:<chart appVersion>`; check that tag exists or set `image.tag`. For local builds, ensure the image is loaded into your cluster (see Quick Start).
 
-**DaemonSet not ready**: Check pod logs: `kubectl logs -l app.kubernetes.io/name=nvml-mock`
+**DaemonSet not ready**: Check pod logs: `kubectl -n mokka logs -l app.kubernetes.io/name=nvml-mock`
 
 **GPU Operator operands stuck on `toolkit-validation`**: Six operand DaemonSets
 block until `/run/nvidia/validations/toolkit-ready` exists. nvml-mock

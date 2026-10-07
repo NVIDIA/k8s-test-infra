@@ -103,7 +103,7 @@ Run a pod that opts in with the `devices` annotation, so the check needs no GPU
 consumer:
 
 ```bash
-kubectl apply -f - <<'EOF'
+kubectl -n default apply -f - <<'EOF'
 apiVersion: v1
 kind: Pod
 metadata:
@@ -118,8 +118,8 @@ spec:
       command: ["sleep", "300"]
 EOF
 
-kubectl wait --for=condition=ready pod/nri-check --timeout=120s
-kubectl exec nri-check -- nvidia-smi -L
+kubectl -n default wait --for=condition=ready pod/nri-check --timeout=120s
+kubectl -n default exec nri-check -- nvidia-smi -L
 ```
 
 The image is debian because the injected `nvidia-smi` is a glibc binary: a musl
@@ -132,7 +132,7 @@ To check the allocation path, schedule a GPU request through the
 only the GPUs it was allocated.
 
 ```bash
-kubectl delete pod nri-check
+kubectl -n default delete pod nri-check
 ```
 
 ## Keep a workload out
@@ -141,7 +141,7 @@ kubectl delete pod nri-check
 |---|---|
 | Skip one pod | Annotate it `nvml-mock.nvidia.com/inject: "false"` |
 | Skip a namespace | Add it to `nri.excludedNamespaces` |
-| Turn the plugin off | `helm upgrade ... --reuse-values --set nri.enabled=false` |
+| Turn the plugin off | `helm upgrade nvml-mock ... -n mokka --reuse-values --set nri.enabled=false` |
 
 Turning the plugin off affects only containers created afterwards. Running
 containers keep what they were given until they restart.
