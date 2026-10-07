@@ -30,7 +30,7 @@ to verify DaemonSet placement:
 | Workers | 2 × on-demand `t3.large` | CPU-only, enough memory for system and Mokka pods |
 | Worker image | EKS-optimized accelerated AL2023 x86_64, `1.35.7-20260911` | Includes the NVIDIA runtime and CDI hook binaries while still running on CPU-only instances |
 | Worker placement | Private subnets in two availability zones, one shared NAT gateway | Runs one Mokka pod per worker without public worker IPs while keeping the reference cluster's NAT cost down |
-| Mokka | chart and image `0.4.0-rc1`, `gb300` profile | Pins the newest compatible published chart and image pair |
+| Mokka | chart and image `0.4.0`, `gb300` profile | Pins the newest compatible published chart and image pair |
 | Device plugin | `nvcr.io/nvidia/k8s-device-plugin:v0.18.2` | Advertises `nvidia.com/gpu` through Mokka's NVML implementation |
 | Container toolkit | `1.20.0-1`, bundled with the worker image | Supplies the NVIDIA runtime and CDI hook binaries on CPU nodes |
 
@@ -245,7 +245,7 @@ recent containerd journal if the socket does not appear.
 ```bash
 helm upgrade --install nvml-mock \
   oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
-  --version 0.4.0-rc1 \
+  --version 0.4.0 \
   --kube-context "${MOKKA_CONTEXT}" \
   --namespace mokka \
   --create-namespace \

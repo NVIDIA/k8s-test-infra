@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 image:
-  tag: 0.4.0-rc1
+  tag: 0.4.0
 
 # Keep Mokka away from real GPU nodes and unrelated managed node groups.
 nodeSelector:
