@@ -373,20 +373,6 @@ tests:
               cpu: 10m
               memory: 32Mi
 
-  # `helm upgrade --reuse-values` from chart 0.4.0 renders with that chart's
-  # values, which have no nri.nativeSidecar.
-  - it: should keep the ordered layout when nativeSidecar is absent from the values
-    set:
-      nri:
-        nativeSidecar: null
-    asserts:
-      - equal:
-          path: spec.template.spec.initContainers[0].name
-          value: node-agent
-      - equal:
-          path: spec.template.spec.containers[0].name
-          value: nvml-mock-nri
-
   - it: should inherit the chart image digest when the NRI image is not overridden
     set:
       image:
