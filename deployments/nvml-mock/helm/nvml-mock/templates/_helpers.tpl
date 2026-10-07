@@ -128,23 +128,6 @@ imagePullSecrets:
 {{- end }}
 
 {{/*
-User podLabels for the node DaemonSet pod template. The selector labels are
-refused rather than dropped: the selector matches them, so an override would
-orphan running pods on upgrade and should fail at render time.
-*/}}
-{{- define "nvml-mock.podLabels" -}}
-{{- $labels := .Values.podLabels | default dict }}
-{{- range $key := list "app.kubernetes.io/name" "app.kubernetes.io/instance" "app.kubernetes.io/component" }}
-{{- if hasKey $labels $key }}
-{{- fail (printf "podLabels must not set %s: the chart's DaemonSet selectors own it" $key) }}
-{{- end }}
-{{- end }}
-{{- with $labels }}
-{{- toYaml . }}
-{{- end }}
-{{- end }}
-
-{{/*
 NRI probe from nri.readinessProbe or nri.livenessProbe. The plugin's port was
 named `health` while it ran in its own DaemonSet; that name belongs to the
 node agent in the shared pod, so values carried over from 0.4.0 are pointed at

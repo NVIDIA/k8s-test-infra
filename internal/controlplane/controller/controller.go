@@ -312,8 +312,8 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 			result, err := rackReconciler.Reconcile(ctx, name)
 			routeCapacityTransitions()
 			if err != nil {
-				var ownershipErr *sgpuinventory.OwnershipConflictError
-				if errors.As(err, &ownershipErr) || errors.Is(err, sgpuinventory.ErrRackCacheStale) {
+				_, ownershipConflict := errors.AsType[*sgpuinventory.OwnershipConflictError](err)
+				if ownershipConflict || errors.Is(err, sgpuinventory.ErrRackCacheStale) {
 					if statusErr := finishRackReconcile(name, nil, observed, result); statusErr != nil {
 						return errors.Join(err, statusErr)
 					}
@@ -336,8 +336,8 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 			result, err := rackReconciler.ReconcileGroup(ctx, key)
 			routeCapacityTransitions()
 			if err != nil {
-				var ownershipErr *sgpuinventory.OwnershipConflictError
-				if errors.As(err, &ownershipErr) || errors.Is(err, sgpuinventory.ErrRackCacheStale) {
+				_, ownershipConflict := errors.AsType[*sgpuinventory.OwnershipConflictError](err)
+				if ownershipConflict || errors.Is(err, sgpuinventory.ErrRackCacheStale) {
 					if statusErr := finishRackReconcile(key.InventoryName, &key, observed, result); statusErr != nil {
 						return errors.Join(err, statusErr)
 					}
@@ -522,8 +522,8 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 }
 
 func metadataConflict(err error) bool {
-	var conflict *sgpuprojection.MetadataConflictError
-	return errors.As(err, &conflict)
+	_, ok := errors.AsType[*sgpuprojection.MetadataConflictError](err)
+	return ok
 }
 
 func projectionRetryError(mode projectionMode, err error) error {

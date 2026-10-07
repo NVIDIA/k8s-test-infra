@@ -554,12 +554,53 @@
         "resources": { "type": "object" },
         "nodeSelector": { "type": "object" },
         "tolerations": { "type": "array" },
+        "priorityClassName": {
+          "type": "string",
+          "description": "PriorityClass for the control-plane pods, e.g. system-cluster-critical."
+        },
+        "affinity": {
+          "type": "object",
+          "description": "Pod affinity for the control-plane pods, e.g. anti-affinity that spreads replicas across nodes."
+        },
+        "podAnnotations": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Annotations added to the control-plane pods."
+        },
+        "podLabels": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Labels added to the control-plane pods. Must not set the selector labels."
+        },
+        "topologySpreadConstraints": {
+          "type": "array",
+          "description": "Topology spread constraints for the control-plane pods, e.g. across zones."
+        },
+        "pdb": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "PodDisruptionBudget for the control-plane pods, rendered only with replicas > 1. maxUnavailable wins if both bounds are set; with neither, minAvailable is 1.",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "minAvailable": { "$ref": "#/$defs/disruptionBound" },
+            "maxUnavailable": { "$ref": "#/$defs/disruptionBound" }
+          }
+        },
         "terminationGracePeriodSeconds": {
           "type": "integer",
           "minimum": 0,
           "description": "Pod-level grace period. Must be >= preStop sleep + shutdownTimeout, otherwise kube SIGKILLs the drain window."
         }
       }
+    }
+  },
+  "$defs": {
+    "disruptionBound": {
+      "description": "A pod count or a percentage such as \"50%\".",
+      "oneOf": [
+        { "type": "integer", "minimum": 0 },
+        { "type": "string", "pattern": "^[0-9]+%$" }
+      ]
     }
   }
 }

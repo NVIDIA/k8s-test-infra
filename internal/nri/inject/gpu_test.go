@@ -37,8 +37,6 @@ func deviceOptIn() Container {
 	}
 }
 
-func int64Ptr(value int64) *int64 { return &value }
-
 func TestAdjustDeviceOptInAddsNvidiaDeviceEntries(t *testing.T) {
 	t.Parallel()
 
@@ -92,7 +90,7 @@ func TestAdjustSuppressesDeviceInjectionWhenDevicePluginServedContainer(t *testi
 		"device plugin already supplied a gpu device node": {
 			container: Container{
 				IncomingDevices: []RuntimeDevice{{Path: "/dev/nvidia0", Type: "c", Major: 195, Minor: 0}},
-				DeviceRules:     []DeviceRule{{Allow: true, Type: "c", Major: int64Ptr(195), Minor: int64Ptr(0), Access: "rwm"}},
+				DeviceRules:     []DeviceRule{{Allow: true, Type: "c", Major: new(int64(195)), Minor: new(int64(0)), Access: "rwm"}},
 			},
 			wantSuppression: true,
 		},
@@ -286,7 +284,7 @@ func TestAdjustCDIModeStillSuppressesWhenDevicePluginServedContainer(t *testing.
 	tests := map[string]Container{
 		"raw device node from the device plugin": {
 			IncomingDevices: []RuntimeDevice{{Path: "/dev/nvidia0", Type: "c", Major: 195, Minor: 0}},
-			DeviceRules:     []DeviceRule{{Allow: true, Type: "c", Major: int64Ptr(195), Minor: int64Ptr(0), Access: "rwm"}},
+			DeviceRules:     []DeviceRule{{Allow: true, Type: "c", Major: new(int64(195)), Minor: new(int64(0)), Access: "rwm"}},
 		},
 		"cdi device from the device plugin": {CDIDevices: []string{"k8s.device-plugin.nvidia.com/gpu=0"}},
 	}

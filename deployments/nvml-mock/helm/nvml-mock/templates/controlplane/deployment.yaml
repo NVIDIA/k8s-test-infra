@@ -24,6 +24,13 @@ spec:
       labels:
         {{- include "nvml-mock.controlPlaneSelectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: control-plane
+        {{- with .Values.controlPlane.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.controlPlane.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
       serviceAccountName: {{ include "nvml-mock.controlPlaneName" . }}
       {{- with include "nvml-mock.imagePullSecrets" . }}
@@ -31,8 +38,19 @@ spec:
       {{- end }}
       automountServiceAccountToken: true
       terminationGracePeriodSeconds: {{ .Values.controlPlane.terminationGracePeriodSeconds }}
+      {{- with .Values.controlPlane.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
       {{- with .Values.controlPlane.nodeSelector }}
       nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controlPlane.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controlPlane.topologySpreadConstraints }}
+      topologySpreadConstraints:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       {{- with .Values.controlPlane.tolerations }}
