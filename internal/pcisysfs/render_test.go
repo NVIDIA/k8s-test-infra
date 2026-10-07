@@ -205,6 +205,92 @@ func TestRender_BridgeClass(t *testing.T) {
 		"an NVSwitch is a PCI endpoint despite the bridge class, so header type stays 0")
 }
 
+// Slurm's gres AutoDetect=nvidia finds each GPU's CPU affinity through the
+// driver's binding, /sys/bus/pci/drivers/nvidia/<bdf>/local_cpulist. The
+// kernel writes local_cpulist for every PCI function, but only GPUs are bound
+// to nvidia: an NVSwitch binds to nvidia-nvswitch.
+func TestRender_BindsGPUsToTheNvidiaDriver(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	topo := &PCIeTopology{RootComplexes: []RootComplex{{
+		ID: "pci0000:00", NUMANode: 0, CPUList: "0-63",
+		Devices: []string{"0000:07:00.0", "0000:05:00.0"},
+	}}}
+	ids := map[string]PCI{
+		"0000:07:00.0": {BusID: "0000:07:00.0", Class: PCIClass3DController},
+		"0000:05:00.0": {BusID: "0000:05:00.0", Class: PCIClassBridge},
+	}
+	require.NoError(t, Render(Options{Topology: topo, Identities: ids, OverlayRoot: dir}))
+
+	for _, bdf := range []string{"0000:07:00.0", "0000:05:00.0"} {
+		got, err := os.ReadFile(filepath.Join(dir, "sys/devices/pci0000:00", bdf, "local_cpulist"))
+		require.NoError(t, err)
+		require.Equal(t, "0-63\n", string(got), "local_cpulist of %s", bdf)
+	}
+
+	got, err := os.ReadFile(filepath.Join(dir, PCIDriverNvidiaRelPath, "0000:07:00.0", "local_cpulist"))
+	require.NoError(t, err, "the GPU must resolve through the nvidia driver binding")
+	require.Equal(t, "0-63\n", string(got))
+
+	_, err = os.Lstat(filepath.Join(dir, PCIDriverNvidiaRelPath, "0000:05:00.0"))
+	require.True(t, os.IsNotExist(err), "an NVSwitch is not bound to the nvidia driver")
+}
+
+// A root complex with no known CPU set leaves local_cpulist out rather than
+// asserting an affinity nothing declared.
+func TestRender_NoLocalCPUListWithoutACPUSet(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	topo := &PCIeTopology{RootComplexes: []RootComplex{{
+		ID: "pci0000:00", NUMANode: -1, Devices: []string{"0000:07:00.0"},
+	}}}
+	require.NoError(t, Render(Options{Topology: topo, OverlayRoot: dir}))
+
+	require.NoFileExists(t, filepath.Join(dir, "sys/devices/pci0000:00/0000:07:00.0/local_cpulist"))
+	info, err := os.Stat(filepath.Join(dir, PCIDriverNvidiaRelPath, "0000:07:00.0"))
+	require.NoError(t, err, "the binding itself does not depend on a CPU set")
+	require.True(t, info.IsDir())
+}
+
+func TestRender_DropsLocalCPUListWhenTheCPUSetIsRemoved(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	rc := func(cpus string) *PCIeTopology {
+		return &PCIeTopology{RootComplexes: []RootComplex{{
+			ID: "pci0000:00", CPUList: cpus, Devices: []string{"0000:07:00.0"},
+		}}}
+	}
+	require.NoError(t, Render(Options{Topology: rc("0-63"), OverlayRoot: dir}))
+	require.NoError(t, Render(Options{Topology: rc(""), OverlayRoot: dir}))
+
+	require.NoFileExists(t, filepath.Join(dir, "sys/devices/pci0000:00/0000:07:00.0/local_cpulist"),
+		"a stale CPU set would keep binding the GPU to CPUs the profile no longer declares")
+}
+
+func TestRender_PrunesDriverBindingsOfRemovedGPUs(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	rc := func(devs ...string) *PCIeTopology {
+		return &PCIeTopology{RootComplexes: []RootComplex{{ID: "pci0000:00", Devices: devs}}}
+	}
+	require.NoError(t, Render(Options{Topology: rc("0000:07:00.0", "0000:0f:00.0"), OverlayRoot: dir}))
+	require.NoError(t, Render(Options{Topology: rc("0000:07:00.0"), OverlayRoot: dir}))
+
+	entries, err := os.ReadDir(filepath.Join(dir, PCIDriverNvidiaRelPath))
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "only the surviving GPU stays bound")
+	require.Equal(t, "0000:07:00.0", entries[0].Name())
+
+	require.NoError(t, Clear(dir))
+	entries, err = os.ReadDir(filepath.Join(dir, PCIDriverNvidiaRelPath))
+	require.NoError(t, err)
+	require.Empty(t, entries, "Clear unbinds every GPU")
+}
+
 func TestRender_IdempotentRerender(t *testing.T) {
 	dir := t.TempDir()
 	topoA := &PCIeTopology{

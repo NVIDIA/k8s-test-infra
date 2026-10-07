@@ -122,6 +122,36 @@ func TestModulePrefixRequiresAPathBoundary(t *testing.T) {
 	require.Error(t, err, "expected the real host path, got: %s", out)
 }
 
+// Slurm's gres AutoDetect=nvidia lists /proc/driver/nvidia/gpus and reads each
+// GPU's information file; nvidia-caps is a kernel interface and stays real.
+func TestProcDriverNvidiaRedirect(t *testing.T) {
+	requireLinux(t)
+	shim := requireShim(t)
+
+	root := t.TempDir()
+	info := filepath.Join(root, "proc/driver/nvidia/gpus/0000:07:00.0/information")
+	require.NoError(t, fsutil.Write(info, []byte("Device Minor: \t 0\n"), 0o644))
+	require.NoError(t, fsutil.Write(filepath.Join(root, "proc/driver/nvidia-caps/x"), []byte("redirected\n"), 0o644))
+	env := append(os.Environ(), "LD_PRELOAD="+shim, "MOCK_PCI_ROOT="+root)
+
+	ls := exec.Command("ls", "/proc/driver/nvidia/gpus")
+	ls.Env = env
+	out, err := ls.CombinedOutput()
+	require.NoError(t, err, "ls failed: %s", out)
+	require.Equal(t, "0000:07:00.0\n", string(out))
+
+	cat := exec.Command("cat", "/proc/driver/nvidia/gpus/0000:07:00.0/information")
+	cat.Env = env
+	out, err = cat.CombinedOutput()
+	require.NoError(t, err, "cat failed: %s", out)
+	require.Equal(t, "Device Minor: \t 0\n", string(out))
+
+	caps := exec.Command("cat", "/proc/driver/nvidia-caps/x")
+	caps.Env = env
+	out, err = caps.CombinedOutput()
+	require.Error(t, err, "expected the real host path, got: %s", out)
+}
+
 func TestOpenSysDevicesPCIRedirect(t *testing.T) {
 	requireLinux(t)
 	shim := requireShim(t)
