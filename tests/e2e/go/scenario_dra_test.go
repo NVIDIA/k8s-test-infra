@@ -95,6 +95,7 @@ var _ = Describe("nvml-mock DRA", Label("dra"), Ordered, func() {
 			It("gives each ResourceClaim pod exactly its claimed GPU through NRI", Label("dra-nri"), func(ctx SpecContext) {
 				requireNRIPlugin(ctx, h, "tilt up -- --dra --nri")
 				ensureDRATestPodRunning(ctx, h)
+				collectPodOnFailure(h, "dra", kube.PodRef{Namespace: draTestNamespace, Pod: draTestPodName})
 				pods := []string{draTestPodName}
 				// A second claim on the same node is allocated a different GPU,
 				// so a container shown the first GPU whatever its allocation
@@ -108,7 +109,6 @@ var _ = Describe("nvml-mock DRA", Label("dra"), Ordered, func() {
 				claimed := map[string]string{}
 				for _, name := range pods {
 					ref := kube.PodRef{Namespace: draTestNamespace, Pod: name}
-					collectPodOnFailure(h, "dra", ref)
 					res, err := h.Kube.ExecSh(ctx, ref, `test -d /opt/nvml-mock && test -n "${MOCK_NVML_CONFIG:-}"`)
 					Expect(err).NotTo(HaveOccurred(),
 						"%s was not injected by NRI: no /opt/nvml-mock overlay or MOCK_NVML_CONFIG\n%s", name, res.Combined())
@@ -245,6 +245,8 @@ func runSecondDRAClaimPod(ctx SpecContext, h *harness.Harness) {
 	DeferCleanup(func(ctx SpecContext) {
 		Expect(h.Kube.Delete(ctx, manifest)).To(Succeed(), "delete second DRA claim pod")
 	})
+	// Before the wait, so a pod that never runs still leaves its claim behind.
+	collectPodOnFailure(h, "dra", kube.PodRef{Namespace: draTestNamespace, Pod: draSecondPodName})
 	waitDRATestPodRunning(ctx, h, draSecondPodName)
 }
 
