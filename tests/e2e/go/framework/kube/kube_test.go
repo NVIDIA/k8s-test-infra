@@ -162,6 +162,23 @@ func TestGetConfigMapErrorsOnAMissingName(t *testing.T) {
 	require.Error(t, err, "missing ConfigMap name")
 }
 
+// A mistyped tag on the nested NodeFeature view would decode every attribute
+// as empty, which the DMI wait reads as "NFD has not published yet" and polls
+// until it times out instead of failing on the cause. The payload keeps flags
+// and instances beside attributes, as NFD publishes them.
+func TestNodeFeatureObjDecodesAttributeElements(t *testing.T) {
+	const payload = `{"spec": {"features": {
+	  "flags": {"kernel.loadedmodule": {"elements": {"nvidia": {}}}},
+	  "attributes": {"system.dmiid": {"elements": {"sys_vendor": "NVIDIA", "product_name": "NVIDIA GB300 NVL"}}},
+	  "instances": {"pci.device": {"elements": [{"attributes": {"vendor": "10de"}}]}}
+	}}}`
+
+	var nf nodeFeatureObj
+	require.NoError(t, json.Unmarshal([]byte(payload), &nf), "unmarshal nodefeature")
+	require.Equal(t, map[string]string{"sys_vendor": "NVIDIA", "product_name": "NVIDIA GB300 NVL"},
+		nf.Spec.Features.Attributes["system.dmiid"].Elements)
+}
+
 // Readiness has to mean "this spec rolled out and is ready", not "some pod is
 // ready": a caller polling straight after a restart would otherwise be answered
 // by the very pod it asked to have replaced, then talk to it as it is deleted.
