@@ -30,9 +30,10 @@ const SETTLED = new Set(["success", "neutral", "skipped"]);
 const PER_PAGE = 100;
 const MAX_PAGES = 5;
 const MAX_WRITES = 50;
-const SUMMARY = "The repository-automation/merge-policy check is retired. mokka/merge-policy has been the merge "
-  + "gate since 2026-10-06, so this neutral result replaces the result the retired workflow left on this commit. "
-  + "It neither allows nor blocks a merge.";
+const SUMMARY = "The repository-automation/merge-policy check is retired and is no longer a required check; "
+  + "mokka/merge-policy has been the merge gate since 2026-10-06. This neutral result replaces the result the "
+  + "retired workflow left on this commit. If this check were required again, GitHub would count this neutral "
+  + "result as passing.";
 
 class Refusal extends Error {}
 
