@@ -1,9 +1,9 @@
 # Node-Wide nvml-mock Injection Demo
 
-This demo shows the NRI-based injection path for node-wide agents: a pod can
-run `nvidia-smi` against every mock GPU on its node without requesting
-`nvidia.com/gpu`, mounting volumes, or having its pod spec mutated by an
-admission webhook. The one thing it adds is the
+This demo shows how a node-wide agent, such as a monitoring DaemonSet, gets
+every mock GPU on its node from Mokka's NRI plugin: the pod runs `nvidia-smi`
+without requesting `nvidia.com/gpu`, mounting volumes, or having its pod spec
+mutated by an admission webhook. The one thing it adds is the
 `nvml-mock.nvidia.com/devices: "true"` annotation, which asks the NRI plugin
 for the whole node.
 
@@ -50,8 +50,8 @@ Takes about 10 minutes on a warm image cache.
 
 1. Creates a 4-worker Kind cluster with containerd NRI enabled.
 2. Builds and loads the local `nvml-mock` image.
-3. Installs the Helm chart with the `nvml-mock-nri` sidecar enabled in the
-   `mokka` node DaemonSet, plus the ComputeDomain topology overlay
+3. Installs the Helm chart into `mokka`, which runs the `nvml-mock-nri` plugin
+   in the node DaemonSet by default, plus the ComputeDomain topology overlay
    (`gb200` profile; workers 1-2 -> clique 0, workers 3-4 -> clique 1).
 4. Uses `default` as the workload namespace. The NRI plugin excludes its own
    Helm release namespace and `kube-system`, so keeping workloads in `default`

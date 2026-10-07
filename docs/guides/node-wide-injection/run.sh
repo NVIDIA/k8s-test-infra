@@ -81,7 +81,6 @@ helm upgrade --install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
   --set image.tag=node-wide-demo \
   --set "gpu.profile=${GPU_PROFILE}" \
   --set "gpu.count=${GPU_COUNT}" \
-  --set nri.enabled=true \
   "${TOPOLOGY_ARGS[@]}" \
   --wait --timeout 180s
 

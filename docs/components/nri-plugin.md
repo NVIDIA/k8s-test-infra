@@ -66,6 +66,15 @@ The `devices` annotation is the management path: it gives a pod the whole node,
 such as a monitoring agent, without scheduler accounting. Like the other
 annotations, it applies to every container in the pod.
 
+!!! note "Privileged pods and `NVIDIA_VISIBLE_DEVICES`"
+    On a real GPU node, a privileged container that requested no GPU sees every
+    GPU, and so does a container that sets `NVIDIA_VISIBLE_DEVICES=all` when the
+    NVIDIA container runtime handles it. The plugin injects neither: inherited
+    device nodes do not identify an allocation, and the plugin cannot tell which
+    runtime runs a container. Where the node runs the NVIDIA container runtime,
+    that runtime still acts on the variable. Otherwise, give such a pod the
+    `devices` annotation.
+
 ## What happens to a container
 
 Adjustment runs as a fixed sequence, and no step can fail:

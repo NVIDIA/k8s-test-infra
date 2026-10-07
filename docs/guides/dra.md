@@ -57,13 +57,12 @@ kind create cluster --name mokka-dra --config kind-dra.yaml
 ```bash
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
   --namespace mokka --create-namespace \
-  --set nri.enabled=true \
   --wait --timeout 120s
 ```
 
-`nri.enabled=true` runs the [NRI plugin](../components/nri-plugin.md), which
-gives a container that holds a GPU allocation the mock driver, so the pod in
-Step 5 can run `nvidia-smi` without a Mokka-specific pod spec.
+Mokka's [NRI plugin](../components/nri-plugin.md), on by default, gives a
+container that holds a GPU allocation the mock driver, so the pod in Step 5 can
+run `nvidia-smi` without a Mokka-specific pod spec.
 
 ## Step 3 — Install the DRA driver
 
