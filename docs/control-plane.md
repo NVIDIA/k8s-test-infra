@@ -61,13 +61,14 @@ controlPlane:
           app.kubernetes.io/name: nvml-mock-control-plane
 ```
 
-`controlPlane.podDisruptionBudget.enabled` adds a
+`controlPlane.pdb.enabled` adds a
 [PodDisruptionBudget](https://kubernetes.io/docs/concepts/workloads/pods/disruptions/)
-that bounds how many replicas a node drain or cluster upgrade may evict at
-once. Set one of `minAvailable` or `maxUnavailable`, as a count or a
-percentage; with neither, `maxUnavailable` is 1, which still lets the default
-single replica be drained. A `minAvailable` equal to `controlPlane.replicas`
-blocks every drain of a node that runs a replica.
+(PDB) that bounds how many replicas a node drain or cluster upgrade may evict
+at once. The PDB is rendered only when `controlPlane.replicas` is above 1: over
+a single replica it would either block every drain or protect nothing. Set one
+of `minAvailable` or `maxUnavailable`, as a count or a percentage; with
+neither, `maxUnavailable` is 1. A `minAvailable` equal to
+`controlPlane.replicas` blocks every drain of a node that runs a replica.
 
 Uninstalling the `mokka-crds` release retains the CRDs and existing Mokka
 resources. Removing the Mokka API and its resources requires deleting the CRDs

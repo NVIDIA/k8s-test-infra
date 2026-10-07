@@ -576,10 +576,10 @@
           "type": "array",
           "description": "Topology spread constraints for the control-plane pods, e.g. across zones."
         },
-        "podDisruptionBudget": {
+        "pdb": {
           "type": "object",
           "additionalProperties": false,
-          "description": "PodDisruptionBudget for the control-plane pods. Set one of minAvailable or maxUnavailable; with neither, maxUnavailable is 1.",
+          "description": "PodDisruptionBudget for the control-plane pods, rendered only with replicas > 1. Set one of minAvailable or maxUnavailable; with neither, maxUnavailable is 1.",
           "properties": {
             "enabled": { "type": "boolean" },
             "minAvailable": { "$ref": "#/$defs/disruptionBound" },

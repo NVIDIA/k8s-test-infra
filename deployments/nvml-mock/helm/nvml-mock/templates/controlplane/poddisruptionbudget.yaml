@@ -1,5 +1,5 @@
-{{- if and .Values.controlPlane.enabled .Values.controlPlane.podDisruptionBudget.enabled }}
-{{- $pdb := .Values.controlPlane.podDisruptionBudget }}
+{{- if and .Values.controlPlane.enabled .Values.controlPlane.pdb.enabled (gt (int .Values.controlPlane.replicas) 1) }}
+{{- $pdb := .Values.controlPlane.pdb }}
 {{- /* Compared as strings so 0 counts as set; a null deletes the key and reads back as <nil>. */}}
 {{- $unset := list "" "<nil>" }}
 {{- $hasMin := not (has (toString $pdb.minAvailable) $unset) }}

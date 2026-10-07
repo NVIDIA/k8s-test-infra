@@ -500,11 +500,13 @@ controlPlane:
   podAnnotations: {}
   # Must not set the selector labels app.kubernetes.io/{name,instance,component}.
   podLabels: {}
-  # Bounds voluntary disruptions of the replicas, such as node drains. Set one
-  # of minAvailable or maxUnavailable, as a count or a percentage; with neither,
-  # maxUnavailable is 1. A minAvailable equal to replicas blocks every drain of
-  # a node running a replica.
-  podDisruptionBudget:
+  # PodDisruptionBudget bounding voluntary disruptions of the replicas, such as
+  # node drains. Rendered only with replicas > 1: over a single replica it
+  # either blocks every drain or protects nothing. Set one of minAvailable or
+  # maxUnavailable, as a count or a percentage; with neither, maxUnavailable is
+  # 1. A minAvailable equal to replicas blocks every drain of a node running a
+  # replica.
+  pdb:
     enabled: false
     minAvailable: ""
     maxUnavailable: ""
