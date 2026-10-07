@@ -492,6 +492,13 @@ controlPlane:
       memory: 1Gi
   nodeSelector: {}
   tolerations: []
+  # With replicas > 1, pod anti-affinity on kubernetes.io/hostname keeps the
+  # standby off the leader's node, so losing one node does not stop both.
+  priorityClassName: ""
+  affinity: {}
+  podAnnotations: {}
+  # Must not set the selector labels app.kubernetes.io/{name,instance,component}.
+  podLabels: {}
 
 # Additional Kubernetes objects rendered with the release, each passed through
 # tpl so it can reference chart values (e.g. "{{ .Release.Name }}"). Either a

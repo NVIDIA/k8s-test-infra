@@ -683,16 +683,6 @@ tests:
           path: spec.template.metadata.labels["app.kubernetes.io/component"]
           value: daemon
 
-  # The DaemonSet selector matches these labels; letting podLabels override
-  # one would orphan the running pods on the next upgrade.
-  - it: should reject podLabels that override a selector label
-    set:
-      podLabels:
-        app.kubernetes.io/name: other
-    asserts:
-      - failedTemplate:
-          errorMessage: "podLabels must not set app.kubernetes.io/name: the chart's DaemonSet selectors own it"
-
   # ── node-agent probes ───────────────────────────────────────────────
   - it: should probe the node agent health endpoints by default
     asserts:

@@ -30,6 +30,28 @@ by digest in production: set `controlPlane.image.digest` to the `sha256:...`
 digest published for the control-plane image. A digest takes precedence over
 `controlPlane.image.tag`.
 
+The control-plane pods are scheduled and labelled independently of the node
+DaemonSet, through `controlPlane.nodeSelector`, `controlPlane.tolerations`,
+`controlPlane.affinity`, `controlPlane.priorityClassName`,
+`controlPlane.podLabels` and `controlPlane.podAnnotations`. They take the same
+forms as their [node DaemonSet counterparts](helm-chart.md#values). With
+`controlPlane.replicas` above 1, pod anti-affinity on `kubernetes.io/hostname`
+keeps the standby replica off the leader's node:
+
+```yaml
+controlPlane:
+  replicas: 2
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            topologyKey: kubernetes.io/hostname
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: nvml-mock-control-plane
+```
+
 Uninstalling the `mokka-crds` release retains the CRDs and existing Mokka
 resources. Removing the Mokka API and its resources requires deleting the CRDs
 explicitly.
