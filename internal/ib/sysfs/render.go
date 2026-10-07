@@ -141,7 +141,7 @@ func render(o Options) (*tree, error) {
 		return nil, err
 	}
 
-	for i := 0; i < hcaCount; i++ {
+	for i := range hcaCount {
 		if err := renderHCA(t, ib, guidPrefix, i, hcaCount, o.NodeName); err != nil {
 			return nil, fmt.Errorf("rendering mlx5_%d: %w", i, err)
 		}

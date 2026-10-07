@@ -16,7 +16,7 @@ func TestStagingLockExcludesAdjustments(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), FileName)
-	exclusive, err := Exclusive(context.Background(), path)
+	exclusive, err := Exclusive(t.Context(), path)
 	require.NoError(t, err)
 	shared, acquired, err := Shared(path)
 	require.NoError(t, err)
@@ -35,7 +35,7 @@ func TestStagingLockExcludesAdjustments(t *testing.T) {
 	locked := make(chan result, 1)
 	go func() {
 		close(started)
-		lock, lockErr := Exclusive(context.Background(), path)
+		lock, lockErr := Exclusive(t.Context(), path)
 		locked <- result{lock: lock, err: lockErr}
 	}()
 	<-started
@@ -55,7 +55,7 @@ func TestExclusiveGivesUpWhenContextEnds(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), FileName)
-	holder, err := Exclusive(context.Background(), path)
+	holder, err := Exclusive(t.Context(), path)
 	require.NoError(t, err)
 	require.NoError(t, holder.Close())
 	shared, acquired, err := Shared(path)
@@ -63,7 +63,7 @@ func TestExclusiveGivesUpWhenContextEnds(t *testing.T) {
 	require.True(t, acquired)
 	t.Cleanup(func() { require.NoError(t, shared.Close()) })
 
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
 	lock, err := Exclusive(ctx, path)
 	require.ErrorIs(t, err, context.DeadlineExceeded, "a held shared lock must not hang the agent")

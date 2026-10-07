@@ -896,8 +896,7 @@ func (r *Reconciler) createOrUpdateRack(
 		return !rackSemanticEqual(before, latest)
 	})
 	if err != nil {
-		var ownershipErr *OwnershipConflictError
-		if errors.As(err, &ownershipErr) {
+		if ownershipErr, ok := errors.AsType[*OwnershipConflictError](err); ok {
 			return changed, &ownershipErr.Conflict, err
 		}
 	}

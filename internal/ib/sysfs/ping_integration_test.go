@@ -78,7 +78,7 @@ func TestIbping_Loopback_Integration(t *testing.T) {
 	runDir := t.TempDir()
 	socketPath := filepath.Join(runDir, "mock-ib.sock")
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 	srv, err := daemon.NewServer(daemon.Config{SocketPath: socketPath, IBRoot: root})
 	require.NoError(t, err, "new server")

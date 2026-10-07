@@ -4,7 +4,6 @@
 package inventory
 
 import (
-	"context"
 	"fmt"
 	"sync"
 	"testing"
@@ -320,7 +319,7 @@ func TestCapacityAdmissionChargesLastGoodRacksForInvalidInventory(t *testing.T) 
 }
 
 func TestCapacityRejectedReconcileRetiresMaterializedRacks(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("profile", "profile-uid", 1, 1, 1)
 	first := admissionTestInventory("first", "first-uid", profile.Name, 100_000, 1)
 	rejected := admissionTestInventory("rejected", "rejected-uid", profile.Name, 1, 2)
@@ -344,7 +343,7 @@ func TestCapacityRejectedReconcileRetiresMaterializedRacks(t *testing.T) {
 }
 
 func TestRackGroupCapacityRejectedReconcileRetiresWhollyUnresolvedLastGoodRack(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("profile", "profile-uid", 1, 1, 1)
 	incumbent := admissionTestInventory("incumbent", "incumbent-uid", profile.Name, 1, 1)
 	expandAdmissionRackGroups(incumbent, MaxRackGroups)
@@ -365,7 +364,7 @@ func TestRackGroupCapacityRejectedReconcileRetiresWhollyUnresolvedLastGoodRack(t
 }
 
 func TestRackGroupAdmissionAcceptsWhollyUnresolvedInventoryWithinBudget(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	inventory := admissionTestInventory("inventory", "inventory-uid", "missing", 1, 1)
 	inventory.Finalizers = []string{InventoryFinalizer}
 	rack := admissionRack(inventory, 0, 1)
@@ -496,7 +495,7 @@ func TestCapacityAdmissionCoalescesConcurrentWorkers(t *testing.T) {
 }
 
 func TestReconcileRejectsAggregateCrossInventoryCapacityBeforeAllocationOrWrites(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("profile", "profile-uid", 1, 1, 1)
 	first := admissionTestInventory("first", "first-uid", profile.Name, 60_000, 1)
 	blocked := admissionTestInventory("blocked", "blocked-uid", profile.Name, 60_000, 2)
@@ -545,7 +544,7 @@ func TestAllocationInputExcludesAggregateRejectedInventories(t *testing.T) {
 }
 
 func TestReconcileStopsStaleMaterializationAfterAdmissionChanges(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("profile", "profile-uid", 1, 1, 1)
 	inventory := admissionTestInventory("inventory", "inventory-uid", profile.Name, 2, 1)
 	inventory.Finalizers = []string{InventoryFinalizer}

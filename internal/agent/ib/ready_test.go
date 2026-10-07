@@ -78,7 +78,7 @@ func TestReady_ImpliesTheSocketIsAlreadyBound(t *testing.T) {
 			require.NoError(t, s.Stage(t.Context(), testState(testNetwork())))
 			require.False(t, s.Ready(), "full mode must not report ready before the daemon serves")
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			runErr := make(chan error, 1)
 			go func() { runErr <- s.Run(ctx) }()
@@ -118,7 +118,7 @@ func TestReady_StaysFalseWhenTheSocketCannotBeBound(t *testing.T) {
 	s := New(h, Options{Mode: ModeFull, SocketPath: socket})
 	require.NoError(t, s.Stage(t.Context(), testState(testNetwork())))
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	runErr := make(chan error, 1)
 	go func() { runErr <- s.Run(ctx) }()

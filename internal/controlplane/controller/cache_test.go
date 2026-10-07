@@ -42,7 +42,7 @@ func TestLiveNodeFallbackUsesCallerContextAndDeadline(t *testing.T) {
 	cache := newInformerCache(nil, nil, nil, nodecatalog.New(), live, Options{
 		Workers: 1, LiveNodeGetTimeout: 2 * time.Hour,
 	})
-	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(time.Hour))
+	ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(time.Hour))
 	result := make(chan error, 1)
 	go func() {
 		_, err := cache.Node(ctx, "node")

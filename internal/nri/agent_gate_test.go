@@ -4,7 +4,6 @@
 package nri
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -33,7 +32,7 @@ func TestClosedGateWarnsForContainersItLeavesUnmocked(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	lockPath := filepath.Join(t.TempDir(), staginggate.FileName)
-	lock, err := staginggate.Exclusive(context.Background(), lockPath)
+	lock, err := staginggate.Exclusive(t.Context(), lockPath)
 	require.NoError(t, err)
 	require.NoError(t, lock.Close())
 
@@ -43,13 +42,13 @@ func TestClosedGateWarnsForContainersItLeavesUnmocked(t *testing.T) {
 	plugin := NewPlugin(cfg)
 
 	excluded := &api.PodSandbox{Name: "system", Namespace: "kube-system"}
-	adjustment, _, err := plugin.CreateContainer(context.Background(), excluded, &api.Container{Name: "sidecar"})
+	adjustment, _, err := plugin.CreateContainer(t.Context(), excluded, &api.Container{Name: "sidecar"})
 	require.NoError(t, err)
 	require.Nil(t, adjustment)
 	require.Zero(t, logs.Len(), "a container NRI would skip anyway is not a gate skip")
 
 	plain := &api.PodSandbox{Name: "plain", Namespace: "default"}
-	adjustment, _, err = plugin.CreateContainer(context.Background(), plain, &api.Container{Name: "main"})
+	adjustment, _, err = plugin.CreateContainer(t.Context(), plain, &api.Container{Name: "main"})
 	require.NoError(t, err)
 	require.Nil(t, adjustment)
 	require.Zero(t, logs.Len(), "a container that asked for no GPU is not a gate skip")
@@ -59,7 +58,7 @@ func TestClosedGateWarnsForContainersItLeavesUnmocked(t *testing.T) {
 		Namespace:   "default",
 		Annotations: map[string]string{cfg.Inject.DeviceAnnotation: "true"},
 	}
-	adjustment, _, err = plugin.CreateContainer(context.Background(), workload, &api.Container{Name: "main"})
+	adjustment, _, err = plugin.CreateContainer(t.Context(), workload, &api.Container{Name: "main"})
 	require.NoError(t, err)
 	require.Nil(t, adjustment, "a closed gate fails open")
 	require.Equal(t, 1, logs.Len())
@@ -86,7 +85,7 @@ func TestAgentRestartSuspendsAdjustments(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	lockPath := filepath.Join(t.TempDir(), staginggate.FileName)
-	lock, err := staginggate.Exclusive(context.Background(), lockPath)
+	lock, err := staginggate.Exclusive(t.Context(), lockPath)
 	require.NoError(t, err)
 	require.NoError(t, lock.Close())
 
@@ -102,7 +101,7 @@ func TestAgentRestartSuspendsAdjustments(t *testing.T) {
 	}
 	container := &api.Container{Name: "test"}
 	adjust := func() *api.ContainerAdjustment {
-		adjustment, _, err := plugin.CreateContainer(context.Background(), pod, container)
+		adjustment, _, err := plugin.CreateContainer(t.Context(), pod, container)
 		require.NoError(t, err)
 		return adjustment
 	}
@@ -113,7 +112,7 @@ func TestAgentRestartSuspendsAdjustments(t *testing.T) {
 	require.True(t, plugin.Readiness().OK)
 	require.NotNil(t, adjust())
 
-	lock, err = staginggate.Exclusive(context.Background(), lockPath)
+	lock, err = staginggate.Exclusive(t.Context(), lockPath)
 	require.NoError(t, err)
 	require.False(t, plugin.Readiness().OK)
 	require.Nil(t, adjust(), "an exclusive staging wave must suspend adjustments")

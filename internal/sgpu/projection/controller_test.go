@@ -32,7 +32,7 @@ func TestProjectAppliesOnlyOwnedMetadataWithExactAssignment(t *testing.T) {
 	patcher := &recordingPatcher{node: node}
 	controller := NewController(cache, patcher)
 
-	outcome, err := controller.Project(context.Background(), rack.Name, 0)
+	outcome, err := controller.Project(t.Context(), rack.Name, 0)
 	require.NoError(t, err)
 	require.Equal(t, StateProjected, outcome.State)
 	require.Len(t, patcher.calls, 1)
@@ -88,7 +88,7 @@ func TestProjectRejectsDisallowedReplacementAndClearsPriorConflict(t *testing.T)
 	controller.record(conflict)
 	rack.Spec.Nodes[0].NodeRef = &mokkav1alpha1.SGPUNodeReference{Name: "replacement", UID: "replacement-uid"}
 
-	outcome, err := controller.Project(context.Background(), rack.Name, 0)
+	outcome, err := controller.Project(t.Context(), rack.Name, 0)
 
 	require.NoError(t, err)
 	require.Equal(t, StateAbsent, outcome.State)
@@ -107,7 +107,7 @@ func TestProjectSkipsApplyForExactOwnedProjection(t *testing.T) {
 	controller := NewController(cache, patcher)
 
 	for range 100 {
-		outcome, err := controller.Project(context.Background(), rack.Name, 0)
+		outcome, err := controller.Project(t.Context(), rack.Name, 0)
 		require.NoError(t, err)
 		require.Equal(t, StateProjected, outcome.State)
 		require.Equal(t, ReasonProjected, outcome.Reason)
@@ -140,7 +140,7 @@ func TestProjectAppliesWhenExactValuesAreNotOwned(t *testing.T) {
 			patcher := &recordingPatcher{node: node}
 			controller := NewController(cache, patcher)
 
-			outcome, err := controller.Project(context.Background(), rack.Name, 0)
+			outcome, err := controller.Project(t.Context(), rack.Name, 0)
 			require.NoError(t, err)
 			require.Equal(t, StateProjected, outcome.State)
 			require.Len(t, patcher.calls, 1, "SSA must establish ownership for later cleanup")
@@ -198,7 +198,7 @@ func TestProjectRejectsExactValuesWithForeignOwnership(t *testing.T) {
 			}
 			patcher := &recordingPatcher{node: node}
 
-			outcome, err := NewController(cache, patcher).Project(context.Background(), rack.Name, 0)
+			outcome, err := NewController(cache, patcher).Project(t.Context(), rack.Name, 0)
 
 			var conflict *MetadataConflictError
 			require.ErrorAs(t, err, &conflict)
@@ -223,7 +223,7 @@ func TestProjectRejectsForeignCoOwnerInApplyResponse(t *testing.T) {
 	}
 	patcher := &recordingPatcher{response: response}
 
-	outcome, err := NewController(cache, patcher).Project(context.Background(), rack.Name, 0)
+	outcome, err := NewController(cache, patcher).Project(t.Context(), rack.Name, 0)
 
 	var conflict *MetadataConflictError
 	require.ErrorAs(t, err, &conflict)
@@ -242,7 +242,7 @@ func TestProjectRequiresCliqueOwnership(t *testing.T) {
 	cache := &fakeCache{nodes: map[string]*corev1.Node{node.Name: node}, racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}}
 	patcher := &recordingPatcher{node: node}
 
-	outcome, err := NewController(cache, patcher).Project(context.Background(), rack.Name, 0)
+	outcome, err := NewController(cache, patcher).Project(t.Context(), rack.Name, 0)
 	require.NoError(t, err)
 	require.Equal(t, StateProjected, outcome.State)
 	require.Len(t, patcher.calls, 1)
@@ -289,7 +289,7 @@ func TestProjectRetainsPartialAndConflictingMetadataBehavior(t *testing.T) {
 			cache := &fakeCache{nodes: map[string]*corev1.Node{node.Name: node}, racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}}
 			patcher := &recordingPatcher{node: node}
 
-			outcome, err := NewController(cache, patcher).Project(context.Background(), rack.Name, 0)
+			outcome, err := NewController(cache, patcher).Project(t.Context(), rack.Name, 0)
 			if !test.wantConflict {
 				require.NoError(t, err)
 				require.Equal(t, StateProjected, outcome.State)
@@ -313,7 +313,7 @@ func TestProjectPreservesIncompatibleValuesAndSurfacesPatchConflicts(t *testing.
 	patcher := &recordingPatcher{node: node}
 	controller := NewController(cache, patcher)
 
-	outcome, err := controller.Project(context.Background(), rack.Name, 0)
+	outcome, err := controller.Project(t.Context(), rack.Name, 0)
 	require.Error(t, err)
 	require.ErrorAs(t, err, new(*MetadataConflictError))
 	require.Equal(t, StateConflict, outcome.State)
@@ -324,7 +324,7 @@ func TestProjectPreservesIncompatibleValuesAndSurfacesPatchConflicts(t *testing.
 
 	node.Labels = nil
 	patcher.err = apierrors.NewConflict(schema.GroupResource{Resource: "nodes"}, node.Name, errors.New("owned elsewhere"))
-	outcome, err = controller.Project(context.Background(), rack.Name, 0)
+	outcome, err = controller.Project(t.Context(), rack.Name, 0)
 	require.Error(t, err)
 	require.True(t, apierrors.IsConflict(err))
 	require.Equal(t, StateConflict, outcome.State)
@@ -345,7 +345,7 @@ func TestProjectRejectsDuplicateBindingsAndExactUIDReplacement(t *testing.T) {
 	patcher := &recordingPatcher{}
 	controller := NewController(cache, patcher)
 
-	outcome, err := controller.Project(context.Background(), rack.Name, 0)
+	outcome, err := controller.Project(t.Context(), rack.Name, 0)
 	require.Error(t, err)
 	require.Equal(t, StateConflict, outcome.State)
 	require.Equal(t, ReasonDuplicateBinding, outcome.Reason)
@@ -354,7 +354,7 @@ func TestProjectRejectsDuplicateBindingsAndExactUIDReplacement(t *testing.T) {
 
 	delete(cache.racks, duplicate.Name)
 	cache.nodes["node"] = testNode("node", "replacement-uid")
-	outcome, err = controller.Project(context.Background(), rack.Name, 0)
+	outcome, err = controller.Project(t.Context(), rack.Name, 0)
 	require.NoError(t, err)
 	require.Equal(t, StateAbsent, outcome.State)
 	require.Empty(t, patcher.calls)
@@ -372,7 +372,7 @@ func TestCleanupPassesCancellationToNodeLookup(t *testing.T) {
 		},
 	}
 	controller := NewController(cache, &recordingPatcher{})
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	result := make(chan error, 1)
 	go func() {
 		_, err := controller.Cleanup(ctx, cleanupFor(rack))
@@ -398,7 +398,7 @@ func TestCleanupRequiresExactAnnotationAndSupportsPartialProgress(t *testing.T) 
 	controller := NewController(cache, patcher)
 	cleanup := cleanupFor(rack)
 
-	outcome, err := controller.Cleanup(context.Background(), cleanup)
+	outcome, err := controller.Cleanup(t.Context(), cleanup)
 	require.Error(t, err)
 	require.Equal(t, StateConflict, outcome.State)
 	require.False(t, controller.Ready(cleanup))
@@ -413,7 +413,7 @@ func TestCleanupRequiresExactAnnotationAndSupportsPartialProgress(t *testing.T) 
 	cache.nodes[node.Name] = partialResponse
 	patcher.node = partialResponse
 	patcher.calls = nil
-	outcome, err = controller.Cleanup(context.Background(), cleanup)
+	outcome, err = controller.Cleanup(t.Context(), cleanup)
 	require.NoError(t, err)
 	require.Equal(t, StateCleaned, outcome.State)
 	require.True(t, controller.Ready(cleanup))
@@ -440,14 +440,14 @@ func TestCleanupRetryClearsMetadataConflictOnGenericError(t *testing.T) {
 	controller := NewController(cache, patcher)
 	cleanup := cleanupFor(rack)
 
-	outcome, err := controller.Cleanup(context.Background(), cleanup)
+	outcome, err := controller.Cleanup(t.Context(), cleanup)
 	require.Error(t, err)
 	require.Equal(t, StateConflict, outcome.State)
 	require.Equal(t, ReasonNodeMetadataConflict, outcome.Reason)
 	require.Equal(t, []Outcome{outcome}, controller.Outcomes())
 
 	patcher.err = errors.New("temporary apply failure")
-	outcome, err = controller.Cleanup(context.Background(), cleanup)
+	outcome, err = controller.Cleanup(t.Context(), cleanup)
 	require.EqualError(t, err, "temporary apply failure")
 	require.Equal(t, StateError, outcome.State)
 	require.Equal(t, ReasonProjectionError, outcome.Reason)
@@ -512,7 +512,7 @@ func TestCleanupRejectsResponseThatRetainsProjectionFields(t *testing.T) {
 			controller := NewController(cache, patcher)
 			cleanup := cleanupFor(rack)
 
-			outcome, err := controller.Cleanup(context.Background(), cleanup)
+			outcome, err := controller.Cleanup(t.Context(), cleanup)
 
 			var conflict *MetadataConflictError
 			require.ErrorAs(t, err, &conflict)
@@ -527,7 +527,7 @@ func TestCleanupRejectsResponseThatRetainsProjectionFields(t *testing.T) {
 				delete(response.Labels, test.removeBeforeRetry)
 				cache.nodes[node.Name] = response
 			}
-			outcome, err = controller.Cleanup(context.Background(), cleanup)
+			outcome, err = controller.Cleanup(t.Context(), cleanup)
 			require.ErrorAs(t, err, &conflict)
 			require.Equal(t, test.wantFieldsAfterRetry, conflict.Fields)
 			require.Equal(t, StateConflict, outcome.State)
@@ -539,7 +539,7 @@ func TestCleanupRejectsResponseThatRetainsProjectionFields(t *testing.T) {
 			controller.mu.RUnlock()
 
 			cache.nodes[node.Name] = testNode(node.Name, node.UID)
-			outcome, err = controller.Cleanup(context.Background(), cleanup)
+			outcome, err = controller.Cleanup(t.Context(), cleanup)
 			require.NoError(t, err)
 			require.Equal(t, StateCleaned, outcome.State)
 			require.True(t, controller.Ready(cleanup))
@@ -563,7 +563,7 @@ func TestCleanupAcknowledgesSoleOwnerOnlyAfterCleanResponse(t *testing.T) {
 	controller := NewController(cache, patcher)
 	cleanup := cleanupFor(rack)
 
-	outcome, err := controller.Cleanup(context.Background(), cleanup)
+	outcome, err := controller.Cleanup(t.Context(), cleanup)
 
 	require.NoError(t, err)
 	require.Equal(t, StateCleaned, outcome.State)
@@ -580,17 +580,17 @@ func TestCleanupTreatsAbsentExactUIDAsCleanAndPreservesStaleAnnotation(t *testin
 	controller := NewController(cache, patcher)
 	cleanup := cleanupFor(rack)
 
-	outcome, err := controller.Cleanup(context.Background(), cleanup)
+	outcome, err := controller.Cleanup(t.Context(), cleanup)
 	require.NoError(t, err)
 	require.Equal(t, StateCleaned, outcome.State)
 	require.True(t, controller.Ready(cleanup))
 	require.Empty(t, patcher.calls)
 	require.Contains(t, node.Annotations, sgpumetadata.AssignmentAnnotation)
 
-	_, err = controller.Project(context.Background(), rack.Name, 0) // a stale apply preserves the cleanup acknowledgement
+	_, err = controller.Project(t.Context(), rack.Name, 0) // a stale apply preserves the cleanup acknowledgement
 	require.NoError(t, err)
 	cache.nodes["node"] = testNode("node", "replacement-uid")
-	outcome, err = controller.Cleanup(context.Background(), cleanup)
+	outcome, err = controller.Cleanup(t.Context(), cleanup)
 	require.NoError(t, err)
 	require.Equal(t, StateCleaned, outcome.State)
 	require.True(t, controller.Ready(cleanup))
@@ -613,12 +613,12 @@ func TestStaleProjectionApplyDoesNotRecreateMetadataAfterCleanup(t *testing.T) {
 	controller := NewController(cache, patcher)
 	cleanup := cleanupFor(rack)
 
-	_, err = controller.Cleanup(context.Background(), cleanup)
+	_, err = controller.Cleanup(t.Context(), cleanup)
 	require.NoError(t, err)
 	require.True(t, controller.Ready(cleanup))
 	require.Len(t, patcher.calls, 1)
 
-	_, err = controller.Project(context.Background(), rack.Name, 0)
+	_, err = controller.Project(t.Context(), rack.Name, 0)
 	require.NoError(t, err)
 	require.True(t, controller.Ready(cleanup), "a stale apply must preserve the cleanup acknowledgement")
 	require.Len(t, patcher.calls, 1, "a stale apply must not recreate metadata after cleanup")
@@ -641,7 +641,7 @@ func TestReturningEligibleNodeFreshProjectionSupersedesCleanupAcknowledgement(t 
 	cleanup := cleanupFor(rack)
 	cleanup.Reason = sgpurelease.NodeIneligible
 
-	_, err := controller.Cleanup(context.Background(), cleanup)
+	_, err := controller.Cleanup(t.Context(), cleanup)
 	require.NoError(t, err)
 	require.True(t, controller.Ready(cleanup))
 	require.Len(t, patcher.calls, 1)
@@ -654,7 +654,7 @@ func TestReturningEligibleNodeFreshProjectionSupersedesCleanupAcknowledgement(t 
 	returning.Labels = map[string]string{allocate.EligibleNodeLabel: "true"}
 	cache.nodes[node.Name] = returning
 	patcher.node = returning
-	outcome, err := controller.ProjectFresh(context.Background(), rack.Name, 0)
+	outcome, err := controller.ProjectFresh(t.Context(), rack.Name, 0)
 	require.NoError(t, err)
 	require.Equal(t, StateProjected, outcome.State)
 	require.False(t, controller.Ready(cleanup))
@@ -677,7 +677,7 @@ func TestProjectionStateDoesNotRetainSuccessfulBindings(t *testing.T) {
 		rack.Spec.Nodes[0].NodeRef = &mokkav1alpha1.SGPUNodeReference{Name: nodeName, UID: nodeUID}
 		cache.nodes = map[string]*corev1.Node{nodeName: testNode(nodeName, nodeUID)}
 
-		_, err := controller.Project(context.Background(), rack.Name, 0)
+		_, err := controller.Project(t.Context(), rack.Name, 0)
 		require.NoError(t, err)
 	}
 
@@ -765,7 +765,7 @@ func TestCleanupAcknowledgementsAreExactAndBoundedByCachedBindings(t *testing.T)
 		cache.nodes[rack.Spec.Nodes[0].NodeRef.Name] = testNode(rack.Spec.Nodes[0].NodeRef.Name, rack.Spec.Nodes[0].NodeRef.UID)
 		needed := cleanupFor(rack)
 
-		_, err := controller.Cleanup(context.Background(), needed)
+		_, err := controller.Cleanup(t.Context(), needed)
 		require.NoError(t, err)
 		pending = append(pending, needed)
 	}
@@ -776,7 +776,7 @@ func TestCleanupAcknowledgementsAreExactAndBoundedByCachedBindings(t *testing.T)
 	for _, needed := range pending {
 		require.True(t, controller.Ready(needed))
 		delete(cache.racks, needed.RackName)
-		_, err := controller.Cleanup(context.Background(), needed)
+		_, err := controller.Cleanup(t.Context(), needed)
 		require.NoError(t, err)
 		require.False(t, controller.Ready(needed), "an absent exact binding makes the acknowledgement obsolete")
 	}
@@ -794,7 +794,7 @@ func TestCleanupDoesNotAliasRackRecreationOrRetainAbsentRackAcknowledgement(t *t
 	}
 	controller := NewController(cache, &recordingPatcher{})
 	oldCleanup := cleanupFor(oldRack)
-	_, err := controller.Cleanup(context.Background(), oldCleanup)
+	_, err := controller.Cleanup(t.Context(), oldCleanup)
 	require.NoError(t, err)
 	require.True(t, controller.Ready(oldCleanup))
 
@@ -804,13 +804,13 @@ func TestCleanupDoesNotAliasRackRecreationOrRetainAbsentRackAcknowledgement(t *t
 	recreatedCleanup := cleanupFor(recreated)
 	require.False(t, controller.Ready(recreatedCleanup), "a recreated rack must not consume the old rack's acknowledgement")
 
-	_, err = controller.Project(context.Background(), recreated.Name, 0)
+	_, err = controller.Project(t.Context(), recreated.Name, 0)
 	require.NoError(t, err)
 	_, cleanups := stateSize(controller)
 	require.Zero(t, cleanups, "a new exact binding makes acknowledgements for the prior slot identity obsolete")
 
 	delete(cache.racks, recreated.Name)
-	_, err = controller.Cleanup(context.Background(), recreatedCleanup)
+	_, err = controller.Cleanup(t.Context(), recreatedCleanup)
 	require.NoError(t, err)
 	require.False(t, controller.Ready(recreatedCleanup))
 	outcomes, cleanups := stateSize(controller)
@@ -827,7 +827,7 @@ func TestRevokeCleanupRemovesOnlyExactAcknowledgement(t *testing.T) {
 	}
 	controller := NewController(cache, &recordingPatcher{})
 	cleanup := cleanupFor(rack)
-	_, err := controller.Cleanup(context.Background(), cleanup)
+	_, err := controller.Cleanup(t.Context(), cleanup)
 	require.NoError(t, err)
 	require.True(t, controller.Ready(cleanup))
 	acknowledged, ready := controller.AcknowledgedCleanup(rack.Name, cleanup.Binding)
