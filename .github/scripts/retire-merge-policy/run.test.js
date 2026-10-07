@@ -235,6 +235,22 @@ test("an unreadable branch refuses every write", async () => {
   assert.deepEqual(result, refusal(reason));
 });
 
+test("a branch response that does not say whether the branch is protected refuses every write", async () => {
+  for (const [label, branch] of [
+    ["missing", { name: "main", protection: PROTECTED.protection }],
+    ["null", { name: "main", protected: null, protection: PROTECTED.protection }],
+    ["a string", { name: "main", protected: "true", protection: PROTECTED.protection }],
+  ]) {
+    const { github, core, result } = await execute({ handlers: { "repos.getBranch": () => branch } });
+
+    const reason = "refusing to write: cannot read the required checks of main: "
+      + "the response does not say whether the branch is protected";
+    assert.deepEqual(writes(github), [], label);
+    assert.deepEqual(core.failed, [reason], label);
+    assert.deepEqual(result, refusal(reason), label);
+  }
+});
+
 test("a protected branch whose required checks are missing from the response refuses every write", async () => {
   const { github, core, result } = await execute({
     handlers: { "repos.getBranch": () => ({ protected: true, protection: { enabled: true } }) },
