@@ -53,6 +53,22 @@ docker exec "$NODE" ls -la /run/nvidia/driver/usr/lib64/libnvidia-ml.so*
 docker exec "$NODE" cat /var/lib/nvml-mock/driver/config/config.yaml
 ```
 
+### NFD logs `failed to get DMI entry` or `failed to detect NUMA nodes`
+
+The node's kernel exposes no DMI or NUMA information, typical of Docker Desktop
+on Apple Silicon. Mokka serves both on every node it runs on, but only pods
+started afterwards see them, so restart the NFD workers once the mock is up:
+
+```bash
+kubectl -n gpu-operator rollout restart ds/gpu-operator-node-feature-discovery-worker
+```
+
+Nodes the mock does not select, such as the control plane of the local kind
+cluster, keep logging the errors.
+They are harmless there: discovery still completes and every other label is
+published. See
+[DMI and NUMA on nodes without them](components/node-daemon.md#dmi-and-numa-on-nodes-without-them).
+
 ### CDI specs never appear in `/var/run/cdi`
 
 ```bash
