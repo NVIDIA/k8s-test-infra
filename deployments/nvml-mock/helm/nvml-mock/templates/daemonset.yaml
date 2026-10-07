@@ -50,8 +50,8 @@ spec:
       labels:
         {{- include "nvml-mock.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: daemon
-        {{- with include "nvml-mock.podLabels" (dict "labels" .Values.podLabels "field" "podLabels") }}
-        {{- . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
         {{- end }}
       annotations:
         {{- with omit (.Values.podAnnotations | default dict) "checksum/config" "checksum/mig-profiles" "kubectl.kubernetes.io/default-container" }}

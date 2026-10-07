@@ -760,7 +760,7 @@ namespace, on the pod IP where the kubelet reaches it.
 | `priorityClassName` | `""` | PriorityClass for the node DaemonSet pods. The node agent stands in for its node's GPU driver, so `system-node-critical` keeps it from being starved or evicted before the workloads that depend on it. |
 | `affinity` | `{}` | Pod affinity for the node DaemonSet pods |
 | `podAnnotations` | `{}` | Annotations added to the node DaemonSet pods. The chart's own annotations (`checksum/config`, `checksum/mig-profiles`, `kubectl.kubernetes.io/default-container`) always win. |
-| `podLabels` | `{}` | Labels added to the node DaemonSet pods. Setting a selector label (`app.kubernetes.io/name`, `instance` or `component`) fails the render. |
+| `podLabels` | `{}` | Labels added to the node DaemonSet pods. Must not set a selector label (`app.kubernetes.io/name`, `instance` or `component`). |
 | `nodeAgent.livenessProbe` | `httpGet /healthz` on `health` | Node agent liveness probe. Set to `null` to drop it. |
 | `nodeAgent.readinessProbe` | `httpGet /readyz` on `health` | Node agent readiness probe. Set to `null` to drop it. |
 | `nodeLabels.featuresDir` | `/etc/kubernetes/node-feature-discovery/features.d` | Host directory NFD's local source reads feature files from. Override only if NFD runs with a non-default `featureFilesDir` |

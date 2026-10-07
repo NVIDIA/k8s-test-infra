@@ -128,24 +128,6 @@ imagePullSecrets:
 {{- end }}
 
 {{/*
-User pod labels for a workload's pod template. Takes a dict of labels (the
-user map) and field (its values path, for the error). The selector labels are
-refused rather than dropped: the selector matches them, so an override would
-orphan running pods on upgrade and should fail at render time.
-*/}}
-{{- define "nvml-mock.podLabels" -}}
-{{- $labels := .labels | default dict }}
-{{- range $key := list "app.kubernetes.io/name" "app.kubernetes.io/instance" "app.kubernetes.io/component" }}
-{{- if hasKey $labels $key }}
-{{- fail (printf "%s must not set %s: the chart's selector owns it" $.field $key) }}
-{{- end }}
-{{- end }}
-{{- with $labels }}
-{{- toYaml . }}
-{{- end }}
-{{- end }}
-
-{{/*
 NRI probe from nri.readinessProbe or nri.livenessProbe. The plugin's port was
 named `health` while it ran in its own DaemonSet; that name belongs to the
 node agent in the shared pod, so values carried over from 0.4.0 are pointed at

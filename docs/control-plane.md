@@ -34,8 +34,7 @@ The control-plane pods are scheduled and labelled independently of the node
 DaemonSet, through `controlPlane.nodeSelector`, `controlPlane.tolerations`,
 `controlPlane.affinity`, `controlPlane.priorityClassName`,
 `controlPlane.podLabels` and `controlPlane.podAnnotations`. They take the same
-forms as their [node DaemonSet counterparts](helm-chart.md#values),
-including the refusal of selector labels in `podLabels`. With
+forms as their [node DaemonSet counterparts](helm-chart.md#values). With
 `controlPlane.replicas` above 1, pod anti-affinity on `kubernetes.io/hostname`
 keeps the standby replica off the leader's node:
 

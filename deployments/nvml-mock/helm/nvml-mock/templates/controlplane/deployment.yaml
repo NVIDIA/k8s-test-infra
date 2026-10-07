@@ -24,8 +24,8 @@ spec:
       labels:
         {{- include "nvml-mock.controlPlaneSelectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: control-plane
-        {{- with include "nvml-mock.podLabels" (dict "labels" .Values.controlPlane.podLabels "field" "controlPlane.podLabels") }}
-        {{- . | nindent 8 }}
+        {{- with .Values.controlPlane.podLabels }}
+        {{- toYaml . | nindent 8 }}
         {{- end }}
       {{- with .Values.controlPlane.podAnnotations }}
       annotations:

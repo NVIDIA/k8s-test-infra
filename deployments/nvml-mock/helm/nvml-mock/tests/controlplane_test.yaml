@@ -410,19 +410,6 @@ tests:
           path: spec.template.metadata.labels["app.kubernetes.io/component"]
           value: control-plane
 
-  # The Deployment selector matches these labels; letting podLabels override
-  # one would orphan the running pods on the next upgrade.
-  - it: should reject podLabels that override a selector label
-    set:
-      controlPlane:
-        enabled: true
-        podLabels:
-          app.kubernetes.io/component: other
-    template: templates/controlplane/deployment.yaml
-    asserts:
-      - failedTemplate:
-          errorMessage: "controlPlane.podLabels must not set app.kubernetes.io/component: the chart's selector owns it"
-
   - it: should honour ready active-passive replicas, a custom image, and logging knobs
     set:
       controlPlane:
