@@ -50,19 +50,33 @@ Areas of particular interest:
 
 Mokka is a test double for CI and test clusters, not production.
 
+<<<<<<< HEAD
 Mokka's pods hold no Kubernetes API access: none mounts a ServiceAccount token.
 No component runs privileged or in a host namespace.
+=======
+When enabled, the `control-plane` pod mounts a dedicated ServiceAccount token
+for Kubernetes API access. Its ClusterRole grants Node reads and patches and
+the Mokka resource permissions needed for reconciliation; its namespaced Role
+grants leader-election Lease access in the release namespace. The node
+DaemonSet, including its optional NRI sidecar, does not mount a ServiceAccount
+token. See the
+[Mokka Control Plane](docs/control-plane.md) for its reconciliation and
+single-writer lifecycle. The node agent runs privileged to use bidirectional
+mount propagation; the other chart containers are not privileged. No component
+runs in a host namespace.
+>>>>>>> fd6867a8 (fix(docs): state that the node agent runs privileged (#945))
 
 Privilege is scoped per container:
 
-| Container            | Capabilities                                               | Filesystem                              | User                                                |
-|----------------------|------------------------------------------------------------|-----------------------------------------|-----------------------------------------------------|
-| `node-agent`         | drops `ALL`, adds back only `MKNOD` to create device nodes | writable, to stage the mock driver tree | image default                                       |
-| `allocation-watcher` | drops `ALL`                                                | `readOnlyRootFilesystem`                | image default                                       |
-| `control-plane`      | drops `ALL`, `seccompProfile: RuntimeDefault`              | `readOnlyRootFilesystem`                | non-root, UID 65532                                 |
-| `nvml-mock-nri`      | container runtime default — **not dropped**                | writable                                | root (UID 0), to write the NRI socket and CDI specs |
+| Container            | Security context                                               | Filesystem                              | User                |
+|----------------------|----------------------------------------------------------------|-----------------------------------------|---------------------|
+| `node-agent`         | privileged                                                     | writable, to stage the mock driver tree | image default       |
+| `allocation-watcher` | drops `ALL`; disallows privilege escalation                    | `readOnlyRootFilesystem`                | image default       |
+| `control-plane`      | drops `ALL`; `RuntimeDefault` seccomp; no privilege escalation | `readOnlyRootFilesystem`                | non-root, UID 65532 |
+| `nvml-mock-nri`      | capabilities not dropped; no privilege escalation              | writable                                | root (UID 0)        |
 
-No container allows privilege escalation.
+The privileged node agent is the exception to the other containers' explicit
+`allowPrivilegeEscalation: false` setting.
 
 Mokka's reach into a node comes from its host mounts. The node agent writes to
 `/var/lib/nvml-mock`, `/run/nvidia`, `/run/cdi`, the fabricmanager state
