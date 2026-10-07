@@ -23,7 +23,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -992,7 +992,7 @@ func deviceIndices(config *YAMLConfig) []int {
 	n := deviceSpace(config)
 	indices := make([]int, 0, n)
 	seen := make(map[int]bool, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		indices = append(indices, i)
 		seen[i] = true
 	}
@@ -1002,7 +1002,7 @@ func deviceIndices(config *YAMLConfig) []int {
 			seen[dev.Index] = true
 		}
 	}
-	sort.Ints(indices)
+	slices.Sort(indices)
 	return indices
 }
 
