@@ -360,6 +360,69 @@ tests:
 
   # Every active/passive replica must converge Ready; the elected replica
   # additionally waits for controller cache synchronization.
+  # ── Pod scheduling and metadata ─────────────────────────────────────
+  - it: should leave priority, affinity and pod annotations unset by default
+    set:
+      controlPlane:
+        enabled: true
+    template: templates/controlplane/deployment.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.priorityClassName
+      - notExists:
+          path: spec.template.spec.affinity
+      - notExists:
+          path: spec.template.metadata.annotations
+
+  - it: should apply priorityClassName, affinity and pod metadata
+    set:
+      controlPlane:
+        enabled: true
+        priorityClassName: system-cluster-critical
+        affinity:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                podAffinityTerm:
+                  topologyKey: kubernetes.io/hostname
+                  labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/component: control-plane
+        podAnnotations:
+          prometheus.io/scrape: "true"
+        podLabels:
+          team: gpu-infra
+    template: templates/controlplane/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.priorityClassName
+          value: system-cluster-critical
+      - equal:
+          path: spec.template.spec.affinity.podAntiAffinity.preferredDuringSchedulingIgnoredDuringExecution[0].podAffinityTerm.topologyKey
+          value: kubernetes.io/hostname
+      - equal:
+          path: spec.template.metadata.annotations["prometheus.io/scrape"]
+          value: "true"
+      - equal:
+          path: spec.template.metadata.labels.team
+          value: gpu-infra
+      - equal:
+          path: spec.template.metadata.labels["app.kubernetes.io/component"]
+          value: control-plane
+
+  # The Deployment selector matches these labels; letting podLabels override
+  # one would orphan the running pods on the next upgrade.
+  - it: should reject podLabels that override a selector label
+    set:
+      controlPlane:
+        enabled: true
+        podLabels:
+          app.kubernetes.io/component: other
+    template: templates/controlplane/deployment.yaml
+    asserts:
+      - failedTemplate:
+          errorMessage: "controlPlane.podLabels must not set app.kubernetes.io/component: the chart's Deployment selectors own it"
+
   - it: should honour ready active-passive replicas, a custom image, and logging knobs
     set:
       controlPlane:

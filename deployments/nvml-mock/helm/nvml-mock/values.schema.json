@@ -554,6 +554,24 @@
         "resources": { "type": "object" },
         "nodeSelector": { "type": "object" },
         "tolerations": { "type": "array" },
+        "priorityClassName": {
+          "type": "string",
+          "description": "PriorityClass for the control-plane pods, e.g. system-cluster-critical."
+        },
+        "affinity": {
+          "type": "object",
+          "description": "Pod affinity for the control-plane pods, e.g. anti-affinity that spreads replicas across nodes."
+        },
+        "podAnnotations": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Annotations added to the control-plane pods."
+        },
+        "podLabels": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Labels added to the control-plane pods. Must not set the selector labels."
+        },
         "terminationGracePeriodSeconds": {
           "type": "integer",
           "minimum": 0,

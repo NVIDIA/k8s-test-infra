@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  helm: schedule and label the control-plane pods with `controlPlane.affinity`, `controlPlane.priorityClassName`, `controlPlane.podLabels` and `controlPlane.podAnnotations`, matching the node DaemonSet keys.
+time: 2026-10-07T09:27:34Z

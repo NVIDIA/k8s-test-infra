@@ -128,15 +128,16 @@ imagePullSecrets:
 {{- end }}
 
 {{/*
-User podLabels for the node DaemonSet pod template. The selector labels are
-refused rather than dropped: the selector matches them, so an override would
-orphan running pods on upgrade and should fail at render time.
+User pod labels for a workload's pod template. Takes a dict of labels (the
+user map), field (its values path) and kind (the workload, for the error). The
+selector labels are refused rather than dropped: the selector matches them, so
+an override would orphan running pods on upgrade and should fail at render time.
 */}}
 {{- define "nvml-mock.podLabels" -}}
-{{- $labels := .Values.podLabels | default dict }}
+{{- $labels := .labels | default dict }}
 {{- range $key := list "app.kubernetes.io/name" "app.kubernetes.io/instance" "app.kubernetes.io/component" }}
 {{- if hasKey $labels $key }}
-{{- fail (printf "podLabels must not set %s: the chart's DaemonSet selectors own it" $key) }}
+{{- fail (printf "%s must not set %s: the chart's %s selectors own it" $.field $key $.kind) }}
 {{- end }}
 {{- end }}
 {{- with $labels }}
