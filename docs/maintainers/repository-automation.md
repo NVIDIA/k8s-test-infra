@@ -142,6 +142,15 @@ Activate the functions in this order:
    disarms an unsafe method that it observes, but the method can change after
    its final read. If this flag is already enabled, installing this action
    also activates native enablement.
+
+   If **Retire merge-policy check** has run, open heads carry a neutral
+   `repository-automation/merge-policy` run, and GitHub counts neutral as
+   passing a required check. When you return to this gate from another
+   controller, keep that controller's check required next to this one until
+   the latest `repository-automation/merge-policy` run on every open head is
+   `success` or `action_required` (the evaluator never posts `neutral`).
+   Dispatch **Merge evaluation** with an empty `pr_number` and `dry_run` off
+   to post them, and only then remove the other controller's check.
 6. Set `REPOSITORY_AUTOMATION_CHERRY_PICK_ENABLED=true` once the Mokka agent
    dispatches **Cherry-Pick**. Confirm the first backport pull request on a
    release branch.
