@@ -6,6 +6,19 @@ Mock GPU environment deployed on all nodes!
   Driver version: {{ include "nvml-mock.driverVersion" . }}
   Mock driver root: /var/lib/nvml-mock/driver
   Mock config: /var/lib/nvml-mock/config/config.yaml
+{{- if .Values.nri.enabled }}
+
+NRI injection is on: containers that hold a GPU allocation, or whose pod opts
+in by annotation, get the mock driver when they are created. Pods in
+{{ .Release.Namespace }} and kube-system never do. If a node pod stays NotReady,
+containerd on that node may have NRI disabled; see
+https://nvidia.github.io/k8s-test-infra/guides/nri-injection/
+{{- if eq .Release.Namespace "default" }}
+
+WARNING: this release is in the "default" namespace, so workloads there get no
+mock GPUs. Reinstall into a dedicated namespace, for example -n mokka.
+{{- end }}
+{{- end }}
 
 NOTE: If you installed from source (no published image yet), you built the
 image locally and loaded it into your cluster. See the chart README for

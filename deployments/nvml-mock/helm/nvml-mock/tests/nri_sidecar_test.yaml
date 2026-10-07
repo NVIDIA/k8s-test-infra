@@ -12,7 +12,19 @@ capabilities:
   majorVersion: 1
   minorVersion: 29
 tests:
-  - it: should render only the node agent by default
+  - it: should run the NRI plugin after the node agent by default
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: node-agent
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: nvml-mock-nri
+
+  - it: should render only the node agent when NRI is disabled
+    set:
+      nri:
+        enabled: false
     asserts:
       - hasDocuments:
           count: 1
@@ -249,6 +261,9 @@ tests:
             readOnly: true
 
   - it: should not gate staging when NRI is disabled
+    set:
+      nri:
+        enabled: false
     asserts:
       - notContains:
           path: spec.template.spec.containers[0].command

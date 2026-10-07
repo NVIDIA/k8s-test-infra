@@ -76,6 +76,36 @@ tests:
       - matchRegexRaw:
           pattern: "a100, h100, b200, gb200, gb300, l40s, t4"
 
+  # The plugin always excludes its release namespace, so a release in
+  # "default" silently leaves every workload there without mock GPUs.
+  - it: should warn when NRI excludes the default namespace
+    release:
+      namespace: default
+    asserts:
+      - matchRegexRaw:
+          pattern: 'WARNING: this release is in the "default" namespace'
+
+  - it: should name the excluded namespaces without warning in a dedicated one
+    release:
+      namespace: mokka
+    asserts:
+      - matchRegexRaw:
+          pattern: "Pods in\\s+mokka and kube-system never do"
+      - notMatchRegexRaw:
+          pattern: "WARNING"
+
+  - it: should omit the NRI section when NRI is disabled
+    release:
+      namespace: default
+    set:
+      nri:
+        enabled: false
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "NRI injection is on"
+      - notMatchRegexRaw:
+          pattern: "WARNING"
+
   - it: should contain all three option sections
     asserts:
       - matchRegexRaw:
