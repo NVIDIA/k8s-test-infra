@@ -1,0 +1,85 @@
+# Copyright 2026 NVIDIA CORPORATION
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# The retired JS gate left action_required repository-automation/merge-policy
+# check runs on open pull request heads, and GitHub's status rollup shows them
+# as failures. Only the github-actions app that created them can post a newer
+# run under that app, so this workflow's GITHUB_TOKEN posts one neutral run per
+# stale head. mokka/merge-policy has been the merge gate since 2026-10-06. The
+# script refuses to write if repository-automation/merge-policy is required on
+# a base branch or if the required checks cannot be read. Dispatch it from main;
+# dry_run defaults to true and only prints what it would write.
+
+name: Retire merge-policy check
+
+"on":
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Print the check runs it would write without writing them
+        required: false
+        type: boolean
+        default: true
+
+permissions: {}
+
+jobs:
+  supersede:
+    name: Supersede stale merge-policy check runs
+    if: ${{ github.ref_name == github.event.repository.default_branch }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      checks: write
+      contents: read
+      pull-requests: read
+    concurrency:
+      group: retire-merge-policy-check
+      cancel-in-progress: false
+    steps:
+      - name: Resolve trusted default branch
+        id: trusted
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          github-token: ${{ github.token }}
+          result-encoding: string
+          script: |
+            const branch = context.payload.repository.default_branch;
+            const { data } = await github.rest.repos.getBranch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch,
+            });
+            const sha = data.commit.sha;
+            if (!/^[0-9a-f]{40}$/.test(sha)) {
+              throw new Error("default branch did not resolve to a canonical commit SHA");
+            }
+            return sha;
+      - name: Check out trusted automation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.trusted.outputs.result }}
+          path: control
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - name: Supersede stale check runs
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const run = require('./control/.github/scripts/retire-merge-policy/run.js');
+            return await run({ github, context, core, dryRun: run.parseDryRun(process.env.DRY_RUN) });
