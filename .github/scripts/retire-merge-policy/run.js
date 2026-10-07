@@ -95,6 +95,9 @@ async function assertNotRequired(github, repo, branch) {
   } catch (error) {
     throw unreadable(error.message);
   }
+  if (typeof data.protected !== "boolean") {
+    throw unreadable("the response does not say whether the branch is protected");
+  }
   const classic = data.protection?.required_status_checks;
   const readable = Array.isArray(classic?.contexts) && Array.isArray(classic?.checks);
   if (data.protected && !readable) {
