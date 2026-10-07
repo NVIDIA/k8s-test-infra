@@ -90,9 +90,19 @@ tests:
       namespace: mokka
     asserts:
       - matchRegexRaw:
-          pattern: "Pods in\\s+mokka and kube-system never do"
+          pattern: "never do: mokka, kube-system\\."
       - notMatchRegexRaw:
           pattern: "WARNING"
+
+  - it: should name the namespaces added to nri.excludedNamespaces
+    release:
+      namespace: mokka
+    set:
+      nri:
+        excludedNamespaces: [team-a, team-b]
+    asserts:
+      - matchRegexRaw:
+          pattern: "never do: mokka, kube-system, team-a, team-b\\."
 
   - it: should omit the NRI section when NRI is disabled
     release:

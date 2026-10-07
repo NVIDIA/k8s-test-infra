@@ -276,7 +276,12 @@ nri:
   # default 2048 nodes measures around one second.
   imexChannelAnnotation: nvml-mock.nvidia.com/imex-channels
   excludedNamespaces: []
-  resources: {}
+  # Requests only: the plugin runs on every node by default, and no limit is set
+  # until its usage under load has been measured.
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
   # Port serving the plugin's /healthz and /readyz endpoints. The node DaemonSet
   # does not use host networking, so this port lives only inside the pod's own
   # network namespace: it is reachable by the kubelet on the pod IP and is not

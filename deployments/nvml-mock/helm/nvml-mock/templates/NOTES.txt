@@ -9,9 +9,10 @@ Mock GPU environment deployed on all nodes!
 {{- if .Values.nri.enabled }}
 
 NRI injection is on: containers that hold a GPU allocation, or whose pod opts
-in by annotation, get the mock driver when they are created. Pods in
-{{ .Release.Namespace }} and kube-system never do. If a node pod stays NotReady,
-containerd on that node may have NRI disabled; see
+in by annotation, get the mock driver when they are created. Pods in these
+namespaces never do: {{ .Release.Namespace }}, kube-system
+{{- range .Values.nri.excludedNamespaces }}, {{ . }}{{ end }}.
+If a node pod stays NotReady, containerd on that node may have NRI disabled; see
 https://nvidia.github.io/k8s-test-infra/guides/nri-injection/
 {{- if eq .Release.Namespace "default" }}
 

@@ -1,9 +1,9 @@
 kind: Changed
 body: |-
-  helm: **Breaking:** the NRI plugin now runs by default, so a container that
-    holds a GPU allocation gets the mock driver with no extra setup. It needs
-    containerd with NRI enabled; containerd 1.7 ships it off, so enable it there
-    or set `nri.enabled=false`.
+  helm: **Breaking:** the NRI plugin now runs by default, so a container holding
+    a GPU allocation gets the mock driver. It needs containerd NRI (off in 1.7)
+    or `nri.enabled=false`; upgrades with `--reuse-values` keep it off. See
+    `docs/guides/nri-injection.md`.
 time: 2026-10-07T05:04:00Z
 custom:
   Issue: "814"

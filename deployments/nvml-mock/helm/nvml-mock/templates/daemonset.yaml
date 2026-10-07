@@ -4,7 +4,10 @@ apiVersion: apps/v1
 kind: DaemonSet
 {{- $ibEnabled := eq (include "nvml-mock.infinibandEnabled" .) "true" }}
 {{- $fmEnabled := eq (include "nvml-mock.fabricmanagerEnabled" .) "true" }}
-{{- $nativeSidecar := and .Values.nri.enabled .Values.nri.nativeSidecar (semverCompare ">=1.29.0-0" .Capabilities.KubeVersion.Version) }}
+{{- /* `helm upgrade --reuse-values` from a chart without nri.nativeSidecar
+renders with that chart's values, so an absent key means the default, true. */}}
+{{- $nativeSidecarWanted := ternary .Values.nri.nativeSidecar true (hasKey .Values.nri "nativeSidecar") }}
+{{- $nativeSidecar := and .Values.nri.enabled $nativeSidecarWanted (semverCompare ">=1.29.0-0" .Capabilities.KubeVersion.Version) }}
 {{- /* NRI shares a lock here with the node agent. It lives in a pod-local
 emptyDir mounted into only those two containers: a workload that could open it
 could hold the lock and stall staging. */}}

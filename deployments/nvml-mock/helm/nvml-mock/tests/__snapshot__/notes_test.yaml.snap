@@ -11,9 +11,9 @@ should match snapshot with b200 profile:
         Mock config: /var/lib/nvml-mock/config/config.yaml
 
       NRI injection is on: containers that hold a GPU allocation, or whose pod opts
-      in by annotation, get the mock driver when they are created. Pods in
-      NAMESPACE and kube-system never do. If a node pod stays NotReady,
-      containerd on that node may have NRI disabled; see
+      in by annotation, get the mock driver when they are created. Pods in these
+      namespaces never do: NAMESPACE, kube-system.
+      If a node pod stays NotReady, containerd on that node may have NRI disabled; see
       https://nvidia.github.io/k8s-test-infra/guides/nri-injection/
 
       NOTE: If you installed from source (no published image yet), you built the
@@ -109,9 +109,9 @@ should match snapshot with default values:
         Mock config: /var/lib/nvml-mock/config/config.yaml
 
       NRI injection is on: containers that hold a GPU allocation, or whose pod opts
-      in by annotation, get the mock driver when they are created. Pods in
-      NAMESPACE and kube-system never do. If a node pod stays NotReady,
-      containerd on that node may have NRI disabled; see
+      in by annotation, get the mock driver when they are created. Pods in these
+      namespaces never do: NAMESPACE, kube-system.
+      If a node pod stays NotReady, containerd on that node may have NRI disabled; see
       https://nvidia.github.io/k8s-test-infra/guides/nri-injection/
 
       NOTE: If you installed from source (no published image yet), you built the

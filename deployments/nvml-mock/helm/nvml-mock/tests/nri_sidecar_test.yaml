@@ -344,8 +344,10 @@ tests:
           pullPolicy: Always
         resources:
           requests:
-            cpu: 10m
-            memory: 32Mi
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            memory: 128Mi
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
@@ -354,11 +356,36 @@ tests:
           path: spec.template.spec.containers[0].imagePullPolicy
           value: Always
       - equal:
-          path: spec.template.spec.containers[0].resources.requests.cpu
-          value: 10m
+          path: spec.template.spec.containers[0].resources
+          value:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+
+  - it: should request resources for the plugin without limiting it by default
+    asserts:
       - equal:
-          path: spec.template.spec.containers[0].resources.requests.memory
-          value: 32Mi
+          path: spec.template.spec.containers[0].resources
+          value:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+
+  # `helm upgrade --reuse-values` from chart 0.4.0 renders with that chart's
+  # values, which have no nri.nativeSidecar.
+  - it: should keep the ordered layout when nativeSidecar is absent from the values
+    set:
+      nri:
+        nativeSidecar: null
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: node-agent
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: nvml-mock-nri
 
   - it: should inherit the chart image digest when the NRI image is not overridden
     set:

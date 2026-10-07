@@ -795,7 +795,7 @@ namespace, on the pod IP where the kubelet reaches it.
 | `nri.healthPort` | `8080` | Port serving `/healthz` and `/readyz`. Bound only in the pod's network namespace — this DaemonSet does not use `hostNetwork`, so nothing is exposed on the node |
 | `nri.readinessProbe` | `/readyz`, `periodSeconds: 10`, `failureThreshold: 2` | Detects that the node has stopped injecting. Set to `null` to drop. See [NRI plugin failure modes](#nri-plugin-failure-modes) |
 | `nri.livenessProbe` | `/healthz`, `periodSeconds: 10`, `failureThreshold: 3` | Restarts a wedged plugin. Threshold follows containerd's `plugin_request_timeout`; do not tune the two independently. Set to `null` to drop |
-| `nri.resources` | `{}` | Resource requests/limits for the plugin container |
+| `nri.resources` | requests `cpu: 10m`, `memory: 32Mi` | Resource requests/limits for the plugin container. No limits by default |
 
 ### Node Labels
 
