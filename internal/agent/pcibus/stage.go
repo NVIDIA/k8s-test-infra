@@ -18,79 +18,15 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs"
 )
 
-const (
-	// kernelDMIRelPath is the kernel's DMI directory relative to /sys;
-	// /sys/class/dmi/id is a symlink to it.
-	kernelDMIRelPath = "devices/virtual/dmi/id"
-	// mockDMIRelPath is the same directory inside the rendered tree.
-	mockDMIRelPath = pcisysfs.SysDevicesRelPath + "/virtual/dmi/id"
-)
-
-// dmiMountTargets are the DMI attributes a container reads through
-// /sys/class/dmi/id. product_uuid identifies the node and the kernel shows it
-// to root alone, so it is staged empty — a target to mount over, not a value.
-var dmiMountTargets = []struct {
-	name     string
-	byValue  bool
-	fileMode os.FileMode
-}{
-	{name: "product_name", byValue: true, fileMode: 0o444},
-	{name: "product_uuid", byValue: false, fileMode: 0o400},
-}
-
-// stageDMI reproduces the node's DMI attributes inside the rendered tree.
-// Serving the tree at /sys/devices replaces the directory /sys/class/dmi/id
-// resolves into, so on any cluster a served container would otherwise read
-// ENOENT where the node has values.
-//
-// Under kind it is worse than a missing value: the node image bind-mounts its
-// own product files into every container, mount(8) cannot create a target on a
-// read-only sysfs, and every served pod dies on "mount point does not exist".
-//
-// Deliberately not a machine-type mock — that is writeMachineType's job (#681).
-func stageDMI(h *host.Host) error {
-	kernelDir := h.SysPath(kernelDMIRelPath)
-	if _, err := os.Stat(kernelDir); err != nil {
-		// No kernel DMI means no hook to satisfy either: both test the host.
-		return nil
-	}
-
-	mockDir := h.RootPath(mockDMIRelPath)
-	if err := os.MkdirAll(mockDir, 0o755); err != nil {
-		return err
-	}
-
-	for _, attr := range dmiMountTargets {
-		var value []byte
-		if attr.byValue {
-			// Unreadable is not fatal: a mount target need not carry a value.
-			value, _ = os.ReadFile(filepath.Join(kernelDir, attr.name))
-		}
-		if err := fsutil.Write(filepath.Join(mockDir, attr.name), value, attr.fileMode); err != nil {
-			return fmt.Errorf("stage dmi %s: %w", attr.name, err)
-		}
-	}
-
-	return nil
-}
-
-// stageSysfs renders the PCI sysfs tree under h.Root, plus the DMI mount
-// targets a container served that tree needs. A state with no PCI topology
-// empties the tree and stages no DMI, since nothing is served.
+// stageSysfs renders the PCI sysfs tree under h.Root. A state with no PCI
+// topology empties the tree. Entries of sys/devices outside pci* belong to
+// other simulators — the dmi simulator's copy among them — and are left alone.
 func stageSysfs(h *host.Host, state *agent.State) error {
-	if err := pcisysfs.Render(pcisysfs.Options{
+	return pcisysfs.Render(pcisysfs.Options{
 		Topology:    buildTopology(state),
 		Identities:  buildIdentities(state),
 		OverlayRoot: h.Root,
-	}); err != nil {
-		return err
-	}
-
-	if !state.HasPCITopology() {
-		return nil
-	}
-
-	return stageDMI(h)
+	})
 }
 
 // shimGlob locates the shim in the container image. A package var so tests can

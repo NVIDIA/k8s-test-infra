@@ -242,6 +242,12 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 					p.ExpectedGPUs(), p.ExpectedPCIBridges(), p.ExpectedPCIRoots())
 			})
 
+			It("shows the node a DMI identity NFD can read", Label("dmi"), func(ctx SpecContext) {
+				agent := pod
+				agent.Container = nodeAgentContainer
+				assertions.NodeDMIIdentity(ctx, h.Kube, agent, p.DisplayName)
+			})
+
 			It("renders the kernel-module surface", Label("kmod"), func(ctx SpecContext) {
 				assertions.KernelModules(ctx, h.Kube, pod, p.IBEnabled())
 			})

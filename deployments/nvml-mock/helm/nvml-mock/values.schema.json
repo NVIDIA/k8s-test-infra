@@ -289,6 +289,22 @@
             "enabled": { "type": "boolean" }
           }
         },
+        "dmi": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Serve a simulated DMI identity on a node whose kernel exposes none. Closed to unknown keys because a typo here would silently leave the node's /sys/devices/virtual overmounted while reading as if it had been turned off.",
+          "properties": {
+            "enabled": { "type": "boolean" }
+          }
+        },
+        "numa": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Serve the profile's NUMA nodes on a node whose kernel exposes none. Closed to unknown keys because a typo here would silently leave the node's /sys/bus overmounted while reading as if it had been turned off.",
+          "properties": {
+            "enabled": { "type": "boolean" }
+          }
+        },
         "resources": { "type": "object" }
       }
     },

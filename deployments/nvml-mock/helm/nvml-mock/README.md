@@ -54,6 +54,8 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 | `featureGates` | Feature gates for the node agent, NRI plugin and control plane |
 | `nodeSelector`, `tolerations` | Standard scheduling; `nodeAgent.resources` sets limits |
 | `nodeAgent.kernelLog` | Announce injected Xids on the node's `/dev/kmsg` (off by default) |
+| `nodeAgent.dmi` | Serve a DMI identity on nodes whose kernel exposes none, e.g. Docker Desktop on Apple Silicon (on by default) |
+| `nodeAgent.numa` | Serve the profile's NUMA nodes on nodes whose kernel exposes none, e.g. Docker Desktop on Apple Silicon (on by default) |
 | `nodeLabels` | Labels applied to nodes running the mock |
 | `allocationWatcher` | Tracks device-plugin allocations for utilization simulation |
 | `nri` | NRI injection into GPU workloads, on by default |

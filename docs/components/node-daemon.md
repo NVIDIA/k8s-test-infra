@@ -33,6 +33,8 @@ outlive a reconcile.
 | `fabricmanager` | A stand-in for `nv-fabricmanager`, which on a real NVSwitch platform must register GPUs before they are usable                                           |
 | `ib` | A fake `/sys/class/infiniband` tree, the IB shims and CLI tools, and the `mock-ib` daemon serving UMAD and verbs                                         |
 | `kernellog` | Announces injected Xids on the node's kernel log, the way a driver's printk does                                                                         |
+| `dmi` | A system identity at `/sys/devices/virtual/dmi/id` on a node whose kernel exposes none, and its copy in the served PCI tree — see [DMI](#dmi) |
+| `numa` | The profile's NUMA nodes at `/sys/bus/node/devices`, only on a node whose kernel exposes none — see [NUMA](#numa) |
 
 ## The reconcile lifecycle
 
@@ -41,8 +43,8 @@ it implements decides when the daemon calls it.
 
 | Interface | Implemented by | Purpose |
 |---|---|---|
-| `Simulator` | all eight | `Stage` writes artifacts that are not yet externally visible. Idempotent, re-runs on every state change |
-| `Applier` | `gpudriver`, `pcibus`, `cdi` | `Apply` publishes artifacts that something *outside* the node acts on — containerd, NFD, the GPU Operator validator |
+| `Simulator` | all ten | `Stage` writes artifacts that are not yet externally visible. Idempotent, re-runs on every state change |
+| `Applier` | `gpudriver`, `pcibus`, `cdi`, `dmi`, `numa` | `Apply` publishes artifacts that something *outside* the node acts on — containerd, NFD, the GPU Operator validator |
 | `Daemon` | `fabricmanager`, `ib`, `kernellog` | `Run` supervises a long-lived process; `Reload` delivers later state to it without a restart |
 
 One reconcile pass runs three waves:
@@ -75,6 +77,74 @@ The two waves handle failure differently, on purpose:
 socket or a port, so a second instance would contend for it rather than converge
 with it. Later state reaches a running daemon through `Reload`, which is why a
 profile edit does not need a pod restart.
+
+## DMI and NUMA on nodes without them
+
+A kernel booted from a device tree instead of firmware tables — an arm64 VM, as
+Docker Desktop on Apple Silicon is — exposes neither the system identity nor
+the NUMA layout a GPU server has. NFD then logs an error for each missing
+attribute on every discovery pass and publishes no `system.dmiid` or
+`memory.numa` features. On such a node two simulators fill the gap; a node
+whose kernel exposes either surface is never touched there.
+
+### DMI
+
+DMI (Desktop Management Interface) is the kernel's view of the firmware's
+SMBIOS tables, under `/sys/devices/virtual/dmi/id`. The `dmi` simulator serves
+the 16 public attributes NFD reads:
+
+| Attributes | Value |
+|---|---|
+| `sys_vendor`, `bios_vendor`, `board_vendor`, `chassis_vendor` | `NVIDIA` |
+| `product_name`, `board_name` | The profile's GPU name, e.g. `NVIDIA GB300 NVL` — the same string behind `nvidia.com/gpu.machine` |
+| `bios_date`, `bios_version`, `board_asset_tag`, `board_version`, `chassis_asset_tag`, `chassis_type`, `chassis_version`, `product_family`, `product_sku`, `product_version` | Empty |
+
+`product_uuid` and the serial numbers are deliberately absent. kind injects its
+own `product_uuid` into every container once the node shows one, and a
+container has no target for it, so no container on the node would start.
+
+A container served the mock GPUs gets the rendered PCI tree in place of
+`/sys/devices`, which hides the node's DMI directory, so the simulator also
+stages a copy inside that tree. On a node whose kernel exposes DMI the copy
+holds only `product_name` and an empty `product_uuid`: those are the files
+kind's hook mounts over in every container, and a missing target stops the
+container from starting. On a node without kernel DMI the copy holds the same
+attributes as the node.
+
+### NUMA
+
+The `numa` simulator serves `/sys/bus/node/devices/node<N>`, one entry per NUMA
+node the profile's [PCIe topology](../helm-chart.md#pcie-topology-mocking) declares, or `node0` for a
+profile that declares none. NFD counts these entries to publish
+`memory.numa` and the `feature.node.kubernetes.io/memory-numa` label.
+
+Only the count is simulated. The entries link to
+`/sys/devices/system/node`, which stays absent because kubelet reads it for
+its own topology; tools that follow the links, such as hwloc, find nothing
+there and report a single NUMA node, as they do without the simulator.
+
+### How they are served
+
+sysfs refuses new directories, so `Apply` mounts a staged tree over the parent
+directory — `/sys/devices/virtual` or `/sys/bus` — and binds each of the node's
+own entries (`net`, `pci`, …) back into it. The mount reaches the node through
+a Bidirectional mount of that directory, and `Revoke` detaches it. Two
+consequences follow:
+
+- **Only pods started afterwards see it.** A hostPath mount of `/sys` is a
+  snapshot taken when its container starts, so an NFD worker already running
+  keeps logging until it restarts.
+- **Those pods survive an agent restart.** Their copy stays bound to the staged
+  tree, which the agent never removes, so they keep the node's own entries and
+  see the entry the next agent stages.
+- **An entry the kernel adds to the parent while it is served stays hidden**
+  until the daemon restarts. Entries inside existing ones, such as a new
+  network interface, appear as usual.
+
+Set `nodeAgent.dmi.enabled=false` or `nodeAgent.numa.enabled=false` to leave
+that part of `/sys` untouched; the chart then drops its Bidirectional mount as
+well. The DMI copy in the served PCI tree is staged either way, since a served
+container on a kind node with kernel DMI cannot start without it.
 
 ## Health
 
