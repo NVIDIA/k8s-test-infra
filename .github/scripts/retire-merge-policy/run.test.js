@@ -25,9 +25,10 @@ const REPO = { owner: "NVIDIA", repo: "k8s-test-infra" };
 const CONTEXT = { repo: REPO };
 const NAME = "repository-automation/merge-policy";
 const SHA = "c73f565a00247016253090079e8cec21951ff42d";
-const SUMMARY = "The repository-automation/merge-policy check is retired. mokka/merge-policy has been the merge "
-  + "gate since 2026-10-06, so this neutral result replaces the result the retired workflow left on this commit. "
-  + "It neither allows nor blocks a merge.";
+const SUMMARY = "The repository-automation/merge-policy check is retired and is no longer a required check; "
+  + "mokka/merge-policy has been the merge gate since 2026-10-06. This neutral result replaces the result the "
+  + "retired workflow left on this commit. If this check were required again, GitHub would count this neutral "
+  + "result as passing.";
 
 // The parameters of the one check run the script may write for #889.
 const NEUTRAL = {
