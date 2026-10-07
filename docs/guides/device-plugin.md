@@ -95,10 +95,18 @@ kubectl -n kube-system wait --for=condition=ready \
 ## Step 4 — Verify allocatable GPUs
 
 ```bash
+kubectl wait \
+  --for=jsonpath='{.status.allocatable.nvidia\.com/gpu}'=4 \
+  node --all --timeout=120s
+
 kubectl get nodes -o custom-columns='NODE:.metadata.name,GPUS:.status.allocatable.nvidia\.com/gpu'
 # NODE                                GPUS
 # mokka-device-plugin-control-plane   4
 ```
+
+Pod readiness only confirms that the device-plugin process is running. Kubelet
+registration and the node-status update happen asynchronously, so wait for the
+expected resource count before scheduling a GPU workload.
 
 The count comes from the profile — `gb300` is the default and carries four
 devices.
@@ -169,6 +177,13 @@ helm install nvml-mock-t4 oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 Deploy the device plugin as in Step 3, and each worker reports its own count:
 
 ```bash
+kubectl wait \
+  --for=jsonpath='{.status.allocatable.nvidia\.com/gpu}'=4 \
+  node -l nvml-mock/profile=a100 --timeout=120s
+kubectl wait \
+  --for=jsonpath='{.status.allocatable.nvidia\.com/gpu}'=2 \
+  node -l nvml-mock/profile=t4 --timeout=120s
+
 kubectl get nodes -l nvml-mock/profile \
   -o custom-columns='NODE:.metadata.name,GPUS:.status.allocatable.nvidia\.com/gpu'
 ```

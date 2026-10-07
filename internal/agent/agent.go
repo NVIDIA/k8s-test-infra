@@ -238,10 +238,7 @@ func (a *Agent) stage(ctx context.Context, state *State) error {
 		stageFailed []string
 	)
 	for _, sim := range a.simulators {
-		sim := sim
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if err := sim.Stage(ctx, state); err != nil {
 				a.log.Error("stage failed", zap.String("simulator", sim.Name()), zap.Error(err))
 				stageMu.Lock()
@@ -249,7 +246,7 @@ func (a *Agent) stage(ctx context.Context, state *State) error {
 				stageFailed = append(stageFailed, sim.Name())
 				stageMu.Unlock()
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -317,7 +314,6 @@ func (a *Agent) revoke(ctx context.Context) {
 func (a *Agent) discard(ctx context.Context) {
 	var g errgroup.Group
 	for _, sim := range a.simulators {
-		sim := sim
 		g.Go(func() error {
 			if err := sim.Discard(ctx); err != nil {
 				a.log.Error("discard failed", zap.String("simulator", sim.Name()), zap.Error(err))

@@ -31,7 +31,7 @@ import (
 )
 
 func TestReconcileCreatesDeterministicRacksAndIsIdempotent(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 2, 2)
 	inventory := testInventory("inventory", "inventory-uid", "p", 2)
 	nodes := []*corev1.Node{
@@ -96,7 +96,7 @@ func TestReconcileCreatesDeterministicRacksAndIsIdempotent(t *testing.T) {
 
 func TestReconcileCreatesCacheMissingRacksWithOneWriteEach(t *testing.T) {
 	const rackCount = 8
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", profile.Name, rackCount)
 	inventory.Finalizers = []string{InventoryFinalizer}
@@ -141,7 +141,7 @@ func TestReconcileRetriesCacheMissingRackWithChangedAllocationInputs(t *testing.
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			ctx := context.Background()
+			ctx := t.Context()
 			profile := testProfile("p", "profile-uid", 1, 1, 1)
 			inventory := testInventory("inventory", "inventory-uid", profile.Name, 1)
 			inventory.Finalizers = []string{InventoryFinalizer}
@@ -213,7 +213,7 @@ func TestReconcileRetriesCacheMissingRackWithChangedAllocationInputs(t *testing.
 }
 
 func TestReconcileComputesRevisionOncePerProfileObservation(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	shared := testProfile("shared", "shared-profile-uid", 7, 1, 1)
 	other := testProfile("other", "other-profile-uid", 3, 1, 1)
 	other.Spec.Software.DriverVersion = "other-driver"
@@ -326,7 +326,7 @@ func TestSupportedInventoryCapacityBoundariesAndOverflow(t *testing.T) {
 }
 
 func TestReconcileRejectsAggregateCapacityBeforeAllocationOrWrites(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", profile.Name, 50_000)
 	second := inventory.Spec.RackGroups[0]
@@ -360,7 +360,7 @@ func TestReconcileRejectsAggregateCapacityBeforeAllocationOrWrites(t *testing.T)
 }
 
 func TestReconcileRejectsAdmittedMaximumPerGroupBeforeProfileResolution(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	inventory := testInventory("inventory", "inventory-uid", "missing-profile", 100_000)
 	inventory.Spec.RackGroups = make([]mokkav1alpha1.RackGroup, 64)
 	for i := range inventory.Spec.RackGroups {
@@ -402,7 +402,7 @@ func TestReconcileGroupIndexesLargeBindingSetOnce(t *testing.T) {
 		nodesPerRack = 100
 		nodeCount    = rackCount * nodesPerRack
 	)
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, nodesPerRack, 1)
 	inventory := testInventory("inventory", "inventory-uid", profile.Name, rackCount)
 	inventory.Finalizers = []string{InventoryFinalizer}
@@ -496,7 +496,7 @@ func TestGroupAllocationIndexesOnlyChangedRackAmong100K(t *testing.T) {
 }
 
 func TestReconcileReportsOverlapAndRetainsLastGoodRackForMissingProfile(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
 	inventory.Finalizers = []string{InventoryFinalizer}
@@ -525,7 +525,7 @@ func TestReconcileReportsOverlapAndRetainsLastGoodRackForMissingProfile(t *testi
 func TestReconcileMaterializesHealthyGroupWhenSiblingProfileIsMissing(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("healthy-profile", "healthy-profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", profile.Name, 3)
 	inventory.Finalizers = []string{InventoryFinalizer}
@@ -559,7 +559,7 @@ func TestReconcileMaterializesHealthyGroupWhenSiblingProfileIsMissing(t *testing
 func TestReconcileGroupProcessesChangedRacksWhenSiblingProfileIsMissing(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("healthy-profile", "healthy-profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", profile.Name, 3)
 	inventory.Finalizers = []string{InventoryFinalizer}
@@ -610,7 +610,7 @@ func TestReconcileGroupProcessesChangedRacksWhenSiblingProfileIsMissing(t *testi
 }
 
 func TestReconcileExistingBindingWinsNewSelectorOverlap(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
 	node := testNode("node", "node-uid", 1, map[string]string{"pool": "gpu"})
@@ -635,7 +635,7 @@ func TestReconcileExistingBindingWinsNewSelectorOverlap(t *testing.T) {
 }
 
 func TestReconcileInvalidInventoryAndProfileRetainLastGoodRacks(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
 	node := testNode("node", "node-uid", 1, map[string]string{"pool": "gpu"})
@@ -675,7 +675,7 @@ func TestReconcileInvalidInventoryAndProfileRetainLastGoodRacks(t *testing.T) {
 }
 
 func TestReconcileProjectedLabelSelectorRetainsBindingWithoutWrites(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
 	node := testNode("node", "node-uid", 1, map[string]string{"pool": "gpu"})
@@ -716,7 +716,7 @@ func TestReconcileProjectedLabelSelectorRetainsBindingWithoutWrites(t *testing.T
 }
 
 func TestReconcileReleasesTerminatingNodeAsIneligible(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
 	node := testNode("node", "node-uid", 1, map[string]string{"pool": "gpu"})
@@ -740,7 +740,7 @@ func TestReconcileReleasesTerminatingNodeAsIneligible(t *testing.T) {
 }
 
 func TestReconcileUsesCurrentInventoryOverStaleListSnapshot(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
 	node := testNode("node", "node-uid", 1, map[string]string{"pool": "gpu"})
@@ -770,7 +770,7 @@ func TestReconcileUsesCurrentInventoryOverStaleListSnapshot(t *testing.T) {
 }
 
 func TestReconcileRendersRecreatedProfileWithoutMovingBindings(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "old-profile-uid", 1, 2, 1)
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
 	node := testNode("node", "node-uid", 1, map[string]string{"pool": "gpu"})
@@ -798,7 +798,7 @@ func TestReconcileRendersRecreatedProfileWithoutMovingBindings(t *testing.T) {
 }
 
 func TestReconcileShrinkWaitsForCleanupThenRetires(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 2, 1)
 	inventory := testInventory("inventory", "inventory-uid", "p", 2)
 	nodes := []*corev1.Node{
@@ -855,7 +855,7 @@ func TestReconcileShrinkWaitsForCleanupThenRetires(t *testing.T) {
 }
 
 func TestReconcileDoesNotGrowRackWhileRetiredCapacityAwaitsCleanup(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", profile.Name, 2)
 	nodes := []*corev1.Node{
@@ -896,7 +896,7 @@ func TestReconcileDoesNotGrowRackWhileRetiredCapacityAwaitsCleanup(t *testing.T)
 }
 
 func TestReconcileHandlesOwnerConflictAndRetriesOptimisticConflict(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
 	name := rackrender.RackName(inventory.Name, inventory.UID, "group", 0)
@@ -945,7 +945,7 @@ func TestReconcileHandlesOwnerConflictAndRetriesOptimisticConflict(t *testing.T)
 }
 
 func TestReconcileClassifiesInvalidRackCreateAsProfileIssue(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", profile.Name, 2)
 	h := newHarness(t, []runtime.Object{profile, inventory}, nil)
@@ -973,7 +973,7 @@ func TestReconcileClassifiesInvalidRackCreateAsProfileIssue(t *testing.T) {
 }
 
 func TestReconcileLeavesTransientRackCreateErrorsRetryable(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", profile.Name, 1)
 	h := newHarness(t, []runtime.Object{profile, inventory}, nil)
@@ -989,7 +989,7 @@ func TestReconcileLeavesTransientRackCreateErrorsRetryable(t *testing.T) {
 }
 
 func TestReconcileWaitsForGoneUIDCleanupBeforeAllocatingReplacement(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
 	old := testNode("same", "old-uid", 1, map[string]string{"pool": "gpu"})
@@ -1028,7 +1028,7 @@ func TestReconcileWaitsForGoneUIDCleanupBeforeAllocatingReplacement(t *testing.T
 }
 
 func TestReconcileRetriesWhenStaleRackUpdateFindsDeletedObject(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
 	old := testNode("same", "old-uid", 1, map[string]string{"pool": "gpu"})
@@ -1072,7 +1072,7 @@ func TestReconcileRetriesWhenStaleRackUpdateFindsDeletedObject(t *testing.T) {
 }
 
 func TestCleanupAcknowledgementSurvivesConflictAndStaleCache(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
 	node := testNode("node", "node-uid", 1, map[string]string{"pool": "gpu"})
@@ -1133,7 +1133,7 @@ func TestCleanupAcknowledgementSurvivesConflictAndStaleCache(t *testing.T) {
 }
 
 func TestReconcileDeletionFinalizersAndManualRackDeletion(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
 	node := testNode("node", "node-uid", 1, map[string]string{"pool": "gpu"})
@@ -1183,7 +1183,7 @@ func TestReconcileDeletionFinalizersAndManualRackDeletion(t *testing.T) {
 }
 
 func TestReconcileInventoryDeletionRetiresLiveCacheMissingRackBeforeFinalizer(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
 	inventory.Finalizers = []string{InventoryFinalizer}
 	now := metav1.Now()
@@ -1250,7 +1250,7 @@ func TestReconcileInventoryDeletionRetiresLiveCacheMissingRackBeforeFinalizer(t 
 }
 
 func TestReconcileInventoryDeletionPropagatesLiveListError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
 	inventory.Finalizers = []string{InventoryFinalizer}
 	now := metav1.Now()
@@ -1409,7 +1409,7 @@ func (h *harness) installRackUpdateReactor() {
 
 func (h *harness) sync(t *testing.T) {
 	t.Helper()
-	ctx := context.Background()
+	ctx := t.Context()
 	inventoryIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	profileIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	rackIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, Indexers())

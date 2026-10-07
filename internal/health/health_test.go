@@ -105,7 +105,7 @@ func TestReadyzReportsComponentAttribution(t *testing.T) {
 func TestRunWithoutAnAddressIsANoOp(t *testing.T) {
 	t.Parallel()
 
-	require.NoError(t, health.NewServer("", time.Second).Run(context.Background()))
+	require.NoError(t, health.NewServer("", time.Second).Run(t.Context()))
 }
 
 func TestRunFailsLoudlyOnAPortClash(t *testing.T) {
@@ -114,7 +114,7 @@ func TestRunFailsLoudlyOnAPortClash(t *testing.T) {
 	held := httptest.NewServer(http.NotFoundHandler())
 	t.Cleanup(held.Close)
 
-	err := health.NewServer(held.Listener.Addr().String(), time.Second).Run(context.Background())
+	err := health.NewServer(held.Listener.Addr().String(), time.Second).Run(t.Context())
 	require.ErrorContains(t, err, "listen on")
 }
 
@@ -123,7 +123,7 @@ func TestRunServesUntilContextCancellation(t *testing.T) {
 
 	srv := health.NewServer("127.0.0.1:0", 500*time.Millisecond)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- srv.Run(ctx) }()
 

@@ -296,8 +296,7 @@ func BenchmarkAllocator100kNodes(b *testing.B) {
 	}
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		plan, err := Allocate(input)
 		require.NoError(b, err)
 		require.Len(b, plan.Assigned, nodeCount)

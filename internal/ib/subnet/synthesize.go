@@ -252,7 +252,7 @@ func putGUID64(mad []byte, byteOff int, guidColon string) {
 	var parts [4]uint16
 	n, _ := parseGUID(guidColon)
 	copy(parts[:], n[:])
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		binary.BigEndian.PutUint16(mad[byteOff+i*2:], parts[i])
 	}
 }
@@ -261,7 +261,7 @@ func putGUID64(mad []byte, byteOff int, guidColon string) {
 func parseGUID(s string) ([4]uint16, bool) {
 	var out [4]uint16
 	var hex []byte
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		c := s[i]
 		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') {
 			hex = append(hex, c)
@@ -271,9 +271,9 @@ func parseGUID(s string) ([4]uint16, bool) {
 		return out, false
 	}
 	hex = hex[len(hex)-16:]
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		var v uint16
-		for j := 0; j < 4; j++ {
+		for j := range 4 {
 			v = v<<4 | hexDigit(hex[i*4+j])
 		}
 		out[i] = v

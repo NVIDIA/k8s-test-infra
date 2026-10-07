@@ -23,20 +23,20 @@ func TestGPUAllocationEvidence(t *testing.T) {
 		allocated bool
 	}{
 		"nothing":             {},
-		"gpu zero exact":      {Container{IncomingDevices: []RuntimeDevice{device("/dev/nvidia0", 195, 0)}, DeviceRules: []DeviceRule{grant(true, int64Ptr(195), int64Ptr(0))}}, true},
-		"gpu seventeen exact": {Container{IncomingDevices: []RuntimeDevice{device("/dev/nvidia17", 195, 17)}, DeviceRules: []DeviceRule{grant(true, int64Ptr(195), int64Ptr(17))}}, true},
-		"wrong minor":         {Container{IncomingDevices: []RuntimeDevice{device("/dev/nvidia0", 195, 0)}, DeviceRules: []DeviceRule{grant(true, int64Ptr(195), int64Ptr(1))}}, false},
-		"wrong major":         {Container{IncomingDevices: []RuntimeDevice{device("/dev/nvidia0", 195, 0)}, DeviceRules: []DeviceRule{grant(true, int64Ptr(1), int64Ptr(0))}}, false},
-		"deny only":           {Container{IncomingDevices: []RuntimeDevice{device("/dev/nvidia0", 195, 0)}, DeviceRules: []DeviceRule{grant(false, int64Ptr(195), int64Ptr(0))}}, false},
-		"mknod only":          {Container{IncomingDevices: []RuntimeDevice{device("/dev/nvidia0", 195, 0)}, DeviceRules: []DeviceRule{{Allow: true, Type: "c", Major: int64Ptr(195), Minor: int64Ptr(0), Access: "m"}}}, false},
+		"gpu zero exact":      {Container{IncomingDevices: []RuntimeDevice{device("/dev/nvidia0", 195, 0)}, DeviceRules: []DeviceRule{grant(true, new(int64(195)), new(int64(0)))}}, true},
+		"gpu seventeen exact": {Container{IncomingDevices: []RuntimeDevice{device("/dev/nvidia17", 195, 17)}, DeviceRules: []DeviceRule{grant(true, new(int64(195)), new(int64(17)))}}, true},
+		"wrong minor":         {Container{IncomingDevices: []RuntimeDevice{device("/dev/nvidia0", 195, 0)}, DeviceRules: []DeviceRule{grant(true, new(int64(195)), new(int64(1)))}}, false},
+		"wrong major":         {Container{IncomingDevices: []RuntimeDevice{device("/dev/nvidia0", 195, 0)}, DeviceRules: []DeviceRule{grant(true, new(int64(1)), new(int64(0)))}}, false},
+		"deny only":           {Container{IncomingDevices: []RuntimeDevice{device("/dev/nvidia0", 195, 0)}, DeviceRules: []DeviceRule{grant(false, new(int64(195)), new(int64(0)))}}, false},
+		"mknod only":          {Container{IncomingDevices: []RuntimeDevice{device("/dev/nvidia0", 195, 0)}, DeviceRules: []DeviceRule{{Allow: true, Type: "c", Major: new(int64(195)), Minor: new(int64(0)), Access: "m"}}}, false},
 		"privileged wildcard": {Container{IncomingDevices: []RuntimeDevice{device("/dev/nvidia0", 195, 0)}, DeviceRules: []DeviceRule{grant(true, nil, nil)}}, false},
 		"numbered node alone": {Container{IncomingDevices: []RuntimeDevice{device("/dev/nvidia0", 195, 0)}}, false},
-		"control":             {Container{IncomingDevices: []RuntimeDevice{device("/dev/nvidiactl", 195, 255)}, DeviceRules: []DeviceRule{grant(true, int64Ptr(195), int64Ptr(255))}}, false},
-		"uvm":                 {Container{IncomingDevices: []RuntimeDevice{device("/dev/nvidia-uvm", 511, 0)}, DeviceRules: []DeviceRule{grant(true, int64Ptr(511), int64Ptr(0))}}, false},
-		"uvm tools":           {Container{IncomingDevices: []RuntimeDevice{device("/dev/nvidia-uvm-tools", 511, 1)}, DeviceRules: []DeviceRule{grant(true, int64Ptr(511), int64Ptr(1))}}, false},
-		"suffix":              {Container{IncomingDevices: []RuntimeDevice{device("/dev/nvidia0extra", 195, 0)}, DeviceRules: []DeviceRule{grant(true, int64Ptr(195), int64Ptr(0))}}, false},
-		"negative":            {Container{IncomingDevices: []RuntimeDevice{device("/dev/nvidia-1", 195, 0)}, DeviceRules: []DeviceRule{grant(true, int64Ptr(195), int64Ptr(0))}}, false},
-		"unrelated node":      {Container{IncomingDevices: []RuntimeDevice{device("/dev/fuse", 10, 229)}, DeviceRules: []DeviceRule{grant(true, int64Ptr(10), int64Ptr(229))}}, false},
+		"control":             {Container{IncomingDevices: []RuntimeDevice{device("/dev/nvidiactl", 195, 255)}, DeviceRules: []DeviceRule{grant(true, new(int64(195)), new(int64(255)))}}, false},
+		"uvm":                 {Container{IncomingDevices: []RuntimeDevice{device("/dev/nvidia-uvm", 511, 0)}, DeviceRules: []DeviceRule{grant(true, new(int64(511)), new(int64(0)))}}, false},
+		"uvm tools":           {Container{IncomingDevices: []RuntimeDevice{device("/dev/nvidia-uvm-tools", 511, 1)}, DeviceRules: []DeviceRule{grant(true, new(int64(511)), new(int64(1)))}}, false},
+		"suffix":              {Container{IncomingDevices: []RuntimeDevice{device("/dev/nvidia0extra", 195, 0)}, DeviceRules: []DeviceRule{grant(true, new(int64(195)), new(int64(0)))}}, false},
+		"negative":            {Container{IncomingDevices: []RuntimeDevice{device("/dev/nvidia-1", 195, 0)}, DeviceRules: []DeviceRule{grant(true, new(int64(195)), new(int64(0)))}}, false},
+		"unrelated node":      {Container{IncomingDevices: []RuntimeDevice{device("/dev/fuse", 10, 229)}, DeviceRules: []DeviceRule{grant(true, new(int64(10)), new(int64(229)))}}, false},
 		// The names the device plugin's cdi-cri strategy hands the runtime:
 		// its CDI vendor is fixed, the id follows --device-id-strategy.
 		"device plugin cdi uuid":          {Container{CDIDevices: []string{"k8s.device-plugin.nvidia.com/gpu=GPU-c4d588f9-c5b0-9747-89b1-eda3f955765e"}}, true},
@@ -67,7 +67,7 @@ func TestAllocationAwareAdjustments(t *testing.T) {
 		return Container{
 			Namespace:       "default",
 			IncomingDevices: []RuntimeDevice{{Path: "/dev/nvidia" + strconv.FormatInt(index, 10), Type: "c", Major: 195, Minor: index}},
-			DeviceRules:     []DeviceRule{{Allow: true, Type: "c", Major: int64Ptr(195), Minor: int64Ptr(index), Access: "rwm"}},
+			DeviceRules:     []DeviceRule{{Allow: true, Type: "c", Major: new(int64(195)), Minor: new(index), Access: "rwm"}},
 		}
 	}
 	withManagement := func(container Container) Container {

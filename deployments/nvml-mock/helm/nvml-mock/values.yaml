@@ -501,6 +501,24 @@ controlPlane:
       memory: 1Gi
   nodeSelector: {}
   tolerations: []
+  # With replicas > 1, pod anti-affinity on kubernetes.io/hostname keeps the
+  # standby off the leader's node, so losing one node does not stop both.
+  priorityClassName: ""
+  affinity: {}
+  topologySpreadConstraints: []
+  podAnnotations: {}
+  # Must not set the selector labels app.kubernetes.io/{name,instance,component}.
+  podLabels: {}
+  # PodDisruptionBudget bounding voluntary disruptions of the replicas, such as
+  # node drains. Rendered only with replicas > 1: over a single replica it
+  # either blocks every drain or protects nothing. Bounds are a count or a
+  # percentage; maxUnavailable wins if both are set, and with neither
+  # minAvailable is 1. A minAvailable equal to replicas blocks every drain of a
+  # node running a replica.
+  pdb:
+    enabled: false
+    # minAvailable: 1
+    # maxUnavailable: 1
 
 # Additional Kubernetes objects rendered with the release, each passed through
 # tpl so it can reference chart values (e.g. "{{ .Release.Name }}"). Either a
