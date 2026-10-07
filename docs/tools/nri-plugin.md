@@ -141,5 +141,5 @@ The binary is installed in the nvml-mock image at `/usr/local/bin/nri-plugin`.
 
 - [Command-line tools](README.md)
 - [NRI Plugin](../components/nri-plugin.md) — what it injects, and what it skips
-- [Node-Wide Injection](../guides/node-wide-injection/README.md) — a runnable walkthrough
+- [Set up NRI injection](../guides/nri-injection.md) — check that the plugin injects
 - [Installation](../helm-chart.md) — every `nri` chart value

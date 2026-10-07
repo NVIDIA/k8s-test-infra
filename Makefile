@@ -666,7 +666,7 @@ image-load:
 #   make e2e-dra                   # DRA scenario
 #   make e2e-gpu-operator          # GPU Operator scenario
 #   make e2e-multi-node            # heterogeneous A100/T4 multi-node scenario
-#   make e2e-nri                   # node-wide NRI ambient-injection scenario
+#   make e2e-nri                   # NRI injection scenario
 #   make e2e-nfd                   # NFD label-provenance scenario
 #   make e2e-mig                   # MIG scenario, device plugin in migStrategy=single
 # CI builds the image once per run. Every leg loads it into Kind and sets

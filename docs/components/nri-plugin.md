@@ -260,5 +260,5 @@ copies, see
 |---|---|
 | How the whole system fits together | [Architecture](../architecture.md) |
 | What stages the tree this plugin mounts | [Node Daemon](node-daemon.md) |
-| Enabling NRI and its chart values | [Installation](../helm-chart.md) |
-| A runnable walkthrough | [Node-Wide Injection](../guides/node-wide-injection/README.md) |
+| Its chart values | [Installation](../helm-chart.md) |
+| Checking that it injects | [Set up NRI injection](../guides/nri-injection.md) |

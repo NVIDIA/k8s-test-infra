@@ -90,7 +90,7 @@ kubectl -n kube-system wait --for=condition=ready \
 |---|---|
 | `--nvidia-driver-root`, `--driver-root-ctr-path` | Point the plugin at Mokka's staged tree instead of a real driver root |
 | `--device-discovery-strategy=nvml` | Discover through NVML, which is the interface Mokka implements |
-| `--pass-device-specs=true` | Deliver the device nodes into the container. Required if you also run [node-wide NRI injection](node-wide-injection/README.md), so the two do not both inject |
+| `--pass-device-specs=true` | Deliver the device nodes into the container. Required for Mokka's [NRI plugin](../components/nri-plugin.md#recognising-a-gpu-allocation) to recognise the allocation |
 
 ## Step 4 — Verify allocatable GPUs
 
@@ -217,4 +217,4 @@ kind delete cluster --name mokka-device-plugin
 | Every chart value | [Installation](../helm-chart.md) |
 | Node labelling and the full operand stack | [NVIDIA GPU Operator](gpu-operator.md) |
 | Claim-based allocation instead of counters | [NVIDIA DRA Driver](dra.md) |
-| GPUs without a resource request | [Node-Wide Injection](node-wide-injection/README.md) |
+| GPUs without a resource request | [The `devices` annotation](../components/nri-plugin.md#which-containers-are-injected) |

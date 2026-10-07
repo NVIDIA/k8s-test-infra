@@ -144,8 +144,7 @@ tests that must not be scoped by `E2E_PROFILES`.
 
 ### Node-wide NRI injection
 
-The Go port of the [node-wide injection demo](../../docs/guides/node-wide-injection).
-It installs the profile with `nri.enabled=true` and, for fabric-attached
+The scenario installs the profile with `nri.enabled=true` and, for fabric-attached
 profiles, a generated two-clique ComputeDomain overlay derived from the
 discovered worker names. It then applies the
 [`nri-gpu-agent.yaml`](go/assets/nri-gpu-agent.yaml) DaemonSet, which carries

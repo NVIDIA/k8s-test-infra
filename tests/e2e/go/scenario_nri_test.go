@@ -83,10 +83,10 @@ const (
 	nriIBAnnotation = "nvml-mock.nvidia.com/infiniband"
 )
 
-// Go port of docs/guides/node-wide-injection/run.sh. A dedicated Kind cluster
-// with containerd NRI enabled is created once; the nvml-mock chart is installed
-// per selected GPU profile with `nri.enabled=true` (plus a per-node
-// ComputeDomain overlay for fabric-attached profiles). The scenario then proves
+// A dedicated Kind cluster with containerd NRI enabled is created once; the
+// nvml-mock chart is installed per selected GPU profile with `nri.enabled=true`
+// (plus a per-node ComputeDomain overlay for fabric-attached profiles). The
+// scenario then proves
 // that a `gpu-agent` DaemonSet — no `nvidia.com/gpu` request, no hostPath/mock
 // volumes, no `MOCK_*` env, only the devices annotation — sees the full mock GPU
 // stack purely through NRI injection, and that each node carries its assigned
