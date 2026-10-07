@@ -258,6 +258,17 @@ test("unreadable branch rules refuse every write", async () => {
   assert.deepEqual(result, refusal(reason));
 });
 
+test("branch rules that are not a list refuse every write", async () => {
+  const { github, core, result } = await execute({
+    handlers: { "repos.getBranchRules": () => ({ message: "Not Found" }) },
+  });
+
+  const reason = "refusing to write: cannot read the required checks of main: the rules response is not a list";
+  assert.deepEqual(writes(github), []);
+  assert.deepEqual(core.failed, [reason]);
+  assert.deepEqual(result, refusal(reason));
+});
+
 test("branch rules that fill a whole page refuse every write", async () => {
   const { github, core, result } = await execute({
     handlers: { "repos.getBranchRules": () => Array.from({ length: 100 }, () => RULES[0]) },
