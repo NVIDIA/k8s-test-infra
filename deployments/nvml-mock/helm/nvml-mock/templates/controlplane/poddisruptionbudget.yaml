@@ -1,0 +1,29 @@
+{{- if and .Values.controlPlane.enabled .Values.controlPlane.podDisruptionBudget.enabled }}
+{{- $pdb := .Values.controlPlane.podDisruptionBudget }}
+{{- /* Compared as strings so 0 counts as set; a null deletes the key and reads back as <nil>. */}}
+{{- $unset := list "" "<nil>" }}
+{{- $hasMin := not (has (toString $pdb.minAvailable) $unset) }}
+{{- $hasMax := not (has (toString $pdb.maxUnavailable) $unset) }}
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "nvml-mock.controlPlaneName" . }}
+  labels:
+    {{- include "nvml-mock.controlPlaneLabels" . | nindent 4 }}
+    app.kubernetes.io/component: control-plane
+spec:
+  selector:
+    matchLabels:
+      {{- include "nvml-mock.controlPlaneSelectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: control-plane
+  {{- if $hasMin }}
+  minAvailable: {{ $pdb.minAvailable }}
+  {{- end }}
+  {{- if $hasMax }}
+  maxUnavailable: {{ $pdb.maxUnavailable }}
+  {{- else if not $hasMin }}
+  maxUnavailable: 1
+  {{- end }}
+{{- end }}

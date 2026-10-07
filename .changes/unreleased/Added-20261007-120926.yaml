@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  helm: set `controlPlane.podDisruptionBudget.enabled` to keep node drains and cluster upgrades from evicting more control-plane replicas than the budget allows; it allows one disruption unless `minAvailable` or `maxUnavailable` is set.
+time: 2026-10-07T10:09:26Z

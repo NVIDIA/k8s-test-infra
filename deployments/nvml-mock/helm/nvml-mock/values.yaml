@@ -496,9 +496,18 @@ controlPlane:
   # standby off the leader's node, so losing one node does not stop both.
   priorityClassName: ""
   affinity: {}
+  topologySpreadConstraints: []
   podAnnotations: {}
   # Must not set the selector labels app.kubernetes.io/{name,instance,component}.
   podLabels: {}
+  # Bounds voluntary disruptions of the replicas, such as node drains. Set one
+  # of minAvailable or maxUnavailable, as a count or a percentage; with neither,
+  # maxUnavailable is 1. A minAvailable equal to replicas blocks every drain of
+  # a node running a replica.
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: ""
+    maxUnavailable: ""
 
 # Additional Kubernetes objects rendered with the release, each passed through
 # tpl so it can reference chart values (e.g. "{{ .Release.Name }}"). Either a

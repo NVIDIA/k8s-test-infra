@@ -572,12 +572,35 @@
           "additionalProperties": { "type": "string" },
           "description": "Labels added to the control-plane pods. Must not set the selector labels."
         },
+        "topologySpreadConstraints": {
+          "type": "array",
+          "description": "Topology spread constraints for the control-plane pods, e.g. across zones."
+        },
+        "podDisruptionBudget": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "PodDisruptionBudget for the control-plane pods. Set one of minAvailable or maxUnavailable; with neither, maxUnavailable is 1.",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "minAvailable": { "$ref": "#/$defs/disruptionBound" },
+            "maxUnavailable": { "$ref": "#/$defs/disruptionBound" }
+          }
+        },
         "terminationGracePeriodSeconds": {
           "type": "integer",
           "minimum": 0,
           "description": "Pod-level grace period. Must be >= preStop sleep + shutdownTimeout, otherwise kube SIGKILLs the drain window."
         }
       }
+    }
+  },
+  "$defs": {
+    "disruptionBound": {
+      "description": "A pod count, a percentage such as \"50%\", or \"\" for unset.",
+      "oneOf": [
+        { "type": "integer", "minimum": 0 },
+        { "type": "string", "pattern": "^([0-9]+%)?$" }
+      ]
     }
   }
 }

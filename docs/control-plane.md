@@ -32,11 +32,13 @@ digest published for the control-plane image. A digest takes precedence over
 
 The control-plane pods are scheduled and labelled independently of the node
 DaemonSet, through `controlPlane.nodeSelector`, `controlPlane.tolerations`,
-`controlPlane.affinity`, `controlPlane.priorityClassName`,
-`controlPlane.podLabels` and `controlPlane.podAnnotations`. They take the same
-forms as their [node DaemonSet counterparts](helm-chart.md#values). With
-`controlPlane.replicas` above 1, pod anti-affinity on `kubernetes.io/hostname`
-keeps the standby replica off the leader's node:
+`controlPlane.affinity`, `controlPlane.topologySpreadConstraints`,
+`controlPlane.priorityClassName`, `controlPlane.podLabels` and
+`controlPlane.podAnnotations`. They take the same forms as their
+[node DaemonSet counterparts](helm-chart.md#values) and the Kubernetes pod
+spec. With `controlPlane.replicas` above 1, pod anti-affinity on
+`kubernetes.io/hostname` keeps the standby replica off the leader's node, and a
+spread constraint on `topology.kubernetes.io/zone` keeps it in another zone:
 
 ```yaml
 controlPlane:
@@ -50,7 +52,22 @@ controlPlane:
             labelSelector:
               matchLabels:
                 app.kubernetes.io/name: nvml-mock-control-plane
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: nvml-mock-control-plane
 ```
+
+`controlPlane.podDisruptionBudget.enabled` adds a
+[PodDisruptionBudget](https://kubernetes.io/docs/concepts/workloads/pods/disruptions/)
+that bounds how many replicas a node drain or cluster upgrade may evict at
+once. Set one of `minAvailable` or `maxUnavailable`, as a count or a
+percentage; with neither, `maxUnavailable` is 1, which still lets the default
+single replica be drained. A `minAvailable` equal to `controlPlane.replicas`
+blocks every drain of a node that runs a replica.
 
 Uninstalling the `mokka-crds` release retains the CRDs and existing Mokka
 resources. Removing the Mokka API and its resources requires deleting the CRDs
