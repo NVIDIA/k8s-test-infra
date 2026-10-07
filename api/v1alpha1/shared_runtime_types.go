@@ -248,7 +248,7 @@ func mergePatch(document, patch map[string]any) {
 // leafJSONPaths returns the dotted path of every value in document that is not
 // itself an object.
 func leafJSONPaths(document map[string]any) []string {
-	var paths = make([]string, len(document))
+	var paths []string
 
 	for name, value := range document {
 		group, isGroup := value.(map[string]any)
