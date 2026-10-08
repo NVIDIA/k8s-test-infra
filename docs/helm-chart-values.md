@@ -22,6 +22,7 @@ Kubernetes: `>= 1.28.0-0`
 | allocationWatcher.resources.requests.cpu | string | `"10m"` | CPU request for the allocation watcher. |
 | allocationWatcher.resources.requests.memory | string | `"32Mi"` | Memory request for the allocation watcher. |
 | allocationWatcher.usedFractionPerClaim | float | `0.5` | Fraction of usable GPU memory attributed to each claim. |
+| controlPlane.affinity | object | `{}` |  |
 | controlPlane.enabled | bool | `false` | Enable the Mokka control-plane service. |
 | controlPlane.image.digest | string | `""` | Immutable digest; when set, it takes precedence over the tag. |
 | controlPlane.image.pullPolicy | string | `"IfNotPresent"` | Kubernetes image pull policy for the control plane. |
@@ -33,6 +34,10 @@ Kubernetes: `>= 1.28.0-0`
 | controlPlane.logging.format | string | `"json"` | Control-plane log encoding. |
 | controlPlane.logging.level | string | `"info"` | Control-plane log level. |
 | controlPlane.nodeSelector | object | `{}` | Node selector for control-plane pods. |
+| controlPlane.pdb.enabled | bool | `false` |  |
+| controlPlane.podAnnotations | object | `{}` |  |
+| controlPlane.podLabels | object | `{}` |  |
+| controlPlane.priorityClassName | string | `""` |  |
 | controlPlane.replicas | int | `1` | Number of control-plane replicas. |
 | controlPlane.resources.limits.cpu | string | `"500m"` | CPU limit for the control plane. |
 | controlPlane.resources.limits.memory | string | `"1Gi"` | Memory limit for the control plane. |
@@ -43,6 +48,7 @@ Kubernetes: `>= 1.28.0-0`
 | controlPlane.shutdownTimeout | string | `"5s"` | Graceful control-plane shutdown timeout. |
 | controlPlane.terminationGracePeriodSeconds | int | `30` | Pod termination grace period for the control plane. |
 | controlPlane.tolerations | list | `[]` | Tolerations for control-plane pods. |
+| controlPlane.topologySpreadConstraints | list | `[]` |  |
 | controlPlane.workers | int | `2` | Number of control-plane worker goroutines. |
 | driverVersion | string | `""` | Driver version reported by the simulated driver; empty derives it from the profile. |
 | extraObjects | list | `[]` | Additional Kubernetes objects rendered with the release after tpl evaluation. |
@@ -100,7 +106,7 @@ Kubernetes: `>= 1.28.0-0`
 | nri.cdiSpecDir | string | `"/var/run/cdi"` | Host directory containing staged CDI specifications. |
 | nri.deviceAnnotation | string | `"nvml-mock.nvidia.com/devices"` | Pod annotation enabling mock GPU device injection. |
 | nri.deviceInjectionMode | string | `"raw"` | Device injection mode: raw nodes or CDI references. |
-| nri.enabled | bool | `false` | Enable node-wide container injection through the NRI plugin. |
+| nri.enabled | bool | `true` | Enable node-wide container injection through the NRI plugin. Inject the mock into containers that hold a GPU allocation or opt in by annotation. Needs containerd NRI enabled on the node: containerd 2.x enables it by default, containerd 1.7 does not. Set false where it is off; otherwise the node pod stays NotReady. |
 | nri.excludedNamespaces | list | `[]` | Namespaces excluded from NRI injection. |
 | nri.healthPort | int | `8080` | NRI plugin health and readiness port. |
 | nri.image | object | `{}` | Optional container image overrides for the NRI plugin. |
@@ -124,7 +130,7 @@ Kubernetes: `>= 1.28.0-0`
 | nri.readinessProbe.httpGet.port | string | `"nri-health"` | Readiness endpoint port name. |
 | nri.readinessProbe.periodSeconds | int | `10` | Readiness probe interval. |
 | nri.readinessProbe.timeoutSeconds | int | `2` | Readiness probe timeout. |
-| nri.resources | object | `{}` | Additional NRI plugin resources. |
+| nri.resources | object | `{"requests":{"cpu":"10m","memory":"32Mi"}}` | NRI plugin resource requests; limits are unset by default. Requests only: the plugin runs on every node by default, and no limit is set until its usage under load has been measured. |
 | nri.socketPath | string | `"/var/run/nri/nri.sock"` | Runtime NRI socket path. |
 | podAnnotations | object | `{}` | Additional annotations applied to node-agent pods. |
 | podLabels | object | `{}` | Additional labels for node-agent pods; do not set app.kubernetes.io selector labels. |
