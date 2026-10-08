@@ -4,6 +4,9 @@
 # Loadable Tiltfile: NVIDIA Dynamo consumer.
 #
 # Exports:
+#   UPSERT_TIMEOUT_S: the Tilt apply timeout install() needs. The root passes
+#     the largest active consumer's value to update_settings, so this file
+#     never calls it.
 #   install(nvml_mock_releases) — install the Dynamo platform (operator only)
 #     and an aggregated DynamoGraphDeployment whose worker runs Dynamo's mocker
 #     engine on a mock GPU, plus a manual trigger that asserts the whole path.
@@ -33,6 +36,8 @@ _VERSION = '1.5.0'
 # Dynamo docs mention does not resolve for 1.5.0.
 _CHART = 'https://helm.ngc.nvidia.com/nvidia/ai-dynamo/charts/dynamo-platform-%s.tgz' % _VERSION
 _HELM_TIMEOUT_S = 300
+# Tilt caps a k8s apply at 30s by default, which the --wait below exceeds.
+UPSERT_TIMEOUT_S = _HELM_TIMEOUT_S + 60
 _DGD = 'local/dynamo/qwen3.yaml'
 _DGD_NAME = 'qwen3'
 # The Dynamo frontend's default HTTP port, which the operator also uses for the
@@ -42,9 +47,6 @@ _FRONTEND_PORT = 8000
 
 def install(nvml_mock_releases):
     """Install the Dynamo platform, the mocker graph and its smoke trigger."""
-    # Tilt caps a k8s apply at 30s by default, which the --wait below exceeds.
-    update_settings(k8s_upsert_timeout_secs=_HELM_TIMEOUT_S + 60)
-
     helm_resource(
         RELEASE,
         _CHART,

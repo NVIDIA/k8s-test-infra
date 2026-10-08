@@ -12,6 +12,10 @@
 #   3. Add a load(...) for the new tiltfile.
 #   4. Add `if with_<name>: active_consumers.append('<name>')`.
 #   5. Add `if with_<name>: <name>_install(nvml_mock_releases)`.
+# Optional: if install() waits on something slower than Tilt's 30s apply
+# timeout (helm --wait), export UPSERT_TIMEOUT_S and add it to the
+# "Apply timeout" block below. Never call update_settings from the
+# consumer: it is session-wide and the last call wins.
 # The nvml-mock stack itself needs no changes to add a consumer.
 # Optional: drop local/<name>/nvml-mock.values.yaml if the consumer
 # needs mock-side tweaks (MOCK_* env vars, gpu.count overrides, etc.).
@@ -42,8 +46,11 @@ load('./local/fgo/fgo.tiltfile', fgo_install='install')
 load('./local/topograph/topograph.tiltfile', topograph_install='install')
 load('./local/observability/observability.tiltfile',
      observability_install='install',
-     observability_gpu_operator_values='GPU_OPERATOR_VALUES')
-load('./local/dynamo/dynamo.tiltfile', dynamo_install='install')
+     observability_gpu_operator_values='GPU_OPERATOR_VALUES',
+     observability_upsert_timeout_s='UPSERT_TIMEOUT_S')
+load('./local/dynamo/dynamo.tiltfile',
+     dynamo_install='install',
+     dynamo_upsert_timeout_s='UPSERT_TIMEOUT_S')
 
 # --- Flags ---------------------------------------------------------------
 config.define_string('gpu-profile', args=False,
@@ -219,6 +226,20 @@ if with_topograph:
 if with_observability:
     helm_repo('prometheus-community', 'https://prometheus-community.github.io/helm-charts',
               labels=['observability'])
+
+# --- Apply timeout -------------------------------------------------------
+# Tilt caps every k8s apply at 30s by default, which a consumer's helm --wait
+# blows through. update_settings is session-wide and the last call wins, so
+# it is set once here, to the largest timeout any active consumer needs: a
+# consumer setting its own would cut short another's longer install. Raised
+# only when such a consumer is on, so every other session keeps the default.
+upsert_timeouts = []
+if with_observability:
+    upsert_timeouts.append(observability_upsert_timeout_s)
+if with_dynamo:
+    upsert_timeouts.append(dynamo_upsert_timeout_s)
+if upsert_timeouts:
+    update_settings(k8s_upsert_timeout_secs=max(upsert_timeouts))
 
 # --- Consumers -----------------------------------------------------------
 # Monitoring goes in BEFORE the GPU Operator: kube-prometheus-stack ships the
