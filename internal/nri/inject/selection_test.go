@@ -107,7 +107,7 @@ func TestAdjustComposesIndependentSelections(t *testing.T) {
 		t.Run("selected="+strings.Join(name, "+"), func(t *testing.T) {
 			t.Parallel()
 
-			adjustment, ok := Adjust(cfg, Container{Namespace: "default", PodAnnotations: annotations})
+			adjustment, ok := requireAdjust(t, cfg, Container{Namespace: "default", PodAnnotations: annotations})
 			require.Equal(t, test.gpu || test.ib || test.imex, ok)
 			require.Equal(t, test.want, observe(adjustment))
 			if !test.gpu && !test.ib {
@@ -153,7 +153,7 @@ func TestAdjustDoesNotSelectFromInheritedDevices(t *testing.T) {
 			t.Parallel()
 
 			container.Namespace = "default"
-			adjustment, ok := Adjust(DefaultConfig(), container)
+			adjustment, ok := requireAdjust(t, DefaultConfig(), container)
 			require.False(t, ok)
 			require.Empty(t, adjustment)
 		})
@@ -169,7 +169,7 @@ func TestAdjustDoesNotSelectFromInheritedDevices(t *testing.T) {
 		cfg := DefaultConfig()
 		cfg.HostOverlayPath = stageHCA(t)
 		cfg.DeviceHostPath = stageDeviceNodes(t, "nvidia0", "nvidia1")
-		adjustment, ok := Adjust(cfg, Container{
+		adjustment, ok := requireAdjust(t, cfg, Container{
 			Namespace:       "default",
 			PodAnnotations:  map[string]string{cfg.DeviceAnnotation: "true"},
 			IncomingDevices: inherited,
@@ -188,7 +188,7 @@ func TestAdjustKeepsAnAllocationWhenInfiniBandIsSelected(t *testing.T) {
 	cfg.HostOverlayPath = stageHCA(t)
 	cfg.DeviceHostPath = stageDeviceNodes(t, "nvidia0", "nvidia1")
 
-	adjustment, ok := Adjust(cfg, Container{
+	adjustment, ok := requireAdjust(t, cfg, Container{
 		Namespace:       "default",
 		PodAnnotations:  map[string]string{cfg.InfiniBandAnnotation: "true"},
 		IncomingDevices: []RuntimeDevice{{Path: "/dev/nvidia1", Type: "c", Major: 195, Minor: 1}},
@@ -226,7 +226,7 @@ func TestAdjustEnvironmentOverridePolicy(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			adjustment, ok := Adjust(cfg, Container{
+			adjustment, ok := requireAdjust(t, cfg, Container{
 				Namespace:      "default",
 				PodAnnotations: test.annotations,
 				Env:            []string{test.env},
@@ -251,7 +251,7 @@ func TestAdjustWarnsWhenInfiniBandIsSelectedWithoutStagedHCAs(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.HostOverlayPath = t.TempDir()
 
-	adjustment, ok := Adjust(cfg, Container{
+	adjustment, ok := requireAdjust(t, cfg, Container{
 		Namespace:      "default",
 		PodAnnotations: map[string]string{cfg.InfiniBandAnnotation: "true"},
 	})

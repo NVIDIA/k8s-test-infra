@@ -140,6 +140,100 @@ tests:
             name: GPU_COUNT
             value: "4"
 
+  - it: should not stage IMEX node software by default
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: IMEX_NODE_SOFTWARE_ENABLED
+            value: "true"
+
+  - it: should stage IMEX node software when the node simulates IMEX
+    set:
+      imex:
+        mockChannels:
+          enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: IMEX_NODE_SOFTWARE_ENABLED
+            value: "true"
+
+  - it: should let an explicit false opt out of the IMEX download
+    set:
+      imex:
+        mockChannels:
+          enabled: true
+        nodeSoftware:
+          enabled: false
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: IMEX_NODE_SOFTWARE_ENABLED
+            value: "true"
+
+  - it: should reject an IMEX node software value that is not a tri-state
+    set:
+      imex:
+        nodeSoftware:
+          enabled: "yes"
+    asserts:
+      - failedTemplate: {}
+
+  - it: should allow IMEX node software staging to be enabled
+    set:
+      imex:
+        nodeSoftware:
+          enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: IMEX_NODE_SOFTWARE_ENABLED
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOKKA_IMEX_DOWNLOAD_TIMEOUT
+            value: 1m
+
+  # helm upgrade --reuse-values from a release without imex.nodeSoftware (such
+  # as v0.4.0) renders the block as absent. With mock channels on, node
+  # software still follows them, and the timeout must fall back to the agent's
+  # default instead of failing the render.
+  - it: should stage IMEX node software without a download timeout on a reused v0.4.0 values tree
+    set:
+      imex:
+        mockChannels:
+          enabled: true
+        nodeSoftware: null
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: IMEX_NODE_SOFTWARE_ENABLED
+            value: "true"
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOKKA_IMEX_DOWNLOAD_TIMEOUT
+          any: true
+
+  - it: should pass an IMEX download timeout override to the node agent
+    set:
+      imex:
+        nodeSoftware:
+          enabled: true
+          downloadTimeout: 90s
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOKKA_IMEX_DOWNLOAD_TIMEOUT
+            value: 90s
+
   - it: should set default DRIVER_VERSION for non-Blackwell profile
     set:
       gpu:

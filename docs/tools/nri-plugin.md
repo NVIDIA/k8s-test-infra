@@ -62,6 +62,7 @@ Every flag also reads an environment variable; the flag wins when both are set.
 | `--node-name` | `NODE_NAME` | empty | Enables ComputeDomain topology injection when a topology document is staged in the overlay |
 | `--topology-host-path` | `MOKKA_NRI_TOPOLOGY_HOST_PATH` | `<overlay-host-path>/topology/topology.yaml` | Host path checked for the staged topology document |
 | `--topology-mount-path` | `MOKKA_NRI_TOPOLOGY_MOUNT_PATH` | `<overlay-mount-path>/topology/topology.yaml` | Container path injected as `MOCK_TOPOLOGY_CONFIG` |
+| `--compute-domain-staging` | `MOKKA_NRI_COMPUTE_DOMAIN_STAGING` | `false` | The node agent stages IMEX node software and the topology. The DRA ComputeDomain daemon's creation then fails until both are staged; without it the daemon is left unmodified. The chart sets it when `imex.nodeSoftware.enabled` and `topology.enabled` are both on |
 | `--device-annotation` | `MOKKA_NRI_DEVICE_ANNOTATION` | `nvml-mock.nvidia.com/devices` | Pod annotation key; value `true` adds `/dev/nvidia*` nodes |
 | `--device-host-path` | `MOKKA_NRI_DEVICE_HOST_PATH` | `<overlay-host-path>/driver/dev` | Host path containing the mock `/dev/nvidia*` nodes |
 | `--device-injection-mode` | `MOKKA_NRI_DEVICE_INJECTION_MODE` | `raw` | `raw` (device nodes) or `cdi` (CDI reference). Any other value is rejected at startup |

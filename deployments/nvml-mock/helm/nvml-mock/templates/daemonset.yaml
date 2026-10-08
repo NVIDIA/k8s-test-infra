@@ -163,6 +163,17 @@ spec:
             - name: IMEX_CAPS_MAJOR
               value: "{{ .Values.imex.mockChannels.capsMajor }}"
             {{- end }}
+            {{- if eq (include "nvml-mock.imexNodeSoftware" .) "true" }}
+            # Node-provided IMEX software, matching the physical driver footprint.
+            - name: IMEX_NODE_SOFTWARE_ENABLED
+              value: "true"
+            {{- with (.Values.imex.nodeSoftware | default dict).downloadTimeout }}
+            # Omitted when absent, as on an upgrade with --reuse-values from a
+            # release without imex.nodeSoftware: the agent's default applies.
+            - name: MOKKA_IMEX_DOWNLOAD_TIMEOUT
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
             # Drives both the IB tree the agent renders and the tier the
             # LD_PRELOAD shims operate at, so the two can never disagree.
             - name: MOCK_IB
@@ -357,6 +368,11 @@ spec:
             - --infiniband-annotation={{ .Values.nri.infinibandAnnotation }}
             - --excluded-namespaces={{ .Release.Namespace }},kube-system{{- range .Values.nri.excludedNamespaces }},{{ . }}{{- end }}
             - --node-name=$(NODE_NAME)
+            {{- if and (eq (include "nvml-mock.imexNodeSoftware" .) "true") .Values.topology.enabled }}
+            # The agent stages what the DRA ComputeDomain daemon needs, so NRI
+            # holds that daemon back until it is staged.
+            - --compute-domain-staging
+            {{- end }}
             - --health-addr=:{{ .Values.nri.healthPort }}
             - --agent-staged-url=http://127.0.0.1:9091/stagedz
             - --staging-lock-path={{ $stagingLock }}

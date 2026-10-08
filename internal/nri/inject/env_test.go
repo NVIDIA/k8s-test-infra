@@ -46,7 +46,7 @@ func TestAdjustPointsTheLoaderAtTheOverlay(t *testing.T) {
 		},
 	}
 
-	adjustment, ok := Adjust(DefaultConfig(), container)
+	adjustment, ok := requireAdjust(t, DefaultConfig(), container)
 	require.True(t, ok)
 
 	require.Contains(t, adjustment.Env, "PATH=/opt/nvml-mock/driver/usr/bin:/usr/local/bin:/usr/bin")
@@ -70,7 +70,7 @@ func TestAdjustPointsInfiniBandToolsAtTheOverlay(t *testing.T) {
 	cfg.HostOverlayPath = stageTopology(t)
 	cfg.NodeName = "kind-worker3"
 
-	adjustment, ok := Adjust(cfg, Container{
+	adjustment, ok := requireAdjust(t, cfg, Container{
 		Namespace:      "default",
 		PodAnnotations: map[string]string{"nvml-mock.nvidia.com/infiniband": "true"},
 	})
@@ -100,7 +100,7 @@ func TestAdjustLeavesAnAuthoredMachineTypeFile(t *testing.T) {
 		Env:            []string{"GFD_MACHINE_TYPE_FILE=/etc/machine-type"},
 	}
 
-	adjustment, ok := Adjust(DefaultConfig(), container)
+	adjustment, ok := requireAdjust(t, DefaultConfig(), container)
 	require.True(t, ok)
 
 	requireNoEnvKey(t, adjustment.Env, "GFD_MACHINE_TYPE_FILE")
@@ -119,7 +119,7 @@ func TestAdjustEmitsOnlyAddedOrChangedEnv(t *testing.T) {
 		},
 	}
 
-	adjustment, ok := Adjust(DefaultConfig(), container)
+	adjustment, ok := requireAdjust(t, DefaultConfig(), container)
 	require.True(t, ok)
 
 	requireNoEnvKey(t, adjustment.Env, "FOO")
@@ -130,7 +130,7 @@ func TestAdjustEmitsOnlyAddedOrChangedEnv(t *testing.T) {
 func TestAdjustPrependsDefaultsWhenEnvIsUnset(t *testing.T) {
 	t.Parallel()
 
-	adjustment, ok := Adjust(DefaultConfig(), deviceOptIn())
+	adjustment, ok := requireAdjust(t, DefaultConfig(), deviceOptIn())
 	require.True(t, ok)
 
 	require.Contains(t, adjustment.Env, "PATH=/opt/nvml-mock/driver/usr/bin")
@@ -146,7 +146,7 @@ func TestAdjustInjectsTopologyEnvWhenStaged(t *testing.T) {
 	cfg.HostOverlayPath = stageTopology(t)
 	cfg.NodeName = "kind-worker3"
 
-	adjustment, ok := Adjust(cfg, deviceOptIn())
+	adjustment, ok := requireAdjust(t, cfg, deviceOptIn())
 	require.True(t, ok)
 
 	require.Contains(t, adjustment.Env, "NODE_NAME=kind-worker3")
@@ -177,7 +177,7 @@ func TestAdjustSkipsTopologyEnvWhenNotConfigured(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			adjustment, ok := Adjust(configure(t), deviceOptIn())
+			adjustment, ok := requireAdjust(t, configure(t), deviceOptIn())
 			require.True(t, ok)
 			requireNoEnvKey(t, adjustment.Env, "MOCK_TOPOLOGY_CONFIG")
 			requireNoEnvKey(t, adjustment.Env, "NODE_NAME")
@@ -192,7 +192,7 @@ func TestAdjustDoesNotOverrideAuthoredNodeName(t *testing.T) {
 	cfg.HostOverlayPath = stageTopology(t)
 	cfg.NodeName = "kind-worker3"
 
-	adjustment, ok := Adjust(cfg, Container{
+	adjustment, ok := requireAdjust(t, cfg, Container{
 		Namespace:      "default",
 		PodAnnotations: map[string]string{"nvml-mock.nvidia.com/devices": "true"},
 		Env:            []string{"NODE_NAME=authored-node"},
@@ -215,7 +215,7 @@ func TestShimPathsResolveRelativeEntriesAgainstTheOverlay(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Shims = []string{"driver/lib/librelative.so", "/opt/absolute/libabsolute.so"}
 
-	adjustment, ok := Adjust(cfg, deviceOptIn())
+	adjustment, ok := requireAdjust(t, cfg, deviceOptIn())
 	require.True(t, ok)
 	require.Contains(t, adjustment.Env,
 		"LD_PRELOAD=/opt/nvml-mock/driver/lib/librelative.so:/opt/absolute/libabsolute.so")

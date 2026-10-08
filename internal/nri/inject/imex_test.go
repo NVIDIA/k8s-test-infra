@@ -22,7 +22,7 @@ func TestAdjustImexChannelOptInAddsChannelDevices(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.ImexChannelHostPath = channelRoot
 
-	adjustment, ok := Adjust(cfg, Container{
+	adjustment, ok := requireAdjust(t, cfg, Container{
 		Namespace:      "default",
 		PodAnnotations: map[string]string{"nvml-mock.nvidia.com/imex-channels": "true"},
 	})
@@ -60,7 +60,7 @@ func TestAdjustWithoutImexAnnotationInjectsNoChannels(t *testing.T) {
 			cfg.ImexChannelHostPath = channelRoot
 			cfg.DeviceHostPath = t.TempDir()
 
-			adjustment, ok := Adjust(cfg, Container{Namespace: "default", PodAnnotations: annotations})
+			adjustment, ok := requireAdjust(t, cfg, Container{Namespace: "default", PodAnnotations: annotations})
 			require.Equal(t, annotations["nvml-mock.nvidia.com/devices"] == "true", ok)
 			require.Empty(t, adjustment.Devices)
 		})
@@ -76,7 +76,7 @@ func TestAdjustImexChannelOptInFailsOpenWhenTreeMissing(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.ImexChannelHostPath = filepath.Join(t.TempDir(), "does-not-exist")
 
-	adjustment, ok := Adjust(cfg, Container{
+	adjustment, ok := requireAdjust(t, cfg, Container{
 		Namespace:      "default",
 		PodAnnotations: map[string]string{"nvml-mock.nvidia.com/imex-channels": "true"},
 	})
@@ -99,7 +99,7 @@ func TestAdjustImexChannelsSurviveDevicePluginAllocation(t *testing.T) {
 	cfg.DeviceHostPath = deviceRoot
 	cfg.ImexChannelHostPath = channelRoot
 
-	adjustment, ok := Adjust(cfg, Container{
+	adjustment, ok := requireAdjust(t, cfg, Container{
 		Namespace: "default",
 		PodAnnotations: map[string]string{
 			"nvml-mock.nvidia.com/devices":       "true",
@@ -135,7 +135,7 @@ func TestAdjustCDIModeStillDeliversImexChannelsAsRawDevices(t *testing.T) {
 	cfg.DeviceInjectionMode = DeviceInjectionModeCDI
 	cfg.CDISpecHostPath = stageCDISpec(t)
 
-	adjustment, ok := Adjust(cfg, Container{
+	adjustment, ok := requireAdjust(t, cfg, Container{
 		Namespace: "default",
 		PodAnnotations: map[string]string{
 			"nvml-mock.nvidia.com/devices":       "true",

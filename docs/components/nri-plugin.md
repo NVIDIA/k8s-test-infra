@@ -41,6 +41,7 @@ the surfaces that were selected. None of them brings another along.
 | Pod annotated `nvml-mock.nvidia.com/devices: "true"`, no allocation | The overlay with mock NVML active, and every mock GPU on the node |
 | Pod annotated `nvml-mock.nvidia.com/infiniband: "true"` | The overlay with the mock InfiniBand tools active |
 | Pod annotated `nvml-mock.nvidia.com/imex-channels: "true"` | The mock IMEX channel nodes, and nothing else |
+| The DRA ComputeDomain daemon: container `compute-domain-daemon` in a pod with the `resource.nvidia.com/computeDomain` label | Only the real IMEX binary and the node topology; see [ComputeDomain CDI composition](#computedomain-cdi-composition) |
 | Anything else | Nothing |
 
 A container that matches several rows gets each of their surfaces.
@@ -68,15 +69,17 @@ annotations, it applies to every container in the pod.
 
 ## What happens to a container
 
-Adjustment runs as a fixed sequence, and no step can fail:
+Adjustment runs as a fixed sequence. Only the ComputeDomain daemon's step can fail; see [Startup ordering and recovery](#startup-ordering-and-recovery):
 
 ```mermaid
 flowchart TB
     create[containerd: CreateContainer] --> skip{Opt-out annotation or<br/>excluded namespace?}
     skip -->|yes| asis[Leave exactly as authored]
-    skip -->|no| gpu{GPU?}
-    skip -->|no| ib{infiniband<br/>annotation?}
-    skip -->|no| imex{imex-channels<br/>annotation?}
+    skip -->|no| domain{DRA ComputeDomain<br/>daemon?}
+    domain -->|yes| missing[Real IMEX binary<br/>and mock topology only]
+    domain -->|no| gpu{GPU?}
+    domain -->|no| ib{infiniband<br/>annotation?}
+    domain -->|no| imex{imex-channels<br/>annotation?}
     gpu -->|allocation| keep[Overlay, mock NVML;<br/>keep the allocated GPUs]
     gpu -->|devices annotation,<br/>no allocation| all[Overlay, mock NVML +<br/>every mock GPU, raw or CDI]
     ib -->|yes| fabric[Overlay, mock InfiniBand]
@@ -92,11 +95,26 @@ Any of these leaves the container exactly as authored:
 - the pod carries `nvml-mock.nvidia.com/inject: "false"`;
 - its namespace is in the excluded list;
 - it holds no GPU allocation and carries none of the `devices`, `infiniband`
-  and `imex-channels` annotations;
+  and `imex-channels` annotations, and is not the DRA ComputeDomain daemon;
 - it already mounts the overlay at the destination path.
 
 That last check is what makes re-adjustment safe. A container that already has
 the overlay has been through here before, so re-running would double-apply.
+
+### ComputeDomain CDI composition
+
+The upstream DRA driver's CDI edits deliver the mock driver, IMEX shim and CLI,
+generated domain config, and device nodes. NRI receives `CreateContainer`
+before containerd resolves CDI devices sourced from the pod's resource claim,
+so that CDI reference is not available as a selector. Mokka instead requires
+both the DRA-owned `resource.nvidia.com/computeDomain` pod label and the
+`compute-domain-daemon` container name. It then adds only the node-staged
+`nvidia-imex.real` executable and mock topology document, plus the environment
+pointer to that topology. It does not mount the ambient overlay, rewrite
+`PATH`, or attach devices again.
+
+The two-part match keeps the exception limited to the intended container;
+matching only the `nvidia` namespace would also affect unrelated containers.
 
 ## Recognising a GPU allocation
 
@@ -179,9 +197,9 @@ only visible in the OCI spec of an already-running pod.
 | `nvml-mock.nvidia.com/infiniband: "true"` | Receive the overlay with the mock InfiniBand tools active. Adds no GPUs |
 | `nvml-mock.nvidia.com/imex-channels: "true"` | Receive the mock IMEX channels. Adds no overlay and no GPUs |
 
-## Failing open
+## Startup ordering and recovery
 
-Every step degrades rather than blocks.
+Every step of the generic overlay degrades rather than blocks.
 
 Before each adjustment, the plugin checks the node agent in its pod. It takes
 the shared side of a staging lock, which the agent holds exclusively while it
@@ -206,9 +224,17 @@ without it.
 Once the agent is serving, individual missing device surfaces can still reduce
 injection to overlay-only instead of blocking container creation.
 
-The alternative would be worse: a plugin that errors on a missing surface blocks
-every container on the node, including the daemon that would have created the
-surface.
+The DRA ComputeDomain daemon is the exception. Its Mokka-specific adjustment is
+useful only when both the real IMEX executable and the node topology are staged.
+When the node agent stages them (`imex.nodeSoftware.enabled` and
+`topology.enabled`), the plugin rejects that container's creation while either
+is missing, so kubelet retries until the agent has staged them. Otherwise they
+would never appear, so the plugin leaves the daemon unmodified and logs a
+warning. The same applies while the node agent is staging or unavailable: with
+staging expected, the plugin fails the daemon's creation instead of leaving it
+unmodified. This gate applies only to a container named `compute-domain-daemon`
+in a pod carrying the DRA ComputeDomain label; it cannot block the node agent or
+unrelated workloads.
 
 That choice has a consequence worth knowing about. **A plugin containerd has
 unregistered stays alive and silently stops injecting** — nothing crashes, pods

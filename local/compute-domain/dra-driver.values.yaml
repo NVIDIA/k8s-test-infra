@@ -10,11 +10,20 @@
 # local/dra/dra-driver.values.yaml) because single-node dev doesn't
 # need it.
 #
-# image.repository/tag are NOT set here — Tilt injects them via
-# image_keys=[('image.repository', 'image.tag')] in the root Tiltfile
-# when compute-domain is composed, pointing at the locally-built
-# nvml-mock:compute-domain-daemon overlay. Setting them here too would
-# race with Tilt's injection and defeat the automatic rebuild wiring.
+# The chart's pinned upstream image is used unchanged. Its CDI device supplies
+# the mock driver surface; Mokka's NRI plugin recognizes its DRA-owned pod label
+# and container name and adds only the node-staged real IMEX executable and
+# mock topology document.
 resources:
   computeDomains:
     enabled: true
+
+# The node has no NVIDIA kernel module, so the real /proc/devices does not
+# contain the IMEX channel major. The node agent stages a consistent substitute
+# inside the driver root used by the DRA kubelet plugin.
+kubeletPlugin:
+  containers:
+    computeDomains:
+      env:
+        - name: ALT_PROC_DEVICES_PATH
+          value: /driver-root/proc/devices

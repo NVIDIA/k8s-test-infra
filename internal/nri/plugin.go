@@ -167,6 +167,15 @@ func (p *Plugin) CreateContainer(ctx context.Context, pod *api.PodSandbox, conta
 
 	lock, reason := p.agentAccess(ctx)
 	if reason != "" {
+		// A workload that cannot run unmodified, such as the DRA ComputeDomain
+		// daemon while its IMEX staging is expected, is held back instead, so
+		// kubelet retries once the agent is back.
+		if inject.WaitsForStaging(p.cfg.Inject, candidate) {
+			zap.L().Info("node agent tree unavailable; holding back container until it is staged",
+				zap.String("namespace", pod.GetNamespace()), zap.String("pod", pod.GetName()),
+				zap.String("container", container.GetName()), zap.String("reason", reason))
+			return nil, nil, fmt.Errorf("hold back container %s/%s: %s", pod.GetName(), container.GetName(), reason)
+		}
 		// Fail open, as the plugin does everywhere else: blocking creation
 		// behind the agent would stall every new pod on the node. The warning
 		// and the readiness failure are what keep this container visible.
@@ -179,7 +188,10 @@ func (p *Plugin) CreateContainer(ctx context.Context, pod *api.PodSandbox, conta
 		defer releaseAgentLock(lock)
 	}
 
-	adjustment, ok := inject.Adjust(p.cfg.Inject, candidate)
+	adjustment, ok, err := inject.Adjust(p.cfg.Inject, candidate)
+	if err != nil {
+		return nil, nil, fmt.Errorf("adjust container %s/%s: %w", pod.GetName(), container.GetName(), err)
+	}
 	if !ok {
 		zap.L().Debug("container left unmodified", zap.String("pod", pod.GetName()), zap.String("container", container.GetName()))
 		return nil, nil, nil

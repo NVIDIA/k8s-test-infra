@@ -21,6 +21,7 @@ variable; the flag wins when both are set.
 | `--host-root` | `MOKKA_AGENT_HOST_ROOT` | `/host` | Where the host filesystem is mounted in this process's namespace |
 | `--health-addr` | `MOKKA_AGENT_HEALTH_ADDR` | `:9090` | Address for `/healthz`, `/readyz` and `/stagedz`; empty disables all three. `/stagedz` passes once the latest Stage wave has written the driver tree; the NRI plugin gates on it |
 | `--shutdown-timeout` | `MOKKA_AGENT_SHUTDOWN_TIMEOUT` | `30s` | Budget for teardown on SIGINT/SIGTERM |
+| `--imex-download-timeout` | `MOKKA_IMEX_DOWNLOAD_TIMEOUT` | `1m` | Bound on one attempt to download the IMEX archive when IMEX node software is enabled. A failed attempt is retried in the background, from 5 s up to every 5 min, and only the `imex` simulator reports not ready meanwhile |
 | `--resync-interval` | `MOKKA_AGENT_RESYNC_INTERVAL` | `1m` | Re-read `--config` and `--topology` this often regardless of filesystem events; `0` relies on events alone |
 | `--staging-lock-path` | `MOKKA_AGENT_STAGING_LOCK_PATH` | empty | Lock file taken exclusively while staging or tearing down, which the NRI plugin shares while deciding each adjustment. Must be outside the injected overlay. At shutdown the agent waits at most half of `--shutdown-timeout` for it. Empty disables the gate; the chart sets it when `nri.enabled` |
 | `--log-level` | `MOKKA_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. `warning` is an alias of `warn`; empty falls back to `info` |
@@ -39,11 +40,20 @@ instead of running it in the wrong mode. Any error out of `start` prints as
 ### Inputs with no flag
 
 `GPU_COUNT`, `DRIVER_VERSION`, `NODE_NAME`, `HOSTNAME`,
-`MOCK_FABRICMANAGER_STATE_DIR` and `IMEX_MOCK_CHANNELS` (with the
+`MOCK_FABRICMANAGER_STATE_DIR`, `IMEX_NODE_SOFTWARE_ENABLED` and
+`IMEX_MOCK_CHANNELS` (with the
 `IMEX_CHANNEL_MAJOR`, `IMEX_CAPS_MAJOR` and `IMEX_CHANNEL_COUNT` values it
 gates) are read where the profile is compiled into state rather than by any
 simulator, so no flag shadows them. The chart sets them — see
 [Configuration](../configuration.md).
+
+`IMEX_NODE_SOFTWARE_ENABLED=true` makes the IMEX simulator download the
+architecture-specific archive pinned in the repository lock, verify its
+SHA-256 checksum, cache it under the node root, and stage the daemon, control
+tool, config, and Mokka shim in the driver tree. The chart sets it when
+`imex.mockChannels.enabled` is on, so only installations that simulate IMEX
+depend on the download. `imex.nodeSoftware.enabled` overrides that: `false`
+opts out on nodes without egress to NVIDIA.
 
 ## Behaviour the flag list does not show
 

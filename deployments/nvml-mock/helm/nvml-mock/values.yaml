@@ -383,12 +383,12 @@ imex:
   # aborts with "error parsing '/proc/devices': unexpected regex match: []".
   #
   # When enabled, the DaemonSet renders:
-  #   <hostPath>/imex/proc-devices                       substitute /proc/devices
+  #   <driverRoot>/proc/devices                          substitute /proc/devices
   #   <driverRoot>/proc/driver/nvidia/capabilities/...   fabric-imex-mgmt
   #   <driverRoot>/dev/nvidia-caps-imex-channels/channelN  channel device nodes
   #
   # Pair it with the DRA driver, on a release that supports altProcDevices:
-  #   --set altProcDevices=/var/lib/nvml-mock/imex/proc-devices
+  #   --set altProcDevices=/var/lib/nvml-mock/driver/proc/devices
   #   --set resources.computeDomains.enabled=true
   #
   # NOTE: as of 2026-07-25 altProcDevices is on the DRA driver's main branch
@@ -407,6 +407,23 @@ imex:
     # must not collide with a major already present on the node.
     channelMajor: 235
     capsMajor: 236
+  # Stage IMEX node software in Mokka's node driver tree for ComputeDomain
+  # simulation. The node daemon resolves the current architecture through a
+  # repository lock, downloads the pinned archive from NVIDIA, verifies its
+  # SHA-256 checksum, and keeps a verified node-local cache for restart
+  # recovery. NRI recognizes the upstream
+  # DRA compute-domain-daemon by its pod label and container name and adds only
+  # the staged real executable and mock topology absent from the CDI edits,
+  # without changing its image. The first successful stage requires outbound
+  # HTTPS; until it succeeds, only the agent's imex simulator reports not
+  # ready, and the download is retried in the background.
+  nodeSoftware:
+    # Tri-state: empty follows imex.mockChannels.enabled, so only installs that
+    # simulate IMEX download it. Set false to opt out on a node without egress
+    # to NVIDIA, or true to stage it without the mock channels.
+    enabled: ""
+    # Bound on one download attempt (Go duration).
+    downloadTimeout: 1m
 
 # Fake nvidia-fabricmanager. NVSwitch platforms (HGX H100 / GB200 / GB300)
 # run nvidia-fabricmanager to register GPUs with the NVSwitch fabric. When

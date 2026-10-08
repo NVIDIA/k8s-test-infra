@@ -177,6 +177,11 @@ func topologyFlags() []cli.Flag {
 			Sources: cli.EnvVars("MOKKA_NRI_TOPOLOGY_MOUNT_PATH"),
 			Usage:   "container path injected as MOCK_TOPOLOGY_CONFIG (defaults to <overlay-mount-path>/topology/topology.yaml)",
 		},
+		&cli.BoolFlag{
+			Name:    "compute-domain-staging",
+			Sources: cli.EnvVars("MOKKA_NRI_COMPUTE_DOMAIN_STAGING"),
+			Usage:   "the node agent stages IMEX node software and the topology; fail the DRA ComputeDomain daemon's creation until both are staged instead of leaving it unmodified",
+		},
 	}
 }
 
@@ -270,6 +275,7 @@ func configFrom(cmd *cli.Command) (nri.Config, error) {
 			ContainerOverlayPath:  cmd.String("overlay-mount-path"),
 			NodeName:              cmd.String("node-name"),
 			TopologyHostPath:      cmd.String("topology-host-path"),
+			ComputeDomainStaging:  cmd.Bool("compute-domain-staging"),
 			TopologyContainerPath: cmd.String("topology-mount-path"),
 			DeviceHostPath:        cmd.String("device-host-path"),
 			DeviceInjectionMode:   mode,

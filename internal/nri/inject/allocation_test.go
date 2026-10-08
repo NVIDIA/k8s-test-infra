@@ -76,7 +76,7 @@ func TestAllocationAwareAdjustments(t *testing.T) {
 	}
 	assertAllocated := func(t *testing.T, container Container) {
 		t.Helper()
-		adjustment, ok := Adjust(cfg, container)
+		adjustment, ok := requireAdjust(t, cfg, container)
 		require.True(t, ok)
 		require.Contains(t, adjustment.Mounts, overlayMount())
 		require.Contains(t, adjustment.Env, "MOCK_NVML_CONFIG=/opt/nvml-mock/driver/config/config.yaml")
@@ -113,7 +113,7 @@ func TestAllocationAwareAdjustments(t *testing.T) {
 		t.Parallel()
 		container := alloc(0)
 		container.DeviceRules = []DeviceRule{{Allow: true, Type: "a", Access: "rwm"}}
-		adjustment, ok := Adjust(cfg, container)
+		adjustment, ok := requireAdjust(t, cfg, container)
 		require.False(t, ok)
 		require.Empty(t, adjustment)
 	})
@@ -121,7 +121,7 @@ func TestAllocationAwareAdjustments(t *testing.T) {
 		t.Parallel()
 		local := cfg
 		local.DeviceInjectionMode = DeviceInjectionModeCDI
-		adjustment, ok := Adjust(local, deviceOptIn())
+		adjustment, ok := requireAdjust(t, local, deviceOptIn())
 		require.True(t, ok)
 		require.Equal(t, []string{cfg.CDIDeviceName}, adjustment.CDIDevices)
 		require.Empty(t, adjustment.Devices)
