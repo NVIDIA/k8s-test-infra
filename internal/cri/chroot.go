@@ -15,6 +15,7 @@ import (
 	"syscall"
 
 	securejoin "github.com/cyphar/filepath-securejoin"
+	"go.uber.org/zap"
 )
 
 // hostPATH is where host binaries are looked up, in the order a login shell
@@ -54,6 +55,12 @@ func (c Chroot) Run(ctx context.Context, env []string, name string, args ...stri
 	if run == nil {
 		run = (*exec.Cmd).Run
 	}
+
+	zap.L().Debug("running a host command",
+		zap.String("root", c.Root),
+		zap.String("command", path),
+		zap.Strings("args", args),
+	)
 
 	if err := run(cmd); err != nil {
 		return stdout.Bytes(), fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))

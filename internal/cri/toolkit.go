@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"slices"
 
+	"go.uber.org/zap"
+
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
 )
@@ -84,42 +86,70 @@ func ForeignToolkit(h *host.Host) ([]string, error) {
 // replaced, so the paths never go missing; callers check ForeignToolkit
 // first, so the existing ones are Mokka's.
 func InstallToolkit(h *host.Host, source string) error {
-	if err := installBinaries(h, source); err != nil {
+	updated, err := installBinaries(h, source)
+	if err != nil {
 		return err
 	}
 
-	config := h.HostPath(toolkitDir + "/config.toml")
-	if current, err := os.ReadFile(config); err != nil || !bytes.Equal(current, runtimeConfig) {
-		if err := fsutil.Write(config, runtimeConfig, 0o644); err != nil {
-			return err
-		}
-	}
-
-	return linkPackagePaths(h)
-}
-
-func installBinaries(h *host.Host, source string) error {
-	for _, b := range toolkitBinaries {
-		src := filepath.Join(source, b)
-		dst := h.HostPath(toolkitDir + "/" + b)
-
-		same, err := sameContents(src, dst)
-
-		if err != nil {
+	config := toolkitDir + "/config.toml"
+	if current, err := os.ReadFile(h.HostPath(config)); err != nil || !bytes.Equal(current, runtimeConfig) {
+		if err := fsutil.Write(h.HostPath(config), runtimeConfig, 0o644); err != nil {
 			return err
 		}
 
-		if !same {
-			if err := fsutil.Copy(src, dst, 0o755); err != nil {
-				return err
-			}
-		}
+		updated = append(updated, config)
 	}
+
+	linked, err := linkPackagePaths(h)
+	if err != nil {
+		return err
+	}
+
+	if len(updated) == 0 && len(linked) == 0 {
+		zap.L().Debug("the NVIDIA container toolkit is up to date", zap.String("dir", toolkitDir))
+
+		return nil
+	}
+
+	zap.L().Info("installed the NVIDIA container toolkit",
+		zap.String("dir", toolkitDir),
+		zap.Strings("updated", updated),
+		zap.Strings("linked", linked),
+	)
 
 	return nil
 }
 
-func linkPackagePaths(h *host.Host) error {
+// installBinaries copies the binaries that changed and returns their host
+// paths.
+func installBinaries(h *host.Host, source string) ([]string, error) {
+	var updated []string
+
+	for _, b := range toolkitBinaries {
+		src := filepath.Join(source, b)
+		dst := toolkitDir + "/" + b
+
+		same, err := sameContents(src, h.HostPath(dst))
+		if err != nil {
+			return nil, err
+		}
+
+		if !same {
+			if err := fsutil.Copy(src, h.HostPath(dst), 0o755); err != nil {
+				return nil, err
+			}
+
+			updated = append(updated, dst)
+		}
+	}
+
+	return updated, nil
+}
+
+// linkPackagePaths creates the missing links and returns their host paths.
+func linkPackagePaths(h *host.Host) ([]string, error) {
+	var linked []string
+
 	for path, target := range packagePaths() {
 		link := h.HostPath(path)
 		if _, err := os.Lstat(link); err == nil {
@@ -127,15 +157,19 @@ func linkPackagePaths(h *host.Host) error {
 		}
 
 		if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
-			return fmt.Errorf("create %s: %w", filepath.Dir(path), err)
+			return nil, fmt.Errorf("create %s: %w", filepath.Dir(path), err)
 		}
 
 		if err := os.Symlink(target, link); err != nil {
-			return fmt.Errorf("link %s to %s: %w", path, target, err)
+			return nil, fmt.Errorf("link %s to %s: %w", path, target, err)
 		}
+
+		linked = append(linked, path)
 	}
 
-	return nil
+	slices.Sort(linked)
+
+	return linked, nil
 }
 
 // sameContents reports whether dst holds what src does. src must exist; a

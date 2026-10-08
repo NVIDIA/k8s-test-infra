@@ -9,6 +9,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 )
@@ -65,6 +68,26 @@ func TestInstallToolkitKeepsAnUnchangedBinary(t *testing.T) {
 	after, err := os.Stat(h.HostPath(toolkitDir + "/nvidia-cdi-hook"))
 	require.NoError(t, err)
 	require.True(t, os.SameFile(before, after), "a binary containers may be running is replaced only when it changed")
+}
+
+func TestInstallToolkitLogsWhatItChanged(t *testing.T) {
+	core, logs := observer.New(zapcore.DebugLevel)
+	t.Cleanup(zap.ReplaceGlobals(zap.New(core)))
+
+	h := host.New(t.TempDir())
+	source := toolkitSource(t)
+	require.NoError(t, InstallToolkit(h, source))
+	require.NoError(t, InstallToolkit(h, source))
+
+	installed := logs.FilterLevelExact(zapcore.InfoLevel).FilterMessage("installed the NVIDIA container toolkit").All()
+	require.Len(t, installed, 1, "an unchanged toolkit is logged at debug only")
+	require.ElementsMatch(t, []string{
+		toolkitDir + "/nvidia-container-runtime", toolkitDir + "/nvidia-ctk", toolkitDir + "/nvidia-cdi-hook", toolkitDir + "/config.toml",
+	}, installed[0].ContextMap()["updated"])
+	require.ElementsMatch(t, []string{
+		"/usr/bin/nvidia-container-runtime", "/usr/bin/nvidia-ctk", "/usr/bin/nvidia-cdi-hook", runtimeConfigPath,
+	}, installed[0].ContextMap()["linked"])
+	require.Equal(t, 1, logs.FilterLevelExact(zapcore.DebugLevel).FilterMessage("the NVIDIA container toolkit is up to date").Len())
 }
 
 func TestInstallToolkitWithoutABinary(t *testing.T) {

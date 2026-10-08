@@ -124,6 +124,7 @@ func TestApplySetsUpTheRuntime(t *testing.T) {
 	require.FileExists(t, r.h.RunPath(nvidiaSpecFile))
 	require.Equal(t, 1, r.rt.setups)
 	require.True(t, r.sim.Ready())
+	require.True(t, r.logged(zapcore.InfoLevel, "container runtime set up"))
 	require.Empty(t, r.logs.Filter(func(e observer.LoggedEntry) bool { return e.Level >= zapcore.WarnLevel }).All(),
 		"a setup that works has nothing to warn about")
 }

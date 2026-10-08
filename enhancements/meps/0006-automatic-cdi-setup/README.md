@@ -838,8 +838,9 @@ glibc 2.17 or later. The image is multi-architecture.
 
 - Mokka changes files outside its own directories and restarts containerd,
   which no Mokka component did before.
-- To restart containerd, the node pod shares the host's PID namespace, so it
-  sees every process on the node.
+- To restart containerd, the node pod shares the host's PID namespace: every
+  container in it sees the node's processes and, running as root, can signal
+  them.
 - Mokka owns a toolkit version, and follows changes to containerd's
   configuration format by bumping it.
 - Nothing checks a configuration before containerd restarts with it, or rolls

@@ -6,12 +6,16 @@ package containerd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/cri"
 )
@@ -129,6 +133,29 @@ func TestSetupRestartsOnlyWhenTheFileChanged(t *testing.T) {
 	n.content = "version = 3\n"
 	require.NoError(t, n.rt.Setup(t.Context()))
 	require.Len(t, n.calls, 2)
+}
+
+func TestRestartsAreLogged(t *testing.T) {
+	core, logs := observer.New(zapcore.DebugLevel)
+	t.Cleanup(zap.ReplaceGlobals(zap.New(core)))
+
+	n := newNode(t)
+	n.write(testMokkaConfig, n.content)
+	require.NoError(t, n.rt.Setup(t.Context()))
+	require.NoError(t, n.rt.Setup(t.Context()))
+	n.content = "version = 3\n"
+	require.NoError(t, n.rt.Setup(t.Context()))
+	require.NoError(t, n.rt.Cleanup(t.Context()))
+
+	restarts := logs.FilterLevelExact(zapcore.InfoLevel).FilterMessage("restarting containerd").All()
+	reasons := make([]string, 0, len(restarts))
+
+	for _, e := range restarts {
+		reasons = append(reasons, fmt.Sprint(e.ContextMap()["reason"]))
+	}
+
+	require.Equal(t, []string{"node pod started", "Mokka's config file changed", "Mokka's config file removed"}, reasons,
+		"one line per restart, and none for the pass that needed no restart")
 }
 
 func TestSetupRestartsOnItsFirstPass(t *testing.T) {
