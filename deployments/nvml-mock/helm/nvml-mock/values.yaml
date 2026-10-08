@@ -167,8 +167,8 @@ nodeAgent:
     # so far.
     type: containerd
     # How the container runtime picks up a configuration change: systemd
-    # restarts its unit; none writes the configuration and leaves the restart
-    # to you.
+    # restarts its unit, from the host's PID namespace; none writes the
+    # configuration and leaves the restart to you.
     restartMode: systemd
     containerd:
       configPath: /etc/containerd/config.toml

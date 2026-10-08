@@ -33,6 +33,19 @@ tests:
       - contains:
           path: spec.template.spec.initContainers[0].command
           content: --host-fs=/host
+      # systemctl refuses a systemd outside its PID namespace.
+      - equal:
+          path: spec.template.spec.hostPID
+          value: true
+
+  - it: should keep the pod's own PID namespace without restarts
+    set:
+      nodeAgent:
+        containerRuntime:
+          restartMode: none
+    asserts:
+      - notExists:
+          path: spec.template.spec.hostPID
 
   - it: should mount the host for the setup
     asserts:
@@ -128,6 +141,8 @@ tests:
             hostPath:
               path: /
               type: Directory
+      - notExists:
+          path: spec.template.spec.hostPID
       - equal:
           path: spec.template.spec.terminationGracePeriodSeconds
           value: 10

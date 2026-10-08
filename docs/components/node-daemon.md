@@ -157,12 +157,15 @@ serves workloads through containerd's own CDI support, which works on a Mokka
 node too.
 
 **When containerd restarts.** Apply restarts containerd through the host's
-systemd when Mokka's config file changed, and once when a node pod starts. If
-containerd does not come back, the node pod is not ready and its log has the
-error; `journalctl -u containerd` on the node says why. No new container starts
-on that node until containerd runs again: remove Mokka's config file by hand, as
-below, to bring it back without the handler. With `restartMode: none` the file
-is written, the node pod stays ready, and its log says a restart is pending.
+systemd when Mokka's config file changed, and once when a node pod starts. For
+this the node pod runs in the host's PID namespace, because systemctl refuses
+to talk to a systemd it cannot see. If containerd does not come back, the node
+pod is not ready and its log has the error; `journalctl -u containerd` on the
+node says why. No new container starts on that node until containerd runs
+again: remove Mokka's config file by hand, as below, to bring it back without
+the handler. With `restartMode: none` the file is written, the node pod stays
+ready, and its log says a restart is pending; the pod then keeps its own PID
+namespace.
 
 **Nodes it leaves alone.** A node with no `containerd` on the host's `PATH`
 runs another runtime, such as CRI-O, or the containerd that k3s and rke2 embed:
