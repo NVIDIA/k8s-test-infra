@@ -19,6 +19,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/cluster"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/runner"
 )
 
 // Collector writes diagnostics under a per-spec directory.
@@ -79,6 +80,13 @@ func (c *Collector) PodLogs(ctx context.Context, name, ns, selector string, tail
 	if out, err := c.Kube.PreviousLogs(ctx, ns, selector, tail); err == nil {
 		c.write(name+"-logs-previous.txt", out)
 	}
+}
+
+// NodeExec dumps the output of a command run inside a Kind node's container,
+// such as the container runtime's journal, to name.
+func (c *Collector) NodeExec(ctx context.Context, name, container string, args ...string) {
+	res, _ := runner.RunQuiet(ctx, "docker", append([]string{"exec", container}, args...)...)
+	c.write(name, res.Combined())
 }
 
 // Common dumps the dump set shared by every job's failure block.

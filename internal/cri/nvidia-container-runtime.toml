@@ -1,0 +1,14 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# The NVIDIA Container Runtime's configuration, written by the Mokka node
+# daemon (nvml-mock) to /usr/local/nvml-mock/toolkit/config.toml and linked at
+# /etc/nvidia-container-runtime/config.toml. In CDI mode the runtime turns a
+# container's NVIDIA_VISIBLE_DEVICES into CDI devices from the specs below.
+
+[nvidia-container-runtime]
+mode = "cdi"
+
+[nvidia-container-runtime.modes.cdi]
+default-kind = "nvidia.com/gpu"
+spec-dirs = ["/var/run/cdi", "/etc/cdi"]

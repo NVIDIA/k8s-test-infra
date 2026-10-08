@@ -1,7 +1,7 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-package cdi
+package cri
 
 import (
 	"fmt"
@@ -9,9 +9,11 @@ import (
 	"strconv"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
+	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
 	"github.com/NVIDIA/k8s-test-infra/internal/kmod"
 	"github.com/NVIDIA/k8s-test-infra/internal/migcaps"
 	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs"
+	"sigs.k8s.io/yaml"
 )
 
 // overlayHostRoot is the path containerd sees for the mock overlay on the host.
@@ -330,4 +332,14 @@ func buildNRISpec(state *agent.State) cdiSpec {
 		},
 		Devices: devices,
 	}
+}
+
+func writeSpec(path string, spec cdiSpec) error {
+	data, err := yaml.Marshal(spec)
+
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
+
+	return fsutil.Write(path, data, 0o644)
 }

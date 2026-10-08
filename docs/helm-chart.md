@@ -101,6 +101,11 @@ start sections below.
 - containerd with NRI enabled, or `nri.enabled=false`; see
   [Set up NRI injection](guides/nri-injection.md#prerequisites)
 - For DRA: Kubernetes 1.32+ with `DynamicResourceAllocation` feature gate enabled
+- With `nodeAgent.containerRuntime` on (the default): containerd 1.7+ managed
+  by systemd, and writable `/usr/bin`, `/usr/local` and `/etc` on the node.
+  Nodes without containerd, such as CRI-O or k3s nodes, are left alone. The
+  node daemon makes the `nvidia` runtime handler the default itself; see
+  [Container runtime setup](components/node-daemon.md#container-runtime-setup)
 
 ## Walkthroughs
 
@@ -546,7 +551,7 @@ GPU allocation:
 | Mode | Mechanism | Needs |
 | --- | --- | --- |
 | `raw` (default) | The plugin stages the `/dev/nvidia*` nodes itself, in the NRI adjustment. | Nothing. |
-| `cdi` | The plugin emits the CDI device `nvml-mock.nvidia.com/gpu=all` and the runtime resolves it from the spec the `cdi` simulator stages at `<cdiSpecDir>/nvml-mock-nri.yaml`. | A runtime with CDI on, and NRI that accepts CDI devices: not containerd 1.7. |
+| `cdi` | The plugin emits the CDI device `nvml-mock.nvidia.com/gpu=all` and the runtime resolves it from the spec the `cri` simulator stages at `<cdiSpecDir>/nvml-mock-nri.yaml`. | A runtime with CDI on, and NRI that accepts CDI devices: not containerd 1.7. |
 
 Both modes deliver the same GPUs, and both inject `libmockfs.so`, so a libc
 reader finds the simulated modules either way. Only `cdi` bind-mounts
@@ -784,6 +789,12 @@ namespace, on the pod IP where the kubelet reaches it.
 | `nodeAgent.readinessProbe` | `httpGet /readyz` on `health` | Node agent readiness probe. Set to `null` to drop it. |
 | `nodeLabels.featuresDir` | `/etc/kubernetes/node-feature-discovery/features.d` | Host directory NFD's local source reads feature files from. Override only if NFD runs with a non-default `featureFilesDir` |
 | `nodeAgent.nriStartupTimeoutSeconds` | `120` | On Kubernetes 1.29+, maximum time the node-agent `/stagedz` gate may wait for its first staging and apply cycle before Kubernetes restarts it when NRI uses native sidecars |
+| `nodeAgent.containerRuntime.enabled` | `true` | Set up the node's container runtime: install the NVIDIA container runtime and make it containerd's default `nvidia` handler; reverted when the node pod stops. See [Container runtime setup](components/node-daemon.md#container-runtime-setup). Refuses `updateStrategy.rollingUpdate.maxSurge` |
+| `nodeAgent.containerRuntime.type` | `containerd` | The container runtime on the nodes; containerd is the only one so far |
+| `nodeAgent.containerRuntime.restartMode` | `systemd` | `systemd` restarts the runtime's unit after a change; `none` writes the configuration and leaves the restart to you |
+| `nodeAgent.containerRuntime.containerd.configPath` | `/etc/containerd/config.toml` | containerd's main configuration on the host. Its directory is mounted at the same path in the node pod |
+| `nodeAgent.containerRuntime.containerd.configDir` | `/etc/containerd/conf.d` | containerd's config dir, which `config.toml` imports and where Mokka's config file goes; must be under `configPath`'s directory. On EKS AL2023, `/etc/containerd/config.d` is already imported |
+| `nodeAgent.containerRuntime.containerd.systemdUnit` | `containerd` | The systemd unit restarted after a change |
 | `integrations.fakeGpuOperator.enabled` | `false` | Create per-profile ConfigMaps named `gpu-profile-<profile>`, keyed `profile.yaml`, in the shape fake-gpu-operator's loader reads |
 | `integrations.fakeGpuOperator.targetNamespace` | `""` (release namespace) | Namespace for the profile ConfigMaps. Set to FGO's release namespace for FGO to find them; requires FGO's `builtinProfiles.enabled=false` to avoid a Helm ownership collision on the same seven names |
 | `integrations.fakeGpuOperator.profileLabels` | `{"run.ai/gpu-profile": "true"}` | Extra labels on profile ConfigMaps. The contract labels `fake-gpu-operator/gpu-profile` and `nvml-mock/profile-name` are always emitted and cannot be removed here |
@@ -1188,6 +1199,9 @@ The chart deploys:
    - Writes the NFD feature file that makes
      `feature.node.kubernetes.io/pci-10de.present=true` appear — see
      [Node Labels](#node-labels)
+   - Installs the NVIDIA container runtime and registers it with containerd as
+     its default `nvidia` runtime handler, reverting that when the pod stops — see
+     [Container runtime setup](components/node-daemon.md#container-runtime-setup)
 2. **ConfigMap** — GPU configuration from the selected profile
 3. **ConfigMap** (`<fullname>-mig-profiles`) — the selected board's MIG
    partition table, mounted at `/etc/nvml-mock/mig` and pointed at by
@@ -1247,7 +1261,12 @@ path rather than redirected elsewhere.
 
 **ImagePullBackOff**: Verify the image is accessible. By default the chart pulls `ghcr.io/nvidia/nvml-mock:<chart appVersion>`; check that tag exists or set `image.tag`. For local builds, ensure the image is loaded into your cluster (see Quick Start).
 
-**DaemonSet not ready**: Check pod logs: `kubectl -n mokka logs -l app.kubernetes.io/name=nvml-mock`
+**DaemonSet not ready**: Check pod logs: `kubectl -n mokka logs -l app.kubernetes.io/name=nvml-mock`.
+A node pod that logs `container runtime setup failed` could not set up the
+container runtime; the line says why, and
+[Container runtime setup](components/node-daemon.md#container-runtime-setup)
+lists what it needs. Where containerd runs but the node cannot be set up, such
+as Bottlerocket, set `nodeAgent.containerRuntime.enabled=false`.
 
 **GPU Operator operands stuck on `toolkit-validation`**: Six operand DaemonSets
 block until `/run/nvidia/validations/toolkit-ready` exists. nvml-mock

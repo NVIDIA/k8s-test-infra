@@ -16,9 +16,6 @@
 # Prepares a GitHub Actions runner for an nvml-mock E2E leg: installs pinned
 # Kind, Helm and Tilt, then creates the `mokka` Kind cluster.
 #
-# Expects the pre-built kind-node image (kind-node-nv:latest) already in the
-# local docker daemon; the workflow stages it from its artifact beforehand.
-#
 # CI-only: it installs linux/amd64 or linux/arm64 binaries with sudo. Local
 # development uses `make cluster-create` directly (see local/README.md).
 
@@ -84,7 +81,6 @@ echo "::endgroup::"
 
 echo "::group::Create Kind cluster ${CLUSTER_NAME}"
 # Same command a laptop dev runs (local/kind/default.kind.yaml, context
-# kind-mokka). KIND_NODE_IMAGE_PREBUILT makes the Makefile trust the staged
-# image instead of rebuilding it.
-KIND_NODE_IMAGE_PREBUILT=1 make cluster-create
+# kind-mokka).
+make cluster-create
 echo "::endgroup::"

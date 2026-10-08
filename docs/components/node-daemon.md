@@ -27,7 +27,7 @@ outlive a reconcile.
 |---|----------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `gpudriver` | Character devices, the mock NVML library, `nvidia-smi`, procfs entries, the engine config, and a bind mount of the driver tree at `/run/nvidia/driver`, the path GPU Operator expects |
 | `pcibus` | A fake `/sys/bus/pci/devices` tree, the `libmockfs.so` shim, and the NFD feature file that lets Node Feature Discovery label the node                  |
-| `cdi` | Two CDI specs that containerd uses to inject mock GPUs into workload containers                                                                          |
+| `cri` | Two CDI specs that containerd uses to inject mock GPUs into workload containers, and the [container runtime setup](#container-runtime-setup) that registers the `nvidia` handler |
 | `imex` | IMEX channel character devices, a `/proc/devices` overlay, and the capability file the DRA compute-domain plugin reads                                   |
 | `nvlink` | The ComputeDomain topology document, which gives the node its NVLink fabric identity                                                                     |
 | `fabricmanager` | A stand-in for `nv-fabricmanager`, which on a real NVSwitch platform must register GPUs before they are usable                                           |
@@ -42,7 +42,7 @@ it implements decides when the daemon calls it.
 | Interface | Implemented by | Purpose |
 |---|---|---|
 | `Simulator` | all eight | `Stage` writes artifacts that are not yet externally visible. Idempotent, re-runs on every state change |
-| `Applier` | `gpudriver`, `pcibus`, `cdi` | `Apply` publishes artifacts that something *outside* the node acts on — containerd, NFD, the GPU Operator validator |
+| `Applier` | `gpudriver`, `pcibus`, `cri` | `Apply` publishes artifacts that something *outside* the node acts on — containerd, NFD, the GPU Operator validator |
 | `Daemon` | `fabricmanager`, `ib`, `kernellog` | `Run` supervises a long-lived process; `Reload` delivers later state to it without a restart |
 
 One reconcile pass runs three waves:
@@ -110,6 +110,101 @@ A control-plane source is stubbed for [MEP-0001](https://github.com/NVIDIA/k8s-t
 which would let a cluster-wide component drive node state instead of a
 ConfigMap. It is not implemented; the file source is the only path in use.
 
+## Container runtime setup
+
+The `cri` simulator also prepares the node's container runtime for those specs,
+as [MEP-0006](https://github.com/NVIDIA/k8s-test-infra/tree/main/enhancements/meps/0006-automatic-cdi-setup)
+describes. It is on by default (`nodeAgent.containerRuntime.enabled`), and
+containerd is the only runtime it sets up so far.
+
+The simulator installs the NVIDIA Container Toolkit release that ships in the
+image. That release's own `nvidia-ctk` then registers the toolkit's runtime with
+containerd as the `nvidia` handler, in CDI mode, and makes it the default
+handler:
+
+```text
+nvidia-ctk runtime configure --runtime=containerd --config-source=file \
+  --config=/etc/containerd/config.toml \
+  --drop-in-config=/etc/containerd/conf.d/50-mokka.toml \
+  --nvidia-runtime-name=nvidia \
+  --nvidia-runtime-path=/usr/bin/nvidia-container-runtime \
+  --nvidia-set-as-default \
+  --cdi.enabled
+```
+
+| Path on the node | Content |
+|---|---|
+| `/usr/local/nvml-mock/toolkit/` | `nvidia-container-runtime`, `nvidia-ctk` and `nvidia-cdi-hook` from the toolkit release in the image, and the runtime's `config.toml` |
+| `/usr/bin/nvidia-container-runtime`, `nvidia-ctk`, `nvidia-cdi-hook` | links into the toolkit directory, where a package install puts the binaries |
+| `/etc/nvidia-container-runtime/config.toml` | a link to the runtime's configuration: CDI mode, default kind `nvidia.com/gpu` |
+| `/etc/containerd/conf.d/50-mokka.toml` | Mokka's config file, which `nvidia-ctk` writes: the `nvidia` handler as the default, and `enable_cdi = true` |
+| `imports` in `/etc/containerd/config.toml` | the `conf.d/*.toml` glob, which `nvidia-ctk` adds when no entry covers it. `nvidia-ctk` rewrites the file on every run, so comments in it are lost |
+
+containerd's config dir, where Mokka's config file goes, is
+`nodeAgent.containerRuntime.containerd.configDir`, `/etc/containerd/conf.d`
+unless set.
+
+Every container on the node then runs under the NVIDIA runtime. A container
+whose `NVIDIA_VISIBLE_DEVICES` names GPUs, as the device plugin sets it, gets
+the mock driver for those GPUs; one without the variable runs as it would under
+`runc`. Pods that name `runtimeClassName: nvidia`, as the GPU Operator's own
+pods do, get the same handler. The revert removes the default with Mokka's
+config file, so the node goes back to its own default handler.
+
+The toolkit's classic setup and the EKS accelerated AMI configure a node the
+same way. The GPU Operator with CDI on keeps `runc` as the default instead and
+serves workloads through containerd's own CDI support, which works on a Mokka
+node too.
+
+**When containerd restarts.** Apply restarts containerd through the host's
+systemd when Mokka's config file changed, and once when a node pod starts. If
+containerd does not come back, the node pod is not ready and its log has the
+error; `journalctl -u containerd` on the node says why. No new container starts
+on that node until containerd runs again: remove Mokka's config file by hand, as
+below, to bring it back without the handler. With `restartMode: none` the file
+is written, the node pod stays ready, and its log says a restart is pending.
+
+**Nodes it leaves alone.** A node with no `containerd` on the host's `PATH`
+runs another runtime, such as CRI-O, or the containerd that k3s and rke2 embed:
+the simulator installs nothing and logs a warning. A toolkit file at one of the
+package paths that the simulator did not link means another installer prepared
+the node: it installs nothing and leaves containerd alone. In both cases the
+node pod stays ready, and its log says why.
+
+**When the node pod stops.** Revoke deletes Mokka's config file and queues a
+containerd restart, which systemd finishes after the pod is gone.
+`helm uninstall` thus leaves no Mokka handler in containerd, and a rollout
+restarts containerd twice on each node: once as the old pod stops, once as the
+new one sets up. The chart refuses a rollout with `maxSurge` while the setup is
+on, because the old pod's revert would remove the new pod's setup. The binaries
+stay, because containers created through the handler call the runtime for
+`exec`, `kill` and `delete`.
+
+**GPU Operator.** Install it with `toolkit.enabled=false`. The operator's
+toolkit cannot run on a node without the NVIDIA kernel module, and this
+simulator does its job.
+
+**Requirements.** containerd 1.7 or later, systemd or `restartMode: none`, and
+writable `/usr/bin`, `/usr/local` and `/etc` on the node. Where containerd runs
+but the node cannot be set up, such as Bottlerocket or a read-only `/usr`, set
+`nodeAgent.containerRuntime.enabled=false`.
+
+**Removing it by hand.** A node pod that was killed before it ran Revoke leaves
+the setup behind. On the node:
+
+```bash
+rm -f /etc/containerd/conf.d/50-mokka.toml
+systemctl restart containerd
+# Once no container runs under the nvidia handler any more:
+rm -f /usr/bin/nvidia-container-runtime /usr/bin/nvidia-ctk /usr/bin/nvidia-cdi-hook \
+  /etc/nvidia-container-runtime/config.toml
+rm -rf /usr/local/nvml-mock
+```
+
+Revoke leaves the `conf.d/*.toml` entry `nvidia-ctk` added to `imports` in
+place, and with the directory empty it loads nothing; remove it from
+`config.toml` if you prefer.
+
 ## Shutdown
 
 Teardown is the inverse of a reconcile, and runs even when the daemon is exiting
@@ -120,7 +215,8 @@ because something failed:
 2. **Discard** on every simulator — remove the staged artifacts.
 
 Both waves run concurrently and best-effort: a failure in one simulator's
-teardown does not prevent the others from cleaning up. The teardown context
+teardown does not prevent the others from cleaning up. The `cri` simulator's
+Revoke also reverts the [container runtime setup](#container-runtime-setup). The teardown context
 outlives cancellation of the daemon's own context, so a deleted pod still gets
 the chance to leave the node as it found it.
 

@@ -30,7 +30,7 @@ variable "kubernetes_version" {
 }
 
 variable "eks_ami_release_version" {
-  description = "Pinned EKS-optimized accelerated AL2023 release for reproducible workers."
+  description = "Pinned EKS-optimized AL2023 release for reproducible workers."
   type        = string
   default     = "1.35.7-20260911"
 }

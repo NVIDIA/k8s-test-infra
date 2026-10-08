@@ -23,34 +23,15 @@ that cannot exist.
 
 Takes about 15 minutes, most of it pulling operator images.
 
-## Step 1 — Create a cluster with CDI enabled
-
-The operator resolves GPUs through the Container Device Interface, so
-containerd needs CDI turned on and the NVIDIA container toolkit present.
+## Step 1 — Create a cluster
 
 ```bash
 kind create cluster --name mokka-operator
-
-NODE=mokka-operator-control-plane
-
-docker exec "$NODE" bash -c '
-  apt-get update -qq && apt-get install -y -qq curl gpg
-  curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
-    | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-  curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
-    | sed "s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g" \
-    > /etc/apt/sources.list.d/nvidia-container-toolkit.list
-  apt-get update -qq && apt-get install -y -qq nvidia-container-toolkit
-'
-
-docker exec "$NODE" nvidia-ctk runtime configure \
-  --runtime=containerd --cdi.enabled --set-as-default
-docker exec "$NODE" sed -i 's/^mode = "auto"$/mode = "cdi"/' \
-  /etc/nvidia-container-runtime/config.toml
-docker exec "$NODE" grep -q '^mode = "cdi"$' \
-  /etc/nvidia-container-runtime/config.toml
-docker exec "$NODE" systemctl restart containerd
 ```
+
+The operator resolves GPUs through the Container Device Interface (CDI), and its own
+pods run under the `nvidia` runtime handler. Mokka's node daemon sets both up in
+containerd when it starts in Step 2, so the cluster needs nothing more.
 
 ## Step 2 — Install Mokka
 
@@ -155,7 +136,7 @@ driver root, exercises CDI injection, and checks the node advertises GPUs.
 | Value | Why |
 |---|---|
 | `driver.enabled: false` | Mokka is the driver. The real DaemonSet would try to build a kernel module |
-| `toolkit.enabled: false` | The mock libraries are staged on the host by Mokka's DaemonSet, so the toolkit has nothing to inject. CDI carries the devices instead |
+| `toolkit.enabled: false` | Mokka's node daemon installs the NVIDIA container runtime and registers the `nvidia` handler the operator's pods use. The operator's toolkit could not run here anyway: it needs the NVIDIA kernel module |
 | `cdi.enabled` / `cdi.default` | The runtime reads `/var/run/cdi/nvidia.yaml`, which Mokka generates. This is what replaces the toolkit operand |
 | `dcgm.enabled: false` | The separate nv-hostengine DaemonSet is redundant: `dcgm-exporter` embeds the host engine in-process |
 | `dcgmExporter.enabled: true` | Kept on deliberately — it reads the mock through libdcgm, which is part of what this proves |
@@ -188,7 +169,7 @@ shell, so a missing file in the staged driver root looks like a crash rather
 than an error. Check what is actually there:
 
 ```bash
-docker exec "$NODE" ls -la /run/nvidia/driver/usr/lib64/libnvidia-ml.so*
+docker exec mokka-operator-control-plane ls -la /run/nvidia/driver/usr/lib64/libnvidia-ml.so*
 ```
 
 **The device plugin reports 0 GPUs.** Almost always `driver.enabled` or

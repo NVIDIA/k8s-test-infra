@@ -1,7 +1,7 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-package cdi
+package cri
 
 import (
 	"os"
@@ -27,7 +27,7 @@ func testState() *agent.State {
 func TestApplyWritesSpecs(t *testing.T) {
 	h := host.New(t.TempDir())
 	state := testState()
-	s := New(h)
+	s := New(h, Options{})
 	ctx := t.Context()
 
 	require.NoError(t, s.Stage(ctx, state))
@@ -42,7 +42,7 @@ func TestApplyWritesSpecs(t *testing.T) {
 func TestNvidiaSpec(t *testing.T) {
 	h := host.New(t.TempDir())
 	state := testState()
-	s := New(h)
+	s := New(h, Options{})
 	ctx := t.Context()
 	require.NoError(t, s.Stage(ctx, state))
 	require.NoError(t, s.Apply(ctx, state))
@@ -81,7 +81,7 @@ func TestNvidiaSpec(t *testing.T) {
 func TestNRISpec(t *testing.T) {
 	h := host.New(t.TempDir())
 	state := testState()
-	s := New(h)
+	s := New(h, Options{})
 	ctx := t.Context()
 	require.NoError(t, s.Stage(ctx, state))
 	require.NoError(t, s.Apply(ctx, state))
@@ -117,7 +117,7 @@ func TestFabricStateMount(t *testing.T) {
 	h := host.New(t.TempDir())
 	state := testState()
 	state.Fabric.ManagerStateDir = "/var/lib/nvml-mock/fabric-state"
-	s := New(h)
+	s := New(h, Options{})
 	ctx := t.Context()
 	require.NoError(t, s.Stage(ctx, state))
 	require.NoError(t, s.Apply(ctx, state))
@@ -150,7 +150,7 @@ func TestFabricMountAbsentWhenDisabled(t *testing.T) {
 	h := host.New(t.TempDir())
 	state := testState()
 	state.Fabric.Enabled = true // NVLink, but ManagerStateDir is empty
-	s := New(h)
+	s := New(h, Options{})
 	ctx := t.Context()
 	require.NoError(t, s.Stage(ctx, state))
 	require.NoError(t, s.Apply(ctx, state))
@@ -171,7 +171,7 @@ func TestFabricMountAbsentWhenDisabled(t *testing.T) {
 func TestRevoke(t *testing.T) {
 	h := host.New(t.TempDir())
 	state := testState()
-	s := New(h)
+	s := New(h, Options{})
 	ctx := t.Context()
 
 	require.NoError(t, s.Stage(ctx, state))
@@ -193,7 +193,7 @@ func TestRevoke(t *testing.T) {
 // Stage, and a spec still naming the node fails every container referencing it.
 func TestStageWithdrawsNRISpec(t *testing.T) {
 	h := host.New(t.TempDir())
-	s := New(h)
+	s := New(h, Options{})
 	ctx := t.Context()
 
 	require.NoError(t, s.Stage(ctx, testState()))
@@ -211,14 +211,14 @@ func TestStageWithdrawsNRISpec(t *testing.T) {
 }
 
 func TestRevokeBeforeApplyIsNoop(t *testing.T) {
-	s := New(host.New(t.TempDir()))
+	s := New(host.New(t.TempDir()), Options{})
 	require.NoError(t, s.Revoke(t.Context()))
 }
 
 func TestApplyIsIdempotent(t *testing.T) {
 	h := host.New(t.TempDir())
 	state := testState()
-	s := New(h)
+	s := New(h, Options{})
 	ctx := t.Context()
 
 	require.NoError(t, s.Stage(ctx, state))

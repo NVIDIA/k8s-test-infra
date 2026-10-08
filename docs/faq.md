@@ -73,15 +73,19 @@ a container.
 
 ## My pod requests a GPU but has no `nvidia-smi`. Why?
 
-Requesting `nvidia.com/gpu` gets your pod the `/dev/nvidiaN` device node and
-nothing else — no `nvidia-smi`, and no `libnvidia-ml.so` on its filesystem.
-Putting the libraries inside a container is the [NRI plugin](components/nri-plugin.md)'s
-job, and it needs containerd NRI enabled on the node.
+On a node Mokka set up, the `nvidia` runtime handler is containerd's default,
+and it mounts `nvidia-smi` and `libnvidia-ml.so` into any container whose
+`NVIDIA_VISIBLE_DEVICES` names GPUs, which the device plugin sets for the GPUs
+it allocates. A pod without them ran where that handler is not the default:
+the node pod is not Ready because the
+[setup failed](troubleshooting.md#pods-get-no-mock-driver-or-the-node-pod-is-not-ready),
+or the setup is off (`nodeAgent.containerRuntime.enabled=false`).
 
-Either [set up NRI injection](guides/nri-injection.md), or mount the driver root yourself the way
+Without the setup, requesting `nvidia.com/gpu` gets your pod the `/dev/nvidiaN`
+device node and nothing else. [Set up NRI injection](guides/nri-injection.md),
+or mount the driver root yourself the way
 [`local/gpu-validator.k8s.yaml`](https://github.com/NVIDIA/k8s-test-infra/blob/main/local/gpu-validator.k8s.yaml)
 does: a hostPath at `/run/nvidia/driver` plus a matching `LD_LIBRARY_PATH`.
-This is a boundary of the plain install, not a bug.
 
 ## Can I use MIG?
 

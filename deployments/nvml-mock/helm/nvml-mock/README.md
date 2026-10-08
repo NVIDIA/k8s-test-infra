@@ -54,6 +54,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 | `featureGates` | Feature gates for the node agent, NRI plugin and control plane |
 | `nodeSelector`, `tolerations` | Standard scheduling; `nodeAgent.resources` sets limits |
 | `nodeAgent.kernelLog` | Announce injected Xids on the node's `/dev/kmsg` (off by default) |
+| `nodeAgent.containerRuntime` | Set up the node's container runtime: install the NVIDIA container runtime and make it containerd's default `nvidia` handler (on by default; reverted when the node pod stops) |
 | `nodeLabels` | Labels applied to nodes running the mock |
 | `allocationWatcher` | Tracks device-plugin allocations for utilization simulation |
 | `nri` | NRI injection into GPU workloads, on by default |
@@ -73,6 +74,11 @@ so a mistyped key fails fast rather than deploying a broken DaemonSet.
   containerd 1.7, enable it or set `nri.enabled=false`
 - `controlPlane.enabled` requires Kubernetes >= 1.30.0 for its
   `ValidatingAdmissionPolicy`
+- `nodeAgent.containerRuntime` (on by default) requires containerd 1.7 or later,
+  restarted through systemd unless `restartMode: none`, and writable
+  `/usr/bin`, `/usr/local` and `/etc` on the node. Nodes without containerd,
+  such as CRI-O, k3s and rke2 nodes, are left alone; disable it on Bottlerocket
+  and read-only `/usr` hosts
 - Chart version: see `Chart.yaml`
 
 Before disabling the control plane or uninstalling its release, follow the
