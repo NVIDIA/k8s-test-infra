@@ -336,6 +336,9 @@ jobs:
 
       - name: Run DRA E2E (${{ matrix.gpu-profile }})
         env:
+          # The chart enables NRI by default, so its specs fail rather than
+          # skip when the plugin is not running.
+          E2E_EXPECT_NRI: "true"
           E2E_PROFILES: ${{ matrix.gpu-profile }}
           E2E_KUBE_CONTEXT: kind-mokka
           E2E_CLUSTER_NAME: mokka
@@ -413,6 +416,9 @@ jobs:
 
       - name: Run GPU Operator E2E (${{ matrix.gpu-profile }})
         env:
+          # The chart enables NRI by default, so its specs fail rather than
+          # skip when the plugin is not running.
+          E2E_EXPECT_NRI: "true"
           E2E_PROFILES: ${{ matrix.gpu-profile }}
           E2E_KUBE_CONTEXT: kind-mokka
           E2E_CLUSTER_NAME: mokka

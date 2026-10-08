@@ -59,6 +59,18 @@ docker exec "$NODE" cat /var/lib/nvml-mock/driver/config/config.yaml
 kubectl logs -n mokka -l app.kubernetes.io/name=nvml-mock | grep -i cdi
 ```
 
+### The node pod is NotReady and `nvml-mock-nri` crash-loops
+
+```text
+nri-plugin: nri stub: failed to connect to NRI service: dial unix /var/run/nri/nri.sock: connect: no such file or directory
+```
+
+containerd on that node has NRI disabled, the default in containerd 1.7. The
+node agent keeps running and workloads still start, but without the mock, and
+`helm install --wait` times out. Enable NRI in containerd and restart it, as
+[Set up NRI injection](guides/nri-injection.md#prerequisites) shows, or set
+`nri.enabled=false`.
+
 ### A pod gets no mock GPUs even though NRI is enabled
 
 First check that the pod is meant to receive GPUs. The plugin gives mock GPUs

@@ -66,7 +66,7 @@ the `a100` profile. Everything else is a flag.
 | `--fgo` | Run:ai's fake-gpu-operator alongside Mokka, splitting workers into two pools |
 | `--topograph` | [topograph](https://github.com/NVIDIA/topograph) network-topology discovery |
 | `--observability` | kube-prometheus-stack and a Grafana dashboard for the mock fleet |
-| `--dynamo` | The NVIDIA Dynamo operator and a `qwen3` inference graph whose mocker worker runs on a mock GPU; enables the NRI plugin |
+| `--dynamo` | The NVIDIA Dynamo operator and a `qwen3` inference graph whose mocker worker runs on a mock GPU |
 | `--control-plane` | The Mokka control-plane image and the `mokka-crds` chart |
 
 ### What composes and what does not

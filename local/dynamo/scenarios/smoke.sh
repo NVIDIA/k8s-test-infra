@@ -65,7 +65,7 @@ printf 'OK: worker sees its one GPU: %s\n' "${gpus}"
 worker_gpu=$(kubectl -n "${NAMESPACE}" exec "${worker}" -- \
   nvidia-smi --query-gpu=name --format=csv,noheader)
 [[ "${worker_gpu// /-}" == "${product}" ]] \
-  || fail "worker reports GPU '${worker_gpu}' but ${node} is labelled '${product}'; the mock library inside the worker did not load the node's profile (is nri.enabled set for nvml-mock?)"
+  || fail "worker reports GPU '${worker_gpu}' but ${node} is labelled '${product}'; the mock library inside the worker did not load the node's profile (is the nvml-mock NRI plugin running?)"
 printf 'OK: worker GPU matches the node profile: %s\n' "${worker_gpu}"
 
 # Sent from inside the frontend pod: the API server's service proxy rejects a

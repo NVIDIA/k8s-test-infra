@@ -90,6 +90,7 @@ dcgm-exporter runs with its embedded nv-hostengine against the mock NVML:
 ## Kind Cluster Requirements
 - Kubernetes 1.31+ (for DRA: `DynamicResourceAllocation` feature gate)
 - containerd with CDI enabled (for DRA)
+- containerd with NRI enabled (for the NRI scenario and the DRA and GPU Operator NRI specs)
 - Standard Kind cluster for device plugin / GFD tests
 
 ## Updating Versions
