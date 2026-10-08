@@ -51,7 +51,7 @@ Most of the Kubernetes control plane is Go, so file surfaces need to be mounted 
 | Component | Runs as | Responsibility |
 |---|---|---|
 | Node daemon | DaemonSet container, one per node | Stages every simulated surface onto the host and supervises the long-lived ones |
-| Simulators | Packages inside the node daemon | One per surface: GPU driver, PCI bus, CDI, IMEX, NVLink, fabricmanager, InfiniBand |
+| Simulators | Packages inside the node daemon | One per surface: GPU driver, PCI bus, container runtime (CDI specs and the `nvidia` handler), IMEX, NVLink, fabricmanager, InfiniBand |
 | Mock NVML library | Shared object loaded by each consumer process | Answers NVML calls from the profile instead of a driver |
 | Shims | `LD_PRELOAD` libraries and an `execve` wrapper | Make C tools read the staged tree at the real paths |
 | NRI plugin | Optional container next to the node daemon | Injects the mock into containers that hold a GPU allocation or opt in by annotation; on Kubernetes 1.29+ with `SidecarContainers` enabled, a restartable init node agent gates its startup |

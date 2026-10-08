@@ -84,12 +84,15 @@ dcgm-exporter runs with its embedded nv-hostengine against the mock NVML:
 - **dcgmi diag levels 2-4**: the NVVS plugins execute real CUDA workloads
   (memtest, targeted stress), which need a real driver and GPU
 - **MIG Manager**: requires real driver for MIG partition operations
-- **Container Toolkit**: not needed (mock libs placed on host by nvml-mock chart)
+- **Container Toolkit operand**: disabled (`toolkit.enabled=false`); the
+  Mokka node daemon installs the toolkit's runtime and registers the
+  `nvidia` handler instead
 - **Node Status Exporter**: untested with the mock (kept disabled in the overlay)
 
 ## Kind Cluster Requirements
 - Kubernetes 1.31+ (for DRA: `DynamicResourceAllocation` feature gate)
-- containerd with CDI enabled (for DRA)
+- containerd 1.7+ managed by systemd; the Mokka node daemon turns CDI on
+  and registers the `nvidia` runtime handler
 - Standard Kind cluster for device plugin / GFD tests
 
 ## Updating Versions

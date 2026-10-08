@@ -777,10 +777,14 @@ tests:
 
   # ── terminationGracePeriodSeconds ──────────────────────────────────
   # Default is asserted by the rendered-manifest snapshot above; only
-  # the override path needs an explicit case here.
+  # the override path needs an explicit case here. The container runtime
+  # setup raises the period to a floor of its own (container_toolkit_test).
   - it: should respect terminationGracePeriodSeconds override
     set:
       terminationGracePeriodSeconds: 0
+      nodeAgent:
+        containerRuntime:
+          enabled: false
     asserts:
       - equal:
           path: spec.template.spec.terminationGracePeriodSeconds
@@ -1253,6 +1257,8 @@ tests:
     set:
       nodeAgent:
         resyncInterval: null
+        containerRuntime:
+          enabled: false
     asserts:
       - notContains:
           path: spec.template.spec.containers[0].command

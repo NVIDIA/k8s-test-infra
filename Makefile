@@ -579,7 +579,7 @@ helm-crds-tests: ## Lint + template-render the mokka-crds chart
 test-e2e-framework:
 	$(GO_CMD) test -tags e2e -race ./tests/e2e/go/framework/...
 
-KIND_NODE_IMAGE   ?= kind-node-nv:latest
+KIND_NODE_IMAGE   ?= kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
 # Cluster profile (select via PROFILE=<name>):
 #   - PROFILE=default (default)  local/kind/default.kind.yaml        (1 CP + 2 workers labelled a100 / t4)
 #   - PROFILE=compute-domain     local/kind/compute-domain.kind.yaml (1 CP + 4 workers labelled clique 0 / 1)
@@ -599,29 +599,8 @@ endif
 KIND_CLUSTER_NAME   ?= $(if $(filter compute-domain,$(PROFILE)),mokka-compute-domain,mokka)
 KIND_CLUSTER_CONFIG ?= local/kind/$(PROFILE).kind.yaml
 
-.PHONY: image-kind-node image-load cluster-create cluster-delete
-# KIND_NODE_IMAGE_PREBUILT (env, any non-empty value): skip the local docker
-# build and use the pre-built $(KIND_NODE_IMAGE) already loaded in the local
-# daemon. Verify with `docker image inspect` before skipping, so a botched
-# staging step fails here (with a clear message) instead of surfacing later
-# as an opaque `kind create cluster` pull error. CI sets this after loading
-# the image from the artifact its build-kind-node-image job uploads (see
-# .github/workflows/nvml-mock-e2e-go.yaml); local devs leave it unset and get
-# the rebuild-when-Dockerfile-changes behavior.
-image-kind-node:
-	@if [ -n "$$KIND_NODE_IMAGE_PREBUILT" ]; then \
-		docker image inspect $(KIND_NODE_IMAGE) >/dev/null 2>&1 || { \
-			echo "ERROR: KIND_NODE_IMAGE_PREBUILT is set but $(KIND_NODE_IMAGE) is not in the local docker daemon."; \
-			echo "       Ensure a preceding step loaded it, e.g. make image-load TARBALL=<tarball> IMAGE=$(KIND_NODE_IMAGE)"; \
-			echo "       (Or unset KIND_NODE_IMAGE_PREBUILT to build it locally.)"; \
-			exit 1; \
-		}; \
-		echo "Using pre-built $(KIND_NODE_IMAGE) already present locally"; \
-	else \
-		docker build -t $(KIND_NODE_IMAGE) ./deployments/kind-nvidia-cdi; \
-	fi
-
-cluster-create: image-kind-node
+.PHONY: image-load cluster-create cluster-delete
+cluster-create:
 	@kind create cluster --name $(KIND_CLUSTER_NAME) --image $(KIND_NODE_IMAGE) --config $(KIND_CLUSTER_CONFIG)
 
 cluster-delete:

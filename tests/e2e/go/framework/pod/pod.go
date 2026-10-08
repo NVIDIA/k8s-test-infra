@@ -79,6 +79,9 @@ type Spec struct {
 	// Privileged runs the container privileged, so the runtime hands it every
 	// device on the node under a wildcard cgroup rule.
 	Privileged bool
+	// RuntimeClassName picks the runtime handler, such as "nvidia". Left empty,
+	// the pod runs under the node's default handler.
+	RuntimeClassName string
 	// RestartPolicy defaults to DefaultRestartPolicy.
 	RestartPolicy string
 	// GracePeriodSeconds defaults to DefaultGracePeriodSeconds. Raise it only for

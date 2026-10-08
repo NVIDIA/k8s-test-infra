@@ -39,6 +39,12 @@ should match snapshot with all overrides:
                 - --log-format=json
                 - --shutdown-timeout=5s
                 - --resync-interval=1m
+                - --container-runtime=containerd
+                - --container-runtime-restart=systemd
+                - --container-runtime-config=/etc/containerd/config.toml
+                - --container-runtime-config-dir=/etc/containerd/conf.d
+                - --container-runtime-systemd-unit=containerd
+                - --host-fs=/host
               env:
                 - name: NODE_NAME
                   valueFrom:
@@ -125,6 +131,18 @@ should match snapshot with all overrides:
                 - mountPath: /host/sys
                   name: node-sysfs
                   readOnly: true
+                - mountPath: /host
+                  mountPropagation: HostToContainer
+                  name: host-fs
+                  readOnly: true
+                - mountPath: /host/usr/bin
+                  name: host-usr-bin
+                - mountPath: /host/usr/local/nvml-mock
+                  name: container-toolkit
+                - mountPath: /host/etc/nvidia-container-runtime
+                  name: nvidia-container-runtime-config
+                - mountPath: /etc/containerd
+                  name: container-runtime-config
           nodeSelector:
             mokka.nvidia.com/type: sgpu
           serviceAccountName: nvml-mock-custom
@@ -157,6 +175,26 @@ should match snapshot with all overrides:
                 path: /sys
                 type: Directory
               name: node-sysfs
+            - hostPath:
+                path: /
+                type: Directory
+              name: host-fs
+            - hostPath:
+                path: /usr/bin
+                type: Directory
+              name: host-usr-bin
+            - hostPath:
+                path: /usr/local/nvml-mock
+                type: DirectoryOrCreate
+              name: container-toolkit
+            - hostPath:
+                path: /etc/nvidia-container-runtime
+                type: DirectoryOrCreate
+              name: nvidia-container-runtime-config
+            - hostPath:
+                path: /etc/containerd
+                type: DirectoryOrCreate
+              name: container-runtime-config
             - configMap:
                 name: nvml-mock-custom-mig-profiles
               name: mig-profiles
@@ -209,6 +247,12 @@ should match snapshot with b200 profile:
                 - --log-format=json
                 - --shutdown-timeout=5s
                 - --resync-interval=1m
+                - --container-runtime=containerd
+                - --container-runtime-restart=systemd
+                - --container-runtime-config=/etc/containerd/config.toml
+                - --container-runtime-config-dir=/etc/containerd/conf.d
+                - --container-runtime-systemd-unit=containerd
+                - --host-fs=/host
               env:
                 - name: NODE_NAME
                   valueFrom:
@@ -291,6 +335,18 @@ should match snapshot with b200 profile:
                 - mountPath: /host/sys
                   name: node-sysfs
                   readOnly: true
+                - mountPath: /host
+                  mountPropagation: HostToContainer
+                  name: host-fs
+                  readOnly: true
+                - mountPath: /host/usr/bin
+                  name: host-usr-bin
+                - mountPath: /host/usr/local/nvml-mock
+                  name: container-toolkit
+                - mountPath: /host/etc/nvidia-container-runtime
+                  name: nvidia-container-runtime-config
+                - mountPath: /etc/containerd
+                  name: container-runtime-config
           serviceAccountName: RELEASE-NAME-nvml-mock
           terminationGracePeriodSeconds: 10
           tolerations:
@@ -319,6 +375,26 @@ should match snapshot with b200 profile:
                 path: /sys
                 type: Directory
               name: node-sysfs
+            - hostPath:
+                path: /
+                type: Directory
+              name: host-fs
+            - hostPath:
+                path: /usr/bin
+                type: Directory
+              name: host-usr-bin
+            - hostPath:
+                path: /usr/local/nvml-mock
+                type: DirectoryOrCreate
+              name: container-toolkit
+            - hostPath:
+                path: /etc/nvidia-container-runtime
+                type: DirectoryOrCreate
+              name: nvidia-container-runtime-config
+            - hostPath:
+                path: /etc/containerd
+                type: DirectoryOrCreate
+              name: container-runtime-config
             - configMap:
                 name: RELEASE-NAME-nvml-mock-mig-profiles
               name: mig-profiles
@@ -367,6 +443,12 @@ should match snapshot with default values:
                 - --log-format=json
                 - --shutdown-timeout=5s
                 - --resync-interval=1m
+                - --container-runtime=containerd
+                - --container-runtime-restart=systemd
+                - --container-runtime-config=/etc/containerd/config.toml
+                - --container-runtime-config-dir=/etc/containerd/conf.d
+                - --container-runtime-systemd-unit=containerd
+                - --host-fs=/host
               env:
                 - name: NODE_NAME
                   valueFrom:
@@ -453,6 +535,18 @@ should match snapshot with default values:
                 - mountPath: /host/sys
                   name: node-sysfs
                   readOnly: true
+                - mountPath: /host
+                  mountPropagation: HostToContainer
+                  name: host-fs
+                  readOnly: true
+                - mountPath: /host/usr/bin
+                  name: host-usr-bin
+                - mountPath: /host/usr/local/nvml-mock
+                  name: container-toolkit
+                - mountPath: /host/etc/nvidia-container-runtime
+                  name: nvidia-container-runtime-config
+                - mountPath: /etc/containerd
+                  name: container-runtime-config
           serviceAccountName: RELEASE-NAME-nvml-mock
           terminationGracePeriodSeconds: 10
           tolerations:
@@ -481,6 +575,26 @@ should match snapshot with default values:
                 path: /sys
                 type: Directory
               name: node-sysfs
+            - hostPath:
+                path: /
+                type: Directory
+              name: host-fs
+            - hostPath:
+                path: /usr/bin
+                type: Directory
+              name: host-usr-bin
+            - hostPath:
+                path: /usr/local/nvml-mock
+                type: DirectoryOrCreate
+              name: container-toolkit
+            - hostPath:
+                path: /etc/nvidia-container-runtime
+                type: DirectoryOrCreate
+              name: nvidia-container-runtime-config
+            - hostPath:
+                path: /etc/containerd
+                type: DirectoryOrCreate
+              name: container-runtime-config
             - configMap:
                 name: RELEASE-NAME-nvml-mock-mig-profiles
               name: mig-profiles

@@ -66,8 +66,7 @@ workload reschedules onto the second, healthy worker.
 - [kubectl](https://kubernetes.io/docs/reference/kubectl/).
 - `jq` (optional, only used to pretty-print node conditions).
 - Network access to `ghcr.io` (NVSentinel chart), `helm.ngc.nvidia.com`
-  (GPU Operator), `docker.io` (Percona images), and `nvidia.github.io`
-  (container-toolkit packages).
+  (GPU Operator) and `docker.io` (Percona images).
 - An `arm64` or `amd64` host. The demo deploys NVSentinel's MongoDB through the
   Percona operator instead of the default Bitnami store, so it works on Apple
   Silicon too (see below).
@@ -91,9 +90,8 @@ rebuild from scratch. Useful overrides: `GPU_PROFILE`, `HOT_TEMP_C`, `TARGET_GPU
 
 ## What the script does
 
-1. **Cluster** — creates the Kind cluster from [`kind.yaml`](kind.yaml) (CDI
-   enabled in containerd), labels both workers `nvml-mock-gpu=true`, and installs
-   `nvidia-container-toolkit` (CDI mode) into each worker.
+1. **Cluster** — creates the Kind cluster from [`kind.yaml`](kind.yaml) and
+   labels both workers `nvml-mock-gpu=true`.
 2. **Mock GPUs** — builds/loads the `nvml-mock` image and installs the chart onto
    the workers.
 3. **GPU Operator** — installs it with [`gpu-operator-values.yaml`](gpu-operator-values.yaml),

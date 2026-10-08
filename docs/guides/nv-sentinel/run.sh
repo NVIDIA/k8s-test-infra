@@ -130,43 +130,13 @@ systemctl restart systemd-journald
 systemctl restart systemd-journal-flush
 '
 
-# --- Label GPU workers + install nvidia-container-toolkit / CDI ---------------
+# --- Label GPU workers ---------------------------------------------------------
+# The nvml-mock node daemon installs the NVIDIA container runtime and registers
+# the nvidia handler on each node it runs on, so the workers need nothing else.
 for node in "${WORKERS[@]}"; do
   info "Labeling ${node} with ${GPU_NODE_LABEL}"
   kubectl_ctx label node "${node}" "${GPU_NODE_LABEL}" --overwrite
-
-  info "Installing nvidia-container-toolkit into ${node}"
-  docker exec "${node}" bash -c '
-set -e
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y -qq curl gpg
-# --no-tty/--batch so this works when stdin is not a terminal (e.g. the script
-# is run detached / in CI); otherwise gpg tries to open /dev/tty and fails.
-curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
-  | gpg --no-tty --batch --yes --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
-  | sed "s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g" \
-  | tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-apt-get update -qq
-apt-get install -y -qq nvidia-container-toolkit
-'
-  info "Configuring nvidia-container-runtime (CDI mode) on ${node}"
-  docker exec "${node}" nvidia-ctk runtime configure --runtime=containerd --cdi.enabled --set-as-default
-  docker exec "${node}" bash -c '
-cat > /etc/nvidia-container-runtime/config.toml <<EOF
-[nvidia-container-runtime]
-mode = "cdi"
-
-[nvidia-container-runtime.modes.cdi]
-default-kind = "nvidia.com/gpu"
-spec-dirs = ["/var/run/cdi", "/etc/cdi"]
-EOF
-systemctl restart containerd
-'
 done
-info "Waiting for nodes to be Ready after containerd restart"
-kubectl_ctx wait --for=condition=Ready nodes --all --timeout=180s
 
 # --- Build + load the nvml-mock image -----------------------------------------
 info "Building nvml-mock image: ${IMAGE_NAME}"

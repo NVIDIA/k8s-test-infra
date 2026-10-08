@@ -18,9 +18,6 @@
 #      on separate clusters. The Tilt scenario supports the
 #      --compute-domain --dra combo, so DRA support is baked in here.
 #
-# CDI + the runtimes.nvidia handler are baked into the node image
-# (deployments/kind-nvidia-cdi/), so no containerdConfigPatches are needed.
-#
 # Each worker carries mokka.nvidia.com/type=sgpu, the simulated-GPU fleet
 # marker local/compute-domain/nvml-mock.values.yaml selects on. It keeps the
 # mock off the control plane, which topology.yaml gives no clique — a mock pod

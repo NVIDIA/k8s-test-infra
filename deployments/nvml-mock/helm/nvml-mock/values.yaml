@@ -154,6 +154,29 @@ nodeAgent:
   kernelLog:
     # TODO: remove the flag and make it on by default
     enabled: false
+  # Sets up each node's container runtime for the mock GPUs (MEP-0006): installs
+  # the NVIDIA container runtime and its CDI hook, and registers them as the
+  # default `nvidia` handler in CDI mode, so a pod with NVIDIA_VISIBLE_DEVICES
+  # gets the mock GPUs. The node pod reverts the setup
+  # when it stops, so a rollout restarts the container runtime on each node
+  # twice. A node without containerd, or whose NVIDIA container toolkit another
+  # installer set up, is left alone.
+  containerRuntime:
+    enabled: true
+    # The container runtime on the nodes; containerd is the only one supported
+    # so far.
+    type: containerd
+    # How the container runtime picks up a configuration change: systemd
+    # restarts its unit; none writes the configuration and leaves the restart
+    # to you.
+    restartMode: systemd
+    containerd:
+      configPath: /etc/containerd/config.toml
+      # The directory config.toml imports, where Mokka's config file goes. Must
+      # be under configPath's directory. EKS AL2023 nodes already import
+      # /etc/containerd/config.d.
+      configDir: /etc/containerd/conf.d
+      systemdUnit: containerd
   # Go duration string: 5s, 1m30s, etc. Teardown is a handful of parallel file
   # removals, and it has to finish inside terminationGracePeriodSeconds.
   shutdownTimeout: 5s

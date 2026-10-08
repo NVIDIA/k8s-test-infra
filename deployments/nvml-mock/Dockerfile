@@ -47,8 +47,20 @@ RUN cd shims/libmockfs && make clean && make
 
 RUN make build
 
+# The NVIDIA Container Toolkit binaries the node daemon installs on each node
+# (MEP-0006): the runtime, its CDI hook and nvidia-ctk, taken from the toolkit's
+# own image. Its rpm tree is built on CentOS 7, so the binaries need glibc 2.17
+# or later on the host. Pinned by the multi-architecture index digest.
+FROM nvcr.io/nvidia/k8s/container-toolkit:v1.19.1@sha256:c927adbc9b7755c5cb90022fdcc5c1295f5fe5fe1f38200a2dc65e85632b029c AS container-toolkit
+
 FROM debian:bookworm-slim
 ARG TARGETARCH
+COPY --from=container-toolkit \
+    /artifacts/rpm/usr/bin/nvidia-container-runtime \
+    /artifacts/rpm/usr/bin/nvidia-ctk \
+    /artifacts/rpm/usr/bin/nvidia-cdi-hook \
+    /usr/local/libexec/nvml-mock/container-toolkit/
+COPY --from=container-toolkit /licenses/LICENSE /usr/local/libexec/nvml-mock/container-toolkit/LICENSE
 COPY --from=builder /src/pkg/gpu/mocknvml/libnvidia-ml.so.* /usr/local/lib/
 COPY --from=builder /src/shims/libcuda/libcuda.so.* /usr/local/lib/
 COPY --from=builder /src/shims/libibmock/libibmocksys.so.* /usr/local/lib/

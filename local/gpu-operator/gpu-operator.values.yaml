@@ -14,8 +14,10 @@
 driver:
   enabled: false
 
-# Container toolkit is not needed — the mock libs are placed on the host
-# by the nvml-mock DaemonSet, not injected by the toolkit.
+# The toolkit operand's job is done by the Mokka node daemon, which
+# installs the NVIDIA container runtime and registers the nvidia handler the
+# operator's own pods use. The operand could not run here anyway: it needs the
+# NVIDIA kernel module.
 toolkit:
   enabled: false
 
@@ -79,9 +81,10 @@ gfd:
 # modprobe, and then fails with "failed to create devices info: no NVIDIA
 # devices found".
 #
-# toolkit-validation passes: nvidia-container-runtime (pre-baked in the custom
-# Kind node image) intercepts NVIDIA_VISIBLE_DEVICES=all, performs CDI injection
-# using /var/run/cdi/nvidia.yaml written by nvml-mock, and nvidia-smi is found.
+# toolkit-validation passes: the validator runs under RuntimeClass nvidia,
+# whose handler the nvml-mock node daemon registers. nvidia-container-runtime
+# turns NVIDIA_VISIBLE_DEVICES=all into CDI devices from the
+# /var/run/cdi/nvidia.yaml nvml-mock writes, and nvidia-smi is found.
 validator:
   driver:
     env:

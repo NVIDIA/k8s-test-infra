@@ -19,15 +19,17 @@
 # Prerequisites:
 #   - the nvml-mock chart already installed (it stages the mock NVML library
 #     and labels the node nvidia.com/gpu.present=true)
-#   - containerd on every node in CDI mode with the nvidia runtime handler
-#     registered; see the demo README for how to get a cluster like that
+#   - containerd 1.7 or later on every node; the Mokka node daemon turns
+#     CDI on and registers the nvidia runtime handler
 
 # Driver is replaced by nvml-mock chart — no real kernel module needed.
 driver:
   enabled: false
 
-# Container toolkit is not needed — the mock libs are placed on the host
-# by the nvml-mock DaemonSet, not injected by the toolkit.
+# The toolkit operand's job is done by the Mokka node daemon, which
+# installs the NVIDIA container runtime and registers the nvidia handler the
+# operator's own pods use. The operand could not run here anyway: it needs the
+# NVIDIA kernel module.
 toolkit:
   enabled: false
 

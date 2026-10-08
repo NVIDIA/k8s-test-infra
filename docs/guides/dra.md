@@ -20,8 +20,8 @@ Takes about 10 minutes.
 
 ## Step 1 — Create a cluster with DRA enabled
 
-DRA needs a feature gate, a non-default API version, and CDI in containerd.
-None of them are on by default, so the cluster config carries all three:
+DRA needs a feature gate and a non-default API version, which the cluster
+config turns on:
 
 ```bash
 cat > kind-dra.yaml <<'EOF'
@@ -29,14 +29,6 @@ kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 featureGates:
   DynamicResourceAllocation: true
-containerdConfigPatches:
-  - |-
-    [plugins."io.containerd.grpc.v1.cri"]
-      enable_cdi = true
-    [plugins."io.containerd.nri.v1.nri"]
-      disable = false
-      disable_connections = false
-      socket_path = "/var/run/nri/nri.sock"
 nodes:
   - role: control-plane
     kubeadmConfigPatches:
