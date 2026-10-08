@@ -275,6 +275,13 @@ func rolloutRestart(ctx context.Context, h *harness.Harness, ns, ds string) {
 func verifyGPUOperatorNodeSetup(ctx context.Context, container string) {
 	GinkgoHelper()
 	Expect(dockerExec(ctx, container, "test", "-f", "/var/run/cdi/nvidia.yaml")).To(Succeed(), "CDI spec exists")
+	// The operator's own pods run under RuntimeClass nvidia, the handler the
+	// node daemon registers with containerd.
+	res, err := runner.RunQuiet(ctx, "docker", "exec", container, "crictl", "info")
+	Expect(err).NotTo(HaveOccurred(), "crictl info: %s", res.Combined())
+	rt, err := assertions.ParseCRIInfo([]byte(res.Stdout))
+	Expect(err).NotTo(HaveOccurred())
+	Expect(assertions.CheckNvidiaHandler(rt)).To(Succeed(), "the nvidia handler the operator's pods use")
 	Expect(dockerExec(ctx, container, "bash", "-c", "LD_LIBRARY_PATH=/run/nvidia/driver/usr/lib64 /run/nvidia/driver/usr/bin/nvidia-smi")).To(Succeed(), "nvidia-smi works via /run/nvidia/driver")
 }
 

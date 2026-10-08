@@ -34,6 +34,12 @@ could hold the lock and stall staging. */}}
 {{- fail (printf "nri.healthPort (%v) conflicts with another listener in the shared pod; use a port other than node-agent health port 9091 or the enabled InfiniBand ping port %v" .Values.nri.healthPort .Values.infiniband.ping.port) }}
 {{- end }}
 {{- $migProfiles := include "nvml-mock.migProfiles" . }}
+{{- $runtime := .Values.nodeAgent.containerRuntime }}
+{{- /* A surge pod would set the runtime up next to the old pod, whose revert
+then removes the setup. */}}
+{{- if and $runtime.enabled (dig "rollingUpdate" "maxSurge" 0 (.Values.updateStrategy | default dict)) }}
+{{- fail "updateStrategy.rollingUpdate.maxSurge cannot be used with nodeAgent.containerRuntime: the old node pod's revert would remove the new one's setup" }}
+{{- end }}
 metadata:
   name: {{ include "nvml-mock.fullname" . }}
   labels:
@@ -76,6 +82,11 @@ spec:
       {{- end }}
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- if and $runtime.enabled (eq $runtime.restartMode "systemd") }}
+      # systemctl refuses a systemd it cannot see, so restarting containerd
+      # takes the host's PID namespace.
+      hostPID: true
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -127,6 +138,14 @@ spec:
             {{- end }}
             {{- with include "nvml-mock.featureGates" . }}
             - --feature-gates={{ . }}
+            {{- end }}
+            {{- if $runtime.enabled }}
+            - --container-runtime={{ $runtime.type }}
+            - --container-runtime-restart={{ $runtime.restartMode }}
+            - --container-runtime-config={{ $runtime.containerd.configPath }}
+            - --container-runtime-config-dir={{ $runtime.containerd.configDir }}
+            - --container-runtime-systemd-unit={{ $runtime.containerd.systemdUnit }}
+            - --host-fs=/host
             {{- end }}
           env:
             - name: NODE_NAME
@@ -307,6 +326,23 @@ spec:
             # only in practice: nothing here reads it back.
             - name: kernel-log
               mountPath: /dev/kmsg
+            {{- end }}
+            {{- if $runtime.enabled }}
+            # The host's root, read only, for systemctl to run chrooted into.
+            - name: host-fs
+              mountPath: /host
+              readOnly: true
+              mountPropagation: HostToContainer
+            - name: host-usr-bin
+              mountPath: /host/usr/bin
+            - name: container-toolkit
+              mountPath: /host/usr/local/nvml-mock
+            - name: nvidia-container-runtime-config
+              mountPath: /host/etc/nvidia-container-runtime
+            # At its own path: nvidia-ctk writes this path into containerd's
+            # imports.
+            - name: container-runtime-config
+              mountPath: {{ dir $runtime.containerd.configPath }}
             {{- end }}
           {{- with .Values.nodeAgent.livenessProbe }}
           livenessProbe:
@@ -503,6 +539,28 @@ spec:
           hostPath:
             path: /dev/kmsg
             type: CharDevice
+        {{- end }}
+        {{- if $runtime.enabled }}
+        - name: host-fs
+          hostPath:
+            path: /
+            type: Directory
+        - name: host-usr-bin
+          hostPath:
+            path: /usr/bin
+            type: Directory
+        - name: container-toolkit
+          hostPath:
+            path: /usr/local/nvml-mock
+            type: DirectoryOrCreate
+        - name: nvidia-container-runtime-config
+          hostPath:
+            path: /etc/nvidia-container-runtime
+            type: DirectoryOrCreate
+        - name: container-runtime-config
+          hostPath:
+            path: {{ dir $runtime.containerd.configPath | quote }}
+            type: DirectoryOrCreate
         {{- end }}
         {{- if .Values.topology.enabled }}
         - name: cluster-topology

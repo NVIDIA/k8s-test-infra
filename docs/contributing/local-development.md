@@ -16,15 +16,11 @@ tilt up -- --gpu-operator    # the dev loop
 
 ## Step 1 — create a cluster
 
-Every cluster uses a custom Kind node image built from
-`deployments/kind-nvidia-cdi/`, which pre-installs the NVIDIA container runtime
-and bakes CDI into containerd. `make cluster-create` builds it if needed.
-
 Two cluster shapes exist, selected with `PROFILE`:
 
-| `PROFILE` | Shape | Cluster name | Use with |
-|---|---|---|---|
-| `default` | 1 control-plane + 2 workers | `mokka` | everything except compute-domain |
+| `PROFILE`        | Shape                                           | Cluster name           | Use with                          |
+|------------------|-------------------------------------------------|------------------------|-----------------------------------|
+| `default`        | 1 control-plane + 2 workers                     | `mokka`                | everything except compute-domain  |
 | `compute-domain` | 1 control-plane + 4 workers with NVLink cliques | `mokka-compute-domain` | `--compute-domain`, `--topograph` |
 
 ```bash

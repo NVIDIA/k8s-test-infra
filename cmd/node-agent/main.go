@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -22,13 +23,15 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
-	"github.com/NVIDIA/k8s-test-infra/internal/agent/cdi"
+	crisim "github.com/NVIDIA/k8s-test-infra/internal/agent/cri"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/fabricmanager"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/gpudriver"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/ib"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/kernellog"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/source"
+	"github.com/NVIDIA/k8s-test-infra/internal/cri"
+	"github.com/NVIDIA/k8s-test-infra/internal/cri/containerd"
 	"github.com/NVIDIA/k8s-test-infra/internal/features"
 	"github.com/NVIDIA/k8s-test-infra/internal/health"
 	"github.com/NVIDIA/k8s-test-infra/internal/logging"
@@ -138,6 +141,44 @@ func startCommand() *cli.Command {
 				Sources: cli.EnvVars("MOKKA_AGENT_RESYNC_INTERVAL"),
 				Usage:   "re-read --config and --topology this often regardless of filesystem events; 0 relies on events alone",
 			},
+			&cli.StringFlag{
+				Name:    "container-runtime",
+				Sources: cli.EnvVars("MOKKA_AGENT_CONTAINER_RUNTIME"),
+				Usage:   "set up the nvidia handler in this container runtime (containerd), reverted when the agent stops; '' leaves the container runtime alone",
+			},
+			&cli.StringFlag{
+				Name:    "container-runtime-restart",
+				Value:   string(cri.RestartSystemd),
+				Sources: cli.EnvVars("MOKKA_AGENT_CONTAINER_RUNTIME_RESTART"),
+				Usage:   "how the container runtime picks up a configuration change: systemd, or none to leave the restart to the operator",
+			},
+			// The runtime's own defaults apply when these are empty, so the
+			// same flags serve every runtime.
+			&cli.StringFlag{
+				Name:    "container-runtime-config",
+				Sources: cli.EnvVars("MOKKA_AGENT_CONTAINER_RUNTIME_CONFIG"),
+				Usage:   "the container runtime's main configuration file on the host ('' takes the runtime's default)",
+			},
+			&cli.StringFlag{
+				Name:    "container-runtime-config-dir",
+				Sources: cli.EnvVars("MOKKA_AGENT_CONTAINER_RUNTIME_CONFIG_DIR"),
+				Usage:   "the container runtime's config dir on the host, where Mokka's config file goes ('' takes the runtime's default)",
+			},
+			&cli.StringFlag{
+				Name:    "container-runtime-systemd-unit",
+				Sources: cli.EnvVars("MOKKA_AGENT_CONTAINER_RUNTIME_SYSTEMD_UNIT"),
+				Usage:   "the systemd unit that runs the container runtime ('' takes the runtime's default)",
+			},
+			// The host's whole root filesystem, which the host's own systemctl
+			// runs chrooted into. The chart mounts it read-only at /host, the
+			// same path as --host-root, with what the agent writes mounted
+			// read-write inside it.
+			&cli.StringFlag{
+				Name:    "host-fs",
+				Value:   "/host",
+				Sources: cli.EnvVars("MOKKA_AGENT_HOST_FS"),
+				Usage:   "the host's root filesystem; systemctl runs chrooted into it to restart the container runtime",
+			},
 		},
 		Action: runStart,
 	}
@@ -180,6 +221,11 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 
 	h := host.New(cmd.String("host-root"))
 
+	criOpts, err := criOptions(cmd)
+	if err != nil {
+		return err
+	}
+
 	// TODO: we should consider keeping runtime state in /var/ dir so it naturally gets reset on container restart
 	if err := resetRuntimeOverrides(h, log); err != nil {
 		return err
@@ -194,13 +240,19 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 		zap.Bool("ib_fabric", cmd.Bool("ib-fabric")),
 		zap.Duration("shutdown_timeout", shutdownTimeout),
 		zap.Duration("resync_interval", resyncInterval),
+		zap.String("container_runtime", cmd.String("container-runtime")),
+		zap.String("container_runtime_restart", cmd.String("container-runtime-restart")),
+		zap.String("container_runtime_config", cmd.String("container-runtime-config")),
+		zap.String("container_runtime_config_dir", cmd.String("container-runtime-config-dir")),
+		zap.String("container_runtime_systemd_unit", cmd.String("container-runtime-systemd-unit")),
+		zap.String("host_fs", cmd.String("host-fs")),
 	)
 
 	a := agent.New(agent.Config{
 		Simulators: []agent.Simulator{
 			gpudriver.New(h),
 			pcibus.New(h),
-			cdi.New(h),
+			crisim.New(h, criOpts),
 			imex.New(h),
 			migcaps.New(h),
 			nvlink.New(h),
@@ -228,6 +280,70 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	g.Go(func() error { return healthSrv.Run(gctx) })
 	g.Go(func() error { return a.Run(gctx) })
 	return g.Wait()
+}
+
+// criOptions builds the cri simulator's options: without --container-runtime
+// it only publishes the CDI specs and leaves the container runtime alone.
+func criOptions(cmd *cli.Command) (crisim.Options, error) {
+	name, opts, err := runtimeOptions(cmd)
+	if err != nil || name == "" {
+		return crisim.Options{}, err
+	}
+
+	rt, err := newRuntime(name, opts)
+	if err != nil {
+		return crisim.Options{}, err
+	}
+
+	return crisim.Options{Runtime: rt, ToolkitSource: cri.DefaultToolkitSource}, nil
+}
+
+// runtimeOptions reads the container runtime flags: the runtime's name, empty
+// when the setup is off, and what every Runtime shares.
+func runtimeOptions(cmd *cli.Command) (string, cri.RuntimeOptions, error) {
+	name := cmd.String("container-runtime")
+	if name == "" {
+		return "", cri.RuntimeOptions{}, nil
+	}
+
+	mode, err := cri.ParseRestartMode(cmd.String("container-runtime-restart"))
+	if err != nil {
+		return "", cri.RuntimeOptions{}, fmt.Errorf("--container-runtime-restart: %w", err)
+	}
+
+	if root := cmd.String("host-fs"); root == "" {
+		return "", cri.RuntimeOptions{}, errors.New("--host-fs is required with --container-runtime")
+	}
+
+	for _, flag := range []string{
+		"host-fs",
+		"container-runtime-config",
+		"container-runtime-config-dir",
+	} {
+		if p := cmd.String(flag); p != "" && !filepath.IsAbs(p) {
+			return "", cri.RuntimeOptions{}, fmt.Errorf("--%s must be an absolute path, got %q", flag, p)
+		}
+	}
+
+	return name, cri.RuntimeOptions{
+		NvidiaCTK:   filepath.Join(cri.DefaultToolkitSource, "nvidia-ctk"),
+		Chroot:      cri.Chroot{Root: cmd.String("host-fs")},
+		ConfigPath:  cmd.String("container-runtime-config"),
+		ConfigDir:   cmd.String("container-runtime-config-dir"),
+		Unit:        cmd.String("container-runtime-systemd-unit"),
+		RestartMode: mode,
+	}, nil
+}
+
+// newRuntime returns the Runtime for the named container runtime. A runtime
+// Mokka can set up gets its case here.
+func newRuntime(name string, opts cri.RuntimeOptions) (cri.Runtime, error) {
+	switch name {
+	case "containerd":
+		return containerd.New(opts)
+	default:
+		return nil, fmt.Errorf("unsupported container runtime %q (supported: containerd)", name)
+	}
 }
 
 // resetRuntimeOverrides clears the runtime override documents nvml-mock-ctl and

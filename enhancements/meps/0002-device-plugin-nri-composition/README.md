@@ -502,6 +502,12 @@ repository does carry are used by one other job and by nothing, respectively. It
 also inverts the dependency: #440 would wait on #436 rather than gate it. The
 constraints above keep the door open.
 
+> **Amended by [MEP-0006](../0006-automatic-cdi-setup/README.md).** The node
+> daemon now installs the NVIDIA container runtime on every node and makes it
+> containerd's default `nvidia` handler, as the custom Kind node image did, and
+> that image is gone: every CI job, the NRI legs included, runs on stock
+> `kindest/node`.
+
 **5. Build a mock device plugin.** Write our own plugin that advertises capacity
 and cooperates with the NRI plugin by construction.
 

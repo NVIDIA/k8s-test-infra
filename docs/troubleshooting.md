@@ -59,6 +59,27 @@ docker exec "$NODE" cat /var/lib/nvml-mock/driver/config/config.yaml
 kubectl logs -n mokka -l app.kubernetes.io/name=nvml-mock | grep -i cdi
 ```
 
+### Pods get no mock driver, or the node pod is not ready
+
+The node daemon makes the `nvidia` runtime handler containerd's default, and its
+log says why when that fails or when it leaves the node's runtime alone:
+
+```bash
+POD=$(kubectl -n mokka get pods -l app.kubernetes.io/name=nvml-mock \
+  --field-selector spec.nodeName=<node> -o jsonpath='{.items[0].metadata.name}')
+kubectl -n mokka logs "$POD" -c node-agent | grep 'container runtime\|containerd'
+```
+
+A `container runtime setup failed` line names the step that failed, for
+example `nvidia-ctk` failing to write the configuration, or containerd failing
+to restart with it. On the node, `crictl info` shows whether the running
+containerd has the handler as its default, and `journalctl -u containerd` shows
+why a restart failed. Until the setup succeeds, containers start under the
+node's own default handler without the mock driver, and a pod that sets
+`runtimeClassName: nvidia` cannot start. See
+[Container runtime setup](components/node-daemon.md#container-runtime-setup)
+for what the setup needs, how to remove it by hand, and how to turn it off.
+
 ### A pod gets no mock GPUs even though NRI is enabled
 
 First check that the pod is meant to receive GPUs. The plugin gives mock GPUs

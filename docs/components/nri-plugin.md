@@ -161,10 +161,10 @@ When the plugin delivers GPUs to a `devices`-annotated pod with no allocation,
 `deviceInjectionMode` picks the mechanism. It changes *how*, never *whether*,
 and never touches an allocated container.
 
-| Mode | Delivers | Use when |
-|---|---|---|
-| `raw` (default) | The mock `/dev/nvidiaN` nodes, staged directly into the adjustment | Always works. Required by MEP-0002 to stay reachable, and the only mode that works where CDI is off or absent |
-| `cdi` | A CDI device reference the runtime resolves from the spec the `cdi` simulator wrote | containerd 2.x, which enables CDI by default — no container toolkit needed on the node |
+| Mode            | Delivers                                                                            | Use when                                                                                                                                                     |
+|-----------------|-------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `raw` (default) | The mock `/dev/nvidiaN` nodes, staged directly into the adjustment                  | Always works. Required by MEP-0002 to stay reachable, and the only mode that works where CDI is off or absent                                                |
+| `cdi`           | A CDI device reference the runtime resolves from the spec the `cri` simulator wrote | containerd 2.1 or later, or 1.7.30 or later. containerd 2.0.x drops a CDI device requested through NRI without an error, so the container starts with no GPU |
 
 An unknown value is rejected rather than coerced. A typo that silently fell back
 to `raw` would look identical to a working CDI deployment, and the difference is

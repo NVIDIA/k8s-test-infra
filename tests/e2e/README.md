@@ -84,7 +84,7 @@ printed at the end of every run, so a skip is never silent.
 ### Provision the cluster and image
 
 The cluster always comes from `make cluster-create`, locally and in CI. It
-builds the CDI-enabled Kind node image and creates a cluster from
+creates a cluster from the stock Kind node image the Makefile pins and
 `local/kind/$(PROFILE).kind.yaml`, where `PROFILE` defaults to `default`. That
 yields a cluster named `mokka`, so Kind derives the context `kind-mokka` — which
 is what the suite defaults to.
@@ -102,9 +102,10 @@ tilt up -- --nvmlmock-image=nvml-mock:e2e     # or `tilt ci` for a headless run
 ```
 
 [`local/kind/default.kind.yaml`](../../local/kind/default.kind.yaml) gives one
-control-plane and two workers named `worker-0` and `worker-1`, turns on the
-`DynamicResourceAllocation` feature gate, and enables the containerd NRI socket
-that the node-wide injection scenario requires.
+control-plane and two workers named `worker-0` and `worker-1` and turns on the
+`DynamicResourceAllocation` feature gate. The node image's containerd 2.2 has
+CDI and NRI on by default, and the nvml-mock node daemon registers the `nvidia`
+runtime handler itself.
 
 ### Run
 
@@ -139,6 +140,7 @@ tests that must not be scoped by `E2E_PROFILES`.
 | Multi-node fleet | `make e2e-multi-node` | `multi-node` | A heterogeneous fleet works: separate A100 and T4 releases on different workers, correct per-node mock files and IB behaviour, and a GPU workload scheduled across them |
 | Node-wide NRI injection | `make e2e-nri` | `nri`, `nri-*`, `compute-domain`, `imex-channels` | Node Resource Interface (NRI) injection follows the allocation rules: a pod with no Mokka-specific spec sees exactly its device-plugin allocation, a `devices`-annotated pod with no GPU request sees every GPU, and a pod that asks for neither is left untouched |
 | NFD label provenance | `make e2e-nfd` | `nfd`, `nfd-provenance` | Node Feature Discovery (NFD) derives `feature.node.kubernetes.io/pci-10de.present` from the feature file the mock writes — and that the mock does not write the label itself. Pinned to `a100`, because the label is vendor-only and identical across profiles |
+| Container runtime setup | `make e2e` | `container-runtime` | The node daemon registers the `nvidia` handler with containerd on stock `kindest/node` as the default: a pod with `NVIDIA_VISIBLE_DEVICES` sees the node's mock GPUs, with or without `runtimeClassName: nvidia`, replacing the node pod sets the runtime up again, and a node that loses its node pod loses the handler |
 | Standalone GFD | opt-in | `gfd` | Standalone GPU Feature Discovery derives the required node labels from the mock GPU inventory. **Skipped by default** — see below |
 
 ### Node-wide NRI injection
@@ -196,13 +198,11 @@ verifies the required GFD labels.
 
 ### Reference Kind configs
 
-The scenarios do not create clusters, but three of them expect a specific
-cluster shape. These files record it, and are the configs to use when building
+The scenarios do not create clusters, but the DRA scenario expects a specific
+cluster shape. This file records it, and is the config to use when building
 that cluster by hand:
 
 - [`kind-dra-config.yaml`](kind-dra-config.yaml)
-- [`kind-gpu-operator-config.yaml`](kind-gpu-operator-config.yaml)
-- [`kind-multi-node-config.yaml`](kind-multi-node-config.yaml)
 
 ## Reference
 

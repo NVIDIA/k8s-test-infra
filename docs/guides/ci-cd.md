@@ -92,13 +92,11 @@ in about a second and needs no rollout.
 The mock driver and `nvidia-smi` work on any Kind cluster. Consumers that
 allocate GPUs need more:
 
-| Testing this | Also needs |
-|---|---|
-| The mock driver, `nvidia-smi`, node labels | nothing beyond a cluster |
-| The NVIDIA device plugin, DRA driver, or GPU Operator | a Kind node image with CDI enabled in containerd |
-| Node-wide NRI injection | containerd with the NRI socket enabled |
-
-[Installation](../helm-chart.md) covers building a node image for those paths.
+| Testing this                                          | Also needs                                                                                            |
+|-------------------------------------------------------|-------------------------------------------------------------------------------------------------------|
+| The mock driver, `nvidia-smi`, node labels            | nothing beyond a cluster                                                                              |
+| The NVIDIA device plugin, DRA driver, or GPU Operator | nothing beyond a cluster: Mokka's node daemon registers the `nvidia` runtime handler and turns CDI on |
+| Node-wide NRI injection                               | `nri.enabled=true`; the node daemon turns NRI on in containerd where it is off                        |
 
 ## Keeping jobs fast
 

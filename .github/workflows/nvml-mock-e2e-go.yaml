@@ -24,12 +24,6 @@
 # Artifacts need no credentials, so fork PRs work, and no third-party registry
 # can fail the matrix (see issue #566).
 #
-# Kind node image: the standalone `e2e` pilot uses `make cluster-create` (same
-# as local dev), which needs a custom kind-node image with nvidia-container-
-# toolkit pre-baked. A parallel `build-kind-node-image` job builds and shares
-# that image the same way; the standalone leg loads it as kind-node-nv:latest
-# and sets KIND_NODE_IMAGE_PREBUILT so `make image-kind-node` is a no-op. Other
-# jobs still use kindest/node directly and don't need this.
 name: nvml-mock E2E (Go)
 
 concurrency:
@@ -76,7 +70,6 @@ env:
   # RUNNER_TEMP after downloading. Kept here so producer and consumers cannot
   # drift apart on the filename.
   NVMLMOCK_TARBALL: nvml-mock.tar
-  KIND_NODE_TARBALL: kind-node-nv.tar
   E2E_ARTIFACTS: ${{ github.workspace }}/artifacts/e2e/go
 
 jobs:
@@ -140,47 +133,6 @@ jobs:
         if: always()
         run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
 
-  # Build the custom kind-node image (kindest/node + nvidia-container-toolkit)
-  # once per commit for the standalone `e2e` pilot, and share it the same way
-  # as build-nvmlmock-image: tarball + run-scoped artifact. The pilot leg loads
-  # it as kind-node-nv:latest, then `make cluster-create` sees the ref and skips
-  # the rebuild (KIND_NODE_IMAGE_PREBUILT=1 in the leg's env). Runs in parallel
-  # with build-nvmlmock-image; independent GHA cache scope so the two jobs don't
-  # contend for the same key. Other jobs use kindest/node directly.
-  build-kind-node-image:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
-
-      - name: Build kind-node image to a tarball
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
-        with:
-          context: ./deployments/kind-nvidia-cdi
-          # Tag the ref `make image-kind-node` expects, so loading the tarball
-          # is all a consumer has to do.
-          tags: kind-node-nv:latest
-          push: false
-          outputs: type=docker,dest=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }}
-          cache-from: type=gha,scope=kind-node
-          cache-to: type=gha,mode=max,scope=kind-node
-
-      - name: Upload kind-node image artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: kind-node-image
-          path: ${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }}
-          retention-days: 1
-          # Artifacts are keyed per run, so a re-run would otherwise collide
-          # with the previous attempt's upload.
-          overwrite: true
-          if-no-files-found: error
-          # Buildx's docker exporter already writes gzipped layers.
-          compression-level: 0
-
   # TODO: The standalone `e2e` job uses `make cluster-create` +
   # `tilt ci` for the cluster provisioning and nvml-mock rollout, mirroring the
   # local-dev flow documented in local/README.md. Ginkgo runs in attach mode
@@ -188,7 +140,7 @@ jobs:
   # holds up, the four other jobs (dra, gpu-operator, multi-node, nri) will
   # follow in a subsequent PR.
   e2e:
-    needs: [build-nvmlmock-image, build-kind-node-image]
+    needs: [build-nvmlmock-image]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -208,15 +160,6 @@ jobs:
         with:
           name: nvml-mock-image
           path: ${{ runner.temp }}
-
-      - name: Download pre-built kind-node image
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: kind-node-image
-          path: ${{ runner.temp }}
-
-      - name: Load pre-built kind-node image
-        run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
 
       - name: Install binaries and create Kind cluster
         # Installs pinned Kind, Helm + Tilt, then runs the same `make cluster-create`
@@ -281,7 +224,7 @@ jobs:
         run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
 
   e2e-dra:
-    needs: [build-nvmlmock-image, build-kind-node-image]
+    needs: [build-nvmlmock-image]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -301,15 +244,6 @@ jobs:
         with:
           name: nvml-mock-image
           path: ${{ runner.temp }}
-
-      - name: Download pre-built kind-node image
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: kind-node-image
-          path: ${{ runner.temp }}
-
-      - name: Load pre-built kind-node image
-        run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
 
       - name: Install binaries and create Kind cluster
         run: ./hack/e2e-ci-cluster.sh
@@ -358,7 +292,7 @@ jobs:
         run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
 
   e2e-gpu-operator:
-    needs: [build-nvmlmock-image, build-kind-node-image]
+    needs: [build-nvmlmock-image]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -378,15 +312,6 @@ jobs:
         with:
           name: nvml-mock-image
           path: ${{ runner.temp }}
-
-      - name: Download pre-built kind-node image
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: kind-node-image
-          path: ${{ runner.temp }}
-
-      - name: Load pre-built kind-node image
-        run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
 
       - name: Install binaries and create Kind cluster
         run: ./hack/e2e-ci-cluster.sh
@@ -435,7 +360,7 @@ jobs:
         run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
 
   e2e-multi-node:
-    needs: [build-nvmlmock-image, build-kind-node-image]
+    needs: [build-nvmlmock-image]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -451,15 +376,6 @@ jobs:
         with:
           name: nvml-mock-image
           path: ${{ runner.temp }}
-
-      - name: Download pre-built kind-node image
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: kind-node-image
-          path: ${{ runner.temp }}
-
-      - name: Load pre-built kind-node image
-        run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
 
       - name: Install binaries and create Kind cluster
         run: ./hack/e2e-ci-cluster.sh
@@ -507,7 +423,7 @@ jobs:
         run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
 
   e2e-nri:
-    needs: [build-nvmlmock-image, build-kind-node-image]
+    needs: [build-nvmlmock-image]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -527,15 +443,6 @@ jobs:
         with:
           name: nvml-mock-image
           path: ${{ runner.temp }}
-
-      - name: Download pre-built kind-node image
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: kind-node-image
-          path: ${{ runner.temp }}
-
-      - name: Load pre-built kind-node image
-        run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
 
       - name: Install binaries and create Kind cluster
         run: ./hack/e2e-ci-cluster.sh
@@ -588,7 +495,7 @@ jobs:
         run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
 
   e2e-nfd:
-    needs: [build-nvmlmock-image, build-kind-node-image]
+    needs: [build-nvmlmock-image]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -614,15 +521,6 @@ jobs:
         with:
           name: nvml-mock-image
           path: ${{ runner.temp }}
-
-      - name: Download pre-built kind-node image
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: kind-node-image
-          path: ${{ runner.temp }}
-
-      - name: Load pre-built kind-node image
-        run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
 
       - name: Install binaries and create Kind cluster
         run: ./hack/e2e-ci-cluster.sh
@@ -674,7 +572,7 @@ jobs:
         run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
 
   e2e-mig:
-    needs: [build-nvmlmock-image, build-kind-node-image]
+    needs: [build-nvmlmock-image]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -702,15 +600,6 @@ jobs:
         with:
           name: nvml-mock-image
           path: ${{ runner.temp }}
-
-      - name: Download pre-built kind-node image
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: kind-node-image
-          path: ${{ runner.temp }}
-
-      - name: Load pre-built kind-node image
-        run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
 
       - name: Install binaries and create Kind cluster
         run: ./hack/e2e-ci-cluster.sh

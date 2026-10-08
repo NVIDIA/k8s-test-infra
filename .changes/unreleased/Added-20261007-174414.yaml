@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  node-agent: installs the NVIDIA container runtime and registers it with containerd on each node, so nodes no longer need a toolkit install of their own; nodes without containerd are left alone. **Breaking** for `updateStrategy.rollingUpdate.maxSurge`, which the chart now refuses.
+time: 2026-10-07T15:44:14Z
+custom:
+  Issue: "881"

@@ -13,7 +13,7 @@ This directory contains Tiltfiles, Helm value overrides, and Kind cluster config
 ## Quick start
 
 ```bash
-# 1. Build the Kind node image and create a cluster
+# 1. Create a cluster
 make cluster-create
 
 # 2. Start the dev stack
@@ -22,7 +22,7 @@ tilt up -- --gpu-operator
 
 ## Step 1 — Create a cluster
 
-All profiles use the same custom Kind node image (`kind-node-nv:latest`) built from `deployments/kind-nvidia-cdi/Dockerfile`, which pre-installs the NVIDIA container runtime and bakes CDI into containerd.
+All profiles use the stock Kind node image the Makefile pins (`KIND_NODE_IMAGE`). The Mokka node daemon installs the NVIDIA container runtime and registers the `nvidia` handler with containerd itself; see [Container runtime setup](../docs/components/node-daemon.md#container-runtime-setup).
 
 The default profile spans 1 control-plane + 2 workers (a100 + t4), so no cluster rebuild is needed when switching between homogeneous (single Helm release) and heterogeneous (per-GPU-profile) nvml-mock installation, or when enabling `--fgo`.
 

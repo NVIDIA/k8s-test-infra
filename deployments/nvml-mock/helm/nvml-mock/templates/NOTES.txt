@@ -62,10 +62,11 @@ OPTION C: GPU Operator
   nvml-mock, so both are disabled and CDI carries the devices instead.
   The overlay below carries that, plus the driver root the device plugin,
   GFD and dcgm-exporter each need in their environment.
-
-  Cluster prerequisites (KIND): the node needs CDI enabled in containerd
-  and the nvidia runtime handler registered.
-  Walkthrough, including that containerd setup:
+{{- if not .Values.nodeAgent.containerRuntime.enabled }}
+  Cluster prerequisites: nodeAgent.containerRuntime is off, so each node needs
+  CDI enabled in containerd and the nvidia runtime handler registered.
+{{- end }}
+  Walkthrough:
     https://nvidia.github.io/k8s-test-infra/guides/gpu-operator/
   In a checkout of this repository: docs/guides/with-gpu-operator/
 

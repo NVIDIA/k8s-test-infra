@@ -22,7 +22,7 @@ type Simulator interface {
 
 // Applier is implemented by simulators whose staged artifacts something outside
 // the node acts on (containerd, NFD, the GPU Operator validator).
-// Only gpudriver, pcibus, and cdi implement this interface.
+// Only gpudriver, pcibus, and cri implement this interface.
 type Applier interface {
 	// Apply publishes artifacts after all Stage calls have completed (barrier).
 	Apply(ctx context.Context, state *State) error

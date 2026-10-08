@@ -336,7 +336,7 @@ kind load docker-image "${IMAGE_NAME}" "${WORKLOAD_IMAGE_NAME}" --name "${CLUSTE
 info "Installing chart (gb200 + topology + NRI channel injection)"
 # NOTE: `--set gpu.count=...` is intentionally NOT passed. The flag
 # only controls the host-side CDI spec / /dev/nvidia* device nodes
-# emitted by the cdi simulator; the in-pod ConfigMap mounted at
+# emitted by the cri simulator; the in-pod ConfigMap mounted at
 # /etc/nvml-mock/config.yaml — which is what check-fabric below
 # loads — always reflects the profile's full device list (8 for
 # gb200). For this demo the GPU count is irrelevant: what matters is

@@ -1,0 +1,272 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+suite: Container runtime setup
+templates:
+  - templates/daemonset.yaml
+# Render against a fixed chart version so releasing a new chart never
+# rewrites expectations or snapshots here.
+chart:
+  version: 0.0.0-dev
+  appVersion: 0.0.0-dev
+tests:
+  - it: should turn the setup on by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].command
+          content: --container-runtime=containerd
+      - contains:
+          path: spec.template.spec.containers[0].command
+          content: --container-runtime-restart=systemd
+      - contains:
+          path: spec.template.spec.containers[0].command
+          content: --container-runtime-config=/etc/containerd/config.toml
+      - contains:
+          path: spec.template.spec.containers[0].command
+          content: --container-runtime-config-dir=/etc/containerd/conf.d
+      - contains:
+          path: spec.template.spec.containers[0].command
+          content: --container-runtime-systemd-unit=containerd
+      - contains:
+          path: spec.template.spec.containers[0].command
+          content: --host-fs=/host
+      # systemctl refuses a systemd outside its PID namespace.
+      - equal:
+          path: spec.template.spec.hostPID
+          value: true
+
+  - it: should keep the pod's own PID namespace without restarts
+    set:
+      nodeAgent:
+        containerRuntime:
+          restartMode: none
+    asserts:
+      - notExists:
+          path: spec.template.spec.hostPID
+
+  - it: should mount the host for the setup
+    asserts:
+      # Read only, and HostToContainer so mounts the host makes later are not
+      # pinned by this copy of its tree.
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: host-fs
+            mountPath: /host
+            readOnly: true
+            mountPropagation: HostToContainer
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: host-usr-bin
+            mountPath: /host/usr/bin
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: container-toolkit
+            mountPath: /host/usr/local/nvml-mock
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: nvidia-container-runtime-config
+            mountPath: /host/etc/nvidia-container-runtime
+      # At its own path, so the import nvidia-ctk writes resolves on the host.
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: container-runtime-config
+            mountPath: /etc/containerd
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: host-fs
+            hostPath:
+              path: /
+              type: Directory
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: host-usr-bin
+            hostPath:
+              path: /usr/bin
+              type: Directory
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: container-toolkit
+            hostPath:
+              path: /usr/local/nvml-mock
+              type: DirectoryOrCreate
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: nvidia-container-runtime-config
+            hostPath:
+              path: /etc/nvidia-container-runtime
+              type: DirectoryOrCreate
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: container-runtime-config
+            hostPath:
+              path: /etc/containerd
+              type: DirectoryOrCreate
+
+  - it: should leave the container runtime alone when disabled
+    set:
+      nodeAgent:
+        containerRuntime:
+          enabled: false
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].command
+          content: --container-runtime=containerd
+      - notContains:
+          path: spec.template.spec.containers[0].command
+          content: --host-fs=/host
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: host-fs
+            mountPath: /host
+            readOnly: true
+            mountPropagation: HostToContainer
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: host-fs
+            hostPath:
+              path: /
+              type: Directory
+      - notExists:
+          path: spec.template.spec.hostPID
+      - equal:
+          path: spec.template.spec.terminationGracePeriodSeconds
+          value: 10
+
+  - it: should pass the flags to the node agent in the native sidecar layout
+    capabilities:
+      majorVersion: 1
+      minorVersion: 29
+    set:
+      nri:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: node-agent
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --container-runtime=containerd
+      - contains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: host-fs
+            mountPath: /host
+            readOnly: true
+            mountPropagation: HostToContainer
+
+  - it: should map the containerd block to the generic flags
+    set:
+      nodeAgent:
+        containerRuntime:
+          restartMode: none
+          containerd:
+            configPath: /etc/containerd/custom.toml
+            configDir: /etc/containerd/config.d
+            systemdUnit: containerd.service
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].command
+          content: --container-runtime-restart=none
+      - contains:
+          path: spec.template.spec.containers[0].command
+          content: --container-runtime-config=/etc/containerd/custom.toml
+      - contains:
+          path: spec.template.spec.containers[0].command
+          content: --container-runtime-config-dir=/etc/containerd/config.d
+      - contains:
+          path: spec.template.spec.containers[0].command
+          content: --container-runtime-systemd-unit=containerd.service
+
+  - it: should mount the directory of a moved configuration
+    set:
+      nodeAgent:
+        containerRuntime:
+          containerd:
+            configPath: /opt/containerd/config.toml
+            configDir: /opt/containerd/conf.d
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: container-runtime-config
+            mountPath: /opt/containerd
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: container-runtime-config
+            hostPath:
+              path: /opt/containerd
+              type: DirectoryOrCreate
+
+  # ── Rollouts ────────────────────────────────────────────────────────
+  # A surge pod would set the runtime up next to the old pod, whose revert
+  # then removes the setup.
+  - it: should refuse a surging rollout
+    set:
+      updateStrategy:
+        rollingUpdate:
+          maxSurge: 1
+    asserts:
+      - failedTemplate:
+          errorMessage: "updateStrategy.rollingUpdate.maxSurge cannot be used with nodeAgent.containerRuntime: the old node pod's revert would remove the new one's setup"
+
+  - it: should allow a surging rollout without the setup
+    set:
+      nodeAgent:
+        containerRuntime:
+          enabled: false
+      updateStrategy:
+        rollingUpdate:
+          maxSurge: 25%
+    asserts:
+      - equal:
+          path: spec.updateStrategy.rollingUpdate.maxSurge
+          value: 25%
+
+  # ── Validation ──────────────────────────────────────────────────────
+  - it: should refuse an unsupported runtime type via the values schema
+    set:
+      nodeAgent:
+        containerRuntime:
+          type: cri-o
+    asserts:
+      - failedTemplate: {}
+
+  - it: should refuse an unknown restart mode via the values schema
+    set:
+      nodeAgent:
+        containerRuntime:
+          restartMode: kill
+    asserts:
+      - failedTemplate: {}
+
+  - it: should refuse a relative path via the values schema
+    set:
+      nodeAgent:
+        containerRuntime:
+          containerd:
+            configPath: etc/containerd/config.toml
+    asserts:
+      - failedTemplate: {}
+
+  # Closed to unknown keys, so a typo cannot read as set while the default
+  # applies.
+  - it: should refuse a misspelled key via the values schema
+    set:
+      nodeAgent:
+        containerRuntime:
+          enable: false
+    asserts:
+      - failedTemplate:
+          errorMessage: "values don't meet the specifications of the schema(s) in the following chart(s):\nnvml-mock:\n- at '/nodeAgent/containerRuntime': additional properties 'enable' not allowed\n"
