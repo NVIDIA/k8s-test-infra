@@ -159,6 +159,21 @@ type DeviceConfig struct {
 	// baseline. See NVLinkErrorInjectionConfig.
 	NVLinkError *NVLinkErrorInjectionConfig `json:"nvlink_error,omitempty"`
 
+	// NVLinkBwMode records the NVLink Reduced Bandwidth Mode a runtime setter
+	// applied. It is per device because that is what the device-level NVML
+	// pair takes; the node-wide pair writes the same field into the `all:`
+	// bucket, so a node-wide set moves every device the way the driver does.
+	//
+	// A pointer so an explicit 0 (FULL) is distinguishable from "never set",
+	// which falls back to the profile's nvlink.bw_mode.
+	NVLinkBwMode *uint8 `json:"nvlink_bw_mode,omitempty"`
+
+	// NVLinkLowPowerThreshold records the threshold
+	// nvmlDeviceSetNvLinkDeviceLowPowerThreshold applied, in the 50us units
+	// the low-power field values report. Nil is the driver default, which is
+	// also what the reset sentinel restores.
+	NVLinkLowPowerThreshold *uint32 `json:"nvlink_low_power_threshold,omitempty"`
+
 	// Platform describes where the board physically sits in a rack. When nil
 	// (default) nvmlDeviceGetPlatformInfo and nvmlDeviceGetModuleId report
 	// ERROR_NOT_SUPPORTED — matching every board outside a Grace-Blackwell
@@ -949,6 +964,20 @@ type NVLinkConfig struct {
 	// i.e. 53125 Mbps.
 	BandwidthPerLinkMbps int  `json:"bandwidth_per_link_mbps,omitempty"`
 	C2CEnabled           bool `json:"c2c_enabled,omitempty"`
+
+	// NvleEnabled mirrors nvlink.nvle_enabled: NVLink encryption, reported
+	// by nvmlDeviceGetNvLinkInfo and the " NVLE:" row of
+	// `nvidia-smi nvlink --info`. Node-level for the same reason C2C is —
+	// it is a property of the board, not of one GPU.
+	NvleEnabled bool `json:"nvle_enabled,omitempty"`
+
+	// BwMode declares the NVLink Reduced Bandwidth Mode surface. Absent means
+	// the board has none, and every bandwidth-mode call answers NOT_SUPPORTED.
+	BwMode *NVLinkBwModeConfig `json:"bw_mode,omitempty"`
+
+	// Firmware declares the NVLink firmware versions reported alongside
+	// NVLE. Absent reports none, which nvidia-smi renders as "N/A".
+	Firmware *NVLinkFirmwareConfig `json:"firmware,omitempty"`
 	// Links is the legacy flat link list. It is kept for backward
 	// compatibility and is mapped to device index 0 when no DeviceLinks
 	// entry exists for that device.
@@ -969,6 +998,64 @@ type NVLinkConfig struct {
 	// device has no entry here the legacy flat Links list is used for
 	// device 0 only.
 	DeviceLinks []DeviceLinksConfig `json:"device_links,omitempty"`
+}
+
+// NVLinkBwModeScope names which NVML function family answers for the NVLink
+// Reduced Bandwidth Mode.
+type NVLinkBwModeScope string
+
+const (
+	// NVLinkBwModeScopeSystem is the node-wide pair,
+	// nvmlSystemGet/SetNvlinkBwMode, which is what `nvidia-smi nvlink
+	// -gBwMode` and -sBwMode call. Hopper boards answer on it.
+	NVLinkBwModeScopeSystem NVLinkBwModeScope = "system"
+	// NVLinkBwModeScopeDevice is the per-device trio,
+	// nvmlDeviceGet/SetNvlinkBwMode and nvmlDeviceGetNvlinkSupportedBwModes,
+	// which no nvidia-smi flag reaches. Blackwell boards answer on it and
+	// decline the node-wide pair.
+	NVLinkBwModeScopeDevice NVLinkBwModeScope = "device"
+)
+
+// NVLinkBwModeConfig declares the NVLink Reduced Bandwidth Mode surface.
+//
+// Mode values are opaque driver indices; the bundled nvidia-smi names them
+// 0=FULL, 1=OFF, 2=MIN, 3=HALF, 4=3QUARTER, so a value above 4 would index
+// past its name table and render as garbage.
+type NVLinkBwModeConfig struct {
+	// Scope selects the one NVML function family that answers; the other
+	// answers NOT_SUPPORTED. A real board answers one or the other, never
+	// both, so this is a choice rather than two flags.
+	Scope NVLinkBwModeScope `json:"scope,omitempty"`
+
+	// Supported is the list of modes the board accepts, and what
+	// nvmlDeviceGetNvlinkSupportedBwModes reports. Empty means the five modes
+	// the bundled nvidia-smi can name.
+	Supported []uint8 `json:"supported,omitempty"`
+
+	// Mode is the initial current mode. A pointer so that an explicit 0
+	// (FULL) is distinguishable from "unset".
+	Mode *uint8 `json:"mode,omitempty"`
+}
+
+// NVLinkFirmwareConfig declares the NVLink firmware versions
+// nvmlDeviceGetNvLinkInfo reports, which `nvidia-smi nvlink --info` renders
+// under "Firmware Version:".
+//
+// Each value is "major:minor:subMinor", the form nvidia-smi prints, so a line
+// read off real hardware transfers to a profile unchanged. An omitted
+// component is left out of the table rather than reported as zero, because
+// the board either carries that microcontroller or it does not.
+//
+// The fields are named rather than a free list because the label is chosen by
+// the ucodeType index, of which nvml.h defines exactly these five, and
+// nvidia-smi exits non-zero on an index it cannot name — an open-ended list
+// would let a profile break `--info` outright.
+type NVLinkFirmwareConfig struct {
+	MSE       string `json:"mse,omitempty"`
+	NETIR     string `json:"netir,omitempty"`
+	NETIRUPHY string `json:"netir_uphy,omitempty"`
+	NETIRCLN  string `json:"netir_cln,omitempty"`
+	NETIRDLN  string `json:"netir_dln,omitempty"`
 }
 
 // NVSwitchConfig describes a single NVSwitch remote endpoint.

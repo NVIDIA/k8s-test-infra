@@ -8,11 +8,11 @@ version: "1.0"
 # System-level configuration
 # =============================================================================
 system:
-  driver_version: "570.124.06"
-  nvml_version: "12.570.124.06"
-  cuda_version: "12.8"
-  cuda_version_major: 12
-  cuda_version_minor: 8
+  driver_version: "580.65.06"
+  nvml_version: "13.580.65"
+  cuda_version: "13.0"
+  cuda_version_major: 13
+  cuda_version_minor: 0
 
 # Helm-only dynamic-metrics defaults (engine ignores this key). Used when
 # gpu.dynamicMetrics.enabled=true; base sits inside the power limits so it varies.
@@ -396,7 +396,7 @@ device_defaults:
   # ---------------------------------------------------------------------------
   gsp_firmware:
     mode: "enabled"
-    version: "570.124.06"
+    version: "580.65.06"
 
   # ---------------------------------------------------------------------------
   # Blackwell Ultra-specific features
@@ -487,6 +487,20 @@ nvlink:
   links_per_gpu: 18
   bandwidth_per_link_mbps: 53125    # NVLink5 53.125 GB/s/link unidirectional (`nvlink -s`); 18 links ~= 0.95 TB/s/GPU (1.8 TB/s bidir)
   c2c_enabled: true                 # NVLink-C2C to Grace CPU
+  # Bandwidth mode answers on the per-device trio, nvmlDeviceGet/SetNvlinkBwMode;
+  # the node-wide pair `nvidia-smi nvlink -gBwMode` calls reports it unsupported,
+  # as a real GB300 does.
+  bw_mode:
+    scope: device
+  # Firmware versions read off a GB300 NVL; the "Firmware Version:" rows of
+  # `nvidia-smi nvlink --info`. Needs the 580 driver line below, which is
+  # where nvmlDeviceGetNvLinkInfo first exists.
+  firmware:
+    mse: "15:3:0"
+    netir: "36:2014:4784"
+    netir_uphy: "7:0:0"
+    netir_cln: "0:10:0"
+    netir_dln: "0:10:0"
   # Switch-link auto-expansion: because switches are declared and
   # links_per_gpu > 0 (and no explicit per-device links exist), the engine
   # synthesizes 18 active links per GPU fanned round-robin across these

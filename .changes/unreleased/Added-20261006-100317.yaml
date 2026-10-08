@@ -1,0 +1,9 @@
+kind: Added
+body: |-
+  nvml-mock: `nvidia-smi nvlink --info` now reports NVLink firmware versions
+    where a profile declares `nvlink.firmware`; `gb300` ships the set read off
+    a GB300 NVL. Other profiles report `N/A` as before.
+    See `docs/configuration.md`.
+time: 2026-10-06T08:03:17Z
+custom:
+  Issue: "861"

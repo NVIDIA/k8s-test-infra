@@ -565,6 +565,9 @@ nvlink:
   links_per_gpu: 18
   bandwidth_per_link_mbps: 26562
   c2c_enabled: false
+  nvle_enabled: false                # see bandwidth mode, low power and NVLE
+  bw_mode:                           # see bandwidth mode, low power and NVLE
+    scope: system
   links:
     - link: 0
       state: "active"
@@ -583,6 +586,105 @@ reports `N/A` — never `Disabled`, because NVML answers
 link to a host CPU. Only `gb200` and `gb300` enable it. This is the only key that
 drives the row: `device_defaults.features.nvlink_c2c` is descriptive metadata and
 is not read.
+
+### Bandwidth mode, low power and NVLE
+
+Three optional node-level keys sit here. `h100`, `b200`, `gb200` and `gb300`
+declare `bw_mode`, and `gb300` also declares `firmware`; an omitted key reports
+the default below:
+
+```yaml
+nvlink:
+  nvle_enabled: true                 # default false; the NVLE: row of `nvidia-smi nvlink --info`
+  bw_mode:                           # default: none; every bandwidth-mode call answers NOT_SUPPORTED
+    scope: device                    # system or device
+    supported: [0, 1, 2, 3, 4]       # default: all five
+    mode: 0                          # default: the best supported mode
+  firmware:                          # default: none, which renders as N/A
+    mse: "15:3:0"
+```
+
+NVLink Reduced Bandwidth Mode comes as two independent NVML function families,
+and a real board answers on one and declines the other. `bw_mode.scope` picks
+the one that answers; the other returns `NVML_ERROR_NOT_SUPPORTED`. A `scope`
+that names neither is warned about and treated as an absent block.
+
+| | `scope: system` | `scope: device` |
+|---|---|---|
+| NVML | `nvmlSystemGetNvlinkBwMode`, `nvmlSystemSetNvlinkBwMode` | `nvmlDeviceGetNvlinkBwMode`, `nvmlDeviceSetNvlinkBwMode`, `nvmlDeviceGetNvlinkSupportedBwModes` |
+| `nvidia-smi` | `nvlink -gBwMode`, `nvlink -sBwMode` | no flag reaches it — NVML callers only |
+| Shipped profiles | `h100` | `b200`, `gb200`, `gb300` |
+
+Either way, `supported` is the set the setter accepts, and the reported mode is
+the last value a setter recorded, else `mode`, else the best supported mode.
+
+!!! note "Choosing a scope for a new profile"
+    The NVML reference documents the node-wide family for Hopper or newer and
+    the per-device family for Blackwell or newer. The `nvidia-smi` manual,
+    however, marks `-gBwMode` and `-sBwMode` deprecated for Blackwell, and a
+    real GB300 answers `-gBwMode` with `Getting nvlink bandwidth mode is not
+    supported`. A Hopper board therefore takes `system`, a Blackwell board
+    `device`, and a board before Hopper omits the block. On a `device` profile
+    the mode is visible to NVML callers only.
+
+The `nvidia-smi` manual documents the five mode names and what each does, but
+nothing states which index the NVML calls carry for a name. The mapping below
+was established against the `nvidia-smi` the mock image bundles, and the set
+stops at four because a sixth value would index past its name table.
+
+| Value | Name | Effect |
+|---|---|---|
+| 0 | `FULL` | all links at maximum bandwidth |
+| 1 | `OFF` | NVLink unused; GPU-to-GPU traffic inside the node goes over PCIe instead |
+| 2 | `MIN` | minimum speed |
+| 3 | `HALF` | about half of `FULL` |
+| 4 | `3QUARTER` | about 75% of `FULL` |
+
+A `supported` value above 4 is accepted, since the indices are the driver's and
+a later one may define more, but it has no name to print and the profile is
+warned about it. A `mode` outside the effective `supported` set is ignored with
+a warning and the best supported mode is reported instead —
+`nvmlDeviceSetNvlinkBwMode` answers `NVML_ERROR_INVALID_ARGUMENT` for that very
+value, so honouring it would have the getter hand out a mode the setter refuses.
+
+`mode` is an initial value only. Both setters record into the config override
+document rather than into process memory, so a mode set by one process is read
+by every other process on the node and outlives the writer. A node-wide write
+also clears the per-device records, which would otherwise outrank it. Inspect
+either with [`nvml-mock-ctl status`](nvml-mock-ctl.md#status--inspect-active-overrides).
+
+`firmware` fills the `Firmware Version:` rows that `nvlink --info` prints under
+`NVLE:`. Each value is `major:minor:subMinor` — the form `nvidia-smi` prints —
+so a line read off real hardware transfers to a profile unchanged:
+
+```yaml
+nvlink:
+  firmware:
+    mse: "15:3:0"
+    netir: "36:2014:4784"
+    netir_uphy: "7:0:0"
+    netir_cln: "0:10:0"
+    netir_dln: "0:10:0"
+```
+
+The five keys are the microcontrollers NVML defines a ucode type for
+(`NVML_NVLINK_FIRMWARE_UCODE_TYPE_MSE` through `..._NETIR_DLN`), and
+`nvidia-smi` renders them in that order whatever order the profile lists it in.
+A sixth is not expressible, which is deliberate: `nvidia-smi` abandons the
+whole `--info` render on a ucode type it cannot label. Omit a key and
+its row is left out; omit the block and the table is empty, which `nvidia-smi`
+renders as `Firmware Version: N/A`. A value that is not three unsigned
+colon-separated parts is dropped with a warning rather than failing the load.
+`gb300` ships the set above, read off a GB300 NVL; no other profile declares
+one.
+
+The two remaining surfaces follow what the profile declares, so a board without
+the hardware declines instead of answering:
+
+| Surface | Requirement |
+|---|---|
+| `nvlink -gLowPwrInfo`, `-sLowPwrThres` | A GPU with an active NVLink. The threshold is `1`-`1023`, or `0xFFFFFFFF` to restore the driver default |
+| the `NVLE:` and `Firmware Version:` rows of `nvlink --info` | Driver 580 or newer, on a board that has NVLink (`links_per_gpu`). Below 580 the function itself is absent, so `nvidia-smi` reports `Function Not Found` rather than an unsupported device. There is no architecture floor: a Hopper board prints the rows too, with NVLE off and no firmware |
 
 ### NVSwitches
 
