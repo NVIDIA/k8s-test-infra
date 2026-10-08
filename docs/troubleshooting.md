@@ -110,11 +110,12 @@ running on another. See [Runtime Control](nvml-mock-ctl.md).
 ### Mounts pile up on a node with NRI enabled
 
 Up to and including 0.4.0, an injected container that also had a
-`Bidirectional` volume, such as a DRA kubelet plugin, copied the overlay's
-writable config bind onto the node. Each such container doubled the copies at
-`/var/lib/nvml-mock/driver/config`, and they stay after the pods are gone. A
-large stack slows container starts and anything else that reads the node's
-mount table. See [Mount propagation](components/nri-plugin.md#mount-propagation).
+`Bidirectional` volume, such as a DRA kubelet plugin or the GPU Operator's
+validator, copied the overlay's writable config bind onto the node. Each such
+container doubled the copies at `/var/lib/nvml-mock/driver/config`, and they
+stay after the pods are gone. A large stack slows container starts and anything
+else that reads the node's mount table. See
+[Mount propagation](components/nri-plugin.md#mount-propagation).
 
 On a Kind cluster, count them in each node container. Kubernetes node names
 can differ from the container names, so list the containers with `kind`. A
@@ -125,6 +126,11 @@ for NODE in $(kind get nodes --name mokka); do
   echo "${NODE}: $(docker exec "${NODE}" awk '$5 == "/var/lib/nvml-mock/driver/config" { n++ } END { print n + 0 }' /proc/self/mountinfo)"
 done
 ```
+
+To stay on 0.4.0 without the growth, keep the plugin out of the namespace
+those pods run in, for example `--set 'nri.excludedNamespaces={gpu-operator}'`
+for the GPU Operator. Pods in an excluded namespace get no overlay, so leave
+out only namespaces whose pods do not need the node's GPU profile.
 
 Upgrading stops the growth but leaves the copies in place. Rebooting the node
 clears them; on Kind, recreate the cluster. To clear them in place, first make
