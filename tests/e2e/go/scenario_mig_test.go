@@ -360,11 +360,11 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 				// with the engine's.
 				//
 				// The claim is about what the pod was handed, not what its own
-				// NVML reports: on this path the container toolkit drops the
-				// env that would point the in-container library at this node's
-				// profile (#747), so what the library reports depends on the
-				// /etc/nvml-mock fallback rather than on the allocation. The
-				// allocation is therefore asserted where the runtime honours it.
+				// NVML reports: an exec'd process in this pod never gets the
+				// spec's MOCK_NVML_CONFIG, so what the library reports there
+				// depends on the /etc/nvml-mock fallback rather than on the
+				// allocation. The allocation is therefore asserted where the
+				// runtime honours it.
 				It("gives a scheduled pod exactly one MIG partition", Label("mig-allocation"), func(ctx SpecContext) {
 					// The `nvidia-smi -L` listing, not the -q -x document the
 					// other specs read: what the plugin hands out is a MIG UUID,

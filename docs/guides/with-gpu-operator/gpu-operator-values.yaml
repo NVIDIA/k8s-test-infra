@@ -71,12 +71,11 @@ devicePlugin:
 
 # GFD reads GPU attributes via mock NVML and labels the node.
 #
-# GFD_MACHINE_TYPE_FILE is needed because this demo drives the CDI path, where
-# the toolkit resolving nvidia.com/gpu applies the spec's mounts and drops its
-# env (#747). Without it GFD falls back to the host's DMI product file and
-# labels the node with the host's machine type instead of the simulated one.
-# The NRI path injects this variable itself, so a demo using nri.enabled would
-# not need the override.
+# GFD_MACHINE_TYPE_FILE is needed because this demo drives the CDI path, and
+# the node agent's nvidia.com/gpu spec does not set it. Without it GFD falls
+# back to the host's DMI product file and labels the node with the host's
+# machine type instead of the simulated one. The NRI path injects this variable
+# itself, so a demo using nri.enabled would not need the override.
 gfd:
   enabled: true
   env:
