@@ -82,6 +82,11 @@ spec:
       {{- end }}
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- if and $runtime.enabled (eq $runtime.restartMode "systemd") }}
+      # systemctl refuses a systemd it cannot see, so restarting containerd
+      # takes the host's PID namespace.
+      hostPID: true
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

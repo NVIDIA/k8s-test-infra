@@ -584,7 +584,7 @@ flowchart LR
 The `cri` simulator, called the CDI simulator before this MEP, writes the CDI
 specs. In the same Apply step it puts in place what containerd needs to use
 them. It runs in the existing `node-agent` container: no new binary or
-container, and no `hostPID`.
+container.
 
 ### Container runtimes
 
@@ -686,8 +686,12 @@ starts: a pod killed between writing the file and restarting would otherwise
 leave a file containerd never loaded. The restart is
 `systemctl restart containerd` inside a chroot of the host. It runs with
 `SYSTEMD_IN_CHROOT=0`, and with the older `SYSTEMD_IGNORE_CHROOT=1`, so that
-systemctl acts on the host instead of ignoring the request. Running containers
-survive a restart because each is held by its own shim process.
+systemctl acts on the host instead of ignoring the request. The node pod
+shares the host's PID namespace: before acting, systemctl checks who is at the
+other end of systemd's socket, and from a pod's own PID namespace the kernel
+hides systemd's PID, so systemctl gives up with
+`Failed to connect to bus: No data available`. Running containers survive a
+restart because each is held by its own shim process.
 
 If the restart fails, the node pod is not ready and its log has systemctl's
 error. Nothing is rolled back, as the toolkit's installer rolls nothing back;
@@ -762,7 +766,8 @@ The handler name is always `nvidia`, the name of the GPU Operator's
 RuntimeClass. The `node-agent` container, already privileged, gains a read-only
 mount of the host root for the chroot and read-write mounts of `/usr/bin`,
 `/usr/local/nvml-mock`, `/etc/nvidia-container-runtime` and `/etc/containerd`,
-the last at its own path. While the setup is on, the chart refuses
+the last at its own path. With `restartMode: systemd` the pod also runs in the
+host's PID namespace. While the setup is on, the chart refuses
 `updateStrategy.rollingUpdate.maxSurge`.
 
 ### Image
@@ -780,6 +785,7 @@ glibc 2.17 or later. The image is multi-architecture.
 | Other runtimes | CRI-O and Docker once they are implemented; see [Container runtimes](#container-runtimes). Until then their nodes are left alone with a warning |
 | Restart | systemd, or `restartMode: none` |
 | Host filesystem | writable `/usr/bin`, `/usr/local` and `/etc` |
+| Pod security | privileged, as before, and `hostPID` unless `restartMode: none` |
 | Kubernetes | the chart's existing minimum |
 
 ### Test plan
@@ -832,6 +838,8 @@ glibc 2.17 or later. The image is multi-architecture.
 
 - Mokka changes files outside its own directories and restarts containerd,
   which no Mokka component did before.
+- To restart containerd, the node pod shares the host's PID namespace, so it
+  sees every process on the node.
 - Mokka owns a toolkit version, and follows changes to containerd's
   configuration format by bumping it.
 - Nothing checks a configuration before containerd restarts with it, or rolls

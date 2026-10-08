@@ -87,7 +87,7 @@ image is not yet available, use "Option B: Build from source" in the quick
 start sections below.
 
 **Cluster requirements:**
-- Privileged pods must be allowed (nvml-mock DaemonSet uses `privileged: true` for `mknod`)
+- Privileged pods must be allowed (nvml-mock DaemonSet uses `privileged: true` for `mknod`, and `hostPID: true` to restart containerd through systemd)
 - For DRA: Kubernetes 1.32+ with `DynamicResourceAllocation` feature gate enabled
 - With `nodeAgent.containerRuntime` on (the default): containerd 1.7+ managed
   by systemd, and writable `/usr/bin`, `/usr/local` and `/etc` on the node.
@@ -774,7 +774,7 @@ namespace, on the pod IP where the kubelet reaches it.
 | `nodeAgent.nriStartupTimeoutSeconds` | `120` | On Kubernetes 1.29+, maximum time the node-agent `/stagedz` gate may wait for its first staging and apply cycle before Kubernetes restarts it when NRI uses native sidecars |
 | `nodeAgent.containerRuntime.enabled` | `true` | Set up the node's container runtime: install the NVIDIA container runtime and make it containerd's default `nvidia` handler; reverted when the node pod stops. See [Container runtime setup](components/node-daemon.md#container-runtime-setup). Refuses `updateStrategy.rollingUpdate.maxSurge` |
 | `nodeAgent.containerRuntime.type` | `containerd` | The container runtime on the nodes; containerd is the only one so far |
-| `nodeAgent.containerRuntime.restartMode` | `systemd` | `systemd` restarts the runtime's unit after a change; `none` writes the configuration and leaves the restart to you |
+| `nodeAgent.containerRuntime.restartMode` | `systemd` | `systemd` restarts the runtime's unit after a change, from the host's PID namespace; `none` writes the configuration and leaves the restart to you |
 | `nodeAgent.containerRuntime.containerd.configPath` | `/etc/containerd/config.toml` | containerd's main configuration on the host. Its directory is mounted at the same path in the node pod |
 | `nodeAgent.containerRuntime.containerd.configDir` | `/etc/containerd/conf.d` | containerd's config dir, which `config.toml` imports and where Mokka's config file goes; must be under `configPath`'s directory. On EKS AL2023, `/etc/containerd/config.d` is already imported |
 | `nodeAgent.containerRuntime.containerd.systemdUnit` | `containerd` | The systemd unit restarted after a change |
@@ -1270,9 +1270,9 @@ kubectl -n nvidia logs -l app.kubernetes.io/name=dra-driver-nvidia-gpu --tail=10
 **PCIe root warnings from DRA driver**: See [Known Limitations](#known-limitations).
 
 **Privileged pods blocked**: Your cluster may have PodSecurity or OPA/Gatekeeper
-policies blocking `privileged: true`. KIND allows this by default. For managed
-clusters, you may need to create a PodSecurity exception for the nvml-mock
-release namespace.
+policies blocking `privileged: true` or `hostPID: true`. KIND allows both by
+default. For managed clusters, you may need to create a PodSecurity exception
+for the nvml-mock release namespace.
 
 ## Related Documentation
 
