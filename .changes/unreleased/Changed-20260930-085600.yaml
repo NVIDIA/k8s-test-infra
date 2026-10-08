@@ -1,0 +1,10 @@
+kind: Changed
+body: |-
+  nvml-mock: the `gb300` profile moves to the 580 driver line: driver
+    `580.65.06`, NVML `13.580.65`, CUDA 13.0. Its `570.124.06` pin predates
+    `nvmlDeviceGetNvLinkInfo`, so `nvidia-smi nvlink --info` reported
+    `Function Not Found` on the newest simulated part. A consumer that pins the
+    `gb300` driver string sees the new value.
+time: 2026-09-30T08:56:00Z
+custom:
+  Issue: "861"

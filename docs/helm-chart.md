@@ -754,7 +754,7 @@ namespace, on the pod IP where the kubelet reaches it.
 | `image.tag` | `""` (chart `appVersion`) | Container image tag. When empty, the chart `appVersion`: the release version in a released chart, the next `-dev` version on `main`. |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy. When empty, the Kubernetes default for the rendered image: `Always` for the `latest` tag, `IfNotPresent` otherwise. |
 | `featureGates` | `{}` | Feature gates passed to the node agent, NRI plugin and control plane, as `Name: true\|false`. See [Feature Gates](feature-gates.md). |
-| `driverVersion` | `""` (auto) | NVIDIA driver version to mock. When empty, read from `system.driver_version` of the resolved GPU config (the selected `gpu.profile` file, or `gpu.customConfig` if set), so the profile is the single source of truth (e.g. GB200 → `580.65.06`, B200 → `560.35.03`, GB300 → `570.124.06`, others → `550.163.01`). Set explicitly only to override the profile. |
+| `driverVersion` | `""` (auto) | NVIDIA driver version to mock. When empty, read from `system.driver_version` of the resolved GPU config (the selected `gpu.profile` file, or `gpu.customConfig` if set), so the profile is the single source of truth (e.g. GB200 → `580.65.06`, B200 → `560.35.03`, GB300 → `580.65.06`, others → `550.163.01`). Set explicitly only to override the profile. |
 | `nodeSelector` | `{}` | Node selector for DaemonSet |
 | `tolerations` | `[{operator: Exists}]` | Pod tolerations (default: tolerate all) |
 | `priorityClassName` | `""` | PriorityClass for the node DaemonSet pods. The node agent stands in for its node's GPU driver, so `system-node-critical` keeps it from being starved or evicted before the workloads that depend on it. |
@@ -868,7 +868,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 | **FP8** | — | Yes | Yes | Yes | Yes | Yes | — |
 | **FP4** | — | — | Yes | Yes | Yes | — | — |
 | **FP6** | — | — | — | — | Yes | — | — |
-| **Driver version** | 550.163.01 | 550.163.01 | 560.35.03 | 560.35.03 | 570.124.06 | 550.163.01 | 550.163.01 |
+| **Driver version** | 550.163.01 | 550.163.01 | 560.35.03 | 580.65.06 | 580.65.06 | 550.163.01 | 550.163.01 |
 
 #### When to Use Each Profile
 
@@ -876,7 +876,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 - **`h100`** — testing Hopper-specific features: FP8, Transformer Engine, PCIe Gen5, or NVLink v4 topology.
 - **`b200`** — testing next-gen Blackwell features: FP4, NVLink v5, PCIe Gen6. Standalone GPU (no Grace CPU).
 - **`gb200`** — testing Grace-Blackwell Superchip: NVLink-C2C to Grace CPU, unified memory, and Blackwell features.
-- **`gb300`** (default) — testing Grace-Blackwell Ultra Superchip: 278 GiB HBM3e per GPU, 1.4 kW TDP, FP6 in addition to FP4/FP8, and Blackwell Ultra driver line (570.124.06).
+- **`gb300`** (default) — testing Grace-Blackwell Ultra Superchip: 278 GiB HBM3e per GPU, 1.4 kW TDP, FP6 in addition to FP4/FP8, and Blackwell Ultra driver line (580.65.06).
 - **`l40s`** — testing Ada Lovelace inference workloads: FP8, PCIe Gen4, no NVLink (PCIe-only topology).
 - **`t4`** — testing Turing inference GPUs: low power (70W), small memory (16 GiB), 4 GPUs per node.
 

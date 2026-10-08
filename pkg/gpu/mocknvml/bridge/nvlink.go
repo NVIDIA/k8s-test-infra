@@ -14,8 +14,16 @@
 // Package main provides NVML NVLink bridge functions not already carried by
 // device.go (state / version / capability / error / remote-PCI live there).
 // This file adds the remote-device-type, utilization-counter, and
-// freeze/reset exports. All are thin marshalling over the pure-Go engine,
-// whose values derive from the immutable NodeFabric.
+// freeze/reset exports, plus per-device link info and the low-power
+// threshold. All are thin marshalling over the pure-Go engine, whose values
+// derive from the immutable NodeFabric.
+//
+// nvmlDeviceGetNvLinkUtilizationControl and its Set counterpart are
+// deliberately left as generated stubs. Both carry DEPRECATED(13.0) upstream —
+// "getting/setting utilization counter control is no longer supported" — so a
+// current driver answers NOT_SUPPORTED and the stub is already the faithful
+// reply. nvidia-smi agrees: `nvlink -gc/-sc` print "Getting counter control is
+// deprecated!" before they call.
 package main
 
 /*
@@ -133,4 +141,70 @@ func nvmlDeviceResetNvLinkErrorCounters(device C.nvmlDevice_t, link C.uint) C.nv
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
 	return toReturn(dev.ResetNvLinkErrorCounters(int(link)))
+}
+
+// writeNvlinkFirmwareInfo fills the firmware table a v2 caller asked for.
+// The entries are truncated to the array the struct carries: a longer table
+// would be a config error, and overrunning the caller's buffer is not a way
+// to report one.
+func writeNvlinkFirmwareInfo(dst *C.nvmlNvlinkFirmwareInfo_t, versions []engine.NvlinkFirmwareVersion) {
+	if len(versions) > C.NVML_NVLINK_FIRMWARE_VERSION_LENGTH {
+		versions = versions[:C.NVML_NVLINK_FIRMWARE_VERSION_LENGTH]
+	}
+	for i, v := range versions {
+		dst.firmwareVersion[i].ucodeType = C.uchar(v.UcodeType)
+		dst.firmwareVersion[i].major = C.uint(v.Major)
+		dst.firmwareVersion[i].minor = C.uint(v.Minor)
+		dst.firmwareVersion[i].subMinor = C.uint(v.SubMinor)
+	}
+	dst.numValidEntries = C.uint(len(versions))
+}
+
+//export nvmlDeviceGetNvLinkInfo
+func nvmlDeviceGetNvLinkInfo(device C.nvmlDevice_t, info *C.nvmlNvLinkInfo_t) C.nvmlReturn_t {
+	if info == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetNvLinkInfo"); !ok {
+		return ret
+	}
+	if !nvlinkInfoStructVersionOK("nvmlDeviceGetNvLinkInfo", uint32(info.version),
+		unsafe.Sizeof(C.nvmlNvLinkInfo_v1_t{}), unsafe.Sizeof(C.nvmlNvLinkInfo_v2_t{})) {
+		return C.NVML_ERROR_ARGUMENT_VERSION_MISMATCH
+	}
+	dev := engine.GetEngine().LookupConfigurableDevice(unsafe.Pointer(device.handle))
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	nvlinkInfo, ret := dev.GetMockNvLinkInfo()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	info.isNvleEnabled = 0
+	if nvlinkInfo.NvleEnabled {
+		info.isNvleEnabled = 1
+	}
+	// firmwareInfo exists only in v2. A v1 caller's buffer ends after
+	// isNvleEnabled, so writing the table for one would run past it.
+	if uint32(info.version) == FabricStructVersion(unsafe.Sizeof(C.nvmlNvLinkInfo_v2_t{}), 2) {
+		writeNvlinkFirmwareInfo(&info.firmwareInfo, nvlinkInfo.Firmware)
+	}
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceSetNvLinkDeviceLowPowerThreshold
+func nvmlDeviceSetNvLinkDeviceLowPowerThreshold(device C.nvmlDevice_t, info *C.nvmlNvLinkPowerThres_t) C.nvmlReturn_t {
+	if info == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	if ret, ok := bridgeVersionCheck("nvmlDeviceSetNvLinkDeviceLowPowerThreshold"); !ok {
+		return ret
+	}
+	dev := engine.GetEngine().LookupConfigurableDevice(unsafe.Pointer(device.handle))
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	// nvmlNvLinkPowerThres_t carries no version field, so there is no tag to
+	// validate here — unlike every other struct in this family.
+	return toReturn(dev.SetMockNvLinkLowPowerThreshold(uint32(info.lowPwrThreshold)))
 }
