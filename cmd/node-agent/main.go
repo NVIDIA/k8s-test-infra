@@ -242,6 +242,10 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 		zap.Duration("resync_interval", resyncInterval),
 		zap.String("container_runtime", cmd.String("container-runtime")),
 		zap.String("container_runtime_restart", cmd.String("container-runtime-restart")),
+		zap.String("container_runtime_config", cmd.String("container-runtime-config")),
+		zap.String("container_runtime_config_dir", cmd.String("container-runtime-config-dir")),
+		zap.String("container_runtime_systemd_unit", cmd.String("container-runtime-systemd-unit")),
+		zap.String("host_fs", cmd.String("host-fs")),
 	)
 
 	a := agent.New(agent.Config{

@@ -55,8 +55,9 @@ DaemonSet, including its optional NRI sidecar, does not mount a ServiceAccount
 token. See the
 [Mokka Control Plane](docs/control-plane.md) for its reconciliation and
 single-writer lifecycle. The node agent runs privileged to use bidirectional
-mount propagation; the other chart containers are not privileged. No component
-runs in a host namespace.
+mount propagation; the other chart containers are not privileged. The node pod
+shares the host's PID namespace to restart containerd; no component uses
+another host namespace.
 
 Privilege is scoped per container:
 
@@ -72,8 +73,10 @@ The privileged node agent is the exception to the other containers' explicit
 
 Mokka's reach into a node comes from its host mounts. The node agent writes to
 `/var/lib/nvml-mock`, `/run/nvidia`, `/run/cdi`, the fabricmanager state
-directory, and the Node Feature Discovery features directory. `/sys` and the
-pod-resources socket are mounted read-only.
+directory, and the Node Feature Discovery features directory, and, to set up
+the container runtime, to `/usr/bin`, `/usr/local/nvml-mock`,
+`/etc/nvidia-container-runtime` and `/etc/containerd`. `/sys`, the
+pod-resources socket and the host's root filesystem are mounted read-only.
 
 Inputs come from the operator installing the chart rather than from untrusted
 third parties, so validation is scoped accordingly: chart values are checked

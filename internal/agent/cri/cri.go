@@ -166,14 +166,27 @@ func (s *Simulator) setUp(ctx context.Context) bool {
 
 	switch {
 	case err == nil:
+		zap.L().Info(
+			"container runtime set up",
+			zap.String("simulator", name),
+			zap.String("handler", cri.HandlerName),
+		)
+
 		return true
 	case errors.Is(err, cri.ErrRestartPending):
-		zap.L().Warn("container runtime configuration written; it takes effect when the runtime restarts",
-			zap.String("simulator", name), zap.Error(err))
+		zap.L().Warn(
+			"container runtime configuration written; it takes effect when the runtime restarts",
+			zap.String("simulator", name),
+			zap.Error(err),
+		)
 
 		return true
 	default:
-		zap.L().Error("container runtime setup failed", zap.String("simulator", name), zap.Error(err))
+		zap.L().Error(
+			"container runtime setup failed",
+			zap.String("simulator", name),
+			zap.Error(err),
+		)
 
 		return false
 	}
@@ -200,6 +213,11 @@ func (s *Simulator) Revoke(ctx context.Context) error {
 
 func (s *Simulator) revert(ctx context.Context) error {
 	if s.standAside.Load() {
+		zap.L().Debug(
+			"leaving the container runtime as found; this simulator did not set it up",
+			zap.String("simulator", name),
+		)
+
 		return nil
 	}
 

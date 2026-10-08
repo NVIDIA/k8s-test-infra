@@ -117,13 +117,30 @@ func (r *Runtime) Setup(ctx context.Context) error {
 		return err
 	}
 
-	if r.loaded && bytes.Equal(before, after) {
+	changed := !bytes.Equal(before, after)
+	if r.loaded && !changed {
+		zap.L().Debug(
+			"Mokka's config file is unchanged; containerd needs no restart",
+			zap.String("file", r.mokkaConfigPath()),
+		)
+
 		return nil
 	}
 
 	if r.opts.RestartMode == cri.RestartNone {
 		return cri.ErrRestartPending
 	}
+
+	reason := "Mokka's config file changed"
+	if !changed {
+		reason = "node pod started"
+	}
+
+	zap.L().Info("restarting containerd",
+		zap.String("unit", r.opts.Unit),
+		zap.String("file", r.mokkaConfigPath()),
+		zap.String("reason", reason),
+	)
 
 	if err := r.systemctl(ctx, "restart", r.opts.Unit); err != nil {
 		return fmt.Errorf("restart containerd: %w", err)
@@ -141,6 +158,11 @@ func (r *Runtime) Setup(ctx context.Context) error {
 func (r *Runtime) Cleanup(ctx context.Context) error {
 	err := os.Remove(filepath.Join(r.root, r.mokkaConfigPath()))
 	if os.IsNotExist(err) {
+		zap.L().Debug(
+			"no Mokka config file to remove; containerd needs no restart",
+			zap.String("file", r.mokkaConfigPath()),
+		)
+
 		return nil
 	}
 
@@ -155,6 +177,12 @@ func (r *Runtime) Cleanup(ctx context.Context) error {
 
 		return nil
 	}
+
+	zap.L().Info("restarting containerd",
+		zap.String("unit", r.opts.Unit),
+		zap.String("file", r.mokkaConfigPath()),
+		zap.String("reason", "Mokka's config file removed"),
+	)
 
 	if err := r.systemctl(ctx, "restart", "--no-block", r.opts.Unit); err != nil {
 		return fmt.Errorf("restart containerd: %w", err)
@@ -188,9 +216,15 @@ func (r *Runtime) nvidiaCTK(ctx context.Context, args ...string) error {
 	cmd := exec.CommandContext(ctx, r.opts.NvidiaCTK, args...)
 	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin"}
 
-	if out, err := cmd.CombinedOutput(); err != nil {
+	out, err := cmd.CombinedOutput()
+	if err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
 	}
+
+	zap.L().Debug("nvidia-ctk configured containerd",
+		zap.Strings("args", args),
+		zap.String("output", strings.TrimSpace(string(out))),
+	)
 
 	return nil
 }
