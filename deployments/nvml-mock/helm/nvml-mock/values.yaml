@@ -606,11 +606,16 @@ controlPlane:
   tolerations: []
   # With replicas > 1, pod anti-affinity on kubernetes.io/hostname keeps the
   # standby off the leader's node, so losing one node does not stop both.
+  # -- Priority class for control-plane pods.
   priorityClassName: ""
+  # -- Affinity rules for scheduling control-plane pods.
   affinity: {}
+  # -- Topology spread constraints for control-plane pods.
   topologySpreadConstraints: []
+  # -- Additional annotations applied to control-plane pods.
   podAnnotations: {}
   # Must not set the selector labels app.kubernetes.io/{name,instance,component}.
+  # -- Additional labels applied to control-plane pods.
   podLabels: {}
   # PodDisruptionBudget bounding voluntary disruptions of the replicas, such as
   # node drains. Rendered only with replicas > 1: over a single replica it
@@ -619,6 +624,7 @@ controlPlane:
   # minAvailable is 1. A minAvailable equal to replicas blocks every drain of a
   # node running a replica.
   pdb:
+    # -- Enable a PodDisruptionBudget. Rendered only when replicas > 1.
     enabled: false
     # minAvailable: 1
     # maxUnavailable: 1

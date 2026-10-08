@@ -22,7 +22,7 @@ Kubernetes: `>= 1.28.0-0`
 | allocationWatcher.resources.requests.cpu | string | `"10m"` | CPU request for the allocation watcher. |
 | allocationWatcher.resources.requests.memory | string | `"32Mi"` | Memory request for the allocation watcher. |
 | allocationWatcher.usedFractionPerClaim | float | `0.5` | Fraction of usable GPU memory attributed to each claim. |
-| controlPlane.affinity | object | `{}` |  |
+| controlPlane.affinity | object | `{}` | Affinity rules for scheduling control-plane pods. |
 | controlPlane.enabled | bool | `false` | Enable the Mokka control-plane service. |
 | controlPlane.image.digest | string | `""` | Immutable digest; when set, it takes precedence over the tag. |
 | controlPlane.image.pullPolicy | string | `"IfNotPresent"` | Kubernetes image pull policy for the control plane. |
@@ -34,10 +34,10 @@ Kubernetes: `>= 1.28.0-0`
 | controlPlane.logging.format | string | `"json"` | Control-plane log encoding. |
 | controlPlane.logging.level | string | `"info"` | Control-plane log level. |
 | controlPlane.nodeSelector | object | `{}` | Node selector for control-plane pods. |
-| controlPlane.pdb.enabled | bool | `false` |  |
-| controlPlane.podAnnotations | object | `{}` |  |
-| controlPlane.podLabels | object | `{}` |  |
-| controlPlane.priorityClassName | string | `""` |  |
+| controlPlane.pdb.enabled | bool | `false` | Enable a PodDisruptionBudget. Rendered only when replicas > 1. |
+| controlPlane.podAnnotations | object | `{}` | Additional annotations applied to control-plane pods. |
+| controlPlane.podLabels | object | `{}` | Additional labels applied to control-plane pods. |
+| controlPlane.priorityClassName | string | `""` | Priority class for control-plane pods. |
 | controlPlane.replicas | int | `1` | Number of control-plane replicas. |
 | controlPlane.resources.limits.cpu | string | `"500m"` | CPU limit for the control plane. |
 | controlPlane.resources.limits.memory | string | `"1Gi"` | Memory limit for the control plane. |
@@ -48,7 +48,7 @@ Kubernetes: `>= 1.28.0-0`
 | controlPlane.shutdownTimeout | string | `"5s"` | Graceful control-plane shutdown timeout. |
 | controlPlane.terminationGracePeriodSeconds | int | `30` | Pod termination grace period for the control plane. |
 | controlPlane.tolerations | list | `[]` | Tolerations for control-plane pods. |
-| controlPlane.topologySpreadConstraints | list | `[]` |  |
+| controlPlane.topologySpreadConstraints | list | `[]` | Topology spread constraints for control-plane pods. |
 | controlPlane.workers | int | `2` | Number of control-plane worker goroutines. |
 | driverVersion | string | `""` | Driver version reported by the simulated driver; empty derives it from the profile. |
 | extraObjects | list | `[]` | Additional Kubernetes objects rendered with the release after tpl evaluation. |
