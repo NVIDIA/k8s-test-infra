@@ -203,6 +203,17 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				nvidiasmi.ProcessMonitorAndTopology(ctx, h.Kube, pod)
 			})
 
+			It("lists the profile's supported clocks via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Supported Clocks read N/A on every profile because both
+				// supported-clock getters were generated stubs, although each
+				// profile carried a table. The expectation is the profile's
+				// table, which a unit test pins to the hardware captures.
+				if len(p.SupportedClocks()) == 0 {
+					Skip("profile " + name + " declares no supported_clocks, so the section is N/A")
+				}
+				nvidiasmi.SupportedClocks(ctx, h.Kube, pod, p)
+			})
+
 			It("lists the workload power profiles via nvidia-smi power-profiles", Label("nvidia-smi"), func(ctx SpecContext) {
 				// Both getters behind the subcommand were generated stubs, so
 				// `nvidia-smi power-profiles -l` answered "Workload Power
@@ -325,6 +336,14 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 
 				It("pins SM/graphics clocks via the nvml-mock-ctl clocks command", Label("runtime-control"), func(ctx SpecContext) {
 					assertRuntimeClocksCommand(ctx, h, pod)
+				})
+
+				It("sets and resets applications clocks via nvidia-smi -ac/-rac", Label("runtime-control"), Label("nvidia-smi"), func(ctx SpecContext) {
+					assertApplicationsClocksViaNvidiaSmi(ctx, h, pod, p)
+				})
+
+				It("locks and unlocks GPU and memory clocks via nvidia-smi -lgc/-lmc", Label("runtime-control"), Label("nvidia-smi"), func(ctx SpecContext) {
+					assertLockedClocksViaNvidiaSmi(ctx, h, pod, p)
 				})
 
 				It("sets a throttle reason via the nvml-mock-ctl throttle command", Label("runtime-control"), func(ctx SpecContext) {
