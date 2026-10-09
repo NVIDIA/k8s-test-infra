@@ -123,6 +123,7 @@ func buildNvidiaSpec(state *agent.State) cdiSpec {
 
 	edits.Mounts = append(edits.Mounts, pciSysfsMounts(state)...)
 	edits.Mounts = append(edits.Mounts, kernelModuleMounts()...)
+	edits.Hooks = append(edits.Hooks, procDriverHooks(state)...)
 
 	// The .so resolving fabric.state:auto runs in the consumer container, so the
 	// marker dir mounts there — but only where it exists, else creation fails.
@@ -226,6 +227,52 @@ func migDevices(state *agent.State, devRoot string) []cdiDevice {
 		}
 	}
 	return devices
+}
+
+// procDriverRelPath is where the agent stages the driver's /proc/driver
+// surface: mig-minors under nvidia-caps, and the capability files it names.
+const procDriverRelPath = "driver/proc/driver"
+
+// mountProcDriverScript binds its first argument over the container's
+// /proc/driver. A hook runs with no environment, hence PATH. The OCI state on
+// stdin names the bundle, and the rootfs is the bundle's rootfs directory,
+// which is containerd's layout. A kernel with no /proc/driver cannot have the
+// mountpoint created inside procfs, so the container starts without the
+// surface rather than failing.
+const mountProcDriverScript = `set -eu
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+bundle=$(sed -n 's/.*"bundle": *"\([^"]*\)".*/\1/p')
+target="$bundle/rootfs/proc/driver"
+if [ ! -d "$target" ]; then
+  echo "nvml-mock: no $target to serve MIG capabilities at" >&2
+  exit 0
+fi
+exec mount -o bind,ro "$1" "$target"`
+
+// procDriverHooks serves the staged /proc/driver surface of a partitioned node.
+//
+// The device plugin and the toolkit's CDI generator read
+// /proc/driver/nvidia-caps/mig-minors at a hardcoded path, and a plugin that
+// cannot read it advertises nothing. A spec mount cannot place it, because
+// runc refuses mount targets inside /proc; a createContainer hook can, since
+// it runs in the container's mount namespace before pivot_root — which is how
+// nvidia-ctk's own disable-device-node-modification hook reaches
+// /proc/driver/nvidia/params.
+//
+// Gated on partitioning, since that is when migcaps stages the surface, and a
+// bind from a missing source would fail creation of every GPU container.
+func procDriverHooks(state *agent.State) []cdiHook {
+	if !state.MIG.Partitioned() {
+		return nil
+	}
+	return []cdiHook{{
+		HookName: "createContainer",
+		Path:     "/bin/sh",
+		Args: []string{
+			"sh", "-c", mountProcDriverScript, "sh",
+			filepath.Join(overlayHostRoot, procDriverRelPath),
+		},
+	}}
 }
 
 // pciSysfsMounts serves the rendered PCI tree at the kernel paths, which is the

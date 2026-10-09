@@ -722,24 +722,34 @@ func installMIGChart(ctx context.Context, h *harness.Harness, p profile.Profile,
 	if len(enabled) > 0 {
 		on = enabled[0]
 	}
+	installMIGLayouts(ctx, h, p, []migLayout{layout}, on)
+}
+
+// installMIGLayouts is installMIGChart for a layout mixing slice profiles,
+// each carved out of every GPU in the order given.
+func installMIGLayouts(ctx context.Context, h *harness.Harness, p profile.Profile, layouts []migLayout, on bool) {
+	GinkgoHelper()
 	repo, tag := splitImage(config.Image())
+	set := map[string]string{
+		"gpu.count":        strconv.Itoa(p.ExpectedGPUs()),
+		"gpu.profile":      p.Name,
+		"image.repository": repo,
+		"image.tag":        tag,
+		"gpu.mig.enabled":  strconv.FormatBool(on),
+	}
+	for i, l := range layouts {
+		set[fmt.Sprintf("gpu.mig.gpuInstances[%d].profile", i)] = l.Profile
+		set[fmt.Sprintf("gpu.mig.gpuInstances[%d].count", i)] = strconv.Itoa(l.Count)
+	}
 	rel := helm.Release{
 		Name:            "nvml-mock",
 		Chart:           chartDir(),
 		Namespace:       nvmlMockNamespace,
 		CreateNamespace: true,
 		HideOutput:      true,
-		Set: map[string]string{
-			"gpu.count":                       strconv.Itoa(p.ExpectedGPUs()),
-			"gpu.profile":                     p.Name,
-			"image.repository":                repo,
-			"image.tag":                       tag,
-			"gpu.mig.enabled":                 strconv.FormatBool(on),
-			"gpu.mig.gpuInstances[0].profile": layout.Profile,
-			"gpu.mig.gpuInstances[0].count":   strconv.Itoa(layout.Count),
-		},
-		Wait:    true,
-		Timeout: config.HelmTimeout(),
+		Set:             set,
+		Wait:            true,
+		Timeout:         config.HelmTimeout(),
 	}
 	By(fmt.Sprintf("helm upgrade --install nvml-mock with gpu.mig.enabled=%t (profile=%s)", on, p.Name))
 	Expect(h.Helm.UpgradeInstall(ctx, rel)).To(Succeed(),
