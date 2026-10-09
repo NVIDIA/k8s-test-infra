@@ -67,6 +67,7 @@ the `a100` profile. Everything else is a flag.
 | `--topograph` | [topograph](https://github.com/NVIDIA/topograph) network-topology discovery |
 | `--observability` | kube-prometheus-stack and a Grafana dashboard for the mock fleet |
 | `--dynamo` | The NVIDIA Dynamo operator and a `qwen3` inference graph whose mocker worker runs on a mock GPU |
+| `--slinky` | cert-manager, the Slinky slurm-operator and a Slurm cluster with one GPU `slurmd` per mock-GPU worker |
 | `--control-plane` | The Mokka control-plane image and the `mokka-crds` chart |
 
 ### What composes and what does not
@@ -79,10 +80,10 @@ Most flags stack. These do not:
 | `--fgo` with `--compute-domain` | Different fleet shapes |
 | `--compute-domain` with `--multi-gpu-profile` or `--gpu-profile` | The compute-domain scenario fixes both |
 
-Three flags imply others: `--topograph` implies `--compute-domain`, because
+Four flags imply others: `--topograph` implies `--compute-domain`, because
 cliques only exist there; `--observability` implies `--gpu-operator`, because
-`dcgm-exporter` is one of its operands; `--dynamo` implies `--gpu-operator`,
-because its worker requests `nvidia.com/gpu`.
+`dcgm-exporter` is one of its operands; `--dynamo` and `--slinky` imply
+`--gpu-operator`, because their workloads request `nvidia.com/gpu`.
 
 ```bash
 tilt up -- --gpu-profile gb200
@@ -90,6 +91,7 @@ tilt up -- --multi-gpu-profile --gpu-operator
 tilt up -- --gpu-operator --dra
 tilt up -- --observability
 tilt up -- --dynamo
+tilt up -- --slinky
 
 make cluster-create PROFILE=compute-domain
 tilt up -- --compute-domain --dra
@@ -120,6 +122,12 @@ sends a chat completion through the frontend and checks the token count. The
 frontend is port-forwarded to <http://localhost:8000/v1/models>. The
 [NVIDIA Dynamo guide](../guides/dynamo/README.md) walks through the same setup
 from published artifacts.
+
+**`slinky-tests`** — `slurm-smoke` asserts every Slurm node is idle with the
+GPUs it was configured with, that a 2-GPU job is given exactly 2 and they are
+the node's profile, and that a job using every GPU on every node runs. The
+[Slinky guide](../guides/slinky/README.md) walks through the same setup from
+published artifacts.
 
 ## Overriding Helm values
 

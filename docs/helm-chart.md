@@ -32,6 +32,16 @@ Deploys a DaemonSet that creates on every node:
   `libmockfs.so` redirects both paths for libc consumers. Both CDI specs
   bind-mount the tree for Go consumers. A state reconcile refreshes the mirror,
   so it can lag a module load or unload
+- The driver's per-GPU procfs entries at
+  `/var/lib/nvml-mock/driver/proc/driver/nvidia/gpus/<bdf>/information` (model,
+  UUID, bus location and device minor), and each GPU bound to the `nvidia` driver
+  at `/var/lib/nvml-mock/sys/bus/pci/drivers/nvidia/<bdf>` with its
+  `local_cpulist`. The CPU list starts from the profile's CPU affinity for the
+  GPU and keeps only the CPUs the node has online; when none of them exist, it
+  lists every online CPU, as the kernel does for a device with no locality.
+  NVML reports the same list as the GPU's CPU affinity.
+  `libmockfs.so` serves both at the kernel paths, which is what Slurm's
+  `AutoDetect=nvidia` reads — see the [Slinky guide](guides/slinky/README.md)
 
 Consumers (DRA driver, device plugin) point at `/var/lib/nvml-mock/driver`
 as the NVIDIA driver root and discover GPUs through standard NVML APIs.
