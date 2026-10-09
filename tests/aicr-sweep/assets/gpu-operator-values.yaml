@@ -1,0 +1,73 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# GPU Operator overlay for the AICR sweep. Derived from
+# tests/e2e/gpu-operator-values.yaml, with two deliberate differences:
+#
+#  1. cdi.enabled=false. The e2e overlay turns CDI on, which needs
+#     nvidia-container-toolkit configured in the Kind node. The sweep runs the
+#     NRI path on a stock kindest/node, where no toolkit is installed. MEP-0002
+#     covers this composition: the device plugin serves allocated containers via
+#     PASS_DEVICE_SPECS, and the NRI plugin suppresses its own device injection
+#     for any container that already carries /dev/nvidia* nodes.
+#
+#  2. PASS_DEVICE_SPECS=true on the device plugin. Without it the allocation is
+#     inert: MEP-0002's measured Case A shows a pod requesting 1 GPU seeing all
+#     of them, because nothing narrows the visible set.
+driver:
+  enabled: false
+toolkit:
+  enabled: false
+dcgm:
+  enabled: false
+dcgmExporter:
+  enabled: true
+  env:
+    - name: NVIDIA_DRIVER_ROOT
+      value: "/var/lib/nvml-mock/driver"
+    - name: DCGM_EXPORTER_COLLECT_INTERVAL
+      value: "5000"
+mig:
+  strategy: none
+migManager:
+  enabled: false
+nodeStatusExporter:
+  enabled: false
+cdi:
+  enabled: false
+  default: false
+devicePlugin:
+  enabled: true
+  config:
+    name: ""
+  env:
+    - name: NVIDIA_DRIVER_ROOT
+      value: "/var/lib/nvml-mock/driver"
+    - name: PASS_DEVICE_SPECS
+      value: "true"
+gfd:
+  enabled: true
+  env:
+    - name: NVIDIA_DRIVER_ROOT
+      value: "/var/lib/nvml-mock/driver"
+validator:
+  driver:
+    env:
+      - name: DRIVER_INSTALL_DIR
+        value: "/run/nvidia/driver"
+      - name: LD_LIBRARY_PATH
+        value: "/run/nvidia/driver/usr/lib64"
+      - name: DISABLE_DEV_CHAR_SYMLINK_CREATION
+        value: "true"
+  toolkit:
+    env:
+      - name: NVIDIA_VISIBLE_DEVICES
+        value: "all"
+  cuda:
+    env:
+      - name: WITH_WORKLOAD
+        value: "false"
+  plugin:
+    env:
+      - name: LD_LIBRARY_PATH
+        value: "/run/nvidia/driver/usr/lib64"

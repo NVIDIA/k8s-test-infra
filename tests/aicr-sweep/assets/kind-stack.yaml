@@ -1,0 +1,22 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# "stack" cluster shape for the AICR sweep: memory heavy, node light.
+# Carries the GPU Operator, device plugin, GFD, dcgm-exporter and the DRA driver.
+# Two workers, because a fully loaded worker costs 550-700 MiB and the Docker VM
+# on the sweep host has 7.75 GiB total. See tests/aicr-sweep/DECISIONS.md D-010.
+#
+# The NRI patch restates the containerd 2.x default (verified: kind 0.32.0's
+# kindest/node v1.36.1 ships containerd 2.2.0 with NRI already enabled). It is
+# kept because it is the difference between working and not on containerd 1.7.x.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.nri.v1.nri"]
+      disable = false
+      socket_path = "/var/run/nri/nri.sock"
+nodes:
+  - role: control-plane
+  - role: worker
+  - role: worker

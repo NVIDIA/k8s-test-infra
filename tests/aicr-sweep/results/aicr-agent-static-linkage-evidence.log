@@ -1,0 +1,74 @@
+# Evidence: AICR's snapshot agent cannot be reached by library interception
+# Captured 2026-08-27. Raised by Giulio Calzolari in Slack; verified here
+# independently against the published image before being written down.
+
+## The symptom, recorded in this sweep before the cause was known
+
+The base cell's validate log, line 12:
+
+  [cli] snapshot has no GPU data but cluster topology shows GPU-capable nodes
+        - agent likely ran on a non-GPU node
+        fix_1=--node-selector nvidia.com/gpu.present=true
+        fix_2=--node-selector kubernetes.io/hostname=<gpu-node>
+        fix_3=--require-gpu
+        fix_4=--runtime-class nvidia
+
+All four of AICR's own suggested fixes are about node PLACEMENT. None of them
+addresses the actual cause, and the agent had in fact been auto-targeted onto a
+GPU-labelled node already (line 5: selector=nvidia.com/gpu.present=true).
+
+## The cause, verified
+
+ghcr.io/nvidia/aicr:latest is a distroless ko image: it has no shell, so the
+binary was extracted with docker cp and inspected on the host.
+
+  file:
+    /ko-app/aicr: ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV),
+    statically linked, Go BuildID=..., stripped
+
+  program headers (parsed from the ELF directly):
+    PT_PHDR, PT_NOTE, PT_LOAD, PT_LOAD, PT_LOAD, GNU_STACK
+
+    PT_INTERP   : ABSENT
+    PT_DYNAMIC  : ABSENT
+
+With no PT_INTERP the kernel never invokes a dynamic loader, so LD_PRELOAD and
+LD_LIBRARY_PATH are inert by construction, not by configuration. With no
+PT_DYNAMIC there is no dynamic symbol resolution to hook at all. Mokka's NRI
+plugin injects an overlay mount and library environment; against this binary the
+environment half has nothing to act on.
+
+The agent therefore reads the node's REAL sysfs, which on a stock kind node has
+no NVIDIA devices, and reports no GPU data.
+
+## What this does and does not affect
+
+DOES NOT affect the checks that passed in this sweep. check-nvidia-smi and
+accelerator-metrics run their own pods, which are ordinary dynamically linked
+consumers and are reachable through the NRI overlay. Those passes stand.
+
+DOES affect anything downstream of the agent's SNAPSHOT: the cluster inventory
+AICR builds before dispatching checks. That inventory reports no GPUs on a
+cluster where the GPU Operator, device plugin and dcgm-exporter are all working
+off the mock.
+
+## Why this is a distinct cause class
+
+The sweep's cause codes are K (kind artifact), U (upstream unreleased), X (AICR
+catalog gap) and BUDGET. This is none of them. It is not a Mokka defect: Mokka
+renders everything correctly and injects it correctly. It is not an AICR defect:
+a static build is a legitimate, deliberate choice for a ko-built agent. It is an
+INTERCEPTION-MODEL MISMATCH, and no amount of configuration on either side closes
+it. Closing it needs one of:
+
+  - the agent reading GPU state from the Kubernetes API (labels, capacity,
+    ResourceSlices) rather than from sysfs, or
+  - a filesystem-level graft of Mokka's rendered sysfs over the agent's /sys,
+    which is the same mechanism gpu-feature-discovery needs
+    (see results/gfd-sysfs-evidence.log), or
+  - a dynamically linked agent build.
+
+Note the convergence with the GFD finding: two independent consumers, both
+defeated by reading the real /sys rather than Mokka's rendered tree. GFD is
+dynamically linked and fails on a sysfs PATH; the agent is static and fails on
+sysfs CONTENT. The common fix is a filesystem graft, not library interception.
