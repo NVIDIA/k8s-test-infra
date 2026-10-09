@@ -43,7 +43,30 @@ type OverrideWriter interface {
 	// setter's reset sentinel asks for — the field has a driver default to
 	// fall back to, so clearing it is meaningful rather than ambiguous.
 	SetNvlinkLowPowerThreshold(index int, threshold *uint32) error
+
+	// SetApplicationsClocks records the memory and graphics applications
+	// clocks for one device.
+	SetApplicationsClocks(index int, memMHz, graphicsMHz uint32) error
+
+	// SetLockedClocks records the range one clock domain is locked to. A nil
+	// range clears the lock, which is what the reset setters ask for: unlocked
+	// is the absence of a range, not a range of its own.
+	SetLockedClocks(index int, domain ClockDomain, r *ClockRangeConfig) error
+
+	// SetClockOffset records the offset applied to one clock domain.
+	SetClockOffset(index int, domain ClockDomain, offsetMHz int32) error
 }
+
+// ClockDomain names a clock domain the locked-clock and offset setters write
+// under: the key of its locked_<domain> range and of its offsets.<domain> entry.
+type ClockDomain string
+
+// The clock domains a setter can write. Graphics covers the SM clock too,
+// which is derived from the GPC clock it names.
+const (
+	ClockDomainGraphics ClockDomain = "graphics"
+	ClockDomainMemory   ClockDomain = "memory"
+)
 
 // overrideWriterRef is atomic because it is installed once at load time but
 // read by every setter call, which NVML makes from arbitrary consumer threads.

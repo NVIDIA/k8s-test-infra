@@ -265,6 +265,64 @@ clock-id matrix from the keys above, and returns `NVML_ERROR_NOT_SUPPORTED` for
 the combinations no key carries — application clocks for the SM and video
 domains, and the OEM ceiling for anything but graphics.
 
+#### Supported clocks
+
+```yaml
+device_defaults:
+  supported_clocks:
+    memory_clocks:                    # highest first, as NVML returns them
+      - freq_mhz: 2619
+        graphics_clocks: [1980, 1965, 1950, 1935]   # truncated; see h100.yaml
+      - freq_mhz: 1593
+        graphics_clocks: [1980, 1965, 1950, 1935]
+```
+
+The table is what `nvidia-smi -q -d SUPPORTED_CLOCKS` and
+`--query-supported-clocks` print, and the set of pairs `nvidia-smi -ac`
+accepts. The shipped profiles carry the full table their board reports in
+`tests/e2e/go/assertions/nvidiasmi/testdata/hardware`, and a unit test keeps
+them equal. A profile without the block reports the section as `N/A`.
+
+The mock models one P-state: the device's `performance_state`. The table
+supplies its clock envelope (`nvmlDeviceGetMinMaxClockOfPState`,
+`nvmlDeviceGetPerformanceModes`), and any other P-state is reported as not
+supported.
+
+#### Tuning clocks at runtime
+
+The tuning commands write to the runtime override document, the same way
+[`nvidia-smi -pl`](#static-held-until-the-config-changes) does. Every process
+on the node sees the result, and it holds until the matching reset command,
+`nvidia-smi -r`, or `nvml-mock-ctl reset`.
+
+| Command | Effect on the readings |
+|---------|------------------------|
+| `-ac <mem,graphics>` / `-rac` | Sets the applications clocks. A pair missing from `supported_clocks` is refused, and `-rac` restores the `*_app_default` pair |
+| `-lgc <min,max>` / `-rgc` | Clamps the current graphics and SM clocks into the range |
+| `-lmc <min,max>` / `-rmc` | Clamps the current memory clock into the range |
+
+The locked ranges are stored as `clocks.locked_graphics` and
+`clocks.locked_memory` (`min_mhz`, `max_mhz`), so a profile can also start a
+device locked. NVML's symbolic bounds behave as in `nvml.h`: unlimited on both
+ends unlocks, a mix of a symbolic bound and a MHz bound is refused, and the
+TDP bound is not supported.
+
+Clock offsets (`nvmlDeviceSetClockOffsets` and the `*ClkVfOffset` calls) are
+opt-in, because no captured board reports them:
+
+```yaml
+device_defaults:
+  clocks:
+    offsets:
+      graphics: {min_mhz: -200, max_mhz: 300}
+      memory: {min_mhz: 0, max_mhz: 1000}
+    adaptive_clocking: "enabled"      # or "disabled"; absent = not supported
+```
+
+An offset write is range-checked and read back, but it does not move the
+reported clocks. Auto boost (`--auto-boost-default`) is refused as not
+supported, matching the `N/A` every Pascal-or-newer board reports.
+
 ```yaml
 device_defaults:
   clocks_throttle_reasons:
@@ -887,8 +945,9 @@ and failure injection. Each holds its configured value until the profile changes
 or `nvml-mock-ctl` writes a runtime override, which takes effect within one
 override TTL — see [nvml-mock-ctl](nvml-mock-ctl.md).
 
-Two of these also accept writes from the consumer, and they differ in how far
-the write reaches.
+Some of these also accept writes from the consumer, and they differ in how far
+the write reaches. Clock tuning (`nvidia-smi -ac`, `-lgc`, `-lmc`) works like
+the power limit below; see [Tuning clocks at runtime](#tuning-clocks-at-runtime).
 
 The power management limit (`nvidia-smi -pl`, in milliwatts and inclusive of
 `min_limit_mw` / `max_limit_mw`; a cap outside those bounds is refused) is

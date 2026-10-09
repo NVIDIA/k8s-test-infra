@@ -21,6 +21,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
 
 func overridePath(t *testing.T) string {
@@ -233,6 +235,57 @@ func TestUpdateWorkloadProfiles_ConcurrentWritersDoNotLoseUpdates(t *testing.T) 
 
 // TestSetters_DoNotDisturbOtherDevices keeps a per-device write from behaving
 // like the node-wide one; nvidia-smi caps one GPU at a time.
+// TestClockSetters_ShareTheClocksBlock pins that the clock writes merge into
+// one clocks block: `nvidia-smi -ac` followed by `-lgc` must leave both
+// recorded, and resetting the lock must not drop the applications clocks.
+func TestClockSetters_ShareTheClocksBlock(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+
+	require.NoError(t, SetApplicationsClocks(path, 0, 1593, 1410))
+	require.NoError(t, SetLockedClocks(path, 0, engine.ClockDomainGraphics, &engine.ClockRangeConfig{MinMHz: 1500, MaxMHz: 1600}))
+	require.NoError(t, SetClockOffset(path, 0, engine.ClockDomainMemory, -100))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	clocks := doc.Devices["0"]["clocks"].(map[string]any)
+	require.EqualValues(t, 1593, clocks["memory_app"])
+	require.EqualValues(t, 1410, clocks["graphics_app"])
+	locked := clocks["locked_graphics"].(map[string]any)
+	require.EqualValues(t, 1500, locked["min_mhz"])
+	require.EqualValues(t, 1600, locked["max_mhz"])
+	offset := clocks["offsets"].(map[string]any)["memory"].(map[string]any)
+	require.EqualValues(t, -100, offset["offset_mhz"])
+
+	require.NoError(t, SetLockedClocks(path, 0, engine.ClockDomainGraphics, nil))
+
+	doc, err = Load(path)
+	require.NoError(t, err)
+	clocks = doc.Devices["0"]["clocks"].(map[string]any)
+	require.NotContains(t, clocks, "locked_graphics")
+	require.EqualValues(t, 1410, clocks["graphics_app"], "unlocking must not touch the applications clocks")
+}
+
+func TestSetLockedClocks_ResetDropsAnEmptyClocksBlock(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+
+	require.NoError(t, SetLockedClocks(path, 2, engine.ClockDomainMemory, &engine.ClockRangeConfig{MinMHz: 1593, MaxMHz: 1593}))
+	require.NoError(t, SetLockedClocks(path, 2, engine.ClockDomainMemory, nil))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	require.NotContains(t, doc.Devices["2"], "clocks",
+		"an empty clocks block would still override the profile's clocks on reload")
+}
+
+func TestClockSetters_FailWithoutADocumentPath(t *testing.T) {
+	t.Parallel()
+	require.Error(t, SetApplicationsClocks("", 0, 1593, 1410))
+	require.Error(t, SetLockedClocks("", 0, engine.ClockDomainGraphics, nil))
+	require.Error(t, SetClockOffset("", 0, engine.ClockDomainGraphics, 0))
+}
+
 func TestSetters_DoNotDisturbOtherDevices(t *testing.T) {
 	t.Parallel()
 	path := overridePath(t)

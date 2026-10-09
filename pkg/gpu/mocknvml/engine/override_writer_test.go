@@ -112,6 +112,42 @@ func (w *fileOverrideWriter) SetNvlinkLowPowerThreshold(index int, threshold *ui
 	})
 }
 
+func (w *fileOverrideWriter) SetApplicationsClocks(index int, memMHz, graphicsMHz uint32) error {
+	return w.mutate(index, func(bucket map[string]any) error {
+		deepMergeMaps(bucket, map[string]any{
+			"clocks": map[string]any{"memory_app": memMHz, "graphics_app": graphicsMHz},
+		})
+		return nil
+	})
+}
+
+func (w *fileOverrideWriter) SetLockedClocks(index int, domain ClockDomain, r *ClockRangeConfig) error {
+	key := "locked_" + string(domain)
+	return w.mutate(index, func(bucket map[string]any) error {
+		if r == nil {
+			if clocks, ok := bucket["clocks"].(map[string]any); ok {
+				delete(clocks, key)
+			}
+			return nil
+		}
+		deepMergeMaps(bucket, map[string]any{
+			"clocks": map[string]any{key: map[string]any{"min_mhz": r.MinMHz, "max_mhz": r.MaxMHz}},
+		})
+		return nil
+	})
+}
+
+func (w *fileOverrideWriter) SetClockOffset(index int, domain ClockDomain, offsetMHz int32) error {
+	return w.mutate(index, func(bucket map[string]any) error {
+		deepMergeMaps(bucket, map[string]any{
+			"clocks": map[string]any{"offsets": map[string]any{
+				string(domain): map[string]any{"offset_mhz": offsetMHz},
+			}},
+		})
+		return nil
+	})
+}
+
 func (w *fileOverrideWriter) mutate(index int, patch func(bucket map[string]any) error) error {
 	return w.write(func(doc *ConfigOverrideDoc) (map[string]any, error) {
 		if doc.Devices == nil {
