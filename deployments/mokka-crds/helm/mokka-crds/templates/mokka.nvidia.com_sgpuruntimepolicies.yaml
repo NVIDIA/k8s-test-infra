@@ -70,9 +70,8 @@ spec:
               to apply.
             properties:
               runtime:
-                description: |-
-                  RuntimeState is the effective runtime settings of a simulated GPU.
-                  Sparse: omitted fields inherit; explicit zero is a set value.
+                description: Runtime contains sparse settings to apply to the selected
+                  GPUs.
                 properties:
                   deviceState:
                     description: DeviceState is a simulated GPU health state.
@@ -118,18 +117,26 @@ spec:
                         description: ClocksTelemetry reports current clock rates.
                         properties:
                           graphicsMHz:
+                            description: GraphicsMHz is the simulated graphics clock
+                              rate in MHz.
                             format: int32
                             minimum: 0
                             type: integer
                           memoryMHz:
+                            description: MemoryMHz is the simulated memory clock rate
+                              in MHz.
                             format: int32
                             minimum: 0
                             type: integer
                           smMHz:
+                            description: SMMHz is the simulated streaming-multiprocessor
+                              clock rate in MHz.
                             format: int32
                             minimum: 0
                             type: integer
                           videoMHz:
+                            description: VideoMHz is the simulated video clock rate
+                              in MHz.
                             format: int32
                             minimum: 0
                             type: integer
@@ -142,10 +149,14 @@ spec:
                         description: PowerTelemetry drives synthetic power draw.
                         properties:
                           drawMilliWatts:
+                            description: DrawMilliWatts is the simulated GPU power
+                              draw in milliwatts.
                             format: int64
                             minimum: 0
                             type: integer
                           mode:
+                            description: Mode selects a constant or generated power
+                              draw.
                             enum:
                             - Fixed
                             - Pattern
@@ -156,12 +167,18 @@ spec:
                           temperature.
                         properties:
                           gpuCelsius:
+                            description: GPUCelsius is the simulated GPU temperature
+                              in degrees Celsius.
                             format: int32
                             type: integer
                           memoryCelsius:
+                            description: MemoryCelsius is the simulated memory temperature
+                              in degrees Celsius.
                             format: int32
                             type: integer
                           mode:
+                            description: Mode selects constant or generated temperature
+                              values.
                             enum:
                             - Fixed
                             - Pattern
@@ -172,25 +189,30 @@ spec:
                           utilization.
                         properties:
                           mode:
+                            description: Mode selects pattern-generated or fixed utilization
+                              values.
                             enum:
                             - Pattern
                             - Fixed
                             type: string
                           pattern:
-                            description: UtilizationPattern shapes the generated utilization
-                              curve.
+                            description: Pattern defines the utilization values generated
+                              over time.
                             properties:
                               gpuPercent:
-                                description: |-
-                                  PercentRange is a min/max percentage bound. Both bounds are required, so an
-                                  override replaces an inherited range whole.
+                                description: GPUPercent sets the minimum and maximum
+                                  GPU utilization percentages.
                                 properties:
                                   maximum:
+                                    description: Maximum is the upper utilization
+                                      percentage bound.
                                     format: int32
                                     maximum: 100
                                     minimum: 0
                                     type: integer
                                   minimum:
+                                    description: Minimum is the lower utilization
+                                      percentage bound.
                                     format: int32
                                     maximum: 100
                                     minimum: 0
@@ -200,16 +222,19 @@ spec:
                                 - minimum
                                 type: object
                               memoryPercent:
-                                description: |-
-                                  PercentRange is a min/max percentage bound. Both bounds are required, so an
-                                  override replaces an inherited range whole.
+                                description: MemoryPercent sets the minimum and maximum
+                                  memory utilization percentages.
                                 properties:
                                   maximum:
+                                    description: Maximum is the upper utilization
+                                      percentage bound.
                                     format: int32
                                     maximum: 100
                                     minimum: 0
                                     type: integer
                                   minimum:
+                                    description: Minimum is the lower utilization
+                                      percentage bound.
                                     format: int32
                                     maximum: 100
                                     minimum: 0
@@ -219,6 +244,8 @@ spec:
                                 - minimum
                                 type: object
                               type:
+                                description: Type selects the shape of the generated
+                                  utilization curve.
                                 enum:
                                 - Steady
                                 - Bursty
@@ -229,15 +256,12 @@ spec:
                     type: object
                 type: object
               targetRef:
-                description: |-
-                  PolicyTargetRef selects the simulated GPUs a policy applies to. Each listed
-                  axis narrows the one above it, and an omitted axis selects every index. The
-                  deepest listed axis is the policy's scope: inventory, rack group, rack, Node,
-                  or GPU. A narrower scope overrides a broader one field by field. Every
-                  listed rack group must exist in the inventory, and every listed index must
-                  exist in at least one selected rack group.
+                description: TargetRef selects the inventory and optional rack, Node,
+                  and GPU subset.
                 properties:
                   gpuIndexes:
+                    description: GPUIndexes optionally limits the policy to these
+                      GPU indexes.
                     items:
                       format: int32
                       minimum: 0
@@ -247,17 +271,22 @@ spec:
                     type: array
                     x-kubernetes-list-type: set
                   group:
+                    description: Group is the API group containing the target resource.
                     enum:
                     - mokka.nvidia.com
                     type: string
                   kind:
+                    description: Kind is the target resource kind.
                     enum:
                     - SGPUInventory
                     type: string
                   name:
+                    description: Name is the name of the target SGPUInventory.
                     minLength: 1
                     type: string
                   nodeIndexes:
+                    description: NodeIndexes optionally limits the policy to these
+                      logical Node indexes.
                     items:
                       format: int32
                       minimum: 0
@@ -267,6 +296,8 @@ spec:
                     type: array
                     x-kubernetes-list-type: set
                   rackGroups:
+                    description: RackGroups optionally limits the policy to these
+                      rack-group IDs.
                     items:
                       type: string
                     maxItems: 64
@@ -274,6 +305,8 @@ spec:
                     type: array
                     x-kubernetes-list-type: set
                   rackIndexes:
+                    description: RackIndexes optionally limits the policy to these
+                      rack indexes.
                     items:
                       format: int32
                       minimum: 0
@@ -356,12 +389,20 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               gpuIndexesSummary:
+                description: GPUIndexesSummary is the comma-separated selected GPU
+                  indexes.
                 type: string
               nodeIndexesSummary:
+                description: NodeIndexesSummary is the comma-separated selected logical
+                  Node indexes.
                 type: string
               rackGroupsSummary:
+                description: RackGroupsSummary is the comma-separated selected rack-group
+                  IDs.
                 type: string
               rackIndexesSummary:
+                description: RackIndexesSummary is the comma-separated selected rack
+                  indexes.
                 type: string
             type: object
         required:
