@@ -308,7 +308,7 @@ func nvmlDeviceGetPciInfo_v3(nvmlDevice C.nvmlDevice_t, pci *C.nvmlPciInfo_t) C.
 		return toReturn(ret)
 	}
 	// Copy BusIdLegacy (16 bytes = NVML_DEVICE_PCI_BUS_ID_LEGACY_FMT_SIZE)
-	for i := 0; i < len(info.BusIdLegacy) && i < 16; i++ {
+	for i := range min(len(info.BusIdLegacy), 16) {
 		pci.busIdLegacy[i] = C.char(info.BusIdLegacy[i])
 	}
 	pci.domain = C.uint(info.Domain)
@@ -317,7 +317,7 @@ func nvmlDeviceGetPciInfo_v3(nvmlDevice C.nvmlDevice_t, pci *C.nvmlPciInfo_t) C.
 	pci.pciDeviceId = C.uint(info.PciDeviceId)
 	pci.pciSubSystemId = C.uint(info.PciSubSystemId)
 	// Copy BusId (32 bytes = NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE)
-	for i := 0; i < len(info.BusId) && i < 32; i++ {
+	for i := range min(len(info.BusId), 32) {
 		pci.busId[i] = C.char(info.BusId[i])
 	}
 	return C.NVML_SUCCESS
@@ -367,7 +367,7 @@ func nvmlDeviceGetPciInfoExt(nvmlDevice C.nvmlDevice_t, pci *C.nvmlPciInfoExt_t)
 	pci.baseClass = C.uint(0x03)
 	pci.subClass = C.uint(0x02)
 	// Copy BusId (32 bytes = NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE).
-	for i := 0; i < len(info.BusId) && i < 32; i++ {
+	for i := range min(len(info.BusId), 32) {
 		pci.busId[i] = C.char(info.BusId[i])
 	}
 	return C.NVML_SUCCESS
@@ -494,7 +494,7 @@ func nvmlDeviceGetNvLinkRemotePciInfo_v2(device C.nvmlDevice_t, link C.uint, pci
 	pci.domain = C.uint(info.Domain)
 	pci.bus = C.uint(info.Bus)
 	pci.device = C.uint(info.Device)
-	for i := 0; i < len(info.BusId) && i < 32; i++ {
+	for i := range min(len(info.BusId), 32) {
 		pci.busId[i] = C.char(info.BusId[i])
 	}
 	return C.NVML_SUCCESS

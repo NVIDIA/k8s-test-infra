@@ -87,6 +87,7 @@ kubectl --context kind-nvml-mock-fgo-demo create namespace gpu-operator
 
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
   --kube-context kind-nvml-mock-fgo-demo \
+  --namespace mokka --create-namespace \
   --set integrations.fakeGpuOperator.enabled=true \
   --set integrations.fakeGpuOperator.targetNamespace=gpu-operator \
   --set gpu.profile=h100 \
@@ -133,13 +134,13 @@ now that Mokka owns those seven ConfigMap names — see
 CTX=kind-nvml-mock-fgo-demo
 
 # Mokka runs only on the integration worker.
-kubectl --context $CTX get pods -l app.kubernetes.io/name=nvml-mock -o wide
+kubectl --context $CTX -n mokka get pods -l app.kubernetes.io/name=nvml-mock -o wide
 
 # The profile ConfigMaps exist, in the namespace FGO reads.
 kubectl --context $CTX -n gpu-operator get cm -l fake-gpu-operator/gpu-profile=true
 
 # A real nvidia-smi, on a node with no GPU.
-kubectl --context $CTX exec ds/nvml-mock -- nvidia-smi
+kubectl --context $CTX -n mokka exec ds/nvml-mock -- nvidia-smi
 
 # FGO's component-specific pods run in its release namespace.
 kubectl --context "$CTX" -n gpu-operator get pods -o wide

@@ -89,7 +89,7 @@ func TestFailureInjector_AfterCallsIsDeterministic(t *testing.T) {
 	}
 	require.True(t, f.Tick(), "call %d: expected trip at AfterCalls=%d", N, N)
 	// And it stays tripped afterwards.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		require.True(t, f.Tick(), "post-trip call %d: expected sticky trip", i)
 	}
 }
@@ -101,7 +101,7 @@ func TestFailureInjector_ProbabilityZeroNeverTripsOnItsOwn(t *testing.T) {
 		AfterCalls:  1_000_000, // huge so AfterCalls cannot fire
 		Seed:        42,
 	})
-	for i := 0; i < 10_000; i++ {
+	for i := range 10_000 {
 		require.False(t, f.Tick(), "call %d: probability=0 must not trip", i)
 	}
 }
@@ -172,14 +172,12 @@ func TestFailureInjector_ConcurrentTickSafety(t *testing.T) {
 
 	const goroutines, iters = 16, 2_000
 	var wg sync.WaitGroup
-	for g := 0; g < goroutines; g++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < iters; j++ {
+	for range goroutines {
+		wg.Go(func() {
+			for range iters {
 				_ = f.Tick()
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -195,7 +193,7 @@ func TestFailureInjector_XidRequiresTrip(t *testing.T) {
 		Xid:        &XidErrorConfig{Code: 79},
 	})
 	require.Zero(t, f.Xid(), "Xid() before trip must be 0")
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		f.Tick()
 	}
 	require.True(t, f.Triggered(), "expected trip after AfterCalls")
@@ -818,7 +816,7 @@ func TestFailureInjection_HealthyConfigIsNoOp(t *testing.T) {
 		Mode: FailureModeHealthy,
 	}))
 	require.Nil(t, dev.failureInjector(), "healthy mode must not allocate a failureInjector")
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		temp, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU)
 		require.Equal(t, nvml.SUCCESS, ret, "call %d", i)
 		require.Equal(t, uint32(33), temp, "call %d", i)

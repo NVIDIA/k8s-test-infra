@@ -110,7 +110,7 @@ type ConfigurableDevice struct {
 
 	// refresh bookkeeping
 	refreshMu  sync.Mutex
-	appliedGen uint64
+	appliedGen atomic.Uint64
 }
 
 // NewConfigurableDevice creates a device with YAML configuration. The
@@ -255,7 +255,7 @@ func (d *ConfigurableDevice) refresh() {
 	// can be out of step with a document that never changed; reconcileMIG
 	// clears it. Costing the hot path one atomic load keeps that case from
 	// needing a second refresh entry point of its own.
-	if atomic.LoadUint64(&d.appliedGen) == gen && !d.migDirty.Load() {
+	if d.appliedGen.Load() == gen && !d.migDirty.Load() {
 		return
 	}
 	// TryLock rather than Lock: reconcileMIG rebuilds the partitioning through
@@ -278,7 +278,7 @@ func (d *ConfigurableDevice) refresh() {
 		return
 	}
 	defer d.refreshMu.Unlock()
-	if d.appliedGen == gen && !d.migDirty.Load() {
+	if d.appliedGen.Load() == gen && !d.migDirty.Load() {
 		return
 	}
 
@@ -299,14 +299,14 @@ func (d *ConfigurableDevice) refresh() {
 		if d.migDirty.Load() {
 			d.reconcileMIG(d.effective.Load().MIG)
 		}
-		atomic.StoreUint64(&d.appliedGen, gen) // avoid hot re-merge on a bad doc
+		d.appliedGen.Store(gen) // avoid hot re-merge on a bad doc
 		return
 	}
 	d.effective.Store(merged)
 	d.reconcileFailure(merged.Failure)
 	d.reconcileDynamicMetrics(merged.DynamicMetrics)
 	d.reconcileMIG(merged.MIG)
-	atomic.StoreUint64(&d.appliedGen, gen)
+	d.appliedGen.Store(gen)
 }
 
 // reconcileDynamicMetrics rebuilds the dynamic-metrics simulator when the

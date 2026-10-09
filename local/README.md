@@ -28,7 +28,7 @@ The default profile spans 1 control-plane + 2 workers (a100 + t4), so no cluster
 
 | `PROFILE=`          | Kind config                           | Cluster name                    | Use with                                                             |
 |---------------------|---------------------------------------|---------------------------------|----------------------------------------------------------------------|
-| `default` (default) | `local/kind/default.kind.yaml`        | `kind-mokka`                    | basic, gpu-operator, dra, `--multi-gpu-profile`, `--fgo`             |
+| `default` (default) | `local/kind/default.kind.yaml`        | `kind-mokka`                    | basic, gpu-operator, dra, `--multi-gpu-profile`, `--fgo`, `--slinky` |
 | `compute-domain`    | `local/kind/compute-domain.kind.yaml` | `kind-mokka-compute-domain`     | `--compute-domain`                                                   |
 
 ```bash
@@ -168,7 +168,7 @@ See [observability/README.md](observability/README.md) for the dashboard panels,
 
 Deploys the [Dynamo](https://github.com/ai-dynamo/dynamo) platform (operator only) and an aggregated `DynamoGraphDeployment` named `qwen3`: a frontend plus one decode worker running Dynamo's mocker engine, a simulated backend that registers with the router and streams responses without CUDA. The worker requests `nvidia.com/gpu: 1`, so it schedules only onto a mock-GPU node and gets the mock driver injected, the same way a real vLLM or TensorRT-LLM worker would.
 
-`--dynamo` implies `--gpu-operator`, since only the Operator's device plugin advertises `nvidia.com/gpu`. It also turns on the nvml-mock NRI plugin (`local/dynamo/nvml-mock.values.yaml`) so the worker sees the GPU profile `--gpu-profile` selected; the [NVIDIA Dynamo guide](../docs/guides/dynamo/README.md) explains why.
+`--dynamo` implies `--gpu-operator`, since only the Operator's device plugin advertises `nvidia.com/gpu`. The worker sees the GPU profile `--gpu-profile` selected only through the nvml-mock NRI plugin, which runs by default; the [NVIDIA Dynamo guide](../docs/guides/dynamo/README.md) explains why.
 
 ```bash
 make cluster-create
@@ -178,6 +178,20 @@ curl -s localhost:8000/v1/chat/completions -H 'Content-Type: application/json' \
 ```
 
 The frontend is port-forwarded to <http://localhost:8000> once the `dynamo-frontend` resource is ready. The manual **dynamo-smoke** trigger under the `dynamo-tests` label asserts that the worker landed on a mock-GPU node, that `nvidia-smi` inside it lists exactly one GPU and that GPU is the node's profile, and that a chat completion round-trips through the frontend.
+
+### With Slinky (Slurm)
+
+Deploys cert-manager, the [Slinky](https://github.com/SlinkyProject/slurm-operator) slurm-operator and a Slurm cluster (`local/slinky/slurm.values.yaml`) whose GPU NodeSet runs one `slurmd` per mock-GPU worker, with SSH into each `slurmd` pod enabled, plus a login pod (`slurm-login-slinky`, a `ClusterIP` Service since Kind has no load balancer) to submit jobs from. Every `slurmd` requests all four of its node's GPUs, and Slurm discovers them itself through `gres.conf` `AutoDetect=nvidia`.
+
+`--slinky` implies `--gpu-operator`, since only the Operator's device plugin advertises `nvidia.com/gpu`. `slurmd` finds the GPUs only through the driver files the nvml-mock NRI plugin, which runs by default, serves it. Every profile is capped at four GPUs (`local/slinky/nvml-mock.values.yaml`), which must stay in step with the NodeSet's `nvidia.com/gpu` limit. It fits any cluster shape; with `--compute-domain` it gives a four-node GB200 Slurm cluster. Mutually exclusive with `--dynamo`: with every GPU claimed by `slurmd`, the Dynamo worker could never schedule.
+
+```bash
+make cluster-create
+tilt up -- --slinky
+kubectl -n slurm exec slurm-controller-0 -c slurmctld -- srun -N1 --gres=gpu:2 nvidia-smi -L
+```
+
+The `slurm-nodes` resource waits for the GPU Operator to be healthy, then stays pending until every `slurmd` pod is Ready, and prints `sinfo`. The manual **slurm-smoke** trigger under the `slinky-tests` label asserts every node registered its GPUs, that a 2-GPU job gets exactly 2 of the node's profile, and that a job using every GPU on every node runs. `slurmd` detects GPUs once at startup and `slurmctld` keeps a node's first GPU-to-CPU binding, so after reinstalling nvml-mock or switching `--gpu-profile`, delete the node records (`scontrol delete nodename=...`) and then the `slurmd` pods. The [Slinky guide](../docs/guides/slinky/README.md) walks through the same setup from published artifacts and covers what a job does and does not see.
 
 ## Helm value overrides for nvml-mock
 

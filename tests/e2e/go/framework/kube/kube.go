@@ -25,7 +25,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/runner"
 )
@@ -148,6 +150,11 @@ type envVar struct {
 	Value string `json:"value"`
 }
 
+type templateContainer struct {
+	Name string   `json:"name"`
+	Env  []envVar `json:"env"`
+}
+
 type daemonSetObj struct {
 	Metadata struct {
 		Generation int64 `json:"generation"`
@@ -155,9 +162,8 @@ type daemonSetObj struct {
 	Spec struct {
 		Template struct {
 			Spec struct {
-				Containers []struct {
-					Env []envVar `json:"env"`
-				} `json:"containers"`
+				InitContainers []templateContainer `json:"initContainers"`
+				Containers     []templateContainer `json:"containers"`
 			} `json:"spec"`
 		} `json:"template"`
 	} `json:"spec"`
@@ -371,23 +377,39 @@ func (c *Client) DaemonSetReady(ctx context.Context, ns, name string) (bool, err
 	return ds.rolledOutAndReady(), nil
 }
 
-// DaemonSetContainerEnv returns the value of an env var on the DaemonSet's
-// first container (parity with reading MOCK_FABRICMANAGER off the deployed
+// DaemonSetContainerEnv returns the value of an env var on the named container
+// of the DaemonSet (parity with reading MOCK_FABRICMANAGER off the deployed
 // daemonset). Returns ("", false, nil) when unset.
-func (c *Client) DaemonSetContainerEnv(ctx context.Context, ns, name, envName string) (string, bool, error) {
+func (c *Client) DaemonSetContainerEnv(ctx context.Context, ns, name, container, envName string) (string, bool, error) {
 	var ds daemonSetObj
 	if err := c.getJSON(ctx, &ds, "daemonset", "-n", ns, name); err != nil {
 		return "", false, err
 	}
-	if len(ds.Spec.Template.Spec.Containers) == 0 {
-		return "", false, fmt.Errorf("daemonset %s/%s has no containers", ns, name)
+	value, found, err := ds.containerEnv(container, envName)
+	if err != nil {
+		return "", false, fmt.Errorf("daemonset %s/%s: %w", ns, name, err)
 	}
-	for _, e := range ds.Spec.Template.Spec.Containers[0].Env {
-		if e.Name == envName {
-			return e.Value, true, nil
+	return value, found, nil
+}
+
+// containerEnv looks the container up by name, among init containers too: with
+// the NRI plugin on, the chart runs the node agent as a native sidecar, which
+// is a restartable init container. A missing container is an error, so a
+// layout change cannot read as the variable being unset.
+func (ds daemonSetObj) containerEnv(container, envName string) (string, bool, error) {
+	spec := ds.Spec.Template.Spec
+	for _, ctr := range slices.Concat(spec.InitContainers, spec.Containers) {
+		if ctr.Name != container {
+			continue
 		}
+		for _, e := range ctr.Env {
+			if e.Name == envName {
+				return e.Value, true, nil
+			}
+		}
+		return "", false, nil
 	}
-	return "", false, nil
+	return "", false, fmt.Errorf("no container %q", container)
 }
 
 // ---------------------------------------------------------------------------
@@ -481,6 +503,217 @@ func (c *Client) ResourceSliceDeviceCounts(ctx context.Context) ([]int, error) {
 		counts[i] = len(it.Spec.Devices)
 	}
 	return counts, nil
+}
+
+// DRAAllocatedGPUUUIDs returns the UUIDs of the devices the scheduler
+// allocated to the ResourceClaims one container uses, resolved through the
+// ResourceSlices the driver published. An empty ref.Container selects the
+// pod's first container. It is the DRA counterpart of reading
+// NVIDIA_VISIBLE_DEVICES for a device plugin allocation: the source of truth
+// for which GPUs the container was given, independent of what it then sees. It
+// reads the API server's preferred resource.k8s.io version and accepts both
+// the v1beta1 and v1 device shapes, so it keeps working once v1beta1 is no
+// longer served.
+func (c *Client) DRAAllocatedGPUUUIDs(ctx context.Context, ref PodRef) ([]string, error) {
+	refs, err := c.draAllocatedDevices(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	var published draSliceList
+	if err := c.getJSON(ctx, &published, "resourceslices.resource.k8s.io"); err != nil {
+		return nil, err
+	}
+	return published.uuidsOf(refs)
+}
+
+// draDeviceRef names one device the way a ResourceClaim allocation does.
+type draDeviceRef struct{ driver, pool, device string }
+
+// draContainer is a pod container's references to the pod's claims.
+type draContainer struct {
+	Name      string `json:"name"`
+	Resources struct {
+		Claims []struct {
+			Name    string `json:"name"`
+			Request string `json:"request"`
+		} `json:"claims"`
+	} `json:"resources"`
+}
+
+// draPodObj is the part of a pod that ties its containers to ResourceClaims.
+type draPodObj struct {
+	Spec struct {
+		Containers     []draContainer `json:"containers"`
+		ResourceClaims []struct {
+			Name              string  `json:"name"`
+			ResourceClaimName *string `json:"resourceClaimName"`
+		} `json:"resourceClaims"`
+	} `json:"spec"`
+	Status struct {
+		ResourceClaimStatuses []struct {
+			Name              string  `json:"name"`
+			ResourceClaimName *string `json:"resourceClaimName"`
+		} `json:"resourceClaimStatuses"`
+	} `json:"status"`
+}
+
+// draClaimUse is one ResourceClaim a container uses, narrowed to one of its
+// requests when the container names it.
+type draClaimUse struct{ claim, request string }
+
+// claimUses resolves the claims a container references to ResourceClaim
+// names. A pod-level claim either names an existing ResourceClaim, or comes
+// from a template, in which case only the pod status records the claim that
+// was generated for it. An empty container selects the first one.
+func (p draPodObj) claimUses(container string) ([]draClaimUse, error) {
+	ctrs := p.Spec.Containers
+	idx := 0
+	if container != "" {
+		idx = slices.IndexFunc(ctrs, func(ctr draContainer) bool { return ctr.Name == container })
+	}
+	if idx < 0 || idx >= len(ctrs) {
+		return nil, fmt.Errorf("no container %q", container)
+	}
+	var uses []draClaimUse
+	for _, ref := range ctrs[idx].Resources.Claims {
+		claim, err := p.claimName(ref.Name)
+		if err != nil {
+			return nil, err
+		}
+		uses = append(uses, draClaimUse{claim, ref.Request})
+	}
+	return uses, nil
+}
+
+func (p draPodObj) claimName(podClaim string) (string, error) {
+	for _, rc := range p.Spec.ResourceClaims {
+		if rc.Name != podClaim {
+			continue
+		}
+		if rc.ResourceClaimName != nil {
+			return *rc.ResourceClaimName, nil
+		}
+		for _, st := range p.Status.ResourceClaimStatuses {
+			if st.Name == podClaim && st.ResourceClaimName != nil {
+				return *st.ResourceClaimName, nil
+			}
+		}
+		return "", fmt.Errorf("pod claim %q has no generated ResourceClaim yet", podClaim)
+	}
+	return "", fmt.Errorf("pod declares no claim %q", podClaim)
+}
+
+type draClaimObj struct {
+	Status struct {
+		Allocation *struct {
+			Devices struct {
+				Results []struct {
+					Request string `json:"request"`
+					Driver  string `json:"driver"`
+					Pool    string `json:"pool"`
+					Device  string `json:"device"`
+				} `json:"results"`
+			} `json:"devices"`
+		} `json:"allocation"`
+	} `json:"status"`
+}
+
+// allocatedDevices returns the devices allocated to the claim, or to one of
+// its requests when request is set, and false while the scheduler has not
+// allocated the claim yet. A device chosen for a subrequest of a
+// prioritized-list request reports its request as "<request>/<subrequest>".
+func (cl draClaimObj) allocatedDevices(request string) ([]draDeviceRef, bool) {
+	if cl.Status.Allocation == nil {
+		return nil, false
+	}
+	var refs []draDeviceRef
+	for _, r := range cl.Status.Allocation.Devices.Results {
+		if request != "" && r.Request != request && !strings.HasPrefix(r.Request, request+"/") {
+			continue
+		}
+		refs = append(refs, draDeviceRef{r.Driver, r.Pool, r.Device})
+	}
+	return refs, true
+}
+
+type draSliceList struct {
+	Items []struct {
+		Spec struct {
+			Driver string `json:"driver"`
+			Pool   struct {
+				Name string `json:"name"`
+			} `json:"pool"`
+			Devices []struct {
+				Name string `json:"name"`
+				// v1beta1 nests attributes under basic; v1 has them on the
+				// device itself.
+				Basic struct {
+					Attributes draAttributes `json:"attributes"`
+				} `json:"basic"`
+				Attributes draAttributes `json:"attributes"`
+			} `json:"devices"`
+		} `json:"spec"`
+	} `json:"items"`
+}
+
+// uuidsOf resolves each device to the uuid attribute its slice publishes.
+// Device names repeat across pools, so a device is matched on driver, pool and
+// name together.
+func (l draSliceList) uuidsOf(refs []draDeviceRef) ([]string, error) {
+	published := map[draDeviceRef]string{}
+	for _, it := range l.Items {
+		for _, d := range it.Spec.Devices {
+			attrs := d.Attributes
+			if attrs == nil {
+				attrs = d.Basic.Attributes
+			}
+			if a, ok := attrs["uuid"]; ok && a.String != nil {
+				published[draDeviceRef{it.Spec.Driver, it.Spec.Pool.Name, d.Name}] = *a.String
+			}
+		}
+	}
+	uuids := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		uuid, ok := published[ref]
+		if !ok {
+			return nil, fmt.Errorf("no uuid attribute for device %s in pool %s of driver %s", ref.device, ref.pool, ref.driver)
+		}
+		uuids = append(uuids, uuid)
+	}
+	return uuids, nil
+}
+
+func (c *Client) draAllocatedDevices(ctx context.Context, ref PodRef) ([]draDeviceRef, error) {
+	var p draPodObj
+	if err := c.getJSON(ctx, &p, "pod", "-n", ref.Namespace, ref.Pod); err != nil {
+		return nil, err
+	}
+	uses, err := p.claimUses(ref.Container)
+	if err != nil {
+		return nil, fmt.Errorf("pod %s/%s: %w", ref.Namespace, ref.Pod, err)
+	}
+	var refs []draDeviceRef
+	for _, use := range uses {
+		var claim draClaimObj
+		if err := c.getJSON(ctx, &claim, "resourceclaims.resource.k8s.io", "-n", ref.Namespace, use.claim); err != nil {
+			return nil, err
+		}
+		devices, ok := claim.allocatedDevices(use.request)
+		if !ok {
+			return nil, fmt.Errorf("ResourceClaim %s/%s is not allocated", ref.Namespace, use.claim)
+		}
+		refs = append(refs, devices...)
+	}
+	if len(refs) == 0 {
+		return nil, fmt.Errorf("pod %s/%s holds no allocated ResourceClaim device", ref.Namespace, ref.Pod)
+	}
+	return refs, nil
+}
+
+// draAttributes is a ResourceSlice device's attribute map; only string values
+// are read.
+type draAttributes map[string]struct {
+	String *string `json:"string"`
 }
 
 // DescribePod returns `kubectl describe pod` output (failure classification,

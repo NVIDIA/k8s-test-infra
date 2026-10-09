@@ -62,9 +62,24 @@ except against `MOCK_IB=off` and `MOCK_NVML_VISIBLE_DEVICES=none`: the
 annotations decide what a container gets, not an environment baked into its
 image.
 
+A process that loses `MOCK_NVML_CONFIG`, such as a Slurm job, which inherits
+the environment of whoever ran `srun`, still loads the node's profile from the
+overlay mount; see [how the library finds its configuration](../configuration.md#environment-variables).
+The shims' variables have no such fallback, so `libmockfs.so` is not loaded in
+that process.
+
 The `devices` annotation is the management path: it gives a pod the whole node,
 such as a monitoring agent, without scheduler accounting. Like the other
 annotations, it applies to every container in the pod.
+
+!!! note "Privileged pods and `NVIDIA_VISIBLE_DEVICES`"
+    On a real GPU node, a privileged container that requested no GPU sees every
+    GPU, and so does a container that sets `NVIDIA_VISIBLE_DEVICES=all` when the
+    NVIDIA container runtime handles it. The plugin injects neither: inherited
+    device nodes do not identify an allocation, and the plugin cannot tell which
+    runtime runs a container. Where the node runs the NVIDIA container runtime,
+    that runtime still acts on the variable. Otherwise, give such a pod the
+    `devices` annotation.
 
 ## What happens to a container
 
@@ -251,5 +266,5 @@ copies, see
 |---|---|
 | How the whole system fits together | [Architecture](../architecture.md) |
 | What stages the tree this plugin mounts | [Node Daemon](node-daemon.md) |
-| Enabling NRI and its chart values | [Installation](../helm-chart.md) |
-| A runnable walkthrough | [Node-Wide Injection](../guides/node-wide-injection/README.md) |
+| Its chart values | [Installation](../helm-chart.md) |
+| Checking that it injects | [Set up NRI injection](../guides/nri-injection.md) |

@@ -242,14 +242,12 @@ func TestUpdateWorkloadProfiles_ConcurrentWritersDoNotLoseUpdates(t *testing.T) 
 
 	var wg sync.WaitGroup
 	for i, id := range ids {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			errs[i] = UpdateWorkloadProfiles(path, 0,
 				func(base []uint32, _ bool) ([]uint32, error) {
 					return append(append([]uint32{}, base...), id), nil
 				})
-		}()
+		})
 	}
 	wg.Wait()
 

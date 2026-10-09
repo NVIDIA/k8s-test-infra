@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
 
-// Package status computes aggregate inventory and rack status from cached
-// controller snapshots and writes only semantic changes.
+// Package status computes aggregate inventory and rack status, and runtime
+// policy status, from cached controller snapshots and writes only semantic
+// changes.
 package status
 
 import (
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"sync"
 
+	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -132,6 +134,10 @@ func (r *Reconciler) ReconcileInventory(ctx context.Context, input InventoryInpu
 			return err
 		}
 		changed = true
+		for _, transition := range conditionTransitions(latest.Status.Conditions, desired.Conditions) {
+			zap.L().Info("Inventory condition changed",
+				append(conditionFields(transition), zap.String("inventory", input.Inventory.Name))...)
+		}
 		return nil
 	})
 	if err != nil {
@@ -184,6 +190,12 @@ func (r *Reconciler) ReconcileRack(ctx context.Context, input RackInput) (bool, 
 			return err
 		}
 		changed = true
+		// Racks are controller-owned and numerous; their user-facing state
+		// surfaces through inventory conditions, so rack transitions are Debug.
+		for _, transition := range conditionTransitions(latest.Status.Conditions, desired.Conditions) {
+			zap.L().Debug("Rack condition changed",
+				append(conditionFields(transition), zap.String("rack", input.Rack.Name))...)
+		}
 		return nil
 	})
 	if err != nil {

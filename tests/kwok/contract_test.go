@@ -138,7 +138,7 @@ func TestControllerReadinessExitsWhenControllerDies(t *testing.T) {
 		`wait_for "host controller readiness" controller_ready`,
 	}, "\n")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, bash, "-c", script)
 	command.Env = append(os.Environ(),
@@ -250,6 +250,8 @@ func TestRunnerRendersCRDChartBeforeApply(t *testing.T) {
 	require.NotContains(t, runner, "/mokka-crds/crds")
 	require.Contains(t, runner, `readonly CRD_CHART_DIR="${REPO_DIR}/deployments/mokka-crds/helm/mokka-crds"`)
 	require.Contains(t, runner, `readonly CRD_MANIFEST="${WORK_DIR}/mokka-crds.yaml"`)
+	require.Contains(t, runner, "crd/sgpuruntimepolicies.mokka.nvidia.com",
+		"the controller caches runtime policies, so it cannot become ready before their CRD is established")
 
 	render := `helm template mokka-crds "${CRD_CHART_DIR}" --include-crds >"${CRD_MANIFEST}"`
 	apply := `kctl apply --server-side --field-manager=mokka-kwok-poc -f "${CRD_MANIFEST}"`

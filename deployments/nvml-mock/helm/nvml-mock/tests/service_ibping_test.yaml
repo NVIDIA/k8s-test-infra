@@ -21,8 +21,6 @@ tests:
       - equal:
           path: spec.clusterIP
           value: None
-      - notExists:
-          path: spec.publishNotReadyAddresses
       - equal:
           path: spec.selector["app.kubernetes.io/name"]
           value: nvml-mock
@@ -45,6 +43,14 @@ tests:
       - equal:
           path: spec.ports[0].protocol
           value: TCP
+
+  - it: should publish only ready addresses without the NRI sidecar
+    set:
+      nri:
+        enabled: false
+    asserts:
+      - notExists:
+          path: spec.publishNotReadyAddresses
 
   - it: should keep the relay discoverable when only the NRI sidecar is unready
     capabilities:

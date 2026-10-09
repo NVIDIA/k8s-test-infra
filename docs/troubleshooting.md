@@ -59,6 +59,18 @@ docker exec "$NODE" cat /var/lib/nvml-mock/driver/config/config.yaml
 kubectl logs -n mokka -l app.kubernetes.io/name=nvml-mock | grep -i cdi
 ```
 
+### The node pod is NotReady and `nvml-mock-nri` crash-loops
+
+```text
+nri-plugin: nri stub: failed to connect to NRI service: dial unix /var/run/nri/nri.sock: connect: no such file or directory
+```
+
+containerd on that node has NRI disabled, the default in containerd 1.7. The
+node agent keeps running and workloads still start, but without the mock, and
+`helm install --wait` times out. Enable NRI in containerd and restart it, as
+[Set up NRI injection](guides/nri-injection.md#prerequisites) shows, or set
+`nri.enabled=false`.
+
 ### A pod gets no mock GPUs even though NRI is enabled
 
 First check that the pod is meant to receive GPUs. The plugin gives mock GPUs
@@ -98,11 +110,12 @@ running on another. See [Runtime Control](nvml-mock-ctl.md).
 ### Mounts pile up on a node with NRI enabled
 
 Up to and including 0.4.0, an injected container that also had a
-`Bidirectional` volume, such as a DRA kubelet plugin, copied the overlay's
-writable config bind onto the node. Each such container doubled the copies at
-`/var/lib/nvml-mock/driver/config`, and they stay after the pods are gone. A
-large stack slows container starts and anything else that reads the node's
-mount table. See [Mount propagation](components/nri-plugin.md#mount-propagation).
+`Bidirectional` volume, such as a DRA kubelet plugin or the GPU Operator's
+validator, copied the overlay's writable config bind onto the node. Each such
+container doubled the copies at `/var/lib/nvml-mock/driver/config`, and they
+stay after the pods are gone. A large stack slows container starts and anything
+else that reads the node's mount table. See
+[Mount propagation](components/nri-plugin.md#mount-propagation).
 
 On a Kind cluster, count them in each node container. Kubernetes node names
 can differ from the container names, so list the containers with `kind`. A
@@ -113,6 +126,11 @@ for NODE in $(kind get nodes --name mokka); do
   echo "${NODE}: $(docker exec "${NODE}" awk '$5 == "/var/lib/nvml-mock/driver/config" { n++ } END { print n + 0 }' /proc/self/mountinfo)"
 done
 ```
+
+To stay on 0.4.0 without the growth, keep the plugin out of the namespace
+those pods run in, for example `--set 'nri.excludedNamespaces={gpu-operator}'`
+for the GPU Operator. Pods in an excluded namespace get no overlay, so leave
+out only namespaces whose pods do not need the node's GPU profile.
 
 Upgrading stops the growth but leaves the copies in place. Rebooting the node
 clears them; on Kind, recreate the cluster. To clear them in place, first make

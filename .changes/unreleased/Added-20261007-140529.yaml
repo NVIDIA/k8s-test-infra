@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  node-agent: Slurm's gres.conf AutoDetect=nvidia now finds mock GPUs, so slurmd registers them as gres/gpu instead of marking the node INVALID (0 < N); see the Slinky guide.
+time: 2026-10-07T12:05:29Z

@@ -10,7 +10,7 @@ package helm
 import (
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"time"
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/runner"
@@ -101,7 +101,7 @@ func (c *Client) run(ctx context.Context, verb string, rel Release, extra ...str
 	for k := range rel.Set {
 		keys = append(keys, k)
 	}
-	sort.Strings(keys)
+	slices.Sort(keys)
 	for _, k := range keys {
 		args = append(args, "--set", fmt.Sprintf("%s=%s", k, rel.Set[k]))
 	}

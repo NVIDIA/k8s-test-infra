@@ -15,8 +15,12 @@ is a summary so that `helm show readme` stays useful.
 ## Install
 
 ```bash
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock
+helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  --namespace mokka --create-namespace
 ```
+
+Use a dedicated namespace: the NRI plugin never injects pods in the release
+namespace.
 
 ## GPU profiles
 
@@ -34,6 +38,7 @@ Set `gpu.profile` to one of the profiles shipped in `profiles/`:
 
 ```bash
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  --namespace mokka --create-namespace \
   --set gpu.profile=h100 \
   --set gpu.count=8
 ```
@@ -51,7 +56,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 | `nodeAgent.kernelLog` | Announce injected Xids on the node's `/dev/kmsg` (off by default) |
 | `nodeLabels` | Labels applied to nodes running the mock |
 | `allocationWatcher` | Tracks device-plugin allocations for utilization simulation |
-| `nri` | Node-wide NRI injection (see MEP-0002) |
+| `nri` | NRI injection into GPU workloads, on by default |
 | `topology` | Multi-node and multi-GPU interconnect layout |
 | `infiniband` | Mock IB devices and counters |
 | `imex`, `fabricmanager` | IMEX and fabric-manager simulation |
@@ -64,6 +69,8 @@ so a mistyped key fails fast rather than deploying a broken DaemonSet.
 ## Support matrix
 
 - Kubernetes >= 1.28.0
+- containerd with NRI enabled, the default from containerd 2.0. On
+  containerd 1.7, enable it or set `nri.enabled=false`
 - `controlPlane.enabled` requires Kubernetes >= 1.30.0 for its
   `ValidatingAdmissionPolicy`
 - Chart version: see `Chart.yaml`

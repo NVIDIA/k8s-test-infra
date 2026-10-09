@@ -210,7 +210,11 @@ allocationWatcher:
       memory: 32Mi
 
 nri:
-  enabled: false
+  # Inject the mock into containers that hold a GPU allocation or opt in by
+  # annotation. Needs containerd NRI enabled on the node: containerd 2.x
+  # enables it by default, containerd 1.7 does not. Set false where it is off;
+  # otherwise the node pod stays NotReady.
+  enabled: true
   # Kubernetes 1.29+ enables SidecarContainers by default. Set this to false
   # if the cluster explicitly disables that feature gate; the chart then uses
   # the unordered regular-container layout also used on Kubernetes 1.28.
@@ -272,7 +276,12 @@ nri:
   # default 2048 nodes measures around one second.
   imexChannelAnnotation: nvml-mock.nvidia.com/imex-channels
   excludedNamespaces: []
-  resources: {}
+  # Requests only: the plugin runs on every node by default, and no limit is set
+  # until its usage under load has been measured.
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
   # Port serving the plugin's /healthz and /readyz endpoints. The node DaemonSet
   # does not use host networking, so this port lives only inside the pod's own
   # network namespace: it is reachable by the kubelet on the pod IP and is not

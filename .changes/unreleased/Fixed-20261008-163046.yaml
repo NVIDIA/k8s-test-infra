@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+  tilt: `tilt up -- --observability --dynamo` no longer cuts the kube-prometheus-stack install off after 6 minutes; it keeps the 10-minute wait it has without `--dynamo`.
+time: 2026-10-08T14:30:46Z

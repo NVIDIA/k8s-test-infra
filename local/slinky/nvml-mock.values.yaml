@@ -1,0 +1,11 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# nvml-mock values overlay for the Slinky consumer, layered by
+# local/nvml_mock.tiltfile because 'slinky' is an active consumer.
+#
+# Every profile is capped to the same count so the slurmd GPU request in
+# slurm.values.yaml claims the whole node for whichever --gpu-profile is
+# selected. Keep the two in sync.
+gpu:
+  count: 4

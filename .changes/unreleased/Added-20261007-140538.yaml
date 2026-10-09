@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  A `--slinky` Tilt consumer that installs the Slinky slurm-operator and a Slurm cluster whose slurmd pods autodetect mock GPUs as GRES, so `srun --gres=gpu:N` jobs schedule against them.
+time: 2026-10-07T12:05:38Z

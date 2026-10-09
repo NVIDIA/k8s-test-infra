@@ -960,6 +960,21 @@ func installAcceptanceAPIReactors(t *testing.T, client *mokkafake.Clientset) {
 		err = client.Tracker().Update(resource, updated, "")
 		return true, updated, err
 	})
+	client.PrependReactor("update", "sgpuruntimepolicies", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() != "status" {
+			return false, nil, nil
+		}
+		candidate := action.(k8stesting.UpdateAction).GetObject().(*mokkav1alpha1.SGPURuntimePolicy)
+		resource := mokkav1alpha1.SchemeGroupVersion.WithResource("sgpuruntimepolicies")
+		stored, err := client.Tracker().Get(resource, "", candidate.Name)
+		if err != nil {
+			return true, nil, err
+		}
+		updated := stored.(*mokkav1alpha1.SGPURuntimePolicy).DeepCopy()
+		updated.Status = candidate.Status
+		err = client.Tracker().Update(resource, updated, "")
+		return true, updated, err
+	})
 }
 
 func installAcceptanceRackCreateReactor(

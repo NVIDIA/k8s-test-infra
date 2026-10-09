@@ -12,7 +12,19 @@ capabilities:
   majorVersion: 1
   minorVersion: 29
 tests:
-  - it: should render only the node agent by default
+  - it: should run the NRI plugin after the node agent by default
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: node-agent
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: nvml-mock-nri
+
+  - it: should render only the node agent when NRI is disabled
+    set:
+      nri:
+        enabled: false
     asserts:
       - hasDocuments:
           count: 1
@@ -249,6 +261,9 @@ tests:
             readOnly: true
 
   - it: should not gate staging when NRI is disabled
+    set:
+      nri:
+        enabled: false
     asserts:
       - notContains:
           path: spec.template.spec.containers[0].command
@@ -329,8 +344,10 @@ tests:
           pullPolicy: Always
         resources:
           requests:
-            cpu: 10m
-            memory: 32Mi
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            memory: 128Mi
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
@@ -339,11 +356,22 @@ tests:
           path: spec.template.spec.containers[0].imagePullPolicy
           value: Always
       - equal:
-          path: spec.template.spec.containers[0].resources.requests.cpu
-          value: 10m
+          path: spec.template.spec.containers[0].resources
+          value:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+
+  - it: should request resources for the plugin without limiting it by default
+    asserts:
       - equal:
-          path: spec.template.spec.containers[0].resources.requests.memory
-          value: 32Mi
+          path: spec.template.spec.containers[0].resources
+          value:
+            requests:
+              cpu: 10m
+              memory: 32Mi
 
   - it: should inherit the chart image digest when the NRI image is not overridden
     set:

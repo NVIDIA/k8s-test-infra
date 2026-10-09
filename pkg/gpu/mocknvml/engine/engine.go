@@ -160,7 +160,7 @@ func (e *Engine) createDevicesFromYAML(server *MockServer, base *mockserver.Serv
 		warnLog("[ENGINE] NVLink topology: %s\n", w)
 	}
 
-	for i := 0; i < e.config.NumDevices && i < MaxDevices; i++ {
+	for i := range min(e.config.NumDevices, MaxDevices) {
 		// Get merged device config (defaults + overrides)
 		deviceCfg := e.config.GetDeviceConfig(i)
 
@@ -233,7 +233,7 @@ func BaseDevicePCIBusID(index int) string {
 func (e *Engine) createDefaultDevices(server *MockServer, base *mockserver.Server) {
 	debugLog("[ENGINE] Creating devices with default config\n")
 
-	for i := 0; i < e.config.NumDevices && i < MaxDevices; i++ {
+	for i := range min(e.config.NumDevices, MaxDevices) {
 		// Get base device from dgxa100
 		baseDevice, ok := base.Devices[i].(*mockserver.Device)
 		if !ok {
@@ -494,7 +494,7 @@ func (e *Engine) TopologyNearestGpus(handle unsafe.Pointer, level nvml.GpuTopolo
 	}
 
 	var out []unsafe.Pointer
-	for j := 0; j < cd.fabric.NumDevices(); j++ {
+	for j := range cd.fabric.NumDevices() {
 		if j == cd.index || !e.server.isDeviceVisible(j) {
 			continue
 		}
@@ -529,7 +529,7 @@ func (e *Engine) TopologyGpuSet(cpuNumber int) ([]unsafe.Pointer, nvml.Return) {
 	}
 
 	var out []unsafe.Pointer
-	for j := 0; j < len(e.server.configurableDevices); j++ {
+	for j := range len(e.server.configurableDevices) {
 		dev := e.server.configurableDevices[j]
 		if dev == nil || dev.fabric == nil || !e.server.isDeviceVisible(j) {
 			continue
@@ -740,7 +740,7 @@ func detectVisibleDevices(config *Config) []int {
 // exercise the same configuration-to-visibility mapping without writing /dev.
 func detectVisibleDevicesAt(pathFmt string, config *Config) []int {
 	minorNumbers := make([]int, 0, config.NumDevices)
-	for i := 0; i < config.NumDevices && i < MaxDevices; i++ {
+	for i := range min(config.NumDevices, MaxDevices) {
 		minorNumbers = append(minorNumbers, config.GetDeviceMinorNumber(i))
 	}
 

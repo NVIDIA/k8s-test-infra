@@ -2,8 +2,9 @@
 
 Mokka's [NRI plugin](../components/nri-plugin.md) is how a workload that was
 given GPUs the usual way runs `nvidia-smi` and loads the mock NVML library, with
-no Mokka-specific pod spec changes. This page covers what the node needs, how to
-install Mokka with the plugin, and how to check that it injects.
+no Mokka-specific pod spec changes. The chart runs it by default. This page
+covers what the node needs, how to check that the plugin injects, and how to
+keep workloads out.
 
 ## What the plugin does
 
@@ -24,7 +25,8 @@ lists every annotation.
 
 ## Prerequisites
 
-- containerd 1.7 or later, with NRI enabled on every GPU node. Check a node's
+- containerd 1.7 or later, with NRI enabled on every GPU node. containerd 2.0
+  and later enable it by default; containerd 1.7 does not. Check a node's
   effective configuration:
 
     ```bash
@@ -44,7 +46,9 @@ lists every annotation.
   recognise; see
   [Recognising a GPU allocation](../components/nri-plugin.md#recognising-a-gpu-allocation).
 
-On Kind, create the cluster with NRI enabled in containerd:
+Current Kind node images ship containerd 2.x and need nothing extra. Older
+ones run containerd 1.7, for example `kindest/node:v1.28.15`; create those
+clusters with NRI enabled in containerd:
 
 ```yaml title="kind.yaml"
 kind: Cluster
@@ -64,35 +68,24 @@ nodes:
 kind create cluster --name mokka-nri --config kind.yaml
 ```
 
-## Install Mokka with the plugin
+## Install Mokka
 
-Install Mokka into its own namespace with `nri.enabled=true`. The plugin never
-injects its own release namespace or `kube-system`, so installing into a shared
-namespace would leave that namespace's workloads without the mock.
+Install Mokka into its own namespace. The plugin never injects its own release
+namespace or `kube-system`, so installing into a shared namespace would leave
+that namespace's workloads without the mock.
 
-=== "New install"
+```bash
+helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  --namespace mokka --create-namespace \
+  --wait --timeout 180s
+```
 
-    ```bash
-    helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
-      --namespace mokka --create-namespace \
-      --set nri.enabled=true \
-      --wait --timeout 180s
-    ```
+An existing release turns NRI on at its next `helm upgrade`. Upgrade from chart
+0.4.0 without `--reuse-values`, which renders 0.4.0's values, including
+`nri.enabled=false` and the 0.4.0 image tag. `--reset-then-reuse-values`
+(Helm 3.14+) keeps your own overrides instead.
 
-=== "Existing install"
-
-    ```bash
-    helm upgrade nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
-      --namespace mokka --reuse-values \
-      --set nri.enabled=true \
-      --wait --timeout 180s
-    ```
-
-    Changing `nri.*` rolls the node DaemonSet. See
-    [NRI pod lifecycle](../helm-chart.md#nri-pod-lifecycle) for what that
-    costs on a running node.
-
-Each node pod now runs the NRI plugin next to the node agent, and is Ready only
+Each node pod runs the NRI plugin next to the node agent, and is Ready only
 once the plugin has registered with containerd:
 
 ```bash
@@ -105,13 +98,17 @@ restartable init container, and `nvml-mock-nri` under `CONTAINERS`; see
 [NRI pod lifecycle](../helm-chart.md#nri-pod-lifecycle). On older clusters,
 or with `nri.nativeSidecar=false`, both are under `CONTAINERS`.
 
+A node pod that stays NotReady, with `nvml-mock-nri` crash-looping, means
+containerd on that node has NRI disabled; see
+[Troubleshooting](../troubleshooting.md#the-node-pod-is-notready-and-nvml-mock-nri-crash-loops).
+
 ## Verify injection
 
 Run a pod that opts in with the `devices` annotation, so the check needs no GPU
 consumer:
 
 ```bash
-kubectl apply -f - <<'EOF'
+kubectl -n default apply -f - <<'EOF'
 apiVersion: v1
 kind: Pod
 metadata:
@@ -126,8 +123,8 @@ spec:
       command: ["sleep", "300"]
 EOF
 
-kubectl wait --for=condition=ready pod/nri-check --timeout=120s
-kubectl exec nri-check -- nvidia-smi -L
+kubectl -n default wait --for=condition=ready pod/nri-check --timeout=120s
+kubectl -n default exec nri-check -- nvidia-smi -L
 ```
 
 The image is debian because the injected `nvidia-smi` is a glibc binary: a musl
@@ -140,7 +137,7 @@ To check the allocation path, schedule a GPU request through the
 only the GPUs it was allocated.
 
 ```bash
-kubectl delete pod nri-check
+kubectl -n default delete pod nri-check
 ```
 
 ## Keep a workload out
@@ -149,7 +146,7 @@ kubectl delete pod nri-check
 |---|---|
 | Skip one pod | Annotate it `nvml-mock.nvidia.com/inject: "false"` |
 | Skip a namespace | Add it to `nri.excludedNamespaces` |
-| Turn the plugin off | `helm upgrade ... --reuse-values --set nri.enabled=false` |
+| Turn the plugin off | `helm upgrade nvml-mock ... -n mokka --reuse-values --set nri.enabled=false` |
 
 Turning the plugin off affects only containers created afterwards. Running
 containers keep what they were given until they restart.

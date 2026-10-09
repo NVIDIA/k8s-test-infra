@@ -163,7 +163,7 @@ func (d *ConfigurableDevice) GpmSnapshotInto(key uint64) nvml.Return {
 	snap.pcieRxMiBPerSec = utilFrac * float64(d.gpmPcieMiBPerSec(false))
 
 	if f := d.fabric; f != nil {
-		for link := 0; link < nvLinkMaxLinks; link++ {
+		for link := range nvLinkMaxLinks {
 			if l, ok := f.Link(d.index, link); ok && l.Active {
 				rx, tx := f.NvLinkCounters(d.index, link, ts)
 				snap.nvlinkRx[link] = rx
@@ -277,7 +277,7 @@ func nvlinkRateMiBPerSec(s1, s2 *gpmSnapshot, dt float64, link int, tx bool) flo
 		return 0
 	}
 	var delta uint64
-	for l := 0; l < nvLinkMaxLinks; l++ {
+	for l := range nvLinkMaxLinks {
 		if link >= 0 && l != link {
 			continue
 		}

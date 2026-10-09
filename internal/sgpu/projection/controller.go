@@ -13,6 +13,7 @@ import (
 	"slices"
 	"sync"
 
+	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -267,6 +268,7 @@ func (c *Controller) project(ctx context.Context, rackName string, nodeIndex int
 	}
 	outcome.State, outcome.Reason = StateProjected, ReasonProjected
 	c.record(outcome)
+	zap.L().Info("Projected sGPU assignment onto Node", outcomeFields(outcome)...)
 	return outcome, nil
 }
 
@@ -380,6 +382,8 @@ func (c *Controller) Cleanup(ctx context.Context, needed sgpurelease.Cleanup) (O
 		c.recordCleanupFailure(outcome, exactBindingPresent)
 		return outcome, conflict
 	}
+	zap.L().Info("Removed sGPU assignment projection from Node",
+		append(outcomeFields(outcome), zap.String("reason", string(needed.Reason)))...)
 	return c.completeCleanup(needed, outcome, ReasonCleaned, exactBindingPresent), nil
 }
 
@@ -881,7 +885,21 @@ func (c *Controller) fail(outcome Outcome, err error) (Outcome, error) {
 func (c *Controller) conflict(outcome Outcome, nodeName string, fields []string) (Outcome, error) {
 	outcome, conflict := conflictOutcome(outcome, nodeName, fields)
 	c.record(outcome)
+	// Apply conflicts are not retried, so this entry is the only log of one;
+	// the controller leaves metadata another manager owns untouched.
+	zap.L().Warn("Node metadata conflict blocks sGPU projection",
+		append(outcomeFields(outcome), zap.Strings("fields", conflict.Fields))...)
 	return outcome, conflict
+}
+
+// outcomeFields identifies a binding in log entries.
+func outcomeFields(outcome Outcome) []zap.Field {
+	return []zap.Field{
+		zap.String("node", outcome.NodeName),
+		zap.String("rack", outcome.RackName),
+		zap.Int32("nodeIndex", outcome.NodeIndex),
+		zap.String("inventory", outcome.InventoryName),
+	}
 }
 
 func conflictOutcome(outcome Outcome, nodeName string, fields []string) (Outcome, *MetadataConflictError) {
