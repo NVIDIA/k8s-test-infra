@@ -18,10 +18,13 @@ import (
 // server naming different paths fails open: entries list, every attribute read
 // returns ENOENT, and the result is indistinguishable from no tree at all.
 const (
+	// SysRelPath is where the tree mirrors /sys; every served path under it
+	// is the kernel's path relative to /sys.
+	SysRelPath = "sys"
 	// PCIDevicesRelPath is the flat lookup directory of BDF symlinks.
-	PCIDevicesRelPath = "sys/bus/pci/devices"
+	PCIDevicesRelPath = SysRelPath + "/bus/pci/devices"
 	// SysDevicesRelPath is the hierarchy those symlinks point into.
-	SysDevicesRelPath = "sys/devices"
+	SysDevicesRelPath = SysRelPath + "/devices"
 )
 
 // Options controls a single rendering pass.

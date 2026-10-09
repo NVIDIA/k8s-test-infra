@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
-	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs"
 )
 
@@ -258,108 +257,20 @@ func TestStageSysfs_RendersFlatDefault(t *testing.T) {
 	require.Contains(t, target, agent.DefaultRootComplexID)
 }
 
-// ─── stageDMI ────────────────────────────────────────────────────────────────
-
-// writeKernelDMI fakes a kernel that exposes DMI, at the path
-// /sys/class/dmi/id resolves into.
-func writeKernelDMI(t *testing.T, h *host.Host, attrs map[string]string) string {
-	t.Helper()
-	dir := filepath.Join(h.Sys, kernelDMIRelPath)
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	for name, val := range attrs {
-		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(val), 0o444))
-	}
-	return dir
-}
-
-func TestStageDMI_MirrorsProductName(t *testing.T) {
+// The dmi simulator stages its copy under the same sys/devices, in parallel.
+// A render must not take it along: the runtime applies the spec's mounts
+// unconditionally, and a container cannot wait for the next pass.
+func TestStageSysfs_LeavesOtherSimulatorsEntriesAlone(t *testing.T) {
 	h := testHost(t)
-	writeKernelDMI(t, h, map[string]string{"product_name": "NVIDIA DGX A100\n"})
+	dmi := h.RootPath(pcisysfs.SysDevicesRelPath, "virtual/dmi/id/product_name")
+	require.NoError(t, os.MkdirAll(filepath.Dir(dmi), 0o755))
+	require.NoError(t, os.WriteFile(dmi, []byte("NVIDIA DGX A100\n"), 0o444))
 
-	require.NoError(t, stageDMI(h))
-
-	data, err := os.ReadFile(filepath.Join(h.Root, mockDMIRelPath, "product_name"))
-	require.NoError(t, err, "product_name must be mirrored into the served tree")
-	require.Equal(t, "NVIDIA DGX A100\n", string(data))
-}
-
-// product_uuid identifies the node and kind mounts its own copy over ours, so
-// mirroring the value would republish it into every served container for no gain.
-func TestStageDMI_ProductUUIDIsEmptyStandIn(t *testing.T) {
-	h := testHost(t)
-	writeKernelDMI(t, h, map[string]string{
-		"product_name": "NVIDIA DGX A100\n",
-		"product_uuid": "4c4c4544-0037-5710-8058-b7c04f503432\n",
-	})
-
-	require.NoError(t, stageDMI(h))
-
-	path := filepath.Join(h.Root, mockDMIRelPath, "product_uuid")
-	data, err := os.ReadFile(path)
-	require.NoError(t, err, "product_uuid must exist as a mount target")
-	require.Empty(t, data, "the node's UUID must not travel into served containers")
-
-	info, err := os.Stat(path)
-	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0o400), info.Mode().Perm(), "mirror the kernel's own permissions")
-}
-
-// A kernel with no DMI (Docker Desktop's linuxkit VM) is also one where kind's
-// hook does not fire, so there is no mount target to keep alive.
-func TestStageDMI_NothingWithoutKernelDMI(t *testing.T) {
-	h := testHost(t)
-
-	require.NoError(t, stageDMI(h))
-
-	_, err := os.Stat(filepath.Join(h.Root, mockDMIRelPath))
-	require.True(t, os.IsNotExist(err), "no DMI directory without a kernel one")
-}
-
-// An attribute the renderer cannot read still has to exist, because it is
-// kind's bind-mount target and mount(8) cannot create one on a read-only sysfs.
-func TestStageDMI_StandsInForUnreadableProductName(t *testing.T) {
-	h := testHost(t)
-	dir := writeKernelDMI(t, h, map[string]string{"product_name": "NVIDIA DGX A100\n"})
-	require.NoError(t, os.Chmod(filepath.Join(dir, "product_name"), 0o000))
-
-	require.NoError(t, stageDMI(h), "an unreadable attribute is not a staging failure")
-
-	data, err := os.ReadFile(filepath.Join(h.Root, mockDMIRelPath, "product_name"))
-	require.NoError(t, err, "product_name must exist even when its value is unreadable")
-	require.Empty(t, data)
-}
-
-// The DMI mirror exists only to keep bind-mount targets alive in containers the
-// tree is served to, and nothing is served when no tree is rendered.
-func TestStageSysfs_NoDMIWithoutTopology(t *testing.T) {
-	h := testHost(t)
-	writeKernelDMI(t, h, map[string]string{"product_name": "NVIDIA DGX A100\n"})
-
+	require.NoError(t, stageSysfs(h, stateWithTopology()))
+	require.NoError(t, stageSysfs(h, stateWithTopology()))
 	require.NoError(t, stageSysfs(h, &agent.State{}))
 
-	_, err := os.Stat(filepath.Join(h.Root, "sys"))
-	require.True(t, os.IsNotExist(err), "sys/ must not be created when state has no root complexes")
-}
-
-func TestStageSysfs_StagesDMIAlongsideTheTree(t *testing.T) {
-	h := testHost(t)
-	writeKernelDMI(t, h, map[string]string{"product_name": "NVIDIA DGX A100\n"})
-
-	require.NoError(t, stageSysfs(h, stateWithTopology()))
-
-	require.FileExists(t, filepath.Join(h.Root, mockDMIRelPath, "product_name"))
-}
-
-// A re-render must not take the DMI directory with it: the runtime applies the
-// spec's mounts unconditionally, and a container cannot wait for the next pass.
-func TestStageSysfs_DMISurvivesARerender(t *testing.T) {
-	h := testHost(t)
-	writeKernelDMI(t, h, map[string]string{"product_name": "NVIDIA DGX A100\n"})
-
-	require.NoError(t, stageSysfs(h, stateWithTopology()))
-	require.NoError(t, stageSysfs(h, stateWithTopology()))
-
-	require.FileExists(t, filepath.Join(h.Root, mockDMIRelPath, "product_name"))
+	require.FileExists(t, dmi)
 }
 
 // ─── stagePCIShim ────────────────────────────────────────────────────────────

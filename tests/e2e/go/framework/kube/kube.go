@@ -351,6 +351,28 @@ func (c *Client) ConfigMapData(ctx context.Context, ns, name, key string) (strin
 	return v, nil
 }
 
+type nodeFeatureObj struct {
+	Spec struct {
+		Features struct {
+			Attributes map[string]struct {
+				Elements map[string]string `json:"elements"`
+			} `json:"attributes"`
+		} `json:"features"`
+	} `json:"spec"`
+}
+
+// NodeFeatureAttribute returns the elements of one attribute feature, such as
+// system.dmiid, from the NodeFeature object an NFD worker in ns publishes for
+// node. The worker names that object after the node. A feature the worker did
+// not publish yields an empty map; a missing object yields kubectl's NotFound.
+func (c *Client) NodeFeatureAttribute(ctx context.Context, ns, node, feature string) (map[string]string, error) {
+	var nf nodeFeatureObj
+	if err := c.getJSON(ctx, &nf, "nodefeature", "-n", ns, node); err != nil {
+		return nil, err
+	}
+	return nf.Spec.Features.Attributes[feature].Elements, nil
+}
+
 // rolledOutAndReady reports whether the DaemonSet's current spec is fully rolled
 // out and every desired pod is ready. A ready count alone would also accept a
 // DaemonSet that has not started rolling yet, whose ready pods still belong to

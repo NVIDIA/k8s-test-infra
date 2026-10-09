@@ -29,6 +29,8 @@ variable; the flag wins when both are set.
 | `--ib-fabric` | `MOCK_IB_PING_FABRIC` | `false` | Cross-pod fabric relay; required for multi-node `ibping` and `iblinkinfo` |
 | `--ib-fabric-port` | `MOCK_IB_PING_PORT` | `18515` | TCP port for that relay |
 | `--fabricmanager-init-delay` | `MOCK_FABRICMANAGER_INIT_DELAY` | `0` | Withhold fabric readiness for this long, simulating NVSwitch registration latency |
+| `--dmi` | `MOCK_DMI` | `true` | Serve a system identity at `/sys/devices/virtual/dmi/id` on a node whose kernel exposes none. The chart sets it from `nodeAgent.dmi.enabled`; see [DMI](../components/node-daemon.md#dmi) |
+| `--numa` | `MOCK_NUMA` | `true` | Serve the profile's NUMA nodes at `/sys/bus/node/devices` on a node whose kernel exposes none. The chart sets it from `nodeAgent.numa.enabled`; see [NUMA](../components/node-daemon.md#numa) |
 | `--kernel-log` | `MOCK_NVML_KMSG` | `/dev/kmsg` | Kernel log to announce injected Xids on, the way a driver's printk does. Empty announces nowhere, which is what the chart sets unless `nodeAgent.kernelLog.enabled` grants the device. Not rooted at `--host-root` |
 
 An unrecognized `--log-level`, `--log-format` or `--ib-mode` fails startup

@@ -195,6 +195,13 @@ spec:
             # writable, when nodeAgent.kernelLog is enabled.
             - name: MOCK_NVML_KMSG
               value: {{ ternary "/dev/kmsg" "" .Values.nodeAgent.kernelLog.enabled | quote }}
+            # Whether the agent serves a DMI identity on a node without one. It
+            # can only reach the node through the node-sysfs-virtual mount.
+            - name: MOCK_DMI
+              value: {{ .Values.nodeAgent.dmi.enabled | quote }}
+            # Likewise for NUMA nodes, through the node-sysfs-bus mount.
+            - name: MOCK_NUMA
+              value: {{ .Values.nodeAgent.numa.enabled | quote }}
             {{- if .Values.topology.enabled }}
             - name: MOCK_TOPOLOGY_CONFIG
               value: /etc/nvml-mock/topology/topology.yaml
@@ -302,6 +309,21 @@ spec:
             - name: node-sysfs
               mountPath: /host/sys
               readOnly: true
+            {{- if .Values.nodeAgent.dmi.enabled }}
+            # The dmi simulator mounts the simulated identity over this
+            # directory on a node without DMI. Bidirectional so that mount
+            # reaches the node; writable because the node's own entries are
+            # rebound from here and keep this mount's flags.
+            - name: node-sysfs-virtual
+              mountPath: /host/sys/devices/virtual
+              mountPropagation: Bidirectional
+            {{- end }}
+            {{- if .Values.nodeAgent.numa.enabled }}
+            # The numa simulator's counterpart, for /sys/bus/node.
+            - name: node-sysfs-bus
+              mountPath: /host/sys/bus
+              mountPropagation: Bidirectional
+            {{- end }}
             {{- if .Values.nodeAgent.kernelLog.enabled }}
             # The node's kernel ring buffer, for the Xid announcement. Write
             # only in practice: nothing here reads it back.
@@ -496,6 +518,18 @@ spec:
           hostPath:
             path: /sys
             type: Directory
+        {{- if .Values.nodeAgent.dmi.enabled }}
+        - name: node-sysfs-virtual
+          hostPath:
+            path: /sys/devices/virtual
+            type: Directory
+        {{- end }}
+        {{- if .Values.nodeAgent.numa.enabled }}
+        - name: node-sysfs-bus
+          hostPath:
+            path: /sys/bus
+            type: Directory
+        {{- end }}
         {{- if .Values.nodeAgent.kernelLog.enabled }}
         # CharDevice, so a node that exposes no kernel ring buffer fails the
         # pod instead of silently swallowing announcements into a new file.

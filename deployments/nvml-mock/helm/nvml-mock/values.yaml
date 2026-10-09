@@ -154,6 +154,19 @@ nodeAgent:
   kernelLog:
     # TODO: remove the flag and make it on by default
     enabled: false
+  # Serves a system identity at /sys/devices/virtual/dmi/id on a node whose
+  # kernel exposes no DMI (e.g. Docker Desktop on Apple Silicon), where NFD's
+  # system source otherwise logs an error on every pass. A node with DMI is
+  # never touched. Disabling drops the Bidirectional /sys/devices/virtual mount.
+  dmi:
+    enabled: true
+  # Serves the profile's NUMA nodes at /sys/bus/node/devices on a node whose
+  # kernel exposes none, where NFD's memory source otherwise logs an error on
+  # every pass. Only the node count is simulated; /sys/devices/system/node,
+  # which kubelet reads, is left alone. Disabling drops the Bidirectional
+  # /sys/bus mount.
+  numa:
+    enabled: true
   # Go duration string: 5s, 1m30s, etc. Teardown is a handful of parallel file
   # removals, and it has to finish inside terminationGracePeriodSeconds.
   shutdownTimeout: 5s

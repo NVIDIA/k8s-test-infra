@@ -1416,6 +1416,120 @@ tests:
               path: /dev/kmsg
               type: CharDevice
 
+  # ── DMI simulation ──────────────────────────────────────────────────
+  # Bidirectional so the overmount reaches the node, and read-write because
+  # the node's own entries are rebound from this mount and keep its flags.
+  - it: should let the agent serve DMI on the node by default
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: MOCK_DMI
+            value: "true"
+      - contains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: node-sysfs-virtual
+            mountPath: /host/sys/devices/virtual
+            mountPropagation: Bidirectional
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: node-sysfs-virtual
+            hostPath:
+              path: /sys/devices/virtual
+              type: Directory
+
+  - it: should leave the node's sysfs alone when DMI simulation is disabled
+    set:
+      nodeAgent:
+        dmi:
+          enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: MOCK_DMI
+            value: "false"
+      - notContains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: node-sysfs-virtual
+            mountPath: /host/sys/devices/virtual
+            mountPropagation: Bidirectional
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: node-sysfs-virtual
+            hostPath:
+              path: /sys/devices/virtual
+              type: Directory
+
+  - it: should reject a misspelled DMI key
+    set:
+      nodeAgent:
+        dmi:
+          enable: false
+    asserts:
+      - failedTemplate:
+          errorMessage: "values don't meet the specifications of the schema(s) in the following chart(s):\nnvml-mock:\n- at '/nodeAgent/dmi': additional properties 'enable' not allowed\n"
+
+  # ── NUMA simulation ─────────────────────────────────────────────────
+  - it: should let the agent serve NUMA nodes on the node by default
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: MOCK_NUMA
+            value: "true"
+      - contains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: node-sysfs-bus
+            mountPath: /host/sys/bus
+            mountPropagation: Bidirectional
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: node-sysfs-bus
+            hostPath:
+              path: /sys/bus
+              type: Directory
+
+  - it: should leave the node's buses alone when NUMA simulation is disabled
+    set:
+      nodeAgent:
+        numa:
+          enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: MOCK_NUMA
+            value: "false"
+      - notContains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: node-sysfs-bus
+            mountPath: /host/sys/bus
+            mountPropagation: Bidirectional
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: node-sysfs-bus
+            hostPath:
+              path: /sys/bus
+              type: Directory
+
+  - it: should reject a misspelled NUMA key
+    set:
+      nodeAgent:
+        numa:
+          enable: false
+    asserts:
+      - failedTemplate:
+          errorMessage: "values don't meet the specifications of the schema(s) in the following chart(s):\nnvml-mock:\n- at '/nodeAgent/numa': additional properties 'enable' not allowed\n"
+
   # Bidirectional mountPropagation (below) needs it unconditionally.
   - it: should always run the node agent privileged
     asserts:
