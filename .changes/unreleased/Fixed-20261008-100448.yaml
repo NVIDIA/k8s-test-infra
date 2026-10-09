@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+  nvml-mock: a process in an NRI-served container that loses MOCK_NVML_CONFIG, such as a Slurm job, now reports the node's GPU profile instead of the built-in A100 defaults.
+time: 2026-10-08T08:04:48Z

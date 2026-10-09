@@ -41,6 +41,11 @@ var (
 // directory. A variable so tests can point it at a file they own.
 var cdiConfigPath = "/etc/nvml-mock/config.yaml"
 
+// nriConfigPath is the config the NRI plugin names in MOCK_NVML_CONFIG, under
+// its default container overlay path. A variable so tests can point it at a
+// file they own.
+var nriConfigPath = "/opt/nvml-mock/driver/config/config.yaml"
+
 // ClearConfigCache clears the cached configuration.
 // Use in tests to ensure clean state between test runs.
 func ClearConfigCache() {
@@ -168,11 +173,14 @@ func ConfigOverridePathFor(configPath string) string {
 //  1. MOCK_NVML_CONFIG env var (explicit path)
 //  2. Auto-discover from /proc/self/maps (Linux only)
 //  3. cdiConfigPath, when that file exists
+//  4. nriConfigPath, when that file exists
 //
-// The last step serves containers given the library through the nvidia.com/gpu
-// CDI spec: the toolkit resolving it applies the spec's mounts but drops its
-// env (#747), and it mounts the library at /usr/lib64, outside the driver root
-// that maps discovery walks up to.
+// Step 3 serves containers given the library through the nvidia.com/gpu CDI
+// spec: the toolkit resolving it applies the spec's mounts but drops its env
+// (#747), and it mounts the library at /usr/lib64, outside the driver root
+// that maps discovery walks up to. Step 4 serves processes in an NRI-served
+// container whose launcher rebuilt the environment, such as a Slurm job, which
+// gets the env of whoever ran srun rather than of the slurmd it runs under.
 func resolveConfigPath() string {
 	if configPath := os.Getenv("MOCK_NVML_CONFIG"); configPath != "" {
 		return configPath
@@ -183,6 +191,10 @@ func resolveConfigPath() string {
 	if _, err := os.Stat(cdiConfigPath); err == nil {
 		debugLog("[CONFIG] Using CDI-mounted config at %s\n", cdiConfigPath)
 		return cdiConfigPath
+	}
+	if _, err := os.Stat(nriConfigPath); err == nil {
+		debugLog("[CONFIG] Using NRI-mounted config at %s\n", nriConfigPath)
+		return nriConfigPath
 	}
 	return ""
 }
