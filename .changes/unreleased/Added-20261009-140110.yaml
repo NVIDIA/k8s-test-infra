@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  docs: add a generated Control Plane API reference for the Mokka CRDs, built with `make crd-docs`.
+time: 2026-10-09T12:01:10Z
+custom:
+  Issue: "815"
