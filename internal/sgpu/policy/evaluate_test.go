@@ -35,21 +35,42 @@ func TestEvaluateRejectsEveryPolicyOfAMissingInventory(t *testing.T) {
 func TestEvaluateIsDeterministicForAnyPolicyOrder(t *testing.T) {
 	t.Parallel()
 
-	policies := []*mokkav1alpha1.SGPURuntimePolicy{
-		testPolicy("inventory-hot", 1, mokkav1alpha1.PolicyTargetRef{}, hotGPU()),
-		testPolicy("inventory-cool", 2, mokkav1alpha1.PolicyTargetRef{}, coolGPU()),
-		testPolicy("training-failed", 3, mokkav1alpha1.PolicyTargetRef{RackGroups: []string{"training"}}, failedGPU()),
-		testPolicy("gpu-hot", 4, mokkav1alpha1.PolicyTargetRef{GPUIndexes: []int32{1, 3}}, hotGPU()),
-		testPolicy("gpu-cool", 5, mokkav1alpha1.PolicyTargetRef{GPUIndexes: []int32{3, 5}}, coolGPU()),
-		testPolicy("ghost", 6, mokkav1alpha1.PolicyTargetRef{RackGroups: []string{"ghost"}}, hotGPU()),
+	inventoryHot := testPolicy("inventory-hot", 1, mokkav1alpha1.PolicyTargetRef{}, hotGPU())
+	inventoryCool := testPolicy("inventory-cool", 2, mokkav1alpha1.PolicyTargetRef{}, coolGPU())
+	trainingFailed := testPolicy("training-failed", 3, mokkav1alpha1.PolicyTargetRef{RackGroups: []string{"training"}}, failedGPU())
+	gpuHot := testPolicy("gpu-hot", 4, mokkav1alpha1.PolicyTargetRef{GPUIndexes: []int32{1, 3}}, hotGPU())
+	gpuCool := testPolicy("gpu-cool", 5, mokkav1alpha1.PolicyTargetRef{GPUIndexes: []int32{3, 5}}, coolGPU())
+	ghost := testPolicy("ghost", 6, mokkav1alpha1.PolicyTargetRef{RackGroups: []string{"ghost"}}, hotGPU())
+	policies := []*mokkav1alpha1.SGPURuntimePolicy{inventoryHot, inventoryCool, trainingFailed, gpuHot, gpuCool, ghost}
+
+	wantDecisions := []Decision{
+		{Policy: ghost, Scope: ScopeRackGroup, Outcome: InvalidTarget,
+			Message: `SGPUInventory "dev" does not declare rack groups "ghost".`},
+		{Policy: gpuCool, Scope: ScopeGPU, Outcome: Conflicted,
+			Message: `Policy "gpu-hot" takes precedence at GPU scope and also sets telemetry.temperature.gpuCelsius for some of the same GPUs.`},
+		{Policy: gpuHot, Scope: ScopeGPU, Outcome: Accepted, Message: "The policy applies at GPU scope."},
+		{Policy: inventoryCool, Scope: ScopeInventory, Outcome: Conflicted,
+			Message: `Policy "inventory-hot" takes precedence at Inventory scope and also sets telemetry.temperature.gpuCelsius for some of the same GPUs.`},
+		{Policy: inventoryHot, Scope: ScopeInventory, Outcome: Accepted, Message: "The policy applies at Inventory scope."},
+		{Policy: trainingFailed, Scope: ScopeRackGroup, Outcome: Accepted, Message: "The policy applies at Rack Group scope."},
 	}
-	want := mustEvaluate(t, "dev", testInventory(), testProfiles(), policies)
+	// The older policy of each conflicting pair runs every GPU hot; only the
+	// training rack group fails.
+	trainingGPU := *testDefaults()
+	trainingGPU.DeviceState = mokkav1alpha1.DeviceStateFailed
+	trainingGPU.Telemetry.Temperature.GPUCelsius = ptr.To[int32](90)
+	inferenceGPU := *testDefaults()
+	inferenceGPU.Telemetry.Temperature.GPUCelsius = ptr.To[int32](90)
 
 	reversed := slices.Clone(policies)
 	slices.Reverse(reversed)
 	rotated := append(slices.Clone(policies[2:]), policies[:2]...)
-	for _, order := range [][]*mokkav1alpha1.SGPURuntimePolicy{reversed, rotated} {
-		require.Equal(t, want, mustEvaluate(t, "dev", testInventory(), testProfiles(), order))
+	for _, order := range [][]*mokkav1alpha1.SGPURuntimePolicy{policies, reversed, rotated} {
+		evaluation := mustEvaluate(t, "dev", testInventory(), testProfiles(), order)
+
+		require.Equal(t, wantDecisions, evaluation.Decisions)
+		require.Equal(t, trainingGPU, mustRuntime(t, evaluation, testDefaults(), Coordinate{RackGroup: "training", GPUIndex: 3}))
+		require.Equal(t, inferenceGPU, mustRuntime(t, evaluation, testDefaults(), Coordinate{RackGroup: "inference", GPUIndex: 5}))
 	}
 }
 

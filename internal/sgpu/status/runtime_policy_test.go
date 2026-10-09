@@ -90,7 +90,7 @@ func TestConvergedRuntimePolicyStatusAvoidsLiveRequests(t *testing.T) {
 
 	now := metav1.NewTime(time.Unix(200, 0))
 	decision := runtimePolicyDecision(sgpupolicy.Accepted)
-	decision.Policy.Status = ComputeRuntimePolicy(decision, nil, now)
+	decision.Policy.Status = acceptedStatus(now)
 	writer := &fakeRuntimePolicyWriter{getErr: errors.New("a converged cached status must not issue a live GET")}
 	reconciler := NewRuntimePolicyReconciler(writer, func() metav1.Time { return now })
 
@@ -107,12 +107,10 @@ func TestRuntimePolicyStatusWritesAgainstTheLiveObject(t *testing.T) {
 
 	now := metav1.NewTime(time.Unix(200, 0))
 	notFound := apierrors.NewNotFound(schema.GroupResource{Resource: "sgpuruntimepolicies"}, "hot-gpus")
-	converged := func(live *mokkav1alpha1.SGPURuntimePolicy, decision sgpupolicy.Decision) {
-		live.Status = ComputeRuntimePolicy(decision, nil, now)
-	}
+	converged := func(live *mokkav1alpha1.SGPURuntimePolicy) { live.Status = acceptedStatus(now) }
 	tests := []struct {
 		name        string
-		live        func(*mokkav1alpha1.SGPURuntimePolicy, sgpupolicy.Decision)
+		live        func(*mokkav1alpha1.SGPURuntimePolicy)
 		writer      fakeRuntimePolicyWriter
 		wantChanged bool
 		wantGets    int
@@ -147,12 +145,12 @@ func TestRuntimePolicyStatusWritesAgainstTheLiveObject(t *testing.T) {
 		},
 		{
 			name:     "replacement policy with the same name is left to its own event",
-			live:     func(live *mokkav1alpha1.SGPURuntimePolicy, _ sgpupolicy.Decision) { live.UID = "replacement-uid" },
+			live:     func(live *mokkav1alpha1.SGPURuntimePolicy) { live.UID = "replacement-uid" },
 			wantGets: 1,
 		},
 		{
 			name:     "newer spec is left to its own event",
-			live:     func(live *mokkav1alpha1.SGPURuntimePolicy, _ sgpupolicy.Decision) { live.Generation++ },
+			live:     func(live *mokkav1alpha1.SGPURuntimePolicy) { live.Generation++ },
 			wantGets: 1,
 		},
 		{
@@ -175,7 +173,7 @@ func TestRuntimePolicyStatusWritesAgainstTheLiveObject(t *testing.T) {
 			writer := tt.writer
 			writer.object = decision.Policy.DeepCopy()
 			if tt.live != nil {
-				tt.live(writer.object, decision)
+				tt.live(writer.object)
 			}
 			reconciler := NewRuntimePolicyReconciler(&writer, func() metav1.Time { return now })
 
@@ -190,7 +188,7 @@ func TestRuntimePolicyStatusWritesAgainstTheLiveObject(t *testing.T) {
 			require.Equal(t, tt.wantGets, writer.gets)
 			require.Equal(t, tt.wantUpdates, writer.updates)
 			if tt.wantWritten {
-				require.Equal(t, ComputeRuntimePolicy(decision, nil, now), writer.object.Status)
+				require.Equal(t, acceptedStatus(now), writer.object.Status)
 			}
 		})
 	}
@@ -207,6 +205,22 @@ func runtimePolicyDecision(outcome sgpupolicy.Outcome) sgpupolicy.Decision {
 		Scope:   sgpupolicy.ScopeGPU,
 		Outcome: outcome,
 		Message: "The policy outcome is " + string(outcome) + ".",
+	}
+}
+
+// acceptedStatus is the status of runtimePolicyDecision(sgpupolicy.Accepted)
+// decided at now.
+func acceptedStatus(now metav1.Time) mokkav1alpha1.SGPURuntimePolicyStatus {
+	return mokkav1alpha1.SGPURuntimePolicyStatus{
+		GPUIndexesSummary: "2",
+		Conditions: []metav1.Condition{{
+			Type:               mokkav1alpha1.RuntimePolicyConditionAccepted,
+			Status:             metav1.ConditionTrue,
+			Reason:             "Accepted",
+			Message:            "The policy outcome is Accepted.",
+			ObservedGeneration: 3,
+			LastTransitionTime: now,
+		}},
 	}
 }
 
