@@ -130,6 +130,8 @@ func TestEffectiveRuntimeRejectsInputsTheRackWasNotRenderedFrom(t *testing.T) {
 	replacedProfile.UID = "replacement-uid"
 	profileAfterEdit := testRuntimeProfile()
 	profileAfterEdit.Generation++
+	repointedInventory := testInventory()
+	repointedInventory.Spec.RackGroups[0].ProfileRef.Name = "other"
 	tests := []struct {
 		name    string
 		objects []runtime.Object
@@ -139,6 +141,10 @@ func TestEffectiveRuntimeRejectsInputsTheRackWasNotRenderedFrom(t *testing.T) {
 		{name: "profile is missing", objects: []runtime.Object{testInventory()}},
 		{name: "profile was replaced", objects: []runtime.Object{testInventory(), replacedProfile}},
 		{name: "profile changed after rendering", objects: []runtime.Object{testInventory(), profileAfterEdit}},
+		{
+			name:    "inventory no longer references the profile",
+			objects: []runtime.Object{repointedInventory, testRuntimeProfile()},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -437,4 +443,43 @@ func testRuntimePolicyView(t *testing.T, objects ...runtime.Object) *runtimePoli
 		profiles:    mokkalisters.NewSGPURackProfileLister(profiles),
 		policies:    policies,
 	}
+}
+
+func TestEffectiveRuntimeDoesNotMixProfileRevisions(t *testing.T) {
+	t.Parallel()
+
+	view := testRuntimePolicyView(t, testInventory(), testRuntimeProfile(),
+		testRuntimePolicyWith("gpu-1-failed", "inventory", mokkav1alpha1.PolicyTargetRef{GPUIndexes: []int32{1}},
+			&mokkav1alpha1.RuntimeState{DeviceState: mokkav1alpha1.DeviceStateFailed}))
+	shrunk := testRuntimeProfile()
+	shrunk.Generation++
+	shrunk.Spec.Node.GPUs.Count = 1
+	view.profiles = &updatingProfileLister{SGPURackProfileLister: view.profiles, update: shrunk}
+	controller := &Controller{runtimePolicies: view}
+	controller.cacheReady.Store(true)
+	rack := testRuntimeRack()
+
+	runtimes, err := controller.EffectiveRuntime(AssignmentSnapshot{Rack: rack, Node: &rack.Spec.Nodes[0]})
+
+	require.NoError(t, err)
+	failed := testRuntimeDefaults()
+	failed.DeviceState = mokkav1alpha1.DeviceStateFailed
+	require.Equal(t, []GPURuntime{{Index: 0, Runtime: *testRuntimeDefaults()}, {Index: 1, Runtime: *failed}}, runtimes)
+}
+
+// updatingProfileLister answers the first Get from the cache and every later
+// Get with update, as an informer that delivers a new profile revision between
+// two reads would.
+type updatingProfileLister struct {
+	mokkalisters.SGPURackProfileLister
+	update *mokkav1alpha1.SGPURackProfile
+	reads  int
+}
+
+func (l *updatingProfileLister) Get(name string) (*mokkav1alpha1.SGPURackProfile, error) {
+	l.reads++
+	if l.reads > 1 {
+		return l.update, nil
+	}
+	return l.SGPURackProfileLister.Get(name)
 }

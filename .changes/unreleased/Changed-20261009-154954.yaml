@@ -1,0 +1,6 @@
+kind: Changed
+body: |-
+  control-plane: an explicit `0` in a profile's `defaults.runtime` now counts as a value rather than an omitted field, so such a profile gets a new revision and its racks re-render once, keeping their bindings.
+time: 2026-10-09T13:49:54Z
+custom:
+  Issue: "921"

@@ -58,23 +58,27 @@ type runtimePolicyView struct {
 func (v *runtimePolicyView) evaluate(inventoryName string) (*sgpupolicy.Evaluation, error) {
 	inventory, err := v.inventories.Get(inventoryName)
 	if apierrors.IsNotFound(err) {
-		return v.evaluateInventory(inventoryName, nil)
+		return v.evaluateInventory(inventoryName, nil, nil)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get inventory %q from cache: %w", inventoryName, err)
 	}
-	return v.evaluateInventory(inventoryName, inventory)
-}
 
-func (v *runtimePolicyView) evaluateInventory(
-	inventoryName string,
-	inventory *mokkav1alpha1.SGPUInventory,
-) (*sgpupolicy.Evaluation, error) {
 	profiles, err := v.referencedProfiles(inventory)
 	if err != nil {
 		return nil, err
 	}
 
+	return v.evaluateInventory(inventoryName, inventory, profiles)
+}
+
+// evaluateInventory decides the policies that target an inventory against one
+// read of the profiles it references.
+func (v *runtimePolicyView) evaluateInventory(
+	inventoryName string,
+	inventory *mokkav1alpha1.SGPUInventory,
+	profiles map[string]*mokkav1alpha1.SGPURackProfile,
+) (*sgpupolicy.Evaluation, error) {
 	objects, err := v.policies.ByIndex(runtimePolicyByTargetIndex, inventoryName)
 	if err != nil {
 		return nil, fmt.Errorf("look up runtime policies for inventory %q: %w", inventoryName, err)
@@ -133,14 +137,24 @@ func (v *runtimePolicyView) nodeRuntime(
 	if err != nil {
 		return nil, err
 	}
-	profile, err := v.renderedProfile(rack.Spec.ProfileRef)
+
+	// The defaults and the policy selection must see the same profile revision;
+	// a second cache read could return one the rack was not rendered from.
+	profiles, err := v.referencedProfiles(inventory)
 	if err != nil {
 		return nil, err
 	}
-	evaluation, err := v.evaluateInventory(inventory.Name, inventory)
+
+	profile, err := renderedProfile(profiles, rack.Spec.ProfileRef)
 	if err != nil {
 		return nil, err
 	}
+
+	evaluation, err := v.evaluateInventory(inventory.Name, inventory, profiles)
+	if err != nil {
+		return nil, err
+	}
+
 	var defaults *mokkav1alpha1.RuntimeState
 	if profile.Spec.Defaults != nil {
 		defaults = profile.Spec.Defaults.Runtime
@@ -180,20 +194,19 @@ func (v *runtimePolicyView) renderedInventory(
 	return inventory, nil
 }
 
-// renderedProfile returns the cached profile when it is the exact generation
-// the rack was rendered from. Profile revisions cover the runtime defaults, so
-// a newer generation means the rack has yet to re-render.
-func (v *runtimePolicyView) renderedProfile(
+// renderedProfile returns the read profile when it is the exact generation the
+// rack was rendered from. Profile revisions cover the runtime defaults, so a
+// newer generation means the rack has yet to re-render.
+func renderedProfile(
+	profiles map[string]*mokkav1alpha1.SGPURackProfile,
 	ref mokkav1alpha1.SGPURackProfileReference,
 ) (*mokkav1alpha1.SGPURackProfile, error) {
-	profile, err := v.profiles.Get(ref.Name)
-	if apierrors.IsNotFound(err) || (err == nil && (profile.UID != ref.UID || profile.Generation != ref.Generation)) {
+	profile, ok := profiles[ref.Name]
+	if !ok || profile.UID != ref.UID || profile.Generation != ref.Generation {
 		return nil, fmt.Errorf("%w: SGPURackProfile %q is no longer generation %d of UID %q",
 			ErrStaleRuntimeInputs, ref.Name, ref.Generation, ref.UID)
 	}
-	if err != nil {
-		return nil, fmt.Errorf("get profile %q from cache: %w", ref.Name, err)
-	}
+
 	return profile, nil
 }
 
