@@ -21,6 +21,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
 
 func overridePath(t *testing.T) string {
@@ -41,6 +43,39 @@ func TestSetPowerLimit_SurvivesReload(t *testing.T) {
 	require.NoError(t, err)
 	power := doc.Devices["0"]["power"].(map[string]any)
 	require.EqualValues(t, 400_000, power["enforced_limit_mw"])
+}
+
+func TestSetPersistenceMode_SurvivesReload(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+
+	require.NoError(t, SetPersistenceMode(path, 1, false))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, "disabled", doc.Devices["1"]["persistence_mode"])
+}
+
+// TestDrainSetters_ResolveThroughTheEngine checks the fields land where the
+// engine reads them, by merging the document the way the running mock does.
+func TestDrainSetters_ResolveThroughTheEngine(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+
+	require.NoError(t, SetDrainState(path, 1, true))
+	require.NoError(t, SetRemoved(path, 2, true))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	overrides := &engine.ConfigOverrideDoc{All: doc.All, Devices: doc.Devices}
+	for index, want := range map[int]engine.DeviceConfig{
+		1: {Draining: true},
+		2: {Removed: true},
+	} {
+		merged, err := engine.MergeDeviceConfig(&engine.DeviceConfig{}, overrides.DeviceConfigOverride(index))
+		require.NoError(t, err)
+		require.Equal(t, want, *merged, "device %d", index)
+	}
 }
 
 func TestSetPowerLimit_FailsWithoutADocumentPath(t *testing.T) {

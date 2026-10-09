@@ -23,6 +23,15 @@ type OverrideWriter interface {
 	// SetPowerLimit records a power cap, in milliwatts, for one device.
 	SetPowerLimit(index int, milliwatts uint32) error
 
+	// SetPersistenceMode records whether persistence mode is enabled.
+	SetPersistenceMode(index int, enabled bool) error
+
+	// SetDrainState records whether the device is draining.
+	SetDrainState(index int, draining bool) error
+
+	// SetRemoved records whether the device was removed from the driver.
+	SetRemoved(index int, removed bool) error
+
 	// UpdateWorkloadProfiles replaces a device's requested profile list with
 	// the one apply computes from the list already recorded.
 	//

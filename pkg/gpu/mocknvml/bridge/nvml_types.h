@@ -424,7 +424,13 @@ typedef struct nvmlEventData_st {
 #define NVML_EVENT_TYPE_CLOCK_CHANGE            0x0000000000000010ULL
 #define NVML_EVENT_TYPE_POWER_SOURCE_CHANGE     0x0000000000000080ULL
 #define NVML_EVENT_TYPE_MIG_CONFIG_CHANGE       0x0000000000000100ULL
-typedef struct nvmlExcludedDeviceInfo_st                    nvmlExcludedDeviceInfo_t;
+/* Excluded GPU info — full definition so nvmlGetExcludedDeviceInfoByIndex can
+ * populate the caller's buffer. Layout matches the upstream NVML header. */
+#define NVML_DEVICE_UUID_BUFFER_SIZE            80
+typedef struct nvmlExcludedDeviceInfo_st {
+    nvmlPciInfo_t pciInfo;                   //!< The PCI information for the excluded GPU
+    char uuid[NVML_DEVICE_UUID_BUFFER_SIZE]; //!< The ASCII string UUID for the excluded GPU
+} nvmlExcludedDeviceInfo_t;
 /* FBC session info stays opaque: ConfigurableDevice.GetFBCSessions currently
  * always returns an empty list, so the bridge only ever writes sessionCount. */
 typedef struct nvmlFBCSessionInfo_st                        nvmlFBCSessionInfo_t;

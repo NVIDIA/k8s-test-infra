@@ -379,6 +379,21 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 					assertRuntimeFabricMisconfiguration(ctx, h, pod)
 				})
 
+				It("hides excluded and draining GPUs from new nvidia-smi processes", Label("runtime-control"), Label("nvidia-smi"), func(ctx SpecContext) {
+					// The GPU Operator's driver upgrade drains a GPU before it
+					// detaches it, and an excluded GPU is how a node reports one
+					// the driver must never manage. Both are driver state, so a
+					// fresh process must see them.
+					assertRuntimeExclusionAndDrain(ctx, h, pod)
+				})
+
+				It("disables persistence mode across processes via nvidia-smi -pm 0", Label("runtime-control"), Label("nvidia-smi"), func(ctx SpecContext) {
+					// A GPU in persistence mode refuses to drain, so the
+					// upgrade turns it off first; the next process must read it
+					// off rather than the profile's value.
+					assertPersistenceModeAcrossProcesses(ctx, h, pod)
+				})
+
 				It("injects ECC uncorrectable errors", func(ctx SpecContext) {
 					assertECCUncorrectableFailure(ctx, h, p.ExpectedGPUs())
 				})

@@ -102,13 +102,8 @@ func (e *Engine) Init() nvml.Return {
 		debugLog("[ENGINE] Re-initializing, reusing existing device state\n")
 	}
 
-	// Detect which GPU device nodes exist. In containers where CDI injects
-	// only the allocated GPUs (e.g. /dev/nvidia0 but not /dev/nvidia1-7),
-	// filter the visible device set to match. This mimics real NVML behavior
-	// where cgroup device permissions limit GPU visibility per container.
-	server.setVisibleDevices(detectVisibleDevices(e.config))
-
 	e.server = server
+	e.refreshEnumeration(false)
 	e.initCount = 1
 
 	visibleCount := e.config.NumDevices
@@ -683,6 +678,20 @@ func (e *Engine) AnyDeviceLost() bool {
 		}
 	}
 	return false
+}
+
+// refreshEnumeration recomputes which GPUs this process enumerates. The
+// caller holds e.mu for writing. Init passes keepVisible false, enumerating
+// afresh; a renumbering inside a running process passes true, so the GPUs it
+// already sees stay visible even if they have since started draining.
+//
+// It starts from the GPU device nodes that exist: in containers where CDI
+// injects only the allocated GPUs (e.g. /dev/nvidia0 but not /dev/nvidia1-7)
+// that set is narrower than the node's, which is how cgroup device
+// permissions limit GPU visibility on real NVML. The driver's own view then
+// narrows it further — see MockServer.enumerable.
+func (e *Engine) refreshEnumeration(keepVisible bool) {
+	e.server.setVisibleDevices(e.server.enumerable(detectVisibleDevices(e.config), keepVisible))
 }
 
 // SetVisibleDevicesForTesting sets the visible device mapping on an initialized
