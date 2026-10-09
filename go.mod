@@ -1,6 +1,6 @@
 module github.com/NVIDIA/k8s-test-infra
 
-go 1.26.0
+go 1.27.0
 
 require (
 	github.com/NVIDIA/go-nvml v0.13.3-1

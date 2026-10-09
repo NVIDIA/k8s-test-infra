@@ -1,0 +1,4 @@
+kind: Changed
+body: |-
+  build: images and binaries are now built with Go 1.27.2; building Mokka from source now requires Go 1.27 or newer.
+time: 2026-10-09T09:19:28Z

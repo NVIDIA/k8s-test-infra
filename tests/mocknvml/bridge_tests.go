@@ -82,7 +82,7 @@ func bridgeTests(deviceCount int) []testResult {
 func testWorkloadPowerProfiles(deviceCount int) []testResult {
 	var results []testResult
 
-	for index := 0; index < 2 && index < deviceCount; index++ {
+	for index := range min(2, deviceCount) {
 		name := fmt.Sprintf("workloadprofiles/gpu%d", index)
 		device, ret := nvml.DeviceGetHandleByIndex(index)
 		if ret != nvml.SUCCESS {
@@ -303,7 +303,7 @@ func checkEnforcedWithinRequested(name string, current nvml.WorkloadPowerProfile
 func testPowerLimitSetters(deviceCount int) []testResult {
 	var results []testResult
 
-	for index := 0; index < 2 && index < deviceCount; index++ {
+	for index := range min(2, deviceCount) {
 		name := fmt.Sprintf("powerlimit/gpu%d", index)
 		device, ret := nvml.DeviceGetHandleByIndex(index)
 		if ret != nvml.SUCCESS {
@@ -689,7 +689,7 @@ func collectMigDevices(device nvml.Device) ([]nvml.Device, error) {
 	}
 
 	var migDevices []nvml.Device
-	for i := 0; i < maxCount; i++ {
+	for i := range maxCount {
 		migDevice, ret := device.GetMigDeviceHandleByIndex(i)
 		switch ret {
 		case nvml.SUCCESS:
@@ -716,7 +716,7 @@ func collectMigDevices(device nvml.Device) ([]nvml.Device, error) {
 func testConfComputeMemory(deviceCount int) []testResult {
 	var results []testResult
 
-	for index := 0; index < 2 && index < deviceCount; index++ {
+	for index := range min(2, deviceCount) {
 		name := fmt.Sprintf("confcompute/gpu%d", index)
 		device, ret := nvml.DeviceGetHandleByIndex(index)
 		if ret != nvml.SUCCESS {
@@ -805,7 +805,7 @@ func testThrottleCounters(deviceCount int) []testResult {
 		{"hw_power_brake", fiThrottleHWPowerBrake, 55555},
 	}
 
-	for index := 0; index < 2 && index < deviceCount; index++ {
+	for index := range min(2, deviceCount) {
 		device, ret := nvml.DeviceGetHandleByIndex(index)
 		if ret != nvml.SUCCESS {
 			results = append(results, testResult{
@@ -1268,7 +1268,7 @@ func testHandleConversions(deviceCount int) []testResult {
 	}
 
 	// Test: all device indices produce valid handles
-	for i := 0; i < deviceCount; i++ {
+	for i := range deviceCount {
 		dev, ret := nvml.DeviceGetHandleByIndex(i)
 		if ret != nvml.SUCCESS {
 			results = append(results, testResult{fmt.Sprintf("handle/index_%d", i), false, fmt.Sprintf("failed: %v", nvml.ErrorString(ret))})

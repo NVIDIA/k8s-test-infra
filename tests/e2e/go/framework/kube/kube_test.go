@@ -6,7 +6,6 @@
 package kube
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -63,7 +62,7 @@ func newTestClient(t *testing.T) *Client {
 func TestLogsCapturesEveryContainerNotJustTheDefault(t *testing.T) {
 	installFakeKubectl(t, multiContainerLogs)
 
-	out, err := newTestClient(t).Logs(context.Background(), "gpu-operator", "app.kubernetes.io/name=nvml-mock", 100)
+	out, err := newTestClient(t).Logs(t.Context(), "gpu-operator", "app.kubernetes.io/name=nvml-mock", 100)
 	require.NoError(t, err, "Logs")
 	require.Contains(t, out, "[sidecar] watch-allocations: 8 GPUs, polling",
 		"sidecar container output missing from collected logs")
@@ -118,11 +117,11 @@ func TestRestartedPodsGatesOnRestartCount(t *testing.T) {
 	installFakeKubectl(t, podsJSON)
 	c := newTestClient(t)
 
-	restarted, err := c.RestartedPods(context.Background(), "restarted", "app.kubernetes.io/name=nvml-mock")
+	restarted, err := c.RestartedPods(t.Context(), "restarted", "app.kubernetes.io/name=nvml-mock")
 	require.NoError(t, err, "RestartedPods on a restarted pod")
 	require.Equal(t, []string{"nvml-mock-abcde"}, restarted, "restarted pod")
 
-	healthy, err := c.RestartedPods(context.Background(), "healthy", "app.kubernetes.io/name=nvml-mock")
+	healthy, err := c.RestartedPods(t.Context(), "healthy", "app.kubernetes.io/name=nvml-mock")
 	require.NoError(t, err, "RestartedPods on a healthy pod")
 	require.Empty(t, healthy, "pods reported when nothing restarted")
 }
@@ -147,7 +146,7 @@ EOF
 func TestGetConfigMapReturnsLabelsAndData(t *testing.T) {
 	installFakeKubectl(t, profileConfigMapJSON)
 
-	cm, err := newTestClient(t).GetConfigMap(context.Background(), "nvml-mock-system", "gpu-profile-a100")
+	cm, err := newTestClient(t).GetConfigMap(t.Context(), "nvml-mock-system", "gpu-profile-a100")
 	require.NoError(t, err, "GetConfigMap")
 	require.Equal(t, "true", cm.Labels["fake-gpu-operator/gpu-profile"],
 		"FGO discovery label")
@@ -159,7 +158,7 @@ func TestGetConfigMapReturnsLabelsAndData(t *testing.T) {
 func TestGetConfigMapErrorsOnAMissingName(t *testing.T) {
 	installFakeKubectl(t, profileConfigMapJSON)
 
-	_, err := newTestClient(t).GetConfigMap(context.Background(), "nvml-mock-system", "nvml-mock-profile-a100")
+	_, err := newTestClient(t).GetConfigMap(t.Context(), "nvml-mock-system", "nvml-mock-profile-a100")
 	require.Error(t, err, "missing ConfigMap name")
 }
 

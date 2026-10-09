@@ -2,7 +2,7 @@
   "files": [
     {
       "path": "AGENTS.md",
-      "description": "Project principles, tech stack, and the commands a change is expected to pass. Go 1.26, testify/require for assertions, `make lint-fix` and `make test` for Go changes, `make helm-tests` for chart changes. Also states that code comments explain why rather than what."
+      "description": "Project principles, tech stack, and the commands a change is expected to pass. Go 1.27, testify/require for assertions, `make lint-fix` and `make test` for Go changes, `make helm-tests` for chart changes. Also states that code comments explain why rather than what."
     },
     {
       "path": "CONTRIBUTING.md",

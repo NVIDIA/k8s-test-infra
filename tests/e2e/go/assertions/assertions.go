@@ -39,7 +39,7 @@ func sleepCtx(ctx context.Context, d time.Duration) {
 
 func countLinesWithPrefix(s, prefix string) int {
 	c := 0
-	for _, l := range strings.Split(s, "\n") {
+	for l := range strings.SplitSeq(s, "\n") {
 		if strings.HasPrefix(l, prefix) {
 			c++
 		}

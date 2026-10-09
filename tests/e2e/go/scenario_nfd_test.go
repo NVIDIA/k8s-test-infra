@@ -7,7 +7,7 @@ package e2e
 
 import (
 	"context"
-	"sort"
+	"slices"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -167,7 +167,7 @@ func nvmlMockPodOnWorker(ctx context.Context, h *harness.Harness) (kube.PodRef, 
 		if err != nil {
 			return "", err
 		}
-		sort.Strings(names)
+		slices.Sort(names)
 		for _, name := range names {
 			n, err := h.Kube.PodNode(ctx, nvmlMockNamespace, name)
 			if err != nil {
