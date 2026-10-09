@@ -220,6 +220,30 @@ func (g GPU) UtilizationMemoryPercent() (int, bool) {
 // sibling repeats the element name and is deliberately not read.
 func (g GPU) SMClockMHz() (int, bool) { return g.element.Clocks.SMClock.intValue() }
 
+// GraphicsClockMHz is <graphics_clock> inside <clocks>, i.e. clocks.gr.
+func (g GPU) GraphicsClockMHz() (int, bool) { return g.element.Clocks.GraphicsClock.intValue() }
+
+// MemClockMHz is <mem_clock> inside <clocks>, i.e. clocks.mem.
+func (g GPU) MemClockMHz() (int, bool) { return g.element.Clocks.MemClock.intValue() }
+
+// ApplicationsClocksMHz is <applications_clocks>, the (memory, graphics) pair
+// `nvidia-smi -ac` sets. ok is false unless both readings are numeric.
+func (g GPU) ApplicationsClocksMHz() (memMHz, graphicsMHz int, ok bool) {
+	return g.element.ApplicationsClocks.pair()
+}
+
+// DefaultApplicationsClocksMHz is <default_applications_clocks>, the pair
+// `nvidia-smi -rac` restores.
+func (g GPU) DefaultApplicationsClocksMHz() (memMHz, graphicsMHz int, ok bool) {
+	return g.element.DefaultAppClocks.pair()
+}
+
+func (c appClocks) pair() (memMHz, graphicsMHz int, ok bool) {
+	mem, memOK := c.MemClock.intValue()
+	gfx, gfxOK := c.GraphicsClock.intValue()
+	return mem, gfx, memOK && gfxOK
+}
+
 // MaxGraphicsClockMHz is <graphics_clock> inside <max_clocks>, i.e.
 // clocks.max.graphics — the boost maximum, not the clock in effect.
 func (g GPU) MaxGraphicsClockMHz() (int, bool) {

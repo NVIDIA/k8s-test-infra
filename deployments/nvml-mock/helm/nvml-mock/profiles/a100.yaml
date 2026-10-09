@@ -116,8 +116,8 @@ device_defaults:
   clocks:
     graphics_current: 210           # Idle
     graphics_max: 1410
-    graphics_app: 1410              # Application clock setting
-    graphics_app_default: 1410
+    graphics_app: 1095              # Application clock setting
+    graphics_app_default: 1095
     sm_current: 210
     sm_max: 1410
     memory_current: 1215
@@ -142,12 +142,23 @@ device_defaults:
     display_clocks_setting: false
 
   # ---------------------------------------------------------------------------
-  # Supported clocks (for nvidia-smi -q -d SUPPORTED_CLOCKS)
+  # Supported clocks (nvidia-smi -q -d SUPPORTED_CLOCKS), copied from the real
+  # A100-SXM4-40GB capture in tests/e2e/go/assertions/nvidiasmi/testdata/hardware/.
+  # NVML returns both lists highest first, and nvidia-smi -ac accepts only a
+  # memory/graphics pair listed here.
   # ---------------------------------------------------------------------------
   supported_clocks:
     memory_clocks:
       - freq_mhz: 1215
-        graphics_clocks: [210, 420, 630, 840, 1050, 1215, 1275, 1335, 1410]
+        graphics_clocks: [
+          1410, 1395, 1380, 1365, 1350, 1335, 1320, 1305, 1290, 1275, 1260, 1245,
+          1230, 1215, 1200, 1185, 1170, 1155, 1140, 1125, 1110, 1095, 1080, 1065,
+          1050, 1035, 1020, 1005, 990, 975, 960, 945, 930, 915, 900, 885,
+          870, 855, 840, 825, 810, 795, 780, 765, 750, 735, 720, 705,
+          690, 675, 660, 645, 630, 615, 600, 585, 570, 555, 540, 525,
+          510, 495, 480, 465, 450, 435, 420, 405, 390, 375, 360, 345,
+          330, 315, 300, 285, 270, 255, 240, 225, 210
+        ]
 
   # ---------------------------------------------------------------------------
   # Performance state

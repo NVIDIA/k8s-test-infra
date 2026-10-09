@@ -264,7 +264,17 @@ typedef struct nvmlC2cModeInfo_v1_st
 _Static_assert(sizeof(nvmlC2cModeInfo_v1_t) == 4,
                "nvmlC2cModeInfo_v1_t must stay a single unsigned int to match the go-nvml ABI");
 typedef struct nvmlClkMonStatus_st                          nvmlClkMonStatus_t;
-typedef struct nvmlClockOffset_st                           nvmlClockOffset_t;
+/* Clock offset — full definition needed by bridge so clocks.go can read the
+ * caller's (type, pstate) and fill in the offset and its range. */
+typedef struct nvmlClockOffset_st
+{
+    unsigned int    version;            //!< IN: NVML_STRUCT_VERSION(ClockOffset, 1)
+    nvmlClockType_t type;
+    nvmlPstates_t   pstate;
+    int             clockOffsetMHz;
+    int             minClockOffsetMHz;
+    int             maxClockOffsetMHz;
+} nvmlClockOffset_t;
 /* --- MIG compute instances ---
  * Full definitions needed by bridge so mig.go can fill the caller's buffers.
  * The v2 and v3 profile structs differ from v1 by a leading version field, a
@@ -366,8 +376,19 @@ typedef struct nvmlDeviceAttributes_st
     unsigned long long memorySizeMB;        //!< Device memory size (in MiB)
 } nvmlDeviceAttributes_t;
 typedef struct nvmlDeviceCapabilities_st                    nvmlDeviceCapabilities_t;
-typedef struct nvmlDeviceCurrentClockFreqs_st               nvmlDeviceCurrentClockFreqs_t;
-typedef struct nvmlDevicePerfModes_st                       nvmlDevicePerfModes_t;
+/* Clock strings — full definitions needed by bridge so clocks.go can copy the
+ * rendered string into the caller's fixed buffer. */
+#define NVML_PERF_MODES_BUFFER_SIZE 2048
+typedef struct nvmlDeviceCurrentClockFreqs_st
+{
+    unsigned int version;                          //!< IN: NVML_STRUCT_VERSION(DeviceCurrentClockFreqs, 1)
+    char         str[NVML_PERF_MODES_BUFFER_SIZE]; //!< OUT: the current clock frequency string
+} nvmlDeviceCurrentClockFreqs_t;
+typedef struct nvmlDevicePerfModes_st
+{
+    unsigned int version;                          //!< IN: NVML_STRUCT_VERSION(DevicePerfModes, 1)
+    char         str[NVML_PERF_MODES_BUFFER_SIZE]; //!< OUT: the performance modes string
+} nvmlDevicePerfModes_t;
 typedef struct nvmlDevicePowerMizerModes_v1_st              nvmlDevicePowerMizerModes_v1_t;
 typedef struct nvmlDramEncryptionInfo_st                    nvmlDramEncryptionInfo_t;
 /* ECC error counts - full definition needed by bridge */
@@ -491,7 +512,19 @@ typedef struct nvmlGpmSupport_st {
     unsigned int isSupportedDevice;
 } nvmlGpmSupport_t;
 #define NVML_GPM_SUPPORT_VERSION 1
-typedef struct nvmlGpuDynamicPstatesInfo_st                 nvmlGpuDynamicPstatesInfo_t;
+/* Dynamic P-state utilization — full definition needed by bridge. */
+#define NVML_MAX_GPU_UTILIZATIONS 8
+typedef struct {
+    unsigned int bIsPresent;
+    unsigned int percentage;
+    unsigned int incThreshold;
+    unsigned int decThreshold;
+} nvmlGpuDynamicPstatesInfoUtilization_t;
+typedef struct nvmlGpuDynamicPstatesInfo_st
+{
+    unsigned int                           flags; //!< Reserved for future use
+    nvmlGpuDynamicPstatesInfoUtilization_t utilization[NVML_MAX_GPU_UTILIZATIONS];
+} nvmlGpuDynamicPstatesInfo_t;
 
 /* GPU Fabric information — full definitions needed by the bridge so
  * nvmlDeviceGetGpuFabricInfo / nvmlDeviceGetGpuFabricInfoV can populate

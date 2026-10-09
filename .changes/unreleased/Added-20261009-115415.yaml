@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  nvml-mock: `nvidia-smi -q -d SUPPORTED_CLOCKS` lists the board's clock table instead of N/A, and `nvidia-smi -ac`, `-lgc` and `-lmc` (with their resets) now tune clocks for every process on the node; see the Clocks section of the configuration reference.
+time: 2026-10-09T09:54:15Z

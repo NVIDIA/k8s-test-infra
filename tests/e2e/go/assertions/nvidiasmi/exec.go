@@ -249,6 +249,19 @@ func MaxCustomerBoostClock(ctx context.Context, k *kube.Client, pod kube.PodRef,
 		"Max Customer Boost Clocks wrong for profile %s:\n%s", p.Name, strings.Join(problems, "\n"))
 }
 
+// SupportedClocks asserts nvidia-smi -q -x lists the profile's supported-clock
+// table on every GPU. The section read N/A while both NVML getters behind it
+// were generated stubs, so `nvidia-smi -ac` had no pair it would accept.
+func SupportedClocks(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
+	ginkgo.GinkgoHelper()
+
+	want := p.SupportedClocks()
+	ginkgo.By(fmt.Sprintf("nvidia-smi -q -x supported_clocks on %s (%d memory clocks)", p.Name, len(want)))
+	problems := SupportedClocksProblems(query(ctx, k, pod), want)
+	gomega.Expect(problems).To(gomega.BeEmpty(),
+		"Supported Clocks wrong for profile %s:\n%s", p.Name, strings.Join(problems, "\n"))
+}
+
 // PowerProfiles asserts `nvidia-smi power-profiles` behaves the way the profile
 // declares: on a Blackwell board on a 570-or-newer driver it lists exactly the
 // configured profiles on every GPU and reports nothing requested or enforced;

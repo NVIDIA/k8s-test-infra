@@ -46,3 +46,19 @@ func (overrideWriter) SetNvlinkBwMode(index int, mode uint8, allDevices bool) er
 func (overrideWriter) SetNvlinkLowPowerThreshold(index int, threshold *uint32) error {
 	return mockctl.SetNvlinkLowPowerThreshold(engine.ConfigOverridePath(), index, threshold)
 }
+
+// SetApplicationsClocks records the pair nvmlDeviceSetApplicationsClocks or
+// nvmlDeviceResetApplicationsClocks applied.
+func (overrideWriter) SetApplicationsClocks(index int, memMHz, graphicsMHz uint32) error {
+	return mockctl.SetApplicationsClocks(engine.ConfigOverridePath(), index, memMHz, graphicsMHz)
+}
+
+// SetLockedClocks records or clears the range a locked-clock setter applied.
+func (overrideWriter) SetLockedClocks(index int, domain engine.ClockDomain, r *engine.ClockRangeConfig) error {
+	return mockctl.SetLockedClocks(engine.ConfigOverridePath(), index, domain, r)
+}
+
+// SetClockOffset records the offset nvmlDeviceSetClockOffsets applied.
+func (overrideWriter) SetClockOffset(index int, domain engine.ClockDomain, offsetMHz int32) error {
+	return mockctl.SetClockOffset(engine.ConfigOverridePath(), index, domain, offsetMHz)
+}

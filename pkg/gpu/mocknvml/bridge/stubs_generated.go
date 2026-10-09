@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 221 stub functions for unimplemented NVML functions.
+// 196 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceGetInfo_v1
@@ -79,11 +79,6 @@ func nvmlDeviceGetActiveVgpus(device C.nvmlDevice_t, vgpuCount *C.uint, vgpuInst
 	return stubReturn("nvmlDeviceGetActiveVgpus")
 }
 
-//export nvmlDeviceGetAdaptiveClockInfoStatus
-func nvmlDeviceGetAdaptiveClockInfoStatus(device C.nvmlDevice_t, adaptiveClockStatus *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetAdaptiveClockInfoStatus")
-}
-
 //export nvmlDeviceGetAddressingMode
 func nvmlDeviceGetAddressingMode(device C.nvmlDevice_t, mode *C.nvmlDeviceAddressingMode_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetAddressingMode")
@@ -119,11 +114,6 @@ func nvmlDeviceGetClkMonStatus(device C.nvmlDevice_t, status *C.nvmlClkMonStatus
 	return stubReturn("nvmlDeviceGetClkMonStatus")
 }
 
-//export nvmlDeviceGetClockOffsets
-func nvmlDeviceGetClockOffsets(device C.nvmlDevice_t, info *C.nvmlClockOffset_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetClockOffsets")
-}
-
 //export nvmlDeviceGetComputeRunningProcesses_v1
 func nvmlDeviceGetComputeRunningProcesses_v1(device C.nvmlDevice_t, infoCount *C.uint, infos *C.nvmlProcessInfo_v1_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetComputeRunningProcesses_v1")
@@ -154,11 +144,6 @@ func nvmlDeviceGetCreatableVgpus(device C.nvmlDevice_t, vgpuCount *C.uint, vgpuT
 	return stubReturn("nvmlDeviceGetCreatableVgpus")
 }
 
-//export nvmlDeviceGetCurrentClockFreqs
-func nvmlDeviceGetCurrentClockFreqs(device C.nvmlDevice_t, currentClockFreqs *C.nvmlDeviceCurrentClockFreqs_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetCurrentClockFreqs")
-}
-
 //export nvmlDeviceGetDramEncryptionMode
 func nvmlDeviceGetDramEncryptionMode(device C.nvmlDevice_t, current *C.nvmlDramEncryptionInfo_t, pending *C.nvmlDramEncryptionInfo_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetDramEncryptionMode")
@@ -174,11 +159,6 @@ func nvmlDeviceGetDriverModel_v2(device C.nvmlDevice_t, current *C.nvmlDriverMod
 	return stubReturn("nvmlDeviceGetDriverModel_v2")
 }
 
-//export nvmlDeviceGetDynamicPstatesInfo
-func nvmlDeviceGetDynamicPstatesInfo(device C.nvmlDevice_t, pDynamicPstatesInfo *C.nvmlGpuDynamicPstatesInfo_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetDynamicPstatesInfo")
-}
-
 //export nvmlDeviceGetFanControlPolicy_v2
 func nvmlDeviceGetFanControlPolicy_v2(device C.nvmlDevice_t, fan C.uint, policy *C.nvmlFanControlPolicy_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetFanControlPolicy_v2")
@@ -187,16 +167,6 @@ func nvmlDeviceGetFanControlPolicy_v2(device C.nvmlDevice_t, fan C.uint, policy 
 //export nvmlDeviceGetFanSpeedRPM
 func nvmlDeviceGetFanSpeedRPM(device C.nvmlDevice_t, fanSpeed *C.nvmlFanSpeedInfo_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetFanSpeedRPM")
-}
-
-//export nvmlDeviceGetGpcClkMinMaxVfOffset
-func nvmlDeviceGetGpcClkMinMaxVfOffset(device C.nvmlDevice_t, minOffset *C.int, maxOffset *C.int) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetGpcClkMinMaxVfOffset")
-}
-
-//export nvmlDeviceGetGpcClkVfOffset
-func nvmlDeviceGetGpcClkVfOffset(device C.nvmlDevice_t, offset *C.int) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetGpcClkVfOffset")
 }
 
 //export nvmlDeviceGetGpuInstancePossiblePlacements_v1
@@ -284,21 +254,6 @@ func nvmlDeviceGetMPSComputeRunningProcesses_v3(device C.nvmlDevice_t, infoCount
 	return stubReturn("nvmlDeviceGetMPSComputeRunningProcesses_v3")
 }
 
-//export nvmlDeviceGetMemClkMinMaxVfOffset
-func nvmlDeviceGetMemClkMinMaxVfOffset(device C.nvmlDevice_t, minOffset *C.int, maxOffset *C.int) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetMemClkMinMaxVfOffset")
-}
-
-//export nvmlDeviceGetMemClkVfOffset
-func nvmlDeviceGetMemClkVfOffset(device C.nvmlDevice_t, offset *C.int) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetMemClkVfOffset")
-}
-
-//export nvmlDeviceGetMinMaxClockOfPState
-func nvmlDeviceGetMinMaxClockOfPState(device C.nvmlDevice_t, _type C.nvmlClockType_t, pstate C.nvmlPstates_t, minClockMHz *C.uint, maxClockMHz *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetMinMaxClockOfPState")
-}
-
 //export nvmlDeviceGetMinMaxFanSpeed
 func nvmlDeviceGetMinMaxFanSpeed(device C.nvmlDevice_t, minSpeed *C.uint, maxSpeed *C.uint) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetMinMaxFanSpeed")
@@ -327,11 +282,6 @@ func nvmlDeviceGetPcieSpeed(device C.nvmlDevice_t, pcieSpeed *C.uint) C.nvmlRetu
 //export nvmlDeviceGetPdi
 func nvmlDeviceGetPdi(device C.nvmlDevice_t, pdi *C.nvmlPdi_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetPdi")
-}
-
-//export nvmlDeviceGetPerformanceModes
-func nvmlDeviceGetPerformanceModes(device C.nvmlDevice_t, perfModes *C.nvmlDevicePerfModes_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetPerformanceModes")
 }
 
 //export nvmlDeviceGetPgpuMetadataString
@@ -372,26 +322,6 @@ func nvmlDeviceGetSamples(device C.nvmlDevice_t, _type C.nvmlSamplingType_t, las
 //export nvmlDeviceGetSramUniqueUncorrectedEccErrorCounts
 func nvmlDeviceGetSramUniqueUncorrectedEccErrorCounts(device C.nvmlDevice_t, errorCounts *C.nvmlEccSramUniqueUncorrectedErrorCounts_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetSramUniqueUncorrectedEccErrorCounts")
-}
-
-//export nvmlDeviceGetSupportedClocksEventReasons
-func nvmlDeviceGetSupportedClocksEventReasons(device C.nvmlDevice_t, supportedClocksEventReasons *C.ulonglong) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetSupportedClocksEventReasons")
-}
-
-//export nvmlDeviceGetSupportedGraphicsClocks
-func nvmlDeviceGetSupportedGraphicsClocks(device C.nvmlDevice_t, memoryClockMHz C.uint, count *C.uint, clocksMHz *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetSupportedGraphicsClocks")
-}
-
-//export nvmlDeviceGetSupportedMemoryClocks
-func nvmlDeviceGetSupportedMemoryClocks(device C.nvmlDevice_t, count *C.uint, clocksMHz *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetSupportedMemoryClocks")
-}
-
-//export nvmlDeviceGetSupportedPerformanceStates
-func nvmlDeviceGetSupportedPerformanceStates(device C.nvmlDevice_t, pstates *C.nvmlPstates_t, size C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetSupportedPerformanceStates")
 }
 
 //export nvmlDeviceGetSupportedVgpus
@@ -529,21 +459,6 @@ func nvmlDeviceRemoveGpu_v2(pciInfo *C.nvmlPciInfo_t, gpuState C.nvmlDetachGpuSt
 	return stubReturn("nvmlDeviceRemoveGpu_v2")
 }
 
-//export nvmlDeviceResetApplicationsClocks
-func nvmlDeviceResetApplicationsClocks(device C.nvmlDevice_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceResetApplicationsClocks")
-}
-
-//export nvmlDeviceResetGpuLockedClocks
-func nvmlDeviceResetGpuLockedClocks(device C.nvmlDevice_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceResetGpuLockedClocks")
-}
-
-//export nvmlDeviceResetMemoryLockedClocks
-func nvmlDeviceResetMemoryLockedClocks(device C.nvmlDevice_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceResetMemoryLockedClocks")
-}
-
 //export nvmlDeviceSetAPIRestriction
 func nvmlDeviceSetAPIRestriction(device C.nvmlDevice_t, apiType C.nvmlRestrictedAPI_t, isRestricted C.nvmlEnableState_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceSetAPIRestriction")
@@ -552,21 +467,6 @@ func nvmlDeviceSetAPIRestriction(device C.nvmlDevice_t, apiType C.nvmlRestricted
 //export nvmlDeviceSetAccountingMode
 func nvmlDeviceSetAccountingMode(device C.nvmlDevice_t, mode C.nvmlEnableState_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceSetAccountingMode")
-}
-
-//export nvmlDeviceSetApplicationsClocks
-func nvmlDeviceSetApplicationsClocks(device C.nvmlDevice_t, memClockMHz C.uint, graphicsClockMHz C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceSetApplicationsClocks")
-}
-
-//export nvmlDeviceSetAutoBoostedClocksEnabled
-func nvmlDeviceSetAutoBoostedClocksEnabled(device C.nvmlDevice_t, enabled C.nvmlEnableState_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceSetAutoBoostedClocksEnabled")
-}
-
-//export nvmlDeviceSetClockOffsets
-func nvmlDeviceSetClockOffsets(device C.nvmlDevice_t, info *C.nvmlClockOffset_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceSetClockOffsets")
 }
 
 //export nvmlDeviceSetComputeMode
@@ -582,11 +482,6 @@ func nvmlDeviceSetConfComputeUnprotectedMemSize(device C.nvmlDevice_t, sizeKiB C
 //export nvmlDeviceSetCpuAffinity
 func nvmlDeviceSetCpuAffinity(device C.nvmlDevice_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceSetCpuAffinity")
-}
-
-//export nvmlDeviceSetDefaultAutoBoostedClocksEnabled
-func nvmlDeviceSetDefaultAutoBoostedClocksEnabled(device C.nvmlDevice_t, enabled C.nvmlEnableState_t, flags C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceSetDefaultAutoBoostedClocksEnabled")
 }
 
 //export nvmlDeviceSetDefaultFanSpeed_v2
@@ -619,16 +514,6 @@ func nvmlDeviceSetFanSpeed_v2(device C.nvmlDevice_t, fan C.uint, speed C.uint) C
 	return stubReturn("nvmlDeviceSetFanSpeed_v2")
 }
 
-//export nvmlDeviceSetGpcClkVfOffset
-func nvmlDeviceSetGpcClkVfOffset(device C.nvmlDevice_t, offset C.int) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceSetGpcClkVfOffset")
-}
-
-//export nvmlDeviceSetGpuLockedClocks
-func nvmlDeviceSetGpuLockedClocks(device C.nvmlDevice_t, minGpuClockMHz C.uint, maxGpuClockMHz C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceSetGpuLockedClocks")
-}
-
 //export nvmlDeviceSetGpuOperationMode
 func nvmlDeviceSetGpuOperationMode(device C.nvmlDevice_t, mode C.nvmlGpuOperationMode_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceSetGpuOperationMode")
@@ -637,16 +522,6 @@ func nvmlDeviceSetGpuOperationMode(device C.nvmlDevice_t, mode C.nvmlGpuOperatio
 //export nvmlDeviceSetHostname_v1
 func nvmlDeviceSetHostname_v1(device C.nvmlDevice_t, hostname *C.nvmlHostname_v1_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceSetHostname_v1")
-}
-
-//export nvmlDeviceSetMemClkVfOffset
-func nvmlDeviceSetMemClkVfOffset(device C.nvmlDevice_t, offset C.int) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceSetMemClkVfOffset")
-}
-
-//export nvmlDeviceSetMemoryLockedClocks
-func nvmlDeviceSetMemoryLockedClocks(device C.nvmlDevice_t, minMemClockMHz C.uint, maxMemClockMHz C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceSetMemoryLockedClocks")
 }
 
 //export nvmlDeviceSetNvLinkUtilizationControl

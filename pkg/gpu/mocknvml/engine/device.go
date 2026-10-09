@@ -996,11 +996,12 @@ func (d *ConfigurableDevice) GetClockInfo(clockType nvml.ClockType) (uint32, nvm
 	var clock uint32
 	switch clockType {
 	case nvml.CLOCK_GRAPHICS:
-		clock = c.Clocks.GraphicsCurrent
+		clock = lockedClock(c.Clocks.GraphicsCurrent, c.Clocks.LockedGraphics, c.Clocks.GraphicsMax)
 	case nvml.CLOCK_SM:
-		clock = c.Clocks.SMCurrent
+		// The SM clock is derived from the GPC clock -lgc locks.
+		clock = lockedClock(c.Clocks.SMCurrent, c.Clocks.LockedGraphics, c.Clocks.SMMax)
 	case nvml.CLOCK_MEM:
-		clock = c.Clocks.MemoryCurrent
+		clock = lockedClock(c.Clocks.MemoryCurrent, c.Clocks.LockedMemory, c.Clocks.MemoryMax)
 	case nvml.CLOCK_VIDEO:
 		clock = c.Clocks.VideoCurrent
 	default:

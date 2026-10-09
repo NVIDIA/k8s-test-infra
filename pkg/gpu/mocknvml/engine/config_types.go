@@ -378,6 +378,41 @@ type ClocksConfig struct {
 	MemoryAppDefault   uint32 `json:"memory_app_default,omitempty"`
 	VideoCurrent       uint32 `json:"video_current,omitempty"`
 	VideoMax           uint32 `json:"video_max,omitempty"`
+
+	// LockedGraphics and LockedMemory are the ranges `nvidia-smi -lgc` and
+	// `-lmc` pin the clocks to. Unset means unlocked. They are runtime state
+	// recorded in the override document, though a profile may declare them to
+	// model a node that boots with clocks already locked.
+	LockedGraphics *ClockRangeConfig `json:"locked_graphics,omitempty"`
+	LockedMemory   *ClockRangeConfig `json:"locked_memory,omitempty"`
+
+	// Offsets declares the clock offsets the board accepts. A domain left unset
+	// answers NOT_SUPPORTED, which is what the offset getters report on boards
+	// that do not expose overclocking.
+	Offsets *ClockOffsetsConfig `json:"offsets,omitempty"`
+
+	// AdaptiveClocking is "enabled" or "disabled"; unset answers NOT_SUPPORTED.
+	AdaptiveClocking string `json:"adaptive_clocking,omitempty"`
+}
+
+// ClockRangeConfig is an inclusive clock range in MHz.
+type ClockRangeConfig struct {
+	MinMHz uint32 `json:"min_mhz"`
+	MaxMHz uint32 `json:"max_mhz"`
+}
+
+// ClockOffsetsConfig declares the per-domain clock offsets of a board.
+type ClockOffsetsConfig struct {
+	Graphics *ClockOffsetConfig `json:"graphics,omitempty"`
+	Memory   *ClockOffsetConfig `json:"memory,omitempty"`
+}
+
+// ClockOffsetConfig is one domain's offset range and the offset currently
+// applied, all in MHz. OffsetMHz is what nvmlDeviceSetClockOffsets records.
+type ClockOffsetConfig struct {
+	MinMHz    int32 `json:"min_mhz"`
+	MaxMHz    int32 `json:"max_mhz"`
+	OffsetMHz int32 `json:"offset_mhz,omitempty"`
 }
 
 // ClocksThrottleReasonsConfig defines throttle reason flags

@@ -69,8 +69,16 @@ type rawProfile struct {
 			MaxLinkGen int `json:"max_link_gen"`
 		} `json:"pcie"`
 		Clocks *struct {
-			GraphicsMax int `json:"graphics_max"`
+			GraphicsMax        int `json:"graphics_max"`
+			GraphicsAppDefault int `json:"graphics_app_default"`
+			MemoryAppDefault   int `json:"memory_app_default"`
 		} `json:"clocks"`
+		SupportedClocks *struct {
+			MemoryClocks []struct {
+				FreqMHz        int   `json:"freq_mhz"`
+				GraphicsClocks []int `json:"graphics_clocks"`
+			} `json:"memory_clocks"`
+		} `json:"supported_clocks"`
 		Power *struct {
 			WorkloadProfiles *struct {
 				Supported []struct {
@@ -190,6 +198,9 @@ type Profile struct {
 	ofaUtilizationPct  int
 	maxPCIeLinkGen     int
 	graphicsMaxMHz     int
+	appDefaultMemMHz   int
+	appDefaultGfxMHz   int
+	supportedClocks    []SupportedMemoryClock
 	rowRemapHistogram  bool
 	rowRemapBanks      int
 
@@ -211,6 +222,14 @@ type WorkloadPowerProfile struct {
 	ID        int
 	Priority  int
 	Conflicts []int
+}
+
+// SupportedMemoryClock is one memory clock a board supports and the graphics
+// clocks it can pair with, in the order NVML returns them (highest first).
+// Every (MemoryMHz, GraphicsMHz[i]) pair is one `nvidia-smi -ac` accepts.
+type SupportedMemoryClock struct {
+	MemoryMHz   int
+	GraphicsMHz []int
 }
 
 // bytesPerMiB is the divisor GPU Feature Discovery uses when it publishes
@@ -350,9 +369,7 @@ func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
 	if pcie := raw.DeviceDefaults.PCIe; pcie != nil {
 		p.maxPCIeLinkGen = pcie.MaxLinkGen
 	}
-	if c := raw.DeviceDefaults.Clocks; c != nil {
-		p.graphicsMaxMHz = c.GraphicsMax
-	}
+	p.applyClocks(raw)
 	p.applyWorkloadPowerProfiles(raw)
 	if r := raw.DeviceDefaults.RemappedRows; r != nil && r.AvailabilityHistogram != nil {
 		p.rowRemapHistogram = true
@@ -374,6 +391,23 @@ func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
 			HostID:              pl.HostID,
 			PeerType:            pl.PeerType,
 			ModuleIDs:           deviceModuleIDs(raw, pl.ModuleID),
+		}
+	}
+}
+
+// applyClocks copies the clocks and supported_clocks blocks.
+func (p *Profile) applyClocks(raw rawProfile) {
+	if c := raw.DeviceDefaults.Clocks; c != nil {
+		p.graphicsMaxMHz = c.GraphicsMax
+		p.appDefaultMemMHz = c.MemoryAppDefault
+		p.appDefaultGfxMHz = c.GraphicsAppDefault
+	}
+	if sc := raw.DeviceDefaults.SupportedClocks; sc != nil {
+		for _, mc := range sc.MemoryClocks {
+			p.supportedClocks = append(p.supportedClocks, SupportedMemoryClock{
+				MemoryMHz:   mc.FreqMHz,
+				GraphicsMHz: mc.GraphicsClocks,
+			})
 		}
 	}
 }
@@ -560,6 +594,46 @@ func (p Profile) MaxPCIeLinkGen() int { return p.maxPCIeLinkGen }
 // (#712). 0 when the profile declares no clocks block, in which case both rows
 // read N/A.
 func (p Profile) GraphicsMaxClockMHz() int { return p.graphicsMaxMHz }
+
+// SupportedClocks is device_defaults.supported_clocks, the table nvidia-smi
+// renders under Supported Clocks and validates `-ac` against. nil when the
+// profile declares none, in which case the section reads N/A. The result is a
+// copy, so a caller sorting or trimming it cannot reach the profile.
+func (p Profile) SupportedClocks() []SupportedMemoryClock {
+	out := make([]SupportedMemoryClock, 0, len(p.supportedClocks))
+	for _, mc := range p.supportedClocks {
+		out = append(out, SupportedMemoryClock{MemoryMHz: mc.MemoryMHz, GraphicsMHz: slices.Clone(mc.GraphicsMHz)})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// DefaultApplicationsClocksMHz is the (memory, graphics) pair `nvidia-smi
+// -rac` restores: clocks.memory_app_default and clocks.graphics_app_default.
+// Both are 0 when the profile declares no clocks block.
+func (p Profile) DefaultApplicationsClocksMHz() (memMHz, graphicsMHz int) {
+	return p.appDefaultMemMHz, p.appDefaultGfxMHz
+}
+
+// AlternateApplicationsClocksMHz picks a supported (memory, graphics) pair
+// that differs from the default in both clocks where the table allows it, so
+// a test setting it can tell the write landed from the defaults. It takes the
+// lowest memory clock and the graphics clock halfway down its list. ok is
+// false when the table has no pair other than the default.
+func (p Profile) AlternateApplicationsClocksMHz() (memMHz, graphicsMHz int, ok bool) {
+	if len(p.supportedClocks) == 0 {
+		return 0, 0, false
+	}
+	mc := p.supportedClocks[len(p.supportedClocks)-1]
+	for i := len(mc.GraphicsMHz) / 2; i < len(mc.GraphicsMHz); i++ {
+		if mc.MemoryMHz != p.appDefaultMemMHz || mc.GraphicsMHz[i] != p.appDefaultGfxMHz {
+			return mc.MemoryMHz, mc.GraphicsMHz[i], true
+		}
+	}
+	return 0, 0, false
+}
 
 // applyWorkloadPowerProfiles decodes power.workload_power_profiles. Declaring
 // the block is what separates a board that models the feature from one that
