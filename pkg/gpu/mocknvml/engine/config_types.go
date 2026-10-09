@@ -291,13 +291,15 @@ type PCIConfig struct {
 
 // PCIeConfig defines PCIe link information
 type PCIeConfig struct {
-	MaxLinkGen       int    `json:"max_link_gen,omitzero"`
-	CurrentLinkGen   int    `json:"current_link_gen,omitzero"`
-	MaxLinkWidth     int    `json:"max_link_width,omitzero"`
-	CurrentLinkWidth int    `json:"current_link_width,omitzero"`
-	ReplayCounter    uint64 `json:"replay_counter,omitzero"`
-	TxThroughputKBPS uint64 `json:"tx_throughput_kbps,omitzero"`
-	RxThroughputKBPS uint64 `json:"rx_throughput_kbps,omitzero"`
+	MaxLinkGen         int    `json:"max_link_gen,omitzero"`
+	HostMaxLinkGen     int    `json:"host_max_link_gen,omitzero"`
+	HostMaxUnsupported bool   `json:"host_max_unsupported,omitzero"`
+	CurrentLinkGen     int    `json:"current_link_gen,omitzero"`
+	MaxLinkWidth       int    `json:"max_link_width,omitzero"`
+	CurrentLinkWidth   int    `json:"current_link_width,omitzero"`
+	ReplayCounter      uint64 `json:"replay_counter,omitzero"`
+	TxThroughputKBPS   uint64 `json:"tx_throughput_kbps,omitzero"`
+	RxThroughputKBPS   uint64 `json:"rx_throughput_kbps,omitzero"`
 }
 
 // PowerConfig defines power management settings

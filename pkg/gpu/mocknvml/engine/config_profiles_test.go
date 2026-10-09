@@ -161,6 +161,7 @@ func TestLoadConfig_GB300Profile(t *testing.T) {
 	pcie := yamlCfg.DeviceDefaults.PCIe
 	require.NotNil(t, pcie, "GB300 PCIe config is nil")
 	require.Equal(t, 6, pcie.MaxLinkGen, "GB300 PCIe max_link_gen")
+	require.Equal(t, 4, pcie.HostMaxLinkGen, "GB300 host PCIe max_link_gen")
 
 	// 1400W default TDP (vs. GB200's 1000W).
 	power := yamlCfg.DeviceDefaults.Power
@@ -181,6 +182,14 @@ func TestLoadConfig_GB300Profile(t *testing.T) {
 // noBwMode marks a profile without an nvlink.bw_mode block: no
 // bandwidth-mode call answers, as on boards before Hopper.
 const noBwMode NVLinkBwModeScope = ""
+
+func TestLoadConfig_B200HostMaxIsUnsupported(t *testing.T) {
+	yamlCfg, err := LoadYAMLConfig(filepath.Join(testdataDir(), "b200.yaml"))
+	require.NoError(t, err, "failed to load B200 profile")
+	require.NotNil(t, yamlCfg.DeviceDefaults.PCIe, "B200 PCIe config is nil")
+	require.True(t, yamlCfg.DeviceDefaults.PCIe.HostMaxUnsupported,
+		"B200 switch-connected host must report Host Max as unsupported")
+}
 
 func TestLoadConfig_AllProfilesConsistent(t *testing.T) {
 	profiles := []struct {
