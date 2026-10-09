@@ -524,7 +524,8 @@ _Appears in:_
 
 
 
-PercentRange is a min/max percentage bound.
+PercentRange is a min/max percentage bound. Both bounds are required, so an
+override replaces an inherited range whole.
 
 
 
@@ -541,8 +542,12 @@ _Appears in:_
 
 
 
-PolicyTargetRef selects the fan-out scope. Each optional slice narrows
-the level above.
+PolicyTargetRef selects the simulated GPUs a policy applies to. Each listed
+axis narrows the one above it, and an omitted axis selects every index. The
+deepest listed axis is the policy's scope: inventory, rack group, rack, Node,
+or GPU. A narrower scope overrides a broader one field by field. Every
+listed rack group must exist in the inventory, and every listed index must
+exist in at least one selected rack group.
 
 
 
@@ -555,9 +560,9 @@ _Appears in:_
 | `kind` _string_ | Kind is the target resource kind. |  | Enum: [SGPUInventory] <br /> |
 | `name` _string_ | Name is the name of the target SGPUInventory. |  | MinLength: 1 <br /> |
 | `rackGroups` _string array_ | RackGroups optionally limits the policy to these rack-group IDs. |  | MaxItems: 64 <br />MinItems: 1 <br />Optional: \{\} <br /> |
-| `rackIndexes` _integer array_ | RackIndexes optionally limits the policy to these rack indexes. |  | MaxItems: 64 <br />MinItems: 1 <br />Optional: \{\} <br /> |
-| `nodeIndexes` _integer array_ | NodeIndexes optionally limits the policy to these logical Node indexes. |  | MaxItems: 64 <br />MinItems: 1 <br />Optional: \{\} <br /> |
-| `gpuIndexes` _integer array_ | GPUIndexes optionally limits the policy to these GPU indexes. |  | MaxItems: 64 <br />MinItems: 1 <br />Optional: \{\} <br /> |
+| `rackIndexes` _integer array_ | RackIndexes optionally limits the policy to these rack indexes. |  | MaxItems: 64 <br />MinItems: 1 <br />items:Minimum: 0 <br />Optional: \{\} <br /> |
+| `nodeIndexes` _integer array_ | NodeIndexes optionally limits the policy to these logical Node indexes. |  | MaxItems: 64 <br />MinItems: 1 <br />items:Minimum: 0 <br />Optional: \{\} <br /> |
+| `gpuIndexes` _integer array_ | GPUIndexes optionally limits the policy to these GPU indexes. |  | MaxItems: 64 <br />MinItems: 1 <br />items:Minimum: 0 <br />Optional: \{\} <br /> |
 
 
 #### PowerLimits
@@ -678,11 +683,11 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `persistence` _string_ | Persistence controls the simulated persistence mode. |  | Enum: [Enabled Disabled] <br />Optional: \{\} <br /> |
-| `compute` _string_ | Compute selects the simulated compute mode. |  | Enum: [Default Exclusive Prohibited] <br />Optional: \{\} <br /> |
-| `mig` _string_ | MIG controls whether Multi-Instance GPU mode is enabled. |  | Enum: [Enabled Disabled] <br />Optional: \{\} <br /> |
-| `ecc` _string_ | ECC controls whether error-correcting code is enabled. |  | Enum: [Enabled Disabled] <br />Optional: \{\} <br /> |
-| `accounting` _string_ | Accounting controls whether GPU accounting mode is enabled. |  | Enum: [Enabled Disabled] <br />Optional: \{\} <br /> |
+| `persistence` _string_ |  |  | Enum: [Enabled Disabled] <br />Optional: \{\} <br /> |
+| `compute` _string_ |  |  | Enum: [Default Exclusive Prohibited] <br />Optional: \{\} <br /> |
+| `mig` _string_ |  |  | Enum: [Enabled Disabled] <br />Optional: \{\} <br /> |
+| `ecc` _string_ |  |  | Enum: [Enabled Disabled] <br />Optional: \{\} <br /> |
+| `accounting` _string_ |  |  | Enum: [Enabled Disabled] <br />Optional: \{\} <br /> |
 
 
 #### RuntimeState
@@ -700,9 +705,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `deviceState` _[DeviceState](#devicestate)_ | DeviceState is the simulated health state of the GPU. |  | Enum: [Healthy Degraded Failed] <br />Optional: \{\} <br /> |
-| `modes` _[RuntimeModes](#runtimemodes)_ | Modes contains persistent NVML/CUDA mode settings. |  | Optional: \{\} <br /> |
-| `telemetry` _[RuntimeTelemetry](#runtimetelemetry)_ | Telemetry contains synthetic utilization, power, temperature, and clock values. |  | Optional: \{\} <br /> |
+| `deviceState` _[DeviceState](#devicestate)_ |  |  | Enum: [Healthy Degraded Failed] <br />Optional: \{\} <br /> |
+| `modes` _[RuntimeModes](#runtimemodes)_ |  |  | Optional: \{\} <br /> |
+| `telemetry` _[RuntimeTelemetry](#runtimetelemetry)_ |  |  | Optional: \{\} <br /> |
 
 
 #### RuntimeTelemetry
@@ -719,10 +724,10 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `performanceState` _string_ | NVML P-state, e.g. "P0". |  | Pattern: `^P[0-9]+$` <br />Optional: \{\} <br /> |
-| `utilization` _[UtilizationTelemetry](#utilizationtelemetry)_ | Utilization defines synthetic GPU and memory utilization values. |  | Optional: \{\} <br /> |
-| `power` _[PowerTelemetry](#powertelemetry)_ | Power defines synthetic power draw values. |  | Optional: \{\} <br /> |
-| `temperature` _[TemperatureTelemetry](#temperaturetelemetry)_ | Temperature defines synthetic GPU and memory temperature values. |  | Optional: \{\} <br /> |
-| `clocks` _[ClocksTelemetry](#clockstelemetry)_ | Clocks defines the current simulated clock rates. |  | Optional: \{\} <br /> |
+| `utilization` _[UtilizationTelemetry](#utilizationtelemetry)_ |  |  | Optional: \{\} <br /> |
+| `power` _[PowerTelemetry](#powertelemetry)_ |  |  | Optional: \{\} <br /> |
+| `temperature` _[TemperatureTelemetry](#temperaturetelemetry)_ |  |  | Optional: \{\} <br /> |
+| `clocks` _[ClocksTelemetry](#clockstelemetry)_ |  |  | Optional: \{\} <br /> |
 
 
 #### SGPUGPUs
@@ -1095,8 +1100,8 @@ an SGPUInventory.
 | `apiVersion` _string_ | `mokka.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `SGPURuntimePolicy` | | |
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
-| `spec` _[SGPURuntimePolicySpec](#sgpuruntimepolicyspec)_ | Spec defines the target selection and runtime settings to apply. |  |  |
-| `status` _[SGPURuntimePolicyStatus](#sgpuruntimepolicystatus)_ | Status summarizes the target scope selected for this policy. |  | Optional: \{\} <br /> |
+| `spec` _[SGPURuntimePolicySpec](#sgpuruntimepolicyspec)_ |  |  |  |
+| `status` _[SGPURuntimePolicyStatus](#sgpuruntimepolicystatus)_ |  |  | Optional: \{\} <br /> |
 
 
 #### SGPURuntimePolicySpec
@@ -1120,8 +1125,8 @@ _Appears in:_
 
 
 
-SGPURuntimePolicyStatus holds comma-joined denormalizations of
-spec.targetRef axes for print columns.
+SGPURuntimePolicyStatus reports whether the policy is accepted and holds
+comma-joined denormalizations of spec.targetRef axes for print columns.
 
 
 
@@ -1134,6 +1139,7 @@ _Appears in:_
 | `rackIndexesSummary` _string_ | RackIndexesSummary is the comma-separated selected rack indexes. |  | Optional: \{\} <br /> |
 | `nodeIndexesSummary` _string_ | NodeIndexesSummary is the comma-separated selected logical Node indexes. |  | Optional: \{\} <br /> |
 | `gpuIndexesSummary` _string_ | GPUIndexesSummary is the comma-separated selected GPU indexes. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#condition-v1-meta) array_ | Conditions report whether the policy is accepted. |  | Optional: \{\} <br /> |
 
 
 #### SGPUSoftware
