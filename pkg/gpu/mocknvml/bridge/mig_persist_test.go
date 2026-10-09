@@ -192,7 +192,7 @@ func TestMIGMutations_AreRecordedAsTheyHappen(t *testing.T) {
 	require.Equal(t, nvml.SUCCESS, ret)
 	records = recordedInstances(t, overrides)
 	require.Len(t, records, 1)
-	require.Equal(t, []engine.MIGComputeInstanceRecord{{ID: ciInfo.Id, ProfileID: intPtr(0)}},
+	require.Equal(t, []engine.MIGComputeInstanceRecord{{ID: ciInfo.Id, ProfileID: new(0)}},
 		*records[0].ComputeInstances)
 
 	require.Equal(t, nvml.SUCCESS, migDestroyComputeInstance(ci))
@@ -311,5 +311,3 @@ func TestMIGPersistFailed_AnswersTheCallerAndResyncsTheBoard(t *testing.T) {
 	require.Equal(t, 3, migPartitionCount(t, dev),
 		"the document is authoritative and still declares three partitions")
 }
-
-func intPtr(v int) *int { return &v }

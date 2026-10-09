@@ -138,7 +138,7 @@ func TestControllerReadinessExitsWhenControllerDies(t *testing.T) {
 		`wait_for "host controller readiness" controller_ready`,
 	}, "\n")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, bash, "-c", script)
 	command.Env = append(os.Environ(),

@@ -65,7 +65,7 @@ func newSimulator(t *testing.T, cfg *DynamicMetricsConfig) (*dynamicMetricsSimul
 // samplesN collects N samples from f.
 func samplesN[T any](n int, f func() T) []T {
 	out := make([]T, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		out[i] = f()
 	}
 	return out
@@ -101,7 +101,7 @@ func meanU32(xs []uint32) float64 {
 func TestDynamicMetrics_AbsentPreservesStaticBehavior(t *testing.T) {
 	dev := newTestDeviceWithConfig(t, staticConfig())
 
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		temp, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU)
 		require.Equal(t, nvml.SUCCESS, ret, "call %d", i)
 		require.Equal(t, uint32(33), temp, "call %d", i)
@@ -126,7 +126,7 @@ func TestDynamicMetrics_SubConfigsAreIndependentlyOptIn(t *testing.T) {
 	}
 	dev := newTestDeviceWithConfig(t, cfg)
 
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		temp, _ := dev.GetTemperature(nvml.TEMPERATURE_GPU)
 		require.Equal(t, uint32(33), temp, "temperature must stay static")
 
@@ -154,17 +154,17 @@ func TestDynamicMetrics_ConcurrentAccessIsSafe(t *testing.T) {
 	// synchronization inside the simulator.
 	const goroutines, iters = 8, 500
 	done := make(chan struct{}, goroutines)
-	for g := 0; g < goroutines; g++ {
+	for range goroutines {
 		go func() {
 			defer func() { done <- struct{}{} }()
-			for j := 0; j < iters; j++ {
+			for range iters {
 				_, _ = dev.GetTemperature(nvml.TEMPERATURE_GPU)
 				_, _ = dev.GetPowerUsage()
 				_, _ = dev.GetUtilizationRates()
 			}
 		}()
 	}
-	for g := 0; g < goroutines; g++ {
+	for range goroutines {
 		<-done
 	}
 }
@@ -178,7 +178,7 @@ func TestDynamicMetrics_Temperature_ZeroVarianceReturnsBase(t *testing.T) {
 		Seed:        1,
 		Temperature: &DynamicTemperatureConfig{BaseC: 50},
 	})
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		got := s.Temperature(0, 0)
 		require.Equal(t, uint32(50), got, "call %d: expected deterministic 50 when variance=0", i)
 	}
@@ -237,7 +237,7 @@ func TestDynamicMetrics_Temperature_ClampedByShutdownThreshold(t *testing.T) {
 		Seed:        42,
 		Temperature: &DynamicTemperatureConfig{BaseC: 200, VarianceC: 10},
 	})
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		got := s.Temperature(0, 80)
 		require.LessOrEqual(t, got, uint32(80), "call %d: got %d, must be <=80 (shutdown clamp)", i, got)
 	}
@@ -249,7 +249,7 @@ func TestDynamicMetrics_Temperature_NeverNegative(t *testing.T) {
 		Seed:        7,
 		Temperature: &DynamicTemperatureConfig{BaseC: 1, VarianceC: 50},
 	})
-	for i := 0; i < 500; i++ {
+	for i := range 500 {
 		got := s.Temperature(0, 0)
 		// uint32 can't be negative; assert it's also <=max(base+variance)=51.
 		require.LessOrEqual(t, got, uint32(51), "call %d: got %d above base+variance", i, got)
@@ -263,7 +263,7 @@ func TestDynamicMetrics_Temperature_NilConfigFallsThroughToStatic(t *testing.T) 
 		Seed:  1,
 		Power: &DynamicPowerConfig{BaseMW: 100},
 	})
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		got := s.Temperature(77, 0)
 		require.Equal(t, uint32(77), got, "expected static 77")
 	}
@@ -278,7 +278,7 @@ func TestDynamicMetrics_Power_ZeroVarianceReturnsBase(t *testing.T) {
 		Seed:  1,
 		Power: &DynamicPowerConfig{BaseMW: 250_000},
 	})
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		got := s.Power(0, 0, 0)
 		require.Equal(t, uint32(250_000), got, "call %d", i)
 	}
@@ -305,7 +305,7 @@ func TestDynamicMetrics_Power_ClampedToConfiguredMinMax(t *testing.T) {
 		Seed:  99,
 		Power: &DynamicPowerConfig{BaseMW: 50_000, VarianceMW: 600_000},
 	})
-	for i := 0; i < 500; i++ {
+	for i := range 500 {
 		got := s.Power(0, 100_000, 400_000)
 		require.True(t, got >= 100_000 && got <= 400_000, "call %d: %d outside [100000, 400000]", i, got)
 	}
@@ -327,7 +327,7 @@ func TestDynamicMetrics_Power_NilConfigFallsThroughToStatic(t *testing.T) {
 		Seed:        1,
 		Temperature: &DynamicTemperatureConfig{BaseC: 40},
 	})
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		got := s.Power(72_000, 0, 0)
 		require.Equal(t, uint32(72_000), got, "expected static 72000")
 	}
@@ -357,7 +357,6 @@ func TestDynamicMetrics_Utilization_Patterns_Bounds(t *testing.T) {
 		{"empty_falls_through_to_steady", "", 10, 90, 0, 100},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			s, _ := newSimulator(t, &DynamicMetricsConfig{
 				Seed: 1,
@@ -402,13 +401,13 @@ func TestDynamicMetrics_Utilization_BurstAlternatesWithTime(t *testing.T) {
 
 	// Sample multiple times within each phase to be robust to RNG.
 	inIdle := func(offset time.Duration) {
-		for i := 0; i < 20; i++ {
+		for i := range 20 {
 			got := sampleAt(offset + time.Duration(i)*time.Second/10)
 			require.LessOrEqual(t, got, uint32(25), "burst idle phase at %s iter %d: got %d, want <=25", offset, i, got)
 		}
 	}
 	inBusy := func(offset time.Duration) {
-		for i := 0; i < 20; i++ {
+		for i := range 20 {
 			got := sampleAt(offset + time.Duration(i)*time.Second/10)
 			require.GreaterOrEqual(t, got, uint32(75), "burst busy phase at %s iter %d: got %d, want >=75", offset, i, got)
 		}
@@ -429,7 +428,7 @@ func TestDynamicMetrics_Utilization_GPUAndMemoryUseIndependentRanges(t *testing.
 			MemoryMin: 10, MemoryMax: 20,
 		},
 	})
-	for i := 0; i < 500; i++ {
+	for i := range 500 {
 		g, m := s.Utilization(0, 0)
 		require.True(t, g >= 60 && g <= 80, "call %d: gpu=%d outside [60,80]", i, g)
 		require.True(t, m >= 10 && m <= 20, "call %d: mem=%d outside [10,20]", i, m)
@@ -445,7 +444,7 @@ func TestDynamicMetrics_Utilization_MinEqualsMaxPinsToSingleValue(t *testing.T) 
 			MemoryMin: 7, MemoryMax: 7,
 		},
 	})
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		g, m := s.Utilization(0, 0)
 		require.Equal(t, uint32(42), g, "call %d", i)
 		require.Equal(t, uint32(7), m, "call %d", i)
@@ -462,7 +461,7 @@ func TestDynamicMetrics_Utilization_ClampedTo0_100(t *testing.T) {
 			MemoryMin: 50, MemoryMax: 200,
 		},
 	})
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		g, m := s.Utilization(0, 0)
 		require.True(t, g <= 100 && m <= 100, "call %d: got (%d,%d) with value >100", i, g, m)
 	}
@@ -473,7 +472,7 @@ func TestDynamicMetrics_Utilization_NilConfigFallsThroughToStatic(t *testing.T) 
 		Seed:        1,
 		Temperature: &DynamicTemperatureConfig{BaseC: 50},
 	})
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		g, m := s.Utilization(11, 22)
 		require.Equal(t, uint32(11), g, "expected static gpu 11")
 		require.Equal(t, uint32(22), m, "expected static mem 22")
@@ -499,7 +498,7 @@ func TestDynamicMetrics_SameSeedIsReproducible(t *testing.T) {
 	}
 
 	a, b := build(), build()
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		at := a.Temperature(0, 0)
 		bt := b.Temperature(0, 0)
 		require.Equal(t, at, bt, "call %d: temperature diverged", i)
@@ -523,7 +522,7 @@ func TestDynamicMetrics_DifferentSeedsProduceDifferentSequences(t *testing.T) {
 	}
 	a, b := build(1), build(2)
 	same := 0
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		if a.Temperature(0, 0) == b.Temperature(0, 0) {
 			same++
 		}
@@ -554,7 +553,7 @@ func TestDynamicMetrics_DeviceLevel_TemperatureWorksWithoutStaticThermal(t *test
 		},
 	})
 
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		temp, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU)
 		require.Equal(t, nvml.SUCCESS, ret, "call %d: expected SUCCESS without static thermal", i)
 		require.True(t, temp >= 52 && temp <= 58, "call %d: temp %d outside [52,58]", i, temp)
@@ -571,7 +570,7 @@ func TestDynamicMetrics_DeviceLevel_PowerWorksWithoutStaticPower(t *testing.T) {
 		},
 	})
 
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		power, ret := dev.GetPowerUsage()
 		require.Equal(t, nvml.SUCCESS, ret, "call %d: expected SUCCESS without static power", i)
 		require.True(t, power >= 225_000 && power <= 275_000, "call %d: power %d outside [225000, 275000]", i, power)

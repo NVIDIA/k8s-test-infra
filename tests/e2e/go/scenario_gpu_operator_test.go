@@ -39,7 +39,6 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, Conti
 	})
 
 	for _, name := range selectedProfiles {
-		name := name
 		Context("profile "+name, Label(name), Ordered, func() {
 			var (
 				p    profile.Profile

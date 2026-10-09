@@ -954,7 +954,7 @@ func nvlinkErrorSum(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx in
 	res, err := h.Kube.Exec(ctx, pod, "nvidia-smi", "nvlink", "-e", "-i", strconv.Itoa(idx))
 	Expect(err).NotTo(HaveOccurred(), "nvidia-smi nvlink -e -i %d: %s", idx, res.Combined())
 	sum, surfaced := 0, false
-	for _, line := range strings.Split(res.Stdout, "\n") {
+	for line := range strings.SplitSeq(res.Stdout, "\n") {
 		// e.g. "\t Link 0: Replay Errors: 12"
 		if !strings.Contains(line, "Errors:") {
 			continue

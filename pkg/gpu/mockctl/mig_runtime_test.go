@@ -197,15 +197,13 @@ func TestMIGAddGpuInstance_ConcurrentWritersBothLand(t *testing.T) {
 	errs := make([]error, 8)
 	for i := range errs {
 		ready.Add(1)
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			ready.Done()
 			<-start
 			errs[i] = MIGAddGpuInstance(path, 0, engine.MIGGPUInstanceRecord{
 				ID: uint32(i), Profile: "1g.5gb",
 			})
-		}()
+		})
 	}
 	ready.Wait()
 	close(start)
@@ -236,9 +234,7 @@ func TestMIGTx_SpansTheChoiceOfAnIDAndItsRecord(t *testing.T) {
 	errs := make([]error, 8)
 	for i := range errs {
 		ready.Add(1)
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			ready.Done()
 			<-start
 			errs[i] = func() error {
@@ -261,7 +257,7 @@ func TestMIGTx_SpansTheChoiceOfAnIDAndItsRecord(t *testing.T) {
 				}
 				return tx.Commit()
 			}()
-		}()
+		})
 	}
 	ready.Wait()
 	close(start)

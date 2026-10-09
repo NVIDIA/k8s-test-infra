@@ -277,7 +277,7 @@ func scrapeDCGM(ctx context.Context, k *kube.Client, ns, pod string) (string, er
 func promRaw(metrics, metric string) []string {
 	prefix := metric + "{"
 	var out []string
-	for _, line := range strings.Split(metrics, "\n") {
+	for line := range strings.SplitSeq(metrics, "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, prefix) {
 			continue
@@ -307,7 +307,7 @@ func promValues(metrics, metric string) []float64 {
 func promValuesByGPU(metrics, metric string) map[int]float64 {
 	prefix := metric + "{"
 	out := map[int]float64{}
-	for _, line := range strings.Split(metrics, "\n") {
+	for line := range strings.SplitSeq(metrics, "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, prefix) {
 			continue

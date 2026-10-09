@@ -91,7 +91,6 @@ var _ = Describe("nvml-mock MIG", Label("mig"), Ordered, func() {
 	})
 
 	for _, name := range selectedProfiles {
-		name := name
 		Context("profile "+name, Label(name), Ordered, func() {
 			var (
 				p          profile.Profile

@@ -63,7 +63,7 @@ func nvmlDeviceGetGpuFabricInfo(device C.nvmlDevice_t, gpuFabricInfo *C.nvmlGpuF
 	if ret != nvml.SUCCESS {
 		return toReturn(ret)
 	}
-	for i := 0; i < len(info.ClusterUUID); i++ {
+	for i := range len(info.ClusterUUID) {
 		gpuFabricInfo.clusterUuid[i] = C.uchar(info.ClusterUUID[i])
 	}
 	gpuFabricInfo.status = C.nvmlReturn_t(info.Status)
@@ -104,7 +104,7 @@ func nvmlDeviceGetGpuFabricInfoV(device C.nvmlDevice_t, gpuFabricInfo *C.nvmlGpu
 		// healthSummary at the tail, which v2 callers must not touch.
 		v2info := (*C.nvmlGpuFabricInfo_v2_t)(unsafe.Pointer(gpuFabricInfo))
 		v2info.version = C.uint(v2Tag)
-		for i := 0; i < len(info.ClusterUUID); i++ {
+		for i := range len(info.ClusterUUID) {
 			v2info.clusterUuid[i] = C.uchar(info.ClusterUUID[i])
 		}
 		v2info.status = C.nvmlReturn_t(info.Status)
@@ -114,7 +114,7 @@ func nvmlDeviceGetGpuFabricInfoV(device C.nvmlDevice_t, gpuFabricInfo *C.nvmlGpu
 		return C.NVML_SUCCESS
 	case FabricVersionV3:
 		gpuFabricInfo.version = C.uint(v3Tag)
-		for i := 0; i < len(info.ClusterUUID); i++ {
+		for i := range len(info.ClusterUUID) {
 			gpuFabricInfo.clusterUuid[i] = C.uchar(info.ClusterUUID[i])
 		}
 		gpuFabricInfo.status = C.nvmlReturn_t(info.Status)
