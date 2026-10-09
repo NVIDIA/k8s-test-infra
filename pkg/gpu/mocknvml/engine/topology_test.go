@@ -332,12 +332,13 @@ func TestNodeFabric_BuiltinProfiles(t *testing.T) {
 		profile    string
 		wantNV     int // expected NVLinkCount between GPU 0 and GPU 1
 		wantSwitch bool
+		wantScope  NVLinkBwModeScope
 	}{
-		{"gb200", 18, true}, // NVLink5, 4 NVSwitches -> NV18 all-to-all
-		{"gb300", 18, true},
-		{"h100", 18, true}, // HGX H100, 4 NVSwitches -> NV18
-		{"a100", 12, true}, // DGX A100, 6 NVSwitches -> NV12
-		{"b200", 0, false}, // standalone: negative control, no NVLink fabric
+		{"gb200", 18, true, NVLinkBwModeScopeDevice}, // NVLink5, 4 NVSwitches -> NV18 all-to-all
+		{"gb300", 18, true, NVLinkBwModeScopeDevice},
+		{"h100", 18, true, NVLinkBwModeScopeSystem}, // HGX H100, 4 NVSwitches -> NV18
+		{"a100", 12, true, noBwMode},                // DGX A100, 6 NVSwitches -> NV12
+		{"b200", 0, false, NVLinkBwModeScopeDevice}, // standalone: negative control, no NVLink fabric
 	}
 	for _, c := range cases {
 		t.Run(c.profile, func(t *testing.T) {
@@ -354,6 +355,7 @@ func TestNodeFabric_BuiltinProfiles(t *testing.T) {
 			require.Empty(t, w, "%s: unresolved NVLink endpoints: %v", c.profile, w)
 			got := len(f.Switches()) > 0
 			require.Equal(t, c.wantSwitch, got, "%s: hasSwitches = %v, want %v", c.profile, got, c.wantSwitch)
+			require.Equal(t, c.wantScope, f.NvlinkBwModeScope(), "%s: nvlink.bw_mode.scope", c.profile)
 			// Assert the FULL NV# matrix, not just the (0,1) cell: every
 			// off-diagonal pair must equal wantNV and every diagonal must be
 			// 0. This is the driver-independent acceptance guard for the

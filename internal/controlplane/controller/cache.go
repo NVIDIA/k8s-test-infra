@@ -4,6 +4,7 @@
 package controller
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -215,26 +216,15 @@ func (c *informerCache) statusNodes(selectors []labels.Selector, boundNames map[
 	for _, node := range nodes {
 		ordered = append(ordered, node)
 	}
-	slices.SortFunc(ordered, func(a, b *corev1.Node) int {
-		return compareNodeIdentity(a, b)
-	})
+	slices.SortFunc(ordered, compareNodeIdentity)
 	return statusNodeSnapshot{nodes: ordered, examined: len(examined)}, nil
 }
 
 func compareNodeIdentity(a, b *corev1.Node) int {
-	if a.Name < b.Name {
-		return -1
-	}
-	if a.Name > b.Name {
-		return 1
-	}
-	if a.UID < b.UID {
-		return -1
-	}
-	if a.UID > b.UID {
-		return 1
-	}
-	return 0
+	return cmp.Or(
+		cmp.Compare(a.Name, b.Name),
+		cmp.Compare(a.UID, b.UID),
+	)
 }
 
 // Node falls back to an exact GET only for objects absent from the filtered

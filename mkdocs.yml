@@ -122,6 +122,7 @@ nav:
           - NRI Plugin: components/nri-plugin.md
       - Reference:
           - Configuration: configuration.md
+          - Feature Gates: feature-gates.md
           - MIG: mig.md
           # The pages stay under docs/tools/ because hack/check-docs-tools-sync.sh
           # scans that directory to hold them in step with cmd/. The nav label is
@@ -141,11 +142,12 @@ nav:
           - Amazon EKS: guides/install/aws/eks/README.md
           - NVIDIA DRA Driver: guides/dra.md
           - NVIDIA GPU Operator: guides/gpu-operator.md
+          - NVIDIA Dynamo: guides/dynamo/README.md
           - Compute Domain: guides/compute-domain/README.md
           - NVSentinel: guides/nv-sentinel/README.md
           - Run.ai Fake GPU Operator: guides/runai-fgo/README.md
-          - Node-Wide Injection: guides/node-wide-injection/README.md
       - Tasks:
+          - Set Up NRI Injection: guides/nri-injection.md
           - MIG Partitioning: guides/mig/README.md
           - Failure Injection: guides/failure-injection/README.md
           - Use in CI/CD: guides/ci-cd.md
@@ -154,6 +156,7 @@ nav:
       - Overview: contributing/index.md
       - Local Development: contributing/local-development.md
       - Testing: contributing/testing.md
+      - Gating New Behavior: contributing/feature-gates.md
       - Tools:
           - check-fabric: tools/check-fabric.md
           - generate-bridge: tools/generate-bridge.md

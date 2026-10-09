@@ -74,8 +74,8 @@ devicePlugin:
 #
 # Set here only because this suite drives the CDI path, where the toolkit
 # resolving nvidia.com/gpu applies the spec's mounts and drops its env (#747).
-# With nri.enabled the plugin injects GFD_MACHINE_TYPE_FILE itself and no
-# override is needed.
+# nri.enabled does not replace it: NRI injects only containers that hold a
+# GPU allocation or opt in by annotation, and GFD does neither.
 gfd:
   enabled: true
   env:

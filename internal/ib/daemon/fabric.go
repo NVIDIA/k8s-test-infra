@@ -12,7 +12,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -312,7 +311,7 @@ func (s *Server) pingPeer(peerIP, portGUID string, dstLID uint16) error {
 		return err
 	}
 
-	seq := atomic.AddUint32(&s.nextSeq, 1)
+	seq := s.nextSeq.Add(1)
 	ping := protocol.PingBody{
 		DstPortGUID: portGUID,
 		DstLID:      dstLID,

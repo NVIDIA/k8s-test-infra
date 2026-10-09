@@ -66,6 +66,7 @@ the `a100` profile. Everything else is a flag.
 | `--fgo` | Run:ai's fake-gpu-operator alongside Mokka, splitting workers into two pools |
 | `--topograph` | [topograph](https://github.com/NVIDIA/topograph) network-topology discovery |
 | `--observability` | kube-prometheus-stack and a Grafana dashboard for the mock fleet |
+| `--dynamo` | The NVIDIA Dynamo operator and a `qwen3` inference graph whose mocker worker runs on a mock GPU |
 | `--control-plane` | The Mokka control-plane image and the `mokka-crds` chart |
 
 ### What composes and what does not
@@ -78,15 +79,17 @@ Most flags stack. These do not:
 | `--fgo` with `--compute-domain` | Different fleet shapes |
 | `--compute-domain` with `--multi-gpu-profile` or `--gpu-profile` | The compute-domain scenario fixes both |
 
-Two flags imply others: `--topograph` implies `--compute-domain`, because
+Three flags imply others: `--topograph` implies `--compute-domain`, because
 cliques only exist there; `--observability` implies `--gpu-operator`, because
-`dcgm-exporter` is one of its operands.
+`dcgm-exporter` is one of its operands; `--dynamo` implies `--gpu-operator`,
+because its worker requests `nvidia.com/gpu`.
 
 ```bash
 tilt up -- --gpu-profile gb200
 tilt up -- --multi-gpu-profile --gpu-operator
 tilt up -- --gpu-operator --dra
 tilt up -- --observability
+tilt up -- --dynamo
 
 make cluster-create PROFILE=compute-domain
 tilt up -- --compute-domain --dra
@@ -110,6 +113,13 @@ asserted, not eyeballed.
 
 Grafana is port-forwarded to <http://localhost:3000/d/mokka-gpu> (`admin` /
 `mokka`) once its resource is ready.
+
+**`dynamo-tests`** — `dynamo-smoke` asserts the `qwen3` worker sees exactly
+one GPU whose name matches its node's `nvidia.com/gpu.product` label, then
+sends a chat completion through the frontend and checks the token count. The
+frontend is port-forwarded to <http://localhost:8000/v1/models>. The
+[NVIDIA Dynamo guide](../guides/dynamo/README.md) walks through the same setup
+from published artifacts.
 
 ## Overriding Helm values
 

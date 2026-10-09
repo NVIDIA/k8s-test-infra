@@ -463,10 +463,10 @@ func TestRestartStatusBeforeProjectionDoesNotFlapAndLaterRepairConverges(t *test
 	rackWriter := &fakeRackWriter{object: rackInput.Rack.DeepCopy()}
 	reconciler := NewReconciler(inventoryWriter, rackWriter, func() metav1.Time { return now })
 
-	changed, err := reconciler.ReconcileInventory(context.Background(), input)
+	changed, err := reconciler.ReconcileInventory(t.Context(), input)
 	require.NoError(t, err)
 	require.False(t, changed, "restart status must derive already-correct projection without a local outcome")
-	changed, err = reconciler.ReconcileRack(context.Background(), rackInput)
+	changed, err = reconciler.ReconcileRack(t.Context(), rackInput)
 	require.NoError(t, err)
 	require.False(t, changed, "status running before projection must preserve Ready")
 	require.Zero(t, inventoryWriter.updates)
@@ -474,20 +474,20 @@ func TestRestartStatusBeforeProjectionDoesNotFlapAndLaterRepairConverges(t *test
 
 	input.Projection = projectedOutcomeFor(input.Racks[0], &input.Racks[0].Spec.Nodes[0])
 	rackInput.Projection = input.Projection
-	changed, err = reconciler.ReconcileInventory(context.Background(), input)
+	changed, err = reconciler.ReconcileInventory(t.Context(), input)
 	require.NoError(t, err)
 	require.False(t, changed, "the later projection fast path must not rewrite unchanged status")
-	changed, err = reconciler.ReconcileRack(context.Background(), rackInput)
+	changed, err = reconciler.ReconcileRack(t.Context(), rackInput)
 	require.NoError(t, err)
 	require.False(t, changed)
 	require.Zero(t, inventoryWriter.updates)
 	require.Zero(t, rackWriter.updates)
 
 	delete(input.Nodes[0].Labels, sgpumetadata.AssignedLabel)
-	changed, err = reconciler.ReconcileInventory(context.Background(), input)
+	changed, err = reconciler.ReconcileInventory(t.Context(), input)
 	require.NoError(t, err)
 	require.True(t, changed)
-	changed, err = reconciler.ReconcileRack(context.Background(), rackInput)
+	changed, err = reconciler.ReconcileRack(t.Context(), rackInput)
 	require.NoError(t, err)
 	require.True(t, changed)
 	require.Equal(t, ReasonProjectionIncomplete,
@@ -498,10 +498,10 @@ func TestRestartStatusBeforeProjectionDoesNotFlapAndLaterRepairConverges(t *test
 	setStatusProjection(input.Nodes[0], input.Racks[0], &input.Racks[0].Spec.Nodes[0])
 	input.Projection[0].State = sgpuprojection.StateConflict
 	input.Projection[0].Reason = sgpuprojection.ReasonNodeMetadataConflict
-	changed, err = reconciler.ReconcileInventory(context.Background(), input)
+	changed, err = reconciler.ReconcileInventory(t.Context(), input)
 	require.NoError(t, err)
 	require.True(t, changed)
-	changed, err = reconciler.ReconcileRack(context.Background(), rackInput)
+	changed, err = reconciler.ReconcileRack(t.Context(), rackInput)
 	require.NoError(t, err)
 	require.True(t, changed)
 	require.Equal(t, metav1.ConditionTrue,
@@ -520,7 +520,7 @@ func TestConvergedRackStatusEventsAvoidLiveRequestsAtScale(t *testing.T) {
 	reconciler := NewReconciler(nil, writer, func() metav1.Time { return now })
 
 	for range 100_000 {
-		changed, err := reconciler.ReconcileRack(context.Background(), input)
+		changed, err := reconciler.ReconcileRack(t.Context(), input)
 		require.NoError(t, err)
 		require.False(t, changed)
 	}
@@ -536,7 +536,7 @@ func TestRackStatusRechecksLiveObjectWhenInformerCacheIsStale(t *testing.T) {
 	writer := &fakeRackWriter{object: live}
 
 	changed, err := NewReconciler(nil, writer, func() metav1.Time { return now }).
-		ReconcileRack(context.Background(), input)
+		ReconcileRack(t.Context(), input)
 	require.NoError(t, err)
 	require.False(t, changed)
 	require.Equal(t, 1, writer.gets)
@@ -549,7 +549,7 @@ func TestRackStatusConflictRechecksLiveStatusBeforeRetryingWrite(t *testing.T) {
 	writer := &fakeRackWriter{object: input.Rack.DeepCopy(), conflictOnce: true, conflictConverges: true}
 
 	changed, err := NewReconciler(nil, writer, func() metav1.Time { return now }).
-		ReconcileRack(context.Background(), input)
+		ReconcileRack(t.Context(), input)
 	require.NoError(t, err)
 	require.False(t, changed)
 	require.Equal(t, 2, writer.gets)
@@ -562,7 +562,7 @@ func TestRackStatusTrustsCacheAfterInformerObservesPendingWrite(t *testing.T) {
 	writer := &fakeRackWriter{object: input.Rack.DeepCopy()}
 	reconciler := NewReconciler(nil, writer, func() metav1.Time { return now })
 
-	changed, err := reconciler.ReconcileRack(context.Background(), input)
+	changed, err := reconciler.ReconcileRack(t.Context(), input)
 	require.NoError(t, err)
 	require.True(t, changed)
 	cached := input.Rack.DeepCopy()
@@ -573,7 +573,7 @@ func TestRackStatusTrustsCacheAfterInformerObservesPendingWrite(t *testing.T) {
 	gets := writer.gets
 	writer.getErr = errors.New("observed cached status must not issue a live GET")
 
-	changed, err = reconciler.ReconcileRack(context.Background(), input)
+	changed, err = reconciler.ReconcileRack(t.Context(), input)
 	require.NoError(t, err)
 	require.False(t, changed)
 	require.Equal(t, gets, writer.gets)
@@ -587,20 +587,20 @@ func TestStatusWritersSuppressIdenticalUpdatesAndRetryConflicts(t *testing.T) {
 	rackWriter := &fakeRackWriter{object: rackInput.Rack.DeepCopy(), conflictOnce: true}
 	reconciler := NewReconciler(inventoryWriter, rackWriter, func() metav1.Time { return now })
 
-	changed, err := reconciler.ReconcileInventory(context.Background(), input)
+	changed, err := reconciler.ReconcileInventory(t.Context(), input)
 	require.NoError(t, err)
 	require.True(t, changed)
 	require.Equal(t, 2, inventoryWriter.updates)
-	changed, err = reconciler.ReconcileInventory(context.Background(), input)
+	changed, err = reconciler.ReconcileInventory(t.Context(), input)
 	require.NoError(t, err)
 	require.False(t, changed)
 	require.Equal(t, 2, inventoryWriter.updates)
 
-	changed, err = reconciler.ReconcileRack(context.Background(), rackInput)
+	changed, err = reconciler.ReconcileRack(t.Context(), rackInput)
 	require.NoError(t, err)
 	require.True(t, changed)
 	require.Equal(t, 2, rackWriter.updates)
-	changed, err = reconciler.ReconcileRack(context.Background(), rackInput)
+	changed, err = reconciler.ReconcileRack(t.Context(), rackInput)
 	require.NoError(t, err)
 	require.False(t, changed)
 	require.Equal(t, 2, rackWriter.updates)
@@ -612,7 +612,7 @@ func TestRackStatusTreatsStaleExactObjectAsConverged(t *testing.T) {
 
 	t.Run("deleted", func(t *testing.T) {
 		writer := &fakeRackWriter{getErr: apierrors.NewNotFound(mokkav1alpha1.Resource("sgpuracks"), rackInput.Rack.Name)}
-		changed, err := NewReconciler(nil, writer, nil).ReconcileRack(context.Background(), rackInput)
+		changed, err := NewReconciler(nil, writer, nil).ReconcileRack(t.Context(), rackInput)
 		require.NoError(t, err)
 		require.False(t, changed)
 	})
@@ -622,7 +622,7 @@ func TestRackStatusTreatsStaleExactObjectAsConverged(t *testing.T) {
 			object:    rackInput.Rack.DeepCopy(),
 			updateErr: apierrors.NewNotFound(mokkav1alpha1.Resource("sgpuracks"), rackInput.Rack.Name),
 		}
-		changed, err := NewReconciler(nil, writer, nil).ReconcileRack(context.Background(), rackInput)
+		changed, err := NewReconciler(nil, writer, nil).ReconcileRack(t.Context(), rackInput)
 		require.NoError(t, err)
 		require.False(t, changed)
 		require.Equal(t, 1, writer.updates)
@@ -632,7 +632,7 @@ func TestRackStatusTreatsStaleExactObjectAsConverged(t *testing.T) {
 		recreated := rackInput.Rack.DeepCopy()
 		recreated.UID = "replacement-rack-uid"
 		writer := &fakeRackWriter{object: recreated}
-		changed, err := NewReconciler(nil, writer, nil).ReconcileRack(context.Background(), rackInput)
+		changed, err := NewReconciler(nil, writer, nil).ReconcileRack(t.Context(), rackInput)
 		require.NoError(t, err)
 		require.False(t, changed)
 		require.Zero(t, writer.updates)

@@ -12,6 +12,10 @@
 #   3. Add a load(...) for the new tiltfile.
 #   4. Add `if with_<name>: active_consumers.append('<name>')`.
 #   5. Add `if with_<name>: <name>_install(nvml_mock_releases)`.
+# Optional: if install() waits on something slower than Tilt's 30s apply
+# timeout (helm --wait), export UPSERT_TIMEOUT_S and add it to the
+# "Apply timeout" block below. Never call update_settings from the
+# consumer: it is session-wide and the last call wins.
 # The nvml-mock stack itself needs no changes to add a consumer.
 # Optional: drop local/<name>/nvml-mock.values.yaml if the consumer
 # needs mock-side tweaks (MOCK_* env vars, gpu.count overrides, etc.).
@@ -42,7 +46,11 @@ load('./local/fgo/fgo.tiltfile', fgo_install='install')
 load('./local/topograph/topograph.tiltfile', topograph_install='install')
 load('./local/observability/observability.tiltfile',
      observability_install='install',
-     observability_gpu_operator_values='GPU_OPERATOR_VALUES')
+     observability_gpu_operator_values='GPU_OPERATOR_VALUES',
+     observability_upsert_timeout_s='UPSERT_TIMEOUT_S')
+load('./local/dynamo/dynamo.tiltfile',
+     dynamo_install='install',
+     dynamo_upsert_timeout_s='UPSERT_TIMEOUT_S')
 
 # --- Flags ---------------------------------------------------------------
 config.define_string('gpu-profile', args=False,
@@ -66,6 +74,8 @@ config.define_bool('topograph', args=False,
     usage='Also deploy NVIDIA topograph. Implies --compute-domain (topograph reads the static nvidia.com/gpu.clique labels). Still requires the compute-domain Kind cluster: make cluster-create PROFILE=compute-domain.')
 config.define_bool('observability', args=False,
     usage='Also deploy kube-prometheus-stack + a Grafana dashboard over the mock GPUs, and expose two manual fault-injection triggers (inject-thermal, inject-xid) that assert the fault lands in Prometheus. Implies --gpu-operator (dcgm-exporter is the Operator\'s operand). Grafana on http://localhost:3000/d/mokka-gpu (admin/mokka).')
+config.define_bool('dynamo', args=False,
+    usage='Also deploy NVIDIA Dynamo (operator only) and an aggregated DynamoGraphDeployment whose worker runs the mocker engine on a mock GPU, plus a manual dynamo-smoke trigger. Implies --gpu-operator (the worker requests nvidia.com/gpu). OpenAI API on http://localhost:8000.')
 config.define_bool('control-plane', args=False,
     usage='Also deploy the Mokka Control Plane (MEP-0001) alongside nvml-mock. Off by default. Composes with --multi-gpu-profile (the first profile release owns the single CP), --compute-domain, and --nvmlmock-image.')
 # CI hook: hand Tilt a pre-built image (in CI, loaded from the workflow's image
@@ -87,6 +97,7 @@ with_dra            = cfg.get('dra', False)
 with_fgo            = cfg.get('fgo', False)
 with_topograph      = cfg.get('topograph', False)
 with_observability  = cfg.get('observability', False)
+with_dynamo         = cfg.get('dynamo', False)
 with_control_plane  = cfg.get('control-plane', False)
 
 # --- Implicit flags ------------------------------------------------------
@@ -103,6 +114,12 @@ if with_topograph:
 # stack installs cleanly and every GPU panel stays empty, so implying the
 # flag is friendlier than failing on it.
 if with_observability:
+    with_gpu_operator = True
+
+# --dynamo implies --gpu-operator: the mocker worker requests nvidia.com/gpu,
+# which only the Operator's device plugin advertises. Without it the graph
+# installs and the worker sits Pending forever.
+if with_dynamo:
     with_gpu_operator = True
 
 # --- Guardrails ----------------------------------------------------------
@@ -163,6 +180,9 @@ if with_topograph:
 if with_observability:
     active_consumers.append('observability')
 
+if with_dynamo:
+    active_consumers.append('dynamo')
+
 # --- Safety guard --------------------------------------------------------
 allow_k8s_contexts(k8s_context)
 
@@ -206,6 +226,20 @@ if with_topograph:
 if with_observability:
     helm_repo('prometheus-community', 'https://prometheus-community.github.io/helm-charts',
               labels=['observability'])
+
+# --- Apply timeout -------------------------------------------------------
+# Tilt caps every k8s apply at 30s by default, which a consumer's helm --wait
+# blows through. update_settings is session-wide and the last call wins, so
+# it is set once here, to the largest timeout any active consumer needs: a
+# consumer setting its own would cut short another's longer install. Raised
+# only when such a consumer is on, so every other session keeps the default.
+upsert_timeouts = []
+if with_observability:
+    upsert_timeouts.append(observability_upsert_timeout_s)
+if with_dynamo:
+    upsert_timeouts.append(dynamo_upsert_timeout_s)
+if upsert_timeouts:
+    update_settings(k8s_upsert_timeout_secs=max(upsert_timeouts))
 
 # --- Consumers -----------------------------------------------------------
 # Monitoring goes in BEFORE the GPU Operator: kube-prometheus-stack ships the
@@ -259,6 +293,9 @@ if with_fgo:
 
 if with_topograph:
     topograph_install(nvml_mock_releases)
+
+if with_dynamo:
+    dynamo_install(nvml_mock_releases)
 
 # --- Test workload -------------------------------------------------------
 # GPU validator pod, disabled by default (enable from the Tilt UI). Requests

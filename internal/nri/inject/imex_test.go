@@ -33,8 +33,10 @@ func TestAdjustImexChannelOptInAddsChannelDevices(t *testing.T) {
 		{HostPath: filepath.Join(channelRoot, "channel1"), Path: "/dev/nvidia-caps-imex-channels/channel1"},
 		{HostPath: filepath.Join(channelRoot, "channel2"), Path: "/dev/nvidia-caps-imex-channels/channel2"},
 	}, adjustment.Devices)
-	require.Contains(t, adjustment.Mounts, overlayMount(), "IMEX-only keeps its existing overlay contract until the IB/IMEX PR")
-	require.Contains(t, adjustment.Env, "MOCK_NVML_CONFIG=/opt/nvml-mock/driver/config/config.yaml")
+	// A channel is a fabric capability, not a GPU: without the overlay, mock
+	// NVML cannot enumerate the node's GPUs from inside this container.
+	require.Empty(t, adjustment.Mounts)
+	require.Empty(t, adjustment.Env)
 }
 
 // TestAdjustWithoutImexAnnotationInjectsNoChannels proves the opt-in gate is a
@@ -67,7 +69,7 @@ func TestAdjustWithoutImexAnnotationInjectsNoChannels(t *testing.T) {
 
 // TestAdjustImexChannelOptInFailsOpenWhenTreeMissing mirrors the device path:
 // imex.mockChannels is off by default, so an annotation on a node that never
-// staged channels must degrade to overlay-only rather than block the pod.
+// staged channels must degrade to an empty adjustment rather than block the pod.
 func TestAdjustImexChannelOptInFailsOpenWhenTreeMissing(t *testing.T) {
 	t.Parallel()
 
@@ -79,8 +81,7 @@ func TestAdjustImexChannelOptInFailsOpenWhenTreeMissing(t *testing.T) {
 		PodAnnotations: map[string]string{"nvml-mock.nvidia.com/imex-channels": "true"},
 	})
 	require.True(t, ok)
-	require.Empty(t, adjustment.Devices)
-	require.Contains(t, adjustment.Mounts, overlayMount())
+	require.Empty(t, adjustment)
 }
 
 // TestAdjustImexChannelsSurviveDevicePluginAllocation pins the composition rule
@@ -106,7 +107,7 @@ func TestAdjustImexChannelsSurviveDevicePluginAllocation(t *testing.T) {
 		},
 		// The kubelet already applied the device plugin's Allocate response.
 		IncomingDevices: []RuntimeDevice{{Path: "/dev/nvidia0", Type: "c", Major: 195, Minor: 0}},
-		DeviceRules:     []DeviceRule{{Allow: true, Type: "c", Major: int64Ptr(195), Minor: int64Ptr(0), Access: "rwm"}},
+		DeviceRules:     []DeviceRule{{Allow: true, Type: "c", Major: new(int64(195)), Minor: new(int64(0)), Access: "rwm"}},
 	})
 	require.True(t, ok)
 

@@ -4,7 +4,6 @@
 package controller
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -24,7 +23,7 @@ import (
 
 func TestRackBindingReleaseWakesDestinationAfterEarlierWorkDrains(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	profiles := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, sgpuinventory.Indexers())

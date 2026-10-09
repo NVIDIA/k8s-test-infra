@@ -223,7 +223,7 @@ queries never do.
 For interactive exploration, use a long-running process, for example
 
 ```bash
-kubectl --context kind-nvml-mock-failure-demo exec -it "$POD" -- nvidia-smi \
+kubectl --context kind-nvml-mock-failure-demo -n mokka-failure exec -it "$POD" -- nvidia-smi \
   --query-gpu=index,ecc.errors.uncorrected.aggregate.total \
   --format=csv -l 1
 ```

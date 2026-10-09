@@ -1,0 +1,4 @@
+kind: Changed
+body: |-
+  internal: adopted Go 1.26 idioms across `internal/` (`slices`/`cmp` sorting, `errors.AsType`, `sync.WaitGroup.Go`, typed atomics, `strings.SplitSeq`). No behavior change.
+time: 2026-10-07T12:26:33Z

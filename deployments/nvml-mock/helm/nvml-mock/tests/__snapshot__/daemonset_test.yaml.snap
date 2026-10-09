@@ -19,7 +19,7 @@ should match snapshot with all overrides:
       template:
         metadata:
           annotations:
-            checksum/config: e99fb3c70faadf41ab8f67bba86914ea223e2967613b248abf08e876c72b93c2
+            checksum/config: dec604d970de10b1f220f5c3d26a57b6d5eade017f411a80ed6099da1a8910c3
             checksum/mig-profiles: 7f5c00954886487b5209e5d1724a12cb1c9555a6c1fbf79d10f385fed9923237
             kubectl.kubernetes.io/default-container: node-agent
           labels:
@@ -29,6 +29,75 @@ should match snapshot with all overrides:
         spec:
           automountServiceAccountToken: false
           containers:
+            - args:
+                - --socket-path=/var/run/nri/nri.sock
+                - --plugin-name=nvml-mock
+                - --plugin-index=10
+                - --overlay-host-path=/var/lib/nvml-mock
+                - --overlay-mount-path=/opt/nvml-mock
+                - --device-host-path=/var/lib/nvml-mock/driver/dev
+                - --opt-out-annotation=nvml-mock.nvidia.com/inject
+                - --device-annotation=nvml-mock.nvidia.com/devices
+                - --device-injection-mode=raw
+                - --cdi-spec-host-path=/var/run/cdi/nvml-mock-nri.yaml
+                - --imex-channel-annotation=nvml-mock.nvidia.com/imex-channels
+                - --imex-channel-host-path=/var/lib/nvml-mock/driver/dev/nvidia-caps-imex-channels
+                - --infiniband-annotation=nvml-mock.nvidia.com/infiniband
+                - --excluded-namespaces=gpu-system,kube-system
+                - --node-name=$(NODE_NAME)
+                - --health-addr=:8080
+                - --agent-staged-url=http://127.0.0.1:9091/stagedz
+                - --staging-lock-path=/run/nvml-mock/nri-staging.lock
+                - --log-level=info
+                - --log-format=json
+              command:
+                - /usr/local/bin/nri-plugin
+              env:
+                - name: NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
+              image: custom-registry/nvml-mock:v2.0.0
+              imagePullPolicy: Always
+              livenessProbe:
+                failureThreshold: 3
+                httpGet:
+                  path: /healthz
+                  port: nri-health
+                periodSeconds: 10
+                timeoutSeconds: 2
+              name: nvml-mock-nri
+              ports:
+                - containerPort: 8080
+                  name: nri-health
+                  protocol: TCP
+              readinessProbe:
+                failureThreshold: 2
+                httpGet:
+                  path: /readyz
+                  port: nri-health
+                periodSeconds: 10
+                timeoutSeconds: 2
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                runAsUser: 0
+              volumeMounts:
+                - mountPath: /var/run/nri
+                  name: nri-socket-dir
+                - mountPath: /run/nvml-mock
+                  name: staging-gate
+                  readOnly: true
+                - mountPath: /var/lib/nvml-mock
+                  name: mokka-root
+                  readOnly: true
+                - mountPath: /var/run/cdi
+                  name: cdi-specs
+                  readOnly: true
+          initContainers:
             - command:
                 - /usr/local/bin/node-agent
                 - start
@@ -39,6 +108,7 @@ should match snapshot with all overrides:
                 - --log-format=json
                 - --shutdown-timeout=5s
                 - --resync-interval=1m
+                - --staging-lock-path=/run/nvml-mock/nri-staging.lock
               env:
                 - name: NODE_NAME
                   valueFrom:
@@ -100,8 +170,16 @@ should match snapshot with all overrides:
                 requests:
                   cpu: 10m
                   memory: 32Mi
+              restartPolicy: Always
               securityContext:
                 privileged: true
+              startupProbe:
+                failureThreshold: 120
+                httpGet:
+                  path: /stagedz
+                  port: health
+                periodSeconds: 1
+                timeoutSeconds: 1
               volumeMounts:
                 - mountPath: /host/var/lib/nvml-mock
                   name: mokka-root
@@ -117,6 +195,8 @@ should match snapshot with all overrides:
                   readOnly: true
                 - mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
                   name: nfd-features
+                - mountPath: /run/nvml-mock
+                  name: staging-gate
                 - mountPath: /etc/nvml-mock/mig
                   name: mig-profiles
                   readOnly: true
@@ -145,6 +225,14 @@ should match snapshot with all overrides:
                 path: /var/run/cdi
                 type: DirectoryOrCreate
               name: cdi-specs
+            - hostPath:
+                path: /var/run/nri
+                type: DirectoryOrCreate
+              name: nri-socket-dir
+            - emptyDir:
+                medium: Memory
+                sizeLimit: 1Mi
+              name: staging-gate
             - hostPath:
                 path: /run/nvidia
                 type: DirectoryOrCreate
@@ -189,7 +277,7 @@ should match snapshot with b200 profile:
       template:
         metadata:
           annotations:
-            checksum/config: 9083c6cdf1748790ce344e59f43aeb39cef47bf005534e3a227fef7d716df4f7
+            checksum/config: 2dfc22b4035e2006d84481bb2513df345cd708c588bd5a44d3d2ed88430e4550
             checksum/mig-profiles: 872e4e600afe92907f403d7ba38f14a091ffb356dc113d23c5c136a0284625d1
             kubectl.kubernetes.io/default-container: node-agent
           labels:
@@ -199,6 +287,75 @@ should match snapshot with b200 profile:
         spec:
           automountServiceAccountToken: false
           containers:
+            - args:
+                - --socket-path=/var/run/nri/nri.sock
+                - --plugin-name=nvml-mock
+                - --plugin-index=10
+                - --overlay-host-path=/var/lib/nvml-mock
+                - --overlay-mount-path=/opt/nvml-mock
+                - --device-host-path=/var/lib/nvml-mock/driver/dev
+                - --opt-out-annotation=nvml-mock.nvidia.com/inject
+                - --device-annotation=nvml-mock.nvidia.com/devices
+                - --device-injection-mode=raw
+                - --cdi-spec-host-path=/var/run/cdi/nvml-mock-nri.yaml
+                - --imex-channel-annotation=nvml-mock.nvidia.com/imex-channels
+                - --imex-channel-host-path=/var/lib/nvml-mock/driver/dev/nvidia-caps-imex-channels
+                - --infiniband-annotation=nvml-mock.nvidia.com/infiniband
+                - --excluded-namespaces=NAMESPACE,kube-system
+                - --node-name=$(NODE_NAME)
+                - --health-addr=:8080
+                - --agent-staged-url=http://127.0.0.1:9091/stagedz
+                - --staging-lock-path=/run/nvml-mock/nri-staging.lock
+                - --log-level=info
+                - --log-format=json
+              command:
+                - /usr/local/bin/nri-plugin
+              env:
+                - name: NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
+              image: ghcr.io/nvidia/nvml-mock:0.0.0-dev
+              imagePullPolicy: IfNotPresent
+              livenessProbe:
+                failureThreshold: 3
+                httpGet:
+                  path: /healthz
+                  port: nri-health
+                periodSeconds: 10
+                timeoutSeconds: 2
+              name: nvml-mock-nri
+              ports:
+                - containerPort: 8080
+                  name: nri-health
+                  protocol: TCP
+              readinessProbe:
+                failureThreshold: 2
+                httpGet:
+                  path: /readyz
+                  port: nri-health
+                periodSeconds: 10
+                timeoutSeconds: 2
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                runAsUser: 0
+              volumeMounts:
+                - mountPath: /var/run/nri
+                  name: nri-socket-dir
+                - mountPath: /run/nvml-mock
+                  name: staging-gate
+                  readOnly: true
+                - mountPath: /var/lib/nvml-mock
+                  name: mokka-root
+                  readOnly: true
+                - mountPath: /var/run/cdi
+                  name: cdi-specs
+                  readOnly: true
+          initContainers:
             - command:
                 - /usr/local/bin/node-agent
                 - start
@@ -209,6 +366,7 @@ should match snapshot with b200 profile:
                 - --log-format=json
                 - --shutdown-timeout=5s
                 - --resync-interval=1m
+                - --staging-lock-path=/run/nvml-mock/nri-staging.lock
               env:
                 - name: NODE_NAME
                   valueFrom:
@@ -268,8 +426,16 @@ should match snapshot with b200 profile:
                 requests:
                   cpu: 10m
                   memory: 32Mi
+              restartPolicy: Always
               securityContext:
                 privileged: true
+              startupProbe:
+                failureThreshold: 120
+                httpGet:
+                  path: /stagedz
+                  port: health
+                periodSeconds: 1
+                timeoutSeconds: 1
               volumeMounts:
                 - mountPath: /host/var/lib/nvml-mock
                   name: mokka-root
@@ -285,6 +451,8 @@ should match snapshot with b200 profile:
                   readOnly: true
                 - mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
                   name: nfd-features
+                - mountPath: /run/nvml-mock
+                  name: staging-gate
                 - mountPath: /etc/nvml-mock/mig
                   name: mig-profiles
                   readOnly: true
@@ -307,6 +475,14 @@ should match snapshot with b200 profile:
                 path: /var/run/cdi
                 type: DirectoryOrCreate
               name: cdi-specs
+            - hostPath:
+                path: /var/run/nri
+                type: DirectoryOrCreate
+              name: nri-socket-dir
+            - emptyDir:
+                medium: Memory
+                sizeLimit: 1Mi
+              name: staging-gate
             - hostPath:
                 path: /run/nvidia
                 type: DirectoryOrCreate
@@ -347,7 +523,7 @@ should match snapshot with default values:
       template:
         metadata:
           annotations:
-            checksum/config: aed0a67a7b02a2b9b5d1bb7c6132d15cdd553a4b4a629ff7f4e56b3ac1a17efb
+            checksum/config: ee6dddda3a9716d54d16487cf75e7375ee29bddc6e95863a81f2bf2d4b7211df
             checksum/mig-profiles: fb2ebf8b158ede295783bcc2f137d194ef2e4f7648855ea626d419f41e62cf2d
             kubectl.kubernetes.io/default-container: node-agent
           labels:
@@ -357,6 +533,75 @@ should match snapshot with default values:
         spec:
           automountServiceAccountToken: false
           containers:
+            - args:
+                - --socket-path=/var/run/nri/nri.sock
+                - --plugin-name=nvml-mock
+                - --plugin-index=10
+                - --overlay-host-path=/var/lib/nvml-mock
+                - --overlay-mount-path=/opt/nvml-mock
+                - --device-host-path=/var/lib/nvml-mock/driver/dev
+                - --opt-out-annotation=nvml-mock.nvidia.com/inject
+                - --device-annotation=nvml-mock.nvidia.com/devices
+                - --device-injection-mode=raw
+                - --cdi-spec-host-path=/var/run/cdi/nvml-mock-nri.yaml
+                - --imex-channel-annotation=nvml-mock.nvidia.com/imex-channels
+                - --imex-channel-host-path=/var/lib/nvml-mock/driver/dev/nvidia-caps-imex-channels
+                - --infiniband-annotation=nvml-mock.nvidia.com/infiniband
+                - --excluded-namespaces=NAMESPACE,kube-system
+                - --node-name=$(NODE_NAME)
+                - --health-addr=:8080
+                - --agent-staged-url=http://127.0.0.1:9091/stagedz
+                - --staging-lock-path=/run/nvml-mock/nri-staging.lock
+                - --log-level=info
+                - --log-format=json
+              command:
+                - /usr/local/bin/nri-plugin
+              env:
+                - name: NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
+              image: ghcr.io/nvidia/nvml-mock:0.0.0-dev
+              imagePullPolicy: IfNotPresent
+              livenessProbe:
+                failureThreshold: 3
+                httpGet:
+                  path: /healthz
+                  port: nri-health
+                periodSeconds: 10
+                timeoutSeconds: 2
+              name: nvml-mock-nri
+              ports:
+                - containerPort: 8080
+                  name: nri-health
+                  protocol: TCP
+              readinessProbe:
+                failureThreshold: 2
+                httpGet:
+                  path: /readyz
+                  port: nri-health
+                periodSeconds: 10
+                timeoutSeconds: 2
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                runAsUser: 0
+              volumeMounts:
+                - mountPath: /var/run/nri
+                  name: nri-socket-dir
+                - mountPath: /run/nvml-mock
+                  name: staging-gate
+                  readOnly: true
+                - mountPath: /var/lib/nvml-mock
+                  name: mokka-root
+                  readOnly: true
+                - mountPath: /var/run/cdi
+                  name: cdi-specs
+                  readOnly: true
+          initContainers:
             - command:
                 - /usr/local/bin/node-agent
                 - start
@@ -367,6 +612,7 @@ should match snapshot with default values:
                 - --log-format=json
                 - --shutdown-timeout=5s
                 - --resync-interval=1m
+                - --staging-lock-path=/run/nvml-mock/nri-staging.lock
               env:
                 - name: NODE_NAME
                   valueFrom:
@@ -375,7 +621,7 @@ should match snapshot with default values:
                 - name: GPU_COUNT
                   value: "4"
                 - name: DRIVER_VERSION
-                  value: 570.124.06
+                  value: 580.65.06
                 - name: MOCK_FABRICMANAGER_STATE_DIR
                   value: /var/lib/nvml-mock/fabric-state
                 - name: MOCK_IB
@@ -428,8 +674,16 @@ should match snapshot with default values:
                 requests:
                   cpu: 10m
                   memory: 32Mi
+              restartPolicy: Always
               securityContext:
                 privileged: true
+              startupProbe:
+                failureThreshold: 120
+                httpGet:
+                  path: /stagedz
+                  port: health
+                periodSeconds: 1
+                timeoutSeconds: 1
               volumeMounts:
                 - mountPath: /host/var/lib/nvml-mock
                   name: mokka-root
@@ -445,6 +699,8 @@ should match snapshot with default values:
                   readOnly: true
                 - mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
                   name: nfd-features
+                - mountPath: /run/nvml-mock
+                  name: staging-gate
                 - mountPath: /etc/nvml-mock/mig
                   name: mig-profiles
                   readOnly: true
@@ -469,6 +725,14 @@ should match snapshot with default values:
                 path: /var/run/cdi
                 type: DirectoryOrCreate
               name: cdi-specs
+            - hostPath:
+                path: /var/run/nri
+                type: DirectoryOrCreate
+              name: nri-socket-dir
+            - emptyDir:
+                medium: Memory
+                sizeLimit: 1Mi
+              name: staging-gate
             - hostPath:
                 path: /run/nvidia
                 type: DirectoryOrCreate

@@ -78,7 +78,7 @@ real software at it.
 |---|---|
 | Schedule GPU workloads with the device plugin, DRA or the GPU Operator | [Installation](helm-chart.md) |
 | Break a GPU and watch consumers react | [Failure injection](guides/failure-injection/README.md) |
-| Give a pod GPUs without changing its spec | [Node-wide injection](guides/node-wide-injection/README.md) |
+| Check that GPU workloads get the mock driver | [Set up NRI injection](guides/nri-injection.md) |
 | Change temperature, power or health on a running node | [Runtime control](nvml-mock-ctl.md) |
 | Understand what is actually happening | [Architecture](architecture.md) |
 

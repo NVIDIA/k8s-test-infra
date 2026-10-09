@@ -18,6 +18,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/features"
 	"github.com/NVIDIA/k8s-test-infra/internal/health"
 	"github.com/NVIDIA/k8s-test-infra/internal/logging"
 	"github.com/NVIDIA/k8s-test-infra/internal/nri"
@@ -45,6 +46,7 @@ func newCLI() *cli.Command {
 			overlayFlags(defaults),
 			topologyFlags(),
 			gpuFlags(defaults),
+			infiniBandFlags(defaults),
 			imexChannelFlags(defaults),
 		),
 		Action: run,
@@ -54,6 +56,7 @@ func newCLI() *cli.Command {
 // processFlags shape the binary itself rather than any injection.
 func processFlags() []cli.Flag {
 	return []cli.Flag{
+		features.CLIFlag(),
 		&cli.StringFlag{
 			Name:    "log-level",
 			Value:   string(logging.LevelInfo),
@@ -213,6 +216,19 @@ func gpuFlags(defaults nri.Config) []cli.Flag {
 	}
 }
 
+// infiniBandFlags control the InfiniBand opt-in, which is separate from the GPU
+// one because real clusters allocate RDMA independently of GPUs.
+func infiniBandFlags(defaults nri.Config) []cli.Flag {
+	return []cli.Flag{
+		&cli.StringFlag{
+			Name:    "infiniband-annotation",
+			Value:   defaults.Inject.InfiniBandAnnotation,
+			Sources: cli.EnvVars("MOKKA_NRI_INFINIBAND_ANNOTATION"),
+			Usage:   "pod annotation key; value true enables the mock InfiniBand tools and shims",
+		},
+	}
+}
+
 // imexChannelFlags control the fabric opt-in, which is separate from the GPU
 // one because a ComputeDomain workload may want channels without mock GPUs.
 func imexChannelFlags(defaults nri.Config) []cli.Flag {
@@ -263,6 +279,7 @@ func configFrom(cmd *cli.Command) (nri.Config, error) {
 			DeviceAnnotation:      cmd.String("device-annotation"),
 			ImexChannelAnnotation: cmd.String("imex-channel-annotation"),
 			ImexChannelHostPath:   cmd.String("imex-channel-host-path"),
+			InfiniBandAnnotation:  cmd.String("infiniband-annotation"),
 			ExcludedNamespaces:    cmd.StringSlice("excluded-namespaces"),
 			Shims:                 cmd.StringSlice("ld-preload-shims"),
 		},
@@ -282,6 +299,10 @@ func run(ctx context.Context, cmd *cli.Command) error {
 
 	logger := logging.NewLogger(logging.Config{Level: level, Format: format})
 	defer func() { _ = logger.Sync() }()
+
+	if err := features.ConfigureFromCLI(cmd, logger); err != nil {
+		return err
+	}
 
 	cfg, err := configFrom(cmd)
 

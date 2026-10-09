@@ -321,7 +321,7 @@ func admissionReconcile(ctx context.Context, t *testing.T, mokka *mokkaclient.Cl
 
 func admissionCommand(t *testing.T, stdin []byte, name string, args ...string) []byte {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdin = bytes.NewReader(stdin)

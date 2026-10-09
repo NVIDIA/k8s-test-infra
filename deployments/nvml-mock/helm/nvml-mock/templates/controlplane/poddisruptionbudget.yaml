@@ -1,0 +1,23 @@
+{{- if and .Values.controlPlane.enabled .Values.controlPlane.pdb.enabled (gt (int .Values.controlPlane.replicas) 1) }}
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "nvml-mock.controlPlaneName" . }}
+  labels:
+    {{- include "nvml-mock.controlPlaneLabels" . | nindent 4 }}
+    app.kubernetes.io/component: control-plane
+spec:
+  {{- if ne .Values.controlPlane.pdb.maxUnavailable nil }}
+  maxUnavailable: {{ .Values.controlPlane.pdb.maxUnavailable }}
+  {{- else if ne .Values.controlPlane.pdb.minAvailable nil }}
+  minAvailable: {{ .Values.controlPlane.pdb.minAvailable }}
+  {{- else }}
+  minAvailable: 1
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "nvml-mock.controlPlaneSelectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: control-plane
+{{- end }}

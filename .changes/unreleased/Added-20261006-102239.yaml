@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  A `--dynamo` Tilt consumer that installs NVIDIA Dynamo 1.5.0 and serves an OpenAI-compatible endpoint from a mocker worker scheduled onto a mock GPU, with a `dynamo-smoke` trigger that checks the path end to end.
+time: 2026-10-06T08:22:39Z

@@ -372,6 +372,63 @@ func TestDetailedSramECCIsAmpereAndLater(t *testing.T) {
 	}
 }
 
+// The two NVLink predicates answer on different axes, and pinning both per
+// profile is what keeps one from collapsing into the other: the bandwidth mode
+// is node-wide and answers on Hopper alone, so only h100 reports it, while the
+// NVLE row needs a 580 driver and a declared fabric, which only gb200 and gb300
+// have. No shipped profile reports both. Driven from KnownProfiles so a newly
+// added profile has to declare which side it belongs on.
+func TestNvlinkDerivations(t *testing.T) {
+	want := map[string]struct{ bwMode, nvle bool }{
+		"t4":    {false, false},
+		"l40s":  {false, false},
+		"a100":  {false, false},
+		"h100":  {true, false},
+		"b200":  {false, false},
+		"gb200": {false, true},
+		"gb300": {false, true},
+	}
+	for _, name := range KnownProfiles {
+		w, ok := want[name]
+		require.True(t, ok, "profile %q declares no NVLink expectation", name)
+		p, err := Load(profilesDir, name)
+		require.NoError(t, err, "Load(%q)", name)
+		require.Equal(t, w.bwMode, p.ReportsNvlinkBwMode(),
+			"%s (%s): nvlink bandwidth mode", name, p.Architecture())
+		require.Equal(t, w.nvle, p.ReportsNvlinkEncryption(),
+			"%s (%s, driver %d.x, %d links): NVLE row",
+			name, p.Architecture(), p.DriverMajor(), p.ExpectedNV())
+	}
+}
+
+// The bandwidth-mode expectation follows the profile's nvlink.bw_mode.scope
+// alone: the architecture is deliberately contradicted here, so a derivation
+// that fell back to it would fail one of the two cases.
+func TestNvlinkBwModeFollowsDeclaredScope(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		arch, nvlink string
+		want         bool
+	}{
+		"hopper without bw_mode":   {"hopper", "nvlink:\n  links_per_gpu: 18\n", false},
+		"blackwell on system pair": {"blackwell", "nvlink:\n  bw_mode:\n    scope: system\n", true},
+		"blackwell on device trio": {"blackwell", "nvlink:\n  bw_mode:\n    scope: device\n", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			yaml := "device_defaults:\n  name: \"NVIDIA TEST-GPU\"\n  architecture: \"" + tc.arch +
+				"\"\ndevices:\n  - index: 0\n" + tc.nvlink
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "fixture.yaml"), []byte(yaml), 0o600))
+
+			p, err := Load(dir, "fixture")
+			require.NoError(t, err, "Load(fixture)")
+			require.Equal(t, tc.want, p.ReportsNvlinkBwMode(), "ReportsNvlinkBwMode()")
+		})
+	}
+}
+
 // A profile with no remapped_rows block must load and report the histogram
 // unsupported rather than failing.
 func TestRowRemapHistogramDefaultsToUnsupported(t *testing.T) {

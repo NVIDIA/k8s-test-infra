@@ -42,7 +42,7 @@ import (
 
 //nolint:cyclop // One acceptance flow deliberately exercises the complete lifecycle sequence.
 func TestControllerLifecycleAcceptance(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	nodes := newAcceptanceNodeClient()
 	mokka := mokkafake.NewSimpleClientset()
 	installAcceptanceAPIReactors(t, mokka)
@@ -160,7 +160,7 @@ func TestControllerLifecycleAcceptance(t *testing.T) {
 
 //nolint:cyclop // One acceptance flow asserts recovery and every ownership-safety guard around it.
 func TestControllerRecoversDesiredRackAfterForeignBlockerDelete(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	nodes := newAcceptanceNodeClient()
 	mokka := mokkafake.NewSimpleClientset()
 	installAcceptanceAPIReactors(t, mokka)
@@ -231,7 +231,7 @@ func TestControllerRecoversDesiredRackAfterForeignBlockerDelete(t *testing.T) {
 
 //nolint:cyclop // The acceptance flow asserts both convergence and every last-good-state guard.
 func TestControllerRejectsProjectedLabelPlacementWithoutOscillation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	nodes := newAcceptanceNodeClient()
 	mokka := mokkafake.NewSimpleClientset()
 	installAcceptanceAPIReactors(t, mokka)
@@ -313,7 +313,7 @@ func TestControllerRejectsProjectedLabelPlacementWithoutOscillation(t *testing.T
 
 //nolint:cyclop // The gated worker flow must observe each asynchronous lifecycle boundary explicitly.
 func TestControllerCancelsQueuedCleanupWhenSelectorRestoresBinding(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	nodes := newAcceptanceNodeClient()
 	mokka := mokkafake.NewSimpleClientset()
 	installAcceptanceAPIReactors(t, mokka)
@@ -410,7 +410,7 @@ func TestControllerCancelsQueuedCleanupWhenSelectorRestoresBinding(t *testing.T)
 
 //nolint:cyclop // The barriers deliberately place the allocation change inside one cleanup attempt.
 func TestControllerRestoresBindingWhenAllocationChangesDuringCleanup(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	nodes := newAcceptanceNodeClient()
 	mokka := mokkafake.NewSimpleClientset()
 	installAcceptanceAPIReactors(t, mokka)
@@ -496,7 +496,7 @@ func TestControllerRestoresBindingWhenAllocationChangesDuringCleanup(t *testing.
 
 //nolint:cyclop // The barriers place restoration after acknowledgement but before its follow-up reconcile.
 func TestControllerRestoresBindingWhenAllocationChangesAfterCleanup(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	nodes := newAcceptanceNodeClient()
 	mokka := mokkafake.NewSimpleClientset()
 	installAcceptanceAPIReactors(t, mokka)
@@ -607,7 +607,7 @@ func TestControllerRestoresBindingWhenAllocationChangesAfterCleanup(t *testing.T
 }
 
 func TestControllerBoundsCleanupWhenForeignCoOwnerPreservesField(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	nodes := newAcceptanceNodeClient()
 	mokka := mokkafake.NewSimpleClientset()
 	installAcceptanceAPIReactors(t, mokka)
@@ -677,7 +677,7 @@ func TestControllerBoundsCleanupWhenForeignCoOwnerPreservesField(t *testing.T) {
 }
 
 func TestControllerReplacementConvergesWhileRestartQueuesInitialize(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	const nodeCount = 50
 	profile := acceptanceProfile(nodeCount)
 	inventory := acceptanceInventory()
@@ -790,7 +790,7 @@ func TestRestartCleanupGatesReleasedAndRetiredBindings(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := t.Context()
 			profile := acceptanceProfile(1)
 			inventory := acceptanceInventory()
 			inventory.Finalizers = []string{sgpuinventory.InventoryFinalizer}

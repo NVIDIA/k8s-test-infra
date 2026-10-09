@@ -15,6 +15,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions/nvidiasmi"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/cluster"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/config"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
@@ -26,7 +27,10 @@ import (
 
 const gpuOperatorNamespace = "gpu-operator"
 
-var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func() {
+// ContinueOnFailure because the specs report independent facts about the
+// operands, and a plain Ordered container stops at the first failure: an NRI
+// failure would hide the DCGM, runtime-control and Xid results behind it.
+var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, ContinueOnFailure, func() {
 	var h *harness.Harness
 	selectedProfiles := config.SelectedProfileNames()
 
@@ -97,6 +101,27 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func(
 				assertions.WaitGFDLabels(ctx, h.Kube, node,
 					map[string]string{assertions.GFDLabelMachine: p.GFDProductName()},
 					config.ReadyTimeout(), config.PollInterval())
+			})
+
+			// The Operator's device plugin runs in CDI mode, so this is the
+			// path where the NRI plugin has to recognise an allocation the
+			// runtime also resolves through CDI. The operands themselves hold no
+			// allocation and carry no opt-in, so NRI must leave them alone.
+			It("gives a GPU-requesting pod exactly one GPU through NRI and leaves operands alone", Label("gpu-operator-nri"), func(ctx SpecContext) {
+				requireNRIPlugin(ctx, h, "tilt up -- --gpu-operator")
+				ref := runGPUOperatorWorkload(ctx, h, node)
+
+				res, err := h.Kube.ExecSh(ctx, ref, `test -d /opt/nvml-mock && test -n "${MOCK_NVML_CONFIG:-}"`)
+				Expect(err).NotTo(HaveOccurred(),
+					"the GPU-requesting pod was not injected by NRI: no /opt/nvml-mock overlay or MOCK_NVML_CONFIG\n%s", res.Combined())
+				snap, err := nvidiasmi.SnapshotFromPod(ctx, h.Kube, ref)
+				Expect(err).NotTo(HaveOccurred(), "read nvidia-smi -q -x in the GPU-requesting pod")
+				Expect(snap.Count()).To(Equal(1), "a pod requesting one GPU must see exactly one, got %v", snap.UUIDs())
+
+				gfd := gfdPodRef(ctx, h, node)
+				res, err = h.Kube.ExecSh(ctx, gfd, `test ! -e /opt/nvml-mock`)
+				Expect(err).NotTo(HaveOccurred(),
+					"NRI injected the GPU Feature Discovery operand, which holds no allocation\n%s", res.Combined())
 			})
 
 			It("exports DCGM device metrics that vary over time", Label("dcgm"), func(ctx SpecContext) {
@@ -276,6 +301,33 @@ func verifyGPUOperatorNodeSetup(ctx context.Context, container string) {
 	GinkgoHelper()
 	Expect(dockerExec(ctx, container, "test", "-f", "/var/run/cdi/nvidia.yaml")).To(Succeed(), "CDI spec exists")
 	Expect(dockerExec(ctx, container, "bash", "-c", "LD_LIBRARY_PATH=/run/nvidia/driver/usr/lib64 /run/nvidia/driver/usr/bin/nvidia-smi")).To(Succeed(), "nvidia-smi works via /run/nvidia/driver")
+}
+
+const gpuOperatorWorkloadPod = "gpu-operator-nri-workload"
+
+// runGPUOperatorWorkload starts the NRI scenario's workload shape, requesting
+// one nvidia.com/gpu from the Operator's device plugin on node, and waits for
+// it to run. It is placed by node selector, not nodeName, so the scheduler and
+// the device plugin's allocation stay in the path. Its failure evidence is
+// registered before the wait, so a pod that never runs is still described.
+func runGPUOperatorWorkload(ctx SpecContext, h *harness.Harness, node string) kube.PodRef {
+	GinkgoHelper()
+	spec := nriWorkload(gpuOperatorWorkloadPod)
+	spec.NodeSelector = map[string]string{"kubernetes.io/hostname": node}
+	spec.GPUs = 1
+	manifest := spec.Render()
+	ref := kube.PodRef{Namespace: nriWorkloadNS, Pod: gpuOperatorWorkloadPod}
+	Expect(h.Kube.Delete(ctx, manifest)).To(Succeed(), "delete previous GPU Operator workload pod")
+	Expect(h.Kube.Apply(ctx, manifest)).To(Succeed(), "apply GPU Operator workload pod")
+	DeferCleanup(func(ctx SpecContext) {
+		Expect(h.Kube.Delete(ctx, manifest)).To(Succeed(), "delete GPU Operator workload pod")
+	})
+	collectPodOnFailure(h, "gpu-operator", ref)
+	Eventually(func() (string, error) {
+		return h.Kube.PodPhase(ctx, ref.Namespace, ref.Pod)
+	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
+		Should(Equal("Running"), "GPU Operator workload pod did not reach Running")
+	return ref
 }
 
 // gfdPodRef resolves the GPU Feature Discovery pod on node, polling for the

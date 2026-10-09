@@ -70,7 +70,7 @@ func TestLeaderConfigWaitsForControllerBeforeLeaseRelease(t *testing.T) {
 
 	released := make(chan struct{})
 	go func() {
-		_ = lock.Update(context.Background(), rl.LeaderElectionRecord{})
+		_ = lock.Update(t.Context(), rl.LeaderElectionRecord{})
 		close(released)
 	}()
 	<-workCanceled
@@ -132,7 +132,7 @@ func TestLeaderConfigPublishesElectionReadiness(t *testing.T) {
 }
 
 func TestRunWithCachesSynchronizesBeforeElection(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cacheStarted := make(chan struct{})
 	releaseSync := make(chan struct{})
 	cachesSynced := make(chan struct{})
@@ -179,7 +179,7 @@ func TestRunWithCachesCombinesElectionAndCacheShutdownFailures(t *testing.T) {
 	cacheErr := errors.New("cache shutdown failed")
 
 	err := runWithCaches(
-		context.Background(),
+		t.Context(),
 		func(ctx context.Context) error {
 			<-ctx.Done()
 			return cacheErr
@@ -195,7 +195,7 @@ func TestRunWithCachesCombinesElectionAndCacheShutdownFailures(t *testing.T) {
 func TestRunWithCachesFailsBeforeElection(t *testing.T) {
 	var electionCalled atomic.Bool
 	err := runWithCaches(
-		context.Background(),
+		t.Context(),
 		func(context.Context) error { return errors.New("list failed") },
 		make(chan struct{}),
 		func(context.Context) error {
@@ -225,7 +225,7 @@ func TestLeaderElectionStopsWorkBeforeReleaseGet(t *testing.T) {
 	readiness := newElectionReadiness()
 	workStarted := make(chan struct{})
 	workStopped := make(chan struct{})
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	result := make(chan error, 1)
 	runDone := make(chan struct{})
 	go func() {
@@ -294,7 +294,7 @@ func testLeaderElectionDrain(t *testing.T, loseLease bool) {
 	lock := newElectionResourceLock(loseLease)
 	workStarted := make(chan struct{})
 	workStopped := make(chan struct{})
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	result := make(chan error, 1)
 	go func() {
@@ -340,7 +340,7 @@ func TestLeaderWorkDoesNotStartAfterElectionReturns(t *testing.T) {
 	work := newLeaderWork()
 	require.False(t, work.finishElection())
 	called := false
-	work.start(context.Background(), func(context.Context) error {
+	work.start(t.Context(), func(context.Context) error {
 		called = true
 		return nil
 	}, func() {})
@@ -355,7 +355,7 @@ func TestLeaderWorkDoesNotStartAfterElectionReturns(t *testing.T) {
 
 func TestLeaderWorkUsesLeadingContext(t *testing.T) {
 	work := newLeaderWork()
-	outerCtx, cancelOuter := context.WithCancel(context.Background())
+	outerCtx, cancelOuter := context.WithCancel(t.Context())
 	t.Cleanup(cancelOuter)
 	leadingCtx, stopLeading := context.WithCancel(outerCtx)
 	started := make(chan struct{})

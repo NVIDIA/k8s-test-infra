@@ -36,7 +36,7 @@ abort the run — the count is folded into the exit code at the end.
 It takes no flags or arguments.
 
 ```bash
-kubectl exec <nvml-mock-pod> -- check-fabric
+kubectl -n mokka exec <nvml-mock-pod> -- check-fabric
 ```
 
 Asserting against the output, which is how the scenarios use it:

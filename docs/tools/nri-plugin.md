@@ -1,17 +1,19 @@
 # nri-plugin
 
-The binary behind the optional NRI sidecar in Mokka's node DaemonSet. It
+The binary behind the NRI sidecar in Mokka's node DaemonSet. It
 registers with containerd over the
 [NRI](https://github.com/containerd/nri) socket, subscribes to
-`CreateContainer` only, and edits containers as they are created so an
-unmodified workload sees mock GPUs.
+`CreateContainer` only, and edits containers as they are created so a workload
+given GPUs the usual way, or opted in with the `nvml-mock.nvidia.com/devices`
+annotation, sees mock GPUs.
 
-[NRI Plugin](../components/nri-plugin.md) covers what it decides and why — the
-two injection layers, when a container is left alone, how it composes with the
-NVIDIA device plugin, and why it fails open. This page is the command line.
+[NRI Plugin](../components/nri-plugin.md) covers what it decides and why —
+which containers are injected, how it recognises a device plugin or DRA
+allocation, when a container is left alone, and why it fails open. This page is
+the command line.
 
-It is off by default: the chart adds the sidecar only when `nri.enabled` is
-`true`. The sidecar runs as root with `allowPrivilegeEscalation: false` and no
+The chart runs it by default; `nri.enabled=false` removes the sidecar. The
+sidecar runs as root with `allowPrivilegeEscalation: false` and no
 service account token. It mounts the NRI socket directory read-write and shares
 the node pod's overlay and CDI spec directories read-only. See [NRI pod
 lifecycle](../helm-chart.md#nri-pod-lifecycle) for startup, shutdown, and
@@ -43,6 +45,7 @@ Every flag also reads an environment variable; the flag wins when both are set.
 
 | Flag | Environment variable | Default | Description |
 |------|----------------------|---------|-------------|
+| `--feature-gates` | `MOKKA_FEATURE_GATES` | empty | Comma-separated `Name=true\|false` pairs. See [Feature Gates](../feature-gates.md) |
 | `--log-level` | `MOKKA_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. `warning` is an alias of `warn`; empty falls back to `info` |
 | `--log-format` | `MOKKA_LOG_FORMAT` | `json` | `json` or `plain`; empty falls back to `json` |
 | `--health-addr` | `MOKKA_NRI_HEALTH_ADDR` | `:8080` | Address for `/healthz` and `/readyz`; empty disables them |
@@ -64,6 +67,7 @@ Every flag also reads an environment variable; the flag wins when both are set.
 | `--device-injection-mode` | `MOKKA_NRI_DEVICE_INJECTION_MODE` | `raw` | `raw` (device nodes) or `cdi` (CDI reference). Any other value is rejected at startup |
 | `--cdi-device-name` | `MOKKA_NRI_CDI_DEVICE_NAME` | `nvml-mock.nvidia.com/gpu=all` | Fully qualified CDI device injected in `cdi` mode |
 | `--cdi-spec-host-path` | `MOKKA_NRI_CDI_SPEC_HOST_PATH` | `/var/run/cdi/nvml-mock-nri.yaml` | Spec checked before a CDI reference is emitted; a missing spec falls back to raw injection |
+| `--infiniband-annotation` | `MOKKA_NRI_INFINIBAND_ANNOTATION` | `nvml-mock.nvidia.com/infiniband` | Pod annotation key; value `true` enables the mock InfiniBand tools and shims, independently of GPU access |
 | `--imex-channel-annotation` | `MOKKA_NRI_IMEX_CHANNEL_ANNOTATION` | `nvml-mock.nvidia.com/imex-channels` | Pod annotation key; value `true` adds `/dev/nvidia-caps-imex-channels/*` nodes |
 | `--imex-channel-host-path` | `MOKKA_NRI_IMEX_CHANNEL_HOST_PATH` | `<overlay-host-path>/driver/dev/nvidia-caps-imex-channels` | Host path containing the mock IMEX channel nodes staged by `imex.mockChannels` |
 
@@ -103,6 +107,7 @@ excluded namespaces and supplying `NODE_NAME` through the downward API:
   --cdi-spec-host-path=/var/run/cdi/nvml-mock-nri.yaml \
   --imex-channel-annotation=nvml-mock.nvidia.com/imex-channels \
   --imex-channel-host-path=/var/lib/nvml-mock/driver/dev/nvidia-caps-imex-channels \
+  --infiniband-annotation=nvml-mock.nvidia.com/infiniband \
   --excluded-namespaces=<release-namespace>,kube-system \
   --node-name=$(NODE_NAME) \
   --health-addr=:8080 \
@@ -113,12 +118,13 @@ excluded namespaces and supplying `NODE_NAME` through the downward API:
 `--cdi-device-name`, the two topology flags and `--ld-preload-shims` are not
 templated, so a deployed plugin runs them at their compiled-in defaults.
 
-The opt-in a workload author writes:
+The opt-ins a workload author writes, each independent of the others:
 
 ```yaml
 metadata:
   annotations:
     nvml-mock.nvidia.com/devices: "true"
+    nvml-mock.nvidia.com/infiniband: "true"
     nvml-mock.nvidia.com/imex-channels: "true"
 ```
 
@@ -135,5 +141,5 @@ The binary is installed in the nvml-mock image at `/usr/local/bin/nri-plugin`.
 
 - [Command-line tools](README.md)
 - [NRI Plugin](../components/nri-plugin.md) — what it injects, and what it skips
-- [Node-Wide Injection](../guides/node-wide-injection/README.md) — a runnable walkthrough
+- [Set up NRI injection](../guides/nri-injection.md) — check that the plugin injects
 - [Installation](../helm-chart.md) — every `nri` chart value

@@ -350,7 +350,6 @@ helm upgrade --install "${RELEASE_NAME}" "${REPO_ROOT}/${CHART_PATH}" \
   --set image.repository=nvml-mock \
   --set image.tag=compute-domain \
   --set gpu.profile=gb200 \
-  --set nri.enabled=true \
   --set imex.mockChannels.enabled=true \
   --set imex.mockChannels.channelMajor="${IMEX_CHANNEL_MAJOR}" \
   --set imex.mockChannels.capsMajor="${IMEX_CAPS_MAJOR}" \
@@ -398,7 +397,8 @@ assert_clique "${WORKER4}" 1 "${EXPECTED_DOMAIN_UUID}"
 # Scenario 2 — Real IMEX domain (NO GPU mode) over the pod network
 ###############################################################################
 # The demo workload image carries the real nvidia-imex behind nvidia-imex-shim;
-# NRI supplies the mock NVML overlay, topology environment, and IMEX channels.
+# its devices annotation asks NRI for the mock NVML overlay and topology
+# environment, and its separate imex-channels annotation for the IMEX channels.
 # /usr/bin/nvidia-imex exec's /usr/bin/nvidia-imex.real --nogpu. The
 # daemons below speak the real gRPC peer protocol (port 50000) and exchange
 # command/status data (port 50005) across pods. The demo workload's NetworkPolicy

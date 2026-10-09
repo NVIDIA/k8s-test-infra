@@ -50,8 +50,8 @@ spec:
       labels:
         {{- include "nvml-mock.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: daemon
-        {{- with include "nvml-mock.podLabels" . }}
-        {{- . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
         {{- end }}
       annotations:
         {{- with omit (.Values.podAnnotations | default dict) "checksum/config" "checksum/mig-profiles" "kubectl.kubernetes.io/default-container" }}
@@ -124,6 +124,9 @@ spec:
             {{- end }}
             {{- if .Values.nri.enabled }}
             - --staging-lock-path={{ $stagingLock }}
+            {{- end }}
+            {{- with include "nvml-mock.featureGates" . }}
+            - --feature-gates={{ . }}
             {{- end }}
           env:
             - name: NODE_NAME
@@ -351,6 +354,7 @@ spec:
             # node agent; the plugin only injects them into opted-in pods.
             - --imex-channel-annotation={{ .Values.nri.imexChannelAnnotation }}
             - --imex-channel-host-path={{ .Values.nri.overlay.hostPath }}/driver/dev/nvidia-caps-imex-channels
+            - --infiniband-annotation={{ .Values.nri.infinibandAnnotation }}
             - --excluded-namespaces={{ .Release.Namespace }},kube-system{{- range .Values.nri.excludedNamespaces }},{{ . }}{{- end }}
             - --node-name=$(NODE_NAME)
             - --health-addr=:{{ .Values.nri.healthPort }}
@@ -358,6 +362,9 @@ spec:
             - --staging-lock-path={{ $stagingLock }}
             - --log-level={{ .Values.nri.logging.level }}
             - --log-format={{ .Values.nri.logging.format }}
+            {{- with include "nvml-mock.featureGates" . }}
+            - --feature-gates={{ . }}
+            {{- end }}
           env:
             - name: NODE_NAME
               valueFrom:

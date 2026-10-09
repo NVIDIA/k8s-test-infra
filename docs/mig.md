@@ -260,7 +260,7 @@ thing to check, and the debug line is how. Every process loads the engine for
 itself, so run one with debug logging on:
 
 ```bash
-kubectl exec ds/nvml-mock -- env MOCK_NVML_DEBUG=1 \
+kubectl -n mokka exec ds/nvml-mock -- env MOCK_NVML_DEBUG=1 \
   nvidia-smi mig -lgip 2>&1 | grep 'MIG profiles'
 ```
 

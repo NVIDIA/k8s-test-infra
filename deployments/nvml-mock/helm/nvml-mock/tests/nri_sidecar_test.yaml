@@ -12,7 +12,19 @@ capabilities:
   majorVersion: 1
   minorVersion: 29
 tests:
-  - it: should render only the node agent by default
+  - it: should run the NRI plugin after the node agent by default
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: node-agent
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: nvml-mock-nri
+
+  - it: should render only the node agent when NRI is disabled
+    set:
+      nri:
+        enabled: false
     asserts:
       - hasDocuments:
           count: 1
@@ -161,6 +173,20 @@ tests:
     asserts:
       - failedTemplate: {}
 
+  - it: should pass the same feature gates to the NRI plugin and the node agent
+    set:
+      nri:
+        enabled: true
+      featureGates:
+        AllAlpha: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --feature-gates=AllAlpha=true
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --feature-gates=AllAlpha=true
+
   - it: should reject an unknown logging.level via the values schema
     set:
       nri:
@@ -235,6 +261,9 @@ tests:
             readOnly: true
 
   - it: should not gate staging when NRI is disabled
+    set:
+      nri:
+        enabled: false
     asserts:
       - notContains:
           path: spec.template.spec.containers[0].command
@@ -315,8 +344,10 @@ tests:
           pullPolicy: Always
         resources:
           requests:
-            cpu: 10m
-            memory: 32Mi
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            memory: 128Mi
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
@@ -325,11 +356,22 @@ tests:
           path: spec.template.spec.containers[0].imagePullPolicy
           value: Always
       - equal:
-          path: spec.template.spec.containers[0].resources.requests.cpu
-          value: 10m
+          path: spec.template.spec.containers[0].resources
+          value:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+
+  - it: should request resources for the plugin without limiting it by default
+    asserts:
       - equal:
-          path: spec.template.spec.containers[0].resources.requests.memory
-          value: 32Mi
+          path: spec.template.spec.containers[0].resources
+          value:
+            requests:
+              cpu: 10m
+              memory: 32Mi
 
   - it: should inherit the chart image digest when the NRI image is not overridden
     set:
@@ -430,6 +472,16 @@ tests:
   # location. A host path that disagrees with where the imex simulator writes
   # them makes the annotation a silent no-op, so pin it against the overlay
   # root.
+  - it: should pass the InfiniBand annotation to the plugin
+    set:
+      nri:
+        enabled: true
+        infinibandAnnotation: example.com/rdma
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --infiniband-annotation=example.com/rdma
+
   - it: should point IMEX channel injection at the staged channel directory
     set:
       nri:

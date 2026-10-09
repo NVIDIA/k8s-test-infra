@@ -101,7 +101,17 @@ type rawProfile struct {
 	NVLink struct {
 		LinksPerGPU int  `json:"links_per_gpu"`
 		C2CEnabled  bool `json:"c2c_enabled"`
-		Switches    []struct {
+		BwMode      struct {
+			Scope string `json:"scope"`
+		} `json:"bw_mode"`
+		Firmware struct {
+			MSE       string `json:"mse"`
+			NETIR     string `json:"netir"`
+			NETIRUPHY string `json:"netir_uphy"`
+			NETIRCLN  string `json:"netir_cln"`
+			NETIRDLN  string `json:"netir_dln"`
+		} `json:"firmware"`
+		Switches []struct {
 			BDF      string `json:"bdf"`
 			DeviceID uint32 `json:"device_id"`
 		} `json:"switches"`
@@ -160,14 +170,17 @@ type Profile struct {
 	roce        bool
 	linksPerGPU int
 	hasSwitches bool
-	pciBridges  int
-	c2cEnabled  bool
-	fabricAuto  bool
-	hasFabric   bool
-	pciRoots    int
-	pciAddrs    []string
-	gpuNUMA     []int
-	memoryBytes int64
+
+	nvlinkFirmware []NvlinkFirmwareRow
+	nvlinkBwScope  string
+	pciBridges     int
+	c2cEnabled     bool
+	fabricAuto     bool
+	hasFabric      bool
+	pciRoots       int
+	pciAddrs       []string
+	gpuNUMA        []int
+	memoryBytes    int64
 
 	arch               gpuarch.Arch
 	shutdownThresholdC int
@@ -262,6 +275,8 @@ func Load(profilesDir, name string) (Profile, error) {
 
 		driverVersion: strings.TrimSpace(raw.System.DriverVersion),
 	}
+	p.nvlinkFirmware = nvlinkFirmwareRows(raw)
+	p.nvlinkBwScope = raw.NVLink.BwMode.Scope
 	p.applyOptionalDeviceDefaults(raw)
 	// pcibus simulator falls back to a flat single-root layout when a profile
 	// declares no pcie_topology block, so an empty list still means 1 root.
@@ -674,3 +689,60 @@ func (p Profile) RowRemapHistogramBanks() int { return p.rowRemapBanks }
 // GPU T.Limit temperature field IDs (Ada and later). Pre-Ada profiles keep the
 // legacy absolute threshold rows via nvmlDeviceGetTemperatureThreshold.
 func (p Profile) ReportsTLimitTemp() bool { return p.arch.AtLeast(gpuarch.Ada) }
+
+// ReportsNvlinkBwMode is true when `nvidia-smi nvlink -gBwMode` and -sBwMode
+// answer on this profile. This nvidia-smi routes both to
+// nvmlSystemGet/SetNvlinkBwMode and never calls the per-device trio, so they
+// answer only on a profile whose nvlink.bw_mode.scope selects that pair.
+func (p Profile) ReportsNvlinkBwMode() bool { return p.nvlinkBwScope == "system" }
+
+// nvlinkInfoMinDriver is the driver that introduced nvmlDeviceGetNvLinkInfo.
+// Below it the mock's version registry reports the symbol as absent, so
+// nvidia-smi cannot find the function rather than being told the device
+// declines — which is what every profile below the 580 line hits first.
+const nvlinkInfoMinDriver = 580
+
+// NvlinkFirmwareRow is one of the rows `nvidia-smi nvlink --info` prints under
+// "Firmware Version:": the label it gives a microcontroller, and the version
+// the profile declared for it.
+type NvlinkFirmwareRow struct {
+	Label   string
+	Version string
+}
+
+// nvlinkFirmwareRows reads nvlink.firmware into the order nvidia-smi renders
+// it. That order follows its own ucodeType index rather than the order the
+// profile lists the keys in, so it is fixed here rather than read from the
+// YAML; an omitted key prints no row.
+func nvlinkFirmwareRows(raw rawProfile) []NvlinkFirmwareRow {
+	fw := raw.NVLink.Firmware
+	var rows []NvlinkFirmwareRow
+	for _, r := range []NvlinkFirmwareRow{
+		{"MSE", fw.MSE},
+		{"NETIR", fw.NETIR},
+		{"NETIR UPHY", fw.NETIRUPHY},
+		{"NETIR CLN", fw.NETIRCLN},
+		{"NETIR DLN", fw.NETIRDLN},
+	} {
+		if r.Version != "" {
+			rows = append(rows, r)
+		}
+	}
+	return rows
+}
+
+// ExpectedNvlinkFirmware returns the firmware rows this profile should render,
+// in print order. Empty means the profile declares none, which `nvidia-smi`
+// renders as "Firmware Version: N/A".
+func (p Profile) ExpectedNvlinkFirmware() []NvlinkFirmwareRow { return p.nvlinkFirmware }
+
+// ReportsNvlinkEncryption is true when `nvidia-smi nvlink --info` prints the
+// NVLE row on this profile. Two axes have to hold: the driver must expose
+// nvmlDeviceGetNvLinkInfo, and the board must have NVLink, since nvidia-smi
+// prints no per-device section for a GPU without it. There is no architecture
+// axis — the header states no requirement, and a Hopper H100 on a 580 driver
+// prints the row with NVLE off and no firmware table.
+func (p Profile) ReportsNvlinkEncryption() bool {
+	return p.DriverMajor() >= nvlinkInfoMinDriver &&
+		p.ExpectedNV() > 0
+}

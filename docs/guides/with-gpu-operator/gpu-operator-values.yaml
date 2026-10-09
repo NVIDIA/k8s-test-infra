@@ -75,8 +75,8 @@ devicePlugin:
 # the toolkit resolving nvidia.com/gpu applies the spec's mounts and drops its
 # env (#747). Without it GFD falls back to the host's DMI product file and
 # labels the node with the host's machine type instead of the simulated one.
-# The NRI path injects this variable itself, so a demo using nri.enabled would
-# not need the override.
+# nri.enabled does not replace it: NRI injects only containers that hold a
+# GPU allocation or opt in by annotation, and GFD does neither.
 gfd:
   enabled: true
   env:

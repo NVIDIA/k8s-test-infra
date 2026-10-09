@@ -13,6 +13,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/controlplane"
 	"github.com/NVIDIA/k8s-test-infra/internal/controlplane/controller"
+	"github.com/NVIDIA/k8s-test-infra/internal/features"
 	"github.com/NVIDIA/k8s-test-infra/internal/logging"
 	"github.com/urfave/cli/v3"
 	"golang.org/x/sync/errgroup"
@@ -31,6 +32,7 @@ func newCLI() *cli.Command {
 		Name:  "control-plane",
 		Usage: "Mokka Control Plane",
 		Flags: []cli.Flag{
+			features.CLIFlag(),
 			&cli.StringFlag{
 				Name:    "listen-addr",
 				Value:   defaults.Server.ListenAddr,
@@ -140,6 +142,10 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	}
 	logger := logging.NewLogger(logging.Config{Level: level, Format: format})
 	defer func() { _ = logger.Sync() }()
+
+	if err := features.ConfigureFromCLI(cmd, logger); err != nil {
+		return err
+	}
 
 	cfg := configFrom(cmd)
 	manager, err := controlplane.NewManager(cfg)

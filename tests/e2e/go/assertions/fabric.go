@@ -29,7 +29,7 @@ import (
 // HGX/GB200 ordering (fabric ready -> NV# links) is preserved.
 func FabricManagerGate(ctx context.Context, k *kube.Client, ns, dsName string, pod kube.PodRef, timeout, poll time.Duration) bool {
 	ginkgo.GinkgoHelper()
-	stateDir, _, err := k.DaemonSetContainerEnv(ctx, ns, dsName, "MOCK_FABRICMANAGER_STATE_DIR")
+	stateDir, _, err := k.DaemonSetContainerEnv(ctx, ns, dsName, "node-agent", "MOCK_FABRICMANAGER_STATE_DIR")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "reading MOCK_FABRICMANAGER_STATE_DIR off daemonset %s/%s", ns, dsName)
 	stateDir = strings.TrimSpace(stateDir)
 	if stateDir == "" {

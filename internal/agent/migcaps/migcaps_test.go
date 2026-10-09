@@ -4,7 +4,6 @@
 package migcaps
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -130,7 +129,7 @@ func TestStage_NoopWhenNothingPartitioned(t *testing.T) {
 	h := testHost(t)
 	sim := New(h)
 
-	require.NoError(t, sim.Stage(context.Background(), &agent.State{}))
+	require.NoError(t, sim.Stage(t.Context(), &agent.State{}))
 	require.True(t, sim.Ready(), "a node without MIG must still mark the simulator ready")
 
 	_, err := os.Stat(h.RootPath("driver/proc/driver/nvidia-caps/mig-minors"))
@@ -146,7 +145,7 @@ func TestStage_ClearsSurfaceWhenPartitionsGoAway(t *testing.T) {
 
 	h := testHost(t)
 	sim := New(h)
-	ctx := context.Background()
+	ctx := t.Context()
 	caps := capsFor(partitionedState().MIG)
 	require.NoError(t, stageMinors(h, caps))
 	require.NoError(t, stageCapabilityTree(h, caps))
@@ -181,7 +180,7 @@ func TestRemoveSurface_KeepsIMEXCapability(t *testing.T) {
 func TestDiscard_NopWhenNotReady(t *testing.T) {
 	t.Parallel()
 
-	require.NoError(t, New(testHost(t)).Discard(context.Background()))
+	require.NoError(t, New(testHost(t)).Discard(t.Context()))
 }
 
 func TestStage_CreatesCapDevices(t *testing.T) {
@@ -190,7 +189,7 @@ func TestStage_CreatesCapDevices(t *testing.T) {
 	h := testHost(t)
 	sim := New(h)
 	state := partitionedState()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	require.NoError(t, sim.Stage(ctx, state))
 	require.True(t, sim.Ready())

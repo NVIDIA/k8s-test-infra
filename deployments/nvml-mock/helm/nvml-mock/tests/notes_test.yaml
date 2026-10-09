@@ -30,7 +30,7 @@ tests:
       - matchRegexRaw:
           pattern: "GPUs per node: 4"
       - matchRegexRaw:
-          pattern: "Driver version: 570.124.06"
+          pattern: "Driver version: 580.65.06"
 
   # count left unset: the rendered figure is the h100 device list, so it differs
   # from the default profile's above and neither can be satisfied by a constant.
@@ -62,7 +62,7 @@ tests:
         count: 4
     asserts:
       - matchRegexRaw:
-          pattern: "Driver version: 570.124.06"
+          pattern: "Driver version: 580.65.06"
 
   - it: should render explicit driver version
     set:
@@ -75,6 +75,46 @@ tests:
     asserts:
       - matchRegexRaw:
           pattern: "a100, h100, b200, gb200, gb300, l40s, t4"
+
+  # The plugin always excludes its release namespace, so a release in
+  # "default" silently leaves every workload there without mock GPUs.
+  - it: should warn when NRI excludes the default namespace
+    release:
+      namespace: default
+    asserts:
+      - matchRegexRaw:
+          pattern: 'WARNING: this release is in the "default" namespace'
+
+  - it: should name the excluded namespaces without warning in a dedicated one
+    release:
+      namespace: mokka
+    asserts:
+      - matchRegexRaw:
+          pattern: "never do: mokka, kube-system\\."
+      - notMatchRegexRaw:
+          pattern: "WARNING"
+
+  - it: should name the namespaces added to nri.excludedNamespaces
+    release:
+      namespace: mokka
+    set:
+      nri:
+        excludedNamespaces: [team-a, team-b]
+    asserts:
+      - matchRegexRaw:
+          pattern: "never do: mokka, kube-system, team-a, team-b\\."
+
+  - it: should omit the NRI section when NRI is disabled
+    release:
+      namespace: default
+    set:
+      nri:
+        enabled: false
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "NRI injection is on"
+      - notMatchRegexRaw:
+          pattern: "WARNING"
 
   - it: should contain all three option sections
     asserts:

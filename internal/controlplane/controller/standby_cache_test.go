@@ -56,7 +56,7 @@ func TestWarmPromotionReplaysCachedObjectsBeforeStartingWorkers(t *testing.T) {
 	require.Never(t, func() bool { return hasMutatingAction(mokka.Actions()) }, 100*time.Millisecond, time.Millisecond,
 		"cache-only operation must not reconcile pre-existing objects")
 
-	leaderCtx, cancelLeader := context.WithCancel(context.Background())
+	leaderCtx, cancelLeader := context.WithCancel(t.Context())
 	leaderDone := make(chan error, 1)
 	go func() { leaderDone <- controller.RunLeader(leaderCtx) }()
 	require.Eventually(t, controller.LeaderReady, 5*time.Second, 10*time.Millisecond)
@@ -117,7 +117,7 @@ func TestLeaderAndStandbyObserveDurableAssignmentUpdates(t *testing.T) {
 	require.Equal(t, firstAssignments, secondAssignments)
 	require.Len(t, firstAssignments, 1)
 
-	leaderCtx, cancelLeader := context.WithCancel(context.Background())
+	leaderCtx, cancelLeader := context.WithCancel(t.Context())
 	leaderDone := make(chan error, 1)
 	go func() { leaderDone <- first.RunLeader(leaderCtx) }()
 	require.Eventually(t, first.LeaderReady, 5*time.Second, 10*time.Millisecond)
@@ -153,7 +153,7 @@ func TestLeaderAndStandbyObserveDurableAssignmentUpdates(t *testing.T) {
 
 func startCachesForTest(t *testing.T, controller *Controller) {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- controller.RunCaches(ctx) }()
 	select {
