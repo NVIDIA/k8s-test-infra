@@ -124,34 +124,33 @@ func parseParams(paramStr string) []CParam {
 // or "nvmlDevice_t device" or "const char *serial".
 func parseOneParam(decl string) CParam {
 	decl = strings.TrimSpace(decl)
-
-	// Handle "char* name" (pointer attached to type)
-	if idx := strings.Index(decl, "*"); idx >= 0 {
-		// Check if * is attached to the type name (like "char*")
-		// or separate (like "char *name" or "unsigned int *temp")
-		beforeStar := strings.TrimSpace(decl[:idx])
-		afterStar := strings.TrimSpace(decl[idx+1:])
-
-		// afterStar is the parameter name
-		if afterStar != "" && !strings.Contains(afterStar, " ") {
-			return CParam{
-				CType: beforeStar + " *",
-				Name:  afterStar,
-			}
-		}
+	if decl == "" {
+		return CParam{}
 	}
 
-	// No pointer - split on last space to separate type from name
-	// Handle multi-word types like "unsigned int"
-	lastSpace := strings.LastIndex(decl, " ")
-	if lastSpace < 0 {
-		return CParam{CType: decl, Name: ""}
+	// The name is the trailing identifier. Stars before it stay on the type,
+	// including "int **ptr" and "char* name".
+	end := len(decl)
+	for end > 0 && isCIdent(decl[end-1]) {
+		end--
 	}
+	name := decl[end:]
+	if name == "" {
+		return CParam{CType: normalizeCType(decl), Name: ""}
+	}
+	return CParam{CType: normalizeCType(decl[:end]), Name: name}
+}
 
-	return CParam{
-		CType: strings.TrimSpace(decl[:lastSpace]),
-		Name:  strings.TrimSpace(decl[lastSpace+1:]),
+func isCIdent(b byte) bool {
+	return b == '_' || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
+}
+
+func normalizeCType(cType string) string {
+	cType = strings.Join(strings.Fields(strings.ReplaceAll(cType, "*", " *")), " ")
+	for strings.Contains(cType, "* *") {
+		cType = strings.ReplaceAll(cType, "* *", "**")
 	}
+	return cType
 }
 
 // cTypeToGo converts a C type string to its CGo equivalent.
@@ -166,12 +165,15 @@ func cTypeToGo(cType string) string {
 		cType = strings.TrimPrefix(cType, "const ")
 	}
 
-	// Check for pointer
-	isPointer := strings.HasSuffix(cType, " *") || strings.HasSuffix(cType, "*")
-	if isPointer {
-		cType = strings.TrimSuffix(cType, " *")
-		cType = strings.TrimSuffix(cType, "*")
+	// Peel every trailing pointer. "int **" is two levels, not one.
+	stars := 0
+	for {
 		cType = strings.TrimSpace(cType)
+		if !strings.HasSuffix(cType, "*") {
+			break
+		}
+		cType = strings.TrimSpace(strings.TrimSuffix(cType, "*"))
+		stars++
 	}
 
 	// Map base type
@@ -194,8 +196,8 @@ func cTypeToGo(cType string) string {
 		goBase = "C." + cType
 	}
 
-	if isPointer {
-		return "*" + goBase
+	for range stars {
+		goBase = "*" + goBase
 	}
 	return goBase
 }
