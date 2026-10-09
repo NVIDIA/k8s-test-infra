@@ -62,6 +62,12 @@ except against `MOCK_IB=off` and `MOCK_NVML_VISIBLE_DEVICES=none`: the
 annotations decide what a container gets, not an environment baked into its
 image.
 
+A process that loses `MOCK_NVML_CONFIG`, such as a Slurm job, which inherits
+the environment of whoever ran `srun`, still loads the node's profile from the
+overlay mount; see [how the library finds its configuration](../configuration.md#environment-variables).
+The shims' variables have no such fallback, so `libmockfs.so` is not loaded in
+that process.
+
 The `devices` annotation is the management path: it gives a pod the whole node,
 such as a monitoring agent, without scheduler accounting. Like the other
 annotations, it applies to every container in the pod.

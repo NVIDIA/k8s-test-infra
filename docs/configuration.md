@@ -17,7 +17,7 @@ YAML configuration takes precedence when `MOCK_NVML_CONFIG` is set.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `MOCK_NVML_CONFIG` | Path to YAML configuration file | (none) |
+| `MOCK_NVML_CONFIG` | Path to YAML configuration file | (none) — the library then tries, in order, `config/config.yaml` in the driver root it was loaded from, the CDI mount `/etc/nvml-mock/config.yaml` and the NRI mount `/opt/nvml-mock/driver/config/config.yaml` |
 | `MOCK_MIG_PROFILES_CONFIG` | Path to the board's [MIG profile table](mig.md#declaring-the-profile-table), which lives in a document of its own | (none) — a sibling of `MOCK_NVML_CONFIG` is tried instead |
 | `MOCK_NVML_NUM_DEVICES` | Number of GPUs to simulate | 8 |
 | `MOCK_NVML_DRIVER_VERSION` | NVIDIA driver version string | 550.163.01 |
