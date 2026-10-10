@@ -15,7 +15,7 @@
 # The Go cross-compilation + package install takes ~10-15 minutes.
 set -euo pipefail
 
-GOLANG_VERSION=${GOLANG_VERSION:-1.26.6}
+GOLANG_VERSION=${GOLANG_VERSION:-1.27.2}
 PLATFORM="linux/amd64"
 IMAGE="nvml-mock:spike"
 
