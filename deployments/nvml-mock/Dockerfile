@@ -20,7 +20,7 @@
 #
 # Both default to the public path, so `docker build` with no arguments still
 # works. The publish workflow overrides GOPROXY and mounts the secret.
-ARG GOLANG_VERSION=1.26.6
+ARG GOLANG_VERSION=1.27.2
 FROM golang:${GOLANG_VERSION}-bookworm AS builder
 ARG GOPROXY=https://proxy.golang.org,direct
 ENV GOPROXY=${GOPROXY} \
