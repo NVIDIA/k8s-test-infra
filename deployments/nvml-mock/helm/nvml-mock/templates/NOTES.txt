@@ -76,7 +76,7 @@ OPTION C: GPU Operator
   nvml-mock, so both are disabled and CDI carries the devices instead.
   The overlay below carries that, plus the driver root the device plugin,
   GFD and dcgm-exporter each need in their environment.
-{{- if not .Values.nodeAgent.containerRuntime.enabled }}
+{{- if not (.Values.nodeAgent.containerRuntime | default dict).enabled }}
   Cluster prerequisites: nodeAgent.containerRuntime is off, so each node needs
   CDI enabled in containerd and the nvidia runtime handler registered.
 {{- end }}

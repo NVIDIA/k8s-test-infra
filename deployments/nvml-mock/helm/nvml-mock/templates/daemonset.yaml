@@ -34,10 +34,11 @@ could hold the lock and stall staging. */}}
 {{- fail (printf "nri.healthPort (%v) conflicts with another listener in the shared pod; use a port other than node-agent health port 9091 or the enabled InfiniBand ping port %v" .Values.nri.healthPort .Values.infiniband.ping.port) }}
 {{- end }}
 {{- $migProfiles := include "nvml-mock.migProfiles" . }}
-{{- $runtime := .Values.nodeAgent.containerRuntime }}
+{{- $runtime := .Values.nodeAgent.containerRuntime | default dict }}
 {{- /* A surge pod would set the runtime up next to the old pod, whose revert
-then removes the setup. */}}
-{{- if and $runtime.enabled (dig "rollingUpdate" "maxSurge" 0 (.Values.updateStrategy | default dict)) }}
+then removes the setup. Kubernetes reads 0 and "0%" alike as no surge. */}}
+{{- $maxSurge := dig "rollingUpdate" "maxSurge" 0 (.Values.updateStrategy | default dict) | toString | trimSuffix "%" | float64 }}
+{{- if and $runtime.enabled (gt $maxSurge 0.0) }}
 {{- fail "updateStrategy.rollingUpdate.maxSurge cannot be used with nodeAgent.containerRuntime: the old node pod's revert would remove the new one's setup" }}
 {{- end }}
 metadata:

@@ -169,3 +169,13 @@ tests:
           pattern: "OPTION C: GPU Operator[^━]*nodeAgent.containerRuntime is off, so each node needs\n  CDI enabled in containerd and the nvidia runtime handler registered"
       - notMatchRegexRaw:
           pattern: "--set toolkit\\.enabled"
+
+  # An upgrade with --reuse-values from an earlier release renders the block
+  # absent, which leaves the setup off.
+  - it: should ask for containerd setup when the block is absent
+    set:
+      nodeAgent:
+        containerRuntime: null
+    asserts:
+      - matchRegexRaw:
+          pattern: "OPTION C: GPU Operator[^━]*nodeAgent.containerRuntime is off, so each node needs\n  CDI enabled in containerd and the nvidia runtime handler registered"

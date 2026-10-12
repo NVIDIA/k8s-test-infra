@@ -147,6 +147,26 @@ tests:
           path: spec.template.spec.terminationGracePeriodSeconds
           value: 10
 
+  # An upgrade with --reuse-values from an earlier release renders the block
+  # absent, which leaves the setup off, as the binary's default does.
+  - it: should leave the container runtime alone when the block is absent
+    set:
+      nodeAgent:
+        containerRuntime: null
+    asserts:
+      - notContains:
+          path: spec.template.spec.initContainers[0].command
+          content: --host-fs=/host
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: host-fs
+            hostPath:
+              path: /
+              type: Directory
+      - notExists:
+          path: spec.template.spec.hostPID
+
   # The node agent is the native sidecar the NRI plugin runs beside by default,
   # and a plain container without the plugin.
   - it: should pass the flags to the node agent without the NRI plugin
@@ -223,6 +243,26 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: "updateStrategy.rollingUpdate.maxSurge cannot be used with nodeAgent.containerRuntime: the old node pod's revert would remove the new one's setup"
+
+  - it: should refuse a surging rollout given as a percentage
+    set:
+      updateStrategy:
+        rollingUpdate:
+          maxSurge: 25%
+    asserts:
+      - failedTemplate:
+          errorMessage: "updateStrategy.rollingUpdate.maxSurge cannot be used with nodeAgent.containerRuntime: the old node pod's revert would remove the new one's setup"
+
+  # Kubernetes reads 0 and "0%" alike as no surge.
+  - it: should allow a rollout without surge
+    set:
+      updateStrategy:
+        rollingUpdate:
+          maxSurge: 0%
+    asserts:
+      - equal:
+          path: spec.updateStrategy.rollingUpdate.maxSurge
+          value: 0%
 
   - it: should allow a surging rollout without the setup
     set:
