@@ -27,6 +27,22 @@ func (overrideWriter) SetPowerLimit(index int, milliwatts uint32) error {
 	return mockctl.SetPowerLimit(engine.ConfigOverridePath(), index, milliwatts)
 }
 
+// SetPersistenceMode records the mode nvmlDeviceSetPersistenceMode applied.
+func (overrideWriter) SetPersistenceMode(index int, enabled bool) error {
+	return mockctl.SetPersistenceMode(engine.ConfigOverridePath(), index, enabled)
+}
+
+// SetDrainState records the state nvmlDeviceModifyDrainState applied.
+func (overrideWriter) SetDrainState(index int, draining bool) error {
+	return mockctl.SetDrainState(engine.ConfigOverridePath(), index, draining)
+}
+
+// SetRemoved records a GPU nvmlDeviceRemoveGpu detached or
+// nvmlDeviceDiscoverGpus brought back.
+func (overrideWriter) SetRemoved(index int, removed bool) error {
+	return mockctl.SetRemoved(engine.ConfigOverridePath(), index, removed)
+}
+
 // UpdateWorkloadProfiles records the request the workload profile setters left
 // behind, folding the update in under the same lock that guards the write.
 func (overrideWriter) UpdateWorkloadProfiles(

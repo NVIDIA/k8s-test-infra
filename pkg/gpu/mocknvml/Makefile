@@ -61,12 +61,13 @@ $(LIB_NAME): $(LIB_REALNAME)
 
 # Version aliases: NVML header macros map unversioned names to versioned ones
 # (e.g., nvmlDeviceGetPciInfo → nvmlDeviceGetPciInfo_v3). nvidia-smi dlsym()s
-# the unversioned names, so we need linker aliases.
+# the unversioned names, so we need linker aliases. An alias is only sound when
+# both revisions share a signature: nvmlDeviceRemoveGpu takes one argument to
+# _v2's three, so bridge/drain.go exports it instead.
 VERSION_ALIASES := \
 	-Wl,--defsym,nvmlDeviceGetPciInfo=nvmlDeviceGetPciInfo_v3 \
 	-Wl,--defsym,nvmlDeviceGetHandleByPciBusId=nvmlDeviceGetHandleByPciBusId_v2 \
 	-Wl,--defsym,nvmlDeviceGetNvLinkRemotePciInfo=nvmlDeviceGetNvLinkRemotePciInfo_v2 \
-	-Wl,--defsym,nvmlDeviceRemoveGpu=nvmlDeviceRemoveGpu_v2 \
 	-Wl,--defsym,nvmlDeviceGetGridLicensableFeatures=nvmlDeviceGetGridLicensableFeatures_v4 \
 	-Wl,--defsym,nvmlEventSetWait=nvmlEventSetWait_v2 \
 	-Wl,--defsym,nvmlDeviceGetAttributes=nvmlDeviceGetAttributes_v2 \

@@ -51,6 +51,12 @@ static unsigned int mockCallSlot(void* table, unsigned int slot, void* a0, void*
     return fn(a0, a1, a2, a3);
 }
 
+// mockCallSlotScalar is mockCallSlot for a slot whose second argument is a
+// value rather than a pointer.
+static unsigned int mockCallSlotScalar(void* table, unsigned int slot, void* a0, uintptr_t a1, void* a2) {
+    return mockCallSlot(table, slot, a0, (void*)a1, a2, NULL);
+}
+
 // mockDeviceHandle asks the table for device index's handle, the value every
 // other per-device slot expects as its first argument. The out array is two
 // pointers wide so a handle struct larger than one pointer still fits.
@@ -69,6 +75,8 @@ import (
 	"fmt"
 	"os"
 	"unsafe"
+
+	"github.com/NVIDIA/go-nvml/pkg/nvml"
 )
 
 // Export-table slots, as table index (byte offset / 8). Duplicated from the
@@ -81,6 +89,7 @@ const (
 	slotProcessListFirst    = 213
 	slotProcessListLast     = 215
 	slotHostMaxPcieLinkGen  = 230
+	slotSetPersistenceMode  = 251
 	exportTableSlots        = 256
 )
 
@@ -127,8 +136,54 @@ func testInternalExportTable() []testResult {
 	results = append(results, testInternalProcessList(table, handle)...)
 	results = append(results, testInternalHostMaxPcieLinkGen(table, handle)...)
 	results = append(results, testInternalGpuReset(table, handle)...)
+	results = append(results, testInternalSetPersistenceMode(table, handle)...)
 	results = append(results, testInternalOtherSlotsDoNotWrite(table, handle)...)
 	return results
+}
+
+// testInternalSetPersistenceMode checks the slot behind `nvidia-smi -pm`,
+// which never calls the public nvmlDeviceSetPersistenceMode. Its second
+// argument is the mode by value, so DISABLED arrives as a NULL pointer: the
+// catch-all used to acknowledge it without recording anything, and nvidia-smi
+// printed "Disabled persistence mode" for a GPU the next process still read as
+// enabled. Each write is read back through the public getter, and the guard
+// buffer must come back untouched, since the slot takes no third argument.
+func testInternalSetPersistenceMode(table, handle unsafe.Pointer) []testResult {
+	const name = "internal/set_persistence_mode"
+	var results []testResult
+	if os.Getenv("MOCK_NVML_CONFIG") == "" {
+		return results
+	}
+	device, ret := nvml.DeviceGetHandleByIndex(0)
+	if ret != nvml.SUCCESS {
+		return append(results, testResult{name, false, fmt.Sprintf("DeviceGetHandleByIndex(0) returned %v", ret)})
+	}
+
+	const guardSize = 64
+	guard := C.malloc(guardSize)
+	if guard == nil {
+		return append(results, testResult{name, false, "malloc failed"})
+	}
+	defer C.free(guard)
+	C.memset(guard, guardFill, guardSize)
+	want := bytes.Repeat([]byte{guardFill}, guardSize)
+
+	for _, mode := range []nvml.EnableState{nvml.FEATURE_DISABLED, nvml.FEATURE_ENABLED} {
+		ret := C.mockCallSlotScalar(table, C.uint(slotSetPersistenceMode), handle, C.uintptr_t(mode), guard)
+		if ret != 0 {
+			return append(results, testResult{name, false,
+				fmt.Sprintf("slot %d with mode %d returned %d, want NVML_SUCCESS", slotSetPersistenceMode, mode, ret)})
+		}
+		if got, ret := device.GetPersistenceMode(); ret != nvml.SUCCESS || got != mode {
+			return append(results, testResult{name, false,
+				fmt.Sprintf("after slot %d with mode %d, GetPersistenceMode = %d (%v)", slotSetPersistenceMode, mode, got, ret)})
+		}
+	}
+	if !bytes.Equal(C.GoBytes(guard, C.int(guardSize)), want) {
+		return append(results, testResult{name, false,
+			fmt.Sprintf("slot %d wrote into a buffer it was never given", slotSetPersistenceMode)})
+	}
+	return append(results, testResult{name, true, ""})
 }
 
 // testInternalHostMaxPcieLinkGen checks the slot behind nvidia-smi's "Host Max"
@@ -320,6 +375,8 @@ func hasDedicatedTest(slot int) bool {
 	case slot == slotHostMaxPcieLinkGen:
 		return true
 	case slot == slotGpuReset, slot == slotGpuResetComplete:
+		return true
+	case slot == slotSetPersistenceMode:
 		return true
 	default:
 		return false

@@ -59,6 +59,34 @@ func (w *fileOverrideWriter) SetPowerLimit(index int, milliwatts uint32) error {
 	})
 }
 
+func (w *fileOverrideWriter) SetPersistenceMode(index int, enabled bool) error {
+	return w.mutate(index, func(bucket map[string]any) error {
+		bucket["persistence_mode"] = enableStateString(enabled)
+		return nil
+	})
+}
+
+func (w *fileOverrideWriter) SetDrainState(index int, draining bool) error {
+	return w.mutate(index, func(bucket map[string]any) error {
+		bucket["draining"] = draining
+		return nil
+	})
+}
+
+func (w *fileOverrideWriter) SetRemoved(index int, removed bool) error {
+	return w.mutate(index, func(bucket map[string]any) error {
+		bucket["removed"] = removed
+		return nil
+	})
+}
+
+func enableStateString(enabled bool) string {
+	if enabled {
+		return "enabled"
+	}
+	return "disabled"
+}
+
 func (w *fileOverrideWriter) UpdateWorkloadProfiles(
 	index int, apply func(base []uint32, present bool) ([]uint32, error),
 ) error {
@@ -185,6 +213,7 @@ func TestSetters_DeclineWithoutAWriter(t *testing.T) {
 
 	require.Equal(t, nvml.ERROR_NO_PERMISSION, dev.SetPowerManagementLimit(250000),
 		"a setter with nowhere to record the write must not report success")
+	require.Equal(t, nvml.ERROR_NO_PERMISSION, dev.SetPersistenceMode(nvml.FEATURE_DISABLED))
 }
 
 // TestNvlinkSetters_DeclineWithoutAWriter covers the same contract for the
