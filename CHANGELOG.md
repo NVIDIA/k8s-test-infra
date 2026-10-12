@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-10-12
+
+### Changed
+
+- build: images and binaries are now built with Go 1.27.2; building Mokka from
+  source now requires Go 1.27 or newer. (#1024)
+- Kubernetes client libraries bumped to v0.37.1, ginkgo to v2.33.0, gomega to
+  v1.44.0 and urfave/cli to v3.13.0, and GitHub Actions pins refreshed to match
+  `main`. (#879, #957, #992)
+- Helm charts are published by a dedicated `helm-publish` workflow that runs
+  on pushes to `main` and on `v*` tags, instead of by `helm.yaml` on pushes to
+  `main` and `release-*` that touched a chart. A release branch now publishes
+  its charts when it is tagged. Publishing is still gated on the chart lint,
+  unit tests and CRDs render, which `helm.yaml` now runs on pull requests and
+  as a reusable workflow. Every push to `main` re-publishes the current chart
+  versions, not only pushes that change a chart.
+- A push to `main` now tags the `ghcr.io/nvidia/nvml-mock` image with the
+  `appVersion` from the `nvml-mock` chart's `Chart.yaml` instead of `latest`,
+  overwriting that tag on each push. Pushes to `main` no longer update
+  `latest`. A release tag still publishes the semver tags and moves `latest`
+  to the release, and every build keeps its `sha-` tag.
+
+### Security
+
+- Go pins bumped 1.26.6/1.26.8 -> 1.27.2 across the build (deployment and test
+  Dockerfiles, `devel` image, mocknvml/mockcuda Makefiles, helper scripts), and
+  `golang.org/x/net` v0.58.0 -> v0.60.0. That clears the 11 advisories that
+  `govulncheck` reports as reachable from this code on go1.26.8:
+  GO-2026-6599 and GO-2026-6600 (`html/template`), GO-2026-6607
+  (`crypto/tls`), GO-2026-6608 (`net/textproto`), GO-2026-6605 and
+  GO-2026-6613 (`net/http`), and GO-2026-6603, GO-2026-6610, GO-2026-6611,
+  GO-2026-6612 and GO-2026-6617 (`net/http` and `golang.org/x/net`).
+  (#1023, #1024)
+
 ## [0.4.0] - 2026-09-23
 
 ### Added
@@ -959,6 +993,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Rebranded from gpu-mock to nvml-mock (PRs #273, #274, #275, #281, #282)
 
+[0.4.1]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.2.0...v0.2.1
