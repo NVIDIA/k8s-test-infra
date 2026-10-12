@@ -96,7 +96,7 @@ allocate GPUs need more:
 |-------------------------------------------------------|-------------------------------------------------------------------------------------------------------|
 | The mock driver, `nvidia-smi`, node labels            | nothing beyond a cluster                                                                              |
 | The NVIDIA device plugin, DRA driver, or GPU Operator | nothing beyond a cluster: Mokka's node daemon registers the `nvidia` runtime handler and turns CDI on |
-| Node-wide NRI injection                               | `nri.enabled=true`; the node daemon turns NRI on in containerd where it is off                        |
+| Node-wide NRI injection                               | containerd with the NRI socket enabled                                                                |
 
 ## Keeping jobs fast
 
