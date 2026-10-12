@@ -104,6 +104,22 @@ An automated reviewer also comments on pull requests. Treat its findings as
 suggestions — it is configured to stay out of territory the linters already
 cover, but it is not authoritative.
 
+## Rebase only on a conflict
+
+A pull request does not need to be up to date with its base branch to merge.
+The merge agent merges an approved pull request that is behind `main` or a
+`release-*` branch, so other pull requests merging first is not a reason to
+update yours, and the **Update branch** button no longer appears for that case.
+
+Rebase only when the pull request carries the `needs-rebase` label. The
+automation adds it when GitHub reports a merge conflict with the base branch and
+removes it once the conflict is gone; see
+[Repository automation](../maintainers/repository-automation.md).
+
+Every push, a rebase included, dismisses existing approvals and removes the
+`lgtm` evidence, so the pull request needs a fresh review. An update that was not
+needed costs a review round and gains nothing.
+
 ## Related
 
 | To read about | See |
