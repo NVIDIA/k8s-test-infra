@@ -137,6 +137,71 @@ func SetNvlinkLowPowerThreshold(path string, index int, threshold *uint32) error
 	})
 }
 
+// SetApplicationsClocks persists the applications clocks for one device. A
+// reset writes the board defaults through here too, so the pair is always
+// recorded rather than cleared.
+func SetApplicationsClocks(path string, index int, memMHz, graphicsMHz uint32) error {
+	return mutateDevice(path, func(d *Doc) error {
+		d.SetFields(Target{Index: index}, ApplicationsClocksPatch(memMHz, graphicsMHz))
+		return nil
+	})
+}
+
+// SetLockedClocks persists the range one clock domain is locked to. A nil
+// range is the reset setters, and records an explicit unlock rather than
+// deleting the device's lock: unlike a power cap, whose reset falls back to the
+// profile's value, an unlocked GPU is the driver default, so a lock inherited
+// from the profile or the `all:` bucket must not reappear through the merge.
+func SetLockedClocks(path string, index int, domain engine.ClockDomain, r *engine.ClockRangeConfig) error {
+	return mutateDevice(path, func(d *Doc) error {
+		d.SetFields(Target{Index: index}, LockedClocksPatch(domain, r))
+		return nil
+	})
+}
+
+// SetClockOffset persists the offset applied to one clock domain.
+func SetClockOffset(path string, index int, domain engine.ClockDomain, offsetMHz int32) error {
+	return mutateDevice(path, func(d *Doc) error {
+		d.SetFields(Target{Index: index}, ClockOffsetPatch(domain, offsetMHz))
+		return nil
+	})
+}
+
+// ApplicationsClocksPatch builds an override patch recording the applications
+// clocks nvmlDeviceSetApplicationsClocks applied.
+func ApplicationsClocksPatch(memMHz, graphicsMHz uint32) map[string]any {
+	return map[string]any{
+		"clocks": map[string]any{"memory_app": memMHz, "graphics_app": graphicsMHz},
+	}
+}
+
+// LockedClocksPatch builds an override patch recording the range
+// nvmlDeviceSetGpuLockedClocks or nvmlDeviceSetMemoryLockedClocks applied, or
+// for a nil range the unlock their resets applied.
+func LockedClocksPatch(domain engine.ClockDomain, r *engine.ClockRangeConfig) map[string]any {
+	var lock any
+	if r != nil {
+		lock = map[string]any{"min_mhz": r.MinMHz, "max_mhz": r.MaxMHz}
+	}
+	return map[string]any{"clocks": map[string]any{lockedClocksKey(domain): lock}}
+}
+
+// ClockOffsetPatch builds an override patch recording the offset
+// nvmlDeviceSetClockOffsets applied. Only offset_mhz is written: the range it
+// was validated against belongs to the board and stays the profile's.
+func ClockOffsetPatch(domain engine.ClockDomain, offsetMHz int32) map[string]any {
+	return map[string]any{
+		"clocks": map[string]any{
+			"offsets": map[string]any{string(domain): map[string]any{"offset_mhz": offsetMHz}},
+		},
+	}
+}
+
+// lockedClocksKey is the clocks field a domain's lock is recorded under.
+func lockedClocksKey(domain engine.ClockDomain) string {
+	return "locked_" + string(domain)
+}
+
 // nvlinkTarget selects the bucket an NVLink write lands in.
 func nvlinkTarget(index int, allDevices bool) Target {
 	if allDevices {

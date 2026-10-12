@@ -266,6 +266,72 @@ func TestUpdateWorkloadProfiles_ConcurrentWritersDoNotLoseUpdates(t *testing.T) 
 
 // TestSetters_DoNotDisturbOtherDevices keeps a per-device write from behaving
 // like the node-wide one; nvidia-smi caps one GPU at a time.
+// TestClockSetters_ShareTheClocksBlock pins that the clock writes merge into
+// one clocks block: `nvidia-smi -ac` followed by `-lgc` must leave both
+// recorded, and resetting the lock must not drop the applications clocks.
+func TestClockSetters_ShareTheClocksBlock(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+
+	require.NoError(t, SetApplicationsClocks(path, 0, 1593, 1410))
+	require.NoError(t, SetLockedClocks(path, 0, engine.ClockDomainGraphics, &engine.ClockRangeConfig{MinMHz: 1500, MaxMHz: 1600}))
+	require.NoError(t, SetClockOffset(path, 0, engine.ClockDomainMemory, -100))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	clocks := doc.Devices["0"]["clocks"].(map[string]any)
+	require.EqualValues(t, 1593, clocks["memory_app"])
+	require.EqualValues(t, 1410, clocks["graphics_app"])
+	locked := clocks["locked_graphics"].(map[string]any)
+	require.EqualValues(t, 1500, locked["min_mhz"])
+	require.EqualValues(t, 1600, locked["max_mhz"])
+	offset := clocks["offsets"].(map[string]any)["memory"].(map[string]any)
+	require.EqualValues(t, -100, offset["offset_mhz"])
+
+	require.NoError(t, SetLockedClocks(path, 0, engine.ClockDomainGraphics, nil))
+
+	doc, err = Load(path)
+	require.NoError(t, err)
+	clocks = doc.Devices["0"]["clocks"].(map[string]any)
+	require.EqualValues(t, 1410, clocks["graphics_app"], "unlocking must not touch the applications clocks")
+}
+
+// TestSetLockedClocks_ResetMasksAnInheritedLock resolves the document the way
+// the running mock does. A lock the profile or the `all:` bucket declares must
+// not survive `nvidia-smi -rgc` on the GPU it was reset on, and must stay on
+// the GPUs it was not.
+func TestSetLockedClocks_ResetMasksAnInheritedLock(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+	lock := engine.ClockRangeConfig{MinMHz: 1500, MaxMHz: 1500}
+	require.NoError(t, mutateDevice(path, func(d *Doc) error {
+		d.SetFields(Target{All: true}, LockedClocksPatch(engine.ClockDomainGraphics, &lock))
+		return nil
+	}))
+
+	require.NoError(t, SetLockedClocks(path, 0, engine.ClockDomainGraphics, nil))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	overrides := &engine.ConfigOverrideDoc{All: doc.All, Devices: doc.Devices}
+	profileLock := lock
+	profile := &engine.DeviceConfig{Clocks: &engine.ClocksConfig{GraphicsMax: 1980, LockedGraphics: &profileLock}}
+	resolve := func(index int) *engine.ClocksConfig {
+		merged, err := engine.MergeDeviceConfig(profile, overrides.DeviceConfigOverride(index))
+		require.NoError(t, err)
+		return merged.Clocks
+	}
+	require.Nil(t, resolve(0).LockedGraphics, "the reset GPU reads unlocked")
+	require.Equal(t, &lock, resolve(1).LockedGraphics, "the other GPUs keep the inherited lock")
+}
+
+func TestClockSetters_FailWithoutADocumentPath(t *testing.T) {
+	t.Parallel()
+	require.Error(t, SetApplicationsClocks("", 0, 1593, 1410))
+	require.Error(t, SetLockedClocks("", 0, engine.ClockDomainGraphics, nil))
+	require.Error(t, SetClockOffset("", 0, engine.ClockDomainGraphics, 0))
+}
+
 func TestSetters_DoNotDisturbOtherDevices(t *testing.T) {
 	t.Parallel()
 	path := overridePath(t)

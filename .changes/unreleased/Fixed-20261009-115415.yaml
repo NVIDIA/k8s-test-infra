@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+  profiles: H100, B200, GB200, GB300 and L40S report the memory clock their real board does (for example 2619 MHz on H100, not 1593), and A100 reports 1095 MHz default applications clocks.
+time: 2026-10-09T09:54:15Z
