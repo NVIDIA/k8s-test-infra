@@ -46,6 +46,39 @@ func SetPowerLimit(path string, index int, milliwatts uint32) error {
 	})
 }
 
+// SetPersistenceMode persists whether persistence mode is enabled on one device.
+func SetPersistenceMode(path string, index int, enabled bool) error {
+	return mutateDevice(path, func(d *Doc) error {
+		d.SetFields(Target{Index: index}, map[string]any{"persistence_mode": enableState(enabled)})
+		return nil
+	})
+}
+
+// SetDrainState persists the drain state nvmlDeviceModifyDrainState applied.
+func SetDrainState(path string, index int, draining bool) error {
+	return mutateDevice(path, func(d *Doc) error {
+		d.SetFields(Target{Index: index}, map[string]any{"draining": draining})
+		return nil
+	})
+}
+
+// SetRemoved persists whether a GPU was removed from the driver, the state
+// nvmlDeviceRemoveGpu sets and nvmlDeviceDiscoverGpus clears.
+func SetRemoved(path string, index int, removed bool) error {
+	return mutateDevice(path, func(d *Doc) error {
+		d.SetFields(Target{Index: index}, map[string]any{"removed": removed})
+		return nil
+	})
+}
+
+// enableState spells a toggle the way the profile schema does.
+func enableState(enabled bool) string {
+	if enabled {
+		return "enabled"
+	}
+	return "disabled"
+}
+
 // UpdateWorkloadProfiles persists a new requested workload power profile list
 // for one device, computed by apply from the list already on disk.
 //

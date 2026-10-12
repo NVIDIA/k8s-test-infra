@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"maps"
 	"regexp"
 	"slices"
 	"strconv"
@@ -621,15 +622,15 @@ func (st *migState) devicesDerivedFrom(giID uint32, ciID *uint32) []*Configurabl
 	return devices
 }
 
-// migDeviceByUUID finds the MIG device carrying a UUID, across every GPU on
-// the node, or nil if no partition has it.
+// migDeviceByUUID finds the MIG device carrying a UUID, across every GPU this
+// process enumerates, or nil if no partition has it.
 //
 // The walk enumerates rather than consulting a cache, so a partition that has
 // never been handed out by index is still findable: a consumer that learned a
 // UUID from a pod's environment has no reason to have walked the indices first.
 func (e *Engine) migDeviceByUUID(uuid string) *ConfigurableDevice {
-	for _, parent := range e.server.configurableDevices {
-		if parent == nil {
+	for index, parent := range e.server.configurableDevices {
+		if parent == nil || !e.server.isDeviceVisible(index) {
 			continue
 		}
 		if dev := parent.migDeviceByUUID(uuid); dev != nil {
@@ -1241,6 +1242,20 @@ func (r *migRetired) merge(other migRetired) {
 // empty reports that nothing was destroyed, so a caller can skip the hook.
 func (r migRetired) empty() bool {
 	return len(r.devices) == 0 && len(r.gpuInstances) == 0 && len(r.computeInstances) == 0
+}
+
+// partitioning lists everything partitioning the board, the set
+// destroyAllLocked would tear down, while leaving it in place.
+func (st *migState) partitioning(parent *ConfigurableDevice) migRetired {
+	st.mu.Lock()
+	r := migRetired{devices: slices.Collect(maps.Values(st.devices))}
+	st.mu.Unlock()
+
+	r.gpuInstances = st.liveGpuInstances(parent)
+	for _, gi := range r.gpuInstances {
+		r.computeInstances = append(r.computeInstances, liveComputeInstances(gi)...)
+	}
+	return r
 }
 
 // destroyAllLocked tears down the whole partitioning, which is what disabling

@@ -1,0 +1,6 @@
+kind: Fixed
+body: |-
+  nvml-mock: `nvidia-smi -pm` now changes persistence mode for every process on the node instead of only the one that set it.
+time: 2026-10-05T13:20:25Z
+custom:
+  Issue: "849"

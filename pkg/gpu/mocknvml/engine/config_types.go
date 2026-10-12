@@ -104,6 +104,21 @@ type DeviceConfig struct {
 	PersistenceMode string `json:"persistence_mode,omitempty"`
 	ComputeMode     string `json:"compute_mode,omitempty"`
 
+	// Draining is the drain state nvmlDeviceModifyDrainState sets. A draining
+	// GPU drops out of enumeration for every process that initialises NVML
+	// afterwards, but stays addressable by PCI location so it can be undrained.
+	Draining bool `json:"draining,omitempty"`
+
+	// Removed is set by nvmlDeviceRemoveGpu and cleared by
+	// nvmlDeviceDiscoverGpus. A removed GPU is gone from the driver: no process
+	// enumerates it and the drain calls no longer resolve it.
+	Removed bool `json:"removed,omitempty"`
+
+	// Excluded models a GPU the kernel module was told to skip
+	// (NVreg_ExcludedGpus). It is never enumerated, the driver does not manage
+	// it, and nvmlGetExcludedDeviceInfoByIndex lists it.
+	Excluded bool `json:"excluded,omitempty"`
+
 	// MIG
 	MIG *MIGConfig `json:"mig,omitempty"`
 

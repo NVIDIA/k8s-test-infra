@@ -653,6 +653,7 @@ func TestConfigurableDevice_GetPersistenceMode_Configured(t *testing.T) {
 }
 
 func TestConfigurableDevice_SetPersistenceMode(t *testing.T) {
+	persistSetterWrites(t)
 	dev := newTestDeviceWithConfig(t, &DeviceConfig{
 		Name: "NVIDIA A100-SXM4-80GB",
 	})
@@ -678,6 +679,34 @@ func TestConfigurableDevice_SetPersistenceMode(t *testing.T) {
 	mode, ret = dev.GetPersistenceMode()
 	require.Equal(t, nvml.SUCCESS, ret, "GetPersistenceMode failed")
 	require.Equal(t, nvml.FEATURE_DISABLED, mode, "Expected DISABLED after unset")
+}
+
+// TestSetPersistenceMode_VisibleToAnotherProcess covers `nvidia-smi -pm 0`
+// followed by a separate `nvidia-smi drain`: the second process must see the
+// first one's write, or every drain on a profile that enables persistence
+// fails with IN_USE.
+func TestSetPersistenceMode_VisibleToAnotherProcess(t *testing.T) {
+	persistSetterWrites(t)
+	cfg := &DeviceConfig{PersistenceMode: "enabled"}
+
+	writer := newTestDeviceWithConfig(t, cfg)
+	require.Equal(t, nvml.SUCCESS, writer.SetPersistenceMode(nvml.FEATURE_DISABLED))
+
+	reader := newTestDeviceWithConfig(t, cfg)
+	mode, ret := reader.GetPersistenceMode()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, nvml.FEATURE_DISABLED, mode)
+}
+
+func TestSetPersistenceMode_RejectsUnknownState(t *testing.T) {
+	persistSetterWrites(t)
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{PersistenceMode: "enabled"})
+
+	require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, dev.SetPersistenceMode(nvml.EnableState(2)))
+
+	mode, ret := dev.GetPersistenceMode()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, nvml.FEATURE_ENABLED, mode, "a rejected mode must not be applied")
 }
 
 // =============================================================================
@@ -1371,19 +1400,6 @@ func TestConfigurableDevice_NvLinkUtilizationCounter_Grows(t *testing.T) {
 	// Freeze/Reset are no-op successes.
 	require.Equal(t, nvml.SUCCESS, d0.FreezeNvLinkUtilizationCounter(0, 0, nvml.FEATURE_ENABLED), "Freeze")
 	require.Equal(t, nvml.SUCCESS, d0.ResetNvLinkUtilizationCounter(0, 0), "Reset")
-}
-
-// busIDString decodes the NVML PciInfo.BusId char array into a Go string,
-// stopping at the NUL terminator. Generic for the same reason as writeBusID.
-func busIDString[E ~int8 | ~uint8](b []E) string {
-	out := make([]byte, 0, len(b))
-	for _, c := range b {
-		if c == 0 {
-			break
-		}
-		out = append(out, byte(c))
-	}
-	return string(out)
 }
 
 func containsPrefix(s, prefix string) bool {

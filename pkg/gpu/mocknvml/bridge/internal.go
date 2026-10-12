@@ -41,6 +41,9 @@ extern unsigned int mockInternalFillProcessList(void* handle, void* buf, unsigne
 // below in Go). Returns 0 when the device is unknown or configures no PCIe block.
 extern unsigned int mockInternalHostMaxPcieLinkGen(void* handle);
 
+// Forward declaration of the public persistence-mode setter (defined in device.go).
+extern nvmlReturn_t nvmlDeviceSetPersistenceMode(nvmlDevice_t device, nvmlEnableState_t mode);
+
 // Forward declaration of the GPU reset (defined in gpu_reset.go). Returns 1 when
 // the device returned to its healthy baseline, 0 when it could not.
 extern int mockInternalResetGPU(void* handle);
@@ -69,6 +72,7 @@ static int isDebugEnabled() {
 #define MOCK_SLOT_PROCESS_LIST_FIRST 213
 #define MOCK_SLOT_PROCESS_LIST_LAST 215
 #define MOCK_SLOT_HOST_MAX_PCIE_LINK_GEN 230
+#define MOCK_SLOT_SET_PERSISTENCE_MODE 251
 
 // C stub function for internal export table
 // This gets called by nvidia-smi via the export table function pointers
@@ -126,12 +130,32 @@ static nvmlReturn_t internalStubFunction(unsigned int slot, void* arg0, void* ar
         return NVML_SUCCESS;
     }
 
+    // Persistence mode: fn(nvmlDevice_t device, nvmlEnableState_t mode).
+    // `nvidia-smi -pm` sets it here and never calls the public
+    // nvmlDeviceSetPersistenceMode, and only when the mode would change. Both
+    // catch-alls below mishandle it: DISABLED is 0, so it reads as a NULL arg1
+    // and is acknowledged without being recorded, and ENABLED would be taken
+    // for a count pointer and written through.
+    if (slot == MOCK_SLOT_SET_PERSISTENCE_MODE && mockInternalIsDeviceHandle(arg0)) {
+        nvmlDevice_t device = { .handle = (struct nvmlDevice_st*)arg0 };
+        nvmlReturn_t ret = nvmlDeviceSetPersistenceMode(device, (nvmlEnableState_t)(uintptr_t)arg1);
+        if (isDebugEnabled()) {
+            fprintf(stderr, "[C-STUB] slot %u SetPersistenceMode(handle=%p, mode=%u) -> ret=%d\n",
+                    slot, arg0, (unsigned int)(uintptr_t)arg1, ret);
+        }
+        return ret;
+    }
+
     if (arg1 == NULL || !mockInternalIsDeviceHandle(arg0)) {
         // Non-device call - return SUCCESS to acknowledge.
         //
         // Slots with no implementation land here, so it must stay SUCCESS:
         // `nvidia-smi topo -m` probes internal calls before building the matrix
         // and aborts with "Failed to run topology matrix" on any error.
+        if (isDebugEnabled()) {
+            fprintf(stderr, "[C-STUB] slot %u unhandled (arg0=%p, arg1=%p, arg2=%p) -> SUCCESS\n",
+                    slot, arg0, arg1, arg2);
+        }
         return NVML_SUCCESS;
     }
 
@@ -226,6 +250,12 @@ static void* mockSlotStubs[256] = { MOCK_SLOT_ALL(MOCK_SLOT_ADDR) };
 static void* getSlotStubAddress(unsigned int slot) {
     return mockSlotStubs[slot];
 }
+
+// callSlotForTest makes one export-table call the way nvidia-smi does. arg1
+// goes by value because some slots take an integer there, not a pointer.
+static nvmlReturn_t callSlotForTest(unsigned int slot, void* arg0, uintptr_t arg1) {
+    return internalStubFunction(slot, arg0, (void*)arg1, NULL, NULL);
+}
 */
 import "C"
 
@@ -233,8 +263,18 @@ import (
 	"fmt"
 	"unsafe"
 
+	"github.com/NVIDIA/go-nvml/pkg/nvml"
+
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
+
+const persistenceModeSlotForTest = C.MOCK_SLOT_SET_PERSISTENCE_MODE
+
+// internalSlotCallForTest dispatches one export-table call; test files cannot
+// use cgo.
+func internalSlotCallForTest(slot uint, handle unsafe.Pointer, arg1 uintptr) nvml.Return {
+	return nvml.Return(C.callSlotForTest(C.uint(slot), handle, C.uintptr_t(arg1)))
+}
 
 // mockInternalIsDeviceHandle reports whether the raw handle value passed by
 // nvidia-smi through the internal export table belongs to a registered mock

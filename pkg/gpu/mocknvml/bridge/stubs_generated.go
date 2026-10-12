@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 221 stub functions for unimplemented NVML functions.
+// 215 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceGetInfo_v1
@@ -47,11 +47,6 @@ func nvmlDeviceClearEccErrorCounts(device C.nvmlDevice_t, counterType C.nvmlEccC
 //export nvmlDeviceClearFieldValues
 func nvmlDeviceClearFieldValues(device C.nvmlDevice_t, valuesCount C.int, values *C.nvmlFieldValue_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceClearFieldValues")
-}
-
-//export nvmlDeviceDiscoverGpus
-func nvmlDeviceDiscoverGpus(pciInfo *C.nvmlPciInfo_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceDiscoverGpus")
 }
 
 //export nvmlDeviceGetAPIRestriction
@@ -479,11 +474,6 @@ func nvmlDeviceGetVgpuUtilization(device C.nvmlDevice_t, lastSeenTimeStamp C.ulo
 	return stubReturn("nvmlDeviceGetVgpuUtilization")
 }
 
-//export nvmlDeviceModifyDrainState
-func nvmlDeviceModifyDrainState(pciInfo *C.nvmlPciInfo_t, newState C.nvmlEnableState_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceModifyDrainState")
-}
-
 //export nvmlDeviceOnSameBoard
 func nvmlDeviceOnSameBoard(device1 C.nvmlDevice_t, device2 C.nvmlDevice_t, onSameBoard *C.int) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceOnSameBoard")
@@ -504,11 +494,6 @@ func nvmlDevicePowerSmoothingUpdatePresetProfileParam(device C.nvmlDevice_t, pro
 	return stubReturn("nvmlDevicePowerSmoothingUpdatePresetProfileParam")
 }
 
-//export nvmlDeviceQueryDrainState
-func nvmlDeviceQueryDrainState(pciInfo *C.nvmlPciInfo_t, currentState *C.nvmlEnableState_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceQueryDrainState")
-}
-
 //export nvmlDeviceReadPRMCounters_v1
 func nvmlDeviceReadPRMCounters_v1(device C.nvmlDevice_t, counterList *C.nvmlPRMCounterList_v1_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceReadPRMCounters_v1")
@@ -522,11 +507,6 @@ func nvmlDeviceReadWritePRM_v1(device C.nvmlDevice_t, buffer *C.nvmlPRMTLV_v1_t)
 //export nvmlDeviceRemoveGpu_v1
 func nvmlDeviceRemoveGpu_v1(pciInfo *C.nvmlPciInfo_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceRemoveGpu_v1")
-}
-
-//export nvmlDeviceRemoveGpu_v2
-func nvmlDeviceRemoveGpu_v2(pciInfo *C.nvmlPciInfo_t, gpuState C.nvmlDetachGpuState_t, linkState C.nvmlPcieLinkState_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceRemoveGpu_v2")
 }
 
 //export nvmlDeviceResetApplicationsClocks
@@ -702,16 +682,6 @@ func nvmlDeviceValidateInforom(device C.nvmlDevice_t) C.nvmlReturn_t {
 //export nvmlDeviceVgpuForceGspUnload
 func nvmlDeviceVgpuForceGspUnload(device C.nvmlDevice_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceVgpuForceGspUnload")
-}
-
-//export nvmlGetExcludedDeviceCount
-func nvmlGetExcludedDeviceCount(deviceCount *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlGetExcludedDeviceCount")
-}
-
-//export nvmlGetExcludedDeviceInfoByIndex
-func nvmlGetExcludedDeviceInfoByIndex(index C.uint, info *C.nvmlExcludedDeviceInfo_t) C.nvmlReturn_t {
-	return stubReturn("nvmlGetExcludedDeviceInfoByIndex")
 }
 
 //export nvmlGetVgpuCompatibility
