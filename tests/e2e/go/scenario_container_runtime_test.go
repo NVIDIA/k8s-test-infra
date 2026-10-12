@@ -7,6 +7,7 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -106,16 +107,40 @@ var _ = Describe("nvml-mock container runtime", Label("container-runtime"), Orde
 		Expect(gpuLines(res.Stdout)).To(Equal(nodeGPUs(ctx, h, n)))
 	})
 
+	// A container with a Bidirectional volume has an rshared root, and the spec's
+	// binds once named no propagation, so they joined the peer group of the
+	// node's /var. Kind's createContainer hook mounts its DMI files over
+	// /sys/class/dmi/id, which resolves into the served /sys/devices, and the
+	// copies landed on the mock tree on the node: the next node agent failed to
+	// rewrite those files and never became ready. Like the NRI scenario's spec,
+	// this one reads the node's own mount table, where alone the leak shows.
+	It("keeps a served container's mounts off the node", func(ctx SpecContext) {
+		n := nodes[0]
+		before := nriOverlayMountsOnNode(ctx, n.Container)
+
+		const name = "bidirectional-volume"
+		ref := runBidirectionalWorkload(ctx, h, name, n)
+
+		// Without the served module tree the handler applied no spec, and the
+		// spec would pass against a node that served nothing.
+		res, err := h.Kube.ExecSh(ctx, ref,
+			`awk '$5 == "/sys/module" { found = 1 } END { exit !found }' /proc/self/mountinfo`)
+		Expect(err).NotTo(HaveOccurred(), "%s is not served the mock driver\n%s", name, res.Combined())
+
+		Expect(nriOverlayMountsOnNode(ctx, n.Container)).To(Equal(before),
+			"a container with a Bidirectional volume left mounts under %s on %s", nriOverlayHostPath, n.Name)
+	})
+
 	It("sets the runtime up again when the node pod is replaced", func(ctx SpecContext) {
 		n := nodes[0]
 		before := containerdPID(ctx, n)
 
 		Expect(h.Kube.DeletePodsByLabel(ctx, nvmlMockNamespace, nvmlMockSelector)).To(Succeed())
+		waitNvidiaHandler(ctx, n)
 		assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", config.ReadyTimeout(), config.PollInterval())
 		assertions.WaitNodeReady(ctx, h.Kube, n.Name, config.ReadyTimeout(), config.PollInterval())
 
 		Expect(containerdPID(ctx, n)).NotTo(Equal(before), "the old pod reverts the setup and the new one applies it")
-		Expect(assertions.CheckNvidiaHandler(criInfo(ctx, n))).To(Succeed(), "node %s", n.Name)
 	})
 
 	It("restores a deleted config file when the node pod restarts", func(ctx SpecContext) {
@@ -125,7 +150,6 @@ var _ = Describe("nvml-mock container runtime", Label("container-runtime"), Orde
 		restartNodePod(ctx, h, n)
 
 		nodeOutput(ctx, n, "test", "-f", mokkaConfigFile)
-		Expect(assertions.CheckNvidiaHandler(criInfo(ctx, n))).To(Succeed(), "node %s", n.Name)
 	})
 
 	It("removes the handler from a node that loses its node pod", func(ctx SpecContext) {
@@ -133,19 +157,16 @@ var _ = Describe("nvml-mock container runtime", Label("container-runtime"), Orde
 		DeferCleanup(func(ctx SpecContext) {
 			_, err := h.Kube.KubectlCombined(ctx, "label", "node", n.Name, "--overwrite", sgpuNodeLabel+"="+sgpuNodeLabelValue)
 			Expect(err).NotTo(HaveOccurred())
+
+			waitNvidiaHandler(ctx, n)
 			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", config.ReadyTimeout(), config.PollInterval())
-			Expect(assertions.CheckNvidiaHandler(criInfo(ctx, n))).To(Succeed(), "the node is set up again")
 		})
 
 		_, err := h.Kube.KubectlCombined(ctx, "label", "node", n.Name, sgpuNodeLabel+"-")
 		Expect(err).NotTo(HaveOccurred())
 
 		Eventually(func() (map[string]string, error) {
-			out, err := runner.RunQuiet(ctx, "docker", "exec", n.Container, "crictl", "info")
-			if err != nil {
-				return nil, err
-			}
-			rt, err := assertions.ParseCRIInfo([]byte(out.Stdout))
+			rt, err := readCRIInfo(ctx, n)
 
 			return rt.Handlers, err
 		}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
@@ -191,6 +212,33 @@ func criInfo(ctx context.Context, n cluster.Node) assertions.ContainerRuntime {
 	Expect(err).NotTo(HaveOccurred(), "crictl info on %s", n.Name)
 
 	return rt
+}
+
+// readCRIInfo is criInfo for polling: crictl fails while containerd restarts.
+func readCRIInfo(ctx context.Context, n cluster.Node) (assertions.ContainerRuntime, error) {
+	res, err := runner.RunQuiet(ctx, "docker", "exec", n.Container, "crictl", "info")
+	if err != nil {
+		return assertions.ContainerRuntime{}, err
+	}
+
+	return assertions.ParseCRIInfo([]byte(res.Stdout))
+}
+
+// waitNvidiaHandler waits until n's containerd serves the nvidia handler as its
+// default. The DaemonSet's status lags a node pod's replacement, so it can
+// report ready before the new pod has set the runtime up; the setup itself is
+// what tells that the new pod is done.
+func waitNvidiaHandler(ctx context.Context, n cluster.Node) {
+	GinkgoHelper()
+	Eventually(func() error {
+		rt, err := readCRIInfo(ctx, n)
+		if err != nil {
+			return err
+		}
+
+		return assertions.CheckNvidiaHandler(rt)
+	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
+		Should(Succeed(), "containerd on %s serves the nvidia handler", n.Name)
 }
 
 func containerdPID(ctx context.Context, n cluster.Node) string {
@@ -261,16 +309,61 @@ func gpuLines(out string) int {
 	return count
 }
 
-// restartNodePod replaces the node pod on n and waits for the node and the
-// DaemonSet to settle, since each pod start restarts containerd.
+// restartNodePod replaces the node pod on n and waits for the new pod's setup,
+// the node and the DaemonSet to settle, since each pod start restarts
+// containerd.
 func restartNodePod(ctx context.Context, h *harness.Harness, n cluster.Node) {
 	GinkgoHelper()
 	ref := nvmlPodOnNode(ctx, h, n.Name)
 
 	_, err := h.Kube.KubectlCombined(ctx, "delete", "pod", "-n", nvmlMockNamespace, ref.Pod)
 	Expect(err).NotTo(HaveOccurred(), "delete node pod %s", ref.Pod)
+	waitNvidiaHandler(ctx, n)
 	assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", config.ReadyTimeout(), config.PollInterval())
 	assertions.WaitNodeReady(ctx, h.Kube, n.Name, config.ReadyTimeout(), config.PollInterval())
+}
+
+// runBidirectionalWorkload starts a privileged pod on n that sets
+// NVIDIA_VISIBLE_DEVICES=all under the node's default handler and mounts a
+// hostPath volume with Bidirectional propagation, which gives the container an
+// rshared root, and returns a reference to exec into it.
+func runBidirectionalWorkload(ctx context.Context, h *harness.Harness, name string, n cluster.Node) kube.PodRef {
+	GinkgoHelper()
+	manifest := []byte(fmt.Sprintf(`apiVersion: v1
+kind: Pod
+metadata:
+  name: %[1]s
+  namespace: %[2]s
+spec:
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 1
+  nodeName: %[3]s
+  containers:
+    - name: %[5]s
+      image: %[4]s
+      command: ["/bin/sh", "-c"]
+      args: ["trap 'exit 0' TERM; sleep 3600 & wait"]
+      env:
+        - name: NVIDIA_VISIBLE_DEVICES
+          value: all
+      securityContext:
+        privileged: true
+      volumeMounts:
+        - name: shared
+          mountPath: /shared
+          mountPropagation: Bidirectional
+  volumes:
+    - name: shared
+      hostPath:
+        path: /var/lib/%[1]s
+        type: DirectoryOrCreate
+`, name, runtimeWorkloadNS, n.Name, nriWorkloadImage, pod.DefaultContainerName))
+
+	Expect(h.Kube.Apply(ctx, manifest)).To(Succeed(), "create pod %s", name)
+	DeferCleanup(func(ctx SpecContext) { _ = h.Kube.Delete(ctx, manifest) }) //nolint:contextcheck // Ginkgo cleanup ctx is intentionally distinct from the outer spec ctx
+	assertions.WaitPodPhase(ctx, h.Kube, runtimeWorkloadNS, name, "Running", config.ReadyTimeout(), config.PollInterval())
+
+	return kube.PodRef{Namespace: runtimeWorkloadNS, Pod: name, Container: pod.DefaultContainerName}
 }
 
 func collectContainerRuntimeOnFailure(ctx context.Context, h *harness.Harness, nodes []cluster.Node) {

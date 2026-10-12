@@ -101,7 +101,7 @@ func TestNRISpec(t *testing.T) {
 	moduleTree, ok := mountByContainerPath(spec, "/sys/module")
 	require.True(t, ok)
 	require.Equal(t, "/var/lib/nvml-mock/sys/module", moduleTree.HostPath)
-	require.Equal(t, []string{"ro", "nosuid", "nodev", "bind"}, moduleTree.Options)
+	require.Equal(t, []string{"ro", "nosuid", "nodev", "bind", "rprivate"}, moduleTree.Options)
 
 	// 2 GPUs (index only, no UUID) + "all" = 3 devices
 	require.Len(t, spec.Devices, 3)
