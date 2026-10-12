@@ -83,6 +83,10 @@ Missing, outdated, or incorrect documentation has its own
 4. **Review required** — at least one maintainer approval from [OWNERS](OWNERS)
 5. **Changes logged** — user-facing changes need a changelog fragment, or the
    `skip-changelog` label
+6. **Rebase only on a conflict**: a pull request that is behind `main` still
+   merges. Rebase only when it has the `needs-rebase` label, because every push
+   dismisses approvals and `lgtm`. See
+   [Pull Requests](https://nvidia.github.io/k8s-test-infra/contributing/pull-requests/#rebase-only-on-a-conflict)
 
 ## Changelog
 
