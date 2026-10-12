@@ -132,15 +132,18 @@ that inherits them without the corresponding configuration sees the real host.
 
 | Shim | Kind | Makes this work |
 |---|---|---|
-| `libmockfs` | `LD_PRELOAD` | `lspci` and topology-aware schedulers see mock GPU BDFs |
+| `libmockfs` | `LD_PRELOAD` | `lspci`, topology-aware schedulers and Slurm's `AutoDetect=nvidia` see mock GPUs |
 | `libibmock` | `LD_PRELOAD` | `ibstat`, `ibstatus`, `iblinkinfo`, `ibv_devinfo` see mock InfiniBand HCAs |
 | `nvidia-imex-shim` | `execve` wrapper | `nvidia-imex` starts on a machine with no GPU |
 
 ### libmockfs
 
 Builds `libmockfs.so`. Redirects lookups under `/sys/bus/pci`,
-`/sys/bus/pci/devices` and `/sys/devices/pci` into the tree named by
-`MOCK_PCI_ROOT`, and is a no-op when that variable is unset.
+`/sys/devices/pci`, `/sys/module`, `/proc/modules` and `/proc/driver/nvidia`
+into the tree named by `MOCK_PCI_ROOT`, and is a no-op when that variable is
+unset. The two `/proc` paths cannot be bind-mounted, because runc refuses
+mounts inside `/proc`, so `lsmod` and Slurm's GPU autodetection reach the mock
+only through this shim.
 
 ### libibmock
 

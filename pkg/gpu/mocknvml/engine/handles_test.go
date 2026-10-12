@@ -147,7 +147,7 @@ func TestHandleTable_MultipleDevices(t *testing.T) {
 	handles := make([]unsafe.Pointer, MaxDevices)
 
 	// Register multiple devices
-	for i := 0; i < MaxDevices; i++ {
+	for i := range MaxDevices {
 		devices[i] = dgxa100.NewDevice(i)
 		handles[i] = ht.Register(devices[i])
 	}
@@ -171,27 +171,25 @@ func TestHandleTable_MultipleDevices(t *testing.T) {
 func TestHandleTable_ConcurrentAccess(t *testing.T) {
 	ht := NewHandleTable()
 	var wg sync.WaitGroup
-	var successCount int32
+	var successCount atomic.Int32
 	numGoroutines := maxDeviceHandles + 20
 
 	// Concurrent registration - each goroutine tries to register one unique
 	// device. Only maxDeviceHandles will succeed due to the table limit.
-	wg.Add(numGoroutines)
-	for i := 0; i < numGoroutines; i++ {
-		go func(id int) {
-			defer wg.Done()
-			dev := dgxa100.NewDevice(id)
+	for i := range numGoroutines {
+		wg.Go(func() {
+			dev := dgxa100.NewDevice(i)
 			handle := ht.Register(dev)
 			if handle != nil {
-				atomic.AddInt32(&successCount, 1)
+				successCount.Add(1)
 			}
-		}(i)
+		})
 	}
 	wg.Wait()
 
 	// The table hands out at most maxDeviceHandles handles, however many
 	// callers race for them.
-	require.Equal(t, int32(maxDeviceHandles), successCount,
+	require.Equal(t, int32(maxDeviceHandles), successCount.Load(),
 		"Expected %d successful registrations", maxDeviceHandles)
 
 	require.Equal(t, maxDeviceHandles, ht.Count(), "Expected count %d", maxDeviceHandles)
@@ -200,35 +198,33 @@ func TestHandleTable_ConcurrentAccess(t *testing.T) {
 func TestHandleTable_ConcurrentRegisterAndLookup(t *testing.T) {
 	ht := NewHandleTable()
 	var wg sync.WaitGroup
-	var lookupNilCount int32
+	var lookupNilCount atomic.Int32
 	numGoroutines := 50
 
 	// Pre-register devices up to MaxDevices limit
 	handles := make([]unsafe.Pointer, MaxDevices)
 	devices := make([]nvml.Device, MaxDevices)
-	for i := 0; i < MaxDevices; i++ {
+	for i := range MaxDevices {
 		devices[i] = dgxa100.NewDevice(i)
 		handles[i] = ht.Register(devices[i])
 	}
 
 	// Concurrent lookups only - table is already at capacity
 	// Testing that lookups work correctly under concurrent access
-	wg.Add(numGoroutines)
-	for i := 0; i < numGoroutines; i++ {
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 100; j++ {
+	for range numGoroutines {
+		wg.Go(func() {
+			for j := range 100 {
 				handle := handles[j%len(handles)]
 				dev := ht.Lookup(handle)
 				if dev == nil {
-					atomic.AddInt32(&lookupNilCount, 1)
+					lookupNilCount.Add(1)
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
-	require.Zero(t, lookupNilCount, "Lookup returned nil %d times for valid handles", lookupNilCount)
+	require.Zero(t, lookupNilCount.Load(), "Lookup returned nil %d times for valid handles", lookupNilCount.Load())
 }
 
 func TestHandleTable_ConcurrentClear(t *testing.T) {
@@ -236,26 +232,22 @@ func TestHandleTable_ConcurrentClear(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Register devices up to MaxDevices limit
-	for i := 0; i < MaxDevices; i++ {
+	for i := range MaxDevices {
 		dev := dgxa100.NewDevice(i)
 		ht.Register(dev)
 	}
 
 	// Concurrent clear and operations
 	late := dgxa100.NewDevice(100)
-	wg.Add(3)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		ht.Clear()
-	}()
-	go func() {
-		defer wg.Done()
+	})
+	wg.Go(func() {
 		ht.Register(late)
-	}()
-	go func() {
-		defer wg.Done()
+	})
+	wg.Go(func() {
 		ht.Lookup(unregisteredHandle())
-	}()
+	})
 	wg.Wait()
 
 	// Clear() and Register() serialise on the mutex, so exactly two orderings

@@ -33,4 +33,8 @@ type RootComplex struct {
 	ID       string   `json:"id"        yaml:"id"`
 	NUMANode int      `json:"numa_node" yaml:"numa_node"`
 	Devices  []string `json:"devices"   yaml:"devices"`
+	// CPUList is the kernel cpulist ("0-63", "0-35,72-107") of the CPUs local
+	// to this root, served as each device's local_cpulist. Empty omits the
+	// file rather than asserting an affinity nothing declared.
+	CPUList string `json:"cpu_list,omitempty" yaml:"cpu_list,omitempty"`
 }

@@ -1,0 +1,6 @@
+kind: Changed
+body: |-
+  node-agent: NVML now reports a GPU's CPU affinity (nvidia-smi topo -m) as only the CPUs the node has online, matching the driver's local_cpulist, so Slurm's AutoDetect=nvml can use GPUs on nodes smaller than the profile's machine.
+time: 2026-10-08T07:43:43Z
+custom:
+  Issue: "1014"

@@ -17,7 +17,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"testing"
 
@@ -139,7 +139,7 @@ func migGoldenSnapshot(t *testing.T, b migGoldenBoard) map[int]migGoldenRow {
 		for _, p := range profiles.GpuInstancePlacements[profileEnum] {
 			placements = append(placements, fmt.Sprintf("%d:%d", p.Start, p.Size))
 		}
-		sort.Strings(placements)
+		slices.Sort(placements)
 
 		snapshot[profileEnum] = migGoldenRow{
 			Name:                      name,
@@ -176,7 +176,7 @@ func migGoldenComputeInstances(profiles gpus.MIGProfileConfig, giProfileEnum int
 			ci.SharedDecoderCount, ci.SharedEncoderCount, ci.SharedJpegCount,
 			ci.SharedOfaCount, ci.SharedCopyEngineCount))
 	}
-	sort.Strings(rows)
+	slices.Sort(rows)
 	return rows
 }
 
@@ -201,10 +201,10 @@ func migGoldenCIPlacements(profiles gpus.MIGProfileConfig, giProfileEnum int) []
 		for _, p := range placements {
 			rendered = append(rendered, fmt.Sprintf("%d:%d", p.Start, p.Size))
 		}
-		sort.Strings(rendered)
+		slices.Sort(rendered)
 		rows = append(rows, fmt.Sprintf("ci%d:[%s]", ciEnum, strings.Join(rendered, ",")))
 	}
-	sort.Strings(rows)
+	slices.Sort(rows)
 	return rows
 }
 

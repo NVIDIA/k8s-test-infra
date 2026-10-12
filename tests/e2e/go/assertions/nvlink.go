@@ -9,7 +9,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -32,7 +32,7 @@ var (
 // excluded to avoid environmental false positives.
 func nvTokens(topo string, count int) []string {
 	var out []string
-	for _, line := range strings.Split(topo, "\n") {
+	for line := range strings.SplitSeq(topo, "\n") {
 		f := strings.Fields(line)
 		if len(f) == 0 || !gpuRowRE.MatchString(f[0]) {
 			continue
@@ -55,7 +55,7 @@ func distinctSorted(toks []string) []string {
 	for k := range m {
 		out = append(out, k)
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 

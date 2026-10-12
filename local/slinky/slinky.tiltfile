@@ -1,0 +1,113 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Loadable Tiltfile: Slinky (Slurm on Kubernetes) consumer.
+#
+# Exports:
+#   install(nvml_mock_releases) — install cert-manager, the Slinky
+#     slurm-operator and a Slurm cluster whose GPU NodeSet runs one slurmd per
+#     mock-GPU worker.
+#   UPSERT_TIMEOUT_S — the Tilt apply timeout install() needs. The root
+#     Tiltfile applies the largest among active consumers.
+#
+# What this consumer demonstrates: the unmodified slurm-operator stands up a
+# Slurm cluster whose slurmd pods get their GPUs from the real GPU Operator,
+# and Slurm discovers those GPUs itself (gres.conf AutoDetect=nvidia) from the
+# driver surface nvml-mock serves.
+#
+# Assumes --gpu-operator: slurmd requests nvidia.com/gpu, which only the
+# Operator's device plugin advertises. The root Tiltfile implies the flag.
+#
+# All side effects inside functions so load()ing this file is a pure import.
+
+load('ext://helm_resource', 'helm_resource')
+
+# Pinned rather than floating, like the other consumers. The operator, its CRDs
+# and the slurm chart ship in lockstep; bump the three together.
+_SLINKY_VERSION = '1.2.3'
+_SLINKY_CHARTS = 'oci://ghcr.io/slinkyproject/charts'
+_CERT_MANAGER_VERSION = 'v1.21.2'
+_HELM_TIMEOUT_S = 300
+UPSERT_TIMEOUT_S = _HELM_TIMEOUT_S + 60
+_NAMESPACE = 'slurm'
+# <release>-worker-<key of the nodesets map in slurm.values.yaml>.
+_NODESET = 'slurm-worker-gpu'
+
+
+def install(nvml_mock_releases):
+    """Install cert-manager, the slurm-operator and a GPU Slurm cluster."""
+    wait = ['--wait', '--timeout', '%ds' % _HELM_TIMEOUT_S]
+
+    # The operator's admission webhooks are served with cert-manager-issued
+    # certificates; --wait keeps the operator from installing before the
+    # cert-manager webhook can sign them.
+    helm_resource(
+        'cert-manager',
+        'oci://quay.io/jetstack/charts/cert-manager',
+        namespace='cert-manager',
+        flags=['--create-namespace', '--version', _CERT_MANAGER_VERSION,
+               '--set', 'crds.enabled=true'] + wait,
+        labels=['slinky'],
+    )
+
+    helm_resource(
+        'slurm-operator-crds',
+        _SLINKY_CHARTS + '/slurm-operator-crds',
+        flags=['--version', _SLINKY_VERSION],
+        # CRDs only: with no pods to watch, Tilt would hold the release (and
+        # everything depending on it) pending forever.
+        pod_readiness='ignore',
+        labels=['slinky'],
+    )
+
+    # --wait: the slurm chart's Controller and NodeSet objects are admitted by
+    # the operator's webhook, so it must be serving before they are applied.
+    helm_resource(
+        'slurm-operator',
+        _SLINKY_CHARTS + '/slurm-operator',
+        namespace='slinky',
+        flags=['--create-namespace', '--version', _SLINKY_VERSION] + wait,
+        resource_deps=['cert-manager', 'slurm-operator-crds'],
+        labels=['slinky'],
+    )
+
+    # The 'gpu-operator' resource goes green once the operator pod is up, before
+    # it has created the device plugin and validator. slurmd detects its GPUs
+    # once, at startup, so it must not start before they are advertised.
+    local_resource(
+        'gpu-operator-ready',
+        cmd='bash local/slinky/scenarios/wait-gpu-operator.sh gpu-operator',
+        resource_deps=['gpu-operator'],
+        labels=['slinky'],
+    )
+
+    helm_resource(
+        'slurm',
+        _SLINKY_CHARTS + '/slurm',
+        namespace=_NAMESPACE,
+        flags=['--create-namespace', '--version', _SLINKY_VERSION,
+               '--values', 'local/slinky/slurm.values.yaml'],
+        resource_deps=['slurm-operator', 'gpu-operator-ready'] + nvml_mock_releases,
+        labels=['slinky'],
+    )
+
+    # The operator creates the NodeSet pods after the release lands, so the
+    # 'slurm' resource goes green while slurmd is still pulling. This one
+    # stays pending until every slurmd pod is Ready, which is also what makes
+    # `tilt ci` wait for them.
+    local_resource(
+        'slurm-nodes',
+        cmd='bash local/slinky/scenarios/wait-nodeset.sh %s %s' % (_NODESET, _NAMESPACE),
+        resource_deps=['slurm'],
+        labels=['slinky'],
+    )
+
+    # Manual: it submits jobs, which a reload of the Tiltfile should not do.
+    local_resource(
+        'slurm-smoke',
+        cmd='bash local/slinky/scenarios/srun-smoke.sh',
+        env={'NAMESPACE': _NAMESPACE},
+        resource_deps=['slurm-nodes'],
+        auto_init=False,
+        labels=['slinky-tests'],
+    )

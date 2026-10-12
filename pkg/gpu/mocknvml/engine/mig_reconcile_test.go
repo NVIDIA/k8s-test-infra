@@ -802,9 +802,7 @@ func TestReconcileMIG_ConcurrentCeilingReads(t *testing.T) {
 		reader  sync.WaitGroup
 	)
 	done := make(chan struct{})
-	reader.Add(1)
-	go func() {
-		defer reader.Done()
+	reader.Go(func() {
 		// Capped so this stays a short overlap rather than a stress loop; the
 		// writes below are slow enough that a few thousand reads span them.
 		const maxPolls = 20000
@@ -820,7 +818,7 @@ func TestReconcileMIG_ConcurrentCeilingReads(t *testing.T) {
 				illegal = append(illegal, observation{count: count, ret: ret})
 			}
 		}
-	}()
+	})
 
 	// Alternating the two documents moves the ceiling between 7 and 3 on every
 	// generation, so each one is a write the reader can catch in flight.

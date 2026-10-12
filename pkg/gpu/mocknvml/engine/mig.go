@@ -14,12 +14,12 @@
 package engine
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"hash/fnv"
 	"regexp"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -582,7 +582,7 @@ func (st *migState) liveGpuInstances(parent *ConfigurableDevice) []*mockserver.G
 	}
 	parent.Device.RUnlock()
 
-	sort.Slice(gis, func(i, j int) bool { return gis[i].Info.Id < gis[j].Info.Id })
+	slices.SortFunc(gis, func(a, b *mockserver.GpuInstance) int { return cmp.Compare(a.Info.Id, b.Info.Id) })
 	return gis
 }
 
@@ -595,7 +595,7 @@ func liveComputeInstances(gi *mockserver.GpuInstance) []*mockserver.ComputeInsta
 	}
 	gi.RUnlock()
 
-	sort.Slice(cis, func(i, j int) bool { return cis[i].Info.Id < cis[j].Info.Id })
+	slices.SortFunc(cis, func(a, b *mockserver.ComputeInstance) int { return cmp.Compare(a.Info.Id, b.Info.Id) })
 	return cis
 }
 

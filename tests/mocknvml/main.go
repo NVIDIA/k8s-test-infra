@@ -86,7 +86,7 @@ func main() {
 
 	// Enumerate devices (like a device plugin would)
 	log.Println("\nEnumerating devices:")
-	for i := 0; i < count; i++ {
+	for i := range count {
 		device, ret := nvml.DeviceGetHandleByIndex(i)
 		if ret != nvml.SUCCESS {
 			log.Fatalf("Failed to get device %d: %v", i, nvml.ErrorString(ret))
@@ -149,7 +149,7 @@ func main() {
 
 	// First, collect all UUIDs
 	allUUIDs := make([]string, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		dev, ret := nvml.DeviceGetHandleByIndex(i)
 		if ret != nvml.SUCCESS {
 			log.Fatalf("Failed to get device %d: %v", i, nvml.ErrorString(ret))

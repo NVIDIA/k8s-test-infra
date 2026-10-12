@@ -1,0 +1,6 @@
+kind: Changed
+body: |-
+  control-plane: logs are leveled for operators: Info records lifecycle and state changes, Warn flags Node metadata conflicts that block a projection, Debug records each event and decision, and requeues caused by a moving informer cache no longer log at Error.
+time: 2026-10-05T15:21:26Z
+custom:
+  Issue: "921"

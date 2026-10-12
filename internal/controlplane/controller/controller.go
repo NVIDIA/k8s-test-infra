@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
 
 // Package controller wires informer snapshots and keyed workqueues to the
-// rack, projection, and status reconcilers.
+// rack, projection, and status reconcilers, and compiles effective runtime
+// state from runtime policies.
 package controller
 
 import (
@@ -110,6 +111,17 @@ const (
 	projectionCleanup
 )
 
+func (m projectionMode) String() string {
+	switch m {
+	case projectionApply:
+		return "apply"
+	case projectionCleanup:
+		return "cleanup"
+	}
+
+	return fmt.Sprintf("projectionMode(%d)", uint8(m))
+}
+
 type projectionKey struct {
 	mode      projectionMode
 	rackName  string
@@ -118,17 +130,47 @@ type projectionKey struct {
 	cleanup   sgpurelease.Cleanup
 }
 
+// String names the mode in logs: fmt cannot call the methods of unexported
+// fields, so formatting the struct directly would print it as a number.
+func (k projectionKey) String() string {
+	return fmt.Sprintf("{mode:%s rackName:%s nodeIndex:%d fresh:%t cleanup:%+v}",
+		k.mode, k.rackName, k.nodeIndex, k.fresh, k.cleanup)
+}
+
 type statusKind uint8
 
 const (
 	statusInventory statusKind = iota + 1
 	statusRack
+	// statusRuntimePolicies evaluates every runtime policy that targets the
+	// named inventory together, because one policy can accept or reject
+	// another. The key has no UID: the inventory may not exist.
+	statusRuntimePolicies
 )
+
+func (k statusKind) String() string {
+	switch k {
+	case statusInventory:
+		return "inventory"
+	case statusRack:
+		return "rack"
+	case statusRuntimePolicies:
+		return "runtimePolicies"
+	}
+
+	return fmt.Sprintf("statusKind(%d)", uint8(k))
+}
 
 type statusKey struct {
 	kind statusKind
 	name string
 	uid  types.UID
+}
+
+// String names the kind in logs: fmt cannot call the methods of unexported
+// fields, so formatting the struct directly would print it as a number.
+func (k statusKey) String() string {
+	return fmt.Sprintf("{kind:%s name:%s uid:%s}", k.kind, k.name, k.uid)
 }
 
 type queues struct {
@@ -190,6 +232,7 @@ type Controller struct {
 	leaderHandlers   []handlerSpec
 	waitForCacheSync func(context.Context) bool
 	snapshot         *informerCache
+	runtimePolicies  *runtimePolicyView
 
 	reconcileInventory  func(context.Context, string) error
 	reconcileGroup      func(context.Context, allocate.RackGroupKey) error
@@ -222,8 +265,12 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 	profileInformer := profiles.Informer()
 	inventoryInformer := inventories.Informer()
 	rackInformer := racks.Informer()
+	runtimePolicyInformer := mokka.SGPURuntimePolicies().Informer()
 	if err := rackInformer.AddIndexers(sgpuinventory.Indexers()); err != nil {
 		return nil, fmt.Errorf("add rack indexes: %w", err)
+	}
+	if err := runtimePolicyInformer.AddIndexers(runtimePolicyIndexers()); err != nil {
+		return nil, fmt.Errorf("add runtime policy indexes: %w", err)
 	}
 	nodeInformer, err := newFilteredNodeInformer(nodes)
 	if err != nil {
@@ -249,12 +296,19 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 		mokkaClient.MokkaV1alpha1().SGPURacks(),
 		nil,
 	)
+	runtimePolicies := &runtimePolicyView{
+		inventories: inventories.Lister(),
+		profiles:    profiles.Lister(),
+		policies:    runtimePolicyInformer.GetIndexer(),
+	}
+	runtimePolicyStatus := sgpustatus.NewRuntimePolicyReconciler(mokkaClient.MokkaV1alpha1().SGPURuntimePolicies(), nil)
 
 	controller := &Controller{
-		options:      options,
-		queues:       newQueuesWithStatusIntervals(options.StatusDebounce, options.statusProgressInterval()),
-		cachesSynced: make(chan struct{}),
-		snapshot:     snapshot,
+		options:         options,
+		queues:          newQueuesWithStatusIntervals(options.StatusDebounce, options.statusProgressInterval()),
+		cachesSynced:    make(chan struct{}),
+		snapshot:        snapshot,
+		runtimePolicies: runtimePolicies,
 	}
 	// Test environments use short-lived controller instances and only a few inventories,
 	// so per-name locks and results intentionally live for the controller's lifetime.
@@ -445,6 +499,8 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 			return reconcileInventoryStatus(ctx, snapshot, statusReconciler, projection, results, key)
 		case statusRack:
 			return reconcileRackStatus(ctx, snapshot, statusReconciler, projection, key)
+		case statusRuntimePolicies:
+			return reconcileRuntimePolicyStatus(ctx, runtimePolicies, runtimePolicyStatus, key.name)
 		default:
 			return fmt.Errorf("unknown status work kind %d", key.kind)
 		}
@@ -460,7 +516,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 	router.observeRackStatus = statusReconciler.ObserveRackStatus
 	router.forgetRackStatus = statusReconciler.ForgetRackStatus
 	controller.informers = []cache.SharedIndexInformer{
-		profileInformer, inventoryInformer, rackInformer, nodeInformer,
+		profileInformer, inventoryInformer, rackInformer, nodeInformer, runtimePolicyInformer,
 	}
 	controller.leaderHandlers = []handlerSpec{
 		{
@@ -508,6 +564,14 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 					nodeCatalog.Delete(node.Name, node.UID)
 					router.nodeDelete(node)
 				},
+			},
+		},
+		{
+			informer: runtimePolicyInformer,
+			handler: cache.ResourceEventHandlerFuncs{
+				AddFunc:    router.runtimePolicyAdd,
+				UpdateFunc: router.runtimePolicyUpdate,
+				DeleteFunc: router.runtimePolicyDelete,
 			},
 		},
 	}
@@ -609,6 +673,7 @@ func (c *Controller) RunCaches(ctx context.Context) error {
 
 	c.cacheReady.Store(true)
 	close(c.cachesSynced)
+	zap.L().Info("Informer caches synchronized")
 	<-runCtx.Done()
 	c.cacheReady.Store(false)
 	cancel()
@@ -629,11 +694,13 @@ func (c *Controller) RunLeader(ctx context.Context) error {
 	}
 	workers := c.startLeaderWorkers(ctx)
 	c.leaderReady.Store(true)
+	zap.L().Info("Leader workers started", zap.Int("workersPerQueue", c.options.Workers))
 	<-ctx.Done()
 	c.leaderReady.Store(false)
 	shutdownErr := detachHandlers()
 	c.queues.shutdown()
 	workers.Wait()
+	zap.L().Info("Leader workers stopped")
 	return shutdownErr
 }
 
@@ -717,6 +784,7 @@ func (c *Controller) processNextStatus(ctx context.Context) bool {
 	}
 	c.queues.statuses.start(key)
 	defer c.queues.status.Done(key)
+	started := time.Now()
 	if err := c.reconcileStatus(ctx, key); err != nil {
 		if shouldRetry(ctx, err) && !c.queues.status.ShuttingDown() {
 			c.queues.status.AddRateLimited(key)
@@ -724,11 +792,16 @@ func (c *Controller) processNextStatus(ctx context.Context) bool {
 			c.queues.status.Forget(key)
 		}
 		c.queues.statuses.finish(key, false)
-		zap.L().Error("Controller reconciliation failed", zap.Error(err), zap.String("key", fmt.Sprintf("%+v", key)))
+		if routineRequeue(err) {
+			zap.L().Debug("Controller reconciliation requeued", zap.Error(err), keyField(key))
+		} else {
+			zap.L().Error("Controller reconciliation failed", zap.Error(err), keyField(key))
+		}
 		return true
 	}
 	c.queues.status.Forget(key)
 	c.queues.statuses.finish(key, true)
+	zap.L().Debug("Controller reconciliation finished", keyField(key), zap.Duration("duration", time.Since(started)))
 	return true
 }
 
@@ -747,18 +820,36 @@ func processNext[T comparable](
 		return false
 	}
 	defer queue.Done(key)
+	started := time.Now()
 	if err := reconcile(ctx, key); err != nil {
 		if shouldRetry(ctx, err) && !queue.ShuttingDown() {
 			queue.AddRateLimited(key)
 		} else {
 			queue.Forget(key)
 		}
-		// Format explicitly so unexported projection key fields remain visible in JSON logs.
-		zap.L().Error("Controller reconciliation failed", zap.Error(err), zap.String("key", fmt.Sprintf("%+v", key)))
+		if routineRequeue(err) {
+			zap.L().Debug("Controller reconciliation requeued", zap.Error(err), keyField(key))
+		} else {
+			zap.L().Error("Controller reconciliation failed", zap.Error(err), keyField(key))
+		}
 		return true
 	}
 	queue.Forget(key)
+	zap.L().Debug("Controller reconciliation finished", keyField(key), zap.Duration("duration", time.Since(started)))
 	return true
+}
+
+// routineRequeue reports whether a reconciliation failed only because the
+// informer view moved while it ran; its rate-limited retry is routine rather
+// than a failure.
+func routineRequeue(err error) bool {
+	return errors.Is(err, sgpuinventory.ErrRackCacheStale) || errors.Is(err, sgpuinventory.ErrAllocationInputChanged)
+}
+
+// keyField formats a queue key for log entries. %+v names the fields of plain
+// struct keys and uses the String method of keys with unexported fields.
+func keyField(key any) zap.Field {
+	return zap.String("key", fmt.Sprintf("%+v", key))
 }
 
 func shouldRetry(ctx context.Context, err error) bool {

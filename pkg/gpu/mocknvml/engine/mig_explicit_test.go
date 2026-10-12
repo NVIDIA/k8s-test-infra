@@ -373,9 +373,7 @@ func TestApplyMIGLayout_EnumerationRunsAlongsideAnExplicitLayout(t *testing.T) {
 	var readers sync.WaitGroup
 	done := make(chan struct{})
 	for range 4 {
-		readers.Add(1)
-		go func() {
-			defer readers.Done()
+		readers.Go(func() {
 			for {
 				select {
 				case <-done:
@@ -387,7 +385,7 @@ func TestApplyMIGLayout_EnumerationRunsAlongsideAnExplicitLayout(t *testing.T) {
 				_ = dev.MIGLayoutRecords()
 				_, _ = dev.GetGpuInstances(&profile)
 			}
-		}()
+		})
 	}
 
 	// IDs and compute instances that a record names rather than the counter,

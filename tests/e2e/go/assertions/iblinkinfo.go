@@ -54,7 +54,7 @@ func IBLinkInfo(ctx context.Context, k *kube.Client, local, peer kube.PodRef, p 
 func readLocalGUIDs(ctx context.Context, k *kube.Client, pod kube.PodRef) map[string]struct{} {
 	res, _ := k.ExecSh(ctx, pod, `for f in /var/lib/nvml-mock/ib/sys/class/infiniband/*/ports/1/port_guid; do [ -r "$f" ] && cat "$f"; done 2>/dev/null`)
 	set := map[string]struct{}{}
-	for _, line := range strings.Split(res.Combined(), "\n") {
+	for line := range strings.SplitSeq(res.Combined(), "\n") {
 		g := normGUID(line)
 		if g != "" {
 			set[g] = struct{}{}

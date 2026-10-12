@@ -59,6 +59,7 @@ def build_images(with_dra):
         only=[
             'go.mod',
             'go.sum',
+            'api/',
             'cmd/',
             'pkg/',
             'internal/',

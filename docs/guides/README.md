@@ -20,6 +20,7 @@ ask of you — start at the top if you are new.
 | [Amazon EKS](install/aws/eks/README.md) | The device-plugin path on private, CPU-only managed workers, including the required runtime bootstrap | 20–30 min |
 | [NVIDIA GPU Operator](gpu-operator.md) | The real operator stack — device plugin, GFD, DCGM and the validator — against mock GPUs | ~15 min |
 | [NVIDIA Dynamo](dynamo/README.md) | An OpenAI-compatible endpoint served by Dynamo, its worker scheduled onto a mock GPU through the GPU Operator | ~15 min |
+| [Slinky (Slurm)](slinky/README.md) | A Slurm cluster whose `slurmd` discovers mock GPUs as GRES, and `srun --gres=gpu:N` jobs scheduled against them | ~20 min |
 | [NVIDIA DRA Driver](dra.md) | Mock GPUs published as ResourceSlices, and a pod scheduled through a ResourceClaim | ~10 min |
 | [Run:ai fake-gpu-operator](runai-fgo/README.md) | Two node pools — Mokka serving one with a real NVML shim, FGO serving the other | ~10 min |
 | [ComputeDomain](compute-domain/README.md) | NVLink fabric identity, with a real `nvidia-imex` forming a live domain over mock GPUs | 10–20 min |

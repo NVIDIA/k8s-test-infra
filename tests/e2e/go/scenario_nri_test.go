@@ -111,7 +111,6 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 	})
 
 	for _, name := range selectedProfiles {
-		name := name
 		Context("profile "+name, Label(name), Ordered, func() {
 			var (
 				p             profile.Profile
@@ -1289,7 +1288,7 @@ func installNRICDIChart(ctx context.Context, h *harness.Harness, p profile.Profi
 // framework renders neither field. The device annotation opts the pod in, as it
 // does nriAnnotatedPodManifest's pods.
 func nriBidirectionalPodManifest(name, node string) []byte {
-	return []byte(fmt.Sprintf(`apiVersion: v1
+	return fmt.Appendf(nil, `apiVersion: v1
 kind: Pod
 metadata:
   name: %[1]s
@@ -1316,7 +1315,7 @@ spec:
       hostPath:
         path: /var/lib/%[1]s
         type: DirectoryOrCreate
-`, name, nriWorkloadNS, nriDeviceAnnotation, node, nriWorkloadImage))
+`, name, nriWorkloadNS, nriDeviceAnnotation, node, nriWorkloadImage)
 }
 
 // nriOverlayMountsOnNode lists the mounts at or below the overlay's host path in
@@ -1328,7 +1327,7 @@ func nriOverlayMountsOnNode(ctx context.Context, container string) []string {
 	Expect(err).NotTo(HaveOccurred(), "read the mount table of %s", container)
 
 	var mounts []string
-	for _, line := range strings.Split(res.Stdout, "\n") {
+	for line := range strings.SplitSeq(res.Stdout, "\n") {
 		// The fifth field is the mount point.
 		fields := strings.Fields(line)
 		if len(fields) > 4 && (fields[4] == nriOverlayHostPath || strings.HasPrefix(fields[4], nriOverlayHostPath+"/")) {
@@ -1356,7 +1355,7 @@ func imexChannelNames(ctx context.Context, h *harness.Harness, pod kube.PodRef) 
 	res, err := h.Kube.ExecSh(ctx, pod, `ls `+nriImexChannelDir)
 	Expect(err).NotTo(HaveOccurred(), "list %s in %s: %s", nriImexChannelDir, pod.Pod, res.Combined())
 	var names []string
-	for _, line := range strings.Split(res.Combined(), "\n") {
+	for line := range strings.SplitSeq(res.Combined(), "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "channel") {
 			names = append(names, line)
@@ -1373,7 +1372,7 @@ func advertisedImexMajor(ctx context.Context, h *harness.Harness, node string) i
 	res, err := h.Kube.ExecSh(ctx, pod, `cat /host/var/lib/nvml-mock/imex/proc-devices`)
 	Expect(err).NotTo(HaveOccurred(), "read rendered proc-devices on %s: %s", node, res.Combined())
 
-	for _, line := range strings.Split(res.Combined(), "\n") {
+	for line := range strings.SplitSeq(res.Combined(), "\n") {
 		fields := strings.Fields(strings.TrimSpace(line))
 		if len(fields) == 2 && fields[1] == "nvidia-caps-imex-channels" {
 			major, parseErr := strconv.Atoi(fields[0])

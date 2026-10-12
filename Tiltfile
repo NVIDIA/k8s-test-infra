@@ -12,6 +12,10 @@
 #   3. Add a load(...) for the new tiltfile.
 #   4. Add `if with_<name>: active_consumers.append('<name>')`.
 #   5. Add `if with_<name>: <name>_install(nvml_mock_releases)`.
+# Optional: if install() waits on something slower than Tilt's 30s apply
+# timeout (helm --wait), export UPSERT_TIMEOUT_S and add it to the
+# "Apply timeout" block below. Never call update_settings from the
+# consumer: it is session-wide and the last call wins.
 # The nvml-mock stack itself needs no changes to add a consumer.
 # Optional: drop local/<name>/nvml-mock.values.yaml if the consumer
 # needs mock-side tweaks (MOCK_* env vars, gpu.count overrides, etc.).
@@ -42,8 +46,14 @@ load('./local/fgo/fgo.tiltfile', fgo_install='install')
 load('./local/topograph/topograph.tiltfile', topograph_install='install')
 load('./local/observability/observability.tiltfile',
      observability_install='install',
-     observability_gpu_operator_values='GPU_OPERATOR_VALUES')
-load('./local/dynamo/dynamo.tiltfile', dynamo_install='install')
+     observability_gpu_operator_values='GPU_OPERATOR_VALUES',
+     observability_upsert_timeout_s='UPSERT_TIMEOUT_S')
+load('./local/dynamo/dynamo.tiltfile',
+     dynamo_install='install',
+     dynamo_upsert_timeout_s='UPSERT_TIMEOUT_S')
+load('./local/slinky/slinky.tiltfile',
+     slinky_install='install',
+     slinky_upsert_timeout_s='UPSERT_TIMEOUT_S')
 
 # --- Flags ---------------------------------------------------------------
 config.define_string('gpu-profile', args=False,
@@ -69,6 +79,8 @@ config.define_bool('observability', args=False,
     usage='Also deploy kube-prometheus-stack + a Grafana dashboard over the mock GPUs, and expose two manual fault-injection triggers (inject-thermal, inject-xid) that assert the fault lands in Prometheus. Implies --gpu-operator (dcgm-exporter is the Operator\'s operand). Grafana on http://localhost:3000/d/mokka-gpu (admin/mokka).')
 config.define_bool('dynamo', args=False,
     usage='Also deploy NVIDIA Dynamo (operator only) and an aggregated DynamoGraphDeployment whose worker runs the mocker engine on a mock GPU, plus a manual dynamo-smoke trigger. Implies --gpu-operator (the worker requests nvidia.com/gpu). OpenAI API on http://localhost:8000.')
+config.define_bool('slinky', args=False,
+    usage='Also deploy Slinky (cert-manager, slurm-operator and a Slurm cluster) with one slurmd per mock-GPU worker; Slurm discovers the GPUs via gres.conf AutoDetect. Implies --gpu-operator (slurmd requests nvidia.com/gpu). Fits any cluster shape; combine with --compute-domain for a 4-node GB200 Slurm cluster.')
 config.define_bool('control-plane', args=False,
     usage='Also deploy the Mokka Control Plane (MEP-0001) alongside nvml-mock. Off by default. Composes with --multi-gpu-profile (the first profile release owns the single CP), --compute-domain, and --nvmlmock-image.')
 # CI hook: hand Tilt a pre-built image (in CI, loaded from the workflow's image
@@ -91,6 +103,7 @@ with_fgo            = cfg.get('fgo', False)
 with_topograph      = cfg.get('topograph', False)
 with_observability  = cfg.get('observability', False)
 with_dynamo         = cfg.get('dynamo', False)
+with_slinky         = cfg.get('slinky', False)
 with_control_plane  = cfg.get('control-plane', False)
 
 # --- Implicit flags ------------------------------------------------------
@@ -115,6 +128,11 @@ if with_observability:
 if with_dynamo:
     with_gpu_operator = True
 
+# --slinky implies --gpu-operator for the same reason: slurmd requests
+# nvidia.com/gpu.
+if with_slinky:
+    with_gpu_operator = True
+
 # --- Guardrails ----------------------------------------------------------
 # compute-domain forces its own cluster shape (4 workers with clique
 # labels, hardcoded worker names in topology.yaml) and its own profile
@@ -130,6 +148,11 @@ if with_fgo and with_gpu_operator:
     fail('--fgo is mutually exclusive with --gpu-operator (FGO replaces the GPU Operator)')
 if with_fgo and with_compute_domain:
     fail('--fgo is mutually exclusive with --compute-domain')
+
+# Every slurmd claims all the GPUs of its node, so the Dynamo worker's request
+# would never fit and its graph would sit Pending forever.
+if with_slinky and with_dynamo:
+    fail('--slinky is mutually exclusive with --dynamo (slurmd claims every mock GPU)')
 
 # --nvmlmock-image only wires the standard nvml-mock build/install path. The
 # compute-domain scenario builds three layered images (base + imex + optional
@@ -176,6 +199,9 @@ if with_observability:
 if with_dynamo:
     active_consumers.append('dynamo')
 
+if with_slinky:
+    active_consumers.append('slinky')
+
 # --- Safety guard --------------------------------------------------------
 allow_k8s_contexts(k8s_context)
 
@@ -219,6 +245,22 @@ if with_topograph:
 if with_observability:
     helm_repo('prometheus-community', 'https://prometheus-community.github.io/helm-charts',
               labels=['observability'])
+
+# --- Apply timeout -------------------------------------------------------
+# Tilt caps every k8s apply at 30s by default, which a consumer's helm --wait
+# blows through. update_settings is session-wide and the last call wins, so
+# it is set once here, to the largest timeout any active consumer needs: a
+# consumer setting its own would cut short another's longer install. Raised
+# only when such a consumer is on, so every other session keeps the default.
+upsert_timeouts = []
+if with_observability:
+    upsert_timeouts.append(observability_upsert_timeout_s)
+if with_dynamo:
+    upsert_timeouts.append(dynamo_upsert_timeout_s)
+if with_slinky:
+    upsert_timeouts.append(slinky_upsert_timeout_s)
+if upsert_timeouts:
+    update_settings(k8s_upsert_timeout_secs=max(upsert_timeouts))
 
 # --- Consumers -----------------------------------------------------------
 # Monitoring goes in BEFORE the GPU Operator: kube-prometheus-stack ships the
@@ -275,6 +317,9 @@ if with_topograph:
 
 if with_dynamo:
     dynamo_install(nvml_mock_releases)
+
+if with_slinky:
+    slinky_install(nvml_mock_releases)
 
 # --- Test workload -------------------------------------------------------
 # GPU validator pod, disabled by default (enable from the Tilt UI). Requests

@@ -18,11 +18,12 @@ When `MOCK_PCI_ROOT` is set, accesses under:
 /sys/devices/pci*
 /sys/module
 /proc/modules
+/proc/driver/nvidia
 ```
 
 are rewritten by prepending `MOCK_PCI_ROOT`.
 
-The shim redirects `/proc/modules` instead of a mount. runc refuses any bind mount inside `/proc` that is not on its allowlist. Therefore `lsmod` depends on this shim.
+The shim redirects `/proc/modules` and `/proc/driver/nvidia` instead of mounting them. runc refuses any bind mount inside `/proc` that is not on its allowlist. Therefore `lsmod`, and Slurm's `AutoDetect=nvidia` GPU discovery, depend on this shim.
 
 For example:
 

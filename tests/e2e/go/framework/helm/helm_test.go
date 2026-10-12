@@ -45,7 +45,7 @@ func TestRunPinsChartVersionOnlyWhenSet(t *testing.T) {
 				return runner.Result{}, nil
 			}
 
-			err := New("kind-nvml-mock-e2e").Install(context.Background(), Release{
+			err := New("kind-nvml-mock-e2e").Install(t.Context(), Release{
 				Name:    "nfd",
 				Chart:   "nfd/node-feature-discovery",
 				Version: tc.version,
@@ -91,7 +91,7 @@ func TestRunHidesReleaseOutputWhenRequested(t *testing.T) {
 		return runner.Result{}, nil
 	}
 
-	err := New("kind-nvml-mock-e2e").UpgradeInstall(context.Background(), Release{
+	err := New("kind-nvml-mock-e2e").UpgradeInstall(t.Context(), Release{
 		Name:       "nvml-mock",
 		Chart:      "chart",
 		HideOutput: true,

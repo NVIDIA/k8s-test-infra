@@ -32,7 +32,7 @@ import (
 // Doc mirrors engine.ConfigOverrideDoc but lives in the CLI package so nvml-mock-ctl
 // never links the CGo bridge/build tags. The on-disk schema is identical.
 type Doc struct {
-	Version int                       `json:"version,omitempty"`
+	Version int                       `json:"version,omitzero"`
 	All     map[string]any            `json:"all,omitempty"`
 	Devices map[string]map[string]any `json:"devices,omitempty"`
 }

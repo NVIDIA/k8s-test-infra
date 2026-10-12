@@ -23,7 +23,7 @@ so all consumers and applications up the stack work without modifications.
 
 ## Tech Stack
 
-- Modern Golang 1.26
+- Modern Golang 1.27
 - Kubernetes as a main deployment target
 - Tilt for local development and CI E2E test environment setup
 

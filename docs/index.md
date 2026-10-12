@@ -90,6 +90,7 @@ topology, counters and failures are synthesised.
 | NVIDIA GPU Operator      | The full operand stack installs and its validator starts                                  |
 | DCGM / dcgm-exporter     | Telemetry, time-varying power, and injected Xid errors                                    |
 | Run:ai fake-gpu-operator | Profile ConfigMaps published in the shape its discovery expects                           |
+| Slurm via Slinky         | `slurmd` autodetects the GPUs as GRES, and `srun --gres=gpu:N` jobs schedule against them |
 
 ## Where to go next
 

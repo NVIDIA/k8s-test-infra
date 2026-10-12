@@ -424,7 +424,7 @@ func TestEngine_DefaultDeviceUUIDs(t *testing.T) {
 	defer func() { _ = e.Shutdown() }()
 
 	seen := make(map[string]int, MaxDevices)
-	for i := 0; i < MaxDevices; i++ {
+	for i := range MaxDevices {
 		handle, ret := e.DeviceGetHandleByIndex(i)
 		require.Equal(t, nvml.SUCCESS, ret, "DeviceGetHandleByIndex(%d) failed", i)
 		uuid, ret := e.LookupDevice(handle).GetUUID()
@@ -538,7 +538,7 @@ func TestDetectVisibleDevices_NonePresent(t *testing.T) {
 // device node exists (no filtering needed).
 func TestDetectVisibleDevices_AllPresent(t *testing.T) {
 	dir := t.TempDir()
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		f, err := os.Create(fmt.Sprintf("%s/nvidia%d", dir, i))
 		require.NoError(t, err)
 		require.NoError(t, f.Close())
@@ -735,7 +735,7 @@ func TestVisibility_IndexRoundTrip(t *testing.T) {
 				expected = len(uuids)
 			}
 			require.Equal(t, expected, count)
-			for i := 0; i < count; i++ {
+			for i := range count {
 				h, ret := e.DeviceGetHandleByIndex(i)
 				require.Equal(t, nvml.SUCCESS, ret)
 				d := e.LookupDevice(h)

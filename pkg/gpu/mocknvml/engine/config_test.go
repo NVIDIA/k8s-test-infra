@@ -237,6 +237,39 @@ func TestLoadConfig_FallsBackToCDIConfigPath(t *testing.T) {
 	require.Equal(t, "570.00.00", config.DriverVersion)
 }
 
+// withNRIConfigPath points the NRI mount fallback at a test-owned file.
+func withNRIConfigPath(t *testing.T, path string) {
+	t.Helper()
+	previous := nriConfigPath
+	nriConfigPath = path
+	ClearConfigCache()
+	t.Cleanup(func() {
+		nriConfigPath = previous
+		ClearConfigCache()
+	})
+}
+
+// The NRI plugin mounts the node's overlay into a served container and names
+// the config in MOCK_NVML_CONFIG, but a process whose launcher rebuilds the
+// environment loses it: a Slurm job gets the env of whoever ran srun, not of
+// the slurmd it runs under. The mount is still there, so the profile must
+// load from it rather than the built-in A100s.
+func TestLoadConfig_FallsBackToNRIConfigPath(t *testing.T) {
+	withCDIConfigPath(t, filepath.Join(t.TempDir(), "absent.yaml"))
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	writeTwoDeviceConfig(t, configPath)
+	withNRIConfigPath(t, configPath)
+	t.Setenv("MOCK_NVML_CONFIG", "")
+	t.Setenv("MOCK_NVML_OVERRIDES", "")
+
+	config := LoadConfig()
+	require.NotNil(t, config.YAMLConfig, "expected the NRI-mounted profile to load")
+	require.Equal(t, 2, config.NumDevices)
+	require.Equal(t, filepath.Join(dir, "overrides.yaml"), ConfigOverridePath(),
+		"overrides resolve beside the config NRI names, so resets and faults reach the job")
+}
+
 func TestLoadConfig_ExplicitConfigWinsOverCDIConfigPath(t *testing.T) {
 	withCDIConfigPath(t, filepath.Join(t.TempDir(), "config.yaml"))
 	writeTwoDeviceConfig(t, cdiConfigPath)

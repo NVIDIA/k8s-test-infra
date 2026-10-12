@@ -364,7 +364,7 @@ func BuildNodeFabric(cfg *Config) *NodeFabric {
 	var fwWarnings []string
 	f.nvlinkFirmware, fwWarnings = resolveNvlinkFirmware(cfg)
 	f.warnings = append(f.warnings, fwWarnings...)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		f.nvCount[i] = make([]int, n)
 		f.pcieLevel[i] = make([]nvml.GpuTopologyLevel, n)
 		f.numaOf[i] = -1
@@ -378,7 +378,7 @@ func BuildNodeFabric(cfg *Config) *NodeFabric {
 	// Resolve per-device BDFs (the join key into the topology blocks).
 	bdfOfDev := make([]string, n)
 	bdfToIndex := make(map[string]int, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		bdf := ""
 		if cfg != nil {
 			bdf = strings.ToLower(cfg.GetDevicePCIBusID(i))
@@ -415,7 +415,7 @@ func (f *NodeFabric) resolveAffinity(yc *YAMLConfig, bdfOfDev []string, bdfToInd
 				cpus = parseCPURange(rc.CPUAffinity)
 			} else {
 				start := rc.NUMANode * coresPerNUMA
-				for c := 0; c < coresPerNUMA; c++ {
+				for c := range coresPerNUMA {
 					cpus = append(cpus, start+c)
 				}
 			}
@@ -430,7 +430,7 @@ func (f *NodeFabric) resolveAffinity(yc *YAMLConfig, bdfOfDev []string, bdfToInd
 		}
 	}
 
-	for i := 0; i < f.numDevices; i++ {
+	for i := range f.numDevices {
 		if cpus, ok := cpuByBDF[bdfOfDev[i]]; ok {
 			f.cpusOf[i] = cpus
 		}
@@ -517,12 +517,12 @@ func (f *NodeFabric) resolveLinks(yc *YAMLConfig, n int, bdfOfDev []string, bdfT
 		if want > nvLinkMaxLinks {
 			want = nvLinkMaxLinks
 		}
-		for i := 0; i < n; i++ {
+		for i := range n {
 			if deviceLinkCfgs[i] != nil {
 				continue
 			}
 			synth := make([]NVLinkLinkConfig, want)
-			for k := 0; k < want; k++ {
+			for k := range want {
 				synth[k] = NVLinkLinkConfig{
 					Link:             k,
 					State:            defaults.State,
@@ -534,7 +534,7 @@ func (f *NodeFabric) resolveLinks(yc *YAMLConfig, n int, bdfOfDev []string, bdfT
 		}
 	}
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		for _, lc := range deviceLinkCfgs[i] {
 			rl := resolveLink(lc, defaults, uint32(nv.Version), bw, rate, defaults.CounterSeed, defaults.ErrorRate, bdfOfDev, bdfToIndex, switchBDFs)
 			f.links[i] = append(f.links[i], rl)
@@ -614,7 +614,7 @@ func resolveLink(lc NVLinkLinkConfig, defaults NVLinkDefaults, version uint32, b
 //nolint:cyclop // existing complexity; refactor deferred
 func (f *NodeFabric) computeNVCounts() {
 	switchLinks := make([]int, f.numDevices)
-	for i := 0; i < f.numDevices; i++ {
+	for i := range f.numDevices {
 		for _, l := range f.links[i] {
 			if !l.Active {
 				continue
@@ -634,11 +634,11 @@ func (f *NodeFabric) computeNVCounts() {
 	// Switch-attached links reach every other GPU through the shared
 	// NVSwitch fabric, so each peer sees the full switch link count
 	// (this is what yields GB200's NV18 across every GPU pair).
-	for i := 0; i < f.numDevices; i++ {
+	for i := range f.numDevices {
 		if switchLinks[i] == 0 {
 			continue
 		}
-		for j := 0; j < f.numDevices; j++ {
+		for j := range f.numDevices {
 			if j != i && switchLinks[j] > 0 {
 				f.nvCount[i][j] += switchLinks[i]
 			}
@@ -647,8 +647,8 @@ func (f *NodeFabric) computeNVCounts() {
 }
 
 func (f *NodeFabric) computePCIeLevels() {
-	for i := 0; i < f.numDevices; i++ {
-		for j := 0; j < f.numDevices; j++ {
+	for i := range f.numDevices {
+		for j := range f.numDevices {
 			switch {
 			case i == j:
 				f.pcieLevel[i][j] = nvml.TOPOLOGY_INTERNAL
@@ -971,7 +971,7 @@ func nvlinkStateActive(s string) bool {
 // parseCPURange parses "0-71", "0,2,4", or "0-3,8-11" into a CPU id list.
 func parseCPURange(s string) []int {
 	var out []int
-	for _, part := range strings.Split(s, ",") {
+	for part := range strings.SplitSeq(s, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue

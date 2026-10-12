@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -76,6 +77,8 @@ func (m *Manager) Run(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
+			zap.L().Info("Joining leader election", zap.String("identity", identity),
+				zap.String("lease", m.config.LeaderElection.Namespace+"/"+m.config.LeaderElection.Name))
 			lock := &rl.LeaseLock{
 				LeaseMeta: metav1.ObjectMeta{
 					Name: m.config.LeaderElection.Name, Namespace: m.config.LeaderElection.Namespace,
@@ -185,9 +188,24 @@ func newLeaderElectionConfig(
 		ReleaseOnCancel: true,
 		Name:            config.LeaderElection.Name,
 		Callbacks: leaderelection.LeaderCallbacks{
-			OnStartedLeading: onStartedLeading,
-			OnStoppedLeading: onStoppedLeading,
-			OnNewLeader:      onNewLeader,
+			OnStartedLeading: func(ctx context.Context) {
+				zap.L().Info("Acquired control plane leadership", zap.String("identity", lock.Identity()))
+				onStartedLeading(ctx)
+			},
+			// client-go calls this whenever the elector stops, including on a
+			// replica that never led, so the message does not claim leadership.
+			OnStoppedLeading: func() {
+				zap.L().Info("Left leader election", zap.String("identity", lock.Identity()))
+				onStoppedLeading()
+			},
+			OnNewLeader: func(leader string) {
+				if leader != lock.Identity() {
+					zap.L().Info("Observed control plane leader", zap.String("leader", leader))
+				}
+				if onNewLeader != nil {
+					onNewLeader(leader)
+				}
+			},
 		},
 	}
 }

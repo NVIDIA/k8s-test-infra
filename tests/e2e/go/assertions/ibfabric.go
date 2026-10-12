@@ -5,7 +5,7 @@ package assertions
 
 import (
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -90,7 +90,7 @@ func firstNonLocalGUID(found, local map[string]struct{}) string {
 	if len(candidates) == 0 {
 		return ""
 	}
-	sort.Strings(candidates)
+	slices.Sort(candidates)
 	return candidates[0]
 }
 

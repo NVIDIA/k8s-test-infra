@@ -220,15 +220,12 @@ func TestSetPowerManagementLimit_ConcurrentSetAndGet(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for i := range workers {
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			rets[i] = dev.SetPowerManagementLimit(uint32(100000 + i*1000))
-		}()
-		go func() {
-			defer wg.Done()
+		})
+		wg.Go(func() {
 			_, rets[workers+i] = dev.GetPowerManagementLimit()
-		}()
+		})
 	}
 	wg.Wait()
 

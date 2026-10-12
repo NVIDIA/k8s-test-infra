@@ -13,6 +13,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
 
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
@@ -114,6 +115,81 @@ func TestWriteProcFS_Idempotent(t *testing.T) {
 	require.NoError(t, writeProcFS(ctx, h, state), "second call must not error")
 }
 
+// Slurm's gres AutoDetect=nvidia enumerates /proc/driver/nvidia/gpus/<bdf> and
+// reads the model, UUID and minor number from each GPU's information file.
+func TestWriteProcFS_DescribesEachGPU(t *testing.T) {
+	t.Parallel()
+
+	h := testHost(t)
+	state := testState(t)
+	state.Devices = []agent.DeviceSpec{
+		{Index: 0, MinorNumber: 0, PCIBusID: "0000:07:00.0", Name: "NVIDIA A100-SXM4-40GB", UUID: "GPU-aaaa"},
+		{Index: 1, MinorNumber: 3, PCIBusID: "0000:0F:00.0", Name: "NVIDIA A100-SXM4-40GB", UUID: "GPU-bbbb"},
+		{Index: 2, MinorNumber: 4, PCIBusID: ""},
+	}
+
+	require.NoError(t, writeProcFS(t.Context(), h, state))
+
+	entries, err := os.ReadDir(h.RootPath("driver/proc/driver/nvidia/gpus"))
+	require.NoError(t, err)
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	require.Equal(t, []string{"0000:07:00.0", "0000:0f:00.0"}, names,
+		"one lowercased directory per GPU with an address")
+
+	got, err := os.ReadFile(h.RootPath("driver/proc/driver/nvidia/gpus/0000:0f:00.0/information"))
+	require.NoError(t, err)
+	require.Equal(t, "Model: \t\t NVIDIA A100-SXM4-40GB\n"+
+		"GPU UUID: \t GPU-bbbb\n"+
+		"Bus Type: \t PCIe\n"+
+		"Bus Location: \t 0000:0f:00.0\n"+
+		"Device Minor: \t 3\n"+
+		"GPU Excluded:\t No\n", string(got))
+}
+
+func TestWriteProcFS_PrunesRemovedGPUs(t *testing.T) {
+	t.Parallel()
+
+	h := testHost(t)
+	state := testState(t)
+	state.Devices = []agent.DeviceSpec{
+		{Index: 0, PCIBusID: "0000:07:00.0"},
+		{Index: 1, MinorNumber: 1, PCIBusID: "0000:0f:00.0"},
+	}
+	require.NoError(t, writeProcFS(t.Context(), h, state))
+
+	state.Devices = state.Devices[:1]
+	require.NoError(t, writeProcFS(t.Context(), h, state))
+
+	entries, err := os.ReadDir(h.RootPath("driver/proc/driver/nvidia/gpus"))
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	require.Equal(t, "0000:07:00.0", entries[0].Name())
+}
+
+// libmockfs serves /proc/driver/nvidia from <root>/proc/driver/nvidia, beside
+// the /proc/modules it already serves from there.
+func TestWriteProcFS_ServedWhereLibmockfsLooks(t *testing.T) {
+	t.Parallel()
+
+	h := testHost(t)
+	state := testState(t)
+	state.Devices = []agent.DeviceSpec{{Index: 0, PCIBusID: "0000:07:00.0", UUID: "GPU-aaaa"}}
+
+	require.NoError(t, writeProcFS(t.Context(), h, state))
+	require.NoError(t, writeProcFS(t.Context(), h, state), "re-staging replaces the link")
+
+	got, err := os.ReadFile(h.RootPath("proc/driver/nvidia/gpus/0000:07:00.0/information"))
+	require.NoError(t, err)
+	require.Contains(t, string(got), "GPU-aaaa")
+
+	require.NoError(t, New(h).Discard(t.Context()))
+	_, err = os.Lstat(h.RootPath("proc/driver/nvidia"))
+	require.True(t, os.IsNotExist(err), "Discard removes the link")
+}
+
 func TestWriteEngineConfig_WritesBothLocations(t *testing.T) {
 	h := testHost(t)
 	state := testState(t)
@@ -124,6 +200,45 @@ func TestWriteEngineConfig_WritesBothLocations(t *testing.T) {
 		_, err := os.Stat(h.RootPath(rel))
 		require.NoError(t, err, "%s must exist", rel)
 	}
+}
+
+// NVML's CPU affinity and the driver's local_cpulist are read by different
+// consumers (Slurm's AutoDetect=nvml and AutoDetect=nvidia) for the same fact,
+// so the staged config carries the same host-limited CPU set the PCI stager
+// serves; see TestBuildTopology_CPUListKeepsOnlyTheHostsCPUs.
+func TestWriteEngineConfig_LimitsCPUAffinityToTheHostsCPUs(t *testing.T) {
+	t.Parallel()
+
+	stagedAffinity := func(t *testing.T, online string) []string {
+		t.Helper()
+		h := testHost(t)
+		if online != "" {
+			path := h.SysPath("devices/system/cpu/online")
+			require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+			require.NoError(t, os.WriteFile(path, []byte(online+"\n"), 0o644))
+		}
+		data, err := os.ReadFile(filepath.Join("..", "..", "..", "pkg", "gpu", "mocknvml", "configs", "mock-nvml-config-gb300.yaml"))
+		require.NoError(t, err)
+		state := &agent.State{Devices: []agent.DeviceSpec{{Index: 0}}, ConfigRaw: data}
+
+		require.NoError(t, writeEngineConfig(t.Context(), h, state))
+
+		staged, err := os.ReadFile(h.RootPath("config/config.yaml"))
+		require.NoError(t, err)
+		var cfg engine.YAMLConfig
+		require.NoError(t, yaml.Unmarshal(staged, &cfg))
+		got := make([]string, 0, len(cfg.PCIeTopology.RootComplexes))
+		for _, rc := range cfg.PCIeTopology.RootComplexes {
+			got = append(got, rc.CPUAffinity)
+		}
+		return got
+	}
+
+	require.Equal(t, []string{"0-13", "0-13"}, stagedAffinity(t, "0-13"),
+		"no NUMA 1 CPU exists, so every CPU is local")
+	require.Equal(t, []string{"0-63", "64-99"}, stagedAffinity(t, "0-99"))
+	require.Equal(t, []string{"", ""}, stagedAffinity(t, ""),
+		"unknown host CPUs leave the profile's synthesized set to the engine")
 }
 
 func TestWriteEngineConfig_EmptyConfigRawErrors(t *testing.T) {

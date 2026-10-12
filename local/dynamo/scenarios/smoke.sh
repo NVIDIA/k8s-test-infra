@@ -24,6 +24,7 @@ NAMESPACE="dynamo-system"
 DGD="qwen3"
 MODEL="Qwen/Qwen3-0.6B"
 MAX_TOKENS="${MAX_TOKENS:-8}"
+MODEL_WAIT_S="${MODEL_WAIT_S:-120}"
 
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
@@ -67,6 +68,30 @@ worker_gpu=$(kubectl -n "${NAMESPACE}" exec "${worker}" -- \
 [[ "${worker_gpu// /-}" == "${product}" ]] \
   || fail "worker reports GPU '${worker_gpu}' but ${node} is labelled '${product}'; the mock library inside the worker did not load the node's profile (is the nvml-mock NRI plugin running?)"
 printf 'OK: worker GPU matches the node profile: %s\n' "${worker_gpu}"
+
+# The graph reports Ready before the frontend has discovered the worker, so
+# for a few seconds after it /v1/models is empty and a completion 404s. Wait
+# for the model to be listed, from inside the frontend pod like the request
+# below. A frontend that never lists it is the cold-start case in the Dynamo
+# guide's Troubleshooting.
+printf '==> waiting for the frontend to list %s\n' "${MODEL}"
+waited=$(kubectl -n "${NAMESPACE}" exec "${frontend}" -- python3 -c '
+import json, sys, time, urllib.request
+start = time.monotonic()
+while True:
+    try:
+        models = json.load(urllib.request.urlopen("http://localhost:8000/v1/models", timeout=5))
+        if any(m.get("id") == sys.argv[1] for m in models.get("data", [])):
+            break
+    except (OSError, ValueError):
+        pass
+    if time.monotonic() - start > float(sys.argv[2]):
+        sys.exit(1)
+    time.sleep(2)
+print(round(time.monotonic() - start))
+' "${MODEL}" "${MODEL_WAIT_S}") \
+  || fail "the ${DGD} frontend did not list ${MODEL} within ${MODEL_WAIT_S}s; if the decode worker is Running, delete the frontend pod so its replacement discovers it"
+printf 'OK: frontend lists %s (after %ss)\n' "${MODEL}" "${waited}"
 
 # Sent from inside the frontend pod: the API server's service proxy rejects a
 # JSON POST from `kubectl create --raw`, and this keeps the check independent of

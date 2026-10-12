@@ -12,7 +12,7 @@ By participating, you agree to uphold this code.
 
 ### Prerequisites
 
-- Go 1.25+
+- Go 1.27+
 - Docker 20.10+
 - Helm 3.x
 - Kind (for E2E testing)
@@ -26,7 +26,7 @@ git clone https://github.com/NVIDIA/k8s-test-infra.git
 cd k8s-test-infra
 
 # Verify Go version
-go version  # must be >= 1.25
+go version  # must be >= 1.27
 
 # Run unit tests
 make test

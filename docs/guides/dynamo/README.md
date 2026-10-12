@@ -78,11 +78,18 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
   --version 0.4.0 \
   --namespace mokka --create-namespace \
   --set nri.enabled=true \
+  --set 'nri.excludedNamespaces={gpu-operator}' \
   --wait --timeout 300s
 ```
 
 `kubectl -n mokka get pods -o wide` should list an `nvml-mock-nri` pod running
 on every node next to `nvml-mock`.
+
+`excludedNamespaces` keeps the plugin away from the GPU Operator's pods, which
+run without it as in the [GPU Operator guide](../gpu-operator.md). On 0.4.0 the
+plugin would otherwise inject the operator's validator, and each validator
+start stacks more mounts on the node: see
+[Mounts pile up on a node with NRI enabled](../../troubleshooting.md#mounts-pile-up-on-a-node-with-nri-enabled).
 
 ## Step 3 — Install the GPU Operator
 
@@ -216,8 +223,10 @@ NRI plugin is off, or the worker was created before it was registered: NRI only
 edits containers at creation. Check that an `nvml-mock-nri` pod is running on
 the worker's node, then delete the worker pod so the operator recreates it.
 
-**`/v1/models` stays empty and requests return 404 while the worker runs.** The
-frontend has not picked the worker up, which can happen on a cold start when
+**`/v1/models` stays empty and requests return 404 while the worker runs.** For
+a few seconds after the graph reports Ready this is expected: the frontend has
+not discovered the worker yet, so retry. If it is still empty after two
+minutes, the frontend missed the worker, which can happen on a cold start when
 the frontend comes up minutes before the worker registers. Delete the frontend
 pod; its replacement discovers the worker on startup.
 

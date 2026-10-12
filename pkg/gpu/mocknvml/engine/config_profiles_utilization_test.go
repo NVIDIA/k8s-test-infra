@@ -74,7 +74,7 @@ func TestProfiles_ReportNonZeroUtilization(t *testing.T) {
 
 			// Sample repeatedly: the value is redrawn per call, so a single
 			// draw could land in range even from a wrong band.
-			for i := 0; i < 32; i++ {
+			for range 32 {
 				util, ret := dev.GetUtilizationRates()
 				require.Equal(t, nvml.SUCCESS, ret, "%s GetUtilizationRates", name)
 

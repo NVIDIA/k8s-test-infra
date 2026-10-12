@@ -27,7 +27,7 @@ import (
 // patches are generic maps deep-merged over the pristine DeviceConfig, so any
 // config field is controllable without per-field plumbing.
 type ConfigOverrideDoc struct {
-	Version int                       `json:"version,omitempty"`
+	Version int                       `json:"version,omitzero"`
 	All     map[string]any            `json:"all,omitempty"`
 	Devices map[string]map[string]any `json:"devices,omitempty"`
 }

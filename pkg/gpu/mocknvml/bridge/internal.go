@@ -308,7 +308,7 @@ func mockInternalFillProcessList(handle unsafe.Pointer, buf unsafe.Pointer, capa
 	if n > int(capacity) {
 		n = int(capacity)
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		p, _ := dev.ProcessByPID(all[i].Pid)
 		writeProcessEntry(buf, i, all[i].Pid, all[i].UsedGpuMemory, p.Name)
 	}

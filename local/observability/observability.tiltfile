@@ -7,6 +7,9 @@
 #   GPU_OPERATOR_VALUES — path to the values overlay the root layers on top of
 #                         local/gpu-operator/gpu-operator.values.yaml to
 #                         re-enable dcgm-exporter and its ServiceMonitor.
+#   UPSERT_TIMEOUT_S:     the Tilt apply timeout install() needs. The root
+#                         passes the largest active consumer's value to
+#                         update_settings, so this file never calls it.
 #   install(nvml_mock_releases) — install kube-prometheus-stack, provision the
 #                         Mokka dashboard, expose Grafana, and register the two
 #                         fault-injection triggers. Returns the release names so
@@ -50,6 +53,10 @@ _REPO_RESOURCE = 'prometheus-community'
 # sidecars, kube-state-metrics and a per-node node-exporter before --wait is
 # satisfied, all on a laptop Kind cluster.
 _HELM_TIMEOUT_S = 600
+# Tilt caps a k8s apply at 30s by default, which the --wait above blows
+# through: the build fails with a bare "apply command timed out" that says
+# nothing about helm.
+UPSERT_TIMEOUT_S = _HELM_TIMEOUT_S + 60
 _DASHBOARD_JSON = 'local/observability/dashboards/mokka-gpu.json'
 _DASHBOARD_CM = 'mokka-gpu-dashboard'
 # Grafana's own default HTTP port inside the container, and the Service port the
@@ -60,12 +67,6 @@ _GRAFANA_URL = 'http://localhost:3000/d/mokka-gpu'
 
 def install(nvml_mock_releases):
     """Install the monitoring stack and register the fault scenarios."""
-    # Tilt caps a k8s apply at 30s by default, which the --wait below blows
-    # through — the build fails with a bare "apply command timed out" that says
-    # nothing about helm. Raised only when this consumer is active, so the tight
-    # default still applies to every other session.
-    update_settings(k8s_upsert_timeout_secs=_HELM_TIMEOUT_S + 60)
-
     helm_resource(
         RELEASE,
         'prometheus-community/kube-prometheus-stack',

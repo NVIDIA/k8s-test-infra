@@ -22,6 +22,10 @@ const (
 	PCIDevicesRelPath = "sys/bus/pci/devices"
 	// SysDevicesRelPath is the hierarchy those symlinks point into.
 	SysDevicesRelPath = "sys/devices"
+	// PCIDriverNvidiaRelPath holds a BDF symlink for every GPU bound to the
+	// nvidia driver. Slurm's gres AutoDetect=nvidia reads each GPU's
+	// local_cpulist through it.
+	PCIDriverNvidiaRelPath = "sys/bus/pci/drivers/nvidia"
 )
 
 // Options controls a single rendering pass.
@@ -130,6 +134,10 @@ func prune(root string, topo *PCIeTopology) error {
 		// The flat lookup directory holds only BDF symlinks.
 		fsutil.PruneDir(filepath.Join(root, PCIDevicesRelPath),
 			func(name string) bool { return allBDFs[name] }),
+		// Rendering unbinds a BDF that stopped being a GPU; this catches the
+		// ones that stopped existing.
+		fsutil.PruneDir(filepath.Join(root, PCIDriverNvidiaRelPath),
+			func(name string) bool { return allBDFs[name] }),
 	}
 
 	devicesDir := filepath.Join(root, SysDevicesRelPath)
@@ -185,8 +193,7 @@ func renderRootComplex(root string, rc RootComplex, ids map[string]PCI) error {
 		if err := mkdirAll(root, devDir); err != nil {
 			return err
 		}
-		if err := writeFile(root, filepath.Join(devDir, "numa_node"),
-			fmt.Sprintf("%d\n", rc.NUMANode)); err != nil {
+		if err := renderLocality(root, devDir, rc); err != nil {
 			return err
 		}
 
@@ -203,6 +210,47 @@ func renderRootComplex(root string, rc RootComplex, ids map[string]PCI) error {
 			return fmt.Errorf("symlink %s -> %s: %w",
 				filepath.Join(PCIDevicesRelPath, bdfLC), linkTarget, err)
 		}
+
+		if err := renderDriverBinding(root, rc.ID, bdfLC, ids[bdfLC]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// renderLocality writes where a device sits relative to the CPUs: the NUMA
+// node of its root complex and, when known, the CPUs local to it.
+func renderLocality(root, devDir string, rc RootComplex) error {
+	if err := writeFile(root, filepath.Join(devDir, "numa_node"), fmt.Sprintf("%d\n", rc.NUMANode)); err != nil {
+		return err
+	}
+	cpuListPath := filepath.Join(devDir, "local_cpulist")
+	if rc.CPUList == "" {
+		if err := os.Remove(filepath.Join(root, cpuListPath)); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove %s: %w", cpuListPath, err)
+		}
+		return nil
+	}
+	return writeFile(root, cpuListPath, rc.CPUList+"\n")
+}
+
+// renderDriverBinding links a GPU into the nvidia driver's directory, as the
+// kernel does when the driver binds it, and unlinks anything else: an NVSwitch
+// binds to nvidia-nvswitch, and a BDF re-declared as one must not stay bound.
+func renderDriverBinding(root, rcID, bdf string, pci PCI) error {
+	linkPath := filepath.Join(root, PCIDriverNvidiaRelPath, bdf)
+
+	if pci.Class != 0 && pci.Class != PCIClass3DController {
+		if err := os.Remove(linkPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("unbind %s: %w", bdf, err)
+		}
+		return nil
+	}
+
+	linkTarget := filepath.Join("..", "..", "..", "..", "devices", rcID, bdf)
+	if err := replaceSymlink(linkPath, linkTarget); err != nil {
+		return fmt.Errorf("symlink %s -> %s: %w",
+			filepath.Join(PCIDriverNvidiaRelPath, bdf), linkTarget, err)
 	}
 	return nil
 }

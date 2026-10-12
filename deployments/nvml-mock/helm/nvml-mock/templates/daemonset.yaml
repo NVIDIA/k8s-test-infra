@@ -298,7 +298,9 @@ spec:
               mountPath: {{ printf "/host%s" .Values.fabricmanager.stateDir }}
             {{- end }}
             # Read only: the agent copies the node's DMI attributes into the
-            # rendered tree, which shadows them once served at /sys/devices.
+            # rendered tree, which shadows them once served at /sys/devices,
+            # and limits each GPU's local_cpulist and NVML CPU affinity to the
+            # node's online CPUs.
             - name: node-sysfs
               mountPath: /host/sys
               readOnly: true

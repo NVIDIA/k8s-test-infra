@@ -336,7 +336,7 @@ func parseLoggedCalls(t *testing.T, log []byte) []loggedCall {
 	t.Helper()
 
 	var calls []loggedCall
-	for _, token := range strings.Split(strings.TrimSuffix(string(log), "\x00"), "\x00") {
+	for token := range strings.SplitSeq(strings.TrimSuffix(string(log), "\x00"), "\x00") {
 		switch token {
 		case "docker", "syft", "cosign":
 			calls = append(calls, loggedCall{name: token})

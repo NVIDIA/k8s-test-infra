@@ -21,8 +21,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func boolPtr(b bool) *bool { return &b }
-
 func TestGetGpmSupport_ArchitectureDefault(t *testing.T) {
 	tests := []struct {
 		arch     string
@@ -50,7 +48,7 @@ func TestGetGpmSupport_ArchitectureDefault(t *testing.T) {
 func TestGetGpmSupport_ConfigOverride(t *testing.T) {
 	dev := newTestDeviceWithConfig(t, &DeviceConfig{
 		Architecture: "ampere",
-		GPM:          &GPMConfig{Supported: boolPtr(true)},
+		GPM:          &GPMConfig{Supported: new(true)},
 	})
 	supported, ret := dev.GetGpmSupport()
 	require.Equal(t, nvml.SUCCESS, ret)
@@ -58,7 +56,7 @@ func TestGetGpmSupport_ConfigOverride(t *testing.T) {
 
 	dev = newTestDeviceWithConfig(t, &DeviceConfig{
 		Architecture: "hopper",
-		GPM:          &GPMConfig{Supported: boolPtr(false)},
+		GPM:          &GPMConfig{Supported: new(false)},
 	})
 	supported, ret = dev.GetGpmSupport()
 	require.Equal(t, nvml.SUCCESS, ret)
@@ -218,7 +216,7 @@ func TestGpmMetricsGet_NvLinkRates(t *testing.T) {
 	// Expected per-link rates straight from the counter source of truth.
 	perLink := make([]float64, nvLinkMaxLinks)
 	var total float64
-	for link := 0; link < nvLinkMaxLinks; link++ {
+	for link := range nvLinkMaxLinks {
 		rx0, _ := cd.fabric.NvLinkCounters(cd.index, link, t0)
 		rx1, _ := cd.fabric.NvLinkCounters(cd.index, link, t1)
 		perLink[link] = float64(rx1-rx0) / dt / (1024 * 1024)

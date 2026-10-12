@@ -41,7 +41,6 @@ var _ = Describe("nvml-mock GPU feature discovery", Label("gfd"), Ordered, func(
 	})
 
 	for _, name := range selectedProfiles {
-		name := name
 		Context("profile "+name, Label(name), Ordered, func() {
 			var (
 				p    profile.Profile
