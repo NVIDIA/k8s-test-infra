@@ -25,9 +25,11 @@ type SGPURuntimePolicy struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
+	// Spec defines the target selection and runtime settings to apply.
 	Spec SGPURuntimePolicySpec `json:"spec"`
 
 	// +optional
+	// Status summarizes the target scope selected for this policy.
 	Status SGPURuntimePolicyStatus `json:"status,omitempty"`
 }
 
@@ -36,14 +38,17 @@ type SGPURuntimePolicy struct {
 type SGPURuntimePolicyList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []SGPURuntimePolicy `json:"items"`
+	// Items contains the runtime policies in this list.
+	Items []SGPURuntimePolicy `json:"items"`
 }
 
 // SGPURuntimePolicySpec pairs a target selector with the RuntimeState to apply.
 type SGPURuntimePolicySpec struct {
+	// TargetRef selects the inventory and optional rack, Node, and GPU subset.
 	TargetRef PolicyTargetRef `json:"targetRef"`
 
 	// +optional
+	// Runtime contains sparse settings to apply to the selected GPUs.
 	Runtime *RuntimeState `json:"runtime,omitempty"`
 }
 
@@ -55,18 +60,22 @@ type SGPURuntimePolicySpec struct {
 // exist in at least one selected rack group.
 type PolicyTargetRef struct {
 	// +kubebuilder:validation:Enum=mokka.nvidia.com
+	// Group is the API group containing the target resource.
 	Group string `json:"group"`
 
 	// +kubebuilder:validation:Enum=SGPUInventory
+	// Kind is the target resource kind.
 	Kind string `json:"kind"`
 
 	// +kubebuilder:validation:MinLength=1
+	// Name is the name of the target SGPUInventory.
 	Name string `json:"name"`
 
 	// +optional
 	// +listType=set
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=64
+	// RackGroups optionally limits the policy to these rack-group IDs.
 	RackGroups []string `json:"rackGroups,omitempty"`
 
 	// +optional
@@ -74,6 +83,7 @@ type PolicyTargetRef struct {
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=64
 	// +kubebuilder:validation:items:Minimum=0
+	// RackIndexes optionally limits the policy to these rack indexes.
 	RackIndexes []int32 `json:"rackIndexes,omitempty"`
 
 	// +optional
@@ -81,6 +91,7 @@ type PolicyTargetRef struct {
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=64
 	// +kubebuilder:validation:items:Minimum=0
+	// NodeIndexes optionally limits the policy to these logical Node indexes.
 	NodeIndexes []int32 `json:"nodeIndexes,omitempty"`
 
 	// +optional
@@ -88,6 +99,7 @@ type PolicyTargetRef struct {
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=64
 	// +kubebuilder:validation:items:Minimum=0
+	// GPUIndexes optionally limits the policy to these GPU indexes.
 	GPUIndexes []int32 `json:"gpuIndexes,omitempty"`
 }
 
@@ -95,15 +107,19 @@ type PolicyTargetRef struct {
 // comma-joined denormalizations of spec.targetRef axes for print columns.
 type SGPURuntimePolicyStatus struct {
 	// +optional
+	// RackGroupsSummary is the comma-separated selected rack-group IDs.
 	RackGroupsSummary string `json:"rackGroupsSummary,omitempty"`
 
 	// +optional
+	// RackIndexesSummary is the comma-separated selected rack indexes.
 	RackIndexesSummary string `json:"rackIndexesSummary,omitempty"`
 
 	// +optional
+	// NodeIndexesSummary is the comma-separated selected logical Node indexes.
 	NodeIndexesSummary string `json:"nodeIndexesSummary,omitempty"`
 
 	// +optional
+	// GPUIndexesSummary is the comma-separated selected GPU indexes.
 	GPUIndexesSummary string `json:"gpuIndexesSummary,omitempty"`
 
 	// Conditions report whether the policy is accepted.

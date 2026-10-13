@@ -462,6 +462,7 @@ test-privileged: ## Run internal/fsutil and internal/agent/gpudriver as root in 
 HELM_CHART_DIR      := deployments/nvml-mock/helm/nvml-mock
 CRDS_HELM_CHART_DIR := deployments/mokka-crds/helm/mokka-crds
 HELM_DOCS_VERSION   ?= v1.14.2
+CRD_REF_DOCS_VERSION ?= v0.3.0
 
 .PHONY: helm-docs
 helm-docs: ## Generate the published nvml-mock Helm values reference
@@ -470,6 +471,20 @@ helm-docs: ## Generate the published nvml-mock Helm values reference
 		-g $(HELM_CHART_DIR) \
 		-o ../../../../docs/helm-chart-values.md \
 		--skip-version-footer
+
+.PHONY: crd-docs
+crd-docs: ## Generate the Control Plane API reference documentation
+	$(GO_CMD) run github.com/elastic/crd-ref-docs@$(CRD_REF_DOCS_VERSION) \
+		--config hack/crd-ref-docs-config.yaml \
+		--source-path api/v1alpha1 \
+		--output-path docs \
+		--renderer markdown \
+		--output-mode single \
+		--max-depth 20
+	awk 'BEGIN { print "<!--"; print "SPDX-License-Identifier: Apache-2.0"; print "SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION"; print "-->"; print "" } { print }' docs/out.md > docs/crd-reference.md.tmp
+	perl -0pi -e 's/\n+\z/\n/' docs/crd-reference.md.tmp
+	mv docs/crd-reference.md.tmp docs/crd-reference.md
+	unlink docs/out.md
 
 # Drives the built libnvidia-ml.so through go-nvml over the real C ABI.
 # Docker-based, hence separate from the `go test` run.
