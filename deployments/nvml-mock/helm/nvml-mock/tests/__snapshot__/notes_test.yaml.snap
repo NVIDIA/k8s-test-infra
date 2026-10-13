@@ -14,7 +14,7 @@ should match snapshot with b200 profile:
       in by annotation, get the mock driver when they are created. Pods in these
       namespaces never do: NAMESPACE, kube-system.
       If a node pod stays NotReady, containerd on that node may have NRI disabled; see
-      https://nvidia.github.io/k8s-test-infra/guides/nri-injection/
+      https://nvidia.github.io/k8s-test-infra/troubleshooting/#the-node-pod-is-notready-and-nvml-mock-nri-crash-loops
 
       NOTE: If you installed from source (no published image yet), you built the
       image locally and loaded it into your cluster. See the chart README for
@@ -71,10 +71,7 @@ should match snapshot with b200 profile:
         nvml-mock, so both are disabled and CDI carries the devices instead.
         The overlay below carries that, plus the driver root the device plugin,
         GFD and dcgm-exporter each need in their environment.
-
-        Cluster prerequisites (KIND): the node needs CDI enabled in containerd
-        and the nvidia runtime handler registered.
-        Walkthrough, including that containerd setup:
+        Walkthrough:
           https://nvidia.github.io/k8s-test-infra/guides/gpu-operator/
         In a checkout of this repository: docs/guides/with-gpu-operator/
 
@@ -112,7 +109,7 @@ should match snapshot with default values:
       in by annotation, get the mock driver when they are created. Pods in these
       namespaces never do: NAMESPACE, kube-system.
       If a node pod stays NotReady, containerd on that node may have NRI disabled; see
-      https://nvidia.github.io/k8s-test-infra/guides/nri-injection/
+      https://nvidia.github.io/k8s-test-infra/troubleshooting/#the-node-pod-is-notready-and-nvml-mock-nri-crash-loops
 
       NOTE: If you installed from source (no published image yet), you built the
       image locally and loaded it into your cluster. See the chart README for
@@ -169,10 +166,7 @@ should match snapshot with default values:
         nvml-mock, so both are disabled and CDI carries the devices instead.
         The overlay below carries that, plus the driver root the device plugin,
         GFD and dcgm-exporter each need in their environment.
-
-        Cluster prerequisites (KIND): the node needs CDI enabled in containerd
-        and the nvidia runtime handler registered.
-        Walkthrough, including that containerd setup:
+        Walkthrough:
           https://nvidia.github.io/k8s-test-infra/guides/gpu-operator/
         In a checkout of this repository: docs/guides/with-gpu-operator/
 

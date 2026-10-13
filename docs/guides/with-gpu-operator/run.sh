@@ -99,14 +99,12 @@ fi
 ###############################################################################
 # Step 1 -- Resolve the target cluster
 #
-# This demo never creates a cluster, not even on the BUILD_LOCAL path, and
-# that is deliberate. The Operator's toolkit-validation and the device plugin
-# both go through CDI, so the node needs containerd in CDI mode with the
-# nvidia runtime handler registered. A stock `kind create cluster` node has
-# neither. `make cluster-create` builds and uses the node image that does
-# (deployments/kind-nvidia-cdi), and the README says so; silently creating a
-# stock cluster here would just fail later, in the validator, with an error
-# that does not name the cause.
+# This demo never creates a cluster, not even on the BUILD_LOCAL path: it
+# installs into the current context. The Operator's toolkit-validation and the
+# device plugin both go through CDI, so the node needs containerd in CDI mode
+# with the nvidia runtime handler registered. The Mokka node daemon sets
+# that up on any containerd 1.7+ node, a stock `kind create cluster` or
+# `make cluster-create` one included.
 ###############################################################################
 if [[ "${BUILD_LOCAL}" == "true" ]]; then
   # Check before doing anything: a missing docker or kind would otherwise

@@ -1,7 +1,7 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-package cdi
+package cri
 
 import (
 	"fmt"
@@ -9,9 +9,11 @@ import (
 	"strconv"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
+	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
 	"github.com/NVIDIA/k8s-test-infra/internal/kmod"
 	"github.com/NVIDIA/k8s-test-infra/internal/migcaps"
 	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs"
+	"sigs.k8s.io/yaml"
 )
 
 // overlayHostRoot is the path containerd sees for the mock overlay on the host.
@@ -44,6 +46,19 @@ type cdiMount struct {
 	Options       []string `json:"options,omitempty"`
 }
 
+// The options of every bind in the specs. They are rprivate, as the NRI
+// plugin's overlay binds are (#982): a container with a Bidirectional volume
+// has an rshared root, and a bind naming no propagation joins the peer group of
+// the node mount it came from, so whatever the container mounts on top is
+// copied onto the node and outlives the pod. Under Kind, the node's
+// createContainer hook bind-mounts its DMI files over /sys/class/dmi/id, which
+// resolves into the served /sys/devices: every such container left mounts on
+// the mock DMI files, and the next node agent could not rewrite them.
+var (
+	readOnlyBind = []string{"ro", "nosuid", "nodev", "bind", "rprivate"}
+	writableBind = []string{"rw", "nosuid", "nodev", "bind", "rprivate"}
+)
+
 type cdiHook struct {
 	HookName string   `json:"hookName"`
 	Path     string   `json:"path"`
@@ -72,12 +87,12 @@ func buildNvidiaSpec(state *agent.State) cdiSpec {
 			{
 				HostPath:      overlayHostRoot + "/driver/usr/lib64/libnvidia-ml.so.1",
 				ContainerPath: "/usr/lib64/libnvidia-ml.so.1",
-				Options:       []string{"ro", "nosuid", "nodev", "bind"},
+				Options:       readOnlyBind,
 			},
 			{
 				HostPath:      overlayHostRoot + "/driver/usr/bin/nvidia-smi",
 				ContainerPath: "/usr/bin/nvidia-smi",
-				Options:       []string{"ro", "nosuid", "nodev", "bind"},
+				Options:       readOnlyBind,
 			},
 			// Bind the config directory (not just config.yaml) so atomic renames
 			// by nvml-mock-ctl's overrides.yaml writes are visible inside the container.
@@ -92,7 +107,7 @@ func buildNvidiaSpec(state *agent.State) cdiSpec {
 			{
 				HostPath:      overlayHostRoot + "/driver/config",
 				ContainerPath: "/etc/nvml-mock",
-				Options:       []string{"rw", "nosuid", "nodev", "bind"},
+				Options:       writableBind,
 			},
 		},
 		// update-ldcache rebuilds the dynamic linker cache inside the container
@@ -130,7 +145,7 @@ func buildNvidiaSpec(state *agent.State) cdiSpec {
 		edits.Mounts = append(edits.Mounts, cdiMount{
 			HostPath:      stateDir,
 			ContainerPath: stateDir,
-			Options:       []string{"ro", "nosuid", "nodev", "bind"},
+			Options:       readOnlyBind,
 		})
 		edits.Env = append(edits.Env, "MOCK_FABRICMANAGER_STATE_DIR="+stateDir)
 	}
@@ -254,7 +269,7 @@ func pciSysfsMounts(state *agent.State) []cdiMount {
 		mounts = append(mounts, cdiMount{
 			HostPath:      filepath.Join(overlayHostRoot, relPath),
 			ContainerPath: "/" + relPath,
-			Options:       []string{"ro", "nosuid", "nodev", "bind"},
+			Options:       readOnlyBind,
 		})
 	}
 	return mounts
@@ -273,12 +288,12 @@ func kernelModuleMounts() []cdiMount {
 		{
 			HostPath:      filepath.Join(overlayHostRoot, kmod.SysModuleRelPath),
 			ContainerPath: "/" + kmod.SysModuleRelPath,
-			Options:       []string{"ro", "nosuid", "nodev", "bind"},
+			Options:       readOnlyBind,
 		},
 		{
 			HostPath:      filepath.Join(overlayHostRoot, kmod.LsmodRelPath),
 			ContainerPath: kmod.LsmodContainerPath,
-			Options:       []string{"ro", "nosuid", "nodev", "bind"},
+			Options:       readOnlyBind,
 		},
 	}
 }
@@ -330,4 +345,14 @@ func buildNRISpec(state *agent.State) cdiSpec {
 		},
 		Devices: devices,
 	}
+}
+
+func writeSpec(path string, spec cdiSpec) error {
+	data, err := yaml.Marshal(spec)
+
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
+
+	return fsutil.Write(path, data, 0o644)
 }

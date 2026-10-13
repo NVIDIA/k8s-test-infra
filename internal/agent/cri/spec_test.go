@@ -1,7 +1,7 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-package cdi
+package cri
 
 import (
 	"testing"
@@ -68,7 +68,7 @@ func TestNvidiaSpecServesTheModuleSurfaceReadOnly(t *testing.T) {
 	tree, ok := mountByContainerPath(spec, "/"+kmod.SysModuleRelPath)
 	require.True(t, ok, "the module tree must be served at its kernel path")
 	require.Equal(t, overlayHostRoot+"/"+kmod.SysModuleRelPath, tree.HostPath)
-	require.Equal(t, []string{"ro", "nosuid", "nodev", "bind"}, tree.Options)
+	require.Equal(t, []string{"ro", "nosuid", "nodev", "bind", "rprivate"}, tree.Options)
 
 	script, ok := mountByContainerPath(spec, kmod.LsmodContainerPath)
 	require.True(t, ok, "lsmod must be served where PATH finds it before /usr/sbin")
@@ -197,6 +197,27 @@ func pciState() *agent.State {
 	state.Devices[0].PCIBusID = "0000:07:00.0"
 	state.Devices[1].PCIBusID = "0000:0f:00.0"
 	return state
+}
+
+// A container with a Bidirectional volume has an rshared root, and a bind
+// naming no propagation joins the peer group of the node mount it came from.
+// Under Kind, the node's createContainer hook then copied its DMI mounts onto
+// the mock tree on the node, and the next node agent failed to rewrite those
+// files with EBUSY. The e2e suite reproduces that on a Kind node; this pins the
+// option that prevents it.
+func TestSpecMountsArePrivate(t *testing.T) {
+	t.Parallel()
+
+	state := pciState()
+	state.Fabric.ManagerStateDir = "/var/lib/nvml-mock/fabric-state"
+
+	for _, spec := range []cdiSpec{buildNvidiaSpec(state), buildNRISpec(state)} {
+		require.NotNil(t, spec.ContainerEdits)
+
+		for _, m := range spec.ContainerEdits.Mounts {
+			require.Contains(t, m.Options, "rprivate", "%s: %s must not share mount events with the node", spec.Kind, m.ContainerPath)
+		}
+	}
 }
 
 func mountByContainerPath(spec cdiSpec, path string) (cdiMount, bool) {
@@ -406,7 +427,7 @@ func TestNRISpecServesTheModuleTree(t *testing.T) {
 	tree, ok := mountByContainerPath(spec, "/"+kmod.SysModuleRelPath)
 	require.True(t, ok, "the NRI CDI path must serve the module tree")
 	require.Equal(t, overlayHostRoot+"/"+kmod.SysModuleRelPath, tree.HostPath)
-	require.Equal(t, []string{"ro", "nosuid", "nodev", "bind"}, tree.Options)
+	require.Equal(t, []string{"ro", "nosuid", "nodev", "bind", "rprivate"}, tree.Options)
 }
 
 func TestNRISpecPerGPUDevices(t *testing.T) {

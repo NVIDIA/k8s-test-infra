@@ -149,3 +149,33 @@ tests:
           pattern: "guides/gpu-operator/"
       - matchRegexRaw:
           pattern: "docs/guides/with-gpu-operator/"
+
+  # OPTION C's prerequisite follows nodeAgent.containerRuntime: with the
+  # setup on, the node daemon registers the handler the operator's pods use,
+  # so there is none to name.
+  - it: should name no cluster prerequisite when the node daemon prepares containerd
+    asserts:
+      # OPTION B, the DRA driver, keeps a prerequisite of its own.
+      - notMatchRegexRaw:
+          pattern: "OPTION C: GPU Operator[^━]*Cluster prerequisites"
+
+  - it: should ask for containerd setup when the node daemon does not do it
+    set:
+      nodeAgent:
+        containerRuntime:
+          enabled: false
+    asserts:
+      - matchRegexRaw:
+          pattern: "OPTION C: GPU Operator[^━]*nodeAgent.containerRuntime is off, so each node needs\n  CDI enabled in containerd and the nvidia runtime handler registered"
+      - notMatchRegexRaw:
+          pattern: "--set toolkit\\.enabled"
+
+  # An upgrade with --reuse-values from an earlier release renders the block
+  # absent, which leaves the setup off.
+  - it: should ask for containerd setup when the block is absent
+    set:
+      nodeAgent:
+        containerRuntime: null
+    asserts:
+      - matchRegexRaw:
+          pattern: "OPTION C: GPU Operator[^━]*nodeAgent.containerRuntime is off, so each node needs\n  CDI enabled in containerd and the nvidia runtime handler registered"

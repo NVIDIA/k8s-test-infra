@@ -289,6 +289,31 @@
             "enabled": { "type": "boolean" }
           }
         },
+        "containerRuntime": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Set up the node's container runtime: install the NVIDIA container runtime and register it as the nvidia handler (MEP-0006). Closed to unknown keys because a typo here would silently leave a default path in place on a node that needs another.",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "type": {
+              "type": "string",
+              "enum": ["containerd"]
+            },
+            "restartMode": {
+              "type": "string",
+              "enum": ["systemd", "none"]
+            },
+            "containerd": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "configPath": { "type": "string", "pattern": "^/.+" },
+                "configDir": { "type": "string", "pattern": "^/.+" },
+                "systemdUnit": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        },
         "resources": { "type": "object" }
       }
     },

@@ -65,11 +65,45 @@ kubectl logs -n mokka -l app.kubernetes.io/name=nvml-mock | grep -i cdi
 nri-plugin: nri stub: failed to connect to NRI service: dial unix /var/run/nri/nri.sock: connect: no such file or directory
 ```
 
-containerd on that node has NRI disabled, the default in containerd 1.7. The
-node agent keeps running and workloads still start, but without the mock, and
-`helm install --wait` times out. Enable NRI in containerd and restart it, as
-[Set up NRI injection](guides/nri-injection.md#prerequisites) shows, or set
-`nri.enabled=false`.
+containerd on that node has NRI off, the default in containerd 1.7. The node
+daemon turns NRI on as part of its
+[container runtime setup](components/node-daemon.md#container-runtime-setup),
+so here the setup is off, failed, left the node alone, or waits for a
+containerd restart under `restartMode: none`; the node agent's log says which.
+The node agent keeps running and workloads still start, but without the mock,
+and `helm install --wait` times out.
+
+Restart containerd if a restart is pending. Otherwise, set `nri.enabled=false`,
+or turn NRI on in containerd's configuration and restart containerd:
+
+```toml
+[plugins."io.containerd.nri.v1.nri"]
+  disable = false
+```
+
+`containerd config dump | grep -A1 'io.containerd.nri.v1.nri'` on the node
+shows the setting containerd runs with.
+
+### Pods get no mock driver, or the node pod is not ready
+
+The node daemon makes the `nvidia` runtime handler containerd's default, and its
+log says why when that fails or when it leaves the node's runtime alone:
+
+```bash
+POD=$(kubectl -n mokka get pods -l app.kubernetes.io/name=nvml-mock \
+  --field-selector spec.nodeName=<node> -o jsonpath='{.items[0].metadata.name}')
+kubectl -n mokka logs "$POD" -c node-agent | grep 'container runtime\|containerd'
+```
+
+A `container runtime setup failed` line names the step that failed, for
+example `nvidia-ctk` failing to write the configuration, or containerd failing
+to restart with it. On the node, `crictl info` shows whether the running
+containerd has the handler as its default, and `journalctl -u containerd` shows
+why a restart failed. Until the setup succeeds, containers start under the
+node's own default handler without the mock driver, and a pod that sets
+`runtimeClassName: nvidia` cannot start. See
+[Container runtime setup](components/node-daemon.md#container-runtime-setup)
+for what the setup needs, how to remove it by hand, and how to turn it off.
 
 ### A pod gets no mock GPUs even though NRI is enabled
 

@@ -1253,6 +1253,8 @@ tests:
     set:
       nodeAgent:
         resyncInterval: null
+        # Added after the resync interval, so absent too.
+        containerRuntime: null
     asserts:
       - notContains:
           path: spec.template.spec.initContainers[0].command

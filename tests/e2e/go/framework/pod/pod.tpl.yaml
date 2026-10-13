@@ -31,6 +31,9 @@ spec:
   {{- with .Node }}
   nodeName: {{ . | quote }}
   {{- end }}
+  {{- with .RuntimeClassName }}
+  runtimeClassName: {{ . | quote }}
+  {{- end }}
   {{- with .NodeSelector }}
   nodeSelector:
     {{- range $key, $value := . }}

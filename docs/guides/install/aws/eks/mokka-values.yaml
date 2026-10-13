@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 image:
-  tag: 0.4.0
+  tag: 0.5.0
 
 # Keep Mokka away from real GPU nodes and unrelated managed node groups.
 nodeSelector:
@@ -11,3 +11,11 @@ nodeSelector:
 # The dedicated EKS node group is untainted. Do not inherit the chart's broad
 # default toleration, which would otherwise admit the DaemonSet onto any taint.
 tolerations: []
+
+nodeAgent:
+  containerRuntime:
+    containerd:
+      # nodeadm rewrites /etc/containerd/config.toml at every boot, and the
+      # file it writes already imports this directory, so the setup does not
+      # depend on an imports entry the next boot would remove.
+      configDir: /etc/containerd/config.d

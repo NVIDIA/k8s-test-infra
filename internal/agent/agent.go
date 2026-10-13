@@ -177,7 +177,7 @@ func (a *Agent) reconcile(ctx context.Context, state *State) error {
 	}
 	// Open the gate only after the lock is released, so NRI can always take its
 	// shared side once /stagedz passes. Apply publishes nothing NRI needs: the
-	// cdi simulator withdraws NRI's CDI spec during Stage, and NRI falls back to
+	// cri simulator withdraws NRI's CDI spec during Stage, and NRI falls back to
 	// raw device nodes until Apply republishes it. A failed Apply is not retried
 	// until the state changes, so it must not keep the gate shut.
 	a.staged.Store(true)

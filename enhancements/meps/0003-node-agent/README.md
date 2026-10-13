@@ -380,6 +380,13 @@ Legend: **✓** covered, **~** partial, **✗** gap, **N/A** intentionally out o
 
 **Delivery**: YAML files materialized at `/host/var/run/cdi/`, discovered by containerd 2.x (`enable_cdi = true` default).
 
+> **Amended by [MEP-0006](../0006-automatic-cdi-setup/README.md).** The `cdi`
+> simulator is renamed `cri`. Besides the specs, it installs the NVIDIA
+> container runtime and `nvidia-cdi-hook`, which closes the hook gap above, and
+> registers the `nvidia` runtime handler with containerd as the default,
+> reverting that when the node pod stops. The container runtime's configuration, listed as bypassed
+> under Tech Debt below, is now part of the node daemon.
+
 **Restage trigger**: `state.Devices` or `state.Software` changes.
 
 ### Tech Debt

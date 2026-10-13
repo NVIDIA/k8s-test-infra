@@ -87,18 +87,13 @@ To move a GPU between healthy and broken *within* a single job, use
 [runtime control](../nvml-mock-ctl.md) instead of reinstalling — it takes effect
 in about a second and needs no rollout.
 
-## What needs more than a plain cluster
+## What a plain cluster covers
 
-The mock driver and `nvidia-smi` work on any Kind cluster. Consumers that
-allocate GPUs need more:
-
-| Testing this | Also needs |
-|---|---|
-| The mock driver, `nvidia-smi`, node labels | nothing beyond a cluster |
-| The NVIDIA device plugin, DRA driver, or GPU Operator | a Kind node image with CDI enabled in containerd |
-| Node-wide NRI injection | containerd with the NRI socket enabled |
-
-[Installation](../helm-chart.md) covers building a node image for those paths.
+A plain Kind cluster is enough for the mock driver and `nvidia-smi`, node
+labels, the NVIDIA device plugin, the DRA driver, the GPU Operator and NRI
+injection. Mokka's node daemon registers the `nvidia` runtime handler with
+containerd and turns CDI and NRI on; see
+[Container runtime setup](../components/node-daemon.md#container-runtime-setup).
 
 ## Keeping jobs fast
 
