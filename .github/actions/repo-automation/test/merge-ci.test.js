@@ -136,7 +136,7 @@ test("requires both broad workflows and DCO instead of passing empty evidence", 
 
 test("does not authorize unsupported base branches", () => {
   assert.equal(evaluateCI(evidence({ baseBranch: "feature/demo" })), "PENDING");
-  assert.equal(evaluateCI(evidence({ baseBranch: "release-0.16" })), "SUCCESS");
+  assert.equal(evaluateCI(evidence({ baseBranch: "release-0.16" })), "PENDING");
   assert.equal(evaluateCI(evidence({ baseBranch: "release/subbranch" })), "PENDING");
 });
 
@@ -162,13 +162,11 @@ test("requires the exact DCO app and name on the current head", () => {
 });
 
 test("accepts plain-path fork runs without PR mappings only for the exact source tuple", () => {
-  for (const baseBranch of ["main", "release-0.16"]) {
-    for (const prNumber of [null, undefined]) {
-      for (const workflowSourceRef of [null, undefined]) {
-        const input = unmappedEvidence({ baseBranch });
-        input.runs = input.runs.map((entry) => ({ ...entry, prNumber, workflowSourceRef }));
-        assert.equal(evaluateCI(input), "SUCCESS");
-      }
+  for (const prNumber of [null, undefined]) {
+    for (const workflowSourceRef of [null, undefined]) {
+      const input = unmappedEvidence();
+      input.runs = input.runs.map((entry) => ({ ...entry, prNumber, workflowSourceRef }));
+      assert.equal(evaluateCI(input), "SUCCESS");
     }
   }
   assert.equal(evaluateCI(evidence({ headRepository: undefined, headBranch: undefined })), "SUCCESS");
@@ -343,15 +341,13 @@ test("required workflow behavior follows tracked pull_request triggers", () => {
   ];
   for (const pattern of patterns) probes.push(pattern.replaceAll("**", "nested/changed.txt").replaceAll("*", "change"));
   const options = { dot: true, nocomment: true, nonegate: true };
-  for (const baseBranch of ["main", "release-0.16"]) {
-    for (const changedPath of new Set(probes)) {
-      for (const { workflow, trigger } of definitions) {
-        const branchesMatch = !trigger.branches || trigger.branches.some((pattern) => minimatch(baseBranch, pattern, options));
-        const pathsMatch = !trigger.paths || trigger.paths.some((pattern) => minimatch(changedPath, pattern, options));
-        assert.equal(evaluateCI(evidence({
-          baseBranch, files: [{ path: changedPath }], runs: WORKFLOWS.filter((name) => name !== workflow).map((name) => run(name)),
-        })), branchesMatch && pathsMatch ? "PENDING" : "SUCCESS", `${baseBranch}: ${changedPath}: ${workflow}`);
-      }
+  for (const changedPath of new Set(probes)) {
+    for (const { workflow, trigger } of definitions) {
+      const branchesMatch = !trigger.branches || trigger.branches.some((pattern) => minimatch("main", pattern, options));
+      const pathsMatch = !trigger.paths || trigger.paths.some((pattern) => minimatch(changedPath, pattern, options));
+      assert.equal(evaluateCI(evidence({
+        files: [{ path: changedPath }], runs: WORKFLOWS.filter((name) => name !== workflow).map((name) => run(name)),
+      })), branchesMatch && pathsMatch ? "PENDING" : "SUCCESS", `${changedPath}: ${workflow}`);
     }
   }
 });

@@ -131,7 +131,7 @@ test("loads exact authority, branch, review, command, bot, and size policy", () 
 
   assert.deepEqual(policy.activeOwnerFiles, ["/OWNERS"]);
   assert.equal(policy.activeOwnerFiles.includes("vendor/**/OWNERS"), false);
-  assert.deepEqual(policy.protectedBranches, ["main", "release-*"]);
+  assert.deepEqual(policy.protectedBranches, ["main"]);
   assert.equal(policy.review.reviewerTarget, 2);
   assert.equal(policy.commands.retestCooldownSeconds, 600);
   assert.equal(policy.commands.historyLimit, 256);

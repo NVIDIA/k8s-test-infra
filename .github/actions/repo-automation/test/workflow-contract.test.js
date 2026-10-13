@@ -94,7 +94,7 @@ test("metadata and command workflows use exact trusted code", () => {
   const metadata = readWorkflow("pr-metadata.yml").workflow;
   assert.deepEqual(metadata.on.pull_request_target, {
     types: ["opened", "reopened", "synchronize", "edited", "ready_for_review", "converted_to_draft"],
-    branches: ["main", "release-*"],
+    branches: ["main"],
   });
   assert.deepEqual(metadata.permissions, {});
   assert.equal(metadata.jobs.metadata.if, activationGates.metadata);
