@@ -40,7 +40,7 @@ body:
       label: Release type
       options:
         - "Scheduled minor (vX.Y.0)"
-        - "Major, with breaking changes (vX.0.0)"
+        - "Major (vX.0.0)"
     validations: { required: true }
   - type: checkboxes
     id: preflight
@@ -50,8 +50,8 @@ body:
         - label: "CI Pipeline is green on the base commit, including the full e2e matrix. A flake rerun to green is fine; record the job and the rerun."
         - label: "`make lint` is green on the base commit. It runs govulncheck, so a known vulnerability in a dependency fails it."
         - label: "Open Dependabot PRs are merged, or listed in this issue as deferred with the reason."
-        - label: "Deprecations announced three releases ago are removed. New deprecations in this release are listed for the release notes."
-        - label: "Major release only: every breaking change is listed with the step a user takes to upgrade."
+        - label: "Every `Removed` entry this release ships (the `Removed-*` fragments in `.changes/unreleased/`) removes something whose deprecation was announced at least three Y releases earlier; Z releases do not count. A deprecation announced in 0.6.0 is removed no earlier than 0.9.0. New deprecations in this release are listed for the release notes."
+        - label: "Every breaking change merged since the last tag has a `**Breaking:**` changelog entry that states the action a user takes. Before 1.0 a breaking change ships in this Y release; from 1.0 it makes the release type Major."
   - type: checkboxes
     id: prep
     attributes:

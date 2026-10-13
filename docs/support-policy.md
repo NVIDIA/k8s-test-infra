@@ -9,9 +9,13 @@ A Mokka version is `X.Y.Z`:
 
 | Part | Increases for |
 |---|---|
-| X (major) | A change that breaks the API: the CRDs, configuration files, environment variables, or how Mokka works. |
+| X (major) | From 1.0, a change that breaks the API: the CRDs, configuration files, environment variables, or how Mokka works. |
 | Y (minor) | A scheduled release, cut from `main` every second week with whatever has merged. |
 | Z (patch) | A release that carries only security and bug fixes. |
+
+Before 1.0, a change that breaks the API ships in the next Y release, with a
+`**Breaking:**` changelog entry that states the action a user takes; from 1.0,
+it makes the release an X.
 
 Mokka publishes no release candidates, only stable `vX.Y.Z` releases. The
 images and charts a release publishes carry its version without the `v`: the
@@ -24,7 +28,8 @@ Only the latest release receives fixes: the
 
 Fixes land on `main` and ship in the next scheduled release. When a fix cannot
 wait, maintainers cut an out-of-cycle release from `main`. It is a Z release
-when every change since the last release is a fix, and the next Y otherwise.
+when every change since the last release is a fix, and the next Y otherwise,
+or from 1.0 the next X when a change breaks the API.
 
 There are no release branches and no backports, so an older release gets no
 fixes. To get a fix, upgrade to the latest release.
