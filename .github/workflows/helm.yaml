@@ -5,7 +5,7 @@ name: helm
 
 on:
   pull_request:
-    branches: [main, 'release-*']
+    branches: [main]
     paths:
       - 'deployments/nvml-mock/helm/**'
       - 'deployments/mokka-crds/helm/**'
