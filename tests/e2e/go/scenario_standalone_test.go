@@ -155,6 +155,16 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				nvidiasmi.PlatformIdentity(ctx, h.Kube, pod, p)
 			})
 
+			It("reports the profile's addressing mode, PDI and EGM via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #1042: the three getters were generated stubs, so the
+				// rows read N/A on every board where real hardware reports the
+				// host's addressing mode, a per-GPU identifier and EGM disabled.
+				// The expectation comes from the profile's driver and declared
+				// mode, so a pre-580 profile pins the Function Not Found a driver
+				// without the symbols renders instead.
+				nvidiasmi.DeviceIdentity(ctx, h.Kube, pod, p)
+			})
+
 			It("reports a healthy fabric via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
 				// Issue #677: every element of the fabric health block read
 				// N/A, which says the driver answered nothing rather than that

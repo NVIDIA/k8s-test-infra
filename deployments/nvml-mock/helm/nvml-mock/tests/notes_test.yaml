@@ -44,16 +44,7 @@ tests:
       - matchRegexRaw:
           pattern: "GPUs per node: 8"
       - matchRegexRaw:
-          pattern: "Driver version: 550.163.01"
-
-  - it: should render Blackwell driver version for b200
-    set:
-      gpu:
-        profile: b200
-        count: 8
-    asserts:
-      - matchRegexRaw:
-          pattern: "Driver version: 560.35.03"
+          pattern: "Driver version: 580.65.06"
 
   - it: should render Blackwell Ultra driver version for gb300
     set:

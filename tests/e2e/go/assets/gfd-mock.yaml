@@ -8,7 +8,7 @@
 #   nvidia.com/gpu.compute.major=8
 #   nvidia.com/gpu.product=NVIDIA-A100-SXM4-40GB
 #   nvidia.com/gpu.memory=40960  (or similar)
-#   nvidia.com/gpu.driver.version=550.163.01
+#   nvidia.com/gpu.driver.version=580.65.06
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:

@@ -1,0 +1,6 @@
+kind: Changed
+body: |-
+  profiles: `a100`, `b200`, `h100`, `l40s` and `t4` now report driver 580.65.06 and CUDA 13.0, matching the nvidia-smi the image ships, so queries added since 550 answer on them. Set `system.driver_version` in `gpu.customConfig` to keep an older driver.
+time: 2026-10-13T12:36:40Z
+custom:
+  Issue: "1042"

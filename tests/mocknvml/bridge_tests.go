@@ -50,6 +50,7 @@ func bridgeTests(deviceCount int) []testResult {
 	var results []testResult
 	results = append(results, testStringHandling()...)
 	results = append(results, testHandleConversions(deviceCount)...)
+	results = append(results, testIdentityLookups(deviceCount)...)
 	results = append(results, testErrorStrings()...)
 	results = append(results, testInvalidIndices(deviceCount)...)
 	results = append(results, testEventSetWait(deviceCount)...)

@@ -14,6 +14,8 @@
 package engine
 
 import (
+	"bytes"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"reflect"
@@ -1284,6 +1286,52 @@ func (d *ConfigurableDevice) GetMaxPcieLinkGeneration() (int, nvml.Return) {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
 	return gen, nvml.SUCCESS
+}
+
+// pcieLaneRateMbps is each PCIe generation's per-lane signalling rate, indexed
+// by generation. Gen 0 is absent so that an unconfigured link has no rate.
+var pcieLaneRateMbps = [...]int{1: 2500, 2: 5000, 3: 8000, 4: 16000, 5: 32000, 6: 64000}
+
+// GetPcieSpeed returns the current link's per-lane rate in Mbps: a Gen4 link
+// reports 16000. A generation the profile does not configure, a negative one,
+// or one past the last NVML can name is NOT_SUPPORTED rather than a speed of 0.
+func (d *ConfigurableDevice) GetPcieSpeed() (int, nvml.Return) {
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return 0, ret
+	}
+	gen, ret := d.GetCurrPcieLinkGeneration()
+	if ret != nvml.SUCCESS || gen < 1 || gen >= len(pcieLaneRateMbps) {
+		return 0, nvml.ERROR_NOT_SUPPORTED
+	}
+	speed := pcieLaneRateMbps[gen]
+	debugLog("[NVML] nvmlDeviceGetPcieSpeed -> %d\n", speed)
+	return speed, nvml.SUCCESS
+}
+
+// GetPcieLinkMaxSpeed returns the fastest generation the link supports, as an
+// NVML_PCIE_LINK_MAX_SPEED_* code rather than in Mbps despite what nvml.h's
+// prose says: the codes number the generations, so Gen5 reports 5.
+func (d *ConfigurableDevice) GetPcieLinkMaxSpeed() (uint32, nvml.Return) {
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return 0, ret
+	}
+	gen, ret := d.GetMaxPcieLinkGeneration()
+	if ret != nvml.SUCCESS || gen < 1 || gen > nvml.PCIE_LINK_MAX_SPEED_64000MBPS {
+		return 0, nvml.ERROR_NOT_SUPPORTED
+	}
+	debugLog("[NVML] nvmlDeviceGetPcieLinkMaxSpeed -> %d\n", gen)
+	return uint32(gen), nvml.SUCCESS
+}
+
+// GetBusType reports how the GPU attaches to the host. Every mocked board is
+// a PCIe device — the simulated sysfs tree and /proc/driver/nvidia both say
+// so — including Grace boards, whose GPUs enumerate over PCIe alongside C2C.
+func (d *ConfigurableDevice) GetBusType() (nvml.BusType, nvml.Return) {
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return 0, ret
+	}
+	debugLog("[NVML] nvmlDeviceGetBusType -> PCIE\n")
+	return nvml.BUS_TYPE_PCIE, nvml.SUCCESS
 }
 
 // GetGpuMaxPcieLinkGeneration returns the maximum PCIe link generation the GPU
@@ -2570,6 +2618,62 @@ func (s *MockServer) DeviceGetHandleByPciBusId(pciBusId string) (nvml.Device, nv
 		}
 	}
 	return nil, nvml.ERROR_NOT_FOUND
+}
+
+// DeviceGetHandleBySerial returns the visible device carrying a board serial.
+// A serial names a board rather than a GPU, which is why nvml.h deprecates the
+// call: when more than one visible GPU carries it — the two GPUs of a GB200
+// superchip — the lookup is ambiguous and fails with INVALID_ARGUMENT.
+func (s *MockServer) DeviceGetHandleBySerial(serial string) (nvml.Device, nvml.Return) {
+	debugLog("[NVML] nvmlDeviceGetHandleBySerial(%s)\n", serial)
+	if serial == "" {
+		return nil, nvml.ERROR_INVALID_ARGUMENT
+	}
+	var match *ConfigurableDevice
+	for i, dev := range s.configurableDevices {
+		if dev == nil || !s.isDeviceVisible(i) || dev.cfg().Serial != serial {
+			continue
+		}
+		if match != nil {
+			debugLog("[NVML] nvmlDeviceGetHandleBySerial(%s) -> INVALID_ARGUMENT (shared by several GPUs)\n", serial)
+			return nil, nvml.ERROR_INVALID_ARGUMENT
+		}
+		match = dev
+	}
+	if match == nil {
+		return nil, nvml.ERROR_NOT_FOUND
+	}
+	if ret := match.handleLookupReturn(); ret != nvml.SUCCESS {
+		return nil, ret
+	}
+	return match, nvml.SUCCESS
+}
+
+// deviceGetHandleByUUIDBinary is DeviceGetHandleByUUID for the 16-byte form of
+// a UUID, which carries neither the GPU- prefix nor letter case.
+func (s *MockServer) deviceGetHandleByUUIDBinary(raw [16]byte) (nvml.Device, nvml.Return) {
+	debugLog("[NVML] nvmlDeviceGetHandleByUUIDV(binary %x)\n", raw)
+	for i, dev := range s.configurableDevices {
+		if dev == nil || !uuidMatchesBinary(dev.UUID, raw) {
+			continue
+		}
+		if !s.isDeviceVisible(i) {
+			return nil, nvml.ERROR_NOT_FOUND
+		}
+		if ret := dev.handleLookupReturn(); ret != nvml.SUCCESS {
+			return nil, ret
+		}
+		return dev, nvml.SUCCESS
+	}
+	return nil, nvml.ERROR_NOT_FOUND
+}
+
+// uuidMatchesBinary reports whether a device UUID spells the 16 bytes of a
+// binary nvmlUUID_t. An operator-supplied UUID need not be hex at all, and
+// such a device simply has no binary form to match.
+func uuidMatchesBinary(uuid string, raw [16]byte) bool {
+	decoded, err := hex.DecodeString(strings.ReplaceAll(trimUUIDPrefix(uuid), "-", ""))
+	return err == nil && bytes.Equal(decoded, raw[:])
 }
 
 // handleLookupReturn returns the NVML return code that a handle-lookup

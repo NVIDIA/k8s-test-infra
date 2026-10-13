@@ -247,7 +247,8 @@ typedef struct nvmlBAR1Memory_st
     unsigned long long bar1Used;     //!< Allocated Used Memory (in bytes)
 } nvmlBAR1Memory_t;
 typedef struct nvmlBridgeChipHierarchy_st                   nvmlBridgeChipHierarchy_t;
-typedef struct nvmlBusType_st                               nvmlBusType_t;
+/* An NVML_BUS_TYPE_* code; nvml.h declares it a plain integer, not a struct. */
+typedef unsigned int                                        nvmlBusType_t;
 /**
  * C2C Mode information for a device. A single field with no version tag:
  * unlike nvmlGpuFabricInfoV_t the caller passes no version, so
@@ -263,7 +264,23 @@ typedef struct nvmlC2cModeInfo_v1_st
  * bridge's lack of version dispatch needs revisiting. */
 _Static_assert(sizeof(nvmlC2cModeInfo_v1_t) == 4,
                "nvmlC2cModeInfo_v1_t must stay a single unsigned int to match the go-nvml ABI");
-typedef struct nvmlClkMonStatus_st                          nvmlClkMonStatus_t;
+/* Clock monitor fault status. Full definition so nvmlDeviceGetClkMonStatus
+ * can fill the caller's buffer, which carries no version tag to check: the
+ * size below is the whole of the ABI contract. */
+#define MAX_CLK_DOMAINS 32
+typedef struct nvmlClkMonFaultInfo_struct
+{
+    unsigned int clkApiDomain;
+    unsigned int clkDomainFaultMask;
+} nvmlClkMonFaultInfo_t;
+typedef struct nvmlClkMonStatus_status
+{
+    unsigned int          bGlobalStatus;
+    unsigned int          clkMonListSize;
+    nvmlClkMonFaultInfo_t clkMonList[MAX_CLK_DOMAINS];
+} nvmlClkMonStatus_t;
+_Static_assert(sizeof(nvmlClkMonStatus_t) == 264,
+               "nvmlClkMonStatus_t must stay 264 bytes to match the go-nvml ABI");
 /* Clock offset — full definition needed by bridge so clocks.go can read the
  * caller's (type, pstate) and fill in the offset and its range. */
 typedef struct nvmlClockOffset_st
@@ -359,7 +376,16 @@ typedef struct nvmlConfComputeSetKeyRotationThresholdInfo_st nvmlConfComputeSetK
 typedef struct nvmlConfComputeSystemCaps_st                 nvmlConfComputeSystemCaps_t;
 typedef struct nvmlConfComputeSystemState_st                nvmlConfComputeSystemState_t;
 typedef struct nvmlCoolerInfo_st                            nvmlCoolerInfo_t;
-typedef struct nvmlDeviceAddressingMode_st                  nvmlDeviceAddressingMode_t;
+/* Versioned: the caller stamps NVML_STRUCT_VERSION(DeviceAddressingMode, 1),
+ * whose low 24 bits are this size. value is an NVML_DEVICE_ADDRESSING_MODE_*. */
+typedef struct nvmlDeviceAddressingMode_v1_st
+{
+    unsigned int version;
+    unsigned int value;
+} nvmlDeviceAddressingMode_v1_t;
+typedef nvmlDeviceAddressingMode_v1_t nvmlDeviceAddressingMode_t;
+_Static_assert(sizeof(nvmlDeviceAddressingMode_v1_t) == 8,
+               "nvmlDeviceAddressingMode_v1_t must stay 8 bytes to match the go-nvml ABI");
 /* A MIG device's engine and memory allocation. Full definition needed by
  * bridge: this is the query the device plugin compares across devices before
  * it will accept a node with migStrategy=single. */
@@ -375,7 +401,15 @@ typedef struct nvmlDeviceAttributes_st
     unsigned int       computeInstanceSliceCount;
     unsigned long long memorySizeMB;        //!< Device memory size (in MiB)
 } nvmlDeviceAttributes_t;
-typedef struct nvmlDeviceCapabilities_st                    nvmlDeviceCapabilities_t;
+/* Versioned like nvmlDeviceAddressingMode_t. capMask is NVML_DEV_CAP_* bits. */
+typedef struct nvmlDeviceCapabilities_v1_st
+{
+    unsigned int version;
+    unsigned int capMask;
+} nvmlDeviceCapabilities_v1_t;
+typedef nvmlDeviceCapabilities_v1_t nvmlDeviceCapabilities_t;
+_Static_assert(sizeof(nvmlDeviceCapabilities_v1_t) == 8,
+               "nvmlDeviceCapabilities_v1_t must stay 8 bytes to match the go-nvml ABI");
 /* Clock strings — full definitions needed by bridge so clocks.go can copy the
  * rendered string into the caller's fixed buffer. */
 #define NVML_PERF_MODES_BUFFER_SIZE 2048
@@ -676,7 +710,16 @@ typedef struct nvmlNvLinkUtilizationControl_st              nvmlNvLinkUtilizatio
 typedef struct nvmlPRMTLV_v1_st                             nvmlPRMTLV_v1_t;
 typedef struct nvmlPSUInfo_st                               nvmlPSUInfo_t;
 typedef struct nvmlPciInfoExt_st                            nvmlPciInfoExt_t;
-typedef struct nvmlPdi_st                                   nvmlPdi_t;
+/* Versioned like nvmlDeviceAddressingMode_t. The 64-bit value is aligned to
+ * 8, so 4 bytes of padding follow version. */
+typedef struct nvmlPdi_v1_st
+{
+    unsigned int       version;
+    unsigned long long value;
+} nvmlPdi_v1_t;
+typedef nvmlPdi_v1_t nvmlPdi_t;
+_Static_assert(sizeof(nvmlPdi_v1_t) == 16 && offsetof(nvmlPdi_v1_t, value) == 8,
+               "nvmlPdi_v1_t must stay 16 bytes with value at offset 8 to match the go-nvml ABI");
 /**
  * Platform identity — where the board physically sits in a rack. Full
  * definition needed so nvmlDeviceGetPlatformInfo can populate the caller's
@@ -898,7 +941,27 @@ typedef struct nvmlSystemEventSetCreateRequest_st           nvmlSystemEventSetCr
 typedef struct nvmlSystemEventSetFreeRequest_st             nvmlSystemEventSetFreeRequest_t;
 typedef struct nvmlSystemEventSetWaitRequest_st             nvmlSystemEventSetWaitRequest_t;
 typedef struct nvmlSystemRegisterEventRequest_st            nvmlSystemRegisterEventRequest_t;
-typedef struct nvmlUUID_st                                  nvmlUUID_t;
+/* The UUID nvmlDeviceGetHandleByUUIDV reads, either as the ASCII string
+ * nvmlDeviceGetUUID returns or as its 16 bytes; type says which. Versioned
+ * like nvmlDeviceAddressingMode_t. */
+#define NVML_DEVICE_UUID_ASCII_LEN  41
+#define NVML_DEVICE_UUID_BINARY_LEN 16
+#define NVML_UUID_TYPE_ASCII        1
+#define NVML_UUID_TYPE_BINARY       2
+typedef union
+{
+    char          str[NVML_DEVICE_UUID_ASCII_LEN];
+    unsigned char bytes[NVML_DEVICE_UUID_BINARY_LEN];
+} nvmlUUIDValue_t;
+typedef struct nvmlUUID_v1_st
+{
+    unsigned int    version;
+    unsigned int    type;
+    nvmlUUIDValue_t value;
+} nvmlUUID_v1_t;
+typedef nvmlUUID_v1_t nvmlUUID_t;
+_Static_assert(sizeof(nvmlUUID_v1_t) == 52 && offsetof(nvmlUUID_v1_t, value) == 8,
+               "nvmlUUID_v1_t must stay 52 bytes with value at offset 8 to match the go-nvml ABI");
 typedef struct nvmlUnitFanSpeeds_st                         nvmlUnitFanSpeeds_t;
 typedef struct nvmlUnitInfo_st                              nvmlUnitInfo_t;
 typedef struct nvmlVgpuCreatablePlacementInfo_st            nvmlVgpuCreatablePlacementInfo_t;

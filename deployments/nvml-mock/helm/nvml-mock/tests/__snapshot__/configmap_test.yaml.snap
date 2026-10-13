@@ -13,11 +13,11 @@ should match snapshot with a100 profile:
         # System-level configuration
         # =============================================================================
         system:
-          driver_version: "550.163.01"
-          nvml_version: "12.550.163.01"
-          cuda_version: "12.4"
-          cuda_version_major: 12
-          cuda_version_minor: 4
+          driver_version: "580.65.06"
+          nvml_version: "13.580.65"
+          cuda_version: "13.0"
+          cuda_version_major: 13
+          cuda_version_minor: 0
 
         # =============================================================================
         # Default device configuration (applied to all devices unless overridden)
@@ -303,6 +303,11 @@ should match snapshot with a100 profile:
           compute_mode: "default"           # default, exclusive_thread, prohibited, exclusive_process
 
           # ---------------------------------------------------------------------------
+          # Addressing mode: how the GPU reaches system memory (hmm, ats or none)
+          # ---------------------------------------------------------------------------
+          addressing_mode: "hmm"           # x86 host kernel with HMM enabled, as on the captured node
+
+          # ---------------------------------------------------------------------------
           # MIG configuration
           # ---------------------------------------------------------------------------
           # MIG ships off because a partitioned board stops publishing nvidia.com/gpu
@@ -531,11 +536,11 @@ should match snapshot with b200 profile:
         # System-level configuration
         # =============================================================================
         system:
-          driver_version: "560.35.03"
-          nvml_version: "12.560.35.03"
-          cuda_version: "12.6"
-          cuda_version_major: 12
-          cuda_version_minor: 6
+          driver_version: "580.65.06"
+          nvml_version: "13.580.65"
+          cuda_version: "13.0"
+          cuda_version_major: 13
+          cuda_version_minor: 0
 
         # Helm-only dynamic-metrics defaults (engine ignores this key). Used when
         # gpu.dynamicMetrics.enabled=true; base sits inside the power limits so it varies.
@@ -864,6 +869,11 @@ should match snapshot with b200 profile:
           compute_mode: "default"
 
           # ---------------------------------------------------------------------------
+          # Addressing mode: how the GPU reaches system memory (hmm, ats or none)
+          # ---------------------------------------------------------------------------
+          addressing_mode: "none"           # as the captured node reports: its host ran without HMM
+
+          # ---------------------------------------------------------------------------
           # MIG configuration
           # ---------------------------------------------------------------------------
           # MIG ships off because a partitioned board stops publishing nvidia.com/gpu
@@ -910,7 +920,7 @@ should match snapshot with b200 profile:
           # ---------------------------------------------------------------------------
           gsp_firmware:
             mode: "enabled"
-            version: "560.35.03"
+            version: "580.65.06"
 
           # ---------------------------------------------------------------------------
           # Blackwell-specific features (standalone B200 - no NVLink-C2C)
@@ -1442,6 +1452,11 @@ should match snapshot with default gb300 profile:
           # Compute mode
           # ---------------------------------------------------------------------------
           compute_mode: "default"
+
+          # ---------------------------------------------------------------------------
+          # Addressing mode: how the GPU reaches system memory (hmm, ats or none)
+          # ---------------------------------------------------------------------------
+          addressing_mode: "ats"           # Grace CPU: translated over NVLink-C2C
 
           # ---------------------------------------------------------------------------
           # MIG configuration - GB300 supports MIG
@@ -2046,6 +2061,11 @@ should match snapshot with gb200 profile:
           compute_mode: "default"
 
           # ---------------------------------------------------------------------------
+          # Addressing mode: how the GPU reaches system memory (hmm, ats or none)
+          # ---------------------------------------------------------------------------
+          addressing_mode: "ats"           # Grace CPU: translated over NVLink-C2C
+
+          # ---------------------------------------------------------------------------
           # MIG configuration - GB200 supports MIG
           # ---------------------------------------------------------------------------
           mig:
@@ -2264,11 +2284,11 @@ should match snapshot with h100 profile:
         # System-level configuration
         # =============================================================================
         system:
-          driver_version: "550.163.01"
-          nvml_version: "12.550.163.01"
-          cuda_version: "12.4"
-          cuda_version_major: 12
-          cuda_version_minor: 4
+          driver_version: "580.65.06"
+          nvml_version: "13.580.65"
+          cuda_version: "13.0"
+          cuda_version_major: 13
+          cuda_version_minor: 0
 
         # =============================================================================
         # Default device configuration (applied to all devices unless overridden)
@@ -2583,6 +2603,11 @@ should match snapshot with h100 profile:
           compute_mode: "default"
 
           # ---------------------------------------------------------------------------
+          # Addressing mode: how the GPU reaches system memory (hmm, ats or none)
+          # ---------------------------------------------------------------------------
+          addressing_mode: "hmm"           # x86 host kernel with HMM enabled, as on the captured node
+
+          # ---------------------------------------------------------------------------
           # MIG configuration
           # ---------------------------------------------------------------------------
           # MIG ships off because a partitioned board stops publishing nvidia.com/gpu
@@ -2628,7 +2653,7 @@ should match snapshot with h100 profile:
           # ---------------------------------------------------------------------------
           gsp_firmware:
             mode: "enabled"
-            version: "550.163.01"
+            version: "580.65.06"
 
           # ---------------------------------------------------------------------------
           # Hopper-specific features
@@ -2811,11 +2836,11 @@ should match snapshot with l40s profile:
         # System-level configuration
         # =============================================================================
         system:
-          driver_version: "550.163.01"
-          nvml_version: "12.550.163.01"
-          cuda_version: "12.4"
-          cuda_version_major: 12
-          cuda_version_minor: 4
+          driver_version: "580.65.06"
+          nvml_version: "13.580.65"
+          cuda_version: "13.0"
+          cuda_version_major: 13
+          cuda_version_minor: 0
 
         # =============================================================================
         # Default device configuration (applied to all devices unless overridden)
@@ -3109,6 +3134,11 @@ should match snapshot with l40s profile:
           # ---------------------------------------------------------------------------
           compute_mode: "default"
 
+          # ---------------------------------------------------------------------------
+          # Addressing mode: how the GPU reaches system memory (hmm, ats or none)
+          # ---------------------------------------------------------------------------
+          addressing_mode: "hmm"           # x86 host kernel with HMM enabled, as on the captured node
+
           # No mig section: the L40S is not a MIG-capable board, and the mock derives
           # that from the board name, so NVML answers NVML_ERROR_NOT_SUPPORTED without
           # the profile having to declare a disabled mode it can never leave.
@@ -3146,7 +3176,7 @@ should match snapshot with l40s profile:
           # ---------------------------------------------------------------------------
           gsp_firmware:
             mode: "enabled"
-            version: "550.163.01"
+            version: "580.65.06"
 
           # ---------------------------------------------------------------------------
           # Processes (empty at idle)
@@ -3269,11 +3299,11 @@ should match snapshot with t4 profile:
         # System-level configuration
         # =============================================================================
         system:
-          driver_version: "550.163.01"
-          nvml_version: "12.550.163.01"
-          cuda_version: "12.4"
-          cuda_version_major: 12
-          cuda_version_minor: 4
+          driver_version: "580.65.06"
+          nvml_version: "13.580.65"
+          cuda_version: "13.0"
+          cuda_version_major: 13
+          cuda_version_minor: 0
 
         # Helm-only dynamic-metrics defaults (engine ignores this key). Used when
         # gpu.dynamicMetrics.enabled=true; base sits inside the power limits so it varies.
@@ -3559,6 +3589,11 @@ should match snapshot with t4 profile:
           # ---------------------------------------------------------------------------
           compute_mode: "default"
 
+          # ---------------------------------------------------------------------------
+          # Addressing mode: how the GPU reaches system memory (hmm, ats or none)
+          # ---------------------------------------------------------------------------
+          addressing_mode: "hmm"           # x86 host kernel with HMM enabled, as on the captured node
+
           # No mig section: the T4 is not a MIG-capable board, and the mock derives
           # that from the board name, so NVML answers NVML_ERROR_NOT_SUPPORTED without
           # the profile having to declare a disabled mode it can never leave.
@@ -3596,7 +3631,7 @@ should match snapshot with t4 profile:
           # ---------------------------------------------------------------------------
           gsp_firmware:
             mode: "enabled"
-            version: "550.163.01"
+            version: "580.65.06"
 
           # ---------------------------------------------------------------------------
           # Processes (empty at idle)

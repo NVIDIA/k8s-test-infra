@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  nvml-mock: `nvidia-smi -q` now reports Addressing Mode, PDI and EGM where the profile driver has them, and handle lookups by serial or versioned UUID resolve devices instead of failing with NOT_SUPPORTED.
+time: 2026-10-13T08:24:25Z
+custom:
+  Issue: "1042"

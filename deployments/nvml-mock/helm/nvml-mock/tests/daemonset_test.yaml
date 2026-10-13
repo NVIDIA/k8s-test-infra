@@ -140,35 +140,11 @@ tests:
             name: GPU_COUNT
             value: "4"
 
-  - it: should set default DRIVER_VERSION for non-Blackwell profile
+  - it: should derive DRIVER_VERSION from the profile
     set:
       gpu:
         profile: a100
         count: 8
-    asserts:
-      - contains:
-          path: spec.template.spec.initContainers[0].env
-          content:
-            name: DRIVER_VERSION
-            value: "550.163.01"
-
-  - it: should derive Blackwell driver version for b200 profile
-    set:
-      gpu:
-        profile: b200
-        count: 8
-    asserts:
-      - contains:
-          path: spec.template.spec.initContainers[0].env
-          content:
-            name: DRIVER_VERSION
-            value: "560.35.03"
-
-  - it: should derive Blackwell driver version for gb200 profile
-    set:
-      gpu:
-        profile: gb200
-        count: 4
     asserts:
       - contains:
           path: spec.template.spec.initContainers[0].env

@@ -292,6 +292,51 @@ func TestWorkloadProfilePairsBackTheSetterAssertions(t *testing.T) {
 	}
 }
 
+// TestAddressingModeMatchesHardwareCaptures pins each profile's addressing_mode
+// to the mode its captured node reports (assertions/nvidiasmi/testdata/hardware).
+// The mode belongs to the host rather than the board, so nothing else in a
+// profile implies it: a profile that dropped the key would quietly move the e2e
+// expectation to N/A. See issue #1042.
+func TestAddressingModeMatchesHardwareCaptures(t *testing.T) {
+	t.Parallel()
+	captured := map[string]string{
+		"a100": "hmm", "h100": "hmm", "l40s": "hmm", "t4": "hmm",
+		"b200":  "none",
+		"gb200": "ats", "gb300": "ats",
+	}
+	for _, name := range KnownProfiles {
+		p, err := Load(profilesDir, name)
+		require.NoError(t, err, "Load(%q)", name)
+		require.Equal(t, captured[name], p.AddressingMode(), "%s: device_defaults.addressing_mode", name)
+	}
+}
+
+// The identity rows arrived in two drivers, and nvidia-smi renders each side of
+// each gate differently, so the e2e expectation has to switch at exactly these
+// versions: capabilities (EGM) in 560, addressing mode and PDI in 580.
+func TestDeviceIdentityQueriesGateOnDriver(t *testing.T) {
+	t.Parallel()
+	for driver, want := range map[string]struct{ capabilities, identity bool }{
+		"550.163.01": {false, false},
+		"560.35.03":  {true, false},
+		"580.65.06":  {true, true},
+		"":           {false, false},
+	} {
+		t.Run(driver, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			yaml := "device_defaults:\n  name: \"NVIDIA TEST-GPU\"\n  architecture: \"hopper\"\n" +
+				"devices:\n  - index: 0\nsystem:\n  driver_version: \"" + driver + "\"\n"
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "fixture.yaml"), []byte(yaml), 0o600))
+
+			p, err := Load(dir, "fixture")
+			require.NoError(t, err, "Load(fixture)")
+			require.Equal(t, want.capabilities, p.ReportsCapabilities(), "ReportsCapabilities()")
+			require.Equal(t, want.identity, p.ReportsAddressingModeAndPDI(), "ReportsAddressingModeAndPDI()")
+		})
+	}
+}
+
 // TestPlatformIdentityIsRackScaleOnly pins platform identity as a rack-scale
 // axis, for the same reason as the C2C one: an e2e expectation derived from the
 // profiles must keep a negative control, or "reports a location" could quietly
@@ -375,18 +420,20 @@ func TestDetailedSramECCIsAmpereAndLater(t *testing.T) {
 // The two NVLink predicates answer on different axes, and pinning both per
 // profile is what keeps one from collapsing into the other: the bandwidth mode
 // is node-wide and answers on Hopper alone, so only h100 reports it, while the
-// NVLE row needs a 580 driver and a declared fabric, which only gb200 and gb300
-// have. No shipped profile reports both. Driven from KnownProfiles so a newly
-// added profile has to declare which side it belongs on.
+// NVLE row needs a 580 driver and NVLink links, which a100, h100, gb200 and
+// gb300 declare. a100 and the GB boards report NVLE without the bandwidth mode,
+// and a100 prints NVLE yet refuses the Hopper-and-later low-power threshold.
+// Driven from KnownProfiles so a newly added profile has to declare which side
+// it belongs on.
 func TestNvlinkDerivations(t *testing.T) {
-	want := map[string]struct{ bwMode, nvle bool }{
-		"t4":    {false, false},
-		"l40s":  {false, false},
-		"a100":  {false, false},
-		"h100":  {true, false},
-		"b200":  {false, false},
-		"gb200": {false, true},
-		"gb300": {false, true},
+	want := map[string]struct{ bwMode, nvle, lowPower bool }{
+		"t4":    {false, false, false},
+		"l40s":  {false, false, false},
+		"a100":  {false, true, false},
+		"h100":  {true, true, true},
+		"b200":  {false, false, false},
+		"gb200": {false, true, true},
+		"gb300": {false, true, true},
 	}
 	for _, name := range KnownProfiles {
 		w, ok := want[name]
@@ -398,6 +445,8 @@ func TestNvlinkDerivations(t *testing.T) {
 		require.Equal(t, w.nvle, p.ReportsNvlinkEncryption(),
 			"%s (%s, driver %d.x, %d links): NVLE row",
 			name, p.Architecture(), p.DriverMajor(), p.ExpectedNV())
+		require.Equal(t, w.lowPower, p.ReportsNvlinkLowPowerThreshold(),
+			"%s (%s, %d links): low-power threshold", name, p.Architecture(), p.ExpectedNV())
 	}
 }
 

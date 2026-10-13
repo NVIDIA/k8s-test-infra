@@ -104,6 +104,12 @@ type DeviceConfig struct {
 	PersistenceMode string `json:"persistence_mode,omitempty"`
 	ComputeMode     string `json:"compute_mode,omitempty"`
 
+	// AddressingMode is how the GPU reaches system-allocated memory: "hmm",
+	// "ats" or "none". It is a property of the host as much as the board —
+	// HMM needs kernel support, ATS a Grace CPU — so the same GPU on the same
+	// driver can report either, and the profile has to say which host it models.
+	AddressingMode string `json:"addressing_mode,omitempty"`
+
 	// Draining is the drain state nvmlDeviceModifyDrainState sets. A draining
 	// GPU drops out of enumeration for every process that initialises NVML
 	// afterwards, but stays addressable by PCI location so it can be undrained.

@@ -8,11 +8,11 @@ version: "1.0"
 # System-level configuration
 # =============================================================================
 system:
-  driver_version: "560.35.03"
-  nvml_version: "12.560.35.03"
-  cuda_version: "12.6"
-  cuda_version_major: 12
-  cuda_version_minor: 6
+  driver_version: "580.65.06"
+  nvml_version: "13.580.65"
+  cuda_version: "13.0"
+  cuda_version_major: 13
+  cuda_version_minor: 0
 
 # =============================================================================
 # Default device configuration (applied to all devices unless overridden)
@@ -305,6 +305,11 @@ device_defaults:
   compute_mode: "default"
 
   # ---------------------------------------------------------------------------
+  # Addressing mode: how the GPU reaches system memory (hmm, ats or none)
+  # ---------------------------------------------------------------------------
+  addressing_mode: "none"           # as the captured node reports: its host ran without HMM
+
+  # ---------------------------------------------------------------------------
   # MIG configuration
   # ---------------------------------------------------------------------------
   mig:
@@ -345,7 +350,7 @@ device_defaults:
   # ---------------------------------------------------------------------------
   gsp_firmware:
     mode: "enabled"
-    version: "560.35.03"
+    version: "580.65.06"
 
   # ---------------------------------------------------------------------------
   # Blackwell-specific features (standalone B200 - no NVLink-C2C)

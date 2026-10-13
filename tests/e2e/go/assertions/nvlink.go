@@ -237,7 +237,7 @@ func nvlinkBwMode(ctx context.Context, k *kube.Client, pod kube.PodRef, p profil
 // nvlinkInfo asserts `nvidia-smi nvlink --info` and, where it answers, the
 // low-power threshold. It is independent of the bandwidth mode: the two gates
 // barely overlap, since only h100 puts the mode on the node-wide pair while
-// --info needs a 580 driver, which today only the Blackwell profiles pin.
+// --info needs a 580 driver and NVLink links.
 func nvlinkInfo(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
 	ginkgo.GinkgoHelper()
 
@@ -257,6 +257,11 @@ func nvlinkInfo(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.
 
 	ginkgo.By("nvidia-smi nvlink -sLowPwrThres round trip")
 	lowRes, _ := k.ExecTruncated(ctx, pod, nvlinkLogOutputLines, "nvidia-smi", "nvlink", "-sLowPwrThres", "500")
+	if !p.ReportsNvlinkLowPowerThreshold() {
+		gomega.Expect(lowRes.Combined()).To(gomega.MatchRegexp(`(?i)not supported`),
+			"profile %q (%s) must refuse the low-power threshold:\n%s", p.Name, p.Architecture(), lowRes.Combined())
+		return
+	}
 	gomega.Expect(lowRes.Combined()).To(gomega.MatchRegexp(`(?i)Low Power Threshold set to`),
 		"profile %q rejected an in-range low-power threshold:\n%s", p.Name, lowRes.Combined())
 
