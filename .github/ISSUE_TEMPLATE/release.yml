@@ -70,7 +70,8 @@ body:
     attributes:
       label: Tag
       options:
-        - label: "`git log --oneline <base-commit>..<prep-merge-commit>` shows only the prep PR, or anything else that merged in between is listed here."
+        - label: "Before tagging, CI Pipeline is green on the prep PR's merge commit, the commit the tag goes on: `gh run list --workflow \"CI Pipeline\" --commit <prep-merge-commit>`."
+        - label: "Before tagging, list the changelog fragments that merged after the base commit: `git diff --name-only --diff-filter=A <base-commit> <prep-merge-commit> -- .changes/unreleased`. They ship in this tag but are not in its changelog section. Paste the list in this issue, even when it is empty. Each listed fragment also meets the two pre-flight checks above: do not tag over a `Removed` entry that breaks the floor, and the follow-up PR adds a missing `**Breaking:**` marker and user action."
         - label: "Annotated and signed, on the prep PR's merge commit given explicitly: `git tag -s -m \"<message>\" <version> <prep-merge-commit>`"
         - label: "Tag message covers the headline change and any breaking changes."
         - label: "Only a stable `vMAJOR.MINOR.PATCH` tag publishes, and every publish workflow refuses any other `v*` tag. Never push an `-rc` tag."
@@ -93,7 +94,8 @@ body:
     attributes:
       label: After the release
       options:
-        - label: "GitHub release from the changelog section, with the image and chart digests and one `cosign verify` command, published as the latest release: `gh release create <version> --verify-tag --latest`."
+        - label: "If the fragment list from the Tag section is not empty: a PR against `main` moves each listed fragment's entry into this release's section of CHANGELOG.md, under its kind heading, and deletes the fragment. Once it merges, this release's section has one bullet per fragment the fold removed plus one per fragment the list named. Paste the three counts in the PR, and apply `skip-changelog`: the PR removes fragments and adds none."
+        - label: "GitHub release, created after that PR merges (or after the tag when the list was empty), from this release's section of CHANGELOG.md on `main`, with the image and chart digests and one `cosign verify` command, published as the latest release: `gh release create <version> --verify-tag --latest`."
         - label: "PR against `main` bumping both charts' `version` and `appVersion` to the next minor's `-dev` version (for example `0.6.0-dev` after `v0.5.0`). Not release-blocking: it keeps what `main` publishes sorting after this release, and the feature-gate removal rule compares against the chart `appVersion`."
         - label: "Link the tag and the release notes in this issue, then close it."
   - type: textarea
