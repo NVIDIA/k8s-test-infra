@@ -153,7 +153,7 @@ func TestEngine_DeviceGetHandleByUUIDBinary_RefusesPartitionSharingParentBytes(t
 		},
 	})
 	require.Equal(t, nvml.SUCCESS, e.Init())
-	t.Cleanup(func() { e.Shutdown() }) //nolint:errcheck // teardown
+	t.Cleanup(func() { _ = e.Shutdown() })
 	parent, ret := e.DeviceGetHandleByIndex(0)
 	require.Equal(t, nvml.SUCCESS, ret)
 
@@ -254,6 +254,20 @@ func TestConfigurableDevice_GetAddressingMode(t *testing.T) {
 			require.Equal(t, tc.ret, ret)
 			require.Equal(t, tc.want, mode.Value)
 		})
+	}
+}
+
+func TestConfigurableDevice_GetAddressingMode_DeviceOverride(t *testing.T) {
+	t.Parallel()
+	e := pcieIdentityEngine(t, DeviceConfig{AddressingMode: "hmm"},
+		DeviceOverride{Index: 0},
+		DeviceOverride{Index: 1, DeviceConfig: DeviceConfig{AddressingMode: "ats"}},
+	)
+
+	for index, want := range []nvml.DeviceAddressingModeType{nvml.DEVICE_ADDRESSING_MODE_HMM, nvml.DEVICE_ADDRESSING_MODE_ATS} {
+		mode, ret := pcieIdentityDevice(t, e, index).GetAddressingMode()
+		require.Equal(t, nvml.SUCCESS, ret, "device %d", index)
+		require.Equal(t, uint32(want), mode.Value, "device %d", index)
 	}
 }
 

@@ -1054,6 +1054,9 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	if override.Excluded {
 		base.Excluded = true
 	}
+	if override.AddressingMode != "" {
+		base.AddressingMode = override.AddressingMode
+	}
 	if override.PCI != nil {
 		if base.PCI == nil {
 			base.PCI = &PCIConfig{}

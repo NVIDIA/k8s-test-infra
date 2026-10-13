@@ -510,7 +510,8 @@ reaches memory the host allocated with `malloc` or `mmap`. It belongs to the
 host as much as the board: `hmm` needs kernel support, and `ats` needs a Grace
 CPU translating over NVLink-C2C. The same GPU on the same driver can report
 either, so each built-in profile declares the mode its captured node reported.
-Leaving the key unset, or misspelling it, renders `N/A`. The row needs a driver
+A `devices[]` entry can set it for one GPU. Leaving the key unset, or
+misspelling it, renders `N/A`. The row needs a driver
 of `580` or newer: on an older profile the query does not exist, as on real
 hardware.
 
