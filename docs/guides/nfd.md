@@ -118,9 +118,10 @@ The annotation includes `pci-10de.present` without the
 ## Use the label in a workload
 
 Select simulated nodes with the NFD label just as you would select a real GPU
-node:
+node, then confirm that Kubernetes scheduled the pod on a labelled node:
 
-```yaml
+```console
+$ kubectl apply -f - <<'EOF'
 apiVersion: v1
 kind: Pod
 metadata:
@@ -132,12 +133,7 @@ spec:
     - name: shell
       image: busybox:1.36
       command: ["sleep", "300"]
-```
-
-Apply it and confirm that Kubernetes scheduled it on a labelled node:
-
-```console
-$ kubectl apply -f nfd-labelled-workload.yaml
+EOF
 $ kubectl get pod nfd-labelled-workload -o wide
 ```
 
