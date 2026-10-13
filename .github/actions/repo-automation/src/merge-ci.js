@@ -155,7 +155,7 @@ function evaluateCI(input) {
     paths.push(repositoryPath(file.path));
     if (file.previousPath !== undefined) paths.push(repositoryPath(file.previousPath));
   }
-  const supportedBranch = baseBranch === "main" || minimatch(baseBranch, "release-*", MATCH_OPTIONS);
+  const supportedBranch = baseBranch === "main";
   const required = new Map(ci.workflows.filter((workflow) => supportedBranch && (
     workflow.files === undefined
     || paths.some((path) => workflow.files.some((pattern) => minimatch(path, pattern, MATCH_OPTIONS)))
