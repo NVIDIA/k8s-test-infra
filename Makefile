@@ -533,7 +533,7 @@ helm-tests: ## Run the nvml-mock chart unit test suite
 # ---------------------------------------------------------------------------
 # Changelog (changie)
 # Entries are recorded as fragments under .changes/unreleased/ instead of edits
-# to CHANGELOG.md, so concurrent PRs and backports never conflict. A maintainer
+# to CHANGELOG.md, so concurrent PRs never conflict. A maintainer
 # folds the pending fragments into CHANGELOG.md when cutting a release.
 # ---------------------------------------------------------------------------
 CHANGIE_VERSION ?= v1.26.0
