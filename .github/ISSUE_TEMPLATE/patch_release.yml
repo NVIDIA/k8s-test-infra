@@ -97,7 +97,7 @@ body:
         - label: "`skip-changelog` label applied."
         - label: "Gates: `make helm-tests`, `make helm-crds-tests`, `make lint`, `make build`, `make test`."
         - label: "No `Chart.yaml` version edited: the tag sets the published versions."
-        - label: "Reviewed and merged. Review fixes batched into one push; the branch is rebased, never updated with \"Update branch\" (its merge commit fails the DCO check)."
+        - label: "Reviewed and merged. Review fixes batched into one push. Rebased only if the PR gets the `needs-rebase` label ([Rebase only on a conflict](https://github.com/NVIDIA/k8s-test-infra/blob/main/docs/contributing/pull-requests.md#rebase-only-on-a-conflict)); `main` is never merged into it."
   - type: checkboxes
     id: tag
     attributes:

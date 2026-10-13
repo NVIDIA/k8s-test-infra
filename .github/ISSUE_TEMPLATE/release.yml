@@ -64,7 +64,7 @@ body:
         - label: "Apply the `skip-changelog` label: a release PR removes fragments rather than adding one."
         - label: "Gates: `make helm-tests`, `make helm-crds-tests`, `make lint`, `make build`, `make test`."
         - label: "No `Chart.yaml` version is edited. The tag sets the published chart `version` and `appVersion`."
-        - label: "PR reviewed and merged. `main` dismisses stale approvals on push, so batch review fixes into one push. Rebase to update the branch instead of using \"Update branch\": its merge commit has no `Signed-off-by` and fails the DCO check."
+        - label: "PR reviewed and merged. `main` dismisses stale approvals on push, so batch review fixes into one push. Rebase only if the PR gets the `needs-rebase` label ([Rebase only on a conflict](https://github.com/NVIDIA/k8s-test-infra/blob/main/docs/contributing/pull-requests.md#rebase-only-on-a-conflict)); never merge `main` into it."
   - type: checkboxes
     id: tag
     attributes:
