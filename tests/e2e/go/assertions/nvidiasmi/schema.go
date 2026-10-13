@@ -107,6 +107,9 @@ type gpuElement struct {
 	UUID                     reading           `xml:"uuid"`
 	BoardID                  reading           `xml:"board_id"`
 	C2CMode                  reading           `xml:"c2c_mode"`
+	AddressingMode           reading           `xml:"addressing_mode"`
+	PDI                      reading           `xml:"pdi"`
+	Capabilities             capabilities      `xml:"capabilities"`
 	PlatformInfo             platformInfo      `xml:"platformInfo"`
 	PCI                      pciInfo           `xml:"pci"`
 	FanSpeed                 reading           `xml:"fan_speed"`
@@ -148,6 +151,12 @@ type memoryUsage struct {
 	Reserved reading `xml:"reserved"`
 	Used     reading `xml:"used"`
 	Free     reading `xml:"free"`
+}
+
+// capabilities is <capabilities>, the optional features the driver reports a
+// GPU has turned on. EGM (Extended GPU Memory) is the only one NVML defines.
+type capabilities struct {
+	EGM reading `xml:"egm"`
 }
 
 // migMode is <mig_mode>: whether this GPU is partitioned. The pending reading

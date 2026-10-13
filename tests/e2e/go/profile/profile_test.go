@@ -292,6 +292,51 @@ func TestWorkloadProfilePairsBackTheSetterAssertions(t *testing.T) {
 	}
 }
 
+// TestAddressingModeMatchesHardwareCaptures pins each profile's addressing_mode
+// to the mode its captured node reports (assertions/nvidiasmi/testdata/hardware).
+// The mode belongs to the host rather than the board, so nothing else in a
+// profile implies it: a profile that dropped the key would quietly move the e2e
+// expectation to N/A. See issue #1042.
+func TestAddressingModeMatchesHardwareCaptures(t *testing.T) {
+	t.Parallel()
+	captured := map[string]string{
+		"a100": "hmm", "h100": "hmm", "l40s": "hmm", "t4": "hmm",
+		"b200":  "none",
+		"gb200": "ats", "gb300": "ats",
+	}
+	for _, name := range KnownProfiles {
+		p, err := Load(profilesDir, name)
+		require.NoError(t, err, "Load(%q)", name)
+		require.Equal(t, captured[name], p.AddressingMode(), "%s: device_defaults.addressing_mode", name)
+	}
+}
+
+// The identity rows arrived in two drivers, and nvidia-smi renders each side of
+// each gate differently, so the e2e expectation has to switch at exactly these
+// versions: capabilities (EGM) in 560, addressing mode and PDI in 580.
+func TestDeviceIdentityQueriesGateOnDriver(t *testing.T) {
+	t.Parallel()
+	for driver, want := range map[string]struct{ capabilities, identity bool }{
+		"550.163.01": {false, false},
+		"560.35.03":  {true, false},
+		"580.65.06":  {true, true},
+		"":           {false, false},
+	} {
+		t.Run(driver, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			yaml := "device_defaults:\n  name: \"NVIDIA TEST-GPU\"\n  architecture: \"hopper\"\n" +
+				"devices:\n  - index: 0\nsystem:\n  driver_version: \"" + driver + "\"\n"
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "fixture.yaml"), []byte(yaml), 0o600))
+
+			p, err := Load(dir, "fixture")
+			require.NoError(t, err, "Load(fixture)")
+			require.Equal(t, want.capabilities, p.ReportsCapabilities(), "ReportsCapabilities()")
+			require.Equal(t, want.identity, p.ReportsAddressingModeAndPDI(), "ReportsAddressingModeAndPDI()")
+		})
+	}
+}
+
 // TestPlatformIdentityIsRackScaleOnly pins platform identity as a rack-scale
 // axis, for the same reason as the C2C one: an e2e expectation derived from the
 // profiles must keep a negative control, or "reports a location" could quietly

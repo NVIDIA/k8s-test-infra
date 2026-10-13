@@ -48,9 +48,10 @@ var KnownProfiles = []string{"a100", "h100", "b200", "gb200", "gb300", "l40s", "
 // keys used in the profile files.
 type rawProfile struct {
 	DeviceDefaults struct {
-		Name         string `json:"name"`
-		Architecture string `json:"architecture"`
-		Fabric       *struct {
+		Name           string `json:"name"`
+		Architecture   string `json:"architecture"`
+		AddressingMode string `json:"addressing_mode"`
+		Fabric         *struct {
 			State string `json:"state"`
 		} `json:"fabric"`
 		Memory struct {
@@ -207,6 +208,8 @@ type Profile struct {
 	platform    PlatformIdentity
 	hasPlatform bool
 
+	addressingMode string
+
 	driverVersion             string
 	workloadProfiles          []WorkloadPowerProfile
 	workloadProfilesRequested []int
@@ -292,7 +295,8 @@ func Load(profilesDir, name string) (Profile, error) {
 		memoryBytes: raw.DeviceDefaults.Memory.TotalBytes,
 		arch:        parsedArch,
 
-		driverVersion: strings.TrimSpace(raw.System.DriverVersion),
+		addressingMode: strings.TrimSpace(raw.DeviceDefaults.AddressingMode),
+		driverVersion:  strings.TrimSpace(raw.System.DriverVersion),
 	}
 	p.nvlinkFirmware = nvlinkFirmwareRows(raw)
 	p.nvlinkBwScope = raw.NVLink.BwMode.Scope
@@ -725,6 +729,29 @@ func (p Profile) ConflictingWorkloadProfilePair() (winner, loser int, ok bool) {
 // is still treated as a conflict.
 func workloadProfilesConflict(a, b WorkloadPowerProfile) bool {
 	return slices.Contains(a.Conflicts, b.ID) || slices.Contains(b.Conflicts, a.ID)
+}
+
+// The drivers that introduced the device identity queries nvidia-smi -q
+// renders. As with workloadPowerProfileMinDriver, an older driver has no symbol,
+// so nvidia-smi fails to find the function rather than being told the device
+// declines; both must match the mock's version registry.
+const (
+	capabilitiesMinDriver      = 560 // nvmlDeviceGetCapabilities, the EGM row
+	addressingModePDIMinDriver = 580 // nvmlDeviceGetAddressingMode and nvmlDeviceGetPdi
+)
+
+// AddressingMode is device_defaults.addressing_mode in profile spelling ("hmm",
+// "ats", "none"), or "" when the profile declares none.
+func (p Profile) AddressingMode() string { return p.addressingMode }
+
+// ReportsCapabilities reports whether the profile's driver answers the
+// capabilities query, which nvidia-smi renders as the EGM row.
+func (p Profile) ReportsCapabilities() bool { return p.DriverMajor() >= capabilitiesMinDriver }
+
+// ReportsAddressingModeAndPDI reports whether the profile's driver exports the
+// addressing mode and PDI queries.
+func (p Profile) ReportsAddressingModeAndPDI() bool {
+	return p.DriverMajor() >= addressingModePDIMinDriver
 }
 
 // DriverMajor is the major component of system.driver_version, or 0 when the
