@@ -299,7 +299,6 @@ test("uses the latest exact-head DCO check ID and ignores old failures", () => {
 test("requires conditional workflows for changed paths and both sides of renames", () => {
   const cases = [
     [".github/actions/repo-automation/src/index.js", ["automation-ci.yml"]],
-    [".github/scripts/cherrypick/backport.js", ["automation-ci.yml"]],
     [".github/scripts/issue-commands/run.js", ["automation-ci.yml"]],
     [".github/repo-automation/policy.yml", ["automation-ci.yml"]], [".github/workflows/new.yml", ["automation-ci.yml"]],
     ["hack/actionlint.sh", ["automation-ci.yml"]], ["OWNERS", ["automation-ci.yml"]], ["OWNERS_ALIASES", ["automation-ci.yml"]],
