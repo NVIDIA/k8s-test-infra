@@ -582,8 +582,6 @@ changelog-preview: changie ## Preview the next release section without writing: 
 	@test -n "$(RELEASE_VERSION)" || { echo "RELEASE_VERSION is required, e.g. make changelog-preview RELEASE_VERSION=0.5.0"; exit 1; }
 	@CHANGIE=$(CHANGIE) bash hack/changelog-fold.sh --dry-run $(RELEASE_VERSION)
 
-# A prerelease (0.5.0-rc1) parks its fragments in .changes/0.5.0/; the final
-# 0.5.0 folds them back in and replaces every 0.5.0-* section with one.
 .PHONY: changelog-release
 changelog-release: changie ## Maintainers: fold unreleased fragments into CHANGELOG.md as RELEASE_VERSION
 	@test -n "$(RELEASE_VERSION)" || { echo "RELEASE_VERSION is required, e.g. make changelog-release RELEASE_VERSION=0.5.0"; exit 1; }
