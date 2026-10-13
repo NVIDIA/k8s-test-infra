@@ -125,6 +125,9 @@ type gpuElement struct {
 	Clocks                   clocks            `xml:"clocks"`
 	MaxClocks                maxClocks         `xml:"max_clocks"`
 	MaxCustomerBoostClocks   customerBoostMax  `xml:"max_customer_boost_clocks"`
+	ApplicationsClocks       appClocks         `xml:"applications_clocks"`
+	DefaultAppClocks         appClocks         `xml:"default_applications_clocks"`
+	SupportedClocks          supportedClocks   `xml:"supported_clocks"`
 	ECCMode                  eccMode           `xml:"ecc_mode"`
 	ECCErrors                eccErrors         `xml:"ecc_errors"`
 	RemappedRows             remappedRows      `xml:"remapped_rows"`
@@ -291,11 +294,10 @@ type powerReadings struct {
 	MaxPowerLimit     reading `xml:"max_power_limit"`
 }
 
-// clocks is the <clocks> block: the clocks in effect now. Its <max_clocks> and
-// <max_customer_boost_clocks> siblings reuse graphics_clock and are decoded
-// separately below, so a reading always says which block it came from;
-// <applications_clocks> and <default_applications_clocks> reuse it too and are
-// deliberately not decoded, since no assertion reads them.
+// clocks is the <clocks> block: the clocks in effect now. Its <max_clocks>,
+// <max_customer_boost_clocks>, <applications_clocks> and
+// <default_applications_clocks> siblings reuse graphics_clock and are decoded
+// separately below, so a reading always says which block it came from.
 type clocks struct {
 	GraphicsClock reading `xml:"graphics_clock"`
 	SMClock       reading `xml:"sm_clock"`
@@ -317,6 +319,30 @@ type maxClocks struct {
 // getters behind it were generated stubs (#712).
 type customerBoostMax struct {
 	GraphicsClock reading `xml:"graphics_clock"`
+}
+
+// appClocks is <applications_clocks> or <default_applications_clocks>: the
+// pair `nvidia-smi -ac` sets and the pair `-rac` restores.
+type appClocks struct {
+	GraphicsClock reading `xml:"graphics_clock"`
+	MemClock      reading `xml:"mem_clock"`
+}
+
+// supportedClocks is <supported_clocks>, one <supported_mem_clock> per memory
+// clock with the graphics clocks it pairs with.
+//
+// Body is kept beside the decoded children for the reason migDevices keeps
+// it: an empty Memory slice is either the literal "N/A" a board without a
+// table renders, or markup this schema no longer matches, and only the first
+// is a state the mock can legitimately be in.
+type supportedClocks struct {
+	Body   string              `xml:",innerxml"`
+	Memory []supportedMemClock `xml:"supported_mem_clock"`
+}
+
+type supportedMemClock struct {
+	Value    reading   `xml:"value"`
+	Graphics []reading `xml:"supported_graphics_clock"`
 }
 
 type eccErrors struct {
