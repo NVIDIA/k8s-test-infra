@@ -60,7 +60,7 @@ body:
         - label: "`make changelog-preview RELEASE_VERSION=<version-without-v>` to review the section, then `make changelog-release RELEASE_VERSION=<version-without-v>` to fold the pending fragments into CHANGELOG.md."
         - label: "Verify no changelog content was lost: the new section has one bullet per fragment the fold removed from `.changes/unreleased/`. Paste both counts in the PR."
         - label: "Add the compare link at the bottom of CHANGELOG.md following the existing pattern."
-        - label: "Update the docs that pin the previous release's version: `git grep -n '<previous-version-without-v>' -- docs`."
+        - label: "Update the docs that pin the previous release's version: `git grep -nF '<previous-version-without-v>' -- docs`."
         - label: "Apply the `skip-changelog` label: a release PR removes fragments rather than adding one."
         - label: "Gates: `make helm-tests`, `make helm-crds-tests`, `make lint`, `make build`, `make test`."
         - label: "No `Chart.yaml` version is edited. The tag sets the published chart `version` and `appVersion`."
@@ -84,7 +84,7 @@ body:
       options:
         - label: "`nvml-mock Publish`, `Mokka Control Plane Publish` and `helm-publish` ran for the tag and succeeded: `gh run list --branch <version>`."
         - label: "`ghcr.io/nvidia/nvml-mock:<v>` and `ghcr.io/nvidia/mokka-control-plane:<v>` resolve for `linux/amd64` and `linux/arm64`: `docker buildx imagetools inspect <image>:<v>`."
-        - label: "For both images, `<X.Y>` points at the same digest as `<v>`. `nvml-mock:latest` does too; `mokka-control-plane:latest` is not compared, because every push to `main` also moves it."
+        - label: "For both images, `<X.Y>` points at the same digest as `<v>`. `nvml-mock:latest` does too, because only a stable tag run moves it. `mokka-control-plane:latest` is not compared: it follows `main` builds, and a tag run does not move it."
         - label: "`helm show chart oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock --version <v>` and the same for `mokka-crds`: `version` and `appVersion` both equal `<v>`."
         - label: "`cosign verify` passes for `ghcr.io/nvidia/nvml-mock:<v>`, `ghcr.io/nvidia/mokka-control-plane:<v>`, `ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock:<v>` and `ghcr.io/nvidia/k8s-test-infra/chart/mokka-crds:<v>`. Each image tag resolves to its multi-arch index, which is the digest the workflow signs."
         - label: "`cosign verify-attestation --type spdxjson` passes for `ghcr.io/nvidia/nvml-mock:<v>`, whose SBOM is attached to the index, and for the `linux/amd64` and `linux/arm64` digests of `ghcr.io/nvidia/mokka-control-plane:<v>`, whose SBOMs are attached per platform. List those digests with `docker buildx imagetools inspect ghcr.io/nvidia/mokka-control-plane:<v>`."
@@ -96,7 +96,7 @@ body:
       options:
         - label: "If the fragment list from the Tag section is not empty: a PR against `main` moves each listed fragment's entry into this release's section of CHANGELOG.md, under its kind heading, and deletes the fragment. Once it merges, this release's section has one bullet per fragment the fold removed plus one per fragment the list named. Paste the three counts in the PR, and apply `skip-changelog`: the PR removes fragments and adds none."
         - label: "GitHub release, created after that PR merges (or after the tag when the list was empty), from this release's section of CHANGELOG.md on `main`, with the image and chart digests and one `cosign verify` command, published as the latest release: `gh release create <version> --verify-tag --latest`."
-        - label: "PR against `main` bumping both charts' `version` and `appVersion` to the next minor's `-dev` version (for example `0.6.0-dev` after `v0.5.0`). Not release-blocking: it keeps what `main` publishes sorting after this release, and the feature-gate removal rule compares against the chart `appVersion`."
+        - label: "PR against `main` bumping both charts' `version` and `appVersion` to the next minor's `-dev` version (for example `0.6.0-dev` after `v0.5.0`). Not release-blocking: it keeps what `main` publishes sorting after this release."
         - label: "Link the tag and the release notes in this issue, then close it."
   - type: textarea
     id: changelog

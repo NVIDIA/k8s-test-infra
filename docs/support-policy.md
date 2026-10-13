@@ -10,7 +10,7 @@ A Mokka version is `X.Y.Z`:
 | Part | Increases for |
 |---|---|
 | X (major) | From 1.0, a change that breaks the API: the CRDs, configuration files, environment variables, or how Mokka works. |
-| Y (minor) | A scheduled release, cut from `main` every second week with whatever has merged. |
+| Y (minor) | A release from `main` that is not fixes only, normally the scheduled one cut every second week with whatever has merged. |
 | Z (patch) | A release that carries only security and bug fixes. |
 
 Before 1.0, a change that breaks the API ships in the next Y release, with a

@@ -93,7 +93,7 @@ body:
         - label: "`make changelog-preview RELEASE_VERSION=<version-without-v>`, then `make changelog-release RELEASE_VERSION=<version-without-v>`."
         - label: "No changelog content lost: one bullet per fragment the fold removed from `.changes/unreleased/`. Both counts pasted in the PR."
         - label: "Compare link added at the bottom of CHANGELOG.md."
-        - label: "Docs that pin the previous release's version updated: `git grep -n '<previous-version-without-v>' -- docs`."
+        - label: "Docs that pin the previous release's version updated: `git grep -nF '<previous-version-without-v>' -- docs`."
         - label: "`skip-changelog` label applied."
         - label: "Gates: `make helm-tests`, `make helm-crds-tests`, `make lint`, `make build`, `make test`."
         - label: "No `Chart.yaml` version edited: the tag sets the published versions."
@@ -116,9 +116,9 @@ body:
       description: "Resolve the artefact, do not read a green check. `<v>` is the version without the `v`."
       options:
         - label: "`nvml-mock Publish`, `Mokka Control Plane Publish` and `helm-publish` succeeded for the tag: `gh run list --branch <version>`."
-        - label: "`ghcr.io/nvidia/nvml-mock:<v>` and `ghcr.io/nvidia/mokka-control-plane:<v>` resolve for `linux/amd64` and `linux/arm64`; `<X.Y>` points at the same digest as `<v>` for both, and so does `nvml-mock:latest`."
+        - label: "`ghcr.io/nvidia/nvml-mock:<v>` and `ghcr.io/nvidia/mokka-control-plane:<v>` resolve for `linux/amd64` and `linux/arm64`; `<X.Y>` points at the same digest as `<v>` for both, and so does `nvml-mock:latest`. `mokka-control-plane:latest` follows `main` builds and is not compared."
         - label: "`helm show chart oci://ghcr.io/nvidia/k8s-test-infra/chart/<chart> --version <v>` for `nvml-mock` and `mokka-crds`: `version` and `appVersion` both equal `<v>`."
-        - label: "`cosign verify` passes for both images by tag (each tag resolves to the signed multi-arch index) and for both charts."
+        - label: "`cosign verify` passes for both images by tag (each tag resolves to the signed multi-arch index) and for `ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock:<v>` and `ghcr.io/nvidia/k8s-test-infra/chart/mokka-crds:<v>`, written without `oci://`."
         - label: "`cosign verify-attestation --type spdxjson` passes for `ghcr.io/nvidia/nvml-mock:<v>` and for the `linux/amd64` and `linux/arm64` digests of `ghcr.io/nvidia/mokka-control-plane:<v>` (from `docker buildx imagetools inspect`)."
         - label: "Every cosign command passes `--certificate-identity https://github.com/NVIDIA/k8s-test-infra/.github/workflows/<workflow>@refs/tags/<version>` and `--certificate-oidc-issuer https://token.actions.githubusercontent.com`, with `<workflow>` `nvml-mock-publish.yaml`, `mokka-control-plane-publish.yaml` or `helm-publish.yaml`."
   - type: checkboxes
@@ -128,7 +128,7 @@ body:
       options:
         - label: "If the fragment list is not empty or the version changed: a PR against `main` moves each listed fragment's entry into this release's section of CHANGELOG.md, under its kind heading, deletes the fragment, and, if the version changed, corrects the section heading, the compare link and the doc pins the prep PR set to the tagged version. Once it merges, this release's section has one bullet per fragment the fold removed plus one per fragment the list named. Three counts pasted in the PR; `skip-changelog` applied, since the PR removes fragments and adds none."
         - label: "GitHub release, created after that PR merges (or after the tag when it is not needed), from this release's section of CHANGELOG.md on `main`, with the image and chart digests and one `cosign verify` command: `gh release create <version> --verify-tag --latest`."
-        - label: "For a Y release, PR against `main` bumping both charts' `version` and `appVersion` to the next minor's `-dev` version. Not release-blocking. For a Z release, check this with a note: `main`'s `-dev` version already sorts after it."
+        - label: "For a Y release, PR against `main` bumping both charts' `version` and `appVersion` to the next minor's `-dev` version. Not release-blocking. For a Z release, confirm `main`'s charts are at the next minor's `-dev` version, so they sort after this release; if the last bump PR is still open, merge it first."
         - label: "Link the tag and the release notes in this issue, then close it."
   - type: textarea
     id: changelog
