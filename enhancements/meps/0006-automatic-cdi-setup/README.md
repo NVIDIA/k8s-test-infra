@@ -612,7 +612,7 @@ unless `live-restore` is on, so that implementation would require it.
 | `/usr/local/nvml-mock/toolkit/` | `nvidia-container-runtime`, `nvidia-ctk`, `nvidia-cdi-hook` from the image, and the runtime's `config.toml` |
 | `/usr/bin/nvidia-container-runtime`, `nvidia-ctk`, `nvidia-cdi-hook` | symlinks into the toolkit directory |
 | `/etc/nvidia-container-runtime/config.toml` | symlink to `config.toml` in the toolkit directory, the same file the custom Kind image ships: `mode = "cdi"`, default kind `nvidia.com/gpu`, spec directories `/etc/cdi` and `/var/run/cdi` |
-| `/etc/containerd/conf.d/50-mokka.toml` | the `nvidia` handler and `enable_cdi = true`, as `nvidia-ctk` writes them |
+| `/etc/containerd/conf.d/50-mokka.toml` | the `nvidia` handler and `enable_cdi = true`, as `nvidia-ctk` writes them; with the NRI plugin on, NRI's table after them |
 | `imports` in `/etc/containerd/config.toml` | the `conf.d/*.toml` glob, which `nvidia-ctk` adds if no entry covers the config dir |
 
 The toolkit directory is outside `/var/lib/nvml-mock` because the NRI plugin
@@ -668,6 +668,14 @@ sets `default_runtime_name` to `nvidia`; and makes sure an `imports` entry in
 `config.toml` covers the config dir. Which settings the file carries on each
 containerd version is `nvidia-ctk`'s decision, the same on every node that has
 the toolkit.
+
+`nvidia-ctk` has no setting for NRI, which containerd 1.7 ships with off. With
+the NRI plugin on, the node daemon appends NRI's table to Mokka's config file:
+`disable = false`, and the plugin's socket as `socket_path`. `nvidia-ctk`
+writes the file afresh on every run, so the table goes in once per pass, under
+the config version `nvidia-ctk` chose; the table is the same in versions 2 and
+3. containerd before 2.1 takes a plugin's whole table from an imported file, so
+while the file is in place NRI's other settings are containerd's defaults.
 
 The node daemon's container mounts containerd's configuration directory at its
 host path, `/etc/containerd`, rather than under the `/host` prefix the other
@@ -792,8 +800,9 @@ glibc 2.17 or later. The image is multi-architecture.
 
 - **Unit.**
   - The containerd implementation runs `nvidia-ctk` with the arguments above,
-    restarts containerd only when Mokka's config file changed or on its first
-    pass, and reverts by removing Mokka's config file and queuing a restart.
+    appends NRI's table when the NRI plugin is on, restarts containerd only
+    when Mokka's config file changed or on its first pass, and reverts by
+    removing Mokka's config file and queuing a restart.
   - `cri` simulator tests on a fake host root cover these cases:
     - the toolkit is installed before the specs are written;
     - a foreign toolkit means zero writes;
@@ -802,7 +811,8 @@ glibc 2.17 or later. The image is multi-architecture.
 - **Chart.** Rendering, mounts, values schema, NOTES.
 - **E2E**, on stock `kindest/node` in every CI job. A `container-runtime`
   scenario checks that:
-  - each node has the handler as the default;
+  - each node has the handler as the default, and Mokka's config file turns
+    NRI on at the NRI plugin's socket;
   - a pod with `NVIDIA_VISIBLE_DEVICES=all` sees the node's mock GPUs, with or
     without `runtimeClassName: nvidia`;
   - replacing the node pod brings the handler back;

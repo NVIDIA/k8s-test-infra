@@ -132,12 +132,18 @@ nvidia-ctk runtime configure --runtime=containerd --config-source=file \
   --cdi.enabled
 ```
 
+With the [NRI plugin](nri-plugin.md) on, its default, the simulator then turns
+NRI on in the same file, at the plugin's socket (`nri.socketPath`): containerd
+1.7 ships with NRI off, and `nvidia-ctk` has no setting for it. containerd
+before 2.1 takes a plugin's whole table from an imported file, so while the
+file is in place NRI's other settings are containerd's defaults.
+
 | Path on the node | Content |
 |---|---|
 | `/usr/local/nvml-mock/toolkit/` | `nvidia-container-runtime`, `nvidia-ctk` and `nvidia-cdi-hook` from the toolkit release in the image, and the runtime's `config.toml` |
 | `/usr/bin/nvidia-container-runtime`, `nvidia-ctk`, `nvidia-cdi-hook` | links into the toolkit directory, where a package install puts the binaries |
 | `/etc/nvidia-container-runtime/config.toml` | a link to the runtime's configuration: CDI mode, default kind `nvidia.com/gpu` |
-| `/etc/containerd/conf.d/50-mokka.toml` | Mokka's config file, which `nvidia-ctk` writes: the `nvidia` handler as the default, and `enable_cdi = true` |
+| `/etc/containerd/conf.d/50-mokka.toml` | Mokka's config file, which `nvidia-ctk` writes: the `nvidia` handler as the default, and `enable_cdi = true`. With the NRI plugin on, NRI's table follows |
 | `imports` in `/etc/containerd/config.toml` | the `conf.d/*.toml` glob, which `nvidia-ctk` adds when no entry covers it. `nvidia-ctk` rewrites the file on every run, so comments in it are lost |
 
 containerd's config dir, where Mokka's config file goes, is

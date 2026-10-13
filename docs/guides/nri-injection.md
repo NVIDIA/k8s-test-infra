@@ -3,8 +3,8 @@
 Mokka's [NRI plugin](../components/nri-plugin.md) is how a workload that was
 given GPUs the usual way runs `nvidia-smi` and loads the mock NVML library, with
 no Mokka-specific pod spec changes. The chart runs it by default. This page
-covers what the node needs, how to check that the plugin injects, and how to
-keep workloads out.
+covers what a device plugin needs for it, how to check that the plugin injects,
+and how to keep workloads out.
 
 ## What the plugin does
 
@@ -25,48 +25,15 @@ lists every annotation.
 
 ## Prerequisites
 
-- containerd 1.7 or later, with NRI enabled on every GPU node. containerd 2.0
-  and later enable it by default; containerd 1.7 does not. Check a node's
-  effective configuration:
+The nodes need nothing for the plugin itself: the node daemon turns NRI on in
+containerd as part of its
+[container runtime setup](../components/node-daemon.md#container-runtime-setup).
 
-    ```bash
-    containerd config dump | grep -A3 'io.containerd.nri.v1.nri'
-    #   [plugins.'io.containerd.nri.v1.nri']
-    #     disable = false
-    #     socket_path = '/var/run/nri/nri.sock'
-    #     plugin_path = '/opt/nri/plugins'
-    ```
-
-    That is containerd 2.x. containerd 1.7 prints the same keys with double
-    quotes.
-
-- For a NVIDIA device plugin, `--pass-device-specs=true` or the `cdi-cri`
-  device list strategy, which the GPU Operator uses with CDI enabled. With
-  neither, the allocation leaves nothing in the container the plugin can
-  recognise; see
-  [Recognising a GPU allocation](../components/nri-plugin.md#recognising-a-gpu-allocation).
-
-Current Kind node images ship containerd 2.x and need nothing extra. Older
-ones run containerd 1.7, for example `kindest/node:v1.28.15`; create those
-clusters with NRI enabled in containerd:
-
-```yaml title="kind.yaml"
-kind: Cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-containerdConfigPatches:
-  - |-
-    [plugins."io.containerd.nri.v1.nri"]
-      disable = false
-      disable_connections = false
-      socket_path = "/var/run/nri/nri.sock"
-nodes:
-  - role: control-plane
-  - role: worker
-```
-
-```bash
-kind create cluster --name mokka-nri --config kind.yaml
-```
+The NVIDIA device plugin needs `--pass-device-specs=true` or the `cdi-cri`
+device list strategy, which the GPU Operator uses with CDI enabled. With
+neither, the allocation leaves nothing in the container the plugin can
+recognize; see
+[Recognising a GPU allocation](../components/nri-plugin.md#recognising-a-gpu-allocation).
 
 ## Install Mokka
 

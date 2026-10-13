@@ -75,11 +75,14 @@ var _ = Describe("nvml-mock container runtime", Label("container-runtime"), Orde
 		}
 	})
 
-	It("registers the handler in Mokka's config file, which config.toml imports", func(ctx SpecContext) {
+	It("registers the handler and turns NRI on in Mokka's config file, which config.toml imports", func(ctx SpecContext) {
 		for _, n := range nodes {
 			config := nodeOutput(ctx, n, "cat", mokkaConfigFile)
 			Expect(config).To(ContainSubstring(assertions.NvidiaRuntimeBinary), "node %s", n.Name)
 			Expect(config).To(ContainSubstring("enable_cdi = true"), "node %s", n.Name)
+			// At the socket of the NRI plugin, which the chart runs by default.
+			Expect(config).To(ContainSubstring(`[plugins."io.containerd.nri.v1.nri"]`), "node %s", n.Name)
+			Expect(config).To(ContainSubstring(`socket_path = "/var/run/nri/nri.sock"`), "node %s", n.Name)
 			Expect(nodeOutput(ctx, n, "cat", "/etc/containerd/config.toml")).
 				To(ContainSubstring("/etc/containerd/conf.d/*.toml"), "node %s", n.Name)
 		}

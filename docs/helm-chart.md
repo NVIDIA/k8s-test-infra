@@ -57,9 +57,8 @@ device plugin or the NVIDIA DRA driver, or whose pod carries the
 requested no GPU and carries none of them is left untouched and sees no GPUs, as
 on a real GPU node. See
 [Which containers are injected](components/nri-plugin.md#which-containers-are-injected)
-for the full rules. [Set up NRI injection](guides/nri-injection.md) covers the
-containerd prerequisite, including on Kind, how to verify the plugin, and how
-to turn it off with `nri.enabled=false`.
+for the full rules. [Set up NRI injection](guides/nri-injection.md) covers how
+to verify the plugin and how to turn it off with `nri.enabled=false`.
 
 **Install it into its own namespace, and pass `-n`:**
 
@@ -98,8 +97,8 @@ start sections below.
 
 **Cluster requirements:**
 - Privileged pods must be allowed (nvml-mock DaemonSet uses `privileged: true` for `mknod`, and `hostPID: true` to restart containerd through systemd)
-- containerd with NRI enabled, or `nri.enabled=false`; see
-  [Set up NRI injection](guides/nri-injection.md#prerequisites)
+- containerd with NRI enabled, or `nri.enabled=false`. The node daemon turns
+  NRI on itself while `nodeAgent.containerRuntime` is on
 - For DRA: Kubernetes 1.32+ with `DynamicResourceAllocation` feature gate enabled
 - With `nodeAgent.containerRuntime` on (the default): containerd 1.7+ managed
   by systemd, and writable `/usr/bin`, `/usr/local` and `/etc` on the node.
@@ -712,6 +711,11 @@ Both are set on the runtime, not in this chart:
   # Raise only if the plugin legitimately needs longer than 2s to answer.
   plugin_request_timeout = "2s"
 ```
+
+With the [container runtime setup](components/node-daemon.md#container-runtime-setup)
+on, containerd before 2.1 takes NRI's whole table from Mokka's config file, so
+put the full table in a file that sorts after it in containerd's config dir,
+such as `conf.d/60-nri.toml`.
 
 Guidance:
 

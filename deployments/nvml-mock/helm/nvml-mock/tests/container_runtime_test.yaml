@@ -32,6 +32,9 @@ tests:
           content: --container-runtime-systemd-unit=containerd
       - contains:
           path: spec.template.spec.initContainers[0].command
+          content: --container-runtime-nri-socket=/var/run/nri/nri.sock
+      - contains:
+          path: spec.template.spec.initContainers[0].command
           content: --host-fs=/host
       # systemctl refuses a systemd outside its PID namespace.
       - equal:
@@ -180,6 +183,10 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].command
           content: --container-runtime=containerd
+      # NRI stays as the node has it with no plugin to connect.
+      - notContains:
+          path: spec.template.spec.containers[0].command
+          content: --container-runtime-nri-socket=/var/run/nri/nri.sock
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
@@ -187,6 +194,15 @@ tests:
             mountPath: /host
             readOnly: true
             mountPropagation: HostToContainer
+
+  - it: should turn NRI on at the socket the NRI plugin connects to
+    set:
+      nri:
+        socketPath: /run/nri/custom.sock
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --container-runtime-nri-socket=/run/nri/custom.sock
 
   - it: should map the containerd block to the generic flags
     set:

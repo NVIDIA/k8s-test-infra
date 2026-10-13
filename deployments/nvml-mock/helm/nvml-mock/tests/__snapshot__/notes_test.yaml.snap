@@ -14,7 +14,7 @@ should match snapshot with b200 profile:
       in by annotation, get the mock driver when they are created. Pods in these
       namespaces never do: NAMESPACE, kube-system.
       If a node pod stays NotReady, containerd on that node may have NRI disabled; see
-      https://nvidia.github.io/k8s-test-infra/guides/nri-injection/
+      https://nvidia.github.io/k8s-test-infra/troubleshooting/#the-node-pod-is-notready-and-nvml-mock-nri-crash-loops
 
       NOTE: If you installed from source (no published image yet), you built the
       image locally and loaded it into your cluster. See the chart README for
@@ -109,7 +109,7 @@ should match snapshot with default values:
       in by annotation, get the mock driver when they are created. Pods in these
       namespaces never do: NAMESPACE, kube-system.
       If a node pod stays NotReady, containerd on that node may have NRI disabled; see
-      https://nvidia.github.io/k8s-test-infra/guides/nri-injection/
+      https://nvidia.github.io/k8s-test-infra/troubleshooting/#the-node-pod-is-notready-and-nvml-mock-nri-crash-loops
 
       NOTE: If you installed from source (no published image yet), you built the
       image locally and loaded it into your cluster. See the chart README for

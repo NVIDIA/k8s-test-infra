@@ -146,6 +146,11 @@ spec:
             - --container-runtime-config={{ $runtime.containerd.configPath }}
             - --container-runtime-config-dir={{ $runtime.containerd.configDir }}
             - --container-runtime-systemd-unit={{ $runtime.containerd.systemdUnit }}
+            {{- if .Values.nri.enabled }}
+            # containerd 1.7 ships with NRI off, which leaves the NRI plugin no
+            # socket to connect to.
+            - --container-runtime-nri-socket={{ .Values.nri.socketPath }}
+            {{- end }}
             - --host-fs=/host
             {{- end }}
           env:

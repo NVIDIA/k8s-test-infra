@@ -52,6 +52,7 @@ func TestContainerRuntimeFlags(t *testing.T) {
 		"--container-runtime-config=/etc/containerd/config.toml",
 		"--container-runtime-config-dir=/etc/containerd/config.d",
 		"--container-runtime-systemd-unit=containerd.service",
+		"--container-runtime-nri-socket=/var/run/nri/nri.sock",
 		"--host-fs=/hostfs",
 	)
 
@@ -61,6 +62,7 @@ func TestContainerRuntimeFlags(t *testing.T) {
 	require.Equal(t, "/etc/containerd/config.toml", opts.ConfigPath)
 	require.Equal(t, "/etc/containerd/config.d", opts.ConfigDir)
 	require.Equal(t, "containerd.service", opts.Unit)
+	require.Equal(t, "/var/run/nri/nri.sock", opts.NRISocket)
 	require.Equal(t, "/hostfs", opts.Chroot.Root)
 	require.Equal(t, filepath.Join(cri.DefaultToolkitSource, "nvidia-ctk"), opts.NvidiaCTK, "the image's own nvidia-ctk")
 }
@@ -81,6 +83,7 @@ func TestContainerRuntimeRejects(t *testing.T) {
 	for name, args := range map[string][]string{
 		"unknown restart mode": {"--container-runtime=containerd", "--container-runtime-restart=kill"},
 		"relative path":        {"--container-runtime=containerd", "--container-runtime-config=etc/containerd/config.toml"},
+		"relative NRI socket":  {"--container-runtime=containerd", "--container-runtime-nri-socket=nri.sock"},
 		"relative host root":   {"--container-runtime=containerd", "--host-fs=hostfs"},
 		"no host root":         {"--container-runtime=containerd", "--host-fs="},
 	} {

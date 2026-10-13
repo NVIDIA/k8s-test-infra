@@ -70,8 +70,9 @@ so a mistyped key fails fast rather than deploying a broken DaemonSet.
 ## Support matrix
 
 - Kubernetes >= 1.28.0
-- containerd with NRI enabled, the default from containerd 2.0. On
-  containerd 1.7, enable it or set `nri.enabled=false`
+- containerd with NRI enabled, which `nodeAgent.containerRuntime` turns on.
+  Without it, containerd 2.0 and later have NRI on; on containerd 1.7, enable
+  it or set `nri.enabled=false`
 - `controlPlane.enabled` requires Kubernetes >= 1.30.0 for its
   `ValidatingAdmissionPolicy`
 - `nodeAgent.containerRuntime` (on by default) requires containerd 1.7 or later,

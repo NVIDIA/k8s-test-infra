@@ -169,6 +169,11 @@ func startCommand() *cli.Command {
 				Sources: cli.EnvVars("MOKKA_AGENT_CONTAINER_RUNTIME_SYSTEMD_UNIT"),
 				Usage:   "the systemd unit that runs the container runtime ('' takes the runtime's default)",
 			},
+			&cli.StringFlag{
+				Name:    "container-runtime-nri-socket",
+				Sources: cli.EnvVars("MOKKA_AGENT_CONTAINER_RUNTIME_NRI_SOCKET"),
+				Usage:   "turn NRI on in the container runtime at this socket on the host, where the NRI plugin connects ('' leaves NRI as the node has it)",
+			},
 			// The host's whole root filesystem, which the host's own systemctl
 			// runs chrooted into. The chart mounts it read-only at /host, the
 			// same path as --host-root, with what the agent writes mounted
@@ -245,6 +250,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 		zap.String("container_runtime_config", cmd.String("container-runtime-config")),
 		zap.String("container_runtime_config_dir", cmd.String("container-runtime-config-dir")),
 		zap.String("container_runtime_systemd_unit", cmd.String("container-runtime-systemd-unit")),
+		zap.String("container_runtime_nri_socket", cmd.String("container-runtime-nri-socket")),
 		zap.String("host_fs", cmd.String("host-fs")),
 	)
 
@@ -319,6 +325,7 @@ func runtimeOptions(cmd *cli.Command) (string, cri.RuntimeOptions, error) {
 		"host-fs",
 		"container-runtime-config",
 		"container-runtime-config-dir",
+		"container-runtime-nri-socket",
 	} {
 		if p := cmd.String(flag); p != "" && !filepath.IsAbs(p) {
 			return "", cri.RuntimeOptions{}, fmt.Errorf("--%s must be an absolute path, got %q", flag, p)
@@ -332,6 +339,7 @@ func runtimeOptions(cmd *cli.Command) (string, cri.RuntimeOptions, error) {
 		ConfigDir:   cmd.String("container-runtime-config-dir"),
 		Unit:        cmd.String("container-runtime-systemd-unit"),
 		RestartMode: mode,
+		NRISocket:   cmd.String("container-runtime-nri-socket"),
 	}, nil
 }
 

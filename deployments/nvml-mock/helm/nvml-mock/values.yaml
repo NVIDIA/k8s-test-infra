@@ -234,9 +234,10 @@ allocationWatcher:
 
 nri:
   # Inject the mock into containers that hold a GPU allocation or opt in by
-  # annotation. Needs containerd NRI enabled on the node: containerd 2.x
-  # enables it by default, containerd 1.7 does not. Set false where it is off;
-  # otherwise the node pod stays NotReady.
+  # annotation. Needs containerd NRI enabled on the node, which
+  # nodeAgent.containerRuntime turns on. Without it, containerd 2.x enables NRI
+  # by default and 1.7 does not: set false where it is off, or the node pod
+  # stays NotReady.
   enabled: true
   # Kubernetes 1.29+ enables SidecarContainers by default. Set this to false
   # if the cluster explicitly disables that feature gate; the chart then uses

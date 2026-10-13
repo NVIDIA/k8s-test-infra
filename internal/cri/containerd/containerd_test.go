@@ -123,6 +123,34 @@ func TestSetupFollowsTheConfiguredPaths(t *testing.T) {
 	require.Equal(t, [][]string{{"restart", "containerd.service"}}, n.calls)
 }
 
+func TestSetupTurnsNRIOn(t *testing.T) {
+	n := newNode(t, func(o *cri.RuntimeOptions) { o.NRISocket = "/run/nri/custom.sock" })
+
+	require.NoError(t, n.rt.Setup(t.Context()))
+
+	data, err := os.ReadFile(filepath.Join(n.root, testMokkaConfig))
+	require.NoError(t, err)
+	require.Equal(t, `version = 2
+
+[plugins."io.containerd.nri.v1.nri"]
+  disable = false
+  socket_path = "/run/nri/custom.sock"
+`, string(data), "after what nvidia-ctk wrote, under its config version")
+
+	require.NoError(t, n.rt.Setup(t.Context()))
+	require.Len(t, n.calls, 1, "nvidia-ctk writes the file afresh, so the table is added once")
+}
+
+func TestSetupLeavesNRIAloneWithoutASocket(t *testing.T) {
+	n := newNode(t)
+
+	require.NoError(t, n.rt.Setup(t.Context()))
+
+	data, err := os.ReadFile(filepath.Join(n.root, testMokkaConfig))
+	require.NoError(t, err)
+	require.Equal(t, n.content, string(data))
+}
+
 func TestSetupRestartsOnlyWhenTheFileChanged(t *testing.T) {
 	n := newNode(t)
 	require.NoError(t, n.rt.Setup(t.Context()))
@@ -183,6 +211,15 @@ func TestSetupFailures(t *testing.T) {
 
 		require.ErrorContains(t, n.rt.Setup(t.Context()), "unable to load config")
 		require.Empty(t, n.calls, "nothing to restart for")
+	})
+
+	t.Run("no file to turn NRI on in", func(t *testing.T) {
+		n := newNode(t, func(o *cri.RuntimeOptions) { o.NRISocket = "/var/run/nri/nri.sock" })
+		n.rt.configure = func(context.Context, ...string) error { return nil }
+
+		require.ErrorContains(t, n.rt.Setup(t.Context()), "nvidia-ctk wrote no")
+		require.False(t, n.exists(testMokkaConfig), "an NRI table alone has no config version")
+		require.Empty(t, n.calls)
 	})
 
 	t.Run("restart", func(t *testing.T) {

@@ -3,7 +3,7 @@
 
 // Package containerd registers Mokka's runtime handler with containerd: the
 // toolkit's own nvidia-ctk writes Mokka's config file into containerd's config
-// dir, and systemd restarts containerd to load it.
+// dir, Mokka adds NRI to it, and systemd restarts containerd to load it.
 package containerd
 
 import (
@@ -31,6 +31,9 @@ const (
 // imports. containerd loads the directory in name order and later files win,
 // so 99-nvidia.toml, which a toolkit installed later writes, takes precedence.
 const mokkaConfig = "50-mokka.toml"
+
+// nriPlugin names NRI's table in config versions 2 and 3 alike.
+const nriPlugin = "io.containerd.nri.v1.nri"
 
 var _ cri.Runtime = (*Runtime)(nil)
 
@@ -89,9 +92,10 @@ func (r *Runtime) Installed() error {
 
 // Setup has nvidia-ctk register the handler in Mokka's config file, in CDI mode
 // and as containerd's default, so a container's NVIDIA_VISIBLE_DEVICES alone
-// gets it the mock GPUs. It restarts containerd when the file changed or this
-// process has not restarted it yet: a node pod killed between writing the file
-// and restarting leaves one containerd never loaded.
+// gets it the mock GPUs. With an NRI socket it turns NRI on in the same file,
+// which nvidia-ctk leaves as the node has it. It restarts containerd when the
+// file changed or this process has not restarted it yet: a node pod killed
+// between writing the file and restarting leaves one containerd never loaded.
 func (r *Runtime) Setup(ctx context.Context) error {
 	before, err := r.readMokkaConfig()
 	if err != nil {
@@ -110,6 +114,10 @@ func (r *Runtime) Setup(ctx context.Context) error {
 		"--cdi.enabled",
 	); err != nil {
 		return fmt.Errorf("nvidia-ctk runtime configure: %w", err)
+	}
+
+	if err := r.enableNRI(); err != nil {
+		return err
 	}
 
 	after, err := r.readMokkaConfig()
@@ -187,6 +195,45 @@ func (r *Runtime) Cleanup(ctx context.Context) error {
 	if err := r.systemctl(ctx, "restart", "--no-block", r.opts.Unit); err != nil {
 		return fmt.Errorf("restart containerd: %w", err)
 	}
+
+	return nil
+}
+
+// enableNRI appends NRI's table to the file nvidia-ctk just wrote, unless there
+// is no NRI socket to turn on. nvidia-ctk writes the file afresh on every pass,
+// so the table is added once, under the config version nvidia-ctk chose.
+// containerd before 2.1 replaces a plugin's whole table from an imported file,
+// so NRI's other settings take containerd's defaults while the file is in
+// place.
+func (r *Runtime) enableNRI() error {
+	if r.opts.NRISocket == "" {
+		return nil
+	}
+
+	data, err := r.readMokkaConfig()
+	if err != nil {
+		return err
+	}
+
+	if data == nil {
+		return fmt.Errorf("turn NRI on: nvidia-ctk wrote no %s", r.mokkaConfigPath())
+	}
+
+	data = fmt.Appendf(
+		data,
+		"\n[plugins.%q]\n  disable = false\n  socket_path = %q\n",
+		nriPlugin,
+		r.opts.NRISocket,
+	)
+
+	if err := os.WriteFile(filepath.Join(r.root, r.mokkaConfigPath()), data, 0o644); err != nil {
+		return fmt.Errorf("turn NRI on in %s: %w", r.mokkaConfigPath(), err)
+	}
+
+	zap.L().Debug("turned NRI on in Mokka's config file",
+		zap.String("file", r.mokkaConfigPath()),
+		zap.String("socket", r.opts.NRISocket),
+	)
 
 	return nil
 }

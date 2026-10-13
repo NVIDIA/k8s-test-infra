@@ -35,6 +35,7 @@ variable; the flag wins when both are set.
 | `--container-runtime-config` | `MOKKA_AGENT_CONTAINER_RUNTIME_CONFIG` | empty | The runtime's main configuration file on the host; empty takes the runtime's default, `/etc/containerd/config.toml`. `nvidia-ctk` edits it at the same path in the agent's container, so the host's directory must be mounted there, as the chart does |
 | `--container-runtime-config-dir` | `MOKKA_AGENT_CONTAINER_RUNTIME_CONFIG_DIR` | empty | The runtime's config dir on the host, which its configuration file imports and where Mokka's config file goes; must be under the configuration file's directory. Empty takes `/etc/containerd/conf.d` |
 | `--container-runtime-systemd-unit` | `MOKKA_AGENT_CONTAINER_RUNTIME_SYSTEMD_UNIT` | empty | The systemd unit restarted on a change; empty takes `containerd` |
+| `--container-runtime-nri-socket` | `MOKKA_AGENT_CONTAINER_RUNTIME_NRI_SOCKET` | empty | Turns NRI on in the container runtime at this socket on the host, where the NRI plugin connects; empty leaves NRI as the node has it |
 | `--host-fs` | `MOKKA_AGENT_HOST_FS` | `/host` | The host's whole root filesystem, which the host's `systemctl` runs chrooted into to restart the container runtime. The chart mounts it read-only at `/host`, the same path as `--host-root` |
 
 An unrecognized `--log-level`, `--log-format`, `--ib-mode` or
@@ -82,7 +83,8 @@ go run ./cmd/node-agent start \
 The chart renders this command line into the nvml-mock DaemonSet. It drops
 `--topology` when `topology.enabled` is false, and every flag from
 `--container-runtime` on when `nodeAgent.containerRuntime.enabled` is false.
-With `nri.enabled` it adds `--staging-lock-path`:
+With `nri.enabled` it adds `--staging-lock-path`, and
+`--container-runtime-nri-socket` set to `nri.socketPath`:
 
 ```text
 /usr/local/bin/node-agent start \

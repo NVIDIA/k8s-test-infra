@@ -115,6 +115,7 @@ should match snapshot with all overrides:
                 - --container-runtime-config=/etc/containerd/config.toml
                 - --container-runtime-config-dir=/etc/containerd/conf.d
                 - --container-runtime-systemd-unit=containerd
+                - --container-runtime-nri-socket=/var/run/nri/nri.sock
                 - --host-fs=/host
               env:
                 - name: NODE_NAME
@@ -412,6 +413,7 @@ should match snapshot with b200 profile:
                 - --container-runtime-config=/etc/containerd/config.toml
                 - --container-runtime-config-dir=/etc/containerd/conf.d
                 - --container-runtime-systemd-unit=containerd
+                - --container-runtime-nri-socket=/var/run/nri/nri.sock
                 - --host-fs=/host
               env:
                 - name: NODE_NAME
@@ -697,6 +699,7 @@ should match snapshot with default values:
                 - --container-runtime-config=/etc/containerd/config.toml
                 - --container-runtime-config-dir=/etc/containerd/conf.d
                 - --container-runtime-systemd-unit=containerd
+                - --container-runtime-nri-socket=/var/run/nri/nri.sock
                 - --host-fs=/host
               env:
                 - name: NODE_NAME

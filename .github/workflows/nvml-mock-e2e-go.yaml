@@ -465,8 +465,8 @@ jobs:
       - name: Roll out nvml-mock via Tilt (${{ matrix.gpu-profile }})
         # No consumer flag: the scenario's specs each install nvml-mock with
         # their own NRI/IMEX/topology values, and pre-installing would fight
-        # those upgrades. Containerd's NRI socket is enabled at the cluster
-        # level (see local/kind/default.kind.yaml).
+        # those upgrades. containerd 2.x in kindest/node has NRI on, and the
+        # node daemon turns it on where it is off.
         run: tilt ci -- --gpu-profile="${{ matrix.gpu-profile }}" --nvmlmock-image="$E2E_IMAGE"
 
       - name: Configure the DGXC Go proxy

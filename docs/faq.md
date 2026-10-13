@@ -84,7 +84,7 @@ A pod without `nvidia-smi` ran where neither reached it: the container runtime
 setup [failed](troubleshooting.md#pods-get-no-mock-driver-or-the-node-pod-is-not-ready)
 or is off (`nodeAgent.containerRuntime.enabled=false`), and the NRI plugin is
 off (`nri.enabled=false`) or containerd on the node has NRI disabled; see
-[Set up NRI injection](guides/nri-injection.md).
+[Troubleshooting](troubleshooting.md#the-node-pod-is-notready-and-nvml-mock-nri-crash-loops).
 
 Otherwise, mount the driver root yourself the way
 [`local/gpu-validator.k8s.yaml`](https://github.com/NVIDIA/k8s-test-infra/blob/main/local/gpu-validator.k8s.yaml)

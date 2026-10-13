@@ -79,4 +79,8 @@ type RuntimeOptions struct {
 	ConfigDir   string
 	Unit        string
 	RestartMode RestartMode
+
+	// NRISocket turns NRI on in the runtime at this socket, where Mokka's NRI
+	// plugin connects. Empty leaves NRI as the node has it.
+	NRISocket string
 }
