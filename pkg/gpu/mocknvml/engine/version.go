@@ -89,6 +89,24 @@ var functionRegistry = map[string]FunctionVersion{
 	"nvmlGpuInstanceGetVgpuSchedulerState_v2": {Added: "580.0"},
 	"nvmlGpuInstanceSetVgpuSchedulerState_v2": {Added: "580.0"},
 
+	// Device identity and diagnostics. nvml.h carries no version markers, so
+	// each date is the first go-nvml header declaring the symbol, mapped to
+	// the driver branch its CUDA release shipped with: 12.0 is r525, 12.4
+	// r550, 12.6 r560, 12.9 r575, 13.0 r580, 13.1 r590. The A100 capture shows
+	// a 570 nvidia-smi rendering an addressing mode before the header declared
+	// the call, but the mock's nvidia-smi reaches it through the public symbol,
+	// so the header date is what decides. CUDA 13.3 names no driver branch:
+	// 600.0 for BBXTimeData_v1 records only that the r595 header lacks it.
+	"nvmlDeviceClearFieldValues":    {Added: "525.0"},
+	"nvmlDeviceGetLastBBXFlushTime": {Added: "550.0"},
+	"nvmlDeviceGetCapabilities":     {Added: "560.0"},
+	"nvmlDeviceGetHandleByUUIDV":    {Added: "575.0"},
+	"nvmlDeviceGetAddressingMode":   {Added: "580.0"},
+	"nvmlDeviceGetPdi":              {Added: "580.0"},
+	"nvmlDeviceReadWritePRM_v1":     {Added: "580.0"},
+	"nvmlDeviceReadPRMCounters_v1":  {Added: "590.0"},
+	"nvmlDeviceGetBBXTimeData_v1":   {Added: "600.0"},
+
 	// Topology functions (available since early NVML)
 	"nvmlDeviceGetTopologyCommonAncestor": {Added: "331.0"},
 	"nvmlDeviceGetTopologyNearestGpus":    {Added: "331.0"},

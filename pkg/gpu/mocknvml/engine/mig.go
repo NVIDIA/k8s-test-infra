@@ -629,19 +629,26 @@ func (st *migState) devicesDerivedFrom(giID uint32, ciID *uint32) []*Configurabl
 // never been handed out by index is still findable: a consumer that learned a
 // UUID from a pod's environment has no reason to have walked the indices first.
 func (e *Engine) migDeviceByUUID(uuid string) *ConfigurableDevice {
+	return e.migDeviceMatching(func(candidate string) bool { return candidate == uuid })
+}
+
+// migDeviceMatching is migDeviceByUUID for a caller that compares UUIDs some
+// other way than by their text, such as the binary nvmlUUID_t form.
+func (e *Engine) migDeviceMatching(match func(uuid string) bool) *ConfigurableDevice {
 	for index, parent := range e.server.configurableDevices {
 		if parent == nil || !e.server.isDeviceVisible(index) {
 			continue
 		}
-		if dev := parent.migDeviceByUUID(uuid); dev != nil {
+		if dev := parent.migDeviceMatching(match); dev != nil {
 			return dev
 		}
 	}
 	return nil
 }
 
-// migDeviceByUUID finds one of this GPU's partitions by UUID.
-func (d *ConfigurableDevice) migDeviceByUUID(uuid string) *ConfigurableDevice {
+// migDeviceMatching finds the first of this GPU's partitions whose UUID
+// satisfies match.
+func (d *ConfigurableDevice) migDeviceMatching(match func(uuid string) bool) *ConfigurableDevice {
 	// This is the one MIG read that no handle guard precedes, so it has to
 	// refresh for itself: the set of partitions a UUID can name is exactly
 	// what an override changes.
@@ -659,7 +666,7 @@ func (d *ConfigurableDevice) migDeviceByUUID(uuid string) *ConfigurableDevice {
 		return nil
 	}
 	for _, dev := range st.migDevicesLocked(d) {
-		if dev.mig != nil && dev.mig.uuid == uuid {
+		if dev.mig != nil && match(dev.mig.uuid) {
 			return dev
 		}
 	}

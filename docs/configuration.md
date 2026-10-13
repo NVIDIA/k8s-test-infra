@@ -502,7 +502,17 @@ device_defaults:
   persistence_mode: "enabled"
   compute_mode: "default"             # default, exclusive_thread,
                                       # prohibited, exclusive_process
+  addressing_mode: "hmm"              # hmm, ats, none
 ```
+
+`addressing_mode` is the `Addressing Mode` row of `nvidia-smi -q`: how the GPU
+reaches memory the host allocated with `malloc` or `mmap`. It belongs to the
+host as much as the board: `hmm` needs kernel support, and `ats` needs a Grace
+CPU translating over NVLink-C2C. The same GPU on the same driver can report
+either, so each built-in profile declares the mode its captured node reported.
+Leaving the key unset, or misspelling it, renders `N/A`. The row needs a driver
+of `580` or newer: on an older profile the query does not exist, as on real
+hardware.
 
 ### Drain, removal and exclusion
 
@@ -1117,6 +1127,18 @@ whether or not the part could do CC: every board in
 including A100, L40S and T4. A profile pinned to a driver older than `525` is the
 one exception — the CC APIs did not exist yet, so the rows read `N/A`, as they do
 on real hardware of that vintage.
+
+**Board diagnostics.** No key changes these answers. Wherever `nvidia-smi -q`
+renders one, it matches the hardware captures of a freshly loaded driver:
+
+| Query | Answer |
+|-------|--------|
+| Bus type | PCIe, on every profile including Grace boards |
+| EGM (`capabilities` block) | `disabled` |
+| PDI | A fixed 64-bit value derived from the GPU's UUID, the same in every process |
+| Clock monitor | No faults, on Ampere and newer |
+| InfoROM BBX flush | `N/A`: not flushed yet during this driver run |
+| Bridge chips, IRQ number, PRM registers | Not supported |
 
 **Identity and topology.** Device `name`, `architecture`, `brand`,
 `compute_capability`, `uuid`, PCI `bus_id`, and the BAR1 aperture

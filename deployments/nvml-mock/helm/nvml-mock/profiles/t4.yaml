@@ -298,6 +298,11 @@ device_defaults:
   # ---------------------------------------------------------------------------
   compute_mode: "default"
 
+  # ---------------------------------------------------------------------------
+  # Addressing mode: how the GPU reaches system memory (hmm, ats or none)
+  # ---------------------------------------------------------------------------
+  addressing_mode: "hmm"           # x86 host kernel with HMM enabled, as on the captured node
+
   # No mig section: the T4 is not a MIG-capable board, and the mock derives
   # that from the board name, so NVML answers NVML_ERROR_NOT_SUPPORTED without
   # the profile having to declare a disabled mode it can never leave.

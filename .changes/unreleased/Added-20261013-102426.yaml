@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  profiles: new `addressing_mode` device key (`hmm`, `ats` or `none`); every built-in profile declares the mode its hardware capture reports. See the configuration reference.
+time: 2026-10-13T08:24:26Z
+custom:
+  Issue: "1042"

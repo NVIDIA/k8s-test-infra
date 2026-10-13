@@ -385,6 +385,11 @@ device_defaults:
   compute_mode: "default"
 
   # ---------------------------------------------------------------------------
+  # Addressing mode: how the GPU reaches system memory (hmm, ats or none)
+  # ---------------------------------------------------------------------------
+  addressing_mode: "ats"           # Grace CPU: translated over NVLink-C2C
+
+  # ---------------------------------------------------------------------------
   # MIG configuration - GB200 supports MIG
   # ---------------------------------------------------------------------------
   mig:

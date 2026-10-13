@@ -267,6 +267,11 @@ device_defaults:
   compute_mode: "default"           # default, exclusive_thread, prohibited, exclusive_process
 
   # ---------------------------------------------------------------------------
+  # Addressing mode: how the GPU reaches system memory (hmm, ats or none)
+  # ---------------------------------------------------------------------------
+  addressing_mode: "hmm"           # x86 host kernel with HMM enabled, as on the captured node
+
+  # ---------------------------------------------------------------------------
   # MIG configuration
   # ---------------------------------------------------------------------------
   mig:

@@ -303,6 +303,11 @@ should match snapshot with a100 profile:
           compute_mode: "default"           # default, exclusive_thread, prohibited, exclusive_process
 
           # ---------------------------------------------------------------------------
+          # Addressing mode: how the GPU reaches system memory (hmm, ats or none)
+          # ---------------------------------------------------------------------------
+          addressing_mode: "hmm"           # x86 host kernel with HMM enabled, as on the captured node
+
+          # ---------------------------------------------------------------------------
           # MIG configuration
           # ---------------------------------------------------------------------------
           # MIG ships off because a partitioned board stops publishing nvidia.com/gpu
@@ -862,6 +867,11 @@ should match snapshot with b200 profile:
           # Compute mode
           # ---------------------------------------------------------------------------
           compute_mode: "default"
+
+          # ---------------------------------------------------------------------------
+          # Addressing mode: how the GPU reaches system memory (hmm, ats or none)
+          # ---------------------------------------------------------------------------
+          addressing_mode: "none"           # as the captured node reports: its host ran without HMM
 
           # ---------------------------------------------------------------------------
           # MIG configuration
@@ -1442,6 +1452,11 @@ should match snapshot with default gb300 profile:
           # Compute mode
           # ---------------------------------------------------------------------------
           compute_mode: "default"
+
+          # ---------------------------------------------------------------------------
+          # Addressing mode: how the GPU reaches system memory (hmm, ats or none)
+          # ---------------------------------------------------------------------------
+          addressing_mode: "ats"           # Grace CPU: translated over NVLink-C2C
 
           # ---------------------------------------------------------------------------
           # MIG configuration - GB300 supports MIG
@@ -2046,6 +2061,11 @@ should match snapshot with gb200 profile:
           compute_mode: "default"
 
           # ---------------------------------------------------------------------------
+          # Addressing mode: how the GPU reaches system memory (hmm, ats or none)
+          # ---------------------------------------------------------------------------
+          addressing_mode: "ats"           # Grace CPU: translated over NVLink-C2C
+
+          # ---------------------------------------------------------------------------
           # MIG configuration - GB200 supports MIG
           # ---------------------------------------------------------------------------
           mig:
@@ -2583,6 +2603,11 @@ should match snapshot with h100 profile:
           compute_mode: "default"
 
           # ---------------------------------------------------------------------------
+          # Addressing mode: how the GPU reaches system memory (hmm, ats or none)
+          # ---------------------------------------------------------------------------
+          addressing_mode: "hmm"           # x86 host kernel with HMM enabled, as on the captured node
+
+          # ---------------------------------------------------------------------------
           # MIG configuration
           # ---------------------------------------------------------------------------
           # MIG ships off because a partitioned board stops publishing nvidia.com/gpu
@@ -3109,6 +3134,11 @@ should match snapshot with l40s profile:
           # ---------------------------------------------------------------------------
           compute_mode: "default"
 
+          # ---------------------------------------------------------------------------
+          # Addressing mode: how the GPU reaches system memory (hmm, ats or none)
+          # ---------------------------------------------------------------------------
+          addressing_mode: "hmm"           # x86 host kernel with HMM enabled, as on the captured node
+
           # No mig section: the L40S is not a MIG-capable board, and the mock derives
           # that from the board name, so NVML answers NVML_ERROR_NOT_SUPPORTED without
           # the profile having to declare a disabled mode it can never leave.
@@ -3558,6 +3588,11 @@ should match snapshot with t4 profile:
           # Compute mode
           # ---------------------------------------------------------------------------
           compute_mode: "default"
+
+          # ---------------------------------------------------------------------------
+          # Addressing mode: how the GPU reaches system memory (hmm, ats or none)
+          # ---------------------------------------------------------------------------
+          addressing_mode: "hmm"           # x86 host kernel with HMM enabled, as on the captured node
 
           # No mig section: the T4 is not a MIG-capable board, and the mock derives
           # that from the board name, so NVML answers NVML_ERROR_NOT_SUPPORTED without

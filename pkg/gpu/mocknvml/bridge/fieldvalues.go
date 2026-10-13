@@ -123,3 +123,32 @@ func nvmlDeviceGetFieldValues(device C.nvmlDevice_t, valuesCount C.int, values *
 	debugLog("[NVML] nvmlDeviceGetFieldValues(count=%d) -> filled\n", int(valuesCount))
 	return C.NVML_SUCCESS
 }
+
+//export nvmlDeviceClearFieldValues
+func nvmlDeviceClearFieldValues(device C.nvmlDevice_t, valuesCount C.int, values *C.nvmlFieldValue_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceClearFieldValues"); !ok {
+		return ret
+	}
+	if values == nil || valuesCount <= 0 {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	dev := engine.GetEngine().LookupConfigurableDevice(unsafe.Pointer(device.handle))
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+
+	fields := unsafe.Slice(values, int(valuesCount))
+	requests := make([]nvml.FieldValue, len(fields))
+	for i := range fields {
+		requests[i].FieldId = uint32(C.fvFieldId(&fields[i]))
+		requests[i].ScopeId = uint32(C.fvScopeId(&fields[i]))
+	}
+	if ret := dev.ClearFieldValues(requests); ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	for i := range fields {
+		C.fvSetTimestamp(&fields[i], C.longlong(requests[i].Timestamp))
+		C.fvSetReturn(&fields[i], C.nvmlReturn_t(requests[i].NvmlReturn))
+	}
+	return C.NVML_SUCCESS
+}

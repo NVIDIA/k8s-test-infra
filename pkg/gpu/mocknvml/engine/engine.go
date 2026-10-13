@@ -394,6 +394,49 @@ func (e *Engine) DeviceGetHandleByUUID(uuid string) (unsafe.Pointer, nvml.Return
 	return handle, nvml.SUCCESS
 }
 
+// DeviceGetHandleByUUIDBinary returns a handle for the GPU or MIG device whose
+// UUID is the 16 bytes of a binary nvmlUUID_t. Those bytes drop the GPU-/MIG-
+// prefix, so unlike the ASCII lookup they can name either kind of device.
+func (e *Engine) DeviceGetHandleByUUIDBinary(raw [16]byte) (unsafe.Pointer, nvml.Return) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.initCount == 0 {
+		return nil, nvml.ERROR_UNINITIALIZED
+	}
+
+	device, ret := e.server.deviceGetHandleByUUIDBinary(raw)
+	if ret != nvml.SUCCESS {
+		if mig := e.migDeviceMatching(func(uuid string) bool { return uuidMatchesBinary(uuid, raw) }); mig != nil {
+			return registerHandle(e.handles, nvml.Device(mig))
+		}
+		return nil, ret
+	}
+
+	handle := e.handles.Register(device)
+	return handle, nvml.SUCCESS
+}
+
+// DeviceGetHandleBySerial returns a handle for the device with the given board
+// serial. MIG devices are not searched: they report their parent's serial, so
+// a serial can never name one unambiguously.
+func (e *Engine) DeviceGetHandleBySerial(serial string) (unsafe.Pointer, nvml.Return) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.initCount == 0 {
+		return nil, nvml.ERROR_UNINITIALIZED
+	}
+
+	device, ret := e.server.DeviceGetHandleBySerial(serial)
+	if ret != nvml.SUCCESS {
+		return nil, ret
+	}
+
+	handle := e.handles.Register(device)
+	return handle, nvml.SUCCESS
+}
+
 // DeviceGetHandleByPciBusId returns a handle for the device with the given PCI Bus ID.
 func (e *Engine) DeviceGetHandleByPciBusId(pciBusId string) (unsafe.Pointer, nvml.Return) {
 	e.mu.Lock()

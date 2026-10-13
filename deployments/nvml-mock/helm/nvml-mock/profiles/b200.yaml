@@ -341,6 +341,11 @@ device_defaults:
   compute_mode: "default"
 
   # ---------------------------------------------------------------------------
+  # Addressing mode: how the GPU reaches system memory (hmm, ats or none)
+  # ---------------------------------------------------------------------------
+  addressing_mode: "none"           # as the captured node reports: its host ran without HMM
+
+  # ---------------------------------------------------------------------------
   # MIG configuration
   # ---------------------------------------------------------------------------
   # MIG ships off because a partitioned board stops publishing nvidia.com/gpu
