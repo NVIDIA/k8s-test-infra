@@ -67,9 +67,8 @@ type rawProfile struct {
 			OFA  int `json:"ofa"`
 		} `json:"utilization"`
 		PCIe *struct {
-			MaxLinkGen         int  `json:"max_link_gen"`
-			HostMaxLinkGen     int  `json:"host_max_link_gen"`
-			HostMaxUnsupported bool `json:"host_max_unsupported"`
+			MaxLinkGen     int `json:"max_link_gen"`
+			HostMaxLinkGen int `json:"host_max_link_gen"`
 		} `json:"pcie"`
 		Clocks *struct {
 			GraphicsMax        int `json:"graphics_max"`
@@ -193,22 +192,20 @@ type Profile struct {
 	gpuNUMA        []int
 	memoryBytes    int64
 
-	arch                   gpuarch.Arch
-	shutdownThresholdC     int
-	slowdownThresholdC     int
-	maxOperatingC          int
-	jpegUtilizationPct     int
-	ofaUtilizationPct      int
-	maxPCIeLinkGen         int
-	hostMaxPCIeLinkGen     int
-	hostMaxPCIeUnsupported bool
-	hostMaxPCIeConfigured  bool
-	graphicsMaxMHz         int
-	appDefaultMemMHz       int
-	appDefaultGfxMHz       int
-	supportedClocks        []SupportedMemoryClock
-	rowRemapHistogram      bool
-	rowRemapBanks          int
+	arch               gpuarch.Arch
+	shutdownThresholdC int
+	slowdownThresholdC int
+	maxOperatingC      int
+	jpegUtilizationPct int
+	ofaUtilizationPct  int
+	maxPCIeLinkGen     int
+	hostMaxPCIeLinkGen int
+	graphicsMaxMHz     int
+	appDefaultMemMHz   int
+	appDefaultGfxMHz   int
+	supportedClocks    []SupportedMemoryClock
+	rowRemapHistogram  bool
+	rowRemapBanks      int
 
 	platform    PlatformIdentity
 	hasPlatform bool
@@ -378,8 +375,6 @@ func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
 	if pcie := raw.DeviceDefaults.PCIe; pcie != nil {
 		p.maxPCIeLinkGen = pcie.MaxLinkGen
 		p.hostMaxPCIeLinkGen = pcie.HostMaxLinkGen
-		p.hostMaxPCIeUnsupported = pcie.HostMaxUnsupported
-		p.hostMaxPCIeConfigured = pcie.HostMaxLinkGen != 0 || pcie.HostMaxUnsupported
 	}
 	p.applyClocks(raw)
 	p.applyWorkloadPowerProfiles(raw)
@@ -600,20 +595,9 @@ func (p Profile) OFAUtilizationPct() int { return p.ofaUtilizationPct }
 // to config rather than a hardcoded constant.
 func (p Profile) MaxPCIeLinkGen() int { return p.maxPCIeLinkGen }
 
-// HostMaxPCIeLinkGen is the host-side PCIe maximum. Profiles that do not
-// specify a separate host maximum retain the historical device-maximum
-// fallback; an explicitly unsupported host maximum is represented by zero and
-// HostMaxPCIeLinkGenUnsupported.
-func (p Profile) HostMaxPCIeLinkGen() int {
-	if !p.hostMaxPCIeConfigured {
-		return p.maxPCIeLinkGen
-	}
-	return p.hostMaxPCIeLinkGen
-}
-
-// HostMaxPCIeLinkGenUnsupported reports that the profile deliberately models
-// a host for which nvidia-smi cannot provide a maximum.
-func (p Profile) HostMaxPCIeLinkGenUnsupported() bool { return p.hostMaxPCIeUnsupported }
+// HostMaxPCIeLinkGen is the configured host-side maximum. Zero means absent,
+// which nvidia-smi must render as N/A.
+func (p Profile) HostMaxPCIeLinkGen() int { return p.hostMaxPCIeLinkGen }
 
 // GraphicsMaxClockMHz is device_defaults.clocks.graphics_max, the boost maximum
 // nvidia-smi renders in Max Clocks. The mock reports the same value as the

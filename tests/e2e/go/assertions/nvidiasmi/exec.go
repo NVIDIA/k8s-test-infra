@@ -71,12 +71,12 @@ func PCIeIdentity(ctx context.Context, k *kube.Client, pod kube.PodRef, p profil
 
 	hostMax := p.HostMaxPCIeLinkGen()
 	hostLabel := fmt.Sprintf("Gen%d", hostMax)
-	if p.HostMaxPCIeLinkGenUnsupported() {
+	if hostMax == 0 {
 		hostLabel = "N/A"
 	}
 	ginkgo.By(fmt.Sprintf("nvidia-smi -q -x PCIe identity on %s (device Gen%d, host %s, %d GPUs)",
 		p.Name, p.MaxPCIeLinkGen(), hostLabel, p.ExpectedGPUs()))
-	problems := PCIeIdentityProblemsForProfile(query(ctx, k, pod), p.ExpectedGPUs(), p.MaxPCIeLinkGen(), hostMax, p.HostMaxPCIeLinkGenUnsupported())
+	problems := PCIeIdentityProblems(query(ctx, k, pod), p.ExpectedGPUs(), p.MaxPCIeLinkGen(), hostMax)
 	gomega.Expect(problems).To(gomega.BeEmpty(),
 		"PCIe identity wrong for profile %s:\n%s", p.Name, strings.Join(problems, "\n"))
 }

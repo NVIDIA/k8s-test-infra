@@ -279,29 +279,17 @@ func EncoderFBCProblems(out string, encoder, fbc EncoderFBCStats, accountingBuff
 	return problems
 }
 
-// PCIeIdentityProblems checks the per-GPU PCIe identity elements for values no
-// real GPU can report (#638):
+// PCIeIdentityProblems checks the per-GPU PCIe identity elements (#638, #692):
 //
-//   - max_link_gen, max_device_link_gen and max_host_link_gen all equal the
-//     profile's configured pcie.max_link_gen. max_device_link_gen read N/A while
-//     nvmlDeviceGetGpuMaxPcieLinkGeneration was a generated stub, and
-//     max_host_link_gen read 0 while the internal export-table slot behind it
-//     went unserved. Requiring the three to agree encodes the invariant a Gen0
-//     host maximum violated: a link never negotiates higher than either
-//     endpoint supports.
+//   - max_link_gen and max_device_link_gen equal the configured device maximum.
+//     max_host_link_gen equals the independent configured host maximum, or N/A
+//     when absent. Real GB300 reports device Max 6 and Host Max 4.
 //   - board_id is non-zero and unique across the node. Every GPU reported 0x0,
 //     leaving the GPUs of a multi-GPU node indistinguishable by board ID.
 //
 // wantGPUs guards against a truncated document silently passing every per-GPU
 // check.
-func PCIeIdentityProblems(out string, wantGPUs, wantMaxLinkGen int) []string {
-	return PCIeIdentityProblemsForProfile(out, wantGPUs, wantMaxLinkGen, wantMaxLinkGen, false)
-}
-
-// PCIeIdentityProblemsForProfile compares the device and host PCIe maxima
-// independently. Grace-Blackwell profiles have a Gen4 host bridge next to a
-// Gen6 device, while standalone B200 deliberately reports no host maximum.
-func PCIeIdentityProblemsForProfile(out string, wantGPUs, wantDeviceMaxLinkGen, wantHostMaxLinkGen int, hostMaxUnsupported bool) []string {
+func PCIeIdentityProblems(out string, wantGPUs, wantDeviceMaxLinkGen, wantHostMaxLinkGen int) []string {
 	snap, err := ParseSnapshot(out)
 	if err != nil {
 		return []string{err.Error()}
@@ -320,7 +308,7 @@ func PCIeIdentityProblemsForProfile(out string, wantGPUs, wantDeviceMaxLinkGen, 
 			intReadingProblems(name+" max_link_gen", gen.Max, wantDeviceMaxLinkGen, "")...)
 		problems = append(problems,
 			intReadingProblems(name+" max_device_link_gen", gen.DeviceMax, wantDeviceMaxLinkGen, "")...)
-		if hostMaxUnsupported {
+		if wantHostMaxLinkGen == 0 {
 			if !gen.HostMax.unsupported() {
 				problems = append(problems, fmt.Sprintf("%s max_host_link_gen = %q, want N/A", name, string(gen.HostMax)))
 			}

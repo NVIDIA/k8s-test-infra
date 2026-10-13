@@ -80,8 +80,8 @@ func TestConfigurableDevice_GetGpuMaxPcieLinkGeneration_Unconfigured(t *testing.
 
 // TestConfigurableDevice_HostMaxPcieLinkGeneration backs nvidia-smi's "Host Max"
 // row, which reads the host side of the link through an internal export-table
-// slot rather than any public NVML API. The mock models a host that keeps up
-// with the GPU, so it reports the configured max_link_gen. Issue #638.
+// slot rather than any public NVML API. Only an explicit host value reports
+// a number, independently of the GPU's maximum. Issue #692.
 func TestConfigurableDevice_HostMaxPcieLinkGeneration(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -89,9 +89,7 @@ func TestConfigurableDevice_HostMaxPcieLinkGeneration(t *testing.T) {
 		want int
 	}{
 		{name: "gen4 host", pcie: &PCIeConfig{MaxLinkGen: 6, HostMaxLinkGen: 4, CurrentLinkGen: 6}, want: 4},
-		{name: "gen6 fallback", pcie: &PCIeConfig{MaxLinkGen: 6, CurrentLinkGen: 6}, want: 6},
-		// Unknown rather than an impossible Gen0: the bridge leaves the reading
-		// alone when the profile configures no PCIe block.
+		{name: "device maximum does not supply a host value", pcie: &PCIeConfig{MaxLinkGen: 6, CurrentLinkGen: 6}, want: 0},
 		{name: "unconfigured", pcie: nil, want: 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -107,7 +105,7 @@ func TestConfigurableDevice_HostMaxPcieLinkGeneration(t *testing.T) {
 // the hardware-observed case where the negotiable link max exceeds the host.
 func TestConfigurableDevice_HostMaxPcieLinkGeneration_DoesNotCapDeviceMax(t *testing.T) {
 	e := pcieIdentityEngine(t,
-		DeviceConfig{PCIe: &PCIeConfig{MaxLinkGen: 5, HostMaxLinkGen: 4, CurrentLinkGen: 4}},
+		DeviceConfig{PCIe: &PCIeConfig{MaxLinkGen: 6, HostMaxLinkGen: 4, CurrentLinkGen: 6}},
 		DeviceOverride{Index: 0})
 	dev := pcieIdentityDevice(t, e, 0)
 
@@ -117,19 +115,10 @@ func TestConfigurableDevice_HostMaxPcieLinkGeneration_DoesNotCapDeviceMax(t *tes
 	require.Equal(t, nvml.SUCCESS, ret, "GetMaxPcieLinkGeneration failed")
 
 	hostMax := dev.HostMaxPcieLinkGeneration()
-	require.Equal(t, 5, deviceMax, "device max remains the GPU capability")
+	require.Equal(t, 6, deviceMax, "device max remains the GPU capability")
 	require.Equal(t, 4, hostMax, "host max comes from the host configuration")
 	require.Greater(t, linkMax, hostMax, "host max must not cap the negotiable link max")
-	require.Equal(t, 5, linkMax, "negotiable max remains independent of host max")
-}
-
-func TestConfigurableDevice_HostMaxPcieLinkGeneration_Unsupported(t *testing.T) {
-	e := pcieIdentityEngine(t,
-		DeviceConfig{PCIe: &PCIeConfig{MaxLinkGen: 6, HostMaxUnsupported: true}},
-		DeviceOverride{Index: 0})
-
-	require.True(t, pcieIdentityDevice(t, e, 0).HostMaxPcieLinkGenerationUnsupported(),
-		"profile must preserve an explicitly unsupported host maximum")
+	require.Equal(t, 6, linkMax, "negotiable max remains independent of host max")
 }
 
 // TestConfigurableDevice_GetBoardId derives the board ID from the configured
