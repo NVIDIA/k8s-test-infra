@@ -19,7 +19,7 @@ should match snapshot with all overrides:
       template:
         metadata:
           annotations:
-            checksum/config: 5edfbada9ea88e969a081b738cf0b45785ab91b47d1638624e9119d4413d154c
+            checksum/config: 5121352b0b340ef19bdacdbb8322b268d7121f3b70c3690b717c6cab458840b2
             checksum/mig-profiles: 7f5c00954886487b5209e5d1724a12cb1c9555a6c1fbf79d10f385fed9923237
             kubectl.kubernetes.io/default-container: node-agent
           labels:
@@ -277,7 +277,7 @@ should match snapshot with b200 profile:
       template:
         metadata:
           annotations:
-            checksum/config: d2177fbb11e788201c47428aa10405fcca16f4cb8b3dc06abc3caaf3040a3c0a
+            checksum/config: bfa5f1bbbad7043702f8c7067abedcef50dd41df46d970f0d3afe0675f53c068
             checksum/mig-profiles: 872e4e600afe92907f403d7ba38f14a091ffb356dc113d23c5c136a0284625d1
             kubectl.kubernetes.io/default-container: node-agent
           labels:
@@ -375,7 +375,7 @@ should match snapshot with b200 profile:
                 - name: GPU_COUNT
                   value: "4"
                 - name: DRIVER_VERSION
-                  value: 560.35.03
+                  value: 580.65.06
                 - name: MOCK_IB
                   value: full
                 - name: MOCK_IB_PING_FABRIC

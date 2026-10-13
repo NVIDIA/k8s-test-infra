@@ -1089,8 +1089,8 @@ Two axes decide whether the feature answers at all, and they fail differently. A
 device that declares no `workload_power_profiles` reports the feature as
 unsupported; one whose `system.driver_version` is older than 570 does not export
 the symbols, so nvidia-smi cannot find the function. Of the shipped profiles only
-`gb200` and `gb300` satisfy both — `b200` is Blackwell but pins driver 560, which
-predates the API.
+`gb200` and `gb300` satisfy both; the others run a new enough driver but declare
+no profiles.
 
 ### Deliberately fixed
 

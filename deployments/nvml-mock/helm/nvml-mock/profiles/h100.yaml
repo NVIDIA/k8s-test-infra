@@ -8,11 +8,11 @@ version: "1.0"
 # System-level configuration
 # =============================================================================
 system:
-  driver_version: "550.163.01"
-  nvml_version: "12.550.163.01"
-  cuda_version: "12.4"
-  cuda_version_major: 12
-  cuda_version_minor: 4
+  driver_version: "580.65.06"
+  nvml_version: "13.580.65"
+  cuda_version: "13.0"
+  cuda_version_major: 13
+  cuda_version_minor: 0
 
 # =============================================================================
 # Default device configuration (applied to all devices unless overridden)
@@ -377,7 +377,7 @@ device_defaults:
   # ---------------------------------------------------------------------------
   gsp_firmware:
     mode: "enabled"
-    version: "550.163.01"
+    version: "580.65.06"
 
   # ---------------------------------------------------------------------------
   # Hopper-specific features

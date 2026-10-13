@@ -121,7 +121,7 @@ image:
 featureGates: {}
 
 # -- Driver version reported by the simulated driver; empty derives it from the profile.
-driverVersion: ""                  # Auto-derived from profile. Override: "550.163.01"
+driverVersion: ""                  # Auto-derived from profile. Override: "580.65.06"
 
 # -- Existing node labels required to schedule the mock DaemonSet.
 nodeSelector: {}

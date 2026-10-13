@@ -420,15 +420,16 @@ func TestDetailedSramECCIsAmpereAndLater(t *testing.T) {
 // The two NVLink predicates answer on different axes, and pinning both per
 // profile is what keeps one from collapsing into the other: the bandwidth mode
 // is node-wide and answers on Hopper alone, so only h100 reports it, while the
-// NVLE row needs a 580 driver and a declared fabric, which only gb200 and gb300
-// have. No shipped profile reports both. Driven from KnownProfiles so a newly
-// added profile has to declare which side it belongs on.
+// NVLE row needs a 580 driver and NVLink links, which a100, h100, gb200 and
+// gb300 declare. a100 and the GB boards report NVLE without the bandwidth mode.
+// Driven from KnownProfiles so a newly added profile has to declare which side
+// it belongs on.
 func TestNvlinkDerivations(t *testing.T) {
 	want := map[string]struct{ bwMode, nvle bool }{
 		"t4":    {false, false},
 		"l40s":  {false, false},
-		"a100":  {false, false},
-		"h100":  {true, false},
+		"a100":  {false, true},
+		"h100":  {true, true},
 		"b200":  {false, false},
 		"gb200": {false, true},
 		"gb300": {false, true},
