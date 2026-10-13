@@ -25,9 +25,11 @@ type SGPURuntimePolicy struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
+	// Spec defines the target selection and runtime settings to apply.
 	Spec SGPURuntimePolicySpec `json:"spec"`
 
 	// +optional
+	// Status summarizes the target scope selected for this policy.
 	Status SGPURuntimePolicyStatus `json:"status,omitempty"`
 }
 
@@ -36,7 +38,8 @@ type SGPURuntimePolicy struct {
 type SGPURuntimePolicyList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []SGPURuntimePolicy `json:"items"`
+	// Items contains the runtime policies in this list.
+	Items []SGPURuntimePolicy `json:"items"`
 }
 
 // SGPURuntimePolicySpec pairs a target selector with the RuntimeState to apply.

@@ -66,55 +66,66 @@ spec:
           metadata:
             type: object
           spec:
-            description: SGPURuntimePolicySpec pairs a target selector with the RuntimeState
-              to apply.
+            description: Spec defines the target selection and runtime settings to
+              apply.
             properties:
               runtime:
                 description: Runtime contains sparse settings to apply to the selected
                   GPUs.
                 properties:
                   deviceState:
-                    description: DeviceState is a simulated GPU health state.
+                    description: DeviceState is the simulated health state of the
+                      GPU.
                     enum:
                     - Healthy
                     - Degraded
                     - Failed
                     type: string
                   modes:
-                    description: RuntimeModes is the persistent NVML/CUDA mode settings.
+                    description: Modes contains persistent NVML/CUDA mode settings.
                     properties:
                       accounting:
+                        description: Accounting controls whether GPU accounting mode
+                          is enabled.
                         enum:
                         - Enabled
                         - Disabled
                         type: string
                       compute:
+                        description: Compute selects the simulated compute mode.
                         enum:
                         - Default
                         - Exclusive
                         - Prohibited
                         type: string
                       ecc:
+                        description: ECC controls whether error-correcting code is
+                          enabled.
                         enum:
                         - Enabled
                         - Disabled
                         type: string
                       mig:
+                        description: MIG controls whether Multi-Instance GPU mode
+                          is enabled.
                         enum:
                         - Enabled
                         - Disabled
                         type: string
                       persistence:
+                        description: Persistence controls the simulated persistence
+                          mode.
                         enum:
                         - Enabled
                         - Disabled
                         type: string
                     type: object
                   telemetry:
-                    description: RuntimeTelemetry is the synthetic NVML telemetry.
+                    description: Telemetry contains synthetic utilization, power,
+                      temperature, and clock values.
                     properties:
                       clocks:
-                        description: ClocksTelemetry reports current clock rates.
+                        description: Clocks defines the current simulated clock rates.
                         properties:
                           graphicsMHz:
                             description: GraphicsMHz is the simulated graphics clock
@@ -146,7 +157,7 @@ spec:
                         pattern: ^P[0-9]+$
                         type: string
                       power:
-                        description: PowerTelemetry drives synthetic power draw.
+                        description: Power defines synthetic power draw values.
                         properties:
                           drawMilliWatts:
                             description: DrawMilliWatts is the simulated GPU power
@@ -163,8 +174,8 @@ spec:
                             type: string
                         type: object
                       temperature:
-                        description: TemperatureTelemetry drives synthetic GPU/memory
-                          temperature.
+                        description: Temperature defines synthetic GPU and memory
+                          temperature values.
                         properties:
                           gpuCelsius:
                             description: GPUCelsius is the simulated GPU temperature
@@ -185,8 +196,8 @@ spec:
                             type: string
                         type: object
                       utilization:
-                        description: UtilizationTelemetry drives synthetic GPU/memory
-                          utilization.
+                        description: Utilization defines synthetic GPU and memory
+                          utilization values.
                         properties:
                           mode:
                             description: Mode selects pattern-generated or fixed utilization
@@ -324,9 +335,7 @@ spec:
             - targetRef
             type: object
           status:
-            description: |-
-              SGPURuntimePolicyStatus reports whether the policy is accepted and holds
-              comma-joined denormalizations of spec.targetRef axes for print columns.
+            description: Status summarizes the target scope selected for this policy.
             properties:
               conditions:
                 description: Conditions report whether the policy is accepted.

@@ -683,11 +683,11 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `persistence` _string_ |  |  | Enum: [Enabled Disabled] <br />Optional: \{\} <br /> |
-| `compute` _string_ |  |  | Enum: [Default Exclusive Prohibited] <br />Optional: \{\} <br /> |
-| `mig` _string_ |  |  | Enum: [Enabled Disabled] <br />Optional: \{\} <br /> |
-| `ecc` _string_ |  |  | Enum: [Enabled Disabled] <br />Optional: \{\} <br /> |
-| `accounting` _string_ |  |  | Enum: [Enabled Disabled] <br />Optional: \{\} <br /> |
+| `persistence` _string_ | Persistence controls the simulated persistence mode. |  | Enum: [Enabled Disabled] <br />Optional: \{\} <br /> |
+| `compute` _string_ | Compute selects the simulated compute mode. |  | Enum: [Default Exclusive Prohibited] <br />Optional: \{\} <br /> |
+| `mig` _string_ | MIG controls whether Multi-Instance GPU mode is enabled. |  | Enum: [Enabled Disabled] <br />Optional: \{\} <br /> |
+| `ecc` _string_ | ECC controls whether error-correcting code is enabled. |  | Enum: [Enabled Disabled] <br />Optional: \{\} <br /> |
+| `accounting` _string_ | Accounting controls whether GPU accounting mode is enabled. |  | Enum: [Enabled Disabled] <br />Optional: \{\} <br /> |
 
 
 #### RuntimeState
@@ -705,9 +705,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `deviceState` _[DeviceState](#devicestate)_ |  |  | Enum: [Healthy Degraded Failed] <br />Optional: \{\} <br /> |
-| `modes` _[RuntimeModes](#runtimemodes)_ |  |  | Optional: \{\} <br /> |
-| `telemetry` _[RuntimeTelemetry](#runtimetelemetry)_ |  |  | Optional: \{\} <br /> |
+| `deviceState` _[DeviceState](#devicestate)_ | DeviceState is the simulated health state of the GPU. |  | Enum: [Healthy Degraded Failed] <br />Optional: \{\} <br /> |
+| `modes` _[RuntimeModes](#runtimemodes)_ | Modes contains persistent NVML/CUDA mode settings. |  | Optional: \{\} <br /> |
+| `telemetry` _[RuntimeTelemetry](#runtimetelemetry)_ | Telemetry contains synthetic utilization, power, temperature, and clock values. |  | Optional: \{\} <br /> |
 
 
 #### RuntimeTelemetry
@@ -724,10 +724,10 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `performanceState` _string_ | NVML P-state, e.g. "P0". |  | Pattern: `^P[0-9]+$` <br />Optional: \{\} <br /> |
-| `utilization` _[UtilizationTelemetry](#utilizationtelemetry)_ |  |  | Optional: \{\} <br /> |
-| `power` _[PowerTelemetry](#powertelemetry)_ |  |  | Optional: \{\} <br /> |
-| `temperature` _[TemperatureTelemetry](#temperaturetelemetry)_ |  |  | Optional: \{\} <br /> |
-| `clocks` _[ClocksTelemetry](#clockstelemetry)_ |  |  | Optional: \{\} <br /> |
+| `utilization` _[UtilizationTelemetry](#utilizationtelemetry)_ | Utilization defines synthetic GPU and memory utilization values. |  | Optional: \{\} <br /> |
+| `power` _[PowerTelemetry](#powertelemetry)_ | Power defines synthetic power draw values. |  | Optional: \{\} <br /> |
+| `temperature` _[TemperatureTelemetry](#temperaturetelemetry)_ | Temperature defines synthetic GPU and memory temperature values. |  | Optional: \{\} <br /> |
+| `clocks` _[ClocksTelemetry](#clockstelemetry)_ | Clocks defines the current simulated clock rates. |  | Optional: \{\} <br /> |
 
 
 #### SGPUGPUs
@@ -1100,8 +1100,8 @@ an SGPUInventory.
 | `apiVersion` _string_ | `mokka.nvidia.com/v1alpha1` | | |
 | `kind` _string_ | `SGPURuntimePolicy` | | |
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
-| `spec` _[SGPURuntimePolicySpec](#sgpuruntimepolicyspec)_ |  |  |  |
-| `status` _[SGPURuntimePolicyStatus](#sgpuruntimepolicystatus)_ |  |  | Optional: \{\} <br /> |
+| `spec` _[SGPURuntimePolicySpec](#sgpuruntimepolicyspec)_ | Spec defines the target selection and runtime settings to apply. |  |  |
+| `status` _[SGPURuntimePolicyStatus](#sgpuruntimepolicystatus)_ | Status summarizes the target scope selected for this policy. |  | Optional: \{\} <br /> |
 
 
 #### SGPURuntimePolicySpec

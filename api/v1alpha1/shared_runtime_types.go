@@ -14,12 +14,15 @@ import (
 // Sparse: omitted fields inherit; explicit zero is a set value.
 type RuntimeState struct {
 	// +optional
+	// DeviceState is the simulated health state of the GPU.
 	DeviceState DeviceState `json:"deviceState,omitempty"`
 
 	// +optional
+	// Modes contains persistent NVML/CUDA mode settings.
 	Modes *RuntimeModes `json:"modes,omitempty"`
 
 	// +optional
+	// Telemetry contains synthetic utilization, power, temperature, and clock values.
 	Telemetry *RuntimeTelemetry `json:"telemetry,omitempty"`
 }
 
@@ -109,22 +112,27 @@ const (
 type RuntimeModes struct {
 	// +optional
 	// +kubebuilder:validation:Enum=Enabled;Disabled
+	// Persistence controls the simulated persistence mode.
 	Persistence string `json:"persistence,omitempty"`
 
 	// +optional
 	// +kubebuilder:validation:Enum=Default;Exclusive;Prohibited
+	// Compute selects the simulated compute mode.
 	Compute string `json:"compute,omitempty"`
 
 	// +optional
 	// +kubebuilder:validation:Enum=Enabled;Disabled
+	// MIG controls whether Multi-Instance GPU mode is enabled.
 	MIG string `json:"mig,omitempty"`
 
 	// +optional
 	// +kubebuilder:validation:Enum=Enabled;Disabled
+	// ECC controls whether error-correcting code is enabled.
 	ECC string `json:"ecc,omitempty"`
 
 	// +optional
 	// +kubebuilder:validation:Enum=Enabled;Disabled
+	// Accounting controls whether GPU accounting mode is enabled.
 	Accounting string `json:"accounting,omitempty"`
 }
 
@@ -136,15 +144,19 @@ type RuntimeTelemetry struct {
 	PerformanceState string `json:"performanceState,omitempty"`
 
 	// +optional
+	// Utilization defines synthetic GPU and memory utilization values.
 	Utilization *UtilizationTelemetry `json:"utilization,omitempty"`
 
 	// +optional
+	// Power defines synthetic power draw values.
 	Power *PowerTelemetry `json:"power,omitempty"`
 
 	// +optional
+	// Temperature defines synthetic GPU and memory temperature values.
 	Temperature *TemperatureTelemetry `json:"temperature,omitempty"`
 
 	// +optional
+	// Clocks defines the current simulated clock rates.
 	Clocks *ClocksTelemetry `json:"clocks,omitempty"`
 }
 
