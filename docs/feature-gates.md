@@ -56,10 +56,12 @@ registered, it logs the state of every gate.
 | GA (generally available) | On | No | Permanent behavior. The gate stays for compatibility; setting it logs a warning |
 | Deprecated | Off | Until locked | Being removed. Setting it logs a warning |
 
-A GA or deprecated gate stays for at least one minor release, then is removed.
-Once a gate is removed, an upgrade that still sets it fails with an error
-naming the gate, so drop it from `featureGates`, including values carried over
-by `--reuse-values`, before upgrading. The
+A GA or deprecated gate is removed no earlier than three minor (Y) releases
+after it is deprecated or reaches GA, the floor the
+[support policy](support-policy.md#deprecation) sets. Once a gate is removed,
+an upgrade that still sets it fails with an error naming the gate, so drop it
+from `featureGates`, including values carried over by `--reuse-values`, before
+upgrading. The
 [changelog](https://github.com/NVIDIA/k8s-test-infra/blob/main/CHANGELOG.md)
 records when each gate is added, changes stage, or is removed.
 

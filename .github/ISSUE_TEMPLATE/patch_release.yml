@@ -73,7 +73,7 @@ body:
       options:
         - label: "`git log --format='%h %s' <last-tag>..<base-commit>` pasted in this issue."
         - label: "The version is the next Z only when every commit listed is a fix, security, dependency, docs, chore, ci or test change. Otherwise it is the next Y, and the release notes say it shipped ahead of the schedule; from 1.0, a change that breaks the API makes it the next X. Before 1.0 a breaking change ships in that Y, with a `**Breaking:**` changelog entry that states the action a user takes."
-        - label: "For a Y release, every `Removed` entry it ships (the `Removed-*` fragments in `.changes/unreleased/`) removes something whose deprecation was announced at least three Y releases earlier; Z releases do not count. A deprecation announced in 0.6.0 is removed no earlier than 0.9.0. New deprecations are listed for the release notes. For a Z release, check this with a note."
+        - label: "For a Y release, every `Removed` entry it ships (the `Removed-*` fragments in `.changes/unreleased/`) removes something whose deprecation was announced, or a feature gate that reached GA, at least three Y releases earlier; Z releases do not count. A deprecation announced in 0.6.0 is removed no earlier than 0.9.0. New deprecations are listed for the release notes. For a Z release, check this with a note."
   - type: checkboxes
     id: security
     attributes:
