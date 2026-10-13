@@ -1,0 +1,4 @@
+kind: Changed
+body: |-
+  **Breaking:** control-plane: `ghcr.io/nvidia/mokka-control-plane` is now signed by `.github/workflows/mokka-control-plane-publish.yaml@<ref>` and its SBOM attestations sit on the `linux/amd64` and `linux/arm64` digests, not the index; run `cosign verify-attestation --type spdxjson` against each platform digest.
+time: 2026-10-12T15:10:11Z
