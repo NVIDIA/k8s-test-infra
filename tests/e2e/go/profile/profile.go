@@ -847,3 +847,12 @@ func (p Profile) ReportsNvlinkEncryption() bool {
 	return p.DriverMajor() >= nvlinkInfoMinDriver &&
 		p.ExpectedNV() > 0
 }
+
+// ReportsNvlinkLowPowerThreshold is true when `nvidia-smi nvlink
+// -sLowPwrThres` accepts a value on this profile. The threshold is a Hopper
+// and later feature, and nvidia-smi refuses it on an older board with "Not
+// supported" before calling NVML, even where the board has NVLink and prints
+// the NVLE row.
+func (p Profile) ReportsNvlinkLowPowerThreshold() bool {
+	return p.arch.AtLeast(gpuarch.Hopper) && p.ExpectedNV() > 0
+}

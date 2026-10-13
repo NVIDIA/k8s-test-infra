@@ -421,18 +421,19 @@ func TestDetailedSramECCIsAmpereAndLater(t *testing.T) {
 // profile is what keeps one from collapsing into the other: the bandwidth mode
 // is node-wide and answers on Hopper alone, so only h100 reports it, while the
 // NVLE row needs a 580 driver and NVLink links, which a100, h100, gb200 and
-// gb300 declare. a100 and the GB boards report NVLE without the bandwidth mode.
+// gb300 declare. a100 and the GB boards report NVLE without the bandwidth mode,
+// and a100 prints NVLE yet refuses the Hopper-and-later low-power threshold.
 // Driven from KnownProfiles so a newly added profile has to declare which side
 // it belongs on.
 func TestNvlinkDerivations(t *testing.T) {
-	want := map[string]struct{ bwMode, nvle bool }{
-		"t4":    {false, false},
-		"l40s":  {false, false},
-		"a100":  {false, true},
-		"h100":  {true, true},
-		"b200":  {false, false},
-		"gb200": {false, true},
-		"gb300": {false, true},
+	want := map[string]struct{ bwMode, nvle, lowPower bool }{
+		"t4":    {false, false, false},
+		"l40s":  {false, false, false},
+		"a100":  {false, true, false},
+		"h100":  {true, true, true},
+		"b200":  {false, false, false},
+		"gb200": {false, true, true},
+		"gb300": {false, true, true},
 	}
 	for _, name := range KnownProfiles {
 		w, ok := want[name]
@@ -444,6 +445,8 @@ func TestNvlinkDerivations(t *testing.T) {
 		require.Equal(t, w.nvle, p.ReportsNvlinkEncryption(),
 			"%s (%s, driver %d.x, %d links): NVLE row",
 			name, p.Architecture(), p.DriverMajor(), p.ExpectedNV())
+		require.Equal(t, w.lowPower, p.ReportsNvlinkLowPowerThreshold(),
+			"%s (%s, %d links): low-power threshold", name, p.Architecture(), p.ExpectedNV())
 	}
 }
 
