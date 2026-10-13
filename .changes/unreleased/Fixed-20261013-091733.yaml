@@ -1,0 +1,6 @@
+kind: Fixed
+body: |-
+  nvml-mock: `nvidia-smi -q -u` answers the unit query instead of printing only "Unable to determine number of available units".
+time: 2026-10-13T07:17:33Z
+custom:
+  Issue: "1047"

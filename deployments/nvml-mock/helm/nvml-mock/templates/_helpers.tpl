@@ -213,15 +213,23 @@ injected under `device_defaults:` so consumers can test how device-plugin,
 GPU operator and monitoring stacks behave when GPUs go lost / fall off
 the bus / accumulate uncorrectable ECC errors.
 
-If neither overlay is enabled the base YAML is returned verbatim, which
-preserves comments and key order from the profile file.
+.Values.driverVersion, .Values.driverBranch and .Values.hic are injected
+under `system:`. The driver version has to land in the config rather than
+only in DRIVER_VERSION, because the .so ignores that env var whenever a
+config file is present — without this overlay an override would move the
+node labels but leave nvmlSystemGetDriverVersion, and every version-gated
+function with it, on the profile's own version.
+
+If no overlay is enabled the base YAML is returned verbatim, which preserves
+comments and key order from the profile file.
 */}}
 {{- define "nvml-mock.gpuConfig" -}}
 {{- $base := include "nvml-mock.gpuConfigBase" . -}}
 {{- $dynEnabled := and .Values.gpu.dynamicMetrics .Values.gpu.dynamicMetrics.enabled -}}
 {{- $failEnabled := and .Values.gpu.failureInjection .Values.gpu.failureInjection.enabled -}}
 {{- $migEnabled := and .Values.gpu.mig .Values.gpu.mig.enabled -}}
-{{- if or $dynEnabled $failEnabled $migEnabled -}}
+{{- $sysEnabled := or .Values.driverVersion .Values.driverBranch .Values.hic -}}
+{{- if or $dynEnabled $failEnabled $migEnabled $sysEnabled -}}
 {{- $cfg := fromYaml $base -}}
 {{- if hasKey $cfg "Error" -}}
 {{- fail (printf "nvml-mock.gpuConfig: failed to parse base YAML for overlay injection: %s" (get $cfg "Error")) -}}
@@ -359,7 +367,26 @@ this block lives in the template.
 {{- $_ := set $mig "mode_pending" "enabled" -}}
 {{- $_ := set $defaults "mig" $mig -}}
 {{- end -}}
+{{- if $sysEnabled -}}
+{{- $system := get $cfg "system" | default (dict) -}}
+{{- if .Values.driverVersion -}}
+{{- $_ := set $system "driver_version" .Values.driverVersion -}}
+{{- end -}}
+{{- if .Values.driverBranch -}}
+{{- $_ := set $system "driver_branch" .Values.driverBranch -}}
+{{- end -}}
+{{- if .Values.hic -}}
+{{- $entries := list -}}
+{{- range $i, $entry := .Values.hic -}}
+{{- $entries = append $entries (dict "id" (default $i $entry.id) "firmware_version" $entry.firmwareVersion) -}}
+{{- end -}}
+{{- $_ := set $system "hic" $entries -}}
+{{- end -}}
+{{- $_ := set $cfg "system" $system -}}
+{{- end -}}
+{{- if $defaults -}}
 {{- $_ := set $cfg "device_defaults" $defaults -}}
+{{- end -}}
 {{- /* Drop the Helm-only key now it's folded into dynamic_metrics. */ -}}
 {{- $_ := unset $cfg "dynamic_metrics_defaults" -}}
 {{- toYaml $cfg -}}
