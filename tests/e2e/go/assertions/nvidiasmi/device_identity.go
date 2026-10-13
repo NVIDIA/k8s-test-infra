@@ -93,7 +93,6 @@ func DeviceIdentityProblems(out string, want DeviceIdentityExpectation) []string
 	return problems
 }
 
-// bodyProblems compares one element's body against the exact rendering wanted.
 func bodyProblems(label, name string, got reading, want string) []string {
 	body := strings.TrimSpace(string(got))
 	switch {

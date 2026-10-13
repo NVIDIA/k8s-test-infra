@@ -397,6 +397,11 @@ func (e *Engine) DeviceGetHandleByUUID(uuid string) (unsafe.Pointer, nvml.Return
 // DeviceGetHandleByUUIDBinary returns a handle for the GPU or MIG device whose
 // UUID is the 16 bytes of a binary nvmlUUID_t. Those bytes drop the GPU-/MIG-
 // prefix, so unlike the ASCII lookup they can name either kind of device.
+//
+// A MIG UUID is derived from its parent's (migDeviceUUID), so a partition can
+// share all 16 bytes with the GPU it is carved from. Such bytes name two
+// devices, and answering with either would hand some caller the wrong one, so
+// the lookup is refused; the ASCII form still tells them apart by prefix.
 func (e *Engine) DeviceGetHandleByUUIDBinary(raw [16]byte) (unsafe.Pointer, nvml.Return) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -406,10 +411,15 @@ func (e *Engine) DeviceGetHandleByUUIDBinary(raw [16]byte) (unsafe.Pointer, nvml
 	}
 
 	device, ret := e.server.deviceGetHandleByUUIDBinary(raw)
-	if ret != nvml.SUCCESS {
-		if mig := e.migDeviceMatching(func(uuid string) bool { return uuidMatchesBinary(uuid, raw) }); mig != nil {
-			return registerHandle(e.handles, nvml.Device(mig))
+	if mig := e.migDeviceMatching(func(uuid string) bool { return uuidMatchesBinary(uuid, raw) }); mig != nil {
+		if ret == nvml.SUCCESS {
+			warnLog("[NVML] nvmlDeviceGetHandleByUUIDV(binary %x) -> INVALID_ARGUMENT: names both a GPU and its MIG device %s\n",
+				raw, mig.mig.uuid)
+			return nil, nvml.ERROR_INVALID_ARGUMENT
 		}
+		return registerHandle(e.handles, nvml.Device(mig))
+	}
+	if ret != nvml.SUCCESS {
 		return nil, ret
 	}
 

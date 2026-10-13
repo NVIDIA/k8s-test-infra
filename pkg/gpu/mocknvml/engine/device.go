@@ -1293,14 +1293,14 @@ func (d *ConfigurableDevice) GetMaxPcieLinkGeneration() (int, nvml.Return) {
 var pcieLaneRateMbps = [...]int{1: 2500, 2: 5000, 3: 8000, 4: 16000, 5: 32000, 6: 64000}
 
 // GetPcieSpeed returns the current link's per-lane rate in Mbps: a Gen4 link
-// reports 16000. A generation the profile does not configure, or one past the
-// last NVML can name, is NOT_SUPPORTED rather than a speed of 0.
+// reports 16000. A generation the profile does not configure, a negative one,
+// or one past the last NVML can name is NOT_SUPPORTED rather than a speed of 0.
 func (d *ConfigurableDevice) GetPcieSpeed() (int, nvml.Return) {
 	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
 		return 0, ret
 	}
 	gen, ret := d.GetCurrPcieLinkGeneration()
-	if ret != nvml.SUCCESS || gen >= len(pcieLaneRateMbps) {
+	if ret != nvml.SUCCESS || gen < 1 || gen >= len(pcieLaneRateMbps) {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
 	speed := pcieLaneRateMbps[gen]
@@ -1316,7 +1316,7 @@ func (d *ConfigurableDevice) GetPcieLinkMaxSpeed() (uint32, nvml.Return) {
 		return 0, ret
 	}
 	gen, ret := d.GetMaxPcieLinkGeneration()
-	if ret != nvml.SUCCESS || gen > nvml.PCIE_LINK_MAX_SPEED_64000MBPS {
+	if ret != nvml.SUCCESS || gen < 1 || gen > nvml.PCIE_LINK_MAX_SPEED_64000MBPS {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
 	debugLog("[NVML] nvmlDeviceGetPcieLinkMaxSpeed -> %d\n", gen)

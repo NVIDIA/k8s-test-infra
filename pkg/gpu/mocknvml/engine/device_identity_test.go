@@ -125,6 +125,59 @@ func TestEngine_DeviceGetHandleByUUIDBinary_FindsMigDevice(t *testing.T) {
 	require.Equal(t, migUUID, handleUUID(t, e, handle))
 }
 
+// A MIG UUID replaces the parent's fourth group with the instance IDs, so a
+// parent whose group is 0000 shares all 16 bytes with its (0, 0) partition. The
+// binary form cannot say which one is meant, and answering with either would
+// hand the caller the wrong device, so the lookup is refused; the ASCII lookup
+// still tells them apart by prefix.
+func TestEngine_DeviceGetHandleByUUIDBinary_RefusesPartitionSharingParentBytes(t *testing.T) {
+	t.Parallel()
+	const parentUUID = "GPU-01000100-0000-0000-0000-000000000000" // the shipped h100's GPU 0
+	e := NewEngine(&Config{
+		NumDevices:    1,
+		DriverVersion: "550.54.15",
+		YAMLConfig: &YAMLConfig{
+			Version: "1.0",
+			DeviceDefaults: DeviceConfig{
+				Name:   "NVIDIA A100-SXM4-40GB",
+				Memory: &MemoryConfig{TotalBytes: a100_40GiB},
+				MIG: &MIGConfig{
+					ModeCurrent:       "enabled",
+					ModePending:       "enabled",
+					MaxGPUInstances:   7,
+					SupportedProfiles: a100SupportedProfiles(),
+					GPUInstances:      []MIGGPUInstanceConfig{{Profile: "1g.5gb", Count: 7}},
+				},
+			},
+			Devices: []DeviceOverride{{Index: 0, UUID: parentUUID}},
+		},
+	})
+	require.Equal(t, nvml.SUCCESS, e.Init())
+	t.Cleanup(func() { e.Shutdown() }) //nolint:errcheck // teardown
+	parent, ret := e.DeviceGetHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	var twin string
+	for i := range 7 { // the fixture carves seven 1g.5gb partitions
+
+		handle, ret := e.DeviceGetMigDeviceHandleByIndex(parent, i)
+		if ret != nvml.SUCCESS {
+			continue
+		}
+		if u := handleUUID(t, e, handle); binaryUUID(t, u) == binaryUUID(t, parentUUID) {
+			twin = u
+		}
+	}
+	require.NotEmpty(t, twin, "fixture should carve a partition whose bytes equal %s", parentUUID)
+
+	_, ret = e.DeviceGetHandleByUUIDBinary(binaryUUID(t, parentUUID))
+	require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret)
+
+	handle, ret := e.DeviceGetHandleByUUID(twin)
+	require.Equal(t, nvml.SUCCESS, ret, "ASCII lookup of %s", twin)
+	require.Equal(t, twin, handleUUID(t, e, handle))
+}
+
 func TestConfigurableDevice_GetNumGpuCores(t *testing.T) {
 	t.Parallel()
 	e := pcieIdentityEngine(t, DeviceConfig{NumGPUCores: 16896}, DeviceOverride{Index: 0})
@@ -318,6 +371,10 @@ func TestConfigurableDevice_PcieSpeeds(t *testing.T) {
 		{name: "unconfigured", pcie: nil,
 			speedRet: nvml.ERROR_NOT_SUPPORTED, maxRet: nvml.ERROR_NOT_SUPPORTED},
 		{name: "beyond gen6", pcie: &PCIeConfig{MaxLinkGen: 7, CurrentLinkGen: 7},
+			speedRet: nvml.ERROR_NOT_SUPPORTED, maxRet: nvml.ERROR_NOT_SUPPORTED},
+		// A negative generation is a config mistake, not a link: it must be
+		// declined rather than index the rate table or wrap to a huge code.
+		{name: "negative", pcie: &PCIeConfig{MaxLinkGen: -1, CurrentLinkGen: -1},
 			speedRet: nvml.ERROR_NOT_SUPPORTED, maxRet: nvml.ERROR_NOT_SUPPORTED},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
