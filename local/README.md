@@ -1,219 +1,73 @@
 # Local development environment
 
-This directory contains Tiltfiles, Helm value overrides, and Kind cluster configs for running the nvml-mock stack locally.
+Tiltfiles, Helm value overrides and Kind cluster configs for running Mokka on a
+laptop. The workflow (creating the cluster, the Tilt flags, what composes,
+overriding Helm values) is in
+[Local Development](../docs/contributing/local-development.md). This page holds
+what is specific to this directory.
 
-## Prerequisites
+## Cluster
 
-- [kind](https://kind.sigs.k8s.io/) — local Kubernetes clusters
-- [tilt](https://tilt.dev/) — live-reload dev orchestrator
-- [helm](https://helm.sh/) — used by Tilt internally
-- [kubectl](https://kubernetes.io/docs/tasks/tools/)
-- Docker
+Both cluster shapes use the stock node image the Makefile pins (`KIND_NODE_IMAGE`):
+the Mokka node daemon installs the NVIDIA container runtime and registers the
+`nvidia` handler with containerd itself (see
+[Container runtime setup](../docs/components/node-daemon.md#container-runtime-setup)).
 
-## Quick start
+An Xid injected with `nvml-mock-ctl fail --xid` is readable from the node journal.
+Kind names node containers `<cluster>-worker[N]` rather than after the node names the
+configs pin, so `worker-0` is `mokka-worker`:
 
 ```bash
-# 1. Create a cluster
-make cluster-create
-
-# 2. Start the dev stack
-tilt up -- --gpu-operator
+docker exec mokka-worker journalctl -k | grep 'NVRM: Xid'
 ```
 
-## Step 1 — Create a cluster
+## Consumers
 
-All profiles use the stock Kind node image the Makefile pins (`KIND_NODE_IMAGE`). The Mokka node daemon installs the NVIDIA container runtime and registers the `nvidia` handler with containerd itself; see [Container runtime setup](../docs/components/node-daemon.md#container-runtime-setup).
+Notes the Local Development page does not carry.
 
-The default profile spans 1 control-plane + 2 workers (a100 + t4), so no cluster rebuild is needed when switching between homogeneous (single Helm release) and heterogeneous (per-GPU-profile) nvml-mock installation, or when enabling `--fgo`.
+### FGO
 
-| `PROFILE=`          | Kind config                           | Cluster name                    | Use with                                                             |
-|---------------------|---------------------------------------|---------------------------------|----------------------------------------------------------------------|
-| `default` (default) | `local/kind/default.kind.yaml`        | `kind-mokka`                    | basic, gpu-operator, dra, `--multi-gpu-profile`, `--fgo`, `--slinky` |
-| `compute-domain`    | `local/kind/compute-domain.kind.yaml` | `kind-mokka-compute-domain`     | `--compute-domain`                                                   |
+`--fgo` runs the mock on the `integration` worker and FGO's fake backend on the
+`scale` worker; `--multi-gpu-profile --fgo` produces the same shape. To check:
 
 ```bash
-make cluster-create                         # 1 CP + 2 workers (a100 / t4) — the default
-make cluster-create PROFILE=compute-domain  # 1 CP + 4 workers (NVLink cliques)
-
-make cluster-delete                         # tear down (PROFILE= must match creation)
+kubectl get pods -n mokka -l app.kubernetes.io/name=nvml-mock -o wide   # the mock, on the integration worker
+kubectl get configmaps -A -l run.ai/gpu-profile=true                    # profiles shaped for FGO's loader
+kubectl get pods -n gpu-operator -o wide                                # FGO, on the scale worker
 ```
 
-The `default` profile also mounts `local/kind/journald-node-syslog.conf` on every
-node, which makes the Xid the node agent puts on `/dev/kmsg` for an
-`nvml-mock-ctl fail --xid` injection readable from the node journal —
-`docker exec worker-0 dmesg | grep 'NVRM: Xid'`. The announcement itself is off
-in the chart, since it makes the node agent privileged;
-`local/nvml-mock.values.yaml` turns it on for these clusters.
-Kind nodes share the host's kernel ring buffer, so an Xid injected on one node
-shows up on all of them.
-Since Kind resolves a config's paths against the working directory, create the
-cluster from the repo root (`make cluster-create` does).
+### topograph
 
-## Step 2 — Start Tilt
+`--topograph` writes `network.topology.nvidia.com/{accelerator,tier-0,tier-1,...}`
+labels on every node, derived from the clique labels of the compute-domain cluster.
+Topology-aware schedulers (KAI, Kueue TAS) consume them. `--dra` is optional.
 
-### Homogeneous fleet (single Helm release)
+### Observability
 
-Installs one nvml-mock release that covers every worker in the cluster with the same GPU profile. Pick the profile via `--gpu-profile`.
+See [observability/README.md](observability/README.md).
 
-The control-plane node is excluded: `local/nvml-mock.values.yaml` pins the DaemonSet to nodes labelled `mokka.nvidia.com/type=sgpu`, which every worker in the Kind configs carries. Without it the mock lands on the control plane too — it tolerates every taint — while GPU Operator, FGO and NFD operands stop at the `NoSchedule` taint, leaving a node that advertises a driver nobody consumes.
+### Dynamo
+
+The worker sees the GPU profile `--gpu-profile` selected only through the nvml-mock
+NRI plugin, which runs by default; the
+[NVIDIA Dynamo guide](../docs/guides/dynamo/README.md) explains why. Once
+`dynamo-frontend` is ready, the OpenAI API is on <http://localhost:8000>:
 
 ```bash
-tilt up                                  # default: a100
-tilt up -- --gpu-profile h100
-tilt up -- --gpu-profile gb200
-```
-
-Supported `--gpu-profile` values: `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`, `t4`.
-
-### Heterogeneous fleet (per-GPU-profile releases)
-
-Installs one nvml-mock release per worker, pinned by node selector `kubernetes.io/hostname=<worker>`. Profiles are fixed to `a100` on `worker-0` and `t4` on `worker-1` (the worker names come from `local/kind/default.kind.yaml`). `--gpu-profile` is ignored in this mode. With `--control-plane`, the first profile release (`nvml-mock-a100`) owns the single cluster-wide control plane.
-
-```bash
-tilt up -- --multi-gpu-profile
-```
-
-### With NVIDIA GPU Operator
-
-Deploys the GPU Operator on top of nvml-mock using CDI mode. Composes with both homogeneous and heterogeneous nvml-mock modes.
-
-```bash
-tilt up -- --gpu-operator
-tilt up -- --gpu-operator --gpu-profile gb200
-tilt up -- --multi-gpu-profile --gpu-operator
-```
-
-### With NVIDIA DRA driver
-
-Deploys the DRA driver on top of nvml-mock. Composes with both homogeneous and heterogeneous modes; under `--multi-gpu-profile` each worker publishes a distinct ResourceSlice.
-
-```bash
-tilt up -- --dra
-tilt up -- --multi-gpu-profile --dra
-tilt up -- --gpu-operator --dra          # GPU Operator + DRA together
-```
-
-### With Run:ai Fake GPU Operator (FGO)
-
-Deploys [FGO](https://github.com/run-ai/fake-gpu-operator) alongside nvml-mock, splitting workers into two pools:
-- **integration** (a100 worker) — nvml-mock provides the NVML shim, full `nvidia-smi` output
-- **scale** (t4 worker) — FGO fake backend, no nvml-mock required
-
-Mutually exclusive with `--gpu-operator` (FGO replaces it) and `--compute-domain`. The FGO overlay pins nvml-mock to the integration pool regardless of `--multi-gpu-profile`, so both invocations produce the same runtime shape (single nvml-mock release on the a100 worker; FGO manages the t4 worker).
-
-```bash
-tilt up -- --fgo                         # nvml-mock on integration pool, FGO on scale
-tilt up -- --multi-gpu-profile --fgo     # same runtime shape, per-profile release plumbing
-```
-
-Verify:
-```bash
-# nvml-mock running on integration worker (release is installed to
-# `mokka` — same namespace CI's Ginkgo suite queries).
-kubectl get pods -n mokka -l app.kubernetes.io/name=nvml-mock -o wide
-kubectl get configmaps -A -l run.ai/gpu-profile=true
-
-# FGO managing scale worker
-kubectl get pods -n gpu-operator -o wide
-```
-
-### Compute-domain scenario (requires `PROFILE=compute-domain` cluster)
-
-Reconfigures nvml-mock with a GB200 profile and NVLink topology overlay. Mutually exclusive with `--multi-gpu-profile` and `--gpu-profile`.
-
-```bash
-make cluster-create PROFILE=compute-domain
-tilt up -- --compute-domain
-tilt up -- --compute-domain --dra        # with DRA driver
-```
-
-The Tilt UI exposes two manual triggers under the `compute-domain-tests` label:
-- **check-fabric** — asserts the topology overlay assigned the expected `cliqueId`/`clusterUUID` to each node
-- **topology-rebind** — live-rebinds the NVLink topology and re-asserts the new clique assignment
-
-### With NVIDIA topograph
-
-Deploys [topograph](https://github.com/NVIDIA/topograph), a network-topology discovery service, on top of the compute-domain cluster. Topograph reads `nvidia.com/gpu.clique` node labels and translates them into `network.topology.nvidia.com/*` labels (`accelerator`, `tier-0`, `tier-1`, ...) that topology-aware schedulers (KAI, Kueue TAS) consume.
-
-`--topograph` implies `--compute-domain` — cliques only exist in the compute-domain cluster. `--dra` is **not** required: `nvidia.com/gpu.clique` is a static label baked into each worker node in `local/kind/compute-domain.kind.yaml`. Topograph reads it directly from the Kubernetes API; no runtime label writer is needed. Incompatible combos (`--topograph --fgo`, `--topograph --multi-gpu-profile`, `--topograph --gpu-profile <p>`) surface via the existing compute-domain guardrails.
-
-Data path: `nvidia.com/gpu.clique` static node label → topograph `infiniband-k8s` provider (with `useGpuCliqueLabel: true`) → writes `network.topology.nvidia.com/{accelerator,tier-0,tier-1,...}` on all nodes.
-
-```bash
-make cluster-create PROFILE=compute-domain   # required for the 4-worker cluster shape
-tilt up -- --topograph                        # implies --compute-domain; --dra optional
-```
-
-### With Prometheus + Grafana (observability)
-
-Deploys [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack) and ships a Grafana dashboard for the mock fleet. The point is that the real, unmodified NVIDIA `dcgm-exporter` reads the mock `libnvidia-ml.so`, Prometheus discovers it through the ServiceMonitor the GPU Operator generates, and Grafana renders it — on a cluster with no GPUs.
-
-`--observability` implies `--gpu-operator`, since `dcgm-exporter` is one of the Operator's operands; the observability overlay re-enables it (the default GPU Operator values switch it off, as nothing was scraping it). The stack installs before the Operator because it ships the ServiceMonitor CRD. `local/observability/nvml-mock.values.yaml` also turns on `gpu.dynamicMetrics`, without which every panel is a flat line of profile constants.
-
-```bash
-make cluster-create
-tilt up -- --observability
-```
-
-Grafana is port-forwarded to <http://localhost:3000/d/mokka-gpu> (`admin` / `mokka`) once the `grafana` resource is ready.
-
-The Tilt UI exposes two manual triggers under the `observability-tests` label. Each injects a fault into a running mock with `nvml-mock-ctl` — never a `helm upgrade`, which would recycle the exporter and tear a hole in the series — and then **fails if the fault does not reach Prometheus**, so the whole scrape path is asserted rather than eyeballed:
-
-- **inject-thermal** — pins one GPU's temperature and asserts Prometheus serves exactly that value while its siblings keep varying
-- **inject-xid** — trips an uncorrectable ECC fault and asserts the Xid reaches `DCGM_FI_DEV_XID_ERRORS`
-
-See [observability/README.md](observability/README.md) for the dashboard panels, the scenario tunables, the two couplings that fail silently, and the behaviours that look like bugs and are not — chiefly that the Xid panel is empty until a fault fires, and that the injected Xid code alternates between runs by design.
-
-### With NVIDIA Dynamo
-
-Deploys the [Dynamo](https://github.com/ai-dynamo/dynamo) platform (operator only) and an aggregated `DynamoGraphDeployment` named `qwen3`: a frontend plus one decode worker running Dynamo's mocker engine, a simulated backend that registers with the router and streams responses without CUDA. The worker requests `nvidia.com/gpu: 1`, so it schedules only onto a mock-GPU node and gets the mock driver injected, the same way a real vLLM or TensorRT-LLM worker would.
-
-`--dynamo` implies `--gpu-operator`, since only the Operator's device plugin advertises `nvidia.com/gpu`. The worker sees the GPU profile `--gpu-profile` selected only through the nvml-mock NRI plugin, which runs by default; the [NVIDIA Dynamo guide](../docs/guides/dynamo/README.md) explains why.
-
-```bash
-make cluster-create
-tilt up -- --dynamo
 curl -s localhost:8000/v1/chat/completions -H 'Content-Type: application/json' \
   -d '{"model":"Qwen/Qwen3-0.6B","messages":[{"role":"user","content":"hi"}],"max_tokens":16}'
 ```
 
-The frontend is port-forwarded to <http://localhost:8000> once the `dynamo-frontend` resource is ready. The manual **dynamo-smoke** trigger under the `dynamo-tests` label asserts that the worker landed on a mock-GPU node, that `nvidia-smi` inside it lists exactly one GPU and that GPU is the node's profile, and that a chat completion round-trips through the frontend.
+### Slinky
 
-### With Slinky (Slurm)
-
-Deploys cert-manager, the [Slinky](https://github.com/SlinkyProject/slurm-operator) slurm-operator and a Slurm cluster (`local/slinky/slurm.values.yaml`) whose GPU NodeSet runs one `slurmd` per mock-GPU worker, with SSH into each `slurmd` pod enabled, plus a login pod (`slurm-login-slinky`, a `ClusterIP` Service since Kind has no load balancer) to submit jobs from. Every `slurmd` requests all four of its node's GPUs, and Slurm discovers them itself through `gres.conf` `AutoDetect=nvidia`.
-
-`--slinky` implies `--gpu-operator`, since only the Operator's device plugin advertises `nvidia.com/gpu`. `slurmd` finds the GPUs only through the driver files the nvml-mock NRI plugin, which runs by default, serves it. Every profile is capped at four GPUs (`local/slinky/nvml-mock.values.yaml`), which must stay in step with the NodeSet's `nvidia.com/gpu` limit. It fits any cluster shape; with `--compute-domain` it gives a four-node GB200 Slurm cluster. Mutually exclusive with `--dynamo`: with every GPU claimed by `slurmd`, the Dynamo worker could never schedule.
+`slurmd` detects GPUs once at startup and `slurmctld` keeps a node's first
+GPU-to-CPU binding, so after reinstalling nvml-mock or switching `--gpu-profile`,
+delete the node records (`scontrol delete nodename=...`) and then the `slurmd` pods.
+Submit a job from the controller:
 
 ```bash
-make cluster-create
-tilt up -- --slinky
 kubectl -n slurm exec slurm-controller-0 -c slurmctld -- srun -N1 --gres=gpu:2 nvidia-smi -L
 ```
 
-The `slurm-nodes` resource waits for the GPU Operator to be healthy, then stays pending until every `slurmd` pod is Ready, and prints `sinfo`. The manual **slurm-smoke** trigger under the `slinky-tests` label asserts every node registered its GPUs, that a 2-GPU job gets exactly 2 of the node's profile, and that a job using every GPU on every node runs. `slurmd` detects GPUs once at startup and `slurmctld` keeps a node's first GPU-to-CPU binding, so after reinstalling nvml-mock or switching `--gpu-profile`, delete the node records (`scontrol delete nodename=...`) and then the `slurmd` pods. The [Slinky guide](../docs/guides/slinky/README.md) walks through the same setup from published artifacts and covers what a job does and does not see.
-
-## Helm value overrides for nvml-mock
-
-Values are layered in this order (last wins):
-
-| File                                     | Committed           | Purpose                                                  |
-|------------------------------------------|---------------------|----------------------------------------------------------|
-| Chart defaults                           | —                   | upstream chart defaults                                  |
-| `local/nvml-mock.values.yaml`            | yes                 | shared local-dev baseline (sGPU node pinning, IB mode, etc.) |
-| `local/<consumer>/nvml-mock.values.yaml` | yes                 | per-consumer tweaks (e.g. `local/gpu-operator/`)         |
-| `local/nvml-mock.values.local.yaml`      | **no** (gitignored) | personal per-machine overrides                           |
-
-To add a personal override that won't be committed:
-
-```bash
-cat > local/nvml-mock.values.local.yaml <<'EOF'
-infiniband:
-  enabled: true
-  mode: full
-gpu:
-  count: 2
-EOF
-```
-
-Tilt picks it up automatically on the next save.
+The [Slinky guide](../docs/guides/slinky/README.md) walks through the same setup from
+published artifacts.

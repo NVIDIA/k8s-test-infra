@@ -1,0 +1,4 @@
+kind: Changed
+body: |-
+  tilt: `tilt up` without `--gpu-profile` now simulates the default GPU profile of the chart instead of `a100`; pass `--gpu-profile a100` to keep the previous shape. `--fgo` stays on `a100`.
+time: 2026-10-13T13:41:14Z
