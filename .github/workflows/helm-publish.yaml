@@ -5,8 +5,10 @@ name: helm-publish
 
 # No paths filter here: GitHub applies paths filters to tag pushes too, and a
 # tag push has no changed-files diff, so a paths filter silently suppresses
-# every tag-triggered run. Release branches are covered by their tags: a
-# release prepared on release-X.Y publishes its charts when it is tagged.
+# every tag-triggered run. A stable vMAJOR.MINOR.PATCH tag publishes the
+# charts under the tag's version, whatever Chart.yaml says, and any other v*
+# tag fails; main publishes only a -dev Chart.yaml version, because every
+# merge republishes it and would overwrite a release.
 on:
   push:
     branches: [main]
@@ -63,10 +65,13 @@ jobs:
       - name: Set up Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
 
-      - name: Read chart version
+      - name: Resolve publish version
         id: chart
+        env:
+          PUBLISH_REF: ${{ github.ref }}
         run: |
-          version=$(helm show chart ${{ matrix.dir }}/${{ matrix.chart }} | grep '^version:' | awk '{print $2}')
+          chart_version=$(helm show chart ${{ matrix.dir }}/${{ matrix.chart }} | grep '^version:' | awk '{print $2}')
+          version=$(./hack/chart-publish-version.sh "${PUBLISH_REF}" "${chart_version}")
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
@@ -76,11 +81,24 @@ jobs:
               -u ${{ github.actor }} \
               --password-stdin
 
+      # On a tag the chart and its default image tag take the tag's version, so
+      # the package and the push path below both carry it.
       - name: Package chart
+        env:
+          PUBLISH_REF: ${{ github.ref }}
+          VERSION: ${{ steps.chart.outputs.version }}
         run: |
-          helm package \
-            ${{ matrix.dir }}/${{ matrix.chart }} \
-            --destination .cr-release-packages
+          if [[ "${PUBLISH_REF}" == refs/tags/* ]]; then
+            helm package \
+              ${{ matrix.dir }}/${{ matrix.chart }} \
+              --version "${VERSION}" \
+              --app-version "${VERSION}" \
+              --destination .cr-release-packages
+          else
+            helm package \
+              ${{ matrix.dir }}/${{ matrix.chart }} \
+              --destination .cr-release-packages
+          fi
 
       # GHCR intermittently 404s the tag operation right after a fresh
       # manifest upload ("failed to perform Tag ...: not found"), leaving an
