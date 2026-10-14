@@ -18,6 +18,7 @@ const managed = [
   "label-sync.yml",
   "merge-evaluate.yml",
   "pr-metadata.yml",
+  "retire-merge-policy-check.yml",
   "review-observer.yml",
 ];
 
