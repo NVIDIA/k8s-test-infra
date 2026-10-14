@@ -17,3 +17,16 @@ const (
 	// IMEX management device minor from.
 	FabricIMEXMgmtPath = "driver/proc/driver/nvidia/capabilities/fabric-imex-mgmt"
 )
+
+// Where the node agent stages the IMEX node software, relative to its host
+// root. The DRA driver runs nvidia-imex, which on a mock node is the --nogpu
+// shim; the shim runs nvidia-imex.real from beside itself.
+const (
+	BinDir           = "driver/usr/bin"
+	DaemonBinary     = "nvidia-imex"
+	RealDaemonBinary = "nvidia-imex.real"
+	CtlBinary        = "nvidia-imex-ctl"
+	// ContainerBinDir is where the binaries appear inside a container, as the
+	// NVIDIA Container Toolkit mounts them on a real node.
+	ContainerBinDir = "/usr/bin"
+)

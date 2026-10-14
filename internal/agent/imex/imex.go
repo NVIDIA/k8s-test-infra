@@ -1,10 +1,11 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-// Package imex implements the IMEX capability surface simulator:
-// channel character devices, a /proc/devices overlay, and the
-// fabric-imex-mgmt capability file consumed by the NVIDIA DRA
-// compute-domain kubelet plugin.
+// Package imex implements the IMEX simulator: the capability surface the NVIDIA
+// kernel module provides (channel character devices, a /proc/devices overlay
+// and the fabric-imex-mgmt capability file), read by the NVIDIA DRA
+// compute-domain kubelet plugin, and the IMEX node software (nvidia-imex and
+// nvidia-imex-ctl) its ComputeDomain daemon runs.
 package imex
 
 import (
@@ -13,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 
 	"go.uber.org/zap"
@@ -40,22 +42,68 @@ type Simulator struct {
 	host            *host.Host
 	ready           atomic.Bool
 	procDevicesPath string // /proc/devices in production; overridden in tests
+	nodeSoftware    nodeSoftware
+}
+
+// Options supplies the node-local inputs used to stage IMEX node software.
+type Options struct {
+	// Architecture selects the pinned archive; defaults to the agent's own.
+	Architecture string
+	// ShimPath is the --nogpu shim published as nvidia-imex.
+	ShimPath string
+	// ProvidedDir is where the pinned archive is looked up by its file name.
+	ProvidedDir string
+	// Lock pins the IMEX release; defaults to the embedded imex.lock.json.
+	Lock Lock
 }
 
 // New returns an imex Simulator.
-func New(h *host.Host) *Simulator {
-	return &Simulator{host: h, procDevicesPath: "/proc/devices"}
+func New(h *host.Host, options ...Options) *Simulator {
+	opt := Options{
+		Architecture: runtime.GOARCH,
+		ShimPath:     "/usr/local/bin/nvidia-imex-shim",
+		ProvidedDir:  DefaultProvidedDir,
+		Lock:         mustDefaultLock(),
+	}
+	if len(options) > 0 {
+		provided := options[0]
+		if provided.Architecture != "" {
+			opt.Architecture = provided.Architecture
+		}
+		if provided.ShimPath != "" {
+			opt.ShimPath = provided.ShimPath
+		}
+		if provided.ProvidedDir != "" {
+			opt.ProvidedDir = provided.ProvidedDir
+		}
+		if provided.Lock.Version != "" {
+			opt.Lock = provided.Lock
+		}
+	}
+	return &Simulator{
+		host:            h,
+		procDevicesPath: "/proc/devices",
+		nodeSoftware: nodeSoftware{
+			root:        h.Root,
+			shimPath:    opt.ShimPath,
+			providedDir: opt.ProvidedDir,
+			arch:        opt.Architecture,
+			lock:        opt.Lock,
+		},
+	}
 }
 
 // Name returns the simulator's stable identifier.
 func (s *Simulator) Name() string { return name }
 
-// Ready reports whether the last Stage call completed without error.
+// Ready reports whether the last Stage call completed without error. A node
+// without IMEX node software is still ready: see nodeSoftware.stage.
 func (s *Simulator) Ready() bool { return s.ready.Load() }
 
-// Stage materializes the IMEX capability surface under host.Root. When
-// state.IMEX.Enabled is false it removes the surface, as Discard does, and
-// marks ready: the flag follows the profile and can change at runtime.
+// Stage materializes the IMEX capability surface and node software under
+// host.Root. When state.IMEX.Enabled is false it removes all of it, as Discard
+// does, and marks ready: the flag follows the profile and can change at
+// runtime.
 func (s *Simulator) Stage(_ context.Context, state *agent.State) error {
 	s.ready.Store(false)
 	zap.L().Info("staging simulator", zap.String("simulator", name))
@@ -80,6 +128,7 @@ func (s *Simulator) Stage(_ context.Context, state *agent.State) error {
 		s.ready.Store(true)
 		return nil
 	}
+	s.nodeSoftware.stage()
 
 	s.ready.Store(true)
 	zap.L().Info("simulator staged", zap.String("simulator", name))
@@ -94,9 +143,12 @@ func (s *Simulator) Discard(_ context.Context) error {
 	return s.remove()
 }
 
-// remove deletes the IMEX capability surface.
+// remove withdraws the node software, then deletes the capability surface.
 func (s *Simulator) remove() error {
 	var errs []error
+	if err := s.nodeSoftware.remove(); err != nil {
+		errs = append(errs, err)
+	}
 	for _, rel := range []string{
 		imex.ChannelsDir,
 		filepath.Dir(imex.ProcDevicesPath),
