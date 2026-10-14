@@ -127,7 +127,9 @@ func TestVerifyRelease(t *testing.T) {
 		cpIndex := imageIndex(t, cpDig, map[string]string{"amd64": cpAmd64, "arm64": cpArm64})
 		return verifyReleaseFixture{
 			runs: map[string]string{
-				// gh lists newest first; the script must not rely on that order.
+				// The newest run decides, whatever the array order. This fixture lists
+				// it last and the "publish run failed" case lists it first, as gh does,
+				// so taking either end of the array without sorting fails a case.
 				"nvml-mock-publish.yaml":           `[{"conclusion":"success","createdAt":"2026-10-14T10:00:00Z","databaseId":101}]`,
 				"mokka-control-plane-publish.yaml": `[{"conclusion":"failure","createdAt":"2026-10-14T09:00:00Z","databaseId":200},{"conclusion":"success","createdAt":"2026-10-14T10:00:00Z","databaseId":201}]`,
 				"helm-publish.yaml":                `[{"conclusion":"success","createdAt":"2026-10-14T10:00:00Z","databaseId":301}]`,
@@ -236,7 +238,7 @@ func TestVerifyRelease(t *testing.T) {
 			name: "publish run failed",
 			args: []string{"0.5.0"},
 			mutate: func(_ *testing.T, f *verifyReleaseFixture) {
-				f.runs["helm-publish.yaml"] = `[{"conclusion":"success","createdAt":"2026-10-14T09:00:00Z","databaseId":300},{"conclusion":"failure","createdAt":"2026-10-14T10:00:00Z","databaseId":301}]`
+				f.runs["helm-publish.yaml"] = `[{"conclusion":"failure","createdAt":"2026-10-14T10:00:00Z","databaseId":301},{"conclusion":"success","createdAt":"2026-10-14T09:00:00Z","databaseId":300}]`
 			},
 			exitCode: 1,
 			stdout: report(map[string]string{
