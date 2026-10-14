@@ -31,7 +31,7 @@ body:
     id: basesha
     attributes:
       label: Base commit
-      description: "The `main` SHA this release is cut from. It contains every fix listed below and must be fully green."
+      description: "The `main` SHA this release is cut from. It contains every fix listed below."
     validations: { required: true }
   - type: dropdown
     id: reason
@@ -82,13 +82,11 @@ body:
     attributes:
       label: Release-prep PR (against `main`)
       options:
-        - label: "CI Pipeline and `make lint` are green on the base commit."
         - label: "`make changelog-preview RELEASE_VERSION=<version-without-v>`, then `make changelog-release RELEASE_VERSION=<version-without-v>`."
         - label: "No changelog content lost: one bullet per fragment the fold removed from `.changes/unreleased/`. Both counts pasted in the PR."
         - label: "Compare link added at the bottom of CHANGELOG.md."
         - label: "Docs that pin the previous release's version updated: `git grep -nF '<previous-version-without-v>' -- docs`."
         - label: "`skip-changelog` label applied."
-        - label: "Gates: `make helm-tests`, `make helm-crds-tests`, `make lint`, `make build`, `make test`."
         - label: "No `Chart.yaml` version edited: the tag sets the published versions."
         - label: "Reviewed and merged. Review fixes batched into one push. Rebased only if the PR gets the `needs-rebase` label ([Rebase only on a conflict](https://github.com/NVIDIA/k8s-test-infra/blob/main/docs/contributing/pull-requests.md#rebase-only-on-a-conflict)); `main` is never merged into it."
   - type: checkboxes
@@ -96,7 +94,7 @@ body:
     attributes:
       label: Tag
       options:
-        - label: "Before tagging, CI Pipeline is green on the prep merge commit: `gh run list --workflow \"CI Pipeline\" --commit <prep-merge-commit>`."
+        - label: "Before tagging, CI Pipeline is green on the prep merge commit, the commit the tag goes on: `gh run list --workflow \"CI Pipeline\" --commit <prep-merge-commit>`. It runs the e2e matrix, which no merge check requires. If a newer push to `main` cancelled the run, rerun it with `gh run rerun <run-id>`."
         - label: "Before tagging, list the changelog fragments that merged after the base commit: `git diff --name-only --diff-filter=A <base-commit> <prep-merge-commit> -- .changes/unreleased`. They ship in this tag but are not in its changelog section. List pasted in this issue, even when empty. Each listed fragment also meets the version-check items above: do not tag over a `Removed` entry that breaks the floor, and the follow-up PR adds a missing `**Breaking:**` marker and user action."
         - label: "If anything other than the prep PR merged after the base commit (`git log --oneline <base-commit>..<prep-merge-commit>`), the version check is redone against the prep merge commit. If that changes the version, the tag and this issue use the new version; the section heading, the compare link and the doc pins the prep PR set carry the old one, and the follow-up changelog PR corrects them."
         - label: "`git tag -s -m \"<message>\" <version> <prep-merge-commit>`, with the commit given explicitly. The message names the fixes and the advisory IDs."
