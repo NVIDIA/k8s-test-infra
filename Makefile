@@ -520,7 +520,6 @@ repository-automation-ci: ## Validate and package the repository automation acti
 	cd $(REPOSITORY_AUTOMATION_DIR) && npm test
 	cd $(REPOSITORY_AUTOMATION_DIR) && npm run lint
 	cd $(REPOSITORY_AUTOMATION_DIR) && npm audit --audit-level=high
-	node --test '.github/scripts/cherrypick/*.test.js'
 	node --test '.github/scripts/issue-commands/*.test.js'
 	node --test '.github/scripts/retire-merge-policy/*.test.js'
 	make actionlint
@@ -534,7 +533,7 @@ helm-tests: ## Run the nvml-mock chart unit test suite
 # ---------------------------------------------------------------------------
 # Changelog (changie)
 # Entries are recorded as fragments under .changes/unreleased/ instead of edits
-# to CHANGELOG.md, so concurrent PRs and backports never conflict. A maintainer
+# to CHANGELOG.md, so concurrent PRs never conflict. A maintainer
 # folds the pending fragments into CHANGELOG.md when cutting a release.
 # ---------------------------------------------------------------------------
 CHANGIE_VERSION ?= v1.26.0
@@ -583,8 +582,6 @@ changelog-preview: changie ## Preview the next release section without writing: 
 	@test -n "$(RELEASE_VERSION)" || { echo "RELEASE_VERSION is required, e.g. make changelog-preview RELEASE_VERSION=0.5.0"; exit 1; }
 	@CHANGIE=$(CHANGIE) bash hack/changelog-fold.sh --dry-run $(RELEASE_VERSION)
 
-# A prerelease (0.5.0-rc1) parks its fragments in .changes/0.5.0/; the final
-# 0.5.0 folds them back in and replaces every 0.5.0-* section with one.
 .PHONY: changelog-release
 changelog-release: changie ## Maintainers: fold unreleased fragments into CHANGELOG.md as RELEASE_VERSION
 	@test -n "$(RELEASE_VERSION)" || { echo "RELEASE_VERSION is required, e.g. make changelog-release RELEASE_VERSION=0.5.0"; exit 1; }

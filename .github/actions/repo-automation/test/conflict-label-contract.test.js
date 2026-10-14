@@ -562,19 +562,33 @@ test("schedule accepts exactly 100 candidates and emits a bounded summary", asyn
   assert.deepEqual(github.mutations, []);
 });
 
-for (const branch of ["main", "release-1.2"]) {
-  test(`a ${branch} base push repairs matching PRs without a PR payload or new PR head`, async () => {
-    const github = fakeGitHub({ pullRequests: [
-      pullRequest(),
-      pullRequest({ number: 43, nodeId: "PR_43", baseBranch: "release-1.2" }),
-      pullRequest({ number: 44, nodeId: "PR_44", baseBranch: "feature/unsupported" }),
-    ] });
-    await invoke(github, { eventName: "push", event: pushEvent(branch) });
-    assert.deepEqual(github.mutations, [{ operation: "addIssueLabel", number: branch === "main" ? 42 : 43, label: "needs-rebase" }]);
-    assert.ok(github.calls.some((call) => call.operation === "listOpenPullRequestNumbers"));
-    assert.equal(github.calls.some((call) => call.operation === "getBranch" && call.key === "feature/unsupported"), false);
+test("a main base push repairs matching PRs without a PR payload or new PR head", async () => {
+  const github = fakeGitHub({ pullRequests: [
+    pullRequest(),
+    pullRequest({ number: 43, nodeId: "PR_43", baseBranch: "release-1.2" }),
+    pullRequest({ number: 44, nodeId: "PR_44", baseBranch: "feature/unsupported" }),
+  ] });
+  await invoke(github, { eventName: "push", event: pushEvent("main") });
+  assert.deepEqual(github.mutations, [{ operation: "addIssueLabel", number: 42, label: "needs-rebase" }]);
+  assert.ok(github.calls.some((call) => call.operation === "listOpenPullRequestNumbers"));
+  assert.equal(github.calls.some((call) => call.operation === "getBranch" && call.key === "feature/unsupported"), false);
+});
+
+test("a push to any branch other than main is not a label repair route", () => {
+  const { route } = require("../src/modes/conflict-labels.js");
+  assert.equal(route(pushEvent("main"), "push").branch, "main");
+  for (const branch of ["release-1.2", "release-0.4", "feature/unrelated"]) {
+    assert.throws(() => route(pushEvent(branch), "push"),
+      { name: "TypeError", message: "conflict label event route is unsupported" }, branch);
+  }
+});
+
+test("a release branch push makes no conflict label write for a PR on that base", async () => {
+  const github = fakeGitHub({ pullRequests: [pullRequest({ baseBranch: "release-1.2" })] });
+  await assertNoWrite(github, {
+    eventName: "push", event: pushEvent("release-1.2"), expectedFailure: /^conflict label event route is unsupported$/,
   });
-}
+});
 
 test("schedule repairs all open PRs and excludes closed PRs", async () => {
   const github = fakeGitHub({

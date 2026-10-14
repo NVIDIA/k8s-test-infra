@@ -293,14 +293,19 @@ for (const policyRevision of ["", "not-a-commit"]) {
   });
 }
 
-for (const branch of ["main", "release-1.2"]) {
-  test(`a ${branch} push scans old PRs with unchanged heads and matching bases`, async () => {
-    const github = fakeGitHub({ pullRequests: [pullRequest(), pullRequest({ number: 43, nodeId: "PR_43", baseBranch: "release-1.2" })] });
-    await invoke(github, { eventName: "push", event: push(branch) });
-    assert.ok(github.mutations.length > 0);
-    assert.ok(github.mutations.every((entry) => entry.number === (branch === "main" ? 42 : 43)));
+test("a main push scans old PRs with unchanged heads and matching bases", async () => {
+  const github = fakeGitHub({ pullRequests: [pullRequest(), pullRequest({ number: 43, nodeId: "PR_43", baseBranch: "release-1.2" })] });
+  await invoke(github, { eventName: "push", event: push("main") });
+  assert.ok(github.mutations.length > 0);
+  assert.ok(github.mutations.every((entry) => entry.number === 42));
+});
+
+test("a release branch push makes no metadata label write for a PR on that base", async () => {
+  const github = fakeGitHub({ pullRequests: [pullRequest({ baseBranch: "release-1.2" })] });
+  await noWrite(github, {
+    eventName: "push", event: push("release-1.2"), expectedFailure: /^conflict label event route is unsupported$/,
   });
-}
+});
 
 test("metadata scan apply followed by replay performs no additional label writes", async () => {
   const github = fakeGitHub();

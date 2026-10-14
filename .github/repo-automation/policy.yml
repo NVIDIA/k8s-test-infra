@@ -1,5 +1,5 @@
 schemaVersion: 1
-protectedBranches: [main, "release-*"]
+protectedBranches: [main]
 activeOwnerFiles: [/OWNERS]
 review:
   reviewerTarget: 2
@@ -10,7 +10,7 @@ commands:
 merge:
   method: SQUASH
   # Source CI that must pass on the pull request head before a merge; merge-ci.js and the Mokka agent read this list.
-  # CI passes only for pull requests into main or release-*. A workflow is required when it has no files, or when
+  # CI passes only for pull requests into main. A workflow is required when it has no files, or when
   # a changed path, or the previous path of a rename, matches one of its files patterns. Patterns are a portable
   # subset that config.js enforces: each "/"-separated segment is either "**" or letters, digits, ".", "_" and "-"
   # with "*" matching any characters inside that segment, including a leading dot. "**" matches zero or more whole
@@ -24,7 +24,6 @@ merge:
         files:
           - ".github/actions/repo-automation/**"
           - ".github/repo-automation/**"
-          - ".github/scripts/cherrypick/**"
           - ".github/scripts/issue-commands/**"
           - ".github/workflows/**"
           - hack/actionlint.sh

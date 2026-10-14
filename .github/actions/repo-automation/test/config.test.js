@@ -131,7 +131,7 @@ test("loads exact authority, branch, review, command, bot, and size policy", () 
 
   assert.deepEqual(policy.activeOwnerFiles, ["/OWNERS"]);
   assert.equal(policy.activeOwnerFiles.includes("vendor/**/OWNERS"), false);
-  assert.deepEqual(policy.protectedBranches, ["main", "release-*"]);
+  assert.deepEqual(policy.protectedBranches, ["main"]);
   assert.equal(policy.review.reviewerTarget, 2);
   assert.equal(policy.commands.retestCooldownSeconds, 600);
   assert.equal(policy.commands.historyLimit, 256);
@@ -163,8 +163,8 @@ test("declares the required CI that merge-ci.js hard-coded at 809294d", () => {
       {
         path: ".github/workflows/automation-ci.yml",
         files: [
-          ".github/actions/repo-automation/**", ".github/repo-automation/**", ".github/scripts/cherrypick/**",
-          ".github/scripts/issue-commands/**", ".github/workflows/**", "hack/actionlint.sh", "Makefile", "OWNERS", "OWNERS_ALIASES",
+          ".github/actions/repo-automation/**", ".github/repo-automation/**", ".github/scripts/issue-commands/**",
+          ".github/workflows/**", "hack/actionlint.sh", "Makefile", "OWNERS", "OWNERS_ALIASES",
         ],
       },
       {
@@ -426,7 +426,6 @@ test("repository automation CI contains every Task 1 gate", () => {
     "npm audit --audit-level=high",
     "npm run package",
     "git diff --exit-code -- dist",
-    "node --test '.github/scripts/cherrypick/*.test.js'",
     "node --test '.github/scripts/issue-commands/*.test.js'",
     "make actionlint",
   ]) {
