@@ -82,9 +82,13 @@ func (d *ConfigurableDevice) fanned(funcName string, fan int) (*FanConfig, nvml.
 // entries are matched on the fan they name, so one naming a fan the board does
 // not have is ignored rather than aliased onto a fan it does.
 func fanControl(cfg *FanConfig, fan int) *FanControlConfig {
-	for i := range cfg.Controls {
-		if cfg.Controls[i].Fan == fan {
-			return &cfg.Controls[i]
+	return findFanControl(cfg.Controls, fan)
+}
+
+func findFanControl(controls []FanControlConfig, fan int) *FanControlConfig {
+	for i := range controls {
+		if controls[i].Fan == fan {
+			return &controls[i]
 		}
 	}
 	return nil
@@ -315,20 +319,13 @@ func (d *ConfigurableDevice) SetDefaultFanSpeed_v2(fan int) nvml.Return {
 // asked for — and switching back to the curve drops any that was.
 func (d *ConfigurableDevice) SetFanControlPolicy(fan int, policy nvml.FanControlPolicy) nvml.Return {
 	const name = "nvmlDeviceSetFanControlPolicy"
-	cfg, ret := d.fanned(name, fan)
-	if ret != nvml.SUCCESS {
+	if _, ret := d.fanned(name, fan); ret != nvml.SUCCESS {
 		return ret
 	}
 	next := FanControlConfig{Fan: fan}
 	switch policy {
 	case nvml.FAN_POLICY_MANUAL:
 		next.Policy = fanPolicyManual
-		// A duty cycle already asked for survives the policy being
-		// re-asserted, so a consumer setting manual twice does not lose it.
-		if ctl := fanControl(cfg, fan); ctl != nil && ctl.SpeedPercent != nil {
-			speed := *ctl.SpeedPercent
-			next.SpeedPercent = &speed
-		}
 	case nvml.FAN_POLICY_TEMPERATURE_CONTINOUS_SW:
 		next.Policy = fanPolicyTemperature
 	default:
@@ -346,7 +343,9 @@ func (d *ConfigurableDevice) SetFanControlPolicy(fan int, policy nvml.FanControl
 //
 // The fold runs inside the writer's lock because the recorded list covers every
 // fan: two callers writing different fans would otherwise each rebuild the list
-// from the same base and one write would be lost.
+// from the same base and one write would be lost. For the same reason a manual
+// write that names no duty cycle takes the one already recorded from that base
+// rather than from this process's view, which may predate another's write.
 func (d *ConfigurableDevice) writeFanControl(funcName string, fan int, next FanControlConfig) nvml.Return {
 	w := overrideWriter()
 	if w == nil {
@@ -358,7 +357,14 @@ func (d *ConfigurableDevice) writeFanControl(funcName string, fan int, next FanC
 			if !present {
 				base = d.configuredFanControls()
 			}
-			return replaceFanControl(base, next), nil
+			folded := next
+			if folded.Policy == fanPolicyManual && folded.SpeedPercent == nil {
+				if prev := findFanControl(base, fan); prev != nil && prev.SpeedPercent != nil {
+					speed := *prev.SpeedPercent
+					folded.SpeedPercent = &speed
+				}
+			}
+			return replaceFanControl(base, folded), nil
 		})
 	if err != nil {
 		warnLog("[NVML] %s(fan=%d) -> NO_PERMISSION: %v\n", funcName, fan, err)

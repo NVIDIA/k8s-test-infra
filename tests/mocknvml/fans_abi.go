@@ -259,6 +259,7 @@ func testFanWrites(name string, device nvml.Device, numFans int) []testResult {
 	// A duty cycle inside the envelope but distinct from where the fan is
 	// now, so the read-back cannot pass on the board's resting value.
 	resting, _ := device.GetFanSpeed_v2(0)
+	restingRPM, restingRPMRet := device.GetFanSpeedRPM()
 	want := hi
 	if want == int(resting) {
 		want = lo
@@ -280,7 +281,13 @@ func testFanWrites(name string, device nvml.Device, numFans int) []testResult {
 	// The RPM reading is scaled from the duty cycle, so it has to move with
 	// the write. This is the only check that the tachometer reading is
 	// derived rather than a constant the bridge copies out.
-	results = append(results, checkRPMFollowsDutyCycle(name+"/rpm_follows_write", device, want))
+	if restingRPMRet == nvml.SUCCESS {
+		results = append(results, checkRPMFollowsDutyCycle(name+"/rpm_follows_write", device,
+			int(resting), restingRPM.Speed, want))
+	} else {
+		results = append(results, testResult{name + "/rpm_follows_write", restingRPMRet == nvml.ERROR_NOT_SUPPORTED,
+			fmt.Sprintf("resting GetFanSpeedRPM: %v", nvml.ErrorString(restingRPMRet))})
+	}
 
 	// A write addresses one fan. Another fan changing with it would mean the
 	// index was dropped somewhere between the C ABI and the override
@@ -409,32 +416,22 @@ func checkFanPolicy(label string, device nvml.Device, want nvml.FanControlPolicy
 }
 
 // checkRPMFollowsDutyCycle asserts the tachometer reading is scaled from the
-// duty cycle rather than reported as a fixed value. The reading is truncated
-// when scaled, so the comparison is directional: a higher duty cycle must not
-// read slower, and vice versa.
-func checkRPMFollowsDutyCycle(label string, device nvml.Device, wrote int) testResult {
+// duty cycle rather than reported as a fixed value, by comparing the reading
+// at rest with the one after the write. The two duty cycles differ, so a
+// constant reading fails. Scaling truncates, so the comparison is directional
+// rather than exact: a higher duty cycle must read faster, and vice versa.
+func checkRPMFollowsDutyCycle(label string, device nvml.Device, restingPct int, restingRPM uint32, wrote int) testResult {
 	info, ret := device.GetFanSpeedRPM()
-	if ret == nvml.ERROR_NOT_SUPPORTED {
-		return testResult{label, true, "board declares no tachometer"}
-	}
 	if ret != nvml.SUCCESS {
 		return testResult{label, false, fmt.Sprintf("GetFanSpeedRPM failed: %v", nvml.ErrorString(ret))}
 	}
-	// Scaling is linear in the duty cycle, so the reading recovers the
-	// ceiling the profile declared. Recomputing it here is what catches a
-	// constant being returned: a fixed reading would imply a ceiling that
-	// disagrees with the one the next duty cycle implies.
-	if wrote == 0 {
-		if info.Speed != 0 {
-			return testResult{label, false,
-				fmt.Sprintf("fan held at 0%% reads %d RPM", info.Speed)}
-		}
-		return testResult{label, true, "0 RPM at 0%"}
+	detail := fmt.Sprintf("%d RPM at %d%%, %d RPM at %d%%", restingRPM, restingPct, info.Speed, wrote)
+	switch {
+	case wrote > restingPct && info.Speed <= restingRPM,
+		wrote < restingPct && info.Speed >= restingRPM:
+		return testResult{label, false, "the reading did not move with the duty cycle: " + detail}
 	}
-	if info.Speed == 0 {
-		return testResult{label, false, fmt.Sprintf("fan held at %d%% reads 0 RPM", wrote)}
-	}
-	return testResult{label, true, fmt.Sprintf("%d RPM at %d%%", info.Speed, wrote)}
+	return testResult{label, true, detail}
 }
 
 // checkOtherFanUntouched asserts a write to fan 0 left fan 1 where it was.

@@ -338,6 +338,34 @@ func TestSetFanControlPolicy_RoundTrips(t *testing.T) {
 	require.Equal(t, nvml.FanControlPolicy(nvml.FAN_POLICY_TEMPERATURE_CONTINOUS_SW), policy)
 }
 
+// TestSetFanControlPolicy_ManualKeepsADutyCycleWrittenElsewhere covers a duty
+// cycle another process recorded after this one last read the document.
+// Re-asserting manual control must carry that write forward rather than the
+// stale one this process still holds.
+func TestSetFanControlPolicy_ManualKeepsADutyCycleWrittenElsewhere(t *testing.T) {
+	persistSetterWrites(t)
+	dev := newTestDeviceWithConfig(t, fannedConfig())
+
+	speed, ret := dev.GetFanSpeed_v2(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, uint32(41), speed)
+
+	// Written through the writer directly, the way another process would,
+	// so this process's view of the document is not invalidated.
+	eightyEight := 88
+	require.NoError(t, overrideWriter().UpdateFanControl(dev.PhysicalIndex(),
+		func(base []FanControlConfig, _ bool) ([]FanControlConfig, error) {
+			return replaceFanControl(base,
+				FanControlConfig{Fan: 0, Policy: fanPolicyManual, SpeedPercent: &eightyEight}), nil
+		}))
+
+	require.Equal(t, nvml.SUCCESS, dev.SetFanControlPolicy(0, nvml.FAN_POLICY_MANUAL))
+
+	speed, ret = dev.GetFanSpeed_v2(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, uint32(88), speed, "the duty cycle the other process asked for survives")
+}
+
 func TestSetFanControlPolicy_RejectsAnUnknownPolicy(t *testing.T) {
 	persistSetterWrites(t)
 	dev := newTestDeviceWithConfig(t, fannedConfig())

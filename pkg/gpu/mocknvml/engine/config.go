@@ -1083,9 +1083,9 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	if override.Thermal != nil {
 		base.Thermal = override.Thermal
 	}
-	// Without this branch a per-device fan block was parsed and dropped, so a
-	// profile mixing form factors — a fanned PCIe board beside fanless SXM
-	// modules — reported the defaults' fan count on every device.
+	// Cooling is a property of one board's form factor, so a profile can mix a
+	// fanned PCIe board with fanless SXM modules; the per-device block replaces
+	// the defaults' whole rather than inheriting their fan count or envelope.
 	if override.Fan != nil {
 		base.Fan = override.Fan
 	}
