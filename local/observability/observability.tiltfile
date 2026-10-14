@@ -57,7 +57,7 @@ _HELM_TIMEOUT_S = 600
 # through: the build fails with a bare "apply command timed out" that says
 # nothing about helm.
 UPSERT_TIMEOUT_S = _HELM_TIMEOUT_S + 60
-_DASHBOARD_JSON = 'local/observability/dashboards/mokka-gpu.json'
+_DASHBOARD_CM_YAML = 'local/observability/dashboards/mokka-gpu-dashboard.yaml'
 _DASHBOARD_CM = 'mokka-gpu-dashboard'
 # Grafana's own default HTTP port inside the container, and the Service port the
 # chart puts in front of it. Split out because the two differ and the
@@ -101,26 +101,8 @@ def install(nvml_mock_releases):
 
 
 def _install_dashboard():
-    """Provision dashboards/mokka-gpu.json for the Grafana sidecar.
-
-    Built from read_file + encode_yaml rather than shelled out to `kubectl
-    create configmap` so Tilt watches the JSON: editing a panel and saving
-    re-applies the ConfigMap and the sidecar re-imports it, with no re-install.
-    """
-    k8s_yaml(encode_yaml({
-        'apiVersion': 'v1',
-        'kind': 'ConfigMap',
-        'metadata': {
-            'name': _DASHBOARD_CM,
-            'namespace': _NAMESPACE,
-            # The label the Grafana sidecar selects on. Must match
-            # grafana.sidecar.dashboards.label / labelValue in
-            # kube-prometheus-stack.values.yaml. A mismatch is silent: the
-            # ConfigMap applies cleanly and no dashboard ever appears.
-            'labels': {'grafana_dashboard': '1'},
-        },
-        'data': {'mokka-gpu.json': str(read_file(_DASHBOARD_JSON))},
-    }))
+    """Provision the dashboard ConfigMap for the Grafana sidecar."""
+    k8s_yaml(_DASHBOARD_CM_YAML)
 
     k8s_resource(
         new_name=_DASHBOARD_CM,

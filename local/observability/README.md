@@ -43,6 +43,7 @@ needs to correlate GPU symptoms against.
 | `gpu-operator.values.yaml`          | Overlay re-enabling `dcgmExporter` and its `ServiceMonitor`    |
 | `nvml-mock.values.yaml`             | Overlay enabling `gpu.dynamicMetrics`                          |
 | `dashboards/mokka-gpu.json`         | The dashboard, in git rather than click-together UI state      |
+| `dashboards/mokka-gpu-dashboard.yaml` | The same dashboard wrapped in the ConfigMap the Grafana sidecar imports |
 | `scenarios/inject-thermal.sh`       | Pins one GPU's temperature, asserts it reaches Prometheus      |
 | `scenarios/inject-xid.sh`           | Trips an uncorrectable ECC fault, asserts the Xid arrives      |
 
