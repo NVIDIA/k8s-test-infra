@@ -376,6 +376,13 @@ nothing here second-guesses a type list.
 {{- $virt := get $defaults "virtualization" | default (dict) -}}
 {{- $vgpu := dict -}}
 {{- if eq .Values.gpu.vgpu.mode "host" -}}
+{{- /*
+Presence only: without a type the node agent refuses the config, and an
+install that waits for it would time out with no reason given.
+*/ -}}
+{{- if not .Values.gpu.vgpu.types -}}
+{{- fail "gpu.vgpu.mode is host but gpu.vgpu.types declares no vGPU types, so the node agent would refuse the config. Declare the types the host offers; docs/vgpu.md lists the fields." -}}
+{{- end -}}
 {{- $_ := set $virt "mode" "host_vgpu" -}}
 {{- $_ := set $virt "host_vgpu_mode" .Values.gpu.vgpu.hostVgpuMode -}}
 {{- $_ := set $vgpu "types" (.Values.gpu.vgpu.types | default list) -}}
@@ -383,10 +390,15 @@ nothing here second-guesses a type list.
 {{- else -}}
 {{- $_ := set $virt "mode" "vgpu" -}}
 {{- /*
+The engine refuses host types or instances under mode vgpu, so a profile's own
+vgpu block never survives into a guest render, even when no guest fields are
+set.
+
 The engine treats a present guest block as a claim about the host driver and
 requires its fields, so an empty one would fail the node agent at startup
 where an absent one loads as a guest that knows nothing about its host.
 */ -}}
+{{- $_ := unset $virt "vgpu" -}}
 {{- with .Values.gpu.vgpu.guest -}}
 {{- $_ := set $vgpu "guest" . -}}
 {{- end -}}
