@@ -35,7 +35,8 @@ unrecognised mode reports `NONE` and ignores the `vgpu` block.
 
 vGPU is configured in `device_defaults` only: a
 [per-device override](configuration.md#per-device-overrides) does not merge
-`virtualization`, so every GPU on the node plays the same side.
+`virtualization`, so every GPU on the node starts on the same side. Only a
+[runtime override](#runtime-overrides) can move one GPU to another.
 
 ### Under the chart
 
@@ -53,8 +54,27 @@ NVML mode nor the profile key:
 `mode: host` passes only `hostVgpuMode`, `types` and `instances`; `mode: guest`
 passes only `guest`. The chart ignores the other mode's fields rather than
 refusing them. `mode: guest` with an empty `guest` renders `mode: vgpu` and no
-`vgpu` block, which is the [mode-only guest](#a-guest-with-no-block). The node
-agent [validates](#validation) the rendered block; the chart does not.
+`vgpu` block, which is the [mode-only guest](#a-guest-with-no-block). The chart
+refuses to render `mode: host` with no `types`; every other rule is the node
+agent's, which [validates](#validation) the rendered block.
+
+### Runtime overrides
+
+[`nvml-mock-ctl set`](nvml-mock-ctl.md#set--set-arbitrary-fields) can change
+`virtualization` on a running node, for one GPU or for all of them. An override
+is not validated like the profile: only its field names and value types are
+checked, not the [validation rules](#validation). A GPU set to `host_vgpu` with
+no `vgpu` block, for example, reports `Host VGPU` as its mode and answers
+`NVML_ERROR_NOT_SUPPORTED` to every vGPU call. The guest's PCI capability is
+written by the node agent from the profile, so an override does not change it.
+
+Toggling a guest's license works:
+
+```bash
+nvml-mock-ctl set --gpu 0 virtualization.vgpu.guest.license.state=unlicensed
+```
+
+The next `nvidia-smi -q` reports GPU 0 unlicensed.
 
 ## Host
 
@@ -104,18 +124,22 @@ vGPU presents to its guest.
 ### Instances
 
 Each entry asks for `count` running instances of the named type. An omitted
-count means one. Instances run from the moment the library loads; nothing
-creates or destroys them at runtime.
+count means one. Instances run from the moment the library loads; no NVML call
+creates or destroys them, and only a [runtime override](#runtime-overrides) of
+`instances` changes the set.
 
 A GPU runs one vGPU type at a time, so every entry names the same type, and
-their counts together are bounded by that type's `max_instances`. Their
-framebuffer together must fit the board's `memory.total_bytes`.
+their counts together are bounded by that type's `max_instances`. When the
+profile sets `memory.total_bytes`, their framebuffer together must fit it.
 
 ### Host identities
 
-An instance's ID is `(GPU index + 1) × 1000 + slot + 1`, where the slot counts the GPU's instances from zero in declaration order: GPU
-0's first instance is `1001`, GPU 1's second is `2002`. The ID encodes its GPU,
-so it is the same in every process.
+An instance's ID is `(GPU index + 1) × 1000 + slot + 1`, where the slot counts
+the GPU's instances from zero in declaration order: GPU 0's first instance is
+`1001`, GPU 1's second is `2002`. The GPU index is the GPU's physical index on
+the node, not the enumeration index a container sees: in a container given only
+GPU 3, that GPU's first instance is still `4001`. The ID encodes its GPU, so it
+is the same in every process.
 
 Each instance's vGPU UUID and VM UUID are derived from its GPU's UUID and slot.
 They are stable across restarts when the profile declares `devices[].uuid`,
@@ -148,9 +172,11 @@ capabilities, vGPU driver capabilities and heterogeneous mode.
 returns `NVML_ERROR_NOT_SUPPORTED`, as a bare-metal driver does, and
 `nvidia-smi vgpu` prints `No supported devices in vGPU mode`. An unknown type
 or instance ID returns `NVML_ERROR_INVALID_ARGUMENT`. The vGPU calls answer
-from configuration and do not advance [failure injection](helm-chart.md#failure-injection)'s
-call counter, but on a GPU that failure injection has already made lost they
-report the loss.
+from configuration and do not advance
+[failure injection](helm-chart.md#failure-injection)'s call counter. A call that
+takes a device handle or an instance ID reports the loss once failure injection
+has made that GPU lost; a call that takes only a type ID answers from any other
+GPU that declares the type.
 
 **`nvidia-smi pmon` declines a host GPU**, printing `The feature is not
 supported in this configuration` for each one, as it does on a hypervisor.
@@ -194,7 +220,7 @@ What changes for a guest:
   [PCI sysfs tree](helm-chart.md#pci-sysfs-in-containers). GPU Feature
   Discovery (GFD) reads it from there and labels the node
   `nvidia.com/vgpu.present`, `nvidia.com/vgpu.host-driver-version` and
-  `nvidia.com/vgpu.host-driver-branch` when it reads the mock's PCI tree.
+  `nvidia.com/vgpu.host-driver-branch`.
 
 Licensing is reported through `nvmlDeviceGetGridLicensableFeatures` (v4, which
 the unversioned name resolves to); a GPU that is not a guest with a `guest`
@@ -218,7 +244,8 @@ The block is checked when the config loads, and each failure names the field:
 - Every instance names a declared type, and its `count` is not negative.
 - All instances name the same type.
 - The instances' total count does not exceed that type's `max_instances`.
-- The instances' total framebuffer does not exceed the board's memory.
+- When the profile sets `memory.total_bytes`, the instances' total framebuffer
+  does not exceed it.
 - `guest` is refused under `host_vgpu`; `types` and `instances` are refused
   under `vgpu`.
 - A `guest` block needs `host_driver_version` and `host_driver_branch`, each at

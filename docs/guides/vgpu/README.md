@@ -19,9 +19,8 @@ curl -fsSLO "$MOKKA_ASSET_BASE/guest-values.yaml"
 ## Simulate a vGPU host
 
 [`host-values.yaml`](host-values.yaml) declares one compute type,
-`NVIDIA A100-4C`, and runs two instances of it on every GPU. No profile ships
-vGPU types, because which types a board offers depends on the vGPU software
-release.
+`NVIDIA A100-4C`, and runs two instances of it on every GPU. An install always
+declares its own types; the [reference](../../vgpu.md#host) explains why.
 
 ```bash
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
@@ -79,8 +78,10 @@ GPU 00000000:07:00.0
 ```
 
 The UUIDs are derived from the GPU's own, so they read the same on every run.
-Rows that print `N/A` are calls the mock does not implement; the
-[reference](../../vgpu.md#host-behaviour) lists them.
+Some rows print `N/A` because the mock does not implement the call, such as
+`Placement ID`; the [reference](../../vgpu.md#host-behaviour) lists them.
+`GPU Instance ID` prints `N/A` for another reason: the instance is time-sliced,
+not backed by a MIG GPU instance.
 
 `nvidia-smi vgpu -s` lists the supported types and `nvidia-smi vgpu -c` the
 types that could still be created. With two of ten slots in use, both print
@@ -116,19 +117,21 @@ virtualization and license rows):
         License Status                    : Licensed (Expiry: Permanent)
 ```
 
-The host driver version and branch do not appear in `nvidia-smi`. A guest reads
-them from a capability in its GPUs' PCI config space, which the node agent
-writes into the mock's PCI sysfs tree. GPU Feature Discovery (GFD) labels the
-node `nvidia.com/vgpu.present`, `nvidia.com/vgpu.host-driver-version` and
-`nvidia.com/vgpu.host-driver-branch` when it reads that tree; how a container
-gets the tree mounted is described in
-[PCI sysfs in containers](../../helm-chart.md#pci-sysfs-in-containers).
+The host driver version and branch do not appear in `nvidia-smi`; they reach
+GPU Feature Discovery through the PCI capability the
+[reference](../../vgpu.md#guest) describes.
 
 ## Troubleshooting
 
-**The `nvml-mock` pods stay in `Init:0/1` and restart after install.** The node
-agent refused the `gpu.vgpu` block and never becomes ready, so its startup
-probe fails. Its log names the field:
+**`helm install` fails with `gpu.vgpu.mode is host but gpu.vgpu.types declares
+no vGPU types`.** A host needs at least one type, so the chart refuses to render
+without one and nothing is deployed. Add `gpu.vgpu.types`, as
+[`host-values.yaml`](host-values.yaml) does.
+
+**`helm install --wait` times out, and the `nvml-mock` pods stay in `Init:0/1`
+and restart.** The node agent refused the `gpu.vgpu` block and never becomes
+ready, so its startup probe fails; `--wait` reports that only as a timeout.
+The node agent's log names the field:
 
 ```bash
 kubectl -n mokka logs "$POD" -c node-agent | grep 'state source error'
@@ -152,6 +155,6 @@ running the vGPU manager, as it does on a real hypervisor.
 
 | To read about | See |
 |---|---|
-| Every `gpu.vgpu` field, the identity rules and what is not simulated | [vGPU](../../vgpu.md) |
-| Every chart value | [Installation](../../helm-chart.md) |
+| Every `gpu.vgpu` chart value | [vGPU: Under the chart](../../vgpu.md#under-the-chart) |
+| Every profile field, the identity rules and what is not simulated | [vGPU](../../vgpu.md) |
 | The rest of a profile's `virtualization` block | [Configuration](../../configuration.md#virtualization) |
