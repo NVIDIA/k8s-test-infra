@@ -1,8 +1,4 @@
 kind: Changed
 body: |-
-  nvml-mock: a board's MIG profile table moved to its own file, found through
-    `MOCK_MIG_PROFILES_CONFIG` or beside the config (`config.mig.yaml`); chart
-    installs are unchanged. **Breaking** for externally-authored configs: move
-    `supported_profiles` out rather than copy it, as declaring both is refused.
-    See `docs/mig.md`.
+  nvml-mock: a board's MIG profile table lives in its own file, found through `MOCK_MIG_PROFILES_CONFIG` or beside the config (`config.mig.yaml`), which chart installs of a built-in profile set up. A config that declares `supported_profiles` inline while such a file resolves is refused. See `docs/mig.md`.
 time: 2026-09-29T07:19:00Z
