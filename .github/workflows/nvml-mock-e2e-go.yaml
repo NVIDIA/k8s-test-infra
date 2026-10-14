@@ -657,7 +657,7 @@ jobs:
         run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
 
   e2e-vgpu:
-    needs: [build-nvmlmock-image, build-kind-node-image]
+    needs: [build-nvmlmock-image]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -680,15 +680,6 @@ jobs:
         with:
           name: nvml-mock-image
           path: ${{ runner.temp }}
-
-      - name: Download pre-built kind-node image
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: kind-node-image
-          path: ${{ runner.temp }}
-
-      - name: Load pre-built kind-node image
-        run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
 
       - name: Install binaries and create Kind cluster
         run: ./hack/e2e-ci-cluster.sh
