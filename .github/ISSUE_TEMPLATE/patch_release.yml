@@ -22,13 +22,6 @@ body:
       placeholder: "v0.5.1"
     validations: { required: true }
   - type: input
-    id: engineer
-    attributes:
-      label: Release engineer
-      description: "GitHub handle of the maintainer running this release."
-      placeholder: "@handle"
-    validations: { required: true }
-  - type: input
     id: lasttag
     attributes:
       label: Last release tag
