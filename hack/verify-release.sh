@@ -170,7 +170,8 @@ check_digest "$CP:$XY" "$cp_index"
 check_digest "$NVML:latest" "$nvml_index"
 
 # 4. The tag sets both chart fields at publish time; a mismatch means the
-# chart shipped with the version from Chart.yaml instead.
+# chart shipped with the version from Chart.yaml instead. helm reports the
+# chart's digest on stderr; the ok line carries it for the release notes.
 for chart in nvml-mock mokka-crds; do
   what="chart $chart $V version/appVersion"
   if ! helm show chart "oci://$CHARTS/$chart" --version "$V" > "$out" 2> "$err"; then
@@ -180,8 +181,9 @@ for chart in nvml-mock mokka-crds; do
   fi
   version=$(sed -n 's/^version:[[:space:]]*//p' "$out" | tr -d "\"'")
   app_version=$(sed -n 's/^appVersion:[[:space:]]*//p' "$out" | tr -d "\"'")
+  chart_digest=$(sed -n 's/^Digest:[[:space:]]*//p' "$err")
   if [ "$version" = "$V" ] && [ "$app_version" = "$V" ]; then
-    ok "chart $chart $V has version and appVersion $V"
+    ok "chart $chart $V has version and appVersion $V (${chart_digest:-no digest reported})"
   else
     fail "$what" "$V/$V" "$version/$app_version"
   fi
