@@ -345,7 +345,7 @@ should match snapshot with a100 profile:
           # Virtualization
           # ---------------------------------------------------------------------------
           virtualization:
-            mode: "none"                    # none, passthrough, vgpu
+            mode: "none"                    # none, passthrough, vgpu, host_vgpu
             host_vgpu_mode: "N/A"
 
           # ---------------------------------------------------------------------------
