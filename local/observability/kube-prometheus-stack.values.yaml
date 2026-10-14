@@ -34,7 +34,7 @@ grafana:
   # The sidecar imports any ConfigMap carrying this label, which is how
   # dashboards/mokka-gpu.json gets in as a reviewable file in git instead of
   # click-together UI state. These are chart defaults, pinned here because
-  # observability.tiltfile builds the ConfigMap's label from them — the two must
+  # dashboards/mokka-gpu-dashboard.yaml carries the same label — the two must
   # agree or the dashboard never appears, with no error anywhere.
   sidecar:
     dashboards:
