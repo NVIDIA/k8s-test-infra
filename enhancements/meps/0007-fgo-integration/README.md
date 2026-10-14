@@ -44,27 +44,28 @@ FGO supports two backends:
 - `fake` - the primary FGO mode. It uses a custom, fake instances of nvidia-smi, device driver, DRA plugin, etc. in order to simulate presence of GPU devices on the node.
 - `mock` - the prior integration with Mokka during the early days of the Mokka project. 
 
-Here is a list of FGO main features:
+Here is a list of the FGO main features:
 
 - TBU
 
-#### FGO Node Lifecycle (Fake Backend)
+#### Fake Backend
+
+The idea behind the `fake` backend is to fake the NVIDIA GPU infrastructure in order to propagate simulated GPU to Kubernetes:
+
+- FGO is deployed to `gpu-operator` namespace to mimic presence of real GPU operator
+- FGO comes with a custom device plugin that propagates GPU capacity of the node
+- FGO comes with the `status-exporter` deamonset that mimics DGCM metrics
+- FGO installs a custom `nvidia-smi` binary that supports a subset of commands and flags of the original `nvidia-smi`.
+
+This gives the Kubernetes API level GPU simulation.
 
 TBU
 
-#### The Run:ai Fake GPU Operator
+##### FGO Node Lifecycle
 
-The [Fake GPU Operator](https://github.com/run-ai/fake-gpu-operator) (FGO) is
-Run:ai's tool for testing GPU scheduling on clusters without GPUs. It simulates
-at the Kubernetes API level. 
+TBU: add image
 
-A node opts in with the label
-`run.ai/simulated-gpu-node-pool=<pool>`, and the chart's
-`topology.nodePools.<pool>` declares the pool's GPUs. FGO advertises
-`nvidia.com/gpu` through its own device plugin, publishes GPU node labels such
-as `nvidia.com/gpu.product` and Prometheus metrics, and supports MIG, NUMA
-topology (`NodeResourceTopology`), Dynamic Resource Allocation (DRA) and
-ComputeDomains.
+#### KWOW
 
 FGO reaches fleet scale with [KWOK](https://kwok.sigs.k8s.io/) (Kubernetes
 WithOut Kubelet), which creates Node objects and drives the lifecycle of the
@@ -75,7 +76,14 @@ sees GPU nodes that have no machine behind them.
 
 #### Run:AI x Mokka Integration (Mock Backend)
 
-When the node pool is defined to be `mock` like this:
+FGO creates Mokka's profiles as ConfigMaps and use some information from there in the `fake` backend mode like:
+
+- Product name, 
+- memory, 
+- GPU count, 
+- driver and CUDA versions
+
+When the node pool is defined to be `mock`:
 
 ```yaml
 cluster:
@@ -90,9 +98,11 @@ cluster:
           device_count: 2
 ```
 
+FGO actually deploys a Mokka instance on the nodes it manages.
+
 TBU
 
-With [integrations.fakeGpuOperator.enabled](../../../deployments/nvml-mock/helm/nvml-mock/templates/integrations-fgo.yaml), 
+On the Mokka end, with [integrations.fakeGpuOperator.enabled](../../../deployments/nvml-mock/helm/nvml-mock/templates/integrations-fgo.yaml), 
 the Mokka chart creates publishes one ConfigMap per Mokka GPU profile like `gb300`, `h100`, `a100`, etc. in a way that FGO expects 
 (e.g. named `gpu-profile-<profile>`, with the profile under the `profile.yaml` key, in `integrations.fakeGpuOperator.targetNamespace`).
 That's the only place Mokka knows about FGO.
@@ -101,10 +111,8 @@ TBU
 
 ### Goals
 
-<!--
-List the specific goals of the MEP. What is it trying to achieve? How will we
-know that this has succeeded?
--->
+- Propose an actionable plan for FGO incorporation into Mokka
+- Reach the feature parity required to migrate Run:AI and KAI Scheduler off FGO
 
 ### Non-Goals
 
