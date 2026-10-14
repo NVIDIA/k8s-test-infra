@@ -51,7 +51,6 @@ body:
         - label: "`make changelog-preview RELEASE_VERSION=<version-without-v>` to review the section, then `make changelog-release RELEASE_VERSION=<version-without-v>` to fold the pending fragments into CHANGELOG.md."
         - label: "Verify no changelog content was lost: the new section has one bullet per fragment the fold removed from `.changes/unreleased/`. Paste both counts in the PR."
         - label: "Add the compare link at the bottom of CHANGELOG.md following the existing pattern."
-        - label: "Update the docs that pin the previous release's version: `git grep -nF '<previous-version-without-v>' -- docs`."
         - label: "Apply the `skip-changelog` label: a release PR removes fragments rather than adding one."
         - label: "No `Chart.yaml` version is edited. The tag sets the published chart `version` and `appVersion`."
         - label: "PR reviewed and merged. `main` dismisses stale approvals on push, so batch review fixes into one push. Rebase only if the PR gets the `needs-rebase` label ([Rebase only on a conflict](https://github.com/NVIDIA/k8s-test-infra/blob/main/docs/contributing/pull-requests.md#rebase-only-on-a-conflict)); never merge `main` into it."
