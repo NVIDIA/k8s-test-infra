@@ -42,6 +42,7 @@ func TestConfigurableDevice_GetVirtualizationModeReportsConfiguredMode(t *testin
 		{"none", nvml.GPU_VIRTUALIZATION_MODE_NONE},
 		{"passthrough", nvml.GPU_VIRTUALIZATION_MODE_PASSTHROUGH},
 		{"vgpu", nvml.GPU_VIRTUALIZATION_MODE_VGPU},
+		{"host_vgpu", nvml.GPU_VIRTUALIZATION_MODE_HOST_VGPU},
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
 			dev := makeVirtualizationDevice(t, &VirtualizationConfig{Mode: tc.mode})
@@ -54,8 +55,9 @@ func TestConfigurableDevice_GetVirtualizationModeReportsConfiguredMode(t *testin
 }
 
 // A profile with no virtualization block, or a mode nobody recognises, must
-// still answer SUCCESS with NONE. The mock only ever simulates bare-metal
-// hardware, so bare metal is the safe default rather than an error.
+// still answer SUCCESS with NONE. A profile that declares no virtualization
+// describes a bare-metal board, so bare metal is the safe default rather than
+// an error.
 func TestConfigurableDevice_GetVirtualizationModeDefaultsToBareMetal(t *testing.T) {
 	for name, virt := range map[string]*VirtualizationConfig{
 		"no virtualization block": nil,

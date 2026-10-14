@@ -655,3 +655,76 @@ jobs:
       - name: Remove the proxy credential
         if: always()
         run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
+
+  e2e-vgpu:
+    needs: [build-nvmlmock-image]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The scenario pins its own profile and reinstalls the release once per
+        # context (host, then guest), so a second board would re-run the same
+        # type list and guest block for the cost of another kind cluster.
+        gpu-profile: [a100]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Download pre-built nvml-mock image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: nvml-mock-image
+          path: ${{ runner.temp }}
+
+      - name: Install binaries and create Kind cluster
+        run: ./hack/e2e-ci-cluster.sh
+
+      - name: Load pre-built nvml-mock image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
+
+      - name: Load nvml-mock image into Kind
+        run: kind load docker-image "$E2E_IMAGE" --name mokka
+
+      - name: Stage CI Helm values for Tilt
+        run: cp tests/e2e/ci/nvml-mock.values.yaml local/nvml-mock.values.local.yaml
+
+      - name: Roll out nvml-mock via Tilt (${{ matrix.gpu-profile }})
+        # No consumer flag: the scenario reinstalls the release itself with
+        # gpu.vgpu set per context, and deploys its own GFD for the guest.
+        run: tilt ci -- --gpu-profile="${{ matrix.gpu-profile }}" --nvmlmock-image="$E2E_IMAGE"
+
+      - name: Configure the DGXC Go proxy
+        uses: ./.github/actions/setup-dgxc-goproxy
+        with:
+          mode: routed
+
+      - name: Assert the proxy is actually in front
+        run: ./hack/check-goproxy.sh
+
+      - name: Run vGPU E2E (${{ matrix.gpu-profile }})
+        env:
+          E2E_PROFILES: ${{ matrix.gpu-profile }}
+          E2E_KUBE_CONTEXT: kind-mokka
+          E2E_CLUSTER_NAME: mokka
+        run: make e2e-vgpu
+
+      - name: Print diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== e2e-vgpu diagnostics (${{ matrix.gpu-profile }}) ==="
+          if [ -d "$E2E_ARTIFACTS" ]; then
+            find "$E2E_ARTIFACTS" -type f | while read -r f; do
+              echo "----- $f -----"; cat "$f"; echo;
+            done
+          else
+            echo "no diagnostics written"
+          fi
+
+      - name: Remove the proxy credential
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/dgxc-goauth"

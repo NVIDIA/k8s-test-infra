@@ -1240,3 +1240,25 @@ func TestFileSource_FollowsARetargetedSymlink(t *testing.T) {
 	require.NoError(t, u.Err)
 	require.Equal(t, string(edited), string(u.State.ConfigRaw))
 }
+
+func TestBuildDeviceSpec_VGPUGuest(t *testing.T) {
+	t.Parallel()
+	block := &engine.VGPUConfig{Guest: &engine.VGPUGuestConfig{HostDriverVersion: "550.163.01", HostDriverBranch: "r550_00"}}
+	withBlock := func(mode string) engine.DeviceConfig {
+		return engine.DeviceConfig{Virtualization: &engine.VirtualizationConfig{Mode: mode, VGPU: block}}
+	}
+	require.Equal(t, &agent.VGPUGuestSpec{HostDriverVersion: "550.163.01", HostDriverBranch: "r550_00"},
+		buildDeviceSpec(0, withBlock(engine.VirtualizationModeVGPU), nil).VGPUGuest)
+
+	// Only mode vgpu makes a guest, so a guest block under any other mode
+	// must not reach the PCI capability.
+	for name, cfg := range map[string]engine.DeviceConfig{
+		"no virtualization":    {},
+		"host":                 withBlock(engine.VirtualizationModeHostVGPU),
+		"passthrough":          withBlock("passthrough"),
+		"bare metal":           withBlock("none"),
+		"vgpu without a block": {Virtualization: &engine.VirtualizationConfig{Mode: engine.VirtualizationModeVGPU}},
+	} {
+		require.Nil(t, buildDeviceSpec(0, cfg, nil).VGPUGuest, name)
+	}
+}

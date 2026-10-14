@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  nvml-mock: a profile can declare its GPUs vGPU hosts or guests. `nvidia-smi vgpu` lists a host's types and running instances; a guest reports its license in `nvidia-smi -q` and carries the PCI capability GPU Feature Discovery reads. See the vGPU reference.
+time: 2026-10-14T07:59:06Z
+custom:
+  Issue: "376"

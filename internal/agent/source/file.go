@@ -494,6 +494,12 @@ func buildDeviceSpec(i int, defaults engine.DeviceConfig, devices []engine.Devic
 		spec.PCISubsystemID = defaults.PCI.SubsystemID
 		spec.PCIBusID = defaults.PCI.BusID
 	}
+	if g := defaults.Virtualization.Guest(); g != nil {
+		spec.VGPUGuest = &agent.VGPUGuestSpec{
+			HostDriverVersion: g.HostDriverVersion,
+			HostDriverBranch:  g.HostDriverBranch,
+		}
+	}
 	for _, ov := range devices {
 		if ov.Index != i {
 			continue

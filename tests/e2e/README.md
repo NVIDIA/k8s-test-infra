@@ -61,12 +61,12 @@ CI splits the suite into parallel jobs.
 entirely as exclusions:
 
 ```make
-E2E_DEFAULT_LABEL_FILTER ?= !gfd && !dra && !gpu-operator && !multi-node && !nri && !nfd
+E2E_DEFAULT_LABEL_FILTER ?= !gfd && !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig && !vgpu
 ```
 
 The filter is phrased that way because the standalone scenario has no scenario
-label of its own — it is whatever remains once the six specialised scenarios are
-excluded. So a bare `make e2e` runs the standalone scenario only; use the
+label of its own — it is whatever remains once the eight specialised scenarios
+are excluded. So a bare `make e2e` runs the standalone scenario only; use the
 per-scenario targets for the rest.
 
 Specs also skip themselves when the selected profile cannot support them: no
@@ -142,6 +142,8 @@ tests that must not be scoped by `E2E_PROFILES`.
 | Node-wide NRI injection | `make e2e-nri` | `nri`, `nri-*`, `compute-domain`, `imex-channels` | Node Resource Interface (NRI) injection follows the allocation rules: a pod with no Mokka-specific spec sees exactly its device-plugin allocation, a `devices`-annotated pod with no GPU request sees every GPU, and a pod that asks for neither is left untouched |
 | NFD label provenance | `make e2e-nfd` | `nfd`, `nfd-provenance` | Node Feature Discovery (NFD) derives `feature.node.kubernetes.io/pci-10de.present` from the feature file the mock writes — and that the mock does not write the label itself. Pinned to `a100`, because the label is vendor-only and identical across profiles |
 | Container runtime setup | `make e2e` | `container-runtime` | The node daemon registers the `nvidia` handler with containerd on stock `kindest/node` as the default: a pod with `NVIDIA_VISIBLE_DEVICES` sees the node's mock GPUs, with or without `runtimeClassName: nvidia`, replacing the node pod sets the runtime up again, and a node that loses its node pod loses the handler |
+| MIG | `make e2e-mig` | `mig`, `mig-nvml`, `mig-caps`, `mig-device-plugin`, `mig-allocation`, `mig-runtime` | A MIG-capable board partitioned through `gpu.mig` enumerates its partitions through `nvidia-smi`, stages a capability node for each, and the upstream device plugin in `migStrategy=single` publishes and allocates one `nvidia.com/gpu` per partition; runtime repartitioning through `nvidia-smi mig` is followed. Profiles that cannot partition skip |
+| vGPU host and guest | `make e2e-vgpu` | `vgpu`, `vgpu-host`, `vgpu-guest` | Pinned to `a100`. A vGPU host lists its configured instances under `nvidia-smi vgpu`; a guest reports a licensed vGPU in `nvidia-smi -q`, and with `E2E_RUN_NGC` set, GFD labels it from the PCI capability the node agent writes |
 | Standalone GFD | opt-in | `gfd` | Standalone GPU Feature Discovery derives the required node labels from the mock GPU inventory. **Skipped by default** — see below |
 
 ### Node-wide NRI injection
@@ -277,11 +279,12 @@ cluster, loads the image onto the nodes, and rolls it out with
 `tilt ci -- --nvmlmock-image="$E2E_IMAGE"`. Using an artifact rather than a
 registry keeps this working on fork pull requests with no credentials.
 
-Six scenario jobs run in parallel: `e2e`, `e2e-dra`, `e2e-gpu-operator`,
-`e2e-multi-node`, `e2e-nri` and `e2e-nfd`. Each runs one GPU profile per matrix
-entry, with `fail-fast: false` so one profile's failure does not cancel the
-others. `e2e-nfd` is pinned to `a100`; `e2e-multi-node` has no matrix and uses
-its own fixed A100/T4 topology. There is no gfd job.
+Eight scenario jobs run in parallel: `e2e`, `e2e-dra`, `e2e-gpu-operator`,
+`e2e-multi-node`, `e2e-nri`, `e2e-nfd`, `e2e-mig` and `e2e-vgpu`. Each runs one
+GPU profile per matrix entry, with `fail-fast: false` so one profile's failure
+does not cancel the others. `e2e-nfd` and `e2e-vgpu` are pinned to `a100` and
+`e2e-mig` runs `h100` and `b200`; `e2e-multi-node` has no matrix and uses its
+own fixed A100/T4 topology. There is no gfd job.
 
 Pull requests get the full matrix — `a100`, `h100`, `b200`, `gb200`, `gb300`,
 `t4`. Manual `workflow_dispatch` defaults to `gb200` alone for a fast run. The
