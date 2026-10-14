@@ -25,7 +25,7 @@ body:
     id: basesha
     attributes:
       label: Base commit
-      description: "The `main` SHA this release is cut from. Must be fully green."
+      description: "The `main` SHA this release is cut from."
     validations: { required: true }
   - type: dropdown
     id: kind
@@ -40,8 +40,6 @@ body:
     attributes:
       label: Pre-flight
       options:
-        - label: "CI Pipeline is green on the base commit, including the full e2e matrix. A flake rerun to green is fine; record the job and the rerun."
-        - label: "`make lint` is green on the base commit. It runs govulncheck, so a known vulnerability in a dependency fails it."
         - label: "Open Dependabot PRs are merged, or listed in this issue as deferred with the reason."
         - label: "Every `Removed` entry this release ships (the `Removed-*` fragments in `.changes/unreleased/`) removes something whose deprecation was announced, or a feature gate that reached GA, at least three Y releases earlier; Z releases do not count. A deprecation announced in 0.6.0 is removed no earlier than 0.9.0. New deprecations in this release are listed for the release notes."
         - label: "Every breaking change merged since the last tag has a `**Breaking:**` changelog entry that states the action a user takes. Before 1.0 a breaking change ships in this Y release; from 1.0 it makes the release type Major."
@@ -55,7 +53,6 @@ body:
         - label: "Add the compare link at the bottom of CHANGELOG.md following the existing pattern."
         - label: "Update the docs that pin the previous release's version: `git grep -nF '<previous-version-without-v>' -- docs`."
         - label: "Apply the `skip-changelog` label: a release PR removes fragments rather than adding one."
-        - label: "Gates: `make helm-tests`, `make helm-crds-tests`, `make lint`, `make build`, `make test`."
         - label: "No `Chart.yaml` version is edited. The tag sets the published chart `version` and `appVersion`."
         - label: "PR reviewed and merged. `main` dismisses stale approvals on push, so batch review fixes into one push. Rebase only if the PR gets the `needs-rebase` label ([Rebase only on a conflict](https://github.com/NVIDIA/k8s-test-infra/blob/main/docs/contributing/pull-requests.md#rebase-only-on-a-conflict)); never merge `main` into it."
   - type: checkboxes
@@ -63,7 +60,7 @@ body:
     attributes:
       label: Tag
       options:
-        - label: "Before tagging, CI Pipeline is green on the prep PR's merge commit, the commit the tag goes on: `gh run list --workflow \"CI Pipeline\" --commit <prep-merge-commit>`."
+        - label: "Before tagging, CI Pipeline is green on the prep PR's merge commit, the commit the tag goes on: `gh run list --workflow \"CI Pipeline\" --commit <prep-merge-commit>`. It runs the e2e matrix, which no merge check requires. If a newer push to `main` cancelled the run, rerun it with `gh run rerun <run-id>`."
         - label: "Before tagging, list the changelog fragments that merged after the base commit: `git diff --name-only --diff-filter=A <base-commit> <prep-merge-commit> -- .changes/unreleased`. They ship in this tag but are not in its changelog section. Paste the list in this issue, even when it is empty. Each listed fragment also meets the two pre-flight checks above: do not tag over a `Removed` entry that breaks the floor, and the follow-up PR adds a missing `**Breaking:**` marker and user action."
         - label: "Annotated and signed, on the prep PR's merge commit given explicitly: `git tag -s -m \"<message>\" <version> <prep-merge-commit>`"
         - label: "Tag message covers the headline change and any breaking changes."
