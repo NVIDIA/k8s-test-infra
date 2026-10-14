@@ -25,7 +25,12 @@ usage() {
 
 missing=""
 for tool in gh docker helm cosign jq; do
-  command -v "$tool" > /dev/null || missing="$missing $tool"
+  if ! command -v "$tool" > /dev/null; then
+    missing="$missing $tool"
+  elif [ "$tool" = docker ]; then
+    # Without the buildx plugin every image check would read "does not resolve".
+    docker buildx version > /dev/null 2>&1 || missing="$missing docker-buildx"
+  fi
 done
 if [ -n "$missing" ]; then
   echo "$0: missing required tools:$missing" >&2
