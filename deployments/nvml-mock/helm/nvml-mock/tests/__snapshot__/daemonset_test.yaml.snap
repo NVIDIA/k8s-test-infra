@@ -603,7 +603,7 @@ should match snapshot with default values:
       template:
         metadata:
           annotations:
-            checksum/config: 1d791ab115d5c7613ea8533b55ce97bd0a3f53a80db5c1cf63002b80213b12f2
+            checksum/config: 1d50ed420646840e3c0818dae1a9fdbaf8a81b6c16c48f7493d7c41483b5dee0
             checksum/mig-profiles: fb2ebf8b158ede295783bcc2f137d194ef2e4f7648855ea626d419f41e62cf2d
             kubectl.kubernetes.io/default-container: node-agent
           labels:

@@ -776,6 +776,7 @@ nvlink:
   links_per_gpu: 18
   bandwidth_per_link_mbps: 26562
   c2c_enabled: false
+  multi_node: false
   nvle_enabled: false                # see bandwidth mode, low power and NVLE
   bw_mode:                           # see bandwidth mode, low power and NVLE
     scope: system
@@ -797,6 +798,11 @@ reports `N/A` — never `Disabled`, because NVML answers
 link to a host CPU. Only `gb200` and `gb300` enable it. This is the only key that
 drives the row: `device_defaults.features.nvlink_c2c` is descriptive metadata and
 is not read.
+
+`multi_node` marks a board whose NVLink domain spans nodes, as in a rack-scale
+NVLink system, as opposed to an NVLink fabric that stays on one baseboard, such
+as HGX H100 or B200. Of the shipped profiles, `gb200` and `gb300` set it; Vera
+Rubin and NVL576 profiles would set it too.
 
 ### Bandwidth mode, low power and NVLE
 
