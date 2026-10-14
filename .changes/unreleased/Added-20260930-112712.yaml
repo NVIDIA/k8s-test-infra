@@ -1,6 +1,0 @@
-kind: Added
-body: |-
-  helm: `image.digest` and `controlPlane.image.digest` pin the nvml-mock and control-plane images by digest and take precedence over their tags.
-time: 2026-09-30T09:27:12Z
-custom:
-  Issue: "929"

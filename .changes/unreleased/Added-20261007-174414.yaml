@@ -1,6 +1,0 @@
-kind: Added
-body: |-
-  **Breaking:** node-agent: installs the NVIDIA container runtime as containerd's default handler, turns NRI on and restarts containerd, unless `nodeAgent.containerRuntime.enabled=false`; nodes without containerd are left alone. With this setup on, the chart refuses `updateStrategy.rollingUpdate.maxSurge`.
-time: 2026-10-07T15:44:14Z
-custom:
-  Issue: "881"

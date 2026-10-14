@@ -1,6 +1,0 @@
-kind: Fixed
-body: |-
-  nvml-mock: `nvidia-smi -q -u` now reports 0 attached units instead of exiting 3 with "Unable to determine number of available units".
-time: 2026-10-13T15:58:38Z
-custom:
-  Issue: "1047"

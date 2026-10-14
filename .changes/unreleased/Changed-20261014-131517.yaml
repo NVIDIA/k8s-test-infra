@@ -1,6 +1,0 @@
-kind: Changed
-body: |-
-  helm: the control plane's default memory limit rises from 256Mi to 1Gi, set with `controlPlane.resources.limits.memory`.
-time: 2026-10-14T11:15:17Z
-custom:
-  Issue: "690"

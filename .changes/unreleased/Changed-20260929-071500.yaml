@@ -1,4 +1,0 @@
-kind: Changed
-body: |-
-  nvml-mock: the `t4` and `l40s` profiles no longer carry a `mig` section, and NVML answers MIG mode queries on them with `NVML_ERROR_NOT_SUPPORTED`, as on hardware, instead of reporting MIG disabled, so the device plugin no longer sees them as MIG-capable. `gpu.mig.enabled` refuses them.
-time: 2026-09-29T07:15:00Z
