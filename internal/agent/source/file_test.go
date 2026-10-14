@@ -1240,3 +1240,21 @@ func TestFileSource_FollowsARetargetedSymlink(t *testing.T) {
 	require.NoError(t, u.Err)
 	require.Equal(t, string(edited), string(u.State.ConfigRaw))
 }
+
+func TestBuildDeviceSpec_VGPUGuest(t *testing.T) {
+	t.Parallel()
+	guest := engine.DeviceConfig{Virtualization: &engine.VirtualizationConfig{
+		Mode: engine.VirtualizationModeVGPU,
+		VGPU: &engine.VGPUConfig{Guest: &engine.VGPUGuestConfig{HostDriverVersion: "550.163.01", HostDriverBranch: "r550_00"}},
+	}}
+	require.Equal(t, &agent.VGPUGuestSpec{HostDriverVersion: "550.163.01", HostDriverBranch: "r550_00"},
+		buildDeviceSpec(0, guest, nil).VGPUGuest)
+
+	for name, cfg := range map[string]engine.DeviceConfig{
+		"no virtualization":    {},
+		"host":                 {Virtualization: &engine.VirtualizationConfig{Mode: engine.VirtualizationModeHostVGPU}},
+		"vgpu without a block": {Virtualization: &engine.VirtualizationConfig{Mode: engine.VirtualizationModeVGPU}},
+	} {
+		require.Nil(t, buildDeviceSpec(0, cfg, nil).VGPUGuest, name)
+	}
+}
