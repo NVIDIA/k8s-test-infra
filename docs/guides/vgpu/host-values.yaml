@@ -1,0 +1,16 @@
+# Every GPU on the node becomes a vGPU host: an A100 running the vGPU manager
+# with two instances of one compute type. Field reference: docs/vgpu.md.
+gpu:
+  profile: a100
+  vgpu:
+    mode: host
+    hostVgpuMode: sriov
+    types:
+      - id: 474
+        name: "NVIDIA A100-4C"
+        framebuffer_mib: 4096
+        max_instances: 10
+        license: "NVIDIA-Virtual-Compute-Server,9.0"
+    instances:
+      - type: "NVIDIA A100-4C"
+        count: 2

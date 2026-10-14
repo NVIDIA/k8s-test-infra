@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  helm: `gpu.vgpu.mode` makes every GPU a vGPU host or a vGPU guest. A guest reports its vGPU license in `nvidia-smi -q`, and GPU Feature Discovery labels it `nvidia.com/vgpu.present` when it reads the mock PCI tree.
+time: 2026-10-14T07:59:07Z
+custom:
+  Issue: "376"

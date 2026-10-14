@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  nvml-mock: a profile can make its GPUs vGPU hosts with `virtualization.mode: host_vgpu`, and `nvidia-smi vgpu` and go-nvml list the vGPU types and running instances it declares; see the vGPU reference.
+time: 2026-10-14T07:59:06Z
+custom:
+  Issue: "376"

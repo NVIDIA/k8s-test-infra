@@ -1,0 +1,12 @@
+# Every GPU on the node becomes the vGPU a VM sees, licensed and reporting
+# the host driver it runs on. Field reference: docs/vgpu.md.
+gpu:
+  profile: a100
+  vgpu:
+    mode: guest
+    guest:
+      host_driver_version: "550.163.01"
+      host_driver_branch: "r550_00"
+      license:
+        product: "NVIDIA Virtual Compute Server"
+        state: licensed
