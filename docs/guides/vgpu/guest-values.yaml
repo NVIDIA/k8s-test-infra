@@ -1,3 +1,6 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+
 # Every GPU on the node becomes the vGPU a VM sees, licensed and reporting
 # the host driver it runs on. Field reference: docs/vgpu.md.
 gpu:

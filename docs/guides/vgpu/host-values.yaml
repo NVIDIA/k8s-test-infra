@@ -1,3 +1,6 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+
 # Every GPU on the node becomes a vGPU host: an A100 running the vGPU manager
 # with two instances of one compute type. Field reference: docs/vgpu.md.
 gpu:
