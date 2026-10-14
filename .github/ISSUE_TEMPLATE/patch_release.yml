@@ -104,14 +104,9 @@ body:
     id: artefacts
     attributes:
       label: Verify published artefacts
-      description: "Resolve the artefact, do not read a green check. `<v>` is the version without the `v`."
+      description: "Resolve the artefact, do not read a green check."
       options:
-        - label: "`nvml-mock Publish`, `Mokka Control Plane Publish` and `helm-publish` succeeded for the tag: `gh run list --branch <version>`."
-        - label: "`ghcr.io/nvidia/nvml-mock:<v>` and `ghcr.io/nvidia/mokka-control-plane:<v>` resolve for `linux/amd64` and `linux/arm64`; `<X.Y>` points at the same digest as `<v>` for both, and so does `nvml-mock:latest`. `mokka-control-plane:latest` follows `main` builds and is not compared."
-        - label: "`helm show chart oci://ghcr.io/nvidia/k8s-test-infra/chart/<chart> --version <v>` for `nvml-mock` and `mokka-crds`: `version` and `appVersion` both equal `<v>`."
-        - label: "`cosign verify` passes for both images by tag (each tag resolves to the signed multi-arch index) and for `ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock:<v>` and `ghcr.io/nvidia/k8s-test-infra/chart/mokka-crds:<v>`, written without `oci://`."
-        - label: "`cosign verify-attestation --type spdxjson` passes for `ghcr.io/nvidia/nvml-mock:<v>` and for the `linux/amd64` and `linux/arm64` digests of `ghcr.io/nvidia/mokka-control-plane:<v>` (from `docker buildx imagetools inspect`)."
-        - label: "Every cosign command passes `--certificate-identity https://github.com/NVIDIA/k8s-test-infra/.github/workflows/<workflow>@refs/tags/<version>` and `--certificate-oidc-issuer https://token.actions.githubusercontent.com`, with `<workflow>` `nvml-mock-publish.yaml`, `mokka-control-plane-publish.yaml` or `helm-publish.yaml`."
+        - label: "`make verify-release RELEASE_VERSION=<version-without-v>` exits 0. Paste its output in this issue. It needs `gh`, `docker buildx`, `helm`, `cosign` and `jq`, and checks the publish runs, both images and their `<X.Y>` and `latest` tags, both charts' `version` and `appVersion`, and every signature and SBOM attestation."
   - type: checkboxes
     id: after
     attributes:
