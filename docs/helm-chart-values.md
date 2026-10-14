@@ -77,6 +77,12 @@ Kubernetes: `>= 1.28.0-0`
 | imagePullSecrets | list | `[]` | Pull secrets for nvml-mock, NRI, and control-plane pods. |
 | imex.deviceNumbers.capsMajor | int | `236` | Major number used for IMEX capability devices. |
 | imex.deviceNumbers.channelMajor | int | `235` | Major number used for IMEX channel devices. |
+| imex.payload.image.digest | string | `""` | Immutable IMEX payload image digest; when set, it takes precedence over the tag. |
+| imex.payload.image.pullPolicy | string | `""` | IMEX payload image pull policy; empty picks IfNotPresent, or Always for a "latest" tag. |
+| imex.payload.image.repository | string | `""` | IMEX payload image repository; empty (default) renders no init container. |
+| imex.payload.image.tag | string | `""` | IMEX payload image tag, the IMEX version it carries; required unless digest is set. |
+| imex.payload.resources.requests.cpu | string | `"10m"` | CPU requested by the IMEX payload init container. |
+| imex.payload.resources.requests.memory | string | `"32Mi"` | Memory requested by the IMEX payload init container. |
 | infiniband.mockTier | string | `""` | InfiniBand mock tier; empty derives the tier from the selected profile. mockTier sets the container's MOCK_IB value: off | sysfs | full. Defaults to "full" for InfiniBand-enabled profiles and "sysfs" for non-IB profiles (sysfs keeps the libibmocksys redirect active so any real host IB is masked, i.e. ibstat reports 0 HCAs). Leaving this empty auto-derives that per profile. Set it explicitly to override (an invalid value fails `helm template`). |
 | infiniband.ping.networkPolicy.enabled | bool | `true` | Restrict mock InfiniBand traffic to peer nvml-mock pods. |
 | infiniband.ping.port | int | `18515` | TCP port used by the mock InfiniBand ping service. |

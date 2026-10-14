@@ -63,7 +63,7 @@ func New(h *host.Host, options ...Options) *Simulator {
 		Architecture: runtime.GOARCH,
 		ShimPath:     "/usr/local/bin/nvidia-imex-shim",
 		ProvidedDir:  DefaultProvidedDir,
-		Lock:         mustDefaultLock(),
+		Lock:         DefaultLock(),
 	}
 	if len(options) > 0 {
 		provided := options[0]

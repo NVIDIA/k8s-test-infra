@@ -30,7 +30,9 @@ type Lock struct {
 	Artifacts map[string]Artifact `json:"artifacts"`
 }
 
-func mustDefaultLock() Lock {
+// DefaultLock returns the IMEX release pinned in imex.lock.json. It panics if
+// that file is invalid, which TestEmbeddedLock keeps from ever shipping.
+func DefaultLock() Lock {
 	lock, err := parseLock(embeddedLock)
 	if err != nil {
 		panic(fmt.Sprintf("invalid embedded IMEX lock: %v", err))

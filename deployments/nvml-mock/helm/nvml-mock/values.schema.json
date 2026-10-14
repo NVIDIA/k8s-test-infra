@@ -420,7 +420,7 @@
     "imex": {
       "type": "object",
       "additionalProperties": true,
-      "description": "IMEX simulation, staged on multi-node NVLink profiles (nvlink.multi_node). deviceNumbers picks the device majors of the capability surface the NVIDIA DRA driver's compute-domain kubelet plugin reads.",
+      "description": "IMEX simulation, staged on multi-node NVLink profiles (nvlink.multi_node). deviceNumbers picks the device majors of the capability surface the NVIDIA DRA driver's compute-domain kubelet plugin reads; payload delivers the IMEX node software its ComputeDomain daemon runs.",
       "properties": {
         "deviceNumbers": {
           "type": "object",
@@ -438,6 +438,39 @@
               "minimum": 1,
               "maximum": 4095,
               "description": "Character-device major advertised for nvidia-caps. Must differ from channelMajor."
+            }
+          }
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "IMEX node software for the DRA ComputeDomain daemon, from the archive pinned in the node agent's imex.lock.json.",
+          "properties": {
+            "image": {
+              "type": "object",
+              "additionalProperties": true,
+              "description": "Image carrying the pinned IMEX archive under /imex, as make imex-payload-image builds it. On multi-node NVLink profiles a copy-only init container puts the archive where the node agent finds it. An empty repository renders no init container.",
+              "properties": {
+                "repository": { "type": "string" },
+                "digest": {
+                  "type": "string",
+                  "pattern": "^(|sha256:[a-f0-9]{64})$",
+                  "description": "Immutable image digest. When set, it pins the image and takes precedence over tag."
+                },
+                "tag": {
+                  "type": "string",
+                  "description": "The IMEX version the image carries. Required with repository unless digest is set."
+                },
+                "pullPolicy": {
+                  "type": "string",
+                  "enum": ["", "Always", "IfNotPresent", "Never"]
+                }
+              }
+            },
+            "resources": {
+              "type": "object",
+              "additionalProperties": true,
+              "description": "Requests and limits of the copy-only init container. A namespace with a compute ResourceQuota admits a pod only if every container sets requests."
             }
           }
         }

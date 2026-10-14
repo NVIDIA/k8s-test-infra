@@ -427,6 +427,24 @@ false
 {{- end }}
 
 {{/*
+Return "true" when the GPU profile's NVLink domain spans nodes
+(nvlink.multi_node, such as gb200 and gb300). Only such nodes run IMEX, so only
+they get the IMEX payload. Reads the same config the node agent stages from.
+*/}}
+{{- define "nvml-mock.multiNodeNVLink" -}}
+{{- $cfg := fromYaml (include "nvml-mock.gpuConfig" .) -}}
+{{- if hasKey $cfg "Error" -}}
+{{- fail (printf "nvml-mock.multiNodeNVLink: failed to parse GPU config: %s" (get $cfg "Error")) -}}
+{{- end -}}
+{{- $nvlink := get $cfg "nvlink" | default (dict) -}}
+{{- if and (kindIs "map" $nvlink) (eq (toString (get $nvlink "multi_node")) "true") -}}
+true
+{{- else -}}
+false
+{{- end -}}
+{{- end }}
+
+{{/*
 Return "true" when the fake nvidia-fabricmanager daemon should run.
 Single source of truth is the GPU profile. Every NVSwitch-based platform runs
 a fabric manager on real hardware (A100/H100/B200 8-GPU baseboards via the

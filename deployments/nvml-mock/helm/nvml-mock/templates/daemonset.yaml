@@ -34,6 +34,15 @@ could hold the lock and stall staging. */}}
 {{- fail (printf "nri.healthPort (%v) conflicts with another listener in the shared pod; use a port other than node-agent health port 9091 or the enabled InfiniBand ping port %v" .Values.nri.healthPort .Values.infiniband.ping.port) }}
 {{- end }}
 {{- $migProfiles := include "nvml-mock.migProfiles" . }}
+{{- /* dig: an upgrade with --reuse-values from a chart that predates
+imex.payload has none. */}}
+{{- $imexPayloadImage := dig "payload" "image" (dict) (.Values.imex | default dict) }}
+{{- if and $imexPayloadImage.repository (not (or $imexPayloadImage.tag $imexPayloadImage.digest)) }}
+{{- fail "imex.payload.image.repository needs a tag or digest: the tag names the IMEX version the image carries, which the chart appVersion does not" }}
+{{- end }}
+{{- $imexPayload := and $imexPayloadImage.repository (eq (include "nvml-mock.multiNodeNVLink" .) "true") }}
+{{- /* Where the node agent looks for the IMEX archive (--imex-provided-dir). */}}
+{{- $imexProvidedDir := "/opt/mokka/imex" }}
 {{- $runtime := .Values.nodeAgent.containerRuntime | default dict }}
 {{- /* A surge pod would set the runtime up next to the old pod, whose revert
 then removes the setup. Kubernetes reads 0 and "0%" alike as no surge. */}}
@@ -100,9 +109,39 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if $nativeSidecar }}
+      {{- if or $nativeSidecar $imexPayload }}
       initContainers:
-      {{- else }}
+      {{- end }}
+        {{- if $imexPayload }}
+        # Copies the IMEX archive out of the payload image for the node agent,
+        # which checks it against its pin before staging. Listed first, so the
+        # copy is done before the agent starts.
+        - name: imex-payload
+          image: {{ include "nvml-mock.image" (dict "image" $imexPayloadImage "context" $) | quote }}
+          imagePullPolicy: {{ include "nvml-mock.imagePullPolicy" (dict "image" $imexPayloadImage "context" $) }}
+          command:
+            - /bin/sh
+            - -c
+            # Fail open: an image without /imex leaves the agent no archive,
+            # which it logs, and it still simulates everything else.
+            - 'cp -R /imex/. {{ $imexProvidedDir }}/ || echo "imex-payload: nothing copied from /imex; the node agent stages no IMEX" >&2'
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            {{- toYaml (dig "payload" "resources" (dict) (.Values.imex | default dict)) | nindent 12 }}
+          volumeMounts:
+            - name: imex-payload
+              mountPath: {{ $imexProvidedDir }}
+        {{- end }}
+      {{- if not $nativeSidecar }}
       containers:
       {{- end }}
         - name: node-agent
@@ -139,6 +178,9 @@ spec:
             {{- end }}
             {{- with include "nvml-mock.featureGates" . }}
             - --feature-gates={{ . }}
+            {{- end }}
+            {{- if $imexPayload }}
+            - --imex-provided-dir={{ $imexProvidedDir }}
             {{- end }}
             {{- if $runtime.enabled }}
             - --container-runtime={{ $runtime.type }}
@@ -291,6 +333,12 @@ spec:
             # a node label.
             - name: nfd-features
               mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
+            {{- if $imexPayload }}
+            # The archive the imex-payload init container copied.
+            - name: imex-payload
+              mountPath: {{ $imexProvidedDir }}
+              readOnly: true
+            {{- end }}
             {{- if .Values.nri.enabled }}
             # Staging and teardown take the NRI gate's lock exclusively.
             - name: staging-gate
@@ -525,6 +573,12 @@ spec:
           hostPath:
             path: /run/nvidia
             type: DirectoryOrCreate
+        {{- if $imexPayload }}
+        # Pod-local: the archive lives as long as the pod, and an init container
+        # that runs again on a new pod sandbox copies it again.
+        - name: imex-payload
+          emptyDir: {}
+        {{- end }}
         - name: nfd-features
           hostPath:
             path: {{ .Values.nodeLabels.featuresDir | quote }}

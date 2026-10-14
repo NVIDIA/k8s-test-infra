@@ -6,11 +6,8 @@ package imex
 import (
 	"archive/tar"
 	"bytes"
-	"io"
 	"net/http"
-	"net/url"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -159,18 +156,14 @@ func TestPinnedOfficialArchives(t *testing.T) {
 		t.Skip("set MOKKA_IMEX_DOWNLOAD_TEST=1 to verify the pinned NVIDIA archives")
 	}
 
-	lock := mustDefaultLock()
+	lock := DefaultLock()
 	client := &http.Client{Timeout: 2 * time.Minute}
 	for _, arch := range []string{"amd64", "arm64"} {
 		t.Run(arch, func(t *testing.T) {
-			artifact, err := lock.artifact(arch)
-			require.NoError(t, err)
-			source, err := url.JoinPath(lock.BaseURL, artifact.Path)
-			require.NoError(t, err)
-
 			n := testNodeSoftware(t, lock)
 			n.arch = arch
-			fetch(t, client, source, filepath.Join(n.providedDir, path.Base(artifact.Path)))
+			_, err := FetchArchive(t.Context(), client, lock, arch, n.providedDir)
+			require.NoError(t, err)
 
 			n.stage()
 
@@ -179,18 +172,4 @@ func TestPinnedOfficialArchives(t *testing.T) {
 			}
 		})
 	}
-}
-
-func fetch(t *testing.T, client *http.Client, source, dst string) {
-	t.Helper()
-	resp, err := client.Get(source) //nolint:noctx // test-only download bounded by the client timeout
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-	require.Equal(t, http.StatusOK, resp.StatusCode, "GET %s", source)
-
-	out, err := os.Create(dst)
-	require.NoError(t, err)
-	_, err = io.Copy(out, io.LimitReader(resp.Body, maxArchiveBytes))
-	require.NoError(t, err)
-	require.NoError(t, out.Close())
 }

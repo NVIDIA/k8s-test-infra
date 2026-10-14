@@ -65,6 +65,6 @@ func TestLockRejectsInvalidInput(t *testing.T) {
 func TestLockRejectsUnsupportedArchitecture(t *testing.T) {
 	t.Parallel()
 
-	_, err := mustDefaultLock().artifact("ppc64le")
+	_, err := DefaultLock().artifact("ppc64le")
 	require.EqualError(t, err, `unsupported architecture "ppc64le"`)
 }

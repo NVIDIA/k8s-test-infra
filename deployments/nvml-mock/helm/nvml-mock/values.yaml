@@ -510,6 +510,37 @@ imex:
     channelMajor: 235
     # -- Major number used for IMEX capability devices.
     capsMajor: 236
+  # IMEX node software (nvidia-imex, nvidia-imex-ctl) for the DRA
+  # ComputeDomain daemon. On multi-node NVLink profiles the node agent stages
+  # it from the archive pinned in its imex.lock.json, looked up by NVIDIA's
+  # file name in /opt/mokka/imex. Without that archive the node stays ready
+  # and stages no IMEX, so ComputeDomain daemons fail on it, as they do on a
+  # real node without the IMEX package.
+  payload:
+    # An image carrying that archive under /imex, as `make imex-payload-image`
+    # builds it. On multi-node NVLink profiles a copy-only init container puts
+    # the archive in /opt/mokka/imex before the node agent starts. Mokka does
+    # not publish this image: build it, then load it into the cluster (`kind
+    # load docker-image`) or push it to a private registry. An image the node
+    # cannot pull holds the node pod in ImagePullBackOff, like any image in
+    # the pod.
+    image:
+      # -- IMEX payload image repository; empty (default) renders no init container.
+      repository: ""
+      # -- IMEX payload image tag, the IMEX version it carries; required unless digest is set.
+      tag: ""
+      # -- Immutable IMEX payload image digest; when set, it takes precedence over the tag.
+      digest: ""
+      # -- IMEX payload image pull policy; empty picks IfNotPresent, or Always for a "latest" tag.
+      pullPolicy: ""
+    # Requests of the copy-only init container. A namespace with a compute
+    # ResourceQuota admits a pod only if every container sets them.
+    resources:
+      requests:
+        # -- CPU requested by the IMEX payload init container.
+        cpu: 10m
+        # -- Memory requested by the IMEX payload init container.
+        memory: 32Mi
 
 # Fake nvidia-fabricmanager. NVSwitch platforms (HGX H100 / GB200 / GB300)
 # run nvidia-fabricmanager to register GPUs with the NVSwitch fabric. When

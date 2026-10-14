@@ -1,0 +1,214 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+suite: IMEX payload
+templates:
+  - templates/daemonset.yaml
+# Render against a fixed chart version so releasing a new chart never
+# rewrites expectations here.
+chart:
+  version: 0.0.0-dev
+  appVersion: 0.0.0-dev
+capabilities:
+  majorVersion: 1
+  minorVersion: 29
+tests:
+  - it: should render no payload without an image
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.initContainers
+          count: 1
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: node-agent
+      - notContains:
+          path: spec.template.spec.initContainers[0].command
+          content: --imex-provided-dir=/opt/mokka/imex
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: imex-payload
+            emptyDir: {}
+
+  # The node agent is itself an init container here, so the copy must be
+  # listed ahead of it: init containers start in order.
+  - it: should copy the payload before a native-sidecar node agent starts
+    set:
+      imex:
+        payload:
+          image:
+            repository: mokka-imex
+            tag: 595.91.07
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: imex-payload
+      - equal:
+          path: spec.template.spec.initContainers[1].name
+          value: node-agent
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: nvml-mock-nri
+
+  - it: should copy the payload before a regular-container node agent starts
+    set:
+      nri:
+        nativeSidecar: false
+      imex:
+        payload:
+          image:
+            repository: mokka-imex
+            tag: 595.91.07
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.initContainers
+          count: 1
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: imex-payload
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: node-agent
+
+  - it: should copy the payload before the node agent when NRI is disabled
+    set:
+      nri:
+        enabled: false
+      imex:
+        payload:
+          image:
+            repository: mokka-imex
+            tag: 595.91.07
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.initContainers
+          count: 1
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: imex-payload
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: node-agent
+
+  - it: should only copy, never failing the pod, with no privileges
+    set:
+      imex:
+        payload:
+          image:
+            repository: mokka-imex
+            tag: 595.91.07
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].image
+          value: mokka-imex:595.91.07
+      - equal:
+          path: spec.template.spec.initContainers[0].imagePullPolicy
+          value: IfNotPresent
+      - equal:
+          path: spec.template.spec.initContainers[0].command
+          value:
+            - /bin/sh
+            - -c
+            - 'cp -R /imex/. /opt/mokka/imex/ || echo "imex-payload: nothing copied from /imex; the node agent stages no IMEX" >&2'
+      - equal:
+          path: spec.template.spec.initContainers[0].securityContext
+          value:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+      - equal:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          value:
+            - name: imex-payload
+              mountPath: /opt/mokka/imex
+      # A namespace with a compute ResourceQuota rejects a pod with any
+      # container that sets no requests.
+      - equal:
+          path: spec.template.spec.initContainers[0].resources
+          value:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+
+  - it: should hand the node agent the copied archive read-only
+    set:
+      imex:
+        payload:
+          image:
+            repository: mokka-imex
+            tag: 595.91.07
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[1].command
+          content: --imex-provided-dir=/opt/mokka/imex
+      - contains:
+          path: spec.template.spec.initContainers[1].volumeMounts
+          content:
+            name: imex-payload
+            mountPath: /opt/mokka/imex
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: imex-payload
+            emptyDir: {}
+
+  # IMEX follows the profile, so a board whose NVLink stays on one baseboard
+  # pulls no payload even when one is configured.
+  - it: should render no payload on a single-node NVLink profile
+    set:
+      gpu:
+        profile: h100
+      imex:
+        payload:
+          image:
+            repository: mokka-imex
+            tag: 595.91.07
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.initContainers
+          count: 1
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: node-agent
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: imex-payload
+            emptyDir: {}
+
+  - it: should pin the payload by digest through the global registry
+    set:
+      global:
+        imageRegistry: mirror.example.com
+      imex:
+        payload:
+          image:
+            repository: registry.example.com/mokka/mokka-imex
+            tag: 595.91.07
+            digest: sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+            pullPolicy: Always
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].image
+          value: mirror.example.com/mokka/mokka-imex@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      - equal:
+          path: spec.template.spec.initContainers[0].imagePullPolicy
+          value: Always
+
+  # The chart appVersion names a Mokka release, not the IMEX version an image
+  # carries, so it is no default here.
+  - it: should refuse a payload repository without a tag or digest
+    set:
+      imex:
+        payload:
+          image:
+            repository: mokka-imex
+    asserts:
+      - failedTemplate:
+          errorMessage: "imex.payload.image.repository needs a tag or digest: the tag names the IMEX version the image carries, which the chart appVersion does not"
