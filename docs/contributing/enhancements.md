@@ -53,6 +53,7 @@ history is preserved, not rewritten.
 | [MEP-0002](https://github.com/NVIDIA/k8s-test-infra/tree/main/enhancements/meps/0002-device-plugin-nri-composition) | How the NRI plugin composes with the NVIDIA device plugin |
 | [MEP-0003](https://github.com/NVIDIA/k8s-test-infra/tree/main/enhancements/meps/0003-node-agent) | The node daemon: one reconciler replacing a dozen CLIs |
 | [MEP-0006](https://github.com/NVIDIA/k8s-test-infra/tree/main/enhancements/meps/0006-automatic-cdi-setup) | Automating the node's CDI setup from the node pod |
+| [MEP-0007](https://github.com/NVIDIA/k8s-test-infra/tree/main/enhancements/meps/0007-vgpu-host-guest) | Simulating vGPU hosts and guests from the profile |
 
 MEP-0003 also carries the project's most complete record of which contract
 surfaces are and are not simulated.
