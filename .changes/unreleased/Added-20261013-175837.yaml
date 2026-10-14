@@ -1,6 +1,0 @@
-kind: Added
-body: |-
-  nvml-mock: profiles can declare dedicated fans with `fan.count`, which enables RPM, target speed, min/max envelope, cooler info, control policy and the fan setters; boards with no fans refuse these queries as SXM hardware does. See [Configuration](docs/configuration.md).
-time: 2026-10-13T15:58:37Z
-custom:
-  Issue: "1046"

@@ -1,6 +1,0 @@
-kind: Changed
-body: |-
-  helm: only a stable `vX.Y.Z` tag publishes the nvml-mock and mokka-crds charts, under the tag's version; main publishes only `-dev` chart and nvml-mock image versions, and release candidate tags no longer publish the charts or the nvml-mock or mokka-control-plane images.
-time: 2026-10-12T14:34:44Z
-custom:
-  Issue: "1034"
