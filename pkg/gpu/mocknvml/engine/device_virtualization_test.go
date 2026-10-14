@@ -55,8 +55,9 @@ func TestConfigurableDevice_GetVirtualizationModeReportsConfiguredMode(t *testin
 }
 
 // A profile with no virtualization block, or a mode nobody recognises, must
-// still answer SUCCESS with NONE. The mock only ever simulates bare-metal
-// hardware, so bare metal is the safe default rather than an error.
+// still answer SUCCESS with NONE. A profile that declares no virtualization
+// describes a bare-metal board, so bare metal is the safe default rather than
+// an error.
 func TestConfigurableDevice_GetVirtualizationModeDefaultsToBareMetal(t *testing.T) {
 	for name, virt := range map[string]*VirtualizationConfig{
 		"no virtualization block": nil,

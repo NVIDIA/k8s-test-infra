@@ -4,6 +4,7 @@
 package engine
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -70,9 +71,20 @@ func TestValidateVGPU_AcceptsHostAndGuest(t *testing.T) {
 	require.NoError(t, validateYAMLConfig(decodeVGPUConfig(t, vgpuGuestYAML, nil)))
 }
 
-// Every shipped profile carries host_vgpu_mode "N/A" and no vgpu block; that
-// must keep loading, and so must mode vgpu with no guest block, which predates
-// the block.
+// An instance entry with no count is one instance, and counts toward
+// max_instances as one.
+func TestValidateVGPU_OmittedCountIsOneInstance(t *testing.T) {
+	t.Parallel()
+	yc := decodeVGPUConfig(t, vgpuHostYAML, func(v *VirtualizationConfig) {
+		v.VGPU.Types[0].MaxInstances = 1
+		v.VGPU.Instances = []VGPUInstanceConfig{{Type: "NVIDIA A100-4C"}}
+	})
+	require.NoError(t, validateYAMLConfig(yc))
+}
+
+// Every shipped profile carries host_vgpu_mode "N/A" and no vgpu block, and
+// must keep loading. So must a config that sets mode vgpu without a guest
+// block: it reports the vGPU virtualization mode and nothing else.
 func TestValidateVGPU_LeavesOtherModesAlone(t *testing.T) {
 	t.Parallel()
 	for _, mode := range []string{"none", "passthrough", "vgpu", "something-else"} {
@@ -116,11 +128,23 @@ func TestValidateVGPU_RejectsInconsistentBlocks(t *testing.T) {
 			"device_defaults.virtualization.vgpu.instances[0].count: -1 is negative"},
 		"count over max_instances": {vgpuHostYAML, func(v *VirtualizationConfig) { v.VGPU.Instances[0].Count = 11 },
 			`device_defaults.virtualization.vgpu.instances: 11 instances of "NVIDIA A100-4C" exceed its max_instances 10`},
+		"counts that overflow when summed": {vgpuHostYAML, func(v *VirtualizationConfig) {
+			v.VGPU.Instances = []VGPUInstanceConfig{
+				{Type: "NVIDIA A100-4C", Count: 1},
+				{Type: "NVIDIA A100-4C", Count: math.MaxInt},
+			}
+		}, `device_defaults.virtualization.vgpu.instances: 9223372036854775808 instances of "NVIDIA A100-4C" exceed its max_instances 10`},
+		"omitted counts over max_instances": {vgpuHostYAML, func(v *VirtualizationConfig) {
+			v.VGPU.Types[0].MaxInstances = 1
+			v.VGPU.Instances = []VGPUInstanceConfig{{Type: "NVIDIA A100-4C"}, {Type: "NVIDIA A100-4C"}}
+		}, `device_defaults.virtualization.vgpu.instances: 2 instances of "NVIDIA A100-4C" exceed its max_instances 1`},
+		"framebuffer that overflows": {vgpuHostYAML, func(v *VirtualizationConfig) { v.VGPU.Types[0].FramebufferMiB = 1 << 63 },
+			"device_defaults.virtualization.vgpu.instances: 2 instances of 9223372036854775808 MiB exceed the board's 40960 MiB of framebuffer"},
 		"mixed types": {vgpuHostYAML, func(v *VirtualizationConfig) {
 			v.VGPU.Instances = append(v.VGPU.Instances, VGPUInstanceConfig{Type: "NVIDIA A100-5C"})
 		}, `device_defaults.virtualization.vgpu.instances[1].type: "NVIDIA A100-5C" differs from "NVIDIA A100-4C"; a GPU runs one vGPU type at a time`},
 		"framebuffer over board memory": {vgpuHostYAML, func(v *VirtualizationConfig) { v.VGPU.Types[0].FramebufferMiB = 40960 },
-			"device_defaults.virtualization.vgpu.instances: 81920 MiB of vGPU framebuffer exceeds the board's 40960 MiB"},
+			"device_defaults.virtualization.vgpu.instances: 2 instances of 40960 MiB exceed the board's 40960 MiB of framebuffer"},
 		"guest block on a host": {vgpuHostYAML, func(v *VirtualizationConfig) {
 			v.VGPU.Guest = &VGPUGuestConfig{HostDriverVersion: "550", HostDriverBranch: "r550"}
 		}, "device_defaults.virtualization.vgpu.guest: only valid under mode vgpu"},

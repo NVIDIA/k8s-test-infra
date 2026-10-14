@@ -59,7 +59,12 @@ func TestVgpuGuest_PermanentWithoutExpiry(t *testing.T) {
 	d := vgpuDevice(t, newVgpuEngine(t, 1, vgpuGuestVirtualization(&VGPULicenseConfig{Product: "p"})), 0)
 	f, ret := d.GetGridLicensableFeatures()
 	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, uint32(1), f.GridLicensableFeatures[0].FeatureState, "a license block with no state is licensed")
 	require.Equal(t, uint8(nvml.GRID_LICENSE_EXPIRY_PERMANENT), f.GridLicensableFeatures[0].LicenseExpiry.Status)
+
+	state, ok := d.VgpuGuestLicenseState()
+	require.True(t, ok)
+	require.Equal(t, uint32(nvml.GRID_LICENSE_STATE_LICENSED), state)
 }
 
 func TestVgpuGuest_Unlicensed(t *testing.T) {

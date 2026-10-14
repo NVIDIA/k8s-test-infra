@@ -6,6 +6,7 @@ package engine
 import (
 	"errors"
 	"fmt"
+	"math/bits"
 	"time"
 )
 
@@ -51,9 +52,9 @@ func (l *VGPULicenseConfig) Licensed() bool {
 }
 
 // validateVGPUConfig checks the virtualization block for the two vGPU modes.
-// Every other mode, including an unrecognised one, reports bare metal and
-// ignores the block, so the "N/A" host_vgpu_mode every shipped profile
-// carries keeps loading.
+// Every other mode ignores the block and reports its own virtualization mode
+// (passthrough as PASSTHROUGH, none or an unrecognised one as bare metal), so
+// the "N/A" host_vgpu_mode every shipped profile carries keeps loading.
 func validateVGPUConfig(config *YAMLConfig) error {
 	v := config.DeviceDefaults.Virtualization
 	if v == nil {
@@ -119,12 +120,12 @@ func validateVGPUTypes(types []VGPUTypeConfig) (map[string]VGPUTypeConfig, error
 
 // validateVGPUInstances checks the running instances. Without heterogeneous
 // mode a GPU runs one vGPU type at a time, which is also what makes
-// max_instances a per-GPU bound on the whole layout.
+// max_instances a per-GPU bound on the whole layout, and the framebuffer in use
+// the instance count times that type's framebuffer.
 func validateVGPUInstances(instances []VGPUInstanceConfig, types map[string]VGPUTypeConfig, boardMiB uint64) error {
 	var (
 		first    string
-		count    int
-		fbMiB    uint64
+		count    uint64
 		declared VGPUTypeConfig
 	)
 	for i, inst := range instances {
@@ -140,15 +141,19 @@ func validateVGPUInstances(instances []VGPUInstanceConfig, types map[string]VGPU
 		} else if inst.Type != first {
 			return fmt.Errorf("vgpu.instances[%d].type: %q differs from %q; a GPU runs one vGPU type at a time", i, inst.Type, first)
 		}
-		n := max(inst.Count, 1)
-		count += n
-		fbMiB += uint64(n) * t.FramebufferMiB
+		// Checked per entry so the running total stays at most max_instances
+		// (999) before each addition and the sum cannot wrap.
+		count += uint64(max(inst.Count, 1))
+		if count > uint64(declared.MaxInstances) {
+			return fmt.Errorf("vgpu.instances: %d instances of %q exceed its max_instances %d", count, first, declared.MaxInstances)
+		}
 	}
-	if count > int(declared.MaxInstances) {
-		return fmt.Errorf("vgpu.instances: %d instances of %q exceed its max_instances %d", count, first, declared.MaxInstances)
+	if boardMiB == 0 {
+		return nil
 	}
-	if boardMiB > 0 && fbMiB > boardMiB {
-		return fmt.Errorf("vgpu.instances: %d MiB of vGPU framebuffer exceeds the board's %d MiB", fbMiB, boardMiB)
+	hi, fbMiB := bits.Mul64(count, declared.FramebufferMiB)
+	if hi != 0 || fbMiB > boardMiB {
+		return fmt.Errorf("vgpu.instances: %d instances of %d MiB exceed the board's %d MiB of framebuffer", count, declared.FramebufferMiB, boardMiB)
 	}
 	return nil
 }

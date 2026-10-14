@@ -50,17 +50,15 @@ func (e *Engine) VgpuInstance(id uint32) (VgpuInstance, nvml.Return) {
 	default:
 		return VgpuInstance{}, ret
 	}
-	for _, inst := range d.vgpuInstances(v.VGPU) {
-		if inst.ID != id {
-			continue
-		}
-		// Engine.SystemGetDriverVersion would take e.mu a second time.
-		version, ret := e.server.SystemGetDriverVersion()
-		if ret != nvml.SUCCESS {
-			return VgpuInstance{}, ret
-		}
-		inst.GuestDriverVersion = version
-		return inst, nvml.SUCCESS
+	inst, ok := d.vgpuInstance(v.VGPU, vgpuInstanceSlot(id))
+	if !ok {
+		return VgpuInstance{}, nvml.ERROR_INVALID_ARGUMENT
 	}
-	return VgpuInstance{}, nvml.ERROR_INVALID_ARGUMENT
+	// Engine.SystemGetDriverVersion would take e.mu a second time.
+	version, ret := e.server.SystemGetDriverVersion()
+	if ret != nvml.SUCCESS {
+		return VgpuInstance{}, ret
+	}
+	inst.GuestDriverVersion = version
+	return inst, nvml.SUCCESS
 }

@@ -31,6 +31,11 @@ func vgpuHostVirtualization(count int) *VirtualizationConfig {
 // random per load, and vGPU identities derive from it.
 func newVgpuEngine(t *testing.T, numDevices int, virt *VirtualizationConfig) *Engine {
 	t.Helper()
+	return newVgpuEngineWithFailure(t, numDevices, virt, nil)
+}
+
+func newVgpuEngineWithFailure(t *testing.T, numDevices int, virt *VirtualizationConfig, failure *FailureInjectionConfig) *Engine {
+	t.Helper()
 	devices := make([]DeviceOverride, numDevices)
 	for i := range devices {
 		devices[i] = DeviceOverride{Index: i, UUID: fmt.Sprintf("GPU-5647d1a0-0000-0000-0000-%012d", i)}
@@ -43,6 +48,7 @@ func newVgpuEngine(t *testing.T, numDevices int, virt *VirtualizationConfig) *En
 			System:  SystemConfig{DriverVersion: "550.163.01", NumDevices: numDevices},
 			DeviceDefaults: DeviceConfig{
 				Virtualization: virt,
+				Failure:        failure,
 				Memory:         &MemoryConfig{TotalBytes: 40 << 30},
 				PCI:            &PCIConfig{DeviceID: 0x20B010DE, SubsystemID: 0x134F10DE},
 			},
@@ -190,6 +196,124 @@ func TestVgpuHost_BareMetalGPUIsNotSupported(t *testing.T) {
 	require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret)
 	_, ret = e.VgpuInstance(1001)
 	require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret)
+}
+
+// A runtime override of virtualization.mode skips load-time validation, so a
+// GPU can claim host_vgpu with no vGPU block. Every vGPU call on it answers
+// NOT_SUPPORTED, and so must the "is this a vGPU host" question nvidia-smi
+// asks first.
+func TestVgpuHost_ModeWithoutVgpuBlockIsNotAHost(t *testing.T) {
+	t.Parallel()
+	d := vgpuDevice(t, newVgpuEngine(t, 1, &VirtualizationConfig{
+		Mode: VirtualizationModeHostVGPU, HostVGPUMode: "sriov",
+	}), 0)
+
+	require.False(t, d.IsVgpuHost())
+	_, ret := d.GetHostVgpuMode()
+	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret)
+}
+
+// The lookup decodes the slot from the ID, so it must find every instance the
+// GPU lists, including those declared by a later entry.
+func TestVgpuHost_InstanceLookupMatchesActiveList(t *testing.T) {
+	t.Parallel()
+	virt := vgpuHostVirtualization(2)
+	virt.VGPU.Instances = append(virt.VGPU.Instances, VGPUInstanceConfig{Type: "NVIDIA A100-4C"})
+	e := newVgpuEngine(t, 2, virt)
+	d := vgpuDevice(t, e, 1)
+
+	ids, ret := d.VgpuActiveInstanceIDs()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, []uint32{2001, 2002, 2003}, ids)
+	want := d.vgpuInstances(virt.VGPU)
+	for i, id := range ids {
+		got, ret := e.VgpuInstance(id)
+		require.Equal(t, nvml.SUCCESS, ret, "id %d", id)
+		got.GuestDriverVersion = ""
+		require.Equal(t, want[i], got, "id %d", id)
+	}
+	for _, id := range []uint32{2000, 2004} {
+		_, ret := e.VgpuInstance(id)
+		require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret, "id %d", id)
+	}
+}
+
+// `nvidia-smi vgpu` truncates the VM ID, so instances on one GPU must already
+// differ in the leading digits it keeps.
+func TestVgpuHost_IdentitiesDifferInTheirLeadingDigits(t *testing.T) {
+	t.Parallel()
+	e := newVgpuEngine(t, 1, vgpuHostVirtualization(2))
+	a, ret := e.VgpuInstance(1001)
+	require.Equal(t, nvml.SUCCESS, ret)
+	b, ret := e.VgpuInstance(1002)
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	require.NotEqual(t, a.UUID[:8], b.UUID[:8])
+	require.NotEqual(t, a.VMID[:8], b.VMID[:8])
+}
+
+// A lost GPU surfaces through the vGPU getters, but they answer from static
+// config and never count toward an after_calls trip: nvidia-smi calls them on
+// every run, so ticking would trip the failure on a schedule set by which view
+// the caller asked for.
+func TestVgpu_LostGPU(t *testing.T) {
+	t.Parallel()
+	const afterCalls = 3
+	failure := &FailureInjectionConfig{Mode: FailureModeLost, AfterCalls: afterCalls}
+
+	t.Run("host", func(t *testing.T) {
+		t.Parallel()
+		e := newVgpuEngineWithFailure(t, 1, vgpuHostVirtualization(2), failure)
+		d := vgpuDevice(t, e, 0)
+		for range 2 * afterCalls {
+			_, ret := d.GetHostVgpuMode()
+			require.Equal(t, nvml.SUCCESS, ret)
+			_, ret = d.VgpuSupportedTypeIDs()
+			require.Equal(t, nvml.SUCCESS, ret)
+			_, ret = d.VgpuCreatableTypeIDs()
+			require.Equal(t, nvml.SUCCESS, ret)
+			_, ret = d.VgpuActiveInstanceIDs()
+			require.Equal(t, nvml.SUCCESS, ret)
+			_, ret = d.VgpuType(474)
+			require.Equal(t, nvml.SUCCESS, ret)
+			_, ret = e.VgpuType(474)
+			require.Equal(t, nvml.SUCCESS, ret)
+			_, ret = e.VgpuInstance(1001)
+			require.Equal(t, nvml.SUCCESS, ret)
+		}
+		tripLost(t, d, afterCalls)
+
+		_, ret := d.GetHostVgpuMode()
+		require.Equal(t, nvml.ERROR_GPU_IS_LOST, ret)
+		_, ret = e.VgpuInstance(1001)
+		require.Equal(t, nvml.ERROR_GPU_IS_LOST, ret)
+	})
+
+	t.Run("guest", func(t *testing.T) {
+		t.Parallel()
+		d := vgpuDevice(t, newVgpuEngineWithFailure(t, 1,
+			vgpuGuestVirtualization(&VGPULicenseConfig{Product: "p"}), failure), 0)
+		for range 2 * afterCalls {
+			_, ret := d.GetGridLicensableFeatures()
+			require.Equal(t, nvml.SUCCESS, ret)
+		}
+		tripLost(t, d, afterCalls)
+
+		_, ret := d.GetGridLicensableFeatures()
+		require.Equal(t, nvml.ERROR_GPU_IS_LOST, ret)
+	})
+}
+
+// tripLost proves the counter is untouched: only the afterCalls-th guarded
+// call trips the GPU.
+func tripLost(t *testing.T, d *ConfigurableDevice, afterCalls int) {
+	t.Helper()
+	for i := 1; i < afterCalls; i++ {
+		_, ret := d.GetTemperature(nvml.TEMPERATURE_GPU)
+		require.NotEqual(t, nvml.ERROR_GPU_IS_LOST, ret, "guarded call %d tripped early", i)
+	}
+	_, ret := d.GetTemperature(nvml.TEMPERATURE_GPU)
+	require.Equal(t, nvml.ERROR_GPU_IS_LOST, ret, "guarded call %d", afterCalls)
 }
 
 func TestVgpuHost_UninitializedEngine(t *testing.T) {

@@ -4,16 +4,16 @@
 package engine
 
 import (
+	"crypto/sha256"
 	"fmt"
-	"hash/fnv"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 )
 
 // vGPU host simulation.
 //
-// A GPU in host_vgpu mode runs the instances its config declares from boot;
-// nothing creates or destroys them at runtime. vGPU types and instances are
+// A GPU in host_vgpu mode runs the instances its current config declares; no
+// NVML call creates or destroys them. vGPU types and instances are
 // plain IDs in NVML, so nothing here registers handles: a type ID names the
 // same type on every GPU that declares it, and an instance ID encodes its GPU.
 //
@@ -80,10 +80,15 @@ func (VgpuInstance) LicenseInfo() nvml.VgpuLicenseInfo {
 	}
 }
 
-// IsVgpuHost reports whether the GPU runs the vGPU manager.
+// IsVgpuHost reports whether the GPU runs the vGPU manager. It agrees with
+// the vGPU getters, so a GPU that claims the mode with no vGPU block, as a
+// runtime override can leave it, is not one.
 func (d *ConfigurableDevice) IsVgpuHost() bool {
-	v := d.cfg().Virtualization
-	return v != nil && v.Mode == VirtualizationModeHostVGPU
+	return isVgpuHost(d.cfg().Virtualization)
+}
+
+func isVgpuHost(v *VirtualizationConfig) bool {
+	return v != nil && v.Mode == VirtualizationModeHostVGPU && v.VGPU != nil
 }
 
 // vgpuHost returns the host block, or NOT_SUPPORTED for a GPU without the
@@ -93,7 +98,7 @@ func (d *ConfigurableDevice) vgpuHost() (*VirtualizationConfig, nvml.Return) {
 		return nil, ret
 	}
 	v := d.cfg().Virtualization
-	if v == nil || v.Mode != VirtualizationModeHostVGPU || v.VGPU == nil {
+	if !isVgpuHost(v) {
 		return nil, nvml.ERROR_NOT_SUPPORTED
 	}
 	return v, nvml.SUCCESS
@@ -218,14 +223,8 @@ func (d *ConfigurableDevice) resolveVgpuType(t VGPUTypeConfig) VgpuType {
 // declaration order. Load-time validation rejects an unknown type and an
 // over-full GPU; a config that bypassed it is trimmed rather than trusted.
 func (d *ConfigurableDevice) vgpuInstances(v *VGPUConfig) []VgpuInstance {
-	types := make(map[string]VGPUTypeConfig, len(v.Types))
-	for _, t := range v.Types {
-		types[t.Name] = t
-	}
-	ecc := nvml.FEATURE_DISABLED
-	if c := d.cfg().ECC; c != nil && c.ModeCurrent == "enabled" {
-		ecc = nvml.FEATURE_ENABLED
-	}
+	types := vgpuTypesByName(v)
+	ecc := d.vgpuECCMode()
 	var out []VgpuInstance
 	for _, entry := range v.Instances {
 		t, ok := types[entry.Type]
@@ -240,29 +239,78 @@ func (d *ConfigurableDevice) vgpuInstances(v *VGPUConfig) []VgpuInstance {
 				warnLog("GPU %d: more than %d vGPU instances declared; the rest are skipped\n", d.index, maxVgpuInstancesPerGPU)
 				return out
 			}
-			out = append(out, VgpuInstance{
-				ID:            vgpuInstanceID(d.index, slot),
-				Type:          resolved,
-				UUID:          vgpuDerivedUUID(d.UUID, "vgpu", slot),
-				VMID:          vgpuDerivedUUID(d.UUID, "vm", slot),
-				ECCMode:       ecc,
-				GPUInstanceID: vgpuNotMIGBacked,
-			})
+			out = append(out, d.newVgpuInstance(resolved, slot, ecc))
 		}
 	}
 	return out
+}
+
+// vgpuInstance builds only the instance in slot, numbering the slots as
+// vgpuInstances does, so a lookup by ID does not derive every instance's
+// identity on the GPU.
+func (d *ConfigurableDevice) vgpuInstance(v *VGPUConfig, slot int) (VgpuInstance, bool) {
+	if slot < 0 || slot >= maxVgpuInstancesPerGPU {
+		return VgpuInstance{}, false
+	}
+	types := vgpuTypesByName(v)
+	first := 0
+	for _, entry := range v.Instances {
+		t, ok := types[entry.Type]
+		if !ok {
+			continue
+		}
+		// Compared as an offset so an unvalidated count cannot overflow.
+		n := max(entry.Count, 1)
+		if slot-first < n {
+			return d.newVgpuInstance(d.resolveVgpuType(t), slot, d.vgpuECCMode()), true
+		}
+		first += n
+	}
+	return VgpuInstance{}, false
+}
+
+func vgpuTypesByName(v *VGPUConfig) map[string]VGPUTypeConfig {
+	types := make(map[string]VGPUTypeConfig, len(v.Types))
+	for _, t := range v.Types {
+		types[t.Name] = t
+	}
+	return types
+}
+
+func (d *ConfigurableDevice) vgpuECCMode() nvml.EnableState {
+	if c := d.cfg().ECC; c != nil && c.ModeCurrent == "enabled" {
+		return nvml.FEATURE_ENABLED
+	}
+	return nvml.FEATURE_DISABLED
+}
+
+func (d *ConfigurableDevice) newVgpuInstance(t VgpuType, slot int, ecc nvml.EnableState) VgpuInstance {
+	return VgpuInstance{
+		ID:            vgpuInstanceID(d.index, slot),
+		Type:          t,
+		UUID:          vgpuDerivedUUID(d.UUID, "vgpu", slot),
+		VMID:          vgpuDerivedUUID(d.UUID, "vm", slot),
+		ECCMode:       ecc,
+		GPUInstanceID: vgpuNotMIGBacked,
+	}
 }
 
 func vgpuInstanceID(physicalIndex, slot int) uint32 {
 	return uint32((physicalIndex+1)*vgpuInstanceIDStride + slot + 1)
 }
 
+// vgpuInstanceSlot is the inverse of vgpuInstanceID for an ID already known to
+// belong to the GPU. A block's base ID, (i+1)*stride, decodes to -1, which no
+// instance has.
+func vgpuInstanceSlot(id uint32) int {
+	return int(id%vgpuInstanceIDStride) - 1
+}
+
 // vgpuDerivedUUID derives a stable UUID-shaped identity from the GPU's UUID.
-// The salt keeps an instance's own UUID and its VM's apart.
+// The salt keeps an instance's own UUID and its VM's apart. SHA-256 rather
+// than a cheaper hash because nvidia-smi truncates VM IDs, so neighbouring
+// slots must already differ in their leading digits.
 func vgpuDerivedUUID(gpuUUID, salt string, slot int) string {
-	h := fnv.New128a()
-	// hash.Hash's Write never returns an error.
-	_, _ = fmt.Fprintf(h, "%s\x00%s\x00%d", salt, gpuUUID, slot)
-	b := h.Sum(nil)
+	b := sha256.Sum256(fmt.Appendf(nil, "%s\x00%s\x00%d", salt, gpuUUID, slot))
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
