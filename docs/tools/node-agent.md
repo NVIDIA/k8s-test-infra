@@ -48,9 +48,8 @@ instead of running it in the wrong mode. Any error out of `start` prints as
 ### Inputs with no flag
 
 `GPU_COUNT`, `DRIVER_VERSION`, `NODE_NAME`, `HOSTNAME`,
-`MOCK_FABRICMANAGER_STATE_DIR` and `IMEX_MOCK_CHANNELS` (with the
-`IMEX_CHANNEL_MAJOR`, `IMEX_CAPS_MAJOR` and `IMEX_CHANNEL_COUNT` values it
-gates) are read where the profile is compiled into state rather than by any
+`MOCK_FABRICMANAGER_STATE_DIR`, `IMEX_CHANNEL_MAJOR` and `IMEX_CAPS_MAJOR`
+(used only on multi-node NVLink profiles) are read where the profile is compiled into state rather than by any
 simulator, so no flag shadows them. The chart sets them — see
 [Configuration](../configuration.md).
 

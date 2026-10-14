@@ -451,13 +451,13 @@ test: ## Run unit tests with race detection and coverage
 # Go's module cache takes a lock file even to read from it — which is fine
 # on a CI runner thrown away at the end of the job, less so reused locally.
 .PHONY: test-privileged
-test-privileged: ## Run internal/fsutil and internal/agent/gpudriver as root in a privileged container, for the tests `test` always skips
+test-privileged: ## Run internal/fsutil, internal/agent/gpudriver and internal/agent/imex as root in a privileged container, for the tests `test` always skips
 	@docker run --rm --privileged \
 		-e GOPROXY=off \
 		-v "$(CURDIR)":/src -w /src \
 		-v "$(shell $(GO_CMD) env GOMODCACHE)":/go/pkg/mod \
 		golang:$(shell ./hack/golang-version.sh) \
-		go test -v ./internal/fsutil/... ./internal/agent/gpudriver/...
+		go test -v ./internal/fsutil/... ./internal/agent/gpudriver/... ./internal/agent/imex/...
 
 HELM_CHART_DIR      := deployments/nvml-mock/helm/nvml-mock
 CRDS_HELM_CHART_DIR := deployments/mokka-crds/helm/mokka-crds

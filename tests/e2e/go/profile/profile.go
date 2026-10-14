@@ -110,6 +110,7 @@ type rawProfile struct {
 	NVLink struct {
 		LinksPerGPU int  `json:"links_per_gpu"`
 		C2CEnabled  bool `json:"c2c_enabled"`
+		MultiNode   bool `json:"multi_node"`
 		BwMode      struct {
 			Scope string `json:"scope"`
 		} `json:"bw_mode"`
@@ -184,6 +185,7 @@ type Profile struct {
 	nvlinkBwScope  string
 	pciBridges     int
 	c2cEnabled     bool
+	multiNode      bool
 	fabricAuto     bool
 	hasFabric      bool
 	pciRoots       int
@@ -292,6 +294,7 @@ func Load(profilesDir, name string) (Profile, error) {
 		hasSwitches: len(raw.NVLink.Switches) > 0,
 		pciBridges:  pcieVisibleSwitches(raw),
 		c2cEnabled:  raw.NVLink.C2CEnabled,
+		multiNode:   raw.NVLink.MultiNode,
 		memoryBytes: raw.DeviceDefaults.Memory.TotalBytes,
 		arch:        parsedArch,
 
@@ -554,6 +557,12 @@ func (p Profile) HasFabric() bool { return p.hasFabric }
 // nvidia-smi -q renders it as "GPU C2C Mode : Enabled" there and N/A
 // elsewhere. Absent key means false, i.e. N/A.
 func (p Profile) C2CEnabled() bool { return p.c2cEnabled }
+
+// MultiNodeNVLink reports whether the board's NVLink domain spans nodes
+// (nvlink.multi_node), which is what makes the node agent stage the IMEX
+// surface. gb200 and gb300 set it today. HasFabric is also true on h100, whose
+// NVLink stays on one baseboard, so it cannot stand in for this.
+func (p Profile) MultiNodeNVLink() bool { return p.multiNode }
 
 // PlatformIdentity returns the platform identity the profile configures and
 // whether it declares one at all. Only the rack-scale profiles (gb200, gb300)

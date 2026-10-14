@@ -66,7 +66,6 @@ simulated GPUs before running this demo.
    gpu.profile=gb200
    topology.enabled=true
    topology.domains=<demo topology>
-   imex.mockChannels.enabled=true
    ```
 
    This renders both ConfigMaps (`nvml-mock-config` and
@@ -227,9 +226,8 @@ helm upgrade --install nvml-mock deployments/nvml-mock/helm/nvml-mock \
     --set image.repository=nvml-mock \
     --set image.tag=compute-domain \
     --set gpu.profile=gb200 \
-    --set imex.mockChannels.enabled=true \
-    --set imex.mockChannels.channelMajor="${IMEX_CHANNEL_MAJOR}" \
-    --set imex.mockChannels.capsMajor="${IMEX_CAPS_MAJOR}" \
+    --set imex.deviceNumbers.channelMajor="${IMEX_CHANNEL_MAJOR}" \
+    --set imex.deviceNumbers.capsMajor="${IMEX_CAPS_MAJOR}" \
     --set-string updateStrategy.rollingUpdate.maxUnavailable=100% \
     --set terminationGracePeriodSeconds=1 \
     --wait --timeout 180s

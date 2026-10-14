@@ -336,17 +336,16 @@ nri:
   # plugin logs a warning. Same trust boundary as deviceAnnotation above.
   infinibandAnnotation: nvml-mock.nvidia.com/infiniband
   # Workloads that set this pod annotation to "true" get the mock IMEX channel
-  # nodes at /dev/nvidia-caps-imex-channels/channelN — the fabric surface a
+  # node at /dev/nvidia-caps-imex-channels/channel0 — the fabric surface a
   # ComputeDomain workload expects. Channels alone bring no overlay, mock NVML
   # or InfiniBand; add deviceAnnotation or hold a GPU allocation for those.
   # Same trust boundary as deviceAnnotation above.
   #
-  # The channels themselves come from imex.mockChannels; this plugin only
-  # delivers what that already staged, so enable imex.mockChannels too or the
-  # annotation is a no-op (the plugin logs a warning and the pod still starts).
-  # Every channel staged on the node is injected, so a large
-  # imex.mockChannels.channelCount adds real container-start cost: creating the
-  # default 2048 nodes measures around one second.
+  # The channel is staged on multi-node NVLink profiles, such as gb200; this
+  # plugin only delivers what was staged, so on other profiles the annotation
+  # is a no-op (the plugin logs a warning and the pod still starts). Like a
+  # real node whose driver creates channel0 at load time, the node stages
+  # channel0 only.
   # -- Pod annotation enabling IMEX channel injection.
   imexChannelAnnotation: nvml-mock.nvidia.com/imex-channels
   # -- Namespaces excluded from NRI injection.
@@ -486,10 +485,10 @@ imex:
   # there is no NVIDIA kernel module, so the entry is absent and the plugin
   # aborts with "error parsing '/proc/devices': unexpected regex match: []".
   #
-  # When enabled, the DaemonSet renders:
+  # Multi-node NVLink profiles (nvlink.multi_node, such as gb200) render:
   #   <hostPath>/imex/proc-devices                       substitute /proc/devices
   #   <driverRoot>/proc/driver/nvidia/capabilities/...   fabric-imex-mgmt
-  #   <driverRoot>/dev/nvidia-caps-imex-channels/channelN  channel device nodes
+  #   <driverRoot>/dev/nvidia-caps-imex-channels/channel0  channel device node
   #
   # Pair it with the DRA driver, on a release that supports altProcDevices:
   #   --set altProcDevices=/var/lib/nvml-mock/imex/proc-devices
@@ -500,17 +499,13 @@ imex:
   # not yet make ComputeDomains work with released artifacts. See
   # NVIDIA/k8s-test-infra#498.
   #
-  # Off by default: it creates channelCount device nodes per node.
-  mockChannels:
-    # -- Enable simulation of IMEX channel devices.
-    enabled: false
-    # Number of channel device nodes. 2048 matches getImexChannelCount() in the
-    # DRA driver's compute-domain kubelet plugin.
-    # -- Number of IMEX channel device nodes to create per node.
-    channelCount: 2048
+  # Other profiles render none of it. The settings below pick its device
+  # numbers.
+  deviceNumbers:
     # Device majors advertised in the rendered proc-devices file. Defaults match
-    # the DRA driver's own CI fixtures. They must differ from each other and
-    # must not collide with a major already present on the node.
+    # the DRA driver's own CI fixtures. They must differ from each other. A
+    # major the node's kernel already gives to another driver is replaced by a
+    # free one from 384 to 511.
     # -- Major number used for IMEX channel devices.
     channelMajor: 235
     # -- Major number used for IMEX capability devices.

@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync/atomic"
 
 	"go.uber.org/zap"
@@ -20,18 +21,21 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
+	"github.com/NVIDIA/k8s-test-infra/internal/imex"
 )
 
 const name = "imex"
 
 var _ agent.Simulator = (*Simulator)(nil)
 
-// Simulator fakes the IMEX kernel surface that is absent on CPU-only nodes
+// Simulator fakes the IMEX kernel surface that is absent on CPU-only nodes.
 //
 // Main consumers
-// - the DRA compute-domain kubelet plugin (discover device majors at startup)
-// - containerd (must find the channel chardevs on disk before it admits a pod
-// carrying a compute-domain CDI spec).
+// - the DRA compute-domain kubelet plugin, which reads the device majors from
+// the /proc/devices substitute at startup; its CDI specs carry the device
+// numbers, so it never reads the channel nodes
+// - the NRI plugin, which injects the staged channel0 into containers that opt
+// in with the imex-channels annotation.
 type Simulator struct {
 	host            *host.Host
 	ready           atomic.Bool
@@ -49,26 +53,32 @@ func (s *Simulator) Name() string { return name }
 // Ready reports whether the last Stage call completed without error.
 func (s *Simulator) Ready() bool { return s.ready.Load() }
 
-// Stage materializes the IMEX capability surface under host.Root.
-// It is a no-op (but marks ready) when state.IMEX.Enabled is false.
+// Stage materializes the IMEX capability surface under host.Root. When
+// state.IMEX.Enabled is false it removes the surface, as Discard does, and
+// marks ready: the flag follows the profile and can change at runtime.
 func (s *Simulator) Stage(_ context.Context, state *agent.State) error {
 	s.ready.Store(false)
 	zap.L().Info("staging simulator", zap.String("simulator", name))
 
 	if !state.IMEX.Enabled {
+		if err := s.remove(); err != nil {
+			return fmt.Errorf("remove imex: %w", err)
+		}
 		s.ready.Store(true)
 		zap.L().Info("simulator staged; imex disabled", zap.String("simulator", name))
 		return nil
 	}
 
-	if err := stageChannelDevs(s.host, state); err != nil {
-		return fmt.Errorf("imex channel devs: %w", err)
-	}
-	if err := stageProcDevices(s.host, state, s.procDevicesPath); err != nil {
-		return fmt.Errorf("imex proc-devices: %w", err)
-	}
-	if err := stageFabricImexMgmt(s.host); err != nil {
-		return fmt.Errorf("imex fabric-imex-mgmt: %w", err)
+	if err := stageKernelSurface(s.host, state, s.procDevicesPath); err != nil {
+		// Fail open: the node becomes one without IMEX, which stays ready and
+		// runs no ComputeDomains, rather than an agent that never gets ready.
+		zap.L().Warn("cannot simulate the IMEX kernel surface; ComputeDomains fail on this node",
+			zap.String("simulator", name), zap.Error(err))
+		if err := s.remove(); err != nil {
+			return fmt.Errorf("remove imex: %w", err)
+		}
+		s.ready.Store(true)
+		return nil
 	}
 
 	s.ready.Store(true)
@@ -76,18 +86,20 @@ func (s *Simulator) Stage(_ context.Context, state *agent.State) error {
 	return nil
 }
 
-// Discard removes all IMEX surfaces staged by Stage.
-// It is a no-op when Stage never completed successfully.
+// Discard removes every IMEX surface Stage may have written. It does not
+// depend on the last Stage having completed: a pass that failed partway can
+// leave what an earlier pass staged, and removing what is absent is a no-op.
 func (s *Simulator) Discard(_ context.Context) error {
-	if !s.ready.Load() {
-		return nil
-	}
 	zap.L().Info("discarding simulator", zap.String("simulator", name))
+	return s.remove()
+}
 
+// remove deletes the IMEX capability surface.
+func (s *Simulator) remove() error {
 	var errs []error
 	for _, rel := range []string{
-		"driver/dev/nvidia-caps-imex-channels",
-		"imex",
+		imex.ChannelsDir,
+		filepath.Dir(imex.ProcDevicesPath),
 	} {
 		p := s.host.RootPath(rel)
 		if err := os.RemoveAll(p); err != nil && !os.IsNotExist(err) {
@@ -95,7 +107,7 @@ func (s *Simulator) Discard(_ context.Context) error {
 		}
 	}
 
-	capFile := s.host.RootPath("driver/proc/driver/nvidia/capabilities/fabric-imex-mgmt")
+	capFile := s.host.RootPath(imex.FabricIMEXMgmtPath)
 	if err := fsutil.Remove(capFile); err != nil {
 		errs = append(errs, err)
 	}

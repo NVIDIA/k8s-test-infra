@@ -176,18 +176,13 @@ spec:
               value: {{ .Values.fabricmanager.initDelay | quote }}
             {{- end }}
             {{- end }}
-            {{- if .Values.imex.mockChannels.enabled }}
-            # Mock IMEX capability surface for the DRA compute-domain plugin.
-            # See values.yaml imex.mockChannels and NVIDIA/k8s-test-infra#498.
-            - name: IMEX_MOCK_CHANNELS
-              value: "true"
-            - name: IMEX_CHANNEL_COUNT
-              value: "{{ .Values.imex.mockChannels.channelCount }}"
+            # IMEX capability surface for the DRA ComputeDomain plugin. The
+            # agent stages it only for multi-node NVLink profiles
+            # (nvlink.multi_node); these set its device numbers.
             - name: IMEX_CHANNEL_MAJOR
-              value: "{{ .Values.imex.mockChannels.channelMajor }}"
+              value: "{{ dig "deviceNumbers" "channelMajor" 235 (.Values.imex | default dict) }}"
             - name: IMEX_CAPS_MAJOR
-              value: "{{ .Values.imex.mockChannels.capsMajor }}"
-            {{- end }}
+              value: "{{ dig "deviceNumbers" "capsMajor" 236 (.Values.imex | default dict) }}"
             # Drives both the IB tree the agent renders and the tier the
             # LD_PRELOAD shims operate at, so the two can never disagree.
             - name: MOCK_IB
