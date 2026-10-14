@@ -327,7 +327,10 @@ func validateYAMLConfig(config *YAMLConfig) error {
 		return err
 	}
 
-	return validateMIGConfigs(config)
+	if err := validateMIGConfigs(config); err != nil {
+		return err
+	}
+	return validateVGPUConfig(config)
 }
 
 // validateMIGConfigs checks the board-wide MIG block and every per-device one.
