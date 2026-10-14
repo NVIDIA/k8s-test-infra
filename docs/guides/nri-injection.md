@@ -47,9 +47,9 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
   --wait --timeout 180s
 ```
 
-An existing release turns NRI on at its next `helm upgrade`. Upgrade from chart
-0.4.0 without `--reuse-values`, which renders 0.4.0's values, including
-`nri.enabled=false` and the 0.4.0 image tag. `--reset-then-reuse-values`
+An existing release turns NRI on at its next `helm upgrade`. Upgrade from a
+0.4.x chart without `--reuse-values`, which renders that release's values,
+including `nri.enabled=false` and its image tag. `--reset-then-reuse-values`
 (Helm 3.14+) keeps your own overrides instead.
 
 Each node pod runs the NRI plugin next to the node agent, and is Ready only

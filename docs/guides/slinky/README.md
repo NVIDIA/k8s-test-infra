@@ -228,9 +228,9 @@ kubectl -n slurm exec "$POD" -c slurmd -- ls /proc/driver/nvidia/gpus
 ```
 
 An empty or missing directory means the NRI plugin did not inject the pod, or
-Mokka is older than 0.5.0. Check that an `nvml-mock-nri` pod is running on the
-node, then delete the `slurmd` pods so the operator recreates them. NRI only
-edits containers when they are created.
+Mokka is older than 0.5.0. Check that the `nvml-mock` pod on the node is Ready
+with its `nvml-mock-nri` container running, then delete the `slurmd` pods so
+the operator recreates them. NRI only edits containers when they are created.
 
 **GPU jobs fail with `Requested node configuration is not available` after
 reinstalling Mokka or switching profiles.** `slurmd` detects GPUs once, at
