@@ -44,12 +44,12 @@ GPUs):
 |      vGPU ID     Name           | VM ID     VM Name            | vGPU-Util  |
 |=================================+==============================+============|
 |  0   NVIDIA A100-SXM4-40GB      | 00000000:07:00.0             |  50%       |
-|      1001        NVIDIA A100-4C | c57a...                      |   N/A      |
-|      1002        NVIDIA A100-4C | c57a...                      |   N/A      |
+|      1001        NVIDIA A100-4C | f641...                      |   N/A      |
+|      1002        NVIDIA A100-4C | 2385...                      |   N/A      |
 +---------------------------------+------------------------------+------------+
 |  1   NVIDIA A100-SXM4-40GB      | 00000000:0F:00.0             |  50%       |
-|      2001        NVIDIA A100-4C | c57a...                      |   N/A      |
-|      2002        NVIDIA A100-4C | c57a...                      |   N/A      |
+|      2001        NVIDIA A100-4C | ff61...                      |   N/A      |
+|      2002        NVIDIA A100-4C | 10bc...                      |   N/A      |
 +---------------------------------+------------------------------+------------+
 ```
 
@@ -64,11 +64,11 @@ instance's identity and license rows):
 GPU 00000000:07:00.0
     Active vGPUs                          : 2
     vGPU ID                               : 1001
-        VM UUID                           : c57aebaf-fa21-fb20-79d2-7b4cbffc1109
+        VM UUID                           : f641e950-f095-42e5-aaed-85f4222ef023
         VM Name                           : 
         vGPU Name                         : NVIDIA A100-4C
         vGPU Type                         : 474
-        vGPU UUID                         : 2156c6d4-9b85-ad88-7cac-fd944b7d18da
+        vGPU UUID                         : 0f7566ae-0643-78b0-b8ab-4d9865eb8ff4
         Guest Driver Version              : 550.163.01
         License Status                    : Licensed (Expiry: Permanent)
         GPU Instance ID                   : N/A
