@@ -30,9 +30,11 @@ while [ $# -gt 0 ]; do
 done
 exec cat "$VR_FIXTURES/gh/$workflow"
 `,
+	// docker buildx version (the preflight), and
 	// docker buildx imagetools inspect --format '{{json .Manifest}}' <ref>.
 	"docker": `#!/bin/sh
 printf 'docker %s\n' "$*" >> "$VR_CALLS"
+[ "$1 $2" = "buildx version" ] && exit 0
 for arg; do ref=$arg; done
 f="$VR_FIXTURES/docker/$(printf '%s' "$ref" | tr '/:@' '___')"
 [ -f "$f" ] || { echo "ERROR: $ref: not found" >&2; exit 1; }
@@ -163,6 +165,7 @@ func TestVerifyRelease(t *testing.T) {
 		return "cosign verify-attestation --type spdxjson --certificate-identity " + identity + w + "@refs/tags/v0.5.0 " + issuer + ref
 	}
 	allCalls := []string{
+		"docker buildx version",
 		runList("nvml-mock-publish.yaml"),
 		runList("mokka-control-plane-publish.yaml"),
 		runList("helm-publish.yaml"),
@@ -486,4 +489,63 @@ func withoutCall(calls []string, drop string) []string {
 		}
 	}
 	return out
+}
+
+// TestVerifyReleaseMissingTool pins the preflight: a missing tool, or docker
+// without the buildx plugin, stops the script with exit 2 before any check
+// runs. Without it every check that needs the tool would print a FAIL whose
+// real cause is only on stderr.
+func TestVerifyReleaseMissingTool(t *testing.T) {
+	t.Parallel()
+
+	script := filepath.Join(repoRoot(t), "hack", "verify-release.sh")
+	bash, err := exec.LookPath("bash")
+	require.NoError(t, err)
+
+	const (
+		works    = "#!/bin/sh\nexit 0\n"
+		noBuildx = "#!/bin/sh\n[ \"$1\" = buildx ] && exit 1\nexit 0\n"
+	)
+	for _, tc := range []struct {
+		name   string
+		tools  map[string]string
+		stderr string
+	}{
+		{
+			name:   "cosign missing",
+			tools:  map[string]string{"gh": works, "docker": works, "helm": works, "jq": works},
+			stderr: script + ": missing required tools: cosign\n",
+		},
+		{
+			name:   "docker without buildx",
+			tools:  map[string]string{"gh": works, "docker": noBuildx, "helm": works, "cosign": works, "jq": works},
+			stderr: script + ": missing required tools: docker-buildx\n",
+		},
+		{
+			name:   "cosign missing and docker without buildx",
+			tools:  map[string]string{"gh": works, "docker": noBuildx, "helm": works, "jq": works},
+			stderr: script + ": missing required tools: docker-buildx cosign\n",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// PATH holds only the stubs: nothing before the preflight needs
+			// another command.
+			tools := t.TempDir()
+			for name, body := range tc.tools {
+				require.NoError(t, os.WriteFile(filepath.Join(tools, name), []byte(body), 0o755))
+			}
+			var stdout, stderr bytes.Buffer
+			cmd := exec.Command(bash, script, "0.5.0")
+			cmd.Env = append(os.Environ(), "PATH="+tools)
+			cmd.Stdout, cmd.Stderr = &stdout, &stderr
+
+			var exitErr *exec.ExitError
+			require.ErrorAs(t, cmd.Run(), &exitErr)
+			require.Equal(t, 2, exitErr.ExitCode(), "exit code; stderr: %s", stderr.String())
+			require.Empty(t, stdout.String(), "stdout")
+			require.Equal(t, tc.stderr, stderr.String(), "stderr")
+		})
+	}
 }
