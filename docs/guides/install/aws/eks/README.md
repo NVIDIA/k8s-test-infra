@@ -29,9 +29,9 @@ to verify DaemonSet placement:
 | Workers | 2 × on-demand `t3.large` | CPU-only, enough memory for system and Mokka pods |
 | Worker image | EKS-optimized standard AL2023 x86_64, `1.35.7-20260911` | Plain containerd under systemd and no NVIDIA software, so Mokka sets up the NVIDIA runtime itself |
 | Worker placement | Private subnets in two availability zones, one shared NAT gateway | Runs one Mokka pod per worker without public worker IPs while keeping the reference cluster's NAT cost down |
-| Mokka | latest release, `gb300` profile | Installs the latest published chart, whose default image tag is the chart's appVersion |
+| Mokka | latest release; last validated with `0.5.0`, `gb300` profile | The install below takes the latest published chart, whose default image tag is the chart's appVersion |
 | Device plugin | `nvcr.io/nvidia/k8s-device-plugin:v0.18.2` | Advertises `nvidia.com/gpu` through Mokka's NVML implementation |
-| Container toolkit | `1.19.1`, shipped in the Mokka image | Mokka installs the NVIDIA runtime and CDI hook on each worker and registers the runtime with containerd |
+| Container toolkit | `1.19.1`, shipped in the Mokka `0.5.0` image | Mokka installs the NVIDIA runtime and CDI hook on each worker and registers the runtime with containerd |
 
 These versions record a reproducible Mokka validation target; they are not an
 AWS support statement. When updating Kubernetes or the AL2023 release, repeat
