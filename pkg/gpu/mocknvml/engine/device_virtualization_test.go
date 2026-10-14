@@ -42,6 +42,7 @@ func TestConfigurableDevice_GetVirtualizationModeReportsConfiguredMode(t *testin
 		{"none", nvml.GPU_VIRTUALIZATION_MODE_NONE},
 		{"passthrough", nvml.GPU_VIRTUALIZATION_MODE_PASSTHROUGH},
 		{"vgpu", nvml.GPU_VIRTUALIZATION_MODE_VGPU},
+		{"host_vgpu", nvml.GPU_VIRTUALIZATION_MODE_HOST_VGPU},
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
 			dev := makeVirtualizationDevice(t, &VirtualizationConfig{Mode: tc.mode})
