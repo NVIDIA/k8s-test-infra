@@ -211,6 +211,8 @@ typedef unsigned int nvmlValueType_t;
 typedef unsigned int nvmlVgpuCapability_t;
 typedef unsigned int nvmlVgpuDriverCapability_t;
 typedef unsigned int nvmlVgpuTypeId_t;
+/* Upstream NVML hands out vGPU instances as plain IDs, not opaque handles. */
+typedef unsigned int nvmlVgpuInstance_t;
 
 /*
  * Temperature info (v1) — used by the versioned nvmlDeviceGetTemperatureV API.
@@ -229,8 +231,6 @@ typedef struct nvmlComputeInstance_st* nvmlComputeInstance_t;
 typedef struct nvmlEventSet_st*       nvmlEventSet_t;
 typedef struct nvmlGpuInstance_st*     nvmlGpuInstance_t;
 typedef struct nvmlUnit_st*           nvmlUnit_t;
-/* Upstream NVML hands out vGPU instances as plain IDs, not opaque handles. */
-typedef unsigned int nvmlVgpuInstance_t;
 
 /* Upstream wraps the opaque GPM sample pointer in a one-field struct. */
 typedef struct {

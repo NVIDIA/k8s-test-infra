@@ -42,6 +42,15 @@ const slotGuestVirtualization = `    mode: vgpu
         host_driver_branch: "r550_00"
         license: {product: "NVIDIA Virtual Compute Server", state: licensed}`
 
+const slotUnlicensedGuestVirtualization = `    mode: vgpu
+    vgpu:
+      guest:
+        host_driver_version: "550.163.01"
+        host_driver_branch: "r550_00"
+        license: {product: "NVIDIA Virtual Compute Server", state: unlicensed}`
+
+const slotVgpuWithoutGuestVirtualization = `    mode: vgpu`
+
 const slotBareMetalVirtualization = `    mode: none
     host_vgpu_mode: "N/A"`
 
@@ -91,9 +100,11 @@ func TestGuestLicenseStateSlot(t *testing.T) {
 		virtualization string
 		want           uint32
 	}{
-		"licensed guest": {slotGuestVirtualization, nvml.GRID_LICENSE_STATE_LICENSED},
-		"host":           {slotHostVirtualization, 0},
-		"bare metal":     {slotBareMetalVirtualization, 0},
+		"licensed guest":             {slotGuestVirtualization, nvml.GRID_LICENSE_STATE_LICENSED},
+		"unlicensed guest":           {slotUnlicensedGuestVirtualization, nvml.GRID_LICENSE_STATE_UNLICENSED},
+		"vgpu without a guest block": {slotVgpuWithoutGuestVirtualization, 0},
+		"host":                       {slotHostVirtualization, 0},
+		"bare metal":                 {slotBareMetalVirtualization, 0},
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.Equal(t, tc.want, readSlot(t, guestLicenseStateSlotForTest, tc.virtualization))

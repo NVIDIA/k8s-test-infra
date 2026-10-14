@@ -29,10 +29,7 @@ import (
 // a running guest driver reports. GridLicensableFeatures v1–v3 have older
 // layouts and no current caller.
 
-func lookupVgpuDevice(funcName string, device C.nvmlDevice_t) (*engine.ConfigurableDevice, C.nvmlReturn_t) {
-	if ret, ok := bridgeVersionCheck(funcName); !ok {
-		return nil, ret
-	}
+func lookupVgpuDevice(device C.nvmlDevice_t) (*engine.ConfigurableDevice, C.nvmlReturn_t) {
 	dev := engine.GetEngine().LookupConfigurableDevice(unsafe.Pointer(device.handle))
 	if dev == nil {
 		return nil, C.NVML_ERROR_INVALID_ARGUMENT
@@ -40,18 +37,12 @@ func lookupVgpuDevice(funcName string, device C.nvmlDevice_t) (*engine.Configura
 	return dev, C.NVML_SUCCESS
 }
 
-func lookupVgpuType(funcName string, id C.nvmlVgpuTypeId_t) (engine.VgpuType, C.nvmlReturn_t) {
-	if ret, ok := bridgeVersionCheck(funcName); !ok {
-		return engine.VgpuType{}, ret
-	}
+func lookupVgpuType(id C.nvmlVgpuTypeId_t) (engine.VgpuType, C.nvmlReturn_t) {
 	t, ret := engine.GetEngine().VgpuType(uint32(id))
 	return t, toReturn(ret)
 }
 
-func lookupVgpuInstance(funcName string, id C.nvmlVgpuInstance_t) (engine.VgpuInstance, C.nvmlReturn_t) {
-	if ret, ok := bridgeVersionCheck(funcName); !ok {
-		return engine.VgpuInstance{}, ret
-	}
+func lookupVgpuInstance(id C.nvmlVgpuInstance_t) (engine.VgpuInstance, C.nvmlReturn_t) {
 	inst, ret := engine.GetEngine().VgpuInstance(uint32(id))
 	return inst, toReturn(ret)
 }
@@ -93,10 +84,13 @@ func copySizedString(s string, buf *C.char, size *C.uint) C.nvmlReturn_t {
 }
 
 func deviceIDList(funcName string, device C.nvmlDevice_t, count *C.uint, get func(*engine.ConfigurableDevice) ([]uint32, nvml.Return)) ([]uint32, C.nvmlReturn_t) {
+	if ret, ok := bridgeVersionCheck(funcName); !ok {
+		return nil, ret
+	}
 	if count == nil {
 		return nil, C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	dev, ret := lookupVgpuDevice(funcName, device)
+	dev, ret := lookupVgpuDevice(device)
 	if ret != C.NVML_SUCCESS {
 		return nil, ret
 	}
@@ -106,10 +100,13 @@ func deviceIDList(funcName string, device C.nvmlDevice_t, count *C.uint, get fun
 
 //export nvmlDeviceGetHostVgpuMode
 func nvmlDeviceGetHostVgpuMode(device C.nvmlDevice_t, pHostVgpuMode *C.nvmlHostVgpuMode_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetHostVgpuMode"); !ok {
+		return ret
+	}
 	if pHostVgpuMode == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	dev, ret := lookupVgpuDevice("nvmlDeviceGetHostVgpuMode", device)
+	dev, ret := lookupVgpuDevice(device)
 	if ret != C.NVML_SUCCESS {
 		return ret
 	}
@@ -150,10 +147,13 @@ func nvmlDeviceGetActiveVgpus(device C.nvmlDevice_t, vgpuCount *C.uint, vgpuInst
 
 //export nvmlDeviceGetGridLicensableFeatures_v4
 func nvmlDeviceGetGridLicensableFeatures_v4(device C.nvmlDevice_t, pGridLicensableFeatures *C.nvmlGridLicensableFeatures_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetGridLicensableFeatures_v4"); !ok {
+		return ret
+	}
 	if pGridLicensableFeatures == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	dev, ret := lookupVgpuDevice("nvmlDeviceGetGridLicensableFeatures_v4", device)
+	dev, ret := lookupVgpuDevice(device)
 	if ret != C.NVML_SUCCESS {
 		return ret
 	}
@@ -168,10 +168,13 @@ func nvmlDeviceGetGridLicensableFeatures_v4(device C.nvmlDevice_t, pGridLicensab
 
 //export nvmlVgpuTypeGetMaxInstances
 func nvmlVgpuTypeGetMaxInstances(device C.nvmlDevice_t, vgpuTypeId C.nvmlVgpuTypeId_t, vgpuInstanceCount *C.uint) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlVgpuTypeGetMaxInstances"); !ok {
+		return ret
+	}
 	if vgpuInstanceCount == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	dev, ret := lookupVgpuDevice("nvmlVgpuTypeGetMaxInstances", device)
+	dev, ret := lookupVgpuDevice(device)
 	if ret != C.NVML_SUCCESS {
 		return ret
 	}
@@ -185,7 +188,10 @@ func nvmlVgpuTypeGetMaxInstances(device C.nvmlDevice_t, vgpuTypeId C.nvmlVgpuTyp
 
 //export nvmlVgpuTypeGetName
 func nvmlVgpuTypeGetName(vgpuTypeId C.nvmlVgpuTypeId_t, vgpuTypeName *C.char, size *C.uint) C.nvmlReturn_t {
-	t, ret := lookupVgpuType("nvmlVgpuTypeGetName", vgpuTypeId)
+	if ret, ok := bridgeVersionCheck("nvmlVgpuTypeGetName"); !ok {
+		return ret
+	}
+	t, ret := lookupVgpuType(vgpuTypeId)
 	if ret != C.NVML_SUCCESS {
 		return ret
 	}
@@ -194,7 +200,10 @@ func nvmlVgpuTypeGetName(vgpuTypeId C.nvmlVgpuTypeId_t, vgpuTypeName *C.char, si
 
 //export nvmlVgpuTypeGetClass
 func nvmlVgpuTypeGetClass(vgpuTypeId C.nvmlVgpuTypeId_t, vgpuTypeClass *C.char, size *C.uint) C.nvmlReturn_t {
-	t, ret := lookupVgpuType("nvmlVgpuTypeGetClass", vgpuTypeId)
+	if ret, ok := bridgeVersionCheck("nvmlVgpuTypeGetClass"); !ok {
+		return ret
+	}
+	t, ret := lookupVgpuType(vgpuTypeId)
 	if ret != C.NVML_SUCCESS {
 		return ret
 	}
@@ -203,7 +212,10 @@ func nvmlVgpuTypeGetClass(vgpuTypeId C.nvmlVgpuTypeId_t, vgpuTypeClass *C.char, 
 
 //export nvmlVgpuTypeGetLicense
 func nvmlVgpuTypeGetLicense(vgpuTypeId C.nvmlVgpuTypeId_t, vgpuTypeLicenseString *C.char, size C.uint) C.nvmlReturn_t {
-	t, ret := lookupVgpuType("nvmlVgpuTypeGetLicense", vgpuTypeId)
+	if ret, ok := bridgeVersionCheck("nvmlVgpuTypeGetLicense"); !ok {
+		return ret
+	}
+	t, ret := lookupVgpuType(vgpuTypeId)
 	if ret != C.NVML_SUCCESS {
 		return ret
 	}
@@ -212,10 +224,13 @@ func nvmlVgpuTypeGetLicense(vgpuTypeId C.nvmlVgpuTypeId_t, vgpuTypeLicenseString
 
 //export nvmlVgpuTypeGetFramebufferSize
 func nvmlVgpuTypeGetFramebufferSize(vgpuTypeId C.nvmlVgpuTypeId_t, fbSize *C.ulonglong) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlVgpuTypeGetFramebufferSize"); !ok {
+		return ret
+	}
 	if fbSize == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	t, ret := lookupVgpuType("nvmlVgpuTypeGetFramebufferSize", vgpuTypeId)
+	t, ret := lookupVgpuType(vgpuTypeId)
 	if ret != C.NVML_SUCCESS {
 		return ret
 	}
@@ -225,10 +240,13 @@ func nvmlVgpuTypeGetFramebufferSize(vgpuTypeId C.nvmlVgpuTypeId_t, fbSize *C.ulo
 
 //export nvmlVgpuTypeGetDeviceID
 func nvmlVgpuTypeGetDeviceID(vgpuTypeId C.nvmlVgpuTypeId_t, deviceID *C.ulonglong, subsystemID *C.ulonglong) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlVgpuTypeGetDeviceID"); !ok {
+		return ret
+	}
 	if deviceID == nil || subsystemID == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	t, ret := lookupVgpuType("nvmlVgpuTypeGetDeviceID", vgpuTypeId)
+	t, ret := lookupVgpuType(vgpuTypeId)
 	if ret != C.NVML_SUCCESS {
 		return ret
 	}
@@ -238,10 +256,13 @@ func nvmlVgpuTypeGetDeviceID(vgpuTypeId C.nvmlVgpuTypeId_t, deviceID *C.ulonglon
 
 // vgpuTypeUint serves the type getters that write one unsigned int.
 func vgpuTypeUint(funcName string, id C.nvmlVgpuTypeId_t, out *C.uint, field func(engine.VgpuType) uint32) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck(funcName); !ok {
+		return ret
+	}
 	if out == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	t, ret := lookupVgpuType(funcName, id)
+	t, ret := lookupVgpuType(id)
 	if ret != C.NVML_SUCCESS {
 		return ret
 	}
@@ -275,10 +296,13 @@ func nvmlVgpuTypeGetMaxInstancesPerVm(vgpuTypeId C.nvmlVgpuTypeId_t, vgpuInstanc
 
 //export nvmlVgpuTypeGetResolution
 func nvmlVgpuTypeGetResolution(vgpuTypeId C.nvmlVgpuTypeId_t, displayIndex C.uint, xdim *C.uint, ydim *C.uint) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlVgpuTypeGetResolution"); !ok {
+		return ret
+	}
 	if xdim == nil || ydim == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	t, ret := lookupVgpuType("nvmlVgpuTypeGetResolution", vgpuTypeId)
+	t, ret := lookupVgpuType(vgpuTypeId)
 	if ret != C.NVML_SUCCESS {
 		return ret
 	}
@@ -291,7 +315,10 @@ func nvmlVgpuTypeGetResolution(vgpuTypeId C.nvmlVgpuTypeId_t, displayIndex C.uin
 
 //export nvmlVgpuInstanceGetUUID
 func nvmlVgpuInstanceGetUUID(vgpuInstance C.nvmlVgpuInstance_t, uuid *C.char, size C.uint) C.nvmlReturn_t {
-	inst, ret := lookupVgpuInstance("nvmlVgpuInstanceGetUUID", vgpuInstance)
+	if ret, ok := bridgeVersionCheck("nvmlVgpuInstanceGetUUID"); !ok {
+		return ret
+	}
+	inst, ret := lookupVgpuInstance(vgpuInstance)
 	if ret != C.NVML_SUCCESS {
 		return ret
 	}
@@ -300,10 +327,13 @@ func nvmlVgpuInstanceGetUUID(vgpuInstance C.nvmlVgpuInstance_t, uuid *C.char, si
 
 //export nvmlVgpuInstanceGetVmID
 func nvmlVgpuInstanceGetVmID(vgpuInstance C.nvmlVgpuInstance_t, vmId *C.char, size C.uint, vmIdType *C.nvmlVgpuVmIdType_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlVgpuInstanceGetVmID"); !ok {
+		return ret
+	}
 	if vmIdType == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	inst, ret := lookupVgpuInstance("nvmlVgpuInstanceGetVmID", vgpuInstance)
+	inst, ret := lookupVgpuInstance(vgpuInstance)
 	if ret != C.NVML_SUCCESS {
 		return ret
 	}
@@ -316,7 +346,10 @@ func nvmlVgpuInstanceGetVmID(vgpuInstance C.nvmlVgpuInstance_t, vmId *C.char, si
 
 //export nvmlVgpuInstanceGetVmDriverVersion
 func nvmlVgpuInstanceGetVmDriverVersion(vgpuInstance C.nvmlVgpuInstance_t, version *C.char, length C.uint) C.nvmlReturn_t {
-	inst, ret := lookupVgpuInstance("nvmlVgpuInstanceGetVmDriverVersion", vgpuInstance)
+	if ret, ok := bridgeVersionCheck("nvmlVgpuInstanceGetVmDriverVersion"); !ok {
+		return ret
+	}
+	inst, ret := lookupVgpuInstance(vgpuInstance)
 	if ret != C.NVML_SUCCESS {
 		return ret
 	}
@@ -325,10 +358,13 @@ func nvmlVgpuInstanceGetVmDriverVersion(vgpuInstance C.nvmlVgpuInstance_t, versi
 
 //export nvmlVgpuInstanceGetType
 func nvmlVgpuInstanceGetType(vgpuInstance C.nvmlVgpuInstance_t, vgpuTypeId *C.nvmlVgpuTypeId_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlVgpuInstanceGetType"); !ok {
+		return ret
+	}
 	if vgpuTypeId == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	inst, ret := lookupVgpuInstance("nvmlVgpuInstanceGetType", vgpuInstance)
+	inst, ret := lookupVgpuInstance(vgpuInstance)
 	if ret != C.NVML_SUCCESS {
 		return ret
 	}
@@ -338,10 +374,13 @@ func nvmlVgpuInstanceGetType(vgpuInstance C.nvmlVgpuInstance_t, vgpuTypeId *C.nv
 
 // vgpuInstanceUint serves the instance getters that write one unsigned int.
 func vgpuInstanceUint(funcName string, id C.nvmlVgpuInstance_t, out *C.uint, field func(engine.VgpuInstance) uint32) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck(funcName); !ok {
+		return ret
+	}
 	if out == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	inst, ret := lookupVgpuInstance(funcName, id)
+	inst, ret := lookupVgpuInstance(id)
 	if ret != C.NVML_SUCCESS {
 		return ret
 	}
@@ -366,10 +405,13 @@ func nvmlVgpuInstanceGetFrameRateLimit(vgpuInstance C.nvmlVgpuInstance_t, frameR
 
 //export nvmlVgpuInstanceGetEccMode
 func nvmlVgpuInstanceGetEccMode(vgpuInstance C.nvmlVgpuInstance_t, eccMode *C.nvmlEnableState_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlVgpuInstanceGetEccMode"); !ok {
+		return ret
+	}
 	if eccMode == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	inst, ret := lookupVgpuInstance("nvmlVgpuInstanceGetEccMode", vgpuInstance)
+	inst, ret := lookupVgpuInstance(vgpuInstance)
 	if ret != C.NVML_SUCCESS {
 		return ret
 	}
@@ -382,10 +424,13 @@ func nvmlVgpuInstanceGetEccMode(vgpuInstance C.nvmlVgpuInstance_t, eccMode *C.nv
 //
 //export nvmlVgpuInstanceGetAccountingMode
 func nvmlVgpuInstanceGetAccountingMode(vgpuInstance C.nvmlVgpuInstance_t, mode *C.nvmlEnableState_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlVgpuInstanceGetAccountingMode"); !ok {
+		return ret
+	}
 	if mode == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	if _, ret := lookupVgpuInstance("nvmlVgpuInstanceGetAccountingMode", vgpuInstance); ret != C.NVML_SUCCESS {
+	if _, ret := lookupVgpuInstance(vgpuInstance); ret != C.NVML_SUCCESS {
 		return ret
 	}
 	*mode = C.nvmlEnableState_t(nvml.FEATURE_DISABLED)
@@ -394,10 +439,13 @@ func nvmlVgpuInstanceGetAccountingMode(vgpuInstance C.nvmlVgpuInstance_t, mode *
 
 //export nvmlVgpuInstanceGetFbUsage
 func nvmlVgpuInstanceGetFbUsage(vgpuInstance C.nvmlVgpuInstance_t, fbUsage *C.ulonglong) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlVgpuInstanceGetFbUsage"); !ok {
+		return ret
+	}
 	if fbUsage == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	if _, ret := lookupVgpuInstance("nvmlVgpuInstanceGetFbUsage", vgpuInstance); ret != C.NVML_SUCCESS {
+	if _, ret := lookupVgpuInstance(vgpuInstance); ret != C.NVML_SUCCESS {
 		return ret
 	}
 	*fbUsage = 0
@@ -406,10 +454,13 @@ func nvmlVgpuInstanceGetFbUsage(vgpuInstance C.nvmlVgpuInstance_t, fbUsage *C.ul
 
 //export nvmlVgpuInstanceGetEncoderStats
 func nvmlVgpuInstanceGetEncoderStats(vgpuInstance C.nvmlVgpuInstance_t, sessionCount *C.uint, averageFps *C.uint, averageLatency *C.uint) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlVgpuInstanceGetEncoderStats"); !ok {
+		return ret
+	}
 	if sessionCount == nil || averageFps == nil || averageLatency == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	if _, ret := lookupVgpuInstance("nvmlVgpuInstanceGetEncoderStats", vgpuInstance); ret != C.NVML_SUCCESS {
+	if _, ret := lookupVgpuInstance(vgpuInstance); ret != C.NVML_SUCCESS {
 		return ret
 	}
 	*sessionCount, *averageFps, *averageLatency = 0, 0, 0
@@ -418,10 +469,13 @@ func nvmlVgpuInstanceGetEncoderStats(vgpuInstance C.nvmlVgpuInstance_t, sessionC
 
 //export nvmlVgpuInstanceGetFBCStats
 func nvmlVgpuInstanceGetFBCStats(vgpuInstance C.nvmlVgpuInstance_t, fbcStats *C.nvmlFBCStats_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlVgpuInstanceGetFBCStats"); !ok {
+		return ret
+	}
 	if fbcStats == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	if _, ret := lookupVgpuInstance("nvmlVgpuInstanceGetFBCStats", vgpuInstance); ret != C.NVML_SUCCESS {
+	if _, ret := lookupVgpuInstance(vgpuInstance); ret != C.NVML_SUCCESS {
 		return ret
 	}
 	*fbcStats = C.nvmlFBCStats_t{}
@@ -430,10 +484,13 @@ func nvmlVgpuInstanceGetFBCStats(vgpuInstance C.nvmlVgpuInstance_t, fbcStats *C.
 
 //export nvmlVgpuInstanceGetLicenseInfo_v2
 func nvmlVgpuInstanceGetLicenseInfo_v2(vgpuInstance C.nvmlVgpuInstance_t, licenseInfo *C.nvmlVgpuLicenseInfo_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlVgpuInstanceGetLicenseInfo_v2"); !ok {
+		return ret
+	}
 	if licenseInfo == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	inst, ret := lookupVgpuInstance("nvmlVgpuInstanceGetLicenseInfo_v2", vgpuInstance)
+	inst, ret := lookupVgpuInstance(vgpuInstance)
 	if ret != C.NVML_SUCCESS {
 		return ret
 	}
