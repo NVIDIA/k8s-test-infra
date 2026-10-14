@@ -135,7 +135,7 @@ func TestNodeSoftwarePublishesAProvidedArchive(t *testing.T) {
 	n := testNodeSoftware(t, testLock(archive))
 	provide(t, n, archive)
 
-	n.stage()
+	n.stage(t.Context())
 
 	requireFileContent(t, filepath.Join(n.root, "driver/usr/bin/nvidia-imex"), "mokka-shim")
 	requireFileContent(t, filepath.Join(n.root, "driver/usr/bin/nvidia-imex.real"), "real-imex")
@@ -153,10 +153,10 @@ func TestNodeSoftwareDoesNotRepublishTheSameArchive(t *testing.T) {
 	archive := testArchive(t, "")
 	n := testNodeSoftware(t, testLock(archive))
 	provide(t, n, archive)
-	n.stage()
+	n.stage(t.Context())
 	before := statStaged(t, n.root)
 
-	n.stage()
+	n.stage(t.Context())
 
 	after := statStaged(t, n.root)
 	for i := range before {
@@ -173,12 +173,12 @@ func TestNodeSoftwareKeepsAnIdenticalInstallAcrossARestart(t *testing.T) {
 	archive := testArchive(t, "")
 	n := testNodeSoftware(t, testLock(archive))
 	provide(t, n, archive)
-	n.stage()
+	n.stage(t.Context())
 	before := statStaged(t, n.root)
 
 	restarted := *n
 	restarted.publishedDigest, restarted.lastOutcome = "", ""
-	restarted.stage()
+	restarted.stage(t.Context())
 
 	after := statStaged(t, n.root)
 	for i := range before {
@@ -192,12 +192,12 @@ func TestNodeSoftwareReplacesADifferentInstallAfterARestart(t *testing.T) {
 	archive := testArchive(t, "")
 	n := testNodeSoftware(t, testLock(archive))
 	provide(t, n, archive)
-	n.stage()
+	n.stage(t.Context())
 	require.NoError(t, os.WriteFile(filepath.Join(n.root, "driver/usr/bin/nvidia-imex-ctl"), []byte("older"), 0o755))
 
 	restarted := *n
 	restarted.publishedDigest, restarted.lastOutcome = "", ""
-	restarted.stage()
+	restarted.stage(t.Context())
 
 	requireFileContent(t, filepath.Join(n.root, "driver/usr/bin/nvidia-imex-ctl"), "imex-ctl")
 }
@@ -209,10 +209,10 @@ func TestNodeSoftwareRepublishesAnIncompleteTree(t *testing.T) {
 	archive := testArchive(t, "")
 	n := testNodeSoftware(t, testLock(archive))
 	provide(t, n, archive)
-	n.stage()
+	n.stage(t.Context())
 	require.NoError(t, os.Remove(filepath.Join(n.root, "driver/usr/bin/nvidia-imex-ctl")))
 
-	n.stage()
+	n.stage(t.Context())
 
 	requireFileContent(t, filepath.Join(n.root, "driver/usr/bin/nvidia-imex-ctl"), "imex-ctl")
 }
@@ -226,7 +226,7 @@ func TestPublishFailureWithdrawsAnEarlierInstall(t *testing.T) {
 	lock := testLock(archive)
 	n := testNodeSoftware(t, lock)
 	file := provide(t, n, archive)
-	n.stage()
+	n.stage(t.Context())
 	require.FileExists(t, filepath.Join(n.root, shimDestination))
 
 	err := stageFromArchive(n.root, filepath.Join(t.TempDir(), "no-shim"), file, lock.Artifacts["amd64"].SHA256)
@@ -252,7 +252,7 @@ func TestNodeSoftwareStagesNothingWithoutAProvidedArchive(t *testing.T) {
 
 	n := testNodeSoftware(t, testLock(testArchive(t, "")))
 
-	n.stage()
+	n.stage(t.Context())
 
 	requireNothingStaged(t, n.root)
 }
@@ -265,7 +265,7 @@ func TestNodeSoftwareIgnoresAnArchiveThatDoesNotMatchThePin(t *testing.T) {
 	n := testNodeSoftware(t, testLock(testArchive(t, "")))
 	provide(t, n, testArchive(t, "LICENSE"))
 
-	n.stage()
+	n.stage(t.Context())
 
 	requireNothingStaged(t, n.root)
 }
@@ -277,7 +277,7 @@ func TestNodeSoftwareRejectsAnIncompleteArchive(t *testing.T) {
 	n := testNodeSoftware(t, testLock(incomplete))
 	provide(t, n, incomplete)
 
-	n.stage()
+	n.stage(t.Context())
 
 	requireNothingStaged(t, n.root)
 }
@@ -288,11 +288,11 @@ func TestNodeSoftwareWithdrawsIMEXWhenTheArchiveGoesAway(t *testing.T) {
 	archive := testArchive(t, "")
 	n := testNodeSoftware(t, testLock(archive))
 	file := provide(t, n, archive)
-	n.stage()
+	n.stage(t.Context())
 	require.FileExists(t, filepath.Join(n.root, shimDestination))
 
 	require.NoError(t, os.Remove(file))
-	n.stage()
+	n.stage(t.Context())
 
 	requireWithdrawn(t, n.root)
 }
@@ -310,7 +310,7 @@ func stagedSimulator(t *testing.T) *Simulator {
 		Lock:         testLock(archive),
 	})
 	provide(t, &sim.nodeSoftware, archive)
-	sim.nodeSoftware.stage()
+	sim.nodeSoftware.stage(t.Context())
 	require.FileExists(t, filepath.Join(sim.nodeSoftware.root, shimDestination))
 	seedSurface(t, sim.host)
 	return sim
@@ -371,8 +371,8 @@ func TestNodeSoftwareLogsEachOutcomeOnce(t *testing.T) {
 	archive := testArchive(t, "")
 	n := testNodeSoftware(t, testLock(archive))
 
-	n.stage()
-	n.stage()
+	n.stage(t.Context())
+	n.stage(t.Context())
 	missing := logs.FilterMessageSnippet("not provided").All()
 	require.Len(t, missing, 1)
 	require.Equal(t, zapcore.WarnLevel, missing[0].Level)
@@ -384,8 +384,8 @@ func TestNodeSoftwareLogsEachOutcomeOnce(t *testing.T) {
 	require.Equal(t, n.lock.Artifacts["amd64"].SHA256, fields["sha256"])
 
 	provide(t, n, archive)
-	n.stage()
-	n.stage()
+	n.stage(t.Context())
+	n.stage(t.Context())
 	require.Len(t, logs.FilterMessage("staged IMEX node software").All(), 1)
 }
 
@@ -399,7 +399,7 @@ func TestNodeSoftwareIgnoresLooseFilesInTheProvidedDirectory(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(n.providedDir, name), []byte("loose"), 0o755))
 	}
 
-	n.stage()
+	n.stage(t.Context())
 
 	requireNothingStaged(t, n.root)
 }

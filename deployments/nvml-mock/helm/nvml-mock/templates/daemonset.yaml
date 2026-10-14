@@ -182,6 +182,9 @@ spec:
             {{- if $imexPayload }}
             - --imex-provided-dir={{ $imexProvidedDir }}
             {{- end }}
+            {{- with dig "download" "timeout" "" (.Values.imex | default dict) }}
+            - --imex-download-timeout={{ . }}
+            {{- end }}
             {{- if $runtime.enabled }}
             - --container-runtime={{ $runtime.type }}
             - --container-runtime-restart={{ $runtime.restartMode }}

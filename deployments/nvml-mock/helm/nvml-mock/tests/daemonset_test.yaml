@@ -1231,13 +1231,28 @@ tests:
         resyncInterval: null
         # Added after the resync interval, so absent too.
         containerRuntime: null
+      imex:
+        download: null
     asserts:
       - notContains:
           path: spec.template.spec.initContainers[0].command
           content: --resync-interval=
+      - notContains:
+          path: spec.template.spec.initContainers[0].command
+          content: --imex-download-timeout=
       - lengthEqual:
           path: spec.template.spec.initContainers[0].command
           count: 9
+
+  - it: should pass the IMEX download timeout to the node agent
+    set:
+      imex:
+        download:
+          timeout: 30s
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --imex-download-timeout=30s
 
   - it: should honour node-agent logging and timeout overrides
     set:

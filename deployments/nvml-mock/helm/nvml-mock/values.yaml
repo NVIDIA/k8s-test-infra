@@ -513,9 +513,12 @@ imex:
   # IMEX node software (nvidia-imex, nvidia-imex-ctl) for the DRA
   # ComputeDomain daemon. On multi-node NVLink profiles the node agent stages
   # it from the archive pinned in its imex.lock.json, looked up by NVIDIA's
-  # file name in /opt/mokka/imex. Without that archive the node stays ready
-  # and stages no IMEX, so ComputeDomain daemons fail on it, as they do on a
-  # real node without the IMEX package.
+  # file name in /opt/mokka/imex, then in a node cache under
+  # /var/lib/nvml-mock/cache/imex. Without either, the agent downloads the
+  # archive from NVIDIA into that cache, retrying for about a minute, while
+  # the IMEXDownload feature gate is on (the default until Mokka publishes the
+  # payload image). Without IMEX the node stays ready and ComputeDomain daemons
+  # fail on it, as they do on a real node without the IMEX package.
   payload:
     # An image carrying that archive under /imex, as `make imex-payload-image`
     # builds it. On multi-node NVLink profiles a copy-only init container puts
@@ -541,6 +544,9 @@ imex:
         cpu: 10m
         # -- Memory requested by the IMEX payload init container.
         memory: 32Mi
+  download:
+    # -- Time limit of one IMEX archive download attempt while the IMEXDownload feature gate is on.
+    timeout: 1m
 
 # Fake nvidia-fabricmanager. NVSwitch platforms (HGX H100 / GB200 / GB300)
 # run nvidia-fabricmanager to register GPUs with the NVSwitch fabric. When

@@ -12,10 +12,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sync/atomic"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -28,7 +30,10 @@ import (
 
 const name = "imex"
 
-var _ agent.Simulator = (*Simulator)(nil)
+var (
+	_ agent.Simulator = (*Simulator)(nil)
+	_ agent.Requeuer  = (*Simulator)(nil)
+)
 
 // Simulator fakes the IMEX kernel surface that is absent on CPU-only nodes.
 //
@@ -55,6 +60,12 @@ type Options struct {
 	ProvidedDir string
 	// Lock pins the IMEX release; defaults to the embedded imex.lock.json.
 	Lock Lock
+	// Download fetches the pinned archive from NVIDIA into the node cache when
+	// no source holds it (the IMEXDownload feature gate).
+	Download bool
+	// DownloadTimeout bounds each download attempt; zero keeps
+	// DefaultDownloadTimeout.
+	DownloadTimeout time.Duration
 }
 
 // New returns an imex Simulator.
@@ -80,7 +91,7 @@ func New(h *host.Host, options ...Options) *Simulator {
 			opt.Lock = provided.Lock
 		}
 	}
-	return &Simulator{
+	s := &Simulator{
 		host:            h,
 		procDevicesPath: "/proc/devices",
 		nodeSoftware: nodeSoftware{
@@ -91,10 +102,27 @@ func New(h *host.Host, options ...Options) *Simulator {
 			lock:        opt.Lock,
 		},
 	}
+	if len(options) > 0 && options[0].Download {
+		timeout := DefaultDownloadTimeout
+		if options[0].DownloadTimeout > 0 {
+			timeout = options[0].DownloadTimeout
+		}
+		s.nodeSoftware.download = newDownloader(&http.Client{Timeout: timeout})
+	}
+	return s
 }
 
 // Name returns the simulator's stable identifier.
 func (s *Simulator) Name() string { return name }
+
+// Requeue fires when a background IMEX download ends, so the agent stages what
+// it fetched. It never fires while IMEXDownload is off.
+func (s *Simulator) Requeue() <-chan struct{} {
+	if s.nodeSoftware.download == nil {
+		return nil
+	}
+	return s.nodeSoftware.download.requeue
+}
 
 // Ready reports whether the last Stage call completed without error. A node
 // without IMEX node software is still ready: see nodeSoftware.stage.
@@ -104,7 +132,7 @@ func (s *Simulator) Ready() bool { return s.ready.Load() }
 // host.Root. When state.IMEX.Enabled is false it removes all of it, as Discard
 // does, and marks ready: the flag follows the profile and can change at
 // runtime.
-func (s *Simulator) Stage(_ context.Context, state *agent.State) error {
+func (s *Simulator) Stage(ctx context.Context, state *agent.State) error {
 	s.ready.Store(false)
 	zap.L().Info("staging simulator", zap.String("simulator", name))
 
@@ -128,7 +156,7 @@ func (s *Simulator) Stage(_ context.Context, state *agent.State) error {
 		s.ready.Store(true)
 		return nil
 	}
-	s.nodeSoftware.stage()
+	s.nodeSoftware.stage(ctx)
 
 	s.ready.Store(true)
 	zap.L().Info("simulator staged", zap.String("simulator", name))
@@ -138,8 +166,13 @@ func (s *Simulator) Stage(_ context.Context, state *agent.State) error {
 // Discard removes every IMEX surface Stage may have written. It does not
 // depend on the last Stage having completed: a pass that failed partway can
 // leave what an earlier pass staged, and removing what is absent is a no-op.
-func (s *Simulator) Discard(_ context.Context) error {
+// It first waits, within ctx, for a background download to stop; the agent
+// cancels downloads before it discards.
+func (s *Simulator) Discard(ctx context.Context) error {
 	zap.L().Info("discarding simulator", zap.String("simulator", name))
+	if s.nodeSoftware.download != nil {
+		s.nodeSoftware.download.wait(ctx)
+	}
 	return s.remove()
 }
 

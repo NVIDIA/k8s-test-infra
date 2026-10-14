@@ -231,7 +231,8 @@
       "additionalProperties": false,
       "properties": {
         "AllAlpha": { "type": "boolean" },
-        "AllBeta": { "type": "boolean" }
+        "AllBeta": { "type": "boolean" },
+        "IMEXDownload": { "type": "boolean" }
       }
     },
     "driverVersion": { "type": "string" },
@@ -471,6 +472,18 @@
               "type": "object",
               "additionalProperties": true,
               "description": "Requests and limits of the copy-only init container. A namespace with a compute ResourceQuota admits a pod only if every container sets requests."
+            }
+          }
+        },
+        "download": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The node agent's download of the pinned IMEX archive from NVIDIA, while the IMEXDownload feature gate is on.",
+          "properties": {
+            "timeout": {
+              "type": "string",
+              "pattern": "^[0-9]+(ns|us|ms|s|m|h)$",
+              "description": "Go duration string passed to --imex-download-timeout: the time limit of one download attempt."
             }
           }
         }

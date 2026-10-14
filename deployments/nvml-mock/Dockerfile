@@ -120,4 +120,6 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*; \
     rm -rf /tmp/nvidia-utils /tmp/nvidia-utils-580*.deb \
            /usr/share/keyrings/nvidia.gpg /etc/apt/sources.list.d/nvidia.list; \
-    apt-get purge -y --auto-remove curl ca-certificates gnupg2 patchelf
+    # ca-certificates stays: the node agent verifies NVIDIA's TLS certificate
+    # when it downloads IMEX (the IMEXDownload feature gate).
+    apt-get purge -y --auto-remove curl gnupg2 patchelf

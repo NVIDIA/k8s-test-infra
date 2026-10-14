@@ -77,6 +77,7 @@ Kubernetes: `>= 1.28.0-0`
 | imagePullSecrets | list | `[]` | Pull secrets for nvml-mock, NRI, and control-plane pods. |
 | imex.deviceNumbers.capsMajor | int | `236` | Major number used for IMEX capability devices. |
 | imex.deviceNumbers.channelMajor | int | `235` | Major number used for IMEX channel devices. |
+| imex.download.timeout | string | `"1m"` | Time limit of one IMEX archive download attempt while the IMEXDownload feature gate is on. |
 | imex.payload.image.digest | string | `""` | Immutable IMEX payload image digest; when set, it takes precedence over the tag. |
 | imex.payload.image.pullPolicy | string | `""` | IMEX payload image pull policy; empty picks IfNotPresent, or Always for a "latest" tag. |
 | imex.payload.image.repository | string | `""` | IMEX payload image repository; empty (default) renders no init container. |

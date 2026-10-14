@@ -165,7 +165,7 @@ func TestPinnedOfficialArchives(t *testing.T) {
 			_, err := FetchArchive(t.Context(), client, lock, arch, n.providedDir)
 			require.NoError(t, err)
 
-			n.stage()
+			n.stage(t.Context())
 
 			for _, rel := range stagedDestinations() {
 				require.FileExists(t, filepath.Join(n.root, rel))
