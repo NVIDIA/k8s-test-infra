@@ -70,15 +70,9 @@ body:
     id: artefacts
     attributes:
       label: Verify published artefacts
-      description: "Confirm by resolving the artefact, not by reading a green check. Image and chart tags drop the `v`: tag `v0.5.0` publishes `0.5.0`, written `<v>` below."
+      description: "Confirm by resolving the artefact, not by reading a green check."
       options:
-        - label: "`nvml-mock Publish`, `Mokka Control Plane Publish` and `helm-publish` ran for the tag and succeeded: `gh run list --branch <version>`."
-        - label: "`ghcr.io/nvidia/nvml-mock:<v>` and `ghcr.io/nvidia/mokka-control-plane:<v>` resolve for `linux/amd64` and `linux/arm64`: `docker buildx imagetools inspect <image>:<v>`."
-        - label: "For both images, `<X.Y>` points at the same digest as `<v>`. `nvml-mock:latest` does too, because only a stable tag run moves it. `mokka-control-plane:latest` is not compared: it follows `main` builds, and a tag run does not move it."
-        - label: "`helm show chart oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock --version <v>` and the same for `mokka-crds`: `version` and `appVersion` both equal `<v>`."
-        - label: "`cosign verify` passes for `ghcr.io/nvidia/nvml-mock:<v>`, `ghcr.io/nvidia/mokka-control-plane:<v>`, `ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock:<v>` and `ghcr.io/nvidia/k8s-test-infra/chart/mokka-crds:<v>`. Each image tag resolves to its multi-arch index, which is the digest the workflow signs."
-        - label: "`cosign verify-attestation --type spdxjson` passes for `ghcr.io/nvidia/nvml-mock:<v>`, whose SBOM is attached to the index, and for the `linux/amd64` and `linux/arm64` digests of `ghcr.io/nvidia/mokka-control-plane:<v>`, whose SBOMs are attached per platform. List those digests with `docker buildx imagetools inspect ghcr.io/nvidia/mokka-control-plane:<v>`."
-        - label: "Every cosign command passes `--certificate-identity https://github.com/NVIDIA/k8s-test-infra/.github/workflows/<workflow>@refs/tags/<version>` and `--certificate-oidc-issuer https://token.actions.githubusercontent.com`, where `<workflow>` is `nvml-mock-publish.yaml` for the nvml-mock image, `mokka-control-plane-publish.yaml` for the control-plane image and `helm-publish.yaml` for both charts."
+        - label: "`make verify-release RELEASE_VERSION=<version-without-v>` exits 0. Paste its output in this issue. It needs `gh`, `docker buildx`, `helm`, `cosign` and `jq`, and checks the publish runs, both images and their `<X.Y>` and `latest` tags, both charts' `version` and `appVersion`, and every signature and SBOM attestation."
   - type: checkboxes
     id: after
     attributes:
