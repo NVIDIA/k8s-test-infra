@@ -36,8 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - helm: `gpu.mig.enabled` boots a board already partitioned into the layout
   `gpu.mig.gpuInstances` names, which is required. The device plugin then
   serves MIG resources, so MIG workloads schedule on CPU-only nodes. Off by
-  default, since under `migStrategy=single` a partitioned board publishes no
-  `nvidia.com/gpu`. ([#241](https://github.com/NVIDIA/k8s-test-infra/issues/241))
+  default, since under `migStrategy=single` a partitioned board publishes each
+  partition as `nvidia.com/gpu` instead of the whole GPU. ([#241](https://github.com/NVIDIA/k8s-test-infra/issues/241))
 - control-plane: an opt-in controller materializes `SGPURackProfile` and
   `SGPUInventory` declarations into stable `SGPURack` Node bindings and
   projects the assignment metadata onto Nodes. It rebuilds its state from
