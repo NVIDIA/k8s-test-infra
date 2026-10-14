@@ -423,12 +423,13 @@ func TestVerifyRelease(t *testing.T) {
 	}
 }
 
-// runVerifyRelease runs the script with the stubbed tools first on PATH and
-// returns its exit code, stdout, stderr and the tool calls the stubs recorded.
+// runVerifyRelease runs the script with the stubbed tools first on PATH and an
+// empty TMPDIR, and returns its exit code, stdout, stderr and the tool calls
+// the stubs recorded.
 func runVerifyRelease(t *testing.T, script string, args []string, fx verifyReleaseFixture) (int, string, string, []string) {
 	t.Helper()
 
-	tools, fixtures := t.TempDir(), t.TempDir()
+	tools, fixtures, scratch := t.TempDir(), t.TempDir(), t.TempDir()
 	for name, body := range verifyReleaseStubs {
 		require.NoError(t, os.WriteFile(filepath.Join(tools, name), []byte(body), 0o755))
 	}
@@ -452,7 +453,7 @@ func runVerifyRelease(t *testing.T, script string, args []string, fx verifyRelea
 	cmd := exec.Command("bash", append([]string{script}, args...)...)
 	cmd.Env = append(os.Environ(),
 		"PATH="+tools+string(os.PathListSeparator)+os.Getenv("PATH"),
-		"VR_CALLS="+callLog, "VR_FIXTURES="+fixtures)
+		"VR_CALLS="+callLog, "VR_FIXTURES="+fixtures, "TMPDIR="+scratch)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
@@ -462,6 +463,11 @@ func runVerifyRelease(t *testing.T, script string, args []string, fx verifyRelea
 		require.ErrorAs(t, err, &exitErr, "running %s", script)
 		exitCode = exitErr.ExitCode()
 	}
+
+	// The script keeps its scratch files under TMPDIR and must remove them.
+	left, err := os.ReadDir(scratch)
+	require.NoError(t, err)
+	require.Empty(t, left, "scratch files left behind")
 
 	logged, err := os.ReadFile(callLog)
 	if errors.Is(err, fs.ErrNotExist) {
