@@ -61,9 +61,48 @@ This gives the Kubernetes API level GPU simulation.
 
 TBU
 
-##### FGO Node Lifecycle
+##### Node Lifecycle
 
 TBU: add image
+
+![FGO SGPU Propagation on Node Startup](./img/fgo-sgpu-on-node-startup.png)
+
+### Metrics
+
+TBU
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: fixed-30
+  namespace: fgo-lab-04
+  annotations:
+    run.ai/simulated-gpu-utilization: "30"
+spec:
+  terminationGracePeriodSeconds: 0
+  containers:
+    - name: main
+      image: "ubuntu:22.04"
+      command: ["sleep", "infinity"]
+      resources: 
+        limits: 
+          nvidia.com/gpu: 1
+```
+
+The `run.ai/simulated-gpu-utilization` annotation can be:
+- a fixed value like `30` which means 30% utilization
+- a range like `30-60`
+
+```yaml
+annotations:
+  gpu-fraction: "0.25"
+  run.ai/simulated-gpu-utilization: "50"
+```
+
+### Resource Reservation
+
+TBU
 
 #### KWOW
 
