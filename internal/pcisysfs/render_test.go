@@ -532,26 +532,36 @@ func gfdVGPUHostDriver(cfg []byte) (version, branch string, err error) {
 	if cfg[0x06]&0x10 == 0 {
 		return "", "", errors.New("no capability list")
 	}
-	var capability []byte
+	capability := gfdVendorSpecificCapability(cfg)
+	if len(capability) < 5 || capability[3] != 'V' || capability[4] != 'F' {
+		return "", "", errors.New("no vGPU capability")
+	}
+	return gfdDriverRecord(capability)
+}
+
+// gfdVendorSpecificCapability returns the first vendor-specific capability in
+// the list, or nil when the list has none or is malformed.
+func gfdVendorSpecificCapability(cfg []byte) []byte {
 	var visited [256]byte
 	for pos := cfg[0x34]; pos != 0; {
 		if int(pos)+3 > len(cfg) || visited[pos] != 0 || cfg[pos] == 0xff {
-			break
+			return nil
 		}
 		id, next, length := cfg[pos], cfg[pos+1], cfg[pos+2]
 		if id == 0x09 {
 			if int(pos)+int(length) > len(cfg) {
-				break
+				return nil
 			}
-			capability = cfg[pos : int(pos)+int(length)]
-			break
+			return cfg[pos : int(pos)+int(length)]
 		}
 		visited[pos]++
 		pos = next
 	}
-	if len(capability) < 5 || capability[3] != 'V' || capability[4] != 'F' {
-		return "", "", errors.New("no vGPU capability")
-	}
+	return nil
+}
+
+// gfdDriverRecord walks the vGPU capability's records to the host driver one.
+func gfdDriverRecord(capability []byte) (version, branch string, err error) {
 	pos := 5
 	for {
 		if pos >= len(capability) {

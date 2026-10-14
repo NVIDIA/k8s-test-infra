@@ -34,11 +34,7 @@ func (e *Engine) VgpuInstance(id uint32) (VgpuInstance, nvml.Return) {
 	if e.initCount == 0 || e.server == nil {
 		return VgpuInstance{}, nvml.ERROR_UNINITIALIZED
 	}
-	index := int(id/vgpuInstanceIDStride) - 1
-	if index < 0 || index >= len(e.server.configurableDevices) || !e.server.isDeviceVisible(index) {
-		return VgpuInstance{}, nvml.ERROR_INVALID_ARGUMENT
-	}
-	d := e.server.configurableDevices[index]
+	d := e.server.vgpuInstanceDevice(id)
 	if d == nil {
 		return VgpuInstance{}, nvml.ERROR_INVALID_ARGUMENT
 	}
@@ -61,4 +57,14 @@ func (e *Engine) VgpuInstance(id uint32) (VgpuInstance, nvml.Return) {
 	}
 	inst.GuestDriverVersion = version
 	return inst, nvml.SUCCESS
+}
+
+// vgpuInstanceDevice returns the GPU an instance ID encodes, or nil when that
+// GPU does not exist or is hidden from the caller.
+func (s *MockServer) vgpuInstanceDevice(id uint32) *ConfigurableDevice {
+	index := int(id/vgpuInstanceIDStride) - 1
+	if index < 0 || index >= len(s.configurableDevices) || !s.isDeviceVisible(index) {
+		return nil
+	}
+	return s.configurableDevices[index]
 }
