@@ -86,7 +86,7 @@ var _ = Describe("nvml-mock vGPU", Label("vgpu"), Ordered, func() {
 		installVGPUChart(ctx, h, "")
 	})
 
-	Context("host", Label("host"), Ordered, func() {
+	Context("host", Label("vgpu-host"), Ordered, func() {
 		BeforeAll(func(ctx SpecContext) {
 			installVGPUChart(ctx, h, vgpuHostValues)
 		})
@@ -120,7 +120,7 @@ var _ = Describe("nvml-mock vGPU", Label("vgpu"), Ordered, func() {
 		})
 	})
 
-	Context("guest", Label("guest"), Ordered, func() {
+	Context("guest", Label("vgpu-guest"), Ordered, func() {
 		BeforeAll(func(ctx SpecContext) {
 			installVGPUChart(ctx, h, vgpuGuestValues)
 		})
