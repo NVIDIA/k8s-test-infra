@@ -179,15 +179,6 @@ func TestVerifyRelease(t *testing.T) {
 		attest("mokka-control-plane-publish.yaml", cp+"@"+cpAmd64),
 		attest("mokka-control-plane-publish.yaml", cp+"@"+cpArm64),
 	}
-	without := func(drop string) []string {
-		out := []string{}
-		for _, c := range allCalls {
-			if c != drop {
-				out = append(out, c)
-			}
-		}
-		return out
-	}
 
 	allOK := []string{
 		"ok: publish run nvml-mock-publish.yaml for v0.5.0 succeeded (run 101)",
@@ -282,7 +273,7 @@ func TestVerifyRelease(t *testing.T) {
 				"ok: ghcr.io/nvidia/mokka-control-plane:0.5.0 lists linux/amd64 and linux/arm64 (sha256:cpindex)":        "FAIL: ghcr.io/nvidia/mokka-control-plane:0.5.0 platforms: linux/amd64 linux/arm64 vs linux/amd64",
 				"ok: cosign verify-attestation spdxjson ghcr.io/nvidia/mokka-control-plane@sha256:cparm64 (linux/arm64)": "FAIL: cosign verify-attestation spdxjson ghcr.io/nvidia/mokka-control-plane:0.5.0 (linux/arm64): a linux/arm64 digest vs none in the index",
 			}, "summary: 2 of 17 checks failed for v0.5.0"),
-			calls: without(attest("mokka-control-plane-publish.yaml", cp+"@"+cpArm64)),
+			calls: withoutCall(allCalls, attest("mokka-control-plane-publish.yaml", cp+"@"+cpArm64)),
 		},
 		{
 			name: "X.Y digest differs",
@@ -412,68 +403,79 @@ func TestVerifyRelease(t *testing.T) {
 			if tc.mutate != nil {
 				tc.mutate(t, &fx)
 			}
+			exitCode, stdout, stderr, calls := runVerifyRelease(t, script, tc.args, fx)
 
-			tools, fixtures := t.TempDir(), t.TempDir()
-			for name, body := range verifyReleaseStubs {
-				require.NoError(t, os.WriteFile(filepath.Join(tools, name), []byte(body), 0o755))
-			}
-			write := func(dir, name, body string) {
-				require.NoError(t, os.MkdirAll(filepath.Join(fixtures, dir), 0o755))
-				require.NoError(t, os.WriteFile(filepath.Join(fixtures, dir, name), []byte(body), 0o644))
-			}
-			for w, body := range fx.runs {
-				write("gh", w, body)
-			}
-			for ref, body := range fx.images {
-				write("docker", strings.NewReplacer("/", "_", ":", "_", "@", "_").Replace(ref), body)
-			}
-			for c, body := range fx.charts {
-				write("helm", c, body)
-			}
-			write(".", "cosign-fail", strings.Join(fx.cosignFail, "\n")+"\n")
-			calls := filepath.Join(tools, "calls")
-
-			var stdout, stderr bytes.Buffer
-			cmd := exec.Command("bash", append([]string{script}, tc.args...)...)
-			cmd.Env = append(os.Environ(),
-				"PATH="+tools+string(os.PathListSeparator)+os.Getenv("PATH"),
-				"VR_CALLS="+calls, "VR_FIXTURES="+fixtures)
-			cmd.Stdout = &stdout
-			cmd.Stderr = &stderr
-
-			exitCode := 0
-			if err := cmd.Run(); err != nil {
-				var exitErr *exec.ExitError
-				require.ErrorAs(t, err, &exitErr, "running %s", script)
-				exitCode = exitErr.ExitCode()
-			}
-
-			require.Equal(t, tc.exitCode, exitCode, "exit code; stderr: %s", stderr.String())
-			require.Equal(t, tc.stdout, stdout.String(), "stdout")
+			require.Equal(t, tc.exitCode, exitCode, "exit code; stderr: %s", stderr)
+			require.Equal(t, tc.stdout, stdout, "stdout")
 			switch {
 			case tc.usage:
-				require.Equal(t, usage, stderr.String(), "stderr")
+				require.Equal(t, usage, stderr, "stderr")
 			case tc.stderr != "":
-				require.Contains(t, stderr.String(), tc.stderr, "stderr")
+				require.Contains(t, stderr, tc.stderr, "stderr")
 			default:
 				// Tool chatter stays out of the report unless a check fails.
-				require.Empty(t, stderr.String(), "stderr")
+				require.Empty(t, stderr, "stderr")
 			}
-
-			logged, err := os.ReadFile(calls)
-			if errors.Is(err, fs.ErrNotExist) {
-				err = nil
-			}
-			require.NoError(t, err)
-			got := []string{}
-			if len(logged) > 0 {
-				got = strings.Split(strings.TrimSuffix(string(logged), "\n"), "\n")
-			}
-			want := tc.calls
-			if want == nil {
-				want = []string{}
-			}
-			require.ElementsMatch(t, want, got, "tool calls")
+			require.ElementsMatch(t, tc.calls, calls, "tool calls")
 		})
 	}
+}
+
+// runVerifyRelease runs the script with the stubbed tools first on PATH and
+// returns its exit code, stdout, stderr and the tool calls the stubs recorded.
+func runVerifyRelease(t *testing.T, script string, args []string, fx verifyReleaseFixture) (int, string, string, []string) {
+	t.Helper()
+
+	tools, fixtures := t.TempDir(), t.TempDir()
+	for name, body := range verifyReleaseStubs {
+		require.NoError(t, os.WriteFile(filepath.Join(tools, name), []byte(body), 0o755))
+	}
+	write := func(dir, name, body string) {
+		require.NoError(t, os.MkdirAll(filepath.Join(fixtures, dir), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(fixtures, dir, name), []byte(body), 0o644))
+	}
+	for w, body := range fx.runs {
+		write("gh", w, body)
+	}
+	for ref, body := range fx.images {
+		write("docker", strings.NewReplacer("/", "_", ":", "_", "@", "_").Replace(ref), body)
+	}
+	for c, body := range fx.charts {
+		write("helm", c, body)
+	}
+	write(".", "cosign-fail", strings.Join(fx.cosignFail, "\n")+"\n")
+	callLog := filepath.Join(tools, "calls")
+
+	var stdout, stderr bytes.Buffer
+	cmd := exec.Command("bash", append([]string{script}, args...)...)
+	cmd.Env = append(os.Environ(),
+		"PATH="+tools+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"VR_CALLS="+callLog, "VR_FIXTURES="+fixtures)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	exitCode := 0
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		require.ErrorAs(t, err, &exitErr, "running %s", script)
+		exitCode = exitErr.ExitCode()
+	}
+
+	logged, err := os.ReadFile(callLog)
+	if errors.Is(err, fs.ErrNotExist) {
+		return exitCode, stdout.String(), stderr.String(), []string{}
+	}
+	require.NoError(t, err)
+	return exitCode, stdout.String(), stderr.String(), strings.Split(strings.TrimSuffix(string(logged), "\n"), "\n")
+}
+
+// withoutCall returns calls minus the one call a case expects not to happen.
+func withoutCall(calls []string, drop string) []string {
+	out := []string{}
+	for _, c := range calls {
+		if c != drop {
+			out = append(out, c)
+		}
+	}
+	return out
 }
