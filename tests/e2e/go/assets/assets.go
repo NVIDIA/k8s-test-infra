@@ -35,6 +35,13 @@ var NRIGpuAgentManifest []byte
 //go:embed gfd-mock.yaml
 var GFDManifest []byte
 
+// GFDVGPUManifest is a GPU Feature Discovery DaemonSet given the mock's PCI
+// sysfs tree at the kernel paths. The vGPU scenario uses it to see the guest
+// capability the way GFD does.
+//
+//go:embed gfd-mock-vgpu.yaml
+var GFDVGPUManifest []byte
+
 // WriteTemp writes content to a temp file with the given pattern and returns
 // the path. Used for `helm install -f <values>` which needs a file path.
 func WriteTemp(pattern string, content []byte) (string, error) {

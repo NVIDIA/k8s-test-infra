@@ -1,0 +1,106 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# GPU Feature Discovery DaemonSet for the vGPU E2E scenario. GFD derives its
+# vgpu.* labels from the vendor-specific capability in each NVIDIA device's PCI
+# config space, not from NVML, so this pod is given the node agent's rendered
+# PCI tree at the kernel paths — the same pair of mounts the nvidia.com/gpu CDI
+# spec carries. GFD is a Go binary, so the libmockfs.so redirect cannot serve
+# the tree to it.
+#
+# NVML is deliberately not wired in: this image's glibc predates the mock
+# library's, so GFD would report a non-NVML platform either way, and the vgpu.*
+# labels do not depend on it.
+#
+# Expected feature-file lines on a vGPU guest node:
+#   nvidia.com/vgpu.present=true
+#   nvidia.com/vgpu.host-driver-version=<gpu.vgpu.guest.host_driver_version>
+#   nvidia.com/vgpu.host-driver-branch=<gpu.vgpu.guest.host_driver_branch>
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nvidia-gfd-mock-vgpu
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: gpu-feature-discovery
+    app.kubernetes.io/component: gfd
+spec:
+  selector:
+    matchLabels:
+      name: nvidia-gfd-mock-vgpu
+  template:
+    metadata:
+      labels:
+        name: nvidia-gfd-mock-vgpu
+    spec:
+      tolerations:
+        - operator: Exists
+      serviceAccountName: nvidia-gfd-mock-vgpu
+      containers:
+        - name: gpu-feature-discovery
+          image: nvcr.io/nvidia/gpu-feature-discovery:v0.8.2
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: GFD_SLEEP_INTERVAL
+              value: "60s"
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: output-dir
+              mountPath: /etc/kubernetes/node-feature-discovery/features.d
+            # Both, always together: the entries under bus/pci/devices are
+            # relative symlinks into ../../../devices/pciDDDD:BB.
+            - name: mock-sys-devices
+              mountPath: /sys/devices
+              readOnly: true
+            - name: mock-pci-devices
+              mountPath: /sys/bus/pci/devices
+              readOnly: true
+      volumes:
+        # Pod-local rather than the node's features.d: the scenario reads the
+        # file inside this pod, and a file an earlier run left on the node
+        # would otherwise satisfy it before this GFD has labelled anything.
+        - name: output-dir
+          emptyDir: {}
+        # Directory, not DirectoryOrCreate: a node the agent has not rendered
+        # should fail the pod visibly rather than serve GFD an empty tree.
+        - name: mock-sys-devices
+          hostPath:
+            path: /var/lib/nvml-mock/sys/devices
+            type: Directory
+        - name: mock-pci-devices
+          hostPath:
+            path: /var/lib/nvml-mock/sys/bus/pci/devices
+            type: Directory
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nvidia-gfd-mock-vgpu
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: nvidia-gfd-mock-vgpu
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: nvidia-gfd-mock-vgpu
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: nvidia-gfd-mock-vgpu
+subjects:
+  - kind: ServiceAccount
+    name: nvidia-gfd-mock-vgpu
+    namespace: kube-system
