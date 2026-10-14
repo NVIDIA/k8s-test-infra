@@ -41,12 +41,14 @@ f="$VR_FIXTURES/docker/$(printf '%s' "$ref" | tr '/:@' '___')"
 echo "WARNING: Error loading config file" >&2
 exec cat "$f"
 `,
-	// helm show chart oci://.../<chart> --version <v>.
+	// helm show chart oci://.../<chart> --version <v>. Like real helm it reports
+	// the pulled ref and its digest on stderr, here sha256:chart-<chart>.
 	"helm": `#!/bin/sh
 printf 'helm %s\n' "$*" >> "$VR_CALLS"
 f="$VR_FIXTURES/helm/${3##*/}"
 [ -f "$f" ] || { echo "Error: $3: not found" >&2; exit 1; }
-echo "Pulled: $3" >&2
+echo "Pulled: ${3#oci://}:$5" >&2
+echo "Digest: sha256:chart-${3##*/}" >&2
 exec cat "$f"
 `,
 	// cosign verify[-attestation] ... <ref>: fails when "<subcommand> <ref>"
@@ -194,8 +196,8 @@ func TestVerifyRelease(t *testing.T) {
 		"ok: ghcr.io/nvidia/nvml-mock:0.5 has the digest of 0.5.0",
 		"ok: ghcr.io/nvidia/mokka-control-plane:0.5 has the digest of 0.5.0",
 		"ok: ghcr.io/nvidia/nvml-mock:latest has the digest of 0.5.0",
-		"ok: chart nvml-mock 0.5.0 has version and appVersion 0.5.0",
-		"ok: chart mokka-crds 0.5.0 has version and appVersion 0.5.0",
+		"ok: chart nvml-mock 0.5.0 has version and appVersion 0.5.0 (sha256:chart-nvml-mock)",
+		"ok: chart mokka-crds 0.5.0 has version and appVersion 0.5.0 (sha256:chart-mokka-crds)",
 		"ok: cosign verify ghcr.io/nvidia/nvml-mock:0.5.0, signed by nvml-mock-publish.yaml",
 		"ok: cosign verify ghcr.io/nvidia/mokka-control-plane:0.5.0, signed by mokka-control-plane-publish.yaml",
 		"ok: cosign verify ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock:0.5.0, signed by helm-publish.yaml",
@@ -345,7 +347,7 @@ func TestVerifyRelease(t *testing.T) {
 			},
 			exitCode: 1,
 			stdout: report(map[string]string{
-				"ok: chart nvml-mock 0.5.0 has version and appVersion 0.5.0": "FAIL: chart nvml-mock 0.5.0 version/appVersion: 0.5.0/0.5.0 vs 0.5.0/550.163.01",
+				"ok: chart nvml-mock 0.5.0 has version and appVersion 0.5.0 (sha256:chart-nvml-mock)": "FAIL: chart nvml-mock 0.5.0 version/appVersion: 0.5.0/0.5.0 vs 0.5.0/550.163.01",
 			}, "summary: 1 of 17 checks failed for v0.5.0"),
 			calls: allCalls,
 		},
@@ -357,7 +359,7 @@ func TestVerifyRelease(t *testing.T) {
 			},
 			exitCode: 1,
 			stdout: report(map[string]string{
-				"ok: chart mokka-crds 0.5.0 has version and appVersion 0.5.0": "FAIL: chart mokka-crds 0.5.0 version/appVersion: 0.5.0/0.5.0 vs 0.5.0-dev/0.5.0",
+				"ok: chart mokka-crds 0.5.0 has version and appVersion 0.5.0 (sha256:chart-mokka-crds)": "FAIL: chart mokka-crds 0.5.0 version/appVersion: 0.5.0/0.5.0 vs 0.5.0-dev/0.5.0",
 			}, "summary: 1 of 17 checks failed for v0.5.0"),
 			calls: allCalls,
 		},
@@ -369,7 +371,7 @@ func TestVerifyRelease(t *testing.T) {
 			},
 			exitCode: 1,
 			stdout: report(map[string]string{
-				"ok: chart mokka-crds 0.5.0 has version and appVersion 0.5.0": "FAIL: chart mokka-crds 0.5.0 version/appVersion: 0.5.0/0.5.0 vs helm show chart failed",
+				"ok: chart mokka-crds 0.5.0 has version and appVersion 0.5.0 (sha256:chart-mokka-crds)": "FAIL: chart mokka-crds 0.5.0 version/appVersion: 0.5.0/0.5.0 vs helm show chart failed",
 			}, "summary: 1 of 17 checks failed for v0.5.0"),
 			stderr: "Error: oci://ghcr.io/nvidia/k8s-test-infra/chart/mokka-crds: not found",
 			calls:  allCalls,
