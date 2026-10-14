@@ -375,7 +375,23 @@ _Static_assert(sizeof(nvmlConfComputeMemSizeInfo_t) == 16,
 typedef struct nvmlConfComputeSetKeyRotationThresholdInfo_st nvmlConfComputeSetKeyRotationThresholdInfo_t;
 typedef struct nvmlConfComputeSystemCaps_st                 nvmlConfComputeSystemCaps_t;
 typedef struct nvmlConfComputeSystemState_st                nvmlConfComputeSystemState_t;
-typedef struct nvmlCoolerInfo_st                            nvmlCoolerInfo_t;
+/* What one cooler drives and how — full definition so
+ * nvmlDeviceGetCoolerInfo can populate the caller's buffer. version and index
+ * are inputs: the caller stamps the NVML_STRUCT_VERSION tag and names the
+ * cooler it is asking about, which is why the bridge reads index back out
+ * rather than being handed it as an argument. Layout matches go-nvml's
+ * pkg/nvml/nvml.h (v1), pinned by fans_layout_test.go. */
+typedef struct nvmlCoolerInfo_st
+{
+    unsigned int version;      //!< IN: NVML_STRUCT_VERSION(CoolerInfo, 1)
+    unsigned int index;        //!< IN: the cooler index
+    unsigned int signalType;   //!< OUT: nvmlCoolerControl_t
+    unsigned int target;       //!< OUT: nvmlCoolerTarget_t
+} nvmlCoolerInfo_t;
+/* Callers allocate this buffer from go-nvml's CoolerInfo, so a field added here
+ * would make the bridge write past the caller's allocation. */
+_Static_assert(sizeof(nvmlCoolerInfo_t) == 16,
+               "nvmlCoolerInfo_t must stay 16 bytes to match the go-nvml ABI");
 /* Versioned: the caller stamps NVML_STRUCT_VERSION(DeviceAddressingMode, 1),
  * whose low 24 bits are this size. value is an NVML_DEVICE_ADDRESSING_MODE_*. */
 typedef struct nvmlDeviceAddressingMode_v1_st
@@ -497,7 +513,22 @@ typedef struct nvmlFBCStats_st
     unsigned int averageFPS;
     unsigned int averageLatency;
 } nvmlFBCStats_t;
-typedef struct nvmlFanSpeedInfo_st                          nvmlFanSpeedInfo_t;
+/* One fan's tachometer reading — full definition so
+ * nvmlDeviceGetFanSpeedRPM can populate the caller's buffer. As with
+ * nvmlCoolerInfo_t the fan index arrives inside the struct rather than as an
+ * argument, so the bridge reads it back out to know which fan is being asked
+ * about. Layout matches go-nvml's pkg/nvml/nvml.h (v1), pinned by
+ * fans_layout_test.go. */
+typedef struct nvmlFanSpeedInfo_st
+{
+    unsigned int version;   //!< IN: NVML_STRUCT_VERSION(FanSpeedInfo, 1)
+    unsigned int fan;       //!< IN: the fan index
+    unsigned int speed;     //!< OUT: the fan speed in RPM
+} nvmlFanSpeedInfo_t;
+/* Callers allocate this buffer from go-nvml's FanSpeedInfo, so a field added
+ * here would make the bridge write past the caller's allocation. */
+_Static_assert(sizeof(nvmlFanSpeedInfo_t) == 12,
+               "nvmlFanSpeedInfo_t must stay 12 bytes to match the go-nvml ABI");
 /* Field value query — full definition needed by the bridge so
  * nvmlDeviceGetFieldValues (see bridge/fieldvalues.go) can read the
  * requested fieldId/scopeId and populate value/valueType/nvmlReturn.
@@ -962,7 +993,31 @@ typedef struct nvmlUUID_v1_st
 typedef nvmlUUID_v1_t nvmlUUID_t;
 _Static_assert(sizeof(nvmlUUID_v1_t) == 52 && offsetof(nvmlUUID_v1_t, value) == 8,
                "nvmlUUID_v1_t must stay 52 bytes with value at offset 8 to match the go-nvml ABI");
-typedef struct nvmlUnitFanSpeeds_st                         nvmlUnitFanSpeeds_t;
+/* Fan readings for a whole S-class unit — full definition so
+ * nvmlUnitGetFanSpeedInfo can populate the caller's buffer. The fans array is
+ * fixed at 24 by the ABI regardless of how many the chassis has, which is what
+ * count reports. Mokka enumerates no units, so this is reached only by a
+ * caller holding a handle NVML itself would refuse to hand out; the definition
+ * exists so the refusal comes from the unit lookup rather than from a missing
+ * type. Layout matches the upstream NVML header, pinned by
+ * fans_layout_test.go. */
+typedef struct nvmlUnitFanInfo_st
+{
+    unsigned int speed;   //!< OUT: fan speed in RPM
+    unsigned int state;   //!< OUT: nvmlFanState_t
+} nvmlUnitFanInfo_t;
+typedef struct nvmlUnitFanSpeeds_st
+{
+    nvmlUnitFanInfo_t fans[24];
+    unsigned int      count;
+} nvmlUnitFanSpeeds_t;
+/* Callers allocate this buffer from go-nvml's UnitFanSpeeds, so a field added
+ * here — or a different array bound — would make the bridge write past the
+ * caller's allocation. */
+_Static_assert(sizeof(nvmlUnitFanInfo_t) == 8,
+               "nvmlUnitFanInfo_t must stay 8 bytes to match the go-nvml ABI");
+_Static_assert(sizeof(nvmlUnitFanSpeeds_t) == 196,
+               "nvmlUnitFanSpeeds_t must stay 196 bytes (24 fans plus count) to match the go-nvml ABI");
 typedef struct nvmlUnitInfo_st                              nvmlUnitInfo_t;
 typedef struct nvmlVgpuCreatablePlacementInfo_st            nvmlVgpuCreatablePlacementInfo_t;
 typedef struct nvmlVgpuHeterogeneousMode_st                 nvmlVgpuHeterogeneousMode_t;

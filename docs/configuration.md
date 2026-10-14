@@ -232,6 +232,103 @@ device_defaults:
     target_speed_percent: "N/A"
 ```
 
+`count` gates the whole family. A device that declares no dedicated fans answers
+`NVML_ERROR_NOT_SUPPORTED` to every fan query, which `nvidia-smi` renders as
+`[N/A]` — the behaviour of every profile shipped with Mokka, matching every
+hardware capture in the repository, including the passively cooled L40S and T4
+PCIe boards.
+
+A device that does declare fans reports the rest of the block. The fan block is
+per-device as well as a default, so a profile can mix a fanned board with
+fanless modules:
+
+```yaml
+devices:
+  - index: 0
+    fan:
+      count: 2
+      speed_percent: "40"             # what the fans are running at
+      target_speed_percent: "45"      # what the driver's curve is aiming for
+      max_speed_rpm: 5000             # tachometer reading at 100 %
+      min_speed_percent: 30           # floor a manual write may ask for
+      max_speed_percent: 90           # ceiling a manual write may ask for
+```
+
+`speed_percent` and `target_speed_percent` are strings because `"N/A"` is a
+legitimate value: a board whose fans are driven but not reported. Anything
+unparseable is treated the same way.
+
+`max_speed_rpm` is scaled by the current duty cycle to answer
+`nvmlDeviceGetFanSpeedRPM`, so the fans above read 2000 RPM. Leaving it unset
+models a board whose fans are driven but not measured — the RPM reading is
+refused while the percentage still answers, which is a split real hardware
+shows.
+
+`min_speed_percent` and `max_speed_percent` are the window
+`nvmlDeviceGetMinMaxFanSpeed` advertises and the bound `nvmlDeviceSetFanSpeed_v2`
+enforces; a write outside it is refused with `NVML_ERROR_INVALID_ARGUMENT`. An
+unset ceiling reads as 100.
+
+#### Fan control
+
+Each fan follows either the driver's temperature curve or a duty cycle a
+consumer asked for. `controls` seeds that state per fan, for a board that should
+come up under manual control:
+
+```yaml
+fan:
+  count: 2
+  controls:
+    - fan: 0
+      policy: manual                  # or "temperature", the default
+      speed_percent: 75
+```
+
+`fan` is the index NVML's per-fan entry points address, so an entry naming a fan
+the device does not have is ignored rather than applied to one it does.
+
+The four setters — `nvmlDeviceSetFanSpeed_v2`,
+`nvmlDeviceSetDefaultFanSpeed_v2`, `nvmlDeviceSetFanControlPolicy` and, through
+it, a policy switch — write to this state. Like the power management limit they
+are recorded in the runtime override document rather than in the writing
+process, so a later process reads the write back and it holds until a reset
+(`nvidia-smi -r`, or `nvml-mock-ctl reset`). A mock with nowhere to record the
+write refuses it with `NVML_ERROR_NO_PERMISSION` rather than reporting a success
+nothing would observe.
+
+Holding a fan at a duty cycle implies manual control, because a fan the driver
+is still steering by temperature would not stay where it was put.
+`nvmlDeviceSetDefaultFanSpeed_v2` returns the fan to the curve and drops the
+duty cycle with it. Switching to manual through `nvmlDeviceSetFanControlPolicy`
+does not invent one: the fan keeps running where it was until something asks for
+a different speed.
+
+Only part of this is visible through `nvidia-smi`. Versions 575 and 580 call
+just `nvmlDeviceGetFanSpeed`, which reports the board's first fan, so
+`--query-gpu=fan.speed` and the `<fan_speed>` element are the whole fan surface
+they expose: a manual write to fan 0 shows up there, and nothing else in this
+section does. The remaining entry points answer a consumer holding NVML
+directly.
+
+`nvml-mock-ctl fan` is a separate convenience path. It pins `speed_percent` and
+forces `count` to at least 1, so a speed becomes observable on a profile that
+ships fanless.
+
+#### S-class units
+
+`nvmlUnitGetFanSpeedInfo` reports the fans of an S-class chassis. Units are the
+management processors of the S870/S1070 generation; nothing Mokka models has
+one, and nor does any GPU a modern driver sees, so the unit enumeration is
+empty. `nvidia-smi -q -u` reports a node with no units rather than failing:
+
+```console
+$ nvidia-smi -q -u
+HIC Info                                  : N/A
+Attached Units                            : 0
+```
+
+There is no configuration for units, and no handle the unit queries will accept.
+
 ### Clocks
 
 ```yaml

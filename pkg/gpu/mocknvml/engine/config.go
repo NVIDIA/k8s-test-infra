@@ -1083,6 +1083,12 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	if override.Thermal != nil {
 		base.Thermal = override.Thermal
 	}
+	// Cooling is a property of one board's form factor, so a profile can mix a
+	// fanned PCIe board with fanless SXM modules; the per-device block replaces
+	// the defaults' whole rather than inheriting their fan count or envelope.
+	if override.Fan != nil {
+		base.Fan = override.Fan
+	}
 	if override.Clocks != nil {
 		base.Clocks = override.Clocks
 	}

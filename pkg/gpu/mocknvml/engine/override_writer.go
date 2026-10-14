@@ -64,6 +64,17 @@ type OverrideWriter interface {
 
 	// SetClockOffset records the offset applied to one clock domain.
 	SetClockOffset(index int, domain ClockDomain, offsetMHz int32) error
+
+	// UpdateFanControl replaces a device's per-fan control state with the one
+	// apply computes from the state already recorded.
+	//
+	// apply is passed the whole list rather than one fan's entry because the
+	// fan setters address a single fan while the recorded state covers every
+	// one, so the fold has to happen under the write's lock for the same
+	// reason UpdateWorkloadProfiles does. present separates "nothing has been
+	// written" from "written, then emptied"; only the first falls back to the
+	// control state the profile declares.
+	UpdateFanControl(index int, apply func(base []FanControlConfig, present bool) ([]FanControlConfig, error)) error
 }
 
 // ClockDomain names a clock domain the locked-clock and offset setters write

@@ -378,11 +378,48 @@ type ThermalConfig struct {
 	TargetTemperature_C int `json:"target_temperature_c,omitzero"`
 }
 
-// FanConfig defines fan settings
+// FanConfig defines fan settings.
+//
+// Count is the gate for the whole family: a board with no dedicated fans
+// answers NOT_SUPPORTED to every fan query, which is what every profile Mokka
+// ships reports and what the hardware captures confirm. The fields below only
+// come into play on a profile that declares fans.
 type FanConfig struct {
 	Count              int    `json:"count,omitzero"`
 	SpeedPercent       string `json:"speed_percent,omitempty"`
 	TargetSpeedPercent string `json:"target_speed_percent,omitempty"`
+
+	// MaxSpeedRPM is the tachometer reading at 100 %, which the RPM getter
+	// scales by the current duty cycle. Zero means the board exposes no
+	// tachometer, so the RPM reading is refused while the percentage still
+	// answers — the split real hardware shows on boards whose fans are
+	// driven but not measured.
+	MaxSpeedRPM int `json:"max_speed_rpm,omitempty"`
+
+	// MinSpeedPercent and MaxSpeedPercent bound what a manual write may ask
+	// for. An unset maximum reads as 100, the envelope a discrete board
+	// reports; a floor is left at 0 unless a profile declares one.
+	MinSpeedPercent int `json:"min_speed_percent,omitempty"`
+	MaxSpeedPercent int `json:"max_speed_percent,omitempty"`
+
+	// Controls is per-fan control state: the policy in force and, under a
+	// manual policy, the duty cycle that was asked for. A profile may
+	// declare it to model a board that ships under manual control, and the
+	// fan setters record their writes here through the override document.
+	Controls []FanControlConfig `json:"controls,omitempty"`
+}
+
+// FanControlConfig is one fan's control state. Fan is the index the NVML
+// per-fan entry points address, so an entry naming a fan the board does not
+// have is ignored rather than aliased onto a fan it does.
+type FanControlConfig struct {
+	Fan    int    `json:"fan"`
+	Policy string `json:"policy,omitempty"`
+
+	// SpeedPercent is a pointer so "manual at 0 %" — a real request, and the
+	// one a caller makes to stop a fan — stays distinct from "no duty cycle
+	// was ever asked for", which falls back to the board's reading.
+	SpeedPercent *int `json:"speed_percent,omitempty"`
 }
 
 // ClocksConfig defines clock speed settings

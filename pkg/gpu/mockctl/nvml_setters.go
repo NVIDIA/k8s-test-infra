@@ -123,6 +123,27 @@ func SetNvlinkBwMode(path string, index int, mode uint8, allDevices bool) error 
 	})
 }
 
+// UpdateFanControl persists new per-fan control state for one device, computed
+// by apply from the state already on disk.
+//
+// apply takes the whole list for the same reason UpdateWorkloadProfiles does:
+// the NVML fan setters address one fan while the recorded state covers every
+// one, so the base has to be read under the same lock as the write or two
+// callers writing different fans lose one of the two writes.
+func UpdateFanControl(
+	path string, index int,
+	apply func(base []engine.FanControlConfig, present bool) ([]engine.FanControlConfig, error),
+) error {
+	return mutateDevice(path, func(d *Doc) error {
+		next, err := apply(d.FanControls(index))
+		if err != nil {
+			return err
+		}
+		d.SetFields(Target{Index: index}, FanControlPatch(next))
+		return nil
+	})
+}
+
 // SetNvlinkLowPowerThreshold persists an NVLink low-power threshold for one
 // device. A nil threshold removes the recorded value so the device falls back
 // to the driver default, which is what the setter's reset sentinel means.
@@ -297,4 +318,33 @@ func (d *Doc) WorkloadRequestedProfiles(index int) (requested []uint32, present 
 		return nil, false
 	}
 	return merged.Power.WorkloadProfiles.Requested, true
+}
+
+// FanControlPatch builds an override patch that replaces a device's per-fan
+// control state. A nil list is normalised to an empty one for the same reason
+// WorkloadProfilesPatch does: nil marshals to null, which reads back as
+// "nothing was ever written" and would make a caller who released every fan
+// indistinguishable from one that never wrote.
+func FanControlPatch(controls []engine.FanControlConfig) map[string]any {
+	if controls == nil {
+		controls = []engine.FanControlConfig{}
+	}
+	return map[string]any{"fan": map[string]any{"controls": controls}}
+}
+
+// FanControls reports the per-fan control state written for device index by a
+// previous fan setter, and whether any setter has written at all.
+//
+// Like WorkloadRequestedProfiles it resolves through the engine rather than
+// reading the raw document, so the answer is what the running mock would act
+// on — including the mock refusing a malformed document, which leaves the
+// device with the control state its profile declares.
+func (d *Doc) FanControls(index int) (controls []engine.FanControlConfig, present bool) {
+	overrides := &engine.ConfigOverrideDoc{All: d.All, Devices: d.Devices}
+
+	merged, err := engine.MergeDeviceConfig(&engine.DeviceConfig{}, overrides.DeviceConfigOverride(index))
+	if err != nil || merged.Fan == nil || merged.Fan.Controls == nil {
+		return nil, false
+	}
+	return merged.Fan.Controls, true
 }

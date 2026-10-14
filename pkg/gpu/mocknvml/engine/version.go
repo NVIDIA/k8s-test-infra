@@ -49,6 +49,20 @@ var functionRegistry = map[string]FunctionVersion{
 	"nvmlDeviceGetGraphicsRunningProcesses_v3": {Added: "510.0"},
 	"nvmlDeviceGetGspFirmwareMode":             {Added: "510.0"},
 
+	// 515.x additions. The fan family arrived in three driver branches, and
+	// the split is worth keeping: a consumer built against a 570 header and
+	// run on a 515 profile must be told the cooler symbols are absent
+	// rather than that the board declines them, which is the difference
+	// between "this driver is too old" and "this GPU has no fans".
+	"nvmlDeviceSetFanSpeed_v2":        {Added: "515.0"},
+	"nvmlDeviceSetDefaultFanSpeed_v2": {Added: "515.0"},
+	"nvmlDeviceGetMinMaxFanSpeed":     {Added: "515.0"},
+
+	// 520.x additions
+	"nvmlDeviceGetTargetFanSpeed":      {Added: "520.0"},
+	"nvmlDeviceGetFanControlPolicy_v2": {Added: "520.0"},
+	"nvmlDeviceSetFanControlPolicy":    {Added: "520.0"},
+
 	// 525.x additions. Confidential Compute arrived with Hopper CC.
 	"nvmlDeviceGetConfComputeMemSizeInfo":          {Added: "525.0"},
 	"nvmlDeviceGetConfComputeProtectedMemoryUsage": {Added: "525.0"},
@@ -67,6 +81,11 @@ var functionRegistry = map[string]FunctionVersion{
 
 	// 560.x additions
 	"nvmlDeviceGetPlatformInfo": {Added: "560.0"},
+
+	// 565.x additions. The cooler descriptors came a branch later than the
+	// rest of the fan family.
+	"nvmlDeviceGetCoolerInfo":  {Added: "565.0"},
+	"nvmlDeviceGetFanSpeedRPM": {Added: "565.0"},
 
 	// 570.x additions. Workload power profiles arrived with Blackwell; the
 	// architecture half of that is the profile's own config, which decides
