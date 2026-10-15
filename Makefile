@@ -219,6 +219,20 @@ build: ## Build all CLIs
 build-mockfs: ## Build mockfs
 	@make -C shims/libmockfs
 
+# Defaults to the ref the e2e suite expects (E2E_IMAGE), so a locally built
+# image can be kind-loaded and handed to `tilt up -- --nvmlmock-image` as is.
+NVML_MOCK_IMAGE      ?= nvml-mock:e2e
+NVML_MOCK_DOCKERFILE := deployments/nvml-mock/Dockerfile
+
+.PHONY: nvml-mock-image
+nvml-mock-image: ## Build the nvml-mock image into the local docker daemon: make nvml-mock-image [NVML_MOCK_IMAGE=nvml-mock:dev]
+	@echo "🐳 Building $(NVML_MOCK_IMAGE).."
+	@docker build \
+		--build-arg GOLANG_VERSION=$(shell ./hack/golang-version.sh) \
+		--file $(NVML_MOCK_DOCKERFILE) \
+		--tag "$(NVML_MOCK_IMAGE)" \
+		.
+
 .PHONY: mokka-control-plane-publish mokka-control-plane-image-push
 .PHONY: mokka-control-plane-image-sign mokka-control-plane-image-sbom
 .PHONY: mokka-control-plane-image-attest
