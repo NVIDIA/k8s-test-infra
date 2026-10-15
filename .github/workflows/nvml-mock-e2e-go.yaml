@@ -71,6 +71,14 @@ env:
   # drift apart on the filename.
   NVMLMOCK_TARBALL: nvml-mock.tar
   E2E_ARTIFACTS: ${{ github.workspace }}/artifacts/e2e/go
+  # No job downloads IMEX from NVIDIA inside its cluster: every nvml-mock
+  # install the suite makes turns the IMEXDownload gate off, as
+  # tests/e2e/ci/nvml-mock.values.yaml does for Tilt's. The ComputeDomain job
+  # provides IMEX from a payload image instead.
+  E2E_IMEX_DOWNLOAD: "false"
+  # Where prepare-imex caches the IMEX archive pinned in imex.lock.json. The
+  # cache steps key it on the lock: one download per IMEX version, not per run.
+  IMEX_ARCHIVE_DIR: ${{ github.workspace }}/.imex-archives
 
 jobs:
   # Build nvml-mock once and hand it to every leg as a run-scoped artifact;
@@ -128,6 +136,54 @@ jobs:
           if-no-files-found: error
           # Buildx's docker exporter already writes gzipped layers.
           compression-level: 0
+
+      - name: Remove the proxy credential
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
+
+  # Download the IMEX archive pinned in imex.lock.json into the Actions cache,
+  # keyed on the lock, so NVIDIA is contacted once per IMEX version rather than
+  # once per run, and only by this job. The cache is the only way the archive
+  # travels: a workflow artifact of a public repository is downloadable by
+  # anyone, which would redistribute IMEX.
+  prepare-imex:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+      - name: Look up the cached IMEX archive
+        id: cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.IMEX_ARCHIVE_DIR }}
+          key: imex-archives-${{ hashFiles('internal/agent/imex/imex.lock.json') }}
+          lookup-only: true
+
+      - name: Install Go
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Configure the DGXC Go proxy
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/setup-dgxc-goproxy
+        with:
+          mode: routed
+
+      # Only the runners' architecture: the ComputeDomain job builds the
+      # payload image for amd64.
+      - name: Download and verify the pinned IMEX archive
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: go run ./hack/imex-archives -dir "$IMEX_ARCHIVE_DIR" -arch amd64
+
+      - name: Cache the IMEX archive
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.IMEX_ARCHIVE_DIR }}
+          key: imex-archives-${{ hashFiles('internal/agent/imex/imex.lock.json') }}
 
       - name: Remove the proxy credential
         if: always()
@@ -282,6 +338,107 @@ jobs:
         if: failure()
         run: |
           echo "=== e2e-dra diagnostics (${{ matrix.gpu-profile }}) ==="
+          if [ -d "$E2E_ARTIFACTS" ]; then
+            find "$E2E_ARTIFACTS" -type f | while read -r f; do
+              echo "----- $f -----"; cat "$f"; echo;
+            done
+          else
+            echo "no diagnostics written"
+          fi
+
+      - name: Remove the proxy credential
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
+
+  # ComputeDomains through the unmodified DRA driver on two racks of two nodes
+  # (tests/e2e/kind-compute-domain-racks.yaml). gb200 only: ComputeDomains
+  # need a multi-node NVLink profile, and gb300 differs in nothing they read.
+  e2e-compute-domain:
+    needs: [build-nvmlmock-image, prepare-imex]
+    runs-on: ubuntu-latest
+    env:
+      # Built here from the cached archive and loaded into the cluster; never
+      # pushed or uploaded.
+      IMEX_PAYLOAD_REPOSITORY: mokka-imex
+      IMEX_PAYLOAD_TAG: ci
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Download pre-built nvml-mock image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: nvml-mock-image
+          path: ${{ runner.temp }}
+
+      - name: Restore the cached IMEX archive
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.IMEX_ARCHIVE_DIR }}
+          key: imex-archives-${{ hashFiles('internal/agent/imex/imex.lock.json') }}
+          fail-on-cache-miss: true
+
+      - name: Install binaries and create the two-rack Kind cluster
+        env:
+          PROFILE: compute-domain
+          KIND_CLUSTER_CONFIG: tests/e2e/kind-compute-domain-racks.yaml
+        run: ./hack/e2e-ci-cluster.sh
+
+      - name: Load pre-built nvml-mock image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
+
+      - name: Load nvml-mock image into Kind
+        run: kind load docker-image "$E2E_IMAGE" --name mokka-compute-domain
+
+      - name: Configure the DGXC Go proxy
+        uses: ./.github/actions/setup-dgxc-goproxy
+        with:
+          mode: routed
+
+      - name: Assert the proxy is actually in front
+        run: ./hack/check-goproxy.sh
+
+      # Offline: the archive is in the restored cache, so the build only
+      # verifies it.
+      - name: Build the IMEX payload image and load it into Kind
+        run: |
+          make imex-payload-image IMEX_PAYLOAD_ARCH=amd64 \
+            IMEX_PAYLOAD_IMAGE="${IMEX_PAYLOAD_REPOSITORY}:${IMEX_PAYLOAD_TAG}"
+          kind load docker-image "${IMEX_PAYLOAD_REPOSITORY}:${IMEX_PAYLOAD_TAG}" --name mokka-compute-domain
+
+      - name: Stage CI Helm values for Tilt
+        run: |
+          cat > local/nvml-mock.values.local.yaml <<EOF
+          featureGates:
+            IMEXDownload: false
+          imex:
+            payload:
+              image:
+                repository: ${IMEX_PAYLOAD_REPOSITORY}
+                tag: ${IMEX_PAYLOAD_TAG}
+          EOF
+
+      - name: Roll out nvml-mock + DRA driver with ComputeDomains via Tilt
+        run: tilt ci -- --compute-domain --dra --nvmlmock-image="$E2E_IMAGE"
+
+      - name: Run ComputeDomain E2E
+        env:
+          E2E_EXPECT_NRI: "true"
+          E2E_PROFILES: gb200
+          E2E_KUBE_CONTEXT: kind-mokka-compute-domain
+          E2E_CLUSTER_NAME: mokka-compute-domain
+          E2E_IMEX_PAYLOAD_IMAGE: ${{ env.IMEX_PAYLOAD_REPOSITORY }}:${{ env.IMEX_PAYLOAD_TAG }}
+        run: make e2e-compute-domain
+
+      - name: Print diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== e2e-compute-domain diagnostics ==="
           if [ -d "$E2E_ARTIFACTS" ]; then
             find "$E2E_ARTIFACTS" -type f | while read -r f; do
               echo "----- $f -----"; cat "$f"; echo;

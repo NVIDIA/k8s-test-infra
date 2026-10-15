@@ -220,6 +220,7 @@ Read by the suite:
 | `E2E_ARTIFACTS` | `artifacts/e2e/go` | Where failure diagnostics are written |
 | `E2E_RUN_NGC` | `false` | Run scenarios needing `nvcr.io` images. Truthy: `1`, `true`, `yes`, `on` |
 | `E2E_EXPECT_NRI` | `false` | Fail, instead of skip, NRI-only specs when the nvml-mock NRI plugin is not running. CI sets it on the DRA and GPU Operator jobs |
+| `E2E_IMEX_DOWNLOAD` | `true` | `false` turns the `IMEXDownload` feature gate off in every nvml-mock install the suite makes, so no node agent downloads IMEX. CI sets it |
 | `E2E_IMEX_PAYLOAD_IMAGE` | empty | IMEX payload image (`repo:tag`), already loaded into the cluster, that the ComputeDomain scenario installs the chart with. With it set the node agent never downloads IMEX; empty leaves that to the `IMEXDownload` feature gate. CI builds one from the cached archive and sets it |
 | `E2E_REPO_ROOT` | walks up for `go.mod` | Overrides repo-root discovery for chart and profile paths |
 | `E2E_HELM_TIMEOUT` | `5m` | `helm upgrade --install --wait` |
@@ -279,11 +280,20 @@ cluster, loads the image onto the nodes, and rolls it out with
 `tilt ci -- --nvmlmock-image="$E2E_IMAGE"`. Using an artifact rather than a
 registry keeps this working on fork pull requests with no credentials.
 
-Six scenario jobs run in parallel: `e2e`, `e2e-dra`, `e2e-gpu-operator`,
-`e2e-multi-node`, `e2e-nri` and `e2e-nfd`. Each runs one GPU profile per matrix
-entry, with `fail-fast: false` so one profile's failure does not cancel the
-others. `e2e-nfd` is pinned to `a100`; `e2e-multi-node` has no matrix and uses
-its own fixed A100/T4 topology. There is no gfd job.
+The scenario jobs run in parallel: `e2e`, `e2e-dra`, `e2e-compute-domain`,
+`e2e-gpu-operator`, `e2e-multi-node`, `e2e-nri`, `e2e-nfd` and `e2e-mig`. Each
+runs one GPU profile per matrix entry, with `fail-fast: false` so one profile's
+failure does not cancel the others. `e2e-nfd` is pinned to `a100`;
+`e2e-multi-node` has no matrix and uses its own fixed A100/T4 topology;
+`e2e-compute-domain` runs `gb200` on the two-rack cluster. There is no gfd job.
+
+No job downloads IMEX from NVIDIA inside its cluster: `E2E_IMEX_DOWNLOAD=false`
+turns the `IMEXDownload` gate off in every install. The `prepare-imex` job
+downloads the archive pinned in `imex.lock.json` into the Actions cache, keyed on
+the lock, so NVIDIA is contacted once per IMEX version. `e2e-compute-domain`
+restores it, builds the payload image with `make imex-payload-image`, and loads
+it into Kind. The archive never travels as a workflow artifact, which anyone
+could download from a public repository.
 
 Pull requests get the full matrix — `a100`, `h100`, `b200`, `gb200`, `gb300`,
 `t4`. Manual `workflow_dispatch` defaults to `gb200` alone for a fast run. The
@@ -291,8 +301,8 @@ Pull requests get the full matrix — `a100`, `h100`, `b200`, `gb200`, `gb300`,
 in no CI matrix, so it is only ever exercised locally.
 
 CI stages [`ci/nvml-mock.values.yaml`](ci/nvml-mock.values.yaml) as Tilt's
-local-override values file, which turns on dynamic metrics with a fixed seed and
-a 100% rolling-update budget.
+local-override values file, which turns on dynamic metrics with a fixed seed, a
+100% rolling-update budget, and the `IMEXDownload` gate off.
 
 ## Troubleshooting
 

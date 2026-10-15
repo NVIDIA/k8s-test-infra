@@ -382,7 +382,7 @@ func installComputeDomainChart(ctx context.Context, h *harness.Harness, p profil
 		`nodeSelector.mokka\.nvidia\.com/type`: sgpuNodeLabelValue,
 		"updateStrategy.rollingUpdate.maxUnavailable": "100%",
 		// A payload image is how CI provides IMEX, so it never downloads.
-		"featureGates.IMEXDownload": strconv.FormatBool(imex && payload == ""),
+		"featureGates.IMEXDownload": strconv.FormatBool(imex && payload == "" && config.IMEXDownload()),
 	}
 	if imex && payload != "" {
 		payloadRepo, payloadTag := splitImage(payload)

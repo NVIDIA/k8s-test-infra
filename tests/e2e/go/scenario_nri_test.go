@@ -952,13 +952,13 @@ func installNRIChart(ctx context.Context, h *harness.Harness, p profile.Profile,
 		Namespace:       nvmlMockNamespace,
 		CreateNamespace: true,
 		HideOutput:      true,
-		Set: map[string]string{
+		Set: withSuiteFeatureGates(map[string]string{
 			"gpu.count":        strconv.Itoa(p.ExpectedGPUs()),
 			"gpu.profile":      p.Name,
 			"image.repository": repo,
 			"image.tag":        tag,
 			"nri.enabled":      "true",
-		},
+		}),
 		Wait:    true,
 		Timeout: config.HelmTimeout(),
 	}
@@ -1262,14 +1262,14 @@ func installNRICDIChart(ctx context.Context, h *harness.Harness, p profile.Profi
 		Namespace:       nvmlMockNamespace,
 		CreateNamespace: true,
 		HideOutput:      true,
-		Set: map[string]string{
+		Set: withSuiteFeatureGates(map[string]string{
 			"gpu.count":               strconv.Itoa(p.ExpectedGPUs()),
 			"gpu.profile":             p.Name,
 			"image.repository":        repo,
 			"image.tag":               tag,
 			"nri.enabled":             "true",
 			"nri.deviceInjectionMode": "cdi",
-		},
+		}),
 		Wait:    true,
 		Timeout: config.HelmTimeout(),
 	}

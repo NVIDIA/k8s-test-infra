@@ -112,6 +112,12 @@ func RunNGCSpecs() bool { return envBool("E2E_RUN_NGC") }
 // instead, so a CI job that stops enabling NRI cannot go green on skips.
 func ExpectNRI() bool { return envBool("E2E_EXPECT_NRI") }
 
+// IMEXDownload reports whether the node agent may download IMEX from NVIDIA.
+// CI sets E2E_IMEX_DOWNLOAD=false, so no job contacts NVIDIA from inside a
+// cluster; every nvml-mock install the suite makes then turns the
+// IMEXDownload feature gate off.
+func IMEXDownload() bool { return envBoolDefault("E2E_IMEX_DOWNLOAD", true) }
+
 // IMEXPayloadImage is the IMEX payload image (repo:tag) the ComputeDomain specs
 // install the chart with, already loaded into the cluster. With it set, the
 // node agent never downloads IMEX; empty leaves it to the IMEXDownload default.

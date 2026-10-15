@@ -28,7 +28,6 @@ readonly HELM_VERSION=v4.3.0
 # Pinned so Tilt version drift doesn't silently change rollout semantics
 # between runs. Bump alongside local dev.
 readonly TILT_VERSION=0.37.5
-readonly CLUSTER_NAME=mokka
 
 # Checksums are per release asset, so bumping a version above means updating
 # its checksum for both architectures. Tilt names its x86 assets `x86_64`
@@ -79,7 +78,9 @@ rm -f "${RUNNER_TEMP}/tilt.tar.gz"
 tilt version
 echo "::endgroup::"
 
-echo "::group::Create Kind cluster ${CLUSTER_NAME}"
+# PROFILE and KIND_CLUSTER_CONFIG pass through to make, so a job picks its
+# cluster shape without its own script.
+echo "::group::Create Kind cluster (profile ${PROFILE:-default})"
 # Same command a laptop dev runs (local/kind/default.kind.yaml, context
 # kind-mokka).
 make cluster-create

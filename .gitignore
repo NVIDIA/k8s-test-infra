@@ -20,6 +20,10 @@ pkg/network/*/libibmock*
 /check-fabric
 /mock-ib
 
+# The IMEX archives CI keeps for the payload image (IMEX_ARCHIVE_DIR). NVIDIA's
+# binaries must never be committed.
+/.imex-archives/
+
 # Agentic working artifacts
 .agents/
 .superpowers/
