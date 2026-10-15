@@ -5,6 +5,7 @@ Author: [Giulio Calzolari](https://github.com/giuliocalzo)
 <!-- toc -->
 - [Summary](#summary)
 - [Motivation](#motivation)
+  - [Background: vGPU is a software partition, like MIG](#background-vgpu-is-a-software-partition-like-mig)
   - [Background: the two sides of vGPU](#background-the-two-sides-of-vgpu)
   - [What Mokka does today](#what-mokka-does-today)
   - [Goals](#goals)
@@ -38,6 +39,12 @@ real guest carries. `nvidia-smi vgpu`, `nvidia-smi -q`, go-nvml clients and
 GPU Feature Discovery (GFD) then report the host or the guest unmodified, on a
 CPU node with no hypervisor and no VM.
 
+vGPU is a software construct on the physical GPU, very similar to MIG: the
+host driver carves one GPU into smaller virtual GPUs of fixed types, where MIG
+carves it into GPU instances of fixed profiles. The design follows Mokka's MIG
+support accordingly, with the same profile placement, chart merge and derived
+identities.
+
 The model is static. An install declares the vGPU types and how many instances
 run; nothing creates or destroys them at runtime. The chart turns it on with a
 new `gpu.vgpu` block, off by default.
@@ -56,6 +63,34 @@ end-to-end test in which a vGPU-aware consumer enumerates configured
 instances. It is also one of the two prerequisites of the StratumSim
 integration ([#1056](https://github.com/NVIDIA/k8s-test-infra/issues/1056));
 the other is running Mokka under KubeVirt.
+
+### Background: vGPU is a software partition, like MIG
+
+Multi-Instance GPU (MIG) and vGPU answer the same question, how to split one
+physical GPU into several smaller ones, at different layers. MIG does it in
+hardware: each GPU instance gets dedicated streaming multiprocessors, memory
+slices and caches. vGPU does it in software: the vGPU manager in the host
+driver gives each instance a fixed slice of the framebuffer and shares compute
+between instances by time-slicing. On MIG-capable boards a vGPU type can
+instead be backed by a MIG GPU instance, which is why a type carries a GPU
+instance profile ID.
+
+To NVML the two look alike. Both hang a fixed catalogue off the board, MIG
+profiles such as `1g.10gb` and vGPU types such as `NVIDIA A100-4C`, and both
+enumerate the running slices from the parent device, each with an identity of
+its own. Mokka already simulates MIG, so this MEP models vGPU the same way
+wherever the two agree, and departs from it only where vGPU differs:
+
+| | MIG in Mokka | vGPU in this MEP |
+|---|---|---|
+| What splits the GPU | The hardware | The host driver's vGPU manager |
+| Catalogue | The board's MIG profiles | The vGPU types of the board and vGPU software release |
+| A running slice | A GPU instance, used by a container | A vGPU instance, handed to a VM |
+| Declared in | `device_defaults.mig`, the layout applied to every GPU | `device_defaults.virtualization.vgpu`, the instances applied to every GPU |
+| Chart value | `gpu.mig`, merged into the profile | `gpu.vgpu`, merged the same way |
+| Identity | MIG UUIDs derived from the parent GPU's UUID | vGPU and VM UUIDs derived from the parent GPU's UUID |
+| Shipped catalogue | A profile table per MIG-capable board | None: the types depend on the software release, not the board |
+| Runtime changes | Instances created and destroyed through NVML | Static; a non-goal |
 
 ### Background: the two sides of vGPU
 
@@ -199,13 +234,16 @@ flowchart LR
 
 ### Profile configuration
 
+`mode` picks the side: `host_vgpu` for a host, `vgpu` for a guest, next to the
+existing `none` and `passthrough`. The `vgpu` block then carries that side's
+fields only. A host declares its types and running instances:
+
 ```yaml
 device_defaults:
   virtualization:
-    mode: host_vgpu                 # none | passthrough | vgpu (guest) | host_vgpu (host)
-    host_vgpu_mode: sriov           # host only: sriov | non_sriov
+    mode: host_vgpu
+    host_vgpu_mode: sriov           # sriov | non_sriov
     vgpu:
-      # host_vgpu only
       types:
         - id: 474
           name: "NVIDIA A100-4C"
@@ -219,7 +257,15 @@ device_defaults:
       instances:                    # applied to every GPU, like MIG gpu_instances
         - type: "NVIDIA A100-4C"
           count: 2
-      # vgpu only
+```
+
+A guest declares the host driver it runs on and its license:
+
+```yaml
+device_defaults:
+  virtualization:
+    mode: vgpu
+    vgpu:
       guest:
         host_driver_version: "550.163.01"
         host_driver_branch: "r550_00"
@@ -269,6 +315,10 @@ the GPU's thousand.
 The instance's vGPU UUID and VM UUID are SHA-256 derivations of its GPU's UUID
 and slot, with a different salt for each. They are stable across restarts
 whenever the profile declares GPU UUIDs, which every shipped profile does.
+This is the constraint MIG device UUIDs already meet: every process that loads
+the library derives the same identities with nothing shared between them. The
+derivation differs, MIG splicing its instance IDs into the parent UUID where
+vGPU hashes, but the property is the same.
 
 ### NVML surface
 
@@ -350,8 +400,8 @@ the same path `gpu.mig` takes; the other side's fields are dropped. An empty
 `guest` renders the mode alone. The schema enumerates `mode`, and the chart
 refuses to render `host` with no types, which would otherwise leave the node
 agent not ready with no hint at install time. Every other rule is the
-engine's, so it lives in one place. `gpu.customConfig` bypasses the merge, as
-it does for MIG.
+engine's, so it lives in one place. With `gpu.customConfig` set, the custom
+config is the base and `gpu.vgpu` is merged on top of it, as `gpu.mig` is.
 
 ### Compatibility
 
