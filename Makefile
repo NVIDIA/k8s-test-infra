@@ -685,6 +685,7 @@ image-load:
 #   make e2e E2E_PROFILES=a100     # fast inner loop, single profile
 #   make e2e E2E_GINKGO_FLAGS='--label-filter="nvidia-smi || nvlink"'
 #   make e2e-dra                   # DRA scenario
+#   make e2e-compute-domain        # ComputeDomains through the DRA driver (two-rack cluster)
 #   make e2e-gpu-operator          # GPU Operator scenario
 #   make e2e-multi-node            # heterogeneous A100/T4 multi-node scenario
 #   make e2e-nri                   # NRI injection scenario
@@ -702,10 +703,10 @@ image-load:
 # ---------------------------------------------------------------------------
 GINKGO ?= $(GO_CMD) run github.com/onsi/ginkgo/v2/ginkgo
 E2E_TIMEOUT ?= 90m
-E2E_DEFAULT_LABEL_FILTER ?= !gfd && !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig
+E2E_DEFAULT_LABEL_FILTER ?= !gfd && !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig && !dra-compute-domain
 E2E_GINKGO_FLAGS ?= --label-filter='$(E2E_DEFAULT_LABEL_FILTER)'
 
-.PHONY: e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd e2e-mig
+.PHONY: e2e e2e-dra e2e-compute-domain e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd e2e-mig
 
 # `set -o pipefail` is inline on purpose; do not drop it as redundant with
 # .SHELLFLAGS. GNU Make ignores .SHELLFLAGS before 3.82 and macOS ships 3.81,
@@ -716,6 +717,12 @@ e2e: ## Run the Ginkgo e2e suite against E2E_CLUSTER_NAME/E2E_KUBE_CONTEXT (defa
 
 e2e-dra: ## e2e — DRA scenario
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=dra'
+
+# Needs the two-rack cluster, tests/e2e/kind-compute-domain-racks.yaml, with
+# `tilt ci -- --compute-domain --dra`. Set E2E_IMEX_PAYLOAD_IMAGE to keep the
+# node agent from downloading IMEX.
+e2e-compute-domain: ## e2e — ComputeDomains through the unmodified DRA driver
+	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=dra-compute-domain'
 
 e2e-gpu-operator: ## e2e — GPU Operator scenario
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=gpu-operator'

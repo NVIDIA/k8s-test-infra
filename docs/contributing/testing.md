@@ -45,6 +45,7 @@ image or create the cluster. Set both up first with
 ```bash
 make e2e                  # standalone scenario, default profile
 make e2e-dra              # DRA driver
+make e2e-compute-domain   # ComputeDomains through the DRA driver (two-rack cluster)
 make e2e-gpu-operator     # GPU Operator
 make e2e-multi-node       # heterogeneous a100/t4 fleet
 make e2e-nri              # node-wide NRI injection
@@ -52,7 +53,7 @@ make e2e-nfd              # NFD label provenance
 ```
 
 !!! warning "`make e2e` does not run everything"
-    It applies a default label filter that excludes the six scenarios above, so
+    It applies a default label filter that excludes the scenarios above, so
     a bare `make e2e` runs only the standalone scenario. Use the per-scenario
     targets for the rest.
 
