@@ -171,7 +171,8 @@ nodeAgent:
   # it too, not just NVML clients. Watches the runtime override document, so
   # any writer's Xid — `nvml-mock-ctl fail --xid` included — is announced.
   kernelLog:
-    # TODO: remove the flag and make it on by default
+    # Keep kernel-log access opt-in: enabling it mounts the host's /dev/kmsg
+    # device and requires a node and PodSecurity policy that allow that access.
     # -- Announce injected Xids through the host kernel log.
     enabled: false
   # Sets up each node's container runtime for the mock GPUs (MEP-0006): installs
