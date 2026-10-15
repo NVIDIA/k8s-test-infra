@@ -150,8 +150,21 @@ should match snapshot with default values:
             --create-namespace \
             --set nvidiaDriverRoot=/var/lib/nvml-mock/driver \
             --set gpuResourcesEnabledOverride=true \
-            --set resources.computeDomains.enabled=false \
+            --set resources.computeDomains.enabled=true \
+            --set altProcDevices=/var/lib/nvml-mock/imex/proc-devices \
             --wait --timeout 180s
+
+        ComputeDomains: the gb300 profile's NVLink spans nodes, so
+        the node agent stages IMEX and the driver runs ComputeDomains with its
+        upstream images. IMEX comes from imex.payload.image or, while the
+        IMEXDownload feature gate is on, a download from NVIDIA. The driver's
+        kubelet plugin looks for IMEX only when it starts, so install the driver
+        once every node has it:
+
+          kubectl -n NAMESPACE exec <node pod> -- \
+            test -f /var/lib/nvml-mock/driver/usr/bin/nvidia-imex.real
+
+        and restart the plugin on a node that gets IMEX later.
 
         Verify ResourceSlices:
 

@@ -490,14 +490,10 @@ imex:
   #   <driverRoot>/proc/driver/nvidia/capabilities/...   fabric-imex-mgmt
   #   <driverRoot>/dev/nvidia-caps-imex-channels/channel0  channel device node
   #
-  # Pair it with the DRA driver, on a release that supports altProcDevices:
+  # Pair it with the DRA driver chart 0.5.0 or later, which runs its upstream
+  # images unmodified:
   #   --set altProcDevices=/var/lib/nvml-mock/imex/proc-devices
   #   --set resources.computeDomains.enabled=true
-  #
-  # NOTE: as of 2026-07-25 altProcDevices is on the DRA driver's main branch
-  # but is NOT in any release (absent at v25.12.0), so enabling this alone does
-  # not yet make ComputeDomains work with released artifacts. See
-  # NVIDIA/k8s-test-infra#498.
   #
   # Other profiles render none of it. The settings below pick its device
   # numbers.

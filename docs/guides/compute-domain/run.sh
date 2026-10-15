@@ -582,10 +582,9 @@ cat <<EOF
 
 ==> The upstream compute-domain-controller and compute-domain-daemon
     can now run unmodified against this cluster: their NVML calls land
-    on the mock library, and the real nvidia-imex / nvidia-imex-ctl are
-    fronted by the nvidia-imex-shim overlay image (see
-    deployments/nvml-mock/Dockerfile.compute-domain-daemon for the
-    thin overlay that runs the real IMEX daemon with --nogpu).
+    on the mock library, and the node agent stages the real
+    nvidia-imex / nvidia-imex-ctl behind the --nogpu shim in the mock
+    driver tree.
 
 ==> The cluster is left running for inspection. To tear it down:
     kind delete cluster --name ${CLUSTER_NAME}

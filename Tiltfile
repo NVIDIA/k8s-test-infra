@@ -22,10 +22,10 @@
 # The install helpers detect the file's presence via os.path.exists.
 #
 # Adding a new scenario (e.g. compute-domain):
-#   Scenarios reshape the nvml-mock stack itself — different image, forced
-#   profile, dedicated cluster topology — so they don't fit the additive
-#   consumer contract above. See local/compute-domain/compute_domain.tiltfile
-#   for the pattern: exports build_images() + install() the way
+#   Scenarios reshape the nvml-mock stack itself — forced profile, dedicated
+#   cluster topology — so they don't fit the additive consumer contract
+#   above. See local/compute-domain/compute_domain.tiltfile for the pattern:
+#   exports build_image() + install() the way
 #   local/nvml_mock.tiltfile does, and the orchestrator calls them as the
 #   base install path instead of build_nvml_mock_image() + install_single().
 
@@ -37,9 +37,8 @@ load('./local/nvml_mock.tiltfile',
      'install_single',
      'install_fleet')
 load('./local/compute-domain/compute_domain.tiltfile',
-     compute_domain_build_images='build_images',
-     compute_domain_install='install',
-     compute_domain_daemon_image='DAEMON_IMAGE')
+     compute_domain_build_image='build_image',
+     compute_domain_install='install')
 load('./local/gpu-operator/gpu_operator.tiltfile', gpu_operator_install='install')
 load('./local/dra/dra.tiltfile', dra_install='install')
 load('./local/fgo/fgo.tiltfile', fgo_install='install')
@@ -138,8 +137,8 @@ if with_slinky:
 # labels, hardcoded worker names in topology.yaml) and its own profile
 # (gb200 for NVLink5 fabric APIs), so it cannot compose with --multi-gpu-profile
 # or with any --gpu-profile the user might pass. --gpu-operator is
-# allowed but experimental — the Operator's RuntimeClass path with the
-# compute-domain-imex layered image is untested.
+# allowed but experimental — the Operator's RuntimeClass path on the
+# compute-domain cluster is untested.
 if with_compute_domain and multi_gpu_profile:
     fail('--compute-domain is mutually exclusive with --multi-gpu-profile ' +
          '(compute-domain uses its own 4-worker cluster shape)')
@@ -153,12 +152,6 @@ if with_fgo and with_compute_domain:
 # would never fit and its graph would sit Pending forever.
 if with_slinky and with_dynamo:
     fail('--slinky is mutually exclusive with --dynamo (slurmd claims every mock GPU)')
-
-# --nvmlmock-image only wires the standard nvml-mock build/install path. The
-# compute-domain scenario builds three layered images (base + imex + optional
-# daemon) and cannot consume a single pre-built ref.
-if nvmlmock_image and with_compute_domain:
-    fail('--nvmlmock-image is not supported with --compute-domain (scenario builds its own layered images)')
 
 gpu_profile_raw = cfg.get('gpu-profile', None)
 
@@ -214,8 +207,12 @@ if with_control_plane:
     install_control_plane_crds()
 
 if with_compute_domain:
-    compute_domain_build_images(with_dra)
-    nvml_mock_releases = compute_domain_install(active_consumers, control_plane=with_control_plane)
+    compute_domain_build_image(nvmlmock_image=nvmlmock_image)
+    nvml_mock_releases = compute_domain_install(
+        active_consumers,
+        nvmlmock_image=nvmlmock_image,
+        control_plane=with_control_plane,
+    )
 elif multi_gpu_profile:
     build_nvml_mock_image(nvmlmock_image=nvmlmock_image)
     nvml_mock_releases = install_fleet(
@@ -286,28 +283,15 @@ if with_gpu_operator:
     )
 
 if with_dra:
-    # DRA overlay chain (order matters — later --values files win):
-    # - --compute-domain: (1) layer the compute-domain overlay values on
-    #   top of dra-driver.values.yaml to flip resources.computeDomains.
-    #   enabled, and (2) route the daemon image through image_deps +
-    #   image_keys so Tilt actually builds it (a docker_build with no
-    #   manifest reference is pruned) and injects it as the chart's
-    #   image.repository/tag.
+    # DRA overlay chain (order matters — later --values files win).
+    # --compute-domain layers the compute-domain overlay on top of
+    # dra-driver.values.yaml: ComputeDomains on, and the node agent's
+    # substitute /proc/devices. The driver keeps its upstream images.
     dra_extra_values = []
-    dra_image_deps   = []
-    dra_image_keys   = []
-
     if with_compute_domain:
         dra_extra_values.append('local/compute-domain/dra-driver.values.yaml')
-        dra_image_deps.append(compute_domain_daemon_image)
-        dra_image_keys.append(('image.repository', 'image.tag'))
 
-    dra_install(
-      nvml_mock_releases,
-      extra_values=dra_extra_values,
-      image_deps=dra_image_deps,
-      image_keys=dra_image_keys,
-    )
+    dra_install(nvml_mock_releases, extra_values=dra_extra_values)
 
 if with_fgo:
     fgo_install(nvml_mock_releases)

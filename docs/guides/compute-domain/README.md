@@ -294,13 +294,11 @@ faithful to what's checked in.
 
 The upstream daemon spawns `nvidia-imex` as a subprocess and probes
 readiness with `nvidia-imex-ctl -c /imexd/imexd.cfg -q`,
-comparing the combined output to exactly `READY`. With this demo's
-overlay installed both paths hold the real binaries: the shim at
-`/usr/bin/nvidia-imex` execs `/usr/bin/nvidia-imex.real --nogpu`, so
-the upstream daemon runs unmodified — same argv, same probe, real
-protocol, no GPUs. Point its container image at the default (`daemon`)
-target of
-[`deployments/nvml-mock/Dockerfile.compute-domain-daemon`](https://github.com/NVIDIA/k8s-test-infra/blob/main/deployments/nvml-mock/Dockerfile.compute-domain-daemon).
+comparing the combined output to exactly `READY`. On gb200 and gb300
+the node agent stages both in the mock driver tree, where the DRA driver
+finds them: the shim at `nvidia-imex` execs `nvidia-imex.real --nogpu`, so
+the upstream daemon runs unmodified — same image, same argv, same probe,
+real protocol, no GPUs.
 
 > **Using the upstream daemon chart.** With NRI enabled, its workload pod
 > does not need a mock driver mount, a topology ConfigMap mount, or manually

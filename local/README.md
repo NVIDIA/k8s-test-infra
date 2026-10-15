@@ -127,6 +127,11 @@ tilt up -- --compute-domain
 tilt up -- --compute-domain --dra        # with DRA driver
 ```
 
+With `--dra` the DRA driver runs ComputeDomains with its upstream images. The
+node agent stages IMEX for them: it downloads the pinned archive from NVIDIA
+while the `IMEXDownload` feature gate is on, or takes it from an
+`imex.payload.image` set in `local/nvml-mock.values.local.yaml`.
+
 The Tilt UI exposes two manual triggers under the `compute-domain-tests` label:
 - **check-fabric** — asserts the topology overlay assigned the expected `cliqueId`/`clusterUUID` to each node
 - **topology-rebind** — live-rebinds the NVLink topology and re-asserts the new clique assignment

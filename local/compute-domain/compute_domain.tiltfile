@@ -4,58 +4,51 @@
 # Loadable Tiltfile for the compute-domain scenario.
 #
 # Scenario, not consumer: compute-domain reconfigures the nvml-mock stack
-# itself (image overlay, gb200 profile, topology ConfigMap, 4-worker
-# cluster) rather than sitting on top of it. So it exports build/install
+# itself (gb200 profile, topology ConfigMap, 4-worker cluster) rather than
+# sitting on top of it. So it exports build/install
 # the way local/nvml_mock.tiltfile does — the root Tiltfile calls
 # compute_domain.install() as the BASE install path when --compute-domain
 # is set, replacing the install_single()/install_fleet() calls.
 #
 # Ports docs/guides/compute-domain/run.sh Scenario 1 (per-node fabric
 # identity) and Scenario 3 (topology rebind) as auto_init=False
-# local_resource triggers. Scenario 2 (real IMEX daemon coordination)
-# stays in run.sh — stateful multi-pod state machine that doesn't fit
-# Tilt's model.
+# local_resource triggers.
+#
+# The scenario runs the standard nvml-mock image. On the gb200 profile the
+# node agent stages IMEX itself (see the chart's imex values), and the DRA
+# driver runs its unmodified upstream images (see dra-driver.values.yaml).
 #
 # Exports:
-#   build_images(with_dra) — build 2 images (or 3 if with_dra).
-#   install(active_consumers) — install one nvml-mock helm release
-#     with the topology overlay + scenario triggers. Returns ['nvml-mock'].
+#   build_image(nvmlmock_image) — build the nvml-mock image, unless a
+#     pre-built ref is given.
+#   install(active_consumers, nvmlmock_image, control_plane) — install one
+#     nvml-mock helm release with the topology overlay + scenario
+#     triggers. Returns ['nvml-mock', 'imex-staged'].
 #
 # All side effects inside functions so load()ing this file is a pure import.
 
 load('ext://helm_resource', 'helm_resource')
 load('ext://k8s_attach', 'k8s_attach')
+load('../nvml_mock.tiltfile', 'split_image')
 
-_BASE_IMAGE         = 'nvml-mock:compute-domain'
-_DEMO_IMAGE         = 'nvml-mock:compute-domain-imex'
-# Exported (no leading underscore): the root Tiltfile loads this so it
-# can pass image_deps=[DAEMON_IMAGE] into dra_install() when composing
-# --compute-domain --dra. That both drives Tilt's build of this image
-# and pins the DRA chart's image.repository/tag to it via image_keys.
-DAEMON_IMAGE        = 'nvml-mock:compute-domain-daemon'
-_CHART              = 'deployments/nvml-mock/helm/nvml-mock'
-_MOCK_DOCKERFILE    = 'deployments/nvml-mock/Dockerfile'
-_OVERLAY_DOCKERFILE = 'deployments/nvml-mock/Dockerfile.compute-domain-daemon'
+_IMAGE      = 'nvml-mock:compute-domain'
+_NAMESPACE  = 'mokka'
+_CHART      = 'deployments/nvml-mock/helm/nvml-mock'
+_DOCKERFILE = 'deployments/nvml-mock/Dockerfile'
 
 
-def build_images(with_dra):
-    """Build the compute-domain image trio.
+def build_image(nvmlmock_image=''):
+    """Build the nvml-mock image, unless nvmlmock_image names a pre-built one.
 
-    Always builds the nvml-mock base image and the demo overlay (real
-    nvidia-imex + shim on top of the mock). When with_dra is True, also
-    builds the daemon overlay (real nvidia-imex + shim on top of the
-    upstream compute-domain-daemon image) that dra-driver.values.yaml
-    pins the DRA chart image to.
+    Same Dockerfile as local/nvml_mock.tiltfile, so this list has to carry
+    the same trees.
     """
-    # Base nvml-mock image. Locally tagged (nvml-mock:compute-domain)
-    # rather than the ghcr.io ref used by local/nvml_mock.tiltfile — the
-    # demo overlay's NVML_MOCK_IMAGE build-arg targets this exact ref.
-    # Same Dockerfile as local/nvml_mock.tiltfile, so this list has to carry
-    # the same trees.
+    if nvmlmock_image:
+        return
     docker_build(
-        _BASE_IMAGE,
+        _IMAGE,
         context='.',
-        dockerfile=_MOCK_DOCKERFILE,
+        dockerfile=_DOCKERFILE,
         only=[
             'go.mod',
             'go.sum',
@@ -69,55 +62,25 @@ def build_images(with_dra):
         ],
     )
 
-    # Demo overlay: real nvidia-imex + nvidia-imex-shim on top of the
-    # mock. Powers the nvml-mock DaemonSet pods (image_keys pin below)
-    # so kubectl exec workflows (check-fabric, IMEX daemon start/kill)
-    # find the real binaries at their canonical paths.
-    docker_build(
-        _DEMO_IMAGE,
-        context='.',
-        dockerfile=_OVERLAY_DOCKERFILE,
-        target='demo',
-        build_args={'NVML_MOCK_IMAGE': _BASE_IMAGE},
-        only=[
-            'go.mod',
-            'go.sum',
-            'shims/nvidia-imex-shim/',
-        ],
-    )
 
-    if with_dra:
-        # Daemon overlay: real nvidia-imex + nvidia-imex-shim on top of
-        # the upstream DRA compute-domain-daemon image. Pinned by
-        # local/compute-domain/dra-driver.values.yaml so the DRA
-        # driver's compute-domain-daemon pods run the shim'd real IMEX
-        # in NO-GPU mode instead of the GPU-required upstream binary.
-        # Select the named daemon stage explicitly so later stage additions
-        # cannot silently change this build's output.
-        docker_build(
-            DAEMON_IMAGE,
-            context='.',
-            dockerfile=_OVERLAY_DOCKERFILE,
-            target='daemon',
-            only=[
-                'go.mod',
-                'go.sum',
-                'shims/nvidia-imex-shim/',
-            ],
-        )
-
-
-def install(active_consumers, control_plane=False):
+def install(active_consumers, nvmlmock_image='', control_plane=False):
     """Install the nvml-mock helm release with the compute-domain topology.
 
-    Returns ['nvml-mock'] so downstream consumers (dra, gpu-operator)
-    can pass it as resource_deps.
+    Returns ['nvml-mock', 'imex-staged'] so downstream consumers (dra,
+    gpu-operator) can pass it as resource_deps and start once IMEX is staged.
+
+    nvmlmock_image pins a pre-built image (CI) instead of the one
+    build_image() builds.
 
     control_plane=True flips controlPlane.enabled on the release and
     threads the CP image through image_deps so Tilt rebuilds → pins →
     rolls the Deployment alongside the compute-domain scenario.
     """
+    # The mokka namespace, as local/nvml_mock.tiltfile installs: the NRI
+    # plugin never injects the release's own namespace, so a release in
+    # default would leave the workloads there without mock GPUs.
     flags = [
+        '--create-namespace',
         '--values', 'local/compute-domain/topology.yaml',
         '--values', 'local/compute-domain/nvml-mock.values.yaml',
     ]
@@ -128,21 +91,41 @@ def install(active_consumers, control_plane=False):
         if os.path.exists(overlay):
             flags += ['--values', overlay]
 
-    image_deps = [_DEMO_IMAGE]
-    image_keys = [('image.repository', 'image.tag')]
+    # The CI hook for values the job computes, as in local/nvml_mock.tiltfile.
+    if os.path.exists('local/nvml-mock.values.local.yaml'):
+        flags += ['--values', 'local/nvml-mock.values.local.yaml']
+
+    image_deps = []
+    image_keys = []
+    if nvmlmock_image:
+        repo, tag, digest = split_image(nvmlmock_image)
+        flags += ['--set', 'image.repository=' + repo]
+        if tag:
+            flags += ['--set', 'image.tag=' + tag]
+        if digest:
+            flags += ['--set', 'image.digest=' + digest]
+    else:
+        image_deps.append(_IMAGE)
+        image_keys.append(('image.repository', 'image.tag'))
     if control_plane:
         flags += ['--set', 'controlPlane.enabled=true']
         image_deps.append('ghcr.io/nvidia/mokka-control-plane')
         image_keys.append(('controlPlane.image.repository', 'controlPlane.image.tag'))
 
-    helm_resource(
-        'nvml-mock',
-        _CHART,
-        image_deps=image_deps,
-        image_keys=image_keys,
-        flags=flags,
-        labels=['mokka'],
-    )
+    # Tilt looks image_deps up in the resource graph, so they go only when
+    # build_image() actually built something.
+    if image_deps:
+        helm_resource(
+            'nvml-mock',
+            _CHART,
+            namespace=_NAMESPACE,
+            image_deps=image_deps,
+            image_keys=image_keys,
+            flags=flags,
+            labels=['mokka'],
+        )
+    else:
+        helm_resource('nvml-mock', _CHART, namespace=_NAMESPACE, flags=flags, labels=['mokka'])
 
     if control_plane:
         k8s_attach(
@@ -175,4 +158,14 @@ def install(active_consumers, control_plane=False):
         labels=['compute-domain-tests'],
     )
 
-    return ['nvml-mock']
+    # The DRA driver's compute-domain kubelet plugin looks for the IMEX
+    # binaries only when it starts, so consumers wait until every node has
+    # staged IMEX, which a download can take a while to do.
+    local_resource(
+        'imex-staged',
+        cmd='bash local/compute-domain/scenarios/wait-imex.sh',
+        resource_deps=['nvml-mock'],
+        labels=['mokka'],
+    )
+
+    return ['nvml-mock', 'imex-staged']
