@@ -10,9 +10,9 @@
 # compute_domain.install() as the BASE install path when --compute-domain
 # is set, replacing the install_single()/install_fleet() calls.
 #
-# Ports docs/guides/compute-domain/run.sh Scenario 1 (per-node fabric
-# identity) and Scenario 3 (topology rebind) as auto_init=False
-# local_resource triggers.
+# Ports the per-node fabric identity and topology rebind scenarios of
+# docs/guides/compute-domain/run.sh as auto_init=False local_resource
+# triggers.
 #
 # The scenario runs the standard nvml-mock image. On the gb200 profile the
 # node agent stages IMEX itself (see the chart's imex values), and the DRA
@@ -147,7 +147,7 @@ def install(active_consumers, nvmlmock_image='', control_plane=False):
         labels=['compute-domain-tests'],
     )
 
-    # Scenario 3: helm upgrade --reuse-values -f rebind.topology.yaml,
+    # Topology rebind: helm upgrade --reuse-values -f rebind.topology.yaml,
     # evict DaemonSet pods so mock NVML re-reads MOCK_TOPOLOGY_CONFIG,
     # re-assert new clique/UUID on every worker.
     local_resource(

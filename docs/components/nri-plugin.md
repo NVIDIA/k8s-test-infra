@@ -164,8 +164,9 @@ whatever the scheduler allocated is never widened.
 
 !!! note "IMEX sits outside this rule"
     IMEX channels are requested by their own annotation and never suppressed.
-    Neither the device plugin nor the DRA driver delivers mock IMEX channels, so
-    there is nothing to defer to.
+    The annotation is for containers that claim no channel: a workload of a
+    ComputeDomain gets its channel through its DRA claim and needs no
+    annotation.
 
 ## Selecting InfiniBand
 

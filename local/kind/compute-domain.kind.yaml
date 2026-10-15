@@ -3,20 +3,11 @@
 #
 # Kind cluster config for the compute-domain Tilt scenario.
 #
-# Copied from tests/e2e/kind-compute-domain-config.yaml with two
-# deltas for local dev:
-#
-#   1. Explicit `name: nvml-mock-compute-domain` at cluster level.
-#      The tests/e2e file relies on `kind create --name` for this; the
-#      Tilt Makefile passes --name too, but hardcoding it here documents
-#      the load-bearing worker-name coupling — Kind derives worker names
-#      as <cluster>-worker[N], and topology.yaml (both in this dir and
-#      in docs/guides/compute-domain) hardcodes those worker names.
-#
-#   2. DRA feature gates + apiServer runtime-config.
-#      tests/e2e's compute-domain config omits these because CI runs DRA
-#      on separate clusters. The Tilt scenario supports the
-#      --compute-domain --dra combo, so DRA support is baked in here.
+# Four workers that kubeadm registers as worker-0 .. worker-3, the node names
+# local/compute-domain/topology.yaml lists, whatever the cluster is called.
+# DRA feature gates and the apiServer runtime-config are on, so the scenario
+# composes with --dra. The ComputeDomain e2e scenario and guide use the
+# two-rack tests/e2e/kind-compute-domain-racks.yaml instead.
 #
 # Each worker carries mokka.nvidia.com/type=sgpu, the simulated-GPU fleet
 # marker local/compute-domain/nvml-mock.values.yaml selects on. It keeps the
@@ -25,7 +16,7 @@
 #
 # Usage:
 #   make cluster-create PROFILE=compute-domain
-#   tilt up -- --compute-domain --k8s-context=kind-nvml-mock-compute-domain
+#   tilt up -- --compute-domain   # context kind-mokka-compute-domain
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: mokka-compute-domain

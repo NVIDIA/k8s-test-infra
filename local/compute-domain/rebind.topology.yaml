@@ -5,8 +5,8 @@
 # trigger to prove that a helm upgrade can shift every node into a new
 # clique / domain UUID without rebuilding the image.
 #
-# Transcribed from docs/guides/compute-domain/run.sh Scenario 3
-# (lines 316-351). Node names match local/compute-domain/topology.yaml.
+# The same layout as the topology rebind in docs/guides/compute-domain/run.sh.
+# Node names match local/compute-domain/topology.yaml.
 topology:
   enabled: true
   domains:

@@ -1,121 +1,112 @@
-# nvml-mock ComputeDomain Demo
+# ComputeDomains with the NVIDIA DRA Driver
 
-End-to-end walkthrough of the ComputeDomain (NVLink fabric) simulation
-on a dedicated Kind cluster. This demo exercises every component
-introduced by [NVIDIA/k8s-test-infra#304](https://github.com/NVIDIA/k8s-test-infra/issues/304):
+Run ComputeDomains through the unmodified NVIDIA DRA driver on mock GB200
+racks, on a Kind cluster with no GPUs.
 
-* **Mock NVML fabric APIs** — `nvmlDeviceGetGpuFabricInfo` and
-  `nvmlDeviceGetGpuFabricInfoV` return the cluster UUID, clique ID, and
-  registration state that the cluster-level topology ConfigMap assigned
-  to the current node (via `NODE_NAME`).
-* **Cluster-level topology ConfigMap** — declares the GB200 NVLink
-  domains and which Kubernetes nodes belong to which clique. The mock
-  NVML library overlays it on top of the per-profile YAML at
-  `LoadConfig()` time.
-* **NRI-delivered mock stack** — the chart stages mock files on every
-  node, and containerd NRI injects that overlay, the node-specific topology
-  environment, and annotated IMEX channel nodes into a separate demo workload
-  DaemonSet. The demo workload has no mock mounts or mock environment.
-* **Real `nvidia-imex` in NO GPU mode** — the demo workload image fronts
-  the real daemon with `nvidia-imex-shim` (`/usr/bin/nvidia-imex` exec's
-  `/usr/bin/nvidia-imex.real --nogpu`), so IMEX readiness is the real
-  gRPC peer protocol over the pod network: `nvidia-imex-ctl -q` prints
-  `READY`, `-N -j` reports the domain `UP` with version `NO_GPU`, and
-  killing a peer daemon degrades the domain.
+A **ComputeDomain** is the NVIDIA DRA driver's resource for a group of pods on
+different nodes that share GPU memory over a multi-node NVLink fabric, such as
+a GB200 NVL72 rack. For each ComputeDomain the driver starts an IMEX
+(Internode Memory Exchange) daemon on every node a workload of the domain lands
+on. The daemons of one NVLink **clique**, the set of nodes one NVLink fabric
+connects, join one IMEX domain. Each workload gets an **IMEX channel**, the
+device node that authorizes it to share memory within that domain.
 
-The demo lives in its own cluster (`nvml-mock-compute-domain`) and its
-own 4-worker Kind topology
-([`tests/e2e/kind-compute-domain-config.yaml`](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/e2e/kind-compute-domain-config.yaml)).
+The driver (chart `0.5.0`) runs its upstream images unmodified. Mokka gives
+each node what a real GB200 node has:
+
+- **NVLink fabric identity.** The mock NVML library answers
+  `nvmlDeviceGetGpuFabricInfo` and `nvmlDeviceGetGpuFabricInfoV` with the
+  cluster UUID, clique ID and registration state that a cluster-level topology,
+  set in the chart's `topology` values, assigns to the node. The driver's
+  kubelet plugin reads each node's clique from there.
+- **The IMEX kernel surface.** A substitute `/proc/devices` with the
+  `nvidia-caps-imex-channels` major, the `fabric-imex-mgmt` capability file, and
+  the `channel0` device node, as a real driver loaded with
+  `NVreg_CreateImexChannel0=1` creates them.
+- **The IMEX node software.** `nvidia-imex` and `nvidia-imex-ctl`, from the
+  NVIDIA archive Mokka pins, staged in the mock driver tree where the driver
+  looks for them. Mokka's `nvidia-imex` is a shim that runs the real daemon,
+  `nvidia-imex.real`, in NO GPU mode, so the daemons speak the real IMEX
+  protocol over the pod network. See [Providing IMEX](#providing-imex).
+
+```mermaid
+flowchart LR
+    cd[ComputeDomain rack-1] --> ctrl[DRA driver controller]
+    ctrl -->|creates| rct[ResourceClaimTemplate<br/>rack-1-channel]
+    ctrl -->|starts| d0[IMEX daemon<br/>on worker-0]
+    ctrl -->|starts| d1[IMEX daemon<br/>on worker-1]
+    d0 <-->|one IMEX domain,<br/>over the pod network| d1
+    w0[workload rack-1-a<br/>on worker-0] -->|claims channel 0| rct
+    w1[workload rack-1-b<br/>on worker-1] -->|claims channel 0| rct
+```
+
+No GPU memory is shared and no NVLink traffic flows: the guide exercises the
+control path — scheduling, claims, daemon lifecycle, IMEX domain formation and
+readiness — not the data path.
 
 ## Prerequisites
 
-> **This demo creates its own Kind cluster.** It needs containerd NRI enabled
-> on every node, which cannot be assumed on an existing cluster, so it ignores
-> your current `KUBECONFIG` context and will not touch it.
+The guide creates its own Kind cluster of four workers in two racks, from
+[`tests/e2e/kind-compute-domain-racks.yaml`](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/e2e/kind-compute-domain-racks.yaml).
+It keeps the cluster's credentials in a kubeconfig file of its own and never
+uses your current kubectl context.
 
-The demo expects the following tools on `$PATH`:
+| Tool | Version | Used for |
+|---|---|---|
+| `docker` | 24+, with `buildx` | Kind nodes, and building the nvml-mock and IMEX payload images |
+| `kind` | v0.31+ | The cluster, on the Kubernetes 1.35 node image the Makefile pins |
+| `kubectl` | v1.30+ | Waiting on and checking the cluster |
+| `helm` | 3.8+ | nvml-mock from this checkout, and the DRA driver from NVIDIA's Helm repository |
+| `go` | the version in `go.mod` | `make imex-payload-image`, which downloads and verifies the IMEX archive |
+| `make` | any | `make imex-payload-image` |
+| `bash` | 3.2+ | `run.sh` |
 
-| Tool      | Tested version | Notes |
-|---        |---             |---    |
-| `docker`  | 24+            | Daemon must be running. Multi-stage builds use the repo's pinned Go base (hack/golang-version.sh). |
-| `kind`    | v0.24+         | Provisions the demo's dedicated 4-worker cluster. |
-| `kubectl` | v1.30+         | Used for `exec`, `rollout`, `get` against the in-cluster pods. |
-| `helm`    | v3.13+ (v4 works) | Chart install + `helm upgrade --reuse-values`. |
-| `bash`    | 3.2+           | `run.sh` uses `set -euo pipefail` — no bash 4+ features. |
-| `jq`      | any recent     | Scenario 2 parses `nvidia-imex-ctl -N -j` JSON. |
+ComputeDomains need nvml-mock's NRI plugin (`nri.enabled`, on by default), which
+hands the driver's IMEX daemon the real `nvidia-imex`; the guide keeps it on.
 
-Install [Helm](https://helm.sh/docs/intro/install/) at the version the table
-above pins.
+The first run needs internet access: it downloads the IMEX archive from
+`developer.download.nvidia.com`, the DRA driver chart from
+`helm.ngc.nvidia.com`, and the driver and workload images.
 
 New to Mokka? The [quick start](../../quickstart.md) is the fastest way to see
-simulated GPUs before running this demo.
+simulated GPUs before running this guide.
 
-## What the script does
+## What run.sh does
 
-1. Creates the dedicated Kind cluster. An existing cluster is reused only when
-   containerd NRI is enabled on every expected node. A legacy cluster created
-   by an older version of the demo is rejected; set `FORCE_RECREATE=true` to
-   explicitly delete and recreate it.
-2. Builds and loads the standard `nvml-mock:compute-domain` image, then
-   builds the `nvml-mock:compute-domain-workload` image from the demo's
-   [`Dockerfile`](./Dockerfile). It contains the real `nvidia-imex` (NO GPU
-   mode via `nvidia-imex-shim`) but no mock GPU files.
-3. Installs the chart with:
+1. Creates the Kind cluster `mokka-compute-domain`, or reuses it when its four
+   workers carry the two-rack labels. It writes the cluster's kubeconfig to
+   `~/.kube/mokka-compute-domain.kubeconfig`, and every `kubectl` and `helm`
+   call names that file and the `kind-mokka-compute-domain` context.
+2. Builds the `nvml-mock:compute-domain` image and loads it into Kind.
+3. Provides IMEX. By default it builds the IMEX payload image with
+   `make imex-payload-image` and loads it into Kind; the node agents then never
+   contact NVIDIA. With `IMEX_SOURCE=download` it skips that, and each node
+   agent downloads the archive itself.
+4. Installs nvml-mock with the `gb200` profile, the
+   [rack topology](./topology.yaml) and the IMEX source, and restarts the node
+   pods so a rerun stages the rebuilt image and current topology.
+5. **Scenario 1 — per-node fabric identity.** Runs `check-fabric` in the node
+   pod on each worker and asserts that every GPU reports clique 0 of rack-1
+   (`00000000-0000-0000-0000-0000000000a1`) on `worker-0` and `worker-1`, and
+   clique 0 of rack-2 (`00000000-0000-0000-0000-0000000000b2`) on `worker-2` and
+   `worker-3`, with state `completed`.
+6. **Scenario 2 — topology rebinding.** A `helm upgrade --reuse-values` with
+   another topology puts every node in clique 99 of a new domain; after the node
+   pods restart, `check-fabric` reports it on every worker, with no image
+   rebuild. The script then restores the rack topology and asserts Scenario 1
+   again. It runs before the DRA driver is installed, so no ComputeDomain sits
+   on a node whose topology changes.
+7. Waits until every node agent has staged IMEX, installs the DRA driver with
+   [`dra-driver.values.yaml`](./dra-driver.values.yaml), and restarts its
+   kubelet plugin, which reads the clique and the IMEX binaries when it starts.
+8. **Scenario 3 — a ComputeDomain.** Applies
+   [`compute-domain.yaml`](./compute-domain.yaml): ComputeDomain `rack-1` with
+   `numNodes: 2`, and workloads `rack-1-a` on `worker-0` and `rack-1-b` on
+   `worker-1`. It asserts that both workloads run, the ComputeDomain is `Ready`
+   with both nodes in rack-1's clique, an IMEX daemon is ready on each, and each
+   workload sees `channel0` and no other channel.
 
-   ```text
-   gpu.profile=gb200
-   topology.enabled=true
-   topology.domains=<demo topology>
-   ```
-
-   This renders both ConfigMaps (`nvml-mock-config` and
-   `nvml-mock-topology`).
-
-   The script intentionally does **not** pass `--set gpu.count=...`.
-   That flag only sizes the host-side CDI spec produced by
-   the `cri` simulator; the in-pod ConfigMap at
-   `/etc/nvml-mock/config.yaml` — which is what `check-fabric` loads
-   — always reflects the chosen profile's full device list (4 GPUs
-   for `gb200`, one NVL72 compute tray). For ComputeDomain verification
-   this is actually *stronger* evidence: every GPU on each node must
-   report the same `cliqueId` / `clusterUuid`, exercising the
-   topology overlay over the full device list rather than a subset.
-4. Recycles the shared node DaemonSet so staging and the NRI sidecar restart
-   together, then creates a separate
-   `compute-domain-workload` namespace and deploys the freshly restarted
-   `compute-domain-demo-workload` DaemonSet. Its only mock-related
-   configuration is two annotations. `nvml-mock.nvidia.com/devices: "true"`
-   asks NRI for the node-wide mock GPU view, including the mock NVML overlay
-   and per-node topology identity. The independent
-   `nvml-mock.nvidia.com/imex-channels: "true"` asks for the IMEX channel nodes.
-   The demo workload manifest also installs its own ingress NetworkPolicy,
-   allowing TCP 50000 and 50005 only from peer
-   `app.kubernetes.io/name=compute-domain-demo-workload` pods in that same
-   namespace while leaving egress unrestricted.
-   Before installation the script selects two character-device majors unused
-   across every Kind node. This avoids collisions with host-kernel assignments
-   such as `hidraw` on major 236.
-5. **Scenario 1 — per-node fabric identity**. Runs NRI-injected
-   `check-fabric` inside one demo workload pod per worker and asserts:
-   * `nvml-mock-compute-domain-worker` / `-worker2` report **clique 0**,
-   * `-worker3` / `-worker4` report **clique 1**,
-   * every node reports the demo cluster UUID
-     `00000000-0000-0000-0000-0000000000ab` and `state=completed`.
-6. **Scenario 2 — real IMEX domain (NO GPU mode)**. First verifies the
-   NRI-injected channel device, then renders a per-pod
-   IMEX config, starts the real `nvidia-imex` (the shim appends
-   `--nogpu`) in both clique-0 pods, and asserts three transitions:
-   * daemon A alone → local `-q` probe `READY`, domain not `UP`,
-   * daemon B joins → `-N -j` reports `UP`, 2/2 nodes `READY`,
-     version `NO_GPU` (real gRPC over the pod network),
-   * daemon B SIGTERMed → domain leaves `UP` (real liveness — the
-     deprecated marker files couldn't detect a dead peer).
-7. **Scenario 3 — topology rebinding (no image rebuild)**. A
-   `helm upgrade --reuse-values` swaps the topology document so every
-   node is now a member of clique 99 in a brand-new domain UUID. After
-   a forced DaemonSet recycle, `check-fabric` reflects the new
-   identity on every worker. This is the gear the real
-   compute-domain-controller would shift between integration tests.
+The cluster and the ComputeDomain are left running for inspection.
 
 ## Quick start
 
@@ -123,247 +114,535 @@ simulated GPUs before running this demo.
 ./docs/guides/compute-domain/run.sh
 ```
 
-To explicitly replace an existing cluster, including a legacy cluster that
-predates the demo's NRI configuration:
+The script finds the repository itself, so it works from any directory. A first
+run takes 15–25 minutes, most of it building images and pulling the DRA driver.
+Reruns reuse the cluster, the Docker build cache and the downloaded IMEX
+archive.
 
-```bash
-FORCE_RECREATE=true ./docs/guides/compute-domain/run.sh
-```
+| Variable | Default | Effect |
+|---|---|---|
+| `CLUSTER_NAME` | `mokka-compute-domain` | Kind cluster name. Node names do not depend on it |
+| `FORCE_RECREATE` | `false` | `true` deletes an existing cluster of that name and creates it again |
+| `IMEX_SOURCE` | `payload` | `payload` builds and loads the IMEX payload image; `download` lets each node agent download IMEX from NVIDIA |
+| `IMEX_PAYLOAD_IMAGE` | `mokka-imex:<IMEX version>` | Payload image to build and load |
+| `DEMO_KUBECONFIG` | `~/.kube/<cluster name>.kubeconfig` | Kubeconfig file for the cluster |
+| `KIND_NODE_IMAGE` | the Makefile's `KIND_NODE_IMAGE` | Kind node image |
+| `HELM_TIMEOUT` | `10m` | How long each Helm install waits |
 
-`FORCE_RECREATE=true` deletes the entire `nvml-mock-compute-domain` Kind
-cluster before recreating it. The default is to preserve a compatible existing
-cluster and to stop with an actionable error for an incompatible one.
-
-The script locates the repository itself, so it works from any
-directory; the **manual-reproduction commands below assume you run
-them from the repository root**.
-
-Expect roughly 10–20 minutes on a first run (Kind cluster creation
-plus two image builds dominate; Scenario 2's domain convergence alone
-may legitimately take up to 4 minutes — see Troubleshooting). Reruns reuse the
-existing cluster and build caches, but deliberately recycle the shared node
-DaemonSet, including its NRI sidecar, and the demo workload DaemonSet so
-same-tag image rebuilds, restored topology, and cleanup after a failed run are
-deterministic.
-
-> **One runner per host.** The cluster name, Helm release, and image
-> tags are fixed, so two concurrent runs of this demo on the same
-> machine will corrupt each other's Helm revisions and topology
-> assertions. Run one at a time.
+The script stops with an error when a cluster of that name exists but was not
+created from the two-rack config, for example the Tilt `compute-domain`
+cluster, which has the same name. Set `FORCE_RECREATE=true` to replace it, or
+pick another `CLUSTER_NAME`.
 
 ## Manual reproduction
 
-If you want to follow along without `run.sh` — for debugging,
-demo-tweaking, or just to understand the moving parts — these are the
-commands the script issues. They're written for the default
-`nvml-mock-compute-domain` cluster name; see the "Custom cluster name"
-note at the end of this section if you need to rename it.
+The steps below do what the script does, without the topology rebind. Run them
+from the repository root. The first line keeps the cluster's credentials in a
+file of its own, so every later `kubectl` and `helm` command reaches only this
+cluster:
 
 ```bash
-# 1. Create the dedicated cluster.
-kind create cluster --name nvml-mock-compute-domain \
-    --config tests/e2e/kind-compute-domain-config.yaml
+export KUBECONFIG="${HOME}/.kube/mokka-compute-domain.kubeconfig"
+```
 
-# 2. Build the standard mock image, then the separate real-IMEX demo workload
-#    image. nvidia-imex is proprietary but comes
-#    from the PUBLIC Ubuntu 22.04 multiverse repo (nvidia-imex-595) —
-#    no NVIDIA credentials or internal access needed. Local build only:
-#    never publish the resulting image.
-docker build -t nvml-mock:compute-domain -f deployments/nvml-mock/Dockerfile .
-docker build -t nvml-mock:compute-domain-workload \
-    --build-arg GOLANG_VERSION=$(hack/golang-version.sh) \
-    -f docs/guides/compute-domain/Dockerfile .
+### 1. Create the cluster
 
-# 3. Load both images into the Kind cluster.
-kind load docker-image nvml-mock:compute-domain nvml-mock:compute-domain-workload \
-    --name nvml-mock-compute-domain
+```bash
+make cluster-create PROFILE=compute-domain \
+  KIND_CLUSTER_CONFIG=tests/e2e/kind-compute-domain-racks.yaml
+```
 
-# 4. Pick two character-device majors that are unused on every Kind node.
-#    Reusing a host-kernel major would make the mock /proc/devices inconsistent.
-KIND_NODES=(
-  nvml-mock-compute-domain-control-plane
-  nvml-mock-compute-domain-worker
-  nvml-mock-compute-domain-worker2
-  nvml-mock-compute-domain-worker3
-  nvml-mock-compute-domain-worker4
-)
-used_majors=$(for node in "${KIND_NODES[@]}"; do
-  docker exec "${node}" awk '$1 ~ /^[0-9]+$/ { print $1 }' /proc/devices
-done | sort -nu | tr '\n' ' ')
+That is `kind create cluster --name mokka-compute-domain` with the config above
+and the node image the Makefile pins. The config turns on DRA and names the
+workers `worker-0` to `worker-3`, labeled with their rack's clique and with
+`mokka.nvidia.com/type: sgpu`, which nvml-mock and the DRA kubelet plugin select
+on.
 
-for candidate in $(seq 240 4095); do
-  case " ${used_majors} " in
-    *" ${candidate} "*) ;;
-    *) IMEX_CHANNEL_MAJOR=${candidate}; break ;;
-  esac
-done
-if [[ -z "${IMEX_CHANNEL_MAJOR:-}" ]]; then
-  echo "Could not find an unused IMEX channel device major" >&2
-  exit 1
-fi
-used_majors="${used_majors} ${IMEX_CHANNEL_MAJOR}"
+### 2. Build and load the nvml-mock image
 
-for candidate in $(seq 240 4095); do
-  case " ${used_majors} " in
-    *" ${candidate} "*) ;;
-    *) IMEX_CAPS_MAJOR=${candidate}; break ;;
-  esac
-done
-if [[ -z "${IMEX_CAPS_MAJOR:-}" ]]; then
-  echo "Could not find an unused IMEX caps device major" >&2
-  exit 1
-fi
-printf 'Using IMEX device majors: channels=%s, caps=%s\n' \
-    "${IMEX_CHANNEL_MAJOR}" "${IMEX_CAPS_MAJOR}"
+```bash
+docker build -t nvml-mock:compute-domain \
+  --build-arg GOLANG_VERSION="$(hack/golang-version.sh)" \
+  -f deployments/nvml-mock/Dockerfile .
+kind load docker-image nvml-mock:compute-domain --name mokka-compute-domain
+```
 
-# 5. Install mock staging + the node-local NRI plugin. The chart's
-#    DaemonSet uses the standard mock image; the real IMEX binary stays in a
-#    separate demo workload image.
+### 3. Build and load the IMEX payload image
+
+```bash
+IMEX_VERSION=$(sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' internal/agent/imex/imex.lock.json)
+make imex-payload-image IMEX_PAYLOAD_IMAGE="mokka-imex:${IMEX_VERSION}" \
+  IMEX_PAYLOAD_ARCH="$(docker version --format '{{.Server.Arch}}')"
+kind load docker-image "mokka-imex:${IMEX_VERSION}" --name mokka-compute-domain
+```
+
+`IMEX_PAYLOAD_ARCH` follows the Docker daemon, whose architecture the Kind nodes
+share. [Providing IMEX](#providing-imex) covers what the image holds and the
+other ways to provide IMEX.
+
+### 4. Install nvml-mock
+
+```bash
 helm upgrade --install nvml-mock deployments/nvml-mock/helm/nvml-mock \
-    --kube-context kind-nvml-mock-compute-domain \
-    --namespace mokka --create-namespace \
-    -f docs/guides/compute-domain/topology.yaml \
-    --set image.repository=nvml-mock \
-    --set image.tag=compute-domain \
-    --set gpu.profile=gb200 \
-    --set imex.deviceNumbers.channelMajor="${IMEX_CHANNEL_MAJOR}" \
-    --set imex.deviceNumbers.capsMajor="${IMEX_CAPS_MAJOR}" \
-    --set-string updateStrategy.rollingUpdate.maxUnavailable=100% \
-    --set terminationGracePeriodSeconds=1 \
-    --wait --timeout 180s
+  --namespace mokka --create-namespace \
+  -f docs/guides/compute-domain/topology.yaml \
+  --set image.repository=nvml-mock \
+  --set image.tag=compute-domain \
+  --set gpu.profile=gb200 \
+  --set 'nodeSelector.mokka\.nvidia\.com/type=sgpu' \
+  --set imex.payload.image.repository=mokka-imex \
+  --set imex.payload.image.tag="${IMEX_VERSION}" \
+  --set featureGates.IMEXDownload=false \
+  --wait --timeout 10m
+```
 
-# 6. Refresh the shared node pod so the sidecar registers after the node agent
-#    stages the current files and topology.
-kubectl --context kind-nvml-mock-compute-domain -n mokka \
-    rollout restart daemonset/nvml-mock
-kubectl --context kind-nvml-mock-compute-domain -n mokka \
-    rollout status daemonset/nvml-mock --timeout=180s
+| Setting | Why |
+|---|---|
+| `gpu.profile=gb200` | A multi-node NVLink profile, as `gb300` is; the node agent stages IMEX only on such profiles |
+| `-f topology.yaml` | The two racks; pass it with `-f`, not `--set-file`, so Helm parses the list |
+| `nodeSelector` | Workers only: the topology gives the control plane no clique |
+| `imex.payload.image.*` | The payload image from step 3 |
+| `featureGates.IMEXDownload=false` | The payload image is the only IMEX source, so no node contacts NVIDIA |
 
-# 7. Idempotently create the workload namespace, apply the demo workload
-#    and its namespace-local peer ingress policy, then restart the DaemonSet so
-#    reruns discard stale IMEX processes and injected data.
-kubectl --context kind-nvml-mock-compute-domain \
-    create namespace compute-domain-workload --dry-run=client -o yaml | \
-  kubectl --context kind-nvml-mock-compute-domain apply -f -
-kubectl --context kind-nvml-mock-compute-domain -n compute-domain-workload \
-    apply -f docs/guides/compute-domain/demo-workload.yaml
-kubectl --context kind-nvml-mock-compute-domain -n compute-domain-workload \
-    rollout restart daemonset/compute-domain-demo-workload
-kubectl --context kind-nvml-mock-compute-domain -n compute-domain-workload \
-    rollout status daemonset/compute-domain-demo-workload --timeout=180s
+Check that every node agent staged IMEX. Each line should end in `staged`:
 
-# 8. Verify the NRI-delivered per-node fabric overlay (Scenario 1).
-for node in nvml-mock-compute-domain-{worker,worker2,worker3,worker4}; do
-  pod=$(kubectl --context kind-nvml-mock-compute-domain \
-    -n compute-domain-workload get pods \
-    -l app.kubernetes.io/name=compute-domain-demo-workload \
-    --field-selector="spec.nodeName=${node},status.phase=Running" \
-    -o jsonpath='{.items[0].metadata.name}')
-  echo "=== ${node} (pod=${pod}) ==="
-  kubectl --context kind-nvml-mock-compute-domain \
-    -n compute-domain-workload exec "${pod}" -- \
-    sh -c 'test -c /dev/nvidia-caps-imex-channels/channel0 && check-fabric | head -6'
+```bash
+for pod in $(kubectl -n mokka get pods -l app.kubernetes.io/name=nvml-mock -o name); do
+  kubectl -n mokka exec "${pod}" -c node-agent -- \
+    test -f /var/lib/nvml-mock/driver/usr/bin/nvidia-imex.real && echo "${pod} staged"
 done
 ```
 
-`-worker` / `-worker2` should report `cliqueId : 0`, `-worker3` /
-`-worker4` should report `cliqueId : 1`, all four should report the
-demo `clusterUuid : 00000000-0000-0000-0000-0000000000ab` and
-`state : completed (3)`.
+### 5. Check the fabric identity
 
-Scenarios 2 and 3 are best read directly from
-[`run.sh`](./run.sh) — they involve rendering a per-pod `nodes.cfg`,
-running the real `nvidia-imex` daemons, and a
-`helm upgrade --reuse-values` with a substituted topology. None of
-those steps are non-obvious once Scenario 1 works.
+```bash
+for node in worker-0 worker-1 worker-2 worker-3; do
+  pod=$(kubectl -n mokka get pods -l app.kubernetes.io/name=nvml-mock \
+    --field-selector "spec.nodeName=${node}" -o jsonpath='{.items[0].metadata.name}')
+  echo "=== ${node}"
+  kubectl -n mokka exec "${pod}" -c node-agent -- check-fabric | head -6
+done
+```
 
-**Custom cluster name.** If you rename the Kind cluster (e.g., to
-parallelise demos), two things need to change in lockstep:
+`worker-0` and `worker-1` report `clusterUuid : 00000000-0000-0000-0000-0000000000a1`,
+`worker-2` and `worker-3` report `00000000-0000-0000-0000-0000000000b2`; all
+report `cliqueId : 0` and `state : completed (3)`.
 
-1. The `nodes:` lists in [`topology.yaml`](./topology.yaml) — each
-   Kind worker is named `<cluster-name>-worker[N]`, so renaming the
-   cluster renames every entry in the topology.
-2. Cluster name in every `kind` / `kubectl --context` / `kind load` /
-   `helm --kube-context` call below.
+### 6. Install the DRA driver
 
-The script doesn't expose this as a flag because the demo is
-documentation-by-example; the canonical name keeps the example
-faithful to what's checked in.
+```bash
+helm repo add nvidia https://helm.ngc.nvidia.com/nvidia && helm repo update
+helm upgrade --install nvidia-dra-driver nvidia/dra-driver-nvidia-gpu \
+  --version 0.5.0 \
+  --namespace nvidia --create-namespace \
+  -f docs/guides/compute-domain/dra-driver.values.yaml \
+  --wait --timeout 10m
+```
 
-## How the real IMEX fits alongside the compute-domain-daemon
+| Setting in `dra-driver.values.yaml` | Why |
+|---|---|
+| `nvidiaDriverRoot: /var/lib/nvml-mock/driver` | The mock driver tree, where the node agent stages the driver files and IMEX |
+| `gpuResourcesEnabledOverride: true` | The driver otherwise gates GPU resources on NFD finding NVIDIA hardware |
+| `resources.computeDomains.enabled: true` | Turns ComputeDomains on |
+| `altProcDevices: /var/lib/nvml-mock/imex/proc-devices` | The node agent's substitute `/proc/devices`; the compute-domain kubelet plugin aborts at startup without the IMEX majors it lists |
+| `kubeletPlugin.affinity` on `mokka.nvidia.com/type In [sgpu]` | The default affinity requires NFD or GFD labels, which nothing in this cluster writes |
 
-The upstream daemon spawns `nvidia-imex` as a subprocess and probes
-readiness with `nvidia-imex-ctl -c /imexd/imexd.cfg -q`,
-comparing the combined output to exactly `READY`. On gb200 and gb300
-the node agent stages both in the mock driver tree, where the DRA driver
-finds them: the shim at `nvidia-imex` execs `nvidia-imex.real --nogpu`, so
-the upstream daemon runs unmodified — same image, same argv, same probe,
-real protocol, no GPUs.
+The kubelet plugin reads each node's clique and the IMEX binaries when it
+starts. If you reinstalled nvml-mock or changed its topology after installing
+the driver, restart the node pods so they stage the change at once, then the
+plugin:
 
-> **Using the upstream daemon chart.** With NRI enabled, its workload pod
-> does not need a mock driver mount, a topology ConfigMap mount, or manually
-> authored `NODE_NAME` / `MOCK_TOPOLOGY_CONFIG` variables: the node-local NRI
-> plugin injects those at container creation when the pod asks for the
-> node-wide mock GPU view with `nvml-mock.nvidia.com/devices: "true"`. It also
-> needs the independent `nvml-mock.nvidia.com/imex-channels: "true"` annotation
-> while the mock uses channel nodes, and its namespace must not be one excluded
-> by the NRI chart.
+```bash
+kubectl -n mokka rollout restart daemonset/nvml-mock
+kubectl -n mokka rollout status daemonset/nvml-mock
+kubectl -n nvidia delete pods -l dra-driver-nvidia-gpu-component=kubelet-plugin
+```
 
-## Topology / clique layout used by the demo
+The plugin logs the clique it read from NVML for every GPU:
+
+```bash
+kubectl -n nvidia logs -l dra-driver-nvidia-gpu-component=kubelet-plugin \
+  -c compute-domains --prefix | grep 'identified fabric clique'
+```
+
+### 7. Create a ComputeDomain and its workloads
+
+```bash
+kubectl apply -f docs/guides/compute-domain/compute-domain.yaml
+kubectl -n compute-domain-demo wait --for=condition=Ready \
+  pod/rack-1-a pod/rack-1-b --timeout=5m
+```
+
+[`compute-domain.yaml`](./compute-domain.yaml) holds the `compute-domain-demo`
+namespace, ComputeDomain `rack-1`, and the two workloads:
+
+```yaml
+apiVersion: resource.nvidia.com/v1beta1
+kind: ComputeDomain
+metadata:
+  name: rack-1
+  namespace: compute-domain-demo
+spec:
+  numNodes: 2
+  channel:
+    resourceClaimTemplate:
+      name: rack-1-channel
+    allocationMode: Single
+```
+
+The driver's controller creates the ResourceClaimTemplate `rack-1-channel`.
+Each workload, a `debian:bookworm-slim` pod pinned to its node with
+`nodeSelector: kubernetes.io/hostname`, claims a channel from it:
+
+```yaml
+  resourceClaims:
+    - name: imex-channel
+      resourceClaimTemplateName: rack-1-channel
+```
+
+A workload starts only once the IMEX daemon on its node is ready, because until
+then the kubelet cannot prepare its claim.
+
+### 8. Verify
+
+The ComputeDomain is `Ready`, with both rack-1 nodes in the same clique:
+
+```bash
+kubectl -n compute-domain-demo get computedomain rack-1 -o jsonpath='{.status.status}{"\n"}'
+# Ready
+kubectl -n compute-domain-demo get computedomain rack-1 \
+  -o jsonpath='{range .status.nodes[*]}{.name}{"  "}{.cliqueID}{"\n"}{end}'
+# worker-0  00000000-0000-0000-0000-0000000000a1.0
+# worker-1  00000000-0000-0000-0000-0000000000a1.0
+```
+
+The driver runs one IMEX daemon pod per node, in its own namespace, labeled with
+the ComputeDomain's UID:
+
+```bash
+kubectl -n nvidia get pods -l resource.nvidia.com/computeDomain -o wide
+```
+
+Both are `Running` and ready, one on `worker-0` and one on `worker-1`.
+
+Each workload sees IMEX channel 0 and no other:
+
+```bash
+kubectl -n compute-domain-demo exec rack-1-a -- ls /dev/nvidia-caps-imex-channels
+# channel0
+```
+
+## Allocation modes
+
+`spec.channel.allocationMode` sets which IMEX channels a workload gets:
+
+| Mode | The workload's `/dev/nvidia-caps-imex-channels` |
+|---|---|
+| `Single` | `channel0` only |
+| `All` | Every channel of the IMEX domain, `channel0` to `channel2047` |
+
+The driver's CDI spec carries the channels' device numbers, and the container
+runtime creates the devices inside the container, so `All` needs no channel
+files on the host; the node agent stages only `channel0`, as a real driver
+does. To see it, create a one-node ComputeDomain with `numNodes: 1` and
+`allocationMode: All`, put a workload of it on a free node such as `worker-2`,
+and count its channels:
+
+```bash
+kubectl -n compute-domain-demo exec <workload> -- ls /dev/nvidia-caps-imex-channels | wc -l
+# 2048
+```
+
+## A second workload on a busy node
+
+A node has one IMEX channel 0, and a workload's claim holds it. A second
+workload pinned to a node whose channel is in use, of the same ComputeDomain or
+another one, stays `Pending` until the first workload leaves. To see it, copy
+`rack-1-a` in [`compute-domain.yaml`](./compute-domain.yaml) under another name
+and apply it: it waits for `worker-0` until you delete `rack-1-a`, then starts.
+
+## Providing IMEX
+
+On multi-node NVLink profiles, such as `gb200`, the node agent stages the IMEX
+node software into the mock driver tree, `/var/lib/nvml-mock/driver` on each
+node:
+
+| File | What it is |
+|---|---|
+| `usr/bin/nvidia-imex` | Mokka's shim. It runs `nvidia-imex.real` beside it with `--nogpu` appended |
+| `usr/bin/nvidia-imex.real` | NVIDIA's IMEX daemon |
+| `usr/bin/nvidia-imex-ctl` | NVIDIA's IMEX control and status tool |
+| `etc/nvidia-imex/config.cfg` | The daemon's default configuration |
+| `usr/share/doc/nvidia-imex/` | NVIDIA's license and third-party notices |
+
+The GPU CDI spec mounts `nvidia-imex` and `nvidia-imex-ctl` into containers
+that get mock GPUs, as the NVIDIA Container Toolkit does on a real GB200 node,
+with `nvidia-imex.real` beside the shim. The DRA driver mounts `nvidia-imex`
+into its IMEX daemon container itself, and the NRI plugin adds
+`nvidia-imex.real`.
+The shim exists because the driver's daemon starts `nvidia-imex` with a fixed
+command line, to which `--nogpu` cannot be added from outside. See
+[nvidia-imex-shim](../../components/libraries-and-shims.md#nvidia-imex-shim).
+
+The files come from the IMEX archive pinned in
+[`internal/agent/imex/imex.lock.json`](https://github.com/NVIDIA/k8s-test-infra/blob/main/internal/agent/imex/imex.lock.json):
+one version, NVIDIA's file name for each architecture, and its SHA-256. The node
+agent looks for that file in three places, in order:
+
+1. **The provided directory**, `/opt/mokka/imex` in the node agent's container,
+   which the chart fills from `imex.payload.image`.
+2. **The node cache**, `/var/lib/nvml-mock/cache/imex` on the node.
+3. **A download from NVIDIA** into the node cache, while the `IMEXDownload`
+   [feature gate](../../feature-gates.md) is on. It is a beta gate, on by
+   default, and is to be deprecated once Mokka publishes the payload image. The
+   node agent retries for about a minute, then not again until it restarts.
+
+It stages an archive only if it matches the pinned SHA-256, and ignores any
+other with a warning.
+
+### The IMEX payload image
+
+The payload image carries the pinned archive under `/imex`. When
+`imex.payload.image` is set, a copy-only init container in the node pod copies
+it to the provided directory before the node agent starts. Build it with:
+
+```bash
+make imex-payload-image
+```
+
+The target downloads the archive from NVIDIA into a local cache, verifies its
+SHA-256, and builds the image from
+[`deployments/imex-payload/Dockerfile`](https://github.com/NVIDIA/k8s-test-infra/blob/main/deployments/imex-payload/Dockerfile)
+with `docker buildx build --load`. Once the cache holds a verified archive, the
+build needs no network.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `IMEX_ARCHIVE_DIR` | `mokka/imex` in your user cache directory | Where the downloaded archives are kept |
+| `IMEX_PAYLOAD_ARCH` | the Go toolchain's architecture | `amd64` or `arm64`; match your nodes |
+| `IMEX_PAYLOAD_IMAGE` | `mokka-imex:<IMEX version>` | The image reference to build |
+
+Then point the chart at it:
+
+```yaml
+imex:
+  payload:
+    image:
+      repository: mokka-imex
+      tag: "<IMEX version>"   # or digest: sha256:...
+```
+
+Mokka does not publish the payload image yet: publishing it redistributes
+NVIDIA's IMEX binaries, which awaits approval. Until Mokka publishes it, build
+the image yourself and keep it private, in one of the ways below.
+
+An image the node cannot pull holds the whole node pod in `ImagePullBackOff`,
+like any other image in the pod. Make sure every node can pull it before you set
+`imex.payload.image`.
+
+**Kind.** Load it into the cluster, as step 3 above does:
+
+```bash
+kind load docker-image "mokka-imex:${IMEX_VERSION}" --name <cluster>
+```
+
+**CI pipelines.** Cache `IMEX_ARCHIVE_DIR` keyed on the IMEX version, so NVIDIA
+is contacted once per version, and build the image in each job that needs it.
+Never upload the image or the archive as a workflow artifact: anyone can
+download the artifacts of a public repository. Mokka's own
+[e2e workflow](https://github.com/NVIDIA/k8s-test-infra/blob/main/.github/workflows/nvml-mock-e2e-go.yaml)
+does this; its cache key is the hash of `imex.lock.json`:
+
+```yaml
+- uses: actions/cache@v6
+  with:
+    path: .imex-archives
+    key: imex-archives-${{ hashFiles('internal/agent/imex/imex.lock.json') }}
+- run: |
+    make imex-payload-image IMEX_ARCHIVE_DIR="${PWD}/.imex-archives" \
+      IMEX_PAYLOAD_IMAGE=mokka-imex:ci
+    kind load docker-image mokka-imex:ci --name <cluster>
+```
+
+**Private registry.** Build the image under your registry's name and push it:
+
+```bash
+make imex-payload-image IMEX_PAYLOAD_ARCH=amd64 \
+  IMEX_PAYLOAD_IMAGE="registry.example.com/team/mokka-imex:${IMEX_VERSION}"
+docker push "registry.example.com/team/mokka-imex:${IMEX_VERSION}"
+```
+
+Set `imex.payload.image.repository` and `tag` to match, and add a pull secret
+with the chart's `imagePullSecrets` if the registry needs one.
+
+**Air-gapped clusters.** Build the image where NVIDIA's download site is
+reachable, mirror it with the nvml-mock image into the registry the cluster
+uses, and turn downloads off so no node tries to reach NVIDIA:
+
+```yaml
+imex:
+  payload:
+    image:
+      repository: <mirror>/mokka-imex
+      tag: "<IMEX version>"
+featureGates:
+  IMEXDownload: false
+```
+
+### Downloading on the node
+
+Until Mokka publishes the payload image, a node that can reach
+`developer.download.nvidia.com` can fetch IMEX itself. Leave
+`imex.payload.image` unset and `IMEXDownload` on, its default. Each node agent
+downloads the archive into its node cache, so the download happens once per
+node and IMEX version. `IMEX_SOURCE=download ./docs/guides/compute-domain/run.sh`
+runs the guide this way.
+
+## Without IMEX
+
+Mokka fails open. A multi-node NVLink node that has no IMEX archive, from any
+of the sources above, behaves as a real node without the IMEX package:
+
+- The node agent stays ready and keeps simulating everything else: GPUs, NVML,
+  the fabric identity, the IMEX kernel surface, and DRA GPU claims.
+- It stages no IMEX node software and logs once what to provide: the archive's
+  file name and path, its SHA-256, and NVIDIA's URL. On a node that had IMEX,
+  it removes only `nvidia-imex.real`: GPU claims the DRA driver prepared
+  meanwhile mount the shim and `nvidia-imex-ctl`, and their containers could
+  not restart without them.
+- The IMEX daemon of a ComputeDomain never becomes ready on that node, and the
+  ComputeDomain stays `NotReady`.
+- Its workloads wait in `ContainerCreating`, with `FailedPrepareDynamicResources`
+  events.
+
+```bash
+kubectl -n mokka logs <nvml-mock pod> -c node-agent | grep 'IMEX node software'
+kubectl -n compute-domain-demo describe pod rack-1-a
+```
+
+Providing IMEX later is enough. Setting `imex.payload.image`, or turning
+`IMEXDownload` on, restarts the node pods, which then stage it. Restart the DRA
+kubelet plugin afterwards, as in step 6, so it reads the IMEX binaries again.
+
+!!! warning "Not supported: host-managed IMEX"
+    The DRA driver can also leave IMEX to the node,
+    `resources.computeDomains.imex.mode=hostManaged`, where the node operator
+    runs the IMEX daemon on the host. Mokka does not support that mode: it
+    stages IMEX for the driver's own daemon pods and runs no IMEX daemon on the
+    host. Keep the driver's default mode.
+
+## Topology layout
 
 ```text
-domain "demo-domain"           uuid 00000000-0000-0000-0000-0000000000ab
-  clique 0:
-    - nvml-mock-compute-domain-worker
-    - nvml-mock-compute-domain-worker2
-  clique 1:
-    - nvml-mock-compute-domain-worker3
-    - nvml-mock-compute-domain-worker4
+domain "rack-1"   uuid 00000000-0000-0000-0000-0000000000a1
+  clique 0: worker-0, worker-1
+domain "rack-2"   uuid 00000000-0000-0000-0000-0000000000b2
+  clique 0: worker-2, worker-3
 ```
 
-The full values fragment lives at [`topology.yaml`](./topology.yaml)
-and is passed to Helm with `-f topology.yaml` (not `--set-file`, which
-would inline the file as a string literal rather than as a parsed
-list).
+[`topology.yaml`](./topology.yaml) holds it as chart values. Each worker of
+`kind-compute-domain-racks.yaml` carries the same `<cluster UUID>.<clique ID>` in
+`mokka.nvidia.com/clique`, and in `nvidia.com/gpu.clique` as GFD would set it on
+a real node. The DRA driver itself reads the clique from NVML, not from the
+labels. The node names are set in the cluster config, so the topology fits any
+Kind cluster name.
+
+## Rebinding the topology
+
+The topology is a chart value, so a `helm upgrade` changes a node's fabric
+identity with no image rebuild. Scenario 2 of `run.sh` moves every node into
+clique 99 of a new domain:
+
+```bash
+cat > rebind.yaml <<'EOF'
+topology:
+  enabled: true
+  domains:
+    - name: rebinder
+      uuid: "00000000-0000-0000-0000-0000000000ff"
+      cliques:
+        - id: 99
+          nodes: [worker-0, worker-1, worker-2, worker-3]
+EOF
+helm upgrade nvml-mock deployments/nvml-mock/helm/nvml-mock \
+  --namespace mokka --reuse-values -f rebind.yaml --wait
+kubectl -n mokka rollout restart daemonset/nvml-mock
+kubectl -n mokka rollout status daemonset/nvml-mock
+```
+
+`check-fabric` then reports `cliqueId : 99` and the new UUID on every worker.
+For the driver to see the new cliques, restart its kubelet plugin as in step 6
+and recreate the workloads of any ComputeDomain that was already running. Pass
+`-f docs/guides/compute-domain/topology.yaml` the same way to go back.
 
 ## Troubleshooting
 
-* **Scenario 2 seems stuck on "domain status UP".** First convergence
-  after a fresh rollout can take a few minutes: kind's CNI (kindnetd)
-  reconciles NetworkPolicy asynchronously, and the IMEX daemon retries
-  failed peer connections with exponential backoff (15s, 31s, 62s,
-  125s…). The script already waits up to 240s — let it finish before
-  concluding failure. On timeout it prints the daemon log tail.
-* **Peers never connect at all.** The demo workload has its own NetworkPolicy
-  in [`demo-workload.yaml`](./demo-workload.yaml). It selects
-  `app.kubernetes.io/name=compute-domain-demo-workload` and admits TCP 50000
-  (IMEX gRPC peer) and 50005 (command/status) only from matching peer pods in
-  the same
-  `compute-domain-workload` namespace; egress remains unrestricted. kindnetd
-  **enforces** NetworkPolicy on current kind releases, so add any new workload
-  listener to that policy. The chart's separate `network-policy-ibping.yaml`
-  selects nvml-mock daemon pods, not this NRI-injected demo workload. Its IMEX
-  port allowances remain for backwards compatibility and custom chart images
-  that run IMEX inside the chart-managed DaemonSet.
-* **Rerunning after a failed Scenario 2.** A run that dies mid-scenario
-  can leave real `nvidia-imex` daemons holding port 50000 inside the pods.
-  Normal reruns restart the `compute-domain-demo-workload` DaemonSet after
-  refreshing staging and NRI, so they discard those stale processes
-  automatically. To recycle the demo workload pods manually, run
-  `kubectl --context kind-nvml-mock-compute-domain -n compute-domain-workload
-  delete pods -l app.kubernetes.io/name=compute-domain-demo-workload`; the
-  DaemonSet recreates them clean.
-* **`nvidia-imex-ctl -N -j` shows the peer `UNAVAILABLE` with an empty
-  version while connections look established.** Node status and version
-  are exchanged over the IMEX *command* port (50005), separate from the
-  gRPC peer port (50000). If only 50000 is reachable the domain sticks
-  at `DEGRADED` — check that both ports are admitted (see the
-  NetworkPolicy bullet above).
+**The workloads stay in `ContainerCreating` with `FailedPrepareDynamicResources`.**
+The IMEX daemon on their node is not ready. Check what the node agent staged,
+then the daemon's log:
+
+```bash
+kubectl -n mokka logs -l app.kubernetes.io/name=nvml-mock -c node-agent \
+  --prefix --tail=200 | grep -i imex
+kubectl -n nvidia logs -l resource.nvidia.com/computeDomain --all-containers --tail=100
+```
+
+**The node agent logs `IMEX node software not provided`.** No source holds the
+pinned archive. Provide it as in [Providing IMEX](#providing-imex). The message
+names the file it expects and NVIDIA's URL for it.
+
+**The node agent logs `IMEX archive does not match the pinned SHA-256`.** The
+archive comes from another IMEX version, for example a payload image built
+from an older checkout. Rebuild the image with `make imex-payload-image` from
+the checkout whose chart you install.
+
+**The node pod is in `ImagePullBackOff` on its `imex-payload` init container.**
+The node cannot pull `imex.payload.image`. On Kind, load the image with
+`kind load docker-image`; elsewhere, check the registry and pull secret.
+
+**The DRA kubelet plugin crashes with `error parsing '/proc/devices'`.** It
+cannot find the IMEX majors. Check that `altProcDevices` is set and that
+nvml-mock runs a multi-node NVLink profile, such as `gb200`.
+
+**The node agent logs `cannot simulate the IMEX kernel surface`.** The node
+runs no ComputeDomains, and the error says why. A device major the node already
+uses is not the cause: the agent then logs `configured IMEX device majors are
+taken on this node; staging free ones` and uses free ones.
+
+**The ComputeDomain lists a node in the wrong clique.** The kubelet plugin
+started before the node agent staged the current topology. A topology change
+alone does not restart the node pods, and the node agent picks it up only at its
+next resync, within a minute or so. Restart the node pods and then the plugin as
+in step 6, then recreate the ComputeDomain's workloads.
+
+**The kubelet plugin's own log.** It runs the compute-domain plugin in the
+`compute-domains` container:
+
+```bash
+kubectl -n nvidia logs -l dra-driver-nvidia-gpu-component=kubelet-plugin \
+  -c compute-domains --tail=100
+```
+
+The e2e suite runs the same flow as an executable reference:
+[`scenario_compute_domain_test.go`](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/e2e/go/scenario_compute_domain_test.go),
+with `make e2e-compute-domain`.
 
 ## Clean up
 
 ```bash
-kind delete cluster --name nvml-mock-compute-domain
-# Optional: also remove the locally built demo images.
-docker rmi nvml-mock:compute-domain nvml-mock:compute-domain-workload
+kind delete cluster --name mokka-compute-domain \
+  --kubeconfig ~/.kube/mokka-compute-domain.kubeconfig
+rm -f ~/.kube/mokka-compute-domain.kubeconfig
+# Optional: also remove the locally built images.
+docker rmi nvml-mock:compute-domain "mokka-imex:${IMEX_VERSION}"
 ```
+
+## Related
+
+| To read about | See |
+|---|---|
+| Mock GPUs through the DRA driver, without ComputeDomains | [NVIDIA DRA Driver](../dra.md) |
+| The `IMEXDownload` gate | [Feature Gates](../../feature-gates.md) |
+| What the node agent stages | [Node Daemon](../../components/node-daemon.md) |
+| What the NRI plugin gives the IMEX daemon | [NRI Plugin](../../components/nri-plugin.md) |
+| Reading the fabric identity | [check-fabric](../../tools/check-fabric.md) |

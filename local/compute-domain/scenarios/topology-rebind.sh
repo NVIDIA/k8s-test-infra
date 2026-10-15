@@ -2,13 +2,13 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Scenario 3 payload: topology rebinding without a rebuild.
+# Topology rebinding without a rebuild (the guide's Scenario 2).
 #
 # `helm upgrade --reuse-values -f rebind.topology.yaml` swaps every
 # node into clique 99 of a new domain UUID, DaemonSet pods are evicted
 # so the mock NVML engine re-reads MOCK_TOPOLOGY_CONFIG on the next
 # process start, and check-fabric re-asserts the new identity. Ported
-# from docs/guides/compute-domain/run.sh Scenario 3 (lines 313-351).
+# from the topology rebind in docs/guides/compute-domain/run.sh.
 
 set -euo pipefail
 
@@ -74,6 +74,6 @@ assert_clique worker-1 99 "${NEW_UUID}"
 assert_clique worker-2 99 "${NEW_UUID}"
 assert_clique worker-3 99 "${NEW_UUID}"
 
-printf '\n==> Scenario 3 passed: all workers rebound to clique 99 with new UUID.\n'
+printf '\n==> Topology rebind passed: all workers rebound to clique 99 with new UUID.\n'
 printf '    Re-run local/compute-domain/scenarios/check-fabric.sh (Scenario 1)\n'
 printf '    to restore assertions against the original topology.\n'

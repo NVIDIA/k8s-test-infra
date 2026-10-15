@@ -24,12 +24,12 @@ ask of you — start at the top if you are new.
 | [Slinky (Slurm)](slinky/README.md) | A Slurm cluster whose `slurmd` discovers mock GPUs as GRES, and `srun --gres=gpu:N` jobs scheduled against them | ~20 min |
 | [NVIDIA DRA Driver](dra.md) | Mock GPUs published as ResourceSlices, and a pod scheduled through a ResourceClaim | ~10 min |
 | [Run:ai fake-gpu-operator](runai-fgo/README.md) | Two node pools — Mokka serving one with a real NVML shim, FGO serving the other | ~10 min |
-| [ComputeDomain](compute-domain/README.md) | NVLink fabric identity, with a real `nvidia-imex` forming a live domain over mock GPUs | 10–20 min |
+| [ComputeDomain](compute-domain/README.md) | ComputeDomains through the unmodified NVIDIA DRA driver on two mock GB200 racks: real IMEX daemons form a domain per NVLink clique, and workloads get IMEX channels | 15–25 min |
 | [NVSentinel](nv-sentinel/README.md) | The full health loop: detect a thermal-margin crossing, cordon and drain, then auto-recover on cooldown | ~30 min |
 
-The last two are the most involved: ComputeDomain needs a four-worker cluster
-with containerd NRI enabled, and NVSentinel pulls the GPU Operator,
-cert-manager and NVSentinel before it can start.
+The last two are the most involved: ComputeDomain needs a four-worker cluster,
+a locally built IMEX payload image and the DRA driver, and NVSentinel pulls the
+GPU Operator, cert-manager and NVSentinel before it can start.
 
 ## Tasks
 

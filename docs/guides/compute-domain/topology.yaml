@@ -1,4 +1,4 @@
-# Helm values fragment for the ComputeDomain demo
+# Helm values fragment for the ComputeDomain guide
 # (docs/guides/compute-domain/run.sh). Passed to `helm upgrade --install`
 # via `-f <this file>` so the chart merges it on top of its defaults.
 #
@@ -6,26 +6,30 @@
 # into the target key as a string literal, which would defeat the
 # structured list helm expects under `topology.domains`.
 #
-# Node names follow Kind's `<cluster-name>-worker[N]` convention. The
-# cluster is created from tests/e2e/kind-compute-domain-config.yaml as
-# `nvml-mock-compute-domain`, so worker0 .. worker3 land at
-# `nvml-mock-compute-domain-worker`, `-worker2`, `-worker3`, `-worker4`.
+# Two GB200 NVL72 racks of two nodes each, matching the
+# mokka.nvidia.com/clique labels in tests/e2e/kind-compute-domain-racks.yaml.
+# That cluster config names its Kubernetes nodes worker-0 .. worker-3
+# whatever the Kind cluster is called, so this file fits any cluster name.
 #
 # Layout:
-#   domain "demo-domain"
-#     clique 0: -worker, -worker2
-#     clique 1: -worker3, -worker4
+#   domain "rack-1" (00000000-0000-0000-0000-0000000000a1)
+#     clique 0: worker-0, worker-1
+#   domain "rack-2" (00000000-0000-0000-0000-0000000000b2)
+#     clique 0: worker-2, worker-3
 topology:
   enabled: true
   domains:
-    - name: demo-domain
-      uuid: "00000000-0000-0000-0000-0000000000ab"
+    - name: rack-1
+      uuid: "00000000-0000-0000-0000-0000000000a1"
       cliques:
         - id: 0
           nodes:
-            - nvml-mock-compute-domain-worker
-            - nvml-mock-compute-domain-worker2
-        - id: 1
+            - worker-0
+            - worker-1
+    - name: rack-2
+      uuid: "00000000-0000-0000-0000-0000000000b2"
+      cliques:
+        - id: 0
           nodes:
-            - nvml-mock-compute-domain-worker3
-            - nvml-mock-compute-domain-worker4
+            - worker-2
+            - worker-3
