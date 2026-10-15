@@ -111,6 +111,7 @@ type verifyReleaseFixture struct {
 // a line or the recorded tool calls.
 func TestVerifyRelease(t *testing.T) {
 	t.Parallel()
+	requireJQ(t)
 
 	script := filepath.Join(repoRoot(t), "hack", "verify-release.sh")
 	usage := "usage: " + script + " X.Y.Z (the release version without the leading v, e.g. 0.5.0)\n"
@@ -480,6 +481,20 @@ func runVerifyRelease(t *testing.T, script string, args []string, fx verifyRelea
 	}
 	require.NoError(t, err)
 	return exitCode, stdout.String(), stderr.String(), strings.Split(strings.TrimSuffix(string(logged), "\n"), "\n")
+}
+
+// requireJQ skips TestVerifyRelease on a machine without jq, since the script
+// runs the real jq while every other tool is stubbed. In CI it fails instead:
+// a runner that lost jq would otherwise skip every case and still look green.
+func requireJQ(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("jq"); err == nil {
+		return
+	}
+	if os.Getenv("CI") != "" {
+		t.Fatal("jq is not installed; hack/verify-release.sh needs it and CI must run these cases")
+	}
+	t.Skip("jq is not installed; hack/verify-release.sh needs it")
 }
 
 // withoutCall returns calls minus the one call a case expects not to happen.
