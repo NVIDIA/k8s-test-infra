@@ -141,3 +141,19 @@ func TestDiscard_RemovesTheDocumentWhenNotReady(t *testing.T) {
 	require.NoError(t, s.Discard(t.Context()))
 	require.NoFileExists(t, h.RootPath("topology/topology.yaml"))
 }
+
+// A process that mounts only the driver root, such as the DRA driver's
+// kubelet plugin, finds the document beside the driver's config.yaml.
+func TestStage_AlsoStagesTheDocumentBesideTheDriverConfig(t *testing.T) {
+	t.Parallel()
+	h := host.New(t.TempDir())
+	s := New(h)
+
+	require.NoError(t, s.Stage(t.Context(), stateWith(doc)))
+	got, err := os.ReadFile(h.RootPath("driver/config/topology.yaml"))
+	require.NoError(t, err)
+	require.Equal(t, doc, string(got))
+
+	require.NoError(t, s.Stage(t.Context(), stateWith("")))
+	require.NoFileExists(t, h.RootPath("driver/config/topology.yaml"))
+}
