@@ -219,13 +219,15 @@ build: ## Build all CLIs
 build-mockfs: ## Build mockfs
 	@make -C shims/libmockfs
 
-# Defaults to the ref the e2e suite expects (E2E_IMAGE), so a locally built
-# image can be kind-loaded and handed to `tilt up -- --nvmlmock-image` as is.
-NVML_MOCK_IMAGE      ?= nvml-mock:e2e
+# Tagged with the commit it was built from. --exclude='*' ignores release tags
+# so the result is always the abbreviated SHA, and --dirty marks an image built
+# from uncommitted changes rather than letting it pass for that commit.
+NVML_MOCK_TAG        ?= $(shell git describe --always --dirty --exclude='*')
+NVML_MOCK_IMAGE      ?= nvml-mock:$(NVML_MOCK_TAG)
 NVML_MOCK_DOCKERFILE := deployments/nvml-mock/Dockerfile
 
 .PHONY: nvml-mock-image
-nvml-mock-image: ## Build the nvml-mock image into the local docker daemon: make nvml-mock-image [NVML_MOCK_IMAGE=nvml-mock:dev]
+nvml-mock-image: ## Build the nvml-mock image into the local docker daemon, tagged with the current commit: make nvml-mock-image [NVML_MOCK_TAG=dev]
 	@echo "🐳 Building $(NVML_MOCK_IMAGE).."
 	@docker build \
 		--build-arg GOLANG_VERSION=$(shell ./hack/golang-version.sh) \
