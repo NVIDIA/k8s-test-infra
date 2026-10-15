@@ -92,3 +92,61 @@ func TestAgentGateFlagsMustBePaired(t *testing.T) {
 	require.Equal(t, "http://127.0.0.1:9091/stagedz", cfg.AgentStagedURL)
 	require.Equal(t, "/run/nvml-mock/nri-staging.lock", cfg.StagingLockPath)
 }
+
+func TestGuestHostPathFlag(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := runCLI()
+	require.NoError(t, err)
+	require.Equal(t, "/run/nvml-mock-guests", cfg.Inject.GuestHostPath)
+
+	cfg, err = runCLI("--guest-host-path=/srv/guests")
+	require.NoError(t, err)
+	require.Equal(t, "/srv/guests", cfg.Inject.GuestHostPath)
+}
+
+func TestGuestProgramFlag(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := runCLI()
+	require.NoError(t, err)
+	require.Equal(t, "/usr/local/bin/nvml-mock-guest", cfg.GuestProgram)
+
+	cfg, err = runCLI("--guest-program=/opt/bin/nvml-mock-guest")
+	require.NoError(t, err)
+	require.Equal(t, "/opt/bin/nvml-mock-guest", cfg.GuestProgram)
+}
+
+// The plugin creates and sweeps bundles under the guest root, so a root that
+// overlaps the filesystem or the overlay would put host state at risk.
+func TestGuestHostPathMustBeAnIsolatedAbsoluteDirectory(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{name: "empty", args: []string{"--guest-host-path="}},
+		{name: "relative", args: []string{"--guest-host-path=run/guests"}},
+		{name: "root", args: []string{"--guest-host-path=/"}},
+		{name: "root uncleaned", args: []string{"--guest-host-path=//."}},
+		{name: "overlay", args: []string{"--guest-host-path=/var/lib/nvml-mock"}},
+		{name: "under overlay", args: []string{"--guest-host-path=/var/lib/nvml-mock/guests"}},
+		{name: "dotted name under overlay", args: []string{"--guest-host-path=/var/lib/nvml-mock/..guests"}},
+		{name: "under custom overlay", args: []string{"--overlay-host-path=/srv/mock", "--guest-host-path=/srv/mock/guests/"}},
+		// A launcher whose bundle was not swapped in would see every bundle.
+		{name: "placeholder", args: []string{"--guest-host-path=/run/nvml-mock-guest"}},
+		{name: "under placeholder", args: []string{"--guest-host-path=/run/nvml-mock-guest/bundles"}},
+		{name: "holding placeholder", args: []string{"--guest-host-path=/run"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := runCLI(tc.args...)
+			require.ErrorContains(t, err, "--guest-host-path")
+		})
+	}
+
+	_, err := runCLI("--guest-host-path=/var/lib/nvml-mock-guests")
+	require.NoError(t, err, "a sibling of the overlay is not inside it")
+}

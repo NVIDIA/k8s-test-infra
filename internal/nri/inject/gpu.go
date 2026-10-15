@@ -139,13 +139,29 @@ func validCDIIdentity(name, prefix string) bool {
 	return ok && value != "" && !strings.ContainsAny(value, "/= ")
 }
 
-func numberedGPUPath(path string) bool {
-	index, ok := strings.CutPrefix(path, "/dev/nvidia")
-	if !ok || index == "" {
-		return false
+// minorBits is the width of a Linux device minor number (MINORBITS), so no
+// larger N names a device and every minor fits an int.
+const minorBits = 20
+
+// gpuMinor returns N for a /dev/nvidiaN path. Only the canonical decimal form
+// counts, so /dev/nvidia01 is not taken for /dev/nvidia1.
+func gpuMinor(path string) (int, bool) {
+	digits, ok := strings.CutPrefix(path, "/dev/nvidia")
+	if !ok {
+		return 0, false
 	}
-	n, err := strconv.ParseUint(index, 10, 32)
-	return err == nil && strconv.FormatUint(n, 10) == index
+	n, err := strconv.ParseUint(digits, 10, minorBits)
+	if err != nil || strconv.FormatUint(n, 10) != digits {
+		return 0, false
+	}
+
+	return int(n), true
+}
+
+func numberedGPUPath(path string) bool {
+	_, ok := gpuMinor(path)
+
+	return ok
 }
 
 // cdiSpecStaged reports whether the CDI spec backing cfg.CDIDeviceName is

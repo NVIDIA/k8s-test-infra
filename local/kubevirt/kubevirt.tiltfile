@@ -1,0 +1,105 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Loadable Tiltfile: KubeVirt consumer.
+#
+# Exports:
+#   install(nvml_mock_releases) — install KubeVirt with emulation and a VM
+#     tenant holding one mock GPU, plus a manual trigger that asserts what its
+#     guest sees.
+#
+# What this consumer demonstrates: a VM tenant whose guest sees the mock GPU
+# its launcher pod was allocated. See local/kubevirt/README.md.
+#
+# Assumes --gpu-operator: the virt-launcher pod requests nvidia.com/gpu, which
+# only the Operator's device plugin advertises. The root Tiltfile implies the
+# flag.
+#
+# All side effects inside functions so load()ing this file is a pure import.
+
+_KUBEVIRT_OPERATOR_URL = 'https://github.com/kubevirt/kubevirt/releases/download/v1.9.0/kubevirt-operator.yaml'
+
+
+def _selector(obj):
+    """Tilt object selector for obj; a colon in a name must be escaped."""
+    meta = obj['metadata']
+    parts = [meta['name'].replace(':', '\\:'), obj['kind']]
+    if meta.get('namespace'):
+        parts.append(meta['namespace'])
+    return ':'.join(parts)
+
+
+def _install_operator():
+    """Apply the pinned KubeVirt operator manifest as the 'virt-operator' resource."""
+    objects = decode_yaml_stream(local('curl -fsSL ' + _KUBEVIRT_OPERATOR_URL, quiet=True))
+    # tilt down deletes without waiting, so a deleted operator would leave the
+    # KubeVirt CR stuck on a finalizer only the operator removes. Keeping the
+    # operator lets it tear KubeVirt down when the CR goes.
+    for obj in objects:
+        obj['metadata'].setdefault('annotations', {})['tilt.dev/down-policy'] = 'keep'
+    k8s_yaml(encode_yaml_stream(objects))
+    k8s_resource(
+        'virt-operator',
+        objects=[_selector(o) for o in objects if o['kind'] != 'Deployment'],
+        labels=['kubevirt'],
+    )
+
+
+def _require_bootable_vms():
+    """Fail unless the Kind nodes, which share the host's CPU, can boot a VM."""
+    arm64 = str(local('uname -m', quiet=True)).strip() in ('arm64', 'aarch64')
+    if arm64 and not os.path.exists('/dev/kvm'):
+        fail('--kubevirt needs an amd64 host or /dev/kvm: an emulated arm64 VM ' +
+             'cannot boot the only CPU KubeVirt allows on arm64. ' +
+             'See local/kubevirt/README.md#why-it-does-not-run-on-a-mac')
+
+
+def install(nvml_mock_releases):
+    """Install KubeVirt, the GPU VM and its smoke trigger."""
+    _require_bootable_vms()
+    _install_operator()
+    k8s_yaml('local/kubevirt/kubevirt-cr.yaml')
+    # The API server rejects the CR until virt-operator's CRD is served.
+    k8s_resource(
+        new_name='kubevirt-cr',
+        objects=['kubevirt:KubeVirt:kubevirt'],
+        resource_deps=['virt-operator'],
+        labels=['kubevirt'],
+    )
+    # The CR is applied long before the operator has rolled out virt-api,
+    # virt-controller and virt-handler, which a VM needs.
+    local_resource(
+        'kubevirt',
+        cmd='kubectl -n kubevirt wait kv/kubevirt --for=condition=Available --timeout=600s',
+        resource_deps=['kubevirt-cr'],
+        labels=['kubevirt'],
+    )
+
+    # The 'gpu-operator' resource goes green once the operator pod is up, before
+    # its device plugin advertises nvidia.com/gpu; a VM started earlier sits
+    # with an unschedulable launcher pod.
+    local_resource(
+        'gpu-operator-ready',
+        cmd='bash local/scenarios/wait-gpu-operator.sh gpu-operator',
+        resource_deps=['gpu-operator'],
+        labels=['kubevirt'],
+    )
+
+    k8s_yaml('local/kubevirt/gpu-vm.yaml')
+    # Tilt does not know the VirtualMachine kind; let it follow the
+    # VirtualMachine → VirtualMachineInstance → virt-launcher pod chain for
+    # logs and status.
+    k8s_kind('VirtualMachine', pod_readiness='wait')
+    k8s_resource(
+        'gpu-vm',
+        resource_deps=['kubevirt', 'gpu-operator-ready'] + nvml_mock_releases,
+        labels=['kubevirt'],
+    )
+
+    local_resource(
+        'kubevirt-smoke',
+        cmd='bash local/kubevirt/scenarios/guest-smoke.sh gpu-vm',
+        resource_deps=['gpu-vm'],
+        auto_init=False,
+        labels=['kubevirt-tests'],
+    )

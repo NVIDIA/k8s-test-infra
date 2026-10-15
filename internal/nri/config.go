@@ -13,6 +13,8 @@ const (
 	// defaultPluginIndex orders this plugin against the others the runtime has
 	// registered. Later indices adjust a container after earlier ones.
 	defaultPluginIndex = "10"
+	// defaultGuestProgram is where the nvml-mock image installs nvml-mock-guest.
+	defaultGuestProgram = "/usr/local/bin/nvml-mock-guest"
 )
 
 // Config is what the plugin needs to register with the runtime, plus the
@@ -23,7 +25,10 @@ type Config struct {
 	PluginIndex     string
 	AgentStagedURL  string
 	StagingLockPath string
-	Inject          inject.Config
+	// GuestProgram is the nvml-mock-guest binary, in this plugin's own image,
+	// that every KubeVirt guest bundle ships.
+	GuestProgram string
+	Inject       inject.Config
 }
 
 // DefaultConfig returns the registration identity used when no flag overrides
@@ -33,7 +38,8 @@ func DefaultConfig() Config {
 	return Config{
 		SocketPath:  defaultSocketPath,
 		PluginName:  defaultPluginName,
-		PluginIndex: defaultPluginIndex,
-		Inject:      inject.DefaultConfig(),
+		PluginIndex:  defaultPluginIndex,
+		GuestProgram: defaultGuestProgram,
+		Inject:       inject.DefaultConfig(),
 	}
 }

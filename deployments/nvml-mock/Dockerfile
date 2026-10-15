@@ -71,6 +71,8 @@ COPY --from=builder /src/dist/nri-plugin /usr/local/bin/nri-plugin
 COPY --from=builder /src/dist/nvml-mock-ctl /usr/local/bin/nvml-mock-ctl
 COPY --from=builder /src/dist/check-fabric     /usr/local/bin/check-fabric
 COPY --from=builder /src/dist/node-agent /usr/local/bin/node-agent
+# Static: the NRI plugin copies it into KubeVirt guests, whose libc is unknown.
+COPY --from=builder /src/dist/nvml-mock-guest /usr/local/bin/nvml-mock-guest
 # Build-time only: it needs ldd and patchelf, both purged from the final image.
 COPY deployments/nvml-mock/build/bundle-ib-tools.sh /usr/local/bin/bundle-ib-tools.sh
 RUN set -eux; \

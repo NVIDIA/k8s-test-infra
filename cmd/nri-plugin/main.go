@@ -11,7 +11,9 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"slices"
+	"strings"
 	"syscall"
 
 	"github.com/urfave/cli/v3"
@@ -48,6 +50,7 @@ func newCLI() *cli.Command {
 			gpuFlags(defaults),
 			infiniBandFlags(defaults),
 			imexChannelFlags(defaults),
+			guestFlags(defaults),
 		),
 		Action: run,
 	}
@@ -247,6 +250,25 @@ func imexChannelFlags(defaults nri.Config) []cli.Flag {
 	}
 }
 
+// guestFlags locate the bundles KubeVirt launcher containers receive instead
+// of the overlay.
+func guestFlags(defaults nri.Config) []cli.Flag {
+	return []cli.Flag{
+		&cli.StringFlag{
+			Name:    "guest-host-path",
+			Value:   defaults.Inject.GuestHostPath,
+			Sources: cli.EnvVars("MOKKA_NRI_GUEST_HOST_PATH"),
+			Usage:   "writable host directory for the guest bundles of KubeVirt launcher containers",
+		},
+		&cli.StringFlag{
+			Name:    "guest-program",
+			Value:   defaults.GuestProgram,
+			Sources: cli.EnvVars("MOKKA_NRI_GUEST_PROGRAM"),
+			Usage:   "nvml-mock-guest binary every KubeVirt guest bundle ships, to mirror the host's runtime overrides",
+		},
+	}
+}
+
 // configFrom reads the parsed flags. Paths left empty here are derived from the
 // overlay roots by inject.Config's own defaulting, so the CLI does not have to
 // repeat that arithmetic.
@@ -258,6 +280,9 @@ func configFrom(cmd *cli.Command) (nri.Config, error) {
 	if err != nil {
 		return nri.Config{}, err
 	}
+	if err := validateGuestHostPath(cmd.String("guest-host-path"), cmd.String("overlay-host-path")); err != nil {
+		return nri.Config{}, err
+	}
 
 	return nri.Config{
 		SocketPath:      cmd.String("socket-path"),
@@ -265,6 +290,7 @@ func configFrom(cmd *cli.Command) (nri.Config, error) {
 		PluginIndex:     cmd.String("plugin-index"),
 		AgentStagedURL:  cmd.String("agent-staged-url"),
 		StagingLockPath: cmd.String("staging-lock-path"),
+		GuestProgram:    cmd.String("guest-program"),
 		Inject: inject.Config{
 			HostOverlayPath:       cmd.String("overlay-host-path"),
 			ContainerOverlayPath:  cmd.String("overlay-mount-path"),
@@ -280,10 +306,45 @@ func configFrom(cmd *cli.Command) (nri.Config, error) {
 			ImexChannelAnnotation: cmd.String("imex-channel-annotation"),
 			ImexChannelHostPath:   cmd.String("imex-channel-host-path"),
 			InfiniBandAnnotation:  cmd.String("infiniband-annotation"),
+			GuestHostPath:         cmd.String("guest-host-path"),
 			ExcludedNamespaces:    cmd.StringSlice("excluded-namespaces"),
 			Shims:                 cmd.StringSlice("ld-preload-shims"),
 		},
 	}, nil
+}
+
+// validateGuestHostPath rejects a guest root the plugin cannot own outright.
+// It writes and sweeps bundle directories there, so the root must not be the
+// filesystem root or overlap the overlay the node agent stages. Nor may it
+// overlap the placeholder VMs mount: a launcher whose mount was not swapped
+// would then see every other VM's bundle.
+func validateGuestHostPath(guest, overlay string) error {
+	if !filepath.IsAbs(guest) {
+		return fmt.Errorf("--guest-host-path %q must be an absolute path", guest)
+	}
+	guest = filepath.Clean(guest)
+	if guest == "/" {
+		return errors.New("--guest-host-path must not be /")
+	}
+	if overlay == "" {
+		overlay = nri.DefaultConfig().Inject.HostOverlayPath
+	}
+	if within(filepath.Clean(overlay), guest) {
+		return fmt.Errorf("--guest-host-path %q must not be inside --overlay-host-path %q", guest, overlay)
+	}
+	placeholder := nri.DefaultConfig().Inject.GuestPlaceholderPath
+	if within(placeholder, guest) || within(guest, placeholder) {
+		return fmt.Errorf("--guest-host-path %q must not overlap the guest placeholder %q", guest, placeholder)
+	}
+
+	return nil
+}
+
+// within reports whether path is dir or lies under it; both must be clean.
+func within(dir, path string) bool {
+	rel, err := filepath.Rel(dir, path)
+
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, "../")
 }
 
 func run(ctx context.Context, cmd *cli.Command) error {
@@ -316,6 +377,8 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		zap.String("device_injection_mode", string(cfg.Inject.DeviceInjectionMode)),
 		zap.String("cdi_spec_host_path", cfg.Inject.CDISpecHostPath),
 		zap.Strings("excluded_namespaces", cfg.Inject.ExcludedNamespaces),
+		zap.String("guest_host_path", cfg.Inject.GuestHostPath),
+		zap.String("guest_program", cfg.GuestProgram),
 	)
 
 	signalCtx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)

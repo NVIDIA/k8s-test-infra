@@ -180,6 +180,46 @@ for NODE in $(kind get nodes --name mokka); do
 done
 ```
 
+### A KubeVirt VM with a GPU never starts
+
+The VM never reaches `Running`, and the VMI's warning events (`kubectl get
+events --field-selector involvedObject.name=<vm>`) or the virt-launcher pod's
+`compute` container log name `bundle.tar`.
+
+The VM declares the guest bundle disk at the placeholder
+`/run/nvml-mock-guest/bundle.tar`, but the NRI plugin left this launcher
+without a bundle, so the disk names an empty directory. The plugin does that
+when:
+
+- the pod carries `nvml-mock.nvidia.com/inject: "false"`, or its namespace is
+  excluded;
+- no allocated `/dev/nvidiaN` in the `compute` container carries its own cgroup
+  grant;
+- the container ID cannot name a directory;
+- the bundle could not be written;
+- the node agent's tree was unavailable when the launcher was created;
+- the plugin was not registered with containerd at the time, or `nri.enabled`
+  is `false`.
+
+Check the `nvml-mock-nri` container on the launcher's node for lines that
+mention KubeVirt or name the launcher pod:
+
+```bash
+NODE=$(kubectl get vmi <vm> -o jsonpath='{.status.nodeName}')
+kubectl -n mokka logs -c nvml-mock-nri \
+  "$(kubectl -n mokka get pods -l app.kubernetes.io/name=nvml-mock \
+     --field-selector "spec.nodeName=${NODE}" -o name)" \
+  | grep -E 'KubeVirt|virt-launcher'
+```
+
+A launcher that got its bundle logs `wrote KubeVirt guest bundle` with its pod
+name. The causes above log a warning instead, except an opted-out or excluded
+launcher, which logs nothing at the default `info` level, and a plugin that was
+not running. The plugin writes a bundle only
+when a launcher container is created, so after removing the cause, run
+`kubectl delete vmi <vm>`; a VM with `runStrategy: Always` starts a new one.
+See [KubeVirt launchers](components/nri-plugin.md#kubevirt-launchers).
+
 ### `kind load docker-image` fails with "content digest not found"
 
 ```text

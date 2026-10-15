@@ -207,7 +207,11 @@ build: ## Build all CLIs
 	    parent=$$(basename $$(dirname $$pkg)); \
 	    if [ "$$parent" != "cmd" ]; then name=$$parent-$$name; fi; \
 	    echo "🔨 $$name"; \
-	    $(GO_CMD) build -o $(DIST_DIR)/$$name $$pkg || exit 1; \
+	    if [ "$$name" = "nvml-mock-guest" ]; then \
+	        CGO_ENABLED=0 $(GO_CMD) build -o $(DIST_DIR)/$$name $$pkg || exit 1; \
+	    else \
+	        $(GO_CMD) build -o $(DIST_DIR)/$$name $$pkg || exit 1; \
+	    fi; \
 	done
 	@echo "Building Golang shims.."
 	@for pkg in $$(find ./shims -type f -name main.go -exec dirname {} \; | sort -u); do \

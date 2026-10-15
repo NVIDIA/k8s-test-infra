@@ -76,7 +76,7 @@ def install(nvml_mock_releases):
     # once, at startup, so it must not start before they are advertised.
     local_resource(
         'gpu-operator-ready',
-        cmd='bash local/slinky/scenarios/wait-gpu-operator.sh gpu-operator',
+        cmd='bash local/scenarios/wait-gpu-operator.sh gpu-operator',
         resource_deps=['gpu-operator'],
         labels=['slinky'],
     )

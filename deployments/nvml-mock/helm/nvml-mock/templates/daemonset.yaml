@@ -399,6 +399,7 @@ spec:
             - --imex-channel-annotation={{ .Values.nri.imexChannelAnnotation }}
             - --imex-channel-host-path={{ .Values.nri.overlay.hostPath }}/driver/dev/nvidia-caps-imex-channels
             - --infiniband-annotation={{ .Values.nri.infinibandAnnotation }}
+            - --guest-host-path={{ .Values.nri.guest.hostPath }}
             - --excluded-namespaces={{ .Release.Namespace }},kube-system{{- range .Values.nri.excludedNamespaces }},{{ . }}{{- end }}
             - --node-name=$(NODE_NAME)
             - --health-addr=:{{ .Values.nri.healthPort }}
@@ -442,6 +443,11 @@ spec:
               readOnly: true
             - name: {{ $nriOverlayVolume }}
               mountPath: {{ .Values.nri.overlay.hostPath }}
+              readOnly: true
+            - name: nri-guests
+              mountPath: {{ .Values.nri.guest.hostPath }}
+            - name: nri-guest-placeholder
+              mountPath: /run/nvml-mock-guest
               readOnly: true
             - name: {{ $nriCDIVolume }}
               mountPath: {{ .Values.nri.cdiSpecDir }}
@@ -525,6 +531,19 @@ spec:
             path: {{ .Values.nri.cdiSpecDir }}
             type: DirectoryOrCreate
         {{- end }}
+        # Writable, unlike the overlay: the NRI plugin writes a bundle per
+        # KubeVirt launcher container here.
+        - name: nri-guests
+          hostPath:
+            path: {{ .Values.nri.guest.hostPath }}
+            type: DirectoryOrCreate
+        # Mounted only so the kubelet creates it: a VM's bundle volume is a
+        # Directory hostPath of this path, which the plugin swaps for the
+        # launcher's own bundle. It must stay empty.
+        - name: nri-guest-placeholder
+          hostPath:
+            path: /run/nvml-mock-guest
+            type: DirectoryOrCreate
         {{- end }}
         - name: driver-root-link
           hostPath:

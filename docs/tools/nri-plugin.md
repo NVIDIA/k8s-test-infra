@@ -3,9 +3,9 @@
 The binary behind the NRI sidecar in Mokka's node DaemonSet. It
 registers with containerd over the
 [NRI](https://github.com/containerd/nri) socket, subscribes to
-`CreateContainer` only, and edits containers as they are created so a workload
-given GPUs the usual way, or opted in with the `nvml-mock.nvidia.com/devices`
-annotation, sees mock GPUs.
+`CreateContainer` and `RemoveContainer`, and edits containers as they are
+created so a workload given GPUs the usual way, or opted in with the
+`nvml-mock.nvidia.com/devices` annotation, sees mock GPUs.
 
 [NRI Plugin](../components/nri-plugin.md) covers what it decides and why —
 which containers are injected, how it recognises a device plugin or DRA
@@ -14,8 +14,9 @@ the command line.
 
 The chart runs it by default; `nri.enabled=false` removes the sidecar. The
 sidecar runs as root with `allowPrivilegeEscalation: false` and no
-service account token. It mounts the NRI socket directory read-write and shares
-the node pod's overlay and CDI spec directories read-only. See [NRI pod
+service account token. It mounts the NRI socket directory and the KubeVirt guest
+bundle directory read-write, and shares the node pod's overlay and CDI spec
+directories read-only. See [NRI pod
 lifecycle](../helm-chart.md#nri-pod-lifecycle) for startup, shutdown, and
 Kubernetes 1.28 compatibility behavior.
 
@@ -70,6 +71,8 @@ Every flag also reads an environment variable; the flag wins when both are set.
 | `--infiniband-annotation` | `MOKKA_NRI_INFINIBAND_ANNOTATION` | `nvml-mock.nvidia.com/infiniband` | Pod annotation key; value `true` enables the mock InfiniBand tools and shims, independently of GPU access |
 | `--imex-channel-annotation` | `MOKKA_NRI_IMEX_CHANNEL_ANNOTATION` | `nvml-mock.nvidia.com/imex-channels` | Pod annotation key; value `true` adds `/dev/nvidia-caps-imex-channels/*` nodes |
 | `--imex-channel-host-path` | `MOKKA_NRI_IMEX_CHANNEL_HOST_PATH` | `<overlay-host-path>/driver/dev/nvidia-caps-imex-channels` | Host path containing the mock IMEX channel nodes staged by `imex.mockChannels` |
+| `--guest-host-path` | `MOKKA_NRI_GUEST_HOST_PATH` | `/run/nvml-mock-guests` | Writable host directory for the guest bundles of [KubeVirt launcher](../components/nri-plugin.md#kubevirt-launchers) containers. A path that is relative, `/`, or inside `--overlay-host-path` is rejected at startup |
+| `--guest-program` | `MOKKA_NRI_GUEST_PROGRAM` | `/usr/local/bin/nvml-mock-guest` | The [`nvml-mock-guest`](nvml-mock-guest.md) binary copied into every guest bundle. A launcher whose bundle cannot include it is left unmodified |
 
 The three `<overlay-...>` derivations resolve against whatever the overlay flags
 ended up being, not against the packaged defaults. An error out of the plugin
@@ -108,6 +111,7 @@ excluded namespaces and supplying `NODE_NAME` through the downward API:
   --imex-channel-annotation=nvml-mock.nvidia.com/imex-channels \
   --imex-channel-host-path=/var/lib/nvml-mock/driver/dev/nvidia-caps-imex-channels \
   --infiniband-annotation=nvml-mock.nvidia.com/infiniband \
+  --guest-host-path=/run/nvml-mock-guests \
   --excluded-namespaces=<release-namespace>,kube-system \
   --node-name=$(NODE_NAME) \
   --health-addr=:8080 \

@@ -22,7 +22,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"golang.org/x/sys/unix"
+	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
 )
 
 // WriteAtomic writes the doc via a temp file + rename in the same directory so
@@ -62,19 +62,5 @@ func WriteAtomic(path string, doc *Doc) error {
 // LockOverride takes an exclusive flock on a sibling .lock file so concurrent
 // kubectl exec invocations serialize their read-modify-write.
 func LockOverride(path string) (func(), error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, err
-	}
-	lf, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o644)
-	if err != nil {
-		return nil, err
-	}
-	if err := unix.Flock(int(lf.Fd()), unix.LOCK_EX); err != nil {
-		_ = lf.Close()
-		return nil, err
-	}
-	return func() {
-		_ = unix.Flock(int(lf.Fd()), unix.LOCK_UN)
-		_ = lf.Close()
-	}, nil
+	return fsutil.LockSibling(path)
 }

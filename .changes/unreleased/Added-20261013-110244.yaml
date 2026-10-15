@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  nvml-mock: a KubeVirt VM requesting `nvidia.com/gpu` now sees its allocated mock GPU in passthrough mode, and the node's `nvml-mock-ctl` changes, by declaring a `hostDisk` bundle volume; libvirt and QEMU no longer load the mock shims. See [KubeVirt launchers](docs/components/nri-plugin.md#kubevirt-launchers).
+time: 2026-10-13T09:02:44Z

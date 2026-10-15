@@ -1,0 +1,62 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# A VM tenant holding one mock GPU, like a gpu-test pod. The nvml-mock volume
+# names an empty placeholder; the NRI plugin swaps it for the bundle of this
+# VM's allocation. cloud-init extracts the bundle, starts the service that
+# mirrors the node's runtime overrides, and prints what the guest sees between
+# the MOKKA-GUEST markers on the serial console, for the smoke test.
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: gpu-vm
+  namespace: default
+spec:
+  runStrategy: Always
+  template:
+    spec:
+      domain:
+        memory:
+          guest: 1Gi
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+        devices:
+          # The pod interface's 65535 MTU breaks the tap device under Kind;
+          # the guest needs no network.
+          autoattachPodInterface: false
+          disks:
+            - name: root
+              disk: {bus: virtio}
+            - name: cloudinit
+              disk: {bus: virtio}
+            - name: nvml-mock
+              serial: nvml-mock-guest
+              disk: {bus: virtio, readonly: true}
+      volumes:
+        - name: nvml-mock
+          hostDisk:
+            path: /run/nvml-mock-guest/bundle.tar
+            type: Disk
+        - name: root
+          containerDisk:
+            image: quay.io/containerdisks/debian:12
+        - name: cloudinit
+          cloudInitNoCloud:
+            networkData: ""
+            userData: |
+              #cloud-config
+              # A local test VM only: log in on the serial console to explore.
+              user: debian
+              password: mokka
+              chpasswd: {expire: false}
+              runcmd:
+                - |
+                  {
+                    echo MOKKA-GUEST BEGIN
+                    tar -xf /dev/disk/by-id/virtio-nvml-mock-guest -C / && ldconfig \
+                      && systemctl enable --now nvml-mock-guest
+                    nvidia-smi -L
+                    nvidia-smi -q | grep 'Virtualization Mode'
+                    echo MOKKA-GUEST END
+                  } >/dev/console 2>&1

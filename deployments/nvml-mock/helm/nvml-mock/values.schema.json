@@ -381,6 +381,13 @@
             "mountPath": { "type": "string", "minLength": 1 }
           }
         },
+        "guest": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "hostPath": { "type": "string", "minLength": 1 }
+          }
+        },
         "optOutAnnotation": { "type": "string", "minLength": 1 },
         "deviceAnnotation": { "type": "string", "minLength": 1 },
         "deviceInjectionMode": { "type": "string", "enum": ["raw", "cdi"] },
