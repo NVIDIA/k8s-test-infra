@@ -95,7 +95,7 @@ pins the DaemonSet to an image you already built.
 ```bash
 make cluster-create
 
-docker build -t nvml-mock:e2e -f deployments/nvml-mock/Dockerfile .
+make mokka-image                              # tags it nvml-mock:e2e
 kind load docker-image nvml-mock:e2e --name mokka
 
 tilt up -- --nvmlmock-image=nvml-mock:e2e     # or `tilt ci` for a headless run

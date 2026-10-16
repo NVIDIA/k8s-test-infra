@@ -2,13 +2,7 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Scenario 1 payload: per-node fabric identity via nvmlDeviceGetGpuFabricInfo.
-#
-# For each worker, kubectl exec the bundled `check-fabric` binary in the
-# node's nvml-mock pod and assert the reported cliqueId + clusterUuid +
-# state match what local/compute-domain/topology.yaml assigned to that
-# node. Ported from docs/guides/compute-domain/run.sh (Scenario 1,
-# lines 193-199 and the assert_clique helper at 98-123).
+# Scenario 1 of docs/guides/compute-domain/run.sh, as a Tilt trigger.
 
 set -euo pipefail
 

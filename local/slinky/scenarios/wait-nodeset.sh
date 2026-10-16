@@ -2,13 +2,9 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Block until a Slinky NodeSet has every desired slurmd pod Ready, then print
-# Slurm's view of the nodes.
-#
 # The slurm-operator creates the NodeSet pods after `helm upgrade` returns, so
 # neither helm --wait nor Tilt's helm_resource readiness sees them.
-#
-# Usage: wait-nodeset.sh [nodeset] [namespace] [timeout-seconds]
+
 set -euo pipefail
 
 NODESET="${1:-slurm-worker-gpu}"
