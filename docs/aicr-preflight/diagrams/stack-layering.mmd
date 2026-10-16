@@ -1,0 +1,26 @@
+%% AICR is the workload. Mokka is the substrate underneath it.
+%% This diagram exists to kill the misreading that simulation lives "inside" AICR.
+flowchart TB
+    subgraph L5["AICR: the workload on top"]
+        R["Recipes (14 components)"]
+        V["validate: deployment, performance, conformance"]
+    end
+    subgraph L4["Cluster software AICR deploys and checks"]
+        OP["GPU Operator"]
+        DRA["NVIDIA DRA driver"]
+        NFD["NFD + GFD"]
+        DCGM["dcgm-exporter"]
+    end
+    subgraph L3["Kubernetes"]
+        KUBELET["kubelet + containerd (NRI enabled)"]
+    end
+    subgraph L2["Mokka: the substrate (nvml-mock v0.3.0)"]
+        NRI["NRI plugin: node-wide injection"]
+        NVML["mock libnvidia-ml.so.1 at the NVML/driver line"]
+        FAB["mock fabric management: NVSwitch, fabricmanager, IB SM, IMEX channels"]
+    end
+    subgraph L1["Real nodes, no GPU"]
+        NODE["CPU nodes (here: kind containers)"]
+    end
+    L5 --> L4 --> L3 --> L2 --> L1
+    NVML -. "answers every NVML call the layers above make" .-> L4

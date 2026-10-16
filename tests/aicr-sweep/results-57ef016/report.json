@@ -1,0 +1,2558 @@
+{
+  "rollup": {
+    "total": 210,
+    "a": 160,
+    "b": 10,
+    "c": 40,
+    "g": 0,
+    "aGpuDependent": 100,
+    "blocked": 157,
+    "byCause": {
+      "X": 84
+    },
+    "byOutcome": {
+      "blocked": 84,
+      "fail": 32,
+      "not-run": 73,
+      "pass": 20,
+      "skip": 1
+    },
+    "suspect": 0
+  },
+  "cells": [
+    {
+      "cell": {
+        "id": "base-gb200-kind-inference-stack",
+        "recipe": {
+          "service": "kind",
+          "accelerator": "gb200",
+          "intent": "inference"
+        },
+        "shape": "stack",
+        "workers": 2,
+        "notes": "The backbone cell, re-run against 57ef016. Its 9 dispatched verdicts are byte-identical to the v0.3.0 run: 3 passed, 5 failed, 1 other. #672 landed and is real (busId went from 0000:0a:00.0 to 00000000:0a:00.0, verified by a differential probe of the two images and live in cluster), but it did NOT move gpu-operator-health. GFD now receives a well-formed BDF and still cannot read /sys/bus/pci/devices/\u003cbdf\u003e/vendor, because Mokka's rendered PCI tree is not grafted onto GFD's /sys. Evidence: results/gfd-sysfs-evidence.log."
+      },
+      "versions": {
+        "mokka": "57ef01659 (HEAD~1 of upstream/main on 2026-08-26; no tag yet)",
+        "mokkaImage": "ghcr.io/nvidia/nvml-mock:sha-57ef016",
+        "mokkaDigest": "sha256:115cb887ec53ffb7a17a913257b8f55594fda31ad2d1174745b5e20a1400db9e",
+        "chart": "deployments/nvml-mock/helm/nvml-mock at 57ef01659 (chart version 0.3.0)",
+        "chartDigest": "not published; Chart.yaml on main is still 0.3.0, so the released OCI chart does NOT carry these 60 commits and the chart must come from the checkout. This is the one provenance gap in this run and it is deliberate.",
+        "profile": "gb200",
+        "kind": "v0.32.0",
+        "nodeImage": "kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5",
+        "kubernetes": "v1.36.1 (containerd 2.3.1)",
+        "gpuOperator": "v25.3.4",
+        "dcgmExporter": "bundled with gpu-operator v25.3.4",
+        "aicr": "0752ea148aa1ae849cbef86ec59d0c970a582496",
+        "aicrImage": "ghcr.io/nvidia/aicr:latest",
+        "hostArch": "linux/arm64 (Docker Desktop VM on arm64 macOS)",
+        "hostContainerRuntime": "Docker 29.6.2, 14 CPU, 15.84 GiB VM"
+      },
+      "provenance": "sim",
+      "status": "ran",
+      "logsPointer": "tests/aicr-sweep/results-57ef016/base-gb200-kind-inference-stack",
+      "checks": [
+        {
+          "check": "operator-health",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "pass",
+          "provenance": "sim"
+        },
+        {
+          "check": "expected-resources",
+          "area": "control-plane",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "message": "pod not found for Job aicr-expected-resources-ce03baa3: [NOT_FOUND] pod for job not found"
+        },
+        {
+          "check": "gpu-operator-version",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[INTERNAL] GPU Operator version v25.3.4 does not satisfy constraint \"\u003e= v25.10.0\""
+        },
+        {
+          "check": "check-nvidia-smi",
+          "area": "nvml-surface",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "pass",
+          "provenance": "sim"
+        },
+        {
+          "check": "nccl-all-reduce-bw",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "nccl-all-reduce-bw-net",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "nccl-all-reduce-bw-nvls",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "inference-perf",
+          "area": "ttft-throughput",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "dra-support",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[NOT_FOUND] deployment nvidia-dra-driver/nvidia-dra-driver-gpu-controller not found: deployments.apps \"nvidia-dra-driver-gpu-controller\" not found"
+        },
+        {
+          "check": "gang-scheduling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "accelerator-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "pass",
+          "provenance": "sim"
+        },
+        {
+          "check": "ai-service-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[NOT_FOUND] no Prometheus service with port 9090 found in namespace \"monitoring\""
+        },
+        {
+          "check": "inference-gateway",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "pod-autoscaling",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "B",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "cluster-autoscaling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "robust-controller",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "secure-accelerator-access",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "slinky-slurm-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "slinky-slurm-imex-channel",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "gpu-operator-health",
+          "area": "operator-install",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[INTERNAL] ClusterPolicy state=notReady (want ready)"
+        },
+        {
+          "check": "platform-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[NOT_FOUND] platform health check failed (9 issues):\n  namespace agentgateway-system: not found\n  namespace cert-manager: not found\n  namespace monitoring: not found\n  namespace kai-scheduler: not found\n  namespace nvidia-network-operator: not found\n  namespace node-feature-discovery: not found\n  namespace skyhook: not found\n  namespace nvidia-dra-driver: not found\n  namespace nvsentinel: not found"
+        }
+      ]
+    },
+    {
+      "cell": {
+        "id": "base-gb200-kind-training-stack",
+        "recipe": {
+          "service": "kind",
+          "accelerator": "gb200",
+          "intent": "training"
+        },
+        "shape": "stack",
+        "workers": 2
+      },
+      "versions": {
+        "mokka": "57ef01659 (HEAD~1 of upstream/main on 2026-08-26; no tag yet)",
+        "mokkaImage": "ghcr.io/nvidia/nvml-mock:sha-57ef016",
+        "mokkaDigest": "sha256:115cb887ec53ffb7a17a913257b8f55594fda31ad2d1174745b5e20a1400db9e",
+        "chart": "deployments/nvml-mock/helm/nvml-mock at 57ef01659 (chart version 0.3.0)",
+        "chartDigest": "not published; Chart.yaml on main is still 0.3.0, so the released OCI chart does NOT carry these 60 commits and the chart must come from the checkout. This is the one provenance gap in this run and it is deliberate.",
+        "profile": "gb200",
+        "kind": "v0.32.0",
+        "nodeImage": "kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5",
+        "kubernetes": "v1.36.1 (containerd 2.3.1)",
+        "gpuOperator": "v25.3.4",
+        "dcgmExporter": "bundled with gpu-operator v25.3.4",
+        "aicr": "0752ea148aa1ae849cbef86ec59d0c970a582496",
+        "aicrImage": "ghcr.io/nvidia/aicr:latest",
+        "hostArch": "linux/arm64 (Docker Desktop VM on arm64 macOS)",
+        "hostContainerRuntime": "Docker 29.6.2, 14 CPU, 15.84 GiB VM"
+      },
+      "provenance": "sim",
+      "status": "blocked",
+      "cause": "X",
+      "blockedWhy": "RECLASSIFIED from BUDGET. The first run recorded this cell as blocked on host memory and predicted it would \"differ from the inference cell only in component set\". That prediction was never tested. It is wrong: AICR at 0752ea14 resolves no training recipe on the kind service for gb200. `aicr recipe --service kind --accelerator gb200 --intent training` exits 2 with \"[INVALID_REQUEST] no recipe provides intent 'training'\". On kind, training resolves for h100 and for no other accelerator. The cell fails at recipe resolution, before memory could ever matter, so the cause is X. Evidence: results/aicr-recipe-matrix-evidence.log.",
+      "checks": [
+        {
+          "check": "operator-health",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from BUDGET. The first run recorded this cell as blocked on host memory and predicted it would \"differ from the inference cell only in component set\". That prediction was never tested. It is wrong: AICR at 0752ea14 resolves no training recipe on the kind service for gb200. `aicr recipe --service kind --accelerator gb200 --intent training` exits 2 with \"[INVALID_REQUEST] no recipe provides intent 'training'\". On kind, training resolves for h100 and for no other accelerator. The cell fails at recipe resolution, before memory could ever matter, so the cause is X. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "expected-resources",
+          "area": "control-plane",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from BUDGET. The first run recorded this cell as blocked on host memory and predicted it would \"differ from the inference cell only in component set\". That prediction was never tested. It is wrong: AICR at 0752ea14 resolves no training recipe on the kind service for gb200. `aicr recipe --service kind --accelerator gb200 --intent training` exits 2 with \"[INVALID_REQUEST] no recipe provides intent 'training'\". On kind, training resolves for h100 and for no other accelerator. The cell fails at recipe resolution, before memory could ever matter, so the cause is X. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "gpu-operator-version",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from BUDGET. The first run recorded this cell as blocked on host memory and predicted it would \"differ from the inference cell only in component set\". That prediction was never tested. It is wrong: AICR at 0752ea14 resolves no training recipe on the kind service for gb200. `aicr recipe --service kind --accelerator gb200 --intent training` exits 2 with \"[INVALID_REQUEST] no recipe provides intent 'training'\". On kind, training resolves for h100 and for no other accelerator. The cell fails at recipe resolution, before memory could ever matter, so the cause is X. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "check-nvidia-smi",
+          "area": "nvml-surface",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from BUDGET. The first run recorded this cell as blocked on host memory and predicted it would \"differ from the inference cell only in component set\". That prediction was never tested. It is wrong: AICR at 0752ea14 resolves no training recipe on the kind service for gb200. `aicr recipe --service kind --accelerator gb200 --intent training` exits 2 with \"[INVALID_REQUEST] no recipe provides intent 'training'\". On kind, training resolves for h100 and for no other accelerator. The cell fails at recipe resolution, before memory could ever matter, so the cause is X. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "nccl-all-reduce-bw",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from BUDGET. The first run recorded this cell as blocked on host memory and predicted it would \"differ from the inference cell only in component set\". That prediction was never tested. It is wrong: AICR at 0752ea14 resolves no training recipe on the kind service for gb200. `aicr recipe --service kind --accelerator gb200 --intent training` exits 2 with \"[INVALID_REQUEST] no recipe provides intent 'training'\". On kind, training resolves for h100 and for no other accelerator. The cell fails at recipe resolution, before memory could ever matter, so the cause is X. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "nccl-all-reduce-bw-net",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from BUDGET. The first run recorded this cell as blocked on host memory and predicted it would \"differ from the inference cell only in component set\". That prediction was never tested. It is wrong: AICR at 0752ea14 resolves no training recipe on the kind service for gb200. `aicr recipe --service kind --accelerator gb200 --intent training` exits 2 with \"[INVALID_REQUEST] no recipe provides intent 'training'\". On kind, training resolves for h100 and for no other accelerator. The cell fails at recipe resolution, before memory could ever matter, so the cause is X. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "nccl-all-reduce-bw-nvls",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from BUDGET. The first run recorded this cell as blocked on host memory and predicted it would \"differ from the inference cell only in component set\". That prediction was never tested. It is wrong: AICR at 0752ea14 resolves no training recipe on the kind service for gb200. `aicr recipe --service kind --accelerator gb200 --intent training` exits 2 with \"[INVALID_REQUEST] no recipe provides intent 'training'\". On kind, training resolves for h100 and for no other accelerator. The cell fails at recipe resolution, before memory could ever matter, so the cause is X. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "inference-perf",
+          "area": "ttft-throughput",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from BUDGET. The first run recorded this cell as blocked on host memory and predicted it would \"differ from the inference cell only in component set\". That prediction was never tested. It is wrong: AICR at 0752ea14 resolves no training recipe on the kind service for gb200. `aicr recipe --service kind --accelerator gb200 --intent training` exits 2 with \"[INVALID_REQUEST] no recipe provides intent 'training'\". On kind, training resolves for h100 and for no other accelerator. The cell fails at recipe resolution, before memory could ever matter, so the cause is X. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "dra-support",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from BUDGET. The first run recorded this cell as blocked on host memory and predicted it would \"differ from the inference cell only in component set\". That prediction was never tested. It is wrong: AICR at 0752ea14 resolves no training recipe on the kind service for gb200. `aicr recipe --service kind --accelerator gb200 --intent training` exits 2 with \"[INVALID_REQUEST] no recipe provides intent 'training'\". On kind, training resolves for h100 and for no other accelerator. The cell fails at recipe resolution, before memory could ever matter, so the cause is X. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "gang-scheduling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from BUDGET. The first run recorded this cell as blocked on host memory and predicted it would \"differ from the inference cell only in component set\". That prediction was never tested. It is wrong: AICR at 0752ea14 resolves no training recipe on the kind service for gb200. `aicr recipe --service kind --accelerator gb200 --intent training` exits 2 with \"[INVALID_REQUEST] no recipe provides intent 'training'\". On kind, training resolves for h100 and for no other accelerator. The cell fails at recipe resolution, before memory could ever matter, so the cause is X. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "accelerator-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from BUDGET. The first run recorded this cell as blocked on host memory and predicted it would \"differ from the inference cell only in component set\". That prediction was never tested. It is wrong: AICR at 0752ea14 resolves no training recipe on the kind service for gb200. `aicr recipe --service kind --accelerator gb200 --intent training` exits 2 with \"[INVALID_REQUEST] no recipe provides intent 'training'\". On kind, training resolves for h100 and for no other accelerator. The cell fails at recipe resolution, before memory could ever matter, so the cause is X. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "ai-service-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from BUDGET. The first run recorded this cell as blocked on host memory and predicted it would \"differ from the inference cell only in component set\". That prediction was never tested. It is wrong: AICR at 0752ea14 resolves no training recipe on the kind service for gb200. `aicr recipe --service kind --accelerator gb200 --intent training` exits 2 with \"[INVALID_REQUEST] no recipe provides intent 'training'\". On kind, training resolves for h100 and for no other accelerator. The cell fails at recipe resolution, before memory could ever matter, so the cause is X. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "inference-gateway",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from BUDGET. The first run recorded this cell as blocked on host memory and predicted it would \"differ from the inference cell only in component set\". That prediction was never tested. It is wrong: AICR at 0752ea14 resolves no training recipe on the kind service for gb200. `aicr recipe --service kind --accelerator gb200 --intent training` exits 2 with \"[INVALID_REQUEST] no recipe provides intent 'training'\". On kind, training resolves for h100 and for no other accelerator. The cell fails at recipe resolution, before memory could ever matter, so the cause is X. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "pod-autoscaling",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "B",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from BUDGET. The first run recorded this cell as blocked on host memory and predicted it would \"differ from the inference cell only in component set\". That prediction was never tested. It is wrong: AICR at 0752ea14 resolves no training recipe on the kind service for gb200. `aicr recipe --service kind --accelerator gb200 --intent training` exits 2 with \"[INVALID_REQUEST] no recipe provides intent 'training'\". On kind, training resolves for h100 and for no other accelerator. The cell fails at recipe resolution, before memory could ever matter, so the cause is X. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "cluster-autoscaling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from BUDGET. The first run recorded this cell as blocked on host memory and predicted it would \"differ from the inference cell only in component set\". That prediction was never tested. It is wrong: AICR at 0752ea14 resolves no training recipe on the kind service for gb200. `aicr recipe --service kind --accelerator gb200 --intent training` exits 2 with \"[INVALID_REQUEST] no recipe provides intent 'training'\". On kind, training resolves for h100 and for no other accelerator. The cell fails at recipe resolution, before memory could ever matter, so the cause is X. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "robust-controller",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from BUDGET. The first run recorded this cell as blocked on host memory and predicted it would \"differ from the inference cell only in component set\". That prediction was never tested. It is wrong: AICR at 0752ea14 resolves no training recipe on the kind service for gb200. `aicr recipe --service kind --accelerator gb200 --intent training` exits 2 with \"[INVALID_REQUEST] no recipe provides intent 'training'\". On kind, training resolves for h100 and for no other accelerator. The cell fails at recipe resolution, before memory could ever matter, so the cause is X. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "secure-accelerator-access",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from BUDGET. The first run recorded this cell as blocked on host memory and predicted it would \"differ from the inference cell only in component set\". That prediction was never tested. It is wrong: AICR at 0752ea14 resolves no training recipe on the kind service for gb200. `aicr recipe --service kind --accelerator gb200 --intent training` exits 2 with \"[INVALID_REQUEST] no recipe provides intent 'training'\". On kind, training resolves for h100 and for no other accelerator. The cell fails at recipe resolution, before memory could ever matter, so the cause is X. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "slinky-slurm-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from BUDGET. The first run recorded this cell as blocked on host memory and predicted it would \"differ from the inference cell only in component set\". That prediction was never tested. It is wrong: AICR at 0752ea14 resolves no training recipe on the kind service for gb200. `aicr recipe --service kind --accelerator gb200 --intent training` exits 2 with \"[INVALID_REQUEST] no recipe provides intent 'training'\". On kind, training resolves for h100 and for no other accelerator. The cell fails at recipe resolution, before memory could ever matter, so the cause is X. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "slinky-slurm-imex-channel",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from BUDGET. The first run recorded this cell as blocked on host memory and predicted it would \"differ from the inference cell only in component set\". That prediction was never tested. It is wrong: AICR at 0752ea14 resolves no training recipe on the kind service for gb200. `aicr recipe --service kind --accelerator gb200 --intent training` exits 2 with \"[INVALID_REQUEST] no recipe provides intent 'training'\". On kind, training resolves for h100 and for no other accelerator. The cell fails at recipe resolution, before memory could ever matter, so the cause is X. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "gpu-operator-health",
+          "area": "operator-install",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from BUDGET. The first run recorded this cell as blocked on host memory and predicted it would \"differ from the inference cell only in component set\". That prediction was never tested. It is wrong: AICR at 0752ea14 resolves no training recipe on the kind service for gb200. `aicr recipe --service kind --accelerator gb200 --intent training` exits 2 with \"[INVALID_REQUEST] no recipe provides intent 'training'\". On kind, training resolves for h100 and for no other accelerator. The cell fails at recipe resolution, before memory could ever matter, so the cause is X. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "platform-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from BUDGET. The first run recorded this cell as blocked on host memory and predicted it would \"differ from the inference cell only in component set\". That prediction was never tested. It is wrong: AICR at 0752ea14 resolves no training recipe on the kind service for gb200. `aicr recipe --service kind --accelerator gb200 --intent training` exits 2 with \"[INVALID_REQUEST] no recipe provides intent 'training'\". On kind, training resolves for h100 and for no other accelerator. The cell fails at recipe resolution, before memory could ever matter, so the cause is X. Evidence: results/aicr-recipe-matrix-evidence.log."
+        }
+      ]
+    },
+    {
+      "cell": {
+        "id": "base-h100-kind-inference-stack",
+        "recipe": {
+          "service": "kind",
+          "accelerator": "h100",
+          "intent": "inference"
+        },
+        "shape": "stack",
+        "workers": 2,
+        "axes": {
+          "accelerator": "h100 (substitute for gb300)"
+        },
+        "notes": "Was BUDGET in the first run; the host VM is now 15.84 GiB and it ran. This is the largest single coverage gain in the re-run: AICR dispatched 14 of 21 checks here against 9 for gb200, and 5 passed against 3. gpu-operator-version passes on h100 and fails on gb200, and gang-scheduling, inference-gateway, pod-autoscaling, cluster-autoscaling and secure-accelerator-access are dispatched at all only here. It remains a substitution and is never counted as gb300 coverage."
+      },
+      "versions": {
+        "mokka": "57ef01659 (HEAD~1 of upstream/main on 2026-08-26; no tag yet)",
+        "mokkaImage": "ghcr.io/nvidia/nvml-mock:sha-57ef016",
+        "mokkaDigest": "sha256:115cb887ec53ffb7a17a913257b8f55594fda31ad2d1174745b5e20a1400db9e",
+        "chart": "deployments/nvml-mock/helm/nvml-mock at 57ef01659 (chart version 0.3.0)",
+        "chartDigest": "not published; Chart.yaml on main is still 0.3.0, so the released OCI chart does NOT carry these 60 commits and the chart must come from the checkout. This is the one provenance gap in this run and it is deliberate.",
+        "profile": "gb200",
+        "kind": "v0.32.0",
+        "nodeImage": "kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5",
+        "kubernetes": "v1.36.1 (containerd 2.3.1)",
+        "gpuOperator": "v25.3.4",
+        "dcgmExporter": "bundled with gpu-operator v25.3.4",
+        "aicr": "0752ea148aa1ae849cbef86ec59d0c970a582496",
+        "aicrImage": "ghcr.io/nvidia/aicr:latest",
+        "hostArch": "linux/arm64 (Docker Desktop VM on arm64 macOS)",
+        "hostContainerRuntime": "Docker 29.6.2, 14 CPU, 15.84 GiB VM"
+      },
+      "provenance": "sim",
+      "status": "ran",
+      "logsPointer": "tests/aicr-sweep/results-57ef016/base-h100-kind-inference-stack",
+      "checks": [
+        {
+          "check": "operator-health",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "pass",
+          "provenance": "sim"
+        },
+        {
+          "check": "expected-resources",
+          "area": "control-plane",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "message": "pod not found for Job aicr-expected-resources-5ef990d4: [NOT_FOUND] pod for job not found"
+        },
+        {
+          "check": "gpu-operator-version",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "pass",
+          "provenance": "sim"
+        },
+        {
+          "check": "check-nvidia-smi",
+          "area": "nvml-surface",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "pass",
+          "provenance": "sim"
+        },
+        {
+          "check": "nccl-all-reduce-bw",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "nccl-all-reduce-bw-net",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "nccl-all-reduce-bw-nvls",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "inference-perf",
+          "area": "ttft-throughput",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "dra-support",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[NOT_FOUND] deployment nvidia-dra-driver/nvidia-dra-driver-gpu-controller not found: deployments.apps \"nvidia-dra-driver-gpu-controller\" not found"
+        },
+        {
+          "check": "gang-scheduling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[NOT_FOUND] recipe declares kai-scheduler but its Deployment kai-scheduler/kai-scheduler-default is absent — apply the bundle or check RBAC: deployments.apps \"kai-scheduler-default\" not found"
+        },
+        {
+          "check": "accelerator-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "pass",
+          "provenance": "sim"
+        },
+        {
+          "check": "ai-service-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[NOT_FOUND] no Prometheus service with port 9090 found in namespace \"monitoring\""
+        },
+        {
+          "check": "inference-gateway",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[NOT_FOUND] GatewayClass 'agentgateway' not found: the server could not find the requested resource"
+        },
+        {
+          "check": "pod-autoscaling",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "B",
+          "gpuDependent": true,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[NOT_FOUND] custom metrics API not available (prometheus-adapter not ready): client rate limiter Wait returned an error: context deadline exceeded"
+        },
+        {
+          "check": "cluster-autoscaling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "skip",
+          "provenance": "sim",
+          "message": "[INTERNAL] Karpenter not found and cluster platform not recognized (not EKS or GKE): skip"
+        },
+        {
+          "check": "robust-controller",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "secure-accelerator-access",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "pass",
+          "provenance": "sim"
+        },
+        {
+          "check": "slinky-slurm-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "slinky-slurm-imex-channel",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "gpu-operator-health",
+          "area": "operator-install",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[INTERNAL] ClusterPolicy state=notReady (want ready)"
+        },
+        {
+          "check": "platform-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[NOT_FOUND] platform health check failed (9 issues):\n  namespace agentgateway-system: not found\n  namespace cert-manager: not found\n  namespace monitoring: not found\n  namespace kai-scheduler: not found\n  namespace nvidia-network-operator: not found\n  namespace node-feature-discovery: not found\n  namespace skyhook: not found\n  namespace nvidia-dra-driver: not found\n  namespace nvsentinel: not found"
+        }
+      ]
+    },
+    {
+      "cell": {
+        "id": "base-gb300-kind-inference-stack",
+        "recipe": {
+          "service": "kind",
+          "accelerator": "gb300",
+          "intent": "inference"
+        },
+        "shape": "stack",
+        "workers": 2
+      },
+      "versions": {
+        "mokka": "57ef01659 (HEAD~1 of upstream/main on 2026-08-26; no tag yet)",
+        "mokkaImage": "ghcr.io/nvidia/nvml-mock:sha-57ef016",
+        "mokkaDigest": "sha256:115cb887ec53ffb7a17a913257b8f55594fda31ad2d1174745b5e20a1400db9e",
+        "chart": "deployments/nvml-mock/helm/nvml-mock at 57ef01659 (chart version 0.3.0)",
+        "chartDigest": "not published; Chart.yaml on main is still 0.3.0, so the released OCI chart does NOT carry these 60 commits and the chart must come from the checkout. This is the one provenance gap in this run and it is deliberate.",
+        "profile": "gb200",
+        "kind": "v0.32.0",
+        "nodeImage": "kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5",
+        "kubernetes": "v1.36.1 (containerd 2.3.1)",
+        "gpuOperator": "v25.3.4",
+        "dcgmExporter": "bundled with gpu-operator v25.3.4",
+        "aicr": "0752ea148aa1ae849cbef86ec59d0c970a582496",
+        "aicrImage": "ghcr.io/nvidia/aicr:latest",
+        "hostArch": "linux/arm64 (Docker Desktop VM on arm64 macOS)",
+        "hostContainerRuntime": "Docker 29.6.2, 14 CPU, 15.84 GiB VM"
+      },
+      "provenance": "sim",
+      "status": "blocked",
+      "cause": "X",
+      "blockedWhy": "Unchanged from the first run and re-verified by running the CLI at the same pin: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile, and #699 made it the chart default, so the two sides have drifted further apart rather than closer. Not a Mokka gap.",
+      "checks": [
+        {
+          "check": "operator-health",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Unchanged from the first run and re-verified by running the CLI at the same pin: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile, and #699 made it the chart default, so the two sides have drifted further apart rather than closer. Not a Mokka gap."
+        },
+        {
+          "check": "expected-resources",
+          "area": "control-plane",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Unchanged from the first run and re-verified by running the CLI at the same pin: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile, and #699 made it the chart default, so the two sides have drifted further apart rather than closer. Not a Mokka gap."
+        },
+        {
+          "check": "gpu-operator-version",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Unchanged from the first run and re-verified by running the CLI at the same pin: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile, and #699 made it the chart default, so the two sides have drifted further apart rather than closer. Not a Mokka gap."
+        },
+        {
+          "check": "check-nvidia-smi",
+          "area": "nvml-surface",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Unchanged from the first run and re-verified by running the CLI at the same pin: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile, and #699 made it the chart default, so the two sides have drifted further apart rather than closer. Not a Mokka gap."
+        },
+        {
+          "check": "nccl-all-reduce-bw",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Unchanged from the first run and re-verified by running the CLI at the same pin: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile, and #699 made it the chart default, so the two sides have drifted further apart rather than closer. Not a Mokka gap."
+        },
+        {
+          "check": "nccl-all-reduce-bw-net",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Unchanged from the first run and re-verified by running the CLI at the same pin: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile, and #699 made it the chart default, so the two sides have drifted further apart rather than closer. Not a Mokka gap."
+        },
+        {
+          "check": "nccl-all-reduce-bw-nvls",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Unchanged from the first run and re-verified by running the CLI at the same pin: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile, and #699 made it the chart default, so the two sides have drifted further apart rather than closer. Not a Mokka gap."
+        },
+        {
+          "check": "inference-perf",
+          "area": "ttft-throughput",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Unchanged from the first run and re-verified by running the CLI at the same pin: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile, and #699 made it the chart default, so the two sides have drifted further apart rather than closer. Not a Mokka gap."
+        },
+        {
+          "check": "dra-support",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Unchanged from the first run and re-verified by running the CLI at the same pin: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile, and #699 made it the chart default, so the two sides have drifted further apart rather than closer. Not a Mokka gap."
+        },
+        {
+          "check": "gang-scheduling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Unchanged from the first run and re-verified by running the CLI at the same pin: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile, and #699 made it the chart default, so the two sides have drifted further apart rather than closer. Not a Mokka gap."
+        },
+        {
+          "check": "accelerator-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Unchanged from the first run and re-verified by running the CLI at the same pin: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile, and #699 made it the chart default, so the two sides have drifted further apart rather than closer. Not a Mokka gap."
+        },
+        {
+          "check": "ai-service-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Unchanged from the first run and re-verified by running the CLI at the same pin: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile, and #699 made it the chart default, so the two sides have drifted further apart rather than closer. Not a Mokka gap."
+        },
+        {
+          "check": "inference-gateway",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Unchanged from the first run and re-verified by running the CLI at the same pin: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile, and #699 made it the chart default, so the two sides have drifted further apart rather than closer. Not a Mokka gap."
+        },
+        {
+          "check": "pod-autoscaling",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "B",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Unchanged from the first run and re-verified by running the CLI at the same pin: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile, and #699 made it the chart default, so the two sides have drifted further apart rather than closer. Not a Mokka gap."
+        },
+        {
+          "check": "cluster-autoscaling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Unchanged from the first run and re-verified by running the CLI at the same pin: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile, and #699 made it the chart default, so the two sides have drifted further apart rather than closer. Not a Mokka gap."
+        },
+        {
+          "check": "robust-controller",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Unchanged from the first run and re-verified by running the CLI at the same pin: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile, and #699 made it the chart default, so the two sides have drifted further apart rather than closer. Not a Mokka gap."
+        },
+        {
+          "check": "secure-accelerator-access",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Unchanged from the first run and re-verified by running the CLI at the same pin: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile, and #699 made it the chart default, so the two sides have drifted further apart rather than closer. Not a Mokka gap."
+        },
+        {
+          "check": "slinky-slurm-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Unchanged from the first run and re-verified by running the CLI at the same pin: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile, and #699 made it the chart default, so the two sides have drifted further apart rather than closer. Not a Mokka gap."
+        },
+        {
+          "check": "slinky-slurm-imex-channel",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Unchanged from the first run and re-verified by running the CLI at the same pin: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile, and #699 made it the chart default, so the two sides have drifted further apart rather than closer. Not a Mokka gap."
+        },
+        {
+          "check": "gpu-operator-health",
+          "area": "operator-install",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Unchanged from the first run and re-verified by running the CLI at the same pin: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile, and #699 made it the chart default, so the two sides have drifted further apart rather than closer. Not a Mokka gap."
+        },
+        {
+          "check": "platform-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Unchanged from the first run and re-verified by running the CLI at the same pin: `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2 with \"[INVALID_REQUEST] no recipe provides accelerator 'gb300'\". The catalog knows a100, b200, gb200, h100, h200, l40s and rtx-pro-6000. Mokka ships a gb300 profile, and #699 made it the chart default, so the two sides have drifted further apart rather than closer. Not a Mokka gap."
+        }
+      ]
+    },
+    {
+      "cell": {
+        "id": "base-gb300-kind-training-stack",
+        "recipe": {
+          "service": "kind",
+          "accelerator": "gb300",
+          "intent": "training"
+        },
+        "shape": "stack",
+        "workers": 2
+      },
+      "versions": {
+        "mokka": "57ef01659 (HEAD~1 of upstream/main on 2026-08-26; no tag yet)",
+        "mokkaImage": "ghcr.io/nvidia/nvml-mock:sha-57ef016",
+        "mokkaDigest": "sha256:115cb887ec53ffb7a17a913257b8f55594fda31ad2d1174745b5e20a1400db9e",
+        "chart": "deployments/nvml-mock/helm/nvml-mock at 57ef01659 (chart version 0.3.0)",
+        "chartDigest": "not published; Chart.yaml on main is still 0.3.0, so the released OCI chart does NOT carry these 60 commits and the chart must come from the checkout. This is the one provenance gap in this run and it is deliberate.",
+        "profile": "gb200",
+        "kind": "v0.32.0",
+        "nodeImage": "kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5",
+        "kubernetes": "v1.36.1 (containerd 2.3.1)",
+        "gpuOperator": "v25.3.4",
+        "dcgmExporter": "bundled with gpu-operator v25.3.4",
+        "aicr": "0752ea148aa1ae849cbef86ec59d0c970a582496",
+        "aicrImage": "ghcr.io/nvidia/aicr:latest",
+        "hostArch": "linux/arm64 (Docker Desktop VM on arm64 macOS)",
+        "hostContainerRuntime": "Docker 29.6.2, 14 CPU, 15.84 GiB VM"
+      },
+      "provenance": "sim",
+      "status": "blocked",
+      "cause": "X",
+      "blockedWhy": "Same as base-gb300-kind-inference-stack, and now doubly so: AICR reports both \"no recipe provides accelerator 'gb300'\" and \"no recipe provides intent 'training'\" for this combination.",
+      "checks": [
+        {
+          "check": "operator-health",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack, and now doubly so: AICR reports both \"no recipe provides accelerator 'gb300'\" and \"no recipe provides intent 'training'\" for this combination."
+        },
+        {
+          "check": "expected-resources",
+          "area": "control-plane",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack, and now doubly so: AICR reports both \"no recipe provides accelerator 'gb300'\" and \"no recipe provides intent 'training'\" for this combination."
+        },
+        {
+          "check": "gpu-operator-version",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack, and now doubly so: AICR reports both \"no recipe provides accelerator 'gb300'\" and \"no recipe provides intent 'training'\" for this combination."
+        },
+        {
+          "check": "check-nvidia-smi",
+          "area": "nvml-surface",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack, and now doubly so: AICR reports both \"no recipe provides accelerator 'gb300'\" and \"no recipe provides intent 'training'\" for this combination."
+        },
+        {
+          "check": "nccl-all-reduce-bw",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack, and now doubly so: AICR reports both \"no recipe provides accelerator 'gb300'\" and \"no recipe provides intent 'training'\" for this combination."
+        },
+        {
+          "check": "nccl-all-reduce-bw-net",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack, and now doubly so: AICR reports both \"no recipe provides accelerator 'gb300'\" and \"no recipe provides intent 'training'\" for this combination."
+        },
+        {
+          "check": "nccl-all-reduce-bw-nvls",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack, and now doubly so: AICR reports both \"no recipe provides accelerator 'gb300'\" and \"no recipe provides intent 'training'\" for this combination."
+        },
+        {
+          "check": "inference-perf",
+          "area": "ttft-throughput",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack, and now doubly so: AICR reports both \"no recipe provides accelerator 'gb300'\" and \"no recipe provides intent 'training'\" for this combination."
+        },
+        {
+          "check": "dra-support",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack, and now doubly so: AICR reports both \"no recipe provides accelerator 'gb300'\" and \"no recipe provides intent 'training'\" for this combination."
+        },
+        {
+          "check": "gang-scheduling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack, and now doubly so: AICR reports both \"no recipe provides accelerator 'gb300'\" and \"no recipe provides intent 'training'\" for this combination."
+        },
+        {
+          "check": "accelerator-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack, and now doubly so: AICR reports both \"no recipe provides accelerator 'gb300'\" and \"no recipe provides intent 'training'\" for this combination."
+        },
+        {
+          "check": "ai-service-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack, and now doubly so: AICR reports both \"no recipe provides accelerator 'gb300'\" and \"no recipe provides intent 'training'\" for this combination."
+        },
+        {
+          "check": "inference-gateway",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack, and now doubly so: AICR reports both \"no recipe provides accelerator 'gb300'\" and \"no recipe provides intent 'training'\" for this combination."
+        },
+        {
+          "check": "pod-autoscaling",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "B",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack, and now doubly so: AICR reports both \"no recipe provides accelerator 'gb300'\" and \"no recipe provides intent 'training'\" for this combination."
+        },
+        {
+          "check": "cluster-autoscaling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack, and now doubly so: AICR reports both \"no recipe provides accelerator 'gb300'\" and \"no recipe provides intent 'training'\" for this combination."
+        },
+        {
+          "check": "robust-controller",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack, and now doubly so: AICR reports both \"no recipe provides accelerator 'gb300'\" and \"no recipe provides intent 'training'\" for this combination."
+        },
+        {
+          "check": "secure-accelerator-access",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack, and now doubly so: AICR reports both \"no recipe provides accelerator 'gb300'\" and \"no recipe provides intent 'training'\" for this combination."
+        },
+        {
+          "check": "slinky-slurm-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack, and now doubly so: AICR reports both \"no recipe provides accelerator 'gb300'\" and \"no recipe provides intent 'training'\" for this combination."
+        },
+        {
+          "check": "slinky-slurm-imex-channel",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack, and now doubly so: AICR reports both \"no recipe provides accelerator 'gb300'\" and \"no recipe provides intent 'training'\" for this combination."
+        },
+        {
+          "check": "gpu-operator-health",
+          "area": "operator-install",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack, and now doubly so: AICR reports both \"no recipe provides accelerator 'gb300'\" and \"no recipe provides intent 'training'\" for this combination."
+        },
+        {
+          "check": "platform-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "Same as base-gb300-kind-inference-stack, and now doubly so: AICR reports both \"no recipe provides accelerator 'gb300'\" and \"no recipe provides intent 'training'\" for this combination."
+        }
+      ]
+    },
+    {
+      "cell": {
+        "id": "targeted-dra-installed",
+        "recipe": {
+          "service": "kind",
+          "accelerator": "gb200",
+          "intent": "inference"
+        },
+        "shape": "stack",
+        "workers": 2,
+        "axes": {
+          "imex.mockChannels.enabled": "true",
+          "nvidia-dra-driver-gpu": "v0.5.0 with altProcDevices (first run used v25.12.0, which lacked it)"
+        },
+        "notes": "The one cell whose verdict moved. dra-support went FAILED to PASSED. Mokka rendered the /proc/devices substitute (235 nvidia-caps-imex-channels), DRA v0.5.0 consumed it via altProcDevices, both kubelet-plugin containers (compute-domains and gpus) came up on both workers, and 12 ResourceSlice devices were published. The first run's abort, \"error parsing '/proc/devices'\", appears zero times in 400 lines of driver logs. This closes the cause-U block D-009 recorded, for an UPSTREAM reason: Mokka's IMEX rendering already worked at v0.3.0, and what was missing was a released consumer. v0.5.0 shipped it on 2026-08-19. CAVEAT: the v0.5.0 chart was renamed nvidia-dra-driver-gpu to dra-driver-nvidia-gpu, so its default resource names no longer match what AICR at 0752ea14 looks for. This cell passed --set nameOverride=nvidia-dra-driver-gpu to restore the expected name. AICR itself was not modified. Without that flag dra-support fails NOT_FOUND on the name alone, whatever the driver does. Evidence: results/dra-altprocdevices-evidence.log."
+      },
+      "versions": {
+        "mokka": "57ef01659 (HEAD~1 of upstream/main on 2026-08-26; no tag yet)",
+        "mokkaImage": "ghcr.io/nvidia/nvml-mock:sha-57ef016",
+        "mokkaDigest": "sha256:115cb887ec53ffb7a17a913257b8f55594fda31ad2d1174745b5e20a1400db9e",
+        "chart": "deployments/nvml-mock/helm/nvml-mock at 57ef01659 (chart version 0.3.0)",
+        "chartDigest": "not published; Chart.yaml on main is still 0.3.0, so the released OCI chart does NOT carry these 60 commits and the chart must come from the checkout. This is the one provenance gap in this run and it is deliberate.",
+        "profile": "gb200",
+        "kind": "v0.32.0",
+        "nodeImage": "kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5",
+        "kubernetes": "v1.36.1 (containerd 2.3.1)",
+        "gpuOperator": "v25.3.4",
+        "dcgmExporter": "bundled with gpu-operator v25.3.4",
+        "aicr": "0752ea148aa1ae849cbef86ec59d0c970a582496",
+        "aicrImage": "ghcr.io/nvidia/aicr:latest",
+        "hostArch": "linux/arm64 (Docker Desktop VM on arm64 macOS)",
+        "hostContainerRuntime": "Docker 29.6.2, 14 CPU, 15.84 GiB VM"
+      },
+      "provenance": "sim",
+      "status": "ran",
+      "logsPointer": "tests/aicr-sweep/results-57ef016/targeted-dra-installed",
+      "checks": [
+        {
+          "check": "operator-health",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "message": "pod never reached running state"
+        },
+        {
+          "check": "expected-resources",
+          "area": "control-plane",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[NOT_FOUND] Deployment agentgateway-system/agentgateway not found: deployments.apps \"agentgateway\" not found"
+        },
+        {
+          "check": "gpu-operator-version",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[INTERNAL] GPU Operator version v25.3.4 does not satisfy constraint \"\u003e= v25.10.0\""
+        },
+        {
+          "check": "check-nvidia-smi",
+          "area": "nvml-surface",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "pass",
+          "provenance": "sim"
+        },
+        {
+          "check": "nccl-all-reduce-bw",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "nccl-all-reduce-bw-net",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "nccl-all-reduce-bw-nvls",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "inference-perf",
+          "area": "ttft-throughput",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "dra-support",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "pass",
+          "provenance": "sim"
+        },
+        {
+          "check": "gang-scheduling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "accelerator-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "pass",
+          "provenance": "sim"
+        },
+        {
+          "check": "ai-service-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[NOT_FOUND] no Prometheus service with port 9090 found in namespace \"monitoring\""
+        },
+        {
+          "check": "inference-gateway",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "pod-autoscaling",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "B",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "cluster-autoscaling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "robust-controller",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "secure-accelerator-access",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "slinky-slurm-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "slinky-slurm-imex-channel",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "gpu-operator-health",
+          "area": "operator-install",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[INTERNAL] ClusterPolicy state=notReady (want ready)"
+        },
+        {
+          "check": "platform-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[NOT_FOUND] platform health check failed (8 issues):\n  namespace agentgateway-system: not found\n  namespace cert-manager: not found\n  namespace monitoring: not found\n  namespace kai-scheduler: not found\n  namespace nvidia-network-operator: not found\n  namespace node-feature-discovery: not found\n  namespace skyhook: not found\n  namespace nvsentinel: not found"
+        }
+      ]
+    },
+    {
+      "cell": {
+        "id": "axis-nri-cdi",
+        "recipe": {
+          "service": "kind",
+          "accelerator": "gb200",
+          "intent": "inference"
+        },
+        "shape": "stack",
+        "workers": 2,
+        "axes": {
+          "nri.deviceInjectionMode": "cdi (base is raw)"
+        },
+        "notes": "Was BUDGET; ran. Verdicts identical to the base cell (3 passed, 5 failed, 1 other). The CDI injection mode is a Mokka-side device-injection change and does not touch the ClusterPolicy path that holds gpu-operator-health down, so no movement is the expected and correct result."
+      },
+      "versions": {
+        "mokka": "57ef01659 (HEAD~1 of upstream/main on 2026-08-26; no tag yet)",
+        "mokkaImage": "ghcr.io/nvidia/nvml-mock:sha-57ef016",
+        "mokkaDigest": "sha256:115cb887ec53ffb7a17a913257b8f55594fda31ad2d1174745b5e20a1400db9e",
+        "chart": "deployments/nvml-mock/helm/nvml-mock at 57ef01659 (chart version 0.3.0)",
+        "chartDigest": "not published; Chart.yaml on main is still 0.3.0, so the released OCI chart does NOT carry these 60 commits and the chart must come from the checkout. This is the one provenance gap in this run and it is deliberate.",
+        "profile": "gb200",
+        "kind": "v0.32.0",
+        "nodeImage": "kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5",
+        "kubernetes": "v1.36.1 (containerd 2.3.1)",
+        "gpuOperator": "v25.3.4",
+        "dcgmExporter": "bundled with gpu-operator v25.3.4",
+        "aicr": "0752ea148aa1ae849cbef86ec59d0c970a582496",
+        "aicrImage": "ghcr.io/nvidia/aicr:latest",
+        "hostArch": "linux/arm64 (Docker Desktop VM on arm64 macOS)",
+        "hostContainerRuntime": "Docker 29.6.2, 14 CPU, 15.84 GiB VM"
+      },
+      "provenance": "sim",
+      "status": "ran",
+      "logsPointer": "tests/aicr-sweep/results-57ef016/axis-nri-cdi",
+      "checks": [
+        {
+          "check": "operator-health",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "pass",
+          "provenance": "sim"
+        },
+        {
+          "check": "expected-resources",
+          "area": "control-plane",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "message": "pod not found for Job aicr-expected-resources-6c6c4efc: [NOT_FOUND] pod for job not found"
+        },
+        {
+          "check": "gpu-operator-version",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[INTERNAL] GPU Operator version v25.3.4 does not satisfy constraint \"\u003e= v25.10.0\""
+        },
+        {
+          "check": "check-nvidia-smi",
+          "area": "nvml-surface",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "pass",
+          "provenance": "sim"
+        },
+        {
+          "check": "nccl-all-reduce-bw",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "nccl-all-reduce-bw-net",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "nccl-all-reduce-bw-nvls",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "inference-perf",
+          "area": "ttft-throughput",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "dra-support",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[NOT_FOUND] deployment nvidia-dra-driver/nvidia-dra-driver-gpu-controller not found: deployments.apps \"nvidia-dra-driver-gpu-controller\" not found"
+        },
+        {
+          "check": "gang-scheduling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "accelerator-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "pass",
+          "provenance": "sim"
+        },
+        {
+          "check": "ai-service-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[NOT_FOUND] no Prometheus service with port 9090 found in namespace \"monitoring\""
+        },
+        {
+          "check": "inference-gateway",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "pod-autoscaling",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "B",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "cluster-autoscaling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "robust-controller",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "secure-accelerator-access",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "slinky-slurm-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "slinky-slurm-imex-channel",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "gpu-operator-health",
+          "area": "operator-install",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[INTERNAL] ClusterPolicy state=notReady (want ready)"
+        },
+        {
+          "check": "platform-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[NOT_FOUND] platform health check failed (9 issues):\n  namespace agentgateway-system: not found\n  namespace cert-manager: not found\n  namespace monitoring: not found\n  namespace kai-scheduler: not found\n  namespace nvidia-network-operator: not found\n  namespace node-feature-discovery: not found\n  namespace skyhook: not found\n  namespace nvidia-dra-driver: not found\n  namespace nvsentinel: not found"
+        }
+      ]
+    },
+    {
+      "cell": {
+        "id": "axis-allocation-watcher-on",
+        "recipe": {
+          "service": "kind",
+          "accelerator": "gb200",
+          "intent": "inference"
+        },
+        "shape": "stack",
+        "workers": 2,
+        "axes": {
+          "allocationWatcher.enabled": "true (base is false)"
+        },
+        "notes": "Was BUDGET; ran. The sidecar came up (3/3 containers in the nvml-mock DaemonSet) and verdicts are identical to the base cell. As the first run predicted in advance, any check reading GPU memory utilization as evidence of real work stays bucket B whatever this cell shows, because the allocation bytes are synthetic by construction."
+      },
+      "versions": {
+        "mokka": "57ef01659 (HEAD~1 of upstream/main on 2026-08-26; no tag yet)",
+        "mokkaImage": "ghcr.io/nvidia/nvml-mock:sha-57ef016",
+        "mokkaDigest": "sha256:115cb887ec53ffb7a17a913257b8f55594fda31ad2d1174745b5e20a1400db9e",
+        "chart": "deployments/nvml-mock/helm/nvml-mock at 57ef01659 (chart version 0.3.0)",
+        "chartDigest": "not published; Chart.yaml on main is still 0.3.0, so the released OCI chart does NOT carry these 60 commits and the chart must come from the checkout. This is the one provenance gap in this run and it is deliberate.",
+        "profile": "gb200",
+        "kind": "v0.32.0",
+        "nodeImage": "kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5",
+        "kubernetes": "v1.36.1 (containerd 2.3.1)",
+        "gpuOperator": "v25.3.4",
+        "dcgmExporter": "bundled with gpu-operator v25.3.4",
+        "aicr": "0752ea148aa1ae849cbef86ec59d0c970a582496",
+        "aicrImage": "ghcr.io/nvidia/aicr:latest",
+        "hostArch": "linux/arm64 (Docker Desktop VM on arm64 macOS)",
+        "hostContainerRuntime": "Docker 29.6.2, 14 CPU, 15.84 GiB VM"
+      },
+      "provenance": "sim",
+      "status": "ran",
+      "logsPointer": "tests/aicr-sweep/results-57ef016/axis-allocation-watcher-on",
+      "checks": [
+        {
+          "check": "operator-health",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "pass",
+          "provenance": "sim"
+        },
+        {
+          "check": "expected-resources",
+          "area": "control-plane",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "message": "pod not found for Job aicr-expected-resources-ba9ec431: [NOT_FOUND] pod for job not found"
+        },
+        {
+          "check": "gpu-operator-version",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[INTERNAL] GPU Operator version v25.3.4 does not satisfy constraint \"\u003e= v25.10.0\""
+        },
+        {
+          "check": "check-nvidia-smi",
+          "area": "nvml-surface",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "pass",
+          "provenance": "sim"
+        },
+        {
+          "check": "nccl-all-reduce-bw",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "nccl-all-reduce-bw-net",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "nccl-all-reduce-bw-nvls",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "inference-perf",
+          "area": "ttft-throughput",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "dra-support",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[NOT_FOUND] deployment nvidia-dra-driver/nvidia-dra-driver-gpu-controller not found: deployments.apps \"nvidia-dra-driver-gpu-controller\" not found"
+        },
+        {
+          "check": "gang-scheduling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "accelerator-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "pass",
+          "provenance": "sim"
+        },
+        {
+          "check": "ai-service-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[NOT_FOUND] no Prometheus service with port 9090 found in namespace \"monitoring\""
+        },
+        {
+          "check": "inference-gateway",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "pod-autoscaling",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "B",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "cluster-autoscaling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "robust-controller",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "secure-accelerator-access",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "slinky-slurm-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "slinky-slurm-imex-channel",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "gpu-operator-health",
+          "area": "operator-install",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[INTERNAL] ClusterPolicy state=notReady (want ready)"
+        },
+        {
+          "check": "platform-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[NOT_FOUND] platform health check failed (9 issues):\n  namespace agentgateway-system: not found\n  namespace cert-manager: not found\n  namespace monitoring: not found\n  namespace kai-scheduler: not found\n  namespace nvidia-network-operator: not found\n  namespace node-feature-discovery: not found\n  namespace skyhook: not found\n  namespace nvidia-dra-driver: not found\n  namespace nvsentinel: not found"
+        }
+      ]
+    },
+    {
+      "cell": {
+        "id": "axis-failure-injection-ecc",
+        "recipe": {
+          "service": "kind",
+          "accelerator": "gb200",
+          "intent": "inference"
+        },
+        "shape": "stack",
+        "workers": 2,
+        "axes": {
+          "gpu.failureInjection": "enabled=true mode=ecc_uncorrectable probability=1 (base is off)"
+        },
+        "notes": "Was BUDGET; ran. Verdicts identical to the base cell. The fault is real and was verified before the result was read: the mock reports 6 and 9 volatile DRAM Uncorrectable errors on two GPUs while all 4 still enumerate, and check-nvidia-smi and accelerator-metrics both still pass. So a degraded but enumerable GPU is indistinguishable from a healthy one at this recipe. That is a statement about which checks AICR dispatches for kind/gb200/inference, not about Mokka: the injection works end to end. NOTE the first run recorded in cells.yaml declared this axis as `gpu.failureInjection.mode=ecc_uncorrectable` alone, which is inert, because the chart gates injection on `enabled` and never trips at the default probability of 0. Had that cell run as declared it would have measured nothing and looked like a clean negative. Evidence, including a second trap that produced a plausible but wrong result: results/ecc-injection-evidence.log."
+      },
+      "versions": {
+        "mokka": "57ef01659 (HEAD~1 of upstream/main on 2026-08-26; no tag yet)",
+        "mokkaImage": "ghcr.io/nvidia/nvml-mock:sha-57ef016",
+        "mokkaDigest": "sha256:115cb887ec53ffb7a17a913257b8f55594fda31ad2d1174745b5e20a1400db9e",
+        "chart": "deployments/nvml-mock/helm/nvml-mock at 57ef01659 (chart version 0.3.0)",
+        "chartDigest": "not published; Chart.yaml on main is still 0.3.0, so the released OCI chart does NOT carry these 60 commits and the chart must come from the checkout. This is the one provenance gap in this run and it is deliberate.",
+        "profile": "gb200",
+        "kind": "v0.32.0",
+        "nodeImage": "kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5",
+        "kubernetes": "v1.36.1 (containerd 2.3.1)",
+        "gpuOperator": "v25.3.4",
+        "dcgmExporter": "bundled with gpu-operator v25.3.4",
+        "aicr": "0752ea148aa1ae849cbef86ec59d0c970a582496",
+        "aicrImage": "ghcr.io/nvidia/aicr:latest",
+        "hostArch": "linux/arm64 (Docker Desktop VM on arm64 macOS)",
+        "hostContainerRuntime": "Docker 29.6.2, 14 CPU, 15.84 GiB VM"
+      },
+      "provenance": "sim",
+      "status": "ran",
+      "logsPointer": "tests/aicr-sweep/results-57ef016/axis-failure-injection-ecc",
+      "checks": [
+        {
+          "check": "operator-health",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "pass",
+          "provenance": "sim"
+        },
+        {
+          "check": "expected-resources",
+          "area": "control-plane",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "message": "pod not found for Job aicr-expected-resources-cc04b61a: [NOT_FOUND] pod for job not found"
+        },
+        {
+          "check": "gpu-operator-version",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[INTERNAL] GPU Operator version v25.3.4 does not satisfy constraint \"\u003e= v25.10.0\""
+        },
+        {
+          "check": "check-nvidia-smi",
+          "area": "nvml-surface",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "pass",
+          "provenance": "sim"
+        },
+        {
+          "check": "nccl-all-reduce-bw",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "nccl-all-reduce-bw-net",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "nccl-all-reduce-bw-nvls",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "inference-perf",
+          "area": "ttft-throughput",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "dra-support",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[NOT_FOUND] deployment nvidia-dra-driver/nvidia-dra-driver-gpu-controller not found: deployments.apps \"nvidia-dra-driver-gpu-controller\" not found"
+        },
+        {
+          "check": "gang-scheduling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "accelerator-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "pass",
+          "provenance": "sim"
+        },
+        {
+          "check": "ai-service-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[NOT_FOUND] no Prometheus service with port 9090 found in namespace \"monitoring\""
+        },
+        {
+          "check": "inference-gateway",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "pod-autoscaling",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "B",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "cluster-autoscaling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "robust-controller",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "secure-accelerator-access",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "slinky-slurm-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "slinky-slurm-imex-channel",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "not-run",
+          "provenance": "sim",
+          "note": "check absent from run output"
+        },
+        {
+          "check": "gpu-operator-health",
+          "area": "operator-install",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[INTERNAL] ClusterPolicy state=notReady (want ready)"
+        },
+        {
+          "check": "platform-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "fail",
+          "provenance": "sim",
+          "message": "[NOT_FOUND] platform health check failed (9 issues):\n  namespace agentgateway-system: not found\n  namespace cert-manager: not found\n  namespace monitoring: not found\n  namespace kai-scheduler: not found\n  namespace nvidia-network-operator: not found\n  namespace node-feature-discovery: not found\n  namespace skyhook: not found\n  namespace nvidia-dra-driver: not found\n  namespace nvsentinel: not found"
+        }
+      ]
+    },
+    {
+      "cell": {
+        "id": "axis-compute-domain-fabric",
+        "recipe": {
+          "service": "kind",
+          "accelerator": "gb200",
+          "intent": "training"
+        },
+        "shape": "fabric",
+        "workers": 4,
+        "axes": {
+          "imex.mockChannels.enabled": "true",
+          "topology.domains": "two cliques"
+        }
+      },
+      "versions": {
+        "mokka": "57ef01659 (HEAD~1 of upstream/main on 2026-08-26; no tag yet)",
+        "mokkaImage": "ghcr.io/nvidia/nvml-mock:sha-57ef016",
+        "mokkaDigest": "sha256:115cb887ec53ffb7a17a913257b8f55594fda31ad2d1174745b5e20a1400db9e",
+        "chart": "deployments/nvml-mock/helm/nvml-mock at 57ef01659 (chart version 0.3.0)",
+        "chartDigest": "not published; Chart.yaml on main is still 0.3.0, so the released OCI chart does NOT carry these 60 commits and the chart must come from the checkout. This is the one provenance gap in this run and it is deliberate.",
+        "profile": "gb200",
+        "kind": "v0.32.0",
+        "nodeImage": "kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5",
+        "kubernetes": "v1.36.1 (containerd 2.3.1)",
+        "gpuOperator": "v25.3.4",
+        "dcgmExporter": "bundled with gpu-operator v25.3.4",
+        "aicr": "0752ea148aa1ae849cbef86ec59d0c970a582496",
+        "aicrImage": "ghcr.io/nvidia/aicr:latest",
+        "hostArch": "linux/arm64 (Docker Desktop VM on arm64 macOS)",
+        "hostContainerRuntime": "Docker 29.6.2, 14 CPU, 15.84 GiB VM"
+      },
+      "provenance": "sim",
+      "status": "blocked",
+      "cause": "X",
+      "blockedWhy": "RECLASSIFIED from U. The first run blocked this on the DRA driver lacking --set altProcDevices, which was true of v25.12.0 and is no longer true: v0.5.0, released 2026-08-19, ships altProcDevices, and its own values.yaml documents it as being for mock NVML. But the cell cannot run for a reason that predates that: it declares intent=training on the kind service, and AICR at 0752ea14 resolves no such recipe for gb200. The recipe-resolution failure comes first, so the cause is X, not U. The altProcDevices question it was meant to answer is now carried by targeted-dra-installed instead. Evidence: results/aicr-recipe-matrix-evidence.log.",
+      "checks": [
+        {
+          "check": "operator-health",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from U. The first run blocked this on the DRA driver lacking --set altProcDevices, which was true of v25.12.0 and is no longer true: v0.5.0, released 2026-08-19, ships altProcDevices, and its own values.yaml documents it as being for mock NVML. But the cell cannot run for a reason that predates that: it declares intent=training on the kind service, and AICR at 0752ea14 resolves no such recipe for gb200. The recipe-resolution failure comes first, so the cause is X, not U. The altProcDevices question it was meant to answer is now carried by targeted-dra-installed instead. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "expected-resources",
+          "area": "control-plane",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from U. The first run blocked this on the DRA driver lacking --set altProcDevices, which was true of v25.12.0 and is no longer true: v0.5.0, released 2026-08-19, ships altProcDevices, and its own values.yaml documents it as being for mock NVML. But the cell cannot run for a reason that predates that: it declares intent=training on the kind service, and AICR at 0752ea14 resolves no such recipe for gb200. The recipe-resolution failure comes first, so the cause is X, not U. The altProcDevices question it was meant to answer is now carried by targeted-dra-installed instead. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "gpu-operator-version",
+          "area": "operator-install",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from U. The first run blocked this on the DRA driver lacking --set altProcDevices, which was true of v25.12.0 and is no longer true: v0.5.0, released 2026-08-19, ships altProcDevices, and its own values.yaml documents it as being for mock NVML. But the cell cannot run for a reason that predates that: it declares intent=training on the kind service, and AICR at 0752ea14 resolves no such recipe for gb200. The recipe-resolution failure comes first, so the cause is X, not U. The altProcDevices question it was meant to answer is now carried by targeted-dra-installed instead. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "check-nvidia-smi",
+          "area": "nvml-surface",
+          "phase": "deployment",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from U. The first run blocked this on the DRA driver lacking --set altProcDevices, which was true of v25.12.0 and is no longer true: v0.5.0, released 2026-08-19, ships altProcDevices, and its own values.yaml documents it as being for mock NVML. But the cell cannot run for a reason that predates that: it declares intent=training on the kind service, and AICR at 0752ea14 resolves no such recipe for gb200. The recipe-resolution failure comes first, so the cause is X, not U. The altProcDevices question it was meant to answer is now carried by targeted-dra-installed instead. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "nccl-all-reduce-bw",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from U. The first run blocked this on the DRA driver lacking --set altProcDevices, which was true of v25.12.0 and is no longer true: v0.5.0, released 2026-08-19, ships altProcDevices, and its own values.yaml documents it as being for mock NVML. But the cell cannot run for a reason that predates that: it declares intent=training on the kind service, and AICR at 0752ea14 resolves no such recipe for gb200. The recipe-resolution failure comes first, so the cause is X, not U. The altProcDevices question it was meant to answer is now carried by targeted-dra-installed instead. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "nccl-all-reduce-bw-net",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from U. The first run blocked this on the DRA driver lacking --set altProcDevices, which was true of v25.12.0 and is no longer true: v0.5.0, released 2026-08-19, ships altProcDevices, and its own values.yaml documents it as being for mock NVML. But the cell cannot run for a reason that predates that: it declares intent=training on the kind service, and AICR at 0752ea14 resolves no such recipe for gb200. The recipe-resolution failure comes first, so the cause is X, not U. The altProcDevices question it was meant to answer is now carried by targeted-dra-installed instead. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "nccl-all-reduce-bw-nvls",
+          "area": "nccl-nvlink-fabric",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from U. The first run blocked this on the DRA driver lacking --set altProcDevices, which was true of v25.12.0 and is no longer true: v0.5.0, released 2026-08-19, ships altProcDevices, and its own values.yaml documents it as being for mock NVML. But the cell cannot run for a reason that predates that: it declares intent=training on the kind service, and AICR at 0752ea14 resolves no such recipe for gb200. The recipe-resolution failure comes first, so the cause is X, not U. The altProcDevices question it was meant to answer is now carried by targeted-dra-installed instead. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "inference-perf",
+          "area": "ttft-throughput",
+          "phase": "performance",
+          "bucket": "C",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from U. The first run blocked this on the DRA driver lacking --set altProcDevices, which was true of v25.12.0 and is no longer true: v0.5.0, released 2026-08-19, ships altProcDevices, and its own values.yaml documents it as being for mock NVML. But the cell cannot run for a reason that predates that: it declares intent=training on the kind service, and AICR at 0752ea14 resolves no such recipe for gb200. The recipe-resolution failure comes first, so the cause is X, not U. The altProcDevices question it was meant to answer is now carried by targeted-dra-installed instead. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "dra-support",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from U. The first run blocked this on the DRA driver lacking --set altProcDevices, which was true of v25.12.0 and is no longer true: v0.5.0, released 2026-08-19, ships altProcDevices, and its own values.yaml documents it as being for mock NVML. But the cell cannot run for a reason that predates that: it declares intent=training on the kind service, and AICR at 0752ea14 resolves no such recipe for gb200. The recipe-resolution failure comes first, so the cause is X, not U. The altProcDevices question it was meant to answer is now carried by targeted-dra-installed instead. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "gang-scheduling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from U. The first run blocked this on the DRA driver lacking --set altProcDevices, which was true of v25.12.0 and is no longer true: v0.5.0, released 2026-08-19, ships altProcDevices, and its own values.yaml documents it as being for mock NVML. But the cell cannot run for a reason that predates that: it declares intent=training on the kind service, and AICR at 0752ea14 resolves no such recipe for gb200. The recipe-resolution failure comes first, so the cause is X, not U. The altProcDevices question it was meant to answer is now carried by targeted-dra-installed instead. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "accelerator-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from U. The first run blocked this on the DRA driver lacking --set altProcDevices, which was true of v25.12.0 and is no longer true: v0.5.0, released 2026-08-19, ships altProcDevices, and its own values.yaml documents it as being for mock NVML. But the cell cannot run for a reason that predates that: it declares intent=training on the kind service, and AICR at 0752ea14 resolves no such recipe for gb200. The recipe-resolution failure comes first, so the cause is X, not U. The altProcDevices question it was meant to answer is now carried by targeted-dra-installed instead. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "ai-service-metrics",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from U. The first run blocked this on the DRA driver lacking --set altProcDevices, which was true of v25.12.0 and is no longer true: v0.5.0, released 2026-08-19, ships altProcDevices, and its own values.yaml documents it as being for mock NVML. But the cell cannot run for a reason that predates that: it declares intent=training on the kind service, and AICR at 0752ea14 resolves no such recipe for gb200. The recipe-resolution failure comes first, so the cause is X, not U. The altProcDevices question it was meant to answer is now carried by targeted-dra-installed instead. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "inference-gateway",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from U. The first run blocked this on the DRA driver lacking --set altProcDevices, which was true of v25.12.0 and is no longer true: v0.5.0, released 2026-08-19, ships altProcDevices, and its own values.yaml documents it as being for mock NVML. But the cell cannot run for a reason that predates that: it declares intent=training on the kind service, and AICR at 0752ea14 resolves no such recipe for gb200. The recipe-resolution failure comes first, so the cause is X, not U. The altProcDevices question it was meant to answer is now carried by targeted-dra-installed instead. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "pod-autoscaling",
+          "area": "telemetry",
+          "phase": "conformance",
+          "bucket": "B",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from U. The first run blocked this on the DRA driver lacking --set altProcDevices, which was true of v25.12.0 and is no longer true: v0.5.0, released 2026-08-19, ships altProcDevices, and its own values.yaml documents it as being for mock NVML. But the cell cannot run for a reason that predates that: it declares intent=training on the kind service, and AICR at 0752ea14 resolves no such recipe for gb200. The recipe-resolution failure comes first, so the cause is X, not U. The altProcDevices question it was meant to answer is now carried by targeted-dra-installed instead. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "cluster-autoscaling",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from U. The first run blocked this on the DRA driver lacking --set altProcDevices, which was true of v25.12.0 and is no longer true: v0.5.0, released 2026-08-19, ships altProcDevices, and its own values.yaml documents it as being for mock NVML. But the cell cannot run for a reason that predates that: it declares intent=training on the kind service, and AICR at 0752ea14 resolves no such recipe for gb200. The recipe-resolution failure comes first, so the cause is X, not U. The altProcDevices question it was meant to answer is now carried by targeted-dra-installed instead. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "robust-controller",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from U. The first run blocked this on the DRA driver lacking --set altProcDevices, which was true of v25.12.0 and is no longer true: v0.5.0, released 2026-08-19, ships altProcDevices, and its own values.yaml documents it as being for mock NVML. But the cell cannot run for a reason that predates that: it declares intent=training on the kind service, and AICR at 0752ea14 resolves no such recipe for gb200. The recipe-resolution failure comes first, so the cause is X, not U. The altProcDevices question it was meant to answer is now carried by targeted-dra-installed instead. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "secure-accelerator-access",
+          "area": "scheduling",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from U. The first run blocked this on the DRA driver lacking --set altProcDevices, which was true of v25.12.0 and is no longer true: v0.5.0, released 2026-08-19, ships altProcDevices, and its own values.yaml documents it as being for mock NVML. But the cell cannot run for a reason that predates that: it declares intent=training on the kind service, and AICR at 0752ea14 resolves no such recipe for gb200. The recipe-resolution failure comes first, so the cause is X, not U. The altProcDevices question it was meant to answer is now carried by targeted-dra-installed instead. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "slinky-slurm-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from U. The first run blocked this on the DRA driver lacking --set altProcDevices, which was true of v25.12.0 and is no longer true: v0.5.0, released 2026-08-19, ships altProcDevices, and its own values.yaml documents it as being for mock NVML. But the cell cannot run for a reason that predates that: it declares intent=training on the kind service, and AICR at 0752ea14 resolves no such recipe for gb200. The recipe-resolution failure comes first, so the cause is X, not U. The altProcDevices question it was meant to answer is now carried by targeted-dra-installed instead. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "slinky-slurm-imex-channel",
+          "area": "dra",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from U. The first run blocked this on the DRA driver lacking --set altProcDevices, which was true of v25.12.0 and is no longer true: v0.5.0, released 2026-08-19, ships altProcDevices, and its own values.yaml documents it as being for mock NVML. But the cell cannot run for a reason that predates that: it declares intent=training on the kind service, and AICR at 0752ea14 resolves no such recipe for gb200. The recipe-resolution failure comes first, so the cause is X, not U. The altProcDevices question it was meant to answer is now carried by targeted-dra-installed instead. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "gpu-operator-health",
+          "area": "operator-install",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": true,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from U. The first run blocked this on the DRA driver lacking --set altProcDevices, which was true of v25.12.0 and is no longer true: v0.5.0, released 2026-08-19, ships altProcDevices, and its own values.yaml documents it as being for mock NVML. But the cell cannot run for a reason that predates that: it declares intent=training on the kind service, and AICR at 0752ea14 resolves no such recipe for gb200. The recipe-resolution failure comes first, so the cause is X, not U. The altProcDevices question it was meant to answer is now carried by targeted-dra-installed instead. Evidence: results/aicr-recipe-matrix-evidence.log."
+        },
+        {
+          "check": "platform-health",
+          "area": "control-plane",
+          "phase": "conformance",
+          "bucket": "A",
+          "gpuDependent": false,
+          "outcome": "blocked",
+          "cause": "X",
+          "provenance": "sim",
+          "message": "RECLASSIFIED from U. The first run blocked this on the DRA driver lacking --set altProcDevices, which was true of v25.12.0 and is no longer true: v0.5.0, released 2026-08-19, ships altProcDevices, and its own values.yaml documents it as being for mock NVML. But the cell cannot run for a reason that predates that: it declares intent=training on the kind service, and AICR at 0752ea14 resolves no such recipe for gb200. The recipe-resolution failure comes first, so the cause is X, not U. The altProcDevices question it was meant to answer is now carried by targeted-dra-installed instead. Evidence: results/aicr-recipe-matrix-evidence.log."
+        }
+      ]
+    }
+  ]
+}

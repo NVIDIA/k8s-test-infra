@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 340" width="820" height="340" role="img" aria-label="Vertical versus horizontal: Mokka and KWOK are orthogonal and compose">
+  <title>Mokka is vertical, KWOK is horizontal. Orthogonal axes, so they compose.</title>
+  <style>
+    .box{fill:none;stroke:#57606a;stroke-width:2}
+    .dash{fill:none;stroke:#57606a;stroke-width:2;stroke-dasharray:7 4}
+    .t{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;fill:#57606a}
+    .hd{font-size:14px;font-weight:700}
+    .bd{font-size:12px}
+    .sm{font-size:10.5px;font-style:italic}
+    .arw{stroke:#57606a;stroke-width:2;fill:none}
+  </style>
+  <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#57606a"/></marker></defs>
+  <path class="arw" d="M 60 250 L 470 250" marker-end="url(#a)"/>
+  <text class="t bd" x="180" y="272">horizontal: node-count breadth</text>
+  <path class="arw" d="M 60 250 L 60 40" marker-end="url(#a)"/>
+  <text class="t bd" x="16" y="150" transform="rotate(-90 16 150)">vertical: GPU-stack depth</text>
+
+  <rect class="box" x="80" y="196" width="380" height="46" rx="6"/>
+  <text class="t hd" x="92" y="216">KWOK (horizontal)</text>
+  <text class="t sm" x="92" y="234">hollow nodes, no kubelet, very cheap per node</text>
+
+  <rect class="dash" x="500" y="40" width="300" height="202" rx="6"/>
+  <text class="t hd" x="514" y="62">Mokka (vertical)  [dashed]</text>
+  <text class="t bd" x="514" y="86">real kubelet + containerd on real CPU nodes</text>
+  <text class="t bd" x="514" y="106">GPU faked at the NVML / driver line</text>
+  <text class="t bd" x="514" y="130">runs for real: GPU Operator, device plugin,</text>
+  <text class="t bd" x="514" y="146">DRA driver, NFD + GFD, dcgm-exporter</text>
+  <text class="t sm" x="514" y="172">blind spot: not the cheapest way to add nodes</text>
+  <text class="t bd" x="514" y="198">Good for: the layer AICR's 21 checks read</text>
+  <text class="t sm" x="514" y="220">KWOK blind spot: no GPU stack exists, so AICR</text>
+  <text class="t sm" x="514" y="234">has nothing to validate</text>
+
+  <text class="t hd" x="80" y="300">They compose. They do not compete.</text>
+  <text class="t sm" x="80" y="320">AICR ships a KWOK lane covering 90 recipes, but `aicr validate` cannot run under KWOK: every validator is a Job needing a real pod.</text>
+</svg>

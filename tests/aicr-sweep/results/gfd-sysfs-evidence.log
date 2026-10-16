@@ -1,0 +1,91 @@
+# Evidence: what #672 fixed, and what still blocks gpu-feature-discovery
+# Captured 2026-08-26 on a re-run of the base cell against nvml-mock sha-57ef016
+# (HEAD~1 of upstream/main), AICR held at the original pin 0752ea14 so Mokka is
+# the only axis that moved.
+
+## 1. #672 landed. The bus ID is now well formed.
+
+Differential probe, same config file, same command, only the image differs:
+
+  ghcr.io/nvidia/nvml-mock:0.3.0        Bus Id : 0000:01:00.0        (4-digit domain, the bug)
+  ghcr.io/nvidia/nvml-mock:sha-57ef016  Bus Id : 00000000:01:00.0    (8-digit domain, fixed)
+
+Live in the cluster, gb200 profile, 4 devices:
+
+  Attached GPUs : 4
+  Product Name  : NVIDIA GB200      Bus Id : 00000000:0A:00.0
+  Product Name  : NVIDIA GB200      Bus Id : 00000000:0B:00.0
+  Product Name  : NVIDIA GB200      Bus Id : 00000000:4A:00.0
+  Product Name  : NVIDIA GB200      Bus Id : 00000000:4B:00.0
+
+## 2. The consumer error changed, and that is the proof
+
+  v0.3.0      unable to read PCI device vendor id for :0a:00.0
+                open /sys/bus/pci/devices/:0a:00.0/vendor: no such file or directory
+  sha-57ef016 unable to read PCI device vendor id for 0000:0a:00.0
+                open /sys/bus/pci/devices/0000:0a:00.0/vendor: no such file or directory
+
+The BDF is now correct. The path is simply not there.
+
+## 3. Why it is still not there
+
+Mokka renders a correct and complete tree on the host:
+
+  /var/lib/nvml-mock/sys/bus/pci/devices/0000:0a:00.0/vendor  ->  0x10de
+
+but the entries under bus/pci/devices are RELATIVE SYMLINKS into a sibling subtree:
+
+  0000:0a:00.0 -> ../../../devices/pci0000:00/0000:0a:00.0
+  0000:0b:00.0 -> ../../../devices/pci0000:00/0000:0b:00.0
+  0000:4a:00.0 -> ../../../devices/pci0000:40/0000:4a:00.0
+  0000:4b:00.0 -> ../../../devices/pci0000:40/0000:4b:00.0
+
+gpu-feature-discovery mounts the REAL host /sys (hostPath: /sys), and the NRI
+plugin's overlay lands at /opt/nvml-mock, not on /sys. Two grafts were tried:
+
+  a) replace GFD's host-sys hostPath with /var/lib/nvml-mock/sys
+     -> RunContainerError. GFD also needs the real /sys (e.g. /sys/class/dmi).
+  b) mount only /var/lib/nvml-mock/sys/bus/pci/devices at /sys/bus/pci/devices
+     -> same "no such file or directory". The relative symlinks now resolve
+        against the REAL /sys/devices, where the mock devices do not exist.
+
+The tree is self-consistent and must be grafted coherently: both bus/pci and
+devices/ together. No chart value and no NRI injection does that for a GPU
+Operator operand today.
+
+## 4. Effect on the sweep
+
+ClusterPolicy still never reaches ready, so gpu-operator-health still fails, and
+the base cell's 9 dispatched verdicts are byte-identical to the v0.3.0 run:
+3 passed, 5 failed, 1 other. AICR's check reports only
+
+  [INTERNAL] ClusterPolicy state=notReady (want ready)
+
+so the check cannot distinguish "malformed BDF" from "sysfs tree not mounted".
+The fix is real and the verdict did not move. Both statements are true.
+
+## 5. This does NOT promote the GFD failure from K to G
+
+D-014 classified the GFD failure as K (an artifact of this sweep's stock-kind,
+no-toolkit configuration) rather than G (a Mokka gap), and said the call would
+change if the same cell failed with cdi.enabled=true and the toolkit installed.
+
+That reasoning survives #672. Checked against upstream/main:
+
+  - tests/e2e/VERSION-MATRIX.md states the GFD that CI exercises IS the GPU
+    Operator's operand, not the standalone gfd-mock.yaml DaemonSet. So the
+    green CI scenario really does cover the same component this sweep runs.
+  - tests/e2e/kind-gpu-operator-config.yaml differs from this sweep's cluster in
+    exactly the way D-014 named: enable_cdi = true, an nvidia runtime handler
+    bound to /usr/bin/nvidia-container-runtime, the toolkit installed after
+    cluster creation, and a single control-plane node.
+
+So the CDI path plausibly supplies the sysfs view that stock kind does not, and
+the distinguishing cell D-014 asked for has still not been run. The honest status
+is unchanged: NOT DISTINGUISHED, cause stays K.
+
+What #672 changes is only the diagnosis, not the classification. The "Mokka hands
+GFD a malformed bus ID" theory is now dead by measurement. What remains is a
+mount-visibility question, and D-014's experiment is still the one that answers
+it. It is now affordable: the host VM is 15.84 GiB, up from the 7.75 GiB that
+blocked it.

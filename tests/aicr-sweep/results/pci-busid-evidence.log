@@ -1,0 +1,40 @@
+# Evidence: PCI bus ID reaches NVML consumers without its domain prefix
+# Captured 2026-08-03T06:46:23Z on the base sweep cluster.
+
+## What the gb200 profile declares (deployments/nvml-mock/helm/nvml-mock/profiles/gb200.yaml)
+      bus_id: "0000:0A:00.0"
+      bus_id: "0000:0B:00.0"
+      bus_id: "0000:4A:00.0"
+      bus_id: "0000:4B:00.0"
+      bus_id: "0000:8A:00.0"
+      bus_id: "0000:8B:00.0"
+      bus_id: "0000:CA:00.0"
+      bus_id: "0000:CB:00.0"
+
+## What Mokka renders into the mock PCI sysfs tree (correct, domain present)
+0000:0a:00.0
+0000:0b:00.0
+0000:4a:00.0
+0000:4b:00.0
+0000:8a:00.0
+0000:8b:00.0
+0000:ca:00.0
+0000:cb:00.0
+
+## Consumer 1: NVIDIA DRA driver v25.12.0 (go-nvlib), drops dra.k8s.io/pcieRoot
+W0803 06:43:13.863421       1 nvlib.go:491] error getting PCIe root for device 0, continuing without attribute: invalid PCI Bus ID format: :0a:00.0
+W0803 06:43:13.863510       1 nvlib.go:491] error getting PCIe root for device 1, continuing without attribute: invalid PCI Bus ID format: :0b:00.0
+W0803 06:43:13.863550       1 nvlib.go:491] error getting PCIe root for device 2, continuing without attribute: invalid PCI Bus ID format: :4a:00.0
+W0803 06:43:13.863583       1 nvlib.go:491] error getting PCIe root for device 3, continuing without attribute: invalid PCI Bus ID format: :4b:00.0
+W0803 06:43:13.863632       1 nvlib.go:491] error getting PCIe root for device 4, continuing without attribute: invalid PCI Bus ID format: :8a:00.0
+W0803 06:43:13.863664       1 nvlib.go:491] error getting PCIe root for device 5, continuing without attribute: invalid PCI Bus ID format: :8b:00.0
+W0803 06:43:13.863706       1 nvlib.go:491] error getting PCIe root for device 6, continuing without attribute: invalid PCI Bus ID format: :ca:00.0
+W0803 06:43:13.863739       1 nvlib.go:491] error getting PCIe root for device 7, continuing without attribute: invalid PCI Bus ID format: :cb:00.0
+
+## Consumer 2: gpu-feature-discovery (GPU Operator v25.3.4), fails to start
+E0803 06:43:15.350642       1 main.go:127] error creating labeler: error creating resource labeler: unable to read PCI device vendor id for :0a:00.0: open /sys/bus/pci/devices/:0a:00.0/vendor: no such file or directory
+E0803 06:44:06.560097       1 main.go:127] error creating labeler: error creating resource labeler: unable to read PCI device vendor id for :0a:00.0: open /sys/bus/pci/devices/:0a:00.0/vendor: no such file or directory
+
+## Consumer 3 (separate cause, U not G): ComputeDomain kubelet plugin, /proc/devices
+Error: error creating driver: failed to create device library: error getting nvcap for IMEX channel '0': error getting device major: error parsing '/proc/devices': unexpected regex match: []
+Error: error creating driver: failed to create device library: error getting nvcap for IMEX channel '0': error getting device major: error parsing '/proc/devices': unexpected regex match: []

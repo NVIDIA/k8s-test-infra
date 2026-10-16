@@ -1,0 +1,22 @@
+%% The operational sequence. Note the triage step: a failing check is not
+%% automatically a simulation limit.
+flowchart TB
+  S1["1. Stand up cluster<br/>real CPU nodes, containerd CDI enabled"]
+  S2["2. Install Mokka (nvml-mock)<br/>gb200 profile, driver overlay + device nodes + CDI spec"]
+  S3["3. Install GPU stack<br/>GPU Operator (driver.enabled=false) + DRA driver"]
+  S4["4. Generate recipe<br/>aicr recipe --service kind --accelerator gb200"]
+  S5["5. Run AICR<br/>aicr validate --phase deployment --phase conformance<br/>--fail-on-error=false"]
+  S6["6. Classify<br/>go run ./tests/aicr-preflight -ctrf ctrf<br/>emits provenance-labelled JSON + catalog table"]
+
+  S1 --> S2 --> S3 --> S4 --> S5 --> S6 --> T{"7. Triage each failure"}
+
+  T -->|"missing prerequisite<br/>component"| R1["harness scoping.<br/>Deploy it, re-run."]
+  T -->|"version or contract<br/>skew"| R2["REAL FINDING.<br/>Fix pre-silicon.<br/>This is the value."]
+  T -->|"Mokka capability<br/>missing"| R3["bucket G.<br/>File a tracked issue.<br/>Close if small."]
+
+  R1 --> S5
+  R2 --> FIX["8. Fix integration issues<br/>months before hardware lands"]
+  R3 --> FIX
+
+  FIX --> SIL["9. Silicon arrives"]
+  SIL --> GATE["10. AICR on real hardware<br/><b>FINAL READINESS GATE</b><br/>CUDA · firmware/driver · NCCL/NVLink/NVLS · TTFT"]

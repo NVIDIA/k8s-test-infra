@@ -1,0 +1,58 @@
+# Evidence: KWOK nodes turn the AICR validator suite into a false pass
+# Captured 2026-08-03T19:14:36Z on the mokka-hybrid cluster.
+
+## Fleet
+total nodes: 253
+kwok (hollow) nodes: 250
+nvidia.com/gpu advertised fleet-wide: 2016
+
+## Baseline on the pure-Mokka cluster (same recipe, same AICR, no KWOK nodes)
+deployment phase: 9m0s, 2 passed / 1 failed / 1 inconclusive
+conformance phase: 5 selected, 1 passed / 4 failed
+
+## Same run with 250 KWOK nodes present
+deployment+conformance: 9 tests, 9 passed, 0 failed
+wall clock: deployment 4.2s, conformance 5.2s (vs 9m0s on the pure-Mokka cluster)
+
+## Where the validator pods actually ran (--no-cleanup, KWOK nodes tainted NoSchedule)
+aicr-check-nvidia-smi-5897be6f-6jxz8       kwok-gpu-0158         Succeeded
+aicr-expected-resources-bc7864cb-k2g5g     kwok-gpu-0169         Succeeded
+aicr-gpu-operator-version-1081b045-xqshm   kwok-gpu-0037         Succeeded
+aicr-operator-health-d60f7e59-ds784        kwok-gpu-0048         Succeeded
+aicr-validate-vkqcb (snapshot agent)       mokka-hybrid-worker   Succeeded
+
+## Proof no container ever executed
+containerStatuses for aicr-check-nvidia-smi (note empty imageID, started:false, startedAt==finishedAt):
+[{"image":"ghcr.io/nvidia/aicr-validators/deployment:latest","imageID":"","started":false,
+  "state":{"terminated":{"exitCode":0,"reason":"Completed",
+  "startedAt":"2026-08-03T19:11:33Z","finishedAt":"2026-08-03T19:11:33Z"}}}]
+
+kubectl logs on that pod:
+  Error from server (MethodNotAllowed): the server does not allow this method
+  on the requested resource ( pods/log ... )   <- no kubelet exists to serve logs
+
+## Why the pods land there despite the NoSchedule taint
+AICR validator Job pods carry a universal toleration. Observed on the live pod:
+  key=<empty> operator=Exists effect=<all>
+Source: pkg/validator/job/deployer_test.go:516 asserts the default is
+        Operator=Exists with Key="", i.e. tolerate every taint.
+
+## Why --node-selector does not mitigate it
+Observed: snapshot agent got the selector, validator Jobs did not.
+  aicr-validate-6qxk2                      nodeSelector={"aicr.run/real-node":"true"}
+  aicr-check-nvidia-smi-2bb73994-d9hc4     nodeSelector=NONE   -> ran on kwok-gpu-0213
+  aicr-expected-resources-345bc8fa-fqprd   nodeSelector=NONE   -> ran on kwok-gpu-0224
+  aicr-gpu-operator-version-32a497d6-fh5j2 nodeSelector=NONE   -> ran on kwok-gpu-0092
+  aicr-operator-health-72210902-5jxcg      nodeSelector=NONE   -> ran on kwok-gpu-0103
+Source: pkg/validator/job/deployer.go:66
+  "// NodeSelector is passed through to inner workloads via AICR_NODE_SELECTOR."
+  The flag reaches the validator container as an env var for workloads IT creates.
+  It is never applied to the validator Job's own pod spec.
+
+## The KWOK stage that manufactures the pass
+[{"key":".metadata.deletionTimestamp","operator":"DoesNotExist"},{"key":".status.phase","operator":"In","values":["Running"]},{"key":".metadata.ownerReferences.[].kind","operator":"In","values":["Job"]}]
+  Any Job-owned pod in phase Running is transitioned to Succeeded.
+
+## Control experiment: a pod that exits 7
+  on a REAL node  -> phase=Failed,    exitCode=7   (truth)
+  on a KWOK node  -> phase=Running -> Succeeded    (fabricated)
