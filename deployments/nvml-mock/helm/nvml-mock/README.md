@@ -5,7 +5,7 @@ that presents simulated GPUs to the NVIDIA device plugin, the DRA driver, the
 GPU Operator and `nvidia-smi`, so GPU software can be exercised on nodes with
 no physical NVIDIA hardware.
 
-**Full documentation: <https://nvidia.github.io/k8s-test-infra/helm-chart/>**
+**Full documentation: <https://docs.nvidia.com/k8s-test-infra/general/getting-started/installation>**
 
 That guide covers the per-consumer walkthroughs (device plugin, DRA driver, GPU
 Operator, multi-node heterogeneous fleet), the complete values reference,
@@ -89,8 +89,8 @@ its Deployment and RBAC still exist; retained CRDs cannot perform this cleanup.
 
 ## Links
 
-- [Documentation site](https://nvidia.github.io/k8s-test-infra/)
-- [Quick start](https://nvidia.github.io/k8s-test-infra/quickstart/)
-- [Configuration reference](https://nvidia.github.io/k8s-test-infra/configuration/)
-- [Troubleshooting](https://nvidia.github.io/k8s-test-infra/troubleshooting/)
+- [Documentation site](https://docs.nvidia.com/k8s-test-infra)
+- [Quick start](https://docs.nvidia.com/k8s-test-infra/general/getting-started/quick-start)
+- [Configuration reference](https://docs.nvidia.com/k8s-test-infra/general/reference/configuration)
+- [Troubleshooting](https://docs.nvidia.com/k8s-test-infra/general/troubleshooting)
 - [Source](https://github.com/NVIDIA/k8s-test-infra)

@@ -25,11 +25,14 @@ fidelity, and a large fleet of cheap virtual ones.
 | GPU Operator validation | no | yes | on the Mokka nodes |
 | Scale to 1000+ nodes | yes | no | yes |
 
-!!! warning "This pairing is not exercised in CI"
-    Mokka's side of the contract is verified — the ConfigMap shape is asserted
-    by unit tests and by the `fgo` end-to-end case. But the two projects have
-    never been run together in CI, and FGO is neither vendored nor pinned here.
-    Re-check FGO's loader before relying on any of this.
+<Warning>
+**This pairing is not exercised in CI**
+
+Mokka's side of the contract is verified — the ConfigMap shape is asserted
+by unit tests and by the `fgo` end-to-end case. But the two projects have
+never been run together in CI, and FGO is neither vendored nor pinned here.
+Re-check FGO's loader before relying on any of this.
+</Warning>
 
 ## The discovery contract
 
@@ -50,11 +53,14 @@ Because the names carry no release prefix, two Mokka releases in one namespace
 collide on these seven ConfigMaps. Enable the integration on one release per
 namespace.
 
-!!! warning "Set FGO's `builtinProfiles.enabled=false` first"
-    FGO ships its own profiles under the same seven names, owned by its own
-    Helm release. Helm 3 refuses to adopt resources owned by another release,
-    so whichever chart installs second fails with `invalid ownership metadata`.
-    The two profile sets are alternatives, not complements.
+<Warning>
+**Set FGO's `builtinProfiles.enabled=false` first**
+
+FGO ships its own profiles under the same seven names, owned by its own
+Helm release. Helm 3 refuses to adopt resources owned by another release,
+so whichever chart installs second fails with `invalid ownership metadata`.
+The two profile sets are alternatives, not complements.
+</Warning>
 
 ## Prerequisites
 
@@ -64,7 +70,6 @@ namespace.
 - [Helm 3.8 or newer](https://helm.sh/docs/intro/install/) — the chart is served
   from an OCI registry.
 - [kubectl](https://kubernetes.io/docs/reference/kubectl/)
-- A clone of this repository, for the Kind topology file.
 
 Takes about 10 minutes.
 
@@ -73,8 +78,30 @@ Takes about 10 minutes.
 The topology labels one worker `integration` and two `scale`. Without those
 labels Helm installs successfully and produces no pods for the missing pool.
 
+```yaml title="kind.yaml"
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.nri.v1.nri"]
+      disable = false
+      disable_connections = false
+      socket_path = "/var/run/nri/nri.sock"
+nodes:
+  - role: control-plane
+  - role: worker
+    labels:
+      run.ai/simulated-gpu-node-pool: integration
+  - role: worker
+    labels:
+      run.ai/simulated-gpu-node-pool: scale
+  - role: worker
+    labels:
+      run.ai/simulated-gpu-node-pool: scale
+```
+
 ```bash
-kind create cluster --name nvml-mock-fgo-demo --config=docs/guides/kind.yaml
+kind create cluster --name nvml-mock-fgo-demo --config=kind.yaml
 ```
 
 ## Step 2 — Install Mokka on the integration pool

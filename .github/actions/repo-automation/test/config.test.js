@@ -176,8 +176,8 @@ test("declares the required CI that merge-ci.js hard-coded at 809294d", () => {
         files: ["go.mod", "go.sum", "Makefile", ".github/workflows/dependency-integrity.yaml"],
       },
       {
-        path: ".github/workflows/deploy-pages.yaml",
-        files: ["docs/**", "mkdocs.yml", "requirements-docs.txt", "Makefile", ".github/workflows/deploy-pages.yaml"],
+        path: ".github/workflows/fern-docs-ci.yml",
+        files: ["docs/**", "fern/**", "tools/**", "Makefile", ".github/workflows/fern-docs-ci.yml"],
       },
     ],
     checks: [{ name: "DCO", appId: 1861 }],

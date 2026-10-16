@@ -1,0 +1,61 @@
+# Copyright 2026 NVIDIA CORPORATION
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Checks external links in the docs on a schedule and on demand.
+#
+# `fern docs broken-links`, which the PR workflow runs, checks internal links
+# only. External links rot on their own schedule, so they are checked here
+# rather than on every pull request, where a third-party outage would block
+# unrelated changes. Run it before cutting a release.
+#
+# No secrets required.
+
+name: Fern Docs Preflight
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Weekly, Monday 06:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  external-links:
+    name: External Link Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check external links
+        uses: lycheeverse/lychee-action@8646ba30535128ac92d33dfc9133794bfdd9b411 # v2.8.0
+        with:
+          # Fern pages link to each other with root-relative slugs such as
+          # /k8s-test-infra/general/overview. lychee cannot resolve those without
+          # --root-dir, and with it they map to files that do not exist, so the
+          # product slug is excluded; `fern docs broken-links` covers them.
+          args: >-
+            --no-progress
+            --exclude-loopback
+            --exclude 'localhost'
+            --exclude 'docs\.nvidia\.com'
+            --root-dir docs
+            --exclude '/docs/k8s-test-infra/'
+            --retry-wait-time 5
+            'docs/**/*.md'
+          fail: true

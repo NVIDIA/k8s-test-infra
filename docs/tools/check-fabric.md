@@ -54,12 +54,14 @@ Gating on an IMEX channel device, so it runs only where a fabric exists:
 sh -c 'test -c /dev/nvidia-caps-imex-channels/channel0 && check-fabric | head -6'
 ```
 
-!!! note "How it finds the mock library"
-
-    The program does not locate the library itself — go-nvml `dlopen`s
-    `libnvidia-ml.so.1`, which resolves either through the standard
-    `/usr/local/lib` install or through the `LD_LIBRARY_PATH` the NRI plugin
-    injects. Where neither applies, the run stops at `nvmlInit` with exit `1`.
+> [!NOTE]
+> **How it finds the mock library**
+>
+>
+> The program does not locate the library itself — go-nvml `dlopen`s
+> `libnvidia-ml.so.1`, which resolves either through the standard
+> `/usr/local/lib` install or through the `LD_LIBRARY_PATH` the NRI plugin
+> injects. Where neither applies, the run stops at `nvmlInit` with exit `1`.
 
 ## Where it comes from
 

@@ -152,4 +152,4 @@ being real.
 | Every knob in the profile | [Configuration](configuration.md) |
 | Deploying and shaping a cluster | [Installation](helm-chart.md) |
 | Changing state on a running node | [Runtime Control](nvml-mock-ctl.md) |
-| Adding functions or profiles | [Contributing](contributing/index.md) |
+| Adding functions or profiles | [Contributing](https://github.com/NVIDIA/k8s-test-infra/blob/main/docs/contributing/index.md) |

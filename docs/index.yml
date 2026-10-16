@@ -1,0 +1,94 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# This site is for people running Mokka: General is for learning and operating
+# it, Guides for doing something specific. Pages for people changing Mokka
+# (docs/contributing/, docs/maintainers/) and guides that need a repository
+# clone to run stay in the repo as GitHub-rendered markdown and are not listed.
+navigation:
+  - section: General
+    contents:
+      - page: Overview
+        path: index.md
+      - section: Getting Started
+        contents:
+          - page: Quick Start
+            path: quickstart.md
+          - page: Installation
+            path: helm-chart.md
+      - section: Architecture
+        contents:
+          - page: Overview
+            path: architecture.md
+          - page: Mokka Control Plane
+            path: control-plane.md
+          - page: Node Daemon
+            path: components/node-daemon.md
+          - page: Libraries and Shims
+            path: components/libraries-and-shims.md
+          - page: NRI Plugin
+            path: components/nri-plugin.md
+      - section: Reference
+        contents:
+          - page: Configuration
+            path: configuration.md
+          - page: Feature Gates
+            path: feature-gates.md
+          - page: MIG
+            path: mig.md
+          - page: Helm Chart Values
+            path: helm-chart-values.md
+          - page: Control Plane API
+            path: crd-reference.md
+          # The pages stay under docs/tools/ because hack/check-docs-tools-sync.sh
+          # scans that directory to hold them in step with cmd/. The nav label is
+          # what places them, not the path.
+          - section: Command-Line Tools
+            contents:
+              - page: Overview
+                path: tools/README.md
+              - page: control-plane
+                path: tools/control-plane.md
+              - page: node-agent
+                path: tools/node-agent.md
+              - page: nri-plugin
+                path: tools/nri-plugin.md
+          - page: Support Policy
+            path: support-policy.md
+      - page: Troubleshooting
+        path: troubleshooting.md
+      - page: FAQ
+        path: faq.md
+
+  - section: Guides
+    contents:
+      - page: Overview
+        path: guides/README.md
+      - section: Scenarios
+        contents:
+          - page: NVIDIA Device Plugin
+            path: guides/device-plugin.md
+          - page: Node Feature Discovery
+            path: guides/nfd.md
+          - page: Amazon EKS
+            path: guides/install/aws/eks/README.md
+          - page: NVIDIA DRA Driver
+            path: guides/dra.md
+          - page: NVIDIA GPU Operator
+            path: guides/gpu-operator.md
+          - page: NVIDIA Dynamo
+            path: guides/dynamo/README.md
+          - page: Slinky (Slurm)
+            path: guides/slinky/README.md
+          - page: Run.ai Fake GPU Operator
+            path: guides/runai-fgo/README.md
+      - section: Tasks
+        contents:
+          - page: Set Up NRI Injection
+            path: guides/nri-injection.md
+          - page: MIG Partitioning
+            path: guides/mig/README.md
+          - page: Use in CI/CD
+            path: guides/ci-cd.md
+          - page: Runtime Control
+            path: nvml-mock-ctl.md
