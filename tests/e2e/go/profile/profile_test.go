@@ -62,7 +62,7 @@ func TestDerivations(t *testing.T) {
 		{"a100", "NVIDIA A100-SXM4-40GB", 8, 8, 12, true, false, true, 2, 6, false, false, 92, 87, 83, 4, 1410}, // NVSwitch (FabricMgr) but no ComputeDomain fabric block
 		{"h100", "NVIDIA H100 80GB HBM3", 8, 8, 18, true, true, true, 2, 4, true, false, 92, 87, 83, 5, 1980},
 		{"b200", "NVIDIA B200", 8, 8, 0, false, false, true, 2, 0, true, false, 95, 90, 85, 6, 1965}, // NVLink negative control, IB enabled
-		{"gb200", "NVIDIA GB200", 4, 4, 18, true, true, true, 2, 0, true, true, 95, 90, 85, 6, 2062}, // one NVL72 compute tray: 2 superchips, 4 GPUs
+		{"gb200", "NVIDIA GB200", 4, 4, 18, true, true, true, 2, 0, true, true, 95, 90, 85, 5, 2062}, // one NVL72 compute tray: 2 superchips, 4 GPUs
 		{"gb300", "NVIDIA GB300 NVL", 4, 4, 18, true, true, true, 2, 0, true, true, 95, 90, 85, 6, 2070},
 		{"l40s", "NVIDIA L40S", 8, 0, 0, false, false, false, 2, 0, true, false, 96, 93, 89, 4, 2520}, // IB + NVLink negative control
 		{"t4", "NVIDIA T4", 4, 0, 0, false, false, false, 1, 0, false, false, 96, 93, 89, 3, 1590},
@@ -121,6 +121,25 @@ func TestNegativeControlsAreIndependent(t *testing.T) {
 		require.NoError(t, err, "Load(%s)", name)
 		assert.Zero(t, p.ExpectedHCAs(), "%s ExpectedHCAs() want 0 (IB disabled)", name)
 		assert.Zero(t, p.ExpectedNV(), "%s ExpectedNV() want 0 (no NVSwitch)", name)
+	}
+}
+
+func TestPCIeGenerations(t *testing.T) {
+	for _, name := range KnownProfiles {
+		t.Run(name, func(t *testing.T) {
+			p, err := Load(profilesDir, name)
+			require.NoError(t, err, "Load(%s)", name)
+
+			if name == "gb200" {
+				assert.Equal(t, 5, p.MaxPCIeLinkGen())
+				assert.Equal(t, 6, p.MaxPCIeDeviceLinkGen())
+				assert.Equal(t, 5, p.CurrentPCIeLinkGen())
+				return
+			}
+
+			assert.Equal(t, p.MaxPCIeLinkGen(), p.MaxPCIeDeviceLinkGen(),
+				"profiles without max_device_link_gen retain the previous device maximum")
+		})
 	}
 }
 

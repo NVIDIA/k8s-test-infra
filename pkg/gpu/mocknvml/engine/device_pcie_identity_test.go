@@ -67,6 +67,25 @@ func TestConfigurableDevice_GetGpuMaxPcieLinkGeneration_Gen6(t *testing.T) {
 	require.Equal(t, 6, gen, "device max PCIe generation")
 }
 
+func TestConfigurableDevice_GetGpuMaxPcieLinkGeneration_IndependentFromLinkMax(t *testing.T) {
+	e := pcieIdentityEngine(t,
+		DeviceConfig{PCIe: &PCIeConfig{MaxLinkGen: 5, MaxDeviceLinkGen: 6, CurrentLinkGen: 5}},
+		DeviceOverride{Index: 0})
+
+	dev := pcieIdentityDevice(t, e, 0)
+	deviceMax, ret := dev.GetGpuMaxPcieLinkGeneration()
+	require.Equal(t, nvml.SUCCESS, ret, "GetGpuMaxPcieLinkGeneration failed")
+	require.Equal(t, 6, deviceMax, "device max PCIe generation")
+
+	linkMax, ret := dev.GetMaxPcieLinkGeneration()
+	require.Equal(t, nvml.SUCCESS, ret, "GetMaxPcieLinkGeneration failed")
+	require.Equal(t, 5, linkMax, "link max PCIe generation")
+
+	current, ret := dev.GetCurrPcieLinkGeneration()
+	require.Equal(t, nvml.SUCCESS, ret, "GetCurrPcieLinkGeneration failed")
+	require.Equal(t, 5, current, "current PCIe generation")
+}
+
 // TestConfigurableDevice_GetGpuMaxPcieLinkGeneration_Unconfigured degrades to
 // NOT_SUPPORTED — which nvidia-smi renders as N/A — rather than reporting 0.
 // This matches GetMaxPcieLinkGeneration's existing behaviour.
