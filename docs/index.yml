@@ -82,6 +82,8 @@ navigation:
             path: guides/slinky/README.md
           - page: Run.ai Fake GPU Operator
             path: guides/runai-fgo/README.md
+          - page: Topograph
+            path: guides/topograph/README.md
       - section: Tasks
         contents:
           - page: Set Up NRI Injection

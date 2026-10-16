@@ -1,0 +1,4 @@
+kind: Changed
+body: |-
+  tilt: the compute-domain cluster now has two NVLink cliques of two workers, and `--topograph` labels each worker with the clique the mock driver reports, as `accelerator.topograph.run/domain`; recreate the cluster with `make cluster-create PROFILE=compute-domain`.
+time: 2026-10-16T08:49:09Z

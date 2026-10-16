@@ -56,7 +56,7 @@ config.define_bool('dra', args=False,
 config.define_bool('fgo', args=False,
     usage='Also deploy Run:ai Fake GPU Operator: nvml-mock backs the integration worker pool and FGO simulates the scale pool.')
 config.define_bool('topograph', args=False,
-    usage='Also deploy NVIDIA topograph. Implies --compute-domain (topograph reads the static nvidia.com/gpu.clique labels). Still requires the compute-domain Kind cluster: make cluster-create PROFILE=compute-domain.')
+    usage='Also deploy topograph (github.com/dsx-ai-factory/topograph). Implies --compute-domain (topograph reads the NVLink cliques the mock reports through nvidia-smi). Still requires the compute-domain Kind cluster: make cluster-create PROFILE=compute-domain.')
 config.define_bool('observability', args=False,
     usage='Also deploy kube-prometheus-stack, a Grafana dashboard and two manual fault-injection triggers (inject-thermal, inject-xid) that assert the fault reaches Prometheus. Implies --gpu-operator (dcgm-exporter is one of its operands). Grafana on http://localhost:3000/d/mokka-gpu (admin/mokka).')
 config.define_bool('dynamo', args=False,
@@ -84,8 +84,9 @@ with_dynamo         = cfg.get('dynamo', False)
 with_slinky         = cfg.get('slinky', False)
 with_control_plane  = cfg.get('control-plane', False)
 
-# --topograph needs cliques, which only the compute-domain cluster has. It reads
-# the static clique labels directly, so the DRA driver is not implied.
+# --topograph needs cliques, which only the compute-domain cluster has. It asks
+# the mock for them through nvidia-smi, so neither the DRA driver nor the GPU
+# Operator is implied.
 if with_topograph:
     with_compute_domain = True
 
