@@ -1,0 +1,6 @@
+kind: Fixed
+body: |-
+  nvml-mock: report the GB200 PCIe Gen5 link and Gen6 device maximum from its profile.
+time: 2026-10-16T04:14:32Z
+custom:
+  Issue: "1054"

@@ -121,6 +121,8 @@ device_defaults:
 
   pcie:
     max_link_gen: 4
+    # Optional; defaults to max_link_gen when omitted.
+    max_device_link_gen: 5
     current_link_gen: 4
     max_link_width: 16
     current_link_width: 16
@@ -138,6 +140,10 @@ container with no `/lib/modules`; that is where the `Unable to load libkmod
 resources: error -2` on `lspci -v` comes from, and a container on real hardware
 prints it too. Both are display-only: `lspci` still exits 0, and a consumer
 reading identity out of sysfs gets the full picture.
+
+`max_link_gen` is the negotiated link maximum. `max_device_link_gen` can be
+set when the GPU's own capability differs; if omitted, it defaults to
+`max_link_gen` so existing profiles keep their current output.
 
 ### Platform identity (rack location)
 

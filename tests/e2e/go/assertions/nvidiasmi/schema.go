@@ -242,14 +242,15 @@ type gpuLinkInfo struct {
 	PCIeGen pcieGen `xml:"pcie_gen"`
 }
 
-// pcieGen is <pcie_gen>. The three maxima reach nvidia-smi by different routes:
+// pcieGen is <pcie_gen>. The maxima reach nvidia-smi by different routes:
 // max_link_gen and max_device_link_gen come from public NVML getters, while
-// max_host_link_gen comes from a slot of the internal export table. The current
-// readings are deliberately not decoded — no assertion reads them yet.
+// max_host_link_gen comes from a slot of the internal export table.
 type pcieGen struct {
-	Max       reading `xml:"max_link_gen"`
-	DeviceMax reading `xml:"max_device_link_gen"`
-	HostMax   reading `xml:"max_host_link_gen"`
+	Max           reading `xml:"max_link_gen"`
+	Current       reading `xml:"current_link_gen"`
+	DeviceCurrent reading `xml:"device_current_link_gen"`
+	DeviceMax     reading `xml:"max_device_link_gen"`
+	HostMax       reading `xml:"max_host_link_gen"`
 }
 
 type statsBlock struct {
