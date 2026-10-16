@@ -15,11 +15,12 @@
 #
 # Resolves every in-repo markdown link against the working tree.
 #
-# `mkdocs build --strict` only sees docs/, which is a third of the markdown in
-# this repo, and it cannot follow a link written as an absolute github.com URL.
-# Those two blind spots overlap exactly with where links rot: docs/ pages point
-# at in-tree files through absolute self-links because a relative one would
-# leave docs_dir and fail the strict build. This closes both.
+# `fern docs broken-links` only sees the pages listed in docs/index.yml, which
+# is a fraction of the markdown in this repo, and it cannot follow a link
+# written as an absolute github.com URL. Those two blind spots overlap exactly
+# with where links rot: published pages point at in-tree files through absolute
+# self-links because Fern cannot serve a file outside its page tree. This closes
+# both, and also covers the contributor pages Fern does not publish.
 #
 # External URLs are not fetched. This checks only what the working tree can
 # prove, so it stays offline and deterministic.

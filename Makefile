@@ -130,9 +130,10 @@ lint: tools gen-check ## Lint the source code
 	@./hack/check-depproxy-kit.sh
 	@echo "Checking docs/tools against cmd/.."
 	@./hack/check-docs-tools-sync.sh
-# Documentation links are checked here rather than in `make docs` because the
-# Pages workflow only triggers on docs/**, so every README outside it — where
-# these links actually rot — would get no coverage. `make lint` runs on every PR.
+# Documentation links are checked here rather than in `make docs-check` because
+# the Fern workflow only validates docs/ and fern/, so every README outside
+# them — where these links actually rot — would get no coverage. `make lint`
+# runs on every PR.
 	@echo "🔗 Checking documentation links.."
 	@./hack/check-doc-links.sh
 	@echo "🧹 Vetting.."
@@ -496,9 +497,7 @@ crd-docs: ## Generate the Control Plane API reference documentation
 		--renderer markdown \
 		--output-mode single \
 		--max-depth 20
-	awk 'BEGIN { print "<!--"; print "SPDX-License-Identifier: Apache-2.0"; print "SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION"; print "-->"; print "" } { print }' docs/out.md > docs/crd-reference.md.tmp
-	perl -0pi -e 's/\n+\z/\n/' docs/crd-reference.md.tmp
-	mv docs/crd-reference.md.tmp docs/crd-reference.md
+	perl -0pe 's/\n+\z/\n/' docs/out.md > docs/crd-reference.md
 	unlink docs/out.md
 
 # Drives the built libnvidia-ml.so through go-nvml over the real C ABI.
@@ -740,69 +739,42 @@ e2e-mig: ## e2e — MIG scenario with the device plugin in migStrategy=single
 
 ##@ Documentation
 
-# The docs site is MkDocs Material. CI calls these same targets so a failure
-# reproduces locally with one command.
-MKDOCS ?= mkdocs
+# The docs site is Fern. CI calls these same targets so a failure reproduces
+# locally with one command. The Fern CLI is deliberately unpinned; install it
+# with `npm install -g fern-api@latest`.
+FERN ?= fern
 
-# uv manages the toolchain, installed from the pinned requirements-docs.txt.
-# It goes into a project-local virtualenv rather than the system interpreter:
-# `uv pip install` refuses a non-virtual environment outright, and --system
-# resolves whichever interpreter uv happens to find first (an Xcode python3.9
-# on macOS) or trips Debian's externally-managed marker on the CI runner.
-# Naming the venv sidesteps both.
-UV                  ?= uv
-DOCS_VENV           ?= $(CURDIR)/.venv-docs
-DOCS_PYTHON_VERSION ?= 3.12
+# Pages under docs/ that docs/index.yml does not list. They are GitHub-rendered
+# markdown for contributors, or demos that need a repository clone, so they use
+# syntax Fern's MDX parser rejects (autolinks, HTML comments, GitHub alerts).
+# Keep this in step with what docs/index.yml omits. Sample manifests are not
+# pages and Fern never parses them, so *.yaml is excluded from the path check.
+DOCS_UNPUBLISHED := \
+	--exclude 'docs/contributing/*' \
+	--exclude 'docs/maintainers/*' \
+	--exclude 'docs/tools/check-fabric.md' \
+	--exclude 'docs/tools/generate-bridge.md' \
+	--exclude 'docs/guides/compute-domain/*' \
+	--exclude 'docs/guides/nv-sentinel/*' \
+	--exclude 'docs/guides/failure-injection/*' \
+	--exclude 'docs/guides/install/aws/eks/terraform/*'
 
-# Put the venv ahead of PATH for the build targets instead of asking anyone to
-# activate it. The entry is inert when the venv is absent, so `make docs` still
-# works for someone who has mkdocs on PATH by other means.
-DOCS_PATH := PATH="$(DOCS_VENV)/bin:$$PATH"
+.PHONY: docs-check docs-check-paths docs-serve managed-eks-terraform-check
 
-.PHONY: docs-deps docs-build docs-serve docs-check-exclusion docs managed-eks-terraform-check
+# Fern reads any local file a page names, so a page that points outside docs/
+# could read runner files. The Fern workflows run this before they use
+# FERN_TOKEN, from a trusted checkout, so it is a target of its own.
+docs-check-paths: ## Reject docs page paths that leave docs/ (see tools/check-docs-paths)
+	python3 tools/check-docs-paths --allow '../docs/index.yml' --exclude 'docs/*.yaml' $(DOCS_UNPUBLISHED) docs fern
 
-# Missing uv is a hard failure, not a pip fallback. A fallback would let CI and
-# a developer resolve different interpreters while both report success, which is
-# the divergence the pinned manifest exists to prevent.
-# --clear because `uv venv` refuses to write over an existing environment, so
-# without it this target succeeds once and then fails on every re-run, which
-# is also how it would behave for anyone who already had a .venv-docs.
-docs-deps: ## Install the pinned MkDocs toolchain into .venv-docs using uv
-	@command -v $(UV) >/dev/null 2>&1 || { \
-		echo "ERROR: uv not found on PATH. The docs toolchain is managed with uv."; \
-		echo "  Install it with:  brew install uv"; \
-		echo "               or:  curl -LsSf https://astral.sh/uv/install.sh | sh"; \
-		echo "  Docs: https://docs.astral.sh/uv/getting-started/installation/"; \
-		exit 1; \
-	}
-	$(UV) venv --clear --python $(DOCS_PYTHON_VERSION) $(DOCS_VENV)
-	$(UV) pip install --python $(DOCS_VENV) -r requirements-docs.txt
-	@echo "MkDocs installed into $(DOCS_VENV); make docs picks it up with no activation."
+docs-check: docs-check-paths ## Validate the docs: MDX safety, page paths, Fern config, MDX validity and internal links
+	python3 tools/check-docs-mdx $(DOCS_UNPUBLISHED) docs fern
+	cd fern && $(FERN) check
+	cd fern && $(FERN) docs md check
+	cd fern && $(FERN) docs broken-links
 
-docs-build: ## Build the documentation site (strict: broken links fail)
-	$(DOCS_PATH) $(MKDOCS) build --strict
-
-docs-serve: ## Serve the documentation site locally on :8000
-	$(DOCS_PATH) $(MKDOCS) serve
-
-# docs/plans/ and docs/superpowers/ are gitignored scratch directories, so they
-# are absent in CI and grepping the built site for them would pass no matter
-# what. Plant a file and prove exclude_docs drops it, so this fails if that
-# config is removed.
-docs-check-exclusion: ## Verify gitignored internal plans cannot reach the site
-	@set -eu; \
-	export PATH="$(DOCS_VENV)/bin:$$PATH"; \
-	mkdir -p docs/plans; \
-	printf '# Internal\n\nPAGES_EXCLUSION_CANARY\n' > docs/plans/_canary.md; \
-	trap 'rm -rf docs/plans/_canary.md "$(CURDIR)/tmp/canary-site"; rmdir docs/plans 2>/dev/null || true' EXIT; \
-	$(MKDOCS) build --strict --site-dir "$(CURDIR)/tmp/canary-site" >/dev/null; \
-	if grep -rq 'PAGES_EXCLUSION_CANARY' "$(CURDIR)/tmp/canary-site"/; then \
-		echo "ERROR: docs/plans/ leaked into the site; check exclude_docs in mkdocs.yml"; \
-		exit 1; \
-	fi; \
-	echo "exclude_docs verified: internal plans are not published"
-
-docs: docs-check-exclusion docs-build ## Verify exclusion then build the site
+docs-serve: ## Serve the documentation site locally on :3000
+	$(FERN) docs dev
 
 MANAGED_EKS_TERRAFORM_DIR := docs/guides/install/aws/eks/terraform
 TERRAFORM                 ?= terraform

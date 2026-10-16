@@ -83,9 +83,18 @@ body: |-
 
 ## Docs
 
-- Write high-quality technical documentation for this project using **MkDocs with the Material theme**.
-- First, inspect the project structure, source code, configuration, existing documentation, examples, and tests. Build an accurate mental model before writing. 
+- Write high-quality technical documentation for this project as **Fern** pages. Fern is NVIDIA's documentation standard; the site is built from `docs/` with configuration in `fern/`.
+- First, inspect the project structure, source code, configuration, existing documentation, examples, and tests. Build an accurate mental model before writing.
 - Do not invent behavior or capabilities that are not supported by the repository.
+
+### What is published
+
+The published site is for people **running** Mokka. `docs/index.yml` is the single list of what is in and what is out: a page is published only if it appears there, and its order and grouping are the site's navigation.
+
+* A page belongs on the site if a user or operator can follow it without a repository clone and without reading source. A page that leans on code artifacts — scripts, Dockerfiles, Terraform, values files that live beside it — is a test script, not a guide. Keep it out of `docs/index.yml`.
+* Content for people changing Mokka — contributing, maintainers, build and test tooling, demos that need a checkout — stays in the repository as GitHub-rendered markdown under `docs/contributing/` and `docs/maintainers/`. Do not list it in `docs/index.yml`, and use GitHub alerts (`> [!NOTE]`) there, not Fern components.
+* When a page you add or move is not published, add it to `DOCS_UNPUBLISHED` in the `Makefile`, which keeps Fern's MDX checks away from syntax that only GitHub renders.
+* Many links from a published page to files in the repository is a smell. Inline small configs as code blocks with a `title`; if a page needs more than that, it probably should not be published.
 
 ### Writing style
 
@@ -100,52 +109,40 @@ body: |-
 
 ### Structure
 
-The site has three top-level spaces. Place a page by who is reading it, not by
-what it is about.
+The published site has two top-level spaces. Place a page by who is reading it, not by what it is about.
 
-* **General** — someone learning or operating Mokka. Overview, Getting Started,
-  Architecture, Reference, Troubleshooting, FAQ.
+* **General** — someone learning or operating Mokka. Overview, Getting Started, Architecture, Reference, Troubleshooting, FAQ.
 * **Guides** — someone with a specific goal. How-to scenarios and Tasks.
-* **Contributing** — someone changing Mokka. Local development, testing,
-  enhancement proposals, pull requests.
 
-Within General, order pages so each builds progressively on the last: Overview → Getting
-started → Concepts → Architecture → Reference → Troubleshooting.
+Within General, order pages so each builds progressively on the last: Overview → Getting started → Concepts → Architecture → Reference → Troubleshooting.
 
 Placement rules:
 
-* Assume the reader is running Mokka in Kubernetes. The local `LD_LIBRARY_PATH`
-  build is the contributor workflow and belongs under Contributing.
-* Every fact has exactly one home. Link to it; never restate it. A fact written
-  twice is a fact that will disagree with itself.
-* The landing page says what Mokka is, shows one install, and routes. No
-  reference tables — it is the most-read and least-maintained page.
-* Architecture pages describe the moving parts, how they connect, and how the
-  system behaves. Each component gets its own page under Architecture, covering
-  what it does and how it behaves.
-* A guide is customer-facing and self-contained: it runs without a repository
-  clone, installs published artifacts, and keeps its assets beside it. A guide
-  that needs the repo is a test script, not a guide.
-* Create only pages the project justifies. Do not add a section to complete an
-  outline.
+* Assume the reader is running Mokka in Kubernetes. The local `LD_LIBRARY_PATH` build is the contributor workflow and belongs under `docs/contributing/`.
+* Every fact has exactly one home. Link to it; never restate it. A fact written twice is a fact that will disagree with itself.
+* The landing page says what Mokka is, shows one install, and routes. No reference tables — it is the most-read and least-maintained page.
+* Architecture pages describe the moving parts, how they connect, and how the system behaves. Each component gets its own page under Architecture, covering what it does and how it behaves.
+* A guide is customer-facing and self-contained: it installs published artifacts and inlines the small files it needs. It must run without a repository clone.
+* Create only pages the project justifies. Do not add a section to complete an outline.
 
-Create only pages justified by the project. Do not add empty or generic sections merely to follow this outline.
+### Fern features
 
-### MkDocs Material features
+Pages are Markdown parsed as MDX, so some characters are syntax. Run `make docs-check` before sending a change; it runs the MDX safety check, which catches the common failures:
 
-Use Material features when they materially improve comprehension:
+* Self-close void elements (`<img ... />`), and write a bare URL as an ordinary Markdown link, not as an `<https://...>` autolink.
+* Escape `{` as `\{` and a bare `<` before a digit as `&lt;`, or put them in backticks. Wrap placeholders such as `<GPU_UUID>` in backticks.
+* Do not use HTML comments. License headers on markdown are covered by `REUSE.toml`.
 
-* admonitions such as `note`, `tip`, `warning`, and `example`;
-* content tabs for meaningful alternatives;
-* Mermaid diagrams for architecture, workflows, state transitions, or resource relationships;
-* code annotations for non-obvious parts of short examples;
-* tables for exact comparisons, field definitions, states, and mappings;
-* collapsible sections for optional or advanced details;
-* footnotes, abbreviations, tooltips, and glossary entries where useful;
-* clearly labeled code blocks with appropriate language identifiers;
-* page metadata and navigation where supported by the existing configuration.
+Use Fern components when they materially improve comprehension:
 
-Do not overuse these features. Prefer ordinary prose when it communicates the idea more clearly.
+* callouts: `<Note>`, `<Warning>`, `<Tip>`;
+* `<Tabs>` and `<Tab title="...">` for meaningful alternatives;
+* `<Accordion>` for optional or advanced details;
+* Mermaid diagrams in a `mermaid` code block for architecture, workflows, and state transitions;
+* a `title="..."` on a code block that is a file the reader should save;
+* tables for exact comparisons, field definitions, states, and mappings.
+
+Do not overuse these. Prefer ordinary prose when it communicates the idea more clearly. Do not use MkDocs Material syntax (`!!! note`, `=== "Tab"`).
 
 ### Cross-references
 
@@ -153,14 +150,14 @@ Treat the documentation as a connected system rather than isolated pages.
 
 * Cross-reference related concepts, guides, and reference pages.
 * Link a term to its canonical explanation instead of redefining it everywhere.
-* Use stable relative links compatible with MkDocs.
-* Use descriptive link text—not “here” or raw filenames.
+* Use relative links to `.md` files that are listed in `docs/index.yml`. A link to a page that is not published will not resolve on the site; link to it on GitHub instead, or drop it.
+* Use descriptive link text—not "here" or raw filenames.
 * Avoid duplicate explanations; keep one authoritative explanation and link to it.
-* Verify that every internal link and heading anchor resolves correctly.
+* Verify that every internal link and heading anchor resolves correctly. `make docs-check` checks published pages, and `make lint` checks every in-repo markdown link.
 
 ### Level of detail
 
-Choose detail according to the reader’s needs:
+Choose detail according to the reader's needs:
 
 * Explain public behavior, user-visible resources, configuration, workflows, invariants, and operational consequences.
 * Explain internal components only when they help readers understand behavior, operate the system, troubleshoot it, or contribute effectively.
@@ -179,14 +176,14 @@ Choose detail according to the reader’s needs:
 * Identify uncertainty or missing information instead of guessing.
 * Preserve useful existing documentation, improving or reorganizing it where necessary.
 
-Produce or update the Markdown pages, `mkdocs.yml` navigation, and required Material extensions. Finish by checking:
+Produce or update the Markdown pages and the `docs/index.yml` navigation. Finish by checking:
 
 * navigation and page hierarchy;
 * internal links and anchors;
 * terminology consistency;
 * code examples and commands;
 * duplicated or unnecessarily detailed content;
-* compatibility with the project’s MkDocs configuration.
+* that `make docs-check` passes.
 
-The final result should let a technically competent newcomer understand the project, get it running, 
+The final result should let a technically competent newcomer understand the project, get it running,
 form the correct mental model, and find deeper reference information without being overwhelmed by implementation details.

@@ -1,0 +1,28 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+instances:
+  - url: nvidia-k8s-test-infra.docs.buildwithfern.com/k8s-test-infra
+    custom-domain: docs.nvidia.com/k8s-test-infra
+    multi-source: true
+
+redirects:
+  - source: /k8s-test-infra/index.html
+    destination: /k8s-test-infra
+
+title: NVIDIA Mokka
+
+global-theme: nvidia
+
+logo:
+  href: /k8s-test-infra
+  right-text: Mokka
+
+navbar-links:
+  - type: github
+    value: https://github.com/NVIDIA/k8s-test-infra
+
+products:
+  - display-name: Mokka
+    path: ../docs/index.yml
+    slug: /

@@ -1,16 +1,6 @@
----
-# The page opens with the hero <div>, so MkDocs cannot infer a title from the
-# H1 below it and falls back to the filename. Set it explicitly.
-title: Overview
----
-
-<div class="mokka-hero" markdown>
-![Mokka](img/logo.png)
-
-<p class="mokka-tagline">Simulate your GPU infrastructure on CPU nodes.</p>
-</div>
-
 # Mokka
+
+Simulate your GPU infrastructure on CPU nodes.
 
 Mokka simulates the software contracts around NVIDIA devices rather than the
 devices themselves. The rule of thumb: reach for Mokka when your system **reads**
@@ -118,7 +108,7 @@ topology, counters and failures are synthesised.
 
     Local development with Tilt, the test suites, and how to submit a change.
 
-    [Contributing](contributing/index.md)
+    [Contributing](https://github.com/NVIDIA/k8s-test-infra/blob/main/docs/contributing/index.md)
 
 </div>
 
