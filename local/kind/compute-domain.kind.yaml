@@ -6,7 +6,9 @@
 # here because the scenario supports --compute-domain --dra.
 #
 # Workers are named worker-0..3 through JoinConfiguration, and
-# local/compute-domain/topology.yaml assigns cliques by those names.
+# local/compute-domain/topology.yaml assigns cliques by those names. No node
+# carries a clique label: consumers such as topograph read the fabric from the
+# mock driver.
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: mokka-compute-domain
@@ -26,7 +28,6 @@ nodes:
           name: control-0
   - role: worker
     labels:
-      nvidia.com/gpu.clique: "00000000-0000-0000-0000-0000000000ab.0"
       mokka.nvidia.com/type: sgpu
     kubeadmConfigPatches:
       - |
@@ -35,7 +36,6 @@ nodes:
           name: worker-0
   - role: worker
     labels:
-      nvidia.com/gpu.clique: "00000000-0000-0000-0000-0000000000ab.1"
       mokka.nvidia.com/type: sgpu
     kubeadmConfigPatches:
       - |
@@ -44,7 +44,6 @@ nodes:
           name: worker-1
   - role: worker
     labels:
-      nvidia.com/gpu.clique: "00000000-0000-0000-0000-0000000000cd.0"
       mokka.nvidia.com/type: sgpu
     kubeadmConfigPatches:
       - |
@@ -53,7 +52,6 @@ nodes:
           name: worker-2
   - role: worker
     labels:
-      nvidia.com/gpu.clique: "00000000-0000-0000-0000-0000000000cd.1"
       mokka.nvidia.com/type: sgpu
     kubeadmConfigPatches:
       - |

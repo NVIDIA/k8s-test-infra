@@ -18,10 +18,10 @@ tilt up -- --gpu-operator    # the dev loop
 
 Two cluster shapes exist, selected with `PROFILE`:
 
-| `PROFILE`        | Shape                                           | Cluster name           | Use with                          |
-|------------------|-------------------------------------------------|------------------------|-----------------------------------|
-| `default`        | 1 control-plane + 2 workers                     | `mokka`                | everything except compute-domain  |
-| `compute-domain` | 1 control-plane + 4 workers with NVLink cliques | `mokka-compute-domain` | `--compute-domain`, `--topograph` |
+| `PROFILE`        | Shape                                                    | Cluster name           | Use with                          |
+|------------------|----------------------------------------------------------|------------------------|-----------------------------------|
+| `default`        | 1 control-plane + 2 workers                              | `mokka`                | everything except compute-domain  |
+| `compute-domain` | 1 control-plane + 4 workers in two NVLink cliques of two | `mokka-compute-domain` | `--compute-domain`, `--topograph` |
 
 ```bash
 make cluster-create                         # default
@@ -62,7 +62,7 @@ Everything else is a flag.
 | `--gpu-operator` | The NVIDIA GPU Operator, in CDI mode |
 | `--dra` | The NVIDIA DRA driver |
 | `--fgo` | Run:ai's fake-gpu-operator alongside Mokka, splitting workers into two pools |
-| `--topograph` | [topograph](https://github.com/NVIDIA/topograph) network-topology discovery |
+| `--topograph` | [Topograph](../guides/topograph/README.md), labelling each worker with its NVLink domain |
 | `--observability` | kube-prometheus-stack and a Grafana dashboard for the mock fleet |
 | `--dynamo` | The NVIDIA Dynamo operator and a `qwen3` inference graph whose mocker worker runs on a mock GPU |
 | `--slinky` | cert-manager, the Slinky slurm-operator and a Slurm cluster with one GPU `slurmd` per mock-GPU worker |

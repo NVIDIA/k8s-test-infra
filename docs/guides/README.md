@@ -24,6 +24,7 @@ ask of you — start at the top if you are new.
 | [Slinky (Slurm)](slinky/README.md) | A Slurm cluster whose `slurmd` discovers mock GPUs as GRES, and `srun --gres=gpu:N` jobs scheduled against them | ~20 min |
 | [NVIDIA DRA Driver](dra.md) | Mock GPUs published as ResourceSlices, and a pod scheduled through a ResourceClaim | ~10 min |
 | [Run:ai fake-gpu-operator](runai-fgo/README.md) | Two node pools — Mokka serving one with a real NVML shim, FGO serving the other | ~10 min |
+| [Topograph](topograph/README.md) | Topograph groups four simulated GB200 nodes into two NVLink domains and labels each node for topology-aware schedulers | ~10 min |
 | [ComputeDomain](compute-domain/README.md) | NVLink fabric identity, with a real `nvidia-imex` forming a live domain over mock GPUs | 10–20 min |
 | [NVSentinel](nv-sentinel/README.md) | The full health loop: detect a thermal-margin crossing, cordon and drain, then auto-recover on cooldown | ~30 min |
 
