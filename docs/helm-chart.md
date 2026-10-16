@@ -88,7 +88,7 @@ at any level. The pods simply start with no mock GPU.
 
 **Published image:** The nvml-mock container image is published at
 `ghcr.io/nvidia/nvml-mock`, tagged with the release version on every release,
-and with the chart `appVersion` (the next `-dev` version, such as `0.5.0-dev`)
+and with the chart `appVersion` (the next `-dev` version, such as `0.6.0-dev`)
 on pushes to `main`. The chart installs the image tagged with
 its `appVersion` by default, so a released chart pulls its own release and the
 chart on `main` pulls the latest `main` build. If the
