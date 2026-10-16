@@ -223,18 +223,21 @@ a consumer whose config had no table beside it would see a board that cannot
 partition, and the device plugin would publish whole GPUs on a node where NVML
 reports partitions.
 
-!!! warning "A table declared inline *and* externally is refused"
+<Warning>
+**A table declared inline *and* externally is refused**
 
-    A config that keeps `supported_profiles` under `device_defaults.mig` while
-    a table also resolves fails to load, naming both sources. This is an
-    ambiguity rather than a precedence question: whichever table lost would be
-    one somebody authored and the mock silently ignored, and nothing a consumer
-    sees through NVML says which file is in force.
 
-    For an externally-authored config written against the old single-file
-    layout, that is the migration instruction: **move** the table into a
-    sibling document, do not copy it. Nothing the chart ships declares a table
-    inline, so no chart install can reach this.
+A config that keeps `supported_profiles` under `device_defaults.mig` while
+a table also resolves fails to load, naming both sources. This is an
+ambiguity rather than a precedence question: whichever table lost would be
+one somebody authored and the mock silently ignored, and nothing a consumer
+sees through NVML says which file is in force.
+
+For an externally-authored config written against the old single-file
+layout, that is the migration instruction: **move** the table into a
+sibling document, do not copy it. Nothing the chart ships declares a table
+inline, so no chart install can reach this.
+</Warning>
 
 ### A board with no resolvable table is not MIG-capable
 

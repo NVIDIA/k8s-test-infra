@@ -226,7 +226,7 @@ value to the profile and `helm upgrade`.
 
 A handful of NVML functions are generated stubs that always return
 `NOT_SUPPORTED`. [Libraries and Shims](components/libraries-and-shims.md) explains which and
-why; [Contributing](contributing/index.md) covers implementing one.
+why; [Contributing](https://github.com/NVIDIA/k8s-test-infra/blob/main/docs/contributing/index.md) covers implementing one.
 
 ### `nvidia-smi` segfaults or a symbol is missing
 
@@ -243,8 +243,8 @@ Run with `MOCK_NVML_DEBUG=1` to find which call is involved before filing a bug.
 
 Building `libnvidia-ml.so` and running a binary against it with
 `LD_LIBRARY_PATH` is the contributor workflow — see
-[Contributing](contributing/index.md) for building it and
-[Local Development](contributing/local-development.md) for the Tilt loop.
+[Contributing](https://github.com/NVIDIA/k8s-test-infra/blob/main/docs/contributing/index.md) for building it and
+[Local Development](https://github.com/NVIDIA/k8s-test-infra/blob/main/docs/contributing/local-development.md) for the Tilt loop.
 
 One failure is specific to that path and worth knowing: if the real NVML loads
 despite `LD_LIBRARY_PATH`, something else is winning the search order.
@@ -268,9 +268,12 @@ tracker expects one of these:
 | You want Mokka to do something it does not | [Feature request](https://github.com/NVIDIA/k8s-test-infra/issues/new?template=feature_request.yml) |
 | "How do I…?" | [Discussions](https://github.com/NVIDIA/k8s-test-infra/discussions) — the tracker is for tracked work |
 
-!!! warning "Never open a public issue for a security vulnerability"
-    Report it privately instead. See the
-    [security policy](https://github.com/NVIDIA/k8s-test-infra/blob/main/SECURITY.md).
+<Warning>
+**Never open a public issue for a security vulnerability**
+
+Report it privately instead. See the
+[security policy](https://github.com/NVIDIA/k8s-test-infra/blob/main/SECURITY.md).
+</Warning>
 
 ### What to include in a bug report
 

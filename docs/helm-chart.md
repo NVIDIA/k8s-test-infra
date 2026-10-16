@@ -410,13 +410,16 @@ The switch renders with PCI class `0x068000` (base class `0x06` bridge, subclass
 cosmetic: GPU Feature Discovery derives `nvidia.com/gpu.mode` from this class, so
 a switch enumerating as a 3D controller would read as an extra GPU.
 
-!!! note "Rack-scale platforms have no PCIe-visible switches"
+<Note>
+**Rack-scale platforms have no PCIe-visible switches**
 
-    `gb200` and `gb300` declare NVSwitches without a `device_id`. On NVL72 the
-    switches live in their own switch trays, reached over the NVLink cable
-    cartridge, so a compute tray's `lspci` shows its GPUs and no bridges. Those
-    switches still act as NVLink remote endpoints, which is what produces the
-    `NV18` all-to-all in `nvidia-smi topo -m`.
+
+`gb200` and `gb300` declare NVSwitches without a `device_id`. On NVL72 the
+switches live in their own switch trays, reached over the NVLink cable
+cartridge, so a compute tray's `lspci` shows its GPUs and no bridges. Those
+switches still act as NVLink remote endpoints, which is what produces the
+`NV18` all-to-all in `nvidia-smi topo -m`.
+</Note>
 
 ### PCI sysfs in containers
 
@@ -765,7 +768,7 @@ namespace, on the pod IP where the kubelet reaches it.
 | `gpu.dynamicMetrics.enabled` | `false` | Make the mock return time-varying temperature / power / utilization readings instead of the static profile values. See [Dynamic Metrics](#dynamic-metrics) below. |
 | `gpu.dynamicMetrics.seed` | `0` (baseline) | RNG seed; `0` uses a time-based seed, non-zero produces reproducible sequences. |
 | `gpu.dynamicMetrics.temperature.*` | baseline (`base_c: 55`, …) | `base_c`, `variance_c`, `ramp_c`, `ramp_period_sec` for the GPU temperature generator. |
-| `gpu.dynamicMetrics.power.*` | profile default, else baseline `250000`/`25000` | `base_mw`, `variance_mw` for the power generator (clamped to the profile's `min/max_limit_mw`). Resolved **baseline < profile default < user override**; profiles outside the 250W baseline set their own (`t4` ~65W, `b200`/`gb200` ~600W, `gb300` ~800W). See [Dynamic Metrics](#dynamic-metrics). |
+| `gpu.dynamicMetrics.power.*` | profile default, else baseline `250000`/`25000` | `base_mw`, `variance_mw` for the power generator (clamped to the profile's `min/max_limit_mw`). Resolved **baseline &lt; profile default &lt; user override**; profiles outside the 250W baseline set their own (`t4` ~65W, `b200`/`gb200` ~600W, `gb300` ~800W). See [Dynamic Metrics](#dynamic-metrics). |
 | `gpu.dynamicMetrics.utilization.*` | baseline (`pattern: burst`, …) | `pattern` (`idle` \| `busy` \| `burst` \| `steady`), `gpu_min/max`, `memory_min/max`, `burst_period_sec`. |
 | `gpu.failureInjection.enabled` | `false` | Enable simulated GPU failures (lost / fallen off bus / uncorrectable ECC). See [Failure Injection](#failure-injection) below. |
 | `gpu.failureInjection.mode` | `healthy` | Failure mode: `healthy` (default, no-op), `lost`, `fallen_off_bus`, or `ecc_uncorrectable`. With the inert default, `enabled: true` alone produces a healthy device — you must set `mode` explicitly to engage failures. |
@@ -776,7 +779,7 @@ namespace, on the pod IP where the kubelet reaches it.
 | `global.imageRegistry` | `""` | Registry every chart image is pulled from, such as a mirror. Replaces the registry host of `image.repository`, `nri.image.repository` and `controlPlane.image.repository`, so `ghcr.io/nvidia/nvml-mock` becomes `<registry>/nvidia/nvml-mock`. |
 | `global.imagePullSecrets` | `[]` | Pull secrets added to every chart pod (nvml-mock, NRI and control plane), ahead of `imagePullSecrets`. Each entry is a Secret name or `{name: <secret>}`. |
 | `imagePullSecrets` | `[]` | Pull secrets added to every chart pod, after `global.imagePullSecrets`; duplicates are dropped. Same entry forms. |
-| `extraObjects` | `[]` | Additional Kubernetes objects rendered with the release, each passed through `tpl` so it can use chart values such as `{{ .Release.Name }}`. A list, or a map keyed by name so layered values files can override an entry or drop it with `""`. Each entry is an object or a YAML string. |
+| `extraObjects` | `[]` | Additional Kubernetes objects rendered with the release, each passed through `tpl` so it can use chart values such as `&#123;&#123;.Release.Name&#125;&#125;`. A list, or a map keyed by name so layered values files can override an entry or drop it with `""`. Each entry is an object or a YAML string. |
 | `image.repository` | `ghcr.io/nvidia/nvml-mock` | Container image repository |
 | `image.digest` | `""` | Immutable `sha256:...` digest. When set, pins the image and takes precedence over `image.tag`. |
 | `image.tag` | `""` (chart `appVersion`) | Container image tag. When empty, the chart `appVersion`: the release version in a released chart, the next `-dev` version on `main`. |

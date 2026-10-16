@@ -120,15 +120,18 @@ The chart takes these values from `controlPlane.service.port`,
 `controlPlane.workers`, `controlPlane.kubeAPIQPS` and
 `controlPlane.kubeAPIBurst`. Other flags retain the binary defaults.
 
-!!! note "Give the drain room inside the grace period"
+<Note>
+**Give the drain room inside the grace period**
 
-    Shutdown is a 10s preStop sleep — which keeps the endpoint out of Service
-    rotation before the process stops — followed by the drain. Both have to fit
-    inside `controlPlane.terminationGracePeriodSeconds`, 30s by default,
-    because the kubelet sends SIGKILL at that boundary whatever is still in
-    flight. `--shutdown-timeout` bounds HTTP draining, not controller cleanup;
-    follow the [safe disable and uninstall procedure](../control-plane.md#disable-or-uninstall-safely)
-    before removing the controller.
+
+Shutdown is a 10s preStop sleep — which keeps the endpoint out of Service
+rotation before the process stops — followed by the drain. Both have to fit
+inside `controlPlane.terminationGracePeriodSeconds`, 30s by default,
+because the kubelet sends SIGKILL at that boundary whatever is still in
+flight. `--shutdown-timeout` bounds HTTP draining, not controller cleanup;
+follow the [safe disable and uninstall procedure](../control-plane.md#disable-or-uninstall-safely)
+before removing the controller.
+</Note>
 
 ## Deployment
 

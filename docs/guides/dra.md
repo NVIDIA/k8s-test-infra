@@ -80,7 +80,7 @@ helm install nvidia-dra-driver nvidia/dra-driver-nvidia-gpu \
 |---|---|
 | `nvidiaDriverRoot` | Points the driver at Mokka's staged tree instead of a real driver root |
 | `gpuResourcesEnabledOverride` | The driver otherwise gates GPU resource publishing on checks a mock node does not satisfy |
-| `resources.computeDomains.enabled=false` | ComputeDomain support needs an NVLink fabric — see the [ComputeDomain guide](compute-domain/README.md) for that path |
+| `resources.computeDomains.enabled=false` | ComputeDomain support needs an NVLink fabric — see the [ComputeDomain guide](https://github.com/NVIDIA/k8s-test-infra/blob/main/docs/guides/compute-domain/README.md) for that path |
 
 ## Step 4 — Check the ResourceSlices
 
@@ -200,5 +200,5 @@ kind delete cluster --name mokka-dra
 | Every chart value | [Installation](../helm-chart.md) |
 | Which containers the NRI plugin injects | [NRI Plugin](../components/nri-plugin.md#which-containers-are-injected) |
 | The operator stack instead of DRA | [NVIDIA GPU Operator](gpu-operator.md) |
-| NVLink fabric identity for ComputeDomains | [ComputeDomain](compute-domain/README.md) |
+| NVLink fabric identity for ComputeDomains | [ComputeDomain](https://github.com/NVIDIA/k8s-test-infra/blob/main/docs/guides/compute-domain/README.md) |
 | Driving this from CI | [Use in CI/CD](ci-cd.md) |

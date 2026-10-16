@@ -5,8 +5,8 @@
     <a href="https://github.com/NVIDIA/k8s-test-infra/actions/workflows/ci.yaml">
         <img src="https://github.com/NVIDIA/k8s-test-infra/actions/workflows/ci.yaml/badge.svg" alt="CI pipelines" />
     </a>
-    <a href="https://nvidia.github.io/k8s-test-infra/">
-        <img src="https://github.com/NVIDIA/k8s-test-infra/actions/workflows/deploy-pages.yaml/badge.svg" alt="Documentation" />
+    <a href="https://docs.nvidia.com/k8s-test-infra">
+        <img src="https://github.com/NVIDIA/k8s-test-infra/actions/workflows/publish-fern-docs.yml/badge.svg" alt="Documentation" />
     </a>
     <a href="https://scorecard.dev/viewer/?uri=github.com/NVIDIA/k8s-test-infra">
         <img src="https://api.scorecard.dev/projects/github.com/NVIDIA/k8s-test-infra/badge" alt="OpenSSF Scorecard" />
@@ -56,7 +56,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 Every node now reports four mock GB300 GPUs. Swap in `a100`, `b200`, `gb200`,
 `h100`, `l40s` or `t4` with `--set gpu.profile=<name>`.
 
-[Simulation depth by area](https://nvidia.github.io/k8s-test-infra/#simulation-depth-by-area)
+[Simulation depth by area](https://docs.nvidia.com/k8s-test-infra/general/overview#simulation-depth-by-area)
 breaks this down per surface — GPU and NVML, Kubernetes allocation, metrics, PCI
 and NUMA, NVLink, NVSwitch and Fabric Manager, and InfiniBand — with what each
 one does and does not prove.
@@ -75,19 +75,19 @@ one does and does not prove.
 
 ## Documentation
 
-Visit **[our documentation website](https://nvidia.github.io/k8s-test-infra/)** to find all details about how Mokka works.
+Visit **[our documentation website](https://docs.nvidia.com/k8s-test-infra)** to find all details about how Mokka works.
 
-|                                                                         |                                                                          |
-|-------------------------------------------------------------------------|--------------------------------------------------------------------------|
-| [Quick Start](https://nvidia.github.io/k8s-test-infra/quickstart/)      | Install and see simulated GPUs                                           |
-| [Architecture](https://nvidia.github.io/k8s-test-infra/architecture/)   | The moving parts and how the system behaves                              |
-| [Guides](https://nvidia.github.io/k8s-test-infra/guides/)                 | Device plugin, DRA, GPU Operator, failure injection, node-wide injection |
-| [Configuration](https://nvidia.github.io/k8s-test-infra/configuration/) | Every profile knob                                                       |
-| [FAQ](https://nvidia.github.io/k8s-test-infra/faq/)                     | What Mokka simulates, and what it does not                               |
+|                                                                                           |                                                              |
+|-------------------------------------------------------------------------------------------|--------------------------------------------------------------|
+| [Quick Start](https://docs.nvidia.com/k8s-test-infra/general/getting-started/quick-start) | Install and see simulated GPUs                               |
+| [Architecture](https://docs.nvidia.com/k8s-test-infra/general/architecture/overview)      | The moving parts and how the system behaves                  |
+| [Guides](https://docs.nvidia.com/k8s-test-infra/guides/overview)                          | Device plugin, DRA, GPU Operator, MIG, CI/CD, Dynamo, Slinky |
+| [Configuration](https://docs.nvidia.com/k8s-test-infra/general/reference/configuration)   | Every profile knob                                           |
+| [FAQ](https://docs.nvidia.com/k8s-test-infra/general/faq)                                 | What Mokka simulates, and what it does not                   |
 
 ## Contributing
 
-See the [contributing guide](https://nvidia.github.io/k8s-test-infra/contributing/)
+See the [contributing guide](docs/contributing/index.md)
 for local development with Tilt, the test suites, and how to submit a change.
 Substantial changes start with a [Mokka Enhancement Proposal](enhancements/).
 

@@ -649,10 +649,11 @@ writing an NVML client, set the field directly:
 | `nvmlDeviceRemoveGpu` | Detaches the GPU from the driver. Every process stops enumerating it, the calling one included, and the rest are renumbered. The calling process's handles to the GPU, its MIG devices and instances return `NVML_ERROR_INVALID_ARGUMENT` from then on. | The GPU is in persistence mode, or the device has configured `processes` |
 | `nvmlDeviceDiscoverGpus` | Re-attaches removed GPUs: all of them when domain, bus and device are zero, otherwise the one at that address. As in NVML, the `busId` string is not read. A rediscovered GPU is no longer draining. | — |
 
-!!! note
-    A process that is already running sees a removal or rediscovery made by
-    another process only once it next calls `nvmlInit`. The process that made
-    the change sees it immediately.
+<Note>
+A process that is already running sees a removal or rediscovery made by
+another process only once it next calls `nvmlInit`. The process that made
+the change sees it immediately.
+</Note>
 
 ### MIG
 
@@ -829,14 +830,17 @@ that names neither is warned about and treated as an absent block.
 Either way, `supported` is the set the setter accepts, and the reported mode is
 the last value a setter recorded, else `mode`, else the best supported mode.
 
-!!! note "Choosing a scope for a new profile"
-    The NVML reference documents the node-wide family for Hopper or newer and
-    the per-device family for Blackwell or newer. The `nvidia-smi` manual,
-    however, marks `-gBwMode` and `-sBwMode` deprecated for Blackwell, and a
-    real GB300 answers `-gBwMode` with `Getting nvlink bandwidth mode is not
-    supported`. A Hopper board therefore takes `system`, a Blackwell board
-    `device`, and a board before Hopper omits the block. On a `device` profile
-    the mode is visible to NVML callers only.
+<Note>
+**Choosing a scope for a new profile**
+
+The NVML reference documents the node-wide family for Hopper or newer and
+the per-device family for Blackwell or newer. The `nvidia-smi` manual,
+however, marks `-gBwMode` and `-sBwMode` deprecated for Blackwell, and a
+real GB300 answers `-gBwMode` with `Getting nvlink bandwidth mode is not
+supported`. A Hopper board therefore takes `system`, a Blackwell board
+`device`, and a board before Hopper omits the block. On a `device` profile
+the mode is visible to NVML callers only.
+</Note>
 
 The `nvidia-smi` manual documents the five mode names and what each does, but
 nothing states which index the NVML calls carry for a name. The mapping below

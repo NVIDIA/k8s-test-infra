@@ -72,13 +72,13 @@ test("privileged foundation workflows never execute pull-request code", () => {
   }
 });
 
-test("repository automation documentation is in navigation and linked from contribution guidance", () => {
-  const navigation = fs.readFileSync(path.join(repositoryRoot, "mkdocs.yml"), "utf8");
+// The runbook is for maintainers, so docs/index.yml deliberately leaves it out of the
+// published site; contribution guidance is how a reader finds it.
+test("repository automation documentation is linked from contribution guidance", () => {
   const contributing = fs.readFileSync(
     path.join(repositoryRoot, "docs", "contributing", "pull-requests.md"),
     "utf8",
   );
-  assert.match(navigation, /maintainers\/repository-automation\.md/);
   assert.match(contributing, /maintainers\/repository-automation/);
 });
 
