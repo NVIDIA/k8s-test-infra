@@ -298,6 +298,10 @@ nri:
     hostPath: /var/lib/nvml-mock
     # -- Container mount path for the mock driver overlay.
     mountPath: /opt/nvml-mock
+  guest:
+    # -- Writable host directory where the NRI plugin writes the bundle a
+    # KubeVirt guest attaches as a disk: one directory per virt-launcher container.
+    hostPath: /run/nvml-mock-guests
   # -- Pod annotation that disables ambient mock injection when set to "false".
   optOutAnnotation: nvml-mock.nvidia.com/inject
   # Workloads that set this pod annotation to "true" request all staged mock

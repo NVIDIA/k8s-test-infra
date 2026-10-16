@@ -92,7 +92,9 @@ value responds to a pod holding an `nvidia.com/gpu` claim — see
 `nvml-mock-ctl` ships inside the nvml-mock DaemonSet image and runs via
 `kubectl exec` into the DaemonSet pod on the **target node**. Its scope is
 **per-node**: it only affects the node whose pod you exec into. To change several
-nodes, repeat the command against each node's pod.
+nodes, repeat the command against each node's pod. KubeVirt guests on that node
+follow within seconds; see
+[Runtime changes in a guest](components/nri-plugin.md#runtime-changes-in-a-guest).
 
 Inside the pod the config path is wired through `MOCK_NVML_CONFIG`, and the
 config override defaults to the host-mounted driver config dir

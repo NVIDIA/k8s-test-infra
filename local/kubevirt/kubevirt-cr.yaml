@@ -1,0 +1,16 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Emulation lets KubeVirt run on Kind nodes without /dev/kvm; HostDisk enables
+# the volume that carries the Mokka guest bundle.
+apiVersion: kubevirt.io/v1
+kind: KubeVirt
+metadata:
+  name: kubevirt
+  namespace: kubevirt
+spec:
+  configuration:
+    developerConfiguration:
+      useEmulation: true
+      featureGates:
+        - HostDisk

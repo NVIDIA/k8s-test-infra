@@ -28,6 +28,9 @@ func Adjust(cfg Config, container Container) (Adjustment, bool) {
 		zap.L().Debug("skipping container injection", zap.String("namespace", container.Namespace), zap.String("reason", reason))
 		return Adjustment{}, false
 	}
+	if sel.launcher {
+		return launcherAdjustment(cfg, container)
+	}
 	if sel.allocated && container.annotated(cfg.DeviceAnnotation, "true") {
 		zap.L().Debug("GPU allocation takes precedence over the devices annotation",
 			zap.String("namespace", container.Namespace))
@@ -81,9 +84,15 @@ type selection struct {
 	// for RDMA, so device paths are not evidence of a request.
 	infiniband bool
 	imex       bool
+	// launcher: an allocated KubeVirt virt-launcher, which gets the guest
+	// bundle instead of every other surface.
+	launcher bool
 }
 
-// decide is the single source of truth shared by Adjust and Skip.
+// decide reads the container alone to choose its surfaces, or why it is
+// skipped; Adjust and Skip share it so they agree on every skip. A launcher it
+// selects can still be refused by launcherAdjustment, whose checks (a usable
+// ID, a granted minor) Skip does not make.
 //
 // The mount check is what makes re-adjustment safe: a container that already
 // carries the overlay at its destination has been through here before, and
@@ -93,6 +102,19 @@ func decide(cfg Config, container Container) (sel selection, reason string, skip
 		return selection{}, reason, true
 	}
 	allocated := hasGPUAllocation(container)
+	if container.PodAnnotations[cfg.LauncherAnnotation] != "" {
+		// An unallocated compute container still runs QEMU, and the sidecars
+		// share its pod, so no opt-in may bring the shims in.
+		if !allocated {
+			return selection{}, "KubeVirt launcher pod; only the allocated container is adjusted", true
+		}
+		// Once swapped, the placeholder is gone, so this also keeps a second
+		// pass from re-adjusting the launcher.
+		if len(placeholderMounts(cfg, container)) == 0 {
+			return selection{}, "KubeVirt launcher declares no guest bundle volume", true
+		}
+		return selection{launcher: true}, "", false
+	}
 	sel = selection{
 		allocated:  allocated,
 		management: container.annotated(cfg.DeviceAnnotation, "true") && !allocated,
@@ -102,7 +124,7 @@ func decide(cfg Config, container Container) (sel selection, reason string, skip
 	if !sel.gpu() && !sel.infiniband && !sel.imex {
 		return sel, "no GPU allocation and no opt-in annotation", true
 	}
-	if hasOverlay(cfg, container) {
+	if hasMount(container, cfg.ContainerOverlayPath) {
 		return sel, "overlay already mounted", true
 	}
 	return sel, "", false
@@ -124,9 +146,9 @@ func skip(cfg Config, container Container) (reason string, ok bool) {
 	return "", false
 }
 
-func hasOverlay(cfg Config, container Container) bool {
+func hasMount(container Container, destination string) bool {
 	for _, mount := range container.Mounts {
-		if mount.Destination == cfg.ContainerOverlayPath {
+		if mount.Destination == destination {
 			return true
 		}
 	}

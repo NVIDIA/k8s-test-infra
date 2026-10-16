@@ -319,3 +319,9 @@ func TestAdjustmentToNRI(t *testing.T) {
 		require.Nil(t, result.Linux)
 	})
 }
+
+func TestContainerFromNRICarriesTheContainerID(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "c0ffee", containerFromNRI(&api.PodSandbox{}, &api.Container{Id: "c0ffee"}).ID)
+}

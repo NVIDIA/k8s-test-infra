@@ -108,6 +108,7 @@ Kubernetes: `>= 1.28.0-0`
 | nri.deviceInjectionMode | string | `"raw"` | Device injection mode: raw nodes or CDI references. |
 | nri.enabled | bool | `true` | Enable node-wide container injection through the NRI plugin. Inject the mock into containers that hold a GPU allocation or opt in by annotation. Needs containerd NRI enabled on the node: containerd 2.x enables it by default, containerd 1.7 does not. Set false where it is off; otherwise the node pod stays NotReady. |
 | nri.excludedNamespaces | list | `[]` | Namespaces excluded from NRI injection. |
+| nri.guest.hostPath | string | `"/run/nvml-mock-guests"` | Writable host directory where the NRI plugin writes the bundle a KubeVirt guest attaches as a disk: one directory per virt-launcher container. |
 | nri.healthPort | int | `8080` | NRI plugin health and readiness port. |
 | nri.image | object | `{}` | Optional container image overrides for the NRI plugin. |
 | nri.imexChannelAnnotation | string | `"nvml-mock.nvidia.com/imex-channels"` | Pod annotation enabling IMEX channel injection. |

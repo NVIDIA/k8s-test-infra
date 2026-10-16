@@ -26,10 +26,10 @@ All profiles use the stock Kind node image the Makefile pins (`KIND_NODE_IMAGE`)
 
 The default profile spans 1 control-plane + 2 workers (a100 + t4), so no cluster rebuild is needed when switching between homogeneous (single Helm release) and heterogeneous (per-GPU-profile) nvml-mock installation, or when enabling `--fgo`.
 
-| `PROFILE=`          | Kind config                           | Cluster name                    | Use with                                                             |
-|---------------------|---------------------------------------|---------------------------------|----------------------------------------------------------------------|
-| `default` (default) | `local/kind/default.kind.yaml`        | `kind-mokka`                    | basic, gpu-operator, dra, `--multi-gpu-profile`, `--fgo`, `--slinky` |
-| `compute-domain`    | `local/kind/compute-domain.kind.yaml` | `kind-mokka-compute-domain`     | `--compute-domain`                                                   |
+| `PROFILE=`          | Kind config                           | Cluster name                | Use with                                                                           |
+|---------------------|---------------------------------------|-----------------------------|------------------------------------------------------------------------------------|
+| `default` (default) | `local/kind/default.kind.yaml`        | `kind-mokka`                | basic, gpu-operator, dra, `--multi-gpu-profile`, `--fgo`, `--slinky`, `--kubevirt` |
+| `compute-domain`    | `local/kind/compute-domain.kind.yaml` | `kind-mokka-compute-domain` | `--compute-domain`                                                                 |
 
 ```bash
 make cluster-create                         # 1 CP + 2 workers (a100 / t4) — the default
@@ -192,6 +192,17 @@ kubectl -n slurm exec slurm-controller-0 -c slurmctld -- srun -N1 --gres=gpu:2 n
 ```
 
 The `slurm-nodes` resource waits for the GPU Operator to be healthy, then stays pending until every `slurmd` pod is Ready, and prints `sinfo`. The manual **slurm-smoke** trigger under the `slinky-tests` label asserts every node registered its GPUs, that a 2-GPU job gets exactly 2 of the node's profile, and that a job using every GPU on every node runs. `slurmd` detects GPUs once at startup and `slurmctld` keeps a node's first GPU-to-CPU binding, so after reinstalling nvml-mock or switching `--gpu-profile`, delete the node records (`scontrol delete nodename=...`) and then the `slurmd` pods. The [Slinky guide](../docs/guides/slinky/README.md) walks through the same setup from published artifacts and covers what a job does and does not see.
+
+### With KubeVirt
+
+Deploys [KubeVirt](https://kubevirt.io) and a VirtualMachine `gpu-vm` whose guest sees exactly the mock GPU its launcher pod was allocated, in passthrough mode. Implies `--gpu-operator`; mutually exclusive with `--slinky`. Needs an amd64 host: it does not run on an Apple-silicon Mac.
+
+```bash
+make cluster-create
+tilt up -- --kubevirt
+```
+
+[`local/kubevirt/README.md`](kubevirt/README.md) covers the smoke test, what a VM declares, how the bundle reaches the guest, why a Mac cannot run it, and teardown.
 
 ## Helm value overrides for nvml-mock
 

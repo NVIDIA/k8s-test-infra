@@ -38,12 +38,14 @@ the surfaces that were selected. None of them brings another along.
 | Container | Receives |
 |---|---|
 | Holds a GPU allocation from the device plugin or the NVIDIA DRA driver | The overlay with mock NVML active. The allocated GPUs stay exactly as the scheduler assigned them |
+| Holds a GPU allocation in a pod annotated `kubevirt.io/domain` | A guest bundle for the VM, and nothing else; see [KubeVirt launchers](#kubevirt-launchers) |
 | Pod annotated `nvml-mock.nvidia.com/devices: "true"`, no allocation | The overlay with mock NVML active, and every mock GPU on the node |
 | Pod annotated `nvml-mock.nvidia.com/infiniband: "true"` | The overlay with the mock InfiniBand tools active |
 | Pod annotated `nvml-mock.nvidia.com/imex-channels: "true"` | The mock IMEX channel nodes, and nothing else |
 | Anything else | Nothing |
 
-A container that matches several rows gets each of their surfaces.
+A container that matches several rows gets each of their surfaces, except a
+KubeVirt launcher, which gets only its bundle.
 
 The **overlay** is the mock driver tree mounted at `/opt/nvml-mock`, plus the
 `PATH`, `LD_LIBRARY_PATH` and `LD_PRELOAD` shims that point at it. The GPU and
@@ -83,15 +85,18 @@ annotations, it applies to every container in the pod.
 
 ## What happens to a container
 
-Adjustment runs as a fixed sequence, and no step can fail:
+Adjustment runs as a fixed sequence, and no step blocks container creation:
 
 ```mermaid
 flowchart TB
     create[containerd: CreateContainer] --> skip{Opt-out annotation or<br/>excluded namespace?}
     skip -->|yes| asis[Leave exactly as authored]
-    skip -->|no| gpu{GPU?}
-    skip -->|no| ib{infiniband<br/>annotation?}
-    skip -->|no| imex{imex-channels<br/>annotation?}
+    skip -->|no| launcher{KubeVirt launcher<br/>pod?}
+    launcher -->|GPU allocation| bundle[Guest bundle only]
+    launcher -->|no allocation| asis
+    launcher -->|no| gpu{GPU?}
+    launcher -->|no| ib{infiniband<br/>annotation?}
+    launcher -->|no| imex{imex-channels<br/>annotation?}
     gpu -->|allocation| keep[Overlay, mock NVML;<br/>keep the allocated GPUs]
     gpu -->|devices annotation,<br/>no allocation| all[Overlay, mock NVML +<br/>every mock GPU, raw or CDI]
     ib -->|yes| fabric[Overlay, mock InfiniBand]
@@ -106,6 +111,8 @@ Any of these leaves the container exactly as authored:
 
 - the pod carries `nvml-mock.nvidia.com/inject: "false"`;
 - its namespace is in the excluded list;
+- its pod is a [KubeVirt launcher](#kubevirt-launchers) and it holds no GPU
+  allocation, whatever its annotations;
 - it holds no GPU allocation and carries none of the `devices`, `infiniband`
   and `imex-channels` annotations;
 - it already mounts the overlay at the destination path.
@@ -153,9 +160,10 @@ whatever the scheduler allocated is never widened.
     `cdi-cri` strategy, as the GPU Operator does when CDI is enabled.
 
 !!! note "IMEX sits outside this rule"
-    IMEX channels are requested by their own annotation and never suppressed.
-    Neither the device plugin nor the DRA driver delivers mock IMEX channels, so
-    there is nothing to defer to.
+    IMEX channels are requested by their own annotation and never suppressed,
+    except in a [KubeVirt launcher](#kubevirt-launchers). Neither the device
+    plugin nor the DRA driver delivers mock IMEX channels, so there is nothing
+    to defer to.
 
 ## Selecting InfiniBand
 
@@ -169,6 +177,152 @@ The annotation never adds or removes real `/dev/infiniband/*` nodes. It points
 the InfiniBand tools at the mock sysfs tree the node agent renders. On a profile
 without InfiniBand that tree holds no HCA: the pod still starts, its tools find
 nothing, and the plugin logs a warning.
+
+## KubeVirt launchers
+
+A KubeVirt VM runs inside a virt-launcher pod, whose `compute` container runs
+libvirt and QEMU. When the VM requests `nvidia.com/gpu`, that container holds
+the allocation, but the GPU belongs to the guest. The overlay would be wrong
+there: its `LD_PRELOAD` shims and mock library would load into libvirt and QEMU,
+and none of it would reach the guest's filesystem.
+
+The plugin therefore treats a container as a **launcher** when its pod carries
+the `kubevirt.io/domain` annotation, which KubeVirt sets on virt-launcher pods,
+and the container holds a GPU allocation by the rules in
+[Recognising a GPU allocation](#recognising-a-gpu-allocation). A launcher gets
+no overlay, environment or devices, only its **guest bundle**: a directory
+holding `bundle.tar`, an archive laid out at the guest's own paths:
+
+| Path in the bundle | Content |
+|---|---|
+| `etc/nvml-mock/config.yaml` | The node's GPU profile, copied from the staged overlay with every GPU set to passthrough virtualization mode, which is what NVML reports inside a VFIO guest |
+| `etc/nvml-mock/config.mig.yaml` | The board's [MIG profile table](../mig.md), only when the node agent staged one |
+| `etc/nvml-mock/allocation` | The allocated GPU minor numbers, one per line |
+| `usr/local/lib64/libnvidia-ml.so.1`, `usr/local/bin/nvidia-smi` | The mock NVML library and `nvidia-smi` |
+| `etc/ld.so.conf.d/nvml-mock.conf` | Adds `/usr/local/lib64` to the loader's search path |
+| `usr/local/bin/nvml-mock-guest`, `etc/systemd/system/nvml-mock-guest.service` | A static program and its systemd unit that mirror the node's runtime overrides into the guest; see [Runtime changes in a guest](#runtime-changes-in-a-guest) |
+| `dev/nvidiaN`, one per allocated GPU | Empty files. The mock library shows only the GPUs whose device file exists, so the guest sees exactly its allocation |
+
+Extracting the archive at `/` is the install: the mock library finds
+`/etc/nvml-mock/config.yaml` without `MOCK_NVML_CONFIG`, and after `ldconfig`
+any program loading `libnvidia-ml.so.1` finds it. Starting the
+`nvml-mock-guest` unit keeps the guest's overrides in step with the node.
+
+The guest sees none of the launcher container's files: QEMU's devices come from
+the libvirt domain that virt-launcher defines after the container starts. The
+bundle therefore reaches the guest as a disk the VM itself declares, a KubeVirt
+`hostDisk` volume at the **guest placeholder** path,
+`/run/nvml-mock-guest/bundle.tar`. The placeholder is an empty directory the
+chart creates on every node. In a launcher, the plugin replaces each mount of
+it with a read-only bind of that launcher's bundle directory, so libvirt
+attaches the launcher's own `bundle.tar`. Every VM spec names the same path,
+and a VM on a node without the plugin finds no bundle rather than another VM's.
+A VM declares three things:
+
+- `nvidia.com/gpu: N` under `spec.domain.resources.limits`, the number of GPUs
+  its guest sees. KubeVirt's `spec.domain.devices.gpus` does not work with mock
+  GPUs: it attaches the allocation through VFIO PCI passthrough, which needs a
+  real PCI device.
+- The `hostDisk` volume at the placeholder, with `type: Disk`, attached as a
+  read-only disk. KubeVirt accepts it only with the `HostDisk` feature gate
+  enabled.
+- A guest that extracts that disk at `/`, runs `ldconfig` and starts the
+  `nvml-mock-guest` unit, for example from cloud-init.
+
+The
+[`--kubevirt` Tilt scenario](https://github.com/NVIDIA/k8s-test-infra/blob/main/local/kubevirt/README.md)
+is a complete example.
+
+Before a VM starts, virt-handler changes a `hostDisk` directory's owner to
+KubeVirt's `qemu` user (UID and GID 107) unless it already belongs to it. The
+bind is read-only, so the plugin writes the bundle directory and file owned by
+that user.
+
+The bundle is written when the launcher container is created. Only its
+[live area](#runtime-changes-in-a-guest) changes afterwards: a later profile or
+MIG table change on the node reaches a guest only after a VM restart, which
+creates a new launcher and a new bundle.
+
+### Runtime changes in a guest
+
+Runtime changes on the node, such as an Xid injected with
+`nvml-mock-ctl fail --xid`, a pinned temperature, or the memory use
+`watch-allocations` publishes, all land in one file: the node's
+`overrides.yaml`. A guest mirrors that file, so `nvidia-smi` and NVML events in
+the guest report the same changes a container on the node would see.
+
+```mermaid
+sequenceDiagram
+    participant CTL as nvml-mock-ctl (node)
+    participant NRI as NRI plugin
+    participant D as bundle.tar live area
+    participant G as nvml-mock-guest (guest)
+    participant L as mock NVML (guest)
+
+    CTL->>CTL: writes overrides.yaml
+    NRI->>NRI: polls overrides.yaml every second
+    NRI->>D: rewrites the live area of every bundle in place
+    G->>D: reads the live area every second, bypassing the page cache
+    G->>G: writes /etc/nvml-mock/overrides.yaml
+    L->>L: re-reads overrides.yaml
+```
+
+Every `bundle.tar` ends in a 1 MiB **live area** after the archive. `tar` stops
+at the archive's end and never reads it. The area holds a header with a
+checksum, followed by the node's `overrides.yaml` verbatim. The plugin rewrites
+the area in place when the node's file changes. QEMU keeps no cache of its own
+for the disk, so it serves the new bytes to the guest. In the guest, the
+`nvml-mock-guest` service polls the area and writes a changed document to
+`/etc/nvml-mock/overrides.yaml` under the lock the mock library's own writers
+take, and logs `applied host overrides` with the document's SHA-256 on the
+serial console. A change reaches the guest's NVML within about three seconds.
+
+The guest applies the node's document unchanged. Overrides are keyed by the
+profile's device index, which a guest shares with the node, so an override for
+a GPU the guest does not hold has no effect there.
+
+- The node is the source of truth. An override set inside the guest lasts until
+  the next change on the node replaces it.
+- Removing the node's file, as the node agent does on restart, removes the
+  guest's.
+- An Xid reaches the guest as an NVML event only. The guest's kernel log never
+  shows it.
+- A document larger than the area's 1020 KiB, or a bundle written by a plugin
+  version without a live area, is logged once per change and left as it was.
+
+Edge cases:
+
+- The `devices`, `infiniband` and `imex-channels` annotations have no effect on
+  a launcher. The opt-out annotation and excluded namespaces still apply.
+- A launcher with no mount of the placeholder is left unmodified, because its VM
+  declares no bundle disk. That includes a launcher whose placeholder was
+  already replaced.
+- Every container in the pod that holds no GPU allocation is left exactly as
+  authored, even when the pod carries the `devices`, `infiniband` or
+  `imex-channels` annotation.
+- When no allocated `/dev/nvidiaN` carries its own cgroup grant, the launcher is
+  left unmodified with a warning: a bundle without device files would show the
+  guest every GPU on the node.
+- When the bundle cannot be written, the launcher is left unmodified with a
+  warning rather than failing its creation, as described in
+  [Failing open](#failing-open).
+
+A launcher left without a bundle still declares the disk, which then names the
+empty placeholder, so its VM cannot start. [A KubeVirt VM with a GPU never
+starts](../troubleshooting.md#a-kubevirt-vm-with-a-gpu-never-starts) lists the
+causes and the error.
+
+Nodes with SELinux enforcing are untested: a confined QEMU may be denied the
+bundle file on the host path.
+
+Bundles live on the node under the
+[`nri.guest.hostPath` chart value](../helm-chart.md#values), one directory per
+container ID. The plugin deletes a container's directory when containerd
+reports the container removed. Each time it registers with containerd, it also
+removes the directories of containers the runtime no longer reports, which
+covers containers removed while the plugin was not running. That sweep removes
+only directories named like a containerd container ID, 64 lowercase hex
+characters, and leaves every other entry alone.
 
 ## Device injection modes
 
@@ -257,7 +411,7 @@ copies, see
 
 | Package | Role |
 |---|---|
-| `internal/nri` | The runtime-coupled half: registers with containerd, translates its container types, reports health |
+| `internal/nri` | The runtime-coupled half: registers with containerd, translates its container types, writes KubeVirt guest bundles, reports health |
 | `internal/nri/inject` | The decision: what to add to a container. No containerd types cross this boundary, so every rule above is exercisable as a plain table test |
 
 ## Related

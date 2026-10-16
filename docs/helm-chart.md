@@ -810,6 +810,7 @@ namespace, on the pod IP where the kubelet reaches it.
 | `nri.socketPath` | `/var/run/nri/nri.sock` | NRI socket on the host. Its directory is hostPath-mounted into the plugin |
 | `nri.pluginName` / `nri.pluginIndex` | `nvml-mock` / `"10"` | NRI registration identity. The index orders this plugin against others |
 | `nri.overlay.hostPath` / `nri.overlay.mountPath` | `/var/lib/nvml-mock` / `/opt/nvml-mock` | Host overlay staged by the main DaemonSet, and the path it is injected at inside workloads |
+| `nri.guest.hostPath` | `/run/nvml-mock-guests` | Host directory, mounted read-write into the plugin, where it writes the guest bundle of each [KubeVirt launcher](components/nri-plugin.md#kubevirt-launchers) container. On tmpfs, which `/run` is on most nodes, each bundle (about 15 MB) is charged to the plugin container's memory, so a memory limit in `nri.resources` must leave room for one bundle per GPU VM on the node |
 | `nri.optOutAnnotation` | `nvml-mock.nvidia.com/inject` | Pod annotation; value `false` disables injection for that pod |
 | `nri.deviceAnnotation` | `nvml-mock.nvidia.com/devices` | Pod annotation; value `true` gives a pod with no GPU allocation the overlay and every mock GPU on the node. Ignored for containers that hold an allocation. Pod-authored, so treat it as part of the demo trust boundary |
 | `nri.deviceInjectionMode` | `raw` | How `nri.deviceAnnotation` delivers GPUs: `raw` stages the device nodes directly, `cdi` emits a CDI device reference the runtime resolves. See [Device injection mode](#device-injection-mode) |

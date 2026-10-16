@@ -64,6 +64,7 @@ the `a100` profile. Everything else is a flag.
 | `--observability` | kube-prometheus-stack and a Grafana dashboard for the mock fleet |
 | `--dynamo` | The NVIDIA Dynamo operator and a `qwen3` inference graph whose mocker worker runs on a mock GPU |
 | `--slinky` | cert-manager, the Slinky slurm-operator and a Slurm cluster with one GPU `slurmd` per mock-GPU worker |
+| `--kubevirt` | KubeVirt with emulation and a VM whose guest sees its allocated mock GPU |
 | `--control-plane` | The Mokka control-plane image and the `mokka-crds` chart |
 
 ### What composes and what does not
@@ -75,11 +76,12 @@ Most flags stack. These do not:
 | `--fgo` with `--gpu-operator` | FGO replaces the GPU Operator |
 | `--fgo` with `--compute-domain` | Different fleet shapes |
 | `--compute-domain` with `--multi-gpu-profile` or `--gpu-profile` | The compute-domain scenario fixes both |
+| `--kubevirt` with `--slinky` | Both define the `gpu-operator-ready` resource |
 
-Four flags imply others: `--topograph` implies `--compute-domain`, because
+Five flags imply others: `--topograph` implies `--compute-domain`, because
 cliques only exist there; `--observability` implies `--gpu-operator`, because
-`dcgm-exporter` is one of its operands; `--dynamo` and `--slinky` imply
-`--gpu-operator`, because their workloads request `nvidia.com/gpu`.
+`dcgm-exporter` is one of its operands; `--dynamo`, `--slinky` and `--kubevirt`
+imply `--gpu-operator`, because their workloads request `nvidia.com/gpu`.
 
 ```bash
 tilt up -- --gpu-profile gb200
@@ -88,6 +90,7 @@ tilt up -- --gpu-operator --dra
 tilt up -- --observability
 tilt up -- --dynamo
 tilt up -- --slinky
+tilt up -- --kubevirt
 
 make cluster-create PROFILE=compute-domain
 tilt up -- --compute-domain --dra
@@ -124,6 +127,10 @@ GPUs it was configured with, that a 2-GPU job is given exactly 2 and they are
 the node's profile, and that a job using every GPU on every node runs. The
 [Slinky guide](../guides/slinky/README.md) walks through the same setup from
 published artifacts.
+
+**`kubevirt-tests`** — `kubevirt-smoke` checks what the VM's guest sees; the
+[`--kubevirt` scenario](https://github.com/NVIDIA/k8s-test-infra/blob/main/local/README.md#with-kubevirt)
+lists its assertions.
 
 ## Overriding Helm values
 

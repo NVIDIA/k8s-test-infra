@@ -82,6 +82,18 @@ type Config struct {
 	NodeName              string
 	TopologyHostPath      string
 	TopologyContainerPath string
+
+	// LauncherAnnotation marks a pod as a KubeVirt virt-launcher. Its GPU
+	// allocation belongs to the VM guest, not to the container.
+	LauncherAnnotation string
+	// GuestHostPath is the writable host directory holding one bundle
+	// directory per launcher container.
+	GuestHostPath string
+	// GuestPlaceholderPath is the empty host directory a VM names in its
+	// `hostDisk` bundle volume. The plugin swaps every mount of it in a
+	// launcher for that launcher's bundle directory, so every VM spec is the
+	// same and a VM without the plugin finds no bundle rather than another's.
+	GuestPlaceholderPath string
 }
 
 // DefaultConfig returns the overlay contract described by the NRI design.
@@ -116,6 +128,10 @@ func DefaultConfig() Config {
 		ImexChannelHostPath:   filepath.Join(hostOverlay, imexChannelRelPath),
 
 		InfiniBandAnnotation: "nvml-mock.nvidia.com/infiniband",
+
+		LauncherAnnotation:   "kubevirt.io/domain",
+		GuestHostPath:        "/run/nvml-mock-guests",
+		GuestPlaceholderPath: "/run/nvml-mock-guest",
 	}
 }
 
@@ -132,6 +148,9 @@ func withDefaults(cfg Config) Config {
 	cfg.CDISpecHostPath = orDefault(cfg.CDISpecHostPath, defaults.CDISpecHostPath)
 	cfg.ImexChannelAnnotation = orDefault(cfg.ImexChannelAnnotation, defaults.ImexChannelAnnotation)
 	cfg.InfiniBandAnnotation = orDefault(cfg.InfiniBandAnnotation, defaults.InfiniBandAnnotation)
+	cfg.LauncherAnnotation = orDefault(cfg.LauncherAnnotation, defaults.LauncherAnnotation)
+	cfg.GuestHostPath = orDefault(cfg.GuestHostPath, defaults.GuestHostPath)
+	cfg.GuestPlaceholderPath = orDefault(cfg.GuestPlaceholderPath, defaults.GuestPlaceholderPath)
 
 	// Derived from the overlay roots, so they resolve against whatever those
 	// ended up being rather than against the packaged defaults.

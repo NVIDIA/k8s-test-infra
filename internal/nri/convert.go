@@ -30,6 +30,7 @@ func containerFromNRI(pod *api.PodSandbox, container *api.Container) inject.Cont
 		return result
 	}
 
+	result.ID = container.GetId()
 	// The slices are copied because NRI owns them; writing through them would
 	// corrupt the runtime's own view of the container.
 	result.Env = append([]string(nil), container.GetEnv()...)

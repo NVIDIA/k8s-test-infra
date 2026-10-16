@@ -801,3 +801,58 @@ tests:
       - equal:
           path: spec.template.spec.containers[1].name
           value: nvml-mock-nri
+
+  - it: gives the NRI plugin a writable directory for KubeVirt guest bundles
+    set:
+      nri:
+        enabled: true
+        guest:
+          hostPath: /srv/guests
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --guest-host-path=/srv/guests
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: nri-guests
+            mountPath: /srv/guests
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: nri-guests
+            hostPath:
+              path: /srv/guests
+              type: DirectoryOrCreate
+
+  - it: creates the placeholder directory a VM's bundle volume mounts
+    set:
+      nri:
+        enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: nri-guest-placeholder
+            mountPath: /run/nvml-mock-guest
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: nri-guest-placeholder
+            hostPath:
+              path: /run/nvml-mock-guest
+              type: DirectoryOrCreate
+
+  - it: does not mount the guest bundle directory when NRI is disabled
+    set:
+      nri:
+        enabled: false
+    asserts:
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: nri-guests
+            hostPath:
+              path: /run/nvml-mock-guests
+              type: DirectoryOrCreate

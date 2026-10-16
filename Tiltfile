@@ -54,6 +54,7 @@ load('./local/dynamo/dynamo.tiltfile',
 load('./local/slinky/slinky.tiltfile',
      slinky_install='install',
      slinky_upsert_timeout_s='UPSERT_TIMEOUT_S')
+load('./local/kubevirt/kubevirt.tiltfile', kubevirt_install='install')
 
 # --- Flags ---------------------------------------------------------------
 config.define_string('gpu-profile', args=False,
@@ -81,6 +82,8 @@ config.define_bool('dynamo', args=False,
     usage='Also deploy NVIDIA Dynamo (operator only) and an aggregated DynamoGraphDeployment whose worker runs the mocker engine on a mock GPU, plus a manual dynamo-smoke trigger. Implies --gpu-operator (the worker requests nvidia.com/gpu). OpenAI API on http://localhost:8000.')
 config.define_bool('slinky', args=False,
     usage='Also deploy Slinky (cert-manager, slurm-operator and a Slurm cluster) with one slurmd per mock-GPU worker; Slurm discovers the GPUs via gres.conf AutoDetect. Implies --gpu-operator (slurmd requests nvidia.com/gpu). Fits any cluster shape; combine with --compute-domain for a 4-node GB200 Slurm cluster.')
+config.define_bool('kubevirt', args=False,
+    usage='Also deploy KubeVirt and a VM tenant whose guest sees its allocated mock GPU, plus a manual kubevirt-smoke trigger. Implies --gpu-operator (the virt-launcher pod requests nvidia.com/gpu).')
 config.define_bool('control-plane', args=False,
     usage='Also deploy the Mokka Control Plane (MEP-0001) alongside nvml-mock. Off by default. Composes with --multi-gpu-profile (the first profile release owns the single CP), --compute-domain, and --nvmlmock-image.')
 # CI hook: hand Tilt a pre-built image (in CI, loaded from the workflow's image
@@ -104,6 +107,7 @@ with_topograph      = cfg.get('topograph', False)
 with_observability  = cfg.get('observability', False)
 with_dynamo         = cfg.get('dynamo', False)
 with_slinky         = cfg.get('slinky', False)
+with_kubevirt       = cfg.get('kubevirt', False)
 with_control_plane  = cfg.get('control-plane', False)
 
 # --- Implicit flags ------------------------------------------------------
@@ -133,6 +137,11 @@ if with_dynamo:
 if with_slinky:
     with_gpu_operator = True
 
+# --kubevirt implies --gpu-operator for the same reason: the virt-launcher pod
+# requests nvidia.com/gpu.
+if with_kubevirt:
+    with_gpu_operator = True
+
 # --- Guardrails ----------------------------------------------------------
 # compute-domain forces its own cluster shape (4 workers with clique
 # labels, hardcoded worker names in topology.yaml) and its own profile
@@ -153,6 +162,11 @@ if with_fgo and with_compute_domain:
 # would never fit and its graph would sit Pending forever.
 if with_slinky and with_dynamo:
     fail('--slinky is mutually exclusive with --dynamo (slurmd claims every mock GPU)')
+
+# Both define the gpu-operator-ready resource, and together they load a local
+# cluster more heavily than it can carry.
+if with_kubevirt and with_slinky:
+    fail('--kubevirt is mutually exclusive with --slinky (both define gpu-operator-ready)')
 
 # --nvmlmock-image only wires the standard nvml-mock build/install path. The
 # compute-domain scenario builds three layered images (base + imex + optional
@@ -201,6 +215,9 @@ if with_dynamo:
 
 if with_slinky:
     active_consumers.append('slinky')
+
+if with_kubevirt:
+    active_consumers.append('kubevirt')
 
 # --- Safety guard --------------------------------------------------------
 allow_k8s_contexts(k8s_context)
@@ -320,6 +337,9 @@ if with_dynamo:
 
 if with_slinky:
     slinky_install(nvml_mock_releases)
+
+if with_kubevirt:
+    kubevirt_install(nvml_mock_releases)
 
 # --- Test workload -------------------------------------------------------
 # GPU validator pod, disabled by default (enable from the Tilt UI). Requests

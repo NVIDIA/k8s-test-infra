@@ -43,6 +43,7 @@ should match snapshot with all overrides:
                 - --imex-channel-annotation=nvml-mock.nvidia.com/imex-channels
                 - --imex-channel-host-path=/var/lib/nvml-mock/driver/dev/nvidia-caps-imex-channels
                 - --infiniband-annotation=nvml-mock.nvidia.com/infiniband
+                - --guest-host-path=/run/nvml-mock-guests
                 - --excluded-namespaces=gpu-system,kube-system
                 - --node-name=$(NODE_NAME)
                 - --health-addr=:8080
@@ -93,6 +94,11 @@ should match snapshot with all overrides:
                   readOnly: true
                 - mountPath: /var/lib/nvml-mock
                   name: mokka-root
+                  readOnly: true
+                - mountPath: /run/nvml-mock-guests
+                  name: nri-guests
+                - mountPath: /run/nvml-mock-guest
+                  name: nri-guest-placeholder
                   readOnly: true
                 - mountPath: /var/run/cdi
                   name: cdi-specs
@@ -254,6 +260,14 @@ should match snapshot with all overrides:
                 sizeLimit: 1Mi
               name: staging-gate
             - hostPath:
+                path: /run/nvml-mock-guests
+                type: DirectoryOrCreate
+              name: nri-guests
+            - hostPath:
+                path: /run/nvml-mock-guest
+                type: DirectoryOrCreate
+              name: nri-guest-placeholder
+            - hostPath:
                 path: /run/nvidia
                 type: DirectoryOrCreate
               name: driver-root-link
@@ -341,6 +355,7 @@ should match snapshot with b200 profile:
                 - --imex-channel-annotation=nvml-mock.nvidia.com/imex-channels
                 - --imex-channel-host-path=/var/lib/nvml-mock/driver/dev/nvidia-caps-imex-channels
                 - --infiniband-annotation=nvml-mock.nvidia.com/infiniband
+                - --guest-host-path=/run/nvml-mock-guests
                 - --excluded-namespaces=NAMESPACE,kube-system
                 - --node-name=$(NODE_NAME)
                 - --health-addr=:8080
@@ -391,6 +406,11 @@ should match snapshot with b200 profile:
                   readOnly: true
                 - mountPath: /var/lib/nvml-mock
                   name: mokka-root
+                  readOnly: true
+                - mountPath: /run/nvml-mock-guests
+                  name: nri-guests
+                - mountPath: /run/nvml-mock-guest
+                  name: nri-guest-placeholder
                   readOnly: true
                 - mountPath: /var/run/cdi
                   name: cdi-specs
@@ -544,6 +564,14 @@ should match snapshot with b200 profile:
                 sizeLimit: 1Mi
               name: staging-gate
             - hostPath:
+                path: /run/nvml-mock-guests
+                type: DirectoryOrCreate
+              name: nri-guests
+            - hostPath:
+                path: /run/nvml-mock-guest
+                type: DirectoryOrCreate
+              name: nri-guest-placeholder
+            - hostPath:
                 path: /run/nvidia
                 type: DirectoryOrCreate
               name: driver-root-link
@@ -627,6 +655,7 @@ should match snapshot with default values:
                 - --imex-channel-annotation=nvml-mock.nvidia.com/imex-channels
                 - --imex-channel-host-path=/var/lib/nvml-mock/driver/dev/nvidia-caps-imex-channels
                 - --infiniband-annotation=nvml-mock.nvidia.com/infiniband
+                - --guest-host-path=/run/nvml-mock-guests
                 - --excluded-namespaces=NAMESPACE,kube-system
                 - --node-name=$(NODE_NAME)
                 - --health-addr=:8080
@@ -677,6 +706,11 @@ should match snapshot with default values:
                   readOnly: true
                 - mountPath: /var/lib/nvml-mock
                   name: mokka-root
+                  readOnly: true
+                - mountPath: /run/nvml-mock-guests
+                  name: nri-guests
+                - mountPath: /run/nvml-mock-guest
+                  name: nri-guest-placeholder
                   readOnly: true
                 - mountPath: /var/run/cdi
                   name: cdi-specs
@@ -833,6 +867,14 @@ should match snapshot with default values:
                 medium: Memory
                 sizeLimit: 1Mi
               name: staging-gate
+            - hostPath:
+                path: /run/nvml-mock-guests
+                type: DirectoryOrCreate
+              name: nri-guests
+            - hostPath:
+                path: /run/nvml-mock-guest
+                type: DirectoryOrCreate
+              name: nri-guest-placeholder
             - hostPath:
                 path: /run/nvidia
                 type: DirectoryOrCreate

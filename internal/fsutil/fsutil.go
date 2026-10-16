@@ -4,8 +4,9 @@
 // Package fsutil holds the filesystem mutations the mock trees are staged with.
 // Workloads read those trees through LD_PRELOAD shims at arbitrary moments and
 // cannot be paused, so every operation here is safe to repeat and safe to
-// observe mid-flight: Write and Copy land in a single rename, Symlink and Remove
-// tolerate whatever a previous pass left, and Mknod tolerates an existing node.
+// observe mid-flight: Write, WriteWith and Copy land in a single rename, Symlink
+// and Remove tolerate whatever a previous pass left, and Mknod tolerates an
+// existing node.
 package fsutil
 
 import (
@@ -43,6 +44,12 @@ func Copy(src, dst string, perm os.FileMode) error {
 
 		return err
 	})
+}
+
+// WriteWith replaces path with what fill writes, creating parent directories as
+// needed, for contents too large to build in memory first.
+func WriteWith(path string, perm os.FileMode, fill func(io.Writer) error) error {
+	return replace(path, perm, fill)
 }
 
 // PruneDir removes every entry of dir that keep rejects.

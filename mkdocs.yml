@@ -134,6 +134,7 @@ nav:
               - control-plane: tools/control-plane.md
               - node-agent: tools/node-agent.md
               - nri-plugin: tools/nri-plugin.md
+              - nvml-mock-guest: tools/nvml-mock-guest.md
           - Support Policy: support-policy.md
       - Troubleshooting: troubleshooting.md
       - FAQ: faq.md

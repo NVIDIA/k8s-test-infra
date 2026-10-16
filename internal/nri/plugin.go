@@ -31,14 +31,20 @@ type Plugin struct {
 	cfg         Config
 	health      *pluginHealth
 	agentClient *http.Client
+	guestOwner  bundleOwner
+	live        *liveSync
 }
 
 // NewPlugin returns a Plugin that will register as cfg describes.
 func NewPlugin(cfg Config) *Plugin {
+	src := bundleSource{OverlayRoot: cfg.Inject.HostOverlayPath, GuestProgram: cfg.GuestProgram}
+
 	return &Plugin{
 		cfg:         cfg,
 		health:      newPluginHealth(time.Now, wedgeFactor),
 		agentClient: &http.Client{Timeout: agentCheckTimeout},
+		guestOwner:  kubevirtQEMU,
+		live:        newLiveSync(src, cfg.Inject.GuestHostPath),
 	}
 }
 
@@ -133,6 +139,19 @@ func (p *Plugin) Run(ctx context.Context) error {
 	zap.L().Info("registering NRI plugin",
 		zap.String("index", p.cfg.PluginIndex), zap.String("name", p.cfg.PluginName), zap.String("socket", p.cfg.SocketPath))
 
+	// Running guests follow the host's runtime overrides through their
+	// bundles for as long as the plugin serves.
+	syncCtx, stopSync := context.WithCancel(ctx)
+	synced := make(chan struct{})
+	go func() {
+		defer close(synced)
+		p.live.run(syncCtx, liveSyncInterval)
+	}()
+	defer func() {
+		stopSync()
+		<-synced
+	}()
+
 	if err := pluginStub.Run(ctx); err != nil && ctx.Err() == nil {
 		return fmt.Errorf("nri stub: %w", err)
 	}
@@ -146,7 +165,7 @@ func (p *Plugin) Configure(_ context.Context, _, runtime, version string) (stub.
 	p.health.setRegistered(true)
 
 	var events stub.EventMask
-	events.Set(api.Event_CREATE_CONTAINER)
+	events.Set(api.Event_CREATE_CONTAINER, api.Event_REMOVE_CONTAINER)
 	return events, nil
 }
 
@@ -184,8 +203,49 @@ func (p *Plugin) CreateContainer(ctx context.Context, pod *api.PodSandbox, conta
 		zap.L().Debug("container left unmodified", zap.String("pod", pod.GetName()), zap.String("container", container.GetName()))
 		return nil, nil, nil
 	}
+	if adjustment.Guest != nil {
+		if err := p.live.writeBundle(*adjustment.Guest, p.guestOwner); err != nil {
+			zap.L().Warn("could not write the KubeVirt guest bundle; leaving container unmodified",
+				zap.String("namespace", pod.GetNamespace()), zap.String("pod", pod.GetName()),
+				zap.String("container", container.GetName()), zap.Error(err))
+
+			return nil, nil, nil
+		}
+		adjustment.Mounts = append(adjustment.Mounts, adjustment.Guest.Mounts...)
+		zap.L().Info("wrote KubeVirt guest bundle",
+			zap.String("namespace", pod.GetNamespace()), zap.String("pod", pod.GetName()),
+			zap.String("container", container.GetName()), zap.Ints("minors", adjustment.Guest.Minors))
+	}
 	zap.L().Debug("container adjusted",
 		zap.String("pod", pod.GetName()), zap.String("container", container.GetName()),
 		zap.Int("mounts", len(adjustment.Mounts)), zap.Int("devices", len(adjustment.Devices)))
 	return adjustmentToNRI(adjustment), nil, nil
+}
+
+// RemoveContainer deletes the guest bundle a launcher container was given.
+// Removal must never fail on cleanup, so errors are logged, not returned.
+func (p *Plugin) RemoveContainer(_ context.Context, pod *api.PodSandbox, container *api.Container) error {
+	if err := removeBundle(p.cfg.Inject.GuestHostPath, container.GetId()); err != nil {
+		zap.L().Warn("could not remove KubeVirt guest bundle",
+			zap.String("namespace", pod.GetNamespace()), zap.String("pod", pod.GetName()),
+			zap.String("container", container.GetName()), zap.Error(err))
+	}
+
+	return nil
+}
+
+// Synchronize removes the bundles of containers that went away while the
+// plugin was not registered. A failed sweep only leaves stale files, so it
+// must not block registration.
+func (p *Plugin) Synchronize(_ context.Context, _ []*api.PodSandbox, containers []*api.Container) ([]*api.ContainerUpdate, error) {
+	live := make(map[string]bool, len(containers))
+	for _, container := range containers {
+		live[container.GetId()] = true
+	}
+	if err := sweepBundles(p.cfg.Inject.GuestHostPath, live); err != nil {
+		zap.L().Warn("could not sweep stale KubeVirt guest bundles",
+			zap.String("dir", p.cfg.Inject.GuestHostPath), zap.Error(err))
+	}
+
+	return nil, nil
 }
