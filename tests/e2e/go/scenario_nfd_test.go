@@ -113,16 +113,7 @@ var _ = Describe("nvml-mock NFD label provenance", Label("nfd"), Ordered, Contin
 	})
 
 	It("gets the label from NFD once NFD is installed", Label("nfd-provenance"), func(ctx SpecContext) {
-		Expect(h.Helm.RepoAdd(ctx, "nfd", nfdRepoURL)).To(Succeed(), "add NFD Helm repo")
-		Expect(h.Helm.UpgradeInstall(ctx, helm.Release{
-			Name:            nfdRelease,
-			Chart:           nfdChart,
-			Version:         nfdVersion,
-			Namespace:       nfdNamespace,
-			CreateNamespace: true,
-			Wait:            true,
-			Timeout:         config.HelmTimeout(),
-		})).To(Succeed(), "install NFD")
+		installNFD(ctx, h)
 
 		assertions.WaitNodeLabelsPresent(ctx, h.Kube, node,
 			[]string{pciVendorLabel}, nfdLabelTimeout, nfdLabelPoll)
@@ -135,7 +126,35 @@ var _ = Describe("nvml-mock NFD label provenance", Label("nfd"), Ordered, Contin
 		assertions.NodeAnnotationListContains(ctx, h.Kube, node,
 			nfdOwnedLabelsAnnotation, pciVendorFeature)
 	})
+
+	// Compared with what the node shows rather than with fixed values, so it
+	// holds whether the kernel exposes DMI or the agent simulates it.
+	It("reads every DMI attribute the node shows", Label("nfd-dmi"), func(ctx SpecContext) {
+		installNFD(ctx, h)
+
+		agent := pod
+		agent.Container = nodeAgentContainer
+		assertions.WaitNFDRecordsNodeDMI(ctx, h.Kube, nfdNamespace, node,
+			assertions.ReadNodeDMI(ctx, h.Kube, agent), nfdLabelTimeout, nfdLabelPoll)
+	})
 })
+
+// installNFD installs the pinned NFD release, or leaves an installed one as it
+// is, so a spec that needs NFD still finds it when a label filter skips the
+// spec that installed it first.
+func installNFD(ctx context.Context, h *harness.Harness) {
+	GinkgoHelper()
+	Expect(h.Helm.RepoAdd(ctx, "nfd", nfdRepoURL)).To(Succeed(), "add NFD Helm repo")
+	Expect(h.Helm.UpgradeInstall(ctx, helm.Release{
+		Name:            nfdRelease,
+		Chart:           nfdChart,
+		Version:         nfdVersion,
+		Namespace:       nfdNamespace,
+		CreateNamespace: true,
+		Wait:            true,
+		Timeout:         config.HelmTimeout(),
+	})).To(Succeed(), "install NFD")
+}
 
 // nvmlMockPodOnWorker returns a running nvml-mock pod scheduled on a Kind
 // WORKER node, plus that node's name.

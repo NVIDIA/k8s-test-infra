@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+  node-agent: NFD no longer logs `failed to get DMI entry` on nodes whose kernel exposes no DMI, such as Docker Desktop on Apple Silicon; the agent serves a simulated system identity there (`nodeAgent.dmi.enabled`).
+time: 2026-10-06T11:24:57Z
