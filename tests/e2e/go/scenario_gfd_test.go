@@ -26,9 +26,16 @@ const (
 	gfdSelector  = "name=nvidia-gfd-mock"
 )
 
-// Standalone GPU Feature Discovery scenario. This is gated because the GFD
-// image is pulled from nvcr.io; keep it disabled by default until #446
-// resolves the CI image/auth path.
+// Standalone GPU Feature Discovery scenario. Opt-in through E2E_RUN_NGC and
+// excluded from the default label filter, so no workflow runs it yet (#446).
+// GFD now runs from the same k8s-device-plugin image the device plugin scenarios
+// already pull in CI, so the nvcr.io access the gate was added for is no longer
+// a blocker.
+//
+// GFD only writes a feature file; NFD turns it into node labels, so NFD is
+// installed first and uninstalled afterwards. The NFD provenance scenario's first
+// spec asserts its label is absent before NFD exists, so the uninstall keeps the
+// two scenarios runnable on one cluster in either order.
 var _ = Describe("nvml-mock GPU feature discovery", Label("gfd"), Ordered, func() {
 	var h *harness.Harness
 	selectedProfiles := config.SelectedProfileNames()
@@ -38,6 +45,10 @@ var _ = Describe("nvml-mock GPU feature discovery", Label("gfd"), Ordered, func(
 			Skip("set E2E_RUN_NGC=true to run the nvcr.io-backed GFD scenario; see #446")
 		}
 		h = setupCluster(ctx, "gfd")
+		installNFD(ctx, h)
+		DeferCleanup(func(ctx SpecContext) {
+			Expect(h.Helm.Uninstall(ctx, nfdRelease, nfdNamespace)).To(Succeed(), "uninstall NFD")
+		})
 	})
 
 	for _, name := range selectedProfiles {
@@ -48,7 +59,11 @@ var _ = Describe("nvml-mock GPU feature discovery", Label("gfd"), Ordered, func(
 			)
 
 			BeforeAll(func(ctx SpecContext) {
-				p, _, node = setupStandaloneProfile(ctx, h, name)
+				p, _, _ = setupStandaloneProfile(ctx, h, name)
+				// The NFD chart schedules no worker on the control plane, so GFD's
+				// labels only ever reach a worker. setupStandaloneProfile's pod is
+				// the first by name and can be the control-plane one.
+				_, node = nvmlMockPodOnWorker(ctx, h)
 				deployDevicePlugin(ctx, h, node, p.ExpectedGPUs())
 			})
 

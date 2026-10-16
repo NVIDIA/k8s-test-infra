@@ -23,7 +23,7 @@ wait forever.
 | NVIDIA Device Plugin (standalone) | v0.18.2 | `nvcr.io/nvidia/k8s-device-plugin:v0.18.2` | **Pinned** + runs in CI (`e2e-nri` ×6 profiles, `e2e-multi-node`) |
 | NVIDIA Device Plugin (GPU Operator operand) | v0.19.3 | from the `gpu-operator` v26.3.3 chart | Pinned by the chart; runs in CI |
 | DRA Driver (GPU) | 0.5.0 | `nvidia/dra-driver-nvidia-gpu` (Helm) | **Pinned** + runs in CI |
-| GPU Feature Discovery (standalone) | v0.8.2 | `nvcr.io/nvidia/gpu-feature-discovery:v0.8.2` | Pinned, **not run in CI** — see below |
+| GPU Feature Discovery (standalone) | v0.18.2 | `gpu-feature-discovery` in `nvcr.io/nvidia/k8s-device-plugin:v0.18.2` | Pinned, **not run in CI** — see below |
 | Node Feature Discovery | v0.19.0 | `nfd/node-feature-discovery` (Helm) | **Pinned** + runs in CI |
 | GPU Operator | v26.3.3 | `nvidia/gpu-operator` (Helm) | **Pinned** + runs in CI |
 | DCGM | 3.3.9 | `nvcr.io/nvidia/cloud-native/dcgm:3.3.9-1-ubuntu22.04` | Last version a manual container spike resolved; not run |
@@ -33,7 +33,10 @@ wait forever.
 The standalone GFD image path stops at **v0.8.2**. Later GFD releases ship
 inside `nvcr.io/nvidia/k8s-device-plugin`, so
 `nvcr.io/nvidia/gpu-feature-discovery:v0.17.0` — which this table previously
-named — does not resolve.
+named — does not resolve. v0.8.2 itself has no driver-root flag and exits on
+the `--nvidia-driver-root` the manifest used to pass, so `gfd-mock.yaml` runs
+the `gpu-feature-discovery` binary from the device plugin image instead, with
+`--driver-root-ctr-path`.
 
 ## Component Coverage
 
@@ -50,7 +53,7 @@ over**: `BeforeAll` skips unless `E2E_RUN_NGC=true`, which is set in no
 workflow, and the default label filter (`Makefile`, `E2E_DEFAULT_LABEL_FILTER`)
 leads with `!gfd`. A green pipeline says nothing about it.
 
-- **GPU Feature Discovery** (standalone DaemonSet, `gfd-mock.yaml`): would read GPU attributes via NVML and label nodes. The GFD CI *does* exercise is the GPU Operator's operand.
+- **GPU Feature Discovery** (standalone DaemonSet, `gfd-mock.yaml`): reads GPU attributes via NVML and writes a feature file that NFD, which the scenario installs, turns into node labels. The GFD CI *does* exercise is the GPU Operator's operand.
 
 Enabling it is tracked in [#446](https://github.com/NVIDIA/k8s-test-infra/issues/446).
 

@@ -183,18 +183,21 @@ The Xid injection runs **last**, because it leaves the mock in a failed state.
 
 ### Standalone GFD
 
-Skipped by default: the standalone GFD image comes from `nvcr.io`, and CI has no
-credential path for it yet
-([#446](https://github.com/NVIDIA/k8s-test-infra/issues/446)). Enable it locally
-once that image is reachable:
+Skipped by default and run by no workflow
+([#446](https://github.com/NVIDIA/k8s-test-infra/issues/446)). GFD runs from the
+same `k8s-device-plugin` image the device plugin scenarios pull in CI. Enable it
+locally:
 
 ```bash
 make e2e E2E_RUN_NGC=true E2E_GINKGO_FLAGS='--label-filter="gfd"'
 ```
 
-It applies [`device-plugin-mock.yaml`](go/assets/device-plugin-mock.yaml), waits
-for allocatable GPUs, then applies [`gfd-mock.yaml`](go/assets/gfd-mock.yaml) and
-verifies the required GFD labels.
+It installs NFD, which turns GFD's feature file into node labels, and targets a
+worker node, because the NFD chart schedules nothing on the control plane. It then
+applies [`device-plugin-mock.yaml`](go/assets/device-plugin-mock.yaml), waits for
+allocatable GPUs, applies [`gfd-mock.yaml`](go/assets/gfd-mock.yaml), and verifies
+the required GFD labels. It uninstalls NFD afterwards, so the NFD provenance
+scenario, which needs NFD absent at its start, can still run on the same cluster.
 
 ### Reference Kind configs
 
