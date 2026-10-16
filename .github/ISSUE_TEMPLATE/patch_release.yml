@@ -22,13 +22,6 @@ body:
       placeholder: "v0.5.1"
     validations: { required: true }
   - type: input
-    id: engineer
-    attributes:
-      label: Release engineer
-      description: "GitHub handle of the maintainer running this release."
-      placeholder: "@handle"
-    validations: { required: true }
-  - type: input
     id: lasttag
     attributes:
       label: Last release tag
@@ -38,7 +31,7 @@ body:
     id: basesha
     attributes:
       label: Base commit
-      description: "The `main` SHA this release is cut from. It contains every fix listed below and must be fully green."
+      description: "The `main` SHA this release is cut from. It contains every fix listed below."
     validations: { required: true }
   - type: dropdown
     id: reason
@@ -89,13 +82,10 @@ body:
     attributes:
       label: Release-prep PR (against `main`)
       options:
-        - label: "CI Pipeline and `make lint` are green on the base commit."
         - label: "`make changelog-preview RELEASE_VERSION=<version-without-v>`, then `make changelog-release RELEASE_VERSION=<version-without-v>`."
         - label: "No changelog content lost: one bullet per fragment the fold removed from `.changes/unreleased/`. Both counts pasted in the PR."
         - label: "Compare link added at the bottom of CHANGELOG.md."
-        - label: "Docs that pin the previous release's version updated: `git grep -nF '<previous-version-without-v>' -- docs`."
         - label: "`skip-changelog` label applied."
-        - label: "Gates: `make helm-tests`, `make helm-crds-tests`, `make lint`, `make build`, `make test`."
         - label: "No `Chart.yaml` version edited: the tag sets the published versions."
         - label: "Reviewed and merged. Review fixes batched into one push. Rebased only if the PR gets the `needs-rebase` label ([Rebase only on a conflict](https://github.com/NVIDIA/k8s-test-infra/blob/main/docs/contributing/pull-requests.md#rebase-only-on-a-conflict)); `main` is never merged into it."
   - type: checkboxes
@@ -103,9 +93,9 @@ body:
     attributes:
       label: Tag
       options:
-        - label: "Before tagging, CI Pipeline is green on the prep merge commit: `gh run list --workflow \"CI Pipeline\" --commit <prep-merge-commit>`."
+        - label: "Before tagging, CI Pipeline is green on the prep merge commit, the commit the tag goes on: `gh run list --workflow \"CI Pipeline\" --commit <prep-merge-commit>`. It runs the e2e matrix, which no merge check requires. If a newer push to `main` cancelled the run, rerun it with `gh run rerun <run-id>`."
         - label: "Before tagging, list the changelog fragments that merged after the base commit: `git diff --name-only --diff-filter=A <base-commit> <prep-merge-commit> -- .changes/unreleased`. They ship in this tag but are not in its changelog section. List pasted in this issue, even when empty. Each listed fragment also meets the version-check items above: do not tag over a `Removed` entry that breaks the floor, and the follow-up PR adds a missing `**Breaking:**` marker and user action."
-        - label: "If anything other than the prep PR merged after the base commit (`git log --oneline <base-commit>..<prep-merge-commit>`), the version check is redone against the prep merge commit. If that changes the version, the tag and this issue use the new version; the section heading, the compare link and the doc pins the prep PR set carry the old one, and the follow-up changelog PR corrects them."
+        - label: "If anything other than the prep PR merged after the base commit (`git log --oneline <base-commit>..<prep-merge-commit>`), the version check is redone against the prep merge commit. If that changes the version, the tag and this issue use the new version; the section heading and the compare link the prep PR set carry the old one, and the follow-up changelog PR corrects them."
         - label: "`git tag -s -m \"<message>\" <version> <prep-merge-commit>`, with the commit given explicitly. The message names the fixes and the advisory IDs."
         - label: "Only a stable `vMAJOR.MINOR.PATCH` tag publishes. Never push an `-rc` tag."
         - label: "`git push upstream <version>`, by a maintainer with bypass on the tag ruleset."
@@ -113,20 +103,15 @@ body:
     id: artefacts
     attributes:
       label: Verify published artefacts
-      description: "Resolve the artefact, do not read a green check. `<v>` is the version without the `v`."
+      description: "Resolve the artefact, do not read a green check."
       options:
-        - label: "`nvml-mock Publish`, `Mokka Control Plane Publish` and `helm-publish` succeeded for the tag: `gh run list --branch <version>`."
-        - label: "`ghcr.io/nvidia/nvml-mock:<v>` and `ghcr.io/nvidia/mokka-control-plane:<v>` resolve for `linux/amd64` and `linux/arm64`; `<X.Y>` points at the same digest as `<v>` for both, and so does `nvml-mock:latest`. `mokka-control-plane:latest` follows `main` builds and is not compared."
-        - label: "`helm show chart oci://ghcr.io/nvidia/k8s-test-infra/chart/<chart> --version <v>` for `nvml-mock` and `mokka-crds`: `version` and `appVersion` both equal `<v>`."
-        - label: "`cosign verify` passes for both images by tag (each tag resolves to the signed multi-arch index) and for `ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock:<v>` and `ghcr.io/nvidia/k8s-test-infra/chart/mokka-crds:<v>`, written without `oci://`."
-        - label: "`cosign verify-attestation --type spdxjson` passes for `ghcr.io/nvidia/nvml-mock:<v>` and for the `linux/amd64` and `linux/arm64` digests of `ghcr.io/nvidia/mokka-control-plane:<v>` (from `docker buildx imagetools inspect`)."
-        - label: "Every cosign command passes `--certificate-identity https://github.com/NVIDIA/k8s-test-infra/.github/workflows/<workflow>@refs/tags/<version>` and `--certificate-oidc-issuer https://token.actions.githubusercontent.com`, with `<workflow>` `nvml-mock-publish.yaml`, `mokka-control-plane-publish.yaml` or `helm-publish.yaml`."
+        - label: "`make verify-release RELEASE_VERSION=<version-without-v>` exits 0. Paste its output in this issue. It needs `gh`, `docker buildx`, `helm`, `cosign` and `jq`, and checks the publish runs, both images and their `<X.Y>` and `latest` tags, both charts' `version` and `appVersion`, and every signature and SBOM attestation."
   - type: checkboxes
     id: after
     attributes:
       label: After the release
       options:
-        - label: "If the fragment list is not empty or the version changed: a PR against `main` moves each listed fragment's entry into this release's section of CHANGELOG.md, under its kind heading, deletes the fragment, and, if the version changed, corrects the section heading, the compare link and the doc pins the prep PR set to the tagged version. Once it merges, this release's section has one bullet per fragment the fold removed plus one per fragment the list named. Three counts pasted in the PR; `skip-changelog` applied, since the PR removes fragments and adds none."
+        - label: "If the fragment list is not empty or the version changed: a PR against `main` moves each listed fragment's entry into this release's section of CHANGELOG.md, under its kind heading, deletes the fragment, and, if the version changed, corrects the section heading and the compare link the prep PR set to the tagged version. Once it merges, this release's section has one bullet per fragment the fold removed plus one per fragment the list named. Three counts pasted in the PR; `skip-changelog` applied, since the PR removes fragments and adds none."
         - label: "GitHub release, created after that PR merges (or after the tag when it is not needed), from this release's section of CHANGELOG.md on `main`, with the image and chart digests and one `cosign verify` command: `gh release create <version> --verify-tag --latest`."
         - label: "For a Y release, PR against `main` bumping both charts' `version` and `appVersion` to the next minor's `-dev` version. Not release-blocking. For a Z release, confirm `main`'s charts are at the next minor's `-dev` version, so they sort after this release; if the last bump PR is still open, merge it first."
         - label: "Link the tag and the release notes in this issue, then close it."
