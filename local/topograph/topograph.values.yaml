@@ -1,17 +1,33 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 
-# 'infiniband-k8s' with useGpuCliqueLabel=true derives the topology from the
-# nvidia.com/gpu.clique node labels: no ibnetdiscover, no nvidia-smi exec, no
-# InfiniBand hardware (the node-data-broker returns {instance: hostname,
-# region: "local"}).
-global:
-  provider:
-    name: infiniband-k8s
-    params:
-      useGpuCliqueLabel: true
+# One accelerator domain per NVLink clique, as the mock NVML reports it.
+provider:
+  name: infiniband-k8s
+  params:
+    accelerator:
+      # The node data broker runs `nvidia-smi --query-gpu=fabric.clusterUuid,
+      # fabric.cliqueId` in the pod of this DaemonSet on its node. The
+      # DaemonSet (nvidia-smi.k8s.yaml) stands in for the GPU Operator's
+      # device plugin, so --gpu-operator is not needed.
+      source: nvidia-smi
+      nvidiaSmi:
+        gpuOperatorNamespace: topograph
+        devicePluginDaemonSet: nvidia-smi
+    nodeSelector:
+      mokka.nvidia.com/type: sgpu
 
-  # 'k8s' writes node labels; 'nfd' would emit NodeFeature CRs, which nothing here
-  # consumes.
-  engine:
-    name: k8s
+# 'k8s' writes node labels, for topology-aware schedulers (KAI, Kueue TAS).
+engine:
+  name: k8s
+
+config:
+  # The chart's 15s only delays a local bring-up.
+  requestAggregationDelay: 2s
+
+nodeObserver:
+  topograph:
+    # Regenerate when a mock-GPU worker comes or goes.
+    trigger:
+      nodeSelector:
+        mokka.nvidia.com/type: sgpu
