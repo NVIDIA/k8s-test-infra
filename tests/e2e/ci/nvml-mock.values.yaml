@@ -43,6 +43,6 @@ updateStrategy:
     maxUnavailable: "100%"
 
 # No job downloads IMEX from NVIDIA inside its cluster; the ComputeDomain job
-# provides it from a payload image instead.
+# provides it from a binaries image instead.
 featureGates:
   IMEXDownload: false

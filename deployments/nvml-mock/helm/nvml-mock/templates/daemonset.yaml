@@ -35,12 +35,12 @@ could hold the lock and stall staging. */}}
 {{- end }}
 {{- $migProfiles := include "nvml-mock.migProfiles" . }}
 {{- /* dig: an upgrade with --reuse-values from a chart that predates
-imex.payload has none. */}}
-{{- $imexPayloadImage := dig "payload" "image" (dict) (.Values.imex | default dict) }}
-{{- if and $imexPayloadImage.repository (not (or $imexPayloadImage.tag $imexPayloadImage.digest)) }}
-{{- fail "imex.payload.image.repository needs a tag or digest: the tag names the IMEX version the image carries, which the chart appVersion does not" }}
+imex.binaries has none. */}}
+{{- $imexBinariesImage := dig "binaries" "image" (dict) (.Values.imex | default dict) }}
+{{- if and $imexBinariesImage.repository (not (or $imexBinariesImage.tag $imexBinariesImage.digest)) }}
+{{- fail "imex.binaries.image.repository needs a tag or digest: the tag names the IMEX version the image carries, which the chart appVersion does not" }}
 {{- end }}
-{{- $imexPayload := and $imexPayloadImage.repository (eq (include "nvml-mock.multiNodeNVLink" .) "true") }}
+{{- $imexBinaries := and $imexBinariesImage.repository (eq (include "nvml-mock.multiNodeNVLink" .) "true") }}
 {{- /* Where the node agent looks for the IMEX archive (--imex-provided-dir). */}}
 {{- $imexProvidedDir := "/opt/mokka/imex" }}
 {{- $runtime := .Values.nodeAgent.containerRuntime | default dict }}
@@ -109,22 +109,22 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if or $nativeSidecar $imexPayload }}
+      {{- if or $nativeSidecar $imexBinaries }}
       initContainers:
       {{- end }}
-        {{- if $imexPayload }}
-        # Copies the IMEX archive out of the payload image for the node agent,
+        {{- if $imexBinaries }}
+        # Copies the IMEX archive out of the binaries image for the node agent,
         # which checks it against its pin before staging. Listed first, so the
         # copy is done before the agent starts.
-        - name: imex-payload
-          image: {{ include "nvml-mock.image" (dict "image" $imexPayloadImage "context" $) | quote }}
-          imagePullPolicy: {{ include "nvml-mock.imagePullPolicy" (dict "image" $imexPayloadImage "context" $) }}
+        - name: imex-binaries
+          image: {{ include "nvml-mock.image" (dict "image" $imexBinariesImage "context" $) | quote }}
+          imagePullPolicy: {{ include "nvml-mock.imagePullPolicy" (dict "image" $imexBinariesImage "context" $) }}
           command:
             - /bin/sh
             - -c
             # Fail open: an image without /imex leaves the agent no archive,
             # which it logs, and it still simulates everything else.
-            - 'cp -R /imex/. {{ $imexProvidedDir }}/ || echo "imex-payload: nothing copied from /imex; the node agent stages no IMEX" >&2'
+            - 'cp -R /imex/. {{ $imexProvidedDir }}/ || echo "imex-binaries: nothing copied from /imex; the node agent stages no IMEX" >&2'
           securityContext:
             runAsNonRoot: true
             runAsUser: 65534
@@ -136,9 +136,9 @@ spec:
             seccompProfile:
               type: RuntimeDefault
           resources:
-            {{- toYaml (dig "payload" "resources" (dict) (.Values.imex | default dict)) | nindent 12 }}
+            {{- toYaml (dig "binaries" "resources" (dict) (.Values.imex | default dict)) | nindent 12 }}
           volumeMounts:
-            - name: imex-payload
+            - name: imex-binaries
               mountPath: {{ $imexProvidedDir }}
         {{- end }}
       {{- if not $nativeSidecar }}
@@ -179,10 +179,10 @@ spec:
             {{- with include "nvml-mock.featureGates" . }}
             - --feature-gates={{ . }}
             {{- end }}
-            {{- if $imexPayload }}
+            {{- if $imexBinaries }}
             - --imex-provided-dir={{ $imexProvidedDir }}
             {{- end }}
-            {{- with dig "download" "timeout" "" (.Values.imex | default dict) }}
+            {{- with dig "binaries" "download" "timeout" "" (.Values.imex | default dict) }}
             - --imex-download-timeout={{ . }}
             {{- end }}
             {{- if $runtime.enabled }}
@@ -336,9 +336,9 @@ spec:
             # a node label.
             - name: nfd-features
               mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
-            {{- if $imexPayload }}
-            # The archive the imex-payload init container copied.
-            - name: imex-payload
+            {{- if $imexBinaries }}
+            # The archive the imex-binaries init container copied.
+            - name: imex-binaries
               mountPath: {{ $imexProvidedDir }}
               readOnly: true
             {{- end }}
@@ -576,10 +576,10 @@ spec:
           hostPath:
             path: /run/nvidia
             type: DirectoryOrCreate
-        {{- if $imexPayload }}
+        {{- if $imexBinaries }}
         # Pod-local: the archive lives as long as the pod, and an init container
         # that runs again on a new pod sandbox copies it again.
-        - name: imex-payload
+        - name: imex-binaries
           emptyDir: {}
         {{- end }}
         - name: nfd-features

@@ -28,7 +28,7 @@ ask of you — start at the top if you are new.
 | [NVSentinel](nv-sentinel/README.md) | The full health loop: detect a thermal-margin crossing, cordon and drain, then auto-recover on cooldown | ~30 min |
 
 The last two are the most involved: ComputeDomain needs a four-worker cluster,
-a locally built IMEX payload image and the DRA driver, and NVSentinel pulls the
+a locally built IMEX binaries image and the DRA driver, and NVSentinel pulls the
 GPU Operator, cert-manager and NVSentinel before it can start.
 
 ## Tasks

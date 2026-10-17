@@ -1,13 +1,13 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 
-# IMEX payload image: the IMEX archive NVIDIA publishes for the image's
+# IMEX binaries image: the IMEX archive NVIDIA publishes for the image's
 # platform, under /imex, on a base that has sh and cp. The nvml-mock chart's
-# imex-payload init container copies /imex into the node agent's provided
-# directory (imex.payload.image); the node agent checks the archive against
+# imex-binaries init container copies /imex into the node agent's provided
+# directory (imex.binaries.image); the node agent checks the archive against
 # the SHA-256 pinned in internal/agent/imex/imex.lock.json and stages it.
 #
-# Build it with `make imex-payload-image`, which downloads and verifies the
+# Build it with `make imex-binaries-image`, which downloads and verifies the
 # pinned archive and passes the directory holding it as the build context:
 #
 #   <context>/<arch>/<archive, named as NVIDIA publishes it>

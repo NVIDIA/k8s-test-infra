@@ -12,5 +12,5 @@ LICENSES
 bin
 tmp
 *.out
-# NVIDIA IMEX archives kept for the payload image; never part of nvml-mock.
+# NVIDIA IMEX archives kept for the binaries image; never part of nvml-mock.
 .imex-archives

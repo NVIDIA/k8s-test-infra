@@ -421,7 +421,7 @@
     "imex": {
       "type": "object",
       "additionalProperties": true,
-      "description": "IMEX simulation, staged on multi-node NVLink profiles (nvlink.multi_node). deviceNumbers picks the device majors of the capability surface the NVIDIA DRA driver's compute-domain kubelet plugin reads; payload delivers the IMEX node software its ComputeDomain daemon runs.",
+      "description": "IMEX simulation, staged on multi-node NVLink profiles (nvlink.multi_node). deviceNumbers picks the device majors of the capability surface the NVIDIA DRA driver's compute-domain kubelet plugin reads; binaries delivers the IMEX node software its ComputeDomain daemon runs.",
       "properties": {
         "deviceNumbers": {
           "type": "object",
@@ -442,7 +442,7 @@
             }
           }
         },
-        "payload": {
+        "binaries": {
           "type": "object",
           "additionalProperties": true,
           "description": "IMEX node software for the DRA ComputeDomain daemon, from the archive pinned in the node agent's imex.lock.json.",
@@ -450,7 +450,7 @@
             "image": {
               "type": "object",
               "additionalProperties": true,
-              "description": "Image carrying the pinned IMEX archive under /imex, as make imex-payload-image builds it. On multi-node NVLink profiles a copy-only init container puts the archive where the node agent finds it. An empty repository renders no init container.",
+              "description": "Image carrying the pinned IMEX archive under /imex, as make imex-binaries-image builds it. On multi-node NVLink profiles a copy-only init container puts the archive where the node agent finds it. An empty repository renders no init container.",
               "properties": {
                 "repository": { "type": "string" },
                 "digest": {
@@ -472,18 +472,18 @@
               "type": "object",
               "additionalProperties": true,
               "description": "Requests and limits of the copy-only init container. A namespace with a compute ResourceQuota admits a pod only if every container sets requests."
-            }
-          }
-        },
-        "download": {
-          "type": "object",
-          "additionalProperties": true,
-          "description": "The node agent's download of the pinned IMEX archive from NVIDIA, while the IMEXDownload feature gate is on.",
-          "properties": {
-            "timeout": {
-              "type": "string",
-              "pattern": "^[0-9]+(ns|us|ms|s|m|h)$",
-              "description": "Go duration string passed to --imex-download-timeout: the time limit of one download attempt."
+            },
+            "download": {
+              "type": "object",
+              "additionalProperties": true,
+              "description": "The node agent's download of the pinned IMEX archive from NVIDIA, while the IMEXDownload feature gate is on.",
+              "properties": {
+                "timeout": {
+                  "type": "string",
+                  "pattern": "^[0-9]+(ns|us|ms|s|m|h)$",
+                  "description": "Go duration string passed to --imex-download-timeout: the time limit of one download attempt."
+                }
+              }
             }
           }
         }

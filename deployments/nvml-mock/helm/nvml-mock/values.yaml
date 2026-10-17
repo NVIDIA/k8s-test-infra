@@ -513,10 +513,10 @@ imex:
   # /var/lib/nvml-mock/cache/imex. Without either, the agent downloads the
   # archive from NVIDIA into that cache, retrying for about a minute, while
   # the IMEXDownload feature gate is on (the default until Mokka publishes the
-  # payload image). Without IMEX the node stays ready and ComputeDomain daemons
+  # binaries image). Without IMEX the node stays ready and ComputeDomain daemons
   # fail on it, as they do on a real node without the IMEX package.
-  payload:
-    # An image carrying that archive under /imex, as `make imex-payload-image`
+  binaries:
+    # An image carrying that archive under /imex, as `make imex-binaries-image`
     # builds it. On multi-node NVLink profiles a copy-only init container puts
     # the archive in /opt/mokka/imex before the node agent starts. Mokka does
     # not publish this image: build it, then load it into the cluster (`kind
@@ -524,25 +524,26 @@ imex:
     # cannot pull holds the node pod in ImagePullBackOff, like any image in
     # the pod.
     image:
-      # -- IMEX payload image repository; empty (default) renders no init container.
+      # -- IMEX binaries image repository; empty (default) renders no init container.
       repository: ""
-      # -- IMEX payload image tag, the IMEX version it carries; required unless digest is set.
+      # -- IMEX binaries image tag, the IMEX version it carries; required unless digest is set.
       tag: ""
-      # -- Immutable IMEX payload image digest; when set, it takes precedence over the tag.
+      # -- Immutable IMEX binaries image digest; when set, it takes precedence over the tag.
       digest: ""
-      # -- IMEX payload image pull policy; empty picks IfNotPresent, or Always for a "latest" tag.
+      # -- IMEX binaries image pull policy; empty picks IfNotPresent, or Always for a "latest" tag.
       pullPolicy: ""
-    # Requests of the copy-only init container. A namespace with a compute
-    # ResourceQuota admits a pod only if every container sets them.
+    # Requests of the init container that copies the archive out of the
+    # image. A namespace with a compute ResourceQuota admits a pod only if
+    # every container sets them.
     resources:
       requests:
-        # -- CPU requested by the IMEX payload init container.
+        # -- CPU requested by the IMEX binaries init container.
         cpu: 10m
-        # -- Memory requested by the IMEX payload init container.
+        # -- Memory requested by the IMEX binaries init container.
         memory: 32Mi
-  download:
-    # -- Time limit of one IMEX archive download attempt while the IMEXDownload feature gate is on.
-    timeout: 1m
+    download:
+      # -- Time limit of one IMEX archive download attempt while the IMEXDownload feature gate is on.
+      timeout: 1m
 
 # Fake nvidia-fabricmanager. NVSwitch platforms (HGX H100 / GB200 / GB300)
 # run nvidia-fabricmanager to register GPUs with the NVSwitch fabric. When

@@ -53,12 +53,12 @@ uses your current kubectl context.
 
 | Tool | Version | Used for |
 |---|---|---|
-| `docker` | 24+, with `buildx` | Kind nodes, and building the nvml-mock and IMEX payload images |
+| `docker` | 24+, with `buildx` | Kind nodes, and building the nvml-mock and IMEX binaries images |
 | `kind` | v0.31+ | The cluster, on the Kubernetes 1.35 node image the Makefile pins |
 | `kubectl` | v1.30+ | Waiting on and checking the cluster |
 | `helm` | 3.8+ | nvml-mock from this checkout, and the DRA driver from NVIDIA's Helm repository |
-| `go` | the version in `go.mod` | `make imex-payload-image`, which downloads and verifies the IMEX archive |
-| `make` | any | `make imex-payload-image` |
+| `go` | the version in `go.mod` | `make imex-binaries-image`, which downloads and verifies the IMEX archive |
+| `make` | any | `make imex-binaries-image` |
 | `bash` | 3.2+ | `run.sh` |
 
 ComputeDomains need nvml-mock's NRI plugin (`nri.enabled`, on by default), which
@@ -78,8 +78,8 @@ simulated GPUs before running this guide.
    `~/.kube/mokka-compute-domain.kubeconfig`, and every `kubectl` and `helm`
    call names that file and the `kind-mokka-compute-domain` context.
 2. Builds the `nvml-mock:compute-domain` image and loads it into Kind.
-3. Provides IMEX. By default it builds the IMEX payload image with
-   `make imex-payload-image` and loads it into Kind; the node agents then never
+3. Provides IMEX. By default it builds the IMEX binaries image with
+   `make imex-binaries-image` and loads it into Kind; the node agents then never
    contact NVIDIA. With `IMEX_SOURCE=download` it skips that, and each node
    agent downloads the archive itself.
 4. Installs nvml-mock with the `gb200` profile, the
@@ -123,8 +123,8 @@ archive.
 |---|---|---|
 | `CLUSTER_NAME` | `mokka-compute-domain` | Kind cluster name. Node names do not depend on it |
 | `FORCE_RECREATE` | `false` | `true` deletes an existing cluster of that name and creates it again |
-| `IMEX_SOURCE` | `payload` | `payload` builds and loads the IMEX payload image; `download` lets each node agent download IMEX from NVIDIA |
-| `IMEX_PAYLOAD_IMAGE` | `mokka-imex:<IMEX version>` | Payload image to build and load |
+| `IMEX_SOURCE` | `image` | `image` builds and loads the IMEX binaries image; `download` lets each node agent download IMEX from NVIDIA |
+| `IMEX_BINARIES_IMAGE` | `mokka-imex:<IMEX version>` | Binaries image to build and load |
 | `DEMO_KUBECONFIG` | `~/.kube/<cluster name>.kubeconfig` | Kubeconfig file for the cluster |
 | `KIND_NODE_IMAGE` | the Makefile's `KIND_NODE_IMAGE` | Kind node image |
 | `HELM_TIMEOUT` | `10m` | How long each Helm install waits |
@@ -167,16 +167,16 @@ docker build -t nvml-mock:compute-domain \
 kind load docker-image nvml-mock:compute-domain --name mokka-compute-domain
 ```
 
-### 3. Build and load the IMEX payload image
+### 3. Build and load the IMEX binaries image
 
 ```bash
 IMEX_VERSION=$(sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' internal/agent/imex/imex.lock.json)
-make imex-payload-image IMEX_PAYLOAD_IMAGE="mokka-imex:${IMEX_VERSION}" \
-  IMEX_PAYLOAD_ARCH="$(docker version --format '{{.Server.Arch}}')"
+make imex-binaries-image IMEX_BINARIES_IMAGE="mokka-imex:${IMEX_VERSION}" \
+  IMEX_BINARIES_ARCH="$(docker version --format '{{.Server.Arch}}')"
 kind load docker-image "mokka-imex:${IMEX_VERSION}" --name mokka-compute-domain
 ```
 
-`IMEX_PAYLOAD_ARCH` follows the Docker daemon, whose architecture the Kind nodes
+`IMEX_BINARIES_ARCH` follows the Docker daemon, whose architecture the Kind nodes
 share. [Providing IMEX](#providing-imex) covers what the image holds and the
 other ways to provide IMEX.
 
@@ -190,8 +190,8 @@ helm upgrade --install nvml-mock deployments/nvml-mock/helm/nvml-mock \
   --set image.tag=compute-domain \
   --set gpu.profile=gb200 \
   --set 'nodeSelector.mokka\.nvidia\.com/type=sgpu' \
-  --set imex.payload.image.repository=mokka-imex \
-  --set imex.payload.image.tag="${IMEX_VERSION}" \
+  --set imex.binaries.image.repository=mokka-imex \
+  --set imex.binaries.image.tag="${IMEX_VERSION}" \
   --set featureGates.IMEXDownload=false \
   --wait --timeout 10m
 ```
@@ -201,8 +201,8 @@ helm upgrade --install nvml-mock deployments/nvml-mock/helm/nvml-mock \
 | `gpu.profile=gb200` | A multi-node NVLink profile, as `gb300` is; the node agent stages IMEX only on such profiles |
 | `-f topology.yaml` | The two racks; pass it with `-f`, not `--set-file`, so Helm parses the list |
 | `nodeSelector` | Workers only: the topology gives the control plane no clique |
-| `imex.payload.image.*` | The payload image from step 3 |
-| `featureGates.IMEXDownload=false` | The payload image is the only IMEX source, so no node contacts NVIDIA |
+| `imex.binaries.image.*` | The binaries image from step 3 |
+| `featureGates.IMEXDownload=false` | The binaries image is the only IMEX source, so no node contacts NVIDIA |
 
 Check that every node agent staged IMEX. Each line should end in `staged`:
 
@@ -390,55 +390,55 @@ one version, NVIDIA's file name for each architecture, and its SHA-256. The node
 agent looks for that file in three places, in order:
 
 1. **The provided directory**, `/opt/mokka/imex` in the node agent's container,
-   which the chart fills from `imex.payload.image`.
+   which the chart fills from `imex.binaries.image`.
 2. **The node cache**, `/var/lib/nvml-mock/cache/imex` on the node.
 3. **A download from NVIDIA** into the node cache, while the `IMEXDownload`
    [feature gate](../../feature-gates.md) is on. It is a beta gate, on by
-   default, and is to be deprecated once Mokka publishes the payload image. The
+   default, and is to be deprecated once Mokka publishes the binaries image. The
    node agent retries for about a minute, then not again until it restarts.
 
 It stages an archive only if it matches the pinned SHA-256, and ignores any
 other with a warning.
 
-### The IMEX payload image
+### The IMEX binaries image
 
-The payload image carries the pinned archive under `/imex`. When
-`imex.payload.image` is set, a copy-only init container in the node pod copies
+The binaries image carries the pinned archive under `/imex`. When
+`imex.binaries.image` is set, a copy-only init container in the node pod copies
 it to the provided directory before the node agent starts. Build it with:
 
 ```bash
-make imex-payload-image
+make imex-binaries-image
 ```
 
 The target downloads the archive from NVIDIA into a local cache, verifies its
 SHA-256, and builds the image from
-[`deployments/imex-payload/Dockerfile`](https://github.com/NVIDIA/k8s-test-infra/blob/main/deployments/imex-payload/Dockerfile)
+[`deployments/imex-binaries/Dockerfile`](https://github.com/NVIDIA/k8s-test-infra/blob/main/deployments/imex-binaries/Dockerfile)
 with `docker buildx build --load`. Once the cache holds a verified archive, the
 build needs no network.
 
 | Variable | Default | Effect |
 |---|---|---|
 | `IMEX_ARCHIVE_DIR` | `mokka/imex` in your user cache directory | Where the downloaded archives are kept |
-| `IMEX_PAYLOAD_ARCH` | the Go toolchain's architecture | `amd64` or `arm64`; match your nodes |
-| `IMEX_PAYLOAD_IMAGE` | `mokka-imex:<IMEX version>` | The image reference to build |
+| `IMEX_BINARIES_ARCH` | the Go toolchain's architecture | `amd64` or `arm64`; match your nodes |
+| `IMEX_BINARIES_IMAGE` | `mokka-imex:<IMEX version>` | The image reference to build |
 
 Then point the chart at it:
 
 ```yaml
 imex:
-  payload:
+  binaries:
     image:
       repository: mokka-imex
       tag: "<IMEX version>"   # or digest: sha256:...
 ```
 
-Mokka does not publish the payload image yet: publishing it redistributes
+Mokka does not publish the binaries image yet: publishing it redistributes
 NVIDIA's IMEX binaries, which awaits approval. Until Mokka publishes it, build
 the image yourself and keep it private, in one of the ways below.
 
 An image the node cannot pull holds the whole node pod in `ImagePullBackOff`,
 like any other image in the pod. Make sure every node can pull it before you set
-`imex.payload.image`.
+`imex.binaries.image`.
 
 **Kind.** Load it into the cluster, as step 3 above does:
 
@@ -459,20 +459,20 @@ does this; its cache key is the hash of `imex.lock.json`:
     path: .imex-archives
     key: imex-archives-${{ hashFiles('internal/agent/imex/imex.lock.json') }}
 - run: |
-    make imex-payload-image IMEX_ARCHIVE_DIR="${PWD}/.imex-archives" \
-      IMEX_PAYLOAD_IMAGE=mokka-imex:ci
+    make imex-binaries-image IMEX_ARCHIVE_DIR="${PWD}/.imex-archives" \
+      IMEX_BINARIES_IMAGE=mokka-imex:ci
     kind load docker-image mokka-imex:ci --name <cluster>
 ```
 
 **Private registry.** Build the image under your registry's name and push it:
 
 ```bash
-make imex-payload-image IMEX_PAYLOAD_ARCH=amd64 \
-  IMEX_PAYLOAD_IMAGE="registry.example.com/team/mokka-imex:${IMEX_VERSION}"
+make imex-binaries-image IMEX_BINARIES_ARCH=amd64 \
+  IMEX_BINARIES_IMAGE="registry.example.com/team/mokka-imex:${IMEX_VERSION}"
 docker push "registry.example.com/team/mokka-imex:${IMEX_VERSION}"
 ```
 
-Set `imex.payload.image.repository` and `tag` to match, and add a pull secret
+Set `imex.binaries.image.repository` and `tag` to match, and add a pull secret
 with the chart's `imagePullSecrets` if the registry needs one.
 
 **Air-gapped clusters.** Build the image where NVIDIA's download site is
@@ -481,7 +481,7 @@ uses, and turn downloads off so no node tries to reach NVIDIA:
 
 ```yaml
 imex:
-  payload:
+  binaries:
     image:
       repository: <mirror>/mokka-imex
       tag: "<IMEX version>"
@@ -491,9 +491,9 @@ featureGates:
 
 ### Downloading on the node
 
-Until Mokka publishes the payload image, a node that can reach
+Until Mokka publishes the binaries image, a node that can reach
 `developer.download.nvidia.com` can fetch IMEX itself. Leave
-`imex.payload.image` unset and `IMEXDownload` on, its default. Each node agent
+`imex.binaries.image` unset and `IMEXDownload` on, its default. Each node agent
 downloads the archive into its node cache, so the download happens once per
 node and IMEX version. `IMEX_SOURCE=download ./docs/guides/compute-domain/run.sh`
 runs the guide this way.
@@ -520,7 +520,7 @@ kubectl -n mokka logs <nvml-mock pod> -c node-agent | grep 'IMEX node software'
 kubectl -n compute-domain-demo describe pod rack-1-a
 ```
 
-Providing IMEX later is enough. Setting `imex.payload.image`, or turning
+Providing IMEX later is enough. Setting `imex.binaries.image`, or turning
 `IMEXDownload` on, restarts the node pods, which then stage it. Restart the DRA
 kubelet plugin afterwards, as in step 6, so it reads the IMEX binaries again.
 
@@ -592,12 +592,12 @@ pinned archive. Provide it as in [Providing IMEX](#providing-imex). The message
 names the file it expects and NVIDIA's URL for it.
 
 **The node agent logs `IMEX archive does not match the pinned SHA-256`.** The
-archive comes from another IMEX version, for example a payload image built
-from an older checkout. Rebuild the image with `make imex-payload-image` from
+archive comes from another IMEX version, for example a binaries image built
+from an older checkout. Rebuild the image with `make imex-binaries-image` from
 the checkout whose chart you install.
 
-**The node pod is in `ImagePullBackOff` on its `imex-payload` init container.**
-The node cannot pull `imex.payload.image`. On Kind, load the image with
+**The node pod is in `ImagePullBackOff` on its `imex-binaries` init container.**
+The node cannot pull `imex.binaries.image`. On Kind, load the image with
 `kind load docker-image`; elsewhere, check the registry and pull secret.
 
 **The DRA kubelet plugin crashes with `error parsing '/proc/devices'`.** It

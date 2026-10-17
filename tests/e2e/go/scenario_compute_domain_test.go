@@ -40,7 +40,7 @@ import (
 //
 //	tilt ci -- --compute-domain --dra
 //
-// E2E_IMEX_PAYLOAD_IMAGE names an IMEX payload image loaded into the cluster;
+// E2E_IMEX_BINARIES_IMAGE names an IMEX binaries image loaded into the cluster;
 // with it the node agent never downloads IMEX.
 const (
 	cdNamespace = "compute-domain-e2e"
@@ -367,12 +367,12 @@ func rackTopologyValues(racks []rack) ([]byte, error) {
 }
 
 // installComputeDomainChart reinstalls nvml-mock with the rack topology. With
-// imex the node agent stages IMEX, from E2E_IMEX_PAYLOAD_IMAGE when set; without
+// imex the node agent stages IMEX, from E2E_IMEX_BINARIES_IMAGE when set; without
 // it no source is configured and downloads are off, so it stages none.
 func installComputeDomainChart(ctx context.Context, h *harness.Harness, p profile.Profile, topo string, imex bool) {
 	GinkgoHelper()
 	repo, tag := splitImage(config.Image())
-	payload := config.IMEXPayloadImage()
+	binaries := config.IMEXBinariesImage()
 	set := map[string]string{
 		"gpu.count":                            strconv.Itoa(p.ExpectedGPUs()),
 		"gpu.profile":                          p.Name,
@@ -381,15 +381,15 @@ func installComputeDomainChart(ctx context.Context, h *harness.Harness, p profil
 		"nri.enabled":                          "true",
 		`nodeSelector.mokka\.nvidia\.com/type`: sgpuNodeLabelValue,
 		"updateStrategy.rollingUpdate.maxUnavailable": "100%",
-		// A payload image is how CI provides IMEX, so it never downloads.
-		"featureGates.IMEXDownload": strconv.FormatBool(imex && payload == "" && config.IMEXDownload()),
+		// A binaries image is how CI provides IMEX, so it never downloads.
+		"featureGates.IMEXDownload": strconv.FormatBool(imex && binaries == "" && config.IMEXDownload()),
 	}
-	if imex && payload != "" {
-		payloadRepo, payloadTag := splitImage(payload)
-		set["imex.payload.image.repository"] = payloadRepo
-		set["imex.payload.image.tag"] = payloadTag
+	if imex && binaries != "" {
+		binariesRepo, binariesTag := splitImage(binaries)
+		set["imex.binaries.image.repository"] = binariesRepo
+		set["imex.binaries.image.tag"] = binariesTag
 	}
-	By(fmt.Sprintf("helm upgrade --install nvml-mock with the rack topology (profile=%s, IMEX=%t, payload=%q)", p.Name, imex, payload))
+	By(fmt.Sprintf("helm upgrade --install nvml-mock with the rack topology (profile=%s, IMEX=%t, binaries=%q)", p.Name, imex, binaries))
 	Expect(h.Helm.UpgradeInstall(ctx, helm.Release{
 		Name:            "nvml-mock",
 		Chart:           chartDir(),

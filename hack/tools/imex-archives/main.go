@@ -3,7 +3,7 @@
 
 // Command imex-archives places the IMEX archives pinned in
 // internal/agent/imex/imex.lock.json in a local directory, laid out as the
-// build context of deployments/imex-payload/Dockerfile:
+// build context of deployments/imex-binaries/Dockerfile:
 //
 //	<dir>/<version>/<arch>/<archive, named as NVIDIA publishes it>
 //

@@ -429,7 +429,7 @@ false
 {{/*
 Return "true" when the GPU profile's NVLink domain spans nodes
 (nvlink.multi_node, such as gb200 and gb300). Only such nodes run IMEX, so only
-they get the IMEX payload. Reads the same config the node agent stages from.
+they get the IMEX binaries. Reads the same config the node agent stages from.
 */}}
 {{- define "nvml-mock.multiNodeNVLink" -}}
 {{- $cfg := fromYaml (include "nvml-mock.gpuConfig" .) -}}

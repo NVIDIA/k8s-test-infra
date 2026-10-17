@@ -65,20 +65,22 @@ func cachedArchiveDir(root string, lock Lock, arch string) string {
 }
 
 // start downloads the archive lock pins for arch into the node cache under
-// root, unless a download is already running. It returns the error that ended
-// the last download once its retry window ran out. ctx bounds the download;
-// one it cancels starts again at the next start.
-func (d *downloader) start(ctx context.Context, root string, lock Lock, arch string) error {
+// root, unless a download is already running, and reports whether it started
+// one. It returns the error that ended the last download once its retry window
+// ran out. ctx bounds the download; one it cancels starts again at the next
+// start.
+func (d *downloader) start(ctx context.Context, root string, lock Lock, arch string) (bool, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.failed != nil {
-		return d.failed
+		return false, d.failed
 	}
-	if !d.running {
-		d.running = true
-		d.done.Go(func() { d.run(ctx, root, lock, arch) })
+	if d.running {
+		return false, nil
 	}
-	return nil
+	d.running = true
+	d.done.Go(func() { d.run(ctx, root, lock, arch) })
+	return true, nil
 }
 
 // wait returns once no download is running, or when ctx is done.

@@ -14,14 +14,14 @@ effect when the service restarts.
 
 `IMEXDownload` lets the node agent on a multi-node NVLink profile, such as
 gb200, download the IMEX archive it pins from NVIDIA into a node cache under
-`/var/lib/nvml-mock/cache/imex`, when neither `imex.payload.image` nor that
-cache provides it. Each attempt is limited by `imex.download.timeout`, a minute
+`/var/lib/nvml-mock/cache/imex`, when neither `imex.binaries.image` nor that
+cache provides it. Each attempt is limited by `imex.binaries.download.timeout`, a minute
 by default. It retries for about a minute per node-agent start, then leaves
 the node without IMEX, which fails ComputeDomain daemons there as on a
 real node without the IMEX package. The download needs HTTPS access to
 `developer.download.nvidia.com`; turn the gate off where nodes must not reach
 the internet.
-It is to be deprecated once Mokka publishes the IMEX payload image.
+It is to be deprecated once Mokka publishes the IMEX binaries image.
 
 ## Set gates
 

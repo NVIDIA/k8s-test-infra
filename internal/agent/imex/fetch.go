@@ -21,8 +21,8 @@ import (
 // name NVIDIA publishes it with, and returns its path. A copy already there
 // that matches the pin is kept, so a populated dir needs no network. Otherwise
 // the archive is downloaded from the lock's base URL, and it takes that name
-// only once its SHA-256 matches. hack/imex-archives uses it to build the IMEX
-// payload image; the node agent uses it once the IMEXDownload gate is on.
+// only once its SHA-256 matches. hack/tools/imex-archives uses it to build the IMEX
+// binaries image; the node agent uses it once the IMEXDownload gate is on.
 func FetchArchive(ctx context.Context, client *http.Client, lock Lock, arch, dir string) (string, error) {
 	artifact, err := lock.artifact(arch)
 	if err != nil {

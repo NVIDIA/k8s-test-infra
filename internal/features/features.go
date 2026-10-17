@@ -34,7 +34,7 @@ const (
 	//
 	// Lets the node agent download the IMEX archive it pins from NVIDIA into
 	// a node cache when no archive is provided. To be deprecated once Mokka
-	// publishes the IMEX payload image.
+	// publishes the IMEX binaries image.
 	IMEXDownload featuregate.Feature = "IMEXDownload"
 )
 

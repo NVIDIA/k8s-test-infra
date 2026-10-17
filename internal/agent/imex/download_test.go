@@ -204,7 +204,7 @@ func TestNodeSoftwareGivesUpAfterTheRetryWindow(t *testing.T) {
 	require.Equal(t, attempts, requests.Load(), "no download starts once the window ran out")
 	requireNothingStaged(t, n.root)
 	gaveUp := logs.FilterMessageSnippet("cannot download IMEX node software").All()
-	require.Len(t, gaveUp, 1)
+	require.Len(t, gaveUp, 2, "each pass after the window says why")
 	require.Equal(t, zapcore.WarnLevel, gaveUp[0].Level)
 	require.Contains(t, gaveUp[0].ContextMap()["error"], "503 Service Unavailable")
 }
@@ -228,7 +228,9 @@ func TestDiscardWaitsForACancelledDownload(t *testing.T) {
 	sim := &Simulator{host: host.New(n.root), nodeSoftware: *n}
 	ctx, cancel := context.WithCancel(t.Context())
 
-	require.NoError(t, n.download.start(ctx, n.root, n.lock, n.arch))
+	started, err := n.download.start(ctx, n.root, n.lock, n.arch)
+	require.NoError(t, err)
+	require.True(t, started)
 	<-entered
 	cancel()
 	discarded := make(chan error, 1)
@@ -245,7 +247,9 @@ func TestDiscardWaitsForACancelledDownload(t *testing.T) {
 	running := n.download.running
 	n.download.mu.Unlock()
 	require.False(t, running, "a cancelled download no longer counts as running")
-	require.NoError(t, n.download.start(t.Context(), n.root, n.lock, n.arch), "a cancelled download did not fail")
+	started, err = n.download.start(t.Context(), n.root, n.lock, n.arch)
+	require.NoError(t, err, "a cancelled download did not fail")
+	require.True(t, started, "a cancelled download can start again")
 	select {
 	case <-entered:
 	case <-time.After(10 * time.Second):
@@ -297,7 +301,7 @@ func TestNodeSoftwareDoesNotDownloadWhenThePinnedArchiveCannotBeStaged(t *testin
 }
 
 // The warning about a skipped archive says which version and digest were
-// expected, so an operator can tell a stale payload image from a corrupt one.
+// expected, so an operator can tell a stale binaries image from a corrupt one.
 func TestNodeSoftwareWarnsWithThePinWhenAnArchiveDoesNotMatch(t *testing.T) {
 	core, logs := observer.New(zapcore.InfoLevel)
 	t.Cleanup(zap.ReplaceGlobals(zap.New(core)))

@@ -37,10 +37,11 @@
 # Environment:
 #   CLUSTER_NAME       Kind cluster name (default mokka-compute-domain)
 #   FORCE_RECREATE     true deletes and recreates an existing cluster
-#   IMEX_SOURCE        payload (default) builds the IMEX payload image and
+#   IMEX_SOURCE        image (default) builds the IMEX binaries image and
 #                      loads it into Kind; download lets each node agent
 #                      download IMEX from NVIDIA
-#   IMEX_PAYLOAD_IMAGE payload image to build and load
+#   IMEX_BINARIES_IMAGE
+#                      binaries image to build and load
 #                      (default mokka-imex:<pinned IMEX version>)
 #   DEMO_KUBECONFIG    kubeconfig file for the cluster
 #                      (default ~/.kube/<cluster name>.kubeconfig)
@@ -57,7 +58,7 @@ GUIDE_DIR="${REPO_ROOT}/docs/guides/compute-domain"
 
 : "${CLUSTER_NAME:=mokka-compute-domain}"
 : "${FORCE_RECREATE:=false}"
-: "${IMEX_SOURCE:=payload}"
+: "${IMEX_SOURCE:=image}"
 : "${DEMO_KUBECONFIG:=${HOME}/.kube/${CLUSTER_NAME}.kubeconfig}"
 : "${HELM_TIMEOUT:=10m}"
 KUBE_CONTEXT="kind-${CLUSTER_NAME}"
@@ -67,7 +68,7 @@ KIND_CONFIG="${REPO_ROOT}/tests/e2e/kind-compute-domain-racks.yaml"
 : "${KIND_NODE_IMAGE:=$(sed -n 's/^KIND_NODE_IMAGE[[:space:]]*?=[[:space:]]*//p' "${REPO_ROOT}/Makefile")}"
 # The IMEX version the node agent pins, read as the Makefile reads it.
 IMEX_VERSION="$(sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' "${REPO_ROOT}/internal/agent/imex/imex.lock.json")"
-: "${IMEX_PAYLOAD_IMAGE:=mokka-imex:${IMEX_VERSION}}"
+: "${IMEX_BINARIES_IMAGE:=mokka-imex:${IMEX_VERSION}}"
 
 IMAGE_REPOSITORY="nvml-mock"
 IMAGE_TAG="compute-domain"
@@ -384,22 +385,22 @@ require kubectl "https://kubernetes.io/docs/tasks/tools/"
 require helm "https://helm.sh/docs/intro/install/"
 docker info >/dev/null 2>&1 || fail "the Docker daemon is not reachable; start it and rerun"
 case "${IMEX_SOURCE}" in
-  payload)
+  image)
     require make "install GNU make"
-    require go "https://go.dev/doc/install (make imex-payload-image runs a Go helper)"
+    require go "https://go.dev/doc/install (make imex-binaries-image runs a Go helper)"
     docker buildx version >/dev/null 2>&1 ||
-      fail "docker buildx is required: make imex-payload-image builds with it"
-    case "${IMEX_PAYLOAD_IMAGE}" in
-      *@*) fail "IMEX_PAYLOAD_IMAGE must be <repository>:<tag>, not a digest: ${IMEX_PAYLOAD_IMAGE}" ;;
+      fail "docker buildx is required: make imex-binaries-image builds with it"
+    case "${IMEX_BINARIES_IMAGE}" in
+      *@*) fail "IMEX_BINARIES_IMAGE must be <repository>:<tag>, not a digest: ${IMEX_BINARIES_IMAGE}" ;;
     esac
-    IMEX_PAYLOAD_REPOSITORY="${IMEX_PAYLOAD_IMAGE%:*}"
-    IMEX_PAYLOAD_TAG="${IMEX_PAYLOAD_IMAGE##*:}"
-    case "${IMEX_PAYLOAD_TAG}" in
-      "${IMEX_PAYLOAD_IMAGE}" | */*) fail "IMEX_PAYLOAD_IMAGE must be <repository>:<tag>: ${IMEX_PAYLOAD_IMAGE}" ;;
+    IMEX_BINARIES_REPOSITORY="${IMEX_BINARIES_IMAGE%:*}"
+    IMEX_BINARIES_TAG="${IMEX_BINARIES_IMAGE##*:}"
+    case "${IMEX_BINARIES_TAG}" in
+      "${IMEX_BINARIES_IMAGE}" | */*) fail "IMEX_BINARIES_IMAGE must be <repository>:<tag>: ${IMEX_BINARIES_IMAGE}" ;;
     esac
     ;;
   download) ;;
-  *) fail "IMEX_SOURCE must be payload or download, not '${IMEX_SOURCE}'" ;;
+  *) fail "IMEX_SOURCE must be image or download, not '${IMEX_SOURCE}'" ;;
 esac
 [[ -n "${KIND_NODE_IMAGE}" ]] || fail "could not read KIND_NODE_IMAGE from the Makefile; set it explicitly"
 [[ -n "${IMEX_VERSION}" ]] || fail "could not read the IMEX version from internal/agent/imex/imex.lock.json"
@@ -458,19 +459,19 @@ kind load docker-image "${IMAGE_REPOSITORY}:${IMAGE_TAG}" --name "${CLUSTER_NAME
 # Step 3 — IMEX node software
 ###############################################################################
 case "${IMEX_SOURCE}" in
-  payload)
+  image)
     # Kind nodes run on the Docker daemon's architecture, which can differ from
     # the Go toolchain's, the make target's default.
     NODE_ARCH=$(docker version --format '{{.Server.Arch}}')
-    info "Building the IMEX payload image ${IMEX_PAYLOAD_IMAGE} for linux/${NODE_ARCH}"
+    info "Building the IMEX binaries image ${IMEX_BINARIES_IMAGE} for linux/${NODE_ARCH}"
     sub "IMEX ${IMEX_VERSION} from NVIDIA, SHA-256 verified; Mokka does not publish this image, so it stays local"
-    make -C "${REPO_ROOT}" imex-payload-image \
-      IMEX_PAYLOAD_ARCH="${NODE_ARCH}" IMEX_PAYLOAD_IMAGE="${IMEX_PAYLOAD_IMAGE}"
-    kind load docker-image "${IMEX_PAYLOAD_IMAGE}" --name "${CLUSTER_NAME}"
-    # The payload image is the only source: the node agents never contact NVIDIA.
+    make -C "${REPO_ROOT}" imex-binaries-image \
+      IMEX_BINARIES_ARCH="${NODE_ARCH}" IMEX_BINARIES_IMAGE="${IMEX_BINARIES_IMAGE}"
+    kind load docker-image "${IMEX_BINARIES_IMAGE}" --name "${CLUSTER_NAME}"
+    # The binaries image is the only source: the node agents never contact NVIDIA.
     IMEX_HELM_ARGS=(
-      --set "imex.payload.image.repository=${IMEX_PAYLOAD_REPOSITORY}"
-      --set "imex.payload.image.tag=${IMEX_PAYLOAD_TAG}"
+      --set "imex.binaries.image.repository=${IMEX_BINARIES_REPOSITORY}"
+      --set "imex.binaries.image.tag=${IMEX_BINARIES_TAG}"
       --set featureGates.IMEXDownload=false
     )
     IMEX_STAGE_TIMEOUT=300

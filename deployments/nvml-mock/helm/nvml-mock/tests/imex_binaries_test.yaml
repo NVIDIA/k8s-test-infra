@@ -1,6 +1,6 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
-suite: IMEX payload
+suite: IMEX binaries
 templates:
   - templates/daemonset.yaml
 # Render against a fixed chart version so releasing a new chart never
@@ -12,7 +12,7 @@ capabilities:
   majorVersion: 1
   minorVersion: 29
 tests:
-  - it: should render no payload without an image
+  - it: should render no init container without an image
     asserts:
       - lengthEqual:
           path: spec.template.spec.initContainers
@@ -26,22 +26,22 @@ tests:
       - notContains:
           path: spec.template.spec.volumes
           content:
-            name: imex-payload
+            name: imex-binaries
             emptyDir: {}
 
   # The node agent is itself an init container here, so the copy must be
   # listed ahead of it: init containers start in order.
-  - it: should copy the payload before a native-sidecar node agent starts
+  - it: should copy the archive before a native-sidecar node agent starts
     set:
       imex:
-        payload:
+        binaries:
           image:
             repository: mokka-imex
             tag: 595.91.07
     asserts:
       - equal:
           path: spec.template.spec.initContainers[0].name
-          value: imex-payload
+          value: imex-binaries
       - equal:
           path: spec.template.spec.initContainers[1].name
           value: node-agent
@@ -49,12 +49,12 @@ tests:
           path: spec.template.spec.containers[0].name
           value: nvml-mock-nri
 
-  - it: should copy the payload before a regular-container node agent starts
+  - it: should copy the archive before a regular-container node agent starts
     set:
       nri:
         nativeSidecar: false
       imex:
-        payload:
+        binaries:
           image:
             repository: mokka-imex
             tag: 595.91.07
@@ -64,17 +64,17 @@ tests:
           count: 1
       - equal:
           path: spec.template.spec.initContainers[0].name
-          value: imex-payload
+          value: imex-binaries
       - equal:
           path: spec.template.spec.containers[0].name
           value: node-agent
 
-  - it: should copy the payload before the node agent when NRI is disabled
+  - it: should copy the archive before the node agent when NRI is disabled
     set:
       nri:
         enabled: false
       imex:
-        payload:
+        binaries:
           image:
             repository: mokka-imex
             tag: 595.91.07
@@ -84,7 +84,7 @@ tests:
           count: 1
       - equal:
           path: spec.template.spec.initContainers[0].name
-          value: imex-payload
+          value: imex-binaries
       - equal:
           path: spec.template.spec.containers[0].name
           value: node-agent
@@ -92,7 +92,7 @@ tests:
   - it: should only copy, never failing the pod, with no privileges
     set:
       imex:
-        payload:
+        binaries:
           image:
             repository: mokka-imex
             tag: 595.91.07
@@ -108,7 +108,7 @@ tests:
           value:
             - /bin/sh
             - -c
-            - 'cp -R /imex/. /opt/mokka/imex/ || echo "imex-payload: nothing copied from /imex; the node agent stages no IMEX" >&2'
+            - 'cp -R /imex/. /opt/mokka/imex/ || echo "imex-binaries: nothing copied from /imex; the node agent stages no IMEX" >&2'
       - equal:
           path: spec.template.spec.initContainers[0].securityContext
           value:
@@ -124,7 +124,7 @@ tests:
       - equal:
           path: spec.template.spec.initContainers[0].volumeMounts
           value:
-            - name: imex-payload
+            - name: imex-binaries
               mountPath: /opt/mokka/imex
       # A namespace with a compute ResourceQuota rejects a pod with any
       # container that sets no requests.
@@ -138,7 +138,7 @@ tests:
   - it: should hand the node agent the copied archive read-only
     set:
       imex:
-        payload:
+        binaries:
           image:
             repository: mokka-imex
             tag: 595.91.07
@@ -149,23 +149,23 @@ tests:
       - contains:
           path: spec.template.spec.initContainers[1].volumeMounts
           content:
-            name: imex-payload
+            name: imex-binaries
             mountPath: /opt/mokka/imex
             readOnly: true
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: imex-payload
+            name: imex-binaries
             emptyDir: {}
 
   # IMEX follows the profile, so a board whose NVLink stays on one baseboard
-  # pulls no payload even when one is configured.
-  - it: should render no payload on a single-node NVLink profile
+  # pulls no binaries image even when one is configured.
+  - it: should render no init container on a single-node NVLink profile
     set:
       gpu:
         profile: h100
       imex:
-        payload:
+        binaries:
           image:
             repository: mokka-imex
             tag: 595.91.07
@@ -179,15 +179,15 @@ tests:
       - notContains:
           path: spec.template.spec.volumes
           content:
-            name: imex-payload
+            name: imex-binaries
             emptyDir: {}
 
-  - it: should pin the payload by digest through the global registry
+  - it: should pin the binaries image by digest through the global registry
     set:
       global:
         imageRegistry: mirror.example.com
       imex:
-        payload:
+        binaries:
           image:
             repository: registry.example.com/mokka/mokka-imex
             tag: 595.91.07
@@ -203,12 +203,12 @@ tests:
 
   # The chart appVersion names a Mokka release, not the IMEX version an image
   # carries, so it is no default here.
-  - it: should refuse a payload repository without a tag or digest
+  - it: should refuse a binaries image repository without a tag or digest
     set:
       imex:
-        payload:
+        binaries:
           image:
             repository: mokka-imex
     asserts:
       - failedTemplate:
-          errorMessage: "imex.payload.image.repository needs a tag or digest: the tag names the IMEX version the image carries, which the chart appVersion does not"
+          errorMessage: "imex.binaries.image.repository needs a tag or digest: the tag names the IMEX version the image carries, which the chart appVersion does not"

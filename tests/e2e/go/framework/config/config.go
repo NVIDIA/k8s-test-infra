@@ -118,10 +118,10 @@ func ExpectNRI() bool { return envBool("E2E_EXPECT_NRI") }
 // IMEXDownload feature gate off.
 func IMEXDownload() bool { return envBoolDefault("E2E_IMEX_DOWNLOAD", true) }
 
-// IMEXPayloadImage is the IMEX payload image (repo:tag) the ComputeDomain specs
+// IMEXBinariesImage is the IMEX binaries image (repo:tag) the ComputeDomain specs
 // install the chart with, already loaded into the cluster. With it set, the
 // node agent never downloads IMEX; empty leaves it to the IMEXDownload default.
-func IMEXPayloadImage() string { return env("E2E_IMEX_PAYLOAD_IMAGE", "") }
+func IMEXBinariesImage() string { return env("E2E_IMEX_BINARIES_IMAGE", "") }
 
 // Timeouts (overridable; conservative defaults matching the bash waits).
 

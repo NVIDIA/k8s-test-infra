@@ -508,21 +508,21 @@ test-nvidia-imex-shim: build ## Run nvidia-imex-shim integration tests
 test-imex-archives: ## Download the IMEX archives pinned in imex.lock.json and verify each stages
 	@MOKKA_IMEX_DOWNLOAD_TEST=1 $(GO_CMD) test -run '^TestPinnedOfficialArchives$$' -v ./internal/agent/imex
 
-# The IMEX payload image carries the archive pinned in imex.lock.json, for the
-# chart's imex.payload.image. Mokka does not publish it: load it into the
+# The IMEX binaries image carries the archive pinned in imex.lock.json, for the
+# chart's imex.binaries.image. Mokka does not publish it: load it into the
 # cluster (`kind load docker-image`) or push it to a private registry.
 # IMEX_ARCHIVE_DIR keeps the downloaded archives (empty: the user cache
 # directory); once it holds a verified copy, the build needs no network.
 IMEX_ARCHIVE_DIR ?=
-IMEX_PAYLOAD_ARCH ?= $(shell $(GO_CMD) env GOARCH)
+IMEX_BINARIES_ARCH ?= $(shell $(GO_CMD) env GOARCH)
 IMEX_VERSION = $(shell sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' internal/agent/imex/imex.lock.json)
-IMEX_PAYLOAD_IMAGE ?= mokka-imex:$(IMEX_VERSION)
+IMEX_BINARIES_IMAGE ?= mokka-imex:$(IMEX_VERSION)
 
-.PHONY: imex-payload-image
-imex-payload-image: ## Build the IMEX payload image for imex.payload.image from the pinned NVIDIA archive (not published)
-	@context="$$($(GO_CMD) run ./hack/imex-archives -dir '$(IMEX_ARCHIVE_DIR)' -arch '$(IMEX_PAYLOAD_ARCH)')" && \
-	docker buildx build --load --platform 'linux/$(IMEX_PAYLOAD_ARCH)' --build-arg IMEX_VERSION='$(IMEX_VERSION)' \
-		-f deployments/imex-payload/Dockerfile -t '$(IMEX_PAYLOAD_IMAGE)' "$$context"
+.PHONY: imex-binaries-image
+imex-binaries-image: ## Build the IMEX binaries image for imex.binaries.image from the pinned NVIDIA archive (not published)
+	@context="$$($(GO_CMD) run ./hack/tools/imex-archives -dir '$(IMEX_ARCHIVE_DIR)' -arch '$(IMEX_BINARIES_ARCH)')" && \
+	docker buildx build --load --platform 'linux/$(IMEX_BINARIES_ARCH)' --build-arg IMEX_VERSION='$(IMEX_VERSION)' \
+		-f deployments/imex-binaries/Dockerfile -t '$(IMEX_BINARIES_IMAGE)' "$$context"
 
 .PHONY: verify-greptile
 verify-greptile: ## Validate the .greptile review configuration
@@ -719,7 +719,7 @@ e2e-dra: ## e2e — DRA scenario
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=dra'
 
 # Needs the two-rack cluster, tests/e2e/kind-compute-domain-racks.yaml, with
-# `tilt ci -- --compute-domain --dra`. Set E2E_IMEX_PAYLOAD_IMAGE to keep the
+# `tilt ci -- --compute-domain --dra`. Set E2E_IMEX_BINARIES_IMAGE to keep the
 # node agent from downloading IMEX.
 e2e-compute-domain: ## e2e — ComputeDomains through the unmodified DRA driver
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=dra-compute-domain'

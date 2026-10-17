@@ -177,7 +177,7 @@ func TestNodeSoftwareKeepsAnIdenticalInstallAcrossARestart(t *testing.T) {
 	before := statStaged(t, n.root)
 
 	restarted := *n
-	restarted.publishedDigest, restarted.lastOutcome = "", ""
+	restarted.publishedDigest = ""
 	restarted.stage(t.Context())
 
 	after := statStaged(t, n.root)
@@ -196,7 +196,7 @@ func TestNodeSoftwareReplacesADifferentInstallAfterARestart(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(n.root, "driver/usr/bin/nvidia-imex-ctl"), []byte("older"), 0o755))
 
 	restarted := *n
-	restarted.publishedDigest, restarted.lastOutcome = "", ""
+	restarted.publishedDigest = ""
 	restarted.stage(t.Context())
 
 	requireFileContent(t, filepath.Join(n.root, "driver/usr/bin/nvidia-imex-ctl"), "imex-ctl")
@@ -361,9 +361,9 @@ func TestStageThatCannotStageTheSurfaceRemovesEverything(t *testing.T) {
 	requireNoIMEX(t, sim)
 }
 
-// A resync re-runs Stage with nothing changed. Logging the same outcome each
-// time would bury the one message that tells an operator what to provide.
-func TestNodeSoftwareLogsEachOutcomeOnce(t *testing.T) {
+// A resync re-runs Stage. A node without IMEX keeps saying what to provide on
+// every pass, while a publication is logged once, when it happens.
+func TestNodeSoftwareWarnsEveryPassAndLogsAPublicationOnce(t *testing.T) {
 	core, logs := observer.New(zapcore.InfoLevel)
 	restore := zap.ReplaceGlobals(zap.New(core))
 	t.Cleanup(restore)
@@ -374,7 +374,7 @@ func TestNodeSoftwareLogsEachOutcomeOnce(t *testing.T) {
 	n.stage(t.Context())
 	n.stage(t.Context())
 	missing := logs.FilterMessageSnippet("not provided").All()
-	require.Len(t, missing, 1)
+	require.Len(t, missing, 2)
 	require.Equal(t, zapcore.WarnLevel, missing[0].Level)
 	fields := missing[0].ContextMap()
 	require.Equal(t, "test-version", fields["version"])
