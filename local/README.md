@@ -21,6 +21,13 @@ configs pin, so `worker-0` is `mokka-worker`:
 docker exec mokka-worker journalctl -k | grep 'NVRM: Xid'
 ```
 
+## Compute-domain scenario
+
+With `--dra`, the DRA driver runs ComputeDomains with its upstream images. The
+node agent stages IMEX for them, from an `imex.binaries.image` set in
+`local/nvml-mock.values.local.yaml` or, while the `IMEXDownload` feature gate is
+on, a download from NVIDIA. Tilt installs the driver once every node has IMEX.
+
 ## Consumers
 
 Notes the Local Development page does not carry.

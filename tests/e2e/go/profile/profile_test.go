@@ -214,6 +214,19 @@ func TestC2CIsGraceOnly(t *testing.T) {
 	}
 }
 
+// TestMultiNodeNVLinkProfiles pins which profiles simulate IMEX. h100 also
+// declares an NVLink fabric, so a test that keyed IMEX on the fabric would run
+// against a board whose NVLink never leaves the node.
+func TestMultiNodeNVLinkProfiles(t *testing.T) {
+	multiNode := map[string]bool{"gb200": true, "gb300": true}
+	for _, name := range KnownProfiles {
+		p, err := Load(profilesDir, name)
+		require.NoError(t, err, "Load(%q)", name)
+		require.Equal(t, multiNode[name], p.MultiNodeNVLink(),
+			"%s: nvlink.multi_node should be %v", name, multiNode[name])
+	}
+}
+
 // TestWorkloadPowerProfilesAreBlackwellOnDriver570 pins both axes the e2e
 // expectation is derived from, so "lists its profiles" cannot quietly become
 // "always lists them". b200 is the interesting case: Blackwell silicon, but the

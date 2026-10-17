@@ -174,15 +174,22 @@ also intercepted so the shim still behaves on earlier libc versions.
 
 ### nvidia-imex-shim
 
-Not an `LD_PRELOAD` library — a small Go program installed at
-`/usr/bin/nvidia-imex`, with the real daemon moved to
-`/usr/bin/nvidia-imex.real`.
+Not an `LD_PRELOAD` library — a small Go program in the nvml-mock image. On
+multi-node NVLink profiles, such as `gb200`, the
+[node daemon](node-daemon.md) stages it as `usr/bin/nvidia-imex` in the mock
+driver tree, beside NVIDIA's daemon, which it stages as `nvidia-imex.real`
+from the pinned IMEX archive. The NVIDIA DRA driver finds `nvidia-imex` there
+as on a real node and mounts it into its ComputeDomain daemon, and the
+[NRI plugin](nri-plugin.md) adds `nvidia-imex.real` beside it.
 
 The upstream compute-domain daemon hard-codes its command line with no flag
 passthrough, so `--nogpu` cannot be injected from outside. The shim appends it
-and `exec`s the real binary, preserving arguments, environment and stdio.
-Because it `exec`s rather than forks, no wrapper process lingers and signals
-reach the daemon directly.
+and `exec`s `nvidia-imex.real` from its own directory, preserving arguments,
+environment and stdio. Because it `exec`s rather than forks, no wrapper process
+lingers and signals reach the daemon directly. The real daemon then runs in NO
+GPU mode and speaks the real IMEX protocol with its peers. See the
+[ComputeDomain guide](../guides/compute-domain/README.md#providing-imex) for how
+IMEX gets onto a node.
 
 This one is meant to disappear: it exists only until upstream supports passing
 extra arguments ([#304](https://github.com/NVIDIA/k8s-test-infra/issues/304)).

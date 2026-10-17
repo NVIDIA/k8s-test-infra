@@ -41,9 +41,17 @@ the surfaces that were selected. None of them brings another along.
 | Pod annotated `nvml-mock.nvidia.com/devices: "true"`, no allocation | The overlay with mock NVML active, and every mock GPU on the node |
 | Pod annotated `nvml-mock.nvidia.com/infiniband: "true"` | The overlay with the mock InfiniBand tools active |
 | Pod annotated `nvml-mock.nvidia.com/imex-channels: "true"` | The mock IMEX channel nodes, and nothing else |
+| The DRA driver's `compute-domain-daemon` container, in a pod labeled `resource.nvidia.com/computeDomain` | `nvidia-imex.real`, only while staged, and nothing else |
 | Anything else | Nothing |
 
-A container that matches several rows gets each of their surfaces.
+A container that matches several rows gets each of their surfaces, except the
+ComputeDomain daemon, which gets only its own row.
+
+The DRA driver delivers the daemon's driver footprint through its own CDI
+edits, `nvidia-imex` included, so the plugin adds only what a mock node needs
+on top: the real IMEX daemon that Mokka's `nvidia-imex` shim runs from beside
+itself. Without staged IMEX the daemon fails as it does on a real node without the
+IMEX package; the plugin never refuses the container.
 
 The **overlay** is the mock driver tree mounted at `/opt/nvml-mock`, plus the
 `PATH`, `LD_LIBRARY_PATH` and `LD_PRELOAD` shims that point at it. The GPU and
@@ -89,9 +97,11 @@ Adjustment runs as a fixed sequence, and no step can fail:
 flowchart TB
     create[containerd: CreateContainer] --> skip{Opt-out annotation or<br/>excluded namespace?}
     skip -->|yes| asis[Leave exactly as authored]
-    skip -->|no| gpu{GPU?}
-    skip -->|no| ib{infiniband<br/>annotation?}
-    skip -->|no| imex{imex-channels<br/>annotation?}
+    skip -->|no| cd{ComputeDomain<br/>daemon?}
+    cd -->|yes| daemon[nvidia-imex.real,<br/>when staged]
+    cd -->|no| gpu{GPU?}
+    cd -->|no| ib{infiniband<br/>annotation?}
+    cd -->|no| imex{imex-channels<br/>annotation?}
     gpu -->|allocation| keep[Overlay, mock NVML;<br/>keep the allocated GPUs]
     gpu -->|devices annotation,<br/>no allocation| all[Overlay, mock NVML +<br/>every mock GPU, raw or CDI]
     ib -->|yes| fabric[Overlay, mock InfiniBand]
@@ -154,8 +164,9 @@ whatever the scheduler allocated is never widened.
 
 !!! note "IMEX sits outside this rule"
     IMEX channels are requested by their own annotation and never suppressed.
-    Neither the device plugin nor the DRA driver delivers mock IMEX channels, so
-    there is nothing to defer to.
+    The annotation is for containers that claim no channel: a workload of a
+    ComputeDomain gets its channel through its DRA claim and needs no
+    annotation.
 
 ## Selecting InfiniBand
 
@@ -210,6 +221,11 @@ the agent is restarting, restaging or not yet staged, the plugin
 leaves the container unmodified, logs a warning naming its namespace, pod and
 container, and fails `/readyz` with the reason. Containers the plugin skips
 anyway, such as those in an excluded namespace, are not reported.
+
+The ComputeDomain daemon skips this check. It gets `nvidia-imex.real` only
+while that file is staged, and the agent publishes it last and withdraws it
+first. A daemon left unmodified would keep running without `nvidia-imex.real`
+until the DRA driver's startup probe restarts it.
 
 The lock file lives in a memory-backed `emptyDir` mounted only into the node
 agent and the plugin, so no workload can hold it and stall staging. It covers

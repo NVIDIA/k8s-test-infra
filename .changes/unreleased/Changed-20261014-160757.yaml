@@ -1,0 +1,6 @@
+kind: Changed
+body: |-
+  node-agent: profiles with `nvlink.multi_node` stage the IMEX `/proc/devices` entry, capability file and `channel0`, the only channel a real node's driver creates; other profiles never do. Device majors the node already uses are replaced by free ones.
+time: 2026-10-14T23:07:57Z
+custom:
+  Issue: "821"

@@ -17,7 +17,7 @@ gpu:
 nodeSelector:
   mokka.nvidia.com/type: sgpu
 
-# Roll every pod at once so Scenario 3 re-reads MOCK_TOPOLOGY_CONFIG in seconds.
+# Roll every pod at once so the topology rebind re-reads MOCK_TOPOLOGY_CONFIG in seconds.
 updateStrategy:
   rollingUpdate:
     maxUnavailable: "100%"

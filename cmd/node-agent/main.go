@@ -129,6 +129,18 @@ func startCommand() *cli.Command {
 				Sources: cli.EnvVars("MOKKA_AGENT_STAGING_LOCK_PATH"),
 				Usage:   "lock file NRI shares while deciding adjustments; staging and teardown take it exclusively ('' disables)",
 			},
+			&cli.StringFlag{
+				Name:    "imex-provided-dir",
+				Value:   imex.DefaultProvidedDir,
+				Sources: cli.EnvVars("MOKKA_IMEX_PROVIDED_DIR"),
+				Usage:   "directory holding the pinned IMEX archive under its NVIDIA file name; staged on multi-node NVLink profiles",
+			},
+			&cli.DurationFlag{
+				Name:    "imex-download-timeout",
+				Value:   imex.DefaultDownloadTimeout,
+				Sources: cli.EnvVars("MOKKA_IMEX_DOWNLOAD_TIMEOUT"),
+				Usage:   "time limit of one IMEX archive download attempt while the IMEXDownload feature gate is on",
+			},
 			&cli.DurationFlag{
 				Name:    "shutdown-timeout",
 				Value:   30 * time.Second,
@@ -259,7 +271,11 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 			gpudriver.New(h),
 			pcibus.New(h),
 			crisim.New(h, criOpts),
-			imex.New(h),
+			imex.New(h, imex.Options{
+				ProvidedDir:     cmd.String("imex-provided-dir"),
+				Download:        features.Enabled(features.IMEXDownload),
+				DownloadTimeout: cmd.Duration("imex-download-timeout"),
+			}),
 			migcaps.New(h),
 			nvlink.New(h),
 			kernellog.New(h, kernellog.Options{Path: cmd.String("kernel-log")}),

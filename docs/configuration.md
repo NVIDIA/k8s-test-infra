@@ -776,6 +776,7 @@ nvlink:
   links_per_gpu: 18
   bandwidth_per_link_mbps: 26562
   c2c_enabled: false
+  multi_node: false
   nvle_enabled: false                # see bandwidth mode, low power and NVLE
   bw_mode:                           # see bandwidth mode, low power and NVLE
     scope: system
@@ -797,6 +798,18 @@ reports `N/A` — never `Disabled`, because NVML answers
 link to a host CPU. Only `gb200` and `gb300` enable it. This is the only key that
 drives the row: `device_defaults.features.nvlink_c2c` is descriptive metadata and
 is not read.
+
+`multi_node` marks a board whose NVLink domain spans nodes, as in a rack-scale
+NVLink system, as opposed to an NVLink fabric that stays on one baseboard, such
+as HGX H100 or B200. Of the shipped profiles, `gb200` and `gb300` set it; Vera
+Rubin and NVL576 profiles would set it too. On such a node the
+node agent stages the IMEX capability surface the DRA driver's ComputeDomain
+plugin reads: a substitute `/proc/devices` entry, the `fabric-imex-mgmt`
+capability file and the `channel0` device node, the only channel the driver of
+a real node creates on its own. The chart's `imex.deviceNumbers` values set
+their device majors; a major the node's kernel already gives to another driver
+is replaced by a free one from 384 to 511. A node whose surface cannot be
+staged stays ready without IMEX, and the node agent logs why.
 
 ### Bandwidth mode, low power and NVLE
 

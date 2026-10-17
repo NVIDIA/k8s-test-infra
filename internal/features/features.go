@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/component-base/featuregate"
 	featuregatetesting "k8s.io/component-base/featuregate/testing"
 )
@@ -28,11 +29,23 @@ import (
 //	//
 //	// Selects the alternate placement planner.
 //	AlternatePlanner featuregate.Feature = "AlternatePlanner"
+const (
+	// issue: https://github.com/NVIDIA/k8s-test-infra/issues/821
+	//
+	// Lets the node agent download the IMEX archive it pins from NVIDIA into
+	// a node cache when no archive is provided. To be deprecated once Mokka
+	// publishes the IMEX binaries image.
+	IMEXDownload featuregate.Feature = "IMEXDownload"
+)
 
 // versionedSpecs records each gate's stage per Mokka minor release. Entries
 // are separated by blank lines to keep gofmt from realigning the whole map
 // when one is added or removed.
-var versionedSpecs = map[featuregate.Feature]featuregate.VersionedSpecs{}
+var versionedSpecs = map[featuregate.Feature]featuregate.VersionedSpecs{
+	IMEXDownload: {
+		{Version: version.MajorMinor(0, 6), Default: true, PreRelease: featuregate.Beta},
+	},
+}
 
 // gate is private to Mokka rather than the shared k8s.io/apiserver default, so
 // Mokka's gates never mix with those of the Kubernetes libraries it imports.

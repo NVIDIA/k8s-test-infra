@@ -165,18 +165,20 @@ func (p *Plugin) CreateContainer(ctx context.Context, pod *api.PodSandbox, conta
 		return nil, nil, nil
 	}
 
-	lock, reason := p.agentAccess(ctx)
-	if reason != "" {
-		// Fail open, as the plugin does everywhere else: blocking creation
-		// behind the agent would stall every new pod on the node. The warning
-		// and the readiness failure are what keep this container visible.
-		zap.L().Warn("node agent tree unavailable; leaving container unmodified",
-			zap.String("namespace", pod.GetNamespace()), zap.String("pod", pod.GetName()),
-			zap.String("container", container.GetName()), zap.String("reason", reason))
-		return nil, nil, nil
-	}
-	if lock != nil {
-		defer releaseAgentLock(lock)
+	if inject.Gated(candidate) {
+		lock, reason := p.agentAccess(ctx)
+		if reason != "" {
+			// Fail open, as the plugin does everywhere else: blocking creation
+			// behind the agent would stall every new pod on the node. The warning
+			// and the readiness failure are what keep this container visible.
+			zap.L().Warn("node agent tree unavailable; leaving container unmodified",
+				zap.String("namespace", pod.GetNamespace()), zap.String("pod", pod.GetName()),
+				zap.String("container", container.GetName()), zap.String("reason", reason))
+			return nil, nil, nil
+		}
+		if lock != nil {
+			defer releaseAgentLock(lock)
+		}
 	}
 
 	adjustment, ok := inject.Adjust(p.cfg.Inject, candidate)
