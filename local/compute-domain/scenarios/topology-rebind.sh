@@ -2,13 +2,12 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Topology rebinding without a rebuild (the guide's Scenario 2).
+# Scenario 2 of docs/guides/compute-domain/run.sh, as a Tilt trigger. The pods are
+# evicted after the upgrade so the mock NVML engine re-reads MOCK_TOPOLOGY_CONFIG
+# at its next process start.
 #
-# `helm upgrade --reuse-values -f rebind.topology.yaml` swaps every
-# node into clique 99 of a new domain UUID, DaemonSet pods are evicted
-# so the mock NVML engine re-reads MOCK_TOPOLOGY_CONFIG on the next
-# process start, and check-fabric re-asserts the new identity. Ported
-# from the topology rebind in docs/guides/compute-domain/run.sh.
+# The upgrade happens outside Tilt, so the release keeps the new topology until
+# Tilt re-applies nvml-mock.
 
 set -euo pipefail
 
@@ -74,6 +73,6 @@ assert_clique worker-1 99 "${NEW_UUID}"
 assert_clique worker-2 99 "${NEW_UUID}"
 assert_clique worker-3 99 "${NEW_UUID}"
 
-printf '\n==> Topology rebind passed: all workers rebound to clique 99 with new UUID.\n'
-printf '    Re-run local/compute-domain/scenarios/check-fabric.sh (Scenario 1)\n'
-printf '    to restore assertions against the original topology.\n'
+printf '\n==> Scenario 2 passed: all workers rebound to clique 99 with new UUID.\n'
+printf '    check-fabric (Scenario 1) fails until nvml-mock is re-applied from Tilt,\n'
+printf '    which restores the original topology.\n'

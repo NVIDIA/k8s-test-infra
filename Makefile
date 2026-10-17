@@ -219,6 +219,21 @@ build: ## Build all CLIs
 build-mockfs: ## Build mockfs
 	@make -C shims/libmockfs
 
+# Builds one platform for the local daemon; the multi-platform release image comes
+# from .github/workflows/nvml-mock-publish.yaml. Unset, MOKKA_IMAGE_PLATFORM leaves
+# Docker to use its daemon's platform. The default ref is E2E_IMAGE's default
+# (tests/e2e/go/framework/config/config.go), so a built image is what `make e2e` expects.
+MOKKA_IMAGE ?= nvml-mock:e2e
+MOKKA_IMAGE_PLATFORM ?=
+
+.PHONY: mokka-image
+mokka-image: ## Build the main Mokka image (node daemon and mock libraries): make mokka-image [MOKKA_IMAGE=repo:tag] [MOKKA_IMAGE_PLATFORM=linux/amd64]
+	docker build $(if $(MOKKA_IMAGE_PLATFORM),--platform "$(MOKKA_IMAGE_PLATFORM)") \
+		--file deployments/nvml-mock/Dockerfile \
+		--build-arg GOLANG_VERSION=$(shell ./hack/golang-version.sh) \
+		--tag "$(MOKKA_IMAGE)" \
+		.
+
 .PHONY: mokka-control-plane-publish mokka-control-plane-image-push
 .PHONY: mokka-control-plane-image-sign mokka-control-plane-image-sbom
 .PHONY: mokka-control-plane-image-attest

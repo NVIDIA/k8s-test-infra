@@ -4,6 +4,16 @@
 # GPU Feature Discovery DaemonSet for E2E testing with nvml-mock chart.
 # Deploys GFD standalone (without GPU Operator) to label nodes with GPU attributes.
 #
+# GFD writes a feature file under features.d; Node Feature Discovery (NFD) turns
+# it into node labels, so the scenario installs NFD before applying this.
+#
+# The standalone gpu-feature-discovery image stops at v0.8.2, which has no
+# driver-root flag. Later GFD releases ship as a second binary inside the device
+# plugin image, so this runs gpu-feature-discovery from the same
+# k8s-device-plugin image device-plugin-mock.yaml pins. That binary takes the
+# driver root as --driver-root-ctr-path; --nvidia-driver-root is the device
+# plugin's flag, not GFD's.
+#
 # Expected node labels after GFD runs:
 #   nvidia.com/gpu.compute.major=8
 #   nvidia.com/gpu.product=NVIDIA-A100-SXM4-40GB
@@ -26,15 +36,25 @@ spec:
       labels:
         name: nvidia-gfd-mock
     spec:
+      # Same placement as device-plugin-mock.yaml: only nodes that run the mock
+      # have an NVML to read. Elsewhere GFD exits with ERROR_LIBRARY_NOT_FOUND
+      # and the DaemonSet never reports ready.
+      nodeSelector:
+        mokka.nvidia.com/type: sgpu
       tolerations:
         - operator: Exists
       serviceAccountName: nvidia-gfd-mock
       containers:
         - name: gpu-feature-discovery
-          image: nvcr.io/nvidia/gpu-feature-discovery:v0.8.2
+          image: nvcr.io/nvidia/k8s-device-plugin:v0.18.2
           imagePullPolicy: IfNotPresent
+          command: ["gpu-feature-discovery"]
           args:
-            - "--nvidia-driver-root=/var/lib/nvml-mock/driver"
+            - "--driver-root-ctr-path=/var/lib/nvml-mock/driver"
+            - "--device-discovery-strategy=nvml"
+            # Kind has no DMI product name to own; the node agent stages the
+            # machine type in the driver config instead.
+            - "--machine-type-file=/var/lib/nvml-mock/driver/config/machine-type"
           env:
             - name: NODE_NAME
               valueFrom:

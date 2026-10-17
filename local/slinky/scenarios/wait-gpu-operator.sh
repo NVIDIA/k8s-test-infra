@@ -2,16 +2,12 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Block until the GPU Operator's ClusterPolicy is ready and every pod in its
-# namespace is healthy: Running with all containers Ready, or Succeeded.
-#
 # The operator creates its operands (device plugin, GFD, validator) after
 # `helm install` returns, so Tilt's helm_resource readiness only covers the
 # operator pod itself. The ClusterPolicy alone is not enough either: it can
 # report ready while a pod it does not own, such as an NFD worker, is still
 # crash-looping.
-#
-# Usage: wait-gpu-operator.sh [namespace] [timeout-seconds]
+
 set -euo pipefail
 
 NAMESPACE="${1:-gpu-operator}"
