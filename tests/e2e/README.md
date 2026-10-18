@@ -61,7 +61,7 @@ CI splits the suite into parallel jobs.
 entirely as exclusions:
 
 ```make
-E2E_DEFAULT_LABEL_FILTER ?= !gfd && !dra && !gpu-operator && !multi-node && !nri && !nfd
+E2E_DEFAULT_LABEL_FILTER ?= !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig
 ```
 
 The filter is phrased that way because the standalone scenario has no scenario
@@ -142,7 +142,6 @@ tests that must not be scoped by `E2E_PROFILES`.
 | Node-wide NRI injection | `make e2e-nri` | `nri`, `nri-*`, `compute-domain`, `imex-channels` | Node Resource Interface (NRI) injection follows the allocation rules: a pod with no Mokka-specific spec sees exactly its device-plugin allocation, a `devices`-annotated pod with no GPU request sees every GPU, and a pod that asks for neither is left untouched |
 | NFD label provenance | `make e2e-nfd` | `nfd`, `nfd-provenance` | Node Feature Discovery (NFD) derives `feature.node.kubernetes.io/pci-10de.present` from the feature file the mock writes — and that the mock does not write the label itself. Pinned to `a100`, because the label is vendor-only and identical across profiles |
 | Container runtime setup | `make e2e` | `container-runtime` | The node daemon registers the `nvidia` handler with containerd on stock `kindest/node` as the default: a pod with `NVIDIA_VISIBLE_DEVICES` sees the node's mock GPUs, with or without `runtimeClassName: nvidia`, replacing the node pod sets the runtime up again, and a node that loses its node pod loses the handler |
-| Standalone GFD | opt-in | `gfd` | Standalone GPU Feature Discovery derives the required node labels from the mock GPU inventory. **Skipped by default** — see below |
 
 ### Node-wide NRI injection
 
@@ -181,24 +180,6 @@ on Hopper and later profiles.
 
 The Xid injection runs **last**, because it leaves the mock in a failed state.
 
-### Standalone GFD
-
-Skipped by default and run by no workflow
-([#446](https://github.com/NVIDIA/k8s-test-infra/issues/446)). GFD runs from the
-same `k8s-device-plugin` image the device plugin scenarios pull in CI. Enable it
-locally:
-
-```bash
-make e2e E2E_RUN_NGC=true E2E_GINKGO_FLAGS='--label-filter="gfd"'
-```
-
-It installs NFD, which turns GFD's feature file into node labels, and targets a
-worker node, because the NFD chart schedules nothing on the control plane. It then
-applies [`device-plugin-mock.yaml`](go/assets/device-plugin-mock.yaml), waits for
-allocatable GPUs, applies [`gfd-mock.yaml`](go/assets/gfd-mock.yaml), and verifies
-the required GFD labels. It uninstalls NFD afterwards, so the NFD provenance
-scenario, which needs NFD absent at its start, can still run on the same cluster.
-
 ### Reference Kind configs
 
 The scenarios do not create clusters, but the DRA scenario expects a specific
@@ -220,8 +201,7 @@ Read by the suite:
 | `E2E_CLUSTER_NAME` | `mokka` | Kind cluster name, used in attach errors and diagnostics |
 | `E2E_KUBE_CONTEXT` | `kind-mokka` | Kubeconfig context, passed explicitly to helm and kubectl. Node discovery goes through this, not the cluster name |
 | `E2E_ARTIFACTS` | `artifacts/e2e/go` | Where failure diagnostics are written |
-| `E2E_RUN_NGC` | `false` | Run scenarios needing `nvcr.io` images. Truthy: `1`, `true`, `yes`, `on` |
-| `E2E_EXPECT_NRI` | `false` | Fail, instead of skip, NRI-only specs when the nvml-mock NRI plugin is not running. CI sets it on the DRA and GPU Operator jobs |
+| `E2E_EXPECT_NRI` | `false` | Fail, instead of skip, NRI-only specs when the nvml-mock NRI plugin is not running. CI sets it on the DRA and GPU Operator jobs. Truthy: `1`, `true`, `yes`, `on` |
 | `E2E_REPO_ROOT` | walks up for `go.mod` | Overrides repo-root discovery for chart and profile paths |
 | `E2E_HELM_TIMEOUT` | `5m` | `helm upgrade --install --wait` |
 | `E2E_READY_TIMEOUT` | `2m` | DaemonSet, pod and label readiness waits |
@@ -284,7 +264,7 @@ Six scenario jobs run in parallel: `e2e`, `e2e-dra`, `e2e-gpu-operator`,
 `e2e-multi-node`, `e2e-nri` and `e2e-nfd`. Each runs one GPU profile per matrix
 entry, with `fail-fast: false` so one profile's failure does not cancel the
 others. `e2e-nfd` is pinned to `a100`; `e2e-multi-node` has no matrix and uses
-its own fixed A100/T4 topology. There is no gfd job.
+its own fixed A100/T4 topology.
 
 Pull requests get the full matrix — `a100`, `h100`, `b200`, `gb200`, `gb300`,
 `t4`. Manual `workflow_dispatch` defaults to `gb200` alone for a fast run. The
@@ -304,7 +284,6 @@ The suite never deletes the cluster, so a failed run can be inspected directly.
 | Pods stuck in `ImagePullBackOff` after a reshaping spec | `E2E_IMAGE` names an image that is not on the nodes | Set `E2E_IMAGE` to the ref Tilt deployed, or `kind load` the ref you passed |
 | Attach fails or times out at startup | Cluster name or context does not match | Confirm `kind get clusters`; the defaults expect `mokka` and `kind-mokka` |
 | A scenario is silently absent from the run | The default label filter excludes it | Use the scenario's own target, or override `E2E_GINKGO_FLAGS` |
-| `gfd` specs all skip | `E2E_RUN_NGC` is `false` | Set `E2E_RUN_NGC=true`, with `nvcr.io` images reachable |
 | GPU Operator waits time out | Operand replacement outlasts the readiness wait | Raise `E2E_OPERAND_SETTLE_TIMEOUT` rather than `E2E_READY_TIMEOUT` |
 | Assertions fail right after a DCGM run | Xid injection ran and left the mock failed | Expected; it is ordered last. Reinstall the release before re-running other specs |
 

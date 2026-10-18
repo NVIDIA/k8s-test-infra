@@ -103,10 +103,6 @@ func ClusterName() string { return env("E2E_CLUSTER_NAME", defaultClusterName) }
 // ArtifactsDir is where diagnostics are written.
 func ArtifactsDir() string { return env("E2E_ARTIFACTS", defaultArtifacts) }
 
-// RunNGCSpecs reports whether the NGC-auth standalone GFD specs run
-// (default skipped). Set when an NGC pull secret/credentials are available.
-func RunNGCSpecs() bool { return envBool("E2E_RUN_NGC") }
-
 // ExpectNRI reports whether the cluster is meant to run the nvml-mock NRI
 // plugin. NRI-only specs skip when the plugin is absent; with this set they fail
 // instead, so a CI job that stops enabling NRI cannot go green on skips.
