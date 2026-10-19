@@ -493,13 +493,16 @@ needs UMAD I/O. For IB-enabled profiles, the chart preloads
 and exposes a headless Service on port 18515 for TCP fabric relay between
 nvml-mock pods.
 
-The fabric listener binds `0.0.0.0` with no authentication, so the chart
-also ships a `NetworkPolicy` (`infiniband.ping.networkPolicy.enabled`,
-default `true`) that allows inbound fabric traffic only from peer
-nvml-mock pods. NetworkPolicy is enforced only by CNIs that implement it;
-Kind's default `kindnet` ignores it, so it is a no-op in the typical Kind
-fixture but limits exposure on Calico/Cilium-backed clusters. mock-ib is a
-test fixture — don't deploy it to a shared or production cluster.
+The fabric listener binds `0.0.0.0` with no authentication, so at the
+`full` tier the chart also ships a `NetworkPolicy`
+(`infiniband.ping.networkPolicy.enabled`, default `true`) that allows inbound
+fabric traffic only from peer nvml-mock pods in the release's namespace. A
+fleet split across namespaces lists the others in
+`infiniband.ping.networkPolicy.peerNamespaces`. Below `full` nothing listens
+on the port, so no policy is rendered. NetworkPolicy is enforced only by CNIs
+that implement it, which includes Kind's default `kindnet` (since Kind v0.24),
+Calico, and Cilium. mock-ib is a test fixture — don't deploy it to a shared or
+production cluster.
 
 ```bash
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
@@ -807,7 +810,8 @@ namespace, on the pod IP where the kubelet reaches it.
 | `integrations.fakeGpuOperator.profileLabels` | `{"run.ai/gpu-profile": "true"}` | Extra labels on profile ConfigMaps. The contract labels `fake-gpu-operator/gpu-profile` and `nvml-mock/profile-name` are always emitted and cannot be removed here |
 | `infiniband.mockTier` | `""` (auto) | `MOCK_IB` tier: `off`, `sysfs`, or `full`. Empty auto-derives `full` for IB-enabled profiles and `sysfs` otherwise (keeps the `libibmocksys` redirect active so any real host IB is masked). `off` makes every shim a no-op and skips the daemon. An invalid value fails `helm template` |
 | `infiniband.ping.port` | `18515` | TCP port for fabric relay between nvml-mock pods (`mock-ib` / `ibping` always enabled) |
-| `infiniband.ping.networkPolicy.enabled` | `true` | Restrict inbound access to the fabric port to peer nvml-mock pods. No-op on CNIs that don't enforce NetworkPolicy (e.g. Kind's kindnet) |
+| `infiniband.ping.networkPolicy.enabled` | `true` | Restrict inbound access to the fabric port to peer nvml-mock pods. Rendered only at the `full` tier. No-op on CNIs that don't enforce NetworkPolicy |
+| `infiniband.ping.networkPolicy.peerNamespaces` | `[]` | Namespaces besides the release's whose nvml-mock pods may reach the fabric port |
 | `nri.enabled` | `true` | Run the `nvml-mock-nri` containerd NRI plugin in the node DaemonSet. In non-excluded namespaces it injects containers that hold a GPU allocation or whose pod opts in by annotation; see [Set up NRI injection](guides/nri-injection.md). Set `false` where containerd has NRI disabled. Always install into a dedicated namespace (`-n mokka`) to avoid excluding `default` |
 | `nri.nativeSidecar` | `true` | On Kubernetes 1.29+, use the ordered `SidecarContainers` layout. Set to `false` when that feature gate is explicitly disabled; the chart falls back to unordered regular containers |
 | `nri.socketPath` | `/var/run/nri/nri.sock` | NRI socket on the host. Its directory is hostPath-mounted into the plugin |
