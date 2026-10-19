@@ -475,7 +475,7 @@ infiniband:
     # NetworkPolicy on current releases, so this allow-list is load-bearing
     # there; it also matters on Calico/Cilium.
     networkPolicy:
-      # -- Restrict mock InfiniBand traffic to peer nvml-mock pods.
+      # -- Restrict mock InfiniBand traffic to peer nvml-mock pods. Rendered only at the `full` tier, the only one that listens on the port.
       enabled: true
 
 imex:

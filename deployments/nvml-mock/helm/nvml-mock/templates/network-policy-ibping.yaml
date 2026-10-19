@@ -1,6 +1,11 @@
 {{- /* Copyright 2026 NVIDIA CORPORATION */}}
 {{- /* SPDX-License-Identifier: Apache-2.0 */}}
-{{- if and .Values.infiniband.ping.networkPolicy.enabled (eq (include "nvml-mock.infinibandEnabled" .) "true") }}
+{{- /*
+Only the mock-ib daemon listens on the relay port, and the node agent runs it
+at the full tier alone. Below it the policy guards a closed port, and its
+cluster-wide peer still costs OVN-Kubernetes a scan of every Pod per Pod event.
+*/}}
+{{- if and .Values.infiniband.ping.networkPolicy.enabled (eq (include "nvml-mock.infinibandEnabled" .) "true") (eq (include "nvml-mock.mockIBTier" .) "full") }}
 # The fabric relay listens on 0.0.0.0:{{ .Values.infiniband.ping.port }} without
 # authentication. Admitting only peer nvml-mock pods keeps that surface
 # reachable by its real clients alone.

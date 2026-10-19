@@ -528,7 +528,7 @@
             "networkPolicy": {
               "type": "object",
               "additionalProperties": true,
-              "description": "NetworkPolicy restricting inbound access to the fabric port to peer nvml-mock pods. No-op on CNIs that do not enforce NetworkPolicy (e.g. Kind's kindnet).",
+              "description": "NetworkPolicy restricting inbound access to the fabric port to peer nvml-mock pods. Rendered only at the full mock InfiniBand tier, the only one that listens on the port. No-op on CNIs that do not enforce NetworkPolicy (e.g. Kind's kindnet).",
               "properties": {
                 "enabled": { "type": "boolean" }
               }

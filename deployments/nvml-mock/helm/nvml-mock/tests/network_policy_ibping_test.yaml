@@ -88,3 +88,29 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  # Only the mock-ib daemon listens on the relay port, and it runs at the
+  # full tier alone; below it the policy would guard a closed port.
+  - it: should not render at the sysfs tier
+    set:
+      infiniband:
+        mockTier: sysfs
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render at the off tier
+    set:
+      infiniband:
+        mockTier: "off"
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render at an explicit full tier
+    set:
+      infiniband:
+        mockTier: full
+    asserts:
+      - hasDocuments:
+          count: 1
