@@ -1,0 +1,45 @@
+#!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Restores the frozen docs of every version registered under fern/versions/.
+#
+# A registered version vX.Y.Z serves the docs/ tree as it was at tag vX.Y.Z, and
+# its navigation file fern/versions/vX.Y.Z.yml points into
+# fern/versions/vX.Y.Z-content/. Only the navigation file is committed, so the
+# content has to be extracted from the tag before Fern can check, preview or
+# publish the site.
+#
+# A tag cut before the Fern migration has no docs/index.yml. Its navigation file
+# is written by hand, and its MkDocs pages are converted on extraction (see
+# tools/convert-mkdocs-docs). Every version then has its links to this
+# repository pinned to its tag (see tools/pin-docs-links).
+
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)" || {
+  echo "ERROR: not inside a git repository" >&2
+  exit 1
+}
+cd "${repo_root}"
+
+shopt -s nullglob
+for version_file in fern/versions/v*.yml; do
+  version="$(basename "${version_file}" .yml)"
+  if ! git rev-parse --verify --quiet "refs/tags/${version}" >/dev/null; then
+    echo "ERROR: ${version_file} is registered but tag ${version} is missing; run git fetch --tags" >&2
+    exit 1
+  fi
+
+  content="fern/versions/${version}-content"
+  # Extract into a clean directory, so a page deleted at the tag does not
+  # survive from an earlier run.
+  rm -rf "${content}"
+  mkdir -p "${content}"
+  git archive "refs/tags/${version}" -- docs/ | tar -x --strip-components=1 -C "${content}"
+  if ! git cat-file -e "refs/tags/${version}:docs/index.yml" 2>/dev/null; then
+    python3 tools/convert-mkdocs-docs "${version}" "${version_file}" "${content}"
+  fi
+  python3 tools/pin-docs-links "${version}" "${content}"
+  echo "Restored ${version} docs into ${content}"
+done

@@ -1,0 +1,164 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Convert docs frozen at a pre-Fern release tag so Fern renders them.
+
+Releases cut before the Fern migration hold MkDocs Material pages. Fern parses
+them as MDX, where an HTML comment is a syntax error and an admonition renders
+as a paragraph followed by an indented code block. This rewrites, outside
+fenced code blocks:
+
+  - HTML comments, which are removed
+  - `!!! note` and `!!! warning` admonitions, optionally titled, which become
+    the <Note> and <Warning> callouts the current pages use
+  - relative links to pages the version's navigation does not list, which
+    become links to the page on GitHub at REF, because Fern publishes only
+    listed pages
+
+Any other admonition is reported and the conversion fails, so a page never
+publishes half-converted.
+
+Usage: convert-mkdocs-docs REF NAV DIR
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import sys
+from pathlib import Path
+
+CALLOUTS = {"note": "Note", "warning": "Warning"}
+ADMONITION = re.compile(
+    r'^(?:!!!|\?\?\?\+?)[ \t]+(?P<kind>[A-Za-z]+)(?:[ \t]+"(?P<title>[^"]*)")?[ \t]*$'
+)
+FENCE = re.compile(r"^[ \t]*(```|~~~)")
+BODY_INDENT = "    "
+NAV_PATH = re.compile(r"^\s*path:\s*(?P<path>\S+)\s*$")
+# [text](target) where target has no scheme and names a markdown page.
+PAGE_LINK = re.compile(r"\]\((?P<target>[^):#\s]+\.md)(?P<anchor>#[^)\s]*)?\)")
+REPO_URL = "https://github.com/NVIDIA/k8s-test-infra/blob"
+
+
+def strip_comments(lines: list[str]) -> list[str]:
+    out: list[str] = []
+    in_fence = False
+    in_comment = False
+    for line in lines:
+        if not in_comment and FENCE.match(line):
+            in_fence = not in_fence
+        if in_fence:
+            out.append(line)
+            continue
+        text = line
+        kept = ""
+        while text:
+            if in_comment:
+                end = text.find("-->")
+                if end == -1:
+                    text = ""
+                    break
+                text = text[end + 3 :]
+                in_comment = False
+                continue
+            start = text.find("<!--")
+            if start == -1:
+                kept += text
+                break
+            kept += text[:start]
+            text = text[start + 4 :]
+            in_comment = True
+        # A line that held only a comment goes away rather than leaving a blank.
+        if kept.strip() or line.strip() == "":
+            out.append(kept.rstrip())
+    while out and not out[0].strip():
+        out.pop(0)
+    return out
+
+
+def convert_admonitions(path: str, lines: list[str]) -> list[str]:
+    out: list[str] = []
+    in_fence = False
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        if FENCE.match(line):
+            in_fence = not in_fence
+        match = None if in_fence else ADMONITION.match(line)
+        if not match:
+            out.append(line)
+            index += 1
+            continue
+        kind = match.group("kind").lower()
+        if kind not in CALLOUTS or not line.startswith("!!!"):
+            raise ValueError(
+                f"{path}:{index + 1}: unsupported admonition {line.strip()!r}"
+            )
+        index += 1
+        body: list[str] = []
+        while index < len(lines) and (
+            not lines[index].strip() or lines[index].startswith(BODY_INDENT)
+        ):
+            body.append(lines[index][len(BODY_INDENT) :])
+            index += 1
+        while body and not body[0].strip():
+            body.pop(0)
+        while body and not body[-1].strip():
+            body.pop()
+        component = CALLOUTS[kind]
+        out.append(f"<{component}>")
+        if match.group("title"):
+            out.extend([f"**{match.group('title')}**", ""])
+        out.extend(body)
+        out.extend([f"</{component}>", ""])
+    return out
+
+
+def published_pages(nav: Path, root: Path) -> set[str]:
+    """Return the pages NAV lists, relative to the content directory ROOT."""
+    prefix = root.name + "/"
+    pages: set[str] = set()
+    for line in nav.read_text(encoding="utf-8").split("\n"):
+        match = NAV_PATH.match(line)
+        if match and match.group("path").startswith(prefix):
+            pages.add(match.group("path")[len(prefix) :])
+    if not pages:
+        raise ValueError(f"{nav}: lists no page under {prefix}")
+    return pages
+
+
+def link_unpublished(
+    page: Path, root: Path, text: str, ref: str, published: set[str]
+) -> str:
+    def rewrite(match: re.Match[str]) -> str:
+        target = os.path.normpath(
+            os.path.join(os.path.dirname(page.relative_to(root)), match.group("target"))
+        )
+        if target in published or target.startswith("..") or not (root / target).is_file():
+            return match.group(0)
+        return f"]({REPO_URL}/{ref}/docs/{target}{match.group('anchor') or ''})"
+
+    return PAGE_LINK.sub(rewrite, text)
+
+
+def main() -> int:
+    if len(sys.argv) != 4:
+        print(__doc__.strip().split("\n")[-1], file=sys.stderr)
+        return 2
+    ref, nav, root = sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3])
+    try:
+        published = published_pages(nav, root)
+        for page in sorted(root.rglob("*.md")):
+            lines = page.read_text(encoding="utf-8").split("\n")
+            lines = convert_admonitions(page.as_posix(), strip_comments(lines))
+            text = link_unpublished(page, root, "\n".join(lines), ref, published)
+            page.write_text(text, encoding="utf-8")
+    except ValueError as err:
+        print(f"ERROR: {err}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

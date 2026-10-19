@@ -33,12 +33,14 @@ make cluster-delete                         # PROFILE must match creation
 The default shape serves both a single release and a per-worker fleet, so
 switching between them needs no rebuild.
 
-!!! note "The control-plane node is deliberately excluded"
-    `local/nvml-mock.values.yaml` pins the DaemonSet to nodes labelled
-    `mokka.nvidia.com/type=sgpu`. Without that the mock lands on the control
-    plane too — it tolerates every taint — while the GPU Operator, FGO and NFD
-    operands stop at the `NoSchedule` taint. You would get a node advertising a
-    driver nobody consumes.
+> [!NOTE]
+> **The control-plane node is deliberately excluded**
+>
+> `local/nvml-mock.values.yaml` pins the DaemonSet to nodes labelled
+> `mokka.nvidia.com/type=sgpu`. Without that the mock lands on the control
+> plane too — it tolerates every taint — while the GPU Operator, FGO and NFD
+> operands stop at the `NoSchedule` taint. You would get a node advertising a
+> driver nobody consumes.
 
 ## Step 2 — start Tilt
 
