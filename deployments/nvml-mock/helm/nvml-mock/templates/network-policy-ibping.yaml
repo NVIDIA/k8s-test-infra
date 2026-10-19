@@ -28,19 +28,25 @@ spec:
     - Ingress
   ingress:
     - from:
-        # Name + component, not instance: the fabric spans every daemon pod
-        # cluster-wide and ibping-multinode deploys one release per node, so
-        # instance scoping would drop cross-release REGISTER. The component
+        # Name + component, not instance: a fabric can span several releases,
+        # so instance scoping would drop cross-release REGISTER. The component
         # label identifies the shared node-agent/NRI pods.
         #
-        # namespaceSelector {} is load-bearing, not redundant: a bare
-        # podSelector matches only this policy's own namespace, silently
-        # dropping REGISTER from a fleet split across namespaces.
-        - namespaceSelector: {}
-          podSelector:
+        # Peers come from this namespace unless peerNamespaces lists more. A
+        # peer in every namespace (namespaceSelector {}) would make
+        # OVN-Kubernetes re-list all Pods in the cluster on each Pod event, on
+        # every node; a fleet split across namespaces lists them instead.
+        - podSelector:
             matchLabels:
               app.kubernetes.io/name: {{ include "nvml-mock.name" . }}
               app.kubernetes.io/component: daemon
+          {{- with .Values.infiniband.ping.networkPolicy.peerNamespaces }}
+          namespaceSelector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values: {{ prepend . $.Release.Namespace | uniq | toJson }}
+          {{- end }}
       ports:
         # Some CNIs do not resolve named ports on restartable init containers.
         - port: {{ .Values.infiniband.ping.port }}

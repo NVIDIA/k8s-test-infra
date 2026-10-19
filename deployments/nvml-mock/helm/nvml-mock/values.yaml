@@ -477,6 +477,8 @@ infiniband:
     networkPolicy:
       # -- Restrict mock InfiniBand traffic to peer nvml-mock pods. Rendered only at the `full` tier, the only one that listens on the port.
       enabled: true
+      # -- Namespaces besides the release's whose nvml-mock pods may reach the port, for a fleet split across namespaces. Empty admits the release's namespace only, which keeps OVN-Kubernetes from re-listing every Pod in the cluster on each Pod event.
+      peerNamespaces: []
 
 imex:
   # Mock IMEX capability surface for the NVIDIA DRA driver's compute-domain

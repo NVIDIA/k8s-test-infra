@@ -530,7 +530,12 @@
               "additionalProperties": true,
               "description": "NetworkPolicy restricting inbound access to the fabric port to peer nvml-mock pods. Rendered only at the full mock InfiniBand tier, the only one that listens on the port. No-op on CNIs that do not enforce NetworkPolicy (e.g. Kind's kindnet).",
               "properties": {
-                "enabled": { "type": "boolean" }
+                "enabled": { "type": "boolean" },
+                "peerNamespaces": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Namespaces besides the release's whose nvml-mock pods may reach the fabric port, for a fleet split across namespaces. Empty admits the release's namespace only."
+                }
               }
             }
           }

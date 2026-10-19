@@ -86,6 +86,7 @@ Kubernetes: `>= 1.28.0-0`
 | imex.deviceNumbers.channelMajor | int | `235` | Major number used for IMEX channel devices. |
 | infiniband.mockTier | string | `""` | InfiniBand mock tier; empty derives the tier from the selected profile. mockTier sets the container's MOCK_IB value: off | sysfs | full. Defaults to "full" for InfiniBand-enabled profiles and "sysfs" for non-IB profiles (sysfs keeps the libibmocksys redirect active so any real host IB is masked, i.e. ibstat reports 0 HCAs). Leaving this empty auto-derives that per profile. Set it explicitly to override (an invalid value fails `helm template`). |
 | infiniband.ping.networkPolicy.enabled | bool | `true` | Restrict mock InfiniBand traffic to peer nvml-mock pods. Rendered only at the `full` tier, the only one that listens on the port. |
+| infiniband.ping.networkPolicy.peerNamespaces | list | `[]` | Namespaces besides the release's whose nvml-mock pods may reach the port, for a fleet split across namespaces. Empty admits the release's namespace only, which keeps OVN-Kubernetes from re-listing every Pod in the cluster on each Pod event. |
 | infiniband.ping.port | int | `18515` | TCP port used by the mock InfiniBand ping service. |
 | integrations.fakeGpuOperator.enabled | bool | `false` | Enable fake-gpu-operator profile integration. |
 | integrations.fakeGpuOperator.profileLabels."run.ai/gpu-profile" | string | `"true"` | Additional label applied to generated fake-gpu-operator profiles. |
