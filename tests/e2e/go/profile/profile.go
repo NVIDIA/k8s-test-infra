@@ -67,7 +67,8 @@ type rawProfile struct {
 			OFA  int `json:"ofa"`
 		} `json:"utilization"`
 		PCIe *struct {
-			MaxLinkGen int `json:"max_link_gen"`
+			MaxLinkGen     int `json:"max_link_gen"`
+			HostMaxLinkGen int `json:"host_max_link_gen"`
 		} `json:"pcie"`
 		Clocks *struct {
 			GraphicsMax        int `json:"graphics_max"`
@@ -198,6 +199,7 @@ type Profile struct {
 	jpegUtilizationPct int
 	ofaUtilizationPct  int
 	maxPCIeLinkGen     int
+	hostMaxPCIeLinkGen int
 	graphicsMaxMHz     int
 	appDefaultMemMHz   int
 	appDefaultGfxMHz   int
@@ -372,6 +374,7 @@ func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
 	}
 	if pcie := raw.DeviceDefaults.PCIe; pcie != nil {
 		p.maxPCIeLinkGen = pcie.MaxLinkGen
+		p.hostMaxPCIeLinkGen = pcie.HostMaxLinkGen
 	}
 	p.applyClocks(raw)
 	p.applyWorkloadPowerProfiles(raw)
@@ -591,6 +594,10 @@ func (p Profile) OFAUtilizationPct() int { return p.ofaUtilizationPct }
 // Ranges from 3 (t4) to 6 (Blackwell), so asserting against it pins the value
 // to config rather than a hardcoded constant.
 func (p Profile) MaxPCIeLinkGen() int { return p.maxPCIeLinkGen }
+
+// HostMaxPCIeLinkGen is the configured host-side maximum. Zero means absent,
+// which nvidia-smi must render as N/A.
+func (p Profile) HostMaxPCIeLinkGen() int { return p.hostMaxPCIeLinkGen }
 
 // GraphicsMaxClockMHz is device_defaults.clocks.graphics_max, the boost maximum
 // nvidia-smi renders in Max Clocks. The mock reports the same value as the
