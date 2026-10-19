@@ -448,6 +448,8 @@ kind load docker-image "mokka-imex:${IMEX_VERSION}" --name <cluster>
 
 **CI pipelines.** Cache `IMEX_ARCHIVE_DIR` keyed on the IMEX version, so NVIDIA
 is contacted once per version, and build the image in each job that needs it.
+`make imex-archive` fills the cache without building the image, for a job that
+only downloads.
 Never upload the image or the archive as a workflow artifact: anyone can
 download the artifacts of a public repository. Mokka's own
 [e2e workflow](https://github.com/NVIDIA/k8s-test-infra/blob/main/.github/workflows/nvml-mock-e2e-go.yaml)

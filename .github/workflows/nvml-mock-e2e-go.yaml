@@ -176,7 +176,7 @@ jobs:
       # binaries image for amd64.
       - name: Download and verify the pinned IMEX archive
         if: steps.cache.outputs.cache-hit != 'true'
-        run: go run ./hack/tools/imex-archives -dir "$IMEX_ARCHIVE_DIR" -arch amd64
+        run: make imex-archive IMEX_BINARIES_ARCH=amd64
 
       - name: Cache the IMEX archive
         if: steps.cache.outputs.cache-hit != 'true'

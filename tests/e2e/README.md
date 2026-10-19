@@ -272,8 +272,9 @@ failure does not cancel the others. `e2e-nfd` is pinned to `a100`;
 
 No job downloads IMEX from NVIDIA inside its cluster: `E2E_IMEX_DOWNLOAD=false`
 turns the `IMEXDownload` gate off in every install. The `prepare-imex` job
-downloads the archive pinned in `imex.lock.json` into the Actions cache, keyed on
-the lock, so NVIDIA is contacted once per IMEX version. `e2e-compute-domain`
+downloads the archive pinned in `imex.lock.json` with `make imex-archive` into
+the Actions cache, keyed on the lock, so NVIDIA is contacted once per IMEX
+version. `e2e-compute-domain`
 restores it, builds the binaries image with `make imex-binaries-image`, and loads
 it into Kind. The archive never travels as a workflow artifact, which anyone
 could download from a public repository.

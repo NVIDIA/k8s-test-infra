@@ -531,10 +531,16 @@ IMEX_ARCHIVE_DIR ?=
 IMEX_BINARIES_ARCH ?= $(shell $(GO_CMD) env GOARCH)
 IMEX_VERSION = $(shell sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' internal/agent/imex/imex.lock.json)
 IMEX_BINARIES_IMAGE ?= mokka-imex:$(IMEX_VERSION)
+# Prints the image build context it lays out.
+IMEX_ARCHIVES = $(GO_CMD) run ./hack/tools/imex-archives -dir '$(IMEX_ARCHIVE_DIR)' -arch '$(IMEX_BINARIES_ARCH)'
+
+.PHONY: imex-archive
+imex-archive: ## Download and verify the pinned IMEX archive into IMEX_ARCHIVE_DIR, without building the image
+	@$(IMEX_ARCHIVES)
 
 .PHONY: imex-binaries-image
 imex-binaries-image: ## Build the IMEX binaries image for imex.binaries.image from the pinned NVIDIA archive (not published)
-	@context="$$($(GO_CMD) run ./hack/tools/imex-archives -dir '$(IMEX_ARCHIVE_DIR)' -arch '$(IMEX_BINARIES_ARCH)')" && \
+	@context="$$($(IMEX_ARCHIVES))" && \
 	docker buildx build --load --platform 'linux/$(IMEX_BINARIES_ARCH)' --build-arg IMEX_VERSION='$(IMEX_VERSION)' \
 		-f deployments/imex-binaries/Dockerfile -t '$(IMEX_BINARIES_IMAGE)' "$$context"
 
