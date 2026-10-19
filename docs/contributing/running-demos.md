@@ -100,6 +100,6 @@ Three demos are not guides because they cannot run without the repository:
 
 | Demo | What it shows |
 |---|---|
-| [ComputeDomain](../guides/compute-domain/README.md) | NVLink fabric identity, with a real `nvidia-imex` forming a live domain over mock GPUs |
+| [ComputeDomain](../guides/compute-domain/README.md) | ComputeDomains through the unmodified NVIDIA DRA driver on two mock GB200 racks: real IMEX daemons form a domain per NVLink clique, and workloads get IMEX channels |
 | [NVSentinel](../guides/nv-sentinel/README.md) | The full health loop: detect a thermal-margin crossing, cordon and drain, then auto-recover on cooldown |
 | [Failure injection](../guides/failure-injection/README.md) | Present a broken GPU — uncorrectable ECC, lost, fallen off the bus — and watch consumers react |

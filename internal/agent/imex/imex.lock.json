@@ -1,0 +1,14 @@
+{
+  "version": "595.91.07",
+  "baseURL": "https://developer.download.nvidia.com/compute/nvidia-driver/redist",
+  "artifacts": {
+    "amd64": {
+      "path": "imex/linux-x86_64/imex-linux-x86_64-595.91.07-archive.tar.xz",
+      "sha256": "5777c308db825c7751b20653d4e4a12e465031084962f25dcb5aa648673a5b09"
+    },
+    "arm64": {
+      "path": "imex/linux-sbsa/imex-linux-sbsa-595.91.07-archive.tar.xz",
+      "sha256": "d7d88d0ed626b3d8131a8f65019b8ad4ae702f179a6ef6849cc50165ca8a6946"
+    }
+  }
+}

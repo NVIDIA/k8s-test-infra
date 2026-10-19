@@ -25,6 +25,11 @@ containerd itself, so any cluster whose nodes run containerd 1.7 or later under
 systemd works; see the [Amazon EKS guide](guides/install/aws/eks/README.md) for
 a managed one.
 
+On the default `gb300` profile each node also downloads NVIDIA's IMEX archive
+from `developer.download.nvidia.com`, for DRA ComputeDomains. A node that cannot
+reach it keeps working without IMEX; add
+`--set featureGates.IMEXDownload=false` to skip the download.
+
 ## Verify
 
 ```bash

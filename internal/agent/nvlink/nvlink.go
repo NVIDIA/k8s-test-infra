@@ -7,6 +7,7 @@ package nvlink
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 
 	"go.uber.org/zap"
@@ -22,6 +23,14 @@ const name = "nvlink"
 // bind-mounts the overlay root into workloads and points MOCK_TOPOLOGY_CONFIG
 // at this path within it.
 const overlayRel = "topology/topology.yaml"
+
+// driverRel puts the same document beside the driver tree's config.yaml,
+// where the mock NVML library looks when nothing points it elsewhere. That is
+// how a process that only mounts the driver root, such as the DRA driver's
+// kubelet plugin, sees the node's clique.
+const driverRel = "driver/config/topology.yaml"
+
+var stagedPaths = []string{overlayRel, driverRel}
 
 var _ agent.Simulator = (*Simulator)(nil)
 
@@ -56,7 +65,7 @@ func (s *Simulator) Stage(_ context.Context, state *agent.State) error {
 		// The overlay is on a host mount that outlives the pod, and the NRI
 		// plugin injects MOCK_TOPOLOGY_CONFIG for any container while the file
 		// is there, so a retracted topology has to take the document with it.
-		if err := fsutil.Remove(s.host.RootPath(overlayRel)); err != nil {
+		if err := s.remove(); err != nil {
 			return err
 		}
 
@@ -65,8 +74,10 @@ func (s *Simulator) Stage(_ context.Context, state *agent.State) error {
 		return nil
 	}
 
-	if err := fsutil.Write(s.host.RootPath(overlayRel), state.TopologyRaw, 0o644); err != nil {
-		return err
+	for _, rel := range stagedPaths {
+		if err := fsutil.Write(s.host.RootPath(rel), state.TopologyRaw, 0o644); err != nil {
+			return err
+		}
 	}
 
 	s.ready.Store(true)
@@ -77,5 +88,15 @@ func (s *Simulator) Stage(_ context.Context, state *agent.State) error {
 // Discard removes the staged document.
 func (s *Simulator) Discard(_ context.Context) error {
 	zap.L().Info("discarding simulator", zap.String("simulator", name))
-	return fsutil.Remove(s.host.RootPath(overlayRel))
+	return s.remove()
+}
+
+func (s *Simulator) remove() error {
+	var errs []error
+	for _, rel := range stagedPaths {
+		if err := fsutil.Remove(s.host.RootPath(rel)); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }

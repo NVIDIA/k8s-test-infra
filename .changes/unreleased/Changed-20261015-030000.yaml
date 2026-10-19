@@ -1,0 +1,6 @@
+kind: Changed
+body: |-
+  nvml-mock: without `MOCK_TOPOLOGY_CONFIG`, reads the ComputeDomain topology beside the `config.yaml` it loaded; the node agent stages the document there too. The DRA driver's kubelet plugin, which mounts only the driver root, now sees each node's own clique.
+time: 2026-10-15T03:00:00Z
+custom:
+  Issue: "821"

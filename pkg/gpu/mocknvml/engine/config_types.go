@@ -1058,6 +1058,12 @@ type NVLinkConfig struct {
 	BandwidthPerLinkMbps int  `json:"bandwidth_per_link_mbps,omitzero"`
 	C2CEnabled           bool `json:"c2c_enabled,omitzero"`
 
+	// MultiNode marks a board whose NVLink domain spans nodes (GB200 and GB300
+	// NVL72, later Vera Rubin and NVL576), as opposed to an NVLink fabric
+	// confined to one baseboard (HGX). Only such boards run IMEX and take part
+	// in DRA ComputeDomains.
+	MultiNode bool `json:"multi_node,omitempty"`
+
 	// NvleEnabled mirrors nvlink.nvle_enabled: NVLink encryption, reported
 	// by nvmlDeviceGetNvLinkInfo and the " NVLE:" row of
 	// `nvidia-smi nvlink --info`. Node-level for the same reason C2C is —

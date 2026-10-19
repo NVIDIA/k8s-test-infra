@@ -72,10 +72,10 @@ workload pods that never mount the image run it. An image without the binary
 skips that copy rather than failing.
 
 Three callers run it, never as a long-running process: the Go e2e suite, which
-execs it inside an NRI-injected pod on every worker; the ComputeDomain and
-node-wide injection scripts, which fail on a non-zero status or a clique
-mismatch; and a developer, through the manually triggered `check-fabric` Tilt
-resource.
+execs it inside an NRI-injected pod on every worker; the ComputeDomain guide's
+`run.sh`, which runs it in the node pod on every worker and fails on a non-zero
+status or a clique mismatch; and a developer, through the manually triggered
+`check-fabric` Tilt resource.
 
 ## See also
 

@@ -467,13 +467,13 @@ test: ## Run unit tests with race detection and coverage
 # Go's module cache takes a lock file even to read from it — which is fine
 # on a CI runner thrown away at the end of the job, less so reused locally.
 .PHONY: test-privileged
-test-privileged: ## Run internal/fsutil and internal/agent/gpudriver as root in a privileged container, for the tests `test` always skips
+test-privileged: ## Run internal/fsutil, internal/agent/gpudriver and internal/agent/imex as root in a privileged container, for the tests `test` always skips
 	@docker run --rm --privileged \
 		-e GOPROXY=off \
 		-v "$(CURDIR)":/src -w /src \
 		-v "$(shell $(GO_CMD) env GOMODCACHE)":/go/pkg/mod \
 		golang:$(shell ./hack/golang-version.sh) \
-		go test -v ./internal/fsutil/... ./internal/agent/gpudriver/...
+		go test -v ./internal/fsutil/... ./internal/agent/gpudriver/... ./internal/agent/imex/...
 
 HELM_CHART_DIR      := deployments/nvml-mock/helm/nvml-mock
 CRDS_HELM_CHART_DIR := deployments/mokka-crds/helm/mokka-crds
@@ -517,6 +517,32 @@ test-mockfs: mockfs-shim ## Run mockfs integration tests
 .PHONY: test-nvidia-imex-shim
 test-nvidia-imex-shim: build ## Run nvidia-imex-shim integration tests
 	@$(GO_CMD) test -v ./shims/nvidia-imex-shim/...
+
+.PHONY: test-imex-archives
+test-imex-archives: ## Download the IMEX archives pinned in imex.lock.json and verify each stages
+	@MOKKA_IMEX_DOWNLOAD_TEST=1 $(GO_CMD) test -run '^TestPinnedOfficialArchives$$' -v ./internal/agent/imex
+
+# The IMEX binaries image carries the archive pinned in imex.lock.json, for the
+# chart's imex.binaries.image. Mokka does not publish it: load it into the
+# cluster (`kind load docker-image`) or push it to a private registry.
+# IMEX_ARCHIVE_DIR keeps the downloaded archives (empty: the user cache
+# directory); once it holds a verified copy, the build needs no network.
+IMEX_ARCHIVE_DIR ?=
+IMEX_BINARIES_ARCH ?= $(shell $(GO_CMD) env GOARCH)
+IMEX_VERSION = $(shell sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' internal/agent/imex/imex.lock.json)
+IMEX_BINARIES_IMAGE ?= mokka-imex:$(IMEX_VERSION)
+# Prints the image build context it lays out.
+IMEX_ARCHIVES = $(GO_CMD) run ./hack/tools/imex-archives -dir '$(IMEX_ARCHIVE_DIR)' -arch '$(IMEX_BINARIES_ARCH)'
+
+.PHONY: imex-archive
+imex-archive: ## Download and verify the pinned IMEX archive into IMEX_ARCHIVE_DIR, without building the image
+	@$(IMEX_ARCHIVES)
+
+.PHONY: imex-binaries-image
+imex-binaries-image: ## Build the IMEX binaries image for imex.binaries.image from the pinned NVIDIA archive (not published)
+	@context="$$($(IMEX_ARCHIVES))" && \
+	docker buildx build --load --platform 'linux/$(IMEX_BINARIES_ARCH)' --build-arg IMEX_VERSION='$(IMEX_VERSION)' \
+		-f deployments/imex-binaries/Dockerfile -t '$(IMEX_BINARIES_IMAGE)' "$$context"
 
 .PHONY: verify-greptile
 verify-greptile: ## Validate the .greptile review configuration
@@ -679,6 +705,7 @@ image-load:
 #   make e2e E2E_PROFILES=a100     # fast inner loop, single profile
 #   make e2e E2E_GINKGO_FLAGS='--label-filter="nvidia-smi || nvlink"'
 #   make e2e-dra                   # DRA scenario
+#   make e2e-compute-domain        # ComputeDomains through the DRA driver (two-rack cluster)
 #   make e2e-gpu-operator          # GPU Operator scenario
 #   make e2e-multi-node            # heterogeneous A100/T4 multi-node scenario
 #   make e2e-nri                   # NRI injection scenario
@@ -696,10 +723,10 @@ image-load:
 # ---------------------------------------------------------------------------
 GINKGO ?= $(GO_CMD) run github.com/onsi/ginkgo/v2/ginkgo
 E2E_TIMEOUT ?= 90m
-E2E_DEFAULT_LABEL_FILTER ?= !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig
+E2E_DEFAULT_LABEL_FILTER ?= !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig && !dra-compute-domain
 E2E_GINKGO_FLAGS ?= --label-filter='$(E2E_DEFAULT_LABEL_FILTER)'
 
-.PHONY: e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd e2e-mig
+.PHONY: e2e e2e-dra e2e-compute-domain e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd e2e-mig
 
 # `set -o pipefail` is inline on purpose; do not drop it as redundant with
 # .SHELLFLAGS. GNU Make ignores .SHELLFLAGS before 3.82 and macOS ships 3.81,
@@ -710,6 +737,12 @@ e2e: ## Run the Ginkgo e2e suite against E2E_CLUSTER_NAME/E2E_KUBE_CONTEXT (defa
 
 e2e-dra: ## e2e — DRA scenario
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=dra'
+
+# Needs the two-rack cluster, tests/e2e/kind-compute-domain-racks.yaml, with
+# `tilt ci -- --compute-domain --dra`. Set E2E_IMEX_BINARIES_IMAGE to keep the
+# node agent from downloading IMEX.
+e2e-compute-domain: ## e2e — ComputeDomains through the unmodified DRA driver
+	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=dra-compute-domain'
 
 e2e-gpu-operator: ## e2e — GPU Operator scenario
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=gpu-operator'

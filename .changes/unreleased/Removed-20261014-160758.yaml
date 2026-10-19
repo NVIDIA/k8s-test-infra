@@ -1,0 +1,6 @@
+kind: Removed
+body: |-
+  helm: **Breaking:** `imex.mockChannels` is removed; the GPU profile now decides whether a node simulates IMEX. Move `channelMajor` and `capsMajor` to `imex.deviceNumbers`, and drop `enabled` and `channelCount`.
+time: 2026-10-14T23:07:58Z
+custom:
+  Issue: "821"

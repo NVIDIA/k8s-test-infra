@@ -107,7 +107,7 @@ domains:
 			CliqueID:    0,
 		}},
 	}
-	applyTopologyOverlay(cfg)
+	applyTopologyOverlay(cfg, "")
 	require.Equal(t, uint32(5), cfg.DeviceDefaults.Fabric.CliqueID, "CliqueID")
 	require.Equal(t, "00000000-0000-0000-0000-0000000000ab", cfg.DeviceDefaults.Fabric.ClusterUUID, "ClusterUUID")
 }
@@ -131,7 +131,7 @@ domains:
 	t.Setenv("MOCK_TOPOLOGY_CONFIG", topoPath)
 
 	cfg := &YAMLConfig{DeviceDefaults: DeviceConfig{}}
-	applyTopologyOverlay(cfg)
+	applyTopologyOverlay(cfg, "")
 	require.Nil(t, cfg.DeviceDefaults.Fabric, "non-fabric profile: want Fabric=nil after overlay")
 }
 
@@ -155,7 +155,7 @@ domains:
 			CliqueID:    77,
 		}},
 	}
-	applyTopologyOverlay(cfg)
+	applyTopologyOverlay(cfg, "")
 	require.Equal(t, uint32(77), cfg.DeviceDefaults.Fabric.CliqueID, "unexpected mutation")
 	require.Equal(t, "ORIG", cfg.DeviceDefaults.Fabric.ClusterUUID, "unexpected mutation")
 }
@@ -175,7 +175,7 @@ func TestTopologyOverlay_MissingFile_NoChange(t *testing.T) {
 			CliqueID:    42,
 		}},
 	}
-	applyTopologyOverlay(cfg)
+	applyTopologyOverlay(cfg, "")
 	require.NotNil(t, cfg.DeviceDefaults.Fabric, "Fabric reset to nil; want sentinel values preserved")
 	require.Equal(t, "ORIG-UUID", cfg.DeviceDefaults.Fabric.ClusterUUID, "Fabric mutated by missing-file path")
 	require.Equal(t, uint32(42), cfg.DeviceDefaults.Fabric.CliqueID, "Fabric mutated by missing-file path")
@@ -197,7 +197,7 @@ func TestTopologyOverlay_MalformedYAML_NoChange(t *testing.T) {
 			CliqueID:    42,
 		}},
 	}
-	applyTopologyOverlay(cfg)
+	applyTopologyOverlay(cfg, "")
 	require.NotNil(t, cfg.DeviceDefaults.Fabric, "Fabric reset to nil; want sentinel values preserved")
 	require.Equal(t, "ORIG-UUID", cfg.DeviceDefaults.Fabric.ClusterUUID, "Fabric mutated by malformed-YAML path")
 	require.Equal(t, uint32(42), cfg.DeviceDefaults.Fabric.CliqueID, "Fabric mutated by malformed-YAML path")
@@ -218,8 +218,49 @@ func TestTopologyOverlay_UnreadableFile_NoChange(t *testing.T) {
 			CliqueID:    42,
 		}},
 	}
-	applyTopologyOverlay(cfg)
+	applyTopologyOverlay(cfg, "")
 	require.NotNil(t, cfg.DeviceDefaults.Fabric, "Fabric reset to nil; want sentinel values preserved")
 	require.Equal(t, "ORIG-UUID", cfg.DeviceDefaults.Fabric.ClusterUUID, "Fabric mutated by unreadable-file path")
 	require.Equal(t, uint32(42), cfg.DeviceDefaults.Fabric.CliqueID, "Fabric mutated by unreadable-file path")
+}
+
+// The DRA driver's kubelet plugin loads the library from the driver root and
+// finds its config there with no MOCK_* variable set; the topology beside that
+// config is how it learns the node's clique.
+func TestTopologyOverlay_ReadsTheDocumentBesideTheConfig(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "topology.yaml"), []byte(`
+domains:
+  - uuid: "00000000-0000-0000-0000-0000000000cd"
+    cliques:
+      - id: 3
+        nodes: [nodeB]
+`), 0o644))
+	t.Setenv("NODE_NAME", "nodeB")
+	t.Setenv("MOCK_TOPOLOGY_CONFIG", "")
+
+	cfg := &YAMLConfig{DeviceDefaults: DeviceConfig{Fabric: &FabricConfig{ClusterUUID: "ZERO"}}}
+	applyTopologyOverlay(cfg, filepath.Join(dir, "config.yaml"))
+
+	require.Equal(t, uint32(3), cfg.DeviceDefaults.Fabric.CliqueID)
+	require.Equal(t, "00000000-0000-0000-0000-0000000000cd", cfg.DeviceDefaults.Fabric.ClusterUUID)
+}
+
+// An explicit MOCK_TOPOLOGY_CONFIG wins outright, even when it names no file.
+func TestTopologyOverlay_ExplicitPathWinsOverTheDocumentBesideTheConfig(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "topology.yaml"), []byte(`
+domains:
+  - uuid: "00000000-0000-0000-0000-0000000000cd"
+    cliques:
+      - id: 3
+        nodes: [nodeB]
+`), 0o644))
+	t.Setenv("NODE_NAME", "nodeB")
+	t.Setenv("MOCK_TOPOLOGY_CONFIG", filepath.Join(dir, "missing.yaml"))
+
+	cfg := &YAMLConfig{DeviceDefaults: DeviceConfig{Fabric: &FabricConfig{ClusterUUID: "ZERO"}}}
+	applyTopologyOverlay(cfg, filepath.Join(dir, "config.yaml"))
+
+	require.Equal(t, "ZERO", cfg.DeviceDefaults.Fabric.ClusterUUID)
 }

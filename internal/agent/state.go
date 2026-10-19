@@ -366,10 +366,9 @@ type FabricState struct {
 
 // IMEXState describes the IMEX capability surface for the DRA compute-domain plugin.
 type IMEXState struct {
-	Enabled      bool
-	IMEXMajor    int
-	CapsMajor    int
-	ChannelCount int
+	Enabled   bool
+	IMEXMajor int
+	CapsMajor int
 }
 
 // MIGState describes the MIG capability surface: which GPUs boot partitioned

@@ -242,7 +242,7 @@ func imexChannelFlags(defaults nri.Config) []cli.Flag {
 		&cli.StringFlag{
 			Name:    "imex-channel-host-path",
 			Sources: cli.EnvVars("MOKKA_NRI_IMEX_CHANNEL_HOST_PATH"),
-			Usage:   "host path containing the mock IMEX channel nodes staged by imex.mockChannels (defaults to <overlay-host-path>/driver/dev/nvidia-caps-imex-channels)",
+			Usage:   "host path containing the mock IMEX channel nodes the node agent stages on multi-node NVLink profiles (defaults to <overlay-host-path>/driver/dev/nvidia-caps-imex-channels)",
 		},
 	}
 }

@@ -6,8 +6,9 @@
 // boundary, so the decision is exercisable as a plain table test.
 //
 // Every step fails open. A missing surface degrades injection instead of
-// failing container creation. The runtime-facing plugin separately gates
-// adjustments while the node agent is staging or unavailable.
+// failing container creation; that holds for a specialized workload too. The
+// runtime-facing plugin separately gates adjustments while the node agent is
+// staging or unavailable.
 package inject
 
 import (
@@ -17,7 +18,9 @@ import (
 )
 
 // Adjust returns what to add to a container, or ok=false when the container
-// should be left exactly as authored.
+// should be left exactly as authored. It routes a container a specialized
+// workload recognizes to that workload, and every other one to the generic
+// overlay.
 //
 // The steps run in a fixed order, each contributing to the same adjustment.
 // None of them can fail, which is why there is no error to return.
@@ -27,6 +30,9 @@ func Adjust(cfg Config, container Container) (Adjustment, bool) {
 	if skipped {
 		zap.L().Debug("skipping container injection", zap.String("namespace", container.Namespace), zap.String("reason", reason))
 		return Adjustment{}, false
+	}
+	if sel.workload != nil {
+		return sel.workload.adjust(cfg, container)
 	}
 	if sel.allocated && container.annotated(cfg.DeviceAnnotation, "true") {
 		zap.L().Debug("GPU allocation takes precedence over the devices annotation",
@@ -81,6 +87,10 @@ type selection struct {
 	// for RDMA, so device paths are not evidence of a request.
 	infiniband bool
 	imex       bool
+	// workload is set for a container a specialized workload recognizes. Such
+	// a container is routed before the opt-in checks: the DRA ComputeDomain
+	// daemon carries no allocation or annotation at CreateContainer.
+	workload *specializedWorkload
 }
 
 // decide is the single source of truth shared by Adjust and Skip.
@@ -91,6 +101,11 @@ type selection struct {
 func decide(cfg Config, container Container) (sel selection, reason string, skipped bool) {
 	if reason, skipped := skip(cfg, container); skipped {
 		return selection{}, reason, true
+	}
+	for i := range specializedWorkloads {
+		if specializedWorkloads[i].matches(container) {
+			return selection{workload: &specializedWorkloads[i]}, "", false
+		}
 	}
 	allocated := hasGPUAllocation(container)
 	sel = selection{

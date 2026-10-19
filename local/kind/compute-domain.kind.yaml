@@ -1,9 +1,9 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Derived from tests/e2e/kind-compute-domain-config.yaml, which has neither DRA
-# setting; the DynamicResourceAllocation gate and resource.k8s.io/v1beta1 are added
-# here because the scenario supports --compute-domain --dra.
+# The DynamicResourceAllocation gate and resource.k8s.io/v1beta1 are on because
+# the scenario supports --compute-domain --dra. The ComputeDomain e2e and guide use
+# the two-rack tests/e2e/kind-compute-domain-racks.yaml instead.
 #
 # Workers are named worker-0..3 through JoinConfiguration, and
 # local/compute-domain/topology.yaml assigns cliques by those names.

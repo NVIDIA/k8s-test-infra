@@ -20,9 +20,8 @@ load('./local/nvml_mock.tiltfile',
      'install_single',
      'install_fleet')
 load('./local/compute-domain/compute_domain.tiltfile',
-     compute_domain_build_images='build_images',
-     compute_domain_install='install',
-     compute_domain_daemon_image='DAEMON_IMAGE')
+     compute_domain_build_image='build_image',
+     compute_domain_install='install')
 load('./local/gpu-operator/gpu_operator.tiltfile', gpu_operator_install='install')
 load('./local/dra/dra.tiltfile', dra_install='install')
 load('./local/fgo/fgo.tiltfile', fgo_install='install')
@@ -115,9 +114,6 @@ if with_fgo and with_compute_domain:
 if with_slinky and with_dynamo:
     fail('--slinky is mutually exclusive with --dynamo (slurmd claims every mock GPU)')
 
-if nvmlmock_image and with_compute_domain:
-    fail('--nvmlmock-image is not supported with --compute-domain (scenario builds its own layered images)')
-
 # Empty unless --gpu-profile is passed: the chart owns the default profile, and a
 # --set would also beat every values file, consumer overlays included.
 gpu_profile = cfg.get('gpu-profile', '')
@@ -158,8 +154,12 @@ if with_control_plane:
     install_control_plane_crds()
 
 if with_compute_domain:
-    compute_domain_build_images(with_dra)
-    nvml_mock_releases = compute_domain_install(active_consumers, control_plane=with_control_plane)
+    compute_domain_build_image(nvmlmock_image=nvmlmock_image)
+    nvml_mock_releases = compute_domain_install(
+        active_consumers,
+        nvmlmock_image=nvmlmock_image,
+        control_plane=with_control_plane,
+    )
 elif multi_gpu_profile:
     build_nvml_mock_image(nvmlmock_image=nvmlmock_image)
     nvml_mock_releases = install_fleet(
@@ -218,23 +218,13 @@ if with_gpu_operator:
     )
 
 if with_dra:
-    # image_deps is what makes Tilt build the daemon image: a docker_build that
-    # nothing references is pruned.
+    # --compute-domain layers ComputeDomains and the node agent's /proc/devices
+    # substitute on top; the driver keeps its upstream images.
     dra_extra_values = []
-    dra_image_deps   = []
-    dra_image_keys   = []
-
     if with_compute_domain:
         dra_extra_values.append('local/compute-domain/dra-driver.values.yaml')
-        dra_image_deps.append(compute_domain_daemon_image)
-        dra_image_keys.append(('image.repository', 'image.tag'))
 
-    dra_install(
-      nvml_mock_releases,
-      extra_values=dra_extra_values,
-      image_deps=dra_image_deps,
-      image_keys=dra_image_keys,
-    )
+    dra_install(nvml_mock_releases, extra_values=dra_extra_values)
 
 if with_fgo:
     fgo_install(nvml_mock_releases)

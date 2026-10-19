@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  node-agent: the `IMEXDownload` feature gate (beta, on) downloads the pinned IMEX archive from NVIDIA when none is provided, on multi-node NVLink profiles such as the default `gb300`, for about a minute; `imex.binaries.download.timeout` limits each attempt. Turn it off without internet access.
+time: 2026-10-15T00:15:00Z
+custom:
+  Issue: "821"

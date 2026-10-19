@@ -79,7 +79,6 @@ Most flags stack. These do not:
 | `--fgo` with `--gpu-operator` | FGO replaces the GPU Operator |
 | `--fgo` with `--compute-domain` | Different fleet shapes |
 | `--compute-domain` with `--multi-gpu-profile` or `--gpu-profile` | The compute-domain scenario fixes both |
-| `--compute-domain` with `--nvmlmock-image` | The scenario builds its own layered images |
 | `--slinky` with `--dynamo` | `slurmd` claims every mock GPU, so the Dynamo worker could never schedule |
 
 Four flags imply others: `--topograph` implies `--compute-domain`, because

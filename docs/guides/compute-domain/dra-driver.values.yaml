@@ -1,0 +1,38 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Values for the NVIDIA DRA driver chart (nvidia/dra-driver-nvidia-gpu 0.5.0)
+# in the ComputeDomain guide. The driver runs its upstream images unmodified;
+# these values only point it at what the Mokka node agent stages.
+#
+# The same settings as the ComputeDomain e2e scenario, which Tilt installs from
+# local/dra/dra-driver.values.yaml and local/compute-domain/dra-driver.values.yaml.
+
+# Mokka's mock driver tree: libnvidia-ml.so, the device nodes and, on multi-node
+# NVLink profiles such as gb200, nvidia-imex and nvidia-imex-ctl.
+nvidiaDriverRoot: /var/lib/nvml-mock/driver
+
+# The driver otherwise publishes GPUs only on nodes that NFD has found NVIDIA
+# hardware on, and no NFD runs in this guide.
+gpuResourcesEnabledOverride: true
+
+resources:
+  computeDomains:
+    enabled: true
+
+# The node agent's substitute /proc/devices, which carries the
+# nvidia-caps-imex-channels major a real NVIDIA kernel module registers. The
+# compute-domain kubelet plugin reads it at startup and aborts without it.
+altProcDevices: /var/lib/nvml-mock/imex/proc-devices
+
+# Run the kubelet plugin on the simulated GPU nodes. The chart's default
+# affinity accepts only NFD and GFD labels, which nothing in this guide writes.
+kubeletPlugin:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: mokka.nvidia.com/type
+                operator: In
+                values: ["sgpu"]

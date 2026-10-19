@@ -34,6 +34,15 @@ could hold the lock and stall staging. */}}
 {{- fail (printf "nri.healthPort (%v) conflicts with another listener in the shared pod; use a port other than node-agent health port 9091 or the enabled InfiniBand ping port %v" .Values.nri.healthPort .Values.infiniband.ping.port) }}
 {{- end }}
 {{- $migProfiles := include "nvml-mock.migProfiles" . }}
+{{- /* dig: an upgrade with --reuse-values from a chart that predates
+imex.binaries has none. */}}
+{{- $imexBinariesImage := dig "binaries" "image" (dict) (.Values.imex | default dict) }}
+{{- if and $imexBinariesImage.repository (not (or $imexBinariesImage.tag $imexBinariesImage.digest)) }}
+{{- fail "imex.binaries.image.repository needs a tag or digest: the tag names the IMEX version the image carries, which the chart appVersion does not" }}
+{{- end }}
+{{- $imexBinaries := and $imexBinariesImage.repository (eq (include "nvml-mock.multiNodeNVLink" .) "true") }}
+{{- /* Where the node agent looks for the IMEX archive (--imex-provided-dir). */}}
+{{- $imexProvidedDir := "/opt/mokka/imex" }}
 {{- $runtime := .Values.nodeAgent.containerRuntime | default dict }}
 {{- /* A surge pod would set the runtime up next to the old pod, whose revert
 then removes the setup. Kubernetes reads 0 and "0%" alike as no surge. */}}
@@ -100,9 +109,39 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if $nativeSidecar }}
+      {{- if or $nativeSidecar $imexBinaries }}
       initContainers:
-      {{- else }}
+      {{- end }}
+        {{- if $imexBinaries }}
+        # Copies the IMEX archive out of the binaries image for the node agent,
+        # which checks it against its pin before staging. Listed first, so the
+        # copy is done before the agent starts.
+        - name: imex-binaries
+          image: {{ include "nvml-mock.image" (dict "image" $imexBinariesImage "context" $) | quote }}
+          imagePullPolicy: {{ include "nvml-mock.imagePullPolicy" (dict "image" $imexBinariesImage "context" $) }}
+          command:
+            - /bin/sh
+            - -c
+            # Fail open: an image without /imex leaves the agent no archive,
+            # which it logs, and it still simulates everything else.
+            - 'cp -R /imex/. {{ $imexProvidedDir }}/ || echo "imex-binaries: nothing copied from /imex; the node agent stages no IMEX" >&2'
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            {{- toYaml (dig "binaries" "resources" (dict) (.Values.imex | default dict)) | nindent 12 }}
+          volumeMounts:
+            - name: imex-binaries
+              mountPath: {{ $imexProvidedDir }}
+        {{- end }}
+      {{- if not $nativeSidecar }}
       containers:
       {{- end }}
         - name: node-agent
@@ -140,6 +179,12 @@ spec:
             {{- with include "nvml-mock.featureGates" . }}
             - --feature-gates={{ . }}
             {{- end }}
+            {{- if $imexBinaries }}
+            - --imex-provided-dir={{ $imexProvidedDir }}
+            {{- end }}
+            {{- with dig "binaries" "download" "timeout" "" (.Values.imex | default dict) }}
+            - --imex-download-timeout={{ . }}
+            {{- end }}
             {{- if $runtime.enabled }}
             - --container-runtime={{ $runtime.type }}
             - --container-runtime-restart={{ $runtime.restartMode }}
@@ -176,18 +221,13 @@ spec:
               value: {{ .Values.fabricmanager.initDelay | quote }}
             {{- end }}
             {{- end }}
-            {{- if .Values.imex.mockChannels.enabled }}
-            # Mock IMEX capability surface for the DRA compute-domain plugin.
-            # See values.yaml imex.mockChannels and NVIDIA/k8s-test-infra#498.
-            - name: IMEX_MOCK_CHANNELS
-              value: "true"
-            - name: IMEX_CHANNEL_COUNT
-              value: "{{ .Values.imex.mockChannels.channelCount }}"
+            # IMEX capability surface for the DRA ComputeDomain plugin. The
+            # agent stages it only for multi-node NVLink profiles
+            # (nvlink.multi_node); these set its device numbers.
             - name: IMEX_CHANNEL_MAJOR
-              value: "{{ .Values.imex.mockChannels.channelMajor }}"
+              value: "{{ dig "deviceNumbers" "channelMajor" 235 (.Values.imex | default dict) }}"
             - name: IMEX_CAPS_MAJOR
-              value: "{{ .Values.imex.mockChannels.capsMajor }}"
-            {{- end }}
+              value: "{{ dig "deviceNumbers" "capsMajor" 236 (.Values.imex | default dict) }}"
             # Drives both the IB tree the agent renders and the tier the
             # LD_PRELOAD shims operate at, so the two can never disagree.
             - name: MOCK_IB
@@ -296,6 +336,12 @@ spec:
             # a node label.
             - name: nfd-features
               mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
+            {{- if $imexBinaries }}
+            # The archive the imex-binaries init container copied.
+            - name: imex-binaries
+              mountPath: {{ $imexProvidedDir }}
+              readOnly: true
+            {{- end }}
             {{- if .Values.nri.enabled }}
             # Staging and teardown take the NRI gate's lock exclusively.
             - name: staging-gate
@@ -530,6 +576,12 @@ spec:
           hostPath:
             path: /run/nvidia
             type: DirectoryOrCreate
+        {{- if $imexBinaries }}
+        # Pod-local: the archive lives as long as the pod, and an init container
+        # that runs again on a new pod sandbox copies it again.
+        - name: imex-binaries
+          emptyDir: {}
+        {{- end }}
         - name: nfd-features
           hostPath:
             path: {{ .Values.nodeLabels.featuresDir | quote }}
