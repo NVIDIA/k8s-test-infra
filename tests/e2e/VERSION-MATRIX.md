@@ -7,7 +7,7 @@ Tested component versions for the mock GPU E2E test suite.
 "Status" means exactly what CI does, not what the suite is capable of. Every
 Helm chart CI installs is pinned: the GPU Operator
 (`local/gpu-operator/gpu_operator.tiltfile`), Node Feature Discovery
-(`scenario_nfd_test.go:126`) and the DRA driver (`local/dra/dra.tiltfile`). The
+(`nfdVersion` in `scenario_nfd_test.go`) and the DRA driver (`local/dra/dra.tiltfile`). The
 Operator's operands carry no pin of their own; their versions are that chart's
 defaults.
 
@@ -23,36 +23,24 @@ wait forever.
 | NVIDIA Device Plugin (standalone) | v0.18.2 | `nvcr.io/nvidia/k8s-device-plugin:v0.18.2` | **Pinned** + runs in CI (`e2e-nri` ×6 profiles, `e2e-multi-node`) |
 | NVIDIA Device Plugin (GPU Operator operand) | v0.19.3 | from the `gpu-operator` v26.3.3 chart | Pinned by the chart; runs in CI |
 | DRA Driver (GPU) | 0.5.0 | `nvidia/dra-driver-nvidia-gpu` (Helm) | **Pinned** + runs in CI |
-| GPU Feature Discovery (standalone) | v0.8.2 | `nvcr.io/nvidia/gpu-feature-discovery:v0.8.2` | Pinned, **not run in CI** — see below |
 | Node Feature Discovery | v0.19.0 | `nfd/node-feature-discovery` (Helm) | **Pinned** + runs in CI |
 | GPU Operator | v26.3.3 | `nvidia/gpu-operator` (Helm) | **Pinned** + runs in CI |
 | DCGM | 3.3.9 | `nvcr.io/nvidia/cloud-native/dcgm:3.3.9-1-ubuntu22.04` | Last version a manual container spike resolved; not run |
 | DCGM Exporter (standalone) | 3.3.9-3.6.1 | `nvcr.io/nvidia/k8s/dcgm-exporter:3.3.9-3.6.1-ubuntu22.04` | Last version a manual container spike resolved; not run |
 | DCGM Exporter (GPU Operator operand) | 4.5.3-4.8.2-distroless | from the `gpu-operator` v26.3.3 chart | Pinned by the chart; runs in CI |
 
-The standalone GFD image path stops at **v0.8.2**. Later GFD releases ship
-inside `nvcr.io/nvidia/k8s-device-plugin`, so
-`nvcr.io/nvidia/gpu-feature-discovery:v0.17.0` — which this table previously
-named — does not resolve.
+GPU Feature Discovery (GFD) is tested only as the GPU Operator's operand. A
+standalone GFD scenario duplicated that coverage without running in CI, and
+was removed after
+[#1083](https://github.com/NVIDIA/k8s-test-infra/pull/1083).
 
 ## Component Coverage
 
 ### Tested in CI
-- **Device Plugin** (standalone DaemonSet, `device-plugin-mock.yaml`): the pinned upstream `k8s-device-plugin:v0.18.2` discovers mock GPUs via NVML and registers the `nvidia.com/gpu` resource. Applied by `deployDevicePlugin`, which has three callers — `scenario_nri_test.go` (`e2e-nri`, 6 profiles), `scenario_multi_node_test.go` (`e2e-multi-node`, in `BeforeAll`), and the gated standalone-GFD scenario. The first two run on every pipeline. The `e2e-nri` legs additionally assert MEP-0002 composition: a requesting pod sees exactly its allocated GPU, two pods on one node stay isolated, and the suppression rule is mutation-checked.
+- **Device Plugin** (standalone DaemonSet, `device-plugin-mock.yaml`): the pinned upstream `k8s-device-plugin:v0.18.2` discovers mock GPUs via NVML and registers the `nvidia.com/gpu` resource. Applied by `deployDevicePlugin`, which has two callers: `scenario_nri_test.go` (`e2e-nri`, 6 profiles) and `scenario_multi_node_test.go` (`e2e-multi-node`, in `BeforeAll`). Both run on every pipeline. The `e2e-nri` legs additionally assert MEP-0002 composition: a requesting pod sees exactly its allocated GPU, two pods on one node stay isolated, and the suppression rule is mutation-checked.
 - **DRA Driver** (Helm chart): discovers mock GPUs via NVML, publishes ResourceSlices, and schedules a pod with a ResourceClaim (`e2e-dra`, 6 profiles)
 - **Node Feature Discovery** (Helm chart): derives the PCI vendor label from the feature file nvml-mock writes, not nvml-mock itself (`e2e-nfd`)
 - **GPU Operator** (Helm chart + values overlay): its own device plugin, GFD, dcgm-exporter and validator operands (`e2e-gpu-operator`, 6 profiles) — see the overlay section below
-
-### Written but NOT run in CI
-
-One scenario lives in `scenario_gfd_test.go` and is excluded **twice
-over**: `BeforeAll` skips unless `E2E_RUN_NGC=true`, which is set in no
-workflow, and the default label filter (`Makefile`, `E2E_DEFAULT_LABEL_FILTER`)
-leads with `!gfd`. A green pipeline says nothing about it.
-
-- **GPU Feature Discovery** (standalone DaemonSet, `gfd-mock.yaml`): would read GPU attributes via NVML and label nodes. The GFD CI *does* exercise is the GPU Operator's operand.
-
-Enabling it is tracked in [#446](https://github.com/NVIDIA/k8s-test-infra/issues/446).
 
 ### Values Overlay Only (GPU Operator)
 The GPU Operator is tested via a values overlay (`gpu-operator-values.yaml`) that:

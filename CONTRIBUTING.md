@@ -86,13 +86,13 @@ Missing, outdated, or incorrect documentation has its own
 6. **Rebase only on a conflict**: a pull request that is behind `main` still
    merges. Rebase only when it has the `needs-rebase` label, because every push
    dismisses approvals and `lgtm`. See
-   [Pull Requests](https://nvidia.github.io/k8s-test-infra/contributing/pull-requests/#rebase-only-on-a-conflict)
+   [Pull Requests](docs/contributing/pull-requests.md#rebase-only-on-a-conflict)
 
 ## Changelog
 
 Do not edit `CHANGELOG.md`. Record the entry as a fragment with
 `make changelog` and commit it with your change; see
-[Changelog entries](https://nvidia.github.io/k8s-test-infra/contributing/pull-requests/#changelog-entries).
+[Changelog entries](docs/contributing/pull-requests.md#changelog-entries).
 
 ## Testing
 

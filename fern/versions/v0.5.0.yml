@@ -1,0 +1,93 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# v0.5.0 predates the Fern migration, so its tag has no docs/index.yml to
+# generate this from. It lists the pages the first Fern site publishes, every one
+# of which exists at the tag, and serves them as the tag has them.
+navigation:
+  - section: General
+    contents:
+      - page: Overview
+        path: v0.5.0-content/index.md
+      - section: Getting Started
+        contents:
+          - page: Quick Start
+            path: v0.5.0-content/quickstart.md
+          - page: Installation
+            path: v0.5.0-content/helm-chart.md
+      - section: Architecture
+        contents:
+          - page: Overview
+            path: v0.5.0-content/architecture.md
+          - page: Mokka Control Plane
+            path: v0.5.0-content/control-plane.md
+          - page: Node Daemon
+            path: v0.5.0-content/components/node-daemon.md
+          - page: Libraries and Shims
+            path: v0.5.0-content/components/libraries-and-shims.md
+          - page: NRI Plugin
+            path: v0.5.0-content/components/nri-plugin.md
+      - section: Reference
+        contents:
+          - page: Configuration
+            path: v0.5.0-content/configuration.md
+          - page: Feature Gates
+            path: v0.5.0-content/feature-gates.md
+          - page: MIG
+            path: v0.5.0-content/mig.md
+          - page: Helm Chart Values
+            path: v0.5.0-content/helm-chart-values.md
+          - page: Control Plane API
+            path: v0.5.0-content/crd-reference.md
+          # The pages stay under docs/tools/ because hack/check-docs-tools-sync.sh
+          # scans that directory to hold them in step with cmd/. The nav label is
+          # what places them, not the path.
+          - section: Command-Line Tools
+            contents:
+              - page: Overview
+                path: v0.5.0-content/tools/README.md
+              - page: control-plane
+                path: v0.5.0-content/tools/control-plane.md
+              - page: node-agent
+                path: v0.5.0-content/tools/node-agent.md
+              - page: nri-plugin
+                path: v0.5.0-content/tools/nri-plugin.md
+          - page: Support Policy
+            path: v0.5.0-content/support-policy.md
+      - page: Troubleshooting
+        path: v0.5.0-content/troubleshooting.md
+      - page: FAQ
+        path: v0.5.0-content/faq.md
+
+  - section: Guides
+    contents:
+      - page: Overview
+        path: v0.5.0-content/guides/README.md
+      - section: Scenarios
+        contents:
+          - page: NVIDIA Device Plugin
+            path: v0.5.0-content/guides/device-plugin.md
+          - page: Node Feature Discovery
+            path: v0.5.0-content/guides/nfd.md
+          - page: Amazon EKS
+            path: v0.5.0-content/guides/install/aws/eks/README.md
+          - page: NVIDIA DRA Driver
+            path: v0.5.0-content/guides/dra.md
+          - page: NVIDIA GPU Operator
+            path: v0.5.0-content/guides/gpu-operator.md
+          - page: NVIDIA Dynamo
+            path: v0.5.0-content/guides/dynamo/README.md
+          - page: Slinky (Slurm)
+            path: v0.5.0-content/guides/slinky/README.md
+          - page: Run.ai Fake GPU Operator
+            path: v0.5.0-content/guides/runai-fgo/README.md
+      - section: Tasks
+        contents:
+          - page: Set Up NRI Injection
+            path: v0.5.0-content/guides/nri-injection.md
+          - page: MIG Partitioning
+            path: v0.5.0-content/guides/mig/README.md
+          - page: Use in CI/CD
+            path: v0.5.0-content/guides/ci-cd.md
+          - page: Runtime Control
+            path: v0.5.0-content/nvml-mock-ctl.md

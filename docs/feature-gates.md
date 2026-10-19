@@ -79,4 +79,4 @@ records when each gate is added, changes stage, or is removed.
 
 - [Installation](helm-chart.md) — every chart value
 - [Command-line tools](tools/README.md) — service flags
-- [Gating new behavior](contributing/feature-gates.md) — putting code behind a gate
+- [Gating new behavior](https://github.com/NVIDIA/k8s-test-infra/blob/main/docs/contributing/feature-gates.md) — putting code behind a gate

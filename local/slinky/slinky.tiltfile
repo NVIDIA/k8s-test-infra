@@ -1,29 +1,10 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Loadable Tiltfile: Slinky (Slurm on Kubernetes) consumer.
-#
-# Exports:
-#   install(nvml_mock_releases) — install cert-manager, the Slinky
-#     slurm-operator and a Slurm cluster whose GPU NodeSet runs one slurmd per
-#     mock-GPU worker.
-#   UPSERT_TIMEOUT_S — the Tilt apply timeout install() needs. The root
-#     Tiltfile applies the largest among active consumers.
-#
-# What this consumer demonstrates: the unmodified slurm-operator stands up a
-# Slurm cluster whose slurmd pods get their GPUs from the real GPU Operator,
-# and Slurm discovers those GPUs itself (gres.conf AutoDetect=nvidia) from the
-# driver surface nvml-mock serves.
-#
-# Assumes --gpu-operator: slurmd requests nvidia.com/gpu, which only the
-# Operator's device plugin advertises. The root Tiltfile implies the flag.
-#
-# All side effects inside functions so load()ing this file is a pure import.
-
 load('ext://helm_resource', 'helm_resource')
 
-# Pinned rather than floating, like the other consumers. The operator, its CRDs
-# and the slurm chart ship in lockstep; bump the three together.
+# The operator, its CRDs and the slurm chart ship in lockstep: bump the three
+# together.
 _SLINKY_VERSION = '1.2.3'
 _SLINKY_CHARTS = 'oci://ghcr.io/slinkyproject/charts'
 _CERT_MANAGER_VERSION = 'v1.21.2'
@@ -35,7 +16,6 @@ _NODESET = 'slurm-worker-gpu'
 
 
 def install(nvml_mock_releases):
-    """Install cert-manager, the slurm-operator and a GPU Slurm cluster."""
     wait = ['--wait', '--timeout', '%ds' % _HELM_TIMEOUT_S]
 
     # The operator's admission webhooks are served with cert-manager-issued

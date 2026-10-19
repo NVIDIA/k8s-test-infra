@@ -188,13 +188,16 @@ kubectl get nodes -l nvml-mock/profile \
   -o custom-columns='NODE:.metadata.name,GPUS:.status.allocatable.nvidia\.com/gpu'
 ```
 
-!!! warning "The `nodeSelector` is what keeps the pools apart"
+<Warning>
+**The `nodeSelector` is what keeps the pools apart**
 
-    The chart's hostPath mounts — `/var/lib/nvml-mock`, `/var/run/cdi`,
-    `/run/nvidia` and the NFD features directory — are the same for every
-    release, and the DaemonSet tolerates every taint. Drop the `nodeSelector`
-    and both releases land on both workers and overwrite each other's per-node
-    state. A node belongs to exactly one pool.
+
+The chart's hostPath mounts — `/var/lib/nvml-mock`, `/var/run/cdi`,
+`/run/nvidia` and the NFD features directory — are the same for every
+release, and the DaemonSet tolerates every taint. Drop the `nodeSelector`
+and both releases land on both workers and overwrite each other's per-node
+state. A node belongs to exactly one pool.
+</Warning>
 
 ## Node labels
 

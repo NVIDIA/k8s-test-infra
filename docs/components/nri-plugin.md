@@ -10,18 +10,21 @@ environment. The NRI plugin removes that step: it registers with containerd's
 Node Resource Interface and edits containers as they are created, so a workload
 that was allocated GPUs the usual way comes up with the mock driver, unchanged.
 
-!!! note "What NRI is"
-    The **Node Resource Interface** is a framework for plugging extensions into
-    OCI-compatible container runtimes. A plugin registers with the runtime, is
-    notified as containers are created, and may make limited adjustments to a
-    container's OCI spec — mounts, devices, environment — before it starts.
+<Note>
+**What NRI is**
 
-    It sits *below* the Container Runtime Interface, so it is a runtime feature
-    rather than a Kubernetes API: there is no NRI object in the Kubernetes API
-    and nothing on kubernetes.io describing it. containerd 1.7 or later is
-    required. See the
-    [NRI project](https://github.com/containerd/nri) and
-    [containerd's NRI documentation](https://github.com/containerd/containerd/blob/main/docs/NRI.md).
+The **Node Resource Interface** is a framework for plugging extensions into
+OCI-compatible container runtimes. A plugin registers with the runtime, is
+notified as containers are created, and may make limited adjustments to a
+container's OCI spec — mounts, devices, environment — before it starts.
+
+It sits *below* the Container Runtime Interface, so it is a runtime feature
+rather than a Kubernetes API: there is no NRI object in the Kubernetes API
+and nothing on kubernetes.io describing it. containerd 1.7 or later is
+required. See the
+[NRI project](https://github.com/containerd/nri) and
+[containerd's NRI documentation](https://github.com/containerd/containerd/blob/main/docs/NRI.md).
+</Note>
 
 For where it sits in the wider system, see the
 [architecture overview](../architecture.md).
@@ -80,14 +83,17 @@ The `devices` annotation is the management path: it gives a pod the whole node,
 such as a monitoring agent, without scheduler accounting. Like the other
 annotations, it applies to every container in the pod.
 
-!!! note "Privileged pods and `NVIDIA_VISIBLE_DEVICES`"
-    On a real GPU node, a privileged container that requested no GPU sees every
-    GPU, and so does a container that sets `NVIDIA_VISIBLE_DEVICES=all` when the
-    NVIDIA container runtime handles it. The plugin injects neither: inherited
-    device nodes do not identify an allocation, and the plugin cannot tell which
-    runtime runs a container. Where the node runs the NVIDIA container runtime,
-    that runtime still acts on the variable. Otherwise, give such a pod the
-    `devices` annotation.
+<Note>
+**Privileged pods and `NVIDIA_VISIBLE_DEVICES`**
+
+On a real GPU node, a privileged container that requested no GPU sees every
+GPU, and so does a container that sets `NVIDIA_VISIBLE_DEVICES=all` when the
+NVIDIA container runtime handles it. The plugin injects neither: inherited
+device nodes do not identify an allocation, and the plugin cannot tell which
+runtime runs a container. Where the node runs the NVIDIA container runtime,
+that runtime still acts on the variable. Otherwise, give such a pod the
+`devices` annotation.
+</Note>
 
 ## What happens to a container
 
@@ -153,20 +159,26 @@ the whole node. This is the rule from
 [MEP-0002](https://github.com/NVIDIA/k8s-test-infra/tree/main/enhancements/meps/0002-device-plugin-nri-composition):
 whatever the scheduler allocated is never widened.
 
-!!! warning "The device plugin must leave evidence of the allocation"
-    A device plugin that only sets `NVIDIA_VISIBLE_DEVICES` (the default
-    `envvar` strategy) or delivers CDI devices only through pod annotations
-    (`cdi-annotations`) leaves no evidence in the container spec. Its pods are
-    treated as unallocated and receive nothing. Run the device plugin with
-    `--pass-device-specs=true`, as the
-    [device plugin guide](../guides/device-plugin.md) does, or with the
-    `cdi-cri` strategy, as the GPU Operator does when CDI is enabled.
+<Warning>
+**The device plugin must leave evidence of the allocation**
 
-!!! note "IMEX sits outside this rule"
-    IMEX channels are requested by their own annotation and never suppressed.
-    The annotation is for containers that claim no channel: a workload of a
-    ComputeDomain gets its channel through its DRA claim and needs no
-    annotation.
+A device plugin that only sets `NVIDIA_VISIBLE_DEVICES` (the default
+`envvar` strategy) or delivers CDI devices only through pod annotations
+(`cdi-annotations`) leaves no evidence in the container spec. Its pods are
+treated as unallocated and receive nothing. Run the device plugin with
+`--pass-device-specs=true`, as the
+[device plugin guide](../guides/device-plugin.md) does, or with the
+`cdi-cri` strategy, as the GPU Operator does when CDI is enabled.
+</Warning>
+
+<Note>
+**IMEX sits outside this rule**
+
+IMEX channels are requested by their own annotation and never suppressed.
+The annotation is for containers that claim no channel: a workload of a
+ComputeDomain gets its channel through its DRA claim and needs no
+annotation.
+</Note>
 
 ## Selecting InfiniBand
 

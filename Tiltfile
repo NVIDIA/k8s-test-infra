@@ -1,33 +1,16 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Thin orchestrator. Each consumer (GPU Operator, DRA driver, ...) lives in
-# its own sub-Tiltfile co-located with its Helm values under local/<consumer>/.
-# The nvml-mock stack lives at local/nvml_mock.tiltfile (always on except
-# in scenario mode).
-#
-# Adding a new consumer:
-#   1. Create local/<name>/ with <name>.tiltfile exposing install(nvml_mock_releases).
-#   2. Add config.define_bool('with-<name>', ...) below.
-#   3. Add a load(...) for the new tiltfile.
-#   4. Add `if with_<name>: active_consumers.append('<name>')`.
-#   5. Add `if with_<name>: <name>_install(nvml_mock_releases)`.
-# Optional: if install() waits on something slower than Tilt's 30s apply
-# timeout (helm --wait), export UPSERT_TIMEOUT_S and add it to the
-# "Apply timeout" block below. Never call update_settings from the
-# consumer: it is session-wide and the last call wins.
-# The nvml-mock stack itself needs no changes to add a consumer.
-# Optional: drop local/<name>/nvml-mock.values.yaml if the consumer
-# needs mock-side tweaks (MOCK_* env vars, gpu.count overrides, etc.).
-# The install helpers detect the file's presence via os.path.exists.
-#
-# Adding a new scenario (e.g. compute-domain):
-#   Scenarios reshape the nvml-mock stack itself — forced profile, dedicated
-#   cluster topology — so they don't fit the additive consumer contract
-#   above. See local/compute-domain/compute_domain.tiltfile for the pattern:
-#   exports build_image() + install() the way
-#   local/nvml_mock.tiltfile does, and the orchestrator calls them as the
-#   base install path instead of build_nvml_mock_image() + install_single().
+# Conventions for a consumer, local/<name>/<name>.tiltfile:
+#   - install(nvml_mock_releases) does the work; load() has no side effects.
+#   - local/<name>/nvml-mock.values.yaml, if present, is layered into the mock while
+#     the consumer is active (MOCK_* env vars, gpu.count, a gpu.profile it cannot
+#     work without).
+#   - If its helm --wait outlasts Tilt's 30s apply timeout it exports
+#     UPSERT_TIMEOUT_S, which upsert_timeouts below collects. It never calls
+#     update_settings: that is session-wide and the last call wins.
+#   - Chart versions are pinned, so an upstream release cannot reach CI without a
+#     commit. Bump deliberately.
 
 load('ext://helm_resource', 'helm_repo')
 load('./local/nvml_mock.tiltfile',
@@ -54,41 +37,36 @@ load('./local/slinky/slinky.tiltfile',
      slinky_install='install',
      slinky_upsert_timeout_s='UPSERT_TIMEOUT_S')
 
-# --- Flags ---------------------------------------------------------------
 config.define_string('gpu-profile', args=False,
-    usage='GPU profile to simulate (used unless --multi-gpu-profile is set): a100 | h100 | b200 | gb200 | gb300 | l40s | t4')
+    usage='GPU profile to simulate (used unless --multi-gpu-profile is set): a100 | h100 | b200 | gb200 | gb300 | l40s | t4. Defaults to the chart\'s gpu.profile.')
 config.define_string('k8s-context', args=False,
     usage='kubectl context to deploy into (must be a local cluster)')
 # Boolean toggles use config.define_bool so `--multi-gpu-profile --gpu-operator
 # --dra` parses as three separate flags without positional-value
 # ambiguity that Tilt's string-flag parser can exhibit for `=X` forms.
 config.define_bool('multi-gpu-profile', args=False,
-    usage='Install one nvml-mock release per GPU profile, node-pinned via nodeSelector.kubernetes.io/hostname=<worker>. Simulates a heterogeneous fleet on the default cluster (a100 on worker-0 + t4 on worker-1). Without this flag, a single nvml-mock release covers all nodes with the profile from --gpu-profile.')
+    usage='One nvml-mock release per worker, each with a different GPU profile (a100 on worker-0, t4 on worker-1), instead of one release for all nodes. Ignores --gpu-profile.')
 config.define_bool('compute-domain', args=False,
-    usage='ComputeDomain scenario: 4-worker cluster with GB200 profile + NVLink topology overlay (requires PROFILE=compute-domain cluster)')
+    usage='ComputeDomain scenario: GB200 profile with an NVLink topology overlay. Needs the compute-domain cluster (make cluster-create PROFILE=compute-domain).')
 config.define_bool('gpu-operator', args=False,
     usage='Also deploy NVIDIA GPU Operator on top of nvml-mock')
 config.define_bool('dra', args=False,
     usage='Also deploy NVIDIA DRA driver on top of nvml-mock')
 config.define_bool('fgo', args=False,
-    usage='Also deploy Run:ai Fake GPU Operator (combine with --multi-gpu-profile to exercise both integration and scale pools)')
+    usage='Also deploy Run:ai Fake GPU Operator: nvml-mock backs the integration worker pool and FGO simulates the scale pool.')
 config.define_bool('topograph', args=False,
     usage='Also deploy NVIDIA topograph. Implies --compute-domain (topograph reads the static nvidia.com/gpu.clique labels). Still requires the compute-domain Kind cluster: make cluster-create PROFILE=compute-domain.')
 config.define_bool('observability', args=False,
-    usage='Also deploy kube-prometheus-stack + a Grafana dashboard over the mock GPUs, and expose two manual fault-injection triggers (inject-thermal, inject-xid) that assert the fault lands in Prometheus. Implies --gpu-operator (dcgm-exporter is the Operator\'s operand). Grafana on http://localhost:3000/d/mokka-gpu (admin/mokka).')
+    usage='Also deploy kube-prometheus-stack, a Grafana dashboard and two manual fault-injection triggers (inject-thermal, inject-xid) that assert the fault reaches Prometheus. Implies --gpu-operator (dcgm-exporter is one of its operands). Grafana on http://localhost:3000/d/mokka-gpu (admin/mokka).')
 config.define_bool('dynamo', args=False,
     usage='Also deploy NVIDIA Dynamo (operator only) and an aggregated DynamoGraphDeployment whose worker runs the mocker engine on a mock GPU, plus a manual dynamo-smoke trigger. Implies --gpu-operator (the worker requests nvidia.com/gpu). OpenAI API on http://localhost:8000.')
 config.define_bool('slinky', args=False,
-    usage='Also deploy Slinky (cert-manager, slurm-operator and a Slurm cluster) with one slurmd per mock-GPU worker; Slurm discovers the GPUs via gres.conf AutoDetect. Implies --gpu-operator (slurmd requests nvidia.com/gpu). Fits any cluster shape; combine with --compute-domain for a 4-node GB200 Slurm cluster.')
+    usage='Also deploy Slinky (cert-manager, slurm-operator, a Slurm cluster) with one slurmd per mock-GPU worker. Implies --gpu-operator (slurmd requests nvidia.com/gpu). Fits any cluster shape; with --compute-domain it gives a 4-node GB200 Slurm cluster.')
 config.define_bool('control-plane', args=False,
-    usage='Also deploy the Mokka Control Plane (MEP-0001) alongside nvml-mock. Off by default. Composes with --multi-gpu-profile (the first profile release owns the single CP), --compute-domain, and --nvmlmock-image.')
-# CI hook: hand Tilt a pre-built image (in CI, loaded from the workflow's image
-# artifact) instead of running docker_build. When set, docker_build is skipped
-# and the nvml-mock chart's image.repository, image.tag and image.digest are
-# pinned via --set from the parsed ref: `repo:tag`, `repo@sha256:<hex>` or
-# `repo:tag@sha256:<hex>`.
+    usage='Also deploy the Mokka Control Plane (MEP-0001) alongside nvml-mock. Composes with --multi-gpu-profile (the first profile release owns the single control plane), --compute-domain and --nvmlmock-image.')
+# CI passes the image its build job produced instead of having Tilt rebuild it.
 config.define_string('nvmlmock-image', args=False,
-    usage='Pre-built nvml-mock image ref (repo:tag, repo@sha256:<hex> or repo:tag@sha256:<hex>). Skips docker_build and pins the chart image.repository/image.tag/image.digest via --set. Used by CI to consume the image the build-nvmlmock-image job uploads as an artifact.')
+    usage='Pre-built nvml-mock image ref (repo:tag, repo@sha256:<hex> or repo:tag@sha256:<hex>). Skips docker_build and pins the chart image.repository, image.tag and image.digest via --set.')
 
 cfg = config.parse()
 
@@ -105,40 +83,25 @@ with_dynamo         = cfg.get('dynamo', False)
 with_slinky         = cfg.get('slinky', False)
 with_control_plane  = cfg.get('control-plane', False)
 
-# --- Implicit flags ------------------------------------------------------
-# --topograph implies --compute-domain: cliques only exist in the
-# compute-domain cluster (local/kind/compute-domain.kind.yaml carries
-# nvidia.com/gpu.clique labels as static node labels; topograph reads
-# them without requiring the DRA driver). The compute-domain Kind
-# cluster is still required (make cluster-create PROFILE=compute-domain).
+# --topograph needs cliques, which only the compute-domain cluster has. It reads
+# the static clique labels directly, so the DRA driver is not implied.
 if with_topograph:
     with_compute_domain = True
 
-# --observability implies --gpu-operator: the thing Prometheus scrapes is
-# dcgm-exporter, which is a GPU Operator operand. Without the Operator the
-# stack installs cleanly and every GPU panel stays empty, so implying the
-# flag is friendlier than failing on it.
+# Observability, Dynamo and Slinky need dcgm-exporter or nvidia.com/gpu, which
+# only the GPU Operator provides. Without it they install cleanly and then sit
+# idle (empty panels, a Pending worker or slurmd), so the flag is implied rather
+# than refused.
 if with_observability:
     with_gpu_operator = True
 
-# --dynamo implies --gpu-operator: the mocker worker requests nvidia.com/gpu,
-# which only the Operator's device plugin advertises. Without it the graph
-# installs and the worker sits Pending forever.
 if with_dynamo:
     with_gpu_operator = True
 
-# --slinky implies --gpu-operator for the same reason: slurmd requests
-# nvidia.com/gpu.
 if with_slinky:
     with_gpu_operator = True
 
-# --- Guardrails ----------------------------------------------------------
-# compute-domain forces its own cluster shape (4 workers with clique
-# labels, hardcoded worker names in topology.yaml) and its own profile
-# (gb200 for NVLink5 fabric APIs), so it cannot compose with --multi-gpu-profile
-# or with any --gpu-profile the user might pass. --gpu-operator is
-# allowed but experimental — the Operator's RuntimeClass path on the
-# compute-domain cluster is untested.
+# --gpu-operator with --compute-domain is allowed but untested.
 if with_compute_domain and multi_gpu_profile:
     fail('--compute-domain is mutually exclusive with --multi-gpu-profile ' +
          '(compute-domain uses its own 4-worker cluster shape)')
@@ -148,27 +111,19 @@ if with_fgo and with_gpu_operator:
 if with_fgo and with_compute_domain:
     fail('--fgo is mutually exclusive with --compute-domain')
 
-# Every slurmd claims all the GPUs of its node, so the Dynamo worker's request
-# would never fit and its graph would sit Pending forever.
 if with_slinky and with_dynamo:
     fail('--slinky is mutually exclusive with --dynamo (slurmd claims every mock GPU)')
 
-gpu_profile_raw = cfg.get('gpu-profile', None)
+# Empty unless --gpu-profile is passed: the chart owns the default profile, and a
+# --set would also beat every values file, consumer overlays included.
+gpu_profile = cfg.get('gpu-profile', '')
 
-if with_compute_domain and gpu_profile_raw != None:
+if with_compute_domain and gpu_profile:
     fail('--compute-domain forces gpu.profile=gb200; do not pass --gpu-profile explicitly')
-
-gpu_profile = gpu_profile_raw or 'a100'
 
 k8s_context_default = 'kind-mokka-compute-domain' if with_compute_domain else 'kind-mokka'
 k8s_context         = cfg.get('k8s-context', k8s_context_default)
 
-# --- Derived state -------------------------------------------------------
-# Ordered list of consumers active in this session. Drives (1) per-consumer
-# nvml-mock overlay files that the mock installer picks up, and (2) shared
-# nvidia helm-repo labeling in the Tilt UI.
-# Note: compute-domain is a scenario, not a consumer — it doesn't append
-# itself here. The scenario's install() explicitly passes its own values.
 active_consumers = []
 
 if with_gpu_operator:
@@ -183,9 +138,6 @@ if with_fgo:
 if with_topograph:
     active_consumers.append('topograph')
 
-# Appended so local/observability/nvml-mock.values.yaml is picked up by the
-# install helpers — it turns on gpu.dynamicMetrics, without which every
-# dashboard panel is a flat line of profile constants.
 if with_observability:
     active_consumers.append('observability')
 
@@ -195,13 +147,8 @@ if with_dynamo:
 if with_slinky:
     active_consumers.append('slinky')
 
-# --- Safety guard --------------------------------------------------------
 allow_k8s_contexts(k8s_context)
 
-# --- Base install: nvml-mock stack --------------------------------------
-# Compute-domain owns image build and helm install itself (see
-# local/compute-domain/compute_domain.tiltfile). In the non-scenario
-# path, nvml_mock.tiltfile owns them.
 if with_control_plane:
     build_control_plane_image()
     install_control_plane_crds()
@@ -229,10 +176,6 @@ else:
         control_plane=with_control_plane,
     )
 
-# --- Shared NVIDIA Helm repo --------------------------------------------
-# Both consumer subfiles pull from nvidia/... — register the repo once here so
-# each subfile can stay agnostic about who else uses it. Labels are attached
-# per active consumer so the repo groups next to whichever consumers are on.
 if active_consumers:
     helm_repo('nvidia', 'https://helm.ngc.nvidia.com/nvidia', labels=active_consumers)
 
@@ -243,12 +186,10 @@ if with_observability:
     helm_repo('prometheus-community', 'https://prometheus-community.github.io/helm-charts',
               labels=['observability'])
 
-# --- Apply timeout -------------------------------------------------------
-# Tilt caps every k8s apply at 30s by default, which a consumer's helm --wait
-# blows through. update_settings is session-wide and the last call wins, so
-# it is set once here, to the largest timeout any active consumer needs: a
-# consumer setting its own would cut short another's longer install. Raised
-# only when such a consumer is on, so every other session keeps the default.
+# Tilt caps a k8s apply at 30s, and a consumer's helm --wait exceeds that: the build
+# fails with a bare "apply command timed out" that says nothing about helm.
+# update_settings is session-wide and the last call wins, so it is called once,
+# with the largest timeout any active consumer needs.
 upsert_timeouts = []
 if with_observability:
     upsert_timeouts.append(observability_upsert_timeout_s)
@@ -259,12 +200,6 @@ if with_slinky:
 if upsert_timeouts:
     update_settings(k8s_upsert_timeout_secs=max(upsert_timeouts))
 
-# --- Consumers -----------------------------------------------------------
-# Monitoring goes in BEFORE the GPU Operator: kube-prometheus-stack ships the
-# ServiceMonitor CRD, and the Operator's chart creates a ServiceMonitor for
-# dcgm-exporter once the observability overlay re-enables it. The ordering is
-# carried by resource_deps below rather than by these call sites, so moving
-# either block cannot silently break it.
 if with_observability:
     observability_releases = observability_install(nvml_mock_releases)
 
@@ -283,10 +218,8 @@ if with_gpu_operator:
     )
 
 if with_dra:
-    # DRA overlay chain (order matters — later --values files win).
-    # --compute-domain layers the compute-domain overlay on top of
-    # dra-driver.values.yaml: ComputeDomains on, and the node agent's
-    # substitute /proc/devices. The driver keeps its upstream images.
+    # --compute-domain layers ComputeDomains and the node agent's /proc/devices
+    # substitute on top; the driver keeps its upstream images.
     dra_extra_values = []
     if with_compute_domain:
         dra_extra_values.append('local/compute-domain/dra-driver.values.yaml')
@@ -305,11 +238,7 @@ if with_dynamo:
 if with_slinky:
     slinky_install(nvml_mock_releases)
 
-# --- Test workload -------------------------------------------------------
-# GPU validator pod, disabled by default (enable from the Tilt UI). Requests
-# one mock GPU, so the device plugin must have registered nvidia.com/gpu
-# before the pod can start. Pod spec lives in local/gpu-validator.k8s.yaml so
-# it can be kubectl-applied standalone or edited without touching Starlark.
+# Manual: the pod cannot run before the device plugin advertises nvidia.com/gpu.
 if with_gpu_operator:
     k8s_yaml('local/gpu-validator.k8s.yaml')
     k8s_resource('gpu-validator',

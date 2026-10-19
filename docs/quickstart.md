@@ -76,7 +76,7 @@ real software at it.
 | To do this | Go to |
 |---|---|
 | Schedule GPU workloads with the device plugin, DRA or the GPU Operator | [Installation](helm-chart.md) |
-| Break a GPU and watch consumers react | [Failure injection](guides/failure-injection/README.md) |
+| Break a GPU and watch consumers react | [Failure injection](https://github.com/NVIDIA/k8s-test-infra/blob/main/docs/guides/failure-injection/README.md) |
 | Check that GPU workloads get the mock driver | [Set up NRI injection](guides/nri-injection.md) |
 | Change temperature, power or health on a running node | [Runtime control](nvml-mock-ctl.md) |
 | Understand what is actually happening | [Architecture](architecture.md) |

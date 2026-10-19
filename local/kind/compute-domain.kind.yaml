@@ -1,22 +1,12 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Kind cluster config for the compute-domain Tilt scenario.
+# The DynamicResourceAllocation gate and resource.k8s.io/v1beta1 are on because
+# the scenario supports --compute-domain --dra. The ComputeDomain e2e and guide use
+# the two-rack tests/e2e/kind-compute-domain-racks.yaml instead.
 #
-# Four workers that kubeadm registers as worker-0 .. worker-3, the node names
-# local/compute-domain/topology.yaml lists, whatever the cluster is called.
-# DRA feature gates and the apiServer runtime-config are on, so the scenario
-# composes with --dra. The ComputeDomain e2e scenario and guide use the
-# two-rack tests/e2e/kind-compute-domain-racks.yaml instead.
-#
-# Each worker carries mokka.nvidia.com/type=sgpu, the simulated-GPU fleet
-# marker local/compute-domain/nvml-mock.values.yaml selects on. It keeps the
-# mock off the control plane, which topology.yaml gives no clique — a mock pod
-# there would report a fabric identity the topology never declared.
-#
-# Usage:
-#   make cluster-create PROFILE=compute-domain
-#   tilt up -- --compute-domain   # context kind-mokka-compute-domain
+# Workers are named worker-0..3 through JoinConfiguration, and
+# local/compute-domain/topology.yaml assigns cliques by those names.
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: mokka-compute-domain

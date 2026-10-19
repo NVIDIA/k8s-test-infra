@@ -1,31 +1,10 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Loadable Tiltfile for the compute-domain scenario.
-#
-# Scenario, not consumer: compute-domain reconfigures the nvml-mock stack
-# itself (gb200 profile, topology ConfigMap, 4-worker cluster) rather than
-# sitting on top of it. So it exports build/install
-# the way local/nvml_mock.tiltfile does — the root Tiltfile calls
-# compute_domain.install() as the BASE install path when --compute-domain
-# is set, replacing the install_single()/install_fleet() calls.
-#
-# Ports the per-node fabric identity and topology rebind scenarios of
-# docs/guides/compute-domain/run.sh as auto_init=False local_resource
-# triggers.
-#
-# The scenario runs the standard nvml-mock image. On the gb200 profile the
-# node agent stages IMEX itself (see the chart's imex values), and the DRA
-# driver runs its unmodified upstream images (see dra-driver.values.yaml).
-#
-# Exports:
-#   build_image(nvmlmock_image) — build the nvml-mock image, unless a
-#     pre-built ref is given.
-#   install(active_consumers, nvmlmock_image, control_plane) — install one
-#     nvml-mock helm release with the topology overlay + scenario
-#     triggers. Returns ['nvml-mock', 'imex-staged'].
-#
-# All side effects inside functions so load()ing this file is a pure import.
+# Ports Scenario 1 (per-node fabric identity) and Scenario 2 (topology rebind) of
+# docs/guides/compute-domain/run.sh as manual triggers. The scenario runs the
+# standard nvml-mock image: on gb200 the node agent stages IMEX, and the DRA
+# driver keeps its upstream images.
 
 load('ext://helm_resource', 'helm_resource')
 load('ext://k8s_attach', 'k8s_attach')
@@ -38,13 +17,9 @@ _DOCKERFILE = 'deployments/nvml-mock/Dockerfile'
 
 
 def build_image(nvmlmock_image=''):
-    """Build the nvml-mock image, unless nvmlmock_image names a pre-built one.
-
-    Same Dockerfile as local/nvml_mock.tiltfile, so this list has to carry
-    the same trees.
-    """
     if nvmlmock_image:
         return
+    # Same Dockerfile as nvml_mock.tiltfile, so only= must list the same trees.
     docker_build(
         _IMAGE,
         context='.',
@@ -63,29 +38,16 @@ def build_image(nvmlmock_image=''):
     )
 
 
+# Returns ['nvml-mock', 'imex-staged'], so consumers start once IMEX is staged.
 def install(active_consumers, nvmlmock_image='', control_plane=False):
-    """Install the nvml-mock helm release with the compute-domain topology.
-
-    Returns ['nvml-mock', 'imex-staged'] so downstream consumers (dra,
-    gpu-operator) can pass it as resource_deps and start once IMEX is staged.
-
-    nvmlmock_image pins a pre-built image (CI) instead of the one
-    build_image() builds.
-
-    control_plane=True flips controlPlane.enabled on the release and
-    threads the CP image through image_deps so Tilt rebuilds → pins →
-    rolls the Deployment alongside the compute-domain scenario.
-    """
-    # The mokka namespace, as local/nvml_mock.tiltfile installs: the NRI
-    # plugin never injects the release's own namespace, so a release in
-    # default would leave the workloads there without mock GPUs.
+    # In mokka, as nvml_mock.tiltfile installs: NRI never injects the release's
+    # own namespace, so workloads in default would get no mock GPUs.
     flags = [
         '--create-namespace',
         '--values', 'local/compute-domain/topology.yaml',
         '--values', 'local/compute-domain/nvml-mock.values.yaml',
     ]
 
-    # Optional per-consumer overlays. Consumers with no mock-side needs
     for consumer in active_consumers:
         overlay = 'local/' + consumer + '/nvml-mock.values.yaml'
         if os.path.exists(overlay):
@@ -136,9 +98,6 @@ def install(active_consumers, nvmlmock_image='', control_plane=False):
             labels=['mokka-core'],
         )
 
-    # Scenario 1: per-node fabric identity via check-fabric. Manually
-    # triggered — hitting the button asserts the topology overlay
-    # rendered the expected cliqueId / clusterUuid / state on each node.
     local_resource(
         'check-fabric',
         cmd='bash local/compute-domain/scenarios/check-fabric.sh',
@@ -147,9 +106,6 @@ def install(active_consumers, nvmlmock_image='', control_plane=False):
         labels=['compute-domain-tests'],
     )
 
-    # Topology rebind: helm upgrade --reuse-values -f rebind.topology.yaml,
-    # evict DaemonSet pods so mock NVML re-reads MOCK_TOPOLOGY_CONFIG,
-    # re-assert new clique/UUID on every worker.
     local_resource(
         'topology-rebind',
         cmd='bash local/compute-domain/scenarios/topology-rebind.sh',

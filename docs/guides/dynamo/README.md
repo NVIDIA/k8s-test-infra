@@ -112,10 +112,13 @@ kubectl get node dynamo-worker -o jsonpath='{.status.allocatable.nvidia\.com/gpu
 Wait for a non-zero count before going on. Until the device plugin registers,
 the Dynamo worker has nowhere to schedule.
 
-!!! warning "Stay on v26.3.x for now"
-    GPU Operator v26.7.1 gates every operand on an `nvidia` line in
-    `/proc/modules`, which Mokka cannot serve to those containers, so GFD, the
-    device plugin and `dcgm-exporter` never start.
+<Warning>
+**Stay on v26.3.x for now**
+
+GPU Operator v26.7.1 gates every operand on an `nvidia` line in
+`/proc/modules`, which Mokka cannot serve to those containers, so GFD, the
+device plugin and `dcgm-exporter` never start.
+</Warning>
 
 ## Step 4 — Install the Dynamo platform
 
@@ -240,18 +243,6 @@ The operator has not installed its CRDs yet. Re-run the Step 4 install with
 `--wait`, or wait for its pod to be `Ready`.
 
 More symptoms in [Troubleshooting](../../troubleshooting.md).
-
-## Running it from a checkout
-
-With the repository cloned, the Tilt environment builds Mokka from source and
-runs this same stack, with an extra button that asserts it end to end:
-
-```bash
-make cluster-create
-tilt up -- --dynamo
-```
-
-See [Local Development](../../contributing/local-development.md#adding-consumers).
 
 ## Clean up
 

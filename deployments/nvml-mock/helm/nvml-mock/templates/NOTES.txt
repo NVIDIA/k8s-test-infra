@@ -13,7 +13,7 @@ in by annotation, get the mock driver when they are created. Pods in these
 namespaces never do: {{ .Release.Namespace }}, kube-system
 {{- range .Values.nri.excludedNamespaces }}, {{ . }}{{ end }}.
 If a node pod stays NotReady, containerd on that node may have NRI disabled; see
-https://nvidia.github.io/k8s-test-infra/troubleshooting/#the-node-pod-is-notready-and-nvml-mock-nri-crash-loops
+https://docs.nvidia.com/k8s-test-infra/general/troubleshooting#the-node-pod-is-notready-and-nvml-mock-nri-crash-loops
 {{- if eq .Release.Namespace "default" }}
 
 WARNING: this release is in the "default" namespace, so workloads there get no
@@ -107,7 +107,7 @@ OPTION C: GPU Operator
   CDI enabled in containerd and the nvidia runtime handler registered.
 {{- end }}
   Walkthrough:
-    https://nvidia.github.io/k8s-test-infra/guides/gpu-operator/
+    https://docs.nvidia.com/k8s-test-infra/guides/scenarios/nvidia-gpu-operator
   In a checkout of this repository: docs/guides/with-gpu-operator/
 
   Install:

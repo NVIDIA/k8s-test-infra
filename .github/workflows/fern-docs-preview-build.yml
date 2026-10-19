@@ -1,0 +1,77 @@
+# Copyright 2026 NVIDIA CORPORATION
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Workflow 1 of 2 for Fern doc previews.
+#
+# Collects the docs/ sources and PR metadata from the PR branch and uploads them
+# as an artifact. No secrets are used here. The preview shows docs/ as the next
+# release will ship it, not the released versions, which a PR cannot change.
+#
+# Only PRs from branches in this repository are collected; fork PRs are not
+# previewed. The companion workflow (fern-docs-preview-comment.yml) builds the
+# preview with FERN_TOKEN, and the Fern CLI reads any local file a page names
+# (for example <Code src="../../x" />), so page content must come from authors
+# with write access. That same-repo condition is the control; the comment
+# workflow also runs tools/check-docs-paths as defense in depth.
+#
+# The comment workflow still treats the artifact as untrusted data: it builds
+# against fern/ from the default branch and copies in only this artifact's
+# docs/. The rest of the uploaded fern/ is ignored.
+
+name: "Preview Fern Docs: Build"
+
+on:
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'fern/**'
+      - '.github/workflows/fern-docs-preview-build.yml'
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  collect:
+    # Same-repo PRs only. The comment workflow builds the preview with FERN_TOKEN
+    # and Fern reads any local file a page names, so fork PRs are not previewed.
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Save PR metadata
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          mkdir -p preview-metadata
+          echo "$PR_NUMBER" > preview-metadata/pr_number
+          git diff --name-only "origin/${BASE_REF}...HEAD" -- '*.md' > preview-metadata/changed_md_files 2>/dev/null || true
+      - name: Upload fern sources and metadata
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fern-preview
+          path: |
+            fern/
+            docs/
+            preview-metadata/
+          retention-days: 1

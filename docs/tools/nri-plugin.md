@@ -75,18 +75,24 @@ The three `<overlay-...>` derivations resolve against whatever the overlay flags
 ended up being, not against the packaged defaults. An error out of the plugin
 prints as `nri-plugin: <error>` on stderr and exits `1`.
 
-!!! note "The CDI vendor is deliberately not `nvidia.com`"
+<Note>
+**The CDI vendor is deliberately not `nvidia.com`**
 
-    `nvml-mock.nvidia.com` keeps our device references out of the namespace the
-    device plugin and container toolkit own, which is what makes "exactly one
-    component emits CDI device references for this container" something you can
-    observe in the OCI spec rather than have to assume.
 
-!!! note "The registered name is not the binary name"
+`nvml-mock.nvidia.com` keeps our device references out of the namespace the
+device plugin and container toolkit own, which is what makes "exactly one
+component emits CDI device references for this container" something you can
+observe in the OCI spec rather than have to assume.
+</Note>
 
-    `--plugin-name` is what containerd knows the plugin as. The chart sets it
-    from `nri.pluginName`, which is `nvml-mock`; the compiled-in
-    `mokka-nri-plugin` applies only to a standalone run.
+<Note>
+**The registered name is not the binary name**
+
+
+`--plugin-name` is what containerd knows the plugin as. The chart sets it
+from `nri.pluginName`, which is `nvml-mock`; the compiled-in
+`mokka-nri-plugin` applies only to a standalone run.
+</Note>
 
 ## Usage
 

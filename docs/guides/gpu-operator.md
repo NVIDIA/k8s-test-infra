@@ -107,14 +107,17 @@ The version is deliberate. GPU Operator `v26.3.3` is the release CI validates
 for this workflow. Later releases can add hardware checks or change the chart
 schema, so validate them against Mokka before updating the pin.
 
-!!! warning "Use a values file, not `--set`"
+<Warning>
+**Use a values file, not `--set`**
 
-    Every operand takes its driver root through a nested `env` list, and that
-    shape does not survive the command line: chained `--set gfd.env[0].name=…`
-    flags drop values silently, `--set validator.cuda.env[0].value="false"`
-    is typed as a bool against a string field, and an unquoted `env[0]` is
-    glob-expanded by zsh before Helm sees it. A values file is the only form of
-    this configuration that works.
+
+Every operand takes its driver root through a nested `env` list, and that
+shape does not survive the command line: chained `--set gfd.env[0].name=…`
+flags drop values silently, `--set validator.cuda.env[0].value="false"`
+is typed as a bool against a string field, and an unquoted `env[0]` is
+glob-expanded by zsh before Helm sees it. A values file is the only form of
+this configuration that works.
+</Warning>
 
 ## Step 4 — Verify
 
@@ -181,43 +184,17 @@ overlay.
 
 More symptoms in [Troubleshooting](../troubleshooting.md).
 
-## Running it from a checkout
+<Warning>
+**One Mokka release per cluster at a time**
 
-The steps above are the whole scenario and never need the repository. If you
-have it cloned, `run.sh` performs the same install and then asserts the result:
 
-```bash
-cd docs/guides/with-gpu-operator && ./run.sh
-```
-
-It installs Mokka, checks that `nvidia-smi -L` works inside a mock pod,
-installs the operator with the same overlay from
-[`gpu-operator-values.yaml`](with-gpu-operator/gpu-operator-values.yaml), then
-asserts two things that can only hold if the real operands read the mock: some
-node lists `nvidia.com/gpu` as allocatable, and some node carries a
-`nvidia.com/gpu.product` label. Both scan every node, because the operands do
-not tolerate the control-plane `NoSchedule` taint.
-
-| Variable | Default | Effect |
-|---|---|---|
-| `GPU_PROFILE` | `gb300` | Any profile under the chart's `profiles/` directory |
-| `NAMESPACE` | `mokka-operator` | Namespace for the Mokka release |
-| `OPERATOR_NAMESPACE` | `gpu-operator` | Namespace for the GPU Operator release |
-| `GPU_OPERATOR_VERSION` | `v26.3.3` | GPU Operator chart version to install |
-| `NVML_MOCK_IMAGE` | `ghcr.io/nvidia/nvml-mock:latest` | Published image to install |
-| `BUILD_LOCAL` | `false` | Build the image from source and side-load it with `kind load` |
-| `HELM_TIMEOUT` | `15m` | Wait budget for each Helm install |
-| `DEMO_ASSUME_YES` | `false` | Skip the confirmation prompt and the co-location refusals |
-
-!!! warning "One Mokka release per cluster at a time"
-
-    The chart's hostPath mounts are fixed and release-independent
-    (`/var/lib/nvml-mock`, `/var/run/cdi`, `/run/nvidia`, and the NFD features
-    directory), and it tolerates every taint, so two Mokka releases land on
-    every node and write the same per-node state whatever they are called —
-    including the shared config that any real GPU workload on those nodes then
-    reads. `run.sh` refuses with exit `4` if another Mokka release is already
-    installed anywhere on the cluster.
+The chart's hostPath mounts are fixed and release-independent
+(`/var/lib/nvml-mock`, `/var/run/cdi`, `/run/nvidia`, and the NFD features
+directory), and it tolerates every taint, so two Mokka releases land on
+every node and write the same per-node state whatever they are called —
+including the shared config that any real GPU workload on those nodes then
+reads. Check for an existing release with `helm list -A` before installing.
+</Warning>
 
 ## Clean up
 
@@ -232,4 +209,3 @@ kind delete cluster --name mokka-operator
 | Every chart value | [Installation](../helm-chart.md) |
 | Changing GPU state while the operator watches | [Runtime Control](../nvml-mock-ctl.md) |
 | Driving this from CI | [Use in CI/CD](ci-cd.md) |
-| The full health loop on top of this stack | [NVSentinel](nv-sentinel/README.md) |

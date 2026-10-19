@@ -1,26 +1,20 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
-#
-# Local-dev Helm value overrides for nvml-mock (committed, shared baseline).
-# To add personal overrides that won't be committed, create:
-#   local/nvml-mock.values.local.yaml  (gitignored, wins over this file)
 
-# Keep the mock off the control-plane node. The chart tolerates every taint
-# (tolerations: operator Exists) so without a selector the DaemonSet also lands
-# on the control plane, where no consumer follows it: GPU Operator operands, FGO
-# and NFD workers all stop at the NoSchedule taint. The result is a node that
-# advertises a GPU driver nobody consumes, and scenarios that pick a mock pod by
-# position intermittently target it. Every worker in local/kind/*.kind.yaml
-# carries this label; consumer overlays add their own keys on top (helm
-# deep-merges maps), so pinning stays additive.
+# Keep the mock off the control-plane node. The chart tolerates every taint, so
+# without a selector the DaemonSet also lands there, where no consumer follows it:
+# GPU Operator operands, FGO and NFD workers stop at the NoSchedule taint. The node
+# would advertise a GPU driver nobody consumes, and scenarios that pick a mock pod
+# by position would intermittently hit it. Every worker in local/kind/*.kind.yaml
+# carries this label. Overlays add their own keys (helm deep-merges maps).
 nodeSelector:
   mokka.nvidia.com/type: sgpu
 
-# Announce injected Xids on the node's kernel log, which the chart leaves off
-# because it makes the node-agent container privileged. On here because a local
-# cluster is exactly where that trade is worth making: `nvml-mock-ctl fail
-# --xid` is meant to be visible to an agent reading the node's kernel messages,
-# and local/kind/*.kind.yaml already configures journald to ingest them.
+# Announce injected Xids on the node's kernel log. The chart leaves it off because
+# it makes the node-agent container privileged; a local cluster is where that trade
+# is worth it: `nvml-mock-ctl fail --xid` is meant to be visible to whatever reads
+# the node's kernel messages, and local/kind/*.kind.yaml already has journald
+# ingest them.
 nodeAgent:
   kernelLog:
     enabled: true

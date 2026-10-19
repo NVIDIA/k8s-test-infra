@@ -1,13 +1,9 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# DRA driver values overlay layered on top of local/dra/dra-driver.values.yaml
-# when both --compute-domain and --dra are set. The driver keeps its upstream
-# images: on the gb200 profile the node agent stages what a real GB200 node
-# has, and the driver reads it from there.
-#
-# Default is off (see local/dra/dra-driver.values.yaml) because single-node
-# dev doesn't need it.
+# Layered on local/dra/dra-driver.values.yaml when --compute-domain and --dra are
+# set. The driver keeps its upstream images; on gb200 the node agent stages what
+# it reads.
 resources:
   computeDomains:
     enabled: true
