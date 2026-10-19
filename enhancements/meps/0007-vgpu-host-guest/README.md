@@ -517,9 +517,8 @@ and creatable lists report once MIG is on.
 - **E2E**, a `vgpu` scenario with `vgpu-host` and `vgpu-guest` labels, run by
   `make e2e-vgpu` and its own CI job. The host specs reinstall the release in
   host mode and assert `nvidia-smi vgpu` and `nvidia-smi -q`; the guest specs
-  reinstall it in guest mode and assert `nvidia-smi -q`, and, gated on
-  `E2E_RUN_NGC` like the existing GFD scenario, run GFD over the rendered PCI
-  tree and assert its three labels.
+  reinstall it in guest mode, assert `nvidia-smi -q`, and assert the three
+  labels the GPU Operator's GFD sets on the node.
 
 ### Implementation
 

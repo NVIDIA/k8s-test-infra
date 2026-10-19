@@ -711,6 +711,7 @@ image-load:
 #   make e2e-nri                   # NRI injection scenario
 #   make e2e-nfd                   # NFD label-provenance scenario
 #   make e2e-mig                   # MIG scenario, device plugin in migStrategy=single
+#   make e2e-vgpu                  # vGPU host and guest scenario
 # CI builds the image once per run. Every leg loads it into Kind and sets
 # E2E_IMAGE to that ref. The reshaping scenarios set the DaemonSet to this ref.
 #
@@ -723,10 +724,10 @@ image-load:
 # ---------------------------------------------------------------------------
 GINKGO ?= $(GO_CMD) run github.com/onsi/ginkgo/v2/ginkgo
 E2E_TIMEOUT ?= 90m
-E2E_DEFAULT_LABEL_FILTER ?= !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig && !dra-compute-domain
+E2E_DEFAULT_LABEL_FILTER ?= !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig && !dra-compute-domain && !vgpu
 E2E_GINKGO_FLAGS ?= --label-filter='$(E2E_DEFAULT_LABEL_FILTER)'
 
-.PHONY: e2e e2e-dra e2e-compute-domain e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd e2e-mig
+.PHONY: e2e e2e-dra e2e-compute-domain e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd e2e-mig e2e-vgpu
 
 # `set -o pipefail` is inline on purpose; do not drop it as redundant with
 # .SHELLFLAGS. GNU Make ignores .SHELLFLAGS before 3.82 and macOS ships 3.81,
@@ -769,6 +770,9 @@ e2e-nfd: ## e2e — NFD label-provenance scenario (pinned to a100)
 # layout from either the profile or gpu.mig.gpuInstances.
 e2e-mig: ## e2e — MIG scenario with the device plugin in migStrategy=single
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=mig'
+
+e2e-vgpu: ## e2e — vGPU host and guest scenario
+	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=vgpu'
 
 ##@ Documentation
 

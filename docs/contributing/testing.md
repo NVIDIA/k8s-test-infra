@@ -50,6 +50,8 @@ make e2e-gpu-operator     # GPU Operator
 make e2e-multi-node       # heterogeneous a100/t4 fleet
 make e2e-nri              # node-wide NRI injection
 make e2e-nfd              # NFD label provenance
+make e2e-mig              # MIG partitions through the device plugin
+make e2e-vgpu             # vGPU host and guest
 ```
 
 > [!WARNING]

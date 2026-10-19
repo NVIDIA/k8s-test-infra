@@ -670,6 +670,19 @@ profile needs to describe what the silicon can do. The board's partition
 table, where that table lives, and the two ways to declare a layout have a
 page of their own: [MIG](mig.md).
 
+### Virtualization
+
+```yaml
+device_defaults:
+  virtualization:
+    mode: "none"                    # none, passthrough, vgpu, host_vgpu
+    host_vgpu_mode: "N/A"           # host_vgpu only: sriov, non_sriov
+```
+
+`vgpu` and `host_vgpu` simulate the two sides of NVIDIA vGPU and take a
+`virtualization.vgpu` block; its fields, defaults and validation are on a page
+of their own: [vGPU](vgpu.md).
+
 ### InfoROM
 
 ```yaml

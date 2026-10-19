@@ -2455,6 +2455,8 @@ func parseVirtualizationMode(mode string) nvml.GpuVirtualizationMode {
 		return nvml.GPU_VIRTUALIZATION_MODE_PASSTHROUGH
 	case "vgpu":
 		return nvml.GPU_VIRTUALIZATION_MODE_VGPU
+	case "host_vgpu":
+		return nvml.GPU_VIRTUALIZATION_MODE_HOST_VGPU
 	default:
 		return nvml.GPU_VIRTUALIZATION_MODE_NONE
 	}

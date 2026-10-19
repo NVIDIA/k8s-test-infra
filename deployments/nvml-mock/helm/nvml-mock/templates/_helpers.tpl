@@ -213,15 +213,23 @@ injected under `device_defaults:` so consumers can test how device-plugin,
 GPU operator and monitoring stacks behave when GPUs go lost / fall off
 the bus / accumulate uncorrectable ECC errors.
 
-If neither overlay is enabled the base YAML is returned verbatim, which
-preserves comments and key order from the profile file.
+When .Values.gpu.mig.enabled is true, the requested partitioning is checked
+against the board's MIG table and written to `device_defaults.mig`.
+
+When .Values.gpu.vgpu.mode is non-empty, `device_defaults.virtualization` is
+switched to a vGPU host (`host_vgpu`, with its types and running instances) or
+a vGPU guest (`vgpu`, with its guest block).
+
+If no overlay is enabled the base YAML is returned verbatim, which preserves
+comments and key order from the profile file.
 */}}
 {{- define "nvml-mock.gpuConfig" -}}
 {{- $base := include "nvml-mock.gpuConfigBase" . -}}
 {{- $dynEnabled := and .Values.gpu.dynamicMetrics .Values.gpu.dynamicMetrics.enabled -}}
 {{- $failEnabled := and .Values.gpu.failureInjection .Values.gpu.failureInjection.enabled -}}
 {{- $migEnabled := and .Values.gpu.mig .Values.gpu.mig.enabled -}}
-{{- if or $dynEnabled $failEnabled $migEnabled -}}
+{{- $vgpuEnabled := and .Values.gpu.vgpu .Values.gpu.vgpu.mode -}}
+{{- if or $dynEnabled $failEnabled $migEnabled $vgpuEnabled -}}
 {{- $cfg := fromYaml $base -}}
 {{- if hasKey $cfg "Error" -}}
 {{- fail (printf "nvml-mock.gpuConfig: failed to parse base YAML for overlay injection: %s" (get $cfg "Error")) -}}
@@ -358,6 +366,47 @@ this block lives in the template.
 {{- $_ := set $mig "mode_current" "enabled" -}}
 {{- $_ := set $mig "mode_pending" "enabled" -}}
 {{- $_ := set $defaults "mig" $mig -}}
+{{- end -}}
+{{- if $vgpuEnabled -}}
+{{- /*
+gpu.vgpu.mode names the side of the hypervisor the node plays; the engine's
+virtualization.mode names it as NVML does. The engine validates the block, so
+nothing here second-guesses a type list.
+*/ -}}
+{{- $virt := get $defaults "virtualization" | default (dict) -}}
+{{- $vgpu := dict -}}
+{{- if eq .Values.gpu.vgpu.mode "host" -}}
+{{- /*
+Presence only: without a type the node agent refuses the config, and an
+install that waits for it would time out with no reason given.
+*/ -}}
+{{- if not .Values.gpu.vgpu.types -}}
+{{- fail "gpu.vgpu.mode is host but gpu.vgpu.types declares no vGPU types, so the node agent would refuse the config. Declare the types the host offers; docs/vgpu.md lists the fields." -}}
+{{- end -}}
+{{- $_ := set $virt "mode" "host_vgpu" -}}
+{{- $_ := set $virt "host_vgpu_mode" .Values.gpu.vgpu.hostVgpuMode -}}
+{{- $_ := set $vgpu "types" (.Values.gpu.vgpu.types | default list) -}}
+{{- $_ := set $vgpu "instances" (.Values.gpu.vgpu.instances | default list) -}}
+{{- else -}}
+{{- $_ := set $virt "mode" "vgpu" -}}
+{{- /*
+The engine refuses host types or instances under mode vgpu, so a profile's own
+vgpu block never survives into a guest render, even when no guest fields are
+set.
+
+The engine treats a present guest block as a claim about the host driver and
+requires its fields, so an empty one would fail the node agent at startup
+where an absent one loads as a guest that knows nothing about its host.
+*/ -}}
+{{- $_ := unset $virt "vgpu" -}}
+{{- with .Values.gpu.vgpu.guest -}}
+{{- $_ := set $vgpu "guest" . -}}
+{{- end -}}
+{{- end -}}
+{{- if $vgpu -}}
+{{- $_ := set $virt "vgpu" $vgpu -}}
+{{- end -}}
+{{- $_ := set $defaults "virtualization" $virt -}}
 {{- end -}}
 {{- $_ := set $cfg "device_defaults" $defaults -}}
 {{- /* Drop the Helm-only key now it's folded into dynamic_metrics. */ -}}

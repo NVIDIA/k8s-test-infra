@@ -34,5 +34,6 @@ Things you do *with* Mokka, whichever consumer you are running.
 |---|---|
 | [Set up NRI injection](nri-injection.md) | Check that pods holding a GPU allocation get the mock driver, and keep workloads out |
 | [MIG partitioning](mig/README.md) | Carve a board into MIG slices, advertise each one, and schedule a pod onto a single slice |
+| [vGPU host and guest](vgpu/README.md) | Make a node a vGPU host running vGPU instances, or a licensed vGPU guest, and read either side with `nvidia-smi` |
 | [Use in CI/CD](ci-cd.md) | Run GPU-dependent tests on CPU runners |
 | [Runtime control](../nvml-mock-ctl.md) | Change temperature, power, utilisation or health on a running node, with no redeploy |
