@@ -30,11 +30,6 @@ var DevicePluginMIGManifest []byte
 //go:embed nri-gpu-agent.yaml
 var NRIGpuAgentManifest []byte
 
-// GFDManifest is the embedded GPU Feature Discovery DaemonSet manifest used by the NFD scenario.
-//
-//go:embed gfd-mock.yaml
-var GFDManifest []byte
-
 // WriteTemp writes content to a temp file with the given pattern and returns
 // the path. Used for `helm install -f <values>` which needs a file path.
 func WriteTemp(pattern string, content []byte) (string, error) {
