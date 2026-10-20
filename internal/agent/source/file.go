@@ -253,7 +253,7 @@ func readTopology(path string, log *zap.Logger) ([]byte, error) {
 
 // migTable returns the board's partition table bytes, or nil where the node has
 // none. The bytes are hashed to detect a change and carried on the State for
-// gpudriver to stage; parseProfile resolves and validates the document for the
+// nvml to stage; parseProfile resolves and validates the document for the
 // agent's own use, so a read failure surfaces from there rather than here.
 //
 // The table has to be hashed because it is a mount of its own. It can arrive
@@ -431,7 +431,7 @@ func compileMIG(cfg *engine.YAMLConfig, numDevices int) agent.MIGState {
 		// A capability name identifies its GPU by device-node minor, which a
 		// profile can set independently of the NVML index. Deriving it from
 		// the index instead would name cap devices for a GPU other than the
-		// one gpudriver mknod'd, whenever the two differ.
+		// one nvml mknod'd, whenever the two differ.
 		gpu := agent.MIGGPU{Minor: ec.GetDeviceMinorNumber(layout.GPUIndex)}
 		for _, gi := range layout.GPUInstances {
 			cis := make([]agent.MIGComputeInstance, 0, len(gi.ComputeInstances))

@@ -597,7 +597,7 @@ Driver version helper.
 Returns the user-provided driverVersion, otherwise reads system.driver_version
 from the resolved GPU config (customConfig or the selected profile file) so the
 profile stays the single source of truth — the DRIVER_VERSION env (which names
-the on-disk libnvidia-ml.so.<ver> the gpudriver simulator stages) never drifts from the
+the on-disk libnvidia-ml.so.<ver> the nvml simulator stages) never drifts from the
 driver_version the engine reports via NVML. Fails if neither is set.
 */}}
 {{- define "nvml-mock.driverVersion" -}}

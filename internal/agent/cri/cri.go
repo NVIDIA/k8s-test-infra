@@ -80,7 +80,7 @@ func (s *Simulator) Ready() bool { return s.ready.Load() }
 // hostPaths (chardevs, shims) may not exist yet; containerd fails every container
 // creation that references an unresolvable spec. The write is deferred to Apply.
 //
-// Stage does withdraw the NRI spec, for the same reason: gpudriver prunes the
+// Stage does withdraw the NRI spec, for the same reason: nvml prunes the
 // nodes of GPUs a smaller profile dropped, and the NRI plugin may run between
 // Stage and Apply. Without a spec it falls back to raw nodes from the new tree.
 // The nvidia spec stays because its consumers have no such fallback.

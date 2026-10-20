@@ -30,6 +30,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/ib"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/kernellog"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/nvidiakmod"
+	"github.com/NVIDIA/k8s-test-infra/internal/agent/nvml"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/source"
 	"github.com/NVIDIA/k8s-test-infra/internal/cri"
 	"github.com/NVIDIA/k8s-test-infra/internal/cri/containerd"
@@ -271,6 +272,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	// The GPU Operator's driver container runs only with the gate on, and it
 	// mounts its own root at /run/nvidia/driver.
 	simulators := []agent.Simulator{
+		nvml.New(h),
 		gpudriver.New(h, gpudriver.Options{ExternalDriverRoot: features.Enabled(features.GPUOperatorDriver)}),
 		pcibus.New(h),
 		crisim.New(h, criOpts),

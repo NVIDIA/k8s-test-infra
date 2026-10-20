@@ -155,7 +155,7 @@ func stageVerbsConfig(h *host.Host) error {
 // their per-node ComputeDomain identity via nvmlDeviceGetGpuFabricInfo.
 //
 // TODO: check-fabric is an NVML fabric consumer rather than an IB tool, so it
-// belongs in gpudriver or nvlink rather than here.
+// belongs in nvml or nvlink rather than here.
 func stageCheckFabric(h *host.Host) error {
 	if _, err := os.Stat(checkFabric); err != nil {
 		return nil

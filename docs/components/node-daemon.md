@@ -28,7 +28,8 @@ outlive a reconcile.
 
 | Simulator | Stages                                                                                                                                                   |
 |---|----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `gpudriver` | Character devices, the mock NVML library, `nvidia-smi`, procfs entries, the engine config, and a bind mount of the driver tree at `/run/nvidia/driver`, the path GPU Operator expects |
+| `nvml` | Character devices, the mock NVML and CUDA libraries, `nvidia-smi`, the engine config with the board's MIG table, and the machine type GFD reads |
+| `gpudriver` | The procfs entries and kernel module tree a loaded driver shows, and a bind mount of the driver tree at `/run/nvidia/driver`, the path GPU Operator expects |
 | `pcibus` | A fake `/sys/bus/pci/devices` tree, the `libmockfs.so` shim, and the NFD feature file that lets Node Feature Discovery label the node                  |
 | `cri` | Two CDI specs that containerd uses to inject mock GPUs into workload containers, and the [container runtime setup](#container-runtime-setup) that registers the `nvidia` handler. While IMEX is staged, the GPU spec also mounts `nvidia-imex` and `nvidia-imex-ctl`, as the NVIDIA Container Toolkit does on a real GB200 or GB300 node, with `nvidia-imex.real` beside Mokka's `nvidia-imex` shim |
 | `imex` | On multi-node NVLink profiles: IMEX channel character devices, a `/proc/devices` overlay, and the capability file the DRA compute-domain plugin reads, plus `nvidia-imex` and `nvidia-imex-ctl` from a pinned archive: delivered by the chart's `imex.binaries.image`, or downloaded from NVIDIA into a node cache while the `IMEXDownload` [feature gate](../feature-gates.md) is on. A node without the archive stays ready and stages no IMEX, as a real node without the IMEX package |
@@ -71,7 +72,7 @@ The two waves handle failure differently, on purpose:
   that failed, not just the first, so one pass tells you everything that is
   wrong.
 - **Apply fails fast.** Appliers depend on each other — the CDI spec references
-  character devices `gpudriver` must have staged — so continuing past the first
+  character devices `nvml` must have staged — so continuing past the first
   failure would publish something incoherent.
 
 **Daemons start exactly once**, on the first successful barrier. A daemon owns a

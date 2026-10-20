@@ -7,7 +7,7 @@
  * Two jobs. It holds a reference on nvidia.ko, which is what gives that module
  * a non-zero refcnt and makes unloading it fail until this one goes first. And
  * it registers the nvidia-uvm character device major, without which the
- * /dev/nvidia-uvm node gpudriver mknods cannot be opened.
+ * /dev/nvidia-uvm node the agent's nvml simulator mknods cannot be opened.
  */
 
 #include <linux/fs.h>
@@ -19,7 +19,7 @@
 
 /*
  * The real driver takes a dynamically allocated major here. This one is fixed
- * because charDevsForDevices() in internal/agent/gpudriver/stage.go already
+ * because charDevsForDevices() in internal/agent/nvml/stage.go already
  * mknods /dev/nvidia-uvm with major 510; a dynamic major would leave the
  * registration and the device nodes pointing at different numbers. See
  * README.md.
