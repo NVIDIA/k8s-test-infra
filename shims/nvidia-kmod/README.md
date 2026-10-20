@@ -157,7 +157,7 @@ Two behaviours of the mock keep the operator's own bookkeeping right:
   start against a root that is already gone.
 
 The [Local Development](../../docs/contributing/local-development.md) guide runs
-the whole scenario with `--gpu-operator-driver`.
+the whole scenario with `--kernel-mods`.
 
 ## Building
 
