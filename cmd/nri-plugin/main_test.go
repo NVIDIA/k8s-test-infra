@@ -92,3 +92,16 @@ func TestAgentGateFlagsMustBePaired(t *testing.T) {
 	require.Equal(t, "http://127.0.0.1:9091/stagedz", cfg.AgentStagedURL)
 	require.Equal(t, "/run/nvml-mock/nri-staging.lock", cfg.StagingLockPath)
 }
+
+// Every workload is registered whatever the gates, with the paths the plugin was
+// given; each one's own gate decides whether it claims anything.
+func TestEveryWorkloadIsRegistered(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := runCLI("--overlay-host-path=/srv/overlay", "--device-host-path=/srv/devices")
+	require.NoError(t, err)
+	require.Equal(t, []inject.Workload{
+		inject.GPUOperatorDriver{HostOverlayPath: "/srv/overlay", DeviceHostPath: "/srv/devices"},
+		inject.GPUOperatorToolkit{},
+	}, cfg.Inject.Workloads)
+}

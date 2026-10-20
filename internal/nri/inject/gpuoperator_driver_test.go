@@ -10,11 +10,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/features"
 	kmod "github.com/NVIDIA/k8s-test-infra/shims/nvidia-kmod"
 )
 
-// stageKernelModules writes the part of the node agent's tree the plugin checks
-// for and returns the overlay root it lives under.
+// stageKernelModules writes the part of the node agent's tree the workload
+// checks for and returns the overlay root it lives under.
 func stageKernelModules(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -39,17 +40,59 @@ func driverInstaller() Container {
 	}
 }
 
-func TestAdjustAdaptsTheDriverInstaller(t *testing.T) {
+// Not parallel: it flips a gate the other tests read.
+func TestGPUOperatorDriverIsEnabledByItsGate(t *testing.T) {
+	require.False(t, GPUOperatorDriver{}.Enabled(), "off by default")
+
+	features.SetFeatureGateDuringTest(t, features.GPUOperatorDriver, true)
+	require.True(t, GPUOperatorDriver{}.Enabled())
+}
+
+func TestGPUOperatorDriverMatchesTheInstallerAlone(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		container func() Container
+		want      bool
+	}{
+		"installer": {container: driverInstaller, want: true},
+		// k8s-driver-manager only unloads modules, which needs nothing from us.
+		"init container": {
+			container: func() Container {
+				c := driverInstaller()
+				c.Name = "k8s-driver-manager"
+				return c
+			},
+		},
+		"same container name outside a driver pod": {
+			container: func() Container {
+				c := driverInstaller()
+				c.PodLabels = map[string]string{"app": "something-else"}
+				return c
+			},
+		},
+		// Routing takes the first workload that claims a container, so no two
+		// may claim the same one.
+		"toolkit installer": {container: toolkitInstaller},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tt.want, GPUOperatorDriver{}.Matches(tt.container()))
+		})
+	}
+}
+
+func TestGPUOperatorDriverAdaptsTheInstaller(t *testing.T) {
 	t.Parallel()
 
 	root := stageKernelModules(t)
-	cfg := Config{
-		HostOverlayPath:   root,
-		DeviceHostPath:    stageDeviceNodes(t, "nvidia0", "nvidia1", "nvidiactl", "nvidia-uvm"),
-		GPUOperatorDriver: true,
-	}
+	devices := stageDeviceNodes(t, "nvidia0", "nvidia1", "nvidiactl", "nvidia-uvm")
+	driver := GPUOperatorDriver{HostOverlayPath: root, DeviceHostPath: devices}
 
-	adjustment, ok := Adjust(cfg, driverInstaller())
+	adjustment, ok := driver.Adjust(driverInstaller())
 	require.True(t, ok)
 
 	// The simulated modules for its own modprobe, then the mock NVML in its
@@ -94,70 +137,23 @@ func TestAdjustAdaptsTheDriverInstaller(t *testing.T) {
 	require.Equal(t, []string{
 		"PATH=/opt/mokka/nvidia-kmod/stand-ins:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 	}, adjustment.Env)
+	// Raw nodes, never Mokka's CDI device, which would also bind its own
+	// nvidia-smi over the one the installer writes.
 	require.Len(t, adjustment.Devices, 4, "every staged node, so the engine filters no GPU out")
-}
-
-// Mokka's CDI device would also bind its own nvidia-smi over the one the
-// installer writes, so the installer gets raw nodes whatever the mode.
-func TestAdjustGivesTheDriverInstallerRawNodesInCDIMode(t *testing.T) {
-	t.Parallel()
-
-	cfg := Config{
-		HostOverlayPath:     stageKernelModules(t),
-		DeviceHostPath:      stageDeviceNodes(t, "nvidia0", "nvidiactl"),
-		DeviceInjectionMode: DeviceInjectionModeCDI,
-		CDISpecHostPath:     stageCDISpec(t),
-		GPUOperatorDriver:   true,
-	}
-
-	adjustment, ok := Adjust(cfg, driverInstaller())
-	require.True(t, ok)
 	require.Empty(t, adjustment.CDIDevices)
-	require.Len(t, adjustment.Devices, 2)
 }
 
-func TestAdjustLeavesTheDriverInstallerAlone(t *testing.T) {
+func TestGPUOperatorDriverLeavesTheInstallerAlone(t *testing.T) {
 	t.Parallel()
-
-	root := stageKernelModules(t)
 
 	tests := map[string]struct {
-		cfg       Config
+		root      string
 		container func() Container
 	}{
-		"gate disabled": {
-			cfg:       Config{HostOverlayPath: root},
-			container: driverInstaller,
-		},
-		// k8s-driver-manager only unloads modules, which needs nothing from us.
-		"init container": {
-			cfg: Config{HostOverlayPath: root, GPUOperatorDriver: true},
-			container: func() Container {
-				c := driverInstaller()
-				c.Name = "k8s-driver-manager"
-				return c
-			},
-		},
-		"same container name outside a driver pod": {
-			cfg: Config{HostOverlayPath: root, GPUOperatorDriver: true},
-			container: func() Container {
-				c := driverInstaller()
-				c.PodLabels = map[string]string{"app": "something-else"}
-				return c
-			},
-		},
-		"opted out": {
-			cfg: Config{HostOverlayPath: root, GPUOperatorDriver: true},
-			container: func() Container {
-				c := driverInstaller()
-				c.PodAnnotations = map[string]string{DefaultConfig().OptOutAnnotation: "false"}
-				return c
-			},
-		},
 		// A restarted container already carries the mounts; adding them twice
 		// would fail its creation.
 		"already adjusted": {
-			cfg: Config{HostOverlayPath: root, GPUOperatorDriver: true},
+			root: stageKernelModules(t),
 			container: func() Container {
 				c := driverInstaller()
 				c.Mounts = []Mount{{Destination: kmod.ContainerModprobeConf}}
@@ -165,17 +161,15 @@ func TestAdjustLeavesTheDriverInstallerAlone(t *testing.T) {
 			},
 		},
 		// Mounting a missing source would fail the container's creation.
-		"nothing staged": {
-			cfg:       Config{HostOverlayPath: t.TempDir(), GPUOperatorDriver: true},
-			container: driverInstaller,
-		},
+		"nothing staged": {root: t.TempDir(), container: driverInstaller},
 	}
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			adjustment, ok := Adjust(tt.cfg, tt.container())
+			driver := GPUOperatorDriver{HostOverlayPath: tt.root, DeviceHostPath: t.TempDir()}
+			adjustment, ok := driver.Adjust(tt.container())
 			require.False(t, ok)
 			require.Empty(t, adjustment.Mounts)
 		})

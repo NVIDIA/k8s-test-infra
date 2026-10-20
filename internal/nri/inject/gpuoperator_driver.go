@@ -9,6 +9,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/features"
 	kmod "github.com/NVIDIA/k8s-test-infra/shims/nvidia-kmod"
 )
 
@@ -31,14 +32,61 @@ const (
 	driverConfigPath = "/config"
 )
 
-// isGPUOperatorDriver reports whether container is the GPU Operator's driver
-// installer.
-func isGPUOperatorDriver(container Container) bool {
-	return container.PodLabels[componentLabel] == driverComponent && container.Name == driverInstallerName
+// GPUOperatorDriver is the GPU Operator's driver installer, whose image stays
+// NVIDIA's own: it gets the simulated kernel modules for its `modprobe nvidia`,
+// and the mock NVML in its root, which the container also exposes to every
+// other operand at /run/nvidia/driver.
+type GPUOperatorDriver struct {
+	// HostOverlayPath is the node agent's tree.
+	HostOverlayPath string
+	// DeviceHostPath holds the node agent's device nodes.
+	DeviceHostPath string
+}
+
+var _ Workload = GPUOperatorDriver{}
+
+// Enabled reports whether the GPUOperatorDriver feature gate is on.
+func (GPUOperatorDriver) Enabled() bool {
+	return features.Enabled(features.GPUOperatorDriver)
+}
+
+// Matches reports whether container is the driver installer.
+func (GPUOperatorDriver) Matches(container Container) bool {
+	return container.Name == driverInstallerName && container.PodLabels[componentLabel] == driverComponent
+}
+
+// Adjust mounts the staged module tree, its install directives and the mock
+// NVML, and starts the persistenced stand-in in place of the daemon.
+//
+// Nothing is added when the node agent has not staged the module tree. A bind
+// whose source is missing fails container creation, and the container is
+// better off failing its real module load visibly, in its own log. Nor is
+// anything added to a container that already carries the install directives:
+// one that has been through here before would fail its creation on the second
+// set of mounts.
+func (d GPUOperatorDriver) Adjust(container Container) (Adjustment, bool) {
+	if hasKernelModules(container) {
+		return Adjustment{}, false
+	}
+
+	staged := filepath.Join(d.HostOverlayPath, kmod.StagedDir)
+	conf := filepath.Join(staged, kmod.ModprobeConfFile)
+	if _, err := os.Stat(conf); err != nil {
+		zap.L().Warn("simulated kernel modules are not staged; the driver container keeps the real ones",
+			zap.String("path", conf), zap.Error(err))
+		return Adjustment{}, false
+	}
+
+	var adjustment Adjustment
+	attachKernelModules(staged, conf, &adjustment)
+	d.attachMockNVML(staged, &adjustment)
+	attachPersistencedStandIn(container, &adjustment)
+
+	return adjustment, true
 }
 
 // hasKernelModules reports whether the container already carries the install
-// directives: one that has been through here before.
+// directives.
 func hasKernelModules(container Container) bool {
 	for _, mount := range container.Mounts {
 		if mount.Destination == kmod.ContainerModprobeConf {
@@ -46,38 +94,6 @@ func hasKernelModules(container Container) bool {
 		}
 	}
 	return false
-}
-
-// attachDriverInstaller adapts the GPU Operator's driver installer, whose image
-// stays NVIDIA's own: the simulated kernel modules for its `modprobe nvidia`,
-// and the mock NVML in its root, which the container also exposes to every
-// other operand at /run/nvidia/driver. It reports false when the container
-// should be left exactly as authored: the adaptation was all it asked for, and
-// there is nothing staged to adapt it with.
-//
-// Nothing is mounted when the node agent has not staged the module tree. A bind
-// whose source is missing fails container creation, and the container is
-// better off failing its real module load visibly, in its own log.
-func attachDriverInstaller(cfg Config, sel selection, container Container, adjustment *Adjustment) bool {
-	if !sel.driver {
-		return true
-	}
-
-	staged := filepath.Join(cfg.HostOverlayPath, kmod.StagedDir)
-	conf := filepath.Join(staged, kmod.ModprobeConfFile)
-	if _, err := os.Stat(conf); err != nil {
-		zap.L().Warn("simulated kernel modules are not staged; the driver container keeps the real ones",
-			zap.String("path", conf), zap.Error(err))
-		rest := sel
-		rest.driver = false
-		return rest.any()
-	}
-
-	attachKernelModules(staged, conf, adjustment)
-	attachMockNVML(cfg, staged, adjustment)
-	attachPersistencedStandIn(container, adjustment)
-
-	return true
 }
 
 // attachPersistencedStandIn puts the staged tree's stand-ins first on the
@@ -137,10 +153,10 @@ func attachKernelModules(staged, conf string, adjustment *Adjustment) {
 //     the overlay's is, because the engine writes resets back through it.
 //   - Every GPU node is added, as the real userspace creates them. With all of
 //     them present the engine filters no GPU out.
-func attachMockNVML(cfg Config, staged string, adjustment *Adjustment) {
+func (d GPUOperatorDriver) attachMockNVML(staged string, adjustment *Adjustment) {
 	adjustment.Mounts = append(adjustment.Mounts,
 		Mount{
-			Source:      filepath.Join(cfg.HostOverlayPath, "driver/usr/lib64/libnvidia-ml.so.1"),
+			Source:      filepath.Join(d.HostOverlayPath, "driver/usr/lib64/libnvidia-ml.so.1"),
 			Destination: driverNVMLPath,
 			Type:        "bind",
 			Options:     []string{"bind", "rprivate", "ro", "nosuid", "nodev"},
@@ -152,12 +168,12 @@ func attachMockNVML(cfg Config, staged string, adjustment *Adjustment) {
 			Options:     []string{"bind", "rprivate", "ro", "nosuid", "nodev"},
 		},
 		Mount{
-			Source:      filepath.Join(cfg.HostOverlayPath, configRelPath),
+			Source:      filepath.Join(d.HostOverlayPath, configRelPath),
 			Destination: driverConfigPath,
 			Type:        "bind",
 			Options:     []string{"rbind", "rprivate", "rw", "nosuid", "nodev"},
 		},
 	)
 
-	attachRawGPUNodes(cfg, adjustment)
+	attachRawGPUNodes(d.DeviceHostPath, adjustment)
 }
