@@ -74,7 +74,7 @@ type cdiDevice struct {
 // specOptions carries what the specs serve beyond the node's state.
 type specOptions struct {
 	// liveKernelModules leaves the module tree and lsmod to the kernel; see
-	// Options.LiveKernelModules.
+	// Options.DriverMode.
 	liveKernelModules bool
 	// imexStaged says whether the IMEX node software is staged to mount.
 	imexStaged bool
@@ -316,9 +316,9 @@ func imexMounts(staged bool) []cdiMount {
 
 // kernelModuleMounts serves the module tree and the generated lsmod at their
 // kernel paths, because a Go consumer bypasses the preload shim. Unlike
-// pciSysfsMounts it does not depend on the state, since writeKernelModules
-// always renders; it serves nothing while the simulated modules are loaded for
-// real, because the kernel's own tree is then the live one.
+// pciSysfsMounts it does not depend on the state, since gpudriver renders the
+// tree whenever it runs; it serves nothing in the kernel driver mode, where
+// gpudriver does not run and the kernel's own tree is the live one.
 //
 // The script goes to /usr/local/bin, which no distribution uses for lsmod.
 // /usr/bin/lsmod is a symlink to the kmod multi-call binary, and a bind mount

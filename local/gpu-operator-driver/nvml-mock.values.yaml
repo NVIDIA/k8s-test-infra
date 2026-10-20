@@ -8,7 +8,11 @@
 nodeSelector:
   kubernetes.io/hostname: worker-0
 
-# The node agent stages the simulated kernel modules, and the NRI plugin has
-# the driver installer load them in place of the real ones.
+# The node agent stages the simulated kernel modules for the driver installer,
+# which loads them in place of the real ones and owns the driver root.
+driver:
+  mode: kernel
+
+# The NRI plugin adapts the driver installer and the container toolkit to it.
 featureGates:
   GPUOperatorDriver: true

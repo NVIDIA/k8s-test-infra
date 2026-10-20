@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/config"
 	"github.com/NVIDIA/k8s-test-infra/internal/imex"
 )
 
@@ -84,6 +85,11 @@ type Config struct {
 	TopologyHostPath      string
 	TopologyContainerPath string
 
+	// Driver — how the node's NVIDIA driver is simulated. In the kernel mode
+	// the simulated modules serve the driver's own files, so GPU containers
+	// keep those out of the preload shim's redirect.
+	DriverMode config.DriverMode
+
 	// Workloads — the specialized workloads, adjusted in place of the generic
 	// overlay. The caller registers every one with its configuration; each
 	// knows whether it is enabled.
@@ -122,6 +128,8 @@ func DefaultConfig() Config {
 		ImexChannelHostPath:   filepath.Join(hostOverlay, imexChannelRelPath),
 
 		InfiniBandAnnotation: "nvml-mock.nvidia.com/infiniband",
+
+		DriverMode: config.DriverModeUserspace,
 	}
 }
 
@@ -134,6 +142,7 @@ func withDefaults(cfg Config) Config {
 	cfg.DeviceAnnotation = orDefault(cfg.DeviceAnnotation, defaults.DeviceAnnotation)
 	cfg.DeviceHostPath = orDefault(cfg.DeviceHostPath, defaults.DeviceHostPath)
 	cfg.DeviceInjectionMode = orDefault(cfg.DeviceInjectionMode, defaults.DeviceInjectionMode)
+	cfg.DriverMode = orDefault(cfg.DriverMode, defaults.DriverMode)
 	cfg.CDIDeviceName = orDefault(cfg.CDIDeviceName, defaults.CDIDeviceName)
 	cfg.CDISpecHostPath = orDefault(cfg.CDISpecHostPath, defaults.CDISpecHostPath)
 	cfg.ImexChannelAnnotation = orDefault(cfg.ImexChannelAnnotation, defaults.ImexChannelAnnotation)

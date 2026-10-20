@@ -117,7 +117,8 @@ cliques only exist there; `--observability` implies `--gpu-operator`, because
 > [!NOTE]
 > **`--gpu-operator-driver` is alpha**
 >
-> The scenario turns on the `GPUOperatorDriver` feature gate. The driver
+> The scenario runs the node in the kernel driver mode (`driver.mode: kernel`)
+> and turns on the `GPUOperatorDriver` feature gate. The driver
 > container installs headers and compiles and installs the real driver, then
 > loads Mokka's simulated modules
 > ([`shims/nvidia-kmod`](../../shims/nvidia-kmod/README.md)) in its place, and

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli/v3"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/config"
 	"github.com/NVIDIA/k8s-test-infra/internal/nri"
 	"github.com/NVIDIA/k8s-test-infra/internal/nri/inject"
 )
@@ -67,6 +68,7 @@ func TestUnsetFlagsFallBackToPackageDefaults(t *testing.T) {
 	require.Equal(t, defaults.Inject.Shims, cfg.Inject.Shims)
 	require.Equal(t, defaults.Inject.InfiniBandAnnotation, cfg.Inject.InfiniBandAnnotation)
 	require.Equal(t, inject.DeviceInjectionModeRaw, cfg.Inject.DeviceInjectionMode)
+	require.Equal(t, config.DriverModeUserspace, cfg.Inject.DriverMode)
 }
 
 func TestInvalidDeviceInjectionModeIsRejected(t *testing.T) {
@@ -74,6 +76,17 @@ func TestInvalidDeviceInjectionModeIsRejected(t *testing.T) {
 
 	_, err := runCLI("--device-injection-mode=cdo")
 	require.ErrorContains(t, err, "invalid device injection mode")
+}
+
+func TestDriverModeReachesTheInjectConfig(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := runCLI("--driver-mode=kernel")
+	require.NoError(t, err)
+	require.Equal(t, config.DriverModeKernel, cfg.Inject.DriverMode)
+
+	_, err = runCLI("--driver-mode=kmod")
+	require.ErrorContains(t, err, "invalid driver mode")
 }
 
 func TestAgentGateFlagsMustBePaired(t *testing.T) {

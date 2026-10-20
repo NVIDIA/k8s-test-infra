@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  helm: `driver.mode` chooses how the node's NVIDIA driver is simulated. `userspace`, the default, keeps the node agent faking the files of the driver's kernel modules. The experimental `kernel` has a driver installer load Mokka's simulated kernel modules, which serve those files themselves; it does not support MIG partitions or IMEX mock channels yet.
+time: 2026-10-20T14:52:21Z

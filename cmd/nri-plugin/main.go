@@ -18,6 +18,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/config"
 	"github.com/NVIDIA/k8s-test-infra/internal/features"
 	"github.com/NVIDIA/k8s-test-infra/internal/health"
 	"github.com/NVIDIA/k8s-test-infra/internal/logging"
@@ -152,6 +153,12 @@ func overlayFlags(defaults nri.Config) []cli.Flag {
 			Sources: cli.EnvVars("MOKKA_NRI_LD_PRELOAD_SHIMS"),
 			Usage:   "comma-separated LD_PRELOAD shim paths relative to the overlay mount, or absolute paths",
 		},
+		&cli.StringFlag{
+			Name:    "driver-mode",
+			Value:   string(defaults.Inject.DriverMode),
+			Sources: cli.EnvVars("MOKKA_DRIVER_MODE"),
+			Usage:   "how the node's NVIDIA driver is simulated: userspace (the shim serves the staged files of its kernel modules) or kernel (the simulated kernel modules serve them)",
+		},
 	}
 }
 
@@ -258,6 +265,10 @@ func configFrom(cmd *cli.Command) (nri.Config, error) {
 	if err != nil {
 		return nri.Config{}, err
 	}
+	driverMode, err := config.ParseDriverMode(cmd.String("driver-mode"))
+	if err != nil {
+		return nri.Config{}, err
+	}
 
 	return nri.Config{
 		SocketPath:      cmd.String("socket-path"),
@@ -282,6 +293,7 @@ func configFrom(cmd *cli.Command) (nri.Config, error) {
 			InfiniBandAnnotation:  cmd.String("infiniband-annotation"),
 			ExcludedNamespaces:    cmd.StringSlice("excluded-namespaces"),
 			Shims:                 cmd.StringSlice("ld-preload-shims"),
+			DriverMode:            driverMode,
 			Workloads: []inject.Workload{
 				inject.GPUOperatorDriver{
 					HostOverlayPath: cmd.String("overlay-host-path"),

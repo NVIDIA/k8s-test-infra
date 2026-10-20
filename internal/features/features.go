@@ -39,9 +39,10 @@ const (
 
 	// owner: @roma-glushko
 	//
-	// Lets the GPU Operator's own driver installer run on a Mokka node: the
-	// node agent stages simulated NVIDIA kernel modules, and the NRI plugin has
-	// the driver container load them in place of the real ones it builds.
+	// Lets the GPU Operator's own driver installer run on a node in the kernel
+	// driver mode: the NRI plugin has the driver container load the simulated
+	// NVIDIA kernel modules the node agent stages, in place of the real ones it
+	// builds, and points the container toolkit at the node agent's CDI spec.
 	GPUOperatorDriver featuregate.Feature = "GPUOperatorDriver"
 )
 

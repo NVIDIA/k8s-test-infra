@@ -32,6 +32,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/nvidiakmod"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/nvml"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/source"
+	"github.com/NVIDIA/k8s-test-infra/internal/config"
 	"github.com/NVIDIA/k8s-test-infra/internal/cri"
 	"github.com/NVIDIA/k8s-test-infra/internal/cri/containerd"
 	"github.com/NVIDIA/k8s-test-infra/internal/features"
@@ -92,6 +93,12 @@ func startCommand() *cli.Command {
 				Name:    "health-addr",
 				Value:   ":9090",
 				Sources: cli.EnvVars("MOKKA_AGENT_HEALTH_ADDR"),
+			},
+			&cli.StringFlag{
+				Name:    "driver-mode",
+				Value:   string(config.DriverModeUserspace),
+				Usage:   "how the node's NVIDIA driver is simulated: userspace (the agent fakes the files of its kernel modules) or kernel (a driver installer loads the simulated kernel modules)",
+				Sources: cli.EnvVars("MOKKA_DRIVER_MODE"),
 			},
 			&cli.StringFlag{
 				Name:    "ib-mode",
@@ -225,6 +232,11 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 		return errors.New("--config is required")
 	}
 
+	driverMode, err := config.ParseDriverMode(cmd.String("driver-mode"))
+	if err != nil {
+		return err
+	}
+
 	ibMode, err := ib.ParseMode(cmd.String("ib-mode"))
 	if err != nil {
 		return err
@@ -244,7 +256,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	criOpts.LiveKernelModules = features.Enabled(features.GPUOperatorDriver)
+	criOpts.DriverMode = driverMode
 
 	// TODO: we should consider keeping runtime state in /var/ dir so it naturally gets reset on container restart
 	if err := resetRuntimeOverrides(h, log); err != nil {
@@ -256,6 +268,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 		zap.String("topology", cmd.String("topology")),
 		zap.String("host_root", cmd.String("host-root")),
 		zap.String("health_addr", cmd.String("health-addr")),
+		zap.String("driver_mode", string(driverMode)),
 		zap.String("ib_mode", string(ibMode)),
 		zap.Bool("ib_fabric", cmd.Bool("ib-fabric")),
 		zap.Duration("shutdown_timeout", shutdownTimeout),
@@ -269,11 +282,9 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 		zap.String("host_fs", cmd.String("host-fs")),
 	)
 
-	// The GPU Operator's driver container runs only with the gate on, and it
-	// mounts its own root at /run/nvidia/driver.
 	simulators := []agent.Simulator{
 		nvml.New(h),
-		gpudriver.New(h, gpudriver.Options{ExternalDriverRoot: features.Enabled(features.GPUOperatorDriver)}),
+		driverSimulator(h, driverMode),
 		pcibus.New(h),
 		crisim.New(h, criOpts),
 		imex.New(h, imex.Options{
@@ -293,9 +304,6 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 			Fabric:  cmd.Bool("ib-fabric"),
 		}),
 	}
-	if features.Enabled(features.GPUOperatorDriver) {
-		simulators = append(simulators, nvidiakmod.New(h))
-	}
 
 	a := agent.New(agent.Config{
 		Simulators:      simulators,
@@ -313,6 +321,17 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	g.Go(func() error { return healthSrv.Run(gctx) })
 	g.Go(func() error { return a.Run(gctx) })
 	return g.Wait()
+}
+
+// driverSimulator returns the simulator for the driver's kernel side in mode:
+// gpudriver fakes the files its modules show and publishes the driver root,
+// while nvidiakmod stages the simulated modules for a driver installer, which
+// owns the root.
+func driverSimulator(h *host.Host, mode config.DriverMode) agent.Simulator {
+	if mode == config.DriverModeKernel {
+		return nvidiakmod.New(h)
+	}
+	return gpudriver.New(h)
 }
 
 // criOptions builds the cri simulator's options: without --container-runtime
