@@ -142,6 +142,37 @@
               }
             }
           }
+        },
+        "vgpu": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "vGPU simulation. host makes every GPU a vGPU host running the declared instances; guest makes every GPU the vGPU a VM sees. Field reference in docs/vgpu.md; the node agent validates the contents.",
+          "properties": {
+            "mode": { "type": "string", "enum": ["", "host", "guest"] },
+            "hostVgpuMode": { "type": "string", "enum": ["sriov", "non_sriov"] },
+            "types": {
+              "type": "array",
+              "description": "Host only. vGPU types every GPU supports, in profile (snake_case) form: id, name, framebuffer_mib, max_instances, and optional class, max_instances_per_vm, license, num_display_heads, resolution, frame_rate_limit, gpu_instance_profile_id, device_id, subsystem_id.",
+              "items": { "type": "object" }
+            },
+            "instances": {
+              "type": "array",
+              "description": "Host only. Running instances on every GPU, all of one type.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["type"],
+                "properties": {
+                  "type": { "type": "string" },
+                  "count": { "type": "integer", "minimum": 1 }
+                }
+              }
+            },
+            "guest": {
+              "type": "object",
+              "description": "Guest only. host_driver_version and host_driver_branch (each at most 10 bytes), and an optional license {product, state, expiry}."
+            }
+          }
         }
       }
     },

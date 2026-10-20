@@ -833,3 +833,197 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: 'gpu.mig.gpuInstances asks for 8 compute slices, but board "a100" has 7.'
+
+  # ── vGPU ────────────────────────────────────────────────────────────
+  - it: should leave every GPU bare metal when vGPU is off (default)
+    set:
+      gpu:
+        profile: a100
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'mode: "none"'
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "(?m)^ +vgpu:"
+
+  - it: should make every GPU a vGPU host running the declared instances
+    set:
+      gpu:
+        profile: a100
+        vgpu:
+          mode: host
+          types:
+            - id: 474
+              name: "NVIDIA A100-4C"
+              framebuffer_mib: 4096
+              max_instances: 10
+          instances:
+            - type: "NVIDIA A100-4C"
+              count: 2
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "mode: host_vgpu"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "host_vgpu_mode: sriov"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "name: NVIDIA A100-4C"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "framebuffer_mib: 4096"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "count: 2"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "host_driver_branch"
+
+  - it: should make every GPU a vGPU guest with the declared host driver
+    set:
+      gpu:
+        profile: a100
+        vgpu:
+          mode: guest
+          guest:
+            host_driver_version: "550.163.01"
+            host_driver_branch: "r550_00"
+            license:
+              product: "NVIDIA Virtual Compute Server"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "mode: vgpu"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "host_driver_version: 550.163.01"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "host_driver_branch: r550_00"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "product: NVIDIA Virtual Compute Server"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "max_instances"
+
+  # The guest block is optional to the engine, but an empty one is not: it
+  # decodes to a guest with no host driver and the node agent refuses it.
+  - it: should leave the guest block out when no guest fields are set
+    set:
+      gpu:
+        profile: a100
+        vgpu:
+          mode: guest
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "mode: vgpu"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "guest:"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "(?m)^ +vgpu:"
+
+  # A guest render must never carry host fields: the engine refuses types or
+  # instances under mode vgpu, so a custom config's own host block is dropped.
+  - it: should drop a custom config's host vGPU block on a guest install
+    set:
+      gpu:
+        customConfig: |
+          version: "1.0"
+          device_defaults:
+            name: "Custom GPU"
+            virtualization:
+              mode: host_vgpu
+              host_vgpu_mode: sriov
+              vgpu:
+                types:
+                  - {id: 474, name: "NVIDIA A100-4C", framebuffer_mib: 4096, max_instances: 10}
+                instances:
+                  - {type: "NVIDIA A100-4C", count: 2}
+        vgpu:
+          mode: guest
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "mode: vgpu"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "(?m)^ +vgpu:"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "max_instances"
+
+  # The engine needs at least one type on a host and the node agent refuses
+  # the config otherwise, which `helm install --wait` would only report as a
+  # timeout.
+  - it: should refuse a vGPU host install that declares no types
+    set:
+      gpu:
+        profile: a100
+        vgpu:
+          mode: host
+    asserts:
+      - failedTemplate:
+          errorMessage: "gpu.vgpu.mode is host but gpu.vgpu.types declares no vGPU types, so the node agent would refuse the config. Declare the types the host offers; docs/vgpu.md lists the fields."
+
+  - it: should refuse a vGPU host install with MIG enabled
+    set:
+      gpu:
+        profile: a100
+        mig:
+          enabled: true
+          gpuInstances:
+            - profile: 3g.20gb
+              count: 2
+        vgpu:
+          mode: host
+          hostVgpuMode: sriov
+          types:
+            - id: 474
+              name: "NVIDIA A100-4C"
+              framebuffer_mib: 4096
+              max_instances: 10
+    asserts:
+      - failedTemplate:
+          errorMessage: "gpu.vgpu.mode is host but gpu.mig.enabled is set, so the node agent would refuse the config: MIG-backed vGPU is not simulated. Leave MIG off on a vGPU host."
+
+  - it: should render a vGPU host alongside dynamic metrics
+    set:
+      gpu:
+        profile: a100
+        dynamicMetrics:
+          enabled: true
+        vgpu:
+          mode: host
+          types:
+            - id: 474
+              name: "NVIDIA A100-4C"
+              framebuffer_mib: 4096
+              max_instances: 10
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "mode: host_vgpu"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "name: NVIDIA A100-4C"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "dynamic_metrics:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "pattern: burst"
+
+  - it: should reject a vGPU mode the chart does not know
+    set:
+      gpu:
+        vgpu:
+          mode: hypervisor
+    asserts:
+      - failedTemplate:
+          errorPattern: "/gpu/vgpu/mode"

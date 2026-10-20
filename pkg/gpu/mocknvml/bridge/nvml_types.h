@@ -211,6 +211,8 @@ typedef unsigned int nvmlValueType_t;
 typedef unsigned int nvmlVgpuCapability_t;
 typedef unsigned int nvmlVgpuDriverCapability_t;
 typedef unsigned int nvmlVgpuTypeId_t;
+/* Upstream NVML hands out vGPU instances as plain IDs, not opaque handles. */
+typedef unsigned int nvmlVgpuInstance_t;
 
 /*
  * Temperature info (v1) — used by the versioned nvmlDeviceGetTemperatureV API.
@@ -229,7 +231,6 @@ typedef struct nvmlComputeInstance_st* nvmlComputeInstance_t;
 typedef struct nvmlEventSet_st*       nvmlEventSet_t;
 typedef struct nvmlGpuInstance_st*     nvmlGpuInstance_t;
 typedef struct nvmlUnit_st*           nvmlUnit_t;
-typedef struct nvmlVgpuInstance_st*    nvmlVgpuInstance_t;
 
 /* Upstream wraps the opaque GPM sample pointer in a one-field struct. */
 typedef struct {
@@ -733,7 +734,6 @@ typedef struct {
         nvmlThermalTarget_t target;
     } sensor[NVML_MAX_THERMAL_SENSORS_PER_GPU];
 } nvmlGpuThermalSettings_t;
-typedef struct nvmlGridLicensableFeatures_st                nvmlGridLicensableFeatures_t;
 typedef struct nvmlHwbcEntry_st                             nvmlHwbcEntry_t;
 typedef struct nvmlLedState_st                              nvmlLedState_t;
 typedef struct nvmlMarginTemperature_st                     nvmlMarginTemperature_t;
@@ -798,6 +798,70 @@ _Static_assert(sizeof(nvmlPlatformInfo_v1_t) == sizeof(nvmlPlatformInfo_v2_t),
                "nvmlPlatformInfo v1 and v2 must stay the same size: the bridge serves both from one payload");
 _Static_assert(sizeof(nvmlPlatformInfo_v2_t) == 44,
                "nvmlPlatformInfo_v2_t must stay 44 bytes to match the go-nvml ABI");
+
+/**
+ * vGPU. Full definitions so the host's nvmlVgpuInstanceGetVmID and
+ * nvmlVgpuInstanceGetLicenseInfo_v2 and the guest's
+ * nvmlDeviceGetGridLicensableFeatures_v4 can fill the caller's buffer. Layout
+ * matches the upstream NVML public header; see go-nvml's pkg/nvml/nvml.h.
+ */
+#define NVML_GRID_LICENSE_BUFFER_SIZE       128
+#define NVML_GRID_LICENSE_FEATURE_MAX_COUNT 3
+
+typedef enum nvmlVgpuVmIdType {
+    NVML_VGPU_VM_ID_DOMAIN_ID = 0,
+    NVML_VGPU_VM_ID_UUID      = 1,
+} nvmlVgpuVmIdType_t;
+
+typedef unsigned int nvmlGridLicenseFeatureCode_t;
+
+typedef struct nvmlVgpuLicenseExpiry_st {
+    unsigned int   year;
+    unsigned short month;
+    unsigned short day;
+    unsigned short hour;
+    unsigned short min;
+    unsigned short sec;
+    unsigned char  status;
+} nvmlVgpuLicenseExpiry_t;
+
+typedef struct nvmlVgpuLicenseInfo_st {
+    unsigned char           isLicensed;
+    nvmlVgpuLicenseExpiry_t licenseExpiry;
+    unsigned int            currentState;
+} nvmlVgpuLicenseInfo_t;
+
+typedef struct nvmlGridLicenseExpiry_st {
+    unsigned int   year;
+    unsigned short month;
+    unsigned short day;
+    unsigned short hour;
+    unsigned short min;
+    unsigned short sec;
+    unsigned char  status;
+} nvmlGridLicenseExpiry_t;
+
+typedef struct nvmlGridLicensableFeature_st {
+    nvmlGridLicenseFeatureCode_t featureCode;
+    unsigned int                 featureState;
+    char                         licenseInfo[NVML_GRID_LICENSE_BUFFER_SIZE];
+    char                         productName[NVML_GRID_LICENSE_BUFFER_SIZE];
+    unsigned int                 featureEnabled;
+    nvmlGridLicenseExpiry_t      licenseExpiry;
+} nvmlGridLicensableFeature_t;
+
+typedef struct nvmlGridLicensableFeatures_st {
+    int                         isGridLicenseSupported;
+    unsigned int                licensableFeaturesCount;
+    nvmlGridLicensableFeature_t gridLicensableFeatures[NVML_GRID_LICENSE_FEATURE_MAX_COUNT];
+} nvmlGridLicensableFeatures_t;
+
+/* Callers allocate these from go-nvml's VgpuLicenseInfo and
+ * GridLicensableFeatures, which the bridge overwrites whole. */
+_Static_assert(sizeof(nvmlVgpuLicenseInfo_t) == 24,
+               "nvmlVgpuLicenseInfo_t must stay 24 bytes to match the go-nvml ABI");
+_Static_assert(sizeof(nvmlGridLicensableFeatures_t) == 860,
+               "nvmlGridLicensableFeatures_t must stay 860 bytes to match the go-nvml ABI");
 
 /**
  * NVLink Reduced Bandwidth Mode (RBM). Full definitions needed so the
@@ -1023,7 +1087,6 @@ typedef struct nvmlVgpuCreatablePlacementInfo_st            nvmlVgpuCreatablePla
 typedef struct nvmlVgpuHeterogeneousMode_st                 nvmlVgpuHeterogeneousMode_t;
 typedef struct nvmlVgpuInstanceUtilizationSample_st         nvmlVgpuInstanceUtilizationSample_t;
 typedef struct nvmlVgpuInstancesUtilizationInfo_st          nvmlVgpuInstancesUtilizationInfo_t;
-typedef struct nvmlVgpuLicenseInfo_st                       nvmlVgpuLicenseInfo_t;
 typedef struct nvmlVgpuMetadata_st                          nvmlVgpuMetadata_t;
 typedef struct nvmlVgpuPgpuCompatibility_st                 nvmlVgpuPgpuCompatibility_t;
 typedef struct nvmlVgpuPgpuMetadata_st                      nvmlVgpuPgpuMetadata_t;
@@ -1043,7 +1106,6 @@ typedef struct nvmlVgpuTypeBar1Info_st                      nvmlVgpuTypeBar1Info
 typedef struct nvmlVgpuTypeIdInfo_st                        nvmlVgpuTypeIdInfo_t;
 typedef struct nvmlVgpuTypeMaxInstance_st                    nvmlVgpuTypeMaxInstance_t;
 typedef struct nvmlVgpuVersion_st                           nvmlVgpuVersion_t;
-typedef struct nvmlVgpuVmIdType_st                          nvmlVgpuVmIdType_t;
 /* Violation time — full definition so nvmlDeviceGetViolationStatus can
  * populate the caller's buffer (issue #636). Layout matches upstream. */
 typedef struct nvmlViolationTime_st

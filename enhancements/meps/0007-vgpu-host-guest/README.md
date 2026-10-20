@@ -306,6 +306,9 @@ The block is checked when the config loads, and each failure names the field:
   stays within that type's `max_instances`.
 - When the profile sets `memory.total_bytes`, the instances' framebuffer fits.
 - `guest` is refused under `host_vgpu`; `types` and `instances` under `vgpu`.
+- A `host_vgpu` config with MIG mode on, board-wide or for any one GPU, is
+  refused, and `nvmlDeviceSetMigMode` will not turn MIG on for a host: with
+  MIG on, a real host runs only the MIG-backed types this MEP leaves out.
 - A `guest` block names `host_driver_version` and `host_driver_branch`, each at
   most 10 bytes. `license.state` is `licensed` or `unlicensed`,
   `license.product` at most 127 bytes, `license.expiry` RFC 3339.
@@ -517,9 +520,8 @@ and creatable lists report once MIG is on.
 - **E2E**, a `vgpu` scenario with `vgpu-host` and `vgpu-guest` labels, run by
   `make e2e-vgpu` and its own CI job. The host specs reinstall the release in
   host mode and assert `nvidia-smi vgpu` and `nvidia-smi -q`; the guest specs
-  reinstall it in guest mode and assert `nvidia-smi -q`, and, gated on
-  `E2E_RUN_NGC` like the existing GFD scenario, run GFD over the rendered PCI
-  tree and assert its three labels.
+  reinstall it in guest mode, assert `nvidia-smi -q`, and assert the three
+  labels the GPU Operator's GFD sets on the node.
 
 ### Implementation
 

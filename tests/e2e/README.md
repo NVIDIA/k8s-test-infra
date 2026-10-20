@@ -61,7 +61,7 @@ CI splits the suite into parallel jobs.
 entirely as exclusions:
 
 ```make
-E2E_DEFAULT_LABEL_FILTER ?= !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig && !dra-compute-domain
+E2E_DEFAULT_LABEL_FILTER ?= !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig && !dra-compute-domain && !vgpu
 ```
 
 The filter is phrased that way because the standalone scenario has no scenario
@@ -143,6 +143,8 @@ tests that must not be scoped by `E2E_PROFILES`.
 | Node-wide NRI injection | `make e2e-nri` | `nri`, `nri-*`, `compute-domain`, `imex-channels` | Node Resource Interface (NRI) injection follows the allocation rules: a pod with no Mokka-specific spec sees exactly its device-plugin allocation, a `devices`-annotated pod with no GPU request sees every GPU, and a pod that asks for neither is left untouched |
 | NFD label provenance | `make e2e-nfd` | `nfd`, `nfd-provenance` | Node Feature Discovery (NFD) derives `feature.node.kubernetes.io/pci-10de.present` from the feature file the mock writes — and that the mock does not write the label itself. Pinned to `a100`, because the label is vendor-only and identical across profiles |
 | Container runtime setup | `make e2e` | `container-runtime` | The node daemon registers the `nvidia` handler with containerd on stock `kindest/node` as the default: a pod with `NVIDIA_VISIBLE_DEVICES` sees the node's mock GPUs, with or without `runtimeClassName: nvidia`, replacing the node pod sets the runtime up again, and a node that loses its node pod loses the handler |
+| MIG | `make e2e-mig` | `mig`, `mig-nvml`, `mig-caps`, `mig-device-plugin`, `mig-allocation`, `mig-runtime` | A MIG-capable board partitioned through `gpu.mig` enumerates its partitions through `nvidia-smi`, stages a capability node for each, and the upstream device plugin in `migStrategy=single` publishes and allocates one `nvidia.com/gpu` per partition; runtime repartitioning through `nvidia-smi mig` is followed. Profiles that cannot partition skip |
+| vGPU host and guest | `make e2e-vgpu` | `vgpu`, `vgpu-host`, `vgpu-guest` | Pinned to `a100`, and needs the GPU Operator rolled out (`tilt up -- --gpu-operator`). A vGPU host lists its configured instances under `nvidia-smi vgpu`; a guest reports a licensed vGPU in `nvidia-smi -q`, and the operator's GFD labels the node `nvidia.com/vgpu.*` from the PCI capability the node agent writes |
 
 ### Node-wide NRI injection
 
@@ -264,11 +266,12 @@ cluster, loads the image onto the nodes, and rolls it out with
 registry keeps this working on fork pull requests with no credentials.
 
 The scenario jobs run in parallel: `e2e`, `e2e-dra`, `e2e-compute-domain`,
-`e2e-gpu-operator`, `e2e-multi-node`, `e2e-nri`, `e2e-nfd` and `e2e-mig`. Each
-runs one GPU profile per matrix entry, with `fail-fast: false` so one profile's
-failure does not cancel the others. `e2e-nfd` is pinned to `a100`;
-`e2e-multi-node` has no matrix and uses its own fixed A100/T4 topology;
-`e2e-compute-domain` runs `gb200` on the two-rack cluster.
+`e2e-gpu-operator`, `e2e-multi-node`, `e2e-nri`, `e2e-nfd`, `e2e-mig` and
+`e2e-vgpu`. Each runs one GPU profile per matrix entry, with `fail-fast: false`
+so one profile's failure does not cancel the others. `e2e-nfd` and `e2e-vgpu`
+are pinned to `a100` and `e2e-mig` runs `h100` and `b200`; `e2e-multi-node` has
+no matrix and uses its own fixed A100/T4 topology; `e2e-compute-domain` runs
+`gb200` on the two-rack cluster.
 
 No job downloads IMEX from NVIDIA inside its cluster: `E2E_IMEX_DOWNLOAD=false`
 turns the `IMEXDownload` gate off in every install. The `prepare-imex` job

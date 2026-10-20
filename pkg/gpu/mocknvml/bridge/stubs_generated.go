@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 161 stub functions for unimplemented NVML functions.
+// 133 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceGetInfo_v1
@@ -64,11 +64,6 @@ func nvmlDeviceGetAccountingStats_v2(device C.nvmlDevice_t, stats *C.nvmlAccount
 	return stubReturn("nvmlDeviceGetAccountingStats_v2")
 }
 
-//export nvmlDeviceGetActiveVgpus
-func nvmlDeviceGetActiveVgpus(device C.nvmlDevice_t, vgpuCount *C.uint, vgpuInstances *C.nvmlVgpuInstance_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetActiveVgpus")
-}
-
 //export nvmlDeviceGetAttributes_v1
 func nvmlDeviceGetAttributes_v1(device C.nvmlDevice_t, attributes *C.nvmlDeviceAttributes_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetAttributes_v1")
@@ -92,11 +87,6 @@ func nvmlDeviceGetConfComputeGpuAttestationReport(device C.nvmlDevice_t, gpuAtst
 //export nvmlDeviceGetConfComputeGpuCertificate
 func nvmlDeviceGetConfComputeGpuCertificate(device C.nvmlDevice_t, gpuCert *C.nvmlConfComputeGpuCertificate_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetConfComputeGpuCertificate")
-}
-
-//export nvmlDeviceGetCreatableVgpus
-func nvmlDeviceGetCreatableVgpus(device C.nvmlDevice_t, vgpuCount *C.uint, vgpuTypeIds *C.nvmlVgpuTypeId_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetCreatableVgpus")
 }
 
 //export nvmlDeviceGetDramEncryptionMode
@@ -142,16 +132,6 @@ func nvmlDeviceGetGridLicensableFeatures_v2(device C.nvmlDevice_t, pGridLicensab
 //export nvmlDeviceGetGridLicensableFeatures_v3
 func nvmlDeviceGetGridLicensableFeatures_v3(device C.nvmlDevice_t, pGridLicensableFeatures *C.nvmlGridLicensableFeatures_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetGridLicensableFeatures_v3")
-}
-
-//export nvmlDeviceGetGridLicensableFeatures_v4
-func nvmlDeviceGetGridLicensableFeatures_v4(device C.nvmlDevice_t, pGridLicensableFeatures *C.nvmlGridLicensableFeatures_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetGridLicensableFeatures_v4")
-}
-
-//export nvmlDeviceGetHostVgpuMode
-func nvmlDeviceGetHostVgpuMode(device C.nvmlDevice_t, pHostVgpuMode *C.nvmlHostVgpuMode_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetHostVgpuMode")
 }
 
 //export nvmlDeviceGetHostname_v1
@@ -222,11 +202,6 @@ func nvmlDeviceGetSamples(device C.nvmlDevice_t, _type C.nvmlSamplingType_t, las
 //export nvmlDeviceGetSramUniqueUncorrectedEccErrorCounts
 func nvmlDeviceGetSramUniqueUncorrectedEccErrorCounts(device C.nvmlDevice_t, errorCounts *C.nvmlEccSramUniqueUncorrectedErrorCounts_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetSramUniqueUncorrectedEccErrorCounts")
-}
-
-//export nvmlDeviceGetSupportedVgpus
-func nvmlDeviceGetSupportedVgpus(device C.nvmlDevice_t, vgpuCount *C.uint, vgpuTypeIds *C.nvmlVgpuTypeId_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetSupportedVgpus")
 }
 
 //export nvmlDeviceGetUnrepairableMemoryFlag_v1
@@ -624,11 +599,6 @@ func nvmlVgpuInstanceClearAccountingPids(vgpuInstance C.nvmlVgpuInstance_t) C.nv
 	return stubReturn("nvmlVgpuInstanceClearAccountingPids")
 }
 
-//export nvmlVgpuInstanceGetAccountingMode
-func nvmlVgpuInstanceGetAccountingMode(vgpuInstance C.nvmlVgpuInstance_t, mode *C.nvmlEnableState_t) C.nvmlReturn_t {
-	return stubReturn("nvmlVgpuInstanceGetAccountingMode")
-}
-
 //export nvmlVgpuInstanceGetAccountingPids
 func nvmlVgpuInstanceGetAccountingPids(vgpuInstance C.nvmlVgpuInstance_t, count *C.uint, pids *C.uint) C.nvmlReturn_t {
 	return stubReturn("nvmlVgpuInstanceGetAccountingPids")
@@ -637,11 +607,6 @@ func nvmlVgpuInstanceGetAccountingPids(vgpuInstance C.nvmlVgpuInstance_t, count 
 //export nvmlVgpuInstanceGetAccountingStats
 func nvmlVgpuInstanceGetAccountingStats(vgpuInstance C.nvmlVgpuInstance_t, pid C.uint, stats *C.nvmlAccountingStats_t) C.nvmlReturn_t {
 	return stubReturn("nvmlVgpuInstanceGetAccountingStats")
-}
-
-//export nvmlVgpuInstanceGetEccMode
-func nvmlVgpuInstanceGetEccMode(vgpuInstance C.nvmlVgpuInstance_t, eccMode *C.nvmlEnableState_t) C.nvmlReturn_t {
-	return stubReturn("nvmlVgpuInstanceGetEccMode")
 }
 
 //export nvmlVgpuInstanceGetEncoderCapacity
@@ -654,34 +619,9 @@ func nvmlVgpuInstanceGetEncoderSessions(vgpuInstance C.nvmlVgpuInstance_t, sessi
 	return stubReturn("nvmlVgpuInstanceGetEncoderSessions")
 }
 
-//export nvmlVgpuInstanceGetEncoderStats
-func nvmlVgpuInstanceGetEncoderStats(vgpuInstance C.nvmlVgpuInstance_t, sessionCount *C.uint, averageFps *C.uint, averageLatency *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlVgpuInstanceGetEncoderStats")
-}
-
 //export nvmlVgpuInstanceGetFBCSessions
 func nvmlVgpuInstanceGetFBCSessions(vgpuInstance C.nvmlVgpuInstance_t, sessionCount *C.uint, sessionInfo *C.nvmlFBCSessionInfo_t) C.nvmlReturn_t {
 	return stubReturn("nvmlVgpuInstanceGetFBCSessions")
-}
-
-//export nvmlVgpuInstanceGetFBCStats
-func nvmlVgpuInstanceGetFBCStats(vgpuInstance C.nvmlVgpuInstance_t, fbcStats *C.nvmlFBCStats_t) C.nvmlReturn_t {
-	return stubReturn("nvmlVgpuInstanceGetFBCStats")
-}
-
-//export nvmlVgpuInstanceGetFbUsage
-func nvmlVgpuInstanceGetFbUsage(vgpuInstance C.nvmlVgpuInstance_t, fbUsage *C.ulonglong) C.nvmlReturn_t {
-	return stubReturn("nvmlVgpuInstanceGetFbUsage")
-}
-
-//export nvmlVgpuInstanceGetFrameRateLimit
-func nvmlVgpuInstanceGetFrameRateLimit(vgpuInstance C.nvmlVgpuInstance_t, frameRateLimit *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlVgpuInstanceGetFrameRateLimit")
-}
-
-//export nvmlVgpuInstanceGetGpuInstanceId
-func nvmlVgpuInstanceGetGpuInstanceId(vgpuInstance C.nvmlVgpuInstance_t, gpuInstanceId *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlVgpuInstanceGetGpuInstanceId")
 }
 
 //export nvmlVgpuInstanceGetGpuPciId
@@ -692,11 +632,6 @@ func nvmlVgpuInstanceGetGpuPciId(vgpuInstance C.nvmlVgpuInstance_t, vgpuPciId *C
 //export nvmlVgpuInstanceGetLicenseInfo_v1
 func nvmlVgpuInstanceGetLicenseInfo_v1(vgpuInstance C.nvmlVgpuInstance_t, licenseInfo *C.nvmlVgpuLicenseInfo_t) C.nvmlReturn_t {
 	return stubReturn("nvmlVgpuInstanceGetLicenseInfo_v1")
-}
-
-//export nvmlVgpuInstanceGetLicenseInfo_v2
-func nvmlVgpuInstanceGetLicenseInfo_v2(vgpuInstance C.nvmlVgpuInstance_t, licenseInfo *C.nvmlVgpuLicenseInfo_t) C.nvmlReturn_t {
-	return stubReturn("nvmlVgpuInstanceGetLicenseInfo_v2")
 }
 
 //export nvmlVgpuInstanceGetLicenseStatus
@@ -724,26 +659,6 @@ func nvmlVgpuInstanceGetRuntimeStateSize(vgpuInstance C.nvmlVgpuInstance_t, pSta
 	return stubReturn("nvmlVgpuInstanceGetRuntimeStateSize")
 }
 
-//export nvmlVgpuInstanceGetType
-func nvmlVgpuInstanceGetType(vgpuInstance C.nvmlVgpuInstance_t, vgpuTypeId *C.nvmlVgpuTypeId_t) C.nvmlReturn_t {
-	return stubReturn("nvmlVgpuInstanceGetType")
-}
-
-//export nvmlVgpuInstanceGetUUID
-func nvmlVgpuInstanceGetUUID(vgpuInstance C.nvmlVgpuInstance_t, uuid *C.char, size C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlVgpuInstanceGetUUID")
-}
-
-//export nvmlVgpuInstanceGetVmDriverVersion
-func nvmlVgpuInstanceGetVmDriverVersion(vgpuInstance C.nvmlVgpuInstance_t, version *C.char, length C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlVgpuInstanceGetVmDriverVersion")
-}
-
-//export nvmlVgpuInstanceGetVmID
-func nvmlVgpuInstanceGetVmID(vgpuInstance C.nvmlVgpuInstance_t, vmId *C.char, size C.uint, vmIdType *C.nvmlVgpuVmIdType_t) C.nvmlReturn_t {
-	return stubReturn("nvmlVgpuInstanceGetVmID")
-}
-
 //export nvmlVgpuInstanceSetEncoderCapacity
 func nvmlVgpuInstanceSetEncoderCapacity(vgpuInstance C.nvmlVgpuInstance_t, encoderCapacity C.uint) C.nvmlReturn_t {
 	return stubReturn("nvmlVgpuInstanceSetEncoderCapacity")
@@ -759,34 +674,9 @@ func nvmlVgpuTypeGetCapabilities(vgpuTypeId C.nvmlVgpuTypeId_t, capability C.nvm
 	return stubReturn("nvmlVgpuTypeGetCapabilities")
 }
 
-//export nvmlVgpuTypeGetClass
-func nvmlVgpuTypeGetClass(vgpuTypeId C.nvmlVgpuTypeId_t, vgpuTypeClass *C.char, size *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlVgpuTypeGetClass")
-}
-
-//export nvmlVgpuTypeGetDeviceID
-func nvmlVgpuTypeGetDeviceID(vgpuTypeId C.nvmlVgpuTypeId_t, deviceID *C.ulonglong, subsystemID *C.ulonglong) C.nvmlReturn_t {
-	return stubReturn("nvmlVgpuTypeGetDeviceID")
-}
-
 //export nvmlVgpuTypeGetFbReservation
 func nvmlVgpuTypeGetFbReservation(vgpuTypeId C.nvmlVgpuTypeId_t, fbReservation *C.ulonglong) C.nvmlReturn_t {
 	return stubReturn("nvmlVgpuTypeGetFbReservation")
-}
-
-//export nvmlVgpuTypeGetFrameRateLimit
-func nvmlVgpuTypeGetFrameRateLimit(vgpuTypeId C.nvmlVgpuTypeId_t, frameRateLimit *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlVgpuTypeGetFrameRateLimit")
-}
-
-//export nvmlVgpuTypeGetFramebufferSize
-func nvmlVgpuTypeGetFramebufferSize(vgpuTypeId C.nvmlVgpuTypeId_t, fbSize *C.ulonglong) C.nvmlReturn_t {
-	return stubReturn("nvmlVgpuTypeGetFramebufferSize")
-}
-
-//export nvmlVgpuTypeGetGpuInstanceProfileId
-func nvmlVgpuTypeGetGpuInstanceProfileId(vgpuTypeId C.nvmlVgpuTypeId_t, gpuInstanceProfileId *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlVgpuTypeGetGpuInstanceProfileId")
 }
 
 //export nvmlVgpuTypeGetGspHeapSize
@@ -794,37 +684,7 @@ func nvmlVgpuTypeGetGspHeapSize(vgpuTypeId C.nvmlVgpuTypeId_t, gspHeapSize *C.ul
 	return stubReturn("nvmlVgpuTypeGetGspHeapSize")
 }
 
-//export nvmlVgpuTypeGetLicense
-func nvmlVgpuTypeGetLicense(vgpuTypeId C.nvmlVgpuTypeId_t, vgpuTypeLicenseString *C.char, size C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlVgpuTypeGetLicense")
-}
-
-//export nvmlVgpuTypeGetMaxInstances
-func nvmlVgpuTypeGetMaxInstances(device C.nvmlDevice_t, vgpuTypeId C.nvmlVgpuTypeId_t, vgpuInstanceCount *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlVgpuTypeGetMaxInstances")
-}
-
 //export nvmlVgpuTypeGetMaxInstancesPerGpuInstance
 func nvmlVgpuTypeGetMaxInstancesPerGpuInstance(pMaxInstance *C.nvmlVgpuTypeMaxInstance_t) C.nvmlReturn_t {
 	return stubReturn("nvmlVgpuTypeGetMaxInstancesPerGpuInstance")
-}
-
-//export nvmlVgpuTypeGetMaxInstancesPerVm
-func nvmlVgpuTypeGetMaxInstancesPerVm(vgpuTypeId C.nvmlVgpuTypeId_t, vgpuInstanceCountPerVm *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlVgpuTypeGetMaxInstancesPerVm")
-}
-
-//export nvmlVgpuTypeGetName
-func nvmlVgpuTypeGetName(vgpuTypeId C.nvmlVgpuTypeId_t, vgpuTypeName *C.char, size *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlVgpuTypeGetName")
-}
-
-//export nvmlVgpuTypeGetNumDisplayHeads
-func nvmlVgpuTypeGetNumDisplayHeads(vgpuTypeId C.nvmlVgpuTypeId_t, numDisplayHeads *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlVgpuTypeGetNumDisplayHeads")
-}
-
-//export nvmlVgpuTypeGetResolution
-func nvmlVgpuTypeGetResolution(vgpuTypeId C.nvmlVgpuTypeId_t, displayIndex C.uint, xdim *C.uint, ydim *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlVgpuTypeGetResolution")
 }

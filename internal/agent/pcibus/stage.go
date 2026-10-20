@@ -168,12 +168,16 @@ func buildIdentities(state *agent.State) map[string]pcisysfs.PCI {
 			continue
 		}
 
-		ids[strings.ToLower(d.PCIBusID)] = pcisysfs.PCI{
+		id := pcisysfs.PCI{
 			BusID:       d.PCIBusID,
 			DeviceID:    d.PCIDeviceID,
 			SubsystemID: d.PCISubsystemID,
 			Class:       pcisysfs.PCIClass3DController,
 		}
+		if g := d.VGPUGuest; g != nil {
+			id.VGPUHostDriver = &pcisysfs.VGPUHostDriver{Version: g.HostDriverVersion, Branch: g.HostDriverBranch}
+		}
+		ids[strings.ToLower(d.PCIBusID)] = id
 	}
 
 	for _, sw := range state.Switches {

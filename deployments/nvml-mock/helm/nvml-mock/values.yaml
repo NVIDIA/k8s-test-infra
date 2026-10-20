@@ -104,6 +104,19 @@ gpu:
     # -- GPU instance layout to create on each simulated device.
     gpuInstances: []
 
+  # vGPU simulation. "host" makes every GPU a vGPU host — a hypervisor's
+  # physical GPU running the vGPU manager — with the types and instances below;
+  # "guest" makes every GPU the vGPU a VM sees. "" leaves them bare metal.
+  # No profile ships a type list: which types a board offers depends on the
+  # vGPU software release, so an install declares its own. Field reference:
+  # docs/vgpu.md.
+  vgpu:
+    mode: ""
+    hostVgpuMode: sriov
+    types: []
+    instances: []
+    guest: {}
+
 image:
   # -- Container image repository for the node agent.
   repository: ghcr.io/nvidia/nvml-mock

@@ -41,6 +41,7 @@ was removed after
 - **DRA Driver** (Helm chart): discovers mock GPUs via NVML, publishes ResourceSlices, and schedules a pod with a ResourceClaim (`e2e-dra`, 6 profiles)
 - **Node Feature Discovery** (Helm chart): derives the PCI vendor label from the feature file nvml-mock writes, not nvml-mock itself (`e2e-nfd`)
 - **GPU Operator** (Helm chart + values overlay): its own device plugin, GFD, dcgm-exporter and validator operands (`e2e-gpu-operator`, 6 profiles) — see the overlay section below
+- **vGPU** (`scenario_vgpu_test.go`): the stock `nvidia-smi` reads a vGPU host's types and running instances, and a licensed vGPU guest (`e2e-vgpu`, a100). The job installs the GPU Operator, whose GFD operand labels the guest node `nvidia.com/vgpu.*` from the PCI capability.
 
 ### Values Overlay Only (GPU Operator)
 The GPU Operator is tested via a values overlay (`gpu-operator-values.yaml`) that:

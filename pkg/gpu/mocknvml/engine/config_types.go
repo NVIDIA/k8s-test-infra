@@ -754,6 +754,66 @@ type AccountingConfig struct {
 type VirtualizationConfig struct {
 	Mode         string `json:"mode,omitempty"`
 	HostVGPUMode string `json:"host_vgpu_mode,omitempty"`
+	// VGPU carries the side of the hypervisor Mode selects: types and running
+	// instances for a host (host_vgpu), the guest block for the vGPU a VM sees
+	// (vgpu).
+	VGPU *VGPUConfig `json:"vgpu,omitempty"`
+}
+
+// VGPUConfig is the vGPU block of a virtualized GPU.
+type VGPUConfig struct {
+	Types     []VGPUTypeConfig     `json:"types,omitempty"`
+	Instances []VGPUInstanceConfig `json:"instances,omitempty"`
+	Guest     *VGPUGuestConfig     `json:"guest,omitempty"`
+}
+
+// VGPUTypeConfig declares one vGPU type a host GPU supports. Installs name the
+// types themselves: which a board offers depends on the vGPU software release,
+// not on the silicon.
+type VGPUTypeConfig struct {
+	ID                   uint32          `json:"id"`
+	Name                 string          `json:"name"`
+	Class                string          `json:"class,omitempty"`
+	FramebufferMiB       uint64          `json:"framebuffer_mib"`
+	MaxInstances         uint32          `json:"max_instances"`
+	MaxInstancesPerVM    uint32          `json:"max_instances_per_vm,omitempty"`
+	License              string          `json:"license,omitempty"`
+	NumDisplayHeads      uint32          `json:"num_display_heads,omitempty"`
+	Resolution           *VGPUResolution `json:"resolution,omitempty"`
+	FrameRateLimit       uint32          `json:"frame_rate_limit,omitempty"`
+	GPUInstanceProfileID *uint32         `json:"gpu_instance_profile_id,omitempty"`
+	// DeviceID and SubsystemID are the PCI identity the type presents to its
+	// guest, encoded as in PCIConfig. Zero takes the board's.
+	DeviceID    uint32 `json:"device_id,omitzero"`
+	SubsystemID uint32 `json:"subsystem_id,omitzero"`
+}
+
+// VGPUResolution is a vGPU type's maximum display resolution.
+type VGPUResolution struct {
+	Width  uint32 `json:"width"`
+	Height uint32 `json:"height"`
+}
+
+// VGPUInstanceConfig asks for Count running instances of the named type. An
+// omitted count is one instance, as in a MIG layout.
+type VGPUInstanceConfig struct {
+	Type  string `json:"type"`
+	Count int    `json:"count,omitempty"`
+}
+
+// VGPUGuestConfig is what a VM learns about its host from the vGPU: the host
+// driver, through a PCI vendor capability, and the license the guest holds.
+type VGPUGuestConfig struct {
+	HostDriverVersion string             `json:"host_driver_version"`
+	HostDriverBranch  string             `json:"host_driver_branch"`
+	License           *VGPULicenseConfig `json:"license,omitempty"`
+}
+
+// VGPULicenseConfig is the vGPU software license a guest holds.
+type VGPULicenseConfig struct {
+	Product string `json:"product,omitempty"`
+	State   string `json:"state,omitempty"`
+	Expiry  string `json:"expiry,omitempty"`
 }
 
 // GSPFirmwareConfig defines GSP firmware settings

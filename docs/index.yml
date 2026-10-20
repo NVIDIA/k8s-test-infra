@@ -36,6 +36,8 @@ navigation:
             path: feature-gates.md
           - page: MIG
             path: mig.md
+          - page: vGPU
+            path: vgpu.md
           - page: Helm Chart Values
             path: helm-chart-values.md
           - page: Control Plane API
@@ -90,6 +92,8 @@ navigation:
             path: guides/nri-injection.md
           - page: MIG Partitioning
             path: guides/mig/README.md
+          - page: vGPU Host and Guest
+            path: guides/vgpu/README.md
           - page: Use in CI/CD
             path: guides/ci-cd.md
           - page: Runtime Control
