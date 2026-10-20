@@ -245,3 +245,56 @@ func TestRewriteOverflowFailsClosed(t *testing.T) {
 	require.Contains(t, strings.ToLower(string(out)), "too long",
 		"expected an ENAMETOOLONG error, got: %s", out)
 }
+
+// MOCK_KERNEL_ROOT, when set, takes the kernel files over from MOCK_PCI_ROOT,
+// so the two trees can live apart.
+func TestKernelRootOverridesThePCIRoot(t *testing.T) {
+	requireLinux(t)
+	shim := requireShim(t)
+
+	pciRoot := t.TempDir()
+	renderBasicTree(t, pciRoot)
+	kernelRoot := t.TempDir()
+	_, err := kmod.Render(kmod.Options{Modules: kmod.Modules("550.163.01", false), OverlayRoot: kernelRoot})
+	require.NoError(t, err)
+
+	env := append(os.Environ(), "LD_PRELOAD="+shim, "MOCK_PCI_ROOT="+pciRoot, "MOCK_KERNEL_ROOT="+kernelRoot)
+
+	refcnt := exec.Command("cat", "/sys/module/nvidia/refcnt")
+	refcnt.Env = env
+	out, err := refcnt.CombinedOutput()
+	require.NoError(t, err, "cat refcnt failed: %s", out)
+	require.Equal(t, "4\n", string(out))
+
+	link := exec.Command("readlink", "/sys/bus/pci/devices/0000:07:00.0")
+	link.Env = env
+	out, err = link.CombinedOutput()
+	require.NoError(t, err, "readlink failed: %s", out)
+	require.Contains(t, string(out), "pci0000:00/0000:07:00.0")
+}
+
+// An empty MOCK_KERNEL_ROOT leaves the kernel files to the kernel, as on a node
+// that loads the simulated driver modules, while PCI sysfs stays redirected.
+func TestEmptyKernelRootLeavesTheKernelFilesLive(t *testing.T) {
+	requireLinux(t)
+	shim := requireShim(t)
+
+	root := t.TempDir()
+	renderBasicTree(t, root)
+	require.NoError(t, fsutil.Write(filepath.Join(root, kmod.ProcModulesRelPath),
+		[]byte("mokka_sentinel 4096 0 - Live 0x0000000000000000\n"), 0o644))
+
+	env := append(os.Environ(), "LD_PRELOAD="+shim, "MOCK_PCI_ROOT="+root, "MOCK_KERNEL_ROOT=")
+
+	modules := exec.Command("cat", "/proc/modules")
+	modules.Env = env
+	out, err := modules.CombinedOutput()
+	require.NoError(t, err, "cat /proc/modules failed: %s", out)
+	require.NotContains(t, string(out), "mokka_sentinel", "the node's own module list, not the staged one")
+
+	link := exec.Command("readlink", "/sys/bus/pci/devices/0000:07:00.0")
+	link.Env = env
+	out, err = link.CombinedOutput()
+	require.NoError(t, err, "readlink failed: %s", out)
+	require.Contains(t, string(out), "pci0000:00/0000:07:00.0")
+}
