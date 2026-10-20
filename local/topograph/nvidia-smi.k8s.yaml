@@ -1,0 +1,46 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# The pod topograph's node data broker runs nvidia-smi in, one per mock-GPU
+# worker. It stands in for the GPU Operator device plugin topograph targets on
+# real hardware: a GPU consumer that sees the node's driver.
+#
+# Not the nvml-mock pod itself: topograph's exec names no container, so it
+# lands in nvml-mock's only regular container (the NRI plugin), which has no
+# mock driver and answers [N/A].
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: topograph
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nvidia-smi
+  namespace: topograph
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nvidia-smi
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nvidia-smi
+      annotations:
+        # Without a GPU allocation, the NRI plugin injects the mock driver and
+        # every mock GPU on the node. It skips the default and kube-system
+        # namespaces, hence this one.
+        nvml-mock.nvidia.com/devices: "true"
+    spec:
+      nodeSelector:
+        mokka.nvidia.com/type: sgpu
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: nvidia-smi
+          # Any glibc image: nvidia-smi and libnvidia-ml come from the overlay.
+          image: ubuntu:24.04
+          command: ["sleep", "infinity"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi

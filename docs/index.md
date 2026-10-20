@@ -80,6 +80,7 @@ topology, counters and failures are synthesised.
 | DCGM / dcgm-exporter     | Telemetry, time-varying power, and injected Xid errors                                    |
 | Run:ai fake-gpu-operator | Profile ConfigMaps published in the shape its discovery expects                           |
 | Slurm via Slinky         | `slurmd` autodetects the GPUs as GRES, and `srun --gres=gpu:N` jobs schedule against them |
+| Topograph                | NVLink cliques become per-node accelerator-domain labels for topology-aware schedulers    |
 
 ## Where to go next
 

@@ -56,8 +56,8 @@ assert_clique() {
 }
 
 assert_clique worker-0 0 "${SPINE1_UUID}"
-assert_clique worker-1 1 "${SPINE1_UUID}"
+assert_clique worker-1 0 "${SPINE1_UUID}"
 assert_clique worker-2 0 "${SPINE2_UUID}"
-assert_clique worker-3 1 "${SPINE2_UUID}"
+assert_clique worker-3 0 "${SPINE2_UUID}"
 
 printf '\n==> Scenario 1 passed: 4/4 workers report expected fabric identity.\n'

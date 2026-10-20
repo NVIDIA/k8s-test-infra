@@ -644,7 +644,7 @@ test-e2e-framework:
 KIND_NODE_IMAGE   ?= kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
 # Cluster profile (select via PROFILE=<name>):
 #   - PROFILE=default (default)  local/kind/default.kind.yaml        (1 CP + 2 workers labelled a100 / t4)
-#   - PROFILE=compute-domain     local/kind/compute-domain.kind.yaml (1 CP + 4 workers labelled clique 0 / 1)
+#   - PROFILE=compute-domain     local/kind/compute-domain.kind.yaml (1 CP + 4 workers in two cliques of two)
 # Consumer selection (--gpu-operator / --dra / --fgo / --multi-gpu-profile)
 # happens in the Tiltfile — the default cluster shape supports every consumer
 # scenario without a rebuild.

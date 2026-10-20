@@ -45,9 +45,7 @@ kubectl get pods -n gpu-operator -o wide                                # FGO, o
 
 ### topograph
 
-`--topograph` writes `network.topology.nvidia.com/{accelerator,tier-0,tier-1,...}`
-labels on every node, derived from the clique labels of the compute-domain cluster.
-Topology-aware schedulers (KAI, Kueue TAS) consume them. `--dra` is optional.
+See [topograph/README.md](topograph/README.md).
 
 ### Observability
 

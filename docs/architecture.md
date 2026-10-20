@@ -9,7 +9,7 @@ The lower level we operate, the better here as we expand the number of real work
 ![Mokka General Architecture](./img/mokka-general-architecture.png)
 
 Higher level applications are our consumers:
-- platform components such as [nvidia-smi](https://docs.nvidia.com/deploy/nvidia-smi/index.html), [K8s DRA driver](https://github.com/kubernetes-sigs/dra-driver-nvidia-gpu), [NFD](https://github.com/kubernetes-sigs/node-feature-discovery), [GPU Operator](https://github.com/nvidia/gpu-operator), [Network Operator](https://github.com/Mellanox/network-operator), [Topograph](https://github.com/NVIDIA/topograph), etc.
+- platform components such as [nvidia-smi](https://docs.nvidia.com/deploy/nvidia-smi/index.html), [K8s DRA driver](https://github.com/kubernetes-sigs/dra-driver-nvidia-gpu), [NFD](https://github.com/kubernetes-sigs/node-feature-discovery), [GPU Operator](https://github.com/nvidia/gpu-operator), [Network Operator](https://github.com/Mellanox/network-operator), [Topograph](https://github.com/dsx-ai-factory/topograph), etc.
 - applications like [Slurm](https://github.com/SlinkyProject/slurm-operator), [NVSentinel](https://github.com/nvidia/nvsentinel), etc.
 
 We don't try to mock a specific higher layer component or use case, but rather focus on the simulation of contracts between lower and higher layers.
