@@ -13,7 +13,8 @@
  * shim to interpose on, and no file tree that can produce the right answer.
  *
  * This module exists so the kernel produces that surface itself. It drives no
- * hardware and moves no data; loading it is the entire behaviour.
+ * hardware and moves no data. Beyond being loaded, it answers the handful of
+ * ioctls a client enumerates GPUs with; see nvidia_ioctl.c.
  */
 
 #include <linux/fs.h>
@@ -60,6 +61,18 @@ module_param_named(NVreg_EnableResizableBar, mokka_nvreg_enable_resizable_bar, u
 MODULE_PARM_DESC(NVreg_EnableResizableBar, "Whether resizable BAR is enabled");
 
 /*
+ * The GPU Operator's driver container passes this on every load from R580 on.
+ * Declared so that it loads without an "unknown parameter" warning and reads
+ * back under /sys/module/nvidia/parameters as on a real node; nothing here
+ * acts on it.
+ */
+static char *mokka_nvreg_coherent_gpu_memory_mode;
+module_param_named(NVreg_CoherentGPUMemoryMode, mokka_nvreg_coherent_gpu_memory_mode,
+		   charp, 0444);
+MODULE_PARM_DESC(NVreg_CoherentGPUMemoryMode,
+		 "Who manages the GPU memory of coherent platforms: driver or kernel");
+
+/*
  * Mokka-prefixed because it is a simulation control rather than a simulated
  * NVreg_* surface. Anyone listing /sys/module/nvidia/parameters/ should be able
  * to tell the two apart at a glance -- a node running this module is meant to
@@ -72,8 +85,8 @@ MODULE_PARM_DESC(NVreg_EnableResizableBar, "Whether resizable BAR is enabled");
 char *mokka_gpus;
 module_param_named(mokka_gpus, mokka_gpus, charp, 0444);
 MODULE_PARM_DESC(mokka_gpus,
-		 "Comma-separated GPU records \"<bdf>|<uuid>|<model>|<minor>\", rendered "
-		 "under /proc/driver/nvidia/gpus/");
+		 "Comma-separated GPU records \"<bdf>|<uuid>|<model>|<minor>[|<pci-device-id>]\"; "
+		 "quote the value if a model name has spaces");
 
 /*
  * Referenced by nvidia_uvm, nvidia_modeset and nvidia_peermem. noinline so the
@@ -88,24 +101,23 @@ noinline void mokka_nvidia_rm_anchor(const char *client)
 EXPORT_SYMBOL(mokka_nvidia_rm_anchor);
 
 /*
- * Minimal enough to make open() succeed and no more. Mokka's NVML and CUDA
- * simulation lives in userspace shims that never ioctl the device, so a real
- * ioctl surface would have no caller; -ENOTTY is what an unimplemented ioctl is
- * supposed to return, and it keeps the failure honest for anything that tries.
+ * The real driver refuses to open a GPU minor it has no GPU for with -ENODEV,
+ * so a client probing /dev/nvidia<N> finds exactly the GPUs mokka_gpus
+ * declares. nvidiactl and the modeset node are device-wide and always open.
  */
 static int mokka_nv_open(struct inode *inode, struct file *file)
 {
-	return 0;
+	unsigned int minor = iminor(inode);
+
+	if (minor == MOKKA_NV_MINOR_CONTROL || minor == MOKKA_NV_MINOR_MODESET)
+		return 0;
+
+	return mokka_nv_gpu_by_minor(minor) ? 0 : -ENODEV;
 }
 
 static int mokka_nv_release(struct inode *inode, struct file *file)
 {
 	return 0;
-}
-
-static long mokka_nv_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
-{
-	return -ENOTTY;
 }
 
 static const struct file_operations mokka_nv_fops = {
@@ -120,33 +132,44 @@ static int __init mokka_nvidia_init(void)
 {
 	int ret;
 
+	ret = mokka_nv_gpus_init();
+	if (ret < 0)
+		return ret;
+
+	ret = mokka_nv_procfs_init();
+	if (ret < 0)
+		goto free_gpus;
+
 	/*
 	 * Claims the whole major, which covers the per-GPU minors, nvidiactl at
 	 * 255 and nvidia-modeset at 254 in one call -- the same span the real
-	 * driver serves. Until something registers it, the nodes gpudriver
-	 * mknods are unopenable, and /proc/devices carries no nvidia line for
-	 * nvidia-container-cli to find.
+	 * driver serves. Registered last, as upstream registers it: an open can
+	 * arrive the moment the major exists, and must find the GPU table built.
 	 */
 	ret = register_chrdev(MOKKA_NV_MAJOR, "nvidia", &mokka_nv_fops);
 	if (ret < 0) {
 		pr_err("nvidia: cannot register major %d: %d\n", MOKKA_NV_MAJOR, ret);
-		return ret;
+		goto remove_procfs;
 	}
 
-	ret = mokka_nv_procfs_init();
-	if (ret < 0) {
-		unregister_chrdev(MOKKA_NV_MAJOR, "nvidia");
-		return ret;
-	}
+	pr_info("nvidia: Mokka simulated NVRM version %s loaded with %u GPU(s)\n",
+		MOKKA_NVRM_VERSION, mokka_nv_gpu_count());
 
-	pr_info("nvidia: Mokka simulated NVRM version %s loaded\n", MOKKA_NVRM_VERSION);
 	return 0;
+
+remove_procfs:
+	mokka_nv_procfs_exit();
+free_gpus:
+	mokka_nv_gpus_exit();
+
+	return ret;
 }
 
 static void __exit mokka_nvidia_exit(void)
 {
-	mokka_nv_procfs_exit();
 	unregister_chrdev(MOKKA_NV_MAJOR, "nvidia");
+	mokka_nv_procfs_exit();
+	mokka_nv_gpus_exit();
 	pr_info("nvidia: Mokka simulated NVRM unloaded\n");
 }
 
@@ -160,6 +183,6 @@ MODULE_VERSION(MOKKA_NVRM_VERSION);
  * "Dual MIT/GPL" is what NVIDIA's open kernel modules declare, so modinfo
  * matches the real thing and the kernel is not tainted. The repository's
  * Apache-2.0 licence is not GPLv2-compatible and is not a string the kernel
- * recognises, so these sources are separately licensed -- see REUSE.toml.
+ * recognises, so these sources are separately licensed -- see README.md.
  */
 MODULE_LICENSE("Dual MIT/GPL");

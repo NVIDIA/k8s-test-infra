@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  tilt: `--gpu-operator-driver` runs the GPU Operator driver installer on worker-0, and `make colima-cluster-create` creates the Kind cluster in a Colima VM whose kernel it can build modules for.
+time: 2026-10-19T18:27:00Z

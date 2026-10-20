@@ -263,7 +263,8 @@
       "properties": {
         "AllAlpha": { "type": "boolean" },
         "AllBeta": { "type": "boolean" },
-        "IMEXDownload": { "type": "boolean" }
+        "IMEXDownload": { "type": "boolean" },
+        "GPUOperatorDriver": { "type": "boolean" }
       }
     },
     "driverVersion": { "type": "string" },

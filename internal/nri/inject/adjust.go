@@ -55,6 +55,9 @@ func Adjust(cfg Config, container Container) (Adjustment, bool) {
 	if sel.imex {
 		attachIMEXChannels(cfg, &adjustment)
 	}
+	if !attachDriverInstaller(cfg, sel, container, &adjustment) {
+		return Adjustment{}, false
+	}
 
 	zap.L().Debug("injecting container",
 		zap.String("namespace", container.Namespace),
@@ -73,8 +76,9 @@ func Skip(cfg Config, container Container) (reason string, skipped bool) {
 }
 
 // selection records which surfaces a container asked for. It is derived from
-// the container alone, never from the node's staged tree. GPU, InfiniBand and
-// IMEX are chosen independently; none of them implies another.
+// the container alone, never from the node's staged tree. GPU, InfiniBand,
+// IMEX and the driver installer's kernel modules are chosen independently;
+// none of them implies another.
 type selection struct {
 	// allocated: the container holds a device-plugin or DRA GPU allocation,
 	// which it keeps exactly.
@@ -91,6 +95,10 @@ type selection struct {
 	// a container is routed before the opt-in checks: the DRA ComputeDomain
 	// daemon carries no allocation or annotation at CreateContainer.
 	workload *specializedWorkload
+	// driver: the GPU Operator's driver installer, which loads the simulated
+	// kernel modules in place of the real ones it builds. It is chosen by
+	// identity rather than by annotation, because the operator authors that pod.
+	driver bool
 }
 
 // decide is the single source of truth shared by Adjust and Skip.
@@ -113,17 +121,24 @@ func decide(cfg Config, container Container) (sel selection, reason string, skip
 		management: container.annotated(cfg.DeviceAnnotation, "true") && !allocated,
 		infiniband: container.annotated(cfg.InfiniBandAnnotation, "true"),
 		imex:       container.annotated(cfg.ImexChannelAnnotation, "true"),
+		driver:     cfg.GPUOperatorDriver && isGPUOperatorDriver(container),
 	}
-	if !sel.gpu() && !sel.infiniband && !sel.imex {
+	if !sel.any() {
 		return sel, "no GPU allocation and no opt-in annotation", true
 	}
 	if hasOverlay(cfg, container) {
 		return sel, "overlay already mounted", true
 	}
+	if sel.driver && hasKernelModules(container) {
+		return sel, "kernel modules already mounted", true
+	}
 	return sel, "", false
 }
 
 func (s selection) gpu() bool { return s.allocated || s.management }
+
+// any reports whether the container asked for anything at all.
+func (s selection) any() bool { return s.gpu() || s.infiniband || s.imex || s.driver }
 
 // skip applies the explicit exclusions: the opt-out annotation and excluded
 // namespaces.

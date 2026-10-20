@@ -1,0 +1,56 @@
+#!/bin/sh
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Loads a simulated NVIDIA module in place of the real one. modprobe runs this
+# through the install directives the node agent stages, so whatever loads the
+# driver with `modprobe nvidia` -- the GPU Operator's driver container among
+# them -- gets the simulated module family without being changed.
+#
+# Usage: load <module> [parameter...]
+#
+# The modules are compiled on first use against the running kernel, as the
+# driver container compiles the real ones: a module loads only into the kernel
+# it was built for, and that kernel is known only on the node.
+set -eu
+
+module=$1
+shift
+
+# The sources may sit on a read-only mount, so the build goes elsewhere.
+src=$(cd "$(dirname "$0")" && pwd)
+kver=$(uname -r)
+
+# Every driver client opens with a version handshake and gives up on a
+# mismatch, so the simulated module has to carry the version of the userspace
+# components installed beside it. The real module this call replaces carries
+# exactly that version.
+version=$(modinfo -F version nvidia 2>/dev/null || true)
+version=${version:-${DRIVER_VERSION:-}}
+if [ -z "$version" ]; then
+    echo "load: cannot tell which driver version to simulate: no nvidia module is installed and DRIVER_VERSION is unset" >&2
+    exit 1
+fi
+
+dist=${MOKKA_KMOD_BUILD_DIR:-/var/cache/mokka/nvidia-kmod}/$kver/$version
+if [ ! -f "$dist/$module.ko" ]; then
+    make -C "$src" KVER="$kver" DIST="$dist" NVRM_VERSION="$version" >&2
+fi
+
+# GPU identity arrives as a module parameter at load time, which is when the
+# real driver learns it from PCI. MOKKA_GPUS overrides the records the node
+# agent staged beside this script, and a value passed through modprobe options
+# overrides both. The quotes are for the kernel's parameter parser, so model
+# names may contain spaces.
+gpus=${MOKKA_GPUS:-}
+if [ -z "$gpus" ] && [ -f "$src/gpus" ]; then
+    gpus=$(cat "$src/gpus")
+fi
+if [ "$module" = nvidia ] && [ -n "$gpus" ]; then
+    case " $* " in
+    *" mokka_gpus="*) ;;
+    *) set -- "$@" "mokka_gpus=\"$gpus\"" ;;
+    esac
+fi
+
+exec insmod "$dist/$module.ko" "$@"

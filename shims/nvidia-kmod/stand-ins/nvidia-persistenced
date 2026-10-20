@@ -1,0 +1,14 @@
+#!/bin/sh
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Stands in for nvidia-persistenced in the GPU Operator's driver container,
+# which finds this directory first on its PATH. The real daemon keeps GPUs
+# initialized through the Resource Manager, which the simulated modules do not
+# implement, so it cannot start. The container's userspace-only install, the
+# one it runs over a driver it can keep loaded, treats that failure as fatal:
+# it unloads the driver instead, or crash-loops while a workload holds it. A
+# simulated GPU has no state to keep, and the mock NVML reports persistence
+# mode itself.
+echo "nvidia-persistenced: not started: the simulated driver keeps no GPU state" >&2
+exit 0
