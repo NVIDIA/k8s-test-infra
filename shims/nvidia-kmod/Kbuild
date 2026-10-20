@@ -13,7 +13,7 @@ obj-m += nvidia_peermem.o
 # Anything else under src/ is a helper linked into one of them. The prefix also
 # keeps each object's name distinct from its module's, which Kbuild requires of
 # a module built from a single object.
-nvidia-y := src/main_nvidia.o src/nvidia_procfs.o
+nvidia-y := src/main_nvidia.o src/nvidia_gpus.o src/nvidia_ioctl.o src/nvidia_procfs.o
 
 nvidia_uvm-y     := src/main_uvm.o
 nvidia_modeset-y := src/main_modeset.o

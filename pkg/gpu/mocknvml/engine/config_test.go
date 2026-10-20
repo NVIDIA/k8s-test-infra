@@ -289,6 +289,59 @@ devices:
 	require.Equal(t, "550.163.01", config.DriverVersion)
 }
 
+// withKernelModule points the engine at a test-owned nvidia module directory
+// that reports version. Mokka's simulated module carries the mokka_gpus
+// parameter a real one lacks.
+func withKernelModule(t *testing.T, version string, simulated bool) {
+	t.Helper()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "version"), []byte(version+"\n"), 0o644))
+	if simulated {
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "parameters"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "parameters", "mokka_gpus"), nil, 0o644))
+	}
+	previous := kernelModuleDir
+	kernelModuleDir = dir
+	ClearConfigCache()
+	t.Cleanup(func() {
+		kernelModuleDir = previous
+		ClearConfigCache()
+	})
+}
+
+// The GPU Operator's driver container installs the libraries of its own
+// driver version and loads the simulated module under that version. NVML's
+// clients look for that version's libraries, so the mock reports it over the
+// profile's.
+func TestLoadConfig_ReportsTheSimulatedDriversVersion(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	writeTwoDeviceConfig(t, configPath)
+	t.Setenv("MOCK_NVML_CONFIG", configPath)
+	withKernelModule(t, "580.126.20", true)
+
+	config := LoadConfig()
+	require.Equal(t, "580.126.20", config.DriverVersion)
+	require.Equal(t, "570.00.00", config.YAMLConfig.System.DriverVersion, "the profile stays as written")
+}
+
+func TestLoadConfig_ReportsTheSimulatedDriversVersionWithoutAConfig(t *testing.T) {
+	withCDIConfigPath(t, filepath.Join(t.TempDir(), "absent.yaml"))
+	withNRIConfigPath(t, filepath.Join(t.TempDir(), "absent.yaml"))
+	t.Setenv("MOCK_NVML_CONFIG", "")
+	withKernelModule(t, "580.126.20", true)
+
+	require.Equal(t, "580.126.20", LoadConfig().DriverVersion)
+}
+
+func TestLoadConfig_KeepsTheConfiguredVersionBesideARealDriver(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	writeTwoDeviceConfig(t, configPath)
+	t.Setenv("MOCK_NVML_CONFIG", configPath)
+	withKernelModule(t, "580.126.20", false)
+
+	require.Equal(t, "570.00.00", LoadConfig().DriverVersion)
+}
+
 // GPU reset writes through ConfigOverridePath, so it must resolve beside the
 // same config LoadConfig read, or a reset clears a file no reader consults.
 func TestConfigOverridePath_FollowsCDIConfigPath(t *testing.T) {

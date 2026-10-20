@@ -29,6 +29,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/ib"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/kernellog"
+	"github.com/NVIDIA/k8s-test-infra/internal/agent/nvidiakmod"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/source"
 	"github.com/NVIDIA/k8s-test-infra/internal/cri"
 	"github.com/NVIDIA/k8s-test-infra/internal/cri/containerd"
@@ -266,28 +267,35 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 		zap.String("host_fs", cmd.String("host-fs")),
 	)
 
+	// The GPU Operator's driver container runs only with the gate on, and it
+	// mounts its own root at /run/nvidia/driver.
+	simulators := []agent.Simulator{
+		gpudriver.New(h, gpudriver.Options{ExternalDriverRoot: features.Enabled(features.GPUOperatorDriver)}),
+		pcibus.New(h),
+		crisim.New(h, criOpts),
+		imex.New(h, imex.Options{
+			ProvidedDir:     cmd.String("imex-provided-dir"),
+			Download:        features.Enabled(features.IMEXDownload),
+			DownloadTimeout: cmd.Duration("imex-download-timeout"),
+		}),
+		migcaps.New(h),
+		nvlink.New(h),
+		kernellog.New(h, kernellog.Options{Path: cmd.String("kernel-log")}),
+		fabricmanager.New(h, fabricmanager.Options{
+			InitDelay: cmd.Duration("fabricmanager-init-delay"),
+		}),
+		ib.New(h, ib.Options{
+			Mode:    ibMode,
+			TCPPort: cmd.Int("ib-fabric-port"),
+			Fabric:  cmd.Bool("ib-fabric"),
+		}),
+	}
+	if features.Enabled(features.GPUOperatorDriver) {
+		simulators = append(simulators, nvidiakmod.New(h))
+	}
+
 	a := agent.New(agent.Config{
-		Simulators: []agent.Simulator{
-			gpudriver.New(h),
-			pcibus.New(h),
-			crisim.New(h, criOpts),
-			imex.New(h, imex.Options{
-				ProvidedDir:     cmd.String("imex-provided-dir"),
-				Download:        features.Enabled(features.IMEXDownload),
-				DownloadTimeout: cmd.Duration("imex-download-timeout"),
-			}),
-			migcaps.New(h),
-			nvlink.New(h),
-			kernellog.New(h, kernellog.Options{Path: cmd.String("kernel-log")}),
-			fabricmanager.New(h, fabricmanager.Options{
-				InitDelay: cmd.Duration("fabricmanager-init-delay"),
-			}),
-			ib.New(h, ib.Options{
-				Mode:    ibMode,
-				TCPPort: cmd.Int("ib-fabric-port"),
-				Fabric:  cmd.Bool("ib-fabric"),
-			}),
-		},
+		Simulators:      simulators,
 		Source:          source.NewFileSource(configPath, cmd.String("topology"), resyncInterval, log),
 		Log:             log,
 		ShutdownTimeout: shutdownTimeout,

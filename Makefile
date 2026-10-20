@@ -709,6 +709,49 @@ cluster-create:
 cluster-delete:
 	@kind delete cluster --name $(KIND_CLUSTER_NAME)
 
+# Opt-in VM for the Kind cluster. Simulation needs nothing from the kernel, but
+# the GPU Operator's driver installer compiles and loads kernel modules, so its
+# node needs a stock distro kernel whose headers the driver container can
+# install. OrbStack's and Docker Desktop's kernels are not that; Colima runs
+# Ubuntu's. Nothing here switches your active contexts: --activate=false leaves
+# the Docker one alone, and the cluster gets its own name, so its kubeconfig
+# entry cannot replace that of a local cluster. Docker, kind and tilt reach the
+# VM through DOCKER_CONTEXT=colima-$(COLIMA_PROFILE).
+COLIMA_PROFILE      ?= mokka
+COLIMA_START_FLAGS  ?= --vm-type vz --mount-type virtiofs --cpu 4 --memory 8 --disk 60
+COLIMA_CLUSTER_NAME ?= mokka-colima
+
+# Every Kind node shares the VM's kernel, and with it root's inotify instance
+# limit (128, by default). A three-node cluster running the GPU Operator
+# exhausts it, and kubelet then fails to follow logs with "failed to create
+# fsnotify watcher: too many open files". This is kind's documented fix:
+# https://kind.sigs.k8s.io/docs/user/known-issues/#pod-errors-due-to-too-many-open-files
+COLIMA_INOTIFY_INSTANCES ?= 1024
+
+.PHONY: colima-start colima-stop colima-delete colima-cluster-create colima-cluster-delete
+colima-start: ## Start the opt-in Colima VM, a kernel the GPU Operator's driver installer can build modules for
+	@colima status --profile $(COLIMA_PROFILE) >/dev/null 2>&1 || \
+		colima start --profile $(COLIMA_PROFILE) --activate=false $(COLIMA_START_FLAGS)
+	@colima ssh --profile $(COLIMA_PROFILE) -- sudo sh -c \
+		'echo fs.inotify.max_user_instances=$(COLIMA_INOTIFY_INSTANCES) > /etc/sysctl.d/99-mokka-kind.conf && sysctl -q -p /etc/sysctl.d/99-mokka-kind.conf'
+
+# kind makes a cluster it creates the current kubectl context; this puts back
+# whichever context was current before.
+colima-cluster-create: colima-start ## Create the Kind cluster inside the Colima VM, without switching your kubectl or Docker context
+	@previous=$$(kubectl config current-context 2>/dev/null || true); \
+	DOCKER_CONTEXT=colima-$(COLIMA_PROFILE) $(MAKE) --no-print-directory cluster-create KIND_CLUSTER_NAME=$(COLIMA_CLUSTER_NAME) && \
+	if [ -n "$$previous" ]; then kubectl config use-context "$$previous" >/dev/null; fi
+	@echo "Deploy into it with: DOCKER_CONTEXT=colima-$(COLIMA_PROFILE) tilt up --context kind-$(COLIMA_CLUSTER_NAME) -- <flags>"
+
+colima-cluster-delete: ## Delete the Kind cluster inside the Colima VM
+	@DOCKER_CONTEXT=colima-$(COLIMA_PROFILE) $(MAKE) --no-print-directory cluster-delete KIND_CLUSTER_NAME=$(COLIMA_CLUSTER_NAME)
+
+colima-stop: ## Stop the Colima VM
+	@colima stop --profile $(COLIMA_PROFILE)
+
+colima-delete: ## Delete the Colima VM, with any cluster inside it
+	@colima delete --profile $(COLIMA_PROFILE) --force
+
 # Stage a pre-built image into the local docker daemon from a tarball:
 #
 #   make image-load TARBALL=/tmp/nvml-mock.tar IMAGE=nvml-mock:e2e

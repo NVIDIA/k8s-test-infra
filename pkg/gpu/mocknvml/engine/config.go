@@ -46,6 +46,10 @@ var cdiConfigPath = "/etc/nvml-mock/config.yaml"
 // file they own.
 var nriConfigPath = "/opt/nvml-mock/driver/config/config.yaml"
 
+// kernelModuleDir is the nvidia module's sysfs directory. A variable so tests
+// can point it at a directory they own.
+var kernelModuleDir = "/sys/module/nvidia"
+
 // ClearConfigCache clears the cached configuration.
 // Use in tests to ensure clean state between test runs.
 func ClearConfigCache() {
@@ -111,6 +115,7 @@ func LoadConfig() *Config {
 	if ver := os.Getenv("MOCK_NVML_DRIVER_VERSION"); ver != "" {
 		config.DriverVersion = ver
 	}
+	useSimulatedDriverVersion(config)
 
 	debugLog("[CONFIG] Using env/default config: %d devices, driver %s\n", config.NumDevices, config.DriverVersion)
 
@@ -128,6 +133,7 @@ func applyYAMLConfig(config *Config, yamlConfig *YAMLConfig, configPath string) 
 	config.YAMLConfig = yamlConfig
 	// Apply system-level config from YAML
 	config.DriverVersion = yamlConfig.System.DriverVersion
+	useSimulatedDriverVersion(config)
 	config.NumDevices = len(yamlConfig.Devices)
 	if config.NumDevices == 0 {
 		config.NumDevices = 8 // Default if no devices specified
@@ -175,6 +181,29 @@ func topologyPath(configPath string) string {
 		}
 	}
 	return ""
+}
+
+// useSimulatedDriverVersion has config report the version of Mokka's
+// simulated nvidia module, when that is the module loaded. Real NVML reports
+// the version of the driver the kernel runs, and its clients go looking for
+// that version's libraries: the device plugin's CDI spec names
+// libcuda.so.<version> in the driver root. The simulated module takes the
+// version of the driver the GPU Operator's driver container installed, so
+// reporting it keeps the mock in step with that container's libraries across
+// a driver upgrade. A real nvidia.ko has no mokka_gpus parameter, so a mock
+// running beside a real driver keeps its configured version.
+func useSimulatedDriverVersion(config *Config) {
+	if _, err := os.Stat(filepath.Join(kernelModuleDir, "parameters", "mokka_gpus")); err != nil {
+		return
+	}
+	version, err := os.ReadFile(filepath.Join(kernelModuleDir, "version"))
+	if err != nil {
+		return
+	}
+	if v := strings.TrimSpace(string(version)); v != "" {
+		debugLog("[CONFIG] Reporting the simulated driver's version %s over %s\n", v, config.DriverVersion)
+		config.DriverVersion = v
+	}
 }
 
 // ConfigOverridePathFor resolves the runtime overrides file path from the resolved

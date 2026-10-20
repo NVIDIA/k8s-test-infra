@@ -36,6 +36,13 @@ const (
 	// a node cache when no archive is provided. To be deprecated once Mokka
 	// publishes the IMEX binaries image.
 	IMEXDownload featuregate.Feature = "IMEXDownload"
+
+	// owner: @roma-glushko
+	//
+	// Lets the GPU Operator's own driver installer run on a Mokka node: the
+	// node agent stages simulated NVIDIA kernel modules, and the NRI plugin has
+	// the driver container load them in place of the real ones it builds.
+	GPUOperatorDriver featuregate.Feature = "GPUOperatorDriver"
 )
 
 // versionedSpecs records each gate's stage per Mokka minor release. Entries
@@ -44,6 +51,10 @@ const (
 var versionedSpecs = map[featuregate.Feature]featuregate.VersionedSpecs{
 	IMEXDownload: {
 		{Version: version.MajorMinor(0, 6), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	GPUOperatorDriver: {
+		{Version: version.MustParse("0.6"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

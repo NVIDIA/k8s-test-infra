@@ -11,8 +11,9 @@ GOARCH ?= $(shell $(GO_CMD) env GOARCH)
 # .mod.c, modules.order, Module.symvers and a hidden .<name>.cmd per artifact --
 # and has no output-directory flag that is portable across kernel versions. So M
 # points at dist/ and the sources are linked in, which keeps the build's entire
-# footprint inside one ignored directory.
-DIST := $(CURDIR)/dist
+# footprint inside one ignored directory. The loader overrides it to keep one
+# build per kernel and driver version below dist/.
+DIST ?= $(CURDIR)/dist
 
 TEST_EXEC ?= sudo
 

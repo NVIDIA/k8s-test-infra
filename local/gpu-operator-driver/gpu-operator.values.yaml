@@ -1,0 +1,17 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Layered over local/gpu-operator/gpu-operator.values.yaml: the driver installer
+# runs, from the original NVIDIA image.
+#
+# The version is the image's index digest rather than its tag. The operator
+# names a driver image <version>-<os> after the node's OS, a Kind node reports
+# Debian 12, and NVIDIA publishes no Debian driver image; a digest is used as
+# given. The image is the ubuntu24.04 one because the node kernel under Colima is
+# Ubuntu 24.04's, and the container installs that kernel's headers from the
+# Ubuntu archive.
+driver:
+  enabled: true
+  repository: nvcr.io/nvidia
+  image: driver
+  version: "sha256:16b9830998d2f2795fe72e760169b51bd4185e3b412ea3d0c4e46f453af2cc30" # 580.126.20-ubuntu24.04

@@ -282,6 +282,7 @@ func configFrom(cmd *cli.Command) (nri.Config, error) {
 			InfiniBandAnnotation:  cmd.String("infiniband-annotation"),
 			ExcludedNamespaces:    cmd.StringSlice("excluded-namespaces"),
 			Shims:                 cmd.StringSlice("ld-preload-shims"),
+			GPUOperatorDriver:     features.Enabled(features.GPUOperatorDriver),
 		},
 	}, nil
 }

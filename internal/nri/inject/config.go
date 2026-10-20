@@ -83,6 +83,11 @@ type Config struct {
 	NodeName              string
 	TopologyHostPath      string
 	TopologyContainerPath string
+
+	// GPU Operator driver — whether the GPU Operator's driver container is
+	// given the simulated kernel modules. The GPUOperatorDriver feature gate
+	// decides it; the caller reads the gate so that this stays a plain value.
+	GPUOperatorDriver bool
 }
 
 // DefaultConfig returns the overlay contract described by the NRI design.
