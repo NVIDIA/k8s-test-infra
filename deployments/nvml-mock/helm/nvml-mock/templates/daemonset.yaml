@@ -40,6 +40,10 @@ only MIG is rejected here. */}}
 {{- if and (eq $driverMode "kernel") .Values.gpu.mig.enabled }}
 {{- fail "driver.mode kernel does not support gpu.mig yet: the simulated kernel modules serve no MIG capabilities" }}
 {{- end }}
+{{- $gpuOperator := .Values.nri.gpuOperator | default dict }}
+{{- if and .Values.nri.enabled $gpuOperator.driver (ne $driverMode "kernel") }}
+{{- fail "nri.gpuOperator.driver requires driver.mode kernel: only then does the node agent stage the simulated kernel modules the driver installer loads" }}
+{{- end }}
 {{- $migProfiles := include "nvml-mock.migProfiles" . }}
 {{- /* dig: an upgrade with --reuse-values from a chart that predates
 imex.binaries has none. */}}
@@ -461,6 +465,12 @@ spec:
             - --imex-channel-annotation={{ .Values.nri.imexChannelAnnotation }}
             - --imex-channel-host-path={{ .Values.nri.overlay.hostPath }}/driver/dev/nvidia-caps-imex-channels
             - --infiniband-annotation={{ .Values.nri.infinibandAnnotation }}
+            {{- if $gpuOperator.driver }}
+            - --gpu-operator-driver
+            {{- end }}
+            {{- if $gpuOperator.toolkit }}
+            - --gpu-operator-toolkit
+            {{- end }}
             - --excluded-namespaces={{ .Release.Namespace }},kube-system{{- range .Values.nri.excludedNamespaces }},{{ . }}{{- end }}
             - --node-name=$(NODE_NAME)
             - --health-addr=:{{ .Values.nri.healthPort }}

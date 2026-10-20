@@ -14,5 +14,7 @@ driver:
   mode: kernel
 
 # The NRI plugin adapts the driver installer and the container toolkit to it.
-featureGates:
-  GPUOperatorDriver: true
+nri:
+  gpuOperator:
+    driver: true
+    toolkit: true

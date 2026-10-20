@@ -12,11 +12,9 @@ import (
 // fakeWorkload claims the containers named after it and marks what it adds
 // with its name, so routing is observable apart from any real workload.
 type fakeWorkload struct {
-	name     string
-	disabled bool
+	name string
 }
 
-func (w fakeWorkload) Enabled() bool                    { return !w.disabled }
 func (w fakeWorkload) Matches(container Container) bool { return container.Name == w.name }
 
 func (w fakeWorkload) Adjust(Container) (Adjustment, bool) {
@@ -42,21 +40,6 @@ func TestAdjustRoutesAClaimedContainerToItsWorkload(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, Adjustment{Env: []string{"WORKLOAD=claimed"}}, adjustment)
 	}
-}
-
-// A workload that is off claims nothing, so its container takes the generic
-// path.
-func TestAdjustLeavesADisabledWorkloadsContainerToTheOverlay(t *testing.T) {
-	t.Parallel()
-
-	cfg := DefaultConfig()
-	cfg.Workloads = []Workload{fakeWorkload{name: "claimed", disabled: true}}
-	container := deviceOptIn()
-	container.Name = "claimed"
-
-	adjustment, ok := Adjust(cfg, container)
-	require.True(t, ok)
-	require.Contains(t, adjustment.Mounts, overlayMount())
 }
 
 // The opt-out annotation and the excluded namespaces apply to a claimed

@@ -10,7 +10,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/NVIDIA/k8s-test-infra/internal/features"
 	kmod "github.com/NVIDIA/k8s-test-infra/shims/nvidia-kmod"
 )
 
@@ -38,14 +37,6 @@ func driverInstaller() Container {
 			"app.kubernetes.io/component": "nvidia-driver",
 		},
 	}
-}
-
-// Not parallel: it flips a gate the other tests read.
-func TestGPUOperatorDriverIsEnabledByItsGate(t *testing.T) {
-	require.False(t, GPUOperatorDriver{}.Enabled(), "off by default")
-
-	features.SetFeatureGateDuringTest(t, features.GPUOperatorDriver, true)
-	require.True(t, GPUOperatorDriver{}.Enabled())
 }
 
 func TestGPUOperatorDriverMatchesTheInstallerAlone(t *testing.T) {

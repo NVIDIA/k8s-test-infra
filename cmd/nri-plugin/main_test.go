@@ -106,15 +106,38 @@ func TestAgentGateFlagsMustBePaired(t *testing.T) {
 	require.Equal(t, "/run/nvml-mock/nri-staging.lock", cfg.StagingLockPath)
 }
 
-// Every workload is registered whatever the gates, with the paths the plugin was
-// given; each one's own gate decides whether it claims anything.
-func TestEveryWorkloadIsRegistered(t *testing.T) {
+// The GPU Operator adaptations are off unless switched on: a node in either
+// mode may run without the operator's driver or toolkit containers.
+func TestNoWorkloadIsRegisteredByDefault(t *testing.T) {
 	t.Parallel()
 
-	cfg, err := runCLI("--overlay-host-path=/srv/overlay", "--device-host-path=/srv/devices")
+	cfg, err := runCLI()
+	require.NoError(t, err)
+	require.Empty(t, cfg.Inject.Workloads)
+}
+
+func TestGPUOperatorSwitchesRegisterTheirWorkloads(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := runCLI("--driver-mode=kernel", "--gpu-operator-driver", "--gpu-operator-toolkit",
+		"--overlay-host-path=/srv/overlay", "--device-host-path=/srv/devices")
 	require.NoError(t, err)
 	require.Equal(t, []inject.Workload{
 		inject.GPUOperatorDriver{HostOverlayPath: "/srv/overlay", DeviceHostPath: "/srv/devices"},
 		inject.GPUOperatorToolkit{},
 	}, cfg.Inject.Workloads)
+
+	// The toolkit needs no kernel modules, so either mode takes it alone.
+	cfg, err = runCLI("--gpu-operator-toolkit")
+	require.NoError(t, err)
+	require.Equal(t, []inject.Workload{inject.GPUOperatorToolkit{}}, cfg.Inject.Workloads)
+}
+
+// The driver installer can load only the simulated modules the agent stages in
+// the kernel mode; anywhere else it would build and load the real ones.
+func TestGPUOperatorDriverRequiresTheKernelMode(t *testing.T) {
+	t.Parallel()
+
+	_, err := runCLI("--gpu-operator-driver")
+	require.ErrorContains(t, err, "--gpu-operator-driver requires --driver-mode=kernel")
 }

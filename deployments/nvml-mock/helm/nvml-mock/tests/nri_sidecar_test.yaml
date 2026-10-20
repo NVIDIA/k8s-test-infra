@@ -658,6 +658,58 @@ tests:
           path: spec.template.spec.containers[0].args
           content: --driver-mode=kernel
 
+  - it: should leave the GPU Operator's containers alone by default
+    set:
+      nri:
+        enabled: true
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --gpu-operator-driver
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --gpu-operator-toolkit
+
+  - it: should switch on the GPU Operator adaptations
+    set:
+      nri:
+        enabled: true
+        gpuOperator:
+          driver: true
+          toolkit: true
+      driver:
+        mode: kernel
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --gpu-operator-driver
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --gpu-operator-toolkit
+
+  # Only the kernel mode stages the simulated modules the installer loads;
+  # anywhere else it would build and load the real ones, which need a GPU.
+  - it: should reject the driver installer adaptation outside the kernel driver mode
+    set:
+      nri:
+        enabled: true
+        gpuOperator:
+          driver: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "nri.gpuOperator.driver requires driver.mode kernel"
+
+  - it: should take the toolkit adaptation in the userspace driver mode
+    set:
+      nri:
+        enabled: true
+        gpuOperator:
+          toolkit: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --gpu-operator-toolkit
+
   - it: should default device injection to raw and stage the CDI spec dir
     set:
       nri:

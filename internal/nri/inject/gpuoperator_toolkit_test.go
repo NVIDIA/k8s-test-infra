@@ -7,8 +7,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-
-	"github.com/NVIDIA/k8s-test-infra/internal/features"
 )
 
 // toolkitInstaller is the container the GPU Operator runs its toolkit
@@ -24,14 +22,6 @@ func toolkitInstaller() Container {
 			"CDI_ENABLED=true",
 		},
 	}
-}
-
-// Not parallel: it flips a gate the other tests read.
-func TestGPUOperatorToolkitIsEnabledByTheDriverGate(t *testing.T) {
-	require.False(t, GPUOperatorToolkit{}.Enabled(), "off by default")
-
-	features.SetFeatureGateDuringTest(t, features.GPUOperatorDriver, true)
-	require.True(t, GPUOperatorToolkit{}.Enabled())
 }
 
 func TestGPUOperatorToolkitMatchesTheInstallerAlone(t *testing.T) {

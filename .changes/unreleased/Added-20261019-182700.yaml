@@ -1,4 +1,4 @@
 kind: Added
 body: |-
-  helm: the alpha `GPUOperatorDriver` feature gate lets the GPU Operator's driver installer, from the original NVIDIA image, load the simulated NVIDIA kernel modules on a node in the kernel driver mode, and serve the operator's other operands the mock NVML from its root.
+  helm: `nri.gpuOperator.driver` lets the GPU Operator's driver installer, from the original NVIDIA image, load the simulated NVIDIA kernel modules on a node in the kernel driver mode, and serve the operator's other operands the mock NVML from its root. `nri.gpuOperator.toolkit` points the operator's container toolkit at the node agent's `nvidia.com/gpu` CDI spec, which serves the mock NVML with the node's profile.
 time: 2026-10-19T18:27:00Z

@@ -9,9 +9,9 @@ A loader swaps them in wherever the driver is loaded with `modprobe`. That is
 how the GPU Operator's own driver container, from the original NVIDIA image,
 runs on a CPU node.
 
-**Status: alpha**, behind the `GPUOperatorDriver` feature gate. With it on, the
-node agent stages the modules and the NRI plugin hands them to the GPU
-Operator's driver container, as described in
+**Status: alpha.** In the kernel driver mode (`driver.mode: kernel`) the node
+agent stages the modules, and with `nri.gpuOperator.driver` on the NRI plugin
+hands them to the GPU Operator's driver container, as described in
 [Delivery to the GPU Operator](#delivery-to-the-gpu-operator).
 
 ## Why a kernel module and not a shim
@@ -114,7 +114,7 @@ configuration and the command line as `$CMDLINE_OPTS`. Each command runs
 ## Delivery to the GPU Operator
 
 The driver image stays NVIDIA's own. Mokka adapts the container at creation
-instead, and only while the `GPUOperatorDriver` feature gate is on:
+instead, in the kernel driver mode and with `nri.gpuOperator.driver` on:
 
 1. The node agent's `nvidiakmod` simulator stages the sources, the loader and a
    stand-in for `nvidia-persistenced` (all embedded in its binary), the install

@@ -91,8 +91,8 @@ type Config struct {
 	DriverMode config.DriverMode
 
 	// Workloads — the specialized workloads, adjusted in place of the generic
-	// overlay. The caller registers every one with its configuration; each
-	// knows whether it is enabled.
+	// overlay. The caller registers those switched on, each with its
+	// configuration.
 	Workloads []Workload
 }
 
