@@ -15,7 +15,7 @@
 /*
  * Character device major for the per-GPU nodes and nvidiactl. Must stay equal
  * to the major charDevsForDevices() mknods in
- * internal/agent/gpudriver/stage.go; a node whose major nothing has registered
+ * internal/agent/nvml/stage.go; a node whose major nothing has registered
  * cannot be opened at all -- open() returns ENXIO.
  */
 #define MOKKA_NV_MAJOR 195

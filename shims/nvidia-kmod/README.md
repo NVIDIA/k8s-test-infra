@@ -39,7 +39,7 @@ from `nvidia.ko`, and the kernel derives the rest.
 
 - **Character device majors.** `nvidia.ko` registers major 195 and
   `nvidia_uvm.ko` registers 510 — the majors `charDevsForDevices` in
-  [`internal/agent/gpudriver/stage.go`](../../internal/agent/gpudriver/stage.go)
+  [`internal/agent/nvml/stage.go`](../../internal/agent/nvml/stage.go)
   already `mknod`s. Until something registers them, those nodes cannot be opened
   at all: `open()` returns `ENXIO`. Registration also puts `nvidia` and
   `nvidia-uvm` in `/proc/devices`, where `nvidia-container-cli` and the driver
