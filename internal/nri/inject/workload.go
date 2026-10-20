@@ -10,9 +10,6 @@ package inject
 // identity, and holds the configuration it adjusts them with. Like every
 // container the plugin adjusts, they wait for the node agent's staging gate.
 type Workload interface {
-	// Enabled reports whether the workload is on, such as behind a feature
-	// gate. A workload that is off claims no container.
-	Enabled() bool
 	// Matches reports whether container is one of the workload's, from what
 	// NRI presents at CreateContainer.
 	Matches(container Container) bool
@@ -22,9 +19,8 @@ type Workload interface {
 	Adjust(container Container) (Adjustment, bool)
 }
 
-// workload returns the enabled workload that claims container, or nil. The
-// built-in specialized workloads, such as the DRA ComputeDomain daemon, come
-// first.
+// workload returns the workload that claims container, or nil. The built-in
+// specialized workloads, such as the DRA ComputeDomain daemon, come first.
 func (c Config) workload(container Container) Workload {
 	for i := range specializedWorkloads {
 		if specializedWorkloads[i].matches(container) {
@@ -32,7 +28,7 @@ func (c Config) workload(container Container) Workload {
 		}
 	}
 	for _, workload := range c.Workloads {
-		if workload.Enabled() && workload.Matches(container) {
+		if workload.Matches(container) {
 			return workload
 		}
 	}
@@ -46,8 +42,6 @@ type builtinWorkload struct {
 	spec *specializedWorkload
 	cfg  Config
 }
-
-func (w builtinWorkload) Enabled() bool { return true }
 
 func (w builtinWorkload) Matches(container Container) bool { return w.spec.matches(container) }
 

@@ -115,6 +115,8 @@ Kubernetes: `>= 1.28.0-0`
 | nri.deviceInjectionMode | string | `"raw"` | Device injection mode: raw nodes or CDI references. |
 | nri.enabled | bool | `true` | Enable node-wide container injection through the NRI plugin. Inject the mock into containers that hold a GPU allocation or opt in by annotation. Needs containerd NRI enabled on the node: containerd 2.x enables it by default, containerd 1.7 does not. Set false where it is off; otherwise the node pod stays NotReady. |
 | nri.excludedNamespaces | list | `[]` | Namespaces excluded from NRI injection. |
+| nri.gpuOperator.driver | bool | `false` | Have the GPU Operator's driver installer load Mokka's simulated kernel modules and serve the mock NVML from its root. Requires driver.mode kernel. |
+| nri.gpuOperator.toolkit | bool | `false` | Point the GPU Operator's container toolkit at the node agent's nvidia.com/gpu CDI spec, which serves the mock NVML with the node's profile. |
 | nri.healthPort | int | `8080` | NRI plugin health and readiness port. |
 | nri.image | object | `{}` | Optional container image overrides for the NRI plugin. |
 | nri.imexChannelAnnotation | string | `"nvml-mock.nvidia.com/imex-channels"` | Pod annotation enabling IMEX channel injection. |

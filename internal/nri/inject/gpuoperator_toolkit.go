@@ -3,8 +3,6 @@
 
 package inject
 
-import "github.com/NVIDIA/k8s-test-infra/internal/features"
-
 // The GPU Operator runs its container toolkit installer in this container, in
 // the pods of its toolkit DaemonSet.
 const (
@@ -26,12 +24,6 @@ const (
 type GPUOperatorToolkit struct{}
 
 var _ Workload = GPUOperatorToolkit{}
-
-// Enabled reports whether the GPUOperatorDriver feature gate is on: the
-// toolkit needs the driver container's root to serve the operands.
-func (GPUOperatorToolkit) Enabled() bool {
-	return features.Enabled(features.GPUOperatorDriver)
-}
 
 // Matches reports whether container is the toolkit installer.
 func (GPUOperatorToolkit) Matches(container Container) bool {

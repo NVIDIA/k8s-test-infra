@@ -376,6 +376,15 @@ nri:
   imexChannelAnnotation: nvml-mock.nvidia.com/imex-channels
   # -- Namespaces excluded from NRI injection.
   excludedNamespaces: []
+  # Adaptations of the GPU Operator's own containers, for a cluster that runs
+  # them on a Mokka node.
+  gpuOperator:
+    # -- Have the GPU Operator's driver installer load Mokka's simulated kernel
+    # modules and serve the mock NVML from its root. Requires driver.mode kernel.
+    driver: false
+    # -- Point the GPU Operator's container toolkit at the node agent's
+    # nvidia.com/gpu CDI spec, which serves the mock NVML with the node's profile.
+    toolkit: false
   # -- NRI plugin resource requests; limits are unset by default.
   # Requests only: the plugin runs on every node by default, and no limit is set
   # until its usage under load has been measured.

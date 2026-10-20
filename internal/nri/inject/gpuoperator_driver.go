@@ -9,7 +9,6 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/NVIDIA/k8s-test-infra/internal/features"
 	kmod "github.com/NVIDIA/k8s-test-infra/shims/nvidia-kmod"
 )
 
@@ -44,11 +43,6 @@ type GPUOperatorDriver struct {
 }
 
 var _ Workload = GPUOperatorDriver{}
-
-// Enabled reports whether the GPUOperatorDriver feature gate is on.
-func (GPUOperatorDriver) Enabled() bool {
-	return features.Enabled(features.GPUOperatorDriver)
-}
 
 // Matches reports whether container is the driver installer.
 func (GPUOperatorDriver) Matches(container Container) bool {
