@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"sync/atomic"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/config"
 	"github.com/NVIDIA/k8s-test-infra/internal/cri"
 	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
 	"go.uber.org/zap"
@@ -56,11 +57,11 @@ type Options struct {
 	Runtime cri.Runtime
 	// ToolkitSource is where the image ships the toolkit binaries.
 	ToolkitSource string
-	// LiveKernelModules leaves the module tree and lsmod out of the specs.
-	// The simulated NVIDIA modules are then loaded for real, so the kernel's
-	// /sys/module is live, and the copy writeKernelModules took at staging
-	// would hide a driver loaded, reloaded or upgraded since.
-	LiveKernelModules bool
+	// DriverMode is how the node's NVIDIA driver is simulated. In the kernel
+	// mode the simulated modules are loaded for real, so the kernel's
+	// /sys/module is live and the specs leave the module tree and lsmod to it:
+	// gpudriver, which stages the copy they would mount, does not run.
+	DriverMode config.DriverMode
 }
 
 // New returns a container runtime Simulator.
@@ -237,7 +238,7 @@ func (s *Simulator) revert(ctx context.Context) error {
 // publishSpecs writes both CDI specs. The IMEX simulator stages in the same
 // Stage wave, so by Apply its node software is on disk or it is not.
 func (s *Simulator) publishSpecs(state *agent.State) error {
-	opts := specOptions{liveKernelModules: s.opts.LiveKernelModules, imexStaged: imex.Staged(s.host.Root)}
+	opts := specOptions{liveKernelModules: s.opts.DriverMode == config.DriverModeKernel, imexStaged: imex.Staged(s.host.Root)}
 
 	if err := writeSpec(s.host.RunPath(nvidiaSpecFile), buildNvidiaSpec(state, opts)); err != nil {
 		return fmt.Errorf("nvidia.yaml: %w", err)

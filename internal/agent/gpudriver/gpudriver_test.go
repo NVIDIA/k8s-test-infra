@@ -174,7 +174,7 @@ func TestWriteProcFS_ServedWhereLibmockfsLooks(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(got), "GPU-aaaa")
 
-	require.NoError(t, New(h, Options{}).Discard(t.Context()))
+	require.NoError(t, New(h).Discard(t.Context()))
 	_, err = os.Lstat(h.RootPath("proc/driver/nvidia"))
 	require.True(t, os.IsNotExist(err), "Discard removes the link")
 }
@@ -203,7 +203,7 @@ func TestApply_BindMountsTheDriverTreeOntoRunNvidiaDriver(t *testing.T) {
 	skipUnlessRootLinux(t)
 
 	h := testHost(t)
-	sim := New(h, Options{})
+	sim := New(h)
 	state := testState(t)
 	ctx := t.Context()
 	bindMountCleanup(t, h)
@@ -228,7 +228,7 @@ func TestApply_DoesNotReplaceAnExistingDirectoryEntry(t *testing.T) {
 	skipUnlessRootLinux(t)
 
 	h := testHost(t)
-	sim := New(h, Options{})
+	sim := New(h)
 	state := testState(t)
 	ctx := t.Context()
 	bindMountCleanup(t, h)
@@ -260,7 +260,7 @@ func TestApply_IdempotentWhenAlreadyMounted(t *testing.T) {
 	skipUnlessRootLinux(t)
 
 	h := testHost(t)
-	sim := New(h, Options{})
+	sim := New(h)
 	state := testState(t)
 	ctx := t.Context()
 	bindMountCleanup(t, h)
@@ -277,7 +277,7 @@ func TestApply_RefusesAForeignMount(t *testing.T) {
 	skipUnlessRootLinux(t)
 
 	h := testHost(t)
-	sim := New(h, Options{})
+	sim := New(h)
 	state := testState(t)
 	ctx := t.Context()
 	driverRoot := h.RunPath("nvidia/driver")
@@ -296,7 +296,7 @@ func TestRevoke_UnmountsButKeepsTheDirectory(t *testing.T) {
 	skipUnlessRootLinux(t)
 
 	h := testHost(t)
-	sim := New(h, Options{})
+	sim := New(h)
 	state := testState(t)
 	ctx := t.Context()
 
@@ -314,26 +314,10 @@ func TestRevoke_UnmountsButKeepsTheDirectory(t *testing.T) {
 	require.NoError(t, err, "the /run/nvidia/driver directory must survive Revoke")
 }
 
-// With the GPU Operator's driver container owning /run/nvidia/driver, the
-// simulator stays off it: mounting there would fail against the container's
-// own mount, and that failure would fail every other simulator's Apply too.
-func TestApply_LeavesAnExternalDriverRootAlone(t *testing.T) {
-	t.Parallel()
-
-	h := testHost(t)
-	sim := New(h, Options{ExternalDriverRoot: true})
-
-	require.NoError(t, sim.Apply(t.Context(), &agent.State{}))
-	require.True(t, sim.Ready())
-	require.NoDirExists(t, h.RunPath("nvidia/driver"), "the simulator must not create or mount the driver root")
-
-	require.NoError(t, sim.Revoke(t.Context()))
-}
-
 func TestRevoke_IdempotentWhenNotMounted(t *testing.T) {
 	skipUnlessRootLinux(t)
 
-	sim := New(testHost(t), Options{})
+	sim := New(testHost(t))
 
 	require.NoError(t, sim.Revoke(t.Context()), "Revoke with nothing mounted must not error")
 }
@@ -346,7 +330,7 @@ func TestRevoke_LeavesForeignDirectoryContentAlone(t *testing.T) {
 	path := h.RunPath("nvidia/driver")
 	require.NoError(t, fsutil.Write(filepath.Join(path, "someone-elses-file"), []byte("driver"), 0o644))
 
-	require.NoError(t, New(h, Options{}).Revoke(t.Context()))
+	require.NoError(t, New(h).Revoke(t.Context()))
 
 	_, err := os.Stat(filepath.Join(path, "someone-elses-file"))
 	require.NoError(t, err, "Revoke must not touch content it never mounted")
@@ -364,7 +348,7 @@ func TestRevoke_LeavesAForeignMountAlone(t *testing.T) {
 	require.NoError(t, fsutil.BindMount(foreignSrc, driverRoot))
 	t.Cleanup(func() { _ = fsutil.Unmount(foreignSrc, driverRoot) })
 
-	require.NoError(t, New(h, Options{}).Revoke(t.Context()))
+	require.NoError(t, New(h).Revoke(t.Context()))
 
 	mounted, err := fsutil.IsMounted(driverRoot)
 	require.NoError(t, err)
@@ -374,7 +358,7 @@ func TestRevoke_LeavesAForeignMountAlone(t *testing.T) {
 // ─── Discard ─────────────────────────────────────────────────────────────────
 
 func TestDiscard_NopWhenNotReady(t *testing.T) {
-	sim := New(testHost(t), Options{})
+	sim := New(testHost(t))
 
 	// ready is false by default — Discard must be a no-op.
 	require.NoError(t, sim.Discard(t.Context()))
@@ -386,7 +370,7 @@ func TestStage_WritesAllSurfaces(t *testing.T) {
 	skipUnlessRootLinux(t)
 
 	h := testHost(t)
-	sim := New(h, Options{})
+	sim := New(h)
 	state := testState(t)
 	bindMountCleanup(t, h)
 
@@ -410,7 +394,7 @@ func TestStage_Idempotent(t *testing.T) {
 	skipUnlessRootLinux(t)
 
 	h := testHost(t)
-	sim := New(h, Options{})
+	sim := New(h)
 	state := testState(t)
 
 	require.NoError(t, sim.Stage(t.Context(), state))
@@ -545,7 +529,7 @@ func TestDiscard_ClearsEveryModuleSurface(t *testing.T) {
 	withProcModules(t, hostProcModulesLine)
 	writeKernelModule(t, h, "xfs", map[string]string{"coresize": "1556480\n"})
 
-	sim := New(h, Options{})
+	sim := New(h)
 	require.NoError(t, writeKernelModules(t.Context(), h, testState(t)))
 	sim.ready.Store(true)
 

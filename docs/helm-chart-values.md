@@ -50,6 +50,7 @@ Kubernetes: `>= 1.28.0-0`
 | controlPlane.tolerations | list | `[]` | Tolerations for control-plane pods. |
 | controlPlane.topologySpreadConstraints | list | `[]` | Topology spread constraints for control-plane pods. |
 | controlPlane.workers | int | `2` | Number of control-plane worker goroutines. |
+| driver.mode | string | `"userspace"` | How the node's NVIDIA driver is simulated: userspace or kernel. |
 | driverVersion | string | `""` | Driver version reported by the simulated driver; empty derives it from the profile. |
 | extraObjects | list | `[]` | Additional Kubernetes objects rendered with the release after tpl evaluation. |
 | fabricmanager.enabled | string | `""` | Enable or disable the fake fabric manager; empty derives it from the profile. |

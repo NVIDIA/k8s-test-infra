@@ -133,6 +133,19 @@ image:
 # command before any pod changes. See docs/feature-gates.md.
 featureGates: {}
 
+# How the node's NVIDIA driver is simulated.
+#   userspace  The node agent fakes the files the driver's kernel modules show,
+#              served through libmockfs and the CDI specs, and publishes the
+#              driver root at /run/nvidia/driver. Any node kernel works.
+#   kernel     Experimental. A driver installer, today the GPU Operator's
+#              driver container, loads Mokka's simulated kernel modules, which
+#              serve those files themselves. The node kernel must build
+#              out-of-tree modules, one kernel hosts one driver, and MIG
+#              partitions and IMEX mock channels are not supported yet.
+driver:
+  # -- How the node's NVIDIA driver is simulated: userspace or kernel.
+  mode: userspace
+
 # -- Driver version reported by the simulated driver; empty derives it from the profile.
 driverVersion: ""                  # Auto-derived from profile. Override: "580.65.06"
 

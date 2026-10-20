@@ -31,24 +31,14 @@ var (
 	_ agent.Applier   = (*Simulator)(nil)
 )
 
-// Options configures the simulator.
-type Options struct {
-	// ExternalDriverRoot leaves /run/nvidia/driver to its other owner, the
-	// GPU Operator's driver container, which mounts its own root there. The
-	// tree is staged all the same, for the consumers that read it through the
-	// overlay.
-	ExternalDriverRoot bool
-}
-
 // Simulator implements agent.Simulator and agent.Applier.
 type Simulator struct {
 	host  *host.Host
-	opts  Options
 	ready atomic.Bool
 }
 
 // New returns a gpudriver Simulator.
-func New(h *host.Host, opts Options) *Simulator { return &Simulator{host: h, opts: opts} }
+func New(h *host.Host) *Simulator { return &Simulator{host: h} }
 
 // Name returns the simulator's stable identifier.
 func (s *Simulator) Name() string { return name }
@@ -116,13 +106,6 @@ func (s *Simulator) Apply(_ context.Context, _ *agent.State) error {
 	zap.L().Info("applying simulator", zap.String("simulator", name))
 	s.ready.Store(false)
 
-	// A mount here would fail against the driver container's own, or hide it.
-	if s.opts.ExternalDriverRoot {
-		zap.L().Info("leaving /run/nvidia/driver to the driver container", zap.String("simulator", name))
-		s.ready.Store(true)
-		return nil
-	}
-
 	driverRoot := s.host.RunPath("nvidia/driver")
 	if err := fsutil.BindMount(s.host.RootPath("driver"), driverRoot); err != nil {
 		return fmt.Errorf("bind mount %s: %w", driverRoot, err)
@@ -136,10 +119,6 @@ func (s *Simulator) Apply(_ context.Context, _ *agent.State) error {
 func (s *Simulator) Revoke(_ context.Context) error {
 	zap.L().Info("revoking simulator", zap.String("simulator", name))
 	s.ready.Store(false)
-
-	if s.opts.ExternalDriverRoot {
-		return nil
-	}
 
 	mokkaDriverRoot := s.host.RootPath("driver")
 	nvidiaDriverRoot := s.host.RunPath("nvidia/driver")

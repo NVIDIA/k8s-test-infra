@@ -647,6 +647,17 @@ tests:
           path: spec.template.spec.containers[0].readinessProbe.httpGet.port
           value: nri-health
 
+  - it: should pass the driver mode to the plugin
+    set:
+      nri:
+        enabled: true
+      driver:
+        mode: kernel
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --driver-mode=kernel
+
   - it: should default device injection to raw and stage the CDI spec dir
     set:
       nri:

@@ -267,6 +267,17 @@
         "GPUOperatorDriver": { "type": "boolean" }
       }
     },
+    "driver": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["userspace", "kernel"],
+          "description": "How the node's NVIDIA driver is simulated: userspace fakes the files of its kernel modules, kernel has a driver installer load Mokka's simulated kernel modules."
+        }
+      }
+    },
     "driverVersion": { "type": "string" },
     "nodeSelector": { "type": "object" },
     "tolerations": { "type": "array" },
