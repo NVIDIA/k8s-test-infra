@@ -17,9 +17,10 @@ driver:
   version: "sha256:2b6e81c01ffa5634d2e3e798ad19e287877ef7551086eb36782348e653e34b74" # 580.178.04-ubuntu24.04
   # The upgrade controller evicts GPU workloads before it restarts the driver,
   # and the scenario's gpu-validator is a bare pod: without force the
-  # controller refuses to delete it and fails the node's upgrade.
+  # controller refuses to delete it and fails the node's upgrade. The chart
+  # reads gpuPodDeletion and renders it as the ClusterPolicy's podDeletion.
   upgradePolicy:
-    podDeletion:
+    gpuPodDeletion:
       force: true
 
 # The toolkit operand, from its original image, owns the container runtime's
