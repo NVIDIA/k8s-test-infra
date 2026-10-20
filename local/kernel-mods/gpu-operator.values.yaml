@@ -23,8 +23,9 @@ driver:
       force: true
 
 # The toolkit operand, from its original image, owns the container runtime's
-# nvidia handler, as on a GPU node. The NRI plugin points its runtime at the
-# node agent's nvidia.com/gpu spec, which serves the Mokka NVML with the
-# node's profile.
+# nvidia handler, as on a GPU node. nri.gpuOperator.toolkit, set beside this in
+# nvml-mock.values.yaml, has the NRI plugin point its runtime at the node
+# agent's nvidia.com/gpu spec, which serves the Mokka NVML with the node's
+# profile.
 toolkit:
   enabled: true

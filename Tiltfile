@@ -50,8 +50,8 @@ config.define_bool('compute-domain', args=False,
     usage='ComputeDomain scenario: GB200 profile with an NVLink topology overlay. Needs the compute-domain cluster (make cluster-create PROFILE=compute-domain).')
 config.define_bool('gpu-operator', args=False,
     usage='Also deploy NVIDIA GPU Operator on top of nvml-mock')
-config.define_bool('gpu-operator-driver', args=False,
-    usage='Also run the GPU Operator driver installer, from the original NVIDIA image, on worker-0 alone. Implies --gpu-operator. The node kernel must build out-of-tree modules: create the cluster in the Colima VM (make colima-start).')
+config.define_bool('kernel-mods', args=False,
+    usage='Simulate the driver with Mokka\'s kernel modules (driver.mode kernel), on worker-0 alone: the GPU Operator\'s driver installer, from the original NVIDIA image, loads them, and its container toolkit runs too. Implies --gpu-operator. The node kernel must build out-of-tree modules: create the cluster in the Colima VM (make colima-cluster-create).')
 config.define_bool('dra', args=False,
     usage='Also deploy NVIDIA DRA driver on top of nvml-mock')
 config.define_bool('fgo', args=False,
@@ -77,7 +77,7 @@ nvmlmock_image      = cfg.get('nvmlmock-image', '')
 multi_gpu_profile   = cfg.get('multi-gpu-profile', False)
 with_compute_domain = cfg.get('compute-domain', False)
 with_gpu_operator   = cfg.get('gpu-operator', False)
-with_gpu_operator_driver = cfg.get('gpu-operator-driver', False)
+with_kernel_mods    = cfg.get('kernel-mods', False)
 with_dra            = cfg.get('dra', False)
 with_fgo            = cfg.get('fgo', False)
 with_topograph      = cfg.get('topograph', False)
@@ -105,13 +105,16 @@ if with_dynamo:
 if with_slinky:
     with_gpu_operator = True
 
-if with_gpu_operator_driver:
+# The GPU Operator's driver installer is the only one that loads the simulated
+# kernel modules.
+if with_kernel_mods:
     with_gpu_operator = True
 
 # Every Kind node shares one kernel, and a kernel hosts one driver, so the
-# scenario pins the mock to worker-0. The other shapes put GPUs on every worker.
-if with_gpu_operator_driver and (multi_gpu_profile or with_compute_domain):
-    fail('--gpu-operator-driver runs the driver on worker-0 alone; ' +
+# kernel mode simulates GPUs on worker-0 alone. The other shapes put GPUs on
+# every worker.
+if with_kernel_mods and (multi_gpu_profile or with_compute_domain):
+    fail('--kernel-mods simulates GPUs on worker-0 alone; ' +
          'it does not compose with --multi-gpu-profile or --compute-domain')
 
 # --gpu-operator with --compute-domain is allowed but untested.
@@ -142,8 +145,8 @@ active_consumers = []
 if with_gpu_operator:
     active_consumers.append('gpu-operator')
 
-if with_gpu_operator_driver:
-    active_consumers.append('gpu-operator-driver')
+if with_kernel_mods:
+    active_consumers.append('kernel-mods')
 
 if with_dra:
     active_consumers.append('dra')
@@ -227,8 +230,8 @@ if with_gpu_operator:
         gpu_operator_extra_values.append(observability_gpu_operator_values)
         gpu_operator_extra_deps += observability_releases
 
-    if with_gpu_operator_driver:
-        gpu_operator_extra_values.append('local/gpu-operator-driver/gpu-operator.values.yaml')
+    if with_kernel_mods:
+        gpu_operator_extra_values.append('local/kernel-mods/gpu-operator.values.yaml')
 
     gpu_operator_install(
         nvml_mock_releases,

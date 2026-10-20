@@ -46,9 +46,9 @@ switching between them needs no rebuild.
 
 ### A cluster that can load kernel modules
 
-Simulation needs nothing from the kernel, but `--gpu-operator-driver` runs the
-GPU Operator's driver installer, which compiles kernel modules against the node
-kernel's headers and loads them. Kind nodes share their host's kernel, so that
+The default userspace driver mode needs nothing from the kernel, but
+`--kernel-mods` runs the GPU Operator's driver installer, which compiles kernel
+modules against the node kernel's headers and loads them. Kind nodes share their host's kernel, so that
 host needs a stock distro kernel whose headers the Ubuntu archive serves.
 OrbStack and Docker Desktop do not run one; on macOS, create the cluster inside
 a Colima VM instead. A Linux workstation running a distro kernel needs none of
@@ -56,7 +56,7 @@ this.
 
 ```bash
 make colima-cluster-create    # starts the VM if needed, then creates mokka-colima in it
-DOCKER_CONTEXT=colima-mokka tilt up --context kind-mokka-colima -- --gpu-operator-driver
+DOCKER_CONTEXT=colima-mokka tilt up --context kind-mokka-colima -- --kernel-mods
 ```
 
 Neither your Docker nor your kubectl context changes. `DOCKER_CONTEXT` is what
@@ -89,7 +89,7 @@ Everything else is a flag.
 | Flag | Deploys |
 |---|---|
 | `--gpu-operator` | The NVIDIA GPU Operator, in CDI mode |
-| `--gpu-operator-driver` | The GPU Operator with its driver installer enabled, from the original NVIDIA image, on `worker-0` alone. Needs [a cluster that can load kernel modules](#a-cluster-that-can-load-kernel-modules) |
+| `--kernel-mods` | The kernel driver mode on `worker-0` alone: the GPU Operator's driver installer, from the original NVIDIA image, loads Mokka's simulated kernel modules, and its container toolkit runs too. Needs [a cluster that can load kernel modules](#a-cluster-that-can-load-kernel-modules) |
 | `--dra` | The NVIDIA DRA driver |
 | `--fgo` | Run:ai's fake-gpu-operator alongside Mokka, splitting workers into two pools |
 | `--topograph` | [Topograph](../guides/topograph/README.md), labelling each worker with its NVLink domain |
@@ -108,16 +108,17 @@ Most flags stack. These do not:
 | `--fgo` with `--compute-domain` | Different fleet shapes |
 | `--compute-domain` with `--multi-gpu-profile` or `--gpu-profile` | The compute-domain scenario fixes both |
 | `--slinky` with `--dynamo` | `slurmd` claims every mock GPU, so the Dynamo worker could never schedule |
-| `--gpu-operator-driver` with `--multi-gpu-profile` or `--compute-domain` | One kernel hosts one driver, so the scenario simulates GPUs on `worker-0` alone |
+| `--kernel-mods` with `--multi-gpu-profile` or `--compute-domain` | One kernel hosts one driver, so the kernel mode simulates GPUs on `worker-0` alone |
 
 Five flags imply others: `--topograph` implies `--compute-domain`, because
 cliques only exist there; `--observability` implies `--gpu-operator`, because
 `dcgm-exporter` is one of its operands; `--dynamo` and `--slinky` imply
 `--gpu-operator`, because their workloads request `nvidia.com/gpu`; and
-`--gpu-operator-driver` implies `--gpu-operator`, which it configures.
+`--kernel-mods` implies `--gpu-operator`, whose driver installer loads the
+modules.
 
 > [!NOTE]
-> **`--gpu-operator-driver` is alpha**
+> **`--kernel-mods` is alpha**
 >
 > The scenario runs the node in the kernel driver mode (`driver.mode: kernel`)
 > and has the NRI plugin adapt the GPU Operator's driver and toolkit containers
@@ -138,7 +139,7 @@ tilt up -- --gpu-operator --dra
 tilt up -- --observability
 tilt up -- --dynamo
 tilt up -- --slinky
-DOCKER_CONTEXT=colima-mokka tilt up --context kind-mokka-colima -- --gpu-operator-driver   # see Step 1
+DOCKER_CONTEXT=colima-mokka tilt up --context kind-mokka-colima -- --kernel-mods   # see Step 1
 
 make cluster-create PROFILE=compute-domain
 tilt up -- --compute-domain --dra
