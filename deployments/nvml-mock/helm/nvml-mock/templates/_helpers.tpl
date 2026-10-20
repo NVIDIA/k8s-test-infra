@@ -383,6 +383,9 @@ install that waits for it would time out with no reason given.
 {{- if not .Values.gpu.vgpu.types -}}
 {{- fail "gpu.vgpu.mode is host but gpu.vgpu.types declares no vGPU types, so the node agent would refuse the config. Declare the types the host offers; docs/vgpu.md lists the fields." -}}
 {{- end -}}
+{{- if $migEnabled -}}
+{{- fail "gpu.vgpu.mode is host but gpu.mig.enabled is set, so the node agent would refuse the config: MIG-backed vGPU is not simulated. Leave MIG off on a vGPU host." -}}
+{{- end -}}
 {{- $_ := set $virt "mode" "host_vgpu" -}}
 {{- $_ := set $virt "host_vgpu_mode" .Values.gpu.vgpu.hostVgpuMode -}}
 {{- $_ := set $vgpu "types" (.Values.gpu.vgpu.types | default list) -}}

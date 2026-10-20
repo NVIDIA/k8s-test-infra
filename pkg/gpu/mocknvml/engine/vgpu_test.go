@@ -215,6 +215,26 @@ func TestVgpuHost_ModeWithoutVgpuBlockIsNotAHost(t *testing.T) {
 	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret)
 }
 
+// The load refuses a host with MIG on, and nvidia-smi -mig 1 must not get
+// around it: the host's time-sliced vGPUs and MIG devices would then share
+// one GPU.
+func TestVgpuHost_RefusesMIGMode(t *testing.T) {
+	t.Parallel()
+	cfg := a100MIGConfig()
+	cfg.Virtualization = vgpuHostVirtualization(2)
+	d := newTestDeviceWithConfig(t, cfg)
+
+	_, ret := d.SetMigMode(nvml.DEVICE_MIG_ENABLE)
+	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret)
+	current, pending, ret := d.GetMigMode()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, nvml.DEVICE_MIG_DISABLE, current)
+	require.Equal(t, nvml.DEVICE_MIG_DISABLE, pending)
+
+	_, ret = d.SetMigMode(nvml.DEVICE_MIG_DISABLE)
+	require.Equal(t, nvml.SUCCESS, ret, "MIG is already off; disabling it is a no-op")
+}
+
 // The lookup decodes the slot from the ID, so it must find every instance the
 // GPU lists, including those declared by a later entry.
 func TestVgpuHost_InstanceLookupMatchesActiveList(t *testing.T) {

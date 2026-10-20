@@ -55,8 +55,9 @@ NVML mode nor the profile key:
 passes only `guest`. The chart ignores the other mode's fields rather than
 refusing them. `mode: guest` with an empty `guest` renders `mode: vgpu` and no
 `vgpu` block, which is the [mode-only guest](#a-guest-with-no-block). The chart
-refuses to render `mode: host` with no `types`; every other rule is the node
-agent's, which [validates](#validation) the rendered block.
+refuses to render `mode: host` with no `types` or with `gpu.mig.enabled`; every
+other rule is the node agent's, which [validates](#validation) the rendered
+block.
 
 ### Runtime overrides
 
@@ -256,6 +257,11 @@ The block is checked when the config loads, and each failure names the field:
   does not exceed it.
 - `guest` is refused under `host_vgpu`; `types` and `instances` are refused
   under `vgpu`.
+- A host runs no GPU in MIG mode: `host_vgpu` is refused when
+  `device_defaults.mig` or any per-device `mig` block sets `mode_current:
+  enabled`, and `nvmlDeviceSetMigMode` refuses to enable MIG on a host with
+  `NVML_ERROR_NOT_SUPPORTED`. A real host with MIG on runs only MIG-backed
+  types, which are not simulated.
 - A `guest` block needs `host_driver_version` and `host_driver_branch`, each at
   most 10 bytes.
 - `license.state` is `licensed` or `unlicensed`, `license.product` is at most
@@ -272,6 +278,7 @@ back to its built-in defaults with a warning.
 **Not simulated**
 
 - The host's mdev and SR-IOV sysfs surfaces.
+- MIG-backed vGPU types, and so a host with MIG mode on.
 - Creating or destroying instances at runtime.
 - Shipped vGPU type catalogues: an install declares its types.
 - Charging the instances' framebuffer against the physical GPU's memory.

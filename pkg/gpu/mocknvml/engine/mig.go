@@ -432,18 +432,9 @@ func (d *ConfigurableDevice) GetMigMode() (int, int, nvml.Return) {
 //
 // Disabling MIG tears down the partitioning, as it does on hardware.
 func (d *ConfigurableDevice) SetMigMode(mode int) (nvml.Return, nvml.Return) {
-	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+	st, ret := d.migModeSettable(mode)
+	if ret != nvml.SUCCESS {
 		return ret, ret
-	}
-	if d.mig != nil {
-		return nvml.ERROR_NOT_SUPPORTED, nvml.ERROR_NOT_SUPPORTED
-	}
-	st := d.migState
-	if st == nil || !st.supported {
-		return nvml.ERROR_NOT_SUPPORTED, nvml.ERROR_NOT_SUPPORTED
-	}
-	if mode != nvml.DEVICE_MIG_ENABLE && mode != nvml.DEVICE_MIG_DISABLE {
-		return nvml.ERROR_INVALID_ARGUMENT, nvml.ERROR_INVALID_ARGUMENT
 	}
 
 	st.mu.Lock()
@@ -464,6 +455,31 @@ func (d *ConfigurableDevice) SetMigMode(mode int) (nvml.Return, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceSetMigMode(%d) -> SUCCESS (retired %d MIG devices, %d GPU instances)\n",
 		mode, len(retired.devices), len(retired.gpuInstances))
 	return nvml.SUCCESS, nvml.SUCCESS
+}
+
+// migModeSettable returns the device's MIG state when SetMigMode may switch it
+// to mode, and the error SetMigMode answers otherwise.
+func (d *ConfigurableDevice) migModeSettable(mode int) (*migState, nvml.Return) {
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return nil, ret
+	}
+	if d.mig != nil {
+		return nil, nvml.ERROR_NOT_SUPPORTED
+	}
+	st := d.migState
+	if st == nil || !st.supported {
+		return nil, nvml.ERROR_NOT_SUPPORTED
+	}
+	if mode != nvml.DEVICE_MIG_ENABLE && mode != nvml.DEVICE_MIG_DISABLE {
+		return nil, nvml.ERROR_INVALID_ARGUMENT
+	}
+	// The config load refuses a vGPU host with MIG on (see
+	// validateNoMIGOnVGPUHost); this keeps NVML from turning it on afterwards.
+	if mode == nvml.DEVICE_MIG_ENABLE && d.IsVgpuHost() {
+		debugLog("[NVML] nvmlDeviceSetMigMode(%d) -> NOT_SUPPORTED (vGPU host)\n", mode)
+		return nil, nvml.ERROR_NOT_SUPPORTED
+	}
+	return st, nvml.SUCCESS
 }
 
 // GetMaxMigDeviceCount returns the board's MIG device ceiling. Real NVML

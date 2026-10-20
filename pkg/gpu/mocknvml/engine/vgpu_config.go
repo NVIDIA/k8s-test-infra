@@ -74,6 +74,28 @@ func validateVGPUConfig(config *YAMLConfig) error {
 	if err != nil {
 		return fmt.Errorf("device_defaults.virtualization.%w", err)
 	}
+	if v.Mode == VirtualizationModeHostVGPU {
+		return validateNoMIGOnVGPUHost(config)
+	}
+	return nil
+}
+
+// errMIGOnVGPUHost is why a host cannot run MIG: with MIG on, a real host runs
+// only MIG-backed vGPU types, and the time-sliced instances it declares would
+// share the GPU with MIG devices.
+var errMIGOnVGPUHost = errors.New("MIG mode is enabled on a vGPU host; MIG-backed vGPU is not simulated")
+
+// validateNoMIGOnVGPUHost refuses MIG mode on any GPU of a host, whether the
+// board-wide block or a per-device one turns it on.
+func validateNoMIGOnVGPUHost(config *YAMLConfig) error {
+	if m := config.DeviceDefaults.MIG; m != nil && m.ModeCurrent == migModeEnabled {
+		return fmt.Errorf("device_defaults.mig.mode_current: %w", errMIGOnVGPUHost)
+	}
+	for _, dev := range config.Devices {
+		if dev.MIG != nil && dev.MIG.ModeCurrent == migModeEnabled {
+			return fmt.Errorf("devices[index=%d].mig.mode_current: %w", dev.Index, errMIGOnVGPUHost)
+		}
+	}
 	return nil
 }
 

@@ -306,6 +306,9 @@ The block is checked when the config loads, and each failure names the field:
   stays within that type's `max_instances`.
 - When the profile sets `memory.total_bytes`, the instances' framebuffer fits.
 - `guest` is refused under `host_vgpu`; `types` and `instances` under `vgpu`.
+- A `host_vgpu` config with MIG mode on, board-wide or for any one GPU, is
+  refused, and `nvmlDeviceSetMigMode` will not turn MIG on for a host: with
+  MIG on, a real host runs only the MIG-backed types this MEP leaves out.
 - A `guest` block names `host_driver_version` and `host_driver_branch`, each at
   most 10 bytes. `license.state` is `licensed` or `unlicensed`,
   `license.product` at most 127 bytes, `license.expiry` RFC 3339.

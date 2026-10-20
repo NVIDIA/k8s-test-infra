@@ -177,6 +177,44 @@ func TestValidateVGPU_RejectsInconsistentBlocks(t *testing.T) {
 	}
 }
 
+func TestValidateVGPU_RefusesMIGOnAHost(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		mutate func(yc *YAMLConfig)
+		want   string
+	}{
+		"MIG off, as the shipped profiles carry it": {func(yc *YAMLConfig) {
+			yc.DeviceDefaults.MIG = &MIGConfig{ModeCurrent: "disabled"}
+		}, ""},
+		"MIG on for every GPU": {func(yc *YAMLConfig) {
+			yc.DeviceDefaults.MIG = &MIGConfig{ModeCurrent: "enabled"}
+		}, "device_defaults.mig.mode_current: MIG mode is enabled on a vGPU host; MIG-backed vGPU is not simulated"},
+		"MIG on for one GPU": {func(yc *YAMLConfig) {
+			yc.Devices = []DeviceOverride{{Index: 0, MIG: &MIGConfig{ModeCurrent: "enabled"}}}
+		}, "devices[index=0].mig.mode_current: MIG mode is enabled on a vGPU host; MIG-backed vGPU is not simulated"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			yc := decodeVGPUConfig(t, vgpuHostYAML, nil)
+			tc.mutate(yc)
+			err := validateYAMLConfig(yc)
+			if tc.want == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.EqualError(t, err, tc.want)
+		})
+	}
+}
+
+// A guest's MIG block describes the guest's own view and is left alone.
+func TestValidateVGPU_LeavesMIGOnAGuestAlone(t *testing.T) {
+	t.Parallel()
+	yc := decodeVGPUConfig(t, vgpuGuestYAML, nil)
+	yc.DeviceDefaults.MIG = &MIGConfig{ModeCurrent: "enabled"}
+	require.NoError(t, validateYAMLConfig(yc))
+}
+
 func TestVirtualizationConfig_Guest(t *testing.T) {
 	t.Parallel()
 	guest := decodeVGPUConfig(t, vgpuGuestYAML, nil).DeviceDefaults.Virtualization
