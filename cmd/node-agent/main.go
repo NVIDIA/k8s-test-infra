@@ -243,6 +243,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+	criOpts.LiveKernelModules = features.Enabled(features.GPUOperatorDriver)
 
 	// TODO: we should consider keeping runtime state in /var/ dir so it naturally gets reset on container restart
 	if err := resetRuntimeOverrides(h, log); err != nil {

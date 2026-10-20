@@ -56,6 +56,11 @@ type Options struct {
 	Runtime cri.Runtime
 	// ToolkitSource is where the image ships the toolkit binaries.
 	ToolkitSource string
+	// LiveKernelModules leaves the module tree and lsmod out of the specs.
+	// The simulated NVIDIA modules are then loaded for real, so the kernel's
+	// /sys/module is live, and the copy writeKernelModules took at staging
+	// would hide a driver loaded, reloaded or upgraded since.
+	LiveKernelModules bool
 }
 
 // New returns a container runtime Simulator.
@@ -232,11 +237,13 @@ func (s *Simulator) revert(ctx context.Context) error {
 // publishSpecs writes both CDI specs. The IMEX simulator stages in the same
 // Stage wave, so by Apply its node software is on disk or it is not.
 func (s *Simulator) publishSpecs(state *agent.State) error {
-	if err := writeSpec(s.host.RunPath(nvidiaSpecFile), buildNvidiaSpec(state, imex.Staged(s.host.Root))); err != nil {
+	opts := specOptions{liveKernelModules: s.opts.LiveKernelModules, imexStaged: imex.Staged(s.host.Root)}
+
+	if err := writeSpec(s.host.RunPath(nvidiaSpecFile), buildNvidiaSpec(state, opts)); err != nil {
 		return fmt.Errorf("nvidia.yaml: %w", err)
 	}
 
-	if err := writeSpec(s.host.RunPath(nriSpecFile), buildNRISpec(state)); err != nil {
+	if err := writeSpec(s.host.RunPath(nriSpecFile), buildNRISpec(state, opts)); err != nil {
 		return fmt.Errorf("nvml-mock-nri.yaml: %w", err)
 	}
 

@@ -71,10 +71,18 @@ type cdiDevice struct {
 	ContainerEdits cdiEdits `json:"containerEdits"`
 }
 
+// specOptions carries what the specs serve beyond the node's state.
+type specOptions struct {
+	// liveKernelModules leaves the module tree and lsmod to the kernel; see
+	// Options.LiveKernelModules.
+	liveKernelModules bool
+	// imexStaged says whether the IMEX node software is staged to mount.
+	imexStaged bool
+}
+
 // buildNvidiaSpec returns the nvidia.com/gpu CDI spec consumed by nvidia-container-runtime.
 // It includes library mounts, an ldcache hook, and per-GPU + "all" device entries.
-// imexStaged says whether the IMEX node software is staged to mount.
-func buildNvidiaSpec(state *agent.State, imexStaged bool) cdiSpec {
+func buildNvidiaSpec(state *agent.State, opts specOptions) cdiSpec {
 	devRoot := overlayHostRoot + "/driver/dev"
 
 	edits := &cdiEdits{
@@ -139,8 +147,8 @@ func buildNvidiaSpec(state *agent.State, imexStaged bool) cdiSpec {
 	}
 
 	edits.Mounts = append(edits.Mounts, pciSysfsMounts(state)...)
-	edits.Mounts = append(edits.Mounts, kernelModuleMounts()...)
-	edits.Mounts = append(edits.Mounts, imexMounts(imexStaged)...)
+	edits.Mounts = append(edits.Mounts, kernelModuleMounts(opts)...)
+	edits.Mounts = append(edits.Mounts, imexMounts(opts.imexStaged)...)
 
 	// The .so resolving fabric.state:auto runs in the consumer container, so the
 	// marker dir mounts there — but only where it exists, else creation fails.
@@ -307,14 +315,20 @@ func imexMounts(staged bool) []cdiMount {
 }
 
 // kernelModuleMounts serves the module tree and the generated lsmod at their
-// kernel paths, because a Go consumer bypasses the preload shim. Ungated,
-// unlike pciSysfsMounts: writeKernelModules always renders.
+// kernel paths, because a Go consumer bypasses the preload shim. Unlike
+// pciSysfsMounts it does not depend on the state, since writeKernelModules
+// always renders; it serves nothing while the simulated modules are loaded for
+// real, because the kernel's own tree is then the live one.
 //
 // The script goes to /usr/local/bin, which no distribution uses for lsmod.
 // /usr/bin/lsmod is a symlink to the kmod multi-call binary, and a bind mount
 // follows the symlink, so mounting there would replace kmod and break modprobe,
 // rmmod, insmod and depmod.
-func kernelModuleMounts() []cdiMount {
+func kernelModuleMounts(opts specOptions) []cdiMount {
+	if opts.liveKernelModules {
+		return nil
+	}
+
 	return []cdiMount{
 		{
 			HostPath:      filepath.Join(overlayHostRoot, kmod.SysModuleRelPath),
@@ -334,7 +348,7 @@ func kernelModuleMounts() []cdiMount {
 // the overlay bind-mount. The module tree is the exception. No overlay mount reaches
 // /sys/module. The distinct vendor (nvml-mock.nvidia.com vs nvidia.com) keeps MEP-0002's
 // "exactly one source of CDI references per container" invariant observable.
-func buildNRISpec(state *agent.State) cdiSpec {
+func buildNRISpec(state *agent.State, opts specOptions) cdiSpec {
 	devRoot := overlayHostRoot + "/driver/dev"
 
 	allNodes := make([]cdiDeviceNode, 0, len(state.Devices)+3)
@@ -371,7 +385,7 @@ func buildNRISpec(state *agent.State) cdiSpec {
 		// NVML_MOCK_DEVICE_SOURCE makes the injection path (CDI vs raw NRI) observable
 		// from inside the container — the two modes are otherwise indistinguishable.
 		ContainerEdits: &cdiEdits{
-			Mounts: kernelModuleMounts(),
+			Mounts: kernelModuleMounts(opts),
 			Env:    []string{"NVML_MOCK_DEVICE_SOURCE=cdi"},
 		},
 		Devices: devices,
