@@ -455,6 +455,20 @@ devices:
     pci:
       bus_id: "0000:90:00.0"
     minor_number: 5
+    # The one device that models power smoothing, so the bridge suite drives
+    # the setters (testPowerPolicy) while every other A100 refuses them. A
+    # device's power block replaces the default one whole, hence the limits.
+    power:
+      management_supported: true
+      management_mode: "enabled"
+      default_limit_mw: 400000
+      enforced_limit_mw: 400000
+      min_limit_mw: 100000
+      max_limit_mw: 400000
+      current_draw_mw: 72000
+      power_state: "P0"
+      smoothing:
+        supported: true
 
   - index: 6
     uuid: "GPU-12345678-1234-1234-1234-123456780006"

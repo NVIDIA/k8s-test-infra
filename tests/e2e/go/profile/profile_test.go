@@ -266,6 +266,23 @@ func TestWorkloadPowerProfilesAreBlackwellOnDriver570(t *testing.T) {
 	}
 }
 
+// TestPowerSmoothingIsBlackwellOnDriver570 pins which shipped profiles the
+// power smoothing e2e treats as supporting the feature, so the positive and
+// negative specs cannot quietly swap. Every shipped profile also starts with
+// smoothing off on preset 0, which is what the setter spec writes away from.
+func TestPowerSmoothingIsBlackwellOnDriver570(t *testing.T) {
+	wantSupported := map[string]bool{"b200": true, "gb200": true, "gb300": true}
+	for _, name := range KnownProfiles {
+		p, err := Load(profilesDir, name)
+		require.NoError(t, err, "Load(%q)", name)
+		require.Equal(t, wantSupported[name], p.SupportsPowerSmoothing(),
+			"%s: power smoothing support should be %v (%s, driver %d.x)",
+			name, wantSupported[name], p.Architecture(), p.DriverMajor())
+		require.False(t, p.PowerSmoothingEnabled(), "%s: ships with power smoothing enabled", name)
+		require.Zero(t, p.PowerSmoothingActiveProfile(), "%s: ships with a non-zero active preset", name)
+	}
+}
+
 // TestWorkloadProfilePairsBackTheSetterAssertions checks every profile that
 // supports the feature offers both pairs the `-sr` / `-cr` e2e needs. Without
 // them those assertions skip silently, so a profile that lost its conflicts

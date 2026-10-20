@@ -509,6 +509,24 @@ func unadvertisedProfileID(p profile.Profile) (int, bool) {
 	return 0, false
 }
 
+// PowerSmoothing asserts the Power Smoothing block of `nvidia-smi -q -x`
+// follows the profile: populated with the configured state on a board that
+// models the feature, N/A everywhere else.
+func PowerSmoothing(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
+	ginkgo.GinkgoHelper()
+
+	want := PowerSmoothingExpectation{
+		Supported:     p.SupportsPowerSmoothing(),
+		Enabled:       p.PowerSmoothingEnabled(),
+		ActiveProfile: p.PowerSmoothingActiveProfile(),
+	}
+	ginkgo.By(fmt.Sprintf("nvidia-smi -q -x power_smoothing on %s (supported %v, %s, driver %d.x)",
+		p.Name, want.Supported, p.Architecture(), p.DriverMajor()))
+	problems := PowerSmoothingProblems(query(ctx, k, pod), want)
+	gomega.Expect(problems).To(gomega.BeEmpty(),
+		"Power Smoothing wrong for profile %s:\n%s", p.Name, strings.Join(problems, "\n"))
+}
+
 // query execs `nvidia-smi -q -x` and asserts it succeeded, returning stdout.
 func query(ctx context.Context, k *kube.Client, pod kube.PodRef) string {
 	ginkgo.GinkgoHelper()

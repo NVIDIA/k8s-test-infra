@@ -99,7 +99,14 @@ var functionRegistry = map[string]FunctionVersion{
 	"nvmlDeviceWorkloadPowerProfileClearRequestedProfiles": {Added: "570.0"},
 	"nvmlDeviceWorkloadPowerProfileUpdateProfiles_v1":      {Added: "570.0"},
 
+	// Power smoothing is the same split: Blackwell in the profile, 570 here.
+	"nvmlDevicePowerSmoothingSetState":                 {Added: "570.0"},
+	"nvmlDevicePowerSmoothingActivatePresetProfile":    {Added: "570.0"},
+	"nvmlDevicePowerSmoothingUpdatePresetProfileParam": {Added: "570.0"},
+
 	// 580.x / NVML 13.0 additions
+	"nvmlDeviceGetPowerMizerMode_v1":          {Added: "580.0"},
+	"nvmlDeviceSetPowerMizerMode_v1":          {Added: "580.0"},
 	"nvmlDeviceGetVgpuSchedulerLog_v2":        {Added: "580.0"},
 	"nvmlDeviceGetVgpuSchedulerState_v2":      {Added: "580.0"},
 	"nvmlDeviceSetVgpuSchedulerState_v2":      {Added: "580.0"},
@@ -192,6 +199,18 @@ func FunctionAvailable(funcName, driverVersion string) bool {
 	}
 	if entry.Removed != "" && CompareDriverVersions(driverVersion, entry.Removed) >= 0 {
 		return false
+	}
+	return true
+}
+
+// FieldAvailable reports whether the given driver version knows a field id.
+// Power smoothing arrived in 570 as a unit, the field ids that read it with the
+// setters that write it, so a driver without the setters reports none of the
+// fields rather than a feature nothing can control. Other ids default to
+// available, as unknown functions do.
+func FieldAvailable(fieldID uint32, driverVersion string) bool {
+	if isPowerSmoothingField(fieldID) {
+		return FunctionAvailable("nvmlDevicePowerSmoothingSetState", driverVersion)
 	}
 	return true
 }

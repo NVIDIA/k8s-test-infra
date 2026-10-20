@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  nvml-mock: NVML reports the PowerMizer mode (configurable with power.power_mizer_mode and settable at runtime) and an AC power source instead of NOT_SUPPORTED.
+time: 2026-10-20T14:07:31Z
+custom:
+  Issue: "1044"

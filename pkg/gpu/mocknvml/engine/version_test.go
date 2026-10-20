@@ -19,6 +19,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestFieldAvailable_PowerSmoothingNeedsDriver570(t *testing.T) {
+	t.Parallel()
+	for _, id := range []uint32{fiPwrSmoothingEnabled, fiPwrSmoothingProfilePercentTMPFloor,
+		fiPwrSmoothingAdminOverrideRampDownHyst} {
+		require.False(t, FieldAvailable(id, "550.163.01"), "field %d on 550", id)
+		require.True(t, FieldAvailable(id, "570.0"), "field %d on 570", id)
+		require.True(t, FieldAvailable(id, "580.65.06"), "field %d on 580", id)
+	}
+	require.True(t, FieldAvailable(fiPwrSmoothingEnabled-1, "550.163.01"),
+		"a field outside the power smoothing range keeps its availability")
+}
+
 func TestCompareDriverVersions(t *testing.T) {
 	tests := []struct {
 		name string

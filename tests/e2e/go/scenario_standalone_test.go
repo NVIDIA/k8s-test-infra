@@ -251,6 +251,12 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				nvidiasmi.PowerProfiles(ctx, h.Kube, pod, p)
 			})
 
+			It("reports power smoothing via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// The expectation comes from the profile, so this spec pins a
+				// populated block on b200/gb200/gb300 and N/A elsewhere.
+				nvidiasmi.PowerSmoothing(ctx, h.Kube, pod, p)
+			})
+
 			It("exposes the NVLink topology (gated on fabricmanager)", Label("nvlink"), func(ctx SpecContext) {
 				assertions.FabricManagerGate(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", pod, config.ReadyTimeout(), config.PollInterval())
 				assertions.NVLink(ctx, h.Kube, pod, p)
@@ -369,6 +375,10 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 
 				It("locks and unlocks GPU and memory clocks via nvidia-smi -lgc/-lmc", Label("runtime-control"), Label("nvidia-smi"), func(ctx SpecContext) {
 					assertLockedClocksViaNvidiaSmi(ctx, h, pod, p)
+				})
+
+				It("tunes, activates and toggles power smoothing via nvidia-smi power-smoothing", Label("runtime-control"), Label("nvidia-smi"), func(ctx SpecContext) {
+					assertPowerSmoothingViaNvidiaSmi(ctx, h, pod, p)
 				})
 
 				It("sets a throttle reason via the nvml-mock-ctl throttle command", Label("runtime-control"), func(ctx SpecContext) {
