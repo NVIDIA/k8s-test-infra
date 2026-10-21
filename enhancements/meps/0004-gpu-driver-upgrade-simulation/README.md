@@ -10,6 +10,7 @@ Author: [Roman Hlushko](https://github.com/roma-glushko)
   - [Driver Installer](#driver-installer)
   - [Driver Upgrade](#driver-upgrade)
   - [Container Toolkit](#container-toolkit)
+  - [MIG Manager](#mig-manager)
   - [`vfio-manage`](#vfio-manage)
 - [Motivation](#motivation)
   - [Goals](#goals)
@@ -25,6 +26,7 @@ Author: [Roman Hlushko](https://github.com/roma-glushko)
     - [Kernel Modules](#kernel-modules)
     - [Driver Installer Integration](#driver-installer-integration)
     - [Container Toolkit Integration](#container-toolkit-integration)
+    - [MIG Manager Integration](#mig-manager-integration)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
 - [Appendix](#appendix)
@@ -34,7 +36,7 @@ Author: [Roman Hlushko](https://github.com/roma-glushko)
 ## Summary
 
 This proposal explores how Mokka can allow running the original, unmodified 
-driver installer, container-toolkit, k8s-driver-manager components of the GPU operator.
+driver installer, container-toolkit, k8s-driver-manager and MIG manager components of the GPU operator.
 Specifically, the GPU driver upgrade workflow should work as close as possible to the real cluster upgrade in a GPU cluster.
 
 Mokka's existing simulators were built to satisfy discovery and allocation consumers.
@@ -378,6 +380,29 @@ sequenceDiagram
     tk->>ctrd: restart
 ```
 
+### MIG Manager
+
+The MIG manager partitions a node's GPUs into MIG slices. It applies the layout
+that the node's `nvidia.com/mig.config` label names, from a ConfigMap of
+layouts, and reports progress on the `nvidia.com/mig.config.state` label:
+`pending`, then `success` or `failed`, or `rebooting` when a MIG mode change
+needs a reboot. For a new layout it:
+
+1. pauses the GPU clients the way `k8s-driver-manager` does: the device plugin,
+   GFD, DCGM and `dcgm-exporter`, and deletes the validator's pods;
+2. switches MIG mode where the layout needs it, rebooting the node if the
+   change does not take effect and rebooting is allowed;
+3. creates the GPU and compute instances with `nvidia-mig-parted`, through NVML;
+4. with CDI on, runs `nvidia-smi` in the driver root, creates the driver's
+   control device nodes and regenerates the management CDI spec;
+5. resumes the clients. The device plugin then advertises the slices, which it
+   finds through `/proc/driver/nvidia-caps/mig-minors` and the
+   `/dev/nvidia-caps` device nodes.
+
+`k8s-driver-manager` pauses the MIG manager when it replaces a loaded driver,
+and GPU and compute instances do not survive a driver reload, so after an
+upgrade the MIG manager finds its layout gone and applies it again.
+
 ### `vfio-manage`
 
 `vfio-manage`, from the `k8s-driver-manager` repository, moves GPUs between
@@ -405,8 +430,8 @@ It runs in two places:
 
 ### Goals
 
-- Run the GPU Operator's driver installer and container toolkit from NVIDIA's
-  original images on a Mokka node, so that a driver installation and upgrade run the
+- Run the GPU Operator's driver installer, container toolkit and MIG manager from NVIDIA's
+  original images on a Mokka node, so that a driver installation, upgrade and MIG reconfiguration run the
   operator's whole sequence like in the real GPU cluster.
 
 ### Non-Goals
@@ -415,7 +440,9 @@ It runs in two places:
   (MOFED), NVIDIA's GPU Direct RDMA driver stack for InfiniBand/RoCE NICs,
   itself — only the presence and readiness checks `k8s-driver-manager`
   performs against it (`GPU_DIRECT_RDMA_ENABLED`, `waitForMofedDriver`).
-- The `kernel` mode serves neither MIG nor IMEX yet (TODO: What does it mean to implement them? Should not NVML mock be enough?)
+- IMEX and ComputeDomains in the `kernel` mode: IMEX spans the nodes of an
+  NVLink domain, and the `kernel` mode runs one simulated GPU node per kernel
+  ([Drawbacks](#drawbacks)).
 
 ## Proposal
 
@@ -630,6 +657,31 @@ leaves a node another installer prepared, and keep publishing its spec. The
 operand restarts containerd whenever it starts or stops, which drops the
 connection of Mokka's NRI plugin until it registers again by itself.
 
+#### MIG Manager Integration (Not PoC Yet)
+
+The MIG manager runs from its original image too, and the `kernel` mode already
+gives it most of what it needs. The operator runs it with the `nvidia`
+RuntimeClass, so with NRI's default CDI kind, `nvidia-mig-parted` loads the
+mock NVML, which carries each board's MIG profiles and creates instances; its
+`nvidia-smi` in the driver root loads the mock through the linker directive;
+and the stubs give `nvidia-ctk` the device numbers for the control device
+nodes.
+
+Two pieces are missing, and neither is in the PoC yet:
+
+- **MIG's kernel files.** The stubs have to register the `nvidia-caps` device
+  type and serve `/proc/driver/nvidia-caps/mig-minors`, which the device plugin
+  reads at a fixed path and without which it advertises no slice. The real
+  driver builds that table from fixed lists of every possible GPU, GPU
+  instance and compute instance, so the stubs can serve the same table, and
+  Mokka can create every `/dev/nvidia-caps` node up front. Any layout the MIG
+  manager applies is then allocatable, unlike with the copies Mokka stages once
+  today.
+- **Instances that do not outlive the driver.** The mock records its layout on
+  the node, so instances would survive a driver upgrade, which they do not on a
+  GPU. The mock has to drop GPU and compute instances when the stubs reload,
+  so that the MIG manager's re-apply after an upgrade runs as on a GPU node.
+
 ## Drawbacks
 
 - Kernel modules load only into the exact kernel they were built for, so
@@ -676,7 +728,7 @@ connection of Mokka's NRI plugin until it registers again by itself.
   toolkit, which sets up the runtime from the installer's root. Without a loaded
   module, GPU Operator v26.7.1's operands would not even start
   ([Motivation](#motivation)).
-- Could we just shim kernel module operations? Yes, if we wanted to bypass driver installer. Driver Manager emits direct syscalls, so there is nothing to shim there.
+- Could we just shim kernel module operations? Yes, if we wanted to bypass driver installer. Driver Manager emits direct syscalls, so there is nothing to shim there (see [Appendix](#appendix)).
 
 ## Appendix
 
