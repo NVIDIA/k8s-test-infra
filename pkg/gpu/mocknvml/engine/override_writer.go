@@ -75,6 +75,20 @@ type OverrideWriter interface {
 	// written" from "written, then emptied"; only the first falls back to the
 	// control state the profile declares.
 	UpdateFanControl(index int, apply func(base []FanControlConfig, present bool) ([]FanControlConfig, error)) error
+
+	// SetPowerMizerMode records the PowerMizer mode, by its config name, for
+	// one device.
+	SetPowerMizerMode(index int, mode string) error
+
+	// SetPowerSmoothingState records whether power smoothing is enabled.
+	SetPowerSmoothingState(index int, enabled bool) error
+
+	// SetPowerSmoothingActiveProfile records the preset profile in force.
+	SetPowerSmoothingActiveProfile(index int, profileID uint32) error
+
+	// SetPowerSmoothingProfileParam records one parameter of one preset
+	// profile. The value has already been validated for param.
+	SetPowerSmoothingProfileParam(index int, profileID uint32, param PowerSmoothingParam, value float64) error
 }
 
 // ClockDomain names a clock domain the locked-clock and offset setters write

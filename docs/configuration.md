@@ -1219,6 +1219,81 @@ the symbols, so nvidia-smi cannot find the function. Of the shipped profiles onl
 `gb200` and `gb300` satisfy both; the others run a new enough driver but declare
 no profiles.
 
+### Power smoothing
+
+Power smoothing is the Blackwell feature that holds a GPU's power draw above a
+floor so that load swings do not ripple back into the facility's supply. It
+renders as the "Power Smoothing" block of `nvidia-smi -q` and is driven by
+`nvidia-smi power-smoothing`. Blackwell and later devices support it by default,
+which on the shipped profiles means `b200`, `gb200` and `gb300`; earlier
+architectures report it as `N/A`. It also needs a `system.driver_version` of 570
+or later: an older driver reports none of the power smoothing fields and lacks the
+setters. `power.smoothing` seeds its state:
+
+```yaml
+power:
+  smoothing:
+    supported: true                    # override the architecture default
+    state: "enabled"                   # default "disabled"
+    active_profile: 1                  # preset 0-4, default 0
+    profiles:
+      1:
+        percent_tmp_floor: 65.5        # floor as % of the power ceiling, 0-100
+        ramp_up_rate_mw_per_s: 30000   # rendered as 30.00 W/s
+        ramp_down_rate_mw_per_s: 15000
+        ramp_down_hysteresis_ms: 250
+```
+
+The device has five preset profiles, numbered 0 to 4. A preset the config does
+not list reads as all zeros. The power ceiling ("Current TMP") is the enforced
+power limit, so it follows `nvidia-smi -pl`. While smoothing is enabled, the floor
+is that ceiling times the active preset's `percent_tmp_floor`. Disabled, the floor
+is 0 W. Smoothing does not change the simulated power draw.
+
+`-s`, `-spp`, `-ptf`, `-rur`, `-rdr` and `-rdh` are recorded in the runtime
+override document like `nvidia-smi -pl`, so a later `nvidia-smi` reads them back
+and they hold until a reset:
+
+```console
+$ nvidia-smi power-smoothing -i 0 -s 1
+Successfully Enabled Power Smoothing
+$ nvidia-smi power-smoothing -i 0 -p 2 -rur 30000
+Successfully updated Ramp Up Rate for Preset Profile ID 2
+$ nvidia-smi power-smoothing -i 0 -spp 2
+Successfully Activated Preset Profile ID: 2
+$ nvidia-smi -i 0 -q | grep -A3 "Current Profile"
+        Current Profile
+            % TMP Floor                   : 0.00%
+            Ramp Up Rate                  : 30.00 W/s
+            Ramp Down Rate                : 0.00 W/s
+```
+
+A preset outside 0-4, a floor outside 0-100 %, a negative ramp rate or a
+fractional hysteresis is refused with `NVML_ERROR_INVALID_ARGUMENT`. Admin
+overrides are not modelled and read `Not Set`; the privilege level reads `N/A`,
+immediate ramp-down `Disabled`, and the remaining hardware lifetime 100 %.
+
+<Note>
+Captures from real B200, GB200 and GB300 nodes render the whole block as
+`Insufficient Permissions`. The mock does not model NVML privileges, so it
+always renders the full block.
+</Note>
+
+Like workload power profiles, the feature also needs `system.driver_version` 570
+or later; an older driver does not export the symbols.
+
+### PowerMizer mode and power source
+
+`power.power_mizer_mode` sets the mode `nvmlDeviceGetPowerMizerMode_v1` reports:
+`adaptive`, `prefer_maximum_performance`, `auto` (the default) or
+`prefer_consistent_performance`. Every mode is advertised as supported on
+Maxwell and later; earlier architectures decline. `nvmlDeviceSetPowerMizerMode_v1`
+writes the mode to the runtime override document, so other processes read it back.
+Both entry points need `system.driver_version` 580 or later. nvidia-smi 580 does
+not show this mode, so only an NVML consumer observes it.
+
+`nvmlDeviceGetPowerSource` reports AC power on every device.
+
 ### Deliberately fixed
 
 **Profiling metrics (`DCGM_FI_PROF_*`).** DCGM reads these on Hopper+ through the

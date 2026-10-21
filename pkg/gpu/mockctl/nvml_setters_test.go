@@ -325,6 +325,54 @@ func TestSetLockedClocks_ResetMasksAnInheritedLock(t *testing.T) {
 	require.Equal(t, &lock, resolve(1).LockedGraphics, "the other GPUs keep the inherited lock")
 }
 
+// TestPowerPolicySetters_ShareThePowerBlock resolves the document the way the
+// running mock does. A power cap, the PowerMizer mode and every smoothing write
+// land in one power block, and tuning one preset parameter keeps the rest of
+// the preset and the other presets the profile declares.
+func TestPowerPolicySetters_ShareThePowerBlock(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+
+	require.NoError(t, SetPowerLimit(path, 0, 400_000))
+	require.NoError(t, SetPowerMizerMode(path, 0, "prefer_maximum_performance"))
+	require.NoError(t, SetPowerSmoothingState(path, 0, true))
+	require.NoError(t, SetPowerSmoothingActiveProfile(path, 0, 2))
+	require.NoError(t, SetPowerSmoothingProfileParam(path, 0, 1, engine.PowerSmoothingParamRampUpRate, 30000))
+	require.NoError(t, SetPowerSmoothingProfileParam(path, 0, 1, engine.PowerSmoothingParamRampDownHysteresis, 250))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	overrides := &engine.ConfigOverrideDoc{All: doc.All, Devices: doc.Devices}
+	profile := &engine.DeviceConfig{Power: &engine.PowerConfig{
+		Smoothing: &engine.PowerSmoothingConfig{Profiles: map[uint32]engine.PowerSmoothingProfileConfig{
+			1: {PercentTMPFloor: 40},
+			3: {RampDownRateMWPerS: 5000},
+		}},
+	}}
+	merged, err := engine.MergeDeviceConfig(profile, overrides.DeviceConfigOverride(0))
+	require.NoError(t, err)
+	require.Equal(t, &engine.PowerConfig{
+		EnforcedLimitMW: 400_000,
+		PowerMizerMode:  "prefer_maximum_performance",
+		Smoothing: &engine.PowerSmoothingConfig{
+			State:         "enabled",
+			ActiveProfile: 2,
+			Profiles: map[uint32]engine.PowerSmoothingProfileConfig{
+				1: {PercentTMPFloor: 40, RampUpRateMWPerS: 30000, RampDownHysteresisMS: 250},
+				3: {RampDownRateMWPerS: 5000},
+			},
+		},
+	}, merged.Power)
+}
+
+func TestPowerPolicySetters_FailWithoutADocumentPath(t *testing.T) {
+	t.Parallel()
+	require.Error(t, SetPowerMizerMode("", 0, "auto"))
+	require.Error(t, SetPowerSmoothingState("", 0, true))
+	require.Error(t, SetPowerSmoothingActiveProfile("", 0, 1))
+	require.Error(t, SetPowerSmoothingProfileParam("", 0, 1, engine.PowerSmoothingParamPercentTMPFloor, 50))
+}
+
 func TestClockSetters_FailWithoutADocumentPath(t *testing.T) {
 	t.Parallel()
 	require.Error(t, SetApplicationsClocks("", 0, 1593, 1410))

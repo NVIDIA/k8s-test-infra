@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 133 stub functions for unimplemented NVML functions.
+// 127 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceGetInfo_v1
@@ -169,16 +169,6 @@ func nvmlDeviceGetPgpuMetadataString(device C.nvmlDevice_t, pgpuMetadata *C.char
 	return stubReturn("nvmlDeviceGetPgpuMetadataString")
 }
 
-//export nvmlDeviceGetPowerMizerMode_v1
-func nvmlDeviceGetPowerMizerMode_v1(device C.nvmlDevice_t, powerMizerMode *C.nvmlDevicePowerMizerModes_v1_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetPowerMizerMode_v1")
-}
-
-//export nvmlDeviceGetPowerSource
-func nvmlDeviceGetPowerSource(device C.nvmlDevice_t, powerSource *C.nvmlPowerSource_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetPowerSource")
-}
-
 //export nvmlDeviceGetProcessesUtilizationInfo
 func nvmlDeviceGetProcessesUtilizationInfo(device C.nvmlDevice_t, procesesUtilInfo *C.nvmlProcessesUtilizationInfo_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetProcessesUtilizationInfo")
@@ -279,21 +269,6 @@ func nvmlDeviceGetVgpuUtilization(device C.nvmlDevice_t, lastSeenTimeStamp C.ulo
 	return stubReturn("nvmlDeviceGetVgpuUtilization")
 }
 
-//export nvmlDevicePowerSmoothingActivatePresetProfile
-func nvmlDevicePowerSmoothingActivatePresetProfile(device C.nvmlDevice_t, profile *C.nvmlPowerSmoothingProfile_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDevicePowerSmoothingActivatePresetProfile")
-}
-
-//export nvmlDevicePowerSmoothingSetState
-func nvmlDevicePowerSmoothingSetState(device C.nvmlDevice_t, state *C.nvmlPowerSmoothingState_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDevicePowerSmoothingSetState")
-}
-
-//export nvmlDevicePowerSmoothingUpdatePresetProfileParam
-func nvmlDevicePowerSmoothingUpdatePresetProfileParam(device C.nvmlDevice_t, profile *C.nvmlPowerSmoothingProfile_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDevicePowerSmoothingUpdatePresetProfileParam")
-}
-
 //export nvmlDeviceRemoveGpu_v1
 func nvmlDeviceRemoveGpu_v1(pciInfo *C.nvmlPciInfo_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceRemoveGpu_v1")
@@ -352,11 +327,6 @@ func nvmlDeviceSetHostname_v1(device C.nvmlDevice_t, hostname *C.nvmlHostname_v1
 //export nvmlDeviceSetNvLinkUtilizationControl
 func nvmlDeviceSetNvLinkUtilizationControl(device C.nvmlDevice_t, link C.uint, counter C.uint, control *C.nvmlNvLinkUtilizationControl_t, reset C.uint) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceSetNvLinkUtilizationControl")
-}
-
-//export nvmlDeviceSetPowerMizerMode_v1
-func nvmlDeviceSetPowerMizerMode_v1(device C.nvmlDevice_t, powerMizerMode *C.nvmlDevicePowerMizerModes_v1_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceSetPowerMizerMode_v1")
 }
 
 //export nvmlDeviceSetRusdSettings_v1

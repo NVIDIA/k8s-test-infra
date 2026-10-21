@@ -86,3 +86,28 @@ func (overrideWriter) UpdateFanControl(
 ) error {
 	return mockctl.UpdateFanControl(engine.ConfigOverridePath(), index, apply)
 }
+
+// SetPowerMizerMode records the mode nvmlDeviceSetPowerMizerMode_v1 applied.
+func (overrideWriter) SetPowerMizerMode(index int, mode string) error {
+	return mockctl.SetPowerMizerMode(engine.ConfigOverridePath(), index, mode)
+}
+
+// SetPowerSmoothingState records the state nvmlDevicePowerSmoothingSetState
+// applied.
+func (overrideWriter) SetPowerSmoothingState(index int, enabled bool) error {
+	return mockctl.SetPowerSmoothingState(engine.ConfigOverridePath(), index, enabled)
+}
+
+// SetPowerSmoothingActiveProfile records the preset
+// nvmlDevicePowerSmoothingActivatePresetProfile made active.
+func (overrideWriter) SetPowerSmoothingActiveProfile(index int, profileID uint32) error {
+	return mockctl.SetPowerSmoothingActiveProfile(engine.ConfigOverridePath(), index, profileID)
+}
+
+// SetPowerSmoothingProfileParam records the preset parameter
+// nvmlDevicePowerSmoothingUpdatePresetProfileParam tuned.
+func (overrideWriter) SetPowerSmoothingProfileParam(
+	index int, profileID uint32, param engine.PowerSmoothingParam, value float64,
+) error {
+	return mockctl.SetPowerSmoothingProfileParam(engine.ConfigOverridePath(), index, profileID, param, value)
+}

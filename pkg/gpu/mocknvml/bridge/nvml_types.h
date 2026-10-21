@@ -440,7 +440,18 @@ typedef struct nvmlDevicePerfModes_st
     unsigned int version;                          //!< IN: NVML_STRUCT_VERSION(DevicePerfModes, 1)
     char         str[NVML_PERF_MODES_BUFFER_SIZE]; //!< OUT: the performance modes string
 } nvmlDevicePerfModes_t;
-typedef struct nvmlDevicePowerMizerModes_v1_st              nvmlDevicePowerMizerModes_v1_t;
+/* PowerMizer modes, read and written in place: the caller passes mode IN and
+ * the bridge fills currentMode and supportedPowerMizerModes OUT. The struct
+ * carries no version member. Layout matches go-nvml's pkg/nvml/nvml.h (v1),
+ * pinned by power_policy_layout_test.go. */
+typedef struct nvmlDevicePowerMizerModes_v1_st
+{
+    unsigned int currentMode;              //!< OUT: the current PowerMizer mode
+    unsigned int mode;                     //!< IN: the PowerMizer mode to set
+    unsigned int supportedPowerMizerModes; //!< OUT: bitmask of supported modes
+} nvmlDevicePowerMizerModes_v1_t;
+_Static_assert(sizeof(nvmlDevicePowerMizerModes_v1_t) == 12,
+               "nvmlDevicePowerMizerModes_v1_t must stay 12 bytes to match the go-nvml ABI");
 typedef struct nvmlDramEncryptionInfo_st                    nvmlDramEncryptionInfo_t;
 /* ECC error counts - full definition needed by bridge */
 typedef struct nvmlEccErrorCounts_st {
@@ -997,9 +1008,29 @@ typedef struct nvmlNvLinkPowerThres_st
 _Static_assert(sizeof(nvmlNvLinkPowerThres_t) == 4,
                "nvmlNvLinkPowerThres_t must stay 4 bytes: lowPwrThreshold(4)");
 
-typedef struct nvmlPowerSmoothingProfile_st                 nvmlPowerSmoothingProfile_t;
-typedef struct nvmlPowerSmoothingState_st                   nvmlPowerSmoothingState_t;
-typedef struct nvmlPowerSource_st                           nvmlPowerSource_t;
+/* Power smoothing setter inputs. Both are read, never written, so drift
+ * misreads the request rather than overrunning the caller; the double in the
+ * profile struct is what makes its size 24 rather than 20, and a layout that
+ * dropped the padding would read the value four bytes early. Layout matches
+ * go-nvml's pkg/nvml/nvml.h (v1), pinned by power_policy_layout_test.go. */
+typedef struct nvmlPowerSmoothingProfile_st
+{
+    unsigned int version;   //!< IN: NVML_STRUCT_VERSION(PowerSmoothingProfile, 1)
+    unsigned int profileId; //!< IN: the preset profile
+    unsigned int paramId;   //!< IN: NVML_POWER_SMOOTHING_PROFILE_PARAM_*
+    double       value;     //!< IN: the parameter's new value
+} nvmlPowerSmoothingProfile_t;
+_Static_assert(sizeof(nvmlPowerSmoothingProfile_t) == 24,
+               "nvmlPowerSmoothingProfile_t must stay 24 bytes to match the go-nvml ABI");
+typedef struct nvmlPowerSmoothingState_st
+{
+    unsigned int      version; //!< IN: NVML_STRUCT_VERSION(PowerSmoothingState, 1)
+    nvmlEnableState_t state;   //!< IN: 0/DISABLED or 1/ENABLED
+} nvmlPowerSmoothingState_t;
+_Static_assert(sizeof(nvmlPowerSmoothingState_t) == 8,
+               "nvmlPowerSmoothingState_t must stay 8 bytes to match the go-nvml ABI");
+/* A plain enum in nvml.h, not a struct. */
+typedef unsigned int nvmlPowerSource_t;
 typedef struct nvmlPowerValue_v2_st                         nvmlPowerValue_v2_t;
 typedef struct nvmlProcessDetailList_st                     nvmlProcessDetailList_t;
 typedef struct nvmlProcessInfo_v1_st                        nvmlProcessInfo_v1_t;
