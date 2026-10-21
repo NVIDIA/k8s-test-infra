@@ -75,7 +75,7 @@ kind create cluster --name slinky --config kind.yaml \
 
 ```bash
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
-  --version 0.5.0 \
+  --version 0.5.1 \
   --namespace mokka --create-namespace \
   --wait --timeout 300s
 ```
