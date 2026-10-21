@@ -14,7 +14,7 @@
 DOCKER   ?= docker
 MKDIR    ?= mkdir
 
-GOLANG_VERSION ?= 1.27.2
+GOLANG_VERSION ?= 1.27.3
 
 # CUDA library versioning
 LIB_VERSION ?= 550.163.01
