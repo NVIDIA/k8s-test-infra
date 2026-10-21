@@ -126,9 +126,9 @@ func (h *pluginHealth) wedged() (time.Duration, bool) {
 
 // liveness fails only for a wedged handler, because that is the one state the
 // plugin cannot leave on its own. Losing the connection is deliberately not a
-// liveness failure: the stub's Run returns when the connection drops and the
-// process exits on its own, and failing liveness on "not registered yet" would
-// restart the plugin every time containerd is slow to come up.
+// liveness failure: Run registers again by itself, and failing liveness on
+// "not registered yet" would restart the plugin every time containerd is slow
+// to come up.
 func (h *pluginHealth) liveness() health.Probe {
 	h.mu.Lock()
 	defer h.mu.Unlock()
