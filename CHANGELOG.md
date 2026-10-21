@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-10-21
+
+### Security
+
+- build: images and binaries are now built with Go 1.27.3, which fixes GO-2026-6809 (crypto/x509 trusting compromised intermediate certificates).
+
 ## [0.5.0] - 2026-10-14
 
 ### Added
@@ -1161,6 +1167,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Rebranded from gpu-mock to nvml-mock (PRs #273, #274, #275, #281, #282)
 
+[0.5.1]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.3.0...v0.4.0
