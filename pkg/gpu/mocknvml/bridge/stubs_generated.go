@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 115 stub functions for unimplemented NVML functions.
+// 114 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceGetInfo_v1
@@ -327,11 +327,6 @@ func nvmlGetVgpuDriverCapabilities(capability C.nvmlVgpuDriverCapability_t, capR
 //export nvmlGetVgpuVersion
 func nvmlGetVgpuVersion(supported *C.nvmlVgpuVersion_t, current *C.nvmlVgpuVersion_t) C.nvmlReturn_t {
 	return stubReturn("nvmlGetVgpuVersion")
-}
-
-//export nvmlGpmMigSampleGet
-func nvmlGpmMigSampleGet(device C.nvmlDevice_t, gpuInstanceId C.uint, gpmSample C.nvmlGpmSample_t) C.nvmlReturn_t {
-	return stubReturn("nvmlGpmMigSampleGet")
 }
 
 //export nvmlGpmQueryIfStreamingEnabled

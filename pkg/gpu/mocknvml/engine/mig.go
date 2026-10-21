@@ -1366,6 +1366,32 @@ func (d *ConfigurableDevice) GetGpuInstanceById(id int) (nvml.GpuInstance, nvml.
 	return nil, nvml.ERROR_NOT_FOUND
 }
 
+// gpuInstanceShare is the fraction of the board a live GPU instance occupies:
+// its slice count over the board's width. The width is max_gpu_instances, not
+// the widest advertised profile, because a declared table need not include a
+// whole-board row.
+func (d *ConfigurableDevice) gpuInstanceShare(id int) (float64, nvml.Return) {
+	gi, ret := d.GetGpuInstanceById(id)
+	if ret != nvml.SUCCESS {
+		return 0, ret
+	}
+	info, ret := gi.GetInfo()
+	if ret != nvml.SUCCESS {
+		return 0, ret
+	}
+	st := d.migState
+	st.mu.Lock()
+	boardSlices := st.maxGPUInstances
+	st.mu.Unlock()
+	slices := int(st.profiles.GpuInstanceProfiles[int(info.ProfileId)].SliceCount)
+	if slices == 0 || boardSlices <= 0 {
+		// A live instance always has a profile from this table; reaching here
+		// means the table and the instance tree disagree.
+		return 0, nvml.ERROR_UNKNOWN
+	}
+	return float64(slices) / float64(boardSlices), nvml.SUCCESS
+}
+
 // GetGpuInstanceRemainingCapacity reports how many more instances of a profile
 // still fit. nvidia-mig-parted asks this before partitioning.
 func (d *ConfigurableDevice) GetGpuInstanceRemainingCapacity(

@@ -74,6 +74,7 @@ var functionRegistry = map[string]FunctionVersion{
 	"nvmlGpmSampleAlloc":        {Added: "535.0"},
 	"nvmlGpmSampleFree":         {Added: "535.0"},
 	"nvmlGpmSampleGet":          {Added: "535.0"},
+	"nvmlGpmMigSampleGet":       {Added: "535.0"},
 	"nvmlGpmMetricsGet":         {Added: "535.0"},
 
 	// 555.x additions

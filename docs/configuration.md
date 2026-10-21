@@ -1371,6 +1371,14 @@ mock does not run, so deriving them from anything other than the configured
 utilization would be fabrication rather than simulation. They stay fixed by
 design and are not a gap to be closed.
 
+With MIG enabled, a GPU instance can be sampled by its ID
+(`nvmlGpmMigSampleGet`) or through one of its MIG device handles
+(`nvmlGpmSampleGet`); both answer the same. The mock spreads the board's load
+evenly across its slices, so every GPU instance reports the board's activity
+percentages, while PCIe and NVLink throughput are its slice share of the
+board's: a `1g` instance on a seven-slice board reports one seventh of the
+board's PCIe rate.
+
 **Conf Compute protected memory.** The `Conf Compute Protected Memory Usage`
 block of `nvidia-smi -q` reports `0 MiB` for Total, Used and Free on every
 profile, and there is no key to change it. Nothing partitions protected memory
