@@ -676,6 +676,7 @@ connection of Mokka's NRI plugin until it registers again by itself.
   toolkit, which sets up the runtime from the installer's root. Without a loaded
   module, GPU Operator v26.7.1's operands would not even start
   ([Motivation](#motivation)).
+- Could we just shim kernel module operations? Yes, if we wanted to bypass driver installer. Driver Manager emits direct syscalls, so there is nothing to shim there.
 
 ## Appendix
 
