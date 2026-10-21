@@ -1,10 +1,14 @@
-# MEP-0004: GPU Driver Upgrade Simulation
+# MEP-0004: Deeper Support for GPU Operator
 
 Author: [Roman Hlushko](https://github.com/roma-glushko)
 
 <!-- toc -->
 - [Summary](#summary)
 - [Background](#background)
+  - [GPU Setup](#gpu-setup)
+  - [Driver Installer](#driver-installer)
+  - [Driver Upgrade](#driver-upgrade)
+  - [Container Toolkit](#container-toolkit)
 - [Motivation](#motivation)
   - [Goals](#goals)
   - [Non-Goals](#non-goals)
@@ -12,48 +16,59 @@ Author: [Roman Hlushko](https://github.com/roma-glushko)
   - [User Stories](#user-stories)
     - [Story 1](#story-1)
     - [Story 2](#story-2)
+    - [Story 3](#story-3)
   - [Notes/Constraints/Caveats](#notesconstraintscaveats)
+    - [`k8s-driver-manager`](#k8s-driver-manager)
+    - [Driver DaemonSet](#driver-daemonset)
+    - [`vfio-manage`](#vfio-manage)
     - [GPU Operator's upgrade-controller (auto-upgrade path)](#gpu-operators-upgrade-controller-auto-upgrade-path)
     - [Emulation Surface](#emulation-surface)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [Analysis](#analysis)
   - [Proposed Mechanisms](#proposed-mechanisms)
+    - [Driver Installer Integration](#driver-installer-integration)
+    - [Container Toolkit Integration](#container-toolkit-integration)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
 <!-- /toc -->
 
 ## Summary
 
-The GPU Operator team wants to validate NVIDIA GPU driver upgrades end to end
-against Mokka instead of real GPU nodes, running `k8s-driver-manager` and
-`vfio-manage` unmodified. This MEP documents, from source, exactly what those
-two binaries do during a driver upgrade, enumerates the full emulation
-surface Mokka would need to cover for them to run against a simulated node
-without code changes, and proposes — at the level of which mechanism class,
-not a full implementation — how each gap could be closed. It does not
-implement anything itself: it exists so that the follow-on MEPs that do
-implement a fix (a kernel module, a `/sys` overlay, a reconciler change) can
-start from one agreed-upon account of the real workflow and an agreed
-direction, instead of re-deriving either.
+This proposal explores how Mokka can allow running the original, unmodified 
+driver installer, container-toolkit, k8s-driver-manager components of the GPU operator.
+Specifically, the GPU driver upgrade workflow should work as close as possible to the real cluster upgrade in a GPU cluster.
+
+Mokka's existing simulators were built to satisfy discovery and allocation consumers.
+
+They were not built against the real driver *lifecycle* surface described below. 
+Hence, as of today, Mokka suggests to disable driver and container-toolkit daemonset,
+so they are not compatible with today's state of Mokka's node daemon.
 
 ## Background
 
-This section is for readers who have not worked with GPU Operator before.
-It gives the end-to-end picture; later sections narrow in on the two
-binaries this MEP is about.
+### GPU Operator
+
+This section gives the end-to-end picture to the readers who have not worked with GPU Operator before.
 
 **What GPU Operator manages.** GPU Operator is a Kubernetes operator that
 installs and manages the full NVIDIA GPU software stack on GPU nodes from a
-single `ClusterPolicy` custom resource. Each piece of that stack — the
-driver, the container toolkit, the device plugin, GPU Feature Discovery
-(GFD), the Data Center GPU Manager (DCGM) and its `dcgm-exporter`, the
-Multi-Instance GPU (MIG) manager, an operator-validator, and (on newer
-clusters) the Dynamic Resource Allocation (DRA) driver — runs as its own
-DaemonSet. Every one of these DaemonSets schedules only onto GPU nodes,
+single `ClusterPolicy` custom resource. 
+
+Each piece of that stack runs as its own DaemonSet:
+- the driver installer, 
+- the container toolkit, 
+- the device plugin, 
+- GPU Feature Discovery (GFD), 
+- the Data Center GPU Manager (DCGM) and its `dcgm-exporter`, 
+- the Multi-Instance GPU (MIG) manager, 
+- an operator-validator, 
+- and (on newer clusters) the Dynamic Resource Allocation (DRA) driver
+
+Every one of these DaemonSets schedules only onto GPU nodes,
 gated by a node label of the form `nvidia.com/gpu.deploy.<component>=true`.
-Those are exactly the labels
-`k8s-driver-manager` flips to pause and resume components (see
+
+Those are exactly the labels `k8s-driver-manager` flips to pause and resume components (see
 `nvidiaDriverDeployLabel` and friends in `cmd/driver-manager/main.go`).
 
 > **What "pause" means here.** Kubernetes has no per-node "suspend this
@@ -68,7 +83,83 @@ Those are exactly the labels
 > which makes the node match again and the pod get rescheduled. No process is
 > ever literally suspended.
 
-**Why the driver is special.** Every other operand is a normal container
+### GPU Setup
+
+On a fresh node, the driver and the operands that need it come up in a chain.
+Each link waits for a file under `/run/nvidia/validations` that the link
+before it writes:
+
+- The driver container installs and loads the driver, and exposes its own root
+  at `/run/nvidia/driver` ([Driver Installer](#driver-installer)). Its startup
+  probe writes `.driver-ctr-ready` once `nvidia-smi` works.
+- The driver validation, the first init container of the validator and
+  toolkit pods, runs `nvidia-smi` in the driver root and writes
+  `driver-ready`.
+- The container toolkit then sets up containerd from the driver root
+  ([Container Toolkit](#container-toolkit)). The validator runs `nvidia-smi`
+  in a container of the `nvidia` RuntimeClass and writes `toolkit-ready`,
+  which the device plugin, GFD and `dcgm-exporter` wait for.
+
+```mermaid
+flowchart LR
+    drv["driver container<br/>install, load, expose the root"]
+    dval["driver validation<br/>nvidia-smi in the driver root"]
+    tk["container toolkit<br/>configure containerd, restart it"]
+    tval["toolkit validation<br/>nvidia-smi, RuntimeClass nvidia"]
+    ops["device plugin, GFD,<br/>dcgm-exporter"]
+    drv -- ".driver-ctr-ready" --> dval
+    dval -- "driver-ready" --> tk
+    tk --> tval
+    tval -- "toolkit-ready" --> ops
+```
+
+MEP-0006's
+[What the GPU Operator does](../0006-automatic-cdi-setup/README.md#what-the-gpu-operator-does)
+diagrams the toolkit's part in more detail.
+
+### Driver Installer
+
+The driver container runs NVIDIA's installer script for the node's OS, from
+[`gpu-driver-container`](https://github.com/NVIDIA/gpu-driver-container). It
+builds the driver's kernel modules, installs the driver's userspace, loads the
+modules, and exposes its own root, driver included, at `/run/nvidia/driver`.
+It records a digest of the driver's settings, which the operator computes, in
+`/run/nvidia/nvidia-driver.state`, and runs until the pod stops.
+
+A start over a loaded driver with an unchanged digest takes the fast path: the
+container reinstalls only the userspace, and running workloads keep the
+driver. `k8s-driver-manager`, which runs before it in a new driver pod, checks
+the same digest and leaves such a driver loaded. Any other start, on a fresh
+node or after an upgrade, takes the full path. A step that fails ends the
+container.
+
+```mermaid
+flowchart TD
+    start(["driver container starts"]) --> lock["lock /run/nvidia/nvidia-driver.pid"]
+    lock --> fast{"driver loaded, digest equal<br/>to nvidia-driver.state?"}
+    fast -- "yes: fast path" --> user["unmount the old root,<br/>install the userspace only"]
+    fast -- no --> unload["unload the driver (exit if in use),<br/>unmount the old root"]
+    unload --> headers["install the kernel's headers<br/>from the distribution's archive"]
+    headers --> build["build the modules,<br/>install the userspace"]
+    build --> load["load nvidia, nvidia-uvm<br/>and nvidia-modeset"]
+    load --> daemons
+    user --> daemons["start nvidia-persistenced<br/>(and the fabric manager on NVSwitch)"]
+    daemons --> mount["expose the root at /run/nvidia/driver,<br/>store the digest"]
+    mount --> wait["wait for a signal"]
+    wait -- SIGTERM --> shutdown{"unload the driver"}
+    shutdown -- done --> quit(["unmount the root, exit"])
+    shutdown -- "in use" --> stays(["wait until killed:<br/>modules and root stay"])
+```
+
+The pod's startup probe waits until the `nvidia` module is loaded and
+`nvidia-smi` works, then writes `.driver-ctr-ready`, which its `preStop` hook
+removes ([Driver DaemonSet](#driver-daemonset)). What a stopped container
+leaves behind, loaded modules and a mounted root, falls to the next pod's
+[`k8s-driver-manager`](#k8s-driver-manager).
+
+### Driver Upgrade
+
+Every other operand that GPU Operator deploys is a normal container
 that can be killed and restarted independently. The driver is not: it loads
 kernel modules that are node-wide, shared state — every GPU workload's CUDA
 context, DCGM's NVML handle, and the device plugin's advertised
@@ -101,61 +192,35 @@ spec:
       maxUnavailable: "25%"  # cap on simultaneously-unavailable driver nodes
 ```
 
-Applying this once `spec.driver.version` already differs from what is
-running plays out like this, once per node:
+A new `version` rolls out like this, node by node:
 
-1. GPU Operator updates the driver DaemonSet's pod template with the new
-   image tag. This step alone rolls out nothing: the driver DaemonSet ships
-   with `updateStrategy: OnDelete`
-   (`manifests/state-driver/0500_daemonset.yaml`), and GPU Operator's own
-   code explicitly refuses to let it be set to `RollingUpdate`
-   (`controllers/object_controls.go`). What replaces pods depends on
-   `ClusterPolicy.spec.driver.upgradePolicy.autoUpgrade`: unset, an operator
-   has to delete driver pods manually (e.g. `kubectl rollout restart`) to
-   pick up the new image, with no cordon/drain coordination beyond what
-   `k8s-driver-manager` itself does; enabled, GPU Operator's own
-   upgrade-controller paces the rollout node by node through a state machine
-   recorded on the `nvidia.com/gpu-driver-upgrade-state` node label (full
-   state list in
-   [GPU Operator's upgrade-controller](#gpu-operators-upgrade-controller-auto-upgrade-path)
-   below).
-2. For the node currently being upgraded, the existing driver pod is deleted
-   — manually, or by the upgrade-controller reaching `pod-restart-required`
-   — and the DaemonSet controller creates its replacement with the new
-   driver image.
-3. Kubernetes runs the new pod's `initContainers` to completion before
-   starting any regular container. The first is `k8s-driver-manager
-   uninstall_driver`, an init step on the *new* pod. It cleans up whatever
-   the previous version left on the host — kernel modules and the
-   `/run/nvidia/driver` mount are host state that outlives the old pod's
-   container, so nothing else removes them. It quiesces the node: pauses
-   every other GPU Operator component via labels, evicts GPU-using pods,
-   unloads the currently loaded (old) driver kernel modules, unbinds
-   `vfio-pci` where applicable, unmounts the old driver rootfs, uncordons the
-   node, and un-pauses the component labels again. (Full step list in
-   [Notes/Constraints/Caveats](#notesconstraintscaveats) below.)
-4. Only once that `initContainer` exits 0 does the pod's main driver
-   container start — part of the `gpu-driver-container` image, a separate
-   repository, not `k8s-driver-manager` — and install the new driver: builds
-   or loads the new kernel modules, mounts the new rootfs at
-   `/run/nvidia/driver`, and writes the PID file and a config digest.
-5. The operator-validator operand (its label was un-paused in step 3, but it
-   only becomes actually ready once its own checks pass) confirms the new
-   driver works — e.g., that `nvidia-smi` runs — before the node is
-   considered upgraded.
-6. The other operands, un-paused in step 3 but gated on the driver being
-   genuinely ready, come up healthy against the new driver, and GPU
-   workloads can be scheduled back onto the node.
-7. With auto-upgrade enabled, the upgrade-controller then moves on to the
-   next node, respecting `maxParallelUpgrades` and `maxUnavailable` from
-   `ClusterPolicy.spec.driver.upgradePolicy`.
+1. GPU Operator updates the driver DaemonSet to the new image. That alone
+   replaces no pod: the operator keeps the DaemonSet's update strategy at
+   `OnDelete`, so a driver pod is replaced only once it is deleted.
+2. With `autoUpgrade` on, the operator's upgrade-controller picks the nodes,
+   within `maxParallelUpgrades` and `maxUnavailable`, and tracks each one on
+   its `nvidia.com/gpu-driver-upgrade-state` label
+   ([upgrade-controller](#gpu-operators-upgrade-controller-auto-upgrade-path)).
+   It cordons the node, evicts the pods that use GPUs and deletes the driver
+   pod. With `autoUpgrade` off, someone deletes the driver pod by hand. The
+   DaemonSet then creates a replacement with the new image.
+3. The new pod's init container, `k8s-driver-manager`, cleans up after the old
+   driver, whose modules and root at `/run/nvidia/driver` outlive the old pod.
+   It pauses the other GPU Operator components, unloads the old modules,
+   unmounts the old root, unbinds GPUs from `vfio-pci` and resumes the
+   components ([`k8s-driver-manager`](#k8s-driver-manager)). With
+   `autoUpgrade` off, it also cordons the node and evicts the GPU pods before
+   the unload, and uncordons the node after it.
+4. Only then does the pod's driver container start and install the new driver
+   ([Driver Installer](#driver-installer)).
+5. The validator and the other operands come back as on a fresh node
+   ([GPU Setup](#gpu-setup)). With `autoUpgrade` on, the upgrade-controller
+   waits for the validator, uncordons the node and moves on to the next one.
 
-The same sequence, per node, as a diagram — numbers in the diagram match the
-steps above:
+The same sequence, per node, as a diagram:
 
 ```mermaid
 sequenceDiagram
-    autonumber
     actor User
     participant GPUOperator as GPU Operator
     participant K8s as Kubernetes (node N)
@@ -166,16 +231,25 @@ sequenceDiagram
 
     User->>GPUOperator: bump ClusterPolicy.spec.driver.version
     GPUOperator->>K8s: update driver DaemonSet pod template
-    Note over K8s: OnDelete strategy: nothing replaces pods yet.<br/>Needs autoUpgrade controller or a manual pod delete.
-    K8s->>OldPod: delete (manual, or upgrade-controller's pod-restart-required)
+    Note over K8s: OnDelete strategy: nothing replaces pods yet.
+    alt auto-upgrade policy enabled
+        GPUOperator->>K8s: cordon node, evict GPU pods
+        GPUOperator->>OldPod: delete
+    else auto-upgrade policy disabled
+        User->>OldPod: delete
+    end
     K8s->>NewPod: create replacement pod (new driver image)
     activate NewPod
     Note over NewPod: initContainers run to completion<br/>before any regular container starts
-    NewPod->>NewPod: initContainer k8s-driver-manager: uninstall_driver
+    NewPod->>NewPod: init container: k8s-driver-manager
     NewPod->>Operands: pause (nvidia.com/gpu.deploy.* labels)
-    NewPod->>K8s: cordon node, evict GPU pods / DRA claim-holders
-    NewPod->>NewPod: unload OLD driver kernel modules,<br/>unbind vfio-pci, unmount /run/nvidia/driver
-    NewPod->>K8s: uncordon node
+    opt auto-upgrade policy disabled
+        NewPod->>K8s: cordon node, evict GPU pods / DRA claim-holders
+    end
+    NewPod->>NewPod: unload OLD driver kernel modules,<br/>unmount /run/nvidia/driver, unbind vfio-pci
+    opt auto-upgrade policy disabled
+        NewPod->>K8s: uncordon node
+    end
     NewPod->>Operands: un-pause (labels reset)
     Note over NewPod: initContainer exits 0 → main container starts
     NewPod->>NewPod: main container: install NEW driver<br/>load kernel modules, mount rootfs,<br/>write PID + config digest
@@ -183,13 +257,14 @@ sequenceDiagram
     Validator-->>GPUOperator: driver ready
     deactivate NewPod
     Operands->>NewPod: come up healthy against new driver
-    K8s-->>User: node N ready for GPU workloads again
     opt auto-upgrade policy enabled
+        GPUOperator->>K8s: uncordon node
         GPUOperator->>GPUOperator: repeat for next node
     end
+    K8s-->>User: node N ready for GPU workloads again
 ```
 
-**Where the two binaries in scope fit.** `k8s-driver-manager` and
+`k8s-driver-manager` and
 `vfio-manage` own step 3 only — the new pod's `initContainer`, making it safe
 to remove the old driver; neither touches step 4, the main container's
 install. That split matters for Mokka: emulating step 3 alone is not
@@ -197,54 +272,60 @@ sufficient to observe "the upgrade completed and the new driver is in
 place" — something also has to play step 4's role, or a simulated upgrade
 test will correctly tear down and then simply stall.
 
+### Container Toolkit
+
+The toolkit operand waits for `driver-ready`, then runs the toolkit's
+installer, which:
+
+1. copies the toolkit into `/usr/local/nvidia/toolkit`;
+2. generates a management CDI spec (`management.nvidia.com/gpu`) from the
+   driver root, `/run/nvidia/driver`;
+3. adds `nvidia` handlers with CDI enabled to containerd through a drop-in, and
+   restarts containerd;
+4. waits for a signal, then removes the handlers and restarts containerd again.
+
+The operator makes the management spec the runtime's default CDI kind, so its
+own operands, which run with the `nvidia` RuntimeClass and request all GPUs,
+get the driver from that spec. MEP-0006's
+[What the GPU Operator does](../0006-automatic-cdi-setup/README.md#what-the-gpu-operator-does)
+covers the install and what the installer needs from the node. What matters
+for upgrades is that `k8s-driver-manager` pauses the toolkit before it unloads
+the old driver, so each upgrade reconfigures and restarts containerd twice,
+and the spec is regenerated from the new driver's root:
+
+```mermaid
+sequenceDiagram
+    participant dm as k8s-driver-manager<br/>(new driver pod)
+    participant tk as toolkit pod
+    participant ctrd as containerd
+    dm->>tk: pause (gpu.deploy.container-toolkit)
+    tk->>ctrd: remove the nvidia handlers
+    tk->>ctrd: restart
+    dm->>dm: unload the old driver, unmount its root
+    dm->>tk: resume
+    Note over tk: waits for driver-ready, which follows<br/>the new driver container's install
+    tk->>tk: install the toolkit, regenerate the<br/>management spec from /run/nvidia/driver
+    tk->>ctrd: add the nvidia handlers, enable CDI
+    tk->>ctrd: restart
+```
+
 ## Motivation
 
-Mokka's existing simulators (`gpudriver`, `pcibus`) were built to satisfy
-discovery and allocation consumers (NVML, `nvidia-smi`, lspci, Node Feature
-Discovery (NFD), the device plugin), and they do that well. They were not
-built against the driver *lifecycle* surface described above, and a review of
-`k8s-driver-manager`'s source against Mokka's current simulators turned up
-several gaps, two of which are structural rather than missing coverage:
-
-- `libpcisysfs.so`, Mokka's `LD_PRELOAD` shim, cannot intercept anything
-  `k8s-driver-manager` or `vfio-manage` do, because both are Go binaries that
-  issue raw Linux syscalls directly — there is no libc call for
-  `dlsym(RTLD_NEXT, ...)` to hook.
-- Mokka's node agent (MEP-0003) is a level-triggered reconciler driven by
-  `State` updates from a control plane. The real driver-upgrade handoff is
-  imperative: a container exits, a new container starts, and the new
-  container's own entrypoint reinstalls the driver. Nothing in today's
-  reconcile loop reacts to that event.
+- **GPU Operator scale testing**. We would like to use Mokka to help GPU operator team to accurately test how the Operator behaves in very big clusters without having proportionally big expenses on this experiment. This includes the driver upgrade workflow.
+- **GPU Operator Compatibility**. Mokka does work with [the latest version of GPU operator after some changes to how validator daemon works](https://github.com/NVIDIA/k8s-test-infra/issues/911). This proposal addresses the issue (partially, because the fully simulated GPU driver mocking won't work still).
 
 ### Goals
 
-- Establish one accurate, source-derived account of what `uninstall_driver`
-  and `vfio-manage` actually touch on a node during a driver upgrade, so
-  later design discussion works from facts rather than assumptions.
-- Enumerate the emulation surface required for both binaries to run
-  unmodified against a Mokka node, mapped against what `gpudriver` and
-  `pcibus` already stage today.
-- Name the structural mismatches (syscall interception, reconciler vs.
-  imperative handoff) explicitly, so a follow-on MEP can scope a fix with
-  full context instead of discovering them mid-implementation.
-- Propose, for each row of the emulation surface, which class of mechanism
-  closes it (a real kernel module, an extension of an existing rendered
-  tree, a node-agent watcher, an explicit reconcile trigger), so follow-on
-  MEPs start from an agreed direction instead of re-debating it per gap.
+- Run the GPU Operator's driver installer and container toolkit from NVIDIA's
+  original images on a Mokka node, so that a driver installation and upgrade run the
+  operator's whole sequence like in the real GPU cluster.
 
 ### Non-Goals
 
-- Fully specifying or implementing any proposed mechanism (exact kernel
-  module code, the watcher's implementation, the choice between the two
-  reconcile-trigger options in Design Details, a Control Plane API for the
-  driver-version watcher, etc.). Design Details proposes direction only;
-  each mechanism becomes its own follow-on MEP.
 - Covering installation of Mellanox OpenFabrics Enterprise Distribution
   (MOFED), NVIDIA's GPU Direct RDMA driver stack for InfiniBand/RoCE NICs,
   itself — only the presence and readiness checks `k8s-driver-manager`
   performs against it (`GPU_DIRECT_RDMA_ENABLED`, `waitForMofedDriver`).
-- Changing any code in `gpudriver`, `pcibus`, or `libpcisysfs` — this MEP
-  proposes direction; no code ships from it.
 
 ## Proposal
 
@@ -272,55 +353,54 @@ against a Mokka-only `kind` cluster, so that regressions in
 claim-holder checks, cordon/drain ordering) are caught without needing
 GPU-backed runners.
 
+#### Story 3
+
+As a GPU Operator engineer, I want to enable the operator's driver and
+toolkit operands, from their release images, on a CPU-only `kind` cluster, so
+that a change to the installer's lifecycle or to the toolkit's runtime setup
+runs through the same install and upgrade sequence as on a GPU cluster.
+
 ### Notes/Constraints/Caveats
 
-`k8s-driver-manager` is **teardown-only**. Per its own
-[README](https://github.com/NVIDIA/k8s-driver-manager) and
-`uninstallDriver()` in `cmd/driver-manager/main.go`, `uninstall_driver`:
+#### `k8s-driver-manager`
 
-1. Checks whether a driver is already pre-installed on the host
-   (`chroot /host nvidia-smi ...`), and if so, disables the containerized
-   driver instead of touching it.
-2. Fetches current GPU Operator component state from node labels
-   (`nvidia.com/gpu.deploy.*`) and the auto-upgrade-policy annotation.
-3. If a driver is loaded, pauses all GPU Operator components by rewriting
-   their deploy labels, then waits for their pods to terminate.
-4. Cordons the node and evicts GPU pods — traditional device-plugin
-   requests and DRA `ResourceClaim`s alike — falling back to a full
-   `kubectl drain`-equivalent if enabled.
-5. For DRA nodes, confirms no pod still holds a GPU `ResourceClaim`, then
-   drains the DRA kubelet-plugin last (it must outlive its claim-holders).
-6. Unloads the kernel modules (`nvidia_modeset`, `nvidia_uvm`,
-   `nvidia_peermem`, `nvidia_fs`, `nvidia_vgpu_vfio`, `gdrdrv`, `nvidia`) via
-   the raw `unix.DeleteModule` syscall, and unmounts `/run/nvidia/driver`
-   recursively.
-7. Unbinds `vfio-pci` from every NVIDIA PCI function via `vfio-manage`.
-8. Waits for MOFED if `GPU_DIRECT_RDMA_ENABLED` and a Mellanox device
-   (PCI vendor `0x15b3`) is present.
-9. Uncordons the node and flips the component labels back to unpaused.
+[`k8s-driver-manager`](https://github.com/NVIDIA/k8s-driver-manager) only tears
+down: it never installs a driver. It runs as the first init container of every
+driver pod, and of the vfio-manager pod ([`vfio-manage`](#vfio-manage)), and
+cleans up what the previous driver container left on the node. Version 0.12.0,
+which GPU Operator 26.7 ships:
 
-`k8s-driver-manager` never installs a driver. It runs as an
-**`initContainer`** of the driver DaemonSet pod
-(`manifests/state-driver/0500_daemonset.yaml`), on the *new* pod, cleaning up
-whatever the previous version left on the host — kernel modules and the
-`/run/nvidia/driver` mount are host state, so killing the old pod's container
-doesn't touch either.
+1. Checks whether the host has a driver of its own, by running `nvidia-smi` in
+   the host's root. If so, it labels the node so that the driver DaemonSet
+   leaves it, and fails.
+2. Reads which GPU Operator components run on the node, from its
+   `nvidia.com/gpu.deploy.*` labels, and whether the auto-upgrade policy is
+   on, from a node annotation.
+3. If a driver is loaded, pauses the other components and waits for their pods
+   to terminate. If the loaded driver has the same settings digest, it then
+   only unmounts the stale root, resumes the components and stops, so the
+   driver stays loaded. With no driver loaded, as on a fresh or rebooted node,
+   it skips this step and the next.
+4. Without the auto-upgrade policy, cordons the node and evicts the pods that
+   use GPUs, falling back to a drain if auto drain is on.
+5. On DRA nodes, also pauses the DRA kubelet plugin, so that it restarts on the
+   new root. Before an unload, it first fails while a pod still holds a GPU
+   `ResourceClaim`, since the plugin has to outlive the claim holders.
+6. Unloads the modules, dependents first (`nvidia_modeset`, `nvidia_uvm`,
+   `nvidia_peermem`, `nvidia_fs`, `nvidia_vgpu_vfio`, `gdrdrv`, `nvidia`),
+   through a direct system call, and unmounts `/run/nvidia/driver`, also when
+   no driver was loaded.
+7. Unbinds the GPUs from `vfio-pci`, with `vfio-manage`.
+8. With GPUDirect RDMA on and a Mellanox NIC present, waits for the MOFED
+   driver.
+9. Uncordons the node, unless the auto-upgrade policy owns that, resumes the
+   components, and unloads `nouveau` if it is loaded.
 
-Once it exits 0, the pod's main driver container runs the `nvidia-driver`
-entrypoint script from `github.com/NVIDIA/gpu-driver-container`
-(e.g. `ubuntu22.04/nvidia-driver`) and installs the new driver. Its `init()`
-(line 790) mirrors `uninstall_driver`: `_load_driver` loads the new kernel
-modules; `_mount_rootfs` (line 540) recursively bind-mounts the container's
-own root onto `${RUN_DIR}/driver` (`mount --rbind / ${RUN_DIR}/driver`,
-`RUN_DIR=/run/nvidia` — the mount `RecursiveUnmount` tears down on the next
-upgrade); `_store_driver_digest` (line 746) writes `${current_digest}` to
-`/run/nvidia/nvidia-driver.state`; and `echo $$ >&3` against
-`PID_FILE=/run/nvidia/nvidia-driver.pid` (line 7) writes the PID file. Its
-own `_should_skip_kernel_module_reload()` (line 738) checks
-`$DRIVER_CONFIG_DIGEST` against that same `nvidia-driver.state` file, so the
-digest is verified independently on both sides of the handoff. Step 9's label
-flip only re-permits scheduling; actual readiness is gated separately by the
-operator-validator.
+Version 0.11.0, which GPU Operator 26.3 ships and the proof of concept ran,
+has no step 5, pauses the components in step 3 even with no driver loaded, and
+unmounts `/run/nvidia/driver` only when it finds the driver loaded.
+
+#### Driver DaemonSet
 
 The `initContainers`/`containers` split, trimmed from an actual rendered
 DaemonSet (`internal/state/testdata/golden/driver-minimal.yaml` in the
@@ -397,6 +477,8 @@ same label `disableContainerizedDriver()` (step 1 above) rewrites to
 `"pre-installed"` to keep this entire pod off a node — the mechanism behind
 [Analysis](#analysis)'s "driver containers disabled when Mokka is deployed"
 point.
+
+#### `vfio-manage`
 
 `vfio-manage` (`cmd/vfio-manage`) is the PCI-binding half, used on
 vGPU/passthrough nodes to hand a GPU to Virtual Function I/O (VFIO), the
@@ -532,18 +614,30 @@ close each row.
 
 | Surface                                                                                                                                 | Staged by Mokka today                                                                                              | Gap                                                                                                                                                                     |
 |-----------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `/sys/module/{nvidia,nvidia_uvm,nvidia_modeset,nvidia_peermem,nvidia_fs,nvidia_vgpu_vfio,gdrdrv,nouveau}/refcnt`                        | Nothing                                                                                                            | Full gap. Gates the loaded/not-loaded branch of `uninstallDriver()` entirely.                                                                                           |
+| `/sys/module/{nvidia,nvidia_uvm,nvidia_modeset,nvidia_peermem,nvidia_fs,nvidia_vgpu_vfio,gdrdrv,nouveau}/refcnt`                        | `kmod` stages it for the simulated modules; CDI mounts it at `/sys/module` in GPU containers only                  | Full gap. Gates the loaded/not-loaded branch of `uninstallDriver()` entirely.                                                                                           |
 | `unix.DeleteModule()` (real `delete_module(2)` syscall)                                                                                 | Nothing                                                                                                            | Full gap, and not shimmable in userspace — needs a real (dummy) loaded kernel module to respond correctly.                                                              |
-| `/proc/modules`                                                                                                                         | Nothing                                                                                                            | Full gap. Only used for diagnostic listing on unload failure; low priority.                                                                                             |
-| `/run/nvidia/driver` mount + recursive unmount                                                                                          | `gpudriver.Apply` creates a **symlink**, not a real mount                                                          | Partial — `os.Stat` sees it so the existence check passes, and `RecursiveUnmount` finds no real mountpoint under it, so it degrades to a safe no-op. Works by accident. |
+| `/proc/modules`                                                                                                                         | `kmod` stages one, served only through `libmockfs`                                                                 | Full gap. Only used for diagnostic listing on unload failure; low priority.                                                                                             |
+| `/run/nvidia/driver` mount + recursive unmount                                                                                          | `gpudriver.Apply` bind-mounts the staged driver tree there                                                         | Covered.                                                                                                                                                                |
 | `/run/nvidia/nvidia-driver.pid`, `/run/nvidia/nvidia-driver.state` (digest)                                                             | Nothing                                                                                                            | Full gap. Drives `shouldSkipUninstall()`/`shouldUpdateDriverConfig()` — without it, every run is treated as a config change.                                            |
 | `chroot /host nvidia-smi ...` (pre-installed host driver check)                                                                         | `nvidia-smi` staged only under the containerized driver path (`h.Root/driver/usr/bin`)                             | Gap, likely intentional — leaves the host-driver branch permanently false, which may be the desired default for a simulated cluster.                                    |
-| `/sys/bus/pci/devices/<bdf>/{vendor,device,subsystem_vendor,subsystem_device,class,config}`                                             | `pcisysfs.Render` writes exactly these                                                                             | Covered.                                                                                                                                                                |
-| `/sys/bus/pci/devices/<bdf>/{driver,driver_override,modalias}`, `/sys/bus/pci/drivers/<name>/{bind,unbind}`                             | Nothing                                                                                                            | Full gap — the entire surface `vfio-manage` operates on.                                                                                                                |
+| `/sys/bus/pci/devices/<bdf>/{vendor,device,subsystem_vendor,subsystem_device,class,config}`                                             | `pcisysfs.Render` writes these                                                                                     | Covered.                                                                                                                                                                |
+| `/sys/bus/pci/devices/<bdf>/{driver,driver_override,modalias}`, `/sys/bus/pci/drivers/<name>/{bind,unbind}`                             | `pcisysfs.Render` links each GPU under `/sys/bus/pci/drivers/nvidia/`                                              | Full gap — the entire surface `vfio-manage` operates on.                                                                                                                |
 | `/lib/modules/<kernel>/modules.alias` (VFIO variant lookup)                                                                             | Nothing                                                                                                            | Full gap, low priority unless vGPU/passthrough scenarios are in scope.                                                                                                  |
-| PCI vendor `0x15b3` (Mellanox) detection, `/run/mellanox/drivers/.driver-ready` or `mlx5_core` in `/proc/modules` (MOFED readiness)     | `internal/ib` renders an InfiniBand-specific sysfs tree, but not a generic PCI vendor file or a MOFED-ready marker | Full gap for the `GPU_DIRECT_RDMA_ENABLED` path.                                                                                                                        |
-| The new driver version itself (what `ClusterPolicy.spec.driver.version` changed to)                                                     | `system.driver_version` in a static profile/env var, read once at Stage                                            | Full gap — nothing watches `ClusterPolicy`, so Mokka's reported version never reflects an upgrade.                                                                      |
+| PCI vendor `0x15b3` (Mellanox) detection, `/run/mellanox/drivers/.driver-ready` or `mlx5_core` in `/proc/modules` (MOFED readiness)     | `internal/ib` writes vendor `0x15b3` under `/sys/class/infiniband` only; `kmod` lists `mlx5_core` on IB nodes      | Full gap for the `GPU_DIRECT_RDMA_ENABLED` path.                                                                                                                        |
+| The new driver version itself (what `ClusterPolicy.spec.driver.version` changed to)                                                     | `system.driver_version` in the profile or `DRIVER_VERSION` env var, re-read when the profile changes               | Full gap — nothing watches `ClusterPolicy`, so Mokka's reported version never reflects an upgrade.                                                                      |
 | Node labels/annotations, cordon/drain, DRA `ResourceClaim`s, the `nvidia.com/gpu-driver-upgrade-state` upgrade-controller state machine | Real apiserver + real GPU Operator/DRA driver, external to Mokka                                                   | Not a gap — out of scope by design; Mokka fakes the node's device/driver footprint, not the control plane.                                                              |
+
+Running the driver installer and the container toolkit adds these rows:
+
+| Surface                                                                                                                                                                                                             | Staged by Mokka today                                                           | Gap                                                                                                                                                                                                                        |
+|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| A build tree for the node's kernel (`/lib/modules/$(uname -r)/build`), from the distribution's archive                                                                                                              | Nothing: Kind nodes share the host's kernel                                     | Outside Mokka: the host needs a stock distro kernel. OrbStack's and Docker Desktop's ship no build tree.                                                                                                                   |
+| `modprobe nvidia`, `nvidia-uvm` and `nvidia-modeset`, and what loaded modules provide: the `nvidia` majors in `/proc/devices`, `/proc/driver/nvidia`, the version handshake and GPU enumeration on `/dev/nvidiactl` | `gpudriver` creates the device nodes and stages copies of `/proc/driver/nvidia` | Full gap: the real `nvidia.ko` refuses to load without a GPU (`ENODEV`), and nothing answers on the device nodes (`ENXIO`). The toolkit's installer needs the `nvidia` entries in `/proc/modules` and `/proc/devices` too. |
+| `nvidia-persistenced`, and the fabric manager on NVSwitch systems                                                                                                                                                   | Nothing                                                                         | Full gap: both need the Resource Manager (RM), and a failure can abort the install.                                                                                                                                        |
+| NVML in the installer's root: the startup probe's `nvidia-smi`, the validator's `chroot /run/nvidia/driver nvidia-smi`, the operands' library lookups under `/run/nvidia/driver`                                    | The mock NVML, in Mokka's own driver tree                                       | Full gap: the root holds the real NVML the installer has just installed.                                                                                                                                                   |
+| `/run/nvidia/driver` as the installer's own root                                                                                                                                                                    | `gpudriver.Apply` bind-mounts Mokka's driver tree there                         | Conflict: both claim the path.                                                                                                                                                                                             |
+| The toolkit's management CDI spec, generated from `/run/nvidia/driver`, as its runtime's default CDI kind                                                                                                           | Mokka's `nvidia.com/gpu` spec, with the mock NVML and the node's profile        | Gap: the operator's operands would get the real NVML.                                                                                                                                                                      |
+| containerd's `nvidia` handlers, which the toolkit adds with a restart and removes with another                                                                                                                      | The custom Kind image's configuration; the node daemon's, with MEP-0006         | Overlap: two installers own the handlers, and every restart drops the NRI plugin's connection to containerd.                                                                                                               |
 
 Two findings constrain *how* these rows can be closed, not just whether:
 
@@ -559,9 +653,9 @@ Two findings constrain *how* these rows can be closed, not just whether:
 - **Reconciler vs. imperative handoff.** Even once the surface above exists,
   something has to repopulate it after `k8s-driver-manager` tears it down.
   In production this is a new container starting and running its own
-  install script; Mokka's node agent only re-stages on a `State` update from
-  its control plane. Closing the table's rows without also deciding how the
-  agent learns "the upgrade's uninstall phase finished, re-stage now" would
+  install script; Mokka's node daemon only re-stages when its GPU profile
+  changes. Closing the table's rows without also deciding how the
+  daemon learns "the upgrade's uninstall phase finished, re-stage now" would
   leave a simulated node permanently driver-less after the first upgrade
   test.
 
@@ -573,7 +667,7 @@ Two findings constrain *how* these rows can be closed, not just whether:
 - **The reconciler/imperative mismatch going unaddressed.** A follow-on MEP
   that builds emulation surface without also picking a re-stage trigger
   leaves a simulated node permanently driver-less after the first upgrade.
-  Mitigation: Design Details proposes two trigger options below rather than
+  Mitigation: Design Details proposes a trigger below rather than
   leaving the question open.
 
 ## Design Details
@@ -585,7 +679,7 @@ A few things make this workflow different from what Mokka is built for today:
 - GPU Operator's driver containers — including the one running
   `k8s-driver-manager` — are purposely disabled when Mokka is deployed,
   since Mokka replaces the real driver install with simulation. Now we want to somehow enable those.
-- Mokka's supported shape is install → stage once from a profile → serve
+- Mokka's supported shape is install → stage from a profile → serve
   consumers. A driver upgrade needs two more events layered on top: a *target* driver version arriving from
   `ClusterPolicy`, and a *completion signal* from `k8s-driver-manager` saying
   when it is safe to apply that target — neither of which the current
@@ -602,7 +696,11 @@ This section proposes, for each row of the emulation surface table above, a
 mechanism class capable of closing it — enough for a reviewer to agree on
 direction before a follow-on MEP commits to exact APIs, code, or a chart
 layout. No mechanism here is implemented by this MEP; each becomes its own
-follow-on MEP once the direction below is agreed.
+follow-on MEP once the direction below is agreed. The proof of concept
+implements the first row, with the driver installer loading the stub modules,
+and in its kernel driver mode the installer itself produces the surfaces of the
+second and the last rows; see
+[Driver Installer Integration](#driver-installer-integration).
 
 **Guiding principle.** Pick the mechanism the binaries' own I/O path forces,
 not the one that is easiest to build: where the kernel itself enforces the
@@ -610,15 +708,15 @@ semantics being read (module refcounts, `delete_module`), only a real kernel
 module produces them correctly; where a surface is passive file content, a
 bind-mounted or rendered tree — what `gpudriver`/`pcibus` already do — is
 sufficient; where a write needs to trigger a visible side effect elsewhere
-(PCI `bind`/`unbind`), a small watcher inside the existing node agent is a
+(PCI `bind`/`unbind`), a small watcher inside the existing node daemon is a
 better fit than a new filesystem driver, since Mokka is already structured
 as a Go reconciler and not as a FUSE implementation.
 
 | Surface                                                                              | Mechanism                                                                                                                                                                                                                                                                                                             | Why                                                                                                                                                                                                                                                                                                                                |
 |--------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `/sys/module/*/refcnt`, `unix.DeleteModule()`, `/proc/modules`                       | A minimal stub kernel module per name `k8s-driver-manager` checks (`nvidia`, `nvidia_uvm`, `nvidia_modeset`, `nvidia_peermem`, `nvidia_fs`, `nvidia_vgpu_vfio`, `gdrdrv`), loaded by the node agent, doing nothing but existing.                                                                                      | The kernel produces `refcnt`, the `/proc/modules` entry, and correct `delete_module(2)` semantics for free. No shim reaches a real syscall, so this is the one row nothing in userspace can substitute for — it sets the privilege floor for this MEP's scope (see Drawbacks).                                                     |
-| `/run/nvidia/driver` mount, `nvidia-driver.pid`, `nvidia-driver.state`               | Change `gpudriver.Apply` from a symlink to a real bind mount at `/run/nvidia/driver`; stage the PID file and a digest file matching `DRIVER_CONFIG_DIGEST` alongside it.                                                                                                                                              | `RecursiveUnmount` then unmounts something real instead of degrading to a harmless no-op. Both files are plain files with no kernel involvement — an extension of existing `gpudriver` file-staging, not a new mechanism.                                                                                                          |
-| `driver`, `driver_override`, `modalias`, `/sys/bus/pci/drivers/<name>/{bind,unbind}` | Extend `pcisysfs.Render`'s bind-mounted tree with these paths, plus a lightweight watcher in the node agent (`inotify` on the rendered `bind`/`unbind` files) that updates the `driver` symlink and clears `driver_override` on a write.                                                                              | Reproduces the side effect `vfio-manage` depends on without a real `struct pci_dev` or a synthetic PCI host bridge — fabricating a real PCI device is a materially larger kernel project than the stub modules above, and nothing here needs the device to be functionally real, only for its sysfs attributes to react correctly. |
+| `/sys/module/*/refcnt`, `unix.DeleteModule()`, `/proc/modules`                       | A minimal stub kernel module per name `k8s-driver-manager` checks (`nvidia`, `nvidia_uvm`, `nvidia_modeset`, `nvidia_peermem`, `nvidia_fs`, `nvidia_vgpu_vfio`, `gdrdrv`), loaded by the node daemon, doing nothing but existing.                                                                                     | The kernel produces `refcnt`, the `/proc/modules` entry, and correct `delete_module(2)` semantics for free. No shim reaches a real syscall, so this is the one row nothing in userspace can substitute for — it sets the privilege floor for this MEP's scope (see Drawbacks).                                                     |
+| `/run/nvidia/driver` mount, `nvidia-driver.pid`, `nvidia-driver.state`               | Keep the `/run/nvidia/driver` bind mount `gpudriver.Apply` makes; stage the PID file and a digest file matching `DRIVER_CONFIG_DIGEST` alongside it.                                                                                                                                                                  | Both files are plain files with no kernel involvement — an extension of existing `gpudriver` file-staging, not a new mechanism.                                                                                                                                                                                                    |
+| `driver`, `driver_override`, `modalias`, `/sys/bus/pci/drivers/<name>/{bind,unbind}` | Extend `pcisysfs.Render`'s bind-mounted tree with these paths, plus a lightweight watcher in the node daemon (`inotify` on the rendered `bind`/`unbind` files) that updates the `driver` symlink and clears `driver_override` on a write.                                                                             | Reproduces the side effect `vfio-manage` depends on without a real `struct pci_dev` or a synthetic PCI host bridge — fabricating a real PCI device is a materially larger kernel project than the stub modules above, and nothing here needs the device to be functionally real, only for its sysfs attributes to react correctly. |
 | `modules.alias`, MOFED readiness                                                     | Static additions to surfaces `pcibus`/`internal/ib` already own: a kernel-version-matched `/lib/modules/<kernel>/modules.alias` fragment, a PCI vendor `0x15b3` identity in `pcisysfs`'s `Identities` map, and a `/run/mellanox/drivers/.driver-ready` marker gated the same way `gpudriver` gates its own readiness. | No new mechanism class.                                                                                                                                                                                                                                                                                                            |
 | `chroot /host nvidia-smi ...` (host-driver detection)                                | Formalize today's accidental behavior as an explicit decision: a Mokka node deliberately has no `/host/usr/bin/nvidia-smi`.                                                                                                                                                                                           | This branch of `uninstall_driver` always reports "no host driver" — the correct default for a simulated cluster unless a test wants to exercise the pre-installed-driver path.                                                                                                                                                     |
 | New driver version + reconcile trigger                                               | Two parts — see below.                                                                                                                                                                                                                                                                                                | One gap, both parts from "Reconciler vs. imperative handoff" above.                                                                                                                                                                                                                                                                |
@@ -630,21 +728,147 @@ Control Plane watcher (MEP-0001) reads `ClusterPolicy.spec.driver.version` —
 the same field GPU Operator itself treats as ground truth — and feeds it
 into `State`, rather than Mokka inferring the target version from anywhere
 else. 
-- Second, a trigger: the node agent needs to learn when
+- Second, a trigger: the node daemon needs to learn when
 `k8s-driver-manager`'s teardown has finished, so it can re-stage
 `gpudriver`/`pcibus` with that new value at the right point in the sequence
 rather than immediately on `ClusterPolicy` change. 
-Potentially, the best tradeoff here is to replace the original driver container with a custom one that would signal Mokka to restage simulation.
+
+In the kernel driver mode the proof of concept needs neither part: the driver
+installer is the imperative handoff. The new driver pod builds and loads the
+stub modules at the new version, and the mock NVML reports the loaded module's
+version, so the new version reaches every consumer without Mokka reading the
+`ClusterPolicy` or re-staging anything. Both parts remain the direction for the
+userspace mode, where no installer runs.
+
+#### Driver Installer Integration
+
+The installer runs unmodified: the proof of concept keeps NVIDIA's driver
+image, pinned by digest, and adapts its container at creation, through Mokka's
+NRI plugin. It adds a driver mode to Mokka, `driver.mode`:
+
+- **`userspace`**, the default, is today's simulation: `gpudriver` fakes the
+  files of the driver's kernel modules and publishes `/run/nvidia/driver`.
+- **`kernel`** has a driver installer load Mokka's stub kernel modules. The
+  node daemon's `nvidiakmod` stages them in place of `gpudriver` and leaves
+  `/run/nvidia/driver` to the installer. The kernel then serves `/sys/module`,
+  `/proc/modules` and `/proc/driver/nvidia` live, so libmockfs and Mokka's CDI
+  specs stop serving copies of them. PCI sysfs stays simulated, as the modules
+  bind no PCI device.
+
+`nvml`, split out of `gpudriver`, stages the mock NVML, CUDA and `nvidia-smi`
+in both modes ([MEP-0003](../0003-node-agent/README.md)). The stub modules
+(`shims/nvidia-kmod`) are `nvidia`, `nvidia_uvm`, `nvidia_modeset` and
+`nvidia_peermem`. They register the device majors, serve `/proc/driver/nvidia`
+and answer the ioctls a client enumerates GPUs with, from GPU records the node
+daemon renders, but implement no RM. With `nri.gpuOperator.driver` on, the NRI
+plugin recognizes the installer by its pod's
+`app.kubernetes.io/component=nvidia-driver` label and its `nvidia-driver-ctr`
+container, and closes the installer's rows:
+
+| Surface                                   | Mechanism                                                                                                                                                                                                                                        |
+|-------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Kernel build tree                         | The host's own: a stock distro kernel, on macOS in an opt-in Colima VM (`make colima-cluster-create`).                                                                                                                                           |
+| `modprobe nvidia` and its kernel surfaces | `install` directives in `/etc/modprobe.d` route the installer's `modprobe` to a loader, which builds the stubs against the node's kernel, at the version of the driver just installed, and loads them.                                           |
+| `nvidia-persistenced`                     | A stand-in, first on the container's `PATH`. The real daemon needs RM, and its failure aborts the installer's fast path.                                                                                                                         |
+| NVML in the installer's root              | The mock NVML bound at `/usr/lib64/libnvidia-ml.so.1`, the first path the operands search, plus a directive in `/etc/ld.so.conf.d` that ranks it first in the installer's own `ldconfig`; the node's profile at `/config`; the GPU device nodes. |
+| `/run/nvidia/driver`                      | Left to the installer: the kernel mode runs no `gpudriver`.                                                                                                                                                                                      |
+
+Driver upgrades then run the operator's sequence unchanged:
+
+```mermaid
+sequenceDiagram
+    participant old as old driver container
+    participant dm as k8s-driver-manager<br/>(new driver pod)
+    participant new as new driver container
+    participant kernel as kernel<br/>(stub modules)
+    participant ops as operands<br/>(mock NVML)
+    Note over kernel,ops: the mock holds /dev/nvidiactl open, as real NVML does
+    old->>kernel: on SIGTERM, unload the driver
+    kernel-->>old: in use: the container waits until killed,<br/>its root stays mounted
+    dm->>ops: pause
+    dm->>kernel: unload the stubs, dependents first
+    dm->>dm: unmount /run/nvidia/driver
+    dm->>ops: resume
+    new->>new: build and install the new driver
+    new->>kernel: load nvidia: the loader builds<br/>and loads the stubs at the new version
+    new->>new: expose its root at /run/nvidia/driver
+    ops->>kernel: read /sys/module/nvidia/version<br/>as the driver version
+```
+
+The order keeps operands off a dead root. A driver container cannot fully
+unmount its own root, and `k8s-driver-manager` both pauses the operands and
+unmounts the root only when it finds the driver loaded: with no driver loaded,
+version 0.11.0 leaves the root mounted, and 0.12.0 leaves the operands running
+([`k8s-driver-manager`](#k8s-driver-manager)). Holding `/dev/nvidiactl`, as
+real NVML does, keeps the stubs loaded until `k8s-driver-manager` has paused
+the operands; it then unloads the stubs and unmounts the root before it
+reschedules anything. The mock reports
+the loaded module's version, so the device plugin's CDI spec and GFD follow the
+upgrade. A restart with an unchanged configuration takes the installer's fast
+path and keeps the stubs loaded.
+
+Limits:
+
+- **One kernel, one driver.** Modules are not namespaced: every Kind node on a
+  host shares the stubs, so a host has one simulated GPU node.
+- **Images.** The operator names a driver image `<version>-<os>` after the
+  node's OS, and Kind nodes report Debian 12, for which NVIDIA publishes no
+  image, so the scenario pins `driver.version` to the Ubuntu image's digest.
+  Only Ubuntu images are exercised. Precompiled images install no headers, so
+  the loader cannot build in them, and OpenShift's Driver Toolkit is not
+  covered.
+- **Features.** The kernel mode serves neither MIG nor IMEX yet.
+- **NRI.** A driver container the NRI plugin misses comes up unadapted and
+  fails to load the real modules. containerd drops the plugin's connection on
+  every restart, so the plugin registers again by itself, within about 2 s.
+
+#### Container Toolkit Integration
+
+The toolkit operand runs from its original image too, with the
+`ClusterPolicy`'s toolkit settings at the operator's defaults. In the kernel
+mode the stubs give its installer the `nvidia` entries it needs in
+`/proc/modules` and `/proc/devices`, which leaves the toolkit's two rows:
+
+- **The management CDI spec.** With `nri.gpuOperator.toolkit` on, the NRI
+  plugin sets `NVIDIA_CONTAINER_RUNTIME_MODES_CDI_DEFAULT_KIND=nvidia.com/gpu`
+  in the installer's container (`nvidia-container-toolkit-ctr`). The runtime it
+  configures then resolves the operator's operands against Mokka's spec, which
+  serves the mock NVML with the node's profile, instead of the management
+  spec, which names the real NVML in the driver root. The installer still
+  generates that spec; its probes of the real NVML show up in the kernel log
+  as unsimulated ioctls, and it falls back.
+- **containerd's `nvidia` handlers.** The operand and the node daemon's `cri`
+  simulator ([MEP-0006](../0006-automatic-cdi-setup/README.md)) would both
+  configure them. MEP-0006 keeps the operand off (`toolkit.enabled: false`),
+  and the proof of concept ran on the custom Kind image MEP-0006 replaces,
+  where the operand's drop-in replaced the image's runtime section and reset
+  the default handler to `runc`: harmless for the operator's operands, which
+  name the `nvidia` RuntimeClass. The direction proposed here is that the
+  `cri` simulator leaves containerd to the operand where it runs, as it leaves
+  a node another installer prepared, and keeps publishing its spec. Either way
+  the operand restarts containerd whenever it starts or stops, which is why
+  Mokka's NRI plugin registers again by itself.
 
 ## Drawbacks
 
-- Mokka Control Plane gets tied to GPU Operator's `ClusterPolicy` CRD.
-- The real driver container (and potentially other setup containers) doesn't involve so GPU operator installation and upgrade flows don't have much fidelity.
+- With the userspace mode's watcher, Mokka Control Plane gets tied to GPU Operator's `ClusterPolicy` CRD.
+- In the userspace mode, the real driver container (and potentially other setup containers) doesn't involve so GPU operator installation and upgrade flows don't have much fidelity.
 - The rows above that require a real kernel module or a real mounted (not
   shimmed) filesystem tree raise the privilege bar for a Mokka node —
   `CAP_SYS_MODULE`, kernel-version-matched builds, and/or mount capabilities
   it does not need today for discovery/allocation simulation alone.
+- The kernel mode needs a host kernel that can build modules, which on macOS
+  means a VM: OrbStack's and Docker Desktop's kernels ship no build tree. And a
+  host runs one simulated GPU node, since modules are not namespaced.
+- The kernel mode ties Mokka to the GPU Operator's naming: the NRI plugin
+  recognizes the installer and the toolkit by their pods' labels and their
+  containers' names.
 
 ## Alternatives
 
-N/A
+- **A custom driver container** that signals Mokka to re-stage the simulation
+  once `k8s-driver-manager` has finished. It would provide the reconcile
+  trigger without kernel modules, but a run would test the replacement rather
+  than NVIDIA's installer: its fast path, the module reload and the handoff of
+  `/run/nvidia/driver` would go unexercised, and so would the toolkit, which
+  sets up the runtime from the installer's root.
