@@ -1,0 +1,34 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# local/gpu-validator.k8s.yaml for --gpu-cluster, where no device plugin
+# advertises nvidia.com/gpu: the pod claims one GPU from the DRA driver.
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaimTemplate
+metadata:
+  name: gpu-validator
+spec:
+  spec:
+    devices:
+      requests:
+        - name: gpu
+          exactly:
+            deviceClassName: gpu.nvidia.com
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gpu-validator
+spec:
+  restartPolicy: Always
+  terminationGracePeriodSeconds: 1
+  containers:
+    - name: gpu-test
+      image: nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0
+      command: ["sh", "-c", "nvidia-smi && sleep infinity"]
+      resources:
+        claims:
+          - name: gpu
+  resourceClaims:
+    - name: gpu
+      resourceClaimTemplateName: gpu-validator
