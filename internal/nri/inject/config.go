@@ -33,6 +33,10 @@ const (
 	// and the injected MOCK_NVML_CONFIG have to agree: the overrides the
 	// container resets are resolved relative to that config.
 	configRelPath = "driver/config"
+	// mockNVMLRelPath is the mock NVML in the overlay tree. The kernel mode binds
+	// it wherever a container would otherwise load the driver's own library: the
+	// driver installer's root and a GPU allocation's CDI mounts.
+	mockNVMLRelPath = "driver/usr/lib64/libnvidia-ml.so.1"
 )
 
 // defaultShims are preloaded in the order listed, so a symbol defined by more
