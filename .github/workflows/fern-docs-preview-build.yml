@@ -67,7 +67,7 @@ jobs:
           echo "$PR_NUMBER" > preview-metadata/pr_number
           git diff --name-only "origin/${BASE_REF}...HEAD" -- '*.md' > preview-metadata/changed_md_files 2>/dev/null || true
       - name: Upload fern sources and metadata
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fern-preview
           path: |
