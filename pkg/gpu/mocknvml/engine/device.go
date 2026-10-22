@@ -677,7 +677,7 @@ const noMIGInstanceID = 0xFFFFFFFF
 // GetComputeRunningProcesses returns running compute processes
 func (d *ConfigurableDevice) GetComputeRunningProcesses() ([]nvml.ProcessInfo, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetComputeRunningProcesses\n")
-	return d.runningProcesses(processTypeCompute, ""), nvml.SUCCESS
+	return d.runningProcesses(processTypeCompute, "")
 }
 
 // GetMPSComputeRunningProcesses returns the MPS clients. Under MPS the compute
@@ -685,7 +685,7 @@ func (d *ConfigurableDevice) GetComputeRunningProcesses() ([]nvml.ProcessInfo, n
 // clients are reported here and nowhere else among the running-process lists.
 func (d *ConfigurableDevice) GetMPSComputeRunningProcesses() ([]nvml.ProcessInfo, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetMPSComputeRunningProcesses\n")
-	return d.runningProcesses(processTypeMPS), nvml.SUCCESS
+	return d.runningProcesses(processTypeMPS)
 }
 
 // RunningProcessesByMode returns the processes nvmlDeviceGetRunningProcessDetailList
@@ -695,20 +695,27 @@ func (d *ConfigurableDevice) RunningProcessesByMode(mode nvml.ProcessMode) ([]nv
 	debugLog("[NVML] nvmlDeviceGetRunningProcessDetailList(mode=%d)\n", mode)
 	switch mode {
 	case nvml.PROCESS_MODE_COMPUTE:
-		return d.runningProcesses(processTypeCompute, ""), nvml.SUCCESS
+		return d.runningProcesses(processTypeCompute, "")
 	case nvml.PROCESS_MODE_GRAPHICS:
-		return d.runningProcesses(processTypeGraphics), nvml.SUCCESS
+		return d.runningProcesses(processTypeGraphics)
 	case nvml.PROCESS_MODE_MPS:
-		return d.runningProcesses(processTypeMPS), nvml.SUCCESS
+		return d.runningProcesses(processTypeMPS)
 	case nvml.PROCESS_MODE_ALL:
-		return d.runningProcesses(processTypeCompute, "", processTypeGraphics, processTypeMPS), nvml.SUCCESS
+		return d.runningProcesses(processTypeCompute, "", processTypeGraphics, processTypeMPS)
 	default:
 		return nil, nvml.ERROR_INVALID_ARGUMENT
 	}
 }
 
-// runningProcesses returns the configured processes declaring one of types.
-func (d *ConfigurableDevice) runningProcesses(types ...string) []nvml.ProcessInfo {
+// runningProcesses returns the configured processes declaring one of types. A
+// lost GPU answers GPU_IS_LOST rather than the configured list, which would
+// otherwise read as a reachable GPU to a client holding an older handle. The
+// check observes the failure without advancing it, so listing processes does
+// not count toward a failure scheduled after N calls.
+func (d *ConfigurableDevice) runningProcesses(types ...string) ([]nvml.ProcessInfo, nvml.Return) {
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return nil, ret
+	}
 	procs := []nvml.ProcessInfo{}
 	for _, p := range d.cfg().Processes {
 		if slices.Contains(types, p.Type) {
@@ -720,7 +727,7 @@ func (d *ConfigurableDevice) runningProcesses(types ...string) []nvml.ProcessInf
 			})
 		}
 	}
-	return procs
+	return procs, nvml.SUCCESS
 }
 
 // ProcessByPID returns the configured process with that pid on this device, and
@@ -742,7 +749,7 @@ func (d *ConfigurableDevice) ProcessByPID(pid uint32) (ProcessConfig, bool) {
 // GetGraphicsRunningProcesses returns running graphics processes
 func (d *ConfigurableDevice) GetGraphicsRunningProcesses() ([]nvml.ProcessInfo, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetGraphicsRunningProcesses\n")
-	return d.runningProcesses(processTypeGraphics), nvml.SUCCESS
+	return d.runningProcesses(processTypeGraphics)
 }
 
 // GetProcessUtilization returns one sample per configured process, compute and
@@ -753,6 +760,9 @@ func (d *ConfigurableDevice) GetGraphicsRunningProcesses() ([]nvml.ProcessInfo, 
 // configured values.
 func (d *ConfigurableDevice) GetProcessUtilization(lastSeenTimestamp uint64) ([]nvml.ProcessUtilizationSample, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetProcessUtilization(lastSeen=%d)\n", lastSeenTimestamp)
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return nil, ret
+	}
 	c := d.cfg()
 	if len(c.Processes) == 0 {
 		return nil, nvml.SUCCESS

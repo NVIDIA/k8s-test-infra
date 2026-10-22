@@ -82,6 +82,31 @@ func TestRunningProcesses_ReportNoMIGInstance(t *testing.T) {
 	}
 }
 
+// TestRunningProcesses_LostDevice covers a client holding a handle from before
+// the GPU fell off the bus: process data from it would read as a reachable GPU.
+func TestRunningProcesses_LostDevice(t *testing.T) {
+	t.Parallel()
+	cfg := mpsConfig()
+	cfg.Failure = &FailureInjectionConfig{Mode: FailureModeLost}
+	dev := newTestDeviceWithConfig(t, cfg)
+	_, ret := dev.GetPowerUsage()
+	require.Equal(t, nvml.ERROR_GPU_IS_LOST, ret, "a guarded call trips the injected failure")
+
+	for name, get := range map[string]func() ([]nvml.ProcessInfo, nvml.Return){
+		"compute":  dev.GetComputeRunningProcesses,
+		"graphics": dev.GetGraphicsRunningProcesses,
+		"mps":      dev.GetMPSComputeRunningProcesses,
+		"all":      func() ([]nvml.ProcessInfo, nvml.Return) { return dev.RunningProcessesByMode(nvml.PROCESS_MODE_ALL) },
+	} {
+		procs, ret := get()
+		require.Equal(t, nvml.ERROR_GPU_IS_LOST, ret, name)
+		require.Empty(t, procs, name)
+	}
+	samples, ret := dev.GetProcessUtilization(0)
+	require.Equal(t, nvml.ERROR_GPU_IS_LOST, ret)
+	require.Empty(t, samples)
+}
+
 func TestGetMPSComputeRunningProcesses_EmptyWithoutMPSClients(t *testing.T) {
 	t.Parallel()
 	dev := newTestDeviceWithConfig(t, &DeviceConfig{Processes: []ProcessConfig{{PID: 100, Type: "C"}}})

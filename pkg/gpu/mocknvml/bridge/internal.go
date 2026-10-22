@@ -419,8 +419,8 @@ func mockInternalFillProcessList(handle unsafe.Pointer, buf unsafe.Pointer, capa
 	if dev == nil || buf == nil {
 		return 0
 	}
-	// The three lists only fail for a device the lookup above already
-	// refused, so their return codes carry nothing to act on here.
+	// The three lists fail only for a lost GPU, and then return no entries,
+	// which is the list nvidia-smi should show for a GPU it cannot reach.
 	compute, _ := dev.GetComputeRunningProcesses()
 	graphics, _ := dev.GetGraphicsRunningProcesses()
 	mps, _ := dev.GetMPSComputeRunningProcesses()

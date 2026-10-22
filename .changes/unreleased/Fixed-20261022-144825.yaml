@@ -1,0 +1,6 @@
+kind: Fixed
+body: |-
+  nvml-mock: a GPU in an injected lost or fallen-off-bus state now returns GPU_IS_LOST from the running-process and process-utilization queries instead of still listing its processes.
+time: 2026-10-22T12:48:25Z
+custom:
+  Issue: "1038"
