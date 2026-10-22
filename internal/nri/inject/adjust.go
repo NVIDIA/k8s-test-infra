@@ -50,6 +50,7 @@ func Adjust(cfg Config, container Container) (Adjustment, bool) {
 		mountOverlay(cfg, &adjustment)
 		setEnvironment(cfg, container, sel, &adjustment)
 	}
+	bindMockNVML(cfg, container, sel, &adjustment)
 	if sel.management {
 		attachGPUs(cfg, &adjustment)
 	}

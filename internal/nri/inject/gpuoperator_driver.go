@@ -150,7 +150,7 @@ func attachKernelModules(staged, conf string, adjustment *Adjustment) {
 func (d GPUOperatorDriver) attachMockNVML(staged string, adjustment *Adjustment) {
 	adjustment.Mounts = append(adjustment.Mounts,
 		Mount{
-			Source:      filepath.Join(d.HostOverlayPath, "driver/usr/lib64/libnvidia-ml.so.1"),
+			Source:      filepath.Join(d.HostOverlayPath, mockNVMLRelPath),
 			Destination: driverNVMLPath,
 			Type:        "bind",
 			Options:     []string{"bind", "rprivate", "ro", "nosuid", "nodev"},
