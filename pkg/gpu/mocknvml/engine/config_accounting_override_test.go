@@ -9,10 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestGetDeviceConfigMergesPerDeviceAccountingBlock covers the silent drop the
-// fan block had: mergeDeviceOverride copies only the fields it names, so a
-// per-device accounting block was parsed and then replaced by the defaults',
-// and a GPU declared with accounting on reported it off.
+// TestGetDeviceConfigMergesPerDeviceAccountingBlock covers accounting as
+// per-board state: mergeDeviceOverride copies only the fields it names, so a
+// device's accounting block must be one of them to take effect, and must stay
+// on that device rather than reaching its siblings.
 func TestGetDeviceConfigMergesPerDeviceAccountingBlock(t *testing.T) {
 	t.Parallel()
 

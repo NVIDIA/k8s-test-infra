@@ -224,6 +224,19 @@ func TestAccounting_UnavailableUnderMIG(t *testing.T) {
 	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, dev.ClearAccountingPids())
 }
 
+// TestAccountingSetters_LostDevice pins the setters to the injected failure the
+// other setters honour: a GPU that has fallen off the bus cannot have its
+// accounting state changed, and a write here would outlive the failure.
+func TestAccountingSetters_LostDevice(t *testing.T) {
+	persistSetterWrites(t)
+	cfg := accountingConfig("enabled")
+	cfg.Failure = &FailureInjectionConfig{Mode: FailureModeLost}
+	dev := newTestDeviceWithConfig(t, cfg)
+
+	require.Equal(t, nvml.ERROR_GPU_IS_LOST, dev.SetAccountingMode(nvml.FEATURE_DISABLED))
+	require.Equal(t, nvml.ERROR_GPU_IS_LOST, dev.ClearAccountingPids())
+}
+
 // TestAccountingSetters_DeclineWithoutAWriter covers a consumer that links the
 // engine without the bridge that installs a writer. Reporting success for a
 // mode recorded nowhere is the failure this guards against.

@@ -66,6 +66,22 @@ func TestRunningProcessesByMode_SelectsTheListTheModeNames(t *testing.T) {
 	require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret)
 }
 
+// TestRunningProcesses_ReportNoMIGInstance covers the instance IDs a consumer
+// reads to attribute a process to a MIG instance: 0 is a valid instance ID, so a
+// process outside MIG must carry NVML's "none" value instead.
+func TestRunningProcesses_ReportNoMIGInstance(t *testing.T) {
+	t.Parallel()
+	dev := newTestDeviceWithConfig(t, mpsConfig())
+
+	procs, ret := dev.RunningProcessesByMode(nvml.PROCESS_MODE_ALL)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Len(t, procs, 3)
+	for _, p := range procs {
+		require.Equal(t, uint32(0xFFFFFFFF), p.GpuInstanceId, "pid %d", p.Pid)
+		require.Equal(t, uint32(0xFFFFFFFF), p.ComputeInstanceId, "pid %d", p.Pid)
+	}
+}
+
 func TestGetMPSComputeRunningProcesses_EmptyWithoutMPSClients(t *testing.T) {
 	t.Parallel()
 	dev := newTestDeviceWithConfig(t, &DeviceConfig{Processes: []ProcessConfig{{PID: 100, Type: "C"}}})

@@ -50,6 +50,10 @@ func (d *ConfigurableDevice) GetAccountingBufferSize() (int, nvml.Return) {
 // Re-enabling accounts the processes still running again; the driver would
 // only track processes started after that, which the mock has no way to tell.
 func (d *ConfigurableDevice) SetAccountingMode(mode nvml.EnableState) nvml.Return {
+	if ret := d.tickFailure(); ret != nvml.SUCCESS {
+		debugLog("[NVML] nvmlDeviceSetAccountingMode(%d) -> %d (injected failure)\n", mode, ret)
+		return ret
+	}
 	if mode != nvml.FEATURE_ENABLED && mode != nvml.FEATURE_DISABLED {
 		debugLog("[NVML] nvmlDeviceSetAccountingMode(%d) -> INVALID_ARGUMENT\n", mode)
 		return nvml.ERROR_INVALID_ARGUMENT
@@ -66,6 +70,10 @@ func (d *ConfigurableDevice) SetAccountingMode(mode nvml.EnableState) nvml.Retur
 // ClearAccountingPids drops the records of processes that have exited. Running
 // processes stay queryable.
 func (d *ConfigurableDevice) ClearAccountingPids() nvml.Return {
+	if ret := d.tickFailure(); ret != nvml.SUCCESS {
+		debugLog("[NVML] nvmlDeviceClearAccountingPids -> %d (injected failure)\n", ret)
+		return ret
+	}
 	if d.migPartitioned() {
 		debugLog("[NVML] nvmlDeviceClearAccountingPids -> NOT_SUPPORTED (MIG enabled)\n")
 		return nvml.ERROR_NOT_SUPPORTED

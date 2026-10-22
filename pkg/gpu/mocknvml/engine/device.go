@@ -669,6 +669,11 @@ const (
 	processTypeMPS = "M"
 )
 
+// noMIGInstanceID is the GPU and compute instance ID NVML reports for a
+// process not attributed to a MIG instance. 0 is a valid instance ID, so
+// leaving the fields zero would place every process in instance 0.
+const noMIGInstanceID = 0xFFFFFFFF
+
 // GetComputeRunningProcesses returns running compute processes
 func (d *ConfigurableDevice) GetComputeRunningProcesses() ([]nvml.ProcessInfo, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetComputeRunningProcesses\n")
@@ -708,8 +713,10 @@ func (d *ConfigurableDevice) runningProcesses(types ...string) []nvml.ProcessInf
 	for _, p := range d.cfg().Processes {
 		if slices.Contains(types, p.Type) {
 			procs = append(procs, nvml.ProcessInfo{
-				Pid:           p.PID,
-				UsedGpuMemory: p.UsedMemoryMiB * oneMiB,
+				Pid:               p.PID,
+				UsedGpuMemory:     p.UsedMemoryMiB * oneMiB,
+				GpuInstanceId:     noMIGInstanceID,
+				ComputeInstanceId: noMIGInstanceID,
 			})
 		}
 	}
