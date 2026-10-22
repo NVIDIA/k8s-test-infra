@@ -660,24 +660,60 @@ func (d *ConfigurableDevice) GetPciInfo() (nvml.PciInfo, nvml.Return) {
 	return d.pciInfo, nvml.SUCCESS
 }
 
+// Process types a configured process can declare. An omitted type is compute.
+const (
+	processTypeCompute  = "C"
+	processTypeGraphics = "G"
+	// processTypeMPS is an MPS client: a compute process whose context the MPS
+	// server owns, which NVML lists apart from the compute processes.
+	processTypeMPS = "M"
+)
+
 // GetComputeRunningProcesses returns running compute processes
 func (d *ConfigurableDevice) GetComputeRunningProcesses() ([]nvml.ProcessInfo, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetComputeRunningProcesses\n")
-	c := d.cfg()
-	if len(c.Processes) == 0 {
-		return []nvml.ProcessInfo{}, nvml.SUCCESS
-	}
+	return d.runningProcesses(processTypeCompute, ""), nvml.SUCCESS
+}
 
-	var procs []nvml.ProcessInfo
-	for _, p := range c.Processes {
-		if p.Type == "C" || p.Type == "" { // Compute process
+// GetMPSComputeRunningProcesses returns the MPS clients. Under MPS the compute
+// list shows the MPS server, whose context the clients' work runs in, so the
+// clients are reported here and nowhere else among the running-process lists.
+func (d *ConfigurableDevice) GetMPSComputeRunningProcesses() ([]nvml.ProcessInfo, nvml.Return) {
+	debugLog("[NVML] nvmlDeviceGetMPSComputeRunningProcesses\n")
+	return d.runningProcesses(processTypeMPS), nvml.SUCCESS
+}
+
+// RunningProcessesByMode returns the processes nvmlDeviceGetRunningProcessDetailList
+// reports for mode: the list the matching per-type getter returns, or all
+// three for PROCESS_MODE_ALL.
+func (d *ConfigurableDevice) RunningProcessesByMode(mode nvml.ProcessMode) ([]nvml.ProcessInfo, nvml.Return) {
+	debugLog("[NVML] nvmlDeviceGetRunningProcessDetailList(mode=%d)\n", mode)
+	switch mode {
+	case nvml.PROCESS_MODE_COMPUTE:
+		return d.runningProcesses(processTypeCompute, ""), nvml.SUCCESS
+	case nvml.PROCESS_MODE_GRAPHICS:
+		return d.runningProcesses(processTypeGraphics), nvml.SUCCESS
+	case nvml.PROCESS_MODE_MPS:
+		return d.runningProcesses(processTypeMPS), nvml.SUCCESS
+	case nvml.PROCESS_MODE_ALL:
+		return d.runningProcesses(processTypeCompute, "", processTypeGraphics, processTypeMPS), nvml.SUCCESS
+	default:
+		return nil, nvml.ERROR_INVALID_ARGUMENT
+	}
+}
+
+// runningProcesses returns the configured processes declaring one of types.
+func (d *ConfigurableDevice) runningProcesses(types ...string) []nvml.ProcessInfo {
+	procs := []nvml.ProcessInfo{}
+	for _, p := range d.cfg().Processes {
+		if slices.Contains(types, p.Type) {
 			procs = append(procs, nvml.ProcessInfo{
 				Pid:           p.PID,
-				UsedGpuMemory: p.UsedMemoryMiB * 1024 * 1024,
+				UsedGpuMemory: p.UsedMemoryMiB * oneMiB,
 			})
 		}
 	}
-	return procs, nvml.SUCCESS
+	return procs
 }
 
 // ProcessByPID returns the configured process with that pid on this device, and
@@ -699,21 +735,7 @@ func (d *ConfigurableDevice) ProcessByPID(pid uint32) (ProcessConfig, bool) {
 // GetGraphicsRunningProcesses returns running graphics processes
 func (d *ConfigurableDevice) GetGraphicsRunningProcesses() ([]nvml.ProcessInfo, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetGraphicsRunningProcesses\n")
-	c := d.cfg()
-	if len(c.Processes) == 0 {
-		return []nvml.ProcessInfo{}, nvml.SUCCESS
-	}
-
-	var procs []nvml.ProcessInfo
-	for _, p := range c.Processes {
-		if p.Type == "G" { // Graphics process
-			procs = append(procs, nvml.ProcessInfo{
-				Pid:           p.PID,
-				UsedGpuMemory: p.UsedMemoryMiB * 1024 * 1024,
-			})
-		}
-	}
-	return procs, nvml.SUCCESS
+	return d.runningProcesses(processTypeGraphics), nvml.SUCCESS
 }
 
 // GetProcessUtilization returns one sample per configured process, compute and
@@ -915,6 +937,14 @@ func (d *ConfigurableDevice) GetPowerUsage() (uint32, nvml.Return) {
 	if ret := d.tickFailure(); ret != nvml.SUCCESS {
 		return 0, ret
 	}
+	power, ret := d.powerDraw()
+	debugLog("[NVML] nvmlDeviceGetPowerUsage -> %d mW, ret=%d\n", power, ret)
+	return power, ret
+}
+
+// powerDraw is the power reading without the failure tick, shared by the
+// getters that report it.
+func (d *ConfigurableDevice) powerDraw() (uint32, nvml.Return) {
 	c := d.cfg()
 	hasStatic := c.Power != nil
 	hasDynamic := c.DynamicMetrics != nil && c.DynamicMetrics.Power != nil
@@ -931,7 +961,6 @@ func (d *ConfigurableDevice) GetPowerUsage() (uint32, nvml.Return) {
 	if dm := d.dynamicMetrics.Load(); dm != nil {
 		power = dm.Power(power, minMW, maxMW)
 	}
-	debugLog("[NVML] nvmlDeviceGetPowerUsage -> %d mW\n", power)
 	return power, nvml.SUCCESS
 }
 
@@ -988,6 +1017,14 @@ func (d *ConfigurableDevice) GetClockInfo(clockType nvml.ClockType) (uint32, nvm
 	if ret := d.tickFailure(); ret != nvml.SUCCESS {
 		return 0, ret
 	}
+	clock, ret := d.currentClock(clockType)
+	debugLog("[NVML] nvmlDeviceGetClockInfo(type=%d) -> %d MHz, ret=%d\n", clockType, clock, ret)
+	return clock, ret
+}
+
+// currentClock is the clock reading without the failure tick, shared by the
+// getters that report it.
+func (d *ConfigurableDevice) currentClock(clockType nvml.ClockType) (uint32, nvml.Return) {
 	c := d.cfg()
 	if c.Clocks == nil {
 		return 0, nvml.ERROR_NOT_SUPPORTED
@@ -1006,7 +1043,6 @@ func (d *ConfigurableDevice) GetClockInfo(clockType nvml.ClockType) (uint32, nvm
 	default:
 		// CLOCK_COUNT is an enum sentinel; leave clock at 0.
 	}
-	debugLog("[NVML] nvmlDeviceGetClockInfo(type=%d) -> %d MHz\n", clockType, clock)
 	return clock, nvml.SUCCESS
 }
 
@@ -1139,6 +1175,14 @@ func (d *ConfigurableDevice) GetUtilizationRates() (nvml.Utilization, nvml.Retur
 	if ret := d.tickFailure(); ret != nvml.SUCCESS {
 		return nvml.Utilization{}, ret
 	}
+	util := d.utilizationRates()
+	debugLog("[NVML] nvmlDeviceGetUtilizationRates -> gpu=%d%% mem=%d%%\n", util.Gpu, util.Memory)
+	return util, nvml.SUCCESS
+}
+
+// utilizationRates is the utilization reading without the failure tick,
+// shared by the getters that report it.
+func (d *ConfigurableDevice) utilizationRates() nvml.Utilization {
 	util := nvml.Utilization{}
 	if c := d.cfg(); c.Utilization != nil {
 		util.Gpu = c.Utilization.GPU
@@ -1147,8 +1191,7 @@ func (d *ConfigurableDevice) GetUtilizationRates() (nvml.Utilization, nvml.Retur
 	if dm := d.dynamicMetrics.Load(); dm != nil {
 		util.Gpu, util.Memory = dm.Utilization(util.Gpu, util.Memory)
 	}
-	debugLog("[NVML] nvmlDeviceGetUtilizationRates -> gpu=%d%% mem=%d%%\n", util.Gpu, util.Memory)
-	return util, nvml.SUCCESS
+	return util
 }
 
 // GetPerformanceState returns the current performance state
@@ -1504,26 +1547,6 @@ func (d *ConfigurableDevice) GetDisplayMode() (nvml.EnableState, nvml.Return) {
 	}
 	debugLog("[NVML] nvmlDeviceGetDisplayMode -> %d\n", mode)
 	return mode, nvml.SUCCESS
-}
-
-// GetAccountingMode returns accounting mode
-func (d *ConfigurableDevice) GetAccountingMode() (nvml.EnableState, nvml.Return) {
-	mode := nvml.FEATURE_DISABLED
-	if c := d.cfg(); c.Accounting != nil && c.Accounting.Mode == "enabled" {
-		mode = nvml.FEATURE_ENABLED
-	}
-	debugLog("[NVML] nvmlDeviceGetAccountingMode -> %d\n", mode)
-	return mode, nvml.SUCCESS
-}
-
-// GetAccountingBufferSize returns accounting buffer size
-func (d *ConfigurableDevice) GetAccountingBufferSize() (int, nvml.Return) {
-	size := 4000 // Default
-	if c := d.cfg(); c.Accounting != nil && c.Accounting.BufferSize > 0 {
-		size = c.Accounting.BufferSize
-	}
-	debugLog("[NVML] nvmlDeviceGetAccountingBufferSize -> %d\n", size)
-	return size, nvml.SUCCESS
 }
 
 // GetEncoderStats returns encoder statistics

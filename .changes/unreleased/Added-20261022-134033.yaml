@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  nvml-mock: a process with `type: "M"` is an MPS client, listed by `nvmlDeviceGetMPSComputeRunningProcesses` and not among compute processes. The `_v2` running-process queries and `nvmlDeviceGetRunningProcessDetailList` now answer instead of NOT_SUPPORTED.
+time: 2026-10-22T11:40:33Z
+custom:
+  Issue: "1038"

@@ -1141,6 +1141,9 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	if override.Processes != nil {
 		base.Processes = override.Processes // nil = not overridden; [] = explicit clear
 	}
+	if override.Accounting != nil {
+		base.Accounting = override.Accounting
+	}
 	if override.MIG != nil {
 		mergeMIGOverride(base, override.MIG)
 	}

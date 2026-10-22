@@ -295,6 +295,7 @@ import "C"
 
 import (
 	"fmt"
+	"slices"
 	"unsafe"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
@@ -418,9 +419,12 @@ func mockInternalFillProcessList(handle unsafe.Pointer, buf unsafe.Pointer, capa
 	if dev == nil || buf == nil {
 		return 0
 	}
+	// The three lists only fail for a device the lookup above already
+	// refused, so their return codes carry nothing to act on here.
 	compute, _ := dev.GetComputeRunningProcesses()
 	graphics, _ := dev.GetGraphicsRunningProcesses()
-	all := append(compute, graphics...)
+	mps, _ := dev.GetMPSComputeRunningProcesses()
+	all := slices.Concat(compute, graphics, mps)
 
 	n := len(all)
 	if n > int(capacity) {

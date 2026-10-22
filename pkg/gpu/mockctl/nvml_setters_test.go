@@ -380,6 +380,54 @@ func TestClockSetters_FailWithoutADocumentPath(t *testing.T) {
 	require.Error(t, SetClockOffset("", 0, engine.ClockDomainGraphics, 0))
 }
 
+// TestAccountingSetters_ResolveThroughTheEngine checks the accounting writes
+// against a profile that already declares terminated records, by merging the
+// document the way the running mock does. The records come from the profile,
+// so a clear has to record an empty list that outranks them, and enabling the
+// mode afterwards must not bring them back.
+func TestAccountingSetters_ResolveThroughTheEngine(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+	profile := &engine.DeviceConfig{Accounting: &engine.AccountingConfig{
+		Mode:       "disabled",
+		BufferSize: 4000,
+		Terminated: []engine.AccountedProcessConfig{{PID: 300, TimeMS: 1000}},
+	}}
+
+	require.NoError(t, ClearAccountingPids(path, 0))
+	require.NoError(t, SetAccountingMode(path, 0, true))
+	require.NoError(t, SetAccountingMode(path, 1, true))
+	require.NoError(t, SetAccountingMode(path, 2, false))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	overrides := &engine.ConfigOverrideDoc{All: doc.All, Devices: doc.Devices}
+	resolve := func(index int) *engine.AccountingConfig {
+		merged, err := engine.MergeDeviceConfig(profile, overrides.DeviceConfigOverride(index))
+		require.NoError(t, err)
+		return merged.Accounting
+	}
+
+	cleared := resolve(0)
+	require.Equal(t, "enabled", cleared.Mode, "the mode write kept the earlier clear")
+	require.Empty(t, cleared.Terminated, "the clear outranks the profile's records")
+	require.Equal(t, 4000, cleared.BufferSize, "neither write touches the buffer size")
+
+	enabled := resolve(1)
+	require.Equal(t, "enabled", enabled.Mode)
+	require.Len(t, enabled.Terminated, 1, "enabling accounting keeps what the driver holds")
+
+	disabled := resolve(2)
+	require.Equal(t, "disabled", disabled.Mode)
+	require.Empty(t, disabled.Terminated, "disabling accounting clears its records")
+}
+
+func TestAccountingSetters_FailWithoutADocumentPath(t *testing.T) {
+	t.Parallel()
+	require.Error(t, SetAccountingMode("", 0, true))
+	require.Error(t, ClearAccountingPids("", 0))
+}
+
 func TestSetters_DoNotDisturbOtherDevices(t *testing.T) {
 	t.Parallel()
 	path := overridePath(t)

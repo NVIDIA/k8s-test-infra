@@ -111,3 +111,13 @@ func (overrideWriter) SetPowerSmoothingProfileParam(
 ) error {
 	return mockctl.SetPowerSmoothingProfileParam(engine.ConfigOverridePath(), index, profileID, param, value)
 }
+
+// SetAccountingMode records the mode nvmlDeviceSetAccountingMode applied.
+func (overrideWriter) SetAccountingMode(index int, enabled bool) error {
+	return mockctl.SetAccountingMode(engine.ConfigOverridePath(), index, enabled)
+}
+
+// ClearAccountingPids records the clear nvmlDeviceClearAccountingPids applied.
+func (overrideWriter) ClearAccountingPids(index int) error {
+	return mockctl.ClearAccountingPids(engine.ConfigOverridePath(), index)
+}

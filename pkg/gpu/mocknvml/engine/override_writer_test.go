@@ -216,6 +216,18 @@ func (w *fileOverrideWriter) SetPowerSmoothingProfileParam(
 	return w.patch(index, PowerSmoothingProfilePatch(profileID, param, value))
 }
 
+func (w *fileOverrideWriter) SetAccountingMode(index int, enabled bool) error {
+	accounting := map[string]any{"mode": enableStateString(enabled)}
+	if !enabled {
+		accounting["terminated"] = []any{}
+	}
+	return w.patch(index, map[string]any{"accounting": accounting})
+}
+
+func (w *fileOverrideWriter) ClearAccountingPids(index int) error {
+	return w.patch(index, map[string]any{"accounting": map[string]any{"terminated": []any{}}})
+}
+
 func (w *fileOverrideWriter) patch(index int, patch map[string]any) error {
 	return w.mutate(index, func(bucket map[string]any) error {
 		deepMergeMaps(bucket, patch)
