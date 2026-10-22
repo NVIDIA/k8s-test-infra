@@ -15,15 +15,16 @@ _CHART = 'nvidia/gpu-operator'
 # (NVIDIA/gpu-operator#2881). The userspace driver mode cannot serve that line to
 # those containers, so GFD, the device plugin and dcgm-exporter never start
 # (#911), and it stays on the last release before the gate. The kernel mode's
-# simulated modules serve the line.
+# simulated modules serve the line, and the GPUCluster CR, new in v26.7.0, runs
+# operands without the gate.
 _CHART_VERSION = 'v26.3.3'
 _GATED_CHART_VERSION = 'v26.7.2'
 
-def install(nvml_mock_releases, extra_values=[], extra_resource_deps=[], kernel_mode=False):
+def install(nvml_mock_releases, extra_values=[], extra_resource_deps=[], kernel_mode=False, gpu_cluster=False):
     values_flags = ['--values', 'local/gpu-operator/gpu-operator.values.yaml']
     for v in extra_values:
         values_flags += ['--values', v]
-    version = _GATED_CHART_VERSION if kernel_mode else _CHART_VERSION
+    version = _GATED_CHART_VERSION if kernel_mode or gpu_cluster else _CHART_VERSION
 
     helm_resource(
         'gpu-operator',
