@@ -32,13 +32,13 @@ labels:
     description: PR metadata automation manages reverted changes.
   - name: size/S
     color: c2e0c6
-    description: PR metadata automation manages changes with fewer than 50 changed lines.
+    description: PR metadata automation manages changes with fewer than 100 changed lines.
   - name: size/M
     color: fef2c0
-    description: PR metadata automation manages changes with 50 to 249 changed lines.
+    description: PR metadata automation manages changes with 100 to 499 changed lines.
   - name: size/L
     color: f9d0c4
-    description: PR metadata automation manages changes with 250 to 999 changed lines.
+    description: PR metadata automation manages changes with 500 to 999 changed lines.
   - name: size/XL
     color: d93f0b
     description: PR metadata automation manages changes with at least 1000 changed lines.

@@ -46,6 +46,6 @@ bots:
     emails: ["41898282+github-actions[bot]@users.noreply.github.com"]
 sizeThresholds:
   S: 0
-  M: 50
-  L: 250
+  M: 100
+  L: 500
   XL: 1000
