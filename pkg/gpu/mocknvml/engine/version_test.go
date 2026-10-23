@@ -106,6 +106,8 @@ func TestFunctionAvailable(t *testing.T) {
 		{"gpm not available on 510", "510.0", "nvmlGpmQueryDeviceSupport", false},
 		{"gpm available on 535", "535.0", "nvmlGpmQueryDeviceSupport", true},
 		{"gpm available on 560", "560.0", "nvmlGpmQueryDeviceSupport", true},
+		{"gpm mig sample not available on 530", "530.30.02", "nvmlGpmMigSampleGet", false},
+		{"gpm mig sample available on 535", "535.0", "nvmlGpmMigSampleGet", true},
 		{"gpm streaming not available on 550", "550.163.01", "nvmlGpmQueryIfStreamingEnabled", false},
 		{"gpm streaming available on 555", "555.0", "nvmlGpmQueryIfStreamingEnabled", true},
 
