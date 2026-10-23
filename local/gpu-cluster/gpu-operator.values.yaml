@@ -1,0 +1,27 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Layered last over the GPU Operator's values: the operator deploys its
+# GPUCluster CR, the experimental stack built on Dynamic Resource Allocation, in
+# place of the ClusterPolicy. Only one of the two may exist. A GPUCluster runs
+# the DRA driver, its validator and dcgm-exporter; there is no device plugin,
+# GFD, MIG manager or container toolkit, and pods get GPUs through
+# ResourceClaims.
+clusterPolicy:
+  deployCR: false
+gpuCluster:
+  deployCR: true
+
+# A GPUCluster leaves the driver to NVIDIADriver CRs. With the driver enabled,
+# as the kernel-mods overlay does, the chart renders a default one from the
+# driver values.
+driver:
+  nvidiaDriverCRD:
+    enabled: true
+
+# Compute domains need the IMEX channels and NVLink fabric that only
+# --compute-domain simulates; without them the plugin's compute-domains
+# container exits at start, and the kubelet plugin never becomes ready.
+draDriver:
+  computeDomains:
+    enabled: false

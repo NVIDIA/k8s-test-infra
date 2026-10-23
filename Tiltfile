@@ -52,6 +52,8 @@ config.define_bool('gpu-operator', args=False,
     usage='Also deploy NVIDIA GPU Operator on top of nvml-mock')
 config.define_bool('kernel-mods', args=False,
     usage='Simulate the driver with Mokka\'s kernel modules (driver.mode kernel), on worker-0 alone: the GPU Operator\'s driver installer, from the original NVIDIA image, loads them, and its container toolkit runs too. Implies --gpu-operator. The node kernel must build out-of-tree modules: create the cluster in the Colima VM (make colima-cluster-create).')
+config.define_bool('gpu-cluster', args=False,
+    usage='Deploy the GPU Operator through its GPUCluster CR, the experimental DRA-based stack, in place of the ClusterPolicy: the operator runs the DRA driver instead of the device plugin, and with --kernel-mods an NVIDIADriver CR deploys the driver. Pods get GPUs through ResourceClaims, not nvidia.com/gpu. Implies --gpu-operator.')
 config.define_bool('dra', args=False,
     usage='Also deploy NVIDIA DRA driver on top of nvml-mock')
 config.define_bool('fgo', args=False,
@@ -78,6 +80,7 @@ multi_gpu_profile   = cfg.get('multi-gpu-profile', False)
 with_compute_domain = cfg.get('compute-domain', False)
 with_gpu_operator   = cfg.get('gpu-operator', False)
 with_kernel_mods    = cfg.get('kernel-mods', False)
+with_gpu_cluster    = cfg.get('gpu-cluster', False)
 with_dra            = cfg.get('dra', False)
 with_fgo            = cfg.get('fgo', False)
 with_topograph      = cfg.get('topograph', False)
@@ -109,6 +112,16 @@ if with_slinky:
 # kernel modules.
 if with_kernel_mods:
     with_gpu_operator = True
+
+if with_gpu_cluster:
+    with_gpu_operator = True
+
+# A GPUCluster deploys the DRA driver itself, and nothing in it advertises
+# nvidia.com/gpu.
+if with_gpu_cluster and with_dra:
+    fail('--gpu-cluster deploys the DRA driver through the GPU Operator; drop --dra')
+if with_gpu_cluster and (with_dynamo or with_slinky):
+    fail('--gpu-cluster advertises no nvidia.com/gpu, which --dynamo and --slinky request')
 
 # Every Kind node shares one kernel, and a kernel hosts one driver, so the
 # kernel mode simulates GPUs on worker-0 alone. The other shapes put GPUs on
@@ -233,10 +246,15 @@ if with_gpu_operator:
     if with_kernel_mods:
         gpu_operator_extra_values.append('local/kernel-mods/gpu-operator.values.yaml')
 
+    if with_gpu_cluster:
+        gpu_operator_extra_values.append('local/gpu-cluster/gpu-operator.values.yaml')
+
     gpu_operator_install(
         nvml_mock_releases,
         extra_values=gpu_operator_extra_values,
         extra_resource_deps=gpu_operator_extra_deps,
+        kernel_mode=with_kernel_mods,
+        gpu_cluster=with_gpu_cluster,
     )
 
 if with_dra:
@@ -260,10 +278,17 @@ if with_dynamo:
 if with_slinky:
     slinky_install(nvml_mock_releases)
 
-# Manual: the pod cannot run before the device plugin advertises nvidia.com/gpu.
+# Manual: the pod cannot run before the device plugin advertises nvidia.com/gpu,
+# or, under --gpu-cluster, before the DRA driver publishes the node's GPUs.
 if with_gpu_operator:
-    k8s_yaml('local/gpu-validator.k8s.yaml')
+    validator_objects = []
+    if with_gpu_cluster:
+        k8s_yaml('local/gpu-cluster/gpu-validator.k8s.yaml')
+        validator_objects = ['gpu-validator:resourceclaimtemplate:default']
+    else:
+        k8s_yaml('local/gpu-validator.k8s.yaml')
     k8s_resource('gpu-validator',
+        objects=validator_objects,
         auto_init=False,
         resource_deps=nvml_mock_releases,
         labels=['test'],
