@@ -1402,14 +1402,15 @@ func (d *ConfigurableDevice) GetBusType() (nvml.BusType, nvml.Return) {
 
 // GetGpuMaxPcieLinkGeneration returns the maximum PCIe link generation the GPU
 // itself supports, independent of the host. nvidia-smi renders this as the
-// "Device Max" row, which degraded to N/A while this was a generated stub. The
-// mock has no separate host-side limit, so the device maximum is the configured
-// max_link_gen — the same value GetMaxPcieLinkGeneration reports for the
-// system-wide "Max" row.
+// "Device Max" row. Profiles can set this separately from max_link_gen; older
+// profiles that omit it retain their previous behaviour.
 func (d *ConfigurableDevice) GetGpuMaxPcieLinkGeneration() (int, nvml.Return) {
 	gen := 0
 	if c := d.cfg(); c.PCIe != nil {
-		gen = c.PCIe.MaxLinkGen
+		gen = c.PCIe.MaxDeviceLinkGen
+		if gen == 0 {
+			gen = c.PCIe.MaxLinkGen
+		}
 	}
 	debugLog("[NVML] nvmlDeviceGetGpuMaxPcieLinkGeneration -> %d\n", gen)
 	if gen == 0 {
@@ -1424,9 +1425,9 @@ func (d *ConfigurableDevice) GetGpuMaxPcieLinkGeneration() (int, nvml.Return) {
 // This is deliberately not a Get* NVML method: no public NVML API exposes a
 // host-side maximum, and nvidia-smi instead reads it through a slot of the
 // internal export table (see the bridge's internal.go). The mock models a host
-// that keeps up with the GPU, so the host maximum is the configured
-// max_link_gen — keeping nvidia-smi's Max, Device Max and Host Max rows
-// consistent, since the negotiable Max cannot exceed either endpoint.
+// that supports the configured link maximum, so the host maximum is max_link_gen.
+// The GPU's device maximum can be higher; the negotiated link maximum still
+// cannot exceed either endpoint's capability.
 //
 // Returns 0 when the profile configures no PCIe block, which the bridge treats
 // as "unknown" and leaves the reading untouched.
