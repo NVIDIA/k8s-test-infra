@@ -627,6 +627,11 @@ changelog-release: changie ## Maintainers: fold unreleased fragments into CHANGE
 	@test -n "$(RELEASE_VERSION)" || { echo "RELEASE_VERSION is required, e.g. make changelog-release RELEASE_VERSION=0.5.0"; exit 1; }
 	@CHANGIE=$(CHANGIE) bash hack/changelog-fold.sh $(RELEASE_VERSION)
 
+.PHONY: verify-release
+verify-release: ## Maintainers: verify a published release's runs, images, charts and signatures: make verify-release RELEASE_VERSION=0.5.0
+	@test -n "$(RELEASE_VERSION)" || { echo "RELEASE_VERSION is required, e.g. make verify-release RELEASE_VERSION=0.5.0"; exit 1; }
+	@bash hack/verify-release.sh $(RELEASE_VERSION)
+
 .PHONY: helm-crds-tests
 helm-crds-tests: ## Lint + template-render the mokka-crds chart
 	helm lint $(CRDS_HELM_CHART_DIR)
