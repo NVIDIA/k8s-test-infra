@@ -2,30 +2,38 @@
  * Copyright 2026 NVIDIA CORPORATION
  * SPDX-License-Identifier: MIT OR GPL-2.0-only
  *
- * The simulated GPUs, parsed from the mokka_gpus parameter at load time -- the
- * moment the real driver discovers its GPUs on the PCI bus. The procfs tree and
- * the ioctl surface both read this one table, so they cannot disagree about
- * which GPUs exist.
+ * The simulated GPUs. mokka.ko registers one platform device per GPU, and this
+ * driver binds to them the way the real driver binds to its PCI devices: probe
+ * adds a GPU and remove takes it away. Registering the driver probes every GPU
+ * already plugged in, so the GPUs are in place by the time insmod returns. The
+ * procfs tree and the ioctl surface both read this one table, so they cannot
+ * disagree about which GPUs exist.
  *
- * The table is written once in module init, before the character device is
- * registered, and only read afterwards, so it needs no locking.
+ * Probe and remove run whenever mokka.ko plugs or unplugs a GPU, so the table
+ * is guarded by a mutex. It is kept in minor order, the order in which card
+ * info lists the GPUs.
  */
 
 #include <linux/kernel.h>
+#include <linux/lockdep.h>
+#include <linux/mutex.h>
+#include <linux/platform_device.h>
+#include <linux/property.h>
 #include <linux/slab.h>
 #include <linux/string.h>
+#include <linux/version.h>
 
+#include "mokka_gpu.h"
 #include "nvidia_internal.h"
 
 /*
- * A bound rather than a growable array: the records come from a module
- * parameter, so the list is fixed for the module's lifetime and the largest
- * profile in this repository is an order of magnitude below this.
+ * NV_MAX_DEVICES. Clients size their card-info array for this many GPUs, so a
+ * GPU past it could never be listed.
  */
-#define MOKKA_NV_MAX_GPUS 64
+#define MOKKA_NV_MAX_GPUS 32
 
-static char *gpu_records;
-static struct mokka_gpu *gpus;
+static DEFINE_MUTEX(gpus_lock);
+static struct mokka_gpu *gpus[MOKKA_NV_MAX_GPUS];
 static unsigned int gpu_count;
 
 /*
@@ -37,46 +45,21 @@ static u32 mokka_nv_gpu_id(u32 domain, u8 bus, u8 slot)
 	return ((domain & 0xffff) << 16) | (bus << 8) | slot;
 }
 
-/* Fills gpu from one record. Its string fields point into the record. */
-static int mokka_nv_parse_record(char *record, unsigned int index, struct mokka_gpu *gpu)
+/*
+ * The PCI location keys everything a client sees -- card info, the GPU ID, the
+ * procfs directory -- so a GPU without a valid one is refused rather than
+ * probed into a GPU nothing can find.
+ */
+static int mokka_nv_parse_location(const char *location, struct mokka_gpu *gpu)
 {
-	char *location = strsep(&record, "|");
-	char *uuid = strsep(&record, "|");
-	char *model = strsep(&record, "|");
-	char *minor = strsep(&record, "|");
-	char *device_id = strsep(&record, "|");
 	unsigned int domain, bus, slot, function;
 	int consumed = 0;
 
-	/*
-	 * The PCI location keys everything a client sees -- card info, the GPU
-	 * ID, the procfs directory -- so a record without a valid one fails the
-	 * load rather than producing a GPU nothing can find.
-	 */
 	if (sscanf(location, "%x:%x:%x.%x%n", &domain, &bus, &slot, &function, &consumed) != 4 ||
-	    location[consumed] != '\0' || bus > 0xff || slot > 0x1f || function > 0x7) {
-		pr_err("nvidia: mokka_gpus record %u: invalid PCI location \"%s\"\n",
-		       index, location);
+	    location[consumed] != '\0' || bus > 0xff || slot > 0x1f || function > 0x7)
 		return -EINVAL;
-	}
-
-	if (!minor || !*minor) {
-		gpu->minor = index;
-	} else if (kstrtouint(minor, 10, &gpu->minor) || gpu->minor > MOKKA_NV_MINOR_GPU_MAX) {
-		pr_err("nvidia: mokka_gpus record %u: invalid device minor \"%s\"\n",
-		       index, minor);
-		return -EINVAL;
-	}
-
-	if (device_id && *device_id && kstrtou16(device_id, 16, &gpu->device_id)) {
-		pr_err("nvidia: mokka_gpus record %u: invalid PCI device ID \"%s\"\n",
-		       index, device_id);
-		return -EINVAL;
-	}
 
 	snprintf(gpu->bdf, sizeof(gpu->bdf), "%04x:%02x:%02x.%x", domain, bus, slot, function);
-	gpu->uuid = uuid ? uuid : "";
-	gpu->model = model ? model : "";
 	gpu->domain = domain;
 	gpu->bus = bus;
 	gpu->slot = slot;
@@ -86,86 +69,198 @@ static int mokka_nv_parse_record(char *record, unsigned int index, struct mokka_
 	return 0;
 }
 
-int mokka_nv_gpus_init(void)
+/* Inserts gpu in minor order, refusing a minor or a GPU ID already taken. */
+static int mokka_nv_gpu_insert(struct mokka_gpu *gpu)
 {
-	char *cursor, *record;
-	unsigned int i = 0;
-	int ret;
+	unsigned int i, at = gpu_count;
 
-	if (!mokka_gpus || !*mokka_gpus)
-		return 0;
+	lockdep_assert_held(&gpus_lock);
 
-	gpu_records = kstrdup(mokka_gpus, GFP_KERNEL);
-	gpus = kcalloc(MOKKA_NV_MAX_GPUS, sizeof(*gpus), GFP_KERNEL);
-	if (!gpu_records || !gpus) {
-		mokka_nv_gpus_exit();
-		return -ENOMEM;
+	if (gpu_count == MOKKA_NV_MAX_GPUS)
+		return -ENOSPC;
+
+	for (i = 0; i < gpu_count; i++) {
+		if (gpus[i]->minor == gpu->minor || gpus[i]->gpu_id == gpu->gpu_id)
+			return -EEXIST;
+		if (at == gpu_count && gpus[i]->minor > gpu->minor)
+			at = i;
 	}
 
-	cursor = gpu_records;
-	while ((record = strsep(&cursor, ",")) != NULL) {
-		if (!*record)
-			continue;
-
-		if (i == MOKKA_NV_MAX_GPUS) {
-			pr_warn("nvidia: mokka_gpus holds more than %u records; ignoring the rest\n",
-				MOKKA_NV_MAX_GPUS);
-			break;
-		}
-
-		ret = mokka_nv_parse_record(record, i, &gpus[i]);
-		if (ret < 0) {
-			mokka_nv_gpus_exit();
-			return ret;
-		}
-
-		i++;
-	}
-
-	gpu_count = i;
+	memmove(&gpus[at + 1], &gpus[at], (gpu_count - at) * sizeof(gpus[0]));
+	gpus[at] = gpu;
+	gpu_count++;
 
 	return 0;
 }
 
+static void mokka_nv_gpu_delete(struct mokka_gpu *gpu)
+{
+	unsigned int i;
+
+	lockdep_assert_held(&gpus_lock);
+
+	for (i = 0; i < gpu_count; i++) {
+		if (gpus[i] != gpu)
+			continue;
+
+		memmove(&gpus[i], &gpus[i + 1], (gpu_count - i - 1) * sizeof(gpus[0]));
+		gpus[--gpu_count] = NULL;
+		return;
+	}
+}
+
+static int mokka_nv_gpu_probe(struct platform_device *pdev)
+{
+	struct device *dev = &pdev->dev;
+	const char *location, *uuid, *model = "";
+	struct mokka_gpu *gpu;
+	u16 device_id = 0;
+	u32 minor;
+	int ret;
+
+	if (device_property_read_string(dev, MOKKA_GPU_PROP_BUS_ID, &location) ||
+	    device_property_read_string(dev, MOKKA_GPU_PROP_UUID, &uuid) ||
+	    device_property_read_u32(dev, MOKKA_GPU_PROP_MINOR, &minor))
+		return dev_err_probe(dev, -EINVAL, "incomplete GPU description\n");
+
+	/* Optional: without them the model line is empty and the device ID zero. */
+	device_property_read_string(dev, MOKKA_GPU_PROP_NAME, &model);
+	device_property_read_u16(dev, MOKKA_GPU_PROP_DEVICE_ID, &device_id);
+
+	if (minor > MOKKA_NV_MINOR_GPU_MAX)
+		return dev_err_probe(dev, -EINVAL, "device minor %u is past the GPU range\n", minor);
+
+	/* Freed by devres after remove, which has taken the GPU off every list. */
+	gpu = devm_kzalloc(dev, sizeof(*gpu), GFP_KERNEL);
+	if (!gpu)
+		return -ENOMEM;
+
+	ret = mokka_nv_parse_location(location, gpu);
+	if (ret)
+		return dev_err_probe(dev, ret, "invalid PCI location \"%s\"\n", location);
+
+	strscpy(gpu->uuid, uuid, sizeof(gpu->uuid));
+	strscpy(gpu->model, model, sizeof(gpu->model));
+	gpu->minor = minor;
+	gpu->device_id = device_id;
+
+	mutex_lock(&gpus_lock);
+	ret = mokka_nv_gpu_insert(gpu);
+	if (!ret) {
+		ret = mokka_nv_procfs_add_gpu(gpu);
+		if (ret)
+			mokka_nv_gpu_delete(gpu);
+	}
+	mutex_unlock(&gpus_lock);
+	if (ret)
+		return dev_err_probe(dev, ret, "cannot add GPU %s at minor %u\n", gpu->bdf, minor);
+
+	platform_set_drvdata(pdev, gpu);
+	dev_info(dev, "GPU %s (%s) at minor %u\n", gpu->bdf, gpu->uuid, gpu->minor);
+
+	return 0;
+}
+
+/*
+ * A client holding the GPU's node open keeps its file; its next escape on the
+ * node finds the GPU gone, as on a GPU that fell off the bus.
+ */
+static void mokka_nv_gpu_detach(struct platform_device *pdev)
+{
+	struct mokka_gpu *gpu = platform_get_drvdata(pdev);
+
+	mutex_lock(&gpus_lock);
+	mokka_nv_gpu_delete(gpu);
+	mutex_unlock(&gpus_lock);
+
+	/* Waits out the readers of the GPU's procfs files before devres frees it. */
+	mokka_nv_procfs_remove_gpu(gpu);
+
+	dev_info(&pdev->dev, "GPU %s removed\n", gpu->bdf);
+}
+
+/* Linux 6.11 dropped the return value of a platform driver's remove. */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
+static void mokka_nv_gpu_remove(struct platform_device *pdev)
+{
+	mokka_nv_gpu_detach(pdev);
+}
+#else
+static int mokka_nv_gpu_remove(struct platform_device *pdev)
+{
+	mokka_nv_gpu_detach(pdev);
+
+	return 0;
+}
+#endif
+
+static struct platform_driver mokka_nv_gpu_driver = {
+	.probe	= mokka_nv_gpu_probe,
+	.remove	= mokka_nv_gpu_remove,
+	.driver	= {
+		.name		= MOKKA_GPU_DEVICE,
+		/* The GPUs plugged in at load must be in place when insmod returns. */
+		.probe_type	= PROBE_FORCE_SYNCHRONOUS,
+	},
+};
+
+int mokka_nv_gpus_init(void)
+{
+	return platform_driver_register(&mokka_nv_gpu_driver);
+}
+
 void mokka_nv_gpus_exit(void)
 {
-	kfree(gpus);
-	kfree(gpu_records);
-	gpus = NULL;
-	gpu_records = NULL;
-	gpu_count = 0;
+	platform_driver_unregister(&mokka_nv_gpu_driver);
+}
+
+void mokka_nv_gpus_lock(void)
+{
+	mutex_lock(&gpus_lock);
+}
+
+void mokka_nv_gpus_unlock(void)
+{
+	mutex_unlock(&gpus_lock);
 }
 
 unsigned int mokka_nv_gpu_count(void)
 {
+	lockdep_assert_held(&gpus_lock);
+
 	return gpu_count;
 }
 
 const struct mokka_gpu *mokka_nv_gpu(unsigned int index)
 {
-	return index < gpu_count ? &gpus[index] : NULL;
-}
+	lockdep_assert_held(&gpus_lock);
 
-const struct mokka_gpu *mokka_nv_gpu_by_minor(unsigned int minor)
-{
-	unsigned int i;
-
-	for (i = 0; i < gpu_count; i++) {
-		if (gpus[i].minor == minor)
-			return &gpus[i];
-	}
-
-	return NULL;
+	return index < gpu_count ? gpus[index] : NULL;
 }
 
 const struct mokka_gpu *mokka_nv_gpu_by_id(u32 gpu_id)
 {
 	unsigned int i;
 
+	lockdep_assert_held(&gpus_lock);
+
 	for (i = 0; i < gpu_count; i++) {
-		if (gpus[i].gpu_id == gpu_id)
-			return &gpus[i];
+		if (gpus[i]->gpu_id == gpu_id)
+			return gpus[i];
 	}
 
 	return NULL;
+}
+
+bool mokka_nv_gpu_present(unsigned int minor)
+{
+	bool present = false;
+	unsigned int i;
+
+	mutex_lock(&gpus_lock);
+	for (i = 0; i < gpu_count && !present; i++)
+		present = gpus[i]->minor == minor;
+	mutex_unlock(&gpus_lock);
+
+	return present;
 }

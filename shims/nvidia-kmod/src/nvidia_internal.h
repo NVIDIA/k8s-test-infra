@@ -52,17 +52,13 @@ extern uint mokka_nvreg_modify_device_files;
 extern uint mokka_nvreg_preserve_video_memory_allocations;
 extern uint mokka_nvreg_enable_resizable_bar;
 
-/*
- * Comma-separated GPU records: "<bdf>|<uuid>|<model>|<minor>[|<pci-device-id>]",
- * the device ID in hex.
- */
-extern char *mokka_gpus;
+struct proc_dir_entry;
 
-/* A simulated GPU, parsed from one mokka_gpus record. */
+/* A simulated GPU, as mokka.ko describes it; see mokka_gpu.h. */
 struct mokka_gpu {
 	char bdf[20];	/* canonical lowercase "dddd:bb:ss.f" */
-	const char *uuid;
-	const char *model;
+	char uuid[64];
+	char model[96];
 	unsigned int minor;
 	u32 domain;
 	u8 bus;
@@ -70,17 +66,31 @@ struct mokka_gpu {
 	u8 function;
 	u16 device_id;
 	u32 gpu_id;	/* RM's identifier, derived from the PCI location */
+	struct proc_dir_entry *proc_dir;
 };
 
+/* Register and unregister the driver for mokka.ko's GPUs; see nvidia_gpus.c. */
 int mokka_nv_gpus_init(void);
 void mokka_nv_gpus_exit(void);
+
+/*
+ * GPUs come and go while the module is loaded, as mokka.ko plugs and unplugs
+ * them. A GPU these accessors return stays valid only while the caller holds
+ * the GPU lock.
+ */
+void mokka_nv_gpus_lock(void);
+void mokka_nv_gpus_unlock(void);
 unsigned int mokka_nv_gpu_count(void);
 const struct mokka_gpu *mokka_nv_gpu(unsigned int index);
-const struct mokka_gpu *mokka_nv_gpu_by_minor(unsigned int minor);
 const struct mokka_gpu *mokka_nv_gpu_by_id(u32 gpu_id);
+
+/* Takes the GPU lock itself. */
+bool mokka_nv_gpu_present(unsigned int minor);
 
 int mokka_nv_procfs_init(void);
 void mokka_nv_procfs_exit(void);
+int mokka_nv_procfs_add_gpu(struct mokka_gpu *gpu);
+void mokka_nv_procfs_remove_gpu(struct mokka_gpu *gpu);
 
 long mokka_nv_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
 

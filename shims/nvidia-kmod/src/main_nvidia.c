@@ -73,22 +73,6 @@ MODULE_PARM_DESC(NVreg_CoherentGPUMemoryMode,
 		 "Who manages the GPU memory of coherent platforms: driver or kernel");
 
 /*
- * Mokka-prefixed because it is a simulation control rather than a simulated
- * NVreg_* surface. Anyone listing /sys/module/nvidia/parameters/ should be able
- * to tell the two apart at a glance -- a node running this module is meant to
- * be identifiable as simulated by anyone who looks.
- *
- * GPU identity is node state, not driver state: the real driver discovers it
- * from PCI at load time. The driver version, by contrast, is a property of the
- * build and is fixed at compile time -- see MOKKA_NVRM_VERSION.
- */
-char *mokka_gpus;
-module_param_named(mokka_gpus, mokka_gpus, charp, 0444);
-MODULE_PARM_DESC(mokka_gpus,
-		 "Comma-separated GPU records \"<bdf>|<uuid>|<model>|<minor>[|<pci-device-id>]\"; "
-		 "quote the value if a model name has spaces");
-
-/*
  * Referenced by nvidia_uvm, nvidia_modeset and nvidia_peermem. noinline so the
  * reference survives whatever the compiler would otherwise do to an empty
  * function: if it were elided, the module dependency would vanish with it and
@@ -102,8 +86,8 @@ EXPORT_SYMBOL(mokka_nvidia_rm_anchor);
 
 /*
  * The real driver refuses to open a GPU minor it has no GPU for with -ENODEV,
- * so a client probing /dev/nvidia<N> finds exactly the GPUs mokka_gpus
- * declares. nvidiactl and the modeset node are device-wide and always open.
+ * so a client probing /dev/nvidia<N> finds exactly the GPUs mokka.ko has
+ * plugged in. nvidiactl and the modeset node are device-wide and always open.
  */
 static int mokka_nv_open(struct inode *inode, struct file *file)
 {
@@ -112,7 +96,7 @@ static int mokka_nv_open(struct inode *inode, struct file *file)
 	if (minor == MOKKA_NV_MINOR_CONTROL || minor == MOKKA_NV_MINOR_MODESET)
 		return 0;
 
-	return mokka_nv_gpu_by_minor(minor) ? 0 : -ENODEV;
+	return mokka_nv_gpu_present(minor) ? 0 : -ENODEV;
 }
 
 static int mokka_nv_release(struct inode *inode, struct file *file)
@@ -130,46 +114,60 @@ static const struct file_operations mokka_nv_fops = {
 
 static int __init mokka_nvidia_init(void)
 {
+	unsigned int count;
 	int ret;
-
-	ret = mokka_nv_gpus_init();
-	if (ret < 0)
-		return ret;
 
 	ret = mokka_nv_procfs_init();
 	if (ret < 0)
-		goto free_gpus;
+		return ret;
+
+	/*
+	 * GPU identity is node state, not driver state: the real driver finds its
+	 * GPUs on the PCI bus, and this one binds to those mokka.ko has plugged
+	 * in. Registering the driver probes each of them before it returns. The
+	 * registration also marks the module as simulated for anyone who looks:
+	 * /sys/module/nvidia/drivers lists platform:nvidia-gpu, where the real
+	 * driver's lists pci:nvidia.
+	 */
+	ret = mokka_nv_gpus_init();
+	if (ret < 0)
+		goto remove_procfs;
 
 	/*
 	 * Claims the whole major, which covers the per-GPU minors, nvidiactl at
 	 * 255 and nvidia-modeset at 254 in one call -- the same span the real
 	 * driver serves. Registered last, as upstream registers it: an open can
-	 * arrive the moment the major exists, and must find the GPU table built.
+	 * arrive the moment the major exists, and must find the GPUs probed.
 	 */
 	ret = register_chrdev(MOKKA_NV_MAJOR, "nvidia", &mokka_nv_fops);
 	if (ret < 0) {
 		pr_err("nvidia: cannot register major %d: %d\n", MOKKA_NV_MAJOR, ret);
-		goto remove_procfs;
+		goto remove_gpus;
 	}
 
+	mokka_nv_gpus_lock();
+	count = mokka_nv_gpu_count();
+	mokka_nv_gpus_unlock();
+
 	pr_info("nvidia: Mokka simulated NVRM version %s loaded with %u GPU(s)\n",
-		MOKKA_NVRM_VERSION, mokka_nv_gpu_count());
+		MOKKA_NVRM_VERSION, count);
 
 	return 0;
 
+remove_gpus:
+	mokka_nv_gpus_exit();
 remove_procfs:
 	mokka_nv_procfs_exit();
-free_gpus:
-	mokka_nv_gpus_exit();
 
 	return ret;
 }
 
+/* The GPUs stay plugged in: they belong to mokka.ko, which outlives the driver. */
 static void __exit mokka_nvidia_exit(void)
 {
 	unregister_chrdev(MOKKA_NV_MAJOR, "nvidia");
-	mokka_nv_procfs_exit();
 	mokka_nv_gpus_exit();
+	mokka_nv_procfs_exit();
 	pr_info("nvidia: Mokka simulated NVRM unloaded\n");
 }
 

@@ -43,14 +43,20 @@ import (
 // order k8s-driver-manager and the nvidia-driver entrypoint use.
 var dependents = []string{"nvidia_modeset", "nvidia_uvm", "nvidia_peermem"}
 
-// testGPUs is a mokka_gpus value. The model names carry a space, as real ones
-// do; the last field is the PCI device ID.
-const testGPUs = "0000:07:00.0|GPU-11111111-2222-3333-4444-555555555555|NVIDIA A100-SXM4-80GB|0|20b2," +
-	"0000:0b:00.0|GPU-66666666-7777-8888-9999-000000000000|NVIDIA A100-SXM4-80GB|1|20b2"
+// testGPU is a GPU as the tests describe it to mokka.ko, attribute by
+// attribute. The model names carry a space, as real ones do.
+type testGPU struct {
+	busID, uuid, name, minor, deviceID string
+}
 
-// gpusParam passes testGPUs quoted, which the kernel's parameter parser needs
-// to keep the spaces inside the value.
-const gpusParam = `mokka_gpus="` + testGPUs + `"`
+var testGPUs = []testGPU{
+	{"0000:07:00.0", "GPU-11111111-2222-3333-4444-555555555555", "NVIDIA A100-SXM4-80GB", "0", "20b2"},
+	{"0000:0b:00.0", "GPU-66666666-7777-8888-9999-000000000000", "NVIDIA A100-SXM4-80GB", "1", "20b2"},
+}
+
+// hardwareRoot is mokka.ko's configfs tree, where the node agent describes the
+// GPUs.
+const hardwareRoot = "/sys/kernel/config/mokka"
 
 // The device numbers and ioctl escapes, from nvidia_internal.h and
 // nv_ioctl_abi.h.
@@ -152,6 +158,14 @@ func requireLoadable(t *testing.T) {
 	if _, err := os.Stat("/sys/module/nvidia"); err == nil {
 		t.Skip("/sys/module/nvidia already present: refusing to run against a loaded driver")
 	}
+	// Its GPUs would be someone else's: a kind cluster's node agent describes
+	// them, and the tests would unplug them.
+	if _, err := os.Stat("/sys/module/mokka"); err == nil {
+		t.Skip("/sys/module/mokka already present: refusing to run against simulated hardware in use")
+	}
+	if !strings.Contains(readFile(t, "/proc/mounts"), " /sys/kernel/config configfs ") {
+		t.Skip("configfs is not mounted at /sys/kernel/config")
+	}
 }
 
 // modulePath resolves a built module in dist/, which is where the Makefile
@@ -204,6 +218,55 @@ func loadNvidia(t *testing.T, params string) {
 
 	require.NoError(t, insmod(t, "nvidia", params))
 	t.Cleanup(func() { _ = rmmod("nvidia") })
+}
+
+// insertHardware inserts mokka.ko with no GPUs, as the loader does on a first
+// driver load, and registers the teardown that unplugs whatever the test
+// plugged in and removes the module. A GPU directory pins mokka.ko, so the
+// directories go first.
+func insertHardware(t *testing.T) {
+	t.Helper()
+
+	require.NoError(t, insmod(t, "mokka", ""))
+	t.Cleanup(func() {
+		gpus, _ := os.ReadDir(filepath.Join(hardwareRoot, "gpus"))
+		for _, gpu := range gpus {
+			// rmdir of a live GPU unplugs it first.
+			_ = os.Remove(filepath.Join(hardwareRoot, "gpus", gpu.Name()))
+		}
+		_ = rmmod("mokka")
+	})
+}
+
+// loadHardware inserts mokka.ko and describes gpus to it as the node agent
+// does: every attribute, then live, then the generation the loader waits for.
+func loadHardware(t *testing.T, gpus ...testGPU) {
+	t.Helper()
+
+	insertHardware(t)
+	for _, gpu := range gpus {
+		plugGPU(t, gpu)
+	}
+	writeHardware(t, "generation", "1")
+}
+
+func plugGPU(t *testing.T, gpu testGPU) {
+	t.Helper()
+
+	require.NoError(t, os.Mkdir(filepath.Join(hardwareRoot, "gpus", gpu.busID), 0o755))
+	for attr, value := range map[string]string{
+		"uuid": gpu.uuid, "name": gpu.name, "minor": gpu.minor, "pci_device_id": gpu.deviceID,
+	} {
+		writeHardware(t, filepath.Join("gpus", gpu.busID, attr), value)
+	}
+	writeHardware(t, filepath.Join("gpus", gpu.busID, "live"), "1")
+}
+
+// writeHardware writes one attribute of the tree in one write, as echo does.
+func writeHardware(t *testing.T, attr, value string) {
+	t.Helper()
+
+	require.NoError(t, os.WriteFile(filepath.Join(hardwareRoot, attr), []byte(value+"\n"), 0o600))
 }
 
 func readSysModule(t *testing.T, module, attr string) string {
@@ -349,19 +412,31 @@ func TestModuleParameters(t *testing.T) {
 	}
 }
 
-// TestInvalidGPURecord: a record whose PCI location cannot be parsed fails the
-// load instead of producing a GPU no client can find.
-func TestInvalidGPURecord(t *testing.T) {
+// TestHardwareRefusesAnUnusableGPU: mokka.ko refuses a GPU no client could find
+// -- one named by a PCI location spelled other than canonically -- and one it
+// could not tell apart from another, before any driver sees it.
+func TestHardwareRefusesAnUnusableGPU(t *testing.T) {
 	requireLoadable(t)
 
-	err := insmod(t, "nvidia", `mokka_gpus="07:00.0|GPU-11111111-2222-3333-4444-555555555555|NVIDIA A100-SXM4-80GB|0"`)
-	if err == nil {
-		_ = rmmod("nvidia")
-	}
-	require.ErrorIs(t, err, unix.EINVAL)
+	loadHardware(t, testGPUs[1])
 
-	_, err = os.Stat("/sys/module/nvidia")
-	require.ErrorIs(t, err, os.ErrNotExist)
+	gpus := filepath.Join(hardwareRoot, "gpus")
+	require.ErrorIs(t, os.Mkdir(filepath.Join(gpus, "07:00.0"), 0o755), unix.EINVAL)
+	require.ErrorIs(t, os.Mkdir(filepath.Join(gpus, "0000:0A:00.0"), 0o755), unix.EINVAL)
+
+	// Going live takes a UUID and a minor, and the minor must be free.
+	clash := testGPUs[0]
+	live := filepath.Join(gpus, clash.busID, "live")
+	require.NoError(t, os.Mkdir(filepath.Join(gpus, clash.busID), 0o755))
+	require.ErrorIs(t, os.WriteFile(live, []byte("1\n"), 0o600), unix.EINVAL)
+
+	writeHardware(t, filepath.Join("gpus", clash.busID, "uuid"), clash.uuid)
+	writeHardware(t, filepath.Join("gpus", clash.busID, "minor"), testGPUs[1].minor)
+	require.ErrorIs(t, os.WriteFile(live, []byte("1\n"), 0o600), unix.EEXIST)
+
+	// A live GPU's description stays as it is until the GPU is unplugged.
+	uuid := filepath.Join(gpus, testGPUs[1].busID, "uuid")
+	require.ErrorIs(t, os.WriteFile(uuid, []byte("GPU-x\n"), 0o600), unix.EBUSY)
 }
 
 // TestCharDeviceMajors: Mokka mknods /dev/nvidia* with these majors, and a node
@@ -370,7 +445,8 @@ func TestInvalidGPURecord(t *testing.T) {
 func TestCharDeviceMajors(t *testing.T) {
 	requireLoadable(t)
 
-	loadFamily(t, gpusParam)
+	loadHardware(t, testGPUs...)
+	loadFamily(t, "")
 
 	devices := readFile(t, "/proc/devices")
 	require.Contains(t, devices, "195 nvidia",
@@ -383,13 +459,16 @@ func TestCharDeviceMajors(t *testing.T) {
 
 // TestRefcountAndHolders is the core of the prototype. Every property here is
 // produced by the kernel because the dependents reference an exported symbol —
-// none of it is implemented in the module.
+// none of it is implemented in the module. The GPUs' configfs directories pin
+// mokka.ko, never nvidia.ko, whose refcount the GPU Operator unloads by.
 func TestRefcountAndHolders(t *testing.T) {
 	requireLoadable(t)
 
+	loadHardware(t, testGPUs...)
 	loadFamily(t, "")
 
 	require.Equal(t, strconv.Itoa(len(dependents)), readSysModule(t, "nvidia", "refcnt"))
+	require.NotEqual(t, "0", readSysModule(t, "mokka", "refcnt"), "the GPU directories pin mokka.ko")
 
 	holders, err := os.ReadDir("/sys/module/nvidia/holders")
 	require.NoError(t, err)
@@ -438,7 +517,8 @@ func TestDeleteModuleInUse(t *testing.T) {
 func TestProcDriverNvidia(t *testing.T) {
 	requireLoadable(t)
 
-	loadFamily(t, gpusParam)
+	loadHardware(t, testGPUs...)
+	loadFamily(t, "")
 
 	version := readFile(t, "/proc/driver/nvidia/version")
 	require.True(t, strings.HasPrefix(version, "NVRM version: NVIDIA UNIX "), version)
@@ -473,13 +553,15 @@ func TestProcDriverNvidia(t *testing.T) {
 func TestProcfsRemovedOnUnload(t *testing.T) {
 	requireLoadable(t)
 
-	loadNvidia(t, gpusParam)
+	loadHardware(t, testGPUs...)
+	loadNvidia(t, "")
 
 	require.FileExists(t, "/proc/driver/nvidia/gpus/0000:07:00.0/information")
 	require.NoError(t, rmmod("nvidia"))
 
 	_, err := os.Stat("/proc/driver/nvidia")
 	require.ErrorIs(t, err, os.ErrNotExist, "procfs tree must be gone")
+	require.DirExists(t, "/sys/bus/platform/devices/nvidia-gpu.0", "the GPU outlives its driver")
 }
 
 // TestVersionHandshake covers the first ioctl every driver client issues. A
@@ -519,7 +601,8 @@ func TestVersionHandshake(t *testing.T) {
 func TestCardInfo(t *testing.T) {
 	requireLoadable(t)
 
-	loadNvidia(t, gpusParam)
+	loadHardware(t, testGPUs...)
+	loadNvidia(t, "")
 
 	ctl := openNode(t, nvMinorControl)
 
@@ -568,7 +651,8 @@ func TestCardInfo(t *testing.T) {
 func TestGPUNodes(t *testing.T) {
 	requireLoadable(t)
 
-	loadNvidia(t, gpusParam)
+	loadHardware(t, testGPUs...)
+	loadNvidia(t, "")
 
 	_, err := os.OpenFile(nvidiaNode(t, 7), os.O_RDWR, 0)
 	require.ErrorIs(t, err, unix.ENODEV, "no GPU has minor 7")
@@ -593,6 +677,56 @@ func TestGPUNodes(t *testing.T) {
 		"NUMA info is answered on GPU nodes only")
 }
 
+// TestHotplug: a GPU mokka.ko unplugs leaves the driver's view at once -- card
+// info, procfs, its node -- while a client holding the node keeps its file,
+// which then answers as a GPU that fell off the bus. Plugged back in, the GPU
+// is probed again.
+func TestHotplug(t *testing.T) {
+	requireLoadable(t)
+
+	loadHardware(t, testGPUs...)
+	loadNvidia(t, "")
+
+	held := openNode(t, 1)
+	ctl := openNode(t, nvMinorControl)
+	writeHardware(t, "gpus/0000:0b:00.0/live", "0")
+
+	var cards [32]cardInfo
+	require.NoError(t, nvIoctl(ctl, escCardInfo, unsafe.Pointer(&cards), unsafe.Sizeof(cards)))
+	require.EqualValues(t, 1, cards[0].Valid)
+	require.EqualValues(t, 0, cards[1].Valid, "the unplugged GPU leaves the list")
+
+	_, err := os.Stat("/proc/driver/nvidia/gpus/0000:0b:00.0")
+	require.ErrorIs(t, err, os.ErrNotExist)
+
+	var numa numaInfo
+	require.ErrorIs(t, nvIoctl(held, escNUMAInfo, unsafe.Pointer(&numa), unsafe.Sizeof(numa)), unix.ENODEV,
+		"the held node answers as lost")
+	_, err = os.OpenFile(nvidiaNode(t, 1), os.O_RDWR, 0)
+	require.ErrorIs(t, err, unix.ENODEV)
+
+	writeHardware(t, "gpus/0000:0b:00.0/live", "1")
+	require.NoError(t, nvIoctl(ctl, escCardInfo, unsafe.Pointer(&cards), unsafe.Sizeof(cards)))
+	require.EqualValues(t, 1, cards[1].Valid)
+	require.FileExists(t, "/proc/driver/nvidia/gpus/0000:0b:00.0/information")
+}
+
+// TestGPUsOutliveTheDriver: the GPUs belong to mokka.ko, so unloading the
+// driver leaves them plugged in, and the next driver probes them as it loads,
+// with no description to wait for -- a driver upgrade's case.
+func TestGPUsOutliveTheDriver(t *testing.T) {
+	requireLoadable(t)
+
+	loadHardware(t, testGPUs...)
+
+	require.NoError(t, insmod(t, "nvidia", ""))
+	require.NoError(t, rmmod("nvidia"))
+	require.DirExists(t, "/sys/bus/platform/devices/nvidia-gpu.1")
+
+	loadNvidia(t, "")
+	require.FileExists(t, "/proc/driver/nvidia/gpus/0000:0b:00.0/information")
+}
+
 // TestUnsimulatedEscape: everything past the interface layer fails with
 // ENOTTY rather than pretending to work.
 func TestUnsimulatedEscape(t *testing.T) {
@@ -608,8 +742,9 @@ func TestUnsimulatedEscape(t *testing.T) {
 
 // TestLoader drives the loader the way the GPU Operator's driver container
 // does: plain modprobe, with the options the container writes to
-// /etc/modprobe.d before every load. The install directives must hand both
-// those options and MOKKA_GPUS through to the simulated modules.
+// /etc/modprobe.d before every load. The install directives must hand those
+// options through to the simulated modules, and nvidia must find the GPUs
+// mokka.ko holds.
 func TestLoader(t *testing.T) {
 	requireLoadable(t)
 
@@ -632,6 +767,9 @@ func TestLoader(t *testing.T) {
 	confPath := filepath.Join(t.TempDir(), "mokka-nvidia.conf")
 	require.NoError(t, os.WriteFile(confPath, []byte(conf), 0o600))
 
+	// Described before the loader runs, as on a driver upgrade, so the loader
+	// finds the GPUs with no wait. It leaves a loaded mokka.ko alone.
+	loadHardware(t, testGPUs...)
 	t.Cleanup(func() {
 		for _, name := range []string{"nvidia_modeset", "nvidia_uvm", "nvidia"} {
 			_ = rmmod(name)
@@ -642,8 +780,7 @@ func TestLoader(t *testing.T) {
 	buildDir := t.TempDir()
 	for _, name := range []string{"nvidia", "nvidia-uvm", "nvidia-modeset"} {
 		cmd := exec.Command(modprobe, "-C", confPath, name)
-		cmd.Env = append(os.Environ(),
-			"DRIVER_VERSION="+version, "MOKKA_GPUS="+testGPUs, "MOKKA_KMOD_BUILD_DIR="+buildDir)
+		cmd.Env = append(os.Environ(), "DRIVER_VERSION="+version, "MOKKA_KMOD_BUILD_DIR="+buildDir)
 		out, err := cmd.CombinedOutput()
 		require.NoError(t, err, "modprobe %s: %s", name, out)
 	}
@@ -653,4 +790,40 @@ func TestLoader(t *testing.T) {
 	require.Equal(t, "2", readSysModule(t, "nvidia", "refcnt"), "nvidia_uvm and nvidia_modeset hold it")
 	require.Contains(t, readFile(t, "/proc/driver/nvidia/gpus/0000:07:00.0/information"),
 		"Model: \t\t NVIDIA A100-SXM4-80GB\n")
+}
+
+// TestLoaderWaitsForTheGPUs: on a first load the loader inserts mokka.ko and
+// waits for the node agent's description rather than loading a driver with no
+// GPUs. With no agent to describe them, the load fails once the wait runs out.
+func TestLoaderWaitsForTheGPUs(t *testing.T) {
+	requireLoadable(t)
+
+	modprobe, err := exec.LookPath("modprobe")
+	if err != nil {
+		t.Skip("modprobe not found")
+	}
+	if exec.Command("modinfo", "nvidia").Run() == nil {
+		t.Skip("an NVIDIA kernel module is installed on this host")
+	}
+
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+	confPath := filepath.Join(t.TempDir(), "mokka-nvidia.conf")
+	require.NoError(t, os.WriteFile(confPath, []byte(nvidiakmod.ModprobeConf(wd)), 0o600))
+
+	t.Cleanup(func() {
+		_ = rmmod("nvidia")
+		_ = rmmod("mokka")
+	})
+
+	cmd := exec.Command(modprobe, "-C", confPath, "nvidia")
+	cmd.Env = append(os.Environ(), "DRIVER_VERSION=580.126.20",
+		"MOKKA_KMOD_BUILD_DIR="+t.TempDir(), "MOKKA_HARDWARE_TIMEOUT=2")
+	out, err := cmd.CombinedOutput()
+	require.Error(t, err, "%s", out)
+	require.Contains(t, string(out), "has not described the node's GPUs")
+
+	require.DirExists(t, "/sys/module/mokka", "the loader inserted the hardware")
+	_, err = os.Stat("/sys/module/nvidia")
+	require.ErrorIs(t, err, os.ErrNotExist, "no driver without its GPUs")
 }

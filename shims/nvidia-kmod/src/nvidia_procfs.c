@@ -23,6 +23,7 @@
 #define MOKKA_NV_PROC_PATH "driver/nvidia"
 
 static struct proc_dir_entry *nv_proc_root;
+static struct proc_dir_entry *nv_proc_gpus;
 
 #ifndef CONFIG_CC_VERSION_TEXT
 #define CONFIG_CC_VERSION_TEXT "unknown"
@@ -73,7 +74,7 @@ static int mokka_nv_show_registry(struct seq_file *m, void *v)
 }
 
 /*
- * Only the lines a mokka_gpus record backs, as writeGPUInformation writes
+ * Only the lines a GPU's description backs, as writeGPUInformation writes
  * them: a consumer that needs the IRQ or VBIOS gets nothing rather than a value
  * no profile declares. Consumers look fields up by name, so the names and the
  * tab layout are the real file's.
@@ -92,49 +93,47 @@ static int mokka_nv_show_gpu_information(struct seq_file *m, void *v)
 	return 0;
 }
 
-static int mokka_nv_create_gpu_entries(void)
+/* gpus/<bdf>/information, for a GPU the driver has just probed. */
+int mokka_nv_procfs_add_gpu(struct mokka_gpu *gpu)
 {
-	struct proc_dir_entry *gpus_dir;
-	unsigned int i;
+	struct proc_dir_entry *dir;
 
-	gpus_dir = proc_mkdir("gpus", nv_proc_root);
-	if (!gpus_dir)
+	dir = proc_mkdir(gpu->bdf, nv_proc_gpus);
+	if (!dir)
 		return -ENOMEM;
 
-	for (i = 0; i < mokka_nv_gpu_count(); i++) {
-		const struct mokka_gpu *gpu = mokka_nv_gpu(i);
-		struct proc_dir_entry *dir;
-
-		dir = proc_mkdir(gpu->bdf, gpus_dir);
-		if (!dir)
-			return -ENOMEM;
-
-		/* The cast drops const only to fit the seq_file private pointer. */
-		if (!proc_create_single_data("information", 0444, dir,
-					     mokka_nv_show_gpu_information, (void *)gpu))
-			return -ENOMEM;
+	if (!proc_create_single_data("information", 0444, dir,
+				     mokka_nv_show_gpu_information, gpu)) {
+		proc_remove(dir);
+		return -ENOMEM;
 	}
+
+	gpu->proc_dir = dir;
 
 	return 0;
 }
 
+/* Returns once no reader is left in the GPU's files, so the GPU can be freed. */
+void mokka_nv_procfs_remove_gpu(struct mokka_gpu *gpu)
+{
+	proc_remove(gpu->proc_dir);
+	gpu->proc_dir = NULL;
+}
+
+/* The GPUs' directories come and go with the GPUs; only their parent is made here. */
 int mokka_nv_procfs_init(void)
 {
-	int ret = -ENOMEM;
-
 	nv_proc_root = proc_mkdir(MOKKA_NV_PROC_PATH, NULL);
 	if (!nv_proc_root)
 		return -ENOMEM;
 
-	if (!proc_create_single("version", 0444, nv_proc_root, mokka_nv_show_version))
-		goto unwind;
-	if (!proc_create_single("params", 0444, nv_proc_root, mokka_nv_show_params))
-		goto unwind;
-	if (!proc_create_single("registry", 0444, nv_proc_root, mokka_nv_show_registry))
+	if (!proc_create_single("version", 0444, nv_proc_root, mokka_nv_show_version) ||
+	    !proc_create_single("params", 0444, nv_proc_root, mokka_nv_show_params) ||
+	    !proc_create_single("registry", 0444, nv_proc_root, mokka_nv_show_registry))
 		goto unwind;
 
-	ret = mokka_nv_create_gpu_entries();
-	if (ret < 0)
+	nv_proc_gpus = proc_mkdir("gpus", nv_proc_root);
+	if (!nv_proc_gpus)
 		goto unwind;
 
 	return 0;
@@ -142,12 +141,13 @@ int mokka_nv_procfs_init(void)
 unwind:
 	mokka_nv_procfs_exit();
 
-	return ret;
+	return -ENOMEM;
 }
 
 void mokka_nv_procfs_exit(void)
 {
-	/* Recursive, so the per-GPU subtree needs no separate bookkeeping. */
+	/* Recursive, but the driver has removed every GPU's directory by now. */
 	proc_remove(nv_proc_root);
 	nv_proc_root = NULL;
+	nv_proc_gpus = NULL;
 }

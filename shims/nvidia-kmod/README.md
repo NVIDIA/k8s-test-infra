@@ -3,7 +3,9 @@
 Loadable kernel modules that impersonate the NVIDIA driver's module family:
 `nvidia`, `nvidia_uvm`, `nvidia_modeset`, and `nvidia_peermem`. They drive no
 hardware and move no data. Beyond being loaded, they answer the handful of
-ioctls a client enumerates GPUs with.
+ioctls a client enumerates GPUs with. A fifth module, `mokka`, holds the
+simulated GPUs themselves, which `nvidia` binds to as the real driver binds to
+PCI devices.
 
 A loader swaps them in wherever the driver is loaded with `modprobe`. That is
 how the GPU Operator's own driver container, from the original NVIDIA image,
@@ -43,8 +45,8 @@ from `nvidia.ko`, and the kernel derives the rest.
   already `mknod`s. Until something registers them, those nodes cannot be opened
   at all: `open()` returns `ENXIO`. Registration also puts `nvidia` and
   `nvidia-uvm` in `/proc/devices`, where `nvidia-container-cli` and the driver
-  libraries look up the uvm major. Opening a GPU minor that no record declares
-  fails with `ENODEV`, as on a real node.
+  libraries look up the uvm major. Opening a GPU minor that no GPU holds fails
+  with `ENODEV`, as on a real node.
 - **`/proc/driver/nvidia/`.** `version`, `params`, `registry`, and
   `gpus/<bdf>/information`. `params` and `information` are byte-for-byte what
   `gpudriver.writeProcFS` stages into the node overlay, so the two agree while
@@ -55,9 +57,38 @@ from `nvidia.ko`, and the kernel derives the rest.
   passes on every load.
 - **The interface-layer ioctls**, described next.
 
-GPU identity comes from the `mokka_gpus` parameter: comma-separated
-`<bdf>|<uuid>|<model>|<minor>[|<pci-device-id>]` records, the device ID in hex.
-A record with an unparseable PCI location or minor fails the load.
+## Simulated hardware
+
+A real GPU exists before its driver loads and outlives it; the driver finds it
+on the PCI bus. `mokka.ko` plays that part. The node agent describes the node's
+GPUs through its configfs tree, and each GPU switched live becomes a platform
+device that `nvidia.ko` binds to:
+
+```text
+/sys/kernel/config/mokka/
+  generation              bumped by the agent once a description is applied
+  gpus/<dddd:bb:ss.f>/    one directory per GPU, named by its PCI location
+    uuid name minor pci_device_id
+    live                  1 plugs the GPU in, 0 unplugs it
+```
+
+- **Changes are hotplug.** A GPU's attributes are read-only while it is live,
+  as in the kernel's own gpio-sim, so the agent changes a GPU by unplugging it,
+  editing it and plugging it back in. `nvidia.ko` sees remove and probe: the GPU
+  leaves and rejoins card info and procfs, and a client holding its node open
+  gets `ENODEV`, as from a GPU that fell off the bus.
+- **The GPUs outlive the driver.** Nothing in the driver's lifecycle unloads
+  `mokka.ko`, so a driver upgrade's new `nvidia.ko` probes the GPUs as it loads.
+  They live outside `nvidia.ko` because configfs pins the module that owns a
+  directory: in `nvidia.ko`, the pins would count toward the refcount the GPU
+  Operator unloads by.
+- **The modules share no symbols.** `mokka.ko` hands each GPU over as named
+  properties on its device, and `nvidia.ko` looks them up by name, so a
+  `mokka.ko` that stayed loaded across an agent upgrade still serves a newer
+  `nvidia.ko`.
+- **The stub is recognizable.** `nvidia.ko` registers its driver as
+  `platform:nvidia-gpu` in `/sys/module/nvidia/drivers`, where the real one
+  registers `pci:nvidia`. The mock NVML keys its version report on that.
 
 ## ioctls
 
@@ -68,7 +99,7 @@ on `/dev/nvidiactl` (minor 255) or a GPU node:
 | Escape | Node | Answer |
 |---|---|---|
 | `CHECK_VERSION_STR` | nvidiactl | Recognized when the client's version equals the module's; otherwise `EINVAL` with the module's version in the reply, as upstream |
-| `CARD_INFO` | nvidiactl | One entry per record: PCI location, vendor `0x10de`, device ID, minor, and RM's GPU ID |
+| `CARD_INFO` | nvidiactl | One entry per GPU: PCI location, vendor `0x10de`, device ID, minor, and RM's GPU ID |
 | `ATTACH_GPUS_TO_FD` | nvidiactl | Accepts the GPU IDs card info reported, refuses any other |
 | `SYS_PARAMS` | nvidiactl | Keeps the NUMA memory block size the first caller sets |
 | `REGISTER_FD`, `WAIT_OPEN_COMPLETE` | any | Succeed: there is no RM client to link, and every open completes synchronously |
@@ -105,9 +136,11 @@ configuration and the command line as `$CMDLINE_OPTS`. Each command runs
    `/var/cache/mokka/nvidia-kmod`) rather than beside the sources, which are
    mounted read-only. The driver container installs exactly those headers
    before it loads anything.
-3. Inserts the module with the options `modprobe` passed, adding `mokka_gpus`
-   when loading `nvidia`: from `MOKKA_GPUS` if set, otherwise from the `gpus`
-   file the node agent stages beside the loader.
+3. Before loading `nvidia`, inserts `mokka` unless it is loaded, and waits
+   until the node agent has described the node's GPUs in it: up to
+   `MOKKA_HARDWARE_TIMEOUT` seconds (default 120), then fails the load rather
+   than load a driver with no GPUs.
+4. Inserts the module with the options `modprobe` passed.
 
 `rmmod` needs nothing: it removes modules by name.
 
@@ -118,8 +151,9 @@ instead, in the kernel driver mode and with `nri.gpuOperator.driver` on:
 
 1. The node agent's `nvidiakmod` simulator stages the sources, the loader and a
    stand-in for `nvidia-persistenced` (all embedded in its binary), the install
-   directives, a dynamic linker directive, and a `gpus` file rendered from the
-   node's simulated GPUs, under `<overlay>/nvidia-kmod`.
+   directives and a dynamic linker directive under `<overlay>/nvidia-kmod`.
+   Once the container has inserted `mokka`, the simulator describes the node's
+   GPUs in it, and keeps them in step with the profile from then on.
 2. The NRI plugin recognizes the installer by its pod's
    `app.kubernetes.io/component=nvidia-driver` label and its `nvidia-driver-ctr`
    container name, which the operator uses for both `ClusterPolicy` and
@@ -214,7 +248,9 @@ Note that `colima start` switches the active Docker context. Run
 host shares one `/sys/module/nvidia`, one `/proc/driver/nvidia`, and one
 registered major, so per-node driver lifecycle cannot diverge — a simulated
 upgrade is all-nodes-at-once. `local/kind/default.kind.yaml` records the same
-property for `/dev/kmsg`.
+property for `/dev/kmsg`. So do the GPUs in `mokka`: one node agent describes
+them for every kind node on the host, so the kernel mode runs one GPU node per
+host.
 
 **The build is tied to one kernel.** A `.ko` loads only into the kernel it was
 built against, matching `vermagic` and symbol CRCs. The loader builds on the

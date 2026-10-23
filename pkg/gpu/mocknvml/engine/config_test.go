@@ -290,15 +290,15 @@ devices:
 }
 
 // withKernelModule points the engine at a test-owned nvidia module directory
-// that reports version. Mokka's simulated module carries the mokka_gpus
-// parameter a real one lacks.
+// that reports version. Mokka's simulated module registers a platform driver,
+// which the module's drivers directory lists, where a real one registers a
+// PCI driver.
 func withKernelModule(t *testing.T, version string, simulated bool) {
 	t.Helper()
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "version"), []byte(version+"\n"), 0o644))
 	if simulated {
-		require.NoError(t, os.MkdirAll(filepath.Join(dir, "parameters"), 0o755))
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "parameters", "mokka_gpus"), nil, 0o644))
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "drivers", "platform:nvidia-gpu"), 0o755))
 	}
 	previous := kernelModuleDir
 	kernelModuleDir = dir
