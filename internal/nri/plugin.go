@@ -31,14 +31,17 @@ type Plugin struct {
 	cfg         Config
 	health      *pluginHealth
 	agentClient *http.Client
+	// registerRetry is how long Run waits between attempts to register.
+	registerRetry time.Duration
 }
 
 // NewPlugin returns a Plugin that will register as cfg describes.
 func NewPlugin(cfg Config) *Plugin {
 	return &Plugin{
-		cfg:         cfg,
-		health:      newPluginHealth(time.Now, wedgeFactor),
-		agentClient: &http.Client{Timeout: agentCheckTimeout},
+		cfg:           cfg,
+		health:        newPluginHealth(time.Now, wedgeFactor),
+		agentClient:   &http.Client{Timeout: agentCheckTimeout},
+		registerRetry: registerRetryInterval,
 	}
 }
 
@@ -109,7 +112,17 @@ func releaseAgentLock(lock *staginggate.Lock) {
 	}
 }
 
-// Run registers with the runtime and serves until ctx is cancelled.
+// registerRetryInterval is how long Run waits before it tries to register
+// again. containerd restarts within seconds, and every container it creates
+// before the plugin is back comes up unmocked, so the wait is short: a failed
+// attempt costs one dial of the runtime's socket.
+const registerRetryInterval = time.Second
+
+// Run registers with the runtime and serves until ctx is cancelled. When the
+// connection drops, as it does whenever containerd restarts, Run registers
+// again rather than returning. A Run that returned would end the process, and
+// containers created while kubelet backed off from restarting it, a wait that
+// grows with every restart, would come up unmocked.
 func (p *Plugin) Run(ctx context.Context) error {
 	pluginStub, err := stub.New(
 		p,
@@ -117,9 +130,9 @@ func (p *Plugin) Run(ctx context.Context) error {
 		stub.WithPluginName(p.cfg.PluginName),
 		stub.WithPluginIdx(p.cfg.PluginIndex),
 		// The runtime dropping the connection is the fail-open failure mode:
-		// the process stays up but stops being asked to inject anything, and
-		// containers created from here on come up unmocked. Clearing the
-		// registered flag is what makes that window visible as a NotReady pod.
+		// containers created until the plugin registers again come up
+		// unmocked. Clearing the registered flag is what makes that window
+		// visible as a NotReady pod.
 		stub.WithOnClose(func() {
 			zap.L().Warn("runtime closed the connection; no longer registered")
 			p.health.setRegistered(false)
@@ -133,10 +146,29 @@ func (p *Plugin) Run(ctx context.Context) error {
 	zap.L().Info("registering NRI plugin",
 		zap.String("index", p.cfg.PluginIndex), zap.String("name", p.cfg.PluginName), zap.String("socket", p.cfg.SocketPath))
 
-	if err := pluginStub.Run(ctx); err != nil && ctx.Err() == nil {
-		return fmt.Errorf("nri stub: %w", err)
+	for {
+		runErr := pluginStub.Run(ctx)
+
+		if ctx.Err() != nil {
+			return nil
+		}
+
+		// The stub is built to run again, but its Run can return before the
+		// stub has reset itself from a dropped connection. Stopping it does
+		// that reset, whichever way Run ended.
+		pluginStub.Stop()
+		zap.L().Warn(
+			"not registered with the runtime; retrying",
+			zap.Error(runErr),
+			zap.Duration("in", p.registerRetry),
+		)
+
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(p.registerRetry):
+		}
 	}
-	return nil
 }
 
 // Configure is the last step of registration, so it is the point at which the

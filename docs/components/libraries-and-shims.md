@@ -144,9 +144,12 @@ that inherits them without the corresponding configuration sees the real host.
 Builds `libmockfs.so`. Redirects lookups under `/sys/bus/pci`,
 `/sys/devices/pci`, `/sys/module`, `/proc/modules` and `/proc/driver/nvidia`
 into the tree named by `MOCK_PCI_ROOT`, and is a no-op when that variable is
-unset. The two `/proc` paths cannot be bind-mounted, because runc refuses
-mounts inside `/proc`, so `lsmod` and Slurm's GPU autodetection reach the mock
-only through this shim.
+unset. `MOCK_KERNEL_ROOT`, when set, takes over the last three: a path
+redirects them there, and an empty value leaves them to the kernel, which
+serves them itself while Mokka's simulated driver modules are loaded. The two
+`/proc` paths cannot be bind-mounted, because runc refuses mounts inside
+`/proc`, so `lsmod` and Slurm's GPU autodetection reach the mock only through
+this shim.
 
 ### libibmock
 

@@ -458,8 +458,8 @@ mokka-control-plane-image-attest: ## Attest each Mokka control-plane child manif
 test: ## Run unit tests with race detection and coverage
 	@$(GO_CMD) test -v -race -coverprofile=coverage.out -covermode=atomic ./...
 
-# internal/fsutil and internal/agent/gpudriver skip their bind-mount, mknod
-# and Stage tests outside root on Linux (skipUnlessRootLinux) — the `test`
+# internal/fsutil, internal/agent/gpudriver, internal/agent/imex and internal/agent/nvml skip their
+# bind-mount, mknod and Stage tests outside root on Linux (skipUnlessRootLinux) — the `test`
 # target above always runs as the invoking user, so those never execute
 # there. GOPROXY=off and the GOMODCACHE mount are what let this run offline:
 # `test` already downloaded and verified everything this needs on the same
@@ -467,13 +467,13 @@ test: ## Run unit tests with race detection and coverage
 # Go's module cache takes a lock file even to read from it — which is fine
 # on a CI runner thrown away at the end of the job, less so reused locally.
 .PHONY: test-privileged
-test-privileged: ## Run internal/fsutil, internal/agent/gpudriver and internal/agent/imex as root in a privileged container, for the tests `test` always skips
+test-privileged: ## Run internal/fsutil, internal/agent/gpudriver, internal/agent/imex and internal/agent/nvml as root in a privileged container, for the tests `test` always skips
 	@docker run --rm --privileged \
 		-e GOPROXY=off \
 		-v "$(CURDIR)":/src -w /src \
 		-v "$(shell $(GO_CMD) env GOMODCACHE)":/go/pkg/mod \
 		golang:$(shell ./hack/golang-version.sh) \
-		go test -v ./internal/fsutil/... ./internal/agent/gpudriver/... ./internal/agent/imex/...
+		go test -v ./internal/fsutil/... ./internal/agent/gpudriver/... ./internal/agent/imex/... ./internal/agent/nvml/...
 
 HELM_CHART_DIR      := deployments/nvml-mock/helm/nvml-mock
 CRDS_HELM_CHART_DIR := deployments/mokka-crds/helm/mokka-crds
@@ -513,6 +513,16 @@ mockfs-shim: ## Build the mockfs LD_PRELOAD shim (libmockfs.so)
 .PHONY: test-mockfs
 test-mockfs: mockfs-shim ## Run mockfs integration tests
 	@$(GO_CMD) test -tags integration -v ./shims/libmockfs/...
+
+.PHONY: nvidia-kmod
+nvidia-kmod: ## Build the simulated NVIDIA kernel modules (needs a kernel build tree)
+	@$(MAKE) -C shims/nvidia-kmod
+
+# Delegates rather than calling go test directly: loading a module needs root,
+# and the sub-Makefile owns how it elevates (see TEST_EXEC there).
+.PHONY: test-nvidia-kmod
+test-nvidia-kmod: ## Load the simulated NVIDIA kernel modules and assert their surface
+	@$(MAKE) -C shims/nvidia-kmod test
 
 .PHONY: test-nvidia-imex-shim
 test-nvidia-imex-shim: build ## Run nvidia-imex-shim integration tests
@@ -667,6 +677,49 @@ cluster-create:
 
 cluster-delete:
 	@kind delete cluster --name $(KIND_CLUSTER_NAME)
+
+# Opt-in VM for the Kind cluster. Simulation needs nothing from the kernel, but
+# the GPU Operator's driver installer compiles and loads kernel modules, so its
+# node needs a stock distro kernel whose headers the driver container can
+# install. OrbStack's and Docker Desktop's kernels are not that; Colima runs
+# Ubuntu's. Nothing here switches your active contexts: --activate=false leaves
+# the Docker one alone, and the cluster gets its own name, so its kubeconfig
+# entry cannot replace that of a local cluster. Docker, kind and tilt reach the
+# VM through DOCKER_CONTEXT=colima-$(COLIMA_PROFILE).
+COLIMA_PROFILE      ?= mokka
+COLIMA_START_FLAGS  ?= --vm-type vz --mount-type virtiofs --cpu 4 --memory 8 --disk 60
+COLIMA_CLUSTER_NAME ?= mokka-colima
+
+# Every Kind node shares the VM's kernel, and with it root's inotify instance
+# limit (128, by default). A three-node cluster running the GPU Operator
+# exhausts it, and kubelet then fails to follow logs with "failed to create
+# fsnotify watcher: too many open files". This is kind's documented fix:
+# https://kind.sigs.k8s.io/docs/user/known-issues/#pod-errors-due-to-too-many-open-files
+COLIMA_INOTIFY_INSTANCES ?= 1024
+
+.PHONY: colima-start colima-stop colima-delete colima-cluster-create colima-cluster-delete
+colima-start: ## Start the opt-in Colima VM, a kernel the GPU Operator's driver installer can build modules for
+	@colima status --profile $(COLIMA_PROFILE) >/dev/null 2>&1 || \
+		colima start --profile $(COLIMA_PROFILE) --activate=false $(COLIMA_START_FLAGS)
+	@colima ssh --profile $(COLIMA_PROFILE) -- sudo sh -c \
+		'echo fs.inotify.max_user_instances=$(COLIMA_INOTIFY_INSTANCES) > /etc/sysctl.d/99-mokka-kind.conf && sysctl -q -p /etc/sysctl.d/99-mokka-kind.conf'
+
+# kind makes a cluster it creates the current kubectl context; this puts back
+# whichever context was current before.
+colima-cluster-create: colima-start ## Create the Kind cluster inside the Colima VM, without switching your kubectl or Docker context
+	@previous=$$(kubectl config current-context 2>/dev/null || true); \
+	DOCKER_CONTEXT=colima-$(COLIMA_PROFILE) $(MAKE) --no-print-directory cluster-create KIND_CLUSTER_NAME=$(COLIMA_CLUSTER_NAME) && \
+	if [ -n "$$previous" ]; then kubectl config use-context "$$previous" >/dev/null; fi
+	@echo "Deploy into it with: DOCKER_CONTEXT=colima-$(COLIMA_PROFILE) tilt up --context kind-$(COLIMA_CLUSTER_NAME) -- <flags>"
+
+colima-cluster-delete: ## Delete the Kind cluster inside the Colima VM
+	@DOCKER_CONTEXT=colima-$(COLIMA_PROFILE) $(MAKE) --no-print-directory cluster-delete KIND_CLUSTER_NAME=$(COLIMA_CLUSTER_NAME)
+
+colima-stop: ## Stop the Colima VM
+	@colima stop --profile $(COLIMA_PROFILE)
+
+colima-delete: ## Delete the Colima VM, with any cluster inside it
+	@colima delete --profile $(COLIMA_PROFILE) --force
 
 # Stage a pre-built image into the local docker daemon from a tarball:
 #

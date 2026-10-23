@@ -63,7 +63,7 @@ func (s *Simulator) Stage(_ context.Context, state *agent.State) error {
 
 	caps := capsFor(state.MIG)
 
-	// Staging is idempotent by construction rather than by check: gpudriver's
+	// Staging is idempotent by construction rather than by check: nvml's
 	// Discard removes driver/dev wholesale, so a restage of that simulator can
 	// take these nodes with it and this one has to be able to put them back.
 	if err := stageCapDevs(s.host, state.MIG.CapsMajor, caps); err != nil {

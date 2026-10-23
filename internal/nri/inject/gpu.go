@@ -63,7 +63,7 @@ func attachGPUs(cfg Config, adjustment *Adjustment) {
 			zap.L().Warn("cdi device injection requested but no spec is staged; falling back to raw device nodes",
 				zap.String("spec", cfg.CDISpecHostPath))
 		}
-		attachRawGPUNodes(cfg, adjustment)
+		attachRawGPUNodes(cfg.DeviceHostPath, adjustment)
 	}
 }
 
@@ -72,12 +72,12 @@ func attachGPUs(cfg Config, adjustment *Adjustment) {
 // Both failure arms fail open. Even with the node-agent lifecycle gate, a
 // partially unavailable device tree degrades to overlay-only injection rather
 // than blocking the whole pod.
-func attachRawGPUNodes(cfg Config, adjustment *Adjustment) {
-	devices, err := discoverDevices(cfg.DeviceHostPath)
+func attachRawGPUNodes(deviceHostPath string, adjustment *Adjustment) {
+	devices, err := discoverDevices(deviceHostPath)
 	switch {
 	case err != nil:
 		zap.L().Warn("device injection requested but the device tree is unavailable; injecting overlay only",
-			zap.String("path", cfg.DeviceHostPath), zap.Error(err))
+			zap.String("path", deviceHostPath), zap.Error(err))
 
 	case len(devices) == 0:
 		// The directory is readable and holds nothing we recognise, so
@@ -88,7 +88,7 @@ func attachRawGPUNodes(cfg Config, adjustment *Adjustment) {
 		// configured state. Still fail open, but say so.
 		zap.L().Warn("device injection requested but the device tree holds no device nodes; "+
 			"injecting overlay only (has the node agent staged this node?)",
-			zap.String("path", cfg.DeviceHostPath))
+			zap.String("path", deviceHostPath))
 
 	default:
 		adjustment.Devices = append(adjustment.Devices, devices...)

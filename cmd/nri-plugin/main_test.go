@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli/v3"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/config"
 	"github.com/NVIDIA/k8s-test-infra/internal/nri"
 	"github.com/NVIDIA/k8s-test-infra/internal/nri/inject"
 )
@@ -67,6 +68,7 @@ func TestUnsetFlagsFallBackToPackageDefaults(t *testing.T) {
 	require.Equal(t, defaults.Inject.Shims, cfg.Inject.Shims)
 	require.Equal(t, defaults.Inject.InfiniBandAnnotation, cfg.Inject.InfiniBandAnnotation)
 	require.Equal(t, inject.DeviceInjectionModeRaw, cfg.Inject.DeviceInjectionMode)
+	require.Equal(t, config.DriverModeUserspace, cfg.Inject.DriverMode)
 }
 
 func TestInvalidDeviceInjectionModeIsRejected(t *testing.T) {
@@ -74,6 +76,17 @@ func TestInvalidDeviceInjectionModeIsRejected(t *testing.T) {
 
 	_, err := runCLI("--device-injection-mode=cdo")
 	require.ErrorContains(t, err, "invalid device injection mode")
+}
+
+func TestDriverModeReachesTheInjectConfig(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := runCLI("--driver-mode=kernel")
+	require.NoError(t, err)
+	require.Equal(t, config.DriverModeKernel, cfg.Inject.DriverMode)
+
+	_, err = runCLI("--driver-mode=kmod")
+	require.ErrorContains(t, err, "invalid driver mode")
 }
 
 func TestAgentGateFlagsMustBePaired(t *testing.T) {
@@ -91,4 +104,40 @@ func TestAgentGateFlagsMustBePaired(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "http://127.0.0.1:9091/stagedz", cfg.AgentStagedURL)
 	require.Equal(t, "/run/nvml-mock/nri-staging.lock", cfg.StagingLockPath)
+}
+
+// The GPU Operator adaptations are off unless switched on: a node in either
+// mode may run without the operator's driver or toolkit containers.
+func TestNoWorkloadIsRegisteredByDefault(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := runCLI()
+	require.NoError(t, err)
+	require.Empty(t, cfg.Inject.Workloads)
+}
+
+func TestGPUOperatorSwitchesRegisterTheirWorkloads(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := runCLI("--driver-mode=kernel", "--gpu-operator-driver", "--gpu-operator-toolkit",
+		"--overlay-host-path=/srv/overlay", "--device-host-path=/srv/devices")
+	require.NoError(t, err)
+	require.Equal(t, []inject.Workload{
+		inject.GPUOperatorDriver{HostOverlayPath: "/srv/overlay", DeviceHostPath: "/srv/devices"},
+		inject.GPUOperatorToolkit{},
+	}, cfg.Inject.Workloads)
+
+	// The toolkit needs no kernel modules, so either mode takes it alone.
+	cfg, err = runCLI("--gpu-operator-toolkit")
+	require.NoError(t, err)
+	require.Equal(t, []inject.Workload{inject.GPUOperatorToolkit{}}, cfg.Inject.Workloads)
+}
+
+// The driver installer can load only the simulated modules the agent stages in
+// the kernel mode; anywhere else it would build and load the real ones.
+func TestGPUOperatorDriverRequiresTheKernelMode(t *testing.T) {
+	t.Parallel()
+
+	_, err := runCLI("--gpu-operator-driver")
+	require.ErrorContains(t, err, "--gpu-operator-driver requires --driver-mode=kernel")
 }

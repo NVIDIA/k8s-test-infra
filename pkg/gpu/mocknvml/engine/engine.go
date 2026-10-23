@@ -38,7 +38,11 @@ type Engine struct {
 	gpuInstances     *GpuInstanceTable
 	computeInstances *ComputeInstanceTable
 	initCount        int
-	mu               sync.RWMutex
+	// controlDevicePath is the device an initialized engine holds open, and
+	// controlDevice its descriptor; see holdControlDevice.
+	controlDevicePath string
+	controlDevice     *os.File
+	mu                sync.RWMutex
 }
 
 var (
@@ -63,10 +67,11 @@ func NewEngine(config *Config) *Engine {
 	}
 
 	e := &Engine{
-		config:           config,
-		handles:          NewHandleTable(),
-		gpuInstances:     NewGpuInstanceTable(),
-		computeInstances: NewComputeInstanceTable(),
+		config:            config,
+		handles:           NewHandleTable(),
+		gpuInstances:      NewGpuInstanceTable(),
+		computeInstances:  NewComputeInstanceTable(),
+		controlDevicePath: defaultControlDevicePath,
 	}
 
 	return e
@@ -104,6 +109,7 @@ func (e *Engine) Init() nvml.Return {
 
 	e.server = server
 	e.refreshEnumeration(false)
+	e.holdControlDevice()
 	e.initCount = 1
 
 	visibleCount := e.config.NumDevices
@@ -329,6 +335,7 @@ func (e *Engine) Shutdown() nvml.Return {
 	e.handles.Clear()
 	e.gpuInstances.Clear()
 	e.computeInstances.Clear()
+	e.releaseControlDevice()
 
 	debugLog("[ENGINE] Shutdown complete\n")
 	return nvml.SUCCESS
