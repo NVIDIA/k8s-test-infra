@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+  helm: overriding `driverVersion` now changes the driver version NVML reports, not only the node labels.
+time: 2026-10-13T07:17:34Z
