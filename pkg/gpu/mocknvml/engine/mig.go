@@ -522,6 +522,17 @@ func (d *ConfigurableDevice) migEnabled() (*migState, nvml.Return) {
 	return st, nvml.SUCCESS
 }
 
+// migPartitioned reports whether the device is a MIG device or a GPU with MIG
+// on, the state in which NVML withdraws the whole-GPU views such as accounting
+// and utilization samples. Callers must not hold st.mu.
+func (d *ConfigurableDevice) migPartitioned() bool {
+	if d.mig != nil {
+		return true
+	}
+	_, ret := d.migEnabled()
+	return ret == nvml.SUCCESS
+}
+
 // =============================================================================
 // MIG devices
 // =============================================================================

@@ -788,10 +788,23 @@ type DriverModelConfig struct {
 	Pending string `json:"pending,omitempty"`
 }
 
-// AccountingConfig defines accounting mode settings
+// AccountingConfig defines accounting mode settings. Running processes are
+// accounted from Processes; Terminated holds the records of processes that have
+// already exited, which the driver keeps until they are cleared or overwritten.
 type AccountingConfig struct {
 	Mode       string `json:"mode,omitempty"`
 	BufferSize int    `json:"buffer_size,omitzero"`
+	// Terminated runs oldest to newest, so a full buffer drops from the front.
+	Terminated []AccountedProcessConfig `json:"terminated,omitempty"`
+}
+
+// AccountedProcessConfig is the accounting record of a process that has exited.
+type AccountedProcessConfig struct {
+	PID          uint32 `json:"pid"`
+	GPUUtil      uint32 `json:"gpu_util,omitzero"` // lifetime SM utilization %
+	MemUtil      uint32 `json:"mem_util,omitzero"` // lifetime memory-bandwidth utilization %
+	MaxMemoryMiB uint64 `json:"max_memory_mib,omitzero"`
+	TimeMS       uint64 `json:"time_ms,omitzero"` // how long the process ran
 }
 
 // VirtualizationConfig defines virtualization settings
@@ -898,7 +911,7 @@ type CPUConfig struct {
 // ProcessConfig defines a running process
 type ProcessConfig struct {
 	PID           uint32 `json:"pid"`
-	Type          string `json:"type,omitempty"` // "C" for compute, "G" for graphics
+	Type          string `json:"type,omitempty"` // "C" compute (default), "G" graphics, "M" MPS client
 	Name          string `json:"name,omitempty"`
 	UsedMemoryMiB uint64 `json:"used_memory_mib,omitzero"`
 	SmUtil        uint32 `json:"sm_util,omitzero"`  // SM utilization %

@@ -45,9 +45,10 @@ var functionRegistry = map[string]FunctionVersion{
 
 	// 510.x additions
 	"nvmlDeviceGetMemoryInfo_v2":               {Added: "510.0"},
-	"nvmlDeviceGetComputeRunningProcesses_v3":  {Added: "510.0"},
-	"nvmlDeviceGetGraphicsRunningProcesses_v3": {Added: "510.0"},
-	"nvmlDeviceGetGspFirmwareMode":             {Added: "510.0"},
+	"nvmlDeviceGetComputeRunningProcesses_v3":    {Added: "510.0"},
+	"nvmlDeviceGetGraphicsRunningProcesses_v3":   {Added: "510.0"},
+	"nvmlDeviceGetMPSComputeRunningProcesses_v3": {Added: "510.0"},
+	"nvmlDeviceGetGspFirmwareMode":               {Added: "510.0"},
 
 	// 515.x additions. The fan family arrived in three driver branches, and
 	// the split is worth keeping: a consumer built against a 570 header and
@@ -132,6 +133,13 @@ var functionRegistry = map[string]FunctionVersion{
 	"nvmlDeviceReadWritePRM_v1":     {Added: "580.0"},
 	"nvmlDeviceReadPRMCounters_v1":  {Added: "590.0"},
 	"nvmlDeviceGetBBXTimeData_v1":   {Added: "600.0"},
+
+	// Process detail, per-process utilization and the v2 accounting stats,
+	// dated the same way as the block above. AccountingStats_v2 is newer than
+	// the r595 header, as BBXTimeData_v1 is.
+	"nvmlDeviceGetRunningProcessDetailList": {Added: "535.0"},
+	"nvmlDeviceGetProcessesUtilizationInfo": {Added: "550.0"},
+	"nvmlDeviceGetAccountingStats_v2":       {Added: "600.0"},
 
 	// Topology functions (available since early NVML)
 	"nvmlDeviceGetTopologyCommonAncestor": {Added: "331.0"},

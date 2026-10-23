@@ -696,12 +696,41 @@ device_defaults:
 
 ### Accounting
 
+Per-process accounting is what `nvidia-smi --query-accounted-apps` and DCGM's
+job statistics read. With `mode: "enabled"` the buffer holds a record for every
+configured [process](#processes) still running, plus the `terminated` records
+you declare for processes that have already exited:
+
 ```yaml
 device_defaults:
   accounting:
-    mode: "disabled"
-    buffer_size: 4000
+    mode: "enabled"                   # enabled, disabled
+    buffer_size: 4000                 # records kept; the oldest drop first
+    terminated:                       # oldest first
+      - pid: 3131
+        gpu_util: 62                  # lifetime GPU utilization %
+        mem_util: 31                  # lifetime memory utilization %
+        max_memory_mib: 1024
+        time_ms: 120000               # how long it ran
 ```
+
+A running process's record takes its utilization and memory from its
+`processes` entry and reports a run time of 0, as NVML does until a process
+exits. Every process counts as started when the driver loaded. If a PID appears
+twice, the later record wins, which matches NVML reusing a PID after the first
+process exited.
+
+With accounting disabled, and on a GPU with MIG enabled, the accounting queries
+return `NVML_ERROR_NOT_SUPPORTED`. A PID with no record returns
+`NVML_ERROR_NOT_FOUND`. `nvmlDeviceGetAccountingStats_v2` needs a configured
+driver of `600` or newer.
+
+`nvidia-smi -am` (`nvmlDeviceSetAccountingMode`) and `nvidia-smi -caa`
+(`nvmlDeviceClearAccountingPids`) are recorded in the
+[runtime override document](nvml-mock-ctl.md), like a power cap. Clearing
+drops the terminated records and keeps the running ones. Disabling accounting
+drops the terminated records too, so they do not come back when it is enabled
+again. Both calls are refused on a GPU with MIG enabled.
 
 ### Encoder/Decoder
 
@@ -720,9 +749,27 @@ device_defaults:
 
 ### Processes
 
-`processes` drive the running-process queries and `nvmlDeviceGetProcessUtilization`.
-The utilization fields (`sm_util`/`mem_util`/`enc_util`/`dec_util`, all percent) are
-reported for every process — compute and graphics/video alike.
+`processes` drive the running-process queries, `nvmlDeviceGetProcessUtilization`,
+`nvmlDeviceGetProcessesUtilizationInfo` and the running records in
+[accounting](#accounting). The utilization fields
+(`sm_util`/`mem_util`/`enc_util`/`dec_util`, all percent) are reported for every
+process, whatever its type.
+
+`type` decides which running-process query reports the process:
+
+| `type` | Reported by |
+|--------|-------------|
+| `C` (or omitted) | `nvmlDeviceGetComputeRunningProcesses` |
+| `G` | `nvmlDeviceGetGraphicsRunningProcesses` |
+| `M` | `nvmlDeviceGetMPSComputeRunningProcesses` only |
+
+An `M` process is an MPS client. Under MPS (Multi-Process Service) a client's
+work runs in the MPS server's context, so NVML lists the server among the
+compute processes and the client only in the MPS list. To model an MPS node,
+declare the server as a `C` process named `nvidia-cuda-mps-server` and its
+clients as `M`. `nvmlDeviceGetRunningProcessDetailList` returns the same
+processes as the query for its mode, or all of them for
+`NVML_PROCESS_MODE_ALL`. The mock does not run an MPS daemon.
 
 They also show up in `nvidia-smi`: the default table's Processes box, `-q`, and
 `--query-compute-apps`. Two caveats there — `nvidia-smi` labels every row `M+C+G`
@@ -745,6 +792,10 @@ device_defaults:
       used_memory_mib: 512
       enc_util: 60                    # encoder utilization %
       dec_util: 30                    # decoder utilization %
+    - pid: 9012
+      type: "M"                       # MPS client
+      name: "train.py"
+      used_memory_mib: 4096
 ```
 
 ## Per-Device Overrides
@@ -1342,6 +1393,18 @@ renders one, it matches the hardware captures of a freshly loaded driver:
 | Clock monitor | No faults, on Ampere and newer |
 | InfoROM BBX flush | `N/A`: not flushed yet during this driver run |
 | Bridge chips, IRQ number, PRM registers | Not supported |
+
+**Sample buffers.** `nvmlDeviceGetSamples` reports 20 samples one second
+apart, and every one of them carries the current reading of the matching
+getter: power draw, GPU and memory utilization, the graphics and memory clocks,
+and encoder, decoder, JPEG and OFA utilization. The mock keeps no history, so
+the minimum, maximum and average over the window all equal the current value,
+even under [dynamic metrics](#simulated-changes-between-calls). Timestamps
+sit on a fixed one-second grid, so a poller that passes back the last
+timestamp it saw gets only the samples taken since, and `NVML_ERROR_NOT_FOUND`
+when there are none. On a GPU with MIG enabled, the GPU, memory, encoder and
+decoder utilization samples are not supported. Module power samples are not
+supported on any profile.
 
 **Identity and topology.** Device `name`, `architecture`, `brand`,
 `compute_capability`, `uuid`, PCI `bus_id`, and the BAR1 aperture

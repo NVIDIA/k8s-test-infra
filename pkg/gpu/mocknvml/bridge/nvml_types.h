@@ -238,7 +238,20 @@ typedef struct {
 } nvmlGpmSample_t;
 
 /* --- Opaque struct types (only used via pointer in function signatures) --- */
-typedef struct nvmlAccountingStats_st                       nvmlAccountingStats_t;
+/* Accounting stats — full definition so nvmlDeviceGetAccountingStats can fill
+ * the caller's buffer. Layout matches the upstream NVML header. */
+typedef struct nvmlAccountingStats_st
+{
+    unsigned int       gpuUtilization;     //!< OUT: lifetime GPU utilization, percent
+    unsigned int       memoryUtilization;  //!< OUT: lifetime memory utilization, percent
+    unsigned long long maxMemoryUsage;     //!< OUT: peak memory allocated, bytes
+    unsigned long long time;               //!< OUT: run time in ms; 0 while running
+    unsigned long long startTime;          //!< OUT: start time, CPU usec
+    unsigned int       isRunning;          //!< OUT: 1 running, 0 terminated
+    unsigned int       reserved[5];
+} nvmlAccountingStats_t;
+_Static_assert(sizeof(nvmlAccountingStats_t) == 56,
+               "nvmlAccountingStats_t must stay 56 bytes to match the go-nvml ABI");
 typedef struct nvmlActiveVgpuInstanceInfo_st                nvmlActiveVgpuInstanceInfo_t;
 /* BAR1 Memory - full definition needed by bridge */
 typedef struct nvmlBAR1Memory_st
@@ -1032,9 +1045,36 @@ _Static_assert(sizeof(nvmlPowerSmoothingState_t) == 8,
 /* A plain enum in nvml.h, not a struct. */
 typedef unsigned int nvmlPowerSource_t;
 typedef struct nvmlPowerValue_v2_st                         nvmlPowerValue_v2_t;
-typedef struct nvmlProcessDetailList_st                     nvmlProcessDetailList_t;
+/* Process detail list — full definitions so
+ * nvmlDeviceGetRunningProcessDetailList can read the requested mode and fill
+ * the caller's procArray. Layouts match the upstream NVML header. */
+typedef struct
+{
+    unsigned int       pid;                       //!< OUT: process ID
+    unsigned long long usedGpuMemory;             //!< OUT: memory used, bytes
+    unsigned int       gpuInstanceId;             //!< OUT: GPU instance, 0xFFFFFFFF without MIG
+    unsigned int       computeInstanceId;         //!< OUT: compute instance, 0xFFFFFFFF without MIG
+    unsigned long long usedGpuCcProtectedMemory;  //!< OUT: confidential-compute protected memory, bytes
+} nvmlProcessDetail_v1_t;
+#define NVML_PROCESS_MODE_COMPUTE  0
+#define NVML_PROCESS_MODE_GRAPHICS 1
+#define NVML_PROCESS_MODE_MPS      2
+#define NVML_PROCESS_MODE_ALL      3
+typedef struct
+{
+    unsigned int            version;              //!< IN: NVML_STRUCT_VERSION(ProcessDetailList, 1)
+    unsigned int            mode;                 //!< IN: NVML_PROCESS_MODE_*
+    unsigned int            numProcArrayEntries;  //!< IN: procArray size; OUT: processes reported
+    nvmlProcessDetail_v1_t *procArray;            //!< OUT: caller-allocated
+} nvmlProcessDetailList_v1_t;
+typedef nvmlProcessDetailList_v1_t nvmlProcessDetailList_t;
+_Static_assert(sizeof(nvmlProcessDetail_v1_t) == 32,
+               "nvmlProcessDetail_v1_t must stay 32 bytes to match the go-nvml ABI");
+_Static_assert(sizeof(nvmlProcessDetailList_v1_t) == 24 && offsetof(nvmlProcessDetailList_v1_t, procArray) == 16,
+               "nvmlProcessDetailList_v1_t must stay 24 bytes with procArray at offset 16 to match the go-nvml ABI");
 typedef struct nvmlProcessInfo_v1_st                        nvmlProcessInfo_v1_t;
-typedef struct nvmlProcessInfo_v2_st                        nvmlProcessInfo_v2_t;
+/* Upstream declares the v2 and unversioned process infos as one type. */
+typedef nvmlProcessInfo_t                                   nvmlProcessInfo_v2_t;
 
 /* Process utilization sample */
 typedef struct nvmlProcessUtilizationSample_st
@@ -1046,7 +1086,33 @@ typedef struct nvmlProcessUtilizationSample_st
     unsigned int        encUtil;    //!< Encoder Util Value
     unsigned int        decUtil;    //!< Decoder Util Value
 } nvmlProcessUtilizationSample_t;
-typedef struct nvmlProcessesUtilizationInfo_st              nvmlProcessesUtilizationInfo_t;
+/* Per-process utilization (v1) — full definitions so
+ * nvmlDeviceGetProcessesUtilizationInfo can fill the caller's procUtilArray.
+ * Layouts match the upstream NVML header; the element carries four bytes of
+ * tail padding, so its stride is 40, not 36. */
+typedef struct
+{
+    unsigned long long timeStamp;  //!< OUT: CPU timestamp, usec
+    unsigned int       pid;        //!< OUT: process ID
+    unsigned int       smUtil;     //!< OUT: SM utilization, percent
+    unsigned int       memUtil;    //!< OUT: frame buffer utilization, percent
+    unsigned int       encUtil;    //!< OUT: encoder utilization, percent
+    unsigned int       decUtil;    //!< OUT: decoder utilization, percent
+    unsigned int       jpgUtil;    //!< OUT: JPEG utilization, percent
+    unsigned int       ofaUtil;    //!< OUT: OFA utilization, percent
+} nvmlProcessUtilizationInfo_v1_t;
+typedef struct
+{
+    unsigned int                     version;              //!< IN: NVML_STRUCT_VERSION(ProcessesUtilizationInfo, 1)
+    unsigned int                     processSamplesCount;  //!< IN: procUtilArray size; OUT: samples reported
+    unsigned long long               lastSeenTimeStamp;    //!< IN: report only samples newer than this, usec
+    nvmlProcessUtilizationInfo_v1_t *procUtilArray;        //!< OUT: caller-allocated
+} nvmlProcessesUtilizationInfo_v1_t;
+typedef nvmlProcessesUtilizationInfo_v1_t nvmlProcessesUtilizationInfo_t;
+_Static_assert(sizeof(nvmlProcessUtilizationInfo_v1_t) == 40,
+               "nvmlProcessUtilizationInfo_v1_t must stay 40 bytes to match the go-nvml ABI");
+_Static_assert(sizeof(nvmlProcessesUtilizationInfo_v1_t) == 24 && offsetof(nvmlProcessesUtilizationInfo_v1_t, procUtilArray) == 16,
+               "nvmlProcessesUtilizationInfo_v1_t must stay 24 bytes with procUtilArray at offset 16 to match the go-nvml ABI");
 typedef struct nvmlRepairStatus_st                          nvmlRepairStatus_t;
 /* Row-remap availability histogram — full definition needed by the bridge so
  * nvmlDeviceGetRowRemapperHistogram can populate the caller's buffer (issue
@@ -1060,7 +1126,15 @@ typedef struct nvmlRowRemapperHistogramValues_st
     unsigned int low;
     unsigned int none;
 } nvmlRowRemapperHistogramValues_t;
-typedef struct nvmlSample_st                                nvmlSample_t;
+/* Sample — full definition so nvmlDeviceGetSamples can fill the caller's
+ * buffer. Layout matches the upstream NVML header. */
+typedef struct nvmlSample_st
+{
+    unsigned long long timeStamp;    //!< OUT: CPU timestamp, usec
+    nvmlValue_t        sampleValue;  //!< OUT: read as the returned nvmlValueType_t
+} nvmlSample_t;
+_Static_assert(sizeof(nvmlSample_t) == 16,
+               "nvmlSample_t must stay 16 bytes to match the go-nvml ABI");
 typedef struct nvmlSystemConfComputeSettings_st             nvmlSystemConfComputeSettings_t;
 typedef struct nvmlSystemDriverBranchInfo_st                nvmlSystemDriverBranchInfo_t;
 typedef struct nvmlSystemEventSetCreateRequest_st           nvmlSystemEventSetCreateRequest_t;
