@@ -9,6 +9,10 @@ obj-m += nvidia_uvm.o
 obj-m += nvidia_modeset.o
 obj-m += nvidia_peermem.o
 
+# Not a driver: the node's simulated hardware, which nvidia.ko binds to. It has
+# no upstream counterpart, so the name is Mokka's.
+obj-m += mokka.o
+
 # One main_*.c per module, holding that module's module_init and module_exit.
 # Anything else under src/ is a helper linked into one of them. The prefix also
 # keeps each object's name distinct from its module's, which Kbuild requires of
@@ -18,6 +22,8 @@ nvidia-y := src/main_nvidia.o src/nvidia_gpus.o src/nvidia_ioctl.o src/nvidia_pr
 nvidia_uvm-y     := src/main_uvm.o
 nvidia_modeset-y := src/main_modeset.o
 nvidia_peermem-y := src/main_peermem.o
+
+mokka-y := src/main_mokka.o
 
 # The driver version is a build-time constant, as it is upstream: NVIDIA selects
 # a version by choosing an image tag, and the version rides inside the build. It

@@ -190,10 +190,12 @@ func topologyPath(configPath string) string {
 // libcuda.so.<version> in the driver root. The simulated module takes the
 // version of the driver the GPU Operator's driver container installed, so
 // reporting it keeps the mock in step with that container's libraries across
-// a driver upgrade. A real nvidia.ko has no mokka_gpus parameter, so a mock
-// running beside a real driver keeps its configured version.
+// a driver upgrade. The simulated module drives the GPUs of Mokka's mokka
+// module, so /sys/module/nvidia/drivers lists platform:nvidia-gpu, where a
+// real nvidia.ko lists pci:nvidia; a mock running beside a real driver keeps
+// its configured version.
 func useSimulatedDriverVersion(config *Config) {
-	if _, err := os.Stat(filepath.Join(kernelModuleDir, "parameters", "mokka_gpus")); err != nil {
+	if _, err := os.Stat(filepath.Join(kernelModuleDir, "drivers", "platform:nvidia-gpu")); err != nil {
 		return
 	}
 	version, err := os.ReadFile(filepath.Join(kernelModuleDir, "version"))

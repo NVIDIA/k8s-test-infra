@@ -77,11 +77,17 @@ static void mokka_nv_sanitize(char *s, size_t len)
 static int mokka_nv_card_info(void *params, size_t size)
 {
 	nv_ioctl_card_info_t *ci = params;
-	unsigned int i, count = mokka_nv_gpu_count();
+	unsigned int i, count;
+	int ret = 0;
 
 	memset(ci, 0, size);
-	if (size / sizeof(*ci) < count)
-		return -EINVAL;
+
+	mokka_nv_gpus_lock();
+	count = mokka_nv_gpu_count();
+	if (size / sizeof(*ci) < count) {
+		ret = -EINVAL;
+		goto out;
+	}
 
 	for (i = 0; i < count; i++) {
 		const struct mokka_gpu *gpu = mokka_nv_gpu(i);
@@ -101,7 +107,10 @@ static int mokka_nv_card_info(void *params, size_t size)
 		ci[i].minor_number = gpu->minor;
 	}
 
-	return 0;
+out:
+	mokka_nv_gpus_unlock();
+
+	return ret;
 }
 
 /* Links a GPU fd to a control fd so the two share RM clients. With no RM there is nothing to link. */
@@ -158,14 +167,17 @@ static int mokka_nv_check_version(void *params, size_t size)
 static int mokka_nv_attach_gpus(void *params, size_t size)
 {
 	const u32 *ids = params;
+	int ret = 0;
 	size_t i;
 
-	for (i = 0; i < size / sizeof(*ids); i++) {
+	mokka_nv_gpus_lock();
+	for (i = 0; i < size / sizeof(*ids) && !ret; i++) {
 		if (ids[i] != 0 && !mokka_nv_gpu_by_id(ids[i]))
-			return -EINVAL;
+			ret = -EINVAL;
 	}
+	mokka_nv_gpus_unlock();
 
-	return 0;
+	return ret;
 }
 
 /* The first caller fixes the block size; a later one may only repeat it. */
@@ -276,13 +288,21 @@ static bool mokka_nv_valid_node(const struct mokka_nv_escape *esc, bool control)
 
 long mokka_nv_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
-	bool control = iminor(file_inode(file)) == MOKKA_NV_MINOR_CONTROL;
+	unsigned int minor = iminor(file_inode(file));
+	bool control = minor == MOKKA_NV_MINOR_CONTROL;
 	void __user *uparams = (void __user *)arg;
 	unsigned int escape = _IOC_NR(cmd);
 	size_t size = _IOC_SIZE(cmd);
 	const struct mokka_nv_escape *esc;
 	void *params;
 	int ret;
+
+	/*
+	 * A file keeps its GPU's node open after mokka.ko unplugs the GPU; from
+	 * then on the GPU answers nothing, as one that fell off the bus.
+	 */
+	if (minor <= MOKKA_NV_MINOR_GPU_MAX && !mokka_nv_gpu_present(minor))
+		return -ENODEV;
 
 	/*
 	 * An argument too large for the command's 14-bit size field travels

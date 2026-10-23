@@ -38,10 +38,8 @@ var Executables = []string{LoaderName, PersistencedName}
 
 const (
 	// StagedDir is where the node agent stages Sources, relative to its
-	// overlay root, together with GPUsFile, LdSoConfFile and ModprobeConfFile.
+	// overlay root, together with LdSoConfFile and ModprobeConfFile.
 	StagedDir = "nvidia-kmod"
-	// GPUsFile holds the mokka_gpus value the loader passes to nvidia.ko.
-	GPUsFile = "gpus"
 	// ModprobeConfFile holds the install directives ModprobeConf renders.
 	ModprobeConfFile = "modprobe.conf"
 	// LdSoConfFile holds the directive LdSoConf renders.
@@ -102,25 +100,32 @@ func LdSoConf(dir string) string {
 		dir + "\n"
 }
 
-// GPU is one simulated GPU, as nvidia.ko's mokka_gpus parameter describes it.
-type GPU struct {
-	// BusID is the PCI location, dddd:bb:ss.f.
-	BusID string
-	UUID  string
-	Model string
-	Minor int
-	// DeviceID is the PCI device ID, without the vendor half.
-	DeviceID uint16
-}
+// The node's simulated hardware lives in the mokka module rather than in
+// nvidia.ko, which binds to it: GPUs exist before their driver loads and after
+// it unloads. The loader inserts the module on the first driver load, and the
+// node agent describes the GPUs through its configfs tree:
+//
+//	<configfs>/mokka/generation
+//	<configfs>/mokka/gpus/<dddd:bb:ss.f>/{uuid,name,minor,pci_device_id,live}
+const (
+	// HardwareConfigDir is the module's directory under the configfs mount.
+	HardwareConfigDir = "mokka"
+	// HardwareGeneration, in HardwareConfigDir, is bumped by the node agent
+	// once it has applied a description. The loader waits for it to be
+	// non-zero before it loads nvidia.ko.
+	HardwareGeneration = "generation"
+	// HardwareGPUsDir, in HardwareConfigDir, holds one directory per GPU,
+	// named by the GPU's canonical PCI location.
+	HardwareGPUsDir = "gpus"
+)
 
-// Records renders gpus as the mokka_gpus value: comma-separated
-// "<bdf>|<uuid>|<model>|<minor>|<pci-device-id>" records.
-func Records(gpus []GPU) string {
-	records := make([]string, 0, len(gpus))
-	for _, gpu := range gpus {
-		records = append(records, fmt.Sprintf("%s|%s|%s|%d|%04x",
-			strings.ToLower(gpu.BusID), gpu.UUID, gpu.Model, gpu.Minor, gpu.DeviceID))
-	}
-
-	return strings.Join(records, ",")
-}
+// The attributes of a GPU's directory. All but GPULive are read-only while the
+// GPU is live, so a change unplugs the GPU, edits it and plugs it back in,
+// which nvidia.ko sees as hotplug.
+const (
+	GPUUUID     = "uuid"
+	GPUName     = "name"
+	GPUMinor    = "minor"
+	GPUDeviceID = "pci_device_id"
+	GPULive     = "live"
+)
