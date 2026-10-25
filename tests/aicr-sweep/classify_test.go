@@ -323,6 +323,38 @@ func TestCellsFileRejectsDuplicateIDs(t *testing.T) {
 	require.EqualError(t, err, "cells file "+path+` defines cell "base" twice: a duplicate double-counts in the rollup`)
 }
 
+// A blocked cell's cause is what keeps a kind artifact or an AICR catalog gap from
+// reading as a Mokka gap, so it must be one of the codes the report explains,
+// and the cell must say why it did not run.
+func TestCellsFileRejectsBadBlockedCells(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		cells string
+		want  string
+	}{
+		{"bucket code as cause", "  - id: a\n    blockedCause: G\n    blockedWhy: w\n",
+			`cell "a" has invalid blockedCause "G", want one of K U X BUDGET`},
+		{"lowercase cause", "  - id: a\n    blockedCause: budget\n    blockedWhy: w\n",
+			`cell "a" has invalid blockedCause "budget", want one of K U X BUDGET`},
+		{"no reason", "  - id: a\n    blockedCause: BUDGET\n",
+			`cell "a" is blocked (BUDGET) but has no blockedWhy: a blocked cell must say why it did not run`},
+		{"blank reason", "  - id: a\n    blockedCause: X\n    blockedWhy: \"  \"\n",
+			`cell "a" is blocked (X) but has no blockedWhy: a blocked cell must say why it did not run`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "cells.yaml")
+			require.NoError(t, os.WriteFile(path, []byte("cells:\n"+tc.cells), 0o600))
+
+			_, err := loadCells(path)
+			require.EqualError(t, err, "cells file "+path+": "+tc.want)
+		})
+	}
+}
+
 // Both recorded runs regenerate from these files, so the cell rules must accept
 // them as shipped.
 func TestShippedCellsFilesLoad(t *testing.T) {
