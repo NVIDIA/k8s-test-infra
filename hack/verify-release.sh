@@ -3,9 +3,10 @@
 # SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
 
 # Verify what a release published: the publish runs for its tag, both images
-# and their X.Y and latest tags, both charts' version and appVersion, and every
-# signature and SBOM attestation. Read-only: it never pushes, tags or writes
-# anything remote.
+# and their X.Y tags, nvml-mock's latest tag, both charts' version and
+# appVersion, and every signature and SBOM attestation. mokka-control-plane's
+# latest tag follows main builds, so it is not compared. Read-only: it never
+# pushes, tags or writes anything remote.
 #
 # Usage: hack/verify-release.sh X.Y.Z
 #   make verify-release RELEASE_VERSION=0.5.0

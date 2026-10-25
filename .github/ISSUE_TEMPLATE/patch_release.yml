@@ -105,7 +105,7 @@ body:
       label: Verify published artefacts
       description: "Resolve the artefact, do not read a green check."
       options:
-        - label: "`make verify-release RELEASE_VERSION=<version-without-v>` exits 0. Paste its output in this issue. It needs `gh`, `docker buildx`, `helm`, `cosign` and `jq`, and checks the publish runs, both images and their `<X.Y>` and `latest` tags, both charts' `version` and `appVersion`, and every signature and SBOM attestation."
+        - label: "`make verify-release RELEASE_VERSION=<version-without-v>` exits 0. Paste its output in this issue. It needs `gh`, `docker buildx`, `helm`, `cosign` and `jq`, and checks the publish runs, that both images list `linux/amd64` and `linux/arm64`, that both images' `<X.Y>` tags and `nvml-mock:latest` carry the release digest, both charts' `version` and `appVersion`, and every signature and SBOM attestation. It does not compare `mokka-control-plane:latest`: that tag follows `main` builds, and a tag run does not move it."
   - type: checkboxes
     id: after
     attributes:
