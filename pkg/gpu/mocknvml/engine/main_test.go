@@ -10,18 +10,21 @@ import (
 	"testing"
 )
 
-// TestMain points the CDI config fallback at a path that cannot exist. Without
-// it, every test expecting the built-in defaults loads the profile of any
-// machine that serves one at /etc/nvml-mock/config.yaml, such as a mokka node
-// or a container given the nvidia.com/gpu CDI spec. Tests that exercise the
-// fallback set their own path with withCDIConfigPath, which restores this one.
+// TestMain points the CDI and NRI config fallbacks at paths that cannot exist.
+// Without it, every test expecting the built-in defaults loads the profile of
+// any machine that serves one at /etc/nvml-mock/config.yaml or
+// /opt/nvml-mock/driver/config/config.yaml, such as a mokka node, a container
+// given the nvidia.com/gpu CDI spec or one the NRI plugin injects. Tests that
+// exercise a fallback set their own path with withCDIConfigPath or
+// withNRIConfigPath, which restore these.
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "mocknvml-engine-test-")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "create temp dir for the CDI config fallback: %v\n", err)
+		fmt.Fprintf(os.Stderr, "create temp dir for the config fallbacks: %v\n", err)
 		os.Exit(1)
 	}
 	cdiConfigPath = filepath.Join(dir, "absent", "config.yaml")
+	nriConfigPath = filepath.Join(dir, "absent", "nri", "config.yaml")
 
 	code := m.Run()
 
