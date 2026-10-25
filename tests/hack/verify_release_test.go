@@ -98,6 +98,23 @@ func imageIndex(t *testing.T, digest string, platformDigests map[string]string) 
 	return string(out)
 }
 
+// prependManifest returns index with one more manifest at the front of its
+// list, where a first-match lookup meets it before the others.
+func prependManifest(t *testing.T, index, digest, platformOS, arch string) string {
+	t.Helper()
+
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal([]byte(index), &doc))
+	manifests, ok := doc["manifests"].([]any)
+	require.True(t, ok, "index has no manifests list")
+	front := map[string]any{"digest": digest, "platform": map[string]string{"architecture": arch, "os": platformOS}}
+	doc["manifests"] = append([]any{front}, manifests...)
+
+	out, err := json.MarshalIndent(doc, "", "  ")
+	require.NoError(t, err)
+	return string(out)
+}
+
 type verifyReleaseFixture struct {
 	runs       map[string]string // workflow file -> gh run list JSON
 	images     map[string]string // image ref -> imagetools JSON; absent does not resolve
@@ -282,6 +299,20 @@ func TestVerifyRelease(t *testing.T) {
 				"ok: cosign verify-attestation spdxjson ghcr.io/nvidia/mokka-control-plane@sha256:cparm64 (linux/arm64)": "FAIL: cosign verify-attestation spdxjson ghcr.io/nvidia/mokka-control-plane:0.5.0 (linux/arm64): a linux/arm64 digest vs none in the index",
 			}, "summary: 2 of 17 checks failed for v0.5.0"),
 			calls: withoutCall(allCalls, attest("mokka-control-plane-publish.yaml", cp+"@"+cpArm64)),
+		},
+		{
+			// Only the linux manifests carry the per-platform SBOMs. A non-linux
+			// manifest of the same architecture, listed first, must not become
+			// the digest whose attestation is verified.
+			name: "control-plane index lists a non-linux manifest first",
+			args: []string{"0.5.0"},
+			mutate: func(t *testing.T, f *verifyReleaseFixture) {
+				index := prependManifest(t, f.images[cp+":0.5.0"], "sha256:cpwindows", "windows", "amd64")
+				f.images[cp+":0.5.0"] = index
+				f.images[cp+":0.5"] = index
+			},
+			stdout: report(nil, "summary: 17 of 17 checks passed for v0.5.0"),
+			calls:  allCalls,
 		},
 		{
 			name: "X.Y digest differs",
