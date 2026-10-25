@@ -122,7 +122,12 @@ func Classify(cat *Catalog, run *RunResults, cell Cell, versions Versions, prov 
 	}
 	sort.Strings(result.Drift)
 
+	// A cell with no run data reaches the same not-run table as one whose run
+	// reported nothing, but it did not run, and its status must not say it did.
 	result.Status = "ran"
+	if run == nil {
+		result.Status = "no-results"
+	}
 	return result
 }
 

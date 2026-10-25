@@ -24,8 +24,10 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -104,25 +106,27 @@ func run() error {
 // classifyCells joins the catalog against every planned cell. resultsDir holds
 // the per-cell CTRF output; empty means no run happened.
 func classifyCells(catalog *Catalog, doc *cellsDoc, resultsDir string) ([]CellResult, error) {
+	if resultsDir != "" {
+		// A wrong path would otherwise read as a sweep in which nothing ran.
+		info, err := os.Stat(resultsDir)
+		if err != nil {
+			return nil, fmt.Errorf("results directory: %w", err)
+		}
+		if !info.IsDir() {
+			return nil, fmt.Errorf("results directory %s is not a directory", resultsDir)
+		}
+	}
+
 	results := make([]CellResult, 0, len(doc.Cells))
 	for _, spec := range doc.Cells {
 		var run *RunResults
 		cause, why := spec.BlockedCause, spec.BlockedWhy
 
-		if cause == CauseNone && resultsDir != "" {
-			// Per-cell CTRF lives at results/<cell-id>/ctrf/*.json. `aicr
-			// validate --output` writes one report per invocation, so a cell
-			// that ran several phases separately has several files here.
-			dir := filepath.Join(resultsDir, spec.Cell.ID, "ctrf")
-			if _, statErr := os.Stat(dir); statErr == nil {
-				var err error
-				run, err = LoadCTRFDir(dir)
-				if err != nil {
-					// A results directory that exists but cannot be parsed is
-					// reported, not swallowed. Swallowing it would silently
-					// convert the whole cell to not-run and hide a harness bug.
-					return nil, fmt.Errorf("cell %s: %w", spec.Cell.ID, err)
-				}
+		if cause == CauseNone {
+			var err error
+			run, err = loadCellRun(resultsDir, spec.Cell.ID)
+			if err != nil {
+				return nil, fmt.Errorf("cell %s: %w", spec.Cell.ID, err)
 			}
 		}
 
@@ -133,6 +137,31 @@ func classifyCells(catalog *Catalog, doc *cellsDoc, resultsDir string) ([]CellRe
 		results = append(results, cr)
 	}
 	return results, nil
+}
+
+// loadCellRun reads one cell's CTRF output, or returns nil when the cell has
+// none: no results directory at all, or no ctrf directory for this cell.
+func loadCellRun(resultsDir, id string) (*RunResults, error) {
+	if resultsDir == "" {
+		return nil, nil
+	}
+
+	// Per-cell CTRF lives at results/<cell-id>/ctrf/*.json. `aicr validate
+	// --output` writes one report per invocation, so a cell that ran several
+	// phases separately has several files here.
+	dir := filepath.Join(resultsDir, id, "ctrf")
+	if _, err := os.Stat(dir); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		// Any other stat failure is a results tree the harness cannot read.
+		return nil, err
+	}
+
+	// A results directory that exists but cannot be parsed is reported, not
+	// swallowed. Swallowing it would silently convert the whole cell to
+	// not-run and hide a harness bug.
+	return LoadCTRFDir(dir)
 }
 
 // loadCells reads the matrix cell definitions.
