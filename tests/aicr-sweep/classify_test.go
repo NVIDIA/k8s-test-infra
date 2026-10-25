@@ -217,6 +217,38 @@ func TestParseCTRFReadsPhaseFromSuite(t *testing.T) {
 	assert.Equal(t, "passed", run.Tests[0].Status)
 }
 
+// Classify keys a run by check name, so a check that two reports in one cell
+// both carry would keep whichever report sorts last. That verdict is an accident
+// of file naming, and the other result disappears without a trace.
+func TestCTRFDirRejectsCheckReportedTwice(t *testing.T) {
+	t.Parallel()
+
+	const passed = `{"reportFormat":"CTRF","results":{"tests":[{"name":"operator-health","status":"passed"}]}}`
+	const failed = `{"reportFormat":"CTRF","results":{"tests":[{"name":"operator-health","status":"failed"}]}}`
+	const twice = `{"reportFormat":"CTRF","results":{"tests":[{"name":"operator-health","status":"passed"},{"name":"operator-health","status":"failed"}]}}`
+
+	t.Run("across reports", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		first, rerun := filepath.Join(dir, "1-validate.json"), filepath.Join(dir, "2-rerun.json")
+		require.NoError(t, os.WriteFile(first, []byte(passed), 0o600))
+		require.NoError(t, os.WriteFile(rerun, []byte(failed), 0o600))
+
+		_, err := LoadCTRFDir(dir)
+		require.EqualError(t, err, `check "operator-health" is reported twice, in `+first+" and "+rerun+": keeping either verdict would depend on file order")
+	})
+
+	t.Run("within one report", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		report := filepath.Join(dir, "validate.json")
+		require.NoError(t, os.WriteFile(report, []byte(twice), 0o600))
+
+		_, err := LoadCTRFDir(dir)
+		require.EqualError(t, err, `check "operator-health" is reported twice, in `+report+" and "+report+": keeping either verdict would depend on file order")
+	})
+}
+
 // A cell ID names the cell's results directory, so a cells file that repeats an
 // ID classifies the same run twice and double-counts it in the rollup.
 func TestCellsFileRejectsDuplicateIDs(t *testing.T) {
