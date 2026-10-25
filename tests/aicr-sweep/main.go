@@ -138,5 +138,15 @@ func loadCells(path string) (*cellsDoc, error) {
 	if len(doc.Cells) == 0 {
 		return nil, fmt.Errorf("cells file %s defines no cells", path)
 	}
+
+	// A cell ID is also its results directory, so a repeated ID would classify
+	// one run as two cells.
+	seen := make(map[string]bool, len(doc.Cells))
+	for _, spec := range doc.Cells {
+		if seen[spec.ID] {
+			return nil, fmt.Errorf("cells file %s defines cell %q twice: a duplicate double-counts in the rollup", path, spec.ID)
+		}
+		seen[spec.ID] = true
+	}
 	return &doc, nil
 }
