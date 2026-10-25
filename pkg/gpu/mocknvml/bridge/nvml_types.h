@@ -1415,6 +1415,29 @@ typedef struct
     unsigned int          bufferSize; //!< [IN/OUT] Size of buffer
 } nvmlGetCPER_v1_t;
 
+/*
+ * NVML additions (go-nvml v0.13.4-1, NVML 13.4.92). Every function taking
+ * these types reaches the bridge only as a NOT_SUPPORTED stub in
+ * stubs_generated.go, which never dereferences its arguments, so opaque
+ * forward declarations are sufficient and ABI-safe. Giving one of these
+ * functions a real implementation needs the full struct body, copied verbatim
+ * from go-nvml's pkg/nvml/nvml.h.
+ */
+typedef struct nvmlAdaptiveTgpModeInfo_v1_st                            nvmlAdaptiveTgpModeInfo_v1_t;
+typedef struct nvmlEccBankRemapperStatus_v1_st                          nvmlEccBankRemapperStatus_v1_t;
+typedef struct nvmlEventSetGetContextCount_v1_st                        nvmlEventSetGetContextCount_v1_t;
+typedef struct nvmlEventSetGetContextData_v1_st                         nvmlEventSetGetContextData_v1_t;
+typedef struct nvmlEventSetGetContextInfo_v1_st                         nvmlEventSetGetContextInfo_v1_t;
+typedef struct nvmlEventSetGetGpuOperationalEventContextLegacyXid_v1_st nvmlEventSetGetGpuOperationalEventContextLegacyXid_v1_t;
+typedef struct nvmlEventSetWait_v3_st                                   nvmlEventSetWait_v3_t;
+typedef struct nvmlGetMemoryLimits_v1_st                                nvmlGetMemoryLimits_v1_t;
+typedef struct nvmlGpuFabricInfo_v4_st                                  nvmlGpuFabricInfo_v4_t;
+typedef struct nvmlGpuOperationalEventConfig_v1_st                      nvmlGpuOperationalEventConfig_v1_t;
+typedef struct nvmlNvlinkSetBwModeAsync_v1_st                           nvmlNvlinkSetBwModeAsync_v1_t;
+typedef struct nvmlNvlinkTelemetrySamples_v1_st                         nvmlNvlinkTelemetrySamples_v1_t;
+typedef struct nvmlPerfMetricsSamples_v1_st                             nvmlPerfMetricsSamples_v1_t;
+typedef struct nvmlSetMemoryLimits_v1_st                                nvmlSetMemoryLimits_v1_t;
+
 #ifdef __cplusplus
 }
 #endif
