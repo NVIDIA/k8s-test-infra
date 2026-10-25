@@ -14,7 +14,7 @@ Both runs remain reproducible and neither overwrites the other:
 
 ## 1. The headline, which is not the one that was expected
 
-The session handoff predicted that #672 would flip `gpu-operator-health` from fail to pass, and that
+The expectation going into this run was that #672 would flip `gpu-operator-health` from fail to pass, and that
 "the honest verdict would improve on a re-run". **It did not.** The base cell's nine dispatched
 verdicts are byte-identical to the first run: 3 passed, 5 failed, 1 other.
 
