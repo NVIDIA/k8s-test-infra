@@ -1,5 +1,11 @@
 # Coverage: what preflight validates, and what needs silicon
 
+> **First run, 2026-08-03.** The matrix was re-measured on 2026-08-26 against Mokka `57ef01659` with
+> AICR at the same pin; see
+> [`tests/aicr-sweep/FINDINGS-57ef016.md`](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/aicr-sweep/FINDINGS-57ef016.md).
+> The re-run moved the measured coverage and closed the gap listed under the gap backlog below; the
+> bucket split and the analytical ceiling are unchanged.
+
 Every number on this page comes from the sweep run on 2026-08-03. The raw results are
 [`tests/aicr-sweep/results/report.json`](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/aicr-sweep/results/report.json); the per-check
 reasoning with source citations is
@@ -84,10 +90,16 @@ One gap found. It is closable and it is small.
 
 | Gap | Blocks | Coverage unlocked | Size | Status |
 |---|---|---|---|---|
-| PCI bus ID reaches NVML consumers without its domain prefix (`:0a:00.0` instead of `0000:0a:00.0`), breaking `dra.k8s.io/pcieRoot` on the DRA driver and crashing `gpu-feature-discovery` | the `pcieRoot` topology attribute; indirectly `gpu-operator-health` via ClusterPolicy | 1 check moves from fail to testable, plus the topology attribute | S | open |
+| PCI bus ID reaches NVML consumers without its domain prefix (`:0a:00.0` instead of `0000:0a:00.0`), breaking `dra.k8s.io/pcieRoot` on the DRA driver and crashing `gpu-feature-discovery` | the `pcieRoot` topology attribute; indirectly `gpu-operator-health` via ClusterPolicy | 1 check moves from fail to testable, plus the topology attribute | S | fixed by #672 (2026-08-19) |
 
 Two consumers, one symptom, all 8 devices. Evidence:
 [`results/pci-busid-evidence.log`](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/aicr-sweep/results/pci-busid-evidence.log).
+
+The 2026-08-26 re-run confirmed the fix in the published image, but `gpu-operator-health` did not
+move. GFD now receives a well-formed bus ID and still cannot read the vendor file, because Mokka's
+rendered PCI tree uses relative symlinks and is not grafted onto GFD's `/sys`. That failure stays
+cause **K** until the experiment that would distinguish it has run. Evidence:
+[`results/gfd-sysfs-evidence.log`](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/aicr-sweep/results/gfd-sysfs-evidence.log).
 
 This also bears on issue #265, which records `dra.k8s.io/pcieRoot` as unavailable and attributes it to
 Go's `os` package bypassing the `LD_PRELOAD` shim. The DRA driver log shows the failure happening
