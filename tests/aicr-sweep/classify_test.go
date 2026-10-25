@@ -249,6 +249,68 @@ func TestCTRFDirRejectsCheckReportedTwice(t *testing.T) {
 	})
 }
 
+// A results path that does not exist is almost always a typo. Reading it as "no
+// run happened" printed every cell as not-run and exited 0, so a wrong path
+// looked like a real, empty sweep.
+func TestResultsDirMustExist(t *testing.T) {
+	t.Parallel()
+
+	doc := &cellsDoc{Cells: []cellSpec{{Cell: Cell{ID: "base"}}}}
+
+	missing := filepath.Join(t.TempDir(), "results-typo")
+	_, err := classifyCells(testCatalog(), doc, missing)
+	require.EqualError(t, err, "results directory: stat "+missing+": no such file or directory")
+
+	file := filepath.Join(t.TempDir(), "report.json")
+	require.NoError(t, os.WriteFile(file, nil, 0o600))
+	_, err = classifyCells(testCatalog(), doc, file)
+	require.EqualError(t, err, "results directory "+file+" is not a directory")
+}
+
+// Only a missing ctrf directory means a cell has no run data. Any other stat
+// failure is a results tree the harness could not read, and hiding it would turn
+// a harness bug into a not-run cell.
+func TestUnreadableCellResultsAreAnError(t *testing.T) {
+	t.Parallel()
+
+	results := t.TempDir()
+	// A file where the cell's directory belongs makes stat fail with ENOTDIR.
+	require.NoError(t, os.WriteFile(filepath.Join(results, "base"), nil, 0o600))
+	doc := &cellsDoc{Cells: []cellSpec{{Cell: Cell{ID: "base"}}}}
+
+	_, err := classifyCells(testCatalog(), doc, results)
+	require.EqualError(t, err, "cell base: stat "+filepath.Join(results, "base", "ctrf")+": not a directory")
+}
+
+// A cell the run left no output for did not run, and its status must say so
+// rather than read "ran" above a table of not-run checks.
+func TestCellWithoutResultsIsNotMarkedRan(t *testing.T) {
+	t.Parallel()
+
+	results := t.TempDir()
+	ctrf := filepath.Join(results, "ran", "ctrf")
+	require.NoError(t, os.MkdirAll(ctrf, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(ctrf, "validate.json"),
+		[]byte(`{"reportFormat":"CTRF","results":{"tests":[{"name":"a-gpu","status":"passed"}]}}`), 0o600))
+	doc := &cellsDoc{Cells: []cellSpec{{Cell: Cell{ID: "ran"}}, {Cell: Cell{ID: "missing"}}}}
+
+	got, err := classifyCells(testCatalog(), doc, results)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "ran", got[0].Status)
+	assert.Equal(t, "no-results", got[1].Status)
+	for _, c := range got[1].Checks {
+		assert.Equal(t, OutcomeNotRun, c.Outcome, "check %q", c.Check)
+	}
+
+	// With no -results at all, no cell ran.
+	none, err := classifyCells(testCatalog(), doc, "")
+	require.NoError(t, err)
+	for _, cell := range none {
+		assert.Equal(t, "no-results", cell.Status, "cell %q", cell.Cell.ID)
+	}
+}
+
 // A cell ID names the cell's results directory, so a cells file that repeats an
 // ID classifies the same run twice and double-counts it in the rollup.
 func TestCellsFileRejectsDuplicateIDs(t *testing.T) {
