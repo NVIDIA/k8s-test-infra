@@ -52,7 +52,6 @@ func main() {
 	}
 }
 
-//nolint:cyclop // existing complexity; refactor deferred
 func run() error {
 	var (
 		catalogPath = flag.String("catalog", "catalog.yaml", "path to the coverage catalog")
@@ -73,32 +72,9 @@ func run() error {
 		return err
 	}
 
-	results := make([]CellResult, 0, len(doc.Cells))
-	for _, spec := range doc.Cells {
-		var run *RunResults
-		cause, why := spec.BlockedCause, spec.BlockedWhy
-
-		if cause == CauseNone && *resultsDir != "" {
-			// Per-cell CTRF lives at results/<cell-id>/ctrf/*.json. `aicr
-			// validate --output` writes one report per invocation, so a cell
-			// that ran several phases separately has several files here.
-			dir := filepath.Join(*resultsDir, spec.Cell.ID, "ctrf")
-			if _, statErr := os.Stat(dir); statErr == nil {
-				run, err = LoadCTRFDir(dir)
-				if err != nil {
-					// A results directory that exists but cannot be parsed is
-					// reported, not swallowed. Swallowing it would silently
-					// convert the whole cell to not-run and hide a harness bug.
-					return fmt.Errorf("cell %s: %w", spec.Cell.ID, err)
-				}
-			}
-		}
-
-		cr := Classify(catalog, run, spec.Cell, doc.Versions, ProvenanceSim, cause, why)
-		if run != nil {
-			cr.LogsPointer = filepath.Join(*resultsDir, spec.Cell.ID)
-		}
-		results = append(results, cr)
+	results, err := classifyCells(catalog, doc, *resultsDir)
+	if err != nil {
+		return err
 	}
 
 	roll := Roll(results)
@@ -123,6 +99,40 @@ func run() error {
 	}
 
 	return nil
+}
+
+// classifyCells joins the catalog against every planned cell. resultsDir holds
+// the per-cell CTRF output; empty means no run happened.
+func classifyCells(catalog *Catalog, doc *cellsDoc, resultsDir string) ([]CellResult, error) {
+	results := make([]CellResult, 0, len(doc.Cells))
+	for _, spec := range doc.Cells {
+		var run *RunResults
+		cause, why := spec.BlockedCause, spec.BlockedWhy
+
+		if cause == CauseNone && resultsDir != "" {
+			// Per-cell CTRF lives at results/<cell-id>/ctrf/*.json. `aicr
+			// validate --output` writes one report per invocation, so a cell
+			// that ran several phases separately has several files here.
+			dir := filepath.Join(resultsDir, spec.Cell.ID, "ctrf")
+			if _, statErr := os.Stat(dir); statErr == nil {
+				var err error
+				run, err = LoadCTRFDir(dir)
+				if err != nil {
+					// A results directory that exists but cannot be parsed is
+					// reported, not swallowed. Swallowing it would silently
+					// convert the whole cell to not-run and hide a harness bug.
+					return nil, fmt.Errorf("cell %s: %w", spec.Cell.ID, err)
+				}
+			}
+		}
+
+		cr := Classify(catalog, run, spec.Cell, doc.Versions, ProvenanceSim, cause, why)
+		if run != nil {
+			cr.LogsPointer = filepath.Join(resultsDir, spec.Cell.ID)
+		}
+		results = append(results, cr)
+	}
+	return results, nil
 }
 
 // loadCells reads the matrix cell definitions.
