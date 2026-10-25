@@ -1,5 +1,5 @@
 # Evidence: AICR's snapshot agent cannot be reached by library interception
-# Captured 2026-08-27. Raised by Giulio Calzolari in Slack; verified here
+# Captured 2026-08-27. Raised by Giulio Calzolari in review; verified here
 # independently against the published image before being written down.
 
 ## The symptom, recorded in this sweep before the cause was known

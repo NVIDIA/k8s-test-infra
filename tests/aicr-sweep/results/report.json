@@ -563,7 +563,7 @@
       "provenance": "sim",
       "status": "blocked",
       "cause": "BUDGET",
-      "blockedWhy": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage.",
+      "blockedWhy": "Not attempted, same memory window. This is the deliberate substitution for the POC scope's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage.",
       "checks": [
         {
           "check": "operator-health",
@@ -574,7 +574,7 @@
           "outcome": "blocked",
           "cause": "BUDGET",
           "provenance": "sim",
-          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the POC scope's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
         },
         {
           "check": "expected-resources",
@@ -585,7 +585,7 @@
           "outcome": "blocked",
           "cause": "BUDGET",
           "provenance": "sim",
-          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the POC scope's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
         },
         {
           "check": "gpu-operator-version",
@@ -596,7 +596,7 @@
           "outcome": "blocked",
           "cause": "BUDGET",
           "provenance": "sim",
-          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the POC scope's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
         },
         {
           "check": "check-nvidia-smi",
@@ -607,7 +607,7 @@
           "outcome": "blocked",
           "cause": "BUDGET",
           "provenance": "sim",
-          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the POC scope's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
         },
         {
           "check": "nccl-all-reduce-bw",
@@ -618,7 +618,7 @@
           "outcome": "blocked",
           "cause": "BUDGET",
           "provenance": "sim",
-          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the POC scope's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
         },
         {
           "check": "nccl-all-reduce-bw-net",
@@ -629,7 +629,7 @@
           "outcome": "blocked",
           "cause": "BUDGET",
           "provenance": "sim",
-          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the POC scope's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
         },
         {
           "check": "nccl-all-reduce-bw-nvls",
@@ -640,7 +640,7 @@
           "outcome": "blocked",
           "cause": "BUDGET",
           "provenance": "sim",
-          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the POC scope's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
         },
         {
           "check": "inference-perf",
@@ -651,7 +651,7 @@
           "outcome": "blocked",
           "cause": "BUDGET",
           "provenance": "sim",
-          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the POC scope's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
         },
         {
           "check": "dra-support",
@@ -662,7 +662,7 @@
           "outcome": "blocked",
           "cause": "BUDGET",
           "provenance": "sim",
-          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the POC scope's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
         },
         {
           "check": "gang-scheduling",
@@ -673,7 +673,7 @@
           "outcome": "blocked",
           "cause": "BUDGET",
           "provenance": "sim",
-          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the POC scope's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
         },
         {
           "check": "accelerator-metrics",
@@ -684,7 +684,7 @@
           "outcome": "blocked",
           "cause": "BUDGET",
           "provenance": "sim",
-          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the POC scope's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
         },
         {
           "check": "ai-service-metrics",
@@ -695,7 +695,7 @@
           "outcome": "blocked",
           "cause": "BUDGET",
           "provenance": "sim",
-          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the POC scope's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
         },
         {
           "check": "inference-gateway",
@@ -706,7 +706,7 @@
           "outcome": "blocked",
           "cause": "BUDGET",
           "provenance": "sim",
-          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the POC scope's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
         },
         {
           "check": "pod-autoscaling",
@@ -717,7 +717,7 @@
           "outcome": "blocked",
           "cause": "BUDGET",
           "provenance": "sim",
-          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the POC scope's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
         },
         {
           "check": "cluster-autoscaling",
@@ -728,7 +728,7 @@
           "outcome": "blocked",
           "cause": "BUDGET",
           "provenance": "sim",
-          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the POC scope's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
         },
         {
           "check": "robust-controller",
@@ -739,7 +739,7 @@
           "outcome": "blocked",
           "cause": "BUDGET",
           "provenance": "sim",
-          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the POC scope's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
         },
         {
           "check": "secure-accelerator-access",
@@ -750,7 +750,7 @@
           "outcome": "blocked",
           "cause": "BUDGET",
           "provenance": "sim",
-          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the POC scope's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
         },
         {
           "check": "slinky-slurm-health",
@@ -761,7 +761,7 @@
           "outcome": "blocked",
           "cause": "BUDGET",
           "provenance": "sim",
-          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the POC scope's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
         },
         {
           "check": "slinky-slurm-imex-channel",
@@ -772,7 +772,7 @@
           "outcome": "blocked",
           "cause": "BUDGET",
           "provenance": "sim",
-          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the POC scope's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
         },
         {
           "check": "gpu-operator-health",
@@ -783,7 +783,7 @@
           "outcome": "blocked",
           "cause": "BUDGET",
           "provenance": "sim",
-          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the POC scope's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
         },
         {
           "check": "platform-health",
@@ -794,7 +794,7 @@
           "outcome": "blocked",
           "cause": "BUDGET",
           "provenance": "sim",
-          "message": "Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
+          "message": "Not attempted, same memory window. This is the deliberate substitution for the POC scope's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage."
         }
       ]
     },

@@ -83,7 +83,7 @@ Recipe: service=kind accelerator=gb200 intent=training · shape=stack workers=2 
 
 Recipe: service=kind accelerator=h100 intent=inference · shape=stack workers=2 · status=blocked
 
-**Blocked (BUDGET):** Not attempted, same memory window. This is the deliberate substitution for the brief's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage.
+**Blocked (BUDGET):** Not attempted, same memory window. This is the deliberate substitution for the POC scope's gb300 half of the base sweep: AICR has no gb300 accelerator, so h100 is the nearest second accelerator that both AICR and Mokka support on the kind service. It is a substitution and is never counted as gb300 coverage.
 
 Axes off base: accelerator=h100 (substitute for gb300)
 

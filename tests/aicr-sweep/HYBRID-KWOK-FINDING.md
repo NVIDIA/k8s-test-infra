@@ -15,7 +15,7 @@ depth) gives this study a scale story. That is the open question Mark named on 2
 backend needs real nodes, KWOK nodes stay the fake backend, so fidelity at KWOK scale is a claim to
 prove rather than assert.
 
-**The prediction was wrong, and the recommendation panel's objection was wrong in the same direction.**
+**The prediction was wrong, and the pre-run review's objection was wrong in the same direction.**
 Both expected the result to be a tautology: hollow nodes cannot run `nvidia-smi`, so fleet-surveying
 checks would obviously go red. The actual result is the opposite, and it is worse.
 
@@ -172,7 +172,7 @@ it says nothing about the vertical one.
 
 ## Provenance note
 
-The recommendation panel dissented against running this experiment, arguing it would document the
+A pre-run review dissented against running this experiment, arguing it would document the
 obvious, and I agreed with that dissent before Carlos overrode it. Both of us were wrong about what
 the experiment would show. The dissent is recorded in
 [`DECISIONS.md`](DECISIONS.md) D-015 rather than quietly dropped now that the result is interesting.

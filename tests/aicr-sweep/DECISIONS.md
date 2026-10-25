@@ -14,8 +14,8 @@
 >   the one to run. What changed is the diagnosis, not the verdict. See
 >   [results/gfd-sysfs-evidence.log](results/gfd-sysfs-evidence.log).
 
-Every judgment call made while running this sweep, with its rationale. The mission brief told me to
-decide and keep going instead of asking, so this file is the audit trail for what I decided and why.
+Every judgment call made while running this sweep, with its rationale. The POC scope asked for the sweep
+to decide and keep going instead of asking, so this file is the audit trail for what I decided and why.
 
 Format: decision, the options considered, what I chose, why, and what it costs.
 
@@ -60,7 +60,7 @@ that POC found.
 
 **Chosen:** option 3.
 
-**Why:** the mission brief names the branch `poc/mokka-aicr-kind-sweep` explicitly, so option 1 is out.
+**Why:** the POC scope names the branch `poc/mokka-aicr-kind-sweep` explicitly, so option 1 is out.
 Option 2 drags stale pre-v0.3.0 results into the new PR, and #503 already conflicts with `main`, so it
 needs a rebase before it could be a base. The 2026-07-25 results predate v0.3.0 (cut 2026-08-01) and
 predate this sweep's scope, which is every recipe across a permutation matrix rather than one recipe.
@@ -80,13 +80,13 @@ GPU-dependent split inside bucket A. Those were sound and re-deriving them would
 
 **Options**
 
-1. `deployments/nvml-mock/examples/aicr-sweep/`, as the mission brief suggests.
+1. `deployments/nvml-mock/examples/aicr-sweep/`, as the POC scope suggests.
 2. `tests/aicr-sweep/`.
 3. Extend `tests/e2e/go/` with sweep scenarios.
 
 **Chosen:** option 2.
 
-**Why:** the brief says "adjust to fit" the repo's conventions. `deployments/nvml-mock/examples/`
+**Why:** the scope says "adjust to fit" the repo's conventions. `deployments/nvml-mock/examples/`
 does not exist in this repo, so option 1 invents a directory. Test harnesses in this repo live under
 `tests/`: `tests/e2e/`, `tests/mocknvml/`, `tests/poc-validation/`, and the superseded
 `tests/aicr-preflight/`. Option 3 is wrong because `tests/e2e/go` is a Ginkgo suite that gates CI,
@@ -96,18 +96,13 @@ and a long sweep that deliberately records failures does not belong in a gating 
 
 ---
 
-## D-004: No brainstorming skill session; the brief is the plan input
+## D-004: The written scope is the plan input; decisions are logged, not asked
 
-**Context:** the standing engineering rule starts every non-trivial task with an interactive
-brainstorming skill. The mission brief says "EXECUTE, DO NOT ASK" and "Do NOT come back to me with a
-menu of options", and the START-HERE file repeats it.
+**Chosen:** work from the POC scope without a separate interactive design round, and record every
+judgment call in this file.
 
-**Chosen:** skip the interactive brainstorm. Write the plan and this decision log instead, which is
-what the brief's Phase 0 asks for.
-
-**Why:** the brainstorming skill works by asking the user questions. Running it would violate an
-explicit instruction from the same user who set the standing rule. The brief wins on precedence, and
-it asks for the same artifact a brainstorm would produce: a written plan plus recorded decisions.
+**Why:** the scope asked for execution rather than a menu of options. A written plan plus a decision
+log is the artifact a design round would produce, in a form a reviewer can audit afterwards.
 
 ---
 
@@ -129,14 +124,14 @@ factorial sweep of every AICR recipe across every axis does not fit.
 budget runs out. Every cell that does not run is recorded `blocked` with the reason. `blocked` is
 never reported as `pass`, and the coverage denominator always includes blocked cells.
 
-**Why:** the brief is explicit that a missing input blocks one cell, not the run, and that "not run"
+**Why:** the POC scope is explicit that a missing input blocks one cell, not the run, and that "not run"
 is never "pass". Reporting a partial matrix honestly is the required behaviour.
 
 ---
 
 ## D-007: AICR is pinned to `upstream/main` at `0752ea14`, not to the local checkout
 
-**Context:** the local clone at `/Users/eduardoa/src/github/nvidia/aicr` sits on branch `agents-workbench`
+**Context:** the local AICR clone used for this sweep sits on a local working branch
 at `11f63576` (2026-07-26). Its `upstream/main` is `0752ea148aa1ae849cbef86ec59d0c970a582496`
 (2026-07-31). They differ by 88 files and 12172 insertions in exactly the paths this study reads:
 `validators/`, `recipes/`, `cmd/`, `tests/chainsaw/`. `validators/deployment/nvidia_smi.go` alone
@@ -168,7 +163,7 @@ The same command succeeds for `gb200` (14 components, 5 overlays) and for `h100`
 `h200`, `l40s`, `rtx-pro-6000`. `grep -c gb300 recipes/registry.yaml` returns 0, and `gb300` appears
 nowhere under `recipes/`.
 
-**Consequence:** the brief's base sweep says "every AICR recipe x {gb200, gb300}". The `gb300` half
+**Consequence:** the POC scope's base sweep says "every AICR recipe x {gb200, gb300}". The `gb300` half
 cannot run, because AICR has no GB300 recipe. Mokka ships a `gb300` profile; AICR has no accelerator
 to match it to.
 
@@ -177,10 +172,10 @@ deliberately not `G`, because Mokka lacks nothing here, and deliberately not `K`
 kind causes it. I added a distinct cause code rather than forcing it into an existing bucket: forcing
 it into `G` would put an issue on Mokka's backlog for work Mokka does not owe.
 
-**Not filed:** the brief forbids opening issues in NVIDIA/aicr without asking. This goes to Mark in the
+**Not filed:** the POC scope rules out opening issues in NVIDIA/aicr without asking. This goes to Mark in the
 findings note, since the catalog is his side of the boundary.
 
-**Substitution, stated openly:** where the brief wants a second accelerator to contrast against gb200,
+**Substitution, stated openly:** where the scope wants a second accelerator to contrast against gb200,
 the sweep uses `h100`, which AICR supports on `kind` and Mokka also ships. The findings label that a
 substitution. It is never presented as gb300 coverage.
 
@@ -226,7 +221,7 @@ machine configuration outside the throwaway kind cluster.
 
 ## D-011: Triage rule for separating `G` (Mokka gap) from `K` (kind artifact)
 
-The brief calls conflating these the easiest way to produce a misleading result. The rule the sweep
+The POC scope calls conflating these the easiest way to produce a misleading result. The rule the sweep
 applies, decided before any cell ran so it cannot be bent to fit a number:
 
 > **Did Mokka promise to render this path or speak this protocol?**
@@ -287,7 +282,7 @@ sweep runs the NRI path on a stock `kindest/node`, where no toolkit exists.
 
 **Why:** under the NRI path no special runtime is needed. NRI hooks `CreateContainer` regardless of
 which OCI runtime handles the container, which is the whole point of node-wide injection, and the
-brief states the per-node CDI plus container-toolkit install is obsolete at v0.3.0. Option 1 would
+POC scope states the per-node CDI plus container-toolkit install is obsolete at v0.3.0. Option 1 would
 reintroduce the obsolete path just to satisfy a label. Option 3 produces the same effect as option 2
 with more moving parts and a containerd restart race.
 
@@ -331,12 +326,12 @@ installed. If GFD still fails there, it becomes **G** and gets an issue. That ce
 memory budget, so the honest status is "not distinguished", and the findings note says so rather than
 claiming either answer.
 
-This is the exact failure mode the brief warned about, so I am writing down the reasoning rather than
+This is the exact failure mode the POC scope warned about, so I am writing down the reasoning rather than
 just the verdict.
 
 ---
 
-## D-015: Hybrid KWOK + Mokka cell runs, over a panel dissent that I agreed with
+## D-015: Hybrid KWOK + Mokka cell runs, over a pre-run review dissent that I agreed with
 
 **The question:** would combining KWOK (horizontal, node-count breadth) with Mokka (vertical, per-node
 GPU-stack depth) give this study a scale story?
@@ -347,17 +342,17 @@ node has no kubelet; `stage-fast` walks the pod through phases without running a
 KWOK nodes therefore adds exactly zero AICR check coverage**, and cannot move either the measured 14%
 or the 76% ceiling.
 
-**The recommendation panel overturned my proposal** to run a hybrid experiment. Its argument, which I
+**A pre-run review overturned my proposal** to run a hybrid experiment. Its argument, which I
 agreed with on reading it: "KWOK nodes break `check-nvidia-smi`" is not a discovery, it is definitional,
 and spending an evening measuring it documents the obvious. Two further points I checked and conceded:
 
 - The DRA ResourceSlice-at-scale angle collapses for the same reason. The DRA kubelet plugin is a
   DaemonSet and will not run on KWOK nodes either.
 - The one genuinely unknown question in the area (do the GPU Operator ClusterPolicy loop and NFD master
-  degrade as node count grows?) belongs to the Perf-and-Scale V-Team workstream. The POC SSOT says
-  explicitly not to conflate that 5K-node effort with this correctness-of-checks POC.
+  degrade as node count grows?) belongs to a separate performance-and-scale effort, which is scoped
+  apart from this correctness-of-checks POC and should not be conflated with it.
 
-**Chosen anyway: run it.** Carlos reaffirmed the hybrid experiment after reading the panel's dissent and
+**Chosen anyway: run it.** Carlos reaffirmed the hybrid experiment after reading the review's dissent and
 my flip. That is his call to make, and it is recorded here rather than quietly followed.
 
 **What the cell is designed to measure**, given the above rules out a coverage number. The output is a
@@ -376,11 +371,11 @@ Eliran's per-nodepool `backend` design.
 
 **What this cell will NOT be allowed to claim,** written down before it runs so the result cannot drift:
 it is not AICR coverage at scale, it is not a bring-up-time number, and it is not evidence of GPU-stack
-fidelity at KWOK node counts. The panel's dissent is reported alongside the result.
+fidelity at KWOK node counts. The review's dissent is reported alongside the result.
 
 **Outcome, recorded after the run:** the experiment did not document the obvious. It produced a
 **false pass**, not the predicted false fail: with 250 KWOK nodes present, all 9 AICR checks reported
 green in under 10 seconds with no container ever executing, and the documented `--node-selector`
-mitigation does not work because AICR never applies it to the validator Job pod spec. Both the panel
+mitigation does not work because AICR never applies it to the validator Job pod spec. Both the review
 and I were wrong about the direction of the result. Carlos's override was correct. Full writeup in
 `HYBRID-KWOK-FINDING.md`; the false passes are deliberately excluded from `cells.yaml` and the rollup.

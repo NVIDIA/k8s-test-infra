@@ -152,7 +152,7 @@ Reasoning in [DECISIONS.md](DECISIONS.md) D-014.
 | **X** | 2 | **AICR has no `gb300` accelerator.** `aicr recipe --service kind --accelerator gb300 --intent inference` exits 2: `no recipe provides accelerator 'gb300'`. The catalog knows a100, b200, gb200, h100, h200, l40s, rtx-pro-6000. Mokka ships a gb300 profile; AICR has nothing to match it to. **Not a Mokka gap.** This is yours to decide on, Mark, and I did not file an issue in NVIDIA/aicr. |
 | **U** | 1 | ComputeDomain, per §1. |
 
-The brief asked for every recipe across `{gb200, gb300}` and single/multi-node. The gb300 half is
+The POC scope asked for every recipe across `{gb200, gb300}` and single/multi-node. The gb300 half is
 impossible on the AICR side. I substituted `h100` as the second accelerator, and that cell is
 recorded as a substitution, never as gb300 coverage. It did not run either, for budget.
 
@@ -182,7 +182,7 @@ quoting something I did not measure.
 
 ## 6b. KWOK + Mokka: combining them makes the suite report green without running
 
-Run after the sections above, on Carlos's call and over a panel dissent I agreed with. Full writeup:
+Run after the sections above, on Carlos's call and over a pre-run review dissent I agreed with. Full writeup:
 [HYBRID-KWOK-FINDING.md](HYBRID-KWOK-FINDING.md). Evidence:
 [results/kwok-false-pass-evidence.log](results/kwok-false-pass-evidence.log).
 
