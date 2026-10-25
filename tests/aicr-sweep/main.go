@@ -30,6 +30,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"sigs.k8s.io/yaml"
 )
@@ -40,6 +41,23 @@ type cellSpec struct {
 	Cell         `json:",inline" yaml:",inline"`
 	BlockedCause Cause  `json:"blockedCause,omitempty" yaml:"blockedCause,omitempty"`
 	BlockedWhy   string `json:"blockedWhy,omitempty" yaml:"blockedWhy,omitempty"`
+}
+
+// validate rejects a cell whose block would mislead the report. The cause is
+// what keeps a kind artifact or an AICR catalog gap from reading as a Mokka gap,
+// so it must be one the report explains, and a blocked cell must say why.
+func (s cellSpec) validate() error {
+	switch s.BlockedCause {
+	case CauseNone:
+		return nil
+	case CauseK, CauseU, CauseX, CauseBudget:
+		if strings.TrimSpace(s.BlockedWhy) == "" {
+			return fmt.Errorf("cell %q is blocked (%s) but has no blockedWhy: a blocked cell must say why it did not run", s.ID, s.BlockedCause)
+		}
+		return nil
+	default:
+		return fmt.Errorf("cell %q has invalid blockedCause %q, want one of K U X BUDGET", s.ID, s.BlockedCause)
+	}
 }
 
 type cellsDoc struct {
@@ -182,6 +200,9 @@ func loadCells(path string) (*cellsDoc, error) {
 	// one run as two cells.
 	seen := make(map[string]bool, len(doc.Cells))
 	for _, spec := range doc.Cells {
+		if err := spec.validate(); err != nil {
+			return nil, fmt.Errorf("cells file %s: %w", path, err)
+		}
 		if seen[spec.ID] {
 			return nil, fmt.Errorf("cells file %s defines cell %q twice: a duplicate double-counts in the rollup", path, spec.ID)
 		}
