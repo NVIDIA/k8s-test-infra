@@ -63,6 +63,9 @@ func ParseCTRF(data []byte) (*RunResults, error) {
 
 // LoadCTRFDir merges every *.json CTRF report in dir, so a run split across
 // deployment, performance and conformance phase reports lands as one result set.
+//
+// A check reported more than once is an error. Classify keeps one verdict per
+// check, so merging duplicates would let file naming decide which result counts.
 func LoadCTRFDir(dir string) (*RunResults, error) {
 	entries, err := filepath.Glob(filepath.Join(dir, "*.json"))
 	if err != nil {
@@ -71,6 +74,7 @@ func LoadCTRFDir(dir string) (*RunResults, error) {
 	sort.Strings(entries)
 
 	merged := &RunResults{}
+	reportedIn := map[string]string{}
 	for _, path := range entries {
 		data, err := os.ReadFile(path) //nolint:gosec // operator-supplied results path
 		if err != nil {
@@ -79,6 +83,12 @@ func LoadCTRFDir(dir string) (*RunResults, error) {
 		run, err := ParseCTRF(data)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+		for _, test := range run.Tests {
+			if first, ok := reportedIn[test.Name]; ok {
+				return nil, fmt.Errorf("check %q is reported twice, in %s and %s: keeping either verdict would depend on file order", test.Name, first, path)
+			}
+			reportedIn[test.Name] = path
 		}
 		merged.Tests = append(merged.Tests, run.Tests...)
 	}

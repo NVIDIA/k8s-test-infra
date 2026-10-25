@@ -167,6 +167,10 @@ aicr validate --recipe recipe.yaml --phase deployment --phase conformance --phas
 failure. The exit code collapses 21 checks into one number, so read the CTRF report, never the exit
 code.
 
+Every `*.json` report in a cell's `ctrf/` directory is merged, so phases may be split across files,
+but each check must appear in exactly one of them. The harness rejects a check reported twice rather
+than let file order pick the verdict: move a superseded report out of `ctrf/` before classifying.
+
 ### 4. Classify
 
 ```bash
