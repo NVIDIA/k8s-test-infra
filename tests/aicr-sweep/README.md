@@ -81,6 +81,7 @@ Each invariant has a test that goes red if it regresses.
    hardware-dependent check cannot legitimately pass without hardware.
    (`TestBucketCPassUnderSimIsFlaggedSuspect`)
 4. Every emitted record carries `provenance`, `sim` or `silicon`. They are never conflated.
+   (`TestEveryRecordCarriesProvenance`)
 5. A bucket-G row without a tracked gap issue fails catalog validation. An untracked gap is not a
    roadmap. (`TestCatalogRejectsBucketGWithoutIssue`)
 6. A check present in the run but absent from the catalog is reported as catalog drift rather than

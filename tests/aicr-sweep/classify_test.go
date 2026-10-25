@@ -108,6 +108,29 @@ func TestBlockedCellMarksEveryCheckWithCause(t *testing.T) {
 	}
 }
 
+// Invariant 4: every record says whether its evidence came from simulation or
+// from silicon, on every path through Classify. A record with no provenance
+// cannot be told apart from a silicon result.
+func TestEveryRecordCarriesProvenance(t *testing.T) {
+	t.Parallel()
+
+	run := &RunResults{Tests: []RunTest{{Name: "a-gpu", Status: "passed"}}}
+	for _, prov := range []Provenance{ProvenanceSim, ProvenanceSilicon} {
+		cells := map[string]CellResult{
+			"ran":        Classify(testCatalog(), run, Cell{ID: "ran"}, Versions{}, prov, CauseNone, ""),
+			"no-results": Classify(testCatalog(), nil, Cell{ID: "none"}, Versions{}, prov, CauseNone, ""),
+			"blocked":    Classify(testCatalog(), nil, Cell{ID: "blocked"}, Versions{}, prov, CauseBudget, "out of memory"),
+		}
+		for path, res := range cells {
+			assert.Equal(t, prov, res.Provenance, "%s cell", path)
+			require.Len(t, res.Checks, 4, "%s cell", path)
+			for _, c := range res.Checks {
+				assert.Equal(t, prov, c.Provenance, "%s cell, check %q", path, c.Check)
+			}
+		}
+	}
+}
+
 // CauseG does not exist as a Cause on purpose: G is a bucket, not a cause. This
 // helper exists so the assertion above reads clearly and fails to compile if
 // someone later adds a CauseG that would blur the two axes.
