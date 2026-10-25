@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 114 stub functions for unimplemented NVML functions.
+// 129 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceGetInfo_v1
@@ -44,9 +44,19 @@ func nvmlDeviceGetAPIRestriction(device C.nvmlDevice_t, apiType C.nvmlRestricted
 	return stubReturn("nvmlDeviceGetAPIRestriction")
 }
 
+//export nvmlDeviceGetAdaptiveTgpModeInfo_v1
+func nvmlDeviceGetAdaptiveTgpModeInfo_v1(device C.nvmlDevice_t, info *C.nvmlAdaptiveTgpModeInfo_v1_t) C.nvmlReturn_t {
+	return stubReturn("nvmlDeviceGetAdaptiveTgpModeInfo_v1")
+}
+
 //export nvmlDeviceGetAttributes_v1
 func nvmlDeviceGetAttributes_v1(device C.nvmlDevice_t, attributes *C.nvmlDeviceAttributes_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetAttributes_v1")
+}
+
+//export nvmlDeviceGetBankRemapperStatus_v1
+func nvmlDeviceGetBankRemapperStatus_v1(device C.nvmlDevice_t, pBankRemapperStatus *C.nvmlEccBankRemapperStatus_v1_t) C.nvmlReturn_t {
+	return stubReturn("nvmlDeviceGetBankRemapperStatus_v1")
 }
 
 //export nvmlDeviceGetComputeRunningProcesses_v1
@@ -77,6 +87,11 @@ func nvmlDeviceGetDriverModel_v1(device C.nvmlDevice_t, current *C.nvmlDriverMod
 //export nvmlDeviceGetDriverModel_v2
 func nvmlDeviceGetDriverModel_v2(device C.nvmlDevice_t, current *C.nvmlDriverModel_t, pending *C.nvmlDriverModel_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetDriverModel_v2")
+}
+
+//export nvmlDeviceGetGpuFabricInfo_v4
+func nvmlDeviceGetGpuFabricInfo_v4(device C.nvmlDevice_t, gpuFabricInfo *C.nvmlGpuFabricInfo_v4_t) C.nvmlReturn_t {
+	return stubReturn("nvmlDeviceGetGpuFabricInfo_v4")
 }
 
 //export nvmlDeviceGetGpuInstancePossiblePlacements_v1
@@ -117,6 +132,16 @@ func nvmlDeviceGetInforomConfigurationChecksum(device C.nvmlDevice_t, checksum *
 //export nvmlDeviceGetMPSComputeRunningProcesses_v1
 func nvmlDeviceGetMPSComputeRunningProcesses_v1(device C.nvmlDevice_t, infoCount *C.uint, infos *C.nvmlProcessInfo_v1_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetMPSComputeRunningProcesses_v1")
+}
+
+//export nvmlDeviceGetMemoryLimits_v1
+func nvmlDeviceGetMemoryLimits_v1(device C.nvmlDevice_t, limits *C.nvmlGetMemoryLimits_v1_t) C.nvmlReturn_t {
+	return stubReturn("nvmlDeviceGetMemoryLimits_v1")
+}
+
+//export nvmlDeviceGetNvLinkTelemetrySamples_v1
+func nvmlDeviceGetNvLinkTelemetrySamples_v1(device C.nvmlDevice_t, samples *C.nvmlNvlinkTelemetrySamples_v1_t) C.nvmlReturn_t {
+	return stubReturn("nvmlDeviceGetNvLinkTelemetrySamples_v1")
 }
 
 //export nvmlDeviceGetNvLinkUtilizationControl
@@ -214,6 +239,11 @@ func nvmlDeviceGetVgpuUtilization(device C.nvmlDevice_t, lastSeenTimeStamp C.ulo
 	return stubReturn("nvmlDeviceGetVgpuUtilization")
 }
 
+//export nvmlDevicePerfMetricsGetSamples_v1
+func nvmlDevicePerfMetricsGetSamples_v1(device C.nvmlDevice_t, samples *C.nvmlPerfMetricsSamples_v1_t) C.nvmlReturn_t {
+	return stubReturn("nvmlDevicePerfMetricsGetSamples_v1")
+}
+
 //export nvmlDeviceRemoveGpu_v1
 func nvmlDeviceRemoveGpu_v1(pciInfo *C.nvmlPciInfo_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceRemoveGpu_v1")
@@ -222,6 +252,11 @@ func nvmlDeviceRemoveGpu_v1(pciInfo *C.nvmlPciInfo_t) C.nvmlReturn_t {
 //export nvmlDeviceSetAPIRestriction
 func nvmlDeviceSetAPIRestriction(device C.nvmlDevice_t, apiType C.nvmlRestrictedAPI_t, isRestricted C.nvmlEnableState_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceSetAPIRestriction")
+}
+
+//export nvmlDeviceSetAdaptiveTgpMode_v1
+func nvmlDeviceSetAdaptiveTgpMode_v1(device C.nvmlDevice_t, mode C.nvmlEnableState_t) C.nvmlReturn_t {
+	return stubReturn("nvmlDeviceSetAdaptiveTgpMode_v1")
 }
 
 //export nvmlDeviceSetComputeMode
@@ -264,9 +299,19 @@ func nvmlDeviceSetHostname_v1(device C.nvmlDevice_t, hostname *C.nvmlHostname_v1
 	return stubReturn("nvmlDeviceSetHostname_v1")
 }
 
+//export nvmlDeviceSetMemoryLimits_v1
+func nvmlDeviceSetMemoryLimits_v1(device C.nvmlDevice_t, limits *C.nvmlSetMemoryLimits_v1_t) C.nvmlReturn_t {
+	return stubReturn("nvmlDeviceSetMemoryLimits_v1")
+}
+
 //export nvmlDeviceSetNvLinkUtilizationControl
 func nvmlDeviceSetNvLinkUtilizationControl(device C.nvmlDevice_t, link C.uint, counter C.uint, control *C.nvmlNvLinkUtilizationControl_t, reset C.uint) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceSetNvLinkUtilizationControl")
+}
+
+//export nvmlDeviceSetNvlinkBwModeAsync_v1
+func nvmlDeviceSetNvlinkBwModeAsync_v1(device C.nvmlDevice_t, setBwModeAsync *C.nvmlNvlinkSetBwModeAsync_v1_t) C.nvmlReturn_t {
+	return stubReturn("nvmlDeviceSetNvlinkBwModeAsync_v1")
 }
 
 //export nvmlDeviceSetRusdSettings_v1
@@ -312,6 +357,36 @@ func nvmlDeviceValidateInforom(device C.nvmlDevice_t) C.nvmlReturn_t {
 //export nvmlDeviceVgpuForceGspUnload
 func nvmlDeviceVgpuForceGspUnload(device C.nvmlDevice_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceVgpuForceGspUnload")
+}
+
+//export nvmlEventSetGetContextCount_v1
+func nvmlEventSetGetContextCount_v1(set C.nvmlEventSet_t, params *C.nvmlEventSetGetContextCount_v1_t) C.nvmlReturn_t {
+	return stubReturn("nvmlEventSetGetContextCount_v1")
+}
+
+//export nvmlEventSetGetContextData_v1
+func nvmlEventSetGetContextData_v1(set C.nvmlEventSet_t, params *C.nvmlEventSetGetContextData_v1_t) C.nvmlReturn_t {
+	return stubReturn("nvmlEventSetGetContextData_v1")
+}
+
+//export nvmlEventSetGetContextInfo_v1
+func nvmlEventSetGetContextInfo_v1(set C.nvmlEventSet_t, params *C.nvmlEventSetGetContextInfo_v1_t) C.nvmlReturn_t {
+	return stubReturn("nvmlEventSetGetContextInfo_v1")
+}
+
+//export nvmlEventSetGetGpuOperationalEventContextLegacyXid_v1
+func nvmlEventSetGetGpuOperationalEventContextLegacyXid_v1(set C.nvmlEventSet_t, params *C.nvmlEventSetGetGpuOperationalEventContextLegacyXid_v1_t) C.nvmlReturn_t {
+	return stubReturn("nvmlEventSetGetGpuOperationalEventContextLegacyXid_v1")
+}
+
+//export nvmlEventSetRegisterGpuOperationalEvents_v1
+func nvmlEventSetRegisterGpuOperationalEvents_v1(eventSet C.nvmlEventSet_t, config *C.nvmlGpuOperationalEventConfig_v1_t) C.nvmlReturn_t {
+	return stubReturn("nvmlEventSetRegisterGpuOperationalEvents_v1")
+}
+
+//export nvmlEventSetWait_v3
+func nvmlEventSetWait_v3(set C.nvmlEventSet_t, params *C.nvmlEventSetWait_v3_t) C.nvmlReturn_t {
+	return stubReturn("nvmlEventSetWait_v3")
 }
 
 //export nvmlGetVgpuCompatibility
