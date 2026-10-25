@@ -13,7 +13,8 @@ rather than compute on it.
 Four steps, in this order:
 
 1. Create a Kubernetes cluster on the runner — Kind is the usual choice.
-2. Install the Mokka chart, pinned to a version.
+2. Install the Mokka chart: the latest release to start with, then pinned to the
+   release your tests passed against.
 3. Wait for the DaemonSet to be ready.
 4. Run your tests against the cluster.
 
