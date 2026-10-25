@@ -43,10 +43,24 @@ type cellSpec struct {
 	BlockedWhy   string `json:"blockedWhy,omitempty" yaml:"blockedWhy,omitempty"`
 }
 
-// validate rejects a cell whose block would mislead the report. The cause is
-// what keeps a kind artifact or an AICR catalog gap from reading as a Mokka gap,
-// so it must be one the report explains, and a blocked cell must say why.
-func (s cellSpec) validate() error {
+// validate rejects a cell that would mislead the report; i is its position in
+// the cells file.
+//
+// The ID is the cell's results directory, so it must be one path element:
+// "./b" and "a/../b" both read results/b, which would let the duplicate check
+// pass while one run is classified as several cells.
+//
+// The cause is what keeps a kind artifact or an AICR catalog gap from reading as
+// a Mokka gap, so it must be one the report explains, and a blocked cell must
+// say why.
+func (s cellSpec) validate(i int) error {
+	if strings.TrimSpace(s.ID) == "" {
+		return fmt.Errorf("cell %d has no id", i)
+	}
+	if s.ID == "." || s.ID == ".." || strings.ContainsAny(s.ID, "/"+string(filepath.Separator)) {
+		return fmt.Errorf("cell %q must be a single path element: its id names its results directory", s.ID)
+	}
+
 	switch s.BlockedCause {
 	case CauseNone:
 		return nil
@@ -199,8 +213,8 @@ func loadCells(path string) (*cellsDoc, error) {
 	// A cell ID is also its results directory, so a repeated ID would classify
 	// one run as two cells.
 	seen := make(map[string]bool, len(doc.Cells))
-	for _, spec := range doc.Cells {
-		if err := spec.validate(); err != nil {
+	for i, spec := range doc.Cells {
+		if err := spec.validate(i); err != nil {
 			return nil, fmt.Errorf("cells file %s: %w", path, err)
 		}
 		if seen[spec.ID] {
