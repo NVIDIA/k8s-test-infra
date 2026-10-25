@@ -323,6 +323,36 @@ func TestCellsFileRejectsDuplicateIDs(t *testing.T) {
 	require.EqualError(t, err, "cells file "+path+` defines cell "base" twice: a duplicate double-counts in the rollup`)
 }
 
+// The duplicate check compares IDs, so it only protects the rollup if each ID
+// names exactly one directory under -results. "./b" and "a/../b" both read
+// results/b, "." reads the results root, and an empty ID reads results/ctrf.
+func TestCellsFileRejectsIDsThatAreNotOneDirectory(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		cells string
+		want  string
+	}{
+		{"empty", "  - id: \"\"\n", "cell 0 has no id"},
+		{"missing", "  - id: a\n  - shape: stack\n", "cell 1 has no id"},
+		{"dot slash", "  - id: ./b\n", `cell "./b" must be a single path element: its id names its results directory`},
+		{"parent hop", "  - id: a/../b\n", `cell "a/../b" must be a single path element: its id names its results directory`},
+		{"dot", "  - id: .\n", `cell "." must be a single path element: its id names its results directory`},
+		{"dot dot", "  - id: ..\n", `cell ".." must be a single path element: its id names its results directory`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "cells.yaml")
+			require.NoError(t, os.WriteFile(path, []byte("cells:\n"+tc.cells), 0o600))
+
+			_, err := loadCells(path)
+			require.EqualError(t, err, "cells file "+path+": "+tc.want)
+		})
+	}
+}
+
 // A blocked cell's cause is what keeps a kind artifact or an AICR catalog gap from
 // reading as a Mokka gap, so it must be one of the codes the report explains,
 // and the cell must say why it did not run.
