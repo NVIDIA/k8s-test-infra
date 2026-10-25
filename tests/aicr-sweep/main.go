@@ -68,16 +68,9 @@ func run() error {
 		return err
 	}
 
-	data, err := os.ReadFile(*cellsPath) //nolint:gosec // operator-supplied path
+	doc, err := loadCells(*cellsPath)
 	if err != nil {
-		return fmt.Errorf("read cells %s: %w", *cellsPath, err)
-	}
-	var doc cellsDoc
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return fmt.Errorf("parse cells %s: %w", *cellsPath, err)
-	}
-	if len(doc.Cells) == 0 {
-		return fmt.Errorf("cells file %s defines no cells", *cellsPath)
+		return err
 	}
 
 	results := make([]CellResult, 0, len(doc.Cells))
@@ -130,4 +123,20 @@ func run() error {
 	}
 
 	return nil
+}
+
+// loadCells reads the matrix cell definitions.
+func loadCells(path string) (*cellsDoc, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // operator-supplied path
+	if err != nil {
+		return nil, fmt.Errorf("read cells %s: %w", path, err)
+	}
+	var doc cellsDoc
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("parse cells %s: %w", path, err)
+	}
+	if len(doc.Cells) == 0 {
+		return nil, fmt.Errorf("cells file %s defines no cells", path)
+	}
+	return &doc, nil
 }
