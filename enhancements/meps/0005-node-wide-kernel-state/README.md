@@ -96,7 +96,8 @@ needs no allocation at all.
 - crun support in alpha. Only runc 1.2.9 has been exercised. crun is a
   promotion criterion, not an alpha claim.
 - Changing how devices, libraries or IMEX channels are delivered.
-- Loading a real kernel module on CI hosts.
+- Loading a real kernel module on CI hosts. That is MEP-0004's `kernel` mode;
+  see [Alternatives](#alternatives).
 - Creating `/dev/dxg`, which would make a Linux node claim to be WSL.
 - CI canary work against unpinned GPU Operator releases. That is tracked
   separately and deliberately excluded here.
@@ -392,9 +393,21 @@ covers C consumers such as `nvidia-modprobe`. Rejected as the primary fix: it
 cannot reach a statically linked consumer, which is exactly the case in
 [#911][issue-911], and Go consumers issue `openat` directly.
 
-**Load a real dummy `nvidia` kernel module on CI hosts.** Rejected: it puts
-kernel code and per-kernel builds into a test tool, and it cannot run on Docker
-Desktop or managed nodes. It remains viable as an optional CI-only extra.
+**Simulate the driver with custom kernel modules ([#856][pr-856], the PoC of
+[MEP-0004][pr-843]).** Stub `nvidia`, `nvidia_uvm`, `nvidia_modeset` and
+`nvidia_peermem` modules make the kernel itself serve `/proc/modules`,
+`/sys/module` and `/proc/driver/nvidia`, live, to every container. That needs
+no hook, no root at container creation and no `/proc/driver` mirror, reaches
+static and libc-bypassing consumers alike, and has the highest fidelity of any
+option here. Not adopted as this MEP's fix because of the costs MEP-0004 lists
+for it: the modules are built for the running kernel against its distribution
+headers, so Docker Desktop's kernel cannot build them and a macOS Kind cluster
+has to run in a Linux VM; one kernel carries one simulated GPU node; and a bug
+in the stubs can crash the host. MEP-0004 keeps the current `userspace`
+simulation as the default and adds `kernel` as an opt-in mode, so this MEP
+fixes the default mode rather than competing with it. On a `kernel`-mode node
+the procfs tier has nothing to add, and would only mount a staged copy over the
+live `/proc/modules`.
 
 **Create `/dev/dxg` to satisfy the check's second arm.** Rejected: it makes a
 Linux node claim to be WSL, which is a lie with consequences well beyond this
@@ -410,6 +423,8 @@ discards a mechanism that already works, and collapses the two gates into one.
 
 [issue-911]: https://github.com/NVIDIA/k8s-test-infra/issues/911
 [issue-793]: https://github.com/NVIDIA/k8s-test-infra/issues/793
+[pr-843]: https://github.com/NVIDIA/k8s-test-infra/pull/843
+[pr-856]: https://github.com/NVIDIA/k8s-test-infra/pull/856
 [pr-883]: https://github.com/NVIDIA/k8s-test-infra/pull/883
 [pr-884]: https://github.com/NVIDIA/k8s-test-infra/pull/884
 [pr-912]: https://github.com/NVIDIA/k8s-test-infra/pull/912
