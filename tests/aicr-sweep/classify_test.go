@@ -4,6 +4,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -213,6 +215,30 @@ func TestParseCTRFReadsPhaseFromSuite(t *testing.T) {
 	assert.Equal(t, "operator-health", run.Tests[0].Name)
 	assert.Equal(t, "deployment", run.Tests[0].Suite)
 	assert.Equal(t, "passed", run.Tests[0].Status)
+}
+
+// A cell ID names the cell's results directory, so a cells file that repeats an
+// ID classifies the same run twice and double-counts it in the rollup.
+func TestCellsFileRejectsDuplicateIDs(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "cells.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("cells:\n  - id: base\n  - id: other\n  - id: base\n"), 0o600))
+
+	_, err := loadCells(path)
+	require.EqualError(t, err, "cells file "+path+` defines cell "base" twice: a duplicate double-counts in the rollup`)
+}
+
+// Both recorded runs regenerate from these files, so the cell rules must accept
+// them as shipped.
+func TestShippedCellsFilesLoad(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{"cells.yaml", "cells-57ef016.yaml"} {
+		doc, err := loadCells(path)
+		require.NoError(t, err, path)
+		assert.Len(t, doc.Cells, 10, path)
+	}
 }
 
 // The real shipped catalog must satisfy its own validation rules.
