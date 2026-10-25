@@ -18,8 +18,10 @@ YAML configuration takes precedence whenever the library finds a config file.
 The library loads the first of these that applies:
 
 1. The path in `MOCK_NVML_CONFIG`, when set and non-empty.
-2. `<driver root>/config/config.yaml`, when it exists and the loaded
-   `libnvidia-ml.so` sits at `<driver root>/usr/lib64/` (Linux only).
+2. `config/config.yaml` two directories above the directory of a mapped
+   `libnvidia-ml.so`, when that file exists (Linux only, read from
+   `/proc/self/maps`). No directory names are checked; for the mock's
+   `<driver root>/usr/lib64/` layout this is `<driver root>/config/config.yaml`.
 3. `/etc/nvml-mock/config.yaml`, when it exists. The node agent's CDI spec
    mounts the node's config there, so processes that do not inherit
    `MOCK_NVML_CONFIG`, such as `kubectl exec` sessions, still load it.
@@ -37,7 +39,7 @@ library logs a warning and uses them too; it does not try the next entry.
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `MOCK_NVML_CONFIG` | Path to YAML configuration file | (none), see [config file resolution](#config-file-resolution) |
-| `MOCK_MIG_PROFILES_CONFIG` | Path to the board's [MIG profile table](mig.md#declaring-the-profile-table), which lives in a document of its own | (none) — a sibling of `MOCK_NVML_CONFIG` is tried instead |
+| `MOCK_MIG_PROFILES_CONFIG` | Path to the board's [MIG profile table](mig.md#declaring-the-profile-table), which lives in a document of its own | (none), the table beside the [resolved config file](#config-file-resolution) is tried instead (see [where the table lives](mig.md#where-the-table-lives)) |
 | `MOCK_NVML_NUM_DEVICES` | Number of GPUs to simulate | 8 |
 | `MOCK_NVML_DRIVER_VERSION` | NVIDIA driver version string | 550.163.01 |
 | `MOCK_NVML_DEBUG` | Enable debug logging (any value) | (disabled) |
