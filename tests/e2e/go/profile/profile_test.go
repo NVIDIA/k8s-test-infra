@@ -61,7 +61,7 @@ func TestDerivations(t *testing.T) {
 	}{
 		{"a100", "NVIDIA A100-SXM4-40GB", 8, 8, 12, true, false, true, 2, 6, false, false, 92, 87, 83, 4, 1410}, // NVSwitch (FabricMgr) but no ComputeDomain fabric block
 		{"h100", "NVIDIA H100 80GB HBM3", 8, 8, 18, true, true, true, 2, 4, true, false, 92, 87, 83, 5, 1980},
-		{"b200", "NVIDIA B200", 8, 8, 0, false, false, true, 2, 0, true, false, 95, 90, 85, 6, 1965}, // NVLink negative control, IB enabled
+		{"b200", "NVIDIA B200", 8, 8, 0, false, false, true, 2, 0, true, false, 95, 90, 85, 5, 1965}, // NVLink negative control, IB enabled
 		{"gb200", "NVIDIA GB200", 4, 4, 18, true, true, true, 2, 0, true, true, 95, 90, 85, 6, 2062}, // one NVL72 compute tray: 2 superchips, 4 GPUs
 		{"gb300", "NVIDIA GB300 NVL", 4, 4, 18, true, true, true, 2, 0, true, true, 95, 90, 85, 6, 2070},
 		{"l40s", "NVIDIA L40S", 8, 0, 0, false, false, false, 2, 0, true, false, 96, 93, 89, 4, 2520}, // IB + NVLink negative control

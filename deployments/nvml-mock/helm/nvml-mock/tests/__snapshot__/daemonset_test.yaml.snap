@@ -322,7 +322,7 @@ should match snapshot with b200 profile:
       template:
         metadata:
           annotations:
-            checksum/config: bfa5f1bbbad7043702f8c7067abedcef50dd41df46d970f0d3afe0675f53c068
+            checksum/config: e28f41ed0e57460590ad7b25c2da4aa57d9e668316804cf6ab2ae9a3f7675cce
             checksum/mig-profiles: 872e4e600afe92907f403d7ba38f14a091ffb356dc113d23c5c136a0284625d1
             kubectl.kubernetes.io/default-container: node-agent
           labels:

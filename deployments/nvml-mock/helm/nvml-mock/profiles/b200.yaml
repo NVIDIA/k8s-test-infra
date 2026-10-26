@@ -75,8 +75,8 @@ device_defaults:
     subsystem_id: 0x199910DE
 
   pcie:
-    max_link_gen: 6                 # PCIe Gen6
-    current_link_gen: 6
+    max_link_gen: 5                 # PCIe Gen5
+    current_link_gen: 5
     max_link_width: 16              # x16
     current_link_width: 16
     replay_counter: 0
