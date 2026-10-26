@@ -1,0 +1,4 @@
+kind: Security
+body: |-
+  ci: repository automation moves to undici 6.29.1, fixing two high-severity denial-of-service advisories (GHSA-4qv8-2p9j-2685, GHSA-xjj6-f33q-929c).
+time: 2026-10-26T12:15:10Z
