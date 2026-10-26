@@ -905,7 +905,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 | **NVLink** | v3, 12 links | v4, 18 links | v5, 18 links | v5, 18 links | v5, 18 links | — | — |
 | **NVLink BW** | 600 GB/s | 900 GB/s | 1.8 TB/s | 1.8 TB/s | 1.8 TB/s | — | — |
 | **TDP** | 400W | 700W | 1,000W | 1,000W | 1,400W | 350W | 70W |
-| **PCIe** | Gen4 | Gen5 | Gen6 | Gen6 | Gen6 | Gen4 | Gen3 |
+| **PCIe** | Gen4 | Gen5 | Gen5 | Gen6 | Gen6 | Gen4 | Gen3 |
 | **MIG instances** | 7 | 7 | 7 | 7 | 7 | 0 | 0 |
 | **Grace CPU** | — | — | — | Yes (NVLink-C2C) | Yes (NVLink-C2C) | — | — |
 | **FP8** | — | Yes | Yes | Yes | Yes | Yes | — |
@@ -917,7 +917,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 
 - **`a100`** — broadest compatibility. Most NVIDIA software assumes A100 in docs and examples. Use it when a test targets Ampere or trips over newer architectures.
 - **`h100`** — testing Hopper-specific features: FP8, Transformer Engine, PCIe Gen5, or NVLink v4 topology.
-- **`b200`** — testing next-gen Blackwell features: FP4, NVLink v5, PCIe Gen6. Standalone GPU (no Grace CPU).
+- **`b200`** — testing next-gen Blackwell features: FP4 and NVLink v5. Standalone GPU (no Grace CPU).
 - **`gb200`** — testing Grace-Blackwell Superchip: NVLink-C2C to Grace CPU, unified memory, and Blackwell features.
 - **`gb300`** (default) — testing Grace-Blackwell Ultra Superchip: 278 GiB HBM3e per GPU, 1.4 kW TDP, and FP6 in addition to FP4/FP8.
 - **`l40s`** — testing Ada Lovelace inference workloads: FP8, PCIe Gen4, no NVLink (PCIe-only topology).
