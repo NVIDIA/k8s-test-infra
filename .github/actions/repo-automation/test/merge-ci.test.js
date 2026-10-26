@@ -13,7 +13,7 @@ const { MAX_API_COLLECTION_ITEMS, MAX_CHANGED_FILES } = require("../src/limits.j
 const HEAD = "a".repeat(40);
 const OLD_HEAD = "b".repeat(40);
 const REPOSITORY = "nvidia/k8s-test-infra";
-const WORKFLOWS = ["basic-checks.yaml", "validate-changelog.yaml", "automation-ci.yml", "helm.yaml", "dependency-integrity.yaml", "fern-docs-ci.yml"];
+const WORKFLOWS = ["basic-checks.yaml", "validate-changelog.yaml", "automation-ci.yml", "helm.yaml", "dependency-integrity.yaml"];
 const requiredCI = loadConfig(path.resolve(__dirname, "../../../..")).policy.merge.requiredCI;
 
 function run(workflow, overrides = {}) {
@@ -291,12 +291,10 @@ test("requires conditional workflows for changed paths and both sides of renames
     ["hack/actionlint.sh", ["automation-ci.yml"]], ["OWNERS", ["automation-ci.yml"]], ["OWNERS_ALIASES", ["automation-ci.yml"]],
     ["deployments/nvml-mock/helm/Chart.yaml", ["helm.yaml"]], ["deployments/mokka-crds/helm/templates/crd.yaml", ["helm.yaml"]],
     ["go.mod", ["dependency-integrity.yaml"]], ["go.sum", ["dependency-integrity.yaml"]],
-    ["docs/general/overview.md", ["fern-docs-ci.yml"]], ["docs/.internal/file.md", ["fern-docs-ci.yml"]],
-    ["fern/docs.yml", ["fern-docs-ci.yml"]], ["tools/check-docs-mdx", ["fern-docs-ci.yml"]],
-    ["docs/guides/install/aws/eks/terraform/main.tf", ["fern-docs-ci.yml"]],
-    ["Makefile", ["automation-ci.yml", "dependency-integrity.yaml", "fern-docs-ci.yml"]],
+    ["Makefile", ["automation-ci.yml", "dependency-integrity.yaml"]],
     [".github/workflows/dependency-integrity.yaml", ["automation-ci.yml", "dependency-integrity.yaml"]],
-    [".github/workflows/fern-docs-ci.yml", ["automation-ci.yml", "fern-docs-ci.yml"]],
+    [".github/workflows/fern-docs-ci.yml", ["automation-ci.yml"]],
+    ["docs/general/overview.md", []], ["fern/docs.yml", []], ["tools/check-docs-mdx", []],
     ["README.md", []], ["deployments/nvml-mock/manifests/deployment.yaml", []], ["hack/other.sh", []],
   ];
   for (const [changedPath, required] of cases) {

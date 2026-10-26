@@ -34,8 +34,6 @@ merge:
         files: ["deployments/nvml-mock/helm/**", "deployments/mokka-crds/helm/**"]
       - path: .github/workflows/dependency-integrity.yaml
         files: [go.mod, go.sum, Makefile, .github/workflows/dependency-integrity.yaml]
-      - path: .github/workflows/fern-docs-ci.yml
-        files: ["docs/**", "fern/**", "tools/**", Makefile, .github/workflows/fern-docs-ci.yml]
     checks:
       - name: DCO
         appId: 1861
