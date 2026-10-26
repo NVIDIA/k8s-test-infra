@@ -80,12 +80,6 @@ Each worker gets a fixed node name, so the topology in Step 2 can refer to it.
 cat > kind.yaml <<'EOF'
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
-containerdConfigPatches:
-  - |-
-    [plugins."io.containerd.nri.v1.nri"]
-      disable = false
-      disable_connections = false
-      socket_path = "/var/run/nri/nri.sock"
 nodes:
   - role: control-plane
   - role: worker
@@ -122,8 +116,7 @@ nodes:
           name: worker-3
 EOF
 
-kind create cluster --name topograph --config kind.yaml \
-  --image ghcr.io/nvidia/mokka-kind-node:latest
+kind create cluster --name topograph --config kind.yaml
 ```
 
 `mokka.nvidia.com/type=sgpu` marks the simulated-GPU workers. Mokka and
