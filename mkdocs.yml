@@ -1,0 +1,172 @@
+# Copyright 2026 NVIDIA CORPORATION
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+site_name: Mokka
+site_description: Simulate your GPU infrastructure on CPU nodes.
+site_url: https://nvidia.github.io/k8s-test-infra/
+site_author: NVIDIA CORPORATION
+copyright: Copyright &copy; 2026 NVIDIA CORPORATION
+
+repo_url: https://github.com/NVIDIA/k8s-test-infra
+repo_name: NVIDIA/k8s-test-infra
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+
+# Internal design notes and working plans live under docs/ but are not part of
+# the published site. Listing them here drops them from the build entirely, so
+# --strict does not then fail them for being absent from the nav.
+exclude_docs: |
+  plans/
+  superpowers/
+
+theme:
+  name: material
+  logo: img/logo.png
+  favicon: img/logo.png
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.action.edit
+
+extra_css:
+  - stylesheets/extra.css
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  # The docs were written to render on GitHub, so anchors inside them use
+  # GitHub's slug scheme. pymdownx's slugify reproduces it, which keeps every
+  # existing intra-document anchor link working.
+  - toc:
+      permalink: true
+      slugify: !!python/object/apply:pymdownx.slugs.slugify {kwds: {case: lower}}
+      separator: "-"
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.snippets
+  # The custom_fences entry is what makes ```mermaid render; without it the
+  # block reaches the page as literal text.
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+
+# Three spaces, not one tab per topic. `navigation.tabs` promotes every
+# top-level entry to a tab, and seven of them made the reader guess whether a
+# task lived under Guides, Demos or Integrations — all three answered the same
+# question. General is for learning and operating, Guides for doing something
+# specific, Contributing for changing Mokka.
+nav:
+  - General:
+      - Overview: index.md
+      - Getting Started:
+          - Quick Start: quickstart.md
+          - Installation: helm-chart.md
+      - Architecture:
+          - Overview: architecture.md
+          - Mokka Control Plane: control-plane.md
+          - Node Daemon: components/node-daemon.md
+          - Libraries and Shims: components/libraries-and-shims.md
+          - NRI Plugin: components/nri-plugin.md
+      - Reference:
+          - Configuration: configuration.md
+          - Feature Gates: feature-gates.md
+          - MIG: mig.md
+          - vGPU: vgpu.md
+          - Helm Chart Values: helm-chart-values.md
+          - Control Plane API: crd-reference.md
+          # The pages stay under docs/tools/ because hack/check-docs-tools-sync.sh
+          # scans that directory to hold them in step with cmd/. The nav label is
+          # what places them, not the path.
+          - Command-Line Tools:
+              - Overview: tools/README.md
+              - control-plane: tools/control-plane.md
+              - node-agent: tools/node-agent.md
+              - nri-plugin: tools/nri-plugin.md
+          - Support Policy: support-policy.md
+      - Troubleshooting: troubleshooting.md
+      - FAQ: faq.md
+  - Guides:
+      - Overview: guides/README.md
+      - Scenarios:
+          - NVIDIA Device Plugin: guides/device-plugin.md
+          - Node Feature Discovery: guides/nfd.md
+          - Amazon EKS: guides/install/aws/eks/README.md
+          - NVIDIA DRA Driver: guides/dra.md
+          - NVIDIA GPU Operator: guides/gpu-operator.md
+          - NVIDIA Dynamo: guides/dynamo/README.md
+          - Slinky (Slurm): guides/slinky/README.md
+          - Compute Domain: guides/compute-domain/README.md
+          - NVSentinel: guides/nv-sentinel/README.md
+          - Run.ai Fake GPU Operator: guides/runai-fgo/README.md
+          - Topograph: guides/topograph/README.md
+      - Tasks:
+          - Set Up NRI Injection: guides/nri-injection.md
+          - MIG Partitioning: guides/mig/README.md
+          - vGPU Host and Guest: guides/vgpu/README.md
+          - Failure Injection: guides/failure-injection/README.md
+          - Use in CI/CD: guides/ci-cd.md
+          - Runtime Control: nvml-mock-ctl.md
+  - Contributing:
+      - Overview: contributing/index.md
+      - Local Development: contributing/local-development.md
+      - Testing: contributing/testing.md
+      - Gating New Behavior: contributing/feature-gates.md
+      - Tools:
+          - check-fabric: tools/check-fabric.md
+          - generate-bridge: tools/generate-bridge.md
+      - Enhancement Proposals: contributing/enhancements.md
+      - Pull Requests: contributing/pull-requests.md
+      - Repository Automation: maintainers/repository-automation.md

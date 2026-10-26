@@ -526,14 +526,12 @@ Providing IMEX later is enough. Setting `imex.binaries.image`, or turning
 `IMEXDownload` on, restarts the node pods, which then stage it. Restart the DRA
 kubelet plugin afterwards, as in step 6, so it reads the IMEX binaries again.
 
-> [!WARNING]
-> **Not supported: host-managed IMEX**
->
-> The DRA driver can also leave IMEX to the node,
-> `resources.computeDomains.imex.mode=hostManaged`, where the node operator
-> runs the IMEX daemon on the host. Mokka does not support that mode: it
-> stages IMEX for the driver's own daemon pods and runs no IMEX daemon on the
-> host. Keep the driver's default mode.
+!!! warning "Not supported: host-managed IMEX"
+    The DRA driver can also leave IMEX to the node,
+    `resources.computeDomains.imex.mode=hostManaged`, where the node operator
+    runs the IMEX daemon on the host. Mokka does not support that mode: it
+    stages IMEX for the driver's own daemon pods and runs no IMEX daemon on the
+    host. Keep the driver's default mode.
 
 ## Topology layout
 

@@ -109,4 +109,4 @@ you are testing — `t4` presents four GPUs instead of eight.
 | Every chart value               | [Installation](../helm-chart.md)                 |
 | What a profile defines          | [Configuration](../configuration.md)             |
 | Changing GPU state mid-job      | [Runtime Control](../nvml-mock-ctl.md)           |
-| A failure-injection walkthrough | [Failure injection](https://github.com/NVIDIA/k8s-test-infra/blob/main/docs/guides/failure-injection/README.md) |
+| A failure-injection walkthrough | [Failure injection](failure-injection/README.md) |

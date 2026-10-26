@@ -274,18 +274,15 @@ The node agent refuses an invalid block and does not become ready, logging the
 field as a `state source error`. The library rejects the same config and falls
 back to its built-in defaults with a warning.
 
-<Note>
-**Not simulated**
-
-- The host's mdev and SR-IOV sysfs surfaces.
-- MIG-backed vGPU types, and so a host with MIG mode on.
-- Creating or destroying instances at runtime.
-- Shipped vGPU type catalogues: an install declares its types.
-- Charging the instances' framebuffer against the physical GPU's memory.
-- Scheduler, placement and heterogeneous-mode APIs.
-- `nvmlGetVgpuVersion` and `nvmlSetVgpuVersion`.
-- vGPU metadata and migration compatibility.
-- Every `Set*` call.
-- `nvmlDeviceGetGridLicensableFeatures` v1–v3.
-- KubeVirt or any other VM manager.
-</Note>
+!!! note "Not simulated"
+    - The host's mdev and SR-IOV sysfs surfaces.
+    - MIG-backed vGPU types, and so a host with MIG mode on.
+    - Creating or destroying instances at runtime.
+    - Shipped vGPU type catalogues: an install declares its types.
+    - Charging the instances' framebuffer against the physical GPU's memory.
+    - Scheduler, placement and heterogeneous-mode APIs.
+    - `nvmlGetVgpuVersion` and `nvmlSetVgpuVersion`.
+    - vGPU metadata and migration compatibility.
+    - Every `Set*` call.
+    - `nvmlDeviceGetGridLicensableFeatures` v1–v3.
+    - KubeVirt or any other VM manager.

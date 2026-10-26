@@ -38,15 +38,13 @@ AWS support statement. When updating Kubernetes or the AL2023 release, repeat
 the neutral-workload test rather than assuming the runtime configuration is
 unchanged.
 
-<Warning>
-**Use a test AWS account**
+!!! warning "Use a test AWS account"
 
-The optional Terraform configuration creates IAM roles, networking, an EKS
-cluster, and EC2 instances. Use an isolated account or obtain approval for
-those resources. The `aws_account_id` variable prevents an accidental
-apply to a different account, but it is not a substitute for
-least-privilege IAM.
-</Warning>
+    The optional Terraform configuration creates IAM roles, networking, an EKS
+    cluster, and EC2 instances. Use an isolated account or obtain approval for
+    those resources. The `aws_account_id` variable prevents an accidental
+    apply to a different account, but it is not a substitute for
+    least-privilege IAM.
 
 ## Prerequisites
 
@@ -129,17 +127,15 @@ newer. Your AWS identity needs permission to manage EKS, EC2 networking and
 instances, IAM roles, Key Management Service (KMS) keys, and CloudWatch log
 groups. A production account should use narrowly scoped permissions.
 
-<Warning>
-**Cluster-creator access is only for the reference cluster**
+!!! warning "Cluster-creator access is only for the reference cluster"
 
-The template sets `enable_cluster_creator_admin_permissions = true`. The
-EKS module creates an access entry that grants the Terraform caller the
-`AmazonEKSClusterAdminPolicy`, which provides full cluster-admin access.
-This keeps a disposable test cluster operable by the person who creates it;
-it is not a recommended production access model. Production deployments
-should manage access entries explicitly and grant each operator or role
-only the permissions it needs.
-</Warning>
+    The template sets `enable_cluster_creator_admin_permissions = true`. The
+    EKS module creates an access entry that grants the Terraform caller the
+    `AmazonEKSClusterAdminPolicy`, which provides full cluster-admin access.
+    This keeps a disposable test cluster operable by the person who creates it;
+    it is not a recommended production access model. Production deployments
+    should manage access entries explicitly and grant each operator or role
+    only the permissions it needs.
 
 Download the Terraform assets:
 

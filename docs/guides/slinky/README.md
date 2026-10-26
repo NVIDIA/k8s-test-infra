@@ -33,12 +33,9 @@ visible inside the `slurmd` container. runc does not allow mounts inside
 `/proc`, so `libmockfs.so` intercepts those reads instead; see
 [Libraries and Shims](../../components/libraries-and-shims.md#libmockfs).
 
-<Note>
-**Requires nvml-mock 0.5.0 or newer**
-
-Earlier releases do not serve the driver files above. `slurmd` then finds no
-GPUs, and every node registers with `Gres=(null)`.
-</Note>
+!!! note "Requires nvml-mock 0.5.0 or newer"
+    Earlier releases do not serve the driver files above. `slurmd` then finds no
+    GPUs, and every node registers with `Gres=(null)`.
 
 ## Prerequisites
 
@@ -244,6 +241,20 @@ fewer than the pod requests. Check `kubectl -n gpu-operator get pods` and
 compare the allocatable count from Step 3 with the NodeSet's limit.
 
 More symptoms in [Troubleshooting](../../troubleshooting.md).
+
+## Running it from a checkout
+
+With the repository cloned, the Tilt environment builds Mokka from source and
+runs this same stack, with SSH into the `slurmd` pods enabled. Tilt reports
+ready only once every `slurmd` pod is `Ready`, and it prints `sinfo` once
+they are:
+
+```bash
+make cluster-create
+tilt up -- --slinky
+```
+
+See [Local Development](../../contributing/local-development.md#adding-consumers).
 
 ## Clean up
 

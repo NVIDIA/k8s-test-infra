@@ -137,7 +137,7 @@ tests:
       - notMatchRegexRaw:
           pattern: "Verified in CI"
       - matchRegexRaw:
-          pattern: "guides/scenarios/nvidia-gpu-operator"
+          pattern: "guides/gpu-operator/"
       - matchRegexRaw:
           pattern: "docs/guides/with-gpu-operator/"
 

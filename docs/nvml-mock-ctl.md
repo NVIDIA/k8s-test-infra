@@ -262,7 +262,8 @@ Two node-level requirements, neither of which the mock can arrange for itself:
 On a Kind cluster the kernel line is not node-local. The kernel ring buffer is
 not namespaced, so every node container on a host shares the machine's: an Xid
 written on one node is in `dmesg` on all of them, and on the host. Ingest it on
-one node only, or every node's monitor reports the same fault and a remediator quarantines nodes
+one node only (the NVSentinel demo's `run.sh` configures a single worker), or
+every node's monitor reports the same fault and a remediator quarantines nodes
 whose GPUs are fine. Real nodes each have their own kernel, so this is an
 artifact of sharing a host, not something a consumer needs to handle.
 
