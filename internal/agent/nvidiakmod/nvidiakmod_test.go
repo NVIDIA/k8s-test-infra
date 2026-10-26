@@ -206,6 +206,31 @@ func TestDiscardLeavesTheGPUsPluggedIn(t *testing.T) {
 	sim.sync(0, &failure)
 	require.NoError(t, sim.Discard(t.Context()))
 
-	require.NoDirExists(t, h.RootPath(kmod.StagedDir))
 	require.Equal(t, "1\n", readFile(t, filepath.Join(root, kmod.HardwareGPUsDir, "0000:0a:00.0", kmod.GPULive)))
+}
+
+// A driver container binds the staged tree when it starts and holds that
+// directory across an agent restart, so the next agent has to stage into the
+// same directory for the container's next module load to find the loader.
+func TestDiscardEmptiesTheTreeInPlace(t *testing.T) {
+	t.Parallel()
+
+	h := host.New(t.TempDir())
+	sim := New(h)
+	require.NoError(t, sim.Stage(t.Context(), twoGPUs()))
+
+	dir := h.RootPath(kmod.StagedDir)
+	held, err := os.Stat(dir)
+	require.NoError(t, err)
+
+	require.NoError(t, sim.Discard(t.Context()))
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Empty(t, entries, "a driver container created now must find nothing staged")
+
+	require.NoError(t, New(h).Stage(t.Context(), twoGPUs()))
+	restaged, err := os.Stat(dir)
+	require.NoError(t, err)
+	require.True(t, os.SameFile(held, restaged), "the next agent stages into the directory the container holds")
+	require.FileExists(t, filepath.Join(dir, kmod.LoaderName))
 }

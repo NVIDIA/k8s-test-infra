@@ -22,6 +22,7 @@
 package nvidiakmod_test
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"os"
@@ -30,6 +31,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"unsafe"
 
@@ -221,21 +223,23 @@ func loadNvidia(t *testing.T, params string) {
 }
 
 // insertHardware inserts mokka.ko with no GPUs, as the loader does on a first
-// driver load, and registers the teardown that unplugs whatever the test
-// plugged in and removes the module. A GPU directory pins mokka.ko, so the
-// directories go first.
+// driver load, and registers its removal.
 func insertHardware(t *testing.T) {
 	t.Helper()
 
 	require.NoError(t, insmod(t, "mokka", ""))
-	t.Cleanup(func() {
-		gpus, _ := os.ReadDir(filepath.Join(hardwareRoot, "gpus"))
-		for _, gpu := range gpus {
-			// rmdir of a live GPU unplugs it first.
-			_ = os.Remove(filepath.Join(hardwareRoot, "gpus", gpu.Name()))
-		}
-		_ = rmmod("mokka")
-	})
+	t.Cleanup(removeHardware)
+}
+
+// removeHardware unplugs whatever the test plugged in and removes mokka.ko. A
+// GPU directory pins mokka.ko, so the directories go first.
+func removeHardware() {
+	gpus, _ := os.ReadDir(filepath.Join(hardwareRoot, "gpus"))
+	for _, gpu := range gpus {
+		// rmdir of a live GPU unplugs it first.
+		_ = os.Remove(filepath.Join(hardwareRoot, "gpus", gpu.Name()))
+	}
+	_ = rmmod("mokka")
 }
 
 // loadHardware inserts mokka.ko and describes gpus to it as the node agent
@@ -267,6 +271,15 @@ func writeHardware(t *testing.T, attr, value string) {
 	t.Helper()
 
 	require.NoError(t, os.WriteFile(filepath.Join(hardwareRoot, attr), []byte(value+"\n"), 0o600))
+}
+
+// requirePlatformDevice asserts that the platform bus lists the device. Its
+// entries are symlinks, which require.DirExists does not follow.
+func requirePlatformDevice(t *testing.T, name string, msgAndArgs ...any) {
+	t.Helper()
+
+	_, err := os.Stat(filepath.Join("/sys/bus/platform/devices", name))
+	require.NoError(t, err, msgAndArgs...)
 }
 
 func readSysModule(t *testing.T, module, attr string) string {
@@ -561,7 +574,7 @@ func TestProcfsRemovedOnUnload(t *testing.T) {
 
 	_, err := os.Stat("/proc/driver/nvidia")
 	require.ErrorIs(t, err, os.ErrNotExist, "procfs tree must be gone")
-	require.DirExists(t, "/sys/bus/platform/devices/nvidia-gpu.0", "the GPU outlives its driver")
+	requirePlatformDevice(t, "nvidia-gpu.0", "the GPU outlives its driver")
 }
 
 // TestVersionHandshake covers the first ioctl every driver client issues. A
@@ -721,7 +734,7 @@ func TestGPUsOutliveTheDriver(t *testing.T) {
 
 	require.NoError(t, insmod(t, "nvidia", ""))
 	require.NoError(t, rmmod("nvidia"))
-	require.DirExists(t, "/sys/bus/platform/devices/nvidia-gpu.1")
+	requirePlatformDevice(t, "nvidia-gpu.1")
 
 	loadNvidia(t, "")
 	require.FileExists(t, "/proc/driver/nvidia/gpus/0000:0b:00.0/information")
@@ -826,4 +839,77 @@ func TestLoaderWaitsForTheGPUs(t *testing.T) {
 	require.DirExists(t, "/sys/module/mokka", "the loader inserted the hardware")
 	_, err = os.Stat("/sys/module/nvidia")
 	require.ErrorIs(t, err, os.ErrNotExist, "no driver without its GPUs")
+}
+
+// TestLoaderLoadsOnceTheGPUsAreDescribed is a first load with a node agent: the
+// agent describes the GPUs once it sees the mokka.ko the loader inserted, and
+// the loader, already waiting, loads a driver that comes up with them.
+func TestLoaderLoadsOnceTheGPUsAreDescribed(t *testing.T) {
+	requireLoadable(t)
+
+	modprobe, err := exec.LookPath("modprobe")
+	if err != nil {
+		t.Skip("modprobe not found")
+	}
+
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+	confPath := filepath.Join(t.TempDir(), "mokka-nvidia.conf")
+	require.NoError(t, os.WriteFile(confPath, []byte(nvidiakmod.ModprobeConf(wd)), 0o600))
+
+	t.Cleanup(func() {
+		_ = rmmod("nvidia")
+		removeHardware()
+	})
+
+	// Once modprobe has started, only it and the loader hold the write end, so
+	// reading ends when they have all exited.
+	out, w, err := os.Pipe()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = out.Close() })
+
+	cmd := exec.Command(modprobe, "-C", confPath, "nvidia")
+	cmd.Env = append(os.Environ(), "DRIVER_VERSION=580.126.20", "MOKKA_KMOD_BUILD_DIR="+t.TempDir())
+	cmd.Stdout, cmd.Stderr = w, w
+	// modprobe runs the loader in a shell of its own, which killing modprobe
+	// alone would leave running.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	require.NoError(t, cmd.Start())
+	require.NoError(t, w.Close())
+
+	// Registered after the teardown, so it runs first: a loader left waiting
+	// would load nvidia once mokka.ko is gone, since an unreadable generation
+	// ends its wait as a description does.
+	t.Cleanup(func() {
+		if cmd.ProcessState == nil {
+			_ = unix.Kill(-cmd.Process.Pid, unix.SIGKILL)
+			_ = cmd.Wait()
+		}
+	})
+
+	// The GPUs are described only once the loader reports that it waits.
+	// Described earlier, they could reach mokka.ko before the loader first
+	// looks, and the test would pass without the loader ever waiting.
+	var output strings.Builder
+	lines := bufio.NewScanner(out)
+	waiting := false
+	for !waiting && lines.Scan() {
+		output.WriteString(lines.Text() + "\n")
+		waiting = strings.Contains(lines.Text(), "waiting for the node agent")
+	}
+	require.True(t, waiting, "the loader never waited for the GPUs:\n%s", output.String())
+
+	for _, gpu := range testGPUs {
+		plugGPU(t, gpu)
+	}
+	writeHardware(t, "generation", "1")
+
+	for lines.Scan() {
+		output.WriteString(lines.Text() + "\n")
+	}
+	require.NoError(t, cmd.Wait(), "modprobe nvidia:\n%s", output.String())
+
+	for _, gpu := range testGPUs {
+		require.FileExists(t, "/proc/driver/nvidia/gpus/"+gpu.busID+"/information")
+	}
 }

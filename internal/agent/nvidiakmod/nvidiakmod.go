@@ -104,15 +104,18 @@ func (s *Simulator) Stage(ctx context.Context, state *agent.State) error {
 	return nil
 }
 
-// Discard removes the staged tree. The GPUs stay described in the kernel: a
-// GPU stays plugged in while the software around it restarts, and the next
-// agent takes the description over from there.
+// Discard empties the staged tree but keeps its directory. A running driver
+// container holds the directory as a bind mount; removed, it would stay empty
+// for that container while the next agent stages a new one at the same path.
+// The GPUs stay described in the kernel: a GPU stays plugged in while the
+// software around it restarts, and the next agent takes the description over
+// from there.
 func (s *Simulator) Discard(_ context.Context) error {
 	zap.L().Info("discarding simulator", zap.String("simulator", name))
 
 	dir := s.host.RootPath(kmod.StagedDir)
-	if err := os.RemoveAll(dir); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove %s: %w", dir, err)
+	if err := fsutil.PruneDir(dir, func(string) bool { return false }); err != nil {
+		return fmt.Errorf("empty %s: %w", dir, err)
 	}
 
 	return nil

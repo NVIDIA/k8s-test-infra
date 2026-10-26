@@ -270,8 +270,11 @@ the userspace-only install the container runs over a driver it keeps loaded.
 **A running driver container keeps the mock NVML it started with.** The
 library, the linker directive and the install directives are single-file binds,
 which hold on to the file staged when the container was created. The node agent
-replaces files rather than rewriting them, so an agent upgrade reaches a driver
-container only once that container is recreated.
+replaces files rather than rewriting them, so an agent upgrade reaches these
+only once the container is recreated. The module tree is bound as a directory
+instead, which the agent empties when it stops and refills when it starts: the
+container's next module load runs the current agent's loader, and fails while
+no agent runs.
 
 **Only Ubuntu driver images are exercised.** The mock's bind sits at
 `/usr/lib64/libnvidia-ml.so.1`, where RHEL-family images install NVML
