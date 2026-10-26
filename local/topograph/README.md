@@ -84,7 +84,7 @@ The node observer regenerates the topology whenever a
    no label until the broker restarts. `topograph.tiltfile` orders the two;
    outside Tilt, run
    `kubectl -n topograph rollout restart ds/topograph-node-data-broker`.
-3. **The chart version and the values layout.** Chart 1.0.0 reads top-level
+3. **The chart version and the values layout.** Chart 1.1.0 reads top-level
    `provider` and `engine`, and ignores keys it does not know, such as the
    `global.provider` this file used before. Values it ignores leave it on its
    default `test` provider, with no error. `_CHART_VERSION` in
