@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  nvml-mock: Blackwell profiles report power smoothing in nvidia-smi -q, and nvidia-smi power-smoothing can enable it, switch presets and tune them; see the configuration reference for power.smoothing.
+time: 2026-10-20T14:07:30Z
+custom:
+  Issue: "1044"

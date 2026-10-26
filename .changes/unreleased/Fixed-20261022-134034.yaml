@@ -1,0 +1,6 @@
+kind: Fixed
+body: |-
+  nvml-mock: an `accounting` block under `devices:` now takes effect; the device used to keep the `device_defaults` accounting settings.
+time: 2026-10-22T11:40:34Z
+custom:
+  Issue: "1038"

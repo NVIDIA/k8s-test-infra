@@ -325,11 +325,107 @@ func TestSetLockedClocks_ResetMasksAnInheritedLock(t *testing.T) {
 	require.Equal(t, &lock, resolve(1).LockedGraphics, "the other GPUs keep the inherited lock")
 }
 
+// TestPowerPolicySetters_ShareThePowerBlock resolves the document the way the
+// running mock does. A power cap, the PowerMizer mode and every smoothing write
+// land in one power block, and tuning one preset parameter keeps the rest of
+// the preset and the other presets the profile declares.
+func TestPowerPolicySetters_ShareThePowerBlock(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+
+	require.NoError(t, SetPowerLimit(path, 0, 400_000))
+	require.NoError(t, SetPowerMizerMode(path, 0, "prefer_maximum_performance"))
+	require.NoError(t, SetPowerSmoothingState(path, 0, true))
+	require.NoError(t, SetPowerSmoothingActiveProfile(path, 0, 2))
+	require.NoError(t, SetPowerSmoothingProfileParam(path, 0, 1, engine.PowerSmoothingParamRampUpRate, 30000))
+	require.NoError(t, SetPowerSmoothingProfileParam(path, 0, 1, engine.PowerSmoothingParamRampDownHysteresis, 250))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	overrides := &engine.ConfigOverrideDoc{All: doc.All, Devices: doc.Devices}
+	profile := &engine.DeviceConfig{Power: &engine.PowerConfig{
+		Smoothing: &engine.PowerSmoothingConfig{Profiles: map[uint32]engine.PowerSmoothingProfileConfig{
+			1: {PercentTMPFloor: 40},
+			3: {RampDownRateMWPerS: 5000},
+		}},
+	}}
+	merged, err := engine.MergeDeviceConfig(profile, overrides.DeviceConfigOverride(0))
+	require.NoError(t, err)
+	require.Equal(t, &engine.PowerConfig{
+		EnforcedLimitMW: 400_000,
+		PowerMizerMode:  "prefer_maximum_performance",
+		Smoothing: &engine.PowerSmoothingConfig{
+			State:         "enabled",
+			ActiveProfile: 2,
+			Profiles: map[uint32]engine.PowerSmoothingProfileConfig{
+				1: {PercentTMPFloor: 40, RampUpRateMWPerS: 30000, RampDownHysteresisMS: 250},
+				3: {RampDownRateMWPerS: 5000},
+			},
+		},
+	}, merged.Power)
+}
+
+func TestPowerPolicySetters_FailWithoutADocumentPath(t *testing.T) {
+	t.Parallel()
+	require.Error(t, SetPowerMizerMode("", 0, "auto"))
+	require.Error(t, SetPowerSmoothingState("", 0, true))
+	require.Error(t, SetPowerSmoothingActiveProfile("", 0, 1))
+	require.Error(t, SetPowerSmoothingProfileParam("", 0, 1, engine.PowerSmoothingParamPercentTMPFloor, 50))
+}
+
 func TestClockSetters_FailWithoutADocumentPath(t *testing.T) {
 	t.Parallel()
 	require.Error(t, SetApplicationsClocks("", 0, 1593, 1410))
 	require.Error(t, SetLockedClocks("", 0, engine.ClockDomainGraphics, nil))
 	require.Error(t, SetClockOffset("", 0, engine.ClockDomainGraphics, 0))
+}
+
+// TestAccountingSetters_ResolveThroughTheEngine checks the accounting writes
+// against a profile that already declares terminated records, by merging the
+// document the way the running mock does. The records come from the profile,
+// so a clear has to record an empty list that outranks them, and enabling the
+// mode afterwards must not bring them back.
+func TestAccountingSetters_ResolveThroughTheEngine(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+	profile := &engine.DeviceConfig{Accounting: &engine.AccountingConfig{
+		Mode:       "disabled",
+		BufferSize: 4000,
+		Terminated: []engine.AccountedProcessConfig{{PID: 300, TimeMS: 1000}},
+	}}
+
+	require.NoError(t, ClearAccountingPids(path, 0))
+	require.NoError(t, SetAccountingMode(path, 0, true))
+	require.NoError(t, SetAccountingMode(path, 1, true))
+	require.NoError(t, SetAccountingMode(path, 2, false))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	overrides := &engine.ConfigOverrideDoc{All: doc.All, Devices: doc.Devices}
+	resolve := func(index int) *engine.AccountingConfig {
+		merged, err := engine.MergeDeviceConfig(profile, overrides.DeviceConfigOverride(index))
+		require.NoError(t, err)
+		return merged.Accounting
+	}
+
+	cleared := resolve(0)
+	require.Equal(t, "enabled", cleared.Mode, "the mode write kept the earlier clear")
+	require.Empty(t, cleared.Terminated, "the clear outranks the profile's records")
+	require.Equal(t, 4000, cleared.BufferSize, "neither write touches the buffer size")
+
+	enabled := resolve(1)
+	require.Equal(t, "enabled", enabled.Mode)
+	require.Len(t, enabled.Terminated, 1, "enabling accounting keeps what the driver holds")
+
+	disabled := resolve(2)
+	require.Equal(t, "disabled", disabled.Mode)
+	require.Empty(t, disabled.Terminated, "disabling accounting clears its records")
+}
+
+func TestAccountingSetters_FailWithoutADocumentPath(t *testing.T) {
+	t.Parallel()
+	require.Error(t, SetAccountingMode("", 0, true))
+	require.Error(t, ClearAccountingPids("", 0))
 }
 
 func TestSetters_DoNotDisturbOtherDevices(t *testing.T) {

@@ -45,9 +45,10 @@ var functionRegistry = map[string]FunctionVersion{
 
 	// 510.x additions
 	"nvmlDeviceGetMemoryInfo_v2":               {Added: "510.0"},
-	"nvmlDeviceGetComputeRunningProcesses_v3":  {Added: "510.0"},
-	"nvmlDeviceGetGraphicsRunningProcesses_v3": {Added: "510.0"},
-	"nvmlDeviceGetGspFirmwareMode":             {Added: "510.0"},
+	"nvmlDeviceGetComputeRunningProcesses_v3":    {Added: "510.0"},
+	"nvmlDeviceGetGraphicsRunningProcesses_v3":   {Added: "510.0"},
+	"nvmlDeviceGetMPSComputeRunningProcesses_v3": {Added: "510.0"},
+	"nvmlDeviceGetGspFirmwareMode":               {Added: "510.0"},
 
 	// 515.x additions. The fan family arrived in three driver branches, and
 	// the split is worth keeping: a consumer built against a 570 header and
@@ -73,6 +74,7 @@ var functionRegistry = map[string]FunctionVersion{
 	"nvmlGpmSampleAlloc":        {Added: "535.0"},
 	"nvmlGpmSampleFree":         {Added: "535.0"},
 	"nvmlGpmSampleGet":          {Added: "535.0"},
+	"nvmlGpmMigSampleGet":       {Added: "535.0"},
 	"nvmlGpmMetricsGet":         {Added: "535.0"},
 
 	// 555.x additions
@@ -99,7 +101,14 @@ var functionRegistry = map[string]FunctionVersion{
 	"nvmlDeviceWorkloadPowerProfileClearRequestedProfiles": {Added: "570.0"},
 	"nvmlDeviceWorkloadPowerProfileUpdateProfiles_v1":      {Added: "570.0"},
 
+	// Power smoothing is the same split: Blackwell in the profile, 570 here.
+	"nvmlDevicePowerSmoothingSetState":                 {Added: "570.0"},
+	"nvmlDevicePowerSmoothingActivatePresetProfile":    {Added: "570.0"},
+	"nvmlDevicePowerSmoothingUpdatePresetProfileParam": {Added: "570.0"},
+
 	// 580.x / NVML 13.0 additions
+	"nvmlDeviceGetPowerMizerMode_v1":          {Added: "580.0"},
+	"nvmlDeviceSetPowerMizerMode_v1":          {Added: "580.0"},
 	"nvmlDeviceGetVgpuSchedulerLog_v2":        {Added: "580.0"},
 	"nvmlDeviceGetVgpuSchedulerState_v2":      {Added: "580.0"},
 	"nvmlDeviceSetVgpuSchedulerState_v2":      {Added: "580.0"},
@@ -125,6 +134,13 @@ var functionRegistry = map[string]FunctionVersion{
 	"nvmlDeviceReadWritePRM_v1":     {Added: "580.0"},
 	"nvmlDeviceReadPRMCounters_v1":  {Added: "590.0"},
 	"nvmlDeviceGetBBXTimeData_v1":   {Added: "600.0"},
+
+	// Process detail, per-process utilization and the v2 accounting stats,
+	// dated the same way as the block above. AccountingStats_v2 is newer than
+	// the r595 header, as BBXTimeData_v1 is.
+	"nvmlDeviceGetRunningProcessDetailList": {Added: "535.0"},
+	"nvmlDeviceGetProcessesUtilizationInfo": {Added: "550.0"},
+	"nvmlDeviceGetAccountingStats_v2":       {Added: "600.0"},
 
 	// Topology functions (available since early NVML)
 	"nvmlDeviceGetTopologyCommonAncestor": {Added: "331.0"},
@@ -192,6 +208,18 @@ func FunctionAvailable(funcName, driverVersion string) bool {
 	}
 	if entry.Removed != "" && CompareDriverVersions(driverVersion, entry.Removed) >= 0 {
 		return false
+	}
+	return true
+}
+
+// FieldAvailable reports whether the given driver version knows a field id.
+// Power smoothing arrived in 570 as a unit, the field ids that read it with the
+// setters that write it, so a driver without the setters reports none of the
+// fields rather than a feature nothing can control. Other ids default to
+// available, as unknown functions do.
+func FieldAvailable(fieldID uint32, driverVersion string) bool {
+	if isPowerSmoothingField(fieldID) {
+		return FunctionAvailable("nvmlDevicePowerSmoothingSetState", driverVersion)
 	}
 	return true
 }

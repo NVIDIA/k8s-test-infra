@@ -16,7 +16,11 @@ package engine
 // rather than calling the writer directly, because the writer lives in mockctl
 // and mockctl imports this package.
 
-import "sync/atomic"
+import (
+	"sync/atomic"
+
+	"github.com/NVIDIA/go-nvml/pkg/nvml"
+)
 
 // OverrideWriter records setter writes in the shared override document.
 type OverrideWriter interface {
@@ -75,6 +79,28 @@ type OverrideWriter interface {
 	// written" from "written, then emptied"; only the first falls back to the
 	// control state the profile declares.
 	UpdateFanControl(index int, apply func(base []FanControlConfig, present bool) ([]FanControlConfig, error)) error
+
+	// SetPowerMizerMode records the PowerMizer mode, by its config name, for
+	// one device.
+	SetPowerMizerMode(index int, mode string) error
+
+	// SetPowerSmoothingState records whether power smoothing is enabled.
+	SetPowerSmoothingState(index int, enabled bool) error
+
+	// SetPowerSmoothingActiveProfile records the preset profile in force.
+	SetPowerSmoothingActiveProfile(index int, profileID uint32) error
+
+	// SetPowerSmoothingProfileParam records one parameter of one preset
+	// profile. The value has already been validated for param.
+	SetPowerSmoothingProfileParam(index int, profileID uint32, param PowerSmoothingParam, value float64) error
+
+	// SetAccountingMode records whether per-process accounting is enabled.
+	// Disabling also empties the terminated records, because turning
+	// accounting off clears every record the driver held.
+	SetAccountingMode(index int, enabled bool) error
+
+	// ClearAccountingPids empties the records of processes that have exited.
+	ClearAccountingPids(index int) error
 }
 
 // ClockDomain names a clock domain the locked-clock and offset setters write
@@ -109,4 +135,22 @@ func overrideWriter() OverrideWriter {
 		return *w
 	}
 	return nil
+}
+
+// recordSetterWrite runs one setter write against the override writer and
+// invalidates the cache so the write is visible to the next read in this
+// process. A setter with nowhere to record has failed and must say so.
+func recordSetterWrite(op string, write func(OverrideWriter) error) nvml.Return {
+	w := overrideWriter()
+	if w == nil {
+		warnLog("[NVML] %s -> NO_PERMISSION (no override writer)\n", op)
+		return nvml.ERROR_NO_PERMISSION
+	}
+	if err := write(w); err != nil {
+		warnLog("[NVML] %s -> NO_PERMISSION: %v\n", op, err)
+		return nvml.ERROR_NO_PERMISSION
+	}
+	configOverrides.invalidateAfterLocalWrite()
+	debugLog("[NVML] %s\n", op)
+	return nvml.SUCCESS
 }

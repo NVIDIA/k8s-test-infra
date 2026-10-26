@@ -1,0 +1,4 @@
+kind: Security
+body: |-
+  build: images and binaries are now built with Go 1.27.3, which fixes GO-2026-6809 (crypto/x509 trusting compromised intermediate certificates).
+time: 2026-10-21T06:56:43Z

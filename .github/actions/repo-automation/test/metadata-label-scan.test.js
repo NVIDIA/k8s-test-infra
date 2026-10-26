@@ -17,7 +17,7 @@ const repository = { name: "k8s-test-infra", full_name: "NVIDIA/k8s-test-infra",
 const schedule = { repository, schedule: "*/15 * * * *" };
 const preserved = ["needs-rebase", "approved", "do-not-merge/hold", "maintainer/custom"];
 const desired = ["area/docs", "kind/feature", "size/M"];
-const files = [{ path: "docs/guide.md", additions: 60, deletions: 20, status: "modified" }];
+const files = [{ path: "docs/guide.md", additions: 100, deletions: 40, status: "modified" }];
 
 function pullRequest(overrides = {}) {
   return {
@@ -248,7 +248,7 @@ test("an old unlabeled PR with an invalid title receives size and area labels", 
 
 for (const [author, title, changedFiles, expected] of [
   ["dependabot[bot]", "chore(deps): bump automation dependencies",
-    [{ path: ".github/actions/repo-automation/package-lock.json", additions: 60, deletions: 20 }],
+    [{ path: ".github/actions/repo-automation/package-lock.json", additions: 100, deletions: 40 }],
     ["area/ci", "kind/dependencies", "size/M"]],
   ["github-actions[bot]", "docs: update generated guidance", files,
     ["area/docs", "kind/documentation", "size/M"]],
@@ -474,7 +474,7 @@ for (const [name, snapshots] of [
   ["state", { getPullRequest: [original, pullRequest({ state: "closed" })] }],
   ["base tip", { getBranch: [{ name: "main", oid: BASE }, { name: "main", oid: NEXT }] }],
   ["trusted policy revision", { getDefaultBranchRevision: [POLICY, NEXT] }],
-  ["desired labels", { listPullRequestFiles: [files, [{ path: "pkg/gpu/mocknvml/model.go", additions: 300, deletions: 1 }]] }],
+  ["desired labels", { listPullRequestFiles: [files, [{ path: "pkg/gpu/mocknvml/model.go", additions: 600, deletions: 1 }]] }],
 ]) {
   test(`changed ${name} at the fresh metadata check prevents all planned writes`, async () => {
     const github = fakeGitHub({ snapshots });

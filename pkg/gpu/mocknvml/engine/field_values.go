@@ -156,12 +156,16 @@ var eccLocationFields = map[uint32]eccLocationField{
 	fiEccDbeAggCbu: {nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.AGGREGATE_ECC, nvml.MEMORY_LOCATION_CBU},
 }
 
-// GetFieldValue resolves a single nvmlDeviceGetFieldValues entry: device-scope
-// fields first, then the NVLink field set. Unmodeled field ids yield
+// GetFieldValue resolves a single nvmlDeviceGetFieldValues entry: power
+// smoothing, then the other device-scope fields, then the NVLink field set.
+// Unmodeled field ids yield
 // (FieldValueUnsupported, 0, ERROR_NOT_SUPPORTED) so the bridge can mark just
 // that entry unsupported while succeeding the overall call (matching real NVML
 // semantics — DCGM renders such entries as blank, not as errors).
 func (d *ConfigurableDevice) GetFieldValue(fieldID, scopeID uint32) (FieldValueType, uint64, nvml.Return) {
+	if isPowerSmoothingField(fieldID) {
+		return d.powerSmoothingFieldValue(fieldID, scopeID)
+	}
 	if vt, val, ret, handled := d.getDeviceFieldValue(fieldID, scopeID); handled {
 		return vt, val, ret
 	}

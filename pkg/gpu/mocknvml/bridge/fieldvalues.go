@@ -85,6 +85,7 @@ func nvmlDeviceGetFieldValues(device C.nvmlDevice_t, valuesCount C.int, values *
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
 
+	driverVersion := engine.GetEngine().GetConfig().DriverVersion
 	fields := unsafe.Slice(values, int(valuesCount))
 	ts := C.longlong(time.Now().UnixMicro())
 	for i := range fields {
@@ -93,7 +94,10 @@ func nvmlDeviceGetFieldValues(device C.nvmlDevice_t, valuesCount C.int, values *
 		scopeID := uint32(C.fvScopeId(fv))
 		C.fvSetTimestamp(fv, ts)
 
-		vt, val, ret := dev.GetFieldValue(fieldID, scopeID)
+		vt, val, ret := engine.FieldValueUnsupported, uint64(0), nvml.ERROR_NOT_SUPPORTED
+		if engine.FieldAvailable(fieldID, driverVersion) {
+			vt, val, ret = dev.GetFieldValue(fieldID, scopeID)
+		}
 		if ret != nvml.SUCCESS {
 			// Named explicitly because a declined field is otherwise invisible:
 			// the overall call still succeeds, the consumer renders the entry as

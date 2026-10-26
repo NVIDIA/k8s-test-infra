@@ -71,6 +71,79 @@ func SetRemoved(path string, index int, removed bool) error {
 	})
 }
 
+// SetPowerMizerMode persists the PowerMizer mode nvmlDeviceSetPowerMizerMode_v1
+// applied, spelled the way the profile schema names it.
+func SetPowerMizerMode(path string, index int, mode string) error {
+	return mutateDevice(path, func(d *Doc) error {
+		d.SetFields(Target{Index: index}, map[string]any{"power": map[string]any{"power_mizer_mode": mode}})
+		return nil
+	})
+}
+
+// SetPowerSmoothingState persists whether power smoothing is enabled on one
+// device.
+func SetPowerSmoothingState(path string, index int, enabled bool) error {
+	return mutateDevice(path, func(d *Doc) error {
+		d.SetFields(Target{Index: index}, powerSmoothingPatch(map[string]any{"state": enableState(enabled)}))
+		return nil
+	})
+}
+
+// SetPowerSmoothingActiveProfile persists the preset profile
+// nvmlDevicePowerSmoothingActivatePresetProfile made active.
+func SetPowerSmoothingActiveProfile(path string, index int, profileID uint32) error {
+	return mutateDevice(path, func(d *Doc) error {
+		d.SetFields(Target{Index: index}, powerSmoothingPatch(map[string]any{"active_profile": profileID}))
+		return nil
+	})
+}
+
+// SetPowerSmoothingProfileParam persists one preset profile parameter. Only
+// that parameter is written, so the rest of the preset stays the profile's.
+func SetPowerSmoothingProfileParam(
+	path string, index int, profileID uint32, param engine.PowerSmoothingParam, value float64,
+) error {
+	return mutateDevice(path, func(d *Doc) error {
+		d.SetFields(Target{Index: index}, engine.PowerSmoothingProfilePatch(profileID, param, value))
+		return nil
+	})
+}
+
+func powerSmoothingPatch(fields map[string]any) map[string]any {
+	return map[string]any{"power": map[string]any{"smoothing": fields}}
+}
+
+// SetAccountingMode persists whether per-process accounting is enabled on one
+// device. Disabling also records an empty terminated list, because turning
+// accounting off clears every record the driver held.
+func SetAccountingMode(path string, index int, enabled bool) error {
+	return mutateDevice(path, func(d *Doc) error {
+		patch := map[string]any{"mode": enableState(enabled)}
+		if !enabled {
+			patch[accountingTerminatedKey] = []any{}
+		}
+		d.SetFields(Target{Index: index}, map[string]any{"accounting": patch})
+		return nil
+	})
+}
+
+// ClearAccountingPids persists the clear nvmlDeviceClearAccountingPids applied.
+// It records an empty list rather than deleting the key, because the records it
+// clears may come from the profile, and only an explicit empty list outranks
+// them in the merge.
+func ClearAccountingPids(path string, index int) error {
+	return mutateDevice(path, func(d *Doc) error {
+		d.SetFields(Target{Index: index}, map[string]any{
+			"accounting": map[string]any{accountingTerminatedKey: []any{}},
+		})
+		return nil
+	})
+}
+
+// accountingTerminatedKey is the accounting field both accounting setters
+// empty.
+const accountingTerminatedKey = "terminated"
+
 // enableState spells a toggle the way the profile schema does.
 func enableState(enabled bool) string {
 	if enabled {

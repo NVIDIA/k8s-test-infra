@@ -337,6 +337,50 @@ type PowerConfig struct {
 	// profile feature. Absent means the device declines it, which is what
 	// every pre-Blackwell part does.
 	WorkloadProfiles *WorkloadPowerProfilesConfig `json:"workload_power_profiles,omitempty"`
+
+	// PowerMizerMode is the PowerMizer mode the device starts in: adaptive,
+	// prefer_maximum_performance, auto or prefer_consistent_performance.
+	// Empty, or a name NVML does not define, is auto — the driver-controlled
+	// mode.
+	PowerMizerMode string `json:"power_mizer_mode,omitempty"`
+
+	// Smoothing configures the datacenter power smoothing feature that
+	// `nvidia-smi power-smoothing` drives. Absent still models the feature on
+	// Blackwell and newer, disabled and with all-zero presets.
+	Smoothing *PowerSmoothingConfig `json:"smoothing,omitempty"`
+}
+
+// PowerSmoothingConfig models power smoothing, which holds the module's power
+// draw between a floor and the power limit while a workload ramps. Only the
+// reported and persisted state is simulated; it does not shape the simulated
+// power draw.
+type PowerSmoothingConfig struct {
+	// Supported overrides the architecture default, which is Blackwell and
+	// newer.
+	Supported *bool `json:"supported,omitempty"`
+
+	// State is "enabled" or "disabled"; anything else is disabled.
+	State string `json:"state,omitempty"`
+
+	// ActiveProfile is the preset in force, 0-4.
+	ActiveProfile uint32 `json:"active_profile,omitzero"`
+
+	// Profiles holds the preset definitions by profile id. It is a map
+	// rather than a list so a setter can record one parameter of one preset
+	// without rewriting the others.
+	Profiles map[uint32]PowerSmoothingProfileConfig `json:"profiles,omitempty"`
+}
+
+// PowerSmoothingProfileConfig is one preset profile definition. A preset the
+// config leaves out has every parameter at zero.
+type PowerSmoothingProfileConfig struct {
+	// PercentTMPFloor is the floor as a percentage of the power limit
+	// (TMP, total module power), 0-100.
+	PercentTMPFloor float64 `json:"percent_tmp_floor,omitzero"`
+
+	RampUpRateMWPerS     float64 `json:"ramp_up_rate_mw_per_s,omitzero"`
+	RampDownRateMWPerS   float64 `json:"ramp_down_rate_mw_per_s,omitzero"`
+	RampDownHysteresisMS uint32  `json:"ramp_down_hysteresis_ms,omitzero"`
 }
 
 // WorkloadPowerProfilesConfig models the pre-tuned performance/power recipes
@@ -744,10 +788,23 @@ type DriverModelConfig struct {
 	Pending string `json:"pending,omitempty"`
 }
 
-// AccountingConfig defines accounting mode settings
+// AccountingConfig defines accounting mode settings. Running processes are
+// accounted from Processes; Terminated holds the records of processes that have
+// already exited, which the driver keeps until they are cleared or overwritten.
 type AccountingConfig struct {
 	Mode       string `json:"mode,omitempty"`
 	BufferSize int    `json:"buffer_size,omitzero"`
+	// Terminated runs oldest to newest, so a full buffer drops from the front.
+	Terminated []AccountedProcessConfig `json:"terminated,omitempty"`
+}
+
+// AccountedProcessConfig is the accounting record of a process that has exited.
+type AccountedProcessConfig struct {
+	PID          uint32 `json:"pid"`
+	GPUUtil      uint32 `json:"gpu_util,omitzero"` // lifetime SM utilization %
+	MemUtil      uint32 `json:"mem_util,omitzero"` // lifetime memory-bandwidth utilization %
+	MaxMemoryMiB uint64 `json:"max_memory_mib,omitzero"`
+	TimeMS       uint64 `json:"time_ms,omitzero"` // how long the process ran
 }
 
 // VirtualizationConfig defines virtualization settings
@@ -854,7 +911,7 @@ type CPUConfig struct {
 // ProcessConfig defines a running process
 type ProcessConfig struct {
 	PID           uint32 `json:"pid"`
-	Type          string `json:"type,omitempty"` // "C" for compute, "G" for graphics
+	Type          string `json:"type,omitempty"` // "C" compute (default), "G" graphics, "M" MPS client
 	Name          string `json:"name,omitempty"`
 	UsedMemoryMiB uint64 `json:"used_memory_mib,omitzero"`
 	SmUtil        uint32 `json:"sm_util,omitzero"`  // SM utilization %

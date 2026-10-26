@@ -295,6 +295,7 @@ import "C"
 
 import (
 	"fmt"
+	"slices"
 	"unsafe"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
@@ -418,9 +419,12 @@ func mockInternalFillProcessList(handle unsafe.Pointer, buf unsafe.Pointer, capa
 	if dev == nil || buf == nil {
 		return 0
 	}
+	// The three lists fail only for a lost GPU, and then return no entries,
+	// which is the list nvidia-smi should show for a GPU it cannot reach.
 	compute, _ := dev.GetComputeRunningProcesses()
 	graphics, _ := dev.GetGraphicsRunningProcesses()
-	all := append(compute, graphics...)
+	mps, _ := dev.GetMPSComputeRunningProcesses()
+	all := slices.Concat(compute, graphics, mps)
 
 	n := len(all)
 	if n > int(capacity) {

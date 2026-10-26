@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  nvml-mock: `nvmlDeviceGetSamples` and `nvmlDeviceGetProcessesUtilizationInfo` return data instead of NOT_SUPPORTED. Each sample carries the current reading of the matching getter; see Metric Fidelity in the configuration reference.
+time: 2026-10-22T11:40:34Z
+custom:
+  Issue: "1038"
