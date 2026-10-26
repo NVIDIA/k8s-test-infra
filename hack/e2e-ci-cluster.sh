@@ -78,6 +78,14 @@ rm -f "${RUNNER_TEMP}/tilt.tar.gz"
 tilt version
 echo "::endgroup::"
 
+echo "::group::Raise inotify limits"
+# Every Kind node is a container sharing the runner's kernel, so multi-node
+# clusters exhaust the default per-user inotify instances. Pods then fail with
+# "too many open files" and DaemonSets never become ready
+# (https://kind.sigs.k8s.io/docs/user/known-issues/#pod-errors-due-to-too-many-open-files).
+sudo sysctl -w fs.inotify.max_user_instances=8192 fs.inotify.max_user_watches=524288
+echo "::endgroup::"
+
 # PROFILE and KIND_CLUSTER_CONFIG pass through to make, so a job picks its
 # cluster shape without its own script.
 echo "::group::Create Kind cluster (profile ${PROFILE:-default})"
