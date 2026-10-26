@@ -7,7 +7,7 @@ _NVIDIA_SMI = 'topograph-nvidia-smi'
 
 # Pinned rather than floating, like the other consumers: an upstream release
 # would otherwise change the values schema under this repo without a commit.
-_CHART_VERSION = '1.0.0'
+_CHART_VERSION = '1.1.0'
 
 def install(nvml_mock_releases):
     k8s_yaml('local/topograph/nvidia-smi.k8s.yaml')
