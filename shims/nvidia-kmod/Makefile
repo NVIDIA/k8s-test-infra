@@ -17,6 +17,9 @@ DIST ?= $(CURDIR)/dist
 
 TEST_EXEC ?= sudo
 
+# Arguments for the test binary itself, such as -expect-loadable.
+TEST_ARGS ?=
+
 .PHONY: all clean test test-binary check-kernel stage
 
 all: check-kernel stage
@@ -46,7 +49,7 @@ check-kernel:
 # leaving the Go toolchain and module cache owned by the calling user. Set
 # TEST_EXEC= to disable when already running as root (a container, most of CI).
 test: all
-	$(GO_CMD) test -tags integration $(if $(TEST_EXEC),-exec $(TEST_EXEC),) -v .
+	$(GO_CMD) test -tags integration $(if $(TEST_EXEC),-exec $(TEST_EXEC),) -v . $(if $(TEST_ARGS),-args $(TEST_ARGS),)
 
 # A standalone test binary for a host that has a matching kernel but no Go
 # toolchain -- the macOS path, where the toolchain is on the workstation and the

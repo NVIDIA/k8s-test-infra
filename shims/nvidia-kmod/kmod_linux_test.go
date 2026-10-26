@@ -24,6 +24,7 @@ package nvidiakmod_test
 import (
 	"bufio"
 	"bytes"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -140,33 +141,51 @@ type ioctlXfer struct {
 	Ptr  uint64
 }
 
+// expectLoadable makes the host checks fail rather than skip, for a CI job that
+// exists to load the modules and must not pass on skips. A flag rather than an
+// environment variable, because the suite runs under sudo, which drops the
+// environment.
+var expectLoadable = flag.Bool("expect-loadable", false,
+	"fail rather than skip where this host cannot load the modules")
+
+// skipHost skips a test this host cannot run, or fails it under
+// -expect-loadable.
+func skipHost(t *testing.T, format string, args ...any) {
+	t.Helper()
+
+	if *expectLoadable {
+		t.Fatalf(format+" (-expect-loadable is set)", args...)
+	}
+	t.Skipf(format, args...)
+}
+
 // requireLoadable skips unless this host can actually load the built modules.
-// Skipping rather than failing keeps the suite runnable on a CI runner whose
-// headers package lagged its kernel — the tests then show up as skipped with a
-// reason instead of disappearing.
+// Skipping rather than failing keeps the suite runnable on a workstation or VM
+// that cannot load them — the tests then show up as skipped with a reason
+// instead of disappearing. CI fails instead, through -expect-loadable.
 func requireLoadable(t *testing.T) {
 	t.Helper()
 
 	if os.Geteuid() != 0 {
-		t.Skip("requires root: loading a module needs CAP_SYS_MODULE")
+		skipHost(t, "requires root: loading a module needs CAP_SYS_MODULE")
 	}
 	if _, err := os.Stat(modulePath(t, "nvidia")); err != nil {
-		t.Skipf("modules not built: %v (run make -C shims/nvidia-kmod)", err)
+		skipHost(t, "modules not built: %v (run make -C shims/nvidia-kmod)", err)
 	}
 
 	// A real driver must never be torn down by a test. These tests call
 	// delete_module("nvidia"), which on a GPU node would unload the actual
 	// driver out from under every running workload.
 	if _, err := os.Stat("/sys/module/nvidia"); err == nil {
-		t.Skip("/sys/module/nvidia already present: refusing to run against a loaded driver")
+		skipHost(t, "/sys/module/nvidia already present: refusing to run against a loaded driver")
 	}
 	// Its GPUs would be someone else's: a kind cluster's node agent describes
 	// them, and the tests would unplug them.
 	if _, err := os.Stat("/sys/module/mokka"); err == nil {
-		t.Skip("/sys/module/mokka already present: refusing to run against simulated hardware in use")
+		skipHost(t, "/sys/module/mokka already present: refusing to run against simulated hardware in use")
 	}
 	if !strings.Contains(readFile(t, "/proc/mounts"), " /sys/kernel/config configfs ") {
-		t.Skip("configfs is not mounted at /sys/kernel/config")
+		skipHost(t, "configfs is not mounted at /sys/kernel/config")
 	}
 }
 
@@ -763,12 +782,12 @@ func TestLoader(t *testing.T) {
 
 	modprobe, err := exec.LookPath("modprobe")
 	if err != nil {
-		t.Skip("modprobe not found")
+		skipHost(t, "modprobe not found")
 	}
 	// The loader takes the version of an installed real module over
 	// DRIVER_VERSION, which would make the version assertion host-dependent.
 	if exec.Command("modinfo", "nvidia").Run() == nil {
-		t.Skip("an NVIDIA kernel module is installed on this host")
+		skipHost(t, "an NVIDIA kernel module is installed on this host")
 	}
 
 	wd, err := os.Getwd()
@@ -813,10 +832,10 @@ func TestLoaderWaitsForTheGPUs(t *testing.T) {
 
 	modprobe, err := exec.LookPath("modprobe")
 	if err != nil {
-		t.Skip("modprobe not found")
+		skipHost(t, "modprobe not found")
 	}
 	if exec.Command("modinfo", "nvidia").Run() == nil {
-		t.Skip("an NVIDIA kernel module is installed on this host")
+		skipHost(t, "an NVIDIA kernel module is installed on this host")
 	}
 
 	wd, err := os.Getwd()
@@ -849,7 +868,7 @@ func TestLoaderLoadsOnceTheGPUsAreDescribed(t *testing.T) {
 
 	modprobe, err := exec.LookPath("modprobe")
 	if err != nil {
-		t.Skip("modprobe not found")
+		skipHost(t, "modprobe not found")
 	}
 
 	wd, err := os.Getwd()

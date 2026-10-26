@@ -522,6 +522,80 @@ jobs:
         if: always()
         run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
 
+  # The kernel driver mode, where the GPU Operator's own driver container, from
+  # NVIDIA's image, compiles its driver and then loads Mokka's simulated kernel
+  # modules into the runner's kernel: that driver's install and upgrade specs,
+  # then the GPU Operator suite on top of it. One profile: the mode changes the
+  # driver underneath, not the NVML the profile matrix above covers.
+  e2e-gpu-operator-kernel:
+    needs: [build-nvmlmock-image]
+    runs-on: ubuntu-latest
+    env:
+      GPU_PROFILE: gb300
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Download pre-built nvml-mock image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: nvml-mock-image
+          path: ${{ runner.temp }}
+
+      - name: Install binaries and create Kind cluster
+        run: ./hack/e2e-ci-cluster.sh
+
+      - name: Load pre-built nvml-mock image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
+
+      - name: Load nvml-mock image into Kind
+        run: kind load docker-image "$E2E_IMAGE" --name mokka
+
+      - name: Stage CI Helm values for Tilt
+        run: cp tests/e2e/ci/nvml-mock.values.yaml local/nvml-mock.values.local.yaml
+
+      - name: Roll out nvml-mock + GPU Operator in the kernel driver mode via Tilt
+        run: tilt ci -- --gpu-profile="$GPU_PROFILE" --kernel-mods --nvmlmock-image="$E2E_IMAGE"
+
+      - name: Configure the DGXC Go proxy
+        uses: ./.github/actions/setup-dgxc-goproxy
+        with:
+          mode: routed
+
+      - name: Assert the proxy is actually in front
+        run: ./hack/check-goproxy.sh
+
+      - name: Run GPU Operator E2E in the kernel driver mode
+        env:
+          # The chart enables NRI by default, so its specs fail rather than
+          # skip when the plugin is not running.
+          E2E_EXPECT_NRI: "true"
+          E2E_PROFILES: ${{ env.GPU_PROFILE }}
+          E2E_KUBE_CONTEXT: kind-mokka
+          E2E_CLUSTER_NAME: mokka
+        run: make e2e-gpu-operator-kernel
+
+      - name: Print diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== e2e-gpu-operator-kernel diagnostics (${GPU_PROFILE}) ==="
+          if [ -d "$E2E_ARTIFACTS" ]; then
+            find "$E2E_ARTIFACTS" -type f | while read -r f; do
+              echo "----- $f -----"; cat "$f"; echo;
+            done
+          else
+            echo "no diagnostics written"
+          fi
+
+      - name: Remove the proxy credential
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
+
   e2e-multi-node:
     needs: [build-nvmlmock-image]
     runs-on: ubuntu-latest

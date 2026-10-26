@@ -237,6 +237,7 @@ if with_gpu_operator:
         nvml_mock_releases,
         extra_values=gpu_operator_extra_values,
         extra_resource_deps=gpu_operator_extra_deps,
+        kernel_mode=with_kernel_mods,
     )
 
 if with_dra:

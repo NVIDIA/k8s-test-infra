@@ -808,10 +808,10 @@ image-load:
 # ---------------------------------------------------------------------------
 GINKGO ?= $(GO_CMD) run github.com/onsi/ginkgo/v2/ginkgo
 E2E_TIMEOUT ?= 90m
-E2E_DEFAULT_LABEL_FILTER ?= !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig && !dra-compute-domain && !vgpu
+E2E_DEFAULT_LABEL_FILTER ?= !dra && !gpu-operator && !gpu-operator-driver && !multi-node && !nri && !nfd && !mig && !dra-compute-domain && !vgpu
 E2E_GINKGO_FLAGS ?= --label-filter='$(E2E_DEFAULT_LABEL_FILTER)'
 
-.PHONY: e2e e2e-dra e2e-compute-domain e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd e2e-mig e2e-vgpu
+.PHONY: e2e e2e-dra e2e-compute-domain e2e-gpu-operator e2e-gpu-operator-kernel e2e-multi-node e2e-nri e2e-nfd e2e-mig e2e-vgpu
 
 # `set -o pipefail` is inline on purpose; do not drop it as redundant with
 # .SHELLFLAGS. GNU Make ignores .SHELLFLAGS before 3.82 and macOS ships 3.81,
@@ -831,6 +831,14 @@ e2e-compute-domain: ## e2e — ComputeDomains through the unmodified DRA driver
 
 e2e-gpu-operator: ## e2e — GPU Operator scenario
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=gpu-operator'
+
+# Needs a cluster from `tilt ci -- --kernel-mods`. Two runs, because Ginkgo
+# shuffles top-level containers: the driver specs first, on the freshly installed
+# driver, and the GPU Operator scenario second, since it ends by leaving the
+# mock's GPUs failed (its Xid spec), which no later spec could schedule on.
+e2e-gpu-operator-kernel: ## e2e — driver install and upgrade in the kernel driver mode, then the GPU Operator scenario
+	E2E_DRIVER_MODE=kernel $(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=gpu-operator-driver'
+	E2E_DRIVER_MODE=kernel $(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=gpu-operator'
 
 e2e-multi-node: ## e2e — heterogeneous a100/t4 cluster
 	$(MAKE) e2e E2E_PROFILES=a100,t4 E2E_GINKGO_FLAGS='--label-filter=multi-node'

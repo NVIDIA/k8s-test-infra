@@ -203,6 +203,9 @@ make -C shims/nvidia-kmod            # or: make nvidia-kmod
 sudo make -C shims/nvidia-kmod test  # or: make test-nvidia-kmod
 ```
 
+The tests skip on a host that cannot load the modules. CI runs them with
+`TEST_ARGS=-expect-loadable`, which turns those skips into failures.
+
 Everything the build produces goes to `dist/`. Kbuild writes its artifacts into
 whatever directory `M` names and has no output-directory flag portable across
 kernel versions, so the Makefile points `M` at `dist/` and links the sources in.

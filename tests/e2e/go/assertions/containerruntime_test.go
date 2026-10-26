@@ -70,3 +70,28 @@ func TestCheckNvidiaHandler(t *testing.T) {
 	noCDI.EnableCDI = false
 	require.ErrorContains(t, CheckNvidiaHandler(noCDI), "CDI")
 }
+
+func TestCheckOperatorToolkitHandler(t *testing.T) {
+	toolkit := func() ContainerRuntime {
+		rt, err := ParseCRIInfo(kindCRIInfo(t))
+		require.NoError(t, err)
+		rt.Handlers["nvidia"] = OperatorToolkitRuntimeBinary
+		rt.DefaultRuntime = "runc"
+
+		return rt
+	}
+
+	require.NoError(t, CheckOperatorToolkitHandler(toolkit()), "runc stays the default: the operator's pods name the handler")
+
+	nodeDaemon := toolkit()
+	nodeDaemon.Handlers["nvidia"] = NvidiaRuntimeBinary
+	require.ErrorContains(t, CheckOperatorToolkitHandler(nodeDaemon), NvidiaRuntimeBinary)
+
+	missing := toolkit()
+	delete(missing.Handlers, "nvidia")
+	require.ErrorContains(t, CheckOperatorToolkitHandler(missing), "no nvidia handler")
+
+	noCDI := toolkit()
+	noCDI.EnableCDI = false
+	require.ErrorContains(t, CheckOperatorToolkitHandler(noCDI), "CDI")
+}

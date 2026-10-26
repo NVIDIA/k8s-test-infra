@@ -41,8 +41,9 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, Conti
 	for _, name := range selectedProfiles {
 		Context("profile "+name, Label(name), Ordered, func() {
 			var (
-				p    profile.Profile
-				node string
+				p      profile.Profile
+				target cluster.Node
+				node   string
 			)
 
 			BeforeAll(func(ctx SpecContext) {
@@ -51,8 +52,13 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, Conti
 				// FirstPodName over the nvml-mock DaemonSet, and the Operator's
 				// operands don't tolerate the CP NoSchedule taint — WaitGFDLabels
 				// and WaitAllocatableGPU would time out on a CP-derived node.
-				target := gpuOperatorTargetNode(ctx, h)
+				target = gpuOperatorTargetNode(ctx, h)
 				node = target.Name
+				if config.KernelDriverMode() {
+					// The operator installs the driver after its own release is
+					// up, and nothing below works before the driver does.
+					waitDriverReady(ctx, h, node)
+				}
 				verifyGPUOperatorNodeSetup(ctx, target.Container)
 
 				// Wait belongs here, not in a spec: every spec below reads state
@@ -62,6 +68,12 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, Conti
 				// creates afterwards — a narrow label filter would race the operand
 				// rollout without this barrier (#561).
 				waitOperatorValidatorRunning(ctx, h)
+			})
+
+			AfterEach(func(ctx SpecContext) {
+				if config.KernelDriverMode() && CurrentSpecReport().Failed() {
+					collectDriverDiagnostics(ctx, h, target)
+				}
 			})
 
 			It("publishes GFD labels and allocatable GPUs", Label("device-plugin"), func(ctx SpecContext) {
@@ -241,19 +253,26 @@ func assertRuntimeXidViaDCGM(ctx SpecContext, h *harness.Harness, xid int) {
 // gpuOperatorTargetNode picks a node that has both an nvml-mock DaemonSet pod
 // (so nvml-mock-ctl and mock-backed operand data are available) and the GPU
 // Operator's operands (GFD, device plugin, dcgm-exporter). The operands don't
-// tolerate the CP NoSchedule taint, so any worker qualifies whenever workers
-// exist; on control-plane-only clusters the CP is the only place both
-// DaemonSets can land, so fall back to it.
-func gpuOperatorTargetNode(ctx SpecContext, h *harness.Harness) cluster.Node {
+// tolerate the CP NoSchedule taint, so the first worker running the mock
+// qualifies, and in the kernel driver mode that is worker-0 alone. On
+// control-plane-only clusters the CP is the only place both DaemonSets can
+// land, so fall back to it.
+func gpuOperatorTargetNode(ctx context.Context, h *harness.Harness) cluster.Node {
 	GinkgoHelper()
 	workers, err := h.Cluster.Workers(ctx)
 	Expect(err).NotTo(HaveOccurred())
-	if len(workers) > 0 {
-		return workers[0]
+	if len(workers) == 0 {
+		cp, err := h.Cluster.ControlPlane(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		return cp
 	}
-	cp, err := h.Cluster.ControlPlane(ctx)
-	Expect(err).NotTo(HaveOccurred())
-	return cp
+	for _, w := range workers {
+		if _, err := h.Kube.RunningPodOnNode(ctx, nvmlMockNamespace, nvmlMockSelector, w.Name); err == nil {
+			return w
+		}
+	}
+	Fail("no worker runs an nvml-mock pod")
+	return cluster.Node{}
 }
 
 // injectXidAndValidate enables failure injection, restarts dcgm-exporter so
@@ -281,31 +300,53 @@ func injectXidAndValidate(ctx context.Context, h *harness.Harness, xid int) {
 
 	// nvml-mock needs no explicit restart: the chart checksums the rendered GPU
 	// config into its pod template, so the --wait upgrade above already rolled it.
-	rolloutRestart(ctx, h, gpuOperatorNamespace, "nvidia-dcgm-exporter")
+	rolloutTimeout := 2 * time.Minute
+	if config.KernelDriverMode() {
+		// Rolling the node agent can drop the node's GPU label for a moment, and
+		// the GPU Operator then replaces its driver pod, which installs the
+		// driver again before the operands can come back.
+		waitDriverReady(ctx, h, gpuOperatorTargetNode(ctx, h).Name)
+		rolloutTimeout = config.OperandSettleTimeout()
+	}
+	rolloutRestart(ctx, h, gpuOperatorNamespace, "nvidia-dcgm-exporter", rolloutTimeout)
 
 	assertions.DCGMXidReported(ctx, h.Kube, gpuOperatorNamespace, xid,
 		config.OperandSettleTimeout(), config.PollInterval())
 }
 
-// rolloutRestart restarts a DaemonSet and blocks until the rollout completes.
-func rolloutRestart(ctx context.Context, h *harness.Harness, ns, ds string) {
+// rolloutRestart restarts a DaemonSet and blocks until the rollout completes,
+// for at most timeout.
+func rolloutRestart(ctx context.Context, h *harness.Harness, ns, ds string, timeout time.Duration) {
 	GinkgoHelper()
 	_, err := h.Kube.KubectlCombined(ctx, "rollout", "restart", "daemonset/"+ds, "-n", ns)
 	Expect(err).NotTo(HaveOccurred(), "rollout restart %s/%s", ns, ds)
-	_, err = h.Kube.KubectlCombined(ctx, "rollout", "status", "daemonset/"+ds, "-n", ns, "--timeout=120s")
+	_, err = h.Kube.KubectlCombined(ctx, "rollout", "status", "daemonset/"+ds, "-n", ns, "--timeout="+timeout.String())
 	Expect(err).NotTo(HaveOccurred(), "rollout status %s/%s", ns, ds)
 }
 
 func verifyGPUOperatorNodeSetup(ctx context.Context, container string) {
 	GinkgoHelper()
 	Expect(dockerExec(ctx, container, "test", "-f", "/var/run/cdi/nvidia.yaml")).To(Succeed(), "CDI spec exists")
-	// The operator's own pods run under RuntimeClass nvidia, the handler the
-	// node daemon registers with containerd.
-	res, err := runner.RunQuiet(ctx, "docker", "exec", container, "crictl", "info")
-	Expect(err).NotTo(HaveOccurred(), "crictl info: %s", res.Combined())
-	rt, err := assertions.ParseCRIInfo([]byte(res.Stdout))
-	Expect(err).NotTo(HaveOccurred())
-	Expect(assertions.CheckNvidiaHandler(rt)).To(Succeed(), "the nvidia handler the operator's pods use")
+	// The operator's own pods run under RuntimeClass nvidia, a handler the node
+	// daemon registers with containerd. In the kernel driver mode the operator's
+	// toolkit operand takes it over once the driver is installed, as on a GPU
+	// node, so the node daemon's handler can still be in place for a while.
+	check := assertions.CheckNvidiaHandler
+	if config.KernelDriverMode() {
+		check = assertions.CheckOperatorToolkitHandler
+	}
+	Eventually(func() error {
+		res, err := runner.RunQuiet(ctx, "docker", "exec", container, "crictl", "info")
+		if err != nil {
+			return fmt.Errorf("crictl info: %w: %s", err, res.Combined())
+		}
+		rt, err := assertions.ParseCRIInfo([]byte(res.Stdout))
+		if err != nil {
+			return err
+		}
+		return check(rt)
+	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
+		Should(Succeed(), "the nvidia handler the operator's pods use")
 	Expect(dockerExec(ctx, container, "bash", "-c", "LD_LIBRARY_PATH=/run/nvidia/driver/usr/lib64 /run/nvidia/driver/usr/bin/nvidia-smi")).To(Succeed(), "nvidia-smi works via /run/nvidia/driver")
 }
 

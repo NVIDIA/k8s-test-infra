@@ -85,6 +85,7 @@ func (c *Client) getJSON(ctx context.Context, out any, args ...string) error {
 
 type objectMeta struct {
 	Name        string            `json:"name"`
+	UID         string            `json:"uid"`
 	Labels      map[string]string `json:"labels"`
 	Annotations map[string]string `json:"annotations"`
 	// A terminating pod reports phase Running until its containers exit, so the
@@ -99,7 +100,10 @@ type nodeCondition struct {
 
 type nodeObj struct {
 	Metadata objectMeta `json:"metadata"`
-	Status   struct {
+	Spec     struct {
+		Unschedulable bool `json:"unschedulable"`
+	} `json:"spec"`
+	Status struct {
 		Allocatable map[string]string `json:"allocatable"`
 		Conditions  []nodeCondition   `json:"conditions"`
 	} `json:"status"`
@@ -107,6 +111,7 @@ type nodeObj struct {
 
 type containerStatus struct {
 	Name         string `json:"name"`
+	Ready        bool   `json:"ready"`
 	RestartCount int    `json:"restartCount"`
 }
 
@@ -134,6 +139,19 @@ func (p podObj) restarted() bool {
 		}
 	}
 	return false
+}
+
+// ready reports whether the pod has containers and every one of them is ready.
+func (p podObj) ready() bool {
+	if len(p.Status.ContainerStatuses) == 0 {
+		return false
+	}
+	for _, cs := range p.Status.ContainerStatuses {
+		if !cs.Ready {
+			return false
+		}
+	}
+	return true
 }
 
 type configMapObj struct {
@@ -231,6 +249,15 @@ func (c *Client) NodeReady(ctx context.Context, node string) (bool, error) {
 	return false, nil
 }
 
+// NodeCordoned reports whether the node is cordoned: marked unschedulable.
+func (c *Client) NodeCordoned(ctx context.Context, node string) (bool, error) {
+	var n nodeObj
+	if err := c.getJSON(ctx, &n, "node", node); err != nil {
+		return false, err
+	}
+	return n.Spec.Unschedulable, nil
+}
+
 // AllocatableGPU returns the integer allocatable nvidia.com/gpu on a node.
 func (c *Client) AllocatableGPU(ctx context.Context, node string) (int, error) {
 	var n nodeObj
@@ -313,6 +340,23 @@ func (c *Client) RunningPodOnNode(ctx context.Context, ns, selector, node string
 		}
 	}
 	return "", fmt.Errorf("no running pod in ns %q matching %q on node %q", ns, selector, node)
+}
+
+// ReadyPodOnNode returns the name and UID of a pod on node matching selector
+// whose containers are all ready and that is not terminating. Unlike
+// RunningPodOnNode it waits out a container that runs but has not passed its
+// probes yet, such as a driver container still installing the driver.
+func (c *Client) ReadyPodOnNode(ctx context.Context, ns, selector, node string) (name, uid string, err error) {
+	var pl podList
+	if err := c.getJSON(ctx, &pl, "pods", "-n", ns, "-l", selector, "--field-selector", "spec.nodeName="+node); err != nil {
+		return "", "", err
+	}
+	for _, p := range pl.Items {
+		if p.Metadata.DeletionTimestamp == "" && p.ready() {
+			return p.Metadata.Name, p.Metadata.UID, nil
+		}
+	}
+	return "", "", fmt.Errorf("no ready pod in ns %q matching %q on node %q", ns, selector, node)
 }
 
 // PodNode returns the Kubernetes node a pod is scheduled on.
