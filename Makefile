@@ -823,7 +823,8 @@ DOCS_UNPUBLISHED_PAGES := \
 	tools/generate-bridge.md \
 	guides/compute-domain/* \
 	guides/nv-sentinel/* \
-	guides/failure-injection/*
+	guides/failure-injection/* \
+	aicr-preflight/*
 
 # A registered docs version is a copy of docs/ frozen at its tag (see
 # tools/restore-docs-versions), and the checks scan fern/ too, so every
