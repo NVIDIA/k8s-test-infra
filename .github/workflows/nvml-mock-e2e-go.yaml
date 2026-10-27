@@ -529,7 +529,11 @@ jobs:
   # driver underneath, not the NVML the profile matrix above covers.
   e2e-gpu-operator-kernel:
     needs: [build-nvmlmock-image]
-    runs-on: ubuntu-latest
+    # Must match the driver images' Ubuntu release (ubuntu24.04, in
+    # local/kernel-mods/gpu-operator.values.yaml and the upgrade spec's): the
+    # driver container builds the modules against that release's kernel
+    # headers, and they load only into a kernel that release built.
+    runs-on: ubuntu-24.04
     env:
       GPU_PROFILE: gb300
     steps:
@@ -591,6 +595,9 @@ jobs:
           else
             echo "no diagnostics written"
           fi
+          # Why the kernel refused a module is only in its log.
+          echo "=== kernel log: modules ==="
+          sudo dmesg | grep -iE 'nvidia|nvrm|mokka|ipmi|module' | tail -n 200
 
       - name: Remove the proxy credential
         if: always()
