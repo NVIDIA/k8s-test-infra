@@ -1605,8 +1605,19 @@ func nvmlDeviceGetEncoderSessions(device C.nvmlDevice_t, sessionCount *C.uint, s
 		*sessionCount = C.uint(len(sessions))
 		return C.NVML_ERROR_INSUFFICIENT_SIZE
 	}
-	// Engine currently always returns an empty list; sessionInfos stays opaque
-	// in nvml_types.h until a non-empty implementation needs field writes.
+	out := unsafe.Slice(sessionInfos, len(sessions))
+	for i, s := range sessions {
+		out[i] = C.nvmlEncoderSessionInfo_t{
+			sessionId:      C.uint(s.SessionId),
+			pid:            C.uint(s.Pid),
+			vgpuInstance:   C.nvmlVgpuInstance_t(s.VgpuInstance),
+			codecType:      C.nvmlEncoderType_t(s.CodecType),
+			hResolution:    C.uint(s.HResolution),
+			vResolution:    C.uint(s.VResolution),
+			averageFps:     C.uint(s.AverageFps),
+			averageLatency: C.uint(s.AverageLatency),
+		}
+	}
 	*sessionCount = C.uint(len(sessions))
 	return C.NVML_SUCCESS
 }
@@ -1636,6 +1647,23 @@ func nvmlDeviceGetFBCSessions(device C.nvmlDevice_t, sessionCount *C.uint, sessi
 	if len(sessions) > bufSize {
 		*sessionCount = C.uint(len(sessions))
 		return C.NVML_ERROR_INSUFFICIENT_SIZE
+	}
+	out := unsafe.Slice(sessionInfo, len(sessions))
+	for i, s := range sessions {
+		out[i] = C.nvmlFBCSessionInfo_t{
+			sessionId:      C.uint(s.SessionId),
+			pid:            C.uint(s.Pid),
+			vgpuInstance:   C.nvmlVgpuInstance_t(s.VgpuInstance),
+			displayOrdinal: C.uint(s.DisplayOrdinal),
+			sessionType:    C.uint(s.SessionType),
+			sessionFlags:   C.uint(s.SessionFlags),
+			hMaxResolution: C.uint(s.HMaxResolution),
+			vMaxResolution: C.uint(s.VMaxResolution),
+			hResolution:    C.uint(s.HResolution),
+			vResolution:    C.uint(s.VResolution),
+			averageFPS:     C.uint(s.AverageFPS),
+			averageLatency: C.uint(s.AverageLatency),
+		}
 	}
 	*sessionCount = C.uint(len(sessions))
 	return C.NVML_SUCCESS
