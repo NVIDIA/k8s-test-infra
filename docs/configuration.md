@@ -567,6 +567,46 @@ the source breakdown and threshold flag, while pre-Ampere (`t4`) prints one
 combined `SRAM Uncorrectable` row and omits the rest. The configuration is the
 same either way — only the presentation differs.
 
+#### Memory repair state
+
+Health agents decide between a reset, a row remap and a replacement from three
+queries: the repair status, the unrepairable-memory flag and the SRAM unique
+uncorrectable error counts. They are derived from the state above and from
+[`remapped_rows`](#remapped-rows), so an injected fault moves all of them
+together:
+
+| Query | Reports | Architecture |
+|---|---|---|
+| Repair status | A channel repair is pending when `remapped_rows.pending` is set or an `ecc_uncorrectable` failure is injected. A TPC repair is never pending. | Ampere and later |
+| Unrepairable-memory flag | Set when `remapped_rows.failure_occurred` is set, an `ecc_uncorrectable` failure is injected, or `ecc.sram.threshold_exceeded` is set. | Hopper and later |
+| SRAM unique uncorrectable errors | One entry per non-zero `ecc.sram.uncorrectable_sources` unit, carrying the unit and its count. | Blackwell and later, with ECC on |
+
+Earlier architectures report each query as unsupported.
+
+The same NVML calls write back. They persist in the runtime override document,
+so a separate process sees the result:
+
+- `nvidia-smi -e` sets `mode_pending` only; `mode_current` takes it when the GPU
+  is reset with [`nvidia-smi -r`](nvml-mock-ctl.md#reset-via-nvidia-smi), as on
+  hardware.
+- Clearing the volatile or aggregate error counters zeroes the DRAM and SRAM
+  counters of that scope. Clearing the aggregate scope also zeroes
+  `uncorrectable_sources` and `threshold_exceeded`, which are derived from the
+  counters.
+- Setting the DRAM encryption mode writes `dram_encryption.mode_pending`.
+
+```yaml
+device_defaults:
+  ecc:
+    dram_encryption:        # Blackwell and later; earlier parts report it unsupported
+      mode_current: "disabled"
+      mode_pending: "disabled"
+```
+
+The InfoROM validation query succeeds for any profile with an `inforom` block.
+Its configuration checksum is a CRC-32 of the declared versions, so it is stable
+for a profile and differs between profiles with different InfoROM versions.
+
 ### Remapped rows
 
 `availability_histogram` is how many memory banks still have spare rows to remap

@@ -23,7 +23,7 @@ package main
 */
 import "C"
 
-// 120 stub functions for unimplemented NVML functions.
+// 111 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceGetInfo_v1
@@ -34,11 +34,6 @@ func nvmlComputeInstanceGetInfo_v1(computeInstance C.nvmlComputeInstance_t, info
 //export nvmlDeviceClearCpuAffinity
 func nvmlDeviceClearCpuAffinity(device C.nvmlDevice_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceClearCpuAffinity")
-}
-
-//export nvmlDeviceClearEccErrorCounts
-func nvmlDeviceClearEccErrorCounts(device C.nvmlDevice_t, counterType C.nvmlEccCounterType_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceClearEccErrorCounts")
 }
 
 //export nvmlDeviceGetAPIRestriction
@@ -74,11 +69,6 @@ func nvmlDeviceGetConfComputeGpuAttestationReport(device C.nvmlDevice_t, gpuAtst
 //export nvmlDeviceGetConfComputeGpuCertificate
 func nvmlDeviceGetConfComputeGpuCertificate(device C.nvmlDevice_t, gpuCert *C.nvmlConfComputeGpuCertificate_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetConfComputeGpuCertificate")
-}
-
-//export nvmlDeviceGetDramEncryptionMode
-func nvmlDeviceGetDramEncryptionMode(device C.nvmlDevice_t, current *C.nvmlDramEncryptionInfo_t, pending *C.nvmlDramEncryptionInfo_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetDramEncryptionMode")
 }
 
 //export nvmlDeviceGetDriverModel_v1
@@ -121,11 +111,6 @@ func nvmlDeviceGetGridLicensableFeatures_v3(device C.nvmlDevice_t, pGridLicensab
 	return stubReturn("nvmlDeviceGetGridLicensableFeatures_v3")
 }
 
-//export nvmlDeviceGetInforomConfigurationChecksum
-func nvmlDeviceGetInforomConfigurationChecksum(device C.nvmlDevice_t, checksum *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetInforomConfigurationChecksum")
-}
-
 //export nvmlDeviceGetMPSComputeRunningProcesses_v1
 func nvmlDeviceGetMPSComputeRunningProcesses_v1(device C.nvmlDevice_t, infoCount *C.uint, infos *C.nvmlProcessInfo_v1_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetMPSComputeRunningProcesses_v1")
@@ -149,21 +134,6 @@ func nvmlDeviceGetNvLinkUtilizationControl(device C.nvmlDevice_t, link C.uint, c
 //export nvmlDeviceGetPgpuMetadataString
 func nvmlDeviceGetPgpuMetadataString(device C.nvmlDevice_t, pgpuMetadata *C.char, bufferSize *C.uint) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetPgpuMetadataString")
-}
-
-//export nvmlDeviceGetRepairStatus
-func nvmlDeviceGetRepairStatus(device C.nvmlDevice_t, repairStatus *C.nvmlRepairStatus_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetRepairStatus")
-}
-
-//export nvmlDeviceGetSramUniqueUncorrectedEccErrorCounts
-func nvmlDeviceGetSramUniqueUncorrectedEccErrorCounts(device C.nvmlDevice_t, errorCounts *C.nvmlEccSramUniqueUncorrectedErrorCounts_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetSramUniqueUncorrectedEccErrorCounts")
-}
-
-//export nvmlDeviceGetUnrepairableMemoryFlag_v1
-func nvmlDeviceGetUnrepairableMemoryFlag_v1(device C.nvmlDevice_t, unrepairableMemoryStatus *C.nvmlUnrepairableMemoryStatus_v1_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetUnrepairableMemoryFlag_v1")
 }
 
 //export nvmlDeviceGetVgpuCapabilities
@@ -271,19 +241,9 @@ func nvmlDeviceSetCpuAffinity(device C.nvmlDevice_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceSetCpuAffinity")
 }
 
-//export nvmlDeviceSetDramEncryptionMode
-func nvmlDeviceSetDramEncryptionMode(device C.nvmlDevice_t, dramEncryption *C.nvmlDramEncryptionInfo_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceSetDramEncryptionMode")
-}
-
 //export nvmlDeviceSetDriverModel
 func nvmlDeviceSetDriverModel(device C.nvmlDevice_t, driverModel C.nvmlDriverModel_t, flags C.uint) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceSetDriverModel")
-}
-
-//export nvmlDeviceSetEccMode
-func nvmlDeviceSetEccMode(device C.nvmlDevice_t, ecc C.nvmlEnableState_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceSetEccMode")
 }
 
 //export nvmlDeviceSetGpuOperationMode
@@ -339,11 +299,6 @@ func nvmlDeviceSetVgpuSchedulerState_v2(device C.nvmlDevice_t, pSchedulerState *
 //export nvmlDeviceSetVirtualizationMode
 func nvmlDeviceSetVirtualizationMode(device C.nvmlDevice_t, virtualMode C.nvmlGpuVirtualizationMode_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceSetVirtualizationMode")
-}
-
-//export nvmlDeviceValidateInforom
-func nvmlDeviceValidateInforom(device C.nvmlDevice_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceValidateInforom")
 }
 
 //export nvmlDeviceVgpuForceGspUnload

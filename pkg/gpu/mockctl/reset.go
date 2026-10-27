@@ -35,6 +35,10 @@ import (
 // override bucket, taking the same flock as every other writer of this file so a
 // concurrent injection cannot interleave with the reset.
 //
+// The exception is an ECC mode nvmlDeviceSetEccMode left pending. A GPU reset
+// is what makes a pending mode current on hardware, so the reset writes it back
+// as both modes instead of dropping it with the injected state.
+//
 // The index is deliberately not a Target: a Target can say "all", and the shared
 // `all:` bucket is not resettable per device. Doc.Reset leaves that bucket alone
 // for a device target (so state injected with `--gpu all` survives, and needs
@@ -66,8 +70,23 @@ func ResetDevice(path string, index int) error {
 	if err != nil {
 		return err
 	}
+	eccMode, eccPending := doc.pendingEccMode(index)
 	doc.Reset(Target{Index: index})
+	if eccPending {
+		doc.SetFields(Target{Index: index}, map[string]any{
+			"ecc": map[string]any{"mode_current": eccMode, "mode_pending": eccMode},
+		})
+	}
 	return WriteAtomic(path, doc)
+}
+
+// pendingEccMode reports the ECC mode SetEccModePending recorded for device
+// index. Only the device's own bucket is read: it is the one SetEccModePending
+// writes, and the only one a per-device reset rewrites.
+func (d *Doc) pendingEccMode(index int) (string, bool) {
+	ecc, _ := d.Devices[strconv.Itoa(index)]["ecc"].(map[string]any)
+	mode, ok := ecc["mode_pending"].(string)
+	return mode, ok
 }
 
 // deviceHasOverrides reports whether the document carries a bucket for the

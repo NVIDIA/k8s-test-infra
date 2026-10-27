@@ -428,6 +428,65 @@ func TestAccountingSetters_FailWithoutADocumentPath(t *testing.T) {
 	require.Error(t, ClearAccountingPids("", 0))
 }
 
+// TestEccSetters_ResolveThroughTheEngine merges the ECC writes over a profile
+// that already carries counters, the way the running mock does. A clear has to
+// outrank the profile's counts, which only a written zero does.
+func TestEccSetters_ResolveThroughTheEngine(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+	counts := func(n uint64) *engine.ECCErrorCountsConfig {
+		return &engine.ECCErrorCountsConfig{
+			DoubleBit: &engine.ECCMemoryErrorsConfig{DeviceMemory: n, Total: n},
+		}
+	}
+	profile := &engine.DeviceConfig{ECC: &engine.ECCConfig{
+		ModeCurrent: "enabled",
+		ModePending: "enabled",
+		Errors:      &engine.ECCErrorsConfig{Volatile: counts(2), Aggregate: counts(9)},
+		SRAM: &engine.ECCSramConfig{
+			Aggregate:         &engine.ECCSramCountsConfig{UncorrectableParity: 4},
+			ThresholdExceeded: true,
+		},
+		DRAMEncryption: &engine.ECCDRAMEncryptionConfig{ModeCurrent: "disabled", ModePending: "disabled"},
+	}}
+
+	require.NoError(t, SetEccModePending(path, 0, false))
+	require.NoError(t, ClearEccErrorCounts(path, 0, engine.EccScopeVolatile))
+	require.NoError(t, ClearEccErrorCounts(path, 1, engine.EccScopeAggregate))
+	require.NoError(t, SetDramEncryptionPending(path, 0, true))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	overrides := &engine.ConfigOverrideDoc{All: doc.All, Devices: doc.Devices}
+	resolve := func(index int) *engine.ECCConfig {
+		merged, err := engine.MergeDeviceConfig(profile, overrides.DeviceConfigOverride(index))
+		require.NoError(t, err)
+		return merged.ECC
+	}
+
+	volatileCleared := resolve(0)
+	require.Equal(t, "enabled", volatileCleared.ModeCurrent, "a pending write leaves the current mode alone")
+	require.Equal(t, "disabled", volatileCleared.ModePending)
+	require.Zero(t, volatileCleared.Errors.Volatile.DoubleBit.Total)
+	require.EqualValues(t, 9, volatileCleared.Errors.Aggregate.DoubleBit.Total)
+	require.True(t, volatileCleared.SRAM.ThresholdExceeded, "only the aggregate clear drops the threshold")
+	require.Equal(t, "disabled", volatileCleared.DRAMEncryption.ModeCurrent)
+	require.Equal(t, "enabled", volatileCleared.DRAMEncryption.ModePending)
+
+	aggregateCleared := resolve(1)
+	require.Zero(t, aggregateCleared.Errors.Aggregate.DoubleBit.Total)
+	require.EqualValues(t, 2, aggregateCleared.Errors.Volatile.DoubleBit.Total)
+	require.Zero(t, aggregateCleared.SRAM.Aggregate.UncorrectableParity)
+	require.False(t, aggregateCleared.SRAM.ThresholdExceeded)
+}
+
+func TestEccSetters_FailWithoutADocumentPath(t *testing.T) {
+	t.Parallel()
+	require.Error(t, SetEccModePending("", 0, true))
+	require.Error(t, ClearEccErrorCounts("", 0, engine.EccScopeVolatile))
+	require.Error(t, SetDramEncryptionPending("", 0, true))
+}
+
 func TestSetters_DoNotDisturbOtherDevices(t *testing.T) {
 	t.Parallel()
 	path := overridePath(t)

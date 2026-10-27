@@ -101,6 +101,18 @@ type OverrideWriter interface {
 
 	// ClearAccountingPids empties the records of processes that have exited.
 	ClearAccountingPids(index int) error
+
+	// SetEccModePending records the ECC mode that applies after the next GPU
+	// reset. The current mode is left alone, as it is on hardware.
+	SetEccModePending(index int, enabled bool) error
+
+	// ClearEccErrorCounts records the zeroing of one scope of ECC error
+	// counters, DRAM and SRAM alike.
+	ClearEccErrorCounts(index int, scope EccCounterScope) error
+
+	// SetDramEncryptionPending records the DRAM encryption mode that applies
+	// after the next reboot.
+	SetDramEncryptionPending(index int, enabled bool) error
 }
 
 // ClockDomain names a clock domain the locked-clock and offset setters write

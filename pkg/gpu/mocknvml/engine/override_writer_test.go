@@ -228,6 +228,20 @@ func (w *fileOverrideWriter) ClearAccountingPids(index int) error {
 	return w.patch(index, map[string]any{"accounting": map[string]any{"terminated": []any{}}})
 }
 
+func (w *fileOverrideWriter) SetEccModePending(index int, enabled bool) error {
+	return w.patch(index, map[string]any{"ecc": map[string]any{"mode_pending": enableStateString(enabled)}})
+}
+
+func (w *fileOverrideWriter) ClearEccErrorCounts(index int, scope EccCounterScope) error {
+	return w.patch(index, EccClearPatch(scope))
+}
+
+func (w *fileOverrideWriter) SetDramEncryptionPending(index int, enabled bool) error {
+	return w.patch(index, map[string]any{"ecc": map[string]any{
+		"dram_encryption": map[string]any{"mode_pending": enableStateString(enabled)},
+	}})
+}
+
 func (w *fileOverrideWriter) patch(index int, patch map[string]any) error {
 	return w.mutate(index, func(bucket map[string]any) error {
 		deepMergeMaps(bucket, patch)

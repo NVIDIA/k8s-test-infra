@@ -117,6 +117,22 @@ func (overrideWriter) SetAccountingMode(index int, enabled bool) error {
 	return mockctl.SetAccountingMode(engine.ConfigOverridePath(), index, enabled)
 }
 
+// SetEccModePending records the mode nvmlDeviceSetEccMode applied.
+func (overrideWriter) SetEccModePending(index int, enabled bool) error {
+	return mockctl.SetEccModePending(engine.ConfigOverridePath(), index, enabled)
+}
+
+// ClearEccErrorCounts records the clear nvmlDeviceClearEccErrorCounts applied.
+func (overrideWriter) ClearEccErrorCounts(index int, scope engine.EccCounterScope) error {
+	return mockctl.ClearEccErrorCounts(engine.ConfigOverridePath(), index, scope)
+}
+
+// SetDramEncryptionPending records the mode nvmlDeviceSetDramEncryptionMode
+// applied.
+func (overrideWriter) SetDramEncryptionPending(index int, enabled bool) error {
+	return mockctl.SetDramEncryptionPending(engine.ConfigOverridePath(), index, enabled)
+}
+
 // ClearAccountingPids records the clear nvmlDeviceClearAccountingPids applied.
 func (overrideWriter) ClearAccountingPids(index int) error {
 	return mockctl.ClearAccountingPids(engine.ConfigOverridePath(), index)
