@@ -613,6 +613,17 @@ type ECCConfig struct {
 	DefaultMode string           `json:"default_mode,omitempty"`
 	Errors      *ECCErrorsConfig `json:"errors,omitempty"`
 	SRAM        *ECCSramConfig   `json:"sram,omitempty"`
+	// DRAMEncryption is the DRAM encryption state of a Blackwell or newer
+	// board. Earlier architectures answer NOT_SUPPORTED whatever it holds.
+	DRAMEncryption *ECCDRAMEncryptionConfig `json:"dram_encryption,omitempty"`
+}
+
+// ECCDRAMEncryptionConfig defines the DRAM encryption mode. Changing it takes
+// a reboot, so the pending mode is the target the next boot applies while the
+// current mode is what the GPU runs with now.
+type ECCDRAMEncryptionConfig struct {
+	ModeCurrent string `json:"mode_current,omitempty"`
+	ModePending string `json:"mode_pending,omitempty"`
 }
 
 // ECCSramConfig defines the on-die SRAM ECC error state. Hardware counts SRAM

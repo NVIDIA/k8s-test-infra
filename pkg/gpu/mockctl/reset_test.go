@@ -44,6 +44,28 @@ devices:
 	require.False(t, has, "GPU 1's overrides should be gone after the reset")
 }
 
+// nvidia-smi -e only stages an ECC mode, and a GPU reset is what applies it, so
+// the mode has to come out of the reset as the current one rather than be
+// cleared with the injected state around it.
+func TestResetDevice_AppliesThePendingEccMode(t *testing.T) {
+	t.Parallel()
+	path := writeOverridesFile(t, `version: 1
+devices:
+  "0":
+    thermal:
+      temperature_gpu_c: 99
+`)
+	require.NoError(t, SetEccModePending(path, 0, false))
+
+	require.NoError(t, ResetDevice(path, 0))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{
+		"ecc": map[string]any{"mode_current": "disabled", "mode_pending": "disabled"},
+	}, doc.Devices["0"], "the reset must apply the pending mode and clear the injected temperature")
+}
+
 // A reset is scoped to the GPU nvidia-smi targeted with -i, so a sibling's
 // injected state has to survive it.
 func TestResetDevice_LeavesOtherDevicesAlone(t *testing.T) {

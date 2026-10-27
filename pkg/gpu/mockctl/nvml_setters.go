@@ -140,6 +140,37 @@ func ClearAccountingPids(path string, index int) error {
 	})
 }
 
+// SetEccModePending persists the ECC mode that applies after the next GPU
+// reset. The current mode is not written: a mode change is a reset away on
+// hardware, so the two diverge until then.
+func SetEccModePending(path string, index int, enabled bool) error {
+	return mutateDevice(path, func(d *Doc) error {
+		d.SetFields(Target{Index: index}, map[string]any{
+			"ecc": map[string]any{"mode_pending": enableState(enabled)},
+		})
+		return nil
+	})
+}
+
+// ClearEccErrorCounts persists the zeroing of one scope of ECC counters.
+func ClearEccErrorCounts(path string, index int, scope engine.EccCounterScope) error {
+	return mutateDevice(path, func(d *Doc) error {
+		d.SetFields(Target{Index: index}, engine.EccClearPatch(scope))
+		return nil
+	})
+}
+
+// SetDramEncryptionPending persists the DRAM encryption mode the next reboot
+// applies.
+func SetDramEncryptionPending(path string, index int, enabled bool) error {
+	return mutateDevice(path, func(d *Doc) error {
+		d.SetFields(Target{Index: index}, map[string]any{
+			"ecc": map[string]any{"dram_encryption": map[string]any{"mode_pending": enableState(enabled)}},
+		})
+		return nil
+	})
+}
+
 // accountingTerminatedKey is the accounting field both accounting setters
 // empty.
 const accountingTerminatedKey = "terminated"
