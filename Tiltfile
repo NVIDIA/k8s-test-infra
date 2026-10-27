@@ -219,6 +219,13 @@ if with_slinky:
 if upsert_timeouts:
     update_settings(k8s_upsert_timeout_secs=max(upsert_timeouts))
 
+# Once the driver is in, the GPU Operator's toolkit operand restarts containerd,
+# and an operand's image pull in flight fails with ErrImagePull. The kubelet
+# retries the pull, but tilt ci fails on the first error unless it gets a grace
+# period. Only the kernel mode runs the toolkit operand.
+if with_kernel_mods:
+    ci_settings(k8s_grace_period='2m')
+
 if with_observability:
     observability_releases = observability_install(nvml_mock_releases)
 
