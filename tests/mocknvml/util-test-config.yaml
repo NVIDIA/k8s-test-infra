@@ -448,6 +448,32 @@ devices:
     pci:
       bus_id: "0000:87:00.0"
     minor_number: 4
+    # The one device that models encoder and FBC sessions, so the bridge suite
+    # reads non-empty session buffers across the C boundary (testSessionsAndBoard).
+    # Capacity is 100 minus the processes' enc_util: 100 - 30 - 25 = 45.
+    encoder_stats:
+      session_count: 3
+      average_fps: 60
+      average_latency_us: 4200
+    fbc_stats:
+      session_count: 2
+      average_fps: 30
+      average_latency_us: 900
+    processes:
+      - pid: 4242
+        type: "C"
+        name: "python"
+        used_memory_mib: 6000
+        enc_util: 30
+      - pid: 4343
+        type: "C"
+        name: "ffmpeg"
+        used_memory_mib: 500
+        enc_util: 25
+    multi_gpu_board: true
+    gpu_operation_mode:
+      current: "compute"
+      pending: "low_dp"
 
   - index: 5
     uuid: "GPU-12345678-1234-1234-1234-123456780005"
