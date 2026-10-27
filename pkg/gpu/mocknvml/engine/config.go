@@ -1270,6 +1270,18 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	if override.Accounting != nil {
 		base.Accounting = override.Accounting
 	}
+	if override.EncoderStats != nil {
+		base.EncoderStats = override.EncoderStats
+	}
+	if override.FBCStats != nil {
+		base.FBCStats = override.FBCStats
+	}
+	if override.GPUOperationMode != nil {
+		base.GPUOperationMode = override.GPUOperationMode
+	}
+	if override.BoardID != nil {
+		base.BoardID = override.BoardID
+	}
 	if override.MIG != nil {
 		mergeMIGOverride(base, override.MIG)
 	}

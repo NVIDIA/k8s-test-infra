@@ -149,6 +149,47 @@ func TestEncoderGetters_LostDevice(t *testing.T) {
 	require.Equal(t, nvml.ERROR_GPU_IS_LOST, ret)
 }
 
+// Two GPUs the profile puts on one board report the same board ID, call each
+// other on the same board and both say they sit on a multi-GPU board; a third
+// GPU keeps its PCI-derived board of its own. The board ID being shared must
+// not leak into the per-GPU ID the CPER log and system events name a GPU by.
+func TestGetMultiGpuBoard_FollowsSharedBoardID(t *testing.T) {
+	t.Parallel()
+	shared := new(HexID(0x4100))
+	e := pcieIdentityEngine(t, DeviceConfig{},
+		DeviceOverride{Index: 0, DeviceConfig: DeviceConfig{BoardID: shared}},
+		DeviceOverride{Index: 1, DeviceConfig: DeviceConfig{BoardID: shared}},
+		DeviceOverride{Index: 2},
+	)
+	gpu0, gpu1, gpu2 := pcieIdentityDevice(t, e, 0), pcieIdentityDevice(t, e, 1), pcieIdentityDevice(t, e, 2)
+
+	for _, tc := range []struct {
+		name  string
+		dev   *ConfigurableDevice
+		multi int
+	}{{"gpu0", gpu0, 1}, {"gpu1", gpu1, 1}, {"gpu2", gpu2, 0}} {
+		multi, ret := tc.dev.GetMultiGpuBoard()
+		require.Equal(t, nvml.SUCCESS, ret, tc.name)
+		require.Equal(t, tc.multi, multi, tc.name)
+	}
+
+	id0, ret := gpu0.GetBoardId()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.EqualValues(t, 0x4100, id0)
+	id2, ret := gpu2.GetBoardId()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.NotEqualValues(t, 0x4100, id2)
+
+	same, ret := gpu0.OnSameBoard(gpu1)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, 1, same)
+	same, ret = gpu0.OnSameBoard(gpu2)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Zero(t, same)
+
+	require.NotEqual(t, gpu0.gpuID, gpu1.gpuID, "board-mates must keep distinct GPU IDs")
+}
+
 // A GPU with no board_id is a board of its own. The 0 only means that if the
 // same getter answers 1 once a profile puts GPUs on one board, so a getter
 // that always answers 0 fails here too.
@@ -231,4 +272,56 @@ func TestValidateYAMLConfig_RejectsUnknownGPUOperationMode(t *testing.T) {
 	err := validateGPUOperationModes(cfg)
 	require.ErrorContains(t, err, "gpu_operation_mode.current")
 	require.ErrorContains(t, err, "turbo")
+}
+
+// A per-device block must reach the device that declares it and stay off its
+// siblings: with the merge missing, the getters answer the defaults' constants,
+// which is indistinguishable from a profile that never set the field.
+func TestGetDeviceConfigMergesPerDeviceSessionAndBoardFields(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		NumDevices: 2,
+		YAMLConfig: &YAMLConfig{
+			Devices: []DeviceOverride{{
+				Index: 1,
+				DeviceConfig: DeviceConfig{
+					EncoderStats:     &EncoderStatsConfig{SessionCount: 3},
+					FBCStats:         &FBCStatsConfig{SessionCount: 2},
+					GPUOperationMode: &GPUOperationModeConfig{Current: "compute"},
+					BoardID:          new(HexID(0x4100)),
+				},
+			}},
+		},
+	}
+
+	got := cfg.GetDeviceConfig(1)
+	require.EqualValues(t, 3, got.EncoderStats.SessionCount)
+	require.EqualValues(t, 2, got.FBCStats.SessionCount)
+	require.Equal(t, "compute", got.GPUOperationMode.Current)
+	require.EqualValues(t, 0x4100, *got.BoardID)
+
+	sibling := cfg.GetDeviceConfig(0)
+	require.Nil(t, sibling.EncoderStats)
+	require.Nil(t, sibling.FBCStats)
+	require.Nil(t, sibling.GPUOperationMode)
+	require.Nil(t, sibling.BoardID)
+}
+
+// A device's board_id replaces the defaults' one, so a node whose GPUs share a
+// board can still hold one that sits on its own.
+func TestGetDeviceConfigAppliesPerDeviceBoardID(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		NumDevices: 2,
+		YAMLConfig: &YAMLConfig{
+			DeviceDefaults: DeviceConfig{BoardID: new(HexID(0x4100))},
+			Devices: []DeviceOverride{{
+				Index:        1,
+				DeviceConfig: DeviceConfig{BoardID: new(HexID(0x4200))},
+			}},
+		},
+	}
+
+	require.EqualValues(t, 0x4100, *cfg.GetDeviceConfig(0).BoardID)
+	require.EqualValues(t, 0x4200, *cfg.GetDeviceConfig(1).BoardID)
 }
