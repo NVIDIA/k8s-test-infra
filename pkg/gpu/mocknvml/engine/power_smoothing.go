@@ -23,7 +23,8 @@ import (
 // NVML field ids for power smoothing, in the numbering of the simulated 580
 // driver. The CUDA 13.3 header go-nvml pins renumbers them five lower, onto
 // the ids the 580 driver uses for the clocks-event counters (see
-// throttle_counters.go). nvidia-smi 580.65.06 asks for exactly 256-273.
+// throttle_counters.go). nvidia-smi 580.65.06 asks for exactly 256-273. Newer
+// drivers use the header's numbering; CanonicalFieldID translates it to these.
 //
 // nvidia-smi reads each field as a fixed C type rather than by the value type
 // it is handed, so the uint/double split here is what renders correctly, not
