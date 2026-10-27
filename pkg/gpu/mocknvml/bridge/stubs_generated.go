@@ -23,7 +23,7 @@ package main
 */
 import "C"
 
-// 129 stub functions for unimplemented NVML functions.
+// 120 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceGetInfo_v1
@@ -119,11 +119,6 @@ func nvmlDeviceGetGridLicensableFeatures_v2(device C.nvmlDevice_t, pGridLicensab
 //export nvmlDeviceGetGridLicensableFeatures_v3
 func nvmlDeviceGetGridLicensableFeatures_v3(device C.nvmlDevice_t, pGridLicensableFeatures *C.nvmlGridLicensableFeatures_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetGridLicensableFeatures_v3")
-}
-
-//export nvmlDeviceGetHostname_v1
-func nvmlDeviceGetHostname_v1(device C.nvmlDevice_t, hostname *C.nvmlHostname_v1_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetHostname_v1")
 }
 
 //export nvmlDeviceGetInforomConfigurationChecksum
@@ -294,11 +289,6 @@ func nvmlDeviceSetEccMode(device C.nvmlDevice_t, ecc C.nvmlEnableState_t) C.nvml
 //export nvmlDeviceSetGpuOperationMode
 func nvmlDeviceSetGpuOperationMode(device C.nvmlDevice_t, mode C.nvmlGpuOperationMode_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceSetGpuOperationMode")
-}
-
-//export nvmlDeviceSetHostname_v1
-func nvmlDeviceSetHostname_v1(device C.nvmlDevice_t, hostname *C.nvmlHostname_v1_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceSetHostname_v1")
 }
 
 //export nvmlDeviceSetMemoryLimits_v1
@@ -476,26 +466,6 @@ func nvmlSetVgpuVersion(vgpuVersion *C.nvmlVgpuVersion_t) C.nvmlReturn_t {
 	return stubReturn("nvmlSetVgpuVersion")
 }
 
-//export nvmlSystemEventSetCreate
-func nvmlSystemEventSetCreate(request *C.nvmlSystemEventSetCreateRequest_t) C.nvmlReturn_t {
-	return stubReturn("nvmlSystemEventSetCreate")
-}
-
-//export nvmlSystemEventSetFree
-func nvmlSystemEventSetFree(request *C.nvmlSystemEventSetFreeRequest_t) C.nvmlReturn_t {
-	return stubReturn("nvmlSystemEventSetFree")
-}
-
-//export nvmlSystemEventSetWait
-func nvmlSystemEventSetWait(request *C.nvmlSystemEventSetWaitRequest_t) C.nvmlReturn_t {
-	return stubReturn("nvmlSystemEventSetWait")
-}
-
-//export nvmlSystemGetCPER_v1
-func nvmlSystemGetCPER_v1(cper *C.nvmlGetCPER_v1_t) C.nvmlReturn_t {
-	return stubReturn("nvmlSystemGetCPER_v1")
-}
-
 //export nvmlSystemGetConfComputeCapabilities
 func nvmlSystemGetConfComputeCapabilities(capabilities *C.nvmlConfComputeSystemCaps_t) C.nvmlReturn_t {
 	return stubReturn("nvmlSystemGetConfComputeCapabilities")
@@ -519,21 +489,6 @@ func nvmlSystemGetConfComputeSettings(settings *C.nvmlSystemConfComputeSettings_
 //export nvmlSystemGetConfComputeState
 func nvmlSystemGetConfComputeState(state *C.nvmlConfComputeSystemState_t) C.nvmlReturn_t {
 	return stubReturn("nvmlSystemGetConfComputeState")
-}
-
-//export nvmlSystemGetDriverBranch
-func nvmlSystemGetDriverBranch(branchInfo *C.nvmlSystemDriverBranchInfo_t, length C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlSystemGetDriverBranch")
-}
-
-//export nvmlSystemGetHicVersion
-func nvmlSystemGetHicVersion(hwbcCount *C.uint, hwbcEntries *C.nvmlHwbcEntry_t) C.nvmlReturn_t {
-	return stubReturn("nvmlSystemGetHicVersion")
-}
-
-//export nvmlSystemRegisterEvents
-func nvmlSystemRegisterEvents(request *C.nvmlSystemRegisterEventRequest_t) C.nvmlReturn_t {
-	return stubReturn("nvmlSystemRegisterEvents")
 }
 
 //export nvmlSystemSetConfComputeGpusReadyState

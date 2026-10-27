@@ -257,6 +257,14 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				nvidiasmi.PowerSmoothing(ctx, h.Kube, pod, p)
 			})
 
+			It("reports the node's host interface cards via nvidia-smi -q -u -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// The only nvidia-smi surface that renders
+				// nvmlSystemGetHicVersion. Every shipped profile models a
+				// modern board, so the honest answer is a unit query that
+				// succeeds and reports no cards.
+				nvidiasmi.HICInfo(ctx, h.Kube, pod, nil)
+			})
+
 			It("exposes the NVLink topology (gated on fabricmanager)", Label("nvlink"), func(ctx SpecContext) {
 				assertions.FabricManagerGate(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", pod, config.ReadyTimeout(), config.PollInterval())
 				assertions.NVLink(ctx, h.Kube, pod, p)
@@ -458,6 +466,17 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				It("injects fallen-off-bus errors", func(ctx SpecContext) {
 					assertFallenOffBusFailure(ctx, h)
 				})
+			})
+
+			// Last, next to the Helm-driven injections: the upgrade restarts
+			// the DaemonSet pods, so any spec after it would exec into a pod
+			// that no longer exists.
+			It("reports the cards a release declares via nvidia-smi -q -u -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// The chart's hic[] entries reach NVML only through the config
+				// the library reads at load, so this is what proves the
+				// system overlay lands in the library rather than only in the
+				// DaemonSet's environment.
+				nvidiasmi.HICInfo(ctx, h.Kube, upgradeWithHICs(ctx, h), configuredHICs())
 			})
 		})
 	}
