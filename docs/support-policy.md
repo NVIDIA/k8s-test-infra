@@ -38,12 +38,9 @@ Security fixes include fixes for published CVEs (Common Vulnerabilities and
 Exposures). To report a vulnerability, follow the
 [security policy](https://github.com/NVIDIA/k8s-test-infra/blob/main/SECURITY.md).
 
-<Note>
-**Effective 2026-10-12**
-
-This policy takes effect on 2026-10-12. The `release-X.Y` branches are
-retired, and v0.4.1 was the last release cut from one.
-</Note>
+!!! note "Effective 2026-10-12"
+    This policy takes effect on 2026-10-12. The `release-X.Y` branches are
+    retired, and v0.4.1 was the last release cut from one.
 
 ## Deprecation
 

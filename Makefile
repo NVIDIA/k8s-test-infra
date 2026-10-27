@@ -140,10 +140,9 @@ lint: tools gen-check ## Lint the source code
 	@./hack/check-depproxy-kit.sh
 	@echo "Checking docs/tools against cmd/.."
 	@./hack/check-docs-tools-sync.sh
-# Documentation links are checked here rather than in `make docs-check` because
-# the Fern workflow only validates docs/ and fern/, so every README outside
-# them — where these links actually rot — would get no coverage. `make lint`
-# runs on every PR.
+# Documentation links are checked here rather than in `make docs` because the
+# Pages workflow only triggers on docs/**, so every README outside it — where
+# these links actually rot — would get no coverage. `make lint` runs on every PR.
 	@echo "🔗 Checking documentation links.."
 	@./hack/check-doc-links.sh
 	@echo "🧹 Vetting.."
@@ -515,7 +514,9 @@ crd-docs: ## Generate the Control Plane API reference documentation
 		--renderer markdown \
 		--output-mode single \
 		--max-depth 20
-	perl -0pe 's/\n+\z/\n/' docs/out.md > docs/crd-reference.md
+	awk 'BEGIN { print "<!--"; print "SPDX-License-Identifier: Apache-2.0"; print "SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION"; print "-->"; print "" } { print }' docs/out.md > docs/crd-reference.md.tmp
+	perl -0pi -e 's/\n+\z/\n/' docs/crd-reference.md.tmp
+	mv docs/crd-reference.md.tmp docs/crd-reference.md
 	unlink docs/out.md
 
 # Drives the built libnvidia-ml.so through go-nvml over the real C ABI.
@@ -806,57 +807,75 @@ e2e-vgpu: ## e2e — vGPU host and guest scenario
 
 ##@ Documentation
 
-# The docs site is Fern. CI calls these same targets so a failure reproduces
-# locally with one command. The Fern CLI is deliberately unpinned; install it
-# with `npm install -g fern-api@latest`.
-FERN ?= fern
+# The docs site is MkDocs Material. CI calls these same targets so a failure
+# reproduces locally with one command.
+MKDOCS ?= mkdocs
 
-# Pages under docs/ that docs/index.yml does not list. They are GitHub-rendered
-# markdown for contributors, or demos that need a repository clone, so they use
-# syntax Fern's MDX parser rejects (autolinks, HTML comments, GitHub alerts).
-# Keep this in step with what docs/index.yml omits. Paths are relative to a docs
-# root.
-DOCS_UNPUBLISHED_PAGES := \
-	contributing/* \
-	maintainers/* \
-	tools/check-fabric.md \
-	tools/generate-bridge.md \
-	guides/compute-domain/* \
-	guides/nv-sentinel/* \
-	guides/failure-injection/*
+# uv manages the toolchain, installed from the pinned requirements-docs.txt.
+# It goes into a project-local virtualenv rather than the system interpreter:
+# `uv pip install` refuses a non-virtual environment outright, and --system
+# resolves whichever interpreter uv happens to find first (an Xcode python3.9
+# on macOS) or trips Debian's externally-managed marker on the CI runner.
+# Naming the venv sidesteps both.
+UV                  ?= uv
+DOCS_VENV           ?= $(CURDIR)/.venv-docs
+DOCS_PYTHON_VERSION ?= 3.12
 
-# A registered docs version is a copy of docs/ frozen at its tag (see
-# tools/restore-docs-versions), and the checks scan fern/ too, so every
-# exclusion has to hold under each copy as well as under docs/.
-DOCS_ROOTS := docs fern/versions/*-content
-DOCS_UNPUBLISHED := $(foreach root,$(DOCS_ROOTS),$(foreach page,$(DOCS_UNPUBLISHED_PAGES),--exclude '$(root)/$(page)'))
-# Sample manifests are not pages and Fern never parses them.
-DOCS_SAMPLES := $(foreach root,$(DOCS_ROOTS),--exclude '$(root)/*.yaml')
+# Put the venv ahead of PATH for the build targets instead of asking anyone to
+# activate it. The entry is inert when the venv is absent, so `make docs` still
+# works for someone who has mkdocs on PATH by other means.
+DOCS_PATH := PATH="$(DOCS_VENV)/bin:$$PATH"
 
-# fern/ builds the released versions only. This copy of it builds docs/ as the
-# next release will ship it (see tools/unreleased-docs-config).
-DOCS_UNRELEASED := tmp/docs-unreleased
+.PHONY: docs-deps docs-build docs-serve docs-check-exclusion docs managed-eks-terraform-check
 
-.PHONY: docs-check docs-check-paths docs-serve docs-unreleased docs-versions
+# Missing uv is a hard failure, not a pip fallback. A fallback would let CI and
+# a developer resolve different interpreters while both report success, which is
+# the divergence the pinned manifest exists to prevent.
+# --clear because `uv venv` refuses to write over an existing environment, so
+# without it this target succeeds once and then fails on every re-run, which
+# is also how it would behave for anyone who already had a .venv-docs.
+docs-deps: ## Install the pinned MkDocs toolchain into .venv-docs using uv
+	@command -v $(UV) >/dev/null 2>&1 || { \
+		echo "ERROR: uv not found on PATH. The docs toolchain is managed with uv."; \
+		echo "  Install it with:  brew install uv"; \
+		echo "               or:  curl -LsSf https://astral.sh/uv/install.sh | sh"; \
+		echo "  Docs: https://docs.astral.sh/uv/getting-started/installation/"; \
+		exit 1; \
+	}
+	$(UV) venv --clear --python $(DOCS_PYTHON_VERSION) $(DOCS_VENV)
+	$(UV) pip install --python $(DOCS_VENV) -r requirements-docs.txt
+	@echo "MkDocs installed into $(DOCS_VENV); make docs picks it up with no activation."
 
-docs-versions: ## Restore each registered docs version from its git tag into fern/versions/
-	./tools/restore-docs-versions
+docs-build: ## Build the documentation site (strict: broken links fail)
+	$(DOCS_PATH) $(MKDOCS) build --strict
 
-docs-unreleased: ## Write the Fern config that builds docs/ without the released versions
-	python3 tools/unreleased-docs-config $(DOCS_UNRELEASED)
+docs-serve: ## Serve the documentation site locally on :8000
+	$(DOCS_PATH) $(MKDOCS) serve
 
-# Fern reads any local file a page names, so a page that points outside docs/
-# could read runner files. The Fern workflows run this before they use
-# FERN_TOKEN, from a trusted checkout, so it is a target of its own.
-docs-check-paths: ## Reject docs page paths that leave docs/ (see tools/check-docs-paths)
-	python3 tools/check-docs-paths --allow '../docs/index.yml' $(DOCS_SAMPLES) $(DOCS_UNPUBLISHED) docs fern
+# docs/plans/ and docs/superpowers/ are gitignored scratch directories, so they
+# are absent in CI and grepping the built site for them would pass no matter
+# what. Plant a file and prove exclude_docs drops it, so this fails if that
+# config is removed.
+docs-check-exclusion: ## Verify gitignored internal plans cannot reach the site
+	@set -eu; \
+	export PATH="$(DOCS_VENV)/bin:$$PATH"; \
+	mkdir -p docs/plans; \
+	printf '# Internal\n\nPAGES_EXCLUSION_CANARY\n' > docs/plans/_canary.md; \
+	trap 'rm -rf docs/plans/_canary.md "$(CURDIR)/tmp/canary-site"; rmdir docs/plans 2>/dev/null || true' EXIT; \
+	$(MKDOCS) build --strict --site-dir "$(CURDIR)/tmp/canary-site" >/dev/null; \
+	if grep -rq 'PAGES_EXCLUSION_CANARY' "$(CURDIR)/tmp/canary-site"/; then \
+		echo "ERROR: docs/plans/ leaked into the site; check exclude_docs in mkdocs.yml"; \
+		exit 1; \
+	fi; \
+	echo "exclude_docs verified: internal plans are not published"
 
-docs-check: docs-versions docs-unreleased docs-check-paths ## Validate the docs: MDX safety, page paths, Fern config, MDX validity and internal links
-	python3 tools/check-docs-mdx $(DOCS_UNPUBLISHED) docs fern
-	@for dir in fern $(DOCS_UNRELEASED)/fern; do \
-		echo "Checking the site built by $${dir}/docs.yml"; \
-		(cd "$${dir}" && $(FERN) check && $(FERN) docs md check && $(FERN) docs broken-links --strict) || exit 1; \
-	done
+docs: docs-check-exclusion docs-build ## Verify exclusion then build the site
 
-docs-serve: docs-unreleased ## Serve docs/ as the next release locally on :3000
-	cd $(DOCS_UNRELEASED) && $(FERN) docs dev
+MANAGED_EKS_TERRAFORM_DIR := docs/guides/install/aws/eks/terraform
+TERRAFORM                 ?= terraform
+
+managed-eks-terraform-check: ## Format and validate the managed EKS Terraform without AWS credentials
+	$(TERRAFORM) -chdir=$(MANAGED_EKS_TERRAFORM_DIR) fmt -check -recursive
+	TF_IN_AUTOMATION=1 $(TERRAFORM) -chdir=$(MANAGED_EKS_TERRAFORM_DIR) init \
+		-backend=false -input=false -lockfile=readonly
+	TF_IN_AUTOMATION=1 $(TERRAFORM) -chdir=$(MANAGED_EKS_TERRAFORM_DIR) validate

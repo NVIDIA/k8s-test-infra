@@ -34,7 +34,7 @@ Kubernetes: `>= 1.28.0-0`
 | controlPlane.logging.format | string | `"json"` | Control-plane log encoding. |
 | controlPlane.logging.level | string | `"info"` | Control-plane log level. |
 | controlPlane.nodeSelector | object | `{}` | Node selector for control-plane pods. |
-| controlPlane.pdb.enabled | bool | `false` | Enable a PodDisruptionBudget. Rendered only when replicas &gt; 1. |
+| controlPlane.pdb.enabled | bool | `false` | Enable a PodDisruptionBudget. Rendered only when replicas > 1. |
 | controlPlane.podAnnotations | object | `{}` | Additional annotations applied to control-plane pods. |
 | controlPlane.podLabels | object | `{}` | Additional labels applied to control-plane pods. |
 | controlPlane.priorityClassName | string | `""` | Priority class for control-plane pods. |

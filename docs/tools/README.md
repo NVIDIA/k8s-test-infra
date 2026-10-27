@@ -11,10 +11,10 @@ Three of the four below are workloads the chart runs for you; only
 | [`control-plane`](control-plane.md) | Runs the [Mokka control plane](../control-plane.md) and serves liveness and controller-readiness probes. |
 | [`nvml-mock-ctl`](../nvml-mock-ctl.md) | Mutate the simulated GPU state of a running node without a restart. |
 
-Two more are documented under [Contributing](https://github.com/NVIDIA/k8s-test-infra/blob/main/docs/contributing/index.md):
-[`check-fabric`](https://github.com/NVIDIA/k8s-test-infra/blob/main/docs/tools/check-fabric.md), which prints the NVLink fabric identity
+Two more are documented under [Contributing](../contributing/index.md):
+[`check-fabric`](check-fabric.md), which prints the NVLink fabric identity
 (cluster UUID, clique ID, state) of every visible GPU, and
-[`generate-bridge`](https://github.com/NVIDIA/k8s-test-infra/blob/main/docs/tools/generate-bridge.md), which generates the mock NVML bridge
+[`generate-bridge`](generate-bridge.md), which generates the mock NVML bridge
 stubs.
 
 ## Building

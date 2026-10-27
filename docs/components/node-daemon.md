@@ -9,13 +9,10 @@ It is a level-triggered reconciler, not a one-shot installer: it compiles a
 desired state from the GPU profile and converges the node onto it, repeating
 that whenever the profile changes.
 
-<Note>
-**It still ships as `node-agent`**
-
-The container, its binary and the `nodeAgent` chart values block are all
-named `node-agent` for now, so that is what `kubectl` and `values.yaml`
-show. The rename to *daemon* is in progress.
-</Note>
+!!! note "It still ships as `node-agent`"
+    The container, its binary and the `nodeAgent` chart values block are all
+    named `node-agent` for now, so that is what `kubectl` and `values.yaml`
+    show. The rename to *daemon* is in progress.
 
 For where it sits in the wider system, see the
 [architecture overview](../architecture.md).

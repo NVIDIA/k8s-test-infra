@@ -99,7 +99,7 @@ go run ./cmd/generate-bridge -input $GO_NVML_DIR/pkg/nvml/nvml.go --stats
 
 The stub layer is generated from NVML's own header, so adding a hand-written
 implementation removes its stub automatically. See the
-[contributing guide](https://github.com/NVIDIA/k8s-test-infra/blob/main/docs/contributing/index.md) for that workflow.
+[contributing guide](../contributing/index.md) for that workflow.
 
 ### Limits
 
@@ -121,14 +121,11 @@ and friends — and splice a prefix onto any path that matches.
 
 That only works for programs that go through libc.
 
-<Warning>
-**Go binaries bypass `LD_PRELOAD` entirely**
-
-Go makes syscalls directly rather than through libc, so a preloaded library
-is never consulted. Most of the Kubernetes control plane is Go, which is why
-Mokka also bind-mounts the staged tree at the real paths. The shims serve
-the C tools; the mounts serve everything else.
-</Warning>
+!!! warning "Go binaries bypass `LD_PRELOAD` entirely"
+    Go makes syscalls directly rather than through libc, so a preloaded library
+    is never consulted. Most of the Kubernetes control plane is Go, which is why
+    Mokka also bind-mounts the staged tree at the real paths. The shims serve
+    the C tools; the mounts serve everything else.
 
 Both libraries are no-ops unless their environment variable is set, so a process
 that inherits them without the corresponding configuration sees the real host.
@@ -231,4 +228,4 @@ them.
 | Every profile knob | [Configuration](../configuration.md) |
 | Changing state at runtime | [Runtime Control](../nvml-mock-ctl.md) |
 | Turning InfiniBand mocking on and off | [Installation](../helm-chart.md#infiniband-mocking) |
-| Adding NVML functions or profiles | [Contributing](https://github.com/NVIDIA/k8s-test-infra/blob/main/docs/contributing/index.md) |
+| Adding NVML functions or profiles | [Contributing](../contributing/index.md) |

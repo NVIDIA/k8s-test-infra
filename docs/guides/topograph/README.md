@@ -52,16 +52,13 @@ flowchart LR
 No node carries a clique label: the only source of the topology is the fabric
 Mokka reports.
 
-<Note>
-**Why a separate `nvidia-smi` DaemonSet**
-
-On a real cluster the broker runs `nvidia-smi` in the GPU Operator's device
-plugin pod. Here a one-container DaemonSet takes that role, so the guide needs
-neither the GPU Operator nor the DRA driver. Mokka's own pod does not work as
-the target: Topograph's exec names no container, so it lands in the
-[NRI plugin](../../components/nri-plugin.md) container, which has no mock
-driver and reports `[N/A]`.
-</Note>
+!!! note "Why a separate `nvidia-smi` DaemonSet"
+    On a real cluster the broker runs `nvidia-smi` in the GPU Operator's device
+    plugin pod. Here a one-container DaemonSet takes that role, so the guide needs
+    neither the GPU Operator nor the DRA driver. Mokka's own pod does not work as
+    the target: Topograph's exec names no container, so it lands in the
+    [NRI plugin](../../components/nri-plugin.md) container, which has no mock
+    driver and reports `[N/A]`.
 
 ## Prerequisites
 

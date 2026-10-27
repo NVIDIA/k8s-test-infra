@@ -70,12 +70,10 @@ Add the file, then deploy it with `tilt up -- --gpu-profile <name>` and check
 `nvidia-smi` reports what you intended. [Configuration](../configuration.md)
 documents every field.
 
-> [!NOTE]
-> **Profiles have a drift guard**
->
-> `tests/e2e/go/profile` asserts derived expectations across **all** known
-> profiles regardless of which one you are running, so a malformed or
-> inconsistent profile fails the unit tests rather than a cluster run.
+!!! note "Profiles have a drift guard"
+    `tests/e2e/go/profile` asserts derived expectations across **all** known
+    profiles regardless of which one you are running, so a malformed or
+    inconsistent profile fails the unit tests rather than a cluster run.
 
 ### Debugging
 
@@ -98,7 +96,6 @@ MOCK_NVML_DEBUG=1 nvidia-smi     # trace every NVML call the mock answers
 |---|---|
 | Bringing up a cluster | [Local Development](local-development.md) |
 | Running the gates | [Testing](testing.md) |
-| Running a guide as a script, or through Tilt | [Running the guides from a checkout](running-demos.md) |
 | Reading NVLink fabric state off a node | [check-fabric](../tools/check-fabric.md) |
 | Regenerating the NVML bridge stubs | [generate-bridge](../tools/generate-bridge.md) |
 | Putting a behavior behind a feature gate | [Gating New Behavior](feature-gates.md) |

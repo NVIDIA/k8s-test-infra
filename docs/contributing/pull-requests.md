@@ -88,13 +88,11 @@ substantial enough to need a design first, it needs a
 Keep them small. A single reviewer covers this repository, so three focused
 pull requests land faster than one that touches everything.
 
-> [!NOTE]
-> **E2E runs on a mirrored branch**
->
-> Unit, lint and chart checks run on the pull request itself. The E2E suite
-> runs from a `pull-request/N` branch that copy-pr-bot creates, so it appears
-> under a separate run rather than on the PR event. Nothing is wrong if you do
-> not see it immediately.
+!!! note "E2E runs on a mirrored branch"
+    Unit, lint and chart checks run on the pull request itself. The E2E suite
+    runs from a `pull-request/N` branch that copy-pr-bot creates, so it appears
+    under a separate run rather than on the PR event. Nothing is wrong if you do
+    not see it immediately.
 
 ## Review
 

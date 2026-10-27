@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION -->
+
 # Mokka control plane
 
 The Stage 1 control plane turns `SGPURackProfile` and `SGPUInventory` resources

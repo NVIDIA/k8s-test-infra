@@ -54,12 +54,10 @@ make e2e-mig              # MIG partitions through the device plugin
 make e2e-vgpu             # vGPU host and guest
 ```
 
-> [!WARNING]
-> **`make e2e` does not run everything**
->
-> It applies a default label filter that excludes the scenarios above, so
-> a bare `make e2e` runs only the standalone scenario. Use the per-scenario
-> targets for the rest.
+!!! warning "`make e2e` does not run everything"
+    It applies a default label filter that excludes the scenarios above, so
+    a bare `make e2e` runs only the standalone scenario. Use the per-scenario
+    targets for the rest.
 
 The suite's own manual — scenarios, Ginkgo labels, environment variables and
 diagnostics — is in
@@ -92,12 +90,10 @@ make helm-crds-tests     # chart paths only
 make verify-greptile
 ```
 
-> [!NOTE]
-> **Why E2E did not run on your pull request**
->
-> Unit, lint and chart checks run on the pull request itself. The E2E suite
-> runs from a mirrored `pull-request/N` branch that copy-pr-bot creates, so it
-> appears a little later and under a separate run — not on the PR event.
+!!! note "Why E2E did not run on your pull request"
+    Unit, lint and chart checks run on the pull request itself. The E2E suite
+    runs from a mirrored `pull-request/N` branch that copy-pr-bot creates, so it
+    appears a little later and under a separate run — not on the PR event.
 
 ## Related
 
