@@ -319,10 +319,9 @@ func TestConfigurableDevice_GetPdi_MigDeviceReportsItsGPU(t *testing.T) {
 	require.Equal(t, want.Value, got.Value)
 }
 
-// Every mocked GPU is its own board — GetMultiGpuBoard says so — so only a GPU
-// and its own MIG devices share one. A GB200 superchip's two GPUs share a
-// serial but are still two boards, as the hardware capture's distinct
-// board_id values show.
+// A GPU with no board_id is a board of its own, so only a GPU and its own MIG
+// devices share one. A GB200 superchip's two GPUs share a serial but are still
+// two boards, as the hardware capture's distinct board_id values show.
 func TestConfigurableDevice_OnSameBoard(t *testing.T) {
 	t.Parallel()
 	e := identityEngine(t)

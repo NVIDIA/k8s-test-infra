@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -337,26 +338,21 @@ func validateYAMLConfig(config *YAMLConfig) error {
 		seen[dev.Index] = true
 	}
 
-	if err := ValidateMinorNumbers(config); err != nil {
-		return err
+	for _, validate := range []func(*YAMLConfig) error{
+		ValidateMinorNumbers,
+		ValidateUniqueBDFs,
+		validateDeviceUUIDs,
+		validateDeviceIdentifiers,
+		validateMIGConfigs,
+		validateGPUOperationModes,
+		validateBoardIDs,
+		validateVGPUConfig,
+	} {
+		if err := validate(config); err != nil {
+			return err
+		}
 	}
-
-	if err := ValidateUniqueBDFs(config); err != nil {
-		return err
-	}
-
-	if err := validateDeviceUUIDs(config); err != nil {
-		return err
-	}
-
-	if err := validateDeviceIdentifiers(config); err != nil {
-		return err
-	}
-
-	if err := validateMIGConfigs(config); err != nil {
-		return err
-	}
-	return validateVGPUConfig(config)
+	return nil
 }
 
 // validateMIGConfigs checks the board-wide MIG block and every per-device one.
@@ -777,6 +773,116 @@ func validateMIGInstances(instances []MIGGPUInstanceRecord) error {
 					return fmt.Errorf("instances[%d].compute_instances[%d]: %w", i, j, err)
 				}
 			}
+		}
+	}
+	return nil
+}
+
+// validateBoardIDs rejects a board_id nvmlDeviceGetBoardId cannot carry: NVML
+// reports the board as a 32-bit value, so a wider one would be truncated into
+// a board some other GPU may already be on. See also validateBoardIDCollisions.
+func validateBoardIDs(config *YAMLConfig) error {
+	check := func(where string, id *HexID) error {
+		if id != nil && uint64(*id) > math.MaxUint32 {
+			return fmt.Errorf("%s.board_id %s does not fit in 32 bits", where, formatHexID(uint64(*id)))
+		}
+		return nil
+	}
+	if err := check("device_defaults", config.DeviceDefaults.BoardID); err != nil {
+		return err
+	}
+	for _, dev := range config.Devices {
+		if err := check(fmt.Sprintf("devices[index=%d]", dev.Index), dev.BoardID); err != nil {
+			return err
+		}
+	}
+	return validateBoardIDCollisions(config)
+}
+
+// validateBoardIDCollisions rejects a board_id equal to the board ID another
+// GPU derives from its PCI address. That GPU's profile never asked to share a
+// board, yet it would report one; a shared board is declared by giving every
+// GPU on it the same board_id.
+func validateBoardIDCollisions(config *YAMLConfig) error {
+	declaredBy := make(map[uint32]int) // board ID -> first device declaring it
+	var derive []int
+	for _, i := range deviceIndices(config) {
+		if id := configuredBoardID(config, i); id != nil {
+			if _, seen := declaredBy[uint32(*id)]; !seen { // width checked by validateBoardIDs
+				declaredBy[uint32(*id)] = i
+			}
+			continue
+		}
+		derive = append(derive, i)
+	}
+	if len(declaredBy) == 0 {
+		return nil
+	}
+	for _, i := range derive {
+		id, ok := derivedBoardID(config, i)
+		if owner, clash := declaredBy[id]; ok && clash {
+			return fmt.Errorf("devices[index=%d].board_id %#x is the board ID device %d derives from its PCI address, "+
+				"which would put device %d on a board its profile does not declare; give both the same board_id or pick another",
+				owner, id, i, i)
+		}
+	}
+	return nil
+}
+
+// configuredBoardID is the board_id device index ends up with: its own, or
+// else the defaults'.
+func configuredBoardID(config *YAMLConfig, index int) *HexID {
+	for _, dev := range config.Devices {
+		if dev.Index == index && dev.BoardID != nil {
+			return dev.BoardID
+		}
+	}
+	return config.DeviceDefaults.BoardID
+}
+
+// derivedBoardID is the board ID a device without board_id reports, derived
+// from its PCI address as initPciInfo does: the profile's pci.bus_id, or else
+// the base mock's. false when the device has no address, as past the base
+// mock's last GPU.
+func derivedBoardID(config *YAMLConfig, index int) (uint32, bool) {
+	busID := (&Config{YAMLConfig: config}).GetDevicePCIBusID(index)
+	if busID == "" {
+		busID = BaseDevicePCIBusID(index)
+	}
+	if busID == "" {
+		return 0, false
+	}
+	domain, bus, device, function, err := ParsePCIBusID(busID)
+	if err != nil {
+		return deriveBoardID(0, 0, 0, 0), true // initPciInfo's fallback
+	}
+	return deriveBoardID(domain, bus, device, function), true
+}
+
+// validateGPUOperationModes rejects a gpu_operation_mode the getter would
+// otherwise silently read as all_on.
+func validateGPUOperationModes(config *YAMLConfig) error {
+	check := func(where string, gom *GPUOperationModeConfig) error {
+		if gom == nil {
+			return nil
+		}
+		// A slice, not a map: with both fields wrong, the error names current
+		// every time rather than whichever field map iteration reached first.
+		for _, f := range []struct{ field, mode string }{{"current", gom.Current}, {"pending", gom.Pending}} {
+			switch f.mode {
+			case "", "all_on", "compute", "low_dp":
+			default:
+				return fmt.Errorf("%s.gpu_operation_mode.%s must be \"all_on\", \"compute\" or \"low_dp\", got %q", where, f.field, f.mode)
+			}
+		}
+		return nil
+	}
+	if err := check("device_defaults", config.DeviceDefaults.GPUOperationMode); err != nil {
+		return err
+	}
+	for _, dev := range config.Devices {
+		if err := check(fmt.Sprintf("devices[index=%d]", dev.Index), dev.GPUOperationMode); err != nil {
+			return err
 		}
 	}
 	return nil
