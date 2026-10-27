@@ -165,3 +165,36 @@ func TestValidateYAMLConfig_RejectsUnknownGPUOperationMode(t *testing.T) {
 	require.ErrorContains(t, err, "gpu_operation_mode.current")
 	require.ErrorContains(t, err, "turbo")
 }
+
+// A per-device block must reach the device that declares it and stay off its
+// siblings: with the merge missing, the getters answer the defaults' constants,
+// which is indistinguishable from a profile that never set the field.
+func TestGetDeviceConfigMergesPerDeviceSessionAndBoardFields(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		NumDevices: 2,
+		YAMLConfig: &YAMLConfig{
+			Devices: []DeviceOverride{{
+				Index: 1,
+				DeviceConfig: DeviceConfig{
+					EncoderStats:     &EncoderStatsConfig{SessionCount: 3},
+					FBCStats:         &FBCStatsConfig{SessionCount: 2},
+					GPUOperationMode: &GPUOperationModeConfig{Current: "compute"},
+					MultiGPUBoard:    true,
+				},
+			}},
+		},
+	}
+
+	got := cfg.GetDeviceConfig(1)
+	require.EqualValues(t, 3, got.EncoderStats.SessionCount)
+	require.EqualValues(t, 2, got.FBCStats.SessionCount)
+	require.Equal(t, "compute", got.GPUOperationMode.Current)
+	require.True(t, got.MultiGPUBoard)
+
+	sibling := cfg.GetDeviceConfig(0)
+	require.Nil(t, sibling.EncoderStats)
+	require.Nil(t, sibling.FBCStats)
+	require.Nil(t, sibling.GPUOperationMode)
+	require.False(t, sibling.MultiGPUBoard)
+}

@@ -68,6 +68,7 @@ func bridgeTests(deviceCount int) []testResult {
 	results = append(results, testFans(deviceCount)...)
 	results = append(results, testAccountingAndProcesses(deviceCount)...)
 	results = append(results, testDrainLifecycle(deviceCount)...)
+	results = append(results, testSessionsAndBoard(deviceCount)...)
 	return results
 }
 
