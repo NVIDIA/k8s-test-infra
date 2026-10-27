@@ -352,6 +352,9 @@ func validateYAMLConfig(config *YAMLConfig) error {
 	if err := validateMIGConfigs(config); err != nil {
 		return err
 	}
+	if err := validateGPUOperationModes(config); err != nil {
+		return err
+	}
 	return validateVGPUConfig(config)
 }
 
@@ -773,6 +776,33 @@ func validateMIGInstances(instances []MIGGPUInstanceRecord) error {
 					return fmt.Errorf("instances[%d].compute_instances[%d]: %w", i, j, err)
 				}
 			}
+		}
+	}
+	return nil
+}
+
+// validateGPUOperationModes rejects a gpu_operation_mode the getter would
+// otherwise silently read as all_on.
+func validateGPUOperationModes(config *YAMLConfig) error {
+	check := func(where string, gom *GPUOperationModeConfig) error {
+		if gom == nil {
+			return nil
+		}
+		for field, mode := range map[string]string{"current": gom.Current, "pending": gom.Pending} {
+			switch mode {
+			case "", "all_on", "compute", "low_dp":
+			default:
+				return fmt.Errorf("%s.gpu_operation_mode.%s must be \"all_on\", \"compute\" or \"low_dp\", got %q", where, field, mode)
+			}
+		}
+		return nil
+	}
+	if err := check("device_defaults", config.DeviceDefaults.GPUOperationMode); err != nil {
+		return err
+	}
+	for _, dev := range config.Devices {
+		if err := check(fmt.Sprintf("devices[index=%d]", dev.Index), dev.GPUOperationMode); err != nil {
+			return err
 		}
 	}
 	return nil

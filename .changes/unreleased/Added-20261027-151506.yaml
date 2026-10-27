@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  nvml-mock: encoder and FBC sessions, encoder capacity, GPU operation mode and the multi-GPU board flag now come from the profile instead of fixed values; see the configuration reference.
+time: 2026-10-27T14:15:06Z
+custom:
+  Issue: "1049"
