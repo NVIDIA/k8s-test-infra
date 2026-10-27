@@ -66,6 +66,13 @@ type ConfigurableDevice struct {
 	bar1Memory nvml.BAR1Memory
 	pciInfo    nvml.PciInfo
 	boardID    uint32
+	// gpuID is the PCI-derived ID that names this GPU, and only it, in the
+	// CPER log and system events. It is the board ID unless the profile puts
+	// the GPU on a board it shares, so the two are kept apart.
+	gpuID uint32
+	// multiGPUBoard is set once every device exists, when another GPU on the
+	// node turns out to report the same board ID. See markSharedBoards.
+	multiGPUBoard bool
 
 	// absentNotSupported is the profile's absent_features: not_supported; see
 	// absent_features.go.
@@ -465,7 +472,11 @@ func (d *ConfigurableDevice) initPciInfo(config *DeviceConfig) {
 		Bus:    bus,
 		Device: device,
 	}
-	d.boardID = deriveBoardID(domain, bus, device, function)
+	d.gpuID = deriveBoardID(domain, bus, device, function)
+	d.boardID = d.gpuID
+	if config != nil && config.BoardID != nil {
+		d.boardID = uint32(*config.BoardID) // validateBoardIDs keeps it in 32 bits
+	}
 
 	// Set PCI device ID from config or default
 	if config != nil && config.PCI != nil {
@@ -1605,11 +1616,16 @@ func (d *ConfigurableDevice) GetFBCStats() (nvml.FBCStats, nvml.Return) {
 
 // GetMultiGpuBoard returns whether the device is on a multi-GPU board
 func (d *ConfigurableDevice) GetMultiGpuBoard() (int, nvml.Return) {
-	debugLog("[NVML] nvmlDeviceGetMultiGpuBoard -> 0\n")
-	return 0, nvml.SUCCESS
+	multi := 0
+	if d.multiGPUBoard {
+		multi = 1
+	}
+	debugLog("[NVML] nvmlDeviceGetMultiGpuBoard -> %d\n", multi)
+	return multi, nvml.SUCCESS
 }
 
-// GetBoardId returns the board ID derived from the device's PCI address.
+// GetBoardId returns the profile's board_id, or else one derived from the
+// device's PCI address.
 func (d *ConfigurableDevice) GetBoardId() (uint32, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetBoardId -> %#x\n", d.boardID)
 	return d.boardID, nvml.SUCCESS
@@ -1686,31 +1702,131 @@ func (d *ConfigurableDevice) GetDetailedEccErrors(errorType nvml.MemoryErrorType
 	return counts, nvml.SUCCESS
 }
 
-// GetEncoderCapacity returns encoder capacity
+// GetEncoderCapacity returns the percentage of encoder capacity still free: what
+// the encoder utilization leaves over, so the two always add up to 100. Real
+// NVML answers per codec; the profile carries one utilization figure, so every
+// known codec reports the same capacity and an unknown one is rejected as it is
+// on hardware.
 func (d *ConfigurableDevice) GetEncoderCapacity(encoderType nvml.EncoderType) (int, nvml.Return) {
-	debugLog("[NVML] nvmlDeviceGetEncoderCapacity(type=%d) -> 100\n", encoderType)
-	return 100, nvml.SUCCESS
+	switch encoderType {
+	case nvml.ENCODER_QUERY_H264, nvml.ENCODER_QUERY_HEVC, nvml.ENCODER_QUERY_AV1:
+	default:
+		return 0, nvml.ERROR_INVALID_ARGUMENT
+	}
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return 0, ret
+	}
+	capacity := 100 - int(d.encoderUtilization())
+	debugLog("[NVML] nvmlDeviceGetEncoderCapacity(type=%d) -> %d\n", encoderType, capacity)
+	return capacity, nvml.SUCCESS
 }
 
-// GetEncoderSessions returns encoder sessions
+// sessionOwners returns the pid that owns each of count sessions. Sessions are
+// dealt round-robin over the configured processes so a pid in the process list
+// can be matched to the sessions it holds; with no processes configured the
+// sessions are unattributed (pid 0).
+func (d *ConfigurableDevice) sessionOwners(count uint32) []uint32 {
+	procs := d.cfg().Processes
+	owners := make([]uint32, count)
+	for i := range owners {
+		if len(procs) > 0 {
+			owners[i] = procs[i%len(procs)].PID
+		}
+	}
+	return owners
+}
+
+// GetEncoderSessions returns one session per encoder_stats.session_count, each
+// reporting the configured average fps and latency.
 func (d *ConfigurableDevice) GetEncoderSessions() ([]nvml.EncoderSessionInfo, nvml.Return) {
-	debugLog("[NVML] nvmlDeviceGetEncoderSessions -> []\n")
-	return []nvml.EncoderSessionInfo{}, nvml.SUCCESS
+	// The sessions belong to the processes, which a lost GPU no longer
+	// reports either.
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return nil, ret
+	}
+	sessions := []nvml.EncoderSessionInfo{}
+	if stats := d.cfg().EncoderStats; stats != nil {
+		for i, pid := range d.sessionOwners(stats.SessionCount) {
+			sessions = append(sessions, nvml.EncoderSessionInfo{
+				SessionId:      uint32(i + 1),
+				Pid:            pid,
+				CodecType:      uint32(nvml.ENCODER_QUERY_H264),
+				HResolution:    mockSessionWidth,
+				VResolution:    mockSessionHeight,
+				AverageFps:     stats.AverageFPS,
+				AverageLatency: stats.AverageLatencyUS,
+			})
+		}
+	}
+	debugLog("[NVML] nvmlDeviceGetEncoderSessions -> %d sessions\n", len(sessions))
+	return sessions, nvml.SUCCESS
 }
 
-// GetFBCSessions returns FBC sessions
+// GetFBCSessions returns one session per fbc_stats.session_count, each
+// reporting the configured average fps and latency.
 func (d *ConfigurableDevice) GetFBCSessions() ([]nvml.FBCSessionInfo, nvml.Return) {
-	debugLog("[NVML] nvmlDeviceGetFBCSessions -> []\n")
-	return []nvml.FBCSessionInfo{}, nvml.SUCCESS
+	// The sessions belong to the processes, which a lost GPU no longer
+	// reports either.
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return nil, ret
+	}
+	sessions := []nvml.FBCSessionInfo{}
+	if stats := d.cfg().FBCStats; stats != nil {
+		for i, pid := range d.sessionOwners(stats.SessionCount) {
+			sessions = append(sessions, nvml.FBCSessionInfo{
+				SessionId:      uint32(i + 1),
+				Pid:            pid,
+				SessionType:    uint32(nvml.FBC_SESSION_TYPE_TOSYS),
+				HMaxResolution: mockSessionWidth,
+				VMaxResolution: mockSessionHeight,
+				HResolution:    mockSessionWidth,
+				VResolution:    mockSessionHeight,
+				AverageFPS:     stats.AverageFPS,
+				AverageLatency: stats.AverageLatencyUS,
+			})
+		}
+	}
+	debugLog("[NVML] nvmlDeviceGetFBCSessions -> %d sessions\n", len(sessions))
+	return sessions, nvml.SUCCESS
 }
 
-// GetGpuOperationMode returns GPU operation mode
+// mockSessionWidth and mockSessionHeight are the resolution every simulated
+// capture or encode session reports; the profile does not model per-session
+// resolution.
+const (
+	mockSessionWidth  = 1920
+	mockSessionHeight = 1080
+)
+
+// GetGpuOperationMode returns the configured current and pending GPU operation
+// mode. A missing pending value follows current, as on a GPU with no mode
+// change queued.
 func (d *ConfigurableDevice) GetGpuOperationMode() (nvml.GpuOperationMode, nvml.GpuOperationMode, nvml.Return) {
-	if ret := d.unsupportedWhenAbsent("nvmlDeviceGetGpuOperationMode", d.cfg().GPUOperationMode != nil); ret != nvml.SUCCESS {
+	gom := d.cfg().GPUOperationMode
+	if ret := d.unsupportedWhenAbsent("nvmlDeviceGetGpuOperationMode", gom != nil); ret != nvml.SUCCESS {
 		return 0, 0, ret
 	}
-	debugLog("[NVML] nvmlDeviceGetGpuOperationMode -> ALL_ON\n")
-	return nvml.GOM_ALL_ON, nvml.GOM_ALL_ON, nvml.SUCCESS
+	current, pending := nvml.GOM_ALL_ON, nvml.GOM_ALL_ON
+	if gom != nil {
+		current = parseGpuOperationMode(gom.Current)
+		pending = current
+		if gom.Pending != "" {
+			pending = parseGpuOperationMode(gom.Pending)
+		}
+	}
+	debugLog("[NVML] nvmlDeviceGetGpuOperationMode -> current=%d pending=%d\n", current, pending)
+	return current, pending, nvml.SUCCESS
+}
+
+func parseGpuOperationMode(mode string) nvml.GpuOperationMode {
+	switch mode {
+	case "compute":
+		return nvml.GOM_COMPUTE
+	case "low_dp":
+		return nvml.GOM_LOW_DP
+	default:
+		return nvml.GOM_ALL_ON
+	}
 }
 
 // nvlinkLinkInRange reports whether a link index is within the valid
@@ -2137,10 +2253,24 @@ func (d *ConfigurableDevice) GetBrand() (nvml.BrandType, nvml.Return) {
 	return d.Config.Brand, nvml.SUCCESS
 }
 
-// GetEncoderUtilization returns encoder utilization
+// GetEncoderUtilization returns the encoder utilization the configured
+// processes' enc_util adds up to. GetEncoderCapacity reports what it leaves
+// over, so the two never disagree.
 func (d *ConfigurableDevice) GetEncoderUtilization() (uint32, uint32, nvml.Return) {
-	debugLog("[NVML] nvmlDeviceGetEncoderUtilization -> 0, 0\n")
-	return 0, 0, nvml.SUCCESS // Utilization, sampling period
+	util := d.encoderUtilization()
+	debugLog("[NVML] nvmlDeviceGetEncoderUtilization -> %d%%, 0\n", util)
+	return util, 0, nvml.SUCCESS // Utilization, sampling period
+}
+
+// encoderUtilization is the sum of the processes' enc_util, capped at 100: one
+// encoder engine cannot be more than fully busy, however many processes the
+// profile lists on it.
+func (d *ConfigurableDevice) encoderUtilization() uint32 {
+	used := uint32(0)
+	for _, p := range d.cfg().Processes {
+		used += p.EncUtil
+	}
+	return min(used, 100)
 }
 
 // GetDecoderUtilization returns decoder utilization
