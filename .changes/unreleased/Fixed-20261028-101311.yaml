@@ -1,4 +1,4 @@
 kind: Fixed
 body: |-
-  nri-plugin: containers created soon after containerd restarts, as the container toolkit does on each rollout, are no longer started without the mock; the plugin registers again within half a second instead of waiting out a crash backoff.
+  nri-plugin: containers created soon after containerd restarts, as the container toolkit does on each rollout, are no longer started without the mock.
 time: 2026-10-28T09:13:11Z

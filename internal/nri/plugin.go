@@ -161,8 +161,6 @@ func (t *throttle) allow(now time.Time) bool {
 	return true
 }
 
-// register serves one connection to the runtime, until the runtime closes it
-// or ctx is cancelled.
 func (p *Plugin) register(ctx context.Context) error {
 	// The stub checks the index only at registration, which would look like a
 	// runtime that is down.
@@ -186,7 +184,9 @@ func (p *Plugin) register(ctx context.Context) error {
 	}
 	p.health.setTimeoutSource(pluginStub)
 
-	zap.L().Info("registering NRI plugin",
+	// Debug: repeated on every attempt while the runtime is down; Configure
+	// logs the registration itself.
+	zap.L().Debug("registering NRI plugin",
 		zap.String("index", p.cfg.PluginIndex), zap.String("name", p.cfg.PluginName), zap.String("socket", p.cfg.SocketPath))
 
 	if err := pluginStub.Run(ctx); err != nil {
