@@ -165,7 +165,7 @@ func (p *Plugin) CreateContainer(ctx context.Context, pod *api.PodSandbox, conta
 		return nil, nil, nil
 	}
 
-	if inject.Gated(candidate) {
+	if inject.Gated(p.cfg.Inject, candidate) {
 		lock, reason := p.agentAccess(ctx)
 		if reason != "" {
 			// Fail open, as the plugin does everywhere else: blocking creation

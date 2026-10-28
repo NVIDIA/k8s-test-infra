@@ -433,6 +433,13 @@
         "cdiSpecDir": { "type": "string", "minLength": 1 },
         "imexChannelAnnotation": { "type": "string", "minLength": 1 },
         "infinibandAnnotation": { "type": "string", "minLength": 1 },
+        "driverManager": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "modulesHostPath": { "type": "string", "pattern": "^/" }
+          }
+        },
         "excludedNamespaces": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 }

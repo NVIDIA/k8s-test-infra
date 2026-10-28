@@ -20,6 +20,8 @@ type Container struct {
 	IncomingDevices []RuntimeDevice
 	DeviceRules     []DeviceRule
 	CDIDevices      []string
+	// HasSeccompPolicy: the runtime set one; privileged containers have none.
+	HasSeccompPolicy bool
 }
 
 // RuntimeDevice is a device already present in the container spec.
@@ -54,6 +56,16 @@ type Adjustment struct {
 	// both: emitting the same GPUs twice would widen the container and defeat
 	// the mock engine's detectVisibleDevices filter.
 	CDIDevices []string
+	// SeccompNotify, if set, replaces the container's seccomp policy.
+	SeccompNotify *SeccompNotify
+}
+
+// SeccompNotify hands the named syscalls to a listener; others are allowed.
+type SeccompNotify struct {
+	ListenerPath string
+	// Metadata is passed to the listener.
+	Metadata string
+	Syscalls []string
 }
 
 // Mount describes a bind mount in a runtime-neutral form.

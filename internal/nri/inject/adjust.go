@@ -103,7 +103,7 @@ func decide(cfg Config, container Container) (sel selection, reason string, skip
 		return selection{}, reason, true
 	}
 	for i := range specializedWorkloads {
-		if specializedWorkloads[i].matches(container) {
+		if specializedWorkloads[i].matches(cfg, container) {
 			return selection{workload: &specializedWorkloads[i]}, "", false
 		}
 	}

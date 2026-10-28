@@ -455,6 +455,12 @@ spec:
             {{- with include "nvml-mock.featureGates" . }}
             - --feature-gates={{ . }}
             {{- end }}
+            {{- if .Values.nri.driverManager.enabled }}
+            - --driver-modules-host-path={{ .Values.nri.driverManager.modulesHostPath }}
+            # runc connects to it from the node, so it sits in the NRI socket
+            # directory this container shares with the node at the same path.
+            - --module-unload-listener-path={{ $nriSocketDir }}/nvml-mock-module-unload.sock
+            {{- end }}
           env:
             - name: NODE_NAME
               valueFrom:
@@ -475,6 +481,12 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
             runAsUser: 0
+            {{- if .Values.nri.driverManager.enabled }}
+            # Reading delete_module's name argument from the driver manager's
+            # memory: the driver manager is privileged, so only a ptracer may.
+            capabilities:
+              add: ["SYS_PTRACE"]
+            {{- end }}
           {{- with .Values.nri.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
@@ -492,6 +504,12 @@ spec:
             - name: {{ $nriCDIVolume }}
               mountPath: {{ .Values.nri.cdiSpecDir }}
               readOnly: true
+            {{- if .Values.nri.driverManager.enabled }}
+            # Writable: the plugin unloads from it. At the host path, which
+            # is the one the driver manager's mount names.
+            - name: driver-modules
+              mountPath: {{ .Values.nri.driverManager.modulesHostPath }}
+            {{- end }}
         {{- end }}
         {{- if .Values.allocationWatcher.enabled }}
         # #506: mirrors each pod's nvidia.com/gpu claim into the same runtime
@@ -569,6 +587,12 @@ spec:
         - name: nri-cdi-specs
           hostPath:
             path: {{ .Values.nri.cdiSpecDir }}
+            type: DirectoryOrCreate
+        {{- end }}
+        {{- if .Values.nri.driverManager.enabled }}
+        - name: driver-modules
+          hostPath:
+            path: {{ .Values.nri.driverManager.modulesHostPath }}
             type: DirectoryOrCreate
         {{- end }}
         {{- end }}

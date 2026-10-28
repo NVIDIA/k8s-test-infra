@@ -193,6 +193,15 @@ func TestContainerFromNRI(t *testing.T) {
 		})
 	})
 
+	t.Run("records whether the runtime gave a seccomp policy", func(t *testing.T) {
+		t.Parallel()
+		confined := containerFromNRI(nil, &api.Container{Linux: &api.LinuxContainer{
+			SeccompPolicy: &api.LinuxSeccomp{DefaultAction: "SCMP_ACT_ERRNO"},
+		}})
+		require.True(t, confined.HasSeccompPolicy)
+		require.False(t, containerFromNRI(nil, &api.Container{Linux: &api.LinuxContainer{}}).HasSeccompPolicy)
+	})
+
 	t.Run("does not alias the runtime's slices", func(t *testing.T) {
 		t.Parallel()
 		container := &api.Container{
@@ -320,6 +329,32 @@ func TestAdjustmentToNRI(t *testing.T) {
 		})
 		require.Empty(t, result.Env)
 		require.Empty(t, result.Mounts)
+		require.Nil(t, result.Linux)
+	})
+
+	t.Run("notifies only the named syscalls", func(t *testing.T) {
+		t.Parallel()
+		result := adjustmentToNRI(inject.Adjustment{
+			SeccompNotify: &inject.SeccompNotify{
+				ListenerPath: "/var/run/nri/unload.sock",
+				Metadata:     "gpu-operator/k8s-driver-manager",
+				Syscalls:     []string{"delete_module"},
+			},
+		})
+
+		// Catches a default other than allow: the policy replaces the
+		// container's, so anything else breaks every other syscall.
+		require.Equal(t, &api.LinuxSeccomp{
+			DefaultAction:    "SCMP_ACT_ALLOW",
+			ListenerPath:     "/var/run/nri/unload.sock",
+			ListenerMetadata: "gpu-operator/k8s-driver-manager",
+			Syscalls:         []*api.LinuxSyscall{{Names: []string{"delete_module"}, Action: "SCMP_ACT_NOTIFY"}},
+		}, result.Linux.SeccompPolicy)
+	})
+
+	t.Run("leaves the seccomp policy alone without a notification", func(t *testing.T) {
+		t.Parallel()
+		result := adjustmentToNRI(inject.Adjustment{Env: []string{"PATH=/usr/bin"}})
 		require.Nil(t, result.Linux)
 	})
 }

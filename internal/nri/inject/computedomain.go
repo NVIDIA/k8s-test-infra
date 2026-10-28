@@ -24,8 +24,10 @@ const (
 // specializedWorkload replaces the generic overlay for a container that gets
 // its driver footprint from elsewhere, such as the DRA driver's CDI edits.
 type specializedWorkload struct {
-	name    string
-	matches func(Container) bool
+	name string
+	// matches also sees the configuration, so a workload whose feature is
+	// off leaves its containers to the generic overlay.
+	matches func(Config, Container) bool
 	// adjust returns ok=false to leave the container unmodified. It never
 	// fails: like the generic overlay, a specialized workload fails open.
 	adjust func(Config, Container) (Adjustment, bool)
@@ -36,6 +38,8 @@ type specializedWorkload struct {
 
 var specializedWorkloads = []specializedWorkload{
 	{name: computeDomainContainerName, matches: computeDomainDaemon, adjust: adjustComputeDomain, ungated: true},
+	// Ungated: the simulated modules are not part of the node agent's tree.
+	{name: driverManagerContainerName, matches: driverManager, adjust: adjustDriverManager, ungated: true},
 }
 
 // Gated reports whether adjusting container waits for the node agent's staging
@@ -44,9 +48,9 @@ var specializedWorkloads = []specializedWorkload{
 // not nvidia-imex.real. The DRA daemon then restarts the shim inside its
 // container, so NRI would not see it again until the driver's startup probe
 // gives up, about 20 minutes later.
-func Gated(container Container) bool {
+func Gated(cfg Config, container Container) bool {
 	for i := range specializedWorkloads {
-		if specializedWorkloads[i].matches(container) {
+		if specializedWorkloads[i].matches(cfg, container) {
 			return !specializedWorkloads[i].ungated
 		}
 	}
@@ -59,7 +63,7 @@ func Gated(container Container) bool {
 // selector here. Requiring both the DRA-owned label and the container name
 // avoids widening this adjustment to unrelated containers in the same
 // namespace.
-func computeDomainDaemon(container Container) bool {
+func computeDomainDaemon(_ Config, container Container) bool {
 	return container.Name == computeDomainContainerName && container.PodLabels[computeDomainLabel] != ""
 }
 

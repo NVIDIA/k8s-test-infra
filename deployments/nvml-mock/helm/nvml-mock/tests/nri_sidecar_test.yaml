@@ -801,3 +801,55 @@ tests:
       - equal:
           path: spec.template.spec.containers[1].name
           value: nvml-mock-nri
+
+  - it: should leave the driver manager alone by default
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --driver-modules-host-path=/run/nvidia/simulated-modules
+      - notExists:
+          path: spec.template.spec.containers[0].securityContext.capabilities
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: driver-modules
+          any: true
+
+  - it: should serve the driver manager the simulated modules when enabled
+    set:
+      nri:
+        driverManager:
+          enabled: true
+          modulesHostPath: /run/mokka/modules
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --driver-modules-host-path=/run/mokka/modules
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --module-unload-listener-path=/var/run/nri/nvml-mock-module-unload.sock
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.add
+          value: ["SYS_PTRACE"]
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: driver-modules
+            mountPath: /run/mokka/modules
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: driver-modules
+            hostPath:
+              path: /run/mokka/modules
+              type: DirectoryOrCreate
+
+  - it: should reject a relative driver modules path via the values schema
+    set:
+      nri:
+        driverManager:
+          enabled: true
+          modulesHostPath: run/modules
+    asserts:
+      - failedTemplate: {}
+

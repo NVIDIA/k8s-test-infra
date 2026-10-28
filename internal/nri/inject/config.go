@@ -83,6 +83,15 @@ type Config struct {
 	NodeName              string
 	TopologyHostPath      string
 	TopologyContainerPath string
+
+	// Driver manager — the GPU Operator's k8s-driver-manager reads the node's
+	// loaded modules from DriverModulesHostPath, laid out as /sys/module, and
+	// its delete_module calls are answered by the listener at
+	// ModuleUnloadListenerPath. Whatever stands in for the driver container
+	// loads them there. Empty DriverModulesHostPath leaves the driver manager
+	// unmodified.
+	DriverModulesHostPath    string
+	ModuleUnloadListenerPath string
 }
 
 // DefaultConfig returns the overlay contract described by the NRI design.
@@ -117,6 +126,10 @@ func DefaultConfig() Config {
 		ImexChannelHostPath:   filepath.Join(hostOverlay, imexChannelRelPath),
 
 		InfiniBandAnnotation: "nvml-mock.nvidia.com/infiniband",
+
+		// Beside the runtime's NRI socket: runc connects to it from the node,
+		// and the plugin already shares that directory with the node.
+		ModuleUnloadListenerPath: "/var/run/nri/nvml-mock-module-unload.sock",
 	}
 }
 
@@ -133,6 +146,7 @@ func withDefaults(cfg Config) Config {
 	cfg.CDISpecHostPath = orDefault(cfg.CDISpecHostPath, defaults.CDISpecHostPath)
 	cfg.ImexChannelAnnotation = orDefault(cfg.ImexChannelAnnotation, defaults.ImexChannelAnnotation)
 	cfg.InfiniBandAnnotation = orDefault(cfg.InfiniBandAnnotation, defaults.InfiniBandAnnotation)
+	cfg.ModuleUnloadListenerPath = orDefault(cfg.ModuleUnloadListenerPath, defaults.ModuleUnloadListenerPath)
 
 	// Derived from the overlay roots, so they resolve against whatever those
 	// ended up being rather than against the packaged defaults.

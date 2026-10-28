@@ -137,7 +137,7 @@ func TestOnlyTheComputeDomainDaemonSkipsTheStagingGate(t *testing.T) {
 	renamed := computeDomainDaemonContainer()
 	renamed.Name = "init"
 
-	require.False(t, Gated(computeDomainDaemonContainer()))
-	require.True(t, Gated(renamed))
-	require.True(t, Gated(Container{Name: "main", Namespace: "default"}))
+	require.False(t, Gated(DefaultConfig(), computeDomainDaemonContainer()))
+	require.True(t, Gated(DefaultConfig(), renamed))
+	require.True(t, Gated(DefaultConfig(), Container{Name: "main", Namespace: "default"}))
 }
