@@ -297,7 +297,6 @@ FGO can fabricate those from a `numa` block in a pool.
 
 On the real node though, NFD should create NRT resources. This is roughly the information considered by NFD:
 
-
 | Path on the node                                                           | Used for                                                                                                                                                               |
 |----------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `/sys/devices/system/node/node<N>/` (the directory list)                   | **Which zones exist.** Each `node<N>` becomes zone `node-<N>`                                                                                                          |
@@ -307,16 +306,91 @@ On the real node though, NFD should create NRT resources. This is roughly the in
 | `/sys/bus/node/devices/node<N>/hugepages/hugepages-<size>kB/nr_hugepages`  | **Hugepages capacity** per zone (`hugepages-2Mi`, `hugepages-1Gi`)                                                                                                     |
 | `/sys/devices/cpu_*/cpus`                                                  | `cpu_core` / `cpu_atom` attributes, only on hybrid CPUs                                                                                                                |
 
-#### KWOW
+#### KWOK
 
 FGO reaches fleet scale with [KWOK](https://kwok.sigs.k8s.io/) (Kubernetes
 WithOut Kubelet), which creates Node objects and drives the lifecycle of the
-pods bound to them, with no kubelet and no containers behind either. On a KWOK
-node, FGO's central `kwok-gpu-device-plugin` publishes the `nvidia.com/gpu`
-capacity and its `kwok-dra-plugin` creates the ResourceSlice, so a scheduler
-sees GPU nodes that have no machine behind them.
+pods bound to them, with no kubelet and no containers behind either. 
 
-TBU
+KWOK resources are just `Node` resources:
+
+```yaml
+apiVersion: v1
+kind: Node
+metadata:
+  name: knok-node-1
+  annotations:
+    kwok.x-k8s.io/node: fake
+    node.alpha.kubernetes.io/ttl: "0"
+  labels:
+    fgo-lab/managed: "true"
+    kubernetes.io/role: worker
+    node.kubernetes.io/instance-type: gpu-node
+    run.ai/simulated-gpu-node-pool: g1
+    type: kwok # KWOK label
+spec:
+  taints: 
+    - effect: NoSchedule
+      key: kwok.x-k8s.io/node # regular pods won't be scheduled on kwok nodes
+      value: fake
+status:
+  allocatable:
+    cpu: "32"
+    memory: 128Gi
+    pods: "110"
+  capacity:
+    cpu: "32"
+    memory: 128Gi
+    pods: "110"
+  nodeInfo:
+    architecture: amd64
+    containerRuntimeVersion: fake
+    kernelVersion: fake
+    kubeProxyVersion: fake
+    kubeletVersion: fake
+    operatingSystem: linux
+    osImage: fake
+```
+
+Then, a test workload looks like this:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kwok-pod
+  namespace: fgo-lab-07
+  annotations:
+    run.ai/simulated-gpu-utilization: "40"
+spec:
+  nodeSelector:
+    type: kwok
+  tolerations:
+    - key: kwok.x-k8s.io/node
+      operator: Equal
+      value: fake
+      effect: NoSchedule
+  containers:
+    - name: main
+      image: ubuntu:22.04
+      command: ["sleep", "infinity"]
+      resources:
+        limits:
+          nvidia.com/gpu: 2
+```
+
+FGO comes with a few KWOK plugins that are deployed as a Deployment per cluster:
+
+| Deployment                                           | On by default                                 | Watches                                                                       | Writes                                                                                                            | Replaces                                              | Lab |
+|------------------------------------------------------|-----------------------------------------------|-------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------|-----|
+| `kwok-gpu-device-plugin`                             | yes                                           | Nodes' GPU state ConfigMaps (`topology-<node>`), **only when one is created** | Merge-patch of `Node.status` capacity and allocatable: `nvidia.com/gpu` = number of GPUs, plus any `otherDevices` | device-plugin DaemonSet, which reports to the kubelet | 07  |
+| `nvidia-dcgm-exporter-kwok` (`status-exporter-kwok`) | yes, whenever `statusExporter.enabled` is set | Nodes' GPU state ConfigMaps: add, update, delete                              | One `:9400` for every KWOK node, `nvidia.com/gpu.*` node labels, and an NRT if enabled                            | per-node exporter DaemonSet                           | 07  |
+| `kwok-dra-plugin`                                    | no                                            | Nodes' GPU state ConfigMaps: add, update, delete                              | ResourceSlice `kwok-<node>-gpu`, driver `gpu.nvidia.com`, one device per GPU (UUID, model, memory)                | `dra-plugin-gpu` DaemonSet                            | 08  |
+| `kwok-compute-domain-dra-plugin`                     | no                                            | **Nodes**, not ConfigMaps                                                     | ResourceSlice `kwok-<node>-compute-domain-channel` with one device, `channel-0`                                   | compute-domain kubelet plugin                         | 09  |
+
+The KWOK plugins are nothing else but servers that does some manipulations with Kubernetes API based on FGO's node topology `ConfigMaps`.
+
+FGO doesn't use any experimental KWOK CRDs lik `ClusterExec`, `ClusterAttach`, `ClusterLogs`, etc.
 
 #### Run:AI x Mokka Integration (Mock Backend)
 
@@ -327,7 +401,7 @@ FGO creates Mokka's profiles as `ConfigMaps` and use some information from there
 - GPU count,
 - driver and CUDA versions
 
-When the node pool is defined to be `mock`:
+When the node pool is defined to be `mock`, FGO actually deploys a Mokka instance on the nodes it manages:
 
 ```yaml
 cluster:
@@ -342,16 +416,10 @@ cluster:
           device_count: 2
 ```
 
-FGO actually deploys a Mokka instance on the nodes it manages.
-
-TBU
-
 On the Mokka end, with [integrations.fakeGpuOperator.enabled](../../../deployments/nvml-mock/helm/nvml-mock/templates/integrations-fgo.yaml),
 the Mokka chart creates publishes one ConfigMap per Mokka GPU profile like `gb300`, `h100`, `a100`, etc. in a way that FGO expects
 (e.g. named `gpu-profile-<profile>`, with the profile under the `profile.yaml` key, in `integrations.fakeGpuOperator.targetNamespace`).
 That's the only place Mokka knows about FGO.
-
-TBU
 
 ### NVIDIA Ecosystem Integrations
 
