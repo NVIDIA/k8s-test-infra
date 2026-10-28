@@ -5,6 +5,63 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-10-28
+
+### Added
+
+- nvml-mock: system event sets, the CPER error log, the driver branch, the HIC version and the per-device hostname are implemented; marking a GPU lost with `nvml-mock-ctl` reports a driver unbind, and recovering it reports a bind. ([#1041](https://github.com/NVIDIA/k8s-test-infra/issues/1041))
+- helm: new `driverBranch` and `hic[]` values feed the NVML driver branch and `nvidia-smi -q -u`. ([#1041](https://github.com/NVIDIA/k8s-test-infra/issues/1041))
+- nvml-mock: a profile can declare its GPUs vGPU hosts or guests. `nvidia-smi vgpu` lists a host's types and running instances; a guest reports its license in `nvidia-smi -q` and carries the PCI capability GPU Feature Discovery reads. See the vGPU reference. ([#376](https://github.com/NVIDIA/k8s-test-infra/issues/376))
+- helm: `gpu.vgpu` makes every GPU a vGPU host, running the types and instances it declares, or a vGPU guest of the host driver it names. ([#376](https://github.com/NVIDIA/k8s-test-infra/issues/376))
+- profiles: `nvlink.multi_node` marks a board whose NVLink domain spans nodes; `gb200` and `gb300` set it. Only such boards run IMEX and take part in DRA ComputeDomains. ([#821](https://github.com/NVIDIA/k8s-test-infra/issues/821))
+- node-agent: on gb200 and gb300, stages `nvidia-imex` and `nvidia-imex-ctl` into the mock driver tree from the pinned NVIDIA archive placed in `/opt/mokka/imex`, for the DRA ComputeDomain daemon. Without that archive the node stages no IMEX and stays ready. ([#821](https://github.com/NVIDIA/k8s-test-infra/issues/821))
+- helm: `imex.binaries.image` delivers the pinned IMEX archive to multi-node NVLink nodes, such as gb200 and gb300, from an image. Mokka does not publish that image: build it with `make imex-binaries-image`, then load it into the cluster or push it to a private registry. ([#821](https://github.com/NVIDIA/k8s-test-infra/issues/821))
+- node-agent: the `IMEXDownload` feature gate (beta, on) downloads the pinned IMEX archive from NVIDIA when none is provided, on multi-node NVLink profiles such as the default `gb300`, for about a minute; `imex.binaries.download.timeout` limits each attempt. Turn it off without internet access. ([#821](https://github.com/NVIDIA/k8s-test-infra/issues/821))
+- node-agent: while IMEX is staged, the GPU CDI spec (`/var/run/cdi/nvidia.yaml`) mounts `nvidia-imex` and `nvidia-imex-ctl` into GPU containers, as the NVIDIA Container Toolkit does on a real GB200 or GB300 node. ([#821](https://github.com/NVIDIA/k8s-test-infra/issues/821))
+- nri-plugin: gives the DRA driver's `compute-domain-daemon` container the real IMEX daemon behind Mokka's `nvidia-imex` shim while the node agent has IMEX staged. The container is never refused: without IMEX it fails as on a real node without the IMEX package. ([#821](https://github.com/NVIDIA/k8s-test-infra/issues/821))
+- nvml-mock: Blackwell profiles report power smoothing in `nvidia-smi -q`, and `nvidia-smi power-smoothing` can enable it, switch presets and tune them; see `power.smoothing` in the configuration reference. ([#1044](https://github.com/NVIDIA/k8s-test-infra/issues/1044))
+- nvml-mock: NVML reports the PowerMizer mode (configurable with `power.power_mizer_mode` and settable at runtime) and an AC power source instead of NOT_SUPPORTED. ([#1044](https://github.com/NVIDIA/k8s-test-infra/issues/1044))
+- nvml-mock: GPM profiling metrics can be read per MIG GPU instance through `nvmlGpmMigSampleGet`, which no longer returns NOT_SUPPORTED; each instance, sampled by ID or MIG device handle, reports the board's activity and its slice share of PCIe and NVLink throughput. ([#1045](https://github.com/NVIDIA/k8s-test-infra/issues/1045))
+- nvml-mock: per-process accounting reports a record for each configured process and each declared `accounting.terminated` entry, and enabling, disabling or clearing it through NVML holds node-wide. See Accounting in the configuration reference. ([#1038](https://github.com/NVIDIA/k8s-test-infra/issues/1038))
+- nvml-mock: a process with `type: "M"` is an MPS client, listed by `nvmlDeviceGetMPSComputeRunningProcesses` and not among compute processes. The `_v2` running-process queries and `nvmlDeviceGetRunningProcessDetailList` now answer instead of NOT_SUPPORTED. ([#1038](https://github.com/NVIDIA/k8s-test-infra/issues/1038))
+- nvml-mock: `nvmlDeviceGetSamples` and `nvmlDeviceGetProcessesUtilizationInfo` return data instead of NOT_SUPPORTED. Each sample carries the current reading of the matching getter; see Metric Fidelity in the configuration reference. ([#1038](https://github.com/NVIDIA/k8s-test-infra/issues/1038))
+- nvml-mock: memory repair status, the unrepairable-memory flag, SRAM unique error counts, DRAM encryption and the InfoROM checks now answer from the ECC and row-remap state; the ECC mode, counter-clear and DRAM encryption setters persist. See the configuration reference. ([#1040](https://github.com/NVIDIA/k8s-test-infra/issues/1040))
+
+### Changed
+
+- tilt: `tilt up` without `--gpu-profile` now simulates the default GPU profile of the chart instead of `a100`; pass `--gpu-profile a100` to keep the previous shape. `--fgo` stays on `a100`.
+- node-agent: profiles with `nvlink.multi_node` stage the IMEX `/proc/devices` entry, capability file and `channel0`, the only channel a real node's driver creates; other profiles never do. Device majors the node already uses are replaced by free ones. ([#821](https://github.com/NVIDIA/k8s-test-infra/issues/821))
+- helm: on multi-node NVLink profiles the install notes turn on DRA ComputeDomains and point the driver's `altProcDevices` at the node agent's `/proc/devices` substitute; Tilt `--compute-domain --dra` does the same with the standard nvml-mock image. ([#821](https://github.com/NVIDIA/k8s-test-infra/issues/821))
+- nvml-mock: without `MOCK_TOPOLOGY_CONFIG`, reads the ComputeDomain topology beside the `config.yaml` it loaded; the node agent stages the document there too. The DRA driver's kubelet plugin, which mounts only the driver root, now sees each node's own clique. ([#821](https://github.com/NVIDIA/k8s-test-infra/issues/821))
+- tilt: the compute-domain cluster now has two NVLink cliques of two workers, and `--topograph` labels each worker with the clique the mock driver reports, as `accelerator.topograph.run/domain`; recreate the cluster with `make cluster-create PROFILE=compute-domain`.
+- **Breaking:** helm: the mock InfiniBand NetworkPolicy admits peers from the release's namespace only; a fleet split across namespaces must list the others in `infiniband.ping.networkPolicy.peerNamespaces`.
+
+### Removed
+
+- **Breaking:** helm: `imex.mockChannels` is removed; the GPU profile now decides whether a node simulates IMEX. Move `channelMajor` and `capsMajor` to `imex.deviceNumbers`, and drop `enabled` and `channelCount`. ([#821](https://github.com/NVIDIA/k8s-test-infra/issues/821))
+- nvml-mock: `Dockerfile.compute-domain-daemon` and the Tilt images `nvml-mock:compute-domain-imex` and `nvml-mock:compute-domain-daemon`; the DRA driver runs ComputeDomains with its upstream images, and the node agent stages IMEX for them. ([#821](https://github.com/NVIDIA/k8s-test-infra/issues/821))
+
+### Fixed
+
+- helm: overriding `driverVersion` now changes the driver version NVML reports, not only the node labels.
+- nvml-mock: error strings from `nvmlErrorString` stay valid after `nvmlShutdown`, so a client that collected a status before tearing NVML down no longer reads garbage.
+- helm: the mock InfiniBand NetworkPolicy is no longer created below the `full` `infiniband.mockTier`, where nothing listens on its port; on OVN-Kubernetes it cost every node CPU on each Pod event in the cluster.
+- nvml-mock: an `accounting` block under `devices:` now takes effect; the device used to keep the `device_defaults` accounting settings. ([#1038](https://github.com/NVIDIA/k8s-test-infra/issues/1038))
+- nvml-mock: running-process queries report no MIG instance (0xFFFFFFFF) for each process instead of 0, which read as MIG instance 0. ([#1038](https://github.com/NVIDIA/k8s-test-infra/issues/1038))
+- nvml-mock: a GPU in an injected lost or fallen-off-bus state now returns GPU_IS_LOST from the running-process and process-utilization queries instead of still listing its processes. ([#1038](https://github.com/NVIDIA/k8s-test-infra/issues/1038))
+- profiles: `b200` reports PCIe Gen5 rather than Gen6 for Max, Current, Device Current and Device Max, matching a real B200. ([#1053](https://github.com/NVIDIA/k8s-test-infra/issues/1053))
+- nvml-mock: acknowledge GPU memory-limit requests so fractional containers can start; memory limits are not stored or enforced.
+
+### Security
+
+- ci: repository automation moves to undici 6.29.1, fixing two high-severity denial-of-service advisories (GHSA-4qv8-2p9j-2685, GHSA-xjj6-f33q-929c).
+
+## [0.5.1] - 2026-10-21
+
+### Security
+
+- build: images and binaries are now built with Go 1.27.3, which fixes GO-2026-6809 (crypto/x509 trusting compromised intermediate certificates).
+
 ## [0.5.0] - 2026-10-14
 
 ### Added
@@ -36,8 +93,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - helm: `gpu.mig.enabled` boots a board already partitioned into the layout
   `gpu.mig.gpuInstances` names, which is required. The device plugin then
   serves MIG resources, so MIG workloads schedule on CPU-only nodes. Off by
-  default, since under `migStrategy=single` a partitioned board publishes no
-  `nvidia.com/gpu`. ([#241](https://github.com/NVIDIA/k8s-test-infra/issues/241))
+  default, since under `migStrategy=single` a partitioned board publishes each
+  partition as `nvidia.com/gpu` instead of the whole GPU. ([#241](https://github.com/NVIDIA/k8s-test-infra/issues/241))
 - control-plane: an opt-in controller materializes `SGPURackProfile` and
   `SGPUInventory` declarations into stable `SGPURack` Node bindings and
   projects the assignment metadata onto Nodes. It rebuilds its state from
@@ -1161,6 +1218,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Rebranded from gpu-mock to nvml-mock (PRs #273, #274, #275, #281, #282)
 
+[0.6.0]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.5.1...v0.6.0
+[0.5.1]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.3.0...v0.4.0

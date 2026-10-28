@@ -91,6 +91,11 @@ type rawProfile struct {
 				} `json:"supported"`
 				Requested []int `json:"requested"`
 			} `json:"workload_power_profiles"`
+			Smoothing *struct {
+				Supported     *bool  `json:"supported"`
+				State         string `json:"state"`
+				ActiveProfile int    `json:"active_profile"`
+			} `json:"smoothing"`
 		} `json:"power"`
 		Platform     *rawPlatform `json:"platform"`
 		RemappedRows *struct {
@@ -112,6 +117,7 @@ type rawProfile struct {
 	NVLink struct {
 		LinksPerGPU int  `json:"links_per_gpu"`
 		C2CEnabled  bool `json:"c2c_enabled"`
+		MultiNode   bool `json:"multi_node"`
 		BwMode      struct {
 			Scope string `json:"scope"`
 		} `json:"bw_mode"`
@@ -186,6 +192,7 @@ type Profile struct {
 	nvlinkBwScope  string
 	pciBridges     int
 	c2cEnabled     bool
+	multiNode      bool
 	fabricAuto     bool
 	hasFabric      bool
 	pciRoots       int
@@ -218,6 +225,10 @@ type Profile struct {
 	workloadProfiles          []WorkloadPowerProfile
 	workloadProfilesRequested []int
 	workloadProfilesDeclared  bool
+
+	smoothingSupported     *bool
+	smoothingEnabled       bool
+	smoothingActiveProfile int
 
 	migMaxInstances int
 }
@@ -296,6 +307,7 @@ func Load(profilesDir, name string) (Profile, error) {
 		hasSwitches: len(raw.NVLink.Switches) > 0,
 		pciBridges:  pcieVisibleSwitches(raw),
 		c2cEnabled:  raw.NVLink.C2CEnabled,
+		multiNode:   raw.NVLink.MultiNode,
 		memoryBytes: raw.DeviceDefaults.Memory.TotalBytes,
 		arch:        parsedArch,
 
@@ -384,6 +396,7 @@ func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
 	}
 	p.applyClocks(raw)
 	p.applyWorkloadPowerProfiles(raw)
+	p.applyPowerSmoothing(raw)
 	if r := raw.DeviceDefaults.RemappedRows; r != nil && r.AvailabilityHistogram != nil {
 		p.rowRemapHistogram = true
 		p.rowRemapBanks = r.AvailabilityHistogram.Max
@@ -564,6 +577,12 @@ func (p Profile) HasFabric() bool { return p.hasFabric }
 // elsewhere. Absent key means false, i.e. N/A.
 func (p Profile) C2CEnabled() bool { return p.c2cEnabled }
 
+// MultiNodeNVLink reports whether the board's NVLink domain spans nodes
+// (nvlink.multi_node), which is what makes the node agent stage the IMEX
+// surface. gb200 and gb300 set it today. HasFabric is also true on h100, whose
+// NVLink stays on one baseboard, so it cannot stand in for this.
+func (p Profile) MultiNodeNVLink() bool { return p.multiNode }
+
 // PlatformIdentity returns the platform identity the profile configures and
 // whether it declares one at all. Only the rack-scale profiles (gb200, gb300)
 // do: NVML answers nvmlDeviceGetPlatformInfo for a board whose platform can
@@ -701,6 +720,40 @@ func (p Profile) RequestedWorkloadPowerProfiles() []int {
 func (p Profile) SupportsWorkloadPowerProfiles() bool {
 	return p.workloadProfilesDeclared && p.DriverMajor() >= workloadPowerProfileMinDriver
 }
+
+// applyPowerSmoothing decodes power.smoothing. Absent, the board keeps the
+// architecture default and starts disabled on preset 0.
+func (p *Profile) applyPowerSmoothing(raw rawProfile) {
+	pw := raw.DeviceDefaults.Power
+	if pw == nil || pw.Smoothing == nil {
+		return
+	}
+	p.smoothingSupported = pw.Smoothing.Supported
+	p.smoothingEnabled = pw.Smoothing.State == "enabled"
+	p.smoothingActiveProfile = pw.Smoothing.ActiveProfile
+}
+
+// powerSmoothingMinDriver is the driver that introduced the
+// nvmlDevicePowerSmoothing* setters, matching the mock's version registry.
+const powerSmoothingMinDriver = 570
+
+// SupportsPowerSmoothing reports whether `nvidia-smi -q` should render a
+// populated Power Smoothing block and `nvidia-smi power-smoothing` should
+// accept writes. The feature is Blackwell and later unless the profile's
+// power.smoothing.supported says otherwise, and needs a 570-or-newer driver.
+func (p Profile) SupportsPowerSmoothing() bool {
+	supported := p.arch.AtLeast(gpuarch.Blackwell)
+	if p.smoothingSupported != nil {
+		supported = *p.smoothingSupported
+	}
+	return supported && p.DriverMajor() >= powerSmoothingMinDriver
+}
+
+// PowerSmoothingEnabled is power.smoothing.state == "enabled".
+func (p Profile) PowerSmoothingEnabled() bool { return p.smoothingEnabled }
+
+// PowerSmoothingActiveProfile is power.smoothing.active_profile.
+func (p Profile) PowerSmoothingActiveProfile() int { return p.smoothingActiveProfile }
 
 // IndependentWorkloadProfilePair returns two advertised profiles that do not
 // conflict with each other, so requesting both leaves both enforced. Used to

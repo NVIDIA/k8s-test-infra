@@ -5,29 +5,51 @@ version: 2
 updates:
   - package-ecosystem: "gomod"
     target-branch: main
-    directory: "/"
+    directories:
+    - "/"
+    - "/tests/mocknvml"
     schedule:
       interval: "weekly"
-      day: "sunday"
+    cooldown:
+      default-days: 7
     labels:
     - dependencies
     groups:
-      k8sio:
+      kubernetes:
         patterns:
-        - k8s.io/*
+        - "k8s.io/*"
+        - "sigs.k8s.io/*"
+      grpc-protobuf:
+        patterns:
+        - "google.golang.org/grpc*"
+        - "google.golang.org/protobuf*"
+        - "google.golang.org/genproto*"
+      go-dependencies:
+        update-types:
+        - "minor"
+        - "patch"
         exclude-patterns:
-        - k8s.io/klog/*
+        - "k8s.io/*"
+        - "sigs.k8s.io/*"
+        - "google.golang.org/grpc*"
+        - "google.golang.org/protobuf*"
+        - "google.golang.org/genproto*"
 
   - package-ecosystem: "github-actions"
     target-branch: main
-    directory: "/"
+    directories:
+    - "/"
+    - "/.github/actions/*"
     schedule:
       interval: "weekly"
-
+    cooldown:
+      default-days: 7
+    labels:
+    - dependencies
     groups:
-      codeql-action: # all CodeQL actions should be upgraded at the same time otherwise they fail partially
-        patterns:
-          - "github/codeql-action"
+      github-actions:
+        patterns: ["*"]
+
 
   - package-ecosystem: "docker"
     target-branch: main
@@ -35,13 +57,24 @@ updates:
     # Golang version
     - "/deployments/devel"
     schedule:
-      interval: "daily"
+      interval: "weekly"
+    cooldown:
+      default-days: 7
     labels:
     - dependencies
+    groups:
+      docker-dependencies:
+        patterns: ["*"]
 
   - package-ecosystem: "terraform"
     directory: "/docs/guides/install/aws/eks/terraform"
+    target-branch: main
     schedule:
-      interval: "quarterly"
+      interval: "weekly"
+    cooldown:
+      default-days: 7
     labels:
     - dependencies
+    groups:
+      terraform-dependencies:
+        patterns: ["*"]

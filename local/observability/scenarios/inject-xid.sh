@@ -2,9 +2,6 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Fault scenario: raise an uncorrectable-ECC Xid on one mock GPU and assert the
-# code reaches Prometheus.
-#
 # DCGM_FI_DEV_XID_ERRORS has NO series at all on a healthy cluster: the mock
 # delivers Xids through the NVML event set, and dcgm-exporter omits field 230
 # entirely while it holds no value for it. So a "!= 0" test would be vacuous —
@@ -17,8 +14,6 @@
 # the last sample for its lookback window. This scenario rotates between two
 # codes and injects whichever one is NOT currently reported, so the value being
 # waited for cannot be present until this run's injection arrives.
-#
-# Ported from docs/guides/observability/run.sh phase 2.
 
 set -euo pipefail
 
@@ -65,11 +60,10 @@ if [[ "${prom_ready}" != "true" ]]; then
   fail "Prometheus never answered through the service proxy at ${PROM_SVC}"
 fi
 
-# Pick the target from the temperature series, which every scraped GPU has,
-# rather than from the Xid series, which a healthy fleet does not have at all.
-# The control-plane runs a mock pod but no dcgm-exporter, and the two workers
-# carry different profiles, so neither "the first mock pod" nor a fixed node
-# name would be right.
+# Pick the target from the temperature series, which every scraped GPU has, not
+# the Xid series, which a healthy fleet does not have at all. As in
+# inject-thermal.sh, a node has scraped GPUs only once its dcgm-exporter is up, so
+# "the first mock pod" or a fixed node name could miss.
 target_node=""
 target_pod=""
 for host in $(promq "query?query=DCGM_FI_DEV_GPU_TEMP" \

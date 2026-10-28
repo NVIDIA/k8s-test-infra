@@ -1,36 +1,20 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Loadable Tiltfile: NVIDIA GPU Operator consumer.
-#
-# Exports:
-#   install(nvml_mock_releases, extra_values=[], extra_resource_deps=[])
-#     — install the Operator on top of nvml-mock. extra_values is a list of
-#     additional --values paths layered on top of gpu-operator.values.yaml
-#     (later paths win on key conflicts); extra_resource_deps adds Tilt
-#     resources the Operator must wait for. Both are used by the
-#     --observability consumer, which re-enables dcgm-exporter and needs
-#     kube-prometheus-stack's ServiceMonitor CRD to exist first.
-#
-# Requires the shared 'nvidia' helm_repo, registered by the main Tiltfile and
-# waited on through resource_deps.
+# extra_resource_deps exists for --observability: its overlay gives dcgm-exporter a
+# ServiceMonitor, which needs kube-prometheus-stack's CRD to exist first.
 
 load('ext://helm_resource', 'helm_resource')
 
 _REPO_RESOURCE = 'nvidia'
 
-# Pinned rather than floating: an upstream release would otherwise land in CI
-# without a commit. v26.7.1 gates every operand's toolkit-validation init
-# container on an `nvidia` line in /proc/modules (NVIDIA/gpu-operator#2881),
-# which the mock cannot serve to those containers, so GFD, the device plugin
-# and dcgm-exporter never start (#911). Bump deliberately.
+# v26.7.1 gates every operand's toolkit-validation init container on an `nvidia`
+# line in /proc/modules (NVIDIA/gpu-operator#2881), which the mock cannot serve to
+# those containers, so GFD, the device plugin and dcgm-exporter never start (#911).
 _CHART = 'nvidia/gpu-operator'
 _CHART_VERSION = 'v26.3.3'
 
 def install(nvml_mock_releases, extra_values=[], extra_resource_deps=[]):
-    # local/gpu-operator/gpu-operator.values.yaml disables driver/toolkit/DCGM
-    # (not needed with nvml-mock) and enables CDI mode so the Operator reads
-    # /var/run/cdi/nvidia.yaml written by the nvml-mock DaemonSet.
     values_flags = ['--values', 'local/gpu-operator/gpu-operator.values.yaml']
     for v in extra_values:
         values_flags += ['--values', v]

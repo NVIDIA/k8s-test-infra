@@ -22,17 +22,10 @@ body:
       placeholder: "v0.5.0"
     validations: { required: true }
   - type: input
-    id: engineer
-    attributes:
-      label: Release engineer
-      description: "GitHub handle of the maintainer running this release."
-      placeholder: "@handle"
-    validations: { required: true }
-  - type: input
     id: basesha
     attributes:
       label: Base commit
-      description: "The `main` SHA this release is cut from. Must be fully green."
+      description: "The `main` SHA this release is cut from."
     validations: { required: true }
   - type: dropdown
     id: kind
@@ -47,8 +40,6 @@ body:
     attributes:
       label: Pre-flight
       options:
-        - label: "CI Pipeline is green on the base commit, including the full e2e matrix. A flake rerun to green is fine; record the job and the rerun."
-        - label: "`make lint` is green on the base commit. It runs govulncheck, so a known vulnerability in a dependency fails it."
         - label: "Open Dependabot PRs are merged, or listed in this issue as deferred with the reason."
         - label: "Every `Removed` entry this release ships (the `Removed-*` fragments in `.changes/unreleased/`) removes something whose deprecation was announced, or a feature gate that reached GA, at least three Y releases earlier; Z releases do not count. A deprecation announced in 0.6.0 is removed no earlier than 0.9.0. New deprecations in this release are listed for the release notes."
         - label: "Every breaking change merged since the last tag has a `**Breaking:**` changelog entry that states the action a user takes. Before 1.0 a breaking change ships in this Y release; from 1.0 it makes the release type Major."
@@ -60,9 +51,7 @@ body:
         - label: "`make changelog-preview RELEASE_VERSION=<version-without-v>` to review the section, then `make changelog-release RELEASE_VERSION=<version-without-v>` to fold the pending fragments into CHANGELOG.md."
         - label: "Verify no changelog content was lost: the new section has one bullet per fragment the fold removed from `.changes/unreleased/`. Paste both counts in the PR."
         - label: "Add the compare link at the bottom of CHANGELOG.md following the existing pattern."
-        - label: "Update the docs that pin the previous release's version: `git grep -nF '<previous-version-without-v>' -- docs`."
         - label: "Apply the `skip-changelog` label: a release PR removes fragments rather than adding one."
-        - label: "Gates: `make helm-tests`, `make helm-crds-tests`, `make lint`, `make build`, `make test`."
         - label: "No `Chart.yaml` version is edited. The tag sets the published chart `version` and `appVersion`."
         - label: "PR reviewed and merged. `main` dismisses stale approvals on push, so batch review fixes into one push. Rebase only if the PR gets the `needs-rebase` label ([Rebase only on a conflict](https://github.com/NVIDIA/k8s-test-infra/blob/main/docs/contributing/pull-requests.md#rebase-only-on-a-conflict)); never merge `main` into it."
   - type: checkboxes
@@ -70,7 +59,7 @@ body:
     attributes:
       label: Tag
       options:
-        - label: "Before tagging, CI Pipeline is green on the prep PR's merge commit, the commit the tag goes on: `gh run list --workflow \"CI Pipeline\" --commit <prep-merge-commit>`."
+        - label: "Before tagging, CI Pipeline is green on the prep PR's merge commit, the commit the tag goes on: `gh run list --workflow \"CI Pipeline\" --commit <prep-merge-commit>`. It runs the e2e matrix, which no merge check requires. If a newer push to `main` cancelled the run, rerun it with `gh run rerun <run-id>`."
         - label: "Before tagging, list the changelog fragments that merged after the base commit: `git diff --name-only --diff-filter=A <base-commit> <prep-merge-commit> -- .changes/unreleased`. They ship in this tag but are not in its changelog section. Paste the list in this issue, even when it is empty. Each listed fragment also meets the two pre-flight checks above: do not tag over a `Removed` entry that breaks the floor, and the follow-up PR adds a missing `**Breaking:**` marker and user action."
         - label: "Annotated and signed, on the prep PR's merge commit given explicitly: `git tag -s -m \"<message>\" <version> <prep-merge-commit>`"
         - label: "Tag message covers the headline change and any breaking changes."
@@ -80,15 +69,9 @@ body:
     id: artefacts
     attributes:
       label: Verify published artefacts
-      description: "Confirm by resolving the artefact, not by reading a green check. Image and chart tags drop the `v`: tag `v0.5.0` publishes `0.5.0`, written `<v>` below."
+      description: "Confirm by resolving the artefact, not by reading a green check."
       options:
-        - label: "`nvml-mock Publish`, `Mokka Control Plane Publish` and `helm-publish` ran for the tag and succeeded: `gh run list --branch <version>`."
-        - label: "`ghcr.io/nvidia/nvml-mock:<v>` and `ghcr.io/nvidia/mokka-control-plane:<v>` resolve for `linux/amd64` and `linux/arm64`: `docker buildx imagetools inspect <image>:<v>`."
-        - label: "For both images, `<X.Y>` points at the same digest as `<v>`. `nvml-mock:latest` does too, because only a stable tag run moves it. `mokka-control-plane:latest` is not compared: it follows `main` builds, and a tag run does not move it."
-        - label: "`helm show chart oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock --version <v>` and the same for `mokka-crds`: `version` and `appVersion` both equal `<v>`."
-        - label: "`cosign verify` passes for `ghcr.io/nvidia/nvml-mock:<v>`, `ghcr.io/nvidia/mokka-control-plane:<v>`, `ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock:<v>` and `ghcr.io/nvidia/k8s-test-infra/chart/mokka-crds:<v>`. Each image tag resolves to its multi-arch index, which is the digest the workflow signs."
-        - label: "`cosign verify-attestation --type spdxjson` passes for `ghcr.io/nvidia/nvml-mock:<v>`, whose SBOM is attached to the index, and for the `linux/amd64` and `linux/arm64` digests of `ghcr.io/nvidia/mokka-control-plane:<v>`, whose SBOMs are attached per platform. List those digests with `docker buildx imagetools inspect ghcr.io/nvidia/mokka-control-plane:<v>`."
-        - label: "Every cosign command passes `--certificate-identity https://github.com/NVIDIA/k8s-test-infra/.github/workflows/<workflow>@refs/tags/<version>` and `--certificate-oidc-issuer https://token.actions.githubusercontent.com`, where `<workflow>` is `nvml-mock-publish.yaml` for the nvml-mock image, `mokka-control-plane-publish.yaml` for the control-plane image and `helm-publish.yaml` for both charts."
+        - label: "`make verify-release RELEASE_VERSION=<version-without-v>` exits 0. Paste its output in this issue. It needs `gh`, `docker buildx`, `helm`, `cosign` and `jq`, and checks the publish runs, that both images list `linux/amd64` and `linux/arm64`, that both images' `<X.Y>` tags and `nvml-mock:latest` carry the release digest, both charts' `version` and `appVersion`, and every signature and SBOM attestation. It does not compare `mokka-control-plane:latest`: that tag follows `main` builds, and a tag run does not move it."
   - type: checkboxes
     id: after
     attributes:

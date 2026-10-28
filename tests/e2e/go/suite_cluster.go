@@ -7,6 +7,7 @@ package e2e
 
 import (
 	"context"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -57,6 +58,17 @@ func nvmlPodOnNode(ctx context.Context, h *harness.Harness, node string) kube.Po
 	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
 		ShouldNot(BeEmpty(), "no running nvml-mock pod on node %s", node)
 	return kube.PodRef{Namespace: nvmlMockNamespace, Pod: name}
+}
+
+// nvidiaSMIOnNode runs nvidia-smi in the nvml-mock pod on node and returns its
+// output; a non-zero exit fails the spec.
+func nvidiaSMIOnNode(ctx context.Context, h *harness.Harness, node string, args ...string) string {
+	GinkgoHelper()
+	target := nvmlPodOnNode(ctx, h, node)
+	By("nvidia-smi " + strings.Join(args, " "))
+	res, err := h.Kube.ExecQuiet(ctx, target, append([]string{"nvidia-smi"}, args...)...)
+	Expect(err).NotTo(HaveOccurred(), "nvidia-smi %v in %s: %s", args, target.Pod, res.Combined())
+	return res.Combined()
 }
 
 // ibPodPair returns two running nvml-mock pods for the cross-node IB specs.

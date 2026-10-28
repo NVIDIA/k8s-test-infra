@@ -61,7 +61,7 @@ func TestDerivations(t *testing.T) {
 	}{
 		{"a100", "NVIDIA A100-SXM4-40GB", 8, 8, 12, true, false, true, 2, 6, false, false, 92, 87, 83, 4, 1410}, // NVSwitch (FabricMgr) but no ComputeDomain fabric block
 		{"h100", "NVIDIA H100 80GB HBM3", 8, 8, 18, true, true, true, 2, 4, true, false, 92, 87, 83, 5, 1980},
-		{"b200", "NVIDIA B200", 8, 8, 0, false, false, true, 2, 0, true, false, 95, 90, 85, 6, 1965}, // NVLink negative control, IB enabled
+		{"b200", "NVIDIA B200", 8, 8, 0, false, false, true, 2, 0, true, false, 95, 90, 85, 5, 1965}, // NVLink negative control, IB enabled
 		{"gb200", "NVIDIA GB200", 4, 4, 18, true, true, true, 2, 0, true, true, 95, 90, 85, 5, 2062}, // one NVL72 compute tray: 2 superchips, 4 GPUs
 		{"gb300", "NVIDIA GB300 NVL", 4, 4, 18, true, true, true, 2, 0, true, true, 95, 90, 85, 6, 2070},
 		{"l40s", "NVIDIA L40S", 8, 0, 0, false, false, false, 2, 0, true, false, 96, 93, 89, 4, 2520}, // IB + NVLink negative control
@@ -233,6 +233,19 @@ func TestC2CIsGraceOnly(t *testing.T) {
 	}
 }
 
+// TestMultiNodeNVLinkProfiles pins which profiles simulate IMEX. h100 also
+// declares an NVLink fabric, so a test that keyed IMEX on the fabric would run
+// against a board whose NVLink never leaves the node.
+func TestMultiNodeNVLinkProfiles(t *testing.T) {
+	multiNode := map[string]bool{"gb200": true, "gb300": true}
+	for _, name := range KnownProfiles {
+		p, err := Load(profilesDir, name)
+		require.NoError(t, err, "Load(%q)", name)
+		require.Equal(t, multiNode[name], p.MultiNodeNVLink(),
+			"%s: nvlink.multi_node should be %v", name, multiNode[name])
+	}
+}
+
 // TestWorkloadPowerProfilesAreBlackwellOnDriver570 pins both axes the e2e
 // expectation is derived from, so "lists its profiles" cannot quietly become
 // "always lists them". b200 is the interesting case: Blackwell silicon, but the
@@ -269,6 +282,23 @@ func TestWorkloadPowerProfilesAreBlackwellOnDriver570(t *testing.T) {
 				require.Greater(t, wp.ID, profiles[i-1].ID, "%s: profiles should ascend by id", name)
 			}
 		}
+	}
+}
+
+// TestPowerSmoothingIsBlackwellOnDriver570 pins which shipped profiles the
+// power smoothing e2e treats as supporting the feature, so the positive and
+// negative specs cannot quietly swap. Every shipped profile also starts with
+// smoothing off on preset 0, which is what the setter spec writes away from.
+func TestPowerSmoothingIsBlackwellOnDriver570(t *testing.T) {
+	wantSupported := map[string]bool{"b200": true, "gb200": true, "gb300": true}
+	for _, name := range KnownProfiles {
+		p, err := Load(profilesDir, name)
+		require.NoError(t, err, "Load(%q)", name)
+		require.Equal(t, wantSupported[name], p.SupportsPowerSmoothing(),
+			"%s: power smoothing support should be %v (%s, driver %d.x)",
+			name, wantSupported[name], p.Architecture(), p.DriverMajor())
+		require.False(t, p.PowerSmoothingEnabled(), "%s: ships with power smoothing enabled", name)
+		require.Zero(t, p.PowerSmoothingActiveProfile(), "%s: ships with a non-zero active preset", name)
 	}
 }
 

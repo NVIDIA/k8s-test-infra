@@ -261,7 +261,7 @@ func (d *ConfigurableDevice) SetApplicationsClocks(memMHz, graphicsMHz uint32) n
 	if ret != nvml.SUCCESS {
 		return ret
 	}
-	return recordClockWrite(fmt.Sprintf("nvmlDeviceSetApplicationsClocks(%d, %d)", memMHz, graphicsMHz),
+	return recordSetterWrite(fmt.Sprintf("nvmlDeviceSetApplicationsClocks(%d, %d)", memMHz, graphicsMHz),
 		func(w OverrideWriter) error { return w.SetApplicationsClocks(d.PhysicalIndex(), memMHz, graphicsMHz) })
 }
 
@@ -278,7 +278,7 @@ func (d *ConfigurableDevice) ResetApplicationsClocks() nvml.Return {
 		return nvml.ERROR_NOT_SUPPORTED
 	}
 	memMHz, graphicsMHz := c.Clocks.MemoryAppDefault, c.Clocks.GraphicsAppDefault
-	return recordClockWrite("nvmlDeviceResetApplicationsClocks",
+	return recordSetterWrite("nvmlDeviceResetApplicationsClocks",
 		func(w OverrideWriter) error { return w.SetApplicationsClocks(d.PhysicalIndex(), memMHz, graphicsMHz) })
 }
 
@@ -339,7 +339,7 @@ func (d *ConfigurableDevice) setLockedClocks(op string, domain ClockDomain, minM
 		return nvml.ERROR_INVALID_ARGUMENT
 	}
 	r := &ClockRangeConfig{MinMHz: minMHz, MaxMHz: maxMHz}
-	return recordClockWrite(fmt.Sprintf("%s(%d, %d)", op, minMHz, maxMHz),
+	return recordSetterWrite(fmt.Sprintf("%s(%d, %d)", op, minMHz, maxMHz),
 		func(w OverrideWriter) error { return w.SetLockedClocks(d.PhysicalIndex(), domain, r) })
 }
 
@@ -350,7 +350,7 @@ func (d *ConfigurableDevice) clearLockedClocks(op string, domain ClockDomain) nv
 	if d.cfg().Clocks == nil {
 		return nvml.ERROR_NOT_SUPPORTED
 	}
-	return recordClockWrite(op,
+	return recordSetterWrite(op,
 		func(w OverrideWriter) error { return w.SetLockedClocks(d.PhysicalIndex(), domain, nil) })
 }
 
@@ -406,7 +406,7 @@ func (d *ConfigurableDevice) SetClockOffsets(info nvml.ClockOffset) nvml.Return 
 	if clockType == nvml.CLOCK_MEM {
 		domain = ClockDomainMemory
 	}
-	return recordClockWrite(fmt.Sprintf("nvmlDeviceSetClockOffsets(type=%d, %d MHz)", clockType, info.ClockOffsetMHz),
+	return recordSetterWrite(fmt.Sprintf("nvmlDeviceSetClockOffsets(type=%d, %d MHz)", clockType, info.ClockOffsetMHz),
 		func(w OverrideWriter) error { return w.SetClockOffset(d.PhysicalIndex(), domain, info.ClockOffsetMHz) })
 }
 
@@ -524,22 +524,4 @@ func (d *ConfigurableDevice) SetAutoBoostedClocksEnabled(nvml.EnableState) nvml.
 // SetDefaultAutoBoostedClocksEnabled declines for the same reason.
 func (d *ConfigurableDevice) SetDefaultAutoBoostedClocksEnabled(nvml.EnableState, uint32) nvml.Return {
 	return nvml.ERROR_NOT_SUPPORTED
-}
-
-// recordClockWrite runs one setter write against the override writer and
-// invalidates the cache so the write is visible to the next read in this
-// process. A setter with nowhere to record has failed and must say so.
-func recordClockWrite(op string, write func(OverrideWriter) error) nvml.Return {
-	w := overrideWriter()
-	if w == nil {
-		warnLog("[NVML] %s -> NO_PERMISSION (no override writer)\n", op)
-		return nvml.ERROR_NO_PERMISSION
-	}
-	if err := write(w); err != nil {
-		warnLog("[NVML] %s -> NO_PERMISSION: %v\n", op, err)
-		return nvml.ERROR_NO_PERMISSION
-	}
-	configOverrides.invalidateAfterLocalWrite()
-	debugLog("[NVML] %s\n", op)
-	return nvml.SUCCESS
 }

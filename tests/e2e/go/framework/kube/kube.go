@@ -57,6 +57,12 @@ func (c *Client) kubectl(ctx context.Context, args ...string) (runner.Result, er
 	return runner.Run(ctx, "kubectl", full...)
 }
 
+// GetJSON decodes `kubectl get -o json <args>` into out, for resources this
+// client has no typed accessor for.
+func (c *Client) GetJSON(ctx context.Context, out any, args ...string) error {
+	return c.getJSON(ctx, out, args...)
+}
+
 func (c *Client) getJSON(ctx context.Context, out any, args ...string) error {
 	a := append(c.base(), "get", "-o", "json")
 	a = append(a, args...)

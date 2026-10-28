@@ -334,6 +334,15 @@ type DeviceSpec struct {
 	MemoryTotalBytes uint64
 	PCIDeviceID      uint32
 	PCISubsystemID   uint32
+	// VGPUGuest is set when the GPU is a vGPU as a VM sees it, and carries the
+	// host driver the hypervisor writes into the vGPU's PCI config space.
+	VGPUGuest *VGPUGuestSpec
+}
+
+// VGPUGuestSpec is the host driver a vGPU guest reads from PCI config space.
+type VGPUGuestSpec struct {
+	HostDriverVersion string
+	HostDriverBranch  string
 }
 
 // SwitchSpec is one NVSwitch that sits on this node's own PCIe bus, as an HGX
@@ -366,10 +375,9 @@ type FabricState struct {
 
 // IMEXState describes the IMEX capability surface for the DRA compute-domain plugin.
 type IMEXState struct {
-	Enabled      bool
-	IMEXMajor    int
-	CapsMajor    int
-	ChannelCount int
+	Enabled   bool
+	IMEXMajor int
+	CapsMajor int
 }
 
 // MIGState describes the MIG capability surface: which GPUs boot partitioned

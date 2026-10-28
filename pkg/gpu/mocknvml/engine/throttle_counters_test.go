@@ -99,14 +99,17 @@ func TestThrottleCounters_FieldIDsMatchTheSimulatedDriver(t *testing.T) {
 	require.Equal(t, uint32(252), uint32(fiClocksEventHwThermSlowdown))
 	require.Equal(t, uint32(253), uint32(fiClocksEventHwPowerBrake))
 
+	noSmoothing := false
 	dev := newTestDeviceWithConfig(t, &DeviceConfig{
 		Architecture: "blackwell",
 		ClocksThrottleReasons: &ClocksThrottleReasonsConfig{
 			Counters: &ThrottleCountersConfig{SWThermalSlowdownUS: 1},
 		},
+		Power: &PowerConfig{Smoothing: &PowerSmoothingConfig{Supported: &noSmoothing}},
 	})
 	// nvidia-smi sweeps the power-smoothing range with a profile id in scopeId.
-	// Every entry in it must still decline.
+	// With smoothing switched off every entry must decline, which it would not
+	// if a throttle counter answered for it.
 	for fieldID := uint32(256); fieldID <= 273; fieldID++ {
 		_, _, ret := dev.GetFieldValue(fieldID, 5)
 		require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret,

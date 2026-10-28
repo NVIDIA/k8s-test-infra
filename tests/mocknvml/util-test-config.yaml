@@ -333,7 +333,7 @@ device_defaults:
   # Virtualization
   # ---------------------------------------------------------------------------
   virtualization:
-    mode: "none"                    # none, passthrough, vgpu
+    mode: "none"                    # none, passthrough, vgpu, host_vgpu
     host_vgpu_mode: "N/A"
 
   # ---------------------------------------------------------------------------
@@ -455,6 +455,48 @@ devices:
     pci:
       bus_id: "0000:90:00.0"
     minor_number: 5
+    # The one device that models power smoothing, so the bridge suite drives
+    # the setters (testPowerPolicy) while every other A100 refuses them. A
+    # device's power block replaces the default one whole, hence the limits.
+    power:
+      management_supported: true
+      management_mode: "enabled"
+      default_limit_mw: 400000
+      enforced_limit_mw: 400000
+      min_limit_mw: 100000
+      max_limit_mw: 400000
+      current_draw_mw: 72000
+      power_state: "P0"
+      smoothing:
+        supported: true
+    # Accounting on, with one process already finished, so the accounting
+    # family reports both kinds of record: a terminated one from the buffer and
+    # running ones from the process list below. It is also what gives
+    # SetAccountingMode and ClearAccountingPids something to change.
+    accounting:
+      mode: "enabled"
+      buffer_size: 4000
+      terminated:
+        - pid: 3131
+          gpu_util: 62
+          mem_util: 31
+          max_memory_mib: 1024
+          time_ms: 120000
+    # The fixture's one MPS pair: the server is a compute process, the client
+    # is reported only by the MPS query. Two processes also give the process
+    # detail and utilization arrays a second element, which is what exposes a
+    # wrong stride.
+    processes:
+      - pid: 4300
+        type: "C"
+        name: "nvidia-cuda-mps-server"
+        used_memory_mib: 32
+      - pid: 4301
+        type: "M"
+        name: "train.py"
+        used_memory_mib: 4096
+        sm_util: 60
+        mem_util: 20
 
   - index: 6
     uuid: "GPU-12345678-1234-1234-1234-123456780006"

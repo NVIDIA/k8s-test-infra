@@ -194,6 +194,61 @@ func (w *fileOverrideWriter) UpdateFanControl(
 	})
 }
 
+func (w *fileOverrideWriter) SetPowerMizerMode(index int, mode string) error {
+	return w.patch(index, map[string]any{"power": map[string]any{"power_mizer_mode": mode}})
+}
+
+func (w *fileOverrideWriter) SetPowerSmoothingState(index int, enabled bool) error {
+	return w.patch(index, map[string]any{
+		"power": map[string]any{"smoothing": map[string]any{"state": enableStateString(enabled)}},
+	})
+}
+
+func (w *fileOverrideWriter) SetPowerSmoothingActiveProfile(index int, profileID uint32) error {
+	return w.patch(index, map[string]any{
+		"power": map[string]any{"smoothing": map[string]any{"active_profile": profileID}},
+	})
+}
+
+func (w *fileOverrideWriter) SetPowerSmoothingProfileParam(
+	index int, profileID uint32, param PowerSmoothingParam, value float64,
+) error {
+	return w.patch(index, PowerSmoothingProfilePatch(profileID, param, value))
+}
+
+func (w *fileOverrideWriter) SetAccountingMode(index int, enabled bool) error {
+	accounting := map[string]any{"mode": enableStateString(enabled)}
+	if !enabled {
+		accounting["terminated"] = []any{}
+	}
+	return w.patch(index, map[string]any{"accounting": accounting})
+}
+
+func (w *fileOverrideWriter) ClearAccountingPids(index int) error {
+	return w.patch(index, map[string]any{"accounting": map[string]any{"terminated": []any{}}})
+}
+
+func (w *fileOverrideWriter) SetEccModePending(index int, enabled bool) error {
+	return w.patch(index, map[string]any{"ecc": map[string]any{"mode_pending": enableStateString(enabled)}})
+}
+
+func (w *fileOverrideWriter) ClearEccErrorCounts(index int, scope EccCounterScope) error {
+	return w.patch(index, EccClearPatch(scope))
+}
+
+func (w *fileOverrideWriter) SetDramEncryptionPending(index int, enabled bool) error {
+	return w.patch(index, map[string]any{"ecc": map[string]any{
+		"dram_encryption": map[string]any{"mode_pending": enableStateString(enabled)},
+	}})
+}
+
+func (w *fileOverrideWriter) patch(index int, patch map[string]any) error {
+	return w.mutate(index, func(bucket map[string]any) error {
+		deepMergeMaps(bucket, patch)
+		return nil
+	})
+}
+
 func (w *fileOverrideWriter) mutate(index int, patch func(bucket map[string]any) error) error {
 	return w.write(func(doc *ConfigOverrideDoc) (map[string]any, error) {
 		if doc.Devices == nil {

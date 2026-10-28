@@ -23,6 +23,8 @@ variable; the flag wins when both are set.
 | `--shutdown-timeout` | `MOKKA_AGENT_SHUTDOWN_TIMEOUT` | `30s` | Budget for teardown on SIGINT/SIGTERM |
 | `--resync-interval` | `MOKKA_AGENT_RESYNC_INTERVAL` | `1m` | Re-read `--config` and `--topology` this often regardless of filesystem events; `0` relies on events alone |
 | `--staging-lock-path` | `MOKKA_AGENT_STAGING_LOCK_PATH` | empty | Lock file taken exclusively while staging or tearing down, which the NRI plugin shares while deciding each adjustment. Must be outside the injected overlay. At shutdown the agent waits at most half of `--shutdown-timeout` for it. Empty disables the gate; the chart sets it when `nri.enabled` |
+| `--imex-download-timeout` | `MOKKA_IMEX_DOWNLOAD_TIMEOUT` | `1m` | Time limit of one download attempt of the pinned IMEX archive, while the `IMEXDownload` feature gate is on. The chart sets it from `imex.binaries.download.timeout` |
+| `--imex-provided-dir` | `MOKKA_IMEX_PROVIDED_DIR` | `/opt/mokka/imex` | Directory holding the pinned IMEX archive under the file name NVIDIA publishes it with. On multi-node NVLink profiles the agent verifies it against the pinned SHA-256 and stages IMEX into the driver tree. Without a matching archive there or in the node cache, it downloads one while the `IMEXDownload` feature gate is on, and otherwise stages none and stays ready. The chart sets it when `imex.binaries.image` is set, and copies the archive there from that image |
 | `--log-level` | `MOKKA_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. `warning` is an alias of `warn`; empty falls back to `info` |
 | `--log-format` | `MOKKA_LOG_FORMAT` | `json` | `json` or `plain`; empty falls back to `json` |
 | `--ib-mode` | `MOCK_IB` | `off` | InfiniBand tier: `off`, `sysfs` (render only) or `full` (adds the mock-ib daemon). Empty reads as `off` |
@@ -48,9 +50,8 @@ instead of running it in the wrong mode. Any error out of `start` prints as
 ### Inputs with no flag
 
 `GPU_COUNT`, `DRIVER_VERSION`, `NODE_NAME`, `HOSTNAME`,
-`MOCK_FABRICMANAGER_STATE_DIR` and `IMEX_MOCK_CHANNELS` (with the
-`IMEX_CHANNEL_MAJOR`, `IMEX_CAPS_MAJOR` and `IMEX_CHANNEL_COUNT` values it
-gates) are read where the profile is compiled into state rather than by any
+`MOCK_FABRICMANAGER_STATE_DIR`, `IMEX_CHANNEL_MAJOR` and `IMEX_CAPS_MAJOR`
+(used only on multi-node NVLink profiles) are read where the profile is compiled into state rather than by any
 simulator, so no flag shadows them. The chart sets them — see
 [Configuration](../configuration.md).
 

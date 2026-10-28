@@ -18,6 +18,17 @@ type PCI struct {
 	// prints the class name, and GPU Feature Discovery derives
 	// nvidia.com/gpu.mode from it. Zero means PCIClass3DController.
 	Class uint32 `json:"class,omitempty" yaml:"class,omitempty"`
+	// VGPUHostDriver, when set, makes the function a vGPU guest: config space
+	// carries the vendor capability holding the host driver, which is how GPU
+	// Feature Discovery detects a vGPU. It comes from the virtualization
+	// block, not the PCI identity, so it is never read from YAML.
+	VGPUHostDriver *VGPUHostDriver `json:"-" yaml:"-"`
+}
+
+// VGPUHostDriver is the host driver a vGPU guest's config space advertises.
+type VGPUHostDriver struct {
+	Version string
+	Branch  string
 }
 
 // PCIeTopology describes the root-complex layout the renderer materializes

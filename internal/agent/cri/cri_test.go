@@ -12,6 +12,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
+	imexpaths "github.com/NVIDIA/k8s-test-infra/internal/imex"
 )
 
 func testState() *agent.State {
@@ -227,4 +228,37 @@ func TestApplyIsIdempotent(t *testing.T) {
 
 	require.FileExists(t, h.RunPath(nvidiaSpecFile))
 	require.FileExists(t, h.RunPath(nriSpecFile))
+}
+
+// Apply follows what the IMEX simulator staged in the same Stage wave. A
+// withdrawn install keeps the shim and nvidia-imex-ctl on disk but not
+// nvidia-imex.real, and the spec then names none of them.
+func TestApplyMountsIMEXOnlyWhileStaged(t *testing.T) {
+	h := host.New(t.TempDir())
+	state := testState()
+	s := New(h, Options{})
+	ctx := t.Context()
+	stage := func(binary string) {
+		require.NoError(t, os.MkdirAll(h.RootPath(imexpaths.BinDir), 0o755))
+		require.NoError(t, os.WriteFile(h.RootPath(imexpaths.BinDir, binary), []byte(binary), 0o755))
+	}
+
+	require.NoError(t, s.Apply(ctx, state))
+	require.NotContains(t, readSpecFile(t, h), "nvidia-imex")
+
+	stage(imexpaths.DaemonBinary)
+	stage(imexpaths.CtlBinary)
+	require.NoError(t, s.Apply(ctx, state))
+	require.NotContains(t, readSpecFile(t, h), "nvidia-imex", "a withdrawn install is not staged")
+
+	stage(imexpaths.RealDaemonBinary)
+	require.NoError(t, s.Apply(ctx, state))
+	require.Contains(t, readSpecFile(t, h), "/usr/bin/nvidia-imex-ctl")
+}
+
+func readSpecFile(t *testing.T, h *host.Host) string {
+	t.Helper()
+	data, err := os.ReadFile(h.RunPath(nvidiaSpecFile))
+	require.NoError(t, err)
+	return string(data)
 }

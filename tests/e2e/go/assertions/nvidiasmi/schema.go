@@ -137,6 +137,7 @@ type gpuElement struct {
 	ClocksEventReasons       eventReasons      `xml:"clocks_event_reasons"`
 	ClocksEventCounters      eventCounters     `xml:"clocks_event_reasons_counters"`
 	Fabric                   fabricBlock       `xml:"fabric"`
+	PowerSmoothing           powerSmoothing    `xml:"power_smoothing"`
 	Processes                struct {
 		Infos []processInfo `xml:"process_info"`
 	} `xml:"processes"`
@@ -450,6 +451,40 @@ type fabricBlock struct {
 	CliqueID    reading           `xml:"cliqueId"`
 	ClusterUUID reading           `xml:"clusterUuid"`
 	Health      fabricHealthBlock `xml:"health"`
+}
+
+// powerSmoothing is <power_smoothing>. A board without the feature renders the
+// whole block as one body ("N/A", or "Insufficient Permissions" on the real
+// Blackwell captures), so Body is kept beside the children for the same reason
+// migDevices keeps it: absent children must not read as a block of zeros.
+type powerSmoothing struct {
+	Body               string                    `xml:",innerxml"`
+	Enabled            reading                   `xml:"power_smoothing_enabled"`
+	CurrentTMP         reading                   `xml:"power_smoothing_curr_tmp"`
+	CurrentTMPFloor    reading                   `xml:"power_smoothing_curr_tmp_floor"`
+	MaxPercentTMPFloor reading                   `xml:"power_smoothing_max_percent_tmp_floor"`
+	MinPercentTMPFloor reading                   `xml:"power_smoothing_min_percent_tmp_floor"`
+	NumPresetProfiles  reading                   `xml:"power_smoothing_num_preset_profiles"`
+	CurrentProfile     powerSmoothingProfile     `xml:"power_smoothing_current_profile"`
+	ActiveProfile      reading                   `xml:"power_smoothing_active_profile"`
+	AdminOverrides     powerSmoothingAdminValues `xml:"power_smoothing_admin_overrides"`
+}
+
+// powerSmoothingProfile is <power_smoothing_current_profile>: the active
+// preset's parameters.
+type powerSmoothingProfile struct {
+	PercentTMPFloor    reading `xml:"power_smoothing_curr_profile_percent_tmp_floor"`
+	RampUpRate         reading `xml:"power_smoothing_curr_profile_ramp_up_rate"`
+	RampDownRate       reading `xml:"power_smoothing_curr_profile_ramp_down_rate"`
+	RampDownHysteresis reading `xml:"power_smoothing_curr_profile_ramp_down_hysteresis"`
+}
+
+// powerSmoothingAdminValues is <power_smoothing_admin_overrides>.
+type powerSmoothingAdminValues struct {
+	PercentTMPFloor    reading `xml:"power_smoothing_admin_override_percent_tmp_floor"`
+	RampUpRate         reading `xml:"power_smoothing_admin_override_ramp_up_rate"`
+	RampDownRate       reading `xml:"power_smoothing_admin_override_ramp_down_rate"`
+	RampDownHysteresis reading `xml:"power_smoothing_admin_override_ramp_down_hysteresis"`
 }
 
 // fabricHealthBlock is <fabric><health>. Each element carries one field of the

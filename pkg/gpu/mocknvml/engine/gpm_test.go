@@ -282,6 +282,149 @@ func TestGpmMetricsGet_UnknownMetricPerEntryError(t *testing.T) {
 	require.Zero(t, values[1])
 }
 
+// newGpmMigDevice is a MIG-enabled seven-slice board with GPM switched on and
+// a fixed utilization, so per-instance metrics are deterministic.
+func newGpmMigDevice(t *testing.T) *ConfigurableDevice {
+	t.Helper()
+	cfg := a100MIGConfig()
+	cfg.GPM = &GPMConfig{Supported: new(true)}
+	cfg.Utilization = &UtilizationConfig{GPU: 60, Memory: 40}
+	dev := newTestDeviceWithConfig(t, cfg)
+	enableMIG(t, dev)
+	return dev
+}
+
+func createGpuInstance(t *testing.T, dev *ConfigurableDevice, profile int) uint32 {
+	t.Helper()
+	info, ret := dev.GetGpuInstanceProfileInfo(profile)
+	require.Equal(t, nvml.SUCCESS, ret)
+	gi, ret := dev.CreateGpuInstance(&info)
+	require.Equal(t, nvml.SUCCESS, ret)
+	giInfo, ret := gi.GetInfo()
+	require.Equal(t, nvml.SUCCESS, ret)
+	return giInfo.Id
+}
+
+func gpmMigMetrics(t *testing.T, dev *ConfigurableDevice, giID uint32, ids []uint32) []float64 {
+	t.Helper()
+	k1, k2 := GpmSampleAlloc(), GpmSampleAlloc()
+	defer GpmSampleFree(k1)
+	defer GpmSampleFree(k2)
+	require.Equal(t, nvml.SUCCESS, dev.GpmMigSnapshotInto(int(giID), k1))
+	require.Equal(t, nvml.SUCCESS, dev.GpmMigSnapshotInto(int(giID), k2))
+	values, rets, ret := GpmMetricsGet(k1, k2, ids)
+	require.Equal(t, nvml.SUCCESS, ret)
+	for i, r := range rets {
+		require.Equal(t, nvml.SUCCESS, r, "metric id %d", ids[i])
+	}
+	return values
+}
+
+func TestGpmMigSnapshotInto_SplitsThroughputBySliceShare(t *testing.T) {
+	dev := newGpmMigDevice(t)
+	oneSlice := createGpuInstance(t, dev, nvml.GPU_INSTANCE_PROFILE_1_SLICE)
+	threeSlice := createGpuInstance(t, dev, nvml.GPU_INSTANCE_PROFILE_3_SLICE)
+
+	ids := []uint32{gpmMetricSMUtil, gpmMetricDramBwUtil, gpmMetricPcieTxPerSec, gpmMetricPcieRxPerSec}
+	parentPcie := 0.6 * gpmDefaultPcieMiBPerSec
+
+	// Activity is a percentage of the instance's own slices, so a uniformly
+	// loaded board reports its utilization on every instance; throughput is
+	// absolute and divides across the seven slices.
+	small := gpmMigMetrics(t, dev, oneSlice, ids)
+	require.InDelta(t, 60.0, small[0], 1e-9, "SM_UTIL 1g")
+	require.InDelta(t, 40.0, small[1], 1e-9, "DRAM_BW 1g")
+	require.InDelta(t, parentPcie/7, small[2], 1e-9, "PCIE_TX 1g")
+	require.InDelta(t, parentPcie/7, small[3], 1e-9, "PCIE_RX 1g")
+
+	large := gpmMigMetrics(t, dev, threeSlice, ids)
+	require.InDelta(t, 60.0, large[0], 1e-9, "SM_UTIL 3g")
+	require.InDelta(t, 40.0, large[1], 1e-9, "DRAM_BW 3g")
+	require.InDelta(t, parentPcie*3/7, large[2], 1e-9, "PCIE_TX 3g")
+	require.InDelta(t, parentPcie*3/7, large[3], 1e-9, "PCIE_RX 3g")
+}
+
+// A declared profile table need not include a whole-board row, so the board
+// width comes from max_gpu_instances rather than the widest advertised profile.
+func TestGpmMigSnapshotInto_ShareUsesBoardWidthNotWidestProfile(t *testing.T) {
+	cfg := a100MIGConfig()
+	cfg.GPM = &GPMConfig{Supported: new(true)}
+	cfg.Utilization = &UtilizationConfig{GPU: 60, Memory: 40}
+	var oneSliceOnly []MIGProfileSpec
+	for _, spec := range cfg.MIG.SupportedProfiles {
+		if spec.NVMLProfile == "1_SLICE" {
+			oneSliceOnly = append(oneSliceOnly, spec)
+		}
+	}
+	require.Len(t, oneSliceOnly, 1)
+	cfg.MIG.SupportedProfiles = oneSliceOnly
+	dev := newTestDeviceWithConfig(t, cfg)
+	enableMIG(t, dev)
+
+	giID := createGpuInstance(t, dev, nvml.GPU_INSTANCE_PROFILE_1_SLICE)
+	values := gpmMigMetrics(t, dev, giID, []uint32{gpmMetricPcieTxPerSec})
+	require.InDelta(t, 0.6*gpmDefaultPcieMiBPerSec/7, values[0], 1e-9)
+}
+
+func TestGpmMigSnapshotInto_Errors(t *testing.T) {
+	key := GpmSampleAlloc()
+	defer GpmSampleFree(key)
+
+	dev := newGpmMigDevice(t)
+	require.Equal(t, nvml.ERROR_NOT_FOUND, dev.GpmMigSnapshotInto(42, key), "no such GPU instance")
+
+	disabled := a100MIGConfig()
+	disabled.GPM = &GPMConfig{Supported: new(true)}
+	require.Equal(t, nvml.ERROR_NOT_SUPPORTED,
+		newTestDeviceWithConfig(t, disabled).GpmMigSnapshotInto(1, key), "MIG disabled")
+
+	noGpm := a100MIGConfig()
+	noGpmDev := newTestDeviceWithConfig(t, noGpm)
+	enableMIG(t, noGpmDev)
+	giID := createGpuInstance(t, noGpmDev, nvml.GPU_INSTANCE_PROFILE_1_SLICE)
+	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, noGpmDev.GpmMigSnapshotInto(int(giID), key), "GPM unsupported")
+}
+
+// A MIG device handle passed to nvmlGpmSampleGet names the same partition as
+// its GPU instance ID passed to nvmlGpmMigSampleGet, so both must agree.
+func TestGpmSnapshotInto_MigDeviceMatchesItsGpuInstance(t *testing.T) {
+	dev := newGpmMigDevice(t)
+	gi := createOneSliceGI(t, dev)
+	createSpanningCI(t, gi)
+	giInfo, ret := gi.GetInfo()
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	migHandle, ret := dev.GetMigDeviceHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+	migDev, ok := migHandle.(*ConfigurableDevice)
+	require.True(t, ok)
+
+	ids := []uint32{gpmMetricSMUtil, gpmMetricPcieTxPerSec}
+	k1, k2 := GpmSampleAlloc(), GpmSampleAlloc()
+	defer GpmSampleFree(k1)
+	defer GpmSampleFree(k2)
+	require.Equal(t, nvml.SUCCESS, migDev.GpmSnapshotInto(k1))
+	require.Equal(t, nvml.SUCCESS, migDev.GpmSnapshotInto(k2))
+	viaDevice, _, ret := GpmMetricsGet(k1, k2, ids)
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	require.Equal(t, gpmMigMetrics(t, dev, giInfo.Id, ids), viaDevice)
+}
+
+func TestGpmMetricValue_NvLinkRateScalesWithShare(t *testing.T) {
+	s1 := &gpmSnapshot{taken: true, share: 0.5}
+	s2 := &gpmSnapshot{taken: true, share: 0.5}
+	s2.nvlinkRx[0] = 4 * 1024 * 1024
+	s2.nvlinkTx[0] = 2 * 1024 * 1024
+
+	rx, ret := gpmMetricValue(gpmMetricNvlinkTotalRxPerSec, s1, s2, 1)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.InDelta(t, 2.0, rx, 1e-9)
+	tx, ret := gpmMetricValue(gpmMetricNvlinkL0RxPerSec+1, s1, s2, 1)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.InDelta(t, 1.0, tx, 1e-9)
+}
+
 func TestGpmMetricsGet_InvalidSamples(t *testing.T) {
 	k := GpmSampleAlloc()
 	defer GpmSampleFree(k)
