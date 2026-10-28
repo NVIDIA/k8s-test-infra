@@ -371,16 +371,10 @@ nri:
   # channel0 only.
   # -- Pod annotation enabling IMEX channel injection.
   imexChannelAnnotation: nvml-mock.nvidia.com/imex-channels
-  # The GPU Operator driver pod's init container, k8s-driver-manager, pauses
-  # the GPU operands and unloads the loaded driver before each install. It
-  # reads the loaded modules from /sys/module and unloads them with
-  # delete_module, so on a mock node it finds no driver and skips all of it.
-  # Enabled, the plugin mounts modulesHostPath over its /sys/module and
-  # answers its delete_module calls from that tree, refusing a module still in
-  # use as the kernel does, so the stock image does the work it does on a real
-  # node. Whatever stands in for the driver container loads the modules there,
-  # laid out as /sys/module. Needs a containerd whose NRI applies seccomp
-  # policy adjustments, and runc 1.1+.
+  # Lets the GPU Operator's stock k8s-driver-manager see and unload simulated
+  # kernel modules, loaded by the driver stand-in. Grants the plugin
+  # SYS_PTRACE, the host's PID namespace and no AppArmor profile. See
+  # docs/helm-chart.md, "GPU Operator driver manager".
   driverManager:
     # -- Serve the GPU Operator driver manager the simulated kernel modules.
     enabled: false

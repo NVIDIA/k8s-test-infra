@@ -84,12 +84,9 @@ type Config struct {
 	TopologyHostPath      string
 	TopologyContainerPath string
 
-	// Driver manager — the GPU Operator's k8s-driver-manager reads the node's
-	// loaded modules from DriverModulesHostPath, laid out as /sys/module, and
-	// its delete_module calls are answered by the listener at
-	// ModuleUnloadListenerPath. Whatever stands in for the driver container
-	// loads them there. Empty DriverModulesHostPath leaves the driver manager
-	// unmodified.
+	// Driver manager — the simulated modules (a /sys/module tree) bound into the
+	// GPU Operator's driver pod, with delete_module answered at
+	// ModuleUnloadListenerPath. Empty DriverModulesHostPath disables it.
 	DriverModulesHostPath    string
 	ModuleUnloadListenerPath string
 }
@@ -127,8 +124,7 @@ func DefaultConfig() Config {
 
 		InfiniBandAnnotation: "nvml-mock.nvidia.com/infiniband",
 
-		// Beside the runtime's NRI socket: runc connects to it from the node,
-		// and the plugin already shares that directory with the node.
+		// Beside the NRI socket, a directory shared with the node.
 		ModuleUnloadListenerPath: "/var/run/nri/nvml-mock-module-unload.sock",
 	}
 }

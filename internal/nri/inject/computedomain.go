@@ -40,6 +40,7 @@ var specializedWorkloads = []specializedWorkload{
 	{name: computeDomainContainerName, matches: computeDomainDaemon, adjust: adjustComputeDomain, ungated: true},
 	// Ungated: the simulated modules are not part of the node agent's tree.
 	{name: driverManagerContainerName, matches: driverManager, adjust: adjustDriverManager, ungated: true},
+	{name: driverContainerName, matches: driverContainer, adjust: adjustDriverContainer, ungated: true},
 }
 
 // Gated reports whether adjusting container waits for the node agent's staging

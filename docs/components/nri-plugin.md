@@ -42,10 +42,14 @@ the surfaces that were selected. None of them brings another along.
 | Pod annotated `nvml-mock.nvidia.com/infiniband: "true"` | The overlay with the mock InfiniBand tools active |
 | Pod annotated `nvml-mock.nvidia.com/imex-channels: "true"` | The mock IMEX channel nodes, and nothing else |
 | The DRA driver's `compute-domain-daemon` container, in a pod labeled `resource.nvidia.com/computeDomain` | `nvidia-imex.real`, only while staged, and nothing else |
+| The GPU Operator's `k8s-driver-manager`, in a pod labeled `app.kubernetes.io/component=nvidia-driver`, with `nri.driverManager.enabled` | The simulated modules read-only over `/sys/module`, and a seccomp policy that hands `delete_module` to the plugin, which unloads from them; not while the plugin's listener is down or the container has a seccomp policy of its own |
+| The GPU Operator's `nvidia-driver-ctr` in the same pod, with `nri.driverManager.enabled` | The simulated modules writable over `/sys/module`, and nothing else |
 | Anything else | Nothing |
 
 A container that matches several rows gets each of their surfaces, except the
-ComputeDomain daemon, which gets only its own row.
+ComputeDomain daemon and the GPU Operator's driver pod containers, which get
+only their own row. What the driver-manager rows grant the plugin, and what
+nodes need for them: [GPU Operator driver manager](../helm-chart.md#gpu-operator-driver-manager).
 
 The DRA driver delivers the daemon's driver footprint through its own CDI
 edits, `nvidia-imex` included, so the plugin adds only what a mock node needs

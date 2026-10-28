@@ -756,6 +756,54 @@ The port is not reachable from the node: the node DaemonSet does not set
 `hostNetwork`, so `nri.healthPort` is bound only inside the pod's own network
 namespace, on the pod IP where the kubelet reaches it.
 
+## GPU Operator driver manager
+
+`nri.driverManager.enabled` lets the GPU Operator's stock `k8s-driver-manager` (the driver
+pod's init container) do on a mock node what it does around a real driver change: pause the GPU
+operands, unload the driver, and reschedule them. On a real node it reads the loaded modules from
+`/sys/module` and unloads them with `delete_module`; on a mock node there is no `nvidia` module,
+so it skips all of it.
+
+Enabled, the NRI plugin:
+
+- binds `modulesHostPath` (default `/run/nvidia/simulated-modules`), laid out as `/sys/module`,
+  read-only over the driver manager's `/sys/module`, and writable over the driver container's
+  (`nvidia-driver-ctr`), so a stand-in for the driver loads its modules by writing them there;
+- gives the driver manager a seccomp policy that hands `delete_module` to a listener in the
+  plugin, which unloads from that tree as the kernel does: ENOENT for a module that is not
+  loaded, EWOULDBLOCK while another module or a process holds it.
+
+Only containers named `k8s-driver-manager` and `nvidia-driver-ctr` in pods labelled
+`app.kubernetes.io/component=nvidia-driver` are adjusted, and the driver manager only while the
+listener answers and when the runtime gave it no seccomp policy of its own (a privileged
+container has none): the notification policy replaces the container's whole one.
+
+### What it grants the plugin
+
+To read `delete_module`'s argument from the driver manager, which runs privileged, the plugin
+container gets `SYS_PTRACE`, the host's PID namespace and runs AppArmor-unconfined (a runtime's
+default profile allows ptrace only among its own processes). It can then read the memory of any
+process on the node. An NRI plugin already decides every container's mounts and devices, so this
+widens little, but it belongs on test nodes only.
+
+### Node requirements
+
+- A containerd whose NRI applies seccomp policy adjustments (seen working: 2.2.1, 2.3.1, 2.3.2)
+  and runc 1.1+.
+- **Fail closed.** While the plugin is not registered (containerd restarts on every container
+  toolkit rollout), a driver manager created then starts unadjusted and skips its work. Enable
+  containerd's NRI default validator on the nodes
+  (`[plugins.'io.containerd.nri.v1.nri'.default_validator] enable = true`) and annotate the
+  driver pods with `required-plugins.noderesource.dev/container.k8s-driver-manager:
+  '["<nri.pluginName>"]'` (GPU Operator: `daemonsets.annotations`): containerd then refuses such
+  a driver manager until the plugin is back, and the kubelet retries it.
+- **Nodes that are containers** (Incus or LXC system containers): their own seccomp policy must
+  not deny `delete_module`, or it answers ENOSYS before the plugin is asked (an error takes
+  precedence over a notification). Incus denies it by default; drop it from the list, for
+  example `security.syscalls.deny_default=false` with `security.syscalls.deny` keeping
+  `kexec_load`, `open_by_handle_at`, `init_module`, `finit_module`. Without `CAP_SYS_MODULE` in
+  the container, an unintercepted `delete_module` still fails in the kernel.
+
 ## Configuration
 
 ### Values

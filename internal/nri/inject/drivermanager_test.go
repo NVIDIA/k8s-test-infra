@@ -121,6 +121,33 @@ func TestAdjustRecognizesOnlyTheDriverPodsDriverManager(t *testing.T) {
 	require.False(t, Gated(cfg, driverManagerContainer()))
 }
 
+// The stand-in for the driver loads its modules by writing them where the
+// driver manager and the startup probe read them.
+func TestAdjustGivesTheDriverContainerTheSimulatedModulesWritable(t *testing.T) {
+	t.Parallel()
+
+	cfg := driverManagerConfig(t, false)
+	container := driverManagerContainer()
+	container.Name = driverContainerName
+
+	adjustment, ok := Adjust(cfg, container)
+
+	require.True(t, ok)
+	require.Equal(t, []Mount{{
+		Source:      cfg.DriverModulesHostPath,
+		Destination: "/sys/module",
+		Type:        "bind",
+		Options:     []string{"rbind", "rprivate", "rw", "nosuid", "nodev", "noexec"},
+	}}, adjustment.Mounts)
+	require.Nil(t, adjustment.SeccompNotify, "the driver container unloads nothing")
+	require.Empty(t, adjustment.Env, "the driver container gets no mock GPUs")
+	require.False(t, Gated(cfg, container))
+
+	cfg.DriverModulesHostPath = ""
+	_, ok = Adjust(cfg, container)
+	require.False(t, ok)
+}
+
 // A socket file left by a plugin that crashed outlives its listener; runc
 // would fail the container connecting to it.
 func TestAdjustLeavesTheDriverManagerUnmodifiedWithAStaleListenerSocket(t *testing.T) {

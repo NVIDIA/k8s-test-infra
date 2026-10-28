@@ -12,43 +12,44 @@ import (
 
 const (
 	driverManagerContainerName = "k8s-driver-manager"
-	// driverComponentLabel marks the GPU Operator's driver pods, whichever
-	// object (ClusterPolicy or NVIDIADriver) the operator rendered them from.
+	driverContainerName        = "nvidia-driver-ctr"
+	// driverComponentLabel marks the GPU Operator's driver pods.
 	driverComponentLabel = "app.kubernetes.io/component"
 	driverComponent      = "nvidia-driver"
-	// sysModulePath is where the driver manager looks for loaded modules.
-	sysModulePath = "/sys/module"
-	// deleteModuleSyscall is how the driver manager unloads them.
-	deleteModuleSyscall = "delete_module"
+	sysModulePath        = "/sys/module"
+	deleteModuleSyscall  = "delete_module"
 )
 
-// driverManager identifies the GPU Operator driver pod's init container, which
-// pauses the GPU operands and unloads the loaded driver before each install,
+// driverManager matches the driver pod's init container, k8s-driver-manager,
 // while the simulated modules are enabled.
 func driverManager(cfg Config, container Container) bool {
 	return cfg.DriverModulesHostPath != "" && driverPod(container, driverManagerContainerName)
+}
+
+// driverContainer matches the driver pod's driver container while the
+// simulated modules are enabled.
+func driverContainer(cfg Config, container Container) bool {
+	return cfg.DriverModulesHostPath != "" && driverPod(container, driverContainerName)
 }
 
 func driverPod(container Container, name string) bool {
 	return container.Name == name && container.PodLabels[driverComponentLabel] == driverComponent
 }
 
-// adjustDriverManager shows the driver manager the node's simulated kernel
-// modules and answers its delete_module calls from them, so that the stock
-// image does on a mock node what it does around a real driver change. Its
-// container is privileged, so /sys/module is otherwise the node kernel's,
-// with no nvidia module in it, and the driver manager would skip everything.
-//
-// The two go together or not at all: a driver manager that sees the modules
-// but reaches the kernel to unload them fails with ENOENT, which on a real
-// node means a driver it cannot unload. It is left unmodified, as on a node
-// without the simulation, when the feature is off or the listener is down;
-// runc would fail the container on a listener socket it cannot connect to.
+// adjustDriverContainer binds the simulated modules writable over /sys/module,
+// where a driver stand-in loads them.
+func adjustDriverContainer(cfg Config, container Container) (Adjustment, bool) {
+	zap.L().Debug("adjusting the driver container", zap.String("namespace", container.Namespace))
+	return Adjustment{Mounts: []Mount{modulesMount(cfg, "rw")}}, true
+}
+
+// adjustDriverManager binds the simulated modules over /sys/module and hands
+// delete_module to the plugin's listener, so the stock driver manager unloads
+// them. Both or neither: without the listener the kernel would answer ENOENT,
+// and runc fails a container whose listener does not answer.
 func adjustDriverManager(cfg Config, container Container) (Adjustment, bool) {
 	if container.HasSeccompPolicy {
-		// The notification policy replaces the container's whole one, which
-		// would widen a confined container to every syscall. The GPU
-		// Operator's driver manager is privileged, which runs it without one.
+		// The notification policy would replace it with allow-all.
 		zap.L().Warn("driver manager has a seccomp policy; leaving it unmodified",
 			zap.String("namespace", container.Namespace))
 		return Adjustment{}, false
@@ -61,14 +62,8 @@ func adjustDriverManager(cfg Config, container Container) (Adjustment, bool) {
 
 	zap.L().Debug("adjusting the driver manager", zap.String("namespace", container.Namespace))
 	return Adjustment{
-		// Read-only: the listener makes the unloads on the node's side of
-		// this bind, and nothing in the container writes /sys/module.
-		Mounts: []Mount{{
-			Source:      cfg.DriverModulesHostPath,
-			Destination: sysModulePath,
-			Type:        "bind",
-			Options:     []string{"rbind", "rprivate", "ro", "nosuid", "nodev", "noexec"},
-		}},
+		// Read-only: the listener unloads on the node's side.
+		Mounts: []Mount{modulesMount(cfg, "ro")},
 		SeccompNotify: &SeccompNotify{
 			ListenerPath: cfg.ModuleUnloadListenerPath,
 			Metadata:     container.Namespace + "/" + container.Name,
@@ -77,9 +72,18 @@ func adjustDriverManager(cfg Config, container Container) (Adjustment, bool) {
 	}, true
 }
 
-// listening reports whether something accepts on the socket, as runc's connect
-// must. The socket file alone outlives a plugin that crashed, and is briefly
-// absent while a starting plugin replaces it.
+// modulesMount binds the simulated modules over /sys/module; rprivate as the
+// overlay binds.
+func modulesMount(cfg Config, access string) Mount {
+	return Mount{
+		Source:      cfg.DriverModulesHostPath,
+		Destination: sysModulePath,
+		Type:        "bind",
+		Options:     []string{"rbind", "rprivate", access, "nosuid", "nodev", "noexec"},
+	}
+}
+
+// listening dials the socket: its file alone outlives a crashed plugin.
 func listening(path string) bool {
 	conn, err := net.DialTimeout("unix", path, listenerProbeTimeout)
 	if err != nil {
@@ -91,6 +95,5 @@ func listening(path string) bool {
 	return true
 }
 
-// listenerProbeTimeout bounds the probe on the container-creation path; the
-// listener runs in this process, so it answers at once or not at all.
+// listenerProbeTimeout bounds the probe on the container-creation path.
 const listenerProbeTimeout = 100 * time.Millisecond
