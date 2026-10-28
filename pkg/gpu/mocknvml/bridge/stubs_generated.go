@@ -23,7 +23,7 @@ package main
 */
 import "C"
 
-// 111 stub functions for unimplemented NVML functions.
+// 110 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceGetInfo_v1
@@ -249,11 +249,6 @@ func nvmlDeviceSetDriverModel(device C.nvmlDevice_t, driverModel C.nvmlDriverMod
 //export nvmlDeviceSetGpuOperationMode
 func nvmlDeviceSetGpuOperationMode(device C.nvmlDevice_t, mode C.nvmlGpuOperationMode_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceSetGpuOperationMode")
-}
-
-//export nvmlDeviceSetMemoryLimits_v1
-func nvmlDeviceSetMemoryLimits_v1(device C.nvmlDevice_t, limits *C.nvmlSetMemoryLimits_v1_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceSetMemoryLimits_v1")
 }
 
 //export nvmlDeviceSetNvLinkUtilizationControl
