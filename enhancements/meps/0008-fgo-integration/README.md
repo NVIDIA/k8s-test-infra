@@ -316,6 +316,8 @@ node, FGO's central `kwok-gpu-device-plugin` publishes the `nvidia.com/gpu`
 capacity and its `kwok-dra-plugin` creates the ResourceSlice, so a scheduler
 sees GPU nodes that have no machine behind them.
 
+TBU
+
 #### Run:AI x Mokka Integration (Mock Backend)
 
 FGO creates Mokka's profiles as `ConfigMaps` and use some information from there in the `fake` backend mode like:
@@ -351,9 +353,16 @@ That's the only place Mokka knows about FGO.
 
 TBU
 
-### KAI Test Suite
+### NVIDIA Ecosystem Integrations
 
-TBU
+FGO mocks or uses the following NVIDIA components:
+
+- device-plugin
+- DRA
+- compute domains
+- nvidia-smi
+- DCGM
+- MIG Manager
 
 ### Goals
 
