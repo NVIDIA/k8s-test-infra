@@ -1,4 +1,3 @@
-# MEP-0008: Run:ai Fake GPU Operator incorporation
 
 Author: [Roman Hlushko](https://github.com/roma-glushko)
 
@@ -25,41 +24,35 @@ Author: [Roman Hlushko](https://github.com/roma-glushko)
 ## Summary
 
 The proposal explores how to incorporate the relevant portion of
-[Run:ai Fake GPU Operator (FGO)](https://github.com/run-ai/fake-gpu-operator) functionality directly into Mokka.
+[Run:AI Fake GPU Operator (FGO)](https://github.com/run-ai/fake-gpu-operator) functionality directly into Mokka.
 
 ## Motivation
 
 The integration will enable Mokka to:
-- consolidate Mokka and the Run:ai team's efforts in a single project
-- replace FGO in the Run:ai and KAI Scheduler CI/CD pipelines
-- extend Mokka with optional [KWOK](https://kwok.sigs.k8s.io/) (Kubernetes WithOut Kubelet, virtual nodes) support for massive, cheap load testing where `nvidia-smi` and other on-host tools and libraries are not needed
+- consolidate Mokka and Run:AI team's effort in one single project. Save time and effort on FGO maintenance
+- replace FGO in Run:AI and KAI Scheduler CI/CD pipelines.
+- extend Mokka's functionality with optional KWOK (no kubelet, virtual nodes) support for cheap and massive load testing where accessing `nvidia-smi` and other on-host tools and libs are not needed.
 
 ### Background
 
-[Fake GPU Operator (FGO)](https://github.com/run-ai/fake-gpu-operator) is a Kubernetes operator for testing Run:ai's GPU scheduling capabilities
-without spending real, expensive GPUs on it.
+[Fake GPU Operator (FGO)](https://github.com/run-ai/fake-gpu-operator) is a Kubernetes operator for testing Run:AI's GPU scheduling capabilities
+without having real, expensive GPU wasted on that activity.
 
 FGO supports two backends:
 
-- `fake` - the primary FGO mode. It uses custom, fake instances of `nvidia-smi`, the device driver, the Dynamic Resource Allocation (DRA) plugin, etc. to simulate the presence of GPU devices on the node.
-- `mock` - the earlier integration with Mokka, built in the early days of the Mokka project.
-
-Here is a list of the FGO main features:
-
-- TBU
+- `fake` - the primary FGO mode. It uses a custom, fake instances of nvidia-smi, device driver, DRA plugin, etc. in order to simulate presence of GPU devices on the node.
+- `mock` - the prior integration with Mokka during the early days of the Mokka project.
 
 #### Fake Backend
 
 The idea behind the `fake` backend is to fake the NVIDIA GPU infrastructure in order to propagate simulated GPU to Kubernetes:
 
-- FGO is deployed to the `gpu-operator` namespace to mimic the presence of the real GPU Operator
-- FGO comes with a custom device plugin that propagates the GPU capacity of the node
-- FGO comes with the `status-exporter` DaemonSet that mimics NVIDIA Data Center GPU Manager (DCGM) metrics
-- FGO installs a custom `nvidia-smi` binary that supports a subset of commands and flags of the original `nvidia-smi`
+- FGO is deployed to `gpu-operator` namespace to mimic presence of real GPU operator
+- FGO comes with a custom device plugin that propagates GPU capacity of the node
+- FGO comes with the `status-exporter` deamonset that mimics DGCM metrics
+- FGO installs a custom `nvidia-smi` binary that supports a subset of commands and flags of the original `nvidia-smi`.
 
-This gives a Kubernetes API-level GPU simulation.
-
-TBU
+This gives the Kubernetes API level GPU simulation.
 
 ##### Node Lifecycle
 
@@ -83,8 +76,8 @@ spec:
     - name: main
       image: "ubuntu:22.04"
       command: ["sleep", "infinity"]
-      resources:
-        limits:
+      resources: 
+        limits: 
           nvidia.com/gpu: 1
 ```
 
@@ -92,15 +85,13 @@ The `run.ai/simulated-gpu-utilization` annotation can be:
 - a fixed value like `30` which means 30% utilization
 - a range like `30-60` so the actual value is sampled from the range
 
-Without the annotation, utilization follows the pod's `workloadKind` label, or, when the label is missing, the priority class of the pod's PodGroup:
+Apart from that there are few utilization pattern kinds:
 
-- `TrainingWorkload` - a random value from the 80-100% range
-- `InteractiveWorkload` - 0% utilization
-- `InferenceWorkload` and `DistributedWorkload` - 0% utilization
+- `workloadKind: train` - jitter in the 80-100 GPU utilization range
+- `workloadKind: interactive` - 0 GPU utilization
+- `workloadKind: inference` - 0 GPU utilization
 
-A pod of any other kind reports 100%.
-
-Memory utilization is reported based on `GPU memory x GPU fraction` where [GPU fraction](#resource-reservation--gpu-fractions) is another custom annotation:
+Memory utilization is reported based on `GPU memory x GPU fraction` where [GPU fraction](#resource-reservation---gpu-fractions) is another custom annotation:
 
 ```yaml
 annotations:
@@ -108,7 +99,7 @@ annotations:
   run.ai/simulated-gpu-utilization: "50"
 ```
 
-The `status-exporter` runs on the node and is responsible for simulating utilization and publishing the metrics on the well-known DCGM exporter port `9400`:
+The `status-exporter` runs on the node and responsible for simulation and submitting utilization metrics via a well-known DCGM port `9400`:
 
 ```mermaid
 flowchart TB
@@ -143,7 +134,7 @@ flowchart TB
     style n1 stroke-dasharray: 6 4
 ```
 
-The metric looks like this in raw Prometheus (fewer labels than real DCGM sends):
+The metric looks like this in raw Prometheus (less labels than real DCGM sends):
 
 ```prometheus
 DCGM_FI_DEV_GPU_UTIL{Hostname="nvidia-dcgm-exporter-ce3313",UUID="GPU-299e8440-...",container="main",
@@ -152,7 +143,7 @@ DCGM_FI_DEV_GPU_UTIL{Hostname="nvidia-dcgm-exporter-ce3313",UUID="GPU-299e8440-.
 
 ### Resource Reservation & GPU Fractions
 
-Run:ai and KAI Scheduler share one physical GPU between several workloads without any real GPU partitioning. This is an optimization for pods that consume little GPU but still need a real GPU resource, so the whole device is not left underutilized.
+Run:ai and KAI share one physical GPU between several workloads without any real GPU partitioning. This is an optimization to bind one GPU to multiple low GPU consumption pods that do need real GPU resource without underutilizating the whole GPU device.
 
 They park a reservation pod that holds the whole GPU device through the ordinary `nvidia.com/gpu` resource,
 then place fractional pods that request no GPU resource at all and just point at the reservation. The kubelet only knows about the reservation pod.
@@ -164,7 +155,7 @@ metadata:
   name: reservation-g1
   namespace: runai-reservation # a namespace for placing reservation pods
   labels:
-    runai-gpu-group: g1 # the pod group that FGO turns into a GPU assignment annotation, e.g. run.ai/reserve_for_gpu_index: GPU-775135a6-f582-540e-84df-8f4e9a049910
+    runai-gpu-group: g1 # the pod group that is then being turned into GPU assignment annotation by FGO e.g. run.ai/reserve_for_gpu_index: GPU-775135a6-f582-540e-84df-8f4e9a049910
 spec:
   terminationGracePeriodSeconds: 0
   containers:
@@ -212,7 +203,7 @@ spec:
           value: "0.5"
       volumeMounts:
         - name: smi
-          mountPath: /bin/nvidia-smi # nvidia-smi is how Run:ai bridges a pod with no GPU to a GPU
+          mountPath: /bin/nvidia-smi # nvidia-smi is how Run:AI bridge no GPU pod to a GPU
   volumes:
     - name: smi
       hostPath:
@@ -222,15 +213,101 @@ spec:
   # Note that it requests no GPU by itself
 ```
 
-The fractional pods get access to the GPU device via the shared `nvidia-smi` CLI mounted from a GPU-enabled node.
+The fractional pods get access to GPU device via shared `nvidia-smi` CLI mounted from a GPU-enabled node.
 
-The `status-exporter` also leaves a few files intended for the Run:ai container toolkit on the node filesystem:
+The `status-exporter` also leaves a few files intended for Run:AI container toolkit on the node filesystem:
 
 - `/var/lib/runai/proc/pod/<pod UID>/metrics/gpu/<GPU index>/utilization.sm` - e.g. "34" percent
 - `/var/lib/runai/proc/pod/<pod UID>/metrics/gpu/<GPU index>/memory.allocated` - e.g. "20480000000" bytes
 - `/var/lib/runai/proc/events/` - created, always empty
 
-#### KWOK
+#### NUMA-aware Scheduling
+
+NUMA-aware schedulers (KAI, the Kubernetes scheduler-plugins) place GPU pods by reading one `NodeResourceTopology` (NRT) object per node:
+
+```
+Name:         fgo-lab-worker
+Namespace:    
+Labels:       <none>
+Annotations:  <none>
+API Version:  topology.node.k8s.io/v1alpha2
+Attributes:
+  Name:   topologyManagerPolicy
+  Value:  single-numa-node
+  Name:   topologyManagerScope
+  Value:  container
+Kind:     NodeResourceTopology
+Metadata:
+  Creation Timestamp:  2026-10-28T17:05:25Z
+  Generation:          1
+  Owner References:
+    API Version:     v1
+    Kind:            Node
+    Name:            fgo-lab-worker
+    UID:             0ec5ff95-72a6-4db8-a9ff-d41c3fffcb38
+  Resource Version:  922551
+  UID:               01ea8497-64d0-4cd6-9fb0-6a91591e38f5
+Topology Policies:
+  SingleNUMANodeContainerLevel
+Zones:
+  Costs:
+    Name:   node-0
+    Value:  10
+    Name:   node-1
+    Value:  21
+  Name:     node-0
+  Resources:
+    Allocatable:  4
+    Available:    4
+    Capacity:     4
+    Name:         nvidia.com/gpu
+    Allocatable:  9
+    Available:    9
+    Capacity:     9
+    Name:         cpu
+    Allocatable:  8211190Ki
+    Available:    8211190Ki
+    Capacity:     8211190Ki
+    Name:         memory
+  Type:           Node
+  Costs:
+    Name:   node-0
+    Value:  21
+    Name:   node-1
+    Value:  10
+  Name:     node-1
+  Resources:
+    Allocatable:  4
+    Available:    4
+    Capacity:     4
+    Name:         nvidia.com/gpu
+    Allocatable:  9
+    Available:    9
+    Capacity:     9
+    Name:         cpu
+    Allocatable:  8211190Ki
+    Available:    8211190Ki
+    Capacity:     8211190Ki
+    Name:         memory
+  Type:           Node
+Events:           <none>
+```
+
+FGO can fabricate those from a `numa` block in a pool.
+
+On the real node though, NFD should create NRT resources. This is roughly the information considered by NFD:
+
+
+| Path on the node                                                           | Used for                                                                                                                                                               |
+|----------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `/sys/devices/system/node/node<N>/` (the directory list)                   | **Which zones exist.** Each `node<N>` becomes zone `node-<N>`                                                                                                          |
+| `/sys/devices/system/node/node<N>/cpu<M>/` and `…/cpu<M>/topology/core_id` | **Which CPUs belong to which zone.** Maps CPU IDs to zones. CPUs the kubelet doesn't list as allocatable count as reserved and are added to that zone's CPU *capacity* |
+| `/sys/devices/system/node/node<N>/distance`                                | Zone **costs** (e.g. `10 21`)                                                                                                                                          |
+| `/sys/bus/node/devices/node<N>/meminfo` (`MemTotal` line)                  | **Memory capacity** per zone                                                                                                                                           |
+| `/sys/bus/node/devices/node<N>/hugepages/hugepages-<size>kB/nr_hugepages`  | **Hugepages capacity** per zone (`hugepages-2Mi`, `hugepages-1Gi`)                                                                                                     |
+| `/sys/devices/cpu_*/cpus`                                                  | `cpu_core` / `cpu_atom` attributes, only on hybrid CPUs                                                                                                                |
+
+#### KWOW
 
 FGO reaches fleet scale with [KWOK](https://kwok.sigs.k8s.io/) (Kubernetes
 WithOut Kubelet), which creates Node objects and drives the lifecycle of the
@@ -239,19 +316,19 @@ node, FGO's central `kwok-gpu-device-plugin` publishes the `nvidia.com/gpu`
 capacity and its `kwok-dra-plugin` creates the ResourceSlice, so a scheduler
 sees GPU nodes that have no machine behind them.
 
-#### Run:ai x Mokka Integration (Mock Backend)
+#### Run:AI x Mokka Integration (Mock Backend)
 
-FGO creates Mokka's profiles as ConfigMaps and uses some information from them in the `fake` backend mode, like:
+FGO creates Mokka's profiles as `ConfigMaps` and use some information from there in the `fake` backend mode like:
 
-- product name
-- memory
-- GPU count
+- Product name,
+- memory,
+- GPU count,
 - driver and CUDA versions
 
 When the node pool is defined to be `mock`:
 
 ```yaml
-topology:
+cluster:
   nodePoolLabelKey: run.ai/simulated-gpu-node-pool
   migStrategy: none
   nodePools:
@@ -268,9 +345,9 @@ FGO actually deploys a Mokka instance on the nodes it manages.
 TBU
 
 On the Mokka end, with [integrations.fakeGpuOperator.enabled](../../../deployments/nvml-mock/helm/nvml-mock/templates/integrations-fgo.yaml),
-the Mokka chart publishes one ConfigMap per Mokka GPU profile, such as `gb300`, `h100` and `a100`, in the shape FGO expects
-(named `gpu-profile-<profile>`, with the profile under the `profile.yaml` key, in `integrations.fakeGpuOperator.targetNamespace`).
-That template is the only Mokka code that knows about FGO.
+the Mokka chart creates publishes one ConfigMap per Mokka GPU profile like `gb300`, `h100`, `a100`, etc. in a way that FGO expects
+(e.g. named `gpu-profile-<profile>`, with the profile under the `profile.yaml` key, in `integrations.fakeGpuOperator.targetNamespace`).
+That's the only place Mokka knows about FGO.
 
 TBU
 
@@ -281,7 +358,7 @@ TBU
 ### Goals
 
 - Propose an actionable plan for FGO incorporation into Mokka
-- Reach the feature parity required to migrate Run:ai and KAI Scheduler off FGO
+- Reach the feature parity required to migrate Run:AI and KAI Scheduler off FGO
 
 ### Non-Goals
 
