@@ -563,6 +563,26 @@ imex-binaries-image: ## Build the IMEX binaries image for imex.binaries.image fr
 	docker buildx build --load --platform 'linux/$(IMEX_BINARIES_ARCH)' --build-arg IMEX_VERSION='$(IMEX_VERSION)' \
 		-f deployments/imex-binaries/Dockerfile -t '$(IMEX_BINARIES_IMAGE)' "$$context"
 
+# Driver stand-in images (docs/components/driver-stub.md), tagged
+# <version>-<OS> as the GPU Operator pulls them. Not published.
+DRIVER_STUB_IMAGE ?= mokka-driver-stub
+DRIVER_STUB_VERSIONS ?= 580.0.1
+DRIVER_STUB_OS ?= ubuntu24.04
+
+.PHONY: driver-stub-image
+driver-stub-image: ## Build the driver stand-in image for each DRIVER_STUB_VERSIONS (not published)
+	@for v in $(DRIVER_STUB_VERSIONS); do \
+		docker buildx build --load --build-arg DRIVER_VERSION=$$v \
+			-t '$(DRIVER_STUB_IMAGE)':$$v-$(DRIVER_STUB_OS) deployments/driver-stub || exit; \
+	done
+
+.PHONY: test-driver-stub
+test-driver-stub: driver-stub-image ## Run each driver stand-in image against the operator's startup probe
+	@for v in $(DRIVER_STUB_VERSIONS); do \
+		echo "== $(DRIVER_STUB_IMAGE):$$v-$(DRIVER_STUB_OS)"; \
+		deployments/driver-stub/test/smoke.sh '$(DRIVER_STUB_IMAGE)':$$v-$(DRIVER_STUB_OS) || exit; \
+	done
+
 .PHONY: verify-greptile
 verify-greptile: ## Validate the .greptile review configuration
 	@bash hack/verify-greptile-config.sh

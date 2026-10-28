@@ -1,0 +1,72 @@
+#!/bin/sh
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Stand-in for the driver image's `nvidia-driver init`: after STUB_INSTALL_SECONDS, binds Mokka's
+# driver root and module list and writes the driver's modules. See docs/components/driver-stub.md.
+set -eu
+
+log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) driver-stub: $*"; }
+
+# Runs a command in the node's mount namespace (the pod has hostPID).
+node() { nsenter -t 1 -m -- "$@"; }
+
+# Binds $1 over $2 in the node's mount namespace; an empty $1 skips it. A bind an earlier instance
+# of this container left is taken over; any other mount at $2 stays beneath the new bind, so
+# unbinding removes only the stand-in's.
+bind() {
+	[ -n "$1" ] || return 0
+	if [ "$(node stat -Lc %d:%i "$2")" != "$(node stat -Lc %d:%i "$1")" ]; then
+		node mount --bind "$1" "$2"
+	fi
+	bound="$bound $2"
+}
+
+# Removes the binds, as the real driver unloads.
+unbind() {
+	for target in $bound; do node umount "$target" || log "could not unmount $target"; done
+	bound=""
+}
+
+# Writes a loaded module as the kernel publishes it.
+load_module() {
+	module=$1
+	shift
+	rm -rf "/sys/module/$module"
+	mkdir -p "/sys/module/$module/holders"
+	for holder in "$@"; do ln -s "../../$holder" "/sys/module/$module/holders/$holder"; done
+	echo "$#" > "/sys/module/$module/refcnt"
+	echo live > "/sys/module/$module/initstate"
+}
+
+[ "${1:-}" = init ] || { echo "driver-stub: unsupported command: ${1:-<none>}" >&2; exit 1; }
+
+# Without the NRI plugin's bind, refuse before binding anything: nothing would remove the binds.
+if ! touch /sys/module/.driver-stub 2>/dev/null; then
+	log "/sys/module is the kernel's: install Mokka with nri.driverManager.enabled"
+	exit 1
+fi
+rm -f /sys/module/.driver-stub
+
+# PID 1 ignores SIGTERM without a handler. EXIT also covers a step failing under set -e, which
+# must not leave the binds on the node.
+bound=""
+stop() {
+	log terminated
+	exit 0
+}
+trap unbind EXIT
+trap stop TERM INT
+
+log "installing driver $DRIVER_VERSION, ${STUB_INSTALL_SECONDS}s"
+sleep "$STUB_INSTALL_SECONDS" &
+wait $!
+bind "$STUB_DRIVER_ROOT" /run/nvidia/driver
+bind "$STUB_PROC_MODULES" /proc/modules
+load_module nvidia_uvm
+load_module nvidia_modeset
+load_module nvidia nvidia_uvm nvidia_modeset
+log "driver $DRIVER_VERSION installed"
+
+sleep infinity &
+wait $!
