@@ -1,6 +1,0 @@
-kind: Added
-body: |-
-  helm: `imex.binaries.image` delivers the pinned IMEX archive to multi-node NVLink nodes, such as gb200 and gb300, from an image. Mokka does not publish that image: build it with `make imex-binaries-image`, then load it into the cluster or push it to a private registry.
-time: 2026-10-14T23:45:00Z
-custom:
-  Issue: "821"

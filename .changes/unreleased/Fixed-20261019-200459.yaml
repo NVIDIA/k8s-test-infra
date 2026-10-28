@@ -1,4 +1,0 @@
-kind: Fixed
-body: |-
-  helm: the mock InfiniBand NetworkPolicy is no longer created below the `full` `infiniband.mockTier`, where nothing listens on its port; on OVN-Kubernetes it cost every node CPU on each Pod event in the cluster.
-time: 2026-10-19T18:04:59Z

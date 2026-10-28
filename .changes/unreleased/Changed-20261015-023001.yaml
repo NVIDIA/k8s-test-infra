@@ -1,6 +1,0 @@
-kind: Changed
-body: |-
-  helm: on multi-node NVLink profiles the install notes turn on DRA ComputeDomains and point the driver's `altProcDevices` at the node agent's `/proc/devices` substitute; Tilt `--compute-domain --dra` does the same with the standard nvml-mock image.
-time: 2026-10-15T02:30:01Z
-custom:
-  Issue: "821"

@@ -1,6 +1,0 @@
-kind: Added
-body: |-
-  helm: `gpu.vgpu` makes every GPU a vGPU host, running the types and instances it declares, or a vGPU guest of the host driver it names.
-time: 2026-10-14T07:59:07Z
-custom:
-  Issue: "376"

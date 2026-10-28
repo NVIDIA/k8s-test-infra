@@ -1,6 +1,0 @@
-kind: Added
-body: |-
-  nri-plugin: gives the DRA driver's `compute-domain-daemon` container the real IMEX daemon behind Mokka's `nvidia-imex` shim while the node agent has IMEX staged. The container is never refused: without IMEX it fails as on a real node without the IMEX package.
-time: 2026-10-15T02:15:00Z
-custom:
-  Issue: "821"

@@ -1,6 +1,0 @@
-kind: Added
-body: |-
-  nvml-mock: memory repair status, the unrepairable-memory flag, SRAM unique error counts, DRAM encryption and the InfoROM checks now answer from the ECC and row-remap state; the ECC mode, counter-clear and DRAM encryption setters persist. See the configuration reference.
-time: 2026-10-26T16:26:29Z
-custom:
-  Issue: "1040"
