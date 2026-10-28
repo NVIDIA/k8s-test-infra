@@ -580,6 +580,7 @@ sequenceDiagram
 - **GPU Operator scale testing**. We would like to use Mokka to help GPU operator team to accurately test how the Operator behaves in very big clusters without having proportionally big expenses on this experiment. This includes the driver upgrade workflow.
 - **GPU Operator Compatibility**. Mokka doesn't work with [the latest version of GPU operator, whose operands now wait for a loaded `nvidia` kernel module](https://github.com/NVIDIA/k8s-test-infra/issues/911). This proposal addresses the issue (partially, because the fully simulated GPU driver mocking won't work still).
 - **GPU Operator CI/CD**. This can potentially open up the door to discussions around using Mokka in the GPU Operator CI pipelines in order to enable cheaper test suite runs.
+- **Improve fidelity of GPU driver simulation**. Although Mokka is developed around specific use cases, our goal is to serve broad ecosystem including infrastructure tooling that we have no access to like proprietary NCP infrastructure. In order to do that, we should aim for a high-fidelity simulation that allows to ultimately cover even unknown use cases. Custom kernel modules are the ultimate way to simulate GPU drivers with high fidelity.
 
 ### Goals
 
