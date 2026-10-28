@@ -82,6 +82,10 @@ spec:
         {{- end }}
         # Keep kubectl exec/logs behavior stable when optional sidecars are on.
         kubectl.kubernetes.io/default-container: node-agent
+        {{- if and .Values.nri.enabled .Values.nri.driverManager.enabled }}
+        # appArmorProfile below, for Kubernetes before 1.30.
+        container.apparmor.security.beta.kubernetes.io/nvml-mock-nri: unconfined
+        {{- end }}
     spec:
       serviceAccountName: {{ include "nvml-mock.fullname" . }}
       {{- with include "nvml-mock.imagePullSecrets" . }}
@@ -92,9 +96,10 @@ spec:
       {{- end }}
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
-      {{- if and $runtime.enabled (eq $runtime.restartMode "systemd") }}
+      {{- if or (and $runtime.enabled (eq $runtime.restartMode "systemd")) (and .Values.nri.enabled .Values.nri.driverManager.enabled) }}
       # systemctl refuses a systemd it cannot see, so restarting containerd
-      # takes the host's PID namespace.
+      # takes the host's PID namespace. So does reading the driver manager's
+      # delete_module argument, by its PID.
       hostPID: true
       {{- end }}
       {{- with .Values.nodeSelector }}
@@ -457,8 +462,7 @@ spec:
             {{- end }}
             {{- if .Values.nri.driverManager.enabled }}
             - --driver-modules-host-path={{ .Values.nri.driverManager.modulesHostPath }}
-            # runc connects to it from the node, so it sits in the NRI socket
-            # directory this container shares with the node at the same path.
+            # In the NRI socket directory: runc connects to it from the node.
             - --module-unload-listener-path={{ $nriSocketDir }}/nvml-mock-module-unload.sock
             {{- end }}
           env:
@@ -482,10 +486,12 @@ spec:
             allowPrivilegeEscalation: false
             runAsUser: 0
             {{- if .Values.nri.driverManager.enabled }}
-            # Reading delete_module's name argument from the driver manager's
-            # memory: the driver manager is privileged, so only a ptracer may.
+            # To read the privileged driver manager's memory: ptrace, and no
+            # AppArmor profile (the default allows ptrace only among its own).
             capabilities:
               add: ["SYS_PTRACE"]
+            appArmorProfile:
+              type: Unconfined
             {{- end }}
           {{- with .Values.nri.resources }}
           resources:
@@ -505,8 +511,7 @@ spec:
               mountPath: {{ .Values.nri.cdiSpecDir }}
               readOnly: true
             {{- if .Values.nri.driverManager.enabled }}
-            # Writable: the plugin unloads from it. At the host path, which
-            # is the one the driver manager's mount names.
+            # Writable: the plugin unloads from it. Same path as on the host.
             - name: driver-modules
               mountPath: {{ .Values.nri.driverManager.modulesHostPath }}
             {{- end }}

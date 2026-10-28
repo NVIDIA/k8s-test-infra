@@ -804,11 +804,14 @@ tests:
 
   - it: should leave the driver manager alone by default
     asserts:
-      - notContains:
-          path: spec.template.spec.containers[0].args
-          content: --driver-modules-host-path=/run/nvidia/simulated-modules
+      - notExists:
+          path: spec.template.spec.containers[0].args[?(@ =~ /^--(driver-modules-host-path|module-unload-listener-path)=/)]
+      - notExists:
+          path: spec.template.metadata.annotations["container.apparmor.security.beta.kubernetes.io/nvml-mock-nri"]
       - notExists:
           path: spec.template.spec.containers[0].securityContext.capabilities
+      - notExists:
+          path: spec.template.spec.containers[0].securityContext.appArmorProfile
       - notContains:
           path: spec.template.spec.volumes
           content:
@@ -831,6 +834,18 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].securityContext.capabilities.add
           value: ["SYS_PTRACE"]
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.appArmorProfile.type
+          value: Unconfined
+      - equal:
+          path: spec.template.metadata.annotations["container.apparmor.security.beta.kubernetes.io/nvml-mock-nri"]
+          value: unconfined
+      # The same filter the default test checks for absence, so it is known to match.
+      - exists:
+          path: spec.template.spec.containers[0].args[?(@ =~ /^--(driver-modules-host-path|module-unload-listener-path)=/)]
+      - equal:
+          path: spec.template.spec.hostPID
+          value: true
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
@@ -853,3 +868,24 @@ tests:
     asserts:
       - failedTemplate: {}
 
+  - it: should share the host's PID namespace for the driver manager without the runtime setup
+    set:
+      nodeAgent:
+        containerRuntime:
+          enabled: false
+      nri:
+        driverManager:
+          enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.hostPID
+          value: true
+
+  - it: should not share the host's PID namespace without the runtime setup or the driver manager
+    set:
+      nodeAgent:
+        containerRuntime:
+          enabled: false
+    asserts:
+      - notExists:
+          path: spec.template.spec.hostPID
