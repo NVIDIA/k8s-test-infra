@@ -1,0 +1,6 @@
+kind: Fixed
+body: |-
+  device-plugin: a pod allocated a GPU by the device plugin manifest from the guide or the chart NOTES now receives `/dev/nvidiactl`, `/dev/nvidia-uvm` and `/dev/nvidia-uvm-tools` with `nodeAgent.containerRuntime.enabled=false` too.
+time: 2026-10-28T11:03:44Z
+custom:
+  Issue: "851"
