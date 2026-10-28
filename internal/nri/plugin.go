@@ -13,6 +13,7 @@ package nri
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -111,32 +112,87 @@ func releaseAgentLock(lock *staginggate.Lock) {
 
 // Run registers with the runtime and serves until ctx is cancelled.
 func (p *Plugin) Run(ctx context.Context) error {
+	var warnings throttle
+	for {
+		err := p.register(ctx)
+		if ctx.Err() != nil {
+			return nil
+		}
+		// A configuration error never registers: exit instead of retrying.
+		if errors.Is(err, errCreateStub) {
+			return err
+		}
+		// Re-register in-process: containerd restarts (the container toolkit
+		// restarts it on each rollout) would otherwise cost the kubelet's crash
+		// backoff, with every container created meanwhile unmocked.
+		log := zap.L().Debug
+		if warnings.allow(time.Now()) {
+			log = zap.L().Warn
+		}
+		log("not registered with the runtime; retrying", zap.Duration("in", reregisterInterval), zap.Error(err))
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(reregisterInterval):
+		}
+	}
+}
+
+// errCreateStub marks a configuration the NRI stub rejects.
+var errCreateStub = errors.New("create nri stub")
+
+// reregisterInterval paces registration attempts while the runtime is down.
+const reregisterInterval = 500 * time.Millisecond
+
+// reregisterWarnInterval spaces the warnings of a runtime that stays down;
+// the attempts in between log at debug.
+const reregisterWarnInterval = time.Minute
+
+// throttle allows one event per reregisterWarnInterval.
+type throttle struct {
+	last time.Time
+}
+
+func (t *throttle) allow(now time.Time) bool {
+	if !t.last.IsZero() && now.Sub(t.last) < reregisterWarnInterval {
+		return false
+	}
+	t.last = now
+	return true
+}
+
+// register serves one connection to the runtime, until the runtime closes it
+// or ctx is cancelled.
+func (p *Plugin) register(ctx context.Context) error {
+	// The stub checks the index only at registration, which would look like a
+	// runtime that is down.
+	if err := api.CheckPluginIndex(p.cfg.PluginIndex); err != nil {
+		return fmt.Errorf("%w: %w", errCreateStub, err)
+	}
 	pluginStub, err := stub.New(
 		p,
 		stub.WithSocketPath(p.cfg.SocketPath),
 		stub.WithPluginName(p.cfg.PluginName),
 		stub.WithPluginIdx(p.cfg.PluginIndex),
-		// The runtime dropping the connection is the fail-open failure mode:
-		// the process stays up but stops being asked to inject anything, and
-		// containers created from here on come up unmocked. Clearing the
-		// registered flag is what makes that window visible as a NotReady pod.
+		// Until the plugin registers again, new containers come up unmocked;
+		// clearing the flag shows that window as a NotReady pod.
 		stub.WithOnClose(func() {
 			zap.L().Warn("runtime closed the connection; no longer registered")
 			p.health.setRegistered(false)
 		}),
 	)
 	if err != nil {
-		return fmt.Errorf("create nri stub: %w", err)
+		return fmt.Errorf("%w: %w", errCreateStub, err)
 	}
 	p.health.setTimeoutSource(pluginStub)
 
 	zap.L().Info("registering NRI plugin",
 		zap.String("index", p.cfg.PluginIndex), zap.String("name", p.cfg.PluginName), zap.String("socket", p.cfg.SocketPath))
 
-	if err := pluginStub.Run(ctx); err != nil && ctx.Err() == nil {
+	if err := pluginStub.Run(ctx); err != nil {
 		return fmt.Errorf("nri stub: %w", err)
 	}
-	return nil
+	return errors.New("nri stub stopped")
 }
 
 // Configure is the last step of registration, so it is the point at which the
