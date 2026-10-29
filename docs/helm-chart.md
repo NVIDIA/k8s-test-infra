@@ -1377,3 +1377,36 @@ feature does not create kernel memory NUMA nodes. With static CPU Manager, remov
 `cpu` from the NRT exclusion list to publish CPU allocations. Keep memory excluded
 while Memory Manager is disabled. CPU placement uses real online CPU IDs; it does
 not establish a physical NUMA boundary on a single-NUMA host.
+
+### CPU and memory allocation in a simulated topology
+
+For disposable test nodes, add:
+
+```yaml
+numaSimulation:
+  enabled: true
+  configureKubelet: true
+  topologyManagerPolicy: restricted
+  cpuManagerPolicy: static
+  memoryManagerPolicy: Static
+  systemReservedMemory: 256Mi
+```
+
+Static CPU Manager assigns real online CPU IDs. Static Memory Manager maintains
+memory allocations and NUMA groups in kubelet; the real PodResources socket
+reports them. The setup preserves other kubelet settings and calculates per-zone
+memory reservations from system, kubelet, and hard-eviction reservations.
+
+NRI must be enabled for static simulated memory allocation. It translates memory
+node masks during container creation and resource updates to the memory nodes
+that Linux permits for the Mokka process. Logical zones remain visible in
+kubelet's allocation state, while containers can start on a single-NUMA host.
+The translation also applies to CPU-only workloads. CPU IDs and memory limits
+are retained. This mode tests topology decisions and observations, not physical
+memory locality. It does not add memory or create NUMA nodes in the kernel.
+
+Remove CPU and memory from the NRT reporter's exclusion list. Restart the reporter
+after the device plugin has registered all GPUs so its resource snapshot includes
+the complete topology. Restore the previous Mokka setup before changing active
+resource-manager policies. Use a fresh or drained test node when switching policies;
+existing exclusive allocations cannot be carried between manager policies.

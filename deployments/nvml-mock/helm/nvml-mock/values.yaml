@@ -744,3 +744,7 @@ numaSimulation:
   cpuManagerPolicy: none
   # -- Reserved CPU list for static CPU Manager; empty reserves the first zone's first CPU.
   reservedCPUs: ""
+  # -- Static tracks simulated memory groups; NRI maps their binding to kernel-allowed nodes.
+  memoryManagerPolicy: None
+  # -- System memory reservation for Static Memory Manager; per-zone reservations also include kubelet/eviction reservations.
+  systemReservedMemory: 256Mi

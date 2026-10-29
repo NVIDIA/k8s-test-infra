@@ -29,11 +29,13 @@ const hostDir = "/var/lib/nvml-mock/numa"
 
 // Options controls the node filesystem and optional kubelet configuration.
 type Options struct {
-	Enabled          bool
-	ConfigureKubelet bool
-	Policy           string
-	CPUManagerPolicy string
-	ReservedCPUs     string
+	Enabled              bool
+	ConfigureKubelet     bool
+	Policy               string
+	CPUManagerPolicy     string
+	ReservedCPUs         string
+	MemoryManagerPolicy  string
+	SystemReservedMemory string
 }
 
 // Simulator keeps a simulated NUMA view on the node until explicitly disabled.
@@ -63,6 +65,18 @@ func New(h *host.Host, opts Options) (*Simulator, error) {
 	}
 	if opts.Enabled && !opts.ConfigureKubelet && opts.CPUManagerPolicy != "none" {
 		return nil, errors.New("static CPU Manager requires configureKubelet")
+	}
+	if opts.MemoryManagerPolicy == "" {
+		opts.MemoryManagerPolicy = "None"
+	}
+	if opts.SystemReservedMemory == "" {
+		opts.SystemReservedMemory = "256Mi"
+	}
+	if opts.MemoryManagerPolicy != "None" && opts.MemoryManagerPolicy != "Static" {
+		return nil, fmt.Errorf("unsupported Memory Manager policy %q", opts.MemoryManagerPolicy)
+	}
+	if opts.Enabled && opts.MemoryManagerPolicy == "Static" && (!opts.ConfigureKubelet || opts.CPUManagerPolicy != "static") {
+		return nil, errors.New("static Memory Manager requires configureKubelet and static CPU Manager")
 	}
 	sim := &Simulator{host: h, opts: opts}
 	sim.runHost = func(ctx context.Context, args ...string) error {
@@ -104,7 +118,7 @@ func (s *Simulator) Stage(_ context.Context, state *agent.State) error {
 	if err != nil {
 		return err
 	}
-	s.desired = fmt.Sprintf("%x:%t:%s:%s:%s", sha256.Sum256(data), s.opts.ConfigureKubelet, s.opts.Policy, s.opts.CPUManagerPolicy, s.opts.ReservedCPUs)
+	s.desired = fmt.Sprintf("%x:%t:%s:%s:%s:%s:%s", sha256.Sum256(data), s.opts.ConfigureKubelet, s.opts.Policy, s.opts.CPUManagerPolicy, s.opts.ReservedCPUs, s.opts.MemoryManagerPolicy, s.opts.SystemReservedMemory)
 	applied, err := s.matchApplied()
 	if err != nil {
 		return err
