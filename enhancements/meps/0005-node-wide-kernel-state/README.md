@@ -8,6 +8,7 @@ Author: [Carlos Eduardo Arango Gutierrez](https://github.com/ArangoGutierrez)
   - [Goals](#goals)
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
+  - [Relationship to MEP-0004](#relationship-to-mep-0004)
   - [Notes/Constraints/Caveats](#notesconstraintscaveats)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
@@ -33,9 +34,12 @@ state is visible to every container regardless of whether it was given a GPU.
 This MEP delivers kernel-global state to every container on a Mokka node, using
 two mechanisms split by what the runtime permits: plain bind mounts for the
 sysfs surfaces, and an NRI-injected `createContainer` hook for the procfs
-surfaces. Devices and libraries stay allocation-aware, so an unannotated
-container still sees zero GPUs. Each mechanism ships behind its own alpha
-feature gate, and with both gates off the behaviour is byte-identical to today.
+surfaces. Devices and libraries stay allocation-aware. What every container
+receives is only the read-only kernel tier: no device nodes, no mock libraries,
+no `LD_PRELOAD` and no environment variables, so a container with neither a GPU
+allocation nor the devices annotation still sees zero GPUs. Each mechanism
+ships behind its own alpha feature gate, and with both gates off the behaviour
+is byte-identical to today.
 
 ## Motivation
 
@@ -63,7 +67,14 @@ of the following was executed rather than inferred:
 | `libmockfs` `LD_PRELOAD` shim | busybox is static, so the loader never maps the shim |
 | Bind mount in the OCI spec | runc refuses any mount whose target is inside `/proc` |
 | Container toolkit CDI | the image sets `NVIDIA_VISIBLE_DEVICES=void` |
-| NRI CDI spec kernel mounts | only in `cdi` injection mode, and only when annotated |
+| NRI plugin | `inject.Adjust` leaves a container with no GPU allocation and no opt-in annotation unmodified, and even a served container gets `/sys/module` only from the CDI spec in `cdi` mode, while `raw` is the chart default |
+
+The NRI row was re-checked against `main` at `42f5a70bf`, after
+allocation-aware injection landed. Executed: `inject.Skip` on a privileged
+`toolkit-validation` container with `NVIDIA_VISIBLE_DEVICES=void` returns
+`no GPU allocation and no opt-in annotation`, and the same container with the
+devices annotation is served. Read from source: `kernelModuleMounts` in
+`internal/agent/cri/spec.go` is carried only by the two CDI specs.
 
 [#793][issue-793] is the same bug in a different surface: the node agent stages
 `/proc/driver/nvidia`, and nothing serves it at the kernel path, so no consumer
@@ -79,11 +90,14 @@ needs no allocation at all.
 - Deliver `/proc/modules`, `/sys/module`, `/proc/driver/nvidia` and the PCI
   sysfs tree to every container on a Mokka node, including unannotated ones and
   consumers that are statically linked or bypass libc path resolution.
-- Fix [#911][issue-911] on GPU Operator v26.7.1 from the Mokka side, without
-  depending on [gpu-operator#2959][pr-2959] merging upstream.
+- Fix [#911][issue-911] from the Mokka side for every GPU Operator release that
+  carries the gate: v26.7.1 and v26.7.2 read `/proc/modules`, and the first
+  release with [gpu-operator#2959][pr-2959] reads
+  `/sys/module/nvidia/initstate`.
 - Fix [#793][issue-793] with the same mechanism.
-- Keep devices and libraries allocation-aware, per [#884][pr-884]: an
-  unannotated container continues to see zero GPUs.
+- Keep devices and libraries allocation-aware, as `inject.Adjust` makes them
+  today: a container with neither a GPU allocation nor the devices annotation
+  continues to see zero GPUs.
 - Preserve the MEP-0002 invariant that exactly one component emits CDI device
   references for a container.
 - Ship both parts disabled by default, behind independent alpha feature gates
@@ -108,19 +122,41 @@ Split the simulated surface into two tiers with different delivery rules.
 
 **Kernel tier, unconditional and node-wide.** `/proc/modules`, `/sys/module`,
 `/proc/driver/nvidia` and the PCI sysfs pair. Delivered to every container the
-NRI plugin serves, subject only to the existing excluded namespaces
-(`kube-system`) and the existing opt-out annotation. There is no opt-in,
-because a real GPU node has none.
+NRI plugin sees, subject only to the existing excluded namespaces
+(`kube-system` by default) and the existing opt-out annotation
+(`nvml-mock.nvidia.com/inject: "false"`). There is no opt-in, because a real
+GPU node has none.
 
 **Allocation tier, opt-in and unchanged.** The `/dev/nvidia*` nodes and the
-mock libraries. These stay gated on `nvml-mock.nvidia.com/devices` and become
-allocation-aware under [#884][pr-884].
+mock libraries. These stay where `inject.Adjust` puts them today: a container
+gets them when it holds a device-plugin or DRA GPU allocation, or carries the
+`nvml-mock.nvidia.com/devices` annotation.
 
 What makes the kernel tier safe to deliver unconditionally is that it is
 read-only and carries no device nodes, so it cannot widen a container's GPU
 allocation. It also uses plain mounts and a hook rather than CDI device
 references, so MEP-0002's "exactly one source of CDI references per container"
 invariant is untouched.
+
+### Relationship to MEP-0004
+
+[MEP-0004][pr-843] adds a `kernel` driver simulation mode, in which stub kernel
+modules make the kernel itself serve `/proc/modules`, `/sys/module` and
+`/proc/driver/nvidia` live, and keeps today's `userspace` mode as the default.
+The two proposals cover different modes and compose:
+
+- In `userspace` mode, which stays the default, this MEP is what delivers the
+  kernel surfaces to consumers the preload shim cannot reach. MEP-0004's own
+  surface table lists `/proc/modules` as a full gap in that mode.
+- In `kernel` mode the kernel already serves these surfaces, so both gates of
+  this MEP stay off on such a node. The procfs tier would only mount a staged
+  copy over the live file.
+- `kernel` mode needs one isolated kernel per simulated node, as the MEP-0004
+  author notes on [#843][comment-843]. A scale lane that runs several simulated
+  nodes on one host shares one set of modules between them, so a rolling driver
+  upgrade on one node cannot unload modules that another node's workloads still
+  hold, and the GPU Operator scale tests have hit exactly that. Such a lane
+  stays on `userspace` mode, which is the mode [#911][issue-911] breaks.
 
 ### Notes/Constraints/Caveats
 
@@ -133,13 +169,29 @@ invariant is untouched.
   `/proc/driver/rtc`. The node agent therefore mirrors the node's real
   `/proc/driver` entries beside the simulated `nvidia/`, which is the pattern
   `kmod.Render` already uses for `/sys/module`.
-- **Feature gates are component-scoped.** Per [#883][pr-883], passing a gate to
-  a component that does not register it fails that component's startup. Any
-  gate read by both the node agent and the NRI plugin must be registered in
-  both.
+- **Every Mokka service applies every gate.** The [#883][pr-883] gates are
+  `component-base` gates declared once in `internal/features`, and the chart
+  passes its one `featureGates` map to the node agent, the NRI plugin and the
+  control plane. The values schema lists the gates a chart version accepts and
+  rejects any other, so both new gates go into the schema and into
+  `docs/feature-gates.md`.
+- **The kernel tier changes what the plugin skips.** Today `inject.Adjust`
+  leaves a container with no GPU allocation and no opt-in annotation exactly as
+  authored, and only such a skipped container bypasses the node agent's staging
+  gate. With either gate on, that container gets a kernel-tier-only adjustment
+  instead, so every container the plugin sees passes the staging gate check.
+  The implementation also needs its own marker for a container that has
+  already been served, because `hasOverlay` keys on the overlay mount, which a
+  kernel-tier-only container never gets.
 - **`buildNRISpec` is left unchanged.** Moving its kernel mounts onto the
   adjustment path would be an ungated behaviour change, and gate-off must mean
   today's behaviour exactly.
+- **[#1136][pr-1136] binds a writable `/sys/module` into the GPU Operator's
+  driver container**, so that `k8s-driver-manager` can unload modules. That
+  draft routes the driver and driver-manager containers as specialized
+  workloads, and the sysfs tier must leave their `/sys/module` mounts alone: a
+  read-only `/sys/module` over the driver container's would break the unload it
+  simulates.
 
 ### Risks and Mitigations
 
@@ -150,8 +202,9 @@ invariant is untouched.
 | A hook that hangs exceeds its OCI `timeout` and still fails the container | The injected hook carries an explicit `Timeout`, and its work is bounded to two mounts with no network, locks or unbounded allocation. Residual risk is accepted and documented |
 | An image redirects a mount target through a symlink, and the hook mounts onto a host path as root | `openat2` with `RESOLVE_IN_ROOT|RESOLVE_NO_MAGICLINKS`, then mounting through `/proc/self/fd/N`. See [Path safety](#path-safety) |
 | The staged hook binary becomes the highest-value target on the node | It is root-owned under the agent's overlay root, written only by the agent DaemonSet, and gated separately from the sysfs tier |
-| An annotated container in `cdi` mode receives the same read-only bind twice | Expected to be benign because source, destination and options are identical, but **unverified**. The e2e asserts it explicitly rather than assuming it |
-| Feature gate skew between the agent and the plugin | Safe in both directions because of the stat-before-inject check: worst case is no injection, never a broken pod |
+| A container in `cdi` mode that receives GPUs gets `/sys/module` from `buildNRISpec` and again from the sysfs tier | Expected to be benign because source, destination and options are identical, but **unverified**. The e2e asserts it explicitly rather than assuming it |
+| A container created while the node agent is staging is left unmodified, and NRI does not see it again | The plugin fails open on a closed staging gate, as it does today for GPU containers. A `toolkit-validation` loop created in that window keeps waiting, as in [#911][issue-911] today, until its pod is recreated. **Open for review:** whether the kernel tier should bypass the gate, as the ComputeDomain daemon does, and rely on the per-source stat alone |
+| Feature gate skew between the agent and the plugin | The chart passes one gate list to both containers of the node pod, so skew needs a hand-edited manifest. It stays safe in both directions because of the stat-before-inject check: worst case is no injection, never a broken pod |
 
 ## Design Details
 
@@ -176,8 +229,10 @@ the case [#911][issue-911] depends on.
 
 Not verified, and therefore not claimed anywhere in this MEP: crun, Kata,
 fail-open behaviour when a staged source is missing, the production
-`internal/nri` code path (a throwaway plugin was used), and interaction with
-[#884][pr-884]'s `selectSurfaces`.
+`internal/nri` code path (a throwaway plugin was used), GPU Operator releases
+other than v26.7.1, and interaction with what landed on `main` after the spike:
+the allocation-aware selection in `inject.Adjust` and the node agent's staging
+gate.
 
 ### Surface split
 
@@ -192,24 +247,30 @@ fail-open behaviour when a staged source is missing, the production
 ### Mechanism A: NRI mount adjustment
 
 A new step in `inject.Adjust`, a sibling of `mountOverlay`, emits the sysfs
-mounts for every served container. It does not consult the device annotation
-and does not consult `DeviceInjectionMode`, which is what makes the tier
-node-wide. Today those mounts reach a container only when it is annotated and
-the plugin is in `cdi` mode, which is why [#884][pr-884] combined with
-[gpu-operator#2959][pr-2959] still fails on default settings.
+mounts for every container the plugin sees, including the ones `Adjust` skips
+today for having no GPU allocation and no opt-in annotation. It does not
+consult the allocation, the device annotation or `DeviceInjectionMode`, which
+is what makes the tier node-wide. Today `/sys/module` reaches a container only
+through `kernelModuleMounts`, which only the two CDI specs carry: the container
+toolkit's, and `buildNRISpec`'s in `cdi` mode. That is why
+[gpu-operator#2959][pr-2959]'s gate still fails on default settings: `raw` is
+the chart default, and the `toolkit-validation` container receives no GPUs in
+either mode.
 
 Each source is stat'd before it is emitted. A mount with a missing source fails
 the entire pod, so a surface the node agent has not staged yet degrades the
 injection instead of blocking container creation. That is the fail-open
-contract the `inject` package already documents for its steps: nothing orders
-the plugin's DaemonSet after the agent's, so any surface may legitimately be
-absent when a container is created.
+contract the `inject` package already documents for its steps. The node agent
+and the plugin now run in one pod, and the staging gate keeps the plugin off a
+tree that is being rewritten, but neither guarantees that a given surface has
+been rendered on this node, so any surface may legitimately be absent when a
+container is created.
 
 ### Mechanism B: createContainer hook
 
 A small binary shipped in the Mokka image and staged by the node agent onto the
-host under the overlay root, in the same way `stage.go` already stages
-`nvidia-smi` and the `lsmod` script. It has to be a host path: the hook's
+host under the overlay root, in the same way `internal/agent/gpudriver` already
+stages `nvidia-smi` and the `lsmod` script. It has to be a host path: the hook's
 `path` is resolved in the runtime's filesystem view, not the container's.
 
 runc executes it inside the container's mount namespace after the rootfs mounts
@@ -228,6 +289,15 @@ The hook exits 0 unconditionally. A missing source, a refused resolution, an
 unavailable `openat2` or a failed `mount` each skip that one mount and log. A
 refused resolution logs at warning level, because it means an image tried to
 redirect a mount.
+
+**Installation impact.** Neither tier adds a chart component, a host
+prerequisite or an install step. The hook binary ships in the existing Mokka
+image and the existing node agent stages it, as it stages `nvidia-smi` today.
+A user turns the tiers on with entries in the chart's `featureGates` map, and
+an install that sets neither gets no new mount, hook or staged file. What the
+procfs tier needs from the node is a runtime that runs OCI `createContainer`
+hooks and kernel 5.6 or newer for `openat2`. On a node without them the procfs
+surfaces are not delivered and nothing else changes.
 
 ### Path safety
 
@@ -257,17 +327,19 @@ delivered unsafely.
 
 ### Feature gates
 
-Two gates from [#883][pr-883], both `StageAlpha` and therefore disabled by
-default:
+Two gates declared in `internal/features`, the registry [#883][pr-883] added,
+both `featuregate.Alpha` with `Default: false`:
 
 | Gate | Read by | Covers |
 | --- | --- | --- |
-| `KernelState.Sysfs` | NRI plugin | the adjustment-path sysfs and `lsmod` mounts |
-| `KernelState.Procfs` | node agent and NRI plugin | staging the hook binary, mirroring `/proc/driver`, and injecting the hook reference |
+| `KernelStateSysfs` | NRI plugin | the adjustment-path sysfs and `lsmod` mounts |
+| `KernelStateProcfs` | node agent and NRI plugin | staging the hook binary, mirroring `/proc/driver`, and injecting the hook reference |
 
-`KernelState.Procfs` is registered in both components and must appear in both
-`featureGates.nodeAgent` and `featureGates.nri`, because a gate sent to a
-component that does not register it fails that component's startup.
+Every service applies every gate, so turning a tier on is one entry in the
+chart's `featureGates` map, for example
+`featureGates: {KernelStateSysfs: true, KernelStateProcfs: true}`, and
+`AllAlpha: true` turns both on. Both gates have to be added to the values
+schema, which rejects any gate it does not list.
 
 With both gates off, no new mount, hook or staged artifact is produced, and
 `buildNRISpec` is unchanged, so the resulting container is byte-identical to
@@ -318,14 +390,15 @@ red. A test with no such mutation is not evidence.
 
 | Test | Defect caught | Mutation that turns it red |
 | --- | --- | --- |
-| Kernel mounts emitted for an unannotated container | [#911][issue-911]: kernel state hidden behind the allocation opt-in | delete the new step |
+| Kernel mounts emitted for a container with no GPU allocation and no annotation | [#911][issue-911]: kernel state hidden behind the allocation opt-in | delete the new step, or restore the skip in `Adjust` |
 | Gate off yields an adjustment identical to the current release | a gated feature that is not actually gated | make the step ignore the gate |
 | Missing staged source is skipped, not emitted | a missing mount source fails the whole pod | delete the stat |
 | Missing hook binary means no hook reference is injected | an unexecutable hook kills every pod on the node | delete the stat |
 | The injected hook carries a `Timeout` | a wedged hook hangs container creation unbounded | drop the `Timeout` |
 
-The existing `TestAdjust(Suppresses|CDIMode|RawMode)` set must stay green, so
-that kernel state does not perturb device injection.
+The existing `TestAdjust(Suppresses|CDIMode|RawMode)` set and the allocation
+and selection tests must stay green, so that kernel state does not perturb
+device injection.
 
 **Unit, the hook package.** Linux, still unprivileged: resolution needs
 `openat2` but not root, so these run in normal CI. Only `mount` needs
@@ -341,21 +414,25 @@ The `ENOSYS` case uses an injected resolver seam, not an environment
 manipulation. Breaking a syscall through the environment behaves differently
 inside and outside a sandbox, which makes it theatre in at least one of them.
 
-**End to end.** kind, both gates on, GPU Operator v26.7.1, with this lane
-overriding the v26.3.3 pin that the default lane keeps.
+**End to end.** kind, both gates on, with this lane overriding the v26.3.3 pin
+that the default lane keeps. It runs against GPU Operator v26.7.1 for the
+`/proc/modules` gate, and against the first release that carries
+[gpu-operator#2959][pr-2959] for the `initstate` gate.
 
-1. An unannotated pod running a statically linked binary reads `^nvidia ` from
-   `/proc/modules` and reads `/proc/driver/nvidia/version`, with `LD_PRELOAD`
-   empty.
+1. A pod with no GPU request and no annotation, running a statically linked
+   binary, reads `^nvidia ` from `/proc/modules` and reads
+   `/proc/driver/nvidia/version`, with `LD_PRELOAD` empty.
 2. That same pod sees zero `/dev/nvidia*`, so the tier boundary holds.
 3. The v26.7.1 operands start: the unchanged #2881 check passes.
-4. With both gates off, the operands hang exactly as they do today.
-5. An annotated container in `cdi` mode is inspected for duplicate mounts.
+4. On the #2959 release, the operands start with only `KernelStateSysfs` on.
+5. With both gates off, the operands hang exactly as they do today.
+6. A container in `cdi` mode that receives GPUs is inspected for duplicate
+   mounts.
 
 The two tiers are separately falsifiable, which is what makes this more than a
 smoke test. Removing the procfs tier fails the #2881 check. Removing the sysfs
 tier fails `grep -qsx live /sys/module/nvidia/initstate`, which is the check
-[gpu-operator#2959][pr-2959] proposes. Each tier is pinned to a distinct
+gpu-operator#2959 puts in place of it. Each tier is pinned to a distinct
 upstream gate.
 
 ## Drawbacks
@@ -372,17 +449,25 @@ upstream gate.
   to keep that answerable.
 - Mounting the parent `/proc/driver` requires mirroring node entries that
   Mokka otherwise has no reason to read.
+- Every container the plugin sees now goes through the node agent's staging
+  gate check, where today only containers that ask for a GPU, InfiniBand or
+  IMEX do. That costs a loopback request per container creation, bounded by
+  the plugin's 500 ms `agentCheckTimeout` while the agent is frozen.
 
 ## Alternatives
 
-**Wait for [gpu-operator#2959][pr-2959].** It changes the operand gate to read
-`/sys/module/nvidia/initstate`, which Mokka can already serve. Rejected as a
-dependency: it is unmerged and needs review, it does nothing for the v26.7.1
-release that is broken now, and asking upstream to accommodate Mokka is not a
-short-term strategy. It remains worth supporting on its own merits, since
-`/proc/modules` lists a module while it is still loading. Note that #2959 alone
-is not sufficient either: it passes only for annotated containers in `cdi`
-mode, and [#884][pr-884] keeps `raw` as the default.
+**Rely on [gpu-operator#2959][pr-2959] alone.** It changes the operand gate to
+read `/sys/module/nvidia/initstate`, which Mokka already renders, and it is
+right on its own merits, since `/proc/modules` lists a module while it is
+still loading. It merged on 2026-10-05 and its backport is on the operator's
+`release-26.7` branch, but v26.7.2 does not carry it, so v26.7.1 and v26.7.2
+keep the `/proc/modules` gate. Rejected as the whole fix because it is not
+sufficient on its own either: Mokka renders `initstate` but delivers it only
+through the CDI specs, which the `toolkit-validation` container never
+receives, and `raw` is the chart default. Together with this MEP's sysfs tier
+it is sufficient, so from that operator release on `KernelStateSysfs` alone
+makes the operands start, and the procfs tier remains for v26.7.1, v26.7.2 and
+[#793][issue-793].
 
 **Keep pinning the GPU Operator chart.** [#912][pr-912] pins v26.3.3 and
 unblocks CI today. Rejected as a fix: a pin buys a green pipeline, not the
@@ -407,7 +492,8 @@ in the stubs can crash the host. MEP-0004 keeps the current `userspace`
 simulation as the default and adds `kernel` as an opt-in mode, so this MEP
 fixes the default mode rather than competing with it. On a `kernel`-mode node
 the procfs tier has nothing to add, and would only mount a staged copy over the
-live `/proc/modules`.
+live `/proc/modules`. See [Relationship to MEP-0004](#relationship-to-mep-0004)
+for why the scale-test lane cannot use `kernel` mode.
 
 **Create `/dev/dxg` to satisfy the check's second arm.** Rejected: it makes a
 Linux node claim to be WSL, which is a lie with consequences well beyond this
@@ -424,9 +510,10 @@ discards a mechanism that already works, and collapses the two gates into one.
 [issue-911]: https://github.com/NVIDIA/k8s-test-infra/issues/911
 [issue-793]: https://github.com/NVIDIA/k8s-test-infra/issues/793
 [pr-843]: https://github.com/NVIDIA/k8s-test-infra/pull/843
+[comment-843]: https://github.com/NVIDIA/k8s-test-infra/pull/843#issuecomment-6467036865
 [pr-856]: https://github.com/NVIDIA/k8s-test-infra/pull/856
 [pr-883]: https://github.com/NVIDIA/k8s-test-infra/pull/883
-[pr-884]: https://github.com/NVIDIA/k8s-test-infra/pull/884
 [pr-912]: https://github.com/NVIDIA/k8s-test-infra/pull/912
+[pr-1136]: https://github.com/NVIDIA/k8s-test-infra/pull/1136
 [pr-2881]: https://github.com/NVIDIA/gpu-operator/pull/2881
 [pr-2959]: https://github.com/NVIDIA/gpu-operator/pull/2959
