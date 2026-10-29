@@ -1410,3 +1410,10 @@ after the device plugin has registered all GPUs so its resource snapshot include
 the complete topology. Restore the previous Mokka setup before changing active
 resource-manager policies. Use a fresh or drained test node when switching policies;
 existing exclusive allocations cannot be carried between manager policies.
+
+Set `systemReservedCPU: 100m` instead of `reservedCPUs` when a small test node
+needs fractional scheduling headroom. Kubelet reserves whole CPU IDs for its
+static CPU Manager, but node allocatable CPU subtracts the fractional system
+reservation. These are different budgets: exclusive CPU allocations remain
+limited to real unreserved CPU IDs. This option is mutually exclusive with an
+explicit reserved CPU list and requires restoring an active layout before use.

@@ -48,12 +48,8 @@ func (s *Simulator) stageKubeletConfig(plan *Plan) error {
 }
 
 func (s *Simulator) configureManagers(config map[string]any, plan *Plan) error {
-	if s.opts.CPUManagerPolicy == "static" {
-		reserved, err := s.reservedCPUs(plan)
-		if err != nil {
-			return err
-		}
-		config["reservedSystemCPUs"] = reserved
+	if err := s.configureCPU(config, plan); err != nil {
+		return err
 	}
 	if s.opts.MemoryManagerPolicy == "Static" {
 		return s.configureMemory(config, plan)
@@ -168,4 +164,50 @@ func memoryReservations(plan *Plan, total int64) ([]map[string]any, error) {
 		})
 	}
 	return reservations, nil
+}
+
+func (s *Simulator) configureCPU(config map[string]any, plan *Plan) error {
+	if s.opts.CPUManagerPolicy != "static" {
+		return nil
+	}
+	if s.opts.SystemReservedCPU != "" {
+		return s.configureSharedCPU(config, plan)
+	}
+	reserved, err := s.reservedCPUs(plan)
+	if err != nil {
+		return err
+	}
+	config["reservedSystemCPUs"] = reserved
+	return nil
+}
+
+func (s *Simulator) configureSharedCPU(config map[string]any, plan *Plan) error {
+	quantity, err := resource.ParseQuantity(s.opts.SystemReservedCPU)
+	if err != nil || quantity.Sign() <= 0 {
+		return fmt.Errorf("system reserved CPU must be positive: %q", s.opts.SystemReservedCPU)
+	}
+	var cpus int
+	for _, zone := range plan.Zones {
+		cpus += len(zone.CPUs)
+	}
+	kube, _ := config["kubeReserved"].(map[string]any)
+	total := quantity.DeepCopy()
+	if value := kube["cpu"]; value != nil {
+		kubeCPU, err := resource.ParseQuantity(fmt.Sprint(value))
+		if err != nil || kubeCPU.Sign() < 0 {
+			return fmt.Errorf("invalid kubeReserved.cpu: %v", value)
+		}
+		total.Add(kubeCPU)
+	}
+	if total.Value() >= int64(cpus) {
+		return errors.New("CPU reservations leave no exclusive CPUs")
+	}
+	system, _ := config["systemReserved"].(map[string]any)
+	if system == nil {
+		system = map[string]any{}
+	}
+	system["cpu"] = quantity.String()
+	config["systemReserved"] = system
+	delete(config, "reservedSystemCPUs")
+	return nil
 }
