@@ -25,6 +25,7 @@
           ]
         },
         "memoryManagerPolicy": { "type": "string", "enum": ["None", "Static"] },
+        "systemReservedCPU": { "type": "string" },
         "systemReservedMemory": { "type": "string", "minLength": 1 },
         "cpuManagerPolicy": { "type": "string", "enum": ["none", "static"] },
         "reservedCPUs": { "type": "string", "pattern": "^$|^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$" }

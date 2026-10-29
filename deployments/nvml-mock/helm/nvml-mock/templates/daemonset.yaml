@@ -199,6 +199,9 @@ spec:
             {{- if eq ($numa.cpuManagerPolicy | default "none") "static" }}
             - --numa-cpu-manager-policy=static
             {{- end }}
+            {{- with $numa.systemReservedCPU }}
+            - --numa-system-reserved-cpu={{ . }}
+            {{- end }}
             {{- with $numa.reservedCPUs }}
             - {{ printf "--numa-reserved-cpus=%s" (toString .) | quote }}
             {{- end }}

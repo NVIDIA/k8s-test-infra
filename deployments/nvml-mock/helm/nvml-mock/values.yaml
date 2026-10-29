@@ -748,3 +748,5 @@ numaSimulation:
   memoryManagerPolicy: None
   # -- System memory reservation for Static Memory Manager; per-zone reservations also include kubelet/eviction reservations.
   systemReservedMemory: 256Mi
+  # -- Optional fractional system CPU reservation, such as 100m. Mutually exclusive with reservedCPUs.
+  systemReservedCPU: ""

@@ -37,6 +37,7 @@ type Options struct {
 	ReservedCPUs         string
 	MemoryManagerPolicy  string
 	SystemReservedMemory string
+	SystemReservedCPU    string
 }
 
 // Simulator keeps a simulated NUMA view on the node until explicitly disabled.
@@ -94,7 +95,7 @@ func (s *Simulator) Stage(_ context.Context, state *agent.State) error {
 	if err != nil {
 		return err
 	}
-	s.desired = fmt.Sprintf("%x:%t:%s:%s:%s:%s:%s", sha256.Sum256(data), s.opts.ConfigureKubelet, s.opts.Policy, s.opts.CPUManagerPolicy, s.opts.ReservedCPUs, s.opts.MemoryManagerPolicy, s.opts.SystemReservedMemory)
+	s.desired = s.configurationKey(data)
 	applied, err := s.matchApplied()
 	if err != nil {
 		return err
@@ -192,6 +193,9 @@ func (opts Options) validate() error {
 }
 
 func (opts Options) validateManagers() error {
+	if opts.SystemReservedCPU != "" && opts.ReservedCPUs != "" {
+		return errors.New("systemReservedCPU and reservedCPUs are mutually exclusive")
+	}
 	if !opts.Enabled {
 		return nil
 	}
@@ -202,4 +206,12 @@ func (opts Options) validateManagers() error {
 		return errors.New("static Memory Manager requires static CPU Manager")
 	}
 	return nil
+}
+
+func (s *Simulator) configurationKey(topology []byte) string {
+	key := fmt.Sprintf("%x:%t:%s:%s:%s:%s:%s", sha256.Sum256(topology), s.opts.ConfigureKubelet, s.opts.Policy, s.opts.CPUManagerPolicy, s.opts.ReservedCPUs, s.opts.MemoryManagerPolicy, s.opts.SystemReservedMemory)
+	if s.opts.SystemReservedCPU != "" {
+		key += ":system-cpu=" + s.opts.SystemReservedCPU
+	}
+	return key
 }

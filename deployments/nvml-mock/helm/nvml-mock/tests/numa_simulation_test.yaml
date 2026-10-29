@@ -96,3 +96,13 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: static simulated Memory Manager requires nri.enabled
+  - it: allows a fractional shared CPU reservation
+    set:
+      numaSimulation.enabled: true
+      numaSimulation.configureKubelet: true
+      numaSimulation.cpuManagerPolicy: static
+      numaSimulation.systemReservedCPU: 100m
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --numa-system-reserved-cpu=100m

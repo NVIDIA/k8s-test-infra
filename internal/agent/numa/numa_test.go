@@ -237,3 +237,19 @@ func TestStaticMemoryRejectsImpossibleReservations(t *testing.T) {
 	_, err := New(testHost(t), Options{Enabled: true, ConfigureKubelet: true, MemoryManagerPolicy: "Static"})
 	require.ErrorContains(t, err, "static CPU Manager")
 }
+
+func TestFractionalSystemCPUReservation(t *testing.T) {
+	t.Parallel()
+	h := testHost(t)
+	sim, err := New(h, Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", SystemReservedCPU: "100m"})
+	require.NoError(t, err)
+	require.NoError(t, sim.Stage(t.Context(), testState()))
+	data, err := os.ReadFile(h.RootPath("numa/kubelet-config.yaml"))
+	require.NoError(t, err)
+	var config map[string]any
+	require.NoError(t, yaml.Unmarshal(data, &config))
+	require.NotContains(t, config, "reservedSystemCPUs")
+	require.Equal(t, "100m", config["systemReserved"].(map[string]any)["cpu"])
+	_, err = New(h, Options{SystemReservedCPU: "100m", ReservedCPUs: "0"})
+	require.ErrorContains(t, err, "mutually exclusive")
+}
