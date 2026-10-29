@@ -441,20 +441,18 @@ FGO mocks or uses the following NVIDIA components:
 
 ### Non-Goals
 
-<!--
-What is out of scope for this MEP? Listing non-goals helps to focus discussion
-and make progress.
--->
+- Mokka remains to be a generic project, so all functionality very specific to Run:ai and KAI are not going to be directly included.
 
 ## Proposal
 
-<!--
-This is where we get down to the specifics of what the proposal actually is.
-This should have enough detail that reviewers can understand exactly what
-you're proposing, but should not include things like API designs or
-implementation. What is the desired outcome and how do we measure success?
-The "Design Details" section below is for the real nitty-gritty.
--->
+Looking through the list of FGO features, there are three that Mokka should support:
+
+- [KWOK Integration](#kwok-integration). Completely new functionality and the biggest piece of work.
+- [Workload-aware dynamic metrics](#workload-aware-dynamic-metrics). Mokka supports dynamic metrics today with a couple of profile patterns (e.g. range, bust, idle, busy). That setting is on GPU level though, it's not workload-aware.
+- [Numa Setup](#numa-setup). Mokka should simulate NUMA information according to the GPU rack profile that NFD uses for NRT resource creation.
+
+The [NVIDIA component mocks](#nvidia-ecosystem-integrations) should be replaced by 
+Mokka and the real NVIDIA components on top of it.
 
 ### User Stories (Optional)
 
@@ -488,12 +486,75 @@ this will impact our users.
 
 ## Design Details
 
-<!--
-This section should contain enough information that the specifics of your
-change are understandable. This may include API specs (though not always
-required) or even code snippets. If there's any ambiguity about HOW your
-proposal will be implemented, this is the place to discuss them.
--->
+### KWOK Integration
+
+Mokka can frame KWOK support as an alternative provisionining path, so we will end up having two:
+
+- `cpu` (default), the current deployment mode that expects real CPU nodes.
+- `kwok`, the new deployment mode based on KWOK virtual nodes.
+
+The backend is configured on the `SGPUInventory` level where you can configure both CPU and KWOK rack groups:
+
+```yaml
+apiVersion: mokka.nvidia.com/v1alpha1
+kind: SGPUInventory
+metadata:
+  name: dev
+spec:
+  rackGroups:
+    - id: training
+      provision: cpu
+      count: 10
+      profileRef:
+        name: gb300-nvl72
+
+      placement:
+        nodeSelector:
+          matchLabels:
+            mokka.nvidia.com/sgpu: training
+
+    - id: ci
+      provision: kwok
+      count: 1000 # a thousand of gb300 racks
+      profileRef:
+        name: gb300-nvl72
+```
+
+The KWOK's `ci` will create `rackGroup.count` × `profile.nodesPerRack` (18000 virtual nodes in this example).
+
+The Mokka Control Plane (MEP0001) watches `SGPUInventory` and creates `SGPURacks` as usually. For KWOK provisining, SGPURack would look like this:
+
+```yaml
+TBU
+```
+
+We will introduce a new component called Mokka KWOK Controller. The responsibility will be:
+
+- watching `SGPURack` resources that belongs to KWOK provisioning
+- creating KWOK `Node` resources like:
+
+```yaml
+TBU
+```
+
+- 
+
+#### KWOK Installation
+
+The KWOK functionality in Mokka should be disabled by default. 
+
+The KWOK is assumed to be installed by cluster admins prior to enabling Mokka's KWOK functionality. That's gonna be documented.
+It's not gonna be explicitly included into the Mokka helm chart.
+
+Mokka helm chart will get a new flag `kwok.enabled`, based on which we will deploy or not Mokka's KWOK Controller service.
+
+### Workload-aware Dynamic Metrics
+
+TBU
+
+### NUMA Setup
+
+TBU
 
 ## Drawbacks
 
