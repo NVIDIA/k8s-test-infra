@@ -23,7 +23,10 @@ type Config struct {
 	PluginIndex     string
 	AgentStagedURL  string
 	StagingLockPath string
-	Inject          inject.Config
+	// MemoryNodes maps simulated kubelet memory affinity onto kernel-allowed nodes.
+	// Empty preserves ordinary runtime memory binding.
+	MemoryNodes string
+	Inject      inject.Config
 }
 
 // DefaultConfig returns the registration identity used when no flag overrides

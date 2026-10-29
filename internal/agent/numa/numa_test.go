@@ -14,6 +14,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/yaml"
 )
 
@@ -195,4 +196,44 @@ func TestStaticCPUManagerRejectsUnusableReservations(t *testing.T) {
 	require.Error(t, err)
 	_, err = New(testHost(t), Options{Enabled: true, CPUManagerPolicy: "static"})
 	require.ErrorContains(t, err, "configureKubelet")
+}
+
+func TestStaticMemoryReservationsMatchNodeReservations(t *testing.T) {
+	t.Parallel()
+	h := testHost(t)
+	require.NoError(t, os.WriteFile(h.HostPath("/var/lib/kubelet/config.yaml"), []byte("kubeReserved:\n  memory: 1Mi\nevictionHard:\n  memory.available: 1Mi\n"), 0600))
+	sim, err := New(h, Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", MemoryManagerPolicy: "Static", SystemReservedMemory: "2Mi"})
+	require.NoError(t, err)
+	require.NoError(t, sim.Stage(t.Context(), testState()))
+	data, err := os.ReadFile(h.RootPath("numa/kubelet-config.yaml"))
+	require.NoError(t, err)
+	var config struct {
+		MemoryManagerPolicy string
+		ReservedMemory      []struct {
+			NUMANode int               `json:"numaNode"`
+			Limits   map[string]string `json:"limits"`
+		} `json:"reservedMemory"`
+	}
+	require.NoError(t, yaml.Unmarshal(data, &config))
+	require.Equal(t, "Static", config.MemoryManagerPolicy)
+	require.Len(t, config.ReservedMemory, 2)
+	for i, reservation := range config.ReservedMemory {
+		require.Equal(t, i, reservation.NUMANode)
+		amount := resource.MustParse(reservation.Limits["memory"])
+		require.Equal(t, int64(2*1024*1024), amount.Value())
+	}
+}
+
+func TestStaticMemoryRejectsImpossibleReservations(t *testing.T) {
+	t.Parallel()
+	for _, value := range []string{"invalid", "0", "1Gi"} {
+		t.Run(value, func(t *testing.T) {
+			t.Parallel()
+			sim, err := New(testHost(t), Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", MemoryManagerPolicy: "Static", SystemReservedMemory: value})
+			require.NoError(t, err)
+			require.Error(t, sim.Stage(t.Context(), testState()))
+		})
+	}
+	_, err := New(testHost(t), Options{Enabled: true, ConfigureKubelet: true, MemoryManagerPolicy: "Static"})
+	require.ErrorContains(t, err, "static CPU Manager")
 }

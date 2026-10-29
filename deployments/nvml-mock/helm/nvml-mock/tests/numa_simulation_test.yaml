@@ -75,3 +75,24 @@ tests:
       numaSimulation.cpuManagerPolicy: invalid
     asserts:
       - failedTemplate: {}
+  - it: enables simulated memory handling in both kubelet and NRI
+    set:
+      numaSimulation.enabled: true
+      numaSimulation.configureKubelet: true
+      numaSimulation.cpuManagerPolicy: static
+      numaSimulation.memoryManagerPolicy: Static
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --numa-memory-manager-policy=Static
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --numa-memory-simulation
+  - it: requires NRI when memory simulation is enabled
+    set:
+      numaSimulation.enabled: true
+      numaSimulation.memoryManagerPolicy: Static
+      nri.enabled: false
+    asserts:
+      - failedTemplate:
+          errorMessage: static simulated Memory Manager requires nri.enabled

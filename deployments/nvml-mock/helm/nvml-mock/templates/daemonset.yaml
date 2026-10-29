@@ -59,6 +59,9 @@ imex.binaries has none. */}}
 {{- if not (has ($numa.cpuManagerPolicy | default "none") (list "none" "static")) }}
 {{- fail "numaSimulation.cpuManagerPolicy must be none or static" }}
 {{- end }}
+{{- if and $numa.enabled (eq ($numa.memoryManagerPolicy | default "None") "Static") (not .Values.nri.enabled) }}
+{{- fail "static simulated Memory Manager requires nri.enabled" }}
+{{- end }}
 {{- $numaHost := or ($numa.enabled | default false) ($numa.configureKubelet | default false) }}
 {{- /* A surge pod would set the runtime up next to the old pod, whose revert
 then removes the setup. Kubernetes reads 0 and "0%" alike as no surge. */}}
@@ -189,6 +192,10 @@ spec:
             {{- end }}
             {{- if $numaHost }}
             - --numa-topology-manager-policy={{ $numa.topologyManagerPolicy | default "single-numa-node" }}
+            {{- if eq ($numa.memoryManagerPolicy | default "None") "Static" }}
+            - --numa-memory-manager-policy=Static
+            - --numa-system-reserved-memory={{ $numa.systemReservedMemory | default "256Mi" }}
+            {{- end }}
             {{- if eq ($numa.cpuManagerPolicy | default "none") "static" }}
             - --numa-cpu-manager-policy=static
             {{- end }}
@@ -476,6 +483,9 @@ spec:
             - --socket-path={{ .Values.nri.socketPath }}
             - --plugin-name={{ .Values.nri.pluginName }}
             - --plugin-index={{ .Values.nri.pluginIndex }}
+            {{- if and $numa.enabled (eq ($numa.memoryManagerPolicy | default "None") "Static") }}
+            - --numa-memory-simulation
+            {{- end }}
             - --overlay-host-path={{ .Values.nri.overlay.hostPath }}
             - --overlay-mount-path={{ .Values.nri.overlay.mountPath }}
             - --driver-mode={{ $driverMode }}

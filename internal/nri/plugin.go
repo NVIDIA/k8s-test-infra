@@ -179,15 +179,33 @@ func (p *Plugin) Configure(_ context.Context, _, runtime, version string) (stub.
 
 	var events stub.EventMask
 	events.Set(api.Event_CREATE_CONTAINER)
+	if p.cfg.MemoryNodes != "" {
+		events.Set(api.Event_UPDATE_CONTAINER)
+	}
 	return events, nil
 }
 
 // CreateContainer decides the adjustment, then renders it for the runtime.
 func (p *Plugin) CreateContainer(ctx context.Context, pod *api.PodSandbox, container *api.Container) (*api.ContainerAdjustment, []*api.ContainerUpdate, error) {
-	// Bracket the handler so a call that never returns is visible to the
-	// probes. A wedged handler keeps both the process and the connection
-	// alive, so nothing else notices it.
 	defer p.health.begin()()
+	adjustment, updates, err := p.createContainer(ctx, pod, container)
+	if err != nil {
+		return nil, nil, err
+	}
+	mems, changed, err := p.memoryNodes(container.GetLinux().GetResources())
+	if err != nil {
+		return nil, nil, err
+	}
+	if changed {
+		if adjustment == nil {
+			adjustment = &api.ContainerAdjustment{}
+		}
+		adjustment.SetLinuxCPUSetMems(mems)
+	}
+	return adjustment, updates, nil
+}
+
+func (p *Plugin) createContainer(ctx context.Context, pod *api.PodSandbox, container *api.Container) (*api.ContainerAdjustment, []*api.ContainerUpdate, error) {
 	candidate := containerFromNRI(pod, container)
 	// Containers NRI skips anyway never reach the gate, so a closed gate is
 	// reported only for containers it actually leaves unmocked.
