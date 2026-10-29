@@ -5,6 +5,7 @@ package nri
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -33,7 +34,7 @@ func KernelMemoryNodes() (string, error) {
 			return cpulist.Format(ids), nil
 		}
 	}
-	return "", fmt.Errorf("process status has no memory-node allowance")
+	return "", errors.New("process status has no memory-node allowance")
 }
 
 func (p *Plugin) memoryNodes(resources *api.LinuxResources) (string, bool, error) {
@@ -74,7 +75,7 @@ func (p *Plugin) UpdateContainer(_ context.Context, _ *api.PodSandbox, container
 	if err != nil || !changed {
 		return nil, err
 	}
-	copy := proto.Clone(resources).(*api.LinuxResources)
-	copy.Cpu.Mems = mems
-	return []*api.ContainerUpdate{{ContainerId: container.GetId(), Linux: &api.LinuxContainerUpdate{Resources: copy}}}, nil
+	updated := proto.Clone(resources).(*api.LinuxResources)
+	updated.Cpu.Mems = mems
+	return []*api.ContainerUpdate{{ContainerId: container.GetId(), Linux: &api.LinuxContainerUpdate{Resources: updated}}}, nil
 }
