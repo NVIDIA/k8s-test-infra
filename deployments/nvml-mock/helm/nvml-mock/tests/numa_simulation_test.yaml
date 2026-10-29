@@ -57,3 +57,21 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: "updateStrategy.rollingUpdate.maxSurge cannot be used with numaSimulation: only one pod may configure a node at a time"
+  - it: passes static CPU Manager settings
+    set:
+      numaSimulation.enabled: true
+      numaSimulation.configureKubelet: true
+      numaSimulation.cpuManagerPolicy: static
+      numaSimulation.reservedCPUs: "0,4"
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --numa-cpu-manager-policy=static
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --numa-reserved-cpus=0,4
+  - it: rejects an unknown CPU policy
+    set:
+      numaSimulation.cpuManagerPolicy: invalid
+    asserts:
+      - failedTemplate: {}

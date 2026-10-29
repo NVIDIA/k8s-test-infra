@@ -56,6 +56,9 @@ imex.binaries has none. */}}
 {{- $imexProvidedDir := "/opt/mokka/imex" }}
 {{- $runtime := .Values.nodeAgent.containerRuntime | default dict }}
 {{- $numa := .Values.numaSimulation | default dict }}
+{{- if not (has ($numa.cpuManagerPolicy | default "none") (list "none" "static")) }}
+{{- fail "numaSimulation.cpuManagerPolicy must be none or static" }}
+{{- end }}
 {{- $numaHost := or ($numa.enabled | default false) ($numa.configureKubelet | default false) }}
 {{- /* A surge pod would set the runtime up next to the old pod, whose revert
 then removes the setup. Kubernetes reads 0 and "0%" alike as no surge. */}}
@@ -186,6 +189,12 @@ spec:
             {{- end }}
             {{- if $numaHost }}
             - --numa-topology-manager-policy={{ $numa.topologyManagerPolicy | default "single-numa-node" }}
+            {{- if eq ($numa.cpuManagerPolicy | default "none") "static" }}
+            - --numa-cpu-manager-policy=static
+            {{- end }}
+            {{- with $numa.reservedCPUs }}
+            - {{ printf "--numa-reserved-cpus=%s" (toString .) | quote }}
+            {{- end }}
             {{- end }}
             - --health-addr=:9091
             - --driver-mode={{ $driverMode }}

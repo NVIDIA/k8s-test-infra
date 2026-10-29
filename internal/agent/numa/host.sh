@@ -9,7 +9,6 @@ unit=mokka-numa-filesystem.service
 dropin=/etc/systemd/system/kubelet.service.d/30-mokka-numa.conf
 action=${1:?action required}
 managed=${2:-false}
-policy=${3:-single-numa-node}
 own_mount() { [[ -f "$target/.mokka-numa" ]] && [[ "$(cat "$target/.mokka-numa")" == mokka-numa-v1 ]]; }
 mount_tree() {
   if mountpoint -q "$target"; then
@@ -23,7 +22,15 @@ mount_tree() {
 }
 restore() {
   if [[ -f "$root/original/kubelet-config.yaml" ]]; then
+    systemctl stop kubelet
     cp "$root/original/kubelet-config.yaml" /var/lib/kubelet/config.yaml
+    for state in cpu_manager_state memory_manager_state; do
+      if [[ -f "$root/original/$state" ]]; then
+        cp "$root/original/$state" "/var/lib/kubelet/$state"
+      elif [[ -f "$root/original/$state.absent" ]]; then
+        rm -f "/var/lib/kubelet/$state"
+      fi
+    done
     managed=true
   fi
   rm -f "$dropin"
@@ -51,14 +58,16 @@ if [[ "$managed" == true ]]; then
   if [[ ! -f "$root/original/kubelet-config.yaml" ]]; then
     cp /var/lib/kubelet/config.yaml "$root/original/kubelet-config.yaml"
   fi
-  # CPU and memory placement remain disabled: the kernel still has its real layout.
-  awk '!/^(topologyManagerPolicy|topologyManagerScope|cpuManagerPolicy|memoryManagerPolicy):/' "$root/original/kubelet-config.yaml" > "$root/kubelet-config.yaml"
-  cat >> "$root/kubelet-config.yaml" <<YAML
-topologyManagerPolicy: $policy
-topologyManagerScope: container
-cpuManagerPolicy: none
-memoryManagerPolicy: None
-YAML
+  for state in cpu_manager_state memory_manager_state; do
+    if [[ ! -f "$root/original/$state" && ! -f "$root/original/$state.absent" ]]; then
+      if [[ -f "/var/lib/kubelet/$state" ]]; then
+        cp "/var/lib/kubelet/$state" "$root/original/$state"
+      else
+        touch "$root/original/$state.absent"
+      fi
+    fi
+  done
+  [[ -f "$root/kubelet-config.yaml" ]]
 fi
 on_error() {
   result=$?
@@ -72,7 +81,7 @@ on_error() {
 trap on_error EXIT
 cat > "/etc/systemd/system/$unit" <<'UNIT'
 [Unit]
-Description=Mokka GPU-only NUMA filesystem simulation
+Description=Mokka NUMA filesystem simulation
 After=local-fs.target
 Before=kubelet.service
 [Service]
@@ -92,8 +101,11 @@ systemctl daemon-reload
 systemctl enable --now "$unit"
 mount_tree
 if [[ "$managed" == true ]]; then
+  systemctl stop kubelet
   cp "$root/kubelet-config.yaml" /var/lib/kubelet/config.yaml
-  systemctl restart kubelet
+  # Policy checkpoints cannot be reused across a policy change. Restore keeps backups.
+  rm -f /var/lib/kubelet/cpu_manager_state /var/lib/kubelet/memory_manager_state
+  systemctl start kubelet
   healthy=false
   for attempt in $(seq 1 30); do
     if systemctl is-active --quiet kubelet && curl -fsS --max-time 2 http://127.0.0.1:10248/healthz >/dev/null; then healthy=true; break; fi

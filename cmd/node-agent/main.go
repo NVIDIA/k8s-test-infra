@@ -66,7 +66,9 @@ func startCommand() *cli.Command {
 		Flags: []cli.Flag{
 			features.CLIFlag(),
 			&cli.BoolFlag{Name: "numa-simulation", Usage: "publish a persistent host NUMA filesystem derived from the GPU profile", Sources: cli.EnvVars("MOKKA_NUMA_SIMULATION")},
-			&cli.BoolFlag{Name: "numa-configure-kubelet", Usage: "back up, configure and restart kubelet for GPU-only NUMA enforcement", Sources: cli.EnvVars("MOKKA_NUMA_CONFIGURE_KUBELET")},
+			&cli.BoolFlag{Name: "numa-configure-kubelet", Usage: "back up, configure and restart kubelet for NUMA simulation", Sources: cli.EnvVars("MOKKA_NUMA_CONFIGURE_KUBELET")},
+			&cli.StringFlag{Name: "numa-cpu-manager-policy", Value: "none", Usage: "CPU Manager policy (none or static)", Sources: cli.EnvVars("MOKKA_NUMA_CPU_MANAGER_POLICY")},
+			&cli.StringFlag{Name: "numa-reserved-cpus", Usage: "CPU IDs reserved for system processes; static defaults to the first simulated-zone CPU", Sources: cli.EnvVars("MOKKA_NUMA_RESERVED_CPUS")},
 			&cli.StringFlag{Name: "numa-topology-manager-policy", Value: "single-numa-node", Usage: "kubelet topology policy with --numa-configure-kubelet", Sources: cli.EnvVars("MOKKA_NUMA_TOPOLOGY_MANAGER_POLICY")},
 
 			&cli.StringFlag{
@@ -287,7 +289,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 		zap.String("host_fs", cmd.String("host-fs")),
 	)
 
-	numaSimulator, err := numa.New(h, numa.Options{Enabled: cmd.Bool("numa-simulation"), ConfigureKubelet: cmd.Bool("numa-configure-kubelet"), Policy: cmd.String("numa-topology-manager-policy")})
+	numaSimulator, err := numa.New(h, numa.Options{Enabled: cmd.Bool("numa-simulation"), ConfigureKubelet: cmd.Bool("numa-configure-kubelet"), Policy: cmd.String("numa-topology-manager-policy"), CPUManagerPolicy: cmd.String("numa-cpu-manager-policy"), ReservedCPUs: cmd.String("numa-reserved-cpus")})
 	if err != nil {
 		return err
 	}
