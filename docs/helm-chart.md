@@ -497,9 +497,11 @@ fabric traffic only from peer nvml-mock pods in the release's namespace. A
 fleet split across namespaces lists the others in
 `infiniband.ping.networkPolicy.peerNamespaces`. Below `full` nothing listens
 on the port, so no policy is rendered. NetworkPolicy is enforced only by CNIs
-that implement it, which includes Kind's default `kindnet` (since Kind v0.24),
-Calico, and Cilium. mock-ib is a test fixture — don't deploy it to a shared or
-production cluster.
+that implement it, which includes Kind's default `kindnet` (since
+[Kind v0.24.0](https://github.com/kubernetes-sigs/kind/releases/tag/v0.24.0)),
+Calico, and Cilium. Older Kind releases and CNIs without NetworkPolicy support
+do not enforce this policy. mock-ib is a test fixture — don't deploy it to a
+shared or production cluster.
 
 ```bash
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \

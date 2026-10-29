@@ -494,9 +494,8 @@ infiniband:
     # authentication. This NetworkPolicy restricts inbound
     # access to that port to peer nvml-mock pods (the only legitimate
     # clients), limiting the blast radius on clusters whose CNI enforces
-    # NetworkPolicy. NOTE: Kind's default CNI (kindnet) ENFORCES
-    # NetworkPolicy on current releases, so this allow-list is load-bearing
-    # there; it also matters on Calico/Cilium.
+    # NetworkPolicy, including Kind's default kindnet since v0.24.0,
+    # Calico, and Cilium. See docs/helm-chart.md#cross-node-ibping.
     networkPolicy:
       # -- Restrict mock InfiniBand traffic to peer nvml-mock pods. Rendered only at the `full` tier, the only one that listens on the port.
       enabled: true
