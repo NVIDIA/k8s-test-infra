@@ -32,9 +32,11 @@ type Options struct {
 	Enabled          bool
 	ConfigureKubelet bool
 	Policy           string
+	CPUManagerPolicy string
+	ReservedCPUs     string
 }
 
-// Simulator keeps a GPU-only NUMA view on the node until explicitly disabled.
+// Simulator keeps a simulated NUMA view on the node until explicitly disabled.
 type Simulator struct {
 	host    *host.Host
 	opts    Options
@@ -52,6 +54,15 @@ func New(h *host.Host, opts Options) (*Simulator, error) {
 	case "none", "best-effort", "restricted", "single-numa-node":
 	default:
 		return nil, fmt.Errorf("unsupported NUMA topology policy %q", opts.Policy)
+	}
+	if opts.CPUManagerPolicy == "" {
+		opts.CPUManagerPolicy = "none"
+	}
+	if opts.CPUManagerPolicy != "none" && opts.CPUManagerPolicy != "static" {
+		return nil, fmt.Errorf("unsupported CPU Manager policy %q", opts.CPUManagerPolicy)
+	}
+	if opts.Enabled && !opts.ConfigureKubelet && opts.CPUManagerPolicy != "none" {
+		return nil, errors.New("static CPU Manager requires configureKubelet")
 	}
 	sim := &Simulator{host: h, opts: opts}
 	sim.runHost = func(ctx context.Context, args ...string) error {
@@ -93,13 +104,18 @@ func (s *Simulator) Stage(_ context.Context, state *agent.State) error {
 	if err != nil {
 		return err
 	}
-	s.desired = fmt.Sprintf("%x:%t:%s", sha256.Sum256(data), s.opts.ConfigureKubelet, s.opts.Policy)
+	s.desired = fmt.Sprintf("%x:%t:%s:%s:%s", sha256.Sum256(data), s.opts.ConfigureKubelet, s.opts.Policy, s.opts.CPUManagerPolicy, s.opts.ReservedCPUs)
 	applied, err := s.matchApplied()
 	if err != nil {
 		return err
 	}
 	if !applied {
 		if err := Render(s.host, plan); err != nil {
+			return err
+		}
+	}
+	if s.opts.ConfigureKubelet {
+		if err := s.stageKubeletConfig(plan); err != nil {
 			return err
 		}
 	}

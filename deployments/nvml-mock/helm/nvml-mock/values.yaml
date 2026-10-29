@@ -732,11 +732,15 @@ controlPlane:
 # -- Additional Kubernetes objects rendered with the release after tpl evaluation.
 extraObjects: []
 
-# GPU-only NUMA filesystem simulation. The GPU profile supplies the zones.
+# NUMA filesystem simulation with optional kubelet CPU allocation. The GPU profile supplies the zones.
 numaSimulation:
   # -- Publish the simulated NUMA tree on the node. Requires Linux and systemd.
   enabled: false
-  # -- Save kubelet configuration, apply GPU-only topology policy, and restart kubelet.
+  # -- Save kubelet configuration, apply topology and resource-manager policies, and restart kubelet.
   configureKubelet: false
   # -- Policy to configure when configureKubelet is true.
   topologyManagerPolicy: single-numa-node
+  # -- CPU allocation policy. Static uses real online CPU IDs.
+  cpuManagerPolicy: none
+  # -- Reserved CPU list for static CPU Manager; empty reserves the first zone's first CPU.
+  reservedCPUs: ""

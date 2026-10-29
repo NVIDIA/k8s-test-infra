@@ -1316,7 +1316,7 @@ for the nvml-mock release namespace.
 - [KIND DRA Config](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/e2e/kind-dra-config.yaml)
 - [Device Plugin Mock Manifest](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/e2e/device-plugin-mock.yaml)
 
-## GPU-only NUMA filesystem simulation
+## NUMA filesystem simulation
 
 Enable the host NUMA view when a CPU-only test node must expose the NUMA zones
 from its GPU profile to kubelet and an NRT publisher:
@@ -1343,8 +1343,11 @@ the mount before kubelet starts. This requires Linux, systemd, and privileged
 node-agent access.
 
 `configureKubelet: true` backs up `/var/lib/kubelet/config.yaml`, sets the requested
-topology policy with container scope, leaves CPU and memory managers disabled,
-and restarts kubelet once. `false` mounts the tree but leaves kubelet configuration
+topology policy with container scope, and restarts kubelet once. CPU and memory
+managers are disabled by default. Set `cpuManagerPolicy: static` to allocate real
+CPU IDs by simulated zone. `reservedCPUs` selects CPUs for the shared system pool;
+an empty value reserves the first CPU in the first zone. Policy checkpoints are
+backed up before configuration and restored when simulation is disabled. `false` mounts the tree but leaves kubelet configuration
 and restart to the administrator. The setup survives ordinary Mokka pod restarts.
 To restore the node, upgrade with `numaSimulation.enabled: false` before
 uninstalling Mokka. If setup changed kubelet configuration, restoration also
@@ -1370,5 +1373,7 @@ node-feature-discovery:
 
 The real device plugin, kubelet PodResources API, and NFD topology updater report
 and enforce GPU locality. The Linux kernel retains its actual topology; this
-feature does not provide CPU or memory NUMA binding. CPU and memory are excluded
-from NRT because their kubelet managers remain disabled.
+feature does not create kernel memory NUMA nodes. With static CPU Manager, remove
+`cpu` from the NRT exclusion list to publish CPU allocations. Keep memory excluded
+while Memory Manager is disabled. CPU placement uses real online CPU IDs; it does
+not establish a physical NUMA boundary on a single-NUMA host.

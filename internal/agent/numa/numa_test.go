@@ -14,6 +14,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
 )
 
 func testHost(t *testing.T) *host.Host {
@@ -25,6 +26,7 @@ func testHost(t *testing.T) *host.Host {
 		require.NoError(t, os.WriteFile(path, []byte(value), 0644))
 	}
 	write(h.SysPath("devices/system/cpu/online"), "0-7\n")
+	write(h.HostPath("/var/lib/kubelet/config.yaml"), "apiVersion: kubelet.config.k8s.io/v1beta1\nkind: KubeletConfiguration\ncpuManagerPolicy: none\nmemoryManagerPolicy: None\n")
 	write(h.ProcPath("meminfo"), "MemTotal: 16000 kB\nMemFree: 4000 kB\n")
 	for cpu := range 8 {
 		write(h.SysPath(fmt.Sprintf("devices/system/cpu/cpu%d/topology/core_id", cpu)), strconv.Itoa(cpu%4))
@@ -152,4 +154,45 @@ func TestRenderAfterRestoreRemovesOldZones(t *testing.T) {
 	data, err := os.ReadFile(h.RootPath("numa/sysnode/online"))
 	require.NoError(t, err)
 	require.Equal(t, "0\n", string(data))
+}
+
+func TestStaticCPUManagerConfiguration(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, reserved, want string
+	}{
+		{"automatic reservation", "", "0"},
+		{"explicit reservation", "1,5", "1,5"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := testHost(t)
+			sim, err := New(h, Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", ReservedCPUs: tc.reserved})
+			require.NoError(t, err)
+			require.NoError(t, sim.Stage(t.Context(), testState()))
+			data, err := os.ReadFile(h.RootPath("numa/kubelet-config.yaml"))
+			require.NoError(t, err)
+			var config map[string]any
+			require.NoError(t, yaml.Unmarshal(data, &config))
+			require.Equal(t, "static", config["cpuManagerPolicy"])
+			require.Equal(t, "None", config["memoryManagerPolicy"])
+			require.Equal(t, tc.want, config["reservedSystemCPUs"])
+		})
+	}
+}
+
+func TestStaticCPUManagerRejectsUnusableReservations(t *testing.T) {
+	t.Parallel()
+	for _, reserved := range []string{"8", "0-7", "invalid"} {
+		t.Run(reserved, func(t *testing.T) {
+			t.Parallel()
+			sim, err := New(testHost(t), Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", ReservedCPUs: reserved})
+			require.NoError(t, err)
+			require.Error(t, sim.Stage(t.Context(), testState()))
+		})
+	}
+	_, err := New(testHost(t), Options{CPUManagerPolicy: "invalid"})
+	require.Error(t, err)
+	_, err = New(testHost(t), Options{Enabled: true, CPUManagerPolicy: "static"})
+	require.ErrorContains(t, err, "configureKubelet")
 }

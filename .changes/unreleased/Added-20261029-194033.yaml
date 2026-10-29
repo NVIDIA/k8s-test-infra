@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  node-agent: opt in to static CPU allocation across simulated NUMA zones, with configurable reserved CPUs and kubelet state restoration.
+time: 2026-10-29T17:40:33Z
