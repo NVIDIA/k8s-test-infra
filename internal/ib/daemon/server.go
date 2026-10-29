@@ -216,6 +216,7 @@ type portHandle struct {
 
 func (s *Server) serveConn(ctx context.Context, c net.Conn) {
 	defer func() { _ = c.Close() }()
+	defer s.recoverConnectionPanic("client")
 	for {
 		if ctx.Err() != nil {
 			return
@@ -239,6 +240,14 @@ func (s *Server) serveConn(ctx context.Context, c net.Conn) {
 			s.log.Warn("dropping client connection: request failed", zap.String("type", env.Type), zap.Error(err))
 			return
 		}
+	}
+}
+
+// A malformed request must not take down the daemon and its other connections.
+func (s *Server) recoverConnectionPanic(transport string) {
+	if r := recover(); r != nil {
+		s.log.Error("dropping connection: panic", zap.String("transport", transport),
+			zap.Any("panic", r), zap.Stack("stack"))
 	}
 }
 
