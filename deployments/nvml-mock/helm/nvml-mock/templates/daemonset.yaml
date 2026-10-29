@@ -55,9 +55,14 @@ imex.binaries has none. */}}
 {{- /* Where the node agent looks for the IMEX archive (--imex-provided-dir). */}}
 {{- $imexProvidedDir := "/opt/mokka/imex" }}
 {{- $runtime := .Values.nodeAgent.containerRuntime | default dict }}
+{{- $numa := .Values.numaSimulation | default dict }}
+{{- $numaHost := or ($numa.enabled | default false) ($numa.configureKubelet | default false) }}
 {{- /* A surge pod would set the runtime up next to the old pod, whose revert
 then removes the setup. Kubernetes reads 0 and "0%" alike as no surge. */}}
 {{- $maxSurge := dig "rollingUpdate" "maxSurge" 0 (.Values.updateStrategy | default dict) | toString | trimSuffix "%" | float64 }}
+{{- if and $numaHost (gt $maxSurge 0.0) }}
+{{- fail "updateStrategy.rollingUpdate.maxSurge cannot be used with numaSimulation: only one pod may configure a node at a time" }}
+{{- end }}
 {{- if and $runtime.enabled (gt $maxSurge 0.0) }}
 {{- fail "updateStrategy.rollingUpdate.maxSurge cannot be used with nodeAgent.containerRuntime: the old node pod's revert would remove the new one's setup" }}
 {{- end }}
@@ -103,9 +108,8 @@ spec:
       {{- end }}
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
-      {{- if and $runtime.enabled (eq $runtime.restartMode "systemd") }}
-      # systemctl refuses a systemd it cannot see, so restarting containerd
-      # takes the host's PID namespace.
+      {{- if or (and $runtime.enabled (eq $runtime.restartMode "systemd")) $numaHost }}
+      # systemd clients need the host PID namespace to configure node services.
       hostPID: true
       {{- end }}
       {{- with .Values.nodeSelector }}
@@ -174,6 +178,15 @@ spec:
             - --topology=/etc/nvml-mock/topology/topology.yaml
             {{- end }}
             - --host-root=/host
+            {{- if $numa.enabled }}
+            - --numa-simulation
+            {{- end }}
+            {{- if $numa.configureKubelet }}
+            - --numa-configure-kubelet
+            {{- end }}
+            {{- if $numaHost }}
+            - --numa-topology-manager-policy={{ $numa.topologyManagerPolicy | default "single-numa-node" }}
+            {{- end }}
             - --health-addr=:9091
             - --driver-mode={{ $driverMode }}
             - --log-level={{ .Values.nodeAgent.logging.level }}
@@ -400,12 +413,14 @@ spec:
             - name: kernel-log
               mountPath: /dev/kmsg
             {{- end }}
-            {{- if $runtime.enabled }}
-            # The host's root, read only, for systemctl to run chrooted into.
+            {{- if or $runtime.enabled $numaHost }}
+            # The host's root, read only, for systemd clients to run chrooted into.
             - name: host-fs
               mountPath: /host
               readOnly: true
               mountPropagation: HostToContainer
+            {{- end }}
+            {{- if $runtime.enabled }}
             - name: host-usr-bin
               mountPath: /host/usr/bin
             - name: container-toolkit
@@ -626,11 +641,13 @@ spec:
             path: /dev/kmsg
             type: CharDevice
         {{- end }}
-        {{- if $runtime.enabled }}
+        {{- if or $runtime.enabled $numaHost }}
         - name: host-fs
           hostPath:
             path: /
             type: Directory
+        {{- end }}
+        {{- if $runtime.enabled }}
         - name: host-usr-bin
           hostPath:
             path: /usr/bin

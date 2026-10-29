@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  node-agent: Add opt-in GPU-only NUMA filesystem simulation with a shared GPU topology, persistent node mounts, and optional kubelet configuration and restart.
+time: 2026-10-29T13:24:14Z
