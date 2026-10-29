@@ -23,6 +23,17 @@
             "restricted",
             "single-numa-node"
           ]
+        },
+        "cpuManagerPolicy": {
+          "type": "string",
+          "enum": [
+            "none",
+            "static"
+          ]
+        },
+        "reservedCPUs": {
+          "type": "string",
+          "pattern": "^$|^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$"
         }
       }
     },
@@ -44,7 +55,9 @@
             },
             {
               "type": "string",
-              "enum": [""]
+              "enum": [
+                ""
+              ]
             }
           ]
         },
@@ -55,24 +68,46 @@
           "type": "object",
           "additionalProperties": true,
           "properties": {
-            "enabled": { "type": "boolean" },
-            "seed": { "type": "integer" },
+            "enabled": {
+              "type": "boolean"
+            },
+            "seed": {
+              "type": "integer"
+            },
             "temperature": {
               "type": "object",
               "additionalProperties": true,
               "properties": {
-                "base_c": { "type": "integer", "minimum": 0, "maximum": 150 },
-                "variance_c": { "type": "integer", "minimum": 0 },
-                "ramp_c": { "type": "integer" },
-                "ramp_period_sec": { "type": "integer", "minimum": 1 }
+                "base_c": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 150
+                },
+                "variance_c": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "ramp_c": {
+                  "type": "integer"
+                },
+                "ramp_period_sec": {
+                  "type": "integer",
+                  "minimum": 1
+                }
               }
             },
             "power": {
               "type": "object",
               "additionalProperties": true,
               "properties": {
-                "base_mw": { "type": "integer", "minimum": 0 },
-                "variance_mw": { "type": "integer", "minimum": 0 }
+                "base_mw": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "variance_mw": {
+                  "type": "integer",
+                  "minimum": 0
+                }
               }
             },
             "utilization": {
@@ -81,13 +116,37 @@
               "properties": {
                 "pattern": {
                   "type": "string",
-                  "enum": ["idle", "busy", "burst", "steady"]
+                  "enum": [
+                    "idle",
+                    "busy",
+                    "burst",
+                    "steady"
+                  ]
                 },
-                "gpu_min": { "type": "integer", "minimum": 0, "maximum": 100 },
-                "gpu_max": { "type": "integer", "minimum": 0, "maximum": 100 },
-                "memory_min": { "type": "integer", "minimum": 0, "maximum": 100 },
-                "memory_max": { "type": "integer", "minimum": 0, "maximum": 100 },
-                "burst_period_sec": { "type": "integer", "minimum": 1 }
+                "gpu_min": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "gpu_max": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "memory_min": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "memory_max": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "burst_period_sec": {
+                  "type": "integer",
+                  "minimum": 1
+                }
               }
             }
           }
@@ -97,11 +156,18 @@
           "additionalProperties": true,
           "description": "Opt-in GPU failure scenarios. The engine treats `mode: healthy` as a no-op even when enabled, so a bare `enabled: true` does not silently trip every GPU.",
           "properties": {
-            "enabled": { "type": "boolean" },
+            "enabled": {
+              "type": "boolean"
+            },
             "mode": {
               "type": "string",
               "description": "Failure mode. Anything outside this enum is rejected; the engine has no fall-through coercion path.",
-              "enum": ["healthy", "lost", "fallen_off_bus", "ecc_uncorrectable"]
+              "enum": [
+                "healthy",
+                "lost",
+                "fallen_off_bus",
+                "ecc_uncorrectable"
+              ]
             },
             "probability": {
               "type": "number",
@@ -137,7 +203,9 @@
           "additionalProperties": true,
           "description": "MIG partitioning. Boots the board partitioned as gpuInstances describes; no profile declares a layout of its own, so enabling this without one is rejected, because MIG on with nothing partitioned publishes no GPU resource at all under migStrategy=single.",
           "properties": {
-            "enabled": { "type": "boolean" },
+            "enabled": {
+              "type": "boolean"
+            },
             "gpuInstances": {
               "type": "array",
               "description": "The partitioning to apply. Required when enabled is true; fill a board with its smallest slice to keep every partition on one profile name, which is what migStrategy=single requires.",
@@ -151,7 +219,7 @@
                   },
                   "profile_id": {
                     "type": "integer",
-                    "description": "The ID the board publishes the profile under, as printed in the ID column of \"nvidia-smi mig -lgip\" — not NVML's profile enum, which numbers the same profiles in the opposite order. The two overlap, so the difference is silent: ID 0 is the whole board on an A100, where NVML's enum 0 is a seventh of it. Mutually exclusive with profile.",
+                    "description": "The ID the board publishes the profile under, as printed in the ID column of \"nvidia-smi mig -lgip\" \u2014 not NVML's profile enum, which numbers the same profiles in the opposite order. The two overlap, so the difference is silent: ID 0 is the whole board on an A100, where NVML's enum 0 is a seventh of it. Mutually exclusive with profile.",
                     "minimum": 0
                   },
                   "count": {
@@ -169,12 +237,27 @@
           "additionalProperties": false,
           "description": "vGPU simulation. host makes every GPU a vGPU host running the declared instances; guest makes every GPU the vGPU a VM sees. Field reference in docs/vgpu.md; the node agent validates the contents.",
           "properties": {
-            "mode": { "type": "string", "enum": ["", "host", "guest"] },
-            "hostVgpuMode": { "type": "string", "enum": ["sriov", "non_sriov"] },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "",
+                "host",
+                "guest"
+              ]
+            },
+            "hostVgpuMode": {
+              "type": "string",
+              "enum": [
+                "sriov",
+                "non_sriov"
+              ]
+            },
             "types": {
               "type": "array",
               "description": "Host only. vGPU types every GPU supports, in profile (snake_case) form: id, name, framebuffer_mib, max_instances, and optional class, max_instances_per_vm, license, num_display_heads, resolution, frame_rate_limit, gpu_instance_profile_id, device_id, subsystem_id.",
-              "items": { "type": "object" }
+              "items": {
+                "type": "object"
+              }
             },
             "instances": {
               "type": "array",
@@ -182,10 +265,17 @@
               "items": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["type"],
+                "required": [
+                  "type"
+                ],
                 "properties": {
-                  "type": { "type": "string" },
-                  "count": { "type": "integer", "minimum": 1 }
+                  "type": {
+                    "type": "string"
+                  },
+                  "count": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
                 }
               }
             },
@@ -207,16 +297,23 @@
     },
     "podAnnotations": {
       "type": "object",
-      "additionalProperties": { "type": "string" },
+      "additionalProperties": {
+        "type": "string"
+      },
       "description": "Annotations added to the node DaemonSet pods."
     },
     "podLabels": {
       "type": "object",
-      "additionalProperties": { "type": "string" },
+      "additionalProperties": {
+        "type": "string"
+      },
       "description": "Labels added to the node DaemonSet pods. Must not set the selector labels."
     },
     "extraObjects": {
-      "type": ["array", "object"],
+      "type": [
+        "array",
+        "object"
+      ],
       "description": "Additional objects rendered with the release through tpl: a list, or a map keyed by name. Each entry is an object or a YAML string; an entry that renders empty is skipped."
     },
     "global": {
@@ -232,11 +329,21 @@
           "description": "Pull secrets added to every chart pod, ahead of imagePullSecrets.",
           "items": {
             "oneOf": [
-              { "type": "string", "minLength": 1 },
+              {
+                "type": "string",
+                "minLength": 1
+              },
               {
                 "type": "object",
-                "required": ["name"],
-                "properties": { "name": { "type": "string", "minLength": 1 } }
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
               }
             ]
           }
@@ -248,11 +355,21 @@
       "description": "Pull secrets added to every chart pod.",
       "items": {
         "oneOf": [
-          { "type": "string", "minLength": 1 },
+          {
+            "type": "string",
+            "minLength": 1
+          },
           {
             "type": "object",
-            "required": ["name"],
-            "properties": { "name": { "type": "string", "minLength": 1 } }
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
           }
         ]
       }
@@ -261,7 +378,9 @@
       "type": "object",
       "additionalProperties": true,
       "properties": {
-        "repository": { "type": "string" },
+        "repository": {
+          "type": "string"
+        },
         "digest": {
           "type": "string",
           "pattern": "^(|sha256:[a-f0-9]{64})$",
@@ -273,7 +392,12 @@
         },
         "pullPolicy": {
           "type": "string",
-          "enum": ["", "Always", "IfNotPresent", "Never"]
+          "enum": [
+            "",
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
         }
       }
     },
@@ -282,9 +406,15 @@
       "description": "Feature gate overrides passed to the node agent, NRI plugin and control plane as --feature-gates. Lists exactly the gates this chart version's services accept, so a stale or locked gate fails the Helm upgrade instead of the rollout.",
       "additionalProperties": false,
       "properties": {
-        "AllAlpha": { "type": "boolean" },
-        "AllBeta": { "type": "boolean" },
-        "IMEXDownload": { "type": "boolean" }
+        "AllAlpha": {
+          "type": "boolean"
+        },
+        "AllBeta": {
+          "type": "boolean"
+        },
+        "IMEXDownload": {
+          "type": "boolean"
+        }
       }
     },
     "driver": {
@@ -293,13 +423,20 @@
       "properties": {
         "mode": {
           "type": "string",
-          "enum": ["userspace", "kernel"],
+          "enum": [
+            "userspace",
+            "kernel"
+          ],
           "description": "How the node's NVIDIA driver is simulated: userspace fakes the files of its kernel modules, kernel has a driver installer load Mokka's simulated kernel modules."
         }
       }
     },
-    "driverVersion": { "type": "string" },
-    "driverBranch": { "type": "string" },
+    "driverVersion": {
+      "type": "string"
+    },
+    "driverBranch": {
+      "type": "string"
+    },
     "hic": {
       "type": "array",
       "description": "Host interface cards nvmlSystemGetHicVersion reports, which is what `nvidia-smi -q -u` prints.",
@@ -307,14 +444,26 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "id": { "type": "integer", "minimum": 0 },
-          "firmwareVersion": { "type": "string", "minLength": 1 }
+          "id": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "firmwareVersion": {
+            "type": "string",
+            "minLength": 1
+          }
         },
-        "required": ["firmwareVersion"]
+        "required": [
+          "firmwareVersion"
+        ]
       }
     },
-    "nodeSelector": { "type": "object" },
-    "tolerations": { "type": "array" },
+    "nodeSelector": {
+      "type": "object"
+    },
+    "tolerations": {
+      "type": "array"
+    },
     "nodeLabels": {
       "type": "object",
       "additionalProperties": true,
@@ -332,8 +481,18 @@
       "additionalProperties": true,
       "description": "Mokka node agent.",
       "properties": {
-        "livenessProbe": { "type": ["object", "null"] },
-        "readinessProbe": { "type": ["object", "null"] },
+        "livenessProbe": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "readinessProbe": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
         "logging": {
           "type": "object",
           "additionalProperties": false,
@@ -341,11 +500,20 @@
           "properties": {
             "level": {
               "type": "string",
-              "enum": ["debug", "info", "warn", "warning", "error"]
+              "enum": [
+                "debug",
+                "info",
+                "warn",
+                "warning",
+                "error"
+              ]
             },
             "format": {
               "type": "string",
-              "enum": ["json", "plain"]
+              "enum": [
+                "json",
+                "plain"
+              ]
             }
           }
         },
@@ -364,7 +532,9 @@
           "additionalProperties": false,
           "description": "Announce injected Xids on the node's kernel log. Closed to unknown keys because a typo here would silently leave the /dev/kmsg mount and announcement off while reading as if it had been turned on.",
           "properties": {
-            "enabled": { "type": "boolean" }
+            "enabled": {
+              "type": "boolean"
+            }
           }
         },
         "containerRuntime": {
@@ -372,27 +542,45 @@
           "additionalProperties": false,
           "description": "Set up the node's container runtime: install the NVIDIA container runtime and register it as the nvidia handler (MEP-0006). Closed to unknown keys because a typo here would silently leave a default path in place on a node that needs another.",
           "properties": {
-            "enabled": { "type": "boolean" },
+            "enabled": {
+              "type": "boolean"
+            },
             "type": {
               "type": "string",
-              "enum": ["containerd"]
+              "enum": [
+                "containerd"
+              ]
             },
             "restartMode": {
               "type": "string",
-              "enum": ["systemd", "none"]
+              "enum": [
+                "systemd",
+                "none"
+              ]
             },
             "containerd": {
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "configPath": { "type": "string", "pattern": "^/.+" },
-                "configDir": { "type": "string", "pattern": "^/.+" },
-                "systemdUnit": { "type": "string", "minLength": 1 }
+                "configPath": {
+                  "type": "string",
+                  "pattern": "^/.+"
+                },
+                "configDir": {
+                  "type": "string",
+                  "pattern": "^/.+"
+                },
+                "systemdUnit": {
+                  "type": "string",
+                  "minLength": 1
+                }
               }
             }
           }
         },
-        "resources": { "type": "object" }
+        "resources": {
+          "type": "object"
+        }
       }
     },
     "allocationWatcher": {
@@ -400,10 +588,22 @@
       "additionalProperties": true,
       "description": "Mirror each pod's nvidia.com/gpu claim into memory.used_bytes (#506).",
       "properties": {
-        "enabled": { "type": "boolean" },
-        "interval": { "type": "string", "minLength": 1 },
-        "usedFractionPerClaim": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
-        "podResourcesSocket": { "type": "string", "minLength": 1 }
+        "enabled": {
+          "type": "boolean"
+        },
+        "interval": {
+          "type": "string",
+          "minLength": 1
+        },
+        "usedFractionPerClaim": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "podResourcesSocket": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "nri": {
@@ -411,7 +611,9 @@
       "additionalProperties": true,
       "description": "Node-wide ambient injection via containerd NRI.",
       "properties": {
-        "enabled": { "type": "boolean" },
+        "enabled": {
+          "type": "boolean"
+        },
         "nativeSidecar": {
           "type": "boolean",
           "description": "Use the Kubernetes SidecarContainers layout on Kubernetes 1.29 and later. Disable when that feature gate is explicitly off."
@@ -423,31 +625,60 @@
           "properties": {
             "level": {
               "type": "string",
-              "enum": ["debug", "info", "warn", "warning", "error"]
+              "enum": [
+                "debug",
+                "info",
+                "warn",
+                "warning",
+                "error"
+              ]
             },
             "format": {
               "type": "string",
-              "enum": ["json", "plain"]
+              "enum": [
+                "json",
+                "plain"
+              ]
             }
           }
         },
-        "socketPath": { "type": "string", "minLength": 1 },
-        "pluginName": { "type": "string", "minLength": 1 },
-        "pluginIndex": { "type": ["string", "integer"] },
+        "socketPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pluginName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pluginIndex": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
         "image": {
           "type": "object",
           "additionalProperties": true,
           "description": "Overrides merged over the top-level image. The top-level digest is inherited only when neither repository nor tag is overridden here.",
           "properties": {
-            "repository": { "type": "string" },
+            "repository": {
+              "type": "string"
+            },
             "digest": {
               "type": "string",
               "pattern": "^(|sha256:[a-f0-9]{64})$"
             },
-            "tag": { "type": "string" },
+            "tag": {
+              "type": "string"
+            },
             "pullPolicy": {
               "type": "string",
-              "enum": ["", "Always", "IfNotPresent", "Never"]
+              "enum": [
+                "",
+                "Always",
+                "IfNotPresent",
+                "Never"
+              ]
             }
           }
         },
@@ -455,19 +686,49 @@
           "type": "object",
           "additionalProperties": true,
           "properties": {
-            "hostPath": { "type": "string", "minLength": 1 },
-            "mountPath": { "type": "string", "minLength": 1 }
+            "hostPath": {
+              "type": "string",
+              "minLength": 1
+            },
+            "mountPath": {
+              "type": "string",
+              "minLength": 1
+            }
           }
         },
-        "optOutAnnotation": { "type": "string", "minLength": 1 },
-        "deviceAnnotation": { "type": "string", "minLength": 1 },
-        "deviceInjectionMode": { "type": "string", "enum": ["raw", "cdi"] },
-        "cdiSpecDir": { "type": "string", "minLength": 1 },
-        "imexChannelAnnotation": { "type": "string", "minLength": 1 },
-        "infinibandAnnotation": { "type": "string", "minLength": 1 },
+        "optOutAnnotation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "deviceAnnotation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "deviceInjectionMode": {
+          "type": "string",
+          "enum": [
+            "raw",
+            "cdi"
+          ]
+        },
+        "cdiSpecDir": {
+          "type": "string",
+          "minLength": 1
+        },
+        "imexChannelAnnotation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "infinibandAnnotation": {
+          "type": "string",
+          "minLength": 1
+        },
         "excludedNamespaces": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 }
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         },
         "gpuOperator": {
           "type": "object",
@@ -484,8 +745,14 @@
             }
           }
         },
-        "resources": { "type": "object" },
-        "healthPort": { "type": "integer", "minimum": 1, "maximum": 65535 }
+        "resources": {
+          "type": "object"
+        },
+        "healthPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        }
       }
     },
     "terminationGracePeriodSeconds": {
@@ -498,18 +765,36 @@
       "additionalProperties": true,
       "description": "DaemonSet rolling update strategy passed verbatim into spec.updateStrategy.",
       "properties": {
-        "type": { "type": "string", "enum": ["RollingUpdate", "OnDelete"] },
+        "type": {
+          "type": "string",
+          "enum": [
+            "RollingUpdate",
+            "OnDelete"
+          ]
+        },
         "rollingUpdate": {
           "type": "object",
           "additionalProperties": true,
           "properties": {
-            "maxUnavailable": { "type": ["string", "integer"] },
-            "maxSurge": { "type": ["string", "integer"] }
+            "maxUnavailable": {
+              "type": [
+                "string",
+                "integer"
+              ]
+            },
+            "maxSurge": {
+              "type": [
+                "string",
+                "integer"
+              ]
+            }
           }
         }
       }
     },
-    "integrations": { "type": "object" },
+    "integrations": {
+      "type": "object"
+    },
     "imex": {
       "type": "object",
       "additionalProperties": true,
@@ -544,7 +829,9 @@
               "additionalProperties": true,
               "description": "Image carrying the pinned IMEX archive under /imex, as make imex-binaries-image builds it. On multi-node NVLink profiles a copy-only init container puts the archive where the node agent finds it. An empty repository renders no init container.",
               "properties": {
-                "repository": { "type": "string" },
+                "repository": {
+                  "type": "string"
+                },
                 "digest": {
                   "type": "string",
                   "pattern": "^(|sha256:[a-f0-9]{64})$",
@@ -556,7 +843,12 @@
                 },
                 "pullPolicy": {
                   "type": "string",
-                  "enum": ["", "Always", "IfNotPresent", "Never"]
+                  "enum": [
+                    "",
+                    "Always",
+                    "IfNotPresent",
+                    "Never"
+                  ]
                 }
               }
             },
@@ -589,8 +881,17 @@
         "enabled": {
           "description": "Tri-state override: empty string derives from profile; true/false force the daemon on or off.",
           "oneOf": [
-            { "type": "boolean" },
-            { "type": "string", "enum": ["", "true", "false"] }
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "enum": [
+                "",
+                "true",
+                "false"
+              ]
+            }
           ]
         },
         "stateDir": {
@@ -622,10 +923,14 @@
               "additionalProperties": true,
               "description": "NetworkPolicy restricting inbound access to the fabric port to peer nvml-mock pods. Rendered only at the full mock InfiniBand tier, the only one that listens on the port. No-op on CNIs that do not enforce NetworkPolicy (e.g. Kind's kindnet).",
               "properties": {
-                "enabled": { "type": "boolean" },
+                "enabled": {
+                  "type": "boolean"
+                },
                 "peerNamespaces": {
                   "type": "array",
-                  "items": { "type": "string" },
+                  "items": {
+                    "type": "string"
+                  },
                   "description": "Namespaces besides the release's whose nvml-mock pods may reach the fabric port, for a fleet split across namespaces. Empty admits the release's namespace only."
                 }
               }
@@ -639,13 +944,21 @@
       "additionalProperties": true,
       "description": "Mokka Control Plane. Off by default; renders its Deployment, Service, service account, and least-privilege RBAC only when controlPlane.enabled is true.",
       "properties": {
-        "enabled": { "type": "boolean" },
-        "replicas": { "type": "integer", "minimum": 1 },
+        "enabled": {
+          "type": "boolean"
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 1
+        },
         "image": {
           "type": "object",
           "additionalProperties": true,
           "properties": {
-            "repository": { "type": "string", "minLength": 1 },
+            "repository": {
+              "type": "string",
+              "minLength": 1
+            },
             "digest": {
               "type": "string",
               "pattern": "^(|sha256:[a-f0-9]{64})$",
@@ -655,7 +968,15 @@
               "type": "string",
               "description": "Image tag used when digest is empty. Defaults to the chart appVersion."
             },
-            "pullPolicy": { "type": "string", "enum": ["", "Always", "IfNotPresent", "Never"] }
+            "pullPolicy": {
+              "type": "string",
+              "enum": [
+                "",
+                "Always",
+                "IfNotPresent",
+                "Never"
+              ]
+            }
           }
         },
         "logging": {
@@ -665,11 +986,20 @@
           "properties": {
             "level": {
               "type": "string",
-              "enum": ["debug", "info", "warn", "warning", "error"]
+              "enum": [
+                "debug",
+                "info",
+                "warn",
+                "warning",
+                "error"
+              ]
             },
             "format": {
               "type": "string",
-              "enum": ["json", "plain"]
+              "enum": [
+                "json",
+                "plain"
+              ]
             }
           }
         },
@@ -691,7 +1021,9 @@
         "leaderElection": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["name"],
+          "required": [
+            "name"
+          ],
           "properties": {
             "name": {
               "type": "string",
@@ -704,8 +1036,19 @@
           "type": "object",
           "additionalProperties": true,
           "properties": {
-            "type": { "type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer"] },
-            "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+            "type": {
+              "type": "string",
+              "enum": [
+                "ClusterIP",
+                "NodePort",
+                "LoadBalancer"
+              ]
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            }
           }
         },
         "shutdownTimeout": {
@@ -713,9 +1056,15 @@
           "pattern": "^[0-9]+(ns|us|ms|s|m|h)$",
           "description": "Go duration string passed to --shutdown-timeout. Must fit inside terminationGracePeriodSeconds minus the preStop sleep."
         },
-        "resources": { "type": "object" },
-        "nodeSelector": { "type": "object" },
-        "tolerations": { "type": "array" },
+        "resources": {
+          "type": "object"
+        },
+        "nodeSelector": {
+          "type": "object"
+        },
+        "tolerations": {
+          "type": "array"
+        },
         "priorityClassName": {
           "type": "string",
           "description": "PriorityClass for the control-plane pods, e.g. system-cluster-critical."
@@ -726,12 +1075,16 @@
         },
         "podAnnotations": {
           "type": "object",
-          "additionalProperties": { "type": "string" },
+          "additionalProperties": {
+            "type": "string"
+          },
           "description": "Annotations added to the control-plane pods."
         },
         "podLabels": {
           "type": "object",
-          "additionalProperties": { "type": "string" },
+          "additionalProperties": {
+            "type": "string"
+          },
           "description": "Labels added to the control-plane pods. Must not set the selector labels."
         },
         "topologySpreadConstraints": {
@@ -743,9 +1096,15 @@
           "additionalProperties": false,
           "description": "PodDisruptionBudget for the control-plane pods, rendered only with replicas > 1. maxUnavailable wins if both bounds are set; with neither, minAvailable is 1.",
           "properties": {
-            "enabled": { "type": "boolean" },
-            "minAvailable": { "$ref": "#/$defs/disruptionBound" },
-            "maxUnavailable": { "$ref": "#/$defs/disruptionBound" }
+            "enabled": {
+              "type": "boolean"
+            },
+            "minAvailable": {
+              "$ref": "#/$defs/disruptionBound"
+            },
+            "maxUnavailable": {
+              "$ref": "#/$defs/disruptionBound"
+            }
           }
         },
         "terminationGracePeriodSeconds": {
@@ -760,8 +1119,14 @@
     "disruptionBound": {
       "description": "A pod count or a percentage such as \"50%\".",
       "oneOf": [
-        { "type": "integer", "minimum": 0 },
-        { "type": "string", "pattern": "^[0-9]+%$" }
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "string",
+          "pattern": "^[0-9]+%$"
+        }
       ]
     }
   }
