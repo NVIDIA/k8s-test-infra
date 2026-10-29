@@ -18,9 +18,8 @@ typedef struct {
 #define MOCK_MIZER_NO_LIB    0xFFFFFFFFu
 #define MOCK_MIZER_NO_SYMBOL 0xFFFFFFFEu
 
-// mockSetPowerMizerMode calls the setter by symbol, the same way
-// mockWorkloadUpdateProfiles does, because the pinned go-nvml binds only the
-// getter.
+// mockSetPowerMizerMode calls the setter by symbol to check its C layout
+// independently of go-nvml, the same way mockWorkloadUpdateProfiles does.
 static unsigned int mockSetPowerMizerMode(unsigned int index, unsigned int mode) {
     void* lib = dlopen("libnvidia-ml.so.1", RTLD_LAZY | RTLD_GLOBAL);
     if (lib == NULL) {
@@ -86,9 +85,8 @@ const allPowerMizerModes = 1<<nvml.POWER_MIZER_MODE_ADAPTIVE |
 //
 // Power smoothing has setters but no getter, so every write is read back
 // through nvmlDeviceGetFieldValues, the path nvidia-smi takes. The field ids
-// come from this module's go-nvml rather than from the engine, so a mock that
-// numbered a field differently from the header the simulated driver ships
-// fails here.
+// use the simulated driver's numbering defined in bridge_tests.go, so these
+// checks remain independent of the engine and of go-nvml's newer numbering.
 func testPowerPolicy(deviceCount int) []testResult {
 	if os.Getenv("MOCK_NVML_CONFIG") == "" {
 		// The default config is a pre-580 driver, which has none of these.
@@ -167,7 +165,7 @@ func checkPowerMizerMode(label string, device nvml.Device, want uint32) testResu
 // the setters and from the fields, which nvidia-smi renders as N/A.
 func testPowerSmoothingRefused(name string, device nvml.Device) []testResult {
 	ret := device.PowerSmoothingSetState(&nvml.PowerSmoothingState{State: uint32(nvml.FEATURE_ENABLED)})
-	_, fieldRet := readField(device, nvml.FI_PWR_SMOOTHING_ENABLED, 0)
+	_, fieldRet := readField(device, fiPwrSmoothingEnabled, 0)
 	return []testResult{
 		checkReturn(name+"/set_state", ret, nvml.ERROR_NOT_SUPPORTED),
 		checkReturn(name+"/enabled_field", fieldRet, nvml.ERROR_NOT_SUPPORTED),
@@ -192,25 +190,25 @@ func testPowerSmoothing(name string, device nvml.Device) []testResult {
 	}
 
 	results := []testResult{
-		checkUintField(name+"/default_disabled", device, nvml.FI_PWR_SMOOTHING_ENABLED, 0, 0),
-		checkUintField(name+"/preset_count", device, nvml.FI_PWR_SMOOTHING_MAX_NUM_PRESET_PROFILES, 0, 5),
+		checkUintField(name+"/default_disabled", device, fiPwrSmoothingEnabled, 0, 0),
+		checkUintField(name+"/preset_count", device, fiPwrSmoothingMaxNumPresetProfiles, 0, 5),
 
 		checkReturn(name+"/enable", setState(nvml.FEATURE_ENABLED), nvml.SUCCESS),
-		checkUintField(name+"/enabled", device, nvml.FI_PWR_SMOOTHING_ENABLED, 0, 1),
+		checkUintField(name+"/enabled", device, fiPwrSmoothingEnabled, 0, 1),
 
 		checkReturn(name+"/update_floor",
 			update(preset, nvml.POWER_SMOOTHING_PROFILE_PARAM_PERCENT_TMP_FLOOR, 65.5), nvml.SUCCESS),
-		checkDoubleField(name+"/floor", device, nvml.FI_PWR_SMOOTHING_PROFILE_PERCENT_TMP_FLOOR, preset, 65.5),
+		checkDoubleField(name+"/floor", device, fiPwrSmoothingProfilePercentTMPFloor, preset, 65.5),
 		checkReturn(name+"/update_hysteresis",
 			update(preset, nvml.POWER_SMOOTHING_PROFILE_PARAM_RAMP_DOWN_HYSTERESIS, 250), nvml.SUCCESS),
-		checkUintField(name+"/hysteresis", device, nvml.FI_PWR_SMOOTHING_PROFILE_RAMP_DOWN_HYST_VAL, preset, 250),
+		checkUintField(name+"/hysteresis", device, fiPwrSmoothingProfileRampDownHystVal, preset, 250),
 		checkReturn(name+"/reject_out_of_range_floor",
 			update(preset, nvml.POWER_SMOOTHING_PROFILE_PARAM_PERCENT_TMP_FLOOR, 101), nvml.ERROR_INVALID_ARGUMENT),
 
 		checkReturn(name+"/activate", activate(preset), nvml.SUCCESS),
-		checkUintField(name+"/active_preset", device, nvml.FI_PWR_SMOOTHING_ACTIVE_PRESET_PROFILE, 0, preset),
+		checkUintField(name+"/active_preset", device, fiPwrSmoothingActivePresetProfile, 0, preset),
 		checkReturn(name+"/reject_unknown_preset", activate(7), nvml.ERROR_INVALID_ARGUMENT),
-		checkUintField(name+"/kept_after_reject", device, nvml.FI_PWR_SMOOTHING_ACTIVE_PRESET_PROFILE, 0, preset),
+		checkUintField(name+"/kept_after_reject", device, fiPwrSmoothingActivePresetProfile, 0, preset),
 	}
 
 	results = append(results,

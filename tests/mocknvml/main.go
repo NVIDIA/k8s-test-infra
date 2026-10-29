@@ -34,14 +34,14 @@ func (fatalT) Errorf(format string, args ...any) { log.Printf(format, args...) }
 
 func (fatalT) FailNow() { os.Exit(1) }
 
-// busIdToString converts a [32]uint8 array to a Go string
-func busIdToString(busId [32]uint8) string {
+// busIdToString converts a NUL-terminated [32]int8 array to a Go string
+func busIdToString(busId [32]int8) string {
 	bytes := make([]byte, 0, 32)
 	for _, b := range busId {
 		if b == 0 {
 			break
 		}
-		bytes = append(bytes, b)
+		bytes = append(bytes, byte(b))
 	}
 	return strings.TrimRight(string(bytes), "\x00")
 }
