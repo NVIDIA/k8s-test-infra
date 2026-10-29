@@ -5,6 +5,27 @@
   "type": "object",
   "additionalProperties": true,
   "properties": {
+    "numaSimulation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "configureKubelet": {
+          "type": "boolean"
+        },
+        "topologyManagerPolicy": {
+          "type": "string",
+          "enum": [
+            "none",
+            "best-effort",
+            "restricted",
+            "single-numa-node"
+          ]
+        }
+      }
+    },
     "gpu": {
       "type": "object",
       "additionalProperties": true,

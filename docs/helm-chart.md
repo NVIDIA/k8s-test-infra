@@ -1315,3 +1315,60 @@ for the nvml-mock release namespace.
 - [E2E Test Workflow](https://github.com/NVIDIA/k8s-test-infra/blob/main/.github/workflows/nvml-mock-e2e-go.yaml)
 - [KIND DRA Config](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/e2e/kind-dra-config.yaml)
 - [Device Plugin Mock Manifest](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/e2e/device-plugin-mock.yaml)
+
+## GPU-only NUMA filesystem simulation
+
+Enable the host NUMA view when a CPU-only test node must expose the NUMA zones
+from its GPU profile to kubelet and an NRT publisher:
+
+```yaml
+gpu:
+  profile: a100
+numaSimulation:
+  enabled: true
+  configureKubelet: true
+  topologyManagerPolicy: single-numa-node
+```
+
+The node agent derives zones from `pcie_topology.root_complexes`, assigns the
+node's online CPUs without separating sibling threads, and uses the resolved
+CPU affinities for NVML, PCI sysfs, and the generated NUMA tree. An explicit
+`cpu_affinity` must cover every zone and partition all online CPUs without
+repetition. Zone IDs must be contiguous, start at zero, and number at most eight.
+
+A systemd setup task mounts `/var/lib/nvml-mock/numa/sysnode` over
+`/sys/devices/system/node` in the node's mount namespace. New mounts stay inside
+the node, including when kind nodes share a VM. The persistent service restores
+the mount before kubelet starts. This requires Linux, systemd, and privileged
+node-agent access.
+
+`configureKubelet: true` backs up `/var/lib/kubelet/config.yaml`, sets the requested
+topology policy with container scope, leaves CPU and memory managers disabled,
+and restarts kubelet once. `false` mounts the tree but leaves kubelet configuration
+and restart to the administrator. The setup survives ordinary Mokka pod restarts.
+To restore the node, upgrade with `numaSimulation.enabled: false` before
+uninstalling Mokka. If setup changed kubelet configuration, restoration also
+restores that configuration and restarts kubelet.
+An active layout or policy change is rejected; restore the node before applying
+a different topology. The original configuration is stored under
+`/var/lib/nvml-mock/numa/original`.
+
+Install a real NRT publisher separately. For GPU Operator's NFD subchart:
+
+```yaml
+node-feature-discovery:
+  topologyUpdater:
+    enable: true
+    createCRDs: true
+    kubeletConfigPath: /var/lib/kubelet/config.yaml
+    annotations:
+      nvml-mock.nvidia.com/inject: "false"
+    config:
+      excludeList:
+        '*': [cpu, memory]
+```
+
+The real device plugin, kubelet PodResources API, and NFD topology updater report
+and enforce GPU locality. The Linux kernel retains its actual topology; this
+feature does not provide CPU or memory NUMA binding. CPU and memory are excluded
+from NRT because their kubelet managers remain disabled.

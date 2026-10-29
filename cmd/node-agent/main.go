@@ -16,6 +16,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/imex"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/migcaps"
+	"github.com/NVIDIA/k8s-test-infra/internal/agent/numa"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/nvlink"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/pcibus"
 	"github.com/urfave/cli/v3"
@@ -64,6 +65,10 @@ func startCommand() *cli.Command {
 		Usage: "start the node agent",
 		Flags: []cli.Flag{
 			features.CLIFlag(),
+			&cli.BoolFlag{Name: "numa-simulation", Usage: "publish a persistent host NUMA filesystem derived from the GPU profile", Sources: cli.EnvVars("MOKKA_NUMA_SIMULATION")},
+			&cli.BoolFlag{Name: "numa-configure-kubelet", Usage: "back up, configure and restart kubelet for GPU-only NUMA enforcement", Sources: cli.EnvVars("MOKKA_NUMA_CONFIGURE_KUBELET")},
+			&cli.StringFlag{Name: "numa-topology-manager-policy", Value: "single-numa-node", Usage: "kubelet topology policy with --numa-configure-kubelet", Sources: cli.EnvVars("MOKKA_NUMA_TOPOLOGY_MANAGER_POLICY")},
+
 			&cli.StringFlag{
 				Name:    "log-level",
 				Value:   "info",
@@ -282,7 +287,14 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 		zap.String("host_fs", cmd.String("host-fs")),
 	)
 
+	numaSimulator, err := numa.New(h, numa.Options{Enabled: cmd.Bool("numa-simulation"), ConfigureKubelet: cmd.Bool("numa-configure-kubelet"), Policy: cmd.String("numa-topology-manager-policy")})
+	if err != nil {
+		return err
+	}
+	stateSource := nodeStateSource(cmd, h, log)
+
 	simulators := []agent.Simulator{
+		numaSimulator,
 		nvml.New(h),
 		driverSimulator(h, driverMode),
 		pcibus.New(h),
@@ -307,7 +319,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 
 	a := agent.New(agent.Config{
 		Simulators:      simulators,
-		Source:          source.NewFileSource(configPath, cmd.String("topology"), resyncInterval, log),
+		Source:          stateSource,
 		Log:             log,
 		ShutdownTimeout: shutdownTimeout,
 		StagingLockPath: cmd.String("staging-lock-path"),
@@ -321,6 +333,15 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	g.Go(func() error { return healthSrv.Run(gctx) })
 	g.Go(func() error { return a.Run(gctx) })
 	return g.Wait()
+}
+
+// nodeStateSource resolves the node topology before parallel simulator staging.
+func nodeStateSource(cmd *cli.Command, h *host.Host, log *zap.Logger) agent.StateSource {
+	var stateSource agent.StateSource = source.NewFileSource(cmd.String("config"), cmd.String("topology"), cmd.Duration("resync-interval"), log)
+	if cmd.Bool("numa-simulation") {
+		stateSource = numa.WrapSource(stateSource, h)
+	}
+	return stateSource
 }
 
 // driverSimulator returns the simulator for the driver's kernel side in mode:

@@ -1,0 +1,59 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+suite: Host NUMA simulation
+templates:
+  - templates/daemonset.yaml
+capabilities:
+  majorVersion: 1
+  minorVersion: 35
+tests:
+  - it: is disabled by default
+    asserts:
+      - notContains:
+          path: spec.template.spec.initContainers[0].command
+          content: --numa-simulation
+  - it: exposes the explicit kubelet setup options
+    set:
+      numaSimulation:
+        enabled: true
+        configureKubelet: true
+        topologyManagerPolicy: restricted
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --numa-simulation
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --numa-configure-kubelet
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --numa-topology-manager-policy=restricted
+  - it: can configure NUMA without changing the container runtime
+    set:
+      nodeAgent.containerRuntime.enabled: false
+      numaSimulation.enabled: true
+      numaSimulation.configureKubelet: true
+    asserts:
+      - equal:
+          path: spec.template.spec.hostPID
+          value: true
+      - contains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: host-fs
+            mountPath: /host
+            readOnly: true
+            mountPropagation: HostToContainer
+  - it: rejects an unknown topology policy
+    set:
+      numaSimulation.topologyManagerPolicy: invalid
+    asserts:
+      - failedTemplate: {}
+  - it: refuses concurrent node setup during a surging rollout
+    set:
+      nodeAgent.containerRuntime.enabled: false
+      numaSimulation.enabled: true
+      updateStrategy.rollingUpdate.maxSurge: 1
+    asserts:
+      - failedTemplate:
+          errorMessage: "updateStrategy.rollingUpdate.maxSurge cannot be used with numaSimulation: only one pod may configure a node at a time"
