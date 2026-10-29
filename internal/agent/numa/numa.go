@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -49,34 +50,9 @@ type Simulator struct {
 
 // New constructs a simulator without changing the node.
 func New(h *host.Host, opts Options) (*Simulator, error) {
-	if opts.Policy == "" {
-		opts.Policy = "single-numa-node"
-	}
-	switch opts.Policy {
-	case "none", "best-effort", "restricted", "single-numa-node":
-	default:
-		return nil, fmt.Errorf("unsupported NUMA topology policy %q", opts.Policy)
-	}
-	if opts.CPUManagerPolicy == "" {
-		opts.CPUManagerPolicy = "none"
-	}
-	if opts.CPUManagerPolicy != "none" && opts.CPUManagerPolicy != "static" {
-		return nil, fmt.Errorf("unsupported CPU Manager policy %q", opts.CPUManagerPolicy)
-	}
-	if opts.Enabled && !opts.ConfigureKubelet && opts.CPUManagerPolicy != "none" {
-		return nil, errors.New("static CPU Manager requires configureKubelet")
-	}
-	if opts.MemoryManagerPolicy == "" {
-		opts.MemoryManagerPolicy = "None"
-	}
-	if opts.SystemReservedMemory == "" {
-		opts.SystemReservedMemory = "256Mi"
-	}
-	if opts.MemoryManagerPolicy != "None" && opts.MemoryManagerPolicy != "Static" {
-		return nil, fmt.Errorf("unsupported Memory Manager policy %q", opts.MemoryManagerPolicy)
-	}
-	if opts.Enabled && opts.MemoryManagerPolicy == "Static" && (!opts.ConfigureKubelet || opts.CPUManagerPolicy != "static") {
-		return nil, errors.New("static Memory Manager requires configureKubelet and static CPU Manager")
+	opts = opts.withDefaults()
+	if err := opts.validate(); err != nil {
+		return nil, err
 	}
 	sim := &Simulator{host: h, opts: opts}
 	sim.runHost = func(ctx context.Context, args ...string) error {
@@ -128,10 +104,8 @@ func (s *Simulator) Stage(_ context.Context, state *agent.State) error {
 			return err
 		}
 	}
-	if s.opts.ConfigureKubelet {
-		if err := s.stageKubeletConfig(plan); err != nil {
-			return err
-		}
+	if err := s.stageKubeletConfig(plan); err != nil {
+		return err
 	}
 	for name, body := range map[string][]byte{"host.sh": hostScript, "desired": []byte(s.desired + "\n"), "plan.json": append(data, '\n')} {
 		if err := fsutil.Write(s.host.RootPath("numa", name), body, 0700); err != nil {
@@ -187,3 +161,45 @@ func (s *Simulator) Discard(context.Context) error { return nil }
 
 var _ agent.Simulator = (*Simulator)(nil)
 var _ agent.Applier = (*Simulator)(nil)
+
+func (opts Options) withDefaults() Options {
+	if opts.Policy == "" {
+		opts.Policy = "single-numa-node"
+	}
+	if opts.CPUManagerPolicy == "" {
+		opts.CPUManagerPolicy = "none"
+	}
+	if opts.MemoryManagerPolicy == "" {
+		opts.MemoryManagerPolicy = "None"
+	}
+	if opts.SystemReservedMemory == "" {
+		opts.SystemReservedMemory = "256Mi"
+	}
+	return opts
+}
+
+func (opts Options) validate() error {
+	if !slices.Contains([]string{"none", "best-effort", "restricted", "single-numa-node"}, opts.Policy) {
+		return fmt.Errorf("unsupported NUMA topology policy %q", opts.Policy)
+	}
+	if !slices.Contains([]string{"none", "static"}, opts.CPUManagerPolicy) {
+		return fmt.Errorf("unsupported CPU Manager policy %q", opts.CPUManagerPolicy)
+	}
+	if !slices.Contains([]string{"None", "Static"}, opts.MemoryManagerPolicy) {
+		return fmt.Errorf("unsupported Memory Manager policy %q", opts.MemoryManagerPolicy)
+	}
+	return opts.validateManagers()
+}
+
+func (opts Options) validateManagers() error {
+	if !opts.Enabled {
+		return nil
+	}
+	if !opts.ConfigureKubelet && (opts.CPUManagerPolicy == "static" || opts.MemoryManagerPolicy == "Static") {
+		return errors.New("static resource managers require configureKubelet")
+	}
+	if opts.MemoryManagerPolicy == "Static" && opts.CPUManagerPolicy != "static" {
+		return errors.New("static Memory Manager requires static CPU Manager")
+	}
+	return nil
+}
