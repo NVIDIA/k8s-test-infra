@@ -105,6 +105,17 @@ COPY pkg/gpu/mocknvml/configs/mock-nvml-config-a100.mig.yaml /app/util-test-conf
 RUN sed 's/driver_version: "580\.65\.06"/driver_version: "615.71.09"/' /app/util-test-config.yaml > /app/util-test-config-615.yaml \
     && grep -q 'driver_version: "615.71.09"' /app/util-test-config-615.yaml
 
+# The Confidential Compute suite needs a Hopper board with CC on. CC is one
+# switch per node, so it gets a fixture of its own, run as
+# `mocknvml-test coco`: the shipped H100 profile plus a
+# confidential_compute block.
+COPY pkg/gpu/mocknvml/configs/mock-nvml-config-h100.yaml /tmp/h100.yaml
+COPY tests/mocknvml/cc-test-config.tail.yaml /tmp/cc-tail.yaml
+COPY tests/mocknvml/ppcie-test-config.tail.yaml /tmp/ppcie-tail.yaml
+RUN cat /tmp/h100.yaml /tmp/cc-tail.yaml > /app/cc-test-config.yaml \
+    && cat /tmp/h100.yaml /tmp/ppcie-tail.yaml > /app/ppcie-test-config.yaml \
+    && rm /tmp/h100.yaml /tmp/cc-tail.yaml /tmp/ppcie-tail.yaml
+
 # The real file only: a wildcard also drags in the cgo header (ldconfig rejects
 # it) and flattens the sonames into three 12 MiB copies.
 ARG LIB_VERSION
