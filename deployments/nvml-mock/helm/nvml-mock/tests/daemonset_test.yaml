@@ -150,7 +150,7 @@ tests:
           path: spec.template.spec.initContainers[0].env
           content:
             name: DRIVER_VERSION
-            value: "580.65.06"
+            value: "615.71.10"
 
   # ── NFD features.d mount (nodeLabels.featuresDir) ────────────────────
   # The node agent (containers[0]) writes the pci-10de feature file here.
@@ -244,7 +244,7 @@ tests:
           path: spec.template.spec.initContainers[0].env
           content:
             name: DRIVER_VERSION
-            value: "580.65.06"
+            value: "615.71.10"
 
   - it: should use explicit driverVersion when provided
     set:

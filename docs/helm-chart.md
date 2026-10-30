@@ -785,8 +785,8 @@ namespace, on the pod IP where the kubelet reaches it.
 | `image.tag` | `""` (chart `appVersion`) | Container image tag. When empty, the chart `appVersion`: the release version in a released chart, the next `-dev` version on `main`. |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy. When empty, the Kubernetes default for the rendered image: `Always` for the `latest` tag, `IfNotPresent` otherwise. |
 | `featureGates` | `{}` | Feature gates passed to the node agent, NRI plugin and control plane, as `Name: true\|false`. See [Feature Gates](feature-gates.md). |
-| `driverVersion` | `""` (auto) | NVIDIA driver version to mock. When empty, read from `system.driver_version` of the resolved GPU config (the selected `gpu.profile` file, or `gpu.customConfig` if set), so the profile is the single source of truth (every shipped profile pins `580.65.06`). Set explicitly to override the profile — the version also decides which NVML functions exist, since the mock refuses the ones its declared driver predates. |
-| `driverBranch` | `""` (derived) | Branch `nvmlSystemGetDriverBranch` reports. Derived from the driver version when empty (`580.65.06` → `r580_00`); set it to model a point-release branch such as `r570_40` |
+| `driverVersion` | `""` (auto) | NVIDIA driver version to mock. When empty, read from `system.driver_version` of the resolved GPU config (the selected `gpu.profile` file, or `gpu.customConfig` if set), so the profile is the single source of truth (every shipped profile pins `615.71.10`, the driver whose `nvidia-smi` the image bundles). Set explicitly to override the profile — the version also decides which NVML functions exist, since the mock refuses the ones its declared driver predates. |
+| `driverBranch` | `""` (derived) | Branch `nvmlSystemGetDriverBranch` reports. Derived from the driver version when empty (`615.71.10` → `r615_00`); set it to model a point-release branch such as `r570_40` |
 | `hic` | `[]` | Host interface cards `nvmlSystemGetHicVersion` reports, which is what `nvidia-smi -q -u` prints. Entries are `{id, firmwareVersion}`. Real HICs only exist on the retired S-class enclosures, so no profile configures any. |
 | `nodeSelector` | `{}` | Node selector for DaemonSet |
 | `tolerations` | `[{operator: Exists}]` | Pod tolerations (default: tolerate all) |
@@ -910,7 +910,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 | **FP8** | — | Yes | Yes | Yes | Yes | Yes | — |
 | **FP4** | — | — | Yes | Yes | Yes | — | — |
 | **FP6** | — | — | — | — | Yes | — | — |
-| **Driver version** | 580.65.06 | 580.65.06 | 580.65.06 | 580.65.06 | 580.65.06 | 580.65.06 | 580.65.06 |
+| **Driver version** | 615.71.10 | 615.71.10 | 615.71.10 | 615.71.10 | 615.71.10 | 615.71.10 | 615.71.10 |
 
 #### When to Use Each Profile
 

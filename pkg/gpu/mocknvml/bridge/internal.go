@@ -46,6 +46,11 @@ extern unsigned int mockInternalHostMaxPcieLinkGen(void* handle);
 extern int mockInternalIsVgpuHost(void* handle);
 extern int mockInternalGuestLicenseState(void* handle, unsigned int* state);
 
+// Forward declarations of the public excluded-device getters (defined in
+// drain.go), which answer the unlisted-GPU slots.
+extern nvmlReturn_t nvmlGetExcludedDeviceCount(unsigned int* deviceCount);
+extern nvmlReturn_t nvmlGetExcludedDeviceInfoByIndex(unsigned int index, nvmlExcludedDeviceInfo_t* info);
+
 // Forward declaration of the public persistence-mode setter (defined in device.go).
 extern nvmlReturn_t nvmlDeviceSetPersistenceMode(nvmlDevice_t device, nvmlEnableState_t mode);
 
@@ -80,6 +85,12 @@ static int isDebugEnabled() {
 #define MOCK_SLOT_PROCESS_LIST_LAST 215
 #define MOCK_SLOT_HOST_MAX_PCIE_LINK_GEN 230
 #define MOCK_SLOT_SET_PERSISTENCE_MODE 251
+#define MOCK_SLOT_UNLISTED_COUNT 270
+#define MOCK_SLOT_UNLISTED_INFO 271
+#define MOCK_UNLISTED_COUNT_VERSION 0x1000008
+#define MOCK_UNLISTED_INFO_VERSION 0x1000048
+_Static_assert(sizeof(nvmlPciInfo_t) + sizeof(unsigned int) == (MOCK_UNLISTED_INFO_VERSION & 0xFFFFFF),
+               "the unlisted-GPU info struct is a version tag followed by nvmlPciInfo_t");
 
 // C stub function for internal export table
 // This gets called by nvidia-smi via the export table function pointers
@@ -149,6 +160,43 @@ static nvmlReturn_t internalStubFunction(unsigned int slot, void* arg0, void* ar
         if (isDebugEnabled()) {
             fprintf(stderr, "[C-STUB] slot %u SetPersistenceMode(handle=%p, mode=%u) -> ret=%d\n",
                     slot, arg0, (unsigned int)(uintptr_t)arg1, ret);
+        }
+        return ret;
+    }
+
+    // Unlisted GPUs: fn({version, count}*) and fn(index, {version,
+    // nvmlPciInfo_t}*), the GPUs on the bus that NVML does not enumerate.
+    // nvidia-smi 615 asks for them before `--gpu-reset` reports what it reset,
+    // and prints one "Unlisted GPU <bus id> was successfully reset" line per
+    // entry. Left to the catch-all the count stayed at its uninitialised 65535,
+    // and so did the number of lines. The mock's excluded GPUs are the ones the
+    // driver sees but NVML does not list, so both slots answer from the public
+    // excluded-device calls. Struct layouts were read off nvidia-smi 615's
+    // disassembly: the version tag is the struct size with version 1 in the
+    // top byte.
+    if (slot == MOCK_SLOT_UNLISTED_COUNT && arg0 != NULL && !mockInternalIsDeviceHandle(arg0)) {
+        unsigned int* req = (unsigned int*)arg0;
+        if (req[0] != MOCK_UNLISTED_COUNT_VERSION) {
+            return NVML_ERROR_ARGUMENT_VERSION_MISMATCH;
+        }
+        nvmlReturn_t ret = nvmlGetExcludedDeviceCount(&req[1]);
+        if (isDebugEnabled()) {
+            fprintf(stderr, "[C-STUB] slot %u unlisted GPU count -> %u (ret=%d)\n", slot, req[1], ret);
+        }
+        return ret;
+    }
+    if (slot == MOCK_SLOT_UNLISTED_INFO && arg1 != NULL) {
+        unsigned int* req = (unsigned int*)arg1;
+        if (req[0] != MOCK_UNLISTED_INFO_VERSION) {
+            return NVML_ERROR_ARGUMENT_VERSION_MISMATCH;
+        }
+        nvmlExcludedDeviceInfo_t info;
+        nvmlReturn_t ret = nvmlGetExcludedDeviceInfoByIndex((unsigned int)rawArg0, &info);
+        if (ret == NVML_SUCCESS) {
+            memcpy(&req[1], &info.pciInfo, sizeof(info.pciInfo));
+        }
+        if (isDebugEnabled()) {
+            fprintf(stderr, "[C-STUB] slot %u unlisted GPU %u -> ret=%d\n", slot, (unsigned int)rawArg0, ret);
         }
         return ret;
     }
@@ -259,8 +307,12 @@ static nvmlReturn_t internalStubFunction(unsigned int slot, void* arg0, void* ar
 
 // One trampoline per export-table slot, so the dispatcher above is told which
 // internal entry point nvidia-smi called instead of having to guess from the
-// argument shape. The 16x16 expansion is only a way to write 256 distinct
+// argument shape. The 32x16 expansion is only a way to write 512 distinct
 // function bodies; slot number is hi*16 + lo, matching the table index.
+//
+// nvidia-smi does not ask how long the table is, so it must cover every slot
+// a supported release calls: 615 calls slot 256 from `-q`, and a 256-entry
+// table sent it through whatever followed the array in memory.
 #define MOCK_SLOT_STUB(hi, lo) \
     static nvmlReturn_t mockSlotStub_##hi##_##lo(void* a0, void* a1, void* a2, void* a3) { \
         return internalStubFunction(hi * 16 + lo, a0, a1, a2, a3); \
@@ -274,11 +326,15 @@ static nvmlReturn_t internalStubFunction(unsigned int slot, void* arg0, void* ar
     MOCK_SLOT_ROW(M, 0) MOCK_SLOT_ROW(M, 1) MOCK_SLOT_ROW(M, 2) MOCK_SLOT_ROW(M, 3) \
     MOCK_SLOT_ROW(M, 4) MOCK_SLOT_ROW(M, 5) MOCK_SLOT_ROW(M, 6) MOCK_SLOT_ROW(M, 7) \
     MOCK_SLOT_ROW(M, 8) MOCK_SLOT_ROW(M, 9) MOCK_SLOT_ROW(M, 10) MOCK_SLOT_ROW(M, 11) \
-    MOCK_SLOT_ROW(M, 12) MOCK_SLOT_ROW(M, 13) MOCK_SLOT_ROW(M, 14) MOCK_SLOT_ROW(M, 15)
+    MOCK_SLOT_ROW(M, 12) MOCK_SLOT_ROW(M, 13) MOCK_SLOT_ROW(M, 14) MOCK_SLOT_ROW(M, 15) \
+    MOCK_SLOT_ROW(M, 16) MOCK_SLOT_ROW(M, 17) MOCK_SLOT_ROW(M, 18) MOCK_SLOT_ROW(M, 19) \
+    MOCK_SLOT_ROW(M, 20) MOCK_SLOT_ROW(M, 21) MOCK_SLOT_ROW(M, 22) MOCK_SLOT_ROW(M, 23) \
+    MOCK_SLOT_ROW(M, 24) MOCK_SLOT_ROW(M, 25) MOCK_SLOT_ROW(M, 26) MOCK_SLOT_ROW(M, 27) \
+    MOCK_SLOT_ROW(M, 28) MOCK_SLOT_ROW(M, 29) MOCK_SLOT_ROW(M, 30) MOCK_SLOT_ROW(M, 31)
 
 MOCK_SLOT_ALL(MOCK_SLOT_STUB)
 
-static void* mockSlotStubs[256] = { MOCK_SLOT_ALL(MOCK_SLOT_ADDR) };
+static void* mockSlotStubs[512] = { MOCK_SLOT_ALL(MOCK_SLOT_ADDR) };
 
 // getSlotStubAddress returns the trampoline that identifies table slot.
 static void* getSlotStubAddress(unsigned int slot) {
@@ -465,7 +521,7 @@ func writeProcessEntry(buf unsafe.Pointer, index int, pid uint32, usedGpuMemory 
 // Based on reverse engineering: table[0] = size (must be > 648), table[648/8] = function pointer
 // Table needs to be large enough for all offsets nvidia-smi might access
 var (
-	internalExportTable    [256]uintptr
+	internalExportTable    [512]uintptr
 	exportTableInitialized = false
 )
 
@@ -479,12 +535,12 @@ func initExportTable() {
 
 	// Every slot gets its own trampoline so a call can be attributed to the
 	// internal entry point nvidia-smi asked for.
-	for i := 1; i < 256; i++ {
+	for i := 1; i < len(internalExportTable); i++ {
 		internalExportTable[i] = uintptr(C.getSlotStubAddress(C.uint(i)))
 	}
 
 	exportTableInitialized = true
-	debugLog("[MOCK-NVML] Export table initialized with %d per-slot trampolines\n", 255)
+	debugLog("[MOCK-NVML] Export table initialized with %d per-slot trampolines\n", len(internalExportTable)-1)
 }
 
 // Internal function used by nvidia-smi for version verification

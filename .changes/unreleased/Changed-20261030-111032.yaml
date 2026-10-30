@@ -1,0 +1,6 @@
+kind: Changed
+body: |-
+  **Breaking:** nvml-mock: field IDs 251–273 use the NVML 590+ layout for driver 590 and later; use matching client headers or set an older driver version to retain the 580 layout.
+time: 2026-10-30T10:10:32Z
+custom:
+  Issue: "377"

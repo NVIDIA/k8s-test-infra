@@ -17,6 +17,7 @@ package engine
 // and mockctl imports this package.
 
 import (
+	"errors"
 	"sync/atomic"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
@@ -113,7 +114,31 @@ type OverrideWriter interface {
 	// SetDramEncryptionPending records the DRAM encryption mode that applies
 	// after the next reboot.
 	SetDramEncryptionPending(index int, enabled bool) error
+
+	// SetConfComputeGpusReady records the node-wide Confidential Compute
+	// GPUs ready state in the `all:` bucket.
+	SetConfComputeGpusReady(ready bool) error
+
+	// SetConfComputeKeyRotationThreshold records the node-wide key rotation
+	// attacker advantage in the `all:` bucket. The value is already validated.
+	//
+	// It refuses with ErrConfComputeGpusReady when the GPUs are ready, judged
+	// under the write's lock from the recorded ready state, or from
+	// profileReady when none is recorded: another process may have made them
+	// ready since this one last read the document.
+	SetConfComputeKeyRotationThreshold(advantage uint64, profileReady bool) error
+
+	// SetConfComputeUnprotectedMemSize records one GPU's unprotected memory
+	// size, in KiB. It refuses while the GPUs are ready on the same terms as
+	// SetConfComputeKeyRotationThreshold.
+	SetConfComputeUnprotectedMemSize(index int, kib uint64, profileReady bool) error
 }
+
+// ErrConfComputeGpusReady is what a Confidential Compute writer returns when
+// the GPUs turned out to be ready under the write's lock. recordSetterWrite
+// answers it as INVALID_STATE, which is what the driver reports for a change
+// to the key rotation threshold or the memory split under accepted work.
+var ErrConfComputeGpusReady = errors.New("confidential compute GPUs are accepting work")
 
 // ClockDomain names a clock domain the locked-clock and offset setters write
 // under: the key of its locked_<domain> range and of its offsets.<domain> entry.
@@ -159,6 +184,10 @@ func recordSetterWrite(op string, write func(OverrideWriter) error) nvml.Return 
 		return nvml.ERROR_NO_PERMISSION
 	}
 	if err := write(w); err != nil {
+		if errors.Is(err, ErrConfComputeGpusReady) {
+			debugLog("[NVML] %s -> INVALID_STATE: %v\n", op, err)
+			return nvml.ERROR_INVALID_STATE
+		}
 		warnLog("[NVML] %s -> NO_PERMISSION: %v\n", op, err)
 		return nvml.ERROR_NO_PERMISSION
 	}

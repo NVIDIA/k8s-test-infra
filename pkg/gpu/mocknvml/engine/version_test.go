@@ -117,6 +117,29 @@ func TestFunctionAvailable(t *testing.T) {
 		{"cc memsize available on 525", "525.0", "nvmlDeviceGetConfComputeMemSizeInfo", true},
 		{"cc protected usage not available on 470", "470.0", "nvmlDeviceGetConfComputeProtectedMemoryUsage", false},
 		{"cc protected usage available on 580", "580.173.02", "nvmlDeviceGetConfComputeProtectedMemoryUsage", true},
+
+		// The rest of the CC surface arrived with the NVML 12.2 header (driver
+		// 535); settings and key rotation with 12.4 (driver 550).
+		{"nvmlSystemGetConfComputeCapabilities not available on 530", "530.30.02", "nvmlSystemGetConfComputeCapabilities", false},
+		{"nvmlSystemGetConfComputeCapabilities available on 535", "535.0", "nvmlSystemGetConfComputeCapabilities", true},
+		{"nvmlSystemGetConfComputeState not available on 530", "530.30.02", "nvmlSystemGetConfComputeState", false},
+		{"nvmlSystemGetConfComputeState available on 535", "535.0", "nvmlSystemGetConfComputeState", true},
+		{"nvmlSystemGetConfComputeGpusReadyState not available on 530", "530.30.02", "nvmlSystemGetConfComputeGpusReadyState", false},
+		{"nvmlSystemGetConfComputeGpusReadyState available on 535", "535.0", "nvmlSystemGetConfComputeGpusReadyState", true},
+		{"nvmlSystemSetConfComputeGpusReadyState not available on 530", "530.30.02", "nvmlSystemSetConfComputeGpusReadyState", false},
+		{"nvmlSystemSetConfComputeGpusReadyState available on 535", "535.0", "nvmlSystemSetConfComputeGpusReadyState", true},
+		{"nvmlDeviceGetConfComputeGpuCertificate not available on 530", "530.30.02", "nvmlDeviceGetConfComputeGpuCertificate", false},
+		{"nvmlDeviceGetConfComputeGpuCertificate available on 535", "535.0", "nvmlDeviceGetConfComputeGpuCertificate", true},
+		{"nvmlDeviceGetConfComputeGpuAttestationReport not available on 530", "530.30.02", "nvmlDeviceGetConfComputeGpuAttestationReport", false},
+		{"nvmlDeviceGetConfComputeGpuAttestationReport available on 535", "535.0", "nvmlDeviceGetConfComputeGpuAttestationReport", true},
+		{"nvmlDeviceSetConfComputeUnprotectedMemSize not available on 530", "530.30.02", "nvmlDeviceSetConfComputeUnprotectedMemSize", false},
+		{"nvmlDeviceSetConfComputeUnprotectedMemSize available on 535", "535.0", "nvmlDeviceSetConfComputeUnprotectedMemSize", true},
+		{"nvmlSystemGetConfComputeSettings not available on 545", "545.29.06", "nvmlSystemGetConfComputeSettings", false},
+		{"nvmlSystemGetConfComputeSettings available on 550", "550.0", "nvmlSystemGetConfComputeSettings", true},
+		{"nvmlSystemGetConfComputeKeyRotationThresholdInfo not available on 545", "545.29.06", "nvmlSystemGetConfComputeKeyRotationThresholdInfo", false},
+		{"nvmlSystemGetConfComputeKeyRotationThresholdInfo available on 550", "550.0", "nvmlSystemGetConfComputeKeyRotationThresholdInfo", true},
+		{"nvmlSystemSetConfComputeKeyRotationThresholdInfo not available on 545", "545.29.06", "nvmlSystemSetConfComputeKeyRotationThresholdInfo", false},
+		{"nvmlSystemSetConfComputeKeyRotationThresholdInfo available on 550", "550.0", "nvmlSystemSetConfComputeKeyRotationThresholdInfo", true},
 	}
 
 	for _, tt := range tests {

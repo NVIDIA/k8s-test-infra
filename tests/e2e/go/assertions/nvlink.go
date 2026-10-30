@@ -234,6 +234,10 @@ func nvlinkBwMode(ctx context.Context, k *kube.Client, pod kube.PodRef, p profil
 	_, _ = k.ExecTruncated(ctx, pod, nvlinkLogOutputLines, "nvidia-smi", "nvlink", "-sBwMode", "FULL")
 }
 
+// nvleRow matches the NVLink encryption row of `nvidia-smi nvlink --info`,
+// which nvidia-smi 580 labels "NVLE:" and 615 "NVLink Encryption:".
+const nvleRow = `(NVLE|NVLink Encryption):`
+
 // nvlinkInfo asserts `nvidia-smi nvlink --info` and, where it answers, the
 // low-power threshold. It is independent of the bandwidth mode: the two gates
 // barely overlap, since only h100 puts the mode on the node-wide pair while
@@ -245,12 +249,12 @@ func nvlinkInfo(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.
 	infoRes, _ := k.ExecTruncated(ctx, pod, nvlinkLogOutputLines, "nvidia-smi", "nvlink", "--info")
 	info := infoRes.Combined()
 	if !p.ReportsNvlinkEncryption() {
-		gomega.Expect(info).NotTo(gomega.ContainSubstring("NVLE:"),
+		gomega.Expect(info).NotTo(gomega.MatchRegexp(nvleRow),
 			"profile %q (%s, driver %d.x, %d links) must not report NVLE:\n%s",
 			p.Name, p.Architecture(), p.DriverMajor(), p.ExpectedNV(), info)
 		return
 	}
-	gomega.Expect(info).To(gomega.ContainSubstring("NVLE:"),
+	gomega.Expect(info).To(gomega.MatchRegexp(nvleRow),
 		"profile %q did not report the NVLE row:\n%s", p.Name, info)
 
 	nvlinkFirmware(info, p)

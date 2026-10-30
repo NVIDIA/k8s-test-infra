@@ -1339,7 +1339,8 @@ func TestConfigurableDevice_NvLinkGetters_PerDevice(t *testing.T) {
 
 	v, ret := d0.GetNvLinkVersion(0)
 	require.Equal(t, nvml.SUCCESS, ret, "d0.GetNvLinkVersion(0) ret")
-	require.Equal(t, uint32(5), v, "d0.GetNvLinkVersion(0) version")
+	require.Equal(t, uint32(nvml.NVLINK_VERSION_5_0), v,
+		"a generation-5 link reports NVML_NVLINK_VERSION_5_0, the nvmlNvlinkVersion_t value, not the generation")
 
 	capability, ret := d0.GetNvLinkCapability(0, nvml.NVLINK_CAP_P2P_SUPPORTED)
 	require.Equal(t, nvml.SUCCESS, ret, "d0.GetNvLinkCapability(0,P2P) ret")

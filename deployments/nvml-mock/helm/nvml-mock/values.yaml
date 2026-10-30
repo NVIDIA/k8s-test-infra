@@ -117,6 +117,20 @@ gpu:
     instances: []
     guest: {}
 
+  # Confidential Computing simulation for the whole node. Non-empty fields
+  # overlay the profile's top-level confidential_compute block. "on" and
+  # "devtools" need Hopper or newer; Protected PCIe needs Hopper with CC off.
+  # Behaviour and the full block: docs/configuration.md#confidential-computing.
+  confidentialCompute:
+    # -- Confidential Computing mode: "" (the profile's), off, on or devtools.
+    mode: ""
+    # -- CC environment: "" (the profile's, default prod), prod or sim.
+    environment: ""
+    # -- Multi-GPU protection: "" (the profile's), none, protected_pcie (Hopper, CC off) or nvle (Blackwell or newer).
+    multiGpuMode: ""
+    # -- CPU CC capability: "" (the profile's, default none), none, amd_sev, intel_tdx, amd_sev_snp or amd_snp_vtom.
+    cpuCaps: ""
+
 image:
   # -- Container image repository for the node agent.
   repository: ghcr.io/nvidia/nvml-mock
@@ -134,7 +148,7 @@ image:
 featureGates: {}
 
 # -- Driver version reported by the simulated driver; empty derives it from the profile.
-driverVersion: ""                  # Auto-derived from profile. Override: "580.65.06"
+driverVersion: ""                  # Auto-derived from profile. Override: "615.71.10"
 
 # -- Driver branch nvmlSystemGetDriverBranch reports; empty derives it from the driver version ("580.65.06" -> "r580_00").
 driverBranch: ""

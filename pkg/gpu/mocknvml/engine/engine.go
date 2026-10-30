@@ -168,6 +168,7 @@ func (e *Engine) createDevicesFromYAML(server *MockServer, base *mockserver.Serv
 	// (read-only) by every device, replacing the single shared *NVLinkConfig
 	// pointer that previously made every GPU report identical links.
 	fabric := BuildNodeFabric(e.config)
+	confCompute := e.confComputeProfile()
 	for _, w := range fabric.Validate() {
 		warnLog("[ENGINE] NVLink topology: %s\n", w)
 	}
@@ -198,6 +199,7 @@ func (e *Engine) createDevicesFromYAML(server *MockServer, base *mockserver.Serv
 			minorNumber,
 			fabric,
 		)
+		server.configurableDevices[i].setConfCompute(confCompute)
 
 		debugLog("[ENGINE] Created device %d: uuid=%s pci=%s\n", i, uuid, pciBusID)
 	}

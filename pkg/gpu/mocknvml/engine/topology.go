@@ -127,7 +127,11 @@ const (
 	DefaultNVLinkDutyCycle = 0.05
 
 	// nvLinkMaxLinks bounds the per-device link index. Indices outside
-	// [0, nvLinkMaxLinks) are rejected as invalid arguments.
+	// [0, nvLinkMaxLinks) are rejected as invalid arguments. It is
+	// NVML_NVLINK_MAX_LINKS from the header the bridge is built against: the
+	// NVML 13 header raised it from 18 to 36, and nvidia-smi 615 walks every
+	// index up to it in `topo -m`, failing the whole matrix on the first
+	// INVALID_ARGUMENT.
 	//
 	// FIDELITY (#255): this is a single global cap, not per-profile. On a
 	// profile with fewer links than the max (e.g. a100 = 12), indices in
@@ -136,7 +140,7 @@ const (
 	// Harmless for current consumers (nvidia-smi enumerates via LINK_COUNT and
 	// stops at the active links); revisit if a consumer probes beyond the
 	// profile's link count.
-	nvLinkMaxLinks = 18
+	nvLinkMaxLinks = nvml.NVLINK_MAX_LINKS
 )
 
 // defaultNVLinkCaps is the capability bitmap reported for active GPU/switch
