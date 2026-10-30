@@ -1,0 +1,6 @@
+kind: Fixed
+body: |-
+  helm: the install notes pin the GPU Operator chart with `--version v26.3.3` again. v0.4.0 and v0.4.1 printed the pin but v0.5.0 and v0.5.1 did not, so following their notes installed the newest chart (v26.7.1 or later), whose operands never start on the mock.
+time: 2026-10-25T11:17:02Z
+custom:
+  Issue: "911"
