@@ -504,7 +504,19 @@ typedef struct nvmlEccSramErrorStatus_st
     unsigned int       bThresholdExceeded;
 } nvmlEccSramErrorStatus_t;
 typedef struct nvmlEccSramUniqueUncorrectedErrorCounts_st   nvmlEccSramUniqueUncorrectedErrorCounts_t;
-typedef struct nvmlEncoderSessionInfo_st                    nvmlEncoderSessionInfo_t;
+/* Encoder session info — full definition so nvmlDeviceGetEncoderSessions can
+ * populate the caller's buffer. Layout matches the upstream NVML header. */
+typedef struct nvmlEncoderSessionInfo_st
+{
+    unsigned int       sessionId;
+    unsigned int       pid;
+    nvmlVgpuInstance_t vgpuInstance;
+    nvmlEncoderType_t  codecType;
+    unsigned int       hResolution;
+    unsigned int       vResolution;
+    unsigned int       averageFps;
+    unsigned int       averageLatency;
+} nvmlEncoderSessionInfo_t;
 /* Event data - full definition needed by bridge so the failure-injection
  * Xid event surfaced via nvmlEventSetWait_v1/_v2 can populate the eventType
  * and eventData fields (see bridge/events.go). Layout matches the
@@ -535,9 +547,24 @@ typedef struct nvmlExcludedDeviceInfo_st {
     nvmlPciInfo_t pciInfo;                   //!< The PCI information for the excluded GPU
     char uuid[NVML_DEVICE_UUID_BUFFER_SIZE]; //!< The ASCII string UUID for the excluded GPU
 } nvmlExcludedDeviceInfo_t;
-/* FBC session info stays opaque: ConfigurableDevice.GetFBCSessions currently
- * always returns an empty list, so the bridge only ever writes sessionCount. */
-typedef struct nvmlFBCSessionInfo_st                        nvmlFBCSessionInfo_t;
+/* FBC session info — full definition so nvmlDeviceGetFBCSessions can populate
+ * the caller's buffer. Layout matches the upstream NVML header
+ * (nvmlFBCSessionType_t is an enum, 4 bytes). */
+typedef struct nvmlFBCSessionInfo_st
+{
+    unsigned int       sessionId;
+    unsigned int       pid;
+    nvmlVgpuInstance_t vgpuInstance;
+    unsigned int       displayOrdinal;
+    unsigned int       sessionType;
+    unsigned int       sessionFlags;
+    unsigned int       hMaxResolution;
+    unsigned int       vMaxResolution;
+    unsigned int       hResolution;
+    unsigned int       vResolution;
+    unsigned int       averageFPS;
+    unsigned int       averageLatency;
+} nvmlFBCSessionInfo_t;
 /* FBC stats — full definition so nvmlDeviceGetFBCStats can populate the
  * caller's buffer (issue #636). Layout matches the upstream NVML header. */
 typedef struct nvmlFBCStats_st

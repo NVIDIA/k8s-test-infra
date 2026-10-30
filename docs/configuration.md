@@ -791,6 +791,27 @@ device_defaults:
     average_latency_us: 0
 ```
 
+`session_count` also decides how many sessions `nvmlDeviceGetEncoderSessions`
+and `nvmlDeviceGetFBCSessions` list. Each session reports the configured
+`average_fps` and `average_latency_us` and is assigned to the configured
+[processes](#processes) in turn; with no processes, the sessions report pid 0.
+`nvmlDeviceGetEncoderCapacity` reports 100 minus the sum of the processes'
+`enc_util`, floored at 0, for every codec.
+
+### Board and operation mode
+
+```yaml
+device_defaults:
+  multi_gpu_board: false            # true: one of several GPUs on a board
+  gpu_operation_mode:
+    current: "all_on"               # all_on, compute, low_dp
+    pending: "all_on"               # defaults to current
+```
+
+`multi_gpu_board` is what `nvmlDeviceGetMultiGpuBoard` reports. It defaults to
+`false`. `gpu_operation_mode` is what `nvmlDeviceGetGpuOperationMode` reports;
+an unknown value is rejected when the profile loads.
+
 ### Processes
 
 `processes` drive the running-process queries, `nvmlDeviceGetProcessUtilization`,
