@@ -271,6 +271,31 @@ test("selects the newest matching workflow by run number then ID regardless of o
   ] })), "FAILED");
 });
 
+test("a cancelled run does not outrank another run of the same workflow on the same head", () => {
+  // Label events in the same second start several runs at once; concurrency keeps an arbitrary one.
+  for (const [status, conclusion, want] of [
+    ["completed", "success", "SUCCESS"], ["in_progress", null, "PENDING"], ["completed", "failure", "FAILED"],
+  ]) {
+    const runs = [
+      run("validate-changelog.yaml", { id: 662, runNumber: 662, conclusion: "cancelled" }),
+      run("validate-changelog.yaml", { id: 663, runNumber: 663, status, conclusion }),
+      run("validate-changelog.yaml", { id: 664, runNumber: 664, conclusion: "cancelled" }),
+      run("basic-checks.yaml"),
+    ];
+    assert.equal(evaluateCI(evidence({ runs })), want);
+    assert.equal(evaluateCI(evidence({ runs: [...runs].reverse() })), want);
+  }
+  assert.equal(evaluateCI(evidence({ runs: [
+    run("validate-changelog.yaml", { id: 662, runNumber: 662, conclusion: "cancelled" }),
+    run("validate-changelog.yaml", { id: 664, runNumber: 664, conclusion: "cancelled" }), run("basic-checks.yaml"),
+  ] })), "FAILED");
+  assert.equal(evaluateCI(evidence({ runs: [
+    run("validate-changelog.yaml", { id: 663, runNumber: 663 }),
+    run("validate-changelog.yaml", { id: 664, runNumber: 664, headOid: OLD_HEAD, conclusion: "cancelled" }),
+    run("basic-checks.yaml", { conclusion: "cancelled" }),
+  ] })), "FAILED");
+});
+
 test("uses the current rerun attempt without allowing newer unrelated runs to hide it", () => {
   assert.equal(evaluateCI(evidence({ runs: [
     run("basic-checks.yaml", { runAttempt: 2, status: "in_progress", conclusion: null }),
