@@ -65,7 +65,6 @@ func containerFromNRI(pod *api.PodSandbox, container *api.Container) inject.Cont
 	for _, device := range container.GetCDIDevices() {
 		result.CDIDevices = append(result.CDIDevices, device.GetName())
 	}
-	result.HasSeccompPolicy = container.GetLinux().GetSeccompPolicy() != nil
 
 	return result
 }

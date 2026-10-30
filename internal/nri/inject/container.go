@@ -20,8 +20,6 @@ type Container struct {
 	IncomingDevices []RuntimeDevice
 	DeviceRules     []DeviceRule
 	CDIDevices      []string
-	// HasSeccompPolicy: the runtime set one; privileged containers have none.
-	HasSeccompPolicy bool
 }
 
 // RuntimeDevice is a device already present in the container spec.
@@ -56,7 +54,7 @@ type Adjustment struct {
 	// both: emitting the same GPUs twice would widen the container and defeat
 	// the mock engine's detectVisibleDevices filter.
 	CDIDevices []string
-	// SeccompNotify, if set, replaces the container's seccomp policy.
+	// SeccompNotify replaces the container's seccomp policy.
 	SeccompNotify *SeccompNotify
 }
 

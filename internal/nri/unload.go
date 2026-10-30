@@ -47,11 +47,6 @@ func unload(root, container string, nameAddr uint64, caller moduleNameReader) (i
 	case errors.As(err, &refused):
 		zap.L().Info("delete_module: refused", zap.String("container", container), zap.String("module", name), zap.Error(err))
 		return -1, refused.Errno
-	case errors.Is(err, kmod.ErrIncomplete):
-		// The module is gone, so the caller is told so, as by the kernel.
-		zap.L().Error("delete_module: unloaded, but the simulated tree is inconsistent",
-			zap.String("container", container), zap.String("module", name), zap.Error(err))
-		return 0, 0
 	default:
 		zap.L().Error("delete_module: simulated tree unusable", zap.String("container", container), zap.String("module", name), zap.Error(err))
 		return -1, unix.EIO

@@ -4,6 +4,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 {{- $ibEnabled := eq (include "nvml-mock.infinibandEnabled" .) "true" }}
 {{- $fmEnabled := eq (include "nvml-mock.fabricmanagerEnabled" .) "true" }}
+{{- $appArmorField := semverCompare ">=1.30.0-0" .Capabilities.KubeVersion.Version }}
 {{- $nativeSidecar := and .Values.nri.enabled .Values.nri.nativeSidecar (semverCompare ">=1.29.0-0" .Capabilities.KubeVersion.Version) }}
 {{- /* NRI shares a lock here with the node agent. It lives in a pod-local
 emptyDir mounted into only those two containers: a workload that could open it
@@ -82,8 +83,7 @@ spec:
         {{- end }}
         # Keep kubectl exec/logs behavior stable when optional sidecars are on.
         kubectl.kubernetes.io/default-container: node-agent
-        {{- if and .Values.nri.enabled .Values.nri.driverManager.enabled }}
-        # appArmorProfile below, for Kubernetes before 1.30.
+        {{- if and .Values.nri.enabled .Values.nri.driverManager.enabled (not $appArmorField) }}
         container.apparmor.security.beta.kubernetes.io/nvml-mock-nri: unconfined
         {{- end }}
     spec:
@@ -490,8 +490,10 @@ spec:
             # AppArmor profile (the default allows ptrace only among its own).
             capabilities:
               add: ["SYS_PTRACE"]
+            {{- if $appArmorField }}
             appArmorProfile:
               type: Unconfined
+            {{- end }}
             {{- end }}
           {{- with .Values.nri.resources }}
           resources:

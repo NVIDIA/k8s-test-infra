@@ -86,18 +86,3 @@ func TestUnloadFailsWithEIOOnAnUnreadableTree(t *testing.T) {
 	require.Equal(t, unix.EIO, errno)
 	require.DirExists(t, filepath.Join(root, "nvidia"))
 }
-
-// Once the module is gone, delete_module succeeded, whatever else failed.
-func TestUnloadSucceedsOnceTheModuleIsGone(t *testing.T) {
-	t.Parallel()
-
-	root := moduleTree(t, "nvidia_uvm", "broken")
-	require.NoError(t, os.Symlink("../../nvidia_uvm", filepath.Join(root, "broken", "holders", "nvidia_uvm")))
-	require.NoError(t, os.WriteFile(filepath.Join(root, "broken", "refcnt"), []byte("live\n"), 0o644))
-
-	val, errno := unload(root, "gpu-operator/k8s-driver-manager", 0, callerName{name: "nvidia_uvm"})
-
-	require.Zero(t, val)
-	require.Zero(t, errno)
-	require.NoDirExists(t, filepath.Join(root, "nvidia_uvm"))
-}

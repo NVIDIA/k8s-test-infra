@@ -6,6 +6,7 @@ package kmod
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -31,14 +32,26 @@ func readAttr(t *testing.T, root, module, attr string) string {
 	return string(content)
 }
 
-// The order k8s-driver-manager unloads in: every holder before nvidia.
+// k8s-driver-manager's unloadDriver deletes these in this order, skipping
+// those not loaded. They must empty what the driver stand-in loads: nvidia
+// held by nvidia_uvm and nvidia_modeset.
 func TestUnload_TheDriverManagerOrderEmptiesTheTree(t *testing.T) {
 	t.Parallel()
 
-	root := loadedTree(t)
+	root := t.TempDir()
+	for name, holders := range map[string][]string{NVIDIA: {NVIDIAUVM, NVIDIAModeset}, NVIDIAUVM: nil, NVIDIAModeset: nil} {
+		require.NoError(t, os.MkdirAll(filepath.Join(root, name, "holders"), 0o755))
+		for _, holder := range holders {
+			require.NoError(t, os.Symlink("../../"+holder, filepath.Join(root, name, "holders", holder)))
+		}
+		require.NoError(t, os.WriteFile(filepath.Join(root, name, "refcnt"), []byte(strconv.Itoa(len(holders))+"\n"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(root, name, "initstate"), []byte("live\n"), 0o644))
+	}
 
-	for _, name := range []string{NVIDIAModeset, NVIDIAUVM, NVIDIAFS, GDRDrv, NVIDIA} {
-		require.NoError(t, Unload(root, name), name)
+	for _, name := range []string{NVIDIAModeset, NVIDIAUVM, NVIDIAPeermem, NVIDIAFS, "nvidia_vgpu_vfio", GDRDrv, NVIDIA} {
+		if _, err := os.Stat(filepath.Join(root, name, "refcnt")); err == nil {
+			require.NoError(t, Unload(root, name), name)
+		}
 	}
 
 	entries, err := os.ReadDir(root)
@@ -88,7 +101,7 @@ func TestUnload_AModuleThatIsNotLoaded(t *testing.T) {
 
 	root := loadedTree(t)
 
-	for _, name := range []string{"nvidia_peermem", "", ".", "..", "../" + NVIDIA, ".unloading-" + NVIDIAUVM} {
+	for _, name := range []string{"nvidia_peermem", "", ".", "..", "../" + NVIDIA} {
 		err := Unload(root, name)
 		var refused *RefusedError
 		require.ErrorAs(t, err, &refused, "%q", name)
@@ -97,22 +110,8 @@ func TestUnload_AModuleThatIsNotLoaded(t *testing.T) {
 	require.DirExists(t, filepath.Join(root, NVIDIA))
 }
 
-// An aside an earlier unload left behind is not a module, even with a refcnt.
-func TestUnload_RefusesAnAside(t *testing.T) {
-	t.Parallel()
-
-	root := loadedTree(t)
-	aside := filepath.Join(root, ".unloading-"+NVIDIAUVM)
-	require.NoError(t, os.MkdirAll(aside, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(aside, "refcnt"), []byte("0\n"), 0o644))
-
-	require.ErrorIs(t, Unload(root, ".unloading-"+NVIDIAUVM), unix.ENOENT)
-	require.DirExists(t, aside)
-	require.Equal(t, "4\n", readAttr(t, root, NVIDIA, "refcnt"))
-}
-
-// A module the unloaded one held but cannot be released does not keep the
-// others held, and the module is gone either way, as after delete_module.
+// A module that cannot be released does not keep the others held, and the
+// unload succeeds: the module is gone, as after delete_module.
 func TestUnload_ReleasesTheRestPastABrokenModule(t *testing.T) {
 	t.Parallel()
 
@@ -122,24 +121,39 @@ func TestUnload_ReleasesTheRestPastABrokenModule(t *testing.T) {
 	require.NoError(t, os.Symlink("../../"+NVIDIAUVM, filepath.Join(broken, "holders", NVIDIAUVM)))
 	require.NoError(t, os.WriteFile(filepath.Join(broken, "refcnt"), []byte("live\n"), 0o644))
 
-	err := Unload(root, NVIDIAUVM)
+	require.NoError(t, Unload(root, NVIDIAUVM))
 
-	require.ErrorIs(t, err, ErrIncomplete)
 	require.NoDirExists(t, filepath.Join(root, NVIDIAUVM))
 	require.Equal(t, "3\n", readAttr(t, root, NVIDIA, "refcnt"))
 }
 
-// An unload that failed after the module went leaves its directory aside; the
-// next unload of that name clears it rather than failing on it.
-func TestUnload_ClearsWhatAnEarlierUnloadLeftAside(t *testing.T) {
+// A hold left by a module that is gone, as after a failed release, does not
+// keep the module loaded.
+func TestUnload_IgnoresTheHoldOfAModuleThatIsGone(t *testing.T) {
 	t.Parallel()
 
 	root := loadedTree(t)
-	require.NoError(t, os.MkdirAll(filepath.Join(root, ".unloading-"+NVIDIAUVM, "holders"), 0o755))
+	for _, name := range []string{NVIDIAModeset, NVIDIAUVM, NVIDIAFS, GDRDrv} {
+		require.NoError(t, Unload(root, name), name)
+	}
+	require.NoError(t, os.Symlink("../../gone", filepath.Join(root, NVIDIA, "holders", "gone")))
+	require.NoError(t, os.WriteFile(filepath.Join(root, NVIDIA, "refcnt"), []byte("1\n"), 0o644))
 
-	require.NoError(t, Unload(root, NVIDIAUVM))
+	require.NoError(t, Unload(root, NVIDIA))
+}
 
-	require.NoDirExists(t, filepath.Join(root, ".unloading-"+NVIDIAUVM))
-	require.NoDirExists(t, filepath.Join(root, NVIDIAUVM))
-	require.Equal(t, "3\n", readAttr(t, root, NVIDIA, "refcnt"))
+// A holder that cannot be read may still hold the module: the unload fails
+// rather than going ahead.
+func TestUnload_FailsOnAnUnreadableHolder(t *testing.T) {
+	t.Parallel()
+
+	root := loadedTree(t)
+	require.NoError(t, os.Symlink("loop", filepath.Join(root, NVIDIAUVM, "holders", "loop")))
+
+	err := Unload(root, NVIDIAUVM)
+
+	require.Error(t, err)
+	var refused *RefusedError
+	require.NotErrorAs(t, err, &refused)
+	require.DirExists(t, filepath.Join(root, NVIDIAUVM))
 }

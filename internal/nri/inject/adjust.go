@@ -17,18 +17,34 @@ import (
 	"go.uber.org/zap"
 )
 
-// Adjust returns what to add to a container, or ok=false when the container
-// should be left exactly as authored. It routes a container a specialized
-// workload recognizes to that workload, and every other one to the generic
-// overlay.
+// Decision is what to do with a container, decided once from the
+// container alone, so the plugin can read it before it consults the node agent.
+type Decision struct {
+	cfg       Config
+	container Container
+	sel       selection
+	// Skipped leaves the container exactly as authored, for Reason.
+	Skipped bool
+	Reason  string
+}
+
+// Decide decides what to do with container.
+func Decide(cfg Config, container Container) Decision {
+	cfg = withDefaults(cfg)
+	sel, reason, skipped := decide(cfg, container)
+	return Decision{cfg: cfg, container: container, sel: sel, Skipped: skipped, Reason: reason}
+}
+
+// Adjust returns what to add to the container, or ok=false when it should be
+// left exactly as authored. It routes a container a specialized workload
+// recognizes to that workload, and every other one to the generic overlay.
 //
 // The steps run in a fixed order, each contributing to the same adjustment.
 // None of them can fail, which is why there is no error to return.
-func Adjust(cfg Config, container Container) (Adjustment, bool) {
-	cfg = withDefaults(cfg)
-	sel, reason, skipped := decide(cfg, container)
-	if skipped {
-		zap.L().Debug("skipping container injection", zap.String("namespace", container.Namespace), zap.String("reason", reason))
+func (d Decision) Adjust() (Adjustment, bool) {
+	cfg, container, sel := d.cfg, d.container, d.sel
+	if d.Skipped {
+		zap.L().Debug("skipping container injection", zap.String("namespace", container.Namespace), zap.String("reason", d.Reason))
 		return Adjustment{}, false
 	}
 	if sel.workload != nil {
@@ -73,14 +89,6 @@ func adjustSelected(cfg Config, container Container, sel selection) Adjustment {
 	return adjustment
 }
 
-// Skip reports whether Adjust would leave the container exactly as authored,
-// and why. It reads only the container, so the plugin can ask before it
-// consults the node agent.
-func Skip(cfg Config, container Container) (reason string, skipped bool) {
-	_, reason, skipped = decide(withDefaults(cfg), container)
-	return reason, skipped
-}
-
 // selection records which surfaces a container asked for. It is derived from
 // the container alone, never from the node's staged tree. GPU, InfiniBand and
 // IMEX are chosen independently; none of them implies another.
@@ -96,8 +104,7 @@ type selection struct {
 	// for RDMA, so device paths are not evidence of a request.
 	infiniband bool
 	imex       bool
-	// modules: the container asks for GPUs through NVIDIA_VISIBLE_DEVICES
-	// while the simulated modules are enabled, so it sees them as /sys/module.
+	// modules: the simulated /sys/module, see wantsDriverModules.
 	modules bool
 	// workload is set for a container a specialized workload recognizes. Such
 	// a container is routed before the opt-in checks: the DRA ComputeDomain
@@ -105,7 +112,7 @@ type selection struct {
 	workload *specializedWorkload
 }
 
-// decide is the single source of truth shared by Adjust and Skip.
+// decide is the single source of truth behind Decision.
 //
 // The mount check is what makes re-adjustment safe: a container that already
 // carries the overlay at its destination has been through here before, and

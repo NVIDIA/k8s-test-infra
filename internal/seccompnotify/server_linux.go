@@ -64,9 +64,6 @@ const pollInterval = time.Second
 // handoverTimeout bounds one handover; runc writes it at once.
 const handoverTimeout = 5 * time.Second
 
-// maxFds bounds the fds of one handover; runc sends one.
-const maxFds = 64
-
 // stateLimit bounds the container state JSON sent with the fd.
 const stateLimit = 1 << 20
 
@@ -141,64 +138,57 @@ func listen(path string) (*net.UnixListener, error) {
 	return listener, nil
 }
 
-// receive reads runc's handover: the container state JSON and its seccomp fd.
+// receive reads runc's handover: the container state JSON and the seccomp fd,
+// the only one runc sends.
 func receive(conn *net.UnixConn) (int, specs.ContainerProcessState, error) {
 	var state specs.ContainerProcessState
 
 	buf := make([]byte, 64<<10)
-	oob := make([]byte, unix.CmsgSpace(maxFds*4))
-	n, oobn, flags, _, err := conn.ReadMsgUnix(buf, oob)
+	oob := make([]byte, unix.CmsgSpace(4))
+	n, oobn, _, _, err := conn.ReadMsgUnix(buf, oob)
 	if err != nil {
 		return -1, state, fmt.Errorf("read: %w", err)
 	}
-	fds, err := rights(oob[:oobn])
+	fd, err := onlyFd(oob[:oobn])
 	if err != nil {
 		return -1, state, err
 	}
-	if flags&unix.MSG_CTRUNC != 0 {
-		// Dropped fds would misalign state.Fds.
-		closeAll(fds)
-		return -1, state, fmt.Errorf("more than %d fds handed over", maxFds)
-	}
 	// The JSON may outlast the first read; runc then closes.
 	rest, err := io.ReadAll(io.LimitReader(conn, stateLimit))
+	if err == nil {
+		err = json.Unmarshal(slices.Concat(buf[:n], rest), &state)
+	}
+	if err == nil && !slices.Equal(state.Fds, []string{specs.SeccompFdName}) {
+		err = fmt.Errorf("want only %s, got %v", specs.SeccompFdName, state.Fds)
+	}
 	if err != nil {
-		closeAll(fds)
-		return -1, state, fmt.Errorf("read: %w", err)
+		closeAll(fd)
+		return -1, state, fmt.Errorf("container state: %w", err)
 	}
-	if err := json.Unmarshal(slices.Concat(buf[:n], rest), &state); err != nil {
-		closeAll(fds)
-		return -1, state, fmt.Errorf("decode container state: %w", err)
-	}
-
-	i := slices.Index(state.Fds, specs.SeccompFdName)
-	if i < 0 || i >= len(fds) {
-		closeAll(fds)
-		return -1, state, fmt.Errorf("no %s among %v", specs.SeccompFdName, state.Fds)
-	}
-	fd := fds[i]
-	closeAll(slices.Delete(fds, i, i+1))
 	return fd, state, nil
 }
 
-func rights(oob []byte) ([]int, error) {
+func onlyFd(oob []byte) (int, error) {
+	// The kernel wrote these headers, so a parse error leaves no fd to close.
 	messages, err := unix.ParseSocketControlMessage(oob)
 	if err != nil {
-		return nil, fmt.Errorf("parse control message: %w", err)
+		return -1, fmt.Errorf("parse control message: %w", err)
 	}
 	var fds []int
 	for i := range messages {
-		received, err := unix.ParseUnixRights(&messages[i])
-		if err != nil {
-			closeAll(fds)
-			return nil, fmt.Errorf("parse rights: %w", err)
+		// Not SCM_RIGHTS: it carries no fd.
+		if received, err := unix.ParseUnixRights(&messages[i]); err == nil {
+			fds = append(fds, received...)
 		}
-		fds = append(fds, received...)
 	}
-	return fds, nil
+	if len(fds) != 1 {
+		closeAll(fds...)
+		return -1, fmt.Errorf("want one fd, got %d", len(fds))
+	}
+	return fds[0], nil
 }
 
-func closeAll(fds []int) {
+func closeAll(fds ...int) {
 	for _, fd := range fds {
 		if err := unix.Close(fd); err != nil {
 			zap.L().Debug("close received fd", zap.Error(err))

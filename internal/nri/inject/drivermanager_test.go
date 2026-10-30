@@ -12,8 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// driverManagerConfig enables the simulated modules, with the unload listener
-// serving when listening is true.
+// driverManagerConfig enables the simulated modules, with the tree created as
+// the DaemonSet's hostPath does and the unload listener serving when listening
+// is true.
 func driverManagerConfig(t *testing.T, listening bool) Config {
 	t.Helper()
 
@@ -26,6 +27,7 @@ func driverManagerConfig(t *testing.T, listening bool) Config {
 	cfg.HostOverlayPath = t.TempDir()
 	cfg.DriverModulesHostPath = filepath.Join(dir, "modules")
 	cfg.ModuleUnloadListenerPath = filepath.Join(dir, "unload.sock")
+	require.NoError(t, os.MkdirAll(cfg.DriverModulesHostPath, 0o755))
 	if listening {
 		listener, err := net.Listen("unix", cfg.ModuleUnloadListenerPath)
 		require.NoError(t, err)
@@ -102,7 +104,7 @@ func TestAdjustTreatsTheDriverPodAsAnyOtherWhenDisabled(t *testing.T) {
 	require.True(t, ok)
 	require.NotEmpty(t, adjustment.Env, "the generic overlay applies")
 	require.Nil(t, adjustment.SeccompNotify)
-	require.True(t, Gated(cfg, container))
+	require.True(t, Decide(cfg, container).Gated())
 }
 
 // The name alone is not enough: other pods may run a container called
@@ -117,8 +119,8 @@ func TestAdjustRecognizesOnlyTheDriverPodsDriverManager(t *testing.T) {
 	_, ok := Adjust(cfg, container)
 
 	require.False(t, ok)
-	require.True(t, Gated(cfg, container))
-	require.False(t, Gated(cfg, driverManagerContainer()))
+	require.True(t, Decide(cfg, container).Gated())
+	require.False(t, Decide(cfg, driverManagerContainer()).Gated())
 }
 
 // The stand-in for the driver loads its modules by writing them where the
@@ -141,7 +143,7 @@ func TestAdjustGivesTheDriverContainerTheSimulatedModulesWritable(t *testing.T) 
 	}}, adjustment.Mounts)
 	require.Nil(t, adjustment.SeccompNotify, "the driver container unloads nothing")
 	require.Empty(t, adjustment.Env, "the driver container gets no mock GPUs")
-	require.False(t, Gated(cfg, container))
+	require.False(t, Decide(cfg, container).Gated())
 
 	cfg.DriverModulesHostPath = ""
 	_, ok = Adjust(cfg, container)
@@ -165,19 +167,6 @@ func TestAdjustLeavesTheDriverManagerUnmodifiedWithAStaleListenerSocket(t *testi
 	require.False(t, ok)
 }
 
-// The notification policy replaces the container's whole one: a confined
-// driver manager keeps its own rather than being opened to every syscall.
-func TestAdjustLeavesAConfinedDriverManagerUnmodified(t *testing.T) {
-	t.Parallel()
-
-	container := driverManagerContainer()
-	container.HasSeccompPolicy = true
-
-	_, ok := Adjust(driverManagerConfig(t, true), container)
-
-	require.False(t, ok)
-}
-
 // operandContainer is a GPU Operator operand's gate: it asks the NVIDIA
 // runtime for every GPU and waits for /sys/module/nvidia/initstate.
 func operandContainer() Container {
@@ -189,14 +178,6 @@ func operandContainer() Container {
 	}
 }
 
-// withModulesTree creates the simulated modules' root, as the DaemonSet's
-// hostPath does before the plugin runs.
-func withModulesTree(t *testing.T, cfg Config) Config {
-	t.Helper()
-	require.NoError(t, os.MkdirAll(cfg.DriverModulesHostPath, 0o755))
-	return cfg
-}
-
 // The runtime gives an operand Mokka's tree only if /proc/modules listed nvidia
 // when it created the container; one created just before the driver stand-in
 // loaded would wait on its gate forever. The plugin binds the live tree
@@ -204,7 +185,7 @@ func withModulesTree(t *testing.T, cfg Config) Config {
 func TestAdjustGivesAContainerAskingForGPUsTheSimulatedModules(t *testing.T) {
 	t.Parallel()
 
-	cfg := withModulesTree(t, driverManagerConfig(t, false))
+	cfg := driverManagerConfig(t, false)
 
 	adjustment, ok := Adjust(cfg, operandContainer())
 
@@ -225,7 +206,7 @@ func TestAdjustGivesAContainerAskingForGPUsTheSimulatedModules(t *testing.T) {
 func TestAdjustLeavesContainersNotAskingForGPUsUnmodified(t *testing.T) {
 	t.Parallel()
 
-	cfg := withModulesTree(t, driverManagerConfig(t, false))
+	cfg := driverManagerConfig(t, false)
 	for name, env := range map[string][]string{
 		"unset":        {"PATH=/usr/bin"},
 		"empty":        {"NVIDIA_VISIBLE_DEVICES="},
@@ -258,7 +239,7 @@ func TestAdjustLeavesOperandsUnmodifiedWhenDisabled(t *testing.T) {
 func TestAdjustKeepsAnExistingSysModuleMount(t *testing.T) {
 	t.Parallel()
 
-	cfg := withModulesTree(t, driverManagerConfig(t, false))
+	cfg := driverManagerConfig(t, false)
 	container := operandContainer()
 	container.Mounts = []Mount{{Source: "/elsewhere", Destination: "/sys/module", Type: "bind"}}
 
@@ -272,10 +253,36 @@ func TestAdjustKeepsAnExistingSysModuleMount(t *testing.T) {
 func TestAdjustSkipsTheSimulatedModulesWhenTheTreeIsMissing(t *testing.T) {
 	t.Parallel()
 
-	adjustment, ok := Adjust(driverManagerConfig(t, false), operandContainer())
+	cfg := driverManagerConfig(t, true)
+	require.NoError(t, os.Remove(cfg.DriverModulesHostPath))
 
+	adjustment, ok := Adjust(cfg, operandContainer())
 	require.True(t, ok)
 	require.Empty(t, adjustment.Mounts)
+
+	_, ok = Adjust(cfg, driverManagerContainer())
+	require.False(t, ok, "the driver manager gets both or neither")
+
+	driver := driverManagerContainer()
+	driver.Name = driverContainerName
+	_, ok = Adjust(cfg, driver)
+	require.False(t, ok)
+}
+
+// The simulated modules are not the node agent's: an operand that asks only
+// for them is not held back while the agent stages, but a GPU workload is.
+func TestGatedOnlyForWhatTheNodeAgentStages(t *testing.T) {
+	t.Parallel()
+
+	cfg := driverManagerConfig(t, false)
+	require.False(t, Decide(cfg, operandContainer()).Gated())
+
+	workload := operandContainer()
+	workload.PodAnnotations = map[string]string{cfg.DeviceAnnotation: "true"}
+	require.True(t, Decide(cfg, workload).Gated())
+
+	cfg.DriverModulesHostPath = ""
+	require.True(t, Decide(cfg, operandContainer()).Gated())
 }
 
 // A GPU workload gets the mock GPUs and, asking the runtime for them too, the
@@ -283,7 +290,7 @@ func TestAdjustSkipsTheSimulatedModulesWhenTheTreeIsMissing(t *testing.T) {
 func TestAdjustGivesAGPUWorkloadTheOverlayAndTheSimulatedModules(t *testing.T) {
 	t.Parallel()
 
-	cfg := withModulesTree(t, driverManagerConfig(t, false))
+	cfg := driverManagerConfig(t, false)
 	container := operandContainer()
 	container.PodAnnotations = map[string]string{cfg.DeviceAnnotation: "true"}
 

@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"go.uber.org/zap"
 	"golang.org/x/sys/unix"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
@@ -29,16 +30,10 @@ func (e *RefusedError) Error() string {
 
 func (e *RefusedError) Unwrap() error { return e.Errno }
 
-// ErrIncomplete reports a module unloaded without all the references it held
-// released.
-var ErrIncomplete = errors.New("kmod unload: references not released")
-
 // Unload removes a module from root, a tree laid out as /sys/module, as
-// delete_module does, releasing the module's own references. A refusal is a
-// *RefusedError; once the module is gone, any later failure wraps
-// ErrIncomplete.
+// delete_module does, releasing the references it held. A refusal is a
+// *RefusedError.
 func Unload(root, name string) error {
-	// A leading dot also covers the asides below, which are not modules.
 	if name == "" || strings.HasPrefix(name, ".") || strings.Contains(name, "/") {
 		return &RefusedError{Errno: unix.ENOENT}
 	}
@@ -47,18 +42,18 @@ func Unload(root, name string) error {
 	if err := unused(dir); err != nil {
 		return err
 	}
-	// Remove the module before releasing its references, so a failure in
-	// between cannot leave it loaded with them already released.
-	aside := filepath.Join(root, ".unloading-"+name)
-	if err := os.RemoveAll(aside); err != nil {
-		return fmt.Errorf("kmod unload: clear %s: %w", aside, err)
-	}
-	if err := os.Rename(dir, aside); err != nil {
+	// initstate first: a removal that fails partway must not leave the module
+	// looking live to the operands' gate.
+	if err := os.Remove(filepath.Join(dir, "initstate")); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("kmod unload: remove %s: %w", name, err)
 	}
-	err := errors.Join(release(root, name), os.RemoveAll(aside))
-	if err != nil {
-		return fmt.Errorf("%w by %s: %w", ErrIncomplete, name, err)
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("kmod unload: remove %s: %w", name, err)
+	}
+	// The module is gone, as delete_module reports. unused ignores a hold left
+	// by a module that is gone, so a failed release leaves only stale files.
+	if err := release(root, name); err != nil {
+		zap.L().Warn("kmod unload: references not released", zap.String("module", name), zap.Error(err))
 	}
 	return nil
 }
@@ -77,26 +72,33 @@ func unused(dir string) error {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("kmod unload: read holders of %s: %w", filepath.Base(dir), err)
 	}
+	for _, holder := range holders {
+		_, err := os.Stat(filepath.Join(dir, "holders", holder.Name()))
+		if err == nil {
+			return &RefusedError{Errno: unix.EWOULDBLOCK}
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("kmod unload: holder %s of %s: %w", holder.Name(), filepath.Base(dir), err)
+		}
+	}
 	// refcnt counts holders too; more means a process holds it.
-	if len(holders) > 0 || refcnt > 0 {
+	if refcnt > len(holders) {
 		return &RefusedError{Errno: unix.EWOULDBLOCK}
 	}
 	return nil
 }
 
-// release drops the reference name holds on every module it depends on. It
-// goes on past a module it fails to release, so one bad module does not keep
-// the others held.
+// release drops the reference name held on every module it depended on.
 func release(root, name string) error {
 	entries, err := os.ReadDir(root)
 	if err != nil {
-		return fmt.Errorf("kmod unload: read %s: %w", root, err)
+		return fmt.Errorf("read %s: %w", root, err)
 	}
 
 	var errs []error
 	for _, e := range entries {
 		if err := releaseOne(filepath.Join(root, e.Name()), name); err != nil {
-			errs = append(errs, fmt.Errorf("kmod unload: release %s: %w", e.Name(), err))
+			errs = append(errs, fmt.Errorf("release %s: %w", e.Name(), err))
 		}
 	}
 	return errors.Join(errs...)
@@ -112,16 +114,15 @@ func releaseOne(dir, name string) error {
 		}
 		return err
 	}
-	if err := os.Remove(link); err != nil {
-		return err
-	}
-
+	// refcnt first: a link left behind still counts against it in unused.
 	refcnt, err := readRefcnt(dir)
 	if err != nil {
 		return err
 	}
-	refcnt = max(refcnt-1, 0)
-	return fsutil.Write(filepath.Join(dir, "refcnt"), []byte(strconv.Itoa(refcnt)+"\n"), 0o644)
+	if err := fsutil.Write(filepath.Join(dir, "refcnt"), []byte(strconv.Itoa(max(refcnt-1, 0))+"\n"), 0o644); err != nil {
+		return err
+	}
+	return os.Remove(link)
 }
 
 // readRefcnt reads a module's refcnt; its presence marks the module loaded.

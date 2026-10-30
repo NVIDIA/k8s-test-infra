@@ -148,7 +148,7 @@ func TestContainerFromNRI(t *testing.T) {
 		require.True(t, result.DeviceRules[0].Allow)
 		require.Equal(t, int64(195), *result.DeviceRules[0].Major)
 		require.Equal(t, []string{"k8s.device-plugin.nvidia.com/gpu=0"}, result.CDIDevices)
-		adjustment, ok := inject.Adjust(inject.DefaultConfig(), result)
+		adjustment, ok := inject.Decide(inject.DefaultConfig(), result).Adjust()
 		require.True(t, ok)
 		require.NotEmpty(t, adjustment.Mounts)
 		require.Empty(t, adjustment.Devices)
@@ -164,7 +164,7 @@ func TestContainerFromNRI(t *testing.T) {
 		}})
 		require.Nil(t, result.DeviceRules[0].Major)
 		require.Nil(t, result.DeviceRules[0].Minor)
-		adjustment, ok := inject.Adjust(inject.DefaultConfig(), result)
+		adjustment, ok := inject.Decide(inject.DefaultConfig(), result).Adjust()
 		require.False(t, ok)
 		require.Empty(t, adjustment)
 	})
@@ -174,7 +174,7 @@ func TestContainerFromNRI(t *testing.T) {
 		result := containerFromNRI(nil, &api.Container{CDIDevices: []*api.CDIDevice{
 			{Name: "k8s.gpu.nvidia.com/claim=claim-uid-gpu-0"},
 		}})
-		adjustment, ok := inject.Adjust(inject.DefaultConfig(), result)
+		adjustment, ok := inject.Decide(inject.DefaultConfig(), result).Adjust()
 		require.True(t, ok)
 		require.NotEmpty(t, adjustment.Mounts)
 		require.Empty(t, adjustment.Devices)
@@ -191,15 +191,6 @@ func TestContainerFromNRI(t *testing.T) {
 			require.Empty(t, result.DeviceRules)
 			require.Empty(t, result.CDIDevices)
 		})
-	})
-
-	t.Run("records whether the runtime gave a seccomp policy", func(t *testing.T) {
-		t.Parallel()
-		confined := containerFromNRI(nil, &api.Container{Linux: &api.LinuxContainer{
-			SeccompPolicy: &api.LinuxSeccomp{DefaultAction: "SCMP_ACT_ERRNO"},
-		}})
-		require.True(t, confined.HasSeccompPolicy)
-		require.False(t, containerFromNRI(nil, &api.Container{Linux: &api.LinuxContainer{}}).HasSeccompPolicy)
 	})
 
 	t.Run("does not alias the runtime's slices", func(t *testing.T) {

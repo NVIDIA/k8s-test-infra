@@ -76,46 +76,28 @@ func sameFile(t *testing.T, a, b int) bool {
 	return sa.Dev == sb.Dev && sa.Ino == sb.Ino
 }
 
-func TestReceive_TakesTheSeccompFdByItsName(t *testing.T) {
+func TestReceive_TakesTheSeccompFd(t *testing.T) {
 	t.Parallel()
 
-	sent := openFds(t, 2)
-	// A different file for the seccomp fd, so picking the wrong index shows.
-	pipe := make([]int, 2)
-	require.NoError(t, unix.Pipe(pipe))
-	t.Cleanup(func() { _ = unix.Close(pipe[0]); _ = unix.Close(pipe[1]) })
+	sent := openFds(t, 1)
 
-	fd, state, err := handover(t, []string{"other", specs.SeccompFdName, "more"}, []int{sent[0], pipe[0], sent[1]})
+	fd, state, err := handover(t, []string{specs.SeccompFdName}, sent)
 
 	require.NoError(t, err)
 	defer func() { require.NoError(t, unix.Close(fd)) }()
-	require.True(t, sameFile(t, fd, pipe[0]))
+	require.True(t, sameFile(t, fd, sent[0]))
 	require.Equal(t, "ns/k8s-driver-manager", state.Metadata)
 	require.Equal(t, 42, state.Pid)
 }
 
-func TestReceive_RejectsAHandoverWithoutTheSeccompFd(t *testing.T) {
+func TestReceive_RejectsAnyOtherFd(t *testing.T) {
 	t.Parallel()
 
 	_, _, err := handover(t, []string{"other"}, openFds(t, 1))
-
 	require.ErrorContains(t, err, specs.SeccompFdName)
-}
 
-// The kernel drops the fds that do not fit and the names no longer index the
-// rest: the handover is refused rather than the wrong fd served.
-func TestReceive_RejectsMoreFdsThanFit(t *testing.T) {
-	t.Parallel()
-
-	names := make([]string, maxFds+1)
-	for i := range names {
-		names[i] = "fd"
-	}
-	names[maxFds] = specs.SeccompFdName
-
-	_, _, err := handover(t, names, openFds(t, maxFds+1))
-
-	require.ErrorContains(t, err, "fds handed over")
+	_, _, err = handover(t, []string{"other", specs.SeccompFdName}, openFds(t, 2))
+	require.Error(t, err)
 }
 
 func TestCut_CutsAsTheKernelCopies(t *testing.T) {

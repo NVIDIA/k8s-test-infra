@@ -781,8 +781,8 @@ Enabled, the NRI plugin:
 
 The driver pod's containers are matched by name, `k8s-driver-manager` and `nvidia-driver-ctr`,
 in pods labelled `app.kubernetes.io/component=nvidia-driver`; the driver manager only while the
-listener answers and when the runtime gave it no seccomp policy of its own (a privileged
-container has none): the notification policy replaces the container's whole one. A container
+listener answers. The notification policy replaces the container's whole one, which the
+privileged driver manager does not have. A container
 that already has a mount at `/sys/module` keeps it, and none is bound while the tree is missing.
 
 ### What it grants the plugin

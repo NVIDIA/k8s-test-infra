@@ -159,13 +159,14 @@ func (p *Plugin) CreateContainer(ctx context.Context, pod *api.PodSandbox, conta
 	candidate := containerFromNRI(pod, container)
 	// Containers NRI skips anyway never reach the gate, so a closed gate is
 	// reported only for containers it actually leaves unmocked.
-	if reason, skipped := inject.Skip(p.cfg.Inject, candidate); skipped {
+	decision := inject.Decide(p.cfg.Inject, candidate)
+	if decision.Skipped {
 		zap.L().Debug("container left unmodified",
-			zap.String("pod", pod.GetName()), zap.String("container", container.GetName()), zap.String("reason", reason))
+			zap.String("pod", pod.GetName()), zap.String("container", container.GetName()), zap.String("reason", decision.Reason))
 		return nil, nil, nil
 	}
 
-	if inject.Gated(p.cfg.Inject, candidate) {
+	if decision.Gated() {
 		lock, reason := p.agentAccess(ctx)
 		if reason != "" {
 			// Fail open, as the plugin does everywhere else: blocking creation
@@ -181,7 +182,7 @@ func (p *Plugin) CreateContainer(ctx context.Context, pod *api.PodSandbox, conta
 		}
 	}
 
-	adjustment, ok := inject.Adjust(p.cfg.Inject, candidate)
+	adjustment, ok := decision.Adjust()
 	if !ok {
 		zap.L().Debug("container left unmodified", zap.String("pod", pod.GetName()), zap.String("container", container.GetName()))
 		return nil, nil, nil

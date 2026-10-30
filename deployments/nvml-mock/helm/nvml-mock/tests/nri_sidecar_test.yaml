@@ -834,12 +834,12 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].securityContext.capabilities.add
           value: ["SYS_PTRACE"]
-      - equal:
-          path: spec.template.spec.containers[0].securityContext.appArmorProfile.type
-          value: Unconfined
+      # This suite renders for 1.29, before the appArmorProfile field.
       - equal:
           path: spec.template.metadata.annotations["container.apparmor.security.beta.kubernetes.io/nvml-mock-nri"]
           value: unconfined
+      - notExists:
+          path: spec.template.spec.containers[0].securityContext.appArmorProfile
       # The same filter the default test checks for absence, so it is known to match.
       - exists:
           path: spec.template.spec.containers[0].args[?(@ =~ /^--(driver-modules-host-path|module-unload-listener-path)=/)]
@@ -858,6 +858,21 @@ tests:
             hostPath:
               path: /run/mokka/modules
               type: DirectoryOrCreate
+
+  - it: should leave the driver manager's plugin unconfined by field from Kubernetes 1.30
+    capabilities:
+      majorVersion: 1
+      minorVersion: 30
+    set:
+      nri:
+        driverManager:
+          enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.appArmorProfile.type
+          value: Unconfined
+      - notExists:
+          path: spec.template.metadata.annotations["container.apparmor.security.beta.kubernetes.io/nvml-mock-nri"]
 
   - it: should reject a relative driver modules path via the values schema
     set:
