@@ -442,6 +442,7 @@ FGO mocks or uses the following NVIDIA components:
 ### Non-Goals
 
 - Mokka remains to be a generic project, so all functionality very specific to Run:ai and KAI are not going to be directly included.
+- Putting MIG support of scope for this MEP.
 
 ## Proposal
 
@@ -727,13 +728,14 @@ The KWOK provisioner will be responsible for provisioning those resources for vi
 We should put generation of CRs under feature gates, 
 so cluster admins don't need to install all CRDs just to try out KWOK integration.
 
-#### KWOK DCGM Metrics 
-
-TBU
-
 #### KWOK SSH Access
 
-TBU
+In order to have a complete KWOK experience, we can also simulate SSH access to virtual pods running on virtual KWOK nodes
+using KWOK's `ClusterExec` and `ClusterAttach` Resources. 
+
+This functionality is not directly needed by Run:ai use cases.
+
+TBU: Explain details
 
 #### KWOK Installation
 
@@ -755,6 +757,10 @@ KWOK chart is not gonna be explicitly included into the Mokka helm chart.
 | DRA                     | Claims with the same behavior on KWOK nodes and nodes that use the GPU Operator's DRA driver.                                                                                                                                                        | Mokka + real DRA deployment. In KWOK mode, the KWOK provisioner creates `ResourceSlice` resources                                |
 
 ### Workload-aware Dynamic Metrics
+
+TBU
+
+#### KWOK DCGM Metrics
 
 TBU
 
