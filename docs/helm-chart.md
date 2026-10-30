@@ -771,12 +771,19 @@ Enabled, the NRI plugin:
   (`nvidia-driver-ctr`), so a stand-in for the driver loads its modules by writing them there;
 - gives the driver manager a seccomp policy that hands `delete_module` to a listener in the
   plugin, which unloads from that tree as the kernel does: ENOENT for a module that is not
-  loaded, EWOULDBLOCK while another module or a process holds it.
+  loaded, EWOULDBLOCK while another module or a process holds it;
+- binds the same tree read-only over `/sys/module` in every other container that asks the
+  NVIDIA runtime for GPUs (`NVIDIA_VISIBLE_DEVICES` set, not `void` or `none`), so the GPU
+  operands' gate on `/sys/module/nvidia/initstate` follows the driver's loads and unloads. The
+  runtime's CDI injection gives them Mokka's static tree only when the node's `/proc/modules`
+  lists `nvidia` as it creates the container; an operand created just before the driver loaded
+  would wait on its gate forever.
 
-Only containers named `k8s-driver-manager` and `nvidia-driver-ctr` in pods labelled
-`app.kubernetes.io/component=nvidia-driver` are adjusted, and the driver manager only while the
+The driver pod's containers are matched by name, `k8s-driver-manager` and `nvidia-driver-ctr`,
+in pods labelled `app.kubernetes.io/component=nvidia-driver`; the driver manager only while the
 listener answers and when the runtime gave it no seccomp policy of its own (a privileged
-container has none): the notification policy replaces the container's whole one.
+container has none): the notification policy replaces the container's whole one. A container
+that already has a mount at `/sys/module` keeps it, and none is bound while the tree is missing.
 
 ### What it grants the plugin
 

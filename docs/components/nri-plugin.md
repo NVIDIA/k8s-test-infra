@@ -44,6 +44,7 @@ the surfaces that were selected. None of them brings another along.
 | The DRA driver's `compute-domain-daemon` container, in a pod labeled `resource.nvidia.com/computeDomain` | `nvidia-imex.real`, only while staged, and nothing else |
 | The GPU Operator's `k8s-driver-manager`, in a pod labeled `app.kubernetes.io/component=nvidia-driver`, with `nri.driverManager.enabled` | The simulated modules read-only over `/sys/module`, and a seccomp policy that hands `delete_module` to the plugin, which unloads from them; not while the plugin's listener is down or the container has a seccomp policy of its own |
 | The GPU Operator's `nvidia-driver-ctr` in the same pod, with `nri.driverManager.enabled` | The simulated modules writable over `/sys/module`, and nothing else |
+| Any other container whose `NVIDIA_VISIBLE_DEVICES` (last value) is set and not `void` or `none`, with `nri.driverManager.enabled` | The simulated modules read-only over `/sys/module`, unless it already has a mount there |
 | Anything else | Nothing |
 
 A container that matches several rows gets each of their surfaces, except the

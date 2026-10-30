@@ -5,6 +5,8 @@ package inject
 
 import (
 	"net"
+	"os"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -18,6 +20,7 @@ const (
 	driverComponent      = "nvidia-driver"
 	sysModulePath        = "/sys/module"
 	deleteModuleSyscall  = "delete_module"
+	visibleDevicesEnv    = "NVIDIA_VISIBLE_DEVICES"
 )
 
 // driverManager matches the driver pod's init container, k8s-driver-manager,
@@ -70,6 +73,47 @@ func adjustDriverManager(cfg Config, container Container) (Adjustment, bool) {
 			Syscalls:     []string{deleteModuleSyscall},
 		},
 	}, true
+}
+
+// wantsDriverModules matches a container that asks the NVIDIA runtime for GPUs
+// (NVIDIA_VISIBLE_DEVICES, its last value, neither empty, void nor none) while
+// the simulated modules are enabled. The GPU Operator's operands gate on
+// /sys/module/nvidia/initstate; the runtime would give them Mokka's static
+// tree through CDI only if the node's /proc/modules listed nvidia when it
+// created them, which the driver stand-in binds a moment after the driver
+// manager lets the operands back. Bound here, the live tree is there however
+// the race goes, and the gate follows the stand-in's loads and unloads.
+func wantsDriverModules(cfg Config, container Container) bool {
+	if cfg.DriverModulesHostPath == "" || hasMountAt(container, sysModulePath) {
+		return false
+	}
+	value, set := "", false
+	for _, kv := range container.Env {
+		if v, ok := strings.CutPrefix(kv, visibleDevicesEnv+"="); ok {
+			value, set = v, true
+		}
+	}
+	return set && value != "" && value != "void" && value != "none"
+}
+
+// adjustDriverModules binds the simulated modules read-only over /sys/module,
+// unless the tree is missing: the mount would fail container creation.
+func adjustDriverModules(cfg Config, container Container, adjustment *Adjustment) {
+	if _, err := os.Stat(cfg.DriverModulesHostPath); err != nil {
+		zap.L().Warn("simulated modules unavailable; leaving /sys/module as authored",
+			zap.String("namespace", container.Namespace), zap.String("container", container.Name), zap.Error(err))
+		return
+	}
+	adjustment.Mounts = append(adjustment.Mounts, modulesMount(cfg, "ro"))
+}
+
+func hasMountAt(container Container, destination string) bool {
+	for _, mount := range container.Mounts {
+		if mount.Destination == destination {
+			return true
+		}
+	}
+	return false
 }
 
 // modulesMount binds the simulated modules over /sys/module; rprivate as the

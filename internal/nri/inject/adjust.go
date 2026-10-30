@@ -39,6 +39,18 @@ func Adjust(cfg Config, container Container) (Adjustment, bool) {
 			zap.String("namespace", container.Namespace))
 	}
 
+	adjustment := adjustSelected(cfg, container, sel)
+
+	zap.L().Debug("injecting container",
+		zap.String("namespace", container.Namespace),
+		zap.Int("mounts", len(adjustment.Mounts)),
+		zap.Int("devices", len(adjustment.Devices)))
+
+	return adjustment, true
+}
+
+// adjustSelected adds each surface the selection asked for.
+func adjustSelected(cfg Config, container Container, sel selection) Adjustment {
 	// IMEX channels are plain device nodes. Mounting the overlay for them alone
 	// would let mock NVML enumerate every GPU on the node.
 	var adjustment Adjustment
@@ -55,13 +67,10 @@ func Adjust(cfg Config, container Container) (Adjustment, bool) {
 	if sel.imex {
 		attachIMEXChannels(cfg, &adjustment)
 	}
-
-	zap.L().Debug("injecting container",
-		zap.String("namespace", container.Namespace),
-		zap.Int("mounts", len(adjustment.Mounts)),
-		zap.Int("devices", len(adjustment.Devices)))
-
-	return adjustment, true
+	if sel.modules {
+		adjustDriverModules(cfg, container, &adjustment)
+	}
+	return adjustment
 }
 
 // Skip reports whether Adjust would leave the container exactly as authored,
@@ -87,6 +96,9 @@ type selection struct {
 	// for RDMA, so device paths are not evidence of a request.
 	infiniband bool
 	imex       bool
+	// modules: the container asks for GPUs through NVIDIA_VISIBLE_DEVICES
+	// while the simulated modules are enabled, so it sees them as /sys/module.
+	modules bool
 	// workload is set for a container a specialized workload recognizes. Such
 	// a container is routed before the opt-in checks: the DRA ComputeDomain
 	// daemon carries no allocation or annotation at CreateContainer.
@@ -113,8 +125,9 @@ func decide(cfg Config, container Container) (sel selection, reason string, skip
 		management: container.annotated(cfg.DeviceAnnotation, "true") && !allocated,
 		infiniband: container.annotated(cfg.InfiniBandAnnotation, "true"),
 		imex:       container.annotated(cfg.ImexChannelAnnotation, "true"),
+		modules:    wantsDriverModules(cfg, container),
 	}
-	if !sel.gpu() && !sel.infiniband && !sel.imex {
+	if !sel.gpu() && !sel.infiniband && !sel.imex && !sel.modules {
 		return sel, "no GPU allocation and no opt-in annotation", true
 	}
 	if hasOverlay(cfg, container) {

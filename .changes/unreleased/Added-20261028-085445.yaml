@@ -1,4 +1,4 @@
 kind: Added
 body: |-
-  helm: `nri.driverManager.enabled` lets the GPU Operator's stock `k8s-driver-manager` see simulated kernel modules and unload them, so it pauses and reschedules the GPU operands around a driver change on mock nodes.
+  helm: `nri.driverManager.enabled` lets the GPU Operator's stock `k8s-driver-manager` see simulated kernel modules and unload them, so it pauses and reschedules the GPU operands around a driver change on mock nodes; containers that ask for GPUs see the same modules as their `/sys/module`, so the operands wait for the driver as on a real node.
 time: 2026-10-28T07:54:45Z

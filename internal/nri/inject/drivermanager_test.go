@@ -177,3 +177,124 @@ func TestAdjustLeavesAConfinedDriverManagerUnmodified(t *testing.T) {
 
 	require.False(t, ok)
 }
+
+// operandContainer is a GPU Operator operand's gate: it asks the NVIDIA
+// runtime for every GPU and waits for /sys/module/nvidia/initstate.
+func operandContainer() Container {
+	return Container{
+		Name:      "toolkit-validation",
+		Namespace: "gpu-operator",
+		PodLabels: map[string]string{"app": "nvidia-device-plugin-daemonset"},
+		Env:       []string{"PATH=/usr/bin", "NVIDIA_VISIBLE_DEVICES=all"},
+	}
+}
+
+// withModulesTree creates the simulated modules' root, as the DaemonSet's
+// hostPath does before the plugin runs.
+func withModulesTree(t *testing.T, cfg Config) Config {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(cfg.DriverModulesHostPath, 0o755))
+	return cfg
+}
+
+// The runtime gives an operand Mokka's tree only if /proc/modules listed nvidia
+// when it created the container; one created just before the driver stand-in
+// loaded would wait on its gate forever. The plugin binds the live tree
+// whatever the race, read-only, and adds nothing else.
+func TestAdjustGivesAContainerAskingForGPUsTheSimulatedModules(t *testing.T) {
+	t.Parallel()
+
+	cfg := withModulesTree(t, driverManagerConfig(t, false))
+
+	adjustment, ok := Adjust(cfg, operandContainer())
+
+	require.True(t, ok)
+	require.Equal(t, []Mount{{
+		Source:      cfg.DriverModulesHostPath,
+		Destination: "/sys/module",
+		Type:        "bind",
+		Options:     []string{"rbind", "rprivate", "ro", "nosuid", "nodev", "noexec"},
+	}}, adjustment.Mounts)
+	require.Empty(t, adjustment.Env, "no mock GPUs without an allocation or the annotation")
+	require.Empty(t, adjustment.Devices)
+	require.Nil(t, adjustment.SeccompNotify)
+}
+
+// The runtime reads the variable's last value; void, none and empty ask for
+// no GPU.
+func TestAdjustLeavesContainersNotAskingForGPUsUnmodified(t *testing.T) {
+	t.Parallel()
+
+	cfg := withModulesTree(t, driverManagerConfig(t, false))
+	for name, env := range map[string][]string{
+		"unset":        {"PATH=/usr/bin"},
+		"empty":        {"NVIDIA_VISIBLE_DEVICES="},
+		"void":         {"NVIDIA_VISIBLE_DEVICES=void"},
+		"none":         {"NVIDIA_VISIBLE_DEVICES=none"},
+		"last is void": {"NVIDIA_VISIBLE_DEVICES=all", "NVIDIA_VISIBLE_DEVICES=void"},
+	} {
+		container := operandContainer()
+		container.Env = env
+
+		_, ok := Adjust(cfg, container)
+
+		require.False(t, ok, name)
+	}
+}
+
+func TestAdjustLeavesOperandsUnmodifiedWhenDisabled(t *testing.T) {
+	t.Parallel()
+
+	cfg := driverManagerConfig(t, false)
+	cfg.DriverModulesHostPath = ""
+
+	_, ok := Adjust(cfg, operandContainer())
+
+	require.False(t, ok)
+}
+
+// A container that already has a /sys/module, such as one adjusted before,
+// keeps it.
+func TestAdjustKeepsAnExistingSysModuleMount(t *testing.T) {
+	t.Parallel()
+
+	cfg := withModulesTree(t, driverManagerConfig(t, false))
+	container := operandContainer()
+	container.Mounts = []Mount{{Source: "/elsewhere", Destination: "/sys/module", Type: "bind"}}
+
+	_, ok := Adjust(cfg, container)
+
+	require.False(t, ok)
+}
+
+// A missing tree would fail container creation; the container is left with
+// the node's /sys/module instead.
+func TestAdjustSkipsTheSimulatedModulesWhenTheTreeIsMissing(t *testing.T) {
+	t.Parallel()
+
+	adjustment, ok := Adjust(driverManagerConfig(t, false), operandContainer())
+
+	require.True(t, ok)
+	require.Empty(t, adjustment.Mounts)
+}
+
+// A GPU workload gets the mock GPUs and, asking the runtime for them too, the
+// simulated modules beside the overlay.
+func TestAdjustGivesAGPUWorkloadTheOverlayAndTheSimulatedModules(t *testing.T) {
+	t.Parallel()
+
+	cfg := withModulesTree(t, driverManagerConfig(t, false))
+	container := operandContainer()
+	container.PodAnnotations = map[string]string{cfg.DeviceAnnotation: "true"}
+
+	adjustment, ok := Adjust(cfg, container)
+
+	require.True(t, ok)
+	require.NotEmpty(t, adjustment.Env, "the generic overlay applies")
+	destinations := make([]string, 0, len(adjustment.Mounts))
+	for _, m := range adjustment.Mounts {
+		destinations = append(destinations, m.Destination)
+	}
+	require.Contains(t, destinations, cfg.ContainerOverlayPath)
+	require.Contains(t, destinations, "/sys/module")
+}
