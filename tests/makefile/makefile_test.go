@@ -24,6 +24,8 @@
 // a non-zero status. The `without_shellflags` case neutralizes `.SHELLFLAGS`
 // from the command line so the guard reproduces the 3.81 behaviour on any make
 // version, including the 4.x used by CI.
+// The `e2e` target also asks Ginkgo to fail when a label filter selects no
+// specs, so a typo cannot turn a targeted run into a false green.
 package makefile
 
 import (
@@ -62,6 +64,7 @@ func writeGinkgoStub(t *testing.T, dir string, exitCode int) string {
 	t.Helper()
 
 	body := "#!/bin/sh\n" +
+		"printf '%s\\n' \"$@\"\n" +
 		"echo 'Ran 16 of 63 Specs in 263.999 seconds'\n"
 	if exitCode == 0 {
 		body += "echo 'SUCCESS! -- 16 Passed | 0 Failed | 0 Pending | 47 Skipped'\n"
@@ -137,6 +140,15 @@ func TestE2EPropagatesSuiteFailure(t *testing.T) {
 		code, out := runE2E(t, 0, ".SHELLFLAGS=-c")
 		require.Zero(t, code, "`make e2e` failed for a passing suite.\n%s", out)
 	})
+}
+
+func TestE2EPassesFailOnEmptyToGinkgo(t *testing.T) {
+	t.Parallel()
+
+	code, out := runE2E(t, 0)
+	require.Zero(t, code, "`make e2e` failed for a passing suite.\n%s", out)
+	require.Contains(t, out, "--fail-on-empty",
+		"`make e2e` must fail when its label filter selects no specs")
 }
 
 func writeExecutable(t *testing.T, path, body string) {
