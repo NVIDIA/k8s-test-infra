@@ -279,22 +279,19 @@ func EncoderFBCProblems(out string, encoder, fbc EncoderFBCStats, accountingBuff
 	return problems
 }
 
-// PCIeIdentityProblems checks the per-GPU PCIe identity elements for values no
-// real GPU can report (#638):
+// PCIeIdentityProblems checks the per-GPU PCIe identity elements against the
+// profile's link capabilities and for values no real GPU can report (#638):
 //
-//   - max_link_gen, max_device_link_gen and max_host_link_gen all equal the
-//     profile's configured pcie.max_link_gen. max_device_link_gen read N/A while
-//     nvmlDeviceGetGpuMaxPcieLinkGeneration was a generated stub, and
-//     max_host_link_gen read 0 while the internal export-table slot behind it
-//     went unserved. Requiring the three to agree encodes the invariant a Gen0
-//     host maximum violated: a link never negotiates higher than either
-//     endpoint supports.
+//   - max_link_gen and current_link_gen match the configured link, while
+//     max_device_link_gen matches the GPU capability. Older profiles default
+//     that capability to max_link_gen. max_host_link_gen matches the configured
+//     link maximum in the current mock implementation.
 //   - board_id is non-zero and unique across the node. Every GPU reported 0x0,
 //     leaving the GPUs of a multi-GPU node indistinguishable by board ID.
 //
 // wantGPUs guards against a truncated document silently passing every per-GPU
 // check.
-func PCIeIdentityProblems(out string, wantGPUs, wantMaxLinkGen int) []string {
+func PCIeIdentityProblems(out string, wantGPUs, wantMaxLinkGen, wantCurrentLinkGen, wantDeviceMaxLinkGen int) []string {
 	snap, err := ParseSnapshot(out)
 	if err != nil {
 		return []string{err.Error()}
@@ -312,7 +309,11 @@ func PCIeIdentityProblems(out string, wantGPUs, wantMaxLinkGen int) []string {
 		problems = append(problems,
 			intReadingProblems(name+" max_link_gen", gen.Max, wantMaxLinkGen, "")...)
 		problems = append(problems,
-			intReadingProblems(name+" max_device_link_gen", gen.DeviceMax, wantMaxLinkGen, "")...)
+			intReadingProblems(name+" current_link_gen", gen.Current, wantCurrentLinkGen, "")...)
+		problems = append(problems,
+			intReadingProblems(name+" device_current_link_gen", gen.DeviceCurrent, wantCurrentLinkGen, "")...)
+		problems = append(problems,
+			intReadingProblems(name+" max_device_link_gen", gen.DeviceMax, wantDeviceMaxLinkGen, "")...)
 		problems = append(problems,
 			intReadingProblems(name+" max_host_link_gen", gen.HostMax, wantMaxLinkGen, "")...)
 		problems = append(problems, boardIDProblems(name, gpu.BoardID, boardIDs)...)
