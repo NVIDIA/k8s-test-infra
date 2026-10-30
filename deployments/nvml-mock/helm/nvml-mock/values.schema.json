@@ -142,6 +142,37 @@
               }
             }
           }
+        },
+        "vgpu": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "vGPU simulation. host makes every GPU a vGPU host running the declared instances; guest makes every GPU the vGPU a VM sees. Field reference in docs/vgpu.md; the node agent validates the contents.",
+          "properties": {
+            "mode": { "type": "string", "enum": ["", "host", "guest"] },
+            "hostVgpuMode": { "type": "string", "enum": ["sriov", "non_sriov"] },
+            "types": {
+              "type": "array",
+              "description": "Host only. vGPU types every GPU supports, in profile (snake_case) form: id, name, framebuffer_mib, max_instances, and optional class, max_instances_per_vm, license, num_display_heads, resolution, frame_rate_limit, gpu_instance_profile_id, device_id, subsystem_id.",
+              "items": { "type": "object" }
+            },
+            "instances": {
+              "type": "array",
+              "description": "Host only. Running instances on every GPU, all of one type.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["type"],
+                "properties": {
+                  "type": { "type": "string" },
+                  "count": { "type": "integer", "minimum": 1 }
+                }
+              }
+            },
+            "guest": {
+              "type": "object",
+              "description": "Guest only. host_driver_version and host_driver_branch (each at most 10 bytes), and an optional license {product, state, expiry}."
+            }
+          }
         }
       }
     },
@@ -231,10 +262,25 @@
       "additionalProperties": false,
       "properties": {
         "AllAlpha": { "type": "boolean" },
-        "AllBeta": { "type": "boolean" }
+        "AllBeta": { "type": "boolean" },
+        "IMEXDownload": { "type": "boolean" }
       }
     },
     "driverVersion": { "type": "string" },
+    "driverBranch": { "type": "string" },
+    "hic": {
+      "type": "array",
+      "description": "Host interface cards nvmlSystemGetHicVersion reports, which is what `nvidia-smi -q -u` prints.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "integer", "minimum": 0 },
+          "firmwareVersion": { "type": "string", "minLength": 1 }
+        },
+        "required": ["firmwareVersion"]
+      }
+    },
     "nodeSelector": { "type": "object" },
     "tolerations": { "type": "array" },
     "nodeLabels": {
@@ -420,30 +466,69 @@
     "imex": {
       "type": "object",
       "additionalProperties": true,
-      "description": "IMEX simulation. mockChannels covers the capability surface the NVIDIA DRA driver's compute-domain kubelet plugin reads.",
+      "description": "IMEX simulation, staged on multi-node NVLink profiles (nvlink.multi_node). deviceNumbers picks the device majors of the capability surface the NVIDIA DRA driver's compute-domain kubelet plugin reads; binaries delivers the IMEX node software its ComputeDomain daemon runs.",
       "properties": {
-        "mockChannels": {
+        "deviceNumbers": {
           "type": "object",
           "additionalProperties": true,
-          "description": "Renders a substitute /proc/devices, the fabric-imex-mgmt capability file, and the channel device nodes. Consumed via the DRA driver's altProcDevices value. See NVIDIA/k8s-test-infra#498.",
+          "description": "Device majors of the substitute /proc/devices and the channel0 device node. The substitute is consumed via the DRA driver's altProcDevices value. See NVIDIA/k8s-test-infra#498.",
           "properties": {
-            "enabled": { "type": "boolean" },
-            "channelCount": {
-              "type": "integer",
-              "minimum": 1,
-              "description": "Number of channel device nodes to create. 2048 matches getImexChannelCount() in the DRA driver's compute-domain kubelet plugin."
-            },
             "channelMajor": {
               "type": "integer",
               "minimum": 1,
               "maximum": 4095,
-              "description": "Character-device major advertised for nvidia-caps-imex-channels. Must differ from capsMajor and must not collide with a major already present on the node; the renderer rejects both cases."
+              "description": "Character-device major advertised for nvidia-caps-imex-channels. Must differ from capsMajor. A major the node's kernel already gives to another driver is replaced by a free one from 384 to 511."
             },
             "capsMajor": {
               "type": "integer",
               "minimum": 1,
               "maximum": 4095,
               "description": "Character-device major advertised for nvidia-caps. Must differ from channelMajor."
+            }
+          }
+        },
+        "binaries": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "IMEX node software for the DRA ComputeDomain daemon, from the archive pinned in the node agent's imex.lock.json.",
+          "properties": {
+            "image": {
+              "type": "object",
+              "additionalProperties": true,
+              "description": "Image carrying the pinned IMEX archive under /imex, as make imex-binaries-image builds it. On multi-node NVLink profiles a copy-only init container puts the archive where the node agent finds it. An empty repository renders no init container.",
+              "properties": {
+                "repository": { "type": "string" },
+                "digest": {
+                  "type": "string",
+                  "pattern": "^(|sha256:[a-f0-9]{64})$",
+                  "description": "Immutable image digest. When set, it pins the image and takes precedence over tag."
+                },
+                "tag": {
+                  "type": "string",
+                  "description": "The IMEX version the image carries. Required with repository unless digest is set."
+                },
+                "pullPolicy": {
+                  "type": "string",
+                  "enum": ["", "Always", "IfNotPresent", "Never"]
+                }
+              }
+            },
+            "resources": {
+              "type": "object",
+              "additionalProperties": true,
+              "description": "Requests and limits of the copy-only init container. A namespace with a compute ResourceQuota admits a pod only if every container sets requests."
+            },
+            "download": {
+              "type": "object",
+              "additionalProperties": true,
+              "description": "The node agent's download of the pinned IMEX archive from NVIDIA, while the IMEXDownload feature gate is on.",
+              "properties": {
+                "timeout": {
+                  "type": "string",
+                  "pattern": "^[0-9]+(ns|us|ms|s|m|h)$",
+                  "description": "Go duration string passed to --imex-download-timeout: the time limit of one download attempt."
+                }
+              }
             }
           }
         }
@@ -488,9 +573,14 @@
             "networkPolicy": {
               "type": "object",
               "additionalProperties": true,
-              "description": "NetworkPolicy restricting inbound access to the fabric port to peer nvml-mock pods. No-op on CNIs that do not enforce NetworkPolicy (e.g. Kind's kindnet).",
+              "description": "NetworkPolicy restricting inbound access to the fabric port to peer nvml-mock pods. Rendered only at the full mock InfiniBand tier, the only one that listens on the port. No-op on CNIs that do not enforce NetworkPolicy (e.g. Kind's kindnet).",
               "properties": {
-                "enabled": { "type": "boolean" }
+                "enabled": { "type": "boolean" },
+                "peerNamespaces": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Namespaces besides the release's whose nvml-mock pods may reach the fabric port, for a fleet split across namespaces. Empty admits the release's namespace only."
+                }
               }
             }
           }

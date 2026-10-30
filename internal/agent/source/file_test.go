@@ -54,6 +54,32 @@ func TestCompileState_FabricState(t *testing.T) {
 	require.Positive(t, state.Fabric.LinksPerGPU)
 }
 
+// The IMEX surface follows the board, not a chart switch: a multi-node NVLink
+// profile gets it with the chart's device numbers, and an HGX profile, whose NVLink
+// fabric stays on one baseboard, gets none.
+func TestCompileState_IMEXFollowsMultiNodeNVLink(t *testing.T) {
+	for _, tc := range []struct {
+		config string
+		want   agent.IMEXState
+	}{
+		{config: "mock-nvml-config-gb200.yaml", want: agent.IMEXState{Enabled: true, IMEXMajor: 240, CapsMajor: 241}},
+		{config: "mock-nvml-config-h100.yaml", want: agent.IMEXState{}},
+	} {
+		t.Run(tc.config, func(t *testing.T) {
+			t.Setenv("IMEX_CHANNEL_MAJOR", "240")
+			t.Setenv("IMEX_CAPS_MAJOR", "241")
+
+			path := "../../../pkg/gpu/mocknvml/configs/" + tc.config
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+
+			state, err := compileState(data, path)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, state.IMEX)
+		})
+	}
+}
+
 // The state dir comes from the environment, not the profile: NVLink in the
 // config says nothing about whether fabricmanager runs on the node.
 func TestCompileState_ManagerStateDir(t *testing.T) {
@@ -1239,4 +1265,26 @@ func TestFileSource_FollowsARetargetedSymlink(t *testing.T) {
 	u = nextUpdate(t, ch)
 	require.NoError(t, u.Err)
 	require.Equal(t, string(edited), string(u.State.ConfigRaw))
+}
+
+func TestBuildDeviceSpec_VGPUGuest(t *testing.T) {
+	t.Parallel()
+	block := &engine.VGPUConfig{Guest: &engine.VGPUGuestConfig{HostDriverVersion: "550.163.01", HostDriverBranch: "r550_00"}}
+	withBlock := func(mode string) engine.DeviceConfig {
+		return engine.DeviceConfig{Virtualization: &engine.VirtualizationConfig{Mode: mode, VGPU: block}}
+	}
+	require.Equal(t, &agent.VGPUGuestSpec{HostDriverVersion: "550.163.01", HostDriverBranch: "r550_00"},
+		buildDeviceSpec(0, withBlock(engine.VirtualizationModeVGPU), nil).VGPUGuest)
+
+	// Only mode vgpu makes a guest, so a guest block under any other mode
+	// must not reach the PCI capability.
+	for name, cfg := range map[string]engine.DeviceConfig{
+		"no virtualization":    {},
+		"host":                 withBlock(engine.VirtualizationModeHostVGPU),
+		"passthrough":          withBlock("passthrough"),
+		"bare metal":           withBlock("none"),
+		"vgpu without a block": {Virtualization: &engine.VirtualizationConfig{Mode: engine.VirtualizationModeVGPU}},
+	} {
+		require.Nil(t, buildDeviceSpec(0, cfg, nil).VGPUGuest, name)
+	}
 }

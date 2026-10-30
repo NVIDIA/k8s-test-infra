@@ -1,4 +1,0 @@
-kind: Added
-body: |-
-  nvml-mock: GPUs can be drained, removed and rediscovered through NVML; a device marked `excluded: true` is hidden from enumeration and appears in the excluded-GPU list that `nvidia-smi -B` and DCGM read.
-time: 2026-10-05T13:20:25Z

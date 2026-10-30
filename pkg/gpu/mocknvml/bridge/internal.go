@@ -41,6 +41,11 @@ extern unsigned int mockInternalFillProcessList(void* handle, void* buf, unsigne
 // below in Go). It returns NOT_SUPPORTED when the profile omits the host value.
 extern int mockInternalHostMaxPcieLinkGen(void* handle, unsigned int* value);
 
+// Forward declarations of the vGPU lookups (defined below in Go). Both return 1
+// when the device is the kind the slot asks about, 0 otherwise.
+extern int mockInternalIsVgpuHost(void* handle);
+extern int mockInternalGuestLicenseState(void* handle, unsigned int* state);
+
 // Forward declaration of the public persistence-mode setter (defined in device.go).
 extern nvmlReturn_t nvmlDeviceSetPersistenceMode(nvmlDevice_t device, nvmlEnableState_t mode);
 
@@ -67,7 +72,9 @@ static int isDebugEnabled() {
 // every slot its own trampoline and logging which slots each nvidia-smi view
 // hits (580.65.06).
 #define MOCK_SLOT_GPU_RESET 20
+#define MOCK_SLOT_VGPU_HOST 72
 #define MOCK_SLOT_DEVICE_HANDLE_BY_INDEX 81
+#define MOCK_SLOT_GUEST_LICENSE_STATE 189
 #define MOCK_SLOT_GPU_RESET_COMPLETE 197
 #define MOCK_SLOT_PROCESS_LIST_FIRST 213
 #define MOCK_SLOT_PROCESS_LIST_LAST 215
@@ -146,6 +153,24 @@ static nvmlReturn_t internalStubFunction(unsigned int slot, void* arg0, void* ar
         return ret;
     }
 
+    // Host-side max PCIe link generation: fn(nvmlDevice_t device, unsigned int* out).
+    // Handle this before the generic device-handle guard: the historical slot
+    // response for an unknown handle is success with a zero output, whereas a
+    // known device without a configured host maximum reports NOT_SUPPORTED.
+    if (slot == MOCK_SLOT_HOST_MAX_PCIE_LINK_GEN && arg1 != NULL) {
+        unsigned int gen = 0;
+        nvmlReturn_t ret = mockInternalHostMaxPcieLinkGen(arg0, &gen);
+        if (ret != NVML_SUCCESS) {
+            return ret;
+        }
+        *(unsigned int*)arg1 = gen;
+        if (gen > 0 && isDebugEnabled()) {
+            fprintf(stderr, "[C-STUB] slot %u host max PCIe link gen (handle=%p) -> %u\n",
+                    slot, arg0, gen);
+        }
+        return NVML_SUCCESS;
+    }
+
     if (arg1 == NULL || !mockInternalIsDeviceHandle(arg0)) {
         // Non-device call - return SUCCESS to acknowledge.
         //
@@ -189,29 +214,31 @@ static nvmlReturn_t internalStubFunction(unsigned int slot, void* arg0, void* ar
         }
     }
 
-    // Host-side max PCIe link generation: fn(nvmlDevice_t device, unsigned int* out).
-    // nvidia-smi's "Host Max" row comes from here, not from any public NVML API
-    // -- none exposes a host-side maximum. Falling through to the zero write
-    // below is what made every profile report an impossible Gen0 (issue #638).
-    // Slot located by its position in the -q call sequence: it fires between
-    // nvmlDeviceGetGpuMaxPcieLinkGeneration ("Device Max") and
-    // nvmlDeviceGetMaxPcieLinkWidth, and writing a marker value here moves the
-    // Host Max row of `-q`, the <max_host_link_gen> element of `-q -x` and the
-    // pcie.link.gen.hostmax query field together.
-    if (slot == MOCK_SLOT_HOST_MAX_PCIE_LINK_GEN) {
-        unsigned int gen = 0;
-        nvmlReturn_t ret = mockInternalHostMaxPcieLinkGen(arg0, &gen);
-        if (ret != NVML_SUCCESS) {
-            return ret;
-        }
-        // Always write the result, including zero, because callers may reuse a
-        // pre-filled output buffer for an unconfigured profile.
-        *(unsigned int*)arg1 = gen;
-        if (gen > 0 && isDebugEnabled()) {
-            fprintf(stderr, "[C-STUB] slot %u host max PCIe link gen (handle=%p) -> %u\n",
-                    slot, arg0, gen);
+    // vGPU manager presence: fn(nvmlDevice_t device, unsigned int* out).
+    // `nvidia-smi vgpu` asks this before any public vGPU call and prints "No
+    // supported devices in vGPU mode" while it answers 0. `pmon` asks it too,
+    // and declines a host GPU the way it does on a hypervisor.
+    if (slot == MOCK_SLOT_VGPU_HOST && mockInternalIsVgpuHost(arg0)) {
+        *(unsigned int*)arg1 = 1;
+        if (isDebugEnabled()) {
+            fprintf(stderr, "[C-STUB] slot %u vGPU host (handle=%p) -> 1\n", slot, arg0);
         }
         return NVML_SUCCESS;
+    }
+
+    // Guest license state: fn(nvmlDevice_t device, unsigned int* out), in
+    // nvmlGridLicenseState_t terms. `nvidia-smi -q` renders a guest's License
+    // Status from this, not from nvmlDeviceGetGridLicensableFeatures.
+    if (slot == MOCK_SLOT_GUEST_LICENSE_STATE) {
+        unsigned int state = 0;
+        if (mockInternalGuestLicenseState(arg0, &state)) {
+            *(unsigned int*)arg1 = state;
+            if (isDebugEnabled()) {
+                fprintf(stderr, "[C-STUB] slot %u guest license state (handle=%p) -> %u\n",
+                        slot, arg0, state);
+            }
+            return NVML_SUCCESS;
+        }
     }
 
     // Every other per-device call still gets an explicit zero count. Leaving it
@@ -267,6 +294,7 @@ import "C"
 
 import (
 	"fmt"
+	"slices"
 	"unsafe"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
@@ -275,6 +303,22 @@ import (
 )
 
 const persistenceModeSlotForTest = C.MOCK_SLOT_SET_PERSISTENCE_MODE
+
+const (
+	vgpuHostSlotForTest          = C.MOCK_SLOT_VGPU_HOST
+	guestLicenseStateSlotForTest = C.MOCK_SLOT_GUEST_LICENSE_STATE
+)
+
+// internalSlotReadForTest makes one export-table call whose arg1 is an
+// unsigned int out-parameter and returns what the slot wrote there. The
+// buffer is C memory so the call passes no Go pointer.
+func internalSlotReadForTest(slot uint, handle unsafe.Pointer) (uint32, nvml.Return) {
+	out := (*C.uint)(C.malloc(C.size_t(unsafe.Sizeof(C.uint(0)))))
+	defer C.free(unsafe.Pointer(out))
+	*out = 0xdeadbeef
+	ret := nvml.Return(C.callSlotForTest(C.uint(slot), handle, C.uintptr_t(uintptr(unsafe.Pointer(out)))))
+	return uint32(*out), ret
+}
 
 // internalSlotCallForTest dispatches one export-table call; test files cannot
 // use cgo.
@@ -329,6 +373,34 @@ func mockInternalHostMaxPcieLinkGen(handle unsafe.Pointer, value *C.uint) C.int 
 	return C.NVML_SUCCESS
 }
 
+// mockInternalIsVgpuHost reports whether the GPU runs the vGPU manager.
+//
+//export mockInternalIsVgpuHost
+func mockInternalIsVgpuHost(handle unsafe.Pointer) C.int {
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil || !dev.IsVgpuHost() {
+		return 0
+	}
+	return 1
+}
+
+// mockInternalGuestLicenseState writes a vGPU guest's license state and
+// reports whether the GPU is one.
+//
+//export mockInternalGuestLicenseState
+func mockInternalGuestLicenseState(handle unsafe.Pointer, state *C.uint) C.int {
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return 0
+	}
+	s, ok := dev.VgpuGuestLicenseState()
+	if !ok {
+		return 0
+	}
+	*state = C.uint(s)
+	return 1
+}
+
 // Layout of one entry in the internal process-list array, recovered by probing
 // the real nvidia-smi 580.65.06 (stamp each word with its own offset, then read
 // back which offset each rendered row came from). The numeric header matches
@@ -365,9 +437,12 @@ func mockInternalFillProcessList(handle unsafe.Pointer, buf unsafe.Pointer, capa
 	if dev == nil || buf == nil {
 		return 0
 	}
+	// The three lists fail only for a lost GPU, and then return no entries,
+	// which is the list nvidia-smi should show for a GPU it cannot reach.
 	compute, _ := dev.GetComputeRunningProcesses()
 	graphics, _ := dev.GetGraphicsRunningProcesses()
-	all := append(compute, graphics...)
+	mps, _ := dev.GetMPSComputeRunningProcesses()
+	all := slices.Concat(compute, graphics, mps)
 
 	n := len(all)
 	if n > int(capacity) {

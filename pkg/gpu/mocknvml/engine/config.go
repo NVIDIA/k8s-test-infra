@@ -147,12 +147,34 @@ func applyYAMLConfig(config *Config, yamlConfig *YAMLConfig, configPath string) 
 	// the correct ComputeDomain identity. Nodes not present in the
 	// topology fall through to the YAML-default fabric config (or
 	// to NOT_SUPPORTED when none is set, matching non-GB200 GPUs).
-	applyTopologyOverlay(yamlConfig)
+	applyTopologyOverlay(yamlConfig, configPath)
 
 	debugLog("[CONFIG] Loaded YAML config: %d devices, driver %s\n", config.NumDevices, config.DriverVersion)
 
 	configCache = config
 	configCachePath = configPath
+}
+
+// topologyPath returns the first topology document applyTopologyOverlay reads,
+// or "" when there is none. An explicit MOCK_TOPOLOGY_CONFIG is the only
+// candidate when set.
+func topologyPath(configPath string) string {
+	if explicit := os.Getenv("MOCK_TOPOLOGY_CONFIG"); explicit != "" {
+		if _, err := os.Stat(explicit); err != nil {
+			return ""
+		}
+		return explicit
+	}
+	candidates := []string{"/config/topology.yaml"}
+	if configPath != "" {
+		candidates = append(candidates, filepath.Join(filepath.Dir(configPath), "topology.yaml"))
+	}
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return ""
 }
 
 // ConfigOverridePathFor resolves the runtime overrides file path from the resolved
@@ -327,7 +349,10 @@ func validateYAMLConfig(config *YAMLConfig) error {
 		return err
 	}
 
-	return validateMIGConfigs(config)
+	if err := validateMIGConfigs(config); err != nil {
+		return err
+	}
+	return validateVGPUConfig(config)
 }
 
 // validateMIGConfigs checks the board-wide MIG block and every per-device one.
@@ -1048,6 +1073,9 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	if override.VBIOSVersion != "" {
 		base.VBIOSVersion = override.VBIOSVersion
 	}
+	if override.Hostname != "" {
+		base.Hostname = override.Hostname
+	}
 	if override.Architecture != "" {
 		base.Architecture = override.Architecture
 	}
@@ -1083,6 +1111,12 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	if override.Thermal != nil {
 		base.Thermal = override.Thermal
 	}
+	// Cooling is a property of one board's form factor, so a profile can mix a
+	// fanned PCIe board with fanless SXM modules; the per-device block replaces
+	// the defaults' whole rather than inheriting their fan count or envelope.
+	if override.Fan != nil {
+		base.Fan = override.Fan
+	}
 	if override.Clocks != nil {
 		base.Clocks = override.Clocks
 	}
@@ -1109,6 +1143,9 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	}
 	if override.Processes != nil {
 		base.Processes = override.Processes // nil = not overridden; [] = explicit clear
+	}
+	if override.Accounting != nil {
+		base.Accounting = override.Accounting
 	}
 	if override.MIG != nil {
 		mergeMIGOverride(base, override.MIG)
@@ -1207,18 +1244,17 @@ func mergePlatformOverride(base *DeviceConfig, override *PlatformConfig) {
 // Resolution order for the topology path:
 //  1. MOCK_TOPOLOGY_CONFIG env var (explicit path)
 //  2. /config/topology.yaml (canonical helm mount)
-//
-//nolint:cyclop // existing complexity; refactor deferred
-func applyTopologyOverlay(yamlConfig *YAMLConfig) {
+//  3. topology.yaml beside configPath, where the node agent stages it in the
+//     driver tree. A process that finds the library and its config through
+//     the driver root, as the DRA driver's kubelet plugin does, needs nothing
+//     else to see the node's clique.
+func applyTopologyOverlay(yamlConfig *YAMLConfig, configPath string) {
 	nodeName := os.Getenv("NODE_NAME")
 	if nodeName == "" {
 		return
 	}
-	topoPath := os.Getenv("MOCK_TOPOLOGY_CONFIG")
+	topoPath := topologyPath(configPath)
 	if topoPath == "" {
-		topoPath = "/config/topology.yaml"
-	}
-	if _, err := os.Stat(topoPath); err != nil {
 		// No topology mounted — leave fabric config untouched.
 		return
 	}

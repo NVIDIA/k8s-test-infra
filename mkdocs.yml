@@ -124,6 +124,7 @@ nav:
           - Configuration: configuration.md
           - Feature Gates: feature-gates.md
           - MIG: mig.md
+          - vGPU: vgpu.md
           - Helm Chart Values: helm-chart-values.md
           - Control Plane API: crd-reference.md
           # The pages stay under docs/tools/ because hack/check-docs-tools-sync.sh
@@ -150,9 +151,11 @@ nav:
           - Compute Domain: guides/compute-domain/README.md
           - NVSentinel: guides/nv-sentinel/README.md
           - Run.ai Fake GPU Operator: guides/runai-fgo/README.md
+          - Topograph: guides/topograph/README.md
       - Tasks:
           - Set Up NRI Injection: guides/nri-injection.md
           - MIG Partitioning: guides/mig/README.md
+          - vGPU Host and Guest: guides/vgpu/README.md
           - Failure Injection: guides/failure-injection/README.md
           - Use in CI/CD: guides/ci-cd.md
           - Runtime Control: nvml-mock-ctl.md

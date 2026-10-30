@@ -33,9 +33,24 @@ var stubReturnRE = regexp.MustCompile(`return stubReturn\("(nvmlDevice[^"]+)"\)`
 // bug in issue #636: ConfigurableDevice implements an NVML method, profiles
 // may configure it, but the C export is still a generated stubReturn that
 // surfaces N/A / NOT_SUPPORTED to nvidia-smi.
+// The scan covers the whole engine package rather than device.go alone: the
+// methods live wherever their subject does — fans.go, conf_compute.go — and a
+// guard that only knew about one file would go quiet exactly when a new group
+// of getters is added.
 func TestEngineMethodsAreNotGeneratedStubs(t *testing.T) {
-	engineMethods, err := configurableDeviceMethodNames(filepath.Join("..", "engine", "device.go"))
+	engineFiles, err := filepath.Glob(filepath.Join("..", "engine", "*.go"))
 	require.NoError(t, err)
+
+	var engineMethods []string
+	for _, path := range engineFiles {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		methods, err := configurableDeviceMethodNames(path)
+		require.NoError(t, err)
+		engineMethods = append(engineMethods, methods...)
+	}
+	require.NotEmpty(t, engineMethods, "found no ConfigurableDevice methods — the engine scan is broken, not clean")
 
 	stubsSrc, err := os.ReadFile("stubs_generated.go")
 	require.NoError(t, err)

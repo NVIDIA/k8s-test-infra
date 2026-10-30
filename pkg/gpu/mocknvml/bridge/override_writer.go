@@ -78,3 +78,62 @@ func (overrideWriter) SetLockedClocks(index int, domain engine.ClockDomain, r *e
 func (overrideWriter) SetClockOffset(index int, domain engine.ClockDomain, offsetMHz int32) error {
 	return mockctl.SetClockOffset(engine.ConfigOverridePath(), index, domain, offsetMHz)
 }
+
+// UpdateFanControl records the policy and duty cycle the fan setters left
+// behind, folding the update in under the same lock that guards the write.
+func (overrideWriter) UpdateFanControl(
+	index int, apply func(base []engine.FanControlConfig, present bool) ([]engine.FanControlConfig, error),
+) error {
+	return mockctl.UpdateFanControl(engine.ConfigOverridePath(), index, apply)
+}
+
+// SetPowerMizerMode records the mode nvmlDeviceSetPowerMizerMode_v1 applied.
+func (overrideWriter) SetPowerMizerMode(index int, mode string) error {
+	return mockctl.SetPowerMizerMode(engine.ConfigOverridePath(), index, mode)
+}
+
+// SetPowerSmoothingState records the state nvmlDevicePowerSmoothingSetState
+// applied.
+func (overrideWriter) SetPowerSmoothingState(index int, enabled bool) error {
+	return mockctl.SetPowerSmoothingState(engine.ConfigOverridePath(), index, enabled)
+}
+
+// SetPowerSmoothingActiveProfile records the preset
+// nvmlDevicePowerSmoothingActivatePresetProfile made active.
+func (overrideWriter) SetPowerSmoothingActiveProfile(index int, profileID uint32) error {
+	return mockctl.SetPowerSmoothingActiveProfile(engine.ConfigOverridePath(), index, profileID)
+}
+
+// SetPowerSmoothingProfileParam records the preset parameter
+// nvmlDevicePowerSmoothingUpdatePresetProfileParam tuned.
+func (overrideWriter) SetPowerSmoothingProfileParam(
+	index int, profileID uint32, param engine.PowerSmoothingParam, value float64,
+) error {
+	return mockctl.SetPowerSmoothingProfileParam(engine.ConfigOverridePath(), index, profileID, param, value)
+}
+
+// SetAccountingMode records the mode nvmlDeviceSetAccountingMode applied.
+func (overrideWriter) SetAccountingMode(index int, enabled bool) error {
+	return mockctl.SetAccountingMode(engine.ConfigOverridePath(), index, enabled)
+}
+
+// SetEccModePending records the mode nvmlDeviceSetEccMode applied.
+func (overrideWriter) SetEccModePending(index int, enabled bool) error {
+	return mockctl.SetEccModePending(engine.ConfigOverridePath(), index, enabled)
+}
+
+// ClearEccErrorCounts records the clear nvmlDeviceClearEccErrorCounts applied.
+func (overrideWriter) ClearEccErrorCounts(index int, scope engine.EccCounterScope) error {
+	return mockctl.ClearEccErrorCounts(engine.ConfigOverridePath(), index, scope)
+}
+
+// SetDramEncryptionPending records the mode nvmlDeviceSetDramEncryptionMode
+// applied.
+func (overrideWriter) SetDramEncryptionPending(index int, enabled bool) error {
+	return mockctl.SetDramEncryptionPending(engine.ConfigOverridePath(), index, enabled)
+}
+
+// ClearAccountingPids records the clear nvmlDeviceClearAccountingPids applied.
+func (overrideWriter) ClearAccountingPids(index int) error {
+	return mockctl.ClearAccountingPids(engine.ConfigOverridePath(), index)
+}

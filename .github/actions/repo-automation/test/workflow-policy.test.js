@@ -12,12 +12,12 @@ const workflowRoot = path.join(repositoryRoot, ".github", "workflows");
 const trustedRef = "${{ steps.trusted.outputs.result }}";
 const managed = [
   "automation-ci.yml",
-  "cherrypick.yml",
   "commands.yml",
   "issue-commands.yml",
   "label-sync.yml",
   "merge-evaluate.yml",
   "pr-metadata.yml",
+  "retire-merge-policy-check.yml",
   "review-observer.yml",
 ];
 

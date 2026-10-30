@@ -10,8 +10,7 @@ const PR_ACTIONS = new Set([
 ]);
 
 function supportedBranch(branch) {
-  return branch === "main" || (typeof branch === "string" && /^release-[A-Za-z0-9][A-Za-z0-9._-]*$/.test(branch)
-    && !branch.includes("..") && !branch.endsWith(".") && !branch.endsWith(".lock"));
+  return branch === "main";
 }
 
 function validBaseBranch(branch) {

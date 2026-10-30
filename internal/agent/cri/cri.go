@@ -20,6 +20,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
+	"github.com/NVIDIA/k8s-test-infra/internal/agent/imex"
 )
 
 const (
@@ -228,9 +229,10 @@ func (s *Simulator) revert(ctx context.Context) error {
 	return nil
 }
 
-// publishSpecs writes both CDI specs.
+// publishSpecs writes both CDI specs. The IMEX simulator stages in the same
+// Stage wave, so by Apply its node software is on disk or it is not.
 func (s *Simulator) publishSpecs(state *agent.State) error {
-	if err := writeSpec(s.host.RunPath(nvidiaSpecFile), buildNvidiaSpec(state)); err != nil {
+	if err := writeSpec(s.host.RunPath(nvidiaSpecFile), buildNvidiaSpec(state, imex.Staged(s.host.Root))); err != nil {
 		return fmt.Errorf("nvidia.yaml: %w", err)
 	}
 

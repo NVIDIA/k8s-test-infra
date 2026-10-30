@@ -44,6 +44,12 @@ const (
 	// transposed or garbage value fail loudly rather than produce a file the
 	// consumer will parse into nonsense.
 	maxDeviceMajor = 4095
+
+	// The kernel assigns majors from 384 to 511 dynamically, and only once its
+	// main dynamic range, 234 to 254, is used up. A major from there is the
+	// least likely to collide with a driver loaded later.
+	fallbackMajorFirst = 384
+	fallbackMajorLast  = 511
 )
 
 // entryPattern matches an existing "<major> <name>" line so re-rendering can
@@ -68,6 +74,41 @@ func existingMajors(src string) map[int]string {
 		}
 	}
 	return majors
+}
+
+// Majors returns the device majors to advertise for the IMEX channels and
+// nvidia-caps. A requested major stays unless src, the node's /proc/devices,
+// gives it to another driver; such a major is replaced by the lowest free one
+// from 384 to 511, so the mock entry never shadows a real device.
+func Majors(src string, imexMajor, capsMajor int) (int, int, error) {
+	inUse := existingMajors(src)
+	taken := func(major int, name string) bool {
+		owner, ok := inUse[major]
+		return ok && owner != name
+	}
+	candidate := fallbackMajorFirst
+	free := func(name string, other int) (int, error) {
+		for ; candidate <= fallbackMajorLast; candidate++ {
+			if !taken(candidate, name) && candidate != other {
+				candidate++
+				return candidate - 1, nil
+			}
+		}
+		return 0, fmt.Errorf("no free device major for %s in %d..%d", name, fallbackMajorFirst, fallbackMajorLast)
+	}
+
+	var err error
+	if taken(imexMajor, imexChannelsDeviceName) {
+		if imexMajor, err = free(imexChannelsDeviceName, capsMajor); err != nil {
+			return 0, 0, err
+		}
+	}
+	if taken(capsMajor, capsDeviceName) {
+		if capsMajor, err = free(capsDeviceName, imexMajor); err != nil {
+			return 0, 0, err
+		}
+	}
+	return imexMajor, capsMajor, nil
 }
 
 // ProcDevices returns src with NVIDIA caps character-device entries inserted

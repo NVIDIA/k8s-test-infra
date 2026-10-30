@@ -21,6 +21,9 @@ func TestHostMaxPcieSlot_UsesOnlyExplicitHostValue(t *testing.T) {
 		ret     nvml.Return
 	}{
 		{"a100", 99, nvml.ERROR_NOT_SUPPORTED},
+		{"h100", 99, nvml.ERROR_NOT_SUPPORTED},
+		{"l40s", 99, nvml.ERROR_NOT_SUPPORTED},
+		{"t4", 99, nvml.ERROR_NOT_SUPPORTED},
 		{"b200", 99, nvml.ERROR_NOT_SUPPORTED},
 		{"gb200", 99, nvml.ERROR_NOT_SUPPORTED},
 		{"gb300", 4, nvml.SUCCESS},
@@ -45,6 +48,10 @@ func TestHostMaxPcieSlot_UsesOnlyExplicitHostValue(t *testing.T) {
 			value, ret = hostMaxPcieLinkGenLookupForTest(unknown, 99)
 			require.Equal(t, nvml.SUCCESS, ret, "unknown handles retain the historical result")
 			require.Zero(t, value, "a reused output buffer must not keep stale data")
+
+			value, ret = hostMaxPcieLinkGenForTest(unknown, 99)
+			require.Equal(t, nvml.SUCCESS, ret, "the internal slot must retain the historical result for unknown handles")
+			require.Zero(t, value, "the internal slot must clear the output for an unknown handle")
 		})
 	}
 }

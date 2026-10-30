@@ -313,7 +313,6 @@ func pcieIdentityGPU(id, boardID, gen string) string {
 
 // pcieIdentityGPUGens renders one <gpu> with each maximum set independently.
 // Every body is injected verbatim so a test can supply "4", "N/A" or nothing.
-// Historical mock captures with max_host_link_gen 0 remain negative controls.
 func pcieIdentityGPUGens(id, boardID, maxGen, deviceMaxGen, hostMaxGen string) string {
 	return `
 	<gpu id="` + id + `">
@@ -445,17 +444,38 @@ func TestPCIeIdentityProblems_RejectsUnparseableOutput(t *testing.T) {
 	require.NotEmpty(t, PCIeIdentityProblems(xmlDocument(), 0, 4, 0), "a GPU-less document is an error")
 }
 
-// A real nvidia-smi document, so the element nesting is verified against the
-// driver rather than against the hand-built XML above: the a100 capture carries
-// the derived board IDs (0x700 and 0xf00) and a Gen4 link. It was taken before
-// the host-max fix, so its max_host_link_gen is the one reading still expected
-// to be reported — and nothing else, which is what pins the other paths.
+// The hardware capture pins the actual A100 N/A host reading and PCIe XML shape.
 func TestPCIeIdentityProblems_ReadsCapturedDocument(t *testing.T) {
-	problems := PCIeIdentityProblems(loadFixture(t, "qx-a100-healthy.xml"), 2, 4, 0)
+	problems := PCIeIdentityProblems(loadFixture(t, "hardware/qx-a100.xml"), 1, 4, 0)
+	assert.Empty(t, problems, strings.Join(problems, "; "))
+}
 
-	for _, p := range problems {
-		assert.Contains(t, p, "max_host_link_gen",
-			"the capture predates the host-max fix; every other PCIe reading must already be right")
+func TestPCIeHostMaximumMatchesHardwareCaptures(t *testing.T) {
+	for _, tc := range []struct {
+		profile string
+		want    string
+	}{
+		{"a100", "N/A"},
+		{"h100", "N/A"},
+		{"l40s", "N/A"},
+		{"t4", "N/A"},
+		{"b200", "N/A"},
+		{"gb200", "N/A"},
+		{"gb300", "4"},
+	} {
+		t.Run(tc.profile, func(t *testing.T) {
+			snap, err := ParseSnapshot(loadFixture(t, "hardware/qx-"+tc.profile+".xml"))
+			require.NoError(t, err)
+			require.NotEmpty(t, snap.doc.GPUs)
+			for i, gpu := range snap.doc.GPUs {
+				hostMax := gpu.PCI.GPULinkInfo.PCIeGen.HostMax
+				if tc.want == "N/A" {
+					assert.True(t, hostMax.unsupported(), "GPU %d in %s should report N/A, got %q", i, tc.profile, string(hostMax))
+				} else {
+					assert.Equal(t, tc.want, string(hostMax), "GPU %d in %s", i, tc.profile)
+				}
+			}
+		})
 	}
 }
 

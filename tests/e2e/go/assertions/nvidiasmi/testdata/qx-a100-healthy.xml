@@ -86,7 +86,7 @@
 					<current_link_gen>4</current_link_gen>
 					<device_current_link_gen>4</device_current_link_gen>
 					<max_device_link_gen>4</max_device_link_gen>
-					<max_host_link_gen>0</max_host_link_gen>
+					<max_host_link_gen>N/A</max_host_link_gen>
 				</pcie_gen>
 				<link_widths>
 					<max_link_width>16x</max_link_width>
@@ -391,7 +391,7 @@
 					<current_link_gen>4</current_link_gen>
 					<device_current_link_gen>4</device_current_link_gen>
 					<max_device_link_gen>4</max_device_link_gen>
-					<max_host_link_gen>0</max_host_link_gen>
+					<max_host_link_gen>N/A</max_host_link_gen>
 				</pcie_gen>
 				<link_widths>
 					<max_link_width>16x</max_link_width>

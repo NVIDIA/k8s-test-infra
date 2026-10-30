@@ -437,3 +437,44 @@ func TestAgentReadiness_AggregatesSimulators(t *testing.T) {
 		})
 	}
 }
+
+// requeueSim reports each Stage and asks for a reconcile on demand.
+type requeueSim struct {
+	readySim
+	requeue chan struct{}
+	staged  chan *State
+}
+
+func (s *requeueSim) Stage(_ context.Context, state *State) error {
+	s.staged <- state
+	return nil
+}
+func (s *requeueSim) Requeue() <-chan struct{} { return s.requeue }
+
+// A simulator that finishes work in the background gets it staged without
+// waiting for the next State.
+func TestRequeueRestagesTheLatestState(t *testing.T) {
+	t.Parallel()
+
+	sim := &requeueSim{
+		readySim: readySim{name: "requeue", ready: true},
+		requeue:  make(chan struct{}),
+		staged:   make(chan *State, 4),
+	}
+	updates := make(chan Update, 1)
+	a := New(Config{Simulators: []Simulator{sim}, Source: &chanSource{ch: updates}, Log: zap.NewNop()})
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- a.Run(ctx) }()
+
+	state := &State{Generation: 7}
+	updates <- Update{State: state}
+	require.Same(t, state, <-sim.staged)
+
+	sim.requeue <- struct{}{}
+	require.Same(t, state, <-sim.staged)
+
+	cancel()
+	require.NoError(t, <-done)
+}

@@ -145,10 +145,18 @@ func (a *Agent) Run(ctx context.Context) error {
 
 func (a *Agent) reconcileLoop(ctx context.Context) error {
 	updates := a.source.Watch(ctx)
+	requeues := a.requeues(ctx)
+	var latest *State
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
+		case <-requeues:
+			// Before the first State there is nothing to restage; reconciling
+			// that State picks up whatever the requeue was for.
+			if latest != nil {
+				a.reconcileLogged(ctx, latest)
+			}
 		case u, ok := <-updates:
 			if !ok {
 				return nil // source closed
@@ -157,13 +165,44 @@ func (a *Agent) reconcileLoop(ctx context.Context) error {
 				a.log.Warn("state source error; keeping cached state", zap.Error(u.Err))
 				continue
 			}
-			if err := a.reconcile(ctx, u.State); err != nil {
-				a.log.Error("reconcile failed", zap.Int64("generation", u.State.Generation), zap.Error(err))
-			} else {
-				a.log.Debug("reconcile succeeded", zap.Int64("generation", u.State.Generation))
-			}
+			latest = u.State
+			a.reconcileLogged(ctx, u.State)
 		}
 	}
+}
+
+func (a *Agent) reconcileLogged(ctx context.Context, state *State) {
+	if err := a.reconcile(ctx, state); err != nil {
+		a.log.Error("reconcile failed", zap.Int64("generation", state.Generation), zap.Error(err))
+	} else {
+		a.log.Debug("reconcile succeeded", zap.Int64("generation", state.Generation))
+	}
+}
+
+// requeues merges every Requeuer's requests into one channel. Requests that
+// arrive while one is pending coalesce, since one reconcile serves them all.
+func (a *Agent) requeues(ctx context.Context) <-chan struct{} {
+	merged := make(chan struct{}, 1)
+	for _, sim := range a.simulators {
+		r, ok := sim.(Requeuer)
+		if !ok {
+			continue
+		}
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-r.Requeue():
+					select {
+					case merged <- struct{}{}:
+					default:
+					}
+				}
+			}
+		}()
+	}
+	return merged
 }
 
 // reconcile runs Stage on all simulators in parallel, waits for the barrier,

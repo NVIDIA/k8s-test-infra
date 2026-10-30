@@ -37,20 +37,6 @@ test("a review body LGTM is granted for a plain /lgtm", async () => {
   assert.deepEqual(await evidenceFor("/lgtm"), { approvals: [], lgtms: [ALICE_LGTM] });
 });
 
-test("an agent-owned /cherry-pick line does not change review body evaluation", async () => {
-  for (const [withLine, withoutLine] of [
-    ["/lgtm\n/cherry-pick release-1.2", "/lgtm"],
-    ["/cherry-pick release-1.2\n/lgtm", "/lgtm"],
-    ["/lgtm\n/cherry-pick", "/lgtm"],
-    ["/lgtm\n/cherry-pick release branch", "/lgtm"],
-    ["/cherry-pick release-1.2", ""],
-  ]) {
-    assert.deepEqual(await evidenceFor(withLine), await evidenceFor(withoutLine), withLine);
-  }
-  assert.deepEqual(await evidenceFor("/cherry-pick release-1.2\n/lgtm"), { approvals: [], lgtms: [ALICE_LGTM] });
-  assert.deepEqual(await evidenceFor("/cherry-pick release-1.2"), { approvals: [], lgtms: [] });
-});
-
 test("agent-owned Prow command lines do not change review body evaluation", async () => {
   for (const line of ["/assign", "/unassign @alice", "/cc @bob", "/uncc @bob", "/close", "/reopen", "/retitle fix: x"]) {
     assert.deepEqual(await evidenceFor(`/lgtm\n${line}`), { approvals: [], lgtms: [ALICE_LGTM] }, line);
@@ -58,7 +44,9 @@ test("agent-owned Prow command lines do not change review body evaluation", asyn
   }
 });
 
-test("a /backport line blocks a review body LGTM like any unsupported command", async () => {
+test("a /backport or /cherry-pick line blocks a review body LGTM like any unsupported command", async () => {
   assert.deepEqual(await evidenceFor("/lgtm\n/foo release-1.2"), { approvals: [], lgtms: [] });
   assert.deepEqual(await evidenceFor("/lgtm\n/backport release-1.2"), { approvals: [], lgtms: [] });
+  assert.deepEqual(await evidenceFor("/lgtm\n/cherry-pick release-1.2"), { approvals: [], lgtms: [] });
+  assert.deepEqual(await evidenceFor("/cherry-pick release-1.2\n/lgtm"), { approvals: [], lgtms: [] });
 });

@@ -24,11 +24,13 @@ func containerFromNRI(pod *api.PodSandbox, container *api.Container) inject.Cont
 
 	if pod != nil {
 		result.Namespace = pod.GetNamespace()
+		result.PodLabels = pod.GetLabels()
 		result.PodAnnotations = pod.GetAnnotations()
 	}
 	if container == nil {
 		return result
 	}
+	result.Name = container.GetName()
 
 	// The slices are copied because NRI owns them; writing through them would
 	// corrupt the runtime's own view of the container.

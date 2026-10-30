@@ -23,49 +23,23 @@ the final merge authority. The automation publishes its policy check, enables
 native SQUASH auto-merge for eligible pull requests, and disables unsafe native
 auto-merge requests. It does not call a direct merge endpoint.
 
-## Cherry-pick
+## Cherry-pick and backport
 
-`/cherry-pick <branch>` belongs to the Mokka agent, not to this action. The
-action skips a line whose command name is exactly `cherry-pick`, followed by a
-space, a tab, or the end of the line, whatever its arguments: it records no
-command, reports no diagnostic, and makes no write for it. A review body with
-that line is evaluated as if the line were absent. The parser's line checks run
-first, so a `/cherry-pick` line longer than 4096 characters, or with a control
-character other than tab, a format character, or a line or paragraph separator,
-is still reported, and like any diagnostic it keeps a review `/lgtm` beside it
-from counting.
-
-The agent dispatches `.github/workflows/cherrypick.yml` from `main` with two
-inputs: `pr_number`, the merged pull request, and `target_branches`, a
-comma-separated list of release branches. The job runs only when
-`REPOSITORY_AUTOMATION_CHERRY_PICK_ENABLED` is `true`. Dispatches share a
-concurrency group only when they name the same pull request and the same branch
-list, so a pending dispatch is never replaced by one for other branches.
-
-For each branch, the workflow cherry-picks the merge commit GitHub recorded for
-the pull request (the squash commit in this repository), recreates the result
-as verified commits on the exact target commit it used, and opens or updates
-the `backport-<pr>-to-<branch>` pull request. When the change is already on the
-target branch, it comments that on the pull request, opens no backport pull
-request, and counts the branch as done. It does not overwrite a backport branch
-holding a commit the workflow did not create, such as a pushed conflict
-resolution, an amended commit, or a web edit: that branch fails until its pull
-request is merged or the branch is deleted. The workflow's own commits are the
-verified ones, with author `github-actions[bot]` and committer GitHub, and the
-unverified cherry-pick a stopped run pushed, so a retry after a failed run
-replaces them. After every branch has been attempted and commented on, the run
-fails if any branch failed.
-
-`/backport` is not a command. The action reports it as unsupported, like any
-other unknown command.
+`/cherry-pick` and `/backport` are not commands. The project fixes forward
+from `main` and keeps no release branches, so the action reports either one as
+unsupported, like any other unknown command.
 
 ## Assignment, review request, state, and title commands
 
 `/assign`, `/unassign`, `/cc`, `/uncc`, `/close`, `/reopen`, and `/retitle`
-also belong to the Mokka agent. The action skips them exactly as it skips
-`/cherry-pick`: a line whose command name is one of these records no command,
-reports no diagnostic, and makes no write, and a review body is evaluated as if
-the line were absent. The parser's line checks still run first.
+belong to the Mokka agent, not to this action. The action skips a line whose
+command name is exactly one of these, followed by a space, a tab, or the end of
+the line, whatever its arguments: it records no command, reports no diagnostic,
+and makes no write, and a review body is evaluated as if the line were absent.
+The parser's line checks run first, so such a line longer than 4096
+characters, or with a control character other than tab, a format character, or
+a line or paragraph separator, is still reported, and like any diagnostic it
+keeps a review `/lgtm` beside it from counting.
 
 The agent reads these comments on issues and pull requests, applies Prow's
 rules for who may use each command, and dispatches
@@ -142,10 +116,16 @@ Activate the functions in this order:
    disarms an unsafe method that it observes, but the method can change after
    its final read. If this flag is already enabled, installing this action
    also activates native enablement.
-6. Set `REPOSITORY_AUTOMATION_CHERRY_PICK_ENABLED=true` once the Mokka agent
-   dispatches **Cherry-Pick**. Confirm the first backport pull request on a
-   release branch.
-7. Set `REPOSITORY_AUTOMATION_ISSUE_COMMANDS_ENABLED=true` once the Mokka
+
+   If **Retire merge-policy check** has run, open heads carry a neutral
+   `repository-automation/merge-policy` run, and GitHub counts neutral as
+   passing a required check. When you return to this gate from another
+   controller, keep that controller's check required next to this one until
+   the latest `repository-automation/merge-policy` run on every open head is
+   `success` or `action_required` (the evaluator never posts `neutral`).
+   Dispatch **Merge evaluation** with an empty `pr_number` and `dry_run` off
+   to post them, and only then remove the other controller's check.
+6. Set `REPOSITORY_AUTOMATION_ISSUE_COMMANDS_ENABLED=true` once the Mokka
    agent dispatches **Issue commands**. Confirm an `/assign` and a `/retitle`
    on a test issue or pull request.
 
@@ -159,10 +139,9 @@ To hand the merge to another controller, follow the cutover in
 
 With `REPOSITORY_AUTOMATION_METADATA_ENABLED=true`, **PR metadata** scans all
 open pull requests hourly, at minute 17. GitHub can delay scheduled runs. There is
-no creation-date or update-date filter. A push to `main` or a `release-*` branch
-also scans open requests based on that exact branch. The scheduled scan covers
-every valid base branch in this repository, including stacked pull requests
-and PRs created by bots.
+no creation-date or update-date filter. A push to `main` also scans open
+requests based on `main`. The scheduled scan covers every valid base branch in
+this repository, including stacked pull requests and PRs created by bots.
 
 The conflict scan adds `needs-rebase` only when GitHub reports `CONFLICTING` for
 the current head and base tip. It removes that label only when GitHub reports
@@ -272,7 +251,7 @@ or more whole segments, except as the last segment, where it matches one or
 more: `docs/**` matches `docs/a.md` but not `docs`, and `**/OWNERS` matches
 `OWNERS`. Matching is case-sensitive and applies to each changed path and to the
 previous path of a rename. Source CI can pass only for pull requests into
-`main` or a `release-*` branch; any other base stays pending.
+`main`; any other base stays pending.
 
 For an eligible request, the evaluator first publishes an `action_required`
 policy check. It reads authority, metadata, PR identity, and CI again, then
@@ -327,8 +306,8 @@ for as long as it is enabled:
    **Merge evaluation** run applies labels from its `policy-labels` job.
 2. Set `REPOSITORY_AUTOMATION_MERGE_ENABLED=false`. Wait until no **Merge
    evaluation** `evaluate` job is queued or running.
-3. Disable native auto-merge on every open pull request that has it, into
-   `main` and into every `release-*` branch. This command lists them:
+3. Disable native auto-merge on every open pull request that has it. This
+   command lists them:
 
    ```shell
    gh pr list --repo NVIDIA/k8s-test-infra --state open --limit 200 \
@@ -338,8 +317,8 @@ for as long as it is enabled:
 
    Run `gh pr merge <number> --repo NVIDIA/k8s-test-infra --disable-auto` for
    each listed pull request. Repeat the list command until it prints nothing.
-4. In branch protection for `main` and for every `release-*` rule, replace the
-   required `repository-automation/merge-policy` check with the gate of the new
+4. In branch protection for `main`, replace the required
+   `repository-automation/merge-policy` check with the gate of the new
    controller.
 
 While both variables are `true`, both jobs write the same labels from separate

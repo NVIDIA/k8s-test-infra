@@ -131,7 +131,7 @@ test("loads exact authority, branch, review, command, bot, and size policy", () 
 
   assert.deepEqual(policy.activeOwnerFiles, ["/OWNERS"]);
   assert.equal(policy.activeOwnerFiles.includes("vendor/**/OWNERS"), false);
-  assert.deepEqual(policy.protectedBranches, ["main", "release-*"]);
+  assert.deepEqual(policy.protectedBranches, ["main"]);
   assert.equal(policy.review.reviewerTarget, 2);
   assert.equal(policy.commands.retestCooldownSeconds, 600);
   assert.equal(policy.commands.historyLimit, 256);
@@ -150,7 +150,22 @@ test("loads exact authority, branch, review, command, bot, and size policy", () 
       emails: ["41898282+github-actions[bot]@users.noreply.github.com"],
     },
   ]);
-  assert.deepEqual(policy.sizeThresholds, { S: 0, M: 50, L: 250, XL: 1000 });
+  assert.deepEqual(policy.sizeThresholds, { S: 0, M: 100, L: 500, XL: 1000 });
+});
+
+test("describes each size label with the changed-line range its policy threshold assigns", () => {
+  const { labels, policy } = loadConfig(repositoryRoot);
+  const descriptions = Object.fromEntries(labels.labels
+    .filter((label) => label.name.startsWith("size/"))
+    .map((label) => [label.name, label.description]));
+  const { M, L, XL } = policy.sizeThresholds;
+
+  assert.deepEqual(descriptions, {
+    "size/S": `PR metadata automation manages changes with fewer than ${M} changed lines.`,
+    "size/M": `PR metadata automation manages changes with ${M} to ${L - 1} changed lines.`,
+    "size/L": `PR metadata automation manages changes with ${L} to ${XL - 1} changed lines.`,
+    "size/XL": `PR metadata automation manages changes with at least ${XL} changed lines.`,
+  });
 });
 
 test("declares the required CI that merge-ci.js hard-coded at 809294d", () => {
@@ -163,8 +178,8 @@ test("declares the required CI that merge-ci.js hard-coded at 809294d", () => {
       {
         path: ".github/workflows/automation-ci.yml",
         files: [
-          ".github/actions/repo-automation/**", ".github/repo-automation/**", ".github/scripts/cherrypick/**",
-          ".github/scripts/issue-commands/**", ".github/workflows/**", "hack/actionlint.sh", "Makefile", "OWNERS", "OWNERS_ALIASES",
+          ".github/actions/repo-automation/**", ".github/repo-automation/**", ".github/scripts/issue-commands/**",
+          ".github/workflows/**", "hack/actionlint.sh", "Makefile", "OWNERS", "OWNERS_ALIASES",
         ],
       },
       {
@@ -426,7 +441,6 @@ test("repository automation CI contains every Task 1 gate", () => {
     "npm audit --audit-level=high",
     "npm run package",
     "git diff --exit-code -- dist",
-    "node --test '.github/scripts/cherrypick/*.test.js'",
     "node --test '.github/scripts/issue-commands/*.test.js'",
     "make actionlint",
   ]) {

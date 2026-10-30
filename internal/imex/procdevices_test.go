@@ -4,6 +4,7 @@
 package imex
 
 import (
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -188,4 +189,59 @@ func TestProcDevicesRejectsAMajorAlreadyInUse(t *testing.T) {
 
 	require.Error(t, err, "major 10 is already 'misc' in the fixture and must be refused")
 	require.Contains(t, err.Error(), "10")
+}
+
+// A node whose kernel already gives the requested majors to other drivers gets
+// free ones instead, each different from the other.
+func TestMajorsReplacesMajorsTakenByAnotherDriver(t *testing.T) {
+	t.Parallel()
+
+	imexMajor, capsMajor, err := Majors(realisticProcDevices, 10, 136)
+
+	require.NoError(t, err)
+	require.Equal(t, 384, imexMajor, "10 is misc in the fixture")
+	require.Equal(t, 385, capsMajor, "136 is pts in the fixture")
+	rendered, err := ProcDevices(realisticProcDevices, imexMajor, capsMajor)
+	require.NoError(t, err)
+	major, ok := draParserOracle(t, rendered, "nvidia-caps-imex-channels")
+	require.True(t, ok)
+	require.Equal(t, imexMajor, major)
+}
+
+func TestMajorsKeepsFreeMajors(t *testing.T) {
+	t.Parallel()
+
+	imexMajor, capsMajor, err := Majors(realisticProcDevices, 235, 236)
+
+	require.NoError(t, err)
+	require.Equal(t, 235, imexMajor)
+	require.Equal(t, 236, capsMajor)
+}
+
+// A node with the NVIDIA driver loaded already lists the entries; their majors
+// are kept.
+func TestMajorsKeepsAMajorTheDeviceAlreadyHas(t *testing.T) {
+	t.Parallel()
+
+	src := strings.Replace(realisticProcDevices, "136 pts\n", "136 pts\n236 nvidia-caps\n", 1)
+
+	_, capsMajor, err := Majors(src, 235, 236)
+
+	require.NoError(t, err)
+	require.Equal(t, 236, capsMajor)
+}
+
+func TestMajorsFailsWhenNoMajorIsFree(t *testing.T) {
+	t.Parallel()
+
+	var b strings.Builder
+	b.WriteString("Character devices:\n 10 misc\n")
+	for major := 384; major <= 511; major++ {
+		fmt.Fprintf(&b, "%d dyn%d\n", major, major)
+	}
+	b.WriteString("\nBlock devices:\n  7 loop\n")
+
+	_, _, err := Majors(b.String(), 10, 236)
+
+	require.ErrorContains(t, err, "no free device major for nvidia-caps-imex-channels")
 }

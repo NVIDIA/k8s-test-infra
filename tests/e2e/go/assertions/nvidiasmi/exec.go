@@ -143,6 +143,26 @@ func GpuReset(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Pr
 	}
 }
 
+// UnitInventory asserts `nvidia-smi -q -u` reports a node with no S-class
+// units. The subcommand exited 3 with "Unable to determine number of available
+// units" while nvmlUnitGetCount was a generated stub, which says the driver
+// could not find out — where a modern node reports none.
+//
+// It is checked on its own rather than folded into Inventory because it is the
+// only nvidia-smi surface reached by the fan and cooling entry points; the
+// device-level ones are covered by the ABI suite in tests/mocknvml.
+func UnitInventory(ctx context.Context, k *kube.Client, pod kube.PodRef) {
+	ginkgo.GinkgoHelper()
+
+	// The exec error is deliberately not asserted on: the exit code is what
+	// distinguishes an empty enumeration from a refusal, and
+	// UnitInventoryProblems reports it with the output that explains it.
+	ginkgo.By("nvidia-smi -q -u reports 0 attached units")
+	res, _ := k.Exec(ctx, pod, "nvidia-smi", "-q", "-u")
+	problems := UnitInventoryProblems(res.Combined(), res.ExitCode)
+	gomega.Expect(problems).To(gomega.BeEmpty(), strings.Join(problems, "\n"))
+}
+
 // TemperatureThresholds asserts nvidia-smi -q -x uses the
 // architecture-correct threshold presentation for the profile: absolute
 // elements on pre-Ada, *_tlimit_threshold elements on Ada and later. See issue
@@ -495,6 +515,46 @@ func unadvertisedProfileID(p profile.Profile) (int, bool) {
 	return 0, false
 }
 
+// PowerSmoothing asserts the Power Smoothing block of `nvidia-smi -q -x`
+// follows the profile: populated with the configured state on a board that
+// models the feature, N/A everywhere else.
+func PowerSmoothing(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
+	ginkgo.GinkgoHelper()
+
+	want := PowerSmoothingExpectation{
+		Supported:     p.SupportsPowerSmoothing(),
+		Enabled:       p.PowerSmoothingEnabled(),
+		ActiveProfile: p.PowerSmoothingActiveProfile(),
+	}
+	ginkgo.By(fmt.Sprintf("nvidia-smi -q -x power_smoothing on %s (supported %v, %s, driver %d.x)",
+		p.Name, want.Supported, p.Architecture(), p.DriverMajor()))
+	problems := PowerSmoothingProblems(query(ctx, k, pod), want)
+	gomega.Expect(problems).To(gomega.BeEmpty(),
+		"Power Smoothing wrong for profile %s:\n%s", p.Name, strings.Join(problems, "\n"))
+}
+
+// HICInfo asserts `nvidia-smi -q -u -x` answers the unit query and reports
+// exactly want, the node's host interface cards. Pass nil for a node that
+// configures none, which is every profile the chart ships.
+//
+// This is the only nvidia-smi surface that renders nvmlSystemGetHicVersion,
+// and reaching it also proves nvmlUnitGetCount answered: nvidia-smi bails
+// before printing the HIC block if the unit count fails.
+func HICInfo(ctx context.Context, k *kube.Client, pod kube.PodRef, want []HIC) {
+	ginkgo.GinkgoHelper()
+
+	ginkgo.By(fmt.Sprintf("nvidia-smi -q -u -x reports %d HIC(s)", len(want)))
+	out := unitQuery(ctx, k, pod)
+
+	problems := UnitQueryProblems(out)
+	gomega.Expect(problems).To(gomega.BeEmpty(), "unit query failed:\n%s",
+		strings.Join(problems, "\n"))
+
+	problems = HICProblems(out, want)
+	gomega.Expect(problems).To(gomega.BeEmpty(), "HIC info wrong:\n%s",
+		strings.Join(problems, "\n"))
+}
+
 // query execs `nvidia-smi -q -x` and asserts it succeeded, returning stdout.
 func query(ctx context.Context, k *kube.Client, pod kube.PodRef) string {
 	ginkgo.GinkgoHelper()
@@ -503,6 +563,18 @@ func query(ctx context.Context, k *kube.Client, pod kube.PodRef) string {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 		"nvidia-smi -q -x exited with error: %s", res.Combined())
 	return res.Stdout
+}
+
+// unitQuery execs `nvidia-smi -q -u -x`. The combined output is returned
+// because nvidia-smi writes its unit-count failure to stderr and still exits
+// 0, so UnitQueryProblems has to be able to see it.
+func unitQuery(ctx context.Context, k *kube.Client, pod kube.PodRef) string {
+	ginkgo.GinkgoHelper()
+
+	res, err := k.ExecQuiet(ctx, pod, "nvidia-smi", "-q", "-u", "-x")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+		"nvidia-smi -q -u -x exited with error: %s", res.Combined())
+	return res.Combined()
 }
 
 // SnapshotFromPod execs `nvidia-smi -q -x` in pod and decodes it. It returns an

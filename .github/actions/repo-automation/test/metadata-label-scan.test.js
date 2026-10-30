@@ -17,7 +17,7 @@ const repository = { name: "k8s-test-infra", full_name: "NVIDIA/k8s-test-infra",
 const schedule = { repository, schedule: "*/15 * * * *" };
 const preserved = ["needs-rebase", "approved", "do-not-merge/hold", "maintainer/custom"];
 const desired = ["area/docs", "kind/feature", "size/M"];
-const files = [{ path: "docs/guide.md", additions: 60, deletions: 20, status: "modified" }];
+const files = [{ path: "docs/guide.md", additions: 100, deletions: 40, status: "modified" }];
 
 function pullRequest(overrides = {}) {
   return {
@@ -248,7 +248,7 @@ test("an old unlabeled PR with an invalid title receives size and area labels", 
 
 for (const [author, title, changedFiles, expected] of [
   ["dependabot[bot]", "chore(deps): bump automation dependencies",
-    [{ path: ".github/actions/repo-automation/package-lock.json", additions: 60, deletions: 20 }],
+    [{ path: ".github/actions/repo-automation/package-lock.json", additions: 100, deletions: 40 }],
     ["area/ci", "kind/dependencies", "size/M"]],
   ["github-actions[bot]", "docs: update generated guidance", files,
     ["area/docs", "kind/documentation", "size/M"]],
@@ -293,14 +293,19 @@ for (const policyRevision of ["", "not-a-commit"]) {
   });
 }
 
-for (const branch of ["main", "release-1.2"]) {
-  test(`a ${branch} push scans old PRs with unchanged heads and matching bases`, async () => {
-    const github = fakeGitHub({ pullRequests: [pullRequest(), pullRequest({ number: 43, nodeId: "PR_43", baseBranch: "release-1.2" })] });
-    await invoke(github, { eventName: "push", event: push(branch) });
-    assert.ok(github.mutations.length > 0);
-    assert.ok(github.mutations.every((entry) => entry.number === (branch === "main" ? 42 : 43)));
+test("a main push scans old PRs with unchanged heads and matching bases", async () => {
+  const github = fakeGitHub({ pullRequests: [pullRequest(), pullRequest({ number: 43, nodeId: "PR_43", baseBranch: "release-1.2" })] });
+  await invoke(github, { eventName: "push", event: push("main") });
+  assert.ok(github.mutations.length > 0);
+  assert.ok(github.mutations.every((entry) => entry.number === 42));
+});
+
+test("a release branch push makes no metadata label write for a PR on that base", async () => {
+  const github = fakeGitHub({ pullRequests: [pullRequest({ baseBranch: "release-1.2" })] });
+  await noWrite(github, {
+    eventName: "push", event: push("release-1.2"), expectedFailure: /^conflict label event route is unsupported$/,
   });
-}
+});
 
 test("metadata scan apply followed by replay performs no additional label writes", async () => {
   const github = fakeGitHub();
@@ -469,7 +474,7 @@ for (const [name, snapshots] of [
   ["state", { getPullRequest: [original, pullRequest({ state: "closed" })] }],
   ["base tip", { getBranch: [{ name: "main", oid: BASE }, { name: "main", oid: NEXT }] }],
   ["trusted policy revision", { getDefaultBranchRevision: [POLICY, NEXT] }],
-  ["desired labels", { listPullRequestFiles: [files, [{ path: "pkg/gpu/mocknvml/model.go", additions: 300, deletions: 1 }]] }],
+  ["desired labels", { listPullRequestFiles: [files, [{ path: "pkg/gpu/mocknvml/model.go", additions: 600, deletions: 1 }]] }],
 ]) {
   test(`changed ${name} at the fresh metadata check prevents all planned writes`, async () => {
     const github = fakeGitHub({ snapshots });

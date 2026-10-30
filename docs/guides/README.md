@@ -24,6 +24,7 @@ ask of you — start at the top if you are new.
 | [Slinky (Slurm)](slinky/README.md) | A Slurm cluster whose `slurmd` discovers mock GPUs as GRES, and `srun --gres=gpu:N` jobs scheduled against them | ~20 min |
 | [NVIDIA DRA Driver](dra.md) | Mock GPUs published as ResourceSlices, and a pod scheduled through a ResourceClaim | ~10 min |
 | [Run:ai fake-gpu-operator](runai-fgo/README.md) | Two node pools — Mokka serving one with a real NVML shim, FGO serving the other | ~10 min |
+| [Topograph](topograph/README.md) | Topograph groups four simulated GB200 nodes into two NVLink domains and labels each node for topology-aware schedulers | ~10 min |
 | [ComputeDomain](compute-domain/README.md) | NVLink fabric identity, with a real `nvidia-imex` forming a live domain over mock GPUs | 10–20 min |
 | [NVSentinel](nv-sentinel/README.md) | The full health loop: detect a thermal-margin crossing, cordon and drain, then auto-recover on cooldown | ~30 min |
 
@@ -39,6 +40,7 @@ Things you do *with* Mokka, whichever consumer you are running.
 |---|---|
 | [Set up NRI injection](nri-injection.md) | Check that pods holding a GPU allocation get the mock driver, and keep workloads out |
 | [MIG partitioning](mig/README.md) | Carve a board into MIG slices, advertise each one, and schedule a pod onto a single slice |
+| [vGPU host and guest](vgpu/README.md) | Make a node a vGPU host running vGPU instances, or a licensed vGPU guest, and read either side with `nvidia-smi` |
 | [Failure injection](failure-injection/README.md) | Present a broken GPU — uncorrectable ECC, lost, fallen off the bus — and watch consumers react |
 | [Use in CI/CD](ci-cd.md) | Run GPU-dependent tests on CPU runners |
 | [Runtime control](../nvml-mock-ctl.md) | Change temperature, power, utilisation or health on a running node, with no redeploy |

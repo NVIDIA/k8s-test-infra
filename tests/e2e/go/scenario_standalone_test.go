@@ -194,6 +194,22 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				nvidiasmi.ConfComputeMemory(ctx, h.Kube, pod)
 			})
 
+			It("reports no S-class units via nvidia-smi -q -u", Label("nvidia-smi"), func(ctx SpecContext) {
+				// The subcommand died with "Unable to determine number of
+				// available units" and exit 3 while nvmlUnitGetCount was a
+				// generated stub, which reads as a driver too broken to answer
+				// rather than as a node with no S-class chassis. Nothing Mokka
+				// models has one, and nor does any GPU a modern driver sees, so
+				// 0 is the expectation on every profile.
+				//
+				// This is also the only nvidia-smi surface the fan and cooling
+				// entry points reach: 575 and 580 reference exactly
+				// nvmlDeviceGetFanSpeed, already covered by the fan command
+				// above, and nvmlUnitGetFanSpeedInfo, which the empty
+				// enumeration here is what makes correctly unreachable.
+				nvidiasmi.UnitInventory(ctx, h.Kube, pod)
+			})
+
 			It("reports the OEM boost ceiling via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
 				// Issue #712: Max Customer Boost Clocks read N/A because both
 				// nvmlDeviceGetMaxCustomerBoostClock and nvmlDeviceGetClock were
@@ -233,6 +249,20 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				// spec pins the configured list on gb200/gb300 and a refusal
 				// everywhere else.
 				nvidiasmi.PowerProfiles(ctx, h.Kube, pod, p)
+			})
+
+			It("reports power smoothing via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// The expectation comes from the profile, so this spec pins a
+				// populated block on b200/gb200/gb300 and N/A elsewhere.
+				nvidiasmi.PowerSmoothing(ctx, h.Kube, pod, p)
+			})
+
+			It("reports the node's host interface cards via nvidia-smi -q -u -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// The only nvidia-smi surface that renders
+				// nvmlSystemGetHicVersion. Every shipped profile models a
+				// modern board, so the honest answer is a unit query that
+				// succeeds and reports no cards.
+				nvidiasmi.HICInfo(ctx, h.Kube, pod, nil)
 			})
 
 			It("exposes the NVLink topology (gated on fabricmanager)", Label("nvlink"), func(ctx SpecContext) {
@@ -355,6 +385,10 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 					assertLockedClocksViaNvidiaSmi(ctx, h, pod, p)
 				})
 
+				It("tunes, activates and toggles power smoothing via nvidia-smi power-smoothing", Label("runtime-control"), Label("nvidia-smi"), func(ctx SpecContext) {
+					assertPowerSmoothingViaNvidiaSmi(ctx, h, pod, p)
+				})
+
 				It("sets a throttle reason via the nvml-mock-ctl throttle command", Label("runtime-control"), func(ctx SpecContext) {
 					assertRuntimeThrottleCommand(ctx, h, pod)
 				})
@@ -432,6 +466,17 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				It("injects fallen-off-bus errors", func(ctx SpecContext) {
 					assertFallenOffBusFailure(ctx, h)
 				})
+			})
+
+			// Last, next to the Helm-driven injections: the upgrade restarts
+			// the DaemonSet pods, so any spec after it would exec into a pod
+			// that no longer exists.
+			It("reports the cards a release declares via nvidia-smi -q -u -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// The chart's hic[] entries reach NVML only through the config
+				// the library reads at load, so this is what proves the
+				// system overlay lands in the library rather than only in the
+				// DaemonSet's environment.
+				nvidiasmi.HICInfo(ctx, h.Kube, upgradeWithHICs(ctx, h), configuredHICs())
 			})
 		})
 	}
