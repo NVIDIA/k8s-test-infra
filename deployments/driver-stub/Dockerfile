@@ -15,7 +15,6 @@ LABEL org.opencontainers.image.title="mokka-driver-stub" \
       org.opencontainers.image.description="Stand-in for the NVIDIA driver container on Mokka nodes: installs no driver and loads no kernel module" \
       org.opencontainers.image.version="${DRIVER_VERSION}"
 
-# An empty STUB_DRIVER_ROOT or STUB_PROC_MODULES skips that bind.
 ENV DRIVER_VERSION=${DRIVER_VERSION} \
     STUB_INSTALL_SECONDS=0 \
     STUB_DRIVER_ROOT=/var/lib/nvml-mock/driver \
