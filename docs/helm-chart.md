@@ -684,10 +684,9 @@ A wedged handler is the case that defeats every simpler check: `pgrep
 nri-plugin` finds the process, and a plain TCP check finds the socket bound,
 in exactly the state where nothing is being injected.
 
-Losing the connection is deliberately *not* a liveness failure. The NRI stub's
-`Run` returns when the connection drops and the plugin exits on its own, so the
-kubelet already restarts it; failing liveness on "not registered" as well would
-only add restart loops whenever containerd is slow to come up.
+Losing the connection is deliberately *not* a liveness failure: the plugin
+re-registers in-process every 500 ms, without the kubelet's crash backoff, during
+which new containers would come up unmocked.
 
 ### containerd `plugin_request_timeout`
 
