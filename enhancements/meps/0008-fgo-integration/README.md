@@ -442,7 +442,8 @@ FGO mocks or uses the following NVIDIA components:
 ### Non-Goals
 
 - Mokka remains to be a generic project, so all functionality very specific to Run:ai and KAI are not going to be directly included.
-- Putting MIG support of scope for this MEP.
+- MIG support is out of scope for this MEP.
+- Fault injection in KWOK mode is out of scope for this MEP.
 
 ## Proposal
 
