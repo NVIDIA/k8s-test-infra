@@ -292,16 +292,16 @@ func ThrottleCounters(ctx context.Context, k *kube.Client, pod kube.PodRef) {
 		strings.Join(problems, "\n"))
 }
 
-// ConfComputeMemory asserts nvidia-smi -q -x reports 0 MiB across the Conf
+// CoCoMemory asserts nvidia-smi -q -x reports 0 MiB across the Conf
 // Compute protected memory block on every GPU. The whole block read N/A while
 // the two NVML getters behind it were generated stubs, which says the driver
 // could not report whether any memory is protected — where every real board,
 // CC-capable or not, answers none. See issue #711.
-func ConfComputeMemory(ctx context.Context, k *kube.Client, pod kube.PodRef) {
+func CoCoMemory(ctx context.Context, k *kube.Client, pod kube.PodRef) {
 	ginkgo.GinkgoHelper()
 
 	ginkgo.By("nvidia-smi -q -x reports 0 MiB of Conf Compute protected memory")
-	problems := ConfComputeMemoryProblems(query(ctx, k, pod))
+	problems := CoCoMemoryProblems(query(ctx, k, pod))
 	gomega.Expect(problems).To(gomega.BeEmpty(), "Conf Compute protected memory wrong:\n%s",
 		strings.Join(problems, "\n"))
 }
@@ -491,8 +491,8 @@ func powerProfileCrossProcessWrite(ctx context.Context, k *kube.Client, pod kube
 }
 
 // clearRequestedProfiles returns GPU 0 to asking for nothing, the state every
-// profile ships with. It clears every advertised id rather than the ones a
-// particular assertion set, so the reset does not depend on which of them ran
+// profile ships with. It clears whatever GPU 0 requests now rather than the ids
+// a particular assertion set, so the reset does not depend on which of them ran
 // or on one of them having failed part-way through.
 func clearRequestedProfiles(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
 	ginkgo.GinkgoHelper()
@@ -501,9 +501,18 @@ func clearRequestedProfiles(ctx context.Context, k *kube.Client, pod kube.PodRef
 	if len(declared) == 0 {
 		return
 	}
-	ids := make([]string, 0, len(declared))
-	for _, wp := range declared {
-		ids = append(ids, strconv.Itoa(wp.ID))
+	// nvidia-smi 615 refuses to clear a profile that is not requested and
+	// then clears nothing, so only what is requested now is cleared.
+	current, _ := k.Exec(ctx, pod, "nvidia-smi", "power-profiles", "-gr", "-i", "0")
+	gomega.Expect(current.ExitCode).To(gomega.Equal(0),
+		"could not read the requested profiles on %s: %s", p.Name, current.Combined())
+	blocks := powerProfileBlocks(current.Combined())
+	if len(blocks) == 0 {
+		return
+	}
+	ids := make([]string, 0, len(blocks[0]))
+	for _, id := range blocks[0] {
+		ids = append(ids, strconv.Itoa(id))
 	}
 
 	res, _ := k.Exec(ctx, pod, "nvidia-smi", "power-profiles", "-cr", strings.Join(ids, ","), "-i", "0")

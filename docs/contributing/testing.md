@@ -52,6 +52,7 @@ make e2e-nri              # node-wide NRI injection
 make e2e-nfd              # NFD label provenance
 make e2e-mig              # MIG partitions through the device plugin
 make e2e-vgpu             # vGPU host and guest
+make e2e-cc               # Confidential Computing (pins h100)
 ```
 
 !!! warning "`make e2e` does not run everything"

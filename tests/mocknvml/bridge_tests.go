@@ -58,7 +58,8 @@ func bridgeTests(deviceCount int) []testResult {
 	results = append(results, testInternalExportTable()...)
 	results = append(results, testFabricHealth(deviceCount)...)
 	results = append(results, testThrottleCounters(deviceCount)...)
-	results = append(results, testConfComputeMemory(deviceCount)...)
+	results = append(results, testCoCoMemory(deviceCount)...)
+	results = append(results, testCoCoOff(deviceCount)...)
 	results = append(results, testPowerLimitSetters(deviceCount)...)
 	results = append(results, testWorkloadPowerProfiles(deviceCount)...)
 	results = append(results, testPowerPolicy(deviceCount)...)
@@ -711,19 +712,19 @@ func collectMigDevices(device nvml.Device) ([]nvml.Device, error) {
 
 // --- Confidential Compute memory tests ---
 
-// testConfComputeMemory drives the two CC memory getters through the built
+// testCoCoMemory drives the two CC memory getters through the built
 // library. Both write caller-allocated C structs, so a field written at the
 // wrong offset or width only shows up here.
 //
-// CC mode is unmodelled, so every device must answer with zeros regardless of
-// what it configures — what nvidia-smi renders as 0 MiB, and what the reference
-// GB300 tray reports. The one direction that still declines is a driver older
-// than 525, which version_test.go covers.
-func testConfComputeMemory(deviceCount int) []testResult {
+// The fixture leaves CC mode off, so every device must answer with zeros —
+// what nvidia-smi renders as 0 MiB, and what the reference GB300 tray reports.
+// The one direction that still declines is a driver older than 525, which
+// version_test.go covers. cocoOnTests covers the split with CC on.
+func testCoCoMemory(deviceCount int) []testResult {
 	var results []testResult
 
 	for index := range min(2, deviceCount) {
-		name := fmt.Sprintf("confcompute/gpu%d", index)
+		name := fmt.Sprintf("coco/gpu%d", index)
 		device, ret := nvml.DeviceGetHandleByIndex(index)
 		if ret != nvml.SUCCESS {
 			results = append(results, testResult{name, false, fmt.Sprintf("GetHandleByIndex(%d) failed: %v", index, nvml.ErrorString(ret))})
@@ -1393,9 +1394,13 @@ func testInitShutdownCycles() []testResult {
 // runBridgeTests executes all bridge tests and reports results.
 // Returns the number of failures.
 func runBridgeTests(deviceCount int) int {
-	log.Println("\n=== Bridge Edge-Case Tests ===")
+	return reportResults("Bridge Edge-Case Tests", bridgeTests(deviceCount))
+}
 
-	results := bridgeTests(deviceCount)
+// reportResults is shared so a suite that runs alone against its own fixture
+// (MOCK_NVML_SUITE) reports, and fails the run, exactly as the bridge suite does.
+func reportResults(title string, results []testResult) int {
+	log.Printf("\n=== %s ===", title)
 	failures, skips := 0, 0
 
 	for _, r := range results {
@@ -1413,7 +1418,7 @@ func runBridgeTests(deviceCount int) int {
 		}
 	}
 
-	log.Printf("\n=== Bridge Tests: %d passed, %d skipped, %d failed ===",
-		len(results)-failures-skips, skips, failures)
+	log.Printf("\n=== %s: %d passed, %d skipped, %d failed ===",
+		title, len(results)-failures-skips, skips, failures)
 	return failures
 }

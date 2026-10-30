@@ -46,6 +46,11 @@ extern unsigned int mockInternalHostMaxPcieLinkGen(void* handle);
 extern int mockInternalIsVgpuHost(void* handle);
 extern int mockInternalGuestLicenseState(void* handle, unsigned int* state);
 
+// Forward declarations of the public excluded-device getters (defined in
+// drain.go), which answer the unlisted-GPU slots.
+extern nvmlReturn_t nvmlGetExcludedDeviceCount(unsigned int* deviceCount);
+extern nvmlReturn_t nvmlGetExcludedDeviceInfoByIndex(unsigned int index, nvmlExcludedDeviceInfo_t* info);
+
 // Forward declaration of the public persistence-mode setter (defined in device.go).
 extern nvmlReturn_t nvmlDeviceSetPersistenceMode(nvmlDevice_t device, nvmlEnableState_t mode);
 
@@ -89,16 +94,20 @@ static int isDebugEnabled() {
 
 // Entry points a 615 nvidia-smi calls past the end of the 580.65.06 table,
 // recovered the same way from 615.71.09. Every command that changes GPU state
-// counts unlisted GPUs first (270); `--gpu-reset` then allocates a group of the
+// counts unlisted GPUs first (270) and reads each one (271); `--gpu-reset` then allocates a group of the
 // GPUs it took through slots 20 and 197 (272), runs it (273) and frees it
 // through slot 184.
 #define MOCK_SLOT_UNLISTED_GPU_COUNT 270
+#define MOCK_SLOT_UNLISTED_GPU_INFO 271
 #define MOCK_SLOT_RESET_GROUP_ALLOC 272
 #define MOCK_SLOT_RESET_GROUP_RUN 273
 
 // The versioned parameter blocks those entries take, tagged the way NVML tags
 // its versioned structs: version in the top byte, size in bytes below it.
 #define MOCK_UNLISTED_GPU_COUNT_V1 0x01000008u // { version, count }
+#define MOCK_UNLISTED_GPU_INFO_V1 0x01000048u  // { version, nvmlPciInfo_t }
+_Static_assert(sizeof(nvmlPciInfo_t) + sizeof(unsigned int) == (MOCK_UNLISTED_GPU_INFO_V1 & 0xFFFFFF),
+               "the unlisted-GPU info block is a version tag followed by nvmlPciInfo_t");
 #define MOCK_RESET_GROUP_RUN_V1 0x01000030u    // { version, pad, group, buf, buf, scope*, word }
 
 // The words of the run block, counted in pointers. Of everything the block
@@ -120,8 +129,14 @@ static nvmlReturn_t internalStubFunction(unsigned int slot, void* arg0, void* ar
     uintptr_t rawArg2 = (uintptr_t)arg2;
 
     // Unlisted GPUs are GPUs the driver manages but does not enumerate:
-    // fn({ version, count }*). A 615 nvidia-smi stops at any error here, so
-    // the mock reports none, as a node without them does.
+    // fn({ version, count }*) and fn(index, { version, nvmlPciInfo_t }*). A 615
+    // nvidia-smi stops at any error here, and `--gpu-reset` prints one
+    // "Unlisted GPU <bus id> was successfully reset" line per entry. The mock's
+    // excluded GPUs are the ones the driver sees but NVML does not list, so
+    // both slots answer from the public excluded-device calls; a node without
+    // excluded GPUs reports none. Struct layouts were read off nvidia-smi 615's
+    // disassembly: the version tag is the struct size with version 1 in the
+    // top byte.
     if (slot == MOCK_SLOT_UNLISTED_GPU_COUNT) {
         unsigned int* block = (unsigned int*)arg0;
         if (block == NULL || block[0] != MOCK_UNLISTED_GPU_COUNT_V1) {
@@ -131,11 +146,26 @@ static nvmlReturn_t internalStubFunction(unsigned int slot, void* arg0, void* ar
             }
             return NVML_ERROR_ARGUMENT_VERSION_MISMATCH;
         }
-        block[1] = 0;
+        nvmlReturn_t ret = nvmlGetExcludedDeviceCount(&block[1]);
         if (isDebugEnabled()) {
-            fprintf(stderr, "[C-STUB] slot %u unlisted GPU count -> 0\n", slot);
+            fprintf(stderr, "[C-STUB] slot %u unlisted GPU count -> %u (ret=%d)\n", slot, block[1], ret);
         }
-        return NVML_SUCCESS;
+        return ret;
+    }
+    if (slot == MOCK_SLOT_UNLISTED_GPU_INFO) {
+        unsigned int* req = (unsigned int*)arg1;
+        if (req == NULL || req[0] != MOCK_UNLISTED_GPU_INFO_V1) {
+            return NVML_ERROR_ARGUMENT_VERSION_MISMATCH;
+        }
+        nvmlExcludedDeviceInfo_t info;
+        nvmlReturn_t ret = nvmlGetExcludedDeviceInfoByIndex((unsigned int)rawArg0, &info);
+        if (ret == NVML_SUCCESS) {
+            memcpy(&req[1], &info.pciInfo, sizeof(info.pciInfo));
+        }
+        if (isDebugEnabled()) {
+            fprintf(stderr, "[C-STUB] slot %u unlisted GPU %u -> ret=%d\n", slot, (unsigned int)rawArg0, ret);
+        }
+        return ret;
     }
 
     // Reset group: fn(group* out, nvmlPciInfo_t* gpus, unsigned int count,
@@ -357,6 +387,10 @@ static nvmlReturn_t internalStubFunction(unsigned int slot, void* arg0, void* ar
 // internal entry point nvidia-smi called instead of having to guess from the
 // argument shape. The 32x16 expansion is only a way to write 512 distinct
 // function bodies; slot number is hi*16 + lo, matching the table index.
+//
+// nvidia-smi does not ask how long the table is, so it must cover every slot
+// a supported release calls: 615 calls slot 256 from `-q`, and a 256-entry
+// table sent it through whatever followed the array in memory.
 #define MOCK_SLOT_STUB(hi, lo) \
     static nvmlReturn_t mockSlotStub_##hi##_##lo(void* a0, void* a1, void* a2, void* a3) { \
         return internalStubFunction(hi * 16 + lo, a0, a1, a2, a3); \
@@ -394,6 +428,12 @@ static nvmlReturn_t callSlotForTest(unsigned int slot, void* arg0, uintptr_t arg
 // callSlot4ForTest makes an export-table call that takes all four arguments.
 static nvmlReturn_t callSlot4ForTest(unsigned int slot, void* arg0, void* arg1, uintptr_t arg2, uintptr_t arg3) {
     return internalStubFunction(slot, arg0, arg1, (void*)arg2, (void*)arg3);
+}
+
+// callSlotIndexForTest makes an export-table call whose first argument is an
+// index by value.
+static nvmlReturn_t callSlotIndexForTest(unsigned int slot, uintptr_t index, void* arg1) {
+    return internalStubFunction(slot, (void*)index, arg1, NULL, NULL);
 }
 */
 import "C"
@@ -467,9 +507,23 @@ func resetGroupRunForTest(version uint32, group uint64, scopePrefill uint32) (ui
 	return uint32(*scope), ret
 }
 
+// unlistedGPUInfoForTest reads unlisted GPU index through slot 271 as a 615
+// nvidia-smi does, with the block tagged version, and returns the bus id the
+// slot wrote.
+func unlistedGPUInfoForTest(index, version uint32) (string, nvml.Return) {
+	block := (*C.uint)(C.calloc(1, C.MOCK_UNLISTED_GPU_INFO_V1&0xffffff))
+	defer C.free(unsafe.Pointer(block))
+	*block = C.uint(version)
+	ret := nvml.Return(C.callSlotIndexForTest(C.MOCK_SLOT_UNLISTED_GPU_INFO,
+		C.uintptr_t(index), unsafe.Pointer(block)))
+	pci := (*C.nvmlPciInfo_t)(unsafe.Add(unsafe.Pointer(block), unsafe.Sizeof(C.uint(0))))
+	return C.GoString(&pci.busId[0]), ret
+}
+
 // The 615 entry points and their parameter-block tags, for the tests.
 const (
 	unlistedGPUCountSlotForTest = C.MOCK_SLOT_UNLISTED_GPU_COUNT
+	unlistedGPUInfoV1ForTest    = C.MOCK_UNLISTED_GPU_INFO_V1
 	resetGroupAllocSlotForTest  = C.MOCK_SLOT_RESET_GROUP_ALLOC
 	unlistedGPUCountV1ForTest   = C.MOCK_UNLISTED_GPU_COUNT_V1
 	resetGroupRunV1ForTest      = C.MOCK_RESET_GROUP_RUN_V1

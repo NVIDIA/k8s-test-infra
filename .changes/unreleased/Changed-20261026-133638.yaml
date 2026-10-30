@@ -1,0 +1,6 @@
+kind: Changed
+body: |-
+  **Breaking:** profiles: shipped profiles now report driver 615.71.10 and CUDA 13.4; update version assertions or override the driver version. Nodes on these profiles run the bundled nvidia-smi 615.71.09 instead of 580.65.06.
+time: 2026-10-26T12:36:38Z
+custom:
+  Issue: "377"

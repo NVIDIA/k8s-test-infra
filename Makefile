@@ -738,7 +738,7 @@ image-load:
 # scope with E2E_PROFILES / E2E_GINKGO_FLAGS. Examples:
 #   make e2e                       # gb200
 #   make e2e E2E_PROFILES=a100     # fast inner loop, single profile
-#   make e2e E2E_GINKGO_FLAGS='--label-filter="(nvidia-smi || nvlink) && !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig && !dra-compute-domain && !vgpu"'
+#   make e2e E2E_GINKGO_FLAGS='--label-filter="(nvidia-smi || nvlink) && !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig && !dra-compute-domain && !vgpu && !cc"'
 #   make e2e-dra                   # DRA scenario
 #   make e2e-compute-domain        # ComputeDomains through the DRA driver (two-rack cluster)
 #   make e2e-gpu-operator          # GPU Operator scenario
@@ -747,6 +747,7 @@ image-load:
 #   make e2e-nfd                   # NFD label-provenance scenario
 #   make e2e-mig                   # MIG scenario, device plugin in migStrategy=single
 #   make e2e-vgpu                  # vGPU host and guest scenario
+#   make e2e-cc                    # Confidential Computing scenario (h100)
 # E2E_GINKGO_FLAGS replaces the default filter. Shared check labels span
 # scenarios; keep the exclusions above for a standalone subset.
 # CI builds the image once per run. Every leg loads it into Kind and sets
@@ -761,10 +762,10 @@ image-load:
 # ---------------------------------------------------------------------------
 GINKGO ?= $(GO_CMD) run github.com/onsi/ginkgo/v2/ginkgo
 E2E_TIMEOUT ?= 90m
-E2E_DEFAULT_LABEL_FILTER ?= !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig && !dra-compute-domain && !vgpu
+E2E_DEFAULT_LABEL_FILTER ?= !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig && !dra-compute-domain && !vgpu && !cc
 E2E_GINKGO_FLAGS ?= --label-filter='$(E2E_DEFAULT_LABEL_FILTER)'
 
-.PHONY: e2e e2e-dra e2e-compute-domain e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd e2e-mig e2e-vgpu
+.PHONY: e2e e2e-dra e2e-compute-domain e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd e2e-mig e2e-vgpu e2e-cc
 
 # `set -o pipefail` is inline on purpose; do not drop it as redundant with
 # .SHELLFLAGS. GNU Make ignores .SHELLFLAGS before 3.82 and macOS ships 3.81,
@@ -810,6 +811,9 @@ e2e-mig: ## e2e — MIG scenario with the device plugin in migStrategy=single
 
 e2e-vgpu: ## e2e — vGPU host and guest scenario
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=vgpu'
+
+e2e-cc: ## e2e — Confidential Computing scenario (pins h100)
+	$(MAKE) e2e E2E_PROFILES=h100 E2E_GINKGO_FLAGS='--label-filter=cc'
 
 ##@ Documentation
 

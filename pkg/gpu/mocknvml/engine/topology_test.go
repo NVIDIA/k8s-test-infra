@@ -384,16 +384,18 @@ func TestNodeFabric_LinkBoundFollowsTheDriver(t *testing.T) {
 	require.NoError(t, err)
 	n := len(yc.Devices)
 
-	require.Equal(t, 18, BuildNodeFabric(&Config{NumDevices: n, YAMLConfig: yc}).LinkBound(), "the profile's 580 driver")
+	require.Equal(t, 36, BuildNodeFabric(&Config{NumDevices: n, YAMLConfig: yc}).LinkBound(), "the profile's 615 driver")
+	require.Equal(t, 18, BuildNodeFabric(&Config{NumDevices: n, DriverVersion: "580.65.06", YAMLConfig: yc}).LinkBound(),
+		"a resolved 580 driver, as the chart's driverVersion sets it")
 	require.Equal(t, 36, BuildNodeFabric(&Config{NumDevices: n, DriverVersion: "615.71.09", YAMLConfig: yc}).LinkBound(),
-		"a resolved 615 driver, as the chart's driverVersion sets it")
+		"a resolved 615 driver")
 	require.Equal(t, 18, (*NodeFabric)(nil).LinkBound(), "a board with no fabric")
 
 	wide := *yc
 	nv := *yc.NVLink
 	nv.LinksPerGPU = 36
 	wide.NVLink = &nv
-	f := BuildNodeFabric(&Config{NumDevices: n, YAMLConfig: &wide})
+	f := BuildNodeFabric(&Config{NumDevices: n, DriverVersion: "580.65.06", YAMLConfig: &wide})
 	require.Equal(t, 18, f.NVLinkCount(0, 1), "a 580 driver addresses 18 of the 36 declared links")
 	f = BuildNodeFabric(&Config{NumDevices: n, DriverVersion: "615.71.09", YAMLConfig: &wide})
 	require.Equal(t, 36, f.NVLinkCount(0, 1))
@@ -445,4 +447,24 @@ func TestNodeFabric_ConcurrentReads(_ *testing.T) {
 		})
 	}
 	wg.Wait()
+}
+
+// TestNvlinkVersionEnum pins the generation-to-nvmlNvlinkVersion_t mapping.
+// The enum is not the generation: it counts the 2.2 and 3.1 point releases,
+// so a generation-4 H100 link is NVML_NVLINK_VERSION_4_0 (6), and reporting
+// the bare 4 made nvidia-smi 615 print "Nvlink Version: 3.0".
+func TestNvlinkVersionEnum(t *testing.T) {
+	t.Parallel()
+	for gen, want := range map[uint32]nvml.NvlinkVersion{
+		0: nvml.NVLINK_VERSION_INVALID,
+		1: nvml.NVLINK_VERSION_1_0,
+		2: nvml.NVLINK_VERSION_2_0,
+		3: nvml.NVLINK_VERSION_3_0,
+		4: nvml.NVLINK_VERSION_4_0,
+		5: nvml.NVLINK_VERSION_5_0,
+		6: nvml.NVLINK_VERSION_6_0,
+		9: nvml.NVLINK_VERSION_INVALID,
+	} {
+		require.Equal(t, uint32(want), nvlinkVersionEnum(gen), "generation %d", gen)
+	}
 }

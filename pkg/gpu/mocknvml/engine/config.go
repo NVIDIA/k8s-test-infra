@@ -128,17 +128,7 @@ func applyYAMLConfig(config *Config, yamlConfig *YAMLConfig, configPath string) 
 	config.YAMLConfig = yamlConfig
 	// Apply system-level config from YAML
 	config.DriverVersion = yamlConfig.System.DriverVersion
-	config.NumDevices = len(yamlConfig.Devices)
-	if config.NumDevices == 0 {
-		config.NumDevices = 8 // Default if no devices specified
-	}
-
-	// system.num_devices overrides the device list count.
-	// The node agent stamps it from the runtime GPU count so the .so knows the
-	// desired count without consumers needing to set env vars.
-	if yamlConfig.System.NumDevices > 0 {
-		config.NumDevices = yamlConfig.System.NumDevices
-	}
+	config.NumDevices = yamlDeviceCount(yamlConfig)
 
 	// Topology overlay: when a cluster-level topology ConfigMap is
 	// mounted into the pod we look up the current Kubernetes node
@@ -337,26 +327,20 @@ func validateYAMLConfig(config *YAMLConfig) error {
 		seen[dev.Index] = true
 	}
 
-	if err := ValidateMinorNumbers(config); err != nil {
-		return err
+	for _, validate := range []func(*YAMLConfig) error{
+		ValidateMinorNumbers,
+		ValidateUniqueBDFs,
+		validateDeviceUUIDs,
+		validateDeviceIdentifiers,
+		validateMIGConfigs,
+		validateCoCo,
+		validateVGPUConfig,
+	} {
+		if err := validate(config); err != nil {
+			return err
+		}
 	}
-
-	if err := ValidateUniqueBDFs(config); err != nil {
-		return err
-	}
-
-	if err := validateDeviceUUIDs(config); err != nil {
-		return err
-	}
-
-	if err := validateDeviceIdentifiers(config); err != nil {
-		return err
-	}
-
-	if err := validateMIGConfigs(config); err != nil {
-		return err
-	}
-	return validateVGPUConfig(config)
+	return nil
 }
 
 // validateMIGConfigs checks the board-wide MIG block and every per-device one.
@@ -1078,6 +1062,21 @@ func knownPDI(dev *DeviceConfig, uuid string) (uint64, bool) {
 		return pdiFromUUID(uuid), true
 	}
 	return 0, false
+}
+
+// yamlDeviceCount is how many GPUs the engine creates from a profile, at
+// indexes 0 to n-1: one per device override, eight when there are none, and
+// system.num_devices over either. The node agent stamps num_devices from the
+// runtime GPU count so the .so knows the desired count without consumers
+// needing to set env vars.
+func yamlDeviceCount(config *YAMLConfig) int {
+	if config.System.NumDevices > 0 {
+		return config.System.NumDevices
+	}
+	if n := len(config.Devices); n > 0 {
+		return n
+	}
+	return 8
 }
 
 // deviceIndices lists every device the config brings into being: those the

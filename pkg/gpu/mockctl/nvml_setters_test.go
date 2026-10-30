@@ -499,3 +499,114 @@ func TestSetters_DoNotDisturbOtherDevices(t *testing.T) {
 	require.EqualValues(t, 400_000, doc.Devices["0"]["power"].(map[string]any)["enforced_limit_mw"])
 	require.EqualValues(t, 300_000, doc.Devices["1"]["power"].(map[string]any)["enforced_limit_mw"])
 }
+
+// The two node-wide Confidential Compute setters take no device, so both
+// record in the `all:` bucket the system getters read.
+func TestSetCoCoGpusReady_WritesAllBucket(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+
+	require.NoError(t, SetCoCoGpusReady(path, true, false, true))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, true, doc.All["coco_gpus_ready"])
+	require.Empty(t, doc.Devices, "the ready state belongs to no single device")
+}
+
+func TestSetCoCoKeyRotationThreshold_WritesAllBucket(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+
+	require.NoError(t, SetCoCoKeyRotationThreshold(path, 55, false))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	require.EqualValues(t, 55, doc.All["coco_key_rotation_attacker_advantage"])
+	require.Empty(t, doc.Devices, "the threshold belongs to no single device")
+}
+
+// The guarded Confidential Compute writer judges the ready state from the
+// document they hold the lock on: a recorded state wins, the profile's applies
+// only when nothing is recorded, and a refusal leaves the document untouched.
+func TestCoCoWriters_RefuseWhileReady(t *testing.T) {
+	t.Parallel()
+
+	t.Run("recorded ready", func(t *testing.T) {
+		t.Parallel()
+		path := overridePath(t)
+		require.NoError(t, SetCoCoGpusReady(path, true, false, true))
+
+		require.ErrorIs(t, SetCoCoKeyRotationThreshold(path, 55, false), engine.ErrCoCoGpusReady)
+		doc, err := Load(path)
+		require.NoError(t, err)
+		require.NotContains(t, doc.All, "coco_key_rotation_attacker_advantage")
+		require.Empty(t, doc.Devices)
+	})
+
+	t.Run("profile ready, nothing recorded", func(t *testing.T) {
+		t.Parallel()
+		require.ErrorIs(t, SetCoCoKeyRotationThreshold(overridePath(t), 55, true), engine.ErrCoCoGpusReady)
+	})
+
+	t.Run("recorded not ready outranks a ready profile", func(t *testing.T) {
+		t.Parallel()
+		path := overridePath(t)
+		require.NoError(t, SetCoCoGpusReady(path, false, false, true))
+		require.NoError(t, SetCoCoKeyRotationThreshold(path, 55, true))
+	})
+}
+
+// From driver 550, clearing a ready state revokes the GPUs until the driver
+// reloads: every later ready-state write refuses with ErrCoCoGpusRevoked, and
+// the threshold stays refused. Clearing a state that was never
+// ready revokes nothing, and an older driver toggles freely.
+func TestSetCoCoGpusReady_Revokes(t *testing.T) {
+	t.Parallel()
+
+	t.Run("clearing a recorded ready state", func(t *testing.T) {
+		t.Parallel()
+		path := overridePath(t)
+		require.NoError(t, SetCoCoGpusReady(path, true, false, true))
+		require.NoError(t, SetCoCoGpusReady(path, false, false, true))
+
+		doc, err := Load(path)
+		require.NoError(t, err)
+		require.Equal(t, true, doc.All["coco_gpus_revoked"])
+		require.Equal(t, false, doc.All["coco_gpus_ready"])
+
+		require.ErrorIs(t, SetCoCoGpusReady(path, true, false, true), engine.ErrCoCoGpusRevoked)
+		require.ErrorIs(t, SetCoCoGpusReady(path, false, false, true), engine.ErrCoCoGpusRevoked)
+		require.ErrorIs(t, SetCoCoKeyRotationThreshold(path, 55, false), engine.ErrCoCoGpusReady)
+	})
+
+	t.Run("clearing a profile that boots ready", func(t *testing.T) {
+		t.Parallel()
+		path := overridePath(t)
+		require.NoError(t, SetCoCoGpusReady(path, false, true, true))
+		doc, err := Load(path)
+		require.NoError(t, err)
+		require.Equal(t, true, doc.All["coco_gpus_revoked"])
+	})
+
+	t.Run("clearing a state that was never ready", func(t *testing.T) {
+		t.Parallel()
+		path := overridePath(t)
+		require.NoError(t, SetCoCoGpusReady(path, false, false, true))
+		doc, err := Load(path)
+		require.NoError(t, err)
+		require.NotContains(t, doc.All, "coco_gpus_revoked")
+		require.NoError(t, SetCoCoGpusReady(path, true, false, true))
+	})
+
+	t.Run("an older driver toggles", func(t *testing.T) {
+		t.Parallel()
+		path := overridePath(t)
+		require.NoError(t, SetCoCoGpusReady(path, true, false, false))
+		require.NoError(t, SetCoCoGpusReady(path, false, false, false))
+		require.NoError(t, SetCoCoGpusReady(path, true, false, false))
+		doc, err := Load(path)
+		require.NoError(t, err)
+		require.NotContains(t, doc.All, "coco_gpus_revoked")
+	})
+}
