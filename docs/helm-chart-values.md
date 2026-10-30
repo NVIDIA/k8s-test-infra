@@ -59,6 +59,10 @@ Kubernetes: `>= 1.28.0-0`
 | featureGates | object | `{}` |  |
 | global.imagePullSecrets | list | `[]` | Pull secrets added to every pod created by this chart. |
 | global.imageRegistry | string | `""` | Registry host override applied to every image, such as an internal mirror. |
+| gpu.confidentialCompute.cpuCaps | string | `""` | CPU CC capability: "" (none), none, amd_sev, intel_tdx, amd_sev_snp or amd_snp_vtom. |
+| gpu.confidentialCompute.environment | string | `""` | CC environment reported while CC is on: "" (prod), prod or sim. |
+| gpu.confidentialCompute.mode | string | `""` | Confidential Computing mode: "" (the profile's), off, on or devtools. |
+| gpu.confidentialCompute.multiGpuMode | string | `""` | Multi-GPU protection: "" (none), none, protected_pcie or nvle (Blackwell or newer). |
 | gpu.count | string | `""` | Number of simulated GPUs; empty derives the count from the selected profile. |
 | gpu.customConfig | string | `""` | Complete YAML configuration that replaces the selected GPU profile. |
 | gpu.dynamicMetrics.enabled | bool | `false` | Enable time-varying synthetic temperature, power, and utilization values. |

@@ -137,3 +137,21 @@ func (overrideWriter) SetDramEncryptionPending(index int, enabled bool) error {
 func (overrideWriter) ClearAccountingPids(index int) error {
 	return mockctl.ClearAccountingPids(engine.ConfigOverridePath(), index)
 }
+
+// SetConfComputeGpusReady records the state
+// nvmlSystemSetConfComputeGpusReadyState applied.
+func (overrideWriter) SetConfComputeGpusReady(ready bool) error {
+	return mockctl.SetConfComputeGpusReady(engine.ConfigOverridePath(), ready)
+}
+
+// SetConfComputeKeyRotationThreshold records the threshold
+// nvmlSystemSetConfComputeKeyRotationThresholdInfo applied.
+func (overrideWriter) SetConfComputeKeyRotationThreshold(advantage uint64, profileReady bool) error {
+	return mockctl.SetConfComputeKeyRotationThreshold(engine.ConfigOverridePath(), advantage, profileReady)
+}
+
+// SetConfComputeUnprotectedMemSize records the size
+// nvmlDeviceSetConfComputeUnprotectedMemSize applied.
+func (overrideWriter) SetConfComputeUnprotectedMemSize(index int, kib uint64, profileReady bool) error {
+	return mockctl.SetConfComputeUnprotectedMemSize(engine.ConfigOverridePath(), index, kib, profileReady)
+}

@@ -84,6 +84,20 @@ func main() {
 		os.Exit(0)
 	}
 
+	// A suite that needs a node-wide setting of its own runs alone against its
+	// own fixture, since the rest of the harness asserts the A100 fixture.
+	if suite := os.Getenv("MOCK_NVML_SUITE"); suite == "confcompute" || suite == "ppcie" {
+		run := confComputeOnTests
+		if suite == "ppcie" {
+			run = protectedPCIeTests
+		}
+		if failures := reportResults("Confidential Compute Tests", run(count)); failures > 0 {
+			log.Fatalf("FAILED: %d Confidential Compute test(s) failed", failures)
+		}
+		fmt.Println("\nSUCCESS: Confidential Compute suite passed")
+		return
+	}
+
 	// Enumerate devices (like a device plugin would)
 	log.Println("\nEnumerating devices:")
 	for i := range count {

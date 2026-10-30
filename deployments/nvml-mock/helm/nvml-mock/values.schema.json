@@ -143,6 +143,17 @@
             }
           }
         },
+        "confidentialCompute": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Confidential Computing simulation for the whole node. Non-empty fields overlay the profile's confidential_compute block; on and devtools need Hopper or newer, while protected_pcie needs Hopper with CC off. Reference in docs/configuration.md#confidential-computing.",
+          "properties": {
+            "mode": { "type": "string", "enum": ["", "off", "on", "devtools"] },
+            "environment": { "type": "string", "enum": ["", "prod", "sim"] },
+            "multiGpuMode": { "type": "string", "enum": ["", "none", "protected_pcie", "nvle"] },
+            "cpuCaps": { "type": "string", "enum": ["", "none", "amd_sev", "intel_tdx", "amd_sev_snp", "amd_snp_vtom"] }
+          }
+        },
         "vgpu": {
           "type": "object",
           "additionalProperties": false,

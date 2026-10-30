@@ -49,6 +49,7 @@ const DefaultBAR1SizeMB = 256
 type ConfigurableDevice struct {
 	*dgxa100.Device
 	fabric      *NodeFabric
+	confCompute ConfComputeSpec
 	index       int
 	nvmlIndex   atomic.Int64
 	minorNumber int
@@ -1738,8 +1739,32 @@ func (d *ConfigurableDevice) GetNvLinkVersion(link int) (uint32, nvml.Return) {
 			version = d.fabric.version
 		}
 	}
-	debugLog("[NVML] nvmlDeviceGetNvLinkVersion(link=%d) -> %d\n", link, version)
-	return version, nvml.SUCCESS
+	enum := nvlinkVersionEnum(version)
+	debugLog("[NVML] nvmlDeviceGetNvLinkVersion(link=%d) -> generation %d, nvmlNvlinkVersion_t %d\n", link, version, enum)
+	return enum, nvml.SUCCESS
+}
+
+// nvlinkVersionEnum converts the NVLink generation a profile declares into the
+// nvmlNvlinkVersion_t value nvmlDeviceGetNvLinkVersion returns. The enum counts
+// the 2.2 and 3.1 point releases too, so it is not the generation: a
+// generation-4 H100 link is NVML_NVLINK_VERSION_4_0, which is 6. A generation
+// the enum has no value for answers NVML_NVLINK_VERSION_INVALID.
+func nvlinkVersionEnum(generation uint32) uint32 {
+	switch generation {
+	case 1:
+		return uint32(nvml.NVLINK_VERSION_1_0)
+	case 2:
+		return uint32(nvml.NVLINK_VERSION_2_0)
+	case 3:
+		return uint32(nvml.NVLINK_VERSION_3_0)
+	case 4:
+		return uint32(nvml.NVLINK_VERSION_4_0)
+	case 5:
+		return uint32(nvml.NVLINK_VERSION_5_0)
+	case 6:
+		return uint32(nvml.NVLINK_VERSION_6_0)
+	}
+	return uint32(nvml.NVLINK_VERSION_INVALID)
 }
 
 // GetNvLinkCapability returns whether a capability bit is set for a link.

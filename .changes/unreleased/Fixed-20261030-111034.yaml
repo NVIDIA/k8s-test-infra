@@ -1,0 +1,6 @@
+kind: Fixed
+body: |-
+  nvml-mock: NVLink queries accept link indices 18–35 instead of returning INVALID_ARGUMENT, allowing nvidia-smi 615 to enumerate the full topology.
+time: 2026-10-30T10:10:34Z
+custom:
+  Issue: "377"

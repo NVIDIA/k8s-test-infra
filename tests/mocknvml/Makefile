@@ -51,6 +51,8 @@ test: build
 	@echo "================================================"
 	@echo ""
 	$(DOCKER) run --rm -e MOCK_NVML_CONFIG=/app/util-test-config.yaml $(IMAGE_NAME):$(IMAGE_TAG)
+	$(DOCKER) run --rm -e MOCK_NVML_CONFIG=/app/cc-test-config.yaml -e MOCK_NVML_SUITE=confcompute $(IMAGE_NAME):$(IMAGE_TAG)
+	$(DOCKER) run --rm -e MOCK_NVML_CONFIG=/app/ppcie-test-config.yaml -e MOCK_NVML_SUITE=ppcie $(IMAGE_NAME):$(IMAGE_TAG)
 	@echo ""
 	@echo "================================================"
 	@echo "✓ Mock NVML integration test completed successfully!"

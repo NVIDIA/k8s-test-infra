@@ -885,3 +885,78 @@ jobs:
       - name: Remove the proxy credential
         if: always()
         run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
+
+  e2e-cc:
+    # Runs after the standalone matrix rather than beside it, so the PR does
+    # not hold one more Kind cluster at the same time as every other e2e job.
+    needs: [build-nvmlmock-image, e2e]
+    if: ${{ !cancelled() && needs.build-nvmlmock-image.result == 'success' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Confidential Computing needs Hopper or newer, and the scenario
+        # asserts the node-wide state, which a second board would not change.
+        gpu-profile: [h100]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Download pre-built nvml-mock image
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: nvml-mock-image
+          path: ${{ runner.temp }}
+
+      - name: Install binaries and create Kind cluster
+        run: ./hack/e2e-ci-cluster.sh
+
+      - name: Load pre-built nvml-mock image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
+
+      - name: Load nvml-mock image into Kind
+        run: kind load docker-image "$E2E_IMAGE" --name mokka
+
+      - name: Stage CI Helm values for Tilt
+        run: cp tests/e2e/ci/nvml-mock.values.yaml local/nvml-mock.values.local.yaml
+
+      - name: Roll out nvml-mock via Tilt (${{ matrix.gpu-profile }})
+        # The scenario reinstalls the release itself with
+        # gpu.confidentialCompute set.
+        run: tilt ci -- --gpu-profile="${{ matrix.gpu-profile }}" --nvmlmock-image="$E2E_IMAGE"
+
+      - name: Configure the DGXC Go proxy
+        uses: ./.github/actions/setup-dgxc-goproxy
+        with:
+          mode: routed
+
+      - name: Assert the proxy is actually in front
+        run: ./hack/check-goproxy.sh
+
+      - name: Run Confidential Computing E2E (${{ matrix.gpu-profile }})
+        env:
+          E2E_PROFILES: ${{ matrix.gpu-profile }}
+          E2E_KUBE_CONTEXT: kind-mokka
+          E2E_CLUSTER_NAME: mokka
+        run: make e2e-cc
+
+      - name: Print diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== e2e-cc diagnostics (${{ matrix.gpu-profile }}) ==="
+          if [ -d "$E2E_ARTIFACTS" ]; then
+            find "$E2E_ARTIFACTS" -type f | while read -r f; do
+              echo "----- $f -----"; cat "$f"; echo;
+            done
+          else
+            echo "no diagnostics written"
+          fi
+
+      - name: Remove the proxy credential
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/dgxc-goauth"

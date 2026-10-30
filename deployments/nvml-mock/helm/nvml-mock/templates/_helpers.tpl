@@ -227,6 +227,9 @@ config file is present — without this overlay an override would move the
 node labels but leave nvmlSystemGetDriverVersion, and every version-gated
 function with it, on the profile's own version.
 
+Non-empty .Values.gpu.confidentialCompute fields overlay the profile's
+`confidential_compute` block.
+
 If no overlay is enabled the base YAML is returned verbatim, which preserves
 comments and key order from the profile file.
 */}}
@@ -237,7 +240,9 @@ comments and key order from the profile file.
 {{- $migEnabled := and .Values.gpu.mig .Values.gpu.mig.enabled -}}
 {{- $vgpuEnabled := and .Values.gpu.vgpu .Values.gpu.vgpu.mode -}}
 {{- $sysEnabled := or .Values.driverVersion .Values.driverBranch .Values.hic -}}
-{{- if or $dynEnabled $failEnabled $migEnabled $vgpuEnabled $sysEnabled -}}
+{{- $ccValues := .Values.gpu.confidentialCompute | default (dict) -}}
+{{- $ccEnabled := or $ccValues.mode $ccValues.environment $ccValues.multiGpuMode $ccValues.cpuCaps -}}
+{{- if or $dynEnabled $failEnabled $migEnabled $vgpuEnabled $sysEnabled $ccEnabled -}}
 {{- $cfg := fromYaml $base -}}
 {{- if hasKey $cfg "Error" -}}
 {{- fail (printf "nvml-mock.gpuConfig: failed to parse base YAML for overlay injection: %s" (get $cfg "Error")) -}}
@@ -440,6 +445,21 @@ where an absent one loads as a guest that knows nothing about its host.
 {{- $_ := set $system "hic" $entries -}}
 {{- end -}}
 {{- $_ := set $cfg "system" $system -}}
+{{- end -}}
+{{- if $ccEnabled -}}
+{{- /*
+Confidential Computing is one switch per node, so it is the profile's top-level
+confidential_compute block rather than anything under device_defaults. The
+engine refuses a block the GPUs cannot honour; it checks every GPU's merged
+architecture, which a gpu.customConfig with per-device overrides makes
+impossible to judge from device_defaults here.
+*/ -}}
+{{- $cc := get $cfg "confidential_compute" | default (dict) -}}
+{{- with $ccValues.mode -}}{{- $_ := set $cc "mode" . -}}{{- end -}}
+{{- with $ccValues.environment -}}{{- $_ := set $cc "environment" . -}}{{- end -}}
+{{- with $ccValues.multiGpuMode -}}{{- $_ := set $cc "multi_gpu_mode" . -}}{{- end -}}
+{{- with $ccValues.cpuCaps -}}{{- $_ := set $cc "cpu_caps" . -}}{{- end -}}
+{{- $_ := set $cfg "confidential_compute" $cc -}}
 {{- end -}}
 {{- if $defaults -}}
 {{- $_ := set $cfg "device_defaults" $defaults -}}

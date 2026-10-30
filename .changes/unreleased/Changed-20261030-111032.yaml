@@ -1,0 +1,6 @@
+kind: Changed
+body: |-
+  **Breaking:** nvml-mock: shipped profiles (driver 615.71.10) serve field IDs 251–273 in the newer NVML layout; use matching client headers or set system.driver_version below 580.95.05 to retain the 580.65 layout.
+time: 2026-10-30T10:10:32Z
+custom:
+  Issue: "377"

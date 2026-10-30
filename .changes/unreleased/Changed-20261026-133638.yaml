@@ -1,0 +1,6 @@
+kind: Changed
+body: |-
+  **Breaking:** profiles: shipped profiles now report driver 615.71.10 and CUDA 13.4; update version assertions or override the driver version. The nvml-mock image now bundles nvidia-smi 615.71.10.
+time: 2026-10-26T12:36:38Z
+custom:
+  Issue: "377"
