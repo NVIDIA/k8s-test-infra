@@ -22,6 +22,10 @@ type YAMLConfig struct {
 	Devices        []DeviceOverride `json:"devices"`
 	NVLink         *NVLinkConfig    `json:"nvlink,omitempty"`
 
+	// ConfidentialCompute is the node-wide Confidential Computing state. CC is
+	// one switch per node on hardware, so it lives here rather than per device.
+	ConfidentialCompute *ConfidentialComputeConfig `json:"confidential_compute,omitempty"`
+
 	// PCIeTopology describes the root-complex / NUMA layout consumed by the
 	// pcibus simulator and the engine for NVLink topology, pairwise PCIe
 	// levels, and CPU/NUMA affinity. Optional; absent on PCIe-only profiles.
@@ -214,6 +218,17 @@ type DeviceConfig struct {
 	// the low-power field values report. Nil is the driver default, which is
 	// also what the reset sentinel restores.
 	NVLinkLowPowerThreshold *uint32 `json:"nvlink_low_power_threshold,omitempty"`
+
+	// ConfComputeGpusReady and ConfComputeAttackerAdvantage record the
+	// node-wide Confidential Compute writes. Only the `all:` bucket carries
+	// them, because the NVML setters take no device. Pointers so a recorded
+	// false or a value equal to the default still outranks the profile.
+	ConfComputeGpusReady         *bool   `json:"conf_compute_gpus_ready,omitempty"`
+	ConfComputeAttackerAdvantage *uint64 `json:"conf_compute_key_rotation_attacker_advantage,omitempty"`
+
+	// ConfComputeUnprotectedMemKiB records the unprotected memory size
+	// nvmlDeviceSetConfComputeUnprotectedMemSize applied to this GPU.
+	ConfComputeUnprotectedMemKiB *uint64 `json:"conf_compute_unprotected_mem_kib,omitempty"`
 
 	// Platform describes where the board physically sits in a rack. When nil
 	// (default) nvmlDeviceGetPlatformInfo and nvmlDeviceGetModuleId report

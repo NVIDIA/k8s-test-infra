@@ -42,7 +42,8 @@ That makes it a good fit for:
 Use real hardware for CUDA execution, NCCL, GPUDirect and RDMA data paths, any
 throughput or thermal measurement, driver and firmware lifecycle, switch
 management planes, physically faithful fault timing, MIG partition lifecycle,
-and Confidential Computing.
+and Confidential Computing protection and attestation (the CC mode and ready
+state are simulated).
 
 ## Quick start
 

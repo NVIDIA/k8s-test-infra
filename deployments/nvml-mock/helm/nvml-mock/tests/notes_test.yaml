@@ -30,7 +30,7 @@ tests:
       - matchRegexRaw:
           pattern: "GPUs per node: 4"
       - matchRegexRaw:
-          pattern: "Driver version: 580.65.06"
+          pattern: "Driver version: 615.71.10"
 
   # count left unset: the rendered figure is the h100 device list, so it differs
   # from the default profile's above and neither can be satisfied by a constant.
@@ -44,7 +44,7 @@ tests:
       - matchRegexRaw:
           pattern: "GPUs per node: 8"
       - matchRegexRaw:
-          pattern: "Driver version: 580.65.06"
+          pattern: "Driver version: 615.71.10"
 
   - it: should render Blackwell Ultra driver version for gb300
     set:
@@ -53,7 +53,7 @@ tests:
         count: 4
     asserts:
       - matchRegexRaw:
-          pattern: "Driver version: 580.65.06"
+          pattern: "Driver version: 615.71.10"
 
   - it: should render explicit driver version
     set:

@@ -499,3 +499,74 @@ func TestSetters_DoNotDisturbOtherDevices(t *testing.T) {
 	require.EqualValues(t, 400_000, doc.Devices["0"]["power"].(map[string]any)["enforced_limit_mw"])
 	require.EqualValues(t, 300_000, doc.Devices["1"]["power"].(map[string]any)["enforced_limit_mw"])
 }
+
+// The two node-wide Confidential Compute setters take no device, so both
+// record in the `all:` bucket the system getters read.
+func TestSetConfComputeGpusReady_WritesAllBucket(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+
+	require.NoError(t, SetConfComputeGpusReady(path, true))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, true, doc.All["conf_compute_gpus_ready"])
+	require.Empty(t, doc.Devices, "the ready state belongs to no single device")
+}
+
+func TestSetConfComputeKeyRotationThreshold_WritesAllBucket(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+
+	require.NoError(t, SetConfComputeKeyRotationThreshold(path, 55, false))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	require.EqualValues(t, 55, doc.All["conf_compute_key_rotation_attacker_advantage"])
+	require.Empty(t, doc.Devices, "the threshold belongs to no single device")
+}
+
+func TestSetConfComputeUnprotectedMemSize_WritesDevice(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+
+	require.NoError(t, SetConfComputeUnprotectedMemSize(path, 2, 1048576, false))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	require.EqualValues(t, 1048576, doc.Devices["2"]["conf_compute_unprotected_mem_kib"])
+	require.NotContains(t, doc.All, "conf_compute_unprotected_mem_kib",
+		"the unprotected size is per GPU")
+}
+
+// The two guarded Confidential Compute writers judge the ready state from the
+// document they hold the lock on: a recorded state wins, the profile's applies
+// only when nothing is recorded, and a refusal leaves the document untouched.
+func TestConfComputeWriters_RefuseWhileReady(t *testing.T) {
+	t.Parallel()
+
+	t.Run("recorded ready", func(t *testing.T) {
+		t.Parallel()
+		path := overridePath(t)
+		require.NoError(t, SetConfComputeGpusReady(path, true))
+
+		require.ErrorIs(t, SetConfComputeKeyRotationThreshold(path, 55, false), engine.ErrConfComputeGpusReady)
+		require.ErrorIs(t, SetConfComputeUnprotectedMemSize(path, 1, 1024, false), engine.ErrConfComputeGpusReady)
+		doc, err := Load(path)
+		require.NoError(t, err)
+		require.NotContains(t, doc.All, "conf_compute_key_rotation_attacker_advantage")
+		require.Empty(t, doc.Devices)
+	})
+
+	t.Run("profile ready, nothing recorded", func(t *testing.T) {
+		t.Parallel()
+		require.ErrorIs(t, SetConfComputeKeyRotationThreshold(overridePath(t), 55, true), engine.ErrConfComputeGpusReady)
+	})
+
+	t.Run("recorded not ready outranks a ready profile", func(t *testing.T) {
+		t.Parallel()
+		path := overridePath(t)
+		require.NoError(t, SetConfComputeGpusReady(path, false))
+		require.NoError(t, SetConfComputeKeyRotationThreshold(path, 55, true))
+	})
+}

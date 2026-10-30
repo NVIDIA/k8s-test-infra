@@ -1,0 +1,13 @@
+
+# Appended by the Dockerfile to the shipped H100 profile to form
+# /app/cc-test-config.yaml, so the Confidential Compute suite runs against the
+# real profile rather than a copy that could drift from it. The CC fields are
+# non-default except the multi-GPU mode so a bridge that drops or transposes
+# a field fails.
+confidential_compute:
+  mode: devtools
+  environment: sim
+  multi_gpu_mode: none
+  cpu_caps: amd_sev_snp
+  key_rotation_attacker_advantage: 55
+  unprotected_mem_kib: 4194304

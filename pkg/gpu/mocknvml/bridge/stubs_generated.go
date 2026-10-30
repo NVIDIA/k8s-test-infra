@@ -23,7 +23,7 @@ package main
 */
 import "C"
 
-// 110 stub functions for unimplemented NVML functions.
+// 100 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceGetInfo_v1
@@ -59,16 +59,6 @@ func nvmlDeviceGetBankRemapperStatus_v1(device C.nvmlDevice_t, pBankRemapperStat
 //export nvmlDeviceGetComputeRunningProcesses_v1
 func nvmlDeviceGetComputeRunningProcesses_v1(device C.nvmlDevice_t, infoCount *C.uint, infos *C.nvmlProcessInfo_v1_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetComputeRunningProcesses_v1")
-}
-
-//export nvmlDeviceGetConfComputeGpuAttestationReport
-func nvmlDeviceGetConfComputeGpuAttestationReport(device C.nvmlDevice_t, gpuAtstReport *C.nvmlConfComputeGpuAttestationReport_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetConfComputeGpuAttestationReport")
-}
-
-//export nvmlDeviceGetConfComputeGpuCertificate
-func nvmlDeviceGetConfComputeGpuCertificate(device C.nvmlDevice_t, gpuCert *C.nvmlConfComputeGpuCertificate_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetConfComputeGpuCertificate")
 }
 
 //export nvmlDeviceGetDriverModel_v1
@@ -229,11 +219,6 @@ func nvmlDeviceSetAdaptiveTgpMode_v1(device C.nvmlDevice_t, mode C.nvmlEnableSta
 //export nvmlDeviceSetComputeMode
 func nvmlDeviceSetComputeMode(device C.nvmlDevice_t, mode C.nvmlComputeMode_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceSetComputeMode")
-}
-
-//export nvmlDeviceSetConfComputeUnprotectedMemSize
-func nvmlDeviceSetConfComputeUnprotectedMemSize(device C.nvmlDevice_t, sizeKiB C.ulonglong) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceSetConfComputeUnprotectedMemSize")
 }
 
 //export nvmlDeviceSetCpuAffinity
@@ -414,41 +399,6 @@ func nvmlGpuInstanceSetVgpuSchedulerState_v2(gpuInstance C.nvmlGpuInstance_t, pS
 //export nvmlSetVgpuVersion
 func nvmlSetVgpuVersion(vgpuVersion *C.nvmlVgpuVersion_t) C.nvmlReturn_t {
 	return stubReturn("nvmlSetVgpuVersion")
-}
-
-//export nvmlSystemGetConfComputeCapabilities
-func nvmlSystemGetConfComputeCapabilities(capabilities *C.nvmlConfComputeSystemCaps_t) C.nvmlReturn_t {
-	return stubReturn("nvmlSystemGetConfComputeCapabilities")
-}
-
-//export nvmlSystemGetConfComputeGpusReadyState
-func nvmlSystemGetConfComputeGpusReadyState(isAcceptingWork *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlSystemGetConfComputeGpusReadyState")
-}
-
-//export nvmlSystemGetConfComputeKeyRotationThresholdInfo
-func nvmlSystemGetConfComputeKeyRotationThresholdInfo(pKeyRotationThrInfo *C.nvmlConfComputeGetKeyRotationThresholdInfo_t) C.nvmlReturn_t {
-	return stubReturn("nvmlSystemGetConfComputeKeyRotationThresholdInfo")
-}
-
-//export nvmlSystemGetConfComputeSettings
-func nvmlSystemGetConfComputeSettings(settings *C.nvmlSystemConfComputeSettings_t) C.nvmlReturn_t {
-	return stubReturn("nvmlSystemGetConfComputeSettings")
-}
-
-//export nvmlSystemGetConfComputeState
-func nvmlSystemGetConfComputeState(state *C.nvmlConfComputeSystemState_t) C.nvmlReturn_t {
-	return stubReturn("nvmlSystemGetConfComputeState")
-}
-
-//export nvmlSystemSetConfComputeGpusReadyState
-func nvmlSystemSetConfComputeGpusReadyState(isAcceptingWork C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlSystemSetConfComputeGpusReadyState")
-}
-
-//export nvmlSystemSetConfComputeKeyRotationThresholdInfo
-func nvmlSystemSetConfComputeKeyRotationThresholdInfo(pKeyRotationThrInfo *C.nvmlConfComputeSetKeyRotationThresholdInfo_t) C.nvmlReturn_t {
-	return stubReturn("nvmlSystemSetConfComputeKeyRotationThresholdInfo")
 }
 
 //export nvmlUnitGetDevices

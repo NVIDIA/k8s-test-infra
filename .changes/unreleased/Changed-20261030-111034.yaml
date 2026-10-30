@@ -1,0 +1,6 @@
+kind: Changed
+body: |-
+  **Breaking:** nvml-mock: nvmlDeviceGetNvLinkVersion returns NVML enum values (H100: 6 for NVLink 4); update consumers that treated the result as a generation number.
+time: 2026-10-30T10:10:34Z
+custom:
+  Issue: "377"

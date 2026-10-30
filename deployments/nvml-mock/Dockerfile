@@ -86,13 +86,13 @@ RUN set -eux; \
     # but keep an explicit mkdir as a belt-and-braces guarantee so the
     # warning never appears even if the providers package is purged. \
     mkdir -p /etc/libibverbs.d; \
-    # Extract just the nvidia-smi binary from nvidia-utils (Ubuntu 22.04 repo:
-    # glibc 2.35, runs on bookworm). The 580 branch renders the full GB200/GB300
-    # NVLink5 surface (`nvlink -e/-info/-gLowPwrInfo/-gLWidth`); older binaries
-    # only show the legacy layout, though the mock implements the fields either
-    # way. Pin 580.65.06-0ubuntu1: it's the only nvidia-utils-580 here that ships
-    # the binary (later 580.x are transitional dummies) and matches the GB200
-    # profile's driver_version. See NVIDIA/k8s-test-infra#371.
+    # Extract just the nvidia-smi binary (Ubuntu 22.04 repo: glibc 2.35, runs
+    # on bookworm). From the 590 branch on it ships in libnvidia-compute rather
+    # than nvidia-utils-<branch>. Pin 615.71.10, the newest in the repo: unlike
+    # 580.65.06 it has `nvidia-smi conf-compute`, which drives the
+    # Confidential Compute simulation (issue #377), and it still renders the
+    # full GB200/GB300 NVLink5 surface the 580 branch introduced
+    # (NVIDIA/k8s-test-infra#371).
     # Map TARGETARCH to NVIDIA repo path: amd64 → x86_64, arm64 → sbsa.
     NVIDIA_REPO_ARCH=$(case ${TARGETARCH} in arm64) echo sbsa;; *) echo x86_64;; esac); \
     curl -fsSL "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/${NVIDIA_REPO_ARCH}/3bf863cc.pub" | \
@@ -100,8 +100,8 @@ RUN set -eux; \
     echo "deb [signed-by=/usr/share/keyrings/nvidia.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/${NVIDIA_REPO_ARCH} /" \
       > /etc/apt/sources.list.d/nvidia.list; \
     apt-get update; \
-    cd /tmp && apt-get download nvidia-utils-580=580.65.06-0ubuntu1; \
-    dpkg-deb -x /tmp/nvidia-utils-580*.deb /tmp/nvidia-utils; \
+    cd /tmp && apt-get download libnvidia-compute=615.71.10-1ubuntu1; \
+    dpkg-deb -x /tmp/libnvidia-compute_*.deb /tmp/nvidia-utils; \
     cp /tmp/nvidia-utils/usr/bin/nvidia-smi /usr/local/bin/nvidia-smi; \
     chmod +x /usr/local/bin/nvidia-smi; \
     # Set RPATH so nvidia-smi finds libs relative to its own location ($ORIGIN/../lib64).
@@ -123,7 +123,7 @@ RUN set -eux; \
     # if these apt steps ever move or go away.
     ldconfig; \
     rm -rf /var/lib/apt/lists/*; \
-    rm -rf /tmp/nvidia-utils /tmp/nvidia-utils-580*.deb \
+    rm -rf /tmp/nvidia-utils /tmp/libnvidia-compute_*.deb \
            /usr/share/keyrings/nvidia.gpg /etc/apt/sources.list.d/nvidia.list; \
     # ca-certificates stays: the node agent verifies NVIDIA's TLS certificate
     # when it downloads IMEX (the IMEXDownload feature gate).

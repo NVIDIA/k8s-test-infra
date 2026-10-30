@@ -94,9 +94,12 @@ func nvmlDeviceGetFieldValues(device C.nvmlDevice_t, valuesCount C.int, values *
 		scopeID := uint32(C.fvScopeId(fv))
 		C.fvSetTimestamp(fv, ts)
 
+		// The entry keeps the id the caller asked for; only the lookup uses
+		// the numbering the engine dispatches on.
+		canonical := engine.CanonicalFieldID(fieldID, driverVersion)
 		vt, val, ret := engine.FieldValueUnsupported, uint64(0), nvml.ERROR_NOT_SUPPORTED
-		if engine.FieldAvailable(fieldID, driverVersion) {
-			vt, val, ret = dev.GetFieldValue(fieldID, scopeID)
+		if engine.FieldAvailable(canonical, driverVersion) {
+			vt, val, ret = dev.GetFieldValue(canonical, scopeID)
 		}
 		if ret != nvml.SUCCESS {
 			// Named explicitly because a declined field is otherwise invisible:

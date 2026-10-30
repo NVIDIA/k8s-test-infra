@@ -380,8 +380,8 @@ device_defaults:
 ```
 
 The table is what `nvidia-smi -q -d SUPPORTED_CLOCKS` and
-`--query-supported-clocks` print, and the set of pairs `nvidia-smi -ac`
-accepts. The shipped profiles carry the full table their board reports in
+`--query-supported-clocks` print, and the set of pairs the NVML
+applications-clock setter accepts. The shipped profiles carry the full table their board reports in
 `tests/e2e/go/assertions/nvidiasmi/testdata/hardware`, and a unit test keeps
 them equal. A profile without the block reports the section as `N/A`.
 
@@ -393,13 +393,13 @@ supported.
 #### Tuning clocks at runtime
 
 The tuning commands write to the runtime override document, the same way
-[`nvidia-smi -pl`](#static-held-until-the-config-changes) does. Every process
+[`nvidia-smi -pl`](#static--held-until-the-config-changes) does. Every process
 on the node sees the result, and it holds until the matching reset command,
 `nvidia-smi -r`, or `nvml-mock-ctl reset`.
 
 | Command | Effect on the readings |
 |---------|------------------------|
-| `-ac <mem,graphics>` / `-rac` | Sets the applications clocks. A pair missing from `supported_clocks` is refused, and `-rac` restores the `*_app_default` pair |
+| `-ac <mem,graphics>` / `-rac` | The bundled nvidia-smi 615 reports these commands as deprecated without changing clocks. Use `-lgc` and `-lmc` instead |
 | `-lgc <min,max>` / `-rgc` | Clamps the current graphics and SM clocks into the range |
 | `-lmc <min,max>` / `-rmc` | Clamps the current memory clock into the range |
 
@@ -1138,13 +1138,79 @@ set it.
 
 The mock reports this field as `NOT_SUPPORTED`, which is what a real GB300 tray
 in a healthy rack reports (the driver does not answer it). Whether the row
-appears at all is up to the `nvidia-smi` build: 580.173.02 prints
-`Partition Assigned : N/A`, while the 580.65.06 binary the mock image bundles has
-no such label and omits the row for every mask value.
+appears at all is up to the `nvidia-smi` build: 580.173.02 and the 615.71.10
+binary the mock image bundles print `Partition Assigned : N/A`, while 580.65.06
+has no such label and omits the row for every mask value.
 
 Fabric health can also be degraded and restored at runtime with
 [`nvml-mock-ctl fabric-health`](nvml-mock-ctl.md#fabric-health--degrade-nvlink-fabric-health),
 without restarting the consumer.
+
+## Confidential Computing
+
+Confidential Computing (CC) encrypts a GPU's memory and traffic so that the
+host cannot read a tenant's data. It is one switch per node, so a profile
+describes it once, in a top-level `confidential_compute` block, rather than per
+device:
+
+```yaml
+confidential_compute:
+  mode: "on"                          # off (default), on, devtools
+  environment: prod                   # prod (default), sim
+  multi_gpu_mode: none                # none (default), protected_pcie, nvle
+  cpu_caps: none                      # none (default), amd_sev, intel_tdx, amd_sev_snp, amd_snp_vtom
+  ready: false                        # initial GPUs ready state
+  key_rotation_attacker_advantage: 60 # 50..65
+  unprotected_mem_kib: 0              # initial unprotected size of every GPU
+```
+
+With the chart, non-empty `gpu.confidentialCompute` fields (`mode`,
+`environment`, `multiGpuMode` and `cpuCaps`) overlay the profile's block.
+Omitted fields retain the profile's values; the node agent refuses the config
+when a GPU cannot honour it.
+
+A node is CC capable when every GPU is Hopper or newer. The loader refuses
+`mode` other than `off` or a `multi_gpu_mode` other than `none` on a node that
+is not. Protected PCIe requires Hopper and `mode: off`; it cannot run with
+CC `on` or `devtools`. NVLE requires Blackwell or newer and can run with CC on
+or off. The loader also refuses an attacker advantage outside 50..65 and an
+unprotected size larger than a GPU's framebuffer.
+
+| `nvidia-smi conf-compute` | Not capable (A100, L40S, T4) | Capable, CC off | Capable, CC on |
+|---|---|---|---|
+| `-gg` GPU capabilities | none | `CC Capable` | `CC Capable` |
+| `-f` CC status, `-e`, `-d`, `-mgm` | `OFF` | `OFF`, configured environment | configured values |
+| `-grs` / `-srs` ready state | not supported | `not-ready` / refused, unless Protected PCIe or NVLE | read and write |
+| `-gkr` / `-skr` key rotation threshold | not supported | not supported | read and write |
+| `-gm` / `-sm` memory split | `0` / refused | `0` / refused | the whole framebuffer is protected until `-sm` sets an unprotected size |
+
+nvidia-smi prints "No CC capable devices found" on a node whose GPUs predate
+Ampere, such as T4.
+
+**Multi-GPU protection with CC off.** `mode: off` with
+`multi_gpu_mode: protected_pcie` on Hopper or `nvle` on Blackwell models a node
+that protects traffic between GPUs without the CC feature: `-f` reads `OFF`,
+`-mgm` reports the mode, and the ready state starts `not-ready` and is read and
+written as with CC on. Key rotation and the memory split require the CC feature.
+
+The setters persist in the node's runtime override document, so a value one
+process writes is the one the next process reads: the ready state and the key
+rotation threshold for the whole node, the unprotected size per GPU. While the
+GPUs are ready, the threshold and the split refuse to move ("Resource not in
+correct state"). `nvml-mock-ctl reset --gpu all` returns all three to the
+profile's values.
+
+`nvmlDeviceGetConfComputeGpuAttestationReport` and
+`nvmlDeviceGetConfComputeGpuCertificate` answer while CC or Protected PCIe is
+on; NVLE alone does not enable them. Both return
+deterministic placeholder bytes derived from the GPU's UUID. The report echoes
+the caller's nonce at byte offset 32, so a consumer can check that the report
+answers its request. Neither is a real SPDM report or X.509 chain, so
+attestation tooling that verifies signatures, such as NVIDIA's local GPU
+verifier, rejects them.
+
+The CC entry points need `system.driver_version` 535 or later; settings and
+key rotation need 550.
 
 ## Available GPU Profiles
 
@@ -1419,16 +1485,14 @@ percentages, while PCIe and NVLink throughput are its slice share of the
 board's: a `1g` instance on a seven-slice board reports one seventh of the
 board's PCIe rate.
 
-**Conf Compute protected memory.** The `Conf Compute Protected Memory Usage`
-block of `nvidia-smi -q` reports `0 MiB` for Total, Used and Free on every
-profile, and there is no key to change it. Nothing partitions protected memory
-until Confidential Compute mode is switched on, which the mock does not model
-(see issue #377), and NVML reports `0 MiB` rather than an unsupported query
-whether or not the part could do CC: every board in
-`tests/e2e/go/assertions/nvidiasmi/testdata/hardware` reports it that way,
-including A100, L40S and T4. A profile pinned to a driver older than `525` is the
-one exception — the CC APIs did not exist yet, so the rows read `N/A`, as they do
-on real hardware of that vintage.
+**Conf Compute protected memory.** With Confidential Computing off — every
+shipped profile — the `Conf Compute Protected Memory Usage` block of
+`nvidia-smi -q` reports `0 MiB` for Total, Used and Free. NVML reports `0 MiB`
+rather than an unsupported query whether or not the part could do CC: every
+board in `tests/e2e/go/assertions/nvidiasmi/testdata/hardware` reports it that
+way, including A100, L40S and T4. A profile pinned to a driver older than `525`
+reads `N/A`, as real hardware of that vintage does. Switching CC on splits the
+framebuffer instead; see [Confidential Computing](#confidential-computing).
 
 **Board diagnostics.** No key changes these answers. Wherever `nvidia-smi -q`
 renders one, it matches the hardware captures of a freshly loaded driver:
@@ -1447,7 +1511,7 @@ apart, and every one of them carries the current reading of the matching
 getter: power draw, GPU and memory utilization, the graphics and memory clocks,
 and encoder, decoder, JPEG and OFA utilization. The mock keeps no history, so
 the minimum, maximum and average over the window all equal the current value,
-even under [dynamic metrics](#simulated-changes-between-calls). Timestamps
+even under [dynamic metrics](#simulated--changes-between-calls). Timestamps
 sit on a fixed one-second grid, so a poller that passes back the last
 timestamp it saw gets only the samples taken since, and `NVML_ERROR_NOT_FOUND`
 when there are none. On a GPU with MIG enabled, the GPU, memory, encoder and
