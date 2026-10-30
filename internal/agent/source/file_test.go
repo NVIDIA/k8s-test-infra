@@ -778,7 +778,7 @@ func TestFileSource_MIGTableArrivingLateTriggersAReconcile(t *testing.T) {
 
 // A table that cannot be read is not a board without one. The distinction
 // matters here rather than in the engine because this is where it turns
-// destructive: gpudriver withdraws the staged table whenever the state it is
+// destructive: nvml withdraws the staged table whenever the state it is
 // given carries none, so compiling an unreadable mount as "unpartitioned"
 // would take the partition table and the capability nodes away from a node
 // that is serving partitions. An error leaves the last good state in place.
@@ -807,12 +807,12 @@ func TestFileSource_AnUnreadableMIGTableDoesNotWithdrawThePartitions(t *testing.
 	u = reloadOnce(t, f, &hash)
 	require.NotNil(t, u, "an unreadable table must emit rather than go quiet")
 	require.Error(t, u.Err, "an unreadable table must fail the compile, not partition the board away")
-	require.Nil(t, u.State, "no state means gpudriver stages nothing and withdraws nothing")
+	require.Nil(t, u.State, "no state means nvml stages nothing and withdraws nothing")
 }
 
 // The same rule as the unreadable table, one step further in: a profile that
 // reads back fine and does not validate is still not a board to reconfigure
-// the node onto. gpudriver stages whatever state it is handed, so emitting a
+// the node onto. nvml stages whatever state it is handed, so emitting a
 // nil state with the error is what keeps the partitions, the capability nodes
 // and the CDI entries of the last good profile in place.
 func TestFileSource_AProfileTheLibraryWouldRefuseDoesNotReplaceTheLastGoodOne(t *testing.T) {
@@ -835,7 +835,7 @@ func TestFileSource_AProfileTheLibraryWouldRefuseDoesNotReplaceTheLastGoodOne(t 
 	u = reloadOnce(t, f, &hash)
 	require.NotNil(t, u, "a profile that cannot be staged must emit rather than go quiet")
 	require.Error(t, u.Err, "the library would refuse this profile and fall back to its defaults")
-	require.Nil(t, u.State, "no state means gpudriver stages nothing and withdraws nothing")
+	require.Nil(t, u.State, "no state means nvml stages nothing and withdraws nothing")
 }
 
 // The agent stages the very document the mock library later loads, and the
@@ -988,7 +988,7 @@ func TestCompileState_ChartMIGLayoutsAllResolve(t *testing.T) {
 }
 
 // A profile is free to number the device nodes independently of the NVML
-// index, and the MIG capability names have to follow the nodes gpudriver
+// index, and the MIG capability names have to follow the nodes nvml
 // actually creates. Keying them on the index instead would point a consumer
 // at another GPU's cap devices on exactly the profiles that renumber.
 func TestCompileState_MIGCapsFollowTheDeviceMinor(t *testing.T) {

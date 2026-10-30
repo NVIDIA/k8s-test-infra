@@ -36,12 +36,21 @@
  * separator, so a slash or '\0' boundary check (see rewrite_path) would reject
  * every real path.
  */
-static const char *const k_prefixes[] = {
+static const char *const k_pci_prefixes[] = {
     "/sys/bus/pci/devices/",
     "/sys/bus/pci/",
     "/sys/devices/pci",
     "/sys/bus/pci/devices",
     "/sys/bus/pci",
+    NULL,
+};
+
+/*
+ * The files a loaded NVIDIA driver shows in the kernel's own trees. A node that
+ * loads Mokka's simulated driver modules serves them live, so they take a root
+ * of their own (see init_roots).
+ */
+static const char *const k_kernel_prefixes[] = {
     "/sys/module",
     "/proc/modules",
     /* The boundary check leaves /proc/driver/nvidia-caps and the other
@@ -50,44 +59,63 @@ static const char *const k_prefixes[] = {
     NULL,
 };
 
-static const char *root_cached = NULL;
-static size_t root_len_cached = 0;
-static int disabled_cached = -1;
+/* A prefix table and the root it redirects to; a NULL root leaves it alone. */
+struct redirect {
+    const char *const *prefixes;
+    const char *root;
+    size_t root_len;
+};
+
+static struct redirect redirects[] = {
+    {k_pci_prefixes, NULL, 0},
+    {k_kernel_prefixes, NULL, 0},
+};
 static pthread_once_t init_once = PTHREAD_ONCE_INIT;
 
-static void init_root(void) {
-    const char *root = getenv("MOCK_PCI_ROOT");
-    if (!root || root[0] == '\0') {
-        disabled_cached = 1;
-        return;
-    }
-    root_cached = root;
-    root_len_cached = strlen(root);
-    disabled_cached = 0;
+static void set_root(struct redirect *r, const char *root) {
+    if (!root || root[0] == '\0') return;
+    r->root = root;
+    r->root_len = strlen(root);
+}
+
+/*
+ * MOCK_PCI_ROOT roots both tables. It served every path before the kernel files
+ * had a root of their own, and a container unsets it to see the node as it is.
+ * MOCK_KERNEL_ROOT, when set, takes over the kernel files: a path redirects
+ * them there, and an empty value leaves them to the kernel.
+ */
+static void init_roots(void) {
+    const char *pci = getenv("MOCK_PCI_ROOT");
+    const char *kernel = getenv("MOCK_KERNEL_ROOT");
+    set_root(&redirects[0], pci);
+    set_root(&redirects[1], kernel ? kernel : pci);
 }
 
 static int rewrite_path(const char *path, char *out, size_t out_size) {
     if (!path) return 0;
-    pthread_once(&init_once, init_root);
-    if (disabled_cached) return 0;
+    pthread_once(&init_once, init_roots);
     if (path[0] != '/') return 0;
 
-    for (size_t i = 0; k_prefixes[i] != NULL; ++i) {
-        const char *p = k_prefixes[i];
-        size_t plen = strlen(p);
-        if (strncmp(path, p, plen) != 0) continue;
-        /* For bare prefixes, require a word boundary ('\0' or '/') to
-         * avoid matching "/sys/bus/pcifoo" when the prefix is "/sys/bus/pci".
-         * Exception: "/sys/devices/pci" is immediately followed by hex digits
-         * (kernel naming: pci0000:00), so no boundary can be required there. */
-        if (p[plen - 1] != '/' && strcmp(p, "/sys/devices/pci") != 0) {
-            if (path[plen] != '\0' && path[plen] != '/') continue;
+    for (size_t g = 0; g < sizeof(redirects) / sizeof(redirects[0]); ++g) {
+        const struct redirect *r = &redirects[g];
+        if (!r->root) continue;
+        for (size_t i = 0; r->prefixes[i] != NULL; ++i) {
+            const char *p = r->prefixes[i];
+            size_t plen = strlen(p);
+            if (strncmp(path, p, plen) != 0) continue;
+            /* For bare prefixes, require a word boundary ('\0' or '/') to
+             * avoid matching "/sys/bus/pcifoo" when the prefix is "/sys/bus/pci".
+             * Exception: "/sys/devices/pci" is immediately followed by hex digits
+             * (kernel naming: pci0000:00), so no boundary can be required there. */
+            if (p[plen - 1] != '/' && strcmp(p, "/sys/devices/pci") != 0) {
+                if (path[plen] != '\0' && path[plen] != '/') continue;
+            }
+            size_t total = r->root_len + strlen(path);
+            if (total + 1 > out_size) return -1;
+            memcpy(out, r->root, r->root_len);
+            memcpy(out + r->root_len, path, strlen(path) + 1);
+            return 1;
         }
-        size_t total = root_len_cached + strlen(path);
-        if (total + 1 > out_size) return -1;
-        memcpy(out, root_cached, root_len_cached);
-        memcpy(out + root_len_cached, path, strlen(path) + 1);
-        return 1;
     }
     return 0;
 }
@@ -265,7 +293,7 @@ DIR *opendir(const char *name) {
 /*
  * libpci reads a device's `resource` file via fopen(), so a missing hook here
  * leaves `lspci -v` reading the real host path. The shim rewrites only the paths
- * under the prefixes in k_prefixes. Every other fopen passes through.
+ * under the prefixes of a redirected table. Every other fopen passes through.
  */
 REAL(fopen);
 REAL(fopen64);

@@ -34,6 +34,9 @@ const (
 	// provisions a differently-named cluster.
 	defaultClusterName = "mokka"
 	defaultKubeContext = "kind-mokka"
+	// 580.159.04-ubuntu24.04: a different driver from the one
+	// local/kernel-mods/gpu-operator.values.yaml installs.
+	defaultDriverUpgradeVersion = "sha256:512e9168499ea80f49a3c9fc3220849d7690d7487c1fd035bc21f60960e4d5d8"
 )
 
 func env(key, def string) string {
@@ -119,6 +122,21 @@ func IMEXDownload() bool { return envBoolDefault("E2E_IMEX_DOWNLOAD", true) }
 // node agent never downloads IMEX; empty leaves it to the IMEXDownload default.
 func IMEXBinariesImage() string { return env("E2E_IMEX_BINARIES_IMAGE", "") }
 
+// KernelDriverMode reports whether the cluster runs the chart's kernel driver
+// mode (E2E_DRIVER_MODE=kernel), in which the GPU Operator's own driver
+// container loads Mokka's simulated kernel modules. The job declares the mode
+// rather than the suite detecting it, so a cluster that came up in the wrong
+// mode fails instead of running the wrong specs.
+func KernelDriverMode() bool { return strings.EqualFold(env("E2E_DRIVER_MODE", "userspace"), "kernel") }
+
+// DriverUpgradeVersion is the driver version the kernel-mode upgrade spec moves
+// the ClusterPolicy to. It is an image index digest, as the installed one is:
+// the operator names a driver image after the node's OS, and NVIDIA publishes
+// none for the Debian that Kind nodes run.
+func DriverUpgradeVersion() string {
+	return env("E2E_DRIVER_UPGRADE_VERSION", defaultDriverUpgradeVersion)
+}
+
 // Timeouts (overridable; conservative defaults matching the bash waits).
 
 // ClusterTimeout bounds the Kind cluster-create/attach wait.
@@ -138,6 +156,13 @@ func PollInterval() time.Duration { return durEnv("E2E_POLL_INTERVAL", 2*time.Se
 // is sized for.
 func OperandSettleTimeout() time.Duration {
 	return durEnv("E2E_OPERAND_SETTLE_TIMEOUT", 5*time.Minute)
+}
+
+// DriverInstallTimeout bounds the GPU Operator's driver installation in the
+// kernel driver mode: its driver container installs the node kernel's headers
+// and compiles NVIDIA's driver before it loads the simulated one.
+func DriverInstallTimeout() time.Duration {
+	return durEnv("E2E_DRIVER_INSTALL_TIMEOUT", 20*time.Minute)
 }
 
 func durEnv(key string, def time.Duration) time.Duration {

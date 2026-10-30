@@ -266,6 +266,17 @@
         "IMEXDownload": { "type": "boolean" }
       }
     },
+    "driver": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["userspace", "kernel"],
+          "description": "How the node's NVIDIA driver is simulated: userspace fakes the files of its kernel modules, kernel has a driver installer load Mokka's simulated kernel modules."
+        }
+      }
+    },
     "driverVersion": { "type": "string" },
     "driverBranch": { "type": "string" },
     "hic": {
@@ -436,6 +447,21 @@
         "excludedNamespaces": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 }
+        },
+        "gpuOperator": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Adaptations of the GPU Operator's own containers on a Mokka node.",
+          "properties": {
+            "driver": {
+              "type": "boolean",
+              "description": "Have the driver installer load the simulated kernel modules and serve the mock NVML from its root. Requires driver.mode kernel."
+            },
+            "toolkit": {
+              "type": "boolean",
+              "description": "Point the container toolkit at the node agent's nvidia.com/gpu CDI spec."
+            }
+          }
         },
         "resources": { "type": "object" },
         "healthPort": { "type": "integer", "minimum": 1, "maximum": 65535 }

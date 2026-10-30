@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/config"
 )
 
 // setEnvironment points the container's loader at the overlay and activates
@@ -45,6 +47,11 @@ func setEnvironment(cfg Config, container Container, sel selection, adjustment *
 func setGPUEnvironment(cfg Config, env *envSet) {
 	env.setDefault("MOCK_NVML_CONFIG", filepath.Join(cfg.ContainerOverlayPath, configRelPath, "config.yaml"))
 	env.setDefault("MOCK_PCI_ROOT", cfg.ContainerOverlayPath)
+	// The simulated driver modules serve the driver's own files, and the
+	// overlay holds no copy of them, so the shim leaves them to the kernel.
+	if cfg.DriverMode == config.DriverModeKernel {
+		env.setDefault("MOCK_KERNEL_ROOT", "")
+	}
 	// GFD derives nvidia.com/gpu.machine from this file. Its own default,
 	// /sys/class/dmi/id/product_name, is a path no mock can own: kind's node
 	// image writes "kind" there and re-binds it into every container, and hosts

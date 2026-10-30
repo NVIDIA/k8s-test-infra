@@ -229,7 +229,7 @@ func retractTools(h *host.Host) error {
 
 // discardTools removes the binaries and libraries Stage copied in. Named files
 // rather than directories: driver/usr/bin and driver/usr/lib64 are shared with
-// gpudriver, whose nvidia-smi and libnvidia-ml must survive.
+// nvml, whose nvidia-smi and libnvidia-ml must survive.
 func discardTools(h *host.Host) error {
 	errs := make([]error, 0, 3+len(fallbackTools))
 	errs = append(errs,

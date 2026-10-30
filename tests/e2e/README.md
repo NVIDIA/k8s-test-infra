@@ -61,7 +61,7 @@ CI splits the suite into parallel jobs.
 entirely as exclusions:
 
 ```make
-E2E_DEFAULT_LABEL_FILTER ?= !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig && !dra-compute-domain && !vgpu
+E2E_DEFAULT_LABEL_FILTER ?= !dra && !gpu-operator && !gpu-operator-driver && !multi-node && !nri && !nfd && !mig && !dra-compute-domain && !vgpu
 ```
 
 The filter is phrased that way because the standalone scenario has no scenario
@@ -138,6 +138,7 @@ tests that must not be scoped by `E2E_PROFILES`.
 | Standalone | `make e2e` | `labels`, `fgo`, `mockfiles`, `nvidia-smi`, `nvlink`, `ib`, `pcisysfs`, `ibping`, `ibfabric`, `failure-injection`, `runtime-control` | The mock renders a complete GPU node: driver files, device nodes, `nvidia-smi` inventory, NVLink topology, IB devices, PCI sysfs tree, cross-node `ibping` and fabric discovery, and the four failure modes |
 | DRA driver | `make e2e-dra` | `dra` | Dynamic Resource Allocation (DRA) scheduling works end to end: ResourceSlices report the profile's GPU count, and a pod using a `ResourceClaimTemplate` reaches `Running`, which requires `NodePrepareResources` to have succeeded. With the NRI plugin running, as it does by default, `dra-nri` runs two claim pods and checks that NRI injects each and `nvidia-smi` lists exactly its claimed GPU; without NRI it is skipped, or fails when `E2E_EXPECT_NRI` is set |
 | GPU Operator | `make e2e-gpu-operator` | `gpu-operator`, `device-plugin`, `dcgm`, `xid`, `pcisysfs`, `runtime-control`, `gpu-operator-nri` | The full operator stack accepts the mock: the validator pod starts, GPU Feature Discovery (GFD) labels appear, allocatable `nvidia.com/gpu` matches the profile, and DCGM telemetry is answered. With the NRI plugin running, as it does by default, `gpu-operator-nri` checks that a pod requesting one GPU is injected and sees exactly one, and that GFD is not injected; without NRI it is skipped, or fails when `E2E_EXPECT_NRI` is set |
+| GPU Operator, kernel driver mode | `make e2e-gpu-operator-kernel` | `gpu-operator`, `gpu-operator-driver` | The operator's own driver container, from NVIDIA's image, installs its driver on Mokka's simulated kernel modules. `gpu-operator-driver` checks the installed driver's version in the kernel and in a GPU workload, and upgrades the driver through the operator's upgrade controller: the node is cordoned and uncordoned, the driver pod is replaced, an evicted workload comes back on the new version, and the simulated GPUs outlive the driver. The GPU Operator scenario above then passes on top of the upgraded driver. Needs a cluster from `tilt ci -- --kernel-mods` on a kernel that builds out-of-tree modules. The upgrade leaves the ClusterPolicy on `E2E_DRIVER_UPGRADE_VERSION` |
 | ComputeDomains | `make e2e-compute-domain` | `dra-compute-domain` | The unmodified DRA driver runs ComputeDomains on multi-node NVLink nodes, such as gb200, with IMEX staged by the node agent. On the two-rack cluster (`tests/e2e/kind-compute-domain-racks.yaml`), the two nodes of a rack join one Ready IMEX domain and a node leaves it with its workload; the other rack forms a domain of its own; a `Single` workload gets channel 0 only and an `All` one every channel; a second workload, of the same or another domain, waits for a busy node. Without IMEX on the node, the node agent stays ready, the workload waits in `ContainerCreating` with failed-preparation events, and a GPU claim prepared while IMEX was staged still restarts its container. `E2E_IMEX_BINARIES_IMAGE` provides IMEX from a binaries image |
 | Multi-node fleet | `make e2e-multi-node` | `multi-node` | A heterogeneous fleet works: separate A100 and T4 releases on different workers, correct per-node mock files and IB behaviour, and a GPU workload scheduled across them |
 | Node-wide NRI injection | `make e2e-nri` | `nri`, `nri-*`, `compute-domain`, `imex-channels` | Node Resource Interface (NRI) injection follows the allocation rules: a pod with no Mokka-specific spec sees exactly its device-plugin allocation, a `devices`-annotated pod with no GPU request sees every GPU, and a pod that asks for neither is left untouched |
@@ -207,10 +208,13 @@ Read by the suite:
 | `E2E_EXPECT_NRI` | `false` | Fail, instead of skip, NRI-only specs when the nvml-mock NRI plugin is not running. CI sets it on the DRA and GPU Operator jobs. Truthy: `1`, `true`, `yes`, `on` |
 | `E2E_IMEX_DOWNLOAD` | `true` | `false` turns the `IMEXDownload` feature gate off in every nvml-mock install the suite makes, so no node agent downloads IMEX. CI sets it |
 | `E2E_IMEX_BINARIES_IMAGE` | empty | IMEX binaries image (`repo:tag`), already loaded into the cluster, that the ComputeDomain scenario installs the chart with. With it set the node agent never downloads IMEX; empty leaves that to the `IMEXDownload` feature gate. CI builds one from the cached archive and sets it |
+| `E2E_DRIVER_MODE` | `userspace` | `kernel` declares that the cluster runs the kernel driver mode: the GPU Operator scenario waits for the driver installation, and the `gpu-operator-driver` specs run instead of skipping. `make e2e-gpu-operator-kernel` sets it |
+| `E2E_DRIVER_UPGRADE_VERSION` | the digest of the 580.159.04 driver image | The driver the upgrade spec moves the ClusterPolicy to. It must differ from the installed one |
 | `E2E_REPO_ROOT` | walks up for `go.mod` | Overrides repo-root discovery for chart and profile paths |
 | `E2E_HELM_TIMEOUT` | `5m` | `helm upgrade --install --wait` |
 | `E2E_READY_TIMEOUT` | `2m` | DaemonSet, pod and label readiness waits |
-| `E2E_OPERAND_SETTLE_TIMEOUT` | `5m` | Only the GPU Operator Xid spec, which must outlast a reconcile replacing the operands |
+| `E2E_OPERAND_SETTLE_TIMEOUT` | `5m` | Waits that must outlast a GPU Operator reconcile replacing the operands: the Xid spec, and the driver upgrade's operands and workload coming back |
+| `E2E_DRIVER_INSTALL_TIMEOUT` | `20m` | The GPU Operator's driver installation and upgrade in the kernel driver mode, which compile NVIDIA's driver |
 | `E2E_POLL_INTERVAL` | `2s` | `Eventually` poll interval |
 
 An unparseable duration falls back to the default silently.
@@ -266,12 +270,16 @@ cluster, loads the image onto the nodes, and rolls it out with
 registry keeps this working on fork pull requests with no credentials.
 
 The scenario jobs run in parallel: `e2e`, `e2e-dra`, `e2e-compute-domain`,
-`e2e-gpu-operator`, `e2e-multi-node`, `e2e-nri`, `e2e-nfd`, `e2e-mig` and
-`e2e-vgpu`. Each runs one GPU profile per matrix entry, with `fail-fast: false`
-so one profile's failure does not cancel the others. `e2e-nfd` and `e2e-vgpu`
-are pinned to `a100` and `e2e-mig` runs `h100` and `b200`; `e2e-multi-node` has
-no matrix and uses its own fixed A100/T4 topology; `e2e-compute-domain` runs
-`gb200` on the two-rack cluster.
+`e2e-gpu-operator`, `e2e-gpu-operator-kernel`, `e2e-multi-node`, `e2e-nri`,
+`e2e-nfd`, `e2e-mig` and `e2e-vgpu`. Each runs one GPU profile per matrix entry,
+with `fail-fast: false` so one profile's failure does not cancel the others.
+`e2e-nfd` and `e2e-vgpu` are pinned to `a100` and `e2e-mig` runs `h100` and
+`b200`; `e2e-multi-node` has no matrix and uses its own fixed A100/T4 topology;
+`e2e-compute-domain` runs `gb200` on the two-rack cluster.
+`e2e-gpu-operator-kernel` has no matrix either and runs `gb300`: the kernel
+driver mode changes the driver under the mock, not the NVML the profiles
+describe. It is the slowest job, because its driver container compiles NVIDIA's
+driver for the installation and again for the upgrade.
 
 No job downloads IMEX from NVIDIA inside its cluster: `E2E_IMEX_DOWNLOAD=false`
 turns the `IMEXDownload` gate off in every install. The `prepare-imex` job

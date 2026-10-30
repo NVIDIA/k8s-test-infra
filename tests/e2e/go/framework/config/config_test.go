@@ -21,6 +21,14 @@ func TestSelectedProfileNamesHonorsExplicitProfiles(t *testing.T) {
 	require.Equal(t, []string{"a100", "h100"}, SelectedProfileNames(), "expected explicit profiles")
 }
 
+func TestKernelDriverModeIsOptIn(t *testing.T) {
+	t.Setenv("E2E_DRIVER_MODE", "")
+	require.False(t, KernelDriverMode(), "the userspace mode is the default")
+
+	t.Setenv("E2E_DRIVER_MODE", "kernel")
+	require.True(t, KernelDriverMode())
+}
+
 func TestArtifactsDirDefaultsToGoHarnessPath(t *testing.T) {
 	t.Setenv("E2E_ARTIFACTS", "")
 	require.Equal(t, "artifacts/e2e/go", ArtifactsDir(), "expected default artifacts dir")

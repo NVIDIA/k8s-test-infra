@@ -50,6 +50,8 @@ config.define_bool('compute-domain', args=False,
     usage='ComputeDomain scenario: GB200 profile with an NVLink topology overlay. Needs the compute-domain cluster (make cluster-create PROFILE=compute-domain).')
 config.define_bool('gpu-operator', args=False,
     usage='Also deploy NVIDIA GPU Operator on top of nvml-mock')
+config.define_bool('kernel-mods', args=False,
+    usage='Simulate the driver with Mokka\'s kernel modules (driver.mode kernel), on worker-0 alone: the GPU Operator\'s driver installer, from the original NVIDIA image, loads them, and its container toolkit runs too. Implies --gpu-operator. The node kernel must build out-of-tree modules: create the cluster in the Colima VM (make colima-cluster-create).')
 config.define_bool('dra', args=False,
     usage='Also deploy NVIDIA DRA driver on top of nvml-mock')
 config.define_bool('fgo', args=False,
@@ -75,6 +77,7 @@ nvmlmock_image      = cfg.get('nvmlmock-image', '')
 multi_gpu_profile   = cfg.get('multi-gpu-profile', False)
 with_compute_domain = cfg.get('compute-domain', False)
 with_gpu_operator   = cfg.get('gpu-operator', False)
+with_kernel_mods    = cfg.get('kernel-mods', False)
 with_dra            = cfg.get('dra', False)
 with_fgo            = cfg.get('fgo', False)
 with_topograph      = cfg.get('topograph', False)
@@ -101,6 +104,18 @@ if with_dynamo:
 
 if with_slinky:
     with_gpu_operator = True
+
+# The GPU Operator's driver installer is the only one that loads the simulated
+# kernel modules.
+if with_kernel_mods:
+    with_gpu_operator = True
+
+# Every Kind node shares one kernel, and a kernel hosts one driver, so the
+# kernel mode simulates GPUs on worker-0 alone. The other shapes put GPUs on
+# every worker.
+if with_kernel_mods and (multi_gpu_profile or with_compute_domain):
+    fail('--kernel-mods simulates GPUs on worker-0 alone; ' +
+         'it does not compose with --multi-gpu-profile or --compute-domain')
 
 # --gpu-operator with --compute-domain is allowed but untested.
 if with_compute_domain and multi_gpu_profile:
@@ -129,6 +144,9 @@ active_consumers = []
 
 if with_gpu_operator:
     active_consumers.append('gpu-operator')
+
+if with_kernel_mods:
+    active_consumers.append('kernel-mods')
 
 if with_dra:
     active_consumers.append('dra')
@@ -201,6 +219,13 @@ if with_slinky:
 if upsert_timeouts:
     update_settings(k8s_upsert_timeout_secs=max(upsert_timeouts))
 
+# Once the driver is in, the GPU Operator's toolkit operand restarts containerd,
+# and an operand's image pull in flight fails with ErrImagePull. The kubelet
+# retries the pull, but tilt ci fails on the first error unless it gets a grace
+# period. Only the kernel mode runs the toolkit operand.
+if with_kernel_mods:
+    ci_settings(k8s_grace_period='2m')
+
 if with_observability:
     observability_releases = observability_install(nvml_mock_releases)
 
@@ -212,10 +237,14 @@ if with_gpu_operator:
         gpu_operator_extra_values.append(observability_gpu_operator_values)
         gpu_operator_extra_deps += observability_releases
 
+    if with_kernel_mods:
+        gpu_operator_extra_values.append('local/kernel-mods/gpu-operator.values.yaml')
+
     gpu_operator_install(
         nvml_mock_releases,
         extra_values=gpu_operator_extra_values,
         extra_resource_deps=gpu_operator_extra_deps,
+        kernel_mode=with_kernel_mods,
     )
 
 if with_dra:
