@@ -86,6 +86,7 @@ func (s *Server) acceptFabric(ctx context.Context, ln net.Listener) {
 
 func (s *Server) serveFabricConn(ctx context.Context, c net.Conn) {
 	defer func() { _ = c.Close() }()
+	defer s.recoverConnectionPanic("fabric")
 	for {
 		if ctx.Err() != nil {
 			return
