@@ -756,6 +756,44 @@ The port is not reachable from the node: the node DaemonSet does not set
 `hostNetwork`, so `nri.healthPort` is bound only inside the pod's own network
 namespace, on the pod IP where the kubelet reaches it.
 
+## GPU Operator driver manager
+
+`nri.driverManager.enabled` lets the GPU Operator's stock `k8s-driver-manager` pause the GPU
+operands, unload the driver and reschedule them on a mock node, as around a real driver change.
+The [driver stand-in](components/driver-stub.md) loads the modules it unloads.
+
+The NRI plugin binds `modulesHostPath` (default `/run/nvidia/simulated-modules`), a tree laid
+out as `/sys/module`, over `/sys/module` in the driver pod: writable in `nvidia-driver-ctr`,
+read-only in `k8s-driver-manager`. The driver manager's `delete_module` goes to a listener in
+the plugin, which unloads from the tree as the kernel does (ENOENT, EWOULDBLOCK while held).
+The driver manager is left unmodified while the listener is down.
+
+Every other container that asks the NVIDIA runtime for GPUs (`NVIDIA_VISIBLE_DEVICES` set, not
+`void` or `none`) gets the same tree read-only over `/sys/module`, unless it has a mount there,
+so the GPU operands' gate on `/sys/module/nvidia/initstate` follows the driver's loads and
+unloads. The runtime's CDI injection gives them Mokka's static tree only when the node's
+`/proc/modules` lists `nvidia` as it creates the container: an operand created just before the
+driver loaded would wait on its gate forever.
+
+### What it grants the plugin
+
+`SYS_PTRACE`, the host's PID namespace and no AppArmor profile, to read `delete_module`'s
+argument from the privileged driver manager. The plugin can then read any process's memory on
+the node: for test nodes only.
+
+### Node requirements
+
+- containerd whose NRI applies seccomp adjustments (seen: 2.2.1, 2.3.1, 2.3.2), runc 1.1+.
+- **Fail closed:** while the plugin re-registers after a containerd restart, a new driver
+  manager would start unadjusted. Enable containerd's NRI default validator
+  (`[plugins.'io.containerd.nri.v1.nri'.default_validator] enable = true`) and annotate the
+  driver pods `required-plugins.noderesource.dev/container.k8s-driver-manager:
+  '["<nri.pluginName>"]'` (GPU Operator: `daemonsets.annotations`).
+- **Nodes that are containers** (Incus, LXC) must not deny `delete_module` in their own seccomp
+  policy, which Incus does by default: for example `security.syscalls.deny_default=false` with
+  `security.syscalls.deny` keeping `kexec_load`, `open_by_handle_at`, `init_module`,
+  `finit_module`.
+
 ## Configuration
 
 ### Values

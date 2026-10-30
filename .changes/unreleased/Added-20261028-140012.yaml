@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  driver-stub: a driver stand-in image (`make driver-stub-image`) runs in the GPU Operator's driver DaemonSet on Mokka nodes, so driver installs and upgrades run with the stock k8s-driver-manager; see the Driver Stand-in page.
+time: 2026-10-28T13:00:12Z

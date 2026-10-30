@@ -114,6 +114,8 @@ Kubernetes: `>= 1.28.0-0`
 | nri.cdiSpecDir | string | `"/var/run/cdi"` | Host directory containing staged CDI specifications. |
 | nri.deviceAnnotation | string | `"nvml-mock.nvidia.com/devices"` | Pod annotation enabling mock GPU device injection. |
 | nri.deviceInjectionMode | string | `"raw"` | Device injection mode: raw nodes or CDI references. |
+| nri.driverManager.enabled | bool | `false` | Serve the GPU Operator driver manager the simulated kernel modules. |
+| nri.driverManager.modulesHostPath | string | `"/run/nvidia/simulated-modules"` | Host directory, laid out as /sys/module, holding the loaded modules. |
 | nri.enabled | bool | `true` | Enable node-wide container injection through the NRI plugin. Inject the mock into containers that hold a GPU allocation or opt in by annotation. Needs containerd NRI enabled on the node: containerd 2.x enables it by default, containerd 1.7 does not. Set false where it is off; otherwise the node pod stays NotReady. |
 | nri.excludedNamespaces | list | `[]` | Namespaces excluded from NRI injection. |
 | nri.healthPort | int | `8080` | NRI plugin health and readiness port. |

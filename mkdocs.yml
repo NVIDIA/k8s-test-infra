@@ -120,6 +120,7 @@ nav:
           - Node Daemon: components/node-daemon.md
           - Libraries and Shims: components/libraries-and-shims.md
           - NRI Plugin: components/nri-plugin.md
+          - Driver Stand-in: components/driver-stub.md
       - Reference:
           - Configuration: configuration.md
           - Feature Gates: feature-gates.md

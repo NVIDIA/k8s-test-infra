@@ -4,6 +4,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 {{- $ibEnabled := eq (include "nvml-mock.infinibandEnabled" .) "true" }}
 {{- $fmEnabled := eq (include "nvml-mock.fabricmanagerEnabled" .) "true" }}
+{{- $appArmorField := semverCompare ">=1.30.0-0" .Capabilities.KubeVersion.Version }}
 {{- $nativeSidecar := and .Values.nri.enabled .Values.nri.nativeSidecar (semverCompare ">=1.29.0-0" .Capabilities.KubeVersion.Version) }}
 {{- /* NRI shares a lock here with the node agent. It lives in a pod-local
 emptyDir mounted into only those two containers: a workload that could open it
@@ -82,6 +83,9 @@ spec:
         {{- end }}
         # Keep kubectl exec/logs behavior stable when optional sidecars are on.
         kubectl.kubernetes.io/default-container: node-agent
+        {{- if and .Values.nri.enabled .Values.nri.driverManager.enabled (not $appArmorField) }}
+        container.apparmor.security.beta.kubernetes.io/nvml-mock-nri: unconfined
+        {{- end }}
     spec:
       serviceAccountName: {{ include "nvml-mock.fullname" . }}
       {{- with include "nvml-mock.imagePullSecrets" . }}
@@ -92,9 +96,10 @@ spec:
       {{- end }}
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
-      {{- if and $runtime.enabled (eq $runtime.restartMode "systemd") }}
+      {{- if or (and $runtime.enabled (eq $runtime.restartMode "systemd")) (and .Values.nri.enabled .Values.nri.driverManager.enabled) }}
       # systemctl refuses a systemd it cannot see, so restarting containerd
-      # takes the host's PID namespace.
+      # takes the host's PID namespace. So does reading the driver manager's
+      # delete_module argument, by its PID.
       hostPID: true
       {{- end }}
       {{- with .Values.nodeSelector }}
@@ -455,6 +460,11 @@ spec:
             {{- with include "nvml-mock.featureGates" . }}
             - --feature-gates={{ . }}
             {{- end }}
+            {{- if .Values.nri.driverManager.enabled }}
+            - --driver-modules-host-path={{ .Values.nri.driverManager.modulesHostPath }}
+            # In the NRI socket directory: runc connects to it from the node.
+            - --module-unload-listener-path={{ $nriSocketDir }}/nvml-mock-module-unload.sock
+            {{- end }}
           env:
             - name: NODE_NAME
               valueFrom:
@@ -475,6 +485,16 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
             runAsUser: 0
+            {{- if .Values.nri.driverManager.enabled }}
+            # To read the privileged driver manager's memory: ptrace, and no
+            # AppArmor profile (the default allows ptrace only among its own).
+            capabilities:
+              add: ["SYS_PTRACE"]
+            {{- if $appArmorField }}
+            appArmorProfile:
+              type: Unconfined
+            {{- end }}
+            {{- end }}
           {{- with .Values.nri.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
@@ -492,6 +512,11 @@ spec:
             - name: {{ $nriCDIVolume }}
               mountPath: {{ .Values.nri.cdiSpecDir }}
               readOnly: true
+            {{- if .Values.nri.driverManager.enabled }}
+            # Writable: the plugin unloads from it. Same path as on the host.
+            - name: driver-modules
+              mountPath: {{ .Values.nri.driverManager.modulesHostPath }}
+            {{- end }}
         {{- end }}
         {{- if .Values.allocationWatcher.enabled }}
         # #506: mirrors each pod's nvidia.com/gpu claim into the same runtime
@@ -569,6 +594,12 @@ spec:
         - name: nri-cdi-specs
           hostPath:
             path: {{ .Values.nri.cdiSpecDir }}
+            type: DirectoryOrCreate
+        {{- end }}
+        {{- if .Values.nri.driverManager.enabled }}
+        - name: driver-modules
+          hostPath:
+            path: {{ .Values.nri.driverManager.modulesHostPath }}
             type: DirectoryOrCreate
         {{- end }}
         {{- end }}
