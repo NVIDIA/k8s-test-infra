@@ -491,7 +491,7 @@ this will impact our users.
 Mokka can frame KWOK support as an alternative provisioning path for sGPU nodes, so we will end up having two modes:
 
 - `CPU` (default), the current deployment mode that expects real CPU nodes. The control plane binds racks to existing CPU nodes, and the node daemon simulates the GPUs on them.
-- `KWOK`, the new deployment mode based on KWOK virtual nodes. The Mokka KWOK Controller creates a virtual Node for each logical rack Node, and the GPUs exist only in the Kubernetes API.
+- `KWOK`, the new deployment mode based on KWOK virtual nodes. The KWOK provisioner creates a virtual Node for each logical rack Node, and the GPUs exist only in the Kubernetes API.
 
 The provisioner is set per rack group in `SGPUInventory`, so one inventory can mix CPU and KWOK rack groups:
 
@@ -519,7 +519,7 @@ spec:
       profileRef:
         name: gb300-nvl72
 
-      kwok: # KWOK only: settings for the Nodes the KWOK Controller creates
+      kwok: # KWOK only: settings for the Nodes the KWOK provisioner creates
         kubelet: # the configuration of the kubelet the Nodes simulate
           maxPods: 250
         nodeTemplate:
@@ -533,7 +533,7 @@ spec:
 
 The KWOK's `ci` will create `rackGroup.count` × `profile.nodesPerRack` (18000 virtual nodes in this example).
 
-There's no kubelet on a KWOK Node, so the KWOK Controller reports what one would. `kwok.kubelet` holds the configuration it simulates, starting with `maxPods`, which sets each Node's pod capacity. These settings stay out of the profile because the same profile also backs CPU groups, where the real kubelet decides them.
+There's no kubelet on a KWOK Node, so the KWOK provisioner reports what one would. `kwok.kubelet` holds the configuration it simulates, starting with `maxPods`, which sets each Node's pod capacity. These settings stay out of the profile because the same profile also backs CPU groups, where the real kubelet decides them.
 
 The CRD validation enforces these rules on a rack group:
 
@@ -608,13 +608,13 @@ spec:
 ```
 
 KWOK racks are rendered exactly like CPU racks, so their simulated GPUs keep stable UUIDs, serials, PCI addresses, and NUMA placement. 
-Because the `kwok` block is in the rack, [the KWOK Controller](#mokka-kwok-controller) doesn't need to watch inventories: a change to it re-renders the racks, and the controller sees the rack updates.
+Because the `kwok` block is in the rack, [the KWOK provisioner](#kwok-provisioner) doesn't need to watch inventories: a change to it re-renders the racks, and the provisioner sees the rack updates.
 
-#### Mokka KWOK Controller
+#### KWOK Provisioner
 
-We will introduce a new component called Mokka KWOK Controller. 
+We will introduce a new component called the KWOK provisioner as an optional `Deployment` named `mokka-kwok-provisioner`.
 
-![Mokka KWOK Controller](./img/mokka-kwok-controller.png)
+![Mokka x KWOK Integration](./img/mokka-kwok-controller.png)
 
 The responsibility will be:
 
@@ -687,7 +687,7 @@ Unlike rack names, Node names carry no hash suffix: users see them in `kubectl g
 
 - **Length.** The name is also the `kubernetes.io/hostname` label, which the fractional-GPU `podAffinity` in [Resource Reservation & GPU Fractions](#resource-reservation--gpu-fractions) uses as its topology key, so it must fit in 63 characters. Rack indexes have at most 5 digits and node indexes at most 4, so the CRD rejects a KWOK group whose inventory name and group ID together exceed 51 characters.
 - **Uniqueness.** The control plane rejects a KWOK group whose `<inventory>-<rack group>` matches that of another KWOK group in any inventory, as `dev` with group `ci-x` and `dev-ci` with group `x` would. The last two parts of every name are numbers, so different prefixes always give different names.
-- **Replacement.** If a Node with the name already exists and isn't owned by the rack, the KWOK Controller waits for it to be deleted. That happens when an inventory is recreated under the same name before its old Nodes are gone. The controller never takes over a Node it didn't create, such as a real Node with the same name, and emits an Event on the rack instead.
+- **Replacement.** If a Node with the name already exists and isn't owned by the rack, the KWOK provisioner waits for it to be deleted. That happens when an inventory is recreated under the same name before its old Nodes are gone. The provisioner never takes over a Node it didn't create, such as a real Node with the same name, and emits an Event on the rack instead.
 
 Because inventory names and group IDs can contain hyphens, tools identify a Node by its `mokka.nvidia.com/*` labels or its owner reference rather than by parsing the name.
 
@@ -695,34 +695,22 @@ Capacity comes from SGPURackProfile's `node.host`, so the profile of a KWOK grou
 
 #### Separating CPU and KWOK Racks
 
-Each service asks the API server only for the objects it handles. The selectors apply to both the list and the watch, so filtered-out objects never reach the service or its informer cache:
+Each service lists and watches only its own objects. The API server applies the selectors, so nothing else reaches the service's cache. The control plane's filters exist today; the KWOK provisioner's are new:
 
-| Service         | Resource                                       | Server-side selector                | Result                                                 |
-|-----------------|------------------------------------------------|-------------------------------------|--------------------------------------------------------|
-| Control plane   | `SGPUInventory`, `SGPURackProfile`, `SGPURack` | none                                | creates and retires every rack                         |
-| Control plane   | `Node`                                         | `mokka.nvidia.com/sgpu-node=true`   | never receives KWOK Nodes, which never carry the label |
-| KWOK Controller | `SGPURack`                                     | `mokka.nvidia.com/provisioner=KWOK` | never receives CPU racks                               |
-| KWOK Controller | `Node`                                         | `mokka.nvidia.com/provisioner=KWOK` | receives only the Nodes it created                     |
-| KWOK Controller | `SGPURackProfile`                              | none                                | a handful of small objects                             |
+| Service          | Resource                                       | Server-side selector                | Result                                                 |
+|------------------|------------------------------------------------|-------------------------------------|--------------------------------------------------------|
+| Control plane    | `SGPUInventory`, `SGPURackProfile`, `SGPURack` | none                                | creates and retires every rack                         |
+| Control plane    | `Node`                                         | `mokka.nvidia.com/sgpu-node=true`   | never receives KWOK Nodes, which never carry the label |
+| KWOK provisioner | `SGPURack`                                     | `mokka.nvidia.com/provisioner=KWOK` | never receives CPU racks                               |
+| KWOK provisioner | `Node`                                         | `mokka.nvidia.com/provisioner=KWOK` | receives only the Nodes it created                     |
+| KWOK provisioner | `SGPURackProfile`                              | none                                | a handful of small objects                             |
 
-The control plane rows describe what it does today; the KWOK Controller rows are new.
+- **The label mirrors the spec.** `spec.provisioner` is the source of truth. The control plane copies it to the `mokka.nvidia.com/provisioner` label on every rack and restores the label if someone edits it. The KWOK provisioner skips a rack whose spec says otherwise and ignores racks that leave its watch, since only the garbage collector deletes Nodes.
+- **Each object has one writer.** The control plane writes `SGPURack`, including its status. The KWOK provisioner writes only the Nodes it creates.
+- **KWOK groups skip placement.** A group without `placement` matches every eligible Node, so the control plane drops KWOK groups before allocation, Node event routing, and usage reporting. They still count towards capacity and the rack group limit.
+- **The node daemon stays off KWOK Nodes.** Its DaemonSet tolerates every taint, so the chart adds the node affinity `mokka.nvidia.com/provisioner NotIn [KWOK]`, which unlabeled CPU nodes still match.
 
-`spec.provisioner` is the source of truth, and the `mokka.nvidia.com/provisioner` label exists for filtering. 
-The control plane sets the label on every rack, CPU ones included, and restores it if someone edits it. 
-
-The KWOK Controller still skips a rack whose `spec.provisioner` isn't `KWOK`, and does nothing when a rack leaves its watch. 
-Since Node deletion is left to the garbage collector, a rack that briefly drops out of the watch can't take its Nodes with it.
-
-The services also split the writes. The control plane stays the only writer of `SGPURack`, including its status, which it recomputes and replaces as a whole. The KWOK Controller writes only the Nodes it creates, so the progress of a KWOK group shows on its Nodes (`kubectl get nodes -l mokka.nvidia.com/rack-group=ci`).
-
-Outside the KWOK Controller, the separation needs two changes:
-
-- **KWOK groups skip placement.** A rack group without `placement` matches every eligible Node. That's right for CPU groups and wrong for KWOK ones, so the control plane drops KWOK groups where it reads the inventory, before allocation, Node event routing, and usage reporting. KWOK groups still count towards capacity and the rack group limit, and their usage stays zero.
-- **The node daemon stays off KWOK Nodes.** Its DaemonSet tolerates every taint by default, so it would create a pod for every virtual Node. The chart always adds the node affinity rule `mokka.nvidia.com/provisioner NotIn [KWOK]`. `NotIn` also matches Nodes without the label, so CPU nodes are unaffected.
-
-Rack retirement needs no change: a KWOK rack has no Node bindings, so the control plane deletes it without waiting for binding cleanup.
-
-Kubernetes can also filter custom resources by a spec field declared in the CRD's `selectableFields`. That would let the KWOK Controller select `spec.provisioner=KWOK` directly, at the same server-side cost as the label. Field selectors on custom resources are on by default only from Kubernetes 1.31 and GA in 1.32, while the Mokka CRDs support Kubernetes 1.28 and later. Once Mokka's minimum version reaches 1.32, `spec.provisioner` can become a selectable field and the label can go.
+A CRD field selector on `spec.provisioner` (`selectableFields`) would make the label unnecessary, but field selectors on custom resources are on by default only from Kubernetes 1.31, while the Mokka CRDs support 1.28. Once Mokka's minimum reaches 1.32, where the feature is GA, the label can go.
 
 #### GPU Footprint in KWOK Virtual Nodes
 
@@ -734,7 +722,7 @@ Still we would like to simulate a few surfaces based on `SGPURackProfile` inform
 - NodeResourceTopology resources for NUMA-aware workload placing
 - DCGM metrics
 
-Mokka KWOK Controller will be responsible for provisioning those resources for virtual nodes it manages.
+The KWOK provisioner will be responsible for provisioning those resources for virtual nodes it manages.
 
 We should put generation of CRs under feature gates, 
 so cluster admins don't need to install all CRDs just to try out KWOK integration.
@@ -743,24 +731,28 @@ so cluster admins don't need to install all CRDs just to try out KWOK integratio
 
 TBU
 
+#### KWOK SSH Access
+
+TBU
+
 #### KWOK Installation
 
 The KWOK functionality in Mokka should be disabled by default.
-Mokka helm chart will get a new flag `kwok.enabled`, based on which we will deploy or not Mokka's KWOK Controller service.
+Mokka helm chart will get a new flag `kwok.enabled`, based on which we will deploy or not the KWOK provisioner.
 
 The KWOK is assumed to be installed by cluster admins prior to enabling Mokka's KWOK functionality. That's gonna be documented.
 KWOK chart is not gonna be explicitly included into the Mokka helm chart.
 
 #### KAI Use Cases
 
-| Consumer                | Required resources or behavior                                                                                                                                                                                                                       |
-|-------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Run:ai installer        | The `clusterpolicies.nvidia.com` CRD and a `gpu.*operator` Deployment in `gpu-operator`. No `ClusterPolicy` instance is necessary.                                                                                                                   |
-| Run:ai cluster operator | Exactly one DCGM exporter Service. Its `/metrics` must contain `DCGM_FI_DEV_GPU_UTIL`, `DCGM_FI_DEV_FB_USED`, and `DCGM_FI_DEV_FB_FREE`. A failed check sets `DependenciesFulfilled=False`. This does not apply when dependency checks are disabled. |
-| KAI whole-GPU           | `nvidia.com/gpu` and the node labels `nvidia.com/gpu.count` and `nvidia.com/gpu.memory`                                                                                                                                                              |
-| KAI fractions           | A GPU UUID in `run.ai/reserve_for_gpu_index` on each reservation pod. `NvFractions` mode also requires a ready `GpuFractioningConfig` named `default` (fractional GPU documentation).                                                                |
-| KAI NUMA                | A current `NodeResourceTopology` for each node. It contains policy, scope, zones, and per-zone availability. Availability changes with allocation and release.                                                                                       |
-| DRA                     | Claims with the same behavior on KWOK nodes and nodes that use the GPU Operator's DRA driver.                                                                                                                                                        |
+| Consumer                | Required resources or behavior                                                                                                                                                                                                                       | How Mokka Can Help?                                                                                                              |
+|-------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|
+| Run:ai installer        | The `clusterpolicies.nvidia.com` CRD and a `gpu.*operator` Deployment in `gpu-operator`. No `ClusterPolicy` instance is necessary.                                                                                                                   | ✅KAI Test Setup should install GPU Operator CRD                                                                                  |
+| Run:ai cluster operator | Exactly one DCGM exporter Service. Its `/metrics` must contain `DCGM_FI_DEV_GPU_UTIL`, `DCGM_FI_DEV_FB_USED`, and `DCGM_FI_DEV_FB_FREE`. A failed check sets `DependenciesFulfilled=False`. This does not apply when dependency checks are disabled. |                                                                                                                                  |
+| KAI whole-GPU           | `nvidia.com/gpu` and the node labels `nvidia.com/gpu.count` and `nvidia.com/gpu.memory`                                                                                                                                                              | Mokka + real NFD deployment. In KWOK mode, the KWOK provisioner creates NRT resources                                            |
+| KAI fractions           | A GPU UUID in `run.ai/reserve_for_gpu_index` on each reservation pod. `NvFractions` mode also requires a ready `GpuFractioningConfig` named `default` (fractional GPU documentation).                                                                | ✅Should work with Mokka out of the box                                                                                           |
+| KAI NUMA                | A current `NodeResourceTopology` for each node. It contains policy, scope, zones, and per-zone availability. Availability changes with allocation and release.                                                                                       | Mokka node daemon does [NUMA setup](#numa-setup) + real NFD deployment. In KWOK mode, the KWOK provisioner creates NRT resources |
+| DRA                     | Claims with the same behavior on KWOK nodes and nodes that use the GPU Operator's DRA driver.                                                                                                                                                        | Mokka + real DRA deployment. In KWOK mode, the KWOK provisioner creates `ResourceSlice` resources                                |
 
 ### Workload-aware Dynamic Metrics
 
