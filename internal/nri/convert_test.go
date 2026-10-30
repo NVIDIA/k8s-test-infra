@@ -148,7 +148,7 @@ func TestContainerFromNRI(t *testing.T) {
 		require.True(t, result.DeviceRules[0].Allow)
 		require.Equal(t, int64(195), *result.DeviceRules[0].Major)
 		require.Equal(t, []string{"k8s.device-plugin.nvidia.com/gpu=0"}, result.CDIDevices)
-		adjustment, ok := inject.Adjust(inject.DefaultConfig(), result)
+		adjustment, ok := inject.Decide(inject.DefaultConfig(), result).Adjust()
 		require.True(t, ok)
 		require.NotEmpty(t, adjustment.Mounts)
 		require.Empty(t, adjustment.Devices)
@@ -164,7 +164,7 @@ func TestContainerFromNRI(t *testing.T) {
 		}})
 		require.Nil(t, result.DeviceRules[0].Major)
 		require.Nil(t, result.DeviceRules[0].Minor)
-		adjustment, ok := inject.Adjust(inject.DefaultConfig(), result)
+		adjustment, ok := inject.Decide(inject.DefaultConfig(), result).Adjust()
 		require.False(t, ok)
 		require.Empty(t, adjustment)
 	})
@@ -174,7 +174,7 @@ func TestContainerFromNRI(t *testing.T) {
 		result := containerFromNRI(nil, &api.Container{CDIDevices: []*api.CDIDevice{
 			{Name: "k8s.gpu.nvidia.com/claim=claim-uid-gpu-0"},
 		}})
-		adjustment, ok := inject.Adjust(inject.DefaultConfig(), result)
+		adjustment, ok := inject.Decide(inject.DefaultConfig(), result).Adjust()
 		require.True(t, ok)
 		require.NotEmpty(t, adjustment.Mounts)
 		require.Empty(t, adjustment.Devices)
@@ -320,6 +320,32 @@ func TestAdjustmentToNRI(t *testing.T) {
 		})
 		require.Empty(t, result.Env)
 		require.Empty(t, result.Mounts)
+		require.Nil(t, result.Linux)
+	})
+
+	t.Run("notifies only the named syscalls", func(t *testing.T) {
+		t.Parallel()
+		result := adjustmentToNRI(inject.Adjustment{
+			SeccompNotify: &inject.SeccompNotify{
+				ListenerPath: "/var/run/nri/unload.sock",
+				Metadata:     "gpu-operator/k8s-driver-manager",
+				Syscalls:     []string{"delete_module"},
+			},
+		})
+
+		// Catches a default other than allow: the policy replaces the
+		// container's, so anything else breaks every other syscall.
+		require.Equal(t, &api.LinuxSeccomp{
+			DefaultAction:    "SCMP_ACT_ALLOW",
+			ListenerPath:     "/var/run/nri/unload.sock",
+			ListenerMetadata: "gpu-operator/k8s-driver-manager",
+			Syscalls:         []*api.LinuxSyscall{{Names: []string{"delete_module"}, Action: "SCMP_ACT_NOTIFY"}},
+		}, result.Linux.SeccompPolicy)
+	})
+
+	t.Run("leaves the seccomp policy alone without a notification", func(t *testing.T) {
+		t.Parallel()
+		result := adjustmentToNRI(inject.Adjustment{Env: []string{"PATH=/usr/bin"}})
 		require.Nil(t, result.Linux)
 	})
 }
