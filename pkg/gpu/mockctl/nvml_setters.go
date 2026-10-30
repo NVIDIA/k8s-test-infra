@@ -152,10 +152,46 @@ func SetEccModePending(path string, index int, enabled bool) error {
 	})
 }
 
+// SetCoCoGpusReady persists the Confidential Compute GPUs ready state
+// nvmlSystemSetConfComputeGpusReadyState applied. It is node-wide, so it lands
+// in the `all:` bucket the system getter reads.
+//
+// With revokes set, clearing a ready state revokes the GPUs instead, and once
+// revoked every write refuses with engine.ErrCoCoGpusRevoked. Both are judged
+// under the write's lock, as cocoGpusReady judges the ready state.
+func SetCoCoGpusReady(path string, ready, profileReady, revokes bool) error {
+	return mutateDevice(path, func(d *Doc) error {
+		if cocoGpusRevoked(d) {
+			return engine.ErrCoCoGpusRevoked
+		}
+		fields := map[string]any{cocoGpusReadyKey: ready}
+		if !ready && revokes && cocoGpusReady(d, profileReady) {
+			fields[cocoGpusRevokedKey] = true
+		}
+		d.SetFields(Target{All: true}, fields)
+		return nil
+	})
+}
+
 // ClearEccErrorCounts persists the zeroing of one scope of ECC counters.
 func ClearEccErrorCounts(path string, index int, scope engine.EccCounterScope) error {
 	return mutateDevice(path, func(d *Doc) error {
 		d.SetFields(Target{Index: index}, engine.EccClearPatch(scope))
+		return nil
+	})
+}
+
+// SetCoCoKeyRotationThreshold persists the key rotation attacker
+// advantage nvmlSystemSetConfComputeKeyRotationThresholdInfo applied, in the
+// `all:` bucket for the same reason as the ready state. It refuses with
+// engine.ErrCoCoGpusReady while the GPUs are ready; see
+// cocoGpusReady.
+func SetCoCoKeyRotationThreshold(path string, advantage uint64, profileReady bool) error {
+	return mutateDevice(path, func(d *Doc) error {
+		if cocoGpusReady(d, profileReady) || cocoGpusRevoked(d) {
+			return engine.ErrCoCoGpusReady
+		}
+		d.SetFields(Target{All: true}, map[string]any{cocoKeyRotationKey: advantage})
 		return nil
 	})
 }
@@ -169,6 +205,32 @@ func SetDramEncryptionPending(path string, index int, enabled bool) error {
 		})
 		return nil
 	})
+}
+
+// Override keys of the node-wide Confidential Compute state.
+const (
+	cocoGpusReadyKey   = "coco_gpus_ready"
+	cocoGpusRevokedKey = "coco_gpus_revoked"
+	cocoKeyRotationKey = "coco_key_rotation_attacker_advantage"
+)
+
+// cocoGpusReady reports whether the GPUs are accepting work, read from
+// the document under the caller's lock: the recorded ready state, or the
+// profile's when none is recorded. The engine has already checked a cached
+// snapshot, but another process may have made the GPUs ready since, and only
+// a decision made under the lock that commits the write is current.
+func cocoGpusReady(d *Doc, profileReady bool) bool {
+	if v, ok := d.All[cocoGpusReadyKey].(bool); ok {
+		return v
+	}
+	return profileReady
+}
+
+// cocoGpusRevoked reports whether the GPUs were revoked, read from the
+// document under the caller's lock.
+func cocoGpusRevoked(d *Doc) bool {
+	v, _ := d.All[cocoGpusRevokedKey].(bool)
+	return v
 }
 
 // accountingTerminatedKey is the accounting field both accounting setters

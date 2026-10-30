@@ -242,6 +242,59 @@ func (w *fileOverrideWriter) SetDramEncryptionPending(index int, enabled bool) e
 	}})
 }
 
+func (w *fileOverrideWriter) SetCoCoGpusReady(ready, profileReady, revokes bool) error {
+	doc, err := w.load()
+	if err != nil {
+		return err
+	}
+	if revoked, _ := doc.All["coco_gpus_revoked"].(bool); revoked {
+		return ErrCoCoGpusRevoked
+	}
+	patch := map[string]any{"coco_gpus_ready": ready}
+	if !ready && revokes && w.refuseWhileReady(profileReady) != nil {
+		patch["coco_gpus_revoked"] = true
+	}
+	return w.patchAll(patch)
+}
+
+// The guarded writer mirrors mockctl: the ready state is judged from the
+// document it is about to write, not from the engine's cached snapshot.
+func (w *fileOverrideWriter) SetCoCoKeyRotationThreshold(advantage uint64, profileReady bool) error {
+	if err := w.refuseWhileReady(profileReady); err != nil {
+		return err
+	}
+	return w.patchAll(map[string]any{"coco_key_rotation_attacker_advantage": advantage})
+}
+
+func (w *fileOverrideWriter) refuseWhileReady(profileReady bool) error {
+	doc, err := w.load()
+	if err != nil {
+		return err
+	}
+	ready := profileReady
+	if v, ok := doc.All["coco_gpus_ready"].(bool); ok {
+		ready = v
+	}
+	if revoked, _ := doc.All["coco_gpus_revoked"].(bool); ready || revoked {
+		return ErrCoCoGpusReady
+	}
+	return nil
+}
+
+// patchAll merges patch into the `all:` bucket, as the node-wide mockctl
+// setters do.
+func (w *fileOverrideWriter) patchAll(patch map[string]any) error {
+	return w.write(func(doc *ConfigOverrideDoc) (map[string]any, error) {
+		if doc.All == nil {
+			doc.All = map[string]any{}
+		}
+		return doc.All, nil
+	}, func(bucket map[string]any) error {
+		deepMergeMaps(bucket, patch)
+		return nil
+	})
+}
+
 func (w *fileOverrideWriter) patch(index int, patch map[string]any) error {
 	return w.mutate(index, func(bucket map[string]any) error {
 		deepMergeMaps(bucket, patch)

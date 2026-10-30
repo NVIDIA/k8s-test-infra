@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// ConfComputeMemoryProblems checks every GPU's <cc_protected_memory_usage>
+// CoCoMemoryProblems checks every GPU's <cc_protected_memory_usage>
 // block reports zero across total, used and free.
 //
 // Zero is the point of the check rather than a weak expectation. Every row read
@@ -18,7 +18,7 @@ import (
 // that cannot do Confidential Compute at all. The expectation is therefore not
 // derived from the profile — nothing partitions protected memory until CC mode
 // is on, which no profile models.
-func ConfComputeMemoryProblems(out string) []string {
+func CoCoMemoryProblems(out string) []string {
 	snap, err := ParseSnapshot(out)
 	if err != nil {
 		return []string{err.Error()}

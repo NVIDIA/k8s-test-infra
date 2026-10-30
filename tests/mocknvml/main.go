@@ -92,9 +92,10 @@ func main() {
 	}
 
 	// A suite named on the command line runs alone. The fixture declares one
-	// driver, so a call only a newer driver exports is exercised by running
-	// its suite on a copy of the fixture that declares that driver, where the
-	// rest of this harness, written for the fixture's own driver, cannot pass.
+	// driver and one node-wide CC setting, so a call only a newer driver
+	// exports, or a CC mode the A100 fixture cannot run, is exercised by
+	// running its suite on a fixture of its own, where the rest of this
+	// harness, written for the A100 fixture, cannot pass.
 	if len(os.Args) > 1 {
 		suite, ok := suites[os.Args[1]]
 		if !ok {

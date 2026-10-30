@@ -34,7 +34,7 @@ var stubReturnRE = regexp.MustCompile(`return stubReturn\("(nvmlDevice[^"]+)"\)`
 // may configure it, but the C export is still a generated stubReturn that
 // surfaces N/A / NOT_SUPPORTED to nvidia-smi.
 // The scan covers the whole engine package rather than device.go alone: the
-// methods live wherever their subject does — fans.go, conf_compute.go — and a
+// methods live wherever their subject does — fans.go, coco.go — and a
 // guard that only knew about one file would go quiet exactly when a new group
 // of getters is added.
 func TestEngineMethodsAreNotGeneratedStubs(t *testing.T) {
