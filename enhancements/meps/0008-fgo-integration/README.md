@@ -444,6 +444,7 @@ FGO mocks or uses the following NVIDIA components:
 - Mokka remains to be a generic project, so all functionality very specific to Run:ai and KAI are not going to be directly included.
 - MIG support is out of scope for this MEP.
 - Fault injection in KWOK mode is out of scope for this MEP.
+- Making virtual pod (e.g. a pod scheduled to a KWOK virtual node) SSH work is out of scope of this MEP.
 
 ## Proposal
 
@@ -927,15 +928,6 @@ The KWOK provisioner creates the labels and ResourceSlices with each Node, since
 
 We should put generation of CRs under feature gates, 
 so cluster admins don't need to install all CRDs just to try out KWOK integration.
-
-#### KWOK SSH Access
-
-In order to have a complete KWOK experience, we can also simulate SSH access to virtual pods running on virtual KWOK nodes
-using KWOK's `ClusterExec` and `ClusterAttach` Resources. 
-
-This functionality is not directly needed by Run:ai use cases.
-
-TBU: Explain details
 
 #### KWOK Installation
 
