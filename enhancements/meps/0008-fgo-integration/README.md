@@ -493,7 +493,7 @@ this will impact our users.
 Mokka can frame KWOK support as an alternative provisioning path for sGPU nodes, so we will end up having two modes:
 
 - `CPU` (default), the current deployment mode that expects real CPU nodes. The control plane binds racks to existing CPU nodes, and the node daemon simulates the GPUs on them.
-- `KWOK`, the new deployment mode based on KWOK virtual nodes. The KWOK provisioner creates a virtual Node for each logical rack Node, and the GPUs exist only in the Kubernetes API.
+- `KWOK`, the new deployment mode based on KWOK virtual nodes. The KWOK provisioner creates a virtual Node for each logical rack Node, the KWOK data plane simulates what runs on it, and the GPUs exist only in the Kubernetes API.
 
 The provisioner is set per rack group in `SGPUInventory`, so one inventory can mix CPU and KWOK rack groups:
 
@@ -612,11 +612,32 @@ spec:
 KWOK racks are rendered exactly like CPU racks, so their simulated GPUs keep stable UUIDs, serials, PCI addresses, and NUMA placement. 
 Because the `kwok` block is in the rack, [the KWOK provisioner](#kwok-provisioner) doesn't need to watch inventories: a change to it re-renders the racks, and the provisioner sees the rack updates.
 
+#### KWOK Components
+
+KWOK mode adds two components, split by whether what they simulate is fixed for a Node's life or changes while the Node runs:
+
+![Mokka x KWOK Integration](./img/mokka-kwok-integration.png)
+
+|               | [KWOK provisioner](#kwok-provisioner)                     | [KWOK data plane](#kwok-data-plane)                                                         |
+|---------------|-----------------------------------------------------------|---------------------------------------------------------------------------------------------|
+| Owns          | what's fixed for a Node's life, derived from its rack     | what changes while the Node runs                                                            |
+| Writes        | Nodes (labels, taints, capacity) and their ResourceSlices | GPU allocation on Pods, NodeResourceTopology                                                |
+| Serves        | nothing                                                   | DCGM metrics                                                                                |
+| Load follows  | rack and profile changes                                  | Pods, scrapes and runtime views                                                             |
+| Runs as       | `Deployment` with leader election                         | `StatefulSet` sharded by rack                                                               |
+| Stands in for | Node registration                                         | the per-Node agents: the kubelet's device manager, NFD's topology updater and dcgm-exporter |
+
+The split follows load and ownership:
+
+- **Load.** The provisioner's work follows racks and profiles, which change rarely, so one replica under leader election is enough. The data plane's work grows with the test: an allocation and a NodeResourceTopology update for every GPU Pod, and 216,000 metric series for the example inventory's 72,000 GPUs. It scales by sharding racks across replicas.
+- **Ownership.** Per-Node state needs one writer per Node, not one for the whole cluster. Sharding gives each Node exactly one owning replica, as a real cluster runs one kubelet and one topology updater per Node, so only cluster-wide work needs a leader.
+- **Failures.** A Pod burst or a slow scrape can't stall Node creation, and a provisioner failover doesn't interrupt allocation or metrics.
+- **Future surfaces.** GPU health, MIG reconfiguration, ComputeDomain readiness and InfiniBand counters all change while a Node runs, so they'll join the data plane instead of adding components.
+
 #### KWOK Provisioner
 
 We will introduce a new component called the KWOK provisioner as an optional `Deployment` named `mokka-kwok-provisioner`.
 
-![Mokka x KWOK Integration](./img/mokka-kwok-controller.png)
 
 The responsibility will be:
 
@@ -673,6 +694,7 @@ status:
     kubeletVersion: fake
 ```
 
+- creating each Node's DRA `ResourceSlice`, owned by the Node, with one device per GPU in the rack
 - leaving Node deletion to the Kubernetes garbage collector: each Node is owned by its `SGPURack`, so the Nodes go away with the rack.
 
 Node names are the rack coordinates joined by hyphens, `<inventory>-<rack group>-<rack index>-<node index>`, as in `dev-ci-0-0`:
@@ -696,15 +718,65 @@ Because inventory names and group IDs can contain hyphens, tools identify a Node
 Capacity comes from SGPURackProfile's `node.host`, so the profile of a KWOK group must define the host CPU cores and memory.
 `allocatable` stays at the total as pods come and go: the scheduler subtracts pod requests itself, so lowering it would count them twice.
 
+#### KWOK Data Plane
+
+We will introduce a second component, the KWOK data plane, as an optional `StatefulSet` named `mokka-kwok-data-plane`. It simulates what runs on a KWOK Node for as long as the Node exists: it allocates GPUs to the Pods bound to the Node, keeps the Node's NodeResourceTopology current, and serves DCGM metrics for its GPUs. It takes over FGO's `nvidia-dcgm-exporter-kwok`, which serves these metrics and writes NodeResourceTopology; the `nvidia.com/gpu.*` labels that exporter also writes come from the [KWOK provisioner](#kwok-provisioner). Each replica owns a share of the racks, as [Sharding](#sharding) describes.
+
+```mermaid
+flowchart LR
+    cp["Control plane"]
+
+    subgraph api["Kubernetes API"]
+        racks["KWOK SGPURacks<br/>and their profiles"]
+        pods["Pods on KWOK Nodes"]
+        nrt["NodeResourceTopology"]
+    end
+
+    dp["mokka-kwok-data-plane<br/>replicas 0 to N-1,<br/>each owning its own racks"]
+    svc["Service mokka-kwok-dcgm-exporter<br/>port 9400"]
+    prom["Prometheus"]
+    runai["Run:ai cluster operator"]
+
+    dp -->|"watches"| racks
+    dp -->|"allocates GPUs,<br/>records them on the Pod"| pods
+    dp -->|"keeps availability current"| nrt
+    dp -->|"fetches runtime views<br/>on generation bump"| cp
+    svc -->|"routes to"| dp
+    prom -->|"scrapes each replica"| dp
+    runai -->|"checks /metrics"| svc
+```
+
+##### GPU Allocation
+
+There's no kubelet on a KWOK Node, so the data plane allocates GPUs to the Pods bound to the Nodes of its racks, as the kubelet's device manager would, and records the allocation on the Pod:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: train-0
+  namespace: team-a
+  annotations:
+    mokka.nvidia.com/gpu-allocation: '{"main":["GPU-<UUID>","GPU-<UUID>"]}' # GPU UUIDs per container
+spec:
+  nodeName: dev-ci-0-0
+```
+
+`NodeResourceTopology` availability and the `pod` labels on DCGM metrics both come from this record. It covers `nvidia.com/gpu` requests and DRA claims alike, as the kubelet's PodResources API does: for a DRA claim, the data plane copies the devices the scheduler allocated. The record lives on the Pod rather than in memory, so a replica that restarts or takes over a rack reads the allocations back instead of recomputing them, which could move a running Pod to another GPU once earlier Pods are gone.
+
+##### NodeResourceTopology
+
+The data plane creates a `NodeResourceTopology` for each Node of its racks and keeps each zone's available GPUs current from the allocations, as NFD's topology updater does on a real Node. Zones and their capacity come from the rack's NUMA placement and the profile, so they match what NFD reports for a CPU Node with the same profile ([NUMA Setup](#numa-setup)).
+
 ##### Runtime State
 
-The KWOK provisioner is the data plane for KWOK racks, as the node daemon is for CPU racks: it applies the effective runtime view, but it doesn't compute it. The effective runtime view is a GPU's profile defaults with the accepted `SGPURuntimePolicy` overrides applied. [MEP0001](../0001-mokka-control-plane/README.md#runtime-view-computation-and-delivery) gives policy acceptance and this computation to the control plane, which computes the view on request and never stores it.
+The data plane applies the effective runtime view, as the node daemon does on CPU racks, but it doesn't compute it. The effective runtime view is a GPU's profile defaults with the accepted `SGPURuntimePolicy` overrides applied. [MEP0001](../0001-mokka-control-plane/README.md#runtime-view-computation-and-delivery) gives policy acceptance and this computation to the control plane, which computes the view on request and never stores it. The data plane reads the view for telemetry settings now, and for GPU health once fault injection is in scope. The provisioner never needs it: nothing it writes depends on runtime state.
 
-The provisioner takes each input from where it's published:
+The data plane takes each input from where it's published:
 
-- **Stored state comes from Kubernetes.** Racks, including their delivery status, and the profiles they use arrive through the watches listed in [Separating CPU and KWOK Racks](#separating-cpu-and-kwok-racks). Profiles contribute static facts such as `node.host`, never `defaults.runtime`.
+- **Stored state comes from Kubernetes.** Racks, including their delivery status, and the profiles they use arrive through the watches listed in [Separating CPU and KWOK Racks](#separating-cpu-and-kwok-racks). Profiles contribute static facts such as GPU model and memory, never `defaults.runtime`.
 - **The effective runtime view comes from the control plane API**, one rack at a time.
-- **Policy objects aren't watched.** The provisioner doesn't watch `SGPUInventory` or `SGPURuntimePolicy`. It could compile policies with `internal/sgpu/policy`, which makes no API calls, but it would then be a second component deciding which policies apply. While the two caches disagree, it could apply a policy the control plane reports as rejected, or one already deleted.
+- **Policy objects aren't watched.** No KWOK component watches `SGPUInventory` or `SGPURuntimePolicy`. The data plane could compile policies with `internal/sgpu/policy`, which makes no API calls, but it would then be a second component deciding which policies apply. While the two caches disagree, it could apply a policy the control plane reports as rejected, or one already deleted.
 
 The control plane API serves the view per rack:
 
@@ -739,9 +811,9 @@ GET /v1alpha1/racks/{rackName}/runtime?rackUID=<rack UID>&minRackDeliveryGenerat
 }
 ```
 
-The response holds the effective `RuntimeState` of every GPU in the rack, grouped by logical Node (one of each is shown), and the delivery generation it was computed from. The provisioner passes the generation it last saw on the rack as the minimum. A replica whose cache is behind returns not-ready (`503`), and the provisioner retries with backoff while it keeps serving the values it applied last. This is MEP0001's publication-floor check, applied per rack. KWOK racks are never bound to a Node, so the request carries no assignment revision. For the same reason, the per-Node endpoint the node daemon polls doesn't fit: it serves Nodes the control plane has assigned, and a KWOK Node never has an assignment.
+The response holds the effective `RuntimeState` of every GPU in the rack, grouped by logical Node (one of each is shown), and the delivery generation it was computed from. The data plane passes the generation it last saw on the rack as the minimum. A replica whose cache is behind returns not-ready (`503`), and the data plane retries with backoff while it keeps the values it applied last. This is MEP0001's publication-floor check, applied per rack. KWOK racks are never bound to a Node, so the request carries no assignment revision. For the same reason, the per-Node endpoint the node daemon polls doesn't fit: it serves Nodes the control plane has assigned, and a KWOK Node never has an assignment.
 
-The rack tells the provisioner when to fetch. The control plane leader bumps a rack's delivery generation whenever anything feeding its effective view changes: a policy that selects the rack is added, edited or deleted, the set of accepted policies changes, or the profile's runtime defaults change. For each rack UID, the provisioner keeps the generation it last applied and fetches the rack whenever the generation in Kubernetes is ahead. The check compares two numbers, so a missed watch event only delays a fetch, and after a restart the provisioner fetches every rack once. A rack recreated under the same name has a new UID and starts a new generation sequence, so the provisioner treats it as a new rack.
+The rack tells the data plane when to fetch. The control plane leader bumps a rack's delivery generation whenever anything feeding its effective view changes: a policy that selects the rack is added, edited or deleted, the set of accepted policies changes, or the profile's runtime defaults change. For each rack UID, the data plane keeps the generation it last applied and fetches the rack whenever the generation in Kubernetes is ahead. The check compares two numbers, so a missed watch event only delays a fetch, and after a restart a replica fetches each of its racks once. A rack recreated under the same name has a new UID and starts a new generation sequence, so it counts as a new rack.
 
 ```mermaid
 sequenceDiagram
@@ -749,45 +821,93 @@ sequenceDiagram
     participant API as Kubernetes API
     participant Leader as Control plane leader
     participant Replica as Control plane replica
-    participant Prov as KWOK provisioner
+    participant DP as KWOK data plane
 
     Admin->>API: apply SGPURuntimePolicy
     API-->>Leader: policy event
     Leader->>API: accept policy, bump status.delivery of affected racks to 13
-    API-->>Prov: rack event, generation 13
-    Prov->>Replica: GET /v1alpha1/racks/{rack}/runtime?minRackDeliveryGeneration=13
+    API-->>DP: rack event, generation 13
+    DP->>Replica: GET /v1alpha1/racks/{rack}/runtime?minRackDeliveryGeneration=13
     alt replica is at generation 13 or later
-        Replica-->>Prov: effective RuntimeState per GPU
-        Prov->>Prov: apply it, remember generation 13
+        Replica-->>DP: effective RuntimeState per GPU
+        DP->>DP: apply it, remember generation 13
     else replica is behind
-        Replica-->>Prov: 503 not ready
-        Prov->>Prov: retry with backoff, keep serving generation 12
+        Replica-->>DP: 503 not ready
+        DP->>DP: retry with backoff, keep serving generation 12
     end
 ```
 
-Values that change on their own never trigger a fetch. The view carries telemetry settings, such as a `Bursty` utilization pattern and its range, and the provisioner's metrics generator turns them into values, as the NVML engine does on CPU Nodes. Both use one generator package, so a policy produces the same series on both kinds of Node. Today the generator is internal to `pkg/gpu/mocknvml/engine`, which uses cgo, and it implements `steady`, `idle`, `busy` and `burst` rather than the `Steady`, `Bursty` and `Wave` patterns the CRD defines. Moving it into its own package, with the CRD's patterns, is part of this work.
+Values that change on their own never trigger a fetch. The view carries settings, such as a `Bursty` utilization pattern and its range, and [DCGM Metrics](#dcgm-metrics) describes how the data plane turns them into values.
 
 This puts two requirements on the control plane:
 
-- **Delivery status covers KWOK racks.** The control plane drops KWOK groups before allocation, but it still maintains `status.delivery` on their racks. Without the generation bump, the provisioner has no trigger and would have to poll.
+- **Delivery status covers KWOK racks.** The control plane drops KWOK groups before allocation, but it still maintains `status.delivery` on their racks. Without the generation bump, the data plane has no trigger and would have to poll.
 - **A per-rack endpoint** next to the per-Node one. Both serve views from the same computation.
 
-Policy-driven telemetry depends on that endpoint. Node creation, labels, NodeResourceTopology and ResourceSlices need no runtime state and don't wait for it.
+Policy-driven telemetry depends on that endpoint. Node creation, labels, ResourceSlices, GPU allocation and NodeResourceTopology need no runtime state and don't wait for it.
+
+##### DCGM Metrics
+
+The data plane serves DCGM metrics for the GPUs of its racks through a `Service` named `mokka-kwok-dcgm-exporter` on port `9400`. The Service keeps a DCGM exporter's name because consumers look for one, as the [Run:ai cluster operator](#kai-use-cases) does. The metrics are the three fields that check needs:
+
+| Metric                 | Value                                                                   |
+|------------------------|-------------------------------------------------------------------------|
+| `DCGM_FI_DEV_GPU_UTIL` | GPU utilization in percent, generated from the GPU's telemetry settings |
+| `DCGM_FI_DEV_FB_USED`  | Frame buffer memory in use, in MiB                                      |
+| `DCGM_FI_DEV_FB_FREE`  | Frame buffer memory free, in MiB                                        |
+
+Each series carries the labels dcgm-exporter uses. `gpu`, `UUID`, `device`, `pci_bus_id` and `modelName` come from the rack and its profile, `Hostname` from the KWOK Node, and `namespace`, `pod` and `container` from the [GPU allocation](#gpu-allocation) while a Pod holds the GPU:
+
+```prometheus
+DCGM_FI_DEV_GPU_UTIL{gpu="0",UUID="GPU-<UUID>",device="nvidia0",pci_bus_id="00000008:01:00.0",modelName="NVIDIA GB300 NVL",Hostname="dev-ci-0-0",namespace="team-a",pod="train-0",container="main"} 87
+```
+
+`Hostname` is the GPU's KWOK Node name. On a GPU Node, all series from one dcgm-exporter instance share a `Hostname`, because the instance serves only that Node. The data plane serves many Nodes, so it keeps one value per Node by using the Node name. The chart's optional `ServiceMonitor` also sets `instance` from `Hostname`, which gives each KWOK Node its own `instance`, as with per-Node exporters.
+
+`DCGM_FI_DEV_GPU_UTIL` follows the GPU's telemetry settings from the [runtime view](#runtime-state). The settings say how the value moves, such as a `Bursty` pattern between 20 and 90 percent, and the data plane's metrics generator turns them into values, as the NVML engine does on CPU Nodes. Both use one generator package, so a policy produces the same series on both kinds of Node. Today the generator is internal to `pkg/gpu/mocknvml/engine`, which uses cgo, and it implements `steady`, `idle`, `busy` and `burst` rather than the `Steady`, `Bursty` and `Wave` patterns the CRD defines. Moving it into its own package, with the CRD's patterns, is part of this work.
+
+TODO: Is the current way we simulate dynamic metrics flexible/extensible enough to build upon it?
+
+`DCGM_FI_DEV_FB_USED` and `DCGM_FI_DEV_FB_FREE` split the GPU memory in the profile and stay constant, as on CPU Nodes, where the NVML engine reports the profile's memory figures unchanged. The data plane generates values for every GPU, with or without a Pod, as the NVML engine does. [Workload-aware Dynamic Metrics](#workload-aware-dynamic-metrics) covers values that follow the Pod.
+
+**Open question: one DCGM exporter Service.** The Run:ai cluster operator expects exactly one DCGM exporter Service. An inventory that mixes CPU and KWOK racks has two: the GPU Operator's for CPU Nodes and this one.
+
+##### Sharding
+
+Each rack has exactly one owning replica, so the data plane needs no leader election even though it writes. Each replica works out its own share of racks, as kube-state-metrics does for its automated sharding:
+
+- A replica takes its ordinal from its Pod name and the replica count from its `StatefulSet`'s `spec.replicas`, which it watches, so `kubectl scale` reshards without a restart.
+- For each rack, a replica computes `hash(rack UID, ordinal)` for every ordinal and owns the rack if its own ordinal scores highest. Adding a replica moves only the racks the new one wins, about 1/N of them, where `hash mod N` would move most, and each moved rack costs a runtime fetch.
+- It drops other replicas' racks, Pods and claims in its list-watch, before they reach its cache, and fetches runtime views only for its own racks.
+- `podManagementPolicy: Parallel` starts all replicas together.
+
+The rack is the shard unit because it's also the unit of the runtime fetch and the delivery generation, so everything about a rack stays in one replica. With eight replicas, each owns 2,250 Nodes and 9,000 GPUs of the example inventory and serves 27,000 series.
+
+The scheme accepts three limits:
+
+- **Overlap while scaling.** Replicas see a new count at slightly different moments, so a few racks are briefly owned twice or not at all. Two owners could both allocate GPUs to a new Pod, so the data plane writes an allocation only if the Pod has none, with the Pod's `resourceVersion` as a precondition: the first write wins. `NodeResourceTopology` is recomputed from the allocations, so it converges.
+- **Gaps on restart.** While a replica restarts, new Pods on its racks wait for an allocation, their NodeResourceTopology goes stale, and their GPUs have no metrics, as on a real Node whose kubelet, topology updater or dcgm-exporter restarts.
+- **No empty replicas.** A replica without racks serves no DCGM series, and a Run:ai check that reaches it through the `Service` fails. The chart defaults to one replica, and the count should stay well below the number of racks.
 
 #### Separating CPU and KWOK Racks
 
-Each service lists and watches only its own objects. The API server applies the selectors, so nothing else reaches the service's cache. The control plane's filters exist today; the KWOK provisioner's are new:
+Each service lists and watches only the objects it needs, and the API server applies the selectors, so little else reaches the service's cache. The KWOK data plane's Pod watch is the exception: a field selector matches one Node name, not a set. The control plane's filters exist today; those of the KWOK components are new:
 
-| Service          | Resource                                       | Server-side selector                | Result                                                 |
-|------------------|------------------------------------------------|-------------------------------------|--------------------------------------------------------|
-| Control plane    | `SGPUInventory`, `SGPURackProfile`, `SGPURack` | none                                | creates and retires every rack                         |
-| Control plane    | `Node`                                         | `mokka.nvidia.com/sgpu-node=true`   | never receives KWOK Nodes, which never carry the label |
-| KWOK provisioner | `SGPURack`                                     | `mokka.nvidia.com/provisioner=KWOK` | never receives CPU racks                               |
-| KWOK provisioner | `Node`                                         | `mokka.nvidia.com/provisioner=KWOK` | receives only the Nodes it created                     |
-| KWOK provisioner | `SGPURackProfile`                              | none                                | a handful of small objects                             |
+| Service          | Resource                                       | Server-side selector                  | Result                                                    |
+|------------------|------------------------------------------------|---------------------------------------|-----------------------------------------------------------|
+| Control plane    | `SGPUInventory`, `SGPURackProfile`, `SGPURack` | none                                  | creates and retires every rack                            |
+| Control plane    | `Node`                                         | `mokka.nvidia.com/sgpu-node=true`     | never receives KWOK Nodes, which never carry the label    |
+| KWOK provisioner | `SGPURack`                                     | `mokka.nvidia.com/provisioner=KWOK`   | never receives CPU racks                                  |
+| KWOK provisioner | `Node`                                         | `mokka.nvidia.com/provisioner=KWOK`   | receives only the Nodes it created                        |
+| KWOK provisioner | `SGPURackProfile`                              | none                                  | a handful of small objects                                |
+| KWOK data plane  | `SGPURack`                                     | `mokka.nvidia.com/provisioner=KWOK`   | keeps the racks it owns                                   |
+| KWOK data plane  | `SGPURackProfile`                              | none                                  | a handful of small objects                                |
+| KWOK data plane  | `Pod`                                          | `spec.nodeName!=`                     | receives every bound Pod, keeps those on its racks' Nodes |
+| KWOK data plane  | `ResourceClaim`                                | none                                  | keeps the claims allocated on its racks' Nodes            |
+| KWOK data plane  | `StatefulSet`                                  | `metadata.name=mokka-kwok-data-plane` | reads its own replica count                               |
 
 - **The label mirrors the spec.** `spec.provisioner` is the source of truth. The control plane copies it to the `mokka.nvidia.com/provisioner` label on every rack and restores the label if someone edits it. The KWOK provisioner skips a rack whose spec says otherwise and ignores racks that leave its watch, since only the garbage collector deletes Nodes.
-- **Each object has one writer.** The control plane writes `SGPURack`, including its status. The KWOK provisioner writes only the Nodes it creates.
+- **Each object has one writer.** The control plane writes `SGPURack`, including its status. The KWOK provisioner writes the Nodes and ResourceSlices it creates. The KWOK data plane writes the GPU allocation on Pods and the NodeResourceTopology of the Nodes in its racks.
 - **KWOK groups skip placement.** A group without `placement` matches every eligible Node, so the control plane drops KWOK groups before allocation, Node event routing, and usage reporting. They still count towards capacity and the rack group limit.
 - **The node daemon stays off KWOK Nodes.** Its DaemonSet tolerates every taint, so the chart adds the node affinity `mokka.nvidia.com/provisioner NotIn [KWOK]`, which unlabeled CPU nodes still match.
 
@@ -803,22 +923,10 @@ Still we would like to simulate a few surfaces based on `SGPURackProfile` inform
 - NodeResourceTopology resources for NUMA-aware workload placing
 - DCGM metrics
 
-The KWOK provisioner will be responsible for provisioning those resources for virtual nodes it manages.
+The KWOK provisioner creates the labels and ResourceSlices with each Node, since they're fixed for its life. The [KWOK data plane](#kwok-data-plane) creates the NodeResourceTopology resources and serves the DCGM metrics, since both change while the Node runs.
 
 We should put generation of CRs under feature gates, 
 so cluster admins don't need to install all CRDs just to try out KWOK integration.
-
-#### KWOK DCGM Metrics
-
-Similarly to FGO's `nvidia-dcgm-exporter-kwok` service,
-Mokka KWOK provisioner should expose DCGM surface in order to broadcast fake GPU metrics for all KWOK virtual nodes.
-
-The DCGM surface include:
-- A `Service` on 9400 port
-- `/metrics` Prometheus endpoint
-- Supported metrics: `DCGM_FI_DEV_GPU_UTIL`, `DCGM_FI_DEV_FB_USED`, `DCGM_FI_DEV_FB_FREE`
-
-TBU: diagram, mention Hostname attribute
 
 #### KWOK SSH Access
 
@@ -832,7 +940,7 @@ TBU: Explain details
 #### KWOK Installation
 
 The KWOK functionality in Mokka should be disabled by default.
-Mokka helm chart will get a new flag `kwok.enabled`, based on which we will deploy or not the KWOK provisioner.
+Mokka helm chart will get a new flag `kwok.enabled`, based on which we will deploy or not the KWOK provisioner and the [KWOK data plane](#kwok-data-plane). `kwok.dataPlane.enabled: false` leaves the data plane out, so KWOK Nodes carry only their fixed footprint. `kwok.dataPlane.replicas` sets its number of [shards](#sharding), and `kwok.dataPlane.serviceMonitor.enabled` adds a Prometheus Operator `ServiceMonitor` for its DCGM metrics.
 
 The KWOK is assumed to be installed by cluster admins prior to enabling Mokka's KWOK functionality. That's gonna be documented.
 KWOK chart is not gonna be explicitly included into the Mokka helm chart.
@@ -842,10 +950,10 @@ KWOK chart is not gonna be explicitly included into the Mokka helm chart.
 | Consumer                | Required resources or behavior                                                                                                                                                                                                                       | How Mokka Can Help?                                                                                                                       |
 |-------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
 | Run:ai installer        | The `clusterpolicies.nvidia.com` CRD and a `gpu.*operator` Deployment in `gpu-operator`. No `ClusterPolicy` instance is necessary.                                                                                                                   | ✅KAI Test Setup should install GPU Operator CRD                                                                                           |
-| Run:ai cluster operator | Exactly one DCGM exporter Service. Its `/metrics` must contain `DCGM_FI_DEV_GPU_UTIL`, `DCGM_FI_DEV_FB_USED`, and `DCGM_FI_DEV_FB_FREE`. A failed check sets `DependenciesFulfilled=False`. This does not apply when dependency checks are disabled. |                                                                                                                                           |
+| Run:ai cluster operator | Exactly one DCGM exporter Service. Its `/metrics` must contain `DCGM_FI_DEV_GPU_UTIL`, `DCGM_FI_DEV_FB_USED`, and `DCGM_FI_DEV_FB_FREE`. A failed check sets `DependenciesFulfilled=False`. This does not apply when dependency checks are disabled. | In KWOK mode, the [KWOK data plane](#kwok-data-plane)'s DCGM exporter Service. A mixed CPU and KWOK inventory has two (open question)     |
 | KAI whole-GPU           | `nvidia.com/gpu` and the node labels `nvidia.com/gpu.count` and `nvidia.com/gpu.memory`                                                                                                                                                              | Mokka + real device plugin and GFD. In KWOK mode, the KWOK provisioner sets the `nvidia.com/gpu` capacity and the labels from the profile |
 | KAI fractions           | A GPU UUID in `run.ai/reserve_for_gpu_index` on each reservation pod. `NvFractions` mode also requires a ready `GpuFractioningConfig` named `default` (fractional GPU documentation).                                                                | ✅Should work with Mokka out of the box                                                                                                    |
-| KAI NUMA                | A current `NodeResourceTopology` for each node. It contains policy, scope, zones, and per-zone availability. Availability changes with allocation and release.                                                                                       | Mokka node daemon does [NUMA setup](#numa-setup) + real NFD deployment. In KWOK mode, the KWOK provisioner creates NRT resources          |
+| KAI NUMA                | A current `NodeResourceTopology` for each node. It contains policy, scope, zones, and per-zone availability. Availability changes with allocation and release.                                                                                       | Mokka node daemon does [NUMA setup](#numa-setup) + real NFD deployment. In KWOK mode, the KWOK data plane creates NRT resources           |
 | DRA                     | Claims with the same behavior on KWOK nodes and nodes that use the GPU Operator's DRA driver.                                                                                                                                                        | Mokka + real DRA deployment. In KWOK mode, the KWOK provisioner creates `ResourceSlice` resources                                         |
 
 ### Workload-aware Dynamic Metrics
