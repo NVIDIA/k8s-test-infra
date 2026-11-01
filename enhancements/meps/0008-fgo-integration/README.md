@@ -962,7 +962,7 @@ TBU
 
 ### NUMA Setup
 
-TBU
+TBU: Fill in based on the Jonathan's PoC
 
 ## Drawbacks
 
