@@ -696,6 +696,84 @@ Because inventory names and group IDs can contain hyphens, tools identify a Node
 Capacity comes from SGPURackProfile's `node.host`, so the profile of a KWOK group must define the host CPU cores and memory.
 `allocatable` stays at the total as pods come and go: the scheduler subtracts pod requests itself, so lowering it would count them twice.
 
+##### Runtime State
+
+The KWOK provisioner is the data plane for KWOK racks, as the node daemon is for CPU racks: it applies the effective runtime view, but it doesn't compute it. The effective runtime view is a GPU's profile defaults with the accepted `SGPURuntimePolicy` overrides applied. [MEP0001](../0001-mokka-control-plane/README.md#runtime-view-computation-and-delivery) gives policy acceptance and this computation to the control plane, which computes the view on request and never stores it.
+
+The provisioner takes each input from where it's published:
+
+- **Stored state comes from Kubernetes.** Racks, including their delivery status, and the profiles they use arrive through the watches listed in [Separating CPU and KWOK Racks](#separating-cpu-and-kwok-racks). Profiles contribute static facts such as `node.host`, never `defaults.runtime`.
+- **The effective runtime view comes from the control plane API**, one rack at a time.
+- **Policy objects aren't watched.** The provisioner doesn't watch `SGPUInventory` or `SGPURuntimePolicy`. It could compile policies with `internal/sgpu/policy`, which makes no API calls, but it would then be a second component deciding which policies apply. While the two caches disagree, it could apply a policy the control plane reports as rejected, or one already deleted.
+
+The control plane API serves the view per rack:
+
+```http
+GET /v1alpha1/racks/{rackName}/runtime?rackUID=<rack UID>&minRackDeliveryGeneration=13
+```
+
+```json
+{
+  "apiVersion": "v1alpha1",
+  "rack": {"name": "dev-ci-0-3f9c2a17b04e", "uid": "<rack UID>"},
+  "rackDeliveryGeneration": 13,
+  "nodes": [
+    {
+      "index": 0,
+      "gpus": [
+        {
+          "index": 0,
+          "runtime": {
+            "deviceState": "Healthy",
+            "telemetry": {
+              "utilization": {
+                "mode": "Pattern",
+                "pattern": {"type": "Bursty", "gpuPercent": {"minimum": 20, "maximum": 90}}
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+The response holds the effective `RuntimeState` of every GPU in the rack, grouped by logical Node (one of each is shown), and the delivery generation it was computed from. The provisioner passes the generation it last saw on the rack as the minimum. A replica whose cache is behind returns not-ready (`503`), and the provisioner retries with backoff while it keeps serving the values it applied last. This is MEP0001's publication-floor check, applied per rack. KWOK racks are never bound to a Node, so the request carries no assignment revision. For the same reason, the per-Node endpoint the node daemon polls doesn't fit: it serves Nodes the control plane has assigned, and a KWOK Node never has an assignment.
+
+The rack tells the provisioner when to fetch. The control plane leader bumps a rack's delivery generation whenever anything feeding its effective view changes: a policy that selects the rack is added, edited or deleted, the set of accepted policies changes, or the profile's runtime defaults change. For each rack UID, the provisioner keeps the generation it last applied and fetches the rack whenever the generation in Kubernetes is ahead. The check compares two numbers, so a missed watch event only delays a fetch, and after a restart the provisioner fetches every rack once. A rack recreated under the same name has a new UID and starts a new generation sequence, so the provisioner treats it as a new rack.
+
+```mermaid
+sequenceDiagram
+    actor Admin
+    participant API as Kubernetes API
+    participant Leader as Control plane leader
+    participant Replica as Control plane replica
+    participant Prov as KWOK provisioner
+
+    Admin->>API: apply SGPURuntimePolicy
+    API-->>Leader: policy event
+    Leader->>API: accept policy, bump status.delivery of affected racks to 13
+    API-->>Prov: rack event, generation 13
+    Prov->>Replica: GET /v1alpha1/racks/{rack}/runtime?minRackDeliveryGeneration=13
+    alt replica is at generation 13 or later
+        Replica-->>Prov: effective RuntimeState per GPU
+        Prov->>Prov: apply it, remember generation 13
+    else replica is behind
+        Replica-->>Prov: 503 not ready
+        Prov->>Prov: retry with backoff, keep serving generation 12
+    end
+```
+
+Values that change on their own never trigger a fetch. The view carries telemetry settings, such as a `Bursty` utilization pattern and its range, and the provisioner's metrics generator turns them into values, as the NVML engine does on CPU Nodes. Both use one generator package, so a policy produces the same series on both kinds of Node. Today the generator is internal to `pkg/gpu/mocknvml/engine`, which uses cgo, and it implements `steady`, `idle`, `busy` and `burst` rather than the `Steady`, `Bursty` and `Wave` patterns the CRD defines. Moving it into its own package, with the CRD's patterns, is part of this work.
+
+This puts two requirements on the control plane:
+
+- **Delivery status covers KWOK racks.** The control plane drops KWOK groups before allocation, but it still maintains `status.delivery` on their racks. Without the generation bump, the provisioner has no trigger and would have to poll.
+- **A per-rack endpoint** next to the per-Node one. Both serve views from the same computation.
+
+Policy-driven telemetry depends on that endpoint. Node creation, labels, NodeResourceTopology and ResourceSlices need no runtime state and don't wait for it.
+
 #### Separating CPU and KWOK Racks
 
 Each service lists and watches only its own objects. The API server applies the selectors, so nothing else reaches the service's cache. The control plane's filters exist today; the KWOK provisioner's are new:
