@@ -123,7 +123,7 @@ modules.
 > (`nri.gpuOperator`). The driver
 > container installs headers and compiles and installs the real driver, then
 > loads Mokka's simulated modules
-> ([`shims/nvidia-kmod`](../../shims/nvidia-kmod/README.md)) in its place, and
+> ([`shims/nvidia-kmod`](https://github.com/NVIDIA/k8s-test-infra/blob/main/shims/nvidia-kmod/README.md)) in its place, and
 > its root serves the mock NVML to its startup probe and to every other operand.
 > A driver pod that finds no driver loaded with its configuration compiles the
 > driver again, which takes a minute or two. `nvidia-persistenced` is replaced
