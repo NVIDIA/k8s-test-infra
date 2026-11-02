@@ -12,6 +12,29 @@ tests:
       - notContains:
           path: spec.template.spec.initContainers[0].command
           content: --numa-simulation
+  - it: retains host access to restore when all NUMA and runtime options are disabled
+    set:
+      nodeAgent.containerRuntime.enabled: false
+      numaSimulation.enabled: false
+      numaSimulation.configureKubelet: false
+    asserts:
+      - equal:
+          path: spec.template.spec.hostPID
+          value: true
+      - contains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: host-fs
+            mountPath: /host
+            readOnly: true
+            mountPropagation: HostToContainer
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: host-fs
+            hostPath:
+              path: /
+              type: Directory
   - it: exposes the explicit kubelet setup options
     set:
       numaSimulation:
