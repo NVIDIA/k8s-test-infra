@@ -1322,11 +1322,16 @@ from its GPU profile to kubelet and an NRT publisher:
 ```yaml
 gpu:
   profile: a100
-numaSimulation:
-  enabled: true
-  configureKubelet: true
-  topologyManagerPolicy: single-numa-node
+nodeAgent:
+  numa:
+    enabled: true
+    configureKubelet: true
+    topologyManagerPolicy: single-numa-node
 ```
+
+NUMA settings live under `nodeAgent.numa`. Move settings from the previous
+`numaSimulation` section before upgrading. Memory policy values are lowercase
+`none` or `static` in both Helm values and `--numa-memory-manager-policy`.
 
 The node agent derives zones from `pcie_topology.root_complexes`, assigns the
 node's online CPUs without separating sibling threads, and uses the resolved
@@ -1350,7 +1355,7 @@ CPU IDs by simulated zone. `reservedCPUs` selects CPUs for the shared system poo
 an empty value reserves the first CPU in the first zone. Policy checkpoints are
 backed up before configuration and restored when simulation is disabled. `false` mounts the tree but leaves kubelet configuration
 and restart to the administrator. The setup survives ordinary Mokka pod restarts.
-To restore the node, upgrade with `numaSimulation.enabled: false` before
+To restore the node, upgrade with `nodeAgent.numa.enabled: false` before
 uninstalling Mokka. If setup changed kubelet configuration, restoration also
 restores that configuration and restarts kubelet.
 The node agent retains its read-only host root mount and host PID namespace
@@ -1390,13 +1395,14 @@ not establish a physical NUMA boundary on a single-NUMA host.
 For disposable test nodes, add:
 
 ```yaml
-numaSimulation:
-  enabled: true
-  configureKubelet: true
-  topologyManagerPolicy: restricted
-  cpuManagerPolicy: static
-  memoryManagerPolicy: Static
-  systemReservedMemory: 256Mi
+nodeAgent:
+  numa:
+    enabled: true
+    configureKubelet: true
+    topologyManagerPolicy: restricted
+    cpuManagerPolicy: static
+    memoryManagerPolicy: static
+    systemReservedMemory: 256Mi
 ```
 
 Static CPU Manager assigns real online CPU IDs. Static Memory Manager maintains

@@ -44,11 +44,14 @@ imex.binaries has none. */}}
 {{- /* Where the node agent looks for the IMEX archive (--imex-provided-dir). */}}
 {{- $imexProvidedDir := "/opt/mokka/imex" }}
 {{- $runtime := .Values.nodeAgent.containerRuntime | default dict }}
-{{- $numa := .Values.numaSimulation | default dict }}
-{{- if not (has ($numa.cpuManagerPolicy | default "none") (list "none" "static")) }}
-{{- fail "numaSimulation.cpuManagerPolicy must be none or static" }}
+{{- if hasKey .Values "numaSimulation" }}
+{{- fail "numaSimulation has moved to nodeAgent.numa" }}
 {{- end }}
-{{- if and $numa.enabled (eq ($numa.memoryManagerPolicy | default "None") "Static") (not .Values.nri.enabled) }}
+{{- $numa := .Values.nodeAgent.numa | default dict }}
+{{- if not (has ($numa.cpuManagerPolicy | default "none") (list "none" "static")) }}
+{{- fail "nodeAgent.numa.cpuManagerPolicy must be none or static" }}
+{{- end }}
+{{- if and $numa.enabled (eq ($numa.memoryManagerPolicy | default "none") "static") (not .Values.nri.enabled) }}
 {{- fail "static simulated Memory Manager requires nri.enabled" }}
 {{- end }}
 {{- $numaHost := or ($numa.enabled | default false) ($numa.configureKubelet | default false) }}
@@ -56,7 +59,7 @@ imex.binaries has none. */}}
 then removes the setup. Kubernetes reads 0 and "0%" alike as no surge. */}}
 {{- $maxSurge := dig "rollingUpdate" "maxSurge" 0 (.Values.updateStrategy | default dict) | toString | trimSuffix "%" | float64 }}
 {{- if and $numaHost (gt $maxSurge 0.0) }}
-{{- fail "updateStrategy.rollingUpdate.maxSurge cannot be used with numaSimulation: only one pod may configure a node at a time" }}
+{{- fail "updateStrategy.rollingUpdate.maxSurge cannot be used with nodeAgent.numa: only one pod may configure a node at a time" }}
 {{- end }}
 {{- if and $runtime.enabled (gt $maxSurge 0.0) }}
 {{- fail "updateStrategy.rollingUpdate.maxSurge cannot be used with nodeAgent.containerRuntime: the old node pod's revert would remove the new one's setup" }}
@@ -180,8 +183,8 @@ spec:
             {{- end }}
             {{- if $numaHost }}
             - --numa-topology-manager-policy={{ $numa.topologyManagerPolicy | default "single-numa-node" }}
-            {{- if eq ($numa.memoryManagerPolicy | default "None") "Static" }}
-            - --numa-memory-manager-policy=Static
+            {{- if eq ($numa.memoryManagerPolicy | default "none") "static" }}
+            - --numa-memory-manager-policy=static
             - --numa-system-reserved-memory={{ $numa.systemReservedMemory | default "256Mi" }}
             {{- end }}
             {{- if eq ($numa.cpuManagerPolicy | default "none") "static" }}
@@ -464,7 +467,7 @@ spec:
             - --socket-path={{ .Values.nri.socketPath }}
             - --plugin-name={{ .Values.nri.pluginName }}
             - --plugin-index={{ .Values.nri.pluginIndex }}
-            {{- if and $numa.enabled (eq ($numa.memoryManagerPolicy | default "None") "Static") }}
+            {{- if and $numa.enabled (eq ($numa.memoryManagerPolicy | default "none") "static") }}
             - --numa-memory-simulation
             {{- end }}
             - --overlay-host-path={{ .Values.nri.overlay.hostPath }}

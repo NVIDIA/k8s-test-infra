@@ -204,7 +204,7 @@ func TestStaticMemoryReservationsMatchNodeReservations(t *testing.T) {
 	t.Parallel()
 	h := testHost(t)
 	require.NoError(t, os.WriteFile(h.HostPath("/var/lib/kubelet/config.yaml"), []byte("kubeReserved:\n  memory: 1Mi\nevictionHard:\n  memory.available: 1Mi\n"), 0600))
-	sim, err := newTestSimulator(h, Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", MemoryManagerPolicy: "Static", SystemReservedMemory: "2Mi"})
+	sim, err := newTestSimulator(h, Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", MemoryManagerPolicy: "static", SystemReservedMemory: "2Mi"})
 	require.NoError(t, err)
 	require.NoError(t, sim.Stage(t.Context(), testState()))
 	data, err := os.ReadFile(h.RootPath("numa/kubelet-config.yaml"))
@@ -231,12 +231,12 @@ func TestStaticMemoryRejectsImpossibleReservations(t *testing.T) {
 	for _, value := range []string{"invalid", "0", "1Gi"} {
 		t.Run(value, func(t *testing.T) {
 			t.Parallel()
-			sim, err := newTestSimulator(testHost(t), Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", MemoryManagerPolicy: "Static", SystemReservedMemory: value})
+			sim, err := newTestSimulator(testHost(t), Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", MemoryManagerPolicy: "static", SystemReservedMemory: value})
 			require.NoError(t, err)
 			require.Error(t, sim.Stage(t.Context(), testState()))
 		})
 	}
-	_, err := newTestSimulator(testHost(t), Options{Enabled: true, ConfigureKubelet: true, MemoryManagerPolicy: "Static"})
+	_, err := newTestSimulator(testHost(t), Options{Enabled: true, ConfigureKubelet: true, MemoryManagerPolicy: "static"})
 	require.ErrorContains(t, err, "static CPU Manager")
 }
 
@@ -318,4 +318,25 @@ func TestDisableRestoresNodeWithLegacyAppliedMarker(t *testing.T) {
 	require.NoError(t, sim.Apply(t.Context(), nil))
 	require.True(t, called)
 	require.NoFileExists(t, h.RootPath("numa/.applied"))
+}
+
+func TestLowercaseMemoryPolicyPreservesAppliedConfiguration(t *testing.T) {
+	t.Parallel()
+	h := testHost(t)
+	require.NoError(t, os.WriteFile(h.HostPath("/var/lib/kubelet/config.yaml"), []byte("evictionHard:\n  memory.available: 1Mi\n"), 0600))
+	sim, err := newTestSimulator(h, Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", MemoryManagerPolicy: "static", SystemReservedMemory: "2Mi"})
+	require.NoError(t, err)
+	require.NoError(t, sim.Stage(t.Context(), testState()))
+	// This fingerprint was produced by the previous capitalized setting.
+	const previous = "339badff2f87bb98162abc14e5e739ff2a7a0fb192e5987be55339009087961f:true:single-numa-node:static::Static:2Mi"
+	requireFileContent(t, h.RootPath("numa/desired"), previous+"\n")
+	require.NoError(t, os.WriteFile(h.RootPath("numa/.applied"), []byte(previous+"\n"), 0600))
+	require.NoError(t, os.MkdirAll(filepath.Dir(h.EtcPath("systemd/system/"+filesystemUnit)), 0755))
+	require.NoError(t, os.WriteFile(h.EtcPath("systemd/system/"+filesystemUnit), []byte(filesystemService), 0644))
+	require.NoError(t, sim.Stage(t.Context(), testState()))
+	sim.runHost = func(context.Context, HostAction, bool) error {
+		t.Fatal("a spelling-only change must not reconfigure the node")
+		return nil
+	}
+	require.NoError(t, sim.Apply(t.Context(), nil))
 }

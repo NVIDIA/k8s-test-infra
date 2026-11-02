@@ -198,7 +198,7 @@ func (opts Options) withDefaults() Options {
 		opts.CPUManagerPolicy = "none"
 	}
 	if opts.MemoryManagerPolicy == "" {
-		opts.MemoryManagerPolicy = "None"
+		opts.MemoryManagerPolicy = "none"
 	}
 	if opts.SystemReservedMemory == "" {
 		opts.SystemReservedMemory = "256Mi"
@@ -213,7 +213,7 @@ func (opts Options) validate() error {
 	if !slices.Contains([]string{"none", "static"}, opts.CPUManagerPolicy) {
 		return fmt.Errorf("unsupported CPU Manager policy %q", opts.CPUManagerPolicy)
 	}
-	if !slices.Contains([]string{"None", "Static"}, opts.MemoryManagerPolicy) {
+	if !slices.Contains([]string{"none", "static"}, opts.MemoryManagerPolicy) {
 		return fmt.Errorf("unsupported Memory Manager policy %q", opts.MemoryManagerPolicy)
 	}
 	return opts.validateManagers()
@@ -226,17 +226,17 @@ func (opts Options) validateManagers() error {
 	if !opts.Enabled {
 		return nil
 	}
-	if !opts.ConfigureKubelet && (opts.CPUManagerPolicy == "static" || opts.MemoryManagerPolicy == "Static") {
+	if !opts.ConfigureKubelet && (opts.CPUManagerPolicy == "static" || opts.MemoryManagerPolicy == "static") {
 		return errors.New("static resource managers require configureKubelet")
 	}
-	if opts.MemoryManagerPolicy == "Static" && opts.CPUManagerPolicy != "static" {
+	if opts.MemoryManagerPolicy == "static" && opts.CPUManagerPolicy != "static" {
 		return errors.New("static Memory Manager requires static CPU Manager")
 	}
 	return nil
 }
 
 func (s *Simulator) configurationKey(topology []byte) string {
-	key := fmt.Sprintf("%x:%t:%s:%s:%s:%s:%s", sha256.Sum256(topology), s.opts.ConfigureKubelet, s.opts.Policy, s.opts.CPUManagerPolicy, s.opts.ReservedCPUs, s.opts.MemoryManagerPolicy, s.opts.SystemReservedMemory)
+	key := fmt.Sprintf("%x:%t:%s:%s:%s:%s:%s", sha256.Sum256(topology), s.opts.ConfigureKubelet, s.opts.Policy, s.opts.CPUManagerPolicy, s.opts.ReservedCPUs, kubeletMemoryPolicy(s.opts.MemoryManagerPolicy), s.opts.SystemReservedMemory)
 	if s.opts.SystemReservedCPU != "" {
 		key += ":system-cpu=" + s.opts.SystemReservedCPU
 	}
