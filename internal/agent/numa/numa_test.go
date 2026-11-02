@@ -114,12 +114,14 @@ func TestResolveRejectsSparseOrUnknownNUMAIDs(t *testing.T) {
 func TestPersistentSetupIsNotRestartedOrRemovedOnPodTeardown(t *testing.T) {
 	t.Parallel()
 	h := testHost(t)
-	sim, err := New(h, Options{Enabled: true, ConfigureKubelet: true})
+	sim, err := newTestSimulator(h, Options{Enabled: true, ConfigureKubelet: true})
 	require.NoError(t, err)
 	require.NoError(t, sim.Stage(t.Context(), testState()))
 	calls := 0
 	sim.runHost = func(context.Context, ...string) error {
 		calls++
+		require.NoError(t, os.MkdirAll(filepath.Dir(h.EtcPath("systemd/system/"+filesystemUnit)), 0755))
+		require.NoError(t, os.WriteFile(h.EtcPath("systemd/system/"+filesystemUnit), []byte(filesystemService), 0644))
 		return os.WriteFile(h.RootPath("numa/applied"), []byte(sim.desired+"\n"), 0600)
 	}
 	require.NoError(t, sim.Apply(t.Context(), nil))
@@ -128,10 +130,10 @@ func TestPersistentSetupIsNotRestartedOrRemovedOnPodTeardown(t *testing.T) {
 	require.NoError(t, sim.Revoke(t.Context()))
 	require.NoError(t, sim.Discard(t.Context()))
 	require.FileExists(t, h.RootPath("numa/applied"))
-	changed, err := New(h, Options{Enabled: true, ConfigureKubelet: true, Policy: "restricted"})
+	changed, err := newTestSimulator(h, Options{Enabled: true, ConfigureKubelet: true, Policy: "restricted"})
 	require.NoError(t, err)
 	require.ErrorContains(t, changed.Stage(t.Context(), testState()), "disable NUMA simulation")
-	disabled, err := New(h, Options{ConfigureKubelet: true})
+	disabled, err := newTestSimulator(h, Options{ConfigureKubelet: true})
 	require.NoError(t, err)
 	disabled.runHost = func(_ context.Context, args ...string) error {
 		require.Contains(t, args, "restore")
@@ -168,7 +170,7 @@ func TestStaticCPUManagerConfiguration(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			h := testHost(t)
-			sim, err := New(h, Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", ReservedCPUs: tc.reserved})
+			sim, err := newTestSimulator(h, Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", ReservedCPUs: tc.reserved})
 			require.NoError(t, err)
 			require.NoError(t, sim.Stage(t.Context(), testState()))
 			data, err := os.ReadFile(h.RootPath("numa/kubelet-config.yaml"))
@@ -187,14 +189,14 @@ func TestStaticCPUManagerRejectsUnusableReservations(t *testing.T) {
 	for _, reserved := range []string{"8", "0-7", "invalid"} {
 		t.Run(reserved, func(t *testing.T) {
 			t.Parallel()
-			sim, err := New(testHost(t), Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", ReservedCPUs: reserved})
+			sim, err := newTestSimulator(testHost(t), Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", ReservedCPUs: reserved})
 			require.NoError(t, err)
 			require.Error(t, sim.Stage(t.Context(), testState()))
 		})
 	}
-	_, err := New(testHost(t), Options{CPUManagerPolicy: "invalid"})
+	_, err := newTestSimulator(testHost(t), Options{CPUManagerPolicy: "invalid"})
 	require.Error(t, err)
-	_, err = New(testHost(t), Options{Enabled: true, CPUManagerPolicy: "static"})
+	_, err = newTestSimulator(testHost(t), Options{Enabled: true, CPUManagerPolicy: "static"})
 	require.ErrorContains(t, err, "configureKubelet")
 }
 
@@ -202,7 +204,7 @@ func TestStaticMemoryReservationsMatchNodeReservations(t *testing.T) {
 	t.Parallel()
 	h := testHost(t)
 	require.NoError(t, os.WriteFile(h.HostPath("/var/lib/kubelet/config.yaml"), []byte("kubeReserved:\n  memory: 1Mi\nevictionHard:\n  memory.available: 1Mi\n"), 0600))
-	sim, err := New(h, Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", MemoryManagerPolicy: "Static", SystemReservedMemory: "2Mi"})
+	sim, err := newTestSimulator(h, Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", MemoryManagerPolicy: "Static", SystemReservedMemory: "2Mi"})
 	require.NoError(t, err)
 	require.NoError(t, sim.Stage(t.Context(), testState()))
 	data, err := os.ReadFile(h.RootPath("numa/kubelet-config.yaml"))
@@ -229,19 +231,19 @@ func TestStaticMemoryRejectsImpossibleReservations(t *testing.T) {
 	for _, value := range []string{"invalid", "0", "1Gi"} {
 		t.Run(value, func(t *testing.T) {
 			t.Parallel()
-			sim, err := New(testHost(t), Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", MemoryManagerPolicy: "Static", SystemReservedMemory: value})
+			sim, err := newTestSimulator(testHost(t), Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", MemoryManagerPolicy: "Static", SystemReservedMemory: value})
 			require.NoError(t, err)
 			require.Error(t, sim.Stage(t.Context(), testState()))
 		})
 	}
-	_, err := New(testHost(t), Options{Enabled: true, ConfigureKubelet: true, MemoryManagerPolicy: "Static"})
+	_, err := newTestSimulator(testHost(t), Options{Enabled: true, ConfigureKubelet: true, MemoryManagerPolicy: "Static"})
 	require.ErrorContains(t, err, "static CPU Manager")
 }
 
 func TestFractionalSystemCPUReservation(t *testing.T) {
 	t.Parallel()
 	h := testHost(t)
-	sim, err := New(h, Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", SystemReservedCPU: "100m"})
+	sim, err := newTestSimulator(h, Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", SystemReservedCPU: "100m"})
 	require.NoError(t, err)
 	require.NoError(t, sim.Stage(t.Context(), testState()))
 	data, err := os.ReadFile(h.RootPath("numa/kubelet-config.yaml"))
@@ -250,6 +252,35 @@ func TestFractionalSystemCPUReservation(t *testing.T) {
 	require.NoError(t, yaml.Unmarshal(data, &config))
 	require.NotContains(t, config, "reservedSystemCPUs")
 	require.Equal(t, "100m", config["systemReserved"].(map[string]any)["cpu"])
-	_, err = New(h, Options{SystemReservedCPU: "100m", ReservedCPUs: "0"})
+	_, err = newTestSimulator(h, Options{SystemReservedCPU: "100m", ReservedCPUs: "0"})
 	require.ErrorContains(t, err, "mutually exclusive")
+}
+
+func newTestSimulator(h *host.Host, opts Options) (*Simulator, error) {
+	sim, err := New(h, opts)
+	if err != nil {
+		return nil, err
+	}
+	sim.helperSource = h.RootPath("test-helper-source")
+	// New does not stage files; this fixture supplies the image's helper binary.
+	if err := os.MkdirAll(h.Root, 0755); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(sim.helperSource, []byte("test Go executable"), 0700); err != nil {
+		return nil, err
+	}
+
+	return sim, nil
+}
+
+func TestStageRefreshesHostHelper(t *testing.T) {
+	t.Parallel()
+	h := testHost(t)
+	sim, err := newTestSimulator(h, Options{Enabled: true})
+	require.NoError(t, err)
+	require.NoError(t, sim.Stage(t.Context(), testState()))
+	requireFileContent(t, h.RootPath("numa/numa-host"), "test Go executable")
+	require.NoError(t, os.WriteFile(sim.helperSource, []byte("updated executable"), 0700))
+	require.NoError(t, sim.Stage(t.Context(), testState()))
+	requireFileContent(t, h.RootPath("numa/numa-host"), "updated executable")
 }
