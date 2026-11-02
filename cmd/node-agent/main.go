@@ -67,7 +67,7 @@ func startCommand() *cli.Command {
 			features.CLIFlag(),
 			&cli.BoolFlag{Name: "numa-simulation", Usage: "publish a persistent host NUMA filesystem derived from the GPU profile", Sources: cli.EnvVars("MOKKA_NUMA_SIMULATION")},
 			&cli.BoolFlag{Name: "numa-configure-kubelet", Usage: "back up, configure and restart kubelet for NUMA simulation", Sources: cli.EnvVars("MOKKA_NUMA_CONFIGURE_KUBELET")},
-			&cli.StringFlag{Name: "numa-memory-manager-policy", Value: "None", Usage: "Memory Manager policy (None or Static)", Sources: cli.EnvVars("MOKKA_NUMA_MEMORY_MANAGER_POLICY")},
+			&cli.StringFlag{Name: "numa-memory-manager-policy", Value: "none", Usage: "Memory Manager policy (none or static)", Sources: cli.EnvVars("MOKKA_NUMA_MEMORY_MANAGER_POLICY")},
 			&cli.StringFlag{Name: "numa-system-reserved-cpu", Usage: "system CPU reservation instead of an explicit reserved CPU list", Sources: cli.EnvVars("MOKKA_NUMA_SYSTEM_RESERVED_CPU")},
 			&cli.StringFlag{Name: "numa-system-reserved-memory", Value: "256Mi", Usage: "system memory reservation when Memory Manager is Static", Sources: cli.EnvVars("MOKKA_NUMA_SYSTEM_RESERVED_MEMORY")},
 			&cli.StringFlag{Name: "numa-cpu-manager-policy", Value: "none", Usage: "CPU Manager policy (none or static)", Sources: cli.EnvVars("MOKKA_NUMA_CPU_MANAGER_POLICY")},

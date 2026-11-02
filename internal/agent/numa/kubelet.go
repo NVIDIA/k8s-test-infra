@@ -36,7 +36,7 @@ func (s *Simulator) stageKubeletConfig(plan *Plan) error {
 	config["topologyManagerPolicy"] = s.opts.Policy
 	config["topologyManagerScope"] = "container"
 	config["cpuManagerPolicy"] = s.opts.CPUManagerPolicy
-	config["memoryManagerPolicy"] = s.opts.MemoryManagerPolicy
+	config["memoryManagerPolicy"] = kubeletMemoryPolicy(s.opts.MemoryManagerPolicy)
 	if err := s.configureManagers(config, plan); err != nil {
 		return err
 	}
@@ -47,11 +47,19 @@ func (s *Simulator) stageKubeletConfig(plan *Plan) error {
 	return fsutil.Write(s.host.RootPath("numa/kubelet-config.yaml"), body, 0600)
 }
 
+// Kubelet requires "None"/"Static"; Mokka settings use lowercase.
+func kubeletMemoryPolicy(policy string) string {
+	if policy == "static" {
+		return "Static"
+	}
+	return "None"
+}
+
 func (s *Simulator) configureManagers(config map[string]any, plan *Plan) error {
 	if err := s.configureCPU(config, plan); err != nil {
 		return err
 	}
-	if s.opts.MemoryManagerPolicy == "Static" {
+	if s.opts.MemoryManagerPolicy == "static" {
 		return s.configureMemory(config, plan)
 	}
 	return nil
