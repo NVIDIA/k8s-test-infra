@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  node-agent: simulate kubelet NUMA memory allocations on single-NUMA hosts; NRI translates memory binding while retaining real CPU IDs and memory limits.
+time: 2026-10-29T18:10:37Z
