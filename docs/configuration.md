@@ -148,8 +148,8 @@ reading identity out of sysfs gets the full picture.
 
 Where the node's boards sit in a rack, which `nvidia-smi -q` renders as its
 `Platform Info` block. Rack-scale fault correlation reads it to turn a GPU fault
-into a physical location. Only `gb200` and `gb300` ship it; on every other
-profile the whole block reads `N/A`, which is the correct reading for a board
+into a physical location. Only `gb200`, `gb300` and `vrnvl72` ship it; on
+every other profile the whole block reads `N/A`, which is the correct reading for a board
 whose platform reports no location.
 
 ```yaml
@@ -650,7 +650,7 @@ device_defaults:
 `addressing_mode` is the `Addressing Mode` row of `nvidia-smi -q`: how the GPU
 reaches memory the host allocated with `malloc` or `mmap`. It belongs to the
 host as much as the board: `hmm` needs kernel support, and `ats` needs a Grace
-CPU translating over NVLink-C2C. The same GPU on the same driver can report
+or Vera CPU translating over NVLink-C2C. The same GPU on the same driver can report
 either, so each built-in profile declares the mode its captured node reported.
 A `devices[]` entry can set it for one GPU. Leaving the key unset, or
 misspelling it, renders `N/A`. The row needs a driver
@@ -904,14 +904,14 @@ nvlink:
 on every attached GPU: `true` reports `Enabled`, while `false` or an absent key
 reports `N/A` — never `Disabled`, because NVML answers
 `NVML_ERROR_NOT_SUPPORTED`, the correct reading for a board with no NVLink-C2C
-link to a host CPU. Only `gb200` and `gb300` enable it. This is the only key that
+link to a host CPU. Only `gb200`, `gb300` and `vrnvl72` enable it. This is the only key that
 drives the row: `device_defaults.features.nvlink_c2c` is descriptive metadata and
 is not read.
 
 `multi_node` marks a board whose NVLink domain spans nodes, as in a rack-scale
 NVLink system, as opposed to an NVLink fabric that stays on one baseboard, such
-as HGX H100 or B200. Of the shipped profiles, `gb200` and `gb300` set it; Vera
-Rubin and NVL576 profiles would set it too. On such a node the
+as HGX H100 or B200. Of the shipped profiles, `gb200`, `gb300` and `vrnvl72`
+set it; NVL576 profiles would set it too. On such a node the
 node agent stages the IMEX capability surface the DRA driver's ComputeDomain
 plugin reads: a substitute `/proc/devices` entry, the `fabric-imex-mgmt`
 capability file and the `channel0` device node, the only channel the driver of
@@ -922,8 +922,8 @@ staged stays ready without IMEX, and the node agent logs why.
 
 ### Bandwidth mode, low power and NVLE
 
-Three optional node-level keys sit here. `h100`, `b200`, `gb200` and `gb300`
-declare `bw_mode`, and `gb300` also declares `firmware`; an omitted key reports
+Three optional node-level keys sit here. `h100`, `b200`, `gb200`, `gb300` and
+`vrnvl72` declare `bw_mode`, and `gb300` also declares `firmware`; an omitted key reports
 the default below:
 
 ```yaml
@@ -946,7 +946,7 @@ that names neither is warned about and treated as an absent block.
 |---|---|---|
 | NVML | `nvmlSystemGetNvlinkBwMode`, `nvmlSystemSetNvlinkBwMode` | `nvmlDeviceGetNvlinkBwMode`, `nvmlDeviceSetNvlinkBwMode`, `nvmlDeviceGetNvlinkSupportedBwModes` |
 | `nvidia-smi` | `nvlink -gBwMode`, `nvlink -sBwMode` | no flag reaches it — NVML callers only |
-| Shipped profiles | `h100` | `b200`, `gb200`, `gb300` |
+| Shipped profiles | `h100` | `b200`, `gb200`, `gb300`, `vrnvl72` |
 
 Either way, `supported` is the set the setter accepts, and the reported mode is
 the last value a setter recorded, else `mode`, else the best supported mode.
@@ -1043,7 +1043,7 @@ whether the node can see the switch over PCIe at all:
 | `device_id` | Meaning | Profiles |
 |---|---|---|
 | set | Baseboard switch on the node's PCIe bus. Rendered into the PCI tree as a bridge, so `lspci` lists it beside the GPUs — see [NVSwitches on the PCI bus](helm-chart.md#nvswitches-on-the-pci-bus). | `a100`, `h100` |
-| unset | NVLink endpoint only. The node never enumerates it, which is how a rack-scale switch tray presents. | `gb200`, `gb300` |
+| unset | NVLink endpoint only. The node never enumerates it, which is how a rack-scale switch tray presents. | `gb200`, `gb300`, `vrnvl72` |
 
 ### NVLink error injection (per device)
 
@@ -1159,10 +1159,12 @@ Standalone configuration files are provided for each supported GPU model:
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-a100.yaml` | NVIDIA A100-SXM4-40GB | 40 GiB | Ampere |
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-l40s.yaml` | NVIDIA L40S | 48 GiB | Ada Lovelace |
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-t4.yaml` | NVIDIA T4 | 16 GiB | Turing |
+| `pkg/gpu/mocknvml/configs/mock-nvml-config-vrnvl72.yaml` | NVIDIA Vera Rubin NVL72 | 288 GiB | Rubin |
 
 Each file contains a complete configuration with every device configured: 8 for
 the baseboard profiles, 4 for the Grace-Blackwell ones (`gb200`, `gb300`), which
-model one NVL72 compute tray, the unit a real node reports.
+model one NVL72 compute tray, the unit a real node reports, and 4 for `vrnvl72`,
+which models one Vera-Rubin tray of two superchips.
 
 ## Integration Values
 
@@ -1317,7 +1319,7 @@ Power smoothing is the Blackwell feature that holds a GPU's power draw above a
 floor so that load swings do not ripple back into the facility's supply. It
 renders as the "Power Smoothing" block of `nvidia-smi -q` and is driven by
 `nvidia-smi power-smoothing`. Blackwell and later devices support it by default,
-which on the shipped profiles means `b200`, `gb200` and `gb300`; earlier
+which on the shipped profiles means `b200`, `gb200`, `gb300` and `vrnvl72`; earlier
 architectures report it as `N/A`. It also needs a `system.driver_version` of 570
 or later: an older driver reports none of the power smoothing fields and lacks the
 setters. `power.smoothing` seeds its state:

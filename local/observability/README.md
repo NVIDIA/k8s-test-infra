@@ -38,8 +38,8 @@ latches the last Xid per device, so a repeated code would prove nothing.
 **Injected temperatures are clamped** to the GPU profile's `shutdown_threshold_c`.
 The default 90 °C is the one band valid for every `--gpu-profile`: above the
 simulator's 73 °C ceiling, so a sibling GPU cannot wander onto the injected value and
-fake a scope leak, and at or below the lowest threshold of any profile (92 °C on
-a100/h100). A higher `HOT_TEMP_C` is rejected up front rather than timing out on a
+fake a scope leak, and at or below the lowest threshold of any profile (90 °C on
+vrnvl72). A higher `HOT_TEMP_C` is rejected up front rather than timing out on a
 value the mock would never report.
 
 ## Silent failures

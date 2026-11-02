@@ -43,19 +43,24 @@ func identityOnDriver580(mode string) DeviceIdentityExpectation {
 // reported, which is what makes the expectation hardware-derived. The A100
 // capture is left out: its 570 nvidia-smi renders an addressing mode the
 // public NVML header only declares from 580, and emits no pdi element at all.
+// The Vera-Rubin capture is the one board with EGM enabled; the mock does not
+// model EGM, so this checks the checker, not the vrnvl72 profile.
 func TestDeviceIdentityProblems_AcceptsHardwareCaptures(t *testing.T) {
 	t.Parallel()
-	for file, mode := range map[string]string{
-		"qx-b200.xml":  "None",
-		"qx-gb200.xml": "ATS",
-		"qx-gb300.xml": "ATS",
-		"qx-h100.xml":  "HMM",
-		"qx-l40s.xml":  "HMM",
-		"qx-t4.xml":    "HMM",
+	vrnvl72 := identityOnDriver580("ATS")
+	vrnvl72.EGM = "enabled"
+	for file, want := range map[string]DeviceIdentityExpectation{
+		"qx-b200.xml":    identityOnDriver580("None"),
+		"qx-gb200.xml":   identityOnDriver580("ATS"),
+		"qx-gb300.xml":   identityOnDriver580("ATS"),
+		"qx-h100.xml":    identityOnDriver580("HMM"),
+		"qx-l40s.xml":    identityOnDriver580("HMM"),
+		"qx-t4.xml":      identityOnDriver580("HMM"),
+		"qx-vrnvl72.xml": vrnvl72,
 	} {
 		t.Run(file, func(t *testing.T) {
 			t.Parallel()
-			problems := DeviceIdentityProblems(loadHardwareCapture(t, file), identityOnDriver580(mode))
+			problems := DeviceIdentityProblems(loadHardwareCapture(t, file), want)
 			assert.Empty(t, problems, strings.Join(problems, "; "))
 		})
 	}

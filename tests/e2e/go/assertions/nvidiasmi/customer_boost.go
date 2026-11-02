@@ -18,7 +18,7 @@ import (
 // not report an OEM boost ceiling where every real board reports one.
 //
 // The second comparison is what keeps the first from being a restatement of the
-// config. All seven captures in testdata/hardware report
+// config. All eight captures in testdata/hardware report
 // max_customer_boost_clocks equal to max_clocks, which is why the mock resolves
 // the ceiling from clocks.graphics_max rather than from a key of its own; nvml.h
 // permits an OEM to set it lower, so pinning the equality here means a profile

@@ -283,9 +283,9 @@ it into Kind. The archive never travels as a workflow artifact, which anyone
 could download from a public repository.
 
 Pull requests get the full matrix — `a100`, `h100`, `b200`, `gb200`, `gb300`,
-`t4`. Manual `workflow_dispatch` defaults to `gb200` alone for a fast run. The
-`l40s` profile is supported by the chart and the `profile` package but appears
-in no CI matrix, so it is only ever exercised locally.
+`t4`, `vrnvl72`. Manual `workflow_dispatch` defaults to `gb200` alone for a fast
+run. The `l40s` profile is supported by the chart and the `profile` package but
+appears in no CI matrix, so it is only ever exercised locally.
 
 CI stages [`ci/nvml-mock.values.yaml`](ci/nvml-mock.values.yaml) as Tilt's
 local-override values file, which turns on dynamic metrics with a fixed seed, a
