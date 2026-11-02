@@ -1336,7 +1336,10 @@ CPU affinities for NVML, PCI sysfs, and the generated NUMA tree. An explicit
 `cpu_affinity` must cover every zone and partition all online CPUs without
 repetition. Zone IDs must be contiguous, start at zero, and number at most eight.
 
-A systemd setup task mounts `/var/lib/nvml-mock/numa/sysnode` over
+The node agent stages the statically linked Go helper `numa-host` on the node.
+Systemd runs this helper in the node mount namespace. The helper uses Go for
+file changes and kubelet health checks, and calls the node's `mount`, `umount`,
+and `systemctl` tools directly, without a shell. A systemd setup task mounts `/var/lib/nvml-mock/numa/sysnode` over
 `/sys/devices/system/node` in the node's mount namespace. New mounts stay inside
 the node, including when kind nodes share a VM. The persistent service restores
 the mount before kubelet starts. This requires Linux, systemd, and privileged

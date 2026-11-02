@@ -6,7 +6,6 @@ package numa
 import (
 	"context"
 	"crypto/sha256"
-	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,8 +22,9 @@ import (
 	"go.uber.org/zap"
 )
 
-//go:embed host.sh
-var hostScript []byte
+const name = "numa"
+
+const helperSource = "/usr/local/bin/numa-host"
 
 const hostDir = "/var/lib/nvml-mock/numa"
 
@@ -42,11 +42,12 @@ type Options struct {
 
 // Simulator keeps a simulated NUMA view on the node until explicitly disabled.
 type Simulator struct {
-	host    *host.Host
-	opts    Options
-	ready   atomic.Bool
-	desired string
-	runHost func(context.Context, ...string) error
+	host         *host.Host
+	opts         Options
+	ready        atomic.Bool
+	desired      string
+	runHost      func(context.Context, ...string) error
+	helperSource string
 }
 
 // New constructs a simulator without changing the node.
@@ -55,12 +56,15 @@ func New(h *host.Host, opts Options) (*Simulator, error) {
 	if err := opts.validate(); err != nil {
 		return nil, err
 	}
-	sim := &Simulator{host: h, opts: opts}
+	sim := &Simulator{host: h, opts: opts, helperSource: helperSource}
 	sim.runHost = func(ctx context.Context, args ...string) error {
 		// systemctl uses PID 1's private socket, including on nodes without D-Bus.
 		// A linked oneshot runs the mount in the node's mount namespace.
 		const unit = "mokka-numa-setup.service"
-		body := fmt.Sprintf("[Unit]\nDescription=Mokka GPU-only NUMA setup\n[Service]\nType=oneshot\nTimeoutStartSec=120\nExecStart=/bin/bash %s/host.sh %s\n", hostDir, strings.Join(args, " "))
+		if err := sim.stageHelper(); err != nil {
+			return err
+		}
+		body := fmt.Sprintf("[Unit]\nDescription=Mokka NUMA setup\n[Service]\nType=oneshot\nTimeoutStartSec=120\nExecStart=%s/numa-host %s\n", hostDir, strings.Join(args, " "))
 		if err := fsutil.Write(h.RootPath("numa", unit), []byte(body), 0644); err != nil {
 			return err
 		}
@@ -75,7 +79,7 @@ func New(h *host.Host, opts Options) (*Simulator, error) {
 }
 
 // Name identifies this simulator in health reports.
-func (s *Simulator) Name() string { return "numa" }
+func (s *Simulator) Name() string { return name }
 
 // Ready reports whether the node setup has completed.
 func (s *Simulator) Ready() bool { return s.ready.Load() }
@@ -83,6 +87,7 @@ func (s *Simulator) Ready() bool { return s.ready.Load() }
 // Stage validates and renders the topology without changing the node mount.
 func (s *Simulator) Stage(_ context.Context, state *agent.State) error {
 	s.ready.Store(false)
+	zap.L().Info("staging simulator", zap.String("simulator", name))
 	if !s.opts.Enabled {
 		return nil
 	}
@@ -108,7 +113,14 @@ func (s *Simulator) Stage(_ context.Context, state *agent.State) error {
 	if err := s.stageKubeletConfig(plan); err != nil {
 		return err
 	}
-	for name, body := range map[string][]byte{"host.sh": hostScript, "desired": []byte(s.desired + "\n"), "plan.json": append(data, '\n')} {
+	return s.stageFiles(data)
+}
+
+func (s *Simulator) stageFiles(data []byte) error {
+	if err := s.stageHelper(); err != nil {
+		return err
+	}
+	for name, body := range map[string][]byte{"desired": []byte(s.desired + "\n"), "plan.json": append(data, '\n')} {
 		if err := fsutil.Write(s.host.RootPath("numa", name), body, 0700); err != nil {
 			return err
 		}
@@ -137,7 +149,11 @@ func (s *Simulator) Apply(ctx context.Context, _ *agent.State) error {
 		s.ready.Store(true)
 		return nil
 	}
-	if s.opts.Enabled && strings.TrimSpace(string(applied)) == s.desired {
+	current, err := s.currentHostSetup(applied)
+	if err != nil {
+		return err
+	}
+	if s.opts.Enabled && current {
 		s.ready.Store(true)
 		return nil
 	}
@@ -145,13 +161,25 @@ func (s *Simulator) Apply(ctx context.Context, _ *agent.State) error {
 	if !s.opts.Enabled {
 		action = "restore"
 	}
-	err = s.runHost(ctx, action, strconv.FormatBool(s.opts.ConfigureKubelet), s.opts.Policy)
+	err = s.runHost(ctx, action, strconv.FormatBool(s.opts.ConfigureKubelet))
 	if err != nil {
 		return fmt.Errorf("%s node NUMA filesystem: %w", action, err)
 	}
 	s.ready.Store(true)
-	zap.L().Info("node NUMA simulation reconciled", zap.String("action", action), zap.String("policy", s.opts.Policy))
+	zap.L().Info("node NUMA simulation reconciled", zap.String("simulator", name), zap.String("action", action), zap.String("policy", s.opts.Policy))
 	return nil
+}
+
+func (s *Simulator) stageHelper() error {
+	return fsutil.Copy(s.helperSource, s.host.RootPath("numa/numa-host"), 0700)
+}
+
+func (s *Simulator) currentHostSetup(applied []byte) (bool, error) {
+	unit, err := os.ReadFile(s.host.EtcPath("systemd/system/" + filesystemUnit))
+	if err != nil && !os.IsNotExist(err) {
+		return false, err
+	}
+	return strings.TrimSpace(string(applied)) == s.desired && string(unit) == filesystemService, nil
 }
 
 // Revoke keeps node state across pod teardown; explicit disable restores it.
