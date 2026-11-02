@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
@@ -17,6 +18,16 @@ const (
 	filesystemUnit = "mokka-numa-filesystem.service"
 	kubeletDropin  = "systemd/system/kubelet.service.d/30-mokka-numa.conf"
 )
+
+func setupService(action HostAction, managed bool) string {
+	return fmt.Sprintf(`[Unit]
+Description=Mokka NUMA setup
+[Service]
+Type=oneshot
+TimeoutStartSec=120
+ExecStart=%s %s %t
+`, hostHelper, action, managed)
+}
 
 const filesystemService = `[Unit]
 Description=Mokka NUMA filesystem simulation

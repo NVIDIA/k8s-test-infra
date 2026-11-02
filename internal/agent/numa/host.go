@@ -22,14 +22,14 @@ var checkpointFiles = []string{"cpu_manager_state", "memory_manager_state"}
 
 // RunHost performs NUMA setup in the node's own mount namespace. The node agent
 // stages the statically linked numa-host binary and systemd starts it there.
-func RunHost(ctx context.Context, action string, managed bool) error {
+func RunHost(ctx context.Context, action HostAction, managed bool) error {
 	setup := newHostSetup(host.New("/"))
 	switch action {
-	case "mount":
+	case ActionMount:
 		return setup.mountTree(ctx)
-	case "restore":
+	case ActionRestore:
 		return setup.restore(ctx, managed)
-	case "apply":
+	case ActionApply:
 		return setup.apply(ctx, managed)
 	default:
 		return fmt.Errorf("unknown NUMA host action %q", action)
@@ -102,7 +102,7 @@ func (s *hostSetup) restore(ctx context.Context, managed bool) error {
 	if err := fsutil.Remove(s.host.EtcPath("systemd/system/mokka-numa-setup.service")); err != nil {
 		return err
 	}
-	if err := fsutil.Remove(s.host.RootPath("numa/applied")); err != nil {
+	if err := clearApplied(s.host); err != nil {
 		return err
 	}
 	return os.RemoveAll(backup)
@@ -202,7 +202,7 @@ func (s *hostSetup) apply(ctx context.Context, managed bool) error {
 	zap.L().Info("applying node NUMA setup", zap.Bool("configure_kubelet", managed))
 	applyErr := s.applySetup(ctx, managed)
 	if applyErr == nil {
-		applyErr = fsutil.Write(s.host.RootPath("numa/applied"), desired, 0o600)
+		applyErr = fsutil.Write(s.host.RootPath(appliedRel), desired, 0o600)
 	}
 	if applyErr != nil {
 		zap.L().Warn("NUMA setup failed; restoring original node setup", zap.Error(applyErr))
@@ -227,7 +227,7 @@ func (s *hostSetup) prepareApply(managed bool) ([]byte, bool, error) {
 	if _, err := os.Stat(s.host.RootPath("numa/sysnode/online")); err != nil {
 		return nil, false, err
 	}
-	applied, err := os.ReadFile(s.host.RootPath("numa/applied"))
+	applied, err := readApplied(s.host)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, false, err
 	}

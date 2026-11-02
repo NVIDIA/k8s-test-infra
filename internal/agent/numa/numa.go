@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"os"
 	"slices"
-	"strconv"
 	"strings"
 	"sync/atomic"
 
@@ -46,7 +45,7 @@ type Simulator struct {
 	opts         Options
 	ready        atomic.Bool
 	desired      string
-	runHost      func(context.Context, ...string) error
+	runHost      func(context.Context, HostAction, bool) error
 	helperSource string
 }
 
@@ -57,14 +56,14 @@ func New(h *host.Host, opts Options) (*Simulator, error) {
 		return nil, err
 	}
 	sim := &Simulator{host: h, opts: opts, helperSource: helperSource}
-	sim.runHost = func(ctx context.Context, args ...string) error {
+	sim.runHost = func(ctx context.Context, action HostAction, managed bool) error {
 		// systemctl uses PID 1's private socket, including on nodes without D-Bus.
 		// A linked oneshot runs the mount in the node's mount namespace.
 		const unit = "mokka-numa-setup.service"
 		if err := sim.stageHelper(); err != nil {
 			return err
 		}
-		body := fmt.Sprintf("[Unit]\nDescription=Mokka NUMA setup\n[Service]\nType=oneshot\nTimeoutStartSec=120\nExecStart=%s/numa-host %s\n", hostDir, strings.Join(args, " "))
+		body := setupService(action, managed)
 		if err := fsutil.Write(h.RootPath("numa", unit), []byte(body), 0644); err != nil {
 			return err
 		}
@@ -129,7 +128,7 @@ func (s *Simulator) stageFiles(data []byte) error {
 }
 
 func (s *Simulator) matchApplied() (bool, error) {
-	previous, err := os.ReadFile(s.host.RootPath("numa/applied"))
+	previous, err := readApplied(s.host)
 	if err != nil && !os.IsNotExist(err) {
 		return false, err
 	}
@@ -141,7 +140,7 @@ func (s *Simulator) matchApplied() (bool, error) {
 
 // Apply installs or restores the persistent node setup.
 func (s *Simulator) Apply(ctx context.Context, _ *agent.State) error {
-	applied, err := os.ReadFile(s.host.RootPath("numa/applied"))
+	applied, err := readApplied(s.host)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -157,16 +156,16 @@ func (s *Simulator) Apply(ctx context.Context, _ *agent.State) error {
 		s.ready.Store(true)
 		return nil
 	}
-	action := "apply"
+	action := ActionApply
 	if !s.opts.Enabled {
-		action = "restore"
+		action = ActionRestore
 	}
-	err = s.runHost(ctx, action, strconv.FormatBool(s.opts.ConfigureKubelet))
+	err = s.runHost(ctx, action, s.opts.ConfigureKubelet)
 	if err != nil {
 		return fmt.Errorf("%s node NUMA filesystem: %w", action, err)
 	}
 	s.ready.Store(true)
-	zap.L().Info("node NUMA simulation reconciled", zap.String("simulator", name), zap.String("action", action), zap.String("policy", s.opts.Policy))
+	zap.L().Info("node NUMA simulation reconciled", zap.String("simulator", name), zap.String("action", string(action)), zap.String("policy", s.opts.Policy))
 	return nil
 }
 

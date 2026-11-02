@@ -52,7 +52,7 @@ func TestHostApplyAndRestore(t *testing.T) {
 	require.FileExists(t, h.RootPath("numa/original/memory_manager_state.absent"))
 	requireFileContent(t, h.HostPath("/var/lib/kubelet/config.yaml"), "simulated config")
 	require.NoFileExists(t, h.HostPath("/var/lib/kubelet/cpu_manager_state"))
-	requireFileContent(t, h.RootPath("numa/applied"), "layout\n")
+	requireFileContent(t, h.RootPath("numa/.applied"), "layout\n")
 	requireFileContent(t, h.EtcPath("systemd/system/"+filesystemUnit), filesystemService)
 	require.Contains(t, *calls, "mount --make-rprivate "+h.Sys)
 	require.Contains(t, *calls, "mount --bind "+h.RootPath("numa/sysnode")+" "+h.SysPath("devices/system/node"))
@@ -67,7 +67,7 @@ func TestHostApplyAndRestore(t *testing.T) {
 	requireFileContent(t, h.HostPath("/var/lib/kubelet/cpu_manager_state"), "original cpu")
 	require.NoFileExists(t, h.HostPath("/var/lib/kubelet/memory_manager_state"))
 	require.NoDirExists(t, h.RootPath("numa/original"))
-	require.NoFileExists(t, h.RootPath("numa/applied"))
+	require.NoFileExists(t, h.RootPath("numa/.applied"))
 	require.NoFileExists(t, h.EtcPath(kubeletDropin))
 	require.NoFileExists(t, h.EtcPath("systemd/system/"+filesystemUnit))
 	require.Contains(t, *calls, "umount "+h.SysPath("devices/system/node"))
@@ -84,7 +84,7 @@ func TestHostRestoreRetainsBackupsOnFailure(t *testing.T) {
 			h := s.host
 			require.NoError(t, s.backupKubelet())
 			require.NoError(t, fsutil.Write(h.RootPath("numa/original/memory_manager_state"), []byte("original memory"), 0o600))
-			require.NoError(t, fsutil.Write(h.RootPath("numa/applied"), []byte("active"), 0o600))
+			require.NoError(t, fsutil.Write(h.RootPath("numa/.applied"), []byte("active"), 0o600))
 			require.NoError(t, s.installUnits(t.Context()))
 			require.NoError(t, fsutil.Write(h.SysPath("devices/system/node/.mokka-numa"), []byte("mokka-numa-v1"), 0o600))
 			switch step {
@@ -108,7 +108,7 @@ func TestHostRestoreRetainsBackupsOnFailure(t *testing.T) {
 			requireFileContent(t, h.RootPath("numa/original/kubelet-config.yaml"), "original config")
 			requireFileContent(t, h.RootPath("numa/original/cpu_manager_state"), "original cpu")
 			requireFileContent(t, h.RootPath("numa/original/memory_manager_state"), "original memory")
-			requireFileContent(t, h.RootPath("numa/applied"), "active")
+			requireFileContent(t, h.RootPath("numa/.applied"), "active")
 		})
 	}
 }
@@ -132,7 +132,7 @@ func TestHostApplyFailureRollsBack(t *testing.T) {
 			err := s.apply(t.Context(), true)
 			require.ErrorContains(t, err, "injected apply failure")
 			requireFileContent(t, s.host.HostPath("/var/lib/kubelet/config.yaml"), "original config")
-			require.NoFileExists(t, s.host.RootPath("numa/applied"))
+			require.NoFileExists(t, s.host.RootPath("numa/.applied"))
 			if failRestore {
 				require.ErrorContains(t, err, "injected rollback failure")
 				require.DirExists(t, s.host.RootPath("numa/original"))
@@ -146,7 +146,7 @@ func TestHostApplyFailureRollsBack(t *testing.T) {
 func TestHostUpgradesLegacyServiceWithoutRestartingKubelet(t *testing.T) {
 	t.Parallel()
 	s, calls := hostFixture(t)
-	require.NoError(t, fsutil.Write(s.host.RootPath("numa/applied"), []byte("layout\n"), 0o600))
+	require.NoError(t, fsutil.Write(s.host.RootPath("numa/.applied"), []byte("layout\n"), 0o600))
 	require.NoError(t, fsutil.Write(s.host.EtcPath("systemd/system/"+filesystemUnit), []byte("ExecStart=/bin/bash host.sh mount\n"), 0o644))
 	require.NoError(t, s.apply(t.Context(), true))
 	require.Equal(t, []string{"systemctl daemon-reload"}, *calls)
@@ -225,4 +225,16 @@ func TestWaitForKubeletHonorsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	require.ErrorIs(t, s.waitForKubelet(ctx), context.Canceled)
+}
+
+func TestHostRestoreClearsBothAppliedMarkers(t *testing.T) {
+	t.Parallel()
+	s, _ := hostFixture(t)
+	require.NoError(t, s.apply(t.Context(), true))
+	require.NoError(t, fsutil.Write(s.host.RootPath("numa/applied"), []byte("legacy state"), 0600))
+	require.NoError(t, s.restore(t.Context(), false))
+	require.NoFileExists(t, s.host.RootPath("numa/.applied"))
+	require.NoFileExists(t, s.host.RootPath("numa/applied"))
+	require.NoDirExists(t, s.host.RootPath("numa/original"))
+	requireFileContent(t, s.host.HostPath("/var/lib/kubelet/config.yaml"), "original config")
 }
