@@ -20,29 +20,43 @@ mount_tree() {
   mount --bind "$root/sysnode" "$target"
   mount -o remount,bind,ro "$target"
 }
+wait_for_kubelet() {
+  local attempt
+  for attempt in $(seq 1 30); do
+    if systemctl is-active --quiet kubelet && curl -fsS --max-time 2 http://127.0.0.1:10248/healthz >/dev/null; then return 0; fi
+    sleep 1
+  done
+  echo "Kubelet did not become healthy" >&2
+  return 1
+}
 restore() {
+  # Rollback invokes this function in an OR list, where Bash ignores errexit.
+  # Check every restore step and retain backups until recovery has succeeded.
   if [[ -f "$root/original/kubelet-config.yaml" ]]; then
-    systemctl stop kubelet
-    cp "$root/original/kubelet-config.yaml" /var/lib/kubelet/config.yaml
+    systemctl stop kubelet || return
+    cp "$root/original/kubelet-config.yaml" /var/lib/kubelet/config.yaml || return
     for state in cpu_manager_state memory_manager_state; do
       if [[ -f "$root/original/$state" ]]; then
-        cp "$root/original/$state" "/var/lib/kubelet/$state"
+        cp "$root/original/$state" "/var/lib/kubelet/$state" || return
       elif [[ -f "$root/original/$state.absent" ]]; then
-        rm -f "/var/lib/kubelet/$state"
+        rm -f "/var/lib/kubelet/$state" || return
       fi
     done
     managed=true
   fi
-  rm -f "$dropin"
+  rm -f "$dropin" || return
   if [[ -e "/etc/systemd/system/$unit" ]]; then
-    systemctl disable --now "$unit"
+    systemctl disable --now "$unit" || return
   fi
-  if own_mount; then umount "$target"; fi
-  rm -f "/etc/systemd/system/$unit"
-  systemctl daemon-reload
-  if [[ "$managed" == true ]]; then systemctl restart kubelet; fi
-  rm -f "$root/applied" /etc/systemd/system/mokka-numa-setup.service
-  rm -rf "$root/original"
+  if own_mount; then umount "$target" || return; fi
+  rm -f "/etc/systemd/system/$unit" || return
+  systemctl daemon-reload || return
+  if [[ "$managed" == true ]]; then
+    systemctl restart kubelet || return
+    wait_for_kubelet || return
+  fi
+  rm -f "$root/applied" /etc/systemd/system/mokka-numa-setup.service || return
+  rm -rf "$root/original" || return
 }
 case "$action" in
  mount) mount_tree; exit 0 ;;
@@ -106,11 +120,6 @@ if [[ "$managed" == true ]]; then
   # Policy checkpoints cannot be reused across a policy change. Restore keeps backups.
   rm -f /var/lib/kubelet/cpu_manager_state /var/lib/kubelet/memory_manager_state
   systemctl start kubelet
-  healthy=false
-  for attempt in $(seq 1 30); do
-    if systemctl is-active --quiet kubelet && curl -fsS --max-time 2 http://127.0.0.1:10248/healthz >/dev/null; then healthy=true; break; fi
-    sleep 1
-  done
-  [[ "$healthy" == true ]]
+  wait_for_kubelet
 fi
 cp "$root/desired" "$root/applied"
