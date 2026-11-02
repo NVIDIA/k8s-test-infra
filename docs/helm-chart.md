@@ -1352,6 +1352,8 @@ and restart to the administrator. The setup survives ordinary Mokka pod restarts
 To restore the node, upgrade with `numaSimulation.enabled: false` before
 uninstalling Mokka. If setup changed kubelet configuration, restoration also
 restores that configuration and restarts kubelet.
+The node agent retains its read-only host root mount and host PID namespace
+even when NUMA and runtime setup are disabled, so it can restore saved state.
 An active layout or policy change is rejected; restore the node before applying
 a different topology. The original configuration is stored under
 `/var/lib/nvml-mock/numa/original`.

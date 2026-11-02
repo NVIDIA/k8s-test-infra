@@ -114,10 +114,9 @@ spec:
       {{- end }}
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
-      {{- if or (and $runtime.enabled (eq $runtime.restartMode "systemd")) $numaHost }}
-      # systemd clients need the host PID namespace to configure node services.
+      # Restoring saved NUMA state needs systemd access even when all setup
+      # options are disabled in the replacement pod.
       hostPID: true
-      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -432,13 +431,11 @@ spec:
             - name: kernel-log
               mountPath: /dev/kmsg
             {{- end }}
-            {{- if or $runtime.enabled $numaHost }}
-            # The host's root, read only, for systemd clients to run chrooted into.
+            # Keep the host root available for disable-and-restore upgrades.
             - name: host-fs
               mountPath: /host
               readOnly: true
               mountPropagation: HostToContainer
-            {{- end }}
             {{- if $runtime.enabled }}
             - name: host-usr-bin
               mountPath: /host/usr/bin
@@ -663,12 +660,10 @@ spec:
             path: /dev/kmsg
             type: CharDevice
         {{- end }}
-        {{- if or $runtime.enabled $numaHost }}
         - name: host-fs
           hostPath:
             path: /
             type: Directory
-        {{- end }}
         {{- if $runtime.enabled }}
         - name: host-usr-bin
           hostPath:
