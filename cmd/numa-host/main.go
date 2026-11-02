@@ -28,6 +28,10 @@ func run(ctx context.Context, args []string) error {
 	if len(args) < 1 || len(args) > 2 {
 		return errors.New("usage: numa-host <apply|restore|mount> [configure-kubelet]")
 	}
+	action, err := numa.ParseHostAction(args[0])
+	if err != nil {
+		return err
+	}
 	managed := false
 	if len(args) == 2 {
 		var err error
@@ -36,5 +40,5 @@ func run(ctx context.Context, args []string) error {
 			return fmt.Errorf("configure-kubelet: %w", err)
 		}
 	}
-	return numa.RunHost(ctx, args[0], managed)
+	return numa.RunHost(ctx, action, managed)
 }

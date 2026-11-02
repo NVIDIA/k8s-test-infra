@@ -118,30 +118,30 @@ func TestPersistentSetupIsNotRestartedOrRemovedOnPodTeardown(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sim.Stage(t.Context(), testState()))
 	calls := 0
-	sim.runHost = func(context.Context, ...string) error {
+	sim.runHost = func(context.Context, HostAction, bool) error {
 		calls++
 		require.NoError(t, os.MkdirAll(filepath.Dir(h.EtcPath("systemd/system/"+filesystemUnit)), 0755))
 		require.NoError(t, os.WriteFile(h.EtcPath("systemd/system/"+filesystemUnit), []byte(filesystemService), 0644))
-		return os.WriteFile(h.RootPath("numa/applied"), []byte(sim.desired+"\n"), 0600)
+		return os.WriteFile(h.RootPath("numa/.applied"), []byte(sim.desired+"\n"), 0600)
 	}
 	require.NoError(t, sim.Apply(t.Context(), nil))
 	require.NoError(t, sim.Apply(t.Context(), nil))
 	require.Equal(t, 1, calls)
 	require.NoError(t, sim.Revoke(t.Context()))
 	require.NoError(t, sim.Discard(t.Context()))
-	require.FileExists(t, h.RootPath("numa/applied"))
+	require.FileExists(t, h.RootPath("numa/.applied"))
 	changed, err := newTestSimulator(h, Options{Enabled: true, ConfigureKubelet: true, Policy: "restricted"})
 	require.NoError(t, err)
 	require.ErrorContains(t, changed.Stage(t.Context(), testState()), "disable NUMA simulation")
 	disabled, err := newTestSimulator(h, Options{ConfigureKubelet: true})
 	require.NoError(t, err)
-	disabled.runHost = func(_ context.Context, args ...string) error {
-		require.Contains(t, args, "restore")
-		return os.Remove(h.RootPath("numa/applied"))
+	disabled.runHost = func(_ context.Context, action HostAction, _ bool) error {
+		require.Equal(t, ActionRestore, action)
+		return os.Remove(h.RootPath("numa/.applied"))
 	}
 	require.NoError(t, disabled.Stage(t.Context(), nil))
 	require.NoError(t, disabled.Apply(t.Context(), nil))
-	require.NoFileExists(t, h.RootPath("numa/applied"))
+	require.NoFileExists(t, h.RootPath("numa/.applied"))
 }
 
 func TestRenderAfterRestoreRemovesOldZones(t *testing.T) {
@@ -283,4 +283,39 @@ func TestStageRefreshesHostHelper(t *testing.T) {
 	require.NoError(t, os.WriteFile(sim.helperSource, []byte("updated executable"), 0700))
 	require.NoError(t, sim.Stage(t.Context(), testState()))
 	requireFileContent(t, h.RootPath("numa/numa-host"), "updated executable")
+}
+
+func TestStageMigratesLegacyAppliedMarker(t *testing.T) {
+	t.Parallel()
+	h := testHost(t)
+	sim, err := newTestSimulator(h, Options{Enabled: true})
+	require.NoError(t, err)
+	require.NoError(t, sim.Stage(t.Context(), testState()))
+	require.NoError(t, os.WriteFile(h.RootPath("numa/applied"), []byte(sim.desired+"\n"), 0600))
+	require.NoError(t, sim.Stage(t.Context(), testState()))
+	requireFileContent(t, h.RootPath("numa/.applied"), sim.desired+"\n")
+	require.NoFileExists(t, h.RootPath("numa/applied"))
+	changed, err := newTestSimulator(h, Options{Enabled: true, Policy: "restricted"})
+	require.NoError(t, err)
+	require.ErrorContains(t, changed.Stage(t.Context(), testState()), "disable NUMA simulation")
+}
+
+func TestDisableRestoresNodeWithLegacyAppliedMarker(t *testing.T) {
+	t.Parallel()
+	h := testHost(t)
+	sim, err := newTestSimulator(h, Options{})
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(h.RootPath("numa"), 0755))
+	require.NoError(t, os.WriteFile(h.RootPath("numa/applied"), []byte("active\n"), 0600))
+	called := false
+	sim.runHost = func(_ context.Context, action HostAction, _ bool) error {
+		called = true
+		require.Equal(t, ActionRestore, action)
+		requireFileContent(t, h.RootPath("numa/.applied"), "active\n")
+		require.NoFileExists(t, h.RootPath("numa/applied"))
+		return os.Remove(h.RootPath("numa/.applied"))
+	}
+	require.NoError(t, sim.Apply(t.Context(), nil))
+	require.True(t, called)
+	require.NoFileExists(t, h.RootPath("numa/.applied"))
 }

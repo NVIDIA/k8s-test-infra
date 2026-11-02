@@ -1360,6 +1360,8 @@ even when NUMA and runtime setup are disabled, so it can restore saved state.
 An active layout or policy change is rejected; restore the node before applying
 a different topology. The original configuration is stored under
 `/var/lib/nvml-mock/numa/original`.
+The active configuration is recorded in `/var/lib/nvml-mock/numa/.applied`.
+Upgrades migrate the previous `applied` marker automatically.
 Failed restoration retains the backups and applied-state marker. Backups are
 removed only after restoration succeeds and a managed kubelet passes its health check.
 

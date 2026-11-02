@@ -290,9 +290,26 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 		zap.String("container_runtime_systemd_unit", cmd.String("container-runtime-systemd-unit")),
 		zap.String("container_runtime_nri_socket", cmd.String("container-runtime-nri-socket")),
 		zap.String("host_fs", cmd.String("host-fs")),
+		zap.Bool("numa_simulation", cmd.Bool("numa-simulation")),
+		zap.Bool("numa_configure_kubelet", cmd.Bool("numa-configure-kubelet")),
+		zap.String("numa_topology_manager_policy", cmd.String("numa-topology-manager-policy")),
+		zap.String("numa_cpu_manager_policy", cmd.String("numa-cpu-manager-policy")),
+		zap.String("numa_memory_manager_policy", cmd.String("numa-memory-manager-policy")),
+		zap.String("numa_reserved_cpus", cmd.String("numa-reserved-cpus")),
+		zap.String("numa_system_reserved_cpu", cmd.String("numa-system-reserved-cpu")),
+		zap.String("numa_system_reserved_memory", cmd.String("numa-system-reserved-memory")),
 	)
 
-	numaSimulator, err := numa.New(h, numa.Options{Enabled: cmd.Bool("numa-simulation"), ConfigureKubelet: cmd.Bool("numa-configure-kubelet"), Policy: cmd.String("numa-topology-manager-policy"), CPUManagerPolicy: cmd.String("numa-cpu-manager-policy"), ReservedCPUs: cmd.String("numa-reserved-cpus"), MemoryManagerPolicy: cmd.String("numa-memory-manager-policy"), SystemReservedMemory: cmd.String("numa-system-reserved-memory"), SystemReservedCPU: cmd.String("numa-system-reserved-cpu")})
+	numaSimulator, err := numa.New(h, numa.Options{
+		Enabled:              cmd.Bool("numa-simulation"),
+		ConfigureKubelet:     cmd.Bool("numa-configure-kubelet"),
+		Policy:               cmd.String("numa-topology-manager-policy"),
+		CPUManagerPolicy:     cmd.String("numa-cpu-manager-policy"),
+		ReservedCPUs:         cmd.String("numa-reserved-cpus"),
+		MemoryManagerPolicy:  cmd.String("numa-memory-manager-policy"),
+		SystemReservedMemory: cmd.String("numa-system-reserved-memory"),
+		SystemReservedCPU:    cmd.String("numa-system-reserved-cpu"),
+	})
 	if err != nil {
 		return err
 	}
