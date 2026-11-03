@@ -993,68 +993,63 @@ flowchart LR
     class tm,nrt focus
 ```
 
-Jonathan Rosenboim has prototyped this idea in ([#1147](https://github.com/NVIDIA/k8s-test-infra/pull/1147), [#1148](https://github.com/NVIDIA/k8s-test-infra/pull/1148)).
+[Jonathan Rosenboim](https://github.com/JRosenboimNVIDIA) has prototyped this idea in ([#1147](https://github.com/NVIDIA/k8s-test-infra/pull/1147), [#1148](https://github.com/NVIDIA/k8s-test-infra/pull/1148)).
 
 Each part of the NRT traces back to something Mokka has to put in place on the Node:
 
-| In the NRT | NFD reads it from | Mokka provides |
-|---|---|---|
-| Zones and their costs | The NUMA tree, `/sys/devices/system/node` | A zone for each NUMA node of the profile's PCIe root complexes, numbered from 0. Distance 10 within a zone and 21 between zones |
-| `nvidia.com/gpu` per zone | PodResources. The kubelet takes each GPU's zone from the device plugin, which reads the GPU's PCI `numa_node` | Each GPU's `numa_node` set to its root complex's zone. Its `local_cpulist` and NVML CPU affinity name that zone's CPUs |
-| `cpu` per zone | PodResources, only under the static CPU Manager. The NUMA tree maps CPU IDs to zones | The Node's real CPU IDs, split across zones without separating a core's hyperthreads, or the profile's per-zone lists. The kubelet's static CPU Manager |
-| `memory` per zone | PodResources, only under the static Memory Manager. Capacity comes from `/sys/bus/node` | Host memory, split evenly across zones. The kubelet's static Memory Manager, and the memory-binding rewrite below |
-| `topologyManagerPolicy` and `topologyManagerScope` attributes | The kubelet's config file | The policy, e.g. `single-numa-node`, and the scope, set on the kubelet |
-| Availability | PodResources, rescanned on pod changes | Nothing. It's the kubelet's real allocations |
+| In the NRT                                                    | NFD reads it from                                                                                             | Mokka provides                                                                                                                                          |
+|---------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Zones and their costs                                         | The NUMA tree, `/sys/devices/system/node`                                                                     | A zone for each NUMA node of the profile's PCIe root complexes, numbered from 0. Distance 10 within a zone and 21 between zones                         |
+| `nvidia.com/gpu` per zone                                     | PodResources. The kubelet takes each GPU's zone from the device plugin, which reads the GPU's PCI `numa_node` | Each GPU's `numa_node` set to its root complex's zone. Its `local_cpulist` and NVML CPU affinity name that zone's CPUs                                  |
+| `cpu` per zone                                                | PodResources, only under the static CPU Manager. The NUMA tree maps CPU IDs to zones                          | The Node's real CPU IDs, split across zones without separating a core's hyperthreads, or the profile's per-zone lists. The kubelet's static CPU Manager |
+| `memory` per zone                                             | PodResources, only under the static Memory Manager. Capacity comes from `/sys/bus/node`                       | Host memory, split evenly across zones. The kubelet's static Memory Manager, and the memory-binding rewrite below                                       |
+| `topologyManagerPolicy` and `topologyManagerScope` attributes | The kubelet's config file                                                                                     | The policy, e.g. `single-numa-node`, and the scope, set on the kubelet                                                                                  |
+| Availability                                                  | PodResources, rescanned on pod changes                                                                        | Nothing. It's the kubelet's real allocations                                                                                                            |
 
-The NUMA trees look like this for a two-zone profile with GPU 0 in zone 0, on a host with 8 cores and 2 hyperthreads per core (CPUs *N* and *N*+8 are siblings). `[Mokka]` marks what the node daemon adds, `[existing]` what Mokka already serves, and `[kernel]` what stays as the kernel has it:
+The NUMA trees look like this for a two-zone profile with GPU 0 in zone 0, on a host with 8 cores and 2 hyperthreads per core (CPUs *N* and *N*+8 are siblings). Like a real kernel's, they include files that neither the kubelet nor NFD reads. `[Mokka]` marks what the node daemon adds, `[existing]` what Mokka already serves, and `[kernel]` what stays as the kernel has it:
 
 ```text
 /sys
 ├── devices/system/
-│   ├── node/                                   [Mokka] replaces the kernel's directory (1)
-│   │   ├── online, possible, has_cpu, …        0-1 (2)
+│   ├── node/                                   [Mokka] replaces the kernel's directory
+│   │   ├── online, possible, has_cpu, …        0-1
 │   │   ├── node0/                              zone 0
-│   │   │   ├── cpu0 → ../../cpu/cpu0           CPUs 0-3 and their hyperthreads 8-11 (3)
+│   │   │   ├── cpu0 → ../../cpu/cpu0           CPUs 0-3 and their hyperthreads 8-11 (1)
 │   │   │   ├── …
 │   │   │   ├── cpulist                         0-3,8-11, read by KAI
 │   │   │   ├── cpumap                          the same CPUs as a hex mask
-│   │   │   ├── distance                        10 21, the zone's NRT costs (4)
-│   │   │   ├── meminfo                         Node 0 MemTotal: host's ÷ 2 (4)
-│   │   │   ├── memory0 → ../../memory/memory0  half the real blocks (5)
+│   │   │   ├── distance                        10 21, the zone's NRT costs (2)
+│   │   │   ├── meminfo                         Node 0 MemTotal: host's ÷ 2 (2)
+│   │   │   ├── memory0 → ../../memory/memory0  half the real blocks
 │   │   │   ├── …
-│   │   │   └── hugepages/                      empty (4)
+│   │   │   └── hugepages/                      empty (2)
 │   │   └── node1/                              zone 1: CPUs 4-7,12-15, distance 21 10
-│   ├── cpu/                                    [kernel] what the cpu<K> links point at (6)
+│   ├── cpu/                                    [kernel] what the cpu<K> links point at (3)
 │   └── memory/                                 [kernel] what the memory<M> links point at
 └── bus/
-    ├── node/devices/                           [Mokka] (7)
+    ├── node/devices/                           [Mokka] (4)
     │   ├── node0 → ../../../devices/system/node/node0
     │   └── node1 → ../../../devices/system/node/node1
-    └── pci/devices/0000:18:00.0/               [existing] GPU 0 (8)
+    └── pci/devices/0000:18:00.0/               [existing] GPU 0
         ├── numa_node                           0
         └── local_cpulist                       0-3,8-11
 
 /proc
 ├── meminfo                                     [kernel] MemTotal, split across the zones
-└── <pid>/status                                [kernel] Mems_allowed_list (9)
+└── <pid>/status                                [kernel] Mems_allowed_list
 ```
 
-1. Mounted read-only in the Node's mount namespace. The kubelet reads it directly, and NFD reads it through its hostPath mount of `/sys`. A pod sees it only if it mounts the Node's `/sys`.
-2. They list the zone IDs. Real kernels have these files, but neither the kubelet nor NFD reads them.
-3. The links point at the real CPU directories, so `online`, `core_id`, `physical_package_id` and the caches stay the kernel's. The kubelet and NFD build cores from `core_id`, so a core's hyperthreads have to stay in one zone. Otherwise the kubelet counts that core as two.
-4. Every zone needs `distance`, `meminfo` with a `MemTotal` line, and a `hugepages/` directory, even an empty one. If a zone lacks one, NFD stops reading zones there and publishes only the ones before it, without an error. The kubelet tolerates a missing file, and that zone just loses the data. But if it can't parse a file, it can't detect the Node's CPUs and doesn't start.
-5. Nothing in the kubelet or the NRT depends on these. They're there because a real kernel has them.
-6. The kernel's own `cpu<K>/node<N>` links stay and point at the real zones. A tool that looks up a CPU's zone from the CPU side gets the kernel's answer, not Mokka's. The kubelet and NFD only look from the zone side.
-7. These links point into the tree above, as on a real kernel, so NFD reads memory capacity from the same `meminfo` and `hugepages/`. Without them, NFD sees only the kernel's own NUMA nodes, usually just `node0`. Those resolve into Mokka's tree, so only they get the simulated capacity, and the other zones fall back to their allocatable. On kernels without NUMA support this directory doesn't exist, and NFD's topology updater exits at startup.
-8. Mokka already serves these in containers that get its CDI spec, the device plugin included.
-9. It still lists the kernel's memory nodes, which is why memory binding falls back to them. See the constraints below.
+1. The links point at the real CPU directories, so `online`, `core_id`, `physical_package_id` and the caches stay the kernel's. The kubelet and NFD build cores from `core_id`, so a core's hyperthreads have to stay in one zone. Otherwise the kubelet counts that core as two.
+2. Every zone needs `distance`, `meminfo` with a `MemTotal` line, and a `hugepages/` directory, even an empty one. If a zone lacks one, NFD stops reading zones there and publishes only the ones before it, without an error. The kubelet tolerates a missing file, and that zone just loses the data. But if it can't parse a file, it can't detect the Node's CPUs and doesn't start.
+3. The kernel's own `cpu<K>/node<N>` links stay and point at the real zones. A tool that looks up a CPU's zone from the CPU side gets the kernel's answer, not Mokka's. The kubelet and NFD only look from the zone side.
+4. These links point into the tree above, as on a real kernel, so NFD reads memory capacity from the same `meminfo` and `hugepages/`. Without them, NFD sees only the kernel's own NUMA nodes, usually just `node0`. Those resolve into Mokka's tree, so only they get the simulated capacity, and the other zones fall back to their allocatable. On kernels without NUMA support this directory doesn't exist, and NFD's topology updater exits at startup.
 
 The kubelet and NFD each read the layout only once, when they start, so the order matters:
 
 ```mermaid
 sequenceDiagram
     participant D as Mokka node daemon
-    participant S as NUMA trees
+    participant S as NUMA topology
     participant K as kubelet
     participant P as device plugin
     participant N as nfd-topology-updater
@@ -1073,17 +1068,32 @@ sequenceDiagram
     end
 ```
 
-So a layout change means restarting the kubelet, and any layout or GPU change means restarting NFD.
+So a NUMA layout change means restarting the kubelet, and any NUMA layout or GPU change means restarting NFD.
 
-Three constraints shape how Mokka does this:
+Two constraints shape how Mokka does this:
 
-- **The trees cover the whole Node, and only that Node.** They replace the kernel's view for every process on the Node, not only inside NFD's container. Otherwise the kubelet and the NRT disagree. They must not leak to other Kind Nodes on the same kernel. On kernels without NUMA support, such as Docker Desktop's on Apple Silicon, the trees have to be added rather than replaced.
+- **The NUMA topology live in the Node's mount namespace.** The node daemon mounts them there, read-only. The kubelet reads them directly, and NFD reads them through its hostPath mount of `/sys`, so the kubelet and the NRT agree. A pod sees them only if it mounts the Node's `/sys`. They must not leak to other Kind Nodes on the same kernel.
 - **Memory binding falls back to the kernel's real memory nodes.** The static Memory Manager binds containers to the memory of zones the kernel doesn't have, and such containers fail to start. Mokka's NRI plugin rewrites the binding to the memory nodes the kernel allows. The kubelet's memory placement is simulated; physical memory locality isn't.
-- **Policy changes need a drained Node.** Changing a manager policy invalidates the kubelet's allocation checkpoints. Mokka can configure and restart the kubelet itself, or leave that to whoever provisions the Node, e.g. through the Kind config.
 
-These steps change the Node itself: its sysfs trees and the kubelet configuration. So NUMA setup is opt-in and meant for disposable test Nodes. It survives Mokka pod restarts and is undone only when it's explicitly disabled. While it's active on a Node, it has to be undone before a different layout can be applied.
+NUMA setup changes the Node itself: 
+- its `sysfs` topology 
+- and the kubelet configuration. 
 
-KWOK Nodes have no kubelet or NFD. The [KWOK data plane](#noderesourcetopology) writes their NRT from the same layout, taking each GPU's NUMA node from the rack.
+So it's opt-in and meant for disposable test Nodes. How the kubelet treats its state decides what changing the setup involves:
+
+- **Kubelet Checkpoints.** Kubelet keeps CPU and Memory Manager checkpoints in `/var/lib/kubelet` and checks them against its policy and the layout it reads. So every policy or NUMA topology change deletes them.
+- **A restarted kubelet admits every Pod again.** With the checkpoints gone, the kubelet managers allocate CPUs and memory to running `Pods` as if they were new, and the CPU Manager moves their containers onto the new CPUs. A Pod the new policy can't fit is marked `Failed` and stopped. Draining the Node first avoids that.
+
+Each step follows from these:
+
+- **Apply.** When the node daemon starts and doesn't find the setup in place, it mounts the NUMA topology, configures the kubelet managers, deletes the checkpoints, and restarts the kubelet and NFD.
+- **Restart the node daemon.** When its Pod stops, the node daemon reverts the rest of what it set up on the Node, but leaves this setup in place, because undoing it restarts the kubelet. The new Pod finds the setup in place and doesn't apply it again.
+- **Node Reboot.** The `/sys` mounts are gone, but the kubelet configuration and checkpoints remain. A custom `systemd` unit, installed with the Mokka node daemon setup, runs before the kubelet. It restores the kubelet configuration Mokka found and deletes the checkpoints, so the kubelet starts with the kernel's layout. As with the rest of Mokka's Node state, the node daemon applies the setup again when it starts.
+- **Change the NUMA layout.** Undo the setup, then apply the new layout.
+- **Revert.** The node daemon unmounts the NUMA topology, removes the `systemd` unit, restores the kubelet configuration, deletes the checkpoints, and restarts the kubelet and NFD.
+
+In KWOK mode, KWOK virtual nodes have no kubelet or NFD. 
+The [KWOK data plane](#noderesourcetopology) writes their NRT from the same layout, taking each GPU's NUMA node from the rack.
 
 ## Drawbacks
 
