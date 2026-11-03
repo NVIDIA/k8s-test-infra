@@ -299,6 +299,11 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
+	var preparer agent.StatePreparer
+	if cmd.Bool("numa-simulation") {
+		preparer = numa.NewPreparer(h)
+	}
+
 	a := agent.New(agent.Config{
 		Simulators: []agent.Simulator{
 			numaSimulator,
@@ -322,7 +327,8 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 				Fabric:  cmd.Bool("ib-fabric"),
 			}),
 		},
-		Source:          nodeStateSource(cmd, h, log),
+		Source:          source.NewFileSource(cmd.String("config"), cmd.String("topology"), cmd.Duration("resync-interval"), log),
+		Preparer:        preparer,
 		Log:             log,
 		ShutdownTimeout: shutdownTimeout,
 		StagingLockPath: cmd.String("staging-lock-path"),
@@ -336,15 +342,6 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	g.Go(func() error { return healthSrv.Run(gctx) })
 	g.Go(func() error { return a.Run(gctx) })
 	return g.Wait()
-}
-
-// nodeStateSource resolves the node topology before parallel simulator staging.
-func nodeStateSource(cmd *cli.Command, h *host.Host, log *zap.Logger) agent.StateSource {
-	var stateSource agent.StateSource = source.NewFileSource(cmd.String("config"), cmd.String("topology"), cmd.Duration("resync-interval"), log)
-	if cmd.Bool("numa-simulation") {
-		stateSource = numa.WrapSource(stateSource, h)
-	}
-	return stateSource
 }
 
 // criOptions builds the cri simulator's options: without --container-runtime

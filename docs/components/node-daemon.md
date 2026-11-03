@@ -36,25 +36,41 @@ outlive a reconcile.
 
 ## The reconcile lifecycle
 
-A simulator implements one required interface and up to two optional ones. Which
-it implements decides when the daemon calls it.
+The agent can first run an optional `StatePreparer` to resolve data shared by
+several simulators. Each simulator then implements its staging, publication,
+and daemon interfaces.
 
 | Interface | Implemented by | Purpose |
 |---|---|---|
-| `Simulator` | all eight | `Stage` writes artifacts that are not yet externally visible. Idempotent, re-runs on every state change |
+| `Simulator` | all simulators | `Stage` writes artifacts that are not yet externally visible. Idempotent, re-runs on every state change |
 | `Applier` | `gpudriver`, `pcibus`, `cri` | `Apply` publishes artifacts that something *outside* the node acts on — containerd, NFD, the GPU Operator validator |
 | `Daemon` | `fabricmanager`, `ib`, `kernellog` | `Run` supervises a long-lived process; `Reload` delivers later state to it without a restart |
 
-One reconcile pass runs three waves:
+One reconcile pass prepares shared state, then runs three waves:
 
 ```mermaid
 flowchart LR
-    state[State update] --> stage[Stage<br/>all simulators, in parallel]
+    state[State update] --> prepare[Prepare shared state]
+    prepare --> valid{{Prepared?}}
+    valid -->|no| invalid[Report preparation error<br/>no Stage or Apply]
+    valid -->|yes| stage[Stage<br/>all simulators, in parallel]
     stage --> barrier{{All staged?}}
     barrier -->|no| fail[Report failing simulators<br/>no daemon starts, no Apply]
     barrier -->|yes| daemons[Supervise<br/>start once, or Reload]
     daemons --> apply[Apply<br/>appliers, in parallel]
 ```
+
+With NUMA simulation enabled, preparation reads the node's real CPUs and RAM,
+resolves one layout, and stores it in `State.NodeShape.NUMA`. The same CPU
+placement is copied into the PCI topology and NVML engine configuration. The
+NUMA simulator consumes this prepared layout instead of calculating it again.
+
+Preparation returns a separate state without changing the source observation,
+which the agent retains for later reconciles. Every simulator, daemon reload,
+and applier receives the prepared state and must treat it as read-only.
+Preparation and staging hold the same exclusive staging lock. A preparation
+failure closes the staging gate, fails liveness, and prevents the remaining
+waves. With no preparer configured, the agent passes the source state through.
 
 The split between `Stage` and `Apply` is the important part. Staging is private:
 files exist but nothing outside the node is looking at them yet. Publishing is
@@ -82,7 +98,7 @@ Both probes are served on port 9091 and answer different questions:
 
 | Probe | Passes when | Reports |
 |---|---|---|
-| `/healthz` | the last `Stage` wave completed without error | which simulators failed, when they did. Recovers on the next successful `Stage` |
+| `/healthz` | preparation and the last `Stage` wave completed without error | a preparation error or the simulators that failed. Recovers on the next successful preparation and staging |
 | `/readyz` | every simulator reports itself ready | which simulator is not serving |
 
 Neither consults the state source. Liveness reflects what staging did, not

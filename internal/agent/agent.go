@@ -27,6 +27,7 @@ import (
 type Agent struct {
 	simulators      []Simulator
 	source          StateSource
+	preparer        StatePreparer
 	log             *zap.Logger
 	shutdownTimeout time.Duration
 	stagingLockPath string
@@ -45,6 +46,7 @@ type Agent struct {
 type Config struct {
 	Simulators      []Simulator
 	Source          StateSource
+	Preparer        StatePreparer
 	Log             *zap.Logger
 	ShutdownTimeout time.Duration
 	StagingLockPath string
@@ -58,6 +60,7 @@ func New(cfg Config) *Agent {
 	a := &Agent{
 		simulators:      cfg.Simulators,
 		source:          cfg.Source,
+		preparer:        cfg.Preparer,
 		log:             cfg.Log,
 		shutdownTimeout: cfg.ShutdownTimeout,
 		stagingLockPath: cfg.StagingLockPath,
@@ -205,13 +208,21 @@ func (a *Agent) requeues(ctx context.Context) <-chan struct{} {
 	return merged
 }
 
-// reconcile runs Stage on all simulators in parallel, waits for the barrier,
+// reconcile prepares shared state, runs Stage in parallel, waits for the barrier,
 // starts (or reloads) the daemons, then runs Apply on all appliers in parallel.
 //
-// Only the Stage wave holds the staging lock: it rewrites the tree NRI injects,
+// Preparation and Stage hold the staging lock: they replace the tree NRI injects,
 // while the daemons and Apply publish nothing NRI reads when it decides.
 func (a *Agent) reconcile(ctx context.Context, state *State) error {
-	if err := a.withStagingLock(ctx, func() error { return a.stage(ctx, state) }); err != nil {
+	var prepared *State
+	if err := a.withStagingLock(ctx, func() error {
+		var err error
+		prepared, err = a.prepare(ctx, state)
+		if err != nil {
+			return err
+		}
+		return a.stage(ctx, prepared)
+	}); err != nil {
 		return err
 	}
 	// Open the gate only after the lock is released, so NRI can always take its
@@ -223,7 +234,7 @@ func (a *Agent) reconcile(ctx context.Context, state *State) error {
 
 	// Supervisor wave sits on the barrier: a daemon starts against surfaces Stage
 	// has written, and before Apply publishes them off-node.
-	a.supervise(ctx, state)
+	a.supervise(ctx, prepared)
 
 	// Apply wave: fail-fast — appliers share cross-component dependencies
 	// (CDI spec references chardevs that gpudriver must have staged first).
@@ -235,7 +246,7 @@ func (a *Agent) reconcile(ctx context.Context, state *State) error {
 			continue
 		}
 		applyG.Go(func() error {
-			if err := app.Apply(applyCtx, state); err != nil {
+			if err := app.Apply(applyCtx, prepared); err != nil {
 				return fmt.Errorf("apply %s: %w", applierName(app), err)
 			}
 			return nil

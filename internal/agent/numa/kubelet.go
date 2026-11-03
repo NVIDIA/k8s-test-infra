@@ -13,11 +13,12 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/cpulist"
 	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
 )
 
-func (s *Simulator) stageKubeletConfig(plan *Plan) error {
+func (s *Simulator) stageKubeletConfig(plan *agent.NUMATopology) error {
 	if !s.opts.ConfigureKubelet {
 		return nil
 	}
@@ -55,7 +56,7 @@ func kubeletMemoryPolicy(policy string) string {
 	return "None"
 }
 
-func (s *Simulator) configureManagers(config *kubeletSettings, plan *Plan) error {
+func (s *Simulator) configureManagers(config *kubeletSettings, plan *agent.NUMATopology) error {
 	if err := s.configureCPU(config, plan); err != nil {
 		return err
 	}
@@ -65,7 +66,7 @@ func (s *Simulator) configureManagers(config *kubeletSettings, plan *Plan) error
 	return nil
 }
 
-func (s *Simulator) reservedCPUs(plan *Plan) (string, error) {
+func (s *Simulator) reservedCPUs(plan *agent.NUMATopology) (string, error) {
 	reserved := s.opts.ReservedCPUs
 	if reserved == "" {
 		reserved = strconv.Itoa(plan.Zones[0].CPUs[0])
@@ -89,7 +90,7 @@ func (s *Simulator) reservedCPUs(plan *Plan) (string, error) {
 	return cpulist.Format(ids), nil
 }
 
-func (s *Simulator) configureMemory(config *kubeletSettings, plan *Plan) error {
+func (s *Simulator) configureMemory(config *kubeletSettings, plan *agent.NUMATopology) error {
 	reserved, err := resource.ParseQuantity(s.opts.SystemReservedMemory)
 	if err != nil || reserved.Sign() <= 0 {
 		return fmt.Errorf("system reserved memory must be a positive quantity: %q", s.opts.SystemReservedMemory)
@@ -149,7 +150,7 @@ func memoryEviction(config *kubeletSettings, capacity int64) (int64, error) {
 	return int64(float64(capacity) * percent / 100), nil
 }
 
-func memoryReservations(plan *Plan, total int64) ([]memoryReservation, error) {
+func memoryReservations(plan *agent.NUMATopology, total int64) ([]memoryReservation, error) {
 	reservations := make([]memoryReservation, 0, len(plan.Zones))
 	for i, zone := range plan.Zones {
 		amount := total / int64(len(plan.Zones))
@@ -167,7 +168,7 @@ func memoryReservations(plan *Plan, total int64) ([]memoryReservation, error) {
 	return reservations, nil
 }
 
-func (s *Simulator) configureCPU(config *kubeletSettings, plan *Plan) error {
+func (s *Simulator) configureCPU(config *kubeletSettings, plan *agent.NUMATopology) error {
 	if s.opts.CPUManagerPolicy != "static" {
 		return nil
 	}
@@ -182,7 +183,7 @@ func (s *Simulator) configureCPU(config *kubeletSettings, plan *Plan) error {
 	return nil
 }
 
-func (s *Simulator) configureSharedCPU(config *kubeletSettings, plan *Plan) error {
+func (s *Simulator) configureSharedCPU(config *kubeletSettings, plan *agent.NUMATopology) error {
 	quantity, err := resource.ParseQuantity(s.opts.SystemReservedCPU)
 	if err != nil || quantity.Sign() <= 0 {
 		return fmt.Errorf("system reserved CPU must be positive: %q", s.opts.SystemReservedCPU)

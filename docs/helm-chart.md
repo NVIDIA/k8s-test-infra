@@ -1333,8 +1333,9 @@ NUMA settings live under `nodeAgent.numa`. Move settings from the previous
 `numaSimulation` section before upgrading. Memory policy values are lowercase
 `none` or `static` in both Helm values and `--numa-memory-manager-policy`.
 
-The node agent derives zones from `pcie_topology.root_complexes`, assigns the
-node's online CPUs without separating sibling threads, and uses the resolved
+Before parallel staging, the node agent prepares one shared NUMA plan from
+`pcie_topology.root_complexes` and the node's real CPUs and RAM. It assigns CPUs
+without separating sibling threads and uses the resolved
 CPU affinities for NVML, PCI sysfs, and the generated NUMA tree. An explicit
 `cpu_affinity` must cover every zone and partition all online CPUs without
 repetition. Zone IDs must be contiguous, start at zero, and number at most eight.

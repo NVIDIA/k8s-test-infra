@@ -1,0 +1,6 @@
+kind: Fixed
+body: |-
+  node-agent: invalid NUMA host layouts now fail liveness and close the staging gate before any simulator stages files.
+time: 2026-11-03T12:30:00Z
+custom:
+  Issue: "1148"

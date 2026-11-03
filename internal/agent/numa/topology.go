@@ -21,20 +21,8 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-// Zone describes one simulated NUMA node using real online CPU IDs.
-type Zone struct {
-	ID       int    `json:"id"`
-	CPUs     []int  `json:"cpus"`
-	MemoryKB uint64 `json:"memoryKB"`
-}
-
-// Plan is the resolved topology shared with NVML and PCI sysfs.
-type Plan struct {
-	Zones []Zone `json:"zones"`
-}
-
-// Resolve runs before parallel staging, keeping NVML and both sysfs views consistent.
-func Resolve(h *host.Host, state *agent.State) (*Plan, error) {
+// resolve calculates one NUMA layout from the node and the declared profile.
+func resolve(h *host.Host, state *agent.State) (*agent.NUMATopology, error) {
 	zones, explicit, err := rootZones(state.NodeShape.Topology.RootComplexes)
 	if err != nil {
 		return nil, err
@@ -55,15 +43,12 @@ func Resolve(h *host.Host, state *agent.State) (*Plan, error) {
 	if err != nil {
 		return nil, err
 	}
-	plan := &Plan{Zones: make([]Zone, zones)}
+	plan := &agent.NUMATopology{Zones: make([]agent.NUMAZone, zones)}
 	for i := range plan.Zones {
-		plan.Zones[i] = Zone{ID: i, CPUs: assigned[i], MemoryKB: total / uint64(zones)}
+		plan.Zones[i] = agent.NUMAZone{ID: i, CPUs: assigned[i], MemoryKB: total / uint64(zones)}
 		if uint64(i) < total%uint64(zones) {
 			plan.Zones[i].MemoryKB++
 		}
-	}
-	if err := shareAffinities(state, plan); err != nil {
-		return nil, err
 	}
 	return plan, nil
 }
@@ -162,7 +147,7 @@ func explicitCPUs(cpus []int, zones int, explicit map[int]string) ([][]int, erro
 	return assigned, nil
 }
 
-func shareAffinities(state *agent.State, plan *Plan) error {
+func shareAffinities(state *agent.State, plan *agent.NUMATopology) error {
 	state.NodeShape.Topology.RootComplexes = slices.Clone(state.NodeShape.Topology.RootComplexes)
 	affinities := make(map[string]string)
 	for i := range state.NodeShape.Topology.RootComplexes {
@@ -247,7 +232,7 @@ func memoryKB(text string) (uint64, error) {
 }
 
 // Render owns a separate tree, outside the PCI renderer's pruning scope.
-func Render(h *host.Host, plan *Plan) error {
+func Render(h *host.Host, plan *agent.NUMATopology) error {
 	root := h.RootPath("numa/sysnode")
 	write := func(name, value string) error { return fsutil.Write(filepath.Join(root, name), []byte(value), 0644) }
 	if err := resetTree(root); err != nil {
@@ -289,7 +274,7 @@ func resetTree(root string) error {
 	return fsutil.Write(filepath.Join(root, ".mokka-numa"), []byte("mokka-numa-v1\n"), 0644)
 }
 
-func renderZone(root string, zone Zone, zones int, write func(string, string) error) error {
+func renderZone(root string, zone agent.NUMAZone, zones int, write func(string, string) error) error {
 	dir := fmt.Sprintf("node%d", zone.ID)
 	if err := os.MkdirAll(filepath.Join(root, dir, "hugepages"), 0755); err != nil {
 		return err
