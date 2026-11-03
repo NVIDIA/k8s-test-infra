@@ -71,7 +71,7 @@ func (s *hostSetup) restore(ctx context.Context, managed bool) error {
 	if err != nil {
 		return err
 	}
-	if err := s.unmountOwned(ctx, s.host.RootPath("numa/sysnode"), s.host.SysPath("devices/system/node")); err != nil {
+	if err := s.unmountTree(ctx); err != nil {
 		return err
 	}
 	if err := s.finishRestore(ctx, managed); err != nil {
@@ -288,9 +288,14 @@ func (s *hostSetup) startSimulatedKubelet(ctx context.Context) error {
 }
 
 func (s *hostSetup) currentMounts(managed bool) (bool, error) {
-	tree, err := s.mountedFrom(s.host.RootPath("numa/sysnode"), s.host.SysPath("devices/system/node"))
-	if err != nil || !tree || !managed {
-		return tree, err
+	for _, mount := range topologyMounts {
+		present, err := s.mountedFrom(s.host.RootPath(mount.source), s.host.SysPath(mount.target))
+		if err != nil || !present {
+			return false, err
+		}
+	}
+	if !managed {
+		return true, nil
 	}
 	return s.mountedFrom(s.host.RootPath("numa/kubelet-config.yaml"), s.host.HostPath(kubeletConfig))
 }
