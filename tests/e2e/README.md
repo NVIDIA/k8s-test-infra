@@ -142,7 +142,7 @@ tests that must not be scoped by `E2E_PROFILES`.
 | Multi-node fleet | `make e2e-multi-node` | `multi-node` | A heterogeneous fleet works: separate A100 and T4 releases on different workers, correct per-node mock files and IB behaviour, and a GPU workload scheduled across them |
 | Node-wide NRI injection | `make e2e-nri` | `nri`, `nri-*`, `compute-domain`, `imex-channels` | Node Resource Interface (NRI) injection follows the allocation rules: a pod with no Mokka-specific spec sees exactly its device-plugin allocation, a `devices`-annotated pod with no GPU request sees every GPU, and a pod that asks for neither is left untouched |
 | NFD label provenance | `make e2e-nfd` | `nfd`, `nfd-provenance` | Node Feature Discovery (NFD) derives `feature.node.kubernetes.io/pci-10de.present` from the feature file the mock writes — and that the mock does not write the label itself. Pinned to `a100`, because the label is vendor-only and identical across profiles |
-| NUMA topology and allocation | `make e2e-numa` | `numa` | Real NFD topology updater publishes two-zone NRTs with CPU, memory, and four GPUs per zone; a Guaranteed workload consumes all three resources in one zone and deletion restores availability. Uses the A100 fixture |
+| NUMA topology and allocation | `make e2e-numa` | `numa` | Real NFD topology updater publishes two-zone NRTs with CPU, memory, and four GPUs per zone; a Guaranteed workload consumes all three resources in one zone, deletion restores availability, and a five-GPU request is rejected. Uses the A100 fixture |
 | Container runtime setup | `make e2e` | `container-runtime` | The node daemon registers the `nvidia` handler with containerd on stock `kindest/node` as the default: a pod with `NVIDIA_VISIBLE_DEVICES` sees the node's mock GPUs, with or without `runtimeClassName: nvidia`, replacing the node pod sets the runtime up again, and a node that loses its node pod loses the handler |
 | MIG | `make e2e-mig` | `mig`, `mig-nvml`, `mig-caps`, `mig-device-plugin`, `mig-allocation`, `mig-runtime` | A MIG-capable board partitioned through `gpu.mig` enumerates its partitions through `nvidia-smi`, stages a capability node for each, and the upstream device plugin in `migStrategy=single` publishes and allocates one `nvidia.com/gpu` per partition; runtime repartitioning through `nvidia-smi mig` is followed. Profiles that cannot partition skip |
 | vGPU host and guest | `make e2e-vgpu` | `vgpu`, `vgpu-host`, `vgpu-guest` | Pinned to `a100`, and needs the GPU Operator rolled out (`tilt up -- --gpu-operator`). A vGPU host lists its configured instances under `nvidia-smi vgpu`; a guest reports a licensed vGPU in `nvidia-smi -q`, and the operator's GFD labels the node `nvidia.com/vgpu.*` from the PCI capability the node agent writes |
@@ -386,7 +386,10 @@ The suite never writes an NRT object or substitutes a kubelet socket.
 The checks use the node API's capacity and the fixture's four GPUs per zone as
 independent expectations. CPU and memory quantities are compared numerically.
 A pod requesting one CPU, 64 MiB, and one GPU must reduce availability in one
-zone; deletion must return all three resources to the captured baseline.
+zone; deletion must return all three resources to the captured baseline. A second
+pod requests five GPUs, which fit on the worker but require both zones. Kubelet
+must reject it with `TopologyAffinityError`, and NRT availability must stay
+unchanged.
 
 ```bash
 make e2e-numa E2E_IMAGE=nvml-mock:e2e

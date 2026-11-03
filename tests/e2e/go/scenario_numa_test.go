@@ -81,7 +81,7 @@ var _ = Describe("NUMA topology through the real NFD updater", Label("numa"), Or
 		baseline = waitNUMATopology(ctx, h, node, func(nrt assertions.NodeResourceTopology) []string {
 			return assertions.NUMATopologyProblems(nrt, expected[node])
 		})
-		workload = pod.Spec{Name: numaWorkloadName, Namespace: "default", Node: node, Image: nriWorkloadImage, CPU: numaWorkloadCPU, Memory: numaWorkloadMemory, GPUs: 1, Command: []string{"sleep", "infinity"}}.Render()
+		workload = numaWorkload(numaWorkloadName, node, 1)
 		Expect(h.Kube.Apply(ctx, workload)).To(Succeed())
 
 		assertions.WaitPodPhase(ctx, h.Kube, "default", numaWorkloadName, "Running", config.ReadyTimeout(), config.PollInterval())
@@ -98,7 +98,35 @@ var _ = Describe("NUMA topology through the real NFD updater", Label("numa"), Or
 			return assertions.NUMAAvailabilityProblems(baseline, nrt)
 		})
 	})
+
+	It("rejects a Guaranteed workload that needs GPUs from both NUMA zones", func(ctx SpecContext) {
+		name := "numa-cross-zone"
+		node := workers[0].Name
+		before := waitNUMATopology(ctx, h, node, func(nrt assertions.NodeResourceTopology) []string {
+			return assertions.NUMATopologyProblems(nrt, expected[node])
+		})
+		// Five GPUs fit on the eight-GPU worker, but cannot fit in either four-GPU
+		// zone. Pin the pod so kubelet's Topology Manager makes the admission decision.
+		manifest := numaWorkload(name, node, 5)
+		DeferCleanup(func(ctx SpecContext) { Expect(h.Kube.Delete(ctx, manifest)).To(Succeed()) })
+		Expect(h.Kube.Apply(ctx, manifest)).To(Succeed())
+		assertions.WaitPodPhase(ctx, h.Kube, "default", name, "Failed", config.ReadyTimeout(), config.PollInterval())
+		var rejected corev1.Pod
+		Expect(h.Kube.GetJSON(ctx, &rejected, "pod", name, "-n", "default")).To(Succeed())
+		Expect(rejected.Status.Reason).To(Equal("TopologyAffinityError"), "the pod must fail because its resources cannot fit in one NUMA zone: %s", rejected.Status.Message)
+		waitNUMATopology(ctx, h, node, func(nrt assertions.NodeResourceTopology) []string {
+			return assertions.NUMAAvailabilityProblems(before, nrt)
+		})
+	})
 })
+
+func numaWorkload(name, node string, gpus int) []byte {
+	return pod.Spec{
+		Name: name, Namespace: "default", Node: node,
+		Image: nriWorkloadImage, CPU: numaWorkloadCPU, Memory: numaWorkloadMemory, GPUs: gpus,
+		Command: []string{"sleep", "infinity"},
+	}.Render()
+}
 
 func numaNodeExpectations(ctx context.Context, h *harness.Harness, workers []cluster.Node) map[string]assertions.NUMAExpectation {
 	GinkgoHelper()
