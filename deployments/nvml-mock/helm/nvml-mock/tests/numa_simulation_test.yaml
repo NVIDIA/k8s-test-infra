@@ -141,3 +141,25 @@ tests:
       nodeAgent.numa.memoryManagerPolicy: Static
     asserts:
       - failedTemplate: {}
+
+  - it: leaves memory reservation unset so each node can use its profile
+    set:
+      nodeAgent.numa.enabled: true
+      nodeAgent.numa.configureKubelet: true
+      nodeAgent.numa.cpuManagerPolicy: static
+      nodeAgent.numa.memoryManagerPolicy: static
+    asserts:
+      - notContains:
+          path: spec.template.spec.initContainers[0].command
+          content: --numa-system-reserved-memory=256Mi
+  - it: passes an explicit memory reservation override
+    set:
+      nodeAgent.numa.enabled: true
+      nodeAgent.numa.configureKubelet: true
+      nodeAgent.numa.cpuManagerPolicy: static
+      nodeAgent.numa.memoryManagerPolicy: static
+      nodeAgent.numa.systemReservedMemory: 512Mi
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --numa-system-reserved-memory=512Mi

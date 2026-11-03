@@ -90,9 +90,9 @@ func (s *Simulator) reservedCPUs(plan *Plan) (string, error) {
 }
 
 func (s *Simulator) configureMemory(config map[string]any, plan *Plan) error {
-	reserved, err := resource.ParseQuantity(s.opts.SystemReservedMemory)
+	reserved, err := resource.ParseQuantity(s.reservations.SystemReservedMemory)
 	if err != nil || reserved.Sign() <= 0 {
-		return fmt.Errorf("system reserved memory must be a positive quantity: %q", s.opts.SystemReservedMemory)
+		return fmt.Errorf("system reserved memory must be a positive quantity: %q", s.reservations.SystemReservedMemory)
 	}
 	system, _ := config["systemReserved"].(map[string]any)
 	if system == nil {
@@ -178,7 +178,7 @@ func (s *Simulator) configureCPU(config map[string]any, plan *Plan) error {
 	if s.opts.CPUManagerPolicy != "static" {
 		return nil
 	}
-	if s.opts.SystemReservedCPU != "" {
+	if s.reservations.SystemReservedCPU != "" {
 		return s.configureSharedCPU(config, plan)
 	}
 	reserved, err := s.reservedCPUs(plan)
@@ -190,9 +190,9 @@ func (s *Simulator) configureCPU(config map[string]any, plan *Plan) error {
 }
 
 func (s *Simulator) configureSharedCPU(config map[string]any, plan *Plan) error {
-	quantity, err := resource.ParseQuantity(s.opts.SystemReservedCPU)
+	quantity, err := resource.ParseQuantity(s.reservations.SystemReservedCPU)
 	if err != nil || quantity.Sign() <= 0 {
-		return fmt.Errorf("system reserved CPU must be positive: %q", s.opts.SystemReservedCPU)
+		return fmt.Errorf("system reserved CPU must be positive: %q", s.reservations.SystemReservedCPU)
 	}
 	var cpus int
 	for _, zone := range plan.Zones {

@@ -279,9 +279,9 @@ nodeAgent:
     reservedCPUs: ""
     # -- Memory policy (none or static). Static allocation tracks simulated groups; NRI maps bindings to kernel-allowed nodes.
     memoryManagerPolicy: none
-    # -- System memory reservation for Static Memory Manager; per-zone reservations also include kubelet/eviction reservations.
-    systemReservedMemory: 256Mi
-    # -- Optional fractional system CPU reservation, such as 100m. Mutually exclusive with reservedCPUs.
+    # -- Override the profile system memory reservation; empty uses the profile value or 256Mi. Per-zone totals also include kubelet/eviction reservations.
+    systemReservedMemory: ""
+    # -- Override the profile system CPU reservation, such as 100m. Empty uses the profile value; reservedCPUs overrides that profile default.
     systemReservedCPU: ""
 
 # Allocation-aware GPU memory (#506). When enabled, a sidecar in the nvml-mock

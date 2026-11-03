@@ -340,3 +340,47 @@ func TestLowercaseMemoryPolicyPreservesAppliedConfiguration(t *testing.T) {
 	}
 	require.NoError(t, sim.Apply(t.Context(), nil))
 }
+
+func TestProfileReservationDefaultsAndOverrides(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, cpu, memory, reserved, wantCPU, wantMemory, wantList string
+	}{
+		{name: "profile defaults", wantCPU: "100m", wantMemory: "2Mi"},
+		{name: "memory override", memory: "3Mi", wantCPU: "100m", wantMemory: "3Mi"},
+		{name: "CPU override", cpu: "200m", wantCPU: "200m", wantMemory: "2Mi"},
+		{name: "explicit CPU list overrides profile quantity", reserved: "1", wantList: "1", wantMemory: "2Mi"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := testHost(t)
+			require.NoError(t, os.WriteFile(h.HostPath("/var/lib/kubelet/config.yaml"), []byte("evictionHard:\n  memory.available: 1Mi\n"), 0600))
+			sim, err := newTestSimulator(h, Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", MemoryManagerPolicy: "static", SystemReservedCPU: tc.cpu, SystemReservedMemory: tc.memory, ReservedCPUs: tc.reserved})
+			require.NoError(t, err)
+			state := testState()
+			state.NodeShape.NUMA = agent.NUMAReservations{SystemReservedCPU: "100m", SystemReservedMemory: "2Mi"}
+			require.NoError(t, sim.Stage(t.Context(), state))
+			data, err := os.ReadFile(h.RootPath("numa/kubelet-config.yaml"))
+			require.NoError(t, err)
+			var config map[string]any
+			require.NoError(t, yaml.Unmarshal(data, &config))
+			system := config["systemReserved"].(map[string]any)
+			require.Equal(t, tc.wantMemory, system["memory"])
+			if tc.wantList != "" {
+				require.Equal(t, tc.wantList, config["reservedSystemCPUs"])
+				require.NotContains(t, system, "cpu")
+			} else {
+				require.Equal(t, tc.wantCPU, system["cpu"])
+				require.NotContains(t, config, "reservedSystemCPUs")
+			}
+			previous := sim.desired
+			state.NodeShape.NUMA.SystemReservedMemory = "4Mi"
+			require.NoError(t, sim.Stage(t.Context(), state))
+			if tc.memory == "" {
+				require.NotEqual(t, previous, sim.desired)
+			} else {
+				require.Equal(t, previous, sim.desired)
+			}
+		})
+	}
+}

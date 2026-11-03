@@ -408,6 +408,15 @@ func compileState(data []byte, configPath string) (*agent.State, error) {
 	}
 	state.NodeShape.Network = network
 
+	// Like the infiniband block, node reservations are not NVML settings.
+	var profile struct {
+		NUMA agent.NUMAReservations `json:"numa"`
+	}
+	if err := yaml.Unmarshal(data, &profile); err != nil {
+		return nil, fmt.Errorf("parse NUMA reservations: %w", err)
+	}
+	state.NodeShape.NUMA = profile.NUMA
+
 	state.IMEX = compileIMEX(cfg.NVLink)
 
 	state.MIG = compileMIG(&cfg, numDevices)

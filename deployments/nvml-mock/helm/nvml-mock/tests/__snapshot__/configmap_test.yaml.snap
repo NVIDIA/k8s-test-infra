@@ -9,6 +9,10 @@ should match snapshot with a100 profile:
 
         version: "1.0"
 
+        # Node-wide defaults used when NUMA kubelet configuration is enabled.
+        numa:
+          system_reserved_memory: 256Mi
+
         # =============================================================================
         # System-level configuration
         # =============================================================================
@@ -531,6 +535,10 @@ should match snapshot with b200 profile:
         # Use: export MOCK_NVML_CONFIG=/path/to/this/file.yaml
 
         version: "1.0"
+
+        # Node-wide defaults used when NUMA kubelet configuration is enabled.
+        numa:
+          system_reserved_memory: 256Mi
 
         # =============================================================================
         # System-level configuration
@@ -1075,6 +1083,10 @@ should match snapshot with default gb300 profile:
         # Use: export MOCK_NVML_CONFIG=/path/to/this/file.yaml
 
         version: "1.0"
+
+        # Node-wide defaults used when NUMA kubelet configuration is enabled.
+        numa:
+          system_reserved_memory: 256Mi
 
         # =============================================================================
         # System-level configuration
@@ -1681,6 +1693,10 @@ should match snapshot with gb200 profile:
 
         version: "1.0"
 
+        # Node-wide defaults used when NUMA kubelet configuration is enabled.
+        numa:
+          system_reserved_memory: 256Mi
+
         # =============================================================================
         # System-level configuration
         # =============================================================================
@@ -2282,6 +2298,10 @@ should match snapshot with h100 profile:
 
         version: "1.0"
 
+        # Node-wide defaults used when NUMA kubelet configuration is enabled.
+        numa:
+          system_reserved_memory: 256Mi
+
         # =============================================================================
         # System-level configuration
         # =============================================================================
@@ -2834,6 +2854,10 @@ should match snapshot with l40s profile:
 
         version: "1.0"
 
+        # Node-wide defaults used when NUMA kubelet configuration is enabled.
+        numa:
+          system_reserved_memory: 256Mi
+
         # =============================================================================
         # System-level configuration
         # =============================================================================
@@ -3296,6 +3320,10 @@ should match snapshot with t4 profile:
         # Use: export MOCK_NVML_CONFIG=/path/to/this/file.yaml
 
         version: "1.0"
+
+        # Node-wide defaults used when NUMA kubelet configuration is enabled.
+        numa:
+          system_reserved_memory: 256Mi
 
         # =============================================================================
         # System-level configuration

@@ -1,0 +1,4 @@
+kind: Changed
+body: |-
+  node-agent: use NUMA system reservation defaults from the selected profile. Override CPU or memory reservations with nodeAgent.numa settings; empty overrides use profile defaults.
+time: 2026-11-03T12:00:00Z
