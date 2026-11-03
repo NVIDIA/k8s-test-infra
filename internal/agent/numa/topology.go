@@ -263,6 +263,22 @@ func Render(h *host.Host, plan *agent.NUMATopology) error {
 			return err
 		}
 	}
+	return renderNodeBus(h, plan)
+}
+
+// NFD enumerates memory through the node bus, whose links must match the
+// devices/system/node view used by kubelet and hardware topology readers.
+func renderNodeBus(h *host.Host, plan *agent.NUMATopology) error {
+	root := h.RootPath("numa/sysbusnode")
+	if err := os.RemoveAll(root); err != nil {
+		return err
+	}
+	for _, zone := range plan.Zones {
+		name := fmt.Sprintf("node%d", zone.ID)
+		if err := fsutil.Symlink("../../../devices/system/node/"+name, filepath.Join(root, name)); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

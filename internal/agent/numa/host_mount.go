@@ -10,6 +10,11 @@ import (
 
 const kubeletConfig = "/var/lib/kubelet/config.yaml"
 
+var topologyMounts = [...]struct{ source, target string }{
+	{"numa/sysnode", "devices/system/node"},
+	{"numa/sysbusnode", "bus/node/devices"},
+}
+
 func (s *hostSetup) mountTree(ctx context.Context) error {
 	mounted, err := s.mounted(s.host.SysPath("devices/system/node"))
 	if err != nil {
@@ -20,7 +25,22 @@ func (s *hostSetup) mountTree(ctx context.Context) error {
 			return err
 		}
 	}
-	return s.mountReadOnly(ctx, s.host.RootPath("numa/sysnode"), s.host.SysPath("devices/system/node"))
+	for _, mount := range topologyMounts {
+		if err := s.mountReadOnly(ctx, s.host.RootPath(mount.source), s.host.SysPath(mount.target)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *hostSetup) unmountTree(ctx context.Context) error {
+	for i := len(topologyMounts) - 1; i >= 0; i-- {
+		mount := topologyMounts[i]
+		if err := s.unmountOwned(ctx, s.host.RootPath(mount.source), s.host.SysPath(mount.target)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *hostSetup) mountConfig(ctx context.Context) error {
