@@ -1311,9 +1311,8 @@ The [KWOK data plane](#noderesourcetopology) writes their NRT from the same layo
 
 ## Drawbacks
 
-<!--
-Why should this MEP _not_ be implemented?
--->
+- **NUMA setup is invasive.** It changes the Node itself, not only what Mokka simulates on it. As [NUMA Setup](#numa-setup) describes, the node daemon rewrites the kubelet configuration, deletes the kubelet's checkpoints, restarts the kubelet and NFD, and installs a `systemd` unit that runs before the kubelet on every boot. The restarted kubelet admits every running Pod again and marks any Pod the new policy can't fit as `Failed`, and a NUMA file it can't parse keeps it from starting at all. The setup also relies on how the kubelet and NFD read the NUMA tree today, such as NFD silently dropping every zone from the first one that lacks a file, and either project can change that in a release. So it suits only Nodes that Mokka is free to reconfigure, such as Kind Nodes, and it depends on Mokka's NRI plugin to rewrite containers' memory binding.
+- **Components need wider permissions.** Today the allocation watcher is an unprivileged container that reads only the kubelet's PodResources socket. The [workload tracker](#cpu-nodes-workload-tracker) also reads Pods and, for DRA, ResourceSlices from the Kubernetes API. RBAC can't limit a DaemonSet to the Pods of its own Node, so every Node's tracker can read every Pod in the cluster, plain-text environment variables included. In KWOK mode, the [data plane](#kwok-data-plane) needs permission to patch any Pod to record its GPU allocation, and the [provisioner](#kwok-provisioner) to create Nodes.
 
 ## Alternatives
 
