@@ -134,6 +134,7 @@ nav:
               - Overview: tools/README.md
               - control-plane: tools/control-plane.md
               - node-agent: tools/node-agent.md
+              - mokka-kubelet-helper: tools/mokka-kubelet-helper.md
               - nri-plugin: tools/nri-plugin.md
           - Support Policy: support-policy.md
       - Troubleshooting: troubleshooting.md
