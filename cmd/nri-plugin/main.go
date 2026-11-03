@@ -18,6 +18,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/config"
 	"github.com/NVIDIA/k8s-test-infra/internal/features"
 	"github.com/NVIDIA/k8s-test-infra/internal/health"
 	"github.com/NVIDIA/k8s-test-infra/internal/logging"
@@ -48,6 +49,7 @@ func newCLI() *cli.Command {
 			gpuFlags(defaults),
 			infiniBandFlags(defaults),
 			imexChannelFlags(defaults),
+			gpuOperatorFlags(),
 		),
 		Action: run,
 	}
@@ -152,6 +154,12 @@ func overlayFlags(defaults nri.Config) []cli.Flag {
 			Sources: cli.EnvVars("MOKKA_NRI_LD_PRELOAD_SHIMS"),
 			Usage:   "comma-separated LD_PRELOAD shim paths relative to the overlay mount, or absolute paths",
 		},
+		&cli.StringFlag{
+			Name:    "driver-mode",
+			Value:   string(defaults.Inject.DriverMode),
+			Sources: cli.EnvVars("MOKKA_DRIVER_MODE"),
+			Usage:   "how the node's NVIDIA driver is simulated: userspace (the shim serves the staged files of its kernel modules) or kernel (the simulated kernel modules serve them)",
+		},
 	}
 }
 
@@ -247,6 +255,23 @@ func imexChannelFlags(defaults nri.Config) []cli.Flag {
 	}
 }
 
+// gpuOperatorFlags switch on the adaptations of the GPU Operator's own
+// containers, which a cluster may run on a Mokka node or not.
+func gpuOperatorFlags() []cli.Flag {
+	return []cli.Flag{
+		&cli.BoolFlag{
+			Name:    "gpu-operator-driver",
+			Sources: cli.EnvVars("MOKKA_NRI_GPU_OPERATOR_DRIVER"),
+			Usage:   "have the GPU Operator's driver installer load the simulated kernel modules and serve the mock NVML from its root; requires --driver-mode=kernel",
+		},
+		&cli.BoolFlag{
+			Name:    "gpu-operator-toolkit",
+			Sources: cli.EnvVars("MOKKA_NRI_GPU_OPERATOR_TOOLKIT"),
+			Usage:   "point the GPU Operator's container toolkit at the node agent's nvidia.com/gpu CDI spec",
+		},
+	}
+}
+
 // configFrom reads the parsed flags. Paths left empty here are derived from the
 // overlay roots by inject.Config's own defaulting, so the CLI does not have to
 // repeat that arithmetic.
@@ -257,6 +282,15 @@ func configFrom(cmd *cli.Command) (nri.Config, error) {
 	mode, err := inject.ParseDeviceInjectionMode(cmd.String("device-injection-mode"))
 	if err != nil {
 		return nri.Config{}, err
+	}
+	driverMode, err := config.ParseDriverMode(cmd.String("driver-mode"))
+	if err != nil {
+		return nri.Config{}, err
+	}
+	// The installer would build and load the real modules, which fail with no
+	// GPU, and the agent stages the simulated ones only in the kernel mode.
+	if cmd.Bool("gpu-operator-driver") && driverMode != config.DriverModeKernel {
+		return nri.Config{}, errors.New("--gpu-operator-driver requires --driver-mode=kernel")
 	}
 
 	return nri.Config{
@@ -282,8 +316,25 @@ func configFrom(cmd *cli.Command) (nri.Config, error) {
 			InfiniBandAnnotation:  cmd.String("infiniband-annotation"),
 			ExcludedNamespaces:    cmd.StringSlice("excluded-namespaces"),
 			Shims:                 cmd.StringSlice("ld-preload-shims"),
+			DriverMode:            driverMode,
+			Workloads:             workloadsFrom(cmd),
 		},
 	}, nil
+}
+
+// workloadsFrom registers the GPU Operator adaptations that are switched on.
+func workloadsFrom(cmd *cli.Command) []inject.Workload {
+	var workloads []inject.Workload
+	if cmd.Bool("gpu-operator-driver") {
+		workloads = append(workloads, inject.GPUOperatorDriver{
+			HostOverlayPath: cmd.String("overlay-host-path"),
+			DeviceHostPath:  cmd.String("device-host-path"),
+		})
+	}
+	if cmd.Bool("gpu-operator-toolkit") {
+		workloads = append(workloads, inject.GPUOperatorToolkit{})
+	}
+	return workloads
 }
 
 func run(ctx context.Context, cmd *cli.Command) error {

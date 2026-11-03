@@ -33,6 +33,17 @@ could hold the lock and stall staging. */}}
 {{- if and .Values.nri.enabled $nriPortConflict }}
 {{- fail (printf "nri.healthPort (%v) conflicts with another listener in the shared pod; use a port other than node-agent health port 9091 or the enabled InfiniBand ping port %v" .Values.nri.healthPort .Values.infiniband.ping.port) }}
 {{- end }}
+{{- $driverMode := dig "mode" "userspace" (.Values.driver | default dict) }}
+{{- /* TODO: The simulated kernel modules serve no MIG or IMEX capabilities yet.
+The GPU profile, not a chart value, decides whether a node simulates IMEX, so
+only MIG is rejected here. */}}
+{{- if and (eq $driverMode "kernel") .Values.gpu.mig.enabled }}
+{{- fail "driver.mode kernel does not support gpu.mig yet: the simulated kernel modules serve no MIG capabilities" }}
+{{- end }}
+{{- $gpuOperator := .Values.nri.gpuOperator | default dict }}
+{{- if and .Values.nri.enabled $gpuOperator.driver (ne $driverMode "kernel") }}
+{{- fail "nri.gpuOperator.driver requires driver.mode kernel: only then does the node agent stage the simulated kernel modules the driver installer loads" }}
+{{- end }}
 {{- $migProfiles := include "nvml-mock.migProfiles" . }}
 {{- /* dig: an upgrade with --reuse-values from a chart that predates
 imex.binaries has none. */}}
@@ -164,6 +175,7 @@ spec:
             {{- end }}
             - --host-root=/host
             - --health-addr=:9091
+            - --driver-mode={{ $driverMode }}
             - --log-level={{ .Values.nodeAgent.logging.level }}
             - --log-format={{ .Values.nodeAgent.logging.format }}
             - --shutdown-timeout={{ .Values.nodeAgent.shutdownTimeout }}
@@ -282,7 +294,8 @@ spec:
             # under /sys/class/infiniband, /sys/class/infiniband_mad,
             # /sys/class/infiniband_verbs, /sys/class/infiniband_cm and
             # /dev/infiniband into $MOCK_IB_ROOT. libmockfs rewrites /sys/bus/pci,
-            # /sys/devices/pci, /sys/module and /proc/modules into $MOCK_PCI_ROOT.
+            # /sys/devices/pci, /sys/module, /proc/modules and /proc/driver/nvidia
+            # into $MOCK_PCI_ROOT.
             # A path outside those prefixes passes through unchanged. The shims
             # serve tools exec'd here, not the agent: Go issues its file syscalls
             # directly, so no interposed symbol runs in the agent. That is why the
@@ -296,6 +309,12 @@ spec:
               value: "/var/lib/nvml-mock/ib"
             - name: MOCK_PCI_ROOT
               value: "/var/lib/nvml-mock"
+            {{- if eq $driverMode "kernel" }}
+            # The simulated driver modules serve the driver's own files, and no
+            # copy of them is staged, so tools exec'd here read them live.
+            - name: MOCK_KERNEL_ROOT
+              value: ""
+            {{- end }}
           ports:
             - name: health
               containerPort: 9091
@@ -435,6 +454,7 @@ spec:
             - --plugin-index={{ .Values.nri.pluginIndex }}
             - --overlay-host-path={{ .Values.nri.overlay.hostPath }}
             - --overlay-mount-path={{ .Values.nri.overlay.mountPath }}
+            - --driver-mode={{ $driverMode }}
             - --device-host-path={{ .Values.nri.overlay.hostPath }}/driver/dev
             - --opt-out-annotation={{ .Values.nri.optOutAnnotation }}
             - --device-annotation={{ .Values.nri.deviceAnnotation }}
@@ -445,6 +465,12 @@ spec:
             - --imex-channel-annotation={{ .Values.nri.imexChannelAnnotation }}
             - --imex-channel-host-path={{ .Values.nri.overlay.hostPath }}/driver/dev/nvidia-caps-imex-channels
             - --infiniband-annotation={{ .Values.nri.infinibandAnnotation }}
+            {{- if $gpuOperator.driver }}
+            - --gpu-operator-driver
+            {{- end }}
+            {{- if $gpuOperator.toolkit }}
+            - --gpu-operator-toolkit
+            {{- end }}
             - --excluded-namespaces={{ .Release.Namespace }},kube-system{{- range .Values.nri.excludedNamespaces }},{{ . }}{{- end }}
             - --node-name=$(NODE_NAME)
             - --health-addr=:{{ .Values.nri.healthPort }}

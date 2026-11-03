@@ -6,8 +6,8 @@ driver:
 
 # The toolkit operand's job is done by the Mokka node daemon, which
 # installs the NVIDIA container runtime and registers the nvidia handler the
-# operator's own pods use. The operand could not run here anyway: it needs the
-# NVIDIA kernel module.
+# operator's own pods use. In the userspace driver mode the operand could not
+# run anyway: it needs the NVIDIA kernel module. The kernel-mods overlay runs it.
 toolkit:
   enabled: false
 
@@ -61,10 +61,14 @@ gfd:
 
 # driver-validation needs no DRIVER_INSTALL_DIR/LD_LIBRARY_PATH override: it finds
 # nvidia-smi and libnvidia-ml.so under /run/nvidia/driver, the chart's own
-# driverInstallDir default, where the DaemonSet mirrors the mock driver root.
-# DISABLE_DEV_CHAR_SYMLINK_CREATION=true is required: without it the /dev/char
-# step finds /sys/module/nvidia/refcnt (served by the node daemon), skips modprobe,
-# and fails with "failed to create devices info: no NVIDIA devices found".
+# driverInstallDir default. There the DaemonSet mirrors the mock driver root in
+# the userspace driver mode, and the driver container serves its own in the
+# kernel mode.
+# DISABLE_DEV_CHAR_SYMLINK_CREATION=true is required in the userspace mode:
+# without it the /dev/char step finds /sys/module/nvidia/refcnt (served by the
+# node daemon), skips modprobe, and fails with "failed to create devices info:
+# no NVIDIA devices found". The kernel-mods overlay inherits it, though there the
+# module is loaded for real; whether that mode needs it is untested.
 #
 # toolkit-validation runs under RuntimeClass nvidia, whose handler the node daemon
 # registers. nvidia-container-runtime turns NVIDIA_VISIBLE_DEVICES=all into CDI

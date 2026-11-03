@@ -1,0 +1,4 @@
+kind: Changed
+body: |-
+  mocknvml: the library now holds `/dev/nvidiactl` open while initialized, as real NVML does, so a running client keeps a driver that serves the device in use. While Mokka's simulated `nvidia` module is loaded, the library reports that module's driver version rather than the profile's.
+time: 2026-10-19T19:30:00Z

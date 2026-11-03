@@ -87,6 +87,62 @@ tests:
       - failedTemplate:
           errorPattern: "/featureGates/AllAlpha': got string, want boolean"
 
+  - it: should simulate the userspace driver by default
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --driver-mode=userspace
+      - notContains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: MOCK_KERNEL_ROOT
+            value: ""
+
+  # The simulated modules serve the driver's own files, so tools exec'd in the
+  # agent read them live while PCI sysfs stays redirected.
+  - it: should leave the kernel files live in the kernel driver mode
+    set:
+      driver:
+        mode: kernel
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --driver-mode=kernel
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: MOCK_KERNEL_ROOT
+            value: ""
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: MOCK_PCI_ROOT
+            value: /var/lib/nvml-mock
+
+  - it: should reject an unknown driver mode via the values schema
+    set:
+      driver:
+        mode: kmod
+    asserts:
+      - failedTemplate:
+          errorPattern: "/driver/mode"
+
+  - it: should reject MIG partitions in the kernel driver mode
+    set:
+      driver:
+        mode: kernel
+      gpu:
+        profile: a100
+        count: 8
+        mig:
+          enabled: true
+          gpuInstances:
+            - profile: 1g.5gb
+              count: 7
+    asserts:
+      - failedTemplate:
+          errorPattern: "driver.mode kernel does not support gpu.mig yet"
+
   - it: should include standard labels
     asserts:
       - equal:
@@ -1234,6 +1290,8 @@ tests:
       imex:
         binaries:
           download: null
+      # Likewise, and its absence keeps the userspace driver.
+      driver: null
     asserts:
       - notContains:
           path: spec.template.spec.initContainers[0].command
@@ -1241,9 +1299,12 @@ tests:
       - notContains:
           path: spec.template.spec.initContainers[0].command
           content: --imex-download-timeout=
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --driver-mode=userspace
       - lengthEqual:
           path: spec.template.spec.initContainers[0].command
-          count: 9
+          count: 10
 
   - it: should pass the IMEX download timeout to the node agent
     set:

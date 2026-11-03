@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  libmockfs: `MOCK_KERNEL_ROOT`, when set, takes the `/sys/module`, `/proc/modules` and `/proc/driver/nvidia` redirects over from `MOCK_PCI_ROOT`. A path redirects them there, and an empty value leaves them to the kernel. `MOCK_PCI_ROOT` alone still redirects both, as before.
+time: 2026-10-20T14:32:50Z

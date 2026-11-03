@@ -1,0 +1,20 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# One kernel hosts one driver. Every Kind node shares the host's kernel and the
+# driver installer loads modules into it, so only one node may be a GPU node.
+# Simulating GPUs on worker-0 alone does that: NFD labels a node from the
+# feature file the mock writes, and the GPU Operator follows those labels.
+nodeSelector:
+  kubernetes.io/hostname: worker-0
+
+# The node agent stages the simulated kernel modules for the driver installer,
+# which loads them in place of the real ones and owns the driver root.
+driver:
+  mode: kernel
+
+# The NRI plugin adapts the driver installer and the container toolkit to it.
+nri:
+  gpuOperator:
+    driver: true
+    toolkit: true

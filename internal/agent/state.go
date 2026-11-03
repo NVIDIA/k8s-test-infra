@@ -23,7 +23,7 @@ type State struct {
 	Fabric     FabricState
 	IMEX       IMEXState
 	MIG        MIGState
-	// ConfigRaw holds the raw YAML profile bytes so gpudriver can write the
+	// ConfigRaw holds the raw YAML profile bytes so nvml can write the
 	// engine config without re-deriving it from the narrower State fields.
 	// TODO(https://github.com/NVIDIA/k8s-test-infra/issues/717): replace with Profile/Runtime *config.YAMLConfig split — Profile carries
 	// the static hardware model, Runtime carries operational overrides (GPU_COUNT,
@@ -35,7 +35,7 @@ type State struct {
 	// per-node view for the agent to compile.
 	TopologyRaw []byte
 	// MIGProfilesRaw holds the board's MIG partition table verbatim, empty on
-	// a board that has none. It is carried so gpudriver can stage it beside
+	// a board that has none. It is carried so nvml can stage it beside
 	// every config it writes: a consumer process resolves the table relative
 	// to the config it was given, and the device plugin is handed no
 	// environment that could name it anywhere else.

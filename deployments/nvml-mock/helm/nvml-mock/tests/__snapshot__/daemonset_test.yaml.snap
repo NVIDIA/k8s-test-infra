@@ -35,6 +35,7 @@ should match snapshot with all overrides:
                 - --plugin-index=10
                 - --overlay-host-path=/var/lib/nvml-mock
                 - --overlay-mount-path=/opt/nvml-mock
+                - --driver-mode=userspace
                 - --device-host-path=/var/lib/nvml-mock/driver/dev
                 - --opt-out-annotation=nvml-mock.nvidia.com/inject
                 - --device-annotation=nvml-mock.nvidia.com/devices
@@ -105,6 +106,7 @@ should match snapshot with all overrides:
                 - --config=/etc/nvml-mock/config.yaml
                 - --host-root=/host
                 - --health-addr=:9091
+                - --driver-mode=userspace
                 - --log-level=info
                 - --log-format=json
                 - --shutdown-timeout=5s
@@ -338,6 +340,7 @@ should match snapshot with b200 profile:
                 - --plugin-index=10
                 - --overlay-host-path=/var/lib/nvml-mock
                 - --overlay-mount-path=/opt/nvml-mock
+                - --driver-mode=userspace
                 - --device-host-path=/var/lib/nvml-mock/driver/dev
                 - --opt-out-annotation=nvml-mock.nvidia.com/inject
                 - --device-annotation=nvml-mock.nvidia.com/devices
@@ -408,6 +411,7 @@ should match snapshot with b200 profile:
                 - --config=/etc/nvml-mock/config.yaml
                 - --host-root=/host
                 - --health-addr=:9091
+                - --driver-mode=userspace
                 - --log-level=info
                 - --log-format=json
                 - --shutdown-timeout=5s
@@ -629,6 +633,7 @@ should match snapshot with default values:
                 - --plugin-index=10
                 - --overlay-host-path=/var/lib/nvml-mock
                 - --overlay-mount-path=/opt/nvml-mock
+                - --driver-mode=userspace
                 - --device-host-path=/var/lib/nvml-mock/driver/dev
                 - --opt-out-annotation=nvml-mock.nvidia.com/inject
                 - --device-annotation=nvml-mock.nvidia.com/devices
@@ -699,6 +704,7 @@ should match snapshot with default values:
                 - --config=/etc/nvml-mock/config.yaml
                 - --host-root=/host
                 - --health-addr=:9091
+                - --driver-mode=userspace
                 - --log-level=info
                 - --log-format=json
                 - --shutdown-timeout=5s

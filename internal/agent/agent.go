@@ -226,7 +226,7 @@ func (a *Agent) reconcile(ctx context.Context, state *State) error {
 	a.supervise(ctx, state)
 
 	// Apply wave: fail-fast — appliers share cross-component dependencies
-	// (CDI spec references chardevs that gpudriver must have staged first).
+	// (CDI spec references chardevs that nvml must have staged first).
 	// Only simulators that also implement Applier participate.
 	applyG, applyCtx := errgroup.WithContext(ctx)
 	for _, sim := range a.simulators {

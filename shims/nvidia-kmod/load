@@ -1,0 +1,65 @@
+#!/bin/sh
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Loads a simulated NVIDIA module in place of the real one. modprobe runs this
+# through the install directives the node agent stages, so whatever loads the
+# driver with `modprobe nvidia` -- the GPU Operator's driver container among
+# them -- gets the simulated module family without being changed.
+#
+# Usage: load <module> [parameter...]
+#
+# The modules are compiled on first use against the running kernel, as the
+# driver container compiles the real ones: a module loads only into the kernel
+# it was built for, and that kernel is known only on the node.
+set -eu
+
+module=$1
+shift
+
+# The sources may sit on a read-only mount, so the build goes elsewhere.
+src=$(cd "$(dirname "$0")" && pwd)
+kver=$(uname -r)
+
+# Every driver client opens with a version handshake and gives up on a
+# mismatch, so the simulated module has to carry the version of the userspace
+# components installed beside it. The real module this call replaces carries
+# exactly that version.
+version=$(modinfo -F version nvidia 2>/dev/null || true)
+version=${version:-${DRIVER_VERSION:-}}
+if [ -z "$version" ]; then
+    echo "load: cannot tell which driver version to simulate: no nvidia module is installed and DRIVER_VERSION is unset" >&2
+    exit 1
+fi
+
+dist=${MOKKA_KMOD_BUILD_DIR:-/var/cache/mokka/nvidia-kmod}/$kver/$version
+if [ ! -f "$dist/$module.ko" ]; then
+    make -C "$src" KVER="$kver" DIST="$dist" NVRM_VERSION="$version" >&2
+fi
+
+# mokka.ko is a special module that exposes configfs surface for node daemon to propagate simulated GPUs to the kernel space.
+# Then it registers simulated GPUs as nvidia-gpu devices so nvidia kernel module stubs can further propagate them.
+# This functionality is split into its own kernel module in order to keep kernel side sGPU configuration working
+# even when main nvidia kernel modules are being loaded/unloaded by GPU Operator's driver daemonset.
+if [ "$module" = nvidia ]; then
+    if [ ! -d /sys/module/mokka ]; then
+        # A concurrent load may win the race; what matters is that one did.
+        insmod "$dist/mokka.ko" || [ -d /sys/module/mokka ]
+    fi
+
+    timeout=${MOKKA_HARDWARE_TIMEOUT:-120}
+    waited=0
+    while [ "$(cat /sys/module/mokka/parameters/generation)" = 0 ]; do
+        if [ "$waited" -ge "$timeout" ]; then
+            echo "load: the node agent has not described the node's GPUs in mokka after ${timeout}s" >&2
+            exit 1
+        fi
+        if [ "$waited" = 0 ]; then
+            echo "load: waiting for the node agent to describe the node's GPUs" >&2
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+fi
+
+exec insmod "$dist/$module.ko" "$@"

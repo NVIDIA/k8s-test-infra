@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  tilt: `--kernel-mods` runs worker-0 in the kernel driver mode, where the GPU Operator's driver installer loads Mokka's simulated kernel modules and its container toolkit runs too, and `make colima-cluster-create` creates the Kind cluster in a Colima VM whose kernel it can build modules for.
+time: 2026-10-19T18:27:00Z

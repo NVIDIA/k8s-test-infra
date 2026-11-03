@@ -19,6 +19,10 @@ const (
 	NvidiaHandler = "nvidia"
 	// NvidiaRuntimeBinary is the runtime the handler runs.
 	NvidiaRuntimeBinary = "/usr/bin/nvidia-container-runtime"
+	// OperatorToolkitRuntimeBinary is the runtime the GPU Operator's container
+	// toolkit operand installs, and registers as the nvidia handler when it owns
+	// the node's toolkit.
+	OperatorToolkitRuntimeBinary = "/usr/local/nvidia/toolkit/nvidia-container-runtime"
 )
 
 // ContainerRuntime is what a node's running containerd reports about itself
@@ -85,6 +89,29 @@ func CheckNvidiaHandler(rt ContainerRuntime) error {
 
 	if rt.DefaultRuntime != NvidiaHandler {
 		return fmt.Errorf("the default handler is %q, not %s", rt.DefaultRuntime, NvidiaHandler)
+	}
+
+	if !rt.EnableCDI {
+		return errors.New("containerd has CDI off")
+	}
+
+	return nil
+}
+
+// CheckOperatorToolkitHandler reports what keeps rt from serving the handler
+// the GPU Operator's toolkit operand registers when it owns the node's toolkit,
+// as in the kernel driver mode: the nvidia handler runs the operator's runtime,
+// with CDI on. It need not be the default handler, because the operator's own
+// pods name it through their RuntimeClass.
+func CheckOperatorToolkitHandler(rt ContainerRuntime) error {
+	binary, ok := rt.Handlers[NvidiaHandler]
+	if !ok {
+		return fmt.Errorf("no %s handler; containerd has %v", NvidiaHandler, rt.Handlers)
+	}
+
+	if binary != OperatorToolkitRuntimeBinary {
+		return fmt.Errorf("the %s handler runs %q, not the GPU Operator toolkit's %q",
+			NvidiaHandler, binary, OperatorToolkitRuntimeBinary)
 	}
 
 	if !rt.EnableCDI {

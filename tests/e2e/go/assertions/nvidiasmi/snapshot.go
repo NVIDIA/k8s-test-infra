@@ -33,6 +33,9 @@ func (s Snapshot) AttachedGPUs() (int, bool) { return s.doc.AttachedGPUs.intValu
 // Count is the number of <gpu> elements in the document.
 func (s Snapshot) Count() int { return len(s.doc.GPUs) }
 
+// DriverVersion is the driver version nvidia-smi reports.
+func (s Snapshot) DriverVersion() string { return strings.TrimSpace(string(s.doc.DriverVersion)) }
+
 // ProductNames lists <product_name> in the order nvidia-smi emits GPUs, which
 // is the order it indexes them by.
 func (s Snapshot) ProductNames() []string {

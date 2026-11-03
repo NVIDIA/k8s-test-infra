@@ -104,3 +104,41 @@ jobs:
     - name: Remove the proxy credential
       if: always()
       run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
+
+  # The simulated NVIDIA kernel modules, built against the runner's own kernel
+  # and loaded into it, as the GPU Operator's driver container does on a node.
+  nvidia-kmod:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      name: Checkout code
+
+    - name: Install Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: ${{ inputs.golang_version }}
+
+    - name: Configure the DGXC Go proxy
+      if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+      uses: ./.github/actions/setup-dgxc-goproxy
+      with:
+        mode: routed
+
+    - name: Assert the proxy is actually in front
+      if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+      run: ./hack/check-goproxy.sh
+
+    - name: Install the running kernel's headers
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends "linux-headers-$(uname -r)"
+
+    # -expect-loadable fails the tests where they would otherwise skip, such as
+    # on a runner without configfs, so the job cannot pass without loading the
+    # modules.
+    - name: Build the simulated kernel modules and run their tests
+      run: make test-nvidia-kmod TEST_ARGS=-expect-loadable
+
+    - name: Remove the proxy credential
+      if: always()
+      run: rm -f "${RUNNER_TEMP}/dgxc-goauth"

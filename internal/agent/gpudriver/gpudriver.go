@@ -1,10 +1,10 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-// Package gpudriver implements the GPU driver footprint simulator:
-// chardevs, NVML/CUDA shims, nvidia-smi, procfs entries, engine config, and a
-// bind mount of that tree onto /run/nvidia/driver, the path GPU Operator's
-// own operands default to.
+// Package gpudriver implements the GPU driver footprint simulator: the procfs
+// entries and the kernel module tree a loaded driver shows, and a bind mount of
+// the driver tree, with the userspace the nvml simulator stages there, onto
+// /run/nvidia/driver, the path GPU Operator's own operands default to.
 package gpudriver
 
 import (
@@ -46,20 +46,14 @@ func (s *Simulator) Name() string { return name }
 // Ready reports whether the driver footprint and its bind mount exist.
 func (s *Simulator) Ready() bool { return s.ready.Load() }
 
-// Stage materializes the GPU driver footprint under host.Root/driver/.
+// Stage materializes the procfs entries and the module tree under host.Root.
 // All surfaces run in parallel; a failure in any one cancels the rest via gctx.
 func (s *Simulator) Stage(ctx context.Context, state *agent.State) error {
 	s.ready.Store(false)
 	zap.L().Info("staging simulator", zap.String("simulator", name))
 
 	g, gctx := errgroup.WithContext(ctx)
-	g.Go(func() error { return stageCharDevs(gctx, s.host, state) })
-	g.Go(func() error { return stageNVMLShim(gctx, s.host, state) })
-	g.Go(func() error { return stageCUDAShim(gctx, s.host, state) })
-	g.Go(func() error { return stageNvidiaSMI(gctx, s.host, state) })
 	g.Go(func() error { return writeProcFS(gctx, s.host, state) })
-	g.Go(func() error { return writeEngineConfig(gctx, s.host, state) })
-	g.Go(func() error { return writeMachineType(gctx, s.host, state) })
 	g.Go(func() error { return writeKernelModules(gctx, s.host, state) })
 
 	if err := g.Wait(); err != nil {
@@ -72,19 +66,12 @@ func (s *Simulator) Stage(ctx context.Context, state *agent.State) error {
 
 // stagedPaths lists the paths that Discard removes, in removal order (leaves
 // first). sys/module is not in the list. kmod.Clear empties it in place.
-// RemoveAll on the whole driver/ tree is intentionally avoided: the ib and pcibus
-// simulators stage tools, libibverbs.d and preload shims there, and those must
-// survive Discard.
+// RemoveAll on the whole driver/ tree is intentionally avoided: the nvml, ib and
+// pcibus simulators stage the userspace, tools, libibverbs.d and preload shims
+// there, and those must survive Discard.
 var stagedPaths = []string{
-	"driver/dev",
-	"driver/usr/lib64",
-	"driver/usr/bin/nvidia-smi",
-	"driver/usr/bin/nvidia-smi.sh",
 	procDriverLinkRelPath,
 	procDriverRelPath,
-	"driver/config/config.yaml",
-	machineTypeRel,
-	"config/config.yaml",
 	kmod.ProcModulesRelPath,
 	kmod.LsmodRelPath,
 }

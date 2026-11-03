@@ -27,13 +27,13 @@ func twoGPUState() *agent.State {
 // --- buildNvidiaSpec ---
 
 func TestNvidiaSpecHeader(t *testing.T) {
-	spec := buildNvidiaSpec(twoGPUState(), false)
+	spec := buildNvidiaSpec(twoGPUState(), specOptions{})
 	require.Equal(t, "0.6.0", spec.CDIVersion)
 	require.Equal(t, "nvidia.com/gpu", spec.Kind)
 }
 
 func TestNvidiaSpecSharedDeviceNodes(t *testing.T) {
-	spec := buildNvidiaSpec(twoGPUState(), false)
+	spec := buildNvidiaSpec(twoGPUState(), specOptions{})
 	require.NotNil(t, spec.ContainerEdits)
 
 	paths := make([]string, 0, len(spec.ContainerEdits.DeviceNodes))
@@ -46,7 +46,7 @@ func TestNvidiaSpecSharedDeviceNodes(t *testing.T) {
 }
 
 func TestNvidiaSpecMounts(t *testing.T) {
-	spec := buildNvidiaSpec(twoGPUState(), false)
+	spec := buildNvidiaSpec(twoGPUState(), specOptions{})
 	require.NotNil(t, spec.ContainerEdits)
 
 	containerPaths := make([]string, 0, len(spec.ContainerEdits.Mounts))
@@ -64,7 +64,7 @@ func TestNvidiaSpecMounts(t *testing.T) {
 }
 
 func TestNvidiaSpecServesTheModuleSurfaceReadOnly(t *testing.T) {
-	spec := buildNvidiaSpec(twoGPUState(), false)
+	spec := buildNvidiaSpec(twoGPUState(), specOptions{})
 
 	tree, ok := mountByContainerPath(spec, "/"+kmod.SysModuleRelPath)
 	require.True(t, ok, "the module tree must be served at its kernel path")
@@ -79,7 +79,7 @@ func TestNvidiaSpecServesTheModuleSurfaceReadOnly(t *testing.T) {
 }
 
 func TestNvidiaSpecServesModulesWithoutPCITopology(t *testing.T) {
-	spec := buildNvidiaSpec(twoGPUState(), false)
+	spec := buildNvidiaSpec(twoGPUState(), specOptions{})
 
 	_, ok := mountByContainerPath(spec, "/"+pcisysfs.SysDevicesRelPath)
 	require.False(t, ok, "twoGPUState declares no topology, so the PCI tree is absent")
@@ -95,7 +95,7 @@ func TestNvidiaSpecServesModulesWithoutPCITopology(t *testing.T) {
 // on the healthy ones that skip the write. The driver library and nvidia-smi
 // stay read-only; only the config directory is writable.
 func TestNvidiaSpecConfigDirIsWritable(t *testing.T) {
-	spec := buildNvidiaSpec(twoGPUState(), false)
+	spec := buildNvidiaSpec(twoGPUState(), specOptions{})
 	require.NotNil(t, spec.ContainerEdits)
 
 	for _, m := range spec.ContainerEdits.Mounts {
@@ -110,7 +110,7 @@ func TestNvidiaSpecConfigDirIsWritable(t *testing.T) {
 }
 
 func TestNvidiaSpecHookAndEnv(t *testing.T) {
-	spec := buildNvidiaSpec(twoGPUState(), false)
+	spec := buildNvidiaSpec(twoGPUState(), specOptions{})
 	require.NotNil(t, spec.ContainerEdits)
 
 	require.Len(t, spec.ContainerEdits.Hooks, 1)
@@ -123,7 +123,7 @@ func TestNvidiaSpecHookAndEnv(t *testing.T) {
 
 func TestNvidiaSpecPerGPUDevices(t *testing.T) {
 	// 2 GPUs × (index + UUID) + "all" = 5
-	spec := buildNvidiaSpec(twoGPUState(), false)
+	spec := buildNvidiaSpec(twoGPUState(), specOptions{})
 	require.Len(t, spec.Devices, 5)
 	require.Equal(t, "0", spec.Devices[0].Name)
 	require.Equal(t, "GPU-aaa", spec.Devices[1].Name)
@@ -141,7 +141,7 @@ func TestNvidiaSpecPerGPUDevices(t *testing.T) {
 }
 
 func TestNvidiaSpecAllDevice(t *testing.T) {
-	spec := buildNvidiaSpec(twoGPUState(), false)
+	spec := buildNvidiaSpec(twoGPUState(), specOptions{})
 	all := spec.Devices[len(spec.Devices)-1]
 	require.Equal(t, "all", all.Name)
 	// "all" aggregates the per-GPU nodes only (control nodes are in containerEdits).
@@ -150,7 +150,7 @@ func TestNvidiaSpecAllDevice(t *testing.T) {
 
 func TestNvidiaSpecNoUUIDEntry(t *testing.T) {
 	state := &agent.State{Devices: []agent.DeviceSpec{{Index: 0, UUID: ""}}}
-	spec := buildNvidiaSpec(state, false)
+	spec := buildNvidiaSpec(state, specOptions{})
 	// Only index entry + "all" — no UUID entry when UUID is empty.
 	require.Len(t, spec.Devices, 2)
 	require.Equal(t, "0", spec.Devices[0].Name)
@@ -163,7 +163,7 @@ func TestNvidiaSpecFabricManagerEnabled(t *testing.T) {
 	const stateDir = "/var/lib/custom/fabric-state"
 	state := twoGPUState()
 	state.Fabric.ManagerStateDir = stateDir
-	spec := buildNvidiaSpec(state, false)
+	spec := buildNvidiaSpec(state, specOptions{})
 
 	var hasFabricMount bool
 	for _, m := range spec.ContainerEdits.Mounts {
@@ -180,7 +180,7 @@ func TestNvidiaSpecFabricManagerEnabled(t *testing.T) {
 func TestNvidiaSpecFabricManagerDisabled(t *testing.T) {
 	state := twoGPUState()
 	state.Fabric.Enabled = true
-	spec := buildNvidiaSpec(state, false)
+	spec := buildNvidiaSpec(state, specOptions{})
 
 	for _, m := range spec.ContainerEdits.Mounts {
 		require.NotEqual(t, fabricmanager.DefaultStateDir, m.HostPath)
@@ -212,13 +212,45 @@ func TestSpecMountsArePrivate(t *testing.T) {
 	state := pciState()
 	state.Fabric.ManagerStateDir = "/var/lib/nvml-mock/fabric-state"
 
-	for _, spec := range []cdiSpec{buildNvidiaSpec(state, false), buildNRISpec(state)} {
+	for _, spec := range []cdiSpec{buildNvidiaSpec(state, specOptions{}), buildNRISpec(state, specOptions{})} {
 		require.NotNil(t, spec.ContainerEdits)
 
 		for _, m := range spec.ContainerEdits.Mounts {
 			require.Contains(t, m.Options, "rprivate", "%s: %s must not share mount events with the node", spec.Kind, m.ContainerPath)
 		}
 	}
+}
+
+// With the simulated modules loaded for real, a container must read the
+// kernel's live module tree: the staged copy goes stale when the GPU
+// Operator's driver container reloads or upgrades the driver.
+func TestSpecsLeaveLiveKernelModulesToTheKernel(t *testing.T) {
+	t.Parallel()
+
+	modulePaths := []string{"/" + kmod.SysModuleRelPath, kmod.LsmodContainerPath}
+	live := specOptions{liveKernelModules: true}
+
+	for _, tc := range []struct {
+		spec   cdiSpec
+		served bool
+	}{
+		{buildNvidiaSpec(pciState(), specOptions{}), true},
+		{buildNRISpec(pciState(), specOptions{}), true},
+		{buildNvidiaSpec(pciState(), live), false},
+		{buildNRISpec(pciState(), live), false},
+	} {
+		for _, path := range modulePaths {
+			_, served := mountByContainerPath(tc.spec, path)
+			require.Equal(t, tc.served, served, "%s: %s", tc.spec.Kind, path)
+		}
+	}
+
+	// Everything else stays: the mock library and the PCI sysfs.
+	nvidia := buildNvidiaSpec(pciState(), live)
+	_, served := mountByContainerPath(nvidia, "/usr/lib64/libnvidia-ml.so.1")
+	require.True(t, served)
+	_, served = mountByContainerPath(nvidia, "/sys/bus/pci/devices")
+	require.True(t, served)
 }
 
 func mountByContainerPath(spec cdiSpec, path string) (cdiMount, bool) {
@@ -235,7 +267,7 @@ func mountByContainerPath(spec cdiSpec, path string) (cdiMount, bool) {
 func TestNvidiaSpecServesPCISysfsAtKernelPaths(t *testing.T) {
 	t.Parallel()
 
-	spec := buildNvidiaSpec(pciState(), false)
+	spec := buildNvidiaSpec(pciState(), specOptions{})
 
 	devices, ok := mountByContainerPath(spec, "/sys/bus/pci/devices")
 	require.True(t, ok, "/sys/bus/pci/devices must be served")
@@ -263,7 +295,7 @@ func TestNvidiaSpecPCISysfsMountsAreEmittedAsAPair(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			spec := buildNvidiaSpec(tc.state, false)
+			spec := buildNvidiaSpec(tc.state, specOptions{})
 
 			_, servesLookup := mountByContainerPath(spec, "/sys/bus/pci/devices")
 			require.Equal(t, tc.served, servesLookup, "the lookup directory of BDF symlinks")
@@ -279,7 +311,7 @@ func TestNvidiaSpecPCISysfsMountsAreEmittedAsAPair(t *testing.T) {
 func TestNvidiaSpecOmitsPCISysfsWithoutTopology(t *testing.T) {
 	t.Parallel()
 
-	spec := buildNvidiaSpec(twoGPUState(), false)
+	spec := buildNvidiaSpec(twoGPUState(), specOptions{})
 
 	_, ok := mountByContainerPath(spec, "/sys/bus/pci/devices")
 	require.False(t, ok, "nothing may be served when no tree is rendered")
@@ -312,7 +344,7 @@ func migState() *agent.State {
 func TestNvidiaSpecMigDeviceEntries(t *testing.T) {
 	t.Parallel()
 
-	spec := buildNvidiaSpec(migState(), false)
+	spec := buildNvidiaSpec(migState(), specOptions{})
 
 	for _, uuid := range []string{"MIG-aaa-0", "MIG-aaa-1"} {
 		dev, ok := deviceByName(spec, uuid)
@@ -330,7 +362,7 @@ func TestNvidiaSpecMigDeviceEntries(t *testing.T) {
 func TestNvidiaSpecMigCapNodes(t *testing.T) {
 	t.Parallel()
 
-	spec := buildNvidiaSpec(migState(), false)
+	spec := buildNvidiaSpec(migState(), specOptions{})
 
 	// config=1 and monitor=2 are reserved, so gi0 takes 3, its ci0 takes 4,
 	// then gi1 takes 5 and its ci0 takes 6.
@@ -362,8 +394,8 @@ func TestNvidiaSpecMigCapNodes(t *testing.T) {
 func TestNvidiaSpecMigDoesNotDisturbWholeGPUEntries(t *testing.T) {
 	t.Parallel()
 
-	plain := buildNvidiaSpec(twoGPUState(), false)
-	partitioned := buildNvidiaSpec(migState(), false)
+	plain := buildNvidiaSpec(twoGPUState(), specOptions{})
+	partitioned := buildNvidiaSpec(migState(), specOptions{})
 
 	for _, name := range []string{"0", "GPU-aaa", "1", "GPU-bbb", "all"} {
 		want, ok := deviceByName(plain, name)
@@ -380,7 +412,7 @@ func TestNvidiaSpecMigDoesNotDisturbWholeGPUEntries(t *testing.T) {
 func TestNvidiaSpecNoMigEntriesWhenUnpartitioned(t *testing.T) {
 	t.Parallel()
 
-	spec := buildNvidiaSpec(twoGPUState(), false)
+	spec := buildNvidiaSpec(twoGPUState(), specOptions{})
 
 	for _, dev := range spec.Devices {
 		for _, path := range nodePaths(dev) {
@@ -410,20 +442,20 @@ func nodePaths(dev cdiDevice) []string {
 // --- buildNRISpec ---
 
 func TestNRISpecHeader(t *testing.T) {
-	spec := buildNRISpec(twoGPUState())
+	spec := buildNRISpec(twoGPUState(), specOptions{})
 	require.Equal(t, "0.6.0", spec.CDIVersion)
 	require.Equal(t, "nvml-mock.nvidia.com/gpu", spec.Kind)
 }
 
 func TestNRISpecEnv(t *testing.T) {
-	spec := buildNRISpec(twoGPUState())
+	spec := buildNRISpec(twoGPUState(), specOptions{})
 	require.NotNil(t, spec.ContainerEdits)
 	require.Contains(t, spec.ContainerEdits.Env, "NVML_MOCK_DEVICE_SOURCE=cdi")
 	require.Empty(t, spec.ContainerEdits.Hooks)
 }
 
 func TestNRISpecServesTheModuleTree(t *testing.T) {
-	spec := buildNRISpec(twoGPUState())
+	spec := buildNRISpec(twoGPUState(), specOptions{})
 
 	tree, ok := mountByContainerPath(spec, "/"+kmod.SysModuleRelPath)
 	require.True(t, ok, "the NRI CDI path must serve the module tree")
@@ -433,7 +465,7 @@ func TestNRISpecServesTheModuleTree(t *testing.T) {
 
 func TestNRISpecPerGPUDevices(t *testing.T) {
 	// Index entries only (no UUID) + "all" = 3.
-	spec := buildNRISpec(twoGPUState())
+	spec := buildNRISpec(twoGPUState(), specOptions{})
 	require.Len(t, spec.Devices, 3)
 	require.Equal(t, "0", spec.Devices[0].Name)
 	require.Equal(t, "1", spec.Devices[1].Name)
@@ -441,7 +473,7 @@ func TestNRISpecPerGPUDevices(t *testing.T) {
 }
 
 func TestNRISpecAllDeviceIncludesControlNodes(t *testing.T) {
-	spec := buildNRISpec(twoGPUState())
+	spec := buildNRISpec(twoGPUState(), specOptions{})
 	all := spec.Devices[len(spec.Devices)-1]
 	require.Equal(t, "all", all.Name)
 
@@ -460,7 +492,7 @@ func TestNRISpecAllDeviceIncludesControlNodes(t *testing.T) {
 }
 
 func TestNRISpecHostPathsUseOverlayRoot(t *testing.T) {
-	spec := buildNRISpec(twoGPUState())
+	spec := buildNRISpec(twoGPUState(), specOptions{})
 	for _, d := range spec.Devices {
 		for _, dn := range d.ContainerEdits.DeviceNodes {
 			require.Contains(t, dn.HostPath, overlayHostRoot,
@@ -475,7 +507,7 @@ func TestNRISpecHostPathsUseOverlayRoot(t *testing.T) {
 // differ.
 func TestNvidiaSpecPerGPUDevicesFollowMinorNumbers(t *testing.T) {
 	state := &agent.State{Devices: []agent.DeviceSpec{{Index: 1, UUID: "GPU-bbb", MinorNumber: 3}}}
-	spec := buildNvidiaSpec(state, false)
+	spec := buildNvidiaSpec(state, specOptions{})
 
 	require.Equal(t, "/dev/nvidia3", spec.Devices[0].ContainerEdits.DeviceNodes[0].Path)
 	// The index and UUID entries address the same GPU, so they share the node.
@@ -484,7 +516,7 @@ func TestNvidiaSpecPerGPUDevicesFollowMinorNumbers(t *testing.T) {
 
 func TestNRISpecPerGPUDevicesFollowMinorNumbers(t *testing.T) {
 	state := &agent.State{Devices: []agent.DeviceSpec{{Index: 1, MinorNumber: 3}}}
-	spec := buildNRISpec(state)
+	spec := buildNRISpec(state, specOptions{})
 
 	require.Equal(t, "/dev/nvidia3", spec.Devices[0].ContainerEdits.DeviceNodes[0].Path)
 }
@@ -492,7 +524,7 @@ func TestNRISpecPerGPUDevicesFollowMinorNumbers(t *testing.T) {
 // A real GB200 or GB300 node's CDI spec gives GPU containers the IMEX daemon
 // and control tool; Mokka's daemon is a shim that needs the real one beside it.
 func TestNvidiaSpecMountsIMEXWhenStaged(t *testing.T) {
-	spec := buildNvidiaSpec(twoGPUState(), true)
+	spec := buildNvidiaSpec(twoGPUState(), specOptions{imexStaged: true})
 
 	var imex []cdiMount
 	for _, m := range spec.ContainerEdits.Mounts {
@@ -510,7 +542,7 @@ func TestNvidiaSpecMountsIMEXWhenStaged(t *testing.T) {
 // Without staged IMEX the spec must not name it: a mount with a missing source
 // fails container creation for the whole pod.
 func TestNvidiaSpecOmitsIMEXWhenNotStaged(t *testing.T) {
-	spec := buildNvidiaSpec(twoGPUState(), false)
+	spec := buildNvidiaSpec(twoGPUState(), specOptions{})
 
 	for _, m := range spec.ContainerEdits.Mounts {
 		require.NotContains(t, m.ContainerPath, "nvidia-imex")

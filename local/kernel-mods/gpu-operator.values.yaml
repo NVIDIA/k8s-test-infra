@@ -1,0 +1,32 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Layered over local/gpu-operator/gpu-operator.values.yaml: the driver installer
+# runs, from the original NVIDIA image.
+#
+# The version is the image's index digest rather than its tag. The operator
+# names a driver image <version>-<os> after the node's OS, a Kind node reports
+# Debian 12, and NVIDIA publishes no Debian driver image; a digest is used as
+# given. The image is the ubuntu24.04 one because the node kernel under Colima is
+# Ubuntu 24.04's, and the container installs that kernel's headers from the
+# Ubuntu archive.
+driver:
+  enabled: true
+  repository: nvcr.io/nvidia
+  image: driver
+  version: "sha256:2b6e81c01ffa5634d2e3e798ad19e287877ef7551086eb36782348e653e34b74" # 580.178.04-ubuntu24.04
+  # The upgrade controller evicts GPU workloads before it restarts the driver,
+  # and the scenario's gpu-validator is a bare pod: without force the
+  # controller refuses to delete it and fails the node's upgrade. The chart
+  # reads gpuPodDeletion and renders it as the ClusterPolicy's podDeletion.
+  upgradePolicy:
+    gpuPodDeletion:
+      force: true
+
+# The toolkit operand, from its original image, owns the container runtime's
+# nvidia handler, as on a GPU node. nri.gpuOperator.toolkit, set beside this in
+# nvml-mock.values.yaml, has the NRI plugin point its runtime at the node
+# agent's nvidia.com/gpu spec, which serves the Mokka NVML with the node's
+# profile.
+toolkit:
+  enabled: true

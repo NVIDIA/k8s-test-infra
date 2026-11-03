@@ -199,7 +199,7 @@ func TestStage_CreatesCapDevices(t *testing.T) {
 		require.FileExists(t, path, "cap device for %q", c.Name)
 	}
 
-	// gpudriver's Discard removes driver/dev wholesale, so this simulator has
+	// nvml's Discard removes driver/dev wholesale, so this simulator has
 	// to survive being restaged over its own output.
 	require.NoError(t, sim.Stage(ctx, state), "second Stage must not error")
 

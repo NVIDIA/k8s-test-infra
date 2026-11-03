@@ -12,6 +12,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
+	"github.com/NVIDIA/k8s-test-infra/internal/config"
 	imexpaths "github.com/NVIDIA/k8s-test-infra/internal/imex"
 )
 
@@ -77,6 +78,27 @@ func TestNvidiaSpec(t *testing.T) {
 	require.Contains(t, paths, "/dev/nvidiactl")
 	require.Contains(t, paths, "/dev/nvidia-uvm")
 	require.Contains(t, paths, "/dev/nvidia-uvm-tools")
+}
+
+// In the kernel driver mode the published specs leave the module tree to the
+// kernel, which serves it live.
+func TestSpecsFollowTheDriverMode(t *testing.T) {
+	h := host.New(t.TempDir())
+	state := testState()
+	s := New(h, Options{DriverMode: config.DriverModeKernel})
+	ctx := t.Context()
+	require.NoError(t, s.Stage(ctx, state))
+	require.NoError(t, s.Apply(ctx, state))
+
+	for _, file := range []string{nvidiaSpecFile, nriSpecFile} {
+		data, err := os.ReadFile(h.RunPath(file))
+		require.NoError(t, err)
+
+		var spec cdiSpec
+		require.NoError(t, yaml.Unmarshal(data, &spec))
+		_, ok := mountByContainerPath(spec, "/sys/module")
+		require.False(t, ok, file)
+	}
 }
 
 func TestNRISpec(t *testing.T) {

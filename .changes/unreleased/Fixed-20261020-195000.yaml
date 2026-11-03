@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+  nri-plugin: registers with containerd again when containerd restarts, instead of exiting and waiting out the kubelet's restart back-off, which grows with every restart. Containers created in that window came up unmocked; the GPU Operator's toolkit restarts containerd whenever it starts or stops, and a driver container created during a driver upgrade could load the real modules instead of the simulated ones.
+time: 2026-10-20T19:50:00Z

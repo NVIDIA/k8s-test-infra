@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"sync/atomic"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/config"
 	"github.com/NVIDIA/k8s-test-infra/internal/cri"
 	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
 	"go.uber.org/zap"
@@ -56,6 +57,11 @@ type Options struct {
 	Runtime cri.Runtime
 	// ToolkitSource is where the image ships the toolkit binaries.
 	ToolkitSource string
+	// DriverMode is how the node's NVIDIA driver is simulated. In the kernel
+	// mode the simulated modules are loaded for real, so the kernel's
+	// /sys/module is live and the specs leave the module tree and lsmod to it:
+	// gpudriver, which stages the copy they would mount, does not run.
+	DriverMode config.DriverMode
 }
 
 // New returns a container runtime Simulator.
@@ -75,7 +81,7 @@ func (s *Simulator) Ready() bool { return s.ready.Load() }
 // hostPaths (chardevs, shims) may not exist yet; containerd fails every container
 // creation that references an unresolvable spec. The write is deferred to Apply.
 //
-// Stage does withdraw the NRI spec, for the same reason: gpudriver prunes the
+// Stage does withdraw the NRI spec, for the same reason: nvml prunes the
 // nodes of GPUs a smaller profile dropped, and the NRI plugin may run between
 // Stage and Apply. Without a spec it falls back to raw nodes from the new tree.
 // The nvidia spec stays because its consumers have no such fallback.
@@ -232,11 +238,13 @@ func (s *Simulator) revert(ctx context.Context) error {
 // publishSpecs writes both CDI specs. The IMEX simulator stages in the same
 // Stage wave, so by Apply its node software is on disk or it is not.
 func (s *Simulator) publishSpecs(state *agent.State) error {
-	if err := writeSpec(s.host.RunPath(nvidiaSpecFile), buildNvidiaSpec(state, imex.Staged(s.host.Root))); err != nil {
+	opts := specOptions{liveKernelModules: s.opts.DriverMode == config.DriverModeKernel, imexStaged: imex.Staged(s.host.Root)}
+
+	if err := writeSpec(s.host.RunPath(nvidiaSpecFile), buildNvidiaSpec(state, opts)); err != nil {
 		return fmt.Errorf("nvidia.yaml: %w", err)
 	}
 
-	if err := writeSpec(s.host.RunPath(nriSpecFile), buildNRISpec(state)); err != nil {
+	if err := writeSpec(s.host.RunPath(nriSpecFile), buildNRISpec(state, opts)); err != nil {
 		return fmt.Errorf("nvml-mock-nri.yaml: %w", err)
 	}
 

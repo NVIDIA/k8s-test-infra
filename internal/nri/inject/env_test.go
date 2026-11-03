@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/config"
 )
 
 func requireNoEnvKey(t *testing.T, env []string, key string) {
@@ -61,6 +63,23 @@ func TestAdjustPointsTheLoaderAtTheOverlay(t *testing.T) {
 	requireNoEnvKey(t, adjustment.Env, "MOCK_IB")
 	requireNoEnvKey(t, adjustment.Env, "MOCK_IB_ROOT")
 	requireNoEnvKey(t, adjustment.Env, "MOCK_IB_PING_SOCKET")
+	// Under the userspace driver the shim serves the staged kernel files from
+	// MOCK_PCI_ROOT, the one root a container unsets to see the node as it is.
+	requireNoEnvKey(t, adjustment.Env, "MOCK_KERNEL_ROOT")
+}
+
+// The simulated driver modules serve the driver's own files, so a GPU container
+// keeps the PCI redirect but leaves those files to the kernel.
+func TestAdjustLeavesTheKernelFilesLiveInKernelMode(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+	cfg.DriverMode = config.DriverModeKernel
+
+	adjustment, ok := Adjust(cfg, deviceOptIn())
+	require.True(t, ok)
+	require.Contains(t, adjustment.Env, "MOCK_PCI_ROOT=/opt/nvml-mock")
+	require.Contains(t, adjustment.Env, "MOCK_KERNEL_ROOT=")
 }
 
 func TestAdjustPointsInfiniBandToolsAtTheOverlay(t *testing.T) {

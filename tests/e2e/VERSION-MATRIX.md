@@ -14,9 +14,11 @@ defaults.
 The GPU Operator is held at **v26.3.3**. v26.7.1 gates every operand's
 `toolkit-validation` init container on an `nvidia` line in `/proc/modules`
 ([NVIDIA/gpu-operator#2881](https://github.com/NVIDIA/gpu-operator/pull/2881)).
-Mokka serves that file only through the `libmockfs.so` preload, which those
-init containers never receive, so GFD, the device plugin and dcgm-exporter
-wait forever.
+In the userspace driver mode Mokka serves that file only through the
+`libmockfs.so` preload, which those init containers never receive, so GFD, the
+device plugin and dcgm-exporter wait forever. The kernel driver mode runs
+**v26.7.2**: there the simulated kernel modules are loaded for real, and the
+kernel serves the line itself.
 
 | Component | Version | Chart / Image | Status |
 |---|---|---|---|
@@ -24,7 +26,7 @@ wait forever.
 | NVIDIA Device Plugin (GPU Operator operand) | v0.19.3 | from the `gpu-operator` v26.3.3 chart | Pinned by the chart; runs in CI |
 | DRA Driver (GPU) | 0.5.0 | `nvidia/dra-driver-nvidia-gpu` (Helm) | **Pinned** + runs in CI |
 | Node Feature Discovery | v0.19.0 | `nfd/node-feature-discovery` (Helm) | **Pinned** + runs in CI |
-| GPU Operator | v26.3.3 | `nvidia/gpu-operator` (Helm) | **Pinned** + runs in CI |
+| GPU Operator | v26.3.3; v26.7.2 in the kernel driver mode | `nvidia/gpu-operator` (Helm) | **Pinned** + runs in CI |
 | DCGM | 3.3.9 | `nvcr.io/nvidia/cloud-native/dcgm:3.3.9-1-ubuntu22.04` | Last version a manual container spike resolved; not run |
 | DCGM Exporter (standalone) | 3.3.9-3.6.1 | `nvcr.io/nvidia/k8s/dcgm-exporter:3.3.9-3.6.1-ubuntu22.04` | Last version a manual container spike resolved; not run |
 | DCGM Exporter (GPU Operator operand) | 4.5.3-4.8.2-distroless | from the `gpu-operator` v26.3.3 chart | Pinned by the chart; runs in CI |
@@ -41,11 +43,12 @@ was removed after
 - **DRA Driver** (Helm chart): discovers mock GPUs via NVML, publishes ResourceSlices, and schedules a pod with a ResourceClaim (`e2e-dra`, 6 profiles)
 - **Node Feature Discovery** (Helm chart): derives the PCI vendor label from the feature file nvml-mock writes, not nvml-mock itself (`e2e-nfd`)
 - **GPU Operator** (Helm chart + values overlay): its own device plugin, GFD, dcgm-exporter and validator operands (`e2e-gpu-operator`, 6 profiles) — see the overlay section below
+- **GPU Operator in the kernel driver mode** (`e2e-gpu-operator-kernel`, gb300): the same operands, plus the operator's driver and container toolkit from NVIDIA's original images. The driver container installs its driver on Mokka's simulated kernel modules, and the operator's upgrade controller moves it to another driver version
 - **vGPU** (`scenario_vgpu_test.go`): the stock `nvidia-smi` reads a vGPU host's types and running instances, and a licensed vGPU guest (`e2e-vgpu`, a100). The job installs the GPU Operator, whose GFD operand labels the guest node `nvidia.com/vgpu.*` from the PCI capability.
 
 ### Values Overlay Only (GPU Operator)
 The GPU Operator is tested via a values overlay (`gpu-operator-values.yaml`) that:
-- Disables driver, toolkit, standalone DCGM host engine, MIG manager (require real kernel modules)
+- Disables driver, toolkit, standalone DCGM host engine, MIG manager (require real kernel modules); the kernel driver mode's overlay, `local/kernel-mods/gpu-operator.values.yaml`, enables the driver and toolkit
 - Enables device plugin, GFD, dcgm-exporter, and validator with mock driver root
 
 ### DCGM / DCGM Exporter

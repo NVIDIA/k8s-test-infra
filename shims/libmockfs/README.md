@@ -4,24 +4,31 @@
 
 Use it to test software that finds PCI devices or checks whether a kernel module is loaded. That software then needs neither the real PCI topology nor the real module set.
 
-One shim serves both surfaces. Both render under the same root, and the redirect is a single prefix table. A second shim would repeat this libc interposition to add two entries.
+One shim serves both surfaces, each from a prefix table of its own. By default both render under the same root. A second shim would repeat this libc interposition to add a few entries.
 
-The root variable keeps the name `MOCK_PCI_ROOT`. The NRI plugin sets it in every workload container it serves, and the chart documentation names it, so it is a container-visible contract. Renaming it is a separate change.
+The root variable keeps the name `MOCK_PCI_ROOT`. The NRI plugin sets it in every GPU container it serves, and the chart documentation names it, so it is a container-visible contract. Renaming it is a separate change.
 
 ## How it works
 
-When `MOCK_PCI_ROOT` is set, accesses under:
+When `MOCK_PCI_ROOT` is set, accesses under the PCI sysfs paths:
 
 ```text
 /sys/bus/pci
 /sys/bus/pci/devices
 /sys/devices/pci*
+```
+
+and the files a loaded NVIDIA driver shows in the kernel's trees:
+
+```text
 /sys/module
 /proc/modules
 /proc/driver/nvidia
 ```
 
 are rewritten by prepending `MOCK_PCI_ROOT`.
+
+`MOCK_KERNEL_ROOT`, when set, takes over the kernel files. A path redirects them there instead, and an empty value leaves them to the kernel. That suits a node that loads Mokka's simulated driver modules, whose kernel serves those files itself.
 
 The shim redirects `/proc/modules` and `/proc/driver/nvidia` instead of mounting them. runc refuses any bind mount inside `/proc` that is not on its allowlist. Therefore `lsmod`, and Slurm's `AutoDetect=nvidia` GPU discovery, depend on this shim.
 
@@ -81,7 +88,7 @@ LD_PRELOAD=/path/to/libmockfs.so \
 lspci
 ```
 
-If `MOCK_PCI_ROOT` is unset, the library is a no-op.
+With neither root set, the library is a no-op.
 
 ## Scope
 

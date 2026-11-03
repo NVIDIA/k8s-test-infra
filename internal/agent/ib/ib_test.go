@@ -51,21 +51,21 @@ func TestParseMode(t *testing.T) {
 	}
 }
 
-// Discard must leave gpudriver's files alone: both simulators write into
+// Discard must leave nvml's files alone: both simulators write into
 // driver/usr/bin and driver/usr/lib64.
-func TestDiscard_LeavesGPUDriverFilesIntact(t *testing.T) {
+func TestDiscard_LeavesNVMLFilesIntact(t *testing.T) {
 	isolateSources(t)
 	seedImageSources(t)
 
 	h := newTestHost(t)
-	seedGPUDriver := func() {
+	seedNVML := func() {
 		for _, rel := range []string{"driver/usr/bin/nvidia-smi", "driver/usr/lib64/libnvidia-ml.so.1"} {
 			p := h.RootPath(rel)
 			require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
-			require.NoError(t, os.WriteFile(p, []byte("gpudriver"), 0o755))
+			require.NoError(t, os.WriteFile(p, []byte("nvml"), 0o755))
 		}
 	}
-	seedGPUDriver()
+	seedNVML()
 
 	s := New(h, Options{Mode: ModeSysfs})
 	require.NoError(t, s.Stage(t.Context(), testState(testNetwork())))
