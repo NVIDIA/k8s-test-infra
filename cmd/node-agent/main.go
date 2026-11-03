@@ -339,15 +339,10 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 		}),
 	}
 
-	var preparer agent.StatePreparer
-	if cmd.Bool("numa-simulation") {
-		preparer = numa.NewPreparer(h)
-	}
-
 	a := agent.New(agent.Config{
 		Simulators:      simulators,
 		Source:          source.NewFileSource(cmd.String("config"), cmd.String("topology"), cmd.Duration("resync-interval"), log),
-		Preparer:        preparer,
+		Preparer:        nodeStatePreparer(cmd, h),
 		Log:             log,
 		ShutdownTimeout: shutdownTimeout,
 		StagingLockPath: cmd.String("staging-lock-path"),
@@ -361,6 +356,13 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	g.Go(func() error { return healthSrv.Run(gctx) })
 	g.Go(func() error { return a.Run(gctx) })
 	return g.Wait()
+}
+
+func nodeStatePreparer(cmd *cli.Command, h *host.Host) agent.StatePreparer {
+	if !cmd.Bool("numa-simulation") {
+		return nil
+	}
+	return numa.NewPreparer(h)
 }
 
 // driverSimulator returns the simulator for the driver's kernel side in mode:
