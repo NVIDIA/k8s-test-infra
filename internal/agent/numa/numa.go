@@ -16,7 +16,6 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
-	"github.com/NVIDIA/k8s-test-infra/internal/cri"
 	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
 	"go.uber.org/zap"
 )
@@ -26,6 +25,11 @@ const name = "numa"
 const helperSource = "/usr/local/bin/numa-host"
 
 const hostDir = "/var/lib/nvml-mock/numa"
+
+// HostRunner applies or restores NUMA setup in the node's mount namespace.
+type HostRunner interface {
+	Run(context.Context, HostAction, bool) error
+}
 
 // Options controls the node filesystem and optional kubelet configuration.
 type Options struct {
@@ -37,6 +41,8 @@ type Options struct {
 	MemoryManagerPolicy  string
 	SystemReservedMemory string
 	SystemReservedCPU    string
+	// Runner defaults to the systemd host runner.
+	Runner HostRunner
 }
 
 // Simulator keeps a simulated NUMA view on the node until explicitly disabled.
@@ -46,7 +52,7 @@ type Simulator struct {
 	reservations agent.NUMAReservations
 	ready        atomic.Bool
 	desired      string
-	runHost      func(context.Context, HostAction, bool) error
+	runner       HostRunner
 	helperSource string
 }
 
@@ -56,24 +62,15 @@ func New(h *host.Host, opts Options) (*Simulator, error) {
 	if err := opts.validate(); err != nil {
 		return nil, err
 	}
-	sim := &Simulator{host: h, opts: opts, reservations: opts.reservations(agent.NUMAReservations{}), helperSource: helperSource}
-	sim.runHost = func(ctx context.Context, action HostAction, managed bool) error {
-		// systemctl uses PID 1's private socket, including on nodes without D-Bus.
-		// A linked oneshot runs the mount in the node's mount namespace.
-		const unit = "mokka-numa-setup.service"
-		if err := sim.stageHelper(); err != nil {
-			return err
-		}
-		body := setupService(action, managed)
-		if err := fsutil.Write(h.RootPath("numa", unit), []byte(body), 0644); err != nil {
-			return err
-		}
-		for _, command := range [][]string{{"link", "--force", hostDir + "/" + unit}, {"daemon-reload"}, {"start", unit}} {
-			if err := cri.Systemctl(ctx, cri.Chroot{Root: h.Prefix}, command...); err != nil {
-				return err
-			}
-		}
-		return nil
+	if opts.Runner == nil {
+		opts.Runner = NewSystemdRunner(h)
+	}
+	sim := &Simulator{
+		host:         h,
+		opts:         opts,
+		reservations: opts.reservations(agent.NUMAReservations{}),
+		helperSource: helperSource,
+		runner:       opts.Runner,
 	}
 	return sim, nil
 }
@@ -162,13 +159,20 @@ func (s *Simulator) Apply(ctx context.Context, _ *agent.State) error {
 	if !s.opts.Enabled {
 		action = ActionRestore
 	}
-	err = s.runHost(ctx, action, s.opts.ConfigureKubelet)
+	err = s.runHost(ctx, action)
 	if err != nil {
 		return fmt.Errorf("%s node NUMA filesystem: %w", action, err)
 	}
 	s.ready.Store(true)
 	zap.L().Info("node NUMA simulation reconciled", zap.String("simulator", name), zap.String("action", string(action)), zap.String("policy", s.opts.Policy))
 	return nil
+}
+
+func (s *Simulator) runHost(ctx context.Context, action HostAction) error {
+	if err := s.stageHelper(); err != nil {
+		return err
+	}
+	return s.runner.Run(ctx, action, s.opts.ConfigureKubelet)
 }
 
 func (s *Simulator) stageHelper() error {
