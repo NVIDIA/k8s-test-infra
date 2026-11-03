@@ -961,9 +961,18 @@ The general idea is to use:
 - On CPU nodes, the workload tracker, which extends the existing allocation watcher to fetch `Pod` metadata, `PodResources` from kubelet (what we are doing today) and translate that into metrics override for NVML mock library.
 - On KWOK nodes, the KWOK data plane, which already allocates GPUs to Pods and watches them, turns the same Pod metadata into each GPU's workload telemetry in memory and generates the metrics on each scrape.
 
-The values of metrics like utilization, memory, etc. should be taken from the Pod labels:
+The values of metrics like utilization, memory, etc. should be taken from the Pod annotations:
 
-- TBU
+| Annotation                              | Value                                                                                                             | Without it                                 |
+|-----------------------------------------|-------------------------------------------------------------------------------------------------------------------|--------------------------------------------|
+| `mokka.nvidia.com/gpu-utilization`      | GPU utilization, in percent: a fixed value, such as `30`, or a range, such as `80-100`                            | the runtime view's utilization             |
+| `mokka.nvidia.com/gpu-utilization-type` | how utilization moves within the range: `Steady`, `Bursty` or `Wave`, as in the runtime view's telemetry settings | `Steady`                                   |
+| `mokka.nvidia.com/gpu-memory-used`      | memory in use on each GPU, in percent of its usable memory: a fixed value, such as `25`                           | `50`, as the allocation watcher sets today |
+
+- The rest of this section calls them telemetry annotations. Each applies to every GPU the Pod holds.
+- They're annotations, not labels, because they configure the workload rather than identify it.
+- When several Pods share a GPU, their percentages add up, to at most 100.
+- A value Mokka can't parse counts as absent and is logged.
 
 #### CPU Nodes: Workload Tracker
 
@@ -1015,15 +1024,15 @@ flowchart LR
     linkStyle 8 stroke:#ae3d2a,stroke-width:2px
 ```
 
-In the target shape, the workload tracker also reads this Node's Pods from the Kubernetes API, and for DRA its ResourceSlices. It turns binding and intent into each GPU's workload telemetry and writes it to a file that only it writes. Like the runtime view's telemetry settings, it says how values move, such as utilization between 80 and 100 percent with half the memory used, not the values themselves. The engine reads that file as layer 3, between manual overrides and the runtime view. The generator counts time from a shared epoch, so every NVML process reports the same series. Teal marks what's new or changed:
+In the target shape, the workload tracker also reads this Node's Pods from the Kubernetes API. It turns binding and telemetry annotations into each GPU's workload telemetry and writes it to a file that only it writes. Like the runtime view's telemetry settings, it says how values move, such as utilization between 80 and 100 percent with half the memory used, not the values themselves. The engine reads that file as layer 3, between manual overrides and the runtime view. The generator counts time from a shared epoch, so every NVML process reports the same series. Teal marks what's new or changed:
 
 ```mermaid
 flowchart LR
     kubelet["<b>kubelet</b><br/>PodResources API"]
-    api["<b>Kubernetes API</b><br/>this Node's Pods<br/>and ResourceSlices"]
+    api["<b>Kubernetes API</b><br/>this Node's Pods"]
 
     ctl["<b><code>nvml-mock-ctl set</code></b><br/>NVML set calls"]
-    tracker["<b>workload tracker</b><br/>sidecar, unprivileged<br/>binding + intent → workload telemetry"]
+    tracker["<b>workload tracker</b><br/>sidecar, unprivileged<br/>binding +<br/>telemetry annotations<br/>→ workload telemetry"]
     daemon["<b>node daemon</b><br/>applies the runtime view"]
 
     overrides["<b><code>overrides.yaml</code></b><br/>kept until reset"]
@@ -1047,7 +1056,7 @@ flowchart LR
     kubelet ~~~ ctl
     kubelet ~~~ daemon
     kubelet -->|"claims, every 2 s"| tracker
-    api -->|"labels, annotations,<br/>DRA device UUIDs"| tracker
+    api -->|"telemetry annotations"| tracker
     ctl -->|"sets"| overrides
     tracker -->|"writes"| telemetry
     daemon -->|"writes"| config
@@ -1091,7 +1100,7 @@ sequenceDiagram
     end
 ```
 
-With DRA, the scheduler picks the device as well as the Node and records it in the ResourceClaim. PodResources reports the device by driver, pool and name, by default from Kubernetes 1.34. The NVIDIA DRA driver names a GPU `gpu-<minor>`, which isn't a UUID, so the tracker looks the name up in the Node's ResourceSlice and takes the device's `uuid` attribute, as dcgm-exporter does with `--kubernetes-enable-dra`. Today the allocation watcher reads only device-plugin devices, so reading DRA claims is new:
+With DRA, the scheduler picks the device as well as the Node and records it in the ResourceClaim. PodResources reports the device by driver, pool and name, by default from Kubernetes 1.34. The NVIDIA DRA driver names a GPU `gpu-<minor>`, using the minor number Mokka's NVML reports for it, so the tracker matches the number in the name to the GPU with that minor number. It needs no access to the DRA API. Today the allocation watcher reads only device-plugin devices, so reading DRA claims is new:
 
 ```mermaid
 sequenceDiagram
@@ -1104,11 +1113,7 @@ sequenceDiagram
 
     D->>N: lists the GPUs through NVML
     N-->>D: UUIDs and minor numbers
-    D->>A: publishes this Node's ResourceSlice:<br/>gpu-0 … gpu-3, each with its uuid
-    rect rgba(10, 119, 130, 0.12)
-        T->>A: watches this Node's ResourceSlices
-        A-->>T: each device's name and uuid
-    end
+    D->>A: publishes this Node's ResourceSlice:<br/>gpu-0 … gpu-3, named by minor number
     A-->>S: the slices, the pod's claim
     Note over S: picks a free device<br/>that fits the claim,<br/>such as gpu-2
     S->>A: allocates gpu-2 in the claim
@@ -1119,14 +1124,14 @@ sequenceDiagram
     rect rgba(10, 119, 130, 0.12)
         T->>K: PodResources List, every 2 s
         K-->>T: pod, container → driver, pool, gpu-2
-        Note over T: looks up gpu-2's uuid
+        Note over T: matches gpu-2 to the GPU<br/>with minor number 2
         T->>N: marks that GPU busy
     end
 ```
 
 #### KWOK Nodes: Data Plane
 
-A KWOK Node has no kubelet, NVML engine or processes, so the [KWOK data plane](#kwok-data-plane) replica that owns the rack does every step in memory. It runs the workload tracker in process instead of as a sidecar, with the same code as on CPU Nodes, so a Pod's intent means the same on both kinds of Node. Teal marks what workload awareness adds to the data plane:
+A KWOK Node has no kubelet, NVML engine or processes, so the [KWOK data plane](#kwok-data-plane) replica that owns the rack does every step in memory. It runs the workload tracker in process instead of as a sidecar, with the same code as on CPU Nodes, so a Pod's telemetry annotations mean the same on both kinds of Node. Teal marks what workload awareness adds to the data plane:
 
 ```mermaid
 flowchart LR
@@ -1134,7 +1139,7 @@ flowchart LR
     cp["<b>control plane API</b><br/>runtime view per rack"]
 
     subgraph dp["<b>KWOK data plane replica</b>, in memory"]
-        tracker["<b>workload tracker</b><br/>in process<br/>binding + intent → workload telemetry"]
+        tracker["<b>workload tracker</b><br/>in process<br/>binding +<br/>telemetry annotations<br/>→ workload telemetry"]
         view["<b>runtime view</b><br/>telemetry settings"]
         subgraph metrics["<b>DCGM metrics</b>, on each scrape"]
             direction TB
@@ -1147,7 +1152,7 @@ flowchart LR
 
     prom["<b>Prometheus</b><br/>scrapes each replica on :9400"]
 
-    api -->|"allocation record,<br/>labels, annotations"| tracker
+    api -->|"allocation record,<br/>telemetry annotations"| tracker
     cp -->|"fetched on a delivery<br/>generation bump"| view
     tracker -->|"layer 3"| metrics
     view -->|"layer 4"| metrics
@@ -1160,7 +1165,7 @@ flowchart LR
 ```
 
 - **Binding** comes from the [GPU allocation](#gpu-allocation) record the data plane writes on each Pod, for `nvidia.com/gpu` requests and DRA claims alike. The data plane knows a binding as soon as it writes the record, so nothing is polled.
-- **Intent** comes from the labels and annotations in the [Pod watch](#separating-cpu-and-kwok-racks) the data plane already has, so it needs no new API access.
+- **Telemetry annotations** come from the [Pod watch](#separating-cpu-and-kwok-racks) the data plane already has, so it needs no new API access.
 - **Workload telemetry** stays in the replica's memory, since nothing outside the replica reads it. The replica recomputes a GPU's workload telemetry when a Pod on it is allocated, changes or goes away.
 - **Values** are computed on scrape, at most once per 10-second step, as [DCGM Metrics](#dcgm-metrics) describes. When a GPU has workload telemetry, `DCGM_FI_DEV_GPU_UTIL` follows it instead of the runtime view, `DCGM_FI_DEV_FB_USED` follows its memory share, and `DCGM_FI_DEV_FB_FREE` is the rest. A GPU without Pods keeps following the runtime view.
 - **Only layers 3 and 4 exist.** There's no NVML for `nvml-mock-ctl` to override, and fault injection in KWOK mode is a [non-goal](#non-goals).
@@ -1312,12 +1317,8 @@ The [KWOK data plane](#noderesourcetopology) writes their NRT from the same layo
 ## Drawbacks
 
 - **NUMA setup is invasive.** It changes the Node itself, not only what Mokka simulates on it. As [NUMA Setup](#numa-setup) describes, the node daemon rewrites the kubelet configuration, deletes the kubelet's checkpoints, restarts the kubelet and NFD, and installs a `systemd` unit that runs before the kubelet on every boot. The restarted kubelet admits every running Pod again and marks any Pod the new policy can't fit as `Failed`, and a NUMA file it can't parse keeps it from starting at all. The setup also relies on how the kubelet and NFD read the NUMA tree today, such as NFD silently dropping every zone from the first one that lacks a file, and either project can change that in a release. So it suits only Nodes that Mokka is free to reconfigure, such as Kind Nodes, and it depends on Mokka's NRI plugin to rewrite containers' memory binding.
-- **Components need wider permissions.** Today the allocation watcher is an unprivileged container that reads only the kubelet's PodResources socket. The [workload tracker](#cpu-nodes-workload-tracker) also reads Pods and, for DRA, ResourceSlices from the Kubernetes API. RBAC can't limit a DaemonSet to the Pods of its own Node, so every Node's tracker can read every Pod in the cluster, plain-text environment variables included. In KWOK mode, the [data plane](#kwok-data-plane) needs permission to patch any Pod to record its GPU allocation, and the [provisioner](#kwok-provisioner) to create Nodes.
+- **Components need wider permissions.** Today the allocation watcher is an unprivileged container that reads only the kubelet's PodResources socket. The [workload tracker](#cpu-nodes-workload-tracker) also reads Pods from the Kubernetes API. RBAC can't limit a DaemonSet to the Pods of its own Node, so every Node's tracker can read every Pod in the cluster, plain-text environment variables included. In KWOK mode, the [data plane](#kwok-data-plane) needs permission to patch any Pod to record its GPU allocation, and the [provisioner](#kwok-provisioner) to create Nodes.
 
 ## Alternatives
 
-<!--
-What other approaches did you consider, and why did you rule them out? These do
-not need to be as detailed as the proposal, but should include enough
-information to express the idea and why it was not acceptable.
--->
+**Look up the GPU's UUID in the Node's ResourceSlice.** With DRA, PodResources tells the workload tracker which device a Pod got by its name, such as `gpu-2`, not by its UUID, and [Pod-to-GPU Binding](#pod-to-gpu-binding) reads the minor number from that name. Instead, the tracker could find the device in the ResourceSlice that the NVIDIA DRA driver publishes for the Node and take its `uuid` attribute, as dcgm-exporter does with `--kubernetes-enable-dra`. That would keep working if a driver release stopped naming GPUs after their minor numbers, a change that would make the minor-number match pick the wrong GPU or none. The MEP doesn't use it because the tracker would then depend on the DRA API: it would watch ResourceSlices and need permission to read them, while the minor-number match needs only PodResources and Pods.
