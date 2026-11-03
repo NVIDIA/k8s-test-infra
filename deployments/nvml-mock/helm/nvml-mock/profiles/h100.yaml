@@ -4,6 +4,10 @@
 
 version: "1.0"
 
+# Node-wide defaults used when NUMA kubelet configuration is enabled.
+numa:
+  system_reserved_memory: 256Mi
+
 # =============================================================================
 # System-level configuration
 # =============================================================================

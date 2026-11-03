@@ -43,6 +43,7 @@ type Options struct {
 type Simulator struct {
 	host         *host.Host
 	opts         Options
+	reservations agent.NUMAReservations
 	ready        atomic.Bool
 	desired      string
 	runHost      func(context.Context, HostAction, bool) error
@@ -55,7 +56,7 @@ func New(h *host.Host, opts Options) (*Simulator, error) {
 	if err := opts.validate(); err != nil {
 		return nil, err
 	}
-	sim := &Simulator{host: h, opts: opts, helperSource: helperSource}
+	sim := &Simulator{host: h, opts: opts, reservations: opts.reservations(agent.NUMAReservations{}), helperSource: helperSource}
 	sim.runHost = func(ctx context.Context, action HostAction, managed bool) error {
 		// systemctl uses PID 1's private socket, including on nodes without D-Bus.
 		// A linked oneshot runs the mount in the node's mount namespace.
@@ -90,6 +91,7 @@ func (s *Simulator) Stage(_ context.Context, state *agent.State) error {
 	if !s.opts.Enabled {
 		return nil
 	}
+	s.reservations = s.opts.reservations(state.NodeShape.NUMA)
 	copyState := *state
 	plan, err := Resolve(s.host, &copyState)
 	if err != nil {
@@ -200,10 +202,24 @@ func (opts Options) withDefaults() Options {
 	if opts.MemoryManagerPolicy == "" {
 		opts.MemoryManagerPolicy = "none"
 	}
-	if opts.SystemReservedMemory == "" {
-		opts.SystemReservedMemory = "256Mi"
-	}
 	return opts
+}
+
+// Explicit CPU IDs also override a profile's fractional CPU reservation.
+func (opts Options) reservations(profile agent.NUMAReservations) agent.NUMAReservations {
+	if opts.SystemReservedMemory != "" {
+		profile.SystemReservedMemory = opts.SystemReservedMemory
+	}
+	if profile.SystemReservedMemory == "" {
+		profile.SystemReservedMemory = "256Mi"
+	}
+	if opts.SystemReservedCPU != "" {
+		profile.SystemReservedCPU = opts.SystemReservedCPU
+	}
+	if opts.ReservedCPUs != "" {
+		profile.SystemReservedCPU = ""
+	}
+	return profile
 }
 
 func (opts Options) validate() error {
@@ -236,9 +252,9 @@ func (opts Options) validateManagers() error {
 }
 
 func (s *Simulator) configurationKey(topology []byte) string {
-	key := fmt.Sprintf("%x:%t:%s:%s:%s:%s:%s", sha256.Sum256(topology), s.opts.ConfigureKubelet, s.opts.Policy, s.opts.CPUManagerPolicy, s.opts.ReservedCPUs, kubeletMemoryPolicy(s.opts.MemoryManagerPolicy), s.opts.SystemReservedMemory)
-	if s.opts.SystemReservedCPU != "" {
-		key += ":system-cpu=" + s.opts.SystemReservedCPU
+	key := fmt.Sprintf("%x:%t:%s:%s:%s:%s:%s", sha256.Sum256(topology), s.opts.ConfigureKubelet, s.opts.Policy, s.opts.CPUManagerPolicy, s.opts.ReservedCPUs, kubeletMemoryPolicy(s.opts.MemoryManagerPolicy), s.reservations.SystemReservedMemory)
+	if s.reservations.SystemReservedCPU != "" {
+		key += ":system-cpu=" + s.reservations.SystemReservedCPU
 	}
 	return key
 }

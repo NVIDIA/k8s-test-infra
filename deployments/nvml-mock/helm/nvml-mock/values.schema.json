@@ -322,7 +322,7 @@
             },
             "memoryManagerPolicy": { "type": "string", "enum": ["none", "static"] },
             "systemReservedCPU": { "type": "string" },
-            "systemReservedMemory": { "type": "string", "minLength": 1 },
+            "systemReservedMemory": { "type": "string" },
             "cpuManagerPolicy": { "type": "string", "enum": ["none", "static"] },
             "reservedCPUs": { "type": "string", "pattern": "^$|^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$" }
           }

@@ -185,7 +185,9 @@ spec:
             - --numa-topology-manager-policy={{ $numa.topologyManagerPolicy | default "single-numa-node" }}
             {{- if eq ($numa.memoryManagerPolicy | default "none") "static" }}
             - --numa-memory-manager-policy=static
-            - --numa-system-reserved-memory={{ $numa.systemReservedMemory | default "256Mi" }}
+            {{- with $numa.systemReservedMemory }}
+            - --numa-system-reserved-memory={{ . }}
+            {{- end }}
             {{- end }}
             {{- if eq ($numa.cpuManagerPolicy | default "none") "static" }}
             - --numa-cpu-manager-policy=static
