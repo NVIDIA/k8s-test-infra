@@ -1430,19 +1430,3 @@ static CPU Manager, but node allocatable CPU subtracts the fractional system
 reservation. These are different budgets: exclusive CPU allocations remain
 limited to real unreserved CPU IDs. This option is mutually exclusive with an
 explicit reserved CPU list and requires restoring an active layout before use.
-
-NUMA system reservation defaults can be set in the selected GPU profile:
-
-```yaml
-numa:
-  system_reserved_cpu: 100m
-  system_reserved_memory: 256Mi
-```
-
-Override either value with `nodeAgent.numa.systemReservedCPU` or
-`nodeAgent.numa.systemReservedMemory`. An empty override uses the profile value.
-Without a profile memory value, Mokka uses `256Mi`. Without a CPU value, static
-CPU Manager reserves the first zone's first CPU. An explicit `reservedCPUs` list
-also overrides the profile CPU quantity; do not combine that list with an
-explicit `systemReservedCPU` override. Reservations apply to the whole node.
-Restore the active NUMA setup before changing an effective reservation.
