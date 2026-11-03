@@ -14,7 +14,7 @@ import (
 )
 
 // The capped grace period is the one rendered property the e2e run cannot check
-// for itself, which is why it is the only one tested here. Everything else fails
+// for itself, so it is tested explicitly here. Most other properties fail
 // loudly: a wrong image or command breaks the spec that uses it, and an unquoted
 // annotation value is rejected by the API server. An uncapped grace period keeps
 // the suite green and merely makes it slower, blocking each `kubectl delete` for
@@ -50,4 +50,18 @@ func TestRenderPrivileged(t *testing.T) {
 		require.NotNil(t, securityContext.Privileged)
 		require.True(t, *securityContext.Privileged)
 	}
+}
+
+func TestRenderGuaranteedResources(t *testing.T) {
+	t.Parallel()
+	manifest := Spec{Name: "numa-probe", Image: "debian:bookworm-slim", CPU: "1", Memory: "64Mi", GPUs: 1}.Render()
+	var rendered corev1.Pod
+	require.NoError(t, yaml.UnmarshalStrict(manifest, &rendered))
+	resources := rendered.Spec.Containers[0].Resources
+	require.Equal(t, "1", resources.Requests.Cpu().String())
+	require.Equal(t, "64Mi", resources.Requests.Memory().String())
+	require.Equal(t, resources.Requests.Cpu().String(), resources.Limits.Cpu().String())
+	require.Equal(t, resources.Requests.Memory().String(), resources.Limits.Memory().String())
+	gpu := resources.Limits["nvidia.com/gpu"]
+	require.Equal(t, "1", gpu.String())
 }

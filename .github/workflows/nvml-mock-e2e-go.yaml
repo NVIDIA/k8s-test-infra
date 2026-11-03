@@ -734,6 +734,86 @@ jobs:
         if: always()
         run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
 
+  e2e-numa:
+    needs: [build-nvmlmock-image]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # One known two-zone layout; host CPU and memory capacities are read
+        # from the worker rather than hardcoded for a particular runner.
+        gpu-profile: [a100]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Download pre-built nvml-mock image
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: nvml-mock-image
+          path: ${{ runner.temp }}
+
+      - name: Install binaries and create Kind cluster
+        run: ./hack/e2e-ci-cluster.sh
+
+      - name: Load pre-built nvml-mock image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
+
+      - name: Load nvml-mock image into Kind
+        run: kind load docker-image "$E2E_IMAGE" --name mokka
+
+      - name: Stage CI Helm values for Tilt
+        run: cp tests/e2e/go/assets/numa-values.yaml local/nvml-mock.values.local.yaml
+
+      - name: Roll out nvml-mock via Tilt (${{ matrix.gpu-profile }})
+        # The scenario starts the device plugin and NFD only after the mock
+        # node topology and kubelet managers are ready.
+        run: tilt ci -- --gpu-profile="${{ matrix.gpu-profile }}" --nvmlmock-image="$E2E_IMAGE"
+
+      - name: Configure the DGXC Go proxy
+        uses: ./.github/actions/setup-dgxc-goproxy
+        with:
+          mode: routed
+
+      - name: Assert the proxy is actually in front
+        run: ./hack/check-goproxy.sh
+
+      - name: Run NUMA topology and allocation E2E (${{ matrix.gpu-profile }})
+        env:
+          E2E_PROFILES: ${{ matrix.gpu-profile }}
+          E2E_KUBE_CONTEXT: kind-mokka
+          E2E_CLUSTER_NAME: mokka
+        run: make e2e-numa
+
+      - name: Print diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== e2e-numa diagnostics (${{ matrix.gpu-profile }}) ==="
+          if [ -d "$E2E_ARTIFACTS" ]; then
+            find "$E2E_ARTIFACTS" -type f | while read -r f; do
+              echo "----- $f -----"; cat "$f"; echo;
+            done
+          else
+            echo "no diagnostics written"
+          fi
+
+      - name: Upload NUMA diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: numa-e2e-diagnostics
+          path: ${{ env.E2E_ARTIFACTS }}
+          if-no-files-found: warn
+
+      - name: Remove the proxy credential
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
+
   e2e-mig:
     needs: [build-nvmlmock-image]
     runs-on: ubuntu-latest

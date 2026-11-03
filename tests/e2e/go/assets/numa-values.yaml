@@ -1,0 +1,23 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+# A100 has two NUMA zones and four GPUs in each zone.
+nodeSelector:
+  mokka.nvidia.com/type: sgpu
+nri:
+  enabled: true
+nodeAgent:
+  kernelLog:
+    enabled: false
+  numa:
+    enabled: true
+    configureKubelet: true
+    topologyManagerPolicy: single-numa-node
+    cpuManagerPolicy: static
+    memoryManagerPolicy: static
+    systemReservedCPU: 100m
+    systemReservedMemory: 256Mi
+featureGates:
+  IMEXDownload: false
+updateStrategy:
+  rollingUpdate:
+    maxUnavailable: "100%"
