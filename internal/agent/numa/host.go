@@ -218,7 +218,9 @@ func (s *hostSetup) prepareApply(managed bool) ([]byte, bool, error) {
 	if _, err := os.Stat(s.host.RootPath("numa/sysnode/online")); err != nil {
 		return nil, false, err
 	}
-	applied, err := readApplied(s.host)
+	// A pending marker can mean kubelet was stopped before an interruption.
+	// Only a completed setup may skip startup and its health check.
+	applied, err := os.ReadFile(s.host.RunPath(appliedRel))
 	if err != nil && !os.IsNotExist(err) {
 		return nil, false, err
 	}

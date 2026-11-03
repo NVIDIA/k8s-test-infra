@@ -1,0 +1,6 @@
+kind: Fixed
+body: |-
+  node-agent: NUMA mount checks use the node namespace when running on a dedicated thread. Interrupted setup restarts and checks kubelet before reporting success.
+time: 2026-11-03T13:10:00Z
+custom:
+  Issue: "1148"
