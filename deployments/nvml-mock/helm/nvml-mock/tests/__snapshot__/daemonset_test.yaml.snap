@@ -19,7 +19,7 @@ should match snapshot with all overrides:
       template:
         metadata:
           annotations:
-            checksum/config: 06736d786d8b098fd753dce9f15ee115e252a25fb71bdc33ff22176a8cc0f114
+            checksum/config: cb1f51fccbc83fd08a84ae76dc38708fa7eff2a00948ba98d50d2a6c09ae287f
             checksum/mig-profiles: 7f5c00954886487b5209e5d1724a12cb1c9555a6c1fbf79d10f385fed9923237
             kubectl.kubernetes.io/default-container: node-agent
           labels:
@@ -324,7 +324,7 @@ should match snapshot with b200 profile:
       template:
         metadata:
           annotations:
-            checksum/config: 2f5e67aa9462ccd2fb907b4304f26c923879efd0cf0d7db6d6ff8cc4a71e7b49
+            checksum/config: e28f41ed0e57460590ad7b25c2da4aa57d9e668316804cf6ab2ae9a3f7675cce
             checksum/mig-profiles: 872e4e600afe92907f403d7ba38f14a091ffb356dc113d23c5c136a0284625d1
             kubectl.kubernetes.io/default-container: node-agent
           labels:
@@ -617,7 +617,7 @@ should match snapshot with default values:
       template:
         metadata:
           annotations:
-            checksum/config: b446b243e278090c36952e9faf9f408ddc0ef9d53c5c50fbfeb205f1a799ab2e
+            checksum/config: 1d50ed420646840e3c0818dae1a9fdbaf8a81b6c16c48f7493d7c41483b5dee0
             checksum/mig-profiles: fb2ebf8b158ede295783bcc2f137d194ef2e4f7648855ea626d419f41e62cf2d
             kubectl.kubernetes.io/default-container: node-agent
           labels:

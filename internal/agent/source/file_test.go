@@ -1288,18 +1288,3 @@ func TestBuildDeviceSpec_VGPUGuest(t *testing.T) {
 		require.Nil(t, buildDeviceSpec(0, cfg, nil).VGPUGuest, name)
 	}
 }
-
-func TestCompileState_NUMAReservations(t *testing.T) {
-	t.Parallel()
-	state, err := compileState([]byte(`version: "1.0"
-system:
-  driver_version: "580.65.06"
-  nvml_version: "13.580.65"
-  cuda_version: "13.0"
-numa:
-  system_reserved_cpu: 100m
-  system_reserved_memory: 512Mi
-`), "")
-	require.NoError(t, err)
-	require.Equal(t, agent.NUMAReservations{SystemReservedCPU: "100m", SystemReservedMemory: "512Mi"}, state.NodeShape.NUMA)
-}

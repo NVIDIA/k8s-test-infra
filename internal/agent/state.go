@@ -285,13 +285,6 @@ type NodeShape struct {
 	NumGPUs  int
 	Topology PCIeTopology
 	Network  NetworkShape
-	NUMA     NUMAReservations
-}
-
-// NUMAReservations holds profile defaults for node-wide system reservations.
-type NUMAReservations struct {
-	SystemReservedCPU    string `json:"system_reserved_cpu,omitempty"`
-	SystemReservedMemory string `json:"system_reserved_memory,omitempty"`
 }
 
 // NetworkShape describes the simulated InfiniBand HCAs attached to the node.
