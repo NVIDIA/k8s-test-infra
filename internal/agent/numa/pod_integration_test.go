@@ -36,7 +36,7 @@ func TestPrivilegedPodLifecycle(t *testing.T) {
 		sim, err := New(h, Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", MemoryManagerPolicy: "static", SystemReservedCPU: "100m"})
 		require.NoError(t, err)
 		sim.helperSource = "/tmp/mokka-kubelet-helper"
-		require.NoError(t, sim.Stage(t.Context(), testState()))
+		require.NoError(t, sim.Stage(t.Context(), testPreparedState(t, h)))
 		require.NoError(t, sim.Apply(t.Context(), nil))
 		require.Equal(t, "0-1\n", string(readNodeFile(t, h, "/sys/devices/system/node/online")))
 		config := readNodeFile(t, h, kubeletConfig)

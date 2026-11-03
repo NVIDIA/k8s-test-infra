@@ -314,7 +314,6 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	stateSource := nodeStateSource(cmd, h, log)
 
 	simulators := []agent.Simulator{
 		numaSimulator,
@@ -340,9 +339,15 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 		}),
 	}
 
+	var preparer agent.StatePreparer
+	if cmd.Bool("numa-simulation") {
+		preparer = numa.NewPreparer(h)
+	}
+
 	a := agent.New(agent.Config{
 		Simulators:      simulators,
-		Source:          stateSource,
+		Source:          source.NewFileSource(cmd.String("config"), cmd.String("topology"), cmd.Duration("resync-interval"), log),
+		Preparer:        preparer,
 		Log:             log,
 		ShutdownTimeout: shutdownTimeout,
 		StagingLockPath: cmd.String("staging-lock-path"),
@@ -356,15 +361,6 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	g.Go(func() error { return healthSrv.Run(gctx) })
 	g.Go(func() error { return a.Run(gctx) })
 	return g.Wait()
-}
-
-// nodeStateSource resolves the node topology before parallel simulator staging.
-func nodeStateSource(cmd *cli.Command, h *host.Host, log *zap.Logger) agent.StateSource {
-	var stateSource agent.StateSource = source.NewFileSource(cmd.String("config"), cmd.String("topology"), cmd.Duration("resync-interval"), log)
-	if cmd.Bool("numa-simulation") {
-		stateSource = numa.WrapSource(stateSource, h)
-	}
-	return stateSource
 }
 
 // driverSimulator returns the simulator for the driver's kernel side in mode:

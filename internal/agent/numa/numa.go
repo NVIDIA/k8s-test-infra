@@ -88,10 +88,9 @@ func (s *Simulator) Stage(_ context.Context, state *agent.State) error {
 	if err := s.rejectLegacySetup(); err != nil {
 		return err
 	}
-	copyState := *state
-	plan, err := Resolve(s.host, &copyState)
-	if err != nil {
-		return err
+	plan := state.NodeShape.NUMA
+	if plan == nil {
+		return errors.New("NUMA topology is not prepared")
 	}
 	data, err := json.Marshal(plan)
 	if err != nil {
