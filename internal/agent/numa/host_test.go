@@ -68,6 +68,8 @@ func TestHostApplyMountsConfigWithoutChangingOriginalAndRestores(t *testing.T) {
 	require.Contains(t, *calls, "mount --bind "+h.RootPath("numa/kubelet-config.yaml")+" "+h.HostPath(kubeletConfig))
 	require.Contains(t, *calls, "mount --make-rprivate "+h.Sys)
 	require.Contains(t, *calls, "mount -o remount,bind,ro "+h.SysPath("devices/system/node"))
+	require.Contains(t, *calls, "mount --bind "+h.RootPath("numa/sysbusnode")+" "+h.SysPath("bus/node/devices"))
+	require.Contains(t, *calls, "mount -o remount,bind,ro "+h.SysPath("bus/node/devices"))
 	service, err := os.ReadFile(h.EtcPath("systemd/system/mokka-kubelet-reset.service"))
 	require.NoError(t, err)
 	require.Contains(t, string(service), "ExecStart=/var/lib/nvml-mock/kubelet/mokka-kubelet-helper reset-for-boot")
@@ -90,6 +92,8 @@ func TestHostApplyMountsConfigWithoutChangingOriginalAndRestores(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, mounted)
 	require.Contains(t, *calls, "umount "+h.HostPath(kubeletConfig))
+	require.Contains(t, *calls, "umount "+h.SysPath("bus/node/devices"))
+	require.Contains(t, *calls, "umount "+h.SysPath("devices/system/node"))
 	require.Contains(t, *calls, "systemctl start kubelet")
 }
 
@@ -250,4 +254,14 @@ func TestPendingSetupRestartsKubeletBeforeReportingReady(t *testing.T) {
 	require.Contains(t, *calls, "healthcheck")
 	require.NoFileExists(t, s.host.RunPath(pendingRel))
 	require.FileExists(t, s.host.RunPath(appliedRel))
+}
+
+func TestHostRequiresBothTopologyMounts(t *testing.T) {
+	t.Parallel()
+	s, _ := hostFixture(t)
+	require.NoError(t, s.apply(t.Context(), false))
+	require.NoError(t, s.run(t.Context(), "umount", s.host.SysPath("bus/node/devices")))
+	complete, err := s.currentMounts(false)
+	require.NoError(t, err)
+	require.False(t, complete, "the bus view must not be missing from an applied topology")
 }

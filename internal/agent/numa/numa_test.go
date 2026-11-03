@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
@@ -99,6 +100,11 @@ func TestRenderCreatesCPUReferencesAndMemoryWithoutTouchingPCI(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(data), "Node 1 MemTotal: 8000 kB")
 	require.DirExists(t, h.RootPath("numa/sysnode/node1/hugepages"))
+	for _, name := range []string{"node0", "node1"} {
+		target, err := os.Readlink(h.RootPath("numa/sysbusnode", name))
+		require.NoError(t, err)
+		require.Equal(t, "../../../devices/system/node/"+name, target)
+	}
 	require.NoDirExists(t, h.RootPath("sys/devices"))
 }
 
@@ -158,6 +164,8 @@ func TestRenderAfterRestoreRemovesOldZones(t *testing.T) {
 	plan.Zones = []agent.NUMAZone{{ID: 0, CPUs: []int{0, 1, 2, 3, 4, 5, 6, 7}, MemoryKB: 16000}}
 	require.NoError(t, Render(h, plan))
 	require.NoDirExists(t, h.RootPath("numa/sysnode/node1"))
+	_, err = os.Lstat(h.RootPath("numa/sysbusnode/node1"))
+	require.True(t, os.IsNotExist(err), "restored layouts must not retain old bus links")
 	data, err := os.ReadFile(h.RootPath("numa/sysnode/online"))
 	require.NoError(t, err)
 	require.Equal(t, "0\n", string(data))
@@ -308,7 +316,7 @@ func TestLegacySetupMustBeRestoredWithPreviousVersion(t *testing.T) {
 	}
 }
 
-func TestLowercaseMemoryPolicyPreservesAppliedConfiguration(t *testing.T) {
+func TestLowercaseMemoryPolicyUsesKubeletSpellingInAppliedConfiguration(t *testing.T) {
 	t.Parallel()
 	h := testHost(t)
 	require.NoError(t, os.WriteFile(h.HostPath("/var/lib/kubelet/config.yaml"), []byte("evictionHard:\n  memory.available: 1Mi\n"), 0600))
@@ -316,8 +324,8 @@ func TestLowercaseMemoryPolicyPreservesAppliedConfiguration(t *testing.T) {
 	sim, err := newTestSimulator(h, Options{Runner: runner, Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", MemoryManagerPolicy: "static", SystemReservedMemory: "2Mi"})
 	require.NoError(t, err)
 	require.NoError(t, sim.Stage(t.Context(), testPreparedState(t, sim.host)))
-	// This fingerprint was produced by the previous capitalized setting.
-	const previous = "339badff2f87bb98162abc14e5e739ff2a7a0fb192e5987be55339009087961f:true:single-numa-node:static::Static:2Mi"
+	// User settings are lowercase; the stored policy uses kubelet spelling.
+	const previous = "sysbus-v1:339badff2f87bb98162abc14e5e739ff2a7a0fb192e5987be55339009087961f:true:single-numa-node:static::Static:2Mi"
 	requireFileContent(t, h.RootPath("numa/desired"), previous+"\n")
 	require.NoError(t, fsutil.Write(h.RunPath(appliedRel), []byte(previous+"\n"), 0600))
 	require.NoError(t, sim.Stage(t.Context(), testPreparedState(t, sim.host)))
@@ -478,4 +486,16 @@ func testPreparedState(t *testing.T, h *host.Host) *agent.State {
 	state, err := NewPreparer(h).Prepare(t.Context(), testState())
 	require.NoError(t, err)
 	return state
+}
+
+func TestStageRequiresRestoreForPreviousFilesystemSchema(t *testing.T) {
+	t.Parallel()
+	h := testHost(t)
+	sim, err := newTestSimulator(h, Options{Enabled: true})
+	require.NoError(t, err)
+	state := testPreparedState(t, h)
+	require.NoError(t, sim.Stage(t.Context(), state))
+	previous := strings.TrimPrefix(sim.desired, "sysbus-v1:")
+	require.NoError(t, fsutil.Write(h.RunPath(appliedRel), []byte(previous+"\n"), 0600))
+	require.ErrorContains(t, sim.Stage(t.Context(), state), "disable NUMA simulation")
 }
