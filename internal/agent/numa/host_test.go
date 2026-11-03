@@ -238,3 +238,16 @@ func TestWaitForKubeletHonorsCancellation(t *testing.T) {
 	cancel()
 	require.ErrorIs(t, s.waitForKubelet(ctx), context.Canceled)
 }
+
+func TestPendingSetupRestartsKubeletBeforeReportingReady(t *testing.T) {
+	t.Parallel()
+	s, calls := hostFixture(t)
+	require.NoError(t, s.apply(t.Context(), true))
+	require.NoError(t, os.Rename(s.host.RunPath(appliedRel), s.host.RunPath(pendingRel)))
+	*calls = nil
+	require.NoError(t, s.apply(t.Context(), true))
+	require.Contains(t, *calls, "systemctl start kubelet")
+	require.Contains(t, *calls, "healthcheck")
+	require.NoFileExists(t, s.host.RunPath(pendingRel))
+	require.FileExists(t, s.host.RunPath(appliedRel))
+}
