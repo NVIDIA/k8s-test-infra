@@ -5,6 +5,7 @@ package numa
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -114,16 +115,18 @@ func TestResolveRejectsSparseOrUnknownNUMAIDs(t *testing.T) {
 func TestPersistentSetupIsNotRestartedOrRemovedOnPodTeardown(t *testing.T) {
 	t.Parallel()
 	h := testHost(t)
-	sim, err := newTestSimulator(h, Options{Enabled: true, ConfigureKubelet: true})
-	require.NoError(t, err)
-	require.NoError(t, sim.Stage(t.Context(), testState()))
 	calls := 0
-	sim.runHost = func(context.Context, HostAction, bool) error {
+	runner := hostRunnerFunc(func(context.Context, HostAction, bool) error {
 		calls++
 		require.NoError(t, os.MkdirAll(filepath.Dir(h.EtcPath("systemd/system/"+filesystemUnit)), 0755))
 		require.NoError(t, os.WriteFile(h.EtcPath("systemd/system/"+filesystemUnit), []byte(filesystemService), 0644))
-		return os.WriteFile(h.RootPath("numa/.applied"), []byte(sim.desired+"\n"), 0600)
-	}
+		desired, err := os.ReadFile(h.RootPath("numa/desired"))
+		require.NoError(t, err)
+		return os.WriteFile(h.RootPath("numa/.applied"), desired, 0600)
+	})
+	sim, err := newTestSimulator(h, Options{Enabled: true, ConfigureKubelet: true, Runner: runner})
+	require.NoError(t, err)
+	require.NoError(t, sim.Stage(t.Context(), testState()))
 	require.NoError(t, sim.Apply(t.Context(), nil))
 	require.NoError(t, sim.Apply(t.Context(), nil))
 	require.Equal(t, 1, calls)
@@ -133,12 +136,12 @@ func TestPersistentSetupIsNotRestartedOrRemovedOnPodTeardown(t *testing.T) {
 	changed, err := newTestSimulator(h, Options{Enabled: true, ConfigureKubelet: true, Policy: "restricted"})
 	require.NoError(t, err)
 	require.ErrorContains(t, changed.Stage(t.Context(), testState()), "disable NUMA simulation")
-	disabled, err := newTestSimulator(h, Options{ConfigureKubelet: true})
-	require.NoError(t, err)
-	disabled.runHost = func(_ context.Context, action HostAction, _ bool) error {
+	restore := hostRunnerFunc(func(_ context.Context, action HostAction, _ bool) error {
 		require.Equal(t, ActionRestore, action)
 		return os.Remove(h.RootPath("numa/.applied"))
-	}
+	})
+	disabled, err := newTestSimulator(h, Options{ConfigureKubelet: true, Runner: restore})
+	require.NoError(t, err)
 	require.NoError(t, disabled.Stage(t.Context(), nil))
 	require.NoError(t, disabled.Apply(t.Context(), nil))
 	require.NoFileExists(t, h.RootPath("numa/.applied"))
@@ -303,18 +306,18 @@ func TestStageMigratesLegacyAppliedMarker(t *testing.T) {
 func TestDisableRestoresNodeWithLegacyAppliedMarker(t *testing.T) {
 	t.Parallel()
 	h := testHost(t)
-	sim, err := newTestSimulator(h, Options{})
-	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(h.RootPath("numa"), 0755))
 	require.NoError(t, os.WriteFile(h.RootPath("numa/applied"), []byte("active\n"), 0600))
 	called := false
-	sim.runHost = func(_ context.Context, action HostAction, _ bool) error {
+	runner := hostRunnerFunc(func(_ context.Context, action HostAction, _ bool) error {
 		called = true
 		require.Equal(t, ActionRestore, action)
 		requireFileContent(t, h.RootPath("numa/.applied"), "active\n")
 		require.NoFileExists(t, h.RootPath("numa/applied"))
 		return os.Remove(h.RootPath("numa/.applied"))
-	}
+	})
+	sim, err := newTestSimulator(h, Options{Runner: runner})
+	require.NoError(t, err)
 	require.NoError(t, sim.Apply(t.Context(), nil))
 	require.True(t, called)
 	require.NoFileExists(t, h.RootPath("numa/.applied"))
@@ -324,7 +327,11 @@ func TestLowercaseMemoryPolicyPreservesAppliedConfiguration(t *testing.T) {
 	t.Parallel()
 	h := testHost(t)
 	require.NoError(t, os.WriteFile(h.HostPath("/var/lib/kubelet/config.yaml"), []byte("evictionHard:\n  memory.available: 1Mi\n"), 0600))
-	sim, err := newTestSimulator(h, Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", MemoryManagerPolicy: "static", SystemReservedMemory: "2Mi"})
+	runner := hostRunnerFunc(func(context.Context, HostAction, bool) error {
+		t.Fatal("a spelling-only change must not reconfigure the node")
+		return nil
+	})
+	sim, err := newTestSimulator(h, Options{Runner: runner, Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", MemoryManagerPolicy: "static", SystemReservedMemory: "2Mi"})
 	require.NoError(t, err)
 	require.NoError(t, sim.Stage(t.Context(), testState()))
 	// This fingerprint was produced by the previous capitalized setting.
@@ -334,10 +341,6 @@ func TestLowercaseMemoryPolicyPreservesAppliedConfiguration(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(h.EtcPath("systemd/system/"+filesystemUnit)), 0755))
 	require.NoError(t, os.WriteFile(h.EtcPath("systemd/system/"+filesystemUnit), []byte(filesystemService), 0644))
 	require.NoError(t, sim.Stage(t.Context(), testState()))
-	sim.runHost = func(context.Context, HostAction, bool) error {
-		t.Fatal("a spelling-only change must not reconfigure the node")
-		return nil
-	}
 	require.NoError(t, sim.Apply(t.Context(), nil))
 }
 
@@ -433,4 +436,58 @@ func TestKubeletConfigRejectsInvalidManagedFields(t *testing.T) {
 	sim, err := newTestSimulator(h, Options{Enabled: true, ConfigureKubelet: true})
 	require.NoError(t, err)
 	require.ErrorContains(t, sim.Stage(t.Context(), testState()), "decode kubelet config")
+}
+
+type hostRunnerFunc func(context.Context, HostAction, bool) error
+
+func (f hostRunnerFunc) Run(ctx context.Context, action HostAction, managed bool) error {
+	return f(ctx, action, managed)
+}
+
+func TestConstructorHostRunnerReceivesActionsAndErrors(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name                   string
+		enabled, managed, fail bool
+		action                 HostAction
+	}{
+		{name: "mount only", enabled: true, action: ActionApply},
+		{name: "managed apply", enabled: true, managed: true, action: ActionApply},
+		{name: "restore", action: ActionRestore},
+		{name: "runner failure", enabled: true, fail: true, action: ActionApply},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := testHost(t)
+			require.NoError(t, os.MkdirAll(h.RootPath("numa"), 0755))
+			if !tc.enabled {
+				require.NoError(t, os.WriteFile(h.RootPath("numa/.applied"), []byte("active\n"), 0600))
+			}
+			calls := 0
+			failure := errors.New("test host runner failed")
+			runner := hostRunnerFunc(func(ctx context.Context, action HostAction, managed bool) error {
+				require.Equal(t, t.Context(), ctx)
+				require.Equal(t, tc.action, action)
+				require.Equal(t, tc.managed, managed)
+				calls++
+				requireFileContent(t, h.RootPath("numa/numa-host"), "test Go executable")
+				if tc.fail {
+					return failure
+				}
+				return nil
+			})
+			sim, err := newTestSimulator(h, Options{Enabled: tc.enabled, ConfigureKubelet: tc.managed, Runner: runner})
+			require.NoError(t, err)
+			require.NoError(t, sim.Stage(t.Context(), testState()))
+			err = sim.Apply(t.Context(), nil)
+			if tc.fail {
+				require.ErrorIs(t, err, failure)
+				require.False(t, sim.Ready())
+			} else {
+				require.NoError(t, err)
+				require.True(t, sim.Ready())
+			}
+			require.Equal(t, 1, calls)
+		})
+	}
 }

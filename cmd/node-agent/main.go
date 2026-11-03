@@ -285,6 +285,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	)
 
 	numaSimulator, err := numa.New(h, numa.Options{
+		Runner:               numa.NewSystemdRunner(h),
 		Enabled:              cmd.Bool("numa-simulation"),
 		ConfigureKubelet:     cmd.Bool("numa-configure-kubelet"),
 		Policy:               cmd.String("numa-topology-manager-policy"),
