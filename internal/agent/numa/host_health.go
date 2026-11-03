@@ -14,7 +14,9 @@ import (
 func (s *hostSetup) waitForKubelet(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	client := &http.Client{Timeout: 2 * time.Second}
+	transport := &http.Transport{DialContext: s.host.DialContext}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Timeout: 2 * time.Second, Transport: transport}
 	var lastErr error
 	for {
 		lastErr = s.systemctl(ctx, "is-active", "--quiet", "kubelet")

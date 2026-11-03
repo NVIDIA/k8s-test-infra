@@ -1341,34 +1341,49 @@ CPU affinities for NVML, PCI sysfs, and the generated NUMA tree. An explicit
 `cpu_affinity` must cover every zone and partition all online CPUs without
 repetition. Zone IDs must be contiguous, start at zero, and number at most eight.
 
-The node agent stages the statically linked Go helper `numa-host` on the node.
-Systemd runs this helper in the node mount namespace. The helper uses Go for
-file changes and kubelet health checks, and calls the node's `mount`, `umount`,
-and `systemctl` tools directly, without a shell. A systemd setup task mounts `/var/lib/nvml-mock/numa/sysnode` over
-`/sys/devices/system/node` in the node's mount namespace. New mounts stay inside
-the node, including when kind nodes share a VM. The persistent service restores
-the mount before kubelet starts. This requires Linux, systemd, and privileged
-node-agent access.
+The privileged node-agent pod enters the node's mount namespace to apply and
+restore NUMA setup. It mounts `/var/lib/nvml-mock/numa/sysnode` over
+`/sys/devices/system/node`. New mounts stay inside the node, including when kind
+nodes share a VM. This requires Linux and privileged node-agent access.
 
-`configureKubelet: true` backs up `/var/lib/kubelet/config.yaml`, sets the requested
-topology policy with container scope, and restarts kubelet once. CPU and memory
-managers are disabled by default. Set `cpuManagerPolicy: static` to allocate real
-CPU IDs by simulated zone. `reservedCPUs` selects CPUs for the shared system pool;
-an empty value reserves the first CPU in the first zone. Policy checkpoints are
-backed up before configuration and restored when simulation is disabled. `false` mounts the tree but leaves kubelet configuration
-and restart to the administrator. The setup survives ordinary Mokka pod restarts.
+`configureKubelet: true` also requires systemd. The pod stages a modified kubelet
+configuration and bind-mounts it read-only over `/var/lib/kubelet/config.yaml`.
+The original file on disk stays unchanged. The pod sets the requested topology
+policy with container scope and restarts kubelet. CPU and memory managers are
+disabled by default. Set `cpuManagerPolicy: static` to allocate real CPU IDs by
+simulated zone. `reservedCPUs` selects CPUs for the shared system pool; an empty
+value reserves the first CPU in the first zone. With `configureKubelet: false`,
+the pod mounts only the topology tree; kubelet configuration and restart are left
+to the administrator.
+
+The setup survives ordinary Mokka pod and kubelet restarts. On a node reboot,
+the mounts disappear and kubelet sees its original configuration and real
+hardware topology. A small systemd service runs `mokka-kubelet-helper
+reset-for-boot` before kubelet starts. It removes the CPU and memory manager
+checkpoints registered by NUMA simulation, once per boot. It does not apply
+simulation. Kubelet starts with fresh resource-manager state, then the DaemonSet
+pod applies the simulated setup again. CPU and memory allocation state is not
+preserved across a node reboot.
+
 To restore the node, upgrade with `nodeAgent.numa.enabled: false` before
-uninstalling Mokka. If setup changed kubelet configuration, restoration also
-restores that configuration and restarts kubelet.
-The node agent retains its read-only host root mount and host PID namespace
-even when NUMA and runtime setup are disabled, so it can restore saved state.
+uninstalling Mokka. The pod stops kubelet if it configured its policies, removes
+the owned mounts, restores the saved checkpoints, and starts kubelet again.
+After its health check succeeds, it removes the boot service and recovery files.
+The node agent retains its read-only host root mount and host PID namespace even
+when NUMA and runtime setup are disabled, so it can restore saved state.
+
 An active layout or policy change is rejected; restore the node before applying
-a different topology. The original configuration is stored under
-`/var/lib/nvml-mock/numa/original`.
-The active configuration is recorded in `/var/lib/nvml-mock/numa/.applied`.
-Upgrades migrate the previous `applied` marker automatically.
-Failed restoration retains the backups and applied-state marker. Backups are
-removed only after restoration succeeds and a managed kubelet passes its health check.
+a different topology. Backups and the applied or pending marker are stored under
+`/run/mokka/numa/`. They survive pod restarts and disappear on node reboot.
+Failed restoration retains these files for a retry. The boot helper and its
+registered reset plan are stored persistently under
+`/var/lib/nvml-mock/kubelet/`.
+
+!!! warning "Upgrade from the previous NUMA implementation"
+
+    Restore NUMA simulation with the previous Mokka version before upgrading,
+    or use a fresh node. The previous implementation changed the original kubelet
+    configuration on disk; the new implementation rejects that active setup.
 
 Install a real NRT publisher separately. For GPU Operator's NFD subchart:
 

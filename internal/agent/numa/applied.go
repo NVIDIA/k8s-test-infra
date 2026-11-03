@@ -11,33 +11,23 @@ import (
 )
 
 const (
-	appliedRel       = "numa/.applied"
-	legacyAppliedRel = "numa/applied"
+	appliedRel = "mokka/numa/.applied"
+	pendingRel = "mokka/numa/.pending"
 )
 
-// Migrate the previous marker before deciding whether a node is already
-// configured. Losing this state could repeat setup or skip restoration.
+// Runtime markers survive pod restarts but disappear on node reboot. A pending
+// marker keeps a partially applied setup recoverable if rollback also fails.
 func readApplied(h *host.Host) ([]byte, error) {
-	data, err := os.ReadFile(h.RootPath(appliedRel))
+	data, err := os.ReadFile(h.RunPath(appliedRel))
 	if !os.IsNotExist(err) {
 		return data, err
 	}
-	data, err = os.ReadFile(h.RootPath(legacyAppliedRel))
-	if err != nil {
-		return nil, err
-	}
-	if err := fsutil.Write(h.RootPath(appliedRel), data, 0o600); err != nil {
-		return nil, err
-	}
-	if err := fsutil.Remove(h.RootPath(legacyAppliedRel)); err != nil {
-		return nil, err
-	}
-	return data, nil
+	return os.ReadFile(h.RunPath(pendingRel))
 }
 
 func clearApplied(h *host.Host) error {
-	for _, path := range []string{legacyAppliedRel, appliedRel} {
-		if err := fsutil.Remove(h.RootPath(path)); err != nil {
+	for _, path := range []string{appliedRel, pendingRel} {
+		if err := fsutil.Remove(h.RunPath(path)); err != nil {
 			return err
 		}
 	}
