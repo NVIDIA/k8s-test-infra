@@ -21,7 +21,7 @@ func (s *Simulator) stageKubeletConfig(plan *Plan) error {
 	if !s.opts.ConfigureKubelet {
 		return nil
 	}
-	original, err := os.ReadFile(s.host.RootPath("numa/original/kubelet-config.yaml"))
+	original, err := os.ReadFile(s.host.RunPath("mokka/numa/original/kubelet-config.yaml"))
 	if os.IsNotExist(err) {
 		original, err = os.ReadFile(s.host.HostPath("/var/lib/kubelet/config.yaml"))
 	}

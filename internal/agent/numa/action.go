@@ -3,25 +3,11 @@
 
 package numa
 
-import "fmt"
-
-// HostAction identifies a supported operation of the node-side NUMA helper.
+// HostAction identifies a node operation performed by the NUMA simulator.
 type HostAction string
 
-// Supported node-side NUMA operations.
+// Host actions are executed by the privileged pod runner.
 const (
 	ActionApply   HostAction = "apply"
 	ActionRestore HostAction = "restore"
-	ActionMount   HostAction = "mount"
 )
-
-// ParseHostAction validates an action received from the helper command line.
-func ParseHostAction(value string) (HostAction, error) {
-	action := HostAction(value)
-	switch action {
-	case ActionApply, ActionRestore, ActionMount:
-		return action, nil
-	default:
-		return "", fmt.Errorf("unknown NUMA host action %q", value)
-	}
-}

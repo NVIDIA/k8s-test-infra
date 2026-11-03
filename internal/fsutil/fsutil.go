@@ -284,6 +284,12 @@ func sameContent(source, target string) (bool, error) {
 	return targetMount.majorMinor == sourceMount.majorMinor && targetMount.root == expectedRoot, nil
 }
 
+// IsBindMounted reports whether target is mounted from source, including when
+// an atomic source replacement left the existing mount on the previous inode.
+func IsBindMounted(source, target string) (bool, error) {
+	return sameContent(source, target)
+}
+
 // IsMounted reports whether path is itself a mount point, by scanning this
 // process's mount table.
 func IsMounted(p string) (bool, error) {

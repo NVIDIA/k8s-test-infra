@@ -254,9 +254,9 @@ nodeAgent:
 
   # NUMA filesystem simulation with optional kubelet CPU allocation. The GPU profile supplies the zones.
   numa:
-    # -- Publish the simulated NUMA tree on the node. Requires Linux and systemd.
+    # -- Publish the simulated NUMA tree on the node. Requires Linux.
     enabled: false
-    # -- Save kubelet configuration, apply topology and resource-manager policies, and restart kubelet.
+    # -- Bind-mount kubelet configuration, apply policies, and restart kubelet. Requires systemd for boot reset.
     configureKubelet: false
     # -- Policy to configure when configureKubelet is true.
     topologyManagerPolicy: single-numa-node

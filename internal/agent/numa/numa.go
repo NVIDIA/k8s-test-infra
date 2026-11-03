@@ -17,14 +17,13 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
+	"github.com/NVIDIA/k8s-test-infra/internal/kubelet"
 	"go.uber.org/zap"
 )
 
 const name = "numa"
 
-const helperSource = "/usr/local/bin/numa-host"
-
-const hostDir = "/var/lib/nvml-mock/numa"
+const helperSource = "/usr/local/bin/mokka-kubelet-helper"
 
 // HostRunner applies or restores NUMA setup in the node's mount namespace.
 type HostRunner interface {
@@ -41,11 +40,11 @@ type Options struct {
 	MemoryManagerPolicy  string
 	SystemReservedMemory string
 	SystemReservedCPU    string
-	// Runner defaults to the systemd host runner.
+	// Runner defaults to the privileged pod runner.
 	Runner HostRunner
 }
 
-// Simulator keeps a simulated NUMA view on the node until explicitly disabled.
+// Simulator reapplies the node NUMA view after boot and restores it on disable.
 type Simulator struct {
 	host         *host.Host
 	opts         Options
@@ -62,7 +61,7 @@ func New(h *host.Host, opts Options) (*Simulator, error) {
 		return nil, err
 	}
 	if opts.Runner == nil {
-		opts.Runner = NewSystemdRunner(h)
+		opts.Runner = NewPodRunner(h)
 	}
 	sim := &Simulator{
 		host:         h,
@@ -85,6 +84,9 @@ func (s *Simulator) Stage(_ context.Context, state *agent.State) error {
 	zap.L().Info("staging simulator", zap.String("simulator", name))
 	if !s.opts.Enabled {
 		return nil
+	}
+	if err := s.rejectLegacySetup(); err != nil {
+		return err
 	}
 	copyState := *state
 	plan, err := Resolve(s.host, &copyState)
@@ -134,23 +136,24 @@ func (s *Simulator) matchApplied() (bool, error) {
 	return len(previous) > 0, nil
 }
 
-// Apply installs or restores the persistent node setup.
+// Apply installs or restores the node setup from the privileged agent pod.
 func (s *Simulator) Apply(ctx context.Context, _ *agent.State) error {
-	applied, err := readApplied(s.host)
+	if err := s.rejectLegacySetup(); err != nil {
+		return err
+	}
+	_, err := readApplied(s.host)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	if !s.opts.Enabled && os.IsNotExist(err) {
-		s.ready.Store(true)
-		return nil
-	}
-	current, err := s.currentHostSetup(applied)
-	if err != nil {
-		return err
-	}
-	if s.opts.Enabled && current {
-		s.ready.Store(true)
-		return nil
+		registered, err := kubelet.BootResetRegistered(s.host)
+		if err != nil {
+			return err
+		}
+		if !registered {
+			s.ready.Store(true)
+			return nil
+		}
 	}
 	action := ActionApply
 	if !s.opts.Enabled {
@@ -166,28 +169,17 @@ func (s *Simulator) Apply(ctx context.Context, _ *agent.State) error {
 }
 
 func (s *Simulator) runHost(ctx context.Context, action HostAction) error {
-	if err := s.stageHelper(); err != nil {
-		return err
-	}
 	return s.runner.Run(ctx, action, s.opts.ConfigureKubelet)
 }
 
 func (s *Simulator) stageHelper() error {
-	return fsutil.Copy(s.helperSource, s.host.RootPath("numa/numa-host"), 0700)
-}
-
-func (s *Simulator) currentHostSetup(applied []byte) (bool, error) {
-	unit, err := os.ReadFile(s.host.EtcPath("systemd/system/" + filesystemUnit))
-	if err != nil && !os.IsNotExist(err) {
-		return false, err
-	}
-	return strings.TrimSpace(string(applied)) == s.desired && string(unit) == filesystemService, nil
+	return fsutil.Copy(s.helperSource, s.host.RootPath("kubelet/mokka-kubelet-helper"), 0700)
 }
 
 // Revoke keeps node state across pod teardown; explicit disable restores it.
 func (s *Simulator) Revoke(context.Context) error { return nil }
 
-// Discard retains the files needed by the persistent node service.
+// Discard retains staging files and the boot helper across pod replacement.
 func (s *Simulator) Discard(context.Context) error { return nil }
 
 var _ agent.Simulator = (*Simulator)(nil)
@@ -244,4 +236,15 @@ func (s *Simulator) configurationKey(topology []byte) string {
 		key += ":system-cpu=" + s.opts.SystemReservedCPU
 	}
 	return key
+}
+
+func (s *Simulator) rejectLegacySetup() error {
+	for _, path := range []string{"numa/.applied", "numa/applied"} {
+		if _, err := os.Stat(s.host.RootPath(path)); err == nil {
+			return errors.New("restore NUMA with the previous Mokka version before upgrading, or use a fresh node")
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
 }

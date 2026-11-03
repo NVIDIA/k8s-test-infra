@@ -217,7 +217,7 @@ build: ## Build all CLIs
 	    parent=$$(basename $$(dirname $$pkg)); \
 	    if [ "$$parent" != "cmd" ]; then name=$$parent-$$name; fi; \
 	    echo "🔨 $$name"; \
-	    if [ "$$name" = "numa-host" ]; then \
+	    if [ "$$name" = "mokka-kubelet-helper" ]; then \
 	        CGO_ENABLED=0 $(GO_CMD) build -o $(DIST_DIR)/$$name $$pkg || exit 1; \
 	    else \
 	        $(GO_CMD) build -o $(DIST_DIR)/$$name $$pkg || exit 1; \
