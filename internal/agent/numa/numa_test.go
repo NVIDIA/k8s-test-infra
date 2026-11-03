@@ -384,3 +384,53 @@ func TestProfileReservationDefaultsAndOverrides(t *testing.T) {
 		})
 	}
 }
+
+func TestKubeletConfigPreservesUnmanagedFields(t *testing.T) {
+	t.Parallel()
+	h := testHost(t)
+	const original = `apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+featureGates:
+  FutureFeature: true
+podPidsLimit: 2048
+systemReserved:
+  cpu: 300m
+  memory: 1Mi
+  ephemeral-storage: 1Gi
+kubeReserved:
+  memory: 1Mi
+  ephemeral-storage: 2Gi
+evictionHard:
+  memory.available: 1Mi
+  nodefs.available: 10%
+reservedSystemCPUs: "7"
+reservedMemory:
+  - numaNode: 0
+    limits:
+      memory: 1Mi
+    futureField: keep
+`
+	require.NoError(t, os.WriteFile(h.HostPath("/var/lib/kubelet/config.yaml"), []byte(original), 0600))
+	sim, err := newTestSimulator(h, Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", SystemReservedCPU: "100m"})
+	require.NoError(t, err)
+	require.NoError(t, sim.Stage(t.Context(), testState()))
+	data, err := os.ReadFile(h.RootPath("numa/kubelet-config.yaml"))
+	require.NoError(t, err)
+	var before, after map[string]any
+	require.NoError(t, yaml.Unmarshal([]byte(original), &before))
+	require.NoError(t, yaml.Unmarshal(data, &after))
+	for _, key := range []string{"apiVersion", "kind", "featureGates", "podPidsLimit", "kubeReserved", "evictionHard", "reservedMemory"} {
+		require.Equal(t, before[key], after[key], key)
+	}
+	require.Equal(t, map[string]any{"cpu": "100m", "memory": "1Mi", "ephemeral-storage": "1Gi"}, after["systemReserved"])
+	require.NotContains(t, after, "reservedSystemCPUs")
+}
+
+func TestKubeletConfigRejectsInvalidManagedFields(t *testing.T) {
+	t.Parallel()
+	h := testHost(t)
+	require.NoError(t, os.WriteFile(h.HostPath("/var/lib/kubelet/config.yaml"), []byte("systemReserved: invalid\n"), 0600))
+	sim, err := newTestSimulator(h, Options{Enabled: true, ConfigureKubelet: true})
+	require.NoError(t, err)
+	require.ErrorContains(t, sim.Stage(t.Context(), testState()), "decode kubelet config")
+}
