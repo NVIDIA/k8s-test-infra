@@ -466,6 +466,61 @@ _Appears in:_
 | `pendingNodes` _integer_ | PendingNodes counts eligible placement requests awaiting capacity in one matching group. |  |  |
 
 
+#### KWOKKubelet
+
+
+
+KWOKKubelet is the kubelet configuration a virtual Node reports. These
+settings stay out of SGPURackProfile because the same profile also backs CPU
+rack groups, where a real kubelet decides them.
+
+
+
+_Appears in:_
+- [KWOKSettings](#kwoksettings)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `maxPods` _integer_ | MaxPods is the pod capacity of each Node, defaulting to the kubelet's own<br />default. | 110 | Minimum: 1 <br />Optional: \{\} <br /> |
+
+
+#### KWOKNodeTemplate
+
+
+
+KWOKNodeTemplate is the metadata stamped on every Node a KWOK rack creates.
+
+
+
+_Appears in:_
+- [KWOKSettings](#kwoksettings)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `labels` _object (keys:string, values:string)_ | Labels are added to every Node created for the rack. They may not set the<br />labels Mokka owns: mokka.nvidia.com/sgpu-node, which would offer the<br />virtual Nodes to CPU racks, and mokka.nvidia.com/provisioner, which Mokka<br />sets to route the Node to its own provisioner. |  | Optional: \{\} <br /> |
+| `taints` _[Taint](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#taint-v1-core) array_ | Taints are applied to every Node created for the rack, so that ordinary<br />workloads stay off the virtual Nodes unless they tolerate them. |  | MaxItems: 32 <br />Optional: \{\} <br /> |
+
+
+#### KWOKSettings
+
+
+
+KWOKSettings configures the virtual Nodes created for KWOK provisioning.
+These settings are absent from CPU racks, where real Nodes already supply
+everything they describe.
+
+
+
+_Appears in:_
+- [RackGroup](#rackgroup)
+- [SGPURackSpec](#sgpurackspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `kubelet` _[KWOKKubelet](#kwokkubelet)_ | Kubelet is the kubelet configuration the Nodes report. There is no<br />kubelet on a KWOK Node, so Mokka reports what one would. |  | Optional: \{\} <br /> |
+| `nodeTemplate` _[KWOKNodeTemplate](#kwoknodetemplate)_ | NodeTemplate is the metadata applied to every Node created for the rack. |  | Optional: \{\} <br /> |
+
+
 #### MIGCapability
 
 
@@ -616,6 +671,25 @@ _Appears in:_
 | `name` _string_ | Name is the name of the SGPURackProfile to use. |  | MinLength: 1 <br /> |
 
 
+#### Provisioner
+
+_Underlying type:_ _string_
+
+Provisioner names the service that brings a rack's Nodes into existence.
+
+_Validation:_
+- Enum: [CPU KWOK]
+
+_Appears in:_
+- [RackGroup](#rackgroup)
+- [SGPURackSpec](#sgpurackspec)
+
+| Field | Description |
+| --- | --- |
+| `CPU` | ProvisionerCPU binds racks to existing CPU Nodes, where the node daemon<br />simulates the GPUs on the host.<br /> |
+| `KWOK` | ProvisionerKWOK creates a virtual Node for each logical rack Node. The<br />Nodes have no kubelet and their GPUs exist only in the Kubernetes API.<br /> |
+
+
 #### RackGroup
 
 
@@ -630,9 +704,11 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `id` _string_ | ID uniquely identifies this group within its inventory. |  | MaxLength: 63 <br />MinLength: 1 <br /> |
+| `provisioner` _[Provisioner](#provisioner)_ | Provisioner selects the service that realizes this group's Nodes. It is<br />immutable, so a rack stays with the same service for its whole life;<br />replace the group under a new id to change it. | CPU | Enum: [CPU KWOK] <br />Optional: \{\} <br /> |
 | `count` _integer_ | Count is the number of racks to materialize from this group. |  | Maximum: 100000 <br />Minimum: 1 <br /> |
 | `profileRef` _[ProfileReference](#profilereference)_ | ProfileRef names the rack profile used to materialize each rack. |  |  |
-| `placement` _[RackPlacement](#rackplacement)_ | Placement optionally restricts the Nodes eligible for this rack group. |  | Optional: \{\} <br /> |
+| `placement` _[RackPlacement](#rackplacement)_ | Placement optionally restricts the Nodes eligible for this rack group.<br />CPU groups only: KWOK Nodes are created rather than selected. |  | Optional: \{\} <br /> |
+| `kwok` _[KWOKSettings](#kwoksettings)_ | KWOK configures the virtual Nodes created for this group. KWOK groups only. |  | Optional: \{\} <br /> |
 
 
 #### RackGroupStatus
@@ -1060,6 +1136,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
+| `provisioner` _[Provisioner](#provisioner)_ | Provisioner is copied from the rack group and names the service that<br />realizes this rack's Nodes. The mokka.nvidia.com/provisioner label mirrors<br />it so those services can select their racks server-side. | CPU | Enum: [CPU KWOK] <br />Optional: \{\} <br /> |
+| `kwok` _[KWOKSettings](#kwoksettings)_ | KWOK is copied from the rack group for KWOK racks. Carrying it here lets<br />the KWOK provisioner read it from the rack instead of watching inventories. |  | Optional: \{\} <br /> |
 | `inventoryRef` _[SGPURackInventoryReference](#sgpurackinventoryreference)_ | InventoryRef pins ownership to an exact inventory instance so a<br />same-name replacement cannot inherit this rack. |  |  |
 | `profileRef` _[SGPURackProfileReference](#sgpurackprofilereference)_ | ProfileRef records the exact profile revision used to render the rack. |  |  |
 | `identity` _[SGPURackIdentity](#sgpurackidentity)_ | Identity is the stable coordinate used by agents and topology consumers. |  |  |

@@ -1462,6 +1462,32 @@ func (h *harness) reconcileGroup(ctx context.Context, key allocate.RackGroupKey)
 	return reconciler.ReconcileGroup(ctx, key)
 }
 
+func TestRackMetadataMirrorsTheProvisionerIntoItsLabel(t *testing.T) {
+	t.Parallel()
+
+	inventory := testInventory("inventory", "inventory-uid", "profile", 1)
+	inventoryRef := mokkav1alpha1.SGPURackInventoryReference{Name: inventory.Name, UID: inventory.UID}
+
+	kwokRack := newRack(inventory, "kwok-rack", mokkav1alpha1.SGPURackSpec{
+		Provisioner:  mokkav1alpha1.ProvisionerKWOK,
+		InventoryRef: inventoryRef,
+		Identity:     mokkav1alpha1.SGPURackIdentity{RackGroup: "ci", RackIndex: 0},
+	})
+	require.Equal(t, "KWOK", kwokRack.Labels[ProvisionerLabel])
+
+	cpuRack := newRack(inventory, "cpu-rack", mokkav1alpha1.SGPURackSpec{
+		InventoryRef: inventoryRef,
+		Identity:     mokkav1alpha1.SGPURackIdentity{RackGroup: "compute", RackIndex: 0},
+	})
+	require.Equal(t, "CPU", cpuRack.Labels[ProvisionerLabel])
+
+	// spec.provisioner is the source of truth, and the metadata is reapplied on
+	// every update, so editing the label cannot hand a rack to another service.
+	kwokRack.Labels[ProvisionerLabel] = string(mokkav1alpha1.ProvisionerCPU)
+	ensureRackMetadata(kwokRack, inventory)
+	require.Equal(t, "KWOK", kwokRack.Labels[ProvisionerLabel])
+}
+
 func testInventory(name string, uid types.UID, profileName string, count int32) *mokkav1alpha1.SGPUInventory {
 	return &mokkav1alpha1.SGPUInventory{
 		TypeMeta:   metav1.TypeMeta{APIVersion: mokkav1alpha1.SchemeGroupVersion.String(), Kind: "SGPUInventory"},

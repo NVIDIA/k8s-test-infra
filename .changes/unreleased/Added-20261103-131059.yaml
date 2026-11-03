@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  control-plane: `SGPUInventory` rack groups take a `provisioner` of `CPU` (the default) or `KWOK`, with virtual-Node settings under `kwok`; the control plane copies both onto every `SGPURack`. No component provisions KWOK Nodes yet.
+time: 2026-11-03T12:10:59Z

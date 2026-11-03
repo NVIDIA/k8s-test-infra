@@ -22,6 +22,7 @@ import (
 // +kubebuilder:printcolumn:name="Rack Group",type=string,JSONPath=`.spec.identity.rackGroup`
 // +kubebuilder:printcolumn:name="Rack",type=integer,JSONPath=`.spec.identity.rackIndex`
 // +kubebuilder:printcolumn:name="Profile",type=string,JSONPath=`.spec.profileRef.name`
+// +kubebuilder:printcolumn:name="Provisioner",type=string,JSONPath=`.spec.provisioner`
 // +kubebuilder:printcolumn:name="Assigned",type=integer,JSONPath=`.status.assignedNodes`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 type SGPURack struct {
@@ -64,7 +65,21 @@ type SGPURackList struct {
 }
 
 // SGPURackSpec is a rendered rack with durable logical Node bindings.
+// +kubebuilder:validation:XValidation:rule="self.provisioner == oldSelf.provisioner",message="provisioner is immutable"
+// +kubebuilder:validation:XValidation:rule="!has(self.kwok) || self.provisioner == 'KWOK'",message="kwok is allowed only on KWOK racks"
 type SGPURackSpec struct {
+	// +optional
+	// +kubebuilder:default=CPU
+	// Provisioner is copied from the rack group and names the service that
+	// realizes this rack's Nodes. The mokka.nvidia.com/provisioner label mirrors
+	// it so those services can select their racks server-side.
+	Provisioner Provisioner `json:"provisioner,omitempty"`
+
+	// +optional
+	// KWOK is copied from the rack group for KWOK racks. Carrying it here lets
+	// the KWOK provisioner read it from the rack instead of watching inventories.
+	KWOK *KWOKSettings `json:"kwok,omitempty"`
+
 	// InventoryRef pins ownership to an exact inventory instance so a
 	// same-name replacement cannot inherit this rack.
 	InventoryRef SGPURackInventoryReference `json:"inventoryRef"`

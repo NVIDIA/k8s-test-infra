@@ -220,6 +220,49 @@ func TestRenderRack(t *testing.T) {
 	require.Equal(t, profileAddress, profile.Spec.Node.Topology.GPUSlots[0].PCIAddress)
 }
 
+func TestRenderRackCarriesKWOKProvisioningFromItsGroup(t *testing.T) {
+	kwok := &mokkav1alpha1.KWOKSettings{
+		Kubelet: &mokkav1alpha1.KWOKKubelet{MaxPods: 250},
+		NodeTemplate: &mokkav1alpha1.KWOKNodeTemplate{
+			Labels: map[string]string{"run.ai/simulated-gpu-node-pool": "ci"},
+		},
+	}
+
+	rendered, err := RenderRack(RackInput{
+		InventoryName: "inventory-a",
+		InventoryUID:  types.UID("inventory-uid-a"),
+		Group: mokkav1alpha1.RackGroup{
+			ID: "ci", Count: 1, Provisioner: mokkav1alpha1.ProvisionerKWOK, KWOK: kwok,
+		},
+		Profile: validProfile(),
+	})
+	require.NoError(t, err)
+	require.Equal(t, mokkav1alpha1.ProvisionerKWOK, rendered.Spec.Provisioner)
+	require.Equal(t, kwok, rendered.Spec.KWOK)
+
+	// The rendered block must not alias the informer-cache group it came from.
+	rendered.Spec.KWOK.Kubelet.MaxPods = 1
+	require.Equal(t, int32(250), kwok.Kubelet.MaxPods)
+}
+
+func TestRenderRackDefaultsToCPUAndLeavesKWOKSettingsBehind(t *testing.T) {
+	// A CPU rack carrying a KWOK block contradicts its own provisioner, and the
+	// SGPURack schema rejects it. Rendering drops the block rather than passing
+	// a group the API server would refuse.
+	rendered, err := RenderRack(RackInput{
+		InventoryName: "inventory-a",
+		InventoryUID:  types.UID("inventory-uid-a"),
+		Group: mokkav1alpha1.RackGroup{
+			ID: "compute", Count: 1,
+			KWOK: &mokkav1alpha1.KWOKSettings{Kubelet: &mokkav1alpha1.KWOKKubelet{MaxPods: 250}},
+		},
+		Profile: validProfile(),
+	})
+	require.NoError(t, err)
+	require.Equal(t, mokkav1alpha1.ProvisionerCPU, rendered.Spec.Provisioner)
+	require.Nil(t, rendered.Spec.KWOK)
+}
+
 func TestRenderRackWithPrecomputedRevisionBindsProfileObservation(t *testing.T) {
 	profile := validProfile()
 	input := RackInput{

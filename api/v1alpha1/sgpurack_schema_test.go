@@ -66,6 +66,7 @@ func TestSGPURackCRDIdentityAndPresentation(t *testing.T) {
 		{name: "Rack Group", kind: "string", jsonPath: ".spec.identity.rackGroup"},
 		{name: "Rack", kind: "integer", jsonPath: ".spec.identity.rackIndex"},
 		{name: "Profile", kind: "string", jsonPath: ".spec.profileRef.name"},
+		{name: "Provisioner", kind: "string", jsonPath: ".spec.provisioner"},
 		{name: "Assigned", kind: "integer", jsonPath: ".status.assignedNodes"},
 		{name: "Age", kind: "date", jsonPath: ".metadata.creationTimestamp"},
 	}
@@ -141,6 +142,25 @@ func TestSGPURackCRDObservedStatus(t *testing.T) {
 	require.Equal(t, []string{"type"}, conditions.XListMapKeys)
 }
 
+func TestSGPURackCRDProvisionerMirrorsItsRackGroup(t *testing.T) {
+	t.Parallel()
+
+	schema := loadSGPURackCRD(t).Spec.Versions[0].Schema.OpenAPIV3Schema
+	spec := schemaProperty(t, schema, "spec")
+
+	provisioner := schemaProperty(t, spec, "provisioner")
+	require.NotNil(t, provisioner.Default)
+	require.JSONEq(t, `"CPU"`, string(provisioner.Default.Raw))
+	require.Equal(t, []string{`"CPU"`, `"KWOK"`}, enumValues(provisioner))
+
+	// Racks created before the field existed read back as CPU, so the rules hold
+	// for them without a migration.
+	require.ElementsMatch(t, []string{
+		"self.provisioner == oldSelf.provisioner",
+		"!has(self.kwok) || self.provisioner == 'KWOK'",
+	}, validationRules(spec))
+}
+
 func loadSGPURackCRD(t *testing.T) *apixv1.CustomResourceDefinition {
 	t.Helper()
 	return loadCRD(t, rackCRDFile)
@@ -156,6 +176,26 @@ func loadCRD(t *testing.T, filename string) *apixv1.CustomResourceDefinition {
 	var crd apixv1.CustomResourceDefinition
 	require.NoError(t, yaml.Unmarshal(data, &crd))
 	return &crd
+}
+
+// validationRules returns the CEL rules attached to a schema, in order.
+func validationRules(schema *apixv1.JSONSchemaProps) []string {
+	rules := make([]string, 0, len(schema.XValidations))
+	for _, validation := range schema.XValidations {
+		rules = append(rules, validation.Rule)
+	}
+
+	return rules
+}
+
+// enumValues returns a schema's enum as its raw JSON values.
+func enumValues(schema *apixv1.JSONSchemaProps) []string {
+	values := make([]string, 0, len(schema.Enum))
+	for _, value := range schema.Enum {
+		values = append(values, string(value.Raw))
+	}
+
+	return values
 }
 
 func schemaProperty(t *testing.T, schema *apixv1.JSONSchemaProps, name string) *apixv1.JSONSchemaProps {

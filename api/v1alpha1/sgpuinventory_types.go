@@ -50,11 +50,21 @@ type SGPUInventorySpec struct {
 }
 
 // RackGroup is a homogeneous group of racks sharing a profile.
+// +kubebuilder:validation:XValidation:rule="self.provisioner == oldSelf.provisioner",message="provisioner is immutable; replace the rack group under a new id to change it"
+// +kubebuilder:validation:XValidation:rule="!has(self.placement) || self.provisioner == 'CPU'",message="placement is allowed only on CPU rack groups"
+// +kubebuilder:validation:XValidation:rule="!has(self.kwok) || self.provisioner == 'KWOK'",message="kwok is allowed only on KWOK rack groups"
 type RackGroup struct {
 	// ID uniquely identifies this group within its inventory.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
 	ID string `json:"id"`
+
+	// +optional
+	// +kubebuilder:default=CPU
+	// Provisioner selects the service that realizes this group's Nodes. It is
+	// immutable, so a rack stays with the same service for its whole life;
+	// replace the group under a new id to change it.
+	Provisioner Provisioner `json:"provisioner,omitempty"`
 
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=100000
@@ -66,7 +76,12 @@ type RackGroup struct {
 
 	// +optional
 	// Placement optionally restricts the Nodes eligible for this rack group.
+	// CPU groups only: KWOK Nodes are created rather than selected.
 	Placement *RackPlacement `json:"placement,omitempty"`
+
+	// +optional
+	// KWOK configures the virtual Nodes created for this group. KWOK groups only.
+	KWOK *KWOKSettings `json:"kwok,omitempty"`
 }
 
 // NodeSelector returns the group's placement Node selector, or nil when none

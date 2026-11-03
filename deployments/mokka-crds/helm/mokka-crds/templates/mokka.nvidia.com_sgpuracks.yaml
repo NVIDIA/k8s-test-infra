@@ -32,6 +32,9 @@ spec:
     - jsonPath: .spec.profileRef.name
       name: Profile
       type: string
+    - jsonPath: .spec.provisioner
+      name: Provisioner
+      type: string
     - jsonPath: .status.assignedNodes
       name: Assigned
       type: integer
@@ -121,6 +124,80 @@ spec:
                 x-kubernetes-validations:
                 - message: uid must not be empty
                   rule: size(self.uid) > 0
+              kwok:
+                description: |-
+                  KWOK is copied from the rack group for KWOK racks. Carrying it here lets
+                  the KWOK provisioner read it from the rack instead of watching inventories.
+                properties:
+                  kubelet:
+                    description: |-
+                      Kubelet is the kubelet configuration the Nodes report. There is no
+                      kubelet on a KWOK Node, so Mokka reports what one would.
+                    properties:
+                      maxPods:
+                        default: 110
+                        description: |-
+                          MaxPods is the pod capacity of each Node, defaulting to the kubelet's own
+                          default.
+                        format: int32
+                        minimum: 1
+                        type: integer
+                    type: object
+                  nodeTemplate:
+                    description: NodeTemplate is the metadata applied to every Node
+                      created for the rack.
+                    properties:
+                      labels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          Labels are added to every Node created for the rack. They may not set the
+                          labels Mokka owns: mokka.nvidia.com/sgpu-node, which would offer the
+                          virtual Nodes to CPU racks, and mokka.nvidia.com/provisioner, which Mokka
+                          sets to route the Node to its own provisioner.
+                        type: object
+                        x-kubernetes-validations:
+                        - message: labels must not set mokka.nvidia.com/sgpu-node
+                            or mokka.nvidia.com/provisioner, which Mokka owns
+                          rule: '!(''mokka.nvidia.com/sgpu-node'' in self) && !(''mokka.nvidia.com/provisioner''
+                            in self)'
+                      taints:
+                        description: |-
+                          Taints are applied to every Node created for the rack, so that ordinary
+                          workloads stay off the virtual Nodes unless they tolerate them.
+                        items:
+                          description: |-
+                            The node this Taint is attached to has the "effect" on
+                            any pod that does not tolerate the Taint.
+                          properties:
+                            effect:
+                              description: |-
+                                Required. The effect of the taint on pods
+                                that do not tolerate the taint.
+                                Valid effects are NoSchedule, PreferNoSchedule and NoExecute.
+                              type: string
+                            key:
+                              description: Required. The taint key to be applied to
+                                a node.
+                              type: string
+                            timeAdded:
+                              description: TimeAdded represents the time at which
+                                the taint was added.
+                              format: date-time
+                              type: string
+                            value:
+                              description: The taint value corresponding to the taint
+                                key.
+                              type: string
+                          required:
+                          - effect
+                          - key
+                          type: object
+                        maxItems: 32
+                        type: array
+                        x-kubernetes-list-type: atomic
+                    type: object
+                type: object
               nodes:
                 description: |-
                   Nodes retain stable device identities while Kubernetes Node assignments
@@ -262,12 +339,27 @@ spec:
                 x-kubernetes-validations:
                 - message: uid must not be empty
                   rule: size(self.uid) > 0
+              provisioner:
+                default: CPU
+                description: |-
+                  Provisioner is copied from the rack group and names the service that
+                  realizes this rack's Nodes. The mokka.nvidia.com/provisioner label mirrors
+                  it so those services can select their racks server-side.
+                enum:
+                - CPU
+                - KWOK
+                type: string
             required:
             - identity
             - inventoryRef
             - nodes
             - profileRef
             type: object
+            x-kubernetes-validations:
+            - message: provisioner is immutable
+              rule: self.provisioner == oldSelf.provisioner
+            - message: kwok is allowed only on KWOK racks
+              rule: '!has(self.kwok) || self.provisioner == ''KWOK'''
           status:
             description: Status summarizes the rack's durable Node assignments.
             properties:

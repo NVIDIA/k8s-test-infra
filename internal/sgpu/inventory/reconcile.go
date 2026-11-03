@@ -38,9 +38,13 @@ const (
 	RackFinalizer      = "mokka.nvidia.com/rack-cleanup"
 	RackFieldManager   = "mokka-controller"
 
-	InventoryNameLabel     = "mokka.nvidia.com/inventory"
-	RackGroupLabel         = "mokka.nvidia.com/rack-group"
-	RackIndexLabel         = "mokka.nvidia.com/rack-index"
+	InventoryNameLabel = "mokka.nvidia.com/inventory"
+	RackGroupLabel     = "mokka.nvidia.com/rack-group"
+	RackIndexLabel     = "mokka.nvidia.com/rack-index"
+	// ProvisionerLabel mirrors spec.provisioner so the services that realize a
+	// rack can select their own racks server-side. A CRD field selector would
+	// replace it once Mokka's minimum Kubernetes version reaches 1.32.
+	ProvisionerLabel       = "mokka.nvidia.com/provisioner"
 	InventoryUIDAnnotation = "mokka.nvidia.com/inventory-uid"
 )
 
@@ -1227,6 +1231,7 @@ func ensureRackMetadata(rack *mokkav1alpha1.SGPURack, inventory *mokkav1alpha1.S
 	}
 	rack.Labels[RackGroupLabel] = rack.Spec.Identity.RackGroup
 	rack.Labels[RackIndexLabel] = strconv.FormatInt(int64(rack.Spec.Identity.RackIndex), 10)
+	rack.Labels[ProvisionerLabel] = string(rack.Spec.Provisioner.Effective())
 	if rack.Annotations == nil {
 		rack.Annotations = make(map[string]string)
 	}

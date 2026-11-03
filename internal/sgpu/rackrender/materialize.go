@@ -231,7 +231,10 @@ func renderRack(input RackInput, revision string) (Rack, error) {
 			return Rack{}, err
 		}
 	}
+	provisioner := input.Group.Provisioner.Effective()
+
 	spec := mokkav1alpha1.SGPURackSpec{
+		Provisioner: provisioner,
 		InventoryRef: mokkav1alpha1.SGPURackInventoryReference{
 			Name: input.InventoryName,
 			UID:  input.InventoryUID,
@@ -248,6 +251,12 @@ func renderRack(input RackInput, revision string) (Rack, error) {
 			CliqueID: 0,
 		},
 		Nodes: make([]mokkav1alpha1.SGPURackNode, input.Profile.Spec.Rack.NodesPerRack),
+	}
+
+	// Copying the block only onto KWOK racks keeps a rendered rack consistent
+	// with its own provisioner, whatever the group held.
+	if provisioner == mokkav1alpha1.ProvisionerKWOK {
+		spec.KWOK = input.Group.KWOK.DeepCopy()
 	}
 
 	gpuSlots := slices.Clone(input.Profile.Spec.Node.Topology.GPUSlots)
