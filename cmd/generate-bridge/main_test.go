@@ -14,6 +14,7 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -379,4 +380,36 @@ func nvmlDeviceGetName() C.nvmlReturn_t {
 
 	require.Len(t, mismatches, 1, "mismatches: %v", mismatches)
 	require.Contains(t, mismatches[0], "nvmlDeviceGetName", "expected mismatch for nvmlDeviceGetName, got: %s", mismatches[0])
+}
+
+func TestParseSymbolListAcceptsNmOutputAndBareNames(t *testing.T) {
+	in := "0000000000012340 T nvmlInit_v2\n0000000000012350 T nvmlDeviceGetName\n0000000000012360 T nvmlInit_v2\n0000000000012370 W __cxa_finalize\nnvmlShutdown@@v1\n\n"
+	got, err := parseSymbolList(strings.NewReader(in))
+	require.NoError(t, err)
+	require.Equal(t, []string{"nvmlDeviceGetName", "nvmlInit_v2", "nvmlShutdown"}, got)
+}
+
+func TestPrintSymbolReportClassifiesEverySymbol(t *testing.T) {
+	var buf bytes.Buffer
+	printSymbolReport(&buf,
+		[]string{"nvmlA", "nvmlB", "nvmlC"},
+		map[string]bool{"nvmlA": true, "nvmlOnlyBridge": true},
+		map[string]bool{"nvmlB": true}, nil)
+	out := buf.String()
+	require.Contains(t, out, "Symbols exported by the real library: 3")
+	require.Contains(t, out, "Implemented by the bridge:      1 (33.3%)")
+	require.Contains(t, out, "Generated stubs (NOT_SUPPORTED): 1")
+	require.Contains(t, out, "Not exported by the bridge:     1")
+	require.Contains(t, out, "nvmlC")
+	require.Contains(t, out, "nvmlOnlyBridge")
+}
+
+func TestPrintSymbolReportCountsShimAliasesWhenGivenTheBuiltLibrary(t *testing.T) {
+	var buf bytes.Buffer
+	printSymbolReport(&buf, []string{"nvmlA", "nvmlLegacy"}, map[string]bool{"nvmlA": true}, nil,
+		map[string]bool{"nvmlA": true, "nvmlLegacy": true})
+	out := buf.String()
+	require.Contains(t, out, "Aliases exported by the C shim: 1")
+	require.Contains(t, out, "Not exported by the bridge:     0")
+	require.NotContains(t, out, "Note:")
 }
