@@ -1,12 +1,11 @@
 # Command-Line Tools
 
 Besides the mock libraries, Mokka ships a set of small binaries under `cmd/`.
-The chart runs most of them for you. The kubelet helper runs through systemd;
+The chart runs most of them for you. The [kubelet helper](../components/mokka-kubelet-helper.md) runs through systemd;
 `nvml-mock-ctl` is meant to be invoked by hand.
 
 | Component | Purpose |
 |------|---------|
-| [`mokka-kubelet-helper`](mokka-kubelet-helper.md) | Resets registered kubelet allocation checkpoints before node startup. |
 | [`node-agent`](node-agent.md) | Compiles a mock NVML profile into on-host state and keeps it reconciled. The process the nvml-mock DaemonSet runs. |
 | [`nri-plugin`](nri-plugin.md) | containerd NRI plugin that injects the mock driver overlay, LD_PRELOAD shims and device nodes into containers at creation time. |
 | [`control-plane`](control-plane.md) | Runs the [Mokka control plane](../control-plane.md) and serves liveness and controller-readiness probes. |
