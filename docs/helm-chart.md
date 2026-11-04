@@ -1331,8 +1331,7 @@ nodeAgent:
     topologyManagerPolicy: single-numa-node
 ```
 
-NUMA settings live under `nodeAgent.numa`. Move settings from the previous
-`numaSimulation` section before upgrading. Memory policy values are lowercase
+NUMA settings live under `nodeAgent.numa`. Memory policy values are lowercase
 `none` or `static` in both Helm values and `--numa-memory-manager-policy`.
 
 Before parallel staging, the node agent prepares one shared NUMA plan from
@@ -1379,12 +1378,6 @@ a different topology. Backups and the applied or pending marker are stored under
 Failed restoration retains these files for a retry. The boot helper and its
 registered reset plan are stored persistently under
 `/var/lib/nvml-mock/kubelet/`.
-
-!!! warning "Upgrade from the previous NUMA implementation"
-
-    Restore NUMA simulation with the previous Mokka version before upgrading,
-    or use a fresh node. The previous implementation changed the original kubelet
-    configuration on disk; the new implementation rejects that active setup.
 
 Install a real NRT publisher separately. For GPU Operator's NFD subchart:
 
