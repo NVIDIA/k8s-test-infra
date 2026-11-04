@@ -1,0 +1,6 @@
+kind: Fixed
+body: |-
+  node-agent: Short InfiniBand verbs queries no longer crash mock-ib. Connection handler panics are logged and close the affected connection.
+time: 2026-10-29T08:07:49Z
+custom:
+  Issue: "588"

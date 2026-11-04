@@ -31,7 +31,7 @@ merge:
           - OWNERS
           - OWNERS_ALIASES
       - path: .github/workflows/helm.yaml
-        files: ["deployments/nvml-mock/helm/**", "deployments/mokka-crds/helm/**"]
+        files: [".github/workflows/helm.yaml", "deployments/nvml-mock/helm/**", "deployments/mokka-crds/helm/**"]
       - path: .github/workflows/dependency-integrity.yaml
         files: [go.mod, go.sum, Makefile, .github/workflows/dependency-integrity.yaml]
       - path: .github/workflows/deploy-pages.yaml

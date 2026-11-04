@@ -141,6 +141,7 @@ nav:
   - Guides:
       - Overview: guides/README.md
       - Scenarios:
+          - DSX Air: guides/dsx-air.md
           - NVIDIA Device Plugin: guides/device-plugin.md
           - Node Feature Discovery: guides/nfd.md
           - Amazon EKS: guides/install/aws/eks/README.md
