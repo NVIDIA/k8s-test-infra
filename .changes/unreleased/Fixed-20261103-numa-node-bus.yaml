@@ -1,6 +1,0 @@
-kind: Fixed
-body: |-
-  node-agent: NUMA simulation exposes all zones through the node bus, so NFD reports their full memory capacity. Restore an active NUMA setup before upgrading.
-time: 2026-11-03T14:00:00Z
-custom:
-  Issue: "1148"

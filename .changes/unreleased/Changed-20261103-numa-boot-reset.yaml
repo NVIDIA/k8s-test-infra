@@ -1,6 +1,0 @@
-kind: Changed
-body: |-
-  node-agent: NUMA setup runs in the privileged pod. After node boot, kubelet starts with its original configuration and fresh CPU/memory checkpoints before Mokka reapplies simulation. Restore older active NUMA setups before upgrading.
-time: 2026-11-03T12:00:00Z
-custom:
-  Issue: "1148"
