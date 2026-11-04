@@ -94,6 +94,32 @@ socket or a port, so a second instance would contend for it rather than converge
 with it. Later state reaches a running daemon through `Reload`, which is why a
 profile edit does not need a pod restart.
 
+## NUMA simulation
+
+The optional NUMA simulator uses the shared topology prepared before staging.
+It exposes the same zone placement to kubelet, the device plugin, and NFD through
+`/sys/devices/system/node` and `/sys/bus/node/devices`. The privileged pod enters
+the node's mount namespace to apply and restore these views, keeping mounts
+inside that node even when Kind nodes share a VM.
+
+With kubelet management enabled, the pod bind-mounts a modified configuration
+over `/var/lib/kubelet/config.yaml` and restarts kubelet. The original file on
+disk remains unchanged. Recovery copies, manager checkpoints, and applied or
+pending markers live under `/run/mokka/numa/`; they survive pod replacement but
+not a node reboot. Repeated setup preserves existing allocations.
+
+Explicit disable removes owned mounts, restores saved checkpoints, and checks
+kubelet health before deleting recovery files. The chart retains host access
+for this restore step even when NUMA and container runtime setup are disabled.
+Failed restoration keeps the backup and pending marker for a retry.
+
+The pod installs the persistent [kubelet helper](mokka-kubelet-helper.md) and its
+systemd dependency to prepare kubelet after node reboot. The helper performs
+boot cleanup only; simulation setup and restoration remain in the pod.
+
+For configuration, requirements, and removal, see
+[NUMA filesystem simulation](../helm-chart.md#numa-filesystem-simulation).
+
 ## Health
 
 Both probes are served on port 9091 and answer different questions:
