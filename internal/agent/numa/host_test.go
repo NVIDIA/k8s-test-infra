@@ -72,7 +72,7 @@ func TestHostApplyMountsConfigWithoutChangingOriginalAndRestores(t *testing.T) {
 	require.Contains(t, *calls, "mount -o remount,bind,ro "+h.SysPath("bus/node/devices"))
 	service, err := os.ReadFile(h.EtcPath("systemd/system/mokka-kubelet-reset.service"))
 	require.NoError(t, err)
-	require.Contains(t, string(service), "ExecStart=/var/lib/nvml-mock/kubelet/mokka-kubelet-helper reset-for-boot")
+	require.Contains(t, string(service), "ExecStart=/var/lib/nvml-mock/kubelet/mokka-kubelet-helper prestart")
 	require.NotContains(t, string(service), " apply")
 	require.NoError(t, fsutil.Write(h.HostPath("/var/lib/kubelet/memory_manager_state"), []byte("simulated memory"), 0600))
 	*calls = nil

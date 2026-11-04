@@ -13,20 +13,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestResetCommandUsesRegisteredNodeRoot(t *testing.T) {
+func TestPrestartCommandUsesRegisteredNodeRoot(t *testing.T) {
 	t.Parallel()
 	h := host.New(t.TempDir())
 	require.NoError(t, kubelet.ArmBootReset(h, kubelet.BootResetPlan{NUMA: true}))
 	require.NoError(t, os.RemoveAll(h.Run))
 	cpu := h.HostPath("/var/lib/kubelet/cpu_manager_state")
 	require.NoError(t, fsutil.Write(cpu, []byte("simulated"), 0600))
-	require.NoError(t, newCLI().Run(t.Context(), []string{"mokka-kubelet-helper", "--host-root", h.Prefix, "reset-for-boot"}))
+	require.NoError(t, newCLI().Run(t.Context(), []string{"mokka-kubelet-helper", "--host-root", h.Prefix, "prestart"}))
 	require.NoFileExists(t, cpu)
 }
 
 func TestRejectInvalidArguments(t *testing.T) {
 	t.Parallel()
-	for _, args := range [][]string{{"unknown"}, {"reset-for-boot", "extra"}} {
+	for _, args := range [][]string{{"unknown"}, {"prestart", "extra"}} {
 		t.Run(args[0], func(t *testing.T) {
 			t.Parallel()
 			require.Error(t, newCLI().Run(t.Context(), append([]string{"mokka-kubelet-helper"}, args...)))
