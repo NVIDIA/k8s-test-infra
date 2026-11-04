@@ -67,6 +67,9 @@ Environment:
                            (default: the Docker host's)
   MOCK_NAMESPACE           namespace of the nvml-mock release (default mokka)
   MOCK_LIB_DIR             where the mock library sits in its pod
+  HOST_POD_MOCK=1          set when `host` runs on a mock node: the pod then asks the
+                           nvml-mock NRI plugin to inject the mock (devices and
+                           infiniband annotations), or it would read the Kind host
                            (default /var/lib/nvml-mock/driver/usr/lib64)
 EOF
 }
@@ -215,11 +218,15 @@ start_host_pod() {
   # other's pod. The node name is cut to keep the pod name within 63 characters.
   local suffix="-$$"
   HOST_POD="capture-${node:0:$((63 - 8 - ${#suffix}))}${suffix}"
+  local annotations=""
+  if [ "${HOST_POD_MOCK:-}" = 1 ]; then
+    annotations=$'\n  annotations:\n    nvml-mock.nvidia.com/devices: "true"\n    nvml-mock.nvidia.com/infiniband: "true"'
+  fi
   kubectl -n "${HOST_POD_NAMESPACE}" apply -f - >/dev/null <<EOF
 apiVersion: v1
 kind: Pod
 metadata:
-  name: ${HOST_POD}
+  name: ${HOST_POD}${annotations}
 spec:
   nodeName: ${node}
   hostPID: true
@@ -407,6 +414,22 @@ build_dump() {
 # real node uses, so `compare` and `nvml-dump diff` can read both. The pod runs the same
 # binary as the real driver container, so build it for the mock cluster's
 # architecture (DUMP_PLATFORM).
+# The nvml-mock image has no nm, so copy the library out and read it here. llvm-nm
+# is preferred because the system nm on macOS cannot read ELF files.
+mock_symbols() {
+  local dir=$1 tool lib
+  tool=$(command -v llvm-nm || command -v nm) || { printf 'FAILED: nvml-symbols.txt (no nm here)\n' | tee -a "${dir}/errors.log" >&2; return; }
+  lib=$(mktemp)
+  if kubectl -n "${MOCK_NAMESPACE}" exec "${pod}" -- sh -c \
+    "cat \$(ls ${MOCK_LIB_DIR}/libnvidia-ml.so.1 /usr/local/lib/libnvidia-ml.so.1 2>/dev/null | head -1)" >"${lib}" 2>>"${dir}/errors.log" \
+    && "${tool}" -D --defined-only "${lib}" 2>>"${dir}/errors.log" | awk '{print $3}' | sort >"${dir}/nvml-symbols.txt"; then
+    :
+  else
+    printf 'FAILED: nvml-symbols.txt\n' | tee -a "${dir}/errors.log" >&2
+  fi
+  rm -f "${lib}"
+}
+
 capture_mock() {
   local node=$1
   require_cluster
@@ -424,7 +447,7 @@ capture_mock() {
   cap smi-q.txt mock sh -c "${libs} nvidia-smi -q"
   cap smi-L.txt mock sh -c "${libs} nvidia-smi -L"
   cap smi-topo-m.txt mock sh -c "${libs} nvidia-smi topo -m"
-  cap nvml-symbols.txt mock sh -c "nm -D --defined-only ${MOCK_LIB_DIR}/libnvidia-ml.so.1 | awk '{print \$3}' | sort"
+  mock_symbols "${CAP_DIR}"
 
   if [ -z "${NVML_DUMP}" ] || [ ! -x "${NVML_DUMP}" ]; then
     log "NVML_DUMP not set to an executable; skipping the NVML value dump (see build-dump)"
@@ -451,7 +474,7 @@ compare_dirs() {
   printf '%-8s %-44s %8s %8s %6s\n' surface file real-lines shared pct
   for f in "${real}"/*; do
     name=$(basename "${f}")
-    case "${name}" in errors.log | *.json | *.json.gz | *.xml | *.so*) continue ;; esac
+    case "${name}" in errors.log | proc-* | *.json | *.json.gz | *.xml | *.so*) continue ;; esac
     surface=${name%%-*}
     total=$(wc -l <"${f}" | tr -d ' ')
     if [ ! -f "${mock}/${name}" ]; then

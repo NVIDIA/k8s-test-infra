@@ -244,13 +244,17 @@ not the node's if the mock runs in Kind on a laptop:
 DUMP_PLATFORM=linux/amd64 OUT=./mock hack/capture-node.sh build-dump
 export KUBECONFIG=<mock cluster kubeconfig>
 NVML_DUMP=./mock/bin/nvml-dump-linux OUT=./mock hack/capture-node.sh mock-dump <mock-node>
-OUT=./mock hack/capture-node.sh host <mock-node>
+HOST_POD_MOCK=1 OUT=./mock hack/capture-node.sh host <mock-node>
 ```
 
 Both commands write into `./mock/<mock-node>/`. `mock-dump` adds `nvml-dump.json`,
 `smi-q.xml`, `smi-q.txt` and the mock library's symbols; `host` adds the same
 `host-*`, `pci-*`, `rdma-*` and `net-*` files a real node gave you, so the two
-directories line up file for file.
+directories line up file for file. `HOST_POD_MOCK=1` makes the host pod ask the NRI
+plugin for the mock (the `devices` and `infiniband` annotations); without it the pod
+reads the Kind host, not the mock. `mock-dump` reads the symbols by copying the
+library out of the pod and running `llvm-nm` (or `nm`) on your machine, because the
+image has no `nm`.
 
 1. **Symbols.** Which of the real library's functions does the bridge answer?
    `generate-bridge -symbols` reads the real library's exported symbols and says
@@ -297,7 +301,7 @@ directories line up file for file.
    and a mock, so read the files whose share is low and decide whether the gap
    matters. This step has no pass or fail. `compare` covers only the files both
    directories hold. `host` does not read the mock's `/proc/driver/nvidia`, so the
-   `proc-*` files are not compared: read them on the mock node and compare by hand.
+   `proc-*` files are skipped by `compare`: read them on the mock node and compare by hand.
 
 Report coverage per surface, for example "NVML return codes: 472 of 588 match".
 That is the number to quote for how much of the node a profile reproduces.
