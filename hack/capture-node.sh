@@ -453,9 +453,11 @@ capture_mock() {
     log "NVML_DUMP not set to an executable; skipping the NVML value dump (see build-dump)"
     return
   fi
+  local bin="/tmp/nvml-dump-$$"
   if kubectl -n "${MOCK_NAMESPACE}" exec -i "${pod}" -- \
-    sh -c 'cat > /tmp/nvml-dump && chmod +x /tmp/nvml-dump' <"${NVML_DUMP}" 2>>"${CAP_DIR}/errors.log"; then
-    cap nvml-dump.json mock sh -c "${libs} /tmp/nvml-dump"
+    sh -c 'cat > "$1" && chmod +x "$1"' sh "${bin}" <"${NVML_DUMP}" 2>>"${CAP_DIR}/errors.log"; then
+    cap nvml-dump.json mock sh -c "${libs} ${bin}"
+    mock rm -f "${bin}" >/dev/null 2>&1 || true
   else
     printf 'FAILED: nvml-dump.json (copy into the mock pod)\n' | tee -a "${CAP_DIR}/errors.log" >&2
   fi
