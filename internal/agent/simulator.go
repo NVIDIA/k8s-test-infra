@@ -50,13 +50,3 @@ type Daemon interface {
 type Requeuer interface {
 	Requeue() <-chan struct{}
 }
-
-// StatePreparer is implemented by simulators that resolve shared node data.
-// The agent calls Prepare sequentially in simulator registration order, passing
-// each result to the next preparer before any simulator starts Stage.
-// Prepare must return a new state for changed data and leave its input unchanged:
-// the source observation is retained for later reconciles. The returned state
-// is read-only throughout Stage, daemon supervision, and Apply.
-type StatePreparer interface {
-	Prepare(context.Context, *State) (*State, error)
-}

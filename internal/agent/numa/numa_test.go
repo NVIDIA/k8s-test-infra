@@ -15,6 +15,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
+	"github.com/NVIDIA/k8s-test-infra/internal/agent/numatopology"
 	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
 	"github.com/NVIDIA/k8s-test-infra/internal/kubelet"
 	"github.com/stretchr/testify/require"
@@ -71,7 +72,7 @@ func TestResolveRejectsInvalidCPUAssignments(t *testing.T) {
 			s := testState()
 			s.NodeShape.Topology.RootComplexes[0].CPUAffinity = tc.a
 			s.NodeShape.Topology.RootComplexes[1].CPUAffinity = tc.b
-			_, err := resolve(h, s)
+			_, err := numatopology.Resolve(h, s)
 			require.Error(t, err)
 		})
 	}
@@ -81,7 +82,7 @@ func TestRenderCreatesCPUReferencesAndMemoryWithoutTouchingPCI(t *testing.T) {
 	t.Parallel()
 	h := testHost(t)
 	s := testState()
-	plan, err := resolve(h, s)
+	plan, err := numatopology.Resolve(h, s)
 	require.NoError(t, err)
 	require.NoError(t, Render(h, plan))
 	for _, tc := range []struct{ path, want string }{
@@ -113,7 +114,7 @@ func TestResolveRejectsSparseOrUnknownNUMAIDs(t *testing.T) {
 			t.Parallel()
 			s := testState()
 			s.NodeShape.Topology.RootComplexes[1].NUMANode = id
-			_, err := resolve(testHost(t), s)
+			_, err := numatopology.Resolve(testHost(t), s)
 			require.Error(t, err)
 		})
 	}
@@ -155,7 +156,7 @@ func TestPersistentSetupIsNotRestartedOrRemovedOnPodTeardown(t *testing.T) {
 func TestRenderAfterRestoreRemovesOldZones(t *testing.T) {
 	t.Parallel()
 	h := testHost(t)
-	plan, err := resolve(h, testState())
+	plan, err := numatopology.Resolve(h, testState())
 	require.NoError(t, err)
 	require.NoError(t, Render(h, plan))
 	require.DirExists(t, h.RootPath("numa/sysnode/node1"))
@@ -481,9 +482,7 @@ func TestDisableRecoversPendingSetupAndBootRegistration(t *testing.T) {
 
 func testPreparedState(t *testing.T, h *host.Host) *agent.State {
 	t.Helper()
-	sim, err := New(h, Options{Enabled: true})
-	require.NoError(t, err)
-	state, err := sim.Prepare(t.Context(), testState())
+	state, err := numatopology.ResolveState(t.Context(), h, testState())
 	require.NoError(t, err)
 	return state
 }

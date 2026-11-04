@@ -339,9 +339,12 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 		}),
 	}
 
+	stateSource := source.NewFileSource(cmd.String("config"), cmd.String("topology"), cmd.Duration("resync-interval"), log)
+	stateSource.WithNUMA(h, cmd.Bool("numa-simulation"))
+
 	a := agent.New(agent.Config{
 		Simulators:      simulators,
-		Source:          source.NewFileSource(cmd.String("config"), cmd.String("topology"), cmd.Duration("resync-interval"), log),
+		Source:          stateSource,
 		Log:             log,
 		ShutdownTimeout: shutdownTimeout,
 		StagingLockPath: cmd.String("staging-lock-path"),
