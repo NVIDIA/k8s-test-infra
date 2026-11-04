@@ -109,7 +109,8 @@ pending markers live under `/run/mokka/numa/`; they survive pod replacement but
 not a node reboot. Repeated setup preserves existing allocations.
 
 Explicit disable removes owned mounts, restores saved checkpoints, and checks
-kubelet health before deleting recovery files. The chart retains host access
+that kubelet is active and answers a PodResources `List` request before deleting
+recovery files. The chart retains host access
 for this restore step even when NUMA and container runtime setup are disabled.
 Failed restoration keeps the backup and pending marker for a retry.
 
