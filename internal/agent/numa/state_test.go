@@ -10,17 +10,18 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
+	"github.com/NVIDIA/k8s-test-infra/internal/agent/numatopology"
 	"github.com/stretchr/testify/require"
 )
 
-func TestPrepareResolvesSharedTopologyWithoutChangingSource(t *testing.T) {
+func TestResolvedStateIsSharedWithoutChangingInput(t *testing.T) {
 	t.Parallel()
 	h := testHost(t)
 	input := testState()
 	original := string(input.ConfigRaw)
 	sim, err := newTestSimulator(h, Options{Enabled: true})
 	require.NoError(t, err)
-	state, err := sim.Prepare(t.Context(), input)
+	state, err := numatopology.ResolveState(t.Context(), h, input)
 	require.NoError(t, err)
 	require.NotSame(t, input, state)
 	require.Empty(t, input.NodeShape.Topology.RootComplexes[0].CPUAffinity)
@@ -49,28 +50,10 @@ func TestStageRequiresPreparedTopology(t *testing.T) {
 	require.NoDirExists(t, h.RootPath("numa/sysnode"))
 }
 
-func TestDisabledPrepareLeavesStateUnchangedWithoutHostTopology(t *testing.T) {
+func TestStateResolutionHonorsCancellation(t *testing.T) {
 	t.Parallel()
-	for _, configureKubelet := range []bool{false, true} {
-		t.Run(map[bool]string{false: "disabled", true: "restore"}[configureKubelet], func(t *testing.T) {
-			t.Parallel()
-			sim, err := New(host.New(t.TempDir()), Options{ConfigureKubelet: configureKubelet})
-			require.NoError(t, err)
-			input := &agent.State{}
-			prepared, err := sim.Prepare(t.Context(), input)
-			require.NoError(t, err)
-			require.Same(t, input, prepared)
-			require.Nil(t, prepared.NodeShape.NUMA)
-		})
-	}
-}
-
-func TestPrepareHonorsCancellation(t *testing.T) {
-	t.Parallel()
-	sim, err := New(host.New(t.TempDir()), Options{Enabled: true})
-	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	_, err = sim.Prepare(ctx, &agent.State{})
+	_, err := numatopology.ResolveState(ctx, host.New(t.TempDir()), &agent.State{})
 	require.ErrorIs(t, err, context.Canceled)
 }

@@ -11,8 +11,8 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/migcaps"
 )
 
-// State is the desired simulation state compiled by a source. Optional host
-// preparation adds resolved node data before simulators reconcile it.
+// State is the desired simulation state compiled by a source, including any
+// host-resolved topology simulators need before reconciliation.
 type State struct {
 	Generation int64
 	Node       NodeMeta
@@ -285,7 +285,7 @@ type NodeShape struct {
 	NumGPUs  int
 	Topology PCIeTopology
 	Network  NetworkShape
-	// NUMA is populated by host preparation before simulators read this state.
+	// NUMA is resolved by the source before simulators read this state.
 	NUMA *NUMATopology
 }
 
