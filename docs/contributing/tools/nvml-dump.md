@@ -87,9 +87,11 @@ NVML_DUMP=$OUT/bin/nvml-dump-linux hack/capture-node.sh driver <node>
 That copies the binary into the driver container, runs it there and writes
 `nvml-dump.json` beside the node's other outputs. See
 [Capturing a real node](../capturing-a-real-node.md). To dump the
-mock, copy the same binary into an nvml-mock pod, where the mock library is on
-the loader path; it is not baked into the nvml-mock image. `diff` reads gzipped
-dumps (`.json.gz`) directly, which is how a committed capture is stored.
+mock, use `hack/capture-node.sh mock-dump <node>`, which copies the same binary
+into the nvml-mock pod on that node and runs it against the mock library; the
+binary is not baked into the nvml-mock image. Build it for the mock cluster's
+architecture with `DUMP_PLATFORM`. `diff` reads gzipped dumps (`.json.gz`)
+directly, which is how a committed capture is stored.
 
 ## Exit codes
 

@@ -230,28 +230,42 @@ note is better than an `errors.log` that names machines.
 ## Step 6: compare it with the mock
 
 With a capture in hand you can measure how far a profile is from the real node.
-Each comparison is a command that takes the real capture and the same surface
-taken from the mock. In the commands, `REAL` is the real node's directory (a raw
-capture, or a committed one) and `MOCK` is a directory holding the mock's files.
+Each comparison below says what runs it. Comparisons 1 to 3 are single commands;
+comparison 4 still takes reading. In the commands, `REAL` is the real node's
+directory (a raw capture, or a committed one such as
+`tests/hardware-captures/vr-nvl72/node-a`) and `MOCK` is `./mock/<mock-node>`.
 
-Getting the mock's files is not automated here. Run the mock's `nvidia-smi` and
-the same `nvml-dump` binary in an nvml-mock pod on a node of the profile under
-test, built for that node's architecture, and save the outputs under `MOCK`.
+Start a Mokka cluster with the profile under test and its node agent, as in
+[Quickstart](../quickstart.md), then capture the mock the same way you captured
+the real node. Build `nvml-dump` for the mock cluster's architecture, which is
+not the node's if the mock runs in Kind on a laptop:
+
+```bash
+DUMP_PLATFORM=linux/amd64 OUT=./mock hack/capture-node.sh build-dump
+export KUBECONFIG=<mock cluster kubeconfig>
+NVML_DUMP=./mock/bin/nvml-dump-linux OUT=./mock hack/capture-node.sh mock-dump <mock-node>
+OUT=./mock hack/capture-node.sh host <mock-node>
+```
+
+Both commands write into `./mock/<mock-node>/`. `mock-dump` adds `nvml-dump.json`,
+`smi-q.xml`, `smi-q.txt` and the mock library's symbols; `host` adds the same
+`host-*`, `pci-*`, `rdma-*` and `net-*` files a real node gave you, so the two
+directories line up file for file.
 
 1. **Symbols.** Which of the real library's functions does the bridge answer?
    `generate-bridge -symbols` reads the real library's exported symbols and says
    how many the bridge implements, how many are generated stubs that answer
    `NOT_SUPPORTED` where a real GPU answers something else, and which are
-   missing altogether. Give it the built mock library's symbols
-   (`nm -D --defined-only libnvidia-ml.so.1 | awk '{print $3}' | sort`) as
-   `-mock-symbols`; without them the report reads the bridge sources, which do not
-   show the legacy unversioned names the C shim exports, and counts them as
-   missing:
+   missing altogether:
 
    ```bash
    go run ./cmd/generate-bridge -symbols "$REAL/nvml-symbols.txt" \
      -mock-symbols "$MOCK/nvml-symbols.txt"
    ```
+
+   Pass `-mock-symbols`. Without it the report reads the bridge sources, which do
+   not show the legacy unversioned names the C shim exports, and counts them as
+   missing.
 2. **Values.** Compare the NVML dumps, which gives return-code and board-value
    match rates and lists every difference:
 
@@ -271,10 +285,19 @@ test, built for that node's architecture, and save the outputs under `MOCK`.
    many carry the same value, and lists the missing elements and the differing
    values. Readings that move with load and identifiers are matched on presence
    only.
-4. **Surfaces.** There is no tool for the `host-*`, `proc-*`, `rdma-*` and `net-*`
-   files. Read each against what the node agent renders for the profile, and
-   decide whether a difference matters. A real node and a mock differ in
-   numbering and counters, so this step has no pass or fail.
+4. **Surfaces.** `compare` lists, for each `host-*`, `proc-*`, `rdma-*` and `net-*`
+   file both directories hold, how many of the real file's lines the mock's file
+   also has:
+
+   ```bash
+   hack/capture-node.sh compare "$REAL" "$MOCK"
+   ```
+
+   A line-level match is blunt: numbering and counters differ between a real node
+   and a mock, so read the files whose share is low and decide whether the gap
+   matters. This step has no pass or fail. `compare` covers only the files both
+   directories hold. `host` does not read the mock's `/proc/driver/nvidia`, so the
+   `proc-*` files are not compared: read them on the mock node and compare by hand.
 
 Report coverage per surface, for example "NVML return codes: 472 of 588 match".
 That is the number to quote for how much of the node a profile reproduces.

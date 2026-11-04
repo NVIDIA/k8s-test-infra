@@ -42,6 +42,12 @@ Commands:
   cluster            node labels, ResourceSlices, ClusterPolicy, DCGM metrics
   all <node>...      driver, host, then cluster
   build-dump         build the nvml-dump binary for the host's architecture
+                     (DUMP_PLATFORM=linux/amd64 builds for another one)
+  mock-dump <node>...  nvml-dump, nvidia-smi and the NVML symbols of the mock, taken
+                     in the nvml-mock pod on each node of a Mokka cluster
+  compare <real-dir> <mock-dir>
+                     per-surface match between a real capture and one taken from
+                     a mock node (host, driver or mock-dump output); needs no cluster
 
 Environment:
   OUT                      output directory (default ./capture)
@@ -55,7 +61,13 @@ Environment:
   HOST_POD_IMAGE           image for the host pod; privileged, so pinned by digest
                            (default ubuntu:24.04@sha256:fe8156...; the multi-arch index)
   NVML_DUMP                linux binary of nvml-dump to run in the driver
-                           container; without it the NVML value dump is skipped
+                           container (or, for mock-dump, the nvml-mock pod);
+                           without it the NVML value dump is skipped
+  DUMP_PLATFORM            platform build-dump targets, for example linux/amd64
+                           (default: the Docker host's)
+  MOCK_NAMESPACE           namespace of the nvml-mock release (default mokka)
+  MOCK_LIB_DIR             where the mock library sits in its pod
+                           (default /var/lib/nvml-mock/driver/usr/lib64)
 EOF
 }
 
@@ -69,6 +81,9 @@ HOST_POD_NAMESPACE=${HOST_POD_NAMESPACE:-default}
 # digest (the multi-arch index of ubuntu:24.04) rather than by a tag that can move.
 HOST_POD_IMAGE=${HOST_POD_IMAGE:-ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852}
 NVML_DUMP=${NVML_DUMP:-}
+DUMP_PLATFORM=${DUMP_PLATFORM:-}
+MOCK_NAMESPACE=${MOCK_NAMESPACE:-mokka}
+MOCK_LIB_DIR=${MOCK_LIB_DIR:-/var/lib/nvml-mock/driver/usr/lib64}
 
 CAP_DIR=""
 DRIVER_POD=""
@@ -379,10 +394,77 @@ build_dump() {
   # go-nvml loads the driver's library at run time, so the binary is dynamically
   # linked and must be built for the node's architecture, on a host of that
   # architecture.
-  docker run --rm -v "${root}:/src" -v "$(cd "${OUT}/bin" && pwd):/out" -w /src \
+  local platform=()
+  [ -z "${DUMP_PLATFORM}" ] || platform=(--platform "${DUMP_PLATFORM}")
+  docker run --rm "${platform[@]}" -v "${root}:/src" -v "$(cd "${OUT}/bin" && pwd):/out" -w /src \
     "golang:${version}" go build -o /out/nvml-dump-linux ./hack/tools/nvml-dump \
     || die "build failed"
   log "built ${OUT}/bin/nvml-dump-linux; run with NVML_DUMP=${OUT}/bin/nvml-dump-linux"
+}
+
+# The mock side of the comparison: what the nvml-mock pod's library answers on
+# the same calls, written under $OUT/<node>, beside the output of `host`, in the same layout a
+# real node uses, so `compare` and `nvml-dump diff` can read both. The pod runs the same
+# binary as the real driver container, so build it for the mock cluster's
+# architecture (DUMP_PLATFORM).
+capture_mock() {
+  local node=$1
+  require_cluster
+  node_dir "${node}"
+  local pod
+  pod=$(kubectl -n "${MOCK_NAMESPACE}" get pod -l app.kubernetes.io/name=nvml-mock \
+    --field-selector "spec.nodeName=${node}" -o jsonpath='{.items[0].metadata.name}' 2>>"${CAP_DIR}/errors.log")
+  [ -n "${pod}" ] || { log "no nvml-mock pod on ${node} in ${MOCK_NAMESPACE}"; return 1; }
+  log "== mock ${node} (${pod})"
+
+  mock() { kubectl -n "${MOCK_NAMESPACE}" exec "${pod}" -- "$@"; }
+  local libs="LD_LIBRARY_PATH=${MOCK_LIB_DIR}:\${LD_LIBRARY_PATH:-}"
+
+  cap smi-q.xml mock sh -c "${libs} nvidia-smi -q -x"
+  cap smi-q.txt mock sh -c "${libs} nvidia-smi -q"
+  cap smi-L.txt mock sh -c "${libs} nvidia-smi -L"
+  cap smi-topo-m.txt mock sh -c "${libs} nvidia-smi topo -m"
+  cap nvml-symbols.txt mock sh -c "nm -D --defined-only ${MOCK_LIB_DIR}/libnvidia-ml.so.1 | awk '{print \$3}' | sort"
+
+  if [ -z "${NVML_DUMP}" ] || [ ! -x "${NVML_DUMP}" ]; then
+    log "NVML_DUMP not set to an executable; skipping the NVML value dump (see build-dump)"
+    return
+  fi
+  if kubectl -n "${MOCK_NAMESPACE}" exec -i "${pod}" -- \
+    sh -c 'cat > /tmp/nvml-dump && chmod +x /tmp/nvml-dump' <"${NVML_DUMP}" 2>>"${CAP_DIR}/errors.log"; then
+    cap nvml-dump.json mock sh -c "${libs} /tmp/nvml-dump"
+  else
+    printf 'FAILED: nvml-dump.json (copy into the mock pod)\n' | tee -a "${CAP_DIR}/errors.log" >&2
+  fi
+}
+
+# compare <real-dir> <mock-dir>: for every file both directories hold, the share
+# of the real file's lines that the mock's file also has, grouped by surface (the
+# file name's prefix: smi, proc, host, pci, rdma, net). A line-level match is a
+# blunt measure: placeholders and numbering differ between a scrubbed capture and
+# a live mock, so treat it as a pointer to the files worth reading, not a score.
+# The structured comparisons are nvml-dump diff and smi-xml-diff.
+compare_dirs() {
+  local real=$1 mock=$2
+  [ -d "${real}" ] && [ -d "${mock}" ] || die "compare needs two directories"
+  local f name surface total common
+  printf '%-8s %-44s %8s %8s %6s\n' surface file real-lines shared pct
+  for f in "${real}"/*; do
+    name=$(basename "${f}")
+    case "${name}" in errors.log | *.json | *.json.gz | *.xml | *.so*) continue ;; esac
+    surface=${name%%-*}
+    total=$(wc -l <"${f}" | tr -d ' ')
+    if [ ! -f "${mock}/${name}" ]; then
+      printf '%-8s %-44s %8s %8s %6s\n' "${surface}" "${name}" "${total}" "-" "absent"
+      continue
+    fi
+    common=$(comm -12 <(sort "${f}") <(sort "${mock}/${name}") | wc -l | tr -d ' ')
+    printf '%-8s %-44s %8s %8s %5s%%\n' "${surface}" "${name}" "${total}" "${common}" \
+      "$([ "${total}" -gt 0 ] && echo $((100 * common / total)) || echo 100)"
+  done | sort -k1,1 -k2,2
+  log ""
+  log "JSON dumps:  nvml-dump diff ${real}/nvml-dump.json ${mock}/nvml-dump.json"
+  log "smi XML:     smi-xml-diff ${real}/smi-q.xml ${mock}/smi-q.xml"
 }
 
 # Empty files usually mean a dropped connection, not an empty answer.
@@ -424,6 +506,10 @@ main() {
       for node in "$@"; do capture_driver "${node}"; capture_host "${node}"; done
       capture_cluster; capture_cluster_network; report ;;
     build-dump) build_dump ;;
+    mock-dump) [ $# -ge 1 ] || die "mock-dump needs at least one node"
+      for node in "$@"; do capture_mock "${node}"; done; report ;;
+    compare) [ $# -eq 2 ] || die "compare needs <real-dir> <mock-dir>"
+      compare_dirs "$1" "$2" ;;
     -h | --help | help) usage ;;
     *) usage; exit 2 ;;
   esac
