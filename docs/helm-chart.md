@@ -1358,7 +1358,7 @@ to the administrator.
 The setup survives ordinary Mokka pod and kubelet restarts. On a node reboot,
 the mounts disappear and kubelet sees its original configuration and real
 hardware topology. A small systemd service runs `mokka-kubelet-helper
-reset-for-boot` before kubelet starts. It removes the CPU and memory manager
+prestart` before kubelet starts. It removes the CPU and memory manager
 checkpoints registered by NUMA simulation, once per boot. It does not apply
 simulation. Kubelet starts with fresh resource-manager state, then the DaemonSet
 pod applies the simulated setup again. CPU and memory allocation state is not

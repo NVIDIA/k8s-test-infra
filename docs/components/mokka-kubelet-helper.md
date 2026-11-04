@@ -9,7 +9,7 @@ in the privileged DaemonSet pod.
 ## Command
 
 ```text
-mokka-kubelet-helper [--host-root /] reset-for-boot
+mokka-kubelet-helper [--host-root /] prestart
 ```
 
 | Option | Default | Purpose |
@@ -20,7 +20,7 @@ The node agent stages the statically linked executable at
 `/var/lib/nvml-mock/kubelet/mokka-kubelet-helper`. Its systemd service runs:
 
 ```text
-/var/lib/nvml-mock/kubelet/mokka-kubelet-helper reset-for-boot
+/var/lib/nvml-mock/kubelet/mokka-kubelet-helper prestart
 ```
 
 ## Boot reset
