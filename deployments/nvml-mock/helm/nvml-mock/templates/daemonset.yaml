@@ -402,13 +402,18 @@ spec:
             - name: fabric-state
               mountPath: {{ printf "/host%s" .Values.fabricmanager.stateDir }}
             {{- end }}
-            # Read only: the agent copies the node's DMI attributes into the
-            # rendered tree, which shadows them once served at /sys/devices,
-            # and limits each GPU's local_cpulist and NVML CPU affinity to the
-            # node's online CPUs.
+            # Keep propagation available after NUMA is disabled so a replacement
+            # pod can remove the node's mounts and restore saved state.
             - name: node-sysfs
               mountPath: /host/sys
-              readOnly: true
+              mountPropagation: Bidirectional
+            - name: numa-kubelet
+              mountPath: /host/var/lib/kubelet
+              mountPropagation: Bidirectional
+            - name: numa-systemd
+              mountPath: /host/etc/systemd/system
+            - name: numa-state
+              mountPath: /host/run/mokka
             {{- if .Values.nodeAgent.kernelLog.enabled }}
             # The node's kernel ring buffer, for the Xid announcement. Write
             # only in practice: nothing here reads it back.
@@ -629,6 +634,18 @@ spec:
           hostPath:
             path: /sys
             type: Directory
+        - name: numa-kubelet
+          hostPath:
+            path: /var/lib/kubelet
+            type: DirectoryOrCreate
+        - name: numa-systemd
+          hostPath:
+            path: /etc/systemd/system
+            type: DirectoryOrCreate
+        - name: numa-state
+          hostPath:
+            path: /run/mokka
+            type: DirectoryOrCreate
         {{- if .Values.nodeAgent.kernelLog.enabled }}
         # CharDevice, so a node that exposes no kernel ring buffer fails the
         # pod instead of silently swallowing announcements into a new file.

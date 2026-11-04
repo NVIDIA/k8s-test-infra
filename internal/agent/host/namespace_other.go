@@ -11,11 +11,6 @@ import (
 	"net"
 )
 
-// InMountNamespace requires Linux node namespaces.
-func (h *Host) InMountNamespace(func(*Host) error) error {
-	return errors.New("node mount namespace operations require Linux")
-}
-
 // DialContext requires Linux node namespaces.
 func (h *Host) DialContext(context.Context, string, string) (net.Conn, error) {
 	return nil, errors.New("node network namespace operations require Linux")
