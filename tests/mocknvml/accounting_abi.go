@@ -9,7 +9,8 @@
 // process utilization getters take a caller-allocated array that go-nvml's
 // wrappers never pass, so through go-nvml only the size probe is reachable; the
 // C buffers here have a second element, which is what shows a wrong stride.
-// The v2 accounting stats are newer than the harness's go-nvml.
+// The v2 accounting stats are driven from C to check the input pid and output
+// fields independently of go-nvml.
 
 package main
 
@@ -330,9 +331,9 @@ func checkSamplesSinceLastSeen(label string, device nvml.Device) testResult {
 		nvml.ErrorString(ret), len(after))}
 }
 
-// checkAccountingStatsV2FromC drives the v2 stats from C, because the harness's
-// go-nvml predates the call. The struct carries its pid as an input, so a
-// bridge reading the wrong word would answer about some other process or none.
+// checkAccountingStatsV2FromC drives the v2 stats from C to check the struct
+// layout independently of go-nvml. The struct carries its pid as an input, so
+// a bridge reading the wrong word would answer about some other process or none.
 //
 // The symbol is newer than the r595 header, so on an older configured driver
 // the right answer is that it does not exist; which branch runs is a property
